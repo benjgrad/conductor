@@ -14,8 +14,8 @@ sequenceDiagram
   O->>P: BEGIN; claim query (FOR UPDATE SKIP LOCKED)
   P-->>O: candidate tickets + score
   alt best candidate is a strong match, or no better machine is waiting
-    O->>P: INSERT session (assigned, lease, fencing_token); ticket→claimed; outbox start_session; COMMIT
-    O-->>D: work_assignment (via outbox dispatcher)
+    O->>P: ticket→claimed; INSERT (or re-use) session (queued, lease, fencing_token); applyEvent(session.assigned) → assigned + outbox start_session; COMMIT
+    O-->>D: work_assignment (direct reply; start_session follows via the outbox)
     D-->>O: command_ack accepted
   else a much better machine is online with headroom
     O->>P: ROLLBACK
@@ -62,13 +62,13 @@ LIMIT 1
 FOR UPDATE OF t SKIP LOCKED;
 ```
 
-Then, in the **same transaction**:
+Then, in the **same transaction** (pinned in [10](10-contracts.md#claim)):
 1. `UPDATE ticket SET status='claimed'`.
-2. `INSERT session (status='assigned', machine_id, fencing_token = nextval('fencing_seq'), lease_expires_at = now() + interval '2 minutes', branch = 'conductor/<ticket>/<short>')`.
-3. Insert the `start_session` command into the `outbox`.
-4. `COMMIT`. The dispatcher sends the command. The daemon must `command_ack` within 30 s, otherwise the session goes back to `queued` and the ticket to `ready`.
+2. If the ticket has a non-terminal session (`queued`, e.g. after a refused `start_session`), `UPDATE` that session: `fencing_token = nextval('fencing_seq')`, `lease_expires_at = now() + interval '2 minutes'`. Otherwise `INSERT session (status='queued', workflow_state=null, machine_id=null, fencing_token = nextval('fencing_seq'), lease_expires_at = now() + interval '2 minutes', branch = sessionBranch(ticket_id, session_id))`, i.e. `conductor/<ticket_id>/<first 8 of session_id>`. One session per ticket at a time, so one card.
+3. `EngineService.applyEvent(session.assigned {machine_id}, {tx})`: sets `machine_id`, `status = 'assigned'`, enters `def.start` and writes the `start_session` outbox row.
+4. `COMMIT`, then publish the returned board events. The dispatcher sends the command. The daemon must `command_ack` within ~30 s, otherwise the dispatcher fails the row (`ack_timeout`) and applies `command.refused`: the session goes back to `queued` and the ticket to `ready`.
 
-> `ticket.repo_allow_machines` isn't in [02](02-data-model.md) yet. It gets added in M1-T02 or dropped. Tracked in [U-009](../tracking/UNKNOWNS.md).
+`ticket.repo_allow_machines` is a nullable `text[]` in [02](02-data-model.md) (null = any machine; [U-009](../tracking/UNKNOWNS.md) resolved: keep).
 
 ## 3 · Short-hold rule (softening greedy pull)
 
@@ -83,6 +83,7 @@ A pull scheduler is greedy. A machine without the repo might grab a ticket a sec
 - Each heartbeat renews `lease_expires_at` for every session it lists, provided its token matches.
 - A **reaper** (periodic query, safe to run on any replica) finds sessions with `lease_expires_at < now() - grace` (grace **2 min**, which covers network blips). It marks them `lost`, writes an event, then **requeues**: a new assignment gets a higher `fencing_token`. It prefers resuming from `claude_session_id` when the branch was pushed. See [08](08-failure-modes.md#laptop-sleep).
 - Any event or ack carrying an older token is rejected, and the orchestrator sends `kill`.
+- **Heartbeat backstop**: a heartbeat that lists a session under a token lower than `session.fencing_token` gets the same direct `kill {target_command_id: null, reason: stale_fencing_token}` with the listed token in the envelope. It kills an orphan that sends no further events ([10](10-contracts.md#orphaned-processes)).
 - Fencing protects **our DB only**, not the git remote. That's why each session pushes to its **own branch name**.
 
 ## Parked sessions

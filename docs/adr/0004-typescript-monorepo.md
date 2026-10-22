@@ -15,7 +15,7 @@ packages/
   web/           # React + Vite kanban
 ```
 
-Tooling: TypeScript strict, vitest, eslint, prettier, zod for runtime schemas, Postgres 16 via docker-compose, node-pg-migrate (or similar, chosen in M1-T01).
+Tooling: TypeScript strict, vitest, eslint, prettier, zod for runtime schemas, Postgres 16 via docker-compose, node-pg-migrate 9 (chosen in M1-T01).
 
 ## Alternatives considered
 | Option | Why not |

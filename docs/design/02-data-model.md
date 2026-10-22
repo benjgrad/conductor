@@ -15,7 +15,7 @@ erDiagram
 
 ## Tables
 
-Types are indicative. The exact DDL lives in migrations (M1-T02), and this doc is updated when it diverges.
+Types are indicative. The exact DDL lives in migrations (M1-T02), and this doc is updated when it diverges. The TypeScript row types are pinned in `packages/orchestrator/src/db/types.ts` (M1-T12, [10](10-contracts.md)); they use node-postgres' default parsing (`bigint`/`numeric` → string, `timestamptz` → Date).
 
 ### machine
 | column | type | notes |
@@ -30,6 +30,8 @@ Types are indicative. The exact DDL lives in migrations (M1-T02), and this doc i
 | budget_cpu, budget_mem_mb | int | advertised budget minus the owner reserve ([07](07-multi-session-isolation.md)) |
 | max_sessions | int | hard cap |
 | max_concurrent_builds | int | daemon build semaphore size |
+| last_seq | bigint null | highest daemon `seq` processed; the `(machine_id, seq)` dedupe and `registered.last_seq` ([10](10-contracts.md#daemon-seq-dedupe)) |
+| created_at, updated_at | timestamptz | |
 
 ### machine_repo
 | column | type | notes |
@@ -49,11 +51,13 @@ Types are indicative. The exact DDL lives in migrations (M1-T02), and this doc i
 | external_ref | text | e.g. `JIRA-123` ([U-003](../tracking/UNKNOWNS.md)) |
 | repo | text | target repo |
 | title, body | text | |
-| workflow_id, workflow_version | fk | pinned when the first session starts |
+| workflow_id, workflow_version | fk | version is null until pinned when the first session starts |
 | parent_ticket_id | fk ticket null | child tickets from a plan state |
 | required_tags | text[] | hard constraints for the claim |
+| repo_allow_machines | text[] null | hard allow-list of machine ids for the claim ([04](04-scheduler.md)); `null` = any machine. Kept, nullable ([U-009](../tracking/UNKNOWNS.md), M1-T12) |
 | status | enum | `ready` · `claimed` · `in_progress` · `done` · `failed` · `cancelled` |
 | priority | int | |
+| created_at, updated_at | timestamptz | the claim orders by `created_at` |
 
 ### workflow_definition
 | column | type | notes |
@@ -71,17 +75,28 @@ Types are indicative. The exact DDL lives in migrations (M1-T02), and this doc i
 | ticket_id | fk | |
 | machine_id | fk null | null while parked/released |
 | workflow_id, workflow_version | | pinned |
-| workflow_state | text | current FSM state name |
+| workflow_state | text null | current FSM state name; null until the first `session.assigned` enters `start` |
 | status | enum | `queued` · `assigned` · `running` · `needs_input` · `waiting_external` · `done` · `failed` · `lost` |
 | lease_expires_at | timestamptz | renewed by heartbeat |
-| fencing_token | bigint | monotonic, bumped on every (re)assignment |
-| worktree_path, branch | text | branch is per session: `conductor/<ticket>/<session-short>` |
+| fencing_token | bigint | `nextval('fencing_seq')`: bumped on every claim / requeue, **and** by the EngineService wrapper on a non-ignored `start_session` `command.refused` (incl. `ack_timeout`), so a process that command spawned anyway is stale ([10](10-contracts.md#refusals)) |
+| worktree_path, branch | text | branch is per session: `sessionBranch(ticket, session)` = `conductor/<ticket_id>/<first 8 of session_id>`, set by the claim. `worktree_path` (and `branch` again) from `session_event started` |
 | claude_session_id | text | for resume |
+| agent_command_id | uuid null | `command_id` of the current `start_session`; `started` / `exit` with another id are ignored ([10](10-contracts.md#agent-process-correlation)) |
+| agent_process_live | bool | a live Claude process exists for `agent_command_id`; false → an answer resumes via `start_session` instead of `send_input` |
+| pending_answer | jsonb null | `{input_request_id, answer}`: set by apply on `input.provided`, used as the prompt of any resume `start_session`, cleared once the agent runs on it ([10](10-contracts.md#pending-answer)) |
 | retry_counters | jsonb | per-loop counters, e.g. `{"build->implement": 2}` |
-| spend_usd, wall_seconds | numeric | against the workflow budget |
+| spend_usd, wall_seconds | numeric | against the workflow budget. `spend_usd` grows only by positive deltas (below). `wall_seconds` is maintained by apply: on each transition it adds `now − state_entered_at`, except for `human`/`event` states ([10](10-contracts.md#wall-time)) |
+| claude_spend_totals | jsonb | `{<claude_session_id>: <last cumulative total_usd>}`. Claude's `total_usd` is cumulative per Claude session and survives `--resume` ([ADR-0005](../adr/0005-claude-code-driver.md)), so a `spend` report adds `max(0, total − claude_spend_totals[id])` to `spend_usd` and stores the new total. Replays and duplicates are no-ops (`packages/shared/src/engine/spend.ts`) |
 | context | jsonb | state results, e.g. `{"open_pr": {"pr_url": "…"}}` |
-| port_range | int4range | allocated by the daemon |
+| port_range | int4range | allocated by the daemon; `[base, base+count)` from `session_event started` |
+| return_to | text null | state that routed into the current `human` state; the answer returns there ([05](05-workflow-engine.md#needs_input-semantics)) |
+| state_visits | jsonb | `{<state>: <times entered>}`; the `visit_n` of connector idempotency keys ([05](05-workflow-engine.md#idempotency)) |
+| state_entered_at | timestamptz | when the current state was entered |
+| state_deadline | timestamptz null | when the current state's `timeout` fires; read by the timeout sweep (M1-T04) |
+| waiting_for_build_slot | bool | card badge, **not** a status ([10](10-contracts.md)); set from session_event `build_slot` |
 | created_at, updated_at | | |
+
+Constraints: `CREATE SEQUENCE fencing_seq` (bigint) is the only source of fencing tokens, global across sessions. `CREATE UNIQUE INDEX session_one_live_per_ticket ON session (ticket_id) WHERE status NOT IN ('done', 'failed', 'lost')` enforces one live session per ticket (the claim re-uses a `queued` one, [10](10-contracts.md#claim)).
 
 ### input_request
 | column | type | notes |
@@ -90,6 +105,7 @@ Types are indicative. The exact DDL lives in migrations (M1-T02), and this doc i
 | session_id | fk | |
 | kind | enum | `agent_question` · `budget_exceeded` · `retries_exhausted` · `timeout` · `approval` |
 | question | text | shown as the card badge |
+| return_to | text null | copy of `session.return_to` when created |
 | answer | text null | |
 | answered_by | text null | user id or `slack:<user>` |
 | created_at, answered_at | | needs-input column sorts by created_at |
@@ -97,11 +113,11 @@ Types are indicative. The exact DDL lives in migrations (M1-T02), and this doc i
 ### event (append-only)
 | column | type | notes |
 |---|---|---|
-| id | bigserial pk | also the SSE `Last-Event-ID` |
+| id | bigserial pk | also the SSE `Last-Event-ID`. Board rows are inserted only via `insertBoardEvents` under `pg_advisory_xact_lock`, so they commit in id order ([10](10-contracts.md#board-events-and-the-event-table)) |
 | session_id | fk null | null for machine-level events |
-| type | text | e.g. `state.entered`, `outcome.exit_code`, `input.requested` |
+| type | text | an `EngineEvent.type` (e.g. `agent.exited`), `state.entered`, or a board SSE type (`card.upserted`, `card.moved`, `session.status`, `input.requested`, `input.answered`, `card.badge`: one row per SSE event, [10](10-contracts.md#board-events-and-the-event-table)) |
 | payload | jsonb | |
-| fencing_token | bigint | stale tokens are rejected *before* insert |
+| fencing_token | bigint null | stale tokens are rejected *before* insert; null on board-event rows |
 | ts | timestamptz | |
 
 Only state changes and summaries go here. **Raw terminal output does not** (see [U-005](../tracking/UNKNOWNS.md)).
@@ -112,8 +128,12 @@ Only state changes and summaries go here. **Raw terminal output does not** (see 
 | id | bigserial pk | |
 | command_id | uuid unique | the daemon dedupes on this |
 | target | text | `machine:<id>` or `connector:<name>` |
-| kind | text | `start_session` · `send_input` · `run_cmd` · `kill` · `connector_call` |
-| payload | jsonb | |
+| kind | text | `start_session` · `send_input` · `run_cmd` · `kill` · `connector_call` (one engine `Effect` each, [10](10-contracts.md)) |
+| session_id | fk session null | |
+| payload | jsonb | the WS command payload verbatim (`commandPayloadForEffect`) |
 | idempotency_key | text null | connectors: see [05](05-workflow-engine.md#idempotency) |
-| status | enum | `pending` · `sent` · `acked` · `failed` |
+| fencing_token | bigint null | `session.fencing_token` when the row was written; the WS envelope's token. A row below the session's current token is failed `stale_fencing_token`, not sent. null for `connector:` rows ([10](10-contracts.md#effect--ws-fields)) |
+| status | enum | `pending` · `sent` · `acked` · `failed` ([10](10-contracts.md#outbox-state-machine): dispatcher writes `sent`, gateway writes `acked`/`failed`, all guarded) |
 | attempts, next_attempt_at | | |
+| last_error | text null | |
+| created_at | timestamptz | |

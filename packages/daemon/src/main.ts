@@ -35,6 +35,14 @@ async function main(): Promise<void> {
     driver,
     claudeCodeVersion: await claudeCodeVersion(),
   });
+  // TD-077: Claude Code treats any `.claude` directory as protected config, so in dontAsk mode
+  // every Write/Edit inside a worktree under such a path is denied and agents can't do any work.
+  if (/(^|\/)\.claude(\/|$)/.test(config.rootDir)) {
+    process.stderr.write(
+      `[conductor-daemon] WARNING: CONDUCTOR_ROOT (${config.rootDir}) is inside a .claude directory; ` +
+        'Claude Code will deny agent file writes there. Use a root outside .claude (default ~/.conductor).\n',
+    );
+  }
   daemon.start();
   process.stderr.write(
     `[conductor-daemon] ${config.machineId} → ${config.orchestratorUrl} (root ${config.rootDir})\n`,

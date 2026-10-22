@@ -476,6 +476,9 @@ export class Daemon {
       return this.startRefused(sid, 0);
     }
     if (this.underMemoryPressure()) {
+      this.log(
+        `session ${sid}: refusing start (memory_pressure: ${this.sysinfo(this.config.rootDir).memFreeMb} MB available < CONDUCTOR_MIN_FREE_MEM_MB=${this.config.minFreeMemMb})`,
+      );
       this.finish(msg, { accepted: false, reason: 'memory_pressure' });
       return this.startRefused(sid, this.config.workPollMs);
     }

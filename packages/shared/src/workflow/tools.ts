@@ -38,7 +38,10 @@ const GIT_EXACT = [
   'rev-parse HEAD',
   'branch --show-current',
 ];
-const GIT_PREFIX = ['add', 'commit -m', 'restore'];
+// `commit` is a prefix rule on purpose: agents write `git commit -q -m …`, `-am`, `-F -`, etc.,
+// and a `commit -m:*` prefix denied all of those (found driving a real session). commit has no
+// file-writing flag like diff's --output, and hooks live in the shared .git the agent can't edit.
+const GIT_PREFIX = ['add', 'commit', 'restore'];
 
 export const TOOL_ALIASES = {
   /** Read only (the base policy). */

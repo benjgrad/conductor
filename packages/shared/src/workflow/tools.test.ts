@@ -49,6 +49,8 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
     for (const sub of ['diff', 'log', 'show'])
       expect(p.allow.some((r) => r.startsWith(`Bash(git ${sub}`) && r.endsWith(':*)'))).toBe(false);
     expect(p.allow.some((r) => r.includes('gh pr create'))).toBe(false);
+    // Real agents commit as `git commit -q -m …`; the rule must be a plain `git commit` prefix.
+    expect(p.allow).toContain('Bash(git commit:*)');
     expect(p.deny).toContain('Bash(gh pr create:*)');
   });
 

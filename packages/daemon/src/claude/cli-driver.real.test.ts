@@ -1,7 +1,7 @@
 // Opt-in checks against the installed `claude` CLI ($CONDUCTOR_CLAUDE_BIN, else `claude`).
-//   CONDUCTOR_REAL_CLAUDE=flags  zero cost: the CLI accepts the ADR-0005 argv (stdin closed before
+//   E2E_REAL_CLAUDE=flags        zero cost: the CLI accepts the ADR-0005 argv (stdin closed before
 //                                any user message, so no model call; init comes only after one)
-//   CONDUCTOR_REAL_CLAUDE=1      spends ~$0.01 on haiku: ask_user → sendInput → complete_state
+//   E2E_REAL_CLAUDE=1            spends ~$0.01 on haiku: ask_user → sendInput → complete_state
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -12,7 +12,7 @@ import { buildClaudeArgs, createCliDriver } from './cli-driver.js';
 import type { DriverEvent, DriverStartOptions } from './driver.js';
 import { startOutcomeServer, type OutcomeServer } from './outcome-server.js';
 
-const mode = process.env.CONDUCTOR_REAL_CLAUDE;
+const mode = process.env.E2E_REAL_CLAUDE;
 const bin = process.env.CONDUCTOR_CLAUDE_BIN ?? 'claude';
 
 let server: OutcomeServer;

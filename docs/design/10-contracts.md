@@ -8,7 +8,7 @@ M1-T12 froze every cross-agent seam as exported zod schemas / TS interfaces, eac
 |---|---|---|---|
 | Domain enums (statuses, kinds, columns, badges, output streams), `OUTPUT_TAIL_BYTES` 16 KB, `OUTPUT_RING_BYTES` 256 KB, `sessionBranch()` | `shared/src/domain.ts` | — → all | — |
 | `WorkflowDefinition`, `parseDuration` ([05](05-workflow-engine.md#definition-schema)) | `shared/src/workflow/schema.ts` | T12 → T03 validator, T04 engine, T08 save/list, T09 detail diagram | `docs/design/workflows/*.json` |
-| `GuardRegistry`, `GUARD_REGISTRY` (empty in M1), `isRegisteredGuard` ([Guards](#guards)) | `shared/src/workflow/guards.ts` | T12 → T03 (rule), T04 (evaluate on `complete_state`) | unit-tested |
+| `GuardRegistry`, `GUARD_REGISTRY` (empty in M1), `isRegisteredGuard`, `evaluateGuard` ([Guards](#guards)) | `shared/src/workflow/guards.ts` | T12 → T04 (evaluate on `complete_state`) | unit-tested |
 | `TOOL_ALIASES`, `resolveToolPolicy` ([Tools](#tools)) | `shared/src/workflow/tools.ts` | T12 → T03 (unknown names), T05 (→ `DriverStartOptions.tools`) | unit-tested against both reference workflows |
 | `SessionSnapshot` (incl. `pending_answer`), `EngineEvent`, `Effect`, `ApplyResult`, `APPLY_IGNORE_REASONS`, `APPLY_REJECT_REASONS`, `apply()` stub | `shared/src/engine/types.ts` | T04 (`engine/apply*.ts`) → T04 wrapper, T07, T08/T11 (reasons) | `SNAPSHOT_FIXTURE` (`engine/fixtures.ts`) |
 | `commandPayloadForEffect`, `M1_BASE_REF` ([Effect → WS](#effect--ws-fields)) | `shared/src/protocol/commands.ts` | T12 → T04 wrapper (outbox payload) | unit-tested; payloads parse as WS commands |
@@ -148,7 +148,7 @@ Kills are direct replies, not outbox rows: if the socket drops before one is wri
 
 - **Set** by apply on `input.provided` (alongside the wrapper's `input_request.answer` write).
 - **Used**: every `start_session` apply emits while it is set uses `prompt = pending_answer.answer` with `resume_claude_session_id`: the `input.provided` resume when `agent_process_live` is false, the `send_input` `no_live_process` re-answer, the resume after `agent.exited` while parked, and the `session.assigned` re-emit after a refused or timed-out resume requeued the session.
-- **Cleared** when the agent is running on it: a matching `session.started`, or, on the live `send_input` path (an accepted ack is not an engine event), the agent's next `agent.complete_state` / `agent.ask_user`. Also cleared when apply enters a different state, and on terminal statuses.
+- **Cleared** when the agent is running on it: a matching `session.started`, or, on the live `send_input` path (an accepted ack is not an engine event), the agent's next `agent.complete_state` / `agent.ask_user`. Also cleared when apply enters a different state, unless that same apply emits a `start_session` that uses it (an `input.provided` that routes via `return_to`/`goto` into an agent state while `agent_process_live` is false): then the answer stays set until that start's matching `session.started`, so an `ack_timeout` requeue on that path can still re-answer. Always cleared on terminal statuses.
 
 ## Effect → WS fields
 
@@ -175,7 +175,7 @@ Kills are direct replies, not outbox rows: if the socket drops before one is wri
 
 ## Guards
 
-A state's `guard` names an evaluator in `GUARD_REGISTRY` (`shared/src/workflow/guards.ts`): `(input: {def, snapshot, result}) => boolean`, pure. apply (T04) runs it on `agent.complete_state` before leaving the state; false → the state's `fail` outcome, else `needs_input`. **The M1 registry is empty**, so the validator (T03) reports a state whose `guard` is not registered as an error (TD: registry empty in M1). `pr_flow`'s `branch_has_commits` therefore doesn't validate in M1 (it isn't an M1 workflow); registering it needs commit facts in the `complete_state` event.
+A state's `guard` names an evaluator in `GUARD_REGISTRY` (`shared/src/workflow/guards.ts`): `(input: {def, snapshot, result}) => boolean`, pure. apply (T04) calls `evaluateGuard(name, input)` on `agent.complete_state` before leaving the state; false → the state's `fail` outcome, else `needs_input`. **The M1 registry is empty and an unregistered guard passes** (`evaluateGuard` returns true; TD-017), so the validator (T03) accepts any guard name and both reference workflows validate. `pr_flow`'s `branch_has_commits` is therefore not enforced in M1 (pr_flow isn't an M1 workflow); registering it needs commit facts in the `complete_state` event, and at that point an unregistered guard becomes a validator error.
 
 ## Tools
 

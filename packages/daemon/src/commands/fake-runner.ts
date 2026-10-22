@@ -84,8 +84,10 @@ export class FakeCommandRunner implements CommandRunner {
       durationMs: 0,
       outputTail: s.output ?? '',
     });
+    // Only a freed slot starts a waiter; ending a still-queued run (abort) frees none.
+    if (this.running.size >= this.maxConcurrent) return;
     const next = this.queue.shift();
-    if (next && this.running.size < this.maxConcurrent) {
+    if (next) {
       next.opts.onWaitingForSlot?.(false);
       this.begin(next);
     }

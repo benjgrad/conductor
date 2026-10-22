@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { GUARD_REGISTRY, isRegisteredGuard } from './guards.js';
+import type { SessionSnapshot } from '../engine/types.js';
+import { evaluateGuard, GUARD_REGISTRY, isRegisteredGuard, type GuardInput } from './guards.js';
 import { WorkflowDefinitionSchema } from './schema.js';
 import {
   isToolAlias,
@@ -55,10 +56,26 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
 });
 
 describe('guard registry', () => {
-  it('is empty in M1, so pr_flow`s branch_has_commits is unregistered (validator error)', () => {
+  it('is empty in M1, so pr_flow`s branch_has_commits is unregistered', () => {
     expect(Object.keys(GUARD_REGISTRY)).toEqual([]);
     expect(isRegisteredGuard('branch_has_commits')).toBe(false);
     expect(isRegisteredGuard('ok', { ok: () => true })).toBe(true);
     expect(isRegisteredGuard('toString')).toBe(false);
+  });
+
+  it('an unregistered guard passes in M1 (TD-017); a registered one decides', () => {
+    const input: GuardInput = {
+      def: wf('pr_flow.v1.json'),
+      snapshot: {} as SessionSnapshot,
+      result: {},
+    };
+    const guarded = Object.values(input.def.states).flatMap((s) =>
+      'guard' in s && s.guard ? [s.guard] : [],
+    );
+    expect(guarded).toEqual(['branch_has_commits']);
+    expect(evaluateGuard('branch_has_commits', input)).toBe(true);
+    expect(evaluateGuard('toString', input)).toBe(true);
+    expect(evaluateGuard('no', input, { no: () => false })).toBe(false);
+    expect(evaluateGuard('yes', input, { yes: () => true })).toBe(true);
   });
 });

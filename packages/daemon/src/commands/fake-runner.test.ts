@@ -51,6 +51,31 @@ describe('FakeCommandRunner', () => {
     expect(await p).toMatchObject({ exitCode: null, signal: 'SIGTERM', timedOut: false });
   });
 
+  it('aborting a queued run keeps the next waiter queued until a slot frees', async () => {
+    const r = new FakeCommandRunner(1);
+    const ac = new AbortController();
+    const a = r.run(opts('a'));
+    const b = r.run(opts('b', { signal: ac.signal }));
+    const cWaits: boolean[] = [];
+    let cDone = false;
+    const c = r.run(opts('c', { onWaitingForSlot: (w) => cWaits.push(w) })).then((res) => {
+      cDone = true;
+      return res;
+    });
+    ac.abort();
+    expect(await b).toMatchObject({ exitCode: null, signal: 'SIGTERM' });
+    expect(r.runningCount).toBe(1);
+    expect(cWaits).toEqual([true]);
+    r.release('a');
+    await a;
+    expect(r.runningCount).toBe(1);
+    expect(cWaits).toEqual([true, false]);
+    expect(cDone).toBe(false);
+    expect(r.release('c')).toBe(true);
+    expect(await c).toMatchObject({ exitCode: 0, signal: null });
+    expect(r.runningCount).toBe(0);
+  });
+
   it('createCommandRunner is a placeholder until M1-T06', () => {
     expect(() => createCommandRunner({ maxConcurrent: 2 })).toThrow(/M1-T06/);
   });

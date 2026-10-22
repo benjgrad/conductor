@@ -17,7 +17,9 @@ import { createMockApi } from './mock.js';
 // The HTTP client over real sockets and a spec-compliant EventSource (the `eventsource`
 // package; Node has none), against a stand-in server that speaks the T08 wire format:
 // encodeSseFrame frames, Last-Event-ID from the header or `?last_event_id=`, the output ring
-// replayed on every connect. The real orchestrator routes are exercised end to end in T10.
+// replayed on every connect. A stand-in makes connection drops and ring replays easy to script;
+// the client against the real orchestrator routes (createApi + Postgres) is
+// http.orchestrator.test.ts.
 
 const SESSION = OUTPUT_CHUNK_FIXTURE.session_id;
 

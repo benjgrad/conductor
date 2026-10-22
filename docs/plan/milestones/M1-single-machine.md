@@ -16,23 +16,27 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 |---|---|---|---|---|---|
 | M1-T00 | Spike: drive Claude Code from a daemon; resolve U-001 + U-002 → ADR-0005 | — | A | done | `m1-t00-claude-driver-spike` @ a903c5a, merged to main (QA: PASS WITH DEBT). ADR-0005 accepted by Ben 2026-10-22 |
 | M1-T01 | Monorepo scaffold | — | A | done | `m1-t01-scaffold` @ 8c05d14, merged to main (QA: PASS WITH DEBT) |
-| M1-T12 | **Contracts**: shared zod/TS interfaces + fakes for every seam (see below) | T00, T01 | A2 | done | `m1-t12-contracts` @ f39eb8f, merged to main as 70604c3 (QA: PASS WITH DEBT; 3 interface-review fix rounds + QA fix round 1). Ben's approval of 10-contracts pending ([B-003](../../tracking/BLOCKERS.md)) |
+| M1-T12 | **Contracts**: shared zod/TS interfaces + fakes for every seam (see below) | T00, T01 | A2 | done | `m1-t12-contracts` @ f39eb8f, merged to main as 70604c3 (QA: PASS WITH DEBT; 3 interface-review fix rounds + QA fix round 1). Ben approved 10-contracts 2026-10-22; contracts frozen (B-003 cleared) |
 | M1-T13 | Toolchain: Node 22 + current tool majors (U-019, TD-005); shared Postgres cluster with a DB per worktree/test run (U-020); `DATABASE_URL` loading for vitest + orchestrator (U-021) | T01 | A2 | done | `m1-t13-toolchain` @ ce54fd5, merged to main as ded29ca (QA: PASS WITH DEBT) |
-| M1-T02 | DB schema + migrations | T12 | B | todo | |
-| M1-T03 | Workflow validator (`shared`; schema itself is in T12) | T12 | B | todo | |
-| M1-T05 | Daemon core: WS register/heartbeat, worktree, spawn Claude Code (real driver per ADR-0005), stream events | T12 | B | todo | |
-| M1-T09 | Web kanban vs mock API (columns, needs-input card, detail panel, answer box). Wiring is T09b | T12 | B | todo | |
-| M1-T04 | FSM `apply()` + transactional apply w/ outbox + outbox dispatcher + timeout sweep + prompt render | T02, T03 | C | todo | |
-| M1-T06 | Command states in daemon (build/test, semaphore, exit outcomes) | T05 | C | todo | |
+| M1-T02 | DB schema + migrations | T12 | B | done | `m1-t02-db` @ 95617df, merged to main via `integrate/B` (d5841e7) (QA: PASS). U-022 resolved: `.sql` migrations |
+| M1-T03 | Workflow validator (`shared`; schema itself is in T12) | T12 | B | done | `m1-t03-validator` @ 5426287, merged to main via `integrate/B` (d5841e7) (QA: PASS). Rule 4 reading awaits Ben ([U-033](../../tracking/UNKNOWNS.md)) |
+| M1-T05a | Daemon core: WS register/heartbeat, worktree, ports, `start_session`/`kill`/`run_cmd`, dedupe, seq replay; drives any `ClaudeDriver` (split from T05) | T12 | B | done | `m1-t05a-daemon-core` @ 504d069, merged to main via `integrate/B` (d5841e7) (QA: PASS WITH DEBT, 1 fix round). Real-mode manual check outstanding ([B-004](../../tracking/BLOCKERS.md), UNFINISHED) |
+| M1-T05b | Real `ClaudeDriver` (stream-json CLI per ADR-0005), MCP outcome server, process-boundary fake claude (split from T05) | T12 | B | done | `m1-t05b-cli-driver` @ 9fddabd, merged to main via `integrate/B` (d5841e7) (QA: PASS WITH DEBT, 1 fix round). Paid real-CLI round trip awaits Ben ([B-004](../../tracking/BLOCKERS.md)) |
+| M1-T09 | Web kanban vs mock API (columns, needs-input card, detail panel, answer box). Wiring is T09b | T12 | B | done | `m1-t09-web` @ d4f2943, merged to main via `integrate/B` (d5841e7) (QA: PASS WITH DEBT; QA screenshot taken) |
+| M1-T04a | FSM: pure `apply()` in `shared` (split from T04) | T03 | C | todo | |
+| M1-T04b | Engine service: transactional apply w/ outbox + outbox dispatcher + timeout sweep + prompt render (split from T04; codes against the `apply` signature) | T02, T04a | C | todo | |
+| M1-T06 | Command states in daemon (build/test, semaphore, exit outcomes) | T05a | C | todo | |
 | M1-T08 | Orchestrator REST + SSE board feed (Last-Event-ID replay) + output stream | T02 (+ `EngineService` fake) | C | todo | |
 | M1-T11 | **Orchestrator daemon gateway**: WS server, register/heartbeat → `machine`, `request_work` → single-machine FIFO claim, `command_ack`, outbox transport, `session_event` → engine | T02 (+ `EngineService` fake) | C | todo | |
-| M1-T07 | `complete_state` / `ask_user` plumbing end to end | T04, T05, T11 | D | todo | |
+| M1-T07 | `complete_state` / `ask_user` plumbing end to end | T04b, T05a, T05b, T11 | D | todo | |
 | M1-T09b | Wire web to the real API | T08, T09 | D | todo | |
 | M1-T10 | E2E: happy path + needs_input round trip (fake & real Claude modes) | all | E | todo | |
 
 Groups run in order A → A2 → B → C → D → E. Tasks within a group own disjoint files and are given to parallel implementer agents (see [CLAUDE.md](../../../CLAUDE.md) › Orchestrate). Groups B–D code against the T12 contracts and their fakes; a needed contract change is reported, not made locally.
 
-**Gates (Ben)**: after A, accept ADR-0005. After A2, review `docs/design/10-contracts.md`, which freezes the interfaces.
+**Gates (Ben)**: after A, accept ADR-0005 (done). After A2, review `docs/design/10-contracts.md`, which freezes the interfaces (approved 2026-10-22).
+
+**Splits (2026-10-22)**: T05 → T05a (daemon core) + T05b (real CLI driver, outcome server, fake claude), run in parallel in group B. T04 → T04a (pure `apply()` in shared) + T04b (orchestrator engine service: transactional apply, outbox dispatcher, timeout sweep, prompt render).
 
 ---
 
@@ -106,15 +110,26 @@ Groups run in order A → A2 → B → C → D → E. Tasks within a group own d
 - **Scope**: zod schema for the definition in [05](../../design/05-workflow-engine.md); validator implementing the six rules in *Validation on save* **plus rule 7: every agent state's `tools` name is in `TOOL_ALIAS_NAMES`** (unknown guard names are accepted; they fail closed at runtime, TD-017). The zod schema itself is pinned by T12 (`shared/src/workflow/schema.ts`); T03 adds `validate*.ts` only.
 - **Acceptance**: both reference workflows validate; table-driven tests with ≥1 failing fixture per rule (unreachable state, dead end, unbudgeted loop, bad `$ref`, missing target, release_machine w/o timeout, unknown tool alias).
 
-### M1-T04 · FSM engine
+### M1-T04 · FSM engine (split into T04a / T04b)
+- **Split**: **T04a** owns the pure `apply()` in `shared` and its unit/property tests (first two acceptance bullets). **T04b** owns `createEngineService` (single-transaction write, outbox dispatcher, timeout sweep, prompt render) and the crash-after-commit integration test. T04b codes against the frozen `apply` signature and integrates the real one once T04a lands.
 - **Scope**: pure `apply(session, event) → {session, effects}` in `shared` covering agent/command/human/terminal types, retry counters, `attach: output`, `needs_input` with `return_to`, budget-exceeded routing; orchestrator wrapper doing the single-transaction write (event + session + outbox) and an outbox dispatcher.
 - **Owns (T12 contracts)**: `createEngineService` in `packages/orchestrator/src/engine/index.ts` (signature in `src/main.ts`; `startWorkers` runs the dispatcher and timeout sweep). Builds outbox rows with `commandPayloadForEffect`, sends with `commandEnvelopeForOutboxRow`, writes board rows only via `insertBoardEvents`, cards via `toBoardCard`. apply maintains `pending_answer` and `wall_seconds`, and follows the U-024 / U-025 rules ([10](../../design/10-contracts.md)).
 - **Acceptance**: unit tests enumerate every transition in `m1_basic` and `pr_flow` agent/command parts; property test: no event sequence leaves a session in an undefined state; integration test: crash after commit before send → dispatcher re-sends on restart.
 
-### M1-T05 · Daemon core
+### M1-T05 · Daemon core (split into T05a / T05b)
+- **Split**: **T05a** is everything below except the real driver; it drives any `ClaudeDriver` and is tested with `FakeClaudeDriver`. **T05b** is the real driver (see M1-T05b).
 - **Scope**: config (orchestrator URL, root dir, budgets); WS client with reconnect/backoff; `register`, `heartbeat` (live cpu/mem/disk), `repo_inventory`; on `start_session` create worktree + per-session branch from shared clone, allocate port range, spawn Claude Code per ADR-0005, forward `output` and `session_event`s; `kill`; dedupe `command_id`.
 - **Owns (T12 contracts)**: dials `ws://<host>:<CONDUCTOR_PORT>` + `API_PATHS.daemonWs`; next `seq` = max(local + 1, `registered.last_seq` + 1); maps `start_session.tools` with `resolveToolPolicy`; wires `createCommandRunner` (T06, `daemon/src/commands/index.ts`), testing against `FakeCommandRunner`.
 - **Acceptance**: integration test with a fake orchestrator WS; a real-mode manual check documented in the task's QA notes.
+
+### M1-T05b · Real ClaudeDriver, outcome server, fake claude
+- **Scope**: `packages/daemon/src/claude/{cli-driver,outcome-server,stream-parser,index}.ts` per ADR-0005 §Spawn/§Contract: spawn the installed `claude` in bidirectional stream-json mode (one long-lived child per session, own process group), the daemon-hosted HTTP MCP server for `complete_state`/`ask_user` (127.0.0.1, per-session 128-bit path token), lenient stream parsing with `cli_version` capture (U-015), and the process-boundary fake `packages/daemon/test/fixtures/fake-claude.mjs` (ADR-0005 Fake items 1-5).
+- **Acceptance**:
+  - The real driver code runs against the process-boundary fake: resume continues the script and cumulative spend (TD-001); unknown resume exits non-zero.
+  - Spawn argv matches ADR-0005 §Spawn exactly (`buildClaudeArgs` test + the fake's logged argv); the real CLI accepts it (`E2E_REAL_CLAUDE=flags`).
+  - Outcome server: per-session path tokens; 404 unknown token, 405 non-POST, 403 foreign Host; `complete_state` refused while `ask_user` is pending; duplicate `complete_state` refused; `ask_user` refused while pending or after complete.
+  - `sendInput` goes into the live idle process; `end()` exits 0 (escalates to kill after a grace period); `kill(grace)` goes SIGTERM then SIGKILL (TD-003).
+  - One optional real-Claude test, skipped unless `E2E_REAL_CLAUDE` is set (`flags` = free argv check, `1` = paid round trip).
 
 ### M1-T06 · Command states
 - **Scope**: `run_cmd` in worktree with timeout, build semaphore (`max_concurrent_builds`), `waiting_for_build_slot` event, output capture (tail N KB attached to outcome for `attach: output`).

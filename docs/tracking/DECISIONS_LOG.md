@@ -4,6 +4,15 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-22 | M1 group B (T02, T03, T05a, T05b, T09) merged to main via `integrate/B` (`--no-ff` per task) after `scripts/ci.sh` passed on the merged tree (d5841e7); the T09 `pnpm-lock.yaml` conflict was resolved by taking main's lockfile and regenerating with `pnpm i` | M1 group B |
+| 2026-10-22 | Ben approved docs/design/10-contracts.md: the contracts are frozen; B-003 cleared | Ben, [10](../design/10-contracts.md) |
+| 2026-10-22 | M1-T05 split into T05a (daemon core) and T05b (real stream-json `ClaudeDriver`, MCP outcome server, process-boundary fake claude); M1-T04 split into T04a (pure `apply()`) and T04b (engine service: transactional apply, outbox dispatcher, timeout sweep, prompt render) | lead, [M1](../plan/milestones/M1-single-machine.md) |
+| 2026-10-22 | U-022: migrations are plain node-pg-migrate `.sql` files (legacy SQL loader), replacing the earlier plan of TypeScript migrations via jiti | M1-T02 |
+| 2026-10-22 | DDL choices: extra indexes `session(ticket_id, created_at DESC)` and `outbox(next_attempt_at) WHERE status='pending'`; only `machine_repo.machine_id` cascades; no `updated_at` triggers (repositories set it) | M1-T02, [02](../design/02-data-model.md) |
+| 2026-10-22 | Validator reads rules 1-5 as documented in 05 (explicit `on` edges only; rules 2-5 gated on no rule 1 errors; rule 4 bounded edges = object `goto` legs, human edges, event `wait_for` edges). Provisional until Ben confirms U-033 | M1-T03, [05](../design/05-workflow-engine.md) |
+| 2026-10-22 | Real-Claude tests are opt-in via `E2E_REAL_CLAUDE` (`flags` = free argv check, `1` = paid round trip) | M1-T05b |
+| 2026-10-22 | Daemon releases the assignment hold and re-arms `request_work` on every `start_session` refusal (after `workPollMs` for memory_pressure); holds expire after `assignmentHoldMs` (default 60 s) | M1-T05a |
+| 2026-10-22 | Web quick actions mapped provisionally: retry = answer with no `goto`, skip to X = answer with `goto: X`, abort = `/cancel` (U-037); web `ApiClient` adds `listWorkflows` (GET /api/workflows) | M1-T09 |
 | 2026-10-22 | Tool aliases hardened after security review: worktree-scoped Read/Glob/Grep; no node/npx/pnpm/cat; exact-match git inspection (no `--output`); `gh pr create` denied (TD-019, TD-020) | [10](../design/10-contracts.md#tools) |
 | 2026-10-22 | Unregistered workflow guards fail closed at runtime; validator accepts the name (U-027, TD-017) | [10](../design/10-contracts.md#guards) |
 | 2026-10-22 | M1-T12 merged to main via `integrate/A2-r3` (`--no-ff`) after `scripts/ci.sh` passed on the merged tree (70604c3); B-002 cleared, group B still gated on Ben's 10-contracts approval (B-003) | M1-T12 |

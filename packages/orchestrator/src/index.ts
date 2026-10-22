@@ -7,6 +7,7 @@ export const PACKAGE_NAME = '@conductor/orchestrator';
 export * from './contracts.js';
 export type * from './db/types.js';
 export { createDb, withTransaction, type Tx } from './db/index.js';
+export { createGateway } from './gateway/index.js';
 
 export function orchestratorHealth(): Health {
   return health(PACKAGE_NAME);

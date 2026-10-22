@@ -6,6 +6,7 @@ export const PACKAGE_NAME = '@conductor/orchestrator';
 // M1-T12 contracts (docs/design/10-contracts.md).
 export * from './contracts.js';
 export type * from './db/types.js';
+export { createDb, withTransaction, type Tx } from './db/index.js';
 
 export function orchestratorHealth(): Health {
   return health(PACKAGE_NAME);

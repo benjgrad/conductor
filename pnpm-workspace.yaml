@@ -1,0 +1,11 @@
+# spikes/** is deliberately NOT a workspace member (M1-T00 throwaway code).
+packages:
+  - packages/*
+
+onlyBuiltDependencies:
+  - esbuild
+
+# Node 20.18 on Ben's Mac: vite 7+ needs node ^20.19 and vitest 5 needs node 22.
+# Pin vite 6 so vitest's own vite dependency resolves to a Node-20.18-compatible major.
+overrides:
+  vite: ^6.4.5

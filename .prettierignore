@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+.pgdata/
+spikes/
+docs/
+.claude/
+pnpm-lock.yaml
+*.md

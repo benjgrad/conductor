@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "types": ["node", "vite/client"],
+    // Vite does the real build. tsc -b only typechecks this project; composite requires
+    // some emit, so declarations go to a throwaway dir under node_modules.
+    "emitDeclarationOnly": true,
+    "declarationMap": false,
+    "outDir": "node_modules/.tmp/tsc",
+    "tsBuildInfoFile": "node_modules/.tmp/tsc/tsconfig.tsbuildinfo"
+  },
+  "include": ["src", "vite.config.ts"],
+  "references": [{ "path": "../shared" }]
+}

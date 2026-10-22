@@ -1,13 +1,13 @@
 // M1-T11 gateway integration tests: a fake daemon WS client against the real gateway, a real
-// HTTP server and real Postgres (`pnpm db:up`). The EngineService is DbTestEngine, a minimal
-// DB-backed stand-in for T04 on the paths the gateway drives.
+// HTTP server and real Postgres (`pnpm db:up`). The EngineService is the real one (T04b,
+// shared apply), wrapped to record its calls (TD-060).
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { API_PATHS } from '@conductor/shared';
+import { API_PATHS, NO_OUTCOME_QUESTION } from '@conductor/shared';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import {
@@ -25,7 +25,7 @@ import type {
 import { createGateway } from '../../src/gateway/index.js';
 import type { GatewayHandle } from '../../src/main.js';
 import { useTestDatabase } from '../db.js';
-import { DbTestEngine } from './db-engine.js';
+import { RecordingEngine } from './recording-engine.js';
 import { FakeDaemon } from './fake-daemon.js';
 
 const db = useTestDatabase();
@@ -37,7 +37,7 @@ const workflowPath = resolve(
 let server: Server;
 let port: number;
 let gateway: GatewayHandle;
-let engine: DbTestEngine;
+let engine: RecordingEngine;
 let boardBus: InMemoryBoardBus;
 let outputBus: InMemoryOutputBus;
 let daemons: FakeDaemon[];
@@ -52,8 +52,8 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  engine = new DbTestEngine(db.pool);
   boardBus = new InMemoryBoardBus();
+  engine = new RecordingEngine(db.pool, boardBus);
   outputBus = new InMemoryOutputBus();
   gateway = createGateway({ db: db.pool, engine, boardBus, outputBus });
   server = createServer((_req, res) => res.writeHead(404).end());
@@ -131,12 +131,17 @@ describe('register / heartbeat / repo_inventory', () => {
     const m = await machineRow(machineId);
     expect(m).toMatchObject({ status: 'online', hostname: `${machineId}.local`, max_sessions: 2 });
     expect(m.tags).toEqual(['mac', tag]);
+    expect(m.claude_code_version).toBeNull();
     expect(gateway.transport.isConnected(machineId)).toBe(true);
 
     await db.pool.query('UPDATE machine SET last_seq = 41 WHERE id = $1', [machineId]);
-    d.register({ tags: ['mac', tag], max_sessions: 3 });
+    d.register({ tags: ['mac', tag], max_sessions: 3, claude_code_version: '2.1.308' });
     expect((await d.next('registered')).payload.last_seq).toBe(41);
-    expect((await machineRow(machineId)).max_sessions).toBe(3);
+    // U-032: the CLI version is stored from every register.
+    expect(await machineRow(machineId)).toMatchObject({
+      max_sessions: 3,
+      claude_code_version: '2.1.308',
+    });
   });
 
   it('rejects messages before register and invalid frames', async () => {
@@ -254,6 +259,7 @@ describe('request_work → claim', () => {
     // The claim's board events are published after COMMIT.
     expect(boardBus.published.map((e) => [e.type, e.session_id])).toEqual([
       ['session.status', s.id],
+      ['card.upserted', s.id],
     ]);
     expect(engine.calls.map((c) => c.event.type)).toEqual(['session.assigned']);
     expect(engine.calls[0]!.opts.tx).toBeDefined();
@@ -307,13 +313,17 @@ describe('request_work → claim', () => {
 });
 
 describe('command_ack', () => {
-  it('an accepted ack marks the outbox row acked', async () => {
+  it('an accepted ack marks the outbox row acked and nulls its prompt (U-039)', async () => {
     await ticket();
     const d = await registered();
     const { row } = await claimAndDeliver(d);
+    expect(typeof row.payload.prompt).toBe('string');
     d.ack(row.command_id, true);
     await d.settle();
-    expect((await startRow(row.session_id!)).status).toBe('acked');
+    const acked = await startRow(row.session_id!);
+    expect(acked.status).toBe('acked');
+    // Only the prompt is scrubbed; every other field of the WS payload is kept.
+    expect(acked.payload).toEqual({ ...row.payload, prompt: null });
   });
 
   it('a refused ack requeues; the next claim re-uses the queued session with a new token', async () => {
@@ -326,6 +336,7 @@ describe('command_ack', () => {
     d.ack(first.row.command_id, false, 'memory_pressure', sid, token1);
     await d.settle();
     expect(await startRow(sid)).toMatchObject({ status: 'failed', last_error: 'memory_pressure' });
+    expect((await startRow(sid)).payload.prompt).toBeNull(); // terminal: scrubbed (U-039)
     expect(engine.calls.at(-1)!.event).toEqual({
       type: 'command.refused',
       command_id: first.row.command_id,
@@ -422,8 +433,34 @@ describe('session_event', () => {
       { type: 'agent.ask_user', question: 'why?' },
     ]);
     expect(evs.every((c) => c.opts.fencingToken === token && c.opts.tx !== undefined)).toBe(true);
-    expect((await sessionRow(sid)).status).toBe('running');
+    // started → running, then the real engine parks the question in needs_input.
+    expect(await sessionRow(sid)).toMatchObject({
+      status: 'needs_input',
+      workflow_state: 'needs_input',
+      agent_process_live: true,
+    });
     expect((await machineRow(machineId)).last_seq).toBe('2');
+  });
+
+  it('no_outcome (U-028) maps to agent.no_outcome: an agent_question input_request', async () => {
+    const d = await registered();
+    const { sid, token, row } = await running(d);
+    d.sessionEvent(1, sid, token, started(row.command_id));
+    d.sessionEvent(2, sid, token, { kind: 'no_outcome', data: { last_output: 'all good?' } });
+    await d.settle();
+    expect(engine.calls.at(-1)!.event).toEqual({
+      type: 'agent.no_outcome',
+      last_output: 'all good?',
+    });
+    expect((await sessionRow(sid)).status).toBe('needs_input');
+    const req = await one<{ kind: string; question: string }>(
+      'SELECT kind, question FROM input_request WHERE session_id = $1',
+      [sid],
+    );
+    expect(req).toEqual({
+      kind: 'agent_question',
+      question: `${NO_OUTCOME_QUESTION}\n\nLast output:\nall good?`,
+    });
   });
 
   it('a duplicate seq is ignored', async () => {

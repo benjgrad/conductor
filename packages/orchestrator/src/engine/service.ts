@@ -24,7 +24,6 @@ import {
 import { withTransaction } from '../db/index.js';
 import type { InputRequestRow } from '../db/types.js';
 import type { Db } from '../main.js';
-import { renderStartPrompt } from './prompt.js';
 import {
   DefinitionCache,
   lockSession,
@@ -276,12 +275,10 @@ export class EngineServiceImpl implements EngineService {
       event.type === 'session.started'
         ? event.branch
         : (session.branch ?? sessionBranch(ticket.id, sessionId));
+    // The start_session prompt is apply's, rendered by shared `renderPrompt` (U-040: the one
+    // renderer); the wrapper never re-renders it.
     for (const { effect, commandId } of commands) {
-      const rendered =
-        effect.type === 'start_session'
-          ? { ...effect, prompt: renderStartPrompt(def, s1, effect) }
-          : effect;
-      const cmd = commandPayloadForEffect(rendered, {
+      const cmd = commandPayloadForEffect(effect, {
         command_id: commandId,
         snapshot: s1,
         branch,

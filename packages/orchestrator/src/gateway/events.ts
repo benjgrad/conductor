@@ -19,6 +19,8 @@ export function engineEventForSessionEvent(p: SessionEventPayload): EngineEvent 
       return { type: 'agent.complete_state', result: p.data.result };
     case 'ask_user':
       return { type: 'agent.ask_user', question: p.data.question };
+    case 'no_outcome':
+      return { type: 'agent.no_outcome', last_output: p.data.last_output };
     case 'exit':
       return {
         type: 'agent.exited',

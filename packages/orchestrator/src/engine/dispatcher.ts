@@ -9,6 +9,7 @@ import {
 import { withTransaction, type Tx } from '../db/index.js';
 import type { OutboxRow } from '../db/types.js';
 import type { Db } from '../main.js';
+import { SCRUBBED_PAYLOAD_SQL } from './outbox.js';
 
 // Outbox dispatcher (M1-T04b; 10-contracts §Outbox state machine). Each due row is handled in
 // its own short transaction holding the row lock (FOR UPDATE SKIP LOCKED), so two dispatchers
@@ -99,7 +100,8 @@ async function dispatchRow(
     BigInt(row.fencing_token) < BigInt(row.session_token)
   ) {
     await tx.query(
-      "UPDATE outbox SET status = 'failed', last_error = 'stale_fencing_token' " +
+      "UPDATE outbox SET status = 'failed', last_error = 'stale_fencing_token', " +
+        `payload = ${SCRUBBED_PAYLOAD_SQL} ` +
         "WHERE id = $1 AND status IN ('pending', 'sent')",
       [id],
     );
@@ -113,7 +115,8 @@ async function dispatchRow(
     row.attempts >= START_SESSION_ACK_ATTEMPTS
   ) {
     const u = await tx.query(
-      "UPDATE outbox SET status = 'failed', last_error = 'ack_timeout' " +
+      "UPDATE outbox SET status = 'failed', last_error = 'ack_timeout', " +
+        `payload = ${SCRUBBED_PAYLOAD_SQL} ` +
         "WHERE id = $1 AND status = 'sent'",
       [id],
     );

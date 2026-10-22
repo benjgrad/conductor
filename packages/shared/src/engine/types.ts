@@ -154,6 +154,13 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
   /** D `ask_user`: outcome `ask_user`, input_request kind `agent_question`. */
   z.object({ type: z.literal('agent.ask_user'), question: z.string() }),
   /**
+   * D `no_outcome` (U-028, ADR-0005 addendum): two turns in a row ended without complete_state or
+   * ask_user (the second one after the daemon's nudge). Routed like `agent.ask_user` (outcome
+   * `ask_user`, input_request kind `agent_question`) with the question `NO_OUTCOME_QUESTION`
+   * plus the last output. The process stays alive, so the answer goes back via send_input.
+   */
+  z.object({ type: z.literal('agent.no_outcome'), last_output: z.string() }),
+  /**
    * D `exit`: the Claude process of start_session `command_id` exited. Ignored unless
    * `command_id` equals `agent_command_id` (a late exit of an earlier visit's process). Otherwise
    * agent_process_live = false; while `running` without a prior complete_state this is outcome

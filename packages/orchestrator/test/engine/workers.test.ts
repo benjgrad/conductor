@@ -92,10 +92,12 @@ describe('outbox dispatcher', () => {
     ]);
     await handle.dispatchOnce(transport);
     expect(transport.sent.filter((m) => m.message.session_id === sessionId)).toHaveLength(0);
-    expect(await outboxRow(sessionId)).toMatchObject({
-      status: 'failed',
-      last_error: 'stale_fencing_token',
-    });
+    const failed = await outboxRow(sessionId);
+    expect(failed).toMatchObject({ status: 'failed', last_error: 'stale_fencing_token' });
+    // U-039: a terminal start_session row keeps its payload minus the prompt.
+    const { prompt, ...rest } = (await outboxRow(sessionId)).payload;
+    expect(prompt).toBeNull();
+    expect(rest).toMatchObject({ command_id: failed.command_id, workflow_state: 'implement' });
   });
 
   it('never overwrites an ack', async () => {
@@ -137,6 +139,7 @@ describe('outbox dispatcher', () => {
     expect(await outboxRow(sessionId)).toMatchObject({
       status: 'failed',
       last_error: 'ack_timeout',
+      payload: { ...row.payload, prompt: null }, // U-039
     });
     const refused = script.calls.filter((c) => c.event.type === 'command.refused');
     expect(refused.map((c) => c.event)).toEqual([

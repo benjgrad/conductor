@@ -95,7 +95,7 @@ describe('applyEvent: session.assigned (one transaction)', () => {
     ]);
     expect(t.rows[0]!.status).toBe('in_progress');
 
-    // outbox: start_session with the wrapper's command_id, rendered prompt, row token
+    // outbox: start_session with the wrapper's command_id, apply's prompt, row token
     const rows = await outbox(sessionId);
     expect(rows).toHaveLength(1);
     const row = rows[0]!;
@@ -119,9 +119,9 @@ describe('applyEvent: session.assigned (one transaction)', () => {
       resume_claude_session_id: null,
       env: { CONDUCTOR_SESSION_ID: sessionId, CONDUCTOR_TICKET_ID: ticketId },
     });
-    expect(payload.prompt).toContain('Add /health');
-    expect(payload.prompt).toContain('Return 200');
-    expect(payload.prompt).not.toContain('{{');
+    // U-040: apply's prompt verbatim; the shared renderPrompt is the one renderer, the wrapper
+    // never re-renders (the real apply's rendered text is covered in workers.test.ts).
+    expect(payload.prompt).toBe('ticket_template');
 
     // event rows: engine event, state.entered (audit), then board rows in order
     const evs = await events(sessionId);

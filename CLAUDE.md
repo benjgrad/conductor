@@ -83,7 +83,8 @@ The lead session is the orchestrator. It delegates and integrates, and doesn't d
 - Workflow-engine invariants (enforced in review): transitions only on outcomes; every loop bounded; every failure path ends at a human; state + commands in one transaction; idempotency keys on external side effects.
 - Prefer small PR-sized branches. One task, one branch.
 - Commit messages: conventional style (`feat(daemon): …`, `docs(design): …`), with the session's attribution trailer.
-- No remote is configured yet. When one is, push task branches and never push to `main` without Ben's say-so.
+- Remote: `origin` = github.com/benjgrad/conductor. Push task branches (`m<N>-t<NN>-*`) after QA. **Never push `main`**; Ben does that himself.
+- Toolchain on Ben's Mac: Node 20 (nvm) and pnpm 10 (global npm install; corepack is broken on this Node). There is no Docker runtime. Postgres 16 is Homebrew `postgresql@16`, which is keg-only: `/opt/homebrew/opt/postgresql@16/bin`.
 
 ---
 
@@ -93,7 +94,7 @@ The lead session is the orchestrator. It delegates and integrates, and doesn't d
 
 ```bash
 pnpm i                 # install
-pnpm db:up             # start Postgres (docker-compose)
+pnpm db:up             # start Postgres (docker-compose, else local postgresql@16 cluster)
 pnpm db:migrate        # apply migrations
 pnpm build             # build all packages
 pnpm typecheck         # tsc --noEmit across workspace

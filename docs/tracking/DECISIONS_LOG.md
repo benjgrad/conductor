@@ -4,6 +4,9 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-22 | M1 executed contracts-first: new tasks M1-T12 (contracts, group A2) and M1-T11 (orchestrator daemon gateway + single-machine claim); groups B–D build against the contract fakes. Each group runs as one Workflow (implement → QA → fix → integrate) | [M1](../plan/milestones/M1-single-machine.md) |
+| 2026-10-22 | Agents push `m1-tNN-*` task branches to `origin`; `main` merges locally, and only Ben pushes it | Ben |
+| 2026-10-22 | Local Postgres: `db:up` uses docker-compose when Docker is available, otherwise Homebrew `postgresql@16` in a repo-local cluster; tests read `DATABASE_URL` | M1-T01 |
 | 2026-10-22 | `await_approval.wait_for` includes `pr.changes_requested` (board routed on it but never waited for it) | [pr_flow.v1.json](../design/workflows/pr_flow.v1.json) |
 | 2026-10-22 | Added explicit failure routes the board omitted: `open_pr` fail/ask_user → needs_input; connector `error` → needs_input; agent timeouts | [05](../design/05-workflow-engine.md) |
 | 2026-10-22 | Connector idempotency key = `session:state:visit_n`; Jira dedupes via `conductor-idem:<key>` label | [05](../design/05-workflow-engine.md#idempotency) |

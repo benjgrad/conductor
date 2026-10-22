@@ -13,7 +13,7 @@ Blocks: the task(s) that cannot finish until this is resolved.
 | U-004 | Sandboxing on macOS laptops: containers per session, or worktree-only + tool allow-lists? | Safety vs. friction on dev machines | M3 | — | open | |
 | U-005 | Terminal output: in-memory ring buffer only? Size? Any durable history? | Memory budget of orchestrator; debugging after the fact | M1-T08 | — | open | Proposed: 256 KB ring per session, no durable history (ADR-0003) |
 | U-006 | Visual workflow editor: in scope, or JSON-only? | UI scope | M4 | Ben | open | Assumed JSON-only until M4 |
-| U-007 | Answer input requests from Slack on day one, or later? | Overnight blocking vs. scope | M4 | Ben | open | Assumed later (M4) |
+| U-007 | Answer input requests from Slack on day one, or later? | Overnight blocking vs. scope | M4 | Ben | open | Assumed later (M4). Note: in the workshop PDF (p.20) the coach recommended Slack answering **on day one** and Ben didn't respond, so this is not agreed. Ben's call. |
 | U-008 | Auth: web UI users, and daemon enrollment (per-machine tokens? mTLS?) | Security before leaving localhost | M2 | — | open | M1 runs on localhost only |
 | U-009 | Do we need `ticket.repo_allow_machines` as a hard constraint, or are `required_tags` enough? | Claim query shape ([04](../design/04-scheduler.md)) | M1-T02 | — | open | |
 | U-010 | Triage/plan states and child tickets: schema for `child_tickets[]` and the parent's `children.done` wait | Ticket breakdown requirement from the brief | M4 | — | open | |

@@ -4,7 +4,7 @@
 
 **Exit criteria**: M1-T10 E2E test is green locally (`pnpm test:e2e`); every task below is `done` and has passed QA ([QA_CHECKLIST](../../qa/QA_CHECKLIST.md)); STATUS updated.
 
-**Not in M1**: scheduler scoring/short hold, leases/fencing/reaper (stub: single machine, session never "lost"), disk buffering + seq replay, connectors, PR/Slack/approval states, budgets enforcement beyond retry caps, auth (localhost only).
+**Not in M1**: scheduler scoring/short hold, leases/fencing/reaper (stub: single machine, session never "lost"), disk buffering + seq replay, connectors, PR/Slack/approval states, budget enforcement triggers (the `budget.exceeded` routing exists in the engine, but nothing fires it in M1), compute release of parked sessions, auth (localhost only).
 
 **Blocking unknowns**: [U-001](../../tracking/UNKNOWNS.md), [U-002](../../tracking/UNKNOWNS.md) must be resolved (spike → ADR) before T05/T07. [U-003](../../tracking/UNKNOWNS.md) defaults to manual ticket entry for M1.
 
@@ -16,17 +16,22 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 |---|---|---|---|---|---|
 | M1-T00 | Spike: drive Claude Code from a daemon; resolve U-001 + U-002 → ADR-0005 | — | A | todo | |
 | M1-T01 | Monorepo scaffold | — | A | todo | |
-| M1-T02 | DB schema + migrations | T01 | B | todo | |
-| M1-T03 | Workflow schema + validator (`shared`) | T01 | B | todo | |
-| M1-T04 | FSM `apply()` + transactional apply w/ outbox | T02, T03 | C | todo | |
-| M1-T05 | Daemon core: WS register/heartbeat, worktree, spawn Claude Code, stream events | T00, T01 | B | todo | |
+| M1-T12 | **Contracts**: shared zod/TS interfaces + fakes for every seam (see below) | T00, T01 | A2 | todo | |
+| M1-T02 | DB schema + migrations | T12 | B | todo | |
+| M1-T03 | Workflow validator (`shared`; schema itself is in T12) | T12 | B | todo | |
+| M1-T05 | Daemon core: WS register/heartbeat, worktree, spawn Claude Code (real driver per ADR-0005), stream events | T12 | B | todo | |
+| M1-T09 | Web kanban vs mock API (columns, needs-input card, detail panel, answer box). Wiring is T09b | T12 | B | todo | |
+| M1-T04 | FSM `apply()` + transactional apply w/ outbox + outbox dispatcher + timeout sweep + prompt render | T02, T03 | C | todo | |
 | M1-T06 | Command states in daemon (build/test, semaphore, exit outcomes) | T05 | C | todo | |
-| M1-T07 | `complete_state` / `ask_user` plumbing end to end | T00, T04, T05 | D | todo | |
-| M1-T08 | Orchestrator REST + SSE board feed (Last-Event-ID replay) + output stream | T02, T04 | C | todo | |
-| M1-T09 | Web kanban (columns, needs-input card, detail panel, answer box) | T01 (mock API), T08 for wiring | B→D | todo | |
+| M1-T08 | Orchestrator REST + SSE board feed (Last-Event-ID replay) + output stream | T02 (+ `EngineService` fake) | C | todo | |
+| M1-T11 | **Orchestrator daemon gateway**: WS server, register/heartbeat → `machine`, `request_work` → single-machine FIFO claim, `command_ack`, outbox transport, `session_event` → engine | T02 (+ `EngineService` fake) | C | todo | |
+| M1-T07 | `complete_state` / `ask_user` plumbing end to end | T04, T05, T11 | D | todo | |
+| M1-T09b | Wire web to the real API | T08, T09 | D | todo | |
 | M1-T10 | E2E: happy path + needs_input round trip (fake & real Claude modes) | all | E | todo | |
 
-Groups run in order A → B → C → D → E. Tasks within a group can be given to parallel implementer agents (see [CLAUDE.md](../../../CLAUDE.md) › Orchestrate).
+Groups run in order A → A2 → B → C → D → E. Tasks within a group own disjoint files and are given to parallel implementer agents (see [CLAUDE.md](../../../CLAUDE.md) › Orchestrate). Groups B–D code against the T12 contracts and their fakes; a needed contract change is reported, not made locally.
+
+**Gates (Ben)**: after A, accept ADR-0005. After A2, review `docs/design/10-contracts.md`, which freezes the interfaces.
 
 ---
 
@@ -34,10 +39,47 @@ Groups run in order A → B → C → D → E. Tasks within a group can be given
 
 ### M1-T00 · Spike: driving Claude Code
 - **Scope**: throwaway script in `spikes/claude-driver/` (not shipped). Try headless `claude -p --output-format stream-json` with `--resume`, and the Claude Agent SDK. Find: how to get the session id, how to inject a structured `complete_state` / `ask_user` tool (MCP server exposed by the daemon vs. parsing), how to deliver an answer mid-session (stdin vs resume with new message), how to read cost/usage, how to restrict tools.
-- **Acceptance**: ADR-0005 written and accepted by Ben; U-001, U-002 marked resolved with links; any limits found filed as U-### or TD-###.
+- **Hard requirement** (workshop, PDF p.13): while waiting for an answer the Claude process stays alive but idle, and the daemon feeds the answer **into the live process**. A one-shot `claude -p` that can only `--resume` doesn't satisfy this on its own. Resume is the fallback for when the process is gone.
+- **Acceptance**: ADR-0005 written and accepted by Ben. It covers the `ClaudeDriver` shape T12 will pin: start, the session-id event, output stream, `complete_state` / `ask_user` delivery, live answer injection, spend, kill, and the tool allow-list. U-001, U-002 marked resolved with links. Any limits found are filed as U-### or TD-###. The spike scripts show each mechanism working against the real CLI/SDK.
+
+### M1-T12 · Contracts
+- **Scope**: freeze every cross-agent seam as exported zod schemas / TS interfaces, each with an in-memory fake, before the parallel groups start. Files (only this task creates them):
+  - `packages/shared/src/workflow/schema.ts`: `WorkflowDefinition` per [05](../../design/05-workflow-engine.md#definition-schema), plus `parseDuration`.
+  - `packages/shared/src/engine/types.ts`: `SessionSnapshot`, `EngineEvent` union, `Effect` union, `ApplyResult`, and the `apply(def, snapshot, event, now)` signature (a stub that throws).
+  - `packages/shared/src/protocol/ws.ts`: the envelope, plus the `DaemonToOrchestrator` / `OrchestratorToDaemon` unions with a concrete payload for every message in [03](../../design/03-protocols.md#daemon--orchestrator-websocket) and one fixture per type.
+  - `packages/shared/src/api/{rest,sse}.ts`: board/session/answer/ticket DTOs, `BoardSseEvent`, `OutputChunk`, and `columnFor(status)` per [06](../../design/06-human-input.md#kanban-columns-queries-not-state).
+  - `packages/orchestrator/src/contracts.ts`: `EngineService`, `OutboxTransport`, `BoardBus`, `OutputBus` (256 KB ring, U-005), plus fakes.
+  - `packages/orchestrator/src/db/types.ts`: row types for [02](../../design/02-data-model.md) plus the new session columns `return_to`, `state_visits`, `state_entered_at`, `state_deadline`, and the nullable `ticket.repo_allow_machines` (resolves U-009).
+  - `packages/daemon/src/claude/driver.ts`: the `ClaudeDriver` / `DriverSession` / `DriverEvent` shape from ADR-0005, plus a scripted `FakeClaudeDriver`.
+  - `packages/daemon/src/commands/runner.ts`: the `CommandRunner` interface only.
+  - `docs/design/10-contracts.md`: a one-page index of seams, producers and consumers, with the defaults below. Update 02-data-model for the new columns.
+- **Defaults to record in 10-contracts** (from the workshop reconciliation):
+  - The engine event is `input.provided`; the SSE board event is `input.answered`. They are distinct on purpose.
+  - `waiting_for_build_slot` is a card badge, not a `session.status`.
+  - `budget.exceeded` is in the contract and its routing is implemented in T04, but **no enforcement trigger in M1** (TD).
+  - No compute release / `park_release_after` in M1.
+  - Validator rule 3 stays "terminal or human".
+- **Acceptance**:
+  - Every WS and SSE fixture round-trips through its schema.
+  - Both reference workflows parse with `WorkflowDefinition`.
+  - The fakes have smoke tests.
+  - The gates are green.
+  - The interface-review agent finds that T02–T11 can each be built from the contracts plus fakes alone.
+  - Ben approves 10-contracts.
+
+### M1-T11 · Orchestrator daemon gateway
+- **Scope**:
+  - `packages/orchestrator/src/gateway/**`: a WS server, envelope validation, `register` (upsert `machine`), `heartbeat` (update live resources), `repo_inventory` (upsert `machine_repo`).
+  - `request_work` → a minimal claim: FIFO by priority/age, tags filter, `FOR UPDATE SKIP LOCKED`, no scoring/short-hold. The claim inserts the session, bumps the fencing token and writes the `start_session` outbox row in one transaction.
+  - `command_ack` handling. A refusal returns the ticket to `ready`.
+  - `OutboxTransport` implementation over live sockets.
+  - `session_event` → `EngineService.applyEvent`.
+  - `output` → `OutputBus`.
+  - Dedupe on `(machine_id, seq)`.
+- **Acceptance**: integration tests with a fake daemon WS client against real Postgres: register → request_work → `work_assignment` and `start_session` delivered; a refused ack requeues; a duplicate seq is ignored; a stale fencing token is rejected with `kill`.
 
 ### M1-T01 · Monorepo scaffold
-- **Scope**: pnpm workspace per [ADR-0004](../../adr/0004-typescript-monorepo.md); `packages/{shared,orchestrator,daemon,web}`; strict tsconfig base; eslint + prettier; vitest workspace; `docker-compose.yml` with Postgres 16; root scripts `build`, `test`, `lint`, `typecheck`, `db:up`, `db:migrate`, `test:e2e`; minimal CI script `scripts/ci.sh` running all gates.
+- **Scope**: pnpm workspace per [ADR-0004](../../adr/0004-typescript-monorepo.md); `packages/{shared,orchestrator,daemon,web}`; strict tsconfig base; eslint + prettier; vitest workspace; `docker-compose.yml` with Postgres 16; root scripts `build`, `test`, `lint`, `typecheck`, `db:up`, `db:migrate`, `test:e2e`; minimal CI script `scripts/ci.sh` running all gates. **No Docker runtime on Ben's Mac**: `db:up`/`db:down` use docker-compose if `docker info` succeeds. Otherwise they run Homebrew `postgresql@16` (`/opt/homebrew/opt/postgresql@16/bin`, `initdb` into a gitignored `.pgdata/`, port 54329). Tests and migrations read `DATABASE_URL` (documented in `.env.example`). Pin `packageManager: pnpm@10.x`.
 - **Acceptance**: `pnpm i && pnpm build && pnpm lint && pnpm typecheck && pnpm test` all pass on a clean clone; `pnpm db:up` starts Postgres; CLAUDE.md Commands section verified/updated.
 
 ### M1-T02 · DB schema + migrations

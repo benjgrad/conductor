@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/shared" },
     { "path": "packages/orchestrator" },
+    { "path": "packages/orchestrator/test" },
     { "path": "packages/daemon" },
     { "path": "packages/web" }
   ]

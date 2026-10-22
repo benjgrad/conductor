@@ -1,0 +1,15 @@
+{
+  // Typechecks (and type-aware lints) the orchestrator's test/ helpers and integration
+  // tests. tsc -b only checks this project; composite needs some emit, so declarations
+  // go to a throwaway dir under node_modules.
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "emitDeclarationOnly": true,
+    "declarationMap": false,
+    "outDir": "../node_modules/.tmp/test",
+    "tsBuildInfoFile": "../node_modules/.tmp/test/tsconfig.tsbuildinfo"
+  },
+  "include": ["."],
+  "references": [{ "path": ".." }]
+}

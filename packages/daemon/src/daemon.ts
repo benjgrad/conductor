@@ -132,7 +132,11 @@ export class Daemon {
     this.heartbeatMs = this.config.heartbeatIntervalMs;
     mkdirSync(this.config.rootDir, { recursive: true });
     this.store = DaemonStore.forRoot(this.config.rootDir);
-    this.workspace = new Workspace(this.config.rootDir, this.store);
+    this.workspace = new Workspace(this.config.rootDir, this.store, {
+      allowLocalRepos: this.config.allowLocalRepos,
+      allowedRepoHosts: this.config.allowedRepoHosts,
+      log: this.log,
+    });
     this.ports = new PortPool(this.config.portPool);
     for (const [sid, s] of Object.entries(this.store.sessions)) {
       if (s.portRange) this.ports.adopt(sid, s.portRange);

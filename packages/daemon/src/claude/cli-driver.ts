@@ -8,6 +8,9 @@
 // Events are emitted synchronously from stream / HTTP callbacks, never inside start(), so a
 // listener attached right after start() sees everything. Nothing is emitted after `exit`.
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { ClaudeDriver, DriverEvent, DriverSession, DriverStartOptions } from './driver.js';
 import {
@@ -44,7 +47,32 @@ export interface CliDriver extends ClaudeDriver {
   start(opts: DriverStartOptions): CliDriverSession;
 }
 
-/** The exact argv of ADR-0005 §Spawn (without the executable). */
+/**
+ * Write the session's `--mcp-config` JSON (it holds the per-session URL token) to a 0600 file in a
+ * fresh private 0700 directory, so the token never appears in argv / `ps` (M1-T14). The caller
+ * removes the directory with `removeMcpConfigFile` when the process is gone.
+ */
+export function writeMcpConfigFile(mcpConfig: string, parent = tmpdir()): string {
+  const dir = mkdtempSync(join(parent, 'conductor-mcp-'));
+  chmodSync(dir, 0o700);
+  const path = join(dir, 'mcp.json');
+  writeFileSync(path, mcpConfig, { mode: 0o600, flag: 'wx' });
+  return path;
+}
+
+export function removeMcpConfigFile(path: string): void {
+  try {
+    rmSync(dirname(path), { recursive: true, force: true });
+  } catch {
+    // best effort: a tmp dir left behind holds a token that is already unregistered
+  }
+}
+
+/**
+ * The exact argv of ADR-0005 §Spawn (without the executable). `mcpConfig` is what goes after
+ * `--mcp-config`: the driver passes the path from `writeMcpConfigFile` (the CLI accepts a file
+ * path or a JSON string), never the JSON itself.
+ */
 export function buildClaudeArgs(opts: DriverStartOptions, mcpConfig: string): string[] {
   const t = opts.tools;
   const args = [
@@ -99,6 +127,7 @@ class Session implements CliDriverSession {
   private readonly listeners = new Set<(ev: DriverEvent) => void>();
   private readonly child: ChildProcessWithoutNullStreams;
   private readonly reg: OutcomeRegistration;
+  private readonly mcpConfigPath: string;
   private announced = false;
   private exited = false; // `exit` emitted
   private childGone = false; // the OS process is gone (exit/error)
@@ -122,7 +151,14 @@ class Session implements CliDriverSession {
       onCompleteState: (result) => this.emit({ kind: 'complete_state', result }),
     });
 
-    this.child = spawn(bin, buildClaudeArgs(opts, this.reg.mcpConfig), {
+    try {
+      this.mcpConfigPath = writeMcpConfigFile(this.reg.mcpConfig);
+    } catch (err) {
+      this.reg.unregister();
+      throw err;
+    }
+
+    this.child = spawn(bin, buildClaudeArgs(opts, this.mcpConfigPath), {
       cwd: opts.cwd,
       env: { ...process.env, ...opts.env },
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -250,6 +286,7 @@ class Session implements CliDriverSession {
     clearTimeout(this.killTimer);
     clearTimeout(this.endTimer);
     this.reg.unregister();
+    removeMcpConfigFile(this.mcpConfigPath);
     // After a kill, reap any tool processes Claude left behind in its group.
     if (this.killRequested) this.signal('SIGKILL');
     if (spawnFailed) {

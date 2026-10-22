@@ -23,6 +23,12 @@ import { serveOutputStream } from '../stream/output.js';
 import { SseHub } from '../stream/sse.js';
 import { parseBody, pathString, sendError } from './errors.js';
 import { listMachines, listWorkflows, loadBoard, toTicketDto } from './queries.js';
+import {
+  HttpGuard,
+  httpSecurityFromEnv,
+  securityHook,
+  type HttpSecurityOptions,
+} from './security.js';
 import { loadSessionDetail, sessionExists } from './sessions.js';
 
 // M1-T08: REST + SSE for the UI (03 §UI ↔ orchestrator), as the `CreateApi` factory (main.ts).
@@ -35,8 +41,24 @@ const PG_UNIQUE_VIOLATION = '23505';
 
 type IdParams = { Params: { id: string } };
 
-export const createApi: CreateApi = ({ db, engine, boardBus, outputBus }) => {
+export {
+  HttpGuard,
+  httpSecurityFromEnv,
+  securityHook,
+  type HttpSecurityOptions,
+} from './security.js';
+
+export interface ApiOptions {
+  /** Host / Origin allow-lists (M1-T14). Default: httpSecurityFromEnv(process.env). */
+  security?: HttpSecurityOptions;
+}
+
+type ApiDeps = Parameters<CreateApi>[0] & ApiOptions;
+
+export const createApi = (({ db, engine, boardBus, outputBus, security }: ApiDeps) => {
   const app = Fastify({ logger: false });
+  // M1-T14: Host / Origin / content-type guard before routing (09 §M1 local hardening).
+  app.addHook('onRequest', securityHook(new HttpGuard(security ?? httpSecurityFromEnv())));
   const hub = new SseHub();
   const logError = (err: unknown) => app.log.error(err);
 
@@ -261,4 +283,4 @@ export const createApi: CreateApi = ({ db, engine, boardBus, outputBus }) => {
       await app.close();
     },
   };
-};
+}) satisfies CreateApi;

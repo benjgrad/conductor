@@ -42,6 +42,23 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ CONDUCTOR_PORT_POOL: '5-6' }, facts)).toThrow();
     expect(() => loadConfig({ CONDUCTOR_MAX_CONCURRENT_BUILDS: '0' }, facts)).toThrow();
   });
+
+  it('M1-T14: local repos are off by default; repo hosts are unrestricted unless listed', () => {
+    const d = loadConfig({}, facts);
+    expect(d.allowLocalRepos).toBe(false);
+    expect(d.allowedRepoHosts).toEqual([]);
+    const c = loadConfig(
+      {
+        CONDUCTOR_ALLOW_LOCAL_REPOS: 'true',
+        CONDUCTOR_ALLOWED_REPO_HOSTS: 'GitHub.com, gitlab.example.org',
+      },
+      facts,
+    );
+    expect(c.allowLocalRepos).toBe(true);
+    expect(c.allowedRepoHosts).toEqual(['github.com', 'gitlab.example.org']);
+    expect(loadConfig({ CONDUCTOR_ALLOW_LOCAL_REPOS: '0' }, facts).allowLocalRepos).toBe(false);
+    expect(() => loadConfig({ CONDUCTOR_ALLOW_LOCAL_REPOS: 'maybe' }, facts)).toThrow();
+  });
 });
 
 describe('PortPool', () => {
@@ -111,9 +128,9 @@ describe('DaemonStore', () => {
 describe('helpers', () => {
   it('cloneSource / repoSlug', () => {
     expect(cloneSource('github.com/org/app')).toBe('https://github.com/org/app.git');
-    expect(cloneSource('/srv/repos/app')).toBe('/srv/repos/app');
+    expect(cloneSource('/srv/repos/app', { allowLocalRepos: true })).toBe('/srv/repos/app');
     expect(cloneSource('git@github.com:org/app.git')).toBe('git@github.com:org/app.git');
-    expect(cloneSource('file:///tmp/x')).toBe('file:///tmp/x');
+    expect(cloneSource('file:///tmp/x', { allowLocalRepos: true })).toBe('file:///tmp/x');
     expect(repoSlug('github.com/org/app')).toMatch(/^github\.com_org_app-[0-9a-f]{8}$/);
     expect(repoSlug('a/b')).not.toBe(repoSlug('a_b'));
   });

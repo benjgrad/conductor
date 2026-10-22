@@ -18,6 +18,7 @@ import {
   type EngineService,
   type OutputBus,
 } from '../contracts.js';
+import { HttpGuard, httpSecurityFromEnv, type HttpSecurityOptions } from '../api/security.js';
 import { withTransaction } from '../db/index.js';
 import { SCRUBBED_PAYLOAD_SQL } from '../engine/outbox.js';
 import type { CreateGateway, Db, GatewayHandle } from '../main.js';
@@ -41,6 +42,8 @@ export interface GatewayOptions {
   /** `registered.heartbeat_interval_ms` (default 10 s; 04 wants a heartbeat fresher than 30 s). */
   heartbeatIntervalMs?: number;
   log?: (msg: string) => void;
+  /** Origin allow-list for the WS upgrade (M1-T14). Default: httpSecurityFromEnv(process.env). */
+  security?: HttpSecurityOptions;
 }
 
 type GatewayDeps = Parameters<CreateGateway>[0] & GatewayOptions;
@@ -57,6 +60,12 @@ interface Conn {
   ws: WebSocket;
   machineId: string | null;
   queue: Promise<void>;
+  /**
+   * Sessions this connection's machine holds, session id → current fencing token (M1-T14). Filled
+   * from work claims, DB-verified heartbeat leases and accepted session_events; `output` for a
+   * session (or token) not in here is dropped.
+   */
+  owned: Map<string, number>;
 }
 
 class Gateway implements GatewayHandle {
@@ -67,6 +76,7 @@ class Gateway implements GatewayHandle {
   private readonly outputBus: OutputBus;
   private readonly heartbeatIntervalMs: number;
   private readonly log: (msg: string) => void;
+  private readonly guard: HttpGuard;
   private readonly wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
   private readonly conns = new Set<Conn>();
   private readonly pending = new Set<Promise<unknown>>();
@@ -80,6 +90,7 @@ class Gateway implements GatewayHandle {
     this.outputBus = deps.outputBus;
     this.heartbeatIntervalMs = deps.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
     this.log = deps.log ?? ((m) => console.warn(`[gateway] ${m}`));
+    this.guard = new HttpGuard(deps.security ?? httpSecurityFromEnv());
     this.wss.on('connection', (ws: WebSocket) => this.onConnection(ws));
   }
 
@@ -95,6 +106,15 @@ class Gateway implements GatewayHandle {
       }
       if (this.closed) {
         socket.destroy();
+        return;
+      }
+      // M1-T14: browsers always send Origin on a WS upgrade, the daemon's ws client never does,
+      // so a cross-site page can't open the daemon socket. A non-browser client can still connect
+      // and register as any machine.
+      // TD: no daemon authentication until enrollment tokens are verified on register (U-008).
+      if (!this.guard.upgradeAllowed(req.headers)) {
+        this.log(`refused WS upgrade from origin ${req.headers.origin ?? ''}`);
+        socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
         return;
       }
       this.wss.handleUpgrade(req, socket, head, (ws) => this.wss.emit('connection', ws, req));
@@ -132,7 +152,7 @@ class Gateway implements GatewayHandle {
   }
 
   private onConnection(ws: WebSocket): void {
-    const conn: Conn = { ws, machineId: null, queue: Promise.resolve() };
+    const conn: Conn = { ws, machineId: null, queue: Promise.resolve(), owned: new Map() };
     this.conns.add(conn);
     ws.on('message', (data: RawData, isBinary: boolean) => {
       conn.queue = conn.queue
@@ -246,8 +266,9 @@ class Gateway implements GatewayHandle {
       case 'session_event':
         return this.onSessionEvent(conn, machineId, msg);
       case 'output':
-        // TD: output is not fencing-checked nor checked against a known session (no DB read per
-        // chunk); a stale process's chunks land in the ring until it is killed.
+        // M1-T14: only for a session this connection owns, under its current token (no DB read
+        // per chunk: `owned` is kept from claims, heartbeats and session_events).
+        if (conn.owned.get(msg.session_id) !== msg.fencing_token) return;
         this.outputBus.append(
           msg.session_id,
           msg.payload.stream,
@@ -307,6 +328,7 @@ class Gateway implements GatewayHandle {
 
     if (conn.machineId !== null && conn.machineId !== p.machine_id) {
       this.transport.unbind(conn.machineId, conn.ws);
+      conn.owned.clear();
     }
     conn.machineId = p.machine_id;
     const prev = this.transport.bind(p.machine_id, conn.ws);
@@ -330,19 +352,20 @@ class Gateway implements GatewayHandle {
     const p = msg.payload;
     const ids = p.sessions.map((s) => s.session_id);
     const tokens = p.sessions.map((s) => String(s.fencing_token));
-    const stale = await withTransaction(this.db, async (tx) => {
+    const { stale, held } = await withTransaction(this.db, async (tx) => {
       await tx.query(
         `UPDATE machine SET cpu_free = $2, mem_free_mb = $3, disk_free_mb = $4,
                 last_heartbeat_at = now(), status = 'online', updated_at = now()
           WHERE id = $1`,
         [machineId, Math.floor(p.cpu_free), p.mem_free_mb, p.disk_free_mb],
       );
-      if (ids.length === 0) return [];
+      if (ids.length === 0) return { stale: [], held: [] };
       // Lease renewal: only sessions this machine holds under their current token (04 §Leases).
-      await tx.query(
+      const renewed = await tx.query<{ id: string; fencing_token: string }>(
         `UPDATE session s SET lease_expires_at = now() + ${LEASE_INTERVAL}
            FROM unnest($2::uuid[], $3::bigint[]) AS hb(session_id, token)
-          WHERE s.id = hb.session_id AND s.fencing_token = hb.token AND s.machine_id = $1`,
+          WHERE s.id = hb.session_id AND s.fencing_token = hb.token AND s.machine_id = $1
+          RETURNING s.id, s.fencing_token`,
         [machineId, ids, tokens],
       );
       // Heartbeat backstop (10-contracts §Orphaned processes rule 4).
@@ -353,8 +376,15 @@ class Gateway implements GatewayHandle {
           WHERE hb.token < s.fencing_token`,
         [ids, tokens],
       );
-      return r.rows;
+      return { stale: r.rows, held: renewed.rows };
     });
+    // The heartbeat is the daemon's full list: what it no longer lists (or the DB didn't
+    // confirm) is no longer owned for output.
+    const confirmed = new Map(held.map((h) => [h.id, Number(h.fencing_token)]));
+    for (const id of [...conn.owned.keys()]) {
+      if (!confirmed.has(id)) conn.owned.delete(id);
+    }
+    for (const [id, t] of confirmed) conn.owned.set(id, t);
     for (const s of stale) {
       this.sendKill(conn, s.session_id, Number(s.token), null, 'stale_fencing_token');
     }
@@ -407,6 +437,7 @@ class Gateway implements GatewayHandle {
       return;
     }
     this.publish(res.boardEvents);
+    conn.owned.set(res.sessionId, res.fencingToken);
     this.reply(conn, {
       type: 'work_assignment',
       msg_id: randomUUID(),
@@ -427,7 +458,13 @@ class Gateway implements GatewayHandle {
     const { command_id: commandId, accepted } = msg.payload;
     const reason = msg.payload.reason ?? (accepted ? null : 'refused');
     const target = `machine:${machineId}`;
-    const out = await withTransaction(this.db, async (tx) => {
+    type AckOutcome = {
+      kill: { sessionId: string; token: number } | null;
+      events: BoardSseEvent[];
+      /** A refusal for a session another machine holds (M1-T14). */
+      unknown?: string;
+    };
+    const out = await withTransaction(this.db, async (tx): Promise<AckOutcome> => {
       const r = await tx.query<{ kind: OutboxKind; session_id: string | null }>(
         `UPDATE outbox
             SET status = CASE WHEN $2 THEN 'acked'::outbox_status ELSE 'failed'::outbox_status END,
@@ -440,6 +477,14 @@ class Gateway implements GatewayHandle {
       const row = r.rows[0];
       if (row) {
         if (accepted || row.session_id === null) return { kill: null, events: [] };
+        // M1-T14: a refusal only moves a session this machine is assigned to.
+        const owner = await tx.query<{ machine_id: string | null }>(
+          `SELECT machine_id FROM session WHERE id = $1 FOR UPDATE`,
+          [row.session_id],
+        );
+        if (owner.rows[0]?.machine_id !== machineId) {
+          return { kill: null, events: [], unknown: row.session_id };
+        }
         const res = await this.engine.applyEvent(
           row.session_id,
           {
@@ -468,6 +513,9 @@ class Gateway implements GatewayHandle {
         events: [],
       };
     });
+    if (out.unknown !== undefined) {
+      this.protocolError(conn, 'unknown_session', `unknown session ${out.unknown}`, msg.msg_id);
+    }
     this.publish(out.events);
     if (out.kill) this.sendKill(conn, out.kill.sessionId, out.kill.token, commandId, 'ack_timeout');
   }
@@ -496,16 +544,26 @@ class Gateway implements GatewayHandle {
       );
       if (seq.rowCount === 0) return { kind: 'duplicate' };
 
+      // M1-T14 authorization, under the session row lock: only the machine the session is
+      // assigned to may report on it (anything else is unknown_session, so nothing leaks), and
+      // only under the session's CURRENT token. A lower token is a stale process; a higher one
+      // was never issued; both get a kill under the event's own token (Orphaned rule 4).
+      const s = await tx.query<{
+        machine_id: string | null;
+        fencing_token: string;
+        waiting_for_build_slot: boolean;
+      }>(
+        `SELECT machine_id, fencing_token, waiting_for_build_slot FROM session
+          WHERE id = $1 FOR UPDATE`,
+        [sessionId],
+      );
+      const row = s.rows[0];
+      if (!row || row.machine_id !== machineId) return { kind: 'unknown' };
+      if (token !== Number(row.fencing_token)) return { kind: 'stale' };
+
       const event = engineEventForSessionEvent(msg.payload);
       if (event === null) {
         // build_slot / heartbeat: gateway-owned writes, same fencing rule as engine events.
-        const s = await tx.query<{ fencing_token: string; waiting_for_build_slot: boolean }>(
-          `SELECT fencing_token, waiting_for_build_slot FROM session WHERE id = $1 FOR UPDATE`,
-          [sessionId],
-        );
-        const row = s.rows[0];
-        if (!row) return { kind: 'unknown' };
-        if (token < Number(row.fencing_token)) return { kind: 'stale' };
         const payload = msg.payload;
         if (payload.kind !== 'build_slot') {
           await tx.query(
@@ -556,13 +614,16 @@ class Gateway implements GatewayHandle {
       case 'duplicate':
         return;
       case 'stale':
+        if (conn.owned.get(sessionId) === token) conn.owned.delete(sessionId);
         // Orphaned processes rule 4: the event's own token in the envelope.
         this.sendKill(conn, sessionId, token, null, 'stale_fencing_token');
         return;
       case 'unknown':
+        conn.owned.delete(sessionId);
         this.protocolError(conn, 'unknown_session', `unknown session ${sessionId}`, msg.msg_id);
         return;
       case 'done':
+        conn.owned.set(sessionId, token);
         this.publish(outcome.events);
         if (outcome.superseded && msg.payload.kind === 'started') {
           // Orphaned processes rule 3: a process the session doesn't own.

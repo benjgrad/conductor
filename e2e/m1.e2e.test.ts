@@ -4,12 +4,14 @@
 //
 // Scenarios (docs/qa/TEST_STRATEGY.md §E2E): happy path; test fails twice then passes; build
 // retries exhausted → needs_input → human retry; agent asks → answered via REST → continues;
-// shutdown leaves no Claude process behind.
+// U-028 agent never reports an outcome → nudged once → needs_input; shutdown leaves no Claude
+// process behind.
 //
 // E2E_REAL_CLAUDE=1 runs only the ask/answer scenario against the installed `claude` on haiku
 // (spends money; never in CI). See e2e/README.md.
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { NO_OUTCOME_QUESTION } from '../packages/shared/src/index.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Api, BoardWatcher, OutputWatcher } from './harness/api.js';
 import { createFixtureRepo, failCounter, FAILURE_MARKER } from './harness/fixture-repo.js';
@@ -57,6 +59,17 @@ const SCENARIOS: Record<string, unknown> = {
       [{ say: 'Looking at the server.' }, { ask_user: 'Which port should /health listen on?' }],
       [{ say: 'Using the answer.' }, { complete_state: { port: '$answer' } }],
     ],
+  },
+  // U-028: two say-only turns (the first, then the one after the nudge), so the daemon parks the
+  // session and the card goes to Needs input. Turn 3 (after a human answer) finishes; anything
+  // later is say-only again.
+  no_outcome: {
+    turns: [
+      [{ say: 'Thinking about it.' }],
+      [{ say: 'Still thinking.' }],
+      [{ say: 'Got it.' }, { complete_state: { answer: '$answer' } }],
+    ],
+    defaultTurn: [{ say: 'Still thinking.' }],
   },
 };
 
@@ -217,6 +230,58 @@ describe.skipIf(REAL)('fake Claude', () => {
     await askAnswerRoundTrip(id, 30_000);
   });
 
+  it('U-028: an agent that never reports an outcome is nudged once, then goes to Needs input', async () => {
+    const id = await ticket('No outcome', fakeBody('no_outcome'));
+    const parked = await board.card(
+      id,
+      'needs_input',
+      (c) => c.column === 'needs_input' && c.input_request !== null,
+      30_000,
+    );
+    const req = parked.input_request!;
+    expect(req.kind).toBe('agent_question');
+    expect(req.question).toContain(NO_OUTCOME_QUESTION);
+    expect(req.question).toContain('Last output:');
+    expect(req.question).toContain('Still thinking.');
+    expect(board.states(id)).toEqual(['implement', 'needs_input']);
+    expect(
+      board.events.some((e) => e.type === 'input.requested' && e.input_request_id === req.id),
+    ).toBe(true);
+
+    // Exactly one nudge: the fake played exactly two turns before the session parked, and the
+    // output stream shows one nudge notice and each scripted line once.
+    expect(fakeTurns('no_outcome')).toBe(2);
+    const sid = parked.session_id!;
+    const out = new OutputWatcher(stack.baseUrl, sid);
+    try {
+      await out.waitForText('without an outcome after the nudge');
+      const text = out.text();
+      expect(text.split('nudging').length - 1).toBe(1);
+      expect(text.split('Thinking about it.').length - 1).toBe(1);
+      expect(text.split('Still thinking.').length - 1).toBe(1);
+    } finally {
+      out.close();
+    }
+
+    const detail = await api.session(sid);
+    expect(detail.pending_input).toMatchObject({ id: req.id, answer: null });
+    expect(detail.return_to).toBe('implement');
+
+    // A human answer goes to the same live agent, whose third turn completes the state.
+    await api.answer(sid, req.id, 'carry on');
+    await board.card(id, 'done', (c) => c.column === 'done');
+    expect(board.states(id)).toEqual([
+      'implement',
+      'needs_input',
+      'implement',
+      'build',
+      'test',
+      'done',
+    ]);
+    expect((await api.session(sid)).context).toMatchObject({ implement: { answer: 'carry on' } });
+    expect(fakeTurns('no_outcome')).toBe(3);
+  });
+
   it('shutdown: stopping the daemon kills a parked Claude process; nothing is left behind', async () => {
     const id = await ticket('Parked at shutdown', fakeBody('ask_answer'));
     await board.card(id, 'needs_input', (c) => c.column === 'needs_input');
@@ -237,6 +302,18 @@ describe.runIf(REAL)('real Claude (haiku, E2E_REAL_CLAUDE=1; spends money)', () 
     await askAnswerRoundTrip(id, 150_000);
   }, 300_000);
 });
+
+/** Turns the fake has played for the (single) session running the named scenario. */
+function fakeTurns(scenario: string): number {
+  const dir = join(stack.tmp, 'fake-claude-state');
+  const states = readdirSync(dir)
+    .map(
+      (f) => JSON.parse(readFileSync(join(dir, f), 'utf8')) as { scenario?: string; turn: number },
+    )
+    .filter((st) => st.scenario === scenario);
+  expect(states).toHaveLength(1);
+  return states[0]!.turn;
+}
 
 /** The ask/answer round trip, shared by the fake and the real-Claude runs. */
 async function askAnswerRoundTrip(ticketId: string, timeoutMs: number): Promise<void> {

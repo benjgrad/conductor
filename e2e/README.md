@@ -30,6 +30,7 @@ answered with `POST /api/sessions/:id/input`, and the run also uses `GET /api/se
 | test fails twice | three implement/build/test loops, `test->implement: 2`, and the retry prompt carries the failed output (`attach: output`) |
 | build retries exhausted | 4 failed builds → `needs_input` (`retries_exhausted`, the question includes the output); answering "retry" → build → test → done; a second answer → 409 |
 | ask/answer | `ask_user` → Needs input card → REST answer → the live agent (`send_input`) completes with the answer |
+| no outcome (U-028) | say-only turns → exactly one nudge (two fake turns) → Needs input `agent_question` with the no-outcome question and `Last output:` → REST answer → done |
 | shutdown | stopping the daemon kills a parked Claude process; no process is left running from the temp dir |
 
 Teardown stops the daemon (SIGTERM, which kills its Claude processes) and then the orchestrator.

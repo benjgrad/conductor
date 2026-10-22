@@ -9,7 +9,7 @@ The design concentrates risk in three places: the **workflow engine** (determini
 | Integration (DB) | Migrations; transactional apply + outbox; dispatcher re-send after crash; claim query with `SKIP LOCKED` under N concurrent claimers (M2); reaper + fencing (M2) | vitest + real Postgres (docker-compose; **no SQL mocks**) | `packages/orchestrator` |
 | Integration (daemon) | Daemon against a fake orchestrator WS: register, heartbeat, start → worktree, command runner, semaphore, dedupe `command_id`, reconnect + seq replay (M2) | vitest | `packages/daemon` |
 | Contract | Protocol message schemas (zod in `shared`) used by both sides; snapshot of message catalog | vitest | `packages/shared` |
-| E2E | Postgres + orchestrator + daemon + **fake Claude** (scripted binary honouring ADR-0005 contract) on a fixture repo: happy path; build/test fail-then-pass; retries exhausted → needs_input; ask_user answered via REST. Optional `E2E_REAL_CLAUDE=1` | vitest or playwright (UI), `pnpm test:e2e` | `e2e/` |
+| E2E | Postgres + orchestrator + daemon + **fake Claude** (scripted binary honouring ADR-0005 contract) on a fixture repo: happy path; build/test fail-then-pass; retries exhausted → needs_input; ask_user answered via REST; no outcome reported → one nudge → needs_input (U-028). Optional `E2E_REAL_CLAUDE=1` | vitest or playwright (UI), `pnpm test:e2e` | `e2e/` |
 | Chaos (M2) | **Laptop sleep**: SIGSTOP daemon past lease grace → requeue with token+1 on second daemon → SIGCONT → stale events rejected + kill. Orchestrator kill -9 mid-transition. WS drop < grace (no lost session) | e2e harness | `e2e/chaos/` |
 
 ## Principles

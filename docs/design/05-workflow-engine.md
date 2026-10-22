@@ -62,6 +62,10 @@ dispatcher: SELECT pending outbox rows FOR UPDATE SKIP LOCKED → send → mark 
 
 - Exactly-once state changes, at-least-once command delivery. The daemon dedupes on `command_id`.
 - Crash between commit and send: a restarted orchestrator replays pending outbox rows.
+- The EngineService (`orchestrator/src/engine/`, M1-T04b) wakes the dispatcher right after a commit that wrote outbox rows; otherwise it polls (500 ms). The timeout sweep polls `session.state_deadline <= now` (1 s) and feeds `timer.fired`; an expired deadline that apply ignores is disarmed (guarded `state_deadline = NULL`) so it isn't re-fired every tick.
+
+### Prompt render
+apply() stays pure and copies the agent state's `prompt` (a template name such as `ticket_template`, or an inline template) or `skill` into the `start_session` effect, optionally followed by attached text (`attach: output`). The wrapper renders that head just before it builds the outbox payload (`engine/prompt.ts`): a named template from `PROMPT_TEMPLATES` (else the prompt itself) with `{{ticket.title|body|repo|id|ref}}`, `{{state}}` and `{{input.<key>}}` substituted, plus the state's resolved `input` (`$state.key` from `session.context`) as a list; a `skill` state becomes an instruction to run that skill with the same inputs. The tail is kept. A resume prompt equal to `pending_answer.answer` is the human's text and is never rendered; a prompt that doesn't start with the state's `prompt`/`skill` passes through unchanged.
 
 ## Versioning
 - A session is **pinned** to `(workflow_id, version)` when it starts. Editing a workflow saves a new version and never changes a running session.

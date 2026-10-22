@@ -4,6 +4,14 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-22 | M1-T12 merged to main via `integrate/A2-r3` (`--no-ff`) after `scripts/ci.sh` passed on the merged tree (70604c3); B-002 cleared, group B still gated on Ben's 10-contracts approval (B-003) | M1-T12 |
+| 2026-10-22 | Interface gap 7 closed with option (b): `GUARD_REGISTRY` empty in M1 and an unregistered guard passes (TD-017); Ben to confirm (U-027) | M1-T12, lead |
+| 2026-10-22 | `wall_seconds` is maintained by the engine (apply, T04): adds `now − state_entered_at` per transition, skipping `human`/`event` states | lead, [10](../design/10-contracts.md#wall-time) |
+| 2026-10-22 | Guards registry is empty in M1; guards are not enforced (TD-017) | lead |
+| 2026-10-22 | U-026: the human's answer is kept in `session.pending_answer` until the matching `session.started`, so an `ack_timeout` requeue re-answers; cleared on terminal statuses | lead, [10](../design/10-contracts.md#pending-answer) |
+| 2026-10-22 | U-025: apply ignores a `start_session` refusal unless `command_id == agent_command_id` (T12 refinement: and `agent_process_live` is false); an ignored refusal does not bump the fencing token | lead |
+| 2026-10-22 | U-024: engine rule in T04: `session.assigned` into a command state goes straight to `running` and emits `run_cmd` | lead |
+| 2026-10-22 | U-023 accepted for M1 as tech debt (TD-018): no re-trigger for a lost `superseded_start` kill | lead |
 | 2026-10-22 | M1-T12 not merged: QA failed the interface review (13 contract gaps). The A2 gate (Ben approves 10-contracts) and group B wait on fix round 3 (B-002) | M1-T12 |
 | 2026-10-22 | M1-T13 merged to main via `integrate/A2` (`--no-ff`) after `scripts/ci.sh` passed on the merged tree (ded29ca) | M1-T13 |
 | 2026-10-22 | `DATABASE_URL` resolution order: process env > `.env` > `.env.example`, shared by db.sh and vitest; the orchestrator reads only `process.env` (U-021) | M1-T13 |

@@ -16,7 +16,7 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 |---|---|---|---|---|---|
 | M1-T00 | Spike: drive Claude Code from a daemon; resolve U-001 + U-002 → ADR-0005 | — | A | done | `m1-t00-claude-driver-spike` @ a903c5a, merged to main (QA: PASS WITH DEBT). ADR-0005 accepted by Ben 2026-10-22 |
 | M1-T01 | Monorepo scaffold | — | A | done | `m1-t01-scaffold` @ 8c05d14, merged to main (QA: PASS WITH DEBT) |
-| M1-T12 | **Contracts**: shared zod/TS interfaces + fakes for every seam (see below) | T00, T01 | A2 | in_review | `m1-t12-contracts` @ 6ae2815, not merged: QA verdict FAIL on the interface review (13 contract gaps; gates green, acceptance otherwise met). Fix round 3 + Ben's 10-contracts review pending ([B-002](../../tracking/BLOCKERS.md), [UNFINISHED](../../tracking/UNFINISHED.md)) |
+| M1-T12 | **Contracts**: shared zod/TS interfaces + fakes for every seam (see below) | T00, T01 | A2 | done | `m1-t12-contracts` @ f39eb8f, merged to main as 70604c3 (QA: PASS WITH DEBT; 3 interface-review fix rounds + QA fix round 1). Ben's approval of 10-contracts pending ([B-003](../../tracking/BLOCKERS.md)) |
 | M1-T13 | Toolchain: Node 22 + current tool majors (U-019, TD-005); shared Postgres cluster with a DB per worktree/test run (U-020); `DATABASE_URL` loading for vitest + orchestrator (U-021) | T01 | A2 | done | `m1-t13-toolchain` @ ce54fd5, merged to main as ded29ca (QA: PASS WITH DEBT) |
 | M1-T02 | DB schema + migrations | T12 | B | todo | |
 | M1-T03 | Workflow validator (`shared`; schema itself is in T12) | T12 | B | todo | |

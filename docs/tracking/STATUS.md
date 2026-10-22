@@ -2,25 +2,25 @@
 
 > Living dashboard. Rewritten (not appended) by the lead session at the end of every session. Keep it under one screen.
 
-**Updated**: 2026-10-22 · session [2026-10-22-m1-group-a2](sessions/2026-10-22-m1-group-a2.md)
+**Updated**: 2026-10-22 · session [2026-10-22-m1-group-a2-r3](sessions/2026-10-22-m1-group-a2-r3.md)
 
 ## Now
-- **Milestone**: [M1 · Single machine](../plan/milestones/M1-single-machine.md), group A2 half merged (T13 done, T12 in review)
-- **Phase**: Orchestrate (gate A2: Ben reviews `docs/design/10-contracts.md` on branch `m1-t12-contracts`)
-- **Next action**: Ben decides which of the 13 T12 interface gaps to fix before merge ([UNFINISHED](UNFINISHED.md), [B-002](BLOCKERS.md)). Then run T12 fix round 3 (rebased on the T13 toolchain), re-run QA, get Ben's 10-contracts approval, and merge. Group B waits on that.
+- **Milestone**: [M1 · Single machine](../plan/milestones/M1-single-machine.md), group A2 merged (T12 and T13 done)
+- **Phase**: Orchestrate (gate A2: Ben approves `docs/design/10-contracts.md`, now on main)
+- **Next action**: Ben reviews 10-contracts on main, including the U-025 `agent_process_live` refinement and the gap 7 guard choice ([U-027](UNKNOWNS.md), [B-003](BLOCKERS.md)). Before starting group B (T02, T03, T05, T09), the lead adds `outbox.fencing_token` to T02's brief and validator rule 7 (unknown tool alias) to T03's scope and acceptance.
 
 ## In flight
 | Task | Branch | Agent | State |
 |---|---|---|---|
-| M1-T12 | `m1-t12-contracts` @ 6ae2815 (worktree wf_ecda817e-573-1) | implementer | in_review: QA FAIL on interface review; gates green |
+| none | | | |
 
 ## Health
 | Open unknowns | Open blockers | Tech debt items | Unfinished handoffs |
 |---|---|---|---|
-| 20 open of 26 ([UNKNOWNS](UNKNOWNS.md)) | 1 ([BLOCKERS](BLOCKERS.md)) | 15 open of 16 ([TECH_DEBT](TECH_DEBT.md)) | 1 ([UNFINISHED](UNFINISHED.md)) |
+| 16 open of 27 ([UNKNOWNS](UNKNOWNS.md)) | 1 ([BLOCKERS](BLOCKERS.md)) | 15 open of 19 ([TECH_DEBT](TECH_DEBT.md)) | 0 ([UNFINISHED](UNFINISHED.md)) |
 
 ## Milestone progress
-M1: 3 / 15 tasks done (T00, T01, T13)
+M1: 4 / 15 tasks done (T00, T01, T12, T13)
 
 ## Last session
-Ran M1 group A2. M1-T13 (Node 22 toolchain, shared Postgres cluster with a DB per test run, `DATABASE_URL` loading) passed QA with debt and merged to main (ded29ca) after ci.sh passed on the merged tree. That resolved U-021 and paid TD-005. M1-T12 (contracts) passed every gate and the round-2 fixes, but QA failed it on the interface review (13 gaps), so it is not merged. Filed U-022..U-026, TD-010..TD-016 and B-002.
+Ran M1 group A2 round 3. M1-T12 (contracts) closed all 13 interface-review gaps and a QA fix round, passed QA with debt, and merged to main (70604c3) after ci.sh passed on the merged tree. Resolved U-009, U-023 (as TD-018), U-024, U-025 and U-026. Paid TD-002, TD-009 and TD-016. Cleared B-002. Filed U-027, TD-017..TD-019 and B-003 (Ben's 10-contracts approval).

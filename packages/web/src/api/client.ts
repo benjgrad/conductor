@@ -12,9 +12,9 @@ import type {
   WorkflowSummary,
 } from '@conductor/shared';
 
-// The UI's view of the orchestrator API (03 §REST, §SSE). T09 ships a mock (./mock.ts); T09b
-// adds the HTTP + EventSource implementation against T08. Components only ever see this
-// interface.
+// The UI's view of the orchestrator API (03 §REST, §SSE). Two implementations: the in-memory
+// mock (./mock.ts, T09) and HTTP + EventSource against the orchestrator (./http.ts, T09b);
+// ./select.ts picks one from VITE_API. Components only ever see this interface.
 
 /** Stops a stream. Idempotent. */
 export type Unsubscribe = () => void;
@@ -23,6 +23,8 @@ export interface StreamHandlers<T> {
   onEvent: (event: T) => void;
   /** Transport trouble (the HTTP client reconnects with Last-Event-ID itself). */
   onError?: (err: unknown) => void;
+  /** The stream is (re)connected: clears whatever `onError` reported. */
+  onOpen?: () => void;
 }
 
 /** POST /api/sessions/:id/cancel body. */

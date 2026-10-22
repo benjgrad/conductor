@@ -57,6 +57,7 @@ Writes `apply()` can't make (it has no ids and doesn't see these columns), all i
 
 - Assigns `command_id` / `input_request_id`. For a `start_session` effect it also sets `session.agent_command_id` = that `command_id` and `agent_process_live = false`.
 - On a non-ignored `session.started`: `UPDATE session SET worktree_path, branch, port_range = int4range(base, base+count)` (`[base, base+count)`). The gateway does **not** write these.
+- On `command.refused` for `start_session`: `session.fencing_token = nextval('fencing_seq')`, so events from a process that command spawned anyway are stale ([Orphaned processes](#orphaned-processes)).
 - On `input.provided`: checks the `input_request` is open, records `answer`, `answered_by` (= `opts.actor`), `answered_at`, and writes the `input.answered` board row.
 - After the effects: writes one `card.upserted` row (last) if any `BoardCard` field changed (status, column, `workflow_state`, `machine_id`, `spend_usd`, open input request, `updated_at` on any change).
 
@@ -96,22 +97,34 @@ T11, one transaction ([04](04-scheduler.md#2--claim-query-ticket-side)):
 |---|---|---|
 | T04 dispatcher | `pending`/`sent` → `sent` after `OutboxTransport.send` = `sent` | `SET status='sent', attempts=attempts+1, next_attempt_at=now()+backoff WHERE id=$1 AND status IN ('pending','sent')`; backoff after the n-th send 5, 10, 20, 40, then 60 s. `not_connected` changes nothing |
 | T04 dispatcher | picks rows | `status IN ('pending','sent') AND next_attempt_at <= now()` for connected targets. Re-sending `sent` rows is safe (the daemon dedupes on `command_id` and re-acks) |
-| T04 dispatcher | `sent` → `failed` (`start_session` ack timeout) | a `start_session` due again with `attempts >= 3` (≈ 35 s): `SET status='failed', last_error='ack_timeout' WHERE id=$1 AND status='sent'`; on row count 1 apply `command.refused {reason: 'ack_timeout'}` in the same tx |
-| T11 gateway | → `acked` / `failed` on `command_ack` | `SET status = CASE WHEN $accepted THEN 'acked' ELSE 'failed' END, last_error = $reason WHERE command_id=$1 AND status IN ('pending','sent')`; row count 0 = duplicate ack, ignored; a refusal with row count 1 applies `command.refused` in the same tx |
-| T11 gateway | on `register` | `SET next_attempt_at = now() WHERE target = 'machine:<id>' AND status IN ('pending','sent')` (status untouched) so commands are re-sent right after a reconnect |
+| T04 dispatcher | `sent` → `failed` (`start_session` ack timeout) | a `start_session` due again with `attempts >= 3` (≈ 35 s): `SET status='failed', last_error='ack_timeout' WHERE id=$1 AND status='sent'`; on row count 1 apply `command.refused {reason: 'ack_timeout'}` in the same tx. The command may still have reached the daemon: see [Orphaned processes](#orphaned-processes) |
+| T11 gateway | → `acked` / `failed` on `command_ack` | `SET status = CASE WHEN $accepted THEN 'acked' ELSE 'failed' END, last_error = $reason WHERE command_id=$1 AND status IN ('pending','sent')`; a refusal with row count 1 applies `command.refused` in the same tx. Row count 0 = duplicate or late ack, ignored, **except** an `accepted=true` ack whose row is a `start_session` already `failed`: the gateway sends the orphan kill ([Orphaned processes](#orphaned-processes)) |
+| T11 gateway | on `register` | `SET next_attempt_at = now(), attempts = CASE WHEN kind = 'start_session' THEN LEAST(attempts, 2) ELSE attempts END WHERE target = 'machine:<id>' AND status IN ('pending','sent')` (status untouched) so commands are re-sent right after a reconnect, and a `start_session` always gets one more send (the ack timeout then fires ≥ 20 s after the reconnect, not at once) |
 
 ## Refusals
 
 `command.refused {command_id, command_kind, reason}` replaces the earlier `session.start_refused`. apply routes it by `command_kind`:
 
-- `start_session` → `status = queued`, `machine_id = null`, ticket `ready` (re-claimable; the claim reuses this session).
+- `start_session` → `status = queued`, `machine_id = null`, **`agent_command_id = null`, `agent_process_live = false`**, ticket `ready` (re-claimable; the claim reuses this session). The wrapper also bumps `session.fencing_token = nextval('fencing_seq')` in the same tx. A refused or timed-out `start_session` may still have spawned a process (late ack); the null `agent_command_id` makes apply ignore its `started`/`exit`, and the bumped token makes every other event from it stale. See [Orphaned processes](#orphaned-processes).
 - `send_input` with `no_live_process` → `agent_process_live = false`, then re-answer the open request with `start_session {resume_claude_session_id, prompt = answer}`. Other `send_input` reasons → outcome `fail`.
 - `run_cmd` → outcome `fail` (e.g. `memory_pressure`, `unknown_session`).
 - `kill` → ignored (logged as the event row).
 
 ## Agent process correlation
 
-`session_event started` and `exit` carry the `command_id` of the `start_session` that spawned the process; `started` is emitted **only for `start_session`, never for `run_cmd`** (both reference workflows start with an agent state). The snapshot keeps `agent_command_id` (set by the wrapper on each `start_session`) and `agent_process_live`. apply ignores `session.started` / `agent.exited` whose `command_id` differs from `agent_command_id`, so a late exit of a previous visit's process (e.g. after `implement → build → fail → implement`) can't fail the current visit. A matching `session.started` sets `agent_process_live = true`; a matching `agent.exited` sets it false (outcome `fail` only while `running` without a prior `complete_state`). While `agent_process_live` is false, `input.provided` resumes with `start_session(resume)` instead of `send_input`.
+`session_event started` and `exit` carry the `command_id` of the `start_session` that spawned the process; `started` is emitted **only for `start_session`, never for `run_cmd`** (both reference workflows start with an agent state). The snapshot keeps `agent_command_id` (set by the wrapper on each `start_session`) and `agent_process_live`. apply ignores `session.started` / `agent.exited` whose `command_id` differs from `agent_command_id`, so a late exit of a previous visit's process (e.g. after `implement → build → fail → implement`) can't fail the current visit. A matching `session.started` sets `agent_process_live = true`; a matching `agent.exited` sets it false (outcome `fail` only while `running` without a prior `complete_state`). While `agent_process_live` is false, `input.provided` resumes with `start_session(resume)` instead of `send_input`. An ignored `session.started` (mismatched `command_id`, including `agent_command_id = null`) means a process is running that the session doesn't own: the gateway sends the orphan kill below.
+
+## Orphaned processes
+
+A Claude process whose `start_session` the orchestrator has given up on (ack timeout, or superseded) must be killed; nothing else will, and a re-claim can put a second process on the same worktree. This is the one place the rule lives:
+
+1. **State**: `command.refused` for `start_session` (any reason, including `ack_timeout`) sets `agent_command_id = null`, `agent_process_live = false`, and the wrapper bumps `fencing_token` ([Refusals](#refusals)). The session can't move `queued → running` from the orphan's `started`, and its other events are rejected as stale.
+2. **Late accepted ack**: T11, on `command_ack accepted=true` with row count 0, reads the row by `command_id`; if it is a `start_session` with `status = 'failed'`, it sends a direct `kill {command_id: null, target_command_id: <that command_id>, reason: 'ack_timeout'}` to the acking machine (envelope `session_id` = the row's, `fencing_token` = the session's current token). Other row-count-0 acks stay ignored.
+3. **Ignored `started`**: when apply ignores a `session.started` for a mismatched `command_id` (`ApplyOutcome` `{status: 'ignored', reason: 'command_id_mismatch'}`), T11 sends a direct `kill {command_id: null, target_command_id: <started.command_id>, reason: 'superseded_start'}` to the sending machine, after the commit. (An ignored `agent.exited` needs no kill: the process is gone.)
+4. **Stale fencing**: a `session_event` rejected for its fencing token gets the existing direct `kill {command_id: null, target_command_id: null, reason: 'stale_fencing_token'}` with the *event's* fencing token in the envelope. A `heartbeat` that lists a running session under a token lower than `session.fencing_token` gets the same kill (with the listed token); this is the backstop that needs no further event from the orphan.
+5. **Daemon kill rule** (T05, `KillPayloadSchema` in `ws.ts`): with `target_command_id` set, kill only the process spawned by that `start_session` (none live → no-op); with it null, kill the session's process only if its fencing token ≤ the envelope `fencing_token`. So no orphan kill can hit the process of a newer claim of the same session on the same machine.
+
+Kills are direct replies, not outbox rows: if the socket drops before one is written, the orphan's next stale-token event or the next heartbeat after reconnect triggers rule 4.
 
 ## Defaults recorded here (workshop reconciliation)
 

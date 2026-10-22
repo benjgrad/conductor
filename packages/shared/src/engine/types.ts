@@ -85,8 +85,11 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
    * O: the daemon refused an outbox command (`command_ack accepted=false`). T11 emits it for every
    * refused ack, in the tx that marks the outbox row `failed`; T04's dispatcher emits it for a
    * start_session ack timeout (reason `ack_timeout`). apply routing (10-contracts §Refusals):
-   * start_session → queued + ticket ready; send_input `no_live_process` → agent_process_live =
-   * false and re-answer via start_session(resume); run_cmd → outcome `fail`; kill → ignored.
+   * start_session → queued + ticket ready + agent_command_id = null + agent_process_live = false
+   * (the wrapper also bumps fencing_token), so a process the timed-out command spawned anyway can't
+   * move the session to running and its events go stale (10-contracts §Orphaned processes);
+   * send_input `no_live_process` → agent_process_live = false and re-answer via
+   * start_session(resume); run_cmd → outcome `fail`; kill → ignored.
    */
   z.object({
     type: z.literal('command.refused'),
@@ -97,7 +100,8 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
   /**
    * D `started` (emitted only for start_session, never run_cmd): worktree ready, Claude process
    * running. → running, agent_process_live = true. Ignored unless `command_id` equals
-   * `agent_command_id`. The wrapper (not apply) UPDATEs session.worktree_path, branch and
+   * `agent_command_id` (null after a refused/timed-out start_session); when ignored, the gateway
+   * kills that process (`kill.target_command_id` = this command_id). The wrapper (not apply) UPDATEs session.worktree_path, branch and
    * port_range (`[base, base+count)`) from it in the same transaction.
    */
   z.object({

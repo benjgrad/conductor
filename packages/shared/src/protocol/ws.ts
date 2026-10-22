@@ -304,9 +304,21 @@ export const SendInputPayloadSchema = z.object({
 });
 export const SendInputMessageSchema = msg('send_input', SendInputPayloadSchema, orchSessionEnv);
 
+/**
+ * Daemon kill rule (10-contracts §Orphaned processes): with `target_command_id` set, kill only the
+ * process spawned by that start_session (no such live process → no-op). With it null, kill the
+ * session's process only if it runs under a fencing token <= the envelope `fencing_token`, so a
+ * kill aimed at a stale holder can never hit a newer claim's process on the same session.
+ */
 export const KillPayloadSchema = z.object({
   /** null when the kill is a direct reply (e.g. stale fencing token), not an outbox command. */
   command_id: UuidSchema.nullable(),
+  /**
+   * command_id of the start_session whose process to kill. Set by the gateway's orphan kills
+   * (late accepted ack for a `failed` start_session; ignored `started` with a mismatched
+   * command_id). null = any process of the session at or below the envelope fencing token.
+   */
+  target_command_id: UuidSchema.nullable(),
   reason: z.string(),
 });
 export const KillMessageSchema = msg('kill', KillPayloadSchema, orchSessionEnv);

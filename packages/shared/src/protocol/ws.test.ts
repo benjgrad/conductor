@@ -82,6 +82,23 @@ describe('WS envelope rules', () => {
     expect(OrchestratorToDaemonSchema.safeParse(bad).success).toBe(false);
   });
 
+  it('kill carries target_command_id (orphan kills) and requires the key', () => {
+    const orphanKill = {
+      ...ORCHESTRATOR_FIXTURES.kill,
+      payload: {
+        command_id: null,
+        target_command_id: '5e4d3c2b-1a09-4f8e-b7d6-c5b4a3928170',
+        reason: 'ack_timeout',
+      },
+    };
+    expect(parseOrchestratorMessage(wire(orphanKill))).toEqual(orphanKill);
+    const missing = {
+      ...ORCHESTRATOR_FIXTURES.kill,
+      payload: { command_id: null, reason: 'stale_fencing_token' },
+    };
+    expect(OrchestratorToDaemonSchema.safeParse(missing).success).toBe(false);
+  });
+
   it('rejects unknown message types and garbage frames', () => {
     expect(() => parseDaemonMessage('{"type":"nope"}')).toThrow();
     expect(() => parseDaemonMessage('not json')).toThrow();

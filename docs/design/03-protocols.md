@@ -58,7 +58,7 @@ Every message is an envelope:
 | `start_session` | `command_id`, ticket, repo, base ref (M1: `HEAD` of the shared clone), branch, workflow state, prompt, the state's workflow `tools` list (the daemon maps it to the ADR-0005 `ToolPolicy`), `resume_claude_session_id?`, model / max turns / max budget, env. When `resume_claude_session_id` is null, **the daemon pre-assigns the Claude session id** (`--session-id`), persists it before spawning, and reports it with `session_event claude_session_id`. The daemon allocates the port range itself ([07](07-multi-session-isolation.md)) |
 | `run_cmd` | `command_id`, workflow state, cmd, cwd (relative to the worktree; null = root), `timeout_ms` |
 | `send_input` | `command_id`, `input_request_id`, answer text (a user message on the live process's stdin) |
-| `kill` | `command_id` (null when it's a direct reply), reason (e.g. `stale_fencing_token`) |
+| `kill` | `command_id` (null when it's a direct reply), `target_command_id` (the `start_session` whose process to kill, or null), reason (e.g. `stale_fencing_token`, `ack_timeout`, `superseded_start`). The daemon kills only that process when `target_command_id` is set, otherwise only a process of the session running under a fencing token ≤ the envelope's ([10](10-contracts.md#orphaned-processes)) |
 | `protocol_error` | `{code, message, ref_msg_id}`: the orchestrator could not accept a message (invalid envelope, not registered, …) |
 
 ## Delivery guarantees

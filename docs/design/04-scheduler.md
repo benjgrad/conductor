@@ -15,7 +15,7 @@ sequenceDiagram
   P-->>O: candidate tickets + score
   alt best candidate is a strong match, or no better machine is waiting
     O->>P: ticket→claimed; INSERT (or re-use) session (queued, lease, fencing_token); applyEvent(session.assigned) → assigned + outbox start_session; COMMIT
-    O-->>D: work_assignment (via outbox dispatcher)
+    O-->>D: work_assignment (direct reply; start_session follows via the outbox)
     D-->>O: command_ack accepted
   else a much better machine is online with headroom
     O->>P: ROLLBACK

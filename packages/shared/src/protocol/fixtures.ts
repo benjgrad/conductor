@@ -270,7 +270,7 @@ export const ORCHESTRATOR_FIXTURES: {
     seq: null,
     session_id: S,
     fencing_token: 1,
-    payload: { command_id: null, reason: 'stale_fencing_token' },
+    payload: { command_id: null, target_command_id: null, reason: 'stale_fencing_token' },
   },
   protocol_error: {
     type: 'protocol_error',

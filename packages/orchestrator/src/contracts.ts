@@ -73,7 +73,11 @@ export type ApplyEventResult =
  *   session.agent_command_id = its command_id and agent_process_live = false;
  * - on `session.started` (not ignored): UPDATE session.worktree_path, branch, port_range
  *   (`[base, base+count)`);
- * - on `input.provided`: checks the input_request is open, records answer / answered_by.
+ * - on `input.provided`: checks the input_request is open, records answer / answered_by;
+ * - on `command.refused` for a start_session: bumps session.fencing_token (nextval) so every
+ *   event from a process that command spawned anyway is stale (10-contracts §Orphaned processes).
+ * An ignored `session.started` comes back as `{status:'ignored', reason:'command_id_mismatch'}`;
+ * the gateway (T11) then sends `kill {target_command_id: started.command_id}` after the commit.
  * Board events: `session_status` effect → `session.status` row, plus a separate `card.moved` row
  * when columnFor changes; `create_input_request` → `input.requested`; `input.provided` →
  * `input.answered`; then one `card.upserted` (last) if any BoardCard field changed.
@@ -157,14 +161,20 @@ export type SendResult = 'sent' | 'not_connected';
  * - Dispatcher ack timeout (04's 30 s): a start_session that is due again with `status='sent'
  *   AND attempts >= 3` (sent at 0, 5, 15 s; due at 35 s) is not re-sent but → `SET status='failed',
  *   last_error='ack_timeout' WHERE id=$1 AND status='sent'`, and (row count 1)
- *   applyEvent(command.refused{reason:'ack_timeout'}, {tx}) in the same tx. Other kinds keep
- *   being re-sent; a dead machine is handled by the lease reaper.
+ *   applyEvent(command.refused{reason:'ack_timeout'}, {tx}) in the same tx (apply clears
+ *   agent_command_id; the wrapper bumps fencing_token). Other kinds keep being re-sent; a dead
+ *   machine is handled by the lease reaper.
  * - Gateway (T11) on command_ack, by command_id: `SET status = accepted ? 'acked' : 'failed',
- *   last_error = reason WHERE command_id=$1 AND status IN ('pending','sent')`. Row count 0 →
- *   duplicate/late ack, ignored. A refused ack (row count 1) applies `command.refused` in the
- *   same tx. `acked` and `failed` are terminal.
- * - Gateway on `register`: `SET next_attempt_at = now() WHERE target = 'machine:<id>' AND status
- *   IN ('pending','sent')` so the dispatcher re-sends promptly after a reconnect.
+ *   last_error = reason WHERE command_id=$1 AND status IN ('pending','sent')`. A refused ack
+ *   (row count 1) applies `command.refused` in the same tx. Row count 0 → duplicate/late ack,
+ *   ignored, EXCEPT accepted=true for a start_session row already `failed` (ack timeout won the
+ *   race): the daemon spawned an orphan, so send a direct `kill {command_id: null,
+ *   target_command_id: <that command_id>, reason: 'ack_timeout'}` to the acking machine
+ *   (10-contracts §Orphaned processes). `acked` and `failed` are terminal.
+ * - Gateway on `register`: `SET next_attempt_at = now(), attempts = CASE WHEN kind =
+ *   'start_session' THEN LEAST(attempts, 2) ELSE attempts END WHERE target = 'machine:<id>' AND
+ *   status IN ('pending','sent')` so the dispatcher re-sends promptly after a reconnect and a
+ *   start_session always gets one more send before its ack timeout.
  */
 export interface OutboxTransport {
   send(machineId: string, message: OrchestratorToDaemon): Promise<SendResult>;

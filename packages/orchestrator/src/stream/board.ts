@@ -93,6 +93,9 @@ export async function serveBoardStream(
       })
       .finally(() => {
         running = null;
+        // TD-051: a publish between drain()'s last `again` check and this callback set `again`
+        // on a drain that had already finished. Run another one so it is not lost.
+        if (again && !conn.closed) void kick();
       });
     return running;
   };

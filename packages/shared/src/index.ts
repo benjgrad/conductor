@@ -7,6 +7,15 @@ export * from './workflow/guards.js';
 export * from './workflow/tools.js';
 export * from './workflow/validate.js';
 export * from './engine/types.js';
+export {
+  apply,
+  deadlineFor,
+  fallbackHumanState,
+  renderPrompt,
+  TICKET_TEMPLATE,
+  type PromptAttachment,
+  type RenderPromptInput,
+} from './engine/apply.js';
 export * from './engine/spend.js';
 export * from './engine/fixtures.js';
 export * from './protocol/ws.js';

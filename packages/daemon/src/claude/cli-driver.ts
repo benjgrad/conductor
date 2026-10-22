@@ -1,0 +1,304 @@
+// The real ClaudeDriver (ADR-0005, accepted): one long-lived `claude -p` child per session in
+// bidirectional stream-json mode, outcome tools on the daemon-hosted MCP server.
+//
+//   const outcomeServer = await startOutcomeServer();
+//   const driver = createCliDriver({ outcomeServer });   // claudeBin ← CONDUCTOR_CLAUDE_BIN ← 'claude'
+//   const s = driver.start(opts); s.on(ev => …); s.sendInput(answer); s.end(); s.kill();
+//
+// Events are emitted synchronously from stream / HTTP callbacks, never inside start(), so a
+// listener attached right after start() sees everything. Nothing is emitted after `exit`.
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { createInterface } from 'node:readline';
+import type { ClaudeDriver, DriverEvent, DriverSession, DriverStartOptions } from './driver.js';
+import {
+  OUTCOME_TOOL_NAMES,
+  type OutcomeRegistration,
+  type OutcomeServer,
+} from './outcome-server.js';
+import { parseStreamLine } from './stream-parser.js';
+
+export const CLAUDE_BIN_ENV = 'CONDUCTOR_CLAUDE_BIN';
+export const DEFAULT_KILL_GRACE_MS = 5_000;
+export const DEFAULT_END_GRACE_MS = 10_000;
+/** After the child exits, how long to wait for stdout/stderr to drain before emitting `exit`. */
+const DRAIN_MS = 2_000;
+
+export interface CliDriverOptions {
+  /** Path or name of the `claude` executable. Default: $CONDUCTOR_CLAUDE_BIN, else `claude`. */
+  claudeBin?: string;
+  outcomeServer: OutcomeServer;
+  /** Default grace for kill() when the caller passes none. */
+  killGraceMs?: number;
+  /** end() closes stdin; if the process is still alive after this, it is kill()ed. */
+  endGraceMs?: number;
+}
+
+/** A DriverSession plus what the CLI reported about itself (U-015). */
+export interface CliDriverSession extends DriverSession {
+  /** `claude_code_version` from the first system/init; undefined until then. */
+  readonly cliVersion: string | undefined;
+  readonly pid: number | undefined;
+}
+
+export interface CliDriver extends ClaudeDriver {
+  start(opts: DriverStartOptions): CliDriverSession;
+}
+
+/** The exact argv of ADR-0005 §Spawn (without the executable). */
+export function buildClaudeArgs(opts: DriverStartOptions, mcpConfig: string): string[] {
+  const t = opts.tools;
+  const args = [
+    '-p',
+    '--input-format',
+    'stream-json',
+    '--output-format',
+    'stream-json',
+    '--verbose',
+    ...(opts.resume ? ['--resume', opts.claudeSessionId] : ['--session-id', opts.claudeSessionId]),
+  ];
+  if (opts.model !== undefined) args.push('--model', opts.model);
+  if (opts.maxTurns !== undefined) args.push('--max-turns', String(opts.maxTurns));
+  if (opts.maxBudgetUsd !== undefined) args.push('--max-budget-usd', String(opts.maxBudgetUsd));
+  args.push(
+    '--setting-sources',
+    '',
+    '--strict-mcp-config',
+    '--permission-mode',
+    'dontAsk',
+    '--permission-prompts',
+    'none',
+    '--mcp-config',
+    mcpConfig,
+    '--tools',
+    t.builtin.join(','),
+    '--allowedTools',
+    [...t.allow, ...OUTCOME_TOOL_NAMES].join(','),
+  );
+  if (t.deny.length > 0) args.push('--disallowedTools', t.deny.join(','));
+  if (opts.appendSystemPrompt !== undefined) {
+    args.push('--append-system-prompt', opts.appendSystemPrompt);
+  }
+  return args;
+}
+
+/** One stream-json user message line. */
+export function userMessageLine(text: string): string {
+  return (
+    JSON.stringify({
+      type: 'user',
+      session_id: '',
+      parent_tool_use_id: null,
+      message: { role: 'user', content: [{ type: 'text', text }] },
+    }) + '\n'
+  );
+}
+
+class Session implements CliDriverSession {
+  cliVersion: string | undefined;
+  private id: string;
+  private readonly listeners = new Set<(ev: DriverEvent) => void>();
+  private readonly child: ChildProcessWithoutNullStreams;
+  private readonly reg: OutcomeRegistration;
+  private announced = false;
+  private exited = false; // `exit` emitted
+  private childGone = false; // the OS process is gone (exit/error)
+  private killRequested = false;
+  private killTimer: NodeJS.Timeout | undefined;
+  private endTimer: NodeJS.Timeout | undefined;
+  private drainTimer: NodeJS.Timeout | undefined;
+  private exitInfo: { code: number | null; signal: string | null } | undefined;
+  private openStreams = 2; // stdout + stderr
+
+  constructor(
+    private readonly bin: string,
+    opts: DriverStartOptions,
+    server: OutcomeServer,
+    private readonly killGraceMs: number,
+    private readonly endGraceMs: number,
+  ) {
+    this.id = opts.claudeSessionId;
+    this.reg = server.register({
+      onAskUser: (question) => this.emit({ kind: 'ask_user', question }),
+      onCompleteState: (result) => this.emit({ kind: 'complete_state', result }),
+    });
+
+    this.child = spawn(bin, buildClaudeArgs(opts, this.reg.mcpConfig), {
+      cwd: opts.cwd,
+      env: { ...process.env, ...opts.env },
+      stdio: ['pipe', 'pipe', 'pipe'],
+      // Own process group, so kill() also reaches the tools Claude spawned (bash, test runners).
+      detached: true,
+    });
+
+    this.child.on('error', (err) => {
+      this.emit({
+        kind: 'output',
+        stream: 'stderr',
+        text: `conductor: claude process error: ${err.message}\n`,
+      });
+      // A spawn failure (ENOENT/EACCES) never produces 'exit'.
+      if (this.child.pid === undefined) this.onChildGone(null, null, true);
+    });
+    this.child.on('exit', (code, signal) => this.onChildGone(code, signal, false));
+    this.child.stdin.on('error', (err) => {
+      this.emit({
+        kind: 'output',
+        stream: 'debug',
+        text: `conductor: stdin error: ${err.message}`,
+      });
+    });
+
+    this.child.stderr.setEncoding('utf8');
+    this.child.stderr.on('data', (d: string) =>
+      this.emit({ kind: 'output', stream: 'stderr', text: d }),
+    );
+    this.child.stderr.on('close', () => this.streamClosed());
+
+    const rl = createInterface({ input: this.child.stdout, crlfDelay: Infinity });
+    rl.on('line', (line) => this.onLine(line));
+    rl.on('close', () => this.streamClosed());
+
+    this.child.stdin.write(userMessageLine(opts.prompt));
+  }
+
+  get claudeSessionId(): string {
+    return this.id;
+  }
+
+  get pid(): number | undefined {
+    return this.child.pid;
+  }
+
+  on(listener: (ev: DriverEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  sendInput(text: string): void {
+    if (this.childGone || this.child.stdin.destroyed || this.child.stdin.writableEnded) {
+      throw new Error('claude driver: no live process to send input to');
+    }
+    this.reg.answered();
+    this.child.stdin.write(userMessageLine(text));
+  }
+
+  end(): void {
+    if (this.childGone) return;
+    this.child.stdin.end();
+    if (this.endTimer === undefined) {
+      this.endTimer = setTimeout(() => this.kill(), this.endGraceMs);
+    }
+  }
+
+  kill(graceMs?: number): void {
+    if (this.childGone || this.killRequested) return;
+    this.killRequested = true;
+    this.signal('SIGTERM');
+    this.killTimer = setTimeout(() => this.signal('SIGKILL'), graceMs ?? this.killGraceMs);
+  }
+
+  private signal(sig: NodeJS.Signals): void {
+    const pid = this.child.pid;
+    if (pid === undefined) return;
+    try {
+      process.kill(-pid, sig); // the whole process group
+    } catch {
+      try {
+        this.child.kill(sig);
+      } catch {
+        // already gone
+      }
+    }
+  }
+
+  private onLine(line: string): void {
+    for (const item of parseStreamLine(line)) {
+      if (item.kind === 'event') {
+        this.emit(item.event);
+        continue;
+      }
+      if (item.cliVersion !== undefined && this.cliVersion === undefined) {
+        this.cliVersion = item.cliVersion;
+        this.emit({
+          kind: 'output',
+          stream: 'debug',
+          text: `claude_code_version ${item.cliVersion}`,
+        });
+      }
+      const sid = item.sessionId;
+      if (sid === undefined) continue;
+      // init repeats every turn: announce once, and again only if the id changes.
+      if (!this.announced || sid !== this.id) {
+        if (sid !== this.id) {
+          this.emit({
+            kind: 'output',
+            stream: 'debug',
+            text: `conductor: system/init session_id ${sid} differs from the requested ${this.id}`,
+          });
+        }
+        this.id = sid;
+        this.announced = true;
+        this.emit({ kind: 'claude_session_id', id: sid });
+      }
+    }
+  }
+
+  private onChildGone(code: number | null, signal: string | null, spawnFailed: boolean): void {
+    if (this.childGone) return;
+    this.childGone = true;
+    this.exitInfo = { code, signal };
+    clearTimeout(this.killTimer);
+    clearTimeout(this.endTimer);
+    this.reg.unregister();
+    // After a kill, reap any tool processes Claude left behind in its group.
+    if (this.killRequested) this.signal('SIGKILL');
+    if (spawnFailed) {
+      this.finish();
+      return;
+    }
+    // Let stdout/stderr drain so the last result line is emitted before `exit`, but don't wait
+    // forever on a grandchild holding the pipes open.
+    if (this.openStreams === 0) this.finish();
+    else this.drainTimer = setTimeout(() => this.finish(), DRAIN_MS);
+  }
+
+  private streamClosed(): void {
+    this.openStreams -= 1;
+    if (this.openStreams <= 0 && this.childGone) this.finish();
+  }
+
+  private finish(): void {
+    if (this.exited || this.exitInfo === undefined) return;
+    clearTimeout(this.drainTimer);
+    this.emit({ kind: 'exit', ...this.exitInfo });
+    this.exited = true;
+    this.child.stdout.destroy();
+    this.child.stderr.destroy();
+  }
+
+  private emit(ev: DriverEvent): void {
+    if (this.exited) return;
+    for (const l of [...this.listeners]) {
+      try {
+        l(ev);
+      } catch {
+        // a throwing listener must not break the stream or the other listeners
+      }
+    }
+  }
+
+  toString(): string {
+    return `CliDriverSession(${this.bin}, ${this.id})`;
+  }
+}
+
+export function createCliDriver(opts: CliDriverOptions): CliDriver {
+  const bin = opts.claudeBin ?? process.env[CLAUDE_BIN_ENV] ?? 'claude';
+  const killGraceMs = opts.killGraceMs ?? DEFAULT_KILL_GRACE_MS;
+  const endGraceMs = opts.endGraceMs ?? DEFAULT_END_GRACE_MS;
+  return {
+    start(startOpts) {
+      return new Session(bin, startOpts, opts.outcomeServer, killGraceMs, endGraceMs);
+    },
+  };
+}

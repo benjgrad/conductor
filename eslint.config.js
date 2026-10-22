@@ -37,8 +37,9 @@ export default tseslint.config(
     rules: reactHooks.configs.recommended.rules,
   },
   {
-    // Root-level config files are not part of any tsconfig project.
-    files: ['*.js', '*.ts'],
+    // Root-level config files and executable JS test fixtures (e.g. the fake `claude` binary)
+    // are not part of any tsconfig project.
+    files: ['*.js', '*.ts', 'packages/*/test/fixtures/**/*.mjs'],
     ...tseslint.configs.disableTypeChecked,
   },
   prettier,

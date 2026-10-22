@@ -9,6 +9,7 @@ export * from './claude/fake-driver.js';
 export type * from './commands/runner.js';
 export * from './commands/fake-runner.js';
 export { createCommandRunner } from './commands/index.js';
+export * from './claude/index.js';
 
 // M1-T05a daemon core.
 export { Daemon, DAEMON_VERSION, type DaemonOptions } from './daemon.js';

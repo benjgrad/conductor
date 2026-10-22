@@ -1,8 +1,8 @@
 // Real driver + real outcome server against the process-boundary fake (test/fixtures/fake-claude.mjs).
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -253,6 +253,34 @@ describe('createCliDriver against fake-claude', () => {
     );
     expect(first?.cwd).toBe(realpathSync(dir)); // macOS tmpdir is a symlink
     expect(first?.env.PORT).toBe('41000');
+  });
+
+  it('M1-T14: the MCP URL token never appears in argv; it is in a 0600 file, removed on exit', async () => {
+    const s = driver().start(opts([[{ say: 'up' }, { hang: true }]]));
+    const t = track(s);
+    await t.waitFor((e) => e.kind === 'output' && e.text === 'up');
+
+    const [spawned] = argvLog();
+    const argv = spawned?.argv ?? [];
+    const cfgPath = argv[argv.indexOf('--mcp-config') + 1] ?? '';
+    const st = statSync(cfgPath);
+    expect(st.isFile()).toBe(true);
+    expect(st.mode & 0o777).toBe(0o600);
+    expect(statSync(dirname(cfgPath)).mode & 0o777).toBe(0o700);
+    const cfg = JSON.parse(readFileSync(cfgPath, 'utf8')) as {
+      mcpServers: { conductor: { url: string } };
+    };
+    const token = /\/mcp\/([a-f0-9]{32})$/.exec(cfg.mcpServers.conductor.url)?.[1] ?? '';
+    expect(token).toMatch(/^[a-f0-9]{32}$/);
+    for (const arg of argv) {
+      expect(arg).not.toContain(token);
+      expect(arg).not.toContain('mcpServers');
+    }
+
+    s.kill(1_000);
+    await t.exit();
+    expect(existsSync(cfgPath)).toBe(false);
+    expect(existsSync(dirname(cfgPath))).toBe(false);
   });
 
   it('resume continues the script and the cumulative spend (TD-001)', async () => {

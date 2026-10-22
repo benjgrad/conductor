@@ -5,7 +5,7 @@
 // cost are keyed by session id and persisted, so `--resume` continues the script and the spend).
 //
 // 1. Requires the ADR's mode flags (-p, stream-json in/out, --verbose) and reads
-//    --session-id / --resume and --mcp-config.
+//    --session-id / --resume and --mcp-config (JSON string or file path).
 // 2. Reads stream-json user messages from stdin. Per turn: system/init (session id,
 //    claude_code_version), the scripted assistant/tool lines, then result with a CUMULATIVE
 //    total_cost_usd.
@@ -74,11 +74,16 @@ const newId = flag('--session-id');
 if ((resumeId === undefined) === (newId === undefined))
   fail('expected exactly one of --session-id / --resume', 2);
 const sessionId = resumeId ?? newId;
+// Like the real CLI, --mcp-config is a JSON string or a path to a JSON file (the driver passes a
+// 0600 file since M1-T14, so the URL token stays out of argv).
 let mcpConfig = { mcpServers: {} };
 try {
-  if (flag('--mcp-config') !== undefined) mcpConfig = JSON.parse(flag('--mcp-config'));
+  const raw = flag('--mcp-config');
+  if (raw !== undefined) {
+    mcpConfig = JSON.parse(raw.trimStart().startsWith('{') ? raw : readFileSync(raw, 'utf8'));
+  }
 } catch {
-  fail('invalid --mcp-config JSON', 2);
+  fail('invalid --mcp-config (not JSON, nor a readable JSON file)', 2);
 }
 
 // 5. scenario + per-session state

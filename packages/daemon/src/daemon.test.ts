@@ -75,6 +75,7 @@ function makeDaemon(
     CONDUCTOR_PORT_POOL: '42000-42029',
     CONDUCTOR_MIN_FREE_MEM_MB: '1000',
     CONDUCTOR_WORK_POLL_MS: '60000',
+    CONDUCTOR_ALLOW_LOCAL_REPOS: '1', // the fixture origin is a local path (M1-T14)
     ...opts.env,
   });
   config.reconnect = { initialMs: 20, maxMs: 100, factor: 2 };

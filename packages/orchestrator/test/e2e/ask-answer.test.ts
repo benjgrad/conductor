@@ -107,6 +107,7 @@ function startDaemon(driver: FakeClaudeDriver): Daemon {
     CONDUCTOR_PORT_POOL: '43000-43029',
     CONDUCTOR_MIN_FREE_MEM_MB: '0',
     CONDUCTOR_WORK_POLL_MS: '100',
+    CONDUCTOR_ALLOW_LOCAL_REPOS: '1', // the fixture repo is a local path (M1-T14)
   });
   config.reconnect = { initialMs: 20, maxMs: 100, factor: 2 };
   config.endGraceMs = 200;

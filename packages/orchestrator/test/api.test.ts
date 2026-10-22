@@ -64,14 +64,12 @@ beforeEach(() => {
 });
 
 async function post(path: string, body?: unknown) {
-  const init: RequestInit =
-    body === undefined
-      ? { method: 'POST' }
-      : {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-        };
+  // Every POST carries the JSON content-type (M1-T14); no body is an empty one.
+  const init: RequestInit = {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  };
   const res = await fetch(base + path, init);
   return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 }

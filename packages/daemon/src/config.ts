@@ -49,6 +49,10 @@ export interface DaemonConfig {
   killGraceMs: number;
   gitName: string;
   gitEmail: string;
+  /** Clone absolute paths / `file://` repos (M1-T14). Default false; the E2E sets it. */
+  allowLocalRepos: boolean;
+  /** When non-empty, only these remote repo hosts are cloned (M1-T14). Default: any host. */
+  allowedRepoHosts: string[];
 }
 
 type Env = Record<string, string | undefined>;
@@ -70,6 +74,21 @@ function int(env: Env, name: string, fallback: number, min = 0): number {
 function str(env: Env, name: string, fallback: string): string {
   const raw = env[name];
   return raw === undefined || raw === '' ? fallback : raw;
+}
+
+function list(env: Env, name: string): string[] {
+  return str(env, name, '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter((t) => t !== '');
+}
+
+function bool(env: Env, name: string, fallback: boolean): boolean {
+  const raw = env[name];
+  if (raw === undefined || raw === '') return fallback;
+  if (/^(1|true|yes)$/i.test(raw)) return true;
+  if (/^(0|false|no)$/i.test(raw)) return false;
+  throw new Error(`${name}=${raw} is not a boolean (1/0, true/false)`);
 }
 
 export interface MachineFacts {
@@ -95,7 +114,8 @@ export function machineFacts(): MachineFacts {
  * CONDUCTOR_BUDGET_CPU, CONDUCTOR_BUDGET_MEM_MB, CONDUCTOR_MAX_SESSIONS,
  * CONDUCTOR_MAX_CONCURRENT_BUILDS (2), CONDUCTOR_PORT_POOL ("41000-48999"),
  * CONDUCTOR_PORT_RANGE_SIZE (10), CONDUCTOR_MIN_FREE_MEM_MB (512), CONDUCTOR_WORK_POLL_MS (5000),
- * CONDUCTOR_GIT_NAME, CONDUCTOR_GIT_EMAIL.
+ * CONDUCTOR_GIT_NAME, CONDUCTOR_GIT_EMAIL, CONDUCTOR_ALLOW_LOCAL_REPOS (1/true; default off),
+ * CONDUCTOR_ALLOWED_REPO_HOSTS (comma list; default any host).
  */
 export function loadConfig(
   env: Env = process.env,
@@ -140,10 +160,7 @@ export function loadConfig(
   ) {
     throw new Error(`CONDUCTOR_PORT_POOL=${pool} cannot hold one range of ${portPool.rangeSize}`);
   }
-  const tags = str(env, 'CONDUCTOR_TAGS', '')
-    .split(',')
-    .map((t) => t.trim())
-    .filter((t) => t !== '');
+  const tags = list(env, 'CONDUCTOR_TAGS');
   return {
     orchestratorUrl,
     rootDir: resolve(str(env, 'CONDUCTOR_ROOT', join(facts.home, '.conductor'))),
@@ -163,5 +180,7 @@ export function loadConfig(
     killGraceMs: 5_000,
     gitName: str(env, 'CONDUCTOR_GIT_NAME', 'conductor'),
     gitEmail: str(env, 'CONDUCTOR_GIT_EMAIL', 'conductor@localhost'),
+    allowLocalRepos: bool(env, 'CONDUCTOR_ALLOW_LOCAL_REPOS', false),
+    allowedRepoHosts: list(env, 'CONDUCTOR_ALLOWED_REPO_HOSTS').map((h) => h.toLowerCase()),
   };
 }

@@ -605,10 +605,12 @@ describe('outbox on register', () => {
 });
 
 describe('output', () => {
-  it('goes to the OutputBus ring', async () => {
+  it('goes to the OutputBus ring (for a session this connection owns, M1-T14)', async () => {
+    await ticket();
     const d = await registered();
-    const sid = randomUUID();
-    d.output(sid, 1, 'hello');
+    const { wa } = await claimAndDeliver(d);
+    const sid = wa.payload.session_id;
+    d.output(sid, wa.fencing_token, 'hello');
     await d.settle();
     expect(outputBus.snapshot(sid).map((c) => c.text)).toEqual(['hello']);
   });

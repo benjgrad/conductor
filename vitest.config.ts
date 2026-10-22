@@ -1,3 +1,4 @@
+import { defaultClientConditions, defaultServerConditions } from 'vite';
 import { defineConfig } from 'vitest/config';
 
 // One vitest project per workspace package. Workspace packages are resolved from source
@@ -13,9 +14,9 @@ const nodePackage = (name: string) => ({
 });
 
 export default defineConfig({
-  resolve: {
-    conditions: ['source'],
-  },
+  // vite 6 splits client and SSR resolution; vitest's node environment uses the SSR side.
+  resolve: { conditions: ['source', ...defaultClientConditions] },
+  ssr: { resolve: { conditions: ['source', ...defaultServerConditions] } },
   test: {
     exclude: ['**/node_modules/**', '**/dist/**', 'spikes/**'],
     projects: [

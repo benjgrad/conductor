@@ -9,6 +9,7 @@ export type * from './db/types.js';
 export { createDb, withTransaction, type Tx } from './db/index.js';
 // M1-T04b engine service (createEngineService, dispatcher, timeout sweep, prompt render).
 export * from './engine/index.js';
+export { createGateway } from './gateway/index.js';
 
 export function orchestratorHealth(): Health {
   return health(PACKAGE_NAME);

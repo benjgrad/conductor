@@ -91,6 +91,7 @@ Groups run in order A → A2 → B → C → D → E. Tasks within a group own d
   - `session_event` → `EngineService.applyEvent`.
   - `output` → `OutputBus`.
   - Dedupe on `(machine_id, seq)`.
+- **Owns (T12 contracts)**: `createGateway` in `packages/orchestrator/src/gateway/index.ts` (signature in `src/main.ts`), serving `API_PATHS.daemonWs` on the API's HTTP server. Writes `card.badge` rows only via `insertBoardEvents`. Orphan kills key on `APPLY_IGNORE_REASONS` `command_id_mismatch` ([10](../../design/10-contracts.md#orphaned-processes)).
 - **Acceptance**: integration tests with a fake daemon WS client against real Postgres: register → request_work → `work_assignment` and `start_session` delivered; a refused ack requeues; a duplicate seq is ignored; a stale fencing token is rejected with `kill`.
 
 ### M1-T01 · Monorepo scaffold
@@ -107,10 +108,12 @@ Groups run in order A → A2 → B → C → D → E. Tasks within a group own d
 
 ### M1-T04 · FSM engine
 - **Scope**: pure `apply(session, event) → {session, effects}` in `shared` covering agent/command/human/terminal types, retry counters, `attach: output`, `needs_input` with `return_to`, budget-exceeded routing; orchestrator wrapper doing the single-transaction write (event + session + outbox) and an outbox dispatcher.
+- **Owns (T12 contracts)**: `createEngineService` in `packages/orchestrator/src/engine/index.ts` (signature in `src/main.ts`; `startWorkers` runs the dispatcher and timeout sweep). Builds outbox rows with `commandPayloadForEffect`, sends with `commandEnvelopeForOutboxRow`, writes board rows only via `insertBoardEvents`, cards via `toBoardCard`. apply maintains `pending_answer` and `wall_seconds`, and follows the U-024 / U-025 rules ([10](../../design/10-contracts.md)).
 - **Acceptance**: unit tests enumerate every transition in `m1_basic` and `pr_flow` agent/command parts; property test: no event sequence leaves a session in an undefined state; integration test: crash after commit before send → dispatcher re-sends on restart.
 
 ### M1-T05 · Daemon core
 - **Scope**: config (orchestrator URL, root dir, budgets); WS client with reconnect/backoff; `register`, `heartbeat` (live cpu/mem/disk), `repo_inventory`; on `start_session` create worktree + per-session branch from shared clone, allocate port range, spawn Claude Code per ADR-0005, forward `output` and `session_event`s; `kill`; dedupe `command_id`.
+- **Owns (T12 contracts)**: dials `ws://<host>:<CONDUCTOR_PORT>` + `API_PATHS.daemonWs`; next `seq` = max(local + 1, `registered.last_seq` + 1); maps `start_session.tools` with `resolveToolPolicy`; wires `createCommandRunner` (T06, `daemon/src/commands/index.ts`), testing against `FakeCommandRunner`.
 - **Acceptance**: integration test with a fake orchestrator WS; a real-mode manual check documented in the task's QA notes.
 
 ### M1-T06 · Command states
@@ -119,10 +122,12 @@ Groups run in order A → A2 → B → C → D → E. Tasks within a group own d
 
 ### M1-T07 · complete_state / ask_user plumbing
 - **Scope**: per ADR-0005, the agent-facing tools; daemon → `session_event`; orchestrator → engine; answer path `send_input` back into the live session, and resume path if process is gone.
+- **Owns (T12 contracts)**: the orchestrator process entry `main()` in `packages/orchestrator/src/main.ts`: read env (`DATABASE_URL`, `CONDUCTOR_PORT`), import the T04/T11/T08 factories, `composeOrchestrator`, SIGINT/SIGTERM → `stop()`.
 - **Acceptance**: integration test: agent asks, input_request row created, answer posted via REST, agent receives it and continues.
 
 ### M1-T08 · Orchestrator API + SSE
 - **Scope**: REST from [03](../../design/03-protocols.md) needed for M1 (board, session detail, input, tickets create, workflows list/save); SSE board stream with Last-Event-ID replay; per-session output stream with ring buffer.
+- **Owns (T12 contracts)**: `createApi` in `packages/orchestrator/src/api/index.ts` (signature in `src/main.ts`). Cards via `toBoardCard`; ticket-create `card.upserted` via `insertBoardEvents`; non-applied results via `httpForApplyResult`; `/approve` body `ApproveSessionRequest`.
 - **Acceptance**: API tests; SSE reconnect test proves no missed events.
 
 ### M1-T09 · Web kanban

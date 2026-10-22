@@ -12,7 +12,7 @@ The exact shapes are zod schemas in `packages/shared` (M1-T12): `protocol/ws.ts`
 | GET | `/api/board` | Cards grouped by column (snapshot + `last_event_id`) |
 | GET | `/api/sessions/:id` | Detail: state, context, pending input request, recent output (ring buffer) |
 | POST | `/api/sessions/:id/input` | Answer the pending input request `{input_request_id, answer, goto?}` (`goto` = "skip to <state>"). Becomes the engine event `input.provided`. 409 if already answered |
-| POST | `/api/sessions/:id/approve` | Emits `ui.approve` (for `await_approval`-style event states) |
+| POST | `/api/sessions/:id/approve` | `{comment?}` → `external.event ui.approve` (for `await_approval`-style event states); 202, 409 `conflict` if not awaited. Error map: [10](10-contracts.md#rest-error-map) |
 | POST | `/api/sessions/:id/pause` · `/cancel` | Operator controls |
 | POST | `/api/tickets` | Create a ticket manually (v1 source, [U-003](../tracking/UNKNOWNS.md)) |
 | GET/POST | `/api/workflows` | List / save a new workflow version (validated on save) |
@@ -25,6 +25,8 @@ The exact shapes are zod schemas in `packages/shared` (M1-T12): `protocol/ws.ts`
 
 ## Daemon ↔ orchestrator (WebSocket)
 
+The daemon dials `ws://<host>:<CONDUCTOR_PORT>/ws/daemon` (`API_PATHS.daemonWs`; port default 7400), served by the same HTTP server as the API ([10](10-contracts.md#composition-root)).
+
 Every message is an envelope:
 
 ```json
@@ -33,7 +35,7 @@ Every message is an envelope:
 
 - `seq` is the per-daemon monotonic sequence. It is **required on `session_event`** (deduped on `(machine_id, seq)`), nullable on other daemon messages, and `null` on orchestrator messages.
 - `session_id` + `fencing_token` are required on session-scoped messages (`session_event`, `output`, and every orchestrator command) and `null` on machine-level ones.
-- Outbox commands (`start_session`, `run_cmd`, `send_input`, `kill`) carry `payload.command_id`. The daemon dedupes on it and answers with `command_ack`.
+- Outbox commands (`start_session`, `run_cmd`, `send_input`, `kill`) carry `payload.command_id`. The daemon dedupes on it and answers with `command_ack`. Their envelope `fencing_token` is the one stored on the outbox row (the session's token when the command was written), and the field-by-field effect mapping is in [10](10-contracts.md#effect--ws-fields).
 
 ### Daemon → orchestrator
 | type | payload | notes |
@@ -64,6 +66,6 @@ Every message is an envelope:
 ## Delivery guarantees
 
 - **Commands**: written to the `outbox` in the same transaction as the state change, and delivered **at least once** (outbox state machine: [10](10-contracts.md#outbox-state-machine)). Each carries `command_id`. The daemon keeps a dedupe set of recently seen `command_id`s, persisted to disk.
-- **Daemon events**: buffered on local disk with a per-daemon monotonic `seq`. On reconnect the daemon replays everything after `registered.last_seq`. The orchestrator dedupes on `(machine_id, seq)` with `machine.last_seq`: a guarded `UPDATE machine SET last_seq = $seq WHERE id = $m AND (last_seq IS NULL OR last_seq < $seq)` in the same transaction as the event's apply; row count 0 = duplicate, skipped ([10](10-contracts.md#daemon-seq-dedupe)).
+- **Daemon events**: buffered on local disk with a per-daemon monotonic `seq`. On reconnect the daemon replays everything after `registered.last_seq`. After each `registered`, its next `seq` is `max(local persisted seq + 1, registered.last_seq + 1)`, so a daemon that lost its local state never reuses a seq the orchestrator has already processed. The orchestrator dedupes on `(machine_id, seq)` with `machine.last_seq`: a guarded `UPDATE machine SET last_seq = $seq WHERE id = $m AND (last_seq IS NULL OR last_seq < $seq)` in the same transaction as the event's apply; row count 0 = duplicate, skipped ([10](10-contracts.md#daemon-seq-dedupe)).
 - **Fencing**: any `session_event` whose `fencing_token` is lower than `session.fencing_token` is rejected. The orchestrator answers with `kill`.
 - **Exactly-once state changes** come from the transactional engine apply. Side effects outside our DB need idempotency keys ([05](05-workflow-engine.md#idempotency)).

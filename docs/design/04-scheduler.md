@@ -83,6 +83,7 @@ A pull scheduler is greedy. A machine without the repo might grab a ticket a sec
 - Each heartbeat renews `lease_expires_at` for every session it lists, provided its token matches.
 - A **reaper** (periodic query, safe to run on any replica) finds sessions with `lease_expires_at < now() - grace` (grace **2 min**, which covers network blips). It marks them `lost`, writes an event, then **requeues**: a new assignment gets a higher `fencing_token`. It prefers resuming from `claude_session_id` when the branch was pushed. See [08](08-failure-modes.md#laptop-sleep).
 - Any event or ack carrying an older token is rejected, and the orchestrator sends `kill`.
+- **Heartbeat backstop**: a heartbeat that lists a session under a token lower than `session.fencing_token` gets the same direct `kill {target_command_id: null, reason: stale_fencing_token}` with the listed token in the envelope. It kills an orphan that sends no further events ([10](10-contracts.md#orphaned-processes)).
 - Fencing protects **our DB only**, not the git remote. That's why each session pushes to its **own branch name**.
 
 ## Parked sessions

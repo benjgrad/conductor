@@ -84,19 +84,21 @@ The lead session is the orchestrator. It delegates and integrates, and doesn't d
 - Prefer small PR-sized branches. One task, one branch.
 - Commit messages: conventional style (`feat(daemon): …`, `docs(design): …`), with the session's attribution trailer.
 - Remote: `origin` = github.com/benjgrad/conductor. Push task branches (`m<N>-t<NN>-*`) after QA. **Never push `main`**; Ben does that himself.
-- Toolchain on Ben's Mac: Node 20 (nvm) and pnpm 10 (global npm install; corepack is broken on this Node). There is no Docker runtime. Postgres 16 is Homebrew `postgresql@16`, which is keg-only: `/opt/homebrew/opt/postgresql@16/bin`.
+- Toolchain on Ben's Mac: Node 22 (`.nvmrc`; `.npmrc` `use-node-version=22.22.0` makes pnpm run scripts on Node 22 even if the shell's PATH has Node 20) and pnpm 10 (global npm install; never corepack). There is no Docker runtime. Postgres 16 is Homebrew `postgresql@16`, which is keg-only: `/opt/homebrew/opt/postgresql@16/bin`.
 
 ---
 
 ## Commands
 
-Verified in M1-T01 on Node 20.18 / pnpm 10. Keep this section in sync with `package.json` scripts.
+Verified in M1-T13 on Node 22.22 / pnpm 10 (TypeScript 7, vitest 5, vite 8, eslint 10). Keep this section in sync with `package.json` scripts.
 
 ```bash
 pnpm i                 # install (never corepack)
-pnpm db:up             # start Postgres 16 on localhost:54329: docker-compose if `docker info` works,
-                       #   else Homebrew postgresql@16 cluster in gitignored .pgdata/ (idempotent)
-pnpm db:down           # stop it (data kept; `rm -rf .pgdata` to reset the local cluster)
+pnpm db:up             # start Postgres 16 on localhost:54329: docker-compose if `docker info` works, else
+                       #   ONE shared Homebrew postgresql@16 cluster for all worktrees, data in
+                       #   ~/.local/share/conductor/pgdata (idempotent, safe to run concurrently)
+pnpm db:down           # stop it for every worktree (data kept; delete the pgdata dir to reset)
+scripts/db.sh status   # is it up?   scripts/db.sh url  # print the resolved DATABASE_URL
 pnpm db:migrate        # node-pg-migrate up, migrations in packages/orchestrator/migrations
 pnpm db:migrate down   # roll back one; `scripts/db.sh migrate create <name>` makes a new one
 pnpm build             # tsc -b (all packages) + vite build (web)
@@ -105,10 +107,10 @@ pnpm lint              # eslint (type-aware) + prettier --check
 pnpm format            # prettier --write
 pnpm test              # vitest, one project per package (DB tests need db:up)
 pnpm test:e2e          # placeholder until M1-T10 (orchestrator + daemon + fake Claude)
-scripts/ci.sh          # all gates, in order: install, typecheck, lint, test, build, test:e2e
+scripts/ci.sh          # all gates, in order: install, typecheck, lint, db:up, test, build, test:e2e
 ```
 
-`DATABASE_URL` defaults to `.env.example`'s value; copy it to `.env` to override. Workspace packages resolve each other from source in vitest/vite via the `source` export condition, so tests run without a build. `spikes/**` is outside the workspace, lint and typecheck.
+`DATABASE_URL` is resolved the same way by `scripts/db.sh` and `vitest.config.ts`: process env, else `.env`, else `.env.example`. The orchestrator itself reads only `process.env.DATABASE_URL`; whatever launches it sets it. DB tests never use that database directly: `useTestDatabase()` / `createTestDatabase()` in `packages/orchestrator/test/db.ts` create `conductor_test_<branch>_<random>` on the same server, migrate it, and drop it afterwards, so worktrees can run DB tests at the same time. `tsc` is TypeScript 7 (the `typescript7` alias); the `typescript` module is `@typescript/typescript6` because typescript-eslint needs the TS 6 JS API. Workspace packages resolve each other from source in vitest/vite via the `source` export condition, so tests run without a build. `spikes/**` is outside the workspace, lint and typecheck.
 
 Validate workflow JSON before the validator exists:
 ```bash

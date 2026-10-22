@@ -96,3 +96,12 @@ export const OUTPUT_TAIL_BYTES = 16 * 1024;
 
 /** Per-session terminal output ring buffer in the orchestrator (U-005, 10-contracts). */
 export const OUTPUT_RING_BYTES = 256 * 1024;
+
+/**
+ * The per-session git branch, set by the claim (T11) when it INSERTs the session row and sent to
+ * the daemon in WS `start_session.branch` (04, 10-contracts). `<session-short>` is the first 8
+ * characters of the session uuid.
+ */
+export function sessionBranch(ticketId: string, sessionId: string): string {
+  return `conductor/${ticketId}/${sessionId.slice(0, 8)}`;
+}

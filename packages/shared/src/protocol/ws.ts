@@ -135,9 +135,14 @@ const usage = z.object({
  * `heartbeat` come from the daemon itself.
  */
 export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
+  /**
+   * The Claude process for a `start_session` is running in its worktree. Emitted once per
+   * start_session (never for run_cmd). `command_id` is that start_session's command_id.
+   */
   z.object({
     kind: z.literal('started'),
     data: z.object({
+      command_id: UuidSchema,
       worktree_path: z.string(),
       branch: z.string(),
       port_range: z.object({
@@ -149,9 +154,17 @@ export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('claude_session_id'), data: z.object({ id: z.string() }) }),
   z.object({ kind: z.literal('complete_state'), data: z.object({ result: JsonObjectSchema }) }),
   z.object({ kind: z.literal('ask_user'), data: z.object({ question: z.string() }) }),
+  /**
+   * The Claude process exited. `command_id` is the start_session that spawned it, so a late exit
+   * from an earlier process is told apart from the current one (10-contracts).
+   */
   z.object({
     kind: z.literal('exit'),
-    data: z.object({ code: z.number().int().nullable(), signal: z.string().nullable() }),
+    data: z.object({
+      command_id: UuidSchema,
+      code: z.number().int().nullable(),
+      signal: z.string().nullable(),
+    }),
   }),
   z.object({
     kind: z.literal('cmd_exit'),
@@ -212,7 +225,10 @@ export type DaemonMessageType = DaemonToOrchestrator['type'];
 
 export const RegisteredPayloadSchema = z.object({
   machine_id: z.string(),
-  /** Highest daemon seq the orchestrator has stored; replay starts after it (null = none). */
+  /**
+   * `machine.last_seq`: highest daemon seq the orchestrator has processed; replay starts after it
+   * (null = none). Survives orchestrator restarts (02, 10-contracts §Daemon seq dedupe).
+   */
   last_seq: SeqSchema.nullable(),
   heartbeat_interval_ms: z.number().int().positive(),
 });
@@ -243,7 +259,7 @@ export const StartSessionPayloadSchema = z.object({
   repo: z.string(),
   /** Ref to branch from when the worktree doesn't exist yet. M1 default `HEAD` of the shared clone. */
   base_ref: z.string(),
-  /** Per-session branch `conductor/<ticket>/<session-short>` (04). */
+  /** `session.branch` = `sessionBranch(ticket_id, session_id)` (domain.ts, 04). */
   branch: z.string(),
   workflow_state: z.string(),
   /** First user message (the answer, when resuming after ask_user). */
@@ -280,7 +296,10 @@ export const RunCmdMessageSchema = msg('run_cmd', RunCmdPayloadSchema, orchSessi
 export const SendInputPayloadSchema = z.object({
   command_id: UuidSchema,
   input_request_id: UuidSchema,
-  /** Written to the live process as a user message. No live process → ack `no_live_process`. */
+  /**
+   * Written to the live process as a user message. No live process → ack `no_live_process`, which
+   * the gateway turns into EngineEvent `command.refused` (apply then resumes via start_session).
+   */
   text: z.string(),
 });
 export const SendInputMessageSchema = msg('send_input', SendInputPayloadSchema, orchSessionEnv);

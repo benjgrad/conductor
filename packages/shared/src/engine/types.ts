@@ -3,6 +3,7 @@ import {
   InputRequestKindSchema,
   IsoDateTimeSchema,
   JsonObjectSchema,
+  OutboxKindSchema,
   SessionStatusSchema,
   TicketStatusSchema,
   UuidSchema,
@@ -39,6 +40,20 @@ export const SessionSnapshotSchema = z.object({
   status: SessionStatusSchema,
   fencing_token: z.number().int().nonnegative(),
   claude_session_id: z.string().nullable(),
+  /**
+   * command_id of the current `start_session` (the agent process this visit owns). Written by the
+   * EngineService wrapper when it allocates a start_session effect's command_id (apply never
+   * assigns ids). apply ignores `session.started` / `agent.exited` whose command_id differs.
+   */
+  agent_command_id: UuidSchema.nullable(),
+  /**
+   * A live Claude process exists for `agent_command_id`. The wrapper sets it false when it
+   * allocates a start_session; apply sets it true on a matching `session.started` and false on a
+   * matching `agent.exited` or on `command.refused` with reason `no_live_process`. When false,
+   * apply answers an `input.provided` with start_session(resume_claude_session_id, prompt =
+   * answer) instead of send_input (10-contracts §Resume).
+   */
+  agent_process_live: z.boolean(),
   /** `"<from>-><goto>"` → times taken (05 §Retry loops). */
   retry_counters: z.record(z.string(), z.number().int().nonnegative()),
   /** state → times entered; the `visit_n` of idempotency keys (05 §Idempotency). */
@@ -66,13 +81,34 @@ export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;
 export const EngineEventSchema = z.discriminatedUnion('type', [
   /** O: the claim (T11) assigned the session to a machine. Enters `def.start` if not started. */
   z.object({ type: z.literal('session.assigned'), machine_id: z.string() }),
-  /** O: the daemon refused start_session (command_ack accepted=false). → queued, ticket ready. */
-  z.object({ type: z.literal('session.start_refused'), reason: z.string() }),
-  /** D `started`: worktree ready, process (or command) running. → running. */
+  /**
+   * O: the daemon refused an outbox command (`command_ack accepted=false`). T11 emits it for every
+   * refused ack, in the tx that marks the outbox row `failed`; T04's dispatcher emits it for a
+   * start_session ack timeout (reason `ack_timeout`). apply routing (10-contracts §Refusals):
+   * start_session → queued + ticket ready; send_input `no_live_process` → agent_process_live =
+   * false and re-answer via start_session(resume); run_cmd → outcome `fail`; kill → ignored.
+   */
+  z.object({
+    type: z.literal('command.refused'),
+    command_id: UuidSchema,
+    command_kind: OutboxKindSchema,
+    reason: z.string(),
+  }),
+  /**
+   * D `started` (emitted only for start_session, never run_cmd): worktree ready, Claude process
+   * running. → running, agent_process_live = true. Ignored unless `command_id` equals
+   * `agent_command_id`. The wrapper (not apply) UPDATEs session.worktree_path, branch and
+   * port_range (`[base, base+count)`) from it in the same transaction.
+   */
   z.object({
     type: z.literal('session.started'),
+    command_id: UuidSchema,
     worktree_path: z.string(),
     branch: z.string(),
+    port_range: z.object({
+      base: z.number().int().positive(),
+      count: z.number().int().positive(),
+    }),
   }),
   /** D `claude_session_id`. */
   z.object({ type: z.literal('agent.claude_session_id'), claude_session_id: z.string() }),
@@ -80,9 +116,15 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('agent.complete_state'), result: JsonObjectSchema }),
   /** D `ask_user`: outcome `ask_user`, input_request kind `agent_question`. */
   z.object({ type: z.literal('agent.ask_user'), question: z.string() }),
-  /** D `exit`: the Claude process exited. Without a prior complete_state this is outcome `fail`. */
+  /**
+   * D `exit`: the Claude process of start_session `command_id` exited. Ignored unless
+   * `command_id` equals `agent_command_id` (a late exit of an earlier visit's process). Otherwise
+   * agent_process_live = false; while `running` without a prior complete_state this is outcome
+   * `fail`; while parked (`needs_input`) it only clears agent_process_live.
+   */
   z.object({
     type: z.literal('agent.exited'),
+    command_id: UuidSchema,
     code: z.number().int().nullable(),
     signal: z.string().nullable(),
   }),
@@ -213,7 +255,7 @@ export const EffectSchema = z.discriminatedUnion('type', [
     from: SessionStatusSchema,
     to: SessionStatusSchema,
   }),
-  /** Internal: UPDATE ticket.status (e.g. done/failed on terminal, ready on start_refused). */
+  /** Internal: UPDATE ticket.status (e.g. done/failed on terminal, ready on a refused start_session). */
   z.object({ type: z.literal('ticket_status'), to: TicketStatusSchema }),
 ]);
 export type Effect = z.infer<typeof EffectSchema>;

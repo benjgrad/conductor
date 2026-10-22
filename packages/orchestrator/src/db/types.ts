@@ -32,6 +32,12 @@ export interface MachineRow {
   budget_mem_mb: number;
   max_sessions: number;
   max_concurrent_builds: number;
+  /**
+   * bigint: highest daemon `seq` processed for this machine (dedupe + `registered.last_seq`).
+   * Advanced by the gateway (T11) with a guarded UPDATE in the same tx as the event it dedupes
+   * (10-contracts §Daemon seq dedupe). null = nothing processed yet.
+   */
+  last_seq: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -87,6 +93,10 @@ export interface SessionRow {
   worktree_path: string | null;
   branch: string | null;
   claude_session_id: string | null;
+  /** uuid: command_id of the current start_session (written by the EngineService wrapper). */
+  agent_command_id: string | null;
+  /** A live Claude process exists for agent_command_id (SessionSnapshot.agent_process_live). */
+  agent_process_live: boolean;
   retry_counters: Record<string, number>;
   /** numeric. */
   spend_usd: string;
@@ -95,6 +105,7 @@ export interface SessionRow {
   /** numeric. */
   wall_seconds: string;
   context: Record<string, JsonObject>;
+  /** int4range `[base, base+count)` from session_event `started` (written by the wrapper). */
   port_range: string | null;
   /** State that routed into the current human state (05 §needs_input). */
   return_to: string | null;

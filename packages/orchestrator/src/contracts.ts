@@ -46,10 +46,17 @@ export type ApplyRejectReason =
 export type ApplyEventResult =
   | {
       status: 'applied';
-      /** The `event` row id (also the SSE id). */
+      /** The `event` row id of the engine event itself (type = EngineEvent.type). */
       eventId: number;
       snapshot: SessionSnapshot;
       effects: Effect[];
+      /**
+       * The board events written as `event` rows in this transaction, in id order (each backed
+       * by exactly one row, 10-contracts §Board events). Already published when the wrapper
+       * owned the transaction; when `opts.tx` was passed, the CALLER publishes them on the
+       * BoardBus after its COMMIT (and drops them on ROLLBACK).
+       */
+      boardEvents: BoardSseEvent[];
     }
   /** apply() returned `ignored` (stale timer, wrong status…). The event row is still written. */
   | { status: 'ignored'; eventId: number; reason: string; snapshot: SessionSnapshot }
@@ -58,9 +65,18 @@ export type ApplyEventResult =
 
 /**
  * The transactional shell around the pure `apply()` (05 §Execution). Implemented by M1-T04.
- * In one transaction: lock session → fencing check → apply → INSERT event, UPDATE session,
- * INSERT outbox rows / input_request / ticket status → COMMIT; then publish BoardBus events.
- * For `input.provided` it also checks the input_request is open and records the answer.
+ * In one transaction: lock session → fencing check → apply → INSERT the engine event row,
+ * UPDATE session, INSERT outbox rows / input_request / ticket status, INSERT one event row per
+ * board event → COMMIT; then publish the board events (unless `opts.tx` was passed).
+ * Wrapper-owned writes apply() can't do (10-contracts §EngineService wrapper):
+ * - assigns command_id / input_request_id; for a start_session effect also sets
+ *   session.agent_command_id = its command_id and agent_process_live = false;
+ * - on `session.started` (not ignored): UPDATE session.worktree_path, branch, port_range
+ *   (`[base, base+count)`);
+ * - on `input.provided`: checks the input_request is open, records answer / answered_by.
+ * Board events: `session_status` effect → `session.status` row, plus a separate `card.moved` row
+ * when columnFor changes; `create_input_request` → `input.requested`; `input.provided` →
+ * `input.answered`; then one `card.upserted` (last) if any BoardCard field changed.
  */
 export interface EngineService {
   applyEvent(
@@ -118,6 +134,7 @@ export class FakeEngineService implements EngineService {
       eventId: this.nextEventId++,
       snapshot: snap,
       effects: this.scripted.get(event.type) ?? [],
+      boardEvents: [],
     });
   }
 }
@@ -128,8 +145,26 @@ export type SendResult = 'sent' | 'not_connected';
 
 /**
  * How the outbox dispatcher (T04) reaches daemons. Implemented over live WS sockets by T11.
- * `send` resolves once the frame is written, not when acked: the gateway marks the outbox row
- * `acked` on `command_ack`. `not_connected` leaves the row `pending` for a later retry.
+ * `send` resolves once the frame is written, not when acked.
+ *
+ * Outbox state machine (10-contracts §Outbox). `status` writes are partitioned; every UPDATE is
+ * guarded so neither side can overwrite the other's terminal state:
+ * - Dispatcher (T04) picks `status IN ('pending','sent') AND next_attempt_at <= now()` for
+ *   connected targets, sends, then `UPDATE outbox SET status='sent', attempts=attempts+1,
+ *   next_attempt_at = now() + backoff WHERE id=$1 AND status IN ('pending','sent')`
+ *   (backoff after the n-th send: 5, 10, 20, 40, then 60 s). `not_connected` changes nothing. Re-sending a
+ *   `sent` row is safe: the daemon dedupes on command_id and re-acks.
+ * - Dispatcher ack timeout (04's 30 s): a start_session that is due again with `status='sent'
+ *   AND attempts >= 3` (sent at 0, 5, 15 s; due at 35 s) is not re-sent but → `SET status='failed',
+ *   last_error='ack_timeout' WHERE id=$1 AND status='sent'`, and (row count 1)
+ *   applyEvent(command.refused{reason:'ack_timeout'}, {tx}) in the same tx. Other kinds keep
+ *   being re-sent; a dead machine is handled by the lease reaper.
+ * - Gateway (T11) on command_ack, by command_id: `SET status = accepted ? 'acked' : 'failed',
+ *   last_error = reason WHERE command_id=$1 AND status IN ('pending','sent')`. Row count 0 →
+ *   duplicate/late ack, ignored. A refused ack (row count 1) applies `command.refused` in the
+ *   same tx. `acked` and `failed` are terminal.
+ * - Gateway on `register`: `SET next_attempt_at = now() WHERE target = 'machine:<id>' AND status
+ *   IN ('pending','sent')` so the dispatcher re-sends promptly after a reconnect.
  */
 export interface OutboxTransport {
   send(machineId: string, message: OrchestratorToDaemon): Promise<SendResult>;

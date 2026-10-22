@@ -59,6 +59,51 @@ describe('engine contract', () => {
   });
 });
 
+describe('process correlation and refusals', () => {
+  const cmd = '5e4d3c2b-1a09-4f8e-b7d6-c5b4a3928170';
+
+  it('command.refused carries command_id, command_kind and reason (replaces start_refused)', () => {
+    const types = EngineEventSchema.options.map((o) => o.shape.type.value);
+    expect(types).not.toContain('session.start_refused');
+    expect(
+      EngineEventSchema.parse({
+        type: 'command.refused',
+        command_id: cmd,
+        command_kind: 'send_input',
+        reason: 'no_live_process',
+      }),
+    ).toMatchObject({ command_kind: 'send_input' });
+    expect(
+      EngineEventSchema.safeParse({ type: 'command.refused', command_id: cmd, reason: 'x' })
+        .success,
+    ).toBe(false);
+  });
+
+  it('session.started and agent.exited require the start_session command_id', () => {
+    const started = {
+      type: 'session.started',
+      command_id: cmd,
+      worktree_path: '/wt',
+      branch: 'b',
+      port_range: { base: 41000, count: 10 },
+    };
+    expect(EngineEventSchema.parse(started)).toEqual(started);
+    expect(EngineEventSchema.safeParse({ ...started, command_id: undefined }).success).toBe(false);
+    expect(EngineEventSchema.safeParse({ ...started, port_range: undefined }).success).toBe(false);
+    expect(
+      EngineEventSchema.safeParse({ type: 'agent.exited', code: 0, signal: null }).success,
+    ).toBe(false);
+  });
+
+  it('snapshot tracks the current agent process', () => {
+    expect(SNAPSHOT_FIXTURE.agent_command_id).toBe(cmd);
+    expect(SNAPSHOT_FIXTURE.agent_process_live).toBe(true);
+    const noLive: Partial<typeof SNAPSHOT_FIXTURE> = { ...SNAPSHOT_FIXTURE };
+    delete noLive.agent_process_live;
+    expect(SessionSnapshotSchema.safeParse(noLive).success).toBe(false);
+  });
+});
+
 describe('spend (cumulative per claude_session_id)', () => {
   const s0 = { spend_usd: 0, claude_spend_totals: {} as Record<string, number> };
 

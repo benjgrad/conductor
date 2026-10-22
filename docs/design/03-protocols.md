@@ -19,7 +19,7 @@ The exact shapes are zod schemas in `packages/shared` (M1-T12): `protocol/ws.ts`
 | GET | `/api/machines` | Fleet view |
 
 ### SSE
-- `GET /api/stream/board` gives board-level events only (`card.moved`, `session.status`, `input.requested`, `input.answered`, `card.badge`). Each frame's `id` is the `event` table id. Reconnects send `Last-Event-ID`, and the server replays from the `event` table. The SSE event `input.answered` is distinct from the engine event `input.provided` on purpose.
+- `GET /api/stream/board` gives board-level events only (`card.upserted`, `card.moved`, `session.status`, `input.requested`, `input.answered`, `card.badge`). Each one is backed by exactly one `event` row (row `type` = SSE type, `payload` = the event minus `id`/`ts`/`session_id`), and the frame's `id` is that row's id. Reconnects send `Last-Event-ID`, and the server replays board-typed rows from the `event` table ([10](10-contracts.md#board-events-and-the-event-table)). `card.upserted` carries the whole card (new tickets, claims, state/spend changes); the client keeps one card per `ticket_id`. The SSE event `input.answered` is distinct from the engine event `input.provided` on purpose.
 - `card.badge` toggles a card badge (`waiting_for_build_slot`). A badge is not a session status.
 - `GET /api/stream/sessions/:id/output` streams terminal output for **the one open session**. On connect it replays the ring buffer, then sends live chunks. Output never reaches browsers that aren't looking at it.
 
@@ -46,7 +46,7 @@ Every message is an envelope:
 | `session_event` | `{kind, data}` where kind ∈ `started`, `claude_session_id`, `complete_state`, `ask_user`, `exit`, `cmd_exit`, `spend`, `build_slot`, `heartbeat` | carries `seq`, durable outcomes |
 | `output` | `{stream, text, ts}` terminal chunk | not persisted to Postgres; goes into the per-session ring (256 KB) |
 
-`session_event` kinds come from the [ADR-0005](../adr/0005-claude-code-driver.md) driver: `claude_session_id`, `ask_user`, `complete_state`, `spend` and `exit` are the driver's events forwarded as-is (snake_cased). The driver's `output` goes to the `output` message, and its `turn_end` stays in the daemon. The daemon itself produces `started` (worktree, branch, port range), `cmd_exit` (`{command_id, exit_code, signal, timed_out, duration_ms, output_tail}`, tail ≤ 16 KB), `build_slot` (`{waiting}`: the command is queued on the build semaphore; a card badge, not a status) and `heartbeat`.
+`session_event` kinds come from the [ADR-0005](../adr/0005-claude-code-driver.md) driver: `claude_session_id`, `ask_user`, `complete_state`, `spend` and `exit` are the driver's events forwarded as-is (snake_cased); `exit` also carries the `command_id` of the `start_session` that spawned the process, so a late exit of an earlier process is told apart from the current one. The driver's `output` goes to the `output` message, and its `turn_end` stays in the daemon. The daemon itself produces `started` (`{command_id, worktree_path, branch, port_range}`, only for `start_session`, never for `run_cmd`), `cmd_exit` (`{command_id, exit_code, signal, timed_out, duration_ms, output_tail}`, tail ≤ 16 KB), `build_slot` (`{waiting}`: the command is queued on the build semaphore; a card badge, not a status) and `heartbeat`.
 
 **`spend` is cumulative.** `data = {claude_session_id, total_usd, usage}`. `total_usd` is the Claude session's cumulative cost, and it survives `--resume`. The orchestrator stores the last total per `claude_session_id` in `session.claude_spend_totals` ([02](02-data-model.md#session)) and adds only the positive delta to `session.spend_usd`, so replays and duplicates are harmless.
 
@@ -63,7 +63,7 @@ Every message is an envelope:
 
 ## Delivery guarantees
 
-- **Commands**: written to the `outbox` in the same transaction as the state change, and delivered **at least once**. Each carries `command_id`. The daemon keeps a dedupe set of recently seen `command_id`s, persisted to disk.
-- **Daemon events**: buffered on local disk with a per-daemon monotonic `seq`. On reconnect the daemon replays everything after the orchestrator's last acknowledged `seq`. The orchestrator dedupes on `(machine_id, seq)`.
+- **Commands**: written to the `outbox` in the same transaction as the state change, and delivered **at least once** (outbox state machine: [10](10-contracts.md#outbox-state-machine)). Each carries `command_id`. The daemon keeps a dedupe set of recently seen `command_id`s, persisted to disk.
+- **Daemon events**: buffered on local disk with a per-daemon monotonic `seq`. On reconnect the daemon replays everything after `registered.last_seq`. The orchestrator dedupes on `(machine_id, seq)` with `machine.last_seq`: a guarded `UPDATE machine SET last_seq = $seq WHERE id = $m AND (last_seq IS NULL OR last_seq < $seq)` in the same transaction as the event's apply; row count 0 = duplicate, skipped ([10](10-contracts.md#daemon-seq-dedupe)).
 - **Fencing**: any `session_event` whose `fencing_token` is lower than `session.fencing_token` is rejected. The orchestrator answers with `kill`.
 - **Exactly-once state changes** come from the transactional engine apply. Side effects outside our DB need idempotency keys ([05](05-workflow-engine.md#idempotency)).

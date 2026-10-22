@@ -17,6 +17,8 @@ export const SNAPSHOT_FIXTURE: SessionSnapshot = {
   status: 'running',
   fencing_token: 1,
   claude_session_id: null,
+  agent_command_id: '5e4d3c2b-1a09-4f8e-b7d6-c5b4a3928170',
+  agent_process_live: true,
   retry_counters: {},
   state_visits: { implement: 1 },
   state_entered_at: '2026-10-22T12:00:00.000Z',

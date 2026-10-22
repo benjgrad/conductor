@@ -4,10 +4,14 @@ import { BOARD_SSE_FIXTURES, OUTPUT_CHUNK_FIXTURE } from './fixtures.js';
 import { BOARD_COLUMNS, columnFor, CreateTicketRequestSchema } from './rest.js';
 import {
   BOARD_SSE_EVENT_TYPES,
+  boardSseEventFromRow,
+  boardSseEventToRow,
   BoardSseEventSchema,
   encodeSseFrame,
   OutputChunkSchema,
+  type BoardSseEvent,
 } from './sse.js';
+import { sessionBranch } from '../domain.js';
 
 describe('SSE fixtures', () => {
   it('has one fixture per board event type', () => {
@@ -28,6 +32,70 @@ describe('SSE fixtures', () => {
       'id: 7\nevent: card.moved\ndata: {"a":1}\n\n',
     );
     expect(encodeSseFrame('output', { a: 1 })).toBe('event: output\ndata: {"a":1}\n\n');
+  });
+});
+
+describe('board event ⇄ event row (one row per SSE event)', () => {
+  it.each(Object.entries(BOARD_SSE_FIXTURES))('%s survives toRow → INSERT → fromRow', (_t, fx) => {
+    const { id, ts, ...draft }: BoardSseEvent = fx;
+    const row = boardSseEventToRow(draft);
+    expect(row.type).toBe(fx.type);
+    expect(row.session_id).toBe(fx.session_id);
+    expect(row.payload).not.toHaveProperty('id');
+    expect(row.payload).not.toHaveProperty('ts');
+    expect(row.payload).not.toHaveProperty('session_id');
+    expect(row.payload).not.toHaveProperty('type');
+    // As node-postgres returns it: bigserial → string, timestamptz → Date, jsonb → object.
+    const pgRow = {
+      ...row,
+      id: String(id),
+      ts: new Date(ts),
+      payload: JSON.parse(JSON.stringify(row.payload)) as unknown,
+    };
+    expect(boardSseEventFromRow(pgRow)).toEqual(fx);
+  });
+
+  it('returns null for non-board rows', () => {
+    expect(
+      boardSseEventFromRow({
+        id: '1',
+        session_id: null,
+        type: 'state.entered',
+        payload: {},
+        ts: new Date(),
+      }),
+    ).toBeNull();
+  });
+
+  it('throws on a malformed board row', () => {
+    expect(() =>
+      boardSseEventFromRow({
+        id: '1',
+        session_id: null,
+        type: 'card.badge',
+        payload: {},
+        ts: new Date(),
+      }),
+    ).toThrow();
+  });
+
+  it('allows a sessionless card.upserted but not a sessionless card.moved', () => {
+    expect(BOARD_SSE_FIXTURES['card.upserted'].session_id).toBeNull();
+    expect(
+      BoardSseEventSchema.safeParse({ ...BOARD_SSE_FIXTURES['card.moved'], session_id: null })
+        .success,
+    ).toBe(false);
+    expect(
+      BoardSseEventSchema.safeParse({ ...BOARD_SSE_FIXTURES['card.moved'], from: null }).success,
+    ).toBe(false);
+  });
+});
+
+describe('sessionBranch', () => {
+  it('is conductor/<ticket>/<first 8 of session>', () => {
+    expect(
+      sessionBranch('0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2', '7d0c5b1e-3f4a-4b7e-9c2d-1a2b3c4d5e6f'),
+    ).toBe('conductor/0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2/7d0c5b1e');
   });
 });
 

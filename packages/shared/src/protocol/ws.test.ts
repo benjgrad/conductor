@@ -67,6 +67,16 @@ describe('WS envelope rules', () => {
     expect(DaemonToOrchestratorSchema.safeParse(bad).success).toBe(false);
   });
 
+  it.each(['started', 'exit'] as const)(
+    'rejects session_event %s without the start_session command_id',
+    (kind) => {
+      const data: Record<string, unknown> = { ...SESSION_EVENT_FIXTURES[kind].data };
+      delete data.command_id;
+      const bad = { ...DAEMON_FIXTURES.session_event, payload: { kind, data } };
+      expect(DaemonToOrchestratorSchema.safeParse(bad).success).toBe(false);
+    },
+  );
+
   it('rejects a session-scoped orchestrator command without session_id', () => {
     const bad = { ...ORCHESTRATOR_FIXTURES.run_cmd, session_id: null };
     expect(OrchestratorToDaemonSchema.safeParse(bad).success).toBe(false);

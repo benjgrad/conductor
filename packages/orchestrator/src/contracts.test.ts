@@ -33,6 +33,7 @@ describe('FakeEngineService', () => {
     if (r.status === 'applied') {
       expect(r.eventId).toBe(1);
       expect(r.effects).toHaveLength(1);
+      expect(r.boardEvents).toEqual([]);
     }
     expect(engine.calls).toHaveLength(1);
   });

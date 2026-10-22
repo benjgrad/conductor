@@ -13,7 +13,7 @@ import {
   type SessionStatus,
 } from '../domain.js';
 import { WorkflowDefinitionSchema } from '../workflow/schema.js';
-import { OutputChunkSchema } from './sse.js';
+import { OutputChunkSchema } from './output.js';
 
 // REST DTOs for UI ↔ orchestrator (03 §REST). Implemented by M1-T08, consumed by M1-T09.
 

@@ -38,15 +38,16 @@ export const SESSION_EVENT_FIXTURES: {
   started: {
     kind: 'started',
     data: {
+      command_id: FIXTURE_IDS.command,
       worktree_path: '/Users/ben/.conductor/wt/7d0c5b1e',
-      branch: 'conductor/0b6f2a7c/7d0c5b1e',
+      branch: 'conductor/0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2/7d0c5b1e',
       port_range: { base: 41000, count: 10 },
     },
   },
   claude_session_id: { kind: 'claude_session_id', data: { id: FIXTURE_IDS.claudeSession } },
   complete_state: { kind: 'complete_state', data: { result: { summary: 'added endpoint' } } },
   ask_user: { kind: 'ask_user', data: { question: 'Which DB should I target?' } },
-  exit: { kind: 'exit', data: { code: 0, signal: null } },
+  exit: { kind: 'exit', data: { command_id: FIXTURE_IDS.command, code: 0, signal: null } },
   cmd_exit: {
     kind: 'cmd_exit',
     data: {
@@ -228,7 +229,7 @@ export const ORCHESTRATOR_FIXTURES: {
       ticket_id: FIXTURE_IDS.ticket,
       repo: 'github.com/benjgrad/fixture-app',
       base_ref: 'HEAD',
-      branch: 'conductor/0b6f2a7c/7d0c5b1e',
+      branch: 'conductor/0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2/7d0c5b1e',
       workflow_state: 'implement',
       prompt: 'Implement ticket: Add /health endpoint',
       tools: ['edit', 'bash', 'git'],

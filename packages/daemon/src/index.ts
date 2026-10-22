@@ -7,6 +7,8 @@ export const PACKAGE_NAME = '@conductor/daemon';
 export type * from './claude/driver.js';
 export * from './claude/fake-driver.js';
 export type * from './commands/runner.js';
+export * from './commands/fake-runner.js';
+export { createCommandRunner } from './commands/index.js';
 
 export function daemonHealth(): Health {
   return health(PACKAGE_NAME);

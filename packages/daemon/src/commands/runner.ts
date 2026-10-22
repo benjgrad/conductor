@@ -1,6 +1,7 @@
 // Command-state runner contract (M1-T12). Implemented by M1-T06; the daemon core (T05) calls it
 // for WS `run_cmd` and turns the result into session_event `cmd_exit` (+ `build_slot` while
-// queued, + `output` chunks). Interface only.
+// queued, + `output` chunks). Interface + factory type here; T06 implements `createCommandRunner`
+// in commands/index.ts (placeholder until then); `FakeCommandRunner` (fake-runner.ts) for T05.
 
 export interface CommandOutputChunk {
   stream: 'stdout' | 'stderr';
@@ -49,3 +50,9 @@ export interface CommandRunner {
   /** Never rejects for a failing command; rejects only if the process could not be spawned. */
   run(opts: RunCommandOptions): Promise<CommandResult>;
 }
+
+/** M1-T06 implements it (commands/index.ts); T05 calls it once with the registered budget. */
+export type CreateCommandRunner = (opts: {
+  /** `machine.max_concurrent_builds` (the build semaphore size). */
+  maxConcurrent: number;
+}) => CommandRunner;

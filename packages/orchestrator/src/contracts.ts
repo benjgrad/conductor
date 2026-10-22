@@ -1,14 +1,24 @@
 import {
   OUTPUT_RING_BYTES,
+  boardSseEventFromRow,
+  boardSseEventToRow,
+  OrchestratorToDaemonSchema,
+  type ApplyIgnoreReason,
+  type ApplyRejectReason,
   type BoardSseEvent,
+  type BoardSseEventDraft,
   type Effect,
   type EngineEvent,
+  type OrchestratorCommand,
   type OrchestratorToDaemon,
   type OutputChunk,
   type OutputStream,
   type SessionSnapshot,
 } from '@conductor/shared';
 import type { QueryResult, QueryResultRow } from 'pg';
+import type { OutboxRow } from './db/types.js';
+
+export type { ApplyIgnoreReason, ApplyRejectReason } from '@conductor/shared';
 
 // Orchestrator-internal seams (M1-T12). Producers/consumers: docs/design/10-contracts.md.
 // Each interface has an in-memory implementation here for tests of the code on the other side.
@@ -36,13 +46,6 @@ export interface ApplyEventOptions {
   actor?: string;
 }
 
-export type ApplyRejectReason =
-  | 'unknown_session'
-  | 'stale_fencing_token'
-  | 'input_request_not_found'
-  | 'input_already_answered'
-  | 'invalid_goto';
-
 export type ApplyEventResult =
   | {
       status: 'applied';
@@ -59,7 +62,7 @@ export type ApplyEventResult =
       boardEvents: BoardSseEvent[];
     }
   /** apply() returned `ignored` (stale timer, wrong status…). The event row is still written. */
-  | { status: 'ignored'; eventId: number; reason: string; snapshot: SessionSnapshot }
+  | { status: 'ignored'; eventId: number; reason: ApplyIgnoreReason; snapshot: SessionSnapshot }
   /** Nothing written. */
   | { status: 'rejected'; reason: ApplyRejectReason };
 
@@ -74,8 +77,12 @@ export type ApplyEventResult =
  * - on `session.started` (not ignored): UPDATE session.worktree_path, branch, port_range
  *   (`[base, base+count)`);
  * - on `input.provided`: checks the input_request is open, records answer / answered_by;
- * - on `command.refused` for a start_session: bumps session.fencing_token (nextval) so every
- *   event from a process that command spawned anyway is stale (10-contracts §Orphaned processes).
+ * - on `command.refused` for a start_session that apply did NOT ignore: bumps
+ *   session.fencing_token (nextval('fencing_seq')) so every event from a process that command
+ *   spawned anyway is stale (10-contracts §Orphaned processes);
+ * - builds each outbox row's payload with `commandPayloadForEffect` and stores
+ *   `outbox.fencing_token` = the session's token after apply;
+ * - writes board rows only through `insertBoardEvents` (advisory-locked, last in the tx).
  * An ignored `session.started` comes back as `{status:'ignored', reason:'command_id_mismatch'}`;
  * the gateway (T11) then sends `kill {target_command_id: started.command_id}` after the commit.
  * Board events: `session_status` effect → `session.status` row, plus a separate `card.moved` row
@@ -90,16 +97,26 @@ export interface EngineService {
   ): Promise<ApplyEventResult>;
 }
 
+/** A scripted EngineService answer; return undefined to fall through to the default behaviour. */
+export type FakeEngineResponder = (call: {
+  sessionId: string;
+  event: EngineEvent;
+  opts: ApplyEventOptions;
+  snapshot: SessionSnapshot | undefined;
+}) => ApplyEventResult | undefined | Promise<ApplyEventResult | undefined>;
+
 /**
  * In-memory EngineService for T08/T11 tests. Records every call; does not run apply().
- * Seed sessions with `seed()`; script results per event type with `respond()`.
+ * Seed sessions with `seed()`; script effects per event type with `respond()`, or any result
+ * (ignored, rejected, boardEvents…) with `respondWith()`.
  */
 export class FakeEngineService implements EngineService {
   readonly calls: { sessionId: string; event: EngineEvent; opts: ApplyEventOptions }[] = [];
   private readonly sessions = new Map<string, SessionSnapshot>();
   private readonly scripted = new Map<EngineEvent['type'], Effect[]>();
   private readonly answered = new Set<string>();
-  private nextEventId = 1;
+  private responders: FakeEngineResponder[] = [];
+  private eventIdSeq = 1;
 
   seed(snapshot: SessionSnapshot): this {
     this.sessions.set(snapshot.id, snapshot);
@@ -116,13 +133,38 @@ export class FakeEngineService implements EngineService {
     return this;
   }
 
-  applyEvent(
+  /**
+   * Script any result. Responders run newest first, before the default behaviour; the first
+   * non-undefined answer wins. `nextEventId()` gives an id for hand-built results.
+   */
+  respondWith(fn: FakeEngineResponder): this {
+    this.responders.unshift(fn);
+    return this;
+  }
+
+  nextEventId(): number {
+    return this.eventIdSeq++;
+  }
+
+  async applyEvent(
     sessionId: string,
     event: EngineEvent,
     opts: ApplyEventOptions = {},
   ): Promise<ApplyEventResult> {
     this.calls.push({ sessionId, event, opts });
     const snap = this.sessions.get(sessionId);
+    for (const r of this.responders) {
+      const out = await r({ sessionId, event, opts, snapshot: snap });
+      if (out !== undefined) return out;
+    }
+    return this.defaultApply(event, opts, snap);
+  }
+
+  private defaultApply(
+    event: EngineEvent,
+    opts: ApplyEventOptions,
+    snap: SessionSnapshot | undefined,
+  ): Promise<ApplyEventResult> {
     if (!snap) return Promise.resolve({ status: 'rejected', reason: 'unknown_session' });
     if (opts.fencingToken !== undefined && opts.fencingToken < snap.fencing_token) {
       return Promise.resolve({ status: 'rejected', reason: 'stale_fencing_token' });
@@ -135,12 +177,76 @@ export class FakeEngineService implements EngineService {
     }
     return Promise.resolve({
       status: 'applied',
-      eventId: this.nextEventId++,
+      eventId: this.eventIdSeq++,
       snapshot: snap,
       effects: this.scripted.get(event.type) ?? [],
       boardEvents: [],
     });
   }
+}
+
+// ================================================================== board-event rows
+
+/**
+ * pg_advisory_xact_lock key that serialises every board-event INSERT (10-contracts §Board events).
+ * Arbitrary constant ("CNDB" in ASCII); never reuse it for another lock.
+ */
+export const BOARD_EVENT_LOCK_KEY = 0x434e4442;
+
+/**
+ * The ONLY way to write board-event rows (T04 wrapper, T08 ticket create, T11 `card.badge`).
+ * Takes `pg_advisory_xact_lock(BOARD_EVENT_LOCK_KEY)` before the first INSERT and holds it to
+ * COMMIT/ROLLBACK, so board-event transactions commit in `event.id` order and a Last-Event-ID
+ * replay (`id > $1`) can never skip a row committed later with a lower id. Call it as the LAST
+ * write of the transaction to keep the lock short. Returns the publishable events in id order;
+ * publish them after COMMIT. `tx` must be inside an open transaction.
+ */
+export async function insertBoardEvents(
+  tx: Queryable,
+  drafts: readonly BoardSseEventDraft[],
+): Promise<BoardSseEvent[]> {
+  if (drafts.length === 0) return [];
+  await tx.query('SELECT pg_advisory_xact_lock($1)', [BOARD_EVENT_LOCK_KEY]);
+  const out: BoardSseEvent[] = [];
+  for (const draft of drafts) {
+    const row = boardSseEventToRow(draft);
+    const res = await tx.query<{
+      id: string;
+      session_id: string | null;
+      type: string;
+      payload: unknown;
+      ts: Date;
+    }>(
+      'INSERT INTO event (session_id, type, payload) VALUES ($1, $2, $3) ' +
+        'RETURNING id, session_id, type, payload, ts',
+      [row.session_id, row.type, JSON.stringify(row.payload)],
+    );
+    const ev = boardSseEventFromRow(res.rows[0]!);
+    if (ev === null) throw new Error(`insertBoardEvents: ${row.type} is not a board event`);
+    out.push(ev);
+  }
+  return out;
+}
+
+// ================================================================== outbox → WS
+
+/**
+ * Wrap an outbox row in its WS envelope (T04 dispatcher). `payload` is stored verbatim
+ * (`commandPayloadForEffect`); the envelope carries the ROW's `fencing_token` (the session's
+ * token when the command was written), never the session's current one (10-contracts
+ * §Effect → WS). Throws for `connector_call` rows and on a payload that fails the schema.
+ */
+export function commandEnvelopeForOutboxRow(row: OutboxRow, msgId: string): OrchestratorCommand {
+  if (row.kind === 'connector_call') throw new Error('connector_call rows have no WS message');
+  const msg = OrchestratorToDaemonSchema.parse({
+    type: row.kind,
+    msg_id: msgId,
+    seq: null,
+    session_id: row.session_id,
+    fencing_token: row.fencing_token === null ? null : Number(row.fencing_token),
+    payload: row.payload,
+  });
+  return msg as OrchestratorCommand;
 }
 
 // ================================================================== OutboxTransport
@@ -154,7 +260,9 @@ export type SendResult = 'sent' | 'not_connected';
  * Outbox state machine (10-contracts §Outbox). `status` writes are partitioned; every UPDATE is
  * guarded so neither side can overwrite the other's terminal state:
  * - Dispatcher (T04) picks `status IN ('pending','sent') AND next_attempt_at <= now()` for
- *   connected targets, sends, then `UPDATE outbox SET status='sent', attempts=attempts+1,
+ *   connected targets. A row whose `fencing_token` < the session's current token is not sent:
+ *   `SET status='failed', last_error='stale_fencing_token' WHERE id=$1 AND status IN
+ *   ('pending','sent')` (no engine event). Otherwise it sends `commandEnvelopeForOutboxRow`, then `UPDATE outbox SET status='sent', attempts=attempts+1,
  *   next_attempt_at = now() + backoff WHERE id=$1 AND status IN ('pending','sent')`
  *   (backoff after the n-th send: 5, 10, 20, 40, then 60 s). `not_connected` changes nothing. Re-sending a
  *   `sent` row is safe: the daemon dedupes on command_id and re-acks.
@@ -168,7 +276,9 @@ export type SendResult = 'sent' | 'not_connected';
  *   last_error = reason WHERE command_id=$1 AND status IN ('pending','sent')`. A refused ack
  *   (row count 1) applies `command.refused` in the same tx. Row count 0 → duplicate/late ack,
  *   ignored, EXCEPT accepted=true for a start_session row already `failed` (ack timeout won the
- *   race): the daemon spawned an orphan, so send a direct `kill {command_id: null,
+ *   race) whose command_id is no longer `session.agent_command_id` (when it still is, the
+ *   refusal was ignored because `started` arrived first: the process is owned, U-025): the
+ *   daemon spawned an orphan, so send a direct `kill {command_id: null,
  *   target_command_id: <that command_id>, reason: 'ack_timeout'}` to the acking machine
  *   (10-contracts §Orphaned processes). `acked` and `failed` are terminal.
  * - Gateway on `register`: `SET next_attempt_at = now(), attempts = CASE WHEN kind =

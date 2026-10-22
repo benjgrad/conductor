@@ -5,6 +5,8 @@
 // Mapping to WS session_event kinds (03): `claude_session_id`, `ask_user`, `complete_state`,
 // `spend` and `exit` are forwarded as-is (snake_cased; `spend` gains `claude_session_id`).
 // `output` goes to the WS `output` message. `turn_end` stays inside the daemon (park / end).
+// `tools` is built from the state's workflow `tools` list with `resolveToolPolicy` (shared
+// workflow/tools.ts, TOOL_ALIASES).
 
 export interface ToolPolicy {
   builtin: string[]; // --tools, e.g. ["Read","Edit","Write","Glob","Grep","Bash"]

@@ -1,0 +1,85 @@
+import { describe, expect, it } from 'vitest';
+import { SNAPSHOT_FIXTURE } from '../engine/fixtures.js';
+import { sessionBranch } from '../domain.js';
+import { commandPayloadForEffect, M1_BASE_REF } from './commands.js';
+import { OrchestratorToDaemonSchema } from './ws.js';
+
+const command_id = 'c0ffee00-1111-4222-8333-444455556666';
+const branch = sessionBranch(SNAPSHOT_FIXTURE.ticket.id, SNAPSHOT_FIXTURE.id);
+const ctx = { command_id, snapshot: SNAPSHOT_FIXTURE, branch };
+
+/** Every built payload must be a valid WS command once wrapped in an envelope. */
+function envelope(kind: string, payload: unknown) {
+  return OrchestratorToDaemonSchema.parse({
+    type: kind,
+    msg_id: '0e1d2c3b-4a59-4687-9a6b-5c4d3e2f1a0b',
+    seq: null,
+    session_id: SNAPSHOT_FIXTURE.id,
+    fencing_token: SNAPSHOT_FIXTURE.fencing_token,
+    payload,
+  });
+}
+
+describe('commandPayloadForEffect (Effect → WS)', () => {
+  it('start_session carries ticket, branch, base_ref HEAD, env and the resume id', () => {
+    const c = commandPayloadForEffect(
+      {
+        type: 'start_session',
+        state: 'implement',
+        prompt: 'postgres',
+        tools: ['edit', 'bash'],
+        resume_claude_session_id: 'claude-1',
+        max_budget_usd: 1.5,
+      },
+      ctx,
+    );
+    expect(c.kind).toBe('start_session');
+    expect(c.target).toBe('machine:mbp-ben');
+    expect(c.payload).toEqual({
+      command_id,
+      ticket_id: SNAPSHOT_FIXTURE.ticket.id,
+      repo: SNAPSHOT_FIXTURE.ticket.repo,
+      base_ref: M1_BASE_REF,
+      branch,
+      workflow_state: 'implement',
+      prompt: 'postgres',
+      tools: ['edit', 'bash'],
+      resume_claude_session_id: 'claude-1',
+      max_budget_usd: 1.5,
+      env: {
+        CONDUCTOR_SESSION_ID: SNAPSHOT_FIXTURE.id,
+        CONDUCTOR_TICKET_ID: SNAPSHOT_FIXTURE.ticket.id,
+      },
+    });
+    expect(envelope(c.kind, c.payload).type).toBe('start_session');
+  });
+
+  it('engine kills target every process of the session (target_command_id null)', () => {
+    const c = commandPayloadForEffect({ type: 'kill', reason: 'operator_cancel' }, ctx);
+    expect(c.payload).toEqual({ command_id, target_command_id: null, reason: 'operator_cancel' });
+    expect(envelope(c.kind, c.payload).type).toBe('kill');
+  });
+
+  it('send_input and run_cmd map field for field', () => {
+    const s = commandPayloadForEffect(
+      { type: 'send_input', input_request_id: '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d', text: 'a' },
+      ctx,
+    );
+    expect(envelope(s.kind, s.payload).type).toBe('send_input');
+    const r = commandPayloadForEffect(
+      { type: 'run_cmd', state: 'build', cmd: 'npm run build', cwd: null, timeout_ms: 600000 },
+      ctx,
+    );
+    expect(r.payload).toMatchObject({ workflow_state: 'build', cmd: 'npm run build' });
+    expect(envelope(r.kind, r.payload).type).toBe('run_cmd');
+  });
+
+  it('throws without a machine', () => {
+    expect(() =>
+      commandPayloadForEffect(
+        { type: 'kill', reason: 'x' },
+        { ...ctx, snapshot: { ...SNAPSHOT_FIXTURE, machine_id: null } },
+      ),
+    ).toThrow(/without a machine/);
+  });
+});

@@ -88,7 +88,10 @@ export interface SessionRow {
   workflow_state: string | null;
   status: SessionStatus;
   lease_expires_at: Date | null;
-  /** bigint. */
+  /**
+   * bigint, from the global sequence `fencing_seq` (02): `nextval` on every claim / requeue and on
+   * a non-ignored start_session `command.refused`.
+   */
   fencing_token: string;
   worktree_path: string | null;
   branch: string | null;
@@ -97,12 +100,18 @@ export interface SessionRow {
   agent_command_id: string | null;
   /** A live Claude process exists for agent_command_id (SessionSnapshot.agent_process_live). */
   agent_process_live: boolean;
+  /**
+   * jsonb null: the accepted answer not yet delivered to a running agent (SessionSnapshot
+   * .pending_answer, 10-contracts §Pending answer). Set by apply on input.provided; a resume
+   * start_session uses it as the prompt; cleared once the agent runs on it.
+   */
+  pending_answer: { input_request_id: string; answer: string } | null;
   retry_counters: Record<string, number>;
   /** numeric. */
   spend_usd: string;
   /** jsonb: claude_session_id → last cumulative total_usd (ADR-0005; positive deltas only). */
   claude_spend_totals: Record<string, number>;
-  /** numeric. */
+  /** numeric. Maintained by apply on each transition (10-contracts §Wall time). */
   wall_seconds: string;
   context: Record<string, JsonObject>;
   /** int4range `[base, base+count)` from session_event `started` (written by the wrapper). */
@@ -139,7 +148,7 @@ export interface EventRow {
   session_id: string | null;
   type: string;
   payload: JsonObject;
-  /** bigint. */
+  /** bigint; null for board-event rows and orchestrator-internal events. */
   fencing_token: string | null;
   ts: Date;
 }
@@ -148,12 +157,24 @@ export interface OutboxRow {
   /** bigserial. */
   id: string;
   command_id: string;
+  /*
+   * `payload` (below) is the WS command payload verbatim (`commandPayloadForEffect` in shared,
+   * built by the EngineService wrapper in the apply tx); the dispatcher only wraps it in an
+   * envelope (`commandEnvelopeForOutboxRow`, orchestrator contracts).
+   */
   /** `machine:<id>` or `connector:<name>`. */
   target: string;
   kind: OutboxKind;
   session_id: string | null;
   payload: JsonObject;
   idempotency_key: string | null;
+  /**
+   * bigint: `session.fencing_token` when the row was written (null for `connector:` rows). The WS
+   * envelope's `fencing_token`. The dispatcher never sends a row whose token is below the
+   * session's current one: it marks it `failed`, `last_error = 'stale_fencing_token'`
+   * (10-contracts §Effect → WS).
+   */
+  fencing_token: string | null;
   status: OutboxStatus;
   attempts: number;
   next_attempt_at: Date;

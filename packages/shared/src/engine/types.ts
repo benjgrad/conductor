@@ -25,6 +25,13 @@ export const SnapshotTicketSchema = z.object({
   external_ref: z.string().nullable(),
 });
 
+/** `session.pending_answer` (02): the answer waiting to be delivered as a start_session prompt. */
+export const PendingAnswerSchema = z.object({
+  input_request_id: UuidSchema,
+  answer: z.string(),
+});
+export type PendingAnswer = z.infer<typeof PendingAnswerSchema>;
+
 /**
  * The session as the engine sees it. Mirrors the `session` row (02) with DB encodings
  * removed (numbers are numbers, timestamps ISO strings), plus the ticket facts.
@@ -54,6 +61,16 @@ export const SessionSnapshotSchema = z.object({
    * answer) instead of send_input (10-contracts §Resume).
    */
   agent_process_live: z.boolean(),
+  /**
+   * The human answer apply has accepted but the agent has not started running on yet (10-contracts
+   * §Pending answer). `input.provided` stores it; every start_session apply emits while it is set
+   * (the `no_live_process` re-answer, the exit-while-parked resume, and the `session.assigned`
+   * re-emit after a requeue) uses `answer` as its `prompt` with `resume_claude_session_id`.
+   * Cleared when the agent is running on it: a matching `session.started`, or (live send_input
+   * path, whose accepted ack is not an engine event) the agent's next `complete_state` /
+   * `ask_user`; also cleared when apply enters a different state.
+   */
+  pending_answer: PendingAnswerSchema.nullable(),
   /** `"<from>-><goto>"` → times taken (05 §Retry loops). */
   retry_counters: z.record(z.string(), z.number().int().nonnegative()),
   /** state → times entered; the `visit_n` of idempotency keys (05 §Idempotency). */
@@ -66,6 +83,11 @@ export const SessionSnapshotSchema = z.object({
   spend_usd: z.number().nonnegative(),
   /** claude_session_id → last cumulative `total_usd` seen (ADR-0005; 02 `claude_spend_totals`). */
   claude_spend_totals: z.record(z.string(), z.number().nonnegative()),
+  /**
+   * Maintained by apply (10-contracts §Wall time): on every state transition it adds
+   * `now - state_entered_at` for the state being left, except `human` and `event` states (parked
+   * time does not count toward `budget.minutes`, 09), then resets `state_entered_at = now`.
+   */
   wall_seconds: z.number().nonnegative(),
   /** state name → its `complete_state` result, e.g. `{open_pr: {pr_url}}`. */
   context: z.record(z.string(), JsonObjectSchema),
@@ -79,7 +101,14 @@ export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;
  * D = daemon session_event via gateway (T11), O = orchestrator internal, U = REST (T08).
  */
 export const EngineEventSchema = z.discriminatedUnion('type', [
-  /** O: the claim (T11) assigned the session to a machine. Enters `def.start` if not started. */
+  /**
+   * O: the claim (T11) assigned the session to a machine. Accepted only from `queued`. Enters
+   * `def.start` if `workflow_state` is null, else re-emits the current state's command (a
+   * start_session resumes when `claude_session_id` is set; its prompt is `pending_answer.answer`
+   * when set). Into an agent state → `assigned` + start_session (→ `running` on `session.started`).
+   * Into a command state → straight to `running` + run_cmd: no `started` exists for run_cmd
+   * (U-024).
+   */
   z.object({ type: z.literal('session.assigned'), machine_id: z.string() }),
   /**
    * O: the daemon refused an outbox command (`command_ack accepted=false`). T11 emits it for every
@@ -89,7 +118,11 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
    * (the wrapper also bumps fencing_token), so a process the timed-out command spawned anyway can't
    * move the session to running and its events go stale (10-contracts §Orphaned processes);
    * send_input `no_live_process` → agent_process_live = false and re-answer via
-   * start_session(resume); run_cmd → outcome `fail`; kill → ignored.
+   * start_session(resume); run_cmd → outcome `fail`; kill → ignored (`kill_refused`).
+   * U-025: a start_session refusal is ignored (`command_id_mismatch`) unless `command_id` equals
+   * `agent_command_id` AND `agent_process_live` is false (a matching `started` already arrived:
+   * the process is up and only the ack was lost). The wrapper bumps fencing_token only when the
+   * refusal was not ignored.
    */
   z.object({
     type: z.literal('command.refused'),
@@ -173,7 +206,7 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
   }),
   /**
    * O: budget exceeded → `def.on_budget_exceeded`, kind `budget_exceeded`.
-   * TD: routed by apply (T04) but nothing emits it in M1 (no enforcement trigger; 10-contracts).
+   * TD-015: routed by apply (T04) but nothing emits it in M1 (no enforcement trigger; 10-contracts).
    */
   z.object({
     type: z.literal('budget.exceeded'),
@@ -223,7 +256,10 @@ export const EffectSchema = z.discriminatedUnion('type', [
     cwd: z.string().nullable(),
     timeout_ms: z.number().int().positive().nullable(),
   }),
-  /** outbox `kill` → WS kill. */
+  /**
+   * outbox `kill` → WS kill with `target_command_id: null` (every process of the session at or
+   * below the envelope fencing token, i.e. the row's token; 10-contracts §Effect → WS).
+   */
   z.object({ type: z.literal('kill'), reason: z.string() }),
   /** outbox `connector_call` (target `connector:<name>`). No WS message; not in M1. */
   z.object({
@@ -283,11 +319,52 @@ export function isOutboxEffect(e: Effect): e is OutboxEffect {
 
 // ---------------------------------------------------------------- apply
 
+/**
+ * Why apply() ignored an event (TD-016: one exported list, so T04 (producer) and T11 / T08
+ * (consumers) can't drift). Adding a reason is a contract change (10-contracts).
+ */
+export const APPLY_IGNORE_REASONS = [
+  /**
+   * `session.started` / `agent.exited` / start_session `command.refused` whose command_id is not
+   * `agent_command_id` (or a refusal after its `started`, U-025). T11 keys the `superseded_start`
+   * orphan kill on this reason for `session.started`.
+   */
+  'command_id_mismatch',
+  /** `timer.fired` whose state/deadline no longer match the snapshot. */
+  'stale_timer',
+  /** The event is not valid in the session's current status (e.g. `session.assigned` unless queued). */
+  'wrong_status',
+  /** The event doesn't fit the current state's type (e.g. `command.exited` in an agent state). */
+  'unexpected_event',
+  /** `external.event` whose name is not in the current event state's `wait_for`. */
+  'not_awaited',
+  /** Any event for a `done` / `failed` session. */
+  'session_terminal',
+  /** `command.refused` for a `kill` (logged only). */
+  'kill_refused',
+] as const;
+export const ApplyIgnoreReasonSchema = z.enum(APPLY_IGNORE_REASONS);
+export type ApplyIgnoreReason = z.infer<typeof ApplyIgnoreReasonSchema>;
+
+/**
+ * Why the EngineService rejected an event before apply (nothing written). Lives here (not in
+ * the orchestrator) so the REST error map in api/rest.ts can key on it.
+ */
+export const APPLY_REJECT_REASONS = [
+  'unknown_session',
+  'stale_fencing_token',
+  'input_request_not_found',
+  'input_already_answered',
+  'invalid_goto',
+] as const;
+export const ApplyRejectReasonSchema = z.enum(APPLY_REJECT_REASONS);
+export type ApplyRejectReason = z.infer<typeof ApplyRejectReasonSchema>;
+
 export const ApplyResultSchema = z.object({
   snapshot: SessionSnapshotSchema,
   effects: z.array(EffectSchema),
   /** Non-null when the event was a no-op (stale timer, wrong status…); snapshot unchanged. */
-  ignored: z.string().nullable(),
+  ignored: ApplyIgnoreReasonSchema.nullable(),
 });
 export type ApplyResult = z.infer<typeof ApplyResultSchema>;
 

@@ -5,6 +5,8 @@ import { WorkflowDefinitionSchema } from '../workflow/schema.js';
 import { applySpend, spendDelta } from './spend.js';
 import {
   apply,
+  APPLY_IGNORE_REASONS,
+  ApplyResultSchema,
   EffectSchema,
   EngineEventSchema,
   isOutboxEffect,
@@ -101,6 +103,27 @@ describe('process correlation and refusals', () => {
     const noLive: Partial<typeof SNAPSHOT_FIXTURE> = { ...SNAPSHOT_FIXTURE };
     delete noLive.agent_process_live;
     expect(SessionSnapshotSchema.safeParse(noLive).success).toBe(false);
+  });
+
+  it('snapshot carries pending_answer (required, nullable)', () => {
+    expect(SNAPSHOT_FIXTURE.pending_answer).toBeNull();
+    const withAnswer = {
+      ...SNAPSHOT_FIXTURE,
+      status: 'running' as const,
+      agent_process_live: false,
+      pending_answer: { input_request_id: '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d', answer: 'pg' },
+    };
+    expect(SessionSnapshotSchema.parse(withAnswer)).toEqual(withAnswer);
+    const missing: Partial<typeof SNAPSHOT_FIXTURE> = { ...SNAPSHOT_FIXTURE };
+    delete missing.pending_answer;
+    expect(SessionSnapshotSchema.safeParse(missing).success).toBe(false);
+  });
+
+  it('ApplyResult.ignored is one of APPLY_IGNORE_REASONS (TD-016)', () => {
+    expect(APPLY_IGNORE_REASONS).toContain('command_id_mismatch');
+    const r = { snapshot: SNAPSHOT_FIXTURE, effects: [], ignored: 'command_id_mismatch' };
+    expect(ApplyResultSchema.parse(r).ignored).toBe('command_id_mismatch');
+    expect(ApplyResultSchema.safeParse({ ...r, ignored: 'whatever' }).success).toBe(false);
   });
 });
 

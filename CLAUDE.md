@@ -90,19 +90,25 @@ The lead session is the orchestrator. It delegates and integrates, and doesn't d
 
 ## Commands
 
-> Valid once M1-T01 lands. Update this section in the same branch if the scaffold differs.
+Verified in M1-T01 on Node 20.18 / pnpm 10. Keep this section in sync with `package.json` scripts.
 
 ```bash
-pnpm i                 # install
-pnpm db:up             # start Postgres (docker-compose, else local postgresql@16 cluster)
-pnpm db:migrate        # apply migrations
-pnpm build             # build all packages
-pnpm typecheck         # tsc --noEmit across workspace
-pnpm lint              # eslint
-pnpm test              # unit + integration (needs db:up)
-pnpm test:e2e          # orchestrator + daemon + fake Claude end to end
-scripts/ci.sh          # all gates, in order
+pnpm i                 # install (never corepack)
+pnpm db:up             # start Postgres 16 on localhost:54329: docker-compose if `docker info` works,
+                       #   else Homebrew postgresql@16 cluster in gitignored .pgdata/ (idempotent)
+pnpm db:down           # stop it (data kept; `rm -rf .pgdata` to reset the local cluster)
+pnpm db:migrate        # node-pg-migrate up, migrations in packages/orchestrator/migrations
+pnpm db:migrate down   # roll back one; `scripts/db.sh migrate create <name>` makes a new one
+pnpm build             # tsc -b (all packages) + vite build (web)
+pnpm typecheck         # tsc -b across the workspace (project references; emits to gitignored dist/)
+pnpm lint              # eslint (type-aware) + prettier --check
+pnpm format            # prettier --write
+pnpm test              # vitest, one project per package (DB tests need db:up)
+pnpm test:e2e          # placeholder until M1-T10 (orchestrator + daemon + fake Claude)
+scripts/ci.sh          # all gates, in order: install, typecheck, lint, test, build, test:e2e
 ```
+
+`DATABASE_URL` defaults to `.env.example`'s value; copy it to `.env` to override. Workspace packages resolve each other from source in vitest/vite via the `source` export condition, so tests run without a build. `spikes/**` is outside the workspace, lint and typecheck.
 
 Validate workflow JSON before the validator exists:
 ```bash

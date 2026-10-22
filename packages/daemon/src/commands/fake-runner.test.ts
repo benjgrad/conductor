@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { createCommandRunner } from './index.js';
 import { FakeCommandRunner } from './fake-runner.js';
 import type { RunCommandOptions } from './runner.js';
 
@@ -74,9 +73,5 @@ describe('FakeCommandRunner', () => {
     expect(r.release('c')).toBe(true);
     expect(await c).toMatchObject({ exitCode: 0, signal: null });
     expect(r.runningCount).toBe(0);
-  });
-
-  it('createCommandRunner is a placeholder until M1-T06', () => {
-    expect(() => createCommandRunner({ maxConcurrent: 2 })).toThrow(/M1-T06/);
   });
 });

@@ -1,0 +1,264 @@
+import {
+  API_PATHS,
+  AnswerInputRequestSchema,
+  ApproveSessionRequestSchema,
+  CancelSessionRequestSchema,
+  CreateTicketRequestSchema,
+  SaveWorkflowRequestSchema,
+  UuidSchema,
+  httpForApplyResult,
+  toBoardCard,
+  validateWorkflow,
+  type EngineEvent,
+  type EngineRoute,
+  type OkResponse,
+} from '@conductor/shared';
+import Fastify, { type FastifyReply } from 'fastify';
+import { insertBoardEvents, type ApplyEventOptions } from '../contracts.js';
+import { withTransaction } from '../db/index.js';
+import type { TicketRow } from '../db/types.js';
+import type { CreateApi } from '../main.js';
+import { parseLastEventId, serveBoardStream } from '../stream/board.js';
+import { serveOutputStream } from '../stream/output.js';
+import { SseHub } from '../stream/sse.js';
+import { parseBody, pathString, sendError } from './errors.js';
+import { listMachines, listWorkflows, loadBoard, toTicketDto } from './queries.js';
+import { loadSessionDetail, sessionExists } from './sessions.js';
+
+// M1-T08: REST + SSE for the UI (03 §UI ↔ orchestrator), as the `CreateApi` factory (main.ts).
+
+/** Recorded as `input_request.answered_by` for answers from the web UI (no auth in M1, 09). */
+export const UI_ACTOR = 'ui';
+
+const OK: OkResponse = { ok: true };
+const PG_UNIQUE_VIOLATION = '23505';
+
+type IdParams = { Params: { id: string } };
+
+export const createApi: CreateApi = ({ db, engine, boardBus, outputBus }) => {
+  const app = Fastify({ logger: false });
+  const hub = new SseHub();
+  const logError = (err: unknown) => app.log.error(err);
+
+  // JSON bodies; an empty body (POST /cancel with no payload) is `{}`.
+  app.removeContentTypeParser('application/json');
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+    const text = typeof body === 'string' ? body : body.toString('utf8');
+    if (text.trim() === '') return done(null, {});
+    try {
+      done(null, JSON.parse(text) as unknown);
+    } catch {
+      const err = new Error('body is not valid JSON') as Error & { statusCode: number };
+      err.statusCode = 400;
+      done(err, undefined);
+    }
+  });
+
+  app.setNotFoundHandler((req, reply) =>
+    sendError(reply, 404, 'not_found', `no route ${req.method} ${req.url}`),
+  );
+  app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
+    const status = err.statusCode ?? 500;
+    if (status >= 400 && status < 500) return sendError(reply, status, 'bad_request', err.message);
+    logError(err);
+    return sendError(reply, 500, 'internal', 'internal error');
+  });
+
+  /** A valid uuid or a 404 sent (ids are uuid columns; anything else can't exist). */
+  const sessionId = (id: string, reply: FastifyReply): string | undefined => {
+    if (UuidSchema.safeParse(id).success) return id;
+    void sendError(reply, 404, 'not_found', `session ${id} not found`);
+    return undefined;
+  };
+
+  // ---------------------------------------------------------------- board
+
+  app.get(API_PATHS.board, () => loadBoard(db));
+
+  // ---------------------------------------------------------------- sessions
+
+  app.get<IdParams>('/api/sessions/:id', async (req, reply) => {
+    const id = sessionId(req.params.id, reply);
+    if (id === undefined) return reply;
+    const detail = await loadSessionDetail(db, outputBus, id);
+    if (!detail) return sendError(reply, 404, 'not_found', `session ${id} not found`);
+    return detail;
+  });
+
+  /** Apply one engine event for a REST route and map the result (10-contracts §REST error map). */
+  const applyFromRoute = async (
+    reply: FastifyReply,
+    route: EngineRoute,
+    id: string,
+    event: EngineEvent,
+    opts: ApplyEventOptions = {},
+  ) => {
+    const result = await engine.applyEvent(id, event, opts);
+    if (result.status === 'applied') return reply.code(202).send(OK);
+    const { status, code } = httpForApplyResult(route, result);
+    return sendError(reply, status, code, `${event.type}: ${result.reason}`);
+  };
+
+  app.post<IdParams>('/api/sessions/:id/input', async (req, reply) => {
+    const id = sessionId(req.params.id, reply);
+    if (id === undefined) return reply;
+    const body = parseBody(AnswerInputRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const event: EngineEvent = {
+      type: 'input.provided',
+      input_request_id: body.input_request_id,
+      answer: body.answer,
+      ...(body.goto !== undefined ? { goto: body.goto } : {}),
+    };
+    return applyFromRoute(reply, 'input', id, event, { actor: UI_ACTOR });
+  });
+
+  app.post<IdParams>('/api/sessions/:id/approve', async (req, reply) => {
+    const id = sessionId(req.params.id, reply);
+    if (id === undefined) return reply;
+    const body = parseBody(ApproveSessionRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const event: EngineEvent = {
+      type: 'external.event',
+      name: 'ui.approve',
+      ...(body.comment !== undefined ? { data: { comment: body.comment } } : {}),
+    };
+    return applyFromRoute(reply, 'approve', id, event);
+  });
+
+  app.post<IdParams>('/api/sessions/:id/cancel', async (req, reply) => {
+    const id = sessionId(req.params.id, reply);
+    if (id === undefined) return reply;
+    const body = parseBody(CancelSessionRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const event: EngineEvent = {
+      type: 'operator.cancel',
+      ...(body.reason !== undefined ? { reason: body.reason } : {}),
+    };
+    return applyFromRoute(reply, 'cancel', id, event);
+  });
+
+  // ---------------------------------------------------------------- tickets
+
+  app.post(API_PATHS.tickets, async (req, reply) => {
+    const body = parseBody(CreateTicketRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const known = await db.query('SELECT 1 FROM workflow_definition WHERE id = $1 LIMIT 1', [
+      body.workflow_id,
+    ]);
+    if (known.rowCount === 0) {
+      return sendError(reply, 400, 'bad_request', `unknown workflow ${body.workflow_id}`, [
+        { path: 'workflow_id', message: 'no workflow with this id' },
+      ]);
+    }
+    const { ticket, events } = await withTransaction(db, async (tx) => {
+      const res = await tx.query<TicketRow>(
+        'INSERT INTO ticket (external_ref, repo, title, body, workflow_id, required_tags, ' +
+          'repo_allow_machines, priority) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+        [
+          body.external_ref,
+          body.repo,
+          body.title,
+          body.body,
+          body.workflow_id,
+          body.required_tags,
+          body.repo_allow_machines,
+          body.priority,
+        ],
+      );
+      const row = res.rows[0]!;
+      // Last write of the transaction (insertBoardEvents holds the board lock to COMMIT).
+      const evs = await insertBoardEvents(tx, [
+        {
+          type: 'card.upserted',
+          session_id: null,
+          ticket_id: row.id,
+          card: toBoardCard(row, null, null),
+        },
+      ]);
+      return { ticket: row, events: evs };
+    });
+    for (const ev of events) boardBus.publish(ev);
+    return reply.code(201).send(toTicketDto(ticket));
+  });
+
+  // ---------------------------------------------------------------- workflows
+
+  app.get(API_PATHS.workflows, () => listWorkflows(db));
+
+  app.post(API_PATHS.workflows, async (req, reply) => {
+    const body = parseBody(SaveWorkflowRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const result = validateWorkflow(body.definition);
+    if (!result.ok) {
+      return sendError(
+        reply,
+        400,
+        'invalid_workflow',
+        'workflow definition is invalid',
+        result.errors.map((e) => ({
+          path: pathString(e.path),
+          message: `rule ${e.rule}: ${e.message}`,
+        })),
+      );
+    }
+    const def = result.def;
+    // The server assigns the version (max + 1); a concurrent save of the same id loses the
+    // primary-key race and retries.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const res = await db.query<{ version: number }>(
+          'INSERT INTO workflow_definition (id, version, definition) ' +
+            'SELECT $1::text, coalesce(max(version), 0) + 1, ' +
+            "jsonb_set($2::jsonb, '{version}', to_jsonb(coalesce(max(version), 0) + 1)) " +
+            'FROM workflow_definition WHERE id = $1::text RETURNING version',
+          [def.id, JSON.stringify(def)],
+        );
+        return await reply.code(201).send({ id: def.id, version: res.rows[0]!.version });
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        if (code !== PG_UNIQUE_VIOLATION || attempt >= 4) throw err;
+      }
+    }
+  });
+
+  // ---------------------------------------------------------------- machines
+
+  app.get(API_PATHS.machines, () => listMachines(db));
+
+  // ---------------------------------------------------------------- SSE
+
+  app.get(API_PATHS.boardStream, async (req, reply) => {
+    const query = req.query as Record<string, unknown>;
+    const lastEventId =
+      parseLastEventId(req.headers['last-event-id']) ?? parseLastEventId(query.last_event_id);
+    const conn = hub.start(req, reply);
+    await serveBoardStream(conn, { db, boardBus, onError: logError }, lastEventId);
+  });
+
+  app.get<IdParams>('/api/stream/sessions/:id/output', async (req, reply) => {
+    const id = sessionId(req.params.id, reply);
+    if (id === undefined) return reply;
+    if (!(await sessionExists(db, id))) {
+      return sendError(reply, 404, 'not_found', `session ${id} not found`);
+    }
+    const conn = hub.start(req, reply);
+    serveOutputStream(conn, outputBus, id);
+  });
+
+  // Open SSE responses are never idle, so end them before the server waits for connections.
+  app.addHook('preClose', (done) => {
+    hub.closeAll();
+    done();
+  });
+
+  return {
+    server: app.server,
+    async listen(port, host = '127.0.0.1') {
+      await app.listen({ port, host });
+    },
+    async close() {
+      await app.close();
+    },
+  };
+};

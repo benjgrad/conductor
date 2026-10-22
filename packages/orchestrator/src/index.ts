@@ -11,3 +11,4 @@ export { createDb, withTransaction, type Tx } from './db/index.js';
 export function orchestratorHealth(): Health {
   return health(PACKAGE_NAME);
 }
+export { createApi } from './api/index.js';

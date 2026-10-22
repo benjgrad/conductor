@@ -1,0 +1,106 @@
+import {
+  BoardResponseSchema,
+  BoardSseEventSchema,
+  SessionDetailSchema,
+  type BoardSseEvent,
+} from '@conductor/shared';
+import { describe, expect, it } from 'vitest';
+import { ApiRequestError } from './client.js';
+import { SEED_IDS } from './mock-data.js';
+import { createMockApi } from './mock.js';
+
+const now = () => new Date('2026-10-22T12:00:00.000Z');
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+function collect(api: ReturnType<typeof createMockApi>, from = 0) {
+  const events: BoardSseEvent[] = [];
+  const stop = api.streamBoard(from, { onEvent: (e) => events.push(e) });
+  return { events, stop };
+}
+
+describe('mock ApiClient', () => {
+  it('serves contract-valid board and session DTOs', async () => {
+    const api = createMockApi({ now });
+    const board = BoardResponseSchema.parse(await api.getBoard());
+    expect(board.columns.needs_input).toHaveLength(2);
+    expect(board.columns.running.some((c) => c.badges.includes('waiting_for_build_slot'))).toBe(
+      true,
+    );
+    for (const col of Object.values(board.columns)) {
+      for (const card of col) {
+        if (card.session_id) SessionDetailSchema.parse(await api.getSession(card.session_id));
+      }
+    }
+  });
+
+  it('answers once: emits contract-valid events, then 409 input_already_answered', async () => {
+    const api = createMockApi({ now });
+    const { events } = collect(api);
+    const { session, input } = SEED_IDS.askOlder;
+    await api.answer(session, { input_request_id: input, answer: 'retry' });
+    await tick();
+    expect(events.map((e) => BoardSseEventSchema.parse(e).type)).toEqual([
+      'input.answered',
+      'session.status',
+      'card.moved',
+      'card.upserted',
+    ]);
+    const detail = await api.getSession(session);
+    expect(detail.card).toMatchObject({ status: 'running', workflow_state: 'test' });
+    expect(detail.pending_input).toBeNull();
+
+    const again = api.answer(session, { input_request_id: input, answer: 'x' });
+    await expect(again).rejects.toBeInstanceOf(ApiRequestError);
+    await expect(again).rejects.toMatchObject({ status: 409, code: 'input_already_answered' });
+  });
+
+  it('honours goto ("skip to") and rejects an unknown state', async () => {
+    const api = createMockApi({ now });
+    const { session, input } = SEED_IDS.askOlder;
+    await expect(
+      api.answer(session, { input_request_id: input, answer: 'x', goto: 'nope' }),
+    ).rejects.toMatchObject({ code: 'bad_request' });
+    await api.answer(session, { input_request_id: input, answer: 'skip', goto: 'done' });
+    expect((await api.getSession(session)).card).toMatchObject({
+      status: 'done',
+      column: 'done',
+    });
+  });
+
+  it('replays from Last-Event-ID', async () => {
+    const api = createMockApi({ now });
+    await api.createTicket({ title: 'a', body: '', repo: 'r', workflow_id: 'm1_basic' });
+    await api.createTicket({ title: 'b', body: '', repo: 'r', workflow_id: 'm1_basic' });
+    const { events } = collect(api, 1);
+    await tick();
+    expect(events.map((e) => e.id)).toEqual([2]);
+    expect(events[0]).toMatchObject({ type: 'card.upserted', card: { title: 'b' } });
+  });
+
+  it('approve only when waiting for ui.approve; cancel only when not terminal', async () => {
+    const api = createMockApi({ now });
+    await expect(api.approve(SEED_IDS.running.session)).rejects.toMatchObject({
+      status: 409,
+      code: 'conflict',
+    });
+    await api.approve(SEED_IDS.approval.session);
+    expect((await api.getSession(SEED_IDS.approval.session)).card.column).toBe('done');
+    await expect(api.cancel(SEED_IDS.done.session)).rejects.toMatchObject({ code: 'conflict' });
+    await api.cancel(SEED_IDS.running.session);
+    expect((await api.getSession(SEED_IDS.running.session)).card.column).toBe('failed');
+  });
+
+  it('streams output chunks pushed after subscribe', async () => {
+    const api = createMockApi({ now });
+    const chunks: string[] = [];
+    const stop = api.streamOutput(SEED_IDS.running.session, {
+      onEvent: (c) => chunks.push(c.text),
+    });
+    api.pushOutput(SEED_IDS.running.session, 'hello\n');
+    stop();
+    api.pushOutput(SEED_IDS.running.session, 'ignored\n');
+    expect(chunks).toEqual(['hello\n']);
+    const detail = await api.getSession(SEED_IDS.running.session);
+    expect(detail.recent_output.at(-1)?.text).toBe('ignored\n');
+  });
+});

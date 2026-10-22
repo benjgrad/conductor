@@ -13,3 +13,4 @@ export * from './engine/index.js';
 export function orchestratorHealth(): Health {
   return health(PACKAGE_NAME);
 }
+export { createApi } from './api/index.js';

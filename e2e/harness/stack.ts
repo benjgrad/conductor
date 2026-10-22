@@ -58,6 +58,11 @@ export class Stack {
     return join(this.tmp, 'scenarios');
   }
 
+  /** JSONL of every fake Claude process start: `{argv, cwd, env}` (fake mode only). */
+  get fakeArgvLog(): string {
+    return join(this.tmp, 'fake-claude-argv.jsonl');
+  }
+
   get baseUrl(): string {
     return `http://127.0.0.1:${this.port}`;
   }
@@ -99,6 +104,7 @@ export class Stack {
       env.CONDUCTOR_CLAUDE_BIN = join(bin, 'claude');
       env.FAKE_CLAUDE_SCENARIO_DIR = this.scenarioDir;
       env.FAKE_CLAUDE_STATE_DIR = join(this.tmp, 'fake-claude-state');
+      env.FAKE_CLAUDE_ARGV_LOG = this.fakeArgvLog; // one line per process start (live vs --resume)
       env.FAKE_CLAUDE_VERSION = '9.9.9';
     }
     this.spawn('daemon', DAEMON_BIN, env);

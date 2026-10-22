@@ -227,7 +227,7 @@ describe.skipIf(REAL)('fake Claude', () => {
 
   it('agent asks → card in Needs input → answered via REST → the live agent continues', async () => {
     const id = await ticket('Ask a question', fakeBody('ask_answer'));
-    await askAnswerRoundTrip(id, 30_000);
+    await askAnswerRoundTrip(id, 30_000, 'ask_answer');
   });
 
   it('U-028: an agent that never reports an outcome is nudged once, then goes to Needs input', async () => {
@@ -267,7 +267,9 @@ describe.skipIf(REAL)('fake Claude', () => {
     expect(detail.pending_input).toMatchObject({ id: req.id, answer: null });
     expect(detail.return_to).toBe('implement');
 
-    // A human answer goes to the same live agent, whose third turn completes the state.
+    // A human answer goes to the same live agent, whose third turn completes the state. The turn
+    // count alone does not prove that (the fake keeps it across `--resume`); assertSingleLiveProcess
+    // does.
     await api.answer(sid, req.id, 'carry on');
     await board.card(id, 'done', (c) => c.column === 'done');
     expect(board.states(id)).toEqual([
@@ -280,6 +282,7 @@ describe.skipIf(REAL)('fake Claude', () => {
     ]);
     expect((await api.session(sid)).context).toMatchObject({ implement: { answer: 'carry on' } });
     expect(fakeTurns('no_outcome')).toBe(3);
+    assertSingleLiveProcess('no_outcome');
   });
 
   it('shutdown: stopping the daemon kills a parked Claude process; nothing is left behind', async () => {
@@ -299,24 +302,59 @@ describe.skipIf(REAL)('fake Claude', () => {
 describe.runIf(REAL)('real Claude (haiku, E2E_REAL_CLAUDE=1; spends money)', () => {
   it('agent asks → answered via REST → the live agent completes', async () => {
     const id = await ticket('Ask a question (real Claude)', REAL_ASK_PROMPT);
-    await askAnswerRoundTrip(id, 150_000);
+    await askAnswerRoundTrip(id, 150_000, null);
   }, 300_000);
 });
 
-/** Turns the fake has played for the (single) session running the named scenario. */
-function fakeTurns(scenario: string): number {
+/** The fake's persisted state for the (single) Claude session running the named scenario. */
+function fakeState(scenario: string): { claudeSessionId: string; turn: number } {
   const dir = join(stack.tmp, 'fake-claude-state');
   const states = readdirSync(dir)
-    .map(
-      (f) => JSON.parse(readFileSync(join(dir, f), 'utf8')) as { scenario?: string; turn: number },
-    )
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => ({
+      claudeSessionId: f.slice(0, -'.json'.length),
+      ...(JSON.parse(readFileSync(join(dir, f), 'utf8')) as { scenario?: string; turn: number }),
+    }))
     .filter((st) => st.scenario === scenario);
   expect(states).toHaveLength(1);
-  return states[0]!.turn;
+  return states[0]!;
 }
 
-/** The ask/answer round trip, shared by the fake and the real-Claude runs. */
-async function askAnswerRoundTrip(ticketId: string, timeoutMs: number): Promise<void> {
+/**
+ * Turns the fake has played for the session running the named scenario. Counts survive
+ * `--resume` (state is keyed by Claude session id), so this does NOT prove a single process.
+ */
+function fakeTurns(scenario: string): number {
+  return fakeState(scenario).turn;
+}
+
+/**
+ * The answer reached the parked process itself, not the engine's `--resume` fallback
+ * (apply.ts: send_input no_live_process / exit while parked → start_session with
+ * resume_claude_session_id): the fake started exactly once for this Claude session, and never
+ * with `--resume`.
+ */
+function assertSingleLiveProcess(scenario: string): void {
+  const { claudeSessionId } = fakeState(scenario);
+  const starts = readFileSync(stack.fakeArgvLog, 'utf8')
+    .split('\n')
+    .filter((l) => l.trim() !== '')
+    .map((l) => (JSON.parse(l) as { argv: string[] }).argv)
+    .filter((argv) => argv.includes(claudeSessionId));
+  expect(starts).toHaveLength(1);
+  expect(starts[0]).toContain('--session-id');
+  expect(starts[0]).not.toContain('--resume');
+}
+
+/**
+ * The ask/answer round trip, shared by the fake and the real-Claude runs. `fakeScenario` (fake
+ * mode only) also proves the answer went to the same live process.
+ */
+async function askAnswerRoundTrip(
+  ticketId: string,
+  timeoutMs: number,
+  fakeScenario: string | null,
+): Promise<void> {
   const parked = await board.card(
     ticketId,
     'needs_input',
@@ -354,4 +392,5 @@ async function askAnswerRoundTrip(ticketId: string, timeoutMs: number): Promise<
       (e) => e.type === 'input.answered' && e.input_request_id === req.id && e.answered_by === 'ui',
     ),
   ).toBe(true);
+  if (fakeScenario !== null) assertSingleLiveProcess(fakeScenario);
 }

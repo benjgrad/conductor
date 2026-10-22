@@ -15,7 +15,7 @@ erDiagram
 
 ## Tables
 
-Types are indicative. The exact DDL lives in migrations (M1-T02), and this doc is updated when it diverges. The TypeScript row types are pinned in `packages/orchestrator/src/db/types.ts` (M1-T12, [10](10-contracts.md)); they use node-postgres' default parsing (`bigint`/`numeric` → string, `timestamptz` → Date).
+The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.sql` (M1-T02, plain node-pg-migrate SQL), and this doc is updated when it diverges. `packages/orchestrator/test/schema.test.ts` checks every column's name, pg type and nullability against the row types, and every enum against `shared/src/domain.ts`. Enums are Postgres enum types named `<table>_<column>` (`machine_status`, `ticket_status`, `session_status`, `input_request_kind`, `outbox_kind`, `outbox_status`). Nullability follows the row types exactly (a `| null` field is a nullable column, everything else is `NOT NULL`), including columns this table doesn't mark null (e.g. `lease_expires_at`, `worktree_path`, `port_range`); `jsonb` maps default to `'{}'`, `text[]` to `'{}'`, counters and money to 0, timestamps to `now()`, uuid keys to `gen_random_uuid()`. The TypeScript row types are pinned in `packages/orchestrator/src/db/types.ts` (M1-T12, [10](10-contracts.md)); they use node-postgres' default parsing (`bigint`/`numeric` → string, `timestamptz` → Date).
 
 ### machine
 | column | type | notes |
@@ -51,7 +51,7 @@ Types are indicative. The exact DDL lives in migrations (M1-T02), and this doc i
 | external_ref | text | e.g. `JIRA-123` ([U-003](../tracking/UNKNOWNS.md)) |
 | repo | text | target repo |
 | title, body | text | |
-| workflow_id, workflow_version | fk | version is null until pinned when the first session starts |
+| workflow_id, workflow_version | fk | version is null until pinned when the first session starts. One composite FK to `workflow_definition (id, version)`, MATCH SIMPLE: checked only once the version is set |
 | parent_ticket_id | fk ticket null | child tickets from a plan state |
 | required_tags | text[] | hard constraints for the claim |
 | repo_allow_machines | text[] null | hard allow-list of machine ids for the claim ([04](04-scheduler.md)); `null` = any machine. Kept, nullable ([U-009](../tracking/UNKNOWNS.md), M1-T12) |
@@ -78,7 +78,7 @@ Types are indicative. The exact DDL lives in migrations (M1-T02), and this doc i
 | workflow_state | text null | current FSM state name; null until the first `session.assigned` enters `start` |
 | status | enum | `queued` · `assigned` · `running` · `needs_input` · `waiting_external` · `done` · `failed` · `lost` |
 | lease_expires_at | timestamptz | renewed by heartbeat |
-| fencing_token | bigint | `nextval('fencing_seq')`: bumped on every claim / requeue, **and** by the EngineService wrapper on a non-ignored `start_session` `command.refused` (incl. `ack_timeout`), so a process that command spawned anyway is stale ([10](10-contracts.md#refusals)) |
+| fencing_token | bigint | default `nextval('fencing_seq')`: bumped on every claim / requeue, **and** by the EngineService wrapper on a non-ignored `start_session` `command.refused` (incl. `ack_timeout`), so a process that command spawned anyway is stale ([10](10-contracts.md#refusals)) |
 | worktree_path, branch | text | branch is per session: `sessionBranch(ticket, session)` = `conductor/<ticket_id>/<first 8 of session_id>`, set by the claim. `worktree_path` (and `branch` again) from `session_event started` |
 | claude_session_id | text | for resume |
 | agent_command_id | uuid null | `command_id` of the current `start_session`; `started` / `exit` with another id are ignored ([10](10-contracts.md#agent-process-correlation)) |
@@ -128,7 +128,7 @@ Only state changes and summaries go here. **Raw terminal output does not** (see 
 | id | bigserial pk | |
 | command_id | uuid unique | the daemon dedupes on this |
 | target | text | `machine:<id>` or `connector:<name>` |
-| kind | text | `start_session` · `send_input` · `run_cmd` · `kill` · `connector_call` (one engine `Effect` each, [10](10-contracts.md)) |
+| kind | enum | `start_session` · `send_input` · `run_cmd` · `kill` · `connector_call` (one engine `Effect` each, [10](10-contracts.md)) |
 | session_id | fk session null | |
 | payload | jsonb | the WS command payload verbatim (`commandPayloadForEffect`) |
 | idempotency_key | text null | connectors: see [05](05-workflow-engine.md#idempotency) |
@@ -137,3 +137,7 @@ Only state changes and summaries go here. **Raw terminal output does not** (see 
 | attempts, next_attempt_at | | |
 | last_error | text null | |
 | created_at | timestamptz | |
+
+## Indexes
+
+Besides primary keys and `outbox.command_id UNIQUE`: `ticket (status, priority)`, `session (status)`, `session_one_live_per_ticket` ([session](#session)), `session (ticket_id, created_at DESC)` (the claim's affinity lookup, [04](04-scheduler.md)), `input_request (session_id) WHERE answer IS NULL`, `event (session_id, id)`, and `outbox (next_attempt_at) WHERE status = 'pending'` (the dispatcher's scan). `machine_repo.machine_id` cascades on machine delete; every other FK is plain (no cascade).

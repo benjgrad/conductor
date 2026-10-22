@@ -1,29 +1,14 @@
 #!/usr/bin/env node
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { ClaudeDriver } from './claude/driver.js';
+import { createCliDriver } from './claude/cli-driver.js';
+import { startOutcomeServer } from './claude/outcome-server.js';
 import { loadConfig } from './config.js';
 import { Daemon } from './daemon.js';
 
-// `conductor-daemon` entry: env → config, the real ADR-0005 CLI driver, signals.
-
-/**
- * The real driver's module (M1-T05b creates `src/claude/cli-driver.ts` in parallel). Loaded by a
- * computed specifier so this package typechecks before T05b merges.
- * TD-021: the integrator replaces this with a static `import { createCliDriver } from
- * './claude/cli-driver.js'` once both branches are on main, and settles its options type.
- */
-const CLI_DRIVER_MODULE = './claude/cli-driver.js';
-
-interface CliDriverModule {
-  createCliDriver(opts?: { claudeBin?: string }): ClaudeDriver;
-}
-
-async function loadCliDriver(env: NodeJS.ProcessEnv = process.env): Promise<ClaudeDriver> {
-  const mod = (await import(CLI_DRIVER_MODULE)) as CliDriverModule;
-  const claudeBin = env.CONDUCTOR_CLAUDE_BIN;
-  return mod.createCliDriver(claudeBin ? { claudeBin } : {});
-}
+// `conductor-daemon` entry: env → config, the real ADR-0005 CLI driver (its MCP outcome server on
+// 127.0.0.1), signals. TD-021 resolved: a static import of the T05b driver, so tsc checks the
+// `createCliDriver` signature (claudeBin ← CONDUCTOR_CLAUDE_BIN ← 'claude' inside the driver).
 
 /** `claude --version` → "2.1.308", or null when the CLI is missing (U-015). */
 async function claudeCodeVersion(
@@ -39,9 +24,15 @@ async function claudeCodeVersion(
 
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
+  const outcomeServer = await startOutcomeServer();
+  const driver = createCliDriver({
+    outcomeServer,
+    killGraceMs: config.killGraceMs,
+    endGraceMs: config.endGraceMs,
+  });
   const daemon = new Daemon({
     config,
-    driver: await loadCliDriver(),
+    driver,
     claudeCodeVersion: await claudeCodeVersion(),
   });
   daemon.start();
@@ -50,6 +41,7 @@ async function main(): Promise<void> {
   );
   const shutdown = () => {
     daemon.stop();
+    void outcomeServer.close().catch(() => {});
     // Give killed children a moment to exit before the event loop ends.
     setTimeout(() => process.exit(0), config.killGraceMs).unref();
   };

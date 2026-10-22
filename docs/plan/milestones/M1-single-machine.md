@@ -4,6 +4,12 @@
 
 **Exit criteria**: M1-T10 E2E test is green locally (`pnpm test:e2e`); every task below is `done` and has passed QA ([QA_CHECKLIST](../../qa/QA_CHECKLIST.md)); STATUS updated.
 
+**Exit criteria status (2026-10-22, M1 group E)**: met, pending Ben's sign-off.
+- [x] M1-T10 E2E green locally: `pnpm test:e2e` 6 passed / 1 skipped (real-Claude case), ~16 s, on the merged tree (main after `integrate/E`).
+- [x] Every task below is `done` and passed QA (PASS or PASS WITH DEBT).
+- [x] STATUS updated.
+- Outstanding, not an exit criterion: the T05a real-mode manual check ([UNFINISHED](../../tracking/UNFINISHED.md)), which can be done as the paid `E2E_REAL_CLAUDE=1 pnpm test:e2e` run.
+
 **Not in M1**: scheduler scoring/short hold, leases/fencing/reaper (stub: single machine, session never "lost"), disk buffering + seq replay, connectors, PR/Slack/approval states, budget enforcement triggers (the `budget.exceeded` routing exists in the engine, but nothing fires it in M1), compute release of parked sessions, auth (localhost only).
 
 **Blocking unknowns**: [U-001](../../tracking/UNKNOWNS.md), [U-002](../../tracking/UNKNOWNS.md) must be resolved (spike → ADR) before T05/T07. [U-003](../../tracking/UNKNOWNS.md) defaults to manual ticket entry for M1.
@@ -31,7 +37,7 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 | M1-T07 | `complete_state` / `ask_user` plumbing end to end, plus final wiring (orchestrator `main()`/bin, U-028 nudge + `no_outcome`, U-039 outbox scrub, U-040 single renderer, U-032 `claude_code_version`) | T04b, T05a, T05b, T11 | D | done | `m1-t07-ask-answer-e2e-wiring` @ 340f1fc, merged to main via `integrate/D` (66ab745) (QA: PASS WITH DEBT). Paid real-CLI run passed (B-004 cleared) |
 | M1-T09b | Wire web to the real API (split from T09) | T08, T09 | D | done | `m1-t09b-web-wiring` @ fd901d9, merged to main via `integrate/D` (f871554) (QA: PASS WITH DEBT, 1 fix round). U-043 still open |
 | M1-T14 | Security hardening (scope briefed by the lead; candidates: TD-019 tool allow-lists, TD-059 enrollment token, U-045 model text in Postgres) | T07 | D2 | done | `m1-t14-security-hardening` @ 4aca567, merged to main via `integrate/D2` (c97bfed) (QA: PASS WITH DEBT). TD-058 paid; TD-059 deferred to U-008 (M2); TD-019 and U-045 not in scope, still open; TD-068 recommended before T10 |
-| M1-T10 | E2E: happy path + needs_input round trip (fake & real Claude modes) | all | E | todo | |
+| M1-T10 | E2E: happy path + needs_input round trip (fake & real Claude modes) | all | E | done | `m1-t10-e2e` @ a7a4d3c, merged to main via `integrate/E` (344a0c9) (QA: PASS, 2 fix rounds). Fake mode 6 passed / 1 skipped (real-Claude case) in ~16 s; `E2E_REAL_CLAUDE=1` not run (paid). TD-068 not paid; E2E green without it |
 
 Groups run in order A → A2 → B → C → D → D2 → E. Tasks within a group own disjoint files and are given to parallel implementer agents (see [CLAUDE.md](../../../CLAUDE.md) › Orchestrate). Groups B–D code against the T12 contracts and their fakes; a needed contract change is reported, not made locally.
 

@@ -225,6 +225,47 @@ describe('applyEvent: ignored', () => {
   });
 });
 
+describe('applyEvent: no raw output in the event row (02-data-model §event)', () => {
+  const TAIL = 'FAIL src/a.test.ts\n  SECRET_TOKEN=sk-live-abc123 expected 1 to be 2\n';
+  const exited = {
+    type: 'command.exited' as const,
+    command_id: '11111111-1111-4111-8111-111111111111',
+    exit_code: 1,
+    timed_out: false,
+    output_tail: TAIL,
+  };
+
+  it.each([
+    ['applied', true],
+    ['ignored', false],
+  ])('command.exited (%s) stores output_tail_bytes, never the tail text', async (_, scripted) => {
+    const { sessionId } = await seedSession(db.pool);
+    const { engine } = make();
+    if (scripted) script.on('command.exited', () => ({ snapshot: {} }));
+    const res = await engine.applyEvent(sessionId, exited);
+    expect(res.status).toBe(scripted ? 'applied' : 'ignored');
+    // the scripted apply still received the full tail (attach: output needs it)
+    expect(script.calls[0]!.event).toMatchObject({ output_tail: TAIL });
+    const evs = await events(sessionId);
+    const row = evs.find((e) => e.type === 'command.exited')!;
+    expect(row.payload).not.toHaveProperty('output_tail');
+    expect(row.payload).toMatchObject({
+      command_id: exited.command_id,
+      exit_code: 1,
+      timed_out: false,
+      output_tail_bytes: Buffer.byteLength(TAIL, 'utf8'),
+    });
+    const raw = await db.pool.query<{ text: string }>(
+      'SELECT payload::text AS text FROM event WHERE session_id = $1',
+      [sessionId],
+    );
+    for (const r of raw.rows) {
+      expect(r.text).not.toContain('SECRET_TOKEN');
+      expect(r.text).not.toContain('expected 1 to be 2');
+    }
+  });
+});
+
 describe('applyEvent: wrapper-owned writes', () => {
   it('session.started writes worktree_path, branch and port_range', async () => {
     const { sessionId } = await seedSession(db.pool, {

@@ -51,10 +51,18 @@ export interface EngineServiceCoreDeps {
   onOutboxWritten?: () => void;
 }
 
-/** The engine event row's payload: the event minus `type` (+ the ignore reason, if any). */
+/**
+ * The engine event row's payload: the event minus `type` (+ the ignore reason, if any).
+ * Raw command output never goes in an event row (02-data-model §event, ADR-0003):
+ * `command.exited.output_tail` is replaced by its UTF-8 byte length, `output_tail_bytes`.
+ */
 function eventPayload(event: EngineEvent, ignored: string | null): JsonObject {
   const payload = JSON.parse(JSON.stringify(event)) as JsonObject;
   delete payload.type;
+  if (event.type === 'command.exited') {
+    delete payload.output_tail;
+    payload.output_tail_bytes = Buffer.byteLength(event.output_tail, 'utf8');
+  }
   if (ignored !== null) payload.ignored = ignored;
   return payload;
 }

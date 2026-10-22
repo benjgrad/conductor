@@ -11,9 +11,10 @@ M1-T12 froze every cross-agent seam as exported zod schemas / TS interfaces, eac
 | `GuardRegistry`, `GUARD_REGISTRY` (empty in M1), `isRegisteredGuard`, `evaluateGuard` ([Guards](#guards)) | `shared/src/workflow/guards.ts` | T12 → T04 (evaluate on `complete_state`) | unit-tested |
 | `TOOL_ALIASES`, `resolveToolPolicy` ([Tools](#tools)) | `shared/src/workflow/tools.ts` | T12 → T03 (unknown names), T05 (→ `DriverStartOptions.tools`) | unit-tested against both reference workflows |
 | `SessionSnapshot` (incl. `pending_answer`), `EngineEvent`, `Effect`, `ApplyResult`, `APPLY_IGNORE_REASONS`, `APPLY_REJECT_REASONS`, `apply()` stub | `shared/src/engine/types.ts` | T04 (`engine/apply*.ts`) → T04 wrapper, T07, T08/T11 (reasons) | `SNAPSHOT_FIXTURE` (`engine/fixtures.ts`) |
+| `renderPrompt`, `TICKET_TEMPLATE`, `NO_OUTCOME_QUESTION` ([Prompt render](#prompt-render)) | `shared/src/engine/render.ts`, `engine/apply.ts` | T04a → apply (the only prompt renderer, U-040) | unit-tested |
 | `commandPayloadForEffect`, `M1_BASE_REF` ([Effect → WS](#effect--ws-fields)) | `shared/src/protocol/commands.ts` | T12 → T04 wrapper (outbox payload) | unit-tested; payloads parse as WS commands |
 | Spend accounting `spendDelta` / `applySpend` | `shared/src/engine/spend.ts` | T12 → T04 | unit-tested |
-| WS envelope, `DaemonToOrchestrator`, `OrchestratorToDaemon` ([03](03-protocols.md#daemon--orchestrator-websocket)) | `shared/src/protocol/ws.ts` | T05 daemon ⇄ T11 gateway; T04 dispatcher builds commands | `DAEMON_FIXTURES`, `ORCHESTRATOR_FIXTURES`, `SESSION_EVENT_FIXTURES` (`protocol/fixtures.ts`) |
+| WS envelope, `DaemonToOrchestrator`, `OrchestratorToDaemon`, `NO_OUTCOME_OUTPUT_CHARS` ([03](03-protocols.md#daemon--orchestrator-websocket)) | `shared/src/protocol/ws.ts` | T05 daemon ⇄ T11 gateway; T04 dispatcher builds commands | `DAEMON_FIXTURES`, `ORCHESTRATOR_FIXTURES`, `SESSION_EVENT_FIXTURES` (`protocol/fixtures.ts`) |
 | REST DTOs, `API_PATHS` (incl. `daemonWs`), `CONDUCTOR_PORT` / `conductorPort()`, `columnFor(status)` ([06](06-human-input.md#kanban-columns-queries-not-state)), `ApproveSessionRequest`, `httpForApplyResult` ([REST error map](#rest-error-map)) | `shared/src/api/rest.ts` | T08 → T09; T05 (WS URL), T07 (port) | — |
 | `toBoardCard(ticket, session, openInput)`, `toInputRequestDto` (the one card derivation) | `shared/src/api/rest.ts` | T12 → T04 (`card.upserted`), T08 (board, ticket create), T09b | `BOARD_CARD_FIXTURE` = `toBoardCard(ticket, null, null)` |
 | `BoardSseEvent`, `boardSseEventToRow` / `boardSseEventFromRow`, `OutputChunk` (`api/output.ts`), `encodeSseFrame` | `shared/src/api/sse.ts` | T04, T08, T11 write rows → T08 SSE → T09 | `BOARD_SSE_FIXTURES`, `BOARD_CARD_FIXTURE`, `OUTPUT_CHUNK_FIXTURE` (`api/fixtures.ts`) |
@@ -25,7 +26,7 @@ M1-T12 froze every cross-agent seam as exported zod schemas / TS interfaces, eac
 | `OutputBus` (256 KB ring per session, U-005) | `orchestrator/src/contracts.ts` | T11 (WS `output`) → T08 (detail + output SSE) | `InMemoryOutputBus` (also the M1 implementation) |
 | DB row types ([02](02-data-model.md)) | `orchestrator/src/db/types.ts` | T02 DDL ⇄ T04, T08, T11 | — |
 | `ClaudeDriver` / `DriverSession` / `DriverEvent` ([ADR-0005](../adr/0005-claude-code-driver.md) §Contract, verbatim) | `daemon/src/claude/driver.ts` | T05/T07 real driver → T05 daemon core | `FakeClaudeDriver` (`claude/fake-driver.ts`) |
-| `CommandRunner`, `CreateCommandRunner` | `daemon/src/commands/runner.ts`; factory `createCommandRunner` in `daemon/src/commands/index.ts` (placeholder that throws until T06) | T06 → T05 | `FakeCommandRunner` (`commands/fake-runner.ts`) |
+| `CommandRunner`, `CreateCommandRunner` | `daemon/src/commands/runner.ts`; factory `createCommandRunner` in `daemon/src/commands/index.ts` (the real `ProcessCommandRunner`, T06) | T06 → T05 | `FakeCommandRunner` (`commands/fake-runner.ts`) |
 
 ## Engine: events in, effects out
 
@@ -35,7 +36,7 @@ M1-T12 froze every cross-agent seam as exported zod schemas / TS interfaces, eac
 |---|---|
 | `session.assigned {machine_id}` | T11 claim, inside the claim transaction (`applyEvent(..., {tx})`). Accepted only from `queued`: sets `machine_id`; enters `def.start` if `workflow_state` is null, else re-emits the current state's command (`start_session` resumes if `claude_session_id` is set, with `prompt = pending_answer.answer` when set). Into an **agent** state: `status = assigned` + `start_session` (`running` comes with `session.started`). Into a **command** state: `status = running` + `run_cmd` directly, since `run_cmd` has no `started` ([U-024](../tracking/UNKNOWNS.md)) |
 | `command.refused {command_id, command_kind, reason}` | T11 on **every** `command_ack accepted=false`; T04 dispatcher on a `start_session` ack timeout (`ack_timeout`). See [Refusals](#refusals) (incl. the [U-025](../tracking/UNKNOWNS.md) ignore rule) |
-| `session.started {command_id, worktree_path, branch, port_range}`, `agent.claude_session_id`, `agent.complete_state`, `agent.ask_user`, `agent.exited {command_id, code, signal}`, `command.exited`, `spend.reported` | T11 from `session_event` `started`, `claude_session_id`, `complete_state`, `ask_user`, `exit`, `cmd_exit`, `spend` |
+| `session.started {command_id, worktree_path, branch, port_range}`, `agent.claude_session_id`, `agent.complete_state`, `agent.ask_user`, `agent.no_outcome {last_output}`, `agent.exited {command_id, code, signal}`, `command.exited`, `spend.reported` | T11 from `session_event` `started`, `claude_session_id`, `complete_state`, `ask_user`, `no_outcome`, `exit`, `cmd_exit`, `spend`. `agent.no_outcome` ([U-028](../tracking/UNKNOWNS.md), [ADR-0005 addendum](../adr/0005-claude-code-driver.md#addendum-2026-10-22-turns-without-an-outcome-u-028)) is routed exactly like `agent.ask_user` with the question `NO_OUTCOME_QUESTION` ("Agent stopped without reporting an outcome; last output attached") followed by `\n\nLast output:\n<last_output>` when there is output |
 | `input.provided {input_request_id, answer, goto?}` | T08 `POST /sessions/:id/input` (`actor` = answered_by) |
 | `external.event {name}` | T08 `/approve` (`ui.approve`); connectors later |
 | `operator.cancel` | T08 `/cancel` |
@@ -62,7 +63,7 @@ M1-T12 froze every cross-agent seam as exported zod schemas / TS interfaces, eac
 Writes `apply()` can't make (it has no ids and doesn't see these columns), all in the apply transaction (T04):
 
 - Assigns `command_id` / `input_request_id`. For a `start_session` effect it also sets `session.agent_command_id` = that `command_id` and `agent_process_live = false`.
-- Builds each outbox row with `commandPayloadForEffect(effect, {command_id, snapshot, branch: session.branch})`: `outbox.kind`, `target`, `payload` (the WS payload verbatim) and `outbox.fencing_token` = the session's token after this apply ([Effect → WS](#effect--ws-fields)).
+- Builds each outbox row with `commandPayloadForEffect(effect, {command_id, snapshot, branch: session.branch})`: `outbox.kind`, `target`, `payload` (the WS payload verbatim) and `outbox.fencing_token` = the session's token after this apply ([Effect → WS](#effect--ws-fields)). It never renders or rewrites a prompt ([Prompt render](#prompt-render)).
 - On a non-ignored `session.started`: `UPDATE session SET worktree_path, branch, port_range = int4range(base, base+count)` (`[base, base+count)`). The gateway does **not** write these.
 - On `command.refused` for `start_session` that apply did **not** ignore: `session.fencing_token = nextval('fencing_seq')`, so events from a process that command spawned anyway are stale ([Orphaned processes](#orphaned-processes)). An ignored refusal (U-025 rule) bumps nothing.
 - On `input.provided`: checks the `input_request` is open, records `answer`, `answered_by` (= `opts.actor`), `answered_at`, and writes the `input.answered` board row.
@@ -101,9 +102,19 @@ T11, one transaction ([04](04-scheduler.md#2--claim-query-ticket-side)). The par
 
 **Daemon side (T05).** The daemon persists its last assigned `seq` locally. After every `registered`, the next `seq` it assigns is `max(local persisted seq + 1, registered.last_seq + 1)` (with `registered.last_seq = null` counting as -1). So a daemon whose local state was lost or is behind the orchestrator never reuses a `seq` the orchestrator has already seen (which would silently drop the event as a duplicate). It replays its buffered events with `seq > registered.last_seq`, in order, before new ones.
 
+## Gateway details (T11)
+
+Choices the gateway makes beyond the rules above ([03](03-protocols.md#daemon--orchestrator-websocket)):
+
+- `register` upserts `machine` (`status = online`, facts, `claude_code_version`) and makes this machine's open outbox rows due now ([Outbox](#outbox-state-machine)); `registered.heartbeat_interval_ms` defaults to **10 s**. A second connection for the same machine id replaces the first (closed with 4000), and the replaced socket's close does not mark the machine offline.
+- A daemon socket close marks its machine `offline` (after its queued frames are handled).
+- `heartbeat` stores `cpu_free` as `floor()` (int column), renews the leases of the sessions it lists under their current token on this machine, and kills those listed under a lower token ([Orphaned processes](#orphaned-processes) rule 4). A `session_event heartbeat` renews that session's lease.
+- `command_ack` UPDATEs only the row with that `command_id` **and** `target = machine:<acking machine>`.
+- The `superseded_start` kill (Orphaned processes rule 3) carries the session's current fencing token in its envelope.
+
 ## Outbox state machine
 
-`pending → sent → acked | failed`. `acked` and `failed` are terminal. Status writes are partitioned and every UPDATE is guarded, so a fast ack can't be overwritten by the dispatcher:
+`pending → sent → acked | failed`. `acked` and `failed` are terminal. Status writes are partitioned and every UPDATE is guarded, so a fast ack can't be overwritten by the dispatcher. **Every UPDATE that makes a `start_session` row terminal also sets `payload.prompt` to JSON `null`** (`SCRUBBED_PAYLOAD_SQL`, `orchestrator/src/engine/outbox.ts`; other payload fields kept): the prompt can carry the `attach: output` tail, and a terminal row is never sent again (a requeue renders a new prompt from the session) ([U-039](../tracking/UNKNOWNS.md)).
 
 | Who | Transition | Guarded UPDATE |
 |---|---|---|
@@ -148,7 +159,17 @@ Kills are direct replies, not outbox rows: if the socket drops before one is wri
 
 - **Set** by apply on `input.provided` (alongside the wrapper's `input_request.answer` write).
 - **Used**: every `start_session` apply emits while it is set uses `prompt = pending_answer.answer` with `resume_claude_session_id`: the `input.provided` resume when `agent_process_live` is false, the `send_input` `no_live_process` re-answer, the resume after `agent.exited` while parked, and the `session.assigned` re-emit after a refused or timed-out resume requeued the session.
-- **Cleared** when the agent is running on it: a matching `session.started`, or, on the live `send_input` path (an accepted ack is not an engine event), the agent's next `agent.complete_state` / `agent.ask_user`. Also cleared when apply enters a different state, unless that same apply emits a `start_session` that uses it (an `input.provided` that routes via `return_to`/`goto` into an agent state while `agent_process_live` is false): then the answer stays set until that start's matching `session.started`, so an `ack_timeout` requeue on that path can still re-answer. Always cleared on terminal statuses.
+- **Cleared** when the agent is running on it: a matching `session.started`, or, on the live `send_input` path (an accepted ack is not an engine event), the agent's next `agent.complete_state` / `agent.ask_user` / `agent.no_outcome`. Entering a state (apply's `enter`):
+  - a **different** state clears it, unless that apply delivers the answer (`input.provided`);
+  - an `input.provided` into an **agent** state keeps it: for the live `send_input` (kept until the agent's next outcome, as above), for the `start_session` that uses it (kept until that start's matching `session.started`, so an `ack_timeout` requeue can re-answer), or, when the session has no machine, through the requeue until the `session.assigned` re-emit;
+  - re-entering the **same** state (a self-loop) keeps it for the re-answer;
+  - entering any non-agent state (command, connector, event, human, terminal) clears it.
+
+  Always cleared on terminal statuses and on `operator.cancel`.
+
+## Prompt render
+
+`apply()` renders every `start_session.prompt` with `renderPrompt` (`shared/src/engine/render.ts`; [05](05-workflow-engine.md#prompt-render)); it is the only renderer ([U-040](../tracking/UNKNOWNS.md), M1-T07 deleted the wrapper's `engine/prompt.ts`). The wrapper and the dispatcher pass the prompt through verbatim. A resume whose prompt is `pending_answer.answer` sends the human's text unrendered.
 
 ## Effect → WS fields
 
@@ -199,7 +220,9 @@ T08 maps a non-applied `applyEvent` result with `httpForApplyResult(route, resul
 
 ## Composition root
 
-`packages/orchestrator/src/main.ts` defines the factory signatures and `composeOrchestrator(factories, config)`, which wires db → buses (`InMemoryBoardBus`, `InMemoryOutputBus`) → `createEngineService` → `createGateway({engine})` → `createApi` → `gateway.attach(api.server)`; `start()` runs `engine.startWorkers({transport: gateway.transport})` (outbox dispatcher + timeout sweep) then `api.listen(port, '127.0.0.1')`. Ownership: **T04** implements `createEngineService` in `src/engine/index.ts`, **T11** `createGateway` in `src/gateway/index.ts` (WS on `API_PATHS.daemonWs` = `/ws/daemon`, via the HTTP server's `upgrade`), **T08** `createApi` in `src/api/index.ts`, and **T07** adds `main()` (env, real factories, signals). `createDb` (a `pg.Pool`) lives in `main.ts`. The port is `CONDUCTOR_PORT` (default **7400**, `conductorPort(env)`); the daemon (T05) dials `ws://<host>:<port>/ws/daemon`.
+`packages/orchestrator/src/main.ts` defines the factory signatures and `composeOrchestrator(factories, config)`, which wires db → buses (`InMemoryBoardBus`, `InMemoryOutputBus`) → `createEngineService` → `createGateway({engine})` → `createApi` → `gateway.attach(api.server)`; `start()` runs `engine.startWorkers({transport: gateway.transport})` (outbox dispatcher + timeout sweep) then `api.listen(port, '127.0.0.1')`. Ownership: **T04** implements `createEngineService` in `src/engine/index.ts`, **T11** `createGateway` in `src/gateway/index.ts` (WS on `API_PATHS.daemonWs` = `/ws/daemon`, via the HTTP server's `upgrade`), **T08** `createApi` in `src/api/index.ts`, and **T07** adds `main()` (env, real factories, signals). `createDb` (a `pg.Pool`) lives in `main.ts`.
+
+**Process entry (T07).** `main(opts?)` in `main.ts`, run by `src/bin.ts` (the package's `conductor-orchestrator` bin, `dist/bin.js`): reads `DATABASE_URL` (required), `CONDUCTOR_PORT` and `CONDUCTOR_WEB_DIR` (default `packages/web/dist`), calls `composeOrchestrator(REAL_FACTORIES, …)` where `REAL_FACTORIES.createDb` is `src/db`'s pool with an idle-error listener ([U-038](../tracking/UNKNOWNS.md); `main.ts`'s bare default stays for fakes), `start()`s it (outbox dispatcher + timeout sweep + listen on 127.0.0.1), and on SIGINT/SIGTERM `stop()`s and exits. When the web dir holds an `index.html`, the API server also serves the built web app ([01](01-architecture.md#deployment-target)): any GET/HEAD outside `/api/*` and `/ws/*` is a file from that dir, an extensionless path with no file gets `index.html`, everything else falls through to the API (`src/web-static.ts`). `main()` does not migrate: run `pnpm db:migrate` first. The port is `CONDUCTOR_PORT` (default **7400**, `conductorPort(env)`); the daemon (T05) dials `ws://<host>:<port>/ws/daemon`.
 
 ## Defaults recorded here (workshop reconciliation)
 

@@ -1,0 +1,29 @@
+{
+  "id": "bad_ref_form",
+  "version": 1,
+  "start": "work",
+  "budget": {
+    "usd": 1,
+    "minutes": 10,
+    "max_loop_retries": 2
+  },
+  "states": {
+    "work": {
+      "type": "agent",
+      "prompt": "p",
+      "on": {
+        "done": "done",
+        "ask_user": "needs_input"
+      },
+      "input": {
+        "url": "$open_pr"
+      }
+    },
+    "needs_input": {
+      "type": "human"
+    },
+    "done": {
+      "type": "terminal"
+    }
+  }
+}

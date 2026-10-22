@@ -1,0 +1,18 @@
+{
+  "id": "missing_start",
+  "version": 1,
+  "start": "nope",
+  "budget": {
+    "usd": 1,
+    "minutes": 10,
+    "max_loop_retries": 2
+  },
+  "states": {
+    "needs_input": {
+      "type": "human"
+    },
+    "done": {
+      "type": "terminal"
+    }
+  }
+}

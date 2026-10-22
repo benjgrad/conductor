@@ -1,0 +1,31 @@
+{
+  "id": "dead_end",
+  "version": 1,
+  "start": "work",
+  "budget": {
+    "usd": 1,
+    "minutes": 10,
+    "max_loop_retries": 2
+  },
+  "states": {
+    "work": {
+      "type": "agent",
+      "prompt": "p",
+      "on": {
+        "done": "build",
+        "timeout": "done",
+        "ask_user": "needs_input"
+      }
+    },
+    "build": {
+      "type": "command",
+      "cmd": "make"
+    },
+    "needs_input": {
+      "type": "human"
+    },
+    "done": {
+      "type": "terminal"
+    }
+  }
+}

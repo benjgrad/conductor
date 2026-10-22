@@ -76,6 +76,11 @@ dispatcher: SELECT pending outbox rows FOR UPDATE SKIP LOCKED → send → mark 
 6. `event` states with `release_machine` must have a `timeout`.
 7. Every name in an agent state's `tools` is a key of `TOOL_ALIASES` (`TOOL_ALIAS_NAMES`, [10](10-contracts.md#tools)); an unknown alias is an error.
 
+How T03 (`shared/src/workflow/validate.ts`) reads rules 1–5:
+- The graph is the explicit `on` transitions (a string target, or an object's `goto` and `else`). Implicit routes (human `answered` → `return_to`, failed guard / budget → `needs_input`, UI "skip to") are not edges. `on_budget_exceeded` must exist (rule 1) and counts as reachable (rule 2). Rules 2–5 are skipped while a rule 1 error stands; 6 and 7 always run.
+- Rule 4: a cycle is bounded if it takes an object transition's `goto` leg (counter capped at `retries`, else `budget.max_loop_retries`), an edge out of a `human` state, or an `event` state's edge on one of its `wait_for` events (externally triggered, e.g. `pr.changes_requested`). A cycle of only plain transitions, `else` legs, or event `timeout` edges is unbudgeted.
+- Rule 5: `$<state>.<key>` must name an agent state whose `result` lists `key`, and the referencing state must be unreachable from `start` once that state's `done` edges are removed (it has completed on every path).
+
 A `guard` name is not checked in M1: the guard registry is empty and an unregistered guard passes at runtime (TD-017, [10](10-contracts.md#guards)). Once guards are registered, an unregistered name becomes an error.
 
 ## Idempotency

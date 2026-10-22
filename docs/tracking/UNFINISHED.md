@@ -16,20 +16,11 @@ Remove the entry once the work is merged or deliberately abandoned. If abandoned
 - **Gates**: typecheck ✅ lint ✅ tests ❌ (worktree.test.ts skipped)
 -->
 
-## M1-T05a / M1-T05b · Real-mode checks (code merged; acceptance items outstanding)
-- **Branch / worktree**: none; both merged to main via `integrate/B` (d5841e7). Work from the main checkout or a fresh worktree off main
-- **Last commit**: 504d069 (T05a fix round 1), 9fddabd (T05b fix round 1)
-- **Done so far**: daemon core and the real cli-driver are merged and QA-passed against fakes; `E2E_REAL_CLAUDE=flags` (free argv check against the installed CLI) passes
-- **Not done**: (1) the paid real-CLI round trip `E2E_REAL_CLAUDE=1` (~$0.01 on haiku) needs Ben's approval ([B-004](BLOCKERS.md)); (2) the T05a real-mode manual check (daemon + real driver), which was blocked on T05b and is now possible; (3) TD-021: daemon `main.ts` still loads the cli-driver via a computed dynamic import
-- **Exact next step**: with Ben's approval, from the repo root on main run `E2E_REAL_CLAUDE=1 pnpm exec vitest run --project daemon src/claude/cli-driver.real.test.ts` and record the result in the session log; then have a small task replace the computed import in packages/daemon/src/main.ts:13 with `import { createCliDriver } from './claude/index.js'` (TD-021, U-029) and do the documented real-mode manual check
-- **Gotchas**: the real test skips unless `E2E_REAL_CLAUDE` is set; `CONDUCTOR_REAL_CLAUDE` is gone. pnpm scripts run Node 22 via `.npmrc`, the shell may have Node 20
-- **Gates**: typecheck ✅ lint ✅ tests ✅ (265 passed / 2 skipped on main) build ✅
-
-## M1-T11 · Orchestrator daemon gateway (QA passed; not merged)
-- **Branch / worktree**: `m1-t11-gateway` @ `.claude/worktrees/wf_716565dc-e7a-20` (pushed to origin/m1-t11-gateway)
-- **Last commit**: fe5220e (M1-T11 gateway, 1 commit on main 8a6260f)
-- **Done so far**: gateway (WS server, register/heartbeat, FIFO claim with SKIP LOCKED, command_ack, SocketTransport, session_event → engine, fencing/seq checks, orphan kills) implemented and QA-passed (PASS WITH DEBT; 298 tests green on its base)
-- **Not done**: merge to main. `git merge --no-ff m1-t11-gateway` onto main 098b40e conflicts in packages/orchestrator/src/index.ts: T04b added `// M1-T04b engine service …` + `export * from './engine/index.js';` on the same lines where T11 adds `export { createGateway } from './gateway/index.js';`. Also TD-060: gateway tests still run against `DbTestEngine`, not the real engine now on main
-- **Exact next step**: in a scratch worktree off main, `git merge --no-ff m1-t11-gateway -m "merge: M1-T11 Orchestrator daemon gateway"`, resolve index.ts by keeping both export blocks (engine first, then gateway), run `bash scripts/ci.sh`, fast-forward main, then remove the worktree above. Check that `export *` from engine and `createGateway` don't collide on a name (tsc will say). Then do TD-060 (point gateway.test.ts at `createEngineService`) in a follow-up or in M1-T07
-- **Gotchas**: the shared harness teardown flake (TD-055) can make `pnpm test` exit 1 with all tests passing; re-run before calling it red. pnpm scripts run Node 22 via `.npmrc`
-- **Gates**: typecheck ✅ lint ✅ tests ✅ (on its own base) build ✅; not yet run on the merged tree
+## M1-T05a · Real-mode manual check (code merged; one acceptance item outstanding)
+- **Branch / worktree**: none; daemon core merged via `integrate/B` (d5841e7), wiring via M1-T07 (66ab745). Work from the main checkout or a fresh worktree off main
+- **Last commit**: f871554 (main after group D)
+- **Done so far**: the paid real-CLI round trip passed (M1-T07: `E2E_REAL_CLAUDE=1`, claude 2.1.308, 2/2 passed, B-004 cleared); daemon `main.ts` now statically imports `createCliDriver` with the outcome server (TD-021 paid), and the orchestrator has a real process entry (`conductor-orchestrator` bin)
+- **Not done**: the T05a real-mode manual check (orchestrator + daemon + real driver against a real repo), documented in the task's QA notes
+- **Exact next step**: `pnpm db:up && pnpm db:migrate`, start `conductor-orchestrator` (packages/orchestrator/dist/bin.js) and the daemon against it with the real driver, create a ticket from the board, watch it reach `implement` and record the result in the session log. It can fold into M1-T10's `E2E_REAL_CLAUDE=1` mode
+- **Gotchas**: `main()` does not migrate; run `pnpm db:migrate` first. pnpm scripts run Node 22 via `.npmrc`, the shell may have Node 20
+- **Gates**: on main f871554: typecheck ✅ lint ✅ tests ✅ (475 passed / 2 skipped) build ✅

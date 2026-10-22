@@ -27,16 +27,19 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 | M1-T04b | Engine service: transactional apply w/ outbox + outbox dispatcher + timeout sweep + prompt render (split from T04; codes against the `apply` signature) | T02, T04a | C | done | `m1-t04b-engine-service` @ a134645, merged to main via `integrate/C` (c089733) (QA: PASS WITH DEBT, 1 fix round). Real-`apply` integration test runs and passes on the merged tree |
 | M1-T06 | Command states in daemon (build/test, semaphore, exit outcomes) | T05a | C | done | `m1-t06-commands` @ 8d78d6c, merged to main via `integrate/C` (470ac42) (QA: PASS WITH DEBT). Removed the placeholder test in frozen-adjacent fake-runner.test.ts (lead to acknowledge) |
 | M1-T08 | Orchestrator REST + SSE board feed (Last-Event-ID replay) + output stream | T02 (+ `EngineService` fake) | C | done | `m1-t08-api` @ 3252050, merged to main via `integrate/C` (098b40e) (QA: PASS WITH DEBT). Lost-wakeup fix (TD-051) due before T09b |
-| M1-T11 | **Orchestrator daemon gateway**: WS server, register/heartbeat → `machine`, `request_work` → single-machine FIFO claim, `command_ack`, outbox transport, `session_event` → engine | T02 (+ `EngineService` fake) | C | in_review | `m1-t11-gateway` @ fe5220e (QA: PASS WITH DEBT) **not merged**: merge conflict in packages/orchestrator/src/index.ts with T04b's export line (see UNFINISHED) |
-| M1-T07 | `complete_state` / `ask_user` plumbing end to end | T04b, T05a, T05b, T11 | D | todo | |
-| M1-T09b | Wire web to the real API | T08, T09 | D | todo | |
+| M1-T11 | **Orchestrator daemon gateway**: WS server, register/heartbeat → `machine`, `request_work` → single-machine FIFO claim, `command_ack`, outbox transport, `session_event` → engine | T02 (+ `EngineService` fake) | C | done | `m1-t11-gateway` @ fe5220e, merged to main by the lead as 6ef9f55 (QA: PASS WITH DEBT). index.ts export conflict resolved by keeping both lines; gateway tests moved to the real engine in T07 (TD-060) |
+| M1-T07 | `complete_state` / `ask_user` plumbing end to end, plus final wiring (orchestrator `main()`/bin, U-028 nudge + `no_outcome`, U-039 outbox scrub, U-040 single renderer, U-032 `claude_code_version`) | T04b, T05a, T05b, T11 | D | done | `m1-t07-ask-answer-e2e-wiring` @ 340f1fc, merged to main via `integrate/D` (66ab745) (QA: PASS WITH DEBT). Paid real-CLI run passed (B-004 cleared) |
+| M1-T09b | Wire web to the real API (split from T09) | T08, T09 | D | done | `m1-t09b-web-wiring` @ fd901d9, merged to main via `integrate/D` (f871554) (QA: PASS WITH DEBT, 1 fix round). U-043 still open |
+| M1-T14 | Security hardening (scope briefed by the lead; candidates: TD-019 tool allow-lists, TD-059 enrollment token, U-045 model text in Postgres) | T07 | D2 | todo | |
 | M1-T10 | E2E: happy path + needs_input round trip (fake & real Claude modes) | all | E | todo | |
 
-Groups run in order A → A2 → B → C → D → E. Tasks within a group own disjoint files and are given to parallel implementer agents (see [CLAUDE.md](../../../CLAUDE.md) › Orchestrate). Groups B–D code against the T12 contracts and their fakes; a needed contract change is reported, not made locally.
+Groups run in order A → A2 → B → C → D → D2 → E. Tasks within a group own disjoint files and are given to parallel implementer agents (see [CLAUDE.md](../../../CLAUDE.md) › Orchestrate). Groups B–D code against the T12 contracts and their fakes; a needed contract change is reported, not made locally.
 
 **Gates (Ben)**: after A, accept ADR-0005 (done). After A2, review `docs/design/10-contracts.md`, which freezes the interfaces (approved 2026-10-22).
 
-**Splits (2026-10-22)**: T05 → T05a (daemon core) + T05b (real CLI driver, outcome server, fake claude), run in parallel in group B. T04 → T04a (pure `apply()` in shared) + T04b (orchestrator engine service: transactional apply, outbox dispatcher, timeout sweep, prompt render).
+**Splits (2026-10-22)**: T05 → T05a (daemon core) + T05b (real CLI driver, outcome server, fake claude), run in parallel in group B. T04 → T04a (pure `apply()` in shared) + T04b (orchestrator engine service: transactional apply, outbox dispatcher, timeout sweep, prompt render). T09 → T09 (web kanban against the mock API, group B) + T09b (wire the web client to the real orchestrator API and SSE, group D).
+
+**Added (2026-10-22)**: M1-T14 Security hardening, group D2, after T07 (Ben).
 
 ---
 
@@ -148,6 +151,10 @@ Groups run in order A → A2 → B → C → D → E. Tasks within a group own d
 ### M1-T09 · Web kanban
 - **Scope**: Vite + React; columns per [06](../../design/06-human-input.md#kanban-columns-queries-not-state); needs-input cards sorted oldest first with question badge; detail panel (state, output, input box); create-ticket form. Build against a mock API first, wire to T08.
 - **Acceptance**: component tests for column mapping + answer flow; manual check screenshot in QA notes.
+
+### M1-T14 · Security hardening
+- **Scope**: to be briefed by the lead before D2 starts. Candidates from tracking: TD-019 (tool allow-lists are not a security boundary), TD-059 (`register` does not verify `enrollment_token`), U-045 (assistant text in Postgres).
+- **Acceptance**: set in the lead's brief.
 
 ### M1-T10 · E2E
 - **Scope**: `pnpm test:e2e` boots Postgres, orchestrator, one daemon, and a **fake Claude** (scripted binary obeying ADR-0005 contract) against a fixture repo whose build/test can be made to fail; scenarios: happy path; test fails twice then passes; agent asks a question, test answers via REST. Optional `E2E_REAL_CLAUDE=1` mode.

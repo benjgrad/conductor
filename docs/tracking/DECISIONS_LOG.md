@@ -4,6 +4,16 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-22 | M1 group D: T07 and T09b merged to main via `integrate/D` (`--no-ff` per task, no conflicts) after `scripts/ci.sh` passed on the merged tree (475 passed / 2 skipped; f871554) | M1 group D |
+| 2026-10-22 | M1-T14 Security hardening added to M1 as group D2 (depends on T07) | Ben, [M1](../plan/milestones/M1-single-machine.md) |
+| 2026-10-22 | B-004 approved: the paid real-CLI round trip may run (~$0.01, haiku); cleared once T07 reported the run (2/2 passed on claude 2.1.308) | Ben, B-004 |
+| 2026-10-22 | TD-062 doc fixes approved: 10-contracts §Pending answer, §Seams CommandRunner, §Prompt render, §Gateway details (T11), and the matching 03 edits (applied by M1-T07) | Ben, [10](../design/10-contracts.md) |
+| 2026-10-22 | U-033: loops closed only by external events are accepted as budget-bounded in M1 (the provisional validator rule 4 reading stands); revisit in M3 | Ben, U-033 |
+| 2026-10-22 | U-032: `claude_code_version` is stored on the machine row, set from `register` (migration 1761200000000) | Ben, U-032 |
+| 2026-10-22 | U-040: one prompt renderer, shared `apply`/`renderPrompt`; the orchestrator wrapper passes the prompt through verbatim | Ben, U-040 |
+| 2026-10-22 | U-039: the `attach: output` tail may sit in `outbox.payload` while the row is pending; `payload.prompt` is nulled when a `start_session` row turns terminal | Ben, U-039 |
+| 2026-10-22 | U-028: on a turn with no outcome the daemon nudges once, then emits `no_outcome` and the session goes to needs_input (ADR-0005 addendum) | Ben, [ADR-0005](../adr/0005-claude-code-driver.md) |
+| 2026-10-22 | M1-T11 merged to main by the lead (6ef9f55) after the gates passed; the packages/orchestrator/src/index.ts conflict was resolved by keeping both export lines (engine, then gateway) | lead, M1-T11 |
 | 2026-10-22 | M1 group C: T04a, T04b, T06 and T08 merged to main via `integrate/C` (`--no-ff` per task) after `scripts/ci.sh` passed on the merged tree (399 passed / 2 skipped; 098b40e), including T04b's real-`apply` integration test. T11 not merged: its export line in packages/orchestrator/src/index.ts conflicted with T04b's, and the integrator aborts on any conflict other than `pnpm-lock.yaml` | M1 group C |
 | 2026-10-22 | Engine event rows never store `command.exited.output_tail`; the wrapper stores `output_tail_bytes` instead, and `apply` still gets the full tail (02 §event) | M1-T04b |
 | 2026-10-22 | apply clears `pending_answer` when it enters a different state, unless the entry is the `input.provided` start that uses it (10-contracts §Pending answer) | M1-T04a |

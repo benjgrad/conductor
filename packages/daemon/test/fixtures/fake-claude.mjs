@@ -14,7 +14,13 @@
 // 5. Scenario-driven (below); `--resume` of an unknown id fails like the real CLI.
 //
 // Scenario: FAKE_CLAUDE_SCENARIO (JSON) or FAKE_CLAUDE_SCENARIO_FILE (path to JSON). Either an
-// array of turns or { "turns": [...], "costPerTurnUsd": 0.001 }. A turn is an array of actions:
+// array of turns or { "turns": [...], "costPerTurnUsd": 0.001, "defaultTurn": [...] }.
+// Per-session scenarios (M1-T10, for one daemon running several tickets): when neither of those
+// is set and FAKE_CLAUDE_SCENARIO_DIR is, a new session picks <dir>/<name>.json from the marker
+// `fake-scenario: <name>` in its first user message (the rendered ticket body), else
+// <dir>/default.json, else the built-in default. The choice is kept in the session state, so a
+// `--resume` continues the same scenario. `defaultTurn` (optional) is played for every turn past
+// the end of `turns`. A turn is an array of actions:
 //   {"say": text}                       assistant text
 //   {"ask_user": question}              MCP tools/call ask_user
 //   {"complete_state": object}          MCP tools/call complete_state; "$answer" in any string
@@ -30,15 +36,21 @@
 //   {"exit": code}                      exit now with that code, no result line
 //   {"crash": signal}                   kill itself with that signal (e.g. "SIGKILL")
 //   {"error": subtype}                  end the turn with result is_error=true and that subtype
+//   {"write_file": {path, content}}     write a file relative to cwd (parents created; must stay
+//                                       inside cwd), like an agent's edit (M1-T10 fixtures)
 // Turns past the end of the script answer "No more scripted turns." and succeed.
 //
 // Other env:
 //   FAKE_CLAUDE_STATE_DIR   where per-session state lives (default: <tmpdir>/conductor-fake-claude)
 //   FAKE_CLAUDE_ARGV_LOG    append one JSON line {argv, cwd, env} per process start
-//   FAKE_CLAUDE_VERSION     claude_code_version reported in init (default "0.0.0-fake")
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+//   FAKE_CLAUDE_VERSION     claude_code_version reported in init and by `--version`
+//                           (default "0.0.0-fake")
+//
+// `fake-claude --version` prints "<version> (Claude Code)" and exits 0, like the real CLI (the
+// daemon reports it in `register`, U-015).
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -53,6 +65,12 @@ const fail = (msg, code = 1) => {
   process.stderr.write(`fake-claude: ${msg}\n`);
   process.exit(code);
 };
+const version = process.env.FAKE_CLAUDE_VERSION ?? '0.0.0-fake';
+
+if (argv.length === 1 && (argv[0] === '--version' || argv[0] === '-v')) {
+  process.stdout.write(`${version} (Claude Code)\n`);
+  process.exit(0);
+}
 
 if (process.env.FAKE_CLAUDE_ARGV_LOG) {
   const env = Object.fromEntries(
@@ -87,23 +105,35 @@ try {
 }
 
 // 5. scenario + per-session state
-function loadScenario() {
+const BUILTIN_SCENARIO = [
+  [{ say: 'I need a decision first.' }, { ask_user: 'Which greeting word should I use?' }],
+  [{ complete_state: { greeting: '$answer' } }],
+];
+const scenarioDir = process.env.FAKE_CLAUDE_SCENARIO_DIR;
+const normalize = (s) => (Array.isArray(s) ? { turns: s } : s);
+
+/** The env-wide scenario, or null when it is chosen per session (FAKE_CLAUDE_SCENARIO_DIR). */
+function loadGlobalScenario() {
   let raw = process.env.FAKE_CLAUDE_SCENARIO;
   if (raw === undefined && process.env.FAKE_CLAUDE_SCENARIO_FILE) {
     raw = readFileSync(process.env.FAKE_CLAUDE_SCENARIO_FILE, 'utf8');
   }
-  const s =
-    raw === undefined
-      ? [
-          [{ say: 'I need a decision first.' }, { ask_user: 'Which greeting word should I use?' }],
-          [{ complete_state: { greeting: '$answer' } }],
-        ]
-      : JSON.parse(raw);
-  return Array.isArray(s) ? { turns: s } : s;
+  if (raw !== undefined) return normalize(JSON.parse(raw));
+  return scenarioDir ? null : normalize(BUILTIN_SCENARIO);
 }
-const scenario = loadScenario();
-const costPerTurn = scenario.costPerTurnUsd ?? 0.001;
-const version = process.env.FAKE_CLAUDE_VERSION ?? '0.0.0-fake';
+
+/** FAKE_CLAUDE_SCENARIO_DIR: the scenario named in the first message (or default.json). */
+function scenarioNameFor(firstMessage) {
+  return /fake-scenario:\s*([A-Za-z0-9_-]+)/.exec(firstMessage)?.[1] ?? 'default';
+}
+function loadNamedScenario(name) {
+  const path = join(scenarioDir, `${name}.json`);
+  if (existsSync(path)) return normalize(JSON.parse(readFileSync(path, 'utf8')));
+  if (name === 'default') return normalize(BUILTIN_SCENARIO);
+  fail(`no scenario ${path}`);
+}
+
+let scenario = loadGlobalScenario();
 
 const stateDir = process.env.FAKE_CLAUDE_STATE_DIR ?? join(tmpdir(), 'conductor-fake-claude');
 mkdirSync(stateDir, { recursive: true });
@@ -120,6 +150,7 @@ if (resumeId !== undefined) {
 }
 const saveState = () => writeFileSync(statePath, JSON.stringify(state));
 saveState();
+if (scenario === null && state.scenario !== undefined) scenario = loadNamedScenario(state.scenario);
 
 // 2./3. protocol
 const out = (o) => process.stdout.write(JSON.stringify({ ...o, session_id: sessionId }) + '\n');
@@ -170,7 +201,20 @@ const userText = (msg) => {
     .join('');
 };
 
+function writeFile(spec, answer) {
+  const target = resolve(process.cwd(), String(spec.path));
+  const rel = relative(process.cwd(), target);
+  if (rel === '' || rel.startsWith('..') || isAbsolute(rel))
+    fail(`write_file outside cwd: ${spec.path}`);
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, subst(String(spec.content ?? ''), answer));
+}
+
 async function runTurn(text) {
+  if (scenario === null) {
+    state.scenario = scenarioNameFor(text);
+    scenario = loadNamedScenario(state.scenario);
+  }
   const turnIndex = state.turn;
   state.turn += 1;
   saveState(); // a crash mid-turn resumes at the next turn, like a real transcript
@@ -184,8 +228,9 @@ async function runTurn(text) {
     permissionMode: flag('--permission-mode') ?? 'default',
     claude_code_version: version,
   });
-  const actions = scenario.turns[turnIndex] ?? [{ say: 'No more scripted turns.' }];
-  let turnCost = costPerTurn;
+  const actions = scenario.turns[turnIndex] ??
+    scenario.defaultTurn ?? [{ say: 'No more scripted turns.' }];
+  let turnCost = scenario.costPerTurnUsd ?? 0.001;
   let denials = 0;
   let errorSubtype;
   for (const a of actions) {
@@ -197,6 +242,7 @@ async function runTurn(text) {
       });
     }
     if (a.stderr !== undefined) process.stderr.write(a.stderr);
+    if (a.write_file !== undefined) writeFile(a.write_file, text);
     if (a.raw !== undefined) process.stdout.write(a.raw + '\n');
     if (a.sleep !== undefined) await new Promise((r) => setTimeout(r, a.sleep));
     if (a.ignore_sigterm) process.on('SIGTERM', () => {});

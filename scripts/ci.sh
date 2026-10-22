@@ -11,6 +11,6 @@ step "lint";      pnpm lint
 step "db:up";     pnpm db:up   # shared local cluster; DB tests create their own databases
 step "test";      pnpm test
 step "build";     pnpm build
-step "test:e2e";  pnpm test:e2e
+step "test:e2e";  env -u E2E_REAL_CLAUDE pnpm test:e2e   # fake Claude only: CI never spends
 
 printf '\nci.sh: all gates passed\n'

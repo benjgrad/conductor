@@ -106,7 +106,8 @@ pnpm typecheck         # tsc -b across the workspace (project references; emits 
 pnpm lint              # eslint (type-aware) + prettier --check
 pnpm format            # prettier --write
 pnpm test              # vitest, one project per package (DB tests need db:up)
-pnpm test:e2e          # placeholder until M1-T10 (orchestrator + daemon + fake Claude)
+pnpm test:e2e          # db up + tsc -b + e2e/ suite: real orchestrator + daemon bins, fake Claude (~15 s)
+E2E_REAL_CLAUDE=1 pnpm test:e2e   # ask/answer only, real `claude` on haiku (spends money; not in CI)
 scripts/ci.sh          # all gates, in order: install, typecheck, lint, db:up, test, build, test:e2e
 ```
 

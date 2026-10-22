@@ -13,7 +13,7 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "scripts/test-e2e.sh",
+    "test:e2e": "e2e/run.sh",
     "db:up": "scripts/db.sh up",
     "db:down": "scripts/db.sh down",
     "db:migrate": "scripts/db.sh migrate",

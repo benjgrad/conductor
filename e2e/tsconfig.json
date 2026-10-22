@@ -1,0 +1,15 @@
+{
+  // Typechecks (and type-aware lints) the E2E suite (M1-T10). It imports the orchestrator's test
+  // database helper and the shared API types by relative path; tsc -b resolves those through the
+  // references. composite needs some emit, so declarations go to a throwaway dir.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "emitDeclarationOnly": true,
+    "declarationMap": false,
+    "outDir": "../node_modules/.tmp/e2e",
+    "tsBuildInfoFile": "../node_modules/.tmp/e2e/tsconfig.tsbuildinfo"
+  },
+  "include": ["."],
+  "references": [{ "path": "../packages/shared" }, { "path": "../packages/orchestrator/test" }]
+}

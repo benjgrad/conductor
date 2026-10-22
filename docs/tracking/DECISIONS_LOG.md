@@ -4,6 +4,12 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-22 | M1 group A (T00, T01) merged to main via `integrate/A` (`--no-ff` per task) after `scripts/ci.sh` passed on the merged tree | M1-T00, M1-T01 |
+| 2026-10-22 | **Proposed, not yet accepted**: daemon spawns installed `claude` in bidirectional stream-json mode (one long-lived child per session); `complete_state`/`ask_user` via daemon-hosted HTTP MCP server, non-blocking; answers as user messages (live stdin, else `--resume`); Agent SDK rejected for now | [ADR-0005](../adr/0005-claude-code-driver.md) (proposed) |
+| 2026-10-22 | Migration tool: node-pg-migrate 9.0.0 with TypeScript migrations (bundled jiti) in packages/orchestrator/migrations | M1-T01, [ADR-0004](../adr/0004-typescript-monorepo.md) |
+| 2026-10-22 | Toolchain held at Node 20.18-compatible majors (vitest 4, vite 6 via pnpm override, eslint 9, TS ~6.0) until U-019 is decided | M1-T01, TD-005 |
+| 2026-10-22 | Workspace packages export a `source` condition (src/index.ts) used by vitest/vite, so tests run on a clean clone without a build; `spikes/**` is outside every gate | M1-T01 |
+| 2026-10-22 | Homebrew Postgres fallback is TCP-only on localhost:54329 with trust auth and unix sockets off (worktree paths exceed the macOS socket-path limit) | M1-T01 |
 | 2026-10-22 | M1 executed contracts-first: new tasks M1-T12 (contracts, group A2) and M1-T11 (orchestrator daemon gateway + single-machine claim); groups B–D build against the contract fakes. Each group runs as one Workflow (implement → QA → fix → integrate) | [M1](../plan/milestones/M1-single-machine.md) |
 | 2026-10-22 | Agents push `m1-tNN-*` task branches to `origin`; `main` merges locally, and only Ben pushes it | Ben |
 | 2026-10-22 | Local Postgres: `db:up` uses docker-compose when Docker is available, otherwise Homebrew `postgresql@16` in a repo-local cluster; tests read `DATABASE_URL` | M1-T01 |

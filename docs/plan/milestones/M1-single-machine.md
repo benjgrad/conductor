@@ -14,8 +14,8 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 
 | ID | Task | Depends on | Parallel group | Status | Branch / owner |
 |---|---|---|---|---|---|
-| M1-T00 | Spike: drive Claude Code from a daemon; resolve U-001 + U-002 → ADR-0005 | — | A | todo | |
-| M1-T01 | Monorepo scaffold | — | A | todo | |
+| M1-T00 | Spike: drive Claude Code from a daemon; resolve U-001 + U-002 → ADR-0005 | — | A | done | `m1-t00-claude-driver-spike` @ a903c5a, merged to main (QA: PASS WITH DEBT). ADR-0005 still `proposed`: Ben's acceptance pending ([B-001](../../tracking/BLOCKERS.md)) |
+| M1-T01 | Monorepo scaffold | — | A | done | `m1-t01-scaffold` @ 8c05d14, merged to main (QA: PASS WITH DEBT) |
 | M1-T12 | **Contracts**: shared zod/TS interfaces + fakes for every seam (see below) | T00, T01 | A2 | todo | |
 | M1-T02 | DB schema + migrations | T12 | B | todo | |
 | M1-T03 | Workflow validator (`shared`; schema itself is in T12) | T12 | B | todo | |

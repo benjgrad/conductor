@@ -38,6 +38,11 @@ export interface MachineRow {
    * (10-contracts §Daemon seq dedupe). null = nothing processed yet.
    */
   last_seq: string | null;
+  /**
+   * `register.claude_code_version` (U-015, U-032; migration 1761200000000), written by the
+   * gateway (T11) on every register. null = the daemon couldn't run `claude --version`.
+   */
+  claude_code_version: string | null;
   created_at: Date;
   updated_at: Date;
 }

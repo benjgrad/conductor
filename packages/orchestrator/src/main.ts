@@ -1,6 +1,13 @@
 import type { Server } from 'node:http';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { conductorPort } from '@conductor/shared';
 import pg from 'pg';
+import { createApi as createRealApi } from './api/index.js';
+import { createDb as createPoolDb } from './db/index.js';
+import { createEngineService as createRealEngineService } from './engine/index.js';
+import { createGateway as createRealGateway } from './gateway/index.js';
+import { hasWebApp, serveWebApp } from './web-static.js';
 import {
   InMemoryBoardBus,
   InMemoryOutputBus,
@@ -15,8 +22,9 @@ import {
 //   createEngineService  → src/engine/index.ts   (M1-T04)
 //   createGateway        → src/gateway/index.ts  (M1-T11)
 //   createApi            → src/api/index.ts      (M1-T08)
-// createDb and the buses are defined here. M1-T07 adds the process entry (`main()`: read env,
-// import the three real factories, call composeOrchestrator, handle SIGINT/SIGTERM).
+// createDb and the buses are defined here. M1-T07 adds the process entry `main()` at the end
+// (env, the real factories, composeOrchestrator, the web app, SIGINT/SIGTERM); `src/bin.ts` is
+// the `conductor-orchestrator` executable that runs it.
 
 export type Db = pg.Pool;
 
@@ -122,4 +130,78 @@ export function composeOrchestrator(
       await db.end();
     },
   };
+}
+
+// ================================================================== process entry (M1-T07)
+
+/** `packages/web/dist` (vite build), from both `src/` (vitest) and `dist/` (built). */
+export const DEFAULT_WEB_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../../web/dist');
+
+/** The real factories (T04b, T11, T08) and `src/db`'s pool, which logs idle errors (U-038). */
+export const REAL_FACTORIES: Required<OrchestratorFactories> = {
+  createDb: createPoolDb,
+  createEngineService: createRealEngineService,
+  createGateway: createRealGateway,
+  createApi: createRealApi,
+};
+
+export interface MainOptions {
+  /** Default `process.env`: DATABASE_URL (required), CONDUCTOR_PORT, CONDUCTOR_WEB_DIR. */
+  env?: NodeJS.ProcessEnv;
+  /** Stop on SIGINT/SIGTERM, then exit (default true; tests pass false and call `stop()`). */
+  signals?: boolean;
+  /** Default REAL_FACTORIES (tests may wrap them). */
+  factories?: OrchestratorFactories;
+  log?: (msg: string) => void;
+}
+
+/**
+ * Start the orchestrator: compose the real pieces on DATABASE_URL, serve the built web app (when
+ * `CONDUCTOR_WEB_DIR`, default `packages/web/dist`, has an index.html), start the outbox
+ * dispatcher and the timeout sweep, and listen on 127.0.0.1:CONDUCTOR_PORT (default 7400). The
+ * schema is not migrated here: run `pnpm db:migrate` first.
+ */
+export async function main(opts: MainOptions = {}): Promise<Orchestrator> {
+  const env = opts.env ?? process.env;
+  const log =
+    opts.log ?? ((m: string) => void process.stderr.write(`[conductor-orchestrator] ${m}\n`));
+  const databaseUrl = env.DATABASE_URL;
+  if (!databaseUrl) throw new Error('DATABASE_URL is not set');
+  const port = conductorPort(env);
+  const webDir = env.CONDUCTOR_WEB_DIR || DEFAULT_WEB_DIR;
+  const serveWeb = hasWebApp(webDir);
+  const factories = opts.factories ?? REAL_FACTORIES;
+  const orchestrator = composeOrchestrator(
+    {
+      ...factories,
+      createApi: (deps) => {
+        const api = factories.createApi(deps);
+        if (serveWeb) serveWebApp(api.server, webDir);
+        return api;
+      },
+    },
+    { databaseUrl, port },
+  );
+  await orchestrator.start();
+  log(`listening on http://127.0.0.1:${port}`);
+  log(serveWeb ? `web app from ${webDir}` : `no web app at ${webDir} (run pnpm build)`);
+
+  if (opts.signals ?? true) {
+    let stopping = false;
+    const shutdown = (signal: string) => {
+      if (stopping) return;
+      stopping = true;
+      log(`${signal}: stopping`);
+      orchestrator.stop().then(
+        () => process.exit(0),
+        (err: unknown) => {
+          log(`stop failed: ${err instanceof Error ? err.message : String(err)}`);
+          process.exit(1);
+        },
+      );
+    };
+    process.once('SIGINT', () => shutdown('SIGINT'));
+    process.once('SIGTERM', () => shutdown('SIGTERM'));
+  }
+  return orchestrator;
 }

@@ -4,11 +4,16 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { resolveToolPolicy, sessionBranch, type OrchestratorToDaemon } from '@conductor/shared';
+import {
+  NO_OUTCOME_OUTPUT_CHARS,
+  resolveToolPolicy,
+  sessionBranch,
+  type OrchestratorToDaemon,
+} from '@conductor/shared';
 import { FakeClaudeDriver, type FakeClaudeScript } from './claude/fake-driver.js';
 import { FakeCommandRunner } from './commands/fake-runner.js';
 import { loadConfig, type DaemonConfig } from './config.js';
-import { Daemon } from './daemon.js';
+import { Daemon, NO_OUTCOME_NUDGE } from './daemon.js';
 import { DaemonStore } from './store.js';
 import type { LiveResources } from './sysinfo.js';
 import { CONDUCTOR_INSTRUCTIONS } from './system-prompt.js';
@@ -304,6 +309,67 @@ describe('daemon core: start_session', () => {
     expect(
       orch.ack((input.payload as { command_id: string }).command_id)[0]!.payload.accepted,
     ).toBe(true);
+  });
+
+  it('U-028: an outcome-less turn gets ONE nudge; the agent then completes', async () => {
+    const driver = new FakeClaudeDriver({
+      turns: [[{ say: 'I made the change.' }], [{ completeState: { ok: true } }]],
+    });
+    makeDaemon(driver);
+    await orch.until(() => orch.ofType('request_work')[0]);
+    orch.send(startSession(randomUUID()));
+    await orch.until(() => orch.events('exit')[0]);
+    expect(driver.last!.inputs).toEqual([NO_OUTCOME_NUDGE]);
+    expect(NO_OUTCOME_NUDGE).toBe(
+      'You must finish by calling complete_state with your result, or ask_user if you need a human',
+    );
+    expect(orch.eventData('complete_state')).toEqual([{ result: { ok: true } }]);
+    expect(orch.events('no_outcome')).toEqual([]);
+  });
+
+  it('U-028: a second outcome-less turn emits no_outcome (parked); an answer re-arms the nudge', async () => {
+    const driver = new FakeClaudeDriver({
+      turns: [
+        [{ say: 'first' }],
+        [{ say: 'still no outcome' }],
+        // after the human answer: outcome-less again → a new nudge, then complete
+        (answer) => [{ say: `got ${answer}` }],
+        [{ completeState: { done: true } }],
+      ],
+    });
+    makeDaemon(driver);
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    orch.send(startSession(sid));
+    await orch.until(() => orch.events('no_outcome')[0]);
+    expect(orch.eventData('no_outcome')).toEqual([{ last_output: 'first\nstill no outcome' }]);
+    expect(driver.last!.inputs).toEqual([NO_OUTCOME_NUDGE]);
+    // Parked like after ask_user: the process stays alive, no further nudge.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(driver.last!.exited).toBe(false);
+    expect(driver.last!.inputs).toHaveLength(1);
+
+    orch.send(
+      cmd('send_input', sid, {
+        command_id: randomUUID(),
+        input_request_id: randomUUID(),
+        text: 'go on',
+      }),
+    );
+    await orch.until(() => orch.events('exit')[0]);
+    expect(driver.last!.inputs).toEqual([NO_OUTCOME_NUDGE, 'go on', NO_OUTCOME_NUDGE]);
+    expect(orch.eventData('complete_state')).toEqual([{ result: { done: true } }]);
+    expect(orch.events('no_outcome')).toHaveLength(1);
+  });
+
+  it('U-028: no_outcome carries only the tail of the assistant output', async () => {
+    const long = 'x'.repeat(NO_OUTCOME_OUTPUT_CHARS);
+    const driver = new FakeClaudeDriver({ turns: [[{ say: 'head' }], [{ say: long }]] });
+    makeDaemon(driver);
+    await orch.until(() => orch.ofType('request_work')[0]);
+    orch.send(startSession(randomUUID()));
+    const ev = await orch.until(() => orch.eventData('no_outcome')[0]);
+    expect(ev.last_output).toBe(long);
   });
 
   it('refuses send_input with no_live_process when the process is gone', async () => {

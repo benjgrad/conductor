@@ -11,6 +11,7 @@ export {
   apply,
   deadlineFor,
   fallbackHumanState,
+  NO_OUTCOME_QUESTION,
   renderPrompt,
   TICKET_TEMPLATE,
   type PromptAttachment,

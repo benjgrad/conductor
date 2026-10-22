@@ -3,6 +3,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { arch, hostname, platform } from 'node:os';
 import { isAbsolute, relative, resolve } from 'node:path';
 import {
+  NO_OUTCOME_OUTPUT_CHARS,
   parseOrchestratorMessage,
   resolveToolPolicy,
   type JsonObject,
@@ -30,6 +31,13 @@ import { ReconnectingWs } from './ws-client.js';
 // (ADR-0005) and the command runner (T06) are injected.
 
 export const DAEMON_VERSION = '0.0.0';
+
+/**
+ * U-028 (ADR-0005 addendum): the one user message sent when a turn ends with neither
+ * complete_state nor ask_user. A second outcome-less turn in a row emits `no_outcome`.
+ */
+export const NO_OUTCOME_NUDGE =
+  'You must finish by calling complete_state with your result, or ask_user if you need a human';
 
 /** Give up waiting for a reply to request_work after this long. */
 export const REQUEST_WORK_TIMEOUT_MS = 30_000;
@@ -61,7 +69,12 @@ interface AgentProc {
   claudeSessionId: string;
   session: DriverSession;
   completed: boolean;
+  /** Parked for a human: after ask_user, or after no_outcome. Cleared by send_input. */
   askPending: boolean;
+  /** U-028: the nudge was sent for the current outcome-less streak. Cleared by send_input. */
+  nudged: boolean;
+  /** Tail of the assistant text (NO_OUTCOME_OUTPUT_CHARS), attached to `no_outcome`. */
+  lastOutput: string;
   exited: boolean;
   endTimer: NodeJS.Timeout | null;
   unsubscribe: () => void;
@@ -516,6 +529,8 @@ export class Daemon {
         session,
         completed: false,
         askPending: false,
+        nudged: false,
+        lastOutput: '',
         exited: false,
         endTimer: null,
         unsubscribe: () => {},
@@ -555,6 +570,10 @@ export class Daemon {
         this.emit(sid, a.fencingToken, { kind: 'claude_session_id', data: { id: ev.id } });
         return;
       case 'output':
+        if (ev.stream === 'assistant') {
+          const joined = a.lastOutput ? `${a.lastOutput}\n${ev.text}` : ev.text;
+          a.lastOutput = joined.slice(-NO_OUTCOME_OUTPUT_CHARS);
+        }
         this.sendOutput(sid, a.fencingToken, ev.stream, ev.text);
         return;
       case 'ask_user':
@@ -594,14 +613,7 @@ export class Daemon {
             }, this.config.endGraceMs);
           }
         } else if (!a.askPending) {
-          // TD-023: a turn that ends with neither outcome tool leaves the process idle; the session
-          // waits for the state's timeout (or an operator). No nudge in M1.
-          this.sendOutput(
-            sid,
-            a.fencingToken,
-            'debug',
-            `conductor: turn ended (${ev.subtype}) without complete_state or ask_user; agent idle`,
-          );
+          this.noOutcome(sid, a, ev.subtype);
         }
         return;
       case 'exit': {
@@ -630,6 +642,39 @@ export class Daemon {
     }
   }
 
+  /**
+   * U-028 (ADR-0005 addendum): a turn ended with neither complete_state nor ask_user. The first
+   * time, nudge with one user message; if the next turn also ends without an outcome, park the
+   * session (process alive and idle, like after ask_user) and emit `no_outcome`, which the
+   * engine turns into an agent_question. A human answer (send_input) re-arms the nudge.
+   */
+  private noOutcome(sid: string, a: AgentProc, subtype: string): void {
+    if (!a.nudged) {
+      a.nudged = true;
+      this.sendOutput(
+        sid,
+        a.fencingToken,
+        'debug',
+        `conductor: turn ended (${subtype}) without complete_state or ask_user; nudging`,
+      );
+      try {
+        a.session.sendInput(NO_OUTCOME_NUDGE);
+      } catch (e) {
+        // The process is gone; its `exit` event follows and the engine handles that.
+        this.log(`session ${sid}: nudge not sent: ${errText(e)}`);
+      }
+      return;
+    }
+    a.askPending = true;
+    this.sendOutput(
+      sid,
+      a.fencingToken,
+      'debug',
+      `conductor: turn ended (${subtype}) without an outcome after the nudge; asking a human`,
+    );
+    this.emit(sid, a.fencingToken, { kind: 'no_outcome', data: { last_output: a.lastOutput } });
+  }
+
   private sendInput(msg: SendInput): void {
     const a = this.live.get(msg.session_id)?.agent;
     if (!a || a.exited || a.completed) {
@@ -641,6 +686,7 @@ export class Daemon {
       return this.finish(msg, { accepted: false, reason: 'no_live_process' });
     }
     a.askPending = false;
+    a.nudged = false;
     this.finish(msg, { accepted: true });
   }
 

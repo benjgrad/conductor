@@ -19,6 +19,7 @@ describe('engineEventForSessionEvent', () => {
     spend: 'spend.reported',
     build_slot: null,
     heartbeat: null,
+    no_outcome: 'agent.no_outcome',
   };
 
   it.each(SESSION_EVENT_KINDS)('%s', (kind) => {
@@ -49,6 +50,10 @@ describe('engineEventForSessionEvent', () => {
       command_id: SESSION_EVENT_FIXTURES.exit.data.command_id,
       code: 0,
       signal: null,
+    });
+    expect(engineEventForSessionEvent(SESSION_EVENT_FIXTURES.no_outcome)).toEqual({
+      type: 'agent.no_outcome',
+      last_output: SESSION_EVENT_FIXTURES.no_outcome.data.last_output,
     });
   });
 });

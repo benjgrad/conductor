@@ -106,6 +106,8 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
       return onComplete(st, e.result);
     case 'agent.ask_user':
       return onAskUser(st, e.question);
+    case 'agent.no_outcome':
+      return onAskUser(st, withOutput(NO_OUTCOME_QUESTION, e.last_output));
     case 'agent.exited':
       return onAgentExited(st, e);
     case 'command.exited':
@@ -268,6 +270,10 @@ function onComplete(st: Step, result: JsonObject): ApplyIgnoreReason | null {
   takeOutcome(st, 'done', {});
   return null;
 }
+
+/** U-028: the question of the input_request an `agent.no_outcome` opens (+ the last output). */
+export const NO_OUTCOME_QUESTION =
+  'Agent stopped without reporting an outcome; last output attached';
 
 function onAskUser(st: Step, question: string): ApplyIgnoreReason | null {
   if (st.state?.type !== 'agent') return 'unexpected_event';

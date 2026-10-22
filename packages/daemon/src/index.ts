@@ -12,7 +12,7 @@ export { createCommandRunner } from './commands/index.js';
 export * from './claude/index.js';
 
 // M1-T05a daemon core.
-export { Daemon, DAEMON_VERSION, type DaemonOptions } from './daemon.js';
+export { Daemon, DAEMON_VERSION, NO_OUTCOME_NUDGE, type DaemonOptions } from './daemon.js';
 export { loadConfig, type DaemonConfig, type PortPoolConfig } from './config.js';
 export { PortPool, PortPoolExhaustedError, portEnv } from './ports.js';
 export { DaemonStore } from './store.js';

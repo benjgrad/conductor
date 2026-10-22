@@ -121,6 +121,9 @@ export const CommandAckPayloadSchema = z.object({
 /** Session-scoped when the command was; duplicates are harmless (acks are idempotent). */
 export const CommandAckMessageSchema = msg('command_ack', CommandAckPayloadSchema, {});
 
+/** Cap on `session_event no_outcome.last_output` (UTF-16 code units, the daemon keeps the tail). */
+export const NO_OUTCOME_OUTPUT_CHARS = 4000;
+
 const usage = z.object({
   input_tokens: z.number().int().nonnegative(),
   output_tokens: z.number().int().nonnegative(),
@@ -131,8 +134,8 @@ const usage = z.object({
 /**
  * `session_event.payload`. ADR-0005 DriverEvents `claude_session_id`, `ask_user`,
  * `complete_state`, `spend` and `exit` are forwarded as-is (snake_cased); `output` goes to the
- * `output` message; `turn_end` stays in the daemon. `started`, `cmd_exit`, `build_slot` and
- * `heartbeat` come from the daemon itself.
+ * `output` message; `turn_end` stays in the daemon. `started`, `cmd_exit`, `build_slot`,
+ * `heartbeat` and `no_outcome` come from the daemon itself.
  */
 export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
   /**
@@ -154,6 +157,16 @@ export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('claude_session_id'), data: z.object({ id: z.string() }) }),
   z.object({ kind: z.literal('complete_state'), data: z.object({ result: JsonObjectSchema }) }),
   z.object({ kind: z.literal('ask_user'), data: z.object({ question: z.string() }) }),
+  /**
+   * U-028 (ADR-0005 addendum): a turn ended without complete_state / ask_user, the daemon sent
+   * its one nudge, and the next turn also ended without an outcome. The process stays alive and
+   * idle (like after ask_user). `last_output` is the tail of the agent's last assistant text
+   * (capped by the daemon at NO_OUTCOME_OUTPUT_CHARS). → EngineEvent `agent.no_outcome`.
+   */
+  z.object({
+    kind: z.literal('no_outcome'),
+    data: z.object({ last_output: z.string().max(NO_OUTCOME_OUTPUT_CHARS) }),
+  }),
   /**
    * The Claude process exited. `command_id` is the start_session that spawned it, so a late exit
    * from an earlier process is told apart from the current one (10-contracts).

@@ -48,6 +48,7 @@ const GENS: Gen[] = [
     result: p % 2 ? { pr_url: 'https://x/pull/1' } : {},
   }),
   (_h, p) => ({ type: 'agent.ask_user', question: `q${p}` }),
+  (_h, p) => ({ type: 'agent.no_outcome', last_output: `o${p}` }),
   (h, p) => ({
     type: 'agent.exited',
     command_id: p % 4 === 0 ? uuid(9997) : (h.snap.agent_command_id ?? uuid(3)),

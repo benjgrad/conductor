@@ -84,7 +84,7 @@ export interface ClaudeDriver {
   start(opts: DriverStartOptions): DriverSession;
 }
 ```
-Mapping to [03](../design/03-protocols.md) `session_event` kinds: `claude_session_id`, `ask_user`, `complete_state`, `spend` and `exit` are forwarded as-is. `output` goes to the `output` channel. `turn_end` stays inside the daemon and drives park/end.
+Mapping to [03](../design/03-protocols.md) `session_event` kinds: `claude_session_id`, `ask_user`, `complete_state`, `spend` and `exit` are forwarded as-is. `output` goes to the `output` channel. `turn_end` stays inside the daemon and drives park/end (and, for a turn with no outcome, the nudge / `no_outcome` of the [addendum](#addendum-2026-10-22-turns-without-an-outcome-u-028)).
 
 **`spend.totalUsd` is cumulative for the Claude session, and it survives resume.** The orchestrator stores the last `totalUsd` per `claude_session_id` and adds only the positive delta to `session.spend_usd`. That makes replays and duplicates harmless.
 
@@ -120,3 +120,18 @@ The spike prototype (`driver.mjs`) takes `resumeSessionId?`/`sessionId?` in plac
 - The CLI changes the stream-json shape or the MCP tool-timeout behaviour.
 - We need to interrupt a running turn (e.g. a pause button), or to approve tools dynamically. Then move to the Agent SDK, or implement `control_request` `interrupt` ourselves.
 - Cross-machine resume becomes a requirement: decide transcript shipping, or accept re-prompting from the checkpointed branch.
+
+## Addendum (2026-10-22): turns without an outcome (U-028)
+- **Status**: accepted (Ben, U-028; implemented in M1-T07)
+
+**Context.** A turn can end (`result`, the driver's `turn_end`) without the agent calling `complete_state` or `ask_user`: the model sometimes just stops and summarises. Before this addendum the daemon left the process idle and the card sat in Running until the state's timeout (TD-023), wasting wall time on a common model behaviour.
+
+**Decision.** `turn_end` still stays in the daemon, and now also drives a bounded nudge:
+1. A turn ends with neither outcome (and no question pending): the daemon writes **one** user message to the live process, `NO_OUTCOME_NUDGE` = "You must finish by calling complete_state with your result, or ask_user if you need a human" (`daemon/src/daemon.ts`).
+2. If the next turn also ends without an outcome, the daemon does not nudge again. It parks the session (process alive and idle, exactly like after `ask_user`) and emits a new `session_event` kind **`no_outcome {last_output}`**: the tail of the agent's assistant text, at most `NO_OUTCOME_OUTPUT_CHARS` = 4000 characters (`shared/src/protocol/ws.ts`).
+3. The gateway maps it to the EngineEvent **`agent.no_outcome {last_output}`**, which apply routes exactly like `agent.ask_user`: outcome `ask_user` → `needs_input`, an `input_request` of kind `agent_question` whose question is `NO_OUTCOME_QUESTION` = "Agent stopped without reporting an outcome; last output attached", followed by the last output.
+4. The human's answer takes the normal answer path: `send_input` into the live process (or the `--resume` path if it has died). An accepted `send_input` re-arms the nudge, so every human answer buys the agent one more nudge before the next escalation.
+
+Turn errors (`turn_end.isError`, e.g. max turns) are treated the same way; the `--max-budget-usd` / `--max-turns` backstops still bound the nudge's cost.
+
+**Consequences.** Every outcome-less streak costs at most one extra turn before a human sees it, and the loop is bounded by the human (workflow invariant: every failure path ends at a human). The card moves to Needs input with the agent's own last words instead of waiting out the state timeout. The assistant tail lands in `input_request.question` in Postgres, as an `ask_user` question does; it is model text, not terminal output (contrast [U-039](../tracking/UNKNOWNS.md)). `session_event` gains a kind, so this is a protocol change ([03](../design/03-protocols.md), [10](../design/10-contracts.md)).

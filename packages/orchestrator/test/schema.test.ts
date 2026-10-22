@@ -82,6 +82,7 @@ const machine: ColumnSpec<MachineRow> = {
   max_sessions: col('int4', NN),
   max_concurrent_builds: col('int4', NN),
   last_seq: col('int8', NULL),
+  claude_code_version: col('text', NULL),
   created_at: col('timestamptz', NN),
   updated_at: col('timestamptz', NN),
 };

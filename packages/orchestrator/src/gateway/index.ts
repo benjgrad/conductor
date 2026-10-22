@@ -19,6 +19,7 @@ import {
   type OutputBus,
 } from '../contracts.js';
 import { withTransaction } from '../db/index.js';
+import { SCRUBBED_PAYLOAD_SQL } from '../engine/outbox.js';
 import type { CreateGateway, Db, GatewayHandle } from '../main.js';
 import { claimWork, LEASE_INTERVAL } from './claim.js';
 import { engineEventForSessionEvent } from './events.js';
@@ -266,15 +267,16 @@ class Gateway implements GatewayHandle {
       const r = await tx.query<{ last_seq: string | null }>(
         `INSERT INTO machine (id, hostname, os, arch, tags, status, last_heartbeat_at,
                               cpu_total, mem_total_mb, disk_free_mb, budget_cpu, budget_mem_mb,
-                              max_sessions, max_concurrent_builds)
-         VALUES ($1, $2, $3, $4, $5, 'online', now(), $6, $7, $8, $9, $10, $11, $12)
+                              max_sessions, max_concurrent_builds, claude_code_version)
+         VALUES ($1, $2, $3, $4, $5, 'online', now(), $6, $7, $8, $9, $10, $11, $12, $13)
          ON CONFLICT (id) DO UPDATE SET
            hostname = EXCLUDED.hostname, os = EXCLUDED.os, arch = EXCLUDED.arch,
            tags = EXCLUDED.tags, status = 'online', last_heartbeat_at = now(),
            cpu_total = EXCLUDED.cpu_total, mem_total_mb = EXCLUDED.mem_total_mb,
            disk_free_mb = EXCLUDED.disk_free_mb, budget_cpu = EXCLUDED.budget_cpu,
            budget_mem_mb = EXCLUDED.budget_mem_mb, max_sessions = EXCLUDED.max_sessions,
-           max_concurrent_builds = EXCLUDED.max_concurrent_builds, updated_at = now()
+           max_concurrent_builds = EXCLUDED.max_concurrent_builds,
+           claude_code_version = EXCLUDED.claude_code_version, updated_at = now()
          RETURNING last_seq`,
         [
           p.machine_id,
@@ -289,6 +291,7 @@ class Gateway implements GatewayHandle {
           p.budget_mem_mb,
           p.max_sessions,
           p.max_concurrent_builds,
+          p.claude_code_version, // U-032
         ],
       );
       // Re-send this machine's open commands right away; a start_session always gets one more
@@ -428,7 +431,8 @@ class Gateway implements GatewayHandle {
       const r = await tx.query<{ kind: OutboxKind; session_id: string | null }>(
         `UPDATE outbox
             SET status = CASE WHEN $2 THEN 'acked'::outbox_status ELSE 'failed'::outbox_status END,
-                last_error = $3
+                last_error = $3,
+                payload = ${SCRUBBED_PAYLOAD_SQL}
           WHERE command_id = $1 AND target = $4 AND status IN ('pending', 'sent')
           RETURNING kind, session_id`,
         [commandId, accepted, reason, target],

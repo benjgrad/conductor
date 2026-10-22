@@ -109,6 +109,16 @@ export async function createTestDatabase(
 
   let dropped = false;
   const pool = new pg.Pool({ connectionString: url, max: 5 });
+  // TD-055: `pool.end()` resolves before every client socket has closed, and DROP … WITH (FORCE)
+  // terminates whatever is still connected (57P01 admin_shutdown). A client with no 'error'
+  // listener turns that into an uncaught exception (vitest exits 1 with every test green), so
+  // every client (and the pool, for idle ones) swallows errors once teardown has started.
+  // Before teardown an error is still thrown to the test that caused it.
+  const ignoreAfterDrop = (err: Error) => {
+    if (!dropped) throw err;
+  };
+  pool.on('error', ignoreAfterDrop);
+  pool.on('connect', (client) => client.on('error', ignoreAfterDrop));
   const drop = async () => {
     if (dropped) return;
     dropped = true;

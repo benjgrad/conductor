@@ -74,6 +74,10 @@ export const SESSION_EVENT_FIXTURES: {
   },
   build_slot: { kind: 'build_slot', data: { waiting: true } },
   heartbeat: { kind: 'heartbeat', data: {} },
+  no_outcome: {
+    kind: 'no_outcome',
+    data: { last_output: 'I think the endpoint works now.' },
+  },
 };
 
 const sessionEvent = (kind: SessionEventKind, seq: number): DaemonToOrchestrator => ({
@@ -93,6 +97,7 @@ export const SESSION_EVENT_MESSAGE_FIXTURES: Record<SessionEventKind, DaemonToOr
   spend: sessionEvent('spend', 16),
   build_slot: sessionEvent('build_slot', 17),
   heartbeat: sessionEvent('heartbeat', 18),
+  no_outcome: sessionEvent('no_outcome', 19),
 };
 
 export const DAEMON_FIXTURES: {

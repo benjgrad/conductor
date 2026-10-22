@@ -9,7 +9,7 @@ import { sweepOnce, type SweepStats } from './sweep.js';
 // `startWorkers`, which runs the outbox dispatcher and the timeout sweep until stopped.
 
 export { backoffSeconds, START_SESSION_ACK_ATTEMPTS, type DispatchStats } from './dispatcher.js';
-export { PROMPT_TEMPLATES, renderStartPrompt, renderTemplate } from './prompt.js';
+export { SCRUBBED_PAYLOAD_SQL } from './outbox.js';
 export { EngineServiceImpl } from './service.js';
 export type { SweepStats } from './sweep.js';
 

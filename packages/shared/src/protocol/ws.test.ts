@@ -11,7 +11,9 @@ import {
   EnvelopeSchema,
   ORCHESTRATOR_MESSAGE_TYPES,
   OrchestratorToDaemonSchema,
+  NO_OUTCOME_OUTPUT_CHARS,
   SESSION_EVENT_KINDS,
+  SessionEventPayloadSchema,
   parseDaemonMessage,
   parseOrchestratorMessage,
 } from './ws.js';
@@ -102,5 +104,15 @@ describe('WS envelope rules', () => {
   it('rejects unknown message types and garbage frames', () => {
     expect(() => parseDaemonMessage('{"type":"nope"}')).toThrow();
     expect(() => parseDaemonMessage('not json')).toThrow();
+  });
+
+  it('no_outcome (U-028) caps last_output at NO_OUTCOME_OUTPUT_CHARS', () => {
+    const ok = { kind: 'no_outcome', data: { last_output: 'x'.repeat(NO_OUTCOME_OUTPUT_CHARS) } };
+    expect(SessionEventPayloadSchema.safeParse(ok).success).toBe(true);
+    const long = {
+      kind: 'no_outcome',
+      data: { last_output: 'x'.repeat(NO_OUTCOME_OUTPUT_CHARS + 1) },
+    };
+    expect(SessionEventPayloadSchema.safeParse(long).success).toBe(false);
   });
 });

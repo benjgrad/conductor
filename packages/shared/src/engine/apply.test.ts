@@ -417,6 +417,42 @@ describe('needs_input: answers, return_to, pending_answer', () => {
   });
 });
 
+describe('agent.no_outcome (U-028)', () => {
+  it('routes like ask_user: needs_input, agent_question, the fixed question + last output', () => {
+    const h = runningImplement();
+    const r = h.run({ type: 'agent.no_outcome', last_output: 'I think it works.' });
+    expect(r.ignored).toBeNull();
+    expect(r.snapshot).toMatchObject({
+      status: 'needs_input',
+      workflow_state: 'needs_input',
+      return_to: 'implement',
+    });
+    expect(find(r.effects, 'create_input_request')).toEqual({
+      type: 'create_input_request',
+      kind: 'agent_question',
+      question: `${shared.NO_OUTCOME_QUESTION}\n\nLast output:\nI think it works.`,
+      return_to: 'implement',
+    });
+    expect(shared.NO_OUTCOME_QUESTION).toBe(
+      'Agent stopped without reporting an outcome; last output attached',
+    );
+  });
+
+  it('without output the question is the bare text; the answer goes to the live process', () => {
+    const h = runningImplement();
+    const r = h.run({ type: 'agent.no_outcome', last_output: '' });
+    expect(find(r.effects, 'create_input_request')?.question).toBe(shared.NO_OUTCOME_QUESTION);
+    const a = h.run({ type: 'input.provided', input_request_id: REQ, answer: 'Call it.' });
+    expect(find(a.effects, 'send_input')).toMatchObject({ text: 'Call it.' });
+    expect(a.snapshot).toMatchObject({ status: 'running', workflow_state: 'implement' });
+  });
+
+  it('is unexpected outside an agent state', () => {
+    const h = parkedOnQuestion();
+    expect(h.run({ type: 'agent.no_outcome', last_output: 'x' }).ignored).toBe('unexpected_event');
+  });
+});
+
 describe('refusals (10-contracts §Refusals, U-025, U-026)', () => {
   it('start_session refused before started → queued, machine cleared, ticket ready, no timer', () => {
     const h = new Harness(m1);

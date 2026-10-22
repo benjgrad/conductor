@@ -1,0 +1,20 @@
+[+   595ms] <- system/init session_id=920bb88d-9ca7-43d9-998b-ab9eaa47e804 model=claude-haiku-5-5 permissionMode=default tools=[mcp__conductor__ask_user,mcp__conductor__complete_state] mcp=[{"name":"conductor","status":"connected","source":"dynamic"}]
+[+   596ms] mcp servers in init: [{"name":"conductor","status":"connected","source":"dynamic"}] tools: mcp__conductor__ask_user,mcp__conductor__complete_state
+[+  1793ms] <- assistant tool_use:mcp__conductor__ask_user({"question":"Which greeting word should I use?"}) id=toolu_01RE5c3qA84qM9VsAxnAK49E
+[+  1800ms] DAEMON EVENT {"kind":"ask_user","question":"Which greeting word should I use?"}
+[+  1800ms] ask_user handler BLOCKING for 330000 ms (tool call stays open)
+[+  1807ms] <- rate_limit_event {"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1792699800,"rateLimitType":"five_hour","overageStatus":"rejected","overageDisabledReason":"out_of_credits","isUsingOverage":
+[+ 31797ms] <- tool_progress {"type":"tool_progress","tool_use_id":"toolu_01RE5c3qA84qM9VsAxnAK49E-heartbeat-0","tool_name":"mcp__conductor__ask_user","parent_tool_use_id":"toolu_01RE5c3qA84qM9VsAxnAK49E","elapsed_time_seconds":3
+[+ 61800ms] <- tool_progress {"type":"tool_progress","tool_use_id":"toolu_01RE5c3qA84qM9VsAxnAK49E-heartbeat-1","tool_name":"mcp__conductor__ask_user","parent_tool_use_id":"toolu_01RE5c3qA84qM9VsAxnAK49E","elapsed_time_seconds":6
+[+ 61810ms] <- user tool_result(toolu_01RE5c3qA84qM9VsAxnAK49E,ERROR):"The operation timed out."
+[+ 62918ms] <- assistant thinking
+[+ 63235ms] <- assistant text:"The question timed out before you answered, so I'm asking again. I still don't have a greeting word and won't guess one."
+[+ 63328ms] <- assistant tool_use:mcp__conductor__ask_user({"question":"Which greeting word should I use?"}) id=toolu_01LFCtkvTkRNNYPMiTS3u2Q6
+[+ 63353ms] DAEMON EVENT {"kind":"ask_user","question":"Which greeting word should I use?"}
+[+ 63353ms] ask_user handler BLOCKING for 330000 ms (tool call stays open)
+[+ 93333ms] <- tool_progress {"type":"tool_progress","tool_use_id":"toolu_01LFCtkvTkRNNYPMiTS3u2Q6-heartbeat-0","tool_name":"mcp__conductor__ask_user","parent_tool_use_id":"toolu_01LFCtkvTkRNNYPMiTS3u2Q6","elapsed_time_seconds":3
+[+123336ms] <- tool_progress {"type":"tool_progress","tool_use_id":"toolu_01LFCtkvTkRNNYPMiTS3u2Q6-heartbeat-1","tool_name":"mcp__conductor__ask_user","parent_tool_use_id":"toolu_01LFCtkvTkRNNYPMiTS3u2Q6","elapsed_time_seconds":6
+[+123355ms] <- user tool_result(toolu_01LFCtkvTkRNNYPMiTS3u2Q6,ERROR):"The operation timed out."
+[+124678ms] <- assistant text:"I couldn't get an answer about the greeting word. The `ask_user` tool timed out twice, so I haven't called `complete_state`. I did not guess a word.\n\nOnce you reply with the greeting word, I can complete this state with it. If you'd rather I stop here, I can leave the state open."
+[+124693ms] <- rate_limit_event {"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1792699800,"rateLimitType":"five_hour","overageStatus":"rejected","overageDisabledReason":"out_of_credits","isUsingOverage":
+[+124701ms] <- result/success is_error=false session_id=920bb88d-9ca7-43d9-998b-ab9eaa47e804 num_turns=3 total_cost_usd=0.00096891 usage={"in":6,"out":295,"cache_read":10441,"cache_create":3582} denials=[] result="I couldn't get an answer about the greeting word. The `ask_user` tool timed out twice, so I haven't called `complete_state`. I did not guess a word.\n\nOnce you reply with the greeting word, I can co

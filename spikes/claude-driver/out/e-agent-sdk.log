@@ -1,0 +1,22 @@
+[+    43ms] cli: (bundled with SDK)
+[+   662ms] <- system/init session_id=9b514049-aaf3-4648-bf10-bfd7163c2823 model=claude-haiku-5-5 permissionMode=dontAsk tools=[mcp__conductor__ask_user,mcp__conductor__complete_state] mcp=[{"name":"conductor","status":"connected","source":"sdk"}]
+[+  1426ms] <- assistant tool_use:mcp__conductor__ask_user({"question":"Which greeting word should I use?"}) id=toolu_01LE71yFCX1nkyhnP9KGu4sX
+[+  1439ms] DAEMON EVENT {"kind":"ask_user","question":"Which greeting word should I use?"}
+[+  1440ms] <- rate_limit_event {"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1792699800,"rateLimitType":"five_hour","overageStatus":"rejected","overageDisabledReason":"out_of_credits","isUsingOverage":
+[+  1447ms] <- user tool_result(toolu_01LE71yFCX1nkyhnP9KGu4sX):"Sent to a human. End your turn now; the answer will arrive as the next user message."
+[+  2095ms] <- assistant text:"I've asked which greeting word to use. I'll wait for the answer before completing this state."
+[+  2105ms] <- result/success is_error=false session_id=9b514049-aaf3-4648-bf10-bfd7163c2823 num_turns=2 total_cost_usd=0.00030827000000000003 usage={"in":4,"out":94,"cache_read":2207,"cache_create":535} denials=[] result="I've asked which greeting word to use. I'll wait for the answer before completing this state."
+[+  2105ms] result #1: total_cost_usd=0.00030827000000000003 session_id=9b514049-aaf3-4648-bf10-bfd7163c2823
+[+  2105ms] idle 10000 ms, process alive; then push answer into the live input stream
+[+ 12124ms] <- system/init session_id=9b514049-aaf3-4648-bf10-bfd7163c2823 model=claude-haiku-5-5 permissionMode=dontAsk tools=[mcp__conductor__ask_user,mcp__conductor__complete_state] mcp=[{"name":"conductor","status":"connected","source":"sdk"}]
+[+ 12973ms] <- assistant tool_use:mcp__conductor__complete_state({"result":{"greeting":"bonjour"}}) id=toolu_01WAKb5LkfDKGxuKvSzkFbn3
+[+ 12975ms] DAEMON EVENT {"kind":"complete_state","result":{"greeting":"bonjour"}}
+[+ 12979ms] <- user tool_result(toolu_01WAKb5LkfDKGxuKvSzkFbn3):"Recorded. Stop now and end your turn."
+[+ 13687ms] <- assistant text:"The state is complete with greeting \"bonjour\"."
+[+ 13701ms] <- result/success is_error=false session_id=9b514049-aaf3-4648-bf10-bfd7163c2823 num_turns=2 total_cost_usd=0.00042928 usage={"in":4,"out":85,"cache_read":2991,"cache_create":241} denials=[] result="The state is complete with greeting \"bonjour\"."
+[+ 13702ms] result #2: total_cost_usd=0.00042928 session_id=9b514049-aaf3-4648-bf10-bfd7163c2823
+[+ 13996ms] live query finished; session 9b514049-aaf3-4648-bf10-bfd7163c2823 events [{"kind":"ask_user","question":"Which greeting word should I use?"},{"kind":"complete_state","result":{"greeting":"bonjour"}}]
+[+ 14505ms] resume <- system/init session_id=9b514049-aaf3-4648-bf10-bfd7163c2823 model=claude-haiku-5-5 permissionMode=dontAsk tools=[mcp__conductor__ask_user,mcp__conductor__complete_state] mcp=[{"name":"conductor","status":"connected","source":"sdk"}]
+[+ 15211ms] resume <- assistant text:"bonjour"
+[+ 15218ms] resume <- rate_limit_event {"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1792699800,"rateLimitType":"five_hour","overageStatus":"rejected","overageDisabledReason":"out_of_credits","isUsingOverage":
+[+ 15227ms] resume <- result/success is_error=false session_id=9b514049-aaf3-4648-bf10-bfd7163c2823 num_turns=1 total_cost_usd=0.00046814 usage={"in":2,"out":6,"cache_read":1686,"cache_create":94} denials=[] result="bonjour"

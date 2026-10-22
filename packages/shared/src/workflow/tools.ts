@@ -21,21 +21,24 @@ export interface ToolPolicyFragment {
 /** Every agent gets read-only access to its worktree, and never `git push`. */
 export const BASE_TOOL_POLICY: ToolPolicyFragment = {
   builtin: ['Read', 'Glob', 'Grep'],
-  allow: ['Read', 'Glob', 'Grep'],
+  allow: ['Read(./**)', 'Glob(./**)', 'Grep(./**)'],
   deny: ['Bash(git push:*)'],
 };
 
-const GIT_LOCAL = [
+// Inspection commands are exact matches: diff/log/show accept `--output=<file>`, so an open
+// `git diff:*` prefix would be an arbitrary file write. Global options (`git -c`, `--exec-path`)
+// can't match any rule because every rule starts with `git <subcommand>`.
+const GIT_EXACT = [
   'status',
+  'status --short',
   'diff',
-  'log',
-  'show',
-  'add',
-  'commit',
-  'restore',
-  'rev-parse',
+  'diff --cached',
+  'diff --stat',
+  'log --oneline -n 20',
+  'rev-parse HEAD',
   'branch --show-current',
 ];
+const GIT_PREFIX = ['add', 'commit -m', 'restore'];
 
 export const TOOL_ALIASES = {
   /** Read only (the base policy). */
@@ -46,33 +49,34 @@ export const TOOL_ALIASES = {
     allow: ['Edit(./**)', 'Write(./**)'],
     deny: [],
   },
-  /** Shell for building and testing: package-manager and common read-only prefixes. */
+  /**
+   * Shell for building and testing the repo's own scripts. No interpreters or general runners
+   * (node/npx/pnpm/cat). TD-019: `npm run`/`npm install` still execute repo-defined code the agent
+   * can edit, so this is not a security boundary; that needs the sandbox (U-004).
+   */
   bash: {
     builtin: ['Bash'],
-    allow: [
-      'Bash(npm run:*)',
-      'Bash(npm test:*)',
-      'Bash(npm install:*)',
-      'Bash(npx:*)',
-      'Bash(pnpm:*)',
-      'Bash(node:*)',
-      'Bash(ls:*)',
-      'Bash(cat:*)',
-      'Bash(mkdir:*)',
-    ],
+    allow: ['Bash(npm run:*)', 'Bash(npm test:*)', 'Bash(npm install)', 'Bash(npm ci)'],
     deny: [],
   },
   /** Local git: inspect, stage, commit. Never push. */
   git: {
     builtin: ['Bash'],
-    allow: GIT_LOCAL.map((c) => `Bash(git ${c}:*)`),
+    allow: [
+      ...GIT_EXACT.map((c) => `Bash(git ${c})`),
+      ...GIT_PREFIX.map((c) => `Bash(git ${c}:*)`),
+    ],
     deny: [],
   },
-  /** The PR skill (pr_flow `open_pr`): Skill tool + `gh pr` (push stays denied). */
+  /**
+   * The PR skill (pr_flow `open_pr`, M3). `gh pr create` can push the branch, so agents only get
+   * the Skill tool and `gh pr view`; pushing and creating the PR belong to a trusted command or
+   * connector state (TD-020).
+   */
   pr_skill: {
     builtin: ['Skill', 'Bash'],
-    allow: ['Skill', 'Bash(gh pr create:*)', 'Bash(gh pr view:*)'],
-    deny: [],
+    allow: ['Skill', 'Bash(gh pr view:*)'],
+    deny: ['Bash(gh pr create:*)'],
   },
 } as const satisfies Record<string, ToolPolicyFragment>;
 

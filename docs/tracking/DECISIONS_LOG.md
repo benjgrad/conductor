@@ -4,6 +4,8 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-22 | Tool aliases hardened after security review: worktree-scoped Read/Glob/Grep; no node/npx/pnpm/cat; exact-match git inspection (no `--output`); `gh pr create` denied (TD-019, TD-020) | [10](../design/10-contracts.md#tools) |
+| 2026-10-22 | Unregistered workflow guards fail closed at runtime; validator accepts the name (U-027, TD-017) | [10](../design/10-contracts.md#guards) |
 | 2026-10-22 | M1-T12 merged to main via `integrate/A2-r3` (`--no-ff`) after `scripts/ci.sh` passed on the merged tree (70604c3); B-002 cleared, group B still gated on Ben's 10-contracts approval (B-003) | M1-T12 |
 | 2026-10-22 | Interface gap 7 closed with option (b): `GUARD_REGISTRY` empty in M1 and an unregistered guard passes (TD-017); Ben to confirm (U-027) | M1-T12, lead |
 | 2026-10-22 | `wall_seconds` is maintained by the engine (apply, T04): adds `now − state_entered_at` per transition, skipping `human`/`event` states | lead, [10](../design/10-contracts.md#wall-time) |

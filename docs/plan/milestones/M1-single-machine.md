@@ -99,12 +99,12 @@ Groups run in order A → A2 → B → C → D → E. Tasks within a group own d
 - **Acceptance**: `pnpm i && pnpm build && pnpm lint && pnpm typecheck && pnpm test` all pass on a clean clone; `pnpm db:up` starts Postgres; CLAUDE.md Commands section verified/updated.
 
 ### M1-T02 · DB schema + migrations
-- **Scope**: tables from [02-data-model](../../design/02-data-model.md) incl. `outbox`, enums, indexes for `ticket(status, priority)`, `session(status)`, `input_request(session_id) WHERE answer IS NULL`, `event(session_id, id)`. Decide `repo_allow_machines` ([U-009](../../tracking/UNKNOWNS.md)).
+- **Scope**: tables from [02-data-model](../../design/02-data-model.md) incl. `outbox`, enums, indexes for `ticket(status, priority)`, `session(status)`, `input_request(session_id) WHERE answer IS NULL`, `event(session_id, id)`. Includes everything [10-contracts](../../design/10-contracts.md) and `orchestrator/src/db/types.ts` pin: `outbox.fencing_token`, `fencing_seq`, the one-live-session-per-ticket partial unique index, `session.pending_answer`/`return_to`/`state_visits`/`state_entered_at`/`state_deadline`/`agent_command_id`/`agent_process_live`, `machine.last_seq`, `ticket.repo_allow_machines` (nullable text[], U-009 resolved). DDL must match `db/types.ts` exactly; a mismatch is reported, not fixed by editing types.ts.
 - **Acceptance**: migrate up/down on empty DB; integration test inserts one row per table; 02-data-model updated to match actual DDL.
 
 ### M1-T03 · Workflow schema + validator
-- **Scope**: zod schema for the definition in [05](../../design/05-workflow-engine.md); validator implementing all six rules in *Validation on save*.
-- **Acceptance**: both reference workflows validate; table-driven tests with ≥1 failing fixture per rule (unreachable state, dead end, unbudgeted loop, bad `$ref`, missing target, release_machine w/o timeout).
+- **Scope**: zod schema for the definition in [05](../../design/05-workflow-engine.md); validator implementing the six rules in *Validation on save* **plus rule 7: every agent state's `tools` name is in `TOOL_ALIAS_NAMES`** (unknown guard names are accepted; they fail closed at runtime, TD-017). The zod schema itself is pinned by T12 (`shared/src/workflow/schema.ts`); T03 adds `validate*.ts` only.
+- **Acceptance**: both reference workflows validate; table-driven tests with ≥1 failing fixture per rule (unreachable state, dead end, unbudgeted loop, bad `$ref`, missing target, release_machine w/o timeout, unknown tool alias).
 
 ### M1-T04 · FSM engine
 - **Scope**: pure `apply(session, event) → {session, effects}` in `shared` covering agent/command/human/terminal types, retry counters, `attach: output`, `needs_input` with `return_to`, budget-exceeded routing; orchestrator wrapper doing the single-transaction write (event + session + outbox) and an outbox dispatcher.

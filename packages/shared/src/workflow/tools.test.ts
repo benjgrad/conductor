@@ -34,9 +34,22 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
     expect(p.allow).not.toContain('Edit');
     expect(p.allow).not.toContain('Write');
     expect(p.builtin).toEqual(expect.arrayContaining(['Read', 'Edit', 'Write', 'Bash']));
-    expect(
-      p.allow.filter((r) => r.startsWith('Bash')).every((r) => /^Bash\(.+:\*\)$/.test(r)),
-    ).toBe(true);
+    expect(p.allow.filter((r) => r.startsWith('Bash')).every((r) => /^Bash\(.+\)$/.test(r))).toBe(
+      true,
+    );
+  });
+
+  it('scopes reads to the worktree and grants no interpreters or file-writing git flags', () => {
+    const p = resolveToolPolicy(['edit', 'bash', 'git', 'pr_skill']);
+    expect(p.allow).toEqual(expect.arrayContaining(['Read(./**)', 'Glob(./**)', 'Grep(./**)']));
+    for (const bare of ['Read', 'Glob', 'Grep']) expect(p.allow).not.toContain(bare);
+    for (const runner of ['node', 'npx', 'pnpm', 'cat', 'ls'])
+      expect(p.allow.some((r) => r.startsWith(`Bash(${runner}`))).toBe(false);
+    // diff/log/show take --output=<file>: only exact forms may be allowed.
+    for (const sub of ['diff', 'log', 'show'])
+      expect(p.allow.some((r) => r.startsWith(`Bash(git ${sub}`) && r.endsWith(':*)'))).toBe(false);
+    expect(p.allow.some((r) => r.includes('gh pr create'))).toBe(false);
+    expect(p.deny).toContain('Bash(gh pr create:*)');
   });
 
   it('always denies git push, even with only the read base', () => {
@@ -63,7 +76,7 @@ describe('guard registry', () => {
     expect(isRegisteredGuard('toString')).toBe(false);
   });
 
-  it('an unregistered guard passes in M1 (TD-017); a registered one decides', () => {
+  it('an unregistered guard fails closed in M1 (TD-017); a registered one decides', () => {
     const input: GuardInput = {
       def: wf('pr_flow.v1.json'),
       snapshot: {} as SessionSnapshot,
@@ -73,8 +86,8 @@ describe('guard registry', () => {
       'guard' in s && s.guard ? [s.guard] : [],
     );
     expect(guarded).toEqual(['branch_has_commits']);
-    expect(evaluateGuard('branch_has_commits', input)).toBe(true);
-    expect(evaluateGuard('toString', input)).toBe(true);
+    expect(evaluateGuard('branch_has_commits', input)).toBe(false);
+    expect(evaluateGuard('toString', input)).toBe(false);
     expect(evaluateGuard('no', input, { no: () => false })).toBe(false);
     expect(evaluateGuard('yes', input, { yes: () => true })).toBe(true);
   });

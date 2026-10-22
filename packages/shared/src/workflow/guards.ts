@@ -20,8 +20,9 @@ export type GuardEvaluator = (input: GuardInput) => boolean;
 /** Guard name → evaluator. */
 export type GuardRegistry = Readonly<Record<string, GuardEvaluator>>;
 
-// TD-017: the M1 registry is empty and an unregistered guard *passes* (evaluateGuard returns
-// true), so the validator (T03) accepts any guard name. `branch_has_commits` (pr_flow open_pr)
+// TD-017: the M1 registry is empty and an unregistered guard *fails closed* (evaluateGuard
+// returns false → the state's `fail` outcome or needs_input). The validator (T03) still accepts
+// any guard name, so both reference workflows validate. `branch_has_commits` (pr_flow open_pr)
 // needs commit facts from the daemon in the complete_state event, which M1 doesn't carry; pr_flow
 // isn't an M1 workflow. Payoff: register it (and make unregistered names a validator error) when
 // commit facts reach complete_state (M2 / pr_flow).
@@ -33,7 +34,7 @@ export function isRegisteredGuard(name: string, registry: GuardRegistry = GUARD_
 
 /**
  * The guard check apply (T04) runs on `agent.complete_state` for a state with a `guard`.
- * Registered → the evaluator's verdict; unregistered → true (passes in M1, TD-017).
+ * Registered → the evaluator's verdict; unregistered → false (fails closed, TD-017).
  */
 export function evaluateGuard(
   name: string,
@@ -41,5 +42,5 @@ export function evaluateGuard(
   registry: GuardRegistry = GUARD_REGISTRY,
 ): boolean {
   const evaluator = isRegisteredGuard(name, registry) ? registry[name] : undefined;
-  return evaluator ? evaluator(input) : true;
+  return evaluator ? evaluator(input) : false;
 }

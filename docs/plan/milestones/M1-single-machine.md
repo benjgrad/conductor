@@ -30,7 +30,7 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 | M1-T11 | **Orchestrator daemon gateway**: WS server, register/heartbeat → `machine`, `request_work` → single-machine FIFO claim, `command_ack`, outbox transport, `session_event` → engine | T02 (+ `EngineService` fake) | C | done | `m1-t11-gateway` @ fe5220e, merged to main by the lead as 6ef9f55 (QA: PASS WITH DEBT). index.ts export conflict resolved by keeping both lines; gateway tests moved to the real engine in T07 (TD-060) |
 | M1-T07 | `complete_state` / `ask_user` plumbing end to end, plus final wiring (orchestrator `main()`/bin, U-028 nudge + `no_outcome`, U-039 outbox scrub, U-040 single renderer, U-032 `claude_code_version`) | T04b, T05a, T05b, T11 | D | done | `m1-t07-ask-answer-e2e-wiring` @ 340f1fc, merged to main via `integrate/D` (66ab745) (QA: PASS WITH DEBT). Paid real-CLI run passed (B-004 cleared) |
 | M1-T09b | Wire web to the real API (split from T09) | T08, T09 | D | done | `m1-t09b-web-wiring` @ fd901d9, merged to main via `integrate/D` (f871554) (QA: PASS WITH DEBT, 1 fix round). U-043 still open |
-| M1-T14 | Security hardening (scope briefed by the lead; candidates: TD-019 tool allow-lists, TD-059 enrollment token, U-045 model text in Postgres) | T07 | D2 | todo | |
+| M1-T14 | Security hardening (scope briefed by the lead; candidates: TD-019 tool allow-lists, TD-059 enrollment token, U-045 model text in Postgres) | T07 | D2 | done | `m1-t14-security-hardening` @ 4aca567, merged to main via `integrate/D2` (c97bfed) (QA: PASS WITH DEBT). TD-058 paid; TD-059 deferred to U-008 (M2); TD-019 and U-045 not in scope, still open; TD-068 recommended before T10 |
 | M1-T10 | E2E: happy path + needs_input round trip (fake & real Claude modes) | all | E | todo | |
 
 Groups run in order A → A2 → B → C → D → D2 → E. Tasks within a group own disjoint files and are given to parallel implementer agents (see [CLAUDE.md](../../../CLAUDE.md) › Orchestrate). Groups B–D code against the T12 contracts and their fakes; a needed contract change is reported, not made locally.
@@ -155,7 +155,9 @@ Groups run in order A → A2 → B → C → D → D2 → E. Tasks within a grou
 ### M1-T14 · Security hardening
 - **Scope**: to be briefed by the lead before D2 starts. Candidates from tracking: TD-019 (tool allow-lists are not a security boundary), TD-059 (`register` does not verify `enrollment_token`), U-045 (assistant text in Postgres).
 - **Acceptance**: set in the lead's brief.
+- **Delivered** (merge c97bfed): MCP config in a 0600 temp file instead of argv; workspace CLAUDE.md read only as a regular, in-worktree file of 64 KB or less; repo allow-list grammar with local repos off by default (`CONDUCTOR_ALLOW_LOCAL_REPOS`, `CONDUCTOR_ALLOWED_REPO_HOSTS`); API Host/Origin/content-type guard (`CONDUCTOR_ALLOWED_HOSTS`, `CONDUCTOR_ALLOWED_ORIGINS`); WS upgrade Origin check; gateway session_event machine + exact-fencing-token authorization; output ownership check. See [09 §M1 local hardening](../../design/09-security-and-budgets.md).
 
 ### M1-T10 · E2E
 - **Scope**: `pnpm test:e2e` boots Postgres, orchestrator, one daemon, and a **fake Claude** (scripted binary obeying ADR-0005 contract) against a fixture repo whose build/test can be made to fail; scenarios: happy path; test fails twice then passes; agent asks a question, test answers via REST. Optional `E2E_REAL_CLAUDE=1` mode.
 - **Acceptance**: all scenarios green; runtime < 3 min in fake mode.
+- **Note (M1-T14)**: the fixture repo is a local path, so the E2E daemon must run with `CONDUCTOR_ALLOW_LOCAL_REPOS=1` (local repos are refused by default). Pay TD-068 (run_cmd live output dropped after idle) first or expect it in output assertions.

@@ -1,0 +1,30 @@
+{
+  "id": "bad_ref_self",
+  "version": 1,
+  "start": "work",
+  "budget": {
+    "usd": 1,
+    "minutes": 10,
+    "max_loop_retries": 2
+  },
+  "states": {
+    "work": {
+      "type": "agent",
+      "prompt": "p",
+      "on": {
+        "done": "done",
+        "ask_user": "needs_input"
+      },
+      "result": ["n"],
+      "input": {
+        "prev": "$work.n"
+      }
+    },
+    "needs_input": {
+      "type": "human"
+    },
+    "done": {
+      "type": "terminal"
+    }
+  }
+}

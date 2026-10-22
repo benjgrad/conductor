@@ -1,0 +1,15 @@
+{
+  "id": "Bad-Id",
+  "version": 1,
+  "start": "done",
+  "budget": {
+    "usd": 1,
+    "minutes": 10,
+    "max_loop_retries": 2
+  },
+  "states": {
+    "done": {
+      "type": "terminal"
+    }
+  }
+}

@@ -5,6 +5,7 @@ export * from './domain.js';
 export * from './workflow/schema.js';
 export * from './workflow/guards.js';
 export * from './workflow/tools.js';
+export * from './workflow/validate.js';
 export * from './engine/types.js';
 export * from './engine/spend.js';
 export * from './engine/fixtures.js';

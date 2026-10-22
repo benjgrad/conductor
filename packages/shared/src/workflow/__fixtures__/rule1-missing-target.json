@@ -1,0 +1,26 @@
+{
+  "id": "missing_target",
+  "version": 1,
+  "start": "work",
+  "budget": {
+    "usd": 1,
+    "minutes": 10,
+    "max_loop_retries": 2
+  },
+  "states": {
+    "work": {
+      "type": "agent",
+      "prompt": "p",
+      "on": {
+        "done": "buidl",
+        "ask_user": "needs_input"
+      }
+    },
+    "needs_input": {
+      "type": "human"
+    },
+    "done": {
+      "type": "terminal"
+    }
+  }
+}

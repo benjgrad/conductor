@@ -1,0 +1,62 @@
+{
+  "id": "trapped",
+  "version": 1,
+  "start": "work",
+  "budget": {
+    "usd": 1,
+    "minutes": 10,
+    "max_loop_retries": 2
+  },
+  "states": {
+    "work": {
+      "type": "agent",
+      "prompt": "p",
+      "on": {
+        "done": "build",
+        "ask_user": "needs_input"
+      }
+    },
+    "build": {
+      "type": "command",
+      "cmd": "make",
+      "on": {
+        "exit_0": "done",
+        "fail": {
+          "goto": "work",
+          "retries": 3,
+          "else": "retry"
+        }
+      }
+    },
+    "retry": {
+      "type": "command",
+      "cmd": "make",
+      "on": {
+        "exit_0": {
+          "goto": "retry2"
+        },
+        "fail": {
+          "goto": "retry2"
+        }
+      }
+    },
+    "retry2": {
+      "type": "command",
+      "cmd": "make",
+      "on": {
+        "exit_0": {
+          "goto": "retry"
+        },
+        "fail": {
+          "goto": "retry"
+        }
+      }
+    },
+    "needs_input": {
+      "type": "human"
+    },
+    "done": {
+      "type": "terminal"
+    }
+  }
+}

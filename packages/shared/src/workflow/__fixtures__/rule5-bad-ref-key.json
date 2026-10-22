@@ -1,0 +1,38 @@
+{
+  "id": "bad_ref_key",
+  "version": 1,
+  "start": "work",
+  "budget": {
+    "usd": 1,
+    "minutes": 10,
+    "max_loop_retries": 2
+  },
+  "states": {
+    "work": {
+      "type": "agent",
+      "prompt": "p",
+      "on": {
+        "done": "post",
+        "ask_user": "needs_input"
+      },
+      "result": ["pr_url"]
+    },
+    "post": {
+      "type": "agent",
+      "prompt": "p",
+      "on": {
+        "done": "done",
+        "ask_user": "needs_input"
+      },
+      "input": {
+        "url": "$work.pr_link"
+      }
+    },
+    "needs_input": {
+      "type": "human"
+    },
+    "done": {
+      "type": "terminal"
+    }
+  }
+}

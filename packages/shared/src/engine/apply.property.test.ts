@@ -1,6 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import type { WorkflowDefinition } from '../workflow/schema.js';
+import { WorkflowDefinitionSchema, type WorkflowDefinition } from '../workflow/schema.js';
 import { apply } from './apply.js';
 import { Harness, referenceWorkflow, uuid } from './apply.testkit.js';
 import { isOutboxEffect, type EngineEvent, type SessionSnapshot } from './types.js';
@@ -134,7 +134,12 @@ const stepArb = fc.record({
 const eventFor = (gen: number, h: Harness, pick: number): EngineEvent =>
   gen === PROGRESS ? progress(h, pick) : GENS[gen]!(h, pick);
 
-function checkInvariants(def: WorkflowDefinition, prev: SessionSnapshot, h: Harness): void {
+function checkInvariants(
+  def: WorkflowDefinition,
+  prev: SessionSnapshot,
+  h: Harness,
+  event: EngineEvent,
+): void {
   const s = h.snap;
   const r = h.last;
   if (r.ignored !== null) {
@@ -153,6 +158,10 @@ function checkInvariants(def: WorkflowDefinition, prev: SessionSnapshot, h: Harn
     }
   }
   if (s.status === 'done' || s.status === 'failed') expect(s.pending_answer).toBeNull();
+  // §Pending answer: cleared when apply enters a different state, unless it delivers an answer
+  if (event.type !== 'input.provided' && s.workflow_state !== prev.workflow_state) {
+    expect(s.pending_answer).toBeNull();
+  }
   if (s.status === 'queued') {
     expect(s.machine_id).toBeNull();
     expect(s.state_deadline).toBeNull();
@@ -172,8 +181,38 @@ function checkInvariants(def: WorkflowDefinition, prev: SessionSnapshot, h: Harn
   expect(s.spend_usd).toBeGreaterThanOrEqual(prev.spend_usd);
 }
 
-describe.each(['m1_basic', 'pr_flow'] as const)('apply property: %s', (name) => {
-  const def = referenceWorkflow(name);
+/**
+ * m1_basic plus a direct agent→agent edge (implement.timeout → review → implement): the
+ * reference workflows always pass through a human/command state between agents.
+ */
+function agentChain(): WorkflowDefinition {
+  const m1 = referenceWorkflow('m1_basic');
+  return WorkflowDefinitionSchema.parse({
+    ...m1,
+    states: {
+      ...m1.states,
+      implement: {
+        ...m1.states.implement,
+        on: { done: 'build', ask_user: 'needs_input', timeout: 'review' },
+      },
+      review: {
+        type: 'agent',
+        prompt: 'Review the change for {{ticket.title}}.',
+        timeout: '30m',
+        on: { done: 'build', ask_user: 'needs_input', timeout: 'implement' },
+      },
+    },
+  });
+}
+
+const WORKFLOWS: [string, () => WorkflowDefinition][] = [
+  ['m1_basic', () => referenceWorkflow('m1_basic')],
+  ['pr_flow', () => referenceWorkflow('pr_flow')],
+  ['agent_chain', agentChain],
+];
+
+describe.each(WORKFLOWS)('apply property: %s', (_name, load) => {
+  const def = load();
 
   it('no event sequence leaves the session undefined', () => {
     const reached = new Set<string>();
@@ -183,8 +222,9 @@ describe.each(['m1_basic', 'pr_flow'] as const)('apply property: %s', (name) => 
         for (const { gen, pick, seconds } of steps) {
           const prev = h.snap;
           h.advance(seconds);
-          h.run(eventFor(gen, h, pick));
-          checkInvariants(def, prev, h);
+          const event = eventFor(gen, h, pick);
+          h.run(event);
+          checkInvariants(def, prev, h, event);
           if (h.snap.workflow_state !== null) reached.add(h.snap.workflow_state);
         }
       }),

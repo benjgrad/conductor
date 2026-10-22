@@ -377,6 +377,37 @@ describe('needs_input: answers, return_to, pending_answer', () => {
     expect(r.ignored).toBe('wrong_status');
   });
 
+  it('a non-input edge into another agent state clears the pending answer (§Pending answer)', () => {
+    const def = WorkflowDefinitionSchema.parse({
+      ...m1,
+      states: {
+        ...m1.states,
+        implement: {
+          ...m1.states.implement,
+          on: { done: 'build', ask_user: 'needs_input', timeout: 'review' },
+        },
+        review: {
+          type: 'agent',
+          prompt: 'Review the change for {{ticket.title}}.',
+          timeout: '30m',
+          on: { done: 'done' },
+        },
+      },
+    });
+    const h = runningImplement(def);
+    h.run({ type: 'agent.ask_user', question: 'Which port?' });
+    h.run({ type: 'input.provided', input_request_id: REQ, answer: 'Port 8080' }); // send_input
+    expect(h.snap.pending_answer).not.toBeNull();
+    const deadline = h.snap.state_deadline ?? '';
+    h.advance(1800);
+    const r = h.run({ type: 'timer.fired', state: 'implement', deadline });
+    expect(r.snapshot).toMatchObject({ workflow_state: 'review', pending_answer: null });
+    const start = find(r.effects, 'start_session');
+    expect(start?.state).toBe('review');
+    expect(start?.prompt).toContain('Review the change for Add /health.');
+    expect(start?.prompt).not.toContain('Port 8080');
+  });
+
   it('exit before the agent ran on a delivered answer resumes with it', () => {
     const h = parkedOnQuestion();
     h.run({ type: 'input.provided', input_request_id: REQ, answer: 'Port 8080' }); // send_input

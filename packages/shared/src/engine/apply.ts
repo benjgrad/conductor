@@ -554,6 +554,10 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
   s.return_to = toState.type === 'human' ? from : null;
   st.emit({ type: 'state_entered', from, to: target, visit });
 
+  // 10-contracts §Pending answer: cleared when apply enters a different state, unless this apply
+  // delivers an answer (input.provided). A same-state re-entry keeps it for the re-answer.
+  if (from !== target && opts.answer === null) s.pending_answer = null;
+
   // Agent and command states need a machine. Without one (e.g. an answer routed while the session
   // was requeued) the session waits in the queue; the next session.assigned re-emits.
   const needsMachine = toState.type === 'agent' || toState.type === 'command';

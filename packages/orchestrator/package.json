@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "conductor-orchestrator": "./dist/bin.js"
+  },
   "exports": {
     ".": {
       "source": "./src/index.ts",
@@ -19,6 +22,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@conductor/daemon": "workspace:*",
     "@types/pg": "^8.23.1",
     "@types/ws": "^8.18.2"
   }

@@ -449,9 +449,7 @@ describe('agent.no_outcome (U-028)', () => {
 
   it('is unexpected outside an agent state', () => {
     const h = parkedOnQuestion();
-    expect(h.run({ type: 'agent.no_outcome', last_output: 'x' }).ignored).toBe(
-      'unexpected_event',
-    );
+    expect(h.run({ type: 'agent.no_outcome', last_output: 'x' }).ignored).toBe('unexpected_event');
   });
 });
 

@@ -109,7 +109,10 @@ describe('WS envelope rules', () => {
   it('no_outcome (U-028) caps last_output at NO_OUTCOME_OUTPUT_CHARS', () => {
     const ok = { kind: 'no_outcome', data: { last_output: 'x'.repeat(NO_OUTCOME_OUTPUT_CHARS) } };
     expect(SessionEventPayloadSchema.safeParse(ok).success).toBe(true);
-    const long = { kind: 'no_outcome', data: { last_output: 'x'.repeat(NO_OUTCOME_OUTPUT_CHARS + 1) } };
+    const long = {
+      kind: 'no_outcome',
+      data: { last_output: 'x'.repeat(NO_OUTCOME_OUTPUT_CHARS + 1) },
+    };
     expect(SessionEventPayloadSchema.safeParse(long).success).toBe(false);
   });
 });

@@ -24,3 +24,12 @@ Remove the entry once the work is merged or deliberately abandoned. If abandoned
 - **Exact next step**: with Ben's approval, from the repo root on main run `E2E_REAL_CLAUDE=1 pnpm exec vitest run --project daemon src/claude/cli-driver.real.test.ts` and record the result in the session log; then have a small task replace the computed import in packages/daemon/src/main.ts:13 with `import { createCliDriver } from './claude/index.js'` (TD-021, U-029) and do the documented real-mode manual check
 - **Gotchas**: the real test skips unless `E2E_REAL_CLAUDE` is set; `CONDUCTOR_REAL_CLAUDE` is gone. pnpm scripts run Node 22 via `.npmrc`, the shell may have Node 20
 - **Gates**: typecheck ✅ lint ✅ tests ✅ (265 passed / 2 skipped on main) build ✅
+
+## M1-T11 · Orchestrator daemon gateway (QA passed; not merged)
+- **Branch / worktree**: `m1-t11-gateway` @ `.claude/worktrees/wf_716565dc-e7a-20` (pushed to origin/m1-t11-gateway)
+- **Last commit**: fe5220e (M1-T11 gateway, 1 commit on main 8a6260f)
+- **Done so far**: gateway (WS server, register/heartbeat, FIFO claim with SKIP LOCKED, command_ack, SocketTransport, session_event → engine, fencing/seq checks, orphan kills) implemented and QA-passed (PASS WITH DEBT; 298 tests green on its base)
+- **Not done**: merge to main. `git merge --no-ff m1-t11-gateway` onto main 098b40e conflicts in packages/orchestrator/src/index.ts: T04b added `// M1-T04b engine service …` + `export * from './engine/index.js';` on the same lines where T11 adds `export { createGateway } from './gateway/index.js';`. Also TD-060: gateway tests still run against `DbTestEngine`, not the real engine now on main
+- **Exact next step**: in a scratch worktree off main, `git merge --no-ff m1-t11-gateway -m "merge: M1-T11 Orchestrator daemon gateway"`, resolve index.ts by keeping both export blocks (engine first, then gateway), run `bash scripts/ci.sh`, fast-forward main, then remove the worktree above. Check that `export *` from engine and `createGateway` don't collide on a name (tsc will say). Then do TD-060 (point gateway.test.ts at `createEngineService`) in a follow-up or in M1-T07
+- **Gotchas**: the shared harness teardown flake (TD-055) can make `pnpm test` exit 1 with all tests passing; re-run before calling it red. pnpm scripts run Node 22 via `.npmrc`
+- **Gates**: typecheck ✅ lint ✅ tests ✅ (on its own base) build ✅; not yet run on the merged tree

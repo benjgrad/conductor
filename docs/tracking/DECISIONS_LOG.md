@@ -4,6 +4,12 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-22 | M1 group C: T04a, T04b, T06 and T08 merged to main via `integrate/C` (`--no-ff` per task) after `scripts/ci.sh` passed on the merged tree (399 passed / 2 skipped; 098b40e), including T04b's real-`apply` integration test. T11 not merged: its export line in packages/orchestrator/src/index.ts conflicted with T04b's, and the integrator aborts on any conflict other than `pnpm-lock.yaml` | M1 group C |
+| 2026-10-22 | Engine event rows never store `command.exited.output_tail`; the wrapper stores `output_tail_bytes` instead, and `apply` still gets the full tail (02 §event) | M1-T04b |
+| 2026-10-22 | apply clears `pending_answer` when it enters a different state, unless the entry is the `input.provided` start that uses it (10-contracts §Pending answer) | M1-T04a |
+| 2026-10-22 | Board SSE frames are always read from the event table past a per-connection cursor; a BoardBus publish only wakes the reader. No Last-Event-ID starts at the current max board id; `?last_event_id=` accepted for EventSource's first connect (03 §SSE) | M1-T08 |
+| 2026-10-22 | `ProcessCommandRunner`: `sh -c` in a detached process group, SIGTERM then SIGKILL after 5 s, group SIGKILL sweep after the shell exits, FIFO abortable semaphore, `durationMs` from slot acquisition | M1-T06 |
+| 2026-10-22 | M1-T06 removed the placeholder test "createCommandRunner is a placeholder until M1-T06" from packages/daemon/src/commands/fake-runner.test.ts (not a §Seams file, but a frozen-adjacent fake's test); awaiting lead acknowledgement | M1-T06 |
 | 2026-10-22 | M1 group B (T02, T03, T05a, T05b, T09) merged to main via `integrate/B` (`--no-ff` per task) after `scripts/ci.sh` passed on the merged tree (d5841e7); the T09 `pnpm-lock.yaml` conflict was resolved by taking main's lockfile and regenerating with `pnpm i` | M1 group B |
 | 2026-10-22 | Ben approved docs/design/10-contracts.md: the contracts are frozen; B-003 cleared | Ben, [10](../design/10-contracts.md) |
 | 2026-10-22 | M1-T05 split into T05a (daemon core) and T05b (real stream-json `ClaudeDriver`, MCP outcome server, process-boundary fake claude); M1-T04 split into T04a (pure `apply()`) and T04b (engine service: transactional apply, outbox dispatcher, timeout sweep, prompt render) | lead, [M1](../plan/milestones/M1-single-machine.md) |

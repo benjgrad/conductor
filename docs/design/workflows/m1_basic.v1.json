@@ -1,0 +1,54 @@
+{
+  "id": "m1_basic",
+  "version": 1,
+  "start": "implement",
+  "budget": {
+    "usd": 2,
+    "minutes": 60,
+    "max_loop_retries": 3
+  },
+  "on_budget_exceeded": "needs_input",
+  "states": {
+    "implement": {
+      "type": "agent",
+      "prompt": "ticket_template",
+      "tools": ["edit", "bash", "git"],
+      "timeout": "30m",
+      "on": {
+        "done": "build",
+        "ask_user": "needs_input",
+        "timeout": "needs_input"
+      }
+    },
+    "build": {
+      "type": "command",
+      "cmd": "npm run build",
+      "timeout": "10m",
+      "on": {
+        "exit_0": "test",
+        "fail": {
+          "goto": "implement",
+          "attach": "output",
+          "retries": 3,
+          "else": "needs_input"
+        }
+      }
+    },
+    "test": {
+      "type": "command",
+      "cmd": "npm test",
+      "timeout": "10m",
+      "on": {
+        "exit_0": "done",
+        "fail": {
+          "goto": "implement",
+          "attach": "output",
+          "retries": 3,
+          "else": "needs_input"
+        }
+      }
+    },
+    "needs_input": { "type": "human" },
+    "done": { "type": "terminal" }
+  }
+}

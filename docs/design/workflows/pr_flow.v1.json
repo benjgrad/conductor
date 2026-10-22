@@ -1,0 +1,110 @@
+{
+  "id": "pr_flow",
+  "version": 1,
+  "start": "implement",
+  "budget": {
+    "usd": 5,
+    "minutes": 120,
+    "max_loop_retries": 3
+  },
+  "on_budget_exceeded": "needs_input",
+  "states": {
+    "implement": {
+      "type": "agent",
+      "prompt": "ticket_template",
+      "tools": ["edit", "bash", "git"],
+      "timeout": "60m",
+      "on": {
+        "done": "build",
+        "ask_user": "needs_input",
+        "timeout": "needs_input"
+      }
+    },
+    "build": {
+      "type": "command",
+      "cmd": "npm run build",
+      "timeout": "15m",
+      "on": {
+        "exit_0": "test",
+        "fail": {
+          "goto": "implement",
+          "attach": "output",
+          "retries": 3,
+          "else": "needs_input"
+        }
+      }
+    },
+    "test": {
+      "type": "command",
+      "cmd": "npm test",
+      "timeout": "20m",
+      "on": {
+        "exit_0": "open_pr",
+        "fail": {
+          "goto": "implement",
+          "attach": "output",
+          "retries": 3,
+          "else": "needs_input"
+        }
+      }
+    },
+    "open_pr": {
+      "type": "agent",
+      "skill": "commit-push-pr",
+      "tools": ["git", "pr_skill"],
+      "guard": "branch_has_commits",
+      "result": ["pr_url"],
+      "on": {
+        "done": "notify",
+        "ask_user": "needs_input",
+        "fail": "needs_input"
+      }
+    },
+    "notify": {
+      "type": "agent",
+      "skill": "slack-post",
+      "input": {
+        "pr_url": "$open_pr.pr_url",
+        "channel": "#reviews"
+      },
+      "on": {
+        "done": "await_approval",
+        "ask_user": "needs_input"
+      }
+    },
+    "await_approval": {
+      "type": "event",
+      "wait_for": ["pr.approved", "ui.approve", "pr.changes_requested"],
+      "park": true,
+      "release_machine": true,
+      "timeout": "3d",
+      "on": {
+        "pr.approved": "update_ticket",
+        "ui.approve": "update_ticket",
+        "pr.changes_requested": "implement",
+        "timeout": "needs_input"
+      }
+    },
+    "update_ticket": {
+      "type": "connector",
+      "actions": ["ticket.set_status:Done", "azure.update_build"],
+      "idempotency": "session+state+visit",
+      "on": {
+        "ok": "jira_docs",
+        "error": "needs_input"
+      }
+    },
+    "jira_docs": {
+      "type": "connector",
+      "action": "jira.create_task",
+      "args": { "kind": "docs-change" },
+      "idempotency": "session+state+visit",
+      "on": {
+        "ok": "done",
+        "error": "needs_input"
+      }
+    },
+    "needs_input": { "type": "human" },
+    "done": { "type": "terminal" }
+  }
+}

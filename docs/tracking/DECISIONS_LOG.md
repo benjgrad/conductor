@@ -1,0 +1,17 @@
+# Decisions log
+
+One line per decision, newest first. Big or reversible-only-at-cost decisions get an ADR. Small ones live only here.
+
+| Date | Decision | Ref |
+|---|---|---|
+| 2026-10-22 | `await_approval.wait_for` includes `pr.changes_requested` (board routed on it but never waited for it) | [pr_flow.v1.json](../design/workflows/pr_flow.v1.json) |
+| 2026-10-22 | Added explicit failure routes the board omitted: `open_pr` fail/ask_user → needs_input; connector `error` → needs_input; agent timeouts | [05](../design/05-workflow-engine.md) |
+| 2026-10-22 | Connector idempotency key = `session:state:visit_n`; Jira dedupes via `conductor-idem:<key>` label | [05](../design/05-workflow-engine.md#idempotency) |
+| 2026-10-22 | Slack duplicate posts accepted (skill-based, can't dedupe) | [08](../design/08-failure-modes.md) |
+| 2026-10-22 | M1 uses the smaller `m1_basic.v1` workflow; `pr_flow.v1` is M3 | [M1](../plan/milestones/M1-single-machine.md) |
+| 2026-10-22 | TypeScript pnpm monorepo | [ADR-0004](../adr/0004-typescript-monorepo.md) |
+| 2026-10-22 | Project lives at `~/code/backlog/conductor` ("conductor" is a working name) | — |
+| 2026-10-21 | Users author workflow JSON directly; a visual editor later emits the same JSON | workshop |
+| 2026-10-21 | Pull scheduler; keep leases + fencing; drop leader | [ADR-0001](../adr/0001-pull-scheduler.md) |
+| 2026-10-21 | Orchestrator single decider; daemons dial out | [ADR-0002](../adr/0002-orchestrator-single-decider.md) |
+| 2026-10-21 | Postgres + outbox; no broker | [ADR-0003](../adr/0003-postgres-outbox-no-kafka.md) |

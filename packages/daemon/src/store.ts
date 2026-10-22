@@ -56,9 +56,10 @@ interface StateFile {
 
 /** Most recent command_ids kept for dedupe. */
 export const MAX_ACKS = 2000;
-// TD: the event buffer is trimmed only by `registered.last_seq` (there is no per-event ack in the
+// TD-025: the event buffer is trimmed only by `registered.last_seq` (there is no per-event ack in the
 // protocol); while connected it grows until the next reconnect, so it is capped here and the
-// oldest events are dropped past the cap.
+// oldest events are dropped past the cap (they may still be unconfirmed; 03 §Delivery guarantees).
+// The whole state file is also rewritten synchronously on every emit and ack.
 export const MAX_BUFFERED_EVENTS = 5000;
 
 const empty = (): StateFile => ({

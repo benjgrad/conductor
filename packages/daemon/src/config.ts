@@ -38,6 +38,8 @@ export interface DaemonConfig {
   minFreeMemMb: number;
   /** Delay before the next request_work after `no_work`. */
   workPollMs: number;
+  /** A `work_assignment` holds a slot until its start_session arrives, at most this long. */
+  assignmentHoldMs: number;
   /** Heartbeat interval until `registered` says otherwise. */
   heartbeatIntervalMs: number;
   reconnect: BackoffConfig;
@@ -154,6 +156,7 @@ export function loadConfig(
     portPool,
     minFreeMemMb: int(env, 'CONDUCTOR_MIN_FREE_MEM_MB', 512),
     workPollMs: int(env, 'CONDUCTOR_WORK_POLL_MS', 5000, 1),
+    assignmentHoldMs: 60_000,
     heartbeatIntervalMs: 10_000,
     reconnect: { initialMs: 500, maxMs: 30_000, factor: 2 },
     endGraceMs: 10_000,

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resolveToolPolicy, sessionBranch, type OrchestratorToDaemon } from '@conductor/shared';
 import { FakeClaudeDriver, type FakeClaudeScript } from './claude/fake-driver.js';
 import { FakeCommandRunner } from './commands/fake-runner.js';
-import { loadConfig } from './config.js';
+import { loadConfig, type DaemonConfig } from './config.js';
 import { Daemon } from './daemon.js';
 import { DaemonStore } from './store.js';
 import type { LiveResources } from './sysinfo.js';
@@ -55,7 +55,12 @@ afterEach(async () => {
 
 function makeDaemon(
   driver: FakeClaudeDriver,
-  opts: { runner?: FakeCommandRunner; env?: Record<string, string>; root?: string } = {},
+  opts: {
+    runner?: FakeCommandRunner;
+    env?: Record<string, string>;
+    root?: string;
+    config?: Partial<DaemonConfig>;
+  } = {},
 ): Daemon {
   const config = loadConfig({
     CONDUCTOR_ORCHESTRATOR_URL: orch.url,
@@ -69,6 +74,7 @@ function makeDaemon(
   });
   config.reconnect = { initialMs: 20, maxMs: 100, factor: 2 };
   config.endGraceMs = 200;
+  Object.assign(config, opts.config);
   const runner = opts.runner ?? new FakeCommandRunner(2, true);
   const d = new Daemon({
     config,
@@ -348,6 +354,71 @@ describe('daemon core: start_session', () => {
     expect((await orch.until(() => orch.ack(d.payload.command_id)[0])).payload.reason).toBe(
       'memory_pressure',
     );
+  });
+
+  it('re-arms request_work after a memory_pressure refusal of an assigned session (max_sessions=1)', async () => {
+    const WORK_POLL_MS = 300;
+    const sid = randomUUID();
+    let n = 0;
+    orch.workReply = () =>
+      n++ === 0
+        ? {
+            type: 'work_assignment',
+            msg_id: randomUUID(),
+            seq: null,
+            session_id: sid,
+            fencing_token: 1,
+            payload: { ticket_id: TICKET, session_id: sid },
+          }
+        : null;
+    makeDaemon(new FakeClaudeDriver(complete({})), {
+      env: { CONDUCTOR_MAX_SESSIONS: '1', CONDUCTOR_WORK_POLL_MS: String(WORK_POLL_MS) },
+    });
+    await orch.until(() => orch.ofType('request_work')[0]);
+    resources = { ...resources, memFreeMb: 100 };
+    const s = startSession(sid);
+    orch.send(s);
+    const ack = await orch.until(() => orch.ack(s.payload.command_id)[0]);
+    const refusedAt = Date.now();
+    expect(ack.payload.reason).toBe('memory_pressure');
+    // The assignment held the only slot: no request_work was sent while it was held.
+    expect(orch.ofType('request_work')).toHaveLength(1);
+    await orch.until(() => orch.ofType('request_work').length === 2);
+    const waited = Date.now() - refusedAt;
+    // Waits ~workPollMs (no claim/refuse spin), but does not stall.
+    expect(waited).toBeGreaterThanOrEqual(WORK_POLL_MS - 50);
+    expect(waited).toBeLessThan(WORK_POLL_MS + 2000);
+    expect(orch.ofType('request_work')[1]!.payload).toMatchObject({ free_slots: 1 });
+  });
+
+  it('re-arms request_work right after a max_sessions refusal and when a hold expires', async () => {
+    const assigned = randomUUID();
+    let n = 0;
+    orch.workReply = () =>
+      n++ === 0
+        ? {
+            type: 'work_assignment',
+            msg_id: randomUUID(),
+            seq: null,
+            session_id: assigned,
+            fencing_token: 1,
+            payload: { ticket_id: TICKET, session_id: assigned },
+          }
+        : null;
+    makeDaemon(new FakeClaudeDriver(complete({})), {
+      env: { CONDUCTOR_MAX_SESSIONS: '1' },
+      config: { assignmentHoldMs: 300 },
+    });
+    await orch.until(() => orch.ofType('request_work')[0]);
+    // A start for another session finds the only slot held: refused, and the loop stays armed.
+    const other = startSession(randomUUID());
+    orch.send(other);
+    expect((await orch.until(() => orch.ack(other.payload.command_id)[0])).payload.reason).toBe(
+      'max_sessions',
+    );
+    expect(orch.ofType('request_work')).toHaveLength(1);
+    // The assigned session's start_session never arrives: the hold expires and frees the slot.
+    await orch.until(() => orch.ofType('request_work').length === 2);
   });
 
   it('reports start_failed when the repo cannot be cloned', async () => {

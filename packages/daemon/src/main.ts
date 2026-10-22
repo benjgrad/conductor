@@ -10,7 +10,7 @@ import { Daemon } from './daemon.js';
 /**
  * The real driver's module (M1-T05b creates `src/claude/cli-driver.ts` in parallel). Loaded by a
  * computed specifier so this package typechecks before T05b merges.
- * TD: the integrator replaces this with a static `import { createCliDriver } from
+ * TD-021: the integrator replaces this with a static `import { createCliDriver } from
  * './claude/cli-driver.js'` once both branches are on main, and settles its options type.
  */
 const CLI_DRIVER_MODULE = './claude/cli-driver.js';

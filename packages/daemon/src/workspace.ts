@@ -24,6 +24,8 @@ export async function git(cwd: string, args: string[]): Promise<string> {
 /**
  * Where to clone `repo` from. An absolute path or a URL (scheme:// or scp-style user@host:path)
  * is used as is; a canonical name like `github.com/org/app` becomes `https://github.com/org/app.git`.
+ * TD-026: https with no auth, and the shared clone is never fetched after the first clone, so
+ * `base_ref` resolves against a stale copy.
  */
 export function cloneSource(repo: string): string {
   if (

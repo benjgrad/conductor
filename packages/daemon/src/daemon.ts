@@ -31,8 +31,6 @@ import { ReconnectingWs } from './ws-client.js';
 
 export const DAEMON_VERSION = '0.0.0';
 
-/** A `work_assignment` holds a slot until its start_session arrives, at most this long. */
-export const ASSIGNMENT_HOLD_MS = 60_000;
 /** Give up waiting for a reply to request_work after this long. */
 export const REQUEST_WORK_TIMEOUT_MS = 30_000;
 
@@ -107,7 +105,8 @@ export class Daemon {
   private awaitingWork: NodeJS.Timeout | null = null;
   private lastInventoryDigest = '';
   private readonly live = new Map<string, LiveSession>();
-  private readonly assignments = new Map<string, number>(); // session_id → hold expiry (ms)
+  /** session_id → timer that releases the slot a `work_assignment` holds (config.assignmentHoldMs). */
+  private readonly assignments = new Map<string, NodeJS.Timeout>();
   private readonly inFlight = new Set<string>();
 
   constructor(opts: DaemonOptions) {
@@ -154,6 +153,8 @@ export class Daemon {
   stop(opts: { killSessions?: boolean } = {}): void {
     this.ws.stop();
     this.onClose();
+    for (const t of this.assignments.values()) clearTimeout(t);
+    this.assignments.clear();
     if (opts.killSessions ?? true) {
       for (const live of this.live.values()) {
         if (live.agent && !live.agent.exited) live.agent.session.kill(this.config.killGraceMs);
@@ -215,7 +216,7 @@ export class Daemon {
         );
         return;
       case 'work_assignment':
-        this.assignments.set(msg.payload.session_id, Date.now() + ASSIGNMENT_HOLD_MS);
+        this.holdAssignment(msg.payload.session_id);
         this.workReplied(0);
         return;
       case 'no_work':
@@ -281,20 +282,56 @@ export class Daemon {
 
   // ============================================================ pull scheduling
 
+  /** Hold a slot for an assigned session until its start_session arrives (or the hold expires). */
+  private holdAssignment(sid: string): void {
+    const prev = this.assignments.get(sid);
+    if (prev) clearTimeout(prev);
+    const timer = setTimeout(() => {
+      if (this.assignments.get(sid) !== timer) return;
+      this.assignments.delete(sid);
+      // The start_session never came: the slot is free again.
+      this.maybeRequestWork();
+    }, this.config.assignmentHoldMs);
+    this.assignments.set(sid, timer);
+  }
+
+  /** Drop an assignment's hold. Returns whether one existed. */
+  private releaseAssignment(sid: string): boolean {
+    const timer = this.assignments.get(sid);
+    if (!timer) return false;
+    clearTimeout(timer);
+    this.assignments.delete(sid);
+    return true;
+  }
+
+  /**
+   * A start_session was refused: release its hold and re-arm the pull loop. With no live process
+   * left, nothing else would ever send request_work again (the loop stalls until a reconnect).
+   * `delayMs` > 0 (memory_pressure) waits before asking, so claim/refuse doesn't spin.
+   */
+  private startRefused(sid: string, delayMs: number): void {
+    this.releaseAssignment(sid);
+    if (delayMs <= 0 || this.awaitingWork || this.workTimer) {
+      this.maybeRequestWork();
+      return;
+    }
+    this.workTimer = setTimeout(() => {
+      this.workTimer = null;
+      this.maybeRequestWork();
+    }, delayMs);
+  }
+
   /** Sessions holding a slot: live or starting processes, plus fresh work assignments. */
   private slotsInUse(): number {
-    const now = Date.now();
-    const used = new Set<string>();
-    for (const [sid, exp] of this.assignments) {
-      if (exp < now) this.assignments.delete(sid);
-      else used.add(sid);
-    }
+    const used = new Set<string>(this.assignments.keys());
     for (const [sid, live] of this.live) {
       if ((live.agent && !live.agent.exited) || live.starting) used.add(sid);
     }
     return used.size;
   }
 
+  // TD-027: request_work is sent even under memory pressure (07 only defines the start_session
+  // veto); each claim is then refused and requeued, at most once per workPollMs.
   private maybeRequestWork(): void {
     if (!this.registered || this.awaitingWork || this.workTimer) return;
     const free = this.config.maxSessions - this.slotsInUse();
@@ -357,6 +394,7 @@ export class Daemon {
         this.log(`${msg.type} failed: ${String(e)}`);
         if (cid !== null && !this.store.ackFor(cid)) {
           this.finish(msg, { accepted: false, reason: `error: ${errText(e)}` });
+          if (msg.type === 'start_session') this.startRefused(msg.session_id, 0);
         }
       })
       .finally(() => {
@@ -412,16 +450,19 @@ export class Daemon {
       (current && current.fencingToken > token) ||
       (live.starting && live.starting.fencingToken > token)
     ) {
-      return this.finish(msg, { accepted: false, reason: 'stale_fencing_token' });
+      this.finish(msg, { accepted: false, reason: 'stale_fencing_token' });
+      return this.startRefused(sid, 0);
     }
     const holdsSlot = current !== null || live.starting !== null || this.assignments.has(sid);
     if (!holdsSlot && this.slotsInUse() >= this.config.maxSessions) {
-      return this.finish(msg, { accepted: false, reason: 'max_sessions' });
+      this.finish(msg, { accepted: false, reason: 'max_sessions' });
+      return this.startRefused(sid, 0);
     }
     if (this.underMemoryPressure()) {
-      return this.finish(msg, { accepted: false, reason: 'memory_pressure' });
+      this.finish(msg, { accepted: false, reason: 'memory_pressure' });
+      return this.startRefused(sid, this.config.workPollMs);
     }
-    this.assignments.delete(sid);
+    this.releaseAssignment(sid);
     if (current) {
       // A newer start for the same session supersedes the running process (same worktree).
       this.log(`session ${sid}: start ${p.command_id} supersedes ${current.commandId}`);
@@ -455,7 +496,7 @@ export class Daemon {
         claudeSessionId,
         lastUsedAt: Date.now(),
       });
-      // TD: maxBudgetUsd is not passed in M1. Whether --max-budget-usd compares against the
+      // TD-022: maxBudgetUsd is not passed in M1. Whether --max-budget-usd compares against the
       // cumulative total across --resume is untested (U-018), so p.max_budget_usd is ignored.
       const session = this.driver.start({
         cwd: worktree,
@@ -483,8 +524,7 @@ export class Daemon {
     } catch (e) {
       if (live.starting === starting) live.starting = null;
       this.finish(msg, { accepted: false, reason: `start_failed: ${errText(e)}` });
-      this.maybeRequestWork();
-      return;
+      return this.startRefused(sid, 0);
     }
     if (live.starting === starting) live.starting = null;
     live.agent = agent;
@@ -554,7 +594,7 @@ export class Daemon {
             }, this.config.endGraceMs);
           }
         } else if (!a.askPending) {
-          // TD: a turn that ends with neither outcome tool leaves the process idle; the session
+          // TD-023: a turn that ends with neither outcome tool leaves the process idle; the session
           // waits for the state's timeout (or an operator). No nudge in M1.
           this.sendOutput(
             sid,
@@ -706,7 +746,7 @@ export class Daemon {
     const existing = this.ports.rangeOf(sid);
     if (existing) return existing;
     if (this.ports.allocated >= this.ports.capacity) {
-      // TD: the daemon never learns that a session is terminal, so ranges are only freed by
+      // TD-024: the daemon never learns that a session is terminal, so ranges are only freed by
       // reclaiming the least recently used session that has no live process or command.
       const idle = Object.entries(this.store.sessions)
         .filter(([id, s]) => id !== sid && s.portRange !== null && !this.isBusy(id))

@@ -1,0 +1,119 @@
+{
+  "note": "Run of e-agent-sdk.mjs WITHOUT strictMcpConfig. Raw stream removed: it listed the logged-in user's personal claude.ai connectors by name. Counts kept as evidence.",
+  "messages": [
+    {
+      "type": "system/init",
+      "session_id": "0606589f-dd9d-4cca-b666-7e4df54895ae",
+      "mcp_servers_by_source": {
+        "claudeai": 9,
+        "sdk": 1
+      },
+      "tool_count": 2,
+      "non_conductor_mcp_tools": 0
+    },
+    {
+      "type": "assistant",
+      "content": [
+        {
+          "tool_use": "mcp__conductor__ask_user",
+          "input": {
+            "question": "Which greeting word should I use?"
+          }
+        }
+      ]
+    },
+    {
+      "type": "assistant",
+      "content": [
+        "thinking"
+      ]
+    },
+    {
+      "type": "assistant",
+      "content": [
+        {
+          "text": "I've asked which greeting word to use. I'll call complete_state with the answer once it arrives."
+        }
+      ]
+    },
+    {
+      "type": "result",
+      "total_cost_usd": 0.016927289999999998,
+      "usage": {
+        "cache_creation_input_tokens": 83510,
+        "cache_read_input_tokens": 609
+      }
+    },
+    {
+      "type": "system/init",
+      "session_id": "0606589f-dd9d-4cca-b666-7e4df54895ae",
+      "mcp_servers_by_source": {
+        "claudeai": 9,
+        "sdk": 1
+      },
+      "tool_count": 121,
+      "non_conductor_mcp_tools": 119
+    },
+    {
+      "type": "assistant",
+      "content": [
+        "thinking"
+      ]
+    },
+    {
+      "type": "assistant",
+      "content": [
+        {
+          "tool_use": "mcp__conductor__complete_state",
+          "input": {
+            "result": {
+              "greeting": "bonjour"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "assistant",
+      "content": [
+        {
+          "text": "The greeting is set to \"bonjour\" and recorded for the implement state."
+        }
+      ]
+    },
+    {
+      "type": "result",
+      "total_cost_usd": 0.02040478,
+      "usage": {
+        "cache_creation_input_tokens": 8280,
+        "cache_read_input_tokens": 173709
+      }
+    },
+    {
+      "type": "system/init",
+      "session_id": "0606589f-dd9d-4cca-b666-7e4df54895ae",
+      "mcp_servers_by_source": {
+        "claudeai": 9,
+        "sdk": 1
+      },
+      "tool_count": 2,
+      "non_conductor_mcp_tools": 0
+    },
+    {
+      "type": "assistant",
+      "content": [
+        {
+          "text": "bonjour"
+        }
+      ]
+    },
+    {
+      "type": "result",
+      "total_cost_usd": 0.0224092,
+      "usage": {
+        "cache_creation_input_tokens": 5451,
+        "cache_read_input_tokens": 91102
+      }
+    }
+  ]
+}

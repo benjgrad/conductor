@@ -1,0 +1,16 @@
+[+   527ms] <- system/init session_id=89779fd8-e1d2-4f52-9153-625dc39a705c model=claude-haiku-5-5 permissionMode=default tools=[mcp__conductor__ask_user,mcp__conductor__complete_state] mcp=[{"name":"conductor","status":"connected","source":"dynamic"}]
+[+   528ms] mcp servers in init: [{"name":"conductor","status":"connected","source":"dynamic"}] tools: mcp__conductor__ask_user,mcp__conductor__complete_state
+[+  1379ms] <- assistant tool_use:mcp__conductor__ask_user({"question":"Which greeting word should I use?"}) id=toolu_01LwpdYgaFCQUG5R69T7QmAe
+[+  1393ms] DAEMON EVENT {"kind":"ask_user","question":"Which greeting word should I use?"}
+[+  1393ms] ask_user handler BLOCKING for 15000 ms (tool call stays open)
+[+  1393ms] <- rate_limit_event {"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1792699800,"rateLimitType":"five_hour","overageStatus":"rejected","overageDisabledReason":"out_of_credits","isUsingOverage":
+[+ 16439ms] -> daemon resolves the pending ask_user call
+[+ 16440ms] ask_user handler returning the answer as the tool result
+[+ 16448ms] <- user tool_result(toolu_01LwpdYgaFCQUG5R69T7QmAe):"The human answered: howdy"
+[+ 17205ms] <- assistant tool_use:mcp__conductor__complete_state({"result":{"greeting":"howdy"}}) id=toolu_01BVorFQ3KYLxP9TapDHTED8
+[+ 17216ms] DAEMON EVENT {"kind":"complete_state","result":{"greeting":"howdy"}}
+[+ 17222ms] <- user tool_result(toolu_01BVorFQ3KYLxP9TapDHTED8):"Recorded. Stop now: do not call any other tool and end your turn."
+[+ 18232ms] <- assistant text:"The greeting word is \"howdy\", and I've recorded it with complete_state."
+[+ 18246ms] <- result/success is_error=false session_id=89779fd8-e1d2-4f52-9153-625dc39a705c num_turns=3 total_cost_usd=0.00088754 usage={"in":6,"out":158,"cache_read":10434,"cache_create":3518} denials=[] result="The greeting word is \"howdy\", and I've recorded it with complete_state."
+[+ 18247ms] complete_state received: {"kind":"complete_state","result":{"greeting":"howdy"}} | final result subtype success cost 0.00088754
+[+ 18550ms] exit: {"code":0,"signal":null,"ms":18517}

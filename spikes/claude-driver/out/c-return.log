@@ -1,0 +1,18 @@
+[+   698ms] <- system/init session_id=bbb37303-2ba4-4a15-ac86-eb007560f9f8 model=claude-haiku-5-5 permissionMode=default tools=[mcp__conductor__ask_user,mcp__conductor__complete_state] mcp=[{"name":"conductor","status":"connected","source":"dynamic"}]
+[+   705ms] mcp servers in init: [{"name":"conductor","status":"connected","source":"dynamic"}] tools: mcp__conductor__ask_user,mcp__conductor__complete_state
+[+  1745ms] <- assistant tool_use:mcp__conductor__ask_user({"question":"Which greeting word should I use?"}) id=toolu_011LMzM2WiUNL1zWHWayRCNE
+[+  1753ms] DAEMON EVENT {"kind":"ask_user","question":"Which greeting word should I use?"}
+[+  1759ms] <- user tool_result(toolu_011LMzM2WiUNL1zWHWayRCNE):"Your question was sent to a human. End your turn now without calling more tools. The answer will arrive as the next user message."
+[+  1762ms] <- rate_limit_event {"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1792699800,"rateLimitType":"five_hour","overageStatus":"rejected","overageDisabledReason":"out_of_credits","isUsingOverage":
+[+  2706ms] <- assistant text:"I've asked which greeting word to use. I'll wait for your answer before calling complete_state."
+[+  2715ms] <- result/success is_error=false session_id=bbb37303-2ba4-4a15-ac86-eb007560f9f8 num_turns=2 total_cost_usd=0.0010279500000000001 usage={"in":4,"out":96,"cache_read":4515,"cache_create":4672} denials=[] result="I've asked which greeting word to use. I'll wait for your answer before calling complete_state."
+[+  2715ms] turn ended after ask_user? true | process idle & alive: true
+[+ 17716ms] -> daemon injects answer via stdin (send_input)
+[+ 17731ms] <- system/init session_id=bbb37303-2ba4-4a15-ac86-eb007560f9f8 model=claude-haiku-5-5 permissionMode=default tools=[mcp__conductor__ask_user,mcp__conductor__complete_state] mcp=[{"name":"conductor","status":"connected","source":"dynamic"}]
+[+ 18795ms] <- assistant tool_use:mcp__conductor__complete_state({"result":{"greeting":"howdy"}}) id=toolu_01QwNpKUZx7q84xCToUWMzy4
+[+ 18810ms] DAEMON EVENT {"kind":"complete_state","result":{"greeting":"howdy"}}
+[+ 18816ms] <- user tool_result(toolu_01QwNpKUZx7q84xCToUWMzy4):"Recorded. Stop now: do not call any other tool and end your turn."
+[+ 19640ms] <- assistant text:"The greeting word is set to \"howdy\" and the state is complete."
+[+ 19667ms] <- result/success is_error=false session_id=bbb37303-2ba4-4a15-ac86-eb007560f9f8 num_turns=2 total_cost_usd=0.00121711 usage={"in":4,"out":89,"cache_read":9446,"cache_create":249} denials=[] result="The greeting word is set to \"howdy\" and the state is complete."
+[+ 19667ms] complete_state received: {"kind":"complete_state","result":{"greeting":"howdy"}} | final result subtype success cost 0.00121711
+[+ 19887ms] exit: {"code":0,"signal":null,"ms":19830}

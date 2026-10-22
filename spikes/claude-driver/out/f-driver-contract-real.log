@@ -1,0 +1,20 @@
+[+   715ms] EVENT {"kind":"claude_session_id","id":"d2c7fe66-eb20-444e-99bf-a7b4fd2e00a3"}
+[+  4160ms] EVENT {"kind":"output","stream":"tool_use","text":"mcp__conductor__ask_user {\"question\":\"Which greeting word should I use?\"}"}
+[+  4172ms] EVENT {"kind":"ask_user","question":"Which greeting word should I use?"}
+[+  5536ms] EVENT {"kind":"output","stream":"assistant","text":"I've asked which greeting word to use. I'll call complete_state once you answer."}
+[+  5545ms] EVENT {"kind":"spend","totalUsd":0.0015859800000000003,"usage":{"input_tokens":4,"cache_creation_input_tokens":7339,"cache_read_input_tokens":7178,"output_tokens":92,"output_tokens_details":{"thinking_tokens":0},"server_tool_u
+[+  5545ms] EVENT {"kind":"turn_end","subtype":"success","isError":false,"denials":0}
+[+  5545ms] parked: question asked, turn ended, process alive & idle
+[+ 10781ms] EVENT {"kind":"output","stream":"tool_use","text":"mcp__conductor__complete_state {\"result\":{\"greeting\":\"hola\"}}"}
+[+ 10795ms] EVENT {"kind":"complete_state","result":{"greeting":"hola"}}
+[+ 13407ms] EVENT {"kind":"output","stream":"assistant","text":"Done. The greeting is recorded as \"hola\"."}
+[+ 13428ms] EVENT {"kind":"spend","totalUsd":0.0018255300000000003,"usage":{"input_tokens":4,"cache_creation_input_tokens":247,"cache_read_input_tokens":14775,"output_tokens":84,"output_tokens_details":{"thinking_tokens":0},"server_tool_u
+[+ 13428ms] EVENT {"kind":"turn_end","subtype":"success","isError":false,"denials":0}
+[+ 13760ms] EVENT {"kind":"exit","code":0,"signal":null}
+[+ 13760ms] LIVE OK: {"id":"d2c7fe66-eb20-444e-99bf-a7b4fd2e00a3","result":{"greeting":"hola"},"exit":{"kind":"exit","code":0,"signal":null}}
+[+ 14322ms] EVENT {"kind":"claude_session_id","id":"d2c7fe66-eb20-444e-99bf-a7b4fd2e00a3"}
+[+ 17176ms] EVENT {"kind":"output","stream":"assistant","text":"hola"}
+[+ 17190ms] EVENT {"kind":"spend","totalUsd":0.0019225900000000003,"usage":{"input_tokens":2,"cache_creation_input_tokens":95,"cache_read_input_tokens":7586,"output_tokens":4,"output_tokens_details":{"thinking_tokens":0},"server_tool_use"
+[+ 17190ms] EVENT {"kind":"turn_end","subtype":"success","isError":false,"denials":0}
+[+ 17609ms] EVENT {"kind":"exit","code":0,"signal":null}
+[+ 17610ms] RESUME OK: {"sameId":true,"totalUsd":0.0019225900000000003}

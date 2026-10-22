@@ -1,0 +1,36 @@
+[+   626ms] live <- system/init session_id=c37644d3-b661-49d7-a8c3-f5764ed076d9 model=claude-haiku-5-5 permissionMode=default tools=[] mcp=[]
+[+  1735ms] live <- system/thinking_tokens {"type":"system","subtype":"thinking_tokens","estimated_tokens":50,"estimated_tokens_delta":50,"session_id":"c37644d3-b661-49d7-a8c3-f5764ed076d9","uuid":"d5a33d3a-6806-402e-afe2-2a996a29aaf3","_t":16
+[+  1873ms] live <- system/thinking_tokens {"type":"system","subtype":"thinking_tokens","estimated_tokens":216,"estimated_tokens_delta":166,"session_id":"c37644d3-b661-49d7-a8c3-f5764ed076d9","uuid":"de0a225f-971c-42b2-a985-806d5ddf0061","_t":
+[+  1874ms] live <- assistant thinking
+[+  2066ms] live <- assistant text:"Got it, I'll remember \"marmalade.\" What colour would you like the button to be?"
+[+  2161ms] live <- rate_limit_event {"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1792699800,"rateLimitType":"five_hour","overageStatus":"rejected","overageDisabledReason":"out_of_credits","isUsingOverage":
+[+  2177ms] live <- result/success is_error=false session_id=c37644d3-b661-49d7-a8c3-f5764ed076d9 num_turns=1 total_cost_usd=0.0006844900000000001 usage={"in":2,"out":104,"cache_read":649,"cache_create":3129} denials=[] result="Got it, I'll remember \"marmalade.\" What colour would you like the button to be?"
+[+  2178ms] turn 1 done; process idle for 20000 ms (pid 34057, alive=true)
+[+ 22179ms] still alive after idle gap? true
+[+ 22179ms] -> injecting answer into live stdin
+[+ 22191ms] live <- system/init session_id=c37644d3-b661-49d7-a8c3-f5764ed076d9 model=claude-haiku-5-5 permissionMode=default tools=[] mcp=[]
+[+ 23281ms] live <- assistant text:"button=green secret=marmalade"
+[+ 23301ms] live <- result/success is_error=false session_id=c37644d3-b661-49d7-a8c3-f5764ed076d9 num_turns=1 total_cost_usd=0.0007660700000000001 usage={"in":2,"out":12,"cache_read":3778,"cache_create":188} denials=[] result="button=green secret=marmalade"
+[+ 23301ms] turn 2 session_id same as turn 1? true | result: "button=green secret=marmalade"
+[+ 23302ms] cumulative total_cost_usd after turn 2 = 0.0007660700000000001 (turn 1 was 0.0006844900000000001)
+[+ 23302ms] -> sending two messages back to back (second lands mid-turn)
+[+ 23313ms] live <- system/init session_id=c37644d3-b661-49d7-a8c3-f5764ed076d9 model=claude-haiku-5-5 permissionMode=default tools=[] mcp=[]
+[+ 24772ms] live <- assistant text:"1\n2\n3\n4\n5"
+[+ 24784ms] live <- result/success is_error=false session_id=c37644d3-b661-49d7-a8c3-f5764ed076d9 num_turns=1 total_cost_usd=0.0008286300000000001 usage={"in":2,"out":11,"cache_read":3966,"cache_create":86} denials=[] result="1\n2\n3\n4\n5"
+[+ 24785ms] first result after back-to-back: "1\n2\n3\n4\n5" num_turns 1
+[+ 24790ms] live <- system/init session_id=c37644d3-b661-49d7-a8c3-f5764ed076d9 model=claude-haiku-5-5 permissionMode=default tools=[] mcp=[]
+[+ 25866ms] live <- assistant text:"second message handled"
+[+ 25877ms] live <- result/success is_error=false session_id=c37644d3-b661-49d7-a8c3-f5764ed076d9 num_turns=1 total_cost_usd=0.0008883500000000001 usage={"in":2,"out":6,"cache_read":4052,"cache_create":80} denials=[] result="second message handled"
+[+ 25878ms] second result after back-to-back: "second message handled"
+[+ 25878ms] -> killing live process (simulates laptop sleep / compute release)
+[+ 26106ms] exit: {"code":143,"signal":null,"ms":26064}
+[+ 26752ms] resume <- system/init session_id=c37644d3-b661-49d7-a8c3-f5764ed076d9 model=claude-haiku-5-5 permissionMode=default tools=[] mcp=[]
+[+ 26752ms] resumed init session_id c37644d3-b661-49d7-a8c3-f5764ed076d9 | same as original? true
+[+ 27855ms] resume <- system/thinking_tokens {"type":"system","subtype":"thinking_tokens","estimated_tokens":50,"estimated_tokens_delta":50,"session_id":"c37644d3-b661-49d7-a8c3-f5764ed076d9","uuid":"7cd6a014-44c7-4c4a-93b3-8f38aad488a9","_t":17
+[+ 27940ms] resume <- system/thinking_tokens {"type":"system","subtype":"thinking_tokens","estimated_tokens":241,"estimated_tokens_delta":191,"session_id":"c37644d3-b661-49d7-a8c3-f5764ed076d9","uuid":"25c8fb9e-57c5-431d-85bc-38911d480814","_t":
+[+ 27942ms] resume <- assistant thinking
+[+ 28112ms] resume <- assistant text:"button=blue secret=marmalade"
+[+ 28127ms] resume <- rate_limit_event {"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1792699800,"rateLimitType":"five_hour","overageStatus":"rejected","overageDisabledReason":"out_of_credits","isUsingOverage":
+[+ 28139ms] resume <- result/success is_error=false session_id=c37644d3-b661-49d7-a8c3-f5764ed076d9 num_turns=1 total_cost_usd=0.00099087 usage={"in":2,"out":84,"cache_read":4132,"cache_create":95} denials=[] result="button=blue secret=marmalade"
+[+ 28139ms] resumed result: "button=blue secret=marmalade" | result.session_id c37644d3-b661-49d7-a8c3-f5764ed076d9 | cost (this process only) 0.00099087
+[+ 28636ms] resume exit: {"code":0,"signal":null,"ms":2529}

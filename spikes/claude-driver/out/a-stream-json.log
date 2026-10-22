@@ -1,0 +1,12 @@
+[+    40ms] cwd /var/folders/t0/r1ct2x5121sf77z6b4gncdg40000gn/T/conductor-spike-a-S0BYEN
+[+    41ms] pre-assigned --session-id 8cba9531-634d-4224-a516-249e74696fa2
+[+  5046ms] init before first user message? NO (init is emitted only once input arrives)
+[+  5090ms] <- system/init session_id=8cba9531-634d-4224-a516-249e74696fa2 model=claude-haiku-5-5 permissionMode=default tools=[] mcp=[]
+[+  5091ms] session_id from init = 8cba9531-634d-4224-a516-249e74696fa2 | matches pre-assigned: true
+[+  6136ms] <- assistant text:"pong"
+[+  6138ms] <- rate_limit_event {"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1792699800,"rateLimitType":"five_hour","overageStatus":"rejected","overageDisabledReason":"out_of_credits","isUsingOverage":
+[+  6144ms] <- result/success is_error=false session_id=8cba9531-634d-4224-a516-249e74696fa2 num_turns=1 total_cost_usd=0.0006282900000000001 usage={"in":2,"out":4,"cache_read":649,"cache_create":3098} denials=[] result="pong"
+[+  6144ms] turn 1 result: cost_usd = 0.0006282900000000001 duration_ms = 1082 usage = {"input_tokens":2,"cache_creation_input_tokens":3098,"cache_read_input_tokens":649,"output_tokens":4,"output_tokens_details":{"thinking_tokens":0},"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":3098,"ephemeral_5m_input_tokens":0},"inference_geo":"global","iterations":[{"input_tokens":2,"output_tokens":4,"cache_read_input_tokens":649,"cache_creation_input_tokens":3098,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":3098},"type":"message"}],"speed":"standard","fallback_credit":null}
+[+  6144ms] modelUsage = {"claude-haiku-5-5":{"inputTokens":2,"outputTokens":4,"cacheReadInputTokens":649,"cacheCreationInputTokens":3098,"webSearchRequests":0,"costUSD":0.0006282900000000001,"contextWindow":1000000,"maxOutputTokens":128000,"thinkingTokens":0,"canonicalModel":"claude-haiku-5-5","provider":"firstParty","costBasis":"list"}}
+[+  7645ms] process alive after result (exitCode null)? true
+[+  7908ms] exit after stdin closed: {"code":0,"signal":null,"ms":7866}

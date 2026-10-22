@@ -1,6 +1,6 @@
 # ADR-0005 · Claude Code driver: stream-json CLI, daemon-hosted MCP outcome tools
 
-- **Status**: proposed
+- **Status**: accepted (Ben, 2026-10-22)
 - **Date**: 2026-10-22
 - **Deciders**: Ben (+ M1-T00 spike session)
 - **Resolves**: U-001, U-002

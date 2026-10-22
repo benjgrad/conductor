@@ -4,6 +4,11 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-22 | ADR-0005 accepted: stream-json CLI driver + daemon-hosted MCP outcome tools | [ADR-0005](../adr/0005-claude-code-driver.md) |
+| 2026-10-22 | Agents run isolated (`--setting-sources ""`); the target repo's CLAUDE.md is injected via `appendSystemPrompt`, its hooks/permissions are not loaded (U-013) | Ben |
+| 2026-10-22 | Node 22 LTS for the repo; nvm default on Ben's Mac set to 22 (U-019) | Ben |
+| 2026-10-22 | Local Postgres without Docker: one shared cluster on 54329, a database per worktree / test run (U-020) | Ben |
+| 2026-10-22 | New task M1-T13 (toolchain: Node 22 majors, shared-cluster DB per worktree, `DATABASE_URL` loading) runs in group A2 alongside T12 | lead |
 | 2026-10-22 | M1 group A (T00, T01) merged to main via `integrate/A` (`--no-ff` per task) after `scripts/ci.sh` passed on the merged tree | M1-T00, M1-T01 |
 | 2026-10-22 | **Proposed, not yet accepted**: daemon spawns installed `claude` in bidirectional stream-json mode (one long-lived child per session); `complete_state`/`ask_user` via daemon-hosted HTTP MCP server, non-blocking; answers as user messages (live stdin, else `--resume`); Agent SDK rejected for now | [ADR-0005](../adr/0005-claude-code-driver.md) (proposed) |
 | 2026-10-22 | Migration tool: node-pg-migrate 9.0.0 with TypeScript migrations (bundled jiti) in packages/orchestrator/migrations | M1-T01, [ADR-0004](../adr/0004-typescript-monorepo.md) |

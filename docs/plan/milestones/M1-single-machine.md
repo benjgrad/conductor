@@ -14,9 +14,10 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 
 | ID | Task | Depends on | Parallel group | Status | Branch / owner |
 |---|---|---|---|---|---|
-| M1-T00 | Spike: drive Claude Code from a daemon; resolve U-001 + U-002 → ADR-0005 | — | A | done | `m1-t00-claude-driver-spike` @ a903c5a, merged to main (QA: PASS WITH DEBT). ADR-0005 still `proposed`: Ben's acceptance pending ([B-001](../../tracking/BLOCKERS.md)) |
+| M1-T00 | Spike: drive Claude Code from a daemon; resolve U-001 + U-002 → ADR-0005 | — | A | done | `m1-t00-claude-driver-spike` @ a903c5a, merged to main (QA: PASS WITH DEBT). ADR-0005 accepted by Ben 2026-10-22 |
 | M1-T01 | Monorepo scaffold | — | A | done | `m1-t01-scaffold` @ 8c05d14, merged to main (QA: PASS WITH DEBT) |
-| M1-T12 | **Contracts**: shared zod/TS interfaces + fakes for every seam (see below) | T00, T01 | A2 | todo | |
+| M1-T12 | **Contracts**: shared zod/TS interfaces + fakes for every seam (see below) | T00, T01 | A2 | in_progress | `m1-t12-contracts` |
+| M1-T13 | Toolchain: Node 22 + current tool majors (U-019, TD-005); shared Postgres cluster with a DB per worktree/test run (U-020); `DATABASE_URL` loading for vitest + orchestrator (U-021) | T01 | A2 | in_progress | `m1-t13-toolchain` |
 | M1-T02 | DB schema + migrations | T12 | B | todo | |
 | M1-T03 | Workflow validator (`shared`; schema itself is in T12) | T12 | B | todo | |
 | M1-T05 | Daemon core: WS register/heartbeat, worktree, spawn Claude Code (real driver per ADR-0005), stream events | T12 | B | todo | |
@@ -41,6 +42,20 @@ Groups run in order A → A2 → B → C → D → E. Tasks within a group own d
 - **Scope**: throwaway script in `spikes/claude-driver/` (not shipped). Try headless `claude -p --output-format stream-json` with `--resume`, and the Claude Agent SDK. Find: how to get the session id, how to inject a structured `complete_state` / `ask_user` tool (MCP server exposed by the daemon vs. parsing), how to deliver an answer mid-session (stdin vs resume with new message), how to read cost/usage, how to restrict tools.
 - **Hard requirement** (workshop, PDF p.13): while waiting for an answer the Claude process stays alive but idle, and the daemon feeds the answer **into the live process**. A one-shot `claude -p` that can only `--resume` doesn't satisfy this on its own. Resume is the fallback for when the process is gone.
 - **Acceptance**: ADR-0005 written and accepted by Ben. It covers the `ClaudeDriver` shape T12 will pin: start, the session-id event, output stream, `complete_state` / `ask_user` delivery, live answer injection, spend, kill, and the tool allow-list. U-001, U-002 marked resolved with links. Any limits found are filed as U-### or TD-###. The spike scripts show each mechanism working against the real CLI/SDK.
+
+### M1-T13 · Toolchain
+- **Scope**:
+  - **Node 22**: `.nvmrc` (22), `engines.node >=22`, and `.npmrc` `use-node-version=22.22.0`, so pnpm scripts run Node 22 even when the shell's PATH has Node 20.
+  - Bump vitest, vite, @vitejs/plugin-react, eslint (+ typescript-eslint) and typescript to current stable majors; remove the pnpm override (TD-005).
+  - **DB (U-020)**: `db:up` starts ONE shared cluster on 54329 (idempotent: no-op if already running, from any worktree; data dir in a stable location outside worktrees, e.g. `~/.local/share/conductor/pgdata`).
+  - A test helper (`packages/orchestrator/test/db.ts` or a shared vitest setup) creates a uniquely named database per test run/worktree, runs migrations into it, and drops it afterwards.
+  - **U-021**: one documented way for vitest and the orchestrator to get `DATABASE_URL`; fix the CLAUDE.md claim.
+- **Files owned**: root package.json, `.nvmrc`, `.npmrc`, `pnpm-workspace.yaml`, `pnpm-lock.yaml`, `packages/*/package.json`, eslint/vitest/vite configs, `scripts/**`, `packages/orchestrator/test/**` (DB helper only), `.env.example`, and the CLAUDE.md Commands/toolchain lines. **Not** `packages/*/src/**` (T12 owns those in parallel).
+- **Acceptance**:
+  - `pnpm exec node -v` prints v22.
+  - `scripts/ci.sh` is green on a clean `pnpm i`.
+  - Two worktrees can run `pnpm db:up` and DB tests at the same time without colliding: a demo test creates, uses and drops its own DB.
+  - TD-005 closed.
 
 ### M1-T12 · Contracts
 - **Scope**: freeze every cross-agent seam as exported zod schemas / TS interfaces, each with an in-memory fake, before the parallel groups start. Files (only this task creates them):

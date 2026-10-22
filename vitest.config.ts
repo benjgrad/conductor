@@ -14,7 +14,7 @@ const nodePackage = (name: string) => ({
 });
 
 export default defineConfig({
-  // vite 6 splits client and SSR resolution; vitest's node environment uses the SSR side.
+  // vite splits client and SSR resolution; vitest's node environment uses the SSR side.
   resolve: { conditions: ['source', ...defaultClientConditions] },
   ssr: { resolve: { conditions: ['source', ...defaultServerConditions] } },
   test: {

@@ -4,6 +4,11 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-22 | M1-T12 not merged: QA failed the interface review (13 contract gaps). The A2 gate (Ben approves 10-contracts) and group B wait on fix round 3 (B-002) | M1-T12 |
+| 2026-10-22 | M1-T13 merged to main via `integrate/A2` (`--no-ff`) after `scripts/ci.sh` passed on the merged tree (ded29ca) | M1-T13 |
+| 2026-10-22 | `DATABASE_URL` resolution order: process env > `.env` > `.env.example`, shared by db.sh and vitest; the orchestrator reads only `process.env` (U-021) | M1-T13 |
+| 2026-10-22 | Toolchain on Node 22.22.0 via `.npmrc` `use-node-version`: vitest 5, vite 8, eslint 10, TS 7 `tsc` with TS 6 aliased as `typescript` for typescript-eslint (TD-010); pnpm override removed (TD-005 paid) | M1-T13 |
+| 2026-10-22 | Shared Homebrew cluster on 54329 with data in `~/.local/share/conductor/pgdata` (override `CONDUCTOR_PGDATA`), mkdir lock, max_connections 200; each test file creates, migrates and drops its own `conductor_test_<slug>_<rand>` DB | M1-T13 |
 | 2026-10-22 | ADR-0005 accepted: stream-json CLI driver + daemon-hosted MCP outcome tools | [ADR-0005](../adr/0005-claude-code-driver.md) |
 | 2026-10-22 | Agents run isolated (`--setting-sources ""`); the target repo's CLAUDE.md is injected via `appendSystemPrompt`, its hooks/permissions are not loaded (U-013) | Ben |
 | 2026-10-22 | Node 22 LTS for the repo; nvm default on Ben's Mac set to 22 (U-019) | Ben |

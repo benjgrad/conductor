@@ -15,6 +15,8 @@ function boardReducer(state: BoardState, action: BoardAction): BoardState {
 export function useBoard(api: ApiClient): { board: BoardState; error: string | null } {
   const [board, dispatch] = useReducer(boardReducer, EMPTY_BOARD);
   const [error, setError] = useState<string | null>(null);
+  // Stream trouble is transient: the client reconnects and onOpen clears it.
+  const [streamError, setStreamError] = useState<string | null>(null);
 
   useEffect(() => {
     let stop: (() => void) | undefined;
@@ -25,7 +27,8 @@ export function useBoard(api: ApiClient): { board: BoardState; error: string | n
         dispatch({ type: 'loaded', state: boardFromResponse(res) });
         stop = api.streamBoard(res.last_event_id, {
           onEvent: (event) => dispatch({ type: 'event', event }),
-          onError: (err) => setError(errorMessage(err)),
+          onError: (err) => setStreamError(errorMessage(err)),
+          onOpen: () => setStreamError(null),
         });
       },
       (err: unknown) => {
@@ -38,7 +41,7 @@ export function useBoard(api: ApiClient): { board: BoardState; error: string | n
     };
   }, [api]);
 
-  return { board, error };
+  return { board, error: error ?? streamError };
 }
 
 export interface SessionView {
@@ -59,6 +62,7 @@ export function useSession(api: ApiClient, sessionId: string, version: string): 
     chunks: [],
   });
   const [error, setError] = useState<string | null>(null);
+  const [streamError, setStreamError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
   const reload = useCallback(() => setNonce((n) => n + 1), []);
 
@@ -88,7 +92,8 @@ export function useSession(api: ApiClient, sessionId: string, version: string): 
               ? { sessionId, chunks: [...prev.chunks, chunk] }
               : { sessionId, chunks: [chunk] },
           ),
-        onError: (err) => setError(errorMessage(err)),
+        onError: (err) => setStreamError(errorMessage(err)),
+        onOpen: () => setStreamError(null),
       }),
     [api, sessionId],
   );
@@ -99,5 +104,5 @@ export function useSession(api: ApiClient, sessionId: string, version: string): 
   // Live chunks overlap the snapshot after a refetch; seq is monotonic per session.
   const liveChunks = live.sessionId === sessionId ? live.chunks : [];
   const output = [...snapshot, ...liveChunks.filter((c) => c.seq > lastSeq)];
-  return { detail: current, output, error, reload };
+  return { detail: current, output, error: error ?? streamError, reload };
 }

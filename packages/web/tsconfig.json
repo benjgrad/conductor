@@ -14,5 +14,10 @@
     "tsBuildInfoFile": "node_modules/.tmp/tsc/tsconfig.tsbuildinfo"
   },
   "include": ["src", "vite.config.ts"],
-  "references": [{ "path": "../shared" }]
+  // orchestrator (+ its test helpers): http.orchestrator.test.ts runs the client against the real API.
+  "references": [
+    { "path": "../shared" },
+    { "path": "../orchestrator" },
+    { "path": "../orchestrator/test" }
+  ]
 }

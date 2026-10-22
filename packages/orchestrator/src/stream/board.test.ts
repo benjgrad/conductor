@@ -119,6 +119,35 @@ describe('serveBoardStream', () => {
     expect(ids()).toEqual([1, 2, 3, 5]);
   });
 
+  // TD-051: a publish landing after drain()'s final `again` check but before the `.finally()`
+  // clears `running` used to set `again` on a drain that had already finished, so the event
+  // waited for the next publish or reconnect. The exact window is a few microtasks wide, so
+  // sweep the publish across every microtask offset after the last frame is written.
+  it.each(Array.from({ length: 12 }, (_, d) => d))(
+    'delivers a publish %i microtasks after a drain wrote its last frame (TD-051)',
+    async (depth) => {
+      const { db, rows } = fakeDb();
+      const bus = new InMemoryBoardBus();
+      const { conn, ids } = fakeConn();
+      await serveBoardStream(conn, { db, boardBus: bus }, null);
+
+      let armed = true;
+      const write = conn.write.bind(conn);
+      conn.write = (frame) => {
+        write(frame);
+        if (!armed) return;
+        armed = false;
+        // Commit + publish id 2 `depth` microtasks after frame 1 is written.
+        let p = Promise.resolve();
+        for (let i = 0; i < depth; i++) p = p.then(() => undefined);
+        void p.then(() => bus.publish(commit(rows, 2, tmpl)));
+      };
+      bus.publish(commit(rows, 1, tmpl));
+      for (let i = 0; i < 5; i++) await flush();
+      expect(ids()).toEqual([1, 2]);
+    },
+  );
+
   it('starts at the current max without Last-Event-ID and unsubscribes on close', async () => {
     const { db, rows } = fakeDb();
     const bus = new InMemoryBoardBus();

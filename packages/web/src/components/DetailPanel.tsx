@@ -64,7 +64,7 @@ function StateSection({ detail }: { detail: SessionDetail }) {
           <span className="badge badge-slot">waiting for build slot</span>
         )}
       </p>
-      {/* TD: a flat list of states; the 06 state diagram (graph layout) comes later. */}
+      {/* TD-033: a flat list of states; the 06 state diagram (graph layout) comes later. */}
       <ol className="states">
         {Object.entries(workflow.states).map(([name, state]) => (
           <li
@@ -169,7 +169,8 @@ function PendingInput({ api, detail, request, onDone }: PendingInputProps) {
       {request.kind !== 'agent_question' && (
         <div className="quick-actions" role="group" aria-label="Quick actions">
           <button type="button" disabled={busy} onClick={() => void send('retry')}>
-            Retry{detail.return_to ? ` ${detail.return_to}` : ''}
+            {/* No goto: input.provided returns to return_to, else the workflow start (U-037). */}
+            Retry {detail.return_to ?? detail.workflow.start}
           </button>
           <span className="skip">
             <select

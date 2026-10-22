@@ -1,15 +1,14 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { createMockApi } from './api/mock.js';
+import { createApiFromEnv } from './api/select.js';
 import { App } from './App.js';
 import './styles.css';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('#root element missing');
 
-// TD: mock API until T09b wires the HTTP client to the T08 orchestrator API.
-const api = createMockApi({ latencyMs: 150 });
-api.simulate(2000);
+// VITE_API=mock runs on the in-memory mock; the default is the orchestrator API (api/select.ts).
+const { api } = createApiFromEnv(import.meta.env);
 
 createRoot(root).render(
   <StrictMode>

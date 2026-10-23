@@ -177,6 +177,17 @@ describe('validateColumns', () => {
     ]);
   });
 
+  it('rejects requirements to enter the start column', () => {
+    const def = setEntry(CONDUCTOR, 'planning', entryOf(CONDUCTOR, 'waiting_external'));
+    expect(validateColumns(def)).toEqual([
+      {
+        state: 'planning',
+        path: 'states.planning.entry',
+        message: 'the first column cannot have requirements to enter (a claim enters it)',
+      },
+    ]);
+  });
+
   it('includes old per-transition gate rules (ADR-0009)', () => {
     const bad = structuredClone(M1_BASIC);
     const impl = bad.states.implement;

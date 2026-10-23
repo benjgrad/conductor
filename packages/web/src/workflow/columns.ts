@@ -375,6 +375,11 @@ export function validateColumns(def: WorkflowDefinition): ColumnIssue[] {
     }
     const e = state.entry;
     if (!e) continue;
+    if (name === def.start) {
+      // A claim, not an outcome, enters the start column, so nothing would check its entry.
+      add('.entry', 'the first column cannot have requirements to enter (a claim enters it)');
+      continue;
+    }
     const checks = e.checks ?? [];
     if (checks.length + (e.review ? 1 : 0) + (e.actions?.length ?? 0) === 0) {
       add('.entry', 'add at least one check, review item or action, or remove the requirements');

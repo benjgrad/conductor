@@ -30,6 +30,9 @@ export interface ColumnEditorProps {
   onClose: () => void;
 }
 
+export const START_NOTE =
+  'The first column has no requirements to enter: a machine claiming the ticket moves it here, not an outcome.';
+
 const TYPE_TEXT: Record<string, string> = {
   human: 'A person answers or approves (human state).',
   terminal: 'Final: the ticket is done (terminal state).',
@@ -44,6 +47,7 @@ export function ColumnEditor({ definition, state, issues, onChange, onClose }: C
   const title = columnTitle(definition, state);
   const draft = entryDraft(definition, state);
   const hasEntry = s.entry !== undefined;
+  const isStart = state === definition.start;
   const apply = (d: EntryDraft) => onChange(setEntry(definition, state, normalizeEntry(d)));
   const patch = (p: Partial<EntryDraft>) => apply({ ...draft, ...p });
   const setChecks = (checks: EntryCheck[]) => patch({ checks });
@@ -156,191 +160,211 @@ export function ColumnEditor({ definition, state, issues, onChange, onClose }: C
       )}
 
       <h4>Requirements to enter</h4>
-      <p className="muted wf-note">
-        {hasEntry
-          ? `Before a ticket enters ${title}: the checks run in its worktree, then a reviewer judges the review items, then conductor performs the actions.`
-          : `None. A ticket enters ${title} as soon as an outcome moves it here.`}
-      </p>
-      {at('.entry')}
-
-      <h5>Checks</h5>
-      <ol className="wf-items" aria-label="Checks">
-        {draft.checks.map((c, i) => (
-          <li key={i} className="wf-item">
-            <div className="wf-check">
-              <input
-                aria-label={`Check ${i + 1} name`}
-                value={c.name}
-                placeholder="e.g. Build passes"
-                onChange={(e) =>
-                  setChecks(
-                    draft.checks.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)),
-                  )
-                }
-              />
-              <input
-                aria-label={`Check ${i + 1} command`}
-                className="mono"
-                value={c.cmd}
-                placeholder="e.g. npm run build"
-                onChange={(e) =>
-                  setChecks(
-                    draft.checks.map((x, j) => (j === i ? { ...x, cmd: e.target.value } : x)),
-                  )
-                }
-              />
-              {at(`.entry.checks.${i}.name`)}
-              {at(`.entry.checks.${i}.cmd`)}
-            </div>
-            <ItemActions
-              what="check"
-              i={i}
-              n={draft.checks.length}
-              onMove={(j) => setChecks(swap(draft.checks, i, j))}
-              onRemove={() => setChecks(draft.checks.filter((_, j) => j !== i))}
-            />
-          </li>
-        ))}
-      </ol>
-      <div>
-        <button
-          type="button"
-          disabled={draft.checks.length >= MAX_CHECKS}
-          onClick={() => setChecks([...draft.checks, { name: '', cmd: '' }])}
-        >
-          Add check
-        </button>
-      </div>
-
-      <h5>Review</h5>
-      <ol className="wf-items" aria-label="Review items">
-        {draft.reviewItems.map((item, i) => (
-          <li key={i} className="wf-item">
-            <div>
-              <textarea
-                aria-label={`Review item ${i + 1}`}
-                rows={2}
-                value={item}
-                placeholder="e.g. New code paths have unit tests"
-                onChange={(e) =>
-                  setItems(draft.reviewItems.map((x, j) => (j === i ? e.target.value : x)))
-                }
-              />
-              {at(`.entry.review.items.${i}`)}
-            </div>
-            <ItemActions
-              what="review item"
-              i={i}
-              n={draft.reviewItems.length}
-              onMove={(j) => setItems(swap(draft.reviewItems, i, j))}
-              onRemove={() => setItems(draft.reviewItems.filter((_, j) => j !== i))}
-            />
-          </li>
-        ))}
-      </ol>
-      {at('.entry.review.items')}
-      <div>
-        <button
-          type="button"
-          disabled={draft.reviewItems.length >= MAX_ITEMS}
-          onClick={() => setItems([...draft.reviewItems, ''])}
-        >
-          Add review item
-        </button>
-      </div>
-      {draft.reviewItems.length > 0 && (
-        <label className="wf-field">
-          Reviewer model
-          <input
-            value={draft.reviewModel ?? ''}
-            placeholder="account default"
-            onChange={(e) => patch({ reviewModel: e.target.value })}
-          />
-        </label>
-      )}
-
-      <h5>Actions</h5>
-      <label className="wf-toggle">
-        <input
-          type="checkbox"
-          checked={draft.openPr}
-          onChange={(e) => patch({ openPr: e.target.checked })}
-        />
-        Open a pull request (by conductor)
-      </label>
-
-      {hasEntry && (
+      {isStart ? (
         <>
-          <h5>When not met</h5>
-          <div className="wf-unmet">
-            <label htmlFor={`${uid}-goto`}>Back to</label>
-            <select
-              id={`${uid}-goto`}
-              value={draft.on_unmet.goto}
-              onChange={(e) => patch({ on_unmet: { ...draft.on_unmet, goto: e.target.value } })}
-            >
-              {withCurrent(backTo, draft.on_unmet.goto).map((n) => (
-                <option key={n} value={n}>
-                  {columnTitle(definition, n)}
-                </option>
-              ))}
-            </select>
-            <label htmlFor={`${uid}-instruction`}>With instruction</label>
-            <textarea
-              id={`${uid}-instruction`}
-              rows={3}
-              value={draft.on_unmet.instruction ?? ''}
-              placeholder="What the agent should do about it (optional)"
-              onChange={(e) => {
-                const rest = { ...draft.on_unmet };
-                delete rest.instruction;
-                const v = e.target.value;
-                patch({ on_unmet: v.trim() === '' ? rest : { ...rest, instruction: v } });
-              }}
-            />
-            <label htmlFor={`${uid}-retries`}>Up to (times)</label>
-            <input
-              id={`${uid}-retries`}
-              type="number"
-              min={0}
-              max={10}
-              step={1}
-              value={Number.isNaN(draft.on_unmet.retries) ? '' : draft.on_unmet.retries}
-              onChange={(e) =>
-                patch({
-                  on_unmet: {
-                    ...draft.on_unmet,
-                    retries: e.target.value === '' ? NaN : Number(e.target.value),
-                  },
-                })
-              }
-            />
-            <label htmlFor={`${uid}-else`}>Then</label>
-            <select
-              id={`${uid}-else`}
-              value={draft.on_unmet.else}
-              onChange={(e) => patch({ on_unmet: { ...draft.on_unmet, else: e.target.value } })}
-            >
-              {withCurrent(humans, draft.on_unmet.else).map((n) => (
-                <option key={n} value={n}>
-                  {columnTitle(definition, n)}
-                </option>
-              ))}
-            </select>
-          </div>
-          {at('.entry.on_unmet.goto')}
-          {at('.entry.on_unmet.instruction')}
-          {at('.entry.on_unmet.retries')}
-          {at('.entry.on_unmet.else')}
+          <p className="muted wf-note">{START_NOTE}</p>
+          {at('.entry')}
+          {hasEntry && (
+            <div>
+              <button
+                type="button"
+                className="danger"
+                onClick={() => onChange(setEntry(definition, state, null))}
+              >
+                Remove requirements
+              </button>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <p className="muted wf-note">
+            {hasEntry
+              ? `Before a ticket enters ${title}: the checks run in its worktree, then a reviewer judges the review items, then conductor performs the actions.`
+              : `None. A ticket enters ${title} as soon as an outcome moves it here.`}
+          </p>
+          {at('.entry')}
+
+          <h5>Checks</h5>
+          <ol className="wf-items" aria-label="Checks">
+            {draft.checks.map((c, i) => (
+              <li key={i} className="wf-item">
+                <div className="wf-check">
+                  <input
+                    aria-label={`Check ${i + 1} name`}
+                    value={c.name}
+                    placeholder="e.g. Build passes"
+                    onChange={(e) =>
+                      setChecks(
+                        draft.checks.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)),
+                      )
+                    }
+                  />
+                  <input
+                    aria-label={`Check ${i + 1} command`}
+                    className="mono"
+                    value={c.cmd}
+                    placeholder="e.g. npm run build"
+                    onChange={(e) =>
+                      setChecks(
+                        draft.checks.map((x, j) => (j === i ? { ...x, cmd: e.target.value } : x)),
+                      )
+                    }
+                  />
+                  {at(`.entry.checks.${i}.name`)}
+                  {at(`.entry.checks.${i}.cmd`)}
+                </div>
+                <ItemActions
+                  what="check"
+                  i={i}
+                  n={draft.checks.length}
+                  onMove={(j) => setChecks(swap(draft.checks, i, j))}
+                  onRemove={() => setChecks(draft.checks.filter((_, j) => j !== i))}
+                />
+              </li>
+            ))}
+          </ol>
           <div>
             <button
               type="button"
-              className="danger"
-              onClick={() => apply({ ...draft, checks: [], reviewItems: [], openPr: false })}
+              disabled={draft.checks.length >= MAX_CHECKS}
+              onClick={() => setChecks([...draft.checks, { name: '', cmd: '' }])}
             >
-              Remove requirements
+              Add check
             </button>
           </div>
+
+          <h5>Review</h5>
+          <ol className="wf-items" aria-label="Review items">
+            {draft.reviewItems.map((item, i) => (
+              <li key={i} className="wf-item">
+                <div>
+                  <textarea
+                    aria-label={`Review item ${i + 1}`}
+                    rows={2}
+                    value={item}
+                    placeholder="e.g. New code paths have unit tests"
+                    onChange={(e) =>
+                      setItems(draft.reviewItems.map((x, j) => (j === i ? e.target.value : x)))
+                    }
+                  />
+                  {at(`.entry.review.items.${i}`)}
+                </div>
+                <ItemActions
+                  what="review item"
+                  i={i}
+                  n={draft.reviewItems.length}
+                  onMove={(j) => setItems(swap(draft.reviewItems, i, j))}
+                  onRemove={() => setItems(draft.reviewItems.filter((_, j) => j !== i))}
+                />
+              </li>
+            ))}
+          </ol>
+          {at('.entry.review.items')}
+          <div>
+            <button
+              type="button"
+              disabled={draft.reviewItems.length >= MAX_ITEMS}
+              onClick={() => setItems([...draft.reviewItems, ''])}
+            >
+              Add review item
+            </button>
+          </div>
+          {draft.reviewItems.length > 0 && (
+            <label className="wf-field">
+              Reviewer model
+              <input
+                value={draft.reviewModel ?? ''}
+                placeholder="account default"
+                onChange={(e) => patch({ reviewModel: e.target.value })}
+              />
+            </label>
+          )}
+
+          <h5>Actions</h5>
+          <label className="wf-toggle">
+            <input
+              type="checkbox"
+              checked={draft.openPr}
+              onChange={(e) => patch({ openPr: e.target.checked })}
+            />
+            Open a pull request (by conductor)
+          </label>
+
+          {hasEntry && (
+            <>
+              <h5>When not met</h5>
+              <div className="wf-unmet">
+                <label htmlFor={`${uid}-goto`}>Back to</label>
+                <select
+                  id={`${uid}-goto`}
+                  value={draft.on_unmet.goto}
+                  onChange={(e) => patch({ on_unmet: { ...draft.on_unmet, goto: e.target.value } })}
+                >
+                  {withCurrent(backTo, draft.on_unmet.goto).map((n) => (
+                    <option key={n} value={n}>
+                      {columnTitle(definition, n)}
+                    </option>
+                  ))}
+                </select>
+                <label htmlFor={`${uid}-instruction`}>With instruction</label>
+                <textarea
+                  id={`${uid}-instruction`}
+                  rows={3}
+                  value={draft.on_unmet.instruction ?? ''}
+                  placeholder="What the agent should do about it (optional)"
+                  onChange={(e) => {
+                    const rest = { ...draft.on_unmet };
+                    delete rest.instruction;
+                    const v = e.target.value;
+                    patch({ on_unmet: v.trim() === '' ? rest : { ...rest, instruction: v } });
+                  }}
+                />
+                <label htmlFor={`${uid}-retries`}>Up to (times)</label>
+                <input
+                  id={`${uid}-retries`}
+                  type="number"
+                  min={0}
+                  max={10}
+                  step={1}
+                  value={Number.isNaN(draft.on_unmet.retries) ? '' : draft.on_unmet.retries}
+                  onChange={(e) =>
+                    patch({
+                      on_unmet: {
+                        ...draft.on_unmet,
+                        retries: e.target.value === '' ? NaN : Number(e.target.value),
+                      },
+                    })
+                  }
+                />
+                <label htmlFor={`${uid}-else`}>Then</label>
+                <select
+                  id={`${uid}-else`}
+                  value={draft.on_unmet.else}
+                  onChange={(e) => patch({ on_unmet: { ...draft.on_unmet, else: e.target.value } })}
+                >
+                  {withCurrent(humans, draft.on_unmet.else).map((n) => (
+                    <option key={n} value={n}>
+                      {columnTitle(definition, n)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {at('.entry.on_unmet.goto')}
+              {at('.entry.on_unmet.instruction')}
+              {at('.entry.on_unmet.retries')}
+              {at('.entry.on_unmet.else')}
+              <div>
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => apply({ ...draft, checks: [], reviewItems: [], openPr: false })}
+                >
+                  Remove requirements
+                </button>
+              </div>
+            </>
+          )}
         </>
       )}
     </>

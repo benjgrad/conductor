@@ -194,6 +194,34 @@ describe('Workflow view', () => {
     expect(we.textContent).not.toContain('Requirements to enter');
   });
 
+  it('does not offer requirements on the start column, and flags old ones', async () => {
+    const api = createMockApi();
+    const get = api.getWorkflow.bind(api);
+    api.getWorkflow = async (id, version) => {
+      const d = await get(id, version);
+      const planning = d.definition.states.planning!;
+      const entry = d.definition.states.waiting_external!.entry!;
+      return {
+        ...d,
+        definition: {
+          ...d.definition,
+          states: { ...d.definition.states, planning: { ...planning, entry } },
+        },
+      };
+    };
+    await setup(api);
+    fireEvent.click(lane('Planning'));
+    expect(editor().getByText(/a machine claiming the ticket moves it here/)).toBeTruthy();
+    expect(editor().queryByRole('button', { name: 'Add check' })).toBeNull();
+    expect(editor().queryByRole('checkbox')).toBeNull();
+    expect(editor().getByText(/first column cannot have requirements/)).toBeTruthy();
+    fireEvent.click(editor().getByRole('button', { name: 'Remove requirements' }));
+    expect(screen.queryByRole('list', { name: 'Problems' })).toBeNull();
+    expect(
+      screen.getByRole<HTMLButtonElement>('button', { name: 'Save as new version' }).disabled,
+    ).toBe(false);
+  });
+
   it('validates on the client and blocks Save', async () => {
     const { saved } = await setup();
     fireEvent.click(lane('Implementing'));

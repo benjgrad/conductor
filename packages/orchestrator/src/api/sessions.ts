@@ -41,7 +41,8 @@ export async function loadSessionDetail(
     throw new Error(`session ${id}: ticket or workflow ${session.workflow_id} missing`);
   }
   const workflow = WorkflowDefinitionSchema.parse(defRow.definition);
-  const openInput = ir.rows[0] ?? null;
+  // A cancel leaves the request unanswered; only a needs_input session is waiting on it (TD-079).
+  const openInput = session.status === 'needs_input' ? (ir.rows[0] ?? null) : null;
   return {
     card: toBoardCard(ticket, session, openInput),
     workflow,

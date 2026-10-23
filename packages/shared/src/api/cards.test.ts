@@ -73,6 +73,12 @@ describe('toBoardCard / toInputRequestDto', () => {
     expect(card.column).toBe('running');
     expect(card.input_request).toBeNull();
   });
+
+  it('drops a still-open request once the session left needs_input (TD-079: cancel)', () => {
+    const card = toBoardCard(ticket, { ...session, status: 'failed' }, input);
+    expect(card.column).toBe('failed');
+    expect(card.input_request).toBeNull();
+  });
 });
 
 describe('REST error map', () => {

@@ -67,7 +67,7 @@ Writes `apply()` can't make (it has no ids and doesn't see these columns), all i
 - On a non-ignored `session.started`: `UPDATE session SET worktree_path, branch, port_range = int4range(base, base+count)` (`[base, base+count)`). The gateway does **not** write these.
 - On `command.refused` for `start_session` that apply did **not** ignore: `session.fencing_token = nextval('fencing_seq')`, so events from a process that command spawned anyway are stale ([Orphaned processes](#orphaned-processes)). An ignored refusal (U-025 rule) bumps nothing.
 - On `input.provided`: checks the `input_request` is open, records `answer`, `answered_by` (= `opts.actor`), `answered_at`, and writes the `input.answered` board row.
-- After the effects: writes one `card.upserted` row (last) if any `BoardCard` field changed (status, column, `workflow_state`, `machine_id`, `spend_usd`, open input request, `updated_at` on any change). The card is `toBoardCard(ticket, session, openInput)`.
+- After the effects: writes one `card.upserted` row (last) if any `BoardCard` field changed (status, column, `workflow_state`, `machine_id`, `spend_usd`, open input request, `updated_at` on any change). The card is `toBoardCard(ticket, session, openInput)`. It carries the open input request only while the session is `needs_input`: a cancel leaves the row unanswered, but the card drops it (TD-079).
 - Writes every board row through `insertBoardEvents(tx, drafts)`, as the last write of the transaction.
 
 ## Board events and the event table

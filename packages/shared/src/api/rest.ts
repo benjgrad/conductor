@@ -345,7 +345,9 @@ export function toInputRequestDto(row: InputRequestLike): InputRequestDto {
 /**
  * The one BoardCard derivation (T04 `card.upserted`, T08 GET /api/board and ticket create, T09b).
  * `session` null = a ticket with no session yet (Queued). `openInput` = the session's unanswered
- * input_request, if any. `updated_at` = the later of the ticket's and the session's.
+ * input_request, if any; it shows only while the session is `needs_input`, so a request a cancel
+ * left open drops off the card (TD-079). `updated_at` = the later of the ticket's and the
+ * session's.
  */
 export function toBoardCard(
   ticket: CardTicketLike,
@@ -369,7 +371,10 @@ export function toBoardCard(
     badges,
     machine_id: session?.machine_id ?? null,
     spend_usd: session ? Number(session.spend_usd) : 0,
-    input_request: openInput && openInput.answer === null ? toInputRequestDto(openInput) : null,
+    input_request:
+      session?.status === 'needs_input' && openInput && openInput.answer === null
+        ? toInputRequestDto(openInput)
+        : null,
     created_at: iso(ticket.created_at),
     updated_at: sUpd > tUpd ? sUpd : tUpd,
   };

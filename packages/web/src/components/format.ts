@@ -30,7 +30,8 @@ export function ago(iso: string, now = Date.now()): string {
   return `${Math.floor(s / 86_400)}d ago`;
 }
 
-export const usd = (n: number) => `$${n.toFixed(2)}`;
+/** Never shows non-zero spend as "$0.00" (TD-080): a haiku session can cost $0.0023. */
+export const usd = (n: number) => (n > 0 && n < 0.01 ? '<$0.01' : `$${n.toFixed(2)}`);
 
 /** 754 → "12m 34s"; 4000 → "1h 6m". */
 export function duration(seconds: number): string {

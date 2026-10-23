@@ -278,6 +278,19 @@ describe('session detail', () => {
     expect(detail.branch).toBe('conductor/x');
   });
 
+  it('hides a request a cancel left unanswered from the card and pending_input (TD-079)', async () => {
+    const { sessionId } = await seedSession('failed', { input: true });
+
+    const detail = SessionDetailSchema.parse((await get(`/api/sessions/${sessionId}`)).body);
+    expect(detail.card.column).toBe('failed');
+    expect(detail.card.input_request).toBeNull();
+    expect(detail.pending_input).toBeNull();
+
+    const board = BoardResponseSchema.parse((await get('/api/board')).body);
+    const card = board.columns.failed.find((c) => c.session_id === sessionId)!;
+    expect(card.input_request).toBeNull();
+  });
+
   it('404s for an unknown or malformed id', async () => {
     const unknown = await get('/api/sessions/00000000-0000-4000-8000-000000000000');
     expect(unknown.status).toBe(404);

@@ -18,6 +18,9 @@ import {
   type SessionDetail,
   type SessionStatus,
   type TicketDto,
+  validateWorkflow,
+  type WorkflowDefinition,
+  type WorkflowDetail,
   type TranscriptResponse,
   type WorkflowSummary,
 } from '@conductor/shared';
@@ -27,7 +30,8 @@ import {
   type StreamHandlers,
   type Unsubscribe,
 } from './client.js';
-import { MOCK_WORKFLOWS, mockSeeds, type MockSession } from './mock-data.js';
+import { validateGates } from '../workflow/model.js';
+import { MOCK_WORKFLOW_HISTORY, mockSeeds, type MockSession } from './mock-data.js';
 
 // In-memory ApiClient for T09 (and tests). It mimics the orchestrator's observable behaviour:
 // every change is an id-ordered board event (card.upserted last, carrying the full card), the
@@ -65,6 +69,16 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
   const boardSubs = new Set<StreamHandlers<BoardSseEvent>>();
   const outputSubs = new Map<string, Set<StreamHandlers<OutputChunk>>>();
   let nextEventId = 1;
+  /** Workflow versions per id, oldest first (version N at index N-1). */
+  const workflows = new Map<string, { definition: WorkflowDefinition; created_at: string }[]>(
+    Object.entries(MOCK_WORKFLOW_HISTORY).map(([id, defs]) => [
+      id,
+      defs.map((definition, i) => ({
+        definition,
+        created_at: new Date(Date.UTC(2026, 9, 1 + i)).toISOString(),
+      })),
+    ]),
+  );
 
   for (const s of mockSeeds(now())) {
     cards.set(s.card.ticket_id, { ...s.card, column: columnFor(s.card.status) });
@@ -240,7 +254,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         const parsed = CreateTicketRequestSchema.safeParse(raw);
         if (!parsed.success) throw new ApiRequestError(400, 'bad_request', parsed.error.message);
         const req = parsed.data;
-        if (!MOCK_WORKFLOWS.some((w) => w.id === req.workflow_id)) {
+        if (!workflows.has(req.workflow_id)) {
           throw new ApiRequestError(400, 'bad_request', `unknown workflow "${req.workflow_id}"`);
         }
         const created_at = now().toISOString();
@@ -283,14 +297,69 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
 
     listWorkflows: () =>
       reply((): WorkflowSummary[] =>
-        MOCK_WORKFLOWS.map((w) => ({
-          id: w.id,
-          version: w.version,
-          start: w.start,
-          state_count: Object.keys(w.states).length,
-          created_at: '2026-10-01T00:00:00.000Z',
-        })),
+        [...workflows.entries()].map(([id, versions]) => {
+          const latest = versions[versions.length - 1]!;
+          return {
+            id,
+            version: versions.length,
+            start: latest.definition.start,
+            state_count: Object.keys(latest.definition.states).length,
+            created_at: latest.created_at,
+          };
+        }),
       ),
+
+    getWorkflow: (id, version) =>
+      reply((): WorkflowDetail => {
+        const versions = workflows.get(id);
+        const row = versions?.[(version ?? versions.length) - 1];
+        if (!row) {
+          throw new ApiRequestError(
+            404,
+            'not_found',
+            version === undefined
+              ? `workflow ${id} not found`
+              : `workflow ${id} v${version} not found`,
+          );
+        }
+        // `versions`: every saved version (the optional WorkflowDetail field, ADR-0009).
+        const out = {
+          id,
+          version: row.definition.version,
+          created_at: row.created_at,
+          definition: row.definition,
+          versions: (versions ?? []).map((v) => v.definition.version),
+        };
+        return clone(out);
+      }),
+
+    saveWorkflow: (definition) =>
+      reply(() => {
+        // The orchestrator's validator (T03), plus the ADR-0009 gate rules it does not check yet.
+        const result = validateWorkflow(definition);
+        const details = result.ok
+          ? validateGates(result.def).map(({ path, message }) => ({ path, message }))
+          : result.errors.map((e) => ({
+              path: e.path.join('.'),
+              message: `rule ${e.rule}: ${e.message}`,
+            }));
+        if (!result.ok || details.length > 0) {
+          throw new ApiRequestError(
+            400,
+            'invalid_workflow',
+            'workflow definition is invalid',
+            details,
+          );
+        }
+        const versions = workflows.get(result.def.id) ?? [];
+        const version = versions.length + 1;
+        versions.push({
+          definition: clone({ ...result.def, version }),
+          created_at: now().toISOString(),
+        });
+        workflows.set(result.def.id, versions);
+        return { id: result.def.id, version };
+      }),
 
     approve: (sessionId) =>
       reply((): OkResponse => {

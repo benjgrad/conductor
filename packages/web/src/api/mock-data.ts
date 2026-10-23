@@ -15,7 +15,7 @@ import {
 // contracts. Timestamps are relative to `now` so the board reads naturally in dev.
 
 // Copies of docs/design/workflows/*.v1.json (the web tsconfig only includes src/).
-export const M1_BASIC: WorkflowDefinition = WorkflowDefinitionSchema.parse({
+export const M1_BASIC_V1: WorkflowDefinition = WorkflowDefinitionSchema.parse({
   id: 'm1_basic',
   version: 1,
   start: 'implement',
@@ -51,6 +51,40 @@ export const M1_BASIC: WorkflowDefinition = WorkflowDefinitionSchema.parse({
   },
 });
 
+/**
+ * m1_basic v2: v1 plus an example requirements gate (ADR-0009) on implement → build. The seeded
+ * sessions run this version.
+ */
+export const M1_BASIC: WorkflowDefinition = WorkflowDefinitionSchema.parse({
+  ...M1_BASIC_V1,
+  version: 2,
+  states: {
+    ...M1_BASIC_V1.states,
+    implement: {
+      ...M1_BASIC_V1.states.implement,
+      on: {
+        done: {
+          goto: 'build',
+          requirements: {
+            items: [
+              'New and changed code paths have unit tests',
+              'No TODO or FIXME comments in the changed files',
+            ],
+            on_unmet: {
+              goto: 'implement',
+              instruction: 'Fix the unmet requirements before anything else, then finish again.',
+              retries: 2,
+              else: 'needs_input',
+            },
+          },
+        },
+        ask_user: 'needs_input',
+        timeout: 'needs_input',
+      },
+    },
+  },
+});
+
 /** A trimmed pr_flow: just enough for an `await_approval` event state. */
 export const PR_FLOW: WorkflowDefinition = WorkflowDefinitionSchema.parse({
   id: 'pr_flow',
@@ -76,7 +110,91 @@ export const PR_FLOW: WorkflowDefinition = WorkflowDefinitionSchema.parse({
   },
 });
 
-export const MOCK_WORKFLOWS = [M1_BASIC, PR_FLOW];
+/** pr_flow v2: the full docs/design/workflows/pr_flow.v1.json (the larger diagram). */
+export const PR_FLOW_FULL: WorkflowDefinition = WorkflowDefinitionSchema.parse({
+  id: 'pr_flow',
+  version: 2,
+  start: 'implement',
+  budget: { usd: 5, minutes: 120, max_loop_retries: 3 },
+  states: {
+    implement: {
+      type: 'agent',
+      prompt: 'ticket_template',
+      tools: ['edit', 'bash', 'git'],
+      timeout: '60m',
+      on: { done: 'build', ask_user: 'needs_input', timeout: 'needs_input' },
+    },
+    build: {
+      type: 'command',
+      cmd: 'npm run build',
+      timeout: '15m',
+      on: {
+        exit_0: 'test',
+        fail: { goto: 'implement', attach: 'output', retries: 3, else: 'needs_input' },
+      },
+    },
+    test: {
+      type: 'command',
+      cmd: 'npm test',
+      timeout: '20m',
+      on: {
+        exit_0: 'open_pr',
+        fail: { goto: 'implement', attach: 'output', retries: 3, else: 'needs_input' },
+      },
+    },
+    open_pr: {
+      type: 'agent',
+      skill: 'commit-push-pr',
+      tools: ['git', 'pr_skill'],
+      guard: 'branch_has_commits',
+      result: ['pr_url'],
+      on: { done: 'notify', ask_user: 'needs_input', fail: 'needs_input' },
+    },
+    notify: {
+      type: 'agent',
+      skill: 'slack-post',
+      input: { pr_url: '$open_pr.pr_url', channel: '#reviews' },
+      on: { done: 'await_approval', ask_user: 'needs_input' },
+    },
+    await_approval: {
+      type: 'event',
+      wait_for: ['pr.approved', 'ui.approve', 'pr.changes_requested'],
+      park: true,
+      release_machine: true,
+      timeout: '3d',
+      on: {
+        'pr.approved': 'update_ticket',
+        'ui.approve': 'update_ticket',
+        'pr.changes_requested': 'implement',
+        timeout: 'needs_input',
+      },
+    },
+    update_ticket: {
+      type: 'connector',
+      actions: ['ticket.set_status:Done', 'azure.update_build'],
+      idempotency: 'session+state+visit',
+      on: { ok: 'jira_docs', error: 'needs_input' },
+    },
+    jira_docs: {
+      type: 'connector',
+      action: 'jira.create_task',
+      args: { kind: 'docs-change' },
+      idempotency: 'session+state+visit',
+      on: { ok: 'done', error: 'needs_input' },
+    },
+    needs_input: { type: 'human' },
+    done: { type: 'terminal' },
+  },
+});
+
+/** The latest version of each workflow (seeded sessions pin m1_basic v2 and pr_flow v1). */
+export const MOCK_WORKFLOWS = [M1_BASIC, PR_FLOW_FULL];
+
+/** Every stored version, oldest first, per workflow id. */
+export const MOCK_WORKFLOW_HISTORY: Record<string, WorkflowDefinition[]> = {
+  m1_basic: [M1_BASIC_V1, M1_BASIC],
+  pr_flow: [PR_FLOW, PR_FLOW_FULL],
+};
 
 /** Mock-side per-session state behind SessionDetail. */
 export interface MockSession {

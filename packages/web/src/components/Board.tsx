@@ -2,6 +2,7 @@ import { BOARD_COLUMNS, type BoardCard } from '@conductor/shared';
 import { boardColumns, COLUMN_TITLES, type BoardState } from '../board/board.js';
 import { AgentAvatar, agentName } from './agent-identity.js';
 import { ago, KIND_LABELS, STATUS_LABELS, usd } from './format.js';
+import { stateLabel } from '../workflow/review.js';
 
 interface BoardProps {
   board: BoardState;
@@ -66,7 +67,7 @@ function Card({ card, selected, onSelect }: CardProps) {
           {agentName(card.ticket_id)}
         </span>
         {card.external_ref && <span className="ref">{card.external_ref}</span>}
-        <span>{card.workflow_state ?? card.workflow_id}</span>
+        <span>{card.workflow_state ? stateLabel(card.workflow_state) : card.workflow_id}</span>
         {card.status && (
           <span className={`status status-${card.status}`}>{STATUS_LABELS[card.status]}</span>
         )}

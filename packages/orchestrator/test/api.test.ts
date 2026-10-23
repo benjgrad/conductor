@@ -10,6 +10,7 @@ import {
   SNAPSHOT_FIXTURE,
   SessionDetailSchema,
   TicketDtoSchema,
+  WorkflowDetailSchema,
   WorkflowSummarySchema,
   type BoardSseEvent,
   type SessionSnapshot,
@@ -176,6 +177,66 @@ describe('workflows', () => {
     );
     expect(results.map((r) => r.status)).toEqual([201, 201, 201, 201, 201]);
     expect(results.map((r) => r.body.version).sort()).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('GET /api/workflows/:id → the latest version, ?version=N → that one (ADR-0009)', async () => {
+    const reviewed = JSON.parse(
+      readFileSync(resolve(workflowsDir, 'm1_reviewed.v1.json'), 'utf8'),
+    ) as typeof m1Basic;
+    const v1 = await post('/api/workflows', { definition: { ...reviewed, id: 'detail_wf' } });
+    const edited = structuredClone(reviewed) as Record<string, unknown> & typeof m1Basic;
+    edited.id = 'detail_wf';
+    (edited.states.needs_input as Record<string, unknown>).timeout = '1d';
+    (edited.states.needs_input as Record<string, unknown>).on = { timeout: 'implement' };
+    const v2 = await post('/api/workflows', { definition: edited });
+    expect([v1.body.version, v2.body.version]).toEqual([1, 2]);
+
+    const latest = await get('/api/workflows/detail_wf');
+    expect(latest.status).toBe(200);
+    const d = WorkflowDetailSchema.parse(latest.body);
+    expect(d).toMatchObject({ id: 'detail_wf', version: 2, versions: [1, 2] });
+    expect(d.definition.version).toBe(2);
+    expect(d.definition.states.needs_input).toMatchObject({ timeout: '1d' });
+    // The gate round-trips with its defaults applied.
+    const done = (d.definition.states.implement as { on: Record<string, unknown> }).on.done;
+    expect(done).toMatchObject({
+      goto: 'build',
+      requirements: { on_unmet: { goto: 'implement', retries: 2, else: 'needs_input' } },
+    });
+    expect(Date.parse(d.created_at)).not.toBeNaN();
+
+    const first = WorkflowDetailSchema.parse(
+      (await get('/api/workflows/detail_wf?version=1')).body,
+    );
+    expect(first).toMatchObject({ version: 1, versions: [1, 2] });
+    expect(first.definition.states.needs_input).toEqual({ type: 'human' });
+  });
+
+  it('GET /api/workflows/:id: 404 for an unknown id or version, 400 for a bad version', async () => {
+    for (const path of ['/api/workflows/nope', '/api/workflows/m1_basic?version=999']) {
+      const res = await get(path);
+      expect(res.status, path).toBe(404);
+      expect((res.body as { error: { code: string } }).error.code).toBe('not_found');
+    }
+    for (const v of ['0', '-1', 'x', '1.5']) {
+      const res = await get(`/api/workflows/m1_basic?version=${v}`);
+      expect(res.status, v).toBe(400);
+    }
+  });
+
+  it('reports gate errors with dotted paths into the transition (ADR-0009)', async () => {
+    const reviewed = JSON.parse(
+      readFileSync(resolve(workflowsDir, 'm1_reviewed.v1.json'), 'utf8'),
+    ) as { states: { implement: { on: { done: { requirements: Record<string, unknown> } } } } };
+    const gate = reviewed.states.implement.on.done.requirements;
+    gate.on_unmet = { goto: 'implement', else: 'done', retries: 2 };
+    const res = await post('/api/workflows', { definition: reviewed });
+    expect(res.status).toBe(400);
+    const err = res.body.error as { details: { path: string; message: string }[] };
+    expect(err.details.map((d) => d.path)).toEqual([
+      'states.implement.on.done.requirements.on_unmet.else',
+    ]);
+    expect(err.details[0]!.message).toContain('must be a human state');
   });
 });
 

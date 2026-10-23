@@ -1,4 +1,5 @@
 import { WorkflowDefinitionSchema, type WorkflowDefinition, type WorkflowState } from './schema.js';
+import { REVIEW_CONTEXT_KEY } from '../engine/review.js';
 import { isToolAlias, TOOL_ALIAS_NAMES } from './tools.js';
 
 // Workflow validation on save (M1-T03, 05 §Validation on save). The schema (T12) checks shape;
@@ -9,8 +10,11 @@ import { isToolAlias, TOOL_ALIAS_NAMES } from './tools.js';
 // guard or budget.exceeded → needs_input, the UI's "skip to <state>") are not edges, except that
 // `on_budget_exceeded` counts as reachable (budget can trip in any state).
 
-/** Rule numbers from 05 §Validation on save (1–6) plus rule 7 (unknown tool alias). */
-export type WorkflowRule = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+/**
+ * Rule numbers from 05 §Validation on save (1–6) plus rule 7 (unknown tool alias) and rule 8
+ * (requirements gates, ADR-0009).
+ */
+export type WorkflowRule = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
 export interface WorkflowValidationError {
   rule: WorkflowRule;
@@ -34,17 +38,37 @@ interface Edge {
 
 const REF_RE = /^\$([^.\s]+)\.([^.\s]+)$/;
 
-/** Parse a workflow definition and check rules 1–7. Never throws. */
+type Issue = { code: string; path: PropertyKey[]; message: string; errors?: Issue[][] };
+
+/**
+ * Zod reports a transition that is neither a string nor a valid object as one `invalid_union`
+ * issue at the transition. Descend into the object branch so the path points at the bad field
+ * (`states.implement.on.done.requirements.on_unmet.retries`), which the web editor maps to the
+ * edge and the field (ADR-0009). The string branch's lone "expected string" is dropped.
+ */
+function flattenIssue(issue: Issue, prefix: PropertyKey[] = []): Issue[] {
+  const path = [...prefix, ...issue.path];
+  if (issue.code !== 'invalid_union' || !issue.errors) return [{ ...issue, path }];
+  const branches = issue.errors.filter(
+    (b) => !(b.length === 1 && b[0]!.code === 'invalid_type' && b[0]!.path.length === 0),
+  );
+  if (branches.length !== 1) return [{ ...issue, path }];
+  return branches[0]!.flatMap((i) => flattenIssue(i, path));
+}
+
+/** Parse a workflow definition and check rules 1–8. Never throws. */
 export function validateWorkflow(input: unknown): WorkflowValidationResult {
   const parsed = WorkflowDefinitionSchema.safeParse(input);
   if (!parsed.success) {
     return {
       ok: false,
-      errors: parsed.error.issues.map((i) => ({
-        rule: 1,
-        path: i.path.map((p) => (typeof p === 'symbol' ? String(p) : p)),
-        message: i.message,
-      })),
+      errors: (parsed.error.issues as Issue[])
+        .flatMap((i) => flattenIssue(i))
+        .map((i) => ({
+          rule: 1,
+          path: i.path.map((p) => (typeof p === 'symbol' ? String(p) : p)),
+          message: i.message,
+        })),
     };
   }
   const def = parsed.data;
@@ -96,6 +120,8 @@ export function validateWorkflow(input: unknown): WorkflowValidationResult {
     }
   }
 
+  errors.push(...checkGates(def, has));
+
   // Graph rules 2–5 only on a graph whose start and targets all exist, so a missing target
   // reports once (rule 1) instead of cascading into unreachable/dead-end noise.
   if (!errors.some((e) => e.rule === 1)) {
@@ -108,6 +134,52 @@ export function validateWorkflow(input: unknown): WorkflowValidationResult {
   return errors.length === 0 ? { ok: true, def } : { ok: false, errors };
 }
 
+/**
+ * Rule 8 (ADR-0009, requirements gates). The schema already bounds `items` (1–30, non-blank) and
+ * `on_unmet.retries` (0–10), and rule 1 checks that `on_unmet.goto` / `else` exist. Here:
+ * - a gate only on transitions out of `agent` and `command` states;
+ * - `on_unmet.else` is a `human` state (every failure path ends at a human);
+ * - no state is named REVIEW_CONTEXT_KEY (the review step is stored under it in `context`).
+ * Paths point into the transition (`states.<from>.on.<outcome>.requirements…`) for the editor.
+ */
+function checkGates(
+  def: WorkflowDefinition,
+  has: (name: string) => boolean,
+): WorkflowValidationError[] {
+  const errors: WorkflowValidationError[] = [];
+  if (has(REVIEW_CONTEXT_KEY)) {
+    errors.push({
+      rule: 8,
+      path: ['states', REVIEW_CONTEXT_KEY],
+      message: `"${REVIEW_CONTEXT_KEY}" is a reserved name`,
+    });
+  }
+  for (const [from, state] of Object.entries(def.states)) {
+    if (state.type === 'terminal') continue;
+    for (const [outcome, t] of Object.entries(state.on ?? {})) {
+      if (typeof t === 'string' || t.requirements === undefined) continue;
+      const base = ['states', from, 'on', outcome, 'requirements'];
+      if (state.type !== 'agent' && state.type !== 'command') {
+        errors.push({
+          rule: 8,
+          path: base,
+          message: `requirements are only allowed on transitions out of agent and command states ("${from}" is ${state.type})`,
+        });
+      }
+      const otherwise = t.requirements.on_unmet.else;
+      const target = has(otherwise) ? def.states[otherwise] : undefined;
+      if (target !== undefined && target.type !== 'human') {
+        errors.push({
+          rule: 8,
+          path: [...base, 'on_unmet', 'else'],
+          message: `requirements on_unmet.else "${otherwise}" must be a human state (it is ${target.type})`,
+        });
+      }
+    }
+  }
+  return errors;
+}
+
 function collectEdges(def: WorkflowDefinition): Edge[] {
   const edges: Edge[] = [];
   for (const [from, state] of Object.entries(def.states)) {
@@ -117,8 +189,39 @@ function collectEdges(def: WorkflowDefinition): Edge[] {
       if (typeof t === 'string') {
         edges.push({ from, to: t, outcome, path: base, bounded: isBoundedEdge(state, outcome) });
       } else {
-        // The goto leg carries a retry counter: capped by `retries`, or max_loop_retries.
-        edges.push({ from, to: t.goto, outcome, path: [...base, 'goto'], bounded: true });
+        // The goto leg carries a retry counter: capped by `retries`, or max_loop_retries. ADR-0009:
+        // except an object that only carries `requirements`, a plain forward transition.
+        const gate = t.requirements;
+        const plain =
+          gate !== undefined &&
+          t.attach === undefined &&
+          t.retries === undefined &&
+          t.else === undefined;
+        edges.push({
+          from,
+          to: t.goto,
+          outcome,
+          path: [...base, 'goto'],
+          bounded: plain ? isBoundedEdge(state, outcome) : true,
+        });
+        if (gate !== undefined) {
+          // The unmet loop is capped by on_unmet.retries; its else leg ends at a human (rule 8).
+          const unmet = [...base, 'requirements', 'on_unmet'];
+          edges.push({
+            from,
+            to: gate.on_unmet.goto,
+            outcome,
+            path: [...unmet, 'goto'],
+            bounded: true,
+          });
+          edges.push({
+            from,
+            to: gate.on_unmet.else,
+            outcome,
+            path: [...unmet, 'else'],
+            bounded: isBoundedEdge(state, outcome),
+          });
+        }
         if (t.else !== undefined) {
           edges.push({
             from,

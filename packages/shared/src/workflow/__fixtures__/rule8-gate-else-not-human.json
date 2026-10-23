@@ -1,0 +1,35 @@
+{
+  "id": "gate_else_not_human",
+  "version": 1,
+  "start": "work",
+  "budget": {
+    "usd": 1,
+    "minutes": 10,
+    "max_loop_retries": 2
+  },
+  "states": {
+    "work": {
+      "type": "agent",
+      "prompt": "p",
+      "on": {
+        "done": {
+          "goto": "done",
+          "requirements": {
+            "items": ["The change has tests"],
+            "on_unmet": { "goto": "work", "else": "failed" }
+          }
+        },
+        "ask_user": "needs_input"
+      }
+    },
+    "needs_input": {
+      "type": "human"
+    },
+    "failed": {
+      "type": "terminal"
+    },
+    "done": {
+      "type": "terminal"
+    }
+  }
+}

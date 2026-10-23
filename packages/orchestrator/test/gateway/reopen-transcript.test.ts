@@ -242,6 +242,34 @@ describe('reopenSession', () => {
     expect((await reopenSession(db.pool, session.id, 'try again')).status).toBe('reopened');
   });
 
+  it('ADR-0009: a session that ended mid-review reopens without the review step', async () => {
+    const { session: old } = await finished('m-x', 'failed');
+    await db.pool.query(
+      `UPDATE session SET workflow_state = 'implement → build (review)', context = $2 WHERE id = $1`,
+      [
+        old.id,
+        JSON.stringify({
+          implement: { summary: 'first pass' },
+          __review: {
+            from: 'implement',
+            outcome: 'done',
+            to: 'build',
+            attachment: null,
+            subject: 'x',
+            claude_session_id: 'reviewer-id',
+            nudged: false,
+          },
+        }),
+      ],
+    );
+    const res = await reopenSession(db.pool, old.id, 'try again');
+    if (res.status !== 'reopened') throw new Error(res.status);
+    const fresh = await sessionRow(res.sessionId);
+    expect(fresh.context).toEqual({ implement: { summary: 'first pass' } });
+    expect(fresh.claude_session_id).toBe(CLAUDE); // the worker's, never the reviewer's
+    expect(fresh.workflow_state).toBeNull();
+  });
+
   it('409 unless terminal (done/failed) and the latest; 404 for an unknown session', async () => {
     const { session: old } = await finished('m-x');
     const res = await reopenSession(db.pool, old.id, 'one');

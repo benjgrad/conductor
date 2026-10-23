@@ -264,6 +264,41 @@ describe('daemon core: start_session', () => {
     expect(persisted?.claudeSessionId).toBe(driver.starts[0]!.claudeSessionId);
   });
 
+  it("ADR-0009: a reviewer start is fresh, read-only, and never replaces the worker's stored id", async () => {
+    const root = join(tmp, 'root');
+    const driver = new FakeClaudeDriver(complete({}));
+    makeDaemon(driver, { root });
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    orch.send(startSession(sid));
+    await orch.until(() => orch.events('exit')[0]);
+    const worker = driver.starts[0]!.claudeSessionId;
+    orch.send(
+      startSession(sid, {
+        workflow_state: 'implement → build (review)',
+        prompt: '# Requirements review',
+        tools: ['review'],
+        review: true,
+      }),
+    );
+    await orch.until(() => orch.events('exit')[1]);
+    const reviewer = driver.starts[1]!;
+    expect(reviewer.resume).toBe(false);
+    expect(reviewer.review).toBe(true); // → --permission-mode dontAsk in the driver
+    expect(driver.starts[0]!.review).toBeUndefined(); // the worker keeps the user's mode
+    expect(reviewer.claudeSessionId).not.toBe(worker);
+    expect(reviewer.tools.builtin).not.toContain('Edit');
+    expect(reviewer.tools.builtin).not.toContain('Write');
+    expect(reviewer.tools.allow).toContain('Bash(git diff)');
+    // The session's transcript (history, reopen) stays the worker's conversation.
+    const persisted = new DaemonStore(join(root, 'state', 'daemon.json')).session(sid);
+    expect(persisted?.claudeSessionId).toBe(worker);
+    // Spend is reported under the reviewer's own id, so it adds to the session budget.
+    expect(orch.eventData('spend').map((d) => d.claude_session_id)).toContain(
+      reviewer.claudeSessionId,
+    );
+  });
+
   it('resumes with --resume semantics when resume_claude_session_id is set', async () => {
     const driver = new FakeClaudeDriver(complete({}));
     makeDaemon(driver);

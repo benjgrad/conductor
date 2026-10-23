@@ -6,7 +6,9 @@ import {
   type BoardResponse,
   type MachineDto,
   type TicketDto,
+  type WorkflowDetail,
   type WorkflowSummary,
+  WorkflowDefinitionSchema,
 } from '@conductor/shared';
 import type { Queryable } from '../contracts.js';
 import type { Db } from '../main.js';
@@ -134,6 +136,36 @@ export async function listWorkflows(db: Queryable): Promise<WorkflowSummary[]> {
     state_count: Object.keys(r.definition.states).length,
     created_at: r.created_at.toISOString(),
   }));
+}
+
+/**
+ * GET /api/workflows/:id[?version=N] (ADR-0009): that version (default the latest) and the list
+ * of saved versions. null = unknown id or version.
+ */
+export async function loadWorkflowDetail(
+  db: Queryable,
+  id: string,
+  version: number | null,
+): Promise<WorkflowDetail | null> {
+  const res = await db.query<WorkflowDefinitionRow>(
+    'SELECT * FROM workflow_definition WHERE id = $1 AND ($2::int IS NULL OR version = $2::int) ' +
+      'ORDER BY version DESC LIMIT 1',
+    [id, version],
+  );
+  const row = res.rows[0];
+  if (!row) return null;
+  const versions = await db.query<{ version: number }>(
+    'SELECT version FROM workflow_definition WHERE id = $1 ORDER BY version',
+    [id],
+  );
+  return {
+    id: row.id,
+    version: row.version,
+    created_at: row.created_at.toISOString(),
+    // Stored definitions were parsed on save; parsing again applies defaults to older rows.
+    definition: WorkflowDefinitionSchema.parse(row.definition),
+    versions: versions.rows.map((r) => r.version),
+  };
 }
 
 export async function listMachines(db: Queryable): Promise<MachineDto[]> {

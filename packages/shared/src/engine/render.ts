@@ -1,4 +1,5 @@
 import type { AgentState } from '../workflow/schema.js';
+import { renderReviewFeedback, type ReviewFeedback } from './review.js';
 import type { SessionSnapshot } from './types.js';
 
 // Prompt rendering for agent states (05 §State types, 10-contracts §Engine). Pure: apply()
@@ -29,6 +30,8 @@ export interface RenderPromptInput {
   attachment?: PromptAttachment | null;
   /** A human answer to include (a fresh, non-resumed start after needs_input). */
   answer?: string | null;
+  /** ADR-0009: an unmet requirements review that routed here (`on_unmet.goto`). */
+  feedback?: ReviewFeedback | null;
 }
 
 /** Placeholders a literal prompt may use. */
@@ -74,6 +77,8 @@ export function renderPrompt(input: RenderPromptInput): string {
       ].join('\n\n'),
     );
   }
+
+  if (input.feedback) parts.push(renderReviewFeedback(input.feedback));
 
   if (input.answer != null) {
     parts.push(`## Answer from a human\n\n${input.answer}`);

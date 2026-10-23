@@ -23,6 +23,14 @@ const REAL = process.env.E2E_REAL_CLAUDE === '1';
 const M1_BASIC = JSON.parse(
   readFileSync(join(REPO_ROOT, 'docs/design/workflows/m1_basic.v1.json'), 'utf8'),
 ) as { id: string; states: Record<string, Record<string, unknown>> };
+/** ADR-0009: m1_basic with a requirements gate on implement → build. */
+const M1_REVIEWED = JSON.parse(
+  readFileSync(join(REPO_ROOT, 'docs/design/workflows/m1_reviewed.v1.json'), 'utf8'),
+) as {
+  id: string;
+  states: { implement: { on: { done: { requirements: { items: string[] } } } } };
+};
+const GATE_ITEMS = M1_REVIEWED.states.implement.on.done.requirements.items;
 
 /** Fake Claude scenarios (fake-claude.mjs), picked per ticket by `fake-scenario: <name>`. */
 const SCENARIOS: Record<string, unknown> = {
@@ -101,6 +109,55 @@ const SCENARIOS: Record<string, unknown> = {
       ],
     ],
   },
+  // ADR-0009 (m1_reviewed): the worker's first pass has no test; the gate sends it back with the
+  // reviewer's reasons, and its second pass (a resume) adds the test.
+  gated: {
+    turns: [
+      [
+        { say: 'Implementing /health without a test.' },
+        { write_file: { path: 'src/health.txt', content: 'ok\n' } },
+        { complete_state: { summary: 'added /health' } },
+      ],
+      [
+        { say: 'Adding the missing test.' },
+        { write_file: { path: 'src/health.test.txt', content: 'test\n' } },
+        { complete_state: { retry_prompt: '$answer' } },
+      ],
+    ],
+  },
+  // The reviewer (a fresh Claude session per review) looks at the worktree.
+  gated_review: {
+    turns: [
+      [
+        { say: 'Reviewing the requirements.' },
+        {
+          if_exists: {
+            path: 'src/health.test.txt',
+            then: [
+              {
+                complete_state: {
+                  verdict: [
+                    { item: GATE_ITEMS[0], met: true, reason: 'src/health.test.txt covers it' },
+                    { item: GATE_ITEMS[1], met: true, reason: 'no TODOs' },
+                  ],
+                },
+              },
+            ],
+            else: [
+              {
+                complete_state: {
+                  verdict: [
+                    { item: GATE_ITEMS[0], met: false, reason: 'src/health.txt has no test' },
+                    { item: GATE_ITEMS[1], met: true, reason: 'no TODOs' },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      ],
+    ],
+  },
 };
 
 const REAL_ASK_PROMPT = [
@@ -140,6 +197,7 @@ beforeAll(async () => {
       }
     : M1_BASIC;
   workflowId = (await api.saveWorkflow(def)).id;
+  if (!REAL) await api.saveWorkflow(M1_REVIEWED);
 
   await waitFor('the daemon to register', async () =>
     (await api.machines()).find((m) => m.id === stack.machineId && m.status === 'online'),
@@ -158,8 +216,8 @@ beforeEach(({ onTestFailed }) => {
 });
 
 /** POST a ticket for the fake scenario; returns the ticket id. */
-async function ticket(title: string, body: string): Promise<string> {
-  return (await api.createTicket({ title, body, repo, workflow_id: workflowId })).id;
+async function ticket(title: string, body: string, workflow = workflowId): Promise<string> {
+  return (await api.createTicket({ title, body, repo, workflow_id: workflow })).id;
 }
 
 const fakeBody = (scenario: string) =>
@@ -411,6 +469,78 @@ describe.skipIf(REAL)('fake Claude', () => {
     await expect(api.reopen(sid1, 'nope')).rejects.toMatchObject({ status: 409 });
   });
 
+  it('ADR-0009: a requirements gate sends the work back with the reasons, then lets it through', async () => {
+    const id = await ticket('Gated', fakeBody('gated'), M1_REVIEWED.id);
+    const done = await board.card(id, 'done', (c) => c.column === 'done', 60_000);
+    const review = 'implement → build (review)';
+    expect(board.states(id)).toEqual([
+      'implement',
+      review,
+      'implement',
+      review,
+      'build',
+      'test',
+      'done',
+    ]);
+    // The review step shows as running on the board, never Needs input.
+    expect(board.cards(id).some((c) => c.workflow_state === review && c.column === 'running')).toBe(
+      true,
+    );
+    expect(new Set(board.cards(id).map((c) => c.column))).toEqual(
+      new Set(['queued', 'running', 'done']),
+    );
+
+    const detail = await api.session(done.session_id!);
+    expect(detail.retry_counters).toEqual({ 'requirements:implement:done': 1 });
+    // The worker's second prompt carried the reviewer's reasons and the gate's instruction.
+    const prompt = detail.context.implement?.retry_prompt;
+    expect(typeof prompt).toBe('string');
+    expect(prompt).toContain('Requirements for implement → build were not met:');
+    expect(prompt).toContain('- New code paths have unit tests: src/health.txt has no test');
+    expect(prompt).toContain('Fix every unmet requirement before anything else');
+    expect(prompt).not.toContain('No TODO comments in changed files:');
+    // The last verdict is kept (all met) and the step itself is gone from the context.
+    expect(detail.context[review]).toMatchObject({ verdict: [{ met: true }, { met: true }] });
+    expect(detail.context).not.toHaveProperty('__review');
+    // Two reviewer runs' spend counted on top of the worker's.
+    expect(detail.spend_usd).toBeGreaterThanOrEqual(0.003);
+
+    // The worker: one Claude session, started then resumed after the unmet review.
+    const argvs = readFileSync(stack.fakeArgvLog, 'utf8')
+      .split('\n')
+      .filter((l) => l.trim() !== '')
+      .map((l) => (JSON.parse(l) as { argv: string[] }).argv);
+    const { claudeSessionId: worker } = fakeState('gated');
+    const workerStarts = argvs.filter((a) => a.includes(worker));
+    expect(workerStarts).toHaveLength(2);
+    expect(workerStarts[0]).toContain('--session-id');
+    expect(workerStarts[1]![workerStarts[1]!.indexOf('--resume') + 1]).toBe(worker);
+    for (const a of workerStarts) expect(a[a.indexOf('--permission-mode') + 1]).not.toBe('dontAsk');
+    // The reviewers: two fresh Claude sessions, never resumed, read-only tools.
+    const reviewers = fakeStates('gated_review');
+    expect(reviewers).toHaveLength(2);
+    for (const r of reviewers) {
+      expect(r.claudeSessionId).not.toBe(worker);
+      const starts = argvs.filter((a) => a.includes(r.claudeSessionId));
+      expect(starts).toHaveLength(1);
+      expect(starts[0]).toContain('--session-id');
+      expect(starts[0]).not.toContain('--resume');
+      // Forced dontAsk: only the pre-approved read-only rules run, whatever the user's mode.
+      expect(starts[0]![starts[0]!.indexOf('--permission-mode') + 1]).toBe('dontAsk');
+      const tools = starts[0]![starts[0]!.indexOf('--tools') + 1]!.split(',');
+      expect(tools).toEqual(['Read', 'Glob', 'Grep', 'Bash']);
+      const allowed = starts[0]![starts[0]!.indexOf('--allowedTools') + 1]!;
+      expect(allowed).toContain('Bash(git diff)');
+      expect(allowed).not.toContain('Edit(');
+      expect(allowed).not.toContain('git commit');
+    }
+
+    // History stays the worker's conversation (ADR-0008), not a reviewer's.
+    const h = (await api.transcript(done.session_id!)).chunks.map((c) => `${c.stream}: ${c.text}`);
+    expect(h).toContain('assistant: Adding the missing test.');
+    expect(h.some((t) => t.includes('Reviewing the requirements.'))).toBe(false);
+  });
+
   it('shutdown: stopping the daemon kills a parked Claude process; nothing is left behind', async () => {
     const id = await ticket('Parked at shutdown', fakeBody('ask_answer'));
     await board.card(id, 'needs_input', (c) => c.column === 'needs_input');
@@ -432,16 +562,21 @@ describe.runIf(REAL)('real Claude (haiku, E2E_REAL_CLAUDE=1; spends money)', () 
   }, 300_000);
 });
 
-/** The fake's persisted state for the (single) Claude session running the named scenario. */
-function fakeState(scenario: string): { claudeSessionId: string; turn: number } {
+/** The fake's persisted state for every Claude session that ran the named scenario. */
+function fakeStates(scenario: string): { claudeSessionId: string; turn: number }[] {
   const dir = join(stack.tmp, 'fake-claude-state');
-  const states = readdirSync(dir)
+  return readdirSync(dir)
     .filter((f) => f.endsWith('.json'))
     .map((f) => ({
       claudeSessionId: f.slice(0, -'.json'.length),
       ...(JSON.parse(readFileSync(join(dir, f), 'utf8')) as { scenario?: string; turn: number }),
     }))
     .filter((st) => st.scenario === scenario);
+}
+
+/** The fake's persisted state for the (single) Claude session running the named scenario. */
+function fakeState(scenario: string): { claudeSessionId: string; turn: number } {
+  const states = fakeStates(scenario);
   expect(states).toHaveLength(1);
   return states[0]!;
 }

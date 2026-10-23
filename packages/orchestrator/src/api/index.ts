@@ -27,7 +27,13 @@ import { parseLastEventId, serveBoardStream } from '../stream/board.js';
 import { serveOutputStream } from '../stream/output.js';
 import { SseHub } from '../stream/sse.js';
 import { parseBody, pathString, sendError } from './errors.js';
-import { listMachines, listWorkflows, loadBoard, toTicketDto } from './queries.js';
+import {
+  listMachines,
+  listWorkflows,
+  loadBoard,
+  loadWorkflowDetail,
+  toTicketDto,
+} from './queries.js';
 import {
   HttpGuard,
   httpSecurityFromEnv,
@@ -293,6 +299,29 @@ export const createApi = (({ db, engine, boardBus, outputBus, transcripts, secur
   // ---------------------------------------------------------------- workflows
 
   app.get(API_PATHS.workflows, () => listWorkflows(db));
+
+  // ADR-0009: one workflow's definition, the latest version or `?version=N`.
+  app.get<IdParams & { Querystring: { version?: string } }>(
+    API_PATHS.workflow(':id'),
+    async (req, reply) => {
+      const raw = req.query.version;
+      let version: number | null = null;
+      if (raw !== undefined) {
+        version = /^[1-9]\d{0,8}$/.test(raw) ? Number(raw) : NaN;
+        if (Number.isNaN(version)) {
+          return sendError(reply, 400, 'bad_request', 'version must be a positive integer', [
+            { path: 'version', message: 'expected a positive integer' },
+          ]);
+        }
+      }
+      const detail = await loadWorkflowDetail(db, req.params.id, version);
+      if (!detail) {
+        const what = version === null ? '' : ` version ${version}`;
+        return sendError(reply, 404, 'not_found', `no workflow ${req.params.id}${what}`);
+      }
+      return detail;
+    },
+  );
 
   app.post(API_PATHS.workflows, async (req, reply) => {
     const body = parseBody(SaveWorkflowRequestSchema, req.body, reply);

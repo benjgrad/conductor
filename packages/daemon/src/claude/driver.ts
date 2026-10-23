@@ -25,6 +25,12 @@ export interface DriverStartOptions {
   maxTurns?: number;
   maxBudgetUsd?: number; // remaining workflow budget, passed as a hard backstop
   appendSystemPrompt?: string; // conductor instructions (how to use complete_state / ask_user)
+  /**
+   * ADR-0009: a requirements reviewer. Runs with `--permission-mode dontAsk` whatever the user's
+   * mode (the one exception to ADR-0006's inherited mode): only its pre-approved read-only rules
+   * run, everything else is denied without prompting.
+   */
+  review?: boolean;
 }
 
 export type DriverEvent =

@@ -131,6 +131,13 @@ export function agentPermissionMode(
 }
 
 /**
+ * ADR-0009: the permission mode of a requirements reviewer, whatever the user's own mode. In
+ * dontAsk only pre-approved tools (Read/Glob/Grep, the `review` alias's exact git commands, the
+ * conductor outcome tools) run; anything else is denied without a prompt.
+ */
+export const REVIEWER_PERMISSION_MODE = 'dontAsk';
+
+/**
  * The exact argv of ADR-0005 §Spawn as amended by ADR-0006 (without the executable). `mcpConfig`
  * is what goes after `--mcp-config`: the driver passes the path from `writeMcpConfigFile` (the CLI
  * accepts a file path or a JSON string), never the JSON itself. `settings` is the edit-guard
@@ -164,7 +171,10 @@ export function buildClaudeArgs(
   if (opts.maxTurns !== undefined) args.push('--max-turns', String(opts.maxTurns));
   if (opts.maxBudgetUsd !== undefined) args.push('--max-budget-usd', String(opts.maxBudgetUsd));
   args.push('--setting-sources', 'user', '--settings', settings, '--strict-mcp-config');
-  if (permissionMode !== undefined) args.push('--permission-mode', permissionMode);
+  // ADR-0009: a reviewer is forced into dontAsk (only its pre-approved read-only rules run); a
+  // worker keeps the user's mode, capped by `agentPermissionMode`.
+  const mode = opts.review === true ? REVIEWER_PERMISSION_MODE : permissionMode;
+  if (mode !== undefined) args.push('--permission-mode', mode);
   args.push(
     '--permission-prompts',
     'none',
@@ -243,7 +253,9 @@ class Session implements CliDriverSession {
     const mode = agentPermissionMode();
     const { env, dropped } = agentEnv(opts.env, extraStateEnv);
     const notes: string[] = [];
-    if (mode !== undefined) {
+    if (opts.review === true) {
+      notes.push(`requirements reviewer: running in ${REVIEWER_PERMISSION_MODE} mode`);
+    } else if (mode !== undefined) {
       notes.push('user defaultMode is bypassPermissions; running this agent in auto mode');
     }
     if (dropped.length > 0) notes.push(`dropped state env keys not allowed: ${dropped.join(', ')}`);

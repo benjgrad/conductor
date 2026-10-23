@@ -17,6 +17,7 @@ export {
   type PromptAttachment,
   type RenderPromptInput,
 } from './engine/apply.js';
+export * from './engine/review.js';
 export * from './engine/spend.js';
 export * from './engine/fixtures.js';
 export * from './protocol/ws.js';

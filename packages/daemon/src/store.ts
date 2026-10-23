@@ -33,7 +33,10 @@ export interface PersistedSession {
   worktreePath: string;
   branch: string;
   portRange: PortRange | null;
-  /** Pre-assigned (new) or resumed Claude session id of the latest start_session. */
+  /**
+   * Pre-assigned (new) or resumed Claude session id of the latest worker start_session. A
+   * requirements reviewer's (`start_session.review`, ADR-0009) is never stored here.
+   */
   claudeSessionId: string | null;
   /** ms epoch; used to pick which idle session's port range to reclaim first. */
   lastUsedAt: number;

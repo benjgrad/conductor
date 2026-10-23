@@ -445,6 +445,47 @@ describe('applyEvent: wrapper-owned writes', () => {
     expect(again).toEqual({ status: 'rejected', reason: 'input_already_answered' });
   });
 
+  it('a cancel from needs_input upserts the card without the still-open request (TD-079)', async () => {
+    const { sessionId } = await seedSession(db.pool, {
+      status: 'running',
+      machine_id: MACHINE,
+      workflow_state: 'implement',
+    });
+    script
+      .on('agent.ask_user', () => ({
+        snapshot: { status: 'needs_input', workflow_state: 'needs_input', return_to: 'implement' },
+        effects: [
+          { type: 'session_status', from: 'running', to: 'needs_input' },
+          {
+            type: 'create_input_request',
+            kind: 'agent_question',
+            question: 'Which port?',
+            return_to: 'implement',
+          },
+        ],
+      }))
+      .on('operator.cancel', () => ({
+        snapshot: { status: 'failed' },
+        effects: [{ type: 'session_status', from: 'needs_input', to: 'failed' }],
+      }));
+    const { engine } = make();
+    await engine.applyEvent(sessionId, { type: 'agent.ask_user', question: 'Which port?' });
+    bus.published.length = 0;
+
+    expect((await engine.applyEvent(sessionId, { type: 'operator.cancel' })).status).toBe(
+      'applied',
+    );
+    const upsert = bus.published.at(-1) as Extract<BoardSseEvent, { type: 'card.upserted' }>;
+    expect(upsert.type).toBe('card.upserted');
+    expect(upsert.card.column).toBe('failed');
+    expect(upsert.card.input_request).toBeNull();
+    const open = await db.pool.query(
+      'SELECT 1 FROM input_request WHERE session_id = $1 AND answer IS NULL',
+      [sessionId],
+    );
+    expect(open.rowCount).toBe(1); // the row stays unanswered; only the card drops it
+  });
+
   it('a resume prompt that is the pending answer is sent verbatim', async () => {
     const pending = {
       input_request_id: '0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2',

@@ -193,13 +193,13 @@
 /* Workflows view */
 .wf-view {
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   padding: 12px 16px;
   align-items: start;
 }
 .wf-view.with-editor {
-  grid-template-columns: 200px minmax(0, 1fr) 360px;
+  grid-template-columns: minmax(0, 1fr) 380px;
 }
 .wf-list {
   list-style: none;
@@ -396,4 +396,134 @@ main[hidden] {
   .wf-edge.reviewing .wf-line {
     animation: none;
   }
+}
+
+/* Columns diagram (ADR-0010): one lane per board column. */
+.wf-lane rect {
+  fill: var(--panel);
+  stroke: var(--border);
+  stroke-width: 1.4;
+}
+.wf-lane-queued rect {
+  fill: color-mix(in srgb, var(--panel) 80%, var(--bg));
+  stroke-dasharray: 4 3;
+}
+.wf-lane-human rect {
+  fill: var(--ask-bg);
+  stroke: var(--ask);
+  stroke-dasharray: 5 3;
+}
+.wf-lane-event rect {
+  fill: var(--warn-bg);
+  stroke: var(--warn);
+}
+.wf-lane-terminal rect {
+  fill: color-mix(in srgb, var(--ok) 10%, var(--panel));
+  stroke: var(--ok);
+}
+.wf-lane text {
+  fill: var(--text);
+  font-size: 11px;
+}
+.wf-lane .wf-lane-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.wf-lane .wf-lane-work,
+.wf-lane .wf-lane-unmet {
+  fill: var(--muted);
+}
+.wf-lane .wf-lane-unmet {
+  font-style: italic;
+}
+.wf-lane .wf-lane-req-head {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  fill: var(--muted);
+}
+.wf-lane .wf-lane-checking {
+  fill: var(--accent);
+  font-weight: 600;
+}
+.wf-lane.selectable {
+  cursor: pointer;
+}
+.wf-lane.selectable:hover rect,
+.wf-lane.selected rect {
+  stroke: var(--accent);
+  stroke-width: 2.4;
+  stroke-dasharray: none;
+}
+.wf-lane:focus {
+  outline: none;
+}
+.wf-lane:focus-visible rect {
+  stroke: var(--accent);
+  stroke-width: 3.2;
+}
+.wf-lane.error rect {
+  stroke: var(--ask);
+  stroke-width: 2.4;
+}
+.wf-lane.current rect {
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-dasharray: none;
+  fill: color-mix(in srgb, var(--accent) 14%, var(--panel));
+}
+.wf-lane.checking rect {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+}
+.wf-label-start text {
+  fill: var(--muted);
+}
+.wf-label .wf-gate {
+  fill: var(--ok);
+}
+.wf-empty {
+  max-width: 640px;
+}
+.wf-empty h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+/* Column editor */
+.wf-editor h5 {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wf-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wf-field input {
+  color: var(--text);
+}
+.wf-check {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.wf-check .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.wf-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.wf-outcomes {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
 }

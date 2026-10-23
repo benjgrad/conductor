@@ -150,7 +150,6 @@ describe('create ticket', () => {
     await renderApp();
     fireEvent.click(screen.getByRole('button', { name: 'New ticket' }));
     const form = within(screen.getByRole('form', { name: 'Create ticket' }));
-    await form.findByRole('option', { name: 'm1_basic v2' });
     fireEvent.change(form.getByLabelText('Title'), { target: { value: 'Add dark mode' } });
     fireEvent.change(form.getByLabelText('Priority'), { target: { value: '9' } });
     fireEvent.click(form.getByRole('button', { name: 'Create ticket' }));

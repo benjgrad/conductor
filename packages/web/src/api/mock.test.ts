@@ -1,7 +1,9 @@
 import {
   BoardResponseSchema,
   BoardSseEventSchema,
+  CONDUCTOR_WORKFLOW_ID,
   SessionDetailSchema,
+  validateWorkflow,
   WorkflowDetailSchema,
   type BoardSseEvent,
 } from '@conductor/shared';
@@ -108,10 +110,48 @@ describe('mock ApiClient', () => {
 });
 
 describe('mock workflows (ADR-0009)', () => {
+  it('serves the one conductor workflow (ADR-0010), valid, with history', async () => {
+    const api = createMockApi({ now });
+    const latest = await api.getWorkflow(CONDUCTOR_WORKFLOW_ID);
+    expect(latest.version).toBe(2);
+    expect(detailVersions(latest)).toEqual([1, 2]);
+    const v1 = (await api.getWorkflow(CONDUCTOR_WORKFLOW_ID, 1)).definition;
+    expect(v1.columns).toEqual([
+      'planning',
+      'implementing',
+      'needs_input',
+      'waiting_external',
+      'done',
+    ]);
+    expect(v1.states.waiting_external?.entry).toEqual({
+      checks: [
+        { name: 'Build passes', cmd: 'npm run build' },
+        { name: 'Tests pass', cmd: 'npm test' },
+      ],
+      actions: ['open_pr'],
+      on_unmet: { goto: 'implementing', retries: 3, else: 'needs_input' },
+    });
+    for (const def of [v1, latest.definition]) {
+      const res = validateWorkflow(def);
+      expect(res.ok ? [] : res.errors).toEqual([]);
+    }
+    // Saving it as is stores v3.
+    expect(await api.saveWorkflow(latest.definition)).toEqual({ id: 'conductor', version: 3 });
+  });
+
+  it('createTicket defaults workflow_id to conductor', async () => {
+    const api = createMockApi({ now });
+    const req = { title: 'a', body: '', repo: 'r' };
+    // Omitting workflow_id is what the form will send once the shared contract makes it optional.
+    const ticket = await api.createTicket(req as Parameters<typeof api.createTicket>[0]);
+    expect(ticket.workflow_id).toBe('conductor');
+  });
+
   it('serves version history; m1_basic v2 has the example gate', async () => {
     const api = createMockApi({ now });
     const list = await api.listWorkflows();
     expect(list.map((w) => [w.id, w.version])).toEqual([
+      ['conductor', 2],
       ['m1_basic', 2],
       ['pr_flow', 2],
     ]);
@@ -134,7 +174,7 @@ describe('mock workflows (ADR-0009)', () => {
     const { definition } = await api.getWorkflow('m1_basic');
     expect(await api.saveWorkflow(definition)).toEqual({ id: 'm1_basic', version: 3 });
     expect((await api.getWorkflow('m1_basic')).version).toBe(3);
-    expect((await api.listWorkflows())[0]?.version).toBe(3);
+    expect((await api.listWorkflows())[1]).toMatchObject({ id: 'm1_basic', version: 3 });
 
     const bad = structuredClone(definition);
     const impl = bad.states.implement;

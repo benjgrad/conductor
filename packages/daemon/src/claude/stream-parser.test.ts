@@ -132,4 +132,14 @@ describe('parseStreamLine', () => {
       { kind: 'init', sessionId: undefined, cliVersion: undefined },
     ]);
   });
+
+  it('drops system/thinking_tokens progress estimates', () => {
+    const line = JSON.stringify({
+      type: 'system',
+      subtype: 'thinking_tokens',
+      estimated_tokens: 150,
+      estimated_tokens_delta: 100,
+    });
+    expect(parseStreamLine(line)).toEqual([]);
+  });
 });

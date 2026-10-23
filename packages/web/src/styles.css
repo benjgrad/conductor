@@ -12,6 +12,12 @@
   --ok: #1f7a45;
   --code-bg: #0f1420;
   --code-text: #d6dbe6;
+  --inline-code-bg: #eef0f4;
+  --diff-add-bg: #e6f6ea;
+  --diff-add: #1a6b3a;
+  --diff-del-bg: #fdecec;
+  --diff-del: #a2262e;
+  --tool: #8a5cd6;
   color-scheme: light dark;
   font-family:
     system-ui,
@@ -36,6 +42,12 @@
     --ask-bg: #3d1c20;
     --ask: #ff8f96;
     --ok: #5ccf8b;
+    --inline-code-bg: #262c38;
+    --diff-add-bg: #12301f;
+    --diff-add: #7fdca2;
+    --diff-del-bg: #3a1a1e;
+    --diff-del: #ff9aa1;
+    --tool: #b79cff;
   }
 }
 
@@ -201,7 +213,7 @@ main {
 }
 
 .detail {
-  width: 420px;
+  width: min(640px, 45vw);
   flex-shrink: 0;
   background: var(--panel);
   border: 1px solid var(--border);
@@ -307,19 +319,231 @@ main {
   font-weight: 600;
 }
 
+/* Live output, laid out like the Claude Code UI (OutputLog.tsx). */
+.output-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.debug-toggle {
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
 .output {
+  max-height: 60vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.output pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+}
+.output code,
+.output pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* agent text */
+.msg {
+  position: relative;
+  padding-left: 16px;
+}
+.msg::before {
+  content: '●';
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--text);
+  font-size: 10px;
+  line-height: 19px;
+}
+.md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md p,
+.md ul,
+.md ol,
+.md blockquote,
+.md pre {
+  margin: 0 0 6px;
+}
+.md ul,
+.md ol {
+  padding-left: 20px;
+}
+.md code {
+  background: var(--inline-code-bg);
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 12px;
+}
+.md .md-code {
   background: var(--code-bg);
   color: var(--code-text);
-  font-size: 12px;
-  padding: 8px;
   border-radius: 6px;
-  max-height: 260px;
+  padding: 8px 10px;
+  overflow-x: auto;
+}
+.md .md-code code {
+  background: none;
+  padding: 0;
+}
+.md .md-h {
+  font-weight: 600;
+}
+.md .md-h1 {
+  font-size: 15px;
+}
+.md blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 8px;
+  color: var(--muted);
+}
+.md a {
+  color: var(--accent);
+}
+
+/* tool calls */
+.tool > summary {
+  list-style: none;
+  cursor: pointer;
+  position: relative;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+}
+.tool > summary::-webkit-details-marker {
+  display: none;
+}
+.tool > summary::before {
+  content: '●';
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-size: 10px;
+  line-height: 19px;
+  color: var(--ok);
+}
+.tool-running > summary::before {
+  color: var(--muted);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.tool-conductor > summary::before {
+  color: var(--accent);
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+.tool-head {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-label {
+  font-weight: 600;
+}
+.tool-arg {
+  color: var(--muted);
+}
+.tool-sub {
+  color: var(--muted);
+  font-size: 12px;
+  padding-left: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-body {
+  margin: 4px 0 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tool-input,
+.tool-result,
+.term,
+.out-debug {
+  background: var(--code-bg);
+  color: var(--code-text);
+  border-radius: 6px;
+  padding: 6px 8px;
+  max-height: 320px;
   overflow: auto;
-  white-space: pre-wrap;
-  margin: 0;
+}
+.tool-input {
+  color: #9ecbff;
 }
 .out-stderr {
   color: #ff9a9a;
+}
+.out-debug {
+  opacity: 0.7;
+}
+
+/* edits */
+.diff {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.diff-stat {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.diff-add-n {
+  color: var(--diff-add);
+}
+.diff-del-n {
+  color: var(--diff-del);
+}
+.diff pre {
+  max-height: 420px;
+  overflow: auto;
+  padding: 4px 0;
+}
+.diff pre span {
+  display: block;
+  padding: 0 8px;
+}
+.diff .add {
+  background: var(--diff-add-bg);
+  color: var(--diff-add);
+}
+.diff .del {
+  background: var(--diff-del-bg);
+  color: var(--diff-del);
+}
+.diff .ctx {
+  color: var(--muted);
+}
+button.link {
+  background: none;
+  border: 0;
+  padding: 2px 8px;
+  color: var(--accent);
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
 }
 
 .create-ticket {

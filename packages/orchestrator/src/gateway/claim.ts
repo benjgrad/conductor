@@ -53,7 +53,7 @@ export async function claimWork(
       // Ticket side. A ticket whose workflow version is unpinned gets the latest definition;
       // one with no definition at all, or with a non-queued live session, is never picked
       // (the latter would violate one-live-session-per-ticket).
-      // TD: the ADR-0008 reopen pin is hard: a reopened ticket whose machine never comes back
+      // TD-088: the ADR-0008 reopen pin is hard: a reopened ticket whose machine never comes back
       // waits in Queued until a human cancels it (cross-machine reopen needs a pushed branch and
       // a shipped transcript).
       const t = await tx.query<{ id: string; workflow_id: string; workflow_version: number }>(

@@ -127,7 +127,7 @@ export function useSession(api: ApiClient, sessionId: string, version: string): 
   // ADR-0008: the output ring is in memory, so after an orchestrator restart it is empty. When
   // the panel opens on a session whose ring and live stream have nothing, load the history once
   // from Claude's transcript on its machine. Live chunks that arrive later are appended after it
-  // TD: a chunk streamed between the transcript read and the stream's first chunk may show twice.
+  // TD-090: a chunk streamed between the transcript read and the stream's first chunk may show twice.
   const [history, setHistory] = useState<{
     sessionId: string;
     chunks: OutputChunk[];

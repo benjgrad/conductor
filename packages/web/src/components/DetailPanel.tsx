@@ -425,7 +425,7 @@ function WorkflowSection({ detail }: { detail: SessionDetail }) {
           <span className="badge badge-slot">waiting for build slot</span>
         )}
       </p>
-      {/* TD-033: a flat list of states; the 06 state diagram (graph layout) comes later. */}
+      {/* A compact list of states; the state diagram (SessionWorkflowDiagram, ADR-0009) follows. */}
       <ol className="states">
         {Object.entries(workflow.states).map(([name, state]) => (
           <li

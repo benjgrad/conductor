@@ -49,6 +49,7 @@ const GIT_PREFIX = ['add', 'commit', 'restore'];
  * ADR-0009: the git inspection commands a requirements reviewer may run, all exact (TD-082
  * caution: diff/log/show accept `--output=<file>`, so no prefix rules). Enough to see the
  * uncommitted work and the last commits; the review prompt lists them (engine/review.ts).
+ * TD-091: no exact rule diffs against the branch base (its sha isn't recorded).
  */
 export const REVIEW_GIT_COMMANDS: readonly string[] = [
   'git status',

@@ -8,7 +8,10 @@ import type { SessionSnapshot } from './types.js';
 /** The tool alias (workflow/tools.ts) a reviewer runs with: read-only plus exact git inspection. */
 export const REVIEW_TOOLS = ['review'] as const;
 
-/** How long a reviewer may take before the review step goes to `on_unmet.else` (ADR-0009). */
+/**
+ * How long a reviewer may take before the review step goes to `on_unmet.else` (ADR-0009).
+ * TD-092: a constant; the gate schema has no per-gate timeout.
+ */
 export const REVIEW_TIMEOUT = '10m';
 
 /** `session.context` key the review step is persisted under (02; not a valid state name). */

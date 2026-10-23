@@ -863,7 +863,7 @@ export class Daemon {
     const path = findTranscript(this.claudeConfigDir, s.worktreePath, s.claudeSessionId);
     if (path === null) return { request_id: requestId, error: 'no_transcript' };
     try {
-      // TD: a synchronous read (at most TRANSCRIPT_READ_BYTES) on the daemon's event loop.
+      // TD-089: a synchronous read (at most TRANSCRIPT_READ_BYTES) on the daemon's event loop.
       const { text, cut } = readTranscriptTail(path);
       const { chunks, truncated } = transcriptChunks(text);
       return { request_id: requestId, chunks, truncated: truncated || cut };

@@ -42,6 +42,7 @@ export function App({ api }: AppProps) {
             {...(selectedCard ? { ticketId: selectedCard.ticket_id } : {})}
             version={selectedCard?.updated_at ?? ''}
             onClose={() => setSelected(null)}
+            onSelectSession={setSelected}
           />
         )}
       </main>

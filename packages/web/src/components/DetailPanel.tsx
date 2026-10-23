@@ -20,6 +20,8 @@ interface DetailPanelProps {
   /** The card's updated_at on the board: a change refetches the detail. */
   version: string;
   onClose: () => void;
+  /** ADR-0008: show another session (the new one after a reopen). */
+  onSelectSession?: (sessionId: string) => void;
 }
 
 export type PanelTab = 'messages' | 'details';
@@ -28,7 +30,14 @@ const TABS: readonly { id: PanelTab; label: string }[] = [
   { id: 'details', label: 'Details' },
 ];
 
-export function DetailPanel({ api, sessionId, ticketId, version, onClose }: DetailPanelProps) {
+export function DetailPanel({
+  api,
+  sessionId,
+  ticketId,
+  version,
+  onClose,
+  onSelectSession,
+}: DetailPanelProps) {
   const { detail, output, error, reload, history } = useSession(api, sessionId, version);
   const [tab, setTab] = useState<PanelTab>('messages');
   // Identity is per ticket (Ben): the same agent across a ticket's retries and resumes.
@@ -144,6 +153,7 @@ export function DetailPanel({ api, sessionId, ticketId, version, onClose }: Deta
               detail={detail}
               agentName={name}
               onDone={reload}
+              {...(onSelectSession ? { onReopened: onSelectSession } : {})}
               onShowDetails={() => {
                 setTab('details');
                 tabRefs.current.details?.focus();

@@ -28,6 +28,8 @@ export const API_PATHS = {
   sessionMessages: (id: string) => `/api/sessions/${id}/messages`,
   /** ADR-0008: the session's history from Claude's own transcript on its machine. */
   sessionTranscript: (id: string) => `/api/sessions/${id}/transcript`,
+  /** ADR-0008: reopen a finished ticket by resuming the same Claude conversation. */
+  sessionReopen: (id: string) => `/api/sessions/${id}/reopen`,
   tickets: '/api/tickets',
   workflows: '/api/workflows',
   machines: '/api/machines',
@@ -192,6 +194,19 @@ export const TranscriptResponseSchema = z.object({
   truncated: z.boolean(),
 });
 export type TranscriptResponse = z.infer<typeof TranscriptResponseSchema>;
+
+/**
+ * POST /api/sessions/:id/reopen `{text}` → 202 ReopenSessionResponse (ADR-0008). Only for the
+ * ticket's latest session, and only when it is `done` or `failed`: a new session for the same
+ * ticket starts at the workflow's start state, on the same branch and machine, resuming the
+ * same Claude conversation with `text` as its prompt. 409 `conflict` otherwise; 404 unknown.
+ */
+export const ReopenSessionRequestSchema = z.object({
+  text: z.string().trim().min(1).max(20_000),
+});
+export type ReopenSessionRequest = z.infer<typeof ReopenSessionRequestSchema>;
+export const ReopenSessionResponseSchema = z.object({ session_id: UuidSchema });
+export type ReopenSessionResponse = z.infer<typeof ReopenSessionResponseSchema>;
 
 /** POST /api/sessions/:id/cancel → 202 OkResponse. Becomes `operator.cancel {reason}`. */
 export const CancelSessionRequestSchema = z.object({ reason: z.string().optional() });

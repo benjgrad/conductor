@@ -53,6 +53,9 @@ export async function claimWork(
       // Ticket side. A ticket whose workflow version is unpinned gets the latest definition;
       // one with no definition at all, or with a non-queued live session, is never picked
       // (the latter would violate one-live-session-per-ticket).
+      // TD: the ADR-0008 reopen pin is hard: a reopened ticket whose machine never comes back
+      // waits in Queued until a human cancels it (cross-machine reopen needs a pushed branch and
+      // a shipped transcript).
       const t = await tx.query<{ id: string; workflow_id: string; workflow_version: number }>(
         `SELECT t.id, t.workflow_id,
                 COALESCE(t.workflow_version,
@@ -66,6 +69,14 @@ export async function claimWork(
                  OR EXISTS (SELECT 1 FROM workflow_definition w WHERE w.id = t.workflow_id))
             AND NOT EXISTS (SELECT 1 FROM session s WHERE s.ticket_id = t.id
                              AND s.status NOT IN ('queued', 'done', 'failed', 'lost'))
+            -- ADR-0008 branch pin: a queued session on a branch an earlier session of the
+            -- ticket ran on (a reopen) runs only on that machine: the worktree and Claude's
+            -- transcript (for --resume) are there.
+            AND NOT EXISTS (SELECT 1 FROM session q
+                              JOIN session p ON p.ticket_id = q.ticket_id AND p.id <> q.id
+                                            AND p.branch = q.branch
+                             WHERE q.ticket_id = t.id AND q.status = 'queued'
+                               AND p.machine_id IS NOT NULL AND p.machine_id <> $1)
           ORDER BY t.priority DESC, t.created_at, t.id
           LIMIT 1
           FOR UPDATE OF t SKIP LOCKED`,

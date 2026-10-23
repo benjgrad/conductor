@@ -167,17 +167,22 @@ describe('createHttpApi REST', () => {
     );
   });
 
-  it('getTranscript (ADR-0008) uses its API_PATHS route', async () => {
+  it('getTranscript and reopen (ADR-0008) use their API_PATHS routes', async () => {
     const transcript = {
       machine_id: 'mbp-ben',
       truncated: false,
       chunks: [{ ...OUTPUT_CHUNK_FIXTURE, seq: 0, stream: 'user', text: 'hi' }],
     };
-    const { calls, fetch } = recordingFetch(() => json(200, transcript));
+    const NEW = '0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2';
+    const { calls, fetch } = recordingFetch(({ method }) =>
+      method === 'GET' ? json(200, transcript) : json(202, { session_id: NEW }),
+    );
     const api = createHttpApi({ baseUrl: 'http://orch:7400', fetch });
     expect(await api.getTranscript(SESSION)).toEqual(transcript);
+    expect(await api.reopen(SESSION, { text: 'Make it blue' })).toEqual({ session_id: NEW });
     expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([
       ['GET', `http://orch:7400${API_PATHS.sessionTranscript(SESSION)}`, undefined],
+      ['POST', `http://orch:7400${API_PATHS.sessionReopen(SESSION)}`, { text: 'Make it blue' }],
     ]);
   });
 

@@ -32,6 +32,7 @@ answered with `POST /api/sessions/:id/input`, a live message is sent with `POST 
 | ask/answer | `ask_user` → Needs input card → REST answer → the live agent (`send_input`) completes with the answer |
 | no outcome (U-028) | say-only turns → exactly one nudge (two fake turns) → Needs input `agent_question` with the no-outcome question and `Last output:` → REST answer → done |
 | live message (ADR-0007) | `POST /api/sessions/:id/messages` while the agent's turn runs (409 until its process is live) → the fake folds `/context` into that turn (no turn of its own) and completes with it; a `user` chunk on the output stream; one process; 409 once done |
+| history and reopen (ADR-0008) | a done ticket's `GET /api/sessions/:id/transcript` comes from the transcript the fake wrote under the run's `CLAUDE_CONFIG_DIR` (thinking skipped, synthetic seq); `POST /reopen` → a new session on the same branch and the same (reused) worktree, the fake started with `--resume <same id>` and the human's text as prompt, implement → build → test → done again; 409 for a session that is no longer the latest; the new session's transcript holds both passes |
 | shutdown | stopping the daemon kills a parked Claude process; no process is left running from the temp dir |
 
 Teardown stops the daemon (SIGTERM, which kills its Claude processes) and then the orchestrator.

@@ -4,6 +4,7 @@ import {
   ApproveSessionRequestSchema,
   CancelSessionRequestSchema,
   CreateTicketRequestSchema,
+  ReopenSessionRequestSchema,
   SaveWorkflowRequestSchema,
   SendMessageRequestSchema,
   UuidSchema,
@@ -13,12 +14,14 @@ import {
   type EngineEvent,
   type EngineRoute,
   type OkResponse,
+  type ReopenSessionResponse,
   type TranscriptResponse,
 } from '@conductor/shared';
 import Fastify, { type FastifyReply } from 'fastify';
 import { insertBoardEvents, type ApplyEventOptions } from '../contracts.js';
 import { withTransaction } from '../db/index.js';
 import type { TicketRow } from '../db/types.js';
+import { reopenSession } from '../engine/reopen.js';
 import type { CreateApi } from '../main.js';
 import { parseLastEventId, serveBoardStream } from '../stream/board.js';
 import { serveOutputStream } from '../stream/output.js';
@@ -220,6 +223,27 @@ export const createApi = (({ db, engine, boardBus, outputBus, transcripts, secur
         }
         return sendError(reply, 404, 'no_transcript', `machine ${machine} has no transcript`);
     }
+  });
+
+  /**
+   * ADR-0008: reopen the ticket of a finished session (its latest, `done` or `failed`) with a new
+   * session that resumes the same Claude conversation on the same branch and machine.
+   */
+  app.post<IdParams>('/api/sessions/:id/reopen', async (req, reply) => {
+    const id = sessionId(req.params.id, reply);
+    if (id === undefined) return reply;
+    const body = parseBody(ReopenSessionRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const res = await reopenSession(db, id, body.text, UI_ACTOR);
+    if (res.status === 'not_found') {
+      return sendError(reply, 404, 'not_found', `session ${id} not found`);
+    }
+    if (res.status === 'conflict') return sendError(reply, 409, 'conflict', res.reason);
+    for (const ev of res.boardEvents) boardBus.publish(ev);
+    // Claude does not echo user messages: show what the human asked, as for /messages.
+    outputBus.append(res.sessionId, 'user', body.text);
+    const out: ReopenSessionResponse = { session_id: res.sessionId };
+    return reply.code(202).send(out);
   });
 
   // ---------------------------------------------------------------- tickets

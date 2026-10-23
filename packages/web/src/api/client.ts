@@ -8,6 +8,8 @@ import type {
   MachineDto,
   OkResponse,
   OutputChunk,
+  ReopenSessionRequest,
+  ReopenSessionResponse,
   SendMessageRequest,
   SessionDetail,
   TicketDto,
@@ -69,6 +71,11 @@ export interface ApiClient {
    * machine. 503 machine_offline, 404 no_transcript, 504 timeout.
    */
   getTranscript(sessionId: string): Promise<TranscriptResponse>;
+  /**
+   * POST /api/sessions/:id/reopen (ADR-0008): a new session for the ticket that resumes the same
+   * agent with `text`. 409 conflict unless the session is the ticket's latest and done/failed.
+   */
+  reopen(sessionId: string, req: ReopenSessionRequest): Promise<ReopenSessionResponse>;
 }
 
 /** A non-2xx API response (ApiError body), thrown by every ApiClient method. */

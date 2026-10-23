@@ -1,5 +1,6 @@
 // The Messages composer: answers an open input request, else messages the running agent
-// (ADR-0007), else is disabled with the reason. A `/` at the start opens the slash menu.
+// (ADR-0007), else reopens a finished ticket with the same agent (ADR-0008), else is disabled
+// with the reason. A `/` at the start opens the slash menu.
 import type { SessionDetail } from '@conductor/shared';
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
@@ -16,7 +17,7 @@ import {
 } from './slash-commands.js';
 
 export type ComposerMode =
-  { mode: 'answer' } | { mode: 'message' } | { mode: 'off'; reason: string };
+  { mode: 'answer' } | { mode: 'message' } | { mode: 'reopen' } | { mode: 'off'; reason: string };
 
 /** What the composer can do for this session right now. */
 export function composerMode(detail: SessionDetail): ComposerMode {
@@ -26,6 +27,8 @@ export function composerMode(detail: SessionDetail): ComposerMode {
   if (status === null || status === 'queued' || status === 'assigned') {
     return { mode: 'off', reason: 'Queued — the agent hasn’t started' };
   }
+  // ADR-0008: a done or failed session reopens the ticket (lost ones can't: their machine is gone).
+  if (status === 'done' || status === 'failed') return { mode: 'reopen' };
   if (TERMINAL_STATUSES.has(status)) return { mode: 'off', reason: 'Session finished' };
   if (status === 'waiting_external') {
     return { mode: 'off', reason: 'Waiting on an external event — no agent running' };
@@ -50,9 +53,18 @@ interface ComposerProps {
   agentName: string;
   onDone: () => void;
   onShowDetails: () => void;
+  /** ADR-0008: the ticket was reopened; show the new session. */
+  onReopened?: (sessionId: string) => void;
 }
 
-export function Composer({ api, detail, agentName, onDone, onShowDetails }: ComposerProps) {
+export function Composer({
+  api,
+  detail,
+  agentName,
+  onDone,
+  onShowDetails,
+  onReopened,
+}: ComposerProps) {
   const sessionId = detail.card.session_id;
   const request = detail.pending_input;
   const m = composerMode(detail);
@@ -118,6 +130,11 @@ export function Composer({ api, detail, agentName, onDone, onShowDetails }: Comp
       void call(() => api.answer(sessionId, { input_request_id: request.id, answer: body }));
     } else if (m.mode === 'message') {
       void call(() => api.sendMessage(sessionId, { text: body }));
+    } else if (m.mode === 'reopen') {
+      void call(async () => {
+        const res = await api.reopen(sessionId, { text: body });
+        onReopened?.(res.session_id);
+      });
     }
   }
 
@@ -205,13 +222,16 @@ export function Composer({ api, detail, agentName, onDone, onShowDetails }: Comp
   }
 
   const answering = m.mode === 'answer';
-  const label = answering ? 'Answer' : 'Message';
+  const reopening = m.mode === 'reopen';
+  const label = answering ? 'Answer' : reopening ? 'Reopen with a message' : 'Message';
   const placeholder =
     m.mode === 'off'
       ? m.reason
       : answering
         ? 'Answer the question… (Enter to send, Shift+Enter for a new line)'
-        : `Message ${agentName}… (/ for commands)`;
+        : reopening
+          ? `Ask ${agentName} to change something…`
+          : `Message ${agentName}… (/ for commands)`;
 
   return (
     <div className="composer">
@@ -260,6 +280,10 @@ export function Composer({ api, detail, agentName, onDone, onShowDetails }: Comp
             ))}
           </ul>
           <p className="muted">Any other /command is sent to Claude as typed.</p>
+          <p className="muted">
+            On a finished session, type what to change and press <strong>Reopen</strong>: the same
+            agent picks the ticket up again, on the same branch, from the start of the workflow.
+          </p>
         </div>
       )}
       {menuOpen && (
@@ -301,25 +325,36 @@ export function Composer({ api, detail, agentName, onDone, onShowDetails }: Comp
           aria-autocomplete="list"
           aria-activedescendant={menuOpen ? `${listId}-${items[activeIndex]!.name}` : undefined}
         />
-        <button
-          type="button"
-          className="send"
-          aria-label={answering ? 'Send answer' : 'Send'}
-          title={answering ? 'Send answer' : 'Send'}
-          disabled={busy || m.mode === 'off' || text.trim() === ''}
-          onClick={submit}
-        >
-          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-            <path
-              d="M8 13V3M3.5 7.5 8 3l4.5 4.5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
+        {reopening ? (
+          <button
+            type="button"
+            className="reopen"
+            disabled={busy || text.trim() === ''}
+            onClick={submit}
+          >
+            Reopen
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="send"
+            aria-label={answering ? 'Send answer' : 'Send'}
+            title={answering ? 'Send answer' : 'Send'}
+            disabled={busy || m.mode === 'off' || text.trim() === ''}
+            onClick={submit}
+          >
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+              <path
+                d="M8 13V3M3.5 7.5 8 3l4.5 4.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        )}
       </div>
       {m.mode === 'off' && <p className="composer-reason muted">{m.reason}</p>}
       {error && (

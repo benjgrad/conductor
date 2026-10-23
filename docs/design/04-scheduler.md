@@ -70,6 +70,15 @@ Then, in the **same transaction** (pinned in [10](10-contracts.md#claim)):
 
 `ticket.repo_allow_machines` is a nullable `text[]` in [02](02-data-model.md) (null = any machine; [U-009](../tracking/UNKNOWNS.md) resolved: keep).
 
+**Reopen pin ([ADR-0008](../adr/0008-transcript-history-and-reopen.md)).** A reopened ticket's new session is `queued` on the branch of the session it reopens. That branch's worktree and Claude's transcript (which `--resume` needs, [ADR-0005](../adr/0005-claude-code-driver.md)) exist only on the machine that ran it, so the claim treats it as a **hard** filter, not as the +50 affinity score: a ticket with a `queued` session whose `branch` an earlier session of the same ticket ran on a machine is claimable only by that machine. The M1 claim (`gateway/claim.ts`) adds:
+```sql
+AND NOT EXISTS (SELECT 1 FROM session q
+                  JOIN session p ON p.ticket_id = q.ticket_id AND p.id <> q.id AND p.branch = q.branch
+                 WHERE q.ticket_id = t.id AND q.status = 'queued'
+                   AND p.machine_id IS NOT NULL AND p.machine_id <> $1)
+```
+It holds across requeues (it reads the earlier session, not the queued one's `machine_id`). If that machine never comes back, the card waits in Queued until a human cancels it (TD: cross-machine reopen would need the branch pushed and the transcript shipped, ADR-0005 revisit).
+
 ## 3 · Short-hold rule (softening greedy pull)
 
 A pull scheduler is greedy. A machine without the repo might grab a ticket a second before a machine that has it. The fix:

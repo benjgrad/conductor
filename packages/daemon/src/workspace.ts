@@ -11,7 +11,7 @@ import {
   readFileSync,
   realpathSync,
 } from 'node:fs';
-import { isAbsolute, join, relative, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { promisify } from 'node:util';
 import type { RepoInventoryEntry } from '@conductor/shared';
 import type { DaemonStore } from './store.js';
@@ -175,6 +175,14 @@ export class Workspace {
   /**
    * Create (or reuse) the session worktree on `branch`. An existing worktree is reused (resume,
    * re-sent start_session); an existing branch without a worktree is checked out again.
+   *
+   * ADR-0008 (reopen): a reopened ticket's new session carries the earlier session's branch,
+   * which is still checked out in that session's worktree (`<root>/wt/<old session>`), so
+   * `git worktree add` would fail with "already checked out". When the branch is checked out in
+   * another worktree directly under `<root>/wt`, that worktree is returned as is: same files
+   * (uncommitted ones too), same cwd, so the resumed Claude conversation and its transcript stay
+   * where they were. The caller must make sure no live process still uses it. A branch checked out
+   * anywhere else is an error.
    */
   async ensureWorktree(opts: {
     repo: string;
@@ -196,6 +204,14 @@ export class Workspace {
       if (existsSync(join(path, '.git'))) return path;
       mkdirSync(join(this.rootDir, 'wt'), { recursive: true });
       await git(clone, ['worktree', 'prune']);
+      const holder = await this.worktreeHolding(clone, opts.branch);
+      if (holder !== null) {
+        const wtDir = join(this.rootDir, 'wt');
+        if (sameDir(dirname(holder), wtDir) && existsSync(join(holder, '.git'))) {
+          return join(wtDir, basename(holder));
+        }
+        throw new Error(`branch ${opts.branch} is already checked out at ${holder}`);
+      }
       const hasBranch = await git(clone, ['branch', '--list', opts.branch]);
       if (hasBranch.trim() !== '') {
         await git(clone, ['worktree', 'add', '--quiet', path, opts.branch]);
@@ -204,6 +220,17 @@ export class Workspace {
       }
       return path;
     });
+  }
+
+  /** The worktree that has `branch` checked out (`git worktree list --porcelain`), or null. */
+  private async worktreeHolding(clone: string, branch: string): Promise<string | null> {
+    const out = await git(clone, ['worktree', 'list', '--porcelain']);
+    for (const block of out.split(/\n\s*\n/)) {
+      const lines = block.split('\n');
+      const path = lines.find((l) => l.startsWith('worktree '))?.slice('worktree '.length);
+      if (path !== undefined && lines.includes(`branch refs/heads/${branch}`)) return path;
+    }
+    return null;
   }
 
   private readonly locks = new Map<string, Promise<unknown>>();
@@ -276,6 +303,15 @@ export class Workspace {
       out.push({ repo, path, head_commit: head, tree_clean: clean });
     }
     return out.sort((a, b) => a.repo.localeCompare(b.repo));
+  }
+}
+
+/** Whether two paths name the same directory (realpaths; false if either is missing). */
+function sameDir(a: string, b: string): boolean {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
   }
 }
 

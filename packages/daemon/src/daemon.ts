@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { arch, homedir, hostname, platform } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import {
@@ -512,6 +512,15 @@ export class Daemon {
         branch: p.branch,
         baseRef: p.base_ref,
       });
+      // ADR-0008: a reopened session reuses the earlier session's worktree (its branch is checked
+      // out there). Never while a process of another session still runs in it.
+      if (worktree !== this.workspace.worktreePath(sid)) {
+        const busy = Object.entries(this.store.sessions).find(
+          ([id, x]) => id !== sid && sameWorktree(x.worktreePath, worktree) && this.isBusy(id),
+        );
+        if (busy) throw new Error(`worktree ${worktree} is in use by session ${busy[0]}`);
+        this.log(`session ${sid}: reusing worktree ${worktree} (branch ${p.branch})`);
+      }
       range = this.allocatePorts(sid);
       const tools = resolveToolPolicy(p.tools);
       const appendSystemPrompt = buildAppendSystemPrompt(this.workspace.readClaudeMd(worktree));
@@ -945,6 +954,15 @@ export class Daemon {
 
   private sendRaw(envelope: Record<string, unknown>): void {
     this.ws.send(JSON.stringify(envelope));
+  }
+}
+
+function sameWorktree(a: string, b: string): boolean {
+  if (a === b) return true;
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
   }
 }
 

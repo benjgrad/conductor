@@ -7,6 +7,7 @@ import {
   MachineDtoSchema,
   OkResponseSchema,
   OutputChunkSchema,
+  ReopenSessionResponseSchema,
   SessionDetailSchema,
   TranscriptResponseSchema,
   TicketDtoSchema,
@@ -16,6 +17,7 @@ import {
   type BoardSseEvent,
   type CreateTicketRequest,
   type OutputChunk,
+  type ReopenSessionRequest,
   type SendMessageRequest,
 } from '@conductor/shared';
 import {
@@ -282,6 +284,14 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
         TranscriptResponseSchema,
         'GET',
         API_PATHS.sessionTranscript(encodeURIComponent(sessionId)),
+      ),
+
+    reopen: (sessionId: string, req: ReopenSessionRequest) =>
+      request(
+        ReopenSessionResponseSchema,
+        'POST',
+        API_PATHS.sessionReopen(encodeURIComponent(sessionId)),
+        req,
       ),
   };
 }

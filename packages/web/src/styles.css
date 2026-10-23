@@ -661,6 +661,31 @@ button.copy {
   color: var(--muted);
   opacity: 1;
 }
+/* ADR-0008: reopen mode has a labelled button instead of the send arrow. */
+.composer-box:has(.reopen) textarea {
+  padding-right: 84px;
+}
+.composer-box .reopen {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+.composer-box .reopen:disabled {
+  background: var(--border);
+  color: var(--muted);
+  opacity: 1;
+}
+.history-notice {
+  margin: 0 0 6px;
+  font-size: 12px;
+}
 .composer-reason,
 .composer-error {
   margin: 4px 2px 0;

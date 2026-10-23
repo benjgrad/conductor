@@ -5,11 +5,13 @@
 // Scenarios (docs/qa/TEST_STRATEGY.md §E2E): happy path; test fails twice then passes; build
 // retries exhausted → needs_input → human retry; agent asks → answered via REST → continues;
 // U-028 agent never reports an outcome → nudged once → needs_input; ADR-0007 a message sent to
-// the running agent is folded into its turn; shutdown leaves no Claude process behind.
+// the running agent is folded into its turn; ADR-0008 a done ticket's history is read from
+// Claude's transcript, and reopening it resumes the same Claude conversation on the same branch;
+// shutdown leaves no Claude process behind.
 //
 // E2E_REAL_CLAUDE=1 runs only the ask/answer scenario against the installed `claude` on haiku
 // (spends money; never in CI). See e2e/README.md.
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NO_OUTCOME_QUESTION } from '../packages/shared/src/index.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -80,6 +82,22 @@ const SCENARIOS: Record<string, unknown> = {
         { await_message: true },
         { say: 'Got your message: $message' },
         { complete_state: { message: '$message' } },
+      ],
+    ],
+  },
+  // ADR-0008: turn 1 finishes the ticket; turn 2 is the reopen (`--resume`, prompt = the
+  // human's message), in the same worktree.
+  reopen: {
+    turns: [
+      [
+        { say: 'First pass.' },
+        { write_file: { path: 'src/first.txt', content: '1\n' } },
+        { complete_state: { summary: 'first pass' } },
+      ],
+      [
+        { say: 'Reopened.' },
+        { write_file: { path: 'src/second.txt', content: '2\n' } },
+        { complete_state: { change: '$answer' } },
       ],
     ],
   },
@@ -322,6 +340,75 @@ describe.skipIf(REAL)('fake Claude', () => {
     assertSingleLiveProcess('live_message');
     // Done: nothing is running, so a message is a conflict.
     await expect(api.message(sid, 'hello?')).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('ADR-0008: history from the transcript; reopen resumes the same agent on the same branch', async () => {
+    const id = await ticket('Reopen me', fakeBody('reopen'));
+    const first = await board.card(id, 'done', (c) => c.column === 'done');
+    const sid1 = first.session_id!;
+    const d1 = await api.session(sid1);
+
+    // History from Claude's transcript (what an empty ring after a restart falls back to).
+    const h1 = await api.transcript(sid1);
+    expect(h1.machine_id).toBe(stack.machineId);
+    const text1 = h1.chunks.map((c) => `${c.stream}: ${c.text}`);
+    expect(text1.some((t) => t.startsWith('user: ') && t.includes('fake-scenario: reopen'))).toBe(
+      true,
+    );
+    expect(text1).toContain('assistant: First pass.');
+    expect(text1.some((t) => t.startsWith('tool_use: mcp__conductor__complete_state {'))).toBe(
+      true,
+    );
+    expect(text1.some((t) => t.startsWith('tool_result: Recorded.'))).toBe(true);
+    expect(text1.join('\n')).not.toContain('Planning the turn.'); // thinking is skipped
+    expect(h1.chunks.map((c) => c.seq)).toEqual(h1.chunks.map((_, i) => i));
+    await expect(api.transcript('00000000-0000-4000-8000-000000000000')).rejects.toMatchObject({
+      status: 404,
+    });
+
+    // Reopen: a new session of the same ticket, resuming the same Claude conversation.
+    const { session_id: sid2 } = await api.reopen(sid1, 'Make it blue');
+    expect(sid2).not.toBe(sid1);
+    await expect(api.reopen(sid1, 'again')).rejects.toMatchObject({ status: 409 }); // not latest
+    const done2 = await board.card(
+      id,
+      'done again',
+      (c) => c.session_id === sid2 && c.column === 'done',
+      30_000,
+    );
+    expect(done2.status).toBe('done');
+    expect(board.states(id)).toEqual([
+      ...['implement', 'build', 'test', 'done'],
+      ...['implement', 'build', 'test', 'done'],
+    ]);
+    const d2 = await api.session(sid2);
+    expect(d2.branch).toBe(d1.branch);
+    expect(d2.worktree_path).toBe(d1.worktree_path); // the old worktree, reused
+    expect(d2.retry_counters).toEqual({});
+    expect(d2.context).toMatchObject({ implement: { change: 'Make it blue' } });
+    // Both turns' files are in the one worktree, on the one branch.
+    expect(existsSync(join(d2.worktree_path!, 'src/first.txt'))).toBe(true);
+    expect(existsSync(join(d2.worktree_path!, 'src/second.txt'))).toBe(true);
+
+    // The fake was started twice for this Claude session: new, then `--resume` of the same id.
+    const { claudeSessionId } = fakeState('reopen');
+    const starts = readFileSync(stack.fakeArgvLog, 'utf8')
+      .split('\n')
+      .filter((l) => l.trim() !== '')
+      .map((l) => (JSON.parse(l) as { argv: string[] }).argv)
+      .filter((argv) => argv.includes(claudeSessionId));
+    expect(starts).toHaveLength(2);
+    expect(starts[0]).toContain('--session-id');
+    expect(starts[1]![starts[1]!.indexOf('--resume') + 1]).toBe(claudeSessionId);
+    expect(fakeTurns('reopen')).toBe(2);
+
+    // The new session's history is the same Claude conversation, now with the reopen in it.
+    const h2 = (await api.transcript(sid2)).chunks.map((c) => `${c.stream}: ${c.text}`);
+    expect(h2).toContain('user: Make it blue');
+    expect(h2).toContain('assistant: Reopened.');
+    expect(h2).toContain('assistant: First pass.');
+    // Done again: reopening the new latest session works, the old one still conflicts.
+    await expect(api.reopen(sid1, 'nope')).rejects.toMatchObject({ status: 409 });
   });
 
   it('shutdown: stopping the daemon kills a parked Claude process; nothing is left behind', async () => {

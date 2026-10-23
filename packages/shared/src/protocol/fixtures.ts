@@ -186,6 +186,21 @@ export const DAEMON_FIXTURES: {
     fencing_token: 1,
     payload: { stream: 'assistant', text: 'Reading src/index.ts…\n', ts: TS },
   },
+  transcript: {
+    type: 'transcript',
+    msg_id: id(),
+    seq: null,
+    session_id: null,
+    fencing_token: null,
+    payload: {
+      request_id: '7a6b5c4d-3e2f-4a1b-8c9d-0e1f2a3b4c5d',
+      chunks: [
+        { stream: 'user', text: 'Make the button blue', ts: TS },
+        { stream: 'assistant', text: 'Done.', ts: TS },
+      ],
+      truncated: false,
+    },
+  },
 };
 
 export const ORCHESTRATOR_FIXTURES: {
@@ -300,5 +315,13 @@ export const ORCHESTRATOR_FIXTURES: {
       message: 'payload.free_slots: expected number',
       ref_msg_id: null,
     },
+  },
+  fetch_transcript: {
+    type: 'fetch_transcript',
+    msg_id: id(),
+    seq: null,
+    session_id: null,
+    fencing_token: null,
+    payload: { request_id: '7a6b5c4d-3e2f-4a1b-8c9d-0e1f2a3b4c5d', session_id: S },
   },
 };

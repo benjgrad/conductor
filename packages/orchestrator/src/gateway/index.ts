@@ -14,9 +14,12 @@ import {
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import {
   insertBoardEvents,
+  TRANSCRIPT_TIMEOUT_MS,
   type BoardBus,
   type EngineService,
   type OutputBus,
+  type TranscriptFetchResult,
+  type TranscriptSource,
 } from '../contracts.js';
 import { HttpGuard, httpSecurityFromEnv, type HttpSecurityOptions } from '../api/security.js';
 import { withTransaction } from '../db/index.js';
@@ -44,6 +47,8 @@ export interface GatewayOptions {
   log?: (msg: string) => void;
   /** Origin allow-list for the WS upgrade (M1-T14). Default: httpSecurityFromEnv(process.env). */
   security?: HttpSecurityOptions;
+  /** ADR-0008: wait this long for a `transcript` reply (default TRANSCRIPT_TIMEOUT_MS, 10 s). */
+  transcriptTimeoutMs?: number;
 }
 
 type GatewayDeps = Parameters<CreateGateway>[0] & GatewayOptions;
@@ -68,8 +73,19 @@ interface Conn {
   owned: Map<string, number>;
 }
 
+interface TranscriptWaiter {
+  machineId: string;
+  resolve: (r: TranscriptFetchResult) => void;
+  timer: NodeJS.Timeout;
+}
+
 class Gateway implements GatewayHandle {
   readonly transport = new SocketTransport();
+  readonly transcripts: TranscriptSource = {
+    fetchTranscript: (machineId, sessionId) => this.fetchTranscript(machineId, sessionId),
+  };
+  private readonly transcriptWaiters = new Map<string, TranscriptWaiter>();
+  private readonly transcriptTimeoutMs: number;
   private readonly db: Db;
   private readonly engine: EngineService;
   private readonly boardBus: BoardBus;
@@ -89,6 +105,7 @@ class Gateway implements GatewayHandle {
     this.boardBus = deps.boardBus;
     this.outputBus = deps.outputBus;
     this.heartbeatIntervalMs = deps.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
+    this.transcriptTimeoutMs = deps.transcriptTimeoutMs ?? TRANSCRIPT_TIMEOUT_MS;
     this.log = deps.log ?? ((m) => console.warn(`[gateway] ${m}`));
     this.guard = new HttpGuard(deps.security ?? httpSecurityFromEnv());
     this.wss.on('connection', (ws: WebSocket) => this.onConnection(ws));
@@ -125,6 +142,7 @@ class Gateway implements GatewayHandle {
 
   async close(): Promise<void> {
     this.closed = true;
+    for (const w of this.transcriptWaiters.values()) this.dropTranscriptWaiters(w.machineId);
     for (const { server, onUpgrade } of this.servers) server.off('upgrade', onUpgrade);
     this.servers = [];
     const conns = [...this.conns];
@@ -167,6 +185,7 @@ class Gateway implements GatewayHandle {
       this.conns.delete(conn);
       const machineId = conn.machineId;
       if (machineId && this.transport.unbind(machineId, ws)) {
+        this.dropTranscriptWaiters(machineId);
         this.track(
           conn.queue
             .then(() =>
@@ -265,6 +284,9 @@ class Gateway implements GatewayHandle {
         return this.onCommandAck(conn, machineId, msg);
       case 'session_event':
         return this.onSessionEvent(conn, machineId, msg);
+      case 'transcript':
+        this.onTranscript(machineId, msg);
+        return;
       case 'output':
         // M1-T14: only for a session this connection owns, under its current token (no DB read
         // per chunk: `owned` is kept from claims, heartbeats and session_events).
@@ -276,6 +298,68 @@ class Gateway implements GatewayHandle {
           new Date(msg.payload.ts),
         );
         return;
+    }
+  }
+
+  // ------------------------------------------------------------------ transcripts (ADR-0008)
+
+  /**
+   * `fetch_transcript` → the daemon's `transcript` reply, matched on request_id and accepted
+   * only from the machine it was sent to. Read-only, so a direct frame, not an outbox command.
+   */
+  private fetchTranscript(machineId: string, sessionId: string): Promise<TranscriptFetchResult> {
+    if (this.closed || !this.transport.isConnected(machineId)) {
+      return Promise.resolve({ status: 'offline' });
+    }
+    const requestId = randomUUID();
+    return new Promise<TranscriptFetchResult>((resolve) => {
+      const timer = setTimeout(() => {
+        this.transcriptWaiters.delete(requestId);
+        resolve({ status: 'timeout' });
+      }, this.transcriptTimeoutMs);
+      this.transcriptWaiters.set(requestId, { machineId, resolve, timer });
+      const done = (r: TranscriptFetchResult) => {
+        const w = this.transcriptWaiters.get(requestId);
+        if (!w) return;
+        clearTimeout(w.timer);
+        this.transcriptWaiters.delete(requestId);
+        resolve(r);
+      };
+      void this.transport
+        .send(machineId, {
+          type: 'fetch_transcript',
+          msg_id: randomUUID(),
+          seq: null,
+          session_id: null,
+          fencing_token: null,
+          payload: { request_id: requestId, session_id: sessionId },
+        })
+        .then((sent) => {
+          if (sent !== 'sent') done({ status: 'offline' });
+        });
+    });
+  }
+
+  private onTranscript(machineId: string, msg: Msg<'transcript'>): void {
+    const p = msg.payload;
+    const w = this.transcriptWaiters.get(p.request_id);
+    if (!w || w.machineId !== machineId) return; // late, unknown, or from another machine
+    clearTimeout(w.timer);
+    this.transcriptWaiters.delete(p.request_id);
+    w.resolve(
+      'error' in p
+        ? { status: 'error', error: p.error }
+        : { status: 'ok', chunks: p.chunks, truncated: p.truncated },
+    );
+  }
+
+  /** A machine's socket went away: its pending transcript requests answer `offline` now. */
+  private dropTranscriptWaiters(machineId: string): void {
+    for (const [id, w] of this.transcriptWaiters) {
+      if (w.machineId !== machineId) continue;
+      clearTimeout(w.timer);
+      this.transcriptWaiters.delete(id);
+      w.resolve({ status: 'offline' });
     }
   }
 

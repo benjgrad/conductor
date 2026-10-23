@@ -8,11 +8,14 @@ import type {
   MachineDto,
   OkResponse,
   OutputChunk,
+  ReopenSessionRequest,
+  ReopenSessionResponse,
   SendMessageRequest,
   SessionDetail,
   TicketDto,
   WorkflowDefinition,
   WorkflowDetail,
+  TranscriptResponse,
   WorkflowSummary,
 } from '@conductor/shared';
 
@@ -87,6 +90,16 @@ export interface ApiClient {
   sendMessage(sessionId: string, req: SendMessageRequest): Promise<OkResponse>;
   /** GET /api/machines (the Details tab shows the session's machine hostname and status). */
   listMachines(): Promise<MachineDto[]>;
+  /**
+   * GET /api/sessions/:id/transcript (ADR-0008): history from Claude's transcript on the session's
+   * machine. 503 machine_offline, 404 no_transcript, 504 timeout.
+   */
+  getTranscript(sessionId: string): Promise<TranscriptResponse>;
+  /**
+   * POST /api/sessions/:id/reopen (ADR-0008): a new session for the ticket that resumes the same
+   * agent with `text`. 409 conflict unless the session is the ticket's latest and done/failed.
+   */
+  reopen(sessionId: string, req: ReopenSessionRequest): Promise<ReopenSessionResponse>;
 }
 
 /** A non-2xx API response (ApiError body), thrown by every ApiClient method. */

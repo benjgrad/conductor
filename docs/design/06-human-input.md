@@ -59,6 +59,20 @@ sequenceDiagram
 - **Not an answer.** The daemon does not clear its `ask_user` / nudge state for it, and the driver does not clear the outcome server's pending question. The turn still has to end with `complete_state` or `ask_user`; the [U-028 nudge](../adr/0005-claude-code-driver.md#addendum-2026-10-22-turns-without-an-outcome-u-028) counts turns as before.
 - **Best effort.** A refusal is ignored by the engine (`message_refused`); the board shows it as a debug output line.
 
+## Reopening a finished ticket
+
+On a `done` or `failed` session the composer switches to **reopen** mode ([ADR-0008](../adr/0008-transcript-history-and-reopen.md)): the human types what to change ("Ask {agent} to change something…") and presses **Reopen**. `POST /api/sessions/:id/reopen {text}`:
+
+- creates a **new session** of the same ticket (the old one stays as it was: it is terminal, so the one-live-session-per-ticket index allows it). Allowed only for the ticket's **latest** session, and only `done` / `failed`; otherwise 409. A `lost` session can't be reopened: its machine went away, which is what the reaper's requeue is for, and its conversation and worktree live on that machine;
+- the new session is `queued` with the old session's **branch**, **context** and **Claude session id**, and the human's text as its pending answer (`pending_answer {input_request_id: null, answer: text}`). Retry counters, visits, spend, wall time and deadlines start fresh; the agent's name and avatar are per ticket, so the same agent comes back;
+- the ticket goes back to `ready`; the claim runs it **only on the machine that ran that branch** (the worktree and Claude's transcript are there, [04](04-scheduler.md#2--claim-query-ticket-side)). Its `session.assigned` enters the workflow's start state and `start_session` **resumes the same Claude conversation** (`--resume <id>`) with the text as the prompt, as an answer's resume does ([10](10-contracts.md#pending-answer)); then build → test → done as usual;
+- the daemon reuses the old session's worktree (the branch is still checked out there), so the files, uncommitted ones included, are the same;
+- the panel switches to the new session. The text shows in its Messages as a `user` chunk.
+
+## Message history after a restart
+
+The output ring is in memory ([U-005](../tracking/UNKNOWNS.md)), so after an orchestrator restart every session's Messages tab is empty. When the panel opens on a session whose ring and live stream have nothing (and it has a machine), the web fetches `GET /api/sessions/:id/transcript` once: the daemon on the session's machine reads Claude Code's own transcript and maps it to the same output streams ([ADR-0008](../adr/0008-transcript-history-and-reopen.md)). A quiet notice says where the history came from: "History loaded from Claude's transcript on <machine>", "History unavailable: <machine> is offline", or "No transcript found". Live chunks that arrive later are appended after the history (one streamed between the transcript read and the first live chunk may show twice). The transcript is per Claude conversation, so a reopened ticket's sessions show the whole conversation, both passes; and it has no command (build/test) output, only the agent's side.
+
 ## Kanban columns (queries, not state)
 
 | Column | Query (`session.status`) | Sort |
@@ -74,5 +88,7 @@ sequenceDiagram
 - The workflow state diagram with the current state highlighted.
 - Recent output from the orchestrator's per-session ring buffer, streamed live while open.
 - While the agent runs: a message box for [live messages](#live-messages-to-a-running-agent) (`/...` slash commands included); sent messages show in the output as `user` chunks.
+- On a done / failed session: the same box [reopens](#reopening-a-finished-ticket) the ticket with the same agent; `/help` says so.
+- An empty ring loads the [history from Claude's transcript](#message-history-after-a-restart).
 - The pending input request with an answer box. For non-agent kinds there are also quick actions (retry, skip to…, abort).
 - Context values (`pr_url`, …), spend and time against the budget.

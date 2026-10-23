@@ -158,7 +158,9 @@ function onAssigned(st: Step, machineId: string): ApplyIgnoreReason | null {
   const name = st.stateName;
   const state = st.state;
   if (name === null || state === undefined) {
-    enter(st, st.def.start, { ...NO_ROUTE, assigning: true });
+    // ADR-0008: a reopened session is created with the human's message as its pending answer;
+    // its first start delivers it (resuming the old Claude conversation when there is one).
+    enter(st, st.def.start, { ...NO_ROUTE, assigning: true, answer: st.s.pending_answer });
     return null;
   }
   switch (state.type) {
@@ -598,7 +600,7 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
 
   switch (toState.type) {
     case 'agent': {
-      if (opts.sendInput && opts.answer !== null) {
+      if (opts.sendInput && opts.answer !== null && opts.answer.input_request_id !== null) {
         // Live process of return_to: the answer goes to stdin; it stays pending until the agent's
         // next complete_state / ask_user (§Pending answer).
         s.pending_answer = opts.answer;

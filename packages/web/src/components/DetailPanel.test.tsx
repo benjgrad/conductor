@@ -4,11 +4,12 @@ import {
   type AnswerInputRequest,
   type BoardCard,
   type OutputChunk,
+  type ReopenSessionRequest,
   type SendMessageRequest,
 } from '@conductor/shared';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { CancelSessionRequest } from '../api/client.js';
+import { ApiRequestError, type CancelSessionRequest } from '../api/client.js';
 import { SEED_IDS } from '../api/mock-data.js';
 import { createMockApi } from '../api/mock.js';
 import { App } from '../App.js';
@@ -25,12 +26,19 @@ import { OutputLog } from './OutputLog.js';
 
 afterEach(cleanup);
 
-async function setup(title: string) {
+async function setup(title: string, patch?: (api: ReturnType<typeof createMockApi>) => void) {
   const api = createMockApi({ replyDelayMs: 0 });
+  patch?.(api);
   const calls = {
     messages: [] as [string, SendMessageRequest][],
     answers: [] as [string, AnswerInputRequest][],
     cancels: [] as [string, CancelSessionRequest | undefined][],
+    reopens: [] as [string, ReopenSessionRequest][],
+  };
+  const reopen = api.reopen.bind(api);
+  api.reopen = (sid, req) => {
+    calls.reopens.push([sid, req]);
+    return reopen(sid, req);
   };
   const sendMessage = api.sendMessage.bind(api);
   const answer = api.answer.bind(api);
@@ -58,6 +66,48 @@ async function setup(title: string) {
 const type = (box: HTMLElement, value: string) => fireEvent.change(box, { target: { value } });
 const enter = (box: HTMLElement, opts: { shiftKey?: boolean } = {}) =>
   fireEvent.keyDown(box, { key: 'Enter', ...opts });
+
+describe('history from the transcript (ADR-0008)', () => {
+  it('loads the transcript into an empty Messages tab', async () => {
+    const { panel } = await setup('Rename user.fullname');
+    expect(
+      await panel.findByText("History loaded from Claude's transcript on mbp-ben"),
+    ).toBeTruthy();
+    expect(panel.getByText('Renamed the field in 2 files and committed.')).toBeTruthy();
+  });
+
+  it('says so when the machine is offline', async () => {
+    const { panel } = await setup('Rename user.fullname', (api) => {
+      api.getTranscript = () =>
+        Promise.reject(new ApiRequestError(503, 'machine_offline', 'machine mbp-ben is offline'));
+    });
+    expect(await panel.findByText('History unavailable: mbp-ben is offline')).toBeTruthy();
+  });
+
+  it('says so when there is no transcript, and never fetches for a session with output', async () => {
+    let fetched: string[] = [];
+    const { panel } = await setup('Rename user.fullname', (api) => {
+      const get = api.getTranscript.bind(api);
+      api.getTranscript = (sid) => {
+        fetched.push(sid);
+        return sid === SEED_IDS.done.session
+          ? Promise.reject(new ApiRequestError(404, 'no_transcript', 'none'))
+          : get(sid);
+      };
+    });
+    expect(await panel.findByText('No transcript found')).toBeTruthy();
+    expect(fetched).toEqual([SEED_IDS.done.session]);
+    cleanup();
+    fetched = [];
+    await setup('Add pagination to /orders', (api) => {
+      api.getTranscript = (sid) => {
+        fetched.push(sid);
+        return Promise.reject(new Error('unexpected'));
+      };
+    });
+    expect(fetched).toEqual([]);
+  });
+});
 
 describe('session panel tabs', () => {
   it('opens on Messages and switches to Details by click and by arrow keys', async () => {
@@ -136,12 +186,45 @@ describe('composer', () => {
     expect(calls.messages).toEqual([]);
   });
 
-  it('is disabled with a reason when the session is finished', async () => {
-    const { panel } = await setup('Rename user.fullname');
+  it('is disabled with a reason when the session is lost', async () => {
+    const { panel } = await setup('Upgrade webpack');
     const box = panel.getByLabelText<HTMLTextAreaElement>('Message');
     expect(box.disabled).toBe(true);
     expect(panel.getByText('Session finished')).toBeTruthy();
     expect(panel.getByRole<HTMLButtonElement>('button', { name: 'Send' }).disabled).toBe(true);
+  });
+
+  it('reopens a done ticket with the same agent and switches to the new session (ADR-0008)', async () => {
+    const { calls, panel } = await setup('Rename user.fullname');
+    const name = agentName(SEED_IDS.done.ticket);
+    const box = panel.getByLabelText<HTMLTextAreaElement>('Reopen with a message');
+    expect(box.placeholder).toBe(`Ask ${name} to change something…`);
+    const button = panel.getByRole<HTMLButtonElement>('button', { name: 'Reopen' });
+    expect(button.disabled).toBe(true);
+    type(box, 'Also rename it in the docs');
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(calls.reopens).toEqual([
+        [SEED_IDS.done.session, { text: 'Also rename it in the docs' }],
+      ]),
+    );
+    // The panel (re-keyed by session) now shows the new, running session of the same ticket:
+    // the composer messages the live agent, and the human's message is in the chat.
+    const now = within(await screen.findByRole('complementary', { name: 'Session detail' }));
+    const message = await now.findByLabelText<HTMLTextAreaElement>('Message');
+    expect(message.placeholder).toBe(`Message ${name}… (/ for commands)`);
+    expect(await now.findByText('Also rename it in the docs')).toBeTruthy();
+    expect(now.getByText('running')).toBeTruthy();
+    expect(now.getByText('Rename user.fullname')).toBeTruthy();
+  });
+
+  it('/help explains reopening', async () => {
+    const { panel } = await setup('Rename user.fullname');
+    const box = panel.getByLabelText<HTMLTextAreaElement>('Reopen with a message');
+    type(box, '/help');
+    enter(box);
+    const help = panel.getByRole('region', { name: 'Commands' });
+    expect(within(help).getByText(/the same\s+agent picks the ticket up again/)).toBeTruthy();
   });
 
   it('keeps the draft when a question arrives mid-typing, and Send then answers it', async () => {

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync } from 'node:fs';
-import { arch, hostname, platform } from 'node:os';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { arch, homedir, hostname, platform } from 'node:os';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import {
   NO_OUTCOME_OUTPUT_CHARS,
   parseOrchestratorMessage,
@@ -10,8 +10,10 @@ import {
   type OrchestratorToDaemon,
   type OutputStream,
   type SessionEventPayload,
+  type TranscriptPayload,
 } from '@conductor/shared';
 import type { ClaudeDriver, DriverEvent, DriverSession } from './claude/driver.js';
+import { findTranscript, readTranscriptTail, transcriptChunks } from './claude/transcript.js';
 import { createCommandRunner as defaultCreateCommandRunner } from './commands/index.js';
 import type { CommandRunner, CreateCommandRunner } from './commands/runner.js';
 import { machineFacts, type DaemonConfig } from './config.js';
@@ -245,6 +247,12 @@ export class Daemon {
         return;
       case 'protocol_error':
         this.log(`protocol_error ${msg.payload.code}: ${msg.payload.message}`);
+        return;
+      case 'fetch_transcript':
+        this.sendMachine(
+          'transcript',
+          this.transcript(msg.payload.request_id, msg.payload.session_id),
+        );
         return;
       default:
         this.onCommand(msg);
@@ -504,6 +512,15 @@ export class Daemon {
         branch: p.branch,
         baseRef: p.base_ref,
       });
+      // ADR-0008: a reopened session reuses the earlier session's worktree (its branch is checked
+      // out there). Never while a process of another session still runs in it.
+      if (worktree !== this.workspace.worktreePath(sid)) {
+        const busy = Object.entries(this.store.sessions).find(
+          ([id, x]) => id !== sid && sameWorktree(x.worktreePath, worktree) && this.isBusy(id),
+        );
+        if (busy) throw new Error(`worktree ${worktree} is in use by session ${busy[0]}`);
+        this.log(`session ${sid}: reusing worktree ${worktree} (branch ${p.branch})`);
+      }
       range = this.allocatePorts(sid);
       const tools = resolveToolPolicy(p.tools);
       const appendSystemPrompt = buildAppendSystemPrompt(this.workspace.readClaudeMd(worktree));
@@ -820,6 +837,37 @@ export class Daemon {
     this.finish(msg, { accepted: true });
   }
 
+  // ============================================================ transcripts (ADR-0008)
+
+  /** Claude Code's config dir (where its transcripts are), as the agents see it. */
+  get claudeConfigDir(): string {
+    return (
+      this.config.claudeConfigDir ?? process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')
+    );
+  }
+
+  /**
+   * The reply to `fetch_transcript`. The file is located only from this daemon's store (the
+   * session's worktree and Claude session id), never from the request, so a request can't name
+   * a path. Read-only: no ack, no dedupe, nothing persisted.
+   */
+  transcript(requestId: string, sessionId: string): TranscriptPayload {
+    const s = this.store.session(sessionId);
+    if (!s) return { request_id: requestId, error: 'unknown_session' };
+    if (s.claudeSessionId === null) return { request_id: requestId, error: 'no_transcript' };
+    const path = findTranscript(this.claudeConfigDir, s.worktreePath, s.claudeSessionId);
+    if (path === null) return { request_id: requestId, error: 'no_transcript' };
+    try {
+      // TD: a synchronous read (at most TRANSCRIPT_READ_BYTES) on the daemon's event loop.
+      const { text, cut } = readTranscriptTail(path);
+      const { chunks, truncated } = transcriptChunks(text);
+      return { request_id: requestId, chunks, truncated: truncated || cut };
+    } catch (e) {
+      this.log(`transcript for session ${sessionId}: ${errText(e)}`);
+      return { request_id: requestId, error: 'read_failed' };
+    }
+  }
+
   // ============================================================ helpers
 
   private commandRunner(): CommandRunner {
@@ -906,6 +954,15 @@ export class Daemon {
 
   private sendRaw(envelope: Record<string, unknown>): void {
     this.ws.send(JSON.stringify(envelope));
+  }
+}
+
+function sameWorktree(a: string, b: string): boolean {
+  if (a === b) return true;
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
   }
 }
 

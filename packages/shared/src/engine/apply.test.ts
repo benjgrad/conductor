@@ -834,3 +834,86 @@ describe('operator.message (ADR-0007)', () => {
     }
   });
 });
+
+describe('ADR-0008: a reopened session (created queued with the human text pending)', () => {
+  /** What the orchestrator inserts on POST /reopen: queued, no state, carried id and context. */
+  function reopened(claudeId: string | null = CLAUDE): Harness {
+    const base = freshSnapshot(m1);
+    return new Harness(m1, {
+      ...base,
+      claude_session_id: claudeId,
+      pending_answer: { input_request_id: null, answer: 'Make it blue' },
+      context: { implement: { summary: 'first pass' } },
+      claude_spend_totals: claudeId === null ? {} : { [claudeId]: 0.5 },
+    });
+  }
+
+  it('the first claim enters start and resumes the old conversation with the text as prompt', () => {
+    const h = reopened();
+    const r = h.run({ type: 'session.assigned', machine_id: 'mbp-ben' });
+    expect(r.ignored).toBeNull();
+    expect(r.snapshot).toMatchObject({
+      status: 'assigned',
+      workflow_state: 'implement',
+      state_visits: { implement: 1 },
+      retry_counters: {},
+      context: { implement: { summary: 'first pass' } },
+      // kept until the agent runs on it (an ack-timeout requeue re-answers)
+      pending_answer: { input_request_id: null, answer: 'Make it blue' },
+    });
+    expect(find(r.effects, 'start_session')).toMatchObject({
+      state: 'implement',
+      prompt: 'Make it blue',
+      resume_claude_session_id: CLAUDE,
+    });
+    // started clears it; the visit then runs like any other.
+    h.started();
+    expect(h.snap).toMatchObject({ status: 'running', pending_answer: null });
+    h.complete({ change: 'blue' });
+    expect(h.snap.workflow_state).toBe('build');
+    expect(h.snap.context).toMatchObject({ implement: { change: 'blue' } });
+  });
+
+  it('a refused first start requeues and the re-claim re-answers with the same text', () => {
+    const h = reopened();
+    h.run({ type: 'session.assigned', machine_id: 'mbp-ben' });
+    h.run({
+      type: 'command.refused',
+      command_id: h.agentCmd,
+      command_kind: 'start_session',
+      reason: 'ack_timeout',
+    });
+    expect(h.snap).toMatchObject({ status: 'queued', machine_id: null });
+    expect(h.snap.pending_answer?.answer).toBe('Make it blue');
+    const r = h.run({ type: 'session.assigned', machine_id: 'mbp-ben' });
+    expect(find(r.effects, 'start_session')).toMatchObject({
+      prompt: 'Make it blue',
+      resume_claude_session_id: CLAUDE,
+    });
+  });
+
+  it('a resumed agent that dies before starting on the text fails to a human, bounded', () => {
+    const h = reopened();
+    h.run({ type: 'session.assigned', machine_id: 'mbp-ben' });
+    h.started();
+    h.run({ type: 'agent.exited', command_id: h.agentCmd, code: 1, signal: null });
+    expect(h.snap.status).toBe('needs_input');
+    expect(h.starts).toHaveLength(1);
+  });
+
+  it('without an earlier Claude session the text goes into the rendered start prompt', () => {
+    const h = reopened(null);
+    const r = h.run({ type: 'session.assigned', machine_id: 'mbp-ben' });
+    const start = find(r.effects, 'start_session');
+    expect(start?.resume_claude_session_id).toBeNull();
+    expect(start?.prompt).toContain('# Ticket: Add /health');
+    expect(start?.prompt).toContain('Make it blue');
+  });
+
+  it('a normal first claim (no pending answer) is unchanged', () => {
+    const h = new Harness(m1);
+    const r = h.run({ type: 'session.assigned', machine_id: 'mbp-ben' });
+    expect(r.snapshot.pending_answer).toBeNull();
+    expect(find(r.effects, 'start_session')?.prompt).toContain('# Ticket: Add /health');
+  });
+});

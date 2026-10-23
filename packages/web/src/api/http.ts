@@ -7,7 +7,9 @@ import {
   MachineDtoSchema,
   OkResponseSchema,
   OutputChunkSchema,
+  ReopenSessionResponseSchema,
   SessionDetailSchema,
+  TranscriptResponseSchema,
   TicketDtoSchema,
   SaveWorkflowResponseSchema,
   WorkflowDetailSchema,
@@ -17,6 +19,7 @@ import {
   type BoardSseEvent,
   type CreateTicketRequest,
   type OutputChunk,
+  type ReopenSessionRequest,
   type SendMessageRequest,
   type WorkflowDefinition,
 } from '@conductor/shared';
@@ -294,6 +297,21 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
       ),
 
     listMachines: () => request(MachineDtoSchema.array(), 'GET', API_PATHS.machines),
+
+    getTranscript: (sessionId: string) =>
+      request(
+        TranscriptResponseSchema,
+        'GET',
+        API_PATHS.sessionTranscript(encodeURIComponent(sessionId)),
+      ),
+
+    reopen: (sessionId: string, req: ReopenSessionRequest) =>
+      request(
+        ReopenSessionResponseSchema,
+        'POST',
+        API_PATHS.sessionReopen(encodeURIComponent(sessionId)),
+        req,
+      ),
   };
 }
 

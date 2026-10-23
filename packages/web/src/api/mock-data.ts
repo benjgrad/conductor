@@ -205,6 +205,8 @@ export interface MockSession {
   wall_seconds: number;
   branch: string | null;
   output: OutputChunk[];
+  /** What GET /transcript returns (ADR-0008); absent → 404 no_transcript. */
+  transcript?: OutputChunk[];
 }
 
 export interface MockSeed {
@@ -266,6 +268,8 @@ interface SeedSpec {
   slot?: boolean;
   context?: MockSession['context'];
   output?: string[];
+  /** Claude-transcript history, as [stream, text] pairs (ADR-0008). */
+  transcript?: [OutputChunk['stream'], string][];
 }
 
 function seed(now: Date, s: SeedSpec): MockSeed {
@@ -305,6 +309,17 @@ function seed(now: Date, s: SeedSpec): MockSeed {
       wall_seconds: (s.ageMin - s.activeMinAgo) * 60 + 30,
       branch: `conductor/${s.session.slice(0, 8)}`,
       output,
+      ...(s.transcript
+        ? {
+            transcript: s.transcript.map(([stream, text], seq): OutputChunk => ({
+              session_id: s.session,
+              seq,
+              stream,
+              text,
+              ts: ago(now, s.activeMinAgo + 1),
+            })),
+          }
+        : {}),
     },
   };
 }
@@ -406,6 +421,20 @@ export function mockSeeds(now: Date): MockSeed[] {
       ageMin: 600,
       activeMinAgo: 500,
       spend: 0.27,
+      // As after an orchestrator restart: the ring is empty, the history comes from the transcript.
+      output: [],
+      transcript: [
+        ['user', '# Ticket: Rename user.fullname\n\nRename the field to `full_name` everywhere.'],
+        ['assistant', 'Renaming `fullname` to `full_name` in the model and its callers.'],
+        ['tool_use', 'Bash {"command":"grep -rn fullname src"}'],
+        [
+          'tool_result',
+          'src/models/user.ts:12:  fullname: string;\nsrc/api/users.ts:40:  user.fullname',
+        ],
+        ['tool_use', 'mcp__conductor__complete_state {"result":{"summary":"Renamed in 2 files"}}'],
+        ['tool_result', 'Recorded. Stop now: do not call any other tool and end your turn.'],
+        ['assistant', 'Renamed the field in 2 files and committed.'],
+      ],
     }),
     seed(now, {
       ...id.failed,

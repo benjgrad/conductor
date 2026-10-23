@@ -3,6 +3,7 @@ import {
   BOARD_COLUMNS,
   columnFor,
   CreateTicketRequestSchema,
+  ReopenSessionRequestSchema,
   SendMessageRequestSchema,
   type BoardCard,
   type BoardResponse,
@@ -13,12 +14,14 @@ import {
   type OkResponse,
   type OutputChunk,
   type OutputStream,
+  type ReopenSessionResponse,
   type SessionDetail,
   type SessionStatus,
   type TicketDto,
   validateWorkflow,
   type WorkflowDefinition,
   type WorkflowDetail,
+  type TranscriptResponse,
   type WorkflowSummary,
 } from '@conductor/shared';
 import {
@@ -424,6 +427,65 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           mem_free_mb: 9_400,
         },
       ]),
+
+    getTranscript: (sessionId) =>
+      reply((): TranscriptResponse => {
+        const s = sessionOf(sessionId);
+        if (!s.transcript) {
+          throw new ApiRequestError(404, 'no_transcript', 'machine mbp-ben has no transcript');
+        }
+        return clone({ machine_id: 'mbp-ben', chunks: s.transcript, truncated: false });
+      }),
+
+    reopen: (sessionId, raw) =>
+      reply((): ReopenSessionResponse => {
+        const parsed = ReopenSessionRequestSchema.safeParse(raw);
+        if (!parsed.success) throw new ApiRequestError(400, 'bad_request', parsed.error.message);
+        const s = sessionOf(sessionId);
+        const card = [...cards.values()].find((c) => c.session_id === sessionId);
+        if (!card) throw new ApiRequestError(409, 'conflict', 'not the ticket’s latest session');
+        if (card.status !== 'done' && card.status !== 'failed') {
+          throw new ApiRequestError(409, 'conflict', `the session is ${card.status ?? 'queued'}`);
+        }
+        // Like the orchestrator after the claim: a new running session for the same ticket, at
+        // the workflow's start state, with the same branch and context (ADR-0008).
+        const id = crypto.randomUUID();
+        const start = s.workflow.start;
+        sessions.set(id, {
+          ...clone(s),
+          return_to: null,
+          state_entered_at: now().toISOString(),
+          wall_seconds: 0,
+          output: [],
+        });
+        const next: BoardCard = {
+          ...card,
+          session_id: id,
+          status: 'running',
+          workflow_state: start,
+          column: columnFor('running'),
+          input_request: null,
+          spend_usd: 0,
+          updated_at: now().toISOString(),
+        };
+        cards.set(card.ticket_id, next);
+        emit([
+          {
+            type: 'card.moved',
+            session_id: id,
+            ticket_id: card.ticket_id,
+            from: card.column,
+            to: next.column,
+          },
+          { type: 'card.upserted', session_id: id, ticket_id: card.ticket_id, card: next },
+        ]);
+        const text = parsed.data.text;
+        api.pushOutput(id, text, 'user');
+        setTimeout(() => {
+          if (sessions.has(id)) api.pushOutput(id, fakeReply(text));
+        }, replyDelay);
+        return { session_id: id };
+      }),
 
     pushOutput(sessionId, text, stream = 'assistant') {
       const s = sessionOf(sessionId);

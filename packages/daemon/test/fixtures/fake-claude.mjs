@@ -51,10 +51,22 @@
 //   FAKE_CLAUDE_ARGV_LOG    append one JSON line {argv, cwd, env} per process start
 //   FAKE_CLAUDE_VERSION     claude_code_version reported in init and by `--version`
 //                           (default "0.0.0-fake")
+//   CLAUDE_CONFIG_DIR       when set, write a transcript like the real CLI (ADR-0008):
+//                           <dir>/projects/<realpath(cwd), non-alphanumerics → '-'>/<id>.jsonl,
+//                           appending on --resume. Lines: each turn's user prompt, a
+//                           queue-operation and a thinking-only assistant line (to be skipped),
+//                           then every assistant / tool_result line written to stdout.
 //
 // `fake-claude --version` prints "<version> (Claude Code)" and exits 0, like the real CLI (the
 // daemon reports it in `register`, U-015).
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -160,8 +172,36 @@ const saveState = () => writeFileSync(statePath, JSON.stringify(state));
 saveState();
 if (scenario === null && state.scenario !== undefined) scenario = loadNamedScenario(state.scenario);
 
+// ADR-0008: the transcript the real CLI keeps under its config dir.
+const transcriptFile = process.env.CLAUDE_CONFIG_DIR
+  ? join(
+      process.env.CLAUDE_CONFIG_DIR,
+      'projects',
+      realpathSync(process.cwd()).replace(/[^A-Za-z0-9]/g, '-'),
+      `${sessionId}.jsonl`,
+    )
+  : null;
+function transcript(line) {
+  if (transcriptFile === null) return;
+  mkdirSync(dirname(transcriptFile), { recursive: true });
+  appendFileSync(
+    transcriptFile,
+    JSON.stringify({
+      ...line,
+      isSidechain: false,
+      sessionId,
+      cwd: process.cwd(),
+      uuid: randomUUID(),
+      timestamp: new Date().toISOString(),
+    }) + '\n',
+  );
+}
+
 // 2./3. protocol
-const out = (o) => process.stdout.write(JSON.stringify({ ...o, session_id: sessionId }) + '\n');
+const out = (o) => {
+  if (o.type === 'assistant' || o.type === 'user') transcript({ type: o.type, message: o.message });
+  process.stdout.write(JSON.stringify({ ...o, session_id: sessionId }) + '\n');
+};
 let mcp;
 async function callTool(name, args) {
   if (!mcp) {
@@ -228,6 +268,12 @@ async function runTurn(text) {
     state.scenario = scenarioNameFor(text);
     scenario = loadNamedScenario(state.scenario);
   }
+  transcript({ type: 'queue-operation', operation: 'enqueue', content: text });
+  transcript({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } });
+  transcript({
+    type: 'assistant',
+    message: { role: 'assistant', content: [{ type: 'thinking', thinking: 'Planning the turn.' }] },
+  });
   const turnIndex = state.turn;
   state.turn += 1;
   saveState(); // a crash mid-turn resumes at the next turn, like a real transcript

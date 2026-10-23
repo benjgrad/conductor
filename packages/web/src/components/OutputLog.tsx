@@ -44,6 +44,9 @@ export function buildEntries(chunks: readonly OutputChunk[]): Entry[] {
     switch (c.stream) {
       case 'assistant':
         if (c.text.trim() !== '') out.push({ kind: 'text', key, text: c.text });
+        // TD-085: pairing is by order (chunks carry no tool_use_id). The model only speaks
+        // again after a batch's results are in, so a lost result can't shift later batches.
+        waiting.length = 0;
         break;
       case 'tool_use': {
         const entry = { kind: 'tool' as const, key, call: parseToolUse(c.text), result: null };

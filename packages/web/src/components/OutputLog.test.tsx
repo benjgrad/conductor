@@ -40,6 +40,19 @@ describe('buildEntries', () => {
     expect(e[2]?.kind === 'tool' && e[2].result).toBe('B');
   });
 
+  it('a lost result only affects its own batch (TD-085)', () => {
+    const e = buildEntries([
+      use('Read', { file_path: 'a' }),
+      use('Read', { file_path: 'b' }),
+      chunk('tool_result', 'A'), // b's result never arrived
+      chunk('assistant', 'Next.'),
+      use('Bash', { command: 'ls' }),
+      chunk('tool_result', 'LS'),
+    ]);
+    const tools = e.filter((x) => x.kind === 'tool');
+    expect(tools.map((t) => t.result)).toEqual(['A', null, 'LS']);
+  });
+
   it('merges consecutive command output per stream and consecutive debug lines', () => {
     const e = buildEntries([
       chunk('stdout', 'build '),

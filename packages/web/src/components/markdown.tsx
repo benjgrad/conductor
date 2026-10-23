@@ -3,8 +3,9 @@
 // (never HTML strings), so model output can't inject markup. Links are http(s) only.
 import { Fragment, type ReactNode } from 'react';
 
+// Link text is capped at 200 chars: unbounded, a long line of `[`s made the scan quadratic (QA).
 const INLINE =
-  /(`[^`\n]+`)|(\*\*[^*\n]+?\*\*)|(\[[^\]\n]+\]\(https?:\/\/[^)\s]+\))|(\*[^*\s][^*\n]*?\*)|(_[^_\s][^_\n]*?_)/g;
+  /(`[^`\n]+`)|(\*\*[^*\n]+?\*\*)|(\[[^\]\n]{1,200}\]\(https?:\/\/[^)\s]+\))|(\*[^*\s][^*\n]*?\*)|(_[^_\s][^_\n]*?_)/g;
 
 export function renderInline(text: string, keyBase = 'i'): ReactNode[] {
   const out: ReactNode[] = [];

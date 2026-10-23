@@ -313,6 +313,14 @@ class Session implements CliDriverSession {
     this.child.stdin.write(userMessageLine(text));
   }
 
+  sendMessage(text: string): void {
+    if (this.childGone || this.child.stdin.destroyed || this.child.stdin.writableEnded) {
+      throw new Error('claude driver: no live process to send a message to');
+    }
+    // Not an answer (ADR-0007): the outcome server's pending question is left as it is.
+    this.child.stdin.write(userMessageLine(text));
+  }
+
   end(): void {
     if (this.childGone) return;
     this.child.stdin.end();

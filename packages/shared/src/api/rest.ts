@@ -204,7 +204,7 @@ export type ApiError = z.infer<typeof ApiErrorSchema>;
 export type ApiErrorCode = ApiError['error']['code'];
 
 /** The REST routes that call EngineService.applyEvent (T08). */
-export type EngineRoute = 'input' | 'approve' | 'cancel';
+export type EngineRoute = 'input' | 'approve' | 'cancel' | 'message';
 
 /** Rejected (nothing written) → HTTP. Same for every route. */
 export const APPLY_REJECT_HTTP = {
@@ -220,7 +220,8 @@ export const APPLY_REJECT_HTTP = {
  * HTTP status + ApiError code for a non-applied EngineService result (10-contracts §REST error
  * map). `applied` → 202 OkResponse. `ignored` (the event row is written, nothing changed) →
  * 409: `input_not_pending` on /input (the session is not waiting for that answer), `conflict`
- * on /approve (not waiting for `ui.approve`) and /cancel (already terminal).
+ * on /approve (not waiting for `ui.approve`), /cancel (already terminal) and /messages (not
+ * `running` an agent state with a live process, ADR-0007).
  */
 export function httpForApplyResult(
   route: EngineRoute,

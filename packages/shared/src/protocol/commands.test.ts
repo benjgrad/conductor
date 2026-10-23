@@ -74,6 +74,27 @@ describe('commandPayloadForEffect (Effect → WS)', () => {
     expect(envelope(r.kind, r.payload).type).toBe('run_cmd');
   });
 
+  it('send_message targets the current agent process (ADR-0007)', () => {
+    const agent = 'a9e17000-1111-4222-8333-444455556666';
+    const snapshot = { ...SNAPSHOT_FIXTURE, agent_command_id: agent, agent_process_live: true };
+    const c = commandPayloadForEffect(
+      { type: 'send_message', text: '/context' },
+      { ...ctx, snapshot },
+    );
+    expect(c).toEqual({
+      kind: 'send_message',
+      target: 'machine:mbp-ben',
+      payload: { command_id, target_command_id: agent, text: '/context' },
+    });
+    expect(envelope(c.kind, c.payload).type).toBe('send_message');
+    expect(() =>
+      commandPayloadForEffect(
+        { type: 'send_message', text: 'x' },
+        { ...ctx, snapshot: { ...SNAPSHOT_FIXTURE, agent_command_id: null } },
+      ),
+    ).toThrow(/without an agent process/);
+  });
+
   it('throws without a machine', () => {
     expect(() =>
       commandPayloadForEffect(

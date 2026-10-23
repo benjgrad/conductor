@@ -123,7 +123,7 @@ function startSession(
   };
 }
 
-function cmd<T extends 'send_input' | 'run_cmd' | 'kill'>(
+function cmd<T extends 'send_input' | 'send_message' | 'run_cmd' | 'kill'>(
   type: T,
   sessionId: string,
   payload: Extract<OrchestratorToDaemon, { type: T }>['payload'],
@@ -496,6 +496,91 @@ describe('daemon core: start_session', () => {
     const ack = await orch.until(() => orch.ack(s.payload.command_id)[0]);
     expect(ack.payload.accepted).toBe(false);
     expect(ack.payload.reason).toMatch(/^start_failed: /);
+  });
+});
+
+describe('daemon core: send_message (ADR-0007)', () => {
+  const message = (sid: string, target: string, text: string, token = 1) =>
+    cmd('send_message', sid, { command_id: randomUUID(), target_command_id: target, text }, token);
+  const cidOf = (m: OrchestratorToDaemon) => (m.payload as { command_id: string }).command_id;
+
+  it('writes into the working process (not as an answer) and leaves the U-028 nudge state alone', async () => {
+    // Turn 1 has no outcome → nudge. Turn 2 (the nudge) is working when the message arrives; it is
+    // folded in, and the turn still ends without an outcome → no_outcome: the message neither
+    // re-armed the nudge nor counted as an answer.
+    const driver = new FakeClaudeDriver({
+      turns: [[{ say: 'first' }], [{ say: 'working' }, { awaitMessage: true }, { say: 'ok' }]],
+    });
+    makeDaemon(driver);
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    const start = startSession(sid);
+    orch.send(start);
+    await orch.until(() => (driver.last?.inputs.length === 1 ? true : undefined));
+    const m = message(sid, start.payload.command_id, '/context');
+    orch.send(m);
+    const ack = await orch.until(() => orch.ack(cidOf(m))[0]);
+    expect(ack.payload).toEqual({ command_id: cidOf(m), accepted: true });
+    expect(driver.last!.messages).toEqual(['/context']);
+    expect(driver.last!.inputs).toEqual([NO_OUTCOME_NUDGE]); // no answer, no second nudge
+    await orch.until(() => orch.events('no_outcome')[0]);
+    expect(driver.last!.exited).toBe(false);
+
+    // A re-sent command is re-acked, never written twice (command_id dedupe).
+    orch.send(m);
+    await orch.until(() => (orch.ack(cidOf(m)).length === 2 ? true : undefined));
+    expect(driver.last!.messages).toEqual(['/context']);
+  });
+
+  it('refuses: parked (agent_parked), another process, a newer process token, or none (no_live_process)', async () => {
+    const driver = new FakeClaudeDriver({ turns: [[{ askUser: 'Which DB?' }]] });
+    makeDaemon(driver);
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    const start = startSession(sid, {}, 5);
+    orch.send(start);
+    await orch.until(() => orch.events('ask_user')[0]);
+    const target = start.payload.command_id;
+
+    const refused = async (m: OrchestratorToDaemon) => {
+      orch.send(m);
+      return (await orch.until(() => orch.ack(cidOf(m))[0])).payload;
+    };
+    expect(await refused(message(sid, target, 'hi', 5))).toMatchObject({
+      accepted: false,
+      reason: 'agent_parked',
+    });
+    expect(await refused(message(sid, randomUUID(), 'hi', 5))).toMatchObject({
+      accepted: false,
+      reason: 'no_live_process',
+    });
+    expect(await refused(message(sid, target, 'hi', 4))).toMatchObject({
+      accepted: false,
+      reason: 'no_live_process',
+    });
+    expect(await refused(message(randomUUID(), target, 'hi', 5))).toMatchObject({
+      accepted: false,
+      reason: 'no_live_process',
+    });
+    expect(driver.last!.messages).toEqual([]);
+    expect(driver.last!.inputs).toEqual([]);
+  });
+
+  it('refuses with no_live_process once the process completed', async () => {
+    makeDaemon(new FakeClaudeDriver(complete({})));
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    const start = startSession(sid);
+    orch.send(start);
+    await orch.until(() => orch.events('exit')[0]);
+    const m = message(sid, start.payload.command_id, 'too late');
+    orch.send(m);
+    const ack = await orch.until(() => orch.ack(cidOf(m))[0]);
+    expect(ack.payload).toEqual({
+      command_id: cidOf(m),
+      accepted: false,
+      reason: 'no_live_process',
+    });
   });
 });
 

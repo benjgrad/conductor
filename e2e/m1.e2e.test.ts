@@ -4,8 +4,8 @@
 //
 // Scenarios (docs/qa/TEST_STRATEGY.md §E2E): happy path; test fails twice then passes; build
 // retries exhausted → needs_input → human retry; agent asks → answered via REST → continues;
-// U-028 agent never reports an outcome → nudged once → needs_input; shutdown leaves no Claude
-// process behind.
+// U-028 agent never reports an outcome → nudged once → needs_input; ADR-0007 a message sent to
+// the running agent is folded into its turn; shutdown leaves no Claude process behind.
 //
 // E2E_REAL_CLAUDE=1 runs only the ask/answer scenario against the installed `claude` on haiku
 // (spends money; never in CI). See e2e/README.md.
@@ -70,6 +70,18 @@ const SCENARIOS: Record<string, unknown> = {
       [{ say: 'Got it.' }, { complete_state: { answer: '$answer' } }],
     ],
     defaultTurn: [{ say: 'Still thinking.' }],
+  },
+  // ADR-0007: the only turn waits for a message from the human, folds it in (no turn of its own,
+  // like the real CLI mid-turn), echoes it and completes with it.
+  live_message: {
+    turns: [
+      [
+        { say: 'Working; waiting for a word from the human.' },
+        { await_message: true },
+        { say: 'Got your message: $message' },
+        { complete_state: { message: '$message' } },
+      ],
+    ],
   },
 };
 
@@ -283,6 +295,33 @@ describe.skipIf(REAL)('fake Claude', () => {
     expect((await api.session(sid)).context).toMatchObject({ implement: { answer: 'carry on' } });
     expect(fakeTurns('no_outcome')).toBe(3);
     assertSingleLiveProcess('no_outcome');
+  });
+
+  it('ADR-0007: a message to the running agent is folded into its turn; a slash command passes through', async () => {
+    const id = await ticket('Live message', fakeBody('live_message'));
+    const sid = await sessionOf(id);
+    const out = new OutputWatcher(stack.baseUrl, sid);
+    try {
+      // As a human would: wait until the agent is visibly working (the fake's turn is then at its
+      // await_message; a message that arrived before it would be queued as the next turn).
+      await out.waitForText('waiting for a word from the human', 20_000);
+      await api.message(sid, '/context');
+      await out.waitForText('Got your message: /context', 20_000);
+      // The orchestrator shows the human's message on the output stream (Claude does not echo it).
+      expect(out.chunks.filter((c) => c.stream === 'user').map((c) => c.text)).toEqual([
+        '/context',
+      ]);
+    } finally {
+      out.close();
+    }
+    await board.card(id, 'done', (c) => c.column === 'done', 30_000);
+    expect(board.states(id)).toEqual(['implement', 'build', 'test', 'done']);
+    expect((await api.session(sid)).context).toMatchObject({ implement: { message: '/context' } });
+    // Folded into the running turn: one turn, one process.
+    expect(fakeTurns('live_message')).toBe(1);
+    assertSingleLiveProcess('live_message');
+    // Done: nothing is running, so a message is a conflict.
+    await expect(api.message(sid, 'hello?')).rejects.toMatchObject({ status: 409 });
   });
 
   it('shutdown: stopping the daemon kills a parked Claude process; nothing is left behind', async () => {

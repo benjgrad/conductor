@@ -16,7 +16,12 @@ export type FakeTurnAction =
   /** Emit an arbitrary DriverEvent (e.g. tool_use output). */
   | { emit: DriverEvent }
   /** The process dies mid-turn: emits `exit` and nothing after it. */
-  | { crash: { code: number | null; signal?: string } };
+  | { crash: { code: number | null; signal?: string } }
+  /**
+   * ADR-0007: the turn pauses until a sendMessage arrives, which is folded into it (as the real
+   * CLI does mid-turn); then the rest of the turn plays.
+   */
+  | { awaitMessage: true };
 
 /** Static actions, or a function of the user message that started the turn (`$answer`). */
 export type FakeTurn = FakeTurnAction[] | ((input: string) => FakeTurnAction[]);
@@ -66,6 +71,12 @@ export class FakeDriverSession implements DriverSession {
   readonly events: DriverEvent[] = [];
   /** Every sendInput text, in order. */
   readonly inputs: string[] = [];
+  /**
+   * Every sendMessage text, in order (ADR-0007). A message is folded into the current turn, as
+   * the real CLI does mid-turn: it runs no turn of its own; a paused `awaitMessage` resumes.
+   */
+  readonly messages: string[] = [];
+  private resumeTurn: (() => void) | null = null;
   ended = false;
   killed = false;
   exited = false;
@@ -93,6 +104,14 @@ export class FakeDriverSession implements DriverSession {
     this.inputs.push(text);
     this.askPending = false;
     this.runTurn(text);
+  }
+
+  sendMessage(text: string): void {
+    if (this.exited) throw new Error('fake claude: process has exited');
+    this.messages.push(text);
+    const resume = this.resumeTurn;
+    this.resumeTurn = null;
+    if (resume) queueMicrotask(resume);
   }
 
   end(): void {
@@ -131,29 +150,39 @@ export class FakeDriverSession implements DriverSession {
       if (turn === undefined) {
         this.emit({ kind: 'output', stream: 'debug', text: 'fake claude: script exhausted' });
       }
-      for (const a of actions) {
-        if ('crash' in a) {
-          this.exit(a.crash.code, a.crash.signal ?? null);
-          return;
-        }
-        this.act(a);
-      }
-      this.track.totalUsd += this.script.costPerTurnUsd ?? 0.01;
-      this.emit({
-        kind: 'spend',
-        totalUsd: this.track.totalUsd,
-        usage: { inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheCreationTokens: 0 },
-      });
-      this.emit({
-        kind: 'turn_end',
-        isError: turn === undefined,
-        subtype: turn === undefined ? 'error_during_execution' : 'success',
-        permissionDenials: 0,
-      });
+      this.play(actions, 0, turn === undefined);
     });
   }
 
-  private act(a: Exclude<FakeTurnAction, { crash: unknown }>): void {
+  private play(actions: FakeTurnAction[], from: number, exhausted: boolean): void {
+    if (this.exited) return;
+    for (let i = from; i < actions.length; i++) {
+      const a = actions[i]!;
+      if ('crash' in a) {
+        this.exit(a.crash.code, a.crash.signal ?? null);
+        return;
+      }
+      if ('awaitMessage' in a) {
+        this.resumeTurn = () => this.play(actions, i + 1, exhausted);
+        return;
+      }
+      this.act(a);
+    }
+    this.track.totalUsd += this.script.costPerTurnUsd ?? 0.01;
+    this.emit({
+      kind: 'spend',
+      totalUsd: this.track.totalUsd,
+      usage: { inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheCreationTokens: 0 },
+    });
+    this.emit({
+      kind: 'turn_end',
+      isError: exhausted,
+      subtype: exhausted ? 'error_during_execution' : 'success',
+      permissionDenials: 0,
+    });
+  }
+
+  private act(a: Exclude<FakeTurnAction, { crash: unknown } | { awaitMessage: true }>): void {
     if ('say' in a) {
       this.emit({ kind: 'output', stream: 'assistant', text: a.say });
     } else if ('emit' in a) {

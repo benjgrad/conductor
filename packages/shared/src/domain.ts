@@ -45,6 +45,7 @@ export type InputRequestKind = z.infer<typeof InputRequestKindSchema>;
 export const OutboxKindSchema = z.enum([
   'start_session',
   'send_input',
+  'send_message',
   'run_cmd',
   'kill',
   'connector_call',

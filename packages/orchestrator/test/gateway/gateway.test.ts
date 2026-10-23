@@ -396,6 +396,117 @@ describe('command_ack', () => {
   });
 });
 
+describe('send_message (ADR-0007)', () => {
+  const messageRows = (sessionId: string) =>
+    db.pool
+      .query<OutboxRow>(
+        `SELECT * FROM outbox WHERE session_id = $1 AND kind = 'send_message' ORDER BY id`,
+        [sessionId],
+      )
+      .then((r) => r.rows);
+
+  /** A running session whose agent process is live (start acked, `started` applied). */
+  async function live(d: FakeDaemon) {
+    await ticket();
+    const { wa, row } = await claimAndDeliver(d);
+    const sid = wa.payload.session_id;
+    const token = wa.fencing_token;
+    d.ack(row.command_id, true, undefined, sid, token);
+    d.sessionEvent(1, sid, token, {
+      kind: 'started',
+      data: {
+        command_id: row.command_id,
+        worktree_path: '/w',
+        branch: 'b',
+        port_range: { base: 41000, count: 10 },
+      },
+    });
+    await d.settle();
+    expect(await sessionRow(sid)).toMatchObject({ status: 'running', agent_process_live: true });
+    return { sid, token, startId: row.command_id };
+  }
+
+  it('operator.message → a fenced send_message row for the live process; ack scrubs the text', async () => {
+    const d = await registered();
+    const { sid, token, startId } = await live(d);
+    const before = await sessionRow(sid);
+    const res = await engine.applyEvent(sid, { type: 'operator.message', text: '/context' });
+    expect(res.status).toBe('applied');
+    // No transition, no status change: only the command.
+    expect(await sessionRow(sid)).toMatchObject({
+      status: before.status,
+      workflow_state: before.workflow_state,
+      fencing_token: before.fencing_token,
+      agent_command_id: startId,
+    });
+    const [row] = await messageRows(sid);
+    expect(row).toMatchObject({
+      target: `machine:${machineId}`,
+      status: 'pending',
+      fencing_token: String(token),
+    });
+    expect(row!.payload).toEqual({
+      command_id: row!.command_id,
+      target_command_id: startId,
+      text: '/context',
+    });
+    // The event row is the audit record of what the human said.
+    const ev = await one<{ payload: Record<string, unknown> }>(
+      `SELECT payload FROM event WHERE session_id = $1 AND type = 'operator.message'`,
+      [sid],
+    );
+    expect(ev.payload).toEqual({ text: '/context' });
+
+    expect(
+      await gateway.transport.send(d.machineId, commandEnvelopeForOutboxRow(row!, randomUUID())),
+    ).toBe('sent');
+    const sent = await d.next('send_message');
+    expect(sent).toMatchObject({ session_id: sid, fencing_token: token });
+    expect(sent.payload).toEqual(row!.payload);
+
+    d.ack(row!.command_id, true, undefined, sid, token);
+    await d.settle();
+    const [acked] = await messageRows(sid);
+    expect(acked).toMatchObject({ status: 'acked' });
+    expect(acked!.payload).toEqual({ ...row!.payload, text: null });
+  });
+
+  it('a refused send_message changes nothing in the workflow and tells the board', async () => {
+    const d = await registered();
+    const { sid, token } = await live(d);
+    await engine.applyEvent(sid, { type: 'operator.message', text: 'hello' });
+    const [row] = await messageRows(sid);
+    const before = await sessionRow(sid);
+    const seen: string[] = [];
+    outputBus.subscribe(sid, (c) => seen.push(`${c.stream}:${c.text}`));
+
+    d.ack(row!.command_id, false, 'agent_parked', sid, token);
+    await d.settle();
+    expect(engine.calls.at(-1)!.event).toEqual({
+      type: 'command.refused',
+      command_id: row!.command_id,
+      command_kind: 'send_message',
+      reason: 'agent_parked',
+    });
+    const [failed] = await messageRows(sid);
+    expect(failed).toMatchObject({ status: 'failed', last_error: 'agent_parked' });
+    expect(failed!.payload).toMatchObject({ text: null });
+    const after = await sessionRow(sid);
+    expect(after).toMatchObject({
+      status: 'running',
+      workflow_state: before.workflow_state,
+      agent_process_live: true,
+      fencing_token: before.fencing_token,
+    });
+    const ignored = await one<{ payload: Record<string, unknown> }>(
+      `SELECT payload FROM event WHERE session_id = $1 AND type = 'command.refused'`,
+      [sid],
+    );
+    expect(ignored.payload.ignored).toBe('message_refused');
+    expect(seen).toEqual(['debug:conductor: message not delivered to the agent (agent_parked)']);
+  });
+});
+
 describe('session_event', () => {
   async function running(d: FakeDaemon) {
     await ticket();

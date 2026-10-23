@@ -390,6 +390,71 @@ describe('engine routes', () => {
       { type: 'operator.cancel', reason: 'stop' },
     ]);
   });
+  it('POST /messages → operator.message (202) and a `user` chunk after the apply (ADR-0007)', async () => {
+    const { sessionId } = await seedSession('running');
+    const seen: string[] = [];
+    const appliedFirst: boolean[] = [];
+    const unsubscribe = outputBus.subscribe(sessionId, (c) => {
+      // The chunk is appended only once the engine call has returned (committed).
+      appliedFirst.push(engine.calls.some((call) => call.sessionId === sessionId));
+      seen.push(`${c.stream}:${c.text}`);
+    });
+    const res = await post(`/api/sessions/${sessionId}/messages`, { text: '  /context  ' });
+    unsubscribe();
+    expect(res.status).toBe(202);
+    expect(res.body).toEqual({ ok: true });
+    // Trimmed by SendMessageRequestSchema; slash commands pass through untouched.
+    expect(engine.calls).toEqual([
+      { sessionId, event: { type: 'operator.message', text: '/context' }, opts: {} },
+    ]);
+    expect(seen).toEqual(['user:/context']);
+    expect(appliedFirst).toEqual([true]);
+    expect(outputBus.snapshot(sessionId).map((c) => c.stream)).toEqual(['user']);
+  });
+
+  it('POST /messages: 409 conflict when ignored (not running / needs_input), no chunk', async () => {
+    for (const status of ['needs_input', 'queued'] as const) {
+      const { sessionId } = await seedSession(status, { input: status === 'needs_input' });
+      engine.respondWith(({ sessionId: sid, event }) =>
+        sid === sessionId && event.type === 'operator.message'
+          ? {
+              status: 'ignored',
+              eventId: engine.nextEventId(),
+              reason: 'wrong_status',
+              snapshot: engine.snapshot(sid)!,
+            }
+          : undefined,
+      );
+      const res = await post(`/api/sessions/${sessionId}/messages`, { text: 'hello' });
+      expect(res.status).toBe(409);
+      expect((res.body.error as { code: string }).code).toBe('conflict');
+      expect(outputBus.snapshot(sessionId)).toEqual([]);
+    }
+  });
+
+  it('POST /messages: 404 unknown session, 400 on an empty or missing text', async () => {
+    const unknown = await post('/api/sessions/00000000-0000-4000-8000-000000000003/messages', {
+      text: 'hi',
+    });
+    expect(unknown.status).toBe(404);
+    expect((unknown.body.error as { code: string }).code).toBe('not_found');
+    expect((await post('/api/sessions/not-a-uuid/messages', { text: 'hi' })).status).toBe(404);
+
+    const { sessionId } = await seedSession('running');
+    engine.calls.length = 0;
+    for (const body of [
+      { text: '' },
+      { text: '   ' },
+      {},
+      undefined,
+      { text: 'x'.repeat(20_001) },
+    ]) {
+      const res = await post(`/api/sessions/${sessionId}/messages`, body);
+      expect(res.status).toBe(400);
+      expect((res.body.error as { code: string }).code).toBe('bad_request');
+    }
+    expect(engine.calls).toEqual([]);
+  });
 });
 
 // ==================================================================== machines

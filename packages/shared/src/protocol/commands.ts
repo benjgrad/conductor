@@ -4,6 +4,7 @@ import type {
   KillPayloadSchema,
   RunCmdPayloadSchema,
   SendInputPayloadSchema,
+  SendMessagePayloadSchema,
   StartSessionPayloadSchema,
 } from './ws.js';
 
@@ -18,6 +19,7 @@ export const M1_BASE_REF = 'HEAD';
 export type StartSessionPayload = z.infer<typeof StartSessionPayloadSchema>;
 export type RunCmdPayload = z.infer<typeof RunCmdPayloadSchema>;
 export type SendInputPayload = z.infer<typeof SendInputPayloadSchema>;
+export type SendMessagePayload = z.infer<typeof SendMessagePayloadSchema>;
 export type KillPayload = z.infer<typeof KillPayloadSchema>;
 
 /** The outbox effects that become a WS command (connector_call has no WS message). */
@@ -37,6 +39,7 @@ export interface CommandPayloadContext {
 export type MachineCommand =
   | { kind: 'start_session'; target: string; payload: StartSessionPayload }
   | { kind: 'send_input'; target: string; payload: SendInputPayload }
+  | { kind: 'send_message'; target: string; payload: SendMessagePayload }
   | { kind: 'run_cmd'; target: string; payload: RunCmdPayload }
   | { kind: 'kill'; target: string; payload: KillPayload };
 
@@ -80,6 +83,17 @@ export function commandPayloadForEffect(
         target,
         payload: { command_id, input_request_id: effect.input_request_id, text: effect.text },
       };
+    case 'send_message': {
+      // ADR-0007: only the process of the current agent visit may receive it.
+      if (snapshot.agent_command_id === null) {
+        throw new Error(`send_message for session ${snapshot.id} without an agent process`);
+      }
+      return {
+        kind: 'send_message',
+        target,
+        payload: { command_id, target_command_id: snapshot.agent_command_id, text: effect.text },
+      };
+    }
     case 'run_cmd':
       return {
         kind: 'run_cmd',

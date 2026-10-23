@@ -551,6 +551,8 @@ export class Daemon {
         appendSystemPrompt,
         ...(p.model !== undefined ? { model: p.model } : {}),
         ...(p.max_turns !== undefined ? { maxTurns: p.max_turns } : {}),
+        // ADR-0009: a reviewer runs in dontAsk (the driver forces the mode).
+        ...(p.review === true ? { review: true } : {}),
       });
       agent = {
         commandId: p.command_id,

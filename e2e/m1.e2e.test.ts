@@ -515,6 +515,7 @@ describe.skipIf(REAL)('fake Claude', () => {
     expect(workerStarts).toHaveLength(2);
     expect(workerStarts[0]).toContain('--session-id');
     expect(workerStarts[1]![workerStarts[1]!.indexOf('--resume') + 1]).toBe(worker);
+    for (const a of workerStarts) expect(a[a.indexOf('--permission-mode') + 1]).not.toBe('dontAsk');
     // The reviewers: two fresh Claude sessions, never resumed, read-only tools.
     const reviewers = fakeStates('gated_review');
     expect(reviewers).toHaveLength(2);
@@ -524,6 +525,8 @@ describe.skipIf(REAL)('fake Claude', () => {
       expect(starts).toHaveLength(1);
       expect(starts[0]).toContain('--session-id');
       expect(starts[0]).not.toContain('--resume');
+      // Forced dontAsk: only the pre-approved read-only rules run, whatever the user's mode.
+      expect(starts[0]![starts[0]!.indexOf('--permission-mode') + 1]).toBe('dontAsk');
       const tools = starts[0]![starts[0]!.indexOf('--tools') + 1]!.split(',');
       expect(tools).toEqual(['Read', 'Glob', 'Grep', 'Bash']);
       const allowed = starts[0]![starts[0]!.indexOf('--allowedTools') + 1]!;

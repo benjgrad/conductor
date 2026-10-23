@@ -284,6 +284,8 @@ describe('daemon core: start_session', () => {
     await orch.until(() => orch.events('exit')[1]);
     const reviewer = driver.starts[1]!;
     expect(reviewer.resume).toBe(false);
+    expect(reviewer.review).toBe(true); // → --permission-mode dontAsk in the driver
+    expect(driver.starts[0]!.review).toBeUndefined(); // the worker keeps the user's mode
     expect(reviewer.claudeSessionId).not.toBe(worker);
     expect(reviewer.tools.builtin).not.toContain('Edit');
     expect(reviewer.tools.builtin).not.toContain('Write');

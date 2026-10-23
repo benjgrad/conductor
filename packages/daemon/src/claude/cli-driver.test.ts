@@ -155,6 +155,29 @@ describe('buildClaudeArgs', () => {
     ]);
   });
 
+  it('ADR-0009: a reviewer always runs in dontAsk; a worker keeps the user mode (or the cap)', () => {
+    const modeOf = (args: string[]) => {
+      const i = args.indexOf('--permission-mode');
+      return i < 0 ? undefined : args[i + 1];
+    };
+    const reviewer = opts([], { review: true });
+    expect(modeOf(buildClaudeArgs(reviewer, '{}', 's.json'))).toBe('dontAsk');
+    // Even when the user's bypassPermissions would cap a worker to auto.
+    expect(modeOf(buildClaudeArgs(reviewer, '{}', 's.json', 'auto'))).toBe('dontAsk');
+    expect(
+      buildClaudeArgs(reviewer, '{}', 's.json').filter((a) => a === '--permission-mode'),
+    ).toHaveLength(1);
+    // The other ADR-0006 guards stay.
+    const args = buildClaudeArgs(reviewer, '{}', 's.json');
+    expect(args).toEqual(
+      expect.arrayContaining(['--setting-sources', 'user', '--settings', 's.json']),
+    );
+    const worker = opts([]);
+    expect(modeOf(buildClaudeArgs(worker, '{}', 's.json'))).toBeUndefined();
+    expect(modeOf(buildClaudeArgs(worker, '{}', 's.json', 'auto'))).toBe('auto');
+    expect(modeOf(buildClaudeArgs(opts([], { review: false }), '{}', 's.json'))).toBeUndefined();
+  });
+
   it('uses --resume for resume, omits unset optionals and an empty deny list', () => {
     const o = opts([], {
       claudeSessionId: 'sid-2',

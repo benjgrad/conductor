@@ -67,6 +67,7 @@ These are unchanged: `--strict-mcp-config`, `--permission-prompts none`, the con
   - **Bash is not confined to the worktree.** Auto mode's classifier is the only check on what an allowed command touches. With the same uid, an agent's Bash could also delete or rewrite the guard script in `$TMPDIR`; a missing script now blocks, but a rewritten one doesn't (TD-083). The real boundary is a sandbox (U-004).
   - The `git` alias pre-approves `git commit:*`, which includes `git commit -F <any file>` (TD-082).
   - The repo's CLAUDE.md, untrusted text, is still appended to the system prompt as plain text, after conductor's instructions (unchanged since M1-T14; TD-084).
+- **Exception: requirements reviewers** ([ADR-0009](0009-transition-requirements-review.md), 2026-10-23). A reviewer (`start_session.review`) does not inherit the user's mode: it always runs with `--permission-mode dontAsk`, so only its pre-approved read-only rules run and everything else is denied without prompting. The other guards here (`--setting-sources user`, the edit-guard hook, AGENT_ENV, the state-env allowlist) apply to it unchanged.
 - Follow-ups: TD-081, TD-082, TD-083, TD-084; U-004.
 
 ## Revisit when

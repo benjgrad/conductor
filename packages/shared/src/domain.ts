@@ -57,7 +57,9 @@ export type OutboxStatus = z.infer<typeof OutboxStatusSchema>;
 
 /**
  * Terminal output streams. The first five are ADR-0005 `DriverEvent.output.stream`;
- * `stdout` is a command state's output (stderr is shared).
+ * `stdout` is a command state's output (stderr is shared). `user` is a message a human sent to
+ * the running agent (POST /api/sessions/:id/messages, ADR-0007); the orchestrator appends it,
+ * because Claude does not echo user messages on its output stream.
  */
 export const OutputStreamSchema = z.enum([
   'assistant',
@@ -66,6 +68,7 @@ export const OutputStreamSchema = z.enum([
   'stderr',
   'debug',
   'stdout',
+  'user',
 ]);
 export type OutputStream = z.infer<typeof OutputStreamSchema>;
 

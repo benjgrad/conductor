@@ -25,6 +25,7 @@ export const API_PATHS = {
   sessionInput: (id: string) => `/api/sessions/${id}/input`,
   sessionApprove: (id: string) => `/api/sessions/${id}/approve`,
   sessionCancel: (id: string) => `/api/sessions/${id}/cancel`,
+  sessionMessages: (id: string) => `/api/sessions/${id}/messages`,
   tickets: '/api/tickets',
   workflows: '/api/workflows',
   machines: '/api/machines',
@@ -160,6 +161,16 @@ export type AnswerInputRequest = z.infer<typeof AnswerInputRequestSchema>;
 
 export const OkResponseSchema = z.object({ ok: z.literal(true) });
 export type OkResponse = z.infer<typeof OkResponseSchema>;
+
+/**
+ * POST /api/sessions/:id/messages → 202 OkResponse (ADR-0007). A message to the agent while it is
+ * running: written into the live Claude process, which folds it into its current turn. A `/...`
+ * text is passed through and Claude Code runs it as a slash command. 409 `conflict` when the
+ * session is not `running` an agent state with a live process (a `needs_input` session is
+ * answered through /input instead).
+ */
+export const SendMessageRequestSchema = z.object({ text: z.string().trim().min(1).max(20_000) });
+export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>;
 
 /** POST /api/sessions/:id/cancel → 202 OkResponse. Becomes `operator.cancel {reason}`. */
 export const CancelSessionRequestSchema = z.object({ reason: z.string().optional() });

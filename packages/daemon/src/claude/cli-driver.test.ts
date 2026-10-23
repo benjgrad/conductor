@@ -30,6 +30,8 @@ import {
 } from './outcome-server.js';
 
 const FAKE = fileURLToPath(new URL('../../test/fixtures/fake-claude.mjs', import.meta.url));
+/** The fake reads its script from these state-env keys; production drops them (STATE_ENV_ALLOWED). */
+const FAKE_ENV = /^FAKE_CLAUDE_/;
 
 const TOOLS: ToolPolicy = {
   builtin: ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'Bash'],
@@ -196,7 +198,12 @@ describe('buildClaudeArgs', () => {
 
 describe('createCliDriver against fake-claude', () => {
   const driver = () =>
-    createCliDriver({ claudeBin: FAKE, outcomeServer: server, endGraceMs: 5_000 });
+    createCliDriver({
+      claudeBin: FAKE,
+      outcomeServer: server,
+      endGraceMs: 5_000,
+      extraStateEnv: FAKE_ENV,
+    });
 
   it('ask_user → park → sendInput → complete_state → end() → exit 0', async () => {
     const o = opts([
@@ -297,17 +304,78 @@ describe('createCliDriver against fake-claude', () => {
     expect(existsSync(settingsPath)).toBe(false);
   });
 
-  it('ADR-0006: agentEnv drops a state CLAUDE_CONFIG_DIR and pins connectors and safe mode off', () => {
-    const env = agentEnv({
+  it('ADR-0006: agentEnv passes only allowlisted state keys and pins connectors and safe mode off', () => {
+    const state = {
+      CONDUCTOR_SESSION_ID: 's1',
+      CONDUCTOR_PORT_BASE: '41000',
       PORT: '41000',
+      GIT_AUTHOR_NAME: 'conductor',
+      GIT_COMMITTER_EMAIL: 'c@example.com',
       CLAUDE_CONFIG_DIR: '/tmp/other-claude',
       CLAUDE_CODE_SAFE_MODE: '1',
       ENABLE_CLAUDEAI_MCP_SERVERS: 'true',
-    });
-    expect(env.PORT).toBe('41000');
-    expect(env.CLAUDE_CONFIG_DIR).toBe(process.env.CLAUDE_CONFIG_DIR); // the daemon's, if any
+      ANTHROPIC_API_KEY: 'sk-test',
+      HOME: '/tmp/fake-home',
+      XDG_CONFIG_HOME: '/tmp/xdg',
+      NODE_OPTIONS: '--require /tmp/evil.js',
+      GIT_DIR: '/tmp/other.git',
+      PATH: '/tmp/bin',
+      FAKE_CLAUDE_SCENARIO: '[]',
+    };
+    const { env, dropped } = agentEnv(state);
+    for (const k of [
+      'CONDUCTOR_SESSION_ID',
+      'CONDUCTOR_PORT_BASE',
+      'PORT',
+      'GIT_AUTHOR_NAME',
+      'GIT_COMMITTER_EMAIL',
+    ]) {
+      expect(env[k], k).toBe(state[k as keyof typeof state]);
+    }
+    // refused keys fall back to the daemon's own values (or stay unset)
+    for (const k of [
+      'CLAUDE_CONFIG_DIR',
+      'ANTHROPIC_API_KEY',
+      'HOME',
+      'XDG_CONFIG_HOME',
+      'NODE_OPTIONS',
+      'GIT_DIR',
+      'PATH',
+      'FAKE_CLAUDE_SCENARIO',
+    ]) {
+      expect(env[k], k).toBe(process.env[k]);
+    }
     expect(env.CLAUDE_CODE_SAFE_MODE).toBe('0');
     expect(env.ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false');
+    expect(dropped.sort()).toEqual(
+      [
+        'ANTHROPIC_API_KEY',
+        'CLAUDE_CODE_SAFE_MODE',
+        'CLAUDE_CONFIG_DIR',
+        'ENABLE_CLAUDEAI_MCP_SERVERS',
+        'FAKE_CLAUDE_SCENARIO',
+        'GIT_DIR',
+        'HOME',
+        'NODE_OPTIONS',
+        'PATH',
+        'XDG_CONFIG_HOME',
+      ].sort(),
+    );
+    expect(agentEnv(state, /^FAKE_CLAUDE_/).env.FAKE_CLAUDE_SCENARIO).toBe('[]');
+  });
+
+  it('ADR-0006: logs the state env keys it dropped', async () => {
+    const o = opts([[{ say: 'up' }, { hang: true }]]);
+    const s = driver().start({ ...o, env: { ...o.env, NODE_OPTIONS: '--inspect' } });
+    const t = track(s);
+    await t.waitFor((e) => e.kind === 'output' && e.text === 'up');
+    expect(t.events).toContainEqual({
+      kind: 'output',
+      stream: 'debug',
+      text: 'conductor: dropped state env keys not allowed: NODE_OPTIONS',
+    });
+    s.kill(1_000);
+    await t.exit();
   });
 
   it('ADR-0006: caps the user defaultMode bypassPermissions to auto; leaves others alone', () => {
@@ -416,6 +484,7 @@ describe('createCliDriver against fake-claude', () => {
       outcomeServer: server,
       endGraceMs: 200,
       killGraceMs: 200,
+      extraStateEnv: FAKE_ENV,
     });
     const s = d.start(opts([[{ ignore_sigterm: true }, { say: 'x' }, { hang: true }]]));
     const t = track(s);
@@ -477,7 +546,11 @@ describe('createCliDriver against fake-claude', () => {
   });
 
   it('a missing binary yields stderr output and an exit event', async () => {
-    const d = createCliDriver({ claudeBin: join(dir, 'no-such-claude'), outcomeServer: server });
+    const d = createCliDriver({
+      claudeBin: join(dir, 'no-such-claude'),
+      outcomeServer: server,
+      extraStateEnv: FAKE_ENV,
+    });
     const s = d.start(opts([]));
     const t = track(s);
     expect(await t.exit()).toEqual({ kind: 'exit', code: null, signal: null });
@@ -494,7 +567,9 @@ describe('createCliDriver against fake-claude', () => {
     const prev = process.env.CONDUCTOR_CLAUDE_BIN;
     process.env.CONDUCTOR_CLAUDE_BIN = FAKE;
     try {
-      const s = createCliDriver({ outcomeServer: server }).start(opts([[{ say: 'env bin' }]]));
+      const s = createCliDriver({ outcomeServer: server, extraStateEnv: FAKE_ENV }).start(
+        opts([[{ say: 'env bin' }]]),
+      );
       const t = track(s);
       await t.turnEnds(1);
       s.end();

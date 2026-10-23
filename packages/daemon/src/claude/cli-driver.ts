@@ -35,6 +35,8 @@ export interface CliDriverOptions {
   killGraceMs?: number;
   /** end() closes stdin; if the process is still alive after this, it is kill()ed. */
   endGraceMs?: number;
+  /** Tests only: extra state-env keys to pass through (the fake's `FAKE_CLAUDE_*`). */
+  extraStateEnv?: RegExp;
 }
 
 /** A DriverSession plus what the CLI reported about itself (U-015). */
@@ -80,13 +82,33 @@ export const AGENT_ENV = {
 } as const;
 
 /**
- * The child's env: the daemon env, then the state env without `CLAUDE_CONFIG_DIR` (which would
- * point `claude` at other settings than the ones `agentPermissionMode` checked), then AGENT_ENV.
+ * State-env keys the agent may receive: what the orchestrator and daemon set today (session and
+ * ticket ids, ports, git identity). Anything else (HOME, NODE_OPTIONS, CLAUDE_CONFIG_DIR,
+ * ANTHROPIC_API_KEY, …) could point `claude` at other settings than `agentPermissionMode` checked,
+ * switch billing, or inject code, so it is dropped. A future per-state workflow env must extend
+ * this list deliberately.
  */
-export function agentEnv(stateEnv: Record<string, string>): NodeJS.ProcessEnv {
-  const rest = { ...stateEnv };
-  delete rest.CLAUDE_CONFIG_DIR;
-  return { ...process.env, ...rest, ...AGENT_ENV };
+export const STATE_ENV_ALLOWED =
+  /^(CONDUCTOR_[A-Z0-9_]+|PORT|GIT_(AUTHOR|COMMITTER)_(NAME|EMAIL))$/;
+
+/**
+ * The child's env: the daemon env, then the allowed state-env keys, then AGENT_ENV. `dropped`
+ * names the state-env keys that were refused.
+ */
+export function agentEnv(
+  stateEnv: Record<string, string>,
+  extraAllowed?: RegExp,
+): {
+  env: NodeJS.ProcessEnv;
+  dropped: string[];
+} {
+  const allowed: Record<string, string> = {};
+  const dropped: string[] = [];
+  for (const [k, v] of Object.entries(stateEnv)) {
+    if (STATE_ENV_ALLOWED.test(k) || extraAllowed?.test(k)) allowed[k] = v;
+    else dropped.push(k);
+  }
+  return { env: { ...process.env, ...allowed, ...AGENT_ENV }, dropped };
 }
 
 /**
@@ -195,6 +217,7 @@ class Session implements CliDriverSession {
     server: OutcomeServer,
     private readonly killGraceMs: number,
     private readonly endGraceMs: number,
+    extraStateEnv?: RegExp,
   ) {
     this.id = opts.claudeSessionId;
     this.reg = server.register({
@@ -218,19 +241,21 @@ class Session implements CliDriverSession {
     }
 
     const mode = agentPermissionMode();
+    const { env, dropped } = agentEnv(opts.env, extraStateEnv);
+    const notes: string[] = [];
     if (mode !== undefined) {
-      // After start() returns, so the caller's listener sees it (never emit inside start()).
+      notes.push('user defaultMode is bypassPermissions; running this agent in auto mode');
+    }
+    if (dropped.length > 0) notes.push(`dropped state env keys not allowed: ${dropped.join(', ')}`);
+    // After start() returns, so the caller's listener sees them (never emit inside start()).
+    for (const note of notes) {
       queueMicrotask(() =>
-        this.emit({
-          kind: 'output',
-          stream: 'debug',
-          text: 'conductor: user defaultMode is bypassPermissions; running this agent in auto mode',
-        }),
+        this.emit({ kind: 'output', stream: 'debug', text: `conductor: ${note}` }),
       );
     }
     this.child = spawn(bin, buildClaudeArgs(opts, this.mcpConfigPath, settings, mode), {
       cwd: opts.cwd,
-      env: agentEnv(opts.env),
+      env,
       stdio: ['pipe', 'pipe', 'pipe'],
       // Own process group, so kill() also reaches the tools Claude spawned (bash, test runners).
       detached: true,
@@ -405,7 +430,14 @@ export function createCliDriver(opts: CliDriverOptions): CliDriver {
   const endGraceMs = opts.endGraceMs ?? DEFAULT_END_GRACE_MS;
   return {
     start(startOpts) {
-      return new Session(bin, startOpts, opts.outcomeServer, killGraceMs, endGraceMs);
+      return new Session(
+        bin,
+        startOpts,
+        opts.outcomeServer,
+        killGraceMs,
+        endGraceMs,
+        opts.extraStateEnv,
+      );
     },
   };
 }

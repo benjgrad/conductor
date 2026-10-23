@@ -180,9 +180,15 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
       count: z.number().int().positive(),
     }),
   }),
-  /** D `claude_session_id`. */
+  /**
+   * D `claude_session_id`. While a review step runs (ADR-0009) it is the reviewer's and goes to
+   * `review.claude_session_id`; `claude_session_id` stays the worker's.
+   */
   z.object({ type: z.literal('agent.claude_session_id'), claude_session_id: z.string() }),
-  /** D `complete_state`: outcome `done` (after the state's guard; failed guard → `fail`). */
+  /**
+   * D `complete_state`: outcome `done` (after the state's guard; failed guard → `fail`). While a
+   * review step runs it is the reviewer's verdict (ADR-0009, apply.ts §Requirements review).
+   */
   z.object({ type: z.literal('agent.complete_state'), result: JsonObjectSchema }),
   /** D `ask_user`: outcome `ask_user`, input_request kind `agent_question`. */
   z.object({ type: z.literal('agent.ask_user'), question: z.string() }),
@@ -258,8 +264,8 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('operator.cancel'), reason: z.string().optional() }),
   /**
    * U: a human's message to the running agent (POST /messages, ADR-0007). Accepted only while
-   * `running` an `agent` state with `agent_process_live`; otherwise ignored (`wrong_status`).
-   * Accepted → one `send_message` effect and nothing else: no state change, no transition
+   * `running` an `agent` state with `agent_process_live`; otherwise ignored (`wrong_status`),
+   * including during a requirements review (ADR-0009: the reviewer judges on its own). Accepted → one `send_message` effect and nothing else: no state change, no transition
    * (transitions only on outcomes). A `/...` text is passed through; Claude Code runs it as a
    * slash command.
    */

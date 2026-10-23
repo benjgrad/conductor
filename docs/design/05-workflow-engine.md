@@ -41,6 +41,27 @@ Users design an FSM, stored as **versioned JSON** in `workflow_definition`. The 
 ### Retry loops
 `{ "goto": "implement", "attach": "output", "retries": 3, "else": "needs_input" }` means: on `fail`, go back to `implement` with the command output attached to the prompt. The counter key is `"<from>-><goto>"` in `session.retry_counters`. Once the counter reaches `retries`, take `else`. `budget.max_loop_retries` is the default cap when a loop doesn't set one.
 
+### Requirements gates ([ADR-0009](../adr/0009-transition-requirements-review.md))
+A transition object may carry `requirements: {items[1..30], on_unmet: {goto, instruction?, retries 0..10 = 2, else = "needs_input"}, model?}`:
+
+```json
+"done": { "goto": "build",
+          "requirements": { "items": ["New code paths have unit tests"],
+                            "on_unmet": { "goto": "implement", "instruction": "Add the tests first.", "retries": 2 } } }
+```
+
+- **Review step.** An outcome that selects a gated transition does not enter the target. The session enters a review step: `workflow_state` = `"<from> → <to> (review)"` (a label, not a state), status stays `running` (the board shows the label), the step's details live in `session.review` (stored in `context.__review`, [02](02-data-model.md#session)), and a 10-minute deadline (`REVIEW_TIMEOUT`) is armed. Wall time spent reviewing counts toward `budget.minutes` like the source state's.
+- **The reviewer** is one `start_session` with `review: true`: a **fresh** Claude session (`resume_claude_session_id: null`, never the worker's), tools `['review']` (Read/Glob/Grep plus the exact git inspection commands in `REVIEW_GIT_COMMANDS`, no edit tools), the gate's `model`, cwd = the session worktree. Its prompt (`renderReviewPrompt`, `shared/src/engine/review.ts`) names the transition, the ticket, what the source state reported (its `complete_state` result, or the command's detail and output tail), the numbered items and the allowed git commands, and asks for `complete_state {result: {verdict: [{item, met, reason}]}}`. Its `claude_session_id` event goes to `review.claude_session_id`; `session.claude_session_id` stays the worker's. Its spend counts (per Claude session id, as always).
+- **Outcome** (the reviewer's `complete_state`). A verdict is valid when `verdict` is an array of `{item: string, met: boolean, reason?: string}` that answers every item (matched by text, ignoring case and whitespace, else by position when the counts match). The verdict is kept in `context["<from> → <to> (review)"]`.
+  - all met → enter `to` (with the transition's `attach: output` attachment, if it had one);
+  - otherwise, while `retry_counters["requirements:<from>:<outcome>"] < on_unmet.retries` → increment it and enter `on_unmet.goto`. An agent target's prompt gets a `## Requirements not met` section: "Requirements for <from> → <to> were not met:", each unmet item with its reason, then `instruction`. The worker resumes its own conversation;
+  - exhausted → `on_unmet.else`, an input_request `retries_exhausted` whose question lists the unmet items and reasons.
+- **Failures.** No usable verdict (malformed, `ask_user`, the reviewer exiting) → one nudge: a `start_session` resuming the **reviewer's own** conversation with what was wrong (a fresh reviewer if its id never arrived). A second failure, the daemon's `no_outcome` (it already nudged, U-028), → `else` (`retries_exhausted`, "produced no verdict"). The timeout → `else` (`timeout`, "review timed out"). Both kill the reviewer.
+- **While reviewing** every other event is ignored: a worker's late `exit` (`command_id_mismatch`), `command.exited`, `external.event`, `input.provided`, and live messages (`operator.message` → `wrong_status`, 409: the reviewer judges on its own). `budget.exceeded` leaves the review (killing the reviewer) for `on_budget_exceeded`; cancel fails the session. A refused reviewer start requeues the session; the re-claim starts a fresh reviewer.
+- **Leaving** the step puts `workflow_state` back to `from` before entering the next state, so a human target's `return_to` is `from` (answering resumes the worker), and `state_entered.from` is the review label.
+- **Counting.** A transition object that carries only `requirements` (no `attach`/`retries`/`else`) is a plain forward transition: its `goto` leg has no `"<from>-><goto>"` counter. With any of those keys the existing retry-loop counting applies first, and the gate reviews the `goto` leg it selects.
+- Only outcomes go through gates: a human's "skip to <state>" and `answered` routes do not.
+
 ### `needs_input` semantics
 `needs_input` is a `human` state. On entry the engine writes an `input_request` with `kind` set to the reason (`agent_question`, `retries_exhausted`, `budget_exceeded`, `timeout`) and remembers `return_to` (the state that sent it there). When the answer arrives, the engine returns to `return_to` with the answer attached. The UI can also offer "abort" (→ `failed`) or "skip to <state>".
 
@@ -79,9 +100,12 @@ dispatcher: SELECT pending outbox rows FOR UPDATE SKIP LOCKED → send → mark 
 5. `$ref` inputs (`$open_pr.pr_url`) point at a state that lists that key in `result` and comes earlier on every path.
 6. `event` states with `release_machine` must have a `timeout`.
 7. Every name in an agent state's `tools` is a key of `TOOL_ALIASES` (`TOOL_ALIAS_NAMES`, [10](10-contracts.md#tools)); an unknown alias is an error.
+8. Requirements gates ([ADR-0009](../adr/0009-transition-requirements-review.md)): a gate only on transitions out of `agent` and `command` states (path `states.<from>.on.<outcome>.requirements`); `on_unmet.else` is a `human` state (`….requirements.on_unmet.else`); no state is named `__review`. The schema (rule 1) already bounds `items` (1–30, none blank: `….requirements.items[.<n>]`) and `on_unmet.retries` (integer 0–10), and rule 1 checks that `on_unmet.goto` / `else` exist. A transition into a `terminal` state may carry a gate.
+
+Error paths are arrays (`['states', 'implement', 'on', 'done', 'requirements', 'on_unmet', 'else']`); the REST API dot-joins them. A transition that is neither a string nor a valid object is reported at the field inside the object (the zod union is flattened), so the web editor can map it to the edge.
 
 How T03 (`shared/src/workflow/validate.ts`) reads rules 1–5:
-- The graph is the explicit `on` transitions (a string target, or an object's `goto` and `else`). Implicit routes (human `answered` → `return_to`, failed guard / budget → `needs_input`, UI "skip to") are not edges. `on_budget_exceeded` must exist (rule 1) and counts as reachable (rule 2). Rules 2–5 are skipped while a rule 1 error stands; 6 and 7 always run.
+- The graph is the explicit `on` transitions (a string target, or an object's `goto` and `else`, and a gate's `on_unmet.goto` and `on_unmet.else`). For rule 4 a gate's `on_unmet.goto` leg is bounded (its counter), its `else` leg is not, and a gate-only object's `goto` leg is a plain edge. Implicit routes (human `answered` → `return_to`, failed guard / budget → `needs_input`, UI "skip to") are not edges. `on_budget_exceeded` must exist (rule 1) and counts as reachable (rule 2). Rules 2–5 are skipped while a rule 1 error stands; 6 and 7 always run.
 - Rule 4: a cycle is bounded if it takes an object transition's `goto` leg (counter capped at `retries`, else `budget.max_loop_retries`), an edge out of a `human` state, or an `event` state's edge on one of its `wait_for` events (externally triggered, e.g. `pr.changes_requested`). A cycle of only plain transitions, `else` legs, or event `timeout` edges is unbudgeted.
 - Rule 5: `$<state>.<key>` must name an agent state whose `result` lists `key`, and the referencing state must be unreachable from `start` once that state's `done` edges are removed (it has completed on every path).
 
@@ -94,7 +118,10 @@ Connector calls carry `idempotency_key = "<session_id>:<state>:<visit_n>"`. `vis
 - **Jira create_task**: *not* naturally idempotent. Before creating, search for an existing issue labelled `conductor-idem:<key>`, and create it with that label.
 - **Slack post (agent skill)**: can't be deduped, so **an occasional duplicate is accepted** and documented.
 
-## Reference workflow
+## Reference workflows
+[workflows/m1_basic.v1.json](workflows/m1_basic.v1.json) is the M1 chain (implement → build → test → done). [workflows/m1_reviewed.v1.json](workflows/m1_reviewed.v1.json) is the same with a requirements gate on implement → build ("New code paths have unit tests", "No TODO comments in changed files"; unmet → back to implement, 2 retries, then needs_input), the e2e's gated scenario.
+
+## Reference workflow (pr_flow)
 [workflows/pr_flow.v1.json](workflows/pr_flow.v1.json) is the workshop's 8-state chain:
 
 ```mermaid

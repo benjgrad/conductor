@@ -28,6 +28,7 @@ sequenceDiagram
 ## Rules
 - Every route into `needs_input` creates an `input_request` with a `kind`: `agent_question`, `retries_exhausted`, `budget_exceeded`, `timeout`, or `approval`. The question text for non-agent kinds is generated, e.g. "Tests failed 3 times. Last output attached. Retry, skip, or abort?"
 - **Compute release**: a session parked in `needs_input` keeps its process alive but idle. After `park_release_after` (default **15 min**) the daemon checkpoints. That means the worktree is committed and pushed to the session branch and the `claude_session_id` is saved. Then the reservation is released. Answers that arrive after that go through the resume path.
+- **Unmet requirements** ([ADR-0009](../adr/0009-transition-requirements-review.md), [05](05-workflow-engine.md#requirements-gates-adr-0009)). A gate's `on_unmet.else` is always a human state. It is entered with kind `retries_exhausted` and the question "Requirements for "implement" → "build" were not met after 3 reviews (retry limit 2):", one `- <item>: <reason>` line per unmet item, then "Retry, skip, or abort?". A review that produced no verdict uses `retries_exhausted` ("…produced no verdict (…)"), a review that timed out uses `timeout` ("…timed out (review timed out after 10m)"). No new kind: `input_request_kind` is a Postgres enum. `return_to` is the gate's source state, so an answer resumes the **worker's** Claude conversation with the answer (never the reviewer's); finishing that state goes through the gate again, and since the counter is already at its limit an unmet verdict comes straight back here. "Skip to <state>" bypasses the gate.
 - Answering is idempotent per `input_request_id`. A second answer to the same request is rejected.
 - `answered_by` records a UI user, or `slack:<id>` once Slack answering exists ([U-007](../tracking/UNKNOWNS.md)).
 
@@ -54,7 +55,7 @@ sequenceDiagram
   end
 ```
 
-- Accepted only while the session is `running` an **agent** state whose process is live; otherwise 409 `conflict`. A `needs_input` session is answered through `/input`, not `/messages`.
+- Accepted only while the session is `running` an **agent** state whose process is live; otherwise 409 `conflict`. A `needs_input` session is answered through `/input`, not `/messages`. A requirements reviewer ([ADR-0009](../adr/0009-transition-requirements-review.md)) does not take messages either (409): it is meant to judge the work independently.
 - The text goes to Claude Code as-is. Claude folds a message written mid-turn into that turn, and a `/...` text runs as a Claude Code slash command (e.g. `/context`), its output coming back as assistant text (spike against claude 2.1.309, ADR-0007).
 - **Not an answer.** The daemon does not clear its `ask_user` / nudge state for it, and the driver does not clear the outcome server's pending question. The turn still has to end with `complete_state` or `ask_user`; the [U-028 nudge](../adr/0005-claude-code-driver.md#addendum-2026-10-22-turns-without-an-outcome-u-028) counts turns as before.
 - **Best effort.** A refusal is ignored by the engine (`message_refused`); the board shows it as a debug output line.

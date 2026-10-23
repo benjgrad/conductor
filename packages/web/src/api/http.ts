@@ -9,6 +9,8 @@ import {
   OutputChunkSchema,
   SessionDetailSchema,
   TicketDtoSchema,
+  SaveWorkflowResponseSchema,
+  WorkflowDetailSchema,
   WorkflowListResponseSchema,
   type AnswerInputRequest,
   type ApproveSessionRequest,
@@ -16,6 +18,7 @@ import {
   type CreateTicketRequest,
   type OutputChunk,
   type SendMessageRequest,
+  type WorkflowDefinition,
 } from '@conductor/shared';
 import {
   ApiRequestError,
@@ -118,7 +121,12 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
     if (!res.ok) {
       const err = ApiErrorSchema.safeParse(json);
       if (err.success) {
-        throw new ApiRequestError(res.status, err.data.error.code, err.data.error.message);
+        throw new ApiRequestError(
+          res.status,
+          err.data.error.code,
+          err.data.error.message,
+          err.data.error.details,
+        );
       }
       throw new ApiRequestError(
         res.status,
@@ -249,6 +257,17 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
       request(TicketDtoSchema, 'POST', API_PATHS.tickets, req),
 
     listWorkflows: () => request(WorkflowListResponseSchema, 'GET', API_PATHS.workflows),
+
+    getWorkflow: (id: string, version?: number) =>
+      request(
+        WorkflowDetailSchema,
+        'GET',
+        API_PATHS.workflow(encodeURIComponent(id)) +
+          (version !== undefined ? `?version=${version}` : ''),
+      ),
+
+    saveWorkflow: (definition: WorkflowDefinition) =>
+      request(SaveWorkflowResponseSchema, 'POST', API_PATHS.workflows, { definition }),
 
     approve: (sessionId: string, req: ApproveSessionRequest = {}) =>
       request(

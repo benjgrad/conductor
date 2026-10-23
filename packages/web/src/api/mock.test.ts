@@ -2,6 +2,7 @@ import {
   BoardResponseSchema,
   BoardSseEventSchema,
   SessionDetailSchema,
+  WorkflowDetailSchema,
   type BoardSseEvent,
 } from '@conductor/shared';
 import { describe, expect, it } from 'vitest';
@@ -102,5 +103,53 @@ describe('mock ApiClient', () => {
     expect(chunks).toEqual(['hello\n']);
     const detail = await api.getSession(SEED_IDS.running.session);
     expect(detail.recent_output.at(-1)?.text).toBe('ignored\n');
+  });
+});
+
+describe('mock workflows (ADR-0009)', () => {
+  it('serves version history; m1_basic v2 has the example gate', async () => {
+    const api = createMockApi({ now });
+    const list = await api.listWorkflows();
+    expect(list.map((w) => [w.id, w.version])).toEqual([
+      ['m1_basic', 2],
+      ['pr_flow', 2],
+    ]);
+    const latest = WorkflowDetailSchema.parse(await api.getWorkflow('m1_basic'));
+    expect(latest.version).toBe(2);
+    const impl = latest.definition.states.implement;
+    expect(impl?.type === 'agent' && impl.on?.done).toMatchObject({
+      goto: 'build',
+      requirements: { on_unmet: { goto: 'implement', retries: 2 } },
+    });
+    const v1 = await api.getWorkflow('m1_basic', 1);
+    expect(v1.definition.version).toBe(1);
+    await expect(api.getWorkflow('m1_basic', 9)).rejects.toMatchObject({ code: 'not_found' });
+    await expect(api.getWorkflow('nope')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('saveWorkflow validates, then stores a new version', async () => {
+    const api = createMockApi({ now });
+    const { definition } = await api.getWorkflow('m1_basic');
+    expect(await api.saveWorkflow(definition)).toEqual({ id: 'm1_basic', version: 3 });
+    expect((await api.getWorkflow('m1_basic')).version).toBe(3);
+    expect((await api.listWorkflows())[0]?.version).toBe(3);
+
+    const bad = structuredClone(definition);
+    const impl = bad.states.implement;
+    if (impl?.type !== 'agent' || typeof impl.on?.done !== 'object') throw new Error('fixture');
+    impl.on.done.requirements!.on_unmet.else = 'build';
+    const err = await api.saveWorkflow(bad).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiRequestError);
+    expect(err).toMatchObject({
+      status: 400,
+      code: 'invalid_workflow',
+      details: [
+        {
+          path: 'states.implement.on.done.requirements.on_unmet.else',
+          message: expect.stringContaining('human') as unknown,
+        },
+      ],
+    });
+    expect((await api.getWorkflow('m1_basic')).version).toBe(3);
   });
 });

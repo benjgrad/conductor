@@ -11,6 +11,8 @@ import type {
   SendMessageRequest,
   SessionDetail,
   TicketDto,
+  WorkflowDefinition,
+  WorkflowDetail,
   WorkflowSummary,
 } from '@conductor/shared';
 
@@ -27,6 +29,18 @@ export interface StreamHandlers<T> {
   onError?: (err: unknown) => void;
   /** The stream is (re)connected: clears whatever `onError` reported. */
   onOpen?: () => void;
+}
+
+/** POST /api/workflows response. */
+export interface SaveWorkflowResponse {
+  id: string;
+  version: number;
+}
+
+/** One validation failure in an ApiError's `details` (path is dot-joined, e.g. states.build.on). */
+export interface ApiErrorDetail {
+  path: string;
+  message: string;
 }
 
 /** POST /api/sessions/:id/cancel body. */
@@ -50,8 +64,18 @@ export interface ApiClient {
   answer(sessionId: string, req: AnswerInputRequest): Promise<OkResponse>;
   /** POST /api/tickets → the new ticket; its card arrives on the board stream (card.upserted). */
   createTicket(req: CreateTicketRequest): Promise<TicketDto>;
-  /** GET /api/workflows (create-ticket form). */
+  /** GET /api/workflows (create-ticket form, Workflows view): the latest version of each. */
   listWorkflows(): Promise<WorkflowSummary[]>;
+  /**
+   * GET /api/workflows/:id[?version=N] (ADR-0009): the latest version, or version N. 404
+   * not_found for an unknown id or version.
+   */
+  getWorkflow(id: string, version?: number): Promise<WorkflowDetail>;
+  /**
+   * POST /api/workflows {definition} → the new version (the server assigns it). 400
+   * invalid_workflow with `details` (ApiRequestError.details) when validation fails.
+   */
+  saveWorkflow(definition: WorkflowDefinition): Promise<SaveWorkflowResponse>;
   /** POST /api/sessions/:id/approve → external.event ui.approve. 409 conflict if not awaited. */
   approve(sessionId: string, req?: ApproveSessionRequest): Promise<OkResponse>;
   /** POST /api/sessions/:id/cancel → operator.cancel. 409 conflict if already terminal. */
@@ -71,6 +95,8 @@ export class ApiRequestError extends Error {
     readonly status: number,
     readonly code: ApiErrorCode,
     message: string,
+    /** Validation details (400 invalid_workflow / bad_request). */
+    readonly details: ApiErrorDetail[] = [],
   ) {
     super(message);
     this.name = 'ApiRequestError';

@@ -94,6 +94,37 @@ const ev = <T extends BoardSseEvent['type']>(type: T, id: number) => ({
   id,
 });
 
+describe('createHttpApi workflows (ADR-0009)', () => {
+  it('GET /api/workflows/:id[?version=N] and POST /api/workflows {definition}', async () => {
+    const detail = await createMockApi({ now }).getWorkflow('m1_basic');
+    const { calls, fetch } = recordingFetch(({ method }) =>
+      method === 'GET' ? json(200, detail) : json(201, { id: 'm1_basic', version: 3 }),
+    );
+    const api = createHttpApi({ fetch });
+    expect(await api.getWorkflow('m1_basic')).toEqual(detail);
+    await api.getWorkflow('m1_basic', 1);
+    expect(await api.saveWorkflow(detail.definition)).toEqual({ id: 'm1_basic', version: 3 });
+    expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([
+      ['GET', '/api/workflows/m1_basic', undefined],
+      ['GET', '/api/workflows/m1_basic?version=1', undefined],
+      ['POST', '/api/workflows', { definition: detail.definition }],
+    ]);
+  });
+
+  it('carries 400 invalid_workflow details on the ApiRequestError', async () => {
+    const details = [{ path: 'states.build.on.fail.goto', message: 'rule 1: unknown state' }];
+    const { fetch } = recordingFetch(() =>
+      json(400, { error: { code: 'invalid_workflow', message: 'invalid', details } }),
+    );
+    const def = (await createMockApi({ now }).getWorkflow('m1_basic')).definition;
+    const err = await createHttpApi({ fetch })
+      .saveWorkflow(def)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiRequestError);
+    expect(err).toMatchObject({ status: 400, code: 'invalid_workflow', details });
+  });
+});
+
 describe('createHttpApi REST', () => {
   it('maps every method to its API_PATHS route, method and JSON body', async () => {
     const mock = createMockApi({ now });

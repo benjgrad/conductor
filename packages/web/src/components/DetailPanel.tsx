@@ -11,6 +11,7 @@ import { ContextView } from './ContextView.js';
 import { duration, KIND_LABELS, STATUS_LABELS, TERMINAL_STATUSES, usd } from './format.js';
 import { Markdown } from './markdown.js';
 import { OutputLog } from './OutputLog.js';
+import { SessionWorkflowDiagram } from '../workflow/SessionWorkflowDiagram.js';
 
 interface DetailPanelProps {
   api: ApiClient;
@@ -420,6 +421,7 @@ function WorkflowSection({ detail }: { detail: SessionDetail }) {
           </li>
         ))}
       </ol>
+      <SessionWorkflowDiagram detail={detail} />
       {detail.return_to && (
         <p className="muted returns-to">
           Returns to <strong>{detail.return_to}</strong> after the answer.

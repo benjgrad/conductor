@@ -1,0 +1,365 @@
+/* Workflow view + UML state diagram (ADR-0009). Colours come from the tokens in styles.css. */
+
+.wf-diagram {
+  position: relative;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.wf-diagram.compact {
+  border: none;
+  background: transparent;
+  margin: 8px 0;
+}
+.wf-scroll {
+  overflow: auto;
+  max-height: calc(100vh - 170px);
+  padding: 4px;
+}
+.wf-zoom {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 2px;
+  z-index: 1;
+}
+.wf-zoom button {
+  padding: 1px 8px;
+  font-size: 12px;
+}
+.wf-svg {
+  display: block;
+  margin: 0 auto;
+  height: auto;
+  font-family: inherit;
+}
+
+/* Nodes */
+.wf-state rect {
+  fill: var(--panel);
+  stroke: var(--muted);
+  stroke-width: 1.3;
+}
+.wf-state.wf-human rect {
+  fill: var(--ask-bg);
+  stroke: var(--ask);
+  stroke-width: 1.6;
+  stroke-dasharray: 5 3;
+}
+.wf-state.wf-event rect {
+  fill: var(--warn-bg);
+  stroke: var(--warn);
+}
+.wf-state.wf-command rect {
+  fill: color-mix(in srgb, var(--panel) 85%, var(--bg));
+}
+.wf-node text {
+  fill: var(--text);
+}
+.wf-stereo,
+.wf-detail {
+  font-size: 11px;
+  fill: var(--muted) !important;
+}
+.wf-stereo {
+  font-style: italic;
+}
+.wf-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+.wf-terminal .wf-name {
+  font-size: 12px;
+}
+.wf-initial circle,
+.wf-terminal .wf-dot {
+  fill: var(--text);
+}
+.wf-terminal .wf-ring {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1.5;
+}
+.wf-node.current rect,
+.wf-node.current .wf-ring {
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-dasharray: none;
+}
+.wf-node.current rect {
+  fill: color-mix(in srgb, var(--accent) 16%, var(--panel));
+}
+
+/* Edges */
+.wf-line {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.4;
+}
+.wf-arrow {
+  fill: var(--muted);
+}
+.wf-edge.dashed .wf-line {
+  stroke-dasharray: 5 4;
+}
+.wf-edge-unmet .wf-line {
+  stroke: var(--warn);
+}
+.wf-edge-unmet .wf-arrow {
+  fill: var(--warn);
+}
+.wf-edge.gated .wf-line {
+  stroke: var(--ok);
+  stroke-width: 1.8;
+}
+.wf-edge.gated .wf-arrow {
+  fill: var(--ok);
+}
+.wf-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 12;
+  pointer-events: stroke;
+}
+.wf-edge.selectable {
+  cursor: pointer;
+}
+.wf-edge.selectable:hover .wf-line,
+.wf-edge.selected .wf-line {
+  stroke: var(--accent);
+  stroke-width: 2.6;
+}
+.wf-edge.selectable:hover .wf-arrow,
+.wf-edge.selected .wf-arrow {
+  fill: var(--accent);
+}
+.wf-edge.error .wf-line {
+  stroke: var(--ask);
+  stroke-width: 2.4;
+}
+.wf-edge.error .wf-arrow {
+  fill: var(--ask);
+}
+.wf-edge:focus {
+  outline: none;
+}
+.wf-edge:focus-visible .wf-line {
+  stroke: var(--accent);
+  stroke-width: 3.5;
+}
+
+/* Labels */
+.wf-label text {
+  font-size: 11px;
+  fill: var(--text);
+}
+.wf-label .wf-outcome {
+  font-weight: 600;
+}
+.wf-label .wf-policy {
+  fill: var(--muted);
+}
+.wf-label-else text,
+.wf-label-unmet-else text {
+  fill: var(--muted);
+  font-style: italic;
+}
+.wf-label-unmet .wf-outcome {
+  fill: var(--warn);
+}
+.wf-halo {
+  fill: var(--panel);
+  opacity: 0.88;
+}
+.wf-label.selectable {
+  cursor: pointer;
+}
+.wf-label.selected .wf-halo {
+  fill: color-mix(in srgb, var(--accent) 16%, var(--panel));
+  opacity: 1;
+}
+.wf-badge rect {
+  fill: color-mix(in srgb, var(--ok) 18%, var(--panel));
+  stroke: var(--ok);
+}
+.wf-badge text {
+  font-size: 10.5px;
+  font-weight: 600;
+  fill: var(--ok);
+}
+
+/* Workflows view */
+.wf-view {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 16px;
+  align-items: start;
+}
+.wf-view.with-editor {
+  grid-template-columns: 200px minmax(0, 1fr) 360px;
+}
+.wf-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wf-list button {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.wf-list button[aria-current='true'] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+}
+.wf-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.wf-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.wf-toolbar h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.wf-unsaved {
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-radius: 4px;
+  padding: 1px 8px;
+  font-size: 12px;
+}
+.wf-note {
+  font-size: 12px;
+  margin: 0;
+}
+.wf-errors {
+  margin: 0;
+  padding: 8px 12px 8px 28px;
+  border: 1px solid var(--ask);
+  border-radius: 6px;
+  background: var(--ask-bg);
+  color: var(--ask);
+  font-size: 12px;
+}
+.wf-errors button {
+  padding: 0 6px;
+  font-size: 11px;
+  margin-left: 6px;
+}
+.wf-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  margin: 0;
+}
+
+/* Transition editor */
+.wf-editor {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: calc(100vh - 90px);
+  overflow: auto;
+}
+.wf-editor h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.wf-editor h4 {
+  margin: 0;
+  font-size: 13px;
+}
+.wf-editor-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.wf-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wf-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px;
+}
+.wf-item textarea,
+.wf-editor textarea {
+  width: 100%;
+  resize: vertical;
+}
+.wf-item-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wf-item-actions button {
+  padding: 0 6px;
+  font-size: 12px;
+}
+.wf-unmet {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 8px;
+  align-items: center;
+}
+.wf-unmet label {
+  color: var(--muted);
+  font-size: 12px;
+}
+.wf-field-error {
+  color: var(--ask);
+  font-size: 12px;
+  margin: 0;
+}
+
+.nav-tabs {
+  display: flex;
+  gap: 2px;
+}
+.nav-tabs a {
+  padding: 4px 10px;
+  border-radius: 6px;
+  color: var(--text);
+  text-decoration: none;
+}
+.nav-tabs a[aria-current='page'] {
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.topbar h1:has(+ .nav-tabs) {
+  flex: 0 0 auto;
+}
+.topbar .nav-tabs {
+  flex: 1;
+}
+main[hidden] {
+  display: none;
+}

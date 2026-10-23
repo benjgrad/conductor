@@ -100,7 +100,7 @@ const argvLog = () =>
     .map((l) => JSON.parse(l) as { argv: string[]; cwd: string; env: Record<string, string> });
 
 describe('buildClaudeArgs', () => {
-  it('emits exactly the ADR-0005 flags for a new session', () => {
+  it('emits exactly the ADR-0005/ADR-0006 flags for a new session', () => {
     const o = opts([], {
       claudeSessionId: 'sid-1',
       model: 'sonnet',
@@ -108,7 +108,7 @@ describe('buildClaudeArgs', () => {
       maxBudgetUsd: 2.5,
       appendSystemPrompt: 'use complete_state',
     });
-    expect(buildClaudeArgs(o, '{"mcp":1}')).toEqual([
+    expect(buildClaudeArgs(o, '{"mcp":1}', '/tmp/s/settings.json')).toEqual([
       '-p',
       '--input-format',
       'stream-json',
@@ -124,10 +124,10 @@ describe('buildClaudeArgs', () => {
       '--max-budget-usd',
       '2.5',
       '--setting-sources',
-      '',
+      'user,project',
+      '--settings',
+      '/tmp/s/settings.json',
       '--strict-mcp-config',
-      '--permission-mode',
-      'dontAsk',
       '--permission-prompts',
       'none',
       '--mcp-config',
@@ -149,7 +149,8 @@ describe('buildClaudeArgs', () => {
       resume: true,
       tools: { builtin: [], allow: [], deny: [] },
     });
-    const args = buildClaudeArgs(o, '{}');
+    const args = buildClaudeArgs(o, '{}', 's.json');
+    expect(args).not.toContain('--permission-mode'); // the user's own mode applies (ADR-0006)
     expect(args.slice(6, 8)).toEqual(['--resume', 'sid-2']);
     expect(args).not.toContain('--session-id');
     for (const f of [
@@ -248,11 +249,34 @@ describe('createCliDriver against fake-claude', () => {
 
     // the spawn itself: exact flags, cwd, env merged over the daemon env
     const [first] = argvLog();
+    const argAfter = (flag: string) => first?.argv[first.argv.indexOf(flag) + 1] ?? '';
     expect(first?.argv).toEqual(
-      buildClaudeArgs(o, first?.argv[first.argv.indexOf('--mcp-config') + 1] ?? ''),
+      buildClaudeArgs(o, argAfter('--mcp-config'), argAfter('--settings')),
     );
     expect(first?.cwd).toBe(realpathSync(dir)); // macOS tmpdir is a symlink
     expect(first?.env.PORT).toBe('41000');
+    expect(first?.env.ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false'); // ADR-0006
+  });
+
+  it('ADR-0006: --settings is the edit-guard hook for the worktree, beside mcp.json, removed on exit', async () => {
+    const s = driver().start(opts([[{ say: 'up' }, { hang: true }]]));
+    const t = track(s);
+    await t.waitFor((e) => e.kind === 'output' && e.text === 'up');
+
+    const argv = argvLog()[0]?.argv ?? [];
+    const settingsPath = argv[argv.indexOf('--settings') + 1] ?? '';
+    expect(dirname(settingsPath)).toBe(dirname(argv[argv.indexOf('--mcp-config') + 1] ?? ''));
+    expect(statSync(settingsPath).mode & 0o777).toBe(0o600);
+    const settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as {
+      hooks: { PreToolUse: { matcher: string; hooks: { command: string }[] }[] };
+    };
+    const [entry] = settings.hooks.PreToolUse;
+    expect(entry?.matcher).toBe('Edit|Write|MultiEdit|NotebookEdit');
+    expect(entry?.hooks[0]?.command).toContain(`'${dir}'`);
+
+    s.kill(1_000);
+    await t.exit();
+    expect(existsSync(settingsPath)).toBe(false);
   });
 
   it('M1-T14: the MCP URL token never appears in argv; it is in a 0600 file, removed on exit', async () => {

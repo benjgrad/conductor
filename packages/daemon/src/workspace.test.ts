@@ -1,10 +1,11 @@
-// M1-T14 regression tests: repo resolution policy and the untrusted CLAUDE.md read.
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+// M1-T14 regression tests: repo resolution policy. (The untrusted CLAUDE.md read went with
+// ADR-0006: Claude Code loads CLAUDE.md itself.)
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DaemonStore } from './store.js';
-import { cloneSource, MAX_CLAUDE_MD_BYTES, RepoNotAllowedError, Workspace } from './workspace.js';
+import { cloneSource, RepoNotAllowedError, Workspace } from './workspace.js';
 
 describe('cloneSource policy', () => {
   it('accepts canonical host/org/repo, https URLs and scp-style ssh', () => {
@@ -106,51 +107,5 @@ describe('Workspace', () => {
     await expect(
       ws.ensureWorktree({ repo: 'ext::sh', sessionId: 's1', branch: 'b', baseRef: 'HEAD' }),
     ).rejects.toThrow(RepoNotAllowedError);
-  });
-
-  it('reads a regular CLAUDE.md inside the worktree', () => {
-    writeFileSync(join(wt, 'CLAUDE.md'), '# hi\n');
-    expect(ws.readClaudeMd(wt)).toBe('# hi\n');
-    expect(logs).toEqual([]);
-  });
-
-  it('returns null without a log line when CLAUDE.md is absent', () => {
-    expect(ws.readClaudeMd(wt)).toBeNull();
-    expect(logs).toEqual([]);
-  });
-
-  it('skips a CLAUDE.md symlink (outside or inside the worktree) and logs it', () => {
-    const secret = join(dir, 'secret.txt');
-    writeFileSync(secret, 'TOKEN=hunter2\n');
-    symlinkSync(secret, join(wt, 'CLAUDE.md'));
-    expect(ws.readClaudeMd(wt)).toBeNull();
-    expect(logs.join('\n')).toMatch(/symlink/);
-
-    rmSync(join(wt, 'CLAUDE.md'));
-    writeFileSync(join(wt, 'real.md'), 'inside\n');
-    symlinkSync(join(wt, 'real.md'), join(wt, 'CLAUDE.md'));
-    expect(ws.readClaudeMd(wt)).toBeNull();
-  });
-
-  it('resolves the worktree path itself through symlinks (macOS /var → /private/var)', () => {
-    const real = join(dir, 'real-wt');
-    mkdirSync(real);
-    writeFileSync(join(real, 'CLAUDE.md'), 'ok\n');
-    symlinkSync(real, join(dir, 'wt', 'linked'));
-    expect(ws.readClaudeMd(join(dir, 'wt', 'linked'))).toBe('ok\n');
-  });
-
-  it('skips a directory named CLAUDE.md and a file over 64 KB', () => {
-    mkdirSync(join(wt, 'CLAUDE.md'));
-    expect(ws.readClaudeMd(wt)).toBeNull();
-    expect(logs.join('\n')).toMatch(/not a regular file/);
-    rmSync(join(wt, 'CLAUDE.md'), { recursive: true });
-
-    writeFileSync(join(wt, 'CLAUDE.md'), 'x'.repeat(MAX_CLAUDE_MD_BYTES + 1));
-    expect(ws.readClaudeMd(wt)).toBeNull();
-    expect(logs.join('\n')).toMatch(/larger than 65536 bytes/);
-
-    writeFileSync(join(wt, 'CLAUDE.md'), 'x'.repeat(MAX_CLAUDE_MD_BYTES));
-    expect(ws.readClaudeMd(wt)).toHaveLength(MAX_CLAUDE_MD_BYTES);
   });
 });

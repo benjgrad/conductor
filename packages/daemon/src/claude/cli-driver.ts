@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { ClaudeDriver, DriverEvent, DriverSession, DriverStartOptions } from './driver.js';
+import { writeEditGuard } from './edit-guard.js';
 import {
   OUTCOME_TOOL_NAMES,
   type OutcomeRegistration,
@@ -69,11 +70,28 @@ export function removeMcpConfigFile(path: string): void {
 }
 
 /**
- * The exact argv of ADR-0005 §Spawn (without the executable). `mcpConfig` is what goes after
- * `--mcp-config`: the driver passes the path from `writeMcpConfigFile` (the CLI accepts a file
- * path or a JSON string), never the JSON itself.
+ * Env the agent always gets, over the daemon env and `opts.env` (ADR-0006): the user's claude.ai
+ * connectors (Gmail, Slack, …) stay out of agent sessions; `--strict-mcp-config` doesn't cover them.
  */
-export function buildClaudeArgs(opts: DriverStartOptions, mcpConfig: string): string[] {
+export const AGENT_ENV = { ENABLE_CLAUDEAI_MCP_SERVERS: 'false' } as const;
+
+/**
+ * The exact argv of ADR-0005 §Spawn as amended by ADR-0006 (without the executable). `mcpConfig`
+ * is what goes after `--mcp-config`: the driver passes the path from `writeMcpConfigFile` (the CLI
+ * accepts a file path or a JSON string), never the JSON itself. `settings` is the edit-guard
+ * settings file from `writeEditGuard`.
+ *
+ * ADR-0006: the user's and the repo's settings load (`--setting-sources user,project`), so the
+ * user's permission mode, rules and hooks apply; no `--permission-mode` is passed. The state's
+ * policy still limits the visible built-ins (`--tools`), pre-approves its rules and adds its
+ * denies; anything that would prompt is denied (`--permission-prompts none`). TD-081: what the
+ * user's settings allow is per machine and not recorded.
+ */
+export function buildClaudeArgs(
+  opts: DriverStartOptions,
+  mcpConfig: string,
+  settings: string,
+): string[] {
   const t = opts.tools;
   const args = [
     '-p',
@@ -89,10 +107,10 @@ export function buildClaudeArgs(opts: DriverStartOptions, mcpConfig: string): st
   if (opts.maxBudgetUsd !== undefined) args.push('--max-budget-usd', String(opts.maxBudgetUsd));
   args.push(
     '--setting-sources',
-    '',
+    'user,project',
+    '--settings',
+    settings,
     '--strict-mcp-config',
-    '--permission-mode',
-    'dontAsk',
     '--permission-prompts',
     'none',
     '--mcp-config',
@@ -151,16 +169,24 @@ class Session implements CliDriverSession {
       onCompleteState: (result) => this.emit({ kind: 'complete_state', result }),
     });
 
+    let settings: string;
     try {
       this.mcpConfigPath = writeMcpConfigFile(this.reg.mcpConfig);
     } catch (err) {
       this.reg.unregister();
       throw err;
     }
+    try {
+      settings = writeEditGuard(dirname(this.mcpConfigPath), opts.cwd);
+    } catch (err) {
+      this.reg.unregister();
+      removeMcpConfigFile(this.mcpConfigPath);
+      throw err;
+    }
 
-    this.child = spawn(bin, buildClaudeArgs(opts, this.mcpConfigPath), {
+    this.child = spawn(bin, buildClaudeArgs(opts, this.mcpConfigPath, settings), {
       cwd: opts.cwd,
-      env: { ...process.env, ...opts.env },
+      env: { ...process.env, ...opts.env, ...AGENT_ENV },
       stdio: ['pipe', 'pipe', 'pipe'],
       // Own process group, so kill() also reaches the tools Claude spawned (bash, test runners).
       detached: true,

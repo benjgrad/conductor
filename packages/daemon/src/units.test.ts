@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { loadConfig, type MachineFacts } from './config.js';
 import { PortPool, PortPoolExhaustedError, portEnv } from './ports.js';
 import { DaemonStore } from './store.js';
-import { buildAppendSystemPrompt, CONDUCTOR_INSTRUCTIONS } from './system-prompt.js';
 import { cloneSource, repoSlug } from './workspace.js';
 import { backoffDelay } from './ws-client.js';
 
@@ -142,13 +141,5 @@ describe('helpers', () => {
     expect(backoffDelay(cfg, 10, () => 0.5)).toBe(1000);
     expect(backoffDelay(cfg, 10, () => 1)).toBe(1200);
     expect(backoffDelay(cfg, 0, () => 0)).toBe(80);
-  });
-
-  it('appendSystemPrompt carries CLAUDE.md after the conductor instructions', () => {
-    expect(buildAppendSystemPrompt(null)).toBe(CONDUCTOR_INSTRUCTIONS);
-    expect(buildAppendSystemPrompt('  ')).toBe(CONDUCTOR_INSTRUCTIONS);
-    expect(buildAppendSystemPrompt('use pnpm')).toMatch(
-      /^You are running[\s\S]*CLAUDE\.md\)\n\nuse pnpm$/,
-    );
   });
 });

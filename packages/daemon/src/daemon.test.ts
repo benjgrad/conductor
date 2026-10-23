@@ -222,8 +222,8 @@ describe('daemon core: start_session', () => {
     expect(opts.cwd).toBe(wt);
     expect(opts.resume).toBe(false);
     expect(opts.tools).toEqual(resolveToolPolicy(['read', 'edit', 'bash', 'git']));
-    expect(opts.appendSystemPrompt).toContain(CONDUCTOR_INSTRUCTIONS);
-    expect(opts.appendSystemPrompt).toContain('Always run npm test.');
+    // ADR-0006: Claude Code loads the worktree's CLAUDE.md itself; the daemon no longer pastes it.
+    expect(opts.appendSystemPrompt).toBe(CONDUCTOR_INSTRUCTIONS);
     expect(opts.maxBudgetUsd).toBeUndefined();
     expect(opts.env).toMatchObject({
       CONDUCTOR_SESSION_ID: sid,

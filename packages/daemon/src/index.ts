@@ -17,7 +17,7 @@ export { loadConfig, type DaemonConfig, type PortPoolConfig } from './config.js'
 export { PortPool, PortPoolExhaustedError, portEnv } from './ports.js';
 export { DaemonStore } from './store.js';
 export { Workspace, cloneSource, repoSlug } from './workspace.js';
-export { buildAppendSystemPrompt, CONDUCTOR_INSTRUCTIONS } from './system-prompt.js';
+export { CONDUCTOR_INSTRUCTIONS } from './system-prompt.js';
 export type { LiveResources, SysInfo } from './sysinfo.js';
 
 export function daemonHealth(): Health {

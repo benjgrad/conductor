@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildClaudeArgs, createCliDriver } from './cli-driver.js';
 import type { DriverEvent, DriverStartOptions } from './driver.js';
+import { writeEditGuard } from './edit-guard.js';
 import { startOutcomeServer, type OutcomeServer } from './outcome-server.js';
 
 const mode = process.env.E2E_REAL_CLAUDE;
@@ -46,7 +47,8 @@ const base = (): DriverStartOptions => ({
 describe.runIf(mode === 'flags' || mode === '1')('real claude CLI: flags', () => {
   it('accepts the exact ADR-0005 argv and exits 0 on stdin EOF', async () => {
     const reg = server.register({ onAskUser: () => {}, onCompleteState: () => {} });
-    const child = spawn(bin, buildClaudeArgs(base(), reg.mcpConfig), { cwd: dir });
+    const settings = writeEditGuard(mkdtempSync(join(dir, 'guard-')), dir);
+    const child = spawn(bin, buildClaudeArgs(base(), reg.mcpConfig, settings), { cwd: dir });
     let stderr = '';
     child.stderr.on('data', (d: Buffer) => (stderr += d.toString()));
     child.stdin.end();

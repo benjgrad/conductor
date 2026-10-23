@@ -10,6 +10,7 @@ export const CONDUCTOR_INSTRUCTIONS = [
   'Never push; later workflow steps do that.',
 ].join('\n');
 
+// TD-084: the untrusted CLAUDE.md is appended as plain text, with no untrusted-data framing.
 export function buildAppendSystemPrompt(claudeMd: string | null): string {
   if (claudeMd === null || claudeMd.trim() === '') return CONDUCTOR_INSTRUCTIONS;
   return `${CONDUCTOR_INSTRUCTIONS}\n\n# Repository instructions (CLAUDE.md)\n\n${claudeMd}`;

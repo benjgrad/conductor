@@ -71,9 +71,23 @@ export function removeMcpConfigFile(path: string): void {
 
 /**
  * Env the agent always gets, over the daemon env and `opts.env` (ADR-0006): the user's claude.ai
- * connectors (Gmail, Slack, …) stay out of agent sessions; `--strict-mcp-config` doesn't cover them.
+ * connectors (Gmail, Slack, …) stay out of agent sessions (`--strict-mcp-config` doesn't cover
+ * them), and safe mode, which would drop the edit-guard hook, stays off.
  */
-export const AGENT_ENV = { ENABLE_CLAUDEAI_MCP_SERVERS: 'false' } as const;
+export const AGENT_ENV = {
+  ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
+  CLAUDE_CODE_SAFE_MODE: '0',
+} as const;
+
+/**
+ * The child's env: the daemon env, then the state env without `CLAUDE_CONFIG_DIR` (which would
+ * point `claude` at other settings than the ones `agentPermissionMode` checked), then AGENT_ENV.
+ */
+export function agentEnv(stateEnv: Record<string, string>): NodeJS.ProcessEnv {
+  const rest = { ...stateEnv };
+  delete rest.CLAUDE_CONFIG_DIR;
+  return { ...process.env, ...rest, ...AGENT_ENV };
+}
 
 /**
  * The `--permission-mode` to pass, if any (ADR-0006). The user's own default applies, except
@@ -216,7 +230,7 @@ class Session implements CliDriverSession {
     }
     this.child = spawn(bin, buildClaudeArgs(opts, this.mcpConfigPath, settings, mode), {
       cwd: opts.cwd,
-      env: { ...process.env, ...opts.env, ...AGENT_ENV },
+      env: agentEnv(opts.env),
       stdio: ['pipe', 'pipe', 'pipe'],
       // Own process group, so kill() also reaches the tools Claude spawned (bash, test runners).
       detached: true,

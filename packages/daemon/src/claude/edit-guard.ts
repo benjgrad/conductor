@@ -75,12 +75,15 @@ const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 /**
  * The `--settings` JSON that registers the hook for `worktree`. `disableAllHooks: false` is
  * pinned: the flag scope outranks user settings, so the user's own `disableAllHooks` can't switch
- * the guard off (QA, verified against claude 2.1.309). `|| exit 2` makes a missing node or
- * script block instead of passing (only exit 2 blocks).
+ * the guard off (QA, verified against claude 2.1.309). `CLAUDE_CODE_SAFE_MODE=1` (process env or
+ * the user settings' `env`) also drops non-policy hooks, so the flag-scope `env` pins it to "0"
+ * (QA, verified). `|| exit 2` makes a missing node or script block instead of passing (only exit
+ * 2 blocks).
  */
 export function editGuardSettings(scriptPath: string, worktree: string, nodeBin: string): object {
   return {
     disableAllHooks: false,
+    env: { CLAUDE_CODE_SAFE_MODE: '0' },
     hooks: {
       PreToolUse: [
         {

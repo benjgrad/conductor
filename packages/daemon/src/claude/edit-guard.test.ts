@@ -17,6 +17,7 @@ import { EDIT_GUARD_MATCHER, writeEditGuard } from './edit-guard.js';
 
 interface GuardSettings {
   disableAllHooks: boolean;
+  env: Record<string, string>;
   hooks: { PreToolUse: { matcher: string; hooks: { command: string }[] }[] };
 }
 
@@ -47,8 +48,9 @@ const run = (toolInput: Record<string, unknown>, cwd: unknown = wt) =>
   runRaw(JSON.stringify({ hook_event_name: 'PreToolUse', cwd, tool_input: toolInput }));
 
 describe('edit guard settings', () => {
-  it('matches the file tools and pins disableAllHooks off (QA: a settings file could disable it)', () => {
+  it('matches the file tools and pins the hook kill switches off (disableAllHooks, safe mode)', () => {
     expect(settings.disableAllHooks).toBe(false);
+    expect(settings.env).toEqual({ CLAUDE_CODE_SAFE_MODE: '0' });
     expect(settings.hooks.PreToolUse[0]?.matcher).toBe(EDIT_GUARD_MATCHER);
     expect(command.startsWith(`'${process.execPath}'`)).toBe(true);
     expect(command.endsWith(' || exit 2')).toBe(true);

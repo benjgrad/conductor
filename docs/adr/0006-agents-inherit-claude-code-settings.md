@@ -14,6 +14,8 @@ Verified facts (Claude Code 2.1.309; docs checked by a claude-code-guide agent; 
 - Deny rules apply in every mode, including bypassPermissions, and deny beats allow.
 - **No permission rule can express "edits only inside the worktree"**. `Edit(./**)` only pre-approves. A deny on `//**` or `~/**` also denies the worktree, which lives under `~/.conductor`, and allow rules can't carve exceptions out of a deny. A PreToolUse hook that exits 2 blocks the call before permission rules are evaluated. Any other non-zero exit lets the call through.
 - **A repo's project settings can switch the hook off.** QA confirmed that a project `.claude/settings.json` with `disableAllHooks: true` stops a `--settings` hook from running. `"disableAllHooks": false` in the `--settings` file (flag scope) overrides user and project settings. Project hooks also run in read-only sessions without any tool call.
+- `CLAUDE_CODE_SAFE_MODE=1`, in the process env or in the user settings' `env` block, also drops non-policy hooks. QA found this; `"env": {"CLAUDE_CODE_SAFE_MODE": "0"}` in the `--settings` file restores the hook (verified).
+- Under `--setting-sources user`, a repo's `.claude/skills`, `.claude/agents` and `.claude/commands` do not load (real session: none of the repo's probe items appeared in `system/init`; the user's own 73 skills did).
 - Claude hands `~/x` to the hook unexpanded, then expands it itself when writing.
 - `--strict-mcp-config` drops user, project and plugin MCP servers, but not the claude.ai connectors. `ENABLE_CLAUDEAI_MCP_SERVERS=false` drops those. The real sessions reported `mcp_servers=[]`.
 
@@ -23,9 +25,10 @@ Verified facts (Claude Code 2.1.309; docs checked by a claude-code-guide agent; 
 Spawn changes against ADR-0005 §Spawn:
 ```
 --setting-sources user                  (was ""; never "project": the repo is untrusted)
---settings <private dir>/settings.json  (new: {"disableAllHooks": false, edit-guard PreToolUse hook})
+--settings <private dir>/settings.json  (new: {"disableAllHooks": false, "env": {"CLAUDE_CODE_SAFE_MODE": "0"}, edit-guard PreToolUse hook})
 --permission-mode auto                  only when the user's defaultMode is bypassPermissions (was dontAsk always)
-env += ENABLE_CLAUDEAI_MCP_SERVERS=false (after the state env, so a state can't override it)
+env += ENABLE_CLAUDEAI_MCP_SERVERS=false, CLAUDE_CODE_SAFE_MODE=0 (after the state env, so a state can't override them);
+       a state env's CLAUDE_CONFIG_DIR is dropped, so claude reads the same settings the cap checked
 ```
 These are unchanged: `--strict-mcp-config`, `--permission-prompts none`, the conductor `--mcp-config`, the state's `--tools`, `--allowedTools` and `--disallowedTools`, and the CLAUDE.md append (`Workspace.readClaudeMd`: a regular file inside the worktree, ≤ 64 KB, no symlinks).
 - **Workflow `tools` aliases** still pick the visible built-ins per state (a read-only state stays read-only) and still pre-approve their rules. They are no longer the only things allowed: whatever the user's mode and rules would allow is allowed too.
@@ -37,7 +40,7 @@ These are unchanged: `--strict-mcp-config`, `--permission-prompts none`, the con
     - it exits 2 unless the target is inside the worktree.
     
     It fails closed: any error blocks, and the command ends in `|| exit 2`, so a missing node or script blocks too. The script and the settings file are 0600, in the per-session 0700 directory beside mcp.json, and are removed on exit.
-  - **`disableAllHooks: false`** is pinned in the `--settings` file.
+  - **The hook's two known off-switches are pinned off** in the `--settings` file, which outranks user settings: `disableAllHooks: false` and `CLAUDE_CODE_SAFE_MODE=0`.
   - **A `bypassPermissions` default is capped to `auto`**, so an unattended agent keeps the classifier. The daemon logs a debug line when it does this.
   - **`Bash(git push:*)`** and the other alias denies.
   - **No MCP servers except conductor's.**
@@ -60,7 +63,8 @@ These are unchanged: `--strict-mcp-config`, `--permission-prompts none`, the con
   - A repo's own `.claude/settings.json` rules don't apply to agents.
   - **Bash is not confined to the worktree.** Auto mode's classifier is the only check on what an allowed command touches. With the same uid, an agent's Bash could also delete or rewrite the guard script in `$TMPDIR`; a missing script now blocks, but a rewritten one doesn't (TD-083). The real boundary is a sandbox (U-004).
   - The `git` alias pre-approves `git commit:*`, which includes `git commit -F <any file>` (TD-082).
-- Follow-ups: TD-081, TD-082, TD-083; U-004.
+  - The repo's CLAUDE.md, untrusted text, is still appended to the system prompt as plain text, after conductor's instructions (unchanged since M1-T14; TD-084).
+- Follow-ups: TD-081, TD-082, TD-083, TD-084; U-004.
 
 ## Revisit when
 Agents run on machines whose owner is not the person who configured them (M2 fleet with shared daemons), a repo needs its own project settings honoured (trusted-repo allowlist), or a sandbox lands (U-004).

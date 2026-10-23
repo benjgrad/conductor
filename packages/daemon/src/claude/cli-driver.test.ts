@@ -14,6 +14,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
+  agentEnv,
   agentPermissionMode,
   buildClaudeArgs,
   createCliDriver,
@@ -294,6 +295,19 @@ describe('createCliDriver against fake-claude', () => {
     s.kill(1_000);
     await t.exit();
     expect(existsSync(settingsPath)).toBe(false);
+  });
+
+  it('ADR-0006: agentEnv drops a state CLAUDE_CONFIG_DIR and pins connectors and safe mode off', () => {
+    const env = agentEnv({
+      PORT: '41000',
+      CLAUDE_CONFIG_DIR: '/tmp/other-claude',
+      CLAUDE_CODE_SAFE_MODE: '1',
+      ENABLE_CLAUDEAI_MCP_SERVERS: 'true',
+    });
+    expect(env.PORT).toBe('41000');
+    expect(env.CLAUDE_CONFIG_DIR).toBe(process.env.CLAUDE_CONFIG_DIR); // the daemon's, if any
+    expect(env.CLAUDE_CODE_SAFE_MODE).toBe('0');
+    expect(env.ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false');
   });
 
   it('ADR-0006: caps the user defaultMode bypassPermissions to auto; leaves others alone', () => {

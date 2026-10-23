@@ -12,7 +12,9 @@ import {
 // stand-in for the EngineService wrapper (assigns start_session command ids, bumps the fencing
 // token on a non-ignored start refusal), per 10-contracts §EngineService wrapper.
 
-export function referenceWorkflow(name: 'm1_basic' | 'pr_flow'): WorkflowDefinition {
+export function referenceWorkflow(
+  name: 'm1_basic' | 'm1_reviewed' | 'pr_flow',
+): WorkflowDefinition {
   const url = new URL(`../../../../docs/design/workflows/${name}.v1.json`, import.meta.url);
   return WorkflowDefinitionSchema.parse(JSON.parse(readFileSync(url, 'utf8')));
 }

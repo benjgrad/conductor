@@ -1,0 +1,39 @@
+{
+  "id": "gate_out_of_event_state",
+  "version": 1,
+  "start": "work",
+  "budget": {
+    "usd": 1,
+    "minutes": 10,
+    "max_loop_retries": 2
+  },
+  "states": {
+    "work": {
+      "type": "agent",
+      "prompt": "p",
+      "on": {
+        "done": "wait",
+        "ask_user": "needs_input"
+      }
+    },
+    "wait": {
+      "type": "event",
+      "wait_for": ["pr.approved"],
+      "on": {
+        "pr.approved": {
+          "goto": "done",
+          "requirements": {
+            "items": ["The PR is approved by a code owner"],
+            "on_unmet": { "goto": "work" }
+          }
+        }
+      }
+    },
+    "needs_input": {
+      "type": "human"
+    },
+    "done": {
+      "type": "terminal"
+    }
+  }
+}

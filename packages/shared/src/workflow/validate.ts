@@ -38,17 +38,37 @@ interface Edge {
 
 const REF_RE = /^\$([^.\s]+)\.([^.\s]+)$/;
 
-/** Parse a workflow definition and check rules 1–7. Never throws. */
+type Issue = { code: string; path: PropertyKey[]; message: string; errors?: Issue[][] };
+
+/**
+ * Zod reports a transition that is neither a string nor a valid object as one `invalid_union`
+ * issue at the transition. Descend into the object branch so the path points at the bad field
+ * (`states.implement.on.done.requirements.on_unmet.retries`), which the web editor maps to the
+ * edge and the field (ADR-0009). The string branch's lone "expected string" is dropped.
+ */
+function flattenIssue(issue: Issue, prefix: PropertyKey[] = []): Issue[] {
+  const path = [...prefix, ...issue.path];
+  if (issue.code !== 'invalid_union' || !issue.errors) return [{ ...issue, path }];
+  const branches = issue.errors.filter(
+    (b) => !(b.length === 1 && b[0]!.code === 'invalid_type' && b[0]!.path.length === 0),
+  );
+  if (branches.length !== 1) return [{ ...issue, path }];
+  return branches[0]!.flatMap((i) => flattenIssue(i, path));
+}
+
+/** Parse a workflow definition and check rules 1–8. Never throws. */
 export function validateWorkflow(input: unknown): WorkflowValidationResult {
   const parsed = WorkflowDefinitionSchema.safeParse(input);
   if (!parsed.success) {
     return {
       ok: false,
-      errors: parsed.error.issues.map((i) => ({
-        rule: 1,
-        path: i.path.map((p) => (typeof p === 'symbol' ? String(p) : p)),
-        message: i.message,
-      })),
+      errors: (parsed.error.issues as Issue[])
+        .flatMap((i) => flattenIssue(i))
+        .map((i) => ({
+          rule: 1,
+          path: i.path.map((p) => (typeof p === 'symbol' ? String(p) : p)),
+          message: i.message,
+        })),
     };
   }
   const def = parsed.data;

@@ -14,7 +14,7 @@ type Raw = {
 };
 
 describe('validateWorkflow: reference workflows', () => {
-  it.each(['m1_basic.v1.json', 'pr_flow.v1.json'])('%s is valid', (name) => {
+  it.each(['m1_basic.v1.json', 'm1_reviewed.v1.json', 'pr_flow.v1.json'])('%s is valid', (name) => {
     const res = validateWorkflow(reference(name));
     expect(res).toMatchObject({ ok: true });
     if (res.ok) expect(res.def.on_budget_exceeded).toBe('needs_input');
@@ -65,6 +65,12 @@ const FAILING: [string, WorkflowRule, (string | number)[][]][] = [
   ['rule5-ref-self', 5, [['states', 'work', 'input', 'prev']]],
   ['rule6-release-no-timeout', 6, [['states', 'wait', 'timeout']]],
   ['rule7-unknown-tool', 7, [['states', 'work', 'tools', 1]]],
+  [
+    'rule8-gate-else-not-human',
+    8,
+    [['states', 'work', 'on', 'done', 'requirements', 'on_unmet', 'else']],
+  ],
+  ['rule8-gate-out-of-event-state', 8, [['states', 'wait', 'on', 'pr.approved', 'requirements']]],
 ];
 
 describe('validateWorkflow: failing fixtures', () => {
@@ -83,7 +89,7 @@ describe('validateWorkflow: failing fixtures', () => {
       .map((f) => f.slice(0, -'.json'.length))
       .sort();
     expect(files).toEqual(FAILING.map(([n]) => n).sort());
-    expect(new Set(FAILING.map(([, r]) => r))).toEqual(new Set([1, 2, 3, 4, 5, 6, 7]));
+    expect(new Set(FAILING.map(([, r]) => r))).toEqual(new Set([1, 2, 3, 4, 5, 6, 7, 8]));
   });
 });
 
@@ -141,5 +147,102 @@ describe('validateWorkflow: behaviour', () => {
     const res = validateWorkflow(raw);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.errors.map((e) => e.rule)).toContain(5);
+  });
+});
+
+describe('validateWorkflow: requirements gates (ADR-0009)', () => {
+  type Gate = Record<string, unknown> & { on_unmet: Record<string, unknown> };
+  type RawDef = Raw & { on_budget_exceeded?: string };
+  const gated = (mutate: (gate: Gate, raw: RawDef) => void) => {
+    const raw = reference('m1_reviewed.v1.json') as RawDef;
+    const done = (raw.states.implement!.on as Record<string, { requirements: Gate }>).done!;
+    mutate(done.requirements, raw);
+    return validateWorkflow(raw);
+  };
+  const paths = (res: ReturnType<typeof validateWorkflow>) =>
+    res.ok ? [] : res.errors.map((e) => `${e.rule} ${e.path.join('.')}`);
+  const at = 'states.implement.on.done.requirements';
+
+  it('on_unmet.goto and else must exist (rule 1, at the gate)', () => {
+    expect(paths(gated((g) => (g.on_unmet.goto = 'implment')))).toEqual([`1 ${at}.on_unmet.goto`]);
+    expect(paths(gated((g) => (g.on_unmet.else = 'nobody')))).toEqual([`1 ${at}.on_unmet.else`]);
+  });
+
+  it('else defaults to needs_input, which must then exist', () => {
+    expect(gated((g) => delete g.on_unmet.else).ok).toBe(true);
+    const res = gated((g, raw) => {
+      delete g.on_unmet.else;
+      raw.states.ask = { type: 'human' };
+      delete raw.states.needs_input;
+      const on = raw.states.implement!.on as Record<string, unknown>;
+      on.ask_user = 'ask';
+      on.timeout = 'ask';
+      for (const s of ['build', 'test']) {
+        (raw.states[s]!.on as Record<string, { else: string }>).fail!.else = 'ask';
+      }
+      raw.on_budget_exceeded = 'ask';
+    });
+    expect(paths(res)).toEqual([`1 ${at}.on_unmet.else`]);
+  });
+
+  it('items: at least one, none blank, at most 30 (rule 1, dotted item paths)', () => {
+    expect(paths(gated((g) => (g.items = [])))).toEqual([`1 ${at}.items`]);
+    expect(paths(gated((g) => (g.items = ['ok', '   '])))).toEqual([`1 ${at}.items.1`]);
+    const many = Array.from({ length: 31 }, (_, i) => `r${i}`);
+    expect(paths(gated((g) => (g.items = many)))).toEqual([`1 ${at}.items`]);
+  });
+
+  it('retries are bounded 0..10 (rule 1)', () => {
+    expect(gated((g) => (g.on_unmet.retries = 0)).ok).toBe(true);
+    expect(gated((g) => (g.on_unmet.retries = 10)).ok).toBe(true);
+    expect(paths(gated((g) => (g.on_unmet.retries = 11)))).toEqual([`1 ${at}.on_unmet.retries`]);
+    expect(paths(gated((g) => (g.on_unmet.retries = 1.5)))).toEqual([`1 ${at}.on_unmet.retries`]);
+  });
+
+  it('a gate out of a human state is rejected (rule 8)', () => {
+    const raw = reference('m1_reviewed.v1.json') as Raw;
+    raw.states.needs_input!.on = {
+      answered: {
+        goto: 'implement',
+        requirements: { items: ['x'], on_unmet: { goto: 'implement' } },
+      },
+    };
+    expect(paths(validateWorkflow(raw))).toEqual(['8 states.needs_input.on.answered.requirements']);
+  });
+
+  it('a gate into a terminal state is allowed', () => {
+    const raw = reference('m1_reviewed.v1.json') as Raw;
+    raw.states.test!.on = {
+      exit_0: {
+        goto: 'done',
+        requirements: { items: ['The README mentions /health'], on_unmet: { goto: 'implement' } },
+      },
+      fail: { goto: 'implement', attach: 'output', retries: 3, else: 'needs_input' },
+    };
+    expect(validateWorkflow(raw).ok).toBe(true);
+  });
+
+  it('a gate-only object is a plain transition: a loop of them is unbudgeted (rule 4)', () => {
+    const raw = reference('m1_reviewed.v1.json') as Raw;
+    raw.states.build!.on = {
+      exit_0: 'test',
+      fail: { goto: 'implement', requirements: { items: ['x'], on_unmet: { goto: 'build' } } },
+    };
+    expect(paths(validateWorkflow(raw)).map((p) => p.split(' ')[0])).toEqual(['4']);
+  });
+
+  it('the review step key is a reserved state name (rule 8)', () => {
+    const raw = reference('m1_basic.v1.json') as Raw;
+    raw.states.__review = { type: 'human' };
+    (raw.states.implement!.on as Record<string, unknown>).ask_user = '__review';
+    expect(paths(validateWorkflow(raw))).toEqual(['8 states.__review']);
+  });
+
+  it("the gate's else leg is a path to a human (rule 3)", () => {
+    const raw = reference('m1_reviewed.v1.json') as Raw;
+    const on = raw.states.implement!.on as Record<string, unknown>;
+    delete on.ask_user;
+    delete on.timeout;
+    expect(validateWorkflow(raw).ok).toBe(true);
   });
 });

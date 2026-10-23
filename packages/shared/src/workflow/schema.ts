@@ -78,10 +78,64 @@ export type Transition = z.infer<typeof TransitionSchema>;
 /** outcome name → transition. Outcome names per state type: see 05 §State types. */
 export const TransitionMapSchema = z.record(z.string().min(1), TransitionSchema);
 
+/** ADR-0010: the one workflow's id. New tickets always run its latest version. */
+export const CONDUCTOR_WORKFLOW_ID = 'conductor';
+
+/** A deterministic entry check: `cmd` runs in the session worktree and must exit 0 (ADR-0010). */
+export const EntryCheckSchema = z.strictObject({
+  /** Shown on the board and in the "not met" feedback, e.g. "Build passes". */
+  name: z.string().trim().min(1).max(200),
+  cmd: z.string().min(1),
+  timeout: DurationSchema.optional(),
+});
+export type EntryCheck = z.infer<typeof EntryCheckSchema>;
+
+/**
+ * Actions conductor itself performs while a ticket enters a column, after every check and review
+ * passed (ADR-0010). `open_pr`: push the session branch and open (or reuse) a pull request, by
+ * conductor, never the agent. Idempotent per session + state + visit.
+ */
+export const EntryActionSchema = z.enum(['open_pr']);
+export type EntryAction = z.infer<typeof EntryActionSchema>;
+
+/**
+ * Requirements to enter a column/state (ADR-0010, superseding ADR-0009's per-transition gates for
+ * the one workflow). Before the ticket enters the state: the `checks` run (cheap, deterministic),
+ * then the reviewer judges the `review` items (ADR-0009 reviewer), then conductor performs the
+ * `actions`. Everything passes → the ticket enters. A failed check or unmet item → `on_unmet`
+ * (back with the output / reasons + instruction, bounded, then a human state). A failed action is
+ * not the agent's fault → straight to `on_unmet.else` with the error.
+ */
+export const EntryRequirementsSchema = z
+  .strictObject({
+    checks: z.array(EntryCheckSchema).max(20).optional(),
+    review: z
+      .strictObject({
+        items: z.array(z.string().trim().min(1).max(2_000)).min(1).max(30),
+        model: z.string().min(1).optional(),
+      })
+      .optional(),
+    actions: z.array(EntryActionSchema).max(5).optional(),
+    on_unmet: OnUnmetSchema,
+  })
+  .refine((e) => (e.checks?.length ?? 0) + (e.review ? 1 : 0) + (e.actions?.length ?? 0) > 0, {
+    message: 'entry requirements need at least one check, review or action',
+  });
+export type EntryRequirements = z.infer<typeof EntryRequirementsSchema>;
+
+/** Fields every state has as a board column (ADR-0010). */
+const columnFields = {
+  /** Column title on the board, e.g. "Implementing". Defaults to the state name. */
+  title: z.string().trim().min(1).max(60).optional(),
+  /** Requirements to enter this state. */
+  entry: EntryRequirementsSchema.optional(),
+};
+
 const common = {
   guard: z.string().min(1).optional(),
   timeout: DurationSchema.optional(),
   on: TransitionMapSchema.optional(),
+  ...columnFields,
 };
 
 export const AgentStateSchema = z
@@ -138,6 +192,7 @@ export const HumanStateSchema = z.strictObject({
 
 export const TerminalStateSchema = z.strictObject({
   type: z.literal('terminal'),
+  ...columnFields,
 });
 
 export const StateSchema = z.discriminatedUnion('type', [
@@ -172,6 +227,12 @@ export const WorkflowDefinitionSchema = z.strictObject({
   /** State to route to on `budget.exceeded`. Default `needs_input` (05, 09). */
   on_budget_exceeded: StateNameSchema.default('needs_input'),
   states: z.record(StateNameSchema, StateSchema),
+  /**
+   * ADR-0010: the board's columns, left to right, as state names. Every state is a column in the
+   * one workflow; the board also shows an implicit "Queued" column first (sessions no machine has
+   * claimed). Required for `CONDUCTOR_WORKFLOW_ID`; older workflows omit it.
+   */
+  columns: z.array(StateNameSchema).min(1).optional(),
 });
 /** A parsed definition (defaults applied). */
 export type WorkflowDefinition = z.infer<typeof WorkflowDefinitionSchema>;

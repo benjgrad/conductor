@@ -1,4 +1,5 @@
 import type { RequirementsGate, WorkflowDefinition } from '@conductor/shared';
+import { useId } from 'react';
 import {
   defaultGate,
   failurePolicy,
@@ -33,6 +34,7 @@ export function TransitionEditor({
   onChange,
   onClose,
 }: TransitionEditorProps) {
+  const uid = useId();
   const t = getTransition(definition, from, outcome);
   if (t === undefined) return null;
   const to = gateTarget(t);
@@ -163,9 +165,9 @@ export function TransitionEditor({
 
           <h4>When not met</h4>
           <div className="wf-unmet">
-            <label htmlFor="wf-unmet-goto">Go back to</label>
+            <label htmlFor={`${uid}-unmet-goto`}>Go back to</label>
             <select
-              id="wf-unmet-goto"
+              id={`${uid}-unmet-goto`}
               value={gate.on_unmet.goto}
               onChange={(e) => patchUnmet({ goto: e.target.value })}
             >
@@ -175,9 +177,9 @@ export function TransitionEditor({
                 </option>
               ))}
             </select>
-            <label htmlFor="wf-unmet-instruction">With instruction</label>
+            <label htmlFor={`${uid}-unmet-instruction`}>With instruction</label>
             <textarea
-              id="wf-unmet-instruction"
+              id={`${uid}-unmet-instruction`}
               rows={3}
               value={gate.on_unmet.instruction ?? ''}
               placeholder="What the agent should do about it (optional)"
@@ -191,9 +193,9 @@ export function TransitionEditor({
                 });
               }}
             />
-            <label htmlFor="wf-unmet-retries">Up to (times)</label>
+            <label htmlFor={`${uid}-unmet-retries`}>Up to (times)</label>
             <input
-              id="wf-unmet-retries"
+              id={`${uid}-unmet-retries`}
               type="number"
               min={0}
               max={10}
@@ -203,9 +205,9 @@ export function TransitionEditor({
                 patchUnmet({ retries: e.target.value === '' ? NaN : Number(e.target.value) })
               }
             />
-            <label htmlFor="wf-unmet-else">Then</label>
+            <label htmlFor={`${uid}-unmet-else`}>Then</label>
             <select
-              id="wf-unmet-else"
+              id={`${uid}-unmet-else`}
               value={gate.on_unmet.else}
               onChange={(e) => patchUnmet({ else: e.target.value })}
             >
@@ -215,9 +217,9 @@ export function TransitionEditor({
                 </option>
               ))}
             </select>
-            <label htmlFor="wf-gate-model">Reviewer model</label>
+            <label htmlFor={`${uid}-gate-model`}>Reviewer model</label>
             <input
-              id="wf-gate-model"
+              id={`${uid}-gate-model`}
               value={gate.model ?? ''}
               placeholder="account default"
               onChange={(e) => {

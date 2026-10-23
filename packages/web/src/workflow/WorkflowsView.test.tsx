@@ -43,7 +43,7 @@ describe('Workflows view', () => {
       'm1_basicv2',
       'pr_flowv2',
     ]);
-    expect(window.location.hash).toBe('#/workflows');
+    await waitFor(() => expect(window.location.hash).toBe('#/workflows/m1_basic'));
     expect(screen.getByRole('link', { name: 'Workflows' }).getAttribute('aria-current')).toBe(
       'page',
     );
@@ -197,6 +197,68 @@ describe('Workflows view', () => {
       editor().getByText(/only gate transitions out of agent and command states/),
     ).toBeTruthy();
     expect(editor().queryByRole('button', { name: 'Add requirements' })).toBeNull();
+  });
+});
+
+describe('unsaved draft guard', () => {
+  async function dirty() {
+    const ctx = await setup();
+    fireEvent.click(edge(/^build → test on exit_0/));
+    fireEvent.click(editor().getByRole('button', { name: 'Add requirements' }));
+    expect(screen.getByText('Unsaved changes')).toBeTruthy();
+    return ctx;
+  }
+  const confirm = () => within(screen.getByRole('alertdialog', { name: 'Unsaved changes' }));
+
+  it('asks before another workflow; Keep editing keeps the draft', async () => {
+    await dirty();
+    await waitFor(() => expect(window.location.hash).toBe('#/workflows/m1_basic'));
+    fireEvent.click(screen.getByRole('button', { name: /pr_flow/ }));
+    expect(confirm().getByText('Discard unsaved changes to m1_basic?')).toBeTruthy();
+    expect(window.location.hash).toBe('#/workflows/m1_basic');
+    fireEvent.click(confirm().getByRole('button', { name: 'Keep editing' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(screen.getByText('Unsaved changes')).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'm1_basic v2 state diagram' })).toBeTruthy();
+    expect(editor().getByLabelText('Requirement 1')).toBeTruthy();
+  });
+
+  it('asks before the Board; Discard leaves and drops the draft', async () => {
+    await dirty();
+    fireEvent.click(screen.getByRole('link', { name: 'Board' }));
+    // The link changed the hash; the guard put it back.
+    await waitFor(() => expect(screen.getByRole('alertdialog')).toBeTruthy());
+    expect(window.location.hash).toBe('#/workflows/m1_basic');
+    expect(screen.getByText('Unsaved changes')).toBeTruthy();
+    fireEvent.click(confirm().getByRole('button', { name: 'Discard' }));
+    await screen.findByText('Add pagination to /orders');
+    expect(window.location.hash).toBe('#/');
+    fireEvent.click(screen.getByRole('link', { name: 'Workflows' }));
+    await screen.findByRole('group', { name: 'm1_basic v2 state diagram' });
+    expect(screen.queryByText('Unsaved changes')).toBeNull();
+  });
+
+  it("a hash change to another workflow never shows A's draft under B", async () => {
+    await dirty();
+    window.location.hash = '#/workflows/pr_flow';
+    await waitFor(() => expect(screen.getByRole('alertdialog')).toBeTruthy());
+    expect(window.location.hash).toBe('#/workflows/m1_basic');
+    expect(screen.getByRole('group', { name: 'm1_basic v2 state diagram' })).toBeTruthy();
+    fireEvent.click(confirm().getByRole('button', { name: 'Discard' }));
+    await screen.findByRole('group', { name: 'pr_flow v2 state diagram' });
+    expect(window.location.hash).toBe('#/workflows/pr_flow');
+    expect(screen.queryByText('Unsaved changes')).toBeNull();
+    expect(screen.queryByRole('complementary', { name: 'Transition' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save as new version' })).toBeNull();
+    // pr_flow's build → test edge is still the plain string transition.
+    expect(edge(/^build → test on exit_0$/)).toBeTruthy();
+  });
+
+  it('navigates freely when there is no draft', async () => {
+    await setup();
+    fireEvent.click(screen.getByRole('button', { name: /pr_flow/ }));
+    await screen.findByRole('group', { name: 'pr_flow v2 state diagram' });
+    expect(screen.queryByRole('alertdialog')).toBeNull();
   });
 });
 

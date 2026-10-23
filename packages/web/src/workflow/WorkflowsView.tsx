@@ -18,7 +18,10 @@ export interface WorkflowsViewProps {
   api: ApiClient;
   /** From the URL; null = the first workflow. */
   workflowId: string | null;
-  onSelectWorkflow: (id: string) => void;
+  /** `replace`: the view resolved "the first workflow" itself (no new history entry). */
+  onSelectWorkflow: (id: string, replace?: boolean) => void;
+  /** The workflow id with unsaved changes, or null; the app guards navigation with it. */
+  onDirtyChange?: (workflowId: string | null) => void;
 }
 
 interface Selected {
@@ -26,12 +29,18 @@ interface Selected {
   outcome: string;
 }
 
-export function WorkflowsView({ api, workflowId, onSelectWorkflow }: WorkflowsViewProps) {
+export function WorkflowsView({
+  api,
+  workflowId,
+  onSelectWorkflow,
+  onDirtyChange,
+}: WorkflowsViewProps) {
   const [summaries, setSummaries] = useState<WorkflowSummary[] | null>(null);
   /** null = latest. */
   const [version, setVersion] = useState<number | null>(null);
   const [detail, setDetail] = useState<WorkflowDetail | null>(null);
-  const [draft, setDraft] = useState<WorkflowDefinition | null>(null);
+  /** The draft is tagged with its workflow, so it can never show under another one. */
+  const [draft, setDraft] = useState<{ id: string; def: WorkflowDefinition } | null>(null);
   const [selected, setSelected] = useState<Selected | null>(null);
   const [serverErrors, setServerErrors] = useState<ApiErrorDetail[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +61,17 @@ export function WorkflowsView({ api, workflowId, onSelectWorkflow }: WorkflowsVi
   const id = workflowId ?? summaries?.[0]?.id ?? null;
   const summary = summaries?.find((w) => w.id === id);
 
+  // Put the resolved workflow in the URL, so navigation guards and links see a concrete id.
+  useEffect(() => {
+    if (workflowId === null && id !== null) onSelectWorkflow(id, true);
+  }, [workflowId, id, onSelectWorkflow]);
+
+  const draftDef = draft !== null && draft.id === id ? draft.def : null;
+  useEffect(() => {
+    onDirtyChange?.(draftDef !== null ? id : null);
+  }, [draftDef, id, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(null), [onDirtyChange]);
+
   useEffect(() => {
     if (id === null) return;
     let cancelled = false;
@@ -68,8 +88,8 @@ export function WorkflowsView({ api, workflowId, onSelectWorkflow }: WorkflowsVi
     };
   }, [api, id, version]);
 
-  const shown = draft ?? (detail && detail.id === id ? detail.definition : null);
-  const dirty = draft !== null;
+  const shown = draftDef ?? (detail && detail.id === id ? detail.definition : null);
+  const dirty = draftDef !== null;
 
   const clientIssues = useMemo(() => (shown ? validateGates(shown) : []), [shown]);
   const serverIssues = useMemo(
@@ -90,18 +110,15 @@ export function WorkflowsView({ api, workflowId, onSelectWorkflow }: WorkflowsVi
     return keys;
   }, [clientIssues, serverIssues]);
 
+  // The app keys this view by workflow id, so switching remounts it with fresh state. With a
+  // dirty draft the app asks first (draft-guard.tsx).
   const selectWorkflow = (next: string) => {
-    if (next === id) return;
-    setVersion(null);
-    setDetail(null);
-    setSelected(null);
-    setServerErrors([]);
-    setNotice(null);
-    onSelectWorkflow(next);
+    if (next !== id) onSelectWorkflow(next);
   };
 
   const edit = (next: WorkflowDefinition) => {
-    setDraft(next);
+    if (id === null) return;
+    setDraft({ id, def: next });
     setNotice(null);
   };
 
@@ -112,12 +129,12 @@ export function WorkflowsView({ api, workflowId, onSelectWorkflow }: WorkflowsVi
   };
 
   async function save() {
-    if (!draft || clientIssues.length > 0) return;
+    if (!draftDef || clientIssues.length > 0) return;
     setSaving(true);
     setServerErrors([]);
     setError(null);
     try {
-      const res = await api.saveWorkflow(draft);
+      const res = await api.saveWorkflow(draftDef);
       const ws = await api.listWorkflows();
       setSummaries(ws);
       setDraft(null);
@@ -152,13 +169,7 @@ export function WorkflowsView({ api, workflowId, onSelectWorkflow }: WorkflowsVi
         <ul className="wf-list">
           {summaries?.map((w) => (
             <li key={w.id}>
-              <button
-                type="button"
-                aria-current={w.id === id}
-                disabled={dirty && w.id !== id}
-                title={dirty && w.id !== id ? 'Save or discard your changes first' : undefined}
-                onClick={() => selectWorkflow(w.id)}
-              >
+              <button type="button" aria-current={w.id === id} onClick={() => selectWorkflow(w.id)}>
                 <span>{w.id}</span>
                 <span className="muted">v{w.version}</span>
               </button>
@@ -277,7 +288,7 @@ export function WorkflowsView({ api, workflowId, onSelectWorkflow }: WorkflowsVi
 
       {selected && shown && (
         <TransitionEditor
-          key={transitionKey(selected.from, selected.outcome)}
+          key={`${id ?? ''}:${transitionKey(selected.from, selected.outcome)}`}
           definition={shown}
           from={selected.from}
           outcome={selected.outcome}

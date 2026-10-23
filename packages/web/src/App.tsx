@@ -5,6 +5,7 @@ import { Board } from './components/Board.js';
 import { CreateTicketForm } from './components/CreateTicketForm.js';
 import { DetailPanel } from './components/DetailPanel.js';
 import { routeHash, useHashRoute } from './nav.js';
+import { DiscardDraftConfirm, useDraftGuard } from './workflow/draft-guard.js';
 import { WorkflowsView } from './workflow/WorkflowsView.js';
 
 export interface AppProps {
@@ -15,7 +16,8 @@ export function App({ api }: AppProps) {
   const { board, error } = useBoard(api);
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [route, navigate] = useHashRoute();
+  const draft = useDraftGuard();
+  const [route, navigate] = useHashRoute(draft.guard, draft.onBlocked);
 
   const selectedCard = selected
     ? [...board.cards.values()].find((c) => c.session_id === selected)
@@ -50,11 +52,17 @@ export function App({ api }: AppProps) {
           {error}
         </p>
       )}
+      <DiscardDraftConfirm draft={draft} navigate={navigate} />
       {route.view === 'workflows' && (
         <WorkflowsView
+          // One view per workflow: a draft can never show under another workflow's selection.
+          key={route.workflowId ?? ''}
           api={api}
           workflowId={route.workflowId}
-          onSelectWorkflow={(workflowId) => navigate({ view: 'workflows', workflowId })}
+          onSelectWorkflow={(workflowId, replace) =>
+            navigate({ view: 'workflows', workflowId }, { replace })
+          }
+          onDirtyChange={draft.setDirty}
         />
       )}
       {route.view === 'board' && creating && (

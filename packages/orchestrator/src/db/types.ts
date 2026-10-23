@@ -108,9 +108,10 @@ export interface SessionRow {
   /**
    * jsonb null: the accepted answer not yet delivered to a running agent (SessionSnapshot
    * .pending_answer, 10-contracts §Pending answer). Set by apply on input.provided; a resume
-   * start_session uses it as the prompt; cleared once the agent runs on it.
+   * start_session uses it as the prompt; cleared once the agent runs on it. `input_request_id`
+   * is null for a reopen message (ADR-0008).
    */
-  pending_answer: { input_request_id: string; answer: string } | null;
+  pending_answer: { input_request_id: string | null; answer: string } | null;
   retry_counters: Record<string, number>;
   /** numeric. */
   spend_usd: string;

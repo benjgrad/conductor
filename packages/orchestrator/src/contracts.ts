@@ -14,6 +14,8 @@ import {
   type OutputChunk,
   type OutputStream,
   type SessionSnapshot,
+  type TranscriptChunk,
+  type TranscriptError,
 } from '@conductor/shared';
 import type { QueryResult, QueryResultRow } from 'pg';
 import type { OutboxRow } from './db/types.js';
@@ -431,5 +433,43 @@ export class InMemoryOutputBus implements OutputBus {
 
   clear(sessionId: string): void {
     this.rings.delete(sessionId);
+  }
+}
+
+// ================================================================== TranscriptSource
+
+/** ADR-0008: how long the orchestrator waits for a daemon's `transcript` reply. */
+export const TRANSCRIPT_TIMEOUT_MS = 10_000;
+
+export type TranscriptFetchResult =
+  | { status: 'ok'; chunks: TranscriptChunk[]; truncated: boolean }
+  /** The machine has no open socket (or it closed while waiting). */
+  | { status: 'offline' }
+  /** No reply within the timeout. */
+  | { status: 'timeout' }
+  /** The daemon answered with an error. */
+  | { status: 'error'; error: TranscriptError };
+
+/**
+ * ADR-0008: a read-only WS request/response to the daemon holding a session (`fetch_transcript` →
+ * `transcript`). Implemented by the gateway; used by T08's GET /api/sessions/:id/transcript.
+ */
+export interface TranscriptSource {
+  fetchTranscript(machineId: string, sessionId: string): Promise<TranscriptFetchResult>;
+}
+
+/** Scripted TranscriptSource for API tests. Records calls. */
+export class FakeTranscriptSource implements TranscriptSource {
+  readonly calls: { machineId: string; sessionId: string }[] = [];
+  constructor(
+    private readonly answer: (
+      machineId: string,
+      sessionId: string,
+    ) => TranscriptFetchResult | Promise<TranscriptFetchResult> = () => ({ status: 'offline' }),
+  ) {}
+
+  async fetchTranscript(machineId: string, sessionId: string): Promise<TranscriptFetchResult> {
+    this.calls.push({ machineId, sessionId });
+    return this.answer(machineId, sessionId);
   }
 }

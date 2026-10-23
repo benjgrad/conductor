@@ -1,6 +1,7 @@
 // Public REST + SSE client for the E2E (M1-T10). Everything the scenarios observe goes through
 // the orchestrator's HTTP API: POST /api/workflows, POST /api/tickets, GET /api/sessions/:id,
-// POST /api/sessions/:id/input, GET /api/machines, and the board / output SSE streams.
+// POST /api/sessions/:id/input, /messages, /reopen, GET /api/sessions/:id/transcript,
+// GET /api/machines, and the board / output SSE streams.
 import type {
   BoardCard,
   BoardSseEvent,
@@ -8,6 +9,7 @@ import type {
   OutputChunk,
   SessionDetail,
   TicketDto,
+  TranscriptResponse,
 } from '../../packages/shared/src/index.js';
 
 export class ApiError extends Error {
@@ -68,6 +70,26 @@ export class Api {
 
   machines() {
     return this.call<MachineDto[]>('GET', '/api/machines');
+  }
+
+  /** ADR-0008: history from Claude's transcript on the session's machine. */
+  transcript(sessionId: string, expect = 200) {
+    return this.call<TranscriptResponse>(
+      'GET',
+      `/api/sessions/${sessionId}/transcript`,
+      undefined,
+      expect,
+    );
+  }
+
+  /** ADR-0008: reopen a finished ticket with the same agent; returns the new session id. */
+  reopen(sessionId: string, text: string) {
+    return this.call<{ session_id: string }>(
+      'POST',
+      `/api/sessions/${sessionId}/reopen`,
+      { text },
+      202,
+    );
   }
 }
 

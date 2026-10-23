@@ -15,6 +15,7 @@ import {
   type EngineService,
   type OutboxTransport,
   type OutputBus,
+  type TranscriptSource,
 } from './contracts.js';
 
 // Orchestrator composition root (M1-T12 skeleton; 10-contracts §Composition root). Each group C
@@ -46,6 +47,8 @@ export type CreateEngineService = (deps: {
 /** M1-T11. `attach` serves API_PATHS.daemonWs via the HTTP server's `upgrade` event. */
 export interface GatewayHandle {
   transport: OutboxTransport;
+  /** ADR-0008: transcript requests to daemons (the real gateway always has it). */
+  transcripts?: TranscriptSource;
   attach(server: Server): void;
   close(): Promise<void>;
 }
@@ -67,6 +70,8 @@ export type CreateApi = (deps: {
   engine: EngineService;
   boardBus: BoardBus;
   outputBus: OutputBus;
+  /** ADR-0008: absent → GET /transcript answers 503 machine_offline. */
+  transcripts?: TranscriptSource;
 }) => ApiHandle;
 
 export type CreateDb = (opts: { databaseUrl: string }) => Db;
@@ -111,7 +116,13 @@ export function composeOrchestrator(
   const engineHandle = f.createEngineService({ db, boardBus });
   const engine = engineHandle.engine;
   const gateway = f.createGateway({ db, engine, boardBus, outputBus });
-  const api = f.createApi({ db, engine, boardBus, outputBus });
+  const api = f.createApi({
+    db,
+    engine,
+    boardBus,
+    outputBus,
+    ...(gateway.transcripts ? { transcripts: gateway.transcripts } : {}),
+  });
   gateway.attach(api.server);
   let workers: Stoppable | null = null;
   return {

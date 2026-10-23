@@ -40,8 +40,10 @@ export function parseToolUse(text: string): ToolCall {
 export function buildEntries(chunks: readonly OutputChunk[]): Entry[] {
   const out: Entry[] = [];
   const waiting: Extract<Entry, { kind: 'tool' }>[] = [];
-  for (const c of chunks) {
-    const key = String(c.seq);
+  // Keyed by position: the list only grows at the end, and transcript history (ADR-0008) has its
+  // own seq numbering, so seq alone is not unique once history precedes the ring's chunks.
+  for (const [i, c] of chunks.entries()) {
+    const key = String(i);
     const prev = out.at(-1);
     switch (c.stream) {
       case 'assistant':

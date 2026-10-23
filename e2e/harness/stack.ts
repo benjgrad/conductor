@@ -63,6 +63,11 @@ export class Stack {
     return join(this.tmp, 'fake-claude-argv.jsonl');
   }
 
+  /** CLAUDE_CONFIG_DIR of the daemon and the fake (fake mode): transcripts land under it. */
+  get claudeConfigDir(): string {
+    return join(this.tmp, 'claude-config');
+  }
+
   get baseUrl(): string {
     return `http://127.0.0.1:${this.port}`;
   }
@@ -106,6 +111,8 @@ export class Stack {
       env.FAKE_CLAUDE_STATE_DIR = join(this.tmp, 'fake-claude-state');
       env.FAKE_CLAUDE_ARGV_LOG = this.fakeArgvLog; // one line per process start (live vs --resume)
       env.FAKE_CLAUDE_VERSION = '9.9.9';
+      // ADR-0008: the fake writes transcripts here, and the daemon reads them from here.
+      env.CLAUDE_CONFIG_DIR = this.claudeConfigDir;
     }
     this.spawn('daemon', DAEMON_BIN, env);
   }

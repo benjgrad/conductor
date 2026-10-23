@@ -25,9 +25,13 @@ export const SnapshotTicketSchema = z.object({
   external_ref: z.string().nullable(),
 });
 
-/** `session.pending_answer` (02): the answer waiting to be delivered as a start_session prompt. */
+/**
+ * `session.pending_answer` (02): the answer waiting to be delivered as a start_session prompt.
+ * `input_request_id` is null for a reopen message (ADR-0008): the human's text for the reopened
+ * session's first start, which answers no input_request.
+ */
 export const PendingAnswerSchema = z.object({
-  input_request_id: UuidSchema,
+  input_request_id: UuidSchema.nullable(),
   answer: z.string(),
 });
 export type PendingAnswer = z.infer<typeof PendingAnswerSchema>;
@@ -68,7 +72,9 @@ export const SessionSnapshotSchema = z.object({
    * re-emit after a requeue) uses `answer` as its `prompt` with `resume_claude_session_id`.
    * Cleared when the agent is running on it: a matching `session.started`, or (live send_input
    * path, whose accepted ack is not an engine event) the agent's next `complete_state` /
-   * `ask_user`; also cleared when apply enters a different state.
+   * `ask_user`; also cleared when apply enters a different state. A reopened session (ADR-0008)
+   * is created with it set (`input_request_id: null`, the human's message) and `workflow_state`
+   * null: its first `session.assigned` enters `def.start` delivering it.
    */
   pending_answer: PendingAnswerSchema.nullable(),
   /** `"<from>-><goto>"` → times taken (05 §Retry loops). */

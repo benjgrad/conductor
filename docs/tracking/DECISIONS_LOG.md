@@ -4,6 +4,7 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-23 | TD-079 fixed read-side: a card or session detail shows an unanswered input_request only while the session is `needs_input`. A cancel leaves the row unanswered (no new effect or column, no contract change); 10-contracts §apply updated. Sub-cent spend renders `<$0.01` (TD-080) | [session](sessions/2026-10-23-fix-td079-td080.md), d83acc2 |
 | 2026-10-22 | M1 verified by hand: real Claude (haiku) driven from the browser through ask → answer → write → commit → build → test → done. Found and fixed TD-075 (macOS memory) and TD-076 (git commit rule); logged TD-077..080 | README §Run it locally |
 | 2026-10-22 | M1 declared complete pending Ben's sign-off: all 18 M1 tasks done and QA-passed, `pnpm test:e2e` green in fake mode (6 passed / 1 skipped, ~16 s). The paid `E2E_REAL_CLAUDE=1` run and the T05a real-mode manual check stay outstanding (UNFINISHED) | M1 group E, [M1](../plan/milestones/M1-single-machine.md) |
 | 2026-10-22 | M1 group E: T10 merged to main via `integrate/E` (`--no-ff`, no conflicts; 344a0c9). The first `scripts/ci.sh` run on the merged tree failed on the known flaky daemon test (U-046, unrelated to T10's files); the rerun was fully green (503 passed / 2 skipped; e2e 6 passed / 1 skipped), and main was fast-forwarded on that basis | M1 group E, U-046 |

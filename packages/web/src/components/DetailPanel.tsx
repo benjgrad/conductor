@@ -1,8 +1,9 @@
-import type { InputRequestDto, OutputChunk, SessionDetail } from '@conductor/shared';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import type { InputRequestDto, SessionDetail } from '@conductor/shared';
+import { useState, type FormEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { useSession } from '../board/hooks.js';
 import { duration, KIND_LABELS, STATUS_LABELS, TERMINAL_STATUSES, usd } from './format.js';
+import { OutputLog } from './OutputLog.js';
 
 interface DetailPanelProps {
   api: ApiClient;
@@ -42,7 +43,7 @@ export function DetailPanel({ api, sessionId, version, onClose }: DetailPanelPro
           <Actions api={api} detail={detail} onDone={reload} />
           <BudgetSection detail={detail} />
           <ContextSection detail={detail} />
-          <OutputSection output={output} />
+          <OutputLog output={output} worktree={detail.worktree_path} />
         </>
       )}
     </aside>
@@ -373,25 +374,5 @@ function ContextEntry({ name, value }: { name: string; value: unknown }) {
         )}
       </dd>
     </>
-  );
-}
-
-function OutputSection({ output }: { output: OutputChunk[] }) {
-  const ref = useRef<HTMLPreElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [output.length]);
-  return (
-    <section aria-label="Output">
-      <h3>Live output</h3>
-      <pre ref={ref} className="output" role="log" aria-live="polite">
-        {output.map((c) => (
-          <span key={c.seq} className={`out-${c.stream}`}>
-            {c.text}
-          </span>
-        ))}
-      </pre>
-    </section>
   );
 }

@@ -55,6 +55,9 @@ export function parseStreamLine(line: string): ParsedLine[] {
           { kind: 'init', sessionId: str(m.session_id), cliVersion: str(m.claude_code_version) },
         ];
       }
+      // A running estimate emitted many times per turn; in a real session it was two thirds of
+      // the output ring and says nothing a reader needs.
+      if (m.subtype === 'thinking_tokens') return [];
       return [debug(line)];
 
     case 'assistant': {

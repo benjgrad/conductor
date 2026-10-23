@@ -28,7 +28,10 @@ Spawn changes against ADR-0005 §Spawn:
 --settings <private dir>/settings.json  (new: {"disableAllHooks": false, "env": {"CLAUDE_CODE_SAFE_MODE": "0"}, edit-guard PreToolUse hook})
 --permission-mode auto                  only when the user's defaultMode is bypassPermissions (was dontAsk always)
 env += ENABLE_CLAUDEAI_MCP_SERVERS=false, CLAUDE_CODE_SAFE_MODE=0 (after the state env, so a state can't override them);
-       a state env's CLAUDE_CONFIG_DIR is dropped, so claude reads the same settings the cap checked
+       the state env is allowlisted (STATE_ENV_ALLOWED: CONDUCTOR_*, PORT, GIT_AUTHOR_/GIT_COMMITTER_ NAME/EMAIL);
+       any other key (HOME, NODE_OPTIONS, CLAUDE_*, ANTHROPIC_*, …) is dropped with a debug line, so claude reads
+       the same settings the cap checked and a state can't switch billing or inject code. A future per-state
+       workflow env must extend the list deliberately
 ```
 These are unchanged: `--strict-mcp-config`, `--permission-prompts none`, the conductor `--mcp-config`, the state's `--tools`, `--allowedTools` and `--disallowedTools`, and the CLAUDE.md append (`Workspace.readClaudeMd`: a regular file inside the worktree, ≤ 64 KB, no symlinks).
 - **Workflow `tools` aliases** still pick the visible built-ins per state (a read-only state stays read-only) and still pre-approve their rules. They are no longer the only things allowed: whatever the user's mode and rules would allow is allowed too.

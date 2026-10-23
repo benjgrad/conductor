@@ -58,6 +58,7 @@ export function Composer({ api, detail, agentName, onDone, onShowDetails }: Comp
   const m = composerMode(detail);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  const inflight = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState(false);
@@ -94,6 +95,9 @@ export function Composer({ api, detail, agentName, onDone, onShowDetails }: Comp
   }
 
   async function call(fn: () => Promise<unknown>, clear = true) {
+    // A ref, not `busy`: two Enters before a re-render must still send once.
+    if (inflight.current) return;
+    inflight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -103,6 +107,7 @@ export function Composer({ api, detail, agentName, onDone, onShowDetails }: Comp
     } catch (err) {
       setError(errorMessage(err));
     } finally {
+      inflight.current = false;
       setBusy(false);
     }
   }
@@ -290,6 +295,8 @@ export function Composer({ api, detail, agentName, onDone, onShowDetails }: Comp
           disabled={m.mode === 'off'}
           onChange={(e) => change(e.target.value)}
           onKeyDown={onKeyDown}
+          role="combobox"
+          aria-expanded={menuOpen}
           aria-controls={menuOpen ? listId : undefined}
           aria-autocomplete="list"
           aria-activedescendant={menuOpen ? `${listId}-${items[activeIndex]!.name}` : undefined}

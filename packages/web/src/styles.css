@@ -499,6 +499,17 @@ button.copy {
   padding: 0 4px;
   font-size: 12px;
 }
+.ctx-deep .link {
+  padding-left: 0;
+}
+.ctx-deep-json {
+  display: block;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  background: var(--inline-code-bg);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
 .ctx-raw-toggle {
   margin-top: 10px;
   padding-left: 0;

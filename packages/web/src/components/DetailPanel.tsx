@@ -127,12 +127,14 @@ export function DetailPanel({ api, sessionId, version, onClose }: DetailPanelPro
               )}
             </OutputLog>
             <Composer
-              key={detail.pending_input?.id ?? 'messages'}
               api={api}
               detail={detail}
               agentName={name}
               onDone={reload}
-              onShowDetails={() => setTab('details')}
+              onShowDetails={() => {
+                setTab('details');
+                tabRefs.current.details?.focus();
+              }}
             />
           </>
         )}

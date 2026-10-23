@@ -137,6 +137,58 @@ describe('composer', () => {
     expect(panel.getByRole<HTMLButtonElement>('button', { name: 'Send' }).disabled).toBe(true);
   });
 
+  it('keeps the draft when a question arrives mid-typing, and Send then answers it', async () => {
+    const { api, calls, panel } = await setup('Add pagination to /orders');
+    const box = panel.getByLabelText<HTMLTextAreaElement>('Message');
+    type(box, 'half-written thought');
+    let inputId = '';
+    act(() => {
+      inputId = api.requestInput(SEED_IDS.running.session, 'agent_question', 'Offset or cursor?');
+    });
+    await panel.findByText('Offset or cursor?');
+    const answerBox = panel.getByLabelText<HTMLTextAreaElement>('Answer');
+    expect(answerBox).toBe(box); // same element, not remounted
+    expect(answerBox.value).toBe('half-written thought');
+    enter(answerBox);
+    await waitFor(() =>
+      expect(calls.answers).toEqual([
+        [SEED_IDS.running.session, { input_request_id: inputId, answer: 'half-written thought' }],
+      ]),
+    );
+    expect(calls.messages).toEqual([]);
+  });
+
+  it('Enter while an IME composition is active does not send', async () => {
+    const { calls, panel } = await setup('Add pagination to /orders');
+    const box = panel.getByLabelText('Message');
+    type(box, 'こんにちは');
+    fireEvent.keyDown(box, { key: 'Enter', isComposing: true });
+    expect(calls.messages).toEqual([]);
+    expect((box as HTMLTextAreaElement).value).toBe('こんにちは');
+  });
+
+  it('a double Enter sends once', async () => {
+    const { api, calls, panel } = await setup('Add pagination to /orders');
+    let release: () => void = () => undefined;
+    api.sendMessage = (sid, req) => {
+      calls.messages.push([sid, req]);
+      return new Promise((resolve) => {
+        release = () => resolve({ ok: true });
+      });
+    };
+    const box = panel.getByLabelText('Message');
+    type(box, 'once');
+    enter(box);
+    enter(box);
+    expect(calls.messages).toHaveLength(1);
+    await act(async () => {
+      release();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect((box as HTMLTextAreaElement).value).toBe(''));
+    expect(calls.messages).toHaveLength(1);
+  });
+
   it('is disabled when the running step is a command, not an agent', async () => {
     const { panel } = await setup('Migrate settings page to new form lib');
     expect(panel.getByLabelText<HTMLTextAreaElement>('Message').disabled).toBe(true);
@@ -153,7 +205,11 @@ describe('slash commands', () => {
   it('filters as you type and picks with the keyboard', async () => {
     const { panel } = await setup('Add pagination to /orders');
     const box = panel.getByLabelText('Message');
+    expect(box.getAttribute('role')).toBe('combobox');
+    expect(box.getAttribute('aria-expanded')).toBe('false');
     type(box, '/');
+    expect(box.getAttribute('aria-expanded')).toBe('true');
+    expect(box.getAttribute('aria-controls')).toBe(panel.getByRole('listbox').id);
     expect(options(panel)).toEqual(['/cancel', '/details', '/help', '/context', '/compact']);
     expect(panel.getByRole('option', { name: /\/context/ }).textContent).toContain(
       'sent to Claude',
@@ -164,6 +220,7 @@ describe('slash commands', () => {
     expect(panel.getByRole('option', { selected: true }).textContent).toContain('/context');
     fireEvent.keyDown(box, { key: 'Escape' });
     expect(panel.queryByRole('listbox')).toBeNull();
+    expect(box.getAttribute('aria-expanded')).toBe('false');
   });
 
   it('Enter on a Claude Code command sends it as a message', async () => {
@@ -218,7 +275,9 @@ describe('slash commands', () => {
     expect(help.getByText('/compact')).toBeTruthy();
     type(box, '/det');
     fireEvent.keyDown(box, { key: 'Tab' });
-    expect(panel.getByRole('tab', { name: 'Details' }).getAttribute('aria-selected')).toBe('true');
+    const details = panel.getByRole('tab', { name: 'Details' });
+    expect(details.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(details);
   });
 
   it('/retry answers a non-agent request like the Retry quick action', async () => {
@@ -331,6 +390,24 @@ describe('agent identity', () => {
     expect(svg?.querySelectorAll('ellipse, circle, path').length).toBeGreaterThan(5);
   });
 
+  it('gives each avatar on a page its own clipPath id', () => {
+    const { container } = render(
+      <>
+        <AgentAvatar sessionId={ids[0]!} />
+        <AgentAvatar sessionId={ids[0]!} />
+        <AgentAvatar sessionId={ids[1]!} />
+      </>,
+    );
+    const clipIds = [...container.querySelectorAll('clipPath')].map((c) => c.id);
+    expect(clipIds).toHaveLength(3);
+    expect(new Set(clipIds).size).toBe(3);
+    container.querySelectorAll('svg').forEach((svg, i) => {
+      expect(svg.querySelector('g[clip-path]')?.getAttribute('clip-path')).toBe(
+        `url(#${clipIds[i]})`,
+      );
+    });
+  });
+
   it('shows the avatar and name on board cards with a session', async () => {
     render(<App api={createMockApi()} />);
     const title = await screen.findByText('Add pagination to /orders');
@@ -374,6 +451,26 @@ describe('Details context', () => {
     expect(container.querySelectorAll('.ctx-text li')).toHaveLength(20);
     fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
     expect(container.querySelector('.ctx-text.clamped')).toBeNull();
+  });
+
+  it('renders a javascript: string as text, never a link', () => {
+    const { container } = render(
+      <ContextView
+        context={{ s: { url: 'javascript:alert(1)', md: 'see [x](javascript:alert(1))\nmore' } }}
+      />,
+    );
+    expect(container.querySelector('a')).toBeNull();
+    expect(container.textContent).toContain('javascript:alert(1)');
+  });
+
+  it('collapses subtrees deeper than 6 levels to compact JSON on demand', () => {
+    const deep = { a: { b: { c: { d: { e: { f: { g: { leaf: 1 } } } } } } } };
+    const { container } = render(<ContextView context={{ s: deep }} />);
+    // State block + 6 nested levels as definition lists, then the cap.
+    expect(container.querySelectorAll('dl').length).toBe(6);
+    expect(container.textContent).not.toContain('"leaf"');
+    fireEvent.click(screen.getByRole('button', { name: /Show nested value \(1 keys\)/ }));
+    expect(container.querySelector('.ctx-deep-json')?.textContent).toBe('{"g":{"leaf":1}}');
   });
 
   it('says so when there is no context', () => {

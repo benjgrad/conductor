@@ -87,6 +87,7 @@ describe('detail panel', () => {
     await waitFor(() => expect(cardTitles('Needs input')).toEqual(['Fix flaky checkout test']));
     expect(cardTitles('Running')).toContain('Add audit log table');
     await waitFor(() => expect(panel.queryByLabelText('Answer')).toBeNull());
+    fireEvent.click(panel.getByRole('tab', { name: 'Details' }));
     expect(panel.getByText('implement', { selector: '[aria-current="step"]' })).toBeTruthy();
   });
 
@@ -127,13 +128,18 @@ describe('detail panel', () => {
   it('shows state, context, spend/time and live output', async () => {
     const api = await renderApp();
     const panel = within(await openCard('Bump node to 22 in CI'));
+    // Messages is the default tab; state, context and spend live under Details.
+    await panel.findByRole('log');
+    fireEvent.click(panel.getByRole('tab', { name: 'Details' }));
     expect(await panel.findByText('https://github.com/benjgrad/fixture-app/pull/7')).toBeTruthy();
     expect(panel.getByText('await_approval', { selector: '[aria-current="step"]' })).toBeTruthy();
     expect(panel.getByText('$0.90 / $5.00')).toBeTruthy();
     expect(panel.getByText(/\/ 120m$/)).toBeTruthy();
+    fireEvent.click(panel.getByRole('tab', { name: 'Messages' }));
     act(() => api.pushOutput(SEED_IDS.approval.session, 'PR checks green\n'));
     expect(await panel.findByText('PR checks green')).toBeTruthy();
 
+    fireEvent.click(panel.getByRole('tab', { name: 'Details' }));
     fireEvent.click(panel.getByRole('button', { name: 'Approve' }));
     await waitFor(() => expect(cardTitles('Done')).toContain('Bump node to 22 in CI'));
   });

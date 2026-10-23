@@ -1,10 +1,11 @@
 // The session's live output, laid out like the Claude Code UI: agent text as markdown, each tool
 // call one collapsible row with its result nested under it, edits as diffs, command output as
 // terminal blocks. Chunks arrive as the daemon's stream (`assistant`, `tool_use` = "Name {json}",
-// `tool_result`, `stdout`/`stderr` from command states, `debug`); a result belongs to the oldest
-// call still waiting for one (calls and results arrive in order, parallel calls included).
+// `tool_result`, `stdout`/`stderr` from command states, `debug`, and `user`: a message the human
+// sent from the panel, ADR-0007); a result belongs to the oldest call still waiting for one (calls
+// and results arrive in order, parallel calls included).
 import type { OutputChunk } from '@conductor/shared';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Markdown } from './markdown.js';
 
 export interface ToolCall {
@@ -15,6 +16,7 @@ export interface ToolCall {
 
 export type Entry =
   | { kind: 'text'; key: string; text: string }
+  | { kind: 'user'; key: string; text: string }
   | { kind: 'tool'; key: string; call: ToolCall; result: string | null }
   | { kind: 'stream'; key: string; stream: 'stdout' | 'stderr'; text: string }
   | { kind: 'debug'; key: string; text: string };
@@ -68,6 +70,10 @@ export function buildEntries(chunks: readonly OutputChunk[]): Entry[] {
       case 'debug':
         if (prev?.kind === 'debug') prev.text += `\n${c.text}`;
         else out.push({ kind: 'debug', key, text: c.text });
+        break;
+      case 'user':
+        // One chunk = one message. Tool pairing is untouched: the message lands mid-turn.
+        if (c.text.trim() !== '') out.push({ kind: 'user', key, text: c.text });
         break;
     }
   }
@@ -309,74 +315,132 @@ function ToolRow({
   );
 }
 
+/** Scrolled up by more than this many viewports → offer "Jump to latest". */
+const JUMP_AFTER_SCREENS = 1;
+
+export interface OutputLogProps {
+  output: readonly OutputChunk[];
+  worktree: string | null;
+  /**
+   * `panel` (default): a titled "Live output" section with its own max height. `chat`: no title,
+   * fills its container (the Messages tab), with a "Jump to latest" pill when scrolled up.
+   */
+  variant?: 'panel' | 'chat';
+  /** Rendered after the last entry, inside the scroller (e.g. an open question). */
+  children?: ReactNode;
+  /** Changes whenever `children` changes size, so stick-to-bottom follows it. */
+  tailKey?: string;
+  /** False while the log is hidden (inactive tab): re-pins to the bottom when shown again. */
+  visible?: boolean;
+}
+
 export function OutputLog({
   output,
   worktree,
-}: {
-  output: readonly OutputChunk[];
-  worktree: string | null;
-}) {
+  variant = 'panel',
+  children,
+  tailKey = '',
+  visible = true,
+}: OutputLogProps) {
   const entries = useMemo(() => buildEntries(output), [output]);
   const short = useMemo(() => shortener(worktree), [worktree]);
   const [showDebug, setShowDebug] = useState(false);
   const debugCount = entries.filter((e) => e.kind === 'debug').length;
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
+  // Entry count when the reader scrolled away: the pill counts what arrived since.
+  const [away, setAway] = useState<number | null>(null);
   useLayoutEffect(() => {
     const el = ref.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [output.length, showDebug]);
+  }, [output.length, showDebug, tailKey, visible]);
+
+  const chat = variant === 'chat';
+  const newCount = away === null ? 0 : Math.max(0, entries.length - away);
+
+  function jumpToLatest() {
+    const el = ref.current;
+    if (!el) return;
+    stick.current = true;
+    setAway(null);
+    if (typeof el.scrollTo === 'function')
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    else el.scrollTop = el.scrollHeight;
+  }
+
+  const debugToggle = debugCount > 0 && (
+    <label className="debug-toggle">
+      <input type="checkbox" checked={showDebug} onChange={(e) => setShowDebug(e.target.checked)} />
+      Debug lines
+    </label>
+  );
 
   return (
-    <section aria-label="Output">
-      <div className="output-head">
-        <h3>Live output</h3>
-        {debugCount > 0 && (
-          <label className="debug-toggle">
-            <input
-              type="checkbox"
-              checked={showDebug}
-              onChange={(e) => setShowDebug(e.target.checked)}
-            />
-            Debug lines
-          </label>
+    <section aria-label="Output" className={chat ? 'output-chat' : undefined}>
+      {chat ? (
+        debugToggle && <div className="output-head output-head-chat">{debugToggle}</div>
+      ) : (
+        <div className="output-head">
+          <h3>Live output</h3>
+          {debugToggle}
+        </div>
+      )}
+      <div className="output-wrap">
+        <div
+          ref={ref}
+          className="output"
+          role="log"
+          aria-live="polite"
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+            stick.current = fromBottom < 40;
+            if (!chat) return;
+            const far = fromBottom > el.clientHeight * JUMP_AFTER_SCREENS;
+            if (far && away === null) setAway(entries.length);
+            else if (!far && away !== null) setAway(null);
+          }}
+        >
+          {entries.length === 0 && <p className="muted">No output yet.</p>}
+          {entries.map((e) => {
+            switch (e.kind) {
+              case 'text':
+                return (
+                  <div key={e.key} className="msg">
+                    <Markdown text={short(e.text)} />
+                  </div>
+                );
+              case 'user':
+                return (
+                  <div key={e.key} className="user-msg" role="group" aria-label="Your message">
+                    <span className="user-label">You</span>
+                    <p className="user-text">{e.text}</p>
+                  </div>
+                );
+              case 'tool':
+                return <ToolRow key={e.key} entry={e} short={short} />;
+              case 'stream':
+                return (
+                  <pre key={e.key} className={`term out-${e.stream}`}>
+                    {e.text}
+                  </pre>
+                );
+              case 'debug':
+                return showDebug ? (
+                  <pre key={e.key} className="out-debug">
+                    {e.text}
+                  </pre>
+                ) : null;
+            }
+          })}
+          {children}
+        </div>
+        {chat && away !== null && (
+          <button type="button" className="jump-latest" onClick={jumpToLatest}>
+            ↓ Jump to latest
+            {newCount > 0 && <span className="jump-count"> · {newCount} new</span>}
+          </button>
         )}
-      </div>
-      <div
-        ref={ref}
-        className="output"
-        role="log"
-        aria-live="polite"
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-        }}
-      >
-        {entries.length === 0 && <p className="muted">No output yet.</p>}
-        {entries.map((e) => {
-          switch (e.kind) {
-            case 'text':
-              return (
-                <div key={e.key} className="msg">
-                  <Markdown text={short(e.text)} />
-                </div>
-              );
-            case 'tool':
-              return <ToolRow key={e.key} entry={e} short={short} />;
-            case 'stream':
-              return (
-                <pre key={e.key} className={`term out-${e.stream}`}>
-                  {e.text}
-                </pre>
-              );
-            case 'debug':
-              return showDebug ? (
-                <pre key={e.key} className="out-debug">
-                  {e.text}
-                </pre>
-              ) : null;
-          }
-        })}
       </div>
     </section>
   );

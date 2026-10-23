@@ -1,5 +1,6 @@
 import { BOARD_COLUMNS, type BoardCard } from '@conductor/shared';
 import { boardColumns, COLUMN_TITLES, type BoardState } from '../board/board.js';
+import { AgentAvatar, agentName } from './agent-identity.js';
 import { ago, KIND_LABELS, STATUS_LABELS, usd } from './format.js';
 
 interface BoardProps {
@@ -60,6 +61,12 @@ function Card({ card, selected, onSelect }: CardProps) {
         <span className="card-title">{card.title}</span>
       </button>
       <div className="card-meta">
+        {sessionId && (
+          <span className="card-agent" title={`Agent ${agentName(sessionId)}`}>
+            <AgentAvatar sessionId={sessionId} size={20} />
+            {agentName(sessionId)}
+          </span>
+        )}
         {card.external_ref && <span className="ref">{card.external_ref}</span>}
         <span>{card.workflow_state ?? card.workflow_id}</span>
         {card.status && (

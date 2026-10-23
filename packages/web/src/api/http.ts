@@ -4,6 +4,7 @@ import {
   BOARD_SSE_EVENT_TYPES,
   BoardResponseSchema,
   BoardSseEventSchema,
+  MachineDtoSchema,
   OkResponseSchema,
   OutputChunkSchema,
   SessionDetailSchema,
@@ -14,6 +15,7 @@ import {
   type BoardSseEvent,
   type CreateTicketRequest,
   type OutputChunk,
+  type SendMessageRequest,
 } from '@conductor/shared';
 import {
   ApiRequestError,
@@ -263,6 +265,16 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
         API_PATHS.sessionCancel(encodeURIComponent(sessionId)),
         req,
       ),
+
+    sendMessage: (sessionId: string, req: SendMessageRequest) =>
+      request(
+        OkResponseSchema,
+        'POST',
+        API_PATHS.sessionMessages(encodeURIComponent(sessionId)),
+        req,
+      ),
+
+    listMachines: () => request(MachineDtoSchema.array(), 'GET', API_PATHS.machines),
   };
 }
 

@@ -1,8 +1,15 @@
-import type { InputRequestDto, SessionDetail } from '@conductor/shared';
-import { useState, type FormEvent } from 'react';
+// The session panel: a compact header (agent, title, status), then two tabs. Messages is a chat
+// with the agent (the live log, the open question inline, a composer pinned at the bottom);
+// Details is who runs it and where, the workflow, spend, actions and the context.
+import type { InputRequestDto, MachineDto, SessionDetail } from '@conductor/shared';
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { useSession } from '../board/hooks.js';
+import { AgentAvatar, agentName } from './agent-identity.js';
+import { Composer } from './Composer.js';
+import { ContextView } from './ContextView.js';
 import { duration, KIND_LABELS, STATUS_LABELS, TERMINAL_STATUSES, usd } from './format.js';
+import { Markdown } from './markdown.js';
 import { OutputLog } from './OutputLog.js';
 
 interface DetailPanelProps {
@@ -13,103 +20,163 @@ interface DetailPanelProps {
   onClose: () => void;
 }
 
+export type PanelTab = 'messages' | 'details';
+const TABS: readonly { id: PanelTab; label: string }[] = [
+  { id: 'messages', label: 'Messages' },
+  { id: 'details', label: 'Details' },
+];
+
 export function DetailPanel({ api, sessionId, version, onClose }: DetailPanelProps) {
   const { detail, output, error, reload } = useSession(api, sessionId, version);
+  const [tab, setTab] = useState<PanelTab>('messages');
+  const name = agentName(sessionId);
+  const ids = useId();
+  const tabRefs = useRef<Partial<Record<PanelTab, HTMLButtonElement | null>>>({});
+  const status = detail?.card.status ?? null;
+
+  function onTabKey(e: KeyboardEvent<HTMLButtonElement>) {
+    const i = TABS.findIndex((t) => t.id === tab);
+    const next =
+      e.key === 'ArrowRight'
+        ? (i + 1) % TABS.length
+        : e.key === 'ArrowLeft'
+          ? (i - 1 + TABS.length) % TABS.length
+          : e.key === 'Home'
+            ? 0
+            : e.key === 'End'
+              ? TABS.length - 1
+              : null;
+    if (next === null) return;
+    e.preventDefault();
+    const id = TABS[next]!.id;
+    setTab(id);
+    tabRefs.current[id]?.focus();
+  }
+
   return (
     <aside className="detail" aria-label="Session detail">
-      <header>
-        <h2>{detail?.card.title ?? 'Loading…'}</h2>
+      <header className="detail-head">
+        <AgentAvatar sessionId={sessionId} size={36} />
+        <div className="head-text">
+          <h2>{detail?.card.title ?? 'Loading…'}</h2>
+          <div className="head-sub">
+            <span className="agent-name">{name}</span>
+            {status && (
+              <span className={`chip status status-${status}`}>{STATUS_LABELS[status]}</span>
+            )}
+            {detail?.card.workflow_state && (
+              <span className="muted head-state">{detail.card.workflow_state}</span>
+            )}
+          </div>
+        </div>
         <button type="button" className="close" onClick={onClose} aria-label="Close detail">
           ×
         </button>
       </header>
+      <div className="tabs" role="tablist" aria-label="Session views">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            ref={(el) => {
+              tabRefs.current[t.id] = el;
+            }}
+            type="button"
+            role="tab"
+            id={`${ids}-tab-${t.id}`}
+            aria-selected={tab === t.id}
+            aria-controls={`${ids}-panel-${t.id}`}
+            tabIndex={tab === t.id ? 0 : -1}
+            className={tab === t.id ? 'active' : undefined}
+            onClick={() => setTab(t.id)}
+            onKeyDown={onTabKey}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
       {error && (
-        <p role="alert" className="error">
+        <p role="alert" className="error detail-error">
           {error}
         </p>
       )}
-      {detail && (
-        <>
-          <StateSection detail={detail} />
-          {detail.pending_input && (
-            <PendingInput
-              key={detail.pending_input.id}
+      <div
+        role="tabpanel"
+        id={`${ids}-panel-messages`}
+        aria-labelledby={`${ids}-tab-messages`}
+        className="tab-body messages-tab"
+        hidden={tab !== 'messages'}
+      >
+        {detail && (
+          <>
+            <OutputLog
+              output={output}
+              worktree={detail.worktree_path}
+              variant="chat"
+              visible={tab === 'messages'}
+              tailKey={detail.pending_input?.id ?? ''}
+            >
+              {detail.pending_input && (
+                <PendingInput
+                  key={detail.pending_input.id}
+                  api={api}
+                  detail={detail}
+                  agent={name}
+                  request={detail.pending_input}
+                  onDone={reload}
+                />
+              )}
+            </OutputLog>
+            <Composer
+              key={detail.pending_input?.id ?? 'messages'}
               api={api}
               detail={detail}
-              request={detail.pending_input}
+              agentName={name}
               onDone={reload}
+              onShowDetails={() => setTab('details')}
             />
-          )}
-          <Actions api={api} detail={detail} onDone={reload} />
-          <BudgetSection detail={detail} />
-          <ContextSection detail={detail} />
-          <OutputLog output={output} worktree={detail.worktree_path} />
-        </>
-      )}
+          </>
+        )}
+      </div>
+      <div
+        role="tabpanel"
+        id={`${ids}-panel-details`}
+        aria-labelledby={`${ids}-tab-details`}
+        className="tab-body details-tab"
+        hidden={tab !== 'details'}
+      >
+        {detail && (
+          <>
+            <AgentCard api={api} detail={detail} sessionId={sessionId} name={name} />
+            <WorkflowSection detail={detail} />
+            <BudgetSection detail={detail} />
+            <Actions api={api} detail={detail} onDone={reload} />
+            <section aria-label="Context">
+              <h3>Context</h3>
+              <ContextView context={detail.context} />
+            </section>
+          </>
+        )}
+      </div>
     </aside>
   );
 }
 
-function StateSection({ detail }: { detail: SessionDetail }) {
-  const { card, workflow } = detail;
-  return (
-    <section aria-label="State">
-      <h3>State</h3>
-      <p className="state-line">
-        {card.status && (
-          <span className={`status status-${card.status}`}>{STATUS_LABELS[card.status]}</span>
-        )}{' '}
-        <strong>{card.workflow_state ?? '—'}</strong> in {workflow.id} v{detail.workflow_version}
-        {card.machine_id && <> on {card.machine_id}</>}
-        {card.badges.includes('waiting_for_build_slot') && (
-          <span className="badge badge-slot">waiting for build slot</span>
-        )}
-      </p>
-      {/* TD-033: a flat list of states; the 06 state diagram (graph layout) comes later. */}
-      <ol className="states">
-        {Object.entries(workflow.states).map(([name, state]) => (
-          <li
-            key={name}
-            className={`state state-${state.type}${name === card.workflow_state ? ' current' : ''}`}
-            aria-current={name === card.workflow_state ? 'step' : undefined}
-          >
-            {name}
-          </li>
-        ))}
-      </ol>
-      <dl className="kv">
-        {detail.return_to && (
-          <>
-            <dt>Returns to</dt>
-            <dd>{detail.return_to}</dd>
-          </>
-        )}
-        {detail.branch && (
-          <>
-            <dt>Branch</dt>
-            <dd>
-              <code>{detail.branch}</code>
-            </dd>
-          </>
-        )}
-        <dt>Repo</dt>
-        <dd>{card.repo}</dd>
-      </dl>
-    </section>
-  );
-}
+// ---------------------------------------------------------------- Messages
 
 interface PendingInputProps {
   api: ApiClient;
   detail: SessionDetail;
+  agent: string;
   request: InputRequestDto;
   onDone: () => void;
 }
 
-/** The pending input request: answer box, plus quick actions for non-agent kinds (06). */
-function PendingInput({ api, detail, request, onDone }: PendingInputProps) {
+/**
+ * The open input request, inline at the end of the chat. The composer answers it; non-agent kinds
+ * also get the quick actions (06): retry, skip to…, abort.
+ */
+function PendingInput({ api, detail, agent, request, onDone }: PendingInputProps) {
   const sessionId = request.session_id;
-  const [answer, setAnswer] = useState('');
   const [skipTo, setSkipTo] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -140,34 +207,20 @@ function PendingInput({ api, detail, request, onDone }: PendingInputProps) {
       }),
     );
 
-  function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    const text = answer.trim();
-    if (text) void send(text);
-  }
-
+  const fromAgent = request.kind === 'agent_question';
   return (
     <section aria-label="Pending input" className="pending">
-      <h3>
+      <div className="pending-head">
         <span className={`badge badge-question kind-${request.kind}`}>
           {KIND_LABELS[request.kind]}
         </span>
-      </h3>
-      <p className="question-text">{request.question}</p>
-      <form onSubmit={onSubmit}>
-        <label htmlFor={`answer-${request.id}`}>Answer</label>
-        <textarea
-          id={`answer-${request.id}`}
-          value={answer}
-          rows={3}
-          onChange={(e) => setAnswer(e.target.value)}
-          disabled={busy}
-        />
-        <button type="submit" disabled={busy || answer.trim() === ''}>
-          Send answer
-        </button>
-      </form>
-      {request.kind !== 'agent_question' && (
+        <span className="muted">{fromAgent ? `${agent} asks` : 'Conductor needs a decision'}</span>
+      </div>
+      <div className="question-text">
+        <Markdown text={request.question} />
+      </div>
+      <p className="pending-hint muted">Reply in the box below to answer.</p>
+      {!fromAgent && (
         <div className="quick-actions" role="group" aria-label="Quick actions">
           <button type="button" disabled={busy} onClick={() => void send('retry')}>
             {/* No goto: input.provided returns to return_to, else the workflow start (U-037). */}
@@ -208,6 +261,158 @@ function PendingInput({ api, detail, request, onDone }: PendingInputProps) {
       {error && (
         <p role="alert" className="error">
           {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------- Details
+
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(t);
+  }, [copied]);
+  return (
+    <button
+      type="button"
+      className="copy"
+      aria-label={`Copy ${label}`}
+      onClick={() => {
+        void navigator.clipboard?.writeText(text).then(
+          () => setCopied(true),
+          () => undefined,
+        );
+      }}
+    >
+      {copied ? 'Copied' : 'Copy'}
+    </button>
+  );
+}
+
+function AgentCard({
+  api,
+  detail,
+  sessionId,
+  name,
+}: {
+  api: ApiClient;
+  detail: SessionDetail;
+  sessionId: string;
+  name: string;
+}) {
+  const { card } = detail;
+  const machineId = card.machine_id;
+  const [machine, setMachine] = useState<MachineDto | null>(null);
+  useEffect(() => {
+    if (machineId === null) return;
+    let cancelled = false;
+    api.listMachines().then(
+      (list) => {
+        if (!cancelled) setMachine(list.find((m) => m.id === machineId) ?? null);
+      },
+      // Best effort: without the machine list the id alone is shown.
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [api, machineId]);
+  const shown = machine?.id === machineId ? machine : null;
+
+  return (
+    <section aria-label="Agent" className="agent-card">
+      <div className="agent-who">
+        <AgentAvatar sessionId={sessionId} size={64} title={`${name}'s avatar`} />
+        <div>
+          <div className="agent-card-name">{name}</div>
+          <div className="muted">Claude Code agent</div>
+        </div>
+      </div>
+      <dl className="kv">
+        <dt>Machine</dt>
+        <dd>
+          {machineId === null ? (
+            <span className="muted">not on a machine right now</span>
+          ) : (
+            <span className="machine">
+              {shown && (
+                <span
+                  className={`dot dot-${shown.status}`}
+                  role="img"
+                  aria-label={shown.status}
+                  title={shown.status}
+                />
+              )}
+              <strong>{shown?.hostname ?? machineId}</strong>
+              {shown && shown.hostname !== machineId && (
+                <span className="muted"> ({machineId})</span>
+              )}
+              {shown && <span className="muted"> · {shown.status}</span>}
+            </span>
+          )}
+        </dd>
+        <dt>Session</dt>
+        <dd className="copyable">
+          <code>{sessionId}</code>
+          <CopyButton text={sessionId} label="session id" />
+        </dd>
+        {detail.branch && (
+          <>
+            <dt>Branch</dt>
+            <dd>
+              <code>{detail.branch}</code>
+            </dd>
+          </>
+        )}
+        <dt>Repo</dt>
+        <dd>{card.repo}</dd>
+        {detail.worktree_path && (
+          <>
+            <dt>Worktree</dt>
+            <dd className="copyable">
+              <code>{detail.worktree_path}</code>
+              <CopyButton text={detail.worktree_path} label="worktree path" />
+            </dd>
+          </>
+        )}
+      </dl>
+    </section>
+  );
+}
+
+function WorkflowSection({ detail }: { detail: SessionDetail }) {
+  const { card, workflow } = detail;
+  return (
+    <section aria-label="Workflow">
+      <h3>Workflow</h3>
+      <p className="state-line">
+        <strong>{card.workflow_state ?? '—'}</strong>{' '}
+        <span className="muted">
+          in {workflow.id} v{detail.workflow_version}
+        </span>
+        {card.badges.includes('waiting_for_build_slot') && (
+          <span className="badge badge-slot">waiting for build slot</span>
+        )}
+      </p>
+      {/* TD-033: a flat list of states; the 06 state diagram (graph layout) comes later. */}
+      <ol className="states">
+        {Object.entries(workflow.states).map(([name, state]) => (
+          <li
+            key={name}
+            className={`state state-${state.type}${name === card.workflow_state ? ' current' : ''}`}
+            aria-current={name === card.workflow_state ? 'step' : undefined}
+          >
+            {name}
+          </li>
+        ))}
+      </ol>
+      {detail.return_to && (
+        <p className="muted returns-to">
+          Returns to <strong>{detail.return_to}</strong> after the answer.
         </p>
       )}
     </section>
@@ -255,38 +460,41 @@ function Actions({
   if (!canApprove && !canCancel) return null;
   return (
     <section aria-label="Actions" className="actions">
-      {canApprove && (
-        <div className="approve">
-          <input
-            aria-label="Approval comment"
-            placeholder="comment (optional)"
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-            disabled={busy}
-          />
+      <h3>Actions</h3>
+      <div className="actions-row">
+        {canApprove && (
+          <div className="approve">
+            <input
+              aria-label="Approval comment"
+              placeholder="comment (optional)"
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              disabled={busy}
+            />
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void run(() =>
+                  api.approve(sessionId, comment.trim() ? { comment: comment.trim() } : {}),
+                )
+              }
+            >
+              Approve
+            </button>
+          </div>
+        )}
+        {canCancel && (
           <button
             type="button"
+            className="danger"
             disabled={busy}
-            onClick={() =>
-              void run(() =>
-                api.approve(sessionId, comment.trim() ? { comment: comment.trim() } : {}),
-              )
-            }
+            onClick={() => void run(() => api.cancel(sessionId, { reason: 'cancelled from UI' }))}
           >
-            Approve
+            Cancel session
           </button>
-        </div>
-      )}
-      {canCancel && (
-        <button
-          type="button"
-          className="danger"
-          disabled={busy}
-          onClick={() => void run(() => api.cancel(sessionId, { reason: 'cancelled from UI' }))}
-        >
-          Cancel session
-        </button>
-      )}
+        )}
+      </div>
       {error && (
         <p role="alert" className="error">
           {error}
@@ -335,44 +543,5 @@ function BudgetSection({ detail }: { detail: SessionDetail }) {
         text={`${duration(detail.wall_seconds)} / ${detail.budget.minutes}m`}
       />
     </section>
-  );
-}
-
-function ContextSection({ detail }: { detail: SessionDetail }) {
-  const entries = Object.entries(detail.context).flatMap(([state, values]) =>
-    Object.entries(values).map(([key, v]) => [`${state}.${key}`, v] as const),
-  );
-  return (
-    <section aria-label="Context">
-      <h3>Context</h3>
-      {entries.length === 0 ? (
-        <p className="muted">No context yet.</p>
-      ) : (
-        <dl className="kv">
-          {entries.map(([k, v]) => (
-            <ContextEntry key={k} name={k} value={v} />
-          ))}
-        </dl>
-      )}
-    </section>
-  );
-}
-
-function ContextEntry({ name, value }: { name: string; value: unknown }) {
-  const text = typeof value === 'string' ? value : JSON.stringify(value);
-  const isUrl = typeof value === 'string' && /^https?:\/\//.test(value);
-  return (
-    <>
-      <dt>{name}</dt>
-      <dd>
-        {isUrl ? (
-          <a href={text} target="_blank" rel="noreferrer">
-            {text}
-          </a>
-        ) : (
-          <code>{text}</code>
-        )}
-      </dd>
-    </>
   );
 }

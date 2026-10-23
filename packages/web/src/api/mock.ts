@@ -3,13 +3,16 @@ import {
   BOARD_COLUMNS,
   columnFor,
   CreateTicketRequestSchema,
+  SendMessageRequestSchema,
   type BoardCard,
   type BoardResponse,
   type BoardSseEvent,
   type BoardSseEventDraft,
   type InputRequestKind,
+  type MachineDto,
   type OkResponse,
   type OutputChunk,
+  type OutputStream,
   type SessionDetail,
   type SessionStatus,
   type TicketDto,
@@ -34,11 +37,13 @@ export interface MockApiOptions {
   now?: () => Date;
   /** Artificial latency on every request, ms. Default 0. */
   latencyMs?: number;
+  /** Delay before the fake agent replies to a sendMessage, ms. Default 700. */
+  replyDelayMs?: number;
 }
 
 export interface MockApi extends ApiClient {
   /** Test/dev hooks: drive the board like a daemon would. */
-  pushOutput(sessionId: string, text: string): void;
+  pushOutput(sessionId: string, text: string, stream?: OutputStream): void;
   requestInput(sessionId: string, kind: InputRequestKind, question: string): string;
   /** Appends fake output to every running session every `ms`; returns a stop function. */
   simulate(ms: number): Unsubscribe;
@@ -49,6 +54,7 @@ const TERMINAL: ReadonlySet<SessionStatus> = new Set(['done', 'failed', 'lost'])
 export function createMockApi(opts: MockApiOptions = {}): MockApi {
   const now = opts.now ?? (() => new Date());
   const latency = opts.latencyMs ?? 0;
+  const replyDelay = opts.replyDelayMs ?? 700;
   const cards = new Map<string, BoardCard>();
   const sessions = new Map<string, MockSession>();
   const answered = new Set<string>();
@@ -317,12 +323,48 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         return { ok: true };
       }),
 
-    pushOutput(sessionId, text) {
+    sendMessage: (sessionId, raw) =>
+      reply((): OkResponse => {
+        const parsed = SendMessageRequestSchema.safeParse(raw);
+        if (!parsed.success) throw new ApiRequestError(400, 'bad_request', parsed.error.message);
+        const card = cardForSession(sessionId);
+        const s = sessionOf(sessionId);
+        const state = card.workflow_state ? s.workflow.states[card.workflow_state] : undefined;
+        if (card.status !== 'running' || state?.type !== 'agent') {
+          throw new ApiRequestError(409, 'conflict', 'session has no live agent process');
+        }
+        const text = parsed.data.text;
+        api.pushOutput(sessionId, text, 'user');
+        // A pretend agent, so `pnpm dev` with the mock answers back.
+        setTimeout(() => {
+          if (sessions.has(sessionId)) api.pushOutput(sessionId, fakeReply(text));
+        }, replyDelay);
+        return { ok: true };
+      }),
+
+    listMachines: () =>
+      reply((): MachineDto[] => [
+        {
+          id: 'mbp-ben',
+          hostname: 'bens-macbook-pro.local',
+          status: 'online',
+          tags: ['macos', 'arm64'],
+          last_heartbeat_at: now().toISOString(),
+          max_sessions: 3,
+          running_sessions: [...cards.values()].filter(
+            (c) => c.machine_id === 'mbp-ben' && c.status === 'running',
+          ).length,
+          cpu_free: 0.62,
+          mem_free_mb: 9_400,
+        },
+      ]),
+
+    pushOutput(sessionId, text, stream = 'assistant') {
       const s = sessionOf(sessionId);
       const chunk: OutputChunk = {
         session_id: sessionId,
         seq: (s.output.at(-1)?.seq ?? -1) + 1,
-        stream: 'assistant',
+        stream,
         text,
         ts: now().toISOString(),
       };
@@ -379,4 +421,14 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     },
   };
   return api;
+}
+
+function fakeReply(text: string): string {
+  const cmd = /^\/(\S+)/.exec(text)?.[1];
+  if (cmd === 'context') {
+    return '**Context usage** · 41k / 200k tokens (21%)\n\n- System prompt: 3.1k\n- Tools: 11.8k\n- Messages: 26.4k';
+  }
+  if (cmd === 'compact') return 'Compacted the conversation. Carrying on with the summary.';
+  if (cmd) return `Unknown command \`/${cmd}\`.`;
+  return "Got it. I'll take that into account and keep going.";
 }

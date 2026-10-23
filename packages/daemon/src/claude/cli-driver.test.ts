@@ -1,11 +1,20 @@
 // Real driver + real outcome server against the process-boundary fake (test/fixtures/fake-claude.mjs).
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
+  agentPermissionMode,
   buildClaudeArgs,
   createCliDriver,
   userMessageLine,
@@ -124,7 +133,7 @@ describe('buildClaudeArgs', () => {
       '--max-budget-usd',
       '2.5',
       '--setting-sources',
-      'user,project',
+      'user',
       '--settings',
       '/tmp/s/settings.json',
       '--strict-mcp-config',
@@ -151,6 +160,10 @@ describe('buildClaudeArgs', () => {
     });
     const args = buildClaudeArgs(o, '{}', 's.json');
     expect(args).not.toContain('--permission-mode'); // the user's own mode applies (ADR-0006)
+    const capped = buildClaudeArgs(o, '{}', 's.json', 'auto');
+    expect(
+      capped.slice(capped.indexOf('--permission-mode'), capped.indexOf('--permission-mode') + 2),
+    ).toEqual(['--permission-mode', 'auto']);
     expect(args.slice(6, 8)).toEqual(['--resume', 'sid-2']);
     expect(args).not.toContain('--session-id');
     for (const f of [
@@ -251,7 +264,7 @@ describe('createCliDriver against fake-claude', () => {
     const [first] = argvLog();
     const argAfter = (flag: string) => first?.argv[first.argv.indexOf(flag) + 1] ?? '';
     expect(first?.argv).toEqual(
-      buildClaudeArgs(o, argAfter('--mcp-config'), argAfter('--settings')),
+      buildClaudeArgs(o, argAfter('--mcp-config'), argAfter('--settings'), agentPermissionMode()),
     );
     expect(first?.cwd).toBe(realpathSync(dir)); // macOS tmpdir is a symlink
     expect(first?.env.PORT).toBe('41000');
@@ -259,11 +272,15 @@ describe('createCliDriver against fake-claude', () => {
   });
 
   it('ADR-0006: --settings is the edit-guard hook for the worktree, beside mcp.json, removed on exit', async () => {
-    const s = driver().start(opts([[{ say: 'up' }, { hang: true }]]));
+    const o = opts([[{ say: 'up' }, { hang: true }]]);
+    // a state env can't turn the claude.ai connectors back on
+    const s = driver().start({ ...o, env: { ...o.env, ENABLE_CLAUDEAI_MCP_SERVERS: 'true' } });
     const t = track(s);
     await t.waitFor((e) => e.kind === 'output' && e.text === 'up');
 
-    const argv = argvLog()[0]?.argv ?? [];
+    const [spawned] = argvLog();
+    expect(spawned?.env.ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false');
+    const argv = spawned?.argv ?? [];
     const settingsPath = argv[argv.indexOf('--settings') + 1] ?? '';
     expect(dirname(settingsPath)).toBe(dirname(argv[argv.indexOf('--mcp-config') + 1] ?? ''));
     expect(statSync(settingsPath).mode & 0o777).toBe(0o600);
@@ -277,6 +294,20 @@ describe('createCliDriver against fake-claude', () => {
     s.kill(1_000);
     await t.exit();
     expect(existsSync(settingsPath)).toBe(false);
+  });
+
+  it('ADR-0006: caps the user defaultMode bypassPermissions to auto; leaves others alone', () => {
+    const f = join(dir, 'settings.json');
+    const write = (s: unknown) => writeFileSync(f, JSON.stringify(s));
+    write({ permissions: { defaultMode: 'bypassPermissions' } });
+    expect(agentPermissionMode(f)).toBe('auto');
+    for (const mode of ['auto', 'acceptEdits', 'default', undefined]) {
+      write({ permissions: { defaultMode: mode } });
+      expect(agentPermissionMode(f), String(mode)).toBeUndefined();
+    }
+    writeFileSync(f, '{not json');
+    expect(agentPermissionMode(f)).toBeUndefined();
+    expect(agentPermissionMode(join(dir, 'missing.json'))).toBeUndefined();
   });
 
   it('M1-T14: the MCP URL token never appears in argv; it is in a 0600 file, removed on exit', async () => {

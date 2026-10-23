@@ -18,7 +18,7 @@ import { machineFacts, type DaemonConfig } from './config.js';
 import { PortPool, portEnv } from './ports.js';
 import { DaemonStore, type AckRecord, type PortRange } from './store.js';
 import { liveResources, type SysInfo } from './sysinfo.js';
-import { CONDUCTOR_INSTRUCTIONS } from './system-prompt.js';
+import { buildAppendSystemPrompt } from './system-prompt.js';
 import { inventoryDigest, Workspace } from './workspace.js';
 import { ReconnectingWs } from './ws-client.js';
 
@@ -503,6 +503,7 @@ export class Daemon {
       });
       range = this.allocatePorts(sid);
       const tools = resolveToolPolicy(p.tools);
+      const appendSystemPrompt = buildAppendSystemPrompt(this.workspace.readClaudeMd(worktree));
       const resume = p.resume_claude_session_id !== null;
       const claudeSessionId = p.resume_claude_session_id ?? randomUUID();
       // Persist the (pre-assigned) Claude session id before spawning (ADR-0005 §Spawn).
@@ -524,7 +525,7 @@ export class Daemon {
         claudeSessionId,
         resume,
         env: { ...p.env, ...portEnv(range), ...this.gitEnv() },
-        appendSystemPrompt: CONDUCTOR_INSTRUCTIONS,
+        appendSystemPrompt,
         ...(p.model !== undefined ? { model: p.model } : {}),
         ...(p.max_turns !== undefined ? { maxTurns: p.max_turns } : {}),
       });

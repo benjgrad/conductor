@@ -37,8 +37,13 @@ Notes:
 - **Agents use your Claude Code setup** ([ADR-0006](docs/adr/0006-agents-inherit-claude-code-settings.md)):
   - they sign in the way your `claude` does, so on a subscription there is no per-token bill (the card's `$` is Claude Code's estimate);
   - with no `model` in the workflow, they use your account's default model (Opus on Max);
-  - they follow your `~/.claude/settings.json` permission mode and rules, plus the repo's `.claude/settings.json` and CLAUDE.md.
-- **Conductor always enforces three guards**, whatever your settings say: file edits stay inside the session worktree, `git push` is denied, and agents see no MCP servers but conductor's (your claude.ai connectors are hidden).
+  - they follow your `~/.claude/settings.json` permission mode, rules, hooks and skills, plus the repo's CLAUDE.md;
+  - a repo's own `.claude/settings.json` is ignored, because the repo is untrusted.
+- **Conductor always enforces these guards**, whatever your settings say:
+  - file edits stay inside the session worktree;
+  - `git push` is denied;
+  - agents see no MCP servers but conductor's (your claude.ai connectors are hidden);
+  - a `bypassPermissions` default runs agents in `auto` instead.
 - **Keep `ANTHROPIC_API_KEY` out of the daemon's environment.** If it's set, `claude` bills the API instead of your subscription.
 - Keep `CONDUCTOR_ROOT` (default `~/.conductor`) **outside any `.claude` directory**; Claude Code treats files there as protected config.
 - Run one daemon per `CONDUCTOR_MACHINE_ID` (default: the hostname).

@@ -1,7 +1,17 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import {
+  closeSync,
+  constants as fsConstants,
+  existsSync,
+  fstatSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+} from 'node:fs';
+import { isAbsolute, join, relative, sep } from 'node:path';
 import { promisify } from 'node:util';
 import type { RepoInventoryEntry } from '@conductor/shared';
 import type { DaemonStore } from './store.js';
@@ -116,6 +126,9 @@ export function repoSlug(repo: string): string {
   return `${readable || 'repo'}-${hash}`;
 }
 
+/** Max CLAUDE.md bytes passed via appendSystemPrompt; a larger file is skipped (M1-T14). */
+export const MAX_CLAUDE_MD_BYTES = 64 * 1024;
+
 export interface WorkspaceOptions extends RepoPolicy {
   log?: (msg: string) => void;
 }
@@ -204,6 +217,47 @@ export class Workspace {
       if (this.locks.get(key) === tail) this.locks.delete(key);
     });
     return next;
+  }
+
+  /**
+   * The worktree's CLAUDE.md (U-013), or null. The repo is untrusted (M1-T14): the file is read
+   * only when lstat says it is a regular file (not a symlink), its realpath is inside the
+   * worktree, and it is at most MAX_CLAUDE_MD_BYTES; otherwise it is skipped with a log line.
+   * The read uses O_NOFOLLOW and re-checks type and size on the open descriptor.
+   */
+  readClaudeMd(worktreePath: string): string | null {
+    const path = join(worktreePath, 'CLAUDE.md');
+    const skip = (why: string): null => {
+      this.log(`skipping ${path}: ${why}`);
+      return null;
+    };
+    let st;
+    try {
+      st = lstatSync(path);
+    } catch {
+      return null; // absent
+    }
+    if (st.isSymbolicLink()) return skip('it is a symlink');
+    if (!st.isFile()) return skip('not a regular file');
+    if (st.size > MAX_CLAUDE_MD_BYTES) return skip(`larger than ${MAX_CLAUDE_MD_BYTES} bytes`);
+    let fd: number;
+    try {
+      const rel = relative(realpathSync(worktreePath), realpathSync(path));
+      if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+        return skip('it resolves outside the worktree');
+      }
+      fd = openSync(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    } catch (err) {
+      return skip(err instanceof Error ? err.message : String(err));
+    }
+    try {
+      const fst = fstatSync(fd);
+      if (!fst.isFile()) return skip('not a regular file');
+      if (fst.size > MAX_CLAUDE_MD_BYTES) return skip(`larger than ${MAX_CLAUDE_MD_BYTES} bytes`);
+      return readFileSync(fd, 'utf8');
+    } finally {
+      closeSync(fd);
+    }
   }
 
   /** `repo_inventory` entries for every shared clone. */

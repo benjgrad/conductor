@@ -65,6 +65,26 @@ describe('Workflows view', () => {
     expect(v1.querySelectorAll('[data-badge]')).toHaveLength(0);
   });
 
+  it("uses the server's versions list when it sends one (gaps allowed)", async () => {
+    const api = createMockApi();
+    const get = api.getWorkflow.bind(api);
+    api.getWorkflow = async (id, version) => {
+      // `versions` is optional in the contract; spread through a variable so this compiles
+      // whether or not the shared schema has the field yet.
+      const withVersions = { ...(await get(id, version)), versions: [1, 4] };
+      return withVersions;
+    };
+    render(<App api={api} />);
+    await screen.findByRole('group', { name: 'm1_basic v2 state diagram' });
+    const select = screen.getByRole('combobox', { name: 'Version' });
+    await waitFor(() =>
+      expect([...select.querySelectorAll('option')].map((o) => o.textContent)).toEqual([
+        'v4 (latest)',
+        'v1',
+      ]),
+    );
+  });
+
   it('switches workflow through the URL', async () => {
     await setup();
     fireEvent.click(screen.getByRole('button', { name: /pr_flow/ }));

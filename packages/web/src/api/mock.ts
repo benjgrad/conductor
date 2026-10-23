@@ -322,12 +322,15 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
               : `workflow ${id} v${version} not found`,
           );
         }
-        return clone({
+        // `versions`: every saved version (the optional WorkflowDetail field, ADR-0009).
+        const out = {
           id,
           version: row.definition.version,
           created_at: row.created_at,
           definition: row.definition,
-        });
+          versions: (versions ?? []).map((v) => v.definition.version),
+        };
+        return clone(out);
       }),
 
     saveWorkflow: (definition) =>

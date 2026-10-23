@@ -12,6 +12,7 @@ import { duration, KIND_LABELS, STATUS_LABELS, TERMINAL_STATUSES, usd } from './
 import { Markdown } from './markdown.js';
 import { OutputLog } from './OutputLog.js';
 import { SessionWorkflowDiagram } from '../workflow/SessionWorkflowDiagram.js';
+import { stateLabel } from '../workflow/review.js';
 
 interface DetailPanelProps {
   api: ApiClient;
@@ -83,7 +84,7 @@ export function DetailPanel({
               <span className={`chip status status-${status}`}>{STATUS_LABELS[status]}</span>
             )}
             {detail?.card.workflow_state && (
-              <span className="muted head-state">{detail.card.workflow_state}</span>
+              <span className="muted head-state">{stateLabel(detail.card.workflow_state)}</span>
             )}
           </div>
         </div>
@@ -416,7 +417,7 @@ function WorkflowSection({ detail }: { detail: SessionDetail }) {
     <section aria-label="Workflow">
       <h3>Workflow</h3>
       <p className="state-line">
-        <strong>{card.workflow_state ?? '—'}</strong>{' '}
+        <strong>{card.workflow_state ? stateLabel(card.workflow_state) : '—'}</strong>{' '}
         <span className="muted">
           in {workflow.id} v{detail.workflow_version}
         </span>

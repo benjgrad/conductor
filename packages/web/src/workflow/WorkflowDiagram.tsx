@@ -13,6 +13,7 @@ import {
   type LaidNode,
 } from './layout.js';
 import { buildGraph, transitionKey } from './model.js';
+import { parseReviewState } from './review.js';
 import './workflow.css';
 
 // The workflow as a UML state diagram (ADR-0009), drawn as SVG from layout.ts. Read-only unless
@@ -20,7 +21,10 @@ import './workflow.css';
 
 export interface WorkflowDiagramProps {
   definition: WorkflowDefinition;
-  /** Highlight this state (the session's current state). */
+  /**
+   * Highlight this state (the session's current state). A review label
+   * (`"implement → build (review)"`) highlights the gated edge being reviewed instead.
+   */
   current?: string | null;
   /** transitionKey(from, outcome) of the selected transition. */
   selected?: string | null;
@@ -45,6 +49,20 @@ export function WorkflowDiagram({
   const layout = useMemo(() => layoutGraph(buildGraph(definition)), [definition]);
   // null = fit to the container width.
   const [zoom, setZoom] = useState<number | null>(null);
+  const review = parseReviewState(current);
+  // The edge under review: the gated outcome edge from → to (any outcome edge as a fallback).
+  const reviewed = review
+    ? (layout.edges.find(
+        (e) =>
+          e.edge.kind === 'outcome' &&
+          e.edge.from === review.from &&
+          e.edge.to === review.to &&
+          e.edge.gate !== undefined,
+      ) ??
+      layout.edges.find(
+        (e) => e.edge.kind === 'outcome' && e.edge.from === review.from && e.edge.to === review.to,
+      ))
+    : undefined;
 
   const svg = (
     <svg
@@ -64,6 +82,7 @@ export function WorkflowDiagram({
             laid={e}
             selected={!!selected && e.edge.outcome !== null && isKey(e, selected)}
             error={!!errors && e.edge.outcome !== null && errors.has(keyOf(e))}
+            reviewing={e === reviewed}
             {...(onSelectTransition ? { onSelect: onSelectTransition } : {})}
           />
         ))}
@@ -169,8 +188,15 @@ function Node({ laid, current }: { laid: LaidNode; current: boolean }) {
   );
 }
 
-function edgeClass(e: LaidEdge, selected: boolean, error: boolean, selectable: boolean) {
+function edgeClass(
+  e: LaidEdge,
+  selected: boolean,
+  error: boolean,
+  selectable: boolean,
+  reviewing: boolean,
+) {
   return [
+    reviewing ? 'reviewing' : '',
     'wf-edge',
     `wf-edge-${e.edge.kind}`,
     e.edge.dashed ? 'dashed' : '',
@@ -187,11 +213,14 @@ function Edge({
   laid,
   selected,
   error,
+  reviewing = false,
   onSelect,
 }: {
   laid: LaidEdge;
   selected: boolean;
   error: boolean;
+  /** The session is in this transition's requirements review. */
+  reviewing?: boolean;
   onSelect?: (from: string, outcome: string) => void;
 }) {
   const { edge } = laid;
@@ -208,8 +237,9 @@ function Edge({
   };
   return (
     <g
-      className={edgeClass(laid, selected, error, selectable)}
+      className={edgeClass(laid, selected, error, selectable, reviewing)}
       data-edge={edge.id}
+      aria-current={reviewing ? 'step' : undefined}
       {...(selectable
         ? {
             tabIndex: 0,
@@ -221,7 +251,7 @@ function Edge({
           }
         : {})}
     >
-      <title>{edge.title}</title>
+      <title>{reviewing ? `${edge.title} (under review)` : edge.title}</title>
       {selectable && <path className="wf-hit" d={laid.d} />}
       <path className="wf-line" d={laid.d} />
       <polygon className="wf-arrow" points={laid.arrow} />

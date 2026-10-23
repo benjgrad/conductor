@@ -376,3 +376,24 @@ main[hidden] {
   background: var(--warn-bg);
   color: var(--warn);
 }
+
+/* The transition whose requirements review is running (session Details). */
+.wf-edge.reviewing .wf-line {
+  stroke: var(--accent);
+  stroke-width: 3.2;
+  stroke-dasharray: 8 5;
+  animation: wf-review-pulse 1.2s linear infinite;
+}
+.wf-edge.reviewing .wf-arrow {
+  fill: var(--accent);
+}
+@keyframes wf-review-pulse {
+  to {
+    stroke-dashoffset: -26;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wf-edge.reviewing .wf-line {
+    animation: none;
+  }
+}

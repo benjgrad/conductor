@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { ApiRequestError } from './client.js';
 import { SEED_IDS } from './mock-data.js';
 import { createMockApi } from './mock.js';
+import { detailVersions } from '../workflow/review.js';
 
 const now = () => new Date('2026-10-22T12:00:00.000Z');
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -123,6 +124,7 @@ describe('mock workflows (ADR-0009)', () => {
     });
     const v1 = await api.getWorkflow('m1_basic', 1);
     expect(v1.definition.version).toBe(1);
+    expect(detailVersions(v1)).toEqual([1, 2]);
     await expect(api.getWorkflow('m1_basic', 9)).rejects.toMatchObject({ code: 'not_found' });
     await expect(api.getWorkflow('nope')).rejects.toMatchObject({ status: 404 });
   });

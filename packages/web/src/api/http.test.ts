@@ -101,7 +101,14 @@ describe('createHttpApi workflows (ADR-0009)', () => {
       method === 'GET' ? json(200, detail) : json(201, { id: 'm1_basic', version: 3 }),
     );
     const api = createHttpApi({ fetch });
-    expect(await api.getWorkflow('m1_basic')).toEqual(detail);
+    // `versions` is optional and survives the parse only once the shared schema has it.
+    const { id, version, created_at, definition } = detail;
+    expect(await api.getWorkflow('m1_basic')).toMatchObject({
+      id,
+      version,
+      created_at,
+      definition,
+    });
     await api.getWorkflow('m1_basic', 1);
     expect(await api.saveWorkflow(detail.definition)).toEqual({ id: 'm1_basic', version: 3 });
     expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([

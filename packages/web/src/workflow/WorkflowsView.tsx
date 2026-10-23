@@ -6,6 +6,7 @@ import {
   type ApiClient,
   type ApiErrorDetail,
 } from '../api/client.js';
+import { detailVersions } from './review.js';
 import { TransitionEditor } from './TransitionEditor.js';
 import { WorkflowDiagram } from './WorkflowDiagram.js';
 import { transitionForPath, transitionKey, validateGates, type GateIssue } from './model.js';
@@ -155,7 +156,10 @@ export function WorkflowsView({
       .map((i) => ({ from: s.from, outcome: s.outcome, path: i.path, message: i.message })),
   ];
 
-  const latest = summary?.version ?? detail?.version ?? 1;
+  // Every saved version: from the server when it says (gaps allowed), else 1..latest.
+  const known = detail && detail.id === id ? detailVersions(detail) : null;
+  const latest = Math.max(summary?.version ?? detail?.version ?? 1, ...(known ?? []));
+  const versions = known ?? Array.from({ length: latest }, (_, i) => i + 1);
   const currentVersion = version ?? latest;
   const allIssues = [
     ...clientIssues.map((i) => ({ ...i, source: 'client' as const })),
@@ -195,7 +199,7 @@ export function WorkflowsView({
                   setNotice(null);
                 }}
               >
-                {Array.from({ length: latest }, (_, i) => latest - i).map((v) => (
+                {[...versions].reverse().map((v) => (
                   <option key={v} value={v}>
                     v{v}
                     {v === latest ? ' (latest)' : ''}

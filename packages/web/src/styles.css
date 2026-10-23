@@ -763,6 +763,12 @@ button.copy {
   display: block;
   border-radius: 50%;
 }
+.avatar-placeholder {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  background: var(--border);
+}
 .card-agent {
   display: inline-flex;
   align-items: center;

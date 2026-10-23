@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import type { AnswerInputRequest, OutputChunk, SendMessageRequest } from '@conductor/shared';
+import {
+  BOARD_CARD_FIXTURE,
+  type AnswerInputRequest,
+  type BoardCard,
+  type OutputChunk,
+  type SendMessageRequest,
+} from '@conductor/shared';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { CancelSessionRequest } from '../api/client.js';
@@ -13,6 +19,7 @@ import {
   AGENT_NAMES,
   avatarTraits,
 } from './agent-identity.js';
+import { Board } from './Board.js';
 import { ContextView } from './ContextView.js';
 import { OutputLog } from './OutputLog.js';
 
@@ -74,7 +81,7 @@ describe('session panel tabs', () => {
 
   it('header shows the agent name; Details shows avatar, machine and session', async () => {
     const { panel } = await setup('Add pagination to /orders');
-    const name = agentName(SEED_IDS.running.session);
+    const name = agentName(SEED_IDS.running.ticket);
     expect(panel.getByRole('heading', { level: 2 }).parentElement?.textContent).toContain(name);
     fireEvent.click(panel.getByRole('tab', { name: 'Details' }));
     const agent = within(panel.getByRole('region', { name: 'Agent' }));
@@ -365,9 +372,39 @@ describe('agent identity', () => {
     (_, i) => `b2000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
   );
 
-  it('is deterministic per session id', () => {
+  it('is deterministic per ticket id', () => {
     for (const id of ids) expect(agentIdentity(id)).toEqual(agentIdentity(id));
-    expect(agentName(SEED_IDS.running.session)).toBe(agentName(SEED_IDS.running.session));
+  });
+
+  const cardHtml = (card: BoardCard) => {
+    const { container, unmount } = render(
+      <Board
+        board={{ cards: new Map([[card.ticket_id, card]]), lastEventId: 0 }}
+        selectedSessionId={null}
+        onSelect={() => undefined}
+      />,
+    );
+    const agent = container.querySelector('.card-agent');
+    const out = {
+      name: agent?.textContent,
+      // The clipPath id comes from useId and differs per render; compare the drawing only.
+      svg: agent?.querySelector('svg')?.outerHTML.replace(/(id="|url\(#)[^")]*/g, '$1'),
+      traits: avatarTraits(card.ticket_id),
+    };
+    unmount();
+    return out;
+  };
+
+  it('is per ticket: the same ticket keeps its agent across sessions (retry, resume)', () => {
+    const base = { ...BOARD_CARD_FIXTURE, ticket_id: SEED_IDS.running.ticket };
+    const first = cardHtml({ ...base, session_id: 'b2000000-0000-4000-8000-0000000000a1' });
+    const second = cardHtml({ ...base, session_id: 'b2000000-0000-4000-8000-0000000000a2' });
+    expect(first.name).toBe(agentName(SEED_IDS.running.ticket));
+    expect(second).toEqual(first);
+    const other = cardHtml({ ...base, ticket_id: SEED_IDS.askOlder.ticket });
+    expect(other.name).toBe(agentName(SEED_IDS.askOlder.ticket));
+    expect(other.traits).not.toEqual(first.traits);
+    expect(agentName(SEED_IDS.askOlder.ticket)).not.toBe(agentName(SEED_IDS.running.ticket));
   });
 
   it('differs across ids', () => {
@@ -382,7 +419,7 @@ describe('agent identity', () => {
   });
 
   it('renders the avatar as an svg at the requested size', () => {
-    const { container } = render(<AgentAvatar sessionId={ids[0]!} size={20} />);
+    const { container } = render(<AgentAvatar ticketId={ids[0]!} size={20} />);
     const svg = container.querySelector('svg');
     expect(svg).toBeTruthy();
     expect(svg?.getAttribute('width')).toBe('20');
@@ -393,9 +430,9 @@ describe('agent identity', () => {
   it('gives each avatar on a page its own clipPath id', () => {
     const { container } = render(
       <>
-        <AgentAvatar sessionId={ids[0]!} />
-        <AgentAvatar sessionId={ids[0]!} />
-        <AgentAvatar sessionId={ids[1]!} />
+        <AgentAvatar ticketId={ids[0]!} />
+        <AgentAvatar ticketId={ids[0]!} />
+        <AgentAvatar ticketId={ids[1]!} />
       </>,
     );
     const clipIds = [...container.querySelectorAll('clipPath')].map((c) => c.id);
@@ -408,14 +445,16 @@ describe('agent identity', () => {
     });
   });
 
-  it('shows the avatar and name on board cards with a session', async () => {
+  it('shows the avatar and name on every board card, queued ones included', async () => {
     render(<App api={createMockApi()} />);
     const title = await screen.findByText('Add pagination to /orders');
     const card = title.closest('article') as HTMLElement;
     expect(card.querySelector('svg.avatar')).toBeTruthy();
-    expect(card.textContent).toContain(agentName(SEED_IDS.running.session));
+    expect(card.textContent).toContain(agentName(SEED_IDS.running.ticket));
+    // No session yet: the ticket already has its agent.
     const queued = screen.getByText('Add /health').closest('article') as HTMLElement;
-    expect(queued.querySelector('svg.avatar')).toBeNull();
+    expect(queued.querySelector('svg.avatar')).toBeTruthy();
+    expect(queued.textContent).toContain(agentName(SEED_IDS.queuedFixture));
   });
 });
 

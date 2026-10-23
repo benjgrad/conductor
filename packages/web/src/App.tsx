@@ -39,6 +39,7 @@ export function App({ api }: AppProps) {
             key={selected}
             api={api}
             sessionId={selected}
+            {...(selectedCard ? { ticketId: selectedCard.ticket_id } : {})}
             version={selectedCard?.updated_at ?? ''}
             onClose={() => setSelected(null)}
           />

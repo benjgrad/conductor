@@ -15,6 +15,8 @@ import { OutputLog } from './OutputLog.js';
 interface DetailPanelProps {
   api: ApiClient;
   sessionId: string;
+  /** The card's ticket, for the agent identity before the detail loads (else card.ticket_id). */
+  ticketId?: string;
   /** The card's updated_at on the board: a change refetches the detail. */
   version: string;
   onClose: () => void;
@@ -26,10 +28,12 @@ const TABS: readonly { id: PanelTab; label: string }[] = [
   { id: 'details', label: 'Details' },
 ];
 
-export function DetailPanel({ api, sessionId, version, onClose }: DetailPanelProps) {
+export function DetailPanel({ api, sessionId, ticketId, version, onClose }: DetailPanelProps) {
   const { detail, output, error, reload } = useSession(api, sessionId, version);
   const [tab, setTab] = useState<PanelTab>('messages');
-  const name = agentName(sessionId);
+  // Identity is per ticket (Ben): the same agent across a ticket's retries and resumes.
+  const agentKey = detail?.card.ticket_id ?? ticketId ?? null;
+  const name = agentKey ? agentName(agentKey) : '';
   const ids = useId();
   const tabRefs = useRef<Partial<Record<PanelTab, HTMLButtonElement | null>>>({});
   const status = detail?.card.status ?? null;
@@ -56,7 +60,11 @@ export function DetailPanel({ api, sessionId, version, onClose }: DetailPanelPro
   return (
     <aside className="detail" aria-label="Session detail">
       <header className="detail-head">
-        <AgentAvatar sessionId={sessionId} size={36} />
+        {agentKey ? (
+          <AgentAvatar ticketId={agentKey} size={36} />
+        ) : (
+          <span className="avatar avatar-placeholder" aria-hidden="true" />
+        )}
         <div className="head-text">
           <h2>{detail?.card.title ?? 'Loading…'}</h2>
           <div className="head-sub">
@@ -328,7 +336,7 @@ function AgentCard({
   return (
     <section aria-label="Agent" className="agent-card">
       <div className="agent-who">
-        <AgentAvatar sessionId={sessionId} size={64} title={`${name}'s avatar`} />
+        <AgentAvatar ticketId={card.ticket_id} size={64} title={`${name}'s avatar`} />
         <div>
           <div className="agent-card-name">{name}</div>
           <div className="muted">Claude Code agent</div>

@@ -61,12 +61,10 @@ function Card({ card, selected, onSelect }: CardProps) {
         <span className="card-title">{card.title}</span>
       </button>
       <div className="card-meta">
-        {sessionId && (
-          <span className="card-agent" title={`Agent ${agentName(sessionId)}`}>
-            <AgentAvatar sessionId={sessionId} size={20} />
-            {agentName(sessionId)}
-          </span>
-        )}
+        <span className="card-agent" title={`Agent ${agentName(card.ticket_id)}`}>
+          <AgentAvatar ticketId={card.ticket_id} size={20} />
+          {agentName(card.ticket_id)}
+        </span>
         {card.external_ref && <span className="ref">{card.external_ref}</span>}
         <span>{card.workflow_state ?? card.workflow_id}</span>
         {card.status && (

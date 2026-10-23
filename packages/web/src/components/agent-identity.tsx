@@ -1,6 +1,7 @@
-// Every session's agent gets a human first name and a flat 2D avatar, both derived from the
-// session id. They are pure functions of the id, so the same session always looks the same
-// everywhere (board card, panel header, Details) and on every machine. Nothing is stored. The
+// The agent working a ticket gets a human first name and a flat 2D avatar, both derived from the
+// ticket id (Ben, 2026-10-23: per ticket, not per session, so the agent keeps its name and face
+// across retries and resumes). They are pure functions of the id, so a ticket's agent looks the
+// same everywhere (board card, panel header, Details) and on every machine. Nothing is stored. The
 // avatar is drawn procedurally as inline SVG: no image service, no library.
 import { useId } from 'react';
 
@@ -130,12 +131,12 @@ export interface AgentIdentity {
   traits: AvatarTraits;
 }
 
-export function agentName(sessionId: string): string {
-  return AGENT_NAMES[hashString(`name:${sessionId}`) % AGENT_NAMES.length]!;
+export function agentName(ticketId: string): string {
+  return AGENT_NAMES[hashString(`name:${ticketId}`) % AGENT_NAMES.length]!;
 }
 
-export function avatarTraits(sessionId: string): AvatarTraits {
-  const r = rng(hashString(`avatar:${sessionId}`));
+export function avatarTraits(ticketId: string): AvatarTraits {
+  const r = rng(hashString(`avatar:${ticketId}`));
   const background = pick(BACKGROUNDS, r);
   const skin = pick(SKIN, r);
   const hair = pick(HAIR_STYLES, r);
@@ -148,8 +149,8 @@ export function avatarTraits(sessionId: string): AvatarTraits {
   return { background, skin, hair, hairColor, shirt, glasses, freckles, mouth };
 }
 
-export function agentIdentity(sessionId: string): AgentIdentity {
-  return { name: agentName(sessionId), traits: avatarTraits(sessionId) };
+export function agentIdentity(ticketId: string): AgentIdentity {
+  return { name: agentName(ticketId), traits: avatarTraits(ticketId) };
 }
 
 /** Darken a #rrggbb colour by `f` (0..1), for shading (neck, ears, collar). */
@@ -215,7 +216,7 @@ function HairFront({ style, color }: { style: HairStyle; color: string }) {
 }
 
 export interface AgentAvatarProps {
-  sessionId: string;
+  ticketId: string;
   /** Rendered size in px. Default 32. Designed to read at 20 and 64. */
   size?: number;
   /** An accessible name; omitted → decorative (aria-hidden). */
@@ -223,9 +224,9 @@ export interface AgentAvatarProps {
   className?: string;
 }
 
-/** A flat, friendly person on a coloured circle, deterministic per session id. */
-export function AgentAvatar({ sessionId, size = 32, title, className }: AgentAvatarProps) {
-  const t = avatarTraits(sessionId);
+/** A flat, friendly person on a coloured circle, deterministic per ticket id. */
+export function AgentAvatar({ ticketId, size = 32, title, className }: AgentAvatarProps) {
+  const t = avatarTraits(ticketId);
   const clip = useId();
   const ink = '#2b2335';
   const eyeY = 30;

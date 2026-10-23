@@ -5,8 +5,10 @@ import type {
   BoardResponse,
   BoardSseEvent,
   CreateTicketRequest,
+  MachineDto,
   OkResponse,
   OutputChunk,
+  SendMessageRequest,
   SessionDetail,
   TicketDto,
   WorkflowSummary,
@@ -54,6 +56,13 @@ export interface ApiClient {
   approve(sessionId: string, req?: ApproveSessionRequest): Promise<OkResponse>;
   /** POST /api/sessions/:id/cancel → operator.cancel. 409 conflict if already terminal. */
   cancel(sessionId: string, req?: CancelSessionRequest): Promise<OkResponse>;
+  /**
+   * POST /api/sessions/:id/messages (ADR-0007): a message to the running agent. It comes back on
+   * the output stream as a `user` chunk. 409 conflict unless an agent state has a live process.
+   */
+  sendMessage(sessionId: string, req: SendMessageRequest): Promise<OkResponse>;
+  /** GET /api/machines (the Details tab shows the session's machine hostname and status). */
+  listMachines(): Promise<MachineDto[]>;
 }
 
 /** A non-2xx API response (ApiError body), thrown by every ApiClient method. */

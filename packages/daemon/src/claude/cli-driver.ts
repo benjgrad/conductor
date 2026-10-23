@@ -8,11 +8,12 @@
 // Events are emitted synchronously from stream / HTTP callbacks, never inside start(), so a
 // listener attached right after start() sees everything. Nothing is emitted after `exit`.
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { ClaudeDriver, DriverEvent, DriverSession, DriverStartOptions } from './driver.js';
+import { writeEditGuard } from './edit-guard.js';
 import {
   OUTCOME_TOOL_NAMES,
   type OutcomeRegistration,
@@ -69,11 +70,64 @@ export function removeMcpConfigFile(path: string): void {
 }
 
 /**
- * The exact argv of ADR-0005 §Spawn (without the executable). `mcpConfig` is what goes after
- * `--mcp-config`: the driver passes the path from `writeMcpConfigFile` (the CLI accepts a file
- * path or a JSON string), never the JSON itself.
+ * Env the agent always gets, over the daemon env and `opts.env` (ADR-0006): the user's claude.ai
+ * connectors (Gmail, Slack, …) stay out of agent sessions (`--strict-mcp-config` doesn't cover
+ * them), and safe mode, which would drop the edit-guard hook, stays off.
  */
-export function buildClaudeArgs(opts: DriverStartOptions, mcpConfig: string): string[] {
+export const AGENT_ENV = {
+  ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
+  CLAUDE_CODE_SAFE_MODE: '0',
+} as const;
+
+/**
+ * The child's env: the daemon env, then the state env without `CLAUDE_CONFIG_DIR` (which would
+ * point `claude` at other settings than the ones `agentPermissionMode` checked), then AGENT_ENV.
+ */
+export function agentEnv(stateEnv: Record<string, string>): NodeJS.ProcessEnv {
+  const rest = { ...stateEnv };
+  delete rest.CLAUDE_CONFIG_DIR;
+  return { ...process.env, ...rest, ...AGENT_ENV };
+}
+
+/**
+ * The `--permission-mode` to pass, if any (ADR-0006). The user's own default applies, except
+ * `bypassPermissions`, which is capped to `auto`: an unattended agent keeps auto mode's classifier
+ * even when the user skips it interactively. Reads `defaultMode` from the user settings file
+ * (`$CLAUDE_CONFIG_DIR/settings.json`, else `~/.claude/settings.json`); unreadable → no flag.
+ */
+export function agentPermissionMode(
+  settingsFile = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'settings.json'),
+): 'auto' | undefined {
+  try {
+    const s = JSON.parse(readFileSync(settingsFile, 'utf8')) as {
+      permissions?: { defaultMode?: unknown };
+    };
+    return s.permissions?.defaultMode === 'bypassPermissions' ? 'auto' : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The exact argv of ADR-0005 §Spawn as amended by ADR-0006 (without the executable). `mcpConfig`
+ * is what goes after `--mcp-config`: the driver passes the path from `writeMcpConfigFile` (the CLI
+ * accepts a file path or a JSON string), never the JSON itself. `settings` is the edit-guard
+ * settings file from `writeEditGuard`.
+ *
+ * ADR-0006: the user's settings load (`--setting-sources user`; never `project`: the repo is
+ * untrusted and its settings could disable the guard hook), so the user's permission mode, rules,
+ * hooks and skills apply. `permissionMode` is passed only to cap the user's mode (see
+ * `agentPermissionMode`). The state's policy still limits the visible built-ins (`--tools`),
+ * pre-approves its rules and adds its denies; anything that would prompt is denied
+ * (`--permission-prompts none`). TD-081: what the user's settings allow is per machine and not
+ * recorded.
+ */
+export function buildClaudeArgs(
+  opts: DriverStartOptions,
+  mcpConfig: string,
+  settings: string,
+  permissionMode?: string,
+): string[] {
   const t = opts.tools;
   const args = [
     '-p',
@@ -87,12 +141,9 @@ export function buildClaudeArgs(opts: DriverStartOptions, mcpConfig: string): st
   if (opts.model !== undefined) args.push('--model', opts.model);
   if (opts.maxTurns !== undefined) args.push('--max-turns', String(opts.maxTurns));
   if (opts.maxBudgetUsd !== undefined) args.push('--max-budget-usd', String(opts.maxBudgetUsd));
+  args.push('--setting-sources', 'user', '--settings', settings, '--strict-mcp-config');
+  if (permissionMode !== undefined) args.push('--permission-mode', permissionMode);
   args.push(
-    '--setting-sources',
-    '',
-    '--strict-mcp-config',
-    '--permission-mode',
-    'dontAsk',
     '--permission-prompts',
     'none',
     '--mcp-config',
@@ -151,16 +202,35 @@ class Session implements CliDriverSession {
       onCompleteState: (result) => this.emit({ kind: 'complete_state', result }),
     });
 
+    let settings: string;
     try {
       this.mcpConfigPath = writeMcpConfigFile(this.reg.mcpConfig);
     } catch (err) {
       this.reg.unregister();
       throw err;
     }
+    try {
+      settings = writeEditGuard(dirname(this.mcpConfigPath), opts.cwd);
+    } catch (err) {
+      this.reg.unregister();
+      removeMcpConfigFile(this.mcpConfigPath);
+      throw err;
+    }
 
-    this.child = spawn(bin, buildClaudeArgs(opts, this.mcpConfigPath), {
+    const mode = agentPermissionMode();
+    if (mode !== undefined) {
+      // After start() returns, so the caller's listener sees it (never emit inside start()).
+      queueMicrotask(() =>
+        this.emit({
+          kind: 'output',
+          stream: 'debug',
+          text: 'conductor: user defaultMode is bypassPermissions; running this agent in auto mode',
+        }),
+      );
+    }
+    this.child = spawn(bin, buildClaudeArgs(opts, this.mcpConfigPath, settings, mode), {
       cwd: opts.cwd,
-      env: { ...process.env, ...opts.env },
+      env: agentEnv(opts.env),
       stdio: ['pipe', 'pipe', 'pipe'],
       // Own process group, so kill() also reaches the tools Claude spawned (bash, test runners).
       detached: true,

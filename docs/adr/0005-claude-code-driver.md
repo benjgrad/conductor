@@ -1,6 +1,6 @@
 # ADR-0005 · Claude Code driver: stream-json CLI, daemon-hosted MCP outcome tools
 
-- **Status**: accepted (Ben, 2026-10-22)
+- **Status**: accepted (Ben, 2026-10-22); permission and settings parts superseded by [ADR-0006](0006-agents-inherit-claude-code-settings.md) (2026-10-23)
 - **Date**: 2026-10-22
 - **Deciders**: Ben (+ M1-T00 spike session)
 - **Resolves**: U-001, U-002

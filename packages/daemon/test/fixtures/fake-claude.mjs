@@ -74,7 +74,9 @@ if (argv.length === 1 && (argv[0] === '--version' || argv[0] === '-v')) {
 
 if (process.env.FAKE_CLAUDE_ARGV_LOG) {
   const env = Object.fromEntries(
-    Object.entries(process.env).filter(([k]) => /^(PORT|CONDUCTOR_|GIT_|FAKE_TEST_)/.test(k)),
+    Object.entries(process.env).filter(([k]) =>
+      /^(PORT|CONDUCTOR_|GIT_|FAKE_TEST_|ENABLE_CLAUDEAI_)/.test(k),
+    ),
   );
   appendFileSync(
     process.env.FAKE_CLAUDE_ARGV_LOG,

@@ -3,8 +3,9 @@
 // with `resolveToolPolicy` and hands the result to the driver as `DriverStartOptions.tools`.
 // The validator (T03) rejects names not in TOOL_ALIAS_NAMES.
 //
-// Rules from ADR-0005: under `--permission-mode dontAsk`, anything not in `allow` is denied.
-// File-writing tools are always path-scoped (`Edit(./**)`, `Write(./**)`): a bare `Edit` escapes
+// Rules from ADR-0005, amended by ADR-0006: `builtin` limits the visible tools; `allow` rules are
+// pre-approved on top of the user's own Claude Code settings (their mode decides the rest);
+// `deny` holds in every mode. File-writing tools are always path-scoped (`Edit(./**)`, `Write(./**)`): a bare `Edit` escapes
 // the worktree. Bash entries are prefix rules. `git push` is always denied for agents (command /
 // connector states push). The conductor MCP outcome tools are added by the driver, not here.
 
@@ -41,6 +42,7 @@ const GIT_EXACT = [
 // `commit` is a prefix rule on purpose: agents write `git commit -q -m …`, `-am`, `-F -`, etc.,
 // and a `commit -m:*` prefix denied all of those (found driving a real session). commit has no
 // file-writing flag like diff's --output, and hooks live in the shared .git the agent can't edit.
+// TD-082: it does match `commit -F <any file>`; narrow it now that auto mode judges the rest.
 const GIT_PREFIX = ['add', 'commit', 'restore'];
 
 export const TOOL_ALIASES = {

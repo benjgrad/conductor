@@ -34,8 +34,18 @@ curl -X POST -H 'content-type: application/json' http://127.0.0.1:7400/api/workf
 Open http://127.0.0.1:7400, click **New ticket**, point **Repo** at a git repo (a local path needs `CONDUCTOR_ALLOW_LOCAL_REPOS=1`) whose `npm run build` and `npm test` work, and describe the change. The card moves Queued → Running → Done. When the agent asks something it lands in **Needs input**: click it, answer, and the same Claude process carries on.
 
 Notes:
-- To keep a trial cheap, add `"model": "haiku"` to the `implement` state of the workflow JSON (and change its `id`) before saving.
-- Keep `CONDUCTOR_ROOT` (default `~/.conductor`) **outside any `.claude` directory**; Claude Code refuses agent file writes there.
+- **Agents use your Claude Code setup** ([ADR-0006](docs/adr/0006-agents-inherit-claude-code-settings.md)):
+  - they sign in the way your `claude` does, so on a subscription there is no per-token bill (the card's `$` is Claude Code's estimate);
+  - with no `model` in the workflow, they use your account's default model (Opus on Max);
+  - they follow your `~/.claude/settings.json` permission mode, rules, hooks and skills, plus the repo's CLAUDE.md;
+  - a repo's own `.claude/settings.json` is ignored, because the repo is untrusted.
+- **Conductor always enforces these guards**, whatever your settings say:
+  - file edits stay inside the session worktree;
+  - `git push` is denied;
+  - agents see no MCP servers but conductor's (your claude.ai connectors are hidden);
+  - a `bypassPermissions` default runs agents in `auto` instead.
+- **Keep `ANTHROPIC_API_KEY` out of the daemon's environment.** If it's set, `claude` bills the API instead of your subscription.
+- Keep `CONDUCTOR_ROOT` (default `~/.conductor`) **outside any `.claude` directory**; Claude Code treats files there as protected config.
 - Run one daemon per `CONDUCTOR_MACHINE_ID` (default: the hostname).
 - Daemon env vars are listed in `packages/daemon/src/config.ts`; the orchestrator takes `DATABASE_URL`, `CONDUCTOR_PORT` (7400) and `CONDUCTOR_WEB_DIR`.
-- `pnpm test:e2e` runs the whole loop against a fake `claude`; `E2E_REAL_CLAUDE=1 pnpm test:e2e` uses the real one on haiku (about a cent).
+- `pnpm test:e2e` runs the whole loop against a fake `claude`; `E2E_REAL_CLAUDE=1 pnpm test:e2e` uses the real one on haiku (on a subscription it uses quota, not money).

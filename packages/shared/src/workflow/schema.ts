@@ -31,12 +31,46 @@ export const DurationSchema = z
 
 export const StateNameSchema = z.string().min(1);
 
-/** `"build"` or `{ goto, attach?, retries?, else? }` (05 §Retry loops). */
+/**
+ * What happens when a requirements review fails (ADR-0009): go back to `goto` with the reviewer's
+ * unmet reasons and `instruction` attached, at most `retries` times for this transition; then
+ * `else`, which must be a human state (default `needs_input`), so every failure path ends at a
+ * human and the loop is bounded.
+ */
+export const OnUnmetSchema = z.strictObject({
+  goto: StateNameSchema,
+  /** Plain-language instruction for the agent on the way back. */
+  instruction: z.string().trim().min(1).max(4_000).optional(),
+  retries: z.number().int().min(0).max(10).default(2),
+  else: StateNameSchema.default('needs_input'),
+});
+export type OnUnmet = z.infer<typeof OnUnmetSchema>;
+
+/**
+ * A requirements gate on a transition (ADR-0009). Before the session enters the target state, an
+ * independent, read-only reviewer agent checks every item against the work (diff, output, context)
+ * and reports met/unmet with a reason per item. All met → the transition proceeds; otherwise
+ * `on_unmet`.
+ */
+export const RequirementsGateSchema = z.strictObject({
+  /** Each requirement in plain language, e.g. "New code paths have unit tests". */
+  items: z.array(z.string().trim().min(1).max(2_000)).min(1).max(30),
+  on_unmet: OnUnmetSchema,
+  /** Reviewer model; omitted = the account default. */
+  model: z.string().min(1).optional(),
+});
+export type RequirementsGate = z.infer<typeof RequirementsGateSchema>;
+
+/**
+ * `"build"` or `{ goto, attach?, retries?, else?, requirements? }` (05 §Retry loops; ADR-0009 for
+ * `requirements`).
+ */
 export const TransitionObjectSchema = z.strictObject({
   goto: StateNameSchema,
   attach: z.literal('output').optional(),
   retries: z.number().int().nonnegative().optional(),
   else: StateNameSchema.optional(),
+  requirements: RequirementsGateSchema.optional(),
 });
 export const TransitionSchema = z.union([StateNameSchema, TransitionObjectSchema]);
 export type Transition = z.infer<typeof TransitionSchema>;

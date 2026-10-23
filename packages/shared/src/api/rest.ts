@@ -28,6 +28,7 @@ export const API_PATHS = {
   sessionMessages: (id: string) => `/api/sessions/${id}/messages`,
   tickets: '/api/tickets',
   workflows: '/api/workflows',
+  workflow: (id: string) => `/api/workflows/${id}`,
   machines: '/api/machines',
   boardStream: '/api/stream/board',
   sessionOutputStream: (id: string) => `/api/stream/sessions/${id}/output`,
@@ -282,6 +283,18 @@ export const SaveWorkflowResponseSchema = z.object({
   id: z.string(),
   version: z.number().int().positive(),
 });
+
+/**
+ * GET /api/workflows/:id → the latest version's full definition; `?version=N` for a specific one
+ * (the Workflow view, ADR-0009). 404 `not_found` for an unknown id or version.
+ */
+export const WorkflowDetailSchema = z.object({
+  id: z.string(),
+  version: z.number().int().positive(),
+  created_at: IsoDateTimeSchema,
+  definition: WorkflowDefinitionSchema,
+});
+export type WorkflowDetail = z.infer<typeof WorkflowDetailSchema>;
 
 /** GET /api/machines → MachineDto[] */
 export const MachineDtoSchema = z.object({

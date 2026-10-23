@@ -8,6 +8,7 @@ import {
   OkResponseSchema,
   OutputChunkSchema,
   SessionDetailSchema,
+  TranscriptResponseSchema,
   TicketDtoSchema,
   WorkflowListResponseSchema,
   type AnswerInputRequest,
@@ -275,6 +276,13 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
       ),
 
     listMachines: () => request(MachineDtoSchema.array(), 'GET', API_PATHS.machines),
+
+    getTranscript: (sessionId: string) =>
+      request(
+        TranscriptResponseSchema,
+        'GET',
+        API_PATHS.sessionTranscript(encodeURIComponent(sessionId)),
+      ),
   };
 }
 

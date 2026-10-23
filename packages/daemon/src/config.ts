@@ -53,6 +53,12 @@ export interface DaemonConfig {
   allowLocalRepos: boolean;
   /** When non-empty, only these remote repo hosts are cloned (M1-T14). Default: any host. */
   allowedRepoHosts: string[];
+  /**
+   * Claude Code's config dir, where it writes session transcripts (`projects/<cwd-slug>/<id>.jsonl`,
+   * ADR-0008). Default: `CLAUDE_CONFIG_DIR`, else `~/.claude` (the agents inherit the daemon's env,
+   * so this is the dir they write to).
+   */
+  claudeConfigDir?: string;
 }
 
 type Env = Record<string, string | undefined>;
@@ -115,7 +121,8 @@ export function machineFacts(): MachineFacts {
  * CONDUCTOR_MAX_CONCURRENT_BUILDS (2), CONDUCTOR_PORT_POOL ("41000-48999"),
  * CONDUCTOR_PORT_RANGE_SIZE (10), CONDUCTOR_MIN_FREE_MEM_MB (512), CONDUCTOR_WORK_POLL_MS (5000),
  * CONDUCTOR_GIT_NAME, CONDUCTOR_GIT_EMAIL, CONDUCTOR_ALLOW_LOCAL_REPOS (1/true; default off),
- * CONDUCTOR_ALLOWED_REPO_HOSTS (comma list; default any host).
+ * CONDUCTOR_ALLOWED_REPO_HOSTS (comma list; default any host), CLAUDE_CONFIG_DIR (~/.claude;
+ * where Claude Code writes transcripts, ADR-0008).
  */
 export function loadConfig(
   env: Env = process.env,
@@ -182,5 +189,6 @@ export function loadConfig(
     gitEmail: str(env, 'CONDUCTOR_GIT_EMAIL', 'conductor@localhost'),
     allowLocalRepos: bool(env, 'CONDUCTOR_ALLOW_LOCAL_REPOS', false),
     allowedRepoHosts: list(env, 'CONDUCTOR_ALLOWED_REPO_HOSTS').map((h) => h.toLowerCase()),
+    claudeConfigDir: resolve(str(env, 'CLAUDE_CONFIG_DIR', join(facts.home, '.claude'))),
   };
 }

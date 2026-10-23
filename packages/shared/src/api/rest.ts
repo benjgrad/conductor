@@ -26,6 +26,8 @@ export const API_PATHS = {
   sessionApprove: (id: string) => `/api/sessions/${id}/approve`,
   sessionCancel: (id: string) => `/api/sessions/${id}/cancel`,
   sessionMessages: (id: string) => `/api/sessions/${id}/messages`,
+  /** ADR-0008: the session's history from Claude's own transcript on its machine. */
+  sessionTranscript: (id: string) => `/api/sessions/${id}/transcript`,
   tickets: '/api/tickets',
   workflows: '/api/workflows',
   machines: '/api/machines',
@@ -172,6 +174,25 @@ export type OkResponse = z.infer<typeof OkResponseSchema>;
 export const SendMessageRequestSchema = z.object({ text: z.string().trim().min(1).max(20_000) });
 export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>;
 
+/**
+ * GET /api/sessions/:id/transcript → 200 (ADR-0008). The session's history, read from Claude
+ * Code's own transcript file on the machine that ran it (nothing is stored in Postgres, U-005).
+ * Chunks use the live streams (`user`, `assistant`, `tool_use`, `tool_result`); thinking and
+ * bookkeeping lines are skipped. `seq` is the chunk's position in this response (0..n-1), not an
+ * output-ring seq: transcript chunks are never merged with ring chunks by seq. `ts` is the
+ * transcript line's own timestamp. Errors: 404 `not_found` (unknown session), 404
+ * `no_transcript` (the machine has no transcript for it), 503 `machine_offline` (no machine, or
+ * it is not connected), 504 `timeout` (no reply within about 10 s).
+ */
+export const TranscriptResponseSchema = z.object({
+  /** The machine the transcript was read from. */
+  machine_id: z.string(),
+  chunks: z.array(OutputChunkSchema),
+  /** Older chunks were dropped to fit the size cap (the most recent are kept). */
+  truncated: z.boolean(),
+});
+export type TranscriptResponse = z.infer<typeof TranscriptResponseSchema>;
+
 /** POST /api/sessions/:id/cancel → 202 OkResponse. Becomes `operator.cancel {reason}`. */
 export const CancelSessionRequestSchema = z.object({ reason: z.string().optional() });
 
@@ -194,6 +215,12 @@ export const ApiErrorSchema = z.object({
       'invalid_workflow',
       'conflict',
       'internal',
+      /** ADR-0008 transcript: the session's machine is not connected (503). */
+      'machine_offline',
+      /** ADR-0008 transcript: the machine has no transcript for the session (404). */
+      'no_transcript',
+      /** ADR-0008 transcript: the machine did not answer in time (504). */
+      'timeout',
     ]),
     message: z.string(),
     /** Validation details (zod issues / validator rule failures). */

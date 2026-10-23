@@ -167,6 +167,20 @@ describe('createHttpApi REST', () => {
     );
   });
 
+  it('getTranscript (ADR-0008) uses its API_PATHS route', async () => {
+    const transcript = {
+      machine_id: 'mbp-ben',
+      truncated: false,
+      chunks: [{ ...OUTPUT_CHUNK_FIXTURE, seq: 0, stream: 'user', text: 'hi' }],
+    };
+    const { calls, fetch } = recordingFetch(() => json(200, transcript));
+    const api = createHttpApi({ baseUrl: 'http://orch:7400', fetch });
+    expect(await api.getTranscript(SESSION)).toEqual(transcript);
+    expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([
+      ['GET', `http://orch:7400${API_PATHS.sessionTranscript(SESSION)}`, undefined],
+    ]);
+  });
+
   it('defaults to same-origin paths (the Vite dev proxy)', async () => {
     const { calls, fetch } = recordingFetch(() => json(200, []));
     await createHttpApi({ fetch }).listWorkflows();

@@ -224,6 +224,49 @@ export type OutputPayload = z.infer<typeof OutputPayloadSchema>;
 /** Not persisted, not replayed; seq may be null. */
 export const OutputMessageSchema = msg('output', OutputPayloadSchema, sessionEnv);
 
+/**
+ * ADR-0008: caps on a `transcript` reply. Each tool result is cut to TRANSCRIPT_RESULT_CHARS with
+ * a marker; the reply keeps the most recent chunks whose JSON fits in TRANSCRIPT_MAX_BYTES (UTF-8),
+ * well under the gateway's 4 MB frame limit.
+ */
+export const TRANSCRIPT_RESULT_CHARS = 16 * 1024;
+export const TRANSCRIPT_MAX_BYTES = 2 * 1024 * 1024;
+
+/** Why a daemon could not return a transcript (ADR-0008). */
+export const TranscriptErrorSchema = z.enum([
+  /** The daemon's store has no such session (another machine ran it, or the state was reset). */
+  'unknown_session',
+  /** The session never got a Claude session id, or the transcript file is gone. */
+  'no_transcript',
+  /** The file exists but could not be read. */
+  'read_failed',
+]);
+export type TranscriptError = z.infer<typeof TranscriptErrorSchema>;
+
+/** One transcript item: an OutputChunk without session_id / seq (the orchestrator adds them). */
+export const TranscriptChunkSchema = z.object({
+  stream: OutputStreamSchema,
+  text: z.string(),
+  ts: IsoDateTimeSchema,
+});
+export type TranscriptChunk = z.infer<typeof TranscriptChunkSchema>;
+
+/**
+ * ADR-0008: the reply to `fetch_transcript`, matched on `request_id`. Not durable (no seq): a
+ * reply lost to a socket drop just times out the REST request.
+ */
+export const TranscriptPayloadSchema = z.union([
+  z.object({
+    request_id: UuidSchema,
+    chunks: z.array(TranscriptChunkSchema),
+    /** Older chunks were dropped to fit TRANSCRIPT_MAX_BYTES. */
+    truncated: z.boolean(),
+  }),
+  z.object({ request_id: UuidSchema, error: TranscriptErrorSchema }),
+]);
+export type TranscriptPayload = z.infer<typeof TranscriptPayloadSchema>;
+export const TranscriptMessageSchema = msg('transcript', TranscriptPayloadSchema, machineEnv);
+
 export const DaemonToOrchestratorSchema = z.discriminatedUnion('type', [
   RegisterMessageSchema,
   HeartbeatMessageSchema,
@@ -232,6 +275,7 @@ export const DaemonToOrchestratorSchema = z.discriminatedUnion('type', [
   CommandAckMessageSchema,
   SessionEventMessageSchema,
   OutputMessageSchema,
+  TranscriptMessageSchema,
 ]);
 export type DaemonToOrchestrator = z.infer<typeof DaemonToOrchestratorSchema>;
 export type DaemonMessageType = DaemonToOrchestrator['type'];
@@ -371,6 +415,22 @@ export const ProtocolErrorMessageSchema = msg(
   orchMachineEnv,
 );
 
+/**
+ * ADR-0008: read-only request for a session's Claude transcript, answered by `transcript` with
+ * the same `request_id`. Not an outbox command (no side effect, no command_id, no ack). The
+ * daemon locates the file only from its own store (`session_id` → worktree + Claude session id);
+ * nothing in the request is used as a path.
+ */
+export const FetchTranscriptPayloadSchema = z.object({
+  request_id: UuidSchema,
+  session_id: UuidSchema,
+});
+export const FetchTranscriptMessageSchema = msg(
+  'fetch_transcript',
+  FetchTranscriptPayloadSchema,
+  orchMachineEnv,
+);
+
 export const OrchestratorToDaemonSchema = z.discriminatedUnion('type', [
   RegisteredMessageSchema,
   WorkAssignmentMessageSchema,
@@ -382,6 +442,7 @@ export const OrchestratorToDaemonSchema = z.discriminatedUnion('type', [
   SendMessageMessageSchema,
   KillMessageSchema,
   ProtocolErrorMessageSchema,
+  FetchTranscriptMessageSchema,
 ]);
 export type OrchestratorToDaemon = z.infer<typeof OrchestratorToDaemonSchema>;
 export type OrchestratorMessageType = OrchestratorToDaemon['type'];

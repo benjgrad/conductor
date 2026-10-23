@@ -661,6 +661,10 @@ button.copy {
   color: var(--muted);
   opacity: 1;
 }
+.history-notice {
+  margin: 0 0 6px;
+  font-size: 12px;
+}
 .composer-reason,
 .composer-error {
   margin: 4px 2px 0;

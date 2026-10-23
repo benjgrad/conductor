@@ -29,7 +29,7 @@ const TABS: readonly { id: PanelTab; label: string }[] = [
 ];
 
 export function DetailPanel({ api, sessionId, ticketId, version, onClose }: DetailPanelProps) {
-  const { detail, output, error, reload } = useSession(api, sessionId, version);
+  const { detail, output, error, reload, history } = useSession(api, sessionId, version);
   const [tab, setTab] = useState<PanelTab>('messages');
   // Identity is per ticket (Ben): the same agent across a ticket's retries and resumes.
   const agentKey = detail?.card.ticket_id ?? ticketId ?? null;
@@ -116,6 +116,11 @@ export function DetailPanel({ api, sessionId, ticketId, version, onClose }: Deta
       >
         {detail && (
           <>
+            {history && (
+              <p role="status" className={`history-notice muted history-${history.kind}`}>
+                {history.text}
+              </p>
+            )}
             <OutputLog
               output={output}
               worktree={detail.worktree_path}

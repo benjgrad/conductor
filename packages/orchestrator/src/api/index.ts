@@ -13,6 +13,7 @@ import {
   type EngineEvent,
   type EngineRoute,
   type OkResponse,
+  type TranscriptResponse,
 } from '@conductor/shared';
 import Fastify, { type FastifyReply } from 'fastify';
 import { insertBoardEvents, type ApplyEventOptions } from '../contracts.js';
@@ -56,7 +57,7 @@ export interface ApiOptions {
 
 type ApiDeps = Parameters<CreateApi>[0] & ApiOptions;
 
-export const createApi = (({ db, engine, boardBus, outputBus, security }: ApiDeps) => {
+export const createApi = (({ db, engine, boardBus, outputBus, transcripts, security }: ApiDeps) => {
   const app = Fastify({ logger: false });
   // M1-T14: Host / Origin / content-type guard before routing (09 §M1 local hardening).
   app.addHook('onRequest', securityHook(new HttpGuard(security ?? httpSecurityFromEnv())));
@@ -178,6 +179,47 @@ export const createApi = (({ db, engine, boardBus, outputBus, security }: ApiDep
     }
     outputBus.append(id, 'user', body.text);
     return reply.code(202).send(OK);
+  });
+
+  /**
+   * ADR-0008: the session's history from Claude's own transcript on the machine that ran it.
+   * A read-only WS request/response through the gateway; nothing is read from Postgres but the
+   * session's machine.
+   */
+  app.get<IdParams>('/api/sessions/:id/transcript', async (req, reply) => {
+    const id = sessionId(req.params.id, reply);
+    if (id === undefined) return reply;
+    const r = await db.query<{ machine_id: string | null }>(
+      'SELECT machine_id FROM session WHERE id = $1',
+      [id],
+    );
+    const row = r.rows[0];
+    if (!row) return sendError(reply, 404, 'not_found', `session ${id} not found`);
+    const machine = row.machine_id;
+    if (machine === null || !transcripts) {
+      return sendError(reply, 503, 'machine_offline', `session ${id} is not on a machine`);
+    }
+    const res = await transcripts.fetchTranscript(machine, id);
+    switch (res.status) {
+      case 'ok': {
+        // seq = position in this response (not an output-ring seq); ts = the transcript's own.
+        const body: TranscriptResponse = {
+          machine_id: machine,
+          chunks: res.chunks.map((c, i) => ({ session_id: id, seq: i, ...c })),
+          truncated: res.truncated,
+        };
+        return body;
+      }
+      case 'offline':
+        return sendError(reply, 503, 'machine_offline', `machine ${machine} is offline`);
+      case 'timeout':
+        return sendError(reply, 504, 'timeout', `machine ${machine} did not answer in time`);
+      case 'error':
+        if (res.error === 'read_failed') {
+          return sendError(reply, 502, 'internal', `machine ${machine} could not read it`);
+        }
+        return sendError(reply, 404, 'no_transcript', `machine ${machine} has no transcript`);
+    }
   });
 
   // ---------------------------------------------------------------- tickets

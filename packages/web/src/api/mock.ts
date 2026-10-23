@@ -16,6 +16,7 @@ import {
   type SessionDetail,
   type SessionStatus,
   type TicketDto,
+  type TranscriptResponse,
   type WorkflowSummary,
 } from '@conductor/shared';
 import {
@@ -358,6 +359,15 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           mem_free_mb: 9_400,
         },
       ]),
+
+    getTranscript: (sessionId) =>
+      reply((): TranscriptResponse => {
+        const s = sessionOf(sessionId);
+        if (!s.transcript) {
+          throw new ApiRequestError(404, 'no_transcript', 'machine mbp-ben has no transcript');
+        }
+        return clone({ machine_id: 'mbp-ben', chunks: s.transcript, truncated: false });
+      }),
 
     pushOutput(sessionId, text, stream = 'assistant') {
       const s = sessionOf(sessionId);

@@ -11,6 +11,7 @@ import type {
   SendMessageRequest,
   SessionDetail,
   TicketDto,
+  TranscriptResponse,
   WorkflowSummary,
 } from '@conductor/shared';
 
@@ -63,6 +64,11 @@ export interface ApiClient {
   sendMessage(sessionId: string, req: SendMessageRequest): Promise<OkResponse>;
   /** GET /api/machines (the Details tab shows the session's machine hostname and status). */
   listMachines(): Promise<MachineDto[]>;
+  /**
+   * GET /api/sessions/:id/transcript (ADR-0008): history from Claude's transcript on the session's
+   * machine. 503 machine_offline, 404 no_transcript, 504 timeout.
+   */
+  getTranscript(sessionId: string): Promise<TranscriptResponse>;
 }
 
 /** A non-2xx API response (ApiError body), thrown by every ApiClient method. */

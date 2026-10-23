@@ -5,7 +5,8 @@ import {
   type SessionDetail,
 } from '@conductor/shared';
 import type { OutputBus, Queryable } from '../contracts.js';
-import { splitReview } from '../engine/rows.js';
+import { cardView } from '../engine/board-view.js';
+import { splitStep } from '../engine/rows.js';
 import type { InputRequestRow, SessionRow, TicketRow, WorkflowDefinitionRow } from '../db/types.js';
 
 // GET /api/sessions/:id (M1-T08).
@@ -45,11 +46,16 @@ export async function loadSessionDetail(
   // A cancel leaves the request unanswered; only a needs_input session is waiting on it (TD-079).
   const openInput = session.status === 'needs_input' ? (ir.rows[0] ?? null) : null;
   return {
-    card: toBoardCard(ticket, session, openInput),
+    card: toBoardCard(
+      ticket,
+      session,
+      openInput,
+      await cardView(db, session.workflow_id, session.workflow_version),
+    ),
     workflow,
     workflow_version: session.workflow_version,
     // ADR-0009: the in-progress review step is engine state, not a state result.
-    context: splitReview(session.context).context,
+    context: splitStep(session.context).context,
     retry_counters: session.retry_counters,
     state_visits: session.state_visits,
     return_to: session.return_to,

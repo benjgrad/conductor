@@ -15,6 +15,8 @@ import {
   realpathSync,
   rmSync,
   symlinkSync,
+  writeFileSync,
+  chmodSync,
 } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -26,6 +28,29 @@ export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..
 export const ORCHESTRATOR_BIN = join(REPO_ROOT, 'packages/orchestrator/dist/bin.js');
 export const DAEMON_BIN = join(REPO_ROOT, 'packages/daemon/dist/main.js');
 export const FAKE_CLAUDE = join(REPO_ROOT, 'packages/daemon/test/fixtures/fake-claude.mjs');
+
+/** The E2E fake `gh` (ADR-0010 open_pr). */
+export const FAKE_GH_URL = 'https://github.com/benjgrad/fixture-app/pull/42';
+const FAKE_GH = `#!/usr/bin/env node
+const { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } = require('node:fs');
+const argv = process.argv.slice(2);
+appendFileSync(process.env.FAKE_GH_LOG, JSON.stringify({ argv, cwd: process.cwd() }) + '\\n');
+const dir = process.env.FAKE_GH_STATE;
+mkdirSync(dir, { recursive: true });
+const key = (b) => dir + '/' + Buffer.from(b).toString('hex');
+if (argv[0] === 'repo' && argv[1] === 'view') { console.log('main'); process.exit(0); }
+if (argv[0] === 'pr' && argv[1] === 'view') {
+  if (existsSync(key(argv[2]))) { console.log(readFileSync(key(argv[2]), 'utf8')); process.exit(0); }
+  console.error('no pull requests found'); process.exit(1);
+}
+if (argv[0] === 'pr' && argv[1] === 'create') {
+  const head = argv[argv.indexOf('--head') + 1];
+  writeFileSync(key(head), '${FAKE_GH_URL}');
+  console.log('${FAKE_GH_URL}');
+  process.exit(0);
+}
+process.exit(2);
+`;
 
 export interface StackOptions {
   /** Use the installed `claude` instead of the fake (E2E_REAL_CLAUDE=1). */
@@ -61,6 +86,14 @@ export class Stack {
   /** JSONL of every fake Claude process start: `{argv, cwd, env}` (fake mode only). */
   get fakeArgvLog(): string {
     return join(this.tmp, 'fake-claude-argv.jsonl');
+  }
+
+  /**
+   * ADR-0010 open_pr: JSONL of every fake `gh` call (`{argv, cwd}`). The daemon always gets the
+   * fake first on PATH, so no run (not even E2E_REAL_CLAUDE) ever reaches GitHub.
+   */
+  get fakeGhLog(): string {
+    return join(this.tmp, 'fake-gh.jsonl');
   }
 
   /** CLAUDE_CONFIG_DIR of the daemon and the fake (fake mode): transcripts land under it. */
@@ -102,6 +135,15 @@ export class Stack {
       CONDUCTOR_GIT_EMAIL: 'e2e@localhost',
       ...this.opts.daemonEnv,
     };
+    // ADR-0010: a fake `gh` (no network): `repo view` → main, `pr view` → the PR once created,
+    // `pr create` → a fixed URL. Every call is logged to fakeGhLog.
+    const ghBin = join(this.tmp, 'gh-bin');
+    mkdirSync(ghBin);
+    writeFileSync(join(ghBin, 'gh'), FAKE_GH);
+    chmodSync(join(ghBin, 'gh'), 0o755);
+    env.PATH = `${ghBin}:${process.env.PATH ?? ''}`;
+    env.FAKE_GH_LOG = this.fakeGhLog;
+    env.FAKE_GH_STATE = join(this.tmp, 'fake-gh-prs');
     if (!this.opts.realClaude) {
       const bin = join(this.tmp, 'bin');
       mkdirSync(bin);

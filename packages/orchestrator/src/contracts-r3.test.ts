@@ -160,7 +160,11 @@ describe('composeOrchestrator (skeleton wiring)', () => {
     const engine = new FakeEngineService();
     const transport = new FakeOutboxTransport();
     const server = createServer();
-    const db = { end: () => (log.push('db.end'), Promise.resolve()) } as unknown as Db;
+    const db = {
+      end: () => (log.push('db.end'), Promise.resolve()),
+      // ADR-0010: start() seeds the conductor workflow first.
+      query: () => (log.push('seed'), Promise.resolve({ rowCount: 1, rows: [] })),
+    } as unknown as Db;
     const o = composeOrchestrator(
       {
         createDb: () => db,
@@ -195,6 +199,7 @@ describe('composeOrchestrator (skeleton wiring)', () => {
     await o.stop();
     expect(log).toEqual([
       'attach',
+      'seed',
       'workers',
       'listen:7401',
       'workers.stop',

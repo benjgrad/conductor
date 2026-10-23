@@ -42,6 +42,14 @@ export function engineEventForSessionEvent(p: SessionEventPayload): EngineEvent 
         claude_session_id: p.data.claude_session_id,
         total_usd: p.data.total_usd,
       };
+    case 'action_result':
+      return {
+        type: 'action.completed',
+        command_id: p.data.command_id,
+        action: p.data.action,
+        result: p.data.result,
+        error: p.data.error,
+      };
     case 'build_slot':
     case 'heartbeat':
       return null;

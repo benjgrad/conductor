@@ -633,6 +633,7 @@ class Gateway implements GatewayHandle {
       | { kind: 'duplicate' }
       | { kind: 'stale' }
       | { kind: 'unknown' }
+      | { kind: 'late_spend'; events: BoardSseEvent[] }
       | { kind: 'done'; events: BoardSseEvent[]; superseded: { token: number } | null };
 
     const outcome = await withTransaction(this.db, async (tx): Promise<Outcome> => {
@@ -659,6 +660,26 @@ class Gateway implements GatewayHandle {
       );
       const row = s.rows[0];
       if (!row || row.machine_id !== machineId) return { kind: 'unknown' };
+      if (
+        msg.payload.kind === 'spend' &&
+        token < Number(row.fencing_token) &&
+        msg.payload.data.claude_session_id !== ''
+      ) {
+        // A fenced-off process's last spend (a worker after its complete_state, a reviewer after
+        // its verdict: gate steps bump the token, ADR-0010). Spend only adds the positive delta per
+        // Claude session and never moves the ticket, so it still counts toward the budget.
+        const p = msg.payload.data;
+        const late = await this.engine.applyEvent(
+          sessionId,
+          {
+            type: 'spend.reported',
+            claude_session_id: p.claude_session_id,
+            total_usd: p.total_usd,
+          },
+          { tx },
+        );
+        return { kind: 'late_spend', events: late.status === 'applied' ? late.boardEvents : [] };
+      }
       if (token !== Number(row.fencing_token)) return { kind: 'stale' };
 
       const event = engineEventForSessionEvent(msg.payload);
@@ -712,6 +733,10 @@ class Gateway implements GatewayHandle {
 
     switch (outcome.kind) {
       case 'duplicate':
+        return;
+      case 'late_spend':
+        // Not an owner of the current token: no conn.owned update, no kill.
+        this.publish(outcome.events);
         return;
       case 'stale':
         if (conn.owned.get(sessionId) === token) conn.owned.delete(sessionId);

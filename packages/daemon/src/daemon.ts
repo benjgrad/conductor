@@ -22,6 +22,7 @@ import { DaemonStore, type AckRecord, type PortRange } from './store.js';
 import { liveResources, type SysInfo } from './sysinfo.js';
 import { buildAppendSystemPrompt } from './system-prompt.js';
 import { inventoryDigest, Workspace } from './workspace.js';
+import { openPr } from './actions/open-pr.js';
 import { ReconnectingWs } from './ws-client.js';
 
 // Daemon core (M1-T05; 03 §Daemon ↔ orchestrator, 07, 10-contracts, ADR-0005).
@@ -57,10 +58,11 @@ export interface DaemonOptions {
 
 type Command = Extract<
   OrchestratorToDaemon,
-  { type: 'start_session' | 'run_cmd' | 'send_input' | 'send_message' | 'kill' }
+  { type: 'start_session' | 'run_cmd' | 'run_action' | 'send_input' | 'send_message' | 'kill' }
 >;
 type StartSession = Extract<Command, { type: 'start_session' }>;
 type RunCmd = Extract<Command, { type: 'run_cmd' }>;
+type RunAction = Extract<Command, { type: 'run_action' }>;
 type SendInput = Extract<Command, { type: 'send_input' }>;
 type SendMessage = Extract<Command, { type: 'send_message' }>;
 type Kill = Extract<Command, { type: 'kill' }>;
@@ -409,6 +411,8 @@ export class Daemon {
           return this.startSession(msg);
         case 'run_cmd':
           return this.runCmd(msg);
+        case 'run_action':
+          return this.runAction(msg);
         case 'send_input':
           return this.sendInput(msg);
         case 'send_message':
@@ -821,6 +825,65 @@ export class Daemon {
         this.emit(sid, token, { kind: 'cmd_exit', data: { command_id: p.command_id, ...data } });
       })
       .catch((e: unknown) => this.log(`run_cmd ${p.command_id}: ${String(e)}`));
+  }
+
+  /**
+   * ADR-0010: an entry action, performed by this daemon (never by an agent) in the session's
+   * worktree with the machine's own git / gh credentials. Acked at once; the outcome follows as
+   * `session_event action_result`. A kill aborts it like a command.
+   */
+  private runAction(msg: RunAction): void {
+    const sid = msg.session_id;
+    const token = msg.fencing_token;
+    const p = msg.payload;
+    const s = this.store.session(sid);
+    if (!s || !existsSync(s.worktreePath)) {
+      return this.finish(msg, { accepted: false, reason: 'unknown_session' });
+    }
+    const live = this.liveSession(sid);
+    const abort = new AbortController();
+    live.cmds.set(p.command_id, { fencingToken: token, abort });
+    this.finish(msg, { accepted: true });
+    this.touch(sid);
+    const str = (v: unknown, fallback: string) => (typeof v === 'string' ? v : fallback);
+    this.sendOutput(sid, token, 'debug', `conductor: ${p.action} for ${p.target_state}`);
+    openPr({
+      worktree: s.worktreePath,
+      // The daemon's own records (not the message): the branch it created the worktree on and
+      // the repo it cloned. The push goes to that repo's URL, never the clone's config `origin`.
+      branch: s.branch,
+      repo: s.repo,
+      policy: {
+        allowLocalRepos: this.config.allowLocalRepos,
+        allowedRepoHosts: this.config.allowedRepoHosts,
+      },
+      title: str(p.args.title, s.branch),
+      body: str(p.args.body, 'Opened by conductor.'),
+      root: this.config.rootDir,
+      signal: abort.signal,
+    })
+      .catch((e: unknown) => ({ ok: false as const, error: errText(e) }))
+      .then((r) => {
+        live.cmds.delete(p.command_id);
+        this.sendOutput(
+          sid,
+          token,
+          'debug',
+          r.ok
+            ? `conductor: pull request ${r.url}${r.reused ? ' (existing)' : ''}`
+            : `conductor: ${p.action} failed: ${r.error}`,
+        );
+        this.emit(sid, token, {
+          kind: 'action_result',
+          data: {
+            command_id: p.command_id,
+            action: p.action,
+            result: r.ok ? { pr_url: r.url } : null,
+            error: r.ok ? null : r.error,
+          },
+        });
+      })
+      .catch((e: unknown) => this.log(`run_action ${p.command_id}: ${String(e)}`));
   }
 
   /** 10-contracts §Orphaned processes, rule 5. */

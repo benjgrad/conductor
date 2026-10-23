@@ -129,13 +129,15 @@ describe('applyEvent: session.assigned (one transaction)', () => {
       'session.assigned',
       'state.entered',
       'session.status',
+      'card.moved',
       'card.upserted',
     ]);
     expect(res.eventId).toBe(Number(evs[0]!.id));
     expect(evs[0]!.payload).toEqual({ machine_id: MACHINE });
     expect(evs[1]!.payload).toEqual({ from: null, to: 'implement', visit: 1 });
 
-    // queued → assigned stays in the Queued column: no card.moved
+    // ADR-0010: the claim entered `implement` (m1_basic, an agent state), so the card moves from
+    // Queued to Implementing (the state-type fallback for an old workflow).
     const board = evs.map((e) => boardSseEventFromRow(e)).filter((e) => e !== null);
     expect(res.boardEvents).toEqual(board);
     expect(bus.published).toEqual(board);
@@ -144,7 +146,7 @@ describe('applyEvent: session.assigned (one transaction)', () => {
       ticket_id: ticketId,
       session_id: sessionId,
       status: 'assigned',
-      column: 'queued',
+      column: 'implementing',
       workflow_state: 'implement',
       machine_id: MACHINE,
     });
@@ -174,7 +176,7 @@ describe('applyEvent: session.assigned (one transaction)', () => {
       engine.applyEvent(sessionId, { type: 'session.assigned', machine_id: MACHINE }, { tx }),
     );
     expect(bus.published).toHaveLength(0); // caller's job
-    expect(res.status === 'applied' && res.boardEvents.length).toBe(2);
+    expect(res.status === 'applied' && res.boardEvents.length).toBe(3);
     expect(await outbox(sessionId)).toHaveLength(1);
   });
 
@@ -294,13 +296,8 @@ describe('applyEvent: wrapper-owned writes', () => {
       status: 'running',
       agent_process_live: true,
     });
-    // assigned (Queued) → running (Running): session.status, card.moved, card.upserted
-    expect(bus.published.map((e) => e.type)).toEqual([
-      'session.status',
-      'card.moved',
-      'card.upserted',
-    ]);
-    expect(bus.published[1]).toMatchObject({ from: 'queued', to: 'running' });
+    // assigned → running stays in the Implementing column (status is a badge, ADR-0010)
+    expect(bus.published.map((e) => e.type)).toEqual(['session.status', 'card.upserted']);
   });
 
   it('a non-ignored start_session refusal bumps the fencing token; an ignored one does not', async () => {
@@ -388,8 +385,8 @@ describe('applyEvent: wrapper-owned writes', () => {
     expect(ir).toMatchObject({ kind: 'agent_question', question: 'Which port?', answer: null });
     expect(bus.published.map((e) => e.type)).toEqual([
       'session.status',
-      'card.moved',
       'input.requested',
+      'card.moved',
       'card.upserted',
     ]);
     const upsert = bus.published.at(-1) as Extract<BoardSseEvent, { type: 'card.upserted' }>;
@@ -425,8 +422,8 @@ describe('applyEvent: wrapper-owned writes', () => {
     expect(after.answered_at?.toISOString()).toBe(NOW.toISOString());
     expect(bus.published.map((e) => e.type)).toEqual([
       'session.status',
-      'card.moved',
       'input.answered',
+      'card.moved',
       'card.upserted',
     ]);
     expect((await session(sessionId)).pending_answer).toEqual({
@@ -477,7 +474,8 @@ describe('applyEvent: wrapper-owned writes', () => {
     );
     const upsert = bus.published.at(-1) as Extract<BoardSseEvent, { type: 'card.upserted' }>;
     expect(upsert.type).toBe('card.upserted');
-    expect(upsert.card.column).toBe('failed');
+    expect(upsert.card.column).toBe('done');
+    expect(upsert.card.badges).toContain('failed'); // the scripted cancel leaves the ticket as is
     expect(upsert.card.input_request).toBeNull();
     const open = await db.pool.query(
       'SELECT 1 FROM input_request WHERE session_id = $1 AND answer IS NULL',

@@ -20,6 +20,7 @@ describe('engineEventForSessionEvent', () => {
     build_slot: null,
     heartbeat: null,
     no_outcome: 'agent.no_outcome',
+    action_result: 'action.completed',
   };
 
   it.each(SESSION_EVENT_KINDS)('%s', (kind) => {

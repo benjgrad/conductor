@@ -203,6 +203,20 @@ export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
       usage,
     }),
   }),
+  /**
+   * ADR-0010: the result of a `run_action` (an entry action, e.g. open_pr). `result` on success
+   * (open_pr: `{pr_url}`), `error` (one sentence for the human) on failure; exactly one is set.
+   * → EngineEvent `action.completed`.
+   */
+  z.object({
+    kind: z.literal('action_result'),
+    data: z.object({
+      command_id: UuidSchema,
+      action: z.string(),
+      result: JsonObjectSchema.nullable(),
+      error: z.string().nullable(),
+    }),
+  }),
   /** Command waiting on / leaving the build semaphore. A card badge, not a status. */
   z.object({ kind: z.literal('build_slot'), data: z.object({ waiting: z.boolean() }) }),
   z.object({ kind: z.literal('heartbeat'), data: z.object({}) }),
@@ -358,6 +372,28 @@ export const RunCmdPayloadSchema = z.object({
 });
 export const RunCmdMessageSchema = msg('run_cmd', RunCmdPayloadSchema, orchSessionEnv);
 
+/**
+ * ADR-0010: conductor performs an entry action on the session's machine, in the session's
+ * worktree, with the machine's own `git` / `gh` credentials (never passed in the message). The
+ * daemon acks it, then reports `session_event action_result`. Idempotent per `idempotency_key`
+ * (open_pr reuses an existing PR for the branch). Agents can't do this: only daemon code pushes.
+ */
+export const RunActionPayloadSchema = z.object({
+  command_id: UuidSchema,
+  /** The entry step's label (the session's `workflow_state`). */
+  workflow_state: z.string(),
+  /** The state being entered. */
+  target_state: z.string(),
+  action: z.enum(['open_pr']),
+  /** `<session_id>:<state>:<visit>` (05 §Idempotency). */
+  idempotency_key: z.string(),
+  /** open_pr: `{title, body}`. */
+  args: JsonObjectSchema,
+  /** The session branch to push (`session.branch`). */
+  branch: z.string(),
+});
+export const RunActionMessageSchema = msg('run_action', RunActionPayloadSchema, orchSessionEnv);
+
 export const SendInputPayloadSchema = z.object({
   command_id: UuidSchema,
   input_request_id: UuidSchema,
@@ -444,6 +480,7 @@ export const OrchestratorToDaemonSchema = z.discriminatedUnion('type', [
   RetryAfterMessageSchema,
   StartSessionMessageSchema,
   RunCmdMessageSchema,
+  RunActionMessageSchema,
   SendInputMessageSchema,
   SendMessageMessageSchema,
   KillMessageSchema,
@@ -456,7 +493,7 @@ export type OrchestratorMessageType = OrchestratorToDaemon['type'];
 /** Commands delivered through the outbox (carry `command_id`, deduped by the daemon). */
 export type OrchestratorCommand = Extract<
   OrchestratorToDaemon,
-  { type: 'start_session' | 'run_cmd' | 'send_input' | 'send_message' | 'kill' }
+  { type: 'start_session' | 'run_cmd' | 'run_action' | 'send_input' | 'send_message' | 'kill' }
 >;
 
 export const DAEMON_MESSAGE_TYPES = DaemonToOrchestratorSchema.options.map(

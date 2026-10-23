@@ -1,14 +1,23 @@
 import type { InputRequestKind, JsonObject, SessionStatus, TicketStatus } from '../domain.js';
 import { evaluateGuard } from '../workflow/guards.js';
+import { stateTitle } from '../workflow/conductor.js';
 import {
   parseDuration,
   type AgentState,
+  type EntryAction,
+  type EntryCheck,
+  type OnUnmet,
   type RequirementsGate,
   type WorkflowDefinition,
   type WorkflowState,
 } from '../workflow/schema.js';
 import { renderPrompt, type PromptAttachment } from './render.js';
 import {
+  DEFAULT_CHECK_TIMEOUT,
+  ENTRY_ACTION_TIMEOUT,
+  entryCounterKey,
+  entryStateLabel,
+  feedbackHeading,
   parseVerdict,
   renderReviewFeedback,
   renderReviewPrompt,
@@ -27,12 +36,18 @@ import type {
   ApplyResult,
   Effect,
   EngineEvent,
+  GateStep,
   PendingAnswer,
-  ReviewStep,
   SessionSnapshot,
 } from './types.js';
 
-export { renderPrompt, TICKET_TEMPLATE } from './render.js';
+export {
+  IMPLEMENT_TEMPLATE,
+  PLAN_TEMPLATE,
+  PROMPT_TEMPLATES,
+  renderPrompt,
+  TICKET_TEMPLATE,
+} from './render.js';
 export type { PromptAttachment, RenderPromptInput } from './render.js';
 
 // The pure FSM step (05 §Execution, 10-contracts §Engine). Every rule below cites the contract
@@ -106,7 +121,7 @@ function ignore(snapshot: SessionSnapshot, reason: ApplyIgnoreReason): ApplyResu
 // ---------------------------------------------------------------- event handlers
 
 function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
-  if (st.s.review !== null) return handleReview(st, e);
+  if (st.s.step !== null) return handleStep(st, e);
   switch (e.type) {
     case 'session.assigned':
       return onAssigned(st, e.machine_id);
@@ -143,6 +158,9 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
       return null;
     case 'operator.message':
       return onMessage(st, e.text);
+    case 'action.completed':
+      // Only an entry step's actions phase waits for one (handleStep).
+      return 'unexpected_event';
   }
 }
 
@@ -273,6 +291,9 @@ function onRefused(
       takeOutcome(st, 'error', { detail: `connector_call refused: ${e.reason}` });
       return null;
     }
+    case 'run_action':
+      // Only an entry step runs actions (handleStep).
+      return 'unexpected_event';
   }
 }
 
@@ -394,6 +415,8 @@ function onInput(
     answer,
     sendInput: continuation && st.s.agent_process_live,
     continuation,
+    outcome: 'answered',
+    info: { detail: `a human answered: ${e.answer}` },
   });
   return null;
 }
@@ -407,7 +430,13 @@ function onExternal(
   const from = st.stateName;
   if (state?.type !== 'event' || from === null) return 'unexpected_event';
   if (!state.wait_for.includes(name)) return 'not_awaited';
-  if (data !== undefined) st.s.context = { ...st.s.context, [from]: { event: name, ...data } };
+  // Merged: an entry action may already have stored a result here (ADR-0010 `pr_url`).
+  if (data !== undefined) {
+    st.s.context = {
+      ...st.s.context,
+      [from]: { ...(st.s.context[from] ?? {}), event: name, ...data },
+    };
+  }
   takeOutcome(st, name, { detail: `event ${name}` });
   return null;
 }
@@ -440,7 +469,7 @@ function onBudget(
   if (target === null) {
     toFallbackHuman(st, 'budget_exceeded', question);
   } else {
-    enter(st, target, { ...NO_ROUTE, kind: 'budget_exceeded', question });
+    enter(st, target, { ...NO_ROUTE, kind: 'budget_exceeded', question, skipEntry: true });
   }
   return null;
 }
@@ -476,7 +505,7 @@ function takeOutcome(st: Step, outcome: string, info: OutcomeInfo): void {
     return;
   }
   if (typeof t === 'string') {
-    enter(st, t, { ...NO_ROUTE, kind, question, attachment: null });
+    enter(st, t, { ...NO_ROUTE, kind, question, attachment: null, outcome, info });
     return;
   }
   const gate = t.requirements;
@@ -488,7 +517,7 @@ function takeOutcome(st: Step, outcome: string, info: OutcomeInfo): void {
     t.retries === undefined &&
     t.else === undefined
   ) {
-    enterReview(st, { from, outcome, to: t.goto, attachment: null, info });
+    enterStep(st, { kind: 'transition', from, outcome, to: t.goto, attachment: null, info });
     return;
   }
   const key = `${from}->${t.goto}`;
@@ -501,10 +530,10 @@ function takeOutcome(st: Step, outcome: string, info: OutcomeInfo): void {
         ? { from, detail: info.detail ?? outcome, output: info.output ?? '' }
         : null;
     if (gate !== undefined) {
-      enterReview(st, { from, outcome, to: t.goto, attachment, info });
+      enterStep(st, { kind: 'transition', from, outcome, to: t.goto, attachment, info });
       return;
     }
-    enter(st, t.goto, { ...NO_ROUTE, kind, question, attachment });
+    enter(st, t.goto, { ...NO_ROUTE, kind, question, attachment, outcome, info });
     return;
   }
   const exhausted = withOutput(
@@ -512,7 +541,13 @@ function takeOutcome(st: Step, outcome: string, info: OutcomeInfo): void {
     info.output,
   );
   if (t.else !== undefined) {
-    enter(st, t.else, { ...NO_ROUTE, kind: 'retries_exhausted', question: exhausted });
+    enter(st, t.else, {
+      ...NO_ROUTE,
+      kind: 'retries_exhausted',
+      question: exhausted,
+      outcome,
+      info,
+    });
   } else {
     toFallbackHuman(st, 'retries_exhausted', exhausted);
   }
@@ -560,19 +595,35 @@ function toFallbackHuman(st: Step, kind: InputRequestKind, question: string): vo
     failSession(st, 'failed', `no human state to route to: ${question}`);
     return;
   }
-  enter(st, target, { ...NO_ROUTE, kind, question });
+  enter(st, target, { ...NO_ROUTE, kind, question, skipEntry: true });
 }
 
-// ---------------------------------------------------------------- requirements review (ADR-0009)
+// ---------------------------------------------------------------- gate steps (ADR-0009, ADR-0010)
 //
-// An outcome that selects a gated transition enters a review step instead of the target:
-// `workflow_state` = reviewStateLabel(from, to), `review` = the step, status stays `running`, a
-// 10m deadline, and a start_session for a FRESH reviewer (tools ['review'], never the worker's
-// claude_session_id). The reviewer's `complete_state {verdict}` is the step's outcome:
-// all met → `to`; unmet → `on_unmet.goto` with the reasons (counter `requirements:<from>:<outcome>`
-// capped at `on_unmet.retries`), then `on_unmet.else` (a human state). No verdict (malformed,
-// ask_user, exit) → one nudge, then `else`; daemon `no_outcome` (it already nudged) and the
-// timeout → `else` directly. Every other event is ignored while reviewing.
+// A gate step stands between an outcome and the state it selects. Two kinds, one representation
+// (`session.step`, GateStepSchema):
+// - `transition` (ADR-0009, older versions): an outcome selected a transition carrying
+//   `requirements`. The step only runs a reviewer.
+// - `entry` (ADR-0010): an outcome selected a state with `entry` requirements. The step runs the
+//   checks (one run_cmd each, in the worktree), then the reviewer (if `review`), then conductor's
+//   actions (one run_action each, e.g. open_pr), one `phase` at a time.
+// While the step runs, `workflow_state` is its label (reviewStateLabel / entryStateLabel), status
+// `running`, and the card stays in the source column with a `checking` badge. Its outcomes are the
+// only things that move the ticket: a check's exit code, the reviewer's verdict, an action's
+// result. Everything passes → enter `to`. A failed check or unmet item → `on_unmet.goto` with the
+// evidence (counter `entry:<to>` / `requirements:<from>:<outcome>`, capped at `on_unmet.retries`),
+// then `on_unmet.else` (a human state). A failed action, a timeout, no verdict → `else` directly.
+// Every other event is ignored while the step runs.
+
+/** What a gate step checks, from the pinned definition. */
+interface GateSpec {
+  /** The target's column title (ADR-0010) or name (ADR-0009). */
+  title: string;
+  checks: readonly EntryCheck[];
+  review: { items: readonly string[]; model?: string | undefined } | null;
+  actions: readonly EntryAction[];
+  on_unmet: OnUnmet;
+}
 
 function gateOf(def: WorkflowDefinition, from: string, outcome: string): RequirementsGate | null {
   const state = def.states[from];
@@ -581,9 +632,40 @@ function gateOf(def: WorkflowDefinition, from: string, outcome: string): Require
   return typeof t === 'object' ? (t.requirements ?? null) : null;
 }
 
-function enterReview(
+function gateSpecOf(def: WorkflowDefinition, r: GateStep): GateSpec | null {
+  if (r.kind === 'transition') {
+    const gate = gateOf(def, r.from, r.outcome);
+    if (gate === null) return null;
+    return {
+      title: r.to,
+      checks: [],
+      review: { items: gate.items, model: gate.model },
+      actions: [],
+      on_unmet: gate.on_unmet,
+    };
+  }
+  const entry = def.states[r.to]?.entry;
+  if (entry === undefined) return null;
+  return {
+    title: stateTitle(def, r.to),
+    checks: entry.checks ?? [],
+    review: entry.review ?? null,
+    actions: entry.actions ?? [],
+    on_unmet: entry.on_unmet,
+  };
+}
+
+function noGate(r: GateStep): string {
+  return r.kind === 'transition'
+    ? `no requirements gate on "${r.from}" outcome "${r.outcome}"`
+    : `no entry requirements on "${r.to}"`;
+}
+
+/** Start a gate step instead of entering `to` (the source state is still `workflow_state`). */
+function enterStep(
   st: Step,
   p: {
+    kind: GateStep['kind'];
     from: string;
     outcome: string;
     to: string;
@@ -592,14 +674,19 @@ function enterReview(
   },
 ): void {
   const s = st.s;
-  const label = reviewStateLabel(p.from, p.to);
+  const label = p.kind === 'entry' ? entryStateLabel(p.from, p.to) : reviewStateLabel(p.from, p.to);
   addWallTime(st);
   const visit = (s.state_visits[label] ?? 0) + 1;
   s.state_visits = { ...s.state_visits, [label]: visit };
   s.workflow_state = label;
   s.return_to = null;
   s.pending_answer = null;
-  s.review = {
+  // The worker is done with this visit (it ends itself after complete_state): detach it, so its
+  // late exit is a command_id_mismatch and never reads as the step's outcome.
+  s.agent_command_id = null;
+  s.agent_process_live = false;
+  s.step = {
+    kind: p.kind,
     from: p.from,
     outcome: p.outcome,
     to: p.to,
@@ -611,6 +698,8 @@ function enterReview(
     }),
     claude_session_id: null,
     nudged: false,
+    phase: p.kind === 'entry' ? 'checks' : 'review',
+    index: 0,
   };
   st.emit({ type: 'state_entered', from: p.from, to: label, visit });
   if (s.machine_id === null) {
@@ -618,37 +707,112 @@ function enterReview(
     requeue(st);
     return;
   }
-  if (!emitReviewer(st, null)) return;
-  st.setDeadline(label, reviewDeadline(st.now));
-  st.setStatus('running');
+  runPhase(st, false);
 }
 
-function reviewDeadline(now: Date): string {
-  return new Date(now.getTime() + parseDuration(REVIEW_TIMEOUT)).toISOString();
+function deadlineIn(now: Date, duration: string): string {
+  return new Date(now.getTime() + parseDuration(duration)).toISOString();
+}
+
+/**
+ * Run the step's current phase from `index`: emit the next check's run_cmd, the reviewer's
+ * start_session or the next action's run_action; a phase with nothing (left) to do moves on to the
+ * next. All done → enter `to`. `assigning`: a re-claim (`session.assigned`) after a requeue.
+ */
+function runPhase(st: Step, assigning: boolean): void {
+  const s = st.s;
+  const r = s.step!;
+  const spec = gateSpecOf(st.def, r);
+  if (spec === null) {
+    failSession(st, 'failed', noGate(r));
+    return;
+  }
+  const label = s.workflow_state!;
+  for (;;) {
+    if (r.phase === 'checks') {
+      const check = spec.checks[r.index];
+      if (check !== undefined) {
+        st.emit({
+          type: 'run_cmd',
+          state: label,
+          cmd: check.cmd,
+          cwd: null,
+          timeout_ms: parseDuration(check.timeout ?? DEFAULT_CHECK_TIMEOUT),
+        });
+        // The daemon enforces the check's timeout (`cmd_exit timed_out`), as for command states.
+        st.setDeadline(label, null);
+        st.setStatus('running');
+        return;
+      }
+      r.phase = 'review';
+      r.index = 0;
+      continue;
+    }
+    if (r.phase === 'review') {
+      if (spec.review !== null) {
+        r.claude_session_id = null;
+        r.nudged = false;
+        emitReviewer(st, spec, null);
+        if (assigning) {
+          st.setStatus('assigned');
+          st.setDeadline(label, deadlineIn(st.now, REVIEW_TIMEOUT));
+        } else {
+          st.setDeadline(label, deadlineIn(st.now, REVIEW_TIMEOUT));
+          st.setStatus('running');
+        }
+        return;
+      }
+      r.phase = 'actions';
+      r.index = 0;
+      continue;
+    }
+    const action = spec.actions[r.index];
+    if (action !== undefined) {
+      st.emit(runAction(st, r, action));
+      st.setDeadline(label, deadlineIn(st.now, ENTRY_ACTION_TIMEOUT));
+      st.setStatus('running');
+      return;
+    }
+    passStep(st);
+    return;
+  }
+}
+
+/** Every requirement met: enter `to` (an ADR-0009 review's target may still have its own entry). */
+function passStep(st: Step): void {
+  const r = st.s.step!;
+  const label = st.s.workflow_state!;
+  leaveStep(st, false);
+  const kind = kindForOutcome(r.outcome);
+  enter(st, r.to, {
+    ...NO_ROUTE,
+    kind,
+    question: questionFor(r.from, r.outcome, kind, {}),
+    attachment: r.attachment,
+    auditFrom: label,
+    skipEntry: r.kind === 'entry',
+    outcome: r.outcome,
+  });
 }
 
 /**
  * The reviewer's start_session. `nudge` null → a fresh reviewer with the full prompt. Otherwise
  * resume the reviewer's OWN conversation with the nudge (or, before its id is known, a fresh one
- * with the full prompt plus the nudge). Never the worker's `claude_session_id`. false (and the
- * session failed) if the pinned definition has no gate here, which validation rules out.
+ * with the full prompt plus the nudge). Never the worker's `claude_session_id`.
  */
-function emitReviewer(st: Step, nudge: string | null): boolean {
-  const r = st.s.review!;
-  const gate = gateOf(st.def, r.from, r.outcome);
-  if (gate === null) {
-    failSession(st, 'failed', `no requirements gate on "${r.from}" outcome "${r.outcome}"`);
-    return false;
-  }
+function emitReviewer(st: Step, spec: GateSpec, nudge: string | null): void {
+  const r = st.s.step!;
+  const review = spec.review!;
   const resume = nudge !== null ? r.claude_session_id : null;
   const full = () =>
     renderReviewPrompt({
       from: r.from,
       outcome: r.outcome,
       to: r.to,
-      items: gate.items,
+      items: review.items,
       ticket: st.s.ticket,
       subject: r.subject,
+      ...(r.kind === 'entry' ? { entering: spec.title } : {}),
     });
   const prompt = nudge === null ? full() : resume !== null ? nudge : `${full()}\n\n${nudge}`;
   st.emit({
@@ -657,76 +821,124 @@ function emitReviewer(st: Step, nudge: string | null): boolean {
     prompt,
     tools: [...REVIEW_TOOLS],
     resume_claude_session_id: resume,
-    ...(gate.model !== undefined ? { model: gate.model } : {}),
+    ...(review.model !== undefined ? { model: review.model } : {}),
     max_budget_usd: Math.max(0, st.def.budget.usd - st.s.spend_usd),
     review: true,
   });
-  return true;
 }
 
-function handleReview(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
+function handleStep(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
   const s = st.s;
-  const r = s.review!;
-  const gate = gateOf(st.def, r.from, r.outcome);
-  if (gate === null) {
-    failSession(st, 'failed', `no requirements gate on "${r.from}" outcome "${r.outcome}"`);
+  const r = s.step!;
+  const spec = gateSpecOf(st.def, r);
+  if (spec === null) {
+    failSession(st, 'failed', noGate(r));
     return null;
   }
   switch (e.type) {
     case 'session.assigned':
-      // Re-claim after a refused reviewer start: a fresh reviewer.
+      // Re-claim after a requeue: run the current phase again (a fresh reviewer, the same check).
       if (s.status !== 'queued') return 'wrong_status';
       s.machine_id = e.machine_id;
-      if (!emitReviewer(st, null)) return null;
-      st.setStatus('assigned');
-      st.setDeadline(s.workflow_state!, reviewDeadline(st.now));
+      runPhase(st, true);
       return null;
     case 'command.refused':
-      if (e.command_kind === 'kill') return 'kill_refused';
-      if (e.command_kind === 'send_message') return 'message_refused';
-      if (e.command_kind !== 'start_session') return 'unexpected_event';
-      if (e.command_id !== s.agent_command_id || s.agent_process_live) return 'command_id_mismatch';
-      s.agent_command_id = null;
-      s.agent_process_live = false;
-      s.machine_id = null;
-      requeue(st);
-      return null;
+      switch (e.command_kind) {
+        case 'kill':
+          return 'kill_refused';
+        case 'send_message':
+          return 'message_refused';
+        case 'start_session':
+          if (e.command_id !== s.agent_command_id || s.agent_process_live) {
+            return 'command_id_mismatch';
+          }
+          s.agent_command_id = null;
+          s.agent_process_live = false;
+          s.machine_id = null;
+          requeue(st);
+          return null;
+        case 'run_cmd': {
+          const check = r.phase === 'checks' ? spec.checks[r.index] : undefined;
+          if (check === undefined || s.status !== 'running') return 'unexpected_event';
+          // The machine could not run it: not the agent's fault, so a human decides.
+          stepFail(
+            st,
+            spec,
+            'retries_exhausted',
+            `Could not run the check "${check.name}" (\`${check.cmd}\`) to enter "${spec.title}": the daemon refused it (${e.reason}). Retry, skip, or abort?`,
+            false,
+          );
+          return null;
+        }
+        case 'run_action': {
+          const action = r.phase === 'actions' ? spec.actions[r.index] : undefined;
+          if (action === undefined || s.status !== 'running') return 'unexpected_event';
+          stepFail(
+            st,
+            spec,
+            'retries_exhausted',
+            `Conductor could not ${actionLabel(action)} to enter "${spec.title}": the daemon refused it (${e.reason}). Retry, skip, or abort?`,
+            false,
+          );
+          return null;
+        }
+        default:
+          return 'unexpected_event';
+      }
     case 'session.started':
       return onStarted(st, e.command_id);
     case 'agent.claude_session_id':
       // The reviewer's conversation, kept apart from the worker's (never resumed into it).
+      if (r.phase !== 'review') return 'unexpected_event';
       r.claude_session_id = e.claude_session_id;
       return null;
     case 'spend.reported':
       onSpend(st, e.claude_session_id, e.total_usd);
       return null;
     case 'agent.complete_state':
+      if (r.phase !== 'review') return 'unexpected_event';
       if (!AGENT_ACTIVE.has(s.status)) return 'wrong_status';
-      onVerdict(st, r, gate, e.result);
+      onVerdict(st, spec, r, e.result);
       return null;
     case 'agent.ask_user':
+      if (r.phase !== 'review') return 'unexpected_event';
       if (!AGENT_ACTIVE.has(s.status)) return 'wrong_status';
       reviewNoVerdict(
         st,
+        spec,
         r,
-        gate,
         'the reviewer called ask_user instead of reporting a verdict',
         true,
       );
       return null;
     case 'agent.no_outcome':
       // The daemon has already nudged this reviewer once (U-028).
+      if (r.phase !== 'review') return 'unexpected_event';
       if (!AGENT_ACTIVE.has(s.status)) return 'wrong_status';
-      reviewNoVerdict(st, r, gate, 'the reviewer stopped without reporting a verdict', false);
+      reviewNoVerdict(st, spec, r, 'the reviewer stopped without reporting a verdict', false);
       return null;
     case 'agent.exited': {
       if (s.agent_command_id === null || e.command_id !== s.agent_command_id) {
         return 'command_id_mismatch';
       }
       s.agent_process_live = false;
-      if (!AGENT_ACTIVE.has(s.status)) return null;
+      if (r.phase !== 'review' || !AGENT_ACTIVE.has(s.status)) return null;
       const how = e.signal !== null ? `signal ${e.signal}` : `exit code ${String(e.code)}`;
-      reviewNoVerdict(st, r, gate, `the reviewer exited (${how}) without a verdict`, true);
+      reviewNoVerdict(st, spec, r, `the reviewer exited (${how}) without a verdict`, true);
+      return null;
+    }
+    case 'command.exited': {
+      const check = r.phase === 'checks' ? spec.checks[r.index] : undefined;
+      if (check === undefined) return 'unexpected_event';
+      if (s.status !== 'running') return 'wrong_status';
+      onCheckExited(st, spec, r, check, e);
+      return null;
+    }
+    case 'action.completed': {
+      const action = r.phase === 'actions' ? spec.actions[r.index] : undefined;
+      if (action === undefined || action !== e.action) return 'unexpected_event';
+      if (s.status !== 'running') return 'wrong_status';
+      onActionCompleted(st, spec, r, action, e);
       return null;
     }
     case 'timer.fired': {
@@ -739,41 +951,99 @@ function handleReview(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
       ) {
         return 'stale_timer';
       }
-      reviewFail(
-        st,
-        gate,
-        'timeout',
-        `The requirements review for "${r.from}" → "${r.to}" timed out (review timed out after ${REVIEW_TIMEOUT}). Retry, skip, or abort?`,
-      );
+      if (r.phase === 'review') {
+        const question =
+          r.kind === 'transition'
+            ? `The requirements review for "${r.from}" → "${r.to}" timed out (review timed out after ${REVIEW_TIMEOUT}). Retry, skip, or abort?`
+            : `The requirements review to enter "${spec.title}" timed out (review timed out after ${REVIEW_TIMEOUT}). Retry, skip, or abort?`;
+        stepFail(st, spec, 'timeout', question, true);
+      } else {
+        const action = spec.actions[r.index];
+        const what = action !== undefined ? actionLabel(action) : 'finish the entry step';
+        stepFail(
+          st,
+          spec,
+          'timeout',
+          `Conductor did not ${what} to enter "${spec.title}" in time (timed out after ${ENTRY_ACTION_TIMEOUT}). Retry, skip, or abort?`,
+          true,
+        );
+      }
       return null;
     }
     case 'budget.exceeded': {
       const target = st.def.states[st.def.on_budget_exceeded];
-      leaveReview(st, target?.type !== 'agent' && target?.type !== 'command');
+      leaveStep(st, target?.type !== 'agent' && target?.type !== 'command');
       return onBudget(st, e);
     }
     case 'operator.cancel':
       failSession(st, 'cancelled', e.reason ?? 'operator_cancel');
       return null;
     case 'operator.message':
-      // The reviewer judges independently: a human's live message is refused (ADR-0009 notes).
+      // The step judges independently: a human's live message is refused (ADR-0009, ADR-0010).
       return 'wrong_status';
     case 'input.provided':
       return 'wrong_status';
-    case 'command.exited':
     case 'external.event':
       return 'unexpected_event';
   }
 }
 
-function onVerdict(st: Step, r: ReviewStep, gate: RequirementsGate, result: JsonObject): void {
-  const verdict = parseVerdict(result, gate.items);
+/** A check's exit: 0 → the next check (or phase); anything else is unmet with its output tail. */
+function onCheckExited(
+  st: Step,
+  spec: GateSpec,
+  r: GateStep,
+  check: EntryCheck,
+  e: Extract<EngineEvent, { type: 'command.exited' }>,
+): void {
+  if (e.exit_code === 0 && !e.timed_out) {
+    r.index += 1;
+    runPhase(st, false);
+    return;
+  }
+  const detail = e.timed_out
+    ? `timed out after ${check.timeout ?? DEFAULT_CHECK_TIMEOUT}`
+    : e.exit_code === null
+      ? 'killed by a signal'
+      : `exit code ${e.exit_code}`;
+  stepUnmet(st, spec, r, [
+    { item: check.name, reason: `\`${check.cmd}\` failed (${detail})`, output: e.output_tail },
+  ]);
+}
+
+/** An action's result: success → stored in `context.<to>` and the next action; failure → else. */
+function onActionCompleted(
+  st: Step,
+  spec: GateSpec,
+  r: GateStep,
+  action: EntryAction,
+  e: Extract<EngineEvent, { type: 'action.completed' }>,
+): void {
+  if (e.error !== null || e.result === null) {
+    stepFail(
+      st,
+      spec,
+      'retries_exhausted',
+      `Conductor could not ${actionLabel(action)} to enter "${spec.title}": ${e.error ?? 'no result'}. Retry, skip, or abort?`,
+      false,
+    );
+    return;
+  }
+  const s = st.s;
+  s.context = { ...s.context, [r.to]: { ...(s.context[r.to] ?? {}), ...e.result } };
+  r.index += 1;
+  runPhase(st, false);
+}
+
+function onVerdict(st: Step, spec: GateSpec, r: GateStep, result: JsonObject): void {
+  const items = spec.review!.items;
+  const verdict = parseVerdict(result, items);
   if (!verdict.ok) {
-    reviewNoVerdict(st, r, gate, `malformed verdict: ${verdict.error}`, true);
+    reviewNoVerdict(st, spec, r, `malformed verdict: ${verdict.error}`, true);
     return;
   }
   const label = st.s.workflow_state!;
-  // The verdict is kept for the Details panel, keyed by the review step's label.
+  // The verdict is kept for the Details panel, keyed by the step's label.
   st.s.context = {
     ...st.s.context,
     [label]: { verdict: verdict.items.map((v) => ({ ...v })) },
@@ -781,102 +1051,169 @@ function onVerdict(st: Step, r: ReviewStep, gate: RequirementsGate, result: Json
   const unmet = verdict.items
     .filter((v) => !v.met)
     .map((v) => ({ item: v.item, reason: v.reason }));
-  if (unmet.length === 0) {
-    leaveReview(st, false);
-    const kind = kindForOutcome(r.outcome);
-    enter(st, r.to, {
-      ...NO_ROUTE,
-      kind,
-      question: questionFor(r.from, r.outcome, kind, {}),
-      attachment: r.attachment,
-      auditFrom: label,
-    });
+  if (unmet.length > 0) {
+    stepUnmet(st, spec, r, unmet);
     return;
   }
+  // All met: the reviewer is done (it ends itself); detach it and go on to the actions.
+  st.s.agent_command_id = null;
+  st.s.agent_process_live = false;
+  r.phase = 'actions';
+  r.index = 0;
+  runPhase(st, false);
+}
+
+/**
+ * Unmet (a failed check, unmet review items): back to `on_unmet.goto` with the evidence while the
+ * counter allows, else `on_unmet.else` with a question listing what is unmet.
+ */
+function stepUnmet(st: Step, spec: GateSpec, r: GateStep, unmet: ReviewFeedback['unmet']): void {
+  const label = st.s.workflow_state!;
   const feedback: ReviewFeedback = {
-    from: r.from,
-    to: r.to,
+    heading: feedbackHeading({ kind: r.kind, from: r.from, to: r.to, title: spec.title }),
     unmet,
-    instruction: gate.on_unmet.instruction ?? null,
+    instruction: spec.on_unmet.instruction ?? null,
   };
-  const key = reviewCounterKey(r.from, r.outcome);
-  const cap = gate.on_unmet.retries;
+  const key = r.kind === 'entry' ? entryCounterKey(r.to) : reviewCounterKey(r.from, r.outcome);
+  const cap = spec.on_unmet.retries;
   const taken = st.s.retry_counters[key] ?? 0;
   if (taken < cap) {
     st.s.retry_counters = { ...st.s.retry_counters, [key]: taken + 1 };
-    leaveReview(st, false);
-    enter(st, gate.on_unmet.goto, {
+    leaveStep(st, false);
+    enter(st, spec.on_unmet.goto, {
       ...NO_ROUTE,
       kind: 'retries_exhausted',
       question: `${renderReviewFeedback(feedback)}\n\nRetry, skip, or abort?`,
       feedback,
       auditFrom: label,
+      skipEntry: true,
     });
     return;
   }
-  const reviews = taken + 1;
-  const question = [
-    `Requirements for "${r.from}" → "${r.to}" were not met after ${reviews} review${reviews === 1 ? '' : 's'} (retry limit ${cap}):`,
-    ...unmet.map((u) => `- ${u.item}: ${u.reason || '(no reason given)'}`),
-    '',
-    'Retry, skip, or abort?',
-  ].join('\n');
-  leaveReview(st, false);
-  enter(st, gate.on_unmet.else, {
+  const n = taken + 1;
+  const head =
+    r.kind === 'transition'
+      ? `Requirements for "${r.from}" → "${r.to}" were not met after ${n} review${n === 1 ? '' : 's'} (retry limit ${cap}):`
+      : `Requirements to enter "${spec.title}" were not met after ${n} attempt${n === 1 ? '' : 's'} (retry limit ${cap}):`;
+  const lines = [head, ...unmet.map((u) => `- ${u.item}: ${u.reason || '(no reason given)'}`)];
+  for (const u of unmet) if (u.output) lines.push('', `Last output of "${u.item}":`, u.output);
+  lines.push('', 'Retry, skip, or abort?');
+  leaveStep(st, false);
+  enter(st, spec.on_unmet.else, {
     ...NO_ROUTE,
     kind: 'retries_exhausted',
-    question,
+    question: lines.join('\n'),
     auditFrom: label,
+    skipEntry: true,
   });
 }
 
 function reviewNoVerdict(
   st: Step,
-  r: ReviewStep,
-  gate: RequirementsGate,
+  spec: GateSpec,
+  r: GateStep,
   why: string,
   canNudge: boolean,
 ): void {
   if (canNudge && !r.nudged) {
     r.nudged = true;
-    emitReviewer(st, reviewNudge(why, gate.items));
+    emitReviewer(st, spec, reviewNudge(why, spec.review!.items));
     return;
   }
-  reviewFail(
-    st,
-    gate,
-    'retries_exhausted',
-    `The requirements review for "${r.from}" → "${r.to}" produced no verdict (${why}). Retry, skip, or abort?`,
-  );
+  const question =
+    r.kind === 'transition'
+      ? `The requirements review for "${r.from}" → "${r.to}" produced no verdict (${why}). Retry, skip, or abort?`
+      : `The requirements review to enter "${spec.title}" produced no verdict (${why}). Retry, skip, or abort?`;
+  stepFail(st, spec, 'retries_exhausted', question, true);
 }
 
-/** A failed review (timeout, no verdict) → `on_unmet.else`, killing the reviewer. */
-function reviewFail(
+/** A step that can't finish (timeout, no verdict, a failed or refused action) → `on_unmet.else`. */
+function stepFail(
   st: Step,
-  gate: RequirementsGate,
+  spec: GateSpec,
   kind: InputRequestKind,
   question: string,
+  kill: boolean,
 ): void {
   const label = st.s.workflow_state!;
-  leaveReview(st, true);
-  enter(st, gate.on_unmet.else, { ...NO_ROUTE, kind, question, auditFrom: label });
+  leaveStep(st, kill);
+  enter(st, spec.on_unmet.else, { ...NO_ROUTE, kind, question, auditFrom: label, skipEntry: true });
 }
 
 /**
- * End the review step: back in its source state (so `enter` counts the review's wall time and a
- * human target's `return_to` is the source), the reviewer process detached (its late exit is a
- * `command_id_mismatch`), optionally killed (a timed-out or parked reviewer).
+ * End the gate step: back in its source state (so `enter` counts the step's wall time and a human
+ * target's `return_to` is the source), the reviewer process detached (its late exit is a
+ * `command_id_mismatch`), optionally killed (a timed-out reviewer, check or action).
  */
-function leaveReview(st: Step, kill: boolean): void {
+function leaveStep(st: Step, kill: boolean): void {
   const s = st.s;
-  const r = s.review!;
-  if (kill && s.machine_id !== null && s.agent_command_id !== null) {
-    st.emit({ type: 'kill', reason: 'requirements review ended' });
+  const r = s.step!;
+  if (kill && s.machine_id !== null && (s.agent_command_id !== null || r.phase !== 'review')) {
+    st.emit({
+      type: 'kill',
+      reason: r.kind === 'transition' ? 'requirements review ended' : 'entry step ended',
+    });
   }
   s.workflow_state = r.from;
-  s.review = null;
+  s.step = null;
   s.agent_command_id = null;
   s.agent_process_live = false;
+}
+
+function actionLabel(action: EntryAction): string {
+  switch (action) {
+    case 'open_pr':
+      return 'open the pull request (open_pr)';
+  }
+}
+
+/** The run_action effect (05 §Idempotency: `<session_id>:<state>:<visit>`, the step's visit). */
+function runAction(
+  st: Step,
+  r: GateStep,
+  action: EntryAction,
+): Extract<Effect, { type: 'run_action' }> {
+  const s = st.s;
+  const label = s.workflow_state!;
+  const visit = s.state_visits[label] ?? 1;
+  return {
+    type: 'run_action',
+    state: label,
+    target_state: r.to,
+    action,
+    idempotency_key: `${s.id}:${r.to}:${visit}`,
+    args: actionArgs(st, r, action),
+  };
+}
+
+/** open_pr: title = the ticket title; body = the source state's summary + the ticket ref. */
+function actionArgs(st: Step, r: GateStep, action: EntryAction): JsonObject {
+  switch (action) {
+    case 'open_pr': {
+      const t = st.s.ticket;
+      const summary = summaryOf(st.s.context, r.from);
+      const ref = t.external_ref ?? `conductor ticket ${t.id}`;
+      return {
+        title: t.title,
+        body: [summary ?? '(no summary)', '', `Ticket: ${ref}`, '', 'Opened by conductor.'].join(
+          '\n',
+        ),
+      };
+    }
+  }
+}
+
+/** `context.<from>.summary`, else the last `summary` any state reported. */
+function summaryOf(context: SessionSnapshot['context'], from: string): string | null {
+  const own = context[from]?.summary;
+  if (typeof own === 'string' && own.trim() !== '') return own;
+  let found: string | null = null;
+  for (const [key, value] of Object.entries(context)) {
+    if (key.startsWith('__')) continue;
+    const s = value.summary;
+    if (typeof s === 'string' && s.trim() !== '') found = s;
+  }
+  return found;
 }
 
 // ---------------------------------------------------------------- entering a state
@@ -898,10 +1235,19 @@ interface EnterOpts {
   continuation: boolean;
   /** session.assigned: an agent target goes to `assigned`, not `running`. */
   assigning: boolean;
-  /** ADR-0009: the unmet review that routed to an agent target (`on_unmet.goto`). */
+  /** ADR-0009/0010: the unmet requirements that routed to an agent target (`on_unmet.goto`). */
   feedback?: ReviewFeedback | null;
-  /** `state_entered.from` when it differs from the state being left (a review step's label). */
+  /** `state_entered.from` when it differs from the state being left (a gate step's label). */
   auditFrom?: string;
+  /**
+   * ADR-0010: enter the target even if it has `entry` requirements (a passed entry step, and
+   * every failure route to a human: fallback, budget, on_unmet).
+   */
+  skipEntry?: boolean;
+  /** The outcome that selected the target (an entry step's `outcome`). */
+  outcome?: string;
+  /** What the source state reported (an entry step's reviewer subject). */
+  info?: OutcomeInfo;
 }
 
 const NO_ROUTE: EnterOpts = {
@@ -926,6 +1272,19 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
     return;
   }
   const from = s.workflow_state;
+  // ADR-0010: an outcome into a state with `entry` requirements runs the entry step first; the
+  // session stays in `from` (its column) until every requirement is met.
+  if (toState.entry !== undefined && opts.skipEntry !== true && !opts.assigning && from !== null) {
+    enterStep(st, {
+      kind: 'entry',
+      from,
+      outcome: opts.outcome ?? 'routed',
+      to: target,
+      attachment: opts.attachment,
+      info: opts.info ?? {},
+    });
+    return;
+  }
   addWallTime(st);
   const visit = (s.state_visits[target] ?? 0) + 1;
   s.state_visits = { ...s.state_visits, [target]: visit };
@@ -1052,7 +1411,7 @@ function failSession(st: Step, ticket: TicketStatus, reason: string): void {
   if (s.state_deadline !== null && s.workflow_state !== null)
     st.setDeadline(s.workflow_state, null);
   s.pending_answer = null;
-  s.review = null;
+  s.step = null;
   st.setStatus('failed');
   st.ticket(ticket);
 }

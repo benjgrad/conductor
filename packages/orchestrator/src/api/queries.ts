@@ -1,8 +1,8 @@
 import {
-  BOARD_COLUMNS,
+  CONDUCTOR_WORKFLOW_ID,
   toBoardCard,
   type BoardCard,
-  type BoardColumn,
+  type BoardColumnInfo,
   type BoardResponse,
   type MachineDto,
   type TicketDto,
@@ -11,6 +11,7 @@ import {
   WorkflowDefinitionSchema,
 } from '@conductor/shared';
 import type { Queryable } from '../contracts.js';
+import { CardViews } from '../engine/board-view.js';
 import type { Db } from '../main.js';
 import type {
   InputRequestRow,
@@ -44,26 +45,27 @@ async function withSnapshot<T>(db: Db, fn: (q: Queryable) => Promise<T>): Promis
 
 const ms = (t: string): number => Date.parse(t);
 
-/** 06 §Kanban columns sort order. */
-function sortColumn(column: BoardColumn, cards: BoardCard[]): BoardCard[] {
+/** 06 §Kanban columns sort order, by the column's kind (ADR-0010). */
+function sortColumn(kind: BoardColumnInfo['kind'], cards: BoardCard[]): BoardCard[] {
   const byCreated = (a: BoardCard, b: BoardCard) => ms(a.created_at) - ms(b.created_at);
   const recentFirst = (a: BoardCard, b: BoardCard) => ms(b.updated_at) - ms(a.updated_at);
-  switch (column) {
+  switch (kind) {
     case 'queued':
       return cards.sort((a, b) => b.priority - a.priority || byCreated(a, b));
-    case 'running':
+    case 'agent':
+    case 'command':
+    case 'connector':
       return cards.sort(recentFirst);
-    case 'needs_input':
+    case 'human':
       // Oldest open input_request first; a card without one (shouldn't happen) goes last.
       return cards.sort((a, b) => {
         const ta = a.input_request ? ms(a.input_request.created_at) : Infinity;
         const tb = b.input_request ? ms(b.input_request.created_at) : Infinity;
         return ta - tb || byCreated(a, b);
       });
-    case 'waiting_external':
+    case 'event':
       return cards.sort(byCreated);
-    case 'done':
-    case 'failed':
+    case 'terminal':
       return cards.sort(recentFirst);
   }
 }
@@ -87,22 +89,30 @@ export function loadBoard(db: Db): Promise<BoardResponse> {
 
     const sessionByTicket = new Map(sessions.rows.map((s) => [s.ticket_id, s]));
     const inputBySession = new Map(inputs.rows.map((i) => [i.session_id, i]));
-    const columns = Object.fromEntries(BOARD_COLUMNS.map((c) => [c, [] as BoardCard[]])) as Record<
-      BoardColumn,
-      BoardCard[]
-    >;
+    const views = new CardViews(q);
+    const layout = await views.boardColumns();
+    const cards = new Map<string, BoardCard[]>(layout.map((c) => [c.id, []]));
     for (const ticket of tickets.rows) {
       const session = sessionByTicket.get(ticket.id) ?? null;
-      // A ticket cancelled before any session ran has no column to live in.
-      if (session === null && ticket.status === 'cancelled') continue;
+      const view = await views.view(
+        session?.workflow_id ?? ticket.workflow_id,
+        session?.workflow_version ?? ticket.workflow_version,
+      );
       const card = toBoardCard(
         ticket,
         session,
         session ? (inputBySession.get(session.id) ?? null) : null,
+        view,
       );
-      columns[card.column].push(card);
+      // placeCard only returns ids of `layout`; anything else would be a bug, shown in Queued.
+      (cards.get(card.column) ?? cards.get(layout[0]!.id)!).push(card);
     }
-    for (const c of BOARD_COLUMNS) sortColumn(c, columns[c]);
+    const columns = layout.map((c) => ({
+      id: c.id,
+      title: c.title,
+      kind: c.kind,
+      cards: sortColumn(c.kind, cards.get(c.id)!),
+    }));
     return { columns, last_event_id: lastEventId };
   });
 }
@@ -124,10 +134,15 @@ export function toTicketDto(row: TicketRow): TicketDto {
   };
 }
 
-/** Latest version of each workflow id. */
-export async function listWorkflows(db: Queryable): Promise<WorkflowSummary[]> {
+/**
+ * Latest version of each workflow id. ADR-0010: only `conductor` unless `all` (older workflows
+ * stay in the database so their tickets still render, but nothing offers them any more).
+ */
+export async function listWorkflows(db: Queryable, all = false): Promise<WorkflowSummary[]> {
   const res = await db.query<WorkflowDefinitionRow>(
-    'SELECT DISTINCT ON (id) * FROM workflow_definition ORDER BY id, version DESC',
+    'SELECT DISTINCT ON (id) * FROM workflow_definition WHERE $1::boolean OR id = $2 ' +
+      'ORDER BY id, version DESC',
+    [all, CONDUCTOR_WORKFLOW_ID],
   );
   return res.rows.map((r) => ({
     id: r.id,

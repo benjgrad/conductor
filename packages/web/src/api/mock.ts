@@ -1,8 +1,8 @@
 import {
   AnswerInputRequestSchema,
-  BOARD_COLUMNS,
-  columnFor,
+  boardColumns as defaultBoardColumns,
   CreateTicketRequestSchema,
+  placeCard,
   ReopenSessionRequestSchema,
   SendMessageRequestSchema,
   type BoardCard,
@@ -58,6 +58,9 @@ export interface MockApi extends ApiClient {
 
 const TERMINAL: ReadonlySet<SessionStatus> = new Set(['done', 'failed', 'lost']);
 
+/** ADR-0010: the board's columns (conductor v1's; the mock doesn't edit them). */
+const COLUMNS = defaultBoardColumns(null);
+
 export function createMockApi(opts: MockApiOptions = {}): MockApi {
   const now = opts.now ?? (() => new Date());
   const latency = opts.latencyMs ?? 0;
@@ -80,9 +83,24 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     ]),
   );
 
+  /** The card's column per the shared rule (placeCard), by its session's workflow. */
+  function columnOf(card: BoardCard): string {
+    const wf = card.session_id ? (sessions.get(card.session_id)?.workflow ?? null) : null;
+    const session =
+      card.session_id === null || card.status === null
+        ? null
+        : {
+            status: card.status,
+            workflow_state: card.workflow_state,
+            waiting_for_build_slot: false,
+            context: {},
+          };
+    return placeCard('in_progress', session, { columns: COLUMNS, def: wf }).column;
+  }
+
   for (const s of mockSeeds(now())) {
-    cards.set(s.card.ticket_id, { ...s.card, column: columnFor(s.card.status) });
     if (s.session && s.card.session_id) sessions.set(s.card.session_id, s.session);
+    cards.set(s.card.ticket_id, { ...s.card, column: columnOf(s.card) });
   }
 
   const reply = <T>(fn: () => T): Promise<T> =>
@@ -122,7 +140,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     const sessionId = card.session_id;
     if (sessionId === null) throw new Error('update() needs a session card');
     const updated: BoardCard = { ...card, ...next, updated_at: now().toISOString() };
-    updated.column = columnFor(updated.status);
+    updated.column = columnOf(updated);
     cards.set(card.ticket_id, updated);
     const drafts: BoardSseEventDraft[] = [...extra];
     if (card.status !== null && updated.status !== null && card.status !== updated.status) {
@@ -166,10 +184,12 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
   const api: MockApi = {
     getBoard: () =>
       reply((): BoardResponse => {
-        const columns = Object.fromEntries(BOARD_COLUMNS.map((c) => [c, [] as BoardCard[]]));
-        for (const card of cards.values()) columns[card.column]?.push(clone(card));
+        const columns = COLUMNS.map((c) => ({ ...c, cards: [] as BoardCard[] }));
+        for (const card of cards.values()) {
+          (columns.find((c) => c.id === card.column) ?? columns[0]!).cards.push(clone(card));
+        }
         // The client re-sorts; the server pre-sorts (06). Order here is insertion order.
-        return { columns: columns as BoardResponse['columns'], last_event_id: nextEventId - 1 };
+        return { columns, last_event_id: nextEventId - 1 };
       }),
 
     streamBoard(lastEventId, handlers) {
@@ -284,6 +304,8 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           status: null,
           column: 'queued',
           badges: [],
+          checking: null,
+          pr_url: null,
           machine_id: null,
           spend_usd: 0,
           input_request: null,
@@ -466,7 +488,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           session_id: id,
           status: 'running',
           workflow_state: start,
-          column: columnFor('running'),
+          column: start,
           input_request: null,
           spend_usd: 0,
           updated_at: now().toISOString(),

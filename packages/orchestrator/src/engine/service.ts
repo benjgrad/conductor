@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
   apply as sharedApply,
-  columnFor,
   commandPayloadForEffect,
   sessionBranch,
   toBoardCard,
@@ -24,6 +23,7 @@ import {
 import { withTransaction } from '../db/index.js';
 import type { InputRequestRow } from '../db/types.js';
 import type { Db } from '../main.js';
+import { CardViews } from './board-view.js';
 import {
   DefinitionCache,
   lockSession,
@@ -131,7 +131,12 @@ export class EngineServiceImpl implements EngineService {
 
     const now = this.deps.now();
     const before = toSnapshot(session, ticket);
-    const cardBefore = toBoardCard(ticket, session, await readOpenInput(tx, sessionId));
+    // ADR-0010: the card's column comes from the board's columns and the pinned definition.
+    const view = await new CardViews(tx, this.defs).view(
+      session.workflow_id,
+      session.workflow_version,
+    );
+    const cardBefore = toBoardCard(ticket, session, await readOpenInput(tx, sessionId), view);
     const res = this.applyFn(def, before, event, now);
 
     const ev = await tx.query<{ id: string }>(
@@ -155,7 +160,18 @@ export class EngineServiceImpl implements EngineService {
     // ---- wrapper-owned writes (10-contracts §EngineService wrapper)
     const s1: SessionSnapshot = structuredClone(res.snapshot);
     let token = session.fencing_token;
-    if (event.type === 'command.refused' && event.command_kind === 'start_session') {
+    // Gate steps (ADR-0009 review, ADR-0010 entry) are fenced: entering, leaving or switching a
+    // step bumps the token, so the worker process (between its complete_state and its exit) can
+    // never report into the step (e.g. supply the reviewer's verdict), and a finished reviewer
+    // can never report into the worker's next visit. Their late events are stale_fencing_token
+    // (the gateway kills them); every command of this apply carries the new token.
+    const stepFenced =
+      (before.step !== null || s1.step !== null) &&
+      (before.step === null || s1.step === null || before.workflow_state !== s1.workflow_state);
+    if (
+      (event.type === 'command.refused' && event.command_kind === 'start_session') ||
+      stepFenced
+    ) {
       const r = await tx.query<{ t: string }>("SELECT nextval('fencing_seq')::text AS t");
       token = r.rows[0]!.t;
     }
@@ -175,6 +191,7 @@ export class EngineServiceImpl implements EngineService {
         case 'send_input':
         case 'send_message':
         case 'run_cmd':
+        case 'run_action':
         case 'kill':
           commands.push({ effect, commandId: randomUUID() });
           break;
@@ -227,15 +244,6 @@ export class EngineServiceImpl implements EngineService {
             to: effect.to,
             workflow_state: s1.workflow_state,
           });
-          if (columnFor(effect.from) !== columnFor(effect.to)) {
-            drafts.push({
-              type: 'card.moved',
-              session_id: sessionId,
-              ticket_id: ticket.id,
-              from: columnFor(effect.from),
-              to: columnFor(effect.to),
-            });
-          }
           break;
         case 'ticket_status':
           await tx.query('UPDATE ticket SET status = $2, updated_at = $3 WHERE id = $1', [
@@ -284,10 +292,12 @@ export class EngineServiceImpl implements EngineService {
         snapshot: s1,
         branch,
       });
+      // ADR-0010: an entry action carries its idempotency key (session + state + visit).
+      const idem = effect.type === 'run_action' ? effect.idempotency_key : null;
       await tx.query(
         'INSERT INTO outbox (command_id, target, kind, session_id, payload, fencing_token, ' +
-          'next_attempt_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)',
-        [commandId, cmd.target, cmd.kind, sessionId, JSON.stringify(cmd.payload), token, now],
+          'next_attempt_at, created_at, idempotency_key) VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8)',
+        [commandId, cmd.target, cmd.kind, sessionId, JSON.stringify(cmd.payload), token, now, idem],
       );
     }
 
@@ -296,7 +306,18 @@ export class EngineServiceImpl implements EngineService {
       await readTicket(tx, ticket.id),
       await readSession(tx, sessionId),
       await readOpenInput(tx, sessionId),
+      view,
     );
+    // ADR-0010: card.moved when the card's column (a state, or Queued / Done) changed.
+    if (cardAfter.column !== cardBefore.column) {
+      drafts.push({
+        type: 'card.moved',
+        session_id: sessionId,
+        ticket_id: ticket.id,
+        from: cardBefore.column,
+        to: cardAfter.column,
+      });
+    }
     if (cardKey(cardAfter) !== cardKey(cardBefore)) {
       drafts.push({
         type: 'card.upserted',

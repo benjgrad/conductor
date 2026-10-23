@@ -1,6 +1,7 @@
 import {
   API_PATHS,
   AnswerInputRequestSchema,
+  CONDUCTOR_WORKFLOW_ID,
   ApproveSessionRequestSchema,
   CancelSessionRequestSchema,
   CreateTicketRequestSchema,
@@ -21,7 +22,9 @@ import Fastify, { type FastifyReply } from 'fastify';
 import { insertBoardEvents, type ApplyEventOptions } from '../contracts.js';
 import { withTransaction } from '../db/index.js';
 import type { TicketRow } from '../db/types.js';
+import { cardView } from '../engine/board-view.js';
 import { reopenSession } from '../engine/reopen.js';
+import { seedConductorWorkflow } from '../engine/seed.js';
 import type { CreateApi } from '../main.js';
 import { parseLastEventId, serveBoardStream } from '../stream/board.js';
 import { serveOutputStream } from '../stream/output.js';
@@ -257,6 +260,9 @@ export const createApi = (({ db, engine, boardBus, outputBus, transcripts, secur
   app.post(API_PATHS.tickets, async (req, reply) => {
     const body = parseBody(CreateTicketRequestSchema, req.body, reply);
     if (!body) return reply;
+    // ADR-0010: `conductor` is seeded on startup; seeding here too keeps a bare database (tests,
+    // a start that raced a migration) working. Idempotent.
+    if (body.workflow_id === CONDUCTOR_WORKFLOW_ID) await seedConductorWorkflow(db);
     const known = await db.query('SELECT 1 FROM workflow_definition WHERE id = $1 LIMIT 1', [
       body.workflow_id,
     ]);
@@ -287,7 +293,7 @@ export const createApi = (({ db, engine, boardBus, outputBus, transcripts, secur
           type: 'card.upserted',
           session_id: null,
           ticket_id: row.id,
-          card: toBoardCard(row, null, null),
+          card: toBoardCard(row, null, null, await cardView(tx, row.workflow_id, null)),
         },
       ]);
       return { ticket: row, events: evs };
@@ -298,7 +304,10 @@ export const createApi = (({ db, engine, boardBus, outputBus, transcripts, secur
 
   // ---------------------------------------------------------------- workflows
 
-  app.get(API_PATHS.workflows, () => listWorkflows(db));
+  // ADR-0010: the one workflow; `?all=1` also lists the older ones (kept for their tickets).
+  app.get<{ Querystring: { all?: string } }>(API_PATHS.workflows, (req) =>
+    listWorkflows(db, req.query.all === '1' || req.query.all === 'true'),
+  );
 
   // ADR-0009: one workflow's definition, the latest version or `?version=N`.
   app.get<IdParams & { Querystring: { version?: string } }>(

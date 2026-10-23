@@ -14,8 +14,33 @@ export const REVIEW_TOOLS = ['review'] as const;
  */
 export const REVIEW_TIMEOUT = '10m';
 
-/** `session.context` key the review step is persisted under (02; not a valid state name). */
+/**
+ * `session.context` key ADR-0009 review steps were persisted under before ADR-0010 (02; not a valid
+ * state name). Still read (a session mid-review when the orchestrator was upgraded), never written.
+ */
 export const REVIEW_CONTEXT_KEY = '__review';
+
+/**
+ * ADR-0010: `session.context` key the gate step (an ADR-0009 transition review or an entry step)
+ * is persisted under. Not a valid state name (validator rule 8).
+ */
+export const STEP_CONTEXT_KEY = '__entry';
+
+/** How long a conductor action (open_pr) may take before the entry step goes to `else`. */
+export const ENTRY_ACTION_TIMEOUT = '10m';
+
+/** An entry check without its own `timeout` (the daemon kills it after this long). */
+export const DEFAULT_CHECK_TIMEOUT = '15m';
+
+/** The synthetic `workflow_state` of an entry step (ADR-0010), e.g. `implementing → waiting_external (entry)`. */
+export function entryStateLabel(from: string, to: string): string {
+  return `${from} → ${to} (entry)`;
+}
+
+/** `retry_counters` key of an entry step's `on_unmet` loop (ADR-0010), per target state. */
+export function entryCounterKey(to: string): string {
+  return `entry:${to}`;
+}
 
 /** The first line of every reviewer prompt (the e2e fake keys its reviewer scenario on it). */
 export const REVIEW_PROMPT_HEADING = '# Requirements review';
@@ -38,6 +63,8 @@ export interface ReviewPromptInput {
   ticket: SessionSnapshot['ticket'];
   /** What the source state reported (see `reviewSubject`). */
   subject: string;
+  /** ADR-0010: the title of the column being entered (an entry step's review). */
+  entering?: string;
 }
 
 export function renderReviewPrompt(i: ReviewPromptInput): string {
@@ -46,7 +73,9 @@ export function renderReviewPrompt(i: ReviewPromptInput): string {
     REVIEW_PROMPT_HEADING,
     [
       'You are an independent reviewer. Do not change anything: no edits, no commits, no builds.',
-      `The workflow wants to move this ticket from \`${i.from}\` to \`${i.to}\` (outcome \`${i.outcome}\`).`,
+      i.entering !== undefined
+        ? `The workflow wants to move this ticket into the \`${i.entering}\` column (state \`${i.to}\`, from \`${i.from}\`).`
+        : `The workflow wants to move this ticket from \`${i.from}\` to \`${i.to}\` (outcome \`${i.outcome}\`).`,
       'Before it may, check every requirement below against the work in this git worktree (your current directory).',
     ].join('\n'),
     [
@@ -158,22 +187,35 @@ export function parseVerdict(result: JsonObject, items: readonly string[]): Pars
   return { ok: false, error: `no verdict for: ${missing.map((m) => `"${m}"`).join(', ')}` };
 }
 
-/** What `on_unmet.goto`'s next prompt receives (ADR-0009, like `attach: output`). */
+/**
+ * What `on_unmet.goto`'s next prompt receives (ADR-0009 / ADR-0010, like `attach: output`): the
+ * heading (`feedbackHeading`), each unmet item with its reason (and, for a failed check, its
+ * output tail), then the author's instruction.
+ */
 export interface ReviewFeedback {
-  from: string;
-  to: string;
-  unmet: { item: string; reason: string }[];
+  heading: string;
+  unmet: { item: string; reason: string; output?: string }[];
   instruction: string | null;
 }
 
+/** ADR-0009: "Requirements for a → b were not met:"; ADR-0010: "Requirements to enter X were not met:". */
+export function feedbackHeading(p: {
+  kind: 'transition' | 'entry';
+  from: string;
+  to: string;
+  title: string;
+}): string {
+  return p.kind === 'entry'
+    ? `Requirements to enter ${p.title} were not met:`
+    : `Requirements for ${p.from} → ${p.to} were not met:`;
+}
+
 export function renderReviewFeedback(f: ReviewFeedback): string {
-  const lines = [
-    '## Requirements not met',
-    '',
-    `Requirements for ${f.from} → ${f.to} were not met:`,
-    '',
-    ...f.unmet.map((u) => `- ${u.item}: ${u.reason || '(no reason given)'}`),
-  ];
+  const lines = ['## Requirements not met', '', f.heading, ''];
+  for (const u of f.unmet) {
+    lines.push(`- ${u.item}: ${u.reason || '(no reason given)'}`);
+    if (u.output) lines.push(fenced(u.output));
+  }
   if (f.instruction) lines.push('', f.instruction);
   return lines.join('\n');
 }

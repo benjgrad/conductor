@@ -3,6 +3,7 @@ import { z } from 'zod';
 // @conductor/shared: the frozen cross-package contracts (M1-T12). Index: docs/design/10-contracts.md.
 export * from './domain.js';
 export * from './workflow/schema.js';
+export * from './workflow/conductor.js';
 export * from './workflow/guards.js';
 export * from './workflow/tools.js';
 export * from './workflow/validate.js';
@@ -12,6 +13,9 @@ export {
   deadlineFor,
   fallbackHumanState,
   NO_OUTCOME_QUESTION,
+  IMPLEMENT_TEMPLATE,
+  PLAN_TEMPLATE,
+  PROMPT_TEMPLATES,
   renderPrompt,
   TICKET_TEMPLATE,
   type PromptAttachment,

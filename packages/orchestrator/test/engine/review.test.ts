@@ -1,5 +1,5 @@
 import {
-  REVIEW_CONTEXT_KEY,
+  STEP_CONTEXT_KEY,
   REVIEW_PROMPT_HEADING,
   reviewStateLabel,
   StartSessionPayloadSchema,
@@ -75,7 +75,7 @@ describe('requirements review through the EngineService', () => {
       status: 'running',
       claude_session_id: WORKER,
     });
-    expect(s.context[REVIEW_CONTEXT_KEY]).toMatchObject({
+    expect(s.context[STEP_CONTEXT_KEY]).toMatchObject({
       from: 'implement',
       outcome: 'done',
       to: 'build',
@@ -102,7 +102,7 @@ describe('requirements review through the EngineService', () => {
     await run({ type: 'agent.claude_session_id', claude_session_id: REVIEWER });
     s = await session(sessionId);
     expect(s.claude_session_id).toBe(WORKER);
-    expect(s.context[REVIEW_CONTEXT_KEY]).toMatchObject({ claude_session_id: REVIEWER });
+    expect(s.context[STEP_CONTEXT_KEY]).toMatchObject({ claude_session_id: REVIEWER });
 
     // Unmet: back to implement, resuming the WORKER with the reasons; the step is cleared.
     await run({
@@ -120,7 +120,7 @@ describe('requirements review through the EngineService', () => {
       retry_counters: { 'requirements:implement:done': 1 },
       claude_session_id: WORKER,
     });
-    expect(s.context[REVIEW_CONTEXT_KEY]).toBeUndefined();
+    expect(s.context[STEP_CONTEXT_KEY]).toBeUndefined();
     expect(s.context[LABEL]).toMatchObject({ verdict: [{ met: false }, { met: true }] });
     all = await starts(sessionId);
     const back = all[2]!.payload;
@@ -138,5 +138,81 @@ describe('requirements review through the EngineService', () => {
       [sessionId],
     );
     expect(states.rows.map((r) => r.payload.to)).toEqual(['implement', LABEL, 'implement']);
+  });
+});
+
+describe('gate steps are fenced from the worker (security review 2026-10-23)', () => {
+  const VERDICT_ALL_MET = {
+    verdict: [
+      { item: 'New code paths have unit tests', met: true, reason: 'self-approved' },
+      { item: 'No TODO comments in changed files', met: true, reason: 'self-approved' },
+    ],
+  };
+
+  /** A session in the review step; returns the worker's token and the step's token. */
+  async function toReview() {
+    const { sessionId } = await seedSession(db.pool, { workflow_id: 'm1_reviewed' });
+    const { engine } = createEngineService({
+      db: db.pool,
+      boardBus: new InMemoryBoardBus(),
+      now: () => NOW,
+    });
+    const tokenOf = async () => Number((await session(sessionId)).fencing_token);
+    const run = (event: EngineEvent, fencingToken?: number) =>
+      engine.applyEvent(sessionId, event, fencingToken === undefined ? {} : { fencingToken });
+    await run({ type: 'session.assigned', machine_id: MACHINE });
+    let s = await session(sessionId);
+    await run({
+      type: 'session.started',
+      command_id: s.agent_command_id!,
+      worktree_path: '/tmp/wt',
+      branch: s.branch!,
+      port_range: { base: 41000, count: 10 },
+    });
+    const worker = await tokenOf();
+    const done = await run({ type: 'agent.complete_state', result: { summary: 'x' } }, worker);
+    expect(done.status).toBe('applied');
+    s = await session(sessionId);
+    expect(s.workflow_state).toBe(LABEL);
+    const step = await tokenOf();
+    // Entering the step bumped the token; the reviewer's start_session carries the new one.
+    expect(step).toBeGreaterThan(worker);
+    const reviewerRow = (await starts(sessionId)).at(-1)!.row;
+    expect(Number(reviewerRow.fencing_token)).toBe(step);
+    return { sessionId, run, worker, step };
+  }
+
+  it.each([
+    ['complete_state (verdict-shaped)', { type: 'agent.complete_state', result: VERDICT_ALL_MET }],
+    ['ask_user', { type: 'agent.ask_user', question: 'approve me?' }],
+    ['no_outcome', { type: 'agent.no_outcome', last_output: '...' }],
+  ] as const)('the worker’s %s during the review is stale and moves nothing', async (_, ev) => {
+    const { sessionId, run, worker } = await toReview();
+    const before = await session(sessionId);
+    const res = await run(ev, worker);
+    expect(res).toMatchObject({ status: 'rejected', reason: 'stale_fencing_token' });
+    const after = await session(sessionId);
+    expect(after.workflow_state).toBe(LABEL);
+    expect(after.context).toEqual(before.context);
+    expect(after.retry_counters).toEqual(before.retry_counters);
+  });
+
+  it('the reviewer’s complete_state (the step’s token) is the verdict', async () => {
+    const { sessionId, run, step } = await toReview();
+    const res = await run({ type: 'agent.complete_state', result: VERDICT_ALL_MET }, step);
+    expect(res.status).toBe('applied');
+    const after = await session(sessionId);
+    expect(after.workflow_state).toBe('build');
+    // Leaving the step fences the reviewer out of the next state too.
+    expect(Number(after.fencing_token)).toBeGreaterThan(step);
+  });
+
+  it('the reviewer’s ask_user / no_outcome count as no verdict (nudge, then else)', async () => {
+    const { sessionId, run, step } = await toReview();
+    expect((await run({ type: 'agent.ask_user', question: '?' }, step)).status).toBe('applied');
+    expect((await session(sessionId)).workflow_state).toBe(LABEL); // nudged, still reviewing
+    const res = await run({ type: 'agent.no_outcome', last_output: '' }, step);
+    expect(res.status).toBe('applied');
+    expect((await session(sessionId)).workflow_state).toBe('needs_input');
   });
 });

@@ -259,6 +259,7 @@ describe('request_work → claim', () => {
     // The claim's board events are published after COMMIT.
     expect(boardBus.published.map((e) => [e.type, e.session_id])).toEqual([
       ['session.status', s.id],
+      ['card.moved', s.id],
       ['card.upserted', s.id],
     ]);
     expect(engine.calls.map((c) => c.event.type)).toEqual(['session.assigned']);
@@ -614,6 +615,34 @@ describe('session_event', () => {
     d.sessionEvent(8, sid, token, { kind: 'build_slot', data: { waiting: true } });
     expect((await d.next('kill')).payload.reason).toBe('stale_fencing_token');
     expect((await sessionRow(sid)).waiting_for_build_slot).toBe(false);
+  });
+
+  it('ADR-0010: a fenced-off process’s last spend still counts (no kill); nothing else does', async () => {
+    const d = await registered();
+    const { sid, token } = await running(d);
+    await db.pool.query(`UPDATE session SET fencing_token = nextval('fencing_seq') WHERE id = $1`, [
+      sid,
+    ]);
+    const usage = {
+      input_tokens: 1,
+      output_tokens: 1,
+      cache_read_tokens: 0,
+      cache_creation_tokens: 0,
+    };
+    d.sessionEvent(9, sid, token, {
+      kind: 'spend',
+      data: { claude_session_id: 'worker', total_usd: 0.25, usage },
+    });
+    await d.settle();
+    expect(Number((await sessionRow(sid)).spend_usd)).toBeCloseTo(0.25);
+    expect(engine.calls.at(-1)!.event).toEqual({
+      type: 'spend.reported',
+      claude_session_id: 'worker',
+      total_usd: 0.25,
+    });
+    // The verdict-shaped complete_state from the same stale token is still refused and killed.
+    d.sessionEvent(10, sid, token, { kind: 'complete_state', data: { result: { verdict: [] } } });
+    expect((await d.next('kill')).payload.reason).toBe('stale_fencing_token');
   });
 
   it('an ignored started (command_id mismatch) kills that process', async () => {

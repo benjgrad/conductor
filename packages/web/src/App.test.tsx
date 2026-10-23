@@ -27,17 +27,16 @@ function openCard(title: string) {
 }
 
 describe('kanban board', () => {
-  it('maps cards to columns per 06', async () => {
+  it('maps cards to the conductor columns (ADR-0010; old m1_* states by type)', async () => {
     await renderApp();
     expect(cardTitles('Queued')).toEqual(['Hotfix: crash on empty cart', 'Add /health']);
-    expect(cardTitles('Running')).toEqual([
+    expect(cardTitles('Implementing')).toEqual([
       'Add pagination to /orders',
       'Migrate settings page to new form lib',
     ]);
-    expect(cardTitles('Waiting (external)')).toEqual(['Bump node to 22 in CI']);
-    expect(cardTitles('Done')).toEqual(['Rename user.fullname']);
-    // `lost` shows in Failed.
-    expect(cardTitles('Failed')).toEqual(['Upgrade webpack']);
+    expect(cardTitles('Waiting external')).toEqual(['Bump node to 22 in CI']);
+    // `lost` lands in Done with a badge.
+    expect(cardTitles('Done')).toEqual(['Rename user.fullname', 'Upgrade webpack']);
   });
 
   it('lists needs-input oldest question first, with the question badge', async () => {
@@ -50,7 +49,7 @@ describe('kanban board', () => {
 
   it('shows the build-slot badge on a running card', async () => {
     await renderApp();
-    const card = within(column('Running')).getByText('Migrate settings page to new form lib');
+    const card = within(column('Implementing')).getByText('Migrate settings page to new form lib');
     expect(
       within(card.closest('article') as HTMLElement).getByText('waiting for build slot'),
     ).toBeTruthy();
@@ -85,7 +84,7 @@ describe('detail panel', () => {
     fireEvent.click(send);
 
     await waitFor(() => expect(cardTitles('Needs input')).toEqual(['Fix flaky checkout test']));
-    expect(cardTitles('Running')).toContain('Add audit log table');
+    expect(cardTitles('Implementing')).toContain('Add audit log table');
     await waitFor(() => expect(panel.queryByLabelText('Answer')).toBeNull());
     fireEvent.click(panel.getByRole('tab', { name: 'Details' }));
     expect(panel.getByText('implement', { selector: '[aria-current="step"]' })).toBeTruthy();
@@ -122,7 +121,7 @@ describe('detail panel', () => {
     await renderApp();
     const panel = within(await openCard('Fix flaky checkout test'));
     fireEvent.click(await panel.findByRole('button', { name: 'Abort' }));
-    await waitFor(() => expect(cardTitles('Failed')).toContain('Fix flaky checkout test'));
+    await waitFor(() => expect(cardTitles('Done')).toContain('Fix flaky checkout test'));
   });
 
   it('shows state, context, spend/time and live output', async () => {

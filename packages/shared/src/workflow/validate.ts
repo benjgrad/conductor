@@ -1,5 +1,10 @@
-import { WorkflowDefinitionSchema, type WorkflowDefinition, type WorkflowState } from './schema.js';
-import { REVIEW_CONTEXT_KEY } from '../engine/review.js';
+import {
+  CONDUCTOR_WORKFLOW_ID,
+  WorkflowDefinitionSchema,
+  type WorkflowDefinition,
+  type WorkflowState,
+} from './schema.js';
+import { REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
 import { isToolAlias, TOOL_ALIAS_NAMES } from './tools.js';
 
 // Workflow validation on save (M1-T03, 05 §Validation on save). The schema (T12) checks shape;
@@ -11,10 +16,10 @@ import { isToolAlias, TOOL_ALIAS_NAMES } from './tools.js';
 // `on_budget_exceeded` counts as reachable (budget can trip in any state).
 
 /**
- * Rule numbers from 05 §Validation on save (1–6) plus rule 7 (unknown tool alias) and rule 8
- * (requirements gates, ADR-0009).
+ * Rule numbers from 05 §Validation on save (1–6) plus rule 7 (unknown tool alias), rule 8
+ * (requirements gates, ADR-0009) and rule 9 (entry requirements and columns, ADR-0010).
  */
-export type WorkflowRule = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+export type WorkflowRule = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
 export interface WorkflowValidationError {
   rule: WorkflowRule;
@@ -121,6 +126,7 @@ export function validateWorkflow(input: unknown): WorkflowValidationResult {
   }
 
   errors.push(...checkGates(def, has));
+  errors.push(...checkEntry(def, has));
 
   // Graph rules 2–5 only on a graph whose start and targets all exist, so a missing target
   // reports once (rule 1) instead of cascading into unreachable/dead-end noise.
@@ -147,12 +153,14 @@ function checkGates(
   has: (name: string) => boolean,
 ): WorkflowValidationError[] {
   const errors: WorkflowValidationError[] = [];
-  if (has(REVIEW_CONTEXT_KEY)) {
-    errors.push({
-      rule: 8,
-      path: ['states', REVIEW_CONTEXT_KEY],
-      message: `"${REVIEW_CONTEXT_KEY}" is a reserved name`,
-    });
+  for (const reserved of [REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY]) {
+    if (has(reserved)) {
+      errors.push({
+        rule: 8,
+        path: ['states', reserved],
+        message: `"${reserved}" is a reserved name`,
+      });
+    }
   }
   for (const [from, state] of Object.entries(def.states)) {
     if (state.type === 'terminal') continue;
@@ -180,9 +188,122 @@ function checkGates(
   return errors;
 }
 
+/**
+ * Rule 9 (ADR-0010, entry requirements and the board's columns). The schema already bounds
+ * `on_unmet.retries` (0–10), the check and item counts, and requires at least one check, review or
+ * action; rule 1 checks that `on_unmet.goto` / `else` exist. Here:
+ * - `columns` names existing states, each once; the `conductor` workflow has `columns` listing
+ *   every state (its states are the board's columns);
+ * - no `entry` on the start state: it is entered when a machine claims the ticket, not by an
+ *   outcome, so there is nothing to check yet and no source column to wait in;
+ * - no `entry` on a `human` state: failure paths must reach a human unconditionally;
+ * - `on_unmet.else` is a `human` state; `on_unmet.goto` has no `entry` of its own (no nested
+ *   steps; it also can't be the state being entered);
+ * - check commands are not blank; check names and actions are unique.
+ */
+function checkEntry(
+  def: WorkflowDefinition,
+  has: (name: string) => boolean,
+): WorkflowValidationError[] {
+  const errors: WorkflowValidationError[] = [];
+  const err = (path: (string | number)[], message: string) =>
+    errors.push({ rule: 9, path, message });
+
+  if (def.columns !== undefined) {
+    const seen = new Set<string>();
+    def.columns.forEach((name, i) => {
+      if (!has(name)) err(['columns', i], `column "${name}" is not a state`);
+      else if (seen.has(name)) err(['columns', i], `column "${name}" is listed twice`);
+      seen.add(name);
+    });
+  }
+  if (def.id === CONDUCTOR_WORKFLOW_ID) {
+    if (def.columns === undefined) {
+      err(
+        ['columns'],
+        `the ${CONDUCTOR_WORKFLOW_ID} workflow needs "columns" (its states are the board's columns)`,
+      );
+    } else {
+      const missing = Object.keys(def.states).filter((n) => !def.columns!.includes(n));
+      if (missing.length > 0) {
+        err(['columns'], `every state is a column: add ${missing.map((m) => `"${m}"`).join(', ')}`);
+      }
+    }
+  }
+
+  for (const [name, state] of Object.entries(def.states)) {
+    const entry = state.entry;
+    if (entry === undefined) continue;
+    const base = ['states', name, 'entry'];
+    if (name === def.start) {
+      err(
+        base,
+        `the start column "${name}" is entered by a claim, not an outcome, so entry requirements would never run`,
+      );
+    }
+    if (state.type === 'human') {
+      err(
+        base,
+        `human state "${name}" can't have entry requirements (failure paths must reach a human unconditionally)`,
+      );
+    }
+    const otherwise = entry.on_unmet.else;
+    const elseState = has(otherwise) ? def.states[otherwise] : undefined;
+    if (elseState !== undefined && elseState.type !== 'human') {
+      err(
+        [...base, 'on_unmet', 'else'],
+        `entry on_unmet.else "${otherwise}" must be a human state (it is ${elseState.type})`,
+      );
+    }
+    const back = entry.on_unmet.goto;
+    const gotoState = has(back) ? def.states[back] : undefined;
+    if (gotoState?.entry !== undefined) {
+      err(
+        [...base, 'on_unmet', 'goto'],
+        back === name
+          ? `entry on_unmet.goto can't be "${name}" itself`
+          : `entry on_unmet.goto "${back}" has entry requirements of its own`,
+      );
+    }
+    const names = new Set<string>();
+    (entry.checks ?? []).forEach((c, i) => {
+      if (c.cmd.trim() === '')
+        err([...base, 'checks', i, 'cmd'], `check "${c.name}" has an empty command`);
+      if (names.has(c.name))
+        err([...base, 'checks', i, 'name'], `check "${c.name}" is listed twice`);
+      names.add(c.name);
+    });
+    const actions = new Set<string>();
+    (entry.actions ?? []).forEach((a, i) => {
+      if (actions.has(a)) err([...base, 'actions', i], `action "${a}" is listed twice`);
+      actions.add(a);
+    });
+  }
+  return errors;
+}
+
 function collectEdges(def: WorkflowDefinition): Edge[] {
   const edges: Edge[] = [];
   for (const [from, state] of Object.entries(def.states)) {
+    // ADR-0010: a state's entry requirements route back (`on_unmet.goto`, counted) or to a human
+    // (`else`). Modelled as edges out of the state being entered.
+    if (state.entry !== undefined) {
+      const unmet = ['states', from, 'entry', 'on_unmet'];
+      edges.push({
+        from,
+        to: state.entry.on_unmet.goto,
+        outcome: 'entry:unmet',
+        path: [...unmet, 'goto'],
+        bounded: true,
+      });
+      edges.push({
+        from,
+        to: state.entry.on_unmet.else,
+        outcome: 'entry:else',
+        path: [...unmet, 'else'],
+        bounded: true,
+      });
+    }
     if (state.type === 'terminal') continue;
     for (const [outcome, t] of Object.entries(state.on ?? {})) {
       const base = ['states', from, 'on', outcome];

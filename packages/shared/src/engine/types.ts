@@ -37,17 +37,23 @@ export const PendingAnswerSchema = z.object({
 export type PendingAnswer = z.infer<typeof PendingAnswerSchema>;
 
 /**
- * ADR-0009: the review step a gated transition is in (`session.review`). While it is set,
- * `workflow_state` is the synthetic label `reviewStateLabel(from, to)` ("implement → build
- * (review)"), which names no workflow state: the board shows it, the timeout sweep keys on it,
- * and events meant for a real state are ignored. Persisted inside the `session.context` jsonb
- * under the reserved key `REVIEW_CONTEXT_KEY` (no migration); `toSnapshot` lifts it out.
+ * A gate step (`session.step`): the session is checking whether it may enter a state.
+ * - `kind: 'transition'`: ADR-0009, a requirements review on a gated transition (old versions).
+ * - `kind: 'entry'`: ADR-0010, the requirements to enter a column (`states.<to>.entry`): checks,
+ *   then the review, then conductor's actions, one `phase` at a time.
+ * While it is set, `workflow_state` is a synthetic label (`reviewStateLabel` / `entryStateLabel`)
+ * that names no workflow state: the timeout sweep keys on it, and events meant for a real state are
+ * ignored. The board shows the card in its source column (`from`) with a `checking` badge.
+ * Persisted inside the `session.context` jsonb under STEP_CONTEXT_KEY (no migration; the legacy
+ * ADR-0009 key REVIEW_CONTEXT_KEY is still read); `toSnapshot` lifts it out.
  */
-export const ReviewStepSchema = z.object({
-  /** The state whose outcome selected the gated transition. */
+export const GateStepSchema = z.object({
+  /** Legacy `__review` rows have no kind: they are ADR-0009 transition reviews. */
+  kind: z.enum(['transition', 'entry']).default('transition'),
+  /** The state whose outcome selected the target (the card's column while checking). */
   from: z.string(),
   outcome: z.string(),
-  /** The transition's target, entered when every requirement is met. */
+  /** The state entered when every requirement is met. */
   to: z.string(),
   /** `attach: output` text for `to` (a counted object transition's goto leg), or null. */
   attachment: z.object({ from: z.string(), detail: z.string(), output: z.string() }).nullable(),
@@ -57,8 +63,15 @@ export const ReviewStepSchema = z.object({
   claude_session_id: z.string().nullable(),
   /** The engine already nudged the reviewer once about a missing or malformed verdict. */
   nudged: z.boolean(),
+  /** ADR-0010: the phase running now (a transition review is always `review`). */
+  phase: z.enum(['checks', 'review', 'actions']).default('review'),
+  /** ADR-0010: index of the check (phase `checks`) or action (phase `actions`) running now. */
+  index: z.number().int().nonnegative().default(0),
 });
-export type ReviewStep = z.infer<typeof ReviewStepSchema>;
+export type GateStep = z.infer<typeof GateStepSchema>;
+/** ADR-0009 name of GateStepSchema. */
+export const ReviewStepSchema = GateStepSchema;
+export type ReviewStep = GateStep;
 
 /**
  * The session as the engine sees it. Mirrors the `session` row (02) with DB encodings
@@ -121,8 +134,8 @@ export const SessionSnapshotSchema = z.object({
   wall_seconds: z.number().nonnegative(),
   /** state name → its `complete_state` result, e.g. `{open_pr: {pr_url}}`. */
   context: z.record(z.string(), JsonObjectSchema),
-  /** ADR-0009: the requirements review in progress, or null. See ReviewStepSchema. */
-  review: ReviewStepSchema.nullable(),
+  /** The gate step in progress (ADR-0009 review / ADR-0010 entry), or null. See GateStepSchema. */
+  step: GateStepSchema.nullable(),
 });
 export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;
 
@@ -260,6 +273,18 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
     spent: z.number().nonnegative(),
     limit: z.number().nonnegative(),
   }),
+  /**
+   * D `action_result` (ADR-0010): conductor finished an entry action (`run_action`), e.g. open_pr.
+   * `result` (e.g. `{pr_url}`) on success, `error` (a sentence for the human) on failure. Accepted
+   * only in an entry step's `actions` phase for that action; a failure goes to `on_unmet.else`.
+   */
+  z.object({
+    type: z.literal('action.completed'),
+    command_id: UuidSchema,
+    action: z.string(),
+    result: JsonObjectSchema.nullable(),
+    error: z.string().nullable(),
+  }),
   /** U: operator cancel (POST /cancel). → failed, kill. */
   z.object({ type: z.literal('operator.cancel'), reason: z.string().optional() }),
   /**
@@ -326,6 +351,22 @@ export const EffectSchema = z.discriminatedUnion('type', [
    * below the envelope fencing token, i.e. the row's token; 10-contracts §Effect → WS).
    */
   z.object({ type: z.literal('kill'), reason: z.string() }),
+  /**
+   * outbox `run_action` → WS run_action (ADR-0010): conductor performs an entry action on the
+   * session's machine (open_pr: push the branch, open or reuse the PR). `idempotency_key` =
+   * `<session_id>:<to>:<visit>` (05 §Idempotency); the daemon reuses the PR on a repeat.
+   */
+  z.object({
+    type: z.literal('run_action'),
+    /** The entry step's label (the session's `workflow_state`). */
+    state: z.string(),
+    /** The state being entered. */
+    target_state: z.string(),
+    action: z.string(),
+    idempotency_key: z.string(),
+    /** Action arguments, e.g. open_pr `{title, body}`. */
+    args: JsonObjectSchema,
+  }),
   /** outbox `connector_call` (target `connector:<name>`). No WS message; not in M1. */
   z.object({
     type: z.literal('connector_call'),
@@ -368,7 +409,14 @@ export type EffectType = Effect['type'];
 export type OutboxEffect = Extract<
   Effect,
   {
-    type: 'start_session' | 'send_input' | 'send_message' | 'run_cmd' | 'kill' | 'connector_call';
+    type:
+      | 'start_session'
+      | 'send_input'
+      | 'send_message'
+      | 'run_cmd'
+      | 'run_action'
+      | 'kill'
+      | 'connector_call';
   }
 >;
 
@@ -377,6 +425,7 @@ export const OUTBOX_EFFECT_TYPES = [
   'send_input',
   'send_message',
   'run_cmd',
+  'run_action',
   'kill',
   'connector_call',
 ] as const satisfies readonly OutboxEffect['type'][];

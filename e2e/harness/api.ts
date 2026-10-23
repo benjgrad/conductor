@@ -46,7 +46,8 @@ export class Api {
     );
   }
 
-  createTicket(t: { title: string; body: string; repo: string; workflow_id: string }) {
+  /** `workflow_id` omitted = the server default, `conductor` (ADR-0010). */
+  createTicket(t: { title: string; body: string; repo: string; workflow_id?: string }) {
     return this.call<TicketDto>('POST', '/api/tickets', { ...t, required_tags: ['e2e'] }, 201);
   }
 
@@ -59,6 +60,16 @@ export class Api {
       'POST',
       `/api/sessions/${sessionId}/input`,
       { input_request_id: inputRequestId, answer },
+      202,
+    );
+  }
+
+  /** The Approve button: `ui.approve` for a session waiting for it. */
+  approve(sessionId: string, comment?: string) {
+    return this.call<{ ok: true }>(
+      'POST',
+      `/api/sessions/${sessionId}/approve`,
+      comment === undefined ? {} : { comment },
       202,
     );
   }

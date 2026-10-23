@@ -78,6 +78,15 @@ export const SESSION_EVENT_FIXTURES: {
     kind: 'no_outcome',
     data: { last_output: 'I think the endpoint works now.' },
   },
+  action_result: {
+    kind: 'action_result',
+    data: {
+      command_id: FIXTURE_IDS.command,
+      action: 'open_pr',
+      result: { pr_url: 'https://github.com/benjgrad/fixture-app/pull/7' },
+      error: null,
+    },
+  },
 };
 
 const sessionEvent = (kind: SessionEventKind, seq: number): DaemonToOrchestrator => ({
@@ -98,6 +107,7 @@ export const SESSION_EVENT_MESSAGE_FIXTURES: Record<SessionEventKind, DaemonToOr
   build_slot: sessionEvent('build_slot', 17),
   heartbeat: sessionEvent('heartbeat', 18),
   no_outcome: sessionEvent('no_outcome', 19),
+  action_result: sessionEvent('action_result', 20),
 };
 
 export const DAEMON_FIXTURES: {
@@ -270,6 +280,22 @@ export const ORCHESTRATOR_FIXTURES: {
       cmd: 'npm run build',
       cwd: null,
       timeout_ms: 600000,
+    },
+  },
+  run_action: {
+    type: 'run_action',
+    msg_id: id(),
+    seq: null,
+    session_id: S,
+    fencing_token: 1,
+    payload: {
+      command_id: FIXTURE_IDS.command,
+      workflow_state: 'implementing → waiting_external (entry)',
+      target_state: 'waiting_external',
+      action: 'open_pr',
+      idempotency_key: `${S}:waiting_external:1`,
+      args: { title: 'Add /health', body: 'added endpoint\n\nOpened by conductor.' },
+      branch: 'conductor/0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2/7d0c5b1e',
     },
   },
   send_input: {

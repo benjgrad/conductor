@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   NO_OUTCOME_OUTPUT_CHARS,
   resolveToolPolicy,
@@ -123,7 +123,7 @@ function startSession(
   };
 }
 
-function cmd<T extends 'send_input' | 'send_message' | 'run_cmd' | 'kill'>(
+function cmd<T extends 'send_input' | 'send_message' | 'run_cmd' | 'run_action' | 'kill'>(
   type: T,
   sessionId: string,
   payload: Extract<OrchestratorToDaemon, { type: T }>['payload'],
@@ -913,5 +913,83 @@ describe('daemon core: misc', () => {
     expect(
       JSON.parse(readFileSync(join(tmp, 'root', 'state', 'daemon.json'), 'utf8')),
     ).toHaveProperty('lastSeq', 4);
+  });
+});
+
+describe('daemon core: run_action (ADR-0010 open_pr)', () => {
+  it('acks, pushes the session branch to origin, opens the PR with gh, reports action_result', async () => {
+    // A fake `gh` first on PATH (no network): `pr view` finds nothing, `pr create` prints a URL.
+    const bin = join(tmp, 'bin');
+    execFileSync('mkdir', ['-p', bin]);
+    writeFileSync(
+      join(bin, 'gh'),
+      [
+        '#!/bin/sh',
+        'if [ "$1" = "repo" ]; then echo main; exit 0; fi',
+        'if [ "$2" = "view" ]; then exit 1; fi',
+        'echo "https://github.com/benjgrad/fixture-app/pull/9"',
+      ].join('\n'),
+    );
+    execFileSync('chmod', ['+x', join(bin, 'gh')]);
+    vi.stubEnv('PATH', `${bin}:${process.env.PATH ?? ''}`);
+    try {
+      makeDaemon(new FakeClaudeDriver(complete({})));
+      await orch.until(() => orch.ofType('request_work')[0]);
+      const sid = randomUUID();
+      orch.send(startSession(sid, {}, 4));
+      await orch.until(() => orch.events('exit')[0]);
+      const action = cmd(
+        'run_action',
+        sid,
+        {
+          command_id: randomUUID(),
+          workflow_state: 'implementing → waiting_external (entry)',
+          target_state: 'waiting_external',
+          action: 'open_pr',
+          idempotency_key: `${sid}:waiting_external:1`,
+          args: { title: 'Add /health', body: 'Opened by conductor.' },
+          branch: 'ignored/the-daemon-uses-its-own-record',
+        },
+        4,
+      );
+      orch.send(action);
+      const id = (action.payload as { command_id: string }).command_id;
+      expect((await orch.until(() => orch.ack(id)[0])).payload.accepted).toBe(true);
+      // Several git / gh subprocesses: allow for a loaded test machine.
+      const res = await orch.until(() => orch.eventData('action_result')[0], 15_000);
+      expect(res).toEqual({
+        command_id: id,
+        action: 'open_pr',
+        result: { pr_url: 'https://github.com/benjgrad/fixture-app/pull/9' },
+        error: null,
+      });
+      // The session branch (the daemon's own record) is now on the origin repo.
+      const branch = sessionBranch(TICKET, sid);
+      expect(() =>
+        execFileSync('git', ['rev-parse', '--verify', `refs/heads/${branch}`], {
+          cwd: repo,
+          stdio: 'pipe',
+        }),
+      ).not.toThrow();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  }, 30_000);
+
+  it('refuses run_action for an unknown session', async () => {
+    makeDaemon(new FakeClaudeDriver(complete({})));
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const action = cmd('run_action', randomUUID(), {
+      command_id: randomUUID(),
+      workflow_state: 'x',
+      target_state: 'y',
+      action: 'open_pr',
+      idempotency_key: 'k',
+      args: {},
+      branch: 'b',
+    });
+    orch.send(action);
+    const id = (action.payload as { command_id: string }).command_id;
+    expect((await orch.until(() => orch.ack(id)[0])).payload.reason).toBe('unknown_session');
   });
 });

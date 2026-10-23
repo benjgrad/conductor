@@ -284,7 +284,7 @@ function seed(now: Date, s: SeedSpec): MockSeed {
     workflow_id: s.workflow.id,
     workflow_state: s.state,
     status: s.status,
-    column: 'queued', // fixed up by the mock via columnFor
+    column: 'queued', // fixed up by the mock (placeCard)
     badges: s.slot ? ['waiting_for_build_slot'] : [],
     machine_id: s.status === 'waiting_external' ? null : 'mbp-ben',
     spend_usd: s.spend,

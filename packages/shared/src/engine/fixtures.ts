@@ -29,5 +29,5 @@ export const SNAPSHOT_FIXTURE: SessionSnapshot = {
   claude_spend_totals: {},
   wall_seconds: 0,
   context: {},
-  review: null,
+  step: null,
 };

@@ -46,6 +46,7 @@ From these numbers, one Postgres instance is enough as the system of record. A l
 | [07-multi-session-isolation](07-multi-session-isolation.md) | Many agents on one machine |
 | [08-failure-modes](08-failure-modes.md) | Laptop sleep, crashes, side effects |
 | [09-security-and-budgets](09-security-and-budgets.md) | Permissions, sandboxing, secrets, spend |
+| [workflows/conductor.v1.json](workflows/conductor.v1.json) | The one workflow (ADR-0010), seeded on startup; its states are the board columns |
 | [workflows/pr_flow.v1.json](workflows/pr_flow.v1.json) | Reference workflow from the workshop |
 
 ## Delivery slices

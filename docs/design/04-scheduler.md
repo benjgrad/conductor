@@ -95,6 +95,9 @@ A pull scheduler is greedy. A machine without the repo might grab a ticket a sec
 - **Heartbeat backstop**: a heartbeat that lists a session under a token lower than `session.fencing_token` gets the same direct `kill {target_command_id: null, reason: stale_fencing_token}` with the listed token in the envelope. It kills an orphan that sends no further events ([10](10-contracts.md#orphaned-processes)).
 - Fencing protects **our DB only**, not the git remote. That's why each session pushes to its **own branch name**.
 
+## The Queued column
+On the board ([ADR-0010](../adr/0010-one-workflow-columns-are-states.md)) a ticket is in **Queued** until a machine's claim has entered the workflow's start state: no session yet, or a session `queued` / `assigned` with no `workflow_state`. A session that goes back to the queue mid-flight (a refused `start_session`) keeps its state's column; its status shows as a badge.
+
 ## Parked sessions
 
 States with `release_machine: true` (e.g. `await_approval`) set `machine_id = NULL` and free the reservation. When the event arrives, the session goes back to `queued` with affinity to its old machine. The next state can run on any machine, by resuming from the pushed branch plus `claude_session_id`.

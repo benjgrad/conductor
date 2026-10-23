@@ -74,16 +74,19 @@ On a `done` or `failed` session the composer switches to **reopen** mode ([ADR-0
 
 The output ring is in memory ([U-005](../tracking/UNKNOWNS.md)), so after an orchestrator restart every session's Messages tab is empty. When the panel opens on a session whose ring and live stream have nothing (and it has a machine), the web fetches `GET /api/sessions/:id/transcript` once: the daemon on the session's machine reads Claude Code's own transcript and maps it to the same output streams ([ADR-0008](../adr/0008-transcript-history-and-reopen.md)). A quiet notice says where the history came from: "History loaded from Claude's transcript on <machine>", "History unavailable: <machine> is offline", or "No transcript found". Live chunks that arrive later are appended after the history (one streamed between the transcript read and the first live chunk may show twice). The transcript is per Claude conversation, so a reopened ticket's sessions show the whole conversation, both passes; and it has no command (build/test) output, only the agent's side.
 
-## Kanban columns (queries, not state)
+## Kanban columns: the workflow's states
+[ADR-0010](../adr/0010-one-workflow-columns-are-states.md): the board's columns are the `conductor` workflow's states, in its `columns` order, with an implicit **Queued** first. Conductor v1: Queued · Planning · Implementing · Needs input · Waiting external · Done. Columns are queries over the session (`placeCard`, `packages/shared/src/api/rest.ts`), never stored:
 
-| Column | Query (`session.status`) | Sort |
+| Card | Column | Badge |
 |---|---|---|
-| Queued | `queued`, `assigned` | priority, age |
-| Running | `running` | last activity |
-| **Needs input** | `needs_input` | **oldest open input_request first**, with the question badge |
-| Waiting (external) | `waiting_external` (event states such as `await_approval`) | age |
-| Done | `done` | recent first |
-| Failed | `failed`, `lost` (after requeue limit) | recent first |
+| ticket `cancelled`, or session `failed` / `lost` | the terminal column (Done) | `cancelled` / `failed` / `lost` |
+| no session yet, or `queued` / `assigned` before any state | Queued | |
+| in a gate step (entry requirements, or an ADR-0009 review) | its source column (`step.from`) | `checking`, plus `checking: {to, title, phase}` |
+| otherwise | its `workflow_state` | `waiting_for_build_slot` when set |
+
+A state that is not a column (an older `conductor` version, or an old `m1_*` workflow) maps by its type: terminal → Done, human → Needs input, event → Waiting external, agent / command / connector → Implementing. The status ("running", "assigned"…) is shown on the card, not as a column. The card also carries the PR conductor opened (`pr_url`, from `context.<state>.pr_url`).
+
+Sort, by the column's kind: Queued by priority then age; human (Needs input) oldest open input_request first, with the question badge; event (Waiting external) by age; agent columns and Done most recent activity first.
 
 ## Session detail panel
 - The workflow state diagram with the current state highlighted.

@@ -2,6 +2,7 @@ import type { z } from 'zod';
 import type { OutboxEffect, SessionSnapshot } from '../engine/types.js';
 import type {
   KillPayloadSchema,
+  RunActionPayloadSchema,
   RunCmdPayloadSchema,
   SendInputPayloadSchema,
   SendMessagePayloadSchema,
@@ -18,6 +19,7 @@ export const M1_BASE_REF = 'HEAD';
 
 export type StartSessionPayload = z.infer<typeof StartSessionPayloadSchema>;
 export type RunCmdPayload = z.infer<typeof RunCmdPayloadSchema>;
+export type RunActionPayload = z.infer<typeof RunActionPayloadSchema>;
 export type SendInputPayload = z.infer<typeof SendInputPayloadSchema>;
 export type SendMessagePayload = z.infer<typeof SendMessagePayloadSchema>;
 export type KillPayload = z.infer<typeof KillPayloadSchema>;
@@ -41,6 +43,7 @@ export type MachineCommand =
   | { kind: 'send_input'; target: string; payload: SendInputPayload }
   | { kind: 'send_message'; target: string; payload: SendMessagePayload }
   | { kind: 'run_cmd'; target: string; payload: RunCmdPayload }
+  | { kind: 'run_action'; target: string; payload: RunActionPayload }
   | { kind: 'kill'; target: string; payload: KillPayload };
 
 /**
@@ -105,6 +108,21 @@ export function commandPayloadForEffect(
           cmd: effect.cmd,
           cwd: effect.cwd,
           timeout_ms: effect.timeout_ms,
+        },
+      };
+    case 'run_action':
+      if (effect.action !== 'open_pr') throw new Error(`unknown entry action ${effect.action}`);
+      return {
+        kind: 'run_action',
+        target,
+        payload: {
+          command_id,
+          workflow_state: effect.state,
+          target_state: effect.target_state,
+          action: effect.action,
+          idempotency_key: effect.idempotency_key,
+          args: effect.args,
+          branch: ctx.branch,
         },
       };
     case 'kill':

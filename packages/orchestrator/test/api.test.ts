@@ -105,7 +105,14 @@ async function seedSession(status: string, opts: { input?: boolean; machine?: st
   const s = await db.pool.query<{ id: string }>(
     'INSERT INTO session (ticket_id, workflow_id, workflow_version, workflow_state, status, ' +
       'machine_id, branch) VALUES ($1, $2, 1, $3, $4, $5, $6) RETURNING id',
-    [ticket.id, 'm1_basic', 'implement', status, opts.machine ?? null, 'conductor/x'],
+    [
+      ticket.id,
+      'm1_basic',
+      status === 'needs_input' ? 'needs_input' : 'implement',
+      status,
+      opts.machine ?? null,
+      'conductor/x',
+    ],
   );
   const sessionId = s.rows[0]!.id;
   let inputId: string | null = null;
@@ -142,7 +149,10 @@ describe('workflows', () => {
     expect(res.status).toBe(201);
     expect(res.body).toEqual({ id: 'm1_basic', version: 2 });
 
-    const list = await get('/api/workflows');
+    // ADR-0010: the list is the one workflow; `?all=1` includes the older ones.
+    const only = WorkflowSummarySchema.array().parse((await get('/api/workflows')).body);
+    expect(only.every((r) => r.id === 'conductor')).toBe(true);
+    const list = await get('/api/workflows?all=1');
     expect(list.status).toBe(200);
     const rows = WorkflowSummarySchema.array().parse(list.body);
     const basic = rows.find((r) => r.id === 'm1_basic')!;
@@ -243,6 +253,14 @@ describe('workflows', () => {
 // ==================================================================== tickets + board
 
 describe('tickets and board', () => {
+  it('ADR-0010: workflow_id defaults to conductor (seeded if missing)', async () => {
+    const res = await post('/api/tickets', { title: 'One workflow', body: '', repo: 'acme/app' });
+    expect(res.status).toBe(201);
+    expect(TicketDtoSchema.parse(res.body).workflow_id).toBe('conductor');
+    const wf = await get('/api/workflows/conductor');
+    expect(wf.status).toBe(200);
+  });
+
   it('creates a ticket with a card.upserted board event in the same transaction', async () => {
     const before = boardBus.published.length;
     const ticket = await createTicket('Add login', { priority: 3, required_tags: ['mac'] });
@@ -304,12 +322,24 @@ describe('tickets and board', () => {
     expect(res.status).toBe(200);
     const board = BoardResponseSchema.parse(res.body);
 
-    const queuedIds = board.columns.queued.map((c) => c.ticket_id);
+    // ADR-0010: an ordered list, Queued first, then the conductor states.
+    expect(board.columns.map((c) => c.id)).toEqual([
+      'queued',
+      'planning',
+      'implementing',
+      'needs_input',
+      'waiting_external',
+      'done',
+    ]);
+    const col = (id: string) => board.columns.find((c) => c.id === id)!.cards;
+    const queuedIds = col('queued').map((c) => c.ticket_id);
     expect(queuedIds.indexOf(high.id)).toBeLessThan(queuedIds.indexOf(low.id));
-    expect(board.columns.running.map((c) => c.session_id)).toContain(running.sessionId);
-    const ni = board.columns.needs_input.find((c) => c.session_id === waiting.sessionId)!;
+    // m1_basic's `implement` (agent) maps to Implementing by state type.
+    expect(col('implementing').map((c) => c.session_id)).toContain(running.sessionId);
+    const ni = col('needs_input').find((c) => c.session_id === waiting.sessionId)!;
     expect(ni.input_request?.id).toBe(waiting.inputId);
-    expect(board.columns.failed.map((c) => c.session_id)).toContain(failed.sessionId);
+    const lost = col('done').find((c) => c.session_id === failed.sessionId)!;
+    expect(lost.badges).toContain('lost');
     // Seeded tickets moved out of queued (their card follows the session).
     expect(queuedIds).not.toContain(running.ticket.id);
 
@@ -343,12 +373,15 @@ describe('session detail', () => {
     const { sessionId } = await seedSession('failed', { input: true });
 
     const detail = SessionDetailSchema.parse((await get(`/api/sessions/${sessionId}`)).body);
-    expect(detail.card.column).toBe('failed');
+    expect(detail.card.column).toBe('done');
+    expect(detail.card.badges).toContain('failed');
     expect(detail.card.input_request).toBeNull();
     expect(detail.pending_input).toBeNull();
 
     const board = BoardResponseSchema.parse((await get('/api/board')).body);
-    const card = board.columns.failed.find((c) => c.session_id === sessionId)!;
+    const card = board.columns
+      .find((c) => c.id === 'done')!
+      .cards.find((c) => c.session_id === sessionId)!;
     expect(card.input_request).toBeNull();
   });
 

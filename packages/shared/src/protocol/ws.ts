@@ -333,6 +333,12 @@ export const StartSessionPayloadSchema = z.object({
   model: z.string().optional(),
   max_turns: z.number().int().positive().optional(),
   max_budget_usd: z.number().nonnegative().optional(),
+  /**
+   * ADR-0009: a requirements reviewer (tools `['review']`, a fresh Claude session or a resume of
+   * its own). The daemon keeps the worker's Claude session id as the session's transcript, so the
+   * reviewer never replaces the worker's conversation (history, reopen).
+   */
+  review: z.literal(true).optional(),
   /** Extra env from the state; ports and git identity are added by the daemon. */
   env: z.record(z.string(), z.string()),
 });

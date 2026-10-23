@@ -5,6 +5,7 @@ import {
   type SessionDetail,
 } from '@conductor/shared';
 import type { OutputBus, Queryable } from '../contracts.js';
+import { splitReview } from '../engine/rows.js';
 import type { InputRequestRow, SessionRow, TicketRow, WorkflowDefinitionRow } from '../db/types.js';
 
 // GET /api/sessions/:id (M1-T08).
@@ -47,7 +48,8 @@ export async function loadSessionDetail(
     card: toBoardCard(ticket, session, openInput),
     workflow,
     workflow_version: session.workflow_version,
-    context: session.context,
+    // ADR-0009: the in-progress review step is engine state, not a state result.
+    context: splitReview(session.context).context,
     retry_counters: session.retry_counters,
     state_visits: session.state_visits,
     return_to: session.return_to,

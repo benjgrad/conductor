@@ -526,14 +526,17 @@ export class Daemon {
       const appendSystemPrompt = buildAppendSystemPrompt(this.workspace.readClaudeMd(worktree));
       const resume = p.resume_claude_session_id !== null;
       const claudeSessionId = p.resume_claude_session_id ?? randomUUID();
-      // Persist the (pre-assigned) Claude session id before spawning (ADR-0005 §Spawn).
+      // Persist the (pre-assigned) Claude session id before spawning (ADR-0005 §Spawn). ADR-0009:
+      // a requirements reviewer's conversation is not the session's: the stored id (the
+      // transcript the history and reopen read, ADR-0008) stays the worker's.
+      const prior = this.store.session(sid);
       this.store.putSession(sid, {
         ticketId: p.ticket_id,
         repo: p.repo,
         worktreePath: worktree,
         branch: p.branch,
         portRange: range,
-        claudeSessionId,
+        claudeSessionId: p.review === true ? (prior?.claudeSessionId ?? null) : claudeSessionId,
         lastUsedAt: Date.now(),
       });
       // TD-022: maxBudgetUsd is not passed in M1. Whether --max-budget-usd compares against the

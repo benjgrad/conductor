@@ -37,6 +37,30 @@ export const PendingAnswerSchema = z.object({
 export type PendingAnswer = z.infer<typeof PendingAnswerSchema>;
 
 /**
+ * ADR-0009: the review step a gated transition is in (`session.review`). While it is set,
+ * `workflow_state` is the synthetic label `reviewStateLabel(from, to)` ("implement → build
+ * (review)"), which names no workflow state: the board shows it, the timeout sweep keys on it,
+ * and events meant for a real state are ignored. Persisted inside the `session.context` jsonb
+ * under the reserved key `REVIEW_CONTEXT_KEY` (no migration); `toSnapshot` lifts it out.
+ */
+export const ReviewStepSchema = z.object({
+  /** The state whose outcome selected the gated transition. */
+  from: z.string(),
+  outcome: z.string(),
+  /** The transition's target, entered when every requirement is met. */
+  to: z.string(),
+  /** `attach: output` text for `to` (a counted object transition's goto leg), or null. */
+  attachment: z.object({ from: z.string(), detail: z.string(), output: z.string() }).nullable(),
+  /** What the source state reported (complete_state result / command output tail), for the prompt. */
+  subject: z.string(),
+  /** The reviewer's own Claude session (never the worker's `claude_session_id`). */
+  claude_session_id: z.string().nullable(),
+  /** The engine already nudged the reviewer once about a missing or malformed verdict. */
+  nudged: z.boolean(),
+});
+export type ReviewStep = z.infer<typeof ReviewStepSchema>;
+
+/**
  * The session as the engine sees it. Mirrors the `session` row (02) with DB encodings
  * removed (numbers are numbers, timestamps ISO strings), plus the ticket facts.
  */
@@ -97,6 +121,8 @@ export const SessionSnapshotSchema = z.object({
   wall_seconds: z.number().nonnegative(),
   /** state name → its `complete_state` result, e.g. `{open_pr: {pr_url}}`. */
   context: z.record(z.string(), JsonObjectSchema),
+  /** ADR-0009: the requirements review in progress, or null. See ReviewStepSchema. */
+  review: ReviewStepSchema.nullable(),
 });
 export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;
 
@@ -263,6 +289,12 @@ export const EffectSchema = z.discriminatedUnion('type', [
     max_turns: z.number().int().positive().optional(),
     /** Remaining workflow budget, the driver's `--max-budget-usd` backstop. */
     max_budget_usd: z.number().nonnegative().optional(),
+    /**
+     * ADR-0009: a requirements reviewer, not the worker. Always a fresh Claude session (or a
+     * resume of the reviewer's own); the daemon keeps the worker's conversation as the session's
+     * transcript.
+     */
+    review: z.literal(true).optional(),
   }),
   /** outbox `send_input` → WS send_input (live stdin). */
   z.object({

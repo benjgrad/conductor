@@ -335,6 +335,12 @@ export const WorkflowDetailSchema = z.object({
   version: z.number().int().positive(),
   created_at: IsoDateTimeSchema,
   definition: WorkflowDefinitionSchema,
+  /**
+   * Every saved version of this id, ascending (for the version picker; versions need not be
+   * contiguous). Optional so older servers and fixtures still parse; the orchestrator always
+   * sends it.
+   */
+  versions: z.array(z.number().int().positive()).optional(),
 });
 export type WorkflowDetail = z.infer<typeof WorkflowDetailSchema>;
 

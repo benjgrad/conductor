@@ -45,6 +45,28 @@ const GIT_EXACT = [
 // TD-082: it does match `commit -F <any file>`; narrow it now that auto mode judges the rest.
 const GIT_PREFIX = ['add', 'commit', 'restore'];
 
+/**
+ * ADR-0009: the git inspection commands a requirements reviewer may run, all exact (TD-082
+ * caution: diff/log/show accept `--output=<file>`, so no prefix rules). Enough to see the
+ * uncommitted work and the last commits; the review prompt lists them (engine/review.ts).
+ */
+export const REVIEW_GIT_COMMANDS: readonly string[] = [
+  'git status',
+  'git status --short',
+  'git diff',
+  'git diff --cached',
+  'git diff --stat',
+  'git diff HEAD~1',
+  'git diff --stat HEAD~1',
+  'git log --oneline -n 20',
+  'git log --stat -n 10',
+  'git log -p -n 5',
+  'git show',
+  'git show --stat',
+  'git rev-parse HEAD',
+  'git branch --show-current',
+];
+
 export const TOOL_ALIASES = {
   /** Read only (the base policy). */
   read: { builtin: [], allow: [], deny: [] },
@@ -71,6 +93,15 @@ export const TOOL_ALIASES = {
       ...GIT_EXACT.map((c) => `Bash(git ${c})`),
       ...GIT_PREFIX.map((c) => `Bash(git ${c}:*)`),
     ],
+    deny: [],
+  },
+  /**
+   * The requirements reviewer (ADR-0009): the read base plus exact git inspection commands. No
+   * edit tools, no staging or committing. The engine gives a reviewer only this alias.
+   */
+  review: {
+    builtin: ['Bash'],
+    allow: REVIEW_GIT_COMMANDS.map((c) => `Bash(${c})`),
     deny: [],
   },
   /**

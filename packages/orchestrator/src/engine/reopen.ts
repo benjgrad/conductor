@@ -12,7 +12,7 @@ import { withTransaction } from '../db/index.js';
 import type { SessionRow, TicketRow } from '../db/types.js';
 import { LEASE_INTERVAL } from '../gateway/claim.js';
 import type { Db } from '../main.js';
-import { readSession } from './rows.js';
+import { readSession, splitReview } from './rows.js';
 
 // ADR-0008: reopen a finished ticket by resuming the same agent. One transaction:
 //   lock ticket → lock the old session → checks (terminal, latest) → INSERT the new session
@@ -84,7 +84,9 @@ export async function reopenSession(
         old.branch ?? sessionBranch(ticket.id, old.id),
         old.claude_session_id,
         JSON.stringify(pending),
-        JSON.stringify(old.context),
+        // ADR-0009: never carry a review step (a session that ended mid-review); the reopened
+        // session starts at def.start and resumes the worker's Claude session, never a reviewer's.
+        JSON.stringify(splitReview(old.context).context),
         JSON.stringify(old.claude_spend_totals),
       ],
     );

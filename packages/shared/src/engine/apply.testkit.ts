@@ -49,6 +49,7 @@ export function freshSnapshot(def: WorkflowDefinition): SessionSnapshot {
     claude_spend_totals: {},
     wall_seconds: 0,
     context: {},
+    review: null,
   };
 }
 

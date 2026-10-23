@@ -75,6 +75,7 @@ export function commandPayloadForEffect(
       if (effect.model !== undefined) payload.model = effect.model;
       if (effect.max_turns !== undefined) payload.max_turns = effect.max_turns;
       if (effect.max_budget_usd !== undefined) payload.max_budget_usd = effect.max_budget_usd;
+      if (effect.review === true) payload.review = true;
       return { kind: 'start_session', target, payload };
     }
     case 'send_input':

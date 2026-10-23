@@ -1,5 +1,8 @@
 import {
+  REVIEW_CONTEXT_KEY,
+  ReviewStepSchema,
   WorkflowDefinitionSchema,
+  type JsonObject,
   type SessionSnapshot,
   type WorkflowDefinition,
 } from '@conductor/shared';
@@ -99,8 +102,29 @@ export function toSnapshot(session: SessionRow, ticket: TicketRow): SessionSnaps
     spend_usd: Number(session.spend_usd),
     claude_spend_totals: session.claude_spend_totals,
     wall_seconds: Number(session.wall_seconds),
-    context: session.context,
+    ...splitReview(session.context),
   };
+}
+
+/**
+ * ADR-0009: the review step lives in the `context` jsonb under REVIEW_CONTEXT_KEY (no column, no
+ * migration); the snapshot carries it as `review` and a context without it.
+ */
+export function splitReview(stored: SessionRow['context']): {
+  context: SessionSnapshot['context'];
+  review: SessionSnapshot['review'];
+} {
+  const { [REVIEW_CONTEXT_KEY]: raw, ...context } = stored;
+  if (raw === undefined) return { context, review: null };
+  const parsed = ReviewStepSchema.safeParse(raw);
+  return { context, review: parsed.success ? parsed.data : null };
+}
+
+/** The `context` jsonb to store: the snapshot's context plus its review step, if any. */
+export function joinReview(s: Pick<SessionSnapshot, 'context' | 'review'>): JsonObject {
+  const { [REVIEW_CONTEXT_KEY]: _dropped, ...context } = s.context;
+  void _dropped;
+  return s.review === null ? context : { ...context, [REVIEW_CONTEXT_KEY]: s.review };
 }
 
 /** Write every apply-owned session column from the snapshot (plus updated_at). */
@@ -136,7 +160,7 @@ export async function writeSession(
       s.spend_usd,
       JSON.stringify(s.claude_spend_totals),
       s.wall_seconds,
-      JSON.stringify(s.context),
+      JSON.stringify(joinReview(s)),
       now,
     ],
   );

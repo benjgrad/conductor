@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { WorkflowDefinitionSchema, type WorkflowDefinitionInput } from '../workflow/schema.js';
+import {
+  WorkflowDefinitionSchema,
+  type RequirementsGate,
+  type WorkflowDefinition,
+  type WorkflowDefinitionInput,
+} from '../workflow/schema.js';
 import { resolveToolPolicy } from '../workflow/tools.js';
 import { apply } from './apply.js';
 import { Harness, referenceWorkflow } from './apply.testkit.js';
@@ -32,6 +37,16 @@ const testsMissing = {
     { item: ITEMS[1]!, met: true, reason: 'none found' },
   ],
 };
+
+/** m1_reviewed with its implement → build gate changed by `mutate`. */
+function reviewedWith(mutate: (gate: RequirementsGate) => void): WorkflowDefinition {
+  const def = structuredClone(reviewed);
+  const impl = def.states.implement;
+  const done = impl && impl.type !== 'terminal' ? impl.on?.done : undefined;
+  if (typeof done !== 'object' || done.requirements === undefined) throw new Error('fixture');
+  mutate(done.requirements);
+  return def;
+}
 
 /** m1_reviewed: the worker in `implement` with its Claude session id. */
 function working(): Harness {
@@ -101,11 +116,7 @@ describe('gated outcome → review step', () => {
   });
 
   it('passes the gate model to the reviewer', () => {
-    const raw = structuredClone(reviewed) as WorkflowDefinitionInput;
-    const done = raw.states.implement!.type === 'agent' ? raw.states.implement.on!.done : null;
-    if (typeof done !== 'object' || done === null || !done.requirements) throw new Error('fixture');
-    done.requirements.model = 'opus';
-    const h = new Harness(WorkflowDefinitionSchema.parse(raw)).claimAndStart();
+    const h = new Harness(reviewedWith((g) => (g.model = 'opus'))).claimAndStart();
     const r = h.complete({});
     expect(find(r.effects, 'start_session')).toMatchObject({ model: 'opus', review: true });
   });
@@ -128,7 +139,7 @@ describe('gated outcome → review step', () => {
         },
         fail: { goto: 'implement', attach: 'output', retries: 3, else: 'needs_input' },
       },
-    } as WorkflowDefinitionInput['states'][string];
+    } as unknown as WorkflowDefinitionInput['states'][string];
     const h = new Harness(WorkflowDefinitionSchema.parse(raw)).claimAndStart();
     h.complete({});
     const r = h.cmdExit(0, 'warning: unused variable x');
@@ -240,11 +251,7 @@ describe('the reviewer verdict', () => {
   });
 
   it('retries 0 → straight to else on the first unmet verdict', () => {
-    const raw = structuredClone(reviewed) as WorkflowDefinitionInput;
-    const done = raw.states.implement!.type === 'agent' ? raw.states.implement.on!.done : null;
-    if (typeof done !== 'object' || done === null || !done.requirements) throw new Error('fixture');
-    done.requirements.on_unmet.retries = 0;
-    const h = new Harness(WorkflowDefinitionSchema.parse(raw)).claimAndStart();
+    const h = new Harness(reviewedWith((g) => (g.on_unmet.retries = 0))).claimAndStart();
     h.complete({});
     h.started();
     const r = h.complete(testsMissing as never);
@@ -300,7 +307,7 @@ describe('review failures', () => {
     const h = working();
     h.complete({});
     h.started();
-    const r = h.complete({ verdict: [] });
+    const r = h.complete({ verdict: [] } as never);
     const start = find(r.effects, 'start_session')!;
     expect(start.resume_claude_session_id).toBeNull();
     expect(start.prompt.startsWith(REVIEW_PROMPT_HEADING)).toBe(true);
@@ -390,7 +397,7 @@ describe('while reviewing', () => {
       [{ type: 'session.assigned', machine_id: 'other' }, 'wrong_status'],
     ] as const;
     for (const [event, reason] of cases) {
-      const r = apply(reviewed, before, event as never, h.now);
+      const r = apply(reviewed, before, event, h.now);
       expect(r.ignored, event.type).toBe(reason);
       expect(r.snapshot).toBe(before);
       expect(r.effects).toEqual([]);

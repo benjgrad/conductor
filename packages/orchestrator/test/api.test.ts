@@ -233,12 +233,10 @@ describe('workflows', () => {
     const res = await post('/api/workflows', { definition: reviewed });
     expect(res.status).toBe(400);
     const err = res.body.error as { details: { path: string; message: string }[] };
-    expect(err.details).toEqual([
-      {
-        path: 'states.implement.on.done.requirements.on_unmet.else',
-        message: expect.stringContaining('must be a human state') as unknown as string,
-      },
+    expect(err.details.map((d) => d.path)).toEqual([
+      'states.implement.on.done.requirements.on_unmet.else',
     ]);
+    expect(err.details[0]!.message).toContain('must be a human state');
   });
 });
 

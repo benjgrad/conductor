@@ -44,6 +44,10 @@
 //                                       replaced by its text. A message that arrives when no
 //                                       await_message is waiting (e.g. before the turn reached it)
 //                                       is queued as the next turn.
+//   {"if_exists": {path, then, else}}   play the `then` actions if <cwd>/<path> exists, else the
+//                                       `else` actions (ADR-0009 reviewer scenarios)
+// A requirements reviewer's first message starts with "# Requirements review"; with
+// FAKE_CLAUDE_SCENARIO_DIR it plays `<name>_review.json` for the ticket's `fake-scenario: <name>`.
 // Turns past the end of the script answer "No more scripted turns." and succeed.
 //
 // Other env:
@@ -142,9 +146,14 @@ function loadGlobalScenario() {
   return scenarioDir ? null : normalize(BUILTIN_SCENARIO);
 }
 
-/** FAKE_CLAUDE_SCENARIO_DIR: the scenario named in the first message (or default.json). */
+/**
+ * FAKE_CLAUDE_SCENARIO_DIR: the scenario named in the first message (or default.json). A
+ * requirements reviewer (ADR-0009: its prompt starts with "# Requirements review" and carries the
+ * ticket body) plays `<name>_review` instead.
+ */
 function scenarioNameFor(firstMessage) {
-  return /fake-scenario:\s*([A-Za-z0-9_-]+)/.exec(firstMessage)?.[1] ?? 'default';
+  const name = /fake-scenario:\s*([A-Za-z0-9_-]+)/.exec(firstMessage)?.[1] ?? 'default';
+  return firstMessage.startsWith('# Requirements review') ? `${name}_review` : name;
 }
 function loadNamedScenario(name) {
   const path = join(scenarioDir, `${name}.json`);
@@ -292,7 +301,16 @@ async function runTurn(text) {
   let turnCost = scenario.costPerTurnUsd ?? 0.001;
   let denials = 0;
   let errorSubtype;
-  for (const a of actions) {
+  // `if_exists` splices its `then` or `else` actions in place (a reviewer inspecting the worktree).
+  const queue = [...actions];
+  while (queue.length > 0) {
+    const a = queue.shift();
+    if (a.if_exists !== undefined) {
+      const c = a.if_exists;
+      const hit = existsSync(resolve(process.cwd(), String(c.path)));
+      queue.unshift(...((hit ? c.then : c.else) ?? []));
+      continue;
+    }
     if (a.say !== undefined) {
       out({
         type: 'assistant',

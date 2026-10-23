@@ -269,6 +269,18 @@ export const ORCHESTRATOR_FIXTURES: {
       text: 'Use Postgres.',
     },
   },
+  send_message: {
+    type: 'send_message',
+    msg_id: id(),
+    seq: null,
+    session_id: S,
+    fencing_token: 1,
+    payload: {
+      command_id: FIXTURE_IDS.command,
+      target_command_id: '6f5e4d3c-2b1a-4c9d-8e7f-a6b5c4d3e2f1',
+      text: '/context',
+    },
+  },
   kill: {
     type: 'kill',
     msg_id: id(),

@@ -21,7 +21,7 @@
 All driving and observing goes through the public API. Workflows are saved with
 `POST /api/workflows` (the shipped `m1_basic`) and tickets are created with `POST /api/tickets`. The
 board SSE stream (`/api/stream/board?last_event_id=0`) is watched for card states. Questions are
-answered with `POST /api/sessions/:id/input`, and the run also uses `GET /api/sessions/:id`,
+answered with `POST /api/sessions/:id/input`, a live message is sent with `POST /api/sessions/:id/messages`, and the run also uses `GET /api/sessions/:id`,
 `GET /api/machines` and the session output SSE stream.
 
 | Scenario | Checks |
@@ -31,6 +31,7 @@ answered with `POST /api/sessions/:id/input`, and the run also uses `GET /api/se
 | build retries exhausted | 4 failed builds → `needs_input` (`retries_exhausted`, the question includes the output); answering "retry" → build → test → done; a second answer → 409 |
 | ask/answer | `ask_user` → Needs input card → REST answer → the live agent (`send_input`) completes with the answer |
 | no outcome (U-028) | say-only turns → exactly one nudge (two fake turns) → Needs input `agent_question` with the no-outcome question and `Last output:` → REST answer → done |
+| live message (ADR-0007) | `POST /api/sessions/:id/messages` while the agent's turn runs (409 until its process is live) → the fake folds `/context` into that turn (no turn of its own) and completes with it; a `user` chunk on the output stream; one process; 409 once done |
 | shutdown | stopping the daemon kills a parked Claude process; no process is left running from the temp dir |
 
 Teardown stops the daemon (SIGTERM, which kills its Claude processes) and then the orchestrator.

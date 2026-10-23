@@ -18,14 +18,14 @@ M1-T12 froze every cross-agent seam as exported zod schemas / TS interfaces, eac
 | REST DTOs, `API_PATHS` (incl. `daemonWs`), `CONDUCTOR_PORT` / `conductorPort()`, `columnFor(status)` ([06](06-human-input.md#kanban-columns-queries-not-state)), `ApproveSessionRequest`, `httpForApplyResult` ([REST error map](#rest-error-map)) | `shared/src/api/rest.ts` | T08 → T09; T05 (WS URL), T07 (port) | — |
 | `toBoardCard(ticket, session, openInput)`, `toInputRequestDto` (the one card derivation) | `shared/src/api/rest.ts` | T12 → T04 (`card.upserted`), T08 (board, ticket create), T09b | `BOARD_CARD_FIXTURE` = `toBoardCard(ticket, null, null)` |
 | `BoardSseEvent`, `boardSseEventToRow` / `boardSseEventFromRow`, `OutputChunk` (`api/output.ts`), `encodeSseFrame` | `shared/src/api/sse.ts` | T04, T08, T11 write rows → T08 SSE → T09 | `BOARD_SSE_FIXTURES`, `BOARD_CARD_FIXTURE`, `OUTPUT_CHUNK_FIXTURE` (`api/fixtures.ts`) |
-| `EngineService.applyEvent` | `orchestrator/src/contracts.ts` | T04 → T08 (input/cancel/approve), T11 (claim, session_event, acks) | `FakeEngineService` (`seed`, `respond`, `respondWith`) |
+| `EngineService.applyEvent` | `orchestrator/src/contracts.ts` | T04 → T08 (input/cancel/approve/messages), T11 (claim, session_event, acks) | `FakeEngineService` (`seed`, `respond`, `respondWith`) |
 | `OutboxTransport` (+ the outbox state machine in its doc comment), `commandEnvelopeForOutboxRow` | `orchestrator/src/contracts.ts` | T11 → T04 dispatcher | `FakeOutboxTransport` |
 | `insertBoardEvents(tx, drafts)`, `BOARD_EVENT_LOCK_KEY` ([Board events](#board-events-and-the-event-table)) | `orchestrator/src/contracts.ts` | T12 → T04, T08, T11 (the only board-row writer) | tested with a recording `Queryable` |
 | Composition root: `CreateDb`, `CreateEngineService`, `CreateGateway`, `CreateApi`, `composeOrchestrator` ([Composition root](#composition-root)) | `orchestrator/src/main.ts` | T04 / T11 / T08 each implement one factory → T07 wires `main()` | wiring test with fake factories |
 | `BoardBus` | `orchestrator/src/contracts.ts` | T04 (after COMMIT), T08 (ticket create), T11 (badges; claim's `boardEvents`) → T08 SSE | `InMemoryBoardBus` |
 | `OutputBus` (256 KB ring per session, U-005) | `orchestrator/src/contracts.ts` | T11 (WS `output`) → T08 (detail + output SSE) | `InMemoryOutputBus` (also the M1 implementation) |
 | DB row types ([02](02-data-model.md)) | `orchestrator/src/db/types.ts` | T02 DDL ⇄ T04, T08, T11 | — |
-| `ClaudeDriver` / `DriverSession` / `DriverEvent` ([ADR-0005](../adr/0005-claude-code-driver.md) §Contract, verbatim) | `daemon/src/claude/driver.ts` | T05/T07 real driver → T05 daemon core | `FakeClaudeDriver` (`claude/fake-driver.ts`) |
+| `ClaudeDriver` / `DriverSession` / `DriverEvent` ([ADR-0005](../adr/0005-claude-code-driver.md) §Contract, verbatim, plus `DriverSession.sendMessage` from [ADR-0007](../adr/0007-live-messages-to-agents.md)) | `daemon/src/claude/driver.ts` | T05/T07 real driver → T05 daemon core | `FakeClaudeDriver` (`claude/fake-driver.ts`) |
 | `CommandRunner`, `CreateCommandRunner` | `daemon/src/commands/runner.ts`; factory `createCommandRunner` in `daemon/src/commands/index.ts` (the real `ProcessCommandRunner`, T06) | T06 → T05 | `FakeCommandRunner` (`commands/fake-runner.ts`) |
 
 ## Engine: events in, effects out
@@ -40,6 +40,7 @@ M1-T12 froze every cross-agent seam as exported zod schemas / TS interfaces, eac
 | `input.provided {input_request_id, answer, goto?}` | T08 `POST /sessions/:id/input` (`actor` = answered_by) |
 | `external.event {name}` | T08 `/approve` (`ui.approve`); connectors later |
 | `operator.cancel` | T08 `/cancel` |
+| `operator.message {text}` | T08 `POST /sessions/:id/messages` ([ADR-0007](../adr/0007-live-messages-to-agents.md)). Accepted only while `status = running` in an **agent** state with `agent_process_live`; otherwise ignored `wrong_status` (a `needs_input` session is answered through `/input`). Accepted → exactly one `send_message` effect: no transition, no status, deadline or snapshot change (transitions only on outcomes). The event row keeps `text`: it is the record of what the human said |
 | `timer.fired {state, deadline}` | T04 timeout sweep over `session.state_deadline` |
 | `budget.exceeded` | nothing in M1 (see defaults) |
 
@@ -49,6 +50,7 @@ M1-T12 froze every cross-agent seam as exported zod schemas / TS interfaces, eac
 |---|---|---|
 | `start_session` | `start_session` / `machine:<id>` | `start_session` (+ ticket, repo, base_ref, branch, env; [fields](#effect--ws-fields)) |
 | `send_input` | `send_input` / `machine:<id>` | `send_input` |
+| `send_message` | `send_message` / `machine:<id>` | `send_message` with `target_command_id = agent_command_id` ([ADR-0007](../adr/0007-live-messages-to-agents.md)) |
 | `run_cmd` | `run_cmd` / `machine:<id>` | `run_cmd` |
 | `kill` | `kill` / `machine:<id>` | `kill` with `target_command_id: null` |
 | `connector_call` | `connector_call` / `connector:<name>` | none (orchestrator-side connectors, not in M1) |
@@ -114,7 +116,7 @@ Choices the gateway makes beyond the rules above ([03](03-protocols.md#daemon--o
 
 ## Outbox state machine
 
-`pending → sent → acked | failed`. `acked` and `failed` are terminal. Status writes are partitioned and every UPDATE is guarded, so a fast ack can't be overwritten by the dispatcher. **Every UPDATE that makes a `start_session` row terminal also sets `payload.prompt` to JSON `null`** (`SCRUBBED_PAYLOAD_SQL`, `orchestrator/src/engine/outbox.ts`; other payload fields kept): the prompt can carry the `attach: output` tail, and a terminal row is never sent again (a requeue renders a new prompt from the session) ([U-039](../tracking/UNKNOWNS.md)).
+`pending → sent → acked | failed`. `acked` and `failed` are terminal. Status writes are partitioned and every UPDATE is guarded, so a fast ack can't be overwritten by the dispatcher. **Every UPDATE that makes a `start_session` row terminal also sets `payload.prompt` to JSON `null`** (`SCRUBBED_PAYLOAD_SQL`, `orchestrator/src/engine/outbox.ts`; other payload fields kept): the prompt can carry the `attach: output` tail, and a terminal row is never sent again (a requeue renders a new prompt from the session) ([U-039](../tracking/UNKNOWNS.md)). The same UPDATE nulls a `send_message` row's `payload.text` (up to 20 000 chars of human text; its record is the `operator.message` event row, [ADR-0007](../adr/0007-live-messages-to-agents.md)). `send_message` rows are retried like `send_input` (no ack timeout); the daemon dedupes them on `command_id`, so a message is written at most once.
 
 | Who | Transition | Guarded UPDATE |
 |---|---|---|
@@ -134,6 +136,7 @@ Choices the gateway makes beyond the rules above ([03](03-protocols.md#daemon--o
 - `send_input` with `no_live_process` → `agent_process_live = false`, then re-answer with `start_session {resume_claude_session_id, prompt = pending_answer.answer}` ([Pending answer](#pending-answer)). Other `send_input` reasons → outcome `fail`.
 - `run_cmd` → outcome `fail` (e.g. `memory_pressure`, `unknown_session`).
 - `kill` → ignored (`kill_refused`; logged as the event row).
+- `send_message` (any reason: `no_live_process`, `agent_parked`, …) → ignored (`message_refused`). A live message is best effort and never re-routes the workflow, unlike `send_input`'s `no_live_process` re-answer. After the commit the gateway appends a `debug` output chunk `conductor: message not delivered to the agent (<reason>)` so the board shows it ([ADR-0007](../adr/0007-live-messages-to-agents.md)).
 
 ## Agent process correlation
 
@@ -186,6 +189,8 @@ Kills are direct replies, not outbox rows: if the socket drops before one is wri
 | `start_session.workflow_state`, `prompt`, `tools`, `resume_claude_session_id`, `model`, `max_turns`, `max_budget_usd` | the effect (`state` → `workflow_state`; optional fields omitted when absent) |
 | `start_session.env` | `{CONDUCTOR_SESSION_ID, CONDUCTOR_TICKET_ID}`. The workflow schema has no per-state env in M1; ports and git identity are added by the daemon (ADR-0005 §Spawn) |
 | `send_input.input_request_id`, `text` | the effect |
+| `send_message.target_command_id` | `snapshot.agent_command_id` after apply (the live process the message is for; the daemon refuses it for any other process) |
+| `send_message.text` | the effect |
 | `run_cmd.workflow_state`, `cmd`, `cwd`, `timeout_ms` | the effect (`state` → `workflow_state`) |
 | `kill.target_command_id` | **`null` for every engine-issued kill** (e.g. `operator.cancel`): kill every process of the session at or below the envelope token. Only the gateway's direct orphan kills set it |
 | `kill.reason` | the effect |
@@ -204,7 +209,7 @@ A state's `guard` names an evaluator in `GUARD_REGISTRY` (`shared/src/workflow/g
 
 ## REST error map
 
-T08 maps a non-applied `applyEvent` result with `httpForApplyResult(route, result)` (`shared/src/api/rest.ts`); `applied` → **202** `{ok: true}` on `/input`, `/approve` and `/cancel`.
+T08 maps a non-applied `applyEvent` result with `httpForApplyResult(route, result)` (`shared/src/api/rest.ts`); `applied` → **202** `{ok: true}` on `/input`, `/approve`, `/cancel` and `/messages`.
 
 | Result | HTTP | `ApiError.code` |
 |---|---|---|
@@ -214,9 +219,9 @@ T08 maps a non-applied `applyEvent` result with `httpForApplyResult(route, resul
 | rejected `invalid_goto` | 400 | `bad_request` |
 | rejected `stale_fencing_token` (not reachable from REST) | 409 | `conflict` |
 | ignored (any `APPLY_IGNORE_REASONS`) on `/input` | 409 | `input_not_pending` |
-| ignored on `/approve`, `/cancel` | 409 | `conflict` |
+| ignored on `/approve`, `/cancel`, `/messages` | 409 | `conflict` |
 
-`POST /api/sessions/:id/approve` body `ApproveSessionRequest {comment?}` → `external.event {name: 'ui.approve', data: {comment}}` (no `data` without a comment). `/cancel` body `{reason?}` → `operator.cancel {reason}`. Request-body validation failures are 400 `bad_request` with `details`.
+`POST /api/sessions/:id/approve` body `ApproveSessionRequest {comment?}` → `external.event {name: 'ui.approve', data: {comment}}` (no `data` without a comment). `/cancel` body `{reason?}` → `operator.cancel {reason}`. `/messages` body `SendMessageRequest {text}` (trimmed, 1–20 000 chars) → `operator.message {text}`; on `applied`, after the commit, T08 appends the text to the `OutputBus` as a `user` chunk ([ADR-0007](../adr/0007-live-messages-to-agents.md)). Request-body validation failures are 400 `bad_request` with `details`.
 
 ## Composition root
 

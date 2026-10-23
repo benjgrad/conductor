@@ -53,6 +53,12 @@ export interface DriverSession {
   readonly claudeSessionId: string;
   on(listener: (ev: DriverEvent) => void): () => void;
   sendInput(text: string): void; // live answer injection; queued by Claude if a turn is running
+  /**
+   * ADR-0007: a human's message to the running agent. Written like sendInput (a stream-json user
+   * message; Claude folds it into the current turn, and runs a `/...` text as a slash command),
+   * but it is not an answer: a pending ask_user question stays pending.
+   */
+  sendMessage(text: string): void;
   end(): void; // graceful: close stdin → exit 0
   kill(graceMs?: number): void; // SIGTERM, then SIGKILL after graceMs
 }

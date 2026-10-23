@@ -61,6 +61,11 @@ export class Api {
     );
   }
 
+  /** ADR-0007: a message to the running agent. */
+  message(sessionId: string, text: string) {
+    return this.call<{ ok: true }>('POST', `/api/sessions/${sessionId}/messages`, { text }, 202);
+  }
+
   machines() {
     return this.call<MachineDto[]>('GET', '/api/machines');
   }

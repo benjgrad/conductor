@@ -30,9 +30,9 @@ const GENS: Gen[] = [
   (h, p) => ({
     type: 'command.refused',
     command_id: p % 3 === 0 ? uuid(9999) : (h.snap.agent_command_id ?? uuid(1)),
-    command_kind: (['start_session', 'send_input', 'run_cmd', 'kill', 'connector_call'] as const)[
-      p % 5
-    ]!,
+    command_kind: (
+      ['start_session', 'send_input', 'send_message', 'run_cmd', 'kill', 'connector_call'] as const
+    )[p % 6]!,
     reason: p % 2 ? 'no_live_process' : 'ack_timeout',
   }),
   (h, p) => ({
@@ -84,6 +84,7 @@ const GENS: Gen[] = [
     limit: 2,
   }),
   () => ({ type: 'operator.cancel' }),
+  (_h, p) => ({ type: 'operator.message', text: p % 2 ? '/context' : `m${p}` }),
 ];
 
 /** The event that moves the session along its happy path (or into a human state and out). */

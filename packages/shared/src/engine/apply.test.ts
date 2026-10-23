@@ -765,3 +765,72 @@ describe('pr_flow: open_pr, notify, await_approval', () => {
     });
   });
 });
+
+describe('operator.message (ADR-0007)', () => {
+  const msg = (text = 'also add a test') => ({ type: 'operator.message' as const, text });
+
+  it('running an agent state with a live process: one send_message effect, nothing else changes', () => {
+    const h = runningImplement();
+    expect(h.snap.agent_process_live).toBe(true);
+    const before = h.snap;
+    const r = h.run(msg());
+    expect(r.ignored).toBeNull();
+    expect(r.effects).toEqual([{ type: 'send_message', text: 'also add a test' }]);
+    expect(r.snapshot).toEqual(before);
+  });
+
+  it('a slash command is passed through verbatim', () => {
+    const r = runningImplement().run(msg('/context'));
+    expect(r.effects).toEqual([{ type: 'send_message', text: '/context' }]);
+  });
+
+  it('is ignored (wrong_status) unless running an agent state with a live process', () => {
+    const cases: [string, SessionSnapshot][] = [];
+    cases.push(['queued', new Harness(m1).snap]);
+    const assigned = new Harness(m1);
+    assigned.run({ type: 'session.assigned', machine_id: 'mbp-ben' });
+    cases.push(['assigned (no started yet)', assigned.snap]);
+    cases.push([
+      'running, process not live',
+      { ...runningImplement().snap, agent_process_live: false },
+    ]);
+    cases.push(['needs_input (parked on ask_user)', parkedOnQuestion().snap]);
+    const build = runningImplement();
+    build.complete();
+    expect(build.snap).toMatchObject({ workflow_state: 'build', status: 'running' });
+    cases.push(['running a command state', build.snap]);
+    for (const [label, snap] of cases) {
+      const r = apply(m1, snap, msg(), T0);
+      expect(r, label).toEqual({ snapshot: snap, effects: [], ignored: 'wrong_status' });
+    }
+  });
+
+  it('is ignored in an event state (waiting_external), even with a live-process flag', () => {
+    const snap: SessionSnapshot = {
+      ...runningImplement(pr).snap,
+      workflow_state: 'await_approval',
+      status: 'waiting_external',
+    };
+    expect(apply(pr, snap, msg(), T0).ignored).toBe('wrong_status');
+  });
+
+  it('a terminal session ignores it (session_terminal)', () => {
+    const h = runningImplement();
+    h.run({ type: 'operator.cancel' });
+    expect(h.run(msg()).ignored).toBe('session_terminal');
+  });
+
+  it('a refused send_message is ignored (message_refused) for any reason: no re-route', () => {
+    const h = runningImplement();
+    const before = h.snap;
+    for (const reason of ['no_live_process', 'agent_parked', 'stale_fencing_token']) {
+      const r = h.run({
+        type: 'command.refused',
+        command_id: uuid(4242),
+        command_kind: 'send_message',
+        reason,
+      });
+      expect(r).toEqual({ snapshot: before, effects: [], ignored: 'message_refused' });
+    }
+  });
+});

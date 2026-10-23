@@ -38,6 +38,12 @@
 //   {"error": subtype}                  end the turn with result is_error=true and that subtype
 //   {"write_file": {path, content}}     write a file relative to cwd (parents created; must stay
 //                                       inside cwd), like an agent's edit (M1-T10 fixtures)
+//   {"await_message": true}             wait for a user message written mid-turn and fold it into
+//                                       this turn, as the real CLI does (ADR-0007 spike): it runs
+//                                       no turn of its own. "$message" in any later string is
+//                                       replaced by its text. A message that arrives when no
+//                                       await_message is waiting (e.g. before the turn reached it)
+//                                       is queued as the next turn.
 // Turns past the end of the script answer "No more scripted turns." and succeed.
 //
 // Other env:
@@ -186,9 +192,14 @@ async function callTool(name, args) {
   });
 }
 
+/** ADR-0007: the last user message folded into a turn by `await_message`. */
+let lastMessage = '';
+/** Resolves the pending `await_message` with the next user message, if one is waiting. */
+let messageWaiter = null;
+
 const subst = (v, answer) =>
   typeof v === 'string'
-    ? v.replaceAll('$answer', answer)
+    ? v.replaceAll('$answer', answer).replaceAll('$message', lastMessage)
     : Array.isArray(v)
       ? v.map((x) => subst(x, answer))
       : v && typeof v === 'object'
@@ -239,7 +250,10 @@ async function runTurn(text) {
     if (a.say !== undefined) {
       out({
         type: 'assistant',
-        message: { role: 'assistant', content: [{ type: 'text', text: a.say }] },
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: a.say.replaceAll('$message', lastMessage) }],
+        },
         parent_tool_use_id: null,
       });
     }
@@ -248,6 +262,7 @@ async function runTurn(text) {
     if (a.raw !== undefined) process.stdout.write(a.raw + '\n');
     if (a.sleep !== undefined) await new Promise((r) => setTimeout(r, a.sleep));
     if (a.ignore_sigterm) process.on('SIGTERM', () => {});
+    if (a.await_message) lastMessage = await new Promise((r) => (messageWaiter = r));
     if (a.ask_user !== undefined) await callTool('ask_user', { question: subst(a.ask_user, text) });
     if (a.complete_state !== undefined)
       await callTool('complete_state', { result: subst(a.complete_state, text) });
@@ -293,6 +308,13 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     fail('invalid stream-json input line');
   }
   if (msg.type !== 'user') return; // control messages are ignored by the fake
+  if (messageWaiter !== null) {
+    // Folded into the running turn (ADR-0007), not queued as a turn of its own.
+    const w = messageWaiter;
+    messageWaiter = null;
+    w(userText(msg));
+    return;
+  }
   busy = busy
     .then(() => runTurn(userText(msg)))
     .catch((err) => fail(`turn failed: ${err?.message ?? err}`));

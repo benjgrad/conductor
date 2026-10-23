@@ -111,6 +111,8 @@ export const COMMAND_REFUSAL_REASONS = [
   'max_sessions',
   'no_live_process',
   'unknown_session',
+  /** send_message to a process parked for a human (after ask_user / no_outcome), ADR-0007. */
+  'agent_parked',
 ] as const;
 
 export const CommandAckPayloadSchema = z.object({
@@ -318,6 +320,27 @@ export const SendInputPayloadSchema = z.object({
 export const SendInputMessageSchema = msg('send_input', SendInputPayloadSchema, orchSessionEnv);
 
 /**
+ * ADR-0007: a human's message to the running agent, written to the live process's stdin as a
+ * stream-json user message (Claude folds it into its current turn; a `/...` text runs as a slash
+ * command). Delivered only to the process spawned by start_session `target_command_id`, at or
+ * below the envelope fencing token, that is neither completed nor parked; otherwise refused
+ * (`no_live_process` / `agent_parked`). Best effort: the engine ignores a refusal
+ * (`message_refused`), and the orchestrator shows it as a debug output line.
+ */
+export const SendMessagePayloadSchema = z.object({
+  command_id: UuidSchema,
+  /** `session.agent_command_id` when the message was accepted: the process it is meant for. */
+  target_command_id: UuidSchema,
+  /** null once the outbox row is terminal (scrubbed, like start_session.prompt, U-039). */
+  text: z.string(),
+});
+export const SendMessageMessageSchema = msg(
+  'send_message',
+  SendMessagePayloadSchema,
+  orchSessionEnv,
+);
+
+/**
  * Daemon kill rule (10-contracts §Orphaned processes): with `target_command_id` set, kill only the
  * process spawned by that start_session (no such live process → no-op). With it null, kill the
  * session's process only if it runs under a fencing token <= the envelope `fencing_token`, so a
@@ -356,6 +379,7 @@ export const OrchestratorToDaemonSchema = z.discriminatedUnion('type', [
   StartSessionMessageSchema,
   RunCmdMessageSchema,
   SendInputMessageSchema,
+  SendMessageMessageSchema,
   KillMessageSchema,
   ProtocolErrorMessageSchema,
 ]);
@@ -365,7 +389,7 @@ export type OrchestratorMessageType = OrchestratorToDaemon['type'];
 /** Commands delivered through the outbox (carry `command_id`, deduped by the daemon). */
 export type OrchestratorCommand = Extract<
   OrchestratorToDaemon,
-  { type: 'start_session' | 'run_cmd' | 'send_input' | 'kill' }
+  { type: 'start_session' | 'run_cmd' | 'send_input' | 'send_message' | 'kill' }
 >;
 
 export const DAEMON_MESSAGE_TYPES = DaemonToOrchestratorSchema.options.map(

@@ -26,7 +26,7 @@ import { ReconnectingWs } from './ws-client.js';
 //
 // One outbound WS. On every (re)connect: `register` → wait for `registered` → replay buffered
 // session_events after `registered.last_seq` → heartbeat, repo_inventory, request_work.
-// Commands (`start_session`, `run_cmd`, `send_input`, `kill`) are deduped on command_id (persisted
+// Commands (`start_session`, `run_cmd`, `send_input`, `send_message`, `kill`) are deduped on command_id (persisted
 // with the ack they got, so a re-sent command is re-acked, never re-run). The Claude driver
 // (ADR-0005) and the command runner (T06) are injected.
 
@@ -55,11 +55,12 @@ export interface DaemonOptions {
 
 type Command = Extract<
   OrchestratorToDaemon,
-  { type: 'start_session' | 'run_cmd' | 'send_input' | 'kill' }
+  { type: 'start_session' | 'run_cmd' | 'send_input' | 'send_message' | 'kill' }
 >;
 type StartSession = Extract<Command, { type: 'start_session' }>;
 type RunCmd = Extract<Command, { type: 'run_cmd' }>;
 type SendInput = Extract<Command, { type: 'send_input' }>;
+type SendMessage = Extract<Command, { type: 'send_message' }>;
 type Kill = Extract<Command, { type: 'kill' }>;
 
 interface AgentProc {
@@ -402,6 +403,8 @@ export class Daemon {
           return this.runCmd(msg);
         case 'send_input':
           return this.sendInput(msg);
+        case 'send_message':
+          return this.sendMessage(msg);
         case 'kill':
           return this.kill(msg);
       }
@@ -694,6 +697,36 @@ export class Daemon {
     }
     a.askPending = false;
     a.nudged = false;
+    this.finish(msg, { accepted: true });
+  }
+
+  /**
+   * ADR-0007: a human's message to the running agent, written to stdin as a user message (Claude
+   * folds it into the current turn; a `/...` text runs as a slash command). Only the process the
+   * message was meant for (`target_command_id`, at or below the envelope fencing token), and only
+   * while it is working: a completed process is ending, and a parked one (ask_user / no_outcome)
+   * is answered through send_input, so writing to it would start a turn nobody asked for.
+   * Unlike send_input it leaves `askPending` and `nudged` alone: a message folded into a turn is
+   * not an answer, and the turn still has to end with an outcome (U-028).
+   */
+  private sendMessage(msg: SendMessage): void {
+    const p = msg.payload;
+    const a = this.live.get(msg.session_id)?.agent;
+    if (
+      !a ||
+      a.exited ||
+      a.completed ||
+      a.commandId !== p.target_command_id ||
+      a.fencingToken > msg.fencing_token
+    ) {
+      return this.finish(msg, { accepted: false, reason: 'no_live_process' });
+    }
+    if (a.askPending) return this.finish(msg, { accepted: false, reason: 'agent_parked' });
+    try {
+      a.session.sendMessage(p.text);
+    } catch {
+      return this.finish(msg, { accepted: false, reason: 'no_live_process' });
+    }
     this.finish(msg, { accepted: true });
   }
 

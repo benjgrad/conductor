@@ -129,7 +129,22 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
     case 'operator.cancel':
       failSession(st, 'cancelled', e.reason ?? 'operator_cancel');
       return null;
+    case 'operator.message':
+      return onMessage(st, e.text);
   }
+}
+
+/**
+ * ADR-0007: a human's message to the running agent. Only while `running` an agent state whose
+ * process is live (a parked `needs_input` session is answered through input.provided instead).
+ * One `send_message` effect; nothing else changes: no transition, no status, no deadline.
+ */
+function onMessage(st: Step, text: string): ApplyIgnoreReason | null {
+  if (st.s.status !== 'running' || st.state?.type !== 'agent' || !st.s.agent_process_live) {
+    return 'wrong_status';
+  }
+  st.emit({ type: 'send_message', text });
+  return null;
 }
 
 /**
@@ -189,6 +204,10 @@ function onRefused(
   switch (e.command_kind) {
     case 'kill':
       return 'kill_refused';
+    case 'send_message':
+      // ADR-0007: best effort. The process is gone (its `exit` follows) or parked; either way a
+      // refused message does not re-route the workflow.
+      return 'message_refused';
     case 'start_session': {
       // U-025: only the current start, and only before its `started` arrived.
       if (e.command_id !== st.s.agent_command_id || st.s.agent_process_live) {

@@ -13,6 +13,7 @@ The exact shapes are zod schemas in `packages/shared` (M1-T12): `protocol/ws.ts`
 | GET | `/api/sessions/:id` | Detail: state, context, pending input request, recent output (ring buffer) |
 | POST | `/api/sessions/:id/input` | Answer the pending input request `{input_request_id, answer, goto?}` (`goto` = "skip to <state>"). Becomes the engine event `input.provided`. 409 if already answered |
 | POST | `/api/sessions/:id/approve` | `{comment?}` → `external.event ui.approve` (for `await_approval`-style event states); 202, 409 `conflict` if not awaited. Error map: [10](10-contracts.md#rest-error-map) |
+| POST | `/api/sessions/:id/messages` | `{text}` (trimmed, 1–20 000 chars) → `operator.message`: a message to the agent while it runs, written into its live process ([ADR-0007](../adr/0007-live-messages-to-agents.md), [06](06-human-input.md#live-messages-to-a-running-agent)). A `/...` text is passed through and Claude Code runs it as a slash command. 202; 409 `conflict` unless the session is `running` an agent state with a live process; 404 unknown session. The text is also appended to the output ring as a `user` chunk |
 | POST | `/api/sessions/:id/pause` · `/cancel` | Operator controls |
 | POST | `/api/tickets` | Create a ticket manually (v1 source, [U-003](../tracking/UNKNOWNS.md)) |
 | GET/POST | `/api/workflows` | List / save a new workflow version (validated on save) |
@@ -21,7 +22,7 @@ The exact shapes are zod schemas in `packages/shared` (M1-T12): `protocol/ws.ts`
 ### SSE
 - `GET /api/stream/board` gives board-level events only (`card.upserted`, `card.moved`, `session.status`, `input.requested`, `input.answered`, `card.badge`). Each one is backed by exactly one `event` row (row `type` = SSE type, `payload` = the event minus `id`/`ts`/`session_id`), and the frame's `id` is that row's id. Reconnects send `Last-Event-ID`, and the server replays board-typed rows from the `event` table ([10](10-contracts.md#board-events-and-the-event-table)). `card.upserted` carries the whole card (new tickets, claims, state/spend changes); the client keeps one card per `ticket_id`. The SSE event `input.answered` is distinct from the engine event `input.provided` on purpose. Without `Last-Event-ID` (or `?last_event_id=`, for the first `EventSource` connect, which can't set headers) the stream starts at the current max board id. Frames always come from the `event` table, read in id order past a per-connection cursor; a `BoardBus` publish only wakes the reader. Board rows commit in id order and are published after COMMIT, so the hand-off from replay to live has no gap and no duplicate (M1-T08).
 - `card.badge` toggles a card badge (`waiting_for_build_slot`). A badge is not a session status.
-- `GET /api/stream/sessions/:id/output` streams terminal output for **the one open session**. On connect it replays the ring buffer, then sends live chunks. Output never reaches browsers that aren't looking at it.
+- `GET /api/stream/sessions/:id/output` streams terminal output for **the one open session**. On connect it replays the ring buffer, then sends live chunks. Output never reaches browsers that aren't looking at it. Besides the daemon's streams it carries `user` chunks (a human's live message, appended by the orchestrator because Claude does not echo user messages) and a `debug` line when the daemon refuses a live message ([ADR-0007](../adr/0007-live-messages-to-agents.md)).
 
 ## Daemon ↔ orchestrator (WebSocket)
 
@@ -35,7 +36,7 @@ Every message is an envelope:
 
 - `seq` is the per-daemon monotonic sequence. It is **required on `session_event`** (deduped on `(machine_id, seq)`), nullable on other daemon messages, and `null` on orchestrator messages.
 - `session_id` + `fencing_token` are required on session-scoped messages (`session_event`, `output`, and every orchestrator command) and `null` on machine-level ones.
-- Outbox commands (`start_session`, `run_cmd`, `send_input`, `kill`) carry `payload.command_id`. The daemon dedupes on it and answers with `command_ack`. Their envelope `fencing_token` is the one stored on the outbox row (the session's token when the command was written), and the field-by-field effect mapping is in [10](10-contracts.md#effect--ws-fields).
+- Outbox commands (`start_session`, `run_cmd`, `send_input`, `send_message`, `kill`) carry `payload.command_id`. The daemon dedupes on it and answers with `command_ack`. Their envelope `fencing_token` is the one stored on the outbox row (the session's token when the command was written), and the field-by-field effect mapping is in [10](10-contracts.md#effect--ws-fields).
 
 ### Daemon → orchestrator
 | type | payload | notes |
@@ -44,7 +45,7 @@ Every message is an envelope:
 | `heartbeat` | live cpu/mem/disk, running session ids + their fencing tokens | renews machine + session leases. `cpu_free` is stored as `floor()` (an int column) |
 | `repo_inventory` | `[{repo, path, head_commit, tree_clean}]` | on change |
 | `request_work` | free slots, repo inventory digest, live resources | the pull scheduler entry point ([04](04-scheduler.md)) |
-| `command_ack` | `{command_id, accepted, reason?}` | daemon may refuse. Known reasons: `memory_pressure`, `max_sessions`, `no_live_process` (send_input with no live Claude process → resume path), `unknown_session` |
+| `command_ack` | `{command_id, accepted, reason?}` | daemon may refuse. Known reasons: `memory_pressure`, `max_sessions`, `no_live_process` (send_input with no live Claude process → resume path; send_message with no live process for its `target_command_id`), `unknown_session`, `agent_parked` (send_message to a process parked after `ask_user` / `no_outcome`) |
 | `session_event` | `{kind, data}` where kind ∈ `started`, `claude_session_id`, `complete_state`, `ask_user`, `no_outcome`, `exit`, `cmd_exit`, `spend`, `build_slot`, `heartbeat` | carries `seq`, durable outcomes. A session `heartbeat` also renews that session's lease |
 | `output` | `{stream, text, ts}` terminal chunk | not persisted to Postgres; goes into the per-session ring (256 KB) |
 
@@ -62,6 +63,7 @@ Every message is an envelope:
 | `start_session` | `command_id`, ticket, repo, base ref (M1: `HEAD` of the shared clone), branch, workflow state, prompt (rendered by `apply`, [05](05-workflow-engine.md#prompt-render); nulled in `outbox.payload` once the row is terminal, [U-039](../tracking/UNKNOWNS.md)), the state's workflow `tools` list (the daemon maps it to the ADR-0005 `ToolPolicy`), `resume_claude_session_id?`, model / max turns / max budget, env. When `resume_claude_session_id` is null, **the daemon pre-assigns the Claude session id** (`--session-id`), persists it before spawning, and reports it with `session_event claude_session_id`. The daemon allocates the port range itself ([07](07-multi-session-isolation.md)) |
 | `run_cmd` | `command_id`, workflow state, cmd, cwd (relative to the worktree; null = root), `timeout_ms` |
 | `send_input` | `command_id`, `input_request_id`, answer text (a user message on the live process's stdin) |
+| `send_message` | `command_id`, `target_command_id` (the `start_session` whose process it is for), `text` (nulled in `outbox.payload` once the row is terminal). A human's live message, written to that process's stdin as a user message; it is not an answer, so `ask_user` / nudge state is untouched. Refused (`no_live_process`) unless that process is live, not completed and runs at or below the envelope fencing token; refused `agent_parked` while it waits for a human ([ADR-0007](../adr/0007-live-messages-to-agents.md)) |
 | `kill` | `command_id` (null when it's a direct reply), `target_command_id` (the `start_session` whose process to kill, or null), reason (e.g. `stale_fencing_token`, `ack_timeout`, `superseded_start`). The daemon kills only that process when `target_command_id` is set, otherwise only a process of the session running under a fencing token ≤ the envelope's ([10](10-contracts.md#orphaned-processes)) |
 | `protocol_error` | `{code, message, ref_msg_id}`: the orchestrator could not accept a message (invalid envelope, not registered, …) |
 

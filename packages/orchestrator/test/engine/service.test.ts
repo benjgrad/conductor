@@ -528,3 +528,55 @@ describe('applyEvent: wrapper-owned writes', () => {
     for (const row of all.rows) expect(boardSseEventFromRow(row)).not.toBeNull();
   });
 });
+
+describe('applyEvent: operator.message (ADR-0007, real apply)', () => {
+  const real = () => createEngineService({ db: db.pool, boardBus: bus, now: () => NOW });
+  const agentCmd = '5e4d3c2b-1a09-4f8e-b7d6-c5b4a3928170';
+
+  it('running with a live process: one send_message row at the session token, nothing else', async () => {
+    const { sessionId } = await seedSession(db.pool, {
+      workflow_state: 'implement',
+      status: 'running',
+      machine_id: MACHINE,
+      agent_command_id: agentCmd,
+      agent_process_live: true,
+      fencing_token: 42,
+    });
+    const before = await session(sessionId);
+    const res = await real().engine.applyEvent(sessionId, {
+      type: 'operator.message',
+      text: 'also run the linter',
+    });
+    expect(res.status).toBe('applied');
+    if (res.status === 'applied') expect(res.boardEvents).toEqual([]);
+    const rows = await outbox(sessionId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: 'send_message',
+      target: `machine:${MACHINE}`,
+      fencing_token: '42',
+      status: 'pending',
+    });
+    expect(rows[0]!.payload).toEqual({
+      command_id: rows[0]!.command_id,
+      target_command_id: agentCmd,
+      text: 'also run the linter',
+    });
+    const after = await session(sessionId);
+    expect({ ...after, updated_at: null }).toEqual({ ...before, updated_at: null });
+    expect(bus.published).toEqual([]);
+  });
+
+  it('needs_input: ignored (wrong_status), no outbox row', async () => {
+    const { sessionId } = await seedSession(db.pool, {
+      workflow_state: 'needs_input',
+      status: 'needs_input',
+      machine_id: MACHINE,
+      agent_command_id: agentCmd,
+      agent_process_live: true,
+    });
+    const res = await real().engine.applyEvent(sessionId, { type: 'operator.message', text: 'x' });
+    expect(res).toMatchObject({ status: 'ignored', reason: 'wrong_status' });
+    expect(await outbox(sessionId)).toEqual([]);
+  });
+});

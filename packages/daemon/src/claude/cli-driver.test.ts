@@ -279,6 +279,41 @@ describe('createCliDriver against fake-claude', () => {
     expect(first?.env.ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false'); // ADR-0006
   });
 
+  it('ADR-0007: sendMessage is folded into the running turn (a slash command passes through)', async () => {
+    const o = opts([
+      [
+        { say: 'working' },
+        { await_message: true },
+        { say: 'got $message' },
+        { complete_state: { message: '$message' } },
+      ],
+    ]);
+    const s = driver().start(o);
+    const t = track(s);
+    await t.waitFor((e) => e.kind === 'output' && e.text === 'working');
+    s.sendMessage('/context');
+    await t.turnEnds(1);
+    expect(t.events).toContainEqual({ kind: 'output', stream: 'assistant', text: 'got /context' });
+    expect(t.events).toContainEqual({ kind: 'complete_state', result: { message: '/context' } });
+    expect(t.events.filter((e) => e.kind === 'turn_end')).toHaveLength(1);
+    s.end();
+    await t.exit();
+    expect(() => s.sendMessage('late')).toThrow(/no live process/);
+  });
+
+  it('ADR-0007: sendMessage is not an answer: a pending ask_user question stays pending', async () => {
+    const o = opts([[{ ask_user: 'Which colour?' }], [{ complete_state: { colour: 'x' } }]]);
+    const s = driver().start(o);
+    const t = track(s);
+    await t.turnEnds(1);
+    s.sendMessage('what are you doing?');
+    await t.turnEnds(2);
+    // The outcome server refused the complete_state (question still pending), so none surfaced.
+    expect(t.events.some((e) => e.kind === 'complete_state')).toBe(false);
+    s.end();
+    await t.exit();
+  });
+
   it('ADR-0006: --settings is the edit-guard hook for the worktree, beside mcp.json, removed on exit', async () => {
     const o = opts([[{ say: 'up' }, { hang: true }]]);
     // a state env can't turn the claude.ai connectors back on

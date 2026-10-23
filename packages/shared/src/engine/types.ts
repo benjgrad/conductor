@@ -118,7 +118,8 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
    * (the wrapper also bumps fencing_token), so a process the timed-out command spawned anyway can't
    * move the session to running and its events go stale (10-contracts §Orphaned processes);
    * send_input `no_live_process` → agent_process_live = false and re-answer via
-   * start_session(resume); run_cmd → outcome `fail`; kill → ignored (`kill_refused`).
+   * start_session(resume); run_cmd → outcome `fail`; kill → ignored (`kill_refused`);
+   * send_message → ignored (`message_refused`, ADR-0007: best effort, never re-routes).
    * U-025: a start_session refusal is ignored (`command_id_mismatch`) unless `command_id` equals
    * `agent_command_id` AND `agent_process_live` is false (a matching `started` already arrived:
    * the process is up and only the ack was lost). The wrapper bumps fencing_token only when the
@@ -223,6 +224,14 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
   }),
   /** U: operator cancel (POST /cancel). → failed, kill. */
   z.object({ type: z.literal('operator.cancel'), reason: z.string().optional() }),
+  /**
+   * U: a human's message to the running agent (POST /messages, ADR-0007). Accepted only while
+   * `running` an `agent` state with `agent_process_live`; otherwise ignored (`wrong_status`).
+   * Accepted → one `send_message` effect and nothing else: no state change, no transition
+   * (transitions only on outcomes). A `/...` text is passed through; Claude Code runs it as a
+   * slash command.
+   */
+  z.object({ type: z.literal('operator.message'), text: z.string().min(1) }),
 ]);
 export type EngineEvent = z.infer<typeof EngineEventSchema>;
 export type EngineEventType = EngineEvent['type'];
@@ -230,7 +239,7 @@ export type EngineEventType = EngineEvent['type'];
 // ---------------------------------------------------------------- effects
 
 /**
- * Effects. The first five map 1:1 to an outbox kind (02) and, except connector_call, to the
+ * Effects. The first six map 1:1 to an outbox kind (02) and, except connector_call, to the
  * same-named WS message (03). The rest are orchestrator-internal. Mapping: 10-contracts.
  * Ids (command_id, input_request_id) are assigned by the wrapper, never by apply.
  */
@@ -255,6 +264,11 @@ export const EffectSchema = z.discriminatedUnion('type', [
     input_request_id: UuidSchema,
     text: z.string(),
   }),
+  /**
+   * outbox `send_message` → WS send_message (ADR-0007): a human's message written to the live
+   * process's stdin, folded into its current turn. Best effort: a refusal changes nothing.
+   */
+  z.object({ type: z.literal('send_message'), text: z.string() }),
   /** outbox `run_cmd` → WS run_cmd. */
   z.object({
     type: z.literal('run_cmd'),
@@ -309,12 +323,15 @@ export type Effect = z.infer<typeof EffectSchema>;
 export type EffectType = Effect['type'];
 export type OutboxEffect = Extract<
   Effect,
-  { type: 'start_session' | 'send_input' | 'run_cmd' | 'kill' | 'connector_call' }
+  {
+    type: 'start_session' | 'send_input' | 'send_message' | 'run_cmd' | 'kill' | 'connector_call';
+  }
 >;
 
 export const OUTBOX_EFFECT_TYPES = [
   'start_session',
   'send_input',
+  'send_message',
   'run_cmd',
   'kill',
   'connector_call',
@@ -349,6 +366,11 @@ export const APPLY_IGNORE_REASONS = [
   'session_terminal',
   /** `command.refused` for a `kill` (logged only). */
   'kill_refused',
+  /**
+   * `command.refused` for a `send_message` (ADR-0007): a live message is best effort and never
+   * re-routes the workflow, so the refusal is logged only.
+   */
+  'message_refused',
 ] as const;
 export const ApplyIgnoreReasonSchema = z.enum(APPLY_IGNORE_REASONS);
 export type ApplyIgnoreReason = z.infer<typeof ApplyIgnoreReasonSchema>;

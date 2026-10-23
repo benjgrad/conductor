@@ -463,6 +463,8 @@ class Gateway implements GatewayHandle {
       events: BoardSseEvent[];
       /** A refusal for a session another machine holds (M1-T14). */
       unknown?: string;
+      /** A refused send_message (ADR-0007): told to the board as a debug output line. */
+      messageRefused?: { sessionId: string; reason: string };
     };
     const out = await withTransaction(this.db, async (tx): Promise<AckOutcome> => {
       const r = await tx.query<{ kind: OutboxKind; session_id: string | null }>(
@@ -495,7 +497,13 @@ class Gateway implements GatewayHandle {
           },
           { tx },
         );
-        return { kill: null, events: res.status === 'applied' ? res.boardEvents : [] };
+        return {
+          kill: null,
+          events: res.status === 'applied' ? res.boardEvents : [],
+          ...(row.kind === 'send_message'
+            ? { messageRefused: { sessionId: row.session_id, reason: reason ?? 'refused' } }
+            : {}),
+        };
       }
       if (!accepted) return { kill: null, events: [] };
       // Late accepted ack for a start_session the ack timeout already failed: the daemon spawned
@@ -517,6 +525,14 @@ class Gateway implements GatewayHandle {
       this.protocolError(conn, 'unknown_session', `unknown session ${out.unknown}`, msg.msg_id);
     }
     this.publish(out.events);
+    if (out.messageRefused) {
+      // The engine ignores it (`message_refused`): a message never re-routes the workflow.
+      this.outputBus.append(
+        out.messageRefused.sessionId,
+        'debug',
+        `conductor: message not delivered to the agent (${out.messageRefused.reason})`,
+      );
+    }
     if (out.kill) this.sendKill(conn, out.kill.sessionId, out.kill.token, commandId, 'ack_timeout');
   }
 

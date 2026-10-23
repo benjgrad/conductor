@@ -173,6 +173,7 @@ export class EngineServiceImpl implements EngineService {
           break;
         }
         case 'send_input':
+        case 'send_message':
         case 'run_cmd':
         case 'kill':
           commands.push({ effect, commandId: randomUUID() });

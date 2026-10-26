@@ -93,6 +93,7 @@ async function createTicket(title: string, extra: Record<string, unknown> = {}) 
     body: 'b',
     repo: 'acme/app',
     workflow_id: 'm1_basic',
+    kind: 'work',
     ...extra,
   });
   expect(res.status).toBe(201);
@@ -254,7 +255,12 @@ describe('workflows', () => {
 
 describe('tickets and board', () => {
   it('ADR-0010: workflow_id defaults to conductor (seeded if missing)', async () => {
-    const res = await post('/api/tickets', { title: 'One workflow', body: '', repo: 'acme/app' });
+    const res = await post('/api/tickets', {
+      title: 'One workflow',
+      body: '',
+      repo: 'acme/app',
+      kind: 'personal',
+    });
     expect(res.status).toBe(201);
     expect(TicketDtoSchema.parse(res.body).workflow_id).toBe('conductor');
     const wf = await get('/api/workflows/conductor');
@@ -287,12 +293,49 @@ describe('tickets and board', () => {
     }
   });
 
+  it('ADR-0011: stores kind, returns it and puts it on the card; 400 without it', async () => {
+    const before = boardBus.published.length;
+    const ticket = await createTicket('Personal errand', { kind: 'personal' });
+    expect(ticket.kind).toBe('personal');
+    const row = await db.pool.query<{ kind: string | null }>(
+      'SELECT kind FROM ticket WHERE id = $1',
+      [ticket.id],
+    );
+    expect(row.rows[0]!.kind).toBe('personal');
+    const ev = boardBus.published.slice(before)[0]!;
+    expect(ev.type === 'card.upserted' && ev.card.kind).toBe('personal');
+    const board = BoardResponseSchema.parse((await get('/api/board')).body);
+    const card = board.columns.flatMap((c) => c.cards).find((c) => c.ticket_id === ticket.id)!;
+    expect(card.kind).toBe('personal');
+
+    const missing = await post('/api/tickets', {
+      title: 't',
+      body: '',
+      repo: 'r',
+      workflow_id: 'm1_basic',
+    });
+    expect(missing.status).toBe(400);
+    expect(missing.body.error).toMatchObject({
+      code: 'bad_request',
+      details: [expect.objectContaining({ path: 'kind' })],
+    });
+    const wrong = await post('/api/tickets', {
+      title: 't',
+      body: '',
+      repo: 'r',
+      workflow_id: 'm1_basic',
+      kind: 'home',
+    });
+    expect(wrong.status).toBe(400);
+  });
+
   it('400s on an unknown workflow and on a bad body', async () => {
     const res = await post('/api/tickets', {
       title: 't',
       body: '',
       repo: 'r',
       workflow_id: 'missing',
+      kind: 'work',
     });
     expect(res.status).toBe(400);
     expect((res.body.error as { code: string }).code).toBe('bad_request');
@@ -383,6 +426,66 @@ describe('session detail', () => {
       .find((c) => c.id === 'done')!
       .cards.find((c) => c.session_id === sessionId)!;
     expect(card.input_request).toBeNull();
+  });
+
+  it('ADR-0011: moves = the state.entered rows, oldest first, the last 50', async () => {
+    const { sessionId } = await seedSession('waiting_external');
+    const other = await seedSession('running');
+    const enter = (sid: string, payload: Record<string, unknown>, type = 'state.entered') =>
+      db.pool.query('INSERT INTO event (session_id, type, payload) VALUES ($1, $2, $3)', [
+        sid,
+        type,
+        payload,
+      ]);
+    // 52 moves: two that fall off the limit, a pre-M1b row (no transition fields), 49 newer;
+    // another event type and another session's move don't count.
+    await enter(sessionId, { from: null, to: 'dropped', visit: 1 });
+    await enter(sessionId, { from: 'dropped', to: 'dropped', visit: 2 });
+    await enter(sessionId, { from: null, to: 'implement', visit: 1 });
+    for (let i = 0; i < 48; i++) {
+      await enter(sessionId, {
+        from: 'implement',
+        to: 'implement',
+        visit: i + 2,
+        transition: 'retry',
+        reason: `try ${i}`,
+        actor: 'agent',
+      });
+    }
+    await enter(sessionId, {
+      from: 'implement',
+      to: 'waiting_external',
+      visit: 1,
+      transition: 'waiting_on_someone',
+      reason: 'Dana reviews',
+      actor: 'human',
+    });
+    await enter(sessionId, { session_id: sessionId }, 'session.status');
+    await enter(other.sessionId, { from: null, to: 'implement', visit: 1 });
+
+    const detail = SessionDetailSchema.parse((await get(`/api/sessions/${sessionId}`)).body);
+    const moves = detail.moves!;
+    expect(moves).toHaveLength(50);
+    expect(moves[0]).toMatchObject({
+      from: null,
+      to: 'implement',
+      transition: null,
+      reason: null,
+      actor: null,
+    });
+    expect(moves[1]).toMatchObject({ transition: 'retry', reason: 'try 0', actor: 'agent' });
+    expect(moves.at(-1)).toMatchObject({
+      from: 'implement',
+      to: 'waiting_external',
+      transition: 'waiting_on_someone',
+      reason: 'Dana reviews',
+      actor: 'human',
+    });
+    const at = moves.map((m) => Date.parse(m.at));
+    expect(at).toEqual([...at].sort((a, b) => a - b));
+
+    const none = SessionDetailSchema.parse((await get(`/api/sessions/${other.sessionId}`)).body);
+    expect(none.moves).toHaveLength(1);
   });
 
   it('404s for an unknown or malformed id', async () => {

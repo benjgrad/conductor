@@ -139,6 +139,25 @@ describe('content-type on POST', () => {
   });
 });
 
+describe('POST /api/sessions/:id/transition (ADR-0011) is guarded too', () => {
+  const transition = `/api/sessions/${SID}/transition`;
+  const body = JSON.stringify({ name: 'done' });
+
+  it('403 from a foreign Origin, 415 without application/json, 404 once past the guard', async () => {
+    const foreign = await send(
+      'POST',
+      transition,
+      { ...json, origin: 'https://evil.example' },
+      body,
+    );
+    expect(foreign.status).toBe(403);
+    expect(foreign.body.error?.message).toMatch(/origin/);
+    const plain = await send('POST', transition, { 'content-type': 'text/plain' }, body);
+    expect(plain.status).toBe(415);
+    expect((await send('POST', transition, json, body)).status).toBe(404);
+  });
+});
+
 describe('HttpGuard helpers', () => {
   it('parses Host headers and recognises loopback', () => {
     expect(parseHostHeader('LocalHost:7400')).toEqual({ hostname: 'localhost', port: '7400' });

@@ -8,6 +8,7 @@ import {
   ReopenSessionRequestSchema,
   SaveWorkflowRequestSchema,
   SendMessageRequestSchema,
+  TransitionSessionRequestSchema,
   UuidSchema,
   httpForApplyResult,
   toBoardCard,
@@ -149,6 +150,31 @@ export const createApi = (({ db, engine, boardBus, outputBus, transcripts, secur
     return applyFromRoute(reply, 'input', id, event, { actor: UI_ACTOR });
   });
 
+  /**
+   * ADR-0011: a human takes a transition (a card button) → `human.transition {name, text, actor:
+   * 'ui'}`. The open input_request (if any) rides along so apply can answer a parked agent with
+   * `send_input` (10-contracts §Pending answer); the wrapper closes it either way.
+   */
+  app.post<IdParams>(API_PATHS.sessionTransition(':id'), async (req, reply) => {
+    const id = sessionId(req.params.id, reply);
+    if (id === undefined) return reply;
+    const body = parseBody(TransitionSessionRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const open = await db.query<{ id: string }>(
+      'SELECT id FROM input_request WHERE session_id = $1 AND answer IS NULL ' +
+        'ORDER BY created_at DESC LIMIT 1',
+      [id],
+    );
+    const event: EngineEvent = {
+      type: 'human.transition',
+      name: body.name,
+      text: body.text ?? null,
+      actor: UI_ACTOR,
+      input_request_id: open.rows[0]?.id ?? null,
+    };
+    return applyFromRoute(reply, 'transition', id, event);
+  });
+
   app.post<IdParams>('/api/sessions/:id/approve', async (req, reply) => {
     const id = sessionId(req.params.id, reply);
     if (id === undefined) return reply;
@@ -274,7 +300,8 @@ export const createApi = (({ db, engine, boardBus, outputBus, transcripts, secur
     const { ticket, events } = await withTransaction(db, async (tx) => {
       const res = await tx.query<TicketRow>(
         'INSERT INTO ticket (external_ref, repo, title, body, workflow_id, required_tags, ' +
-          'repo_allow_machines, priority) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+          'repo_allow_machines, priority, kind) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ' +
+          'RETURNING *',
         [
           body.external_ref,
           body.repo,
@@ -284,6 +311,7 @@ export const createApi = (({ db, engine, boardBus, outputBus, transcripts, secur
           body.required_tags,
           body.repo_allow_machines,
           body.priority,
+          body.kind,
         ],
       );
       const row = res.rows[0]!;

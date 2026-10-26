@@ -5,6 +5,7 @@ import type {
   OutboxKind,
   OutboxStatus,
   SessionStatus,
+  TicketKind,
   TicketStatus,
   WorkflowDefinitionInput,
 } from '@conductor/shared';
@@ -71,10 +72,11 @@ export interface TicketRow {
   repo_allow_machines: string[] | null;
   status: TicketStatus;
   priority: number;
-  // ADR-0011: M1b-T04 adds `kind: TicketKind | null` here in the same branch as its migration
-  // (`ticket_kind` enum, NULL for tickets from before M1b = both kinds, U-062), because
-  // test/schema.test.ts holds these rows equal to the DDL. Until then `SELECT *` rows don't carry
-  // it, and readers use `ticket.kind ?? null` (toSnapshot, toBoardCard's CardTicketLike.kind?).
+  /**
+   * ADR-0011 `ticket_kind` (migration 1761500000000, M1b-T04): filters transitions (`kinds`).
+   * NULL for tickets created before M1b, matching both kinds (U-062); the create route requires it.
+   */
+  kind: TicketKind | null;
   created_at: Date;
   updated_at: Date;
 }

@@ -153,7 +153,7 @@ function renderInputs(state: AgentState, context: SessionSnapshot['context']): s
 }
 
 function notProduced(key: string): string {
-  return `- \`${key}\`: not produced (a person moved this ticket here directly). Work out what's needed from the ticket first, and make a short plan before changing code.`;
+  return `- \`${key}\`: not produced (a person moved this ticket here directly). Work out what's needed from the ticket.`;
 }
 
 /** A literal as text, a `$state.key` ref resolved from `context`; null when the ref resolves to nothing. */

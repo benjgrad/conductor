@@ -827,6 +827,84 @@ describe('daemon core: run_cmd and kill', () => {
     expect(existsSync(dir)).toBe(false);
   });
 
+  it('ADR-0010: a session kill between checks removes the kept checkout', async () => {
+    const runner = new FakeCommandRunner(1, true);
+    makeDaemon(new FakeClaudeDriver(complete({})), { runner });
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    orch.send(startSession(sid, {}, 3));
+    await orch.until(() => orch.events('exit')[0]);
+    orch.send(
+      cmdMsg(sid, {
+        command_id: randomUUID(),
+        workflow_state: 'x',
+        cmd: 'npm run build',
+        cwd: null,
+        timeout_ms: 1000,
+        require_clean: true,
+        checkout: { sha: null, setup: '', last: false },
+      }),
+    );
+    await orch.until(() => orch.eventData('cmd_exit')[0], 10_000);
+    const dir = runner.calls[0]!.cwd;
+    expect(existsSync(dir)).toBe(true); // kept for the next check
+    // The step ends (cancel / timeout / budget): the engine's session kill.
+    const kill = cmd(
+      'kill',
+      sid,
+      { command_id: randomUUID(), target_command_id: null, reason: 'x' },
+      3,
+    );
+    orch.send(kill);
+    await orch.until(() => orch.ack((kill.payload as { command_id: string }).command_id)[0]);
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  it('ADR-0010: an older run cleanup never removes a newer checkout of the same session', async () => {
+    const runner = new FakeCommandRunner(2).script('npm run build', { exitCode: 1 });
+    makeDaemon(new FakeClaudeDriver(complete({})), { runner });
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    orch.send(startSession(sid, {}, 3));
+    await orch.until(() => orch.events('exit')[0]);
+    const wt = orch.eventData('started')[0]!.worktree_path;
+    const send = (command: string, sha: string | null) =>
+      orch.send(
+        cmdMsg(sid, {
+          command_id: randomUUID(),
+          workflow_state: 'x',
+          cmd: command,
+          cwd: null,
+          timeout_ms: 5000,
+          require_clean: true,
+          checkout: { sha, setup: '', last: false },
+        }),
+      );
+    // Visit 1's check runs (and will fail) in checkout A.
+    send('npm run build', null);
+    await orch.until(() => runner.calls[0]);
+    const a = runner.calls[0]!.cwd;
+    // A newer visit: a new commit, its check in checkout B (A is replaced).
+    writeFileSync(join(wt, 'next.txt'), 'x');
+    execFileSync('git', ['add', '.'], { cwd: wt });
+    execFileSync('git', ['-c', 'user.email=t@x', '-c', 'user.name=t', 'commit', '-qm', 'next'], {
+      cwd: wt,
+    });
+    const head2 = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: wt, encoding: 'utf8' }).trim();
+    send('npm test', head2);
+    await orch.until(() => runner.calls[1]);
+    const b = runner.calls[1]!.cwd;
+    expect(b).not.toBe(a);
+    expect(existsSync(a)).toBe(false);
+    // Visit 1's check now fails: its cleanup must not touch checkout B.
+    runner.release('npm run build');
+    await orch.until(() => orch.eventData('cmd_exit')[0], 10_000);
+    expect(existsSync(b)).toBe(true);
+    runner.release('npm test');
+    await orch.until(() => orch.eventData('cmd_exit')[1], 10_000);
+    expect(existsSync(b)).toBe(true); // passed, not last: kept
+  });
+
   it('ADR-0010: a failed setup is reported (setup_failed), the check does not run, the checkout goes', async () => {
     const runner = new FakeCommandRunner(1, true).script('make deps', {
       exitCode: 2,

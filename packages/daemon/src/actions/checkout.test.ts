@@ -8,6 +8,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -119,6 +120,14 @@ describe('freshCheckout', () => {
     expect(detectSetup(r.dir, '')).toBeNull();
     expect(detectSetup(r.dir, 'make deps')).toBe('make deps');
     expect(detectSetup(tmp, null)).toBeNull();
+  });
+
+  it('sweepPrivate does not follow a symlinked <root>/private', () => {
+    const elsewhere = join(tmp, 'elsewhere');
+    mkdirSync(join(elsewhere, 'check-victim'), { recursive: true });
+    symlinkSync(elsewhere, join(root, 'private'));
+    sweepPrivate(root);
+    expect(existsSync(join(elsewhere, 'check-victim'))).toBe(true);
   });
 
   it('sweepPrivate removes leftovers of a previous daemon', async () => {

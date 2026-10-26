@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { NO_HOOKS, privateDir, run, tail } from './open-pr.js';
 
@@ -104,6 +104,10 @@ export function removeCheckout(dir: string): void {
 export function sweepPrivate(root: string): void {
   const base = join(root, 'private');
   if (!existsSync(base)) return;
+  // Same rule as privateDir: a real directory owned by this uid, never followed through a symlink.
+  const st = lstatSync(base);
+  if (st.isSymbolicLink() || !st.isDirectory()) return;
+  if (process.getuid !== undefined && st.uid !== process.getuid()) return;
   for (const name of readdirSync(base)) {
     if (name.startsWith('check-') || name.startsWith('push-')) removeCheckout(join(base, name));
   }

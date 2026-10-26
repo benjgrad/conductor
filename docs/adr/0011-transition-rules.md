@@ -1,6 +1,6 @@
 # ADR-0011 · Rules live on transitions: named moves, who takes them, which tickets, what they require
 
-- **Status**: proposed (Ben approved the plan 2026-10-26; this ADR is accepted when he signs off milestone M1b)
+- **Status**: accepted (Ben, 2026-10-26: plan approved, the open questions below answered, milestone M1b approved)
 - **Date**: 2026-10-26
 - **Deciders**: Ben (+ Claude session 2026-10-23-agent-inherit-settings, continued)
 - **Supersedes**: [ADR-0010](0010-one-workflow-columns-are-states.md)'s *entry* requirements (`states.<s>.entry`). ADR-0010's other decisions stay:
@@ -119,6 +119,28 @@ Encodes Ben's examples.
   - pending-transition checklists on cards;
   - Needs-input buttons per human transition;
   - the timeline shows "<transition> — <reason>" for every move.
+
+### Decisions on the open questions (Ben, 2026-10-26)
+- **Long waits (U-058, U-059).** While a transition waits on conditions, the session is **paused**:
+  - the worker process is ended (resumable later);
+  - wall time stops counting against the budget;
+  - the card stays in the source column with the checklist;
+  - conditions are re-checked by any online machine of the account.
+  
+  With no machine online, the card says "waiting for a machine to check conditions", and `condition_timeout` **keeps running**.
+- **Condition outcomes (U-063).**
+  - A condition that turns **false** (checks red, changes requested, pipeline failed) → `on_unmet.goto` with the evidence, counted against `retries`.
+  - A **timeout** → straight to `on_unmet.else` (a human).
+- **Human transitions and defaults (U-061, U-062).**
+  - `answer` goes back to the state that asked (`goto: "$return_to"`).
+  - Cancel stays an operator action, not a transition.
+  - `ask_user` remains a fallback outcome on every agent state.
+  - Existing tickets with a null `kind` match both kinds.
+- **Contract choices from planning** (M1b-T01):
+  - conditions are evaluated by `run_action {action: 'evaluate_conditions'}`, one per pending transition, with no new outbox enum value;
+  - transitions get an optional `title` for button labels;
+  - `requires.condition_poll` sets the poll interval (default 2m);
+  - Jira and Azure conditions are declared but disabled until **M5** (not M4).
 
 ## Alternatives considered
 | Option | Why not |

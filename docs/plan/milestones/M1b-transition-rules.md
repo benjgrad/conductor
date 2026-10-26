@@ -47,7 +47,7 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 
 | ID | Task | Depends on | Parallel group | Status | Branch / owner |
 |---|---|---|---|---|---|
-| M1b-T01 | **Contracts**: transition schema, engine events/effects/step, WS, REST, card and detail DTOs, `ticket.kind` row type, legacy fold, fixtures and fakes | U-058, U-059, U-061..U-063 answered | A | todo | |
+| M1b-T01 | **Contracts**: transition schema, engine events/effects/step, WS, REST, card and detail DTOs, `ticket.kind` row type, legacy fold, fixtures and fakes | U-058, U-059, U-061..U-063 answered | A | in_progress | |
 | M1b-T02 | Validator: transition rules (actor/type, question targets, conditions bounded, ask_user present, kinds) | T01 | B | todo | |
 | M1b-T03 | Engine: pick and check a transition; actor/kind filter; `requires` as a move step (checks → review → actions); human transitions; prompt lists transitions; the `moves` record | T01 | B | todo | |
 | M1b-T04 | Orchestrator: `ticket.kind` migration; create requires kind; `POST /api/sessions/:id/transition`; detail `moves`; card fields served | T01 | B | todo | |

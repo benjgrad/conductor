@@ -168,6 +168,9 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
     case 'action.completed':
       // Only an entry step's actions phase waits for one (handleStep).
       return 'unexpected_event';
+    case 'human.transition':
+      // TD: M1b-T01 contract stub; M1b-T03 implements human transitions (ADR-0011).
+      return 'wrong_status';
   }
 }
 
@@ -726,6 +729,14 @@ function enterStep(
     phase: p.kind === 'entry' ? 'checks' : 'review',
     index: 0,
     head_sha: null,
+    // ADR-0011 fields (M1b-T01 contract); M1b-T03 fills them for a move step.
+    transition: null,
+    actor: null,
+    reason: null,
+    conditions: [],
+    conditions_deadline: null,
+    conditions_poll_ms: null,
+    conditions_note: null,
   };
   st.emit({ type: 'state_entered', from: p.from, to: label, visit });
   if (s.machine_id === null) {
@@ -1032,6 +1043,7 @@ function handleStep(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
       // The step judges independently: a human's live message is refused (ADR-0009, ADR-0010).
       return 'wrong_status';
     case 'input.provided':
+    case 'human.transition':
       return 'wrong_status';
     case 'external.event':
       return 'unexpected_event';

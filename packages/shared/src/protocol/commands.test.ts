@@ -95,6 +95,61 @@ describe('commandPayloadForEffect (Effect → WS)', () => {
     ).toThrow(/without an agent process/);
   });
 
+  it('ADR-0011: start_session carries the allowed transitions; none → field omitted', () => {
+    const transitions = [
+      { name: 'ready_for_testing', when: 'Done and tested.', question: false },
+      { name: 'ask_user', when: null, question: false },
+    ];
+    const base = {
+      type: 'start_session' as const,
+      state: 'implementing',
+      prompt: 'p',
+      tools: ['edit'],
+      resume_claude_session_id: null,
+    };
+    const c = commandPayloadForEffect({ ...base, transitions }, ctx);
+    expect(c.kind === 'start_session' && c.payload.transitions).toEqual(transitions);
+    expect(envelope(c.kind, c.payload).type).toBe('start_session');
+    const old = commandPayloadForEffect({ ...base, transitions: [] }, ctx);
+    expect(old.payload).not.toHaveProperty('transitions');
+  });
+
+  it('ADR-0011: run_action evaluate_conditions maps field for field', () => {
+    const args = {
+      conditions: [{ type: 'pr_approvals', min: 1 }],
+      pr_url: 'https://github.com/benjgrad/fixture-app/pull/7',
+      branch,
+    };
+    const c = commandPayloadForEffect(
+      {
+        type: 'run_action',
+        state: 'implementing → waiting_external (move: ready_for_testing)',
+        target_state: 'waiting_external',
+        action: 'evaluate_conditions',
+        idempotency_key: 'k',
+        args,
+        expected_sha: null,
+      },
+      ctx,
+    );
+    expect(c.payload).toMatchObject({ action: 'evaluate_conditions', args, branch });
+    expect(envelope(c.kind, c.payload).type).toBe('run_action');
+    expect(() =>
+      commandPayloadForEffect(
+        {
+          type: 'run_action',
+          state: 's',
+          target_state: 't',
+          action: 'deploy',
+          idempotency_key: 'k',
+          args: {},
+          expected_sha: null,
+        },
+        ctx,
+      ),
+    ).toThrow(/unknown entry action/);
+  });
+
   it('throws without a machine', () => {
     expect(() =>
       commandPayloadForEffect(

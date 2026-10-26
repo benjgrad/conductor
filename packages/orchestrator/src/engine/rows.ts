@@ -84,6 +84,9 @@ export function toSnapshot(session: SessionRow, ticket: TicketRow): SessionSnaps
       body: ticket.body,
       repo: ticket.repo,
       external_ref: ticket.external_ref,
+      // ADR-0011: the `ticket.kind` column arrives with M1b-T04's migration (TicketRow gains it
+      // then); `SELECT *` rows carry it from that moment, so this needs no change.
+      kind: (ticket as Partial<Pick<SessionSnapshot['ticket'], 'kind'>>).kind ?? null,
     },
     machine_id: session.machine_id,
     workflow_id: session.workflow_id,

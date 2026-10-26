@@ -29,6 +29,24 @@ describe('engineEventForSessionEvent', () => {
     if (ev) expect(EngineEventSchema.parse(ev)).toEqual(ev);
   });
 
+  it('complete_state carries the ADR-0011 transition and reason when present', () => {
+    expect(
+      engineEventForSessionEvent({
+        kind: 'complete_state',
+        data: { result: {}, transition: 'ready_for_testing', reason: 'Tests pass.' },
+      }),
+    ).toEqual({
+      type: 'agent.complete_state',
+      result: {},
+      transition: 'ready_for_testing',
+      reason: 'Tests pass.',
+    });
+    expect(engineEventForSessionEvent(SESSION_EVENT_FIXTURES.complete_state)).toEqual({
+      type: 'agent.complete_state',
+      result: SESSION_EVENT_FIXTURES.complete_state.data.result,
+    });
+  });
+
   it('carries the fields the engine needs', () => {
     expect(engineEventForSessionEvent(SESSION_EVENT_FIXTURES.started)).toEqual({
       type: 'session.started',

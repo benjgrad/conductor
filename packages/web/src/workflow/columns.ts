@@ -67,7 +67,27 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 export const ACTION_LABELS: Record<string, string> = { open_pr: 'Opens PR' };
 
+/**
+ * `entry.setup` (runs once before the checks, in a fresh checkout of the commit), read
+ * defensively: older shared contracts don't have the field. undefined = auto-detect
+ * (`npm ci` / `npm install` / nothing), '' = no setup.
+ */
+export function readSetup(entry: EntryRequirements | undefined): string | undefined {
+  const v = (entry as { setup?: unknown } | undefined)?.setup;
+  return typeof v === 'string' ? v : undefined;
+}
+
+/** The lane's setup line: "setup: npm ci", "auto setup" or "no setup" (only with checks). */
+export function setupLabel(entry: EntryRequirements): string | null {
+  if ((entry.checks?.length ?? 0) === 0) return null;
+  const setup = readSetup(entry);
+  if (setup === undefined) return 'auto setup';
+  return setup.trim() === '' ? 'no setup' : `setup: ${setup}`;
+}
+
 export interface EntrySummary {
+  /** See setupLabel (null without checks). */
+  setup: string | null;
   checks: string[];
   reviewItems: number;
   actions: string[];
@@ -78,6 +98,7 @@ export interface EntrySummary {
 export function entrySummary(def: WorkflowDefinition, entry: EntryRequirements): EntrySummary {
   const u = entry.on_unmet;
   return {
+    setup: setupLabel(entry),
     checks: (entry.checks ?? []).map((c) => c.name),
     reviewItems: entry.review?.items.length ?? 0,
     actions: (entry.actions ?? []).map((a) => ACTION_LABELS[a] ?? a),
@@ -89,6 +110,7 @@ export function entrySummary(def: WorkflowDefinition, entry: EntryRequirements):
 export function entryLines(def: WorkflowDefinition, entry: EntryRequirements): string[] {
   const s = entrySummary(def, entry);
   return [
+    ...(s.setup !== null ? [`⚙ ${s.setup}`] : []),
     ...s.checks.map((c) => `✓ ${c}`),
     ...(s.reviewItems > 0 ? [`◎ ${plural(s.reviewItems, 'review item')}`] : []),
     ...s.actions.map((a) => `↗ ${a}`),
@@ -280,6 +302,8 @@ export function setAgentWork(
 /** The draft shape of `entry` while editing: lists may be empty; normalizeEntry tidies it. */
 export interface EntryDraft {
   checks: EntryCheck[];
+  /** undefined = auto-detect, '' = none, else the command. */
+  setup?: string;
   reviewItems: string[];
   reviewModel?: string;
   openPr: boolean;
@@ -290,6 +314,7 @@ export function entryDraft(def: WorkflowDefinition, name: string): EntryDraft {
   const e = def.states[name]?.entry;
   return {
     checks: e?.checks ?? [],
+    ...(readSetup(e) !== undefined ? { setup: readSetup(e)! } : {}),
     reviewItems: e?.review?.items ?? [],
     ...(e?.review?.model !== undefined ? { reviewModel: e.review.model } : {}),
     openPr: e?.actions?.includes('open_pr') ?? false,
@@ -303,7 +328,7 @@ export function entryDraft(def: WorkflowDefinition, name: string): EntryDraft {
  */
 export function normalizeEntry(d: EntryDraft): EntryRequirements | null {
   if (d.checks.length === 0 && d.reviewItems.length === 0 && !d.openPr) return null;
-  return {
+  const entry: EntryRequirements = {
     ...(d.checks.length > 0 ? { checks: d.checks } : {}),
     ...(d.reviewItems.length > 0
       ? {
@@ -318,6 +343,17 @@ export function normalizeEntry(d: EntryDraft): EntryRequirements | null {
     ...(d.openPr ? { actions: ['open_pr' as const] } : {}),
     on_unmet: d.on_unmet,
   };
+  // Setup only runs before checks: without checks it is dropped (rule 9).
+  return d.checks.length > 0 && d.setup !== undefined ? withSetup(entry, d.setup) : entry;
+}
+
+/**
+ * `entry` with `setup`. Built by spreading, so it compiles whether or not the shared contract
+ * has the field yet.
+ */
+function withSetup(entry: EntryRequirements, setup: string): EntryRequirements {
+  const out = { ...entry, setup };
+  return out;
 }
 
 /** Set (or with null remove) a state's requirements to enter. */
@@ -444,6 +480,12 @@ export function validateColumns(def: WorkflowDefinition): ColumnIssue[] {
       names.add(c.name.trim());
       if (c.cmd.trim() === '') add(`.entry.checks.${i}.cmd`, `check ${i + 1} needs a command`);
     });
+    const setup = readSetup(e);
+    if (setup !== undefined && checks.length === 0) {
+      add('.entry.setup', 'setup runs before the checks: add a check, or remove the setup');
+    } else if (setup !== undefined && setup.length > 2_000) {
+      add('.entry.setup', 'the setup command is too long');
+    }
     const actions = new Set<string>();
     (e.actions ?? []).forEach((a, i) => {
       if (actions.has(a)) add(`.entry.actions.${i}`, `action "${a}" is listed twice`);

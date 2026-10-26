@@ -170,6 +170,40 @@ describe('Workflow view', () => {
     expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'Version' }).value).toBe('3');
   });
 
+  it('sets up before the checks: auto, none or a custom command', async () => {
+    const { saved, diagram } = await setup();
+    const we = () => diagram.querySelector('[data-lane="waiting_external"]')!.textContent;
+    expect(we()).toContain('⚙ auto setup');
+    fireEvent.click(lane('Waiting external'));
+    const mode = () => editor().getByLabelText<HTMLSelectElement>(/Before the checks/);
+    expect(mode().value).toBe('auto');
+    expect(editor().queryByLabelText('Setup command')).toBeNull();
+    type(mode(), 'none');
+    expect(we()).toContain('⚙ no setup');
+    type(mode(), 'custom');
+    expect(mode().value).toBe('custom');
+    type(editor().getByLabelText('Setup command'), 'pnpm i --frozen-lockfile');
+    expect(we()).toContain('⚙ setup: pnpm i');
+    // Save sends `setup` (the mock may reject it until the shared field lands; the request is
+    // what matters here).
+    fireEvent.click(screen.getByRole('button', { name: 'Save as new version' }));
+    await waitFor(() => expect(saved).toHaveLength(1));
+    const entry = saved[0]!.states.waiting_external!.entry as unknown as Record<string, unknown>;
+    expect(entry.setup).toBe('pnpm i --frozen-lockfile');
+  });
+
+  it('removing every check drops setup and hides the control', async () => {
+    const { saved } = await setup();
+    fireEvent.click(lane('Waiting external'));
+    type(editor().getByLabelText(/Before the checks/), 'none');
+    fireEvent.click(editor().getByRole('button', { name: 'Remove check 2' }));
+    fireEvent.click(editor().getByRole('button', { name: 'Remove check 1' }));
+    expect(editor().queryByLabelText(/Before the checks/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Save as new version' }));
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect('setup' in saved[0]!.states.waiting_external!.entry!).toBe(false);
+  });
+
   it('removing every requirement removes `entry`', async () => {
     const { saved } = await setup();
     fireEvent.click(lane('Waiting external'));

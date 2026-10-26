@@ -52,8 +52,10 @@ export function transitionTitle(name: string, t: Transition | undefined): string
 
 /**
  * Who may take transition `name` out of `state` (ADR-0011 §Who takes a transition): an explicit
- * `actor`; else `system` for SYSTEM_TRANSITION_NAMES and an event state's `wait_for` names; else
- * `human` out of a human state; else `agent`.
+ * `actor`; else `system` for SYSTEM_TRANSITION_NAMES and an event state's `wait_for` names; else by
+ * the state's type: `agent` on an agent state, `human` on a human or event state, `system` on a
+ * command or connector state (and an unknown state). The validator (M1b-T02 rule 10) rejects an
+ * EXPLICIT `actor: 'agent'` on a non-agent state.
  */
 export function transitionActor(
   def: Def,
@@ -65,8 +67,28 @@ export function transitionActor(
   if (SYSTEM_TRANSITION_NAMES.includes(name)) return 'system';
   const s = def.states[state];
   if (s?.type === 'event' && s.wait_for.includes(name)) return 'system';
-  if (s?.type === 'human') return 'human';
-  return 'agent';
+  switch (s?.type) {
+    case 'agent':
+      return 'agent';
+    case 'human':
+    case 'event':
+      return 'human';
+    default:
+      return 'system';
+  }
+}
+
+/**
+ * Whether a transition is a counted `"<from>-><goto>"` failure loop (05 §Retry loops): only an
+ * object with `attach`, `retries` or `else`. Every other transition (a state name, or an object
+ * with only `when` / `kinds` / `question` / `requires` / `on_unmet` / `title` / `actor` /
+ * ADR-0009 `requirements`) is a plain forward move with no failure-loop counter. Requirement
+ * retries count under `moveCounterKey(from, name)`, never under `<from>-><goto>`. The engine
+ * (M1b-T03) and the validator's loop analysis (M1b-T02 rule 4) must both use this helper.
+ */
+export function isCountedTransition(t: Transition): boolean {
+  if (typeof t === 'string') return false;
+  return t.attach !== undefined || t.retries !== undefined || t.else !== undefined;
 }
 
 /** `kinds` omitted → both; a null ticket kind matches every transition (U-062). */

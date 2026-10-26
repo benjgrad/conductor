@@ -212,6 +212,37 @@ describe('BoardCard.human_transitions (ADR-0011 buttons)', () => {
   });
 });
 
+describe('BoardCard backward compatibility', () => {
+  it('a pre-M1b card (no kind / pending / human_transitions / checking) still parses', () => {
+    const old = {
+      ticket_id: '0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2',
+      session_id: '7d0c5b1e-3f4a-4b7e-9c2d-1a2b3c4d5e6f',
+      title: 'Add /health',
+      external_ref: null,
+      repo: 'github.com/benjgrad/fixture-app',
+      priority: 0,
+      workflow_id: 'conductor',
+      workflow_state: 'implementing',
+      status: 'running',
+      column: 'implementing',
+      badges: [],
+      pr_url: null,
+      machine_id: 'mbp-ben',
+      spend_usd: 0.12,
+      input_request: null,
+      created_at: '2026-10-22T12:00:00.000Z',
+      updated_at: '2026-10-22T12:05:00.000Z',
+    };
+    expect(BoardCardSchema.parse(JSON.parse(JSON.stringify(old)))).toEqual({
+      ...old,
+      checking: null,
+      kind: null,
+      pending: null,
+      human_transitions: [],
+    });
+  });
+});
+
 describe('moves, the transition route, ticket kind', () => {
   it('SESSION_MOVES_FIXTURE parses; SessionDetail.moves is optional', () => {
     for (const m of SESSION_MOVES_FIXTURE) expect(MoveDtoSchema.parse(m)).toEqual(m);

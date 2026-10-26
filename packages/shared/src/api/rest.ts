@@ -280,18 +280,18 @@ export const BoardCardSchema = z.object({
   column: BoardColumnSchema,
   badges: z.array(CardBadgeSchema),
   /** In an entry step: what it is checking (ADR-0010); null otherwise. Superseded by `pending`. */
-  checking: BoardCheckingSchema.nullable(),
+  checking: BoardCheckingSchema.nullable().default(null),
   /** ADR-0011: `ticket.kind`; null = not set (tickets from before M1b). */
-  kind: TicketKindSchema.nullable(),
+  kind: TicketKindSchema.nullable().default(null),
   /** ADR-0011: in a gate step, its live checklist (`pendingOfStep`); null otherwise. */
-  pending: BoardPendingSchema.nullable(),
+  pending: BoardPendingSchema.nullable().default(null),
   /**
    * ADR-0011: one button per human-actor transition out of the current state, for the ticket's
    * kind (`humanTransitionOptions`). Filled only while the session is `needs_input` in a human
    * state or `waiting_external` in an event state, outside a gate step; else []. Each posts
    * `TransitionSessionRequest {name, text}` (text required when `needs_text`).
    */
-  human_transitions: z.array(HumanTransitionOptionSchema),
+  human_transitions: z.array(HumanTransitionOptionSchema).default([]),
   /** The pull request conductor opened for it (`open_pr`, ADR-0010), if any. */
   pr_url: z.string().regex(GITHUB_PR_URL_RE).nullable().catch(null),
   machine_id: z.string().nullable(),
@@ -553,10 +553,10 @@ export const CreateTicketRequestSchema = z.object({
   /**
    * ADR-0011: work or personal. The route requires it (M1b-T04: 400 `bad_request`, path `kind`,
    * when absent) until triage (M4) can set it.
-   * TD: optional in the schema only so the web create form (M1b-T07) and the e2e harness keep
+   * TD-096: optional in the schema only so the web create form (M1b-T07) and the e2e harness keep
    * compiling and passing while group B lands; flip to required once T04 and T07 are merged.
    */
-  kind: TicketKindSchema.optional(),
+  kind: TicketKindSchema.optional(), // TD-096
 });
 export type CreateTicketRequest = z.input<typeof CreateTicketRequestSchema>;
 

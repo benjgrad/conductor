@@ -10,6 +10,7 @@ import {
   transitionNeedsText,
   transitionsOf,
   transitionTitle,
+  isCountedTransition,
 } from './transition-rules.js';
 
 // ADR-0011 transition helpers (M1b-T01 contract).
@@ -41,6 +42,30 @@ describe('transitionActor (ADR-0011 §Who takes a transition)', () => {
       states: { ask: { type: 'human' as const, on: { skip: 'ask' } } },
     };
     expect(transitionActor(def, 'ask', 'skip', 'ask')).toBe('human');
+  });
+
+  it('infers by state type: agent / human (human, event) / system (command, connector)', () => {
+    const def = {
+      states: {
+        a: { type: 'agent' as const, prompt: 'p' },
+        h: { type: 'human' as const },
+        e: { type: 'event' as const, wait_for: ['ui.approve'] },
+        c: { type: 'command' as const, cmd: 'true' },
+        k: { type: 'connector' as const, action: 'jira.update' },
+      },
+    };
+    expect(
+      Object.keys(def.states).map((s) => [s, transitionActor(def, s, 'custom_move', 'x')]),
+    ).toEqual([
+      ['a', 'agent'],
+      ['h', 'human'],
+      ['e', 'human'],
+      ['c', 'system'],
+      ['k', 'system'],
+    ]);
+    // wait_for names stay system on an event state; explicit wins everywhere
+    expect(transitionActor(def, 'e', 'ui.approve', 'x')).toBe('system');
+    expect(transitionActor(def, 'c', 'custom_move', { goto: 'x', actor: 'agent' })).toBe('agent');
   });
 
   it('explicit actor wins over the name rules', () => {
@@ -135,5 +160,38 @@ describe('human buttons', () => {
     expect(transitionNeedsText(v2, 'waiting_external')).toBe(true);
     expect(transitionNeedsText(v2, 'done')).toBe(false);
     expect(transitionNeedsText(v2, 'implementing')).toBe(false);
+  });
+});
+
+describe('isCountedTransition (05 §Counting)', () => {
+  const gate = { items: ['x'], on_unmet: { goto: 'a', retries: 1, else: 'h' } };
+  it.each<[string, Transition, boolean]>([
+    ['a state name', 'build', false],
+    ['{goto} only', { goto: 'build' }, false],
+    [
+      'when / kinds / question / title / actor',
+      { goto: 'h', when: 'w', kinds: ['work'], question: true, title: 'T', actor: 'agent' },
+      false,
+    ],
+    [
+      'requires + on_unmet',
+      {
+        goto: 'b',
+        requires: { actions: ['open_pr'] },
+        on_unmet: { goto: 'a', retries: 3, else: 'h' },
+      },
+      false,
+    ],
+    ['ADR-0009 requirements only', { goto: 'b', requirements: gate }, false],
+    ['attach', { goto: 'a', attach: 'output' }, true],
+    ['retries', { goto: 'a', retries: 3 }, true],
+    ['else', { goto: 'a', else: 'h' }, true],
+    [
+      'retries + requires',
+      { goto: 'a', retries: 2, requires: { checks: [{ name: 'T', cmd: 't' }] } },
+      true,
+    ],
+  ])('%s → %s', (_label, t, counted) => {
+    expect(isCountedTransition(t)).toBe(counted);
   });
 });

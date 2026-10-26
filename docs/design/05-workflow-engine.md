@@ -53,7 +53,8 @@ Each key of `on` is a **transition name**; the value is a state name (shorthand 
 }
 ```
 
-- **Actor inference** (`transitionActor(def, state, name, t)`): the explicit `actor`; else `system` for `timeout`, `exit_0`, `fail`, `ok`, `error`, `budget_exceeded` and an event state's `wait_for` names; else `human` out of a human state; else `agent`.
+- **Actor inference** (`transitionActor(def, state, name, t)`): the explicit `actor`; else `system` for `timeout`, `exit_0`, `fail`, `ok`, `error`, `budget_exceeded` and an event state's `wait_for` names; else by the state's type: `agent` on an agent state, `human` on a human or event state, `system` on a command or connector state. The validator (rule 10, M1b-T02) rejects an explicit `actor: "agent"` on a non-agent state.
+- **Counting**: see [§Counting](#counting-adr-0011).
 - **Kinds**: `ticket.kind` (`work` | `personal` | null) filters transitions; a null kind matches every transition ([U-062](../tracking/UNKNOWNS.md)).
 - **Fallbacks**: `ask_user` stays a declared outcome on every agent state (U-061); `ask_user`, `timeout` and `budget_exceeded` (FALLBACK_TRANSITION_NAMES) never run requirements.
 - **Legacy**: ADR-0009 `requirements` (on a transition) and ADR-0010 `entry` (on a state) still parse, and old versions execute them as before. `foldLegacyRequirements(def)` (`shared/src/workflow/fold.ts`) rewrites them into `requires` + `on_unmet` (an `entry` goes onto every non-fallback transition into that state); the editor calls it when it saves a new version.
@@ -76,6 +77,9 @@ Each key of `on` is a **transition name**; the value is a state name (shorthand 
 
 ### Retry loops
 `{ "goto": "implement", "attach": "output", "retries": 3, "else": "needs_input" }` means: on `fail`, go back to `implement` with the command output attached to the prompt. The counter key is `"<from>-><goto>"` in `session.retry_counters`. Once the counter reaches `retries`, take `else`. `budget.max_loop_retries` is the default cap when a loop doesn't set one.
+
+### Counting (ADR-0011)
+`isCountedTransition(t)` (`shared/src/workflow/transition-rules.ts`) decides which transitions are counted `"<from>-><goto>"` failure loops: only an object with `attach`, `retries` or `else`. Every other transition (a state name, or an object with only `when` / `kinds` / `question` / `requires` / `on_unmet` / `title` / `actor`, or ADR-0009 `requirements`) is a plain forward move with no failure-loop counter. Retries of a transition's requirements count under `move:<from>:<name>` (`moveCounterKey`), never under `<from>-><goto>`. The engine (M1b-T03) and the validator's loop analysis (rule 4, M1b-T02) must both use this helper rather than "is it an object".
 
 ### Requirements gates ([ADR-0009](../adr/0009-transition-requirements-review.md))
 A transition object may carry `requirements: {items[1..30], on_unmet: {goto, instruction?, retries 0..10 = 2, else = "needs_input"}, model?}`:

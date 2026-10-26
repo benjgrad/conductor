@@ -144,7 +144,7 @@ export function failedEvidence(c: ConditionStatus): ConditionEvidence {
 
 /**
  * Enabled PR conditions when conductor has no PR (no `context.__pr`): they can't be evaluated
- * and won't become true, so they are failed at once (→ on_unmet) instead of polling to the
+ * and won't become true, so they are failed at once (→ `on_unmet.else`, uncounted) instead of polling to the
  * timeout. null when there is a PR or no enabled PR condition.
  */
 export function failWithoutPr(

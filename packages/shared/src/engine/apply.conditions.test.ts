@@ -348,7 +348,7 @@ describe('the conditions phase', () => {
     expect(r.snapshot).toMatchObject({ workflow_state: LABEL, status: 'waiting_external' });
   });
 
-  it("PR conditions without conductor's PR fail at once (→ on_unmet), nothing is sent", () => {
+  it("PR conditions without conductor's PR go straight to on_unmet.else, uncounted; nothing is sent", () => {
     const def = v2With((raw) => {
       const t = raw.states.implementing.on.ready_for_testing;
       delete t.requires.checks;
@@ -363,12 +363,21 @@ describe('the conditions phase', () => {
     });
     expect(find(r.effects, 'run_action')).toBeUndefined();
     expect(r.snapshot).toMatchObject({
-      workflow_state: 'implementing',
-      retry_counters: { [KEY]: 1 },
+      workflow_state: 'needs_input',
+      status: 'needs_input',
+      step: null,
+      retry_counters: {},
     });
-    expect(find(r.effects, 'start_session')!.prompt).toContain(
+    expect(find(r.effects, 'start_session')).toBeUndefined();
+    const req = find(r.effects, 'create_input_request')!;
+    expect(req.kind).toBe('retries_exhausted');
+    expect(req.question).toContain(
+      'Conductor could not check the conditions to take "Ready for testing" (implementing → waiting_external):',
+    );
+    expect(req.question).toContain(
       '- pr_checks_green: failed (conductor has no pull request for this ticket',
     );
+    expect(req.question).toContain('- pr_approvals: failed (conductor has no pull request');
   });
 
   it("a conditions-only move with conductor's PR sends no head_sha", () => {

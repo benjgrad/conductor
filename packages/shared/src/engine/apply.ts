@@ -1329,8 +1329,21 @@ function startConditions(st: Step, spec: GateSpec): void {
     r.conditions_note = null;
     const failed = failWithoutPr(s, spec.conditions, r.conditions, st.now);
     if (failed !== null) {
+      // The agent can't create conductor's PR, so retrying would only use up retries: straight
+      // to `on_unmet.else` (a human), uncounted (lead decision).
       r.conditions = failed;
-      conditionsFailed(st, spec, r);
+      const lines = [
+        `Conductor could not check the conditions to ${spec.goal}:`,
+        ...failed
+          .filter((c) => c.status === 'failed')
+          .map((c) => {
+            const ev = failedEvidence(c);
+            return `- ${ev.item}: ${ev.reason}`;
+          }),
+        '',
+        'Retry, skip, or abort?',
+      ];
+      stepFail(st, spec, 'retries_exhausted', lines.join('\n'), false);
       return;
     }
   }

@@ -185,6 +185,7 @@ Groups run in order A → B → C → D. Tasks within a group own disjoint files
     The conditions phase is a stub that passes when there are no conditions; T08 builds the real phase.
     Human moves run requirements too (ADR-0010 "skip to"); the routes to a human (fallbacks, budget, `on_unmet`) never do.
   - **Prompt** (`render.ts`): an agent prompt ends with "## How to finish", listing each allowed transition as `- <name>: <when>`, and how to call `complete_state` with `transition` and `reason`. `start_session.transitions` is filled from the same list.
+  - **Work-commit rule** (Ben, 2026-10-26). For a ticket with `kind: 'work'`, every agent prompt includes a "## Work repository" section. It says: commit only changes that make sense to the other developers on this repo, who don't use conductor. Don't commit workflow or agent configuration, notes for conductor, or anything specific to this tool. Personal tickets have no such section. Test: the section is present for work, absent for personal, and absent for null kind.
   - **Moves:** `state.entered` events carry `transition`, `reason`, `actor`.
   - Old versions still run unchanged: entry steps and ADR-0009 gates.
 - **Design refs**: ADR-0011 §Who takes a transition, §Requirements on the move; [05](../../design/05-workflow-engine.md) §Requirements to enter a column (the machinery reused); [10](../../design/10-contracts.md) §Pending answer.
@@ -318,6 +319,7 @@ Groups run in order A → B → C → D. Tasks within a group own disjoint files
   - `docs/design/workflows/conductor.v2.json` and `CONDUCTOR_V2` in `shared/src/workflow/conductor.ts` (kept equal by the existing test), per ADR-0011 §Default conductor v2. The sketch below is non-normative; T09 writes the full file.
   - **Seed**: on start, if the latest `conductor` version equals the shipped v1 (deep-equal to `CONDUCTOR_V1_DEF`, so unedited), insert v2 as the next version. If the user has edited it, insert nothing and log "A newer default conductor workflow is available". `GET /api/workflows/conductor` carries `default_available: 2`; the editor's notice is T06's follow-up, not this task.
   - The idempotent single-statement seed pattern of ADR-0010 is kept.
+  - **Work-commit rule** (Ben, 2026-10-26). Every work-kind transition out of Implementing that ships code (`ready_for_testing`, and `pr_ready_for_review` if it carries `requires`) gets a `review` item: "The change contains nothing conductor-specific (no workflow or agent configuration, no notes for conductor); everything committed is useful to the other developers on this repository." When unmet, the ticket goes back to Implementing. The prompt instruction is T03's.
 - **Design refs**: ADR-0011 §Default conductor v2; ADR-0010 §Implementation notes (Seed).
 - **Depends on**: T02 (it must validate), T03 (its transitions must run).
 - **Files owned**: `docs/design/workflows/conductor.v2.json`, `packages/shared/src/workflow/conductor.ts` (+ test), `packages/orchestrator/src/engine/seed.ts` (+ test); 00-overview's design-index line.

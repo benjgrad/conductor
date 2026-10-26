@@ -431,17 +431,47 @@ export async function checkClean(
   worktree: string,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<{ head: string | null; dirty: null } | { head: null; dirty: string[] }> {
-  const st = await run(
-    'git',
-    ['-c', 'core.fsmonitor=false', ...NO_HOOKS, 'status', '--porcelain', '--untracked-files=all'],
-    worktree,
-    { env },
-  );
-  if (st.code !== 0) {
-    return { head: null, dirty: [`(git status failed: ${tail(st.stderr || st.stdout, 300)})`] };
+  // Agent-writable state can hide changes from a plain `git status` (final QA, 2026-10-26):
+  // assume-unchanged / skip-worktree index bits, `.git/info/exclude`, a repo-config
+  // `core.excludesFile`, the stat cache. So the tree is dirty if ANY of these says so:
+  // 1. status with the stat and untracked caches and core.excludesFile off;
+  const git = (args: string[]) =>
+    run('git', ['-c', 'core.fsmonitor=false', ...NO_HOOKS, ...args], worktree, { env });
+  const failed = (what: string, r: Run): { head: null; dirty: string[] } => ({
+    head: null,
+    dirty: [`(git ${what} failed: ${tail(r.stderr || r.stdout, 300)})`],
+  });
+
+  const lines = (r: Run) => r.stdout.split('\n').filter((l) => l.trim() !== '');
+  const st = await git([
+    '-c',
+    'core.ignoreStat=false',
+    '-c',
+    'core.untrackedCache=false',
+    '-c',
+    'core.excludesFile=',
+    'status',
+    '--porcelain',
+    '--untracked-files=all',
+  ]);
+  if (st.code !== 0) return failed('status', st);
+  const dirty = lines(st);
+  // 2. hidden index bits: assume-unchanged (a lowercase tag) or skip-worktree (`S`);
+  const lv = await git(['ls-files', '-v']);
+  if (lv.code !== 0) return failed('ls-files -v', lv);
+  for (const l of lines(lv)) {
+    const tag = l.charAt(0);
+    if (tag === 'S' || (tag >= 'a' && tag <= 'z')) dirty.push(`hidden (${tag}): ${l.slice(2)}`);
   }
-  const lines = st.stdout.split('\n').filter((l) => l.trim() !== '');
-  if (lines.length > 0) return { head: null, dirty: lines.slice(0, 200) };
+  // 3. untracked files, honouring only the .gitignore files in the tree (not info/exclude or
+  //    core.excludesFile, which the agent can write outside the commit).
+  const un = await git(['ls-files', '--others', '--exclude-per-directory=.gitignore']);
+  if (un.code !== 0) return failed('ls-files --others', un);
+  for (const l of lines(un)) {
+    const entry = `?? ${l}`;
+    if (!dirty.includes(entry)) dirty.push(entry);
+  }
+  if (dirty.length > 0) return { head: null, dirty: dirty.slice(0, 200) };
   return { head: await resolveHead(worktree, env), dirty: null };
 }
 

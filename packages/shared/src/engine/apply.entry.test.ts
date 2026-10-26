@@ -372,13 +372,56 @@ describe("security review: the pushed commit is the checked commit; the PR URL i
   });
 
   it('an unknown checked commit → no push: needs_input', () => {
-    const h = checking();
-    h.cmdExit(0, '', false, null);
+    const oneCheck = conductorWith((raw) => {
+      raw.states.waiting_external.entry.checks = [{ name: 'Build passes', cmd: 'npm run build' }];
+    });
+    const h = checking(oneCheck);
     const r = h.cmdExit(0, '', false, null);
     expect(find(r.effects, 'run_action')).toBeUndefined();
     expect(r.snapshot.workflow_state).toBe('needs_input');
     expect(find(r.effects, 'create_input_request')!.question).toContain(
       'could not tell which commit the checks',
+    );
+  });
+
+  it('(QA a) a later check whose head is unknown is unmet', () => {
+    const h = checking();
+    h.cmdExit(0, '', false, HEAD_SHA);
+    const r = h.cmdExit(0, '', false, null);
+    expect(r.snapshot.workflow_state).toBe('implementing');
+    expect(r.snapshot.retry_counters).toEqual({ [KEY]: 1 });
+    expect(find(r.effects, 'start_session')!.prompt).toContain(
+      'conductor could not tell which commit this check ran on',
+    );
+  });
+
+  it('(QA b) a review-only entry pins the commit first; the review is told it', () => {
+    const reviewOnly = conductorWith((raw) => {
+      raw.states.waiting_external.entry = {
+        review: { items: ['Has tests'] },
+        on_unmet: { goto: 'implementing' },
+      };
+    });
+    const h = implementing(reviewOnly);
+    const r = h.complete({ summary: 'done' });
+    expect(find(r.effects, 'run_cmd')).toMatchObject({ cmd: 'true', require_clean: true });
+    const rev = find(h.cmdExit(0, '', false, HEAD_SHA).effects, 'start_session')!;
+    expect(rev.review).toBe(true);
+    expect(rev.prompt).toContain(`The checks ran on commit \`${HEAD_SHA}\``);
+  });
+
+  it('(QA b) an action-only entry pins the commit: open_pr always gets expected_sha', () => {
+    const actionOnly = conductorWith((raw) => {
+      raw.states.waiting_external.entry = {
+        actions: ['open_pr'],
+        on_unmet: { goto: 'implementing' },
+      };
+    });
+    const h = implementing(actionOnly);
+    const r = h.complete({ summary: 'done' });
+    expect(find(r.effects, 'run_cmd')).toMatchObject({ cmd: 'true', require_clean: true });
+    expect(find(h.cmdExit(0, '', false, HEAD_SHA).effects, 'run_action')!.expected_sha).toBe(
+      HEAD_SHA,
     );
   });
 

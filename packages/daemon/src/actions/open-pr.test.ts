@@ -385,6 +385,41 @@ describe('checkClean (ADR-0010: only committed changes are checked)', () => {
     expect(r.head).toBe(git(worktree, 'rev-parse', 'HEAD').trim());
   });
 
+  // Final QA (2026-10-26): agent-writable state that hides changes from a plain `git status`.
+  it('assume-unchanged hides nothing: dirty', async () => {
+    git(worktree, 'update-index', '--assume-unchanged', 'health.txt');
+    writeFileSync(join(worktree, 'health.txt'), 'changed\n');
+    const r = await checkClean(worktree);
+    expect(r.head).toBeNull();
+    expect(r.dirty).toEqual(expect.arrayContaining(['hidden (h): health.txt']));
+  });
+
+  it('skip-worktree hides nothing: dirty', async () => {
+    git(worktree, 'update-index', '--skip-worktree', 'health.txt');
+    writeFileSync(join(worktree, 'health.txt'), 'changed\n');
+    const r = await checkClean(worktree);
+    expect(r.head).toBeNull();
+    expect(r.dirty).toEqual(expect.arrayContaining(['hidden (S): health.txt']));
+  });
+
+  it('an untracked file listed in .git/info/exclude (shared clone) is dirty', async () => {
+    mkdirSync(join(clone, '.git', 'info'), { recursive: true });
+    writeFileSync(join(clone, '.git', 'info', 'exclude'), 'sneaky.txt\n');
+    writeFileSync(join(worktree, 'sneaky.txt'), 'x');
+    const r = await checkClean(worktree);
+    expect(r.head).toBeNull();
+    expect(r.dirty).toEqual(['?? sneaky.txt']);
+  });
+
+  it('an untracked file matched by a repo-config core.excludesFile is dirty', async () => {
+    writeFileSync(join(tmp, 'evil-excludes'), 'sneaky.txt\n');
+    git(clone, 'config', 'core.excludesFile', join(tmp, 'evil-excludes'));
+    writeFileSync(join(worktree, 'sneaky.txt'), 'x');
+    const r = await checkClean(worktree);
+    expect(r.head).toBeNull();
+    expect(r.dirty).toEqual(['?? sneaky.txt']);
+  });
+
   it('a planted core.fsmonitor / hooks in the shared clone do not run', async () => {
     const marker = join(tmp, 'pwned');
     git(clone, 'config', 'core.fsmonitor', `touch ${marker}`);

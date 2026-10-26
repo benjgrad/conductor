@@ -655,12 +655,17 @@ function gateSpecOf(def: WorkflowDefinition, r: GateStep): GateSpec | null {
   if (entry === undefined) return null;
   return {
     title: stateTitle(def, r.to),
-    checks: entry.checks ?? [],
+    // An entry without checks still pins the commit first (review-only / action-only): a no-op
+    // clean-tree check reports HEAD, so open_pr always pushes a recorded commit.
+    checks: entry.checks !== undefined && entry.checks.length > 0 ? entry.checks : [PIN_CHECK],
     review: entry.review ?? null,
     actions: entry.actions ?? [],
     on_unmet: entry.on_unmet,
   };
 }
+
+/** ADR-0010: the implicit check of an entry without checks: a clean tree, and its HEAD. */
+export const PIN_CHECK: EntryCheck = { name: 'Committed work', cmd: 'true' };
 
 function noGate(r: GateStep): string {
   return r.kind === 'transition'
@@ -1043,11 +1048,15 @@ function onCheckExited(
   const head = e.head_sha ?? null;
   if (r.index === 0) {
     r.head_sha = head;
-  } else if (head !== null && r.head_sha !== null && head !== r.head_sha) {
+  } else if (head === null || head !== r.head_sha) {
+    // A later check must run on the same, known commit (a null head is never "the same").
     stepUnmet(st, spec, r, [
       {
         item: check.name,
-        reason: `the branch moved while the checks ran (from ${r.head_sha} to ${head}); nothing may change it after you finish`,
+        reason:
+          head === null
+            ? 'conductor could not tell which commit this check ran on; nothing may change the branch after you finish'
+            : `the branch moved while the checks ran (from ${r.head_sha ?? 'unknown'} to ${head}); nothing may change it after you finish`,
       },
     ]);
     return;

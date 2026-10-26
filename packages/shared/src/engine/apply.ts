@@ -627,6 +627,8 @@ interface GateSpec {
   /** The target's column title (ADR-0010) or name (ADR-0009). */
   title: string;
   checks: readonly EntryCheck[];
+  /** The fresh checkout's setup: a command, '' (none), or null (auto-detect by the daemon). */
+  setup: string | null;
   review: { items: readonly string[]; model?: string | undefined } | null;
   actions: readonly EntryAction[];
   on_unmet: OnUnmet;
@@ -646,6 +648,7 @@ function gateSpecOf(def: WorkflowDefinition, r: GateStep): GateSpec | null {
     return {
       title: r.to,
       checks: [],
+      setup: null,
       review: { items: gate.items, model: gate.model },
       actions: [],
       on_unmet: gate.on_unmet,
@@ -658,6 +661,7 @@ function gateSpecOf(def: WorkflowDefinition, r: GateStep): GateSpec | null {
     // An entry without checks still pins the commit first (review-only / action-only): a no-op
     // clean-tree check reports HEAD, so open_pr always pushes a recorded commit.
     checks: entry.checks !== undefined && entry.checks.length > 0 ? entry.checks : [PIN_CHECK],
+    setup: entry.setup ?? null,
     review: entry.review ?? null,
     actions: entry.actions ?? [],
     on_unmet: entry.on_unmet,
@@ -762,6 +766,17 @@ function runPhase(st: Step, assigning: boolean): void {
           timeout_ms: parseDuration(check.timeout ?? DEFAULT_CHECK_TIMEOUT),
           // Only committed changes are checked (and pushed): the daemon refuses a dirty tree.
           require_clean: true,
+          // Ben, 2026-10-26: every real check runs in a fresh checkout of the one recorded commit
+          // (the implicit pin check doesn't: it only records the clean HEAD).
+          ...(check === PIN_CHECK
+            ? {}
+            : {
+                checkout: {
+                  sha: r.head_sha,
+                  setup: spec.setup,
+                  last: r.index === spec.checks.length - 1,
+                },
+              }),
         });
         // The daemon enforces the check's timeout (`cmd_exit timed_out`), as for command states.
         st.setDeadline(label, null);
@@ -1031,6 +1046,18 @@ function onCheckExited(
   check: EntryCheck,
   e: Extract<EngineEvent, { type: 'command.exited' }>,
 ): void {
+  // The fresh checkout's setup failed: unmet like a failed check, its output as evidence.
+  if (e.setup_failed === true) {
+    if (r.index === 0) r.head_sha = e.head_sha ?? null;
+    stepUnmet(st, spec, r, [
+      {
+        item: 'Setup',
+        reason: `the setup in a fresh checkout failed (${e.timed_out ? 'timed out' : e.exit_code === null ? 'killed by a signal' : `exit code ${e.exit_code}`}), so \`${check.cmd}\` did not run`,
+        output: e.output_tail,
+      },
+    ]);
+    return;
+  }
   // A dirty worktree: the check did not run. Only committed changes are checked and pushed, and
   // committing is the agent's job, so it is unmet (counted), back to on_unmet.goto.
   if (e.dirty !== undefined && e.dirty.length > 0) {

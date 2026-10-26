@@ -91,6 +91,8 @@ describe('conductor v1: entering Waiting external', () => {
       cwd: null,
       timeout_ms: 600_000,
       require_clean: true, // only committed changes are checked
+      // Ben, 2026-10-26: in a fresh checkout of the worktree's clean HEAD; setup auto-detected.
+      checkout: { sha: null, setup: null, last: false },
     });
     expect(find(r.effects, 'state_entered')).toMatchObject({ from: 'implementing', to: LABEL });
     const next = h.cmdExit(0, 'built');
@@ -505,5 +507,60 @@ describe('a dirty worktree is unmet (only committed changes are checked and push
     expect(find(r.effects, 'start_session')!.prompt).toContain(
       'commit everything on the current branch',
     );
+  });
+});
+
+describe('checks run in a fresh checkout of one commit (Ben, 2026-10-26)', () => {
+  it('later checks name the recorded commit; the last one says so', () => {
+    const h = checking();
+    const r = h.cmdExit(0, '', false, HEAD_SHA);
+    expect(find(r.effects, 'run_cmd')).toMatchObject({
+      cmd: 'npm test',
+      checkout: { sha: HEAD_SHA, setup: null, last: true },
+    });
+  });
+
+  it('a configured setup is passed through ("" = none)', () => {
+    const h = checking(
+      conductorWith((raw) => {
+        raw.states.waiting_external.entry.setup = 'pnpm i --frozen-lockfile';
+      }),
+    );
+    expect(h.snap.step).toMatchObject({ phase: 'checks' });
+    const first = h.last.effects.find((e) => e.type === 'run_cmd');
+    expect(first).toMatchObject({ checkout: { setup: 'pnpm i --frozen-lockfile' } });
+  });
+
+  it('a failed setup is unmet, with its output', () => {
+    const h = checking();
+    const r = h.run({
+      type: 'command.exited',
+      command_id: h.newId(),
+      exit_code: 1,
+      timed_out: false,
+      output_tail: 'npm ERR! missing lockfile',
+      head_sha: HEAD_SHA,
+      setup_failed: true,
+    });
+    expect(r.snapshot).toMatchObject({
+      workflow_state: 'implementing',
+      retry_counters: { [KEY]: 1 },
+    });
+    const prompt = find(r.effects, 'start_session')!.prompt;
+    expect(prompt).toContain('- Setup: the setup in a fresh checkout failed (exit code 1)');
+    expect(prompt).toContain('npm ERR! missing lockfile');
+  });
+
+  it('the implicit pin check of a check-less entry runs no checkout', () => {
+    const h = implementing(
+      conductorWith((raw) => {
+        raw.states.waiting_external.entry = {
+          actions: ['open_pr'],
+          on_unmet: { goto: 'implementing' },
+        };
+      }),
+    );
+    const r = h.complete({ summary: 'done' });
+    expect(find(r.effects, 'run_cmd')!.checkout).toBeUndefined();
   });
 });

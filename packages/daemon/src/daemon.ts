@@ -22,6 +22,7 @@ import { DaemonStore, type AckRecord, type PortRange } from './store.js';
 import { liveResources, type SysInfo } from './sysinfo.js';
 import { buildAppendSystemPrompt } from './system-prompt.js';
 import { inventoryDigest, Workspace } from './workspace.js';
+import { detectSetup, freshCheckout, removeCheckout, sweepPrivate } from './actions/checkout.js';
 import { checkClean, openPr, resolveHead } from './actions/open-pr.js';
 import { ReconnectingWs } from './ws-client.js';
 
@@ -129,6 +130,8 @@ export class Daemon {
   /** session_id → timer that releases the slot a `work_assignment` holds (config.assignmentHoldMs). */
   private readonly assignments = new Map<string, NodeJS.Timeout>();
   private readonly inFlight = new Set<string>();
+  /** ADR-0010: the fresh checkout an entry step's checks share (session id → its commit and dir). */
+  private readonly checkouts = new Map<string, { sha: string; dir: string }>();
 
   constructor(opts: DaemonOptions) {
     this.config = opts.config;
@@ -141,6 +144,8 @@ export class Daemon {
     this.heartbeatMs = this.config.heartbeatIntervalMs;
     mkdirSync(this.config.rootDir, { recursive: true });
     this.store = DaemonStore.forRoot(this.config.rootDir);
+    // Fresh checkouts / push repos a previous daemon left behind (ADR-0010).
+    sweepPrivate(this.config.rootDir);
     this.workspace = new Workspace(this.config.rootDir, this.store, {
       allowLocalRepos: this.config.allowLocalRepos,
       allowedRepoHosts: this.config.allowedRepoHosts,
@@ -791,53 +796,114 @@ export class Daemon {
     this.touch(sid);
     const started = Date.now();
     // ADR-0010: the commit this command runs on (an entry check's `head_sha`). An entry check
-    // (`require_clean`) runs only on a clean worktree; a dirty one is reported, not run.
+    // (`require_clean`) needs a clean worktree (an early, friendly pre-check: dirty is reported,
+    // not run), and (`checkout`, Ben 2026-10-26) runs in a fresh, conductor-owned checkout of that
+    // one commit, never in the agent's worktree.
     let headSha: string | null = null;
     let dirty: string[] | null = null;
-    const before: Promise<void> = p.require_clean
-      ? checkClean(s.worktreePath).then((c) => {
-          headSha = c.head;
-          dirty = c.dirty;
-        })
-      : resolveHead(s.worktreePath).then((h) => {
-          headSha = h;
-        });
-    before
-      .then(() => {
-        if (dirty !== null) {
-          const lines: string[] = dirty;
-          this.sendOutput(
-            sid,
-            token,
-            'stderr',
-            `conductor: uncommitted changes, not running \`${p.cmd}\`:\n${lines.join('\n')}\n`,
-          );
-          return {
-            exitCode: null,
-            signal: null,
-            timedOut: false,
-            durationMs: 0,
-            outputTail: lines.join('\n'),
-          };
+    let setupFailed = false;
+    const exec = (command: string, at: string) =>
+      runner.run({
+        commandId: p.command_id,
+        sessionId: sid,
+        cmd: command,
+        cwd: at,
+        timeoutMs: p.timeout_ms,
+        env: {
+          CONDUCTOR_SESSION_ID: sid,
+          CONDUCTOR_TICKET_ID: s.ticketId,
+          ...portEnv(range),
+          ...this.gitEnv(),
+        },
+        signal: abort.signal,
+        onOutput: (c) => this.sendOutput(sid, token, c.stream, c.text),
+        onWaitingForSlot: (waiting) =>
+          this.emit(sid, token, { kind: 'build_slot', data: { waiting } }),
+      });
+    const notRun = (text: string) => {
+      this.sendOutput(sid, token, 'stderr', `conductor: ${text}\n`);
+      return { exitCode: null, signal: null, timedOut: false, durationMs: 0, outputTail: text };
+    };
+    const work = async () => {
+      if (p.require_clean) {
+        const c = await checkClean(s.worktreePath);
+        headSha = c.head;
+        dirty = c.dirty;
+        if (c.dirty !== null) {
+          return notRun(`uncommitted changes, not running \`${p.cmd}\`:\n${c.dirty.join('\n')}`);
         }
-        return runner.run({
-          commandId: p.command_id,
-          sessionId: sid,
-          cmd: p.cmd,
-          cwd,
-          timeoutMs: p.timeout_ms,
-          env: {
-            CONDUCTOR_SESSION_ID: sid,
-            CONDUCTOR_TICKET_ID: s.ticketId,
-            ...portEnv(range),
-            ...this.gitEnv(),
-          },
-          signal: abort.signal,
-          onOutput: (c) => this.sendOutput(sid, token, c.stream, c.text),
-          onWaitingForSlot: (waiting) =>
-            this.emit(sid, token, { kind: 'build_slot', data: { waiting } }),
-        });
-      })
+      } else {
+        headSha = await resolveHead(s.worktreePath);
+      }
+      const co = p.checkout;
+      if (co === undefined) return exec(p.cmd, cwd);
+      const want = co.sha ?? headSha;
+      if (want === null) return notRun('could not resolve the commit to check');
+      if (headSha !== null && headSha !== want) {
+        return notRun(
+          `the branch moved: the checks are for ${want}, the worktree is at ${headSha}`,
+        );
+      }
+      headSha = want;
+      let ok = false;
+      try {
+        let held = this.checkouts.get(sid);
+        if (held && held.sha !== want) {
+          removeCheckout(held.dir);
+          this.checkouts.delete(sid);
+          held = undefined;
+        }
+        if (!held) {
+          const fresh = await freshCheckout({
+            root: this.config.rootDir,
+            worktree: s.worktreePath,
+            branch: s.branch,
+            sha: want,
+            signal: abort.signal,
+          });
+          if (!fresh.ok) {
+            if (fresh.head !== null) headSha = fresh.head;
+            return notRun(fresh.error);
+          }
+          held = { sha: want, dir: fresh.dir };
+          this.checkouts.set(sid, held);
+          const setup = detectSetup(held.dir, co.setup);
+          if (setup !== null) {
+            this.sendOutput(
+              sid,
+              token,
+              'debug',
+              `conductor: setup \`${setup}\` in a fresh checkout of ${want}`,
+            );
+            const sr = await exec(setup, held.dir);
+            if (sr.exitCode !== 0 || sr.timedOut) {
+              setupFailed = true;
+              return sr;
+            }
+          }
+        }
+        const at = resolve(held.dir, p.cwd ?? '.');
+        const inside = relative(held.dir, at);
+        if (inside.startsWith('..') || isAbsolute(inside)) return notRun('invalid cwd');
+        this.sendOutput(
+          sid,
+          token,
+          'debug',
+          `conductor: \`${p.cmd}\` in a fresh checkout of ${want}`,
+        );
+        const r = await exec(p.cmd, at);
+        ok = r.exitCode === 0 && !r.timedOut;
+        return r;
+      } finally {
+        // Any failure, or the last check: the checkout goes.
+        if (!ok || co.last) {
+          const held = this.checkouts.get(sid);
+          if (held) removeCheckout(held.dir);
+          this.checkouts.delete(sid);
+        }
+      }
+    };
+    work()
       .then(
         (r) => ({
           exit_code: r.exitCode,
@@ -863,6 +929,7 @@ export class Daemon {
             ...data,
             head_sha: headSha,
             ...(dirty !== null ? { dirty } : {}),
+            ...(setupFailed ? { setup_failed: true } : {}),
           },
         });
       })

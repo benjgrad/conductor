@@ -162,21 +162,30 @@ const SCENARIOS: Record<string, unknown> = {
 };
 
 // ADR-0010 (the one workflow, conductor v1): planning, then implementing. Its first pass forgets
-// to commit (the dirty-tree check sends it back), the second commits but the tests are red once
-// (the check sends it back with the output), the third finishes.
+// to commit (the dirty-tree pre-check sends it back). The second commits a `fail-test` file and
+// also drops a gitignored `.e2e/override-test` that would make `npm test` pass in its worktree,
+// but the checks run in a fresh checkout of the commit (Ben, 2026-10-26), where it doesn't exist:
+// red, back with the output. The third removes `fail-test`, commits, and passes.
 SCENARIOS.conductor = {
   turns: [
     [{ say: 'Planning.' }, { complete_state: { plan: '1. add src/health.txt', summary: 'plan' } }],
     [
       { say: 'Implementing the plan.' },
       { write_file: { path: 'src/health.txt', content: 'ok\n' } },
-      { write_file: { path: failCounter('test'), content: '1' } },
+      { write_file: { path: 'fail-test', content: 'red\n' } },
       { complete_state: { summary: 'added /health' } },
+    ],
+    [
+      { say: 'Committing; the override makes my local tests pass.' },
+      { git_commit: 'Add /health' },
+      { write_file: { path: '.e2e/override-test', content: 'x\n' } },
+      { complete_state: { summary: 'added /health', retry_prompt: '$answer' } },
     ],
   ],
   defaultTurn: [
-    { say: 'Fixing what was listed.' },
-    { git_commit: 'Add /health' },
+    { say: 'Fixing the tests for real.' },
+    { remove_file: 'fail-test' },
+    { git_commit: 'Fix the tests' },
     { complete_state: { summary: 'added /health, tests green', retry_prompt: '$answer' } },
   ],
 };
@@ -632,7 +641,10 @@ describe.skipIf(REAL)('fake Claude', () => {
     expect(typeof prompt).toBe('string');
     expect(prompt).toContain('Requirements to enter Waiting external were not met:');
     expect(prompt).toContain('- Tests pass: `npm test` failed (exit code 1)');
-    expect(prompt).toContain(FAILURE_MARKER);
+    expect(prompt).toContain(`${FAILURE_MARKER} (test, fail-test is committed)`);
+    // The override that makes the tests pass in the worktree was there, and did not help: the
+    // checks ran in a fresh checkout of the commit, not the worktree.
+    expect(existsSync(join(detail.worktree_path!, '.e2e', 'override-test'))).toBe(true);
 
     // Conductor (not the agent) pushed the checked commit (with the agent's committed file) and
     // opened the PR with gh.
@@ -642,6 +654,12 @@ describe.skipIf(REAL)('fake Claude', () => {
         encoding: 'utf8',
       }),
     ).toBe('ok\n');
+    expect(() =>
+      execFileSync('git', ['show', `refs/heads/${detail.branch!}:fail-test`], {
+        cwd: repo,
+        stdio: 'pipe',
+      }),
+    ).toThrow();
     const gh = readFileSync(stack.fakeGhLog, 'utf8')
       .trim()
       .split('\n')

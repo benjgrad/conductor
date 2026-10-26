@@ -273,6 +273,9 @@ function checkEntry(
         err([...base, 'checks', i, 'name'], `check "${c.name}" is listed twice`);
       names.add(c.name);
     });
+    if (entry.setup !== undefined && (entry.checks ?? []).length === 0) {
+      err([...base, 'setup'], `entry setup runs before the checks: "${name}" has no checks`);
+    }
     const actions = new Set<string>();
     (entry.actions ?? []).forEach((a, i) => {
       if (actions.has(a)) err([...base, 'actions', i], `action "${a}" is listed twice`);

@@ -122,7 +122,7 @@ export function pushTarget(repo: string, policy: RepoPolicy): PushTarget {
   };
 }
 
-interface Run {
+export interface Run {
   code: number | null;
   stdout: string;
   stderr: string;
@@ -131,7 +131,7 @@ interface Run {
 }
 
 /** process env minus every variable that would point git at other config, dirs or commands. */
-function cleanEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+export function cleanEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const out: NodeJS.ProcessEnv = {};
   for (const [k, v] of Object.entries(env)) {
     if (/^GIT_/.test(k)) continue;
@@ -146,7 +146,7 @@ function cleanEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   };
 }
 
-function run(
+export function run(
   cmd: string,
   args: string[],
   cwd: string,
@@ -173,7 +173,7 @@ function run(
   });
 }
 
-const tail = (s: string, n = 600) => {
+export const tail = (s: string, n = 600) => {
   const t = s.trim();
   return t.length > n ? `…${t.slice(-n)}` : t;
 };
@@ -181,7 +181,7 @@ const tail = (s: string, n = 600) => {
 const URL_RE = /https?:\/\/\S+/g;
 const BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 
-const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null'];
+export const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null'];
 
 const GH_MISSING =
   'gh (the GitHub CLI) is not on PATH: install it and run `gh auth login` on this machine';
@@ -283,7 +283,7 @@ function prResult(url: string, reused: boolean): OpenPrResult {
  * uid, not a symlink: checked with lstat), removed afterwards. No agent cwd is ever inside it, and
  * it lives only for this push, so nothing can be planted in it ahead of time.
  */
-function privateDir(root: string): string | Error {
+export function privateDir(root: string, prefix = 'push-'): string | Error {
   const base = join(root, 'private');
   mkdirSync(base, { recursive: true, mode: 0o700 });
   const ownedDir = (path: string): Error | null => {
@@ -297,7 +297,7 @@ function privateDir(root: string): string | Error {
   const bad = ownedDir(base);
   if (bad) return bad;
   chmodSync(base, 0o700);
-  const dir = mkdtempSync(join(base, 'push-'));
+  const dir = mkdtempSync(join(base, prefix));
   chmodSync(dir, 0o700);
   return ownedDir(dir) ?? dir;
 }
@@ -453,6 +453,8 @@ export async function checkClean(
     'status',
     '--porcelain',
     '--untracked-files=all',
+    // QA 1b: submodule changes are not hidden by submodule.<name>.ignore / diff.ignoreSubmodules.
+    '--ignore-submodules=none',
   ]);
   if (st.code !== 0) return failed('status', st);
   const dirty = lines(st);
@@ -469,6 +471,22 @@ export async function checkClean(
   if (un.code !== 0) return failed('ls-files --others', un);
   for (const l of lines(un)) {
     const entry = `?? ${l}`;
+    if (!dirty.includes(entry)) dirty.push(entry);
+  }
+  // QA 1a: an uncommitted .gitignore that ignores itself (ls-files --others reads working-tree
+  //    .gitignore files): any untracked-and-ignored .gitignore is dirty.
+  const gi = await git([
+    'ls-files',
+    '--others',
+    '--ignored',
+    '--exclude-per-directory=.gitignore',
+    '--',
+    '.gitignore',
+    ':(glob)**/.gitignore',
+  ]);
+  if (gi.code !== 0) return failed('ls-files --ignored', gi);
+  for (const l of lines(gi)) {
+    const entry = `?? ${l} (ignores itself)`;
     if (!dirty.includes(entry)) dirty.push(entry);
   }
   if (dirty.length > 0) return { head: null, dirty: dirty.slice(0, 200) };

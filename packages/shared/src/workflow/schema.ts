@@ -109,6 +109,13 @@ export type EntryAction = z.infer<typeof EntryActionSchema>;
 export const EntryRequirementsSchema = z
   .strictObject({
     checks: z.array(EntryCheckSchema).max(20).optional(),
+    /**
+     * (Ben, 2026-10-26) Checks run in a fresh, conductor-owned checkout of the exact commit, never
+     * the agent's worktree. `setup` runs once in it before the checks (e.g. `npm ci`). Omitted =
+     * auto-detect: `package-lock.json` → `npm ci`, else `package.json` → `npm install`, else
+     * nothing. '' = no setup. A failed setup is unmet, like a failed check.
+     */
+    setup: z.string().max(2_000).optional(),
     review: z
       .strictObject({
         items: z.array(z.string().trim().min(1).max(2_000)).min(1).max(30),

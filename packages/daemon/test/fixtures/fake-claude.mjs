@@ -46,6 +46,7 @@
 //                                       is queued as the next turn.
 //   {"if_exists": {path, then, else}}   play the `then` actions if <cwd>/<path> exists, else the
 //                                       `else` actions (ADR-0009 reviewer scenarios)
+//   {"remove_file": path}               delete a file relative to cwd (must stay inside cwd)
 //   {"git_commit": message}             `git add -A && git commit -m <message>` in cwd, like an
 //                                       agent committing its work (ADR-0010: only committed
 //                                       changes are checked); nothing to commit is a no-op
@@ -72,6 +73,7 @@ import {
   mkdirSync,
   readFileSync,
   realpathSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -276,6 +278,14 @@ function writeFile(spec, answer) {
   writeFileSync(target, subst(String(spec.content ?? ''), answer));
 }
 
+function removeFile(path) {
+  const target = resolve(process.cwd(), path);
+  const rel = relative(process.cwd(), target);
+  if (rel === '' || rel.startsWith('..') || isAbsolute(rel))
+    fail(`remove_file outside cwd: ${path}`);
+  rmSync(target, { force: true });
+}
+
 function gitCommit(message) {
   const git = (...args) => execFileSync('git', args, { cwd: process.cwd(), stdio: 'pipe' });
   git('add', '-A');
@@ -334,6 +344,7 @@ async function runTurn(text) {
     }
     if (a.stderr !== undefined) process.stderr.write(a.stderr);
     if (a.write_file !== undefined) writeFile(a.write_file, text);
+    if (a.remove_file !== undefined) removeFile(String(a.remove_file));
     if (a.git_commit !== undefined) gitCommit(subst(String(a.git_commit), text));
     if (a.raw !== undefined) process.stdout.write(a.raw + '\n');
     if (a.sleep !== undefined) await new Promise((r) => setTimeout(r, a.sleep));

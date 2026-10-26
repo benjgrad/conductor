@@ -121,8 +121,9 @@ describe('Workflow view', () => {
 
   it('adds checks, review items and open_pr, and saves `entry`', async () => {
     const { saved } = await setup();
-    fireEvent.click(lane('Implementing'));
-    expect(editor().getByText(/None\. A ticket enters Implementing/)).toBeTruthy();
+    // Done: Implementing can't get an entry, since Waiting external's unmet loop goes back to it.
+    fireEvent.click(lane('Done'));
+    expect(editor().getByText(/None\. A ticket enters Done/)).toBeTruthy();
     fireEvent.click(editor().getByRole('button', { name: 'Add check' }));
     type(editor().getByLabelText('Check 1 name'), 'Lint passes');
     type(editor().getByLabelText('Check 1 command'), 'npm run lint');
@@ -136,12 +137,14 @@ describe('Workflow view', () => {
     type(editor().getByLabelText('With instruction'), 'Finish the plan first.');
     type(editor().getByLabelText('Up to (times)'), '4');
     const backTo = editor().getByLabelText('Back to');
+    // Never Done itself, nor Waiting external (it has its own entry), nor another terminal.
     expect([...backTo.querySelectorAll('option')].map((o) => o.textContent)).toEqual([
       'Planning',
       'Implementing',
       'Needs input',
-      'Waiting external',
     ]);
+    expect((backTo as HTMLSelectElement).value).toBe('planning');
+    type(backTo, 'implementing');
     expect(
       [...editor().getByLabelText('Then').querySelectorAll('option')].map((o) => o.textContent),
     ).toEqual(['Needs input']);
@@ -149,7 +152,7 @@ describe('Workflow view', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save as new version' }));
     await screen.findByRole('group', { name: 'conductor v3 columns' });
     expect(screen.getByRole('status').textContent).toBe('Saved as v3.');
-    expect(saved[0]!.states.implementing?.entry).toEqual({
+    expect(saved[0]!.states.done?.entry).toEqual({
       checks: [
         { name: 'Types check', cmd: 'npm run typecheck' },
         { name: 'Lint passes', cmd: 'npm run lint' },
@@ -157,7 +160,7 @@ describe('Workflow view', () => {
       review: { items: ['The plan is complete'] },
       actions: ['open_pr'],
       on_unmet: {
-        goto: 'planning',
+        goto: 'implementing',
         instruction: 'Finish the plan first.',
         retries: 4,
         else: 'needs_input',
@@ -222,9 +225,18 @@ describe('Workflow view', () => {
     ).toBe(false);
   });
 
+  it('flags an entry on a column that an unmet loop goes back to', async () => {
+    await setup();
+    fireEvent.click(lane('Implementing'));
+    fireEvent.click(editor().getByRole('checkbox', { name: 'Open a pull request (by conductor)' }));
+    const problems = within(screen.getByRole('list', { name: 'Problems' }));
+    expect(problems.getByText(/has requirements to enter of its own/)).toBeTruthy();
+    expect(lane('Waiting external').getAttribute('class')).toContain('error');
+  });
+
   it('validates on the client and blocks Save', async () => {
     const { saved } = await setup();
-    fireEvent.click(lane('Implementing'));
+    fireEvent.click(lane('Done'));
     fireEvent.click(editor().getByRole('button', { name: 'Add check' }));
     const save = screen.getByRole<HTMLButtonElement>('button', { name: 'Save as new version' });
     expect(save.disabled).toBe(true);
@@ -232,7 +244,7 @@ describe('Workflow view', () => {
     expect(editor().getByText('check 1 needs a command')).toBeTruthy();
     const problems = within(screen.getByRole('list', { name: 'Problems' }));
     expect(problems.getAllByText(/check 1 needs/)).toHaveLength(2);
-    expect(lane('Implementing').getAttribute('class')).toContain('error');
+    expect(lane('Done').getAttribute('class')).toContain('error');
 
     type(editor().getByLabelText('Check 1 name'), 'Build');
     type(editor().getByLabelText('Check 1 command'), 'npm run build');

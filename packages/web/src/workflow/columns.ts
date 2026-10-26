@@ -1,9 +1,10 @@
-import type {
-  EntryCheck,
-  EntryRequirements,
-  OnUnmet,
-  WorkflowDefinition,
-  WorkflowState,
+import {
+  CONDUCTOR_WORKFLOW_ID,
+  type EntryCheck,
+  type EntryRequirements,
+  type OnUnmet,
+  type WorkflowDefinition,
+  type WorkflowState,
 } from '@conductor/shared';
 import { humanStates, validateGates } from './model.js';
 
@@ -13,6 +14,9 @@ export { humanStates };
 // `columns` order, after an implicit Queued column. Here: the lanes and the arrows between them,
 // the "requirements to enter" summaries, the pure edits the column editor makes, and the client
 // side of the entry validation rules.
+
+/** State names the engine uses for its own context keys (ADR-0009 review, ADR-0010 entry step). */
+export const RESERVED_STATE_NAMES = ['__review', '__entry'] as const;
 
 /** The implicit first column (no state; sessions no machine has claimed yet). */
 export const QUEUED_LANE = '__queued__';
@@ -334,11 +338,22 @@ export function setEntry(
  * the start), up to 2 times, then `needs_input` (else the first human column).
  */
 export function defaultUnmet(def: WorkflowDefinition, name: string): OnUnmet {
-  const source = columnStates(def).find((n) => {
-    const s = def.states[n];
-    if (!s || s.type !== 'agent') return false;
-    return Object.values(s.on ?? {}).some((tr) => (typeof tr === 'string' ? tr : tr.goto) === name);
-  });
+  // A valid "back to" is never the column itself, nor a column with its own entry (rule 9).
+  const candidates = columnStates(def).filter(
+    (n) => n !== name && def.states[n]?.entry === undefined,
+  );
+  const agents = candidates.filter((n) => def.states[n]?.type === 'agent');
+  const source =
+    agents.find((n) => {
+      const st = def.states[n];
+      if (!st || st.type === 'terminal') return false;
+      return Object.values(st.on ?? {}).some(
+        (tr) => (typeof tr === 'string' ? tr : tr.goto) === name,
+      );
+    }) ??
+    (candidates.includes(def.start) ? def.start : undefined) ??
+    agents[0] ??
+    candidates[0];
   const humans = humanStates(def);
   return {
     goto: source ?? def.start,
@@ -360,11 +375,41 @@ export interface ColumnIssue {
 /** ADR-0010's entry rules (and ADR-0009's for old gates), checked before Save. */
 export function validateColumns(def: WorkflowDefinition): ColumnIssue[] {
   const issues: ColumnIssue[] = [];
+  // Mirrors the server's rule 9 (shared workflow/validate.ts, ADR-0010) so problems show before Save.
+  const seen = new Set<string>();
   (def.columns ?? []).forEach((n, i) => {
-    if (!has(def, n)) {
-      issues.push({ state: null, path: `columns.${i}`, message: `column "${n}" is not a state` });
-    }
+    const path = `columns.${i}`;
+    if (!has(def, n)) issues.push({ state: null, path, message: `column "${n}" is not a state` });
+    else if (seen.has(n)) issues.push({ state: n, path, message: `column "${n}" is listed twice` });
+    seen.add(n);
   });
+  if (def.id === CONDUCTOR_WORKFLOW_ID) {
+    if (def.columns === undefined) {
+      issues.push({
+        state: null,
+        path: 'columns',
+        message: `the ${CONDUCTOR_WORKFLOW_ID} workflow needs "columns" (its states are the board's columns)`,
+      });
+    } else {
+      const missing = Object.keys(def.states).filter((n) => !def.columns!.includes(n));
+      if (missing.length > 0) {
+        issues.push({
+          state: null,
+          path: 'columns',
+          message: `every state is a column: add ${missing.map((m) => `"${m}"`).join(', ')}`,
+        });
+      }
+    }
+  }
+  for (const reserved of RESERVED_STATE_NAMES) {
+    if (has(def, reserved)) {
+      issues.push({
+        state: reserved,
+        path: `states.${reserved}`,
+        message: `"${reserved}" is a reserved name`,
+      });
+    }
+  }
   for (const [name, state] of Object.entries(def.states)) {
     const base = `states.${name}`;
     const add = (path: string, message: string) =>
@@ -380,14 +425,29 @@ export function validateColumns(def: WorkflowDefinition): ColumnIssue[] {
       add('.entry', 'the first column cannot have requirements to enter (a claim enters it)');
       continue;
     }
+    if (state.type === 'human') {
+      // Failure paths must reach a human unconditionally.
+      add('.entry', 'a human column cannot have requirements to enter');
+      continue;
+    }
     const checks = e.checks ?? [];
     if (checks.length + (e.review ? 1 : 0) + (e.actions?.length ?? 0) === 0) {
       add('.entry', 'add at least one check, review item or action, or remove the requirements');
     }
     if (checks.length > 20) add('.entry.checks', 'at most 20 checks');
+    const names = new Set<string>();
     checks.forEach((c, i) => {
       if (c.name.trim() === '') add(`.entry.checks.${i}.name`, `check ${i + 1} needs a name`);
+      else if (names.has(c.name.trim())) {
+        add(`.entry.checks.${i}.name`, `check "${c.name}" is listed twice`);
+      }
+      names.add(c.name.trim());
       if (c.cmd.trim() === '') add(`.entry.checks.${i}.cmd`, `check ${i + 1} needs a command`);
+    });
+    const actions = new Set<string>();
+    (e.actions ?? []).forEach((a, i) => {
+      if (actions.has(a)) add(`.entry.actions.${i}`, `action "${a}" is listed twice`);
+      actions.add(a);
     });
     if (e.review) {
       if (e.review.items.length === 0) add('.entry.review.items', 'add at least one review item');
@@ -400,8 +460,16 @@ export function validateColumns(def: WorkflowDefinition): ColumnIssue[] {
       });
     }
     const u = e.on_unmet;
-    if (!has(def, u.goto))
+    if (!has(def, u.goto)) {
       add('.entry.on_unmet.goto', `"back to" column "${u.goto}" does not exist`);
+    } else if (u.goto === name) {
+      add('.entry.on_unmet.goto', `"back to" cannot be ${columnTitle(def, name)} itself`);
+    } else if (def.states[u.goto]?.entry !== undefined) {
+      add(
+        '.entry.on_unmet.goto',
+        `"back to" column "${columnTitle(def, u.goto)}" has requirements to enter of its own`,
+      );
+    }
     if (!has(def, u.else)) add('.entry.on_unmet.else', `"then" column "${u.else}" does not exist`);
     else if (def.states[u.else]?.type !== 'human') {
       add(

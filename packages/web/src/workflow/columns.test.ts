@@ -4,6 +4,7 @@ import { CONDUCTOR, CONDUCTOR_V1, M1_BASIC } from '../api/mock-data.js';
 import {
   buildLaneGraph,
   currentLane,
+  defaultUnmet,
   entryDraft,
   entryLines,
   entrySummary,
@@ -102,6 +103,19 @@ describe('requirements summary', () => {
 });
 
 describe('editing entry', () => {
+  it('a new entry never goes back to itself or to a column with its own entry', () => {
+    // Done: no agent moves in, so the start; Waiting external (entry) is never chosen.
+    expect(entryDraft(CONDUCTOR, 'done').on_unmet.goto).toBe('planning');
+    // The agent moving in has an entry of its own: skipped.
+    const def = setEntry(CONDUCTOR, 'implementing', {
+      actions: ['open_pr'],
+      on_unmet: { goto: 'planning', retries: 1, else: 'needs_input' },
+    });
+    const other = { ...def, start: 'needs_input' };
+    expect(defaultUnmet(other, 'waiting_external').goto).toBe('needs_input');
+    expect(defaultUnmet(def, 'waiting_external').goto).toBe('planning');
+  });
+
   it('a new entry goes back to the agent that moves in, then needs_input', () => {
     expect(entryDraft(CONDUCTOR_V1, 'implementing').on_unmet).toEqual({
       goto: 'planning',
@@ -141,7 +155,7 @@ describe('validateColumns', () => {
       review: { items: [''] },
       on_unmet: { goto: 'nowhere', retries: 11, else: 'implementing', instruction: ' ' },
     });
-    def = setEntry(def, 'implementing', { on_unmet: e.on_unmet });
+    def = setEntry(def, 'implementing', { on_unmet: { ...e.on_unmet, goto: 'planning' } });
     expect(validateColumns(def).map((i) => [i.state, i.path, i.message])).toEqual([
       [
         'implementing',
@@ -186,6 +200,45 @@ describe('validateColumns', () => {
         message: 'the first column cannot have requirements to enter (a claim enters it)',
       },
     ]);
+  });
+
+  it('mirror the server rule 9: loops, human entry, duplicates, columns, reserved names', () => {
+    const e = entryOf(CONDUCTOR, 'waiting_external');
+    let def = setEntry(CONDUCTOR, 'waiting_external', {
+      ...e,
+      checks: [
+        { name: 'Build', cmd: 'npm run build' },
+        { name: 'Build', cmd: 'npm test' },
+      ],
+      actions: ['open_pr', 'open_pr'],
+      on_unmet: { ...e.on_unmet, goto: 'waiting_external' },
+    });
+    def = setEntry(def, 'needs_input', { actions: ['open_pr'], on_unmet: e.on_unmet });
+    def = {
+      ...def,
+      columns: ['planning', 'implementing', 'implementing', 'waiting_external', 'done'],
+      states: { ...def.states, __entry: { type: 'terminal' } },
+    };
+    expect(validateColumns(def).map((i) => [i.path, i.message])).toEqual([
+      ['columns.2', 'column "implementing" is listed twice'],
+      ['columns', 'every state is a column: add "needs_input", "__entry"'],
+      ['states.__entry', '"__entry" is a reserved name'],
+      ['states.needs_input.entry', 'a human column cannot have requirements to enter'],
+      ['states.waiting_external.entry.checks.1.name', 'check "Build" is listed twice'],
+      ['states.waiting_external.entry.actions.1', 'action "open_pr" is listed twice'],
+      [
+        'states.waiting_external.entry.on_unmet.goto',
+        '"back to" cannot be Waiting external itself',
+      ],
+    ]);
+    // A loop back to a column with its own entry.
+    const nested = setEntry(CONDUCTOR, 'implementing', {
+      actions: ['open_pr'],
+      on_unmet: e.on_unmet,
+    });
+    expect(validateColumns(nested).map((i) => i.message)).toContain(
+      '"back to" column "Implementing" has requirements to enter of its own',
+    );
   });
 
   it('includes old per-transition gate rules (ADR-0009)', () => {

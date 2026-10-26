@@ -2,7 +2,6 @@ import {
   AnswerInputRequestSchema,
   BOARD_COLUMNS,
   columnFor,
-  CONDUCTOR_WORKFLOW_ID,
   CreateTicketRequestSchema,
   ReopenSessionRequestSchema,
   SendMessageRequestSchema,
@@ -32,7 +31,7 @@ import {
   type Unsubscribe,
 } from './client.js';
 import { validateColumns } from '../workflow/columns.js';
-import { MOCK_WORKFLOW_HISTORY, mockSeeds, type MockSession } from './mock-data.js';
+import { CONDUCTOR, MOCK_WORKFLOW_HISTORY, mockSeeds, type MockSession } from './mock-data.js';
 
 // In-memory ApiClient for T09 (and tests). It mimics the orchestrator's observable behaviour:
 // every change is an id-ordered board event (card.upserted last, carrying the full card), the
@@ -252,12 +251,11 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
 
     createTicket: (raw) =>
       reply((): TicketDto => {
-        // ADR-0010: the server defaults `workflow_id` to the one workflow.
-        const sent = (raw as { workflow_id?: unknown }).workflow_id;
-        const parsed = CreateTicketRequestSchema.safeParse({
-          ...raw,
-          workflow_id: sent ?? CONDUCTOR_WORKFLOW_ID,
-        });
+        // ADR-0010: the server defaults `workflow_id` to the one workflow (also before the shared
+        // contract does).
+        const parsed = CreateTicketRequestSchema.safeParse(
+          Object.assign({ workflow_id: CONDUCTOR.id }, raw),
+        );
         if (!parsed.success) throw new ApiRequestError(400, 'bad_request', parsed.error.message);
         const req = parsed.data;
         if (!workflows.has(req.workflow_id)) {

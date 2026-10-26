@@ -33,6 +33,9 @@ export interface ColumnEditorProps {
 export const START_NOTE =
   'The first column has no requirements to enter: a machine claiming the ticket moves it here, not an outcome.';
 
+export const HUMAN_NOTE =
+  'A human column has no requirements to enter: failure paths must reach a person unconditionally.';
+
 const TYPE_TEXT: Record<string, string> = {
   human: 'A person answers or approves (human state).',
   terminal: 'Final: the ticket is done (terminal state).',
@@ -48,6 +51,9 @@ export function ColumnEditor({ definition, state, issues, onChange, onClose }: C
   const draft = entryDraft(definition, state);
   const hasEntry = s.entry !== undefined;
   const isStart = state === definition.start;
+  // Rule 9: no entry on the start column (a claim enters it) or a human one (failure paths must
+  // reach a human unconditionally).
+  const noEntryNote = isStart ? START_NOTE : s.type === 'human' ? HUMAN_NOTE : null;
   const apply = (d: EntryDraft) => onChange(setEntry(definition, state, normalizeEntry(d)));
   const patch = (p: Partial<EntryDraft>) => apply({ ...draft, ...p });
   const setChecks = (checks: EntryCheck[]) => patch({ checks });
@@ -65,7 +71,11 @@ export function ColumnEditor({ definition, state, issues, onChange, onClose }: C
         </p>
       ));
   };
-  const backTo = columnStates(definition).filter((n) => definition.states[n]?.type !== 'terminal');
+  // "Back to": never this column, nor one with its own entry (rule 9), nor a terminal one.
+  const backTo = columnStates(definition).filter((n) => {
+    const t = definition.states[n];
+    return n !== state && t?.type !== 'terminal' && t?.entry === undefined;
+  });
   const humans = humanStates(definition);
   const outcomes = s.type === 'terminal' ? [] : Object.entries(s.on ?? {});
 
@@ -160,9 +170,9 @@ export function ColumnEditor({ definition, state, issues, onChange, onClose }: C
       )}
 
       <h4>Requirements to enter</h4>
-      {isStart ? (
+      {noEntryNote !== null ? (
         <>
-          <p className="muted wf-note">{START_NOTE}</p>
+          <p className="muted wf-note">{noEntryNote}</p>
           {at('.entry')}
           {hasEntry && (
             <div>

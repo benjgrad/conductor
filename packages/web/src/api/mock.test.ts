@@ -2,6 +2,7 @@ import {
   BoardResponseSchema,
   BoardSseEventSchema,
   CONDUCTOR_WORKFLOW_ID,
+  type CreateTicketRequest,
   SessionDetailSchema,
   validateWorkflow,
   WorkflowDetailSchema,
@@ -141,9 +142,10 @@ describe('mock workflows (ADR-0009)', () => {
 
   it('createTicket defaults workflow_id to conductor', async () => {
     const api = createMockApi({ now });
-    const req = { title: 'a', body: '', repo: 'r' };
-    // Omitting workflow_id is what the form will send once the shared contract makes it optional.
-    const ticket = await api.createTicket(req as Parameters<typeof api.createTicket>[0]);
+    // Omitting workflow_id, as a client may once the shared contract makes it optional. Typed
+    // loosely so this compiles whether or not the field is still required.
+    const req: Record<string, unknown> = { title: 'a', body: '', repo: 'r' };
+    const ticket = await api.createTicket(req as unknown as CreateTicketRequest);
     expect(ticket.workflow_id).toBe('conductor');
   });
 

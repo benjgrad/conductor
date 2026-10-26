@@ -4,6 +4,12 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-26 | nginx WebSocket upgrade: always ship `conf.d/conductor-websocket.conf` with its own `$conductor_connection_upgrade` map; never reuse another site's map | [ADR-0017](../adr/0017-own-sign-in-and-self-hosting.md), M2-T07 |
+| 2026-10-26 | U-070 (IIS fixed-path runtimes) is out of M2 | U-070 |
+| 2026-10-26 | Dogfooding during M2: the local board stays pinned to the M1b build (2e88cf8) with its own database, and moves to the hosted instance at M2-T25 | U-075 |
+| 2026-10-26 | gradyserver backups stay on the server (nightly pg_dump, 14 days); no off-host copy | U-074 |
+| 2026-10-26 | The hosted database starts fresh; nothing is copied from Ben's local database | U-073 |
+| 2026-10-26 | Ben approved the M2 plan: deploy at the end (M2-T25), no early deploy | [M2](../plan/milestones/M2-accounts-machines.md) |
 | 2026-10-26 | M2 planned in full: 25 tasks in groups A–J (contracts first), each sized for one agent session and written to be pasted as a conductor ticket; M2 is implemented by conductor itself (dogfooding), one PR per task on github.com/benjgrad/conductor, QA'd and merged by the lead. Migrations in T03, T09, T12, T21 need Ben's sign-off | [M2](../plan/milestones/M2-accounts-machines.md) |
 | 2026-10-26 | Lost machines (U-068): a lapsed lease or a revoked machine sends its sessions to a human, with "Continue on <machine>"; no automatic requeue | U-068, [ADR-0017](../adr/0017-own-sign-in-and-self-hosting.md) |
 | 2026-10-26 | Existing data (U-056): backfilled into a `local` account, claimed by the bootstrap admin | U-056, [ADR-0017](../adr/0017-own-sign-in-and-self-hosting.md) |

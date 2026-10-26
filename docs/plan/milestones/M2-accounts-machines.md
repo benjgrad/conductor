@@ -1,5 +1,7 @@
 # M2 · Accounts, machines & hosting (own sign-in, gradyserver)
 
+> **Approved by Ben 2026-10-26.** Deploy at the end (M2-T25), no early deploy. U-073: the server DB starts fresh. U-074: backups stay on the server, 14 days. U-075: the local board stays pinned to the M1b build (2e88cf8) with its own DB for all of M2 and moves to the hosted instance at T25. U-070 is out of M2.
+
 **Goal**: conductor runs hosted at **https://conductor.gradyserver.com** for several people, each seeing only their own account, with their machines enrolled by one command.
 - **Sign-in** ([ADR-0017](../../adr/0017-own-sign-in-and-self-hosting.md)): conductor's own email + password sign-in (argon2id, server-side sessions in an httpOnly cookie), invite-only sign-up, admin-made reset links, a bootstrap admin who claims the existing data.
 - **Accounts** ([ADR-0012](../../adr/0012-hosted-multi-user-github-sign-in.md) §Tenancy and §Proving isolation, still in force): every row, query, stream and socket is scoped to an account, proved by four isolation tests. Personal accounts only (U-051).
@@ -15,7 +17,7 @@
 - The four isolation tests pass (ADR-0012 §Proving isolation): the schema test (M2-T03), the route-matrix and SSE test generated from `API_PATHS` (M2-T21), the gateway test (M2-T16/T19), and the unscoped-query lint (M2-T21). The temporary `account_id` defaults are gone (M2-T21).
 - `pnpm test:e2e` is green with the M2 scenarios (M2-T22, M2-T24: two accounts × two fake machines in `password` mode, routing by repo and capability, isolation, laptop sleep, revoke) and every M1 / M1b scenario still green in `local` mode.
 - **Hosted**: `https://conductor.gradyserver.com` serves the board with a valid certificate, HSTS and the ADR-0017 headers; `deploy/gradyserver/smoke.sh` passes against it.
-  - Ben runs `conductor-admin bootstrap`, signs up through the printed link, and sees the `local` account's data (on the server that is empty unless U-073 says copy it).
+  - Ben runs `conductor-admin bootstrap`, signs up through the printed link, and owns the `local` account (empty on the server: it starts fresh, U-073).
   - Ben invites a second user, who signs up and sees an empty board with their own `conductor` workflow. Sign-up without an invite is refused. Ten bad passwords lock the email (smoke script).
 - Ben enrolls his Mac with the one-line command from the Machines page, following `docs/setup/add-a-machine.md` alone (optionally `--service`). The page shows its repos and capabilities. Revoking it disconnects it within 5 s, and a live session goes to Needs input.
 - A ticket for a repo only machine B has is claimed by B, never by A; a ticket needing `az` waits with "needs a machine with az" until a machine with `az` authed connects (e2e).
@@ -48,9 +50,9 @@ Not blocking, with the default the plan assumes:
 - U-008: web half decided by ADR-0017; machine half by ADR-0013, closed when M2-T09/T17 merge;
 - U-048: ADR-0013's answer, a ticket for a repo no machine has is allowed and flagged; the API validates the repo grammar (M2-T17). Ben approves it with the T01 contracts;
 - U-014: not blocking (one person's machines share one subscription, as today);
-- **U-073** (new): start the server's database fresh (default) or copy Ben's local database into it before bootstrap. The runbook covers both;
-- **U-074** (new): off-host backup copies. Default: on-host dumps, 14 days;
-- **U-075** (new): which conductor instance runs the M2 dogfood tickets. Default: Ben's local orchestrator stays pinned to the M1b build and its own database for the whole milestone; M2 migrations reach it only after M2-T25 (or never, if the hosted instance takes over).
+- **U-073**: resolved (Ben, 2026-10-26): the server's database starts fresh;
+- **U-074**: resolved (Ben, 2026-10-26): backups stay on the server, kept 14 days;
+- **U-075**: resolved (Ben, 2026-10-26): Ben's local board stays pinned to the M1b build (2e88cf8) with its own database for all of M2, and dogfooding moves to the hosted instance at M2-T25.
 
 ## How M2 is run (dogfooding)
 Each task block below is pasted as the description of a ticket on Ben's conductor board (repo `github.com/benjgrad/conductor`, kind `personal`). The agent works on branch `m2-tNN-<slug>`, ends by opening a PR, and puts its report (new unknowns, tech debt, unfinished items, contract changes it needed) in the PR description. The lead QAs the branch with the `qa-reviewer` checklist, records tracking rows, and merges with `--no-ff`. So every block is self-contained: scope, design refs as paths, files owned, do-not-touch, acceptance with test names and commands, and gates.
@@ -110,7 +112,6 @@ Groups run in order A → J. Tasks within a group own disjoint files and can run
 - before A: review ADR-0017 (accepted from his decisions) and this plan;
 - after A: approve the 10-contracts diff (T01, T02), including the U-048 repo rule;
 - before T03, T09, T12 and T21 merge: approve each migration;
-- answer U-073 (fresh or copied database), U-074 (off-host backups), U-075 (which instance runs the dogfood tickets), or accept the defaults;
 - T25: read and run `sudo deploy/gradyserver/install-nginx-site.sh` on gradyserver; run `conductor-admin bootstrap` and sign up; enroll his Mac;
 - at the end: accept ADR-0012 and ADR-0013, sign off M2.
 
@@ -265,7 +266,7 @@ Groups run in order A → J. Tasks within a group own disjoint files and can run
   - **`deploy/gradyserver/deploy.sh <git-ref>`** (run by the lead locally): resolves the sha; `git archive` | `ssh -p 1024 bengrady4@gradyserver.com` into `~/deploy/conductor/releases/<sha>`; links `current`; creates `~/deploy/conductor/.env` from `env.example` with a random `POSTGRES_PASSWORD` if it doesn't exist (mode 0600; never overwrites); `docker compose -p conductor -f current/deploy/gradyserver/compose.yml --env-file .env up -d --build`; waits for healthy; runs `smoke.sh`; prints the deployed sha; keeps the last 5 releases.
   - **`deploy/gradyserver/backup.sh`** (bengrady4's crontab, nightly): `docker compose -p conductor exec -T postgres pg_dump -U conductor -Fc conductor` into `~/deploy/conductor/backups/conductor-<UTC timestamp>.dump` (umask 077), deletes dumps older than `BACKUP_KEEP_DAYS` (default 14), exits non-zero on an empty dump. **`deploy/gradyserver/install-cron.sh`** adds the crontab line idempotently.
   - **`deploy/gradyserver/smoke.sh <base-url>`**: HTTPS cert valid; HSTS, `X-Frame-Options`, `nosniff`, CSP present; `/healthz` 200; `/api/board` 401 without a cookie; a `POST /auth/login` without `Origin` → 403; SSE path returns `text/event-stream` headers with a cookie when `SMOKE_COOKIE` is given; the WS path without a credential → 401; `/install.sh` is served.
-  - **`docs/setup/deploy-gradyserver.md`** (the runbook): prerequisites; first-time checks (`ss -ltn` for the port, `docker network inspect` for the subnet, the conf.d `<app>-ratelimit.conf` pattern, and `grep -rn 'map \$http_upgrade' /etc/nginx/` for an existing upgrade map), with the values the lead verified on 2026-10-26 (port 3040 free; subnet 192.168.80.0/24 free; zones live in `/etc/nginx/conf.d/<app>-ratelimit.conf`); first deploy; Ben's sudo step; bootstrap; routine deploys; rollback; backups, restore into a scratch database, and the restore test; optional copy of a local database (U-073); log locations; how to rotate `POSTGRES_PASSWORD`. Every step that needs Ben is marked **(Ben, sudo)** or **(Ben)**.
+  - **`docs/setup/deploy-gradyserver.md`** (the runbook): prerequisites; first-time checks (`ss -ltn` for the port, `docker network inspect` for the subnet, and the conf.d `<app>-ratelimit.conf` pattern; the upgrade map always ships as `conductor-websocket.conf` with the prefixed name), with the values the lead verified on 2026-10-26 (port 3040 free; subnet 192.168.80.0/24 free; zones live in `/etc/nginx/conf.d/<app>-ratelimit.conf`); first deploy; Ben's sudo step; bootstrap; routine deploys; rollback; backups, restore into a scratch database, and the restore test; optional copy of a local database (U-073); log locations; how to rotate `POSTGRES_PASSWORD`. Every step that needs Ben is marked **(Ben, sudo)** or **(Ben)**.
 - **Design refs**: ADR-0017 §Hosting topology, §Daemon distribution; ADR-0012 §Deployment shape (migrations as a release step).
 - **Depends on**: T01 (paths). Uses the env names from ADR-0017; `/healthz` and `/install.sh` come from T14, `CONDUCTOR_BIND_HOST` and `CONDUCTOR_TRUSTED_PROXY` from T08.
 - **Files owned**: `Dockerfile`, `.dockerignore`, `deploy/gradyserver/**`, `docs/setup/deploy-gradyserver.md`.
@@ -589,11 +590,11 @@ Groups run in order A → J. Tasks within a group own disjoint files and can run
      - subnet `192.168.80.0/24` (gateway `192.168.80.1`, the `CONDUCTOR_TRUSTED_PROXY`) is free; existing networks are 172.20–172.31/16 (172.31.0.0/16 is interviewme-agent), 192.168.32.0/20 and 192.168.48.0/20;
      - existing sites declare `limit_req_zone` in `/etc/nginx/conf.d/<app>-ratelimit.conf` (e.g. `reso-ratelimit.conf`: `limit_req_zone $binary_remote_addr zone=reso_mcp:10m rate=10r/s;`), so `conductor-ratelimit.conf` there matches the pattern.
 
-     Still to check at deploy time: whether a `map $http_upgrade` already exists (`grep -rn 'map \$http_upgrade' /etc/nginx/`); re-run `ss -ltn` and `docker network ls` in case something changed; wildcard DNS with `dig +short conductor.gradyserver.com`.
+     The upgrade map always ships as `conductor-websocket.conf` (`$conductor_connection_upgrade`), whatever other sites define. Still to check at deploy time: re-run `ss -ltn` and `docker network ls` in case something changed; wildcard DNS with `dig +short conductor.gradyserver.com`.
   2. (lead) `deploy/gradyserver/deploy.sh <main sha>`: creates `~/deploy/conductor/.env`, builds, migrates, starts; the orchestrator answers `curl -fsS http://127.0.0.1:3040/healthz` on the server.
   3. **(Ben, sudo)** read, then run `sudo ~/deploy/conductor/current/deploy/gradyserver/install-nginx-site.sh <email for Let's Encrypt>`: nginx files, certificate via `certbot certonly --webroot -w /var/www/html`, `nginx -t`, reload.
   4. (lead) `deploy/gradyserver/smoke.sh https://conductor.gradyserver.com` passes.
-  5. (lead) If U-073 says copy: `pg_dump` Ben's local database and restore it into the server before bootstrap (runbook section). Otherwise skip.
+  5. (lead) Nothing to copy: the server database starts fresh (U-073). From here on, Ben's dogfood tickets move from the pinned local board to the hosted one (U-075).
   6. **(Ben)** `docker compose -p conductor exec orchestrator conductor-admin bootstrap` (the lead can run it and hand Ben the link); Ben signs up with his email and password.
   7. **(Ben)** Machines page → Add a machine → run the command on his Mac (with `--service` if he wants it at login); the page shows repos and capabilities.
   8. (lead + Ben) One dogfood ticket on the hosted board (a small docs fix in `github.com/benjgrad/conductor`) runs to a PR via Ben's Mac.

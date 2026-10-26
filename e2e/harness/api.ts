@@ -48,7 +48,12 @@ export class Api {
 
   /** `workflow_id` omitted = the server default, `conductor` (ADR-0010). */
   createTicket(t: { title: string; body: string; repo: string; workflow_id?: string }) {
-    return this.call<TicketDto>('POST', '/api/tickets', { ...t, required_tags: ['e2e'] }, 201);
+    return this.call<TicketDto>(
+      'POST',
+      '/api/tickets',
+      { kind: 'work', ...t, required_tags: ['e2e'] },
+      201,
+    );
   }
 
   session(id: string) {

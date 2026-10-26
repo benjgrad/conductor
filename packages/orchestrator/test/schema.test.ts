@@ -6,6 +6,7 @@ import {
   OutboxKindSchema,
   OutboxStatusSchema,
   SessionStatusSchema,
+  TicketKindSchema,
   TicketStatusSchema,
 } from '@conductor/shared';
 import { runner } from 'node-pg-migrate';
@@ -38,6 +39,7 @@ const migrationsDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'mi
 type EnumUdt =
   | 'machine_status'
   | 'ticket_status'
+  | 'ticket_kind'
   | 'session_status'
   | 'input_request_kind'
   | 'outbox_kind'
@@ -107,6 +109,7 @@ const ticket: ColumnSpec<TicketRow> = {
   repo_allow_machines: col('_text', NULL),
   status: col('ticket_status', NN),
   priority: col('int4', NN),
+  kind: col('ticket_kind', NULL),
   created_at: col('timestamptz', NN),
   updated_at: col('timestamptz', NN),
 };
@@ -196,6 +199,7 @@ const TABLES = Object.keys(SCHEMA).sort();
 const ENUMS: Record<EnumUdt, readonly string[]> = {
   machine_status: MachineStatusSchema.options,
   ticket_status: TicketStatusSchema.options,
+  ticket_kind: TicketKindSchema.options,
   session_status: SessionStatusSchema.options,
   input_request_kind: InputRequestKindSchema.options,
   outbox_kind: OutboxKindSchema.options,
@@ -257,6 +261,53 @@ describe('migrations', () => {
 
       await migrate(db.url, 'up');
       expect(await publicTables(db.pool)).toEqual(TABLES);
+    } finally {
+      await db.drop();
+    }
+  }, 60_000);
+
+  it('ticket-kind (M1b-T04): M1 tickets end with kind NULL; down drops column and type', async () => {
+    const db = await createTestDatabase({ migrate: false });
+    const kindColumn = async () =>
+      (
+        await db.pool.query(
+          "SELECT 1 FROM information_schema.columns WHERE table_name = 'ticket' AND column_name = 'kind'",
+        )
+      ).rowCount;
+    const kindType = async () =>
+      (await db.pool.query("SELECT 1 FROM pg_type WHERE typname = 'ticket_kind'")).rowCount;
+    try {
+      // The M1 schema (every migration before ticket-kind) with a ticket in it.
+      await migrate(db.url, 'up', 4);
+      expect(await kindColumn()).toBe(0);
+      await db.pool.query(
+        "INSERT INTO workflow_definition (id, version, definition) VALUES ('wf_m1', 1, '{}')",
+      );
+      await db.pool.query(
+        "INSERT INTO ticket (repo, title, workflow_id) VALUES ('r', 'from M1', 'wf_m1')",
+      );
+
+      await migrate(db.url, 'up');
+      const { rows } = await db.pool.query<{ title: string; kind: string | null }>(
+        'SELECT title, kind FROM ticket',
+      );
+      expect(rows).toEqual([{ title: 'from M1', kind: null }]);
+      await db.pool.query(
+        "INSERT INTO ticket (repo, title, workflow_id, kind) VALUES ('r', 'new', 'wf_m1', 'work')",
+      );
+      await expectPgError(
+        db.pool.query(
+          "INSERT INTO ticket (repo, title, workflow_id, kind) VALUES ('r', 'x', 'wf_m1', 'home')",
+        ),
+        '22P02',
+      );
+
+      await migrate(db.url, 'down', 1);
+      expect([await kindColumn(), await kindType()]).toEqual([0, 0]);
+      expect((await db.pool.query('SELECT 1 FROM ticket')).rowCount).toBe(2);
+
+      await migrate(db.url, 'up');
+      expect([await kindColumn(), await kindType()]).toEqual([1, 1]);
     } finally {
       await db.drop();
     }

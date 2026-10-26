@@ -139,6 +139,7 @@ async function createTicket(): Promise<string> {
     body: 'Return 200',
     repo,
     workflow_id: 'm1_basic',
+    kind: 'work',
     required_tags: [tag],
   });
   expect(res.status).toBe(201);

@@ -131,6 +131,7 @@ export function toTicketDto(row: TicketRow): TicketDto {
     status: row.status,
     priority: row.priority,
     created_at: row.created_at.toISOString(),
+    kind: row.kind,
   };
 }
 

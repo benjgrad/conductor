@@ -1,5 +1,4 @@
 import {
-  conditionEnabled,
   type Condition,
   type EntryCheck,
   type OnUnmet,
@@ -13,8 +12,8 @@ import { moveCounterKey, type GateStep } from './types.js';
 // ADR-0011 (M1b-T03): the `requires` of a taken transition, run as a gate step of kind `move`
 // with the ADR-0010 entry-step machinery in apply.ts (fresh-checkout checks, the fenced reviewer,
 // `run_action` actions, the worker kill, `head_sha` binding). This file holds what differs for a
-// move: where its spec comes from, its counter, its wording, and the conditions phase (a stub
-// here; M1b-T08 builds the real one).
+// move: where its spec comes from, its counter and its wording. The conditions phase (M1b-T08) is
+// conditions.ts plus its handlers in apply.ts.
 
 /** What a gate step checks, from the pinned definition (ADR-0009 review, ADR-0010 entry, ADR-0011 move). */
 export interface GateSpec {
@@ -29,6 +28,10 @@ export interface GateSpec {
   actions: readonly TransitionAction[];
   /** ADR-0011: the external conditions (every declared one, disabled included); [] before ADR-0011. */
   conditions: readonly Condition[];
+  /** ADR-0011: how long the enabled conditions may stay pending (move steps only). */
+  condition_timeout?: string | undefined;
+  /** ADR-0011: the first poll interval; default DEFAULT_CONDITION_POLL (move steps only). */
+  condition_poll?: string | undefined;
   on_unmet: OnUnmet;
 }
 
@@ -79,31 +82,12 @@ export function moveSpecOf(def: WorkflowDefinition, r: GateStep): GateSpec | nul
     review,
     actions,
     conditions: req.conditions ?? [],
+    condition_timeout: req.condition_timeout,
+    condition_poll: req.condition_poll,
     on_unmet: t.on_unmet ?? {
       goto: r.from,
       retries: 0,
       else: fallbackHumanState(def) ?? 'needs_input',
     },
-  };
-}
-
-/** What the conditions phase does once checks, review and actions have passed. */
-export type ConditionsPhase =
-  | { type: 'pass' }
-  /** A human decides (`on_unmet.else`): the conditions can't be evaluated. */
-  | { type: 'unavailable'; question: string };
-
-/**
- * M1b-T03 stub of the conditions phase: no enabled condition → pass. Enabled conditions can't be
- * evaluated before M1b-T08, so the move goes to `on_unmet.else` (a human) rather than skipping
- * them; T08 replaces this with the polling phase (`evaluate_conditions`, 10 §Transitions).
- */
-// TD: conditions phase stubbed until M1b-T08 (enabled conditions → on_unmet.else).
-export function conditionsPhase(spec: GateSpec): ConditionsPhase {
-  const enabled = spec.conditions.filter(conditionEnabled);
-  if (enabled.length === 0) return { type: 'pass' };
-  return {
-    type: 'unavailable',
-    question: `Conductor cannot check external conditions yet, so it did not ${spec.goal}. Retry, skip, or abort?`,
   };
 }

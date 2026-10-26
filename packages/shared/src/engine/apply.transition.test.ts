@@ -600,16 +600,18 @@ describe('move steps (requires on the transition)', () => {
     expect(find(v.effects, 'start_session')?.prompt).toContain('- Has tests: none');
   });
 
-  it('enabled conditions (M1b-T08) go to on_unmet.else for now; disabled ones are skipped', () => {
+  it('enabled conditions start the conditions phase (M1b-T08); all disabled ones are skipped', () => {
     const h = implementing('work');
     take(h, 'ready_for_testing', 'Ready.', { summary: 's' });
     h.cmdExit(0);
     h.cmdExit(0);
     let r = action(h, { pr_url: PR });
-    expect(r.snapshot.workflow_state).toBe('needs_input');
-    expect(find(r.effects, 'create_input_request')?.question).toContain(
-      'Conductor cannot check external conditions yet',
-    );
+    expect(r.snapshot).toMatchObject({
+      workflow_state: moveStateLabel('implementing', 'waiting_external', 'ready_for_testing'),
+      status: 'waiting_external',
+      step: { phase: 'conditions' },
+    });
+    expect(find(r.effects, 'run_action')).toMatchObject({ action: 'evaluate_conditions' });
     const def = v2With((raw) => {
       const c = raw.states.implementing.on.ready_for_testing.requires.conditions as any[];
       for (const x of c) x.enabled = false;

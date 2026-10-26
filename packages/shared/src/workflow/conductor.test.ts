@@ -1,19 +1,25 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access -- raw definition edits in tests */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { CONDUCTOR_V1, CONDUCTOR_V1_DEF } from './conductor.js';
-import { CONDUCTOR_WORKFLOW_ID } from './schema.js';
+import {
+  CONDUCTOR_V1,
+  CONDUCTOR_V1_DEF,
+  CONDUCTOR_V2,
+  CONDUCTOR_V2_DEF,
+  WORK_COMMIT_REVIEW_ITEM,
+} from './conductor.js';
+import { CONDUCTOR_WORKFLOW_ID, RETURN_TO, type TicketKind } from './schema.js';
+import { transitionsOf } from './transition-rules.js';
 import { validateWorkflow, type WorkflowValidationError } from './validate.js';
 
 // ADR-0010: the shipped `conductor` v1 and validator rule 9 (entry requirements and columns).
+// ADR-0011 (M1b-T09): the shipped v2, and what each ticket kind sees from each state.
 
-const docJson = (): unknown =>
+const readDoc = (file: string): unknown =>
   JSON.parse(
-    readFileSync(
-      new URL('../../../../docs/design/workflows/conductor.v1.json', import.meta.url),
-      'utf8',
-    ),
+    readFileSync(new URL(`../../../../docs/design/workflows/${file}`, import.meta.url), 'utf8'),
   );
+const docJson = (): unknown => readDoc('conductor.v1.json');
 
 type Raw = {
   id: string;
@@ -169,5 +175,131 @@ describe('validator rule 9: entry requirements and columns', () => {
     r.states.__entry = { type: 'human' };
     r.columns = [...r.columns!, '__entry'];
     expect(paths(r)).toContain('8:states.__entry');
+  });
+});
+
+/** `<actor> <name> → <goto>` for every transition out of `state` that a `kind` ticket sees. */
+const seen = (state: string, kind: TicketKind | null) =>
+  transitionsOf(CONDUCTOR_V2_DEF, state, { kind }).map(
+    (e) => `${e.actor} ${e.name} → ${e.transition.goto}`,
+  );
+
+describe('conductor v2 (ADR-0011)', () => {
+  it('the code copy equals docs/design/workflows/conductor.v2.json', () => {
+    expect(CONDUCTOR_V2).toEqual(readDoc('conductor.v2.json'));
+  });
+
+  it('validates (rules 1–14)', () => {
+    expect(errorsOf(CONDUCTOR_V2)).toEqual([]);
+    expect(errorsOf(readDoc('conductor.v2.json'))).toEqual([]);
+  });
+
+  it('keeps v1’s states, columns and budget; is the next version; no entry requirements', () => {
+    const d = CONDUCTOR_V2_DEF;
+    expect(d.id).toBe(CONDUCTOR_WORKFLOW_ID);
+    expect(d.version).toBe(CONDUCTOR_V1_DEF.version + 1);
+    expect(d.start).toBe(CONDUCTOR_V1_DEF.start);
+    expect(d.columns).toEqual(CONDUCTOR_V1_DEF.columns);
+    expect(d.budget).toEqual(CONDUCTOR_V1_DEF.budget);
+    expect(Object.keys(d.states)).toEqual(Object.keys(CONDUCTOR_V1_DEF.states));
+    expect(Object.values(d.states).some((s) => s.entry !== undefined)).toBe(false);
+  });
+
+  it('a work ticket sees, from each state', () => {
+    expect(seen('planning', 'work')).toEqual([
+      'agent plan_ready → implementing',
+      'agent scope_changed → needs_input',
+      'agent plan_needs_approval → needs_input',
+      'agent needs_product_context → needs_input',
+      'agent impossible → needs_input',
+      'agent ask_user → needs_input',
+      'system timeout → needs_input',
+    ]);
+    expect(seen('implementing', 'work')).toEqual([
+      'agent needs_approval_to_message → needs_input',
+      'agent pr_ready_for_review → needs_input',
+      'agent ready_for_testing → waiting_external',
+      'agent ask_user → needs_input',
+      'system timeout → needs_input',
+    ]);
+    expect(seen('needs_input', 'work')).toEqual([
+      `human answer → ${RETURN_TO}`,
+      'human waiting_on_someone → waiting_external',
+      'human done → done',
+    ]);
+    expect(seen('waiting_external', 'work')).toEqual([
+      'system ui.approve → done',
+      'human back_to_implementing → implementing',
+    ]);
+    expect(seen('done', 'work')).toEqual([]);
+  });
+
+  it('a personal ticket sees, from each state', () => {
+    expect(seen('planning', 'personal')).toEqual(seen('planning', 'work'));
+    expect(seen('implementing', 'personal')).toEqual([
+      'agent needs_approval_to_message → needs_input',
+      'agent pr_ready_for_review → needs_input',
+      'agent done → done',
+      'agent ask_user → needs_input',
+      'system timeout → needs_input',
+    ]);
+    expect(seen('needs_input', 'personal')).toEqual(seen('needs_input', 'work'));
+    expect(seen('waiting_external', 'personal')).toEqual(seen('waiting_external', 'work'));
+    expect(seen('done', 'personal')).toEqual([]);
+  });
+
+  it('a null kind (an old ticket) matches both kinds (U-062)', () => {
+    expect(seen('implementing', null)).toEqual([
+      'agent needs_approval_to_message → needs_input',
+      'agent pr_ready_for_review → needs_input',
+      'agent ready_for_testing → waiting_external',
+      'agent done → done',
+      'agent ask_user → needs_input',
+      'system timeout → needs_input',
+    ]);
+  });
+
+  it('cancel is not a transition (U-061); every agent state keeps the ask_user fallback', () => {
+    for (const [name, s] of Object.entries(CONDUCTOR_V2_DEF.states)) {
+      if (s.type === 'terminal') continue;
+      expect(Object.keys(s.on ?? {}), name).not.toContain('cancel');
+      if (s.type === 'agent') expect(s.on?.ask_user, name).toBe('needs_input');
+    }
+  });
+
+  it('every transition a work ticket can take to ship code reviews the work-commit rule', () => {
+    const shipping = transitionsOf(CONDUCTOR_V2_DEF, 'implementing').filter(
+      (e) => e.transition.requires?.actions?.includes('open_pr') === true,
+    );
+    expect(shipping.map((e) => e.name)).toEqual([
+      'pr_ready_for_review',
+      'ready_for_testing',
+      'done',
+    ]);
+    for (const e of shipping) {
+      expect(e.transition.on_unmet, e.name).toMatchObject({
+        goto: 'implementing',
+        else: 'needs_input',
+      });
+      const work = e.transition.kinds?.includes('work') ?? true;
+      expect(e.transition.requires?.review?.items.includes(WORK_COMMIT_REVIEW_ITEM) ?? false).toBe(
+        work,
+      );
+    }
+  });
+
+  it('ready_for_testing: PR conditions enabled; Jira and Azure declared but disabled (M5)', () => {
+    const t = transitionsOf(CONDUCTOR_V2_DEF, 'implementing').find(
+      (e) => e.name === 'ready_for_testing',
+    )!.transition;
+    expect(t.kinds).toEqual(['work']);
+    expect(t.requires?.checks?.map((c) => c.name)).toEqual(['Build passes', 'Tests pass']);
+    expect(t.requires?.conditions).toEqual([
+      { type: 'pr_checks_green' },
+      { type: 'pr_approvals', min: 1 },
+      { type: 'jira_fields_set', fields: ['resolution'], enabled: false },
+      { type: 'azure_pipeline_succeeded', pipeline: 'ci', enabled: false },
+    ]);
+    expect(t.requires?.condition_timeout).toBe('3d');
   });
 });

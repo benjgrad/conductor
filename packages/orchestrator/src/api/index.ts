@@ -25,7 +25,7 @@ import { withTransaction } from '../db/index.js';
 import type { TicketRow } from '../db/types.js';
 import { cardView } from '../engine/board-view.js';
 import { reopenSession } from '../engine/reopen.js';
-import { seedConductorWorkflow } from '../engine/seed.js';
+import { conductorDefaultAvailable, seedConductorWorkflow } from '../engine/seed.js';
 import type { CreateApi } from '../main.js';
 import { parseLastEventId, serveBoardStream } from '../stream/board.js';
 import { serveOutputStream } from '../stream/output.js';
@@ -288,7 +288,8 @@ export const createApi = (({ db, engine, boardBus, outputBus, transcripts, secur
     if (!body) return reply;
     // ADR-0010: `conductor` is seeded on startup; seeding here too keeps a bare database (tests,
     // a start that raced a migration) working. Idempotent.
-    if (body.workflow_id === CONDUCTOR_WORKFLOW_ID) await seedConductorWorkflow(db);
+    // Silent: the "newer default" notice is the start's (M1b-T09).
+    if (body.workflow_id === CONDUCTOR_WORKFLOW_ID) await seedConductorWorkflow(db, { log: null });
     const known = await db.query('SELECT 1 FROM workflow_definition WHERE id = $1 LIMIT 1', [
       body.workflow_id,
     ]);
@@ -356,7 +357,8 @@ export const createApi = (({ db, engine, boardBus, outputBus, transcripts, secur
         const what = version === null ? '' : ` version ${version}`;
         return sendError(reply, 404, 'not_found', `no workflow ${req.params.id}${what}`);
       }
-      return detail;
+      // ADR-0011 (M1b-T09): the shipped default the user's edits kept the seed from inserting.
+      return { ...detail, default_available: await conductorDefaultAvailable(db, detail.id) };
     },
   );
 

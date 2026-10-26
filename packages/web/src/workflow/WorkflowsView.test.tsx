@@ -17,9 +17,9 @@ afterEach(() => {
 });
 
 /**
- * The app on the mock, whose conductor v3 is the ADR-0011 draft. Saves are recorded and stored
- * here as v4, v5… without the mock's validator, which refuses `$return_to` until M1b-T02 lands
- * (the request body is what these tests check).
+ * The app on the mock, whose conductor v3 is the shipped ADR-0011 conductor. Saves are recorded
+ * and stored here as v4, v5… without the mock's validator (the request body is what these tests
+ * check).
  */
 async function setup(api = createMockApi()) {
   const saved: WorkflowDefinition[] = [];

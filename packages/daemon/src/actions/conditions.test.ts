@@ -77,11 +77,17 @@ const statusCtx = (context: string, state: string) => ({
   context,
   state,
 });
-const review = (login: string, state: string) => ({ author: { login }, state });
+const review = (login: string, state: string, authorAssociation = 'MEMBER') => ({
+  author: { login },
+  authorAssociation,
+  state,
+});
 const view = (over: Record<string, unknown> = {}) => ({
   state: 'OPEN',
   mergedAt: null,
-  reviewDecision: 'REVIEW_REQUIRED',
+  // Empty: no branch protection (the eligible count decides).
+  reviewDecision: '',
+  author: { login: 'pat' },
   statusCheckRollup: [],
   reviews: [],
   ...over,
@@ -98,7 +104,7 @@ describe('evaluate_conditions with a fake gh', () => {
     const argv = readFileSync(join(tmp, 'argv'), 'utf8').trim().split('\n');
     expect(argv).toHaveLength(1);
     expect(argv[0]).toContain(
-      `pr view ${PR} --json statusCheckRollup,reviewDecision,reviews,state,mergedAt --jq`,
+      `pr view ${PR} --json statusCheckRollup,reviewDecision,reviews,state,mergedAt,author --jq`,
     );
     const { realpathSync } = await import('node:fs');
     expect(readFileSync(join(tmp, 'cwd'), 'utf8').trim()).toBe(realpathSync(root));
@@ -184,6 +190,58 @@ describe('evaluate_conditions with a fake gh', () => {
       value: '1/1',
       detail: 'changes requested by bob',
     });
+  });
+
+  it('only owners, members and collaborators count; never the PR author (security review)', async () => {
+    const outsiders = await evalWith(
+      [APPROVALS_1],
+      view({
+        reviews: [
+          review('rando', 'APPROVED', 'NONE'),
+          review('drive-by', 'APPROVED', 'CONTRIBUTOR'),
+          review('newbie', 'APPROVED', 'FIRST_TIME_CONTRIBUTOR'),
+          review('nobody', 'CHANGES_REQUESTED', 'NONE'), // can't block either
+        ],
+      }),
+    );
+    expect(outsiders.results[0]).toMatchObject({
+      status: 'pending',
+      value: '0/1',
+      detail: 'no approvals yet',
+    });
+
+    const self = await evalWith(
+      [APPROVALS_1],
+      view({ reviews: [review('pat', 'APPROVED', 'OWNER')] }),
+    );
+    expect(self.results[0]).toMatchObject({ status: 'pending', value: '0/1' });
+
+    const eligible = await evalWith(
+      [APPROVALS_1],
+      view({ reviews: [review('own', 'APPROVED', 'OWNER')] }),
+    );
+    expect(eligible.results[0]).toMatchObject({ status: 'met', value: '1/1' });
+  });
+
+  it('reviewDecision: REVIEW_REQUIRED → pending, CHANGES_REQUESTED → failed, empty → the count', async () => {
+    const two: Condition = { type: 'pr_approvals', min: 2 };
+    const approvals = [review('amy', 'APPROVED'), review('bob', 'APPROVED', 'COLLABORATOR')];
+    const required = await evalWith(
+      [two],
+      view({ reviewDecision: 'REVIEW_REQUIRED', reviews: approvals }),
+    );
+    expect(required.results[0]).toMatchObject({ status: 'pending', value: '2/2' });
+
+    const changes = await evalWith(
+      [two],
+      view({ reviewDecision: 'CHANGES_REQUESTED', reviews: approvals }),
+    );
+    expect(changes.results[0]).toMatchObject({ status: 'failed', detail: 'changes requested' });
+
+    const open = await evalWith([two], view({ reviewDecision: '', reviews: approvals }));
+    expect(open.results[0]).toMatchObject({ status: 'met', value: '2/2' });
+    const unset = await evalWith([two], view({ reviewDecision: null, reviews: approvals }));
+    expect(unset.results[0]).toMatchObject({ status: 'met', value: '2/2' });
   });
 
   it('approvals count the latest verdict per reviewer', async () => {
@@ -326,7 +384,15 @@ describe('condition mapping (pure)', () => {
         },
         { __typename: 'StatusContext', context: 'c', state: 'SUCCESS', targetUrl: 'y' },
       ],
-      reviews: [{ author: { login: 'amy', name: 'Amy' }, state: 'APPROVED', body: 'lgtm' }],
+      author: { login: 'pat', name: 'Pat' },
+      reviews: [
+        {
+          author: { login: 'amy', name: 'Amy' },
+          authorAssociation: 'COLLABORATOR',
+          state: 'APPROVED',
+          body: 'lgtm',
+        },
+      ],
     });
     expect(pr.merged).toBe(false);
     expect(mapCondition(CHECKS, pr).status).toBe('met');

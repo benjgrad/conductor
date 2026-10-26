@@ -12,7 +12,7 @@ import { cleanEnv, tail } from './open-pr.js';
 // server). Read-only, so no idempotency rules: the engine re-polls until every condition is met,
 // one fails, or `condition_timeout` passes.
 //
-// One `gh pr view <pr_url> --json statusCheckRollup,reviewDecision,reviews,state,mergedAt` per
+// One `gh pr view <pr_url> --json statusCheckRollup,reviewDecision,reviews,state,mergedAt,author` per
 // call, whatever the number of gh conditions. Hardened like open_pr (ADR-0010 implementation
 // notes): it runs in the daemon root (outside every repository, so no agent-writable repo config
 // is read), with no inherited GIT_* / GH_REPO / GH_HOST and GIT_CONFIG_NOSYSTEM=1; a 60 s timeout;
@@ -22,9 +22,13 @@ import { cleanEnv, tail } from './open-pr.js';
 // Mapping (ADR-0016 §The connector registry):
 //   - pr_checks_green: every check SUCCESS / NEUTRAL / SKIPPED → met; any failure → failed; else
 //     pending. No checks reported yet is pending (CI may not have started).
-//   - pr_approvals {min}: the latest APPROVED / CHANGES_REQUESTED / DISMISSED review per reviewer
-//     (COMMENTED doesn't change a verdict); any CHANGES_REQUESTED (or reviewDecision
-//     CHANGES_REQUESTED) → failed; approvals ≥ min → met; else pending.
+//   - pr_approvals {min} (security review 2026-10-26: on a public repo anyone can approve). Only
+//     ELIGIBLE reviewers count: `authorAssociation` OWNER / MEMBER / COLLABORATOR, never the PR's
+//     own author. Their latest APPROVED / CHANGES_REQUESTED / DISMISSED review each (COMMENTED
+//     doesn't change a verdict). Then, by `reviewDecision`:
+//       CHANGES_REQUESTED → failed; REVIEW_REQUIRED → pending whatever the count (branch
+//       protection still wants reviews); APPROVED or empty (no branch protection) → an eligible
+//       CHANGES_REQUESTED → failed, eligible approvals ≥ min → met, else pending.
 //   - pr_merged: merged → met; else pending.
 //   - A closed, unmerged PR fails every gh condition (it can't become true without a human).
 //   - azure_pipeline_succeeded / jira_fields_set → unsupported (M5).
@@ -41,12 +45,12 @@ const GH_TYPES: ReadonlySet<Condition['type']> = new Set([
   'pr_merged',
 ]);
 
-const GH_FIELDS = 'statusCheckRollup,reviewDecision,reviews,state,mergedAt';
+const GH_FIELDS = 'statusCheckRollup,reviewDecision,reviews,state,mergedAt,author';
 /** Keeps only the fields the mapping reads (same names, so unprojected output parses too). */
 const GH_JQ =
-  '{state, mergedAt, reviewDecision,' +
+  '{state, mergedAt, reviewDecision, author: {login: .author.login},' +
   ' statusCheckRollup: [(.statusCheckRollup // [])[] | {__typename, name, context, status, conclusion, state}],' +
-  ' reviews: [(.reviews // [])[] | {author: {login: .author.login}, state}]}';
+  ' reviews: [(.reviews // [])[] | {author: {login: .author.login}, authorAssociation, state}]}';
 
 export interface EvaluateConditionsInput {
   /** The move step's conditions, in declaration order (results match by position). */
@@ -240,7 +244,9 @@ export interface PrView {
   merged: boolean;
   reviewDecision: string | null;
   checks: PrCheck[];
-  reviews: { author: string; state: string }[];
+  /** The PR author's login (null: unknown). */
+  author: string | null;
+  reviews: { author: string; association: string | null; state: string }[];
 }
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
@@ -269,13 +275,18 @@ export function parsePrView(raw: unknown): PrView {
   });
   const reviews = (Array.isArray(o.reviews) ? o.reviews : []).map((x) => {
     const r = rec(x);
-    return { author: str(rec(r.author).login) ?? '?', state: str(r.state) ?? '' };
+    return {
+      author: str(rec(r.author).login) ?? '?',
+      association: str(r.authorAssociation),
+      state: str(r.state) ?? '',
+    };
   });
   const state = str(o.state) ?? 'OPEN';
   return {
     state,
     merged: state === 'MERGED' || str(o.mergedAt) !== null,
     reviewDecision: str(o.reviewDecision),
+    author: str(rec(o.author).login),
     checks,
     reviews,
   };
@@ -298,6 +309,14 @@ function checkVerdict(c: PrCheck): 'pass' | 'fail' | 'pending' {
   if (c.conclusion !== null && PASS.has(c.conclusion)) return 'pass';
   if (c.conclusion !== null && FAIL.has(c.conclusion)) return 'fail';
   return 'pending';
+}
+
+/** Reviewers whose approval counts: repo owner / member / collaborator, never the PR author. */
+const ELIGIBLE_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+function eligibleReviewer(r: PrView['reviews'][number], prAuthor: string | null): boolean {
+  if (r.association === null || !ELIGIBLE_ASSOCIATIONS.has(r.association)) return false;
+  if (r.author === '?') return false;
+  return prAuthor === null || r.author !== prAuthor;
 }
 
 const names = (cs: PrCheck[]) => tail(cs.map((c) => c.name).join(', '), 300);
@@ -325,9 +344,10 @@ export function mapCondition(c: Condition, pr: PrView): ConditionResult {
     return result(c.type, 'met', value, null);
   }
   if (c.type !== 'pr_approvals') return unsupported(c);
-  // The latest verdict per reviewer (COMMENTED / PENDING reviews don't change it).
+  // The latest verdict per eligible reviewer (COMMENTED / PENDING reviews don't change it).
   const latest = new Map<string, string>();
   for (const r of pr.reviews) {
+    if (!eligibleReviewer(r, pr.author)) continue;
     if (r.state === 'APPROVED' || r.state === 'CHANGES_REQUESTED' || r.state === 'DISMISSED') {
       latest.set(r.author, r.state);
     }
@@ -340,6 +360,9 @@ export function mapCondition(c: Condition, pr: PrView): ConditionResult {
     return result(c.type, 'failed', value, `changes requested${who}`);
   }
   if (closed) return result(c.type, 'failed', value, 'the PR was closed without merging');
+  if (pr.reviewDecision === 'REVIEW_REQUIRED') {
+    return result(c.type, 'pending', value, 'GitHub still requires a review (branch protection)');
+  }
   if (approvers.length >= c.min) {
     return result(c.type, 'met', value, `approved by ${approvers.join(', ')}`);
   }

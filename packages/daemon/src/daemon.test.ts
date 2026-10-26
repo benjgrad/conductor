@@ -1243,7 +1243,7 @@ describe('daemon core: run_action evaluate_conditions (ADR-0011)', () => {
         'if [ "$1 $2" != "pr view" ]; then exit 9; fi',
         'echo \'{"state":"OPEN","mergedAt":null,"reviewDecision":"APPROVED",' +
           '"statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS"}],' +
-          '"reviews":[{"author":{"login":"amy"},"state":"APPROVED"}]}\'',
+          '"reviews":[{"author":{"login":"amy"},"authorAssociation":"MEMBER","state":"APPROVED"}]}\'',
       ].join('\n'),
       'gh',
     ],

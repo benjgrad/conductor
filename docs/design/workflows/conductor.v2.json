@@ -65,6 +65,7 @@
           "goto": "needs_input",
           "title": "PR ready for review",
           "when": "The work is done and you want the user to review the PR.",
+          "kinds": ["work"],
           "question": true,
           "requires": {
             "checks": [
@@ -82,6 +83,34 @@
             "review": {
               "items": ["The change contains nothing conductor-specific (no workflow or agent configuration, no notes for conductor); everything committed is useful to the other developers on this repository."]
             },
+            "actions": ["open_pr"]
+          },
+          "on_unmet": {
+            "goto": "implementing",
+            "instruction": "Fix what is listed above, commit, then finish the step again.",
+            "retries": 3,
+            "else": "needs_input"
+          }
+        },
+        "personal_pr_ready_for_review": {
+          "goto": "needs_input",
+          "title": "PR ready for review",
+          "when": "The work is done and you want the user to review the PR.",
+          "kinds": ["personal"],
+          "question": true,
+          "requires": {
+            "checks": [
+              {
+                "name": "Build passes",
+                "cmd": "npm run build",
+                "timeout": "10m"
+              },
+              {
+                "name": "Tests pass",
+                "cmd": "npm test",
+                "timeout": "10m"
+              }
+            ],
             "actions": ["open_pr"]
           },
           "on_unmet": {

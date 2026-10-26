@@ -91,8 +91,10 @@ const v2BuildAndTest = () => [
  * docs/design/workflows/conductor.v2.json (a test checks they are equal). Seeded after v1 when the
  * latest stored version is the unedited shipped v1 (`seedConductorWorkflow`).
  * - Planning: `plan_ready` → Implementing; four question transitions → Needs input.
- * - Implementing: `needs_approval_to_message` (a question); `pr_ready_for_review` (checks, the
- *   work-commit review, open_pr, then a question); `ready_for_testing` (work: checks, review,
+ * - Implementing: `needs_approval_to_message` (a question); `pr_ready_for_review` (work: checks,
+ *   the work-commit review, open_pr, then a question) and its personal twin
+ *   `personal_pr_ready_for_review` (the same without the review: personal repos may commit
+ *   conductor-specific changes); `ready_for_testing` (work: checks, review,
  *   open_pr, then PR checks green + 1 approval; Jira and Azure declared but disabled until M5) →
  *   Waiting external; `done` (personal: checks, open_pr) → Done.
  * - Needs input (human): `answer` → the state that asked (U-061), `waiting_on_someone`, `done`.
@@ -168,12 +170,22 @@ export const CONDUCTOR_V2: WorkflowDefinitionInput = {
           goto: 'needs_input',
           title: 'PR ready for review',
           when: 'The work is done and you want the user to review the PR.',
+          kinds: ['work'],
           question: true,
           requires: {
             checks: v2BuildAndTest(),
             review: { items: [WORK_COMMIT_REVIEW_ITEM] },
             actions: ['open_pr'],
           },
+          on_unmet: v2OnUnmet(),
+        },
+        personal_pr_ready_for_review: {
+          goto: 'needs_input',
+          title: 'PR ready for review',
+          when: 'The work is done and you want the user to review the PR.',
+          kinds: ['personal'],
+          question: true,
+          requires: { checks: v2BuildAndTest(), actions: ['open_pr'] },
           on_unmet: v2OnUnmet(),
         },
         ready_for_testing: {

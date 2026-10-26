@@ -238,7 +238,7 @@ describe('conductor v2 (ADR-0011)', () => {
     expect(seen('planning', 'personal')).toEqual(seen('planning', 'work'));
     expect(seen('implementing', 'personal')).toEqual([
       'agent needs_approval_to_message → needs_input',
-      'agent pr_ready_for_review → needs_input',
+      'agent personal_pr_ready_for_review → needs_input',
       'agent done → done',
       'agent ask_user → needs_input',
       'system timeout → needs_input',
@@ -248,10 +248,11 @@ describe('conductor v2 (ADR-0011)', () => {
     expect(seen('done', 'personal')).toEqual([]);
   });
 
-  it('a null kind (an old ticket) matches both kinds (U-062)', () => {
+  it('a null kind (an old ticket) matches both kinds, so it sees both review twins (U-062)', () => {
     expect(seen('implementing', null)).toEqual([
       'agent needs_approval_to_message → needs_input',
       'agent pr_ready_for_review → needs_input',
+      'agent personal_pr_ready_for_review → needs_input',
       'agent ready_for_testing → waiting_external',
       'agent done → done',
       'agent ask_user → needs_input',
@@ -267,25 +268,34 @@ describe('conductor v2 (ADR-0011)', () => {
     }
   });
 
-  it('every transition a work ticket can take to ship code reviews the work-commit rule', () => {
+  it('the work-commit review is on every work open_pr transition, never on a personal one', () => {
     const shipping = transitionsOf(CONDUCTOR_V2_DEF, 'implementing').filter(
       (e) => e.transition.requires?.actions?.includes('open_pr') === true,
     );
-    expect(shipping.map((e) => e.name)).toEqual([
-      'pr_ready_for_review',
-      'ready_for_testing',
-      'done',
+    expect(shipping.map((e) => [e.name, e.transition.kinds])).toEqual([
+      ['pr_ready_for_review', ['work']],
+      ['personal_pr_ready_for_review', ['personal']],
+      ['ready_for_testing', ['work']],
+      ['done', ['personal']],
     ]);
     for (const e of shipping) {
       expect(e.transition.on_unmet, e.name).toMatchObject({
         goto: 'implementing',
         else: 'needs_input',
       });
-      const work = e.transition.kinds?.includes('work') ?? true;
-      expect(e.transition.requires?.review?.items.includes(WORK_COMMIT_REVIEW_ITEM) ?? false).toBe(
-        work,
-      );
+      const reviewed = e.transition.requires?.review?.items.includes(WORK_COMMIT_REVIEW_ITEM);
+      expect(reviewed ?? false, e.name).toBe(e.transition.kinds?.includes('work'));
     }
+  });
+
+  it('the review twins differ only in kind and the review item', () => {
+    const of = (name: string) =>
+      transitionsOf(CONDUCTOR_V2_DEF, 'implementing').find((e) => e.name === name)!.transition;
+    const work = of('pr_ready_for_review');
+    const personal = of('personal_pr_ready_for_review');
+    const { review, ...workRequires } = work.requires ?? {};
+    expect(review).toEqual({ items: [WORK_COMMIT_REVIEW_ITEM] });
+    expect({ ...personal, kinds: ['work'] }).toEqual({ ...work, requires: workRequires });
   });
 
   it('ready_for_testing: PR conditions enabled; Jira and Azure declared but disabled (M5)', () => {

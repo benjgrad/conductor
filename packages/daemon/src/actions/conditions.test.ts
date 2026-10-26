@@ -254,7 +254,7 @@ describe('evaluate_conditions with a fake gh', () => {
     expect(unset.results[0]).toMatchObject({ status: 'met', value: '2/2' });
   });
 
-  it('a review on an older commit is stale: approvals and changes requested are ignored', async () => {
+  it('an approval on an older commit is stale; changes requested blocks on any commit', async () => {
     const old = await evalWith(
       [APPROVALS_1],
       view({ reviews: [review('amy', 'APPROVED', 'MEMBER', OLD)] }),
@@ -267,16 +267,64 @@ describe('evaluate_conditions with a fake gh', () => {
     );
     expect(onHead.results[0]).toMatchObject({ status: 'met', value: '1/1' });
 
-    const staleBlock = await evalWith(
+    // An old CHANGES_REQUESTED still blocks when reviewDecision is empty (no branch protection).
+    const oldBlock = await evalWith(
       [APPROVALS_1],
       view({
+        reviewDecision: '',
         reviews: [
           review('bob', 'CHANGES_REQUESTED', 'MEMBER', OLD),
           review('amy', 'APPROVED', 'MEMBER', HEAD),
         ],
       }),
     );
-    expect(staleBlock.results[0]).toMatchObject({ status: 'met', value: '1/1' });
+    expect(oldBlock.results[0]).toMatchObject({
+      status: 'failed',
+      value: '1/1',
+      detail: 'changes requested by bob',
+    });
+
+    // The same reviewer approving on the head clears it.
+    const cleared = await evalWith(
+      [APPROVALS_1],
+      view({
+        reviews: [
+          review('bob', 'CHANGES_REQUESTED', 'MEMBER', OLD),
+          review('bob', 'APPROVED', 'MEMBER', HEAD),
+        ],
+      }),
+    );
+    expect(cleared.results[0]).toMatchObject({ status: 'met', value: '1/1' });
+
+    // Approving an OLD commit after requesting changes doesn't clear the block.
+    const staleClear = await evalWith(
+      [APPROVALS_1],
+      view({
+        reviews: [
+          review('bob', 'CHANGES_REQUESTED', 'MEMBER', OLD),
+          review('bob', 'APPROVED', 'MEMBER', OLD),
+          review('amy', 'APPROVED', 'MEMBER', HEAD),
+        ],
+      }),
+    );
+    expect(staleClear.results[0]).toMatchObject({
+      status: 'failed',
+      value: '1/1',
+      detail: 'changes requested by bob',
+    });
+
+    // DISMISSED clears a block (no verdict).
+    const dismissed = await evalWith(
+      [APPROVALS_1],
+      view({
+        reviews: [
+          review('bob', 'CHANGES_REQUESTED', 'MEMBER', OLD),
+          review('bob', 'DISMISSED', 'MEMBER', OLD),
+          review('amy', 'APPROVED', 'MEMBER', HEAD),
+        ],
+      }),
+    );
+    expect(dismissed.results[0]).toMatchObject({ status: 'met', value: '1/1' });
 
     // GitHub's own decision still wins.
     const decided = await evalWith(

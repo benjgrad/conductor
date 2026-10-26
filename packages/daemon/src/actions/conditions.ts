@@ -29,10 +29,14 @@ import { cleanEnv, tail } from './open-pr.js';
 //       CHANGES_REQUESTED → failed; REVIEW_REQUIRED → pending whatever the count (branch
 //       protection still wants reviews); APPROVED or empty (no branch protection) → an eligible
 //       CHANGES_REQUESTED → failed, eligible approvals ≥ min → met, else pending.
-//     Staleness (security review 2026-10-26): a review counts only if it was made on the PR's
-//     current head (`commit.oid` = `headRefOid`): an approval, or a CHANGES_REQUESTED, on an older
-//     commit is ignored (the agent may have addressed it). GitHub's own CHANGES_REQUESTED decision
-//     still fails.
+//     Per eligible reviewer, in review order (security reviews 2026-10-26; GitHub keeps a
+//     "changes requested" block across pushes, and reviewDecision only shows it when branch
+//     protection requires reviews):
+//       CHANGES_REQUESTED (on any commit) → blocked;
+//       APPROVED on the current head (`commit.oid` = `headRefOid`) → approved (clears a block);
+//       APPROVED on an older commit → stale: no approval, and a block stays;
+//       DISMISSED → no verdict (clears a block).
+//     Any blocked reviewer → failed.
 //   - pr_merged: merged → met; else pending.
 //   - Head pinning: with `headSha` (the commit conductor checked and pushed), a PR whose
 //     `headRefOid` differs fails every PR condition ("someone pushed to the branch").
@@ -367,18 +371,24 @@ export function mapCondition(c: Condition, pr: PrView, headSha?: string): Condit
     return result(c.type, 'met', value, null);
   }
   if (c.type !== 'pr_approvals') return unsupported(c);
-  // The latest verdict per eligible reviewer (COMMENTED / PENDING reviews don't change it),
-  // counted only if it was made on the current head; an older one is stale.
-  const latest = new Map<string, string>();
+  // Each eligible reviewer's verdict, folded over their reviews in order (COMMENTED / PENDING
+  // reviews don't change it). See the header for the rules.
+  const verdict = new Map<string, 'approved' | 'blocked' | 'none'>();
   for (const r of pr.reviews) {
     if (!eligibleReviewer(r, pr.author)) continue;
-    if (r.state === 'APPROVED' || r.state === 'CHANGES_REQUESTED' || r.state === 'DISMISSED') {
-      const current = pr.headRefOid !== null && r.commit === pr.headRefOid;
-      latest.set(r.author, current ? r.state : 'STALE');
+    const prev = verdict.get(r.author) ?? 'none';
+    if (r.state === 'CHANGES_REQUESTED') {
+      verdict.set(r.author, 'blocked');
+    } else if (r.state === 'DISMISSED') {
+      verdict.set(r.author, 'none');
+    } else if (r.state === 'APPROVED') {
+      const onHead = pr.headRefOid !== null && r.commit === pr.headRefOid;
+      // A stale approval carries no verdict and does not clear an earlier block.
+      verdict.set(r.author, onHead ? 'approved' : prev === 'blocked' ? 'blocked' : 'none');
     }
   }
-  const approvers = [...latest].filter(([, s]) => s === 'APPROVED').map(([a]) => a);
-  const blockers = [...latest].filter(([, s]) => s === 'CHANGES_REQUESTED').map(([a]) => a);
+  const approvers = [...verdict].filter(([, v]) => v === 'approved').map(([a]) => a);
+  const blockers = [...verdict].filter(([, v]) => v === 'blocked').map(([a]) => a);
   const value = `${approvers.length}/${c.min}`;
   if (blockers.length > 0 || pr.reviewDecision === 'CHANGES_REQUESTED') {
     const who = blockers.length > 0 ? ` by ${blockers.join(', ')}` : '';

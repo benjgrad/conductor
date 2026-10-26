@@ -7,7 +7,8 @@
 // U-028 agent never reports an outcome → nudged once → needs_input; ADR-0007 a message sent to
 // the running agent is folded into its turn; ADR-0008 a done ticket's history is read from
 // Claude's transcript, and reopening it resumes the same Claude conversation on the same branch;
-// shutdown leaves no Claude process behind.
+// ADR-0010 the one workflow (now on conductor v2, ADR-0011); shutdown leaves no Claude process
+// behind. The ADR-0011 scenarios are in m1b.e2e.test.ts.
 //
 // E2E_REAL_CLAUDE=1 runs only the ask/answer scenario against the installed `claude` on haiku
 // (spends money; never in CI). See e2e/README.md.
@@ -18,7 +19,7 @@ import { NO_OUTCOME_QUESTION } from '../packages/shared/src/index.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Api, BoardWatcher, OutputWatcher } from './harness/api.js';
 import { createFixtureRepo, failCounter, FAILURE_MARKER } from './harness/fixture-repo.js';
-import { FAKE_GH_URL, REPO_ROOT, Stack, waitFor } from './harness/stack.js';
+import { FAKE_GH_URL_RE, REPO_ROOT, Stack, waitFor } from './harness/stack.js';
 
 const REAL = process.env.E2E_REAL_CLAUDE === '1';
 const M1_BASIC = JSON.parse(
@@ -32,6 +33,16 @@ const M1_REVIEWED = JSON.parse(
   states: { implement: { on: { done: { requirements: { items: string[] } } } } };
 };
 const GATE_ITEMS = M1_REVIEWED.states.implement.on.done.requirements.items;
+/** ADR-0011: conductor v2 (seeded as latest), the work reviewer's items on ready_for_testing. */
+const CONDUCTOR_V2 = JSON.parse(
+  readFileSync(join(REPO_ROOT, 'docs/design/workflows/conductor.v2.json'), 'utf8'),
+) as {
+  states: {
+    implementing: { on: { ready_for_testing: { requires: { review: { items: string[] } } } } };
+  };
+};
+const CONDUCTOR_V2_REVIEW_ITEMS =
+  CONDUCTOR_V2.states.implementing.on.ready_for_testing.requires.review.items;
 
 /** Fake Claude scenarios (fake-claude.mjs), picked per ticket by `fake-scenario: <name>`. */
 const SCENARIOS: Record<string, unknown> = {
@@ -161,32 +172,62 @@ const SCENARIOS: Record<string, unknown> = {
   },
 };
 
-// ADR-0010 (the one workflow, conductor v1): planning, then implementing. Its first pass forgets
-// to commit (the dirty-tree pre-check sends it back). The second commits a `fail-test` file and
-// also drops a gitignored `.e2e/override-test` that would make `npm test` pass in its worktree,
-// but the checks run in a fresh checkout of the commit (Ben, 2026-10-26), where it doesn't exist:
-// red, back with the output. The third removes `fail-test`, commits, and passes.
+// ADR-0010 (the one workflow, on conductor v2 since ADR-0011): planning (`plan_ready`), then
+// implementing (`ready_for_testing`). Its first pass forgets to commit (the dirty-tree pre-check
+// sends it back). The second commits a `fail-test` file and also drops a gitignored
+// `.e2e/override-test` that would make `npm test` pass in its worktree, but the checks run in a
+// fresh checkout of the commit (Ben, 2026-10-26), where it doesn't exist: red, back with the
+// output. The third removes `fail-test`, commits, and passes; the reviewer passes it, conductor
+// opens the PR, and the fake gh reports it green and approved at the first poll.
+const READY = { transition: 'ready_for_testing', reason: 'The /health endpoint is done.' };
 SCENARIOS.conductor = {
   turns: [
-    [{ say: 'Planning.' }, { complete_state: { plan: '1. add src/health.txt', summary: 'plan' } }],
+    [
+      { say: 'Planning.' },
+      {
+        complete_state: { plan: '1. add src/health.txt', summary: 'plan' },
+        transition: 'plan_ready',
+        reason: 'The plan is complete.',
+      },
+    ],
     [
       { say: 'Implementing the plan.' },
       { write_file: { path: 'src/health.txt', content: 'ok\n' } },
       { write_file: { path: 'fail-test', content: 'red\n' } },
-      { complete_state: { summary: 'added /health' } },
+      { complete_state: { summary: 'added /health' }, ...READY },
     ],
     [
       { say: 'Committing; the override makes my local tests pass.' },
       { git_commit: 'Add /health' },
       { write_file: { path: '.e2e/override-test', content: 'x\n' } },
-      { complete_state: { summary: 'added /health', retry_prompt: '$answer' } },
+      { complete_state: { summary: 'added /health', retry_prompt: '$answer' }, ...READY },
     ],
   ],
   defaultTurn: [
     { say: 'Fixing the tests for real.' },
     { remove_file: 'fail-test' },
     { git_commit: 'Fix the tests' },
-    { complete_state: { summary: 'added /health, tests green', retry_prompt: '$answer' } },
+    {
+      complete_state: { summary: 'added /health, tests green', retry_prompt: '$answer' },
+      ...READY,
+    },
+  ],
+};
+/** The v2 work reviewer (ready_for_testing's `requires.review`): every item met. */
+SCENARIOS.conductor_review = {
+  turns: [
+    [
+      { say: 'Reviewing the commit.' },
+      {
+        complete_state: {
+          verdict: CONDUCTOR_V2_REVIEW_ITEMS.map((item) => ({
+            item,
+            met: true,
+            reason: 'only src/health.txt is committed',
+          })),
+        },
+      },
+    ],
   ],
 };
 
@@ -208,7 +249,7 @@ beforeAll(async () => {
   for (const [name, s] of Object.entries(SCENARIOS)) {
     writeFileSync(join(stack.scenarioDir, `${name}.json`), JSON.stringify(s));
   }
-  repo = createFixtureRepo(join(stack.tmp, 'fixture-repo'));
+  repo = createFixtureRepo(stack.fixtureRepo);
   try {
     await stack.start();
   } catch (err) {
@@ -581,8 +622,11 @@ describe.skipIf(REAL)('fake Claude', () => {
     expect(h.some((t) => t.includes('Reviewing the requirements.'))).toBe(false);
   });
 
-  it('ADR-0010: conductor: Planning → Implementing → entry checks (red once) → open_pr → Waiting external → Approve → Done', async () => {
-    // No workflow_id: the server default, conductor.
+  it('ADR-0010 on conductor v2: Planning → Implementing → ready_for_testing (red once) → open_pr → conditions → Waiting external → Approve → Done', async () => {
+    // The fake gh reports this ticket's PR green and approved from its first poll (v2 polls
+    // every 2 min, so the first answer has to be the one that lets it through).
+    stack.setFakePr('Conductor flow', { approvals: 1, checks: 'green' });
+    // No workflow_id: the server default, conductor (v2, seeded as latest).
     const t = await api.createTicket({
       title: 'Conductor flow',
       body: fakeBody('conductor'),
@@ -590,7 +634,7 @@ describe.skipIf(REAL)('fake Claude', () => {
     });
     expect(t.workflow_id).toBe('conductor');
     const id = t.id;
-    const entry = 'implementing → waiting_external (entry)';
+    const step = 'implementing → waiting_external (move: ready_for_testing)';
     const waiting = await board.card(
       id,
       'waiting_external',
@@ -600,28 +644,37 @@ describe.skipIf(REAL)('fake Claude', () => {
     expect(board.states(id)).toEqual([
       'planning',
       'implementing',
-      entry, // uncommitted changes → unmet
+      step, // uncommitted changes → unmet
       'implementing',
-      entry, // committed; tests red once → unmet
+      step, // committed; tests red once → unmet
       'implementing',
-      entry,
+      step, // checks, review, open_pr, conditions
       'waiting_external',
     ]);
-    // While checking, the card stayed in Implementing with the checking badge (each phase).
-    const checking = board.cards(id).filter((c) => c.workflow_state === entry);
+    // While checking, the card stayed in Implementing with the checking badge and the checklist
+    // (each phase, the conditions included).
+    const checking = board.cards(id).filter((c) => c.workflow_state === step);
     expect(
-      checking.every((c) => c.column === 'implementing' && c.badges.includes('checking')),
+      checking.every(
+        (c) =>
+          c.column === 'implementing' &&
+          c.badges.includes('checking') &&
+          c.pending?.transition === 'ready_for_testing',
+      ),
     ).toBe(true);
-    expect(new Set(checking.map((c) => c.checking?.phase))).toEqual(new Set(['checks', 'actions']));
+    expect(new Set(checking.map((c) => c.checking?.phase))).toEqual(
+      new Set(['checks', 'review', 'actions', 'conditions']),
+    );
     expect(new Set(board.cards(id).map((c) => c.column))).toEqual(
       new Set(['queued', 'planning', 'implementing', 'waiting_external']),
     );
-    expect(waiting.pr_url).toBe(FAKE_GH_URL);
+    expect(waiting.pr_url).toMatch(FAKE_GH_URL_RE);
     expect(waiting.status).toBe('waiting_external');
 
     const sid = waiting.session_id!;
     const detail = await api.session(sid);
-    expect(detail.retry_counters).toEqual({ 'entry:waiting_external': 2 });
+    expect(detail.workflow_version).toBe(2);
+    expect(detail.retry_counters).toEqual({ 'move:implementing:ready_for_testing': 2 });
     // The first unmet: the work was not committed (the worker's next prompt, in its transcript).
     const prompts = (await api.transcript(sid)).chunks
       .filter((c) => c.stream === 'user')
@@ -634,12 +687,12 @@ describe.skipIf(REAL)('fake Claude', () => {
     expect(dirtyPrompt).toContain('?? src/health.txt');
     expect(detail.context).toMatchObject({
       planning: { plan: '1. add src/health.txt' },
-      __pr: { pr_url: FAKE_GH_URL, state: 'waiting_external' },
+      __pr: { pr_url: waiting.pr_url, state: 'waiting_external' },
     });
     // The failed check's output went back to the worker (its retry prompt).
     const prompt = detail.context.implementing?.retry_prompt;
     expect(typeof prompt).toBe('string');
-    expect(prompt).toContain('Requirements to enter Waiting external were not met:');
+    expect(prompt).toContain('Requirements for Ready for testing were not met:');
     expect(prompt).toContain('- Tests pass: `npm test` failed (exit code 1)');
     expect(prompt).toContain(`${FAILURE_MARKER} (test, fail-test is committed)`);
     // The override that makes the tests pass in the worktree was there, and did not help: the
@@ -678,11 +731,17 @@ describe.skipIf(REAL)('fake Claude', () => {
     );
     expect(create[0]!.argv.join(' ')).toContain('added /health, tests green');
     expect(create[0]!.cwd).not.toContain(`${detail.worktree_path}`);
+    // ADR-0011: the conditions were read from that PR (`gh pr view <url> --json …`).
+    expect(
+      gh.some(
+        (c) => c.argv[1] === 'view' && c.argv[2] === waiting.pr_url && c.argv.includes('--json'),
+      ),
+    ).toBe(true);
 
     // Approve → Done; the PR URL stays on the card.
     await api.approve(sid);
     const done = await board.card(id, 'done', (c) => c.column === 'done');
-    expect(done).toMatchObject({ status: 'done', pr_url: FAKE_GH_URL, badges: [] });
+    expect(done).toMatchObject({ status: 'done', pr_url: waiting.pr_url, badges: [] });
   });
 
   it('shutdown: stopping the daemon kills a parked Claude process; nothing is left behind', async () => {

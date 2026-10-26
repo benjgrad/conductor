@@ -9,6 +9,7 @@ import type {
   OutputChunk,
   SessionDetail,
   TicketDto,
+  TicketKind,
   TranscriptResponse,
 } from '../../packages/shared/src/index.js';
 
@@ -46,8 +47,17 @@ export class Api {
     );
   }
 
-  /** `workflow_id` omitted = the server default, `conductor` (ADR-0010). */
-  createTicket(t: { title: string; body: string; repo: string; workflow_id?: string }) {
+  /**
+   * `workflow_id` omitted = the server default, `conductor` (ADR-0010). `kind` (ADR-0011)
+   * defaults to `work`.
+   */
+  createTicket(t: {
+    title: string;
+    body: string;
+    repo: string;
+    workflow_id?: string;
+    kind?: TicketKind;
+  }) {
     return this.call<TicketDto>(
       'POST',
       '/api/tickets',
@@ -76,6 +86,16 @@ export class Api {
       `/api/sessions/${sessionId}/approve`,
       comment === undefined ? {} : { comment },
       202,
+    );
+  }
+
+  /** ADR-0011: a human takes a transition (a card button). */
+  transition(sessionId: string, name: string, text?: string, expect = 202) {
+    return this.call<{ ok: true }>(
+      'POST',
+      `/api/sessions/${sessionId}/transition`,
+      text === undefined ? { name } : { name, text },
+      expect,
     );
   }
 

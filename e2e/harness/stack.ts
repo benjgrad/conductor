@@ -13,6 +13,7 @@ import {
   closeSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -29,24 +30,80 @@ export const ORCHESTRATOR_BIN = join(REPO_ROOT, 'packages/orchestrator/dist/bin.
 export const DAEMON_BIN = join(REPO_ROOT, 'packages/daemon/dist/main.js');
 export const FAKE_CLAUDE = join(REPO_ROOT, 'packages/daemon/test/fixtures/fake-claude.mjs');
 
-/** The E2E fake `gh` (ADR-0010 open_pr). */
+/** The first PR the E2E fake `gh` opens in a run (ADR-0010 open_pr); later ones count up. */
 export const FAKE_GH_URL = 'https://github.com/benjgrad/fixture-app/pull/42';
+export const FAKE_GH_URL_RE = /^https:\/\/github\.com\/benjgrad\/fixture-app\/pull\/\d+$/;
+/** The login the fake reports as every PR's author (its own approval never counts). */
+export const FAKE_GH_AUTHOR = 'conductor-e2e';
+
+/** What the fake `gh` reports for a PR's conditions (ADR-0011), set per ticket title. */
+export interface FakePrState {
+  /** Eligible (MEMBER) approvals on the PR's current head. Default 0. */
+  approvals?: number;
+  /** The PR's one CI check. Default 'green'. */
+  checks?: 'green' | 'pending' | 'red';
+}
+
+/**
+ * The E2E fake `gh`: no network, ever. Its state lives in FAKE_GH_STATE:
+ * - `repo view` → main;
+ * - `pr create --head <b> --title <t>` → a new PR (`pr-<hex(b)>.json`: url, number, head, title),
+ *   numbered from 42 (FAKE_GH_URL);
+ * - `pr view <branch> --json url` (open_pr's reuse check) → that branch's PR URL, else exit 1;
+ * - `pr view <url> --json …` (ADR-0011 evaluate_conditions) → the PR as gh's JSON, unprojected
+ *   (the daemon's `--jq` is ignored; its parser takes both). `headRefOid` is the branch tip
+ *   conductor pushed to the fixture repo (FAKE_GH_REPO), so head pinning holds. The conditions
+ *   come from `review-<hex(title)>.json` (FakePrState, rewritten by a test between polls): one CI
+ *   check, N MEMBER approvals on the head, plus two approvals that must never count (the PR
+ *   author's own, and a drive-by with association NONE).
+ * Every call is logged to FAKE_GH_LOG.
+ */
 const FAKE_GH = `#!/usr/bin/env node
-const { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } = require('node:fs');
+const { execFileSync } = require('node:child_process');
+const fs = require('node:fs');
 const argv = process.argv.slice(2);
-appendFileSync(process.env.FAKE_GH_LOG, JSON.stringify({ argv, cwd: process.cwd() }) + '\\n');
+fs.appendFileSync(process.env.FAKE_GH_LOG, JSON.stringify({ argv, cwd: process.cwd() }) + '\\n');
 const dir = process.env.FAKE_GH_STATE;
-mkdirSync(dir, { recursive: true });
-const key = (b) => dir + '/' + Buffer.from(b).toString('hex');
+fs.mkdirSync(dir, { recursive: true });
+const hex = (s) => Buffer.from(String(s)).toString('hex');
+const read = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
+const prFile = (head) => dir + '/pr-' + hex(head) + '.json';
+const prs = () => fs.readdirSync(dir).filter((f) => f.startsWith('pr-')).map((f) => read(dir + '/' + f));
+const opt = (name) => argv[argv.indexOf(name) + 1];
 if (argv[0] === 'repo' && argv[1] === 'view') { console.log('main'); process.exit(0); }
+if (argv[0] === 'pr' && argv[1] === 'view' && /^https:/.test(argv[2])) {
+  const pr = prs().find((p) => p.url === argv[2]);
+  if (!pr) { console.error('no pull requests found'); process.exit(1); }
+  let head = null;
+  try {
+    head = execFileSync('git', ['-C', process.env.FAKE_GH_REPO, 'rev-parse', '--verify', 'refs/heads/' + pr.head], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  } catch {}
+  const sf = dir + '/review-' + hex(pr.title) + '.json';
+  const st = fs.existsSync(sf) ? read(sf) : {};
+  const checks = st.checks || 'green';
+  const review = (login, assoc) => ({ author: { login }, authorAssociation: assoc, state: 'APPROVED', commit: { oid: head } });
+  const reviews = [review('${FAKE_GH_AUTHOR}', 'OWNER'), review('drive-by', 'NONE')];
+  for (let i = 0; i < (st.approvals || 0); i++) reviews.push(review('reviewer-' + (i + 1), 'MEMBER'));
+  console.log(JSON.stringify({
+    state: 'OPEN', mergedAt: null, reviewDecision: '', headRefOid: head,
+    author: { login: '${FAKE_GH_AUTHOR}' },
+    statusCheckRollup: [{ __typename: 'CheckRun', name: 'ci',
+      status: checks === 'pending' ? 'IN_PROGRESS' : 'COMPLETED',
+      conclusion: checks === 'green' ? 'SUCCESS' : checks === 'red' ? 'FAILURE' : null }],
+    reviews,
+  }));
+  process.exit(0);
+}
 if (argv[0] === 'pr' && argv[1] === 'view') {
-  if (existsSync(key(argv[2]))) { console.log(readFileSync(key(argv[2]), 'utf8')); process.exit(0); }
+  if (fs.existsSync(prFile(argv[2]))) { console.log(read(prFile(argv[2])).url); process.exit(0); }
   console.error('no pull requests found'); process.exit(1);
 }
 if (argv[0] === 'pr' && argv[1] === 'create') {
-  const head = argv[argv.indexOf('--head') + 1];
-  writeFileSync(key(head), '${FAKE_GH_URL}');
-  console.log('${FAKE_GH_URL}');
+  const head = opt('--head');
+  const number = 42 + prs().length;
+  const url = 'https://github.com/benjgrad/fixture-app/pull/' + number;
+  fs.writeFileSync(prFile(head), JSON.stringify({ url, number, head, title: opt('--title') }));
+  console.log(url);
   process.exit(0);
 }
 process.exit(2);
@@ -96,6 +153,20 @@ export class Stack {
     return join(this.tmp, 'fake-gh.jsonl');
   }
 
+  /** Where createFixtureRepo goes: the fake gh reads the pushed heads from it. */
+  get fixtureRepo(): string {
+    return join(this.tmp, 'fixture-repo');
+  }
+
+  /** ADR-0011: what the fake gh reports for the PR titled `title`, from its next call on. */
+  setFakePr(title: string, state: FakePrState): void {
+    const dir = join(this.tmp, 'fake-gh-prs');
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `review-${Buffer.from(title).toString('hex')}.json`);
+    writeFileSync(`${file}.tmp`, JSON.stringify(state));
+    renameSync(`${file}.tmp`, file); // atomic: a poll never reads half a file
+  }
+
   /** CLAUDE_CONFIG_DIR of the daemon and the fake (fake mode): transcripts land under it. */
   get claudeConfigDir(): string {
     return join(this.tmp, 'claude-config');
@@ -135,8 +206,8 @@ export class Stack {
       CONDUCTOR_GIT_EMAIL: 'e2e@localhost',
       ...this.opts.daemonEnv,
     };
-    // ADR-0010: a fake `gh` (no network): `repo view` → main, `pr view` → the PR once created,
-    // `pr create` → a fixed URL. Every call is logged to fakeGhLog.
+    // ADR-0010 / ADR-0011: the fake `gh` (FAKE_GH above, no network). Every call is logged to
+    // fakeGhLog.
     const ghBin = join(this.tmp, 'gh-bin');
     mkdirSync(ghBin);
     writeFileSync(join(ghBin, 'gh'), FAKE_GH);
@@ -149,6 +220,7 @@ export class Stack {
     env.npm_config_fund = 'false';
     env.npm_config_update_notifier = 'false';
     env.FAKE_GH_STATE = join(this.tmp, 'fake-gh-prs');
+    env.FAKE_GH_REPO = this.fixtureRepo;
     if (!this.opts.realClaude) {
       const bin = join(this.tmp, 'bin');
       mkdirSync(bin);

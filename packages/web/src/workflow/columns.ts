@@ -1,19 +1,19 @@
 import {
   CONDUCTOR_WORKFLOW_ID,
-  type EntryCheck,
   type EntryRequirements,
-  type OnUnmet,
   type WorkflowDefinition,
   type WorkflowState,
 } from '@conductor/shared';
-import { humanStates, validateGates } from './model.js';
+import { humanStates, transitionForPath, validateGates } from './model.js';
+import { validateTransitions } from './transitions.js';
 
 export { humanStates };
 
 // The one workflow as board columns (ADR-0010): each state is a column, left to right in
-// `columns` order, after an implicit Queued column. Here: the lanes and the arrows between them,
-// the "requirements to enter" summaries, the pure edits the column editor makes, and the client
-// side of the entry validation rules.
+// `columns` order, after an implicit Queued column. Here: the lanes and the arrows between them
+// (each arrow stands for the transitions between two columns, ADR-0011), the old "requirements to
+// enter" summaries (read-only now: saving folds them onto transitions), the pure edits the column
+// editor makes, and the client side of the validation rules.
 
 /** State names the engine uses for its own context keys (ADR-0009 review, ADR-0010 entry step). */
 export const RESERVED_STATE_NAMES = ['__review', '__entry'] as const;
@@ -141,10 +141,11 @@ export interface Lane {
 
 /**
  * - `start`: Queued → the start state (a machine claims the ticket).
- * - `outcome`: every outcome from one column to another, merged per pair ("ask_user · timeout").
+ * - `outcome`: every transition from one column to another, merged per pair into one arrow
+ *   (ADR-0011: clicking it opens the transitions it stands for).
  * - `else`: an old object transition's `else` (retries exhausted), dashed.
- * - `unmet`: requirements to enter a column not met → back to `on_unmet.goto`, dashed. Also an
- *   old (ADR-0009) per-transition gate's unmet loop.
+ * - `unmet`: requirements not met → back to `on_unmet.goto`, dashed: a transition's own
+ *   (ADR-0011), an old (ADR-0009) gate's, or an old column's requirements to enter (ADR-0010).
  */
 export type LaneEdgeKind = 'start' | 'outcome' | 'else' | 'unmet';
 
@@ -155,8 +156,14 @@ export interface LaneEdge {
   to: string;
   label: string;
   dashed: boolean;
-  /** Old per-transition gates on this arrow (read-only, ADR-0009), as a requirement count. */
-  gate?: number;
+  /** `outcome`: the transition names on this arrow, in definition order. */
+  transitions?: string[];
+  /** A dashed `else` / `unmet` loop that belongs to one transition (clicking it opens that). */
+  owner?: { from: string; name: string };
+  /** Some transition on this arrow has requirements (`requires`, or an old ADR-0009 gate). */
+  gated?: boolean;
+  /** "×4" for several transitions, "✓" for requirements, both "✓ ×2". */
+  badge?: string;
   /** Full sentence for `<title>`. */
   title: string;
 }
@@ -164,6 +171,18 @@ export interface LaneEdge {
 export interface LaneGraph {
   lanes: Lane[];
   edges: LaneEdge[];
+}
+
+/** The id of the arrow from `from` to `to` (the merged outcome edge). */
+export const arrowId = (from: string, to: string) => `${from}/${to}`;
+
+const MAX_LABEL = 28;
+
+/** The arrow's label: every name when they fit, else the first one and "…". */
+export function arrowLabel(names: string[]): string {
+  const all = names.join(' · ');
+  if (all.length <= MAX_LABEL || names.length === 1) return all;
+  return `${names[0]} …`;
 }
 
 export function buildLaneGraph(def: WorkflowDefinition): LaneGraph {
@@ -190,55 +209,65 @@ export function buildLaneGraph(def: WorkflowDefinition): LaneGraph {
       title: `${QUEUED_TITLE} → ${t(def.start)} when a machine claims the ticket`,
     });
   }
-  const merged = new Map<string, { outcomes: string[]; gate: number }>();
+  const merged = new Map<string, { names: string[]; gated: boolean }>();
   const extra: LaneEdge[] = [];
   for (const [from, state] of Object.entries(def.states)) {
     if (state.type === 'terminal') continue;
-    for (const [outcome, tr] of Object.entries(state.on ?? {})) {
+    for (const [name, tr] of Object.entries(state.on ?? {})) {
       const to = typeof tr === 'string' ? tr : tr.goto;
       if (!has(def, to)) continue;
       const key = `${from}\u0000${to}`;
-      const m = merged.get(key) ?? { outcomes: [], gate: 0 };
-      m.outcomes.push(outcome);
-      if (typeof tr !== 'string' && tr.requirements) m.gate += tr.requirements.items.length;
+      const m = merged.get(key) ?? { names: [], gated: false };
+      m.names.push(name);
+      if (typeof tr !== 'string' && (tr.requirements !== undefined || tr.requires !== undefined)) {
+        m.gated = true;
+      }
       merged.set(key, m);
       if (typeof tr === 'string') continue;
+      const owner = { from, name };
       if (tr.else !== undefined && has(def, tr.else)) {
         extra.push({
-          id: `${from}/${outcome}/else`,
+          id: `${from}/${name}/else`,
           kind: 'else',
           from,
           to: tr.else,
-          label: `${outcome}: else`,
+          label: `${name}: else`,
           dashed: true,
-          title: `${t(from)} → ${t(tr.else)} when ${outcome} retries are exhausted`,
+          owner,
+          title: `${t(from)} → ${t(tr.else)} when ${name} retries are exhausted`,
         });
       }
-      const u = tr.requirements?.on_unmet;
+      const u = tr.on_unmet ?? tr.requirements?.on_unmet;
       if (u && u.goto !== from && has(def, u.goto)) {
         extra.push({
-          id: `${from}/${outcome}/unmet`,
+          id: `${from}/${name}/unmet`,
           kind: 'unmet',
           from,
           to: u.goto,
-          label: `unmet ×${u.retries}`,
+          label: `${name} not met ×${u.retries}`,
           dashed: true,
-          title: `Requirements for ${t(from)} → ${t(to)} not met: back to ${t(u.goto)}`,
+          owner,
+          title: `Requirements for ${name} (${t(from)} → ${t(to)}) not met: back to ${t(u.goto)}`,
         });
       }
     }
   }
   for (const [key, m] of merged) {
     const [from, to] = key.split('\u0000') as [string, string];
+    const badge = [m.gated ? '✓' : '', m.names.length > 1 ? `×${m.names.length}` : '']
+      .filter(Boolean)
+      .join(' ');
     edges.push({
-      id: `${from}/${to}`,
+      id: arrowId(from, to),
       kind: 'outcome',
       from,
       to,
-      label: m.outcomes.join(' · '),
+      label: arrowLabel(m.names),
       dashed: false,
-      ...(m.gate > 0 ? { gate: m.gate } : {}),
-      title: `${t(from)} → ${t(to)} on ${m.outcomes.join(' or ')}`,
+      transitions: m.names,
+      ...(m.gated ? { gated: true } : {}),
+      ...(badge !== '' ? { badge } : {}),
+      title: `${t(from)} → ${t(to)}: ${plural(m.names.length, 'transition')} (${m.names.join(', ')})`,
     });
   }
   edges.push(...extra);
@@ -299,105 +328,6 @@ export function setAgentWork(
   });
 }
 
-/** The draft shape of `entry` while editing: lists may be empty; normalizeEntry tidies it. */
-export interface EntryDraft {
-  checks: EntryCheck[];
-  /** undefined = auto-detect, '' = none, else the command. */
-  setup?: string;
-  reviewItems: string[];
-  reviewModel?: string;
-  openPr: boolean;
-  on_unmet: OnUnmet;
-}
-
-export function entryDraft(def: WorkflowDefinition, name: string): EntryDraft {
-  const e = def.states[name]?.entry;
-  return {
-    checks: e?.checks ?? [],
-    ...(readSetup(e) !== undefined ? { setup: readSetup(e)! } : {}),
-    reviewItems: e?.review?.items ?? [],
-    ...(e?.review?.model !== undefined ? { reviewModel: e.review.model } : {}),
-    openPr: e?.actions?.includes('open_pr') ?? false,
-    on_unmet: e?.on_unmet ?? defaultUnmet(def, name),
-  };
-}
-
-/**
- * The `entry` a draft stands for: empty lists are dropped, and with no check, review item or
- * action left there is no `entry` at all (null).
- */
-export function normalizeEntry(d: EntryDraft): EntryRequirements | null {
-  if (d.checks.length === 0 && d.reviewItems.length === 0 && !d.openPr) return null;
-  const entry: EntryRequirements = {
-    ...(d.checks.length > 0 ? { checks: d.checks } : {}),
-    ...(d.reviewItems.length > 0
-      ? {
-          review: {
-            items: d.reviewItems,
-            ...(d.reviewModel !== undefined && d.reviewModel.trim() !== ''
-              ? { model: d.reviewModel }
-              : {}),
-          },
-        }
-      : {}),
-    ...(d.openPr ? { actions: ['open_pr' as const] } : {}),
-    on_unmet: d.on_unmet,
-  };
-  // Setup only runs before checks: without checks it is dropped (rule 9).
-  return d.checks.length > 0 && d.setup !== undefined ? withSetup(entry, d.setup) : entry;
-}
-
-/**
- * `entry` with `setup`. Built by spreading, so it compiles whether or not the shared contract
- * has the field yet.
- */
-function withSetup(entry: EntryRequirements, setup: string): EntryRequirements {
-  const out = { ...entry, setup };
-  return out;
-}
-
-/** Set (or with null remove) a state's requirements to enter. */
-export function setEntry(
-  def: WorkflowDefinition,
-  name: string,
-  entry: EntryRequirements | null,
-): WorkflowDefinition {
-  return updateState(def, name, (s) => {
-    const next = { ...s };
-    delete next.entry;
-    return entry === null ? next : { ...next, entry };
-  });
-}
-
-/**
- * A sensible new "when not met": back to the first agent column that moves into this one (else
- * the start), up to 2 times, then `needs_input` (else the first human column).
- */
-export function defaultUnmet(def: WorkflowDefinition, name: string): OnUnmet {
-  // A valid "back to" is never the column itself, nor a column with its own entry (rule 9).
-  const candidates = columnStates(def).filter(
-    (n) => n !== name && def.states[n]?.entry === undefined,
-  );
-  const agents = candidates.filter((n) => def.states[n]?.type === 'agent');
-  const source =
-    agents.find((n) => {
-      const st = def.states[n];
-      if (!st || st.type === 'terminal') return false;
-      return Object.values(st.on ?? {}).some(
-        (tr) => (typeof tr === 'string' ? tr : tr.goto) === name,
-      );
-    }) ??
-    (candidates.includes(def.start) ? def.start : undefined) ??
-    agents[0] ??
-    candidates[0];
-  const humans = humanStates(def);
-  return {
-    goto: source ?? def.start,
-    retries: 2,
-    else: humans.includes('needs_input') ? 'needs_input' : (humans[0] ?? 'needs_input'),
-  };
-}
-
 // ------------------------------------------------------------------ validation
 
 export interface ColumnIssue {
@@ -406,6 +336,19 @@ export interface ColumnIssue {
   /** Dotted path into the definition, like the server's `details[].path`. */
   path: string;
   message: string;
+  /** The transition (`states.<from>.on.<name>…`) the problem belongs to, if any (ADR-0011). */
+  transition?: { from: string; name: string };
+}
+
+/** Attach the transition a path points into (`transitionForPath`), if any. */
+export function issueAt(def: WorkflowDefinition, path: string, message: string): ColumnIssue {
+  const t = transitionForPath(def, path);
+  return {
+    state: stateForPath(def, path),
+    path,
+    message,
+    ...(t !== null ? { transition: { from: t.from, name: t.outcome } } : {}),
+  };
 }
 
 /** ADR-0010's entry rules (and ADR-0009's for old gates), checked before Save. */
@@ -526,8 +469,22 @@ export function validateColumns(def: WorkflowDefinition): ColumnIssue[] {
       add('.entry.on_unmet.instruction', 'the instruction is empty');
     }
   }
-  for (const g of validateGates(def))
-    issues.push({ state: g.from, path: g.path, message: g.message });
+  for (const g of validateGates(def)) {
+    issues.push({
+      state: g.from,
+      path: g.path,
+      message: g.message,
+      transition: { from: g.from, name: g.outcome },
+    });
+  }
+  for (const t of validateTransitions(def)) {
+    issues.push({
+      state: t.from,
+      path: t.path,
+      message: t.message,
+      ...(t.name !== '' ? { transition: { from: t.from, name: t.name } } : {}),
+    });
+  }
   return issues;
 }
 

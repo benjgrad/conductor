@@ -97,7 +97,7 @@ function laneLines(lane: Lane, def: WorkflowDefinition, w: number, compact: bool
 }
 
 function labelWidth(e: LaneEdge) {
-  const badge = e.gate !== undefined ? `✓ ${e.gate}` : '';
+  const badge = e.badge ?? '';
   return Math.ceil(textWidth(e.label + (badge ? `  ${badge}` : ''), LABEL_PX) + 10);
 }
 
@@ -186,7 +186,7 @@ export function layoutLanes(
     const b = lanes[idx(e.to)];
     if (!a || !b || a === b) continue;
     const lw = labelWidth(e);
-    const badge = e.gate !== undefined ? `✓ ${e.gate}` : undefined;
+    const badge = e.badge;
     if (across(e)) {
       const y = top + 26;
       const x1 = a.x + a.w;

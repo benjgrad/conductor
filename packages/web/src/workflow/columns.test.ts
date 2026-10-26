@@ -1,4 +1,5 @@
 import {
+  CONDUCTOR_V2_DRAFT_DEF,
   validateWorkflow,
   type EntryRequirements,
   type WorkflowDefinition,
@@ -6,18 +7,16 @@ import {
 import { describe, expect, it } from 'vitest';
 import { CONDUCTOR, CONDUCTOR_V1, M1_BASIC } from '../api/mock-data.js';
 import {
+  arrowLabel,
   buildLaneGraph,
   currentLane,
-  defaultUnmet,
-  entryDraft,
   entryLines,
   entrySummary,
+  issueAt,
   laneIds,
-  normalizeEntry,
   QUEUED_LANE,
   readSetup,
   readChecking,
-  setEntry,
   setupLabel,
   stateForPath,
   validateColumns,
@@ -26,6 +25,17 @@ import {
 import { layoutLanes } from './columns-layout.js';
 
 const entryOf = (def: WorkflowDefinition, s: string) => def.states[s]!.entry!;
+
+/** Set (or with null remove) a state's old requirements to enter (ADR-0010 fixtures). */
+function setEntry(
+  def: WorkflowDefinition,
+  name: string,
+  entry: EntryRequirements | null,
+): WorkflowDefinition {
+  const s = { ...def.states[name]! };
+  delete s.entry;
+  return { ...def, states: { ...def.states, [name]: entry === null ? s : { ...s, entry } } };
+}
 
 describe('lanes', () => {
   it('are Queued first, then the columns in order', () => {
@@ -108,84 +118,77 @@ describe('requirements summary', () => {
       'Not met: back to Implementing ×3, then Needs input',
     ]);
   });
-});
 
-describe('entry setup (read defensively)', () => {
-  const base = entryOf(CONDUCTOR_V1, 'waiting_external');
-  const withSetup = (setup: string, e: EntryRequirements = base) =>
-    ({ ...e, setup }) as EntryRequirements;
-
-  it('maps auto / none / custom and only keeps setup with checks', () => {
-    const d = entryDraft(CONDUCTOR_V1, 'waiting_external');
-    expect(d.setup).toBeUndefined();
-    expect(readSetup(normalizeEntry(d)!)).toBeUndefined();
-    expect(readSetup(normalizeEntry({ ...d, setup: '' })!)).toBe('');
-    expect(readSetup(normalizeEntry({ ...d, setup: 'pnpm i' })!)).toBe('pnpm i');
-    const noChecks = normalizeEntry({ ...d, setup: 'pnpm i', checks: [] })!;
-    expect('setup' in noChecks).toBe(false);
-    const def = setEntry(CONDUCTOR_V1, 'waiting_external', withSetup('npm ci'));
-    expect(entryDraft(def, 'waiting_external').setup).toBe('npm ci');
-  });
-
-  it('shows in the summary', () => {
+  it('shows the setup line (read defensively)', () => {
+    const base = entryOf(CONDUCTOR_V1, 'waiting_external');
+    const withSetup = (setup: string) => ({ ...base, setup }) as EntryRequirements;
+    expect(readSetup(base)).toBeUndefined();
     expect(entryLines(CONDUCTOR_V1, base)[0]).toBe('⚙ auto setup');
     expect(entryLines(CONDUCTOR_V1, withSetup('npm ci'))[0]).toBe('⚙ setup: npm ci');
     expect(entryLines(CONDUCTOR_V1, withSetup(''))[0]).toBe('⚙ no setup');
     expect(setupLabel({ actions: ['open_pr'], on_unmet: base.on_unmet })).toBeNull();
   });
-
-  it('is rejected on an entry without checks (rule 9)', () => {
-    const e = withSetup('npm ci', { actions: ['open_pr'], on_unmet: base.on_unmet });
-    const def = setEntry(CONDUCTOR_V1, 'waiting_external', e);
-    expect(validateColumns(def)).toEqual([
-      {
-        state: 'waiting_external',
-        path: 'states.waiting_external.entry.setup',
-        message: 'setup runs before the checks: add a check, or remove the setup',
-      },
-    ]);
-    expect(
-      validateColumns(setEntry(CONDUCTOR_V1, 'waiting_external', withSetup('npm ci'))),
-    ).toEqual([]);
-  });
 });
 
-describe('editing entry', () => {
-  it('a new entry never goes back to itself or to a column with its own entry', () => {
-    // Done: no agent moves in, so the start; Waiting external (entry) is never chosen.
-    expect(entryDraft(CONDUCTOR, 'done').on_unmet.goto).toBe('planning');
-    // The agent moving in has an entry of its own: skipped.
-    const def = setEntry(CONDUCTOR, 'implementing', {
-      actions: ['open_pr'],
-      on_unmet: { goto: 'planning', retries: 1, else: 'needs_input' },
+describe('arrows (ADR-0011)', () => {
+  const graph = buildLaneGraph(CONDUCTOR_V2_DRAFT_DEF);
+  const byId = Object.fromEntries(graph.edges.map((e) => [e.id, e]));
+
+  it('merge the transitions between two columns into one arrow with a count badge', () => {
+    expect(byId['planning/needs_input']).toMatchObject({
+      kind: 'outcome',
+      transitions: [
+        'scope_changed',
+        'plan_needs_approval',
+        'needs_product_context',
+        'impossible',
+        'ask_user',
+        'timeout',
+      ],
+      label: 'scope_changed …',
+      badge: '×6',
     });
-    const other = { ...def, start: 'needs_input' };
-    expect(defaultUnmet(other, 'waiting_external').goto).toBe('needs_input');
-    expect(defaultUnmet(def, 'waiting_external').goto).toBe('planning');
+    expect(byId['planning/implementing']).toMatchObject({
+      label: 'plan_ready',
+      transitions: ['plan_ready'],
+    });
+    expect(byId['planning/implementing']?.badge).toBeUndefined();
   });
 
-  it('a new entry goes back to the agent that moves in, then needs_input', () => {
-    expect(entryDraft(CONDUCTOR_V1, 'implementing').on_unmet).toEqual({
-      goto: 'planning',
-      retries: 2,
-      else: 'needs_input',
+  it('mark arrows with requirements, and skip targets that are not columns', () => {
+    expect(byId['implementing/waiting_external']).toMatchObject({
+      label: 'ready_for_testing',
+      gated: true,
+      badge: '✓',
+    });
+    expect(byId['implementing/needs_input']).toMatchObject({ gated: true, badge: '✓ ×4' });
+    // `answer` goes to `$return_to`: no arrow (the column panel lists it).
+    expect(graph.edges.some((e) => e.transitions?.includes('answer'))).toBe(false);
+    // on_unmet back to Implementing from Implementing itself is not drawn either.
+    expect(graph.edges.filter((e) => e.kind === 'unmet')).toEqual([]);
+  });
+
+  it('draw a transition’s own unmet loop, owned by the transition', () => {
+    const def = structuredClone(CONDUCTOR_V2_DRAFT_DEF);
+    const impl = def.states.implementing;
+    if (impl?.type !== 'agent' || typeof impl.on?.ready_for_testing !== 'object') {
+      throw new Error('fixture');
+    }
+    impl.on.ready_for_testing.on_unmet!.goto = 'planning';
+    const e = buildLaneGraph(def).edges.find(
+      (x) => x.id === 'implementing/ready_for_testing/unmet',
+    );
+    expect(e).toMatchObject({
+      kind: 'unmet',
+      to: 'planning',
+      dashed: true,
+      owner: { from: 'implementing', name: 'ready_for_testing' },
     });
   });
 
-  it('drops empty lists, and the whole entry when nothing is left', () => {
-    const d = entryDraft(CONDUCTOR_V1, 'waiting_external');
-    expect(normalizeEntry({ ...d, checks: [] })).toEqual({
-      actions: ['open_pr'],
-      on_unmet: d.on_unmet,
-    });
-    expect(normalizeEntry({ ...d, reviewItems: ['x'], reviewModel: ' ' })?.review).toEqual({
-      items: ['x'],
-    });
-    expect(normalizeEntry({ ...d, checks: [], openPr: false })).toBeNull();
-    const cleared = setEntry(CONDUCTOR_V1, 'waiting_external', null);
-    expect('entry' in cleared.states.waiting_external!).toBe(false);
-    // The input is not modified.
-    expect(CONDUCTOR_V1.states.waiting_external!.entry).toBeDefined();
+  it('label several names when they fit', () => {
+    expect(arrowLabel(['ask_user', 'timeout'])).toBe('ask_user · timeout');
+    expect(arrowLabel(['a_long_transition_name', 'another_one'])).toBe('a_long_transition_name …');
   });
 });
 
@@ -309,6 +312,24 @@ describe('paths and sessions', () => {
     );
     expect(stateForPath(CONDUCTOR, 'columns.1')).toBe('implementing');
     expect(stateForPath(CONDUCTOR, 'start')).toBeNull();
+  });
+
+  it('maps server paths to the transition they point into (ADR-0011)', () => {
+    const def = CONDUCTOR_V2_DRAFT_DEF;
+    expect(
+      issueAt(def, 'states.implementing.on.ready_for_testing.requires.conditions.1', 'x'),
+    ).toEqual({
+      state: 'implementing',
+      path: 'states.implementing.on.ready_for_testing.requires.conditions.1',
+      message: 'x',
+      transition: { from: 'implementing', name: 'ready_for_testing' },
+    });
+    // Names with dots: the longest match wins.
+    expect(issueAt(def, 'states.waiting_external.on.ui.approve.goto', 'x').transition).toEqual({
+      from: 'waiting_external',
+      name: 'ui.approve',
+    });
+    expect(issueAt(def, 'states.planning.title', 'x').transition).toBeUndefined();
   });
 
   it('finds the current lane and reads `checking` defensively', () => {

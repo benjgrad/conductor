@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { arch, homedir, hostname, platform } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import {
+  EvaluateConditionsArgsSchema,
   NO_OUTCOME_OUTPUT_CHARS,
   parseOrchestratorMessage,
   resolveToolPolicy,
@@ -23,6 +24,7 @@ import { liveResources, type SysInfo } from './sysinfo.js';
 import { buildAppendSystemPrompt } from './system-prompt.js';
 import { inventoryDigest, Workspace } from './workspace.js';
 import { detectSetup, freshCheckout, removeCheckout, sweepPrivate } from './actions/checkout.js';
+import { evaluateConditions } from './actions/conditions.js';
 import { checkClean, openPr, resolveHead } from './actions/open-pr.js';
 import { ReconnectingWs } from './ws-client.js';
 
@@ -589,6 +591,8 @@ export class Daemon {
         ...(p.max_turns !== undefined ? { maxTurns: p.max_turns } : {}),
         // ADR-0009: a reviewer runs in dontAsk (the driver forces the mode).
         ...(p.review === true ? { review: true } : {}),
+        // ADR-0011: the names complete_state accepts (one corrective nudge for another).
+        ...(p.transitions !== undefined ? { transitions: p.transitions } : {}),
       });
       agent = {
         commandId: p.command_id,
@@ -652,7 +656,11 @@ export class Daemon {
         a.completed = true;
         this.emit(sid, a.fencingToken, {
           kind: 'complete_state',
-          data: { result: ev.result as JsonObject },
+          data: {
+            result: ev.result as JsonObject,
+            ...(ev.transition !== undefined ? { transition: ev.transition } : {}),
+            ...(ev.reason !== undefined ? { reason: ev.reason } : {}),
+          },
         });
         return;
       case 'spend':
@@ -965,6 +973,7 @@ export class Daemon {
    * `session_event action_result`. A kill aborts it like a command.
    */
   private runAction(msg: RunAction): void {
+    if (msg.payload.action === 'evaluate_conditions') return this.evaluateConditions(msg);
     const sid = msg.session_id;
     const token = msg.fencing_token;
     const p = msg.payload;
@@ -1017,6 +1026,53 @@ export class Daemon {
           },
         });
       })
+      .catch((e: unknown) => this.log(`run_action ${p.command_id}: ${String(e)}`));
+  }
+
+  /**
+   * ADR-0011 `evaluate_conditions`: read-only, needs no worktree, so it is accepted for a session
+   * this daemon doesn't hold (ADR-0016: any online machine of the account may evaluate). gh runs
+   * in the daemon root with the open_pr hardening. A kill aborts it like a command.
+   */
+  private evaluateConditions(msg: RunAction): void {
+    const sid = msg.session_id;
+    const token = msg.fencing_token;
+    const p = msg.payload;
+    const args = EvaluateConditionsArgsSchema.safeParse(p.args);
+    const hadLive = this.live.has(sid);
+    const live = this.liveSession(sid);
+    const abort = new AbortController();
+    live.cmds.set(p.command_id, { fencingToken: token, abort });
+    this.finish(msg, { accepted: true });
+    this.touch(sid);
+    const report = (result: JsonObject | null, error: string | null) => {
+      live.cmds.delete(p.command_id);
+      // Don't keep an empty entry for a session that only came here to be evaluated.
+      if (!hadLive && live.agent === null && live.starting === null && live.cmds.size === 0) {
+        if (this.live.get(sid) === live) this.live.delete(sid);
+      }
+      this.emit(sid, token, {
+        kind: 'action_result',
+        data: { command_id: p.command_id, action: p.action, result, error },
+      });
+    };
+    if (!args.success) {
+      report(null, `evaluate_conditions: invalid args: ${args.error.issues[0]?.message ?? ''}`);
+      return;
+    }
+    this.sendOutput(sid, token, 'debug', `conductor: evaluating conditions for ${p.target_state}`);
+    evaluateConditions({
+      conditions: args.data.conditions,
+      prUrl: args.data.pr_url,
+      headSha: args.data.head_sha,
+      root: this.config.rootDir,
+      ...(this.ghCommand ? { gh: this.ghCommand } : {}),
+      signal: abort.signal,
+    })
+      .then(
+        (r) => report(r as unknown as JsonObject, null),
+        (e: unknown) => report(null, `evaluate_conditions failed: ${errText(e)}`),
+      )
       .catch((e: unknown) => this.log(`run_action ${p.command_id}: ${String(e)}`));
   }
 

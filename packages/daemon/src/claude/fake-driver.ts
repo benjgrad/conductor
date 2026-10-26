@@ -1,4 +1,5 @@
 import type { ClaudeDriver, DriverEvent, DriverSession, DriverStartOptions } from './driver.js';
+import { refuseTransition } from './outcome-server.js';
 
 // In-memory, scripted ClaudeDriver for unit tests of daemon logic above the driver (ADR-0005
 // §Fake Claude). The process-boundary fake for E2E (CONDUCTOR_CLAUDE_BIN) is M1-T10.
@@ -12,7 +13,11 @@ import type { ClaudeDriver, DriverEvent, DriverSession, DriverStartOptions } fro
 export type FakeTurnAction =
   | { say: string }
   | { askUser: string }
-  | { completeState: Record<string, unknown> }
+  /**
+   * ADR-0011: `transition` / `reason` as the agent names them. With `opts.transitions`, the first
+   * unknown name is refused like the outcome server does (a debug line, not emitted).
+   */
+  | { completeState: Record<string, unknown>; transition?: string; reason?: string }
   /** Emit an arbitrary DriverEvent (e.g. tool_use output). */
   | { emit: DriverEvent }
   /** The process dies mid-turn: emits `exit` and nothing after it. */
@@ -84,6 +89,7 @@ export class FakeDriverSession implements DriverSession {
   private initSent = false;
   private askPending = false;
   private completed = false;
+  private nudged = false;
 
   constructor(
     readonly opts: DriverStartOptions,
@@ -194,9 +200,21 @@ export class FakeDriverSession implements DriverSession {
       // ADR-0005 outcome-server guard: a second complete_state, or one while a question is
       // pending, gets a corrective tool result and is not emitted.
       this.emit({ kind: 'output', stream: 'debug', text: 'complete_state refused' });
+    } else if (refuseTransition(this.opts.transitions, a.transition, this.nudged)) {
+      this.nudged = true;
+      this.emit({
+        kind: 'output',
+        stream: 'debug',
+        text: `complete_state refused: unknown transition ${a.transition ?? '(none)'}`,
+      });
     } else {
       this.completed = true;
-      this.emit({ kind: 'complete_state', result: a.completeState });
+      this.emit({
+        kind: 'complete_state',
+        result: a.completeState,
+        ...(a.transition !== undefined ? { transition: a.transition } : {}),
+        ...(a.reason !== undefined ? { reason: a.reason } : {}),
+      });
     }
   }
 }

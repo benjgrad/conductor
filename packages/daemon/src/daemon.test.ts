@@ -1191,3 +1191,132 @@ describe('daemon core: run_action (ADR-0010 open_pr)', () => {
     expect((await orch.until(() => orch.ack(id)[0])).payload.reason).toBe('unknown_session');
   });
 });
+
+describe('daemon core: ADR-0011 transitions', () => {
+  const TRANSITIONS = [
+    { name: 'plan_ready', when: 'The plan is complete.', question: false },
+    { name: 'scope_changed', when: null, question: true },
+  ];
+
+  it('passes start_session.transitions to the driver and forwards transition + reason', async () => {
+    const driver = new FakeClaudeDriver({
+      turns: [
+        [
+          { completeState: {}, transition: 'nope' }, // refused once (the outcome-server nudge)
+          { completeState: { plan: 'p' }, transition: 'plan_ready', reason: 'All files named.' },
+        ],
+      ],
+    });
+    makeDaemon(driver);
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    orch.send(startSession(sid, { transitions: TRANSITIONS }));
+    const done = await orch.until(() => orch.eventData('complete_state')[0]);
+    expect(driver.starts[0]!.transitions).toEqual(TRANSITIONS);
+    expect(done).toEqual({
+      result: { plan: 'p' },
+      transition: 'plan_ready',
+      reason: 'All files named.',
+    });
+    expect(orch.eventData('complete_state')).toHaveLength(1);
+  });
+
+  it('an old start_session (no transitions) forwards complete_state without the fields', async () => {
+    const driver = new FakeClaudeDriver(complete({ ok: true }));
+    makeDaemon(driver);
+    await orch.until(() => orch.ofType('request_work')[0]);
+    orch.send(startSession(randomUUID()));
+    expect(await orch.until(() => orch.eventData('complete_state')[0])).toEqual({
+      result: { ok: true },
+    });
+    expect(driver.starts[0]!.transitions).toBeUndefined();
+  });
+});
+
+describe('daemon core: run_action evaluate_conditions (ADR-0011)', () => {
+  /** A fake gh whose `pr view` reports green checks and one approval. */
+  const FAKE_GH_VIEW = {
+    cmd: '/bin/sh',
+    args: [
+      '-c',
+      [
+        'if [ "$1 $2" != "pr view" ]; then exit 9; fi',
+        'echo \'{"state":"OPEN","mergedAt":null,"reviewDecision":"APPROVED","headRefOid":"' +
+          'a'.repeat(40) +
+          '",' +
+          '"statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS"}],' +
+          '"reviews":[{"author":{"login":"amy"},"authorAssociation":"MEMBER","state":"APPROVED","commit":{"oid":"' +
+          'a'.repeat(40) +
+          '"}}]}\'',
+      ].join('\n'),
+      'gh',
+    ],
+  };
+
+  const evaluate = (sid: string, args: Record<string, unknown>) =>
+    cmd(
+      'run_action',
+      sid,
+      {
+        command_id: randomUUID(),
+        workflow_state: 'implementing → waiting_external (ready_for_testing)',
+        target_state: 'waiting_external',
+        action: 'evaluate_conditions',
+        idempotency_key: `${sid}:conditions:1`,
+        args: args as never,
+        branch: 'ignored',
+        expected_sha: null,
+      },
+      4,
+    );
+
+  it('acks accepted and reports one action_result with a result per condition', async () => {
+    makeDaemon(new FakeClaudeDriver(complete({})), { ghCommand: FAKE_GH_VIEW });
+    await orch.until(() => orch.ofType('request_work')[0]);
+    // Read-only and worktree-free: no session on this daemon is needed (ADR-0016).
+    const sid = randomUUID();
+    const action = evaluate(sid, {
+      conditions: [
+        { type: 'pr_checks_green' },
+        { type: 'pr_approvals', min: 2 },
+        { type: 'jira_fields_set', fields: ['status'], enabled: false },
+      ],
+      pr_url: 'https://github.com/benjgrad/fixture-app/pull/9',
+      branch: 'b',
+    });
+    orch.send(action);
+    const id = (action.payload as { command_id: string }).command_id;
+    expect((await orch.until(() => orch.ack(id)[0])).payload.accepted).toBe(true);
+    const res = await orch.until(() => orch.eventData('action_result')[0], 15_000);
+    expect(res).toEqual({
+      command_id: id,
+      action: 'evaluate_conditions',
+      result: {
+        results: [
+          { type: 'pr_checks_green', status: 'met', value: '1/1 passed', detail: null },
+          { type: 'pr_approvals', status: 'pending', value: '1/2', detail: 'approved by amy' },
+          {
+            type: 'jira_fields_set',
+            status: 'unsupported',
+            value: null,
+            detail: "jira_fields_set can't be evaluated on this machine yet",
+          },
+        ],
+      },
+      error: null,
+    });
+    expect(orch.eventData('action_result')).toHaveLength(1);
+  });
+
+  it('invalid args → accepted, then an action_result error', async () => {
+    makeDaemon(new FakeClaudeDriver(complete({})), { ghCommand: FAKE_GH_VIEW });
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const action = evaluate(randomUUID(), { conditions: [], pr_url: null, branch: 'b' });
+    orch.send(action);
+    const id = (action.payload as { command_id: string }).command_id;
+    expect((await orch.until(() => orch.ack(id)[0])).payload.accepted).toBe(true);
+    const res = await orch.until(() => orch.eventData('action_result')[0]);
+    expect(res.result).toBeNull();
+    expect(res.error).toContain('evaluate_conditions: invalid args');
+  });
+});

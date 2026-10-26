@@ -421,6 +421,7 @@ export const M1B_WS_FIXTURES: {
         conditions: [{ type: 'pr_checks_green' }, { type: 'pr_approvals', min: 1 }],
         pr_url: M1B_PR_URL,
         branch: M1B_BRANCH,
+        head_sha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
       },
       branch: M1B_BRANCH,
       expected_sha: null,

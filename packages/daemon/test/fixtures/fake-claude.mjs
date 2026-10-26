@@ -24,7 +24,11 @@
 //   {"say": text}                       assistant text
 //   {"ask_user": question}              MCP tools/call ask_user
 //   {"complete_state": object}          MCP tools/call complete_state; "$answer" in any string
-//                                       is replaced by the text of the user message of this turn
+//                                       is replaced by the text of the user message of this turn.
+//                                       ADR-0011: optional siblings "transition" and "reason"
+//                                       are passed to the tool as given ("$answer" substituted),
+//                                       e.g. {"complete_state": {}, "transition": "plan_ready",
+//                                       "reason": "The plan is complete."}
 //   {"tool": name, "args": object}      any other MCP tools/call on the conductor server
 //   {"cost": usd}                       extra cost added to this turn
 //   {"denials": n}                      n entries in result.permission_denials
@@ -352,7 +356,11 @@ async function runTurn(text) {
     if (a.await_message) lastMessage = await new Promise((r) => (messageWaiter = r));
     if (a.ask_user !== undefined) await callTool('ask_user', { question: subst(a.ask_user, text) });
     if (a.complete_state !== undefined)
-      await callTool('complete_state', { result: subst(a.complete_state, text) });
+      await callTool('complete_state', {
+        result: subst(a.complete_state, text),
+        ...(a.transition !== undefined ? { transition: subst(a.transition, text) } : {}),
+        ...(a.reason !== undefined ? { reason: subst(a.reason, text) } : {}),
+      });
     if (a.tool !== undefined) await callTool(a.tool, subst(a.args ?? {}, text));
     if (a.cost !== undefined) turnCost += a.cost;
     if (a.denials !== undefined) denials += a.denials;

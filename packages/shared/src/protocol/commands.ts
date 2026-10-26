@@ -123,6 +123,7 @@ export function commandPayloadForEffect(
           idempotency_key: effect.idempotency_key,
           args: effect.args,
           branch: ctx.branch,
+          expected_sha: effect.expected_sha,
         },
       };
     case 'kill':
@@ -132,7 +133,11 @@ export function commandPayloadForEffect(
       return {
         kind: 'kill',
         target,
-        payload: { command_id, target_command_id: null, reason: effect.reason },
+        payload: {
+          command_id,
+          target_command_id: effect.target_command_id ?? null,
+          reason: effect.reason,
+        },
       };
   }
 }

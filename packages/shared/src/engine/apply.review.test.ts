@@ -88,7 +88,9 @@ describe('gated outcome → review step', () => {
     });
     expect(r.snapshot.step?.subject).toContain('added /health');
     expect(r.snapshot.retry_counters).toEqual({}); // a gate-only object has no goto counter
-    expect(types(r.effects)).toEqual(['state_entered', 'start_session', 'set_deadline']);
+    // The worker's own process is killed first (ADR-0010 security review: it must stop writing).
+    expect(types(r.effects)).toEqual(['kill', 'state_entered', 'start_session', 'set_deadline']);
+    expect(find(r.effects, 'kill')).toMatchObject({ target_command_id: h.starts[0] });
     expect(find(r.effects, 'state_entered')).toEqual({
       type: 'state_entered',
       from: 'implement',

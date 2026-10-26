@@ -26,6 +26,13 @@ export const REVIEW_CONTEXT_KEY = '__review';
  */
 export const STEP_CONTEXT_KEY = '__entry';
 
+/**
+ * ADR-0010: `session.context` key of the PR conductor opened (`{pr_url, state}`), written by the
+ * engine from open_pr's `action.completed` only. Agents' results live under their state's name, and
+ * no state may be named this (validator rule 8), so an agent can't produce it.
+ */
+export const PR_CONTEXT_KEY = '__pr';
+
 /** How long a conductor action (open_pr) may take before the entry step goes to `else`. */
 export const ENTRY_ACTION_TIMEOUT = '10m';
 
@@ -65,6 +72,8 @@ export interface ReviewPromptInput {
   subject: string;
   /** ADR-0010: the title of the column being entered (an entry step's review). */
   entering?: string;
+  /** ADR-0010: the commit the entry checks ran on (what will be pushed). */
+  commit?: string | null;
 }
 
 export function renderReviewPrompt(i: ReviewPromptInput): string {
@@ -86,6 +95,11 @@ export function renderReviewPrompt(i: ReviewPromptInput): string {
       `Repository: ${t.repo}`,
     ].join('\n'),
     `## What \`${i.from}\` reported\n\n${fenced(i.subject)}`,
+    ...(i.commit
+      ? [
+          `## The commit under review\n\nThe checks ran on commit \`${i.commit}\`, the commit conductor will push. Judge that commit (\`git show --stat\`, \`git log -p -n 5\`); uncommitted changes in the worktree are not part of it.`,
+        ]
+      : []),
     ['## Requirements to check', '', ...i.items.map((item, n) => `${n + 1}. ${item}`)].join('\n'),
     [
       '## How to check',

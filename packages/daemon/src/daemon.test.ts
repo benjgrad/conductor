@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   NO_OUTCOME_OUTPUT_CHARS,
   resolveToolPolicy,
@@ -65,6 +65,7 @@ function makeDaemon(
     env?: Record<string, string>;
     root?: string;
     config?: Partial<DaemonConfig>;
+    ghCommand?: { cmd: string; args: readonly string[] };
   } = {},
 ): Daemon {
   const config = loadConfig({
@@ -89,6 +90,7 @@ function makeDaemon(
     sysinfo: () => resources,
     claudeCodeVersion: '2.1.308',
     log: () => {},
+    ...(opts.ghCommand ? { ghCommand: opts.ghCommand } : {}),
   });
   daemons.push(d);
   d.start();
@@ -138,6 +140,20 @@ function cmd<T extends 'send_input' | 'send_message' | 'run_cmd' | 'run_action' 
     payload,
   } as OrchestratorToDaemon;
 }
+
+/** ADR-0010 open_pr's fake gh: `repo view` → main, `pr view` → none, `pr create` → a PR URL. */
+const FAKE_GH_SH = {
+  cmd: '/bin/sh',
+  args: [
+    '-c',
+    [
+      'if [ "$1" = repo ]; then echo main; exit 0; fi',
+      'if [ "$2" = view ]; then exit 1; fi',
+      'echo https://github.com/benjgrad/fixture-app/pull/9',
+    ].join('\n'),
+    'gh',
+  ],
+};
 
 const complete = (result: Record<string, unknown>): FakeClaudeScript => ({
   turns: [[{ say: 'working' }, { completeState: result }]],
@@ -751,6 +767,8 @@ describe('daemon core: run_cmd and kill', () => {
       timed_out: false,
       duration_ms: 0,
       output_tail: 'FAIL\n',
+      // ADR-0010: the worktree HEAD the command ran on.
+      head_sha: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(),
     });
     const wt = orch.eventData('started')[0]!.worktree_path;
     expect(runner.calls[0]).toMatchObject({ cwd: wt, sessionId: sid, timeoutMs: 1000 });
@@ -918,22 +936,10 @@ describe('daemon core: misc', () => {
 
 describe('daemon core: run_action (ADR-0010 open_pr)', () => {
   it('acks, pushes the session branch to origin, opens the PR with gh, reports action_result', async () => {
-    // A fake `gh` first on PATH (no network): `pr view` finds nothing, `pr create` prints a URL.
-    const bin = join(tmp, 'bin');
-    execFileSync('mkdir', ['-p', bin]);
-    writeFileSync(
-      join(bin, 'gh'),
-      [
-        '#!/bin/sh',
-        'if [ "$1" = "repo" ]; then echo main; exit 0; fi',
-        'if [ "$2" = "view" ]; then exit 1; fi',
-        'echo "https://github.com/benjgrad/fixture-app/pull/9"',
-      ].join('\n'),
-    );
-    execFileSync('chmod', ['+x', join(bin, 'gh')]);
-    vi.stubEnv('PATH', `${bin}:${process.env.PATH ?? ''}`);
-    try {
-      makeDaemon(new FakeClaudeDriver(complete({})));
+    {
+      // A fake gh (no network): `/bin/sh -c <script> gh <args>`. (Spawning a node script per
+      // gh call stalls for seconds under load on this macOS; /bin/sh doesn't.)
+      makeDaemon(new FakeClaudeDriver(complete({})), { ghCommand: FAKE_GH_SH });
       await orch.until(() => orch.ofType('request_work')[0]);
       const sid = randomUUID();
       orch.send(startSession(sid, {}, 4));
@@ -949,6 +955,11 @@ describe('daemon core: run_action (ADR-0010 open_pr)', () => {
           idempotency_key: `${sid}:waiting_external:1`,
           args: { title: 'Add /health', body: 'Opened by conductor.' },
           branch: 'ignored/the-daemon-uses-its-own-record',
+          // The worktree was branched from the fixture's HEAD and has no new commits.
+          expected_sha: execFileSync('git', ['rev-parse', 'HEAD'], {
+            cwd: repo,
+            encoding: 'utf8',
+          }).trim(),
         },
         4,
       );
@@ -971,8 +982,6 @@ describe('daemon core: run_action (ADR-0010 open_pr)', () => {
           stdio: 'pipe',
         }),
       ).not.toThrow();
-    } finally {
-      vi.unstubAllEnvs();
     }
   }, 30_000);
 
@@ -987,6 +996,7 @@ describe('daemon core: run_action (ADR-0010 open_pr)', () => {
       idempotency_key: 'k',
       args: {},
       branch: 'b',
+      expected_sha: null,
     });
     orch.send(action);
     const id = (action.payload as { command_id: string }).command_id;

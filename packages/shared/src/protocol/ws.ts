@@ -191,6 +191,8 @@ export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
       duration_ms: z.number().int().nonnegative(),
       /** Last OUTPUT_TAIL_BYTES of stdout+stderr. */
       output_tail: z.string(),
+      /** ADR-0010: the worktree `HEAD` when the command started (null = could not resolve). */
+      head_sha: z.string().nullable().optional(),
     }),
   }),
   z.object({
@@ -391,6 +393,11 @@ export const RunActionPayloadSchema = z.object({
   args: JsonObjectSchema,
   /** The session branch to push (`session.branch`). */
   branch: z.string(),
+  /**
+   * The commit the entry checks ran on: open_pr fetches the branch, refuses unless its tip equals
+   * this, and pushes exactly this sha. null only for an entry without checks.
+   */
+  expected_sha: z.string().nullable(),
 });
 export const RunActionMessageSchema = msg('run_action', RunActionPayloadSchema, orchSessionEnv);
 

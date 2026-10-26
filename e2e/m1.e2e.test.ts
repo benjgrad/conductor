@@ -611,7 +611,7 @@ describe.skipIf(REAL)('fake Claude', () => {
     expect(detail.retry_counters).toEqual({ 'entry:waiting_external': 1 });
     expect(detail.context).toMatchObject({
       planning: { plan: '1. add src/health.txt' },
-      waiting_external: { pr_url: FAKE_GH_URL },
+      __pr: { pr_url: FAKE_GH_URL, state: 'waiting_external' },
     });
     // The failed check's output went back to the worker (its retry prompt).
     const prompt = detail.context.implementing?.retry_prompt;

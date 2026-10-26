@@ -67,6 +67,11 @@ export const GateStepSchema = z.object({
   phase: z.enum(['checks', 'review', 'actions']).default('review'),
   /** ADR-0010: index of the check (phase `checks`) or action (phase `actions`) running now. */
   index: z.number().int().nonnegative().default(0),
+  /**
+   * ADR-0010: the worktree `HEAD` the checks ran on (reported with the first check's exit). The
+   * review is told this commit and open_pr pushes exactly it. null before the first check.
+   */
+  head_sha: z.string().nullable().default(null),
 });
 export type GateStep = z.infer<typeof GateStepSchema>;
 /** ADR-0009 name of GateStepSchema. */
@@ -234,6 +239,8 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
     exit_code: z.number().int().nullable(),
     timed_out: z.boolean(),
     output_tail: z.string(),
+    /** ADR-0010: the worktree `HEAD` when the command started (null/absent = unknown). */
+    head_sha: z.string().nullable().optional(),
   }),
   /**
    * D `spend`: cumulative per claude_session_id (ADR-0005). apply adds only
@@ -350,7 +357,12 @@ export const EffectSchema = z.discriminatedUnion('type', [
    * outbox `kill` → WS kill with `target_command_id: null` (every process of the session at or
    * below the envelope fencing token, i.e. the row's token; 10-contracts §Effect → WS).
    */
-  z.object({ type: z.literal('kill'), reason: z.string() }),
+  z.object({
+    type: z.literal('kill'),
+    reason: z.string(),
+    /** ADR-0010: kill only this start_session's process (the worker, when a gate step starts). */
+    target_command_id: UuidSchema.optional(),
+  }),
   /**
    * outbox `run_action` → WS run_action (ADR-0010): conductor performs an entry action on the
    * session's machine (open_pr: push the branch, open or reuse the PR). `idempotency_key` =
@@ -366,6 +378,11 @@ export const EffectSchema = z.discriminatedUnion('type', [
     idempotency_key: z.string(),
     /** Action arguments, e.g. open_pr `{title, body}`. */
     args: JsonObjectSchema,
+    /**
+     * The commit the checks ran on (`step.head_sha`): open_pr pushes exactly it and refuses when
+     * the branch tip differs. null only for an entry without checks.
+     */
+    expected_sha: z.string().nullable(),
   }),
   /** outbox `connector_call` (target `connector:<name>`). No WS message; not in M1. */
   z.object({

@@ -2,6 +2,7 @@ import {
   boardSseEventFromRow,
   CONDUCTOR_V1,
   entryStateLabel,
+  PR_CONTEXT_KEY,
   REVIEW_CONTEXT_KEY,
   RunActionPayloadSchema,
   STEP_CONTEXT_KEY,
@@ -26,6 +27,7 @@ const db = useTestDatabase();
 const NOW = new Date('2026-10-23T12:00:00.000Z');
 const LABEL = entryStateLabel('implementing', 'waiting_external');
 const PR = 'https://github.com/benjgrad/fixture-app/pull/7';
+const HEAD = '3b18e512dba79e4c8300dd08aeb37f8e728b8dad';
 
 beforeAll(async () => {
   await seedConductorWorkflow(db.pool);
@@ -67,6 +69,7 @@ async function implementing() {
       exit_code: code,
       timed_out: false,
       output_tail: tail,
+      head_sha: HEAD,
     });
   await run({ type: 'session.assigned', machine_id: MACHINE });
   await started();
@@ -88,6 +91,7 @@ describe('the step in context (no migration)', () => {
     nudged: false,
     phase: 'checks',
     index: 0,
+    head_sha: null,
   };
 
   it('splitStep reads __entry and the legacy ADR-0009 __review; joinStep writes __entry only', () => {
@@ -160,6 +164,7 @@ describe('entry step through the EngineService', () => {
       action: 'open_pr',
       target_state: 'waiting_external',
       branch: s.branch,
+      expected_sha: HEAD, // the commit the checks ran on
       args: { title: 'Add /health' },
     });
     card = (await boardEvents(sessionId)).filter((e) => e.type === 'card.upserted').at(-1)!;
@@ -179,7 +184,7 @@ describe('entry step through the EngineService', () => {
     expect(res.status).toBe('applied');
     s = await session(sessionId);
     expect(s).toMatchObject({ workflow_state: 'waiting_external', status: 'waiting_external' });
-    expect(s.context).toMatchObject({ waiting_external: { pr_url: PR } });
+    expect(s.context).toMatchObject({ [PR_CONTEXT_KEY]: { pr_url: PR } });
     expect(s.context[STEP_CONTEXT_KEY]).toBeUndefined();
 
     const evs = await boardEvents(sessionId);

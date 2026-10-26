@@ -84,7 +84,7 @@ The output ring is in memory ([U-005](../tracking/UNKNOWNS.md)), so after an orc
 | in a gate step (entry requirements, or an ADR-0009 review) | its source column (`step.from`) | `checking`, plus `checking: {to, title, phase}` |
 | otherwise | its `workflow_state` | `waiting_for_build_slot` when set |
 
-A state that is not a column (an older `conductor` version, or an old `m1_*` workflow) maps by its type: terminal → Done, human → Needs input, event → Waiting external, agent / command / connector → Implementing. The status ("running", "assigned"…) is shown on the card, not as a column. The card also carries the PR conductor opened (`pr_url`, from `context.<state>.pr_url`).
+A state that is not a column (an older `conductor` version, or an old `m1_*` workflow) maps by its type: terminal → Done, human → Needs input, event → Waiting external, agent / command / connector → Implementing. The status ("running", "assigned"…) is shown on the card, not as a column. The card also carries the PR conductor opened (`pr_url`, only from `context.__pr`, which the engine writes from open_pr's result, and only a `https://github.com/<o>/<r>/pull/<n>` URL; an agent's `pr_url` is never shown).
 
 Sort, by the column's kind: Queued by priority then age; human (Needs input) oldest open input_request first, with the question badge; event (Waiting external) by age; agent columns and Done most recent activity first.
 

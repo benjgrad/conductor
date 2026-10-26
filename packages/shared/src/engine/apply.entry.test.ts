@@ -2,8 +2,13 @@
 import { describe, expect, it } from 'vitest';
 import { CONDUCTOR_V1_DEF } from '../workflow/conductor.js';
 import { WorkflowDefinitionSchema, type WorkflowDefinition } from '../workflow/schema.js';
-import { Harness } from './apply.testkit.js';
-import { entryCounterKey, entryStateLabel, REVIEW_PROMPT_HEADING } from './review.js';
+import { HEAD_SHA, Harness } from './apply.testkit.js';
+import {
+  entryCounterKey,
+  entryStateLabel,
+  PR_CONTEXT_KEY,
+  REVIEW_PROMPT_HEADING,
+} from './review.js';
 import type { Effect } from './types.js';
 
 // ADR-0010: requirements to enter a column (apply.ts §gate steps), on the shipped conductor v1:
@@ -114,13 +119,14 @@ describe('conductor v1: entering Waiting external', () => {
       workflow_state: 'waiting_external',
       status: 'waiting_external',
       step: null,
-      context: { waiting_external: { pr_url: PR } },
+      context: { [PR_CONTEXT_KEY]: { pr_url: PR, state: 'waiting_external' } },
     });
+    expect(done.snapshot.context.waiting_external).toBeUndefined();
     expect(find(done.effects, 'state_entered')).toMatchObject({
       from: LABEL,
       to: 'waiting_external',
     });
-    // Approve keeps the PR URL (merged into the state's context).
+    // Approve keeps the PR record.
     const approved = h.run({
       type: 'external.event',
       name: 'ui.approve',
@@ -129,7 +135,10 @@ describe('conductor v1: entering Waiting external', () => {
     expect(approved.snapshot).toMatchObject({
       workflow_state: 'done',
       status: 'done',
-      context: { waiting_external: { pr_url: PR, event: 'ui.approve', comment: 'lgtm' } },
+      context: {
+        [PR_CONTEXT_KEY]: { pr_url: PR },
+        waiting_external: { event: 'ui.approve', comment: 'lgtm' },
+      },
     });
   });
 
@@ -328,5 +337,76 @@ describe('entry review (plain-language items, the ADR-0009 reviewer reused)', ()
     expect(find(t.effects, 'create_input_request')!.question).toContain(
       'The requirements review to enter "Waiting external" timed out',
     );
+  });
+});
+
+describe("security review: the pushed commit is the checked commit; the PR URL is conductor's", () => {
+  it("entering the step kills exactly the worker's process", () => {
+    const h = implementing();
+    const worker = h.agentCmd;
+    const r = h.complete({ summary: 'done' });
+    expect(find(r.effects, 'kill')).toEqual({
+      type: 'kill',
+      reason: 'gate step started: the worker is done',
+      target_command_id: worker,
+    });
+  });
+
+  it('the first check records HEAD; open_pr gets it as expected_sha', () => {
+    const h = checking();
+    h.cmdExit(0, '', false, HEAD_SHA);
+    expect(h.snap.step).toMatchObject({ head_sha: HEAD_SHA });
+    const act = find(h.cmdExit(0, '', false, HEAD_SHA).effects, 'run_action')!;
+    expect(act.expected_sha).toBe(HEAD_SHA);
+  });
+
+  it('HEAD moving between checks is unmet (back to implementing)', () => {
+    const h = checking();
+    h.cmdExit(0, '', false, HEAD_SHA);
+    const r = h.cmdExit(0, '', false, 'f'.repeat(40));
+    expect(r.snapshot.workflow_state).toBe('implementing');
+    expect(find(r.effects, 'start_session')!.prompt).toContain(
+      'the branch moved while the checks ran',
+    );
+  });
+
+  it('an unknown checked commit → no push: needs_input', () => {
+    const h = checking();
+    h.cmdExit(0, '', false, null);
+    const r = h.cmdExit(0, '', false, null);
+    expect(find(r.effects, 'run_action')).toBeUndefined();
+    expect(r.snapshot.workflow_state).toBe('needs_input');
+    expect(find(r.effects, 'create_input_request')!.question).toContain(
+      'could not tell which commit the checks',
+    );
+  });
+
+  it('the review is told the checked commit', () => {
+    const h = checking(
+      conductorWith((raw) => {
+        raw.states.waiting_external.entry.review = { items: ['Has tests'] };
+      }),
+    );
+    h.cmdExit(0);
+    const rev = find(h.cmdExit(0).effects, 'start_session')!;
+    expect(rev.prompt).toContain(`The checks ran on commit \`${HEAD_SHA}\``);
+  });
+
+  it('an invalid PR URL from the action is a failed action, never recorded', () => {
+    const h = checking();
+    h.cmdExit(0);
+    h.cmdExit(0);
+    const r = action(h, { pr_url: 'javascript:alert(1)' });
+    expect(r.snapshot.workflow_state).toBe('needs_input');
+    expect(r.snapshot.context[PR_CONTEXT_KEY]).toBeUndefined();
+    expect(find(r.effects, 'create_input_request')!.question).toContain(
+      'reported no valid pull request URL',
+    );
+  });
+
+  it("an agent result with pr_url is just that state's result, not the PR", () => {
+    const h = implementing();
+    h.complete({ summary: 'x', pr_url: 'https://github.com/evil/repo/pull/1' });
+    expect(h.snap.context[PR_CONTEXT_KEY]).toBeUndefined();
   });
 });

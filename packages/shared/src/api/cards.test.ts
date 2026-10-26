@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TicketStatus } from '../domain.js';
-import { REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
+import { PR_CONTEXT_KEY, REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
 import { APPLY_REJECT_REASONS } from '../engine/types.js';
 import { boardColumns, CONDUCTOR_V1_DEF } from '../workflow/conductor.js';
 import { WorkflowDefinitionSchema } from '../workflow/schema.js';
@@ -220,13 +220,34 @@ describe('placeCard: the column-for-card rules (ADR-0010 §Board)', () => {
     expect(col('no_such_state').column).toBe('implementing');
   });
 
-  it('shows the PR conductor opened (context.<state>.pr_url)', () => {
-    const card = place({
-      status: 'waiting_external' as never,
-      workflow_state: 'waiting_external',
-      context: { waiting_external: { pr_url: 'https://github.com/o/r/pull/1' } },
+  it('shows only the PR conductor recorded (context.__pr), only a GitHub PR URL', () => {
+    const at = (context: Record<string, unknown>) =>
+      place({ status: 'waiting_external' as never, workflow_state: 'waiting_external', context });
+    expect(at({ [PR_CONTEXT_KEY]: { pr_url: 'https://github.com/o/r/pull/1' } }).pr_url).toBe(
+      'https://github.com/o/r/pull/1',
+    );
+    // An agent's complete_state result carrying pr_url is never shown (security review).
+    expect(at({ implementing: { pr_url: 'https://github.com/o/r/pull/2' } }).pr_url).toBeNull();
+    expect(at({ waiting_external: { pr_url: 'https://github.com/o/r/pull/3' } }).pr_url).toBeNull();
+    // Not a GitHub PR URL → null.
+    for (const bad of [
+      'https://evil.example/o/r/pull/1',
+      'javascript:alert(1)',
+      'https://github.com/o/r/pull/1?x=<script>',
+      'https://github.com/o/r/issues/1',
+    ]) {
+      expect(at({ [PR_CONTEXT_KEY]: { pr_url: bad } }).pr_url).toBeNull();
+    }
+  });
+
+  it('BoardCardSchema turns an invalid pr_url into null', () => {
+    const parsed = BoardCardSchema.parse({ ...BOARD_CARD_FIXTURE, pr_url: 'javascript:alert(1)' });
+    expect(parsed.pr_url).toBeNull();
+    const ok = BoardCardSchema.parse({
+      ...BOARD_CARD_FIXTURE,
+      pr_url: 'https://github.com/o/r/pull/9',
     });
-    expect(card.pr_url).toBe('https://github.com/o/r/pull/1');
+    expect(ok.pr_url).toBe('https://github.com/o/r/pull/9');
   });
 });
 

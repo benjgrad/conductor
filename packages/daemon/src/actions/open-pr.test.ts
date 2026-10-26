@@ -6,48 +6,54 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  readdirSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { openPr, privateRepoPath, pushTarget, type OpenPrInput } from './open-pr.js';
+import { openPr, pushTarget, resolveHead, type OpenPrInput } from './open-pr.js';
 
 // ADR-0010 open_pr against a local bare repo as the ticket's repo and a fake `gh` first on PATH:
 // no network, no GitHub. The fake records argv + cwd and keeps "the PR" in a state file. Includes
 // the security review's hardening cases: planted hooks and repo-config redirects don't work.
 
-const FAKE_GH = `#!/usr/bin/env node
-const { appendFileSync, existsSync, readFileSync, writeFileSync } = require('node:fs');
-const dir = process.env.FAKE_GH_DIR;
-appendFileSync(dir + '/gh-argv.jsonl', JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + '\\n');
-const [a, b] = process.argv.slice(2);
-const state = dir + '/pr-url';
-if (a === 'repo' && b === 'view') { process.stdout.write('main\\n'); process.exit(0); }
-if (a === 'pr' && b === 'view') {
-  if (existsSync(state)) { process.stdout.write(readFileSync(state, 'utf8') + '\\n'); process.exit(0); }
-  process.stderr.write('no pull requests found for branch\\n'); process.exit(1);
-}
-if (a === 'pr' && b === 'create') {
-  if (process.env.FAKE_GH_FAIL) { process.stderr.write('HTTP 401: Bad credentials\\n'); process.exit(1); }
-  const url = 'https://github.com/benjgrad/fixture-app/pull/7';
-  writeFileSync(state, url);
-  process.stdout.write('Creating pull request...\\n' + url + '\\n');
-  process.exit(0);
-}
-process.exit(2);
+// The fake gh is a /bin/sh script run as `/bin/sh <script> <args>` (OpenPrInput.gh): spawning
+// node per call stalls for seconds under load on this macOS. Each call appends one line: the cwd
+// and every argument base64-encoded (bodies have newlines), space-separated.
+const FAKE_GH = `
+dir="$FAKE_GH_DIR"
+line=$(printf '%s' "$PWD" | base64)
+for a in "$@"; do line="$line $(printf '%s' "$a" | base64)"; done
+echo "$line" >> "$dir/gh-calls"
+state="$dir/pr-url"
+if [ "$1" = repo ] && [ "$2" = view ]; then echo main; exit 0; fi
+if [ "$1" = pr ] && [ "$2" = view ]; then
+  if [ -f "$state" ]; then cat "$state"; echo; exit 0; fi
+  echo 'no pull requests found for branch' >&2; exit 1
+fi
+if [ "$1" = pr ] && [ "$2" = create ]; then
+  if [ -n "$FAKE_GH_FAIL" ]; then echo 'HTTP 401: Bad credentials' >&2; exit 1; fi
+  url="\${FAKE_GH_URL:-https://github.com/benjgrad/fixture-app/pull/7}"
+  printf '%s' "$url" > "$state"
+  echo 'Creating pull request...'; echo "$url"; exit 0
+fi
+exit 2
 `;
 
 const BRANCH = 'conductor/ticket/abcd1234';
 let tmp: string;
-let fakeBin: string;
+let fakeGh: string;
 let worktree: string;
 let clone: string;
 let origin: string;
 let attacker: string;
 let ghCwd: string;
+/** The worktree HEAD the entry checks "ran on". */
+let checked: string;
 
 const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', args, { cwd, stdio: 'pipe', encoding: 'utf8' });
@@ -93,12 +99,11 @@ beforeEach(() => {
     'add health',
   );
 
-  fakeBin = join(tmp, 'bin');
-  mkdirSync(fakeBin);
-  writeFileSync(join(fakeBin, 'gh'), FAKE_GH);
-  chmodSync(join(fakeBin, 'gh'), 0o755);
+  fakeGh = join(tmp, 'fake-gh.sh');
+  writeFileSync(fakeGh, FAKE_GH);
   ghCwd = join(tmp, 'daemon-root');
   mkdirSync(ghCwd);
+  checked = git(worktree, 'rev-parse', 'HEAD').trim();
 });
 
 afterEach(() => rmSync(tmp, { recursive: true, force: true }));
@@ -112,21 +117,23 @@ function input(over: Partial<OpenPrInput> = {}): OpenPrInput {
     title: 'Add /health',
     body: 'added /health\n\nOpened by conductor.',
     root: ghCwd,
-    env: {
-      ...process.env,
-      PATH: `${fakeBin}${delimiter}${process.env.PATH ?? ''}`,
-      FAKE_GH_DIR: tmp,
-    },
+    expectedSha: checked,
+    gh: { cmd: '/bin/sh', args: [fakeGh] },
+    env: { ...process.env, FAKE_GH_DIR: tmp },
     ...over,
   };
 }
 
+const unb64 = (v: string) => Buffer.from(v, 'base64').toString('utf8');
 const ghCalls = () =>
-  existsSync(join(tmp, 'gh-argv.jsonl'))
-    ? readFileSync(join(tmp, 'gh-argv.jsonl'), 'utf8')
+  existsSync(join(tmp, 'gh-calls'))
+    ? readFileSync(join(tmp, 'gh-calls'), 'utf8')
         .trim()
         .split('\n')
-        .map((l) => JSON.parse(l) as { argv: string[]; cwd: string })
+        .map((l) => {
+          const [cwd = '', ...argv] = l.split(' ').map(unb64);
+          return { cwd, argv };
+        })
     : [];
 
 describe('open_pr (ADR-0010)', () => {
@@ -187,7 +194,10 @@ describe('open_pr (ADR-0010)', () => {
     const onlyGit = join(tmp, 'only-git');
     mkdirSync(onlyGit);
     symlinkSync(execFileSync('which', ['git'], { encoding: 'utf8' }).trim(), join(onlyGit, 'git'));
-    const r = await openPr(input({ env: { ...process.env, PATH: onlyGit } }));
+    // The real lookup: `gh` from PATH (no `gh` override).
+    const { gh: _gh, ...noGh } = input({ env: { ...process.env, PATH: onlyGit } });
+    void _gh;
+    const r = await openPr(noGh);
     expect(r).toEqual({
       ok: false,
       error: expect.stringContaining('gh (the GitHub CLI) is not on PATH') as unknown,
@@ -263,18 +273,78 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
     expect(existsSync(marker)).toBe(false);
   });
 
-  it("the push repo is daemon-private (under <root>/private) with git's minimal config", async () => {
-    await openPr(input());
-    const priv = privateRepoPath(ghCwd, origin);
-    expect(priv.startsWith(join(ghCwd, 'private'))).toBe(true);
-    const keys = git(priv, 'config', '--local', '--list')
-      .trim()
-      .split('\n')
-      .map((l) => l.split('=')[0]);
-    for (const k of keys) expect(k).toMatch(/^core\./);
-    expect(git(priv, 'rev-parse', `refs/heads/${BRANCH}`).trim()).toBe(
-      git(worktree, 'rev-parse', 'HEAD').trim(),
+  it("the push repo is a fresh 0700 dir under <root>/private with git's minimal config, deleted after", async () => {
+    let seen = '';
+    let mode = 0;
+    let keys: string[] = [];
+    const r = await openPr(
+      input({
+        afterFetch: (priv) => {
+          seen = priv;
+          mode = statSync(priv).mode & 0o777;
+          keys = git(priv, 'config', '--local', '--list')
+            .trim()
+            .split('\n')
+            .map((l) => l.split('=')[0]!);
+        },
+      }),
     );
+    expect(r.ok).toBe(true);
+    expect(seen.startsWith(join(ghCwd, 'private', 'push-'))).toBe(true);
+    expect(mode).toBe(0o700);
+    for (const k of keys) expect(k).toMatch(/^core\./);
+    expect(existsSync(seen)).toBe(false);
+    expect(readdirSync(join(ghCwd, 'private'))).toEqual([]);
+  });
+
+  it('a symlinked <root>/private is refused (nothing followed, nothing pushed)', async () => {
+    const elsewhere = join(tmp, 'elsewhere');
+    mkdirSync(elsewhere);
+    symlinkSync(elsewhere, join(ghCwd, 'private'));
+    const r = await openPr(input());
+    expect(!r.ok && r.error).toContain('private push repo');
+    expect(readdirSync(elsewhere)).toEqual([]);
+    expect(hasBranch(origin)).toBe(false);
+  });
+
+  it('pushes exactly the checked commit', async () => {
+    const r = await openPr(input());
+    expect(r.ok).toBe(true);
+    expect(git(origin, 'rev-parse', `refs/heads/${BRANCH}`).trim()).toBe(checked);
+  });
+
+  it('a commit made after the checks makes the action refuse; nothing is pushed', async () => {
+    writeFileSync(join(worktree, 'sneaky.txt'), 'unchecked\n');
+    git(worktree, 'add', '.');
+    git(
+      worktree,
+      '-c',
+      'user.email=t@localhost',
+      '-c',
+      'user.name=t',
+      'commit',
+      '--quiet',
+      '-m',
+      'after the checks',
+    );
+    const r = await openPr(input());
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toContain('the branch moved after the checks');
+    expect(hasBranch(origin)).toBe(false);
+    expect(ghCalls()).toEqual([]);
+  });
+
+  it('a gh URL that is not a GitHub PR URL is not reported', async () => {
+    const r = await openPr(
+      input({ env: { ...input().env, FAKE_GH_URL: 'https://evil.example/x' } }),
+    );
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toContain('unexpected PR URL');
+  });
+
+  it('resolveHead reports the worktree HEAD', async () => {
+    expect(await resolveHead(worktree)).toBe(checked);
+    expect(await resolveHead(tmp)).toBeNull();
   });
 
   it('a non-allowlisted repo (local path, another host) is a clear error, nothing pushed', async () => {

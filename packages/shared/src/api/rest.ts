@@ -9,12 +9,14 @@ import {
   SessionStatusSchema,
   TicketStatusSchema,
   UuidSchema,
+  GITHUB_PR_URL_RE,
+  isGithubPrUrl,
   type BoardColumn,
   type CardBadge,
   type SessionStatus,
   type TicketStatus,
 } from '../domain.js';
-import { REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
+import { PR_CONTEXT_KEY, REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
 import {
   GateStepSchema,
   type ApplyIgnoreReason,
@@ -178,15 +180,16 @@ export function placeCard(
   return { column: columnForState(columns, def, session.workflow_state), badges, checking: null };
 }
 
-/** The PR conductor opened for the session (`context.<state>.pr_url`, ADR-0010), if any. */
+/**
+ * The PR conductor opened for the session (ADR-0010): only `context.__pr.pr_url`, which the engine
+ * writes from open_pr's result, and only a `https://github.com/<o>/<r>/pull/<n>` URL. A `pr_url`
+ * in an agent's result (any other key) is never shown.
+ */
 export function prUrlOfContext(context: Record<string, unknown>): string | null {
-  let url: string | null = null;
-  for (const [key, value] of Object.entries(context)) {
-    if (key.startsWith('__') || value === null || typeof value !== 'object') continue;
-    const v = (value as Record<string, unknown>).pr_url;
-    if (typeof v === 'string' && v !== '') url = v;
-  }
-  return url;
+  const rec = context[PR_CONTEXT_KEY];
+  if (rec === null || typeof rec !== 'object' || Array.isArray(rec)) return null;
+  const url = (rec as Record<string, unknown>).pr_url;
+  return isGithubPrUrl(url) ? url : null;
 }
 
 // ---------------------------------------------------------------- DTOs
@@ -232,7 +235,7 @@ export const BoardCardSchema = z.object({
   /** In an entry step: what it is checking (ADR-0010); null otherwise. */
   checking: BoardCheckingSchema.nullable(),
   /** The pull request conductor opened for it (`open_pr`, ADR-0010), if any. */
-  pr_url: z.string().nullable(),
+  pr_url: z.string().regex(GITHUB_PR_URL_RE).nullable().catch(null),
   machine_id: z.string().nullable(),
   spend_usd: z.number().nonnegative(),
   /** Open input request (needs-input cards): the question badge. */

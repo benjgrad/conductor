@@ -4,7 +4,7 @@ import {
   type WorkflowDefinition,
   type WorkflowState,
 } from './schema.js';
-import { REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
+import { PR_CONTEXT_KEY, REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
 import { isToolAlias, TOOL_ALIAS_NAMES } from './tools.js';
 
 // Workflow validation on save (M1-T03, 05 §Validation on save). The schema (T12) checks shape;
@@ -153,7 +153,7 @@ function checkGates(
   has: (name: string) => boolean,
 ): WorkflowValidationError[] {
   const errors: WorkflowValidationError[] = [];
-  for (const reserved of [REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY]) {
+  for (const reserved of [REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY, PR_CONTEXT_KEY]) {
     if (has(reserved)) {
       errors.push({
         rule: 8,

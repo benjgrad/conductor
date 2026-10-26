@@ -40,6 +40,8 @@ describe('engineEventForSessionEvent', () => {
       exit_code: 1,
       timed_out: false,
       output_tail: SESSION_EVENT_FIXTURES.cmd_exit.data.output_tail,
+      // ADR-0010: the commit the command ran on (an entry check's head_sha).
+      head_sha: '3b18e512dba79e4c8300dd08aeb37f8e728b8dad',
     });
     expect(engineEventForSessionEvent(SESSION_EVENT_FIXTURES.spend)).toEqual({
       type: 'spend.reported',

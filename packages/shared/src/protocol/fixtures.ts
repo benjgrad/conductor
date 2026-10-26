@@ -57,6 +57,7 @@ export const SESSION_EVENT_FIXTURES: {
       timed_out: false,
       duration_ms: 4200,
       output_tail: 'FAIL src/a.test.ts\n  expected 1 to be 2\n',
+      head_sha: '3b18e512dba79e4c8300dd08aeb37f8e728b8dad',
     },
   },
   spend: {
@@ -296,6 +297,7 @@ export const ORCHESTRATOR_FIXTURES: {
       idempotency_key: `${S}:waiting_external:1`,
       args: { title: 'Add /health', body: 'added endpoint\n\nOpened by conductor.' },
       branch: 'conductor/0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2/7d0c5b1e',
+      expected_sha: '3b18e512dba79e4c8300dd08aeb37f8e728b8dad',
     },
   },
   send_input: {

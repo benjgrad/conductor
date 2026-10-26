@@ -1,4 +1,10 @@
-import type { InputRequestKind, JsonObject, SessionStatus, TicketStatus } from '../domain.js';
+import {
+  isGithubPrUrl,
+  type InputRequestKind,
+  type JsonObject,
+  type SessionStatus,
+  type TicketStatus,
+} from '../domain.js';
 import { evaluateGuard } from '../workflow/guards.js';
 import { stateTitle } from '../workflow/conductor.js';
 import {
@@ -15,6 +21,7 @@ import { renderPrompt, type PromptAttachment } from './render.js';
 import {
   DEFAULT_CHECK_TIMEOUT,
   ENTRY_ACTION_TIMEOUT,
+  PR_CONTEXT_KEY,
   entryCounterKey,
   entryStateLabel,
   feedbackHeading,
@@ -430,7 +437,7 @@ function onExternal(
   const from = st.stateName;
   if (state?.type !== 'event' || from === null) return 'unexpected_event';
   if (!state.wait_for.includes(name)) return 'not_awaited';
-  // Merged: an entry action may already have stored a result here (ADR-0010 `pr_url`).
+  // Merged with what is already recorded for this state.
   if (data !== undefined) {
     st.s.context = {
       ...st.s.context,
@@ -681,8 +688,17 @@ function enterStep(
   s.workflow_state = label;
   s.return_to = null;
   s.pending_answer = null;
-  // The worker is done with this visit (it ends itself after complete_state): detach it, so its
-  // late exit is a command_id_mismatch and never reads as the step's outcome.
+  // The worker is done with this visit: kill exactly its process (it would end itself after
+  // complete_state, but it must not keep writing the worktree while the step checks it), and detach
+  // it, so its late exit is a command_id_mismatch and never reads as the step's outcome. The
+  // wrapper also bumps the fencing token (10-contracts §EngineService wrapper).
+  if (s.machine_id !== null && s.agent_command_id !== null) {
+    st.emit({
+      type: 'kill',
+      reason: 'gate step started: the worker is done',
+      target_command_id: s.agent_command_id,
+    });
+  }
   s.agent_command_id = null;
   s.agent_process_live = false;
   s.step = {
@@ -700,6 +716,7 @@ function enterStep(
     nudged: false,
     phase: p.kind === 'entry' ? 'checks' : 'review',
     index: 0,
+    head_sha: null,
   };
   st.emit({ type: 'state_entered', from: p.from, to: label, visit });
   if (s.machine_id === null) {
@@ -768,6 +785,17 @@ function runPhase(st: Step, assigning: boolean): void {
     }
     const action = spec.actions[r.index];
     if (action !== undefined) {
+      if (spec.checks.length > 0 && r.head_sha === null) {
+        // The pushed commit must be the checked one; without it, nothing is pushed.
+        stepFail(
+          st,
+          spec,
+          'retries_exhausted',
+          `Conductor could not tell which commit the checks for "${spec.title}" ran on, so it did not ${actionLabel(action)}. Retry, skip, or abort?`,
+          false,
+        );
+        return;
+      }
       st.emit(runAction(st, r, action));
       st.setDeadline(label, deadlineIn(st.now, ENTRY_ACTION_TIMEOUT));
       st.setStatus('running');
@@ -812,7 +840,7 @@ function emitReviewer(st: Step, spec: GateSpec, nudge: string | null): void {
       items: review.items,
       ticket: st.s.ticket,
       subject: r.subject,
-      ...(r.kind === 'entry' ? { entering: spec.title } : {}),
+      ...(r.kind === 'entry' ? { entering: spec.title, commit: r.head_sha } : {}),
     });
   const prompt = nudge === null ? full() : resume !== null ? nudge : `${full()}\n\n${nudge}`;
   st.emit({
@@ -996,6 +1024,19 @@ function onCheckExited(
   check: EntryCheck,
   e: Extract<EngineEvent, { type: 'command.exited' }>,
 ): void {
+  // The first check records the commit the checks run on; later checks must see the same one.
+  const head = e.head_sha ?? null;
+  if (r.index === 0) {
+    r.head_sha = head;
+  } else if (head !== null && r.head_sha !== null && head !== r.head_sha) {
+    stepUnmet(st, spec, r, [
+      {
+        item: check.name,
+        reason: `the branch moved while the checks ran (from ${r.head_sha} to ${head}); nothing may change it after you finish`,
+      },
+    ]);
+    return;
+  }
   if (e.exit_code === 0 && !e.timed_out) {
     r.index += 1;
     runPhase(st, false);
@@ -1011,7 +1052,11 @@ function onCheckExited(
   ]);
 }
 
-/** An action's result: success → stored in `context.<to>` and the next action; failure → else. */
+/**
+ * An action's result: success → recorded and the next action; failure → else. open_pr's URL is
+ * recorded only under `context.__pr` (PR_CONTEXT_KEY), and only a GitHub PR URL; anything else is
+ * a failed action.
+ */
 function onActionCompleted(
   st: Step,
   spec: GateSpec,
@@ -1030,7 +1075,23 @@ function onActionCompleted(
     return;
   }
   const s = st.s;
-  s.context = { ...s.context, [r.to]: { ...(s.context[r.to] ?? {}), ...e.result } };
+  switch (action) {
+    case 'open_pr': {
+      const url = e.result.pr_url;
+      if (!isGithubPrUrl(url)) {
+        stepFail(
+          st,
+          spec,
+          'retries_exhausted',
+          `Conductor could not ${actionLabel(action)} to enter "${spec.title}": it reported no valid pull request URL. Retry, skip, or abort?`,
+          false,
+        );
+        return;
+      }
+      s.context = { ...s.context, [PR_CONTEXT_KEY]: { pr_url: url, state: r.to } };
+      break;
+    }
+  }
   r.index += 1;
   runPhase(st, false);
 }
@@ -1183,6 +1244,7 @@ function runAction(
     action,
     idempotency_key: `${s.id}:${r.to}:${visit}`,
     args: actionArgs(st, r, action),
+    expected_sha: r.head_sha,
   };
 }
 

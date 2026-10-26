@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { basename, join } from 'node:path';
+import { GITHUB_PR_URL_RE } from '@conductor/shared';
 import { cloneSource, RepoNotAllowedError, type RepoPolicy } from '../workspace.js';
 
 // ADR-0010 `open_pr`: conductor (this daemon code, never an agent) pushes the session branch and
@@ -12,14 +12,16 @@ import { cloneSource, RepoNotAllowedError, type RepoPolicy } from '../workspace.
 // the worktree's `.git` points into the shared clone, whose `config` and `hooks/` any session's
 // agent can write, at any time (so checking that config first would be a check-then-use race).
 // So the push never runs in, or reads the config of, an agent-writable repository:
-// 1. the session branch is FETCHED into a daemon-private bare repo (`<root>/private/<slug>.git`,
-//    created by the daemon with git's minimal defaults; no agent cwd is ever inside it), with hooks
+// 1. the session branch is FETCHED into a fresh daemon-private bare repo (`mkdtemp` under
+//    `<root>/private`, 0700, owner/lstat-checked, deleted after the push; git's minimal defaults;
+//    no agent cwd is ever inside it), with hooks
 //    off, only the file transport, and an explicit `--upload-pack=git-upload-pack`. Fetching from
 //    a local path runs upload-pack in the source repo, which reads its config, but upload-pack runs
 //    no hooks and honours `uploadpack.packObjectsHook` only from protected (system/global/command)
 //    config, so nothing agent-written is executed;
-// 2. the fetched tip is re-verified (a commit);
-// 3. the push runs from the private repo to an explicit URL from the daemon's own store
+// 2. the fetched tip must EQUAL the commit the entry checks ran on (`expected_sha`, reported by
+//    the daemon with the first check's exit), else nothing is pushed;
+// 3. exactly that commit (`<sha>:refs/heads/<branch>`) is pushed from the private repo to an explicit URL from the daemon's own store
 //    (`cloneSource(ticket.repo)`), allow-listed to GitHub (`https://github.com/o/r`,
 //    `git@github.com:o/r`, or an `allowedRepoHosts` host), never the config-resolved `origin`,
 //    with hooks off (`core.hooksPath=/dev/null`, `--no-verify`), only https/ssh transports, no
@@ -50,8 +52,18 @@ export interface OpenPrInput {
    * under `<root>/private/`.
    */
   root: string;
-  /** Test hook: runs after the fetch into the private repo, before the push. */
-  afterFetch?: () => void;
+  /**
+   * The commit the entry checks ran on (`run_action.expected_sha`): the fetched branch tip must
+   * equal it, and exactly it is pushed. null only for an entry without checks (the tip is pushed).
+   */
+  expectedSha: string | null;
+  /**
+   * How to run gh (default `gh` from PATH). Tests pass `{cmd: process.execPath, args: [fake]}`:
+   * never a token, never a different GitHub.
+   */
+  gh?: { cmd: string; args: readonly string[] };
+  /** Test hook: runs after the fetch into the private repo (its path), before the push. */
+  afterFetch?: (privateRepo: string) => void;
   /** Environment for git and gh (default process.env); tests put a fake `gh` first on PATH. */
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
@@ -134,7 +146,12 @@ function cleanEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   };
 }
 
-function run(cmd: string, args: string[], cwd: string, i: OpenPrInput): Promise<Run> {
+function run(
+  cmd: string,
+  args: string[],
+  cwd: string,
+  i: Pick<OpenPrInput, 'env' | 'signal'>,
+): Promise<Run> {
   return new Promise((resolve) => {
     execFile(
       cmd,
@@ -164,12 +181,6 @@ const tail = (s: string, n = 600) => {
 const URL_RE = /https?:\/\/\S+/g;
 const BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 
-/** The daemon-private bare repo the push runs from, one per ticket repo. */
-export function privateRepoPath(root: string, repo: string): string {
-  const slug = createHash('sha256').update(repo).digest('hex').slice(0, 16);
-  return join(root, 'private', `${slug}.git`);
-}
-
 const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null'];
 
 const GH_MISSING =
@@ -184,78 +195,15 @@ export async function openPr(i: OpenPrInput): Promise<OpenPrResult> {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 
-  // 1. Fetch the branch into the daemon-private repo (created on first use).
-  const priv = privateRepoPath(i.root, i.repo);
-  if (!existsSync(join(priv, 'HEAD'))) {
-    mkdirSync(dirname(priv), { recursive: true });
-    const init = await run('git', [...NO_HOOKS, 'init', '--quiet', '--bare', priv], i.root, i);
-    if (init.spawnError)
-      return { ok: false, error: `git could not run: ${init.spawnError.message}` };
-    if (init.code !== 0) return { ok: false, error: `git init failed: ${tail(init.stderr)}` };
-  }
-  const ref = `refs/heads/${i.branch}`;
-  const fetch = await run(
-    'git',
-    [
-      ...NO_HOOKS,
-      '-c',
-      'protocol.allow=never',
-      '-c',
-      'protocol.file.allow=always',
-      'fetch',
-      '--quiet',
-      '--no-tags',
-      '--no-write-fetch-head',
-      '--upload-pack=git-upload-pack',
-      i.worktree,
-      `+${ref}:${ref}`,
-    ],
-    priv,
-    i,
-  );
-  if (fetch.spawnError)
-    return { ok: false, error: `git could not run: ${fetch.spawnError.message}` };
-  if (fetch.code !== 0) {
-    return { ok: false, error: `could not read the session branch: ${tail(fetch.stderr)}` };
-  }
-  // 2. Re-verify what was fetched.
-  const tip = await run('git', [...NO_HOOKS, 'rev-parse', '--verify', `${ref}^{commit}`], priv, i);
-  if (tip.code !== 0 || !/^[0-9a-f]{40,64}$/.test(tip.stdout.trim())) {
-    return { ok: false, error: `the session branch ${i.branch} has no commit to push` };
-  }
-  i.afterFetch?.();
-
-  // 3. Push from the private repo to the trusted URL.
-  const push = await run(
-    'git',
-    [
-      ...NO_HOOKS,
-      '-c',
-      'protocol.allow=never',
-      '-c',
-      'protocol.https.allow=always',
-      '-c',
-      'protocol.ssh.allow=always',
-      ...(target.local ? ['-c', 'protocol.file.allow=always'] : []),
-      'push',
-      '--quiet',
-      '--no-verify',
-      target.url,
-      `${ref}:${ref}`,
-    ],
-    priv,
-    i,
-  );
-  if (push.spawnError) return { ok: false, error: `git could not run: ${push.spawnError.message}` };
-  if (push.code !== 0) {
-    return { ok: false, error: `git push failed: ${tail(push.stderr || push.stdout)}` };
-  }
+  const gh = i.gh ?? { cmd: 'gh', args: [] };
+  const pushed = await pushChecked(i, target);
+  if (!pushed.ok) return pushed;
 
   // Reuse the PR that already exists for the branch (a repeat of the same visit, or a retry).
   const repo = ['--repo', target.ghRepo];
   const view = await run(
-    'gh',
-    ['pr', 'view', i.branch, ...repo, '--json', 'url', '--jq', '.url'],
+    gh.cmd,
+    [...gh.args, 'pr', 'view', i.branch, ...repo, '--json', 'url', '--jq', '.url'],
     i.root,
     i,
   );
@@ -269,11 +217,20 @@ export async function openPr(i: OpenPrInput): Promise<OpenPrResult> {
     };
   }
   const existing = view.code === 0 ? view.stdout.trim().match(URL_RE)?.at(-1) : undefined;
-  if (existing) return { ok: true, url: existing, reused: true };
+  if (existing) return prResult(existing, true);
 
   const repoView = await run(
-    'gh',
-    ['repo', 'view', target.ghRepo, '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'],
+    gh.cmd,
+    [
+      ...gh.args,
+      'repo',
+      'view',
+      target.ghRepo,
+      '--json',
+      'defaultBranchRef',
+      '--jq',
+      '.defaultBranchRef.name',
+    ],
     i.root,
     i,
   );
@@ -285,8 +242,9 @@ export async function openPr(i: OpenPrInput): Promise<OpenPrResult> {
     };
   }
   const create = await run(
-    'gh',
+    gh.cmd,
     [
+      ...gh.args,
       'pr',
       'create',
       ...repo,
@@ -309,5 +267,158 @@ export async function openPr(i: OpenPrInput): Promise<OpenPrResult> {
   }
   const created = create.stdout.match(URL_RE)?.at(-1);
   if (!created) return { ok: false, error: `gh pr create printed no URL: ${tail(create.stdout)}` };
-  return { ok: true, url: created, reused: false };
+  return prResult(created, false);
 }
+
+/** Only a `https://github.com/<o>/<r>/pull/<n>` URL is reported (the engine and board check too). */
+function prResult(url: string, reused: boolean): OpenPrResult {
+  if (!GITHUB_PR_URL_RE.test(url)) {
+    return { ok: false, error: `gh reported an unexpected PR URL: ${url}` };
+  }
+  return { ok: true, url, reused };
+}
+
+/**
+ * A fresh private bare repo for one push: `mkdtemp` under `<root>/private` (0700, owned by this
+ * uid, not a symlink: checked with lstat), removed afterwards. No agent cwd is ever inside it, and
+ * it lives only for this push, so nothing can be planted in it ahead of time.
+ */
+function privateDir(root: string): string | Error {
+  const base = join(root, 'private');
+  mkdirSync(base, { recursive: true, mode: 0o700 });
+  const ownedDir = (path: string): Error | null => {
+    const st = lstatSync(path);
+    if (st.isSymbolicLink() || !st.isDirectory()) return new Error(`${path} is not a directory`);
+    if (process.getuid !== undefined && st.uid !== process.getuid()) {
+      return new Error(`${path} is not owned by this user`);
+    }
+    return null;
+  };
+  const bad = ownedDir(base);
+  if (bad) return bad;
+  chmodSync(base, 0o700);
+  const dir = mkdtempSync(join(base, 'push-'));
+  chmodSync(dir, 0o700);
+  return ownedDir(dir) ?? dir;
+}
+
+/**
+ * Fetch the session branch into a fresh private repo, check that its tip is exactly the commit the
+ * entry checks ran on, and push exactly that commit to the trusted URL. Never runs in, or reads
+ * the config of, an agent-writable repository (see the header).
+ */
+async function pushChecked(
+  i: OpenPrInput,
+  target: PushTarget,
+): Promise<OpenPrResult | { ok: true }> {
+  if (i.expectedSha !== null && !/^[0-9a-f]{40,64}$/.test(i.expectedSha)) {
+    return { ok: false, error: `invalid checked commit ${i.expectedSha}` };
+  }
+  let priv: string;
+  try {
+    const d = privateDir(i.root);
+    if (d instanceof Error) return { ok: false, error: `private push repo: ${d.message}` };
+    priv = d;
+  } catch (e) {
+    return { ok: false, error: `private push repo: ${errText(e)}` };
+  }
+  try {
+    const init = await run('git', [...NO_HOOKS, 'init', '--quiet', '--bare', priv], i.root, i);
+    if (init.spawnError)
+      return { ok: false, error: `git could not run: ${init.spawnError.message}` };
+    if (init.code !== 0) return { ok: false, error: `git init failed: ${tail(init.stderr)}` };
+
+    // 1. Fetch the branch, with untrusted config off.
+    const ref = `refs/heads/${i.branch}`;
+    const fetch = await run(
+      'git',
+      [
+        ...NO_HOOKS,
+        '-c',
+        'protocol.allow=never',
+        '-c',
+        'protocol.file.allow=always',
+        'fetch',
+        '--quiet',
+        '--no-tags',
+        '--no-write-fetch-head',
+        '--upload-pack=git-upload-pack',
+        i.worktree,
+        `+${ref}:${ref}`,
+      ],
+      priv,
+      i,
+    );
+    if (fetch.spawnError) {
+      return { ok: false, error: `git could not run: ${fetch.spawnError.message}` };
+    }
+    if (fetch.code !== 0) {
+      return { ok: false, error: `could not read the session branch: ${tail(fetch.stderr)}` };
+    }
+    // 2. The fetched tip must be exactly the checked commit.
+    const tip = await run(
+      'git',
+      [...NO_HOOKS, 'rev-parse', '--verify', `${ref}^{commit}`],
+      priv,
+      i,
+    );
+    const sha = tip.stdout.trim();
+    if (tip.code !== 0 || !/^[0-9a-f]{40,64}$/.test(sha)) {
+      return { ok: false, error: `the session branch ${i.branch} has no commit to push` };
+    }
+    if (i.expectedSha !== null && sha !== i.expectedSha) {
+      return {
+        ok: false,
+        error: `the branch moved after the checks (they ran on ${i.expectedSha}, the branch is at ${sha}): refusing to push an unchecked commit`,
+      };
+    }
+    i.afterFetch?.(priv);
+
+    // 3. Push exactly that commit to the trusted URL.
+    const push = await run(
+      'git',
+      [
+        ...NO_HOOKS,
+        '-c',
+        'protocol.allow=never',
+        '-c',
+        'protocol.https.allow=always',
+        '-c',
+        'protocol.ssh.allow=always',
+        ...(target.local ? ['-c', 'protocol.file.allow=always'] : []),
+        'push',
+        '--quiet',
+        '--no-verify',
+        target.url,
+        `${sha}:${ref}`,
+      ],
+      priv,
+      i,
+    );
+    if (push.spawnError)
+      return { ok: false, error: `git could not run: ${push.spawnError.message}` };
+    if (push.code !== 0) {
+      return { ok: false, error: `git push failed: ${tail(push.stderr || push.stdout)}` };
+    }
+    return { ok: true };
+  } finally {
+    rmSync(priv, { recursive: true, force: true });
+  }
+}
+
+/**
+ * The worktree's `HEAD` commit, for `cmd_exit.head_sha` (ADR-0010: the commit the entry checks
+ * run on). Hooks off, no system config; null when it can't be resolved.
+ */
+export async function resolveHead(
+  worktree: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string | null> {
+  const r = await run('git', [...NO_HOOKS, 'rev-parse', '--verify', 'HEAD^{commit}'], worktree, {
+    env,
+  });
+  const sha = r.stdout.trim();
+  return r.code === 0 && /^[0-9a-f]{40,64}$/.test(sha) ? sha : null;
+}
+
+const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));

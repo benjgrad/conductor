@@ -22,7 +22,7 @@ import { DaemonStore, type AckRecord, type PortRange } from './store.js';
 import { liveResources, type SysInfo } from './sysinfo.js';
 import { buildAppendSystemPrompt } from './system-prompt.js';
 import { inventoryDigest, Workspace } from './workspace.js';
-import { openPr } from './actions/open-pr.js';
+import { openPr, resolveHead } from './actions/open-pr.js';
 import { ReconnectingWs } from './ws-client.js';
 
 // Daemon core (M1-T05; 03 §Daemon ↔ orchestrator, 07, 10-contracts, ADR-0005).
@@ -53,6 +53,8 @@ export interface DaemonOptions {
   sysinfo?: SysInfo;
   /** Reported in `register` (U-015). */
   claudeCodeVersion?: string | null;
+  /** Test only: how open_pr runs gh (default `gh` from PATH). */
+  ghCommand?: { cmd: string; args: readonly string[] };
   log?: (msg: string) => void;
 }
 
@@ -113,6 +115,7 @@ export class Daemon {
   private runner: CommandRunner | null = null;
   private readonly sysinfo: SysInfo;
   private readonly claudeCodeVersion: string | null;
+  private readonly ghCommand: { cmd: string; args: readonly string[] } | null;
   private readonly log: (msg: string) => void;
   private readonly ws: ReconnectingWs;
 
@@ -133,6 +136,7 @@ export class Daemon {
     this.createRunner = opts.createCommandRunner ?? defaultCreateCommandRunner;
     this.sysinfo = opts.sysinfo ?? liveResources;
     this.claudeCodeVersion = opts.claudeCodeVersion ?? null;
+    this.ghCommand = opts.ghCommand ?? null;
     this.log = opts.log ?? ((m) => process.stderr.write(`[conductor-daemon] ${m}\n`));
     this.heartbeatMs = this.config.heartbeatIntervalMs;
     mkdirSync(this.config.rootDir, { recursive: true });
@@ -786,24 +790,31 @@ export class Daemon {
     this.finish(msg, { accepted: true });
     this.touch(sid);
     const started = Date.now();
-    runner
-      .run({
-        commandId: p.command_id,
-        sessionId: sid,
-        cmd: p.cmd,
-        cwd,
-        timeoutMs: p.timeout_ms,
-        env: {
-          CONDUCTOR_SESSION_ID: sid,
-          CONDUCTOR_TICKET_ID: s.ticketId,
-          ...portEnv(range),
-          ...this.gitEnv(),
-        },
-        signal: abort.signal,
-        onOutput: (c) => this.sendOutput(sid, token, c.stream, c.text),
-        onWaitingForSlot: (waiting) =>
-          this.emit(sid, token, { kind: 'build_slot', data: { waiting } }),
+    // ADR-0010: the commit this command runs on (an entry check's `head_sha`).
+    let headSha: string | null = null;
+    resolveHead(s.worktreePath)
+      .then((h) => {
+        headSha = h;
       })
+      .then(() =>
+        runner.run({
+          commandId: p.command_id,
+          sessionId: sid,
+          cmd: p.cmd,
+          cwd,
+          timeoutMs: p.timeout_ms,
+          env: {
+            CONDUCTOR_SESSION_ID: sid,
+            CONDUCTOR_TICKET_ID: s.ticketId,
+            ...portEnv(range),
+            ...this.gitEnv(),
+          },
+          signal: abort.signal,
+          onOutput: (c) => this.sendOutput(sid, token, c.stream, c.text),
+          onWaitingForSlot: (waiting) =>
+            this.emit(sid, token, { kind: 'build_slot', data: { waiting } }),
+        }),
+      )
       .then(
         (r) => ({
           exit_code: r.exitCode,
@@ -822,7 +833,10 @@ export class Daemon {
       )
       .then((data) => {
         live.cmds.delete(p.command_id);
-        this.emit(sid, token, { kind: 'cmd_exit', data: { command_id: p.command_id, ...data } });
+        this.emit(sid, token, {
+          kind: 'cmd_exit',
+          data: { command_id: p.command_id, ...data, head_sha: headSha },
+        });
       })
       .catch((e: unknown) => this.log(`run_cmd ${p.command_id}: ${String(e)}`));
   }
@@ -860,6 +874,8 @@ export class Daemon {
       title: str(p.args.title, s.branch),
       body: str(p.args.body, 'Opened by conductor.'),
       root: this.config.rootDir,
+      expectedSha: p.expected_sha,
+      ...(this.ghCommand ? { gh: this.ghCommand } : {}),
       signal: abort.signal,
     })
       .catch((e: unknown) => ({ ok: false as const, error: errText(e) }))

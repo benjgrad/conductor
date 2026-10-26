@@ -35,6 +35,7 @@ export function engineEventForSessionEvent(p: SessionEventPayload): EngineEvent 
         exit_code: p.data.exit_code,
         timed_out: p.data.timed_out,
         output_tail: p.data.output_tail,
+        ...(p.data.head_sha !== undefined ? { head_sha: p.data.head_sha } : {}),
       };
     case 'spend':
       return {

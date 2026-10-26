@@ -103,6 +103,16 @@ export const UuidSchema = z.uuid();
 export const JsonObjectSchema = z.record(z.string(), z.json());
 export type JsonObject = z.infer<typeof JsonObjectSchema>;
 
+/**
+ * ADR-0010 open_pr: the only PR URL shape conductor records or shows. Checked by the daemon before
+ * it reports, by the engine before it stores, and by `BoardCardSchema` (anything else → null).
+ */
+export const GITHUB_PR_URL_RE = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/;
+
+export function isGithubPrUrl(v: unknown): v is string {
+  return typeof v === 'string' && GITHUB_PR_URL_RE.test(v);
+}
+
 /** Tail of command output kept for `attach: output` and `cmd_exit.output_tail` (10-contracts). */
 export const OUTPUT_TAIL_BYTES = 16 * 1024;
 

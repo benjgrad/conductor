@@ -19,6 +19,9 @@ export function referenceWorkflow(
   return WorkflowDefinitionSchema.parse(JSON.parse(readFileSync(url, 'utf8')));
 }
 
+/** The worktree HEAD a fake daemon reports with a command exit (ADR-0010). */
+export const HEAD_SHA = '3b18e512dba79e4c8300dd08aeb37f8e728b8dad';
+
 export const T0 = new Date('2026-10-22T12:00:00.000Z');
 
 /** A session as the claim INSERTs it: queued, no state, no machine. */
@@ -51,7 +54,7 @@ export function freshSnapshot(def: WorkflowDefinition): SessionSnapshot {
     claude_spend_totals: {},
     wall_seconds: 0,
     context: {},
-    review: null,
+    step: null,
   };
 }
 
@@ -136,13 +139,19 @@ export class Harness {
     return this.run({ type: 'agent.complete_state', result });
   }
 
-  cmdExit(exit_code: number | null, output_tail = '', timed_out = false): ApplyResult {
+  cmdExit(
+    exit_code: number | null,
+    output_tail = '',
+    timed_out = false,
+    head_sha: string | null = HEAD_SHA,
+  ): ApplyResult {
     return this.run({
       type: 'command.exited',
       command_id: this.newId(),
       exit_code,
       timed_out,
       output_tail,
+      head_sha,
     });
   }
 }

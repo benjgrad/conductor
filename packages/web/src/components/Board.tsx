@@ -1,5 +1,5 @@
-import { BOARD_COLUMNS, type BoardCard } from '@conductor/shared';
-import { boardColumns, COLUMN_TITLES, type BoardState } from '../board/board.js';
+import type { BoardCard } from '@conductor/shared';
+import { boardColumns, type BoardState } from '../board/board.js';
 import { AgentAvatar, agentName } from './agent-identity.js';
 import { ago, KIND_LABELS, STATUS_LABELS, usd } from './format.js';
 import { stateLabel } from '../workflow/review.js';
@@ -14,18 +14,18 @@ export function Board({ board, selectedSessionId, onSelect }: BoardProps) {
   const columns = boardColumns(board);
   return (
     <div className="board">
-      {BOARD_COLUMNS.map((col) => (
+      {columns.map((col) => (
         <section
-          key={col}
-          className={`column column-${col}`}
-          aria-label={COLUMN_TITLES[col]}
-          data-column={col}
+          key={col.id}
+          className={`column column-${col.id} column-kind-${col.kind}`}
+          aria-label={col.title}
+          data-column={col.id}
         >
           <h2>
-            {COLUMN_TITLES[col]} <span className="count">{columns[col].length}</span>
+            {col.title} <span className="count">{col.cards.length}</span>
           </h2>
           <ul>
-            {columns[col].map((card) => (
+            {col.cards.map((card) => (
               <li key={card.ticket_id}>
                 <Card
                   card={card}
@@ -77,6 +77,24 @@ function Card({ card, selected, onSelect }: CardProps) {
       </div>
       {card.badges.includes('waiting_for_build_slot') && (
         <span className="badge badge-slot">waiting for build slot</span>
+      )}
+      {card.checking && (
+        <span className="badge badge-checking">
+          checking requirements for {card.checking.title} ({card.checking.phase})
+        </span>
+      )}
+      {(['failed', 'lost', 'cancelled'] as const).map(
+        (b) =>
+          card.badges.includes(b) && (
+            <span key={b} className={`badge badge-${b}`}>
+              {b}
+            </span>
+          ),
+      )}
+      {card.pr_url && (
+        <a className="badge badge-pr" href={card.pr_url} target="_blank" rel="noreferrer">
+          pull request
+        </a>
       )}
       {q && (
         <div className="question" title={q.question}>

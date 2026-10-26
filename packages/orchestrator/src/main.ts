@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { conductorPort } from '@conductor/shared';
 import pg from 'pg';
 import { createApi as createRealApi } from './api/index.js';
+import { seedConductorWorkflow } from './engine/seed.js';
 import { createDb as createPoolDb } from './db/index.js';
 import { createEngineService as createRealEngineService } from './engine/index.js';
 import { createGateway as createRealGateway } from './gateway/index.js';
@@ -131,6 +132,8 @@ export function composeOrchestrator(
     outputBus,
     engine,
     async start() {
+      // ADR-0010: the one workflow exists before anything can reference it.
+      await seedConductorWorkflow(db);
       workers = engineHandle.startWorkers({ transport: gateway.transport });
       await api.listen(config.port ?? conductorPort(process.env), config.host ?? '127.0.0.1');
     },

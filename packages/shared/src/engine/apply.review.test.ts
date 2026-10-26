@@ -75,7 +75,9 @@ describe('gated outcome → review step', () => {
       claude_session_id: WORKER,
       state_deadline: iso(h.now.getTime() + 10 * 60_000),
       return_to: null,
-      review: {
+      step: {
+        kind: 'transition',
+        phase: 'review',
         from: 'implement',
         outcome: 'done',
         to: 'build',
@@ -84,9 +86,11 @@ describe('gated outcome → review step', () => {
         nudged: false,
       },
     });
-    expect(r.snapshot.review?.subject).toContain('added /health');
+    expect(r.snapshot.step?.subject).toContain('added /health');
     expect(r.snapshot.retry_counters).toEqual({}); // a gate-only object has no goto counter
-    expect(types(r.effects)).toEqual(['state_entered', 'start_session', 'set_deadline']);
+    // The worker's own process is killed first (ADR-0010 security review: it must stop writing).
+    expect(types(r.effects)).toEqual(['kill', 'state_entered', 'start_session', 'set_deadline']);
+    expect(find(r.effects, 'kill')).toMatchObject({ target_command_id: h.starts[0] });
     expect(find(r.effects, 'state_entered')).toEqual({
       type: 'state_entered',
       from: 'implement',
@@ -124,7 +128,7 @@ describe('gated outcome → review step', () => {
   it("keeps the reviewer's Claude session apart from the worker's", () => {
     const h = reviewing();
     expect(h.snap.claude_session_id).toBe(WORKER);
-    expect(h.snap.review?.claude_session_id).toBe(REVIEWER);
+    expect(h.snap.step?.claude_session_id).toBe(REVIEWER);
     expect(h.snap.agent_process_live).toBe(true);
   });
 
@@ -158,7 +162,7 @@ describe('the reviewer verdict', () => {
     expect(r.snapshot).toMatchObject({
       workflow_state: 'build',
       status: 'running',
-      review: null,
+      step: null,
       agent_command_id: null,
       agent_process_live: false,
       claude_session_id: WORKER,
@@ -185,7 +189,7 @@ describe('the reviewer verdict', () => {
     expect(r.snapshot).toMatchObject({
       workflow_state: 'implement',
       status: 'running',
-      review: null,
+      step: null,
       retry_counters: { [KEY]: 1 },
     });
     const start = find(r.effects, 'start_session')!;
@@ -226,7 +230,7 @@ describe('the reviewer verdict', () => {
       workflow_state: 'needs_input',
       status: 'needs_input',
       return_to: 'implement',
-      review: null,
+      step: null,
       retry_counters: { [KEY]: 2 },
     });
     const ir = find(r.effects, 'create_input_request')!;
@@ -272,7 +276,7 @@ describe('review failures', () => {
       workflow_state: 'needs_input',
       status: 'needs_input',
       return_to: 'implement',
-      review: null,
+      step: null,
     });
     expect(types(r.effects)[0]).toBe('kill');
     const ir = find(r.effects, 'create_input_request')!;
@@ -284,7 +288,7 @@ describe('review failures', () => {
     const h = reviewing();
     const n = h.complete({ verdict: 'looks good' });
     expect(n.snapshot.workflow_state).toBe(LABEL);
-    expect(n.snapshot.review?.nudged).toBe(true);
+    expect(n.snapshot.step?.nudged).toBe(true);
     const nudge = find(n.effects, 'start_session')!;
     expect(nudge).toMatchObject({
       resume_claude_session_id: REVIEWER,
@@ -296,7 +300,7 @@ describe('review failures', () => {
     h.started();
 
     const r = h.complete({ verdict: [{ item: ITEMS[0]!, met: 'yes' }] } as never);
-    expect(r.snapshot).toMatchObject({ workflow_state: 'needs_input', review: null });
+    expect(r.snapshot).toMatchObject({ workflow_state: 'needs_input', step: null });
     const ir = find(r.effects, 'create_input_request')!;
     expect(ir.kind).toBe('retries_exhausted');
     expect(ir.question).toContain('malformed verdict: verdict[0].met is not a boolean');
@@ -327,7 +331,7 @@ describe('review failures', () => {
   it('reviewer ask_user and a reviewer exit count as a missing verdict (nudge once)', () => {
     const h = reviewing();
     const a = h.run({ type: 'agent.ask_user', question: 'Which tests?' });
-    expect(a.snapshot.review?.nudged).toBe(true);
+    expect(a.snapshot.step?.nudged).toBe(true);
     expect(find(a.effects, 'start_session')?.resume_claude_session_id).toBe(REVIEWER);
     h.started();
     const r = h.run({ type: 'agent.exited', command_id: h.agentCmd, code: 1, signal: null });
@@ -348,7 +352,7 @@ describe('review failures', () => {
       reason: 'max_sessions',
     });
     expect(q.snapshot).toMatchObject({ status: 'queued', machine_id: null, workflow_state: LABEL });
-    expect(q.snapshot.review).not.toBeNull();
+    expect(q.snapshot.step).not.toBeNull();
     const a = h.run({ type: 'session.assigned', machine_id: 'mbp-2' });
     expect(a.snapshot.status).toBe('assigned');
     expect(find(a.effects, 'start_session')).toMatchObject({
@@ -426,7 +430,7 @@ describe('while reviewing', () => {
     expect(r.snapshot).toMatchObject({
       workflow_state: 'needs_input',
       return_to: 'implement',
-      review: null,
+      step: null,
     });
     expect(types(r.effects)).toContain('kill');
     expect(find(r.effects, 'create_input_request')?.kind).toBe('budget_exceeded');
@@ -435,7 +439,7 @@ describe('while reviewing', () => {
   it('cancel → failed, the reviewer killed, the review cleared', () => {
     const h = reviewing();
     const r = h.run({ type: 'operator.cancel' });
-    expect(r.snapshot).toMatchObject({ status: 'failed', review: null });
+    expect(r.snapshot).toMatchObject({ status: 'failed', step: null });
     expect(types(r.effects)).toContain('kill');
   });
 });

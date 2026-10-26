@@ -11,13 +11,14 @@
 //
 // E2E_REAL_CLAUDE=1 runs only the ask/answer scenario against the installed `claude` on haiku
 // (spends money; never in CI). See e2e/README.md.
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NO_OUTCOME_QUESTION } from '../packages/shared/src/index.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Api, BoardWatcher, OutputWatcher } from './harness/api.js';
 import { createFixtureRepo, failCounter, FAILURE_MARKER } from './harness/fixture-repo.js';
-import { REPO_ROOT, Stack, waitFor } from './harness/stack.js';
+import { FAKE_GH_URL, REPO_ROOT, Stack, waitFor } from './harness/stack.js';
 
 const REAL = process.env.E2E_REAL_CLAUDE === '1';
 const M1_BASIC = JSON.parse(
@@ -160,6 +161,24 @@ const SCENARIOS: Record<string, unknown> = {
   },
 };
 
+// ADR-0010 (the one workflow, conductor v1): planning, then implementing; its first pass leaves
+// the tests red once (the entry check sends it back with the output), the second finishes.
+SCENARIOS.conductor = {
+  turns: [
+    [{ say: 'Planning.' }, { complete_state: { plan: '1. add src/health.txt', summary: 'plan' } }],
+    [
+      { say: 'Implementing the plan.' },
+      { write_file: { path: 'src/health.txt', content: 'ok\n' } },
+      { write_file: { path: failCounter('test'), content: '1' } },
+      { complete_state: { summary: 'added /health' } },
+    ],
+  ],
+  defaultTurn: [
+    { say: 'Fixing the tests.' },
+    { complete_state: { summary: 'added /health, tests green', retry_prompt: '$answer' } },
+  ],
+};
+
 const REAL_ASK_PROMPT = [
   'This is an automated end-to-end test of the orchestrator. Do not read, edit or run anything.',
   'Step 1: call the ask_user tool with exactly this question: "Which port should /health listen on?" and then end your turn.',
@@ -237,9 +256,10 @@ describe.skipIf(REAL)('fake Claude', () => {
       machine_id: stack.machineId,
     });
     expect(board.states(id)).toEqual(['implement', 'build', 'test', 'done']);
-    // Cards go Queued → Running → Done (no detour through Needs input / Failed).
+    // ADR-0010: m1_basic's states map by type: Queued → Implementing (implement, build, test) →
+    // Done (no detour through Needs input).
     const columns = board.cards(id).map((c) => c.column);
-    expect(new Set(columns)).toEqual(new Set(['queued', 'running', 'done']));
+    expect(new Set(columns)).toEqual(new Set(['queued', 'implementing', 'done']));
 
     const detail = await api.session(sid);
     expect(detail.context).toMatchObject({ implement: { summary: 'added /health' } });
@@ -482,12 +502,20 @@ describe.skipIf(REAL)('fake Claude', () => {
       'test',
       'done',
     ]);
-    // The review step shows as running on the board, never Needs input.
-    expect(board.cards(id).some((c) => c.workflow_state === review && c.column === 'running')).toBe(
-      true,
-    );
+    // The review step stays in its source column (Implementing), badged checking (ADR-0010).
+    expect(
+      board
+        .cards(id)
+        .some(
+          (c) =>
+            c.workflow_state === review &&
+            c.column === 'implementing' &&
+            c.badges.includes('checking') &&
+            c.checking?.to === 'build',
+        ),
+    ).toBe(true);
     expect(new Set(board.cards(id).map((c) => c.column))).toEqual(
-      new Set(['queued', 'running', 'done']),
+      new Set(['queued', 'implementing', 'done']),
     );
 
     const detail = await api.session(done.session_id!);
@@ -502,6 +530,7 @@ describe.skipIf(REAL)('fake Claude', () => {
     // The last verdict is kept (all met) and the step itself is gone from the context.
     expect(detail.context[review]).toMatchObject({ verdict: [{ met: true }, { met: true }] });
     expect(detail.context).not.toHaveProperty('__review');
+    expect(detail.context).not.toHaveProperty('__entry');
     // Two reviewer runs' spend counted on top of the worker's.
     expect(detail.spend_usd).toBeGreaterThanOrEqual(0.003);
 
@@ -539,6 +568,88 @@ describe.skipIf(REAL)('fake Claude', () => {
     const h = (await api.transcript(done.session_id!)).chunks.map((c) => `${c.stream}: ${c.text}`);
     expect(h).toContain('assistant: Adding the missing test.');
     expect(h.some((t) => t.includes('Reviewing the requirements.'))).toBe(false);
+  });
+
+  it('ADR-0010: conductor: Planning → Implementing → entry checks (red once) → open_pr → Waiting external → Approve → Done', async () => {
+    // No workflow_id: the server default, conductor.
+    const t = await api.createTicket({
+      title: 'Conductor flow',
+      body: fakeBody('conductor'),
+      repo,
+    });
+    expect(t.workflow_id).toBe('conductor');
+    const id = t.id;
+    const entry = 'implementing → waiting_external (entry)';
+    const waiting = await board.card(
+      id,
+      'waiting_external',
+      (c) => c.column === 'waiting_external' && c.workflow_state === 'waiting_external',
+      60_000,
+    );
+    expect(board.states(id)).toEqual([
+      'planning',
+      'implementing',
+      entry,
+      'implementing',
+      entry,
+      'waiting_external',
+    ]);
+    // While checking, the card stayed in Implementing with the checking badge (each phase).
+    const checking = board.cards(id).filter((c) => c.workflow_state === entry);
+    expect(
+      checking.every((c) => c.column === 'implementing' && c.badges.includes('checking')),
+    ).toBe(true);
+    expect(new Set(checking.map((c) => c.checking?.phase))).toEqual(new Set(['checks', 'actions']));
+    expect(new Set(board.cards(id).map((c) => c.column))).toEqual(
+      new Set(['queued', 'planning', 'implementing', 'waiting_external']),
+    );
+    expect(waiting.pr_url).toBe(FAKE_GH_URL);
+    expect(waiting.status).toBe('waiting_external');
+
+    const sid = waiting.session_id!;
+    const detail = await api.session(sid);
+    expect(detail.retry_counters).toEqual({ 'entry:waiting_external': 1 });
+    expect(detail.context).toMatchObject({
+      planning: { plan: '1. add src/health.txt' },
+      __pr: { pr_url: FAKE_GH_URL, state: 'waiting_external' },
+    });
+    // The failed check's output went back to the worker (its retry prompt).
+    const prompt = detail.context.implementing?.retry_prompt;
+    expect(typeof prompt).toBe('string');
+    expect(prompt).toContain('Requirements to enter Waiting external were not met:');
+    expect(prompt).toContain('- Tests pass: `npm test` failed (exit code 1)');
+    expect(prompt).toContain(FAILURE_MARKER);
+
+    // Conductor (not the agent) pushed the branch to the repo and opened the PR with gh.
+    expect(() =>
+      execFileSync('git', ['rev-parse', '--verify', `refs/heads/${detail.branch!}`], {
+        cwd: repo,
+        stdio: 'pipe',
+      }),
+    ).not.toThrow();
+    const gh = readFileSync(stack.fakeGhLog, 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as { argv: string[]; cwd: string });
+    const create = gh.filter((c) => c.argv[0] === 'pr' && c.argv[1] === 'create');
+    expect(create).toHaveLength(1);
+    expect(create[0]!.argv).toEqual(
+      expect.arrayContaining([
+        '--repo',
+        '--head',
+        detail.branch!,
+        '--base',
+        'main',
+        'Conductor flow',
+      ]),
+    );
+    expect(create[0]!.argv.join(' ')).toContain('added /health, tests green');
+    expect(create[0]!.cwd).not.toContain(`${detail.worktree_path}`);
+
+    // Approve → Done; the PR URL stays on the card.
+    await api.approve(sid);
+    const done = await board.card(id, 'done', (c) => c.column === 'done');
+    expect(done).toMatchObject({ status: 'done', pr_url: FAKE_GH_URL, badges: [] });
   });
 
   it('shutdown: stopping the daemon kills a parked Claude process; nothing is left behind', async () => {

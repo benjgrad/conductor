@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { SessionStatusSchema } from '../domain.js';
 import { BOARD_SSE_FIXTURES, OUTPUT_CHUNK_FIXTURE } from './fixtures.js';
-import { BOARD_COLUMNS, columnFor, CreateTicketRequestSchema } from './rest.js';
+import { CONDUCTOR_V1_DEF, boardColumns } from '../workflow/conductor.js';
+import { CreateTicketRequestSchema } from './rest.js';
 import {
   BOARD_SSE_EVENT_TYPES,
   boardSseEventFromRow,
@@ -99,26 +100,18 @@ describe('sessionBranch', () => {
   });
 });
 
-describe('columnFor (06)', () => {
-  it.each([
-    ['queued', 'queued'],
-    ['assigned', 'queued'],
-    ['running', 'running'],
-    ['needs_input', 'needs_input'],
-    ['waiting_external', 'waiting_external'],
-    ['done', 'done'],
-    ['failed', 'failed'],
-    ['lost', 'failed'],
-  ] as const)('%s → %s', (status, column) => {
-    expect(columnFor(status)).toBe(column);
-  });
-
-  it('maps an unclaimed ticket (no session) to queued', () => {
-    expect(columnFor(null)).toBe('queued');
-  });
-
-  it('covers every status and only known columns', () => {
-    for (const s of SessionStatusSchema.options) expect(BOARD_COLUMNS).toContain(columnFor(s));
+describe('board columns (ADR-0010)', () => {
+  it('Queued first, then conductor v1 columns in order; null falls back to v1', () => {
+    const cols = boardColumns(null);
+    expect(cols.map((c) => [c.id, c.title, c.kind])).toEqual([
+      ['queued', 'Queued', 'queued'],
+      ['planning', 'Planning', 'agent'],
+      ['implementing', 'Implementing', 'agent'],
+      ['needs_input', 'Needs input', 'human'],
+      ['waiting_external', 'Waiting external', 'event'],
+      ['done', 'Done', 'terminal'],
+    ]);
+    expect(boardColumns(CONDUCTOR_V1_DEF)).toEqual(cols);
   });
 
   it('waiting_for_build_slot is not a status', () => {
@@ -140,5 +133,11 @@ describe('REST DTO defaults', () => {
       repo_allow_machines: null,
       external_ref: null,
     });
+  });
+
+  it('defaults workflow_id to conductor (ADR-0010)', () => {
+    expect(CreateTicketRequestSchema.parse({ title: 't', body: '', repo: 'r' }).workflow_id).toBe(
+      'conductor',
+    );
   });
 });

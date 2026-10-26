@@ -121,7 +121,7 @@ describe('createHttpApi over HTTP', () => {
   it('REST: parses the board and surfaces ApiError bodies', async () => {
     const client = api();
     const board = await client.getBoard();
-    expect(board.columns.needs_input.length).toBeGreaterThan(0);
+    expect(board.columns.find((c) => c.id === 'needs_input')!.cards.length).toBeGreaterThan(0);
     await expect(
       client.answer(SESSION, {
         input_request_id: '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d',

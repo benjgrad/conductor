@@ -1,6 +1,7 @@
 import {
+  GateStepSchema,
   REVIEW_CONTEXT_KEY,
-  ReviewStepSchema,
+  STEP_CONTEXT_KEY,
   WorkflowDefinitionSchema,
   type JsonObject,
   type SessionSnapshot,
@@ -102,29 +103,32 @@ export function toSnapshot(session: SessionRow, ticket: TicketRow): SessionSnaps
     spend_usd: Number(session.spend_usd),
     claude_spend_totals: session.claude_spend_totals,
     wall_seconds: Number(session.wall_seconds),
-    ...splitReview(session.context),
+    ...splitStep(session.context),
   };
 }
 
 /**
- * ADR-0009: the review step lives in the `context` jsonb under REVIEW_CONTEXT_KEY (no column, no
- * migration); the snapshot carries it as `review` and a context without it.
+ * The gate step (ADR-0009 review / ADR-0010 entry) lives in the `context` jsonb under
+ * STEP_CONTEXT_KEY (no column, no migration); rows written before ADR-0010 have it under
+ * REVIEW_CONTEXT_KEY. The snapshot carries it as `step` and a context without either key.
  */
-export function splitReview(stored: SessionRow['context']): {
+export function splitStep(stored: SessionRow['context']): {
   context: SessionSnapshot['context'];
-  review: SessionSnapshot['review'];
+  step: SessionSnapshot['step'];
 } {
-  const { [REVIEW_CONTEXT_KEY]: raw, ...context } = stored;
-  if (raw === undefined) return { context, review: null };
-  const parsed = ReviewStepSchema.safeParse(raw);
-  return { context, review: parsed.success ? parsed.data : null };
+  const { [STEP_CONTEXT_KEY]: raw, [REVIEW_CONTEXT_KEY]: legacy, ...context } = stored;
+  const value = raw ?? legacy;
+  if (value === undefined) return { context, step: null };
+  const parsed = GateStepSchema.safeParse(value);
+  return { context, step: parsed.success ? parsed.data : null };
 }
 
-/** The `context` jsonb to store: the snapshot's context plus its review step, if any. */
-export function joinReview(s: Pick<SessionSnapshot, 'context' | 'review'>): JsonObject {
-  const { [REVIEW_CONTEXT_KEY]: _dropped, ...context } = s.context;
-  void _dropped;
-  return s.review === null ? context : { ...context, [REVIEW_CONTEXT_KEY]: s.review };
+/** The `context` jsonb to store: the snapshot's context plus its gate step, if any. */
+export function joinStep(s: Pick<SessionSnapshot, 'context' | 'step'>): JsonObject {
+  const { [STEP_CONTEXT_KEY]: _a, [REVIEW_CONTEXT_KEY]: _b, ...context } = s.context;
+  void _a;
+  void _b;
+  return s.step === null ? context : { ...context, [STEP_CONTEXT_KEY]: s.step };
 }
 
 /** Write every apply-owned session column from the snapshot (plus updated_at). */
@@ -160,7 +164,7 @@ export async function writeSession(
       s.spend_usd,
       JSON.stringify(s.claude_spend_totals),
       s.wall_seconds,
-      JSON.stringify(joinReview(s)),
+      JSON.stringify(joinStep(s)),
       now,
     ],
   );

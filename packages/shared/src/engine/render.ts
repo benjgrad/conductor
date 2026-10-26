@@ -12,6 +12,18 @@ import type { SessionSnapshot } from './types.js';
 /** The built-in template both reference workflows use for `implement`. */
 export const TICKET_TEMPLATE = 'ticket_template';
 
+/**
+ * ADR-0010 `conductor` Planning: read the repo and the ticket, write a plan; no code changes. The
+ * state's tools are read-only, so the tool policy enforces what the prompt asks.
+ */
+export const PLAN_TEMPLATE = 'plan_template';
+
+/** ADR-0010 `conductor` Implementing: change the code following the plan (`$planning.plan`). */
+export const IMPLEMENT_TEMPLATE = 'implement_template';
+
+/** Every built-in template name (an agent `prompt` equal to one of these renders it). */
+export const PROMPT_TEMPLATES = [TICKET_TEMPLATE, PLAN_TEMPLATE, IMPLEMENT_TEMPLATE] as const;
+
 /** What a retry loop with `attach: output` carries back into the agent state. */
 export interface PromptAttachment {
   /** The state whose failure routed here (e.g. `build`). */
@@ -49,6 +61,10 @@ export function renderPrompt(input: RenderPromptInput): string {
 
   if (state.prompt === TICKET_TEMPLATE) {
     parts.push(ticketSection(snapshot.ticket));
+  } else if (state.prompt === PLAN_TEMPLATE) {
+    parts.push(ticketSection(snapshot.ticket), PLAN_INSTRUCTIONS);
+  } else if (state.prompt === IMPLEMENT_TEMPLATE) {
+    parts.push(ticketSection(snapshot.ticket), IMPLEMENT_INSTRUCTIONS);
   } else if (state.prompt !== undefined) {
     parts.push(
       state.prompt.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (m, key: string) => {
@@ -87,6 +103,22 @@ export function renderPrompt(input: RenderPromptInput): string {
   parts.push(finishSection(state));
   return parts.join('\n\n');
 }
+
+const PLAN_INSTRUCTIONS = [
+  '## Your step: planning',
+  '',
+  'Read the repository and work out how to do this ticket. Do not change any files, run builds or commit: this step only plans.',
+  'Write a plan another agent can follow: the files to change, the approach, the tests to add or update, and anything risky or unclear.',
+  'Finish with `complete_state` and a result `{"plan": "<the plan, in Markdown>", "summary": "<one or two sentences>"}`.',
+].join('\n');
+
+const IMPLEMENT_INSTRUCTIONS = [
+  '## Your step: implementing',
+  '',
+  'Make the change, following the plan under Inputs (written in the planning step; adapt it where the code tells you otherwise).',
+  'Add or update tests. Commit your work on the current branch with `git commit`; do not push. Conductor then checks that the build and the tests pass, pushes the branch and opens the pull request itself.',
+  'Finish with `complete_state` and a result that includes `"summary"`: a short description of the change, used as the pull request description.',
+].join('\n');
 
 function ticketSection(t: RenderPromptInput['snapshot']['ticket']): string {
   const lines = [`# Ticket: ${t.title}`, '', t.body.trim() || '(no description)', ''];

@@ -24,12 +24,12 @@ describe('mock ApiClient', () => {
   it('serves contract-valid board and session DTOs', async () => {
     const api = createMockApi({ now });
     const board = BoardResponseSchema.parse(await api.getBoard());
-    expect(board.columns.needs_input).toHaveLength(2);
-    expect(board.columns.running.some((c) => c.badges.includes('waiting_for_build_slot'))).toBe(
-      true,
-    );
-    for (const col of Object.values(board.columns)) {
-      for (const card of col) {
+    const col = (id: string) => board.columns.find((c) => c.id === id)!.cards;
+    expect(col('needs_input')).toHaveLength(2);
+    // ADR-0010: old m1_* states map by type (build, implement → Implementing).
+    expect(col('implementing').some((c) => c.badges.includes('waiting_for_build_slot'))).toBe(true);
+    for (const column of board.columns) {
+      for (const card of column.cards) {
         if (card.session_id) SessionDetailSchema.parse(await api.getSession(card.session_id));
       }
     }
@@ -89,7 +89,7 @@ describe('mock ApiClient', () => {
     expect((await api.getSession(SEED_IDS.approval.session)).card.column).toBe('done');
     await expect(api.cancel(SEED_IDS.done.session)).rejects.toMatchObject({ code: 'conflict' });
     await api.cancel(SEED_IDS.running.session);
-    expect((await api.getSession(SEED_IDS.running.session)).card.column).toBe('failed');
+    expect((await api.getSession(SEED_IDS.running.session)).card.column).toBe('done');
   });
 
   it('streams output chunks pushed after subscribe', async () => {

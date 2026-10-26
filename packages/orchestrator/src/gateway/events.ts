@@ -35,12 +35,21 @@ export function engineEventForSessionEvent(p: SessionEventPayload): EngineEvent 
         exit_code: p.data.exit_code,
         timed_out: p.data.timed_out,
         output_tail: p.data.output_tail,
+        ...(p.data.head_sha !== undefined ? { head_sha: p.data.head_sha } : {}),
       };
     case 'spend':
       return {
         type: 'spend.reported',
         claude_session_id: p.data.claude_session_id,
         total_usd: p.data.total_usd,
+      };
+    case 'action_result':
+      return {
+        type: 'action.completed',
+        command_id: p.data.command_id,
+        action: p.data.action,
+        result: p.data.result,
+        error: p.data.error,
       };
     case 'build_slot':
     case 'heartbeat':

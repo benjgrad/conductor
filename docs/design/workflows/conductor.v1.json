@@ -1,0 +1,69 @@
+{
+  "id": "conductor",
+  "version": 1,
+  "start": "planning",
+  "budget": {
+    "usd": 5,
+    "minutes": 120,
+    "max_loop_retries": 3
+  },
+  "on_budget_exceeded": "needs_input",
+  "columns": ["planning", "implementing", "needs_input", "waiting_external", "done"],
+  "states": {
+    "planning": {
+      "type": "agent",
+      "title": "Planning",
+      "prompt": "plan_template",
+      "tools": ["read"],
+      "result": ["plan", "summary"],
+      "timeout": "20m",
+      "on": {
+        "done": "implementing",
+        "ask_user": "needs_input",
+        "timeout": "needs_input"
+      }
+    },
+    "implementing": {
+      "type": "agent",
+      "title": "Implementing",
+      "prompt": "implement_template",
+      "tools": ["edit", "bash", "git"],
+      "input": { "plan": "$planning.plan" },
+      "timeout": "30m",
+      "on": {
+        "done": "waiting_external",
+        "ask_user": "needs_input",
+        "timeout": "needs_input"
+      }
+    },
+    "needs_input": {
+      "type": "human",
+      "title": "Needs input"
+    },
+    "waiting_external": {
+      "type": "event",
+      "title": "Waiting external",
+      "wait_for": ["ui.approve"],
+      "entry": {
+        "checks": [
+          { "name": "Build passes", "cmd": "npm run build", "timeout": "10m" },
+          { "name": "Tests pass", "cmd": "npm test", "timeout": "10m" }
+        ],
+        "actions": ["open_pr"],
+        "on_unmet": {
+          "goto": "implementing",
+          "instruction": "Fix what is listed above, commit, then finish the step again.",
+          "retries": 3,
+          "else": "needs_input"
+        }
+      },
+      "on": {
+        "ui.approve": "done"
+      }
+    },
+    "done": {
+      "type": "terminal",
+      "title": "Done"
+    }
+  }
+}

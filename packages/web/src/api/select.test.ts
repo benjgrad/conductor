@@ -24,6 +24,7 @@ describe('API selection (VITE_API)', () => {
   it('mock serves the seeded board', async () => {
     const { kind, api } = createApiFromEnv({ VITE_API: 'mock' });
     expect(kind).toBe('mock');
-    expect((await api.getBoard()).columns.needs_input.length).toBeGreaterThan(0);
+    const board = await api.getBoard();
+    expect(board.columns.find((c) => c.id === 'needs_input')!.cards.length).toBeGreaterThan(0);
   });
 });

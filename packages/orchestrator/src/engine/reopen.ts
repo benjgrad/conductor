@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import {
-  columnFor,
   sessionBranch,
   toBoardCard,
   type BoardSseEvent,
@@ -12,7 +11,8 @@ import { withTransaction } from '../db/index.js';
 import type { SessionRow, TicketRow } from '../db/types.js';
 import { LEASE_INTERVAL } from '../gateway/claim.js';
 import type { Db } from '../main.js';
-import { readSession, splitReview } from './rows.js';
+import { cardView } from './board-view.js';
+import { readSession, splitStep } from './rows.js';
 
 // ADR-0008: reopen a finished ticket by resuming the same agent. One transaction:
 //   lock ticket → lock the old session → checks (terminal, latest) → INSERT the new session
@@ -86,7 +86,7 @@ export async function reopenSession(
         JSON.stringify(pending),
         // ADR-0009: never carry a review step (a session that ended mid-review); the reopened
         // session starts at def.start and resumes the worker's Claude session, never a reviewer's.
-        JSON.stringify(splitReview(old.context).context),
+        JSON.stringify(splitStep(old.context).context),
         JSON.stringify(old.claude_spend_totals),
       ],
     );
@@ -100,20 +100,18 @@ export async function reopenSession(
     );
     const fresh = await readSession(tx, sessionId);
     const t2 = await tx.query<TicketRow>('SELECT * FROM ticket WHERE id = $1', [ticket.id]);
+    const view = await cardView(tx, old.workflow_id, old.workflow_version);
+    const before = toBoardCard(ticket, old, null, view);
+    const after = toBoardCard(t2.rows[0]!, fresh, null, view);
     const boardEvents = await insertBoardEvents(tx, [
       {
         type: 'card.moved',
         session_id: sessionId,
         ticket_id: ticket.id,
-        from: columnFor(old.status),
-        to: columnFor(fresh.status),
+        from: before.column,
+        to: after.column,
       },
-      {
-        type: 'card.upserted',
-        session_id: sessionId,
-        ticket_id: ticket.id,
-        card: toBoardCard(t2.rows[0]!, fresh, null),
-      },
+      { type: 'card.upserted', session_id: sessionId, ticket_id: ticket.id, card: after },
     ]);
     return { status: 'reopened', sessionId, boardEvents } as const;
   });

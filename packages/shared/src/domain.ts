@@ -47,6 +47,8 @@ export const OutboxKindSchema = z.enum([
   'send_input',
   'send_message',
   'run_cmd',
+  /** ADR-0010: a conductor entry action (open_pr) on the session's machine. */
+  'run_action',
   'kill',
   'connector_call',
 ]);
@@ -73,19 +75,25 @@ export const OutputStreamSchema = z.enum([
 ]);
 export type OutputStream = z.infer<typeof OutputStreamSchema>;
 
-/** Kanban columns (06). Queries over `session.status`, never stored. */
-export const BoardColumnSchema = z.enum([
-  'queued',
-  'running',
-  'needs_input',
-  'waiting_external',
-  'done',
-  'failed',
-]);
+/**
+ * A kanban column id (06, ADR-0010): `queued` (the implicit first column) or a state name of the
+ * `conductor` workflow. Derived from the session, never stored.
+ */
+export const BoardColumnSchema = z.string().min(1);
 export type BoardColumn = z.infer<typeof BoardColumnSchema>;
 
-/** Card badges: transient flags on a card that are not statuses. */
-export const CardBadgeSchema = z.enum(['waiting_for_build_slot']);
+/**
+ * Card badges: flags on a card that are not columns (ADR-0010: status is a badge now).
+ * `checking`: in an entry step (or ADR-0009 review), still in its source column. `failed` /
+ * `lost` / `cancelled`: the session or ticket ended that way; the card is in the Done column.
+ */
+export const CardBadgeSchema = z.enum([
+  'waiting_for_build_slot',
+  'checking',
+  'failed',
+  'lost',
+  'cancelled',
+]);
 export type CardBadge = z.infer<typeof CardBadgeSchema>;
 
 export const IsoDateTimeSchema = z.iso.datetime({ offset: true });
@@ -94,6 +102,16 @@ export const UuidSchema = z.uuid();
 /** Arbitrary JSON object (state results, context, connector args). */
 export const JsonObjectSchema = z.record(z.string(), z.json());
 export type JsonObject = z.infer<typeof JsonObjectSchema>;
+
+/**
+ * ADR-0010 open_pr: the only PR URL shape conductor records or shows. Checked by the daemon before
+ * it reports, by the engine before it stores, and by `BoardCardSchema` (anything else → null).
+ */
+export const GITHUB_PR_URL_RE = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/;
+
+export function isGithubPrUrl(v: unknown): v is string {
+  return typeof v === 'string' && GITHUB_PR_URL_RE.test(v);
+}
 
 /** Tail of command output kept for `attach: output` and `cmd_exit.output_tail` (10-contracts). */
 export const OUTPUT_TAIL_BYTES = 16 * 1024;

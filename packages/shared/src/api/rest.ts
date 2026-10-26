@@ -9,12 +9,27 @@ import {
   SessionStatusSchema,
   TicketStatusSchema,
   UuidSchema,
+  GITHUB_PR_URL_RE,
+  isGithubPrUrl,
   type BoardColumn,
   type CardBadge,
   type SessionStatus,
+  type TicketStatus,
 } from '../domain.js';
-import type { ApplyIgnoreReason, ApplyRejectReason } from '../engine/types.js';
-import { WorkflowDefinitionSchema } from '../workflow/schema.js';
+import { PR_CONTEXT_KEY, REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
+import {
+  GateStepSchema,
+  type ApplyIgnoreReason,
+  type ApplyRejectReason,
+  type GateStep,
+} from '../engine/types.js';
+import { QUEUED_COLUMN_ID, stateTitle, type BoardColumnInfo } from '../workflow/conductor.js';
+import {
+  CONDUCTOR_WORKFLOW_ID,
+  StateNameSchema,
+  WorkflowDefinitionSchema,
+  type WorkflowDefinition,
+} from '../workflow/schema.js';
 import { OutputChunkSchema } from './output.js';
 
 // REST DTOs for UI ↔ orchestrator (03 §REST). Implemented by M1-T08, consumed by M1-T09.
@@ -55,29 +70,127 @@ export function conductorPort(env: Record<string, string | undefined> = {}): num
   return n;
 }
 
-// ---------------------------------------------------------------- columns (06)
+// ---------------------------------------------------------------- columns (06, ADR-0010)
 
-const COLUMN_BY_STATUS: Record<SessionStatus, BoardColumn> = {
-  queued: 'queued',
-  assigned: 'queued',
-  running: 'running',
-  needs_input: 'needs_input',
-  waiting_external: 'waiting_external',
-  done: 'done',
-  failed: 'failed',
-  lost: 'failed',
-};
+/** What a column shows: the implicit queue, or the type of the state it is (ADR-0010). */
+export const BoardColumnKindSchema = z.enum([
+  'queued',
+  'agent',
+  'command',
+  'event',
+  'connector',
+  'human',
+  'terminal',
+]);
 
-/**
- * Kanban column for a session status (06 §Kanban columns). `null` = a ticket with no session
- * yet (status `ready`), which shows in Queued. `waiting_for_build_slot` is a badge, not a status,
- * so a session waiting for a build slot stays in Running.
- */
-export function columnFor(status: SessionStatus | null): BoardColumn {
-  return status === null ? 'queued' : COLUMN_BY_STATUS[status];
+/** Where a card goes and how it is badged. See `placeCard`. */
+export interface CardPlacement {
+  column: BoardColumn;
+  badges: CardBadge[];
+  checking: BoardChecking | null;
 }
 
-export const BOARD_COLUMNS = BoardColumnSchema.options;
+/** What `toBoardCard` needs besides the rows: the board's columns and the session's definition. */
+export interface CardView {
+  /** `boardColumns(<latest conductor definition>)`: Queued first, then the states. */
+  columns: readonly BoardColumnInfo[];
+  /** The session's pinned workflow definition (state types for the fallback); null = unknown. */
+  def: Pick<WorkflowDefinition, 'states'> | null;
+}
+
+/**
+ * The column a state's card shows in (ADR-0010 §Board): the state itself when it is a column,
+ * else (older `conductor` versions, old `m1_*` workflows) by the state's type: terminal → the
+ * first terminal column (Done), human → the first human column (Needs input), event → the first
+ * event column (Waiting external), agent / command / connector → `implementing` (or the last agent
+ * column). Anything unresolvable also goes to the agent fallback.
+ */
+export function columnForState(
+  columns: readonly BoardColumnInfo[],
+  def: CardView['def'],
+  state: string,
+): BoardColumn {
+  if (columns.some((c) => c.id === state && c.kind !== 'queued')) return state;
+  const type = def?.states[state]?.type;
+  const first = (kind: BoardColumnInfo['kind']) => columns.find((c) => c.kind === kind)?.id;
+  if (type === 'terminal') return first('terminal') ?? terminalColumn(columns);
+  if (type === 'human') return first('human') ?? agentColumn(columns);
+  if (type === 'event') return first('event') ?? agentColumn(columns);
+  return agentColumn(columns);
+}
+
+function agentColumn(columns: readonly BoardColumnInfo[]): BoardColumn {
+  if (columns.some((c) => c.id === 'implementing')) return 'implementing';
+  return columns.filter((c) => c.kind === 'agent').at(-1)?.id ?? QUEUED_COLUMN_ID;
+}
+
+/** The Done column: the first terminal column, else the last column. */
+export function terminalColumn(columns: readonly BoardColumnInfo[]): BoardColumn {
+  return columns.find((c) => c.kind === 'terminal')?.id ?? columns.at(-1)?.id ?? QUEUED_COLUMN_ID;
+}
+
+/** The gate step stored in a session's `context` jsonb (ADR-0010 key, else the ADR-0009 one). */
+export function stepOfContext(context: Record<string, unknown>): GateStep | null {
+  const raw = context[STEP_CONTEXT_KEY] ?? context[REVIEW_CONTEXT_KEY];
+  if (raw === undefined) return null;
+  const parsed = GateStepSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
+ * A card's column, badges and `checking` (ADR-0010 §Board, the one rule; 10-contracts):
+ * - ticket `cancelled`, or session `failed` / `lost` → the terminal column (Done), badged
+ *   `cancelled` / `failed` / `lost`;
+ * - no session yet, or no state yet (status `queued` / `assigned` before the first state) → Queued;
+ * - in a gate step (entry requirements, or an ADR-0009 review) → its source column, badged
+ *   `checking`, with `checking: {to, title, phase}`;
+ * - otherwise its `workflow_state` (`columnForState`).
+ * `waiting_for_build_slot` is added whenever the session has it.
+ */
+export function placeCard(
+  ticketStatus: TicketStatus,
+  session: Pick<
+    CardSessionLike,
+    'status' | 'workflow_state' | 'waiting_for_build_slot' | 'context'
+  > | null,
+  view: CardView,
+): CardPlacement {
+  const badges: CardBadge[] = session?.waiting_for_build_slot ? ['waiting_for_build_slot'] : [];
+  const { columns, def } = view;
+  if (ticketStatus === 'cancelled') {
+    return { column: terminalColumn(columns), badges: [...badges, 'cancelled'], checking: null };
+  }
+  if (session === null) return { column: QUEUED_COLUMN_ID, badges, checking: null };
+  if (session.status === 'failed' || session.status === 'lost') {
+    return { column: terminalColumn(columns), badges: [...badges, session.status], checking: null };
+  }
+  const step = stepOfContext(session.context);
+  if (step !== null) {
+    return {
+      column: columnForState(columns, def, step.from),
+      badges: [...badges, 'checking'],
+      checking: {
+        to: step.to,
+        title: def ? stateTitle(def, step.to) : step.to,
+        phase: step.phase,
+      },
+    };
+  }
+  if (session.workflow_state === null) return { column: QUEUED_COLUMN_ID, badges, checking: null };
+  return { column: columnForState(columns, def, session.workflow_state), badges, checking: null };
+}
+
+/**
+ * The PR conductor opened for the session (ADR-0010): only `context.__pr.pr_url`, which the engine
+ * writes from open_pr's result, and only a `https://github.com/<o>/<r>/pull/<n>` URL. A `pr_url`
+ * in an agent's result (any other key) is never shown.
+ */
+export function prUrlOfContext(context: Record<string, unknown>): string | null {
+  const rec = context[PR_CONTEXT_KEY];
+  if (rec === null || typeof rec !== 'object' || Array.isArray(rec)) return null;
+  const url = (rec as Record<string, unknown>).pr_url;
+  return isGithubPrUrl(url) ? url : null;
+}
 
 // ---------------------------------------------------------------- DTOs
 
@@ -93,6 +206,18 @@ export const InputRequestDtoSchema = z.object({
 });
 export type InputRequestDto = z.infer<typeof InputRequestDtoSchema>;
 
+/**
+ * ADR-0010: the card is checking the requirements to enter `to` (still in its source column).
+ * `phase`: `checks` (commands), `review` (the reviewer agent) or `actions` (e.g. open_pr).
+ */
+export const BoardCheckingSchema = z.object({
+  to: StateNameSchema,
+  /** The target's column title. */
+  title: z.string(),
+  phase: z.enum(['checks', 'review', 'actions']),
+});
+export type BoardChecking = z.infer<typeof BoardCheckingSchema>;
+
 /** One card. A ticket with no session yet has `session_id: null` and `status: null`. */
 export const BoardCardSchema = z.object({
   ticket_id: UuidSchema,
@@ -104,8 +229,13 @@ export const BoardCardSchema = z.object({
   workflow_id: z.string(),
   workflow_state: z.string().nullable(),
   status: SessionStatusSchema.nullable(),
+  /** A column id of `BoardResponse.columns` (ADR-0010: `queued` or a state name). */
   column: BoardColumnSchema,
   badges: z.array(CardBadgeSchema),
+  /** In an entry step: what it is checking (ADR-0010); null otherwise. */
+  checking: BoardCheckingSchema.nullable(),
+  /** The pull request conductor opened for it (`open_pr`, ADR-0010), if any. */
+  pr_url: z.string().regex(GITHUB_PR_URL_RE).nullable().catch(null),
   machine_id: z.string().nullable(),
   spend_usd: z.number().nonnegative(),
   /** Open input request (needs-input cards): the question badge. */
@@ -116,19 +246,23 @@ export const BoardCardSchema = z.object({
 });
 export type BoardCard = z.infer<typeof BoardCardSchema>;
 
+/** One board column (ADR-0010): Queued, then each `columns` state of the `conductor` workflow. */
+export const BoardColumnDtoSchema = z.object({
+  id: BoardColumnSchema,
+  title: z.string(),
+  kind: BoardColumnKindSchema,
+  cards: z.array(BoardCardSchema),
+});
+export type BoardColumnDto = z.infer<typeof BoardColumnDtoSchema>;
+
 /**
- * GET /api/board. Each column is pre-sorted per 06 (needs_input: oldest open input_request
- * first). `last_event_id` is where the SSE board stream should resume (Last-Event-ID).
+ * GET /api/board. `columns` is ordered left to right (ADR-0010), built from the latest `conductor`
+ * version: Queued (`id: 'queued'`) first. Each column is pre-sorted per 06 by its kind (queued:
+ * priority then age; human: oldest open input_request first; event: oldest first; others: most
+ * recent activity first). `last_event_id` is where the SSE board stream should resume.
  */
 export const BoardResponseSchema = z.object({
-  columns: z.object({
-    queued: z.array(BoardCardSchema),
-    running: z.array(BoardCardSchema),
-    needs_input: z.array(BoardCardSchema),
-    waiting_external: z.array(BoardCardSchema),
-    done: z.array(BoardCardSchema),
-    failed: z.array(BoardCardSchema),
-  }) satisfies z.ZodType<Record<BoardColumn, BoardCard[]>>,
+  columns: z.array(BoardColumnDtoSchema),
   last_event_id: z.number().int().nonnegative(),
 });
 export type BoardResponse = z.infer<typeof BoardResponseSchema>;
@@ -292,12 +426,15 @@ export const TicketDtoSchema = z.object({
 });
 export type TicketDto = z.infer<typeof TicketDtoSchema>;
 
-/** POST /api/tickets → 201 TicketDto */
+/**
+ * POST /api/tickets → 201 TicketDto. ADR-0010: `workflow_id` defaults to `conductor` (the one
+ * workflow); another id is still accepted (older tickets' workflows stay in the database).
+ */
 export const CreateTicketRequestSchema = z.object({
   title: z.string().min(1),
   body: z.string(),
   repo: z.string().min(1),
-  workflow_id: z.string().min(1),
+  workflow_id: z.string().min(1).default(CONDUCTOR_WORKFLOW_ID),
   priority: z.number().int().default(0),
   required_tags: z.array(z.string()).default([]),
   repo_allow_machines: z.array(z.string()).nullable().default(null),
@@ -370,6 +507,7 @@ const iso = (t: Ts): string => (t instanceof Date ? t.toISOString() : new Date(t
 /** The `ticket` columns a card needs (structurally matches the orchestrator's TicketRow). */
 export interface CardTicketLike {
   id: string;
+  status: TicketStatus;
   title: string;
   external_ref: string | null;
   repo: string;
@@ -387,6 +525,8 @@ export interface CardSessionLike {
   machine_id: string | null;
   spend_usd: Num;
   waiting_for_build_slot: boolean;
+  /** The `context` jsonb: the gate step (`checking`) and the PR URL come from it. */
+  context: Record<string, unknown>;
   updated_at: Ts;
 }
 
@@ -420,14 +560,15 @@ export function toInputRequestDto(row: InputRequestLike): InputRequestDto {
  * `session` null = a ticket with no session yet (Queued). `openInput` = the session's unanswered
  * input_request, if any; it shows only while the session is `needs_input`, so a request a cancel
  * left open drops off the card (TD-079). `updated_at` = the later of the ticket's and the
- * session's.
+ * session's. `view`: the board's columns and the session's definition (ADR-0010, `placeCard`).
  */
 export function toBoardCard(
   ticket: CardTicketLike,
   session: CardSessionLike | null,
   openInput: InputRequestLike | null,
+  view: CardView,
 ): BoardCard {
-  const badges: CardBadge[] = session?.waiting_for_build_slot ? ['waiting_for_build_slot'] : [];
+  const place = placeCard(ticket.status, session, view);
   const tUpd = iso(ticket.updated_at);
   const sUpd = session ? iso(session.updated_at) : tUpd;
   return {
@@ -440,8 +581,10 @@ export function toBoardCard(
     workflow_id: ticket.workflow_id,
     workflow_state: session?.workflow_state ?? null,
     status: session?.status ?? null,
-    column: columnFor(session?.status ?? null),
-    badges,
+    column: place.column,
+    badges: place.badges,
+    checking: place.checking,
+    pr_url: session ? prUrlOfContext(session.context) : null,
     machine_id: session?.machine_id ?? null,
     spend_usd: session ? Number(session.spend_usd) : 0,
     input_request:

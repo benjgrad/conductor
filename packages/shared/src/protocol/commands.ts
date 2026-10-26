@@ -109,6 +109,7 @@ export function commandPayloadForEffect(
           cwd: effect.cwd,
           timeout_ms: effect.timeout_ms,
           ...(effect.require_clean === true ? { require_clean: true as const } : {}),
+          ...(effect.checkout !== undefined ? { checkout: effect.checkout } : {}),
         },
       };
     case 'run_action':

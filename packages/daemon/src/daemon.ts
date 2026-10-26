@@ -22,6 +22,7 @@ import { DaemonStore, type AckRecord, type PortRange } from './store.js';
 import { liveResources, type SysInfo } from './sysinfo.js';
 import { buildAppendSystemPrompt } from './system-prompt.js';
 import { inventoryDigest, Workspace } from './workspace.js';
+import { detectSetup, freshCheckout, removeCheckout, sweepPrivate } from './actions/checkout.js';
 import { checkClean, openPr, resolveHead } from './actions/open-pr.js';
 import { ReconnectingWs } from './ws-client.js';
 
@@ -99,6 +100,13 @@ interface RunningCmd {
   abort: AbortController;
 }
 
+/** ADR-0010: an entry step's fresh checkout (the commit, its dir, the fencing token it runs under). */
+interface Checkout {
+  sha: string;
+  dir: string;
+  token: number;
+}
+
 interface LiveSession {
   agent: AgentProc | null;
   starting: Starting | null;
@@ -129,6 +137,20 @@ export class Daemon {
   /** session_id → timer that releases the slot a `work_assignment` holds (config.assignmentHoldMs). */
   private readonly assignments = new Map<string, NodeJS.Timeout>();
   private readonly inFlight = new Set<string>();
+  /** ADR-0010: the fresh checkout an entry step's checks share (session id → its commit and dir). */
+  private readonly checkouts = new Map<string, Checkout>();
+
+  /**
+   * Remove a session's fresh checkout. With `only`, remove just that one: the map entry is
+   * cleared only if it is still that checkout (an old visit can't drop a newer one).
+   */
+  private dropCheckout(sid: string, only?: Checkout): void {
+    const held = this.checkouts.get(sid);
+    const target = only ?? held;
+    if (target === undefined) return;
+    removeCheckout(target.dir);
+    if (held === target) this.checkouts.delete(sid);
+  }
 
   constructor(opts: DaemonOptions) {
     this.config = opts.config;
@@ -141,6 +163,8 @@ export class Daemon {
     this.heartbeatMs = this.config.heartbeatIntervalMs;
     mkdirSync(this.config.rootDir, { recursive: true });
     this.store = DaemonStore.forRoot(this.config.rootDir);
+    // Fresh checkouts / push repos a previous daemon left behind (ADR-0010).
+    sweepPrivate(this.config.rootDir);
     this.workspace = new Workspace(this.config.rootDir, this.store, {
       allowLocalRepos: this.config.allowLocalRepos,
       allowedRepoHosts: this.config.allowedRepoHosts,
@@ -502,6 +526,10 @@ export class Daemon {
       return this.startRefused(sid, this.config.workPollMs);
     }
     this.releaseAssignment(sid);
+    // A new agent start means any entry step's checks are over (a reviewer starts only after the
+    // last check, a worker after the step ended): drop a checkout an older visit left behind.
+    const staleCheckout = this.checkouts.get(sid);
+    if (staleCheckout && staleCheckout.token <= token) this.dropCheckout(sid, staleCheckout);
     if (current) {
       // A newer start for the same session supersedes the running process (same worktree).
       this.log(`session ${sid}: start ${p.command_id} supersedes ${current.commandId}`);
@@ -791,53 +819,114 @@ export class Daemon {
     this.touch(sid);
     const started = Date.now();
     // ADR-0010: the commit this command runs on (an entry check's `head_sha`). An entry check
-    // (`require_clean`) runs only on a clean worktree; a dirty one is reported, not run.
+    // (`require_clean`) needs a clean worktree (an early, friendly pre-check: dirty is reported,
+    // not run), and (`checkout`, Ben 2026-10-26) runs in a fresh, conductor-owned checkout of that
+    // one commit, never in the agent's worktree.
     let headSha: string | null = null;
     let dirty: string[] | null = null;
-    const before: Promise<void> = p.require_clean
-      ? checkClean(s.worktreePath).then((c) => {
-          headSha = c.head;
-          dirty = c.dirty;
-        })
-      : resolveHead(s.worktreePath).then((h) => {
-          headSha = h;
-        });
-    before
-      .then(() => {
-        if (dirty !== null) {
-          const lines: string[] = dirty;
-          this.sendOutput(
-            sid,
-            token,
-            'stderr',
-            `conductor: uncommitted changes, not running \`${p.cmd}\`:\n${lines.join('\n')}\n`,
-          );
-          return {
-            exitCode: null,
-            signal: null,
-            timedOut: false,
-            durationMs: 0,
-            outputTail: lines.join('\n'),
-          };
+    let setupFailed = false;
+    const exec = (command: string, at: string) =>
+      runner.run({
+        commandId: p.command_id,
+        sessionId: sid,
+        cmd: command,
+        cwd: at,
+        timeoutMs: p.timeout_ms,
+        env: {
+          CONDUCTOR_SESSION_ID: sid,
+          CONDUCTOR_TICKET_ID: s.ticketId,
+          ...portEnv(range),
+          ...this.gitEnv(),
+        },
+        signal: abort.signal,
+        onOutput: (c) => this.sendOutput(sid, token, c.stream, c.text),
+        onWaitingForSlot: (waiting) =>
+          this.emit(sid, token, { kind: 'build_slot', data: { waiting } }),
+      });
+    const notRun = (text: string) => {
+      this.sendOutput(sid, token, 'stderr', `conductor: ${text}\n`);
+      return { exitCode: null, signal: null, timedOut: false, durationMs: 0, outputTail: text };
+    };
+    const work = async () => {
+      if (p.require_clean) {
+        const c = await checkClean(s.worktreePath);
+        headSha = c.head;
+        dirty = c.dirty;
+        if (c.dirty !== null) {
+          return notRun(`uncommitted changes, not running \`${p.cmd}\`:\n${c.dirty.join('\n')}`);
         }
-        return runner.run({
-          commandId: p.command_id,
-          sessionId: sid,
-          cmd: p.cmd,
-          cwd,
-          timeoutMs: p.timeout_ms,
-          env: {
-            CONDUCTOR_SESSION_ID: sid,
-            CONDUCTOR_TICKET_ID: s.ticketId,
-            ...portEnv(range),
-            ...this.gitEnv(),
-          },
-          signal: abort.signal,
-          onOutput: (c) => this.sendOutput(sid, token, c.stream, c.text),
-          onWaitingForSlot: (waiting) =>
-            this.emit(sid, token, { kind: 'build_slot', data: { waiting } }),
-        });
-      })
+      } else {
+        headSha = await resolveHead(s.worktreePath);
+      }
+      const co = p.checkout;
+      if (co === undefined) return exec(p.cmd, cwd);
+      const want = co.sha ?? headSha;
+      if (want === null) return notRun('could not resolve the commit to check');
+      if (headSha !== null && headSha !== want) {
+        return notRun(
+          `the branch moved: the checks are for ${want}, the worktree is at ${headSha}`,
+        );
+      }
+      headSha = want;
+      let ok = false;
+      // The checkout this run uses: its `finally` only ever removes this one, never a newer
+      // visit's checkout for the same session.
+      let mine: Checkout | undefined;
+      try {
+        let held = this.checkouts.get(sid);
+        if (held && held.sha !== want) {
+          this.dropCheckout(sid);
+          held = undefined;
+        }
+        if (!held) {
+          const fresh = await freshCheckout({
+            root: this.config.rootDir,
+            worktree: s.worktreePath,
+            branch: s.branch,
+            sha: want,
+            signal: abort.signal,
+          });
+          if (!fresh.ok) {
+            if (fresh.head !== null) headSha = fresh.head;
+            return notRun(fresh.error);
+          }
+          held = { sha: want, dir: fresh.dir, token };
+          this.checkouts.set(sid, held);
+          mine = held;
+          const setup = detectSetup(held.dir, co.setup);
+          if (setup !== null) {
+            this.sendOutput(
+              sid,
+              token,
+              'debug',
+              `conductor: setup \`${setup}\` in a fresh checkout of ${want}`,
+            );
+            const sr = await exec(setup, held.dir);
+            if (sr.exitCode !== 0 || sr.timedOut) {
+              setupFailed = true;
+              return sr;
+            }
+          }
+        }
+        mine = held;
+        const at = resolve(held.dir, p.cwd ?? '.');
+        const inside = relative(held.dir, at);
+        if (inside.startsWith('..') || isAbsolute(inside)) return notRun('invalid cwd');
+        this.sendOutput(
+          sid,
+          token,
+          'debug',
+          `conductor: \`${p.cmd}\` in a fresh checkout of ${want}`,
+        );
+        const r = await exec(p.cmd, at);
+        ok = r.exitCode === 0 && !r.timedOut;
+        return r;
+      } finally {
+        // Any failure, or the last check: this run's checkout goes (and nothing newer).
+        if ((!ok || co.last) && mine !== undefined) this.dropCheckout(sid, mine);
+      }
+    };
+    work()
       .then(
         (r) => ({
           exit_code: r.exitCode,
@@ -863,6 +952,7 @@ export class Daemon {
             ...data,
             head_sha: headSha,
             ...(dirty !== null ? { dirty } : {}),
+            ...(setupFailed ? { setup_failed: true } : {}),
           },
         });
       })
@@ -945,6 +1035,12 @@ export class Daemon {
       for (const c of live.cmds.values()) {
         if (c.fencingToken <= msg.fencing_token) c.abort.abort();
       }
+    }
+    // A session kill (cancel, step timeout, budget…) ends any entry step: its checkout goes too
+    // (otherwise a non-last check's checkout, node_modules and all, would stay until restart).
+    const held = this.checkouts.get(msg.session_id);
+    if (p.target_command_id === null && held && held.token <= msg.fencing_token) {
+      this.dropCheckout(msg.session_id, held);
     }
     this.finish(msg, { accepted: true });
   }

@@ -143,6 +143,11 @@ export class Stack {
     chmodSync(join(ghBin, 'gh'), 0o755);
     env.PATH = `${ghBin}:${process.env.PATH ?? ''}`;
     env.FAKE_GH_LOG = this.fakeGhLog;
+    // ADR-0010 fresh checkouts auto-detect `npm install` as their setup: never touch the network.
+    env.npm_config_offline = 'true';
+    env.npm_config_audit = 'false';
+    env.npm_config_fund = 'false';
+    env.npm_config_update_notifier = 'false';
     env.FAKE_GH_STATE = join(this.tmp, 'fake-gh-prs');
     if (!this.opts.realClaude) {
       const bin = join(this.tmp, 'bin');

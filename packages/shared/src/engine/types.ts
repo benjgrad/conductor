@@ -246,6 +246,8 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
      * `git status --porcelain` lines.
      */
     dirty: z.array(z.string()).optional(),
+    /** ADR-0010: the fresh checkout's setup command failed (the check did not run). */
+    setup_failed: z.boolean().optional(),
   }),
   /**
    * D `spend`: cumulative per claude_session_id (ADR-0005). apply adds only
@@ -362,6 +364,16 @@ export const EffectSchema = z.discriminatedUnion('type', [
      * and pushed). A dirty tree is reported as `command.exited.dirty`, and the command doesn't run.
      */
     require_clean: z.literal(true).optional(),
+    /**
+     * ADR-0010 (Ben, 2026-10-26): run in a fresh, conductor-owned checkout of one commit, never
+     * the agent's worktree. `sha` null = the worktree's clean HEAD (the first check); `setup` null
+     * = auto-detect (`package-lock.json` → `npm ci`, `package.json` → `npm install`), '' = none;
+     * runs once per checkout. `last`: the daemon deletes the checkout after this check (it also
+     * does on any failure).
+     */
+    checkout: z
+      .object({ sha: z.string().nullable(), setup: z.string().nullable(), last: z.boolean() })
+      .optional(),
   }),
   /**
    * outbox `kill` → WS kill with `target_command_id: null` (every process of the session at or

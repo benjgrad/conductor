@@ -122,7 +122,7 @@ export function pushTarget(repo: string, policy: RepoPolicy): PushTarget {
   };
 }
 
-interface Run {
+export interface Run {
   code: number | null;
   stdout: string;
   stderr: string;
@@ -131,7 +131,7 @@ interface Run {
 }
 
 /** process env minus every variable that would point git at other config, dirs or commands. */
-function cleanEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+export function cleanEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const out: NodeJS.ProcessEnv = {};
   for (const [k, v] of Object.entries(env)) {
     if (/^GIT_/.test(k)) continue;
@@ -146,7 +146,7 @@ function cleanEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   };
 }
 
-function run(
+export function run(
   cmd: string,
   args: string[],
   cwd: string,
@@ -173,7 +173,7 @@ function run(
   });
 }
 
-const tail = (s: string, n = 600) => {
+export const tail = (s: string, n = 600) => {
   const t = s.trim();
   return t.length > n ? `…${t.slice(-n)}` : t;
 };
@@ -181,7 +181,7 @@ const tail = (s: string, n = 600) => {
 const URL_RE = /https?:\/\/\S+/g;
 const BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 
-const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null'];
+export const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null'];
 
 const GH_MISSING =
   'gh (the GitHub CLI) is not on PATH: install it and run `gh auth login` on this machine';
@@ -283,7 +283,7 @@ function prResult(url: string, reused: boolean): OpenPrResult {
  * uid, not a symlink: checked with lstat), removed afterwards. No agent cwd is ever inside it, and
  * it lives only for this push, so nothing can be planted in it ahead of time.
  */
-function privateDir(root: string): string | Error {
+export function privateDir(root: string, prefix = 'push-'): string | Error {
   const base = join(root, 'private');
   mkdirSync(base, { recursive: true, mode: 0o700 });
   const ownedDir = (path: string): Error | null => {
@@ -297,7 +297,7 @@ function privateDir(root: string): string | Error {
   const bad = ownedDir(base);
   if (bad) return bad;
   chmodSync(base, 0o700);
-  const dir = mkdtempSync(join(base, 'push-'));
+  const dir = mkdtempSync(join(base, prefix));
   chmodSync(dir, 0o700);
   return ownedDir(dir) ?? dir;
 }
@@ -431,17 +431,65 @@ export async function checkClean(
   worktree: string,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<{ head: string | null; dirty: null } | { head: null; dirty: string[] }> {
-  const st = await run(
-    'git',
-    ['-c', 'core.fsmonitor=false', ...NO_HOOKS, 'status', '--porcelain', '--untracked-files=all'],
-    worktree,
-    { env },
-  );
-  if (st.code !== 0) {
-    return { head: null, dirty: [`(git status failed: ${tail(st.stderr || st.stdout, 300)})`] };
+  // Agent-writable state can hide changes from a plain `git status` (final QA, 2026-10-26):
+  // assume-unchanged / skip-worktree index bits, `.git/info/exclude`, a repo-config
+  // `core.excludesFile`, the stat cache. So the tree is dirty if ANY of these says so:
+  // 1. status with the stat and untracked caches and core.excludesFile off;
+  const git = (args: string[]) =>
+    run('git', ['-c', 'core.fsmonitor=false', ...NO_HOOKS, ...args], worktree, { env });
+  const failed = (what: string, r: Run): { head: null; dirty: string[] } => ({
+    head: null,
+    dirty: [`(git ${what} failed: ${tail(r.stderr || r.stdout, 300)})`],
+  });
+
+  const lines = (r: Run) => r.stdout.split('\n').filter((l) => l.trim() !== '');
+  const st = await git([
+    '-c',
+    'core.ignoreStat=false',
+    '-c',
+    'core.untrackedCache=false',
+    '-c',
+    'core.excludesFile=',
+    'status',
+    '--porcelain',
+    '--untracked-files=all',
+    // QA 1b: submodule changes are not hidden by submodule.<name>.ignore / diff.ignoreSubmodules.
+    '--ignore-submodules=none',
+  ]);
+  if (st.code !== 0) return failed('status', st);
+  const dirty = lines(st);
+  // 2. hidden index bits: assume-unchanged (a lowercase tag) or skip-worktree (`S`);
+  const lv = await git(['ls-files', '-v']);
+  if (lv.code !== 0) return failed('ls-files -v', lv);
+  for (const l of lines(lv)) {
+    const tag = l.charAt(0);
+    if (tag === 'S' || (tag >= 'a' && tag <= 'z')) dirty.push(`hidden (${tag}): ${l.slice(2)}`);
   }
-  const lines = st.stdout.split('\n').filter((l) => l.trim() !== '');
-  if (lines.length > 0) return { head: null, dirty: lines.slice(0, 200) };
+  // 3. untracked files, honouring only the .gitignore files in the tree (not info/exclude or
+  //    core.excludesFile, which the agent can write outside the commit).
+  const un = await git(['ls-files', '--others', '--exclude-per-directory=.gitignore']);
+  if (un.code !== 0) return failed('ls-files --others', un);
+  for (const l of lines(un)) {
+    const entry = `?? ${l}`;
+    if (!dirty.includes(entry)) dirty.push(entry);
+  }
+  // QA 1a: an uncommitted .gitignore that ignores itself (ls-files --others reads working-tree
+  //    .gitignore files): any untracked-and-ignored .gitignore is dirty.
+  const gi = await git([
+    'ls-files',
+    '--others',
+    '--ignored',
+    '--exclude-per-directory=.gitignore',
+    '--',
+    '.gitignore',
+    ':(glob)**/.gitignore',
+  ]);
+  if (gi.code !== 0) return failed('ls-files --ignored', gi);
+  for (const l of lines(gi)) {
+    const entry = `?? ${l} (ignores itself)`;
+    if (!dirty.includes(entry)) dirty.push(entry);
+  }
+  if (dirty.length > 0) return { head: null, dirty: dirty.slice(0, 200) };
   return { head: await resolveHead(worktree, env), dirty: null };
 }
 

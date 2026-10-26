@@ -156,6 +156,14 @@ describe('validator rule 9: entry requirements and columns', () => {
     );
   });
 
+  it('setup needs checks (it runs before them)', () => {
+    const r = raw();
+    r.states.waiting_external!.entry.setup = 'npm ci';
+    expect(errorsOf(r)).toEqual([]);
+    r.states.waiting_external!.entry.checks = [];
+    expect(paths(r)).toContain('9:states.waiting_external.entry.setup');
+  });
+
   it('__entry is a reserved state name', () => {
     const r = raw();
     r.states.__entry = { type: 'human' };

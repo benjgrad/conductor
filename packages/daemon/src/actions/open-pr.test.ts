@@ -385,6 +385,87 @@ describe('checkClean (ADR-0010: only committed changes are checked)', () => {
     expect(r.head).toBe(git(worktree, 'rev-parse', 'HEAD').trim());
   });
 
+  // Final QA (2026-10-26): agent-writable state that hides changes from a plain `git status`.
+  it('assume-unchanged hides nothing: dirty', async () => {
+    git(worktree, 'update-index', '--assume-unchanged', 'health.txt');
+    writeFileSync(join(worktree, 'health.txt'), 'changed\n');
+    const r = await checkClean(worktree);
+    expect(r.head).toBeNull();
+    expect(r.dirty).toEqual(expect.arrayContaining(['hidden (h): health.txt']));
+  });
+
+  it('skip-worktree hides nothing: dirty', async () => {
+    git(worktree, 'update-index', '--skip-worktree', 'health.txt');
+    writeFileSync(join(worktree, 'health.txt'), 'changed\n');
+    const r = await checkClean(worktree);
+    expect(r.head).toBeNull();
+    expect(r.dirty).toEqual(expect.arrayContaining(['hidden (S): health.txt']));
+  });
+
+  it('an untracked file listed in .git/info/exclude (shared clone) is dirty', async () => {
+    mkdirSync(join(clone, '.git', 'info'), { recursive: true });
+    writeFileSync(join(clone, '.git', 'info', 'exclude'), 'sneaky.txt\n');
+    writeFileSync(join(worktree, 'sneaky.txt'), 'x');
+    const r = await checkClean(worktree);
+    expect(r.head).toBeNull();
+    expect(r.dirty).toEqual(['?? sneaky.txt']);
+  });
+
+  it('QA 1a: an uncommitted .gitignore that ignores itself (and a file) is dirty', async () => {
+    writeFileSync(join(worktree, '.gitignore'), '.gitignore\nsneaky.txt\n');
+    writeFileSync(join(worktree, 'sneaky.txt'), 'x');
+    const r = await checkClean(worktree);
+    expect(r.head).toBeNull();
+    expect(r.dirty).toEqual(['?? .gitignore (ignores itself)']);
+  });
+
+  it('QA 1a: a nested self-ignoring .gitignore is dirty too', async () => {
+    mkdirSync(join(worktree, 'deep'));
+    writeFileSync(join(worktree, 'deep', '.gitignore'), '*\n');
+    writeFileSync(join(worktree, 'deep', 'x.txt'), 'x');
+    const r = await checkClean(worktree);
+    expect(r.dirty).toEqual(['?? deep/.gitignore (ignores itself)']);
+  });
+
+  it('QA 1b: submodule changes hidden by submodule.<name>.ignore=all are dirty', async () => {
+    const sub = join(tmp, 'subrepo');
+    mkdirSync(sub);
+    git(sub, 'init', '--quiet', '-b', 'main');
+    writeFileSync(join(sub, 'a.txt'), '1\n');
+    git(sub, 'add', '.');
+    git(sub, '-c', 'user.email=t@localhost', '-c', 'user.name=t', 'commit', '--quiet', '-m', 's');
+    git(worktree, '-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', sub, 'sub');
+    git(
+      worktree,
+      '-c',
+      'user.email=t@localhost',
+      '-c',
+      'user.name=t',
+      'commit',
+      '--quiet',
+      '-m',
+      'sub',
+    );
+    expect((await checkClean(worktree)).dirty).toBeNull();
+    // A change inside the submodule, hidden by agent-writable config.
+    writeFileSync(join(worktree, 'sub', 'a.txt'), '2\n');
+    git(clone, 'config', 'submodule.sub.ignore', 'all');
+    git(clone, 'config', 'diff.ignoreSubmodules', 'all');
+    expect(git(worktree, 'status', '--porcelain').trim()).toBe(''); // hidden from a plain status
+    const r = await checkClean(worktree);
+    expect(r.head).toBeNull();
+    expect(r.dirty).toEqual([' M sub']);
+  });
+
+  it('an untracked file matched by a repo-config core.excludesFile is dirty', async () => {
+    writeFileSync(join(tmp, 'evil-excludes'), 'sneaky.txt\n');
+    git(clone, 'config', 'core.excludesFile', join(tmp, 'evil-excludes'));
+    writeFileSync(join(worktree, 'sneaky.txt'), 'x');
+    const r = await checkClean(worktree);
+    expect(r.head).toBeNull();
+    expect(r.dirty).toEqual(['?? sneaky.txt']);
+  });
+
   it('a planted core.fsmonitor / hooks in the shared clone do not run', async () => {
     const marker = join(tmp, 'pwned');
     git(clone, 'config', 'core.fsmonitor', `touch ${marker}`);

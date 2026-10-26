@@ -16,6 +16,12 @@ const STEP_SCRIPT = `// e2e fixture: node scripts/step.mjs <build|test>
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 const step = process.argv[2];
+// ADR-0010 entry checks: a committed \`fail-<step>\` fails the step, unless \`.e2e/override-<step>\`
+// (gitignored, so never committed) exists: it only helps where the worktree's own files are seen.
+if (existsSync(\`fail-\${step}\`) && !existsSync(\`.e2e/override-\${step}\`)) {
+  console.error(\`${FAILURE_MARKER} (\${step}, fail-\${step} is committed)\`);
+  process.exit(1);
+}
 const counter = \`.e2e/\${step}-fail\`;
 const left = existsSync(counter) ? Number(readFileSync(counter, 'utf8').trim()) || 0 : 0;
 if (left > 0) {

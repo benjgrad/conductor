@@ -91,6 +91,8 @@ describe('conductor v1: entering Waiting external', () => {
       cwd: null,
       timeout_ms: 600_000,
       require_clean: true, // only committed changes are checked
+      // Ben, 2026-10-26: in a fresh checkout of the worktree's clean HEAD; setup auto-detected.
+      checkout: { sha: null, setup: null, last: false },
     });
     expect(find(r.effects, 'state_entered')).toMatchObject({ from: 'implementing', to: LABEL });
     const next = h.cmdExit(0, 'built');
@@ -372,13 +374,56 @@ describe("security review: the pushed commit is the checked commit; the PR URL i
   });
 
   it('an unknown checked commit → no push: needs_input', () => {
-    const h = checking();
-    h.cmdExit(0, '', false, null);
+    const oneCheck = conductorWith((raw) => {
+      raw.states.waiting_external.entry.checks = [{ name: 'Build passes', cmd: 'npm run build' }];
+    });
+    const h = checking(oneCheck);
     const r = h.cmdExit(0, '', false, null);
     expect(find(r.effects, 'run_action')).toBeUndefined();
     expect(r.snapshot.workflow_state).toBe('needs_input');
     expect(find(r.effects, 'create_input_request')!.question).toContain(
       'could not tell which commit the checks',
+    );
+  });
+
+  it('(QA a) a later check whose head is unknown is unmet', () => {
+    const h = checking();
+    h.cmdExit(0, '', false, HEAD_SHA);
+    const r = h.cmdExit(0, '', false, null);
+    expect(r.snapshot.workflow_state).toBe('implementing');
+    expect(r.snapshot.retry_counters).toEqual({ [KEY]: 1 });
+    expect(find(r.effects, 'start_session')!.prompt).toContain(
+      'conductor could not tell which commit this check ran on',
+    );
+  });
+
+  it('(QA b) a review-only entry pins the commit first; the review is told it', () => {
+    const reviewOnly = conductorWith((raw) => {
+      raw.states.waiting_external.entry = {
+        review: { items: ['Has tests'] },
+        on_unmet: { goto: 'implementing' },
+      };
+    });
+    const h = implementing(reviewOnly);
+    const r = h.complete({ summary: 'done' });
+    expect(find(r.effects, 'run_cmd')).toMatchObject({ cmd: 'true', require_clean: true });
+    const rev = find(h.cmdExit(0, '', false, HEAD_SHA).effects, 'start_session')!;
+    expect(rev.review).toBe(true);
+    expect(rev.prompt).toContain(`The checks ran on commit \`${HEAD_SHA}\``);
+  });
+
+  it('(QA b) an action-only entry pins the commit: open_pr always gets expected_sha', () => {
+    const actionOnly = conductorWith((raw) => {
+      raw.states.waiting_external.entry = {
+        actions: ['open_pr'],
+        on_unmet: { goto: 'implementing' },
+      };
+    });
+    const h = implementing(actionOnly);
+    const r = h.complete({ summary: 'done' });
+    expect(find(r.effects, 'run_cmd')).toMatchObject({ cmd: 'true', require_clean: true });
+    expect(find(h.cmdExit(0, '', false, HEAD_SHA).effects, 'run_action')!.expected_sha).toBe(
+      HEAD_SHA,
     );
   });
 
@@ -462,5 +507,60 @@ describe('a dirty worktree is unmet (only committed changes are checked and push
     expect(find(r.effects, 'start_session')!.prompt).toContain(
       'commit everything on the current branch',
     );
+  });
+});
+
+describe('checks run in a fresh checkout of one commit (Ben, 2026-10-26)', () => {
+  it('later checks name the recorded commit; the last one says so', () => {
+    const h = checking();
+    const r = h.cmdExit(0, '', false, HEAD_SHA);
+    expect(find(r.effects, 'run_cmd')).toMatchObject({
+      cmd: 'npm test',
+      checkout: { sha: HEAD_SHA, setup: null, last: true },
+    });
+  });
+
+  it('a configured setup is passed through ("" = none)', () => {
+    const h = checking(
+      conductorWith((raw) => {
+        raw.states.waiting_external.entry.setup = 'pnpm i --frozen-lockfile';
+      }),
+    );
+    expect(h.snap.step).toMatchObject({ phase: 'checks' });
+    const first = h.last.effects.find((e) => e.type === 'run_cmd');
+    expect(first).toMatchObject({ checkout: { setup: 'pnpm i --frozen-lockfile' } });
+  });
+
+  it('a failed setup is unmet, with its output', () => {
+    const h = checking();
+    const r = h.run({
+      type: 'command.exited',
+      command_id: h.newId(),
+      exit_code: 1,
+      timed_out: false,
+      output_tail: 'npm ERR! missing lockfile',
+      head_sha: HEAD_SHA,
+      setup_failed: true,
+    });
+    expect(r.snapshot).toMatchObject({
+      workflow_state: 'implementing',
+      retry_counters: { [KEY]: 1 },
+    });
+    const prompt = find(r.effects, 'start_session')!.prompt;
+    expect(prompt).toContain('- Setup: the setup in a fresh checkout failed (exit code 1)');
+    expect(prompt).toContain('npm ERR! missing lockfile');
+  });
+
+  it('the implicit pin check of a check-less entry runs no checkout', () => {
+    const h = implementing(
+      conductorWith((raw) => {
+        raw.states.waiting_external.entry = {
+          actions: ['open_pr'],
+          on_unmet: { goto: 'implementing' },
+        };
+      }),
+    );
+    const r = h.complete({ summary: 'done' });
+    expect(find(r.effects, 'run_cmd')!.checkout).toBeUndefined();
   });
 });

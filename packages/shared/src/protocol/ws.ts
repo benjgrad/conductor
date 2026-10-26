@@ -195,6 +195,8 @@ export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
       head_sha: z.string().nullable().optional(),
       /** ADR-0010: `require_clean` and the tree had uncommitted changes (status lines); not run. */
       dirty: z.array(z.string()).optional(),
+      /** ADR-0010: the fresh checkout's setup failed; `output_tail` is its output. Not run. */
+      setup_failed: z.boolean().optional(),
     }),
   }),
   z.object({
@@ -379,6 +381,16 @@ export const RunCmdPayloadSchema = z.object({
    * and `cmd_exit` reports `dirty` (the status lines) with `exit_code: null`, `head_sha: null`.
    */
   require_clean: z.literal(true).optional(),
+  /**
+   * ADR-0010 (Ben, 2026-10-26): run in a fresh, conductor-owned checkout of one commit, never
+   * the agent's worktree. `sha` null = the worktree's clean HEAD (the first check); `setup` null
+   * = auto-detect (`package-lock.json` → `npm ci`, `package.json` → `npm install`), '' = none;
+   * runs once per checkout. `last`: the daemon deletes the checkout after this check (it also
+   * does on any failure).
+   */
+  checkout: z
+    .object({ sha: z.string().nullable(), setup: z.string().nullable(), last: z.boolean() })
+    .optional(),
 });
 export const RunCmdMessageSchema = msg('run_cmd', RunCmdPayloadSchema, orchSessionEnv);
 

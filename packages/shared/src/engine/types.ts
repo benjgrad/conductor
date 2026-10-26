@@ -8,7 +8,13 @@ import {
   TicketStatusSchema,
   UuidSchema,
 } from '../domain.js';
-import type { WorkflowDefinition } from '../workflow/schema.js';
+import {
+  ConditionTypeSchema,
+  TicketKindSchema,
+  TransitionActorSchema,
+  type WorkflowDefinition,
+} from '../workflow/schema.js';
+import { AgentTransitionOptionSchema } from '../workflow/transition-rules.js';
 
 // FSM engine contract (05). `apply()` is pure: no clock (pass `now`), no ids, no I/O.
 // The orchestrator's EngineService (orchestrator/src/contracts.ts) persists the result
@@ -23,6 +29,11 @@ export const SnapshotTicketSchema = z.object({
   body: z.string(),
   repo: z.string(),
   external_ref: z.string().nullable(),
+  /**
+   * ADR-0011: `ticket.kind`; filters transitions (`kinds`). null = matches both (U-062). Optional
+   * so snapshots built before M1b still parse; absent ≡ null.
+   */
+  kind: TicketKindSchema.nullable().optional(),
 });
 
 /**
@@ -37,23 +48,61 @@ export const PendingAnswerSchema = z.object({
 export type PendingAnswer = z.infer<typeof PendingAnswerSchema>;
 
 /**
+ * ADR-0011: the live status of one external condition of a move step (`GateStep.conditions`).
+ * - `todo`: not evaluated yet; `running`: an evaluation is in flight;
+ * - `met` / `pending` / `failed`: the daemon's last answer (`EvaluateConditionsResult`);
+ * - `disabled`: declared with `enabled: false` (skipped, never evaluated);
+ * - `unsupported`: the machine can't evaluate it (M5 types); counts as pending.
+ */
+export const ConditionStatusValueSchema = z.enum([
+  'todo',
+  'running',
+  'met',
+  'pending',
+  'failed',
+  'disabled',
+  'unsupported',
+]);
+export type ConditionStatusValue = z.infer<typeof ConditionStatusValueSchema>;
+
+export const ConditionStatusSchema = z.object({
+  type: ConditionTypeSchema,
+  /** `conditionLabel(condition)` at the time the step started. */
+  label: z.string(),
+  status: ConditionStatusValueSchema,
+  /** The last observed value, e.g. `"1/2"` approvals; null before the first answer. */
+  value: z.string().nullable(),
+  /** Evidence for the human (a failing check's name, "gh not available: …"); null if none. */
+  detail: z.string().nullable(),
+  checked_at: IsoDateTimeSchema.nullable(),
+});
+export type ConditionStatus = z.infer<typeof ConditionStatusSchema>;
+
+/**
  * A gate step (`session.step`): the session is checking whether it may enter a state.
  * - `kind: 'transition'`: ADR-0009, a requirements review on a gated transition (old versions).
  * - `kind: 'entry'`: ADR-0010, the requirements to enter a column (`states.<to>.entry`): checks,
- *   then the review, then conductor's actions, one `phase` at a time.
- * While it is set, `workflow_state` is a synthetic label (`reviewStateLabel` / `entryStateLabel`)
- * that names no workflow state: the timeout sweep keys on it, and events meant for a real state are
- * ignored. The board shows the card in its source column (`from`) with a `checking` badge.
+ *   then the review, then conductor's actions, one `phase` at a time (old versions).
+ * - `kind: 'move'`: ADR-0011, the `requires` of the transition `transition` out of `from`:
+ *   checks → review → actions → conditions. Label `moveStateLabel(from, to, transition)`, counter
+ *   `moveCounterKey(from, transition)`. In `conditions` the session is `waiting_external`
+ *   (U-059: worker ended, no wall time) and `conditions` holds the live checklist.
+ * While it is set, `workflow_state` is a synthetic label (`reviewStateLabel` / `entryStateLabel` /
+ * `moveStateLabel`) that names no workflow state: the timeout sweep keys on it, and events meant
+ * for a real state are ignored. The board shows the card in its source column (`from`) with a
+ * `checking` badge and `pending` checklist.
  * Persisted inside the `session.context` jsonb under STEP_CONTEXT_KEY (no migration; the legacy
- * ADR-0009 key REVIEW_CONTEXT_KEY is still read); `toSnapshot` lifts it out.
+ * ADR-0009 key REVIEW_CONTEXT_KEY is still read); `toSnapshot` lifts it out. Every field added
+ * after M1 has a default, so older rows parse.
  */
 export const GateStepSchema = z.object({
   /** Legacy `__review` rows have no kind: they are ADR-0009 transition reviews. */
-  kind: z.enum(['transition', 'entry']).default('transition'),
+  kind: z.enum(['transition', 'entry', 'move']).default('transition'),
   /** The state whose outcome selected the target (the card's column while checking). */
   from: z.string(),
+  /** The outcome / transition name that selected the target. */
   outcome: z.string(),
-  /** The state entered when every requirement is met. */
+  /** The state entered when every requirement is met (`RETURN_TO` already resolved). */
   to: z.string(),
   /** `attach: output` text for `to` (a counted object transition's goto leg), or null. */
   attachment: z.object({ from: z.string(), detail: z.string(), output: z.string() }).nullable(),
@@ -63,8 +112,8 @@ export const GateStepSchema = z.object({
   claude_session_id: z.string().nullable(),
   /** The engine already nudged the reviewer once about a missing or malformed verdict. */
   nudged: z.boolean(),
-  /** ADR-0010: the phase running now (a transition review is always `review`). */
-  phase: z.enum(['checks', 'review', 'actions']).default('review'),
+  /** The phase running now (a transition review is always `review`). */
+  phase: z.enum(['checks', 'review', 'actions', 'conditions']).default('review'),
   /** ADR-0010: index of the check (phase `checks`) or action (phase `actions`) running now. */
   index: z.number().int().nonnegative().default(0),
   /**
@@ -72,6 +121,29 @@ export const GateStepSchema = z.object({
    * review is told this commit and open_pr pushes exactly it. null before the first check.
    */
   head_sha: z.string().nullable().default(null),
+  /** ADR-0011 (`kind: 'move'`): the transition's name (= `outcome`); null for older kinds. */
+  transition: z.string().nullable().default(null),
+  /** ADR-0011 (`kind: 'move'`): who took it, for the `state_entered` record. */
+  actor: TransitionActorSchema.nullable().default(null),
+  /** ADR-0011 (`kind: 'move'`): the agent's / human's reason, for the `state_entered` record. */
+  reason: z.string().nullable().default(null),
+  /**
+   * ADR-0011: one status per declared condition, in declaration order (disabled ones included as
+   * `disabled`). Empty until the conditions phase starts.
+   */
+  conditions: z.array(ConditionStatusSchema).default([]),
+  /** ADR-0011: when `condition_timeout` passes (→ `on_unmet.else`, U-063); null outside it. */
+  conditions_deadline: IsoDateTimeSchema.nullable().default(null),
+  /**
+   * ADR-0011: the current poll interval in ms (starts at `condition_poll`, doubles after an
+   * unchanged result, capped at MAX_CONDITION_POLL). null outside the conditions phase.
+   */
+  conditions_poll_ms: z.number().int().positive().nullable().default(null),
+  /**
+   * ADR-0011 (U-058): a note for the checklist, e.g. CONDITIONS_NO_MACHINE_NOTE while the
+   * evaluation was refused or timed out. null when there is nothing to say.
+   */
+  conditions_note: z.string().nullable().default(null),
 });
 export type GateStep = z.infer<typeof GateStepSchema>;
 /** ADR-0009 name of GateStepSchema. */
@@ -204,10 +276,21 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('agent.claude_session_id'), claude_session_id: z.string() }),
   /**
-   * D `complete_state`: outcome `done` (after the state's guard; failed guard → `fail`). While a
-   * review step runs it is the reviewer's verdict (ADR-0009, apply.ts §Requirements review).
+   * D `complete_state`: the agent takes transition `transition` (ADR-0011) with `reason`. A null or
+   * absent `transition` means `done` (old prompts). The name must be an agent-actor transition
+   * of the current state matching the ticket's kind, else apply routes to needs_input
+   * (`agent_question`, `unknownTransitionQuestion(name)`, the U-028 path). The state's guard runs
+   * first (failed guard → `fail`). While a review step runs it is the reviewer's verdict
+   * (ADR-0009, apply.ts §Requirements review) and `transition` is ignored.
    */
-  z.object({ type: z.literal('agent.complete_state'), result: JsonObjectSchema }),
+  z.object({
+    type: z.literal('agent.complete_state'),
+    result: JsonObjectSchema,
+    /** ADR-0011. Absent ≡ null ≡ `done`. */
+    transition: z.string().nullable().optional(),
+    /** ADR-0011: why; the question for a `question: true` transition. Absent ≡ null. */
+    reason: z.string().nullable().optional(),
+  }),
   /** D `ask_user`: outcome `ask_user`, input_request kind `agent_question`. */
   z.object({ type: z.literal('agent.ask_user'), question: z.string() }),
   /**
@@ -299,6 +382,28 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
     result: JsonObjectSchema.nullable(),
     error: z.string().nullable(),
   }),
+  /**
+   * U: a human takes transition `name` (ADR-0011; POST /api/sessions/:id/transition, actor =
+   * who, e.g. `ui`). Accepted from a human state (`needs_input`), or from an event state for an
+   * `actor: human` transition; ignored `wrong_status` elsewhere (incl. during a gate step), and
+   * `unknown_transition` / `transition_not_allowed` for a name that isn't a human-actor
+   * transition of the state for the ticket's kind. `RETURN_TO` resolves to `return_to`. `text`
+   * is delivered like an answer when the target is the asking agent state (pending answer), and
+   * is the move's reason otherwise. The wrapper closes the open input_request (answer = `text`
+   * ?? `"[<name>]"`, answered_by = `actor`). `requires` on the transition runs as a move step.
+   */
+  z.object({
+    type: z.literal('human.transition'),
+    name: z.string().min(1),
+    text: z.string().nullable(),
+    actor: z.string().min(1),
+    /**
+     * The open input_request this move answers (the route fills it; null/absent when none).
+     * apply uses it like `input.provided`'s: a RETURN_TO move into the asking agent whose
+     * process is still parked live answers with `send_input {input_request_id}`.
+     */
+    input_request_id: UuidSchema.nullable().optional(),
+  }),
   /** U: operator cancel (POST /cancel). → failed, kill. */
   z.object({ type: z.literal('operator.cancel'), reason: z.string().optional() }),
   /**
@@ -340,6 +445,12 @@ export const EffectSchema = z.discriminatedUnion('type', [
      * transcript.
      */
     review: z.literal(true).optional(),
+    /**
+     * ADR-0011: the agent transitions it may name (`agentTransitionOptions(def, state, kind)`),
+     * the same list as the prompt's "How to finish". Absent or empty = any name (old versions,
+     * reviewers).
+     */
+    transitions: z.array(AgentTransitionOptionSchema).optional(),
   }),
   /** outbox `send_input` → WS send_input (live stdin). */
   z.object({
@@ -427,12 +538,20 @@ export const EffectSchema = z.discriminatedUnion('type', [
     state: z.string(),
     deadline: IsoDateTimeSchema.nullable(),
   }),
-  /** Internal: event row `state.entered` (audit, detail panel). */
+  /**
+   * Internal: event row `state.entered` (audit; the detail panel's `moves`). Payload:
+   * StateEnteredPayloadSchema.
+   */
   z.object({
     type: z.literal('state_entered'),
     from: z.string().nullable(),
     to: z.string(),
     visit: z.number().int().positive(),
+    /** ADR-0011: the transition taken (its name), null for a start / requeue / legacy route. */
+    transition: z.string().nullable().optional(),
+    /** ADR-0011: the agent's or human's reason, or the system's (e.g. "timed out"). */
+    reason: z.string().nullable().optional(),
+    actor: TransitionActorSchema.nullable().optional(),
   }),
   /** Internal: event row `session.status`; SSE `session.status` (+ `card.moved` if the column changes). */
   z.object({
@@ -473,6 +592,49 @@ export function isOutboxEffect(e: Effect): e is OutboxEffect {
   return (OUTBOX_EFFECT_TYPES as readonly string[]).includes(e.type);
 }
 
+// ---------------------------------------------------------------- moves (ADR-0011)
+
+/** `retry_counters` key of a move step's `on_unmet` loop: `"move:<from>:<name>"`. */
+export function moveCounterKey(from: string, name: string): string {
+  return `move:${from}:${name}`;
+}
+
+/** The synthetic `workflow_state` of a move step, e.g. `implementing → waiting_external (move: ready_for_testing)`. */
+export function moveStateLabel(from: string, to: string, name: string): string {
+  return `${from} → ${to} (move: ${name})`;
+}
+
+/**
+ * `run_action evaluate_conditions`'s `idempotency_key` (informational: the action is read-only
+ * and the daemon does not dedupe on it): `<session>:<step label>:<now ISO>` of the apply that
+ * emitted it.
+ */
+export function conditionsIdempotencyKey(sessionId: string, label: string, now: Date): string {
+  return `${sessionId}:${label}:${now.toISOString()}`;
+}
+
+/** The needs_input question when an agent names a transition it may not take (ADR-0011). */
+export function unknownTransitionQuestion(name: string): string {
+  return `The agent named an unknown transition '${name}'.`;
+}
+
+/** `GateStep.conditions_note` while no machine could evaluate the conditions (U-058). */
+export const CONDITIONS_NO_MACHINE_NOTE = 'waiting for a machine to check conditions';
+
+/**
+ * The `event` row payload of a `state.entered` row (written by the wrapper from the
+ * `state_entered` effect). Rows written before M1b have only `from`, `to`, `visit`.
+ */
+export const StateEnteredPayloadSchema = z.object({
+  from: z.string().nullable(),
+  to: z.string(),
+  visit: z.number().int().positive(),
+  transition: z.string().nullable().optional(),
+  reason: z.string().nullable().optional(),
+  actor: TransitionActorSchema.nullable().optional(),
+});
+export type StateEnteredPayload = z.infer<typeof StateEnteredPayloadSchema>;
+
 // ---------------------------------------------------------------- apply
 
 /**
@@ -503,6 +665,17 @@ export const APPLY_IGNORE_REASONS = [
    * re-routes the workflow, so the refusal is logged only.
    */
   'message_refused',
+  /**
+   * ADR-0011: `human.transition` names no transition of the current state (→ 409). An agent's
+   * unknown name is NOT ignored: apply routes it to needs_input (`agent_question`, the U-028
+   * path, question `unknownTransitionQuestion(name)`), because ignoring would change nothing.
+   */
+  'unknown_transition',
+  /**
+   * ADR-0011: `human.transition` names a transition that isn't human-actor, or doesn't match the
+   * ticket's kind (→ 409). An agent's disallowed name is routed like an unknown one.
+   */
+  'transition_not_allowed',
 ] as const;
 export const ApplyIgnoreReasonSchema = z.enum(APPLY_IGNORE_REASONS);
 export type ApplyIgnoreReason = z.infer<typeof ApplyIgnoreReasonSchema>;

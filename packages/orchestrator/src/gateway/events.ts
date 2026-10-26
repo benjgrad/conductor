@@ -16,7 +16,14 @@ export function engineEventForSessionEvent(p: SessionEventPayload): EngineEvent 
     case 'claude_session_id':
       return { type: 'agent.claude_session_id', claude_session_id: p.data.id };
     case 'complete_state':
-      return { type: 'agent.complete_state', result: p.data.result };
+      // ADR-0011: the transition the agent named and its reason; absent (old daemons, old
+      // workflows) stays absent, which apply reads as null (`done`).
+      return {
+        type: 'agent.complete_state',
+        result: p.data.result,
+        ...(p.data.transition !== undefined ? { transition: p.data.transition } : {}),
+        ...(p.data.reason !== undefined ? { reason: p.data.reason } : {}),
+      };
     case 'ask_user':
       return { type: 'agent.ask_user', question: p.data.question };
     case 'no_outcome':

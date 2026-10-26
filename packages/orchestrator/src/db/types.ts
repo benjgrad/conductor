@@ -71,6 +71,10 @@ export interface TicketRow {
   repo_allow_machines: string[] | null;
   status: TicketStatus;
   priority: number;
+  // ADR-0011: M1b-T04 adds `kind: TicketKind | null` here in the same branch as its migration
+  // (`ticket_kind` enum, NULL for tickets from before M1b = both kinds, U-062), because
+  // test/schema.test.ts holds these rows equal to the DDL. Until then `SELECT *` rows don't carry
+  // it, and readers use `ticket.kind ?? null` (toSnapshot, toBoardCard's CardTicketLike.kind?).
   created_at: Date;
   updated_at: Date;
 }

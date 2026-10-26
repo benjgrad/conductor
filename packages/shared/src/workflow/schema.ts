@@ -61,23 +61,6 @@ export const RequirementsGateSchema = z.strictObject({
 });
 export type RequirementsGate = z.infer<typeof RequirementsGateSchema>;
 
-/**
- * `"build"` or `{ goto, attach?, retries?, else?, requirements? }` (05 §Retry loops; ADR-0009 for
- * `requirements`).
- */
-export const TransitionObjectSchema = z.strictObject({
-  goto: StateNameSchema,
-  attach: z.literal('output').optional(),
-  retries: z.number().int().nonnegative().optional(),
-  else: StateNameSchema.optional(),
-  requirements: RequirementsGateSchema.optional(),
-});
-export const TransitionSchema = z.union([StateNameSchema, TransitionObjectSchema]);
-export type Transition = z.infer<typeof TransitionSchema>;
-
-/** outcome name → transition. Outcome names per state type: see 05 §State types. */
-export const TransitionMapSchema = z.record(z.string().min(1), TransitionSchema);
-
 /** ADR-0010: the one workflow's id. New tickets always run its latest version. */
 export const CONDUCTOR_WORKFLOW_ID = 'conductor';
 
@@ -129,6 +112,175 @@ export const EntryRequirementsSchema = z
     message: 'entry requirements need at least one check, review or action',
   });
 export type EntryRequirements = z.infer<typeof EntryRequirementsSchema>;
+
+// ---------------------------------------------------------------- transitions (ADR-0011)
+
+/** ADR-0011: a ticket's kind. Transitions filter on it (`kinds`); a null kind matches both (U-062). */
+export const TicketKindSchema = z.enum(['work', 'personal']);
+export type TicketKind = z.infer<typeof TicketKindSchema>;
+export const TICKET_KINDS = TicketKindSchema.options;
+
+/**
+ * ADR-0011: who may take a transition. `agent`: the worker names it in `complete_state`. `human`:
+ * a button on the card (`POST /api/sessions/:id/transition`). `system`: timeouts, command exits,
+ * connector results, an event state's `wait_for` names, `budget_exceeded`. Inferred when omitted
+ * (`transitionActor`).
+ */
+export const TransitionActorSchema = z.enum(['agent', 'human', 'system']);
+export type TransitionActor = z.infer<typeof TransitionActorSchema>;
+
+/**
+ * ADR-0011 (U-061): the `goto` of a human transition that returns to the state that routed into
+ * the human state (`session.return_to`), e.g. `answer`. Only valid on a human-state transition
+ * (validator rule 10).
+ */
+export const RETURN_TO = '$return_to';
+
+/**
+ * Conductor's own actions on a move (ADR-0010 / ADR-0011). `open_pr` now; `update_jira` and
+ * `slack_message` parse but the validator refuses them until M5 (rule 14).
+ */
+export const TransitionActionSchema = z.enum(['open_pr', 'update_jira', 'slack_message']);
+export type TransitionAction = z.infer<typeof TransitionActionSchema>;
+/** The actions that run in M1b (the validator refuses the others, "not available yet"). */
+export const AVAILABLE_TRANSITION_ACTIONS: readonly TransitionAction[] = ['open_pr'];
+
+const conditionCommon = {
+  /** Default true. A disabled condition is declared but skipped (Jira / Azure until M5). */
+  enabled: z.boolean().optional(),
+  /** Checklist label; default `conditionLabel(c)`. */
+  label: z.string().trim().min(1).max(120).optional(),
+};
+
+/**
+ * ADR-0011 external conditions, evaluated on the user's machine (`run_action evaluate_conditions`)
+ * and re-polled until all are met, one turns false, or `condition_timeout` passes.
+ * - `pr_checks_green`: every status check on conductor's PR (`context.__pr.pr_url`) succeeded;
+ * - `pr_approvals`: at least `min` approving reviews, and no "changes requested";
+ * - `pr_merged`: the PR is merged;
+ * - `azure_pipeline_succeeded` / `jira_fields_set`: M5 (the daemon reports them `unsupported`).
+ */
+export const ConditionSchema = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('pr_checks_green'), ...conditionCommon }),
+  z.strictObject({
+    type: z.literal('pr_approvals'),
+    min: z.number().int().min(1).max(20),
+    ...conditionCommon,
+  }),
+  z.strictObject({ type: z.literal('pr_merged'), ...conditionCommon }),
+  z.strictObject({
+    type: z.literal('azure_pipeline_succeeded'),
+    pipeline: z.string().trim().min(1).max(200),
+    ...conditionCommon,
+  }),
+  z.strictObject({
+    type: z.literal('jira_fields_set'),
+    fields: z.array(z.string().trim().min(1).max(100)).min(1).max(20),
+    ...conditionCommon,
+  }),
+]);
+export type Condition = z.infer<typeof ConditionSchema>;
+export const ConditionTypeSchema = z.enum([
+  'pr_checks_green',
+  'pr_approvals',
+  'pr_merged',
+  'azure_pipeline_succeeded',
+  'jira_fields_set',
+]);
+export type ConditionType = z.infer<typeof ConditionTypeSchema>;
+export const CONDITION_TYPES = ConditionTypeSchema.options;
+/** Condition types the daemon can evaluate in M1b (with `gh`); the rest are `unsupported`. */
+export const AVAILABLE_CONDITION_TYPES: readonly ConditionType[] = [
+  'pr_checks_green',
+  'pr_approvals',
+  'pr_merged',
+];
+
+/** `enabled` defaults to true. */
+export function conditionEnabled(c: Condition): boolean {
+  return c.enabled !== false;
+}
+
+/** A condition's checklist label: its `label`, else a default per type. */
+export function conditionLabel(c: Condition): string {
+  if (c.label !== undefined) return c.label;
+  switch (c.type) {
+    case 'pr_checks_green':
+      return 'PR checks green';
+    case 'pr_approvals':
+      return c.min === 1 ? 'PR approved' : `PR approvals ≥ ${c.min}`;
+    case 'pr_merged':
+      return 'PR merged';
+    case 'azure_pipeline_succeeded':
+      return `Pipeline ${c.pipeline} succeeded`;
+    case 'jira_fields_set':
+      return `Jira fields set: ${c.fields.join(', ')}`;
+  }
+}
+
+/** `requires.condition_poll` when omitted (ADR-0011: every 2 minutes, with backoff). */
+export const DEFAULT_CONDITION_POLL = '2m';
+/** The backoff cap for condition polling (M1b-T08: doubling after each unchanged result). */
+export const MAX_CONDITION_POLL = '15m';
+
+/**
+ * ADR-0011: what must hold before a ticket moves along a transition, checked in order: `checks`
+ * (fresh checkout of the exact commit, after `setup`), the `review` (the fenced ADR-0009 reviewer),
+ * conductor's `actions`, then the external `conditions`, re-polled every `condition_poll` until
+ * all are met or `condition_timeout` passes. ADR-0010 `entry` and ADR-0009 `requirements` fold
+ * into this (`foldLegacyRequirements`). Graph rules (timeout and `on_unmet` present, actions
+ * available…) are the validator's (rules 13–14), not the schema's.
+ */
+export const TransitionRequiresSchema = z.strictObject({
+  checks: z.array(EntryCheckSchema).max(20).optional(),
+  /** ADR-0010 semantics: omitted = auto-detect, '' = none. */
+  setup: z.string().max(2_000).optional(),
+  review: z
+    .strictObject({
+      items: z.array(z.string().trim().min(1).max(2_000)).min(1).max(30),
+      model: z.string().min(1).optional(),
+    })
+    .optional(),
+  actions: z.array(TransitionActionSchema).max(5).optional(),
+  conditions: z.array(ConditionSchema).min(1).max(10).optional(),
+  /** How long the conditions may stay pending before `on_unmet.else` (U-063). */
+  condition_timeout: DurationSchema.optional(),
+  /** First poll interval; default DEFAULT_CONDITION_POLL. Tests set it lower (e.g. "1s"). */
+  condition_poll: DurationSchema.optional(),
+});
+export type TransitionRequires = z.infer<typeof TransitionRequiresSchema>;
+
+/**
+ * `"build"` or an object (05 §Retry loops; ADR-0009 `requirements`; ADR-0011 for the rest). The
+ * key in `on` is the transition's name.
+ */
+export const TransitionObjectSchema = z.strictObject({
+  /** A state name, or RETURN_TO on a human-state transition. */
+  goto: StateNameSchema,
+  attach: z.literal('output').optional(),
+  retries: z.number().int().nonnegative().optional(),
+  else: StateNameSchema.optional(),
+  /** ADR-0009 (old versions): folded into `requires.review` + `on_unmet` on save. */
+  requirements: RequirementsGateSchema.optional(),
+  /** ADR-0011: button and timeline label; default `transitionTitle` (the name, humanised). */
+  title: z.string().trim().min(1).max(60).optional(),
+  /** ADR-0011: when to take it, in the agent's prompt ("How to finish"). */
+  when: z.string().trim().min(1).max(1_000).optional(),
+  actor: TransitionActorSchema.optional(),
+  /** Omitted = both kinds. */
+  kinds: z.array(TicketKindSchema).min(1).max(2).optional(),
+  /** A transition into a human state that asks a question: the agent's `reason` is the question. */
+  question: z.boolean().optional(),
+  requires: TransitionRequiresSchema.optional(),
+  /** What happens when `requires` is not met (ADR-0010 semantics, U-063 for conditions). */
+  on_unmet: OnUnmetSchema.optional(),
+});
+export type TransitionObject = z.infer<typeof TransitionObjectSchema>;
+export const TransitionSchema = z.union([StateNameSchema, TransitionObjectSchema]);
+export type Transition = z.infer<typeof TransitionSchema>;
+
+/** transition name → transition. Built-in names per state type: see 05 §State types. */
+export const TransitionMapSchema = z.record(z.string().min(1), TransitionSchema);
 
 /** Fields every state has as a board column (ADR-0010). */
 const columnFields = {

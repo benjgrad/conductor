@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   DAEMON_FIXTURES,
+  M1B_WS_FIXTURES,
   ORCHESTRATOR_FIXTURES,
   SESSION_EVENT_FIXTURES,
   SESSION_EVENT_MESSAGE_FIXTURES,
 } from './fixtures.js';
 import {
+  ConditionResultSchema,
   DAEMON_MESSAGE_TYPES,
+  EvaluateConditionsArgsSchema,
+  EvaluateConditionsResultSchema,
   DaemonToOrchestratorSchema,
   EnvelopeSchema,
   ORCHESTRATOR_MESSAGE_TYPES,
@@ -17,6 +21,8 @@ import {
   parseDaemonMessage,
   parseOrchestratorMessage,
 } from './ws.js';
+
+import { CompleteStateInputSchema, TRANSITION_REASON_MAX } from './outcome.js';
 
 const wire = (v: unknown) => JSON.stringify(v);
 
@@ -50,6 +56,64 @@ describe('WS protocol fixtures', () => {
     const parsed = parseOrchestratorMessage(wire(fixture));
     expect(parsed).toEqual(fixture);
     expect(EnvelopeSchema.safeParse(fixture).success).toBe(true);
+  });
+});
+
+describe('ADR-0011 WS shapes (M1b-T01)', () => {
+  it('complete_state with transition + reason round-trips; old shape still parses', () => {
+    const fx = M1B_WS_FIXTURES.complete_state_transition;
+    expect(parseDaemonMessage(wire(fx))).toEqual(fx);
+    expect(parseDaemonMessage(wire(SESSION_EVENT_MESSAGE_FIXTURES.complete_state))).toEqual(
+      SESSION_EVENT_MESSAGE_FIXTURES.complete_state,
+    );
+  });
+
+  it('start_session with transitions round-trips; without them still parses', () => {
+    const fx = M1B_WS_FIXTURES.start_session_transitions;
+    expect(parseOrchestratorMessage(wire(fx))).toEqual(fx);
+    expect(fx.payload.transitions?.map((t) => t.name)).toContain('ask_user');
+    expect(parseOrchestratorMessage(wire(ORCHESTRATOR_FIXTURES.start_session))).toEqual(
+      ORCHESTRATOR_FIXTURES.start_session,
+    );
+  });
+
+  it('run_action evaluate_conditions round-trips and its args parse', () => {
+    const fx = M1B_WS_FIXTURES.run_action_evaluate_conditions;
+    expect(parseOrchestratorMessage(wire(fx))).toEqual(fx);
+    expect(EvaluateConditionsArgsSchema.parse(fx.payload.args)).toEqual(fx.payload.args);
+    const bad = { ...fx, payload: { ...fx.payload, action: 'deploy' } };
+    expect(OrchestratorToDaemonSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('action_result for evaluate_conditions round-trips and its result parses', () => {
+    const fx = M1B_WS_FIXTURES.action_result_evaluate_conditions;
+    expect(parseDaemonMessage(wire(fx))).toEqual(fx);
+    if (fx.payload.kind !== 'action_result') throw new Error('fixture');
+    const res = EvaluateConditionsResultSchema.parse(fx.payload.data.result);
+    expect(res.results.map((r) => r.status)).toEqual(['met', 'pending']);
+    expect(
+      ConditionResultSchema.safeParse({
+        type: 'pr_merged',
+        status: 'todo',
+        value: null,
+        detail: null,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('CompleteStateInputSchema: transition and reason optional, capped', () => {
+    expect(CompleteStateInputSchema.parse({ result: {} })).toEqual({ result: {} });
+    expect(
+      CompleteStateInputSchema.parse({ transition: 'done', reason: 'ok', result: { a: 1 } }),
+    ).toEqual({ transition: 'done', reason: 'ok', result: { a: 1 } });
+    expect(CompleteStateInputSchema.safeParse({ transition: '', result: {} }).success).toBe(false);
+    expect(
+      CompleteStateInputSchema.safeParse({
+        reason: 'x'.repeat(TRANSITION_REASON_MAX + 1),
+        result: {},
+      }).success,
+    ).toBe(false);
+    expect(CompleteStateInputSchema.safeParse({ transition: 'done' }).success).toBe(false);
   });
 });
 

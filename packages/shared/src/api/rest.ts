@@ -18,7 +18,9 @@ import {
 } from '../domain.js';
 import { PR_CONTEXT_KEY, REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
 import {
+  ConditionStatusValueSchema,
   GateStepSchema,
+  StateEnteredPayloadSchema,
   type ApplyIgnoreReason,
   type ApplyRejectReason,
   type GateStep,
@@ -27,9 +29,22 @@ import { QUEUED_COLUMN_ID, stateTitle, type BoardColumnInfo } from '../workflow/
 import {
   CONDUCTOR_WORKFLOW_ID,
   StateNameSchema,
+  TicketKindSchema,
+  TransitionActorSchema,
   WorkflowDefinitionSchema,
+  conditionEnabled,
+  conditionLabel,
+  type TicketKind,
+  type TransitionRequires,
   type WorkflowDefinition,
 } from '../workflow/schema.js';
+import {
+  HumanTransitionOptionSchema,
+  humanTransitionOptions,
+  transitionObject,
+  transitionTitle,
+  type HumanTransitionOption,
+} from '../workflow/transition-rules.js';
 import { OutputChunkSchema } from './output.js';
 
 // REST DTOs for UI ↔ orchestrator (03 §REST). Implemented by M1-T08, consumed by M1-T09.
@@ -41,6 +56,8 @@ export const API_PATHS = {
   sessionApprove: (id: string) => `/api/sessions/${id}/approve`,
   sessionCancel: (id: string) => `/api/sessions/${id}/cancel`,
   sessionMessages: (id: string) => `/api/sessions/${id}/messages`,
+  /** ADR-0011: a human takes a transition (TransitionSessionRequest). */
+  sessionTransition: (id: string) => `/api/sessions/${id}/transition`,
   /** ADR-0008: the session's history from Claude's own transcript on its machine. */
   sessionTranscript: (id: string) => `/api/sessions/${id}/transcript`,
   /** ADR-0008: reopen a finished ticket by resuming the same Claude conversation. */
@@ -214,9 +231,39 @@ export const BoardCheckingSchema = z.object({
   to: StateNameSchema,
   /** The target's column title. */
   title: z.string(),
-  phase: z.enum(['checks', 'review', 'actions']),
+  /** ADR-0011 adds `conditions` (a move step waiting on external conditions). */
+  phase: z.enum(['checks', 'review', 'actions', 'conditions']),
 });
 export type BoardChecking = z.infer<typeof BoardCheckingSchema>;
+
+/**
+ * ADR-0011: one line of a pending move's "waiting for" checklist: a check (by name), the review,
+ * an action, or a condition (its label, with the observed value in parentheses when known, e.g.
+ * "PR approved (0/1)"). Status: ConditionStatusValue (`todo` → `running` → `met`; conditions also
+ * `pending` / `failed` / `disabled` / `unsupported`). `detail`: hover text (evidence), or null.
+ */
+export const BoardPendingItemSchema = z.object({
+  label: z.string(),
+  status: ConditionStatusValueSchema,
+  detail: z.string().nullable(),
+});
+export type BoardPendingItem = z.infer<typeof BoardPendingItemSchema>;
+
+/**
+ * ADR-0011: the card is in a gate step, still in its source column. Supersedes `checking` (kept
+ * one release, filled from the same step). `transition`: the move's name (an ADR-0010 entry step
+ * or ADR-0009 review: the outcome); `title`: the transition's title (entry / review: the target
+ * column's title); `items` in run order (checks, review, actions, conditions); `note`: e.g.
+ * CONDITIONS_NO_MACHINE_NOTE, or null.
+ */
+export const BoardPendingSchema = z.object({
+  transition: z.string(),
+  to: StateNameSchema,
+  title: z.string(),
+  items: z.array(BoardPendingItemSchema),
+  note: z.string().nullable(),
+});
+export type BoardPending = z.infer<typeof BoardPendingSchema>;
 
 /** One card. A ticket with no session yet has `session_id: null` and `status: null`. */
 export const BoardCardSchema = z.object({
@@ -232,8 +279,19 @@ export const BoardCardSchema = z.object({
   /** A column id of `BoardResponse.columns` (ADR-0010: `queued` or a state name). */
   column: BoardColumnSchema,
   badges: z.array(CardBadgeSchema),
-  /** In an entry step: what it is checking (ADR-0010); null otherwise. */
-  checking: BoardCheckingSchema.nullable(),
+  /** In an entry step: what it is checking (ADR-0010); null otherwise. Superseded by `pending`. */
+  checking: BoardCheckingSchema.nullable().default(null),
+  /** ADR-0011: `ticket.kind`; null = not set (tickets from before M1b). */
+  kind: TicketKindSchema.nullable().default(null),
+  /** ADR-0011: in a gate step, its live checklist (`pendingOfStep`); null otherwise. */
+  pending: BoardPendingSchema.nullable().default(null),
+  /**
+   * ADR-0011: one button per human-actor transition out of the current state, for the ticket's
+   * kind (`humanTransitionOptions`). Filled only while the session is `needs_input` in a human
+   * state or `waiting_external` in an event state, outside a gate step; else []. Each posts
+   * `TransitionSessionRequest {name, text}` (text required when `needs_text`).
+   */
+  human_transitions: z.array(HumanTransitionOptionSchema).default([]),
   /** The pull request conductor opened for it (`open_pr`, ADR-0010), if any. */
   pr_url: z.string().regex(GITHUB_PR_URL_RE).nullable().catch(null),
   machine_id: z.string().nullable(),
@@ -267,6 +325,38 @@ export const BoardResponseSchema = z.object({
 });
 export type BoardResponse = z.infer<typeof BoardResponseSchema>;
 
+/** How many moves `SessionDetail.moves` carries (the most recent). */
+export const SESSION_MOVES_LIMIT = 50;
+
+/**
+ * ADR-0011: one move in the session's timeline, from a `state.entered` event row (`toMoveDto`).
+ * `from` is null for the first entry; it can be a gate step's synthetic label (the step that
+ * passed or failed). `transition`, `reason` and `actor` are null on rows written before M1b and on
+ * routes that aren't transitions (start, requeue).
+ */
+export const MoveDtoSchema = z.object({
+  at: IsoDateTimeSchema,
+  from: z.string().nullable(),
+  to: z.string(),
+  transition: z.string().nullable(),
+  reason: z.string().nullable(),
+  actor: TransitionActorSchema.nullable(),
+});
+export type MoveDto = z.infer<typeof MoveDtoSchema>;
+
+/** A `state.entered` event row (`ts`, `payload`) → MoveDto. Throws on a malformed payload. */
+export function toMoveDto(row: { ts: Date | string; payload: unknown }): MoveDto {
+  const p = StateEnteredPayloadSchema.parse(row.payload);
+  return {
+    at: iso(row.ts),
+    from: p.from,
+    to: p.to,
+    transition: p.transition ?? null,
+    reason: p.reason ?? null,
+    actor: p.actor ?? null,
+  };
+}
+
 /** GET /api/sessions/:id */
 export const SessionDetailSchema = z.object({
   card: BoardCardSchema,
@@ -286,8 +376,26 @@ export const SessionDetailSchema = z.object({
   pending_input: InputRequestDtoSchema.nullable(),
   /** Ring-buffer snapshot at request time; live chunks via the output stream. */
   recent_output: z.array(OutputChunkSchema),
+  /**
+   * ADR-0011: the last SESSION_MOVES_LIMIT `state.entered` rows, oldest first (`toMoveDto`).
+   * Optional so older servers and fixtures still parse; the orchestrator always sends it
+   * (absent ≡ []).
+   */
+  moves: z.array(MoveDtoSchema).optional(),
 });
 export type SessionDetail = z.infer<typeof SessionDetailSchema>;
+
+/**
+ * POST /api/sessions/:id/transition → 202 OkResponse (ADR-0011). Becomes `human.transition
+ * {name, text, actor: 'ui'}`. 409 `conflict` when apply ignored it (`wrong_status`,
+ * `unknown_transition`, `transition_not_allowed`); 404 unknown session; 400 bad body. `text` is
+ * required by the UI when the button's `needs_text` is set (the server doesn't re-check it).
+ */
+export const TransitionSessionRequestSchema = z.object({
+  name: z.string().min(1).max(100),
+  text: z.string().trim().min(1).max(20_000).optional(),
+});
+export type TransitionSessionRequest = z.infer<typeof TransitionSessionRequestSchema>;
 
 /** POST /api/sessions/:id/input → 202 `{ok: true}`; 409 if already answered / not pending. */
 export const AnswerInputRequestSchema = z.object({
@@ -381,7 +489,7 @@ export type ApiError = z.infer<typeof ApiErrorSchema>;
 export type ApiErrorCode = ApiError['error']['code'];
 
 /** The REST routes that call EngineService.applyEvent (T08). */
-export type EngineRoute = 'input' | 'approve' | 'cancel' | 'message';
+export type EngineRoute = 'input' | 'approve' | 'cancel' | 'message' | 'transition';
 
 /** Rejected (nothing written) → HTTP. Same for every route. */
 export const APPLY_REJECT_HTTP = {
@@ -397,8 +505,9 @@ export const APPLY_REJECT_HTTP = {
  * HTTP status + ApiError code for a non-applied EngineService result (10-contracts §REST error
  * map). `applied` → 202 OkResponse. `ignored` (the event row is written, nothing changed) →
  * 409: `input_not_pending` on /input (the session is not waiting for that answer), `conflict`
- * on /approve (not waiting for `ui.approve`), /cancel (already terminal) and /messages (not
- * `running` an agent state with a live process, ADR-0007).
+ * on /approve (not waiting for `ui.approve`), /cancel (already terminal), /messages (not
+ * `running` an agent state with a live process, ADR-0007) and /transition (ADR-0011: not in a
+ * state that offers it, or not a human transition for the ticket's kind).
  */
 export function httpForApplyResult(
   route: EngineRoute,
@@ -423,6 +532,8 @@ export const TicketDtoSchema = z.object({
   status: TicketStatusSchema,
   priority: z.number().int(),
   created_at: IsoDateTimeSchema,
+  /** ADR-0011. Optional until the orchestrator stores it (M1b-T04); absent ≡ null. */
+  kind: TicketKindSchema.nullable().optional(),
 });
 export type TicketDto = z.infer<typeof TicketDtoSchema>;
 
@@ -439,6 +550,13 @@ export const CreateTicketRequestSchema = z.object({
   required_tags: z.array(z.string()).default([]),
   repo_allow_machines: z.array(z.string()).nullable().default(null),
   external_ref: z.string().nullable().default(null),
+  /**
+   * ADR-0011: work or personal. The route requires it (M1b-T04: 400 `bad_request`, path `kind`,
+   * when absent) until triage (M4) can set it.
+   * TD-096: optional in the schema only so the web create form (M1b-T07) and the e2e harness keep
+   * compiling and passing while group B lands; flip to required once T04 and T07 are merged.
+   */
+  kind: TicketKindSchema.optional(), // TD-096
 });
 export type CreateTicketRequest = z.input<typeof CreateTicketRequestSchema>;
 
@@ -478,6 +596,11 @@ export const WorkflowDetailSchema = z.object({
    * sends it.
    */
   versions: z.array(z.number().int().positive()).optional(),
+  /**
+   * ADR-0011 (M1b-T09): the shipped default version newer than this id's latest, when the user
+   * edited theirs so the seed did not insert it (the editor offers it); null/absent otherwise.
+   */
+  default_available: z.number().int().positive().nullable().optional(),
 });
 export type WorkflowDetail = z.infer<typeof WorkflowDetailSchema>;
 
@@ -508,6 +631,8 @@ const iso = (t: Ts): string => (t instanceof Date ? t.toISOString() : new Date(t
 export interface CardTicketLike {
   id: string;
   status: TicketStatus;
+  /** ADR-0011 `ticket.kind`; absent (rows from before the migration) ≡ null. */
+  kind?: TicketKind | null;
   title: string;
   external_ref: string | null;
   repo: string;
@@ -527,6 +652,8 @@ export interface CardSessionLike {
   waiting_for_build_slot: boolean;
   /** The `context` jsonb: the gate step (`checking`) and the PR URL come from it. */
   context: Record<string, unknown>;
+  /** ADR-0011: resolves a `$return_to` button's `goto`; absent ≡ null (left as `$return_to`). */
+  return_to?: string | null;
   updated_at: Ts;
 }
 
@@ -584,6 +711,10 @@ export function toBoardCard(
     column: place.column,
     badges: place.badges,
     checking: place.checking,
+    kind: ticket.kind ?? null,
+    pending:
+      session && place.checking ? pendingOfStep(view.def, stepOfContext(session.context)) : null,
+    human_transitions: humanTransitionsOfCard(ticket, session, view),
     pr_url: session ? prUrlOfContext(session.context) : null,
     machine_id: session?.machine_id ?? null,
     spend_usd: session ? Number(session.spend_usd) : 0,
@@ -594,4 +725,130 @@ export function toBoardCard(
     created_at: iso(ticket.created_at),
     updated_at: sUpd > tUpd ? sUpd : tUpd,
   };
+}
+
+// ---------------------------------------------------------------- ADR-0011 card fields
+
+/** A conductor action's checklist label. */
+export function actionLabel(action: string): string {
+  switch (action) {
+    case 'open_pr':
+      return 'PR opened';
+    case 'update_jira':
+      return 'Jira updated';
+    case 'slack_message':
+      return 'Slack message sent';
+    default:
+      return action;
+  }
+}
+
+function transitionAt(def: Pick<WorkflowDefinition, 'states'>, from: string, name: string) {
+  const s = def.states[from];
+  const raw = s !== undefined && s.type !== 'terminal' ? s.on?.[name] : undefined;
+  return raw === undefined ? undefined : transitionObject(raw);
+}
+
+/** What a gate step checks, in the `requires` shape (an entry / ADR-0009 gate mapped on read). */
+function requiresOfStep(
+  def: Pick<WorkflowDefinition, 'states'>,
+  step: GateStep,
+): TransitionRequires | null {
+  if (step.kind === 'move') {
+    return transitionAt(def, step.from, step.transition ?? step.outcome)?.requires ?? null;
+  }
+  if (step.kind === 'entry') return def.states[step.to]?.entry ?? null;
+  const gate = transitionAt(def, step.from, step.outcome)?.requirements;
+  return gate === undefined ? null : { review: { items: gate.items } };
+}
+
+const PHASE_ORDER = ['checks', 'review', 'actions', 'conditions'] as const;
+
+/**
+ * ADR-0011: a gate step's "waiting for" checklist (BoardCard.pending). Items in run order:
+ * declared checks (the implicit commit-pin check is not shown), the review, actions, conditions.
+ * An item in a phase before the current one is `met`; in the current phase, a check / action
+ * before `step.index` is `met`, at it `running`, after it `todo` (the review is `running`);
+ * conditions show `step.conditions` once the phase has them (else `todo`, or `disabled`); later
+ * phases are `todo`. Null when there is no step; items [] when the definition is unknown.
+ */
+export function pendingOfStep(
+  def: Pick<WorkflowDefinition, 'states'> | null,
+  step: GateStep | null,
+): BoardPending | null {
+  if (step === null) return null;
+  const name = step.transition ?? step.outcome;
+  let title = step.to;
+  if (def !== null) {
+    title =
+      step.kind === 'move'
+        ? transitionTitle(name, transitionAt(def, step.from, name))
+        : stateTitle(def, step.to);
+  }
+  const req = def !== null ? requiresOfStep(def, step) : null;
+  const items: BoardPendingItem[] = [];
+  if (req !== null) {
+    const cur = PHASE_ORDER.indexOf(step.phase);
+    const indexed = (phase: number, i: number): BoardPendingItem['status'] => {
+      if (phase < cur) return 'met';
+      if (phase > cur) return 'todo';
+      return i < step.index ? 'met' : i === step.index ? 'running' : 'todo';
+    };
+    (req.checks ?? []).forEach((c, i) =>
+      items.push({ label: c.name, status: indexed(0, i), detail: null }),
+    );
+    if (req.review !== undefined) {
+      const n = req.review.items.length;
+      items.push({
+        label: `Review: ${n} requirement${n === 1 ? '' : 's'}`,
+        status: cur > 1 ? 'met' : cur === 1 ? 'running' : 'todo',
+        detail: req.review.items.join('\n'),
+      });
+    }
+    (req.actions ?? []).forEach((a, i) =>
+      items.push({ label: actionLabel(a), status: indexed(2, i), detail: null }),
+    );
+    if (cur === 3 && step.conditions.length > 0) {
+      for (const c of step.conditions) {
+        items.push({
+          label: c.value !== null ? `${c.label} (${c.value})` : c.label,
+          status: c.status,
+          detail: c.detail,
+        });
+      }
+    } else {
+      for (const c of req.conditions ?? []) {
+        items.push({
+          label: conditionLabel(c),
+          status: conditionEnabled(c) ? 'todo' : 'disabled',
+          detail: null,
+        });
+      }
+    }
+  }
+  return { transition: name, to: step.to, title, items, note: step.conditions_note };
+}
+
+/**
+ * ADR-0011: BoardCard.human_transitions. Only for a session `needs_input` in a human state or
+ * `waiting_external` in an event state, outside a gate step, with a known definition; else [].
+ */
+export function humanTransitionsOfCard(
+  ticket: Pick<CardTicketLike, 'kind'>,
+  session: Pick<CardSessionLike, 'status' | 'workflow_state' | 'context' | 'return_to'> | null,
+  view: CardView,
+): HumanTransitionOption[] {
+  if (session === null || view.def === null || session.workflow_state === null) return [];
+  if (stepOfContext(session.context) !== null) return [];
+  const type = view.def.states[session.workflow_state]?.type;
+  const ok =
+    (session.status === 'needs_input' && type === 'human') ||
+    (session.status === 'waiting_external' && type === 'event');
+  if (!ok) return [];
+  return humanTransitionOptions(
+    view.def,
+    session.workflow_state,
+    ticket.kind ?? null,
+    session.return_to ?? null,
+  );
 }

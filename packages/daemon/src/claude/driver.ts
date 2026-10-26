@@ -8,6 +8,8 @@
 // `tools` is built from the state's workflow `tools` list with `resolveToolPolicy` (shared
 // workflow/tools.ts, TOOL_ALIASES).
 
+import type { AgentTransitionOption } from '@conductor/shared';
+
 export interface ToolPolicy {
   builtin: string[]; // --tools, e.g. ["Read","Edit","Write","Glob","Grep","Bash"]
   allow: string[]; // --allowedTools rules, e.g. ["Edit(./**)","Bash(git commit:*)"]
@@ -31,6 +33,11 @@ export interface DriverStartOptions {
    * run, everything else is denied without prompting.
    */
   review?: boolean;
+  /**
+   * ADR-0011: `start_session.transitions`, the names the outcome server accepts in
+   * `complete_state` (one corrective nudge for another name). Absent or empty = any name.
+   */
+  transitions?: AgentTransitionOption[];
 }
 
 export type DriverEvent =
@@ -41,7 +48,13 @@ export type DriverEvent =
       text: string;
     }
   | { kind: 'ask_user'; question: string }
-  | { kind: 'complete_state'; result: Record<string, unknown> }
+  | {
+      kind: 'complete_state';
+      result: Record<string, unknown>;
+      /** ADR-0011: the transition the agent named (absent = `done`), and why. */
+      transition?: string;
+      reason?: string;
+    }
   | { kind: 'turn_end'; isError: boolean; subtype: string; permissionDenials: number } // process now idle
   | {
       kind: 'spend';

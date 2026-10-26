@@ -58,6 +58,7 @@ The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.
 | repo_allow_machines | text[] null | hard allow-list of machine ids for the claim ([04](04-scheduler.md)); `null` = any machine. Kept, nullable ([U-009](../tracking/UNKNOWNS.md), M1-T12) |
 | status | enum | `ready` · `claimed` · `in_progress` · `done` · `failed` · `cancelled` |
 | priority | int | |
+| kind | enum `ticket_kind` null | `work` · `personal` ([ADR-0011](../adr/0011-transition-rules.md)): filters transitions (`kinds`). NULL for tickets created before M1b, matching both kinds ([U-062](../tracking/UNKNOWNS.md)); new tickets must set it (create form until triage, M4). Added by M1b-T04's migration (`TicketRow.kind` lands with it) |
 | created_at, updated_at | timestamptz | the claim orders by `created_at` |
 
 ### workflow_definition

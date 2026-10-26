@@ -212,13 +212,17 @@ export interface ReviewFeedback {
   instruction: string | null;
 }
 
-/** ADR-0009: "Requirements for a → b were not met:"; ADR-0010: "Requirements to enter X were not met:". */
+/**
+ * ADR-0009: "Requirements for a → b were not met:"; ADR-0010: "Requirements to enter X were not
+ * met:"; ADR-0011 (a move, `title` = the transition's title): "Requirements for X were not met:".
+ */
 export function feedbackHeading(p: {
-  kind: 'transition' | 'entry';
+  kind: 'transition' | 'entry' | 'move';
   from: string;
   to: string;
   title: string;
 }): string {
+  if (p.kind === 'move') return `Requirements for ${p.title} were not met:`;
   return p.kind === 'entry'
     ? `Requirements to enter ${p.title} were not met:`
     : `Requirements for ${p.from} → ${p.to} were not met:`;

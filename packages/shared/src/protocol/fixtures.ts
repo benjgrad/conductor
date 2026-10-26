@@ -353,3 +353,95 @@ export const ORCHESTRATOR_FIXTURES: {
     payload: { request_id: '7a6b5c4d-3e2f-4a1b-8c9d-0e1f2a3b4c5d', session_id: S },
   },
 };
+
+// ---------------------------------------------------------------- ADR-0011 (M1b-T01)
+
+/** The PR conductor opened in the M1b fixtures (`context.__pr.pr_url`). */
+export const M1B_PR_URL = 'https://github.com/benjgrad/fixture-app/pull/7';
+
+const M1B_BRANCH = 'conductor/0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2/7d0c5b1e';
+
+/**
+ * One fixture per ADR-0011 WS shape, as full envelopes: a `complete_state` naming a transition, a
+ * `start_session` with its allowed transitions, `run_action evaluate_conditions` and its
+ * `action_result`. For the daemon (T05) and gateway tests; round-tripped in ws.test.ts.
+ */
+export const M1B_WS_FIXTURES: {
+  complete_state_transition: Extract<DaemonToOrchestrator, { type: 'session_event' }>;
+  start_session_transitions: Extract<OrchestratorToDaemon, { type: 'start_session' }>;
+  run_action_evaluate_conditions: Extract<OrchestratorToDaemon, { type: 'run_action' }>;
+  action_result_evaluate_conditions: Extract<DaemonToOrchestrator, { type: 'session_event' }>;
+} = {
+  complete_state_transition: {
+    type: 'session_event',
+    ...daemonSession(30),
+    payload: {
+      kind: 'complete_state',
+      data: {
+        result: { summary: 'Build and tests pass; PR description written.' },
+        transition: 'ready_for_testing',
+        reason: 'The endpoint is implemented and tested.',
+      },
+    },
+  },
+  start_session_transitions: {
+    ...ORCHESTRATOR_FIXTURES.start_session,
+    msg_id: id(),
+    payload: {
+      ...ORCHESTRATOR_FIXTURES.start_session.payload,
+      workflow_state: 'implementing',
+      transitions: [
+        {
+          name: 'pr_ready_for_review',
+          when: 'The work is done and you want the user to review the PR.',
+          question: true,
+        },
+        {
+          name: 'ready_for_testing',
+          when: 'The work is complete and should go to testing.',
+          question: false,
+        },
+        { name: 'ask_user', when: null, question: false },
+      ],
+    },
+  },
+  run_action_evaluate_conditions: {
+    type: 'run_action',
+    msg_id: id(),
+    seq: null,
+    session_id: S,
+    fencing_token: 2,
+    payload: {
+      command_id: FIXTURE_IDS.command,
+      workflow_state: 'implementing → waiting_external (move: ready_for_testing)',
+      target_state: 'waiting_external',
+      action: 'evaluate_conditions',
+      idempotency_key: `${S}:implementing → waiting_external (move: ready_for_testing):2026-10-26T12:02:00.000Z`,
+      args: {
+        conditions: [{ type: 'pr_checks_green' }, { type: 'pr_approvals', min: 1 }],
+        pr_url: M1B_PR_URL,
+        branch: M1B_BRANCH,
+      },
+      branch: M1B_BRANCH,
+      expected_sha: null,
+    },
+  },
+  action_result_evaluate_conditions: {
+    type: 'session_event',
+    ...daemonSession(31),
+    payload: {
+      kind: 'action_result',
+      data: {
+        command_id: FIXTURE_IDS.command,
+        action: 'evaluate_conditions',
+        result: {
+          results: [
+            { type: 'pr_checks_green', status: 'met', value: '3/3', detail: null },
+            { type: 'pr_approvals', status: 'pending', value: '0/1', detail: null },
+          ],
+        },
+        error: null,
+      },
+    },
+  },
+};

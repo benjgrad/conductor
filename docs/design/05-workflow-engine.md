@@ -17,20 +17,57 @@ Users design an FSM, stored as **versioned JSON** in `workflow_definition`. The 
       // type-specific config (below)
       "guard": "<guard name>",           // optional, checked before leaving on success
       "timeout": "30m",                   // optional; fires the "timeout" outcome
-      "on": { "<outcome>": "<state>" | { "goto": "<state>", "attach": "output", "retries": 3, "else": "<state>" } }
+      "on": { "<transition name>": "<state>" | { "goto": "<state>", "attach": "output", "retries": 3, "else": "<state>", /* ADR-0011 fields below */ } }
     }
   }
 }
 ```
 
+### Transition object ([ADR-0011](../adr/0011-transition-rules.md))
+Each key of `on` is a **transition name**; the value is a state name (shorthand for `{goto}`) or an object. Old definitions parse unchanged. Schema: `TransitionObjectSchema` in `shared/src/workflow/schema.ts`; contract index: [10 §Transitions](10-contracts.md#transitions-adr-0011).
+
+```jsonc
+"ready_for_testing": {
+  "goto": "waiting_external",          // a state, or "$return_to" (RETURN_TO) on a human-state transition
+  "title": "Ready for testing",        // button / timeline label; default: the name humanised
+  "when": "The work is complete …",    // ≤ 1 000 chars; listed in the agent's prompt
+  "actor": "agent",                    // agent | human | system; inferred when omitted (below)
+  "kinds": ["work"],                   // non-empty; omitted = both kinds
+  "question": false,                   // true: a move into a human state that asks; the reason is the question
+  "requires": {
+    "checks": [{ "name": "Tests pass", "cmd": "npm test", "timeout": "10m" }],  // ≤ 20
+    "setup": "npm ci",                 // ADR-0010: omitted = auto-detect, "" = none
+    "review": { "items": ["…"], "model": "…" },                                  // the ADR-0009 reviewer
+    "actions": ["open_pr"],            // update_jira / slack_message parse, refused by the validator until M5
+    "conditions": [                    // 1..10, each with enabled? (default true) and label?
+      { "type": "pr_checks_green" },
+      { "type": "pr_approvals", "min": 1 },
+      { "type": "pr_merged" },
+      { "type": "azure_pipeline_succeeded", "pipeline": "ci", "enabled": false },  // M5
+      { "type": "jira_fields_set", "fields": ["resolution"], "enabled": false }    // M5, 1..20 fields
+    ],
+    "condition_timeout": "3d",         // → on_unmet.else when conditions stay pending (U-063)
+    "condition_poll": "2m"             // first poll interval, default 2m (DEFAULT_CONDITION_POLL), backoff to 15m
+  },
+  "on_unmet": { "goto": "implementing", "instruction": "…", "retries": 3, "else": "needs_input" }
+}
+```
+
+- **Actor inference** (`transitionActor(def, state, name, t)`): the explicit `actor`; else `system` for `timeout`, `exit_0`, `fail`, `ok`, `error`, `budget_exceeded` and an event state's `wait_for` names; else by the state's type: `agent` on an agent state, `human` on a human or event state, `system` on a command or connector state. The validator (rule 10, M1b-T02) rejects an explicit `actor: "agent"` on a non-agent state.
+- **Counting**: see [§Counting](#counting-adr-0011).
+- **Kinds**: `ticket.kind` (`work` | `personal` | null) filters transitions; a null kind matches every transition ([U-062](../tracking/UNKNOWNS.md)).
+- **Fallbacks**: `ask_user` stays a declared outcome on every agent state (U-061); `ask_user`, `timeout` and `budget_exceeded` (FALLBACK_TRANSITION_NAMES) never run requirements.
+- **Legacy**: ADR-0009 `requirements` (on a transition) and ADR-0010 `entry` (on a state) still parse, and old versions execute them as before. `foldLegacyRequirements(def)` (`shared/src/workflow/fold.ts`) rewrites them into `requires` + `on_unmet` (an `entry` goes onto every non-fallback transition into that state); the editor calls it when it saves a new version.
+- Graph rules (actor fits the state, question targets, bounded conditions, available actions) are the validator's, not the schema's: [§Validation on save](#validation-on-save-m1-t03).
+
 ### State types
 | type | Executed by | Config | Outcomes |
 |---|---|---|---|
-| `agent` | daemon → Claude Code | `prompt` template **or** `skill`, `tools` allow-list, `input` (refs like `$open_pr.pr_url`), `result` keys expected | `done` (via `complete_state`), `ask_user`, `timeout` |
+| `agent` | daemon → Claude Code | `prompt` template **or** `skill`, `tools` allow-list, `input` (refs like `$open_pr.pr_url`), `result` keys expected | ADR-0011: any agent-actor transition, named in `complete_state {transition, reason, result}` (no name = `done`); `ask_user`, `timeout` |
 | `command` | daemon, no model | `cmd`, optional `cwd`, `timeout`. Runs through the build semaphore ([07](07-multi-session-isolation.md)) | `exit_0`, `fail` |
 | `event` | orchestrator, waits | `wait_for: [event names]`, `park`, `release_machine`, `timeout` | each event name, `timeout` |
 | `connector` | orchestrator | `action` / `actions[]`, `args`, `idempotency` | `ok`, `error` |
-| `human` | user via UI/Slack | — | `answered` (returns to the state the session came from, unless the answer selects a target) |
+| `human` | user via UI/Slack | — | `answered` (returns to the state the session came from, unless the answer selects a target). ADR-0011: its human-actor transitions, one button each (`answer` → `$return_to`, …) |
 | `terminal` | — | — | — |
 
 ### Outcomes, not opinions
@@ -40,6 +77,9 @@ Users design an FSM, stored as **versioned JSON** in `workflow_definition`. The 
 
 ### Retry loops
 `{ "goto": "implement", "attach": "output", "retries": 3, "else": "needs_input" }` means: on `fail`, go back to `implement` with the command output attached to the prompt. The counter key is `"<from>-><goto>"` in `session.retry_counters`. Once the counter reaches `retries`, take `else`. `budget.max_loop_retries` is the default cap when a loop doesn't set one.
+
+### Counting (ADR-0011)
+`isCountedTransition(t)` (`shared/src/workflow/transition-rules.ts`) decides which transitions are counted `"<from>-><goto>"` failure loops: only an object with `attach`, `retries` or `else`. Every other transition (a state name, or an object with only `when` / `kinds` / `question` / `requires` / `on_unmet` / `title` / `actor`, or ADR-0009 `requirements`) is a plain forward move with no failure-loop counter. Retries of a transition's requirements count under `move:<from>:<name>` (`moveCounterKey`), never under `<from>-><goto>`. The engine (M1b-T03) and the validator's loop analysis (rule 4, M1b-T02) must both use this helper rather than "is it an object".
 
 ### Requirements gates ([ADR-0009](../adr/0009-transition-requirements-review.md))
 A transition object may carry `requirements: {items[1..30], on_unmet: {goto, instruction?, retries 0..10 = 2, else = "needs_input"}, model?}`:

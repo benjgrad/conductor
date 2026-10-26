@@ -233,7 +233,19 @@ export class EngineServiceImpl implements EngineService {
         case 'state_entered':
           await tx.query(
             "INSERT INTO event (session_id, type, payload) VALUES ($1, 'state.entered', $2)",
-            [sessionId, JSON.stringify({ from: effect.from, to: effect.to, visit: effect.visit })],
+            [
+              sessionId,
+              // ADR-0011: the move's transition, reason and actor when apply set them
+              // (StateEnteredPayload; the detail panel's `moves`, absent ≡ null).
+              JSON.stringify({
+                from: effect.from,
+                to: effect.to,
+                visit: effect.visit,
+                ...(effect.transition !== undefined ? { transition: effect.transition } : {}),
+                ...(effect.reason !== undefined ? { reason: effect.reason } : {}),
+                ...(effect.actor !== undefined ? { actor: effect.actor } : {}),
+              }),
+            ],
           );
           break;
         case 'session_status':
@@ -274,6 +286,23 @@ export class EngineServiceImpl implements EngineService {
         input_request_id: inputRow.id,
         answered_by: opts.actor ?? null,
       });
+    }
+    // ADR-0011: a human transition taken from a human state answers its open input_request
+    // (answer = the text, else "[<name>]"; answered_by = the event's actor), like input.provided.
+    if (event.type === 'human.transition') {
+      const r = await tx.query<InputRequestRow>(
+        'UPDATE input_request SET answer = $2, answered_by = $3, answered_at = $4 ' +
+          'WHERE session_id = $1 AND answer IS NULL RETURNING *',
+        [sessionId, event.text ?? `[${event.name}]`, event.actor, now],
+      );
+      for (const row of r.rows) {
+        drafts.push({
+          type: 'input.answered',
+          session_id: sessionId,
+          input_request_id: row.id,
+          answered_by: event.actor,
+        });
+      }
     }
 
     await writeSession(tx, s1, token, now);

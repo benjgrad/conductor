@@ -92,6 +92,14 @@ describe('the step in context (no migration)', () => {
     phase: 'checks',
     index: 0,
     head_sha: null,
+    // ADR-0011 fields (M1b-T01): defaulted when a stored step lacks them.
+    transition: null,
+    actor: null,
+    reason: null,
+    conditions: [],
+    conditions_deadline: null,
+    conditions_poll_ms: null,
+    conditions_note: null,
   };
 
   it('splitStep reads __entry and the legacy ADR-0009 __review; joinStep writes __entry only', () => {

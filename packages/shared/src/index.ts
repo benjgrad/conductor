@@ -7,6 +7,9 @@ export * from './workflow/conductor.js';
 export * from './workflow/guards.js';
 export * from './workflow/tools.js';
 export * from './workflow/validate.js';
+export * from './workflow/transition-rules.js';
+export * from './workflow/fold.js';
+export * from './workflow/fixtures.js';
 export * from './engine/types.js';
 export {
   apply,
@@ -26,6 +29,7 @@ export * from './engine/spend.js';
 export * from './engine/fixtures.js';
 export * from './protocol/ws.js';
 export * from './protocol/commands.js';
+export * from './protocol/outcome.js';
 export * from './protocol/fixtures.js';
 export * from './api/rest.js';
 export * from './api/sse.js';

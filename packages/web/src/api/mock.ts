@@ -309,6 +309,10 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           column: 'queued',
           badges: [],
           checking: null,
+          // ADR-0011 card fields (M1b-T01 contract; M1b-T07 owns the mock).
+          kind: req.kind ?? null,
+          pending: null,
+          human_transitions: [],
           pr_url: null,
           machine_id: null,
           spend_usd: 0,

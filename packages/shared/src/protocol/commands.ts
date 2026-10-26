@@ -79,6 +79,10 @@ export function commandPayloadForEffect(
       if (effect.max_turns !== undefined) payload.max_turns = effect.max_turns;
       if (effect.max_budget_usd !== undefined) payload.max_budget_usd = effect.max_budget_usd;
       if (effect.review === true) payload.review = true;
+      // ADR-0011: omitted when the effect has none (old versions), so old payloads are unchanged.
+      if (effect.transitions !== undefined && effect.transitions.length > 0) {
+        payload.transitions = effect.transitions;
+      }
       return { kind: 'start_session', target, payload };
     }
     case 'send_input':
@@ -113,7 +117,9 @@ export function commandPayloadForEffect(
         },
       };
     case 'run_action':
-      if (effect.action !== 'open_pr') throw new Error(`unknown entry action ${effect.action}`);
+      if (effect.action !== 'open_pr' && effect.action !== 'evaluate_conditions') {
+        throw new Error(`unknown entry action ${effect.action}`);
+      }
       return {
         kind: 'run_action',
         target,

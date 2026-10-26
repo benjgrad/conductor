@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { IsoDateTimeSchema, JsonObjectSchema, OutputStreamSchema, UuidSchema } from '../domain.js';
+import { ConditionSchema, ConditionTypeSchema } from '../workflow/schema.js';
+import { AgentTransitionOptionSchema } from '../workflow/transition-rules.js';
 
 // Daemon ↔ orchestrator WebSocket protocol (03 §Daemon ↔ orchestrator). One JSON envelope per
 // WS text frame. Field names are snake_case on the wire.
@@ -157,7 +159,20 @@ export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
     }),
   }),
   z.object({ kind: z.literal('claude_session_id'), data: z.object({ id: z.string() }) }),
-  z.object({ kind: z.literal('complete_state'), data: z.object({ result: JsonObjectSchema }) }),
+  /**
+   * ADR-0011: `transition` is the name the agent took (absent = `done`, old workflows), `reason`
+   * its explanation. The daemon's outcome server already refused one unknown name with a
+   * corrective nudge; a second one is forwarded as is and the engine routes it to a human.
+   * → EngineEvent `agent.complete_state {result, transition, reason}`.
+   */
+  z.object({
+    kind: z.literal('complete_state'),
+    data: z.object({
+      result: JsonObjectSchema,
+      transition: z.string().optional(),
+      reason: z.string().optional(),
+    }),
+  }),
   z.object({ kind: z.literal('ask_user'), data: z.object({ question: z.string() }) }),
   /**
    * U-028 (ADR-0005 addendum): a turn ended without complete_state / ask_user, the daemon sent
@@ -211,8 +226,8 @@ export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
   }),
   /**
    * ADR-0010: the result of a `run_action` (an entry action, e.g. open_pr). `result` on success
-   * (open_pr: `{pr_url}`), `error` (one sentence for the human) on failure; exactly one is set.
-   * → EngineEvent `action.completed`.
+   * (open_pr: `{pr_url}`; ADR-0011 evaluate_conditions: an EvaluateConditionsResult), `error`
+   * (one sentence for the human) on failure; exactly one is set. → EngineEvent `action.completed`.
    */
   z.object({
     kind: z.literal('action_result'),
@@ -361,6 +376,13 @@ export const StartSessionPayloadSchema = z.object({
   review: z.literal(true).optional(),
   /** Extra env from the state; ports and git identity are added by the daemon. */
   env: z.record(z.string(), z.string()),
+  /**
+   * ADR-0011: the agent transitions this visit may name in `complete_state` (the agent-actor
+   * transitions of `workflow_state` for the ticket's kind; the prompt lists the same). The
+   * outcome server refuses another name once with a corrective text listing these. Absent or
+   * empty = any name passes (old workflows, reviewers).
+   */
+  transitions: z.array(AgentTransitionOptionSchema).optional(),
 });
 export const StartSessionMessageSchema = msg(
   'start_session',
@@ -406,7 +428,12 @@ export const RunActionPayloadSchema = z.object({
   workflow_state: z.string(),
   /** The state being entered. */
   target_state: z.string(),
-  action: z.enum(['open_pr']),
+  /**
+   * `open_pr` (ADR-0010). ADR-0011 `evaluate_conditions`: read-only, `args` is an
+   * EvaluateConditionsArgs, the `action_result.result` an EvaluateConditionsResult; it is not
+   * idempotency-guarded (the key is informational) and never pushes.
+   */
+  action: z.enum(['open_pr', 'evaluate_conditions']),
   /** `<session_id>:<state>:<visit>` (05 §Idempotency). */
   idempotency_key: z.string(),
   /** open_pr: `{title, body}`. */
@@ -420,6 +447,43 @@ export const RunActionPayloadSchema = z.object({
   expected_sha: z.string().nullable(),
 });
 export const RunActionMessageSchema = msg('run_action', RunActionPayloadSchema, orchSessionEnv);
+
+/**
+ * ADR-0011 `run_action {action: 'evaluate_conditions'}` args: the move step's enabled conditions
+ * (declaration order), the PR conductor opened (`context.__pr.pr_url`, null if none) and the
+ * session branch (apply: `sessionBranch(ticket.id, session.id)`; informational, the daemon uses
+ * its own record of the branch, like open_pr). The daemon evaluates them with the machine's own
+ * CLIs (`gh` in M1b). `idempotency_key`: `conditionsIdempotencyKey`.
+ */
+export const EvaluateConditionsArgsSchema = z.object({
+  conditions: z.array(ConditionSchema).min(1),
+  pr_url: z.string().nullable(),
+  branch: z.string(),
+});
+export type EvaluateConditionsArgs = z.infer<typeof EvaluateConditionsArgsSchema>;
+
+/**
+ * One evaluated condition. `met` / `pending` / `failed` per ADR-0016's table; `unsupported` for
+ * a type the machine can't evaluate (M5 types). `value` is what was observed (e.g. `"1/2"`
+ * approvals), `detail` the evidence (failing check names, "gh not available: …").
+ */
+export const ConditionResultSchema = z.object({
+  type: ConditionTypeSchema,
+  status: z.enum(['met', 'pending', 'failed', 'unsupported']),
+  value: z.string().nullable(),
+  detail: z.string().nullable(),
+});
+export type ConditionResult = z.infer<typeof ConditionResultSchema>;
+
+/**
+ * `action_result.result` of evaluate_conditions: exactly one entry per `args.conditions` entry,
+ * in the same order; results match conditions by POSITION (two conditions may share a type). A missing `gh` or no auth is not an error: every result is `pending` with
+ * the detail "gh not available: …" (the engine keeps polling until `condition_timeout`).
+ */
+export const EvaluateConditionsResultSchema = z.object({
+  results: z.array(ConditionResultSchema),
+});
+export type EvaluateConditionsResult = z.infer<typeof EvaluateConditionsResultSchema>;
 
 export const SendInputPayloadSchema = z.object({
   command_id: UuidSchema,

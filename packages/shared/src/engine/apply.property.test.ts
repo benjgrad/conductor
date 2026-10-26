@@ -1,9 +1,16 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { WorkflowDefinitionSchema, type WorkflowDefinition } from '../workflow/schema.js';
+import { CONDUCTOR_V2_DRAFT_DEF } from '../workflow/fixtures.js';
+import {
+  WorkflowDefinitionSchema,
+  type TicketKind,
+  type WorkflowDefinition,
+} from '../workflow/schema.js';
+import { transitionObject, transitionsOf } from '../workflow/transition-rules.js';
 import { apply } from './apply.js';
-import { Harness, referenceWorkflow, uuid } from './apply.testkit.js';
-import { isOutboxEffect, type EngineEvent, type SessionSnapshot } from './types.js';
+import { freshSnapshot, Harness, HEAD_SHA, referenceWorkflow, uuid } from './apply.testkit.js';
+import { entryStateLabel, reviewStateLabel } from './review.js';
+import { isOutboxEffect, moveStateLabel, type EngineEvent, type SessionSnapshot } from './types.js';
 
 // M1-T04 acceptance: "no event sequence leaves a session in an undefined state". Random event
 // sequences (biased towards ones the session can actually take) run through apply with the
@@ -83,9 +90,38 @@ const GENS: Gen[] = [
     spent: 3,
     limit: 2,
   }),
-  () => ({ type: 'operator.cancel' }),
   (_h, p) => ({ type: 'operator.message', text: p % 2 ? '/context' : `m${p}` }),
+  // ADR-0011 (M1b-T03): named agent transitions (declared or not), human moves, action results.
+  (h, p) => ({
+    type: 'agent.complete_state',
+    result: p % 2 ? { plan: 'P', summary: 's' } : {},
+    transition: anyName(h, p),
+    reason: p % 5 === 0 ? null : `r${p}`,
+  }),
+  (h, p) => ({
+    type: 'human.transition',
+    name: anyName(h, p),
+    text: p % 3 === 0 ? null : `t${p}`,
+    actor: 'ui',
+    input_request_id: p % 2 ? REQ : null,
+  }),
+  (_h, p) => ({
+    type: 'action.completed',
+    command_id: uuid(6000 + p),
+    action: p % 4 === 0 ? 'evaluate_conditions' : 'open_pr',
+    result: p % 3 === 0 ? null : { pr_url: 'https://github.com/o/r/pull/1' },
+    error: p % 3 === 0 ? 'gh failed' : null,
+  }),
+  () => ({ type: 'operator.cancel' }),
 ];
+
+/** A transition name of any state (or a made-up one), so allowed and refused names both occur. */
+function anyName(h: Harness, p: number): string {
+  const names = Object.values(h.def.states).flatMap((st) =>
+    st.type === 'terminal' ? [] : Object.keys(st.on ?? {}),
+  );
+  return p % 7 === 0 ? 'nope' : (names[p % Math.max(1, names.length)] ?? 'nope');
+}
 
 /** The event that moves the session along its happy path (or into a human state and out). */
 const progress: Gen = (h, p) => {
@@ -93,12 +129,65 @@ const progress: Gen = (h, p) => {
   const state = s.workflow_state === null ? undefined : h.def.states[s.workflow_state];
   if (s.status === 'queued') return { type: 'session.assigned', machine_id: 'mbp-ben' };
   if (s.status === 'assigned') return GENS[2]!(h, 1); // matching started
-  if (s.status === 'needs_input') {
-    const states = Object.keys(h.def.states);
-    const e: EngineEvent = { type: 'input.provided', input_request_id: REQ, answer: `a${p}` };
-    return p % 2 ? { ...e, goto: states[Math.floor(p / 2) % states.length]! } : e;
+  if (s.step !== null) {
+    // A gate step: pass (or fail) its current phase.
+    if (s.step.phase === 'checks') {
+      return {
+        type: 'command.exited',
+        command_id: uuid(8000 + p),
+        exit_code: p % 4 === 0 ? 1 : 0,
+        timed_out: false,
+        output_tail: `out ${p}`,
+        head_sha: HEAD_SHA,
+      };
+    }
+    if (s.step.phase === 'review') {
+      return { type: 'agent.complete_state', result: { verdict: [] } };
+    }
+    return {
+      type: 'action.completed',
+      command_id: uuid(8500 + p),
+      action: 'open_pr',
+      result: { pr_url: 'https://github.com/o/r/pull/1' },
+      error: null,
+    };
+  }
+  const kind = s.ticket.kind ?? null;
+  if (s.status === 'needs_input' || (state?.type === 'event' && p % 3 === 0)) {
+    const humans =
+      s.workflow_state === null
+        ? []
+        : transitionsOf(h.def, s.workflow_state, { actor: 'human', kind });
+    if (humans.length > 0 && p % 3 !== 2) {
+      const t = humans[p % humans.length]!;
+      return {
+        type: 'human.transition',
+        name: t.name,
+        text: `t${p}`,
+        actor: 'ui',
+        input_request_id: REQ,
+      };
+    }
+    if (s.status === 'needs_input') {
+      const states = Object.keys(h.def.states);
+      const e: EngineEvent = { type: 'input.provided', input_request_id: REQ, answer: `a${p}` };
+      return p % 2 ? { ...e, goto: states[Math.floor(p / 2) % states.length]! } : e;
+    }
   }
   if (state?.type === 'agent') {
+    const agents =
+      s.workflow_state === null
+        ? []
+        : transitionsOf(h.def, s.workflow_state, { actor: 'agent', kind });
+    if (agents.length > 0 && p % 4 !== 0) {
+      const t = agents[p % agents.length]!;
+      return {
+        type: 'agent.complete_state',
+        result: { plan: 'P', summary: 's', pr_url: 'https://x/pull/1' },
+        transition: t.name,
+        reason: `r${p}`,
+      };
+    }
     return p % 5 === 0
       ? { type: 'agent.ask_user', question: `q${p}` }
       : { type: 'agent.complete_state', result: { pr_url: 'https://x/pull/1' } };
@@ -136,20 +225,31 @@ const stepArb = fc.record({
 const eventFor = (gen: number, h: Harness, pick: number): EngineEvent =>
   gen === PROGRESS ? progress(h, pick) : GENS[gen]!(h, pick);
 
-function checkInvariants(
-  def: WorkflowDefinition,
-  prev: SessionSnapshot,
-  h: Harness,
-  event: EngineEvent,
-): void {
+function checkInvariants(def: WorkflowDefinition, prev: SessionSnapshot, h: Harness): void {
   const s = h.snap;
   const r = h.last;
   if (r.ignored !== null) {
     expect(r.effects).toEqual([]);
     expect(r.snapshot).toEqual(prev);
   }
-  if (s.workflow_state === null) {
+  if (s.step !== null && s.status !== 'failed') {
+    // A gate step: its synthetic label, in the source state's column.
+    const r = s.step;
+    const label =
+      r.kind === 'move'
+        ? moveStateLabel(r.from, r.to, r.transition ?? r.outcome)
+        : r.kind === 'entry'
+          ? entryStateLabel(r.from, r.to)
+          : reviewStateLabel(r.from, r.to);
+    expect(s.workflow_state).toBe(label);
+    expect(def.states[r.from]).toBeDefined();
+    expect(def.states[r.to]).toBeDefined();
+    expect(['queued', 'assigned', 'running', 'waiting_external']).toContain(s.status);
+  } else if (s.workflow_state === null) {
     expect(['queued', 'failed']).toContain(s.status);
+  } else if (s.status === 'failed' && def.states[s.workflow_state] === undefined) {
+    // cancelled during a gate step: the session ends on the step's label
+    expect(s.workflow_state).toMatch(/ \((move: .+|entry|review)\)$/);
   } else {
     const state = def.states[s.workflow_state];
     expect(state, `unknown state ${s.workflow_state}`).toBeDefined();
@@ -161,7 +261,9 @@ function checkInvariants(
   }
   if (s.status === 'done' || s.status === 'failed') expect(s.pending_answer).toBeNull();
   // §Pending answer: cleared when apply enters a different state, unless it delivers an answer
-  if (event.type !== 'input.provided' && s.workflow_state !== prev.workflow_state) {
+  // (an `input.provided`, or a human's text delivered to an agent by a transition or a move).
+  const delivers = r.effects.some((e) => e.type === 'start_session' || e.type === 'send_input');
+  if (s.workflow_state !== prev.workflow_state && !delivers) {
     expect(s.pending_answer).toBeNull();
   }
   if (s.status === 'queued') {
@@ -170,6 +272,15 @@ function checkInvariants(
   }
   if (r.effects.some(isOutboxEffect)) expect(r.snapshot.machine_id).not.toBeNull();
   for (const [key, n] of Object.entries(s.retry_counters)) {
+    const move = /^move:([^:]+):(.+)$/.exec(key);
+    if (move !== null) {
+      // a move's unmet loop is capped at its transition's on_unmet.retries
+      const st = def.states[move[1]!];
+      const raw = st !== undefined && st.type !== 'terminal' ? st.on?.[move[2]!] : undefined;
+      expect(raw).toBeDefined();
+      expect(n).toBeLessThanOrEqual(transitionObject(raw!).on_unmet?.retries ?? 0);
+      continue;
+    }
     const [from = '', to = ''] = key.split('->');
     const t = def.states[from] && 'on' in def.states[from] ? def.states[from].on : undefined;
     const loop = Object.values(t ?? {}).find((x) => typeof x === 'object' && x.goto === to);
@@ -207,39 +318,53 @@ function agentChain(): WorkflowDefinition {
   });
 }
 
-const WORKFLOWS: [string, () => WorkflowDefinition][] = [
-  ['m1_basic', () => referenceWorkflow('m1_basic')],
-  ['pr_flow', () => referenceWorkflow('pr_flow')],
-  ['agent_chain', agentChain],
+const WORKFLOWS: [string, () => WorkflowDefinition, TicketKind | null][] = [
+  ['m1_basic', () => referenceWorkflow('m1_basic'), null],
+  ['pr_flow', () => referenceWorkflow('pr_flow'), null],
+  ['agent_chain', agentChain, null],
+  // ADR-0011: named transitions, kinds, human moves and move steps.
+  ['conductor v2 (work)', () => CONDUCTOR_V2_DRAFT_DEF, 'work'],
+  ['conductor v2 (personal)', () => CONDUCTOR_V2_DRAFT_DEF, 'personal'],
+  ['conductor v2 (no kind)', () => CONDUCTOR_V2_DRAFT_DEF, null],
 ];
 
-describe.each(WORKFLOWS)('apply property: %s', (_name, load) => {
+describe.each(WORKFLOWS)('apply property: %s', (_name, load, kind) => {
   const def = load();
+  const fresh = (): SessionSnapshot => {
+    const snap = freshSnapshot(def);
+    return { ...snap, ticket: { ...snap.ticket, kind } };
+  };
 
   it('no event sequence leaves the session undefined', () => {
     const reached = new Set<string>();
     fc.assert(
       fc.property(fc.array(stepArb, { minLength: 1, maxLength: 60 }), (steps) => {
-        const h = new Harness(def);
+        const h = new Harness(def, fresh());
         for (const { gen, pick, seconds } of steps) {
           const prev = h.snap;
           h.advance(seconds);
           const event = eventFor(gen, h, pick);
           h.run(event);
-          checkInvariants(def, prev, h, event);
-          if (h.snap.workflow_state !== null) reached.add(h.snap.workflow_state);
+          checkInvariants(def, prev, h);
+          const at = h.snap.workflow_state;
+          if (at !== null && def.states[at] !== undefined) reached.add(at);
+          else if (at !== null && h.snap.step !== null) reached.add('(gate step)');
         }
       }),
-      { numRuns: 400 },
+      { numRuns: 1000 },
     );
     // the sequences actually exercise the whole workflow, not just the first state
-    expect([...reached].sort()).toEqual(Object.keys(def.states).sort());
+    // (and a workflow with `requires` gets into its move steps)
+    const gated = def.id === CONDUCTOR_V2_DRAFT_DEF.id && def.version === 2;
+    expect([...reached].sort()).toEqual(
+      [...Object.keys(def.states), ...(gated ? ['(gate step)'] : [])].sort(),
+    );
   });
 
   it('terminal sessions ignore every event', () => {
     fc.assert(
       fc.property(fc.integer({ min: 0, max: GENS.length - 1 }), fc.nat(1000), (gen, pick) => {
-        const h = new Harness(def).claimAndStart();
+        const h = new Harness(def, fresh()).claimAndStart();
         h.run({ type: 'operator.cancel' });
         const snap = h.snap;
         const r = apply(def, snap, GENS[gen]!(h, pick), h.now);

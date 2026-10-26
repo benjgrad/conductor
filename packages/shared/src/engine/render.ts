@@ -1,4 +1,5 @@
 import type { AgentState } from '../workflow/schema.js';
+import type { AgentTransitionOption } from '../workflow/transition-rules.js';
 import { renderReviewFeedback, type ReviewFeedback } from './review.js';
 import type { SessionSnapshot } from './types.js';
 
@@ -44,6 +45,12 @@ export interface RenderPromptInput {
   answer?: string | null;
   /** ADR-0009: an unmet requirements review that routed here (`on_unmet.goto`). */
   feedback?: ReviewFeedback | null;
+  /**
+   * ADR-0011: the transitions the agent may name (`promptTransitions`, the same list as
+   * `start_session.transitions`), listed under "How to finish". null/absent: the M1 "When you are
+   * done" section (old versions).
+   */
+  transitions?: readonly AgentTransitionOption[] | null;
 }
 
 /** Placeholders a literal prompt may use. */
@@ -100,7 +107,12 @@ export function renderPrompt(input: RenderPromptInput): string {
     parts.push(`## Answer from a human\n\n${input.answer}`);
   }
 
-  parts.push(finishSection(state));
+  // Ben, 2026-10-26 (M1b): a work repository is shared with developers who don't use conductor.
+  if (snapshot.ticket.kind === 'work') parts.push(WORK_REPOSITORY);
+
+  parts.push(
+    input.transitions != null ? howToFinish(state, input.transitions) : finishSection(state),
+  );
   return parts.join('\n\n');
 }
 
@@ -131,18 +143,73 @@ function ticketSection(t: RenderPromptInput['snapshot']['ticket']): string {
 function renderInputs(state: AgentState, context: SessionSnapshot['context']): string | null {
   const entries = Object.entries(state.input ?? {});
   if (entries.length === 0) return null;
-  const lines = entries.map(([key, value]) => `- ${key}: ${formatInput(value, context)}`);
+  const lines = entries.map(([key, value]) => {
+    const resolved = formatInput(value, context);
+    // M1b (T02 rule 5): a human move may reach this state without the step that produces a
+    // `$ref` input (an operator override, like "skip to"); say so instead of "(missing)".
+    return resolved === null ? notProduced(key) : `- ${key}: ${resolved}`;
+  });
   return ['## Inputs', '', ...lines].join('\n');
 }
 
-function formatInput(value: string | number | boolean, context: SessionSnapshot['context']) {
+function notProduced(key: string): string {
+  return `- \`${key}\`: not produced (a person moved this ticket here directly). Work out what's needed from the ticket first, and make a short plan before changing code.`;
+}
+
+/** A literal as text, a `$state.key` ref resolved from `context`; null when the ref resolves to nothing. */
+function formatInput(
+  value: string | number | boolean,
+  context: SessionSnapshot['context'],
+): string | null {
   if (typeof value !== 'string') return String(value);
   const ref = /^\$([^.]+)\.(.+)$/.exec(value);
   if (!ref) return value;
   const [, from = '', key = ''] = ref;
   const resolved = context[from]?.[key];
-  if (resolved === undefined) return '(missing)';
+  if (resolved === undefined) return null;
   return typeof resolved === 'string' ? resolved : JSON.stringify(resolved);
+}
+
+/** The heading of the work-commit rule (a `kind: 'work'` ticket's agent prompts only). */
+export const WORK_REPOSITORY_HEADING = '## Work repository';
+
+const WORK_REPOSITORY = [
+  WORK_REPOSITORY_HEADING,
+  '',
+  'This repository belongs to a team whose other developers do not use conductor. Commit only changes that make sense to them.',
+  'Do not commit workflow or agent configuration, notes for conductor, or anything else specific to this tool.',
+].join('\n');
+
+/** The heading of the ADR-0011 finish section. */
+export const HOW_TO_FINISH_HEADING = '## How to finish';
+
+/**
+ * ADR-0011: each transition the agent may take, `- <name>: <when>`, and how to name it in
+ * `complete_state`. `ask_user` (the built-in fallback, U-061) gets a default `when`.
+ */
+function howToFinish(state: AgentState, transitions: readonly AgentTransitionOption[]): string {
+  const keys = state.result ?? [];
+  const result =
+    keys.length > 0
+      ? `a \`result\` object containing ${keys.map((k) => `\`${k}\``).join(', ')}`
+      : 'a `result` object summarising what you did';
+  const lines = transitions.map((t) => {
+    const when =
+      t.when ?? (t.name === 'ask_user' ? 'You are blocked and need a human decision.' : null);
+    const ask = t.question ? ' Your `reason` is the question for the human.' : '';
+    return when !== null ? `- ${t.name}: ${when}${ask}` : `- ${t.name}${ask ? `:${ask}` : ''}`;
+  });
+  return [
+    HOW_TO_FINISH_HEADING,
+    '',
+    'When you finish this step, take exactly one of these transitions:',
+    '',
+    ...lines,
+    '',
+    `Call the \`complete_state\` tool once with \`transition\` set to its name, \`reason\` saying why in one or two sentences, and ${result}, then stop.`,
+    'For a transition that asks a human, write the question in `reason`; the `result` may then be empty.',
+    'Any other name is refused.',
+  ].join('\n');
 }
 
 function finishSection(state: AgentState): string {

@@ -4,6 +4,14 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-26 | M2 planned in full: 25 tasks in groups A–J (contracts first), each sized for one agent session and written to be pasted as a conductor ticket; M2 is implemented by conductor itself (dogfooding), one PR per task on github.com/benjgrad/conductor, QA'd and merged by the lead. Migrations in T03, T09, T12, T21 need Ben's sign-off | [M2](../plan/milestones/M2-accounts-machines.md) |
+| 2026-10-26 | Lost machines (U-068): a lapsed lease or a revoked machine sends its sessions to a human, with "Continue on <machine>"; no automatic requeue | U-068, [ADR-0017](../adr/0017-own-sign-in-and-self-hosting.md) |
+| 2026-10-26 | Existing data (U-056): backfilled into a `local` account, claimed by the bootstrap admin | U-056, [ADR-0017](../adr/0017-own-sign-in-and-self-hosting.md) |
+| 2026-10-26 | Accounts are personal only through M2 (U-051): no teams, sharing, transfers or deletion | U-051 |
+| 2026-10-26 | No npm publish (supersedes U-067): the orchestrator serves `/install.sh` and a daemon tarball; Add a machine is one `curl … \| sh -s -- --token <one-time>` line, with an optional launchd / systemd user unit. Windows stays out of M2 | U-067, [ADR-0017](../adr/0017-own-sign-in-and-self-hosting.md) |
+| 2026-10-26 | Hosting (U-057): one Docker Compose stack (orchestrator + Postgres 16) on gradyserver.com in ~/deploy/conductor, bound to 127.0.0.1, behind the host's nginx and a certbot cert at conductor.gradyserver.com; root steps in a sudo script Ben runs, the rest by the lead over ssh as bengrady4 | U-057, [ADR-0017](../adr/0017-own-sign-in-and-self-hosting.md) |
+| 2026-10-26 | Invite-only sign-up: admin-made one-time invite links; the first admin comes from `conductor-admin bootstrap` on the server. No outbound email: resets are admin links or the CLI | [ADR-0017](../adr/0017-own-sign-in-and-self-hosting.md) |
+| 2026-10-26 | Conductor has its own sign-in: email + password (argon2id), server-side sessions in an httpOnly Secure SameSite=Lax cookie, per-IP limits and per-email lockout, CSRF by Origin check + JSON-only. No GitHub sign-in (supersedes ADR-0012's sign-in; its tenancy design stands) | [ADR-0017](../adr/0017-own-sign-in-and-self-hosting.md) |
 | 2026-10-26 | M1b-T09 and M1b-T10 merged together (T10 stacked on T09): `conductor` v2 alone broke the old e2e scenario, so main never had v2 without the moved scenario | 5c49010 |
 | 2026-10-26 | A null-kind ticket sees both review twins (U-062). Accepted | TD-106 |
 | 2026-10-26 | `conductor` v2 splits `pr_ready_for_review` (work, with the work-commit review) from `personal_pr_ready_for_review` (personal, no review), per Ben's rule that personal repos may carry conductor-specific changes | M1b-T09, f31c921 |

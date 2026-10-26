@@ -1,6 +1,7 @@
 # ADR-0012 · Hosted multi-user: Sign in with GitHub, and every row belongs to an account
 
 - **Status**: proposed (Ben approved the plan 2026-10-26; this ADR is accepted when he signs off milestone M2)
+- **Partly superseded by [ADR-0017](0017-own-sign-in-and-self-hosting.md)** (2026-10-26, Ben): §Sign-in (GitHub OAuth, the allow-list, `app_user.github_id`) is replaced by conductor's own email + password sign-in with invite-only sign-up; `CONDUCTOR_AUTH=github` is `password`; §Deployment shape's managed Postgres and platform choice are replaced by the gradyserver Compose stack; the Alternatives row rejecting email + password no longer holds. §Tenancy, §Proving isolation, local mode, the security-changes table (read `password` for `github`) and the audit rule stand.
 - **Date**: 2026-10-26
 - **Deciders**: Ben (+ Claude planning session 2026-10-26)
 - **Resolves**: the web-user half of [U-008](../tracking/UNKNOWNS.md) and [U-042](../tracking/UNKNOWNS.md) (who answered). The machine half of U-008 is [ADR-0013](0013-machine-enrollment-inventory-routing.md).

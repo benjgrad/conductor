@@ -4,6 +4,7 @@
 - **Date**: 2026-10-26
 - **Deciders**: Ben (+ Claude planning session 2026-10-26)
 - **Builds on**: [ADR-0012](0012-hosted-multi-user-github-sign-in.md) (accounts, the GitHub session), [ADR-0011](0011-transition-rules.md) (named transitions, `POST /api/sessions/:id/transition`).
+- **Note (2026-10-26)**: [ADR-0017](0017-own-sign-in-and-self-hosting.md) replaces GitHub login with conductor's own email + password sign-in. Wherever this ADR says "GitHub login" or "GitHub session", read conductor's sign-in page and web session: `/oauth/authorize` without a session redirects to `/signin?next=…`. M3's e2e uses a test user, not a fake GitHub (ADR-0017 §Effect on M3).
 
 ## Context
 Ben wants the board's operations available to any MCP client (Claude Code, claude.ai, Claude Desktop) behind OAuth, and the same operations to drive the in-app assistant ([ADR-0015](0015-triage-and-assistant-on-the-users-machine.md)). The REST API returns what a browser needs: full cards, whole definitions, every version. Handed to a model as-is, a board of 200 cards or one workflow definition fills a large part of its context window, and a model can't page through what it was never offered a cursor for.

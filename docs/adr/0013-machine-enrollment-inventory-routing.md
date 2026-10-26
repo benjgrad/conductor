@@ -1,6 +1,7 @@
 # ADR-0013 · Machines enroll once, report what they have, and get only the tickets they can do; sessions run off the user's own checkout
 
 - **Status**: proposed (Ben approved the plan 2026-10-26; this ADR is accepted when he signs off milestone M2)
+- **Amended**: by the [U-060](../tracking/UNKNOWNS.md) resolution (2026-10-26, Ben): sessions run in worktrees of a daemon **reference clone** by default, and off the user's own checkout only when opted in per repo (with the tamper check); and by [ADR-0017](0017-own-sign-in-and-self-hosting.md) §Daemon distribution: enrollment uses `curl -fsSL https://<host>/install.sh | sh -s -- --token <token>` (no npm package, U-067 superseded), and the credential lives in `~/.conductor/machine.json`. Implemented by [M2](../plan/milestones/M2-accounts-machines.md).
 - **Date**: 2026-10-26
 - **Deciders**: Ben (+ Claude planning session 2026-10-26)
 - **Resolves**: the machine half of [U-008](../tracking/UNKNOWNS.md) (TD-059); [U-030](../tracking/UNKNOWNS.md) (repo → clone URL, stale base) and [U-048](../tracking/UNKNOWNS.md) (a ticket for a repo no machine can work), by replacing daemon-owned clones.

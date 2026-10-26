@@ -781,6 +781,39 @@ describe('daemon core: run_cmd and kill', () => {
     ).toBe(true);
   });
 
+  it('ADR-0010: a require_clean check on a dirty worktree is not run; cmd_exit reports dirty', async () => {
+    const runner = new FakeCommandRunner(1, true);
+    makeDaemon(new FakeClaudeDriver(complete({})), { runner });
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    orch.send(startSession(sid, {}, 3));
+    await orch.until(() => orch.events('exit')[0]);
+    const wt = orch.eventData('started')[0]!.worktree_path;
+    writeFileSync(join(wt, 'uncommitted.txt'), 'x');
+    const check = cmd(
+      'run_cmd',
+      sid,
+      {
+        command_id: randomUUID(),
+        workflow_state: 'implementing → waiting_external (entry)',
+        cmd: 'npm run build',
+        cwd: null,
+        timeout_ms: 1000,
+        require_clean: true,
+      },
+      3,
+    );
+    orch.send(check);
+    const exit = await orch.until(() => orch.eventData('cmd_exit')[0], 10_000);
+    expect(exit).toMatchObject({
+      exit_code: null,
+      head_sha: null,
+      dirty: ['?? uncommitted.txt'],
+      output_tail: '?? uncommitted.txt',
+    });
+    expect(runner.calls).toHaveLength(0);
+  });
+
   it('refuses run_cmd for an unknown session and a cwd outside the worktree', async () => {
     makeDaemon(new FakeClaudeDriver(complete({})));
     await orch.until(() => orch.ofType('request_work')[0]);

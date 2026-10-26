@@ -161,8 +161,9 @@ const SCENARIOS: Record<string, unknown> = {
   },
 };
 
-// ADR-0010 (the one workflow, conductor v1): planning, then implementing; its first pass leaves
-// the tests red once (the entry check sends it back with the output), the second finishes.
+// ADR-0010 (the one workflow, conductor v1): planning, then implementing. Its first pass forgets
+// to commit (the dirty-tree check sends it back), the second commits but the tests are red once
+// (the check sends it back with the output), the third finishes.
 SCENARIOS.conductor = {
   turns: [
     [{ say: 'Planning.' }, { complete_state: { plan: '1. add src/health.txt', summary: 'plan' } }],
@@ -174,7 +175,8 @@ SCENARIOS.conductor = {
     ],
   ],
   defaultTurn: [
-    { say: 'Fixing the tests.' },
+    { say: 'Fixing what was listed.' },
+    { git_commit: 'Add /health' },
     { complete_state: { summary: 'added /health, tests green', retry_prompt: '$answer' } },
   ],
 };
@@ -589,7 +591,9 @@ describe.skipIf(REAL)('fake Claude', () => {
     expect(board.states(id)).toEqual([
       'planning',
       'implementing',
-      entry,
+      entry, // uncommitted changes → unmet
+      'implementing',
+      entry, // committed; tests red once → unmet
       'implementing',
       entry,
       'waiting_external',
@@ -608,7 +612,17 @@ describe.skipIf(REAL)('fake Claude', () => {
 
     const sid = waiting.session_id!;
     const detail = await api.session(sid);
-    expect(detail.retry_counters).toEqual({ 'entry:waiting_external': 1 });
+    expect(detail.retry_counters).toEqual({ 'entry:waiting_external': 2 });
+    // The first unmet: the work was not committed (the worker's next prompt, in its transcript).
+    const prompts = (await api.transcript(sid)).chunks
+      .filter((c) => c.stream === 'user')
+      .map((c) => c.text);
+    const dirtyPrompt = prompts.find((p) => p.includes('Uncommitted changes in the worktree'));
+    expect(dirtyPrompt).toBeDefined();
+    expect(dirtyPrompt).toContain(
+      'commit your work; only committed changes are checked and pushed',
+    );
+    expect(dirtyPrompt).toContain('?? src/health.txt');
     expect(detail.context).toMatchObject({
       planning: { plan: '1. add src/health.txt' },
       __pr: { pr_url: FAKE_GH_URL, state: 'waiting_external' },
@@ -620,13 +634,14 @@ describe.skipIf(REAL)('fake Claude', () => {
     expect(prompt).toContain('- Tests pass: `npm test` failed (exit code 1)');
     expect(prompt).toContain(FAILURE_MARKER);
 
-    // Conductor (not the agent) pushed the branch to the repo and opened the PR with gh.
-    expect(() =>
-      execFileSync('git', ['rev-parse', '--verify', `refs/heads/${detail.branch!}`], {
+    // Conductor (not the agent) pushed the checked commit (with the agent's committed file) and
+    // opened the PR with gh.
+    expect(
+      execFileSync('git', ['show', `refs/heads/${detail.branch!}:src/health.txt`], {
         cwd: repo,
-        stdio: 'pipe',
+        encoding: 'utf8',
       }),
-    ).not.toThrow();
+    ).toBe('ok\n');
     const gh = readFileSync(stack.fakeGhLog, 'utf8')
       .trim()
       .split('\n')

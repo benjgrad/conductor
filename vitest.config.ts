@@ -42,7 +42,9 @@ export default defineConfig({
       nodePackage('shared'),
       // test/** holds DB integration tests and the per-run test database helper (test/db.ts).
       nodePackage('orchestrator', ['src/**/*.test.ts', 'test/**/*.test.ts']),
-      nodePackage('daemon'),
+      // Daemon tests spawn node children (fake claude, edit guard) that can stall for seconds on a
+      // loaded macOS: a longer per-test timeout (U-046-style flake).
+      { ...nodePackage('daemon'), test: { ...nodePackage('daemon').test, testTimeout: 30_000 } },
       {
         extends: true,
         test: {

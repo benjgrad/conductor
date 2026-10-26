@@ -108,6 +108,7 @@ export function commandPayloadForEffect(
           cmd: effect.cmd,
           cwd: effect.cwd,
           timeout_ms: effect.timeout_ms,
+          ...(effect.require_clean === true ? { require_clean: true as const } : {}),
         },
       };
     case 'run_action':

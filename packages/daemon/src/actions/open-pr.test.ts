@@ -15,7 +15,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { openPr, pushTarget, resolveHead, type OpenPrInput } from './open-pr.js';
+import { checkClean, openPr, pushTarget, resolveHead, type OpenPrInput } from './open-pr.js';
 
 // ADR-0010 open_pr against a local bare repo as the ticket's repo and a fake `gh` first on PATH:
 // no network, no GitHub. The fake records argv + cwd and keeps "the PR" in a state file. Includes
@@ -345,6 +345,54 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
   it('resolveHead reports the worktree HEAD', async () => {
     expect(await resolveHead(worktree)).toBe(checked);
     expect(await resolveHead(tmp)).toBeNull();
+  });
+});
+
+describe('checkClean (ADR-0010: only committed changes are checked)', () => {
+  it('a clean tree reports its HEAD', async () => {
+    expect(await checkClean(worktree)).toEqual({ head: checked, dirty: null });
+  });
+
+  it('modified, staged and untracked files are dirty (the status lines); no HEAD', async () => {
+    writeFileSync(join(worktree, 'health.txt'), 'changed\n');
+    mkdirSync(join(worktree, 'new'));
+    writeFileSync(join(worktree, 'new', 'x.txt'), 'x');
+    const r = await checkClean(worktree);
+    expect(r.head).toBeNull();
+    expect(r.dirty).toEqual(expect.arrayContaining([' M health.txt', '?? new/x.txt']));
+  });
+
+  it(".gitignore'd files (build outputs) do not count", async () => {
+    writeFileSync(join(worktree, '.gitignore'), 'dist/\nnode_modules/\n');
+    git(worktree, 'add', '.gitignore');
+    git(
+      worktree,
+      '-c',
+      'user.email=t@localhost',
+      '-c',
+      'user.name=t',
+      'commit',
+      '--quiet',
+      '-m',
+      'ignore',
+    );
+    mkdirSync(join(worktree, 'dist'));
+    writeFileSync(join(worktree, 'dist', 'out.js'), 'x');
+    mkdirSync(join(worktree, 'node_modules', 'a'), { recursive: true });
+    writeFileSync(join(worktree, 'node_modules', 'a', 'i.js'), 'x');
+    const r = await checkClean(worktree);
+    expect(r.dirty).toBeNull();
+    expect(r.head).toBe(git(worktree, 'rev-parse', 'HEAD').trim());
+  });
+
+  it('a planted core.fsmonitor / hooks in the shared clone do not run', async () => {
+    const marker = join(tmp, 'pwned');
+    git(clone, 'config', 'core.fsmonitor', `touch ${marker}`);
+    git(clone, 'config', 'core.hooksPath', tmp);
+    writeFileSync(join(worktree, 'health.txt'), 'changed\n');
+    const r = await checkClean(worktree);
+    expect(r.dirty).toEqual([' M health.txt']);
+    expect(existsSync(marker)).toBe(false);
   });
 
   it('a non-allowlisted repo (local path, another host) is a clear error, nothing pushed', async () => {

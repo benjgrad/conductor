@@ -116,7 +116,7 @@ const IMPLEMENT_INSTRUCTIONS = [
   '## Your step: implementing',
   '',
   'Make the change, following the plan under Inputs (written in the planning step; adapt it where the code tells you otherwise).',
-  'Add or update tests. Commit your work on the current branch with `git commit`; do not push. Conductor then checks that the build and the tests pass, pushes the branch and opens the pull request itself.',
+  'Add or update tests. Before you finish, commit everything on the current branch (`git add` and `git commit`) so that `git status` is clean: only committed changes are checked and pushed, and a worktree with uncommitted changes is sent back to you. Do not push. Conductor then checks that the build and the tests pass on your last commit, pushes it and opens the pull request itself.',
   'Finish with `complete_state` and a result that includes `"summary"`: a short description of the change, used as the pull request description.',
 ].join('\n');
 

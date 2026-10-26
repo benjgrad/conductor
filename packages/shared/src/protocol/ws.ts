@@ -193,6 +193,8 @@ export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
       output_tail: z.string(),
       /** ADR-0010: the worktree `HEAD` when the command started (null = could not resolve). */
       head_sha: z.string().nullable().optional(),
+      /** ADR-0010: `require_clean` and the tree had uncommitted changes (status lines); not run. */
+      dirty: z.array(z.string()).optional(),
     }),
   }),
   z.object({
@@ -371,6 +373,12 @@ export const RunCmdPayloadSchema = z.object({
   /** Relative to the session worktree; null = worktree root. */
   cwd: z.string().nullable(),
   timeout_ms: z.number().int().positive().nullable(),
+  /**
+   * ADR-0010 entry check: the daemon first runs `git status --porcelain --untracked-files=all`
+   * (hooks and fsmonitor off; .gitignore'd files don't count). Dirty → the command does not run
+   * and `cmd_exit` reports `dirty` (the status lines) with `exit_code: null`, `head_sha: null`.
+   */
+  require_clean: z.literal(true).optional(),
 });
 export const RunCmdMessageSchema = msg('run_cmd', RunCmdPayloadSchema, orchSessionEnv);
 

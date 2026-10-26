@@ -755,6 +755,8 @@ function runPhase(st: Step, assigning: boolean): void {
           cmd: check.cmd,
           cwd: null,
           timeout_ms: parseDuration(check.timeout ?? DEFAULT_CHECK_TIMEOUT),
+          // Only committed changes are checked (and pushed): the daemon refuses a dirty tree.
+          require_clean: true,
         });
         // The daemon enforces the check's timeout (`cmd_exit timed_out`), as for command states.
         st.setDeadline(label, null);
@@ -1024,6 +1026,19 @@ function onCheckExited(
   check: EntryCheck,
   e: Extract<EngineEvent, { type: 'command.exited' }>,
 ): void {
+  // A dirty worktree: the check did not run. Only committed changes are checked and pushed, and
+  // committing is the agent's job, so it is unmet (counted), back to on_unmet.goto.
+  if (e.dirty !== undefined && e.dirty.length > 0) {
+    stepUnmet(st, spec, r, [
+      {
+        item: 'Committed work',
+        reason:
+          'Uncommitted changes in the worktree: commit your work; only committed changes are checked and pushed. `git status --porcelain`:',
+        output: e.dirty.join('\n'),
+      },
+    ]);
+    return;
+  }
   // The first check records the commit the checks run on; later checks must see the same one.
   const head = e.head_sha ?? null;
   if (r.index === 0) {

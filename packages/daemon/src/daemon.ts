@@ -22,7 +22,7 @@ import { DaemonStore, type AckRecord, type PortRange } from './store.js';
 import { liveResources, type SysInfo } from './sysinfo.js';
 import { buildAppendSystemPrompt } from './system-prompt.js';
 import { inventoryDigest, Workspace } from './workspace.js';
-import { openPr, resolveHead } from './actions/open-pr.js';
+import { checkClean, openPr, resolveHead } from './actions/open-pr.js';
 import { ReconnectingWs } from './ws-client.js';
 
 // Daemon core (M1-T05; 03 §Daemon ↔ orchestrator, 07, 10-contracts, ADR-0005).
@@ -790,14 +790,37 @@ export class Daemon {
     this.finish(msg, { accepted: true });
     this.touch(sid);
     const started = Date.now();
-    // ADR-0010: the commit this command runs on (an entry check's `head_sha`).
+    // ADR-0010: the commit this command runs on (an entry check's `head_sha`). An entry check
+    // (`require_clean`) runs only on a clean worktree; a dirty one is reported, not run.
     let headSha: string | null = null;
-    resolveHead(s.worktreePath)
-      .then((h) => {
-        headSha = h;
-      })
-      .then(() =>
-        runner.run({
+    let dirty: string[] | null = null;
+    const before: Promise<void> = p.require_clean
+      ? checkClean(s.worktreePath).then((c) => {
+          headSha = c.head;
+          dirty = c.dirty;
+        })
+      : resolveHead(s.worktreePath).then((h) => {
+          headSha = h;
+        });
+    before
+      .then(() => {
+        if (dirty !== null) {
+          const lines: string[] = dirty;
+          this.sendOutput(
+            sid,
+            token,
+            'stderr',
+            `conductor: uncommitted changes, not running \`${p.cmd}\`:\n${lines.join('\n')}\n`,
+          );
+          return {
+            exitCode: null,
+            signal: null,
+            timedOut: false,
+            durationMs: 0,
+            outputTail: lines.join('\n'),
+          };
+        }
+        return runner.run({
           commandId: p.command_id,
           sessionId: sid,
           cmd: p.cmd,
@@ -813,8 +836,8 @@ export class Daemon {
           onOutput: (c) => this.sendOutput(sid, token, c.stream, c.text),
           onWaitingForSlot: (waiting) =>
             this.emit(sid, token, { kind: 'build_slot', data: { waiting } }),
-        }),
-      )
+        });
+      })
       .then(
         (r) => ({
           exit_code: r.exitCode,
@@ -835,7 +858,12 @@ export class Daemon {
         live.cmds.delete(p.command_id);
         this.emit(sid, token, {
           kind: 'cmd_exit',
-          data: { command_id: p.command_id, ...data, head_sha: headSha },
+          data: {
+            command_id: p.command_id,
+            ...data,
+            head_sha: headSha,
+            ...(dirty !== null ? { dirty } : {}),
+          },
         });
       })
       .catch((e: unknown) => this.log(`run_cmd ${p.command_id}: ${String(e)}`));

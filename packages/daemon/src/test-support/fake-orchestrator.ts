@@ -126,7 +126,9 @@ export class FakeOrchestrator {
   }
 
   /** Resolve when `pred` holds over the received messages (checked on every frame). */
-  async until<T>(pred: () => T | undefined | false | null, timeoutMs = 3000): Promise<T> {
+  // 10 s: daemon tests spawn node children (fake claude, edit guard), which can stall for
+  // seconds on a loaded macOS (U-046-style flake); a real failure still fails, just later.
+  async until<T>(pred: () => T | undefined | false | null, timeoutMs = 10_000): Promise<T> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       const v = pred();

@@ -46,6 +46,9 @@
 //                                       is queued as the next turn.
 //   {"if_exists": {path, then, else}}   play the `then` actions if <cwd>/<path> exists, else the
 //                                       `else` actions (ADR-0009 reviewer scenarios)
+//   {"git_commit": message}             `git add -A && git commit -m <message>` in cwd, like an
+//                                       agent committing its work (ADR-0010: only committed
+//                                       changes are checked); nothing to commit is a no-op
 // A requirements reviewer's first message starts with "# Requirements review"; with
 // FAKE_CLAUDE_SCENARIO_DIR it plays `<name>_review.json` for the ticket's `fake-scenario: <name>`.
 // Turns past the end of the script answer "No more scripted turns." and succeed.
@@ -71,6 +74,7 @@ import {
   realpathSync,
   writeFileSync,
 } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -272,6 +276,13 @@ function writeFile(spec, answer) {
   writeFileSync(target, subst(String(spec.content ?? ''), answer));
 }
 
+function gitCommit(message) {
+  const git = (...args) => execFileSync('git', args, { cwd: process.cwd(), stdio: 'pipe' });
+  git('add', '-A');
+  if (git('status', '--porcelain').toString().trim() === '') return;
+  git('commit', '--quiet', '--no-verify', '-m', message);
+}
+
 async function runTurn(text) {
   if (scenario === null) {
     state.scenario = scenarioNameFor(text);
@@ -323,6 +334,7 @@ async function runTurn(text) {
     }
     if (a.stderr !== undefined) process.stderr.write(a.stderr);
     if (a.write_file !== undefined) writeFile(a.write_file, text);
+    if (a.git_commit !== undefined) gitCommit(subst(String(a.git_commit), text));
     if (a.raw !== undefined) process.stdout.write(a.raw + '\n');
     if (a.sleep !== undefined) await new Promise((r) => setTimeout(r, a.sleep));
     if (a.ignore_sigterm) process.on('SIGTERM', () => {});

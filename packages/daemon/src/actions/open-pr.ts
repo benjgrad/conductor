@@ -421,4 +421,28 @@ export async function resolveHead(
   return r.code === 0 && /^[0-9a-f]{40,64}$/.test(sha) ? sha : null;
 }
 
+/**
+ * ADR-0010 entry checks run only on a clean worktree: `git status --porcelain
+ * --untracked-files=all` with hooks and fsmonitor off and no system config (.gitignore'd files,
+ * e.g. build outputs, don't count). Clean → `{head}` (the commit the check runs on); dirty →
+ * `{dirty}` (the status lines; a failed status is reported as one line, so it is never "clean").
+ */
+export async function checkClean(
+  worktree: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<{ head: string | null; dirty: null } | { head: null; dirty: string[] }> {
+  const st = await run(
+    'git',
+    ['-c', 'core.fsmonitor=false', ...NO_HOOKS, 'status', '--porcelain', '--untracked-files=all'],
+    worktree,
+    { env },
+  );
+  if (st.code !== 0) {
+    return { head: null, dirty: [`(git status failed: ${tail(st.stderr || st.stdout, 300)})`] };
+  }
+  const lines = st.stdout.split('\n').filter((l) => l.trim() !== '');
+  if (lines.length > 0) return { head: null, dirty: lines.slice(0, 200) };
+  return { head: await resolveHead(worktree, env), dirty: null };
+}
+
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));

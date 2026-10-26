@@ -33,10 +33,12 @@
       "cmd": "make",
       "on": {
         "exit_0": {
-          "goto": "retry2"
+          "goto": "retry2",
+          "retries": 2
         },
         "fail": {
-          "goto": "retry2"
+          "goto": "retry2",
+          "retries": 2
         }
       }
     },
@@ -45,10 +47,12 @@
       "cmd": "make",
       "on": {
         "exit_0": {
-          "goto": "retry"
+          "goto": "retry",
+          "retries": 2
         },
         "fail": {
-          "goto": "retry"
+          "goto": "retry",
+          "retries": 2
         }
       }
     },

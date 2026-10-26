@@ -71,6 +71,19 @@ const FAILING: [string, WorkflowRule, (string | number)[][]][] = [
     [['states', 'work', 'on', 'done', 'requirements', 'on_unmet', 'else']],
   ],
   ['rule8-gate-out-of-event-state', 8, [['states', 'wait', 'on', 'pr.approved', 'requirements']]],
+  ['rule10-agent-actor-on-event-state', 10, [['states', 'wait', 'on', 'nudge', 'actor']]],
+  ['rule11-question-not-to-human', 11, [['states', 'work', 'on', 'stuck', 'question']]],
+  ['rule12-agent-cannot-ask', 12, [['states', 'work']]],
+  [
+    'rule13-conditions-no-timeout',
+    13,
+    [['states', 'work', 'on', 'done', 'requires', 'condition_timeout']],
+  ],
+  [
+    'rule14-enabled-unavailable-condition',
+    14,
+    [['states', 'work', 'on', 'done', 'requires', 'conditions', 1]],
+  ],
 ];
 
 describe('validateWorkflow: failing fixtures', () => {
@@ -89,7 +102,9 @@ describe('validateWorkflow: failing fixtures', () => {
       .map((f) => f.slice(0, -'.json'.length))
       .sort();
     expect(files).toEqual(FAILING.map(([n]) => n).sort());
-    expect(new Set(FAILING.map(([, r]) => r))).toEqual(new Set([1, 2, 3, 4, 5, 6, 7, 8]));
+    expect(new Set(FAILING.map(([, r]) => r))).toEqual(
+      new Set([1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14]),
+    );
   });
 });
 
@@ -243,6 +258,7 @@ describe('validateWorkflow: requirements gates (ADR-0009)', () => {
     const on = raw.states.implement!.on as Record<string, unknown>;
     delete on.ask_user;
     delete on.timeout;
-    expect(validateWorkflow(raw).ok).toBe(true);
+    // No rule 3 (dead end): only rule 12, implement can no longer ask a human (ADR-0011).
+    expect(paths(validateWorkflow(raw))).toEqual(['12 states.implement']);
   });
 });

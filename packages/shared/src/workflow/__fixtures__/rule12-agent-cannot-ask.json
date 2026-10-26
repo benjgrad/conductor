@@ -1,0 +1,15 @@
+{
+  "id": "cannot_ask",
+  "version": 1,
+  "start": "work",
+  "budget": { "usd": 1, "minutes": 10, "max_loop_retries": 2 },
+  "states": {
+    "work": {
+      "type": "agent",
+      "prompt": "p",
+      "on": { "done": "done", "timeout": "needs_input" }
+    },
+    "needs_input": { "type": "human" },
+    "done": { "type": "terminal" }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "id": "unavailable_condition",
+  "version": 1,
+  "start": "work",
+  "budget": { "usd": 1, "minutes": 10, "max_loop_retries": 2 },
+  "states": {
+    "work": {
+      "type": "agent",
+      "prompt": "p",
+      "on": {
+        "done": {
+          "goto": "done",
+          "requires": {
+            "actions": ["open_pr"],
+            "conditions": [
+              { "type": "pr_checks_green" },
+              { "type": "azure_pipeline_succeeded", "pipeline": "ci" },
+              { "type": "jira_fields_set", "fields": ["resolution"], "enabled": false }
+            ],
+            "condition_timeout": "3d"
+          },
+          "on_unmet": { "goto": "work", "retries": 2, "else": "needs_input" }
+        },
+        "ask_user": "needs_input"
+      }
+    },
+    "needs_input": { "type": "human" },
+    "done": { "type": "terminal" }
+  }
+}

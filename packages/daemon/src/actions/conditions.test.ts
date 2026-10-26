@@ -313,6 +313,21 @@ describe('evaluate_conditions with a fake gh', () => {
       detail: 'changes requested by bob',
     });
 
+    // An approval on the head, then that reviewer's CHANGES_REQUESTED on an older commit → blocked.
+    const laterBlock = await evalWith(
+      [APPROVALS_1],
+      view({
+        reviews: [
+          review('bob', 'APPROVED', 'MEMBER', HEAD),
+          review('bob', 'CHANGES_REQUESTED', 'MEMBER', OLD),
+        ],
+      }),
+    );
+    expect(laterBlock.results[0]).toMatchObject({
+      status: 'failed',
+      detail: 'changes requested by bob',
+    });
+
     // DISMISSED clears a block (no verdict).
     const dismissed = await evalWith(
       [APPROVALS_1],

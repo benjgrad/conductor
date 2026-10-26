@@ -90,6 +90,7 @@ describe('conductor v1: entering Waiting external', () => {
       cmd: 'npm run build',
       cwd: null,
       timeout_ms: 600_000,
+      require_clean: true, // only committed changes are checked
     });
     expect(find(r.effects, 'state_entered')).toMatchObject({ from: 'implementing', to: LABEL });
     const next = h.cmdExit(0, 'built');
@@ -408,5 +409,58 @@ describe("security review: the pushed commit is the checked commit; the PR URL i
     const h = implementing();
     h.complete({ summary: 'x', pr_url: 'https://github.com/evil/repo/pull/1' });
     expect(h.snap.context[PR_CONTEXT_KEY]).toBeUndefined();
+  });
+});
+
+describe('a dirty worktree is unmet (only committed changes are checked and pushed)', () => {
+  const dirty = (h: Harness, lines: string[]) =>
+    h.run({
+      type: 'command.exited',
+      command_id: h.newId(),
+      exit_code: null,
+      timed_out: false,
+      output_tail: lines.join('\n'),
+      head_sha: null,
+      dirty: lines,
+    });
+
+  it('→ back to implementing with the status list, counted under entry:<to>', () => {
+    const h = checking();
+    const r = dirty(h, [' M src/health.ts', '?? src/new.test.ts']);
+    expect(r.snapshot).toMatchObject({
+      workflow_state: 'implementing',
+      step: null,
+      retry_counters: { [KEY]: 1 },
+    });
+    expect(find(r.effects, 'run_cmd')).toBeUndefined();
+    const start = find(r.effects, 'start_session')!;
+    expect(start.prompt).toContain('Uncommitted changes in the worktree: commit your work');
+    expect(start.prompt).toContain(' M src/health.ts\n?? src/new.test.ts');
+    // Committed and finished again: the checks run from the first one.
+    h.started();
+    const again = h.complete({ summary: 'committed' });
+    expect(find(again.effects, 'run_cmd')).toMatchObject({
+      cmd: 'npm run build',
+      require_clean: true,
+    });
+  });
+
+  it('exhausting the retries on a dirty tree ends at a human', () => {
+    const h = checking();
+    for (let i = 0; i < 3; i++) {
+      dirty(h, [' M a']);
+      h.started();
+      h.complete({ summary: `try ${i}` });
+    }
+    const r = dirty(h, [' M a']);
+    expect(r.snapshot.workflow_state).toBe('needs_input');
+    expect(find(r.effects, 'create_input_request')!.question).toContain('Uncommitted changes');
+  });
+
+  it('the implementing prompt says to commit everything before finishing', () => {
+    const r = new Harness(CONDUCTOR_V1_DEF).claimAndStart().complete({ plan: 'p', summary: 's' });
+    expect(find(r.effects, 'start_session')!.prompt).toContain(
+      'commit everything on the current branch',
+    );
   });
 });

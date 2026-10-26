@@ -241,6 +241,11 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
     output_tail: z.string(),
     /** ADR-0010: the worktree `HEAD` when the command started (null/absent = unknown). */
     head_sha: z.string().nullable().optional(),
+    /**
+     * ADR-0010: a `require_clean` command found uncommitted changes and did not run: the
+     * `git status --porcelain` lines.
+     */
+    dirty: z.array(z.string()).optional(),
   }),
   /**
    * D `spend`: cumulative per claude_session_id (ADR-0005). apply adds only
@@ -352,6 +357,11 @@ export const EffectSchema = z.discriminatedUnion('type', [
     cmd: z.string(),
     cwd: z.string().nullable(),
     timeout_ms: z.number().int().positive().nullable(),
+    /**
+     * ADR-0010 entry checks: run only on a clean worktree (only committed changes are checked
+     * and pushed). A dirty tree is reported as `command.exited.dirty`, and the command doesn't run.
+     */
+    require_clean: z.literal(true).optional(),
   }),
   /**
    * outbox `kill` → WS kill with `target_command_id: null` (every process of the session at or

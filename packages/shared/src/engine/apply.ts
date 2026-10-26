@@ -23,13 +23,22 @@ import {
   transitionObject,
 } from '../workflow/transition-rules.js';
 import {
-  conditionsPhase,
-  moveCounter,
-  moveName,
-  moveSpecOf,
-  PIN_CHECK,
-  type GateSpec,
-} from './move-step.js';
+  checklistLines,
+  enabledIndexes,
+  evaluateConditionsArgs,
+  evaluationInFlight,
+  failedEvidence,
+  failWithoutPr,
+  FALLBACK_CONDITION_TIMEOUT,
+  basePollMs,
+  initialStatuses,
+  markRunning,
+  mergeResults,
+  nextPollMs,
+  pollDeadline,
+  unmarkRunning,
+} from './conditions.js';
+import { moveCounter, moveName, moveSpecOf, PIN_CHECK, type GateSpec } from './move-step.js';
 import { renderPrompt, type PromptAttachment } from './render.js';
 import {
   DEFAULT_CHECK_TIMEOUT,
@@ -62,6 +71,8 @@ import {
   type MoveRecord,
 } from './transitions.js';
 import {
+  CONDITIONS_NO_MACHINE_NOTE,
+  conditionsIdempotencyKey,
   moveStateLabel,
   type ApplyFn,
   type ApplyIgnoreReason,
@@ -1003,12 +1014,7 @@ function runPhase(st: Step, assigning: boolean): void {
       return;
     }
     // ADR-0011 conditions (a move's `requires.conditions`; none for older kinds).
-    const conditions = conditionsPhase(spec);
-    if (conditions.type === 'unavailable') {
-      stepFail(st, spec, 'retries_exhausted', conditions.question, false);
-      return;
-    }
-    passStep(st);
+    startConditions(st, spec);
     return;
   }
 }
@@ -1149,6 +1155,13 @@ function handleStep(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
           return null;
         }
         case 'run_action': {
+          if (r.phase === 'conditions') {
+            if (!evaluationInFlight(r) || s.status !== 'waiting_external') {
+              return 'unexpected_event';
+            }
+            conditionsNoAnswer(st, spec, r, CONDITIONS_NO_MACHINE_NOTE);
+            return null;
+          }
           const action = r.phase === 'actions' ? spec.actions[r.index] : undefined;
           if (action === undefined || s.status !== 'running') return 'unexpected_event';
           stepFail(
@@ -1213,6 +1226,12 @@ function handleStep(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
       return null;
     }
     case 'action.completed': {
+      if (r.phase === 'conditions') {
+        if (e.action !== EVALUATE_CONDITIONS || !evaluationInFlight(r)) return 'unexpected_event';
+        if (s.status !== 'waiting_external') return 'wrong_status';
+        onConditionsResult(st, spec, r, e);
+        return null;
+      }
       const action = r.phase === 'actions' ? spec.actions[r.index] : undefined;
       if (action === undefined || action !== e.action) return 'unexpected_event';
       if (s.status !== 'running') return 'wrong_status';
@@ -1228,6 +1247,10 @@ function handleStep(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
         s.status === 'queued'
       ) {
         return 'stale_timer';
+      }
+      if (r.phase === 'conditions') {
+        onConditionsTimer(st, spec, r, e.deadline);
+        return null;
       }
       if (r.phase === 'review') {
         const question =
@@ -1268,8 +1291,221 @@ function handleStep(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
     case 'human.transition':
       return 'wrong_status';
     case 'external.event':
-      return 'unexpected_event';
+      return conditionsOverride(st, r, e.name, e.data);
   }
+}
+
+// ---------------------------------------------------------------- the conditions phase (ADR-0011)
+//
+// The last phase of a move step (05 §Conditions; conditions.ts holds the pure parts). The session
+// is paused (U-059): status `waiting_external`, the worker already ended by the step, no wall time,
+// the card in the source column with the checklist (`step.conditions`). One `run_action
+// evaluate_conditions` per poll on the session's machine; the timer is the next poll, never past
+// `conditions_deadline`. All met → `to`; any failed → `on_unmet.goto` with the evidence (counter
+// `move:<from>:<name>`), then `else`; the timeout → `on_unmet.else` (kind `timeout`, U-063).
+
+const EVALUATE_CONDITIONS = 'evaluate_conditions';
+
+/**
+ * Start the conditions phase (or, after a re-claim, resume it without resetting its deadline).
+ * No enabled condition → pass. Enabled PR conditions without conductor's PR → failed at once.
+ */
+function startConditions(st: Step, spec: GateSpec): void {
+  const s = st.s;
+  const r = s.step!;
+  if (enabledIndexes(spec.conditions).length === 0) {
+    passStep(st);
+    return;
+  }
+  if (r.conditions_deadline === null) {
+    // U-059: paused from here. Bank the step's time so far, as `enter` would on leaving it.
+    bankWallTime(st, r.from);
+    r.conditions = initialStatuses(spec.conditions);
+    r.conditions_deadline = deadlineIn(
+      st.now,
+      spec.condition_timeout ?? FALLBACK_CONDITION_TIMEOUT,
+    );
+    r.conditions_poll_ms = basePollMs(spec.condition_poll);
+    r.conditions_note = null;
+    const failed = failWithoutPr(s, spec.conditions, r.conditions, st.now);
+    if (failed !== null) {
+      // The agent can't create conductor's PR, so retrying would only use up retries: straight
+      // to `on_unmet.else` (a human), uncounted (lead decision).
+      r.conditions = failed;
+      const lines = [
+        `Conductor could not check the conditions to ${spec.goal}:`,
+        ...failed
+          .filter((c) => c.status === 'failed')
+          .map((c) => {
+            const ev = failedEvidence(c);
+            return `- ${ev.item}: ${ev.reason}`;
+          }),
+        '',
+        'Retry, skip, or abort?',
+      ];
+      stepFail(st, spec, 'retries_exhausted', lines.join('\n'), false);
+      return;
+    }
+  }
+  st.setStatus('waiting_external');
+  evaluateConditions(st, spec, r);
+}
+
+/**
+ * One evaluation on the session's machine, then the next poll timer. Without a machine nothing is
+ * sent; the checklist says so (U-058) and the timeout keeps running.
+ */
+function evaluateConditions(st: Step, spec: GateSpec, r: GateStep): void {
+  const s = st.s;
+  const label = s.workflow_state!;
+  if (s.machine_id === null) {
+    r.conditions_note = CONDITIONS_NO_MACHINE_NOTE;
+  } else {
+    // TD: conditions are re-checked on the session's machine only; ADR-0016 §Execution wants any
+    // online machine of the account with the capability (M2: accounts, more than one machine).
+    r.conditions = markRunning(r.conditions);
+    st.emit({
+      type: 'run_action',
+      state: label,
+      target_state: r.to,
+      action: EVALUATE_CONDITIONS,
+      idempotency_key: conditionsIdempotencyKey(s.id, label, st.now),
+      args: evaluateConditionsArgs(s, r, spec.conditions),
+      expected_sha: r.head_sha,
+    });
+  }
+  armConditionsPoll(st, spec, r);
+}
+
+/** The next poll: `now + conditions_poll_ms`, never past `conditions_deadline`. */
+function armConditionsPoll(st: Step, spec: GateSpec, r: GateStep): void {
+  const poll = r.conditions_poll_ms ?? basePollMs(spec.condition_poll);
+  r.conditions_poll_ms = poll;
+  const until = r.conditions_deadline ?? deadlineIn(st.now, FALLBACK_CONDITION_TIMEOUT);
+  r.conditions_deadline = until;
+  st.setDeadline(st.s.workflow_state!, pollDeadline(st.now, poll, until));
+}
+
+/** An evaluation's answer: all met → `to`; any failed → unmet; else pending (backoff). */
+function onConditionsResult(
+  st: Step,
+  spec: GateSpec,
+  r: GateStep,
+  e: Extract<EngineEvent, { type: 'action.completed' }>,
+): void {
+  if (e.error !== null) {
+    conditionsNoAnswer(st, spec, r, `the last check failed: ${e.error}`);
+    return;
+  }
+  const v = mergeResults(r.conditions, spec.conditions, e.result, st.now);
+  if (v.type === 'malformed') {
+    conditionsNoAnswer(st, spec, r, `the last check returned an unusable result (${v.why})`);
+    return;
+  }
+  r.conditions = v.statuses;
+  r.conditions_note = null;
+  if (v.outcome === 'failed') {
+    conditionsFailed(st, spec, r);
+    return;
+  }
+  if (v.outcome === 'met') {
+    passStep(st);
+    return;
+  }
+  // `pending` and `unsupported`: poll again, doubling after an unchanged answer.
+  r.conditions_poll_ms = nextPollMs(
+    r.conditions_poll_ms,
+    basePollMs(spec.condition_poll),
+    v.unchanged,
+  );
+  armConditionsPoll(st, spec, r);
+}
+
+/**
+ * The evaluation was refused, errored or unusable: still pending (not a requeue), a note on the
+ * checklist, and the next poll (which sends a new evaluation).
+ */
+function conditionsNoAnswer(st: Step, spec: GateSpec, r: GateStep, note: string): void {
+  r.conditions = unmarkRunning(r.conditions);
+  r.conditions_note = note;
+  armConditionsPoll(st, spec, r);
+}
+
+/**
+ * The poll timer: past `conditions_deadline` → the timeout. Otherwise a new evaluation, unless
+ * the last one is still unanswered (or there is no machine): the dispatcher never refuses a
+ * `run_action` to an offline machine (only start_session ack timeouts become `command.refused`),
+ * it waits in the outbox until the machine is back, so another one would only pile up. The
+ * checklist then says "waiting for a machine" and the timer re-arms.
+ */
+function onConditionsTimer(st: Step, spec: GateSpec, r: GateStep, deadline: string): void {
+  const until = r.conditions_deadline;
+  if (until === null || Date.parse(deadline) >= Date.parse(until)) {
+    conditionsTimedOut(st, spec, r);
+    return;
+  }
+  if (st.s.machine_id === null || evaluationInFlight(r)) {
+    // TD: an evaluation the daemon acked but never answered stays `running` until the timeout
+    // (no re-send while one is in flight; the dispatcher has no run_action ack timeout).
+    r.conditions_note = CONDITIONS_NO_MACHINE_NOTE;
+    armConditionsPoll(st, spec, r);
+    return;
+  }
+  evaluateConditions(st, spec, r);
+}
+
+/** U-063: the timeout → `on_unmet.else`, kind `timeout`, the checklist as the question. Kills nothing. */
+function conditionsTimedOut(st: Step, spec: GateSpec, r: GateStep): void {
+  const lines = [
+    `The conditions to ${spec.goal} were not all met within ${spec.condition_timeout ?? FALLBACK_CONDITION_TIMEOUT}:`,
+    ...checklistLines(unmarkRunning(r.conditions)),
+  ];
+  if (r.conditions_note !== null) lines.push('', `Note: ${r.conditions_note}.`);
+  lines.push('', 'Retry, skip, or abort?');
+  stepFail(st, spec, 'timeout', lines.join('\n'), false);
+}
+
+/** U-063: a condition is false → `on_unmet.goto` with the evidence (counted), then `else`. */
+function conditionsFailed(st: Step, spec: GateSpec, r: GateStep): void {
+  stepUnmet(st, spec, r, r.conditions.filter((c) => c.status === 'failed').map(failedEvidence));
+}
+
+/**
+ * An `external.event` while the conditions are pending, out of an event state that awaits it:
+ * still taken (a human's `ui.approve` overrides the conditions). The step ends; when the event is
+ * the move being checked, its target is entered, else the event is taken as usual.
+ */
+function conditionsOverride(
+  st: Step,
+  r: GateStep,
+  name: string,
+  data: JsonObject | undefined,
+): ApplyIgnoreReason | null {
+  const source = st.def.states[r.from];
+  if (r.phase !== 'conditions' || source?.type !== 'event') return 'unexpected_event';
+  if (!source.wait_for.includes(name)) return 'not_awaited';
+  const label = st.s.workflow_state!;
+  leaveStep(st, false);
+  if (name !== moveName(r)) return onExternal(st, name, data);
+  if (data !== undefined) {
+    st.s.context = {
+      ...st.s.context,
+      [r.from]: { ...(st.s.context[r.from] ?? {}), event: name, ...data },
+    };
+  }
+  passMove(st, { ...r, reason: `${name} received while the conditions were pending` }, label);
+  return null;
+}
+
+/** Add the time since `state_entered_at` as if `from` were being left (10 §Wall time), then restart. */
+function bankWallTime(st: Step, from: string): void {
+  const s = st.s;
+  const fromState = st.def.states[from];
+  if (fromState !== undefined && fromState.type !== 'human' && fromState.type !== 'event') {
+    const elapsed = (st.now.getTime() - Date.parse(s.state_entered_at)) / 1000;
+    if (elapsed > 0) s.wall_seconds += elapsed;
+  }
+  s.state_entered_at = st.now.toISOString();
 }
 
 /** A check's exit: 0 → the next check (or phase); anything else is unmet with its output tail. */
@@ -1509,6 +1745,11 @@ function leaveStep(st: Step, kill: boolean): void {
             ? 'move step ended'
             : 'entry step ended',
     });
+  }
+  // U-059: a started conditions phase is paused time. Its start banked the step's earlier time,
+  // so restart the clock: `enter` then adds nothing for the wait.
+  if (r.phase === 'conditions' && r.conditions_deadline !== null) {
+    s.state_entered_at = st.now.toISOString();
   }
   s.workflow_state = r.from;
   s.step = null;

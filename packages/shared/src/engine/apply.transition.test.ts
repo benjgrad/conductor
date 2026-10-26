@@ -402,8 +402,9 @@ describe('human transitions (conductor v2)', () => {
     expect(start.prompt).toContain('## Answer from a human\n\nDana says: use v2 of the API.');
     // planning never produced its plan: the prompt says so (T02 rule 5, lead decision)
     expect(start.prompt).toContain(
-      '- `plan`: not produced (a person moved this ticket here directly).',
+      "- `plan`: not produced (a person moved this ticket here directly). Work out what's needed from the ticket.",
     );
+    expect(start.prompt).not.toContain('before changing code');
   });
 
   it('refusals: unknown, not human-actor, wrong status, during a step', () => {
@@ -456,6 +457,41 @@ describe('human transitions (conductor v2)', () => {
       transition: 'done',
       actor: 'human',
       reason: 'ship it',
+    });
+  });
+
+  it('a human move with requires into an agent state delivers the text as an answer (no input_request)', () => {
+    const def = v2With((raw) => {
+      raw.states.waiting_external.on.back_to_implementing = {
+        goto: 'implementing',
+        actor: 'human',
+        requires: { checks: [{ name: 'Tests pass', cmd: 'npm test' }] },
+        on_unmet: { goto: 'implementing', retries: 1, else: 'needs_input' },
+      };
+    });
+    const snap = freshSnapshot(def);
+    snap.ticket = { ...snap.ticket, kind: 'work' };
+    const h = new Harness(def, snap).claimAndStart();
+    take(h, 'scope_changed', 'q?');
+    human(h, 'waiting_on_someone', 'Dana');
+    let r = human(h, 'back_to_implementing', 'Dana says: use v2 of the API.');
+    expect(r.snapshot.step).toMatchObject({ kind: 'move', actor: 'human', phase: 'checks' });
+    r = h.cmdExit(0);
+    expect(r.snapshot).toMatchObject({
+      workflow_state: 'implementing',
+      status: 'running',
+      step: null,
+      pending_answer: { input_request_id: null, answer: 'Dana says: use v2 of the API.' },
+    });
+    expect(find(r.effects, 'send_input')).toBeUndefined();
+    const start = find(r.effects, 'start_session')!;
+    expect(start.prompt).toContain('## Your step: implementing');
+    expect(start.prompt).toContain('## Answer from a human\n\nDana says: use v2 of the API.');
+    expect(find(r.effects, 'state_entered')).toMatchObject({
+      to: 'implementing',
+      transition: 'back_to_implementing',
+      actor: 'human',
+      reason: 'Dana says: use v2 of the API.',
     });
   });
 });
@@ -564,16 +600,18 @@ describe('move steps (requires on the transition)', () => {
     expect(find(v.effects, 'start_session')?.prompt).toContain('- Has tests: none');
   });
 
-  it('enabled conditions (M1b-T08) go to on_unmet.else for now; disabled ones are skipped', () => {
+  it('enabled conditions start the conditions phase (M1b-T08); all disabled ones are skipped', () => {
     const h = implementing('work');
     take(h, 'ready_for_testing', 'Ready.', { summary: 's' });
     h.cmdExit(0);
     h.cmdExit(0);
     let r = action(h, { pr_url: PR });
-    expect(r.snapshot.workflow_state).toBe('needs_input');
-    expect(find(r.effects, 'create_input_request')?.question).toContain(
-      'Conductor cannot check external conditions yet',
-    );
+    expect(r.snapshot).toMatchObject({
+      workflow_state: moveStateLabel('implementing', 'waiting_external', 'ready_for_testing'),
+      status: 'waiting_external',
+      step: { phase: 'conditions' },
+    });
+    expect(find(r.effects, 'run_action')).toMatchObject({ action: 'evaluate_conditions' });
     const def = v2With((raw) => {
       const c = raw.states.implementing.on.ready_for_testing.requires.conditions as any[];
       for (const x of c) x.enabled = false;

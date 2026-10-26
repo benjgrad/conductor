@@ -27,9 +27,9 @@ From these numbers, one Postgres instance is enough as the system of record. A l
 1. **The orchestrator is the single decider.** Everything else reports or executes ([ADR-0002](../adr/0002-orchestrator-single-decider.md)).
 2. **Daemons dial out.** No inbound ports. A missed heartbeat *is* the liveness signal.
 3. **Postgres holds the truth.** A state change and the commands it emits commit in one transaction (outbox).
-4. **Transitions fire on outcomes, not on the model's say-so.** Exit codes, structured tool results, external events.
+4. **Transitions fire on outcomes, not on the model's say-so.** Exit codes, structured tool results, external events. An agent may name one of the transitions its prompt offers ([ADR-0011](../adr/0011-transition-rules.md)); the engine checks the name, the ticket's kind and the transition's requirements (checks, review, actions, conditions) before the ticket moves.
 5. **Workflow state lives in the orchestrator, not in the agent.** The agent works *inside* a state.
-6. **Human input is just another state.** Kanban columns are queries on session status.
+6. **Human input is just another state.** Kanban columns are the workflow's states ([ADR-0010](../adr/0010-one-workflow-columns-are-states.md)); a card's column is derived from its session, never stored by the UI.
 7. **Every failure path ends at a human.** Retries are bounded. Budgets and timeouts route to `needs_input`.
 8. **Start simple.** Pull-based scheduler first ([ADR-0001](../adr/0001-pull-scheduler.md)); add central scoring only when placement quality visibly hurts.
 

@@ -596,6 +596,11 @@ export const WorkflowDetailSchema = z.object({
    * sends it.
    */
   versions: z.array(z.number().int().positive()).optional(),
+  /**
+   * ADR-0011 (M1b-T09): the shipped default version newer than this id's latest, when the user
+   * edited theirs so the seed did not insert it (the editor offers it); null/absent otherwise.
+   */
+  default_available: z.number().int().positive().nullable().optional(),
 });
 export type WorkflowDetail = z.infer<typeof WorkflowDetailSchema>;
 

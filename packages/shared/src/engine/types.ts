@@ -397,6 +397,12 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
     name: z.string().min(1),
     text: z.string().nullable(),
     actor: z.string().min(1),
+    /**
+     * The open input_request this move answers (the route fills it; null/absent when none).
+     * apply uses it like `input.provided`'s: a RETURN_TO move into the asking agent whose
+     * process is still parked live answers with `send_input {input_request_id}`.
+     */
+    input_request_id: UuidSchema.nullable().optional(),
   }),
   /** U: operator cancel (POST /cancel). → failed, kill. */
   z.object({ type: z.literal('operator.cancel'), reason: z.string().optional() }),
@@ -596,6 +602,15 @@ export function moveCounterKey(from: string, name: string): string {
 /** The synthetic `workflow_state` of a move step, e.g. `implementing → waiting_external (move: ready_for_testing)`. */
 export function moveStateLabel(from: string, to: string, name: string): string {
   return `${from} → ${to} (move: ${name})`;
+}
+
+/**
+ * `run_action evaluate_conditions`'s `idempotency_key` (informational: the action is read-only
+ * and the daemon does not dedupe on it): `<session>:<step label>:<now ISO>` of the apply that
+ * emitted it.
+ */
+export function conditionsIdempotencyKey(sessionId: string, label: string, now: Date): string {
+  return `${sessionId}:${label}:${now.toISOString()}`;
 }
 
 /** The needs_input question when an agent names a transition it may not take (ADR-0011). */

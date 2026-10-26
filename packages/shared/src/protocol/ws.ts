@@ -451,7 +451,9 @@ export const RunActionMessageSchema = msg('run_action', RunActionPayloadSchema, 
 /**
  * ADR-0011 `run_action {action: 'evaluate_conditions'}` args: the move step's enabled conditions
  * (declaration order), the PR conductor opened (`context.__pr.pr_url`, null if none) and the
- * session branch. The daemon evaluates them with the machine's own CLIs (`gh` in M1b).
+ * session branch (apply: `sessionBranch(ticket.id, session.id)`; informational, the daemon uses
+ * its own record of the branch, like open_pr). The daemon evaluates them with the machine's own
+ * CLIs (`gh` in M1b). `idempotency_key`: `conditionsIdempotencyKey`.
  */
 export const EvaluateConditionsArgsSchema = z.object({
   conditions: z.array(ConditionSchema).min(1),
@@ -475,7 +477,7 @@ export type ConditionResult = z.infer<typeof ConditionResultSchema>;
 
 /**
  * `action_result.result` of evaluate_conditions: exactly one entry per `args.conditions` entry,
- * in the same order. A missing `gh` or no auth is not an error: every result is `pending` with
+ * in the same order; results match conditions by POSITION (two conditions may share a type). A missing `gh` or no auth is not an error: every result is `pending` with
  * the detail "gh not available: …" (the engine keeps polling until `condition_timeout`).
  */
 export const EvaluateConditionsResultSchema = z.object({

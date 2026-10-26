@@ -416,7 +416,7 @@ export const M1B_WS_FIXTURES: {
       workflow_state: 'implementing → waiting_external (move: ready_for_testing)',
       target_state: 'waiting_external',
       action: 'evaluate_conditions',
-      idempotency_key: `${S}:implementing:ready_for_testing:1:conditions:1`,
+      idempotency_key: `${S}:implementing → waiting_external (move: ready_for_testing):2026-10-26T12:02:00.000Z`,
       args: {
         conditions: [{ type: 'pr_checks_green' }, { type: 'pr_approvals', min: 1 }],
         pr_url: M1B_PR_URL,

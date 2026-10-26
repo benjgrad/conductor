@@ -1,6 +1,7 @@
 import {
   BOARD_CARD_FIXTURE,
   BOARD_SSE_FIXTURES,
+  CONDUCTOR_WORKFLOW_ID,
   OUTPUT_CHUNK_FIXTURE,
   WorkflowDefinitionSchema,
   type BoardCard,
@@ -187,11 +188,83 @@ export const PR_FLOW_FULL: WorkflowDefinition = WorkflowDefinitionSchema.parse({
   },
 });
 
-/** The latest version of each workflow (seeded sessions pin m1_basic v2 and pr_flow v1). */
-export const MOCK_WORKFLOWS = [M1_BASIC, PR_FLOW_FULL];
+/**
+ * The one workflow (ADR-0010), v1: a mock copy of docs/design/workflows/conductor.v1.json per the
+ * ADR's table. Its states are the board columns; "Waiting external" requires build + tests and
+ * conductor opening the PR.
+ */
+export const CONDUCTOR_V1: WorkflowDefinition = WorkflowDefinitionSchema.parse({
+  id: CONDUCTOR_WORKFLOW_ID,
+  version: 1,
+  start: 'planning',
+  budget: { usd: 5, minutes: 120, max_loop_retries: 3 },
+  columns: ['planning', 'implementing', 'needs_input', 'waiting_external', 'done'],
+  states: {
+    planning: {
+      type: 'agent',
+      title: 'Planning',
+      prompt: 'plan_template',
+      tools: ['read'],
+      result: ['plan'],
+      timeout: '30m',
+      on: { done: 'implementing', ask_user: 'needs_input', timeout: 'needs_input' },
+    },
+    implementing: {
+      type: 'agent',
+      title: 'Implementing',
+      prompt: 'implement_template',
+      tools: ['edit', 'bash', 'git'],
+      input: { plan: '$planning.plan' },
+      result: ['summary'],
+      timeout: '60m',
+      on: { done: 'waiting_external', ask_user: 'needs_input', timeout: 'needs_input' },
+    },
+    needs_input: { type: 'human', title: 'Needs input' },
+    waiting_external: {
+      type: 'event',
+      title: 'Waiting external',
+      wait_for: ['ui.approve'],
+      entry: {
+        checks: [
+          { name: 'Build passes', cmd: 'npm run build' },
+          { name: 'Tests pass', cmd: 'npm test' },
+        ],
+        actions: ['open_pr'],
+        on_unmet: { goto: 'implementing', retries: 3, else: 'needs_input' },
+      },
+      on: { 'ui.approve': 'done' },
+    },
+    done: { type: 'terminal', title: 'Done' },
+  },
+});
 
-/** Every stored version, oldest first, per workflow id. */
+/** conductor v2: v1 plus a reviewer judging two plain-language items before Waiting external. */
+export const CONDUCTOR: WorkflowDefinition = WorkflowDefinitionSchema.parse({
+  ...CONDUCTOR_V1,
+  version: 2,
+  states: {
+    ...CONDUCTOR_V1.states,
+    waiting_external: {
+      ...CONDUCTOR_V1.states.waiting_external,
+      entry: {
+        ...CONDUCTOR_V1.states.waiting_external!.entry,
+        review: {
+          items: ['The change does what the ticket asks', 'New code paths have unit tests'],
+        },
+      },
+    },
+  },
+});
+
+/** The latest version of each workflow (seeded sessions pin m1_basic v2 and pr_flow v1). */
+export const MOCK_WORKFLOWS = [CONDUCTOR, M1_BASIC, PR_FLOW_FULL];
+
+/**
+ * Every stored version, oldest first, per workflow id. `conductor` is the one workflow; the
+ * others are old ones that finished tickets still pin (hidden in the UI).
+ */
 export const MOCK_WORKFLOW_HISTORY: Record<string, WorkflowDefinition[]> = {
+  [CONDUCTOR_WORKFLOW_ID]: [CONDUCTOR_V1, CONDUCTOR],
   m1_basic: [M1_BASIC_V1, M1_BASIC],
   pr_flow: [PR_FLOW, PR_FLOW_FULL],
 };

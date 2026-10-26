@@ -30,8 +30,8 @@ import {
   type StreamHandlers,
   type Unsubscribe,
 } from './client.js';
-import { validateGates } from '../workflow/model.js';
-import { MOCK_WORKFLOW_HISTORY, mockSeeds, type MockSession } from './mock-data.js';
+import { validateColumns } from '../workflow/columns.js';
+import { CONDUCTOR, MOCK_WORKFLOW_HISTORY, mockSeeds, type MockSession } from './mock-data.js';
 
 // In-memory ApiClient for T09 (and tests). It mimics the orchestrator's observable behaviour:
 // every change is an id-ordered board event (card.upserted last, carrying the full card), the
@@ -271,7 +271,11 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
 
     createTicket: (raw) =>
       reply((): TicketDto => {
-        const parsed = CreateTicketRequestSchema.safeParse(raw);
+        // ADR-0010: the server defaults `workflow_id` to the one workflow (also before the shared
+        // contract does).
+        const parsed = CreateTicketRequestSchema.safeParse(
+          Object.assign({ workflow_id: CONDUCTOR.id }, raw),
+        );
         if (!parsed.success) throw new ApiRequestError(400, 'bad_request', parsed.error.message);
         const req = parsed.data;
         if (!workflows.has(req.workflow_id)) {
@@ -357,10 +361,10 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
 
     saveWorkflow: (definition) =>
       reply(() => {
-        // The orchestrator's validator (T03), plus the ADR-0009 gate rules it does not check yet.
+        // The orchestrator's validator (T03), plus the ADR-0009 gate and ADR-0010 entry rules.
         const result = validateWorkflow(definition);
         const details = result.ok
-          ? validateGates(result.def).map(({ path, message }) => ({ path, message }))
+          ? validateColumns(result.def).map(({ path, message }) => ({ path, message }))
           : result.errors.map((e) => ({
               path: e.path.join('.'),
               message: `rule ${e.rule}: ${e.message}`,

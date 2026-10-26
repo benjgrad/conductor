@@ -1,4 +1,8 @@
-import type { WorkflowDefinition, WorkflowDetail, WorkflowSummary } from '@conductor/shared';
+import {
+  CONDUCTOR_WORKFLOW_ID,
+  type WorkflowDefinition,
+  type WorkflowDetail,
+} from '@conductor/shared';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ApiRequestError,
@@ -6,120 +10,91 @@ import {
   type ApiClient,
   type ApiErrorDetail,
 } from '../api/client.js';
+import { ColumnEditor } from './ColumnEditor.js';
+import { ColumnsDiagram } from './ColumnsDiagram.js';
+import { columnTitle, stateForPath, validateColumns, type ColumnIssue } from './columns.js';
 import { detailVersions } from './review.js';
-import { TransitionEditor } from './TransitionEditor.js';
 import { WorkflowDiagram } from './WorkflowDiagram.js';
-import { transitionForPath, transitionKey, validateGates, type GateIssue } from './model.js';
 
-// The Workflows view (ADR-0009): pick a workflow and version, see it as a UML state diagram, and
-// edit transition requirements in a local draft. Save POSTs the whole definition, which the
-// server stores as a new version.
+// The Workflow view (ADR-0010): the one workflow, `conductor`, drawn as its board columns. Pick a
+// version; click a column to edit its title, work and requirements to enter in a local draft.
+// Save POSTs the whole definition, which the server stores as a new version.
 
 export interface WorkflowsViewProps {
   api: ApiClient;
-  /** From the URL; null = the first workflow. */
-  workflowId: string | null;
-  /** `replace`: the view resolved "the first workflow" itself (no new history entry). */
-  onSelectWorkflow: (id: string, replace?: boolean) => void;
   /** The workflow id with unsaved changes, or null; the app guards navigation with it. */
   onDirtyChange?: (workflowId: string | null) => void;
 }
 
-interface Selected {
-  from: string;
-  outcome: string;
-}
+const ID = CONDUCTOR_WORKFLOW_ID;
 
-export function WorkflowsView({
-  api,
-  workflowId,
-  onSelectWorkflow,
-  onDirtyChange,
-}: WorkflowsViewProps) {
-  const [summaries, setSummaries] = useState<WorkflowSummary[] | null>(null);
+export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
   /** null = latest. */
   const [version, setVersion] = useState<number | null>(null);
   const [detail, setDetail] = useState<WorkflowDetail | null>(null);
-  /** The draft is tagged with its workflow, so it can never show under another one. */
-  const [draft, setDraft] = useState<{ id: string; def: WorkflowDefinition } | null>(null);
-  const [selected, setSelected] = useState<Selected | null>(null);
+  /** The highest version seen (the latest, when the server sends no `versions` list). */
+  const [latestSeen, setLatestSeen] = useState(0);
+  const [missing, setMissing] = useState(false);
+  const [draft, setDraft] = useState<WorkflowDefinition | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
   const [serverErrors, setServerErrors] = useState<ApiErrorDetail[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    api.listWorkflows().then(
-      (ws) => !cancelled && setSummaries(ws),
-      (err: unknown) => !cancelled && setError(errorMessage(err)),
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [api]);
-
-  const id = workflowId ?? summaries?.[0]?.id ?? null;
-  const summary = summaries?.find((w) => w.id === id);
-
-  // Put the resolved workflow in the URL, so navigation guards and links see a concrete id.
-  useEffect(() => {
-    if (workflowId === null && id !== null) onSelectWorkflow(id, true);
-  }, [workflowId, id, onSelectWorkflow]);
-
-  const draftDef = draft !== null && draft.id === id ? draft.def : null;
-  useEffect(() => {
-    onDirtyChange?.(draftDef !== null ? id : null);
-  }, [draftDef, id, onDirtyChange]);
+    onDirtyChange?.(draft !== null ? ID : null);
+  }, [draft, onDirtyChange]);
   useEffect(() => () => onDirtyChange?.(null), [onDirtyChange]);
 
   useEffect(() => {
-    if (id === null) return;
     let cancelled = false;
-    api.getWorkflow(id, version ?? undefined).then(
+    api.getWorkflow(ID, version ?? undefined).then(
       (d) => {
         if (cancelled) return;
         setDetail(d);
+        setMissing(false);
         setError(null);
+        setLatestSeen((v) => Math.max(v, d.version));
       },
-      (err: unknown) => !cancelled && setError(errorMessage(err)),
+      (err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiRequestError && err.status === 404 && version === null) {
+          setMissing(true);
+        } else setError(errorMessage(err));
+      },
     );
     return () => {
       cancelled = true;
     };
-  }, [api, id, version]);
+  }, [api, version]);
 
-  const shown = draftDef ?? (detail && detail.id === id ? detail.definition : null);
-  const dirty = draftDef !== null;
+  const shown = draft ?? detail?.definition ?? null;
+  const dirty = draft !== null;
+  /** Old versions without `columns` (pre ADR-0010) still draw as the UML state diagram. */
+  const asColumns = shown?.columns !== undefined;
 
-  const clientIssues = useMemo(() => (shown ? validateGates(shown) : []), [shown]);
-  const serverIssues = useMemo(
+  const clientIssues = useMemo(() => (shown ? validateColumns(shown) : []), [shown]);
+  const serverIssues = useMemo<ColumnIssue[]>(
     () =>
       shown
-        ? serverErrors.map((d) => {
-            const t = transitionForPath(shown, d.path);
-            return { ...d, from: t?.from ?? null, outcome: t?.outcome ?? null };
-          })
+        ? serverErrors.map((d) => ({
+            state: stateForPath(shown, d.path),
+            path: d.path,
+            message: d.message,
+          }))
         : [],
     [serverErrors, shown],
   );
-  const errorKeys = useMemo(() => {
-    const keys = new Set<string>();
-    for (const i of [...clientIssues, ...serverIssues]) {
-      if (i.from !== null && i.outcome !== null) keys.add(transitionKey(i.from, i.outcome));
-    }
-    return keys;
+  const allIssues = [...clientIssues, ...serverIssues];
+  const errorStates = useMemo(() => {
+    const s = new Set<string>();
+    for (const i of [...clientIssues, ...serverIssues]) if (i.state !== null) s.add(i.state);
+    return s;
   }, [clientIssues, serverIssues]);
 
-  // The app keys this view by workflow id, so switching remounts it with fresh state. With a
-  // dirty draft the app asks first (draft-guard.tsx).
-  const selectWorkflow = (next: string) => {
-    if (next !== id) onSelectWorkflow(next);
-  };
-
   const edit = (next: WorkflowDefinition) => {
-    if (id === null) return;
-    setDraft({ id, def: next });
+    setDraft(next);
     setNotice(null);
   };
 
@@ -130,14 +105,13 @@ export function WorkflowsView({
   };
 
   async function save() {
-    if (!draftDef || clientIssues.length > 0) return;
+    if (!draft || clientIssues.length > 0) return;
     setSaving(true);
     setServerErrors([]);
     setError(null);
     try {
-      const res = await api.saveWorkflow(draftDef);
-      const ws = await api.listWorkflows();
-      setSummaries(ws);
+      const res = await api.saveWorkflow(draft);
+      setLatestSeen((v) => Math.max(v, res.version));
       setDraft(null);
       setVersion(res.version);
       setNotice(`Saved as v${res.version}.`);
@@ -149,43 +123,34 @@ export function WorkflowsView({
     }
   }
 
-  const issuesFor = (s: Selected): GateIssue[] => [
-    ...clientIssues.filter((i) => i.from === s.from && i.outcome === s.outcome),
-    ...serverIssues
-      .filter((i) => i.from === s.from && i.outcome === s.outcome)
-      .map((i) => ({ from: s.from, outcome: s.outcome, path: i.path, message: i.message })),
-  ];
-
   // Every saved version: from the server when it says (gaps allowed), else 1..latest.
-  const known = detail && detail.id === id ? detailVersions(detail) : null;
-  const latest = Math.max(summary?.version ?? detail?.version ?? 1, ...(known ?? []));
+  const known = detail ? detailVersions(detail) : null;
+  const latest = Math.max(latestSeen, ...(known ?? []));
   const versions = known ?? Array.from({ length: latest }, (_, i) => i + 1);
   const currentVersion = version ?? latest;
-  const allIssues = [
-    ...clientIssues.map((i) => ({ ...i, source: 'client' as const })),
-    ...serverIssues.map((i) => ({ ...i, source: 'server' as const })),
-  ];
+
+  if (missing) {
+    return (
+      <div className="wf-view">
+        <section className="wf-main wf-empty" aria-label="Workflow">
+          <h2>No workflow yet</h2>
+          <p>
+            This orchestrator has no <code>{ID}</code> workflow. A current orchestrator seeds{' '}
+            <code>{ID}</code> v1 when it starts: update it and restart it, then reload this page.
+          </p>
+        </section>
+      </div>
+    );
+  }
+
+  const selectedState = selected !== null && shown?.states[selected] ? selected : null;
 
   return (
-    <div className={`wf-view${selected && shown ? ' with-editor' : ''}`}>
-      <nav aria-label="Workflows">
-        {summaries === null && !error && <p className="muted">Loading…</p>}
-        <ul className="wf-list">
-          {summaries?.map((w) => (
-            <li key={w.id}>
-              <button type="button" aria-current={w.id === id} onClick={() => selectWorkflow(w.id)}>
-                <span>{w.id}</span>
-                <span className="muted">v{w.version}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </nav>
-
+    <div className={`wf-view${selectedState && asColumns ? ' with-editor' : ''}`}>
       <section className="wf-main" aria-label="Workflow">
         <div className="wf-toolbar">
-          <h2>{id ?? 'No workflows'}</h2>
-          {id && (
+          <h2>Workflow</h2>
+          {latest > 0 && (
             <label>
               Version{' '}
               <select
@@ -229,15 +194,22 @@ export function WorkflowsView({
             </span>
           )}
         </div>
+        {shown === null && !error && <p className="muted">Loading…</p>}
         {dirty && (
           <p className="muted wf-note">
             Saving creates v{latest + 1}. Running tickets keep the version they started on; new
             tickets and reopened ones use the new version.
           </p>
         )}
-        {!dirty && shown && (
+        {!dirty && shown && asColumns && (
           <p className="muted wf-note">
-            Click or tab to a transition (Enter) to see or edit its requirements.
+            Each column is a state on the board. Click a column (or Tab to it and press Enter) to
+            edit its title, its work and its requirements to enter.
+          </p>
+        )}
+        {shown && !asColumns && (
+          <p className="muted wf-note">
+            This version predates board columns; it is shown as a state diagram, read-only.
           </p>
         )}
         {error && (
@@ -245,22 +217,18 @@ export function WorkflowsView({
             {error}
           </p>
         )}
-        {allIssues.length > 0 && (
+        {allIssues.length > 0 && shown && (
           <ul className="wf-errors" aria-label="Problems">
             {allIssues.map((i, n) => (
               <li key={n}>
-                {i.from !== null && i.outcome !== null ? (
+                {i.state !== null ? (
                   <>
-                    <strong>
-                      {i.from} · {i.outcome}
-                    </strong>
-                    : {i.message}
-                    <button
-                      type="button"
-                      onClick={() => setSelected({ from: i.from!, outcome: i.outcome! })}
-                    >
-                      Show
-                    </button>
+                    <strong>{columnTitle(shown, i.state)}</strong>: {i.message}
+                    {asColumns && (
+                      <button type="button" onClick={() => setSelected(i.state)}>
+                        Show
+                      </button>
+                    )}
                   </>
                 ) : (
                   <>
@@ -271,32 +239,30 @@ export function WorkflowsView({
             ))}
           </ul>
         )}
-        {shown && (
-          <WorkflowDiagram
+        {shown && asColumns && (
+          <ColumnsDiagram
             definition={shown}
-            selected={selected ? transitionKey(selected.from, selected.outcome) : null}
-            errors={errorKeys}
-            onSelectTransition={(from, outcome) => setSelected({ from, outcome })}
+            selected={selectedState}
+            errors={errorStates}
+            onSelectColumn={setSelected}
           />
         )}
-        {shown && (
+        {shown && !asColumns && <WorkflowDiagram definition={shown} />}
+        {shown && asColumns && (
           <p className="wf-legend muted">
-            <span>«type» state</span>
-            <span>● start</span>
-            <span>◉ final state</span>
-            <span>- - - dashed: else / requirements not met</span>
-            <span>✓ gated by requirements</span>
+            <span>→ outcome</span>
+            <span>- - - dashed: requirements not met (back, bounded) / else</span>
+            <span>✓ checks · ◎ review · ↗ conductor action</span>
           </p>
         )}
       </section>
 
-      {selected && shown && (
-        <TransitionEditor
-          key={`${id ?? ''}:${transitionKey(selected.from, selected.outcome)}`}
+      {selectedState && shown && asColumns && (
+        <ColumnEditor
+          key={selectedState}
           definition={shown}
-          from={selected.from}
-          outcome={selected.outcome}
-          issues={issuesFor(selected)}
+          state={selectedState}
+          issues={allIssues.filter((i) => i.state === selectedState)}
           onChange={edit}
           onClose={() => setSelected(null)}
         />

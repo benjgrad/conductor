@@ -1,8 +1,7 @@
 import { useCallback, useState } from 'react';
 import type { NavigateOptions, Route, RouteGuard } from '../nav.js';
 
-// Keeps an unsaved workflow draft from being dropped by navigation (Board, another workflow, a
-// hash change). The Workflows view reports which workflow has a dirty draft; leaving it is
+// Keeps an unsaved workflow draft from being dropped by navigation (the Board, a hash change). The Workflows view reports which workflow has a dirty draft; leaving it is
 // blocked and the user confirms inline (no browser dialogs).
 
 export interface DraftGuard {
@@ -21,11 +20,8 @@ export function useDraftGuard(): DraftGuard {
   const guard = useCallback<RouteGuard>(
     (next, current) => {
       if (dirty === null) return 'allow';
-      if (next.view === 'workflows' && next.workflowId === dirty) return 'allow';
-      // "#/workflows" while already in the view: nothing to go to.
-      if (next.view === 'workflows' && next.workflowId === null && current.view === 'workflows') {
-        return 'ignore';
-      }
+      // There is one workflow (ADR-0010): any workflows URL is the same view, draft and all.
+      if (next.view === 'workflows' && current.view === 'workflows') return 'allow';
       return 'block';
     },
     [dirty],
@@ -45,7 +41,7 @@ export function DiscardDraftConfirm({
   if (!pending || dirty === null) return null;
   return (
     <div className="wf-confirm" role="alertdialog" aria-label="Unsaved changes">
-      <span>Discard unsaved changes to {dirty}?</span>
+      <span>Discard unsaved changes to the workflow?</span>
       <button
         type="button"
         className="danger"

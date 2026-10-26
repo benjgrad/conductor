@@ -38,7 +38,7 @@ export function App({ api }: AppProps) {
             href={routeHash({ view: 'workflows', workflowId: null })}
             aria-current={route.view === 'workflows' ? 'page' : undefined}
           >
-            Workflows
+            Workflow
           </a>
         </nav>
         {route.view === 'board' && (
@@ -53,18 +53,7 @@ export function App({ api }: AppProps) {
         </p>
       )}
       <DiscardDraftConfirm draft={draft} navigate={navigate} />
-      {route.view === 'workflows' && (
-        <WorkflowsView
-          // One view per workflow: a draft can never show under another workflow's selection.
-          key={route.workflowId ?? ''}
-          api={api}
-          workflowId={route.workflowId}
-          onSelectWorkflow={(workflowId, replace) =>
-            navigate({ view: 'workflows', workflowId }, { replace })
-          }
-          onDirtyChange={draft.setDirty}
-        />
-      )}
+      {route.view === 'workflows' && <WorkflowsView api={api} onDirtyChange={draft.setDirty} />}
       {route.view === 'board' && creating && (
         <CreateTicketForm api={api} onCreated={() => setCreating(false)} />
       )}

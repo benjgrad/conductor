@@ -3,6 +3,7 @@ import {
   BOARD_CARD_NEEDS_INPUT_FIXTURE,
   BOARD_CARD_PENDING_FIXTURE,
   BOARD_SSE_FIXTURES,
+  CONDUCTOR_V2_DEF,
   CONDUCTOR_V2_DRAFT_DEF,
   CONDUCTOR_WORKFLOW_ID,
   OUTPUT_CHUNK_FIXTURE,
@@ -262,11 +263,10 @@ export const CONDUCTOR: WorkflowDefinition = WorkflowDefinitionSchema.parse({
 });
 
 /**
- * ADR-0011 (M1b-T06): conductor v3 in the mock is the transition-rules draft (shared
- * `CONDUCTOR_V2_DRAFT`), so the Workflow view's arrows run with VITE_API=mock. Until the
- * validator learns `$return_to` (M1b-T02), the mock refuses to save it as is.
+ * ADR-0011: conductor v3 in the mock is the shipped transition-rules conductor (shared
+ * `CONDUCTOR_V2_DEF`, M1b-T09), so the Workflow view's arrows run with VITE_API=mock.
  */
-export const CONDUCTOR_TRANSITIONS: WorkflowDefinition = { ...CONDUCTOR_V2_DRAFT_DEF, version: 3 };
+export const CONDUCTOR_TRANSITIONS: WorkflowDefinition = { ...CONDUCTOR_V2_DEF, version: 3 };
 
 /** The latest version of each workflow (seeded sessions pin m1_basic v2 and pr_flow v1). */
 export const MOCK_WORKFLOWS = [CONDUCTOR, M1_BASIC, PR_FLOW_FULL];

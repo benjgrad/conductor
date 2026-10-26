@@ -265,6 +265,28 @@ describe('tickets and board', () => {
     expect(TicketDtoSchema.parse(res.body).workflow_id).toBe('conductor');
     const wf = await get('/api/workflows/conductor');
     expect(wf.status).toBe(200);
+    // M1b-T09: a bare database gets v1 then v2; v2 is the shipped default, so none is pending.
+    const detail = WorkflowDetailSchema.parse(wf.body);
+    expect(detail.version).toBe(2);
+    expect(detail.versions).toEqual([1, 2]);
+    expect(detail.default_available).toBeNull();
+  });
+
+  it('M1b-T09: default_available is 2 once the shipped v2 is gone (only edited versions)', async () => {
+    // A database where the user's edit took version 2 before the shipped v2 was seeded.
+    const v1 = (await get('/api/workflows/conductor?version=1')).body as {
+      definition: Record<string, unknown>;
+    };
+    await db.pool.query("DELETE FROM workflow_definition WHERE id = 'conductor' AND version = 2");
+    const edited = { ...v1.definition, budget: { usd: 9, minutes: 120, max_loop_retries: 3 } };
+    expect((await post('/api/workflows', { definition: edited })).status).toBe(201);
+    const detail = WorkflowDetailSchema.parse((await get('/api/workflows/conductor')).body);
+    expect(detail.version).toBe(2);
+    expect(detail.definition.budget?.usd).toBe(9);
+    expect(detail.default_available).toBe(2);
+    // Another id never has one.
+    const basic = WorkflowDetailSchema.parse((await get('/api/workflows/m1_basic')).body);
+    expect(basic.default_available).toBeNull();
   });
 
   it('creates a ticket with a card.upserted board event in the same transaction', async () => {

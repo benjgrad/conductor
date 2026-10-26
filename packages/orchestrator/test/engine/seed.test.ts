@@ -1,0 +1,128 @@
+import {
+  CONDUCTOR_V1,
+  CONDUCTOR_V1_DEF,
+  CONDUCTOR_V2_DEF,
+  WorkflowDefinitionSchema,
+} from '@conductor/shared';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  NEWER_DEFAULT_MESSAGE,
+  conductorDefaultAvailable,
+  isShippedDefinition,
+  seedConductorWorkflow,
+} from '../../src/engine/seed.js';
+import { useTestDatabase } from '../db.js';
+
+// ADR-0010 / ADR-0011 (M1b-T09): the conductor seed and its v2 upgrade. Needs `pnpm db:up`.
+
+const db = useTestDatabase();
+
+interface Row {
+  version: number;
+  definition: unknown;
+  created_by: string | null;
+}
+const rows = async () =>
+  (
+    await db.pool.query<Row>(
+      "SELECT version, definition, created_by FROM workflow_definition WHERE id = 'conductor' " +
+        'ORDER BY version',
+    )
+  ).rows;
+const insert = (version: number, definition: unknown) =>
+  db.pool.query(
+    "INSERT INTO workflow_definition (id, version, definition) VALUES ('conductor', $1, $2)",
+    [version, JSON.stringify(definition)],
+  );
+
+beforeEach(async () => {
+  await db.pool.query("DELETE FROM workflow_definition WHERE id = 'conductor'");
+});
+
+describe('seedConductorWorkflow (ADR-0010, M1b-T09 upgrade)', () => {
+  it('an empty database gets v1 and v2; v2 is the latest and is the shipped v2', async () => {
+    const log = vi.fn();
+    expect(await seedConductorWorkflow(db.pool, { log })).toBe(true);
+    const r = await rows();
+    expect(r.map((x) => [x.version, x.created_by])).toEqual([
+      [1, 'conductor'],
+      [2, 'conductor'],
+    ]);
+    expect(isShippedDefinition(r[0]!.definition, CONDUCTOR_V1_DEF)).toBe(true);
+    expect(WorkflowDefinitionSchema.parse(r[1]!.definition)).toEqual(CONDUCTOR_V2_DEF);
+    expect(log).not.toHaveBeenCalled();
+    expect(await conductorDefaultAvailable(db.pool, 'conductor')).toBeNull();
+    // Idempotent: nothing more on the next start.
+    expect(await seedConductorWorkflow(db.pool, { log })).toBe(false);
+    expect((await rows()).map((x) => x.version)).toEqual([1, 2]);
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it('an unedited v1 (an M1 database) gets v2 added', async () => {
+    // As the M1 seed stored it: the parsed v1.
+    await insert(1, CONDUCTOR_V1_DEF);
+    expect(await seedConductorWorkflow(db.pool, { log: null })).toBe(true);
+    const r = await rows();
+    expect(r.map((x) => x.version)).toEqual([1, 2]);
+    expect(WorkflowDefinitionSchema.parse(r[1]!.definition)).toEqual(CONDUCTOR_V2_DEF);
+  });
+
+  it('an unedited v1 stored raw (before defaults were applied) also counts as unedited', async () => {
+    await insert(1, CONDUCTOR_V1);
+    expect(await seedConductorWorkflow(db.pool, { log: null })).toBe(true);
+    expect((await rows()).map((x) => x.version)).toEqual([1, 2]);
+  });
+
+  it('an edited v1 (a v2 of the user’s) gets nothing; the start logs that a default is available', async () => {
+    await insert(1, CONDUCTOR_V1_DEF);
+    const mine = structuredClone(CONDUCTOR_V1_DEF);
+    mine.version = 2;
+    mine.states.planning!.title = 'Thinking';
+    await insert(2, mine);
+    const log = vi.fn();
+    expect(await seedConductorWorkflow(db.pool, { log })).toBe(false);
+    const r = await rows();
+    expect(r.map((x) => x.version)).toEqual([1, 2]);
+    expect(r[1]!.created_by).toBeNull();
+    expect(WorkflowDefinitionSchema.parse(r[1]!.definition).states.planning?.title).toBe(
+      'Thinking',
+    );
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(log.mock.calls[0]![0]).toContain(NEWER_DEFAULT_MESSAGE);
+    expect(await conductorDefaultAvailable(db.pool, 'conductor')).toBe(2);
+    // The ticket route seeds silently.
+    expect(await seedConductorWorkflow(db.pool, { log: null })).toBe(false);
+    expect(log).toHaveBeenCalledTimes(1);
+  });
+
+  it('a v1 changed in place (not the shipped one) is an edit too', async () => {
+    const changed = structuredClone(CONDUCTOR_V1_DEF);
+    changed.budget = { ...changed.budget, usd: 50 };
+    await insert(1, changed);
+    expect(await seedConductorWorkflow(db.pool, { log: null })).toBe(false);
+    expect((await rows()).map((x) => x.version)).toEqual([1]);
+    expect(await conductorDefaultAvailable(db.pool, 'conductor')).toBe(2);
+  });
+
+  it('concurrent starts on an empty database insert exactly one v1 and one v2', async () => {
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () => seedConductorWorkflow(db.pool, { log: null })),
+    );
+    expect(results.some(Boolean)).toBe(true);
+    expect((await rows()).map((x) => x.version)).toEqual([1, 2]);
+  });
+
+  it('concurrent starts on an unedited v1 insert exactly one v2', async () => {
+    await insert(1, CONDUCTOR_V1_DEF);
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () => seedConductorWorkflow(db.pool, { log: null })),
+    );
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect((await rows()).map((x) => x.version)).toEqual([1, 2]);
+  });
+
+  it('default_available is null for other workflow ids and unknown ones', async () => {
+    expect(await conductorDefaultAvailable(db.pool, 'm1_basic')).toBeNull();
+    expect(await conductorDefaultAvailable(db.pool, 'conductor')).toBeNull(); // none stored
+  });
+});

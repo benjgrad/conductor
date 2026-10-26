@@ -36,13 +36,15 @@ His Implementing → Waiting external rule for work tickets needs:
 | Type | Kind | Capability | Machine command (read-only unless noted) |
 |---|---|---|---|
 | `pr_checks_green` | condition | `cli:gh authed` | `gh pr view <url> --json statusCheckRollup`: all success → met; any failure → failed; else pending |
-| `pr_approvals {min}` | condition | `cli:gh authed` | `gh pr view --json reviewDecision,reviews`: approvals counted per latest review per reviewer; `CHANGES_REQUESTED` → failed |
+| `pr_approvals {min}` | condition | `cli:gh authed` | `gh pr view --json reviewDecision,reviews,author,headRefOid`. Per **eligible** reviewer (`authorAssociation` OWNER / MEMBER / COLLABORATOR, never the PR author), in review order: `CHANGES_REQUESTED` on any commit blocks; `APPROVED` on the current head (`commit.oid` = `headRefOid`) approves and clears a block; `APPROVED` on an older commit is stale (no approval, and a block stays); `DISMISSED` clears the verdict. Then: `reviewDecision` `CHANGES_REQUESTED` or any blocked reviewer → failed; `REVIEW_REQUIRED` → pending; otherwise met when approvals ≥ `min`, else pending (M1b-T05) |
 | `pr_merged` | condition | `cli:gh authed` | `gh pr view --json mergedAt,state` |
 | `azure_pipeline_succeeded {pipeline}` | condition | `cli:az authed` (devops extension) | `az pipelines runs list --branch <b> --pipeline-ids/--name … --top 1`, then the run's `result` for the PR's head commit |
 | `jira_fields_set {fields}` | condition | `cli:jira authed` or `mcp:<atlassian>` | read the issue named by `ticket.external_ref`; each listed field non-empty (or equal to a value) |
 | `open_pr` | action | `cli:gh authed` | unchanged from ADR-0010 (writes) |
 | `update_jira {fields, transition?}` | action | as `jira_fields_set` | sets fields from the source state's result; idempotent (setting values) |
 | `slack_message {channel, text_from}` | action | `mcp:<slack>` or `cli:slack` | posts the approved text (writes; human transitions only) |
+
+Head pinning (M1b-T05): when `evaluate_conditions` carries `head_sha` (the commit conductor checked and pushed) and the PR's `headRefOid` differs, every PR condition fails ("someone pushed to the branch").
 
 ### Execution
 - Conditions run as ADR-0011's `evaluate_conditions` `run_action`, through the outbox to a machine of the account that has the capability. That is the session's machine when it is online, else **any** online machine of the account with the capability, because conditions read remote state and need no worktree. All the conditions of one transition go in one command; results are per condition.

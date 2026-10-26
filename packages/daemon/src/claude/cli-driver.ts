@@ -230,10 +230,14 @@ class Session implements CliDriverSession {
     extraStateEnv?: RegExp,
   ) {
     this.id = opts.claudeSessionId;
-    this.reg = server.register({
-      onAskUser: (question) => this.emit({ kind: 'ask_user', question }),
-      onCompleteState: (result) => this.emit({ kind: 'complete_state', result }),
-    });
+    this.reg = server.register(
+      {
+        onAskUser: (question) => this.emit({ kind: 'ask_user', question }),
+        // ADR-0011: the named transition and reason are forwarded as given.
+        onCompleteState: (result, meta) => this.emit({ kind: 'complete_state', result, ...meta }),
+      },
+      { transitions: opts.transitions },
+    );
 
     let settings: string;
     try {

@@ -9,10 +9,14 @@ import {
   COMPLETE_STATE_RETURN,
   OUTCOME_SERVER_NAME,
   startOutcomeServer,
+  unknownTransitionText,
+  type OutcomeRegisterOptions,
   type OutcomeServer,
 } from './outcome-server.js';
 
-type Call = { kind: 'ask'; question: string } | { kind: 'done'; result: Record<string, unknown> };
+type Call =
+  | { kind: 'ask'; question: string }
+  | { kind: 'done'; result: Record<string, unknown>; transition?: string; reason?: string };
 
 let server: OutcomeServer;
 
@@ -23,12 +27,15 @@ afterEach(async () => {
   await server.close();
 });
 
-function register() {
+function register(opts?: OutcomeRegisterOptions) {
   const calls: Call[] = [];
-  const reg = server.register({
-    onAskUser: (question) => calls.push({ kind: 'ask', question }),
-    onCompleteState: (result) => calls.push({ kind: 'done', result }),
-  });
+  const reg = server.register(
+    {
+      onAskUser: (question) => calls.push({ kind: 'ask', question }),
+      onCompleteState: (result, meta) => calls.push({ kind: 'done', result, ...meta }),
+    },
+    opts,
+  );
   return { reg, calls };
 }
 
@@ -36,11 +43,15 @@ function register() {
 // whose "source" export condition points vitest at .ts under node_modules, which it can't load.
 // (The real SDK client is exercised by fake-claude.mjs in cli-driver.test.ts.)
 interface RpcResult {
-  result?: { tools?: { name: string }[]; content?: { text: string }[]; isError?: boolean };
+  result?: {
+    tools?: { name: string; description?: string }[];
+    content?: { text: string }[];
+    isError?: boolean;
+  };
   error?: { code: number; message: string };
 }
 interface Client {
-  listTools(): Promise<{ tools: { name: string }[] }>;
+  listTools(): Promise<{ tools: { name: string; description?: string }[] }>;
   callTool(req: {
     name: string;
     arguments: Record<string, unknown>;
@@ -195,5 +206,91 @@ describe('outcome server', () => {
     reg.unregister(); // idempotent
     expect(server.size).toBe(0);
     expect(await rawRequest(reg.url, init)).toBe(404);
+  });
+
+  describe('ADR-0011 transitions', () => {
+    const TRANSITIONS = [
+      { name: 'plan_ready', when: 'The plan is complete.', question: false },
+      { name: 'scope_changed', when: 'The scope changed.', question: true },
+    ];
+
+    it('emits a valid name with its reason', async () => {
+      const { reg, calls } = register({ transitions: TRANSITIONS });
+      const c = await connect(reg.url);
+      expect(
+        await callText(c, 'complete_state', {
+          transition: 'scope_changed',
+          reason: 'Is the new dependency OK?',
+          result: {},
+        }),
+      ).toBe(COMPLETE_STATE_RETURN);
+      expect(calls).toEqual([
+        {
+          kind: 'done',
+          result: {},
+          transition: 'scope_changed',
+          reason: 'Is the new dependency OK?',
+        },
+      ]);
+    });
+
+    it('refuses an unknown name once with the allowed list, then emits the next one as is', async () => {
+      const { reg, calls } = register({ transitions: TRANSITIONS });
+      const c = await connect(reg.url);
+      const nudge = await callText(c, 'complete_state', { transition: 'shipit', result: {} });
+      expect(nudge).toBe(unknownTransitionText('shipit', TRANSITIONS));
+      expect(nudge).toContain('- plan_ready: The plan is complete.');
+      expect(nudge).toContain('- scope_changed: The scope changed.');
+      expect(calls).toEqual([]);
+      expect(reg.completed).toBe(false);
+      // The second unknown name goes through; the engine routes it to a human.
+      expect(
+        await callText(c, 'complete_state', { transition: 'yolo', reason: 'r', result: {} }),
+      ).toBe(COMPLETE_STATE_RETURN);
+      expect(calls).toEqual([{ kind: 'done', result: {}, transition: 'yolo', reason: 'r' }]);
+    });
+
+    it('a missing transition means done: nudged when done is not allowed', async () => {
+      const { reg, calls } = register({ transitions: TRANSITIONS });
+      const c = await connect(reg.url);
+      expect(await callText(c, 'complete_state', { result: {} })).toContain('named no transition');
+      expect(await callText(c, 'complete_state', { transition: 'plan_ready', result: {} })).toBe(
+        COMPLETE_STATE_RETURN,
+      );
+      expect(calls).toEqual([{ kind: 'done', result: {}, transition: 'plan_ready' }]);
+    });
+
+    it('no list (old workflows, reviewers): any name passes', async () => {
+      for (const opts of [undefined, { transitions: [] }]) {
+        const { reg, calls } = register(opts);
+        const c = await connect(reg.url);
+        expect(
+          await callText(c, 'complete_state', { transition: 'anything', result: { a: 1 } }),
+        ).toBe(COMPLETE_STATE_RETURN);
+        expect(calls).toEqual([{ kind: 'done', result: { a: 1 }, transition: 'anything' }]);
+      }
+    });
+
+    it('the tool description lists the transitions', async () => {
+      const c = await connect(register({ transitions: TRANSITIONS }).reg.url);
+      const { tools } = await c.listTools();
+      const d = tools.find((t) => t.name === 'complete_state')?.description ?? '';
+      expect(d).toContain('- plan_ready: The plan is complete.');
+      expect(d).toContain('- scope_changed: The scope changed. (a question');
+      const plain = await connect(register().reg.url);
+      const d2 = (await plain.listTools()).tools.find((t) => t.name === 'complete_state');
+      expect(d2?.description).not.toContain('Allowed transitions');
+    });
+
+    it('caps transition and reason at the tool call', async () => {
+      const { reg, calls } = register({ transitions: TRANSITIONS });
+      const c = await connect(reg.url);
+      const r = await c.callTool({
+        name: 'complete_state',
+        arguments: { transition: 'x'.repeat(101), result: {} },
+      });
+      expect(r.isError).toBe(true);
+      expect(calls).toEqual([]);
+    });
   });
 });

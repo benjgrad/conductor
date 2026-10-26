@@ -228,6 +228,43 @@ describe('createCliDriver against fake-claude', () => {
       extraStateEnv: FAKE_ENV,
     });
 
+  it('ADR-0011: an unknown transition is nudged once, then the named one is forwarded with its reason', async () => {
+    const o = opts(
+      [
+        [
+          { complete_state: { x: 1 }, transition: 'ship_it' },
+          { complete_state: { x: 2 }, transition: 'plan_ready', reason: 'Plan done: $answer' },
+        ],
+      ],
+      {
+        prompt: 'go',
+        transitions: [
+          { name: 'plan_ready', when: 'The plan is complete.', question: false },
+          { name: 'scope_changed', when: 'The scope changed.', question: true },
+        ],
+      },
+    );
+    const s = driver().start(o);
+    const t = track(s);
+    await t.turnEnds(1);
+    expect(t.events.filter((e) => e.kind === 'complete_state')).toEqual([
+      {
+        kind: 'complete_state',
+        result: { x: 2 },
+        transition: 'plan_ready',
+        reason: 'Plan done: go',
+      },
+    ]);
+    expect(
+      t.events.some(
+        (e) =>
+          e.kind === 'output' &&
+          e.stream === 'tool_result' &&
+          e.text.includes('"ship_it" is not a transition you can take here'),
+      ),
+    ).toBe(true);
+  });
+
   it('ask_user → park → sendInput → complete_state → end() → exit 0', async () => {
     const o = opts([
       [{ say: 'Need a decision.' }, { ask_user: 'Which colour?' }],

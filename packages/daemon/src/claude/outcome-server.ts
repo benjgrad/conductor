@@ -5,10 +5,14 @@
 // session; the token is dropped when the session's process exits. The server is stateless: a
 // fresh McpServer + transport per POST (the spike's proven shape; no GET SSE stream).
 //
-// Tools: `complete_state({result})` and `ask_user({question})`. Both return immediately with the
-// ADR's texts. Guards live here, per registration, so a refused call never reaches the driver:
+// Tools: `complete_state({transition?, reason?, result})` and `ask_user({question})`. Both return
+// immediately with the ADR's texts. Guards live here, per registration, so a refused call never
+// reaches the driver:
 //   - complete_state while a question is pending → corrective text, not emitted
 //   - complete_state a second time → corrective text, not emitted
+//   - ADR-0011: complete_state naming a transition outside the registration's list (absent =
+//     `done`) → corrective text listing the allowed names, not emitted, ONCE; a second unknown
+//     name is emitted as is and the engine routes it to a human. No list = any name passes.
 //   - ask_user after complete_state, or while a question is already pending → corrective text,
 //     not emitted (one open question per session; not in the ADR, see the T05b report)
 // The driver clears the pending question when it delivers the answer (`answered()`).
@@ -19,6 +23,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { z } from 'zod';
+import { COMPLETE_STATE_INPUT_SHAPE, type AgentTransitionOption } from '@conductor/shared';
 
 export const OUTCOME_SERVER_NAME = 'conductor';
 export const COMPLETE_STATE_TOOL = `mcp__${OUTCOME_SERVER_NAME}__complete_state`;
@@ -41,12 +46,66 @@ export const ASK_USER_PENDING_QUESTION =
 export const ASK_USER_AFTER_COMPLETE =
   'Not sent: complete_state was already recorded for this state. End your turn now.';
 
+/** The transition `complete_state` takes when it names none (old prompts, ADR-0011). */
+export const DEFAULT_TRANSITION = 'done';
+
+/** ADR-0011 "one corrective nudge": the tool result for a name outside the allowed list. */
+export function unknownTransitionText(
+  name: string | undefined,
+  transitions: readonly AgentTransitionOption[],
+): string {
+  const named =
+    name === undefined
+      ? `complete_state named no transition (that means "${DEFAULT_TRANSITION}"), which is not allowed here`
+      : `"${name}" is not a transition you can take here`;
+  const list = transitions
+    .map((t) => `- ${t.name}${t.when !== null ? `: ${t.when}` : ''}`)
+    .join('\n');
+  return `Not recorded: ${named}. Call complete_state again with \`transition\` set to exactly one of:\n${list}`;
+}
+
+/**
+ * ADR-0011: whether `complete_state` naming `name` is refused with the corrective text. Only the
+ * first unknown name is refused (`nudged` false); no list (old workflows, reviewers) accepts any.
+ */
+export function refuseTransition(
+  transitions: readonly AgentTransitionOption[] | undefined,
+  name: string | undefined,
+  nudged: boolean,
+): boolean {
+  if (transitions === undefined || transitions.length === 0 || nudged) return false;
+  const effective = name ?? DEFAULT_TRANSITION;
+  return !transitions.some((t) => t.name === effective);
+}
+
+/** The complete_state tool description, listing the allowed transitions when there are any. */
+export function completeStateDescription(
+  transitions: readonly AgentTransitionOption[] | undefined,
+): string {
+  const base =
+    "Call exactly once when the current workflow state's work is finished. `result` holds the keys the state asked for. After calling it, stop: do not call any other tool and end your turn.";
+  if (transitions === undefined || transitions.length === 0) return base;
+  const list = transitions
+    .map(
+      (t) =>
+        `- ${t.name}${t.when !== null ? `: ${t.when}` : ''}${t.question ? ' (a question: `reason` is the question for the human)' : ''}`,
+    )
+    .join('\n');
+  return `${base}\nSet \`transition\` to the move you take and \`reason\` to why. Allowed transitions:\n${list}`;
+}
+
 const TOKEN_PATH = /^\/mcp\/([a-f0-9]{32})$/;
 // Keep the tools out of the CLI's tool-search deferral, so the model always sees them (spike c).
 const ALWAYS_LOAD = { 'anthropic/alwaysLoad': true };
 
+/** ADR-0011: what the agent named in complete_state (absent fields were not given). */
+export interface CompleteStateMeta {
+  transition?: string;
+  reason?: string;
+}
+
 export interface OutcomeHandlers {
-  onCompleteState(result: Record<string, unknown>): void;
+  onCompleteState(result: Record<string, unknown>, meta: CompleteStateMeta): void;
   onAskUser(question: string): void;
 }
 
@@ -68,16 +127,24 @@ export interface OutcomeRegistration {
 export interface OutcomeServer {
   readonly host: '127.0.0.1';
   readonly port: number;
-  register(handlers: OutcomeHandlers): OutcomeRegistration;
+  register(handlers: OutcomeHandlers, opts?: OutcomeRegisterOptions): OutcomeRegistration;
   /** Number of live tokens (for tests / diagnostics). */
   readonly size: number;
   close(): Promise<void>;
+}
+
+export interface OutcomeRegisterOptions {
+  /** ADR-0011 `start_session.transitions`; absent or empty = any name passes. */
+  transitions?: readonly AgentTransitionOption[] | undefined;
 }
 
 interface Entry {
   handlers: OutcomeHandlers;
   questionPending: boolean;
   completed: boolean;
+  transitions: readonly AgentTransitionOption[] | undefined;
+  /** The one corrective nudge for an unknown transition was given. */
+  nudged: boolean;
 }
 
 function text(t: string) {
@@ -89,18 +156,22 @@ function buildServer(entry: Entry): McpServer {
   s.registerTool(
     'complete_state',
     {
-      description:
-        "Call exactly once when the current workflow state's work is finished. `result` holds the keys the state asked for. After calling it, stop: do not call any other tool and end your turn.",
-      inputSchema: {
-        result: z.record(z.string(), z.unknown()).describe('Structured outcome of this state'),
-      },
+      description: completeStateDescription(entry.transitions),
+      inputSchema: COMPLETE_STATE_INPUT_SHAPE,
       _meta: ALWAYS_LOAD,
     },
-    ({ result }) => {
+    ({ result, transition, reason }) => {
       if (entry.questionPending) return text(COMPLETE_STATE_PENDING_QUESTION);
       if (entry.completed) return text(COMPLETE_STATE_DUPLICATE);
+      if (refuseTransition(entry.transitions, transition, entry.nudged)) {
+        entry.nudged = true;
+        return text(unknownTransitionText(transition, entry.transitions ?? []));
+      }
       entry.completed = true;
-      entry.handlers.onCompleteState(result);
+      entry.handlers.onCompleteState(result, {
+        ...(transition !== undefined ? { transition } : {}),
+        ...(reason !== undefined ? { reason } : {}),
+      });
       return text(COMPLETE_STATE_RETURN);
     },
   );
@@ -181,9 +252,15 @@ export async function startOutcomeServer(opts: OutcomeServerOptions = {}): Promi
     get size() {
       return entries.size;
     },
-    register(handlers) {
+    register(handlers, opts = {}) {
       const token = randomBytes(16).toString('hex');
-      const entry: Entry = { handlers, questionPending: false, completed: false };
+      const entry: Entry = {
+        handlers,
+        questionPending: false,
+        completed: false,
+        transitions: opts.transitions,
+        nudged: false,
+      };
       entries.set(token, entry);
       const url = `http://127.0.0.1:${port}/mcp/${token}`;
       const mcpConfig = JSON.stringify({

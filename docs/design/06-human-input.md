@@ -88,11 +88,20 @@ A state that is not a column (an older `conductor` version, or an old `m1_*` wor
 
 Sort, by the column's kind: Queued by priority then age; human (Needs input) oldest open input_request first, with the question badge; event (Waiting external) by age; agent columns and Done most recent activity first.
 
+[ADR-0011](../adr/0011-transition-rules.md) on the card (M1b-T07):
+- **Kind**: a small Work / Personal tag (`BoardCard.kind`; none on tickets from before M1b).
+- **Waiting for**: while a move's requirements run, `pending` replaces the `checking` badge with a checklist, e.g. "waiting for **Ready for testing**: ✓ Tests pass · ✓ PR opened · ◻ PR approved (0/1) · – Pipeline ci succeeded". Icons: ✓ met, ✗ failed, ◌ running, ◻ to do / not yet, – disabled, ? unsupported (the last two greyed). An item's `detail` (the evidence) is its hover text; `pending.note` (e.g. no machine to check conditions) shows under the list. The card stays in its source column.
+- **Human transitions**: a card with `human_transitions` (Needs input in a human state, Waiting external in an event state) has one button per entry, labelled with its title. A `needs_text` button opens a text box first ("Who or what is it waiting on?" for an event target, else "Your answer") and can't post without text; the others post at once. Each posts exactly `{name}` or `{name, text}` to `POST /api/sessions/:id/transition`; the card then moves on the board stream.
+- **Create form**: Work / Personal is a required choice (no default); the form always sends `kind`.
+
 ## Session detail panel
 - The workflow state diagram with the current state highlighted.
 - Recent output from the orchestrator's per-session ring buffer, streamed live while open.
 - While the agent runs: a message box for [live messages](#live-messages-to-a-running-agent) (`/...` slash commands included); sent messages show in the output as `user` chunks.
 - On a done / failed session: the same box [reopens](#reopening-a-finished-ticket) the ticket with the same agent; `/help` says so.
 - An empty ring loads the [history from Claude's transcript](#message-history-after-a-restart).
-- The pending input request with an answer box. For non-agent kinds there are also quick actions (retry, skip to…, abort).
+- The pending input request with an answer box. The answer box stays on every version: it answers the question and returns to the asking state (`$return_to`).
+- ADR-0011: the card's human transition buttons (as on the card) sit above the message box. On an **old version** (`human_transitions` is empty) non-agent kinds keep the M1 quick actions (retry, skip to…, abort) and `/retry`; a version with human transitions doesn't show them.
+- Details › Workflow: the `pending` checklist while a move's requirements run.
+- Details › **Moves** (`SessionDetail.moves`, oldest first): "<time> <from> → <to> · <transition title> — <reason> (<actor>)". The title comes from the transition in the state it left, else the name humanised; a gate step's synthetic label is shown as is.
 - Context values (`pr_url`, …), spend and time against the budget.

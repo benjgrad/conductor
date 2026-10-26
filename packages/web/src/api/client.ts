@@ -16,6 +16,7 @@ import type {
   WorkflowDefinition,
   WorkflowDetail,
   TranscriptResponse,
+  TransitionSessionRequest,
   WorkflowSummary,
 } from '@conductor/shared';
 
@@ -100,6 +101,12 @@ export interface ApiClient {
    * agent with `text`. 409 conflict unless the session is the ticket's latest and done/failed.
    */
   reopen(sessionId: string, req: ReopenSessionRequest): Promise<ReopenSessionResponse>;
+  /**
+   * POST /api/sessions/:id/transition (ADR-0011): a human takes one of the card's
+   * `human_transitions`. `text` is required by the UI when the button's `needs_text` is set. 409
+   * conflict when the transition isn't offered (wrong status, unknown, not allowed).
+   */
+  transition(sessionId: string, req: TransitionSessionRequest): Promise<OkResponse>;
 }
 
 /** A non-2xx API response (ApiError body), thrown by every ApiClient method. */

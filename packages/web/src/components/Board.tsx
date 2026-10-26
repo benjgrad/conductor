@@ -1,16 +1,20 @@
 import type { BoardCard } from '@conductor/shared';
+import type { ApiClient } from '../api/client.js';
 import { boardColumns, type BoardState } from '../board/board.js';
 import { AgentAvatar, agentName } from './agent-identity.js';
-import { ago, KIND_LABELS, STATUS_LABELS, usd } from './format.js';
+import { ago, KIND_LABELS, STATUS_LABELS, TICKET_KIND_LABELS, usd } from './format.js';
+import { PendingChecklist, TransitionButtons } from './transitions.js';
 import { stateLabel } from '../workflow/review.js';
 
 interface BoardProps {
   board: BoardState;
   selectedSessionId: string | null;
   onSelect: (sessionId: string) => void;
+  /** ADR-0011: with it, Needs-input cards get their human transition buttons. */
+  api?: ApiClient;
 }
 
-export function Board({ board, selectedSessionId, onSelect }: BoardProps) {
+export function Board({ board, selectedSessionId, onSelect, api }: BoardProps) {
   const columns = boardColumns(board);
   return (
     <div className="board">
@@ -31,6 +35,7 @@ export function Board({ board, selectedSessionId, onSelect }: BoardProps) {
                   card={card}
                   selected={card.session_id !== null && card.session_id === selectedSessionId}
                   onSelect={onSelect}
+                  {...(api ? { api } : {})}
                 />
               </li>
             ))}
@@ -45,9 +50,10 @@ interface CardProps {
   card: BoardCard;
   selected: boolean;
   onSelect: (sessionId: string) => void;
+  api?: ApiClient;
 }
 
-function Card({ card, selected, onSelect }: CardProps) {
+function Card({ card, selected, onSelect, api }: CardProps) {
   const sessionId = card.session_id;
   const q = card.input_request;
   return (
@@ -62,6 +68,9 @@ function Card({ card, selected, onSelect }: CardProps) {
         <span className="card-title">{card.title}</span>
       </button>
       <div className="card-meta">
+        {card.kind && (
+          <span className={`tag tag-kind tag-${card.kind}`}>{TICKET_KIND_LABELS[card.kind]}</span>
+        )}
         <span className="card-agent" title={`Agent ${agentName(card.ticket_id)}`}>
           <AgentAvatar ticketId={card.ticket_id} size={20} />
           {agentName(card.ticket_id)}
@@ -78,10 +87,14 @@ function Card({ card, selected, onSelect }: CardProps) {
       {card.badges.includes('waiting_for_build_slot') && (
         <span className="badge badge-slot">waiting for build slot</span>
       )}
-      {card.checking && (
-        <span className="badge badge-checking">
-          checking requirements for {card.checking.title} ({card.checking.phase})
-        </span>
+      {card.pending ? (
+        <PendingChecklist pending={card.pending} />
+      ) : (
+        card.checking && (
+          <span className="badge badge-checking">
+            checking requirements for {card.checking.title} ({card.checking.phase})
+          </span>
+        )
       )}
       {(['failed', 'lost', 'cancelled'] as const).map(
         (b) =>
@@ -103,6 +116,9 @@ function Card({ card, selected, onSelect }: CardProps) {
           </span>
           <p>{q.question}</p>
         </div>
+      )}
+      {api && sessionId !== null && card.human_transitions.length > 0 && (
+        <TransitionButtons api={api} sessionId={sessionId} options={card.human_transitions} />
       )}
     </article>
   );

@@ -11,6 +11,7 @@ import { ContextView } from './ContextView.js';
 import { duration, KIND_LABELS, STATUS_LABELS, TERMINAL_STATUSES, usd } from './format.js';
 import { Markdown } from './markdown.js';
 import { OutputLog } from './OutputLog.js';
+import { MovesList, PendingChecklist, TransitionButtons } from './transitions.js';
 import { SessionWorkflowDiagram } from '../workflow/SessionWorkflowDiagram.js';
 import { stateLabel } from '../workflow/review.js';
 
@@ -150,6 +151,15 @@ export function DetailPanel({
                 />
               )}
             </OutputLog>
+            {detail.card.session_id !== null && (
+              <TransitionButtons
+                api={api}
+                sessionId={detail.card.session_id}
+                options={detail.card.human_transitions}
+                workflow={detail.workflow}
+                onDone={reload}
+              />
+            )}
             <Composer
               api={api}
               detail={detail}
@@ -175,6 +185,10 @@ export function DetailPanel({
           <>
             <AgentCard api={api} detail={detail} sessionId={sessionId} name={name} />
             <WorkflowSection detail={detail} />
+            <section aria-label="Moves">
+              <h3>Moves</h3>
+              <MovesList moves={detail.moves ?? []} workflow={detail.workflow} />
+            </section>
             <BudgetSection detail={detail} />
             <Actions api={api} detail={detail} onDone={reload} />
             <section aria-label="Context">
@@ -199,8 +213,16 @@ interface PendingInputProps {
 }
 
 /**
- * The open input request, inline at the end of the chat. The composer answers it; non-agent kinds
- * also get the quick actions (06): retry, skip to…, abort.
+ * ADR-0011: an old workflow version offers no human transitions (`human_transitions` is empty),
+ * so it keeps the M1 quick actions and /retry; a newer one has a button per transition instead.
+ */
+export function isOldVersion(detail: SessionDetail): boolean {
+  return detail.card.human_transitions.length === 0;
+}
+
+/**
+ * The open input request, inline at the end of the chat. The composer answers it; on old
+ * versions, non-agent kinds also get the quick actions (06): retry, skip to…, abort.
  */
 function PendingInput({ api, detail, agent, request, onDone }: PendingInputProps) {
   const sessionId = request.session_id;
@@ -247,7 +269,7 @@ function PendingInput({ api, detail, agent, request, onDone }: PendingInputProps
         <Markdown text={request.question} />
       </div>
       <p className="pending-hint muted">Reply in the box below to answer.</p>
-      {!fromAgent && (
+      {!fromAgent && isOldVersion(detail) && (
         <div className="quick-actions" role="group" aria-label="Quick actions">
           <button type="button" disabled={busy} onClick={() => void send('retry')}>
             {/* No goto: input.provided returns to return_to, else the workflow start (U-037). */}
@@ -437,6 +459,7 @@ function WorkflowSection({ detail }: { detail: SessionDetail }) {
           </li>
         ))}
       </ol>
+      {card.pending && <PendingChecklist pending={card.pending} />}
       <SessionWorkflowDiagram detail={detail} />
       {detail.return_to && (
         <p className="muted returns-to">
@@ -469,8 +492,12 @@ function Actions({
     card.status === 'waiting_external' &&
     state?.type === 'event' &&
     state.wait_for.includes('ui.approve');
-  // A pending non-agent request already offers Abort.
-  const canCancel = !(detail.pending_input && detail.pending_input.kind !== 'agent_question');
+  // A pending non-agent request on an old version already offers Abort (the quick actions).
+  const canCancel = !(
+    detail.pending_input &&
+    detail.pending_input.kind !== 'agent_question' &&
+    isOldVersion(detail)
+  );
 
   async function run(call: () => Promise<unknown>) {
     setBusy(true);

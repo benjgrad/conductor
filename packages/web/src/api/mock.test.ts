@@ -28,7 +28,7 @@ describe('mock ApiClient', () => {
     const api = createMockApi({ now });
     const board = BoardResponseSchema.parse(await api.getBoard());
     const col = (id: string) => board.columns.find((c) => c.id === id)!.cards;
-    expect(col('needs_input')).toHaveLength(2);
+    expect(col('needs_input')).toHaveLength(3);
     // ADR-0010: old m1_* states map by type (build, implement → Implementing).
     expect(col('implementing').some((c) => c.badges.includes('waiting_for_build_slot'))).toBe(true);
     for (const column of board.columns) {
@@ -195,5 +195,47 @@ describe('mock workflows (ADR-0009)', () => {
       ],
     });
     expect((await api.getWorkflow('m1_basic')).version).toBe(3);
+  });
+
+  it('takes a human transition (ADR-0011): moves, records it, 409 when not offered', async () => {
+    const api = createMockApi({ now });
+    const { session, input } = SEED_IDS.transitions;
+    const { events } = collect(api);
+    await expect(api.transition(session, { name: 'nope' })).rejects.toMatchObject({
+      status: 409,
+      code: 'conflict',
+    });
+    // An old version offers none.
+    await expect(api.transition(SEED_IDS.askOlder.session, { name: 'done' })).rejects.toMatchObject(
+      { status: 409 },
+    );
+    await api.transition(session, { name: 'waiting_on_someone', text: 'Dana' });
+    await tick();
+    expect(events.map((e) => BoardSseEventSchema.parse(e).type)).toEqual([
+      'input.answered',
+      'session.status',
+      'card.moved',
+      'card.upserted',
+    ]);
+    const detail = SessionDetailSchema.parse(await api.getSession(session));
+    expect(detail.card).toMatchObject({
+      status: 'waiting_external',
+      workflow_state: 'waiting_external',
+      column: 'waiting_external',
+      input_request: null,
+      human_transitions: [expect.objectContaining({ name: 'back_to_implementing' })],
+    });
+    expect(detail.moves?.at(-1)).toEqual({
+      at: now().toISOString(),
+      from: 'needs_input',
+      to: 'waiting_external',
+      transition: 'waiting_on_someone',
+      reason: 'Dana',
+      actor: 'human',
+    });
+    // The question it left behind is closed.
+    await expect(
+      api.answer(session, { input_request_id: input, answer: 'x' }),
+    ).rejects.toMatchObject({ status: 409 });
   });
 });

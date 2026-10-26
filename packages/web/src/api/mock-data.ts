@@ -1,11 +1,16 @@
 import {
   BOARD_CARD_FIXTURE,
+  BOARD_CARD_NEEDS_INPUT_FIXTURE,
+  BOARD_CARD_PENDING_FIXTURE,
   BOARD_SSE_FIXTURES,
+  CONDUCTOR_V2_DRAFT_DEF,
   CONDUCTOR_WORKFLOW_ID,
   OUTPUT_CHUNK_FIXTURE,
+  SESSION_MOVES_FIXTURE,
   WorkflowDefinitionSchema,
   type BoardCard,
   type InputRequestDto,
+  type MoveDto,
   type OutputChunk,
   type SessionDetail,
   type SessionStatus,
@@ -280,6 +285,8 @@ export interface MockSession {
   output: OutputChunk[];
   /** What GET /transcript returns (ADR-0008); absent → 404 no_transcript. */
   transcript?: OutputChunk[];
+  /** SessionDetail.moves (ADR-0011), oldest first; the mock appends one per move it makes. */
+  moves: MoveDto[];
 }
 
 export interface MockSeed {
@@ -323,6 +330,18 @@ export const SEED_IDS = {
   failed: {
     ticket: 'a1000000-0000-4000-8000-000000000008',
     session: 'b2000000-0000-4000-8000-000000000008',
+  },
+  /** ADR-0011: held in Implementing by `ready_for_testing`'s conditions (the checklist). */
+  pending: {
+    ticket: BOARD_CARD_PENDING_FIXTURE.ticket_id,
+    // Its own session: the fixture shares OUTPUT_CHUNK_FIXTURE's (the runningSlot seed).
+    session: 'b2000000-0000-4000-8000-000000000009',
+  },
+  /** ADR-0011: a Needs-input card with three human transition buttons. */
+  transitions: {
+    ticket: BOARD_CARD_NEEDS_INPUT_FIXTURE.ticket_id,
+    session: BOARD_CARD_NEEDS_INPUT_FIXTURE.session_id!,
+    input: BOARD_CARD_NEEDS_INPUT_FIXTURE.input_request!.id,
   },
 } as const;
 
@@ -382,6 +401,7 @@ function seed(now: Date, s: SeedSpec): MockSeed {
       wall_seconds: (s.ageMin - s.activeMinAgo) * 60 + 30,
       branch: `conductor/${s.session.slice(0, 8)}`,
       output,
+      moves: [],
       ...(s.transcript
         ? {
             transcript: s.transcript.map(([stream, text], seq): OutputChunk => ({
@@ -397,9 +417,90 @@ function seed(now: Date, s: SeedSpec): MockSeed {
   };
 }
 
+/**
+ * ADR-0011 seeds on conductor v2 (CONDUCTOR_V2_DRAFT_DEF), from the shared fixtures: a work card
+ * held in Implementing with its "waiting for" checklist, and a personal Needs-input card with
+ * its human transition buttons.
+ */
+function transitionSeeds(now: Date): MockSeed[] {
+  const session = (over: Partial<MockSession>): MockSession => ({
+    workflow: CONDUCTOR_V2_DRAFT_DEF,
+    context: {},
+    return_to: null,
+    state_entered_at: ago(now, 10),
+    wall_seconds: 900,
+    branch: null,
+    output: [],
+    moves: [],
+    ...over,
+  });
+  const pending = { ...BOARD_CARD_PENDING_FIXTURE, session_id: SEED_IDS.pending.session };
+  const asking = BOARD_CARD_NEEDS_INPUT_FIXTURE;
+  const minutesAgo = [200, 170, 140];
+  return [
+    {
+      card: {
+        ...pending,
+        title: 'Ship the /health endpoint',
+        created_at: ago(now, 210),
+        updated_at: ago(now, 6),
+      },
+      session: session({
+        branch: `conductor/${pending.session_id.slice(0, 8)}`,
+        state_entered_at: ago(now, 140),
+        output: [{ ...OUTPUT_CHUNK_FIXTURE, session_id: pending.session_id, ts: ago(now, 141) }],
+        moves: SESSION_MOVES_FIXTURE.slice(0, 3).map((m, i) => ({
+          ...m,
+          at: ago(now, minutesAgo[i]!),
+        })),
+      }),
+    },
+    {
+      card: {
+        ...asking,
+        created_at: ago(now, 50),
+        updated_at: ago(now, 8),
+        input_request: { ...asking.input_request!, created_at: ago(now, 8) },
+      },
+      session: session({
+        return_to: 'planning',
+        state_entered_at: ago(now, 8),
+        output: [
+          {
+            ...OUTPUT_CHUNK_FIXTURE,
+            session_id: asking.session_id!,
+            stream: 'assistant',
+            text: 'Before I plan the beds I need one decision from you.',
+            ts: ago(now, 9),
+          },
+        ],
+        moves: [
+          {
+            at: ago(now, 40),
+            from: null,
+            to: 'planning',
+            transition: null,
+            reason: null,
+            actor: null,
+          },
+          {
+            at: ago(now, 8),
+            from: 'planning',
+            to: 'needs_input',
+            transition: 'needs_product_context',
+            reason: asking.input_request!.question,
+            actor: 'agent',
+          },
+        ],
+      }),
+    },
+  ];
+}
+
 export function mockSeeds(now: Date): MockSeed[] {
   const id = SEED_IDS;
   return [
+    ...transitionSeeds(now),
     {
       card: { ...BOARD_CARD_FIXTURE, created_at: ago(now, 3), updated_at: ago(now, 3) },
       session: null,

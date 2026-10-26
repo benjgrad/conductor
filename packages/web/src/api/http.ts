@@ -21,6 +21,7 @@ import {
   type OutputChunk,
   type ReopenSessionRequest,
   type SendMessageRequest,
+  type TransitionSessionRequest,
   type WorkflowDefinition,
 } from '@conductor/shared';
 import {
@@ -310,6 +311,14 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
         ReopenSessionResponseSchema,
         'POST',
         API_PATHS.sessionReopen(encodeURIComponent(sessionId)),
+        req,
+      ),
+
+    transition: (sessionId: string, req: TransitionSessionRequest) =>
+      request(
+        OkResponseSchema,
+        'POST',
+        API_PATHS.sessionTransition(encodeURIComponent(sessionId)),
         req,
       ),
   };

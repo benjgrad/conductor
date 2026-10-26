@@ -58,7 +58,7 @@ export function App({ api }: AppProps) {
         <CreateTicketForm api={api} onCreated={() => setCreating(false)} />
       )}
       <main hidden={route.view !== 'board'}>
-        <Board board={board} selectedSessionId={selected} onSelect={setSelected} />
+        <Board board={board} selectedSessionId={selected} onSelect={setSelected} api={api} />
         {selected && (
           <DetailPanel
             key={selected}

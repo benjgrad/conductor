@@ -1078,3 +1078,116 @@ button.link {
     grid-template-columns: 1fr;
   }
 }
+
+/* ADR-0011 (M1b-T07): kind tag, pending-move checklist, human transition buttons, moves. */
+.tag {
+  font-size: 11px;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.tag-work {
+  color: var(--accent);
+}
+.tag-personal {
+  color: var(--tool);
+}
+.pending-move {
+  font-size: 12px;
+  background: var(--warn-bg);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+.pending-move-head {
+  color: var(--warn);
+}
+.pending-items {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+}
+.pending-icon {
+  margin-right: 3px;
+  font-weight: 700;
+}
+.pending-item-met .pending-icon {
+  color: var(--ok);
+}
+.pending-item-failed {
+  color: var(--ask);
+}
+.pending-item-running .pending-icon,
+.pending-item-pending .pending-icon {
+  color: var(--warn);
+}
+.pending-item-disabled,
+.pending-item-unsupported {
+  color: var(--muted);
+  opacity: 0.7;
+}
+.pending-note {
+  margin: 2px 0 0;
+}
+.transitions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.detail .transitions {
+  padding: 6px 12px 0;
+}
+.transition-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.card .transition-buttons button {
+  font-size: 12px;
+}
+.transition-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.transition-text-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.kind-choice {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 12px;
+}
+.kind-choice legend {
+  color: var(--muted);
+  float: left;
+  margin-right: 4px;
+}
+.create-ticket .kind-choice label {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  color: var(--text);
+}
+.moves {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.move-title {
+  font-weight: 600;
+}

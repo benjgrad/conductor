@@ -1,0 +1,19 @@
+{
+  "id": "question_not_human",
+  "version": 1,
+  "start": "work",
+  "budget": { "usd": 1, "minutes": 10, "max_loop_retries": 2 },
+  "states": {
+    "work": {
+      "type": "agent",
+      "prompt": "p",
+      "on": {
+        "done": "done",
+        "stuck": { "goto": "done", "when": "You are stuck.", "question": true },
+        "ask_user": "needs_input"
+      }
+    },
+    "needs_input": { "type": "human" },
+    "done": { "type": "terminal" }
+  }
+}

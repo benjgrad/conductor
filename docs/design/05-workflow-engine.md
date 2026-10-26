@@ -159,6 +159,30 @@ dispatcher: SELECT pending outbox rows FOR UPDATE SKIP LOCKED → send → mark 
 
 9. Entry requirements and columns ([ADR-0010](../adr/0010-one-workflow-columns-are-states.md)): `columns` names existing states, each once (`columns.<i>`); the `conductor` workflow has `columns` listing every state (`columns`); no `entry` on the start state (it is entered by a claim, not an outcome, so the requirements would never run: `states.<start>.entry`) or on a `human` state (failure paths reach a human unconditionally); `entry.on_unmet.else` is a `human` state; `entry.on_unmet.goto` has no `entry` of its own (no nested steps; it can't be the state itself); check commands are not blank (`….entry.checks.<i>.cmd`); check names and actions are unique. The schema bounds `on_unmet.retries` (0–10), the counts, and requires at least one check, review or action; rule 1 checks that `on_unmet.goto` / `else` exist (`states.<s>.entry.on_unmet.goto`). `entry` on a terminal state (Done) is allowed.
 
+Rules 10–14 are the transition rules of [ADR-0011](../adr/0011-transition-rules.md) (M1b-T02, `shared/src/workflow/validate-transitions.ts`). Each error path points into the transition, e.g. `states.<s>.on.<name>.requires.conditions.1`:
+
+10. **The actor fits the state.**
+    - An explicit `actor: agent` only on an `agent` state (`….actor`). The inferred actor already follows the state type.
+    - `actor: human` only on `human` and `event` states (`….actor`).
+    - `goto: "$return_to"` only on a `human` state's transition (`….goto`), and only one a human takes (`….actor`). It is never an `else` or `on_unmet` target (`….on_unmet.goto`), since those are entered directly.
+11. **Questions.** `question: true` only on a transition into a `human` state (`….question`).
+12. **Every agent state can ask.** It declares `ask_user` into a `human` state, or at least one agent-actor `question: true` transition (`states.<s>`).
+13. **Bounded requirements.**
+    - `requires` names at least one check, review, action or condition (`….requires`). `setup` needs checks. Check commands aren't blank, and check names and actions are unique (the rule 9 checks).
+    - Any `requires` has an `on_unmet` (`….on_unmet`). `conditions` need a `condition_timeout` (`….requires.condition_timeout`).
+    - `on_unmet.else` is a `human` state. `on_unmet.goto` is not the transition's own target, and isn't a state with an ADR-0010 `entry` (no nested steps).
+    - An `on_unmet` without `requires` (or ADR-0009 `requirements`) is an error.
+    - The fallback routes to a human (`ask_user`, `timeout`, `budget_exceeded`) never carry `requires`.
+14. **What M1b can run.**
+    - The `update_jira` and `slack_message` actions are "not available yet" (M5) (`….requires.actions.<i>`).
+    - So is an **enabled** condition whose type isn't in `AVAILABLE_CONDITION_TYPES` (`….requires.conditions.<i>`). It is an error, not a warning, because the editor has no warning channel. Declare it with `enabled: false` until M5.
+    - A transition into the start state can't carry `requires` (`….requires`).
+
+ADR-0011 changes how rules 1–5 read the graph:
+- **Edges.** A transition's `on_unmet.goto` / `else` are edges too. `$return_to` is not an edge, like `answered`.
+- **Rule 4.** Uses `isCountedTransition` ([§Counting](#counting-adr-0011)): only an object with `attach`, `retries` or `else` has a bounded `goto` leg. A plain object (`{goto, when}`, or one with only `requires`) is a plain edge. A requirements `on_unmet.goto` leg is bounded by its `move:` counter; its `else` leg is not. A human-actor transition is bounded wherever it is, e.g. `back_to_implementing` out of Waiting external.
+- **Rule 5.** The producer completes on any **completing** transition: an agent-actor transition out of the agent state that is neither a question nor a fallback (`done`, `plan_ready`, …). A human-actor move is an operator override, like "skip to". It is not a path the ref must hold on: an unresolved ref renders `(missing)`. Without that, conductor v2's Needs input → Waiting external → back to Implementing would fail rule 5 after a planning question.
+
 Error paths are arrays (`['states', 'implement', 'on', 'done', 'requirements', 'on_unmet', 'else']`); the REST API dot-joins them. A transition that is neither a string nor a valid object is reported at the field inside the object (the zod union is flattened), so the web editor can map it to the edge.
 
 How T03 (`shared/src/workflow/validate.ts`) reads rules 1–5:

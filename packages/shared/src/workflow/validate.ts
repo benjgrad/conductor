@@ -1,25 +1,37 @@
 import {
   CONDUCTOR_WORKFLOW_ID,
+  RETURN_TO,
   WorkflowDefinitionSchema,
+  type OnUnmet,
+  type TransitionActor,
   type WorkflowDefinition,
   type WorkflowState,
 } from './schema.js';
 import { PR_CONTEXT_KEY, REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
 import { isToolAlias, TOOL_ALIAS_NAMES } from './tools.js';
+import {
+  FALLBACK_TRANSITION_NAMES,
+  isCountedTransition,
+  transitionActor,
+  transitionObject,
+} from './transition-rules.js';
+import { checkTransitions } from './validate-transitions.js';
 
 // Workflow validation on save (M1-T03, 05 §Validation on save). The schema (T12) checks shape;
 // this adds the graph rules. Consumers: T08 (save/list → 400 with `errors`).
 //
 // The graph is the explicit `on` transitions only: an outcome's string target, or an object
-// transition's `goto` and `else`. Implicit routes (a human state's `answered` → return_to, a failed
-// guard or budget.exceeded → needs_input, the UI's "skip to <state>") are not edges, except that
-// `on_budget_exceeded` counts as reachable (budget can trip in any state).
+// transition's `goto` and `else`, and the `on_unmet` legs of its requirements. Implicit routes (a
+// human state's `answered` → return_to, a `$return_to` goto, a failed guard or budget.exceeded →
+// needs_input, the UI's "skip to <state>") are not edges, except that `on_budget_exceeded` counts
+// as reachable (budget can trip in any state).
 
 /**
  * Rule numbers from 05 §Validation on save (1–6) plus rule 7 (unknown tool alias), rule 8
- * (requirements gates, ADR-0009) and rule 9 (entry requirements and columns, ADR-0010).
+ * (requirements gates, ADR-0009), rule 9 (entry requirements and columns, ADR-0010) and rules
+ * 10–14 (transitions, ADR-0011: `validate-transitions.ts`).
  */
-export type WorkflowRule = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+export type WorkflowRule = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14;
 
 export interface WorkflowValidationError {
   rule: WorkflowRule;
@@ -39,6 +51,10 @@ interface Edge {
   path: (string | number)[];
   /** Counts toward rule 4: the edge is capped or gated (see `isBoundedEdge`). */
   bounded: boolean;
+  /** Who takes the transition (`transitionActor`); `system` for an `entry` leg. */
+  actor: TransitionActor;
+  /** Rule 5: taking it completes an agent state with its result. */
+  completes: boolean;
 }
 
 const REF_RE = /^\$([^.\s]+)\.([^.\s]+)$/;
@@ -61,7 +77,7 @@ function flattenIssue(issue: Issue, prefix: PropertyKey[] = []): Issue[] {
   return branches[0]!.flatMap((i) => flattenIssue(i, path));
 }
 
-/** Parse a workflow definition and check rules 1–8. Never throws. */
+/** Parse a workflow definition and check rules 1–14. Never throws. */
 export function validateWorkflow(input: unknown): WorkflowValidationResult {
   const parsed = WorkflowDefinitionSchema.safeParse(input);
   if (!parsed.success) {
@@ -127,6 +143,7 @@ export function validateWorkflow(input: unknown): WorkflowValidationResult {
 
   errors.push(...checkGates(def, has));
   errors.push(...checkEntry(def, has));
+  errors.push(...checkTransitions(def, has));
 
   // Graph rules 2–5 only on a graph whose start and targets all exist, so a missing target
   // reports once (rule 1) instead of cascading into unreachable/dead-end noise.
@@ -292,69 +309,57 @@ function collectEdges(def: WorkflowDefinition): Edge[] {
     // (`else`). Modelled as edges out of the state being entered.
     if (state.entry !== undefined) {
       const unmet = ['states', from, 'entry', 'on_unmet'];
+      const common = { from, actor: 'system' as const, completes: false, bounded: true };
       edges.push({
-        from,
+        ...common,
         to: state.entry.on_unmet.goto,
         outcome: 'entry:unmet',
         path: [...unmet, 'goto'],
-        bounded: true,
       });
       edges.push({
-        from,
+        ...common,
         to: state.entry.on_unmet.else,
         outcome: 'entry:else',
         path: [...unmet, 'else'],
-        bounded: true,
       });
     }
     if (state.type === 'terminal') continue;
-    for (const [outcome, t] of Object.entries(state.on ?? {})) {
+    for (const [outcome, raw] of Object.entries(state.on ?? {})) {
       const base = ['states', from, 'on', outcome];
-      if (typeof t === 'string') {
-        edges.push({ from, to: t, outcome, path: base, bounded: isBoundedEdge(state, outcome) });
-      } else {
-        // The goto leg carries a retry counter: capped by `retries`, or max_loop_retries. ADR-0009:
-        // except an object that only carries `requirements`, a plain forward transition.
-        const gate = t.requirements;
-        const plain =
-          gate !== undefined &&
-          t.attach === undefined &&
-          t.retries === undefined &&
-          t.else === undefined;
-        edges.push({
-          from,
-          to: t.goto,
-          outcome,
-          path: [...base, 'goto'],
-          bounded: plain ? isBoundedEdge(state, outcome) : true,
-        });
-        if (gate !== undefined) {
-          // The unmet loop is capped by on_unmet.retries; its else leg ends at a human (rule 8).
-          const unmet = [...base, 'requirements', 'on_unmet'];
-          edges.push({
-            from,
-            to: gate.on_unmet.goto,
-            outcome,
-            path: [...unmet, 'goto'],
-            bounded: true,
-          });
-          edges.push({
-            from,
-            to: gate.on_unmet.else,
-            outcome,
-            path: [...unmet, 'else'],
-            bounded: isBoundedEdge(state, outcome),
-          });
-        }
-        if (t.else !== undefined) {
-          edges.push({
-            from,
-            to: t.else,
-            outcome,
-            path: [...base, 'else'],
-            bounded: isBoundedEdge(state, outcome),
-          });
-        }
+      const t = transitionObject(raw);
+      const actor = transitionActor(def, from, outcome, raw);
+      // Rule 5: the agent finished the state with its result (not a question, not a fallback).
+      const completes =
+        state.type === 'agent' &&
+        actor === 'agent' &&
+        t.question !== true &&
+        !FALLBACK_TRANSITION_NAMES.includes(outcome);
+      const plain = isBoundedEdge(state, outcome, actor);
+      const push = (to: string, path: (string | number)[], bounded: boolean) => {
+        // ADR-0011: `$return_to` is not an edge (like a human's `answered` route); rule 10 checks
+        // where it may appear.
+        if (to === RETURN_TO) return;
+        edges.push({ from, to, outcome, path, bounded, actor, completes });
+      };
+      // The goto leg carries a `"<from>-><goto>"` retry counter only when the transition is a
+      // counted failure loop (05 §Counting, `isCountedTransition`).
+      push(
+        t.goto,
+        typeof raw === 'string' ? base : [...base, 'goto'],
+        isCountedTransition(raw) || plain,
+      );
+      if (t.else !== undefined) push(t.else, [...base, 'else'], plain);
+      // ADR-0009 gate and ADR-0011 `requires`: the unmet loop is capped by on_unmet.retries (its
+      // counter, `requirements:<from>:<name>` / `move:<from>:<name>`); its else leg ends at a human
+      // (rules 8, 13) but is not itself bounded.
+      const legs: [string[], OnUnmet | undefined][] = [
+        [['requirements', 'on_unmet'], t.requirements?.on_unmet],
+        [['on_unmet'], t.on_unmet],
+      ];
+      for (const [key, unmet] of legs) {
+        if (unmet === undefined) continue;
+        push(unmet.goto, [...base, ...key, 'goto'], true);
+        push(unmet.else, [...base, ...key, 'else'], plain);
       }
     }
   }
@@ -362,17 +367,20 @@ function collectEdges(def: WorkflowDefinition): Edge[] {
 }
 
 /**
- * Rule 4 interpretation (05 §Retry loops): a loop is bounded when it takes
- * - an object transition's `goto` leg: it has a retry counter `"<from>-><goto>"`, capped at
- *   `retries`, or at `budget.max_loop_retries` when the transition doesn't set one;
- * - an edge out of a `human` state: a person decides each iteration;
+ * Rule 4 interpretation (05 §Retry loops, §Counting): a loop is bounded when it takes
+ * - a counted transition's `goto` leg (`isCountedTransition`: `attach`, `retries` or `else`): it
+ *   has a retry counter `"<from>-><goto>"`, capped at `retries`, or at `budget.max_loop_retries`;
+ * - a requirements `on_unmet.goto` leg: its counter is capped at `on_unmet.retries`;
+ * - an edge out of a `human` state, or a human-actor transition (ADR-0011): a person decides each
+ *   iteration;
  * - an `event` state's edge on one of its `wait_for` events (not `timeout`): an external actor
  *   triggers each iteration (pr_flow's `pr.changes_requested` → implement).
- * Plain string transitions between automatic states, and an object transition's `else` leg, are
- * not. A cycle made only of those is an unbudgeted loop.
+ * Plain transitions between automatic states (a state name, or an object with only ADR-0011
+ * fields, `requires` or ADR-0009 `requirements`), and `else` legs, are not. A cycle made only of
+ * those is an unbudgeted loop.
  */
-function isBoundedEdge(state: WorkflowState, outcome: string): boolean {
-  if (state.type === 'human') return true;
+function isBoundedEdge(state: WorkflowState, outcome: string, actor: TransitionActor): boolean {
+  if (state.type === 'human' || actor === 'human') return true;
   if (state.type === 'event') return state.wait_for.includes(outcome);
   return false;
 }
@@ -506,8 +514,9 @@ function stronglyConnected(names: string[], adj: Map<string, string[]>): string[
 }
 
 // Rule 5: an input `$state.key` names an agent state that lists `key` in `result`, and that state
-// has completed (`done`) on every path from start to the referencing state. Checked as: with the
-// producer's `done` edges removed, the referencing state is unreachable from start.
+// has completed (`done`, or another completing agent transition, ADR-0011) on every path from
+// start to the referencing state. Checked as: with the producer's completing edges and every
+// human-actor edge removed, the referencing state is unreachable from start.
 function checkRefs(def: WorkflowDefinition, edges: Edge[]): WorkflowValidationError[] {
   const errors: WorkflowValidationError[] = [];
   const names = Object.keys(def.states);
@@ -536,7 +545,14 @@ function checkRefs(def: WorkflowDefinition, edges: Edge[]): WorkflowValidationEr
         );
         continue;
       }
-      const withoutDone = adjacency(names, edges, (e) => !(e.from === src && e.outcome === 'done'));
+      // ADR-0011: the producer completes on any of its completing transitions (`done`, or a named
+      // agent transition that is not a question); a human's move is an operator override, like
+      // "skip to", and not a path the ref must hold on (an unresolved ref renders "(missing)").
+      const withoutDone = adjacency(
+        names,
+        edges,
+        (e) => !(e.from === src && e.completes) && e.actor !== 'human',
+      );
       if (reachableFrom([def.start], withoutDone).has(name)) {
         err(
           `input "${key}" refs "${src}.${field}", but some path from start reaches "${name}" ` +

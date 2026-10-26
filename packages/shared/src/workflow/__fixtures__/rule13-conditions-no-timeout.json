@@ -1,0 +1,22 @@
+{
+  "id": "conditions_no_timeout",
+  "version": 1,
+  "start": "work",
+  "budget": { "usd": 1, "minutes": 10, "max_loop_retries": 2 },
+  "states": {
+    "work": {
+      "type": "agent",
+      "prompt": "p",
+      "on": {
+        "done": {
+          "goto": "done",
+          "requires": { "actions": ["open_pr"], "conditions": [{ "type": "pr_checks_green" }] },
+          "on_unmet": { "goto": "work", "retries": 2, "else": "needs_input" }
+        },
+        "ask_user": "needs_input"
+      }
+    },
+    "needs_input": { "type": "human" },
+    "done": { "type": "terminal" }
+  }
+}

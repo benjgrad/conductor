@@ -4,6 +4,13 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-26 | M1b-T09 and M1b-T10 merged together (T10 stacked on T09): `conductor` v2 alone broke the old e2e scenario, so main never had v2 without the moved scenario | 5c49010 |
+| 2026-10-26 | A null-kind ticket sees both review twins (U-062). Accepted | TD-106 |
+| 2026-10-26 | `conductor` v2 splits `pr_ready_for_review` (work, with the work-commit review) from `personal_pr_ready_for_review` (personal, no review), per Ben's rule that personal repos may carry conductor-specific changes | M1b-T09, f31c921 |
+| 2026-10-26 | The "not produced" input wording is neutral: "Work out what's needed from the ticket", with no coding advice | M1b-T08, 0eeb916 |
+| 2026-10-26 | The conditions backoff's "unchanged" comparison ignores status-only changes. Accepted; no contract field | M1b-T08 |
+| 2026-10-26 | With an enabled PR condition and no conductor PR, the move goes straight to `on_unmet.else`, uncounted | M1b-T08, 15378e7 |
+| 2026-10-26 | A stale CHANGES_REQUESTED still blocks `pr_approvals`; staleness applies only to approvals, and a stale approval doesn't clear a block (fail closed) | M1b-T05, 4113a29 |
 | 2026-10-26 | Working copies: case by case, always worktrees. Per repo and machine: a daemon reference clone (the user's `.git` untouched, the default) or the user's own checkout (opt-in, tamper alerts). Work-repo rule: work-ticket agents commit only changes useful to colleagues who don't use conductor; it's enforced by a prompt section plus a reviewer item on work transitions out of Implementing (M1b T03/T09). Fixed-path runtimes (IIS) and Windows support become M2 spikes | U-060 (resolved), U-070, U-071 |
 | 2026-10-26 | Rules live on transitions: named moves with `when`, actor, kinds (work/personal), `requires` (checks / review / actions / external conditions) and `on_unmet`. Agents finish by naming a transition; humans get a button per transition. Conditions are checked on the user's machine; the card stays in its column, paused, while they're pending. Supersedes ADR-0010 entry requirements. M1b approved | [ADR-0011](../adr/0011-transition-rules.md), [M1b](../plan/milestones/M1b-transition-rules.md) |
 | 2026-10-26 | Roadmap re-planned: M1b transition rules → M2 hosted accounts (GitHub sign-in) and machine enrollment / inventory / capability routing → M3 tool layer + OAuth MCP → M4 triage + assistant chat on the user's machine → M5 work connectors on the user's machine. ADR-0012..0016 are proposed and get accepted with their milestones | [ROADMAP](../plan/ROADMAP.md) |

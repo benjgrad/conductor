@@ -1227,6 +1227,9 @@ function handleStep(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
     }
     case 'action.completed': {
       if (r.phase === 'conditions') {
+        // TD-103: the answer isn't matched to its command (e.command_id is ignored), so a late
+        // answer from a timed-out visit, or a second evaluation sent by a re-claim, can be taken
+        // as this visit's answer.
         if (e.action !== EVALUATE_CONDITIONS || !evaluationInFlight(r)) return 'unexpected_event';
         if (s.status !== 'waiting_external') return 'wrong_status';
         onConditionsResult(st, spec, r, e);
@@ -1361,7 +1364,7 @@ function evaluateConditions(st: Step, spec: GateSpec, r: GateStep): void {
   if (s.machine_id === null) {
     r.conditions_note = CONDITIONS_NO_MACHINE_NOTE;
   } else {
-    // TD: conditions are re-checked on the session's machine only; ADR-0016 §Execution wants any
+    // TD-104: conditions are re-checked on the session's machine only; ADR-0016 §Execution wants any
     // online machine of the account with the capability (M2: accounts, more than one machine).
     r.conditions = markRunning(r.conditions);
     st.emit({
@@ -1445,7 +1448,7 @@ function onConditionsTimer(st: Step, spec: GateSpec, r: GateStep, deadline: stri
     return;
   }
   if (st.s.machine_id === null || evaluationInFlight(r)) {
-    // TD: an evaluation the daemon acked but never answered stays `running` until the timeout
+    // TD-105: an evaluation the daemon acked but never answered stays `running` until the timeout
     // (no re-send while one is in flight; the dispatcher has no run_action ack timeout).
     r.conditions_note = CONDITIONS_NO_MACHINE_NOTE;
     armConditionsPoll(st, spec, r);

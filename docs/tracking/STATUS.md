@@ -2,41 +2,34 @@
 
 > Living dashboard. Rewritten (not appended) by the lead session at the end of every session. Keep it under one screen.
 
-**Updated**: 2026-10-26 · session [2026-10-23-agent-inherit-settings](sessions/2026-10-23-agent-inherit-settings.md) (continued)
+**Updated**: 2026-10-26 · session [2026-10-26-m1b-transition-rules](sessions/2026-10-26-m1b-transition-rules.md)
 
 ## Now
-- **Milestone**: [M1b · Transition rules](../plan/milestones/M1b-transition-rules.md) (ADR-0011, accepted), **in progress**. M1 is complete pending Ben's sign-off.
-- **Roadmap** ([ROADMAP](../plan/ROADMAP.md)), re-planned 2026-10-26:
-  - M1b transition rules;
-  - M2 hosted accounts + machine enrollment, inventory and capability routing (ADR-0012/0013);
-  - M3 tool layer + OAuth MCP (ADR-0014);
-  - M4 triage + assistant chat on the user's machine (ADR-0015);
-  - M5 work connectors (ADR-0016).
-  
-  ADR-0012..0016 are proposed.
-- **Phase**: M1b Orchestrate, group A (T01 contracts)
+- **Milestone**: [M1b · Transition rules](../plan/milestones/M1b-transition-rules.md) is **done** (all 10 tasks merged, `scripts/ci.sh` green on 5c49010), pending Ben's sign-off. M1 is also still awaiting sign-off.
+- **Next**: [M2 · Accounts & machines](../plan/milestones/M2-accounts-machines.md). Its file is an outline. It gets planned in full once Ben answers the open unknowns below.
+- **Board**: orchestrator + daemon on :7400, restarted on 5c49010; the dev DB has `ticket.kind` and `conductor` v2.
 - **Next action**:
-  - Lead: T01 contracts → group B (T02–T07 in parallel) → group C (T08, T09) → T10 e2e, QA each.
-  - Before M2, Ben answers U-051, U-056, U-057, U-060 and U-067.
+  - Ben: sign off M1b (and M1). Answer the M2 unknowns: U-051 (tenancy), U-056 (moving data into an account), U-057 (hosting, domain, Postgres), U-067 (publishing `@conductor/daemon`). Also open for M2: U-068 (lost lease → human), U-070 (fixed-path runtimes / IIS), U-071 (daemon on Windows).
+  - Ben: decide U-072 (`pr_checks_green` with zero checks: met or pending? Pending today).
+  - Later milestones, still open: U-052 (M5 webhooks), U-053 (M4 summaries), U-054 (M3 MCP rate limits), U-055 (M4 chat backend), U-064 (M4 triage questions), U-065 (M5 MCP connectors), U-066 (M4 chat history), U-069 (M3 MCP scopes).
+  - Lead: remove the merged `m1b-*` and `worktree-agent-*` branches and worktrees ([UNFINISHED](UNFINISHED.md)); then plan M2 with the `planner` agent.
   - Main is ahead of origin; Ben pushes.
 
 ## In flight
-| Task | Branch | Agent | State |
-|---|---|---|---|
-| M1b-T01 contracts | m1b-t01-contracts | implementer | starting |
+None.
 
 ## Health
 | Open unknowns | Open blockers | Tech debt items | Unfinished handoffs |
 |---|---|---|---|
-| 44 open of 69 ([UNKNOWNS](UNKNOWNS.md)) | 0 of 4 ([BLOCKERS](BLOCKERS.md)) | 72 open of 95 ([TECH_DEBT](TECH_DEBT.md)) | 1 ([UNFINISHED](UNFINISHED.md)) |
+| 46 open of 72 ([UNKNOWNS](UNKNOWNS.md)) | 0 of 4 ([BLOCKERS](BLOCKERS.md)) | 79 open of 106 ([TECH_DEBT](TECH_DEBT.md)) | 2: the M1-T05a manual check, and branch cleanup ([UNFINISHED](UNFINISHED.md)) |
 
 ## Milestone progress
 - M1: 18 / 18 done; awaiting sign-off.
-- M1b: 0 / 10 done (T01 in progress).
-- M2–M5: outlined.
+- M1b: 10 / 10 done; awaiting sign-off.
+- M2: next, outline. M3–M5: outlined.
 
 ## Last session
-- **ADR-0010** (one workflow, columns = states, checks on a fresh checkout) is merged and live.
-- **Ben re-planned:** rules move to transitions (ADR-0011), plus the platform roadmap (accounts, machines, MCP, assistant, connectors).
-- **Planning:** a planner agent drafted ADR-0012..0016, the roadmap and the milestone files. Ben answered U-058/059/061–063 and approved M1b.
-- **New unknowns:** U-051..U-069.
+- **M1b built and merged**, in groups A → B → C → D: contracts, validator rules 10–14, orchestrator (`ticket.kind`, transition route, moves), engine (named transitions, move steps), editor arrows and panel, board checklist and buttons, daemon (named outcomes, gh PR conditions), conditions phase, `conductor` v2 + seed upgrade, e2e + docs.
+- **T05 security**: three fix rounds. Only eligible reviewers count, approvals only on the current head, CHANGES_REQUESTED blocks until cleared, and conditions fail if the PR head isn't the commit conductor pushed.
+- **Tech debt**: TD-096..099 added and paid within M1b. TD-100..106 open. **New unknown**: U-072.
+- **Flakes**: U-046 / U-050 (daemon, cli-driver and web tests under load) recurred several times; every one passed on a rerun.

@@ -25,10 +25,7 @@ import { cleanEnv, tail } from './open-pr.js';
 //   - pr_approvals {min} (security review 2026-10-26: on a public repo anyone can approve). Only
 //     ELIGIBLE reviewers count: `authorAssociation` OWNER / MEMBER / COLLABORATOR, never the PR's
 //     own author. Their latest APPROVED / CHANGES_REQUESTED / DISMISSED review each (COMMENTED
-//     doesn't change a verdict). Then, by `reviewDecision`:
-//       CHANGES_REQUESTED → failed; REVIEW_REQUIRED → pending whatever the count (branch
-//       protection still wants reviews); APPROVED or empty (no branch protection) → an eligible
-//       CHANGES_REQUESTED → failed, eligible approvals ≥ min → met, else pending.
+//     doesn't change a verdict).
 //     Per eligible reviewer, in review order (security reviews 2026-10-26; GitHub keeps a
 //     "changes requested" block across pushes, and reviewDecision only shows it when branch
 //     protection requires reviews):
@@ -36,7 +33,12 @@ import { cleanEnv, tail } from './open-pr.js';
 //       APPROVED on the current head (`commit.oid` = `headRefOid`) → approved (clears a block);
 //       APPROVED on an older commit → stale: no approval, and a block stays;
 //       DISMISSED → no verdict (clears a block).
-//     Any blocked reviewer → failed.
+//     Then, in this order:
+//       any blocked reviewer, or `reviewDecision` CHANGES_REQUESTED → failed;
+//       the PR closed without merging → failed;
+//       `reviewDecision` REVIEW_REQUIRED → pending whatever the count (branch protection still
+//       wants reviews);
+//       eligible approvals ≥ min → met, else pending.
 //   - pr_merged: merged → met; else pending.
 //   - Head pinning: with `headSha` (the commit conductor checked and pushed), a PR whose
 //     `headRefOid` differs fails every PR condition ("someone pushed to the branch").

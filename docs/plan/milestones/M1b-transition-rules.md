@@ -17,6 +17,15 @@ Everything runs locally, with no auth (M1 local mode).
 - 02, 03, 05, 06 and 10 describe what was built; ADR-0011 gets implementation notes; Ben accepts ADR-0011.
 - The ticket-kind migration has been applied to Ben's database after his sign-off.
 
+**Exit criteria status (2026-10-26)**: met, pending Ben's sign-off.
+- [x] Every task is `done` and passed QA (T05 after three security fix rounds).
+- [x] `pnpm test:e2e` green: the four ADR-0011 scenarios plus the v1 regression (e2e/m1b.e2e.test.ts), and every M1 / ADR-0007..0010 scenario, the ADR-0010 one on conductor v2. `scripts/ci.sh` green on main 5c49010: 1115 unit tests, e2e 15 passed / 1 skipped, ~50 s.
+- [x] `conductor` v2 is seeded on a fresh database, and an unedited v1 is upgraded to v2 on start (packages/orchestrator/test/engine/seed.test.ts; the dev DB got v2 on restart).
+- [x] An old ticket pinned to `conductor` v1 still runs to Done (e2e scenario 5).
+- [x] 02, 03, 05, 06 and 10 updated in T01/T04/T07/T10; ADR-0011 has implementation notes and is accepted.
+- [x] The ticket-kind migration was applied to Ben's database after his sign-off.
+- [ ] Ben signs off M1b (the end gate).
+
 **Not in M1b**:
 - auth, accounts, enrollment (M2);
 - routing by capability (M2): conditions are evaluated on the session's own machine;
@@ -47,16 +56,16 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 
 | ID | Task | Depends on | Parallel group | Status | Branch / owner |
 |---|---|---|---|---|---|
-| M1b-T01 | **Contracts**: transition schema, engine events/effects/step, WS, REST, card and detail DTOs, `ticket.kind` row type, legacy fold, fixtures and fakes | U-058, U-059, U-061..U-063 answered | A | in_progress | |
-| M1b-T02 | Validator: transition rules (actor/type, question targets, conditions bounded, ask_user present, kinds) | T01 | B | todo | |
-| M1b-T03 | Engine: pick and check a transition; actor/kind filter; `requires` as a move step (checks → review → actions); human transitions; prompt lists transitions; the `moves` record | T01 | B | todo | |
-| M1b-T04 | Orchestrator: `ticket.kind` migration; create requires kind; `POST /api/sessions/:id/transition`; detail `moves`; card fields served | T01 | B | todo | |
-| M1b-T05 | Daemon: `complete_state {transition, reason}` with the allowed list; the `evaluate_conditions` action via `gh`; the fake claude reports transitions | T01 | B | todo | |
-| M1b-T06 | Web editor: clickable arrows and the transition panel; the column panel keeps title and work | T01 | B | todo | |
-| M1b-T07 | Web board: the "waiting for" checklist, Needs-input transition buttons, a moves timeline, kind on the create form and card | T01 | B | todo | |
-| M1b-T08 | Engine: the conditions phase (polling through the deadline, met / pending / failed, timeout, no machine) | T03 | C | todo | |
-| M1b-T09 | `conductor` v2 and the seed upgrade | T02, T03 | C | todo | |
-| M1b-T10 | E2E: the four ADR-0011 scenarios + regression on v1 and a fake `gh`; docs sweep and ADR-0011 implementation notes | all | D | todo | |
+| M1b-T01 | **Contracts**: transition schema, engine events/effects/step, WS, REST, card and detail DTOs, `ticket.kind` row type, legacy fold, fixtures and fakes | U-058, U-059, U-061..U-063 answered | A | done | merge 7431131 |
+| M1b-T02 | Validator: transition rules (actor/type, question targets, conditions bounded, ask_user present, kinds) | T01 | B | done | merge 9a33f01 |
+| M1b-T03 | Engine: pick and check a transition; actor/kind filter; `requires` as a move step (checks → review → actions); human transitions; prompt lists transitions; the `moves` record | T01 | B | done | merge bd0813d |
+| M1b-T04 | Orchestrator: `ticket.kind` migration; create requires kind; `POST /api/sessions/:id/transition`; detail `moves`; card fields served | T01 | B | done | merge 490e76a |
+| M1b-T05 | Daemon: `complete_state {transition, reason}` with the allowed list; the `evaluate_conditions` action via `gh`; the fake claude reports transitions | T01 | B | done | merge ac52bb6 (3 security fix rounds) |
+| M1b-T06 | Web editor: clickable arrows and the transition panel; the column panel keeps title and work | T01 | B | done | merge a7c7679 |
+| M1b-T07 | Web board: the "waiting for" checklist, Needs-input transition buttons, a moves timeline, kind on the create form and card | T01 | B | done | merge 6726b05 |
+| M1b-T08 | Engine: the conditions phase (polling through the deadline, met / pending / failed, timeout, no machine) | T03 | C | done | merge 516bf82 |
+| M1b-T09 | `conductor` v2 and the seed upgrade | T02, T03 | C | done | merge 5c49010 (with T10) |
+| M1b-T10 | E2E: the four ADR-0011 scenarios + regression on v1 and a fake `gh`; docs sweep and ADR-0011 implementation notes | all | D | done | merge 5c49010 (stacked on T09) |
 
 Groups run in order A → B → C → D. Tasks within a group own disjoint files and go to parallel implementer agents ([CLAUDE.md](../../../CLAUDE.md) › Orchestrate). Groups B–D code against the T01 contracts and their fakes; a needed contract change is reported to the lead, never made locally.
 

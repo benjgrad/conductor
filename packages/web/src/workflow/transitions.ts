@@ -265,7 +265,12 @@ const durationProblem = (text: string) =>
  * The client side of ADR-0011's validator rules (M1b-T02: 10 actor fits the state, 11 questions,
  * 12 every agent state can ask, 13 bounded requirements, 14 actions and conditions available),
  * plus the field limits of the transition schema, so they show on the arrow before Save.
+ *
+ * TD-100: this duplicates packages/shared/src/workflow/validate-transitions.ts and has drifted
+ * from it (no $return_to actor/else checks, no fallback-requires, on_unmet.goto or
+ * on_unmet-without-requires rules; different paths), so Save can still 400.
  */
+// TD-100
 export function validateTransitions(def: WorkflowDefinition): TransitionIssue[] {
   const issues: TransitionIssue[] = [];
   const typeOf = (n: string) => def.states[n]?.type;

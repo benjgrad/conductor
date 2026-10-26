@@ -262,6 +262,73 @@ A state's `guard` names an evaluator in `GUARD_REGISTRY` (`shared/src/workflow/g
 
 `TOOL_ALIASES` (`shared/src/workflow/tools.ts`) maps each workflow `tools` name to an ADR-0005 `ToolPolicy` fragment: `read` (base only), `edit` (`Edit(./**)`, `Write(./**)`: path-scoped, never bare), `bash` (`npm run:*`, `npm test:*`, exact `npm install` / `npm ci`; no interpreters or general runners), `git` (exact inspection commands, because diff/log/show accept `--output=<file>`, plus `add:*`, `commit:*`, `restore:*`; Claude Code also auto-allows commands it classifies as read-only), `pr_skill` (`Skill`, `gh pr view:*`; `gh pr create` is denied because it can push, so the PR is opened by a trusted state, TD-020), `review` (the requirements reviewer, [ADR-0009](../adr/0009-transition-requirements-review.md): `Bash` visible, only the exact read-only commands in `REVIEW_GIT_COMMANDS` pre-approved (`git status`, `git diff`, `git diff --stat HEAD~1`, `git log -p -n 5`, `git show --stat`…); no prefix rules, no edit tools, no staging or committing). `resolveToolPolicy(tools)` merges `BASE_TOOL_POLICY` (worktree-scoped `Read(./**)`/`Glob(./**)`/`Grep(./**)`, deny `Bash(git push:*)`) with each fragment, de-duplicates, and drops any allow rule that is also denied; it throws `UnknownToolAliasError` on a name not in `TOOL_ALIAS_NAMES` (T03 validates against the same list). `git push` is always denied. Since [ADR-0006](../adr/0006-agents-inherit-claude-code-settings.md) the `builtin` list still limits the visible tools, but `allow` rules only **pre-approve**: the user's own Claude Code settings (mode and rules) decide everything else, and the edit-guard hook keeps file edits in the worktree. **These rules are not a sandbox**: `npm run` executes repo scripts the agent can edit (TD-019), so the security boundary is the OS-level sandbox (U-004, slice 3). The daemon (T05) calls it on `start_session.tools`; the driver adds the conductor MCP tools.
 
+## Accounts and web auth
+
+M2-T01 ([ADR-0017](../adr/0017-own-sign-in-and-self-hosting.md) §Auth, §Invites; [ADR-0012](../adr/0012-hosted-multi-user-github-sign-in.md) §Tenancy; [ADR-0013](../adr/0013-machine-enrollment-inventory-routing.md) §Enrollment, §Routing). Only M2-T01 edits these schemas in M2; later tasks report changes to the lead.
+
+| Seam | File | Producer → consumers | Fixtures |
+|---|---|---|---|
+| `LOCAL_ACCOUNT_ID` (`00000000-0000-0000-0000-000000000001`), `AccountIdSchema` (`z.guid()`: the local id is not an RFC 9562 uuid), `AccountScope` / `AccountActor` (`user` / `machine` / `system`), `localScope(actor)`, `AuthMode` (`local` / `password`), `MachineRepoModeSchema` (`reference` / `checkout`), `MachineAlertKindSchema` (`git_tamper`) | `shared/src/domain.ts` | T01 → T03 (rows), T08 (middleware), T09/T16 (gateway scope), T19 (engine), T21; T02 imports the two machine enums | `domain.test.ts` |
+| Auth DTOs: `LoginRequest`, `MeResponse`, `SignupRequest`, `InvitePreview`, `ResetRequest`, `PasswordChangeRequest`; `EmailSchema`, `LoginEmailSchema`; `PASSWORD_MIN` 12, `PASSWORD_MAX` 256, `passwordProblems(password, email)` and its messages; `safeNextPath(next)` | `shared/src/api/auth.ts` | T01 → T08, T15 (server); T05 (web) | `LOGIN_REQUEST_FIXTURE`, `ME_RESPONSE_FIXTURE`, `SIGNUP_REQUEST_FIXTURE`, `INVITE_PREVIEW_FIXTURES`, `RESET_REQUEST_FIXTURE`, `PASSWORD_CHANGE_REQUEST_FIXTURE` |
+| Admin DTOs: `CreateInviteRequest`, `InviteCreated`, `InviteRow`, `AdminUserRow`, `ResetLinkCreated`; `INVITE_DEFAULT_DAYS` 7, `INVITE_MAX_DAYS` 30, `RESET_LINK_TTL_MS` 1 h | `shared/src/api/admin.ts` | T01 → T15; T05 | `CREATE_INVITE_REQUEST_FIXTURE`, `INVITE_CREATED_FIXTURE`, `INVITE_ROW_FIXTURES`, `ADMIN_USER_ROW_FIXTURES`, `RESET_LINK_CREATED_FIXTURE` |
+| Machines DTOs: `EnrollRequest`, `EnrollResponse`, `EnrollmentTokenCreated`, `MachineRow` (extends M1 `MachineDto`), `MachineDetail` (`repos`, `capabilities` by kind, open `alerts`, `live_sessions`), `MachineRepoDto`, `MachineCapabilityDto`, `MachineAlertDto`, `RenameMachineRequest`; `ENROLLMENT_TOKEN_TTL_MS` 30 min | `shared/src/api/machines.ts` | T01 → T17 (server), T04 (enroll client); T11 (web) | `ENROLL_REQUEST_FIXTURE`, `ENROLL_RESPONSE_FIXTURE`, `ENROLLMENT_TOKEN_CREATED_FIXTURE`, `MACHINE_ROW_FIXTURES`, `MACHINE_DETAIL_FIXTURE`, `RENAME_MACHINE_REQUEST_FIXTURE` |
+| `API_PATHS` M2 entries, `apiPathTemplates()` (every entry as a route template, `:id` / `:token` / `:file`), `ApiErrorSchema` codes `unauthorized` / `forbidden` / `rate_limited` / `unsupported_media_type`, `BoardCard.routing` / `.alerts`, `TicketDto.warnings`, `canonicalRepo(repo)` | `shared/src/api/rest.ts` | T01 → T08, T14, T15, T16, T17, T21 (route matrix); T05, T11 | `BOARD_CARD_ROUTING_FIXTURE`, `BOARD_CARD_ALERT_FIXTURE` |
+
+Everything is exported from `@conductor/shared` (`api/accounts.ts` re-exports the three new modules).
+
+**Modes.** `CONDUCTOR_AUTH=local` (default): M1 behaviour, loopback only, no sign-in. Every request runs as `localScope({kind: 'user', …})` in the `local` account, and `GET /api/me` answers with the local user and `auth_mode: 'local'`. `password`: sign-in is required as below. Every repository function takes an `AccountScope`, and another account's id is `404 not_found`, for admins too.
+
+**Routes.** Bodies are JSON. Every unsafe request carries `content-type: application/json`; a bodiless action posts `{}`. `OkResponse` = `{ok: true}`. Request-body validation failures are `400 bad_request` with `details`.
+
+| Method | `API_PATHS` key | Path | Body → response | Errors |
+|---|---|---|---|---|
+| POST | `authLogin` | `/auth/login` | `LoginRequest` → 200 `MeResponse` + `Set-Cookie` | 401 `unauthorized` "Email or password is wrong" (unknown email, wrong password, disabled user, locked email: byte-identical); 403 Origin; 429 |
+| POST | `authLogout` | `/auth/logout` | `{}` → 200 `OkResponse`, cookie cleared | 403 Origin |
+| GET | `authMe` | `/api/me` | → 200 `MeResponse` | 401 |
+| POST | `authSignup` | `/auth/signup` | `SignupRequest` → 201 `MeResponse` + `Set-Cookie` | 400 (invite not valid / unused / unexpired / unrevoked, pinned email differs, `passwordProblems` at path `password`); 403 Origin; 429 |
+| GET | `authInvitePreview(token)` | `/auth/invites/:token` | → 200 `InvitePreview` (`{valid: false, expires_at: null}` for any bad token; never 404) | 429 |
+| POST | `authReset` | `/auth/reset` | `ResetRequest` → 200 `OkResponse`; revokes all the user's sessions | 400 (bad / used / expired token, `passwordProblems`); 403 Origin; 429 |
+| POST | `authPassword` | `/auth/password` | `PasswordChangeRequest` → 200 `OkResponse`; revokes the user's other sessions | 401 (no session, or `current` wrong); 400 (`passwordProblems` on `new`); 403 Origin |
+| GET / POST | `adminInvites` | `/api/admin/invites` | → 200 `InviteRow[]` / `CreateInviteRequest` → 201 `InviteCreated` (the token, inside `url`, is shown only here) | 401; 403 `forbidden` (not admin) |
+| DELETE | `adminInvite(id)` | `/api/admin/invites/:id` | → 200 `OkResponse` (revoked) | 401; 403; 404 |
+| GET | `adminUsers` | `/api/admin/users` | → 200 `AdminUserRow[]` | 401; 403 |
+| POST | `adminUserResetLink(id)` | `/api/admin/users/:id/reset-link` | `{}` → 201 `ResetLinkCreated` (shown once, 1 h) | 401; 403; 404 |
+| POST | `adminUserDisable(id)` | `/api/admin/users/:id/disable` | `{}` → 200 `OkResponse`; revokes the user's sessions and machine credentials | 401; 403; 404 |
+| POST | `adminUserUnlock(id)` | `/api/admin/users/:id/unlock` | `{}` → 200 `OkResponse`; clears the email's `login_throttle` | 401; 403; 404 |
+| POST | `machinesEnroll` | `/api/machines/enroll` | `EnrollRequest` → 201 `EnrollResponse` (**public**: the token authenticates) | 401 `unauthorized` (unknown / used / expired token); 429 |
+| POST | `machineEnrollmentTokens` | `/api/machines/enrollment-tokens` | `{}` → 201 `EnrollmentTokenCreated` (`command` = `curl -fsSL <public url>/install.sh \| sh -s -- --token <token>`; 30 min, single use) | 401 |
+| GET | `machines` | `/api/machines` | → 200 `MachineRow[]` (the account's machines; M2-T17 switches from M1 `MachineDto[]`, a subset) | 401 |
+| GET / PATCH | `machine(id)` | `/api/machines/:id` | → 200 `MachineDetail` / `RenameMachineRequest` → 200 `MachineRow` | 401; 404 (unknown or another account's) |
+| POST | `machineRevoke(id)` | `/api/machines/:id/revoke` | `{}` → 200 `OkResponse`; socket closed with 4001, live sessions go to a human (U-068) | 401; 404 |
+| POST | `tickets` | `/api/tickets` | `CreateTicketRequest` → 201 `TicketDto`, with `warnings: ['no_machine_has_repo']` when no machine of the account has the repo (U-048) | in `password` mode, 400 when `canonicalRepo(repo)` is null (the repo is stored canonical); `local` mode keeps M1's rule (local test repos) |
+| GET | `installScript` | `/install.sh` | → 200 `text/x-shellscript` (**public**) | 503 when no tarball is built |
+| GET | `daemonDownload(file)` | `/downloads/:file` | → 200 the tarball / `.sha256` (**public**; only built names) | 404 |
+| GET | `healthz` | `/healthz` | → 200 `{ok, db, version}` (**public**) | 503 when the DB ping fails |
+
+**Statuses, in every `password`-mode route.**
+
+| Case | HTTP | `ApiError.code` |
+|---|---|---|
+| No valid session on `/api/*` (and the SSE streams), except `machinesEnroll`; bad credentials; bad enrollment token | 401 | `unauthorized` |
+| Unsafe method on `/api/*` or `/auth/*` whose `Origin` is not the public origin (no `Origin` is allowed only with `Sec-Fetch-Site: same-origin`); a disallowed `Host`; an admin-only route for a non-admin | 403 | `forbidden` |
+| An id of another account (admins included) | 404 | `not_found` |
+| Unsafe request without `content-type: application/json` | 415 | `unsupported_media_type` |
+| Per-IP limits (login 10/min, sign-up and reset 5/10 min, enroll 10/10 min), with `Retry-After` | 429 | `rate_limited` |
+
+**Cookies.** With an `https` public URL: `__Host-conductor_session=<base64url 32 bytes>; HttpOnly; Secure; SameSite=Lax; Path=/`. In `password` mode on a loopback `http` URL (tests and e2e only): `conductor_session`, without `Secure`. Only the SHA-256 of the value is stored. Sessions last 30 days absolute and 7 days idle.
+
+**CSRF** (no token): `SameSite=Lax`, the strict Origin check above, JSON-only unsafe requests, and no CORS headers at all. Every `GET` is side-effect free (asserted by the M2-T21 route matrix). **`next` redirects** go through `safeNextPath`: a same-origin path with a single leading `/`, no backslash, no scheme, no control or whitespace characters, and re-checked after normalisation (`/..//x` → `/`); anything else → `/`.
+
+**Board card fields.** `routing?: {missing_repo?, missing_capabilities: string[]}` appears on Queued cards only, when no **online** machine of the account can take the ticket (the repo first, then capability keys such as `cli:az:authed`). `alerts?: {kind: 'git_tamper', files, at}[]` holds the open alerts of the card's session. Both are absent, never null, when there is nothing, so pre-M2 cards and `toBoardCard` output are unchanged (M2-T16 fills them).
+
+**Repo grammar.** `canonicalRepo(repo)` returns `host/org/repo` with the host lower-cased and the path case kept. It accepts:
+- `host/org/repo`;
+- `https://host/org/repo` (no userinfo, port, query or hash);
+- `ssh://user@host/org/repo`;
+- scp-style `user@host:org/repo`;
+
+each with an optional `.git` and trailing `/`. Anything else is null.
+
 ## REST error map
 
 T08 maps a non-applied `applyEvent` result with `httpForApplyResult(route, result)` (`shared/src/api/rest.ts`); `applied` → **202** `{ok: true}` on `/input`, `/approve`, `/cancel` and `/messages`.

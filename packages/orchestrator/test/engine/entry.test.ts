@@ -119,28 +119,21 @@ describe('the step in context (no migration)', () => {
 });
 
 describe('seed (ADR-0010)', () => {
-  it('seeds conductor v1 once; idempotent and safe on concurrent starts', async () => {
+  // The seed's own cases (v2 upgrade, edits, concurrency) are in seed.test.ts (M1b-T09).
+  it('seeded conductor v1 (these sessions pin it) and v2; idempotent on concurrent starts', async () => {
     // beforeAll already seeded: every further call (also concurrent) is a no-op.
-    const again = await Promise.all([1, 2, 3, 4].map(() => seedConductorWorkflow(db.pool)));
+    const again = await Promise.all(
+      [1, 2, 3, 4].map(() => seedConductorWorkflow(db.pool, { log: null })),
+    );
     expect(again).toEqual([false, false, false, false]);
     const rows = await db.pool.query<{ version: number; definition: unknown }>(
-      "SELECT version, definition FROM workflow_definition WHERE id = 'conductor'",
+      "SELECT version, definition FROM workflow_definition WHERE id = 'conductor' ORDER BY version",
     );
-    expect(rows.rows.map((r) => r.version)).toEqual([1]);
+    expect(rows.rows.map((r) => r.version)).toEqual([1, 2]);
     expect(rows.rows[0]!.definition).toMatchObject({
       start: 'planning',
       columns: CONDUCTOR_V1.columns,
     });
-  });
-
-  it('never touches a saved v2', async () => {
-    await db.pool.query(
-      "INSERT INTO workflow_definition (id, version, definition) SELECT id, 2, definition FROM workflow_definition WHERE id = 'conductor' AND version = 1",
-    );
-    expect(await seedConductorWorkflow(db.pool)).toBe(false);
-    const n = await db.pool.query("SELECT 1 FROM workflow_definition WHERE id = 'conductor'");
-    expect(n.rowCount).toBe(2);
-    await db.pool.query("DELETE FROM workflow_definition WHERE id = 'conductor' AND version = 2");
   });
 });
 

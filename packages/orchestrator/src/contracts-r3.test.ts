@@ -162,8 +162,11 @@ describe('composeOrchestrator (skeleton wiring)', () => {
     const server = createServer();
     const db = {
       end: () => (log.push('db.end'), Promise.resolve()),
-      // ADR-0010: start() seeds the conductor workflow first.
-      query: () => (log.push('seed'), Promise.resolve({ rowCount: 1, rows: [] })),
+      // ADR-0010: start() seeds the conductor workflow first (M1b-T09: several queries, one entry).
+      query: () => (
+        log.at(-1) !== 'seed' && log.push('seed'),
+        Promise.resolve({ rowCount: 1, rows: [] })
+      ),
     } as unknown as Db;
     const o = composeOrchestrator(
       {

@@ -12,7 +12,9 @@ import {
 // conductor v2. It covers every new shape: agent `question` transitions, kind filters, `requires`
 // with checks + actions + conditions (incl. disabled M5 ones), human transitions with RETURN_TO,
 // an event-state human transition, and the `ask_user` / `timeout` fallbacks.
-// Before T02 lands, the M1 validator rejects RETURN_TO (rule 1); the schema parses it.
+// M1b-T09 shipped the real v2 (CONDUCTOR_V2). The draft stays as a test fixture: it differs only
+// in having no work-commit `review` item and testing only `npm test` on `pr_ready_for_review`, so
+// the engine and card tests that walk its phases keep their exact checklists.
 
 const ON_UNMET = {
   goto: 'implementing',

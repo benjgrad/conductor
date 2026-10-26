@@ -126,7 +126,7 @@ describe('mock workflows (ADR-0009)', () => {
   it('serves the one conductor workflow (ADR-0010), valid, with history', async () => {
     const api = createMockApi({ now });
     const latest = await api.getWorkflow(CONDUCTOR_WORKFLOW_ID);
-    // v3 is the ADR-0011 transition-rules draft (M1b-T06); v2 the last entry-based one.
+    // v3 is the shipped ADR-0011 conductor v2 (M1b-T09); v2 the last entry-based one.
     expect(latest.version).toBe(3);
     expect(detailVersions(latest)).toEqual([1, 2, 3]);
     const planning = latest.definition.states.planning;
@@ -148,8 +148,7 @@ describe('mock workflows (ADR-0009)', () => {
       actions: ['open_pr'],
       on_unmet: { goto: 'implementing', retries: 3, else: 'needs_input' },
     });
-    // TD: v3 joins this loop once the validator accepts `$return_to` (M1b-T02).
-    for (const def of [v1, v2]) {
+    for (const def of [v1, v2, latest.definition]) {
       const res = validateWorkflow(def);
       expect(res.ok ? [] : res.errors).toEqual([]);
     }

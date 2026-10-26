@@ -218,6 +218,11 @@ export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;
 
 // ---------------------------------------------------------------- events
 
+/** Why a machine was lost (`machine.lost.reason`, U-068; see the lost machines section). */
+export const MACHINE_LOST_REASONS = ['lease_expired', 'revoked', 'pinned_machine_offline'] as const;
+export const MachineLostReasonSchema = z.enum(MACHINE_LOST_REASONS);
+export type MachineLostReason = z.infer<typeof MachineLostReasonSchema>;
+
 /**
  * Engine events. `type` doubles as `event.type` in the event table (02). Sources:
  * D = daemon session_event via gateway (T11), O = orchestrator internal, U = REST (T08).
@@ -403,6 +408,27 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
      * process is still parked live answers with `send_input {input_request_id}`.
      */
     input_request_id: UuidSchema.nullable().optional(),
+  }),
+  /**
+   * O (M2-T20): the session's machine is gone (U-068; 10-contracts §Machines protocol v2, Lost
+   * sessions). Sources: the reaper on a lapsed lease (`lease_expired`), `revokeMachine`
+   * (`revoked`), and a reopen-pinned queued session whose machine has been offline for
+   * PINNED_MACHINE_OFFLINE_AFTER (`pinned_machine_offline`, TD-088). `machine_name` is the
+   * machine's display name for the question (absent → `machine_id`).
+   * Frozen semantics (M2-T06 implements): accepted from `assigned` / `running` /
+   * `waiting_external` (a gate step is left) when `machine_id` is the snapshot's, and from `queued`
+   * only for `pinned_machine_offline` on the pinned machine; ignored `session_terminal`,
+   * `wrong_status` (needs_input, other queued) or `machine_mismatch`. Applied → needs_input with
+   * a MACHINE_LOST_KIND input request (`machineLostQuestion`, return_to = the current state, or
+   * the step's `from`), the MACHINE_LOST_CONTEXT_KEY mark (the re-dispatch pin), machine_id kept,
+   * agent_process_live = false, no deadline, and one `kill {reason: MACHINE_LOST_KILL_REASON}`
+   * (delivered when the machine reconnects). The wrapper bumps the fencing token.
+   */
+  z.object({
+    type: z.literal('machine.lost'),
+    machine_id: z.string().min(1),
+    reason: MachineLostReasonSchema,
+    machine_name: z.string().min(1).optional(),
   }),
   /** U: operator cancel (POST /cancel). → failed, kill. */
   z.object({ type: z.literal('operator.cancel'), reason: z.string().optional() }),
@@ -618,6 +644,55 @@ export function unknownTransitionQuestion(name: string): string {
   return `The agent named an unknown transition '${name}'.`;
 }
 
+// ---------------------------------------------------------------- lost machines (U-068, M2-T02)
+
+/**
+ * The `input_request.kind` of a lost-machine question. Not yet in InputRequestKindSchema: M2-T03
+ * adds it to the enum, the DB enum and the web label; T06 emits it after that.
+ */
+export const MACHINE_LOST_KIND = 'machine_lost' as const;
+
+/** The `kill.reason` of the fenced kill sent to a lost machine's old worker. */
+export const MACHINE_LOST_KILL_REASON = 'machine_lost';
+
+/** How long a reopen-pinned queued session waits for its offline machine (TD-088, M2-T20). */
+export const PINNED_MACHINE_OFFLINE_AFTER = '15m';
+
+/** The needs_input question for a lost machine. `name` is the display name (or the id). */
+export function machineLostQuestion(name: string, reason: MachineLostReason): string {
+  switch (reason) {
+    case 'lease_expired':
+      return `${name} stopped responding`;
+    case 'revoked':
+      return `${name} was revoked`;
+    case 'pinned_machine_offline':
+      return `${name} has been offline for 15 minutes`;
+  }
+}
+
+/** The card title of the `$return_to` transition while a MACHINE_LOST_KIND request is open. */
+export function machineLostContinueTitle(name: string): string {
+  return `Continue on ${name}`;
+}
+
+/**
+ * `session.context` key of the lost-machine mark (like STEP_CONTEXT_KEY: no migration). Set by
+ * apply on `machine.lost`, kept through the requeue that "Continue" causes, cleared on the next
+ * matching `session.started`. The claim (M2-T16) offers a queued session carrying it only to
+ * `machine_id` (a hard filter, like the ADR-0008 reopen pin).
+ */
+export const MACHINE_LOST_CONTEXT_KEY = '__machine_lost';
+
+export const MachineLostMarkSchema = z.object({
+  machine_id: z.string().min(1),
+  machine_name: z.string().min(1),
+  reason: MachineLostReasonSchema,
+  /** The workflow state the session was in (the step's `from`); null for a never-started one. */
+  state: z.string().nullable(),
+  at: IsoDateTimeSchema,
+});
+export type MachineLostMark = z.infer<typeof MachineLostMarkSchema>;
+
 /** `GateStep.conditions_note` while no machine could evaluate the conditions (U-058). */
 export const CONDITIONS_NO_MACHINE_NOTE = 'waiting for a machine to check conditions';
 
@@ -676,6 +751,8 @@ export const APPLY_IGNORE_REASONS = [
    * ticket's kind (→ 409). An agent's disallowed name is routed like an unknown one.
    */
   'transition_not_allowed',
+  /** M2: `machine.lost` for a machine that is neither the session's nor its pin. */
+  'machine_mismatch',
 ] as const;
 export const ApplyIgnoreReasonSchema = z.enum(APPLY_IGNORE_REASONS);
 export type ApplyIgnoreReason = z.infer<typeof ApplyIgnoreReasonSchema>;

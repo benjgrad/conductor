@@ -150,6 +150,21 @@ describe('commandPayloadForEffect (Effect → WS)', () => {
     ).toThrow(/unknown entry action/);
   });
 
+  it('M2: start_session carries the working copy from the context; none → field omitted', () => {
+    const effect = {
+      type: 'start_session' as const,
+      state: 'implementing',
+      prompt: 'p',
+      tools: ['edit'],
+      resume_claude_session_id: null,
+    };
+    const working_copy = { repo_path: '/Users/ben/code/fixture-app', mode: 'reference' as const };
+    const c = commandPayloadForEffect(effect, { ...ctx, working_copy });
+    expect(c.kind === 'start_session' && c.payload.working_copy).toEqual(working_copy);
+    expect(envelope(c.kind, c.payload).type).toBe('start_session');
+    expect(commandPayloadForEffect(effect, ctx).payload).not.toHaveProperty('working_copy');
+  });
+
   it('throws without a machine', () => {
     expect(() =>
       commandPayloadForEffect(

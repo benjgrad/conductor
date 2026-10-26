@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import type { OutboxEffect, SessionSnapshot } from '../engine/types.js';
+import type { WorkingCopy } from '../machines/inventory.js';
 import type {
   KillPayloadSchema,
   RunActionPayloadSchema,
@@ -36,6 +37,11 @@ export interface CommandPayloadContext {
   branch: string;
   /** Default M1_BASE_REF. */
   base_ref?: string;
+  /**
+   * M2 (ADR-0013): the `machine_repo` the claim matched, passed by the dispatcher / wrapper for a
+   * start_session. Absent = omitted from the payload (M1 local mode).
+   */
+  working_copy?: WorkingCopy;
 }
 
 export type MachineCommand =
@@ -83,6 +89,7 @@ export function commandPayloadForEffect(
       if (effect.transitions !== undefined && effect.transitions.length > 0) {
         payload.transitions = effect.transitions;
       }
+      if (ctx.working_copy !== undefined) payload.working_copy = ctx.working_copy;
       return { kind: 'start_session', target, payload };
     }
     case 'send_input':

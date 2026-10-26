@@ -208,6 +208,8 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
       return 'unexpected_event';
     case 'human.transition':
       return onHumanTransition(st, e);
+    case 'machine.lost':
+      return 'unexpected_event'; // M2-T06
   }
 }
 
@@ -1295,6 +1297,8 @@ function handleStep(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
       return 'wrong_status';
     case 'external.event':
       return conditionsOverride(st, r, e.name, e.data);
+    case 'machine.lost':
+      return 'unexpected_event'; // M2-T06
   }
 }
 

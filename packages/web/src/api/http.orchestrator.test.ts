@@ -76,7 +76,13 @@ async function until(cond: () => boolean, ms = 5000) {
 }
 
 const newTicket = (title: string) =>
-  client.createTicket({ title, body: 'b', repo: 'acme/app', workflow_id: 'm1_basic' });
+  client.createTicket({
+    title,
+    body: 'b',
+    repo: 'acme/app',
+    workflow_id: 'm1_basic',
+    kind: 'work',
+  });
 
 const cardFor = (events: BoardSseEvent[], ticketId: string) =>
   events.find((e) => e.type === 'card.upserted' && e.card.ticket_id === ticketId);

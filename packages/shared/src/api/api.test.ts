@@ -122,8 +122,15 @@ describe('board columns (ADR-0010)', () => {
 describe('REST DTO defaults', () => {
   it('fills CreateTicketRequest defaults', () => {
     expect(
-      CreateTicketRequestSchema.parse({ title: 't', body: '', repo: 'r', workflow_id: 'm1_basic' }),
+      CreateTicketRequestSchema.parse({
+        title: 't',
+        body: '',
+        repo: 'r',
+        workflow_id: 'm1_basic',
+        kind: 'work',
+      }),
     ).toEqual({
+      kind: 'work',
       title: 't',
       body: '',
       repo: 'r',
@@ -136,8 +143,15 @@ describe('REST DTO defaults', () => {
   });
 
   it('defaults workflow_id to conductor (ADR-0010)', () => {
-    expect(CreateTicketRequestSchema.parse({ title: 't', body: '', repo: 'r' }).workflow_id).toBe(
-      'conductor',
-    );
+    expect(
+      CreateTicketRequestSchema.parse({ title: 't', body: '', repo: 'r', kind: 'personal' })
+        .workflow_id,
+    ).toBe('conductor');
+  });
+
+  it('requires kind (ADR-0011)', () => {
+    const res = CreateTicketRequestSchema.safeParse({ title: 't', body: '', repo: 'r' });
+    expect(res.success).toBe(false);
+    expect(res.error?.issues.map((i) => i.path)).toEqual([['kind']]);
   });
 });

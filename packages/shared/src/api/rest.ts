@@ -532,7 +532,7 @@ export const TicketDtoSchema = z.object({
   status: TicketStatusSchema,
   priority: z.number().int(),
   created_at: IsoDateTimeSchema,
-  /** ADR-0011. Optional until the orchestrator stores it (M1b-T04); absent ≡ null. */
+  /** ADR-0011. Optional so older servers' responses still parse; absent ≡ null. */
   kind: TicketKindSchema.nullable().optional(),
 });
 export type TicketDto = z.infer<typeof TicketDtoSchema>;
@@ -551,12 +551,10 @@ export const CreateTicketRequestSchema = z.object({
   repo_allow_machines: z.array(z.string()).nullable().default(null),
   external_ref: z.string().nullable().default(null),
   /**
-   * ADR-0011: work or personal. The route requires it (M1b-T04: 400 `bad_request`, path `kind`,
-   * when absent) until triage (M4) can set it.
-   * TD-096: optional in the schema only so the web create form (M1b-T07) and the e2e harness keep
-   * compiling and passing while group B lands; flip to required once T04 and T07 are merged.
+   * ADR-0011: work or personal. Required (400 `bad_request`, path `kind`, when absent) until
+   * triage (M4) can set it.
    */
-  kind: TicketKindSchema.optional(), // TD-096
+  kind: TicketKindSchema,
 });
 export type CreateTicketRequest = z.input<typeof CreateTicketRequestSchema>;
 

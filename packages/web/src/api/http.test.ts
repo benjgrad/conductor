@@ -173,7 +173,13 @@ describe('createHttpApi REST', () => {
     await api.cancel(SESSION, { reason: 'aborted from UI' });
     await api.cancel(SESSION);
     expect(
-      await api.createTicket({ title: 't', body: '', repo: 'r', workflow_id: 'm1_basic' }),
+      await api.createTicket({
+        title: 't',
+        body: '',
+        repo: 'r',
+        workflow_id: 'm1_basic',
+        kind: 'work',
+      }),
     ).toEqual(ticket);
 
     expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([
@@ -197,7 +203,7 @@ describe('createHttpApi REST', () => {
       [
         'POST',
         'http://orch:7400/api/tickets',
-        { title: 't', body: '', repo: 'r', workflow_id: 'm1_basic' },
+        { title: 't', body: '', repo: 'r', workflow_id: 'm1_basic', kind: 'work' },
       ],
     ]);
     expect(calls.filter((c) => c.method === 'POST').map((c) => c.contentType)).toEqual(

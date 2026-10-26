@@ -34,6 +34,8 @@ export function CreateTicketForm({ api, onCreated }: CreateTicketFormProps) {
         // explicitly also works with a server (and shared contract) where the field is required.
         workflow_id: CONDUCTOR_WORKFLOW_ID,
         priority: Number.parseInt(priority, 10) || 0,
+        // ADR-0011: kind is required; M1b-T07 adds the picker. Until then every ticket is work.
+        kind: 'work',
       });
       setTitle('');
       setBody('');

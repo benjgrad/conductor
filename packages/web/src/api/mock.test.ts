@@ -74,8 +74,20 @@ describe('mock ApiClient', () => {
 
   it('replays from Last-Event-ID', async () => {
     const api = createMockApi({ now });
-    await api.createTicket({ title: 'a', body: '', repo: 'r', workflow_id: 'm1_basic' });
-    await api.createTicket({ title: 'b', body: '', repo: 'r', workflow_id: 'm1_basic' });
+    await api.createTicket({
+      title: 'a',
+      body: '',
+      repo: 'r',
+      workflow_id: 'm1_basic',
+      kind: 'work',
+    });
+    await api.createTicket({
+      title: 'b',
+      body: '',
+      repo: 'r',
+      workflow_id: 'm1_basic',
+      kind: 'work',
+    });
     const { events } = collect(api, 1);
     await tick();
     expect(events.map((e) => e.id)).toEqual([2]);
@@ -144,7 +156,7 @@ describe('mock workflows (ADR-0009)', () => {
     const api = createMockApi({ now });
     // Omitting workflow_id, as a client may once the shared contract makes it optional. Typed
     // loosely so this compiles whether or not the field is still required.
-    const req: Record<string, unknown> = { title: 'a', body: '', repo: 'r' };
+    const req: Record<string, unknown> = { title: 'a', body: '', repo: 'r', kind: 'work' };
     const ticket = await api.createTicket(req as unknown as CreateTicketRequest);
     expect(ticket.workflow_id).toBe('conductor');
   });

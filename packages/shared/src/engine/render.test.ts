@@ -72,7 +72,7 @@ describe('renderPrompt', () => {
     });
     expect(p).toContain('Run the `slack-post` skill for workflow step `notify`.');
     expect(p).toContain(
-      "- pr_url: https://pr/1\n- channel: #reviews\n- n: 2\n- `gone`: not produced (a person moved this ticket here directly). Work out what's needed from the ticket first, and make a short plan before changing code.",
+      "- pr_url: https://pr/1\n- channel: #reviews\n- n: 2\n- `gone`: not produced (a person moved this ticket here directly). Work out what's needed from the ticket.",
     );
     expect(p).toContain('containing `ts`');
   });
@@ -84,7 +84,7 @@ describe('renderPrompt', () => {
       snapshot: SNAPSHOT_FIXTURE,
     });
     expect(p).toContain(
-      "## Inputs\n\n- `plan`: not produced (a person moved this ticket here directly). Work out what's needed from the ticket first, and make a short plan before changing code.",
+      "## Inputs\n\n- `plan`: not produced (a person moved this ticket here directly). Work out what's needed from the ticket.",
     );
     expect(p).not.toContain('(missing)');
   });

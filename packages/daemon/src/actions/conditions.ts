@@ -29,7 +29,13 @@ import { cleanEnv, tail } from './open-pr.js';
 //       CHANGES_REQUESTED → failed; REVIEW_REQUIRED → pending whatever the count (branch
 //       protection still wants reviews); APPROVED or empty (no branch protection) → an eligible
 //       CHANGES_REQUESTED → failed, eligible approvals ≥ min → met, else pending.
+//     Staleness (security review 2026-10-26): a review counts only if it was made on the PR's
+//     current head (`commit.oid` = `headRefOid`): an approval, or a CHANGES_REQUESTED, on an older
+//     commit is ignored (the agent may have addressed it). GitHub's own CHANGES_REQUESTED decision
+//     still fails.
 //   - pr_merged: merged → met; else pending.
+//   - Head pinning: with `headSha` (the commit conductor checked and pushed), a PR whose
+//     `headRefOid` differs fails every PR condition ("someone pushed to the branch").
 //   - A closed, unmerged PR fails every gh condition (it can't become true without a human).
 //   - azure_pipeline_succeeded / jira_fields_set → unsupported (M5).
 // A missing gh, or gh failing to authenticate, is not an error: every gh condition is `pending`
@@ -45,18 +51,20 @@ const GH_TYPES: ReadonlySet<Condition['type']> = new Set([
   'pr_merged',
 ]);
 
-const GH_FIELDS = 'statusCheckRollup,reviewDecision,reviews,state,mergedAt,author';
+const GH_FIELDS = 'statusCheckRollup,reviewDecision,reviews,state,mergedAt,author,headRefOid';
 /** Keeps only the fields the mapping reads (same names, so unprojected output parses too). */
 const GH_JQ =
-  '{state, mergedAt, reviewDecision, author: {login: .author.login},' +
+  '{state, mergedAt, reviewDecision, headRefOid, author: {login: .author.login},' +
   ' statusCheckRollup: [(.statusCheckRollup // [])[] | {__typename, name, context, status, conclusion, state}],' +
-  ' reviews: [(.reviews // [])[] | {author: {login: .author.login}, authorAssociation, state}]}';
+  ' reviews: [(.reviews // [])[] | {author: {login: .author.login}, authorAssociation, state, commit: {oid: .commit.oid}}]}';
 
 export interface EvaluateConditionsInput {
   /** The move step's conditions, in declaration order (results match by position). */
   conditions: readonly Condition[];
   /** `context.__pr.pr_url` (null: no PR opened yet). */
   prUrl: string | null;
+  /** The commit conductor checked and pushed; set → the PR head must equal it. */
+  headSha?: string | undefined;
   /** The daemon root: gh's cwd, outside every repository. */
   root: string;
   /** How to run gh (default `gh` from PATH). Tests: `{cmd: '/bin/sh', args: [fakeScript]}`. */
@@ -226,7 +234,7 @@ export async function evaluateConditions(
   } catch {
     return allPending(i.conditions, `gh pr view printed unexpected output: ${tail(r.stdout, 200)}`);
   }
-  return { results: i.conditions.map((c) => mapCondition(c, pr)) };
+  return { results: i.conditions.map((c) => mapCondition(c, pr, i.headSha)) };
 }
 
 // ---- mapping (pure) ---------------------------------------------------------------------------
@@ -246,7 +254,9 @@ export interface PrView {
   checks: PrCheck[];
   /** The PR author's login (null: unknown). */
   author: string | null;
-  reviews: { author: string; association: string | null; state: string }[];
+  /** The PR's current head commit (null: unknown). */
+  headRefOid: string | null;
+  reviews: { author: string; association: string | null; state: string; commit: string | null }[];
 }
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
@@ -278,6 +288,7 @@ export function parsePrView(raw: unknown): PrView {
     return {
       author: str(rec(r.author).login) ?? '?',
       association: str(r.authorAssociation),
+      commit: str(rec(r.commit).oid),
       state: str(r.state) ?? '',
     };
   });
@@ -287,6 +298,7 @@ export function parsePrView(raw: unknown): PrView {
     merged: state === 'MERGED' || str(o.mergedAt) !== null,
     reviewDecision: str(o.reviewDecision),
     author: str(rec(o.author).login),
+    headRefOid: str(o.headRefOid),
     checks,
     reviews,
   };
@@ -321,8 +333,19 @@ function eligibleReviewer(r: PrView['reviews'][number], prAuthor: string | null)
 
 const names = (cs: PrCheck[]) => tail(cs.map((c) => c.name).join(', '), 300);
 
-export function mapCondition(c: Condition, pr: PrView): ConditionResult {
+export function mapCondition(c: Condition, pr: PrView, headSha?: string): ConditionResult {
   if (!GH_TYPES.has(c.type)) return unsupported(c);
+  if (headSha !== undefined && pr.headRefOid !== headSha) {
+    if (pr.headRefOid === null) {
+      return result(c.type, 'pending', null, 'gh reported no head commit for the PR');
+    }
+    return result(
+      c.type,
+      'failed',
+      pr.headRefOid.slice(0, 12),
+      `PR head ${pr.headRefOid} isn't the commit conductor checked (${headSha}); someone pushed to the branch`,
+    );
+  }
   if (c.type === 'pr_merged') {
     if (pr.merged) return result(c.type, 'met', 'merged', null);
     if (pr.state === 'CLOSED') return result(c.type, 'failed', 'closed', 'the PR was closed');
@@ -344,12 +367,14 @@ export function mapCondition(c: Condition, pr: PrView): ConditionResult {
     return result(c.type, 'met', value, null);
   }
   if (c.type !== 'pr_approvals') return unsupported(c);
-  // The latest verdict per eligible reviewer (COMMENTED / PENDING reviews don't change it).
+  // The latest verdict per eligible reviewer (COMMENTED / PENDING reviews don't change it),
+  // counted only if it was made on the current head; an older one is stale.
   const latest = new Map<string, string>();
   for (const r of pr.reviews) {
     if (!eligibleReviewer(r, pr.author)) continue;
     if (r.state === 'APPROVED' || r.state === 'CHANGES_REQUESTED' || r.state === 'DISMISSED') {
-      latest.set(r.author, r.state);
+      const current = pr.headRefOid !== null && r.commit === pr.headRefOid;
+      latest.set(r.author, current ? r.state : 'STALE');
     }
   }
   const approvers = [...latest].filter(([, s]) => s === 'APPROVED').map(([a]) => a);

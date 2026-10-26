@@ -459,6 +459,15 @@ export const EvaluateConditionsArgsSchema = z.object({
   conditions: z.array(ConditionSchema).min(1),
   pr_url: z.string().nullable(),
   branch: z.string(),
+  /**
+   * The commit conductor checked and pushed (ADR-0010 `expected_sha`; T08 passes
+   * `step.head_sha`). When set, every PR condition requires the PR head to equal it: a moved head
+   * fails them all ("someone pushed to the branch"). Optional (additive); absent = no head check.
+   */
+  head_sha: z
+    .string()
+    .regex(/^[0-9a-f]{40}$/)
+    .optional(),
 });
 export type EvaluateConditionsArgs = z.infer<typeof EvaluateConditionsArgsSchema>;
 

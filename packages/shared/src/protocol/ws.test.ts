@@ -81,6 +81,13 @@ describe('ADR-0011 WS shapes (M1b-T01)', () => {
     const fx = M1B_WS_FIXTURES.run_action_evaluate_conditions;
     expect(parseOrchestratorMessage(wire(fx))).toEqual(fx);
     expect(EvaluateConditionsArgsSchema.parse(fx.payload.args)).toEqual(fx.payload.args);
+    // head_sha is optional (older callers) and must be a full sha when set.
+    const { head_sha: _h, ...noHead } = EvaluateConditionsArgsSchema.parse(fx.payload.args);
+    void _h;
+    expect(EvaluateConditionsArgsSchema.safeParse(noHead).success).toBe(true);
+    expect(EvaluateConditionsArgsSchema.safeParse({ ...noHead, head_sha: 'HEAD' }).success).toBe(
+      false,
+    );
     const bad = { ...fx, payload: { ...fx.payload, action: 'deploy' } };
     expect(OrchestratorToDaemonSchema.safeParse(bad).success).toBe(false);
   });

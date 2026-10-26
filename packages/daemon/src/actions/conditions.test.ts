@@ -46,7 +46,7 @@ function evalWith(
   conditions: Condition[],
   view: unknown,
   env: Record<string, string> = {},
-  more: { prUrl?: string | null; timeoutMs?: number } = {},
+  more: { prUrl?: string | null; timeoutMs?: number; headSha?: string } = {},
 ) {
   writeFileSync(join(tmp, 'out'), typeof view === 'string' ? view : JSON.stringify(view));
   return evaluateConditions({
@@ -63,6 +63,7 @@ function evalWith(
       ...env,
     },
     ...(more.timeoutMs !== undefined ? { timeoutMs: more.timeoutMs } : {}),
+    ...(more.headSha !== undefined ? { headSha: more.headSha } : {}),
   });
 }
 
@@ -77,10 +78,18 @@ const statusCtx = (context: string, state: string) => ({
   context,
   state,
 });
-const review = (login: string, state: string, authorAssociation = 'MEMBER') => ({
+const HEAD = 'a'.repeat(40);
+const OLD = 'b'.repeat(40);
+const review = (
+  login: string,
+  state: string,
+  authorAssociation = 'MEMBER',
+  oid: string = HEAD,
+) => ({
   author: { login },
   authorAssociation,
   state,
+  commit: { oid },
 });
 const view = (over: Record<string, unknown> = {}) => ({
   state: 'OPEN',
@@ -88,6 +97,7 @@ const view = (over: Record<string, unknown> = {}) => ({
   // Empty: no branch protection (the eligible count decides).
   reviewDecision: '',
   author: { login: 'pat' },
+  headRefOid: HEAD,
   statusCheckRollup: [],
   reviews: [],
   ...over,
@@ -104,7 +114,7 @@ describe('evaluate_conditions with a fake gh', () => {
     const argv = readFileSync(join(tmp, 'argv'), 'utf8').trim().split('\n');
     expect(argv).toHaveLength(1);
     expect(argv[0]).toContain(
-      `pr view ${PR} --json statusCheckRollup,reviewDecision,reviews,state,mergedAt,author --jq`,
+      `pr view ${PR} --json statusCheckRollup,reviewDecision,reviews,state,mergedAt,author,headRefOid --jq`,
     );
     const { realpathSync } = await import('node:fs');
     expect(readFileSync(join(tmp, 'cwd'), 'utf8').trim()).toBe(realpathSync(root));
@@ -242,6 +252,69 @@ describe('evaluate_conditions with a fake gh', () => {
     expect(open.results[0]).toMatchObject({ status: 'met', value: '2/2' });
     const unset = await evalWith([two], view({ reviewDecision: null, reviews: approvals }));
     expect(unset.results[0]).toMatchObject({ status: 'met', value: '2/2' });
+  });
+
+  it('a review on an older commit is stale: approvals and changes requested are ignored', async () => {
+    const old = await evalWith(
+      [APPROVALS_1],
+      view({ reviews: [review('amy', 'APPROVED', 'MEMBER', OLD)] }),
+    );
+    expect(old.results[0]).toMatchObject({ status: 'pending', value: '0/1' });
+
+    const onHead = await evalWith(
+      [APPROVALS_1],
+      view({ reviews: [review('amy', 'APPROVED', 'MEMBER', HEAD)] }),
+    );
+    expect(onHead.results[0]).toMatchObject({ status: 'met', value: '1/1' });
+
+    const staleBlock = await evalWith(
+      [APPROVALS_1],
+      view({
+        reviews: [
+          review('bob', 'CHANGES_REQUESTED', 'MEMBER', OLD),
+          review('amy', 'APPROVED', 'MEMBER', HEAD),
+        ],
+      }),
+    );
+    expect(staleBlock.results[0]).toMatchObject({ status: 'met', value: '1/1' });
+
+    // GitHub's own decision still wins.
+    const decided = await evalWith(
+      [APPROVALS_1],
+      view({
+        reviewDecision: 'CHANGES_REQUESTED',
+        reviews: [review('bob', 'CHANGES_REQUESTED', 'MEMBER', OLD), review('amy', 'APPROVED')],
+      }),
+    );
+    expect(decided.results[0]?.status).toBe('failed');
+  });
+
+  it('head_sha: a moved PR head fails every PR condition; absent = no head check', async () => {
+    const green = view({
+      statusCheckRollup: [checkRun('build', 'COMPLETED', 'SUCCESS')],
+      reviews: [review('amy', 'APPROVED')],
+    });
+    const moved = await evalWith(
+      [CHECKS, APPROVALS_1, MERGED, { type: 'jira_fields_set', fields: ['x'] }],
+      green,
+      {},
+      { headSha: OLD },
+    );
+    expect(moved.results.map((x) => x.status)).toEqual([
+      'failed',
+      'failed',
+      'failed',
+      'unsupported',
+    ]);
+    expect(moved.results[0]?.detail).toBe(
+      `PR head ${HEAD} isn't the commit conductor checked (${OLD}); someone pushed to the branch`,
+    );
+
+    const pinned = await evalWith([CHECKS, APPROVALS_1], green, {}, { headSha: HEAD });
+    expect(pinned.results.map((x) => x.status)).toEqual(['met', 'met']);
+
+    const unpinned = await evalWith([CHECKS, APPROVALS_1], green);
+    expect(unpinned.results.map((x) => x.status)).toEqual(['met', 'met']);
   });
 
   it('approvals count the latest verdict per reviewer', async () => {
@@ -385,11 +458,13 @@ describe('condition mapping (pure)', () => {
         { __typename: 'StatusContext', context: 'c', state: 'SUCCESS', targetUrl: 'y' },
       ],
       author: { login: 'pat', name: 'Pat' },
+      headRefOid: HEAD,
       reviews: [
         {
           author: { login: 'amy', name: 'Amy' },
           authorAssociation: 'COLLABORATOR',
           state: 'APPROVED',
+          commit: { oid: HEAD, url: 'x' },
           body: 'lgtm',
         },
       ],

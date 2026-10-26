@@ -1064,6 +1064,7 @@ export class Daemon {
     evaluateConditions({
       conditions: args.data.conditions,
       prUrl: args.data.pr_url,
+      headSha: args.data.head_sha,
       root: this.config.rootDir,
       ...(this.ghCommand ? { gh: this.ghCommand } : {}),
       signal: abort.signal,

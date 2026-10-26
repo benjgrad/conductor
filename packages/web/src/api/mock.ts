@@ -2,15 +2,19 @@ import {
   AnswerInputRequestSchema,
   boardColumns as defaultBoardColumns,
   CreateTicketRequestSchema,
+  humanTransitionOptions,
   placeCard,
   ReopenSessionRequestSchema,
+  RETURN_TO,
   SendMessageRequestSchema,
+  TransitionSessionRequestSchema,
   type BoardCard,
   type BoardResponse,
   type BoardSseEvent,
   type BoardSseEventDraft,
   type InputRequestKind,
   type MachineDto,
+  type MoveDto,
   type OkResponse,
   type OutputChunk,
   type OutputStream,
@@ -37,7 +41,8 @@ import { CONDUCTOR, MOCK_WORKFLOW_HISTORY, mockSeeds, type MockSession } from '.
 // every change is an id-ordered board event (card.upserted last, carrying the full card), the
 // board stream replays from Last-Event-ID, answers are idempotent per input_request_id, and
 // errors use the 10-contracts REST error map codes. It does NOT run the workflow engine: an
-// answer simply moves the session to `goto` (or `return_to`) and marks it running.
+// answer simply moves the session to `goto` (or `return_to`) and marks it running; a human
+// transition (ADR-0011) moves it to the button's `goto`, with no requirements run.
 
 export interface MockApiOptions {
   /** Clock for seeds and new rows. Default: real time. */
@@ -135,12 +140,33 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     throw new ApiRequestError(404, 'not_found', `session ${sessionId} not found`);
   }
 
+  /**
+   * BoardCard.human_transitions as toBoardCard fills them: only while needs_input in a human
+   * state or waiting_external in an event state (none on old versions: no human-actor transitions).
+   */
+  function humanTransitionsOf(card: BoardCard): BoardCard['human_transitions'] {
+    const s = card.session_id ? sessions.get(card.session_id) : undefined;
+    const state = card.workflow_state;
+    if (!s || state === null) return [];
+    const type = s.workflow.states[state]?.type;
+    const open =
+      (card.status === 'needs_input' && type === 'human') ||
+      (card.status === 'waiting_external' && type === 'event');
+    return open ? humanTransitionOptions(s.workflow, state, card.kind, s.return_to) : [];
+  }
+
+  /** Append a SessionDetail.moves row (state.entered), as the engine records every move. */
+  function recordMove(s: MockSession, move: Omit<MoveDto, 'at'>) {
+    s.moves.push({ at: now().toISOString(), ...move });
+  }
+
   /** Apply a card change and emit the events EngineService would. */
   function update(card: BoardCard, next: Partial<BoardCard>, extra: BoardSseEventDraft[] = []) {
     const sessionId = card.session_id;
     if (sessionId === null) throw new Error('update() needs a session card');
     const updated: BoardCard = { ...card, ...next, updated_at: now().toISOString() };
     updated.column = columnOf(updated);
+    updated.human_transitions = humanTransitionsOf(updated);
     cards.set(card.ticket_id, updated);
     const drafts: BoardSseEventDraft[] = [...extra];
     if (card.status !== null && updated.status !== null && card.status !== updated.status) {
@@ -176,9 +202,13 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     return s;
   }
 
-  function enterState(session: MockSession, state: string) {
+  function enterState(session: MockSession, state: string): SessionStatus {
     session.state_entered_at = now().toISOString();
-    return session.workflow.states[state]?.type === 'terminal' ? 'done' : 'running';
+    const type = session.workflow.states[state]?.type;
+    if (type === 'terminal') return 'done';
+    if (type === 'human') return 'needs_input';
+    if (type === 'event') return 'waiting_external';
+    return 'running';
   }
 
   const api: MockApi = {
@@ -226,6 +256,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           worktree_path: null,
           pending_input: card.input_request,
           recent_output: s.output,
+          moves: s.moves,
         });
       }),
 
@@ -257,6 +288,13 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         }
         answered.add(req.input_request_id);
         const status = enterState(s, target);
+        recordMove(s, {
+          from: card.workflow_state,
+          to: target,
+          transition: null,
+          reason: null,
+          actor: 'human',
+        });
         s.return_to = null;
         update(card, { status, workflow_state: target, input_request: null }, [
           {
@@ -401,7 +439,53 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           throw new ApiRequestError(409, 'conflict', 'session is not waiting for ui.approve');
         }
         const target = typeof next === 'string' ? next : next.goto;
+        recordMove(s, {
+          from: card.workflow_state,
+          to: target,
+          transition: 'ui.approve',
+          reason: null,
+          actor: 'system',
+        });
         update(card, { status: enterState(s, target), workflow_state: target });
+        return { ok: true };
+      }),
+
+    transition: (sessionId, raw) =>
+      reply((): OkResponse => {
+        const parsed = TransitionSessionRequestSchema.safeParse(raw);
+        if (!parsed.success) throw new ApiRequestError(400, 'bad_request', parsed.error.message);
+        const { name, text } = parsed.data;
+        const card = cardForSession(sessionId);
+        const s = sessionOf(sessionId);
+        // Like apply(): only a transition the card offers (wrong status, unknown name, not a
+        // human transition for the ticket's kind → ignored → 409). The server doesn't re-check
+        // `needs_text`, so neither does the mock.
+        const option = card.human_transitions.find((o) => o.name === name);
+        if (!option) {
+          throw new ApiRequestError(409, 'conflict', `transition "${name}" is not offered here`);
+        }
+        const target = option.goto === RETURN_TO ? (s.return_to ?? s.workflow.start) : option.goto;
+        const extra: BoardSseEventDraft[] = card.input_request
+          ? [
+              {
+                type: 'input.answered',
+                session_id: sessionId,
+                input_request_id: card.input_request.id,
+                answered_by: 'ben',
+              },
+            ]
+          : [];
+        if (card.input_request) answered.add(card.input_request.id);
+        recordMove(s, {
+          from: card.workflow_state,
+          to: target,
+          transition: name,
+          reason: text ?? null,
+          actor: 'human',
+        });
+        const status = enterState(s, target);
+        if (s.workflow.states[target]?.type !== 'human') s.return_to = null;
+        update(card, { status, workflow_state: target, input_request: null }, extra);
         return { ok: true };
       }),
 
@@ -490,6 +574,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           state_entered_at: now().toISOString(),
           wall_seconds: 0,
           output: [],
+          moves: [],
         });
         const next: BoardCard = {
           ...card,
@@ -539,6 +624,13 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       const id = crypto.randomUUID();
       const created_at = now().toISOString();
       s.return_to = card.workflow_state;
+      recordMove(s, {
+        from: card.workflow_state,
+        to: 'needs_input',
+        transition: 'ask_user',
+        reason: question,
+        actor: 'agent',
+      });
       update(
         card,
         {

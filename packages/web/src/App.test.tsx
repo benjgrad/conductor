@@ -33,6 +33,8 @@ describe('kanban board', () => {
     expect(cardTitles('Implementing')).toEqual([
       'Add pagination to /orders',
       'Migrate settings page to new form lib',
+      // ADR-0011: held in its source column while the move's conditions run.
+      'Ship the /health endpoint',
     ]);
     expect(cardTitles('Waiting external')).toEqual(['Bump node to 22 in CI']);
     // `lost` lands in Done with a badge.
@@ -41,7 +43,11 @@ describe('kanban board', () => {
 
   it('lists needs-input oldest question first, with the question badge', async () => {
     await renderApp();
-    expect(cardTitles('Needs input')).toEqual(['Fix flaky checkout test', 'Add audit log table']);
+    expect(cardTitles('Needs input')).toEqual([
+      'Fix flaky checkout test',
+      'Plan the garden',
+      'Add audit log table',
+    ]);
     const col = within(column('Needs input'));
     expect(col.getByText(/Retries exhausted/)).toBeTruthy();
     expect(col.getByText(BOARD_SSE_FIXTURES['input.requested'].question)).toBeTruthy();
@@ -63,6 +69,7 @@ describe('kanban board', () => {
     await waitFor(() =>
       expect(cardTitles('Needs input')).toEqual([
         'Fix flaky checkout test',
+        'Plan the garden',
         'Add audit log table',
         'Add pagination to /orders',
       ]),
@@ -83,7 +90,9 @@ describe('detail panel', () => {
     fireEvent.change(panel.getByLabelText('Answer'), { target: { value: 'Postgres 16' } });
     fireEvent.click(send);
 
-    await waitFor(() => expect(cardTitles('Needs input')).toEqual(['Fix flaky checkout test']));
+    await waitFor(() =>
+      expect(cardTitles('Needs input')).toEqual(['Fix flaky checkout test', 'Plan the garden']),
+    );
     expect(cardTitles('Implementing')).toContain('Add audit log table');
     await waitFor(() => expect(panel.queryByLabelText('Answer')).toBeNull());
     fireEvent.click(panel.getByRole('tab', { name: 'Details' }));
@@ -151,6 +160,7 @@ describe('create ticket', () => {
     const form = within(screen.getByRole('form', { name: 'Create ticket' }));
     fireEvent.change(form.getByLabelText('Title'), { target: { value: 'Add dark mode' } });
     fireEvent.change(form.getByLabelText('Priority'), { target: { value: '9' } });
+    fireEvent.click(form.getByRole('radio', { name: 'Work' }));
     fireEvent.click(form.getByRole('button', { name: 'Create ticket' }));
     await waitFor(() => expect(cardTitles('Queued')[0]).toBe('Add dark mode'));
     expect(screen.queryByRole('form', { name: 'Create ticket' })).toBeNull();

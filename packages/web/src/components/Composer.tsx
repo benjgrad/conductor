@@ -85,7 +85,11 @@ export function Composer({
   const commands = availableCommands({
     canMessage: m.mode === 'message',
     canCancel: sessionId !== null && status !== null && !TERMINAL_STATUSES.has(status),
-    canRetry: request !== null && request.kind !== 'agent_question',
+    // ADR-0011: /retry (like the quick actions) only on old versions, which have no buttons.
+    canRetry:
+      request !== null &&
+      request.kind !== 'agent_question' &&
+      detail.card.human_transitions.length === 0,
   });
   const query = slashQuery(text);
   const items = query === null || dismissed ? [] : filterCommands(commands, query);

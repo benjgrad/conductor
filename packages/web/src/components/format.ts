@@ -1,4 +1,4 @@
-import type { InputRequestKind, SessionStatus } from '@conductor/shared';
+import type { InputRequestKind, SessionStatus, TicketKind } from '@conductor/shared';
 
 export const KIND_LABELS: Record<InputRequestKind, string> = {
   agent_question: 'Question',
@@ -40,3 +40,8 @@ export function duration(seconds: number): string {
   if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
   return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 }
+
+export const TICKET_KIND_LABELS: Record<TicketKind, string> = {
+  work: 'Work',
+  personal: 'Personal',
+};

@@ -2,6 +2,7 @@ import {
   API_PATHS,
   BOARD_SSE_FIXTURES,
   OUTPUT_CHUNK_FIXTURE,
+  TRANSITION_REQUEST_FIXTURES,
   type BoardSseEvent,
   type OutputChunk,
 } from '@conductor/shared';
@@ -221,6 +222,18 @@ describe('createHttpApi REST', () => {
     expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([
       ['GET', `http://orch:7400${API_PATHS.sessionTranscript(SESSION)}`, undefined],
       ['POST', `http://orch:7400${API_PATHS.sessionReopen(SESSION)}`, { text: 'Make it blue' }],
+    ]);
+  });
+
+  it('transition (ADR-0011) posts {name, text} to its API_PATHS route', async () => {
+    const { calls, fetch } = recordingFetch(() => json(202, { ok: true }));
+    const api = createHttpApi({ baseUrl: 'http://orch:7400', fetch });
+    const { waiting_on_someone, done } = TRANSITION_REQUEST_FIXTURES;
+    expect(await api.transition(SESSION, waiting_on_someone!)).toEqual({ ok: true });
+    await api.transition(SESSION, done!);
+    expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([
+      ['POST', `http://orch:7400${API_PATHS.sessionTransition(SESSION)}`, waiting_on_someone],
+      ['POST', `http://orch:7400${API_PATHS.sessionTransition(SESSION)}`, { name: 'done' }],
     ]);
   });
 

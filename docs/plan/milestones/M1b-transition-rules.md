@@ -158,7 +158,8 @@ Groups run in order A → B → C → D. Tasks within a group own disjoint files
     - `on_unmet.goto` has no `requires` of its own (no nested steps, as rule 9).
   - **Rule 14, actions:**
     - `update_jira` and `slack_message` are errors until M5 ("not available yet");
-    - a `requires` on a transition into the start state is an error.
+    - a `requires` on a transition into the start state is an error;
+    - (T01 review) an **enabled** condition whose type isn't in `AVAILABLE_CONDITION_TYPES` is an error ("not available yet"), not a warning. The editor has no warning channel.
   - Rule 4's loop analysis counts a `move:` on_unmet goto leg as bounded (its counter) and the else leg as unbounded.
   - Rule 9 keeps checking old `entry` fields.
   - The REST error paths point at the transition: `states.<s>.on.<name>.requires.conditions.1`.
@@ -188,6 +189,7 @@ Groups run in order A → B → C → D. Tasks within a group own disjoint files
   - **Work-commit rule** (Ben, 2026-10-26). For a ticket with `kind: 'work'`, every agent prompt includes a "## Work repository" section. It says: commit only changes that make sense to the other developers on this repo, who don't use conductor. Don't commit workflow or agent configuration, notes for conductor, or anything specific to this tool. Personal tickets have no such section. Test: the section is present for work, absent for personal, and absent for null kind.
   - **Moves:** `state.entered` events carry `transition`, `reason`, `actor`.
   - Old versions still run unchanged: entry steps and ADR-0009 gates.
+  - (T01 review) An agent's unknown or disallowed transition is **routed** by apply to needs_input, using `unknownTransitionQuestion`; ignoring it would change nothing. `unknown_transition` / `transition_not_allowed` are ignore reasons for `human.transition` only (409). T03 decides whether a v2 `input.provided` goes through the `answer` transition; T04's `/input` route stays unchanged either way. Replace T01's `human.transition` → `wrong_status` stubs in `handle()`.
 - **Design refs**: ADR-0011 §Who takes a transition, §Requirements on the move; [05](../../design/05-workflow-engine.md) §Requirements to enter a column (the machinery reused); [10](../../design/10-contracts.md) §Pending answer.
 - **Depends on**: T01.
 - **Files owned**: `packages/shared/src/engine/{apply.ts, transitions.ts, move-step.ts, render.ts}` and their tests (`apply.transition.test.ts` new); 05 §Transitions (new).
@@ -210,11 +212,16 @@ Groups run in order A → B → C → D. Tasks within a group own disjoint files
   - The schema test (`test/schema.test.ts`) covers the new column and enum.
 - **Design refs**: ADR-0011 §Ticket kind, §Who takes a transition; [03](../../design/03-protocols.md) §REST; [02](../../design/02-data-model.md) §ticket.
 - **Depends on**: T01. Ben approves the migration before merge.
-- **Files owned**: `packages/orchestrator/migrations/**` (new file only), `src/api/**`, `src/db/**` (except `types.ts`), `test/**` for these; 02 and 03 notes for the route and column.
-- **Do not touch**: `src/contracts.ts`, `src/db/types.ts`, `src/engine/**` (except a call site if the route needs one, reported), `src/gateway/**`.
+- **Files owned**:
+  - `packages/orchestrator/migrations/**` (new file only), `src/api/**`, `src/db/**` **including `types.ts` for `TicketRow.kind`** (T01 review: the schema test forces row types to match the DDL), and `test/**` for these;
+  - the **one-line e2e harness change** `e2e/harness/api.ts` (`kind: 'work'` on created tickets), otherwise e2e goes red;
+  - 02 and 03 notes for the route and column.
+  
+  Also: flip `CreateTicketRequestSchema.kind` to required in shared rest.ts (T01's TD), and fill `human.transition.input_request_id` from the open input_request in the route.
+- **Do not touch**: `src/contracts.ts`, `src/engine/**` (except a call site if the route needs one, reported), `src/gateway/**`.
 - **Acceptance**:
   - [ ] Migration up/down on an empty DB and on a DB with M1 data (existing tickets end with `kind = null`).
-  - [ ] API tests: create without kind → 400; transition → 202 and the session moves (with the real engine against the T01 fake definition); an ignored transition → 409; an unknown session → 404.
+  - [ ] API tests: create without kind → 400; transition → 202 with the session moving under a **ScriptedApply** engine, as in `test/engine/service.transition.test.ts` (the real-engine check moves to T10, because T03 may not have landed); an ignored transition → 409; an unknown session → 404.
   - [ ] Session detail returns `moves` in order with transition, reason and actor.
   - [ ] The M1-T14 guards apply to the new route (test: a foreign Origin → 403, non-JSON → 415).
 
@@ -237,7 +244,15 @@ Groups run in order A → B → C → D. Tasks within a group own disjoint files
   - **Fake claude** (`test/fixtures/fake-claude.mjs`): script steps can name `transition` and `reason`.
 - **Design refs**: [ADR-0005](../../adr/0005-claude-code-driver.md) §Contract; ADR-0010 implementation notes (open_pr hardening); ADR-0011 §Requirements on the move; ADR-0016 §The connector registry.
 - **Depends on**: T01.
-- **Files owned**: `packages/daemon/src/claude/outcome-server.ts`, `src/actions/conditions.ts` (new), `src/daemon.ts` (the run_action dispatch and forwarding only), `test/fixtures/fake-claude.mjs`, and their tests.
+- **Files owned**:
+  - `packages/daemon/src/claude/outcome-server.ts`, `src/actions/conditions.ts` (new);
+  - `src/daemon.ts`: the run_action dispatch, the forwarding, **and the start_session → `driver.start` option mapping (around lines 580–592) for `transitions`**;
+  - **`src/claude/cli-driver.ts`**: the `server.register` call (around line 233) passes the transitions and forwards transition/reason;
+  - **`src/claude/fake-driver.ts`**;
+  - `test/fixtures/fake-claude.mjs`;
+  - their tests.
+  
+  The T01 review found these files necessary for the acceptance.
 - **Do not touch**: `src/claude/driver.ts` (contract), `packages/shared/**`, the e2e harness.
 - **Acceptance**:
   - [ ] Outcome-server tests: a valid name is emitted with its reason; an unknown name gets corrective text once, then is emitted; no list → any name passes (old workflows).
@@ -271,7 +286,7 @@ Groups run in order A → B → C → D. Tasks within a group own disjoint files
 ### M1b-T07 · Web board: checklist, buttons, timeline, kind
 - **Scope**:
   - **Card**: when `pending` is set, a compact checklist "waiting for: ✓ Tests pass · ✓ PR opened · ◻ approvals 1/2 · ◻ pipeline", with each item's status icon and the detail on hover. Disabled and unsupported items are greyed. The kind is shown as a small tag.
-  - **Needs-input card and detail panel**: one button per `human_transitions` entry. `needs_text` opens a text box first (e.g. "Waiting on someone else" asks who or what). The button posts `/transition`. The answer box remains for `$return_to`. The quick actions (retry, skip to, abort) stay for old versions only.
+  - **Needs-input card and detail panel**: one button per `human_transitions` entry. `needs_text` opens a text box first (e.g. "Waiting on someone else" asks who or what). The button posts `/transition`. The answer box remains for `$return_to`. The quick actions (retry, skip to, abort) stay for old versions only. "Old version" means `human_transitions.length === 0` (T01 review).
   - **Detail panel**: a "Moves" list from `moves`: "<time> <from> → <to> · <title of transition> — <reason>".
   - **Create form**: a required Work / Personal choice.
   - **Mock API** (`api/mock.ts`, `mock-data.ts`): the new fields, so the board runs with no server.
@@ -302,6 +317,8 @@ Groups run in order A → B → C → D. Tasks within a group own disjoint files
     - past `condition_timeout` → kill nothing, go to `on_unmet.else` with kind `timeout` and the checklist as the question (U-063);
     - else re-emit `evaluate_conditions`.
   - **A refused or failed action** (no machine, ack timeout): keep pending, mark the checklist "waiting for a machine to check", and re-arm (U-058). Not a requeue.
+    - **Dispatcher caveat (T01 review):** the dispatcher turns only `start_session` ack timeouts into `command.refused`, so a `run_action` to an offline machine never refuses. Therefore a poll timer that fires while an evaluation is still `running` sets `CONDITIONS_NO_MACHINE_NOTE` and does **not** re-emit. Report a TD for the dispatcher.
+    - **Machine scope:** M1b re-checks on the **session's machine only**, not "any online machine of the account" (ADR-0011): there are no accounts and only one machine before M2. Report it as a TD; M2 widens it.
   - `wall_seconds` doesn't count while conditions are pending.
   - Disabled conditions are skipped. `unsupported` counts as pending, and a validator warning in the editor flags it.
   - An `external.event` named in the event state's `wait_for` while conditions are pending (e.g. `ui.approve` on Waiting external) is still taken: a human approve overrides.
@@ -322,7 +339,10 @@ Groups run in order A → B → C → D. Tasks within a group own disjoint files
   - **Work-commit rule** (Ben, 2026-10-26). Every work-kind transition out of Implementing that ships code (`ready_for_testing`, and `pr_ready_for_review` if it carries `requires`) gets a `review` item: "The change contains nothing conductor-specific (no workflow or agent configuration, no notes for conductor); everything committed is useful to the other developers on this repository." When unmet, the ticket goes back to Implementing. The prompt instruction is T03's.
 - **Design refs**: ADR-0011 §Default conductor v2; ADR-0010 §Implementation notes (Seed).
 - **Depends on**: T02 (it must validate), T03 (its transitions must run).
-- **Files owned**: `docs/design/workflows/conductor.v2.json`, `packages/shared/src/workflow/conductor.ts` (+ test), `packages/orchestrator/src/engine/seed.ts` (+ test); 00-overview's design-index line.
+- **Files owned**:
+  - `docs/design/workflows/conductor.v2.json`, `packages/shared/src/workflow/conductor.ts` (+ test), `packages/orchestrator/src/engine/seed.ts` (+ test); 00-overview's design-index line;
+  - **the `default_available` line in `GET /api/workflows/:id`** (orchestrator api; T01 review). "Unedited" means the parsed stored v1 deep-equals `CONDUCTOR_V1_DEF`;
+  - v2 sets `actor: human` explicitly on its event-state custom transitions (inference would say `agent`, which rule 10 rejects).
 - **Do not touch**: `schema.ts`, `validate*.ts`, `apply.ts`, the web.
 - **Acceptance**:
   - [ ] v2 validates; `python3 -m json.tool` accepts the file.

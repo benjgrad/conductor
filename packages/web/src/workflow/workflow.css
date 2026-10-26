@@ -541,3 +541,63 @@ main[hidden] {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
 }
+
+/* Transitions (ADR-0011): the column panel's list and the arrow panel */
+.wf-transitions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.wf-transition {
+  font-size: 12px;
+  padding: 1px 6px;
+}
+.wf-transition.error,
+.wf-transition-tabs button.error {
+  border-color: var(--ask);
+  color: var(--ask);
+}
+.wf-transition-tabs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.wf-transition-tabs button {
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.wf-transition-tabs button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+}
+.wf-kinds {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+}
+.wf-kinds legend {
+  color: var(--muted);
+  padding: 0;
+  margin-bottom: 2px;
+}
+.wf-editor .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.wf-legacy {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

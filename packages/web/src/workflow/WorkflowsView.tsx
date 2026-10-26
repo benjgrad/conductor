@@ -1,5 +1,6 @@
 import {
   CONDUCTOR_WORKFLOW_ID,
+  foldLegacyRequirements,
   type WorkflowDefinition,
   type WorkflowDetail,
 } from '@conductor/shared';
@@ -12,13 +13,25 @@ import {
 } from '../api/client.js';
 import { ColumnEditor } from './ColumnEditor.js';
 import { ColumnsDiagram } from './ColumnsDiagram.js';
-import { columnTitle, stateForPath, validateColumns, type ColumnIssue } from './columns.js';
+import {
+  arrowId,
+  columnStates,
+  columnTitle,
+  issueAt,
+  validateColumns,
+  type ColumnIssue,
+  type LaneEdge,
+} from './columns.js';
 import { detailVersions } from './review.js';
+import { TransitionEditor } from './TransitionEditor.js';
+import { addTransition, getTransitionObject } from './transitions.js';
 import { WorkflowDiagram } from './WorkflowDiagram.js';
 
-// The Workflow view (ADR-0010): the one workflow, `conductor`, drawn as its board columns. Pick a
-// version; click a column to edit its title, work and requirements to enter in a local draft.
-// Save POSTs the whole definition, which the server stores as a new version.
+// The Workflow view (ADR-0010, ADR-0011): the one workflow, `conductor`, drawn as its board
+// columns. Pick a version; click a column to edit its title and work, or an arrow to edit the
+// transitions it stands for (who takes them, for which tickets, what they require), in a local
+// draft. Save folds an old version's requirements onto transitions (`foldLegacyRequirements`) and
+// POSTs the whole definition, which the server stores as a new version.
 
 export interface WorkflowsViewProps {
   api: ApiClient;
@@ -28,6 +41,9 @@ export interface WorkflowsViewProps {
 
 const ID = CONDUCTOR_WORKFLOW_ID;
 
+type Selection =
+  { kind: 'column'; state: string } | { kind: 'transition'; from: string; name: string };
+
 export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
   /** null = latest. */
   const [version, setVersion] = useState<number | null>(null);
@@ -36,7 +52,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
   const [latestSeen, setLatestSeen] = useState(0);
   const [missing, setMissing] = useState(false);
   const [draft, setDraft] = useState<WorkflowDefinition | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Selection | null>(null);
   const [serverErrors, setServerErrors] = useState<ApiErrorDetail[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -76,22 +92,26 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
 
   const clientIssues = useMemo(() => (shown ? validateColumns(shown) : []), [shown]);
   const serverIssues = useMemo<ColumnIssue[]>(
-    () =>
-      shown
-        ? serverErrors.map((d) => ({
-            state: stateForPath(shown, d.path),
-            path: d.path,
-            message: d.message,
-          }))
-        : [],
+    () => (shown ? serverErrors.map((d) => issueAt(shown, d.path, d.message)) : []),
     [serverErrors, shown],
   );
-  const allIssues = [...clientIssues, ...serverIssues];
-  const errorStates = useMemo(() => {
-    const s = new Set<string>();
-    for (const i of [...clientIssues, ...serverIssues]) if (i.state !== null) s.add(i.state);
-    return s;
-  }, [clientIssues, serverIssues]);
+  const allIssues = useMemo(() => [...clientIssues, ...serverIssues], [clientIssues, serverIssues]);
+  // A transition's problem marks its arrow; one whose arrow isn't drawn (`$return_to`, a loop to
+  // its own column) marks the column, like every other problem in a column.
+  const { errorStates, errorEdges } = useMemo(() => {
+    const states = new Set<string>();
+    const edges = new Set<string>();
+    for (const i of allIssues) {
+      const t =
+        i.transition && shown
+          ? getTransitionObject(shown, i.transition.from, i.transition.name)
+          : null;
+      if (t && i.transition && shown?.states[t.goto] && t.goto !== i.transition.from) {
+        edges.add(arrowId(i.transition.from, t.goto));
+      } else if (i.state !== null) states.add(i.state);
+    }
+    return { errorStates: states, errorEdges: edges };
+  }, [allIssues, shown]);
 
   const edit = (next: WorkflowDefinition) => {
     setDraft(next);
@@ -106,11 +126,15 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
 
   async function save() {
     if (!draft || clientIssues.length > 0) return;
+    // ADR-0011: an old version's `entry` / ADR-0009 gates become transition `requires`. The
+    // folded draft stays on a failure, so the server's paths match what the editor shows.
+    const folded = foldLegacyRequirements(draft);
+    if (folded !== draft) setDraft(folded);
     setSaving(true);
     setServerErrors([]);
     setError(null);
     try {
-      const res = await api.saveWorkflow(draft);
+      const res = await api.saveWorkflow(folded);
       setLatestSeen((v) => Math.max(v, res.version));
       setDraft(null);
       setVersion(res.version);
@@ -143,10 +167,32 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
     );
   }
 
-  const selectedState = selected !== null && shown?.states[selected] ? selected : null;
+  const selectedState =
+    selected?.kind === 'column' && shown?.states[selected.state] ? selected.state : null;
+  const selectedTransition =
+    selected?.kind === 'transition' && shown
+      ? getTransitionObject(shown, selected.from, selected.name)
+      : null;
+  const selectedEdge =
+    selected?.kind === 'transition' && selectedTransition
+      ? arrowId(selected.from, selectedTransition.goto)
+      : null;
+  const panelOpen = asColumns && (selectedState !== null || selectedTransition !== null);
+
+  const selectEdge = (edge: LaneEdge) => {
+    if (edge.owner) setSelected({ kind: 'transition', ...edge.owner });
+    else if (edge.transitions?.[0] !== undefined) {
+      setSelected({ kind: 'transition', from: edge.from, name: edge.transitions[0] });
+    }
+  };
+  const showIssue = (i: ColumnIssue) => {
+    if (i.transition && shown && getTransitionObject(shown, i.transition.from, i.transition.name)) {
+      setSelected({ kind: 'transition', ...i.transition });
+    } else if (i.state !== null) setSelected({ kind: 'column', state: i.state });
+  };
 
   return (
-    <div className={`wf-view${selectedState && asColumns ? ' with-editor' : ''}`}>
+    <div className={`wf-view${panelOpen ? ' with-editor' : ''}`}>
       <section className="wf-main" aria-label="Workflow">
         <div className="wf-toolbar">
           <h2>Workflow</h2>
@@ -203,8 +249,9 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
         )}
         {!dirty && shown && asColumns && (
           <p className="muted wf-note">
-            Each column is a state on the board. Click a column (or Tab to it and press Enter) to
-            edit its title, its work and its requirements to enter.
+            Each column is a state on the board, and each arrow the transitions between two columns.
+            Click a column to edit its title and work, or an arrow to edit who takes the move, for
+            which tickets and what it requires (or Tab to it and press Enter).
           </p>
         )}
         {shown && !asColumns && (
@@ -223,9 +270,13 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
               <li key={n}>
                 {i.state !== null ? (
                   <>
-                    <strong>{columnTitle(shown, i.state)}</strong>: {i.message}
+                    <strong>
+                      {columnTitle(shown, i.state)}
+                      {i.transition ? ` · ${i.transition.name}` : ''}
+                    </strong>
+                    : {i.message}
                     {asColumns && (
-                      <button type="button" onClick={() => setSelected(i.state)}>
+                      <button type="button" onClick={() => showIssue(i)}>
                         Show
                       </button>
                     )}
@@ -244,15 +295,18 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
             definition={shown}
             selected={selectedState}
             errors={errorStates}
-            onSelectColumn={setSelected}
+            onSelectColumn={(state) => setSelected({ kind: 'column', state })}
+            onSelectEdge={selectEdge}
+            selectedEdge={selectedEdge}
+            errorEdges={errorEdges}
           />
         )}
         {shown && !asColumns && <WorkflowDiagram definition={shown} />}
         {shown && asColumns && (
           <p className="wf-legend muted">
-            <span>→ outcome</span>
+            <span>→ transitions (click to edit) · ×n several on one arrow</span>
             <span>- - - dashed: requirements not met (back, bounded) / else</span>
-            <span>✓ checks · ◎ review · ↗ conductor action</span>
+            <span>✓ requires checks, review, actions or conditions</span>
           </p>
         )}
       </section>
@@ -264,6 +318,26 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
           state={selectedState}
           issues={allIssues.filter((i) => i.state === selectedState)}
           onChange={edit}
+          onSelectTransition={(name) =>
+            setSelected({ kind: 'transition', from: selectedState, name })
+          }
+          onAddTransition={() => {
+            const { definition, name } = addTransition(shown, selectedState, columnStates(shown));
+            edit(definition);
+            setSelected({ kind: 'transition', from: selectedState, name });
+          }}
+          onClose={() => setSelected(null)}
+        />
+      )}
+      {selected?.kind === 'transition' && selectedTransition && shown && asColumns && (
+        <TransitionEditor
+          definition={shown}
+          from={selected.from}
+          name={selected.name}
+          issues={allIssues.filter((i) => i.transition?.from === selected.from)}
+          onChange={edit}
+          onSelect={(name) => setSelected({ kind: 'transition', from: selected.from, name })}
+          onRemoved={() => setSelected({ kind: 'column', state: selected.from })}
           onClose={() => setSelected(null)}
         />
       )}

@@ -126,8 +126,12 @@ describe('mock workflows (ADR-0009)', () => {
   it('serves the one conductor workflow (ADR-0010), valid, with history', async () => {
     const api = createMockApi({ now });
     const latest = await api.getWorkflow(CONDUCTOR_WORKFLOW_ID);
-    expect(latest.version).toBe(2);
-    expect(detailVersions(latest)).toEqual([1, 2]);
+    // v3 is the ADR-0011 transition-rules draft (M1b-T06); v2 the last entry-based one.
+    expect(latest.version).toBe(3);
+    expect(detailVersions(latest)).toEqual([1, 2, 3]);
+    const planning = latest.definition.states.planning;
+    expect(planning?.type === 'agent' && Object.keys(planning.on ?? {})).toContain('plan_ready');
+    const v2 = (await api.getWorkflow(CONDUCTOR_WORKFLOW_ID, 2)).definition;
     const v1 = (await api.getWorkflow(CONDUCTOR_WORKFLOW_ID, 1)).definition;
     expect(v1.columns).toEqual([
       'planning',
@@ -144,12 +148,13 @@ describe('mock workflows (ADR-0009)', () => {
       actions: ['open_pr'],
       on_unmet: { goto: 'implementing', retries: 3, else: 'needs_input' },
     });
-    for (const def of [v1, latest.definition]) {
+    // TD: v3 joins this loop once the validator accepts `$return_to` (M1b-T02).
+    for (const def of [v1, v2]) {
       const res = validateWorkflow(def);
       expect(res.ok ? [] : res.errors).toEqual([]);
     }
-    // Saving it as is stores v3.
-    expect(await api.saveWorkflow(latest.definition)).toEqual({ id: 'conductor', version: 3 });
+    // Saving v2 as is stores v4.
+    expect(await api.saveWorkflow(v2)).toEqual({ id: 'conductor', version: 4 });
   });
 
   it('createTicket defaults workflow_id to conductor', async () => {
@@ -165,7 +170,7 @@ describe('mock workflows (ADR-0009)', () => {
     const api = createMockApi({ now });
     const list = await api.listWorkflows();
     expect(list.map((w) => [w.id, w.version])).toEqual([
-      ['conductor', 2],
+      ['conductor', 3],
       ['m1_basic', 2],
       ['pr_flow', 2],
     ]);

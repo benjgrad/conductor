@@ -1,12 +1,13 @@
 import type { WorkflowDefinition } from '@conductor/shared';
 import { useMemo, type KeyboardEvent } from 'react';
-import { columnTitle, QUEUED_LANE } from './columns.js';
+import { columnTitle, QUEUED_LANE, type LaneEdge } from './columns.js';
 import { layoutLanes, type LaidLane, type LaidLaneEdge } from './columns-layout.js';
 import './workflow.css';
 
 // The one workflow drawn as its board columns (ADR-0010): an implicit Queued lane, then one lane
-// per state in `columns` order, with labelled outcome arrows between them and dashed "not met"
-// loops back. Lanes are buttons when `onSelectColumn` is given (the Workflow view's editor).
+// per state in `columns` order, with labelled transition arrows between them and dashed "not met"
+// loops back. Lanes are buttons when `onSelectColumn` is given, and arrows when `onSelectEdge` is
+// (the Workflow view's editors, ADR-0011).
 
 export interface ColumnsDiagramProps {
   definition: WorkflowDefinition;
@@ -15,6 +16,12 @@ export interface ColumnsDiagramProps {
   /** Columns with validation problems. */
   errors?: ReadonlySet<string>;
   onSelectColumn?: (state: string) => void;
+  /** ADR-0011: arrows are buttons when given (the Workflow view's transition panel). */
+  onSelectEdge?: (edge: LaneEdge) => void;
+  /** The selected arrow's edge id (`arrowId(from, to)`). */
+  selectedEdge?: string | null;
+  /** Edge ids with validation problems. */
+  errorEdges?: ReadonlySet<string>;
   /** The session's lane (a state name or QUEUED_LANE). */
   current?: string | null;
   /** The session's entry step (ADR-0010): it is checking the requirements to enter `to`. */
@@ -29,6 +36,9 @@ export function ColumnsDiagram({
   selected,
   errors,
   onSelectColumn,
+  onSelectEdge,
+  selectedEdge,
+  errorEdges,
   current,
   checking,
   compact = false,
@@ -37,6 +47,9 @@ export function ColumnsDiagram({
   const layout = useMemo(() => layoutLanes(definition, { compact }), [definition, compact]);
   const isChecking = (e: LaidLaneEdge) =>
     !!checking && e.edge.kind === 'outcome' && e.edge.to === checking.to && e.edge.from === current;
+  // ADR-0011: an arrow (and a dashed loop that belongs to one transition) opens its transitions.
+  const isSelectable = (e: LaidLaneEdge) =>
+    !!onSelectEdge && (e.edge.kind === 'outcome' || e.edge.owner !== undefined);
   return (
     <div className={`wf-diagram${compact ? ' compact' : ''}`}>
       <div className={compact ? undefined : 'wf-scroll'}>
@@ -66,34 +79,68 @@ export function ColumnsDiagram({
             ))}
           </g>
           <g className="wf-edges">
+            {layout.edges.map((e) => {
+              const selectable = isSelectable(e);
+              const activate = () => onSelectEdge?.(e.edge);
+              return (
+                <g
+                  key={e.edge.id}
+                  className={[
+                    'wf-edge',
+                    `wf-edge-${e.edge.kind}`,
+                    e.edge.dashed ? 'dashed' : '',
+                    e.edge.gated ? 'gated' : '',
+                    isChecking(e) ? 'reviewing' : '',
+                    selectable ? 'selectable' : '',
+                    e.edge.id === selectedEdge ? 'selected' : '',
+                    errorEdges?.has(e.edge.id) ? 'error' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  data-edge={e.edge.id}
+                  aria-current={isChecking(e) ? 'step' : undefined}
+                  {...(selectable
+                    ? {
+                        tabIndex: 0,
+                        role: 'button',
+                        'aria-label': `Arrow ${e.edge.title}`,
+                        'aria-pressed': e.edge.id === selectedEdge,
+                        onClick: activate,
+                        onKeyDown: (ev: KeyboardEvent) => {
+                          if (ev.key === 'Enter' || ev.key === ' ') {
+                            ev.preventDefault();
+                            activate();
+                          }
+                        },
+                      }
+                    : {})}
+                >
+                  <title>
+                    {isChecking(e)
+                      ? `${e.edge.title} (checking requirements to enter ${columnTitle(definition, e.edge.to)})`
+                      : e.edge.title}
+                  </title>
+                  {selectable && <path className="wf-hit" d={e.d} />}
+                  <path className="wf-line" d={e.d} />
+                  <polygon className="wf-arrow" points={e.arrow} />
+                </g>
+              );
+            })}
+          </g>
+          <g className="wf-labels" aria-hidden="true">
             {layout.edges.map((e) => (
               <g
                 key={e.edge.id}
                 className={[
-                  'wf-edge',
-                  `wf-edge-${e.edge.kind}`,
-                  e.edge.dashed ? 'dashed' : '',
-                  e.edge.gate !== undefined ? 'gated' : '',
-                  isChecking(e) ? 'reviewing' : '',
+                  'wf-label',
+                  `wf-label-${e.edge.kind}`,
+                  isSelectable(e) ? 'selectable' : '',
+                  e.edge.id === selectedEdge ? 'selected' : '',
                 ]
                   .filter(Boolean)
                   .join(' ')}
-                data-edge={e.edge.id}
-                aria-current={isChecking(e) ? 'step' : undefined}
+                {...(isSelectable(e) ? { onClick: () => onSelectEdge?.(e.edge) } : {})}
               >
-                <title>
-                  {isChecking(e)
-                    ? `${e.edge.title} (checking requirements to enter ${columnTitle(definition, e.edge.to)})`
-                    : e.edge.title}
-                </title>
-                <path className="wf-line" d={e.d} />
-                <polygon className="wf-arrow" points={e.arrow} />
-              </g>
-            ))}
-          </g>
-          <g className="wf-labels" aria-hidden="true">
-            {layout.edges.map((e) => (
-              <g key={e.edge.id} className={`wf-label wf-label-${e.edge.kind}`}>
                 <rect
                   className="wf-halo"
                   x={e.label.x}

@@ -1,4 +1,8 @@
-import { validateWorkflow, type WorkflowDefinition } from '@conductor/shared';
+import {
+  validateWorkflow,
+  type EntryRequirements,
+  type WorkflowDefinition,
+} from '@conductor/shared';
 import { describe, expect, it } from 'vitest';
 import { CONDUCTOR, CONDUCTOR_V1, M1_BASIC } from '../api/mock-data.js';
 import {
@@ -11,8 +15,10 @@ import {
   laneIds,
   normalizeEntry,
   QUEUED_LANE,
+  readSetup,
   readChecking,
   setEntry,
+  setupLabel,
   stateForPath,
   validateColumns,
   workSummary,
@@ -88,17 +94,59 @@ describe('lanes', () => {
 describe('requirements summary', () => {
   it('names checks, counts review items and lists actions', () => {
     expect(entrySummary(CONDUCTOR, entryOf(CONDUCTOR, 'waiting_external'))).toEqual({
+      setup: 'auto setup',
       checks: ['Build passes', 'Tests pass'],
       reviewItems: 2,
       actions: ['Opens PR'],
       unmet: 'Not met: back to Implementing ×3, then Needs input',
     });
     expect(entryLines(CONDUCTOR_V1, entryOf(CONDUCTOR_V1, 'waiting_external'))).toEqual([
+      '⚙ auto setup',
       '✓ Build passes',
       '✓ Tests pass',
       '↗ Opens PR',
       'Not met: back to Implementing ×3, then Needs input',
     ]);
+  });
+});
+
+describe('entry setup (read defensively)', () => {
+  const base = entryOf(CONDUCTOR_V1, 'waiting_external');
+  const withSetup = (setup: string, e: EntryRequirements = base) =>
+    ({ ...e, setup }) as EntryRequirements;
+
+  it('maps auto / none / custom and only keeps setup with checks', () => {
+    const d = entryDraft(CONDUCTOR_V1, 'waiting_external');
+    expect(d.setup).toBeUndefined();
+    expect(readSetup(normalizeEntry(d)!)).toBeUndefined();
+    expect(readSetup(normalizeEntry({ ...d, setup: '' })!)).toBe('');
+    expect(readSetup(normalizeEntry({ ...d, setup: 'pnpm i' })!)).toBe('pnpm i');
+    const noChecks = normalizeEntry({ ...d, setup: 'pnpm i', checks: [] })!;
+    expect('setup' in noChecks).toBe(false);
+    const def = setEntry(CONDUCTOR_V1, 'waiting_external', withSetup('npm ci'));
+    expect(entryDraft(def, 'waiting_external').setup).toBe('npm ci');
+  });
+
+  it('shows in the summary', () => {
+    expect(entryLines(CONDUCTOR_V1, base)[0]).toBe('⚙ auto setup');
+    expect(entryLines(CONDUCTOR_V1, withSetup('npm ci'))[0]).toBe('⚙ setup: npm ci');
+    expect(entryLines(CONDUCTOR_V1, withSetup(''))[0]).toBe('⚙ no setup');
+    expect(setupLabel({ actions: ['open_pr'], on_unmet: base.on_unmet })).toBeNull();
+  });
+
+  it('is rejected on an entry without checks (rule 9)', () => {
+    const e = withSetup('npm ci', { actions: ['open_pr'], on_unmet: base.on_unmet });
+    const def = setEntry(CONDUCTOR_V1, 'waiting_external', e);
+    expect(validateColumns(def)).toEqual([
+      {
+        state: 'waiting_external',
+        path: 'states.waiting_external.entry.setup',
+        message: 'setup runs before the checks: add a check, or remove the setup',
+      },
+    ]);
+    expect(
+      validateColumns(setEntry(CONDUCTOR_V1, 'waiting_external', withSetup('npm ci'))),
+    ).toEqual([]);
   });
 });
 

@@ -1,5 +1,5 @@
 import type { EntryCheck, WorkflowDefinition } from '@conductor/shared';
-import { useId, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import {
   columnStates,
   columnTitle,
@@ -45,6 +45,8 @@ const TYPE_TEXT: Record<string, string> = {
 
 export function ColumnEditor({ definition, state, issues, onChange, onClose }: ColumnEditorProps) {
   const uid = useId();
+  /** The user picked "Custom command" (its text may still be empty, which reads as none). */
+  const [customSetup, setCustomSetup] = useState(false);
   const s = definition.states[state];
   if (!s) return null;
   const title = columnTitle(definition, state);
@@ -58,6 +60,15 @@ export function ColumnEditor({ definition, state, issues, onChange, onClose }: C
   const patch = (p: Partial<EntryDraft>) => apply({ ...draft, ...p });
   const setChecks = (checks: EntryCheck[]) => patch({ checks });
   const setItems = (reviewItems: string[]) => patch({ reviewItems });
+  /** undefined = auto-detect (omit `setup`), '' = none, else the command. */
+  const setSetup = (setup: string | undefined) => {
+    const next = { ...draft };
+    delete next.setup;
+    if (setup !== undefined) next.setup = setup;
+    apply(next);
+  };
+  const setupMode: 'auto' | 'none' | 'custom' =
+    draft.setup === undefined ? 'auto' : draft.setup === '' && !customSetup ? 'none' : 'custom';
   const base = `states.${state}`;
   const shownPaths = new Set<string>();
   const at = (suffix: string): ReactNode => {
@@ -243,6 +254,38 @@ export function ColumnEditor({ definition, state, issues, onChange, onClose }: C
               Add check
             </button>
           </div>
+          {draft.checks.length > 0 && (
+            <div className="wf-setup">
+              <label htmlFor={`${uid}-setup`}>
+                Before the checks (in a fresh checkout of the commit)
+              </label>
+              <select
+                id={`${uid}-setup`}
+                value={setupMode}
+                onChange={(e) => {
+                  const mode = e.target.value;
+                  setCustomSetup(mode === 'custom');
+                  if (mode === 'auto') setSetup(undefined);
+                  else if (mode === 'none') setSetup('');
+                  else setSetup(draft.setup ?? '');
+                }}
+              >
+                <option value="auto">Auto-detect (npm ci / npm install)</option>
+                <option value="none">None</option>
+                <option value="custom">Custom command</option>
+              </select>
+              {setupMode === 'custom' && (
+                <input
+                  aria-label="Setup command"
+                  className="mono"
+                  value={draft.setup ?? ''}
+                  placeholder="e.g. pnpm install --frozen-lockfile"
+                  onChange={(e) => setSetup(e.target.value)}
+                />
+              )}
+              {at('.entry.setup')}
+            </div>
+          )}
 
           <h5>Review</h5>
           <ol className="wf-items" aria-label="Review items">

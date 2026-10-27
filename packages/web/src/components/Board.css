@@ -1,0 +1,58 @@
+/* UX-4: the card's open-request block. The preview is clamped to 3 lines with a fixed max-height,
+   so a 5,000-character report never grows the card (no layout jump). */
+.card .card-preview {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  max-height: calc(3 * 18px);
+  width: 100%;
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.card .card-preview:disabled {
+  cursor: default;
+}
+.card .card-preview:focus-visible,
+.card .card-pr-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.badge-review {
+  background: var(--user-bg);
+  color: var(--accent);
+  border: 1px solid var(--user-border);
+  font-weight: 600;
+}
+.badge-step-failed {
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.card .card-pr-link {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.card .card-pr-link:hover {
+  text-decoration: underline;
+}

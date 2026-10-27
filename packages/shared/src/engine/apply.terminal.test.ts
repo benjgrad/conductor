@@ -104,3 +104,73 @@ describe('BUG-1: a terminal session leaves no parked agent process', () => {
     expect(kills(r.effects)).toEqual([]);
   });
 });
+
+describe('BUG-1: a human move off a parked agent into a state without an agent kills it', () => {
+  it('human.transition into an event state (waiting on someone)', () => {
+    const h = parkedV2();
+    const parkedCmd = h.agentCmd;
+    const r = h.run({
+      type: 'human.transition',
+      name: 'waiting_on_someone',
+      text: 'waiting on design',
+      actor: 'ui',
+      input_request_id: null,
+    });
+    expect(r.ignored).toBeNull();
+    expect(r.snapshot).toMatchObject({
+      workflow_state: 'waiting_external',
+      agent_command_id: null,
+      agent_process_live: false,
+    });
+    expect(kills(r.effects)).toEqual([
+      {
+        type: 'kill',
+        reason: 'a human moved the ticket off the agent',
+        target_command_id: parkedCmd,
+      },
+    ]);
+  });
+
+  it('an answer routed into a command state', () => {
+    const h = parkedM1();
+    const parkedCmd = h.agentCmd;
+    const r = h.run({
+      type: 'input.provided',
+      input_request_id: '00000000-0000-4000-8000-0000000000aa',
+      answer: 'skip to the build',
+      goto: 'build',
+    });
+    expect(r.snapshot).toMatchObject({ workflow_state: 'build', agent_process_live: false });
+    expect(kills(r.effects)).toEqual([
+      {
+        type: 'kill',
+        reason: 'a human moved the ticket off the agent',
+        target_command_id: parkedCmd,
+      },
+    ]);
+    expect(r.effects.some((e) => e.type === 'run_cmd')).toBe(true);
+  });
+
+  it('an answer back to the asking agent keeps the process (send_input, no kill)', () => {
+    const h = parkedM1();
+    const r = h.run({
+      type: 'input.provided',
+      input_request_id: '00000000-0000-4000-8000-0000000000aa',
+      answer: '8080',
+    });
+    expect(r.snapshot).toMatchObject({ workflow_state: 'implement', agent_process_live: true });
+    expect(kills(r.effects)).toEqual([]);
+    expect(r.effects.some((e) => e.type === 'send_input')).toBe(true);
+  });
+});
+
+describe('BUG-1 with M2-T06: a lost machine is not killed twice', () => {
+  it("machine.lost on a running session emits only T06's machine_lost kill", () => {
+    const h = new Harness(referenceWorkflow('m1_basic')).claimAndStart();
+    expect(h.snap.agent_process_live).toBe(true);
+    const r = h.run({ type: 'machine.lost', machine_id: 'mbp-ben', reason: 'lease_expired' });
+    expect(r.ignored).toBeNull();
+    expect(kills(r.effects)).toEqual([{ type: 'kill', reason: 'machine_lost' }]);
+    expect(r.snapshot.agent_process_live).toBe(false);
+  });
+});

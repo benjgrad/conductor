@@ -103,11 +103,11 @@ describe('mock ApiClient auth', () => {
     expect(after.disabled_at).not.toBeNull();
   });
 
-  it('changePassword: 401 for a wrong current password', async () => {
+  it('changePassword: 400 at path current for a wrong current password', async () => {
     const api = createMockApi({ now, auth: 'password' });
     await expect(
       api.changePassword({ current: 'wrong', new: 'a different passphrase' }),
-    ).rejects.toMatchObject({ status: 401 });
+    ).rejects.toMatchObject({ status: 400, details: [{ path: 'current' }] });
     await api.changePassword({ current: MOCK_ADMIN.password, new: 'a different passphrase' });
   });
 });

@@ -1,7 +1,14 @@
-import { readFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { cpus, homedir, hostname, totalmem } from 'node:os';
 import { join, resolve } from 'node:path';
-import { API_PATHS, conductorPort } from '@conductor/shared';
+import { z } from 'zod';
+import {
+  API_PATHS,
+  conductorPort,
+  isCanonicalRemote,
+  WorkingCopyModeSchema,
+} from '@conductor/shared';
 import {
   credentialPath,
   daemonWsUrl,
@@ -75,6 +82,18 @@ export interface DaemonConfig {
    * so this is the dir they write to).
    */
   claudeConfigDir?: string;
+  /**
+   * M2-T10: CONDUCTOR_ROOTS (`:`-separated, PATH-like), absolute; null = use `config.json`'s
+   * `roots`, which every scan re-reads (so `config roots …` + SIGHUP needs no restart).
+   */
+  rootsOverride?: string[] | null;
+  /**
+   * Tests only: CONDUCTOR_TEST_REMOTE_ALIASES (`<path>=<host/org/repo>,…`) gives local test repos
+   * a canonical remote in the inventory. Parsed only with allowLocalRepos, else empty.
+   */
+  testRemoteAliases?: Record<string, string>;
+  /** The inventory rescan interval (ADR-0013: 10 minutes). */
+  inventoryIntervalMs?: number;
 }
 
 type Env = Record<string, string | undefined>;
@@ -111,6 +130,91 @@ function bool(env: Env, name: string, fallback: boolean): boolean {
   if (/^(1|true|yes)$/i.test(raw)) return true;
   if (/^(0|false|no)$/i.test(raw)) return false;
   throw new Error(`${name}=${raw} is not a boolean (1/0, true/false)`);
+}
+
+/**
+ * `<root>/config.json` (M2-T10, `conductor-daemon config`): the repo roots the inventory scans and
+ * the per-repo working-copy mode (U-060; default `reference`). Written 0600.
+ */
+export const DaemonFileConfigSchema = z.object({
+  roots: z.array(z.string().min(1)).default([]),
+  repos: z.record(z.string(), z.object({ mode: WorkingCopyModeSchema })).default({}),
+});
+export type DaemonFileConfig = z.infer<typeof DaemonFileConfigSchema>;
+
+export function fileConfigPath(rootDir: string): string {
+  return join(rootDir, 'config.json');
+}
+
+/** `<root>/config.json`, or the defaults when it doesn't exist. Throws (naming the file) if invalid. */
+export function readFileConfig(rootDir: string): DaemonFileConfig {
+  const path = fileConfigPath(rootDir);
+  let text: string;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return DaemonFileConfigSchema.parse({});
+    throw e;
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw new Error(`${path} is not valid JSON`);
+  }
+  const parsed = DaemonFileConfigSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(`${path} is invalid: ${parsed.error.issues[0]?.message ?? 'bad shape'}`);
+  }
+  return parsed.data;
+}
+
+/** Write `<root>/config.json` atomically, mode 0600. Returns its path. */
+export function writeFileConfig(rootDir: string, cfg: DaemonFileConfig): string {
+  const data = DaemonFileConfigSchema.parse(cfg);
+  mkdirSync(rootDir, { recursive: true, mode: 0o700 });
+  const path = fileConfigPath(rootDir);
+  const tmp = `${path}.${randomBytes(6).toString('hex')}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+  try {
+    chmodSync(tmp, 0o600);
+    renameSync(tmp, path);
+  } catch (e) {
+    rmSync(tmp, { force: true });
+    throw e;
+  }
+  return path;
+}
+
+/** CONDUCTOR_ROOTS (`:`-separated), resolved; null when unset. */
+export function rootsFromEnv(env: Env): string[] | null {
+  const raw = env.CONDUCTOR_ROOTS;
+  if (raw === undefined || raw.trim() === '') return null;
+  return raw
+    .split(':')
+    .map((p) => p.trim())
+    .filter((p) => p !== '')
+    .map((p) => resolve(p));
+}
+
+/** CONDUCTOR_TEST_REMOTE_ALIASES `<path>=<host/org/repo>,…`; throws on a bad entry. */
+export function parseRemoteAliases(raw: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const item of raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s !== '')) {
+    const eq = item.lastIndexOf('=');
+    const path = eq > 0 ? item.slice(0, eq) : '';
+    const remote = eq > 0 ? item.slice(eq + 1) : '';
+    if (path === '' || !isCanonicalRemote(remote)) {
+      throw new Error(
+        `CONDUCTOR_TEST_REMOTE_ALIASES entry ${JSON.stringify(item)} is not <path>=<host/org/repo>`,
+      );
+    }
+    out[resolve(path)] = remote;
+  }
+  return out;
 }
 
 export interface MachineFacts {
@@ -159,7 +263,9 @@ export function daemonVersion(env: Env = process.env): string {
  * CONDUCTOR_PORT_RANGE_SIZE (10), CONDUCTOR_MIN_FREE_MEM_MB (512), CONDUCTOR_WORK_POLL_MS (5000),
  * CONDUCTOR_GIT_NAME, CONDUCTOR_GIT_EMAIL, CONDUCTOR_ALLOW_LOCAL_REPOS (1/true; default off),
  * CONDUCTOR_ALLOWED_REPO_HOSTS (comma list; default any host), CLAUDE_CONFIG_DIR (~/.claude;
- * where Claude Code writes transcripts, ADR-0008), CONDUCTOR_BUILD_SHA (appended to daemon_version).
+ * where Claude Code writes transcripts, ADR-0008), CONDUCTOR_BUILD_SHA (appended to daemon_version),
+ * CONDUCTOR_ROOTS (`:`-separated repo roots for the inventory; overrides `<root>/config.json`),
+ * CONDUCTOR_TEST_REMOTE_ALIASES (tests only, with CONDUCTOR_ALLOW_LOCAL_REPOS; ignored without).
  * When `<root>/machine.json` exists (M2-T04 `enroll`), its `machine_id` replaces
  * CONDUCTOR_MACHINE_ID, its `url` is the default orchestrator URL, and its credential is sent on
  * the WS upgrade; the orchestrator URL must then be wss:// (plain ws:// only to a loopback host).
@@ -224,6 +330,7 @@ export function loadConfig(
     throw new Error(`CONDUCTOR_PORT_POOL=${pool} cannot hold one range of ${portPool.rangeSize}`);
   }
   const tags = list(env, 'CONDUCTOR_TAGS');
+  const allowLocalRepos = bool(env, 'CONDUCTOR_ALLOW_LOCAL_REPOS', false);
   return {
     orchestratorUrl,
     rootDir,
@@ -245,8 +352,13 @@ export function loadConfig(
     killGraceMs: 5_000,
     gitName: str(env, 'CONDUCTOR_GIT_NAME', 'conductor'),
     gitEmail: str(env, 'CONDUCTOR_GIT_EMAIL', 'conductor@localhost'),
-    allowLocalRepos: bool(env, 'CONDUCTOR_ALLOW_LOCAL_REPOS', false),
+    allowLocalRepos,
     allowedRepoHosts: list(env, 'CONDUCTOR_ALLOWED_REPO_HOSTS').map((h) => h.toLowerCase()),
     claudeConfigDir: resolve(str(env, 'CLAUDE_CONFIG_DIR', join(facts.home, '.claude'))),
+    rootsOverride: rootsFromEnv(env),
+    testRemoteAliases: allowLocalRepos
+      ? parseRemoteAliases(str(env, 'CONDUCTOR_TEST_REMOTE_ALIASES', ''))
+      : {},
+    inventoryIntervalMs: 10 * 60_000,
   };
 }

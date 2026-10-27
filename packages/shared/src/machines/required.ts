@@ -1,3 +1,4 @@
+import { requiredCapabilitiesOf } from '../workflow/capabilities.js';
 import type { TicketKind, WorkflowDefinition } from '../workflow/schema.js';
 import type { CapabilityRequirement } from './capabilities.js';
 
@@ -9,7 +10,7 @@ export type RequiredCapabilitiesFn = (
 /**
  * ADR-0013 §Routing: the capabilities a ticket of `kind` (null = both, U-062) needs on a machine,
  * the union over every transition it could take, sorted and de-duplicated. Pure. Computed when a
- * workflow version is saved (M2-T12) and read by the claim (M2-T16).
+ * workflow version is saved (M2-T12) and read by the claim (M2-T16). The registry is in
+ * workflow/capabilities.ts.
  */
-// M2-T06: stub; implemented from the capability registry (workflow/capabilities.ts).
-export const requiredCapabilities: RequiredCapabilitiesFn = () => [];
+export const requiredCapabilities: RequiredCapabilitiesFn = requiredCapabilitiesOf;

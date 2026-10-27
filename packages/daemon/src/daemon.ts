@@ -27,6 +27,7 @@ import { DaemonStore, type AckRecord, type PersistedSession, type PortRange } fr
 import { liveResources, type SysInfo } from './sysinfo.js';
 import { buildAppendSystemPrompt } from './system-prompt.js';
 import { inventoryDigest, Workspace } from './workspace.js';
+import { InventoryReporter, scanInventory, type InventoryScan } from './inventory/report.js';
 import { detectSetup, freshCheckout, removeCheckout, sweepPrivate } from './actions/checkout.js';
 import { evaluateConditions } from './actions/conditions.js';
 import { checkClean, openPr, resolveHead } from './actions/open-pr.js';
@@ -35,7 +36,8 @@ import { ReconnectingWs } from './ws-client.js';
 // Daemon core (M1-T05; 03 §Daemon ↔ orchestrator, 07, 10-contracts, ADR-0005).
 //
 // One outbound WS. On every (re)connect: `register` → wait for `registered` → replay buffered
-// session_events after `registered.last_seq` → heartbeat, repo_inventory, request_work.
+// session_events after `registered.last_seq` → heartbeat, inventory (M2-T10), repo_inventory,
+// request_work.
 // Commands (`start_session`, `run_cmd`, `send_input`, `send_message`, `kill`) are deduped on command_id (persisted
 // with the ack they got, so a re-sent command is re-acked, never re-run). The Claude driver
 // (ADR-0005) and the command runner (T06) are injected.
@@ -64,6 +66,8 @@ export interface DaemonOptions {
   /** Test only: how open_pr runs gh (default `gh` from PATH). */
   ghCommand?: { cmd: string; args: readonly string[] };
   log?: (msg: string) => void;
+  /** Test seam: the inventory scan (default: inventory/report.ts `scanInventory`). */
+  scanInventory?: () => Promise<InventoryScan>;
   /**
    * The link can't recover (close 4001 revoked, 4003 unauthorized, 4005 protocol too old, or HTTP
    * 401 at the upgrade); reconnecting has stopped. `main` stops and exits non-zero.
@@ -143,6 +147,8 @@ export class Daemon {
   private readonly log: (msg: string) => void;
   private readonly onFatal: (code: number, reason: string) => void;
   private readonly ws: ReconnectingWs;
+  /** M2-T10: the `inventory` message (rescans every 10 minutes and on SIGHUP, see main). */
+  readonly inventory: InventoryReporter;
 
   private registered = false;
   private heartbeatMs: number;
@@ -189,6 +195,13 @@ export class Daemon {
       log: this.log,
     });
     this.ports = new PortPool(this.config.portPool);
+    const scan = opts.scanInventory ?? (() => scanInventory(this.config, process.env, this.log));
+    this.inventory = new InventoryReporter({
+      scan,
+      send: (payload) => this.sendMachine('inventory', payload),
+      intervalMs: this.config.inventoryIntervalMs ?? 10 * 60_000,
+      log: this.log,
+    });
     for (const [sid, s] of Object.entries(this.store.sessions)) {
       if (s.portRange) this.ports.adopt(sid, s.portRange);
       if (s.agent) {
@@ -223,13 +236,20 @@ export class Daemon {
   }
 
   start(): void {
+    this.inventory.start();
     this.ws.start();
+  }
+
+  /** SIGHUP (main): rescan the inventory and send it if it changed. */
+  rescanInventory(): Promise<void> {
+    return this.inventory.rescan();
   }
 
   /** Stop the link and timers. `killSessions` (default true) also kills every live process. */
   stop(opts: { killSessions?: boolean } = {}): void {
     this.ws.stop();
     this.onClose();
+    this.inventory.stop();
     for (const t of this.assignments.values()) clearTimeout(t);
     this.assignments.clear();
     if (opts.killSessions ?? true) {
@@ -273,6 +293,7 @@ export class Daemon {
 
   private onClose(): void {
     this.registered = false;
+    this.inventory.onDisconnected();
     for (const t of [this.heartbeatTimer, this.workTimer, this.awaitingWork]) {
       if (t) clearTimeout(t);
     }
@@ -327,7 +348,8 @@ export class Daemon {
       this.ws.send(JSON.stringify({ ...ev.msg, seq: ev.seq }));
     }
     this.sendHeartbeat();
-    await this.sendInventory(true);
+    await this.inventory.onRegistered();
+    await this.sendRepoInventory(true);
     this.maybeRequestWork();
   }
 
@@ -358,7 +380,9 @@ export class Daemon {
     this.heartbeatTimer = setTimeout(() => this.sendHeartbeat(), this.heartbeatMs);
   }
 
-  private async sendInventory(force: boolean): Promise<void> {
+  // TD-110: the legacy repo_inventory (the shared clones), sent alongside `inventory` until T16
+  // switches the gateway; removed in M2-T21.
+  private async sendRepoInventory(force: boolean): Promise<void> {
     const repos = await this.workspace.inventory();
     const digest = inventoryDigest(repos);
     if (!force && digest === this.lastInventoryDigest) return;
@@ -425,7 +449,8 @@ export class Daemon {
     const res = this.sysinfo(this.config.rootDir);
     this.sendMachine('request_work', {
       free_slots: free,
-      repos_digest: this.lastInventoryDigest,
+      // 10-contracts §Inventory: the hash of the last `inventory` sent.
+      repos_digest: this.inventory.hash,
       cpu_free: res.cpuFree,
       mem_free_mb: res.memFreeMb,
     });
@@ -694,7 +719,8 @@ export class Daemon {
       },
     });
     if (starting.cancelled) this.stopAgent(sid, agent, 'killed while starting');
-    void this.sendInventory(false).catch((e: unknown) => this.log(`inventory: ${String(e)}`));
+    // TD-110: legacy repo_inventory refresh, removed in M2-T21.
+    void this.sendRepoInventory(false).catch((e: unknown) => this.log(`inventory: ${String(e)}`));
   }
 
   private onDriverEvent(sid: string, a: AgentProc, ev: DriverEvent): void {

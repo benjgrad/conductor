@@ -12,7 +12,7 @@ Agents run arbitrary code on developer machines with that developer's credential
 | Connector secrets | Only in the orchestrator (env / secret store), never sent to daemons | 3 |
 | Skill credentials | Machine-local (gh, Slack skill). Documented as a deliberate split ([01](01-architecture.md#credentials-split)) | 1 |
 | Daemon enrollment | Per-machine token, revocable; TLS for the WS ([U-008](../tracking/UNKNOWNS.md)) | 2 |
-| UI auth | TBD ([U-008](../tracking/UNKNOWNS.md)). M1 runs on localhost only | 2 |
+| UI auth | Own email + password sign-in, server-side sessions, invite-only ([ADR-0017](../adr/0017-own-sign-in-and-self-hosting.md)); `local` mode keeps M1's loopback-only, no-sign-in behaviour. See [§Hosted security](#hosted-security) | 2 |
 | Audit | Every transition and connector call is an `event` row | 1 |
 
 ## Budgets
@@ -25,7 +25,38 @@ Agents run arbitrary code on developer machines with that developer's credential
 ## M1 local hardening
 M1 has no auth (U-008), so these controls (M1-T14) keep a localhost install from being driven by a web page or a hostile repo:
 
-- **API** (`packages/orchestrator/src/api/security.ts`, a Fastify `onRequest` hook): **403** unless `Host` is loopback (`localhost`, `127.0.0.0/8`, `::1`) or listed in `CONDUCTOR_ALLOWED_HOSTS` (defeats DNS rebinding); **403** for a POST/PUT/PATCH/DELETE whose `Origin` is present and not allowed. Always allowed: same-origin (Origin host = Host), `http://{localhost,127.0.0.1}:<CONDUCTOR_PORT>`, the Vite dev/preview origins (`:5173`, `:4173`), plus `CONDUCTOR_ALLOWED_ORIGINS`. **415** for a POST without `content-type: application/json`, so no "simple" cross-site form post gets through. Bodies keep the frozen `ApiError` shape (`code: bad_request`, the status says which). The static web app files served before Fastify are not checked (public, read-only).
+- **API** (`packages/orchestrator/src/api/security.ts`, a Fastify `onRequest` hook; `local` mode, the default): **403** `forbidden` unless `Host` is loopback (`localhost`, `127.0.0.0/8`, `::1`) or listed in `CONDUCTOR_ALLOWED_HOSTS` (defeats DNS rebinding); **403** `forbidden` for a POST/PUT/PATCH/DELETE whose `Origin` is present and not allowed. Always allowed: same-origin (Origin host = Host), `http://{localhost,127.0.0.1}:<CONDUCTOR_PORT>`, plus `CONDUCTOR_ALLOWED_ORIGINS`. There are no Vite dev origins (M2-T08, TD-069): the Vite dev/preview proxy rewrites an Origin equal to Vite's own origin to the orchestrator's, and passes any other Origin on unchanged (`packages/web/vite.config.ts`). **415** `unsupported_media_type` for an unsafe request without `content-type: application/json`, so no "simple" cross-site form post gets through. The static web app files served before Fastify are not checked (public, read-only), but they carry the same security headers (§Hosted security). Local mode also refuses to start on a non-loopback `CONDUCTOR_BIND_HOST`.
 - **Daemon WS upgrade**: refused (403) when it carries an `Origin` that isn't allowed by the same rules. Browsers always send `Origin`; the daemon's `ws` client never does. Daemon authentication waits for enrollment tokens (U-008).
 - **Gateway authorization**: `session_event` (including `build_slot` badges and lease heartbeats) and `command_ack` refusals are applied only for a session whose `machine_id` is the connection's machine (else `unknown_session`), and a `session_event` needs `fencing_token` **equal** to the session's current token (lower or higher → kill under the event's token). `output` is accepted only for a session the connection owns under that token: a per-connection map filled from its work claims, DB-verified heartbeat leases and accepted session events, and pruned to what each heartbeat confirms.
 - **Daemon**: the per-session MCP URL token is never on the `claude` argv: `--mcp-config` gets a path to a 0600 file in a fresh 0700 temp dir, deleted when the process exits. `ticket.repo` must be canonical `host/org/repo`, `https://host/org/repo` or `user@host:org/repo`; absolute paths and `file://` need `CONDUCTOR_ALLOW_LOCAL_REPOS=1` (default off; tests/E2E set it), other schemes/transports (`ext::`, `git://`, `http://`) and `.`/`..` segments are refused, and `CONDUCTOR_ALLOWED_REPO_HOSTS` (optional) limits hosts. The worktree's `CLAUDE.md` is read only if `lstat` says it is a regular file (not a symlink), its realpath is inside the worktree, and it is ≤ 64 KB; otherwise it is skipped and logged.
+
+## Hosted security
+M2-T08 implements [ADR-0017](../adr/0017-own-sign-in-and-self-hosting.md) §Auth: behaviour and §Modes in `packages/orchestrator/src/auth/` and `src/api/security.ts`. The routes and status codes are in [10 §Accounts and web auth](10-contracts.md#accounts-and-web-auth).
+
+**Configuration** (`auth/config.ts`, `parseServerConfig`, checked before the database is touched; every startup error names the variable):
+
+| Variable | Meaning |
+|---|---|
+| `CONDUCTOR_AUTH` | `local` (default) or `password` |
+| `CONDUCTOR_PUBLIC_URL` | Required in `password` mode. An origin only (no path, query, hash or credentials): `https://…`, or `http://` on a loopback host (tests, e2e). Its host is the only `Host` accepted, and its origin the only `Origin` |
+| `CONDUCTOR_BIND_HOST` | Listen address, default `127.0.0.1`. `local` mode refuses a non-loopback one |
+| `CONDUCTOR_TRUSTED_PROXY` | One IP address: Fastify `trustProxy`, so `X-Forwarded-For` (the client IP for rate limits and `web_session.ip`) is believed only from that TCP peer (the compose network gateway in production) |
+
+`CONDUCTOR_ALLOWED_HOSTS` and `CONDUCTOR_ALLOWED_ORIGINS` are refused in `password` mode.
+
+**Request guard** (`hostedSecurityHook`, before routing):
+1. `Host` must be the public URL's host (lower-cased, default port ignored); loopback names included, anything else is 403 `forbidden`.
+2. An unsafe method (`POST`, `PUT`, `PATCH`, `DELETE`) must carry `Origin` equal to the public origin. Without `Origin` it passes only with `Sec-Fetch-Site: same-origin`, or for `POST /api/machines/enroll`: the daemon's call sends neither header, and the enrollment token authenticates it. Otherwise 403 `forbidden`.
+3. An unsafe request must be `application/json`, else 415 `unsupported_media_type`. No CORS headers are ever sent, so a cross-site JSON `fetch` fails its preflight.
+
+**Headers** on every response (the API's, SSE included, and the static web app's): `Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`. They are set in both modes. nginx adds HSTS, `X-Frame-Options` and `X-Robots-Tag`. The web app's `index.html` has no inline script (a test checks it). The static server never answers an API path (`/api/*`, `/auth/*`, `/ws/*`, and every other `API_PATHS` route such as `/healthz`, `/install.sh`, `/downloads/*`).
+
+**Who is asking** (`auth/middleware.ts`, an `onRequest` hook after the guard): `request.auth = {user, account, scope: AccountScope, mode, sessionIdHash}`. In `local` mode it is always the virtual local user in the `local` account (`localScope`). In `password` mode it comes from the session cookie, or is null. Every `/api/*` request without a session is 401 `unauthorized` (the SSE streams and unknown routes too), except `POST /api/machines/enroll`. `requireAdmin(req, reply)` answers 403 `forbidden` for a non-admin (the local user is not an admin).
+
+**Passwords** (`auth/password.ts`): argon2id (`@node-rs/argon2`), `m = 19456 KiB, t = 2, p = 1`. A stored hash with weaker parameters is re-hashed on the next successful login. An unknown email is verified against a fixed dummy hash with the same parameters, so every login path costs one verify. Unknown email, wrong password, disabled user and locked email all get the same bytes: `401 {"error":{"code":"unauthorized","message":"Email or password is wrong"}}`. The new-password policy is `passwordProblems` (12–256 characters, not the email).
+
+**Sessions** (`auth/sessions.ts`): the cookie holds 32 random bytes (base64url). `web_session.id_hash` stores only their SHA-256. The cookie is `__Host-conductor_session=…; HttpOnly; Secure; SameSite=Lax; Path=/` for an https public URL, or `conductor_session` without `Secure` for a loopback http one, with `Max-Age` = the absolute lifetime. Sessions last 30 days absolute and 7 days idle. `last_seen_at` is written at most every 5 minutes, so the idle window is up to 5 minutes longer. An expired row is deleted when it is next presented. Logout deletes the row and clears the cookie. `POST /auth/password` revokes every other session of the user, in the same transaction as the new hash. A wrong current password is 400 at path `current`; 401 there means the session is gone.
+
+**Throttling** (`auth/throttle.ts`), on top of nginx `limit_req`:
+- per client IP, in memory (`@fastify/rate-limit`, one instance): login and password change 10/min, sign-up and reset 5/10 min, enroll 10/10 min (`RATE_LIMITS`, applied per route with `rateLimitRouteConfig`). Over the limit: 429 `rate_limited` with `Retry-After`;
+- per email, in `login_throttle` (keyed by the normalised string, whether or not a user has it): 10 consecutive failures lock the email for 15 minutes, doubling with each further lockout up to 24 h. A success deletes the row (count and doubling start over); `clearThrottle` is the admin unlock. While locked, even the right password gets the generic 401.

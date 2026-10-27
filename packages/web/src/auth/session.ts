@@ -6,8 +6,9 @@ import { ApiRequestError, type ApiClient, type StreamHandlers } from '../api/cli
 //   - REST: a rejection with status 401 calls `onUnauthorized` (and still rejects).
 //   - SSE: EventSource can't see a status (10-contracts §SSE and 401), so on a stream error the
 //     wrapper re-probes GET /api/me; a 401 there calls `onUnauthorized`.
-// The sign-in calls pass through untouched: their 401s mean wrong credentials (login, the
-// current password on changePassword), and the app handles `me` itself.
+// The sign-in calls pass through untouched: their 401s mean wrong credentials (login), and the
+// app handles `me` itself. changePassword is guarded: a wrong current password is a 400, so its
+// 401 means the session is gone (TD-125).
 
 /** The ApiClient calls whose 401 means "the session is gone". */
 const GUARDED = [
@@ -32,6 +33,7 @@ const GUARDED = [
   'createResetLink',
   'disableUser',
   'unlockUser',
+  'changePassword',
 ] as const satisfies readonly (keyof ApiClient)[];
 
 const PASSTHROUGH = [
@@ -41,7 +43,6 @@ const PASSTHROUGH = [
   'signup',
   'previewInvite',
   'resetPassword',
-  'changePassword',
 ] as const satisfies readonly (keyof ApiClient)[];
 
 export const isUnauthorized = (err: unknown): boolean =>

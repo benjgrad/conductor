@@ -322,7 +322,10 @@ describe('capabilities', () => {
     }
   });
 
-  it('requiredCapabilities is a stub until M2-T06', () => {
-    expect(requiredCapabilities(CONDUCTOR_V2_DRAFT_DEF, 'work')).toEqual([]);
+  it('requiredCapabilities comes from the registry (M2-T06)', () => {
+    expect(requiredCapabilities(CONDUCTOR_V2_DRAFT_DEF, 'work')).toEqual([
+      'claude',
+      'cli:gh:authed',
+    ]);
   });
 });

@@ -21,6 +21,7 @@ import { DaemonStore } from './store.js';
 import type { LiveResources } from './sysinfo.js';
 import { CONDUCTOR_INSTRUCTIONS } from './system-prompt.js';
 import { FakeOrchestrator } from './test-support/fake-orchestrator.js';
+import { removeTree } from './test-support/remove-tree.js';
 
 // M1-T05 acceptance: the daemon core against a fake orchestrator WS, with FakeClaudeDriver,
 // FakeCommandRunner and real git in temp dirs.
@@ -57,8 +58,8 @@ afterEach(async () => {
   for (const d of daemons.splice(0)) d.stop();
   await orch.close();
   expect(orch.invalid).toEqual([]);
-  // A background `git` (repo inventory) may still be writing when the test ends.
-  rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  // A background `git` (repo inventory) may still be writing when the test ends (TD-111).
+  await removeTree(tmp);
 });
 
 function makeDaemon(
@@ -95,6 +96,8 @@ function makeDaemon(
     sysinfo: () => resources,
     claudeCodeVersion: '2.1.308',
     log: opts.log ?? (() => {}),
+    // M2-T10: hermetic: no real gh / az / ~/.claude probes.
+    scanInventory: () => Promise.resolve({ repos: [], capabilities: [] }),
     ...(opts.ghCommand ? { ghCommand: opts.ghCommand } : {}),
     ...(opts.onFatal ? { onFatal: opts.onFatal } : {}),
   });
@@ -153,6 +156,7 @@ const FAKE_GH_SH = {
   args: [
     '-c',
     [
+      'if [ "$1" = --version ]; then echo "gh version 2.103.3 (2025-01-01)"; exit 0; fi',
       'if [ "$1" = repo ]; then echo main; exit 0; fi',
       'if [ "$2" = view ]; then exit 1; fi',
       'echo https://github.com/benjgrad/fixture-app/pull/9',
@@ -172,11 +176,17 @@ const complete = (result: Record<string, unknown>): FakeClaudeScript => ({
 });
 
 describe('daemon core: link', () => {
-  it('registers, then sends heartbeat, repo_inventory and request_work', async () => {
+  it('registers, then sends heartbeat, inventory, repo_inventory and request_work', async () => {
     makeDaemon(new FakeClaudeDriver(complete({})));
     await orch.until(() => orch.ofType('request_work')[0]);
     const types = orch.received.map((m) => m.type);
-    expect(types.slice(0, 4)).toEqual(['register', 'heartbeat', 'repo_inventory', 'request_work']);
+    expect(types.slice(0, 5)).toEqual([
+      'register',
+      'heartbeat',
+      'inventory',
+      'repo_inventory',
+      'request_work',
+    ]);
     const reg = orch.ofType('register')[0]!.payload;
     expect(reg).toMatchObject({
       machine_id: 'test-machine',

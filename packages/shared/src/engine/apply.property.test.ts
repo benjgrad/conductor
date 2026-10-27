@@ -10,7 +10,14 @@ import { transitionObject, transitionsOf } from '../workflow/transition-rules.js
 import { apply } from './apply.js';
 import { freshSnapshot, Harness, HEAD_SHA, referenceWorkflow, uuid } from './apply.testkit.js';
 import { entryStateLabel, reviewStateLabel } from './review.js';
-import { isOutboxEffect, moveStateLabel, type EngineEvent, type SessionSnapshot } from './types.js';
+import { lostAnswerOf, machineLostMarkOf } from './machine-lost.js';
+import {
+  isOutboxEffect,
+  moveStateLabel,
+  type ApplyIgnoreReason,
+  type EngineEvent,
+  type SessionSnapshot,
+} from './types.js';
 
 // M1-T04 acceptance: "no event sequence leaves a session in an undefined state". Random event
 // sequences (biased towards ones the session can actually take) run through apply with the
@@ -112,7 +119,56 @@ const GENS: Gen[] = [
     result: p % 3 === 0 ? null : { pr_url: 'https://github.com/o/r/pull/1' },
     error: p % 3 === 0 ? 'gh failed' : null,
   }),
+  // M2-T06 (U-068): a lost machine, the session's own or another one, every reason (machine and
+  // reason vary independently).
+  (h, p) => ({
+    type: 'machine.lost',
+    machine_id:
+      p % 3 === 0
+        ? 'mini'
+        : (machineLostMarkOf(h.snap.context)?.machine_id ?? h.snap.machine_id ?? 'mbp-ben'),
+    reason: (['lease_expired', 'pinned_machine_offline', 'revoked'] as const)[
+      Math.floor(p / 3) % 3
+    ]!,
+    ...(p % 2 ? { machine_name: 'Ben' } : {}),
+    ...(p % 5 === 0 ? { offline_ms: 3_600_000 } : {}),
+  }),
   () => ({ type: 'operator.cancel' }),
+];
+
+type LostEvent = Extract<EngineEvent, { type: 'machine.lost' }>;
+
+/**
+ * The 10-contracts "Lost machines" table as an oracle, written apart from machine-lost.ts: the
+ * row `e` falls in for snapshot `s`, and the ignore reason it must give (null = applied).
+ */
+function lostRow(s: SessionSnapshot, e: LostEvent): [string, ApplyIgnoreReason | null] {
+  if (['done', 'failed', 'lost'].includes(s.status)) return ['terminal', 'session_terminal'];
+  if (['assigned', 'running', 'waiting_external'].includes(s.status)) {
+    return s.machine_id === e.machine_id
+      ? ['(A) on machine', null]
+      : ['mismatch', 'machine_mismatch'];
+  }
+  const mark = machineLostMarkOf(s.context);
+  if (s.status === 'queued' && e.reason === 'pinned_machine_offline') {
+    return ['(A) queued pinned', null];
+  }
+  if (e.reason === 'revoked' && mark !== null && mark.machine_id === e.machine_id) {
+    return ['(B) revoked, marked', null];
+  }
+  if (e.reason === 'revoked' && s.status === 'queued' && mark === null) {
+    return ['(A) queued revoked, no mark', null];
+  }
+  return ['other', 'wrong_status'];
+}
+const LOST_ROWS = [
+  'terminal',
+  '(A) on machine',
+  'mismatch',
+  '(A) queued pinned',
+  '(B) revoked, marked',
+  '(A) queued revoked, no mark',
+  'other',
 ];
 
 /** A transition name of any state (or a made-up one), so allowed and refused names both occur. */
@@ -127,6 +183,16 @@ function anyName(h: Harness, p: number): string {
 const progress: Gen = (h, p) => {
   const s = h.snap;
   const state = s.workflow_state === null ? undefined : h.def.states[s.workflow_state];
+  // U-068: now and then the lost machine of a parked or pinned session is revoked (row B).
+  const mark = machineLostMarkOf(s.context);
+  if (
+    mark !== null &&
+    mark.reason !== 'revoked' &&
+    (s.status === 'needs_input' || s.status === 'queued') &&
+    p % 7 === 0
+  ) {
+    return { type: 'machine.lost', machine_id: mark.machine_id, reason: 'revoked' };
+  }
   if (s.status === 'queued') return { type: 'session.assigned', machine_id: 'mbp-ben' };
   if (s.status === 'assigned') return GENS[2]!(h, 1); // matching started
   if (s.step !== null) {
@@ -232,6 +298,8 @@ function checkInvariants(def: WorkflowDefinition, prev: SessionSnapshot, h: Harn
     expect(r.effects).toEqual([]);
     expect(r.snapshot).toEqual(prev);
   }
+  // apply never changes the fencing token (the wrapper bumps it, 10-contracts §Lost machines).
+  expect(r.snapshot.fencing_token).toBe(prev.fencing_token);
   if (s.step !== null && s.status !== 'failed') {
     // A gate step: its synthetic label, in the source state's column.
     const r = s.step;
@@ -271,7 +339,14 @@ function checkInvariants(def: WorkflowDefinition, prev: SessionSnapshot, h: Harn
   }
   // §Pending answer: cleared when apply enters a different state, unless it delivers an answer
   // (an `input.provided`, or a human's text delivered to an agent by a transition or a move).
-  const delivers = r.effects.some((e) => e.type === 'start_session' || e.type === 'send_input');
+  // A requeue into an agent state (U-068: an answer out of a lost-machine park) keeps the answer
+  // for the re-claim's start_session.
+  const requeuedAgent =
+    s.status === 'queued' &&
+    s.workflow_state !== null &&
+    def.states[s.workflow_state]?.type === 'agent';
+  const delivers =
+    requeuedAgent || r.effects.some((e) => e.type === 'start_session' || e.type === 'send_input');
   if (s.workflow_state !== prev.workflow_state && !delivers) {
     expect(s.pending_answer).toBeNull();
   }
@@ -279,7 +354,10 @@ function checkInvariants(def: WorkflowDefinition, prev: SessionSnapshot, h: Harn
     expect(s.machine_id).toBeNull();
     expect(s.state_deadline).toBeNull();
   }
-  if (r.effects.some(isOutboxEffect)) expect(r.snapshot.machine_id).not.toBeNull();
+  // Every outbox command but connector_call (target `connector:<name>`) goes to the machine.
+  if (r.effects.some((e) => isOutboxEffect(e) && e.type !== 'connector_call')) {
+    expect(r.snapshot.machine_id).not.toBeNull();
+  }
   for (const [key, n] of Object.entries(s.retry_counters)) {
     const move = /^move:([^:]+):(.+)$/.exec(key);
     if (move !== null) {
@@ -346,6 +424,7 @@ describe.each(WORKFLOWS)('apply property: %s', (_name, load, kind) => {
 
   it('no event sequence leaves the session undefined', () => {
     const reached = new Set<string>();
+    const lostRows = new Set<string>();
     fc.assert(
       fc.property(fc.array(stepArb, { minLength: 1, maxLength: 60 }), (steps) => {
         const h = new Harness(def, fresh());
@@ -355,6 +434,32 @@ describe.each(WORKFLOWS)('apply property: %s', (_name, load, kind) => {
           const event = eventFor(gen, h, pick);
           h.run(event);
           checkInvariants(def, prev, h);
+          // BUG-1: a human move off a parked agent into a state that runs no agent kills it.
+          const landed = h.snap.workflow_state;
+          const landedType = landed === null ? undefined : def.states[landed]?.type;
+          if (
+            (event.type === 'human.transition' || event.type === 'input.provided') &&
+            h.last.ignored === null &&
+            prev.machine_id !== null &&
+            prev.agent_process_live &&
+            landedType !== undefined &&
+            landedType !== 'agent'
+          ) {
+            expect(h.last.effects.some((e) => e.type === 'kill')).toBe(true);
+            expect(h.snap.agent_process_live).toBe(false);
+          }
+          if (event.type === 'machine.lost') {
+            const [row, ignored] = lostRow(prev, event);
+            lostRows.add(row);
+            expect(h.last.ignored, row).toBe(ignored);
+            if (ignored === null) {
+              // A park keeps the answer the agent never ran on (it is delivered on Continue).
+              expect(h.snap.status).toBe('needs_input');
+              if (prev.pending_answer !== null) {
+                expect(lostAnswerOf(h.snap.context)).toEqual(prev.pending_answer);
+              }
+            }
+          }
           const at = h.snap.workflow_state;
           if (at !== null && def.states[at] !== undefined) reached.add(at);
           else if (at !== null && h.snap.step !== null) reached.add('(gate step)');
@@ -368,7 +473,10 @@ describe.each(WORKFLOWS)('apply property: %s', (_name, load, kind) => {
     expect([...reached].sort()).toEqual(
       [...Object.keys(def.states), ...(gated ? ['(gate step)'] : [])].sort(),
     );
-  });
+    // every row of the lost-machines table is exercised
+    expect([...lostRows].sort()).toEqual([...LOST_ROWS].sort());
+    // 1000 runs take ~5 s on their own; more when every package's tests run in parallel.
+  }, 60_000);
 
   it('terminal sessions ignore every event', () => {
     fc.assert(

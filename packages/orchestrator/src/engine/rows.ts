@@ -38,14 +38,31 @@ export async function readTicket(tx: Queryable, ticketId: string): Promise<Ticke
   return t.rows[0]!;
 }
 
-/** The session's newest open input_request, if any. */
+/** An input_request row with its origin (UX-4): the latest `state.entered` row's transition/from. */
+export type OpenInputRow = InputRequestRow & {
+  origin_transition: string | null;
+  origin_from: string | null;
+};
+
+/**
+ * UX-4: `SELECT ir.*` plus the origin columns, from `input_request ir` and the session's latest
+ * `state.entered` row (`event_session_id_idx`). While the request is open and the session is
+ * `needs_input`, that row is the move that entered the human state. Append WHERE / ORDER BY.
+ */
+export const OPEN_INPUT_SELECT =
+  "SELECT ir.*, se.payload->>'transition' AS origin_transition, " +
+  "se.payload->>'from' AS origin_from FROM input_request ir " +
+  'LEFT JOIN LATERAL (SELECT e.payload FROM event e WHERE e.session_id = ir.session_id ' +
+  "AND e.type = 'state.entered' ORDER BY e.id DESC LIMIT 1) se ON true ";
+
+/** The session's newest open input_request, if any, with its origin. */
 export async function readOpenInput(
   tx: Queryable,
   sessionId: string,
-): Promise<InputRequestRow | null> {
-  const r = await tx.query<InputRequestRow>(
-    'SELECT * FROM input_request WHERE session_id = $1 AND answer IS NULL ' +
-      'ORDER BY created_at DESC, id LIMIT 1',
+): Promise<OpenInputRow | null> {
+  const r = await tx.query<OpenInputRow>(
+    OPEN_INPUT_SELECT +
+      'WHERE ir.session_id = $1 AND ir.answer IS NULL ORDER BY ir.created_at DESC, ir.id LIMIT 1',
     [sessionId],
   );
   return r.rows[0] ?? null;

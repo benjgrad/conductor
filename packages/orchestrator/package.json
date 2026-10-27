@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "bin": {
-    "conductor-orchestrator": "./dist/bin.js"
+    "conductor-orchestrator": "./dist/bin.js",
+    "conductor-admin": "./dist/admin-cli.js"
   },
   "exports": {
     ".": {

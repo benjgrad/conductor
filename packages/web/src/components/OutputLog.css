@@ -106,3 +106,67 @@ button.phase-label:hover {
     transition: transform 120ms ease-out;
   }
 }
+
+/* UX-6: a command run's output, one collapsed row; expanded at full height (no inner scroller) */
+.check-run {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.check-run-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 0 0 0 2px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.check-run-summary:hover .check-run-text {
+  color: var(--text);
+}
+.check-run-summary .chev {
+  display: inline-block;
+  width: 10px;
+  flex: none;
+  font-size: 10px;
+}
+.check-run-summary[aria-expanded='true'] .chev {
+  transform: rotate(90deg);
+}
+.check-run-fail,
+.check-run-error {
+  color: var(--ask);
+}
+.check-run-fail {
+  font-weight: 600;
+}
+.check-run-error {
+  margin: 0 0 0 18px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.check-run-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.check-run-output {
+  align-self: stretch;
+  margin: 0;
+  background: var(--code-bg);
+  color: var(--code-text);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

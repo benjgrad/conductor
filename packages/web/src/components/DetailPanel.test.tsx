@@ -221,6 +221,8 @@ describe('Brief card (UX-2)', () => {
         api.pushOutput(sid, `line ${i}\n`, i % 2 ? 'stdout' : 'stderr');
     });
     const ms = performance.now() - t0;
+    // UX-6: command output is one collapsed "Check output" row; expand it.
+    fireEvent.click(panel.getAllByRole('button', { name: /Check output · Command/ }).at(-1)!);
     expect(panel.getByText(/line 1999/)).toBeTruthy();
     expect(briefOf(panel)).toBeTruthy();
     // Generous for jsdom (a browser is far faster); catches an accidental quadratic render.

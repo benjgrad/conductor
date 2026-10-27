@@ -4,10 +4,21 @@
 // `tool_result`, `stdout`/`stderr` from command states, `debug`, and `user`: a message the human
 // sent from the panel, ADR-0007); a result belongs to the oldest call still waiting for one (calls
 // and results arrive in order, parallel calls included). Runs of tool calls between the agent's
-// words collapse into one summary row (`buildThread`), and the session's moves, when given, show
+// words collapse into one summary row (`buildThread`), each command run's output into one
+// collapsed "Check output" row (UX-6, CheckOutput.tsx), and the session's moves, when given, show
 // as phase dividers at their time.
-import type { MoveDto, OutputChunk, WorkflowDefinition } from '@conductor/shared';
+import type { BoardChecking, MoveDto, OutputChunk, WorkflowDefinition } from '@conductor/shared';
 import { useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { displayState } from '../workflow/review.js';
+import {
+  CheckRun,
+  checkNames,
+  countLines,
+  runMarker,
+  runName,
+  runStatus,
+  type RunSegment,
+} from './CheckOutput.js';
 import { Markdown } from './markdown.js';
 import './OutputLog.css';
 
@@ -271,31 +282,70 @@ const isConductorCall = (e: ToolEntry) => e.call.name.startsWith('mcp__conductor
 export type ThreadItem =
   | { kind: 'entry'; entry: Entry }
   | { kind: 'group'; key: string; tools: ToolEntry[]; failed: ToolEntry[] }
-  | { kind: 'phase'; key: string; move: MoveDto };
+  | { kind: 'phase'; key: string; move: MoveDto }
+  | {
+      kind: 'run';
+      key: string;
+      name: string;
+      segments: RunSegment[];
+      lines: number;
+      /** Another run started right after this one (so this one passed, `runStatus`). */
+      followed: boolean;
+    };
+
+type RunItem = Extract<ThreadItem, { kind: 'run' }>;
 
 /**
  * The rows of the thread. With `moves`, a divider goes before the first entry at or after each
  * move's time. With `group`, each run of 2+ tool calls (conductor calls excepted) becomes one
- * group, and debug entries are dropped (they're hidden then anyway); without it, every entry is
- * its own row, as before grouping existed.
+ * group, each command run's stdout/stderr one `run` (UX-6), and debug entries are dropped
+ * (they're hidden then anyway); without it, every entry is its own row, as before grouping
+ * existed. `workflow` names the runs (its checks by command, else the command state).
  */
 export function buildThread(
   entries: readonly Entry[],
-  { moves, group }: { moves?: readonly MoveDto[] | undefined; group: boolean },
+  {
+    moves,
+    group,
+    workflow,
+  }: {
+    moves?: readonly MoveDto[] | undefined;
+    group: boolean;
+    workflow?: WorkflowDefinition | undefined;
+  },
 ): ThreadItem[] {
   const out: ThreadItem[] = [];
-  let run: ToolEntry[] = [];
-  const flush = () => {
-    if (run.length === 1) out.push({ kind: 'entry', entry: run[0]! });
-    else if (run.length > 1) {
+  let toolRun: ToolEntry[] = [];
+  // The command run being collected (UX-6). TD: inferred from the daemon's debug markers.
+  let cmdRun: RunItem | null = null;
+  // Read through a function: TS would keep `cmdRun` narrowed to null (closures assign it).
+  const current = (): RunItem | null => cmdRun;
+  const names = group ? checkNames(workflow) : new Map<string, string>();
+  const flushTools = () => {
+    if (toolRun.length === 1) out.push({ kind: 'entry', entry: toolRun[0]! });
+    else if (toolRun.length > 1) {
       out.push({
         kind: 'group',
-        key: `g${run[0]!.key}`,
-        tools: run,
-        failed: run.filter((t) => isFailedResult(t.result)),
+        key: `g${toolRun[0]!.key}`,
+        tools: toolRun,
+        failed: toolRun.filter((t) => isFailedResult(t.result)),
       });
     }
-    run = [];
+    toolRun = [];
+  };
+  const closeRun = () => {
+    if (cmdRun) cmdRun.lines = countLines(cmdRun.segments);
+    cmdRun = null;
+  };
+  const flush = () => {
+    flushTools();
+    closeRun();
+  };
+  const openRun = (key: string, name: string) => {
+    flushTools();
+    cmdRun = { kind: 'run', key, name, segments: [], lines: 0, followed: false };
+    out.push(cmdRun);
+    return cmdRun;
   };
   let m = 0;
   const phasesUntil = (ts: number) => {
@@ -307,9 +357,25 @@ export function buildThread(
   };
   for (const e of entries) {
     phasesUntil(Date.parse(e.ts));
-    if (group && e.kind === 'debug') continue;
+    if (group && e.kind === 'debug') {
+      const marker = runMarker(e.text);
+      if (marker) {
+        const prev = current();
+        if (prev) prev.followed = true;
+        closeRun();
+        openRun(`r${e.key}`, runName(marker, names));
+      }
+      continue;
+    }
+    if (group && e.kind === 'stream') {
+      const run =
+        current() ?? openRun(`r${e.key}`, runName(null, names, workflow, moves?.[m - 1]?.to));
+      run.segments.push({ stream: e.stream, text: e.text });
+      continue;
+    }
     if (group && e.kind === 'tool' && !isConductorCall(e)) {
-      run.push(e);
+      closeRun();
+      toolRun.push(e);
       continue;
     }
     flush();
@@ -386,11 +452,14 @@ export function summarizeGroup(tools: readonly ToolEntry[]): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-/** A state's display name: its workflow title, else `snake_case` as words; gate labels as is. */
+/**
+ * A state's display name: its workflow title, else `snake_case` as words; a gate step's label as
+ * `displayState` words it (UX-6: never the synthetic "→ … (move: …)" label).
+ */
 export function phaseStateName(state: string, workflow?: WorkflowDefinition): string {
   const title = workflow?.states[state]?.title;
   if (title) return title;
-  if (!/^[a-z0-9_]+$/.test(state)) return state;
+  if (!/^[a-z0-9_]+$/.test(state)) return displayState(state, workflow);
   const words = state.replace(/_/g, ' ');
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
@@ -573,6 +642,12 @@ export interface OutputLogProps {
   moves?: readonly MoveDto[] | undefined;
   /** The session's workflow, for state titles in the dividers (else names are humanised). */
   workflow?: WorkflowDefinition | undefined;
+  /** UX-6: `card.checking`, for the status of the live step's check runs. */
+  checking?: BoardChecking | null | undefined;
+  /** UX-6: the check an open "Step failed" question names (its run shows as failed). */
+  failedItem?: string | null | undefined;
+  /** UX-6: conductor is running a command for the session now (the last run is "running"). */
+  active?: boolean | undefined;
 }
 
 export function OutputLog({
@@ -584,15 +659,24 @@ export function OutputLog({
   visible = true,
   moves,
   workflow,
+  checking,
+  failedItem,
+  active,
 }: OutputLogProps) {
   const entries = useMemo(() => buildEntries(output), [output]);
   const short = useMemo(() => shortener(worktree), [worktree]);
   const [showDebug, setShowDebug] = useState(false);
   // Debug lines show everything ungrouped, as before grouping existed.
   const thread = useMemo(
-    () => buildThread(entries, { moves, group: !showDebug }),
-    [entries, moves, showDebug],
+    () => buildThread(entries, { moves, group: !showDebug, workflow }),
+    [entries, moves, showDebug, workflow],
   );
+  // The latest run of each name: the one a live check item or a failed question speaks for.
+  const latestRun = useMemo(() => {
+    const latest = new Map<string, string>();
+    for (const item of thread) if (item.kind === 'run') latest.set(item.name, item.key);
+    return latest;
+  }, [thread]);
   // Open groups by key (the first call's position), so they stay open as output streams in.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const debugCount = entries.filter((e) => e.kind === 'debug').length;
@@ -692,7 +776,7 @@ export function OutputLog({
           }}
         >
           {entries.length === 0 && <p className="muted">No output yet.</p>}
-          {thread.map((item) => {
+          {thread.map((item, i) => {
             switch (item.kind) {
               case 'entry':
                 return renderEntry(item.entry);
@@ -709,6 +793,25 @@ export function OutputLog({
                 );
               case 'phase':
                 return <PhaseDivider key={item.key} move={item.move} workflow={workflow} />;
+              case 'run':
+                return (
+                  <CheckRun
+                    key={item.key}
+                    name={item.name}
+                    status={runStatus(
+                      item,
+                      {
+                        latest: latestRun.get(item.name) === item.key,
+                        last: i === thread.length - 1,
+                      },
+                      { checking, failedItem, active },
+                    )}
+                    segments={item.segments}
+                    lines={item.lines}
+                    open={expanded.has(item.key)}
+                    onToggle={() => toggle(item.key)}
+                  />
+                );
             }
           })}
           {children}

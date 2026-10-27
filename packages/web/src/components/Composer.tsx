@@ -4,6 +4,8 @@
 import type { SessionDetail } from '@conductor/shared';
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
+import { displayState } from '../workflow/review.js';
+import { isConductorStep } from './ConductorChecks.js';
 import { TERMINAL_STATUSES } from './format.js';
 import {
   availableCommands,
@@ -23,6 +25,13 @@ export type ComposerMode =
 export function composerMode(detail: SessionDetail): ComposerMode {
   const { card } = detail;
   if (detail.pending_input) return { mode: 'answer' };
+  // UX-6 FR-5: conductor runs the step's checks, review or actions; the agent has exited.
+  if (isConductorStep(card)) {
+    return {
+      mode: 'off',
+      reason: 'Conductor is running checks; the agent resumes (or the PR opens) when they finish.',
+    };
+  }
   const status = card.status;
   if (status === null || status === 'queued' || status === 'assigned') {
     return { mode: 'off', reason: 'Queued — the agent hasn’t started' };
@@ -38,7 +47,9 @@ export function composerMode(detail: SessionDetail): ComposerMode {
     if (state?.type === 'agent') return { mode: 'message' };
     return {
       mode: 'off',
-      reason: `No agent in this step: ${card.workflow_state ?? 'it'} runs a ${state?.type ?? 'step'}`,
+      reason: `No agent in this step: ${
+        card.workflow_state ? displayState(card.workflow_state, detail.workflow) : 'it'
+      } runs a ${state?.type ?? 'step'}`,
     };
   }
   return { mode: 'off', reason: 'Waiting for input' };

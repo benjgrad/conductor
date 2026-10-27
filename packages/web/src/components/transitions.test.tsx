@@ -158,8 +158,9 @@ describe('moves timeline (ADR-0011)', () => {
     expect(rows).toEqual([
       'start → Planning',
       'Planning → Implementing · Plan ready — The plan names every file it changes. (agent)',
-      'Implementing → implementing → waiting_external (move: ready_for_testing) · Ready for testing — The endpoint is implemented and tested. (agent)',
-      'implementing → waiting_external (move: ready_for_testing) → Waiting external · Ready for testing — The endpoint is implemented and tested. (agent)',
+      // UX-6: a move step reads as words, never its synthetic label.
+      'Implementing → Checks before Waiting external · Ready for testing — The endpoint is implemented and tested. (agent)',
+      'Checks before Waiting external → Waiting external · Ready for testing — The endpoint is implemented and tested. (agent)',
     ]);
     expect(screen.getAllByRole('listitem')[1]!.querySelector('time')!.dateTime).toBe(
       SESSION_MOVES_FIXTURE[1]!.at,

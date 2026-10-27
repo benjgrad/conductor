@@ -1,7 +1,7 @@
 import type { SessionDetail } from '@conductor/shared';
 import { ColumnsDiagram } from './ColumnsDiagram.js';
 import { columnTitle, currentLane, readChecking } from './columns.js';
-import { stateLabel } from './review.js';
+import { displayState } from './review.js';
 import { WorkflowDiagram } from './WorkflowDiagram.js';
 
 /**
@@ -17,7 +17,11 @@ export function SessionWorkflowDiagram({ detail }: { detail: SessionDetail }) {
     const lane = currentLane(workflow, state, card.status);
     const checking = readChecking(card);
     const where =
-      lane === null ? (state ? stateLabel(state) : 'none') : columnTitle(workflow, lane);
+      lane === null
+        ? state
+          ? displayState(state, workflow)
+          : 'none'
+        : columnTitle(workflow, lane);
     return (
       <ColumnsDiagram
         definition={workflow}
@@ -37,7 +41,7 @@ export function SessionWorkflowDiagram({ detail }: { detail: SessionDetail }) {
       current={state}
       compact
       label={`${workflow.id} v${detail.workflow_version} diagram, current state ${
-        state ? stateLabel(state) : 'none'
+        state ? displayState(state, workflow) : 'none'
       }`}
     />
   );

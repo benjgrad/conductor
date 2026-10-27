@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs';
 import {
   SESSION_MOVES_FIXTURE,
   type MoveDto,
@@ -6,7 +7,8 @@ import {
   type OutputStream,
 } from '@conductor/shared';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mockChecking } from '../api/mock-data.js';
 import { Markdown } from './markdown.js';
 import {
   buildEntries,
@@ -483,5 +485,196 @@ describe('OutputLog phase dividers (FR-5)', () => {
   it('has no dividers without moves', () => {
     const { container } = render(<OutputLog output={output()} worktree={null} />);
     expect(container.querySelectorAll('.phase')).toHaveLength(0);
+  });
+});
+
+describe('check output rows (UX-6)', () => {
+  const SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
+  const marker = (cmd: string) =>
+    chunk('debug', `conductor: \`${cmd}\` in a fresh checkout of ${SHA}`);
+  const workflow = {
+    states: {
+      implementing: {
+        type: 'agent',
+        on: {
+          ship: {
+            to: 'needs_input',
+            requires: {
+              checks: [
+                { name: 'Typecheck', cmd: 'pnpm typecheck' },
+                { name: 'Lint', cmd: 'pnpm lint' },
+              ],
+            },
+          },
+        },
+      },
+    },
+  } as never;
+  const twoRuns = () => [
+    chunk('assistant', 'Done; handing over.'),
+    marker('pnpm typecheck'),
+    chunk('stdout', '> tsc -b\n'),
+    chunk('stderr', '\x1b[33m WARN\x1b[0m  Failed to create bin\n'),
+    chunk('stdout', 'tsc done\n'),
+    marker('pnpm lint'),
+    chunk('stdout', '> eslint .\nlint-line-2'),
+  ];
+  const rows = () => screen.getAllByRole('button', { name: /^Check output/ });
+
+  it('FR-1: one collapsed row per run, with name, status and live line count', () => {
+    const output = twoRuns();
+    const { container, rerender } = render(
+      <OutputLog output={output} worktree={null} workflow={workflow} active />,
+    );
+    expect(rows().map((r) => r.textContent)).toEqual([
+      'Check output · Typecheck (passed) · 3 lines▸',
+      'Check output · Lint (running) · 2 lines▸',
+    ]);
+    for (const r of rows()) expect(r.getAttribute('aria-expanded')).toBe('false');
+    expect(container.querySelector('.check-run-output')).toBeNull();
+    expect(screen.queryByText(/tsc done/)).toBeNull();
+    expect(screen.queryByText(/eslint/)).toBeNull();
+    expect(container.querySelectorAll('[role="log"]')).toHaveLength(1); // the thread's own
+
+    rerender(
+      <OutputLog
+        output={[...output, chunk('stdout', ' more\nline 3\n')]}
+        worktree={null}
+        workflow={workflow}
+        active
+      />,
+    );
+    expect(rows()[1]!.textContent).toBe('Check output · Lint (running) · 3 lines▸');
+    expect(rows()[1]!.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('FR-2: expanded at full height in the flow, ANSI stripped, Copy copies it all', async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const { container } = render(
+      <OutputLog output={twoRuns()} worktree={null} workflow={workflow} />,
+    );
+    fireEvent.click(rows()[0]!);
+    expect(rows()[0]!.getAttribute('aria-expanded')).toBe('true');
+    const log = container.querySelector('.check-run-output')!;
+    expect(log.getAttribute('role')).toBe('log');
+    expect(log.textContent).toBe('> tsc -b\n WARN  Failed to create bin\ntsc done\n');
+    expect(log.textContent).not.toContain('\x1b');
+    expect(log.querySelector('.out-stderr')?.textContent).toBe(' WARN  Failed to create bin\n');
+    // Still collapsed: the other run.
+    expect(screen.queryByText(/eslint/)).toBeNull();
+
+    // No inner scroll box between the log and the thread scroller.
+    const thread = container.querySelector('.output')!;
+    for (let el: Element | null = log; el && el !== thread; el = el.parentElement) {
+      expect(el.classList.contains('term') || el.classList.contains('tool-result')).toBe(false);
+      const style = (el as HTMLElement).style;
+      expect(style.maxHeight).toBe('');
+      expect(style.overflow).toBe('');
+      expect(el.tagName).not.toBe('DETAILS');
+    }
+    // jsdom applies no stylesheets: read the rules themselves (vitest stubs CSS imports).
+    const css = readFileSync(`${import.meta.dirname}/OutputLog.css`, 'utf8');
+    const rules = [...css.matchAll(/([^{}]*\.check-run[^{}]*)\{([^}]*)\}/g)];
+    expect(rules.length).toBeGreaterThan(0);
+    for (const [, , body] of rules) {
+      expect(body).not.toMatch(/max-height/);
+      expect(body).not.toMatch(/overflow\s*:\s*(auto|scroll)/);
+    }
+    expect(css).toMatch(/\.check-run-output \{[^}]*white-space: pre-wrap/);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy check output' }));
+    expect(writeText).toHaveBeenCalledWith('> tsc -b\n WARN  Failed to create bin\ntsc done\n');
+    expect(await screen.findByText('Copied')).toBeTruthy();
+  });
+
+  it('FR-3: a failed run stays collapsed and shows its first error line', () => {
+    const output = [
+      marker('pnpm typecheck'),
+      chunk('stdout', 'error-looking stdout\n'),
+      chunk('stderr', ' WARN  noise\nsrc/a.ts(3,1): error TS2339: nope\nmore\n'),
+    ];
+    const checking = {
+      ...mockChecking(0),
+      items: [
+        { label: 'Typecheck', kind: 'check' as const, status: 'failed' as const, detail: null },
+      ],
+    };
+    const { container, unmount } = render(
+      <OutputLog output={output} worktree={null} workflow={workflow} checking={checking} />,
+    );
+    const row = rows()[0]!;
+    expect(row.textContent).toBe('✗Check output · Typecheck (failed) · 4 lines▸');
+    expect(row.getAttribute('aria-expanded')).toBe('false');
+    expect(container.querySelector('.check-run-error')?.textContent).toBe(
+      'src/a.ts(3,1): error TS2339: nope',
+    );
+    expect(container.querySelector('.check-run-output')).toBeNull();
+    unmount();
+
+    // From the "Step failed" question instead (the card has left the step).
+    render(
+      <OutputLog
+        output={[marker('pnpm lint'), chunk('stdout', 'a\nlast words\n')]}
+        worktree={null}
+        workflow={workflow}
+        failedItem="Lint"
+      />,
+    );
+    expect(rows()[0]!.textContent).toMatch(/Lint \(failed\)/);
+    expect(screen.getByText('last words', { selector: '.check-run-error' })).toBeTruthy();
+  });
+
+  it('FR-4: with Debug lines on, everything renders ungrouped as before', () => {
+    const { container } = render(
+      <OutputLog output={twoRuns()} worktree={null} workflow={workflow} />,
+    );
+    fireEvent.click(screen.getByLabelText('Debug lines'));
+    expect(container.querySelector('.check-run')).toBeNull();
+    expect([...container.querySelectorAll('pre.term')].map((p) => p.className)).toEqual([
+      'term out-stdout',
+      'term out-stderr',
+      'term out-stdout',
+      'term out-stdout',
+    ]);
+    expect(container.querySelectorAll('.out-debug')).toHaveLength(2);
+  });
+
+  it('a run ends at any other entry or a phase divider; unmarked runs are "Command"', () => {
+    const t = buildThread(
+      buildEntries([
+        chunk('stdout', 'a\n'),
+        chunk('debug', '{"type":"x"}'),
+        chunk('stderr', 'b\n'),
+        toolUse('Read', {}),
+        chunk('stdout', 'c\n'),
+      ]),
+      { group: true },
+    );
+    expect(t.map((i) => (i.kind === 'run' ? `${i.name}:${i.lines}` : i.kind))).toEqual([
+      'Command:2',
+      'entry',
+      'Command:1',
+    ]);
+  });
+
+  it('NFR-3: 20,000 lines stay collapsed and cheap', () => {
+    const lines = Array.from({ length: 100 }, (_, i) => `output line ${i}`).join('\n') + '\n';
+    const output = [
+      marker('pnpm typecheck'),
+      ...Array.from({ length: 200 }, () => chunk('stdout', lines)),
+    ];
+    const t0 = performance.now();
+    const { container } = render(<OutputLog output={output} worktree={null} workflow={workflow} />);
+    const ms = performance.now() - t0;
+    expect(rows()[0]!.textContent).toMatch(/· 20,000 lines/);
+    expect(container.querySelector('.check-run-output')).toBeNull();
+    expect(container.textContent).not.toContain('output line');
+    expect(ms).toBeLessThan(1500);
+    // Expanded: one text node per stdout/stderr stretch, not 20,000 elements.
+    fireEvent.click(rows()[0]!);
+    const log = container.querySelector('.check-run-output')!;
+    expect(log.children).toHaveLength(1);
+    expect(log.textContent).toContain('output line 99\n');
   });
 });

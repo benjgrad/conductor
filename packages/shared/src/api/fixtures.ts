@@ -1,3 +1,27 @@
+import { LOCAL_ACCOUNT_ID } from '../domain.js';
+import type {
+  AdminUserRow,
+  CreateInviteRequest,
+  InviteCreated,
+  InviteRow,
+  ResetLinkCreated,
+} from './admin.js';
+import type {
+  InvitePreview,
+  LoginRequest,
+  MeResponse,
+  PasswordChangeRequest,
+  ResetRequest,
+  SignupRequest,
+} from './auth.js';
+import type {
+  EnrollmentTokenCreated,
+  EnrollRequest,
+  EnrollResponse,
+  MachineDetail,
+  MachineRow,
+  RenameMachineRequest,
+} from './machines.js';
 import type { BoardCard, MoveDto, TransitionSessionRequest } from './rest.js';
 import type { BoardSseEvent, BoardSseEventType, OutputChunk } from './sse.js';
 
@@ -197,4 +221,251 @@ export const OUTPUT_CHUNK_FIXTURE: OutputChunk = {
   stream: 'stdout',
   text: '> npm run build\n',
   ts,
+};
+
+// ---------------------------------------------------------------- M2-T01 accounts, admin, machines
+// One valid example per DTO (auth.ts, admin.ts, machines.ts). For the web mock (T05/T11) and the
+// orchestrator's route tests (T08, T15, T17).
+
+const PUBLIC_URL = 'https://conductor.gradyserver.com';
+const BEN_USER_ID = '4f5a6b7c-8d9e-4f0a-8b1c-2d3e4f5a6b7c';
+const DANA_USER_ID = '5a6b7c8d-9e0f-4a1b-9c2d-3e4f5a6b7c8d';
+const SAM_USER_ID = '6b7c8d9e-0f1a-4b2c-8d3e-4f5a6b7c8d9e';
+const INVITE_ID = '7c8d9e0f-1a2b-4c3d-9e4f-5a6b7c8d9e0f';
+const later = '2026-10-29T12:00:00.000Z';
+
+export const LOGIN_REQUEST_FIXTURE: LoginRequest = {
+  email: 'ben@example.com',
+  password: 'correct horse battery staple',
+};
+
+/** The bootstrap admin, owner of the `local` account (U-056). */
+export const ME_RESPONSE_FIXTURE: MeResponse = {
+  user: { id: BEN_USER_ID, email: 'ben@example.com', display_name: 'Ben', is_admin: true },
+  account: { id: LOCAL_ACCOUNT_ID, name: 'Ben' },
+  auth_mode: 'password',
+};
+
+export const SIGNUP_REQUEST_FIXTURE: SignupRequest = {
+  invite: 'q3V0aW5nLWZpeHR1cmUtaW52aXRlLXRva2VuLTAwMDE',
+  email: 'dana@example.com',
+  display_name: 'Dana',
+  password: 'a long enough passphrase',
+};
+
+export const INVITE_PREVIEW_FIXTURES: Record<'open' | 'pinned' | 'invalid', InvitePreview> = {
+  open: { valid: true, expires_at: later },
+  pinned: { valid: true, email: 'dana@example.com', expires_at: later },
+  invalid: { valid: false, expires_at: null },
+};
+
+export const RESET_REQUEST_FIXTURE: ResetRequest = {
+  token: 'cmVzZXQtZml4dHVyZS10b2tlbi0wMDAx',
+  password: 'a brand new passphrase',
+};
+
+export const PASSWORD_CHANGE_REQUEST_FIXTURE: PasswordChangeRequest = {
+  current: 'correct horse battery staple',
+  new: 'an even longer passphrase',
+};
+
+export const CREATE_INVITE_REQUEST_FIXTURE: CreateInviteRequest = {
+  email: 'dana@example.com',
+  days: 7,
+  admin: false,
+};
+
+/** The only time an invite token is shown. */
+export const INVITE_CREATED_FIXTURE: InviteCreated = {
+  id: INVITE_ID,
+  url: `${PUBLIC_URL}/signup?invite=q3V0aW5nLWZpeHR1cmUtaW52aXRlLXRva2VuLTAwMDE`,
+  expires_at: later,
+};
+
+export const INVITE_ROW_FIXTURES: Record<'open' | 'used' | 'revoked', InviteRow> = {
+  open: {
+    id: INVITE_ID,
+    email: 'dana@example.com',
+    is_admin: false,
+    created_at: ts,
+    expires_at: later,
+    used_at: null,
+    revoked_at: null,
+  },
+  used: {
+    id: '8d9e0f1a-2b3c-4d4e-8f5a-6b7c8d9e0f1a',
+    email: null,
+    is_admin: true,
+    created_at: ts,
+    expires_at: later,
+    used_at: '2026-10-22T13:00:00.000Z',
+    revoked_at: null,
+  },
+  revoked: {
+    id: '9e0f1a2b-3c4d-4e5f-9a6b-7c8d9e0f1a2b',
+    email: null,
+    is_admin: false,
+    created_at: ts,
+    expires_at: later,
+    used_at: null,
+    revoked_at: '2026-10-22T14:00:00.000Z',
+  },
+};
+
+export const ADMIN_USER_ROW_FIXTURES: Record<'admin' | 'locked' | 'disabled', AdminUserRow> = {
+  admin: {
+    id: BEN_USER_ID,
+    email: 'ben@example.com',
+    display_name: 'Ben',
+    is_admin: true,
+    disabled_at: null,
+    created_at: ts,
+    locked: false,
+  },
+  locked: {
+    id: DANA_USER_ID,
+    email: 'dana@example.com',
+    display_name: 'Dana',
+    is_admin: false,
+    disabled_at: null,
+    created_at: ts,
+    locked: true,
+  },
+  disabled: {
+    id: SAM_USER_ID,
+    email: 'sam@example.com',
+    display_name: 'Sam',
+    is_admin: false,
+    disabled_at: '2026-10-23T09:00:00.000Z',
+    created_at: ts,
+    locked: false,
+  },
+};
+
+/** Shown once. */
+export const RESET_LINK_CREATED_FIXTURE: ResetLinkCreated = {
+  url: `${PUBLIC_URL}/reset?token=cmVzZXQtZml4dHVyZS10b2tlbi0wMDAx`,
+  expires_at: '2026-10-22T13:00:00.000Z',
+};
+
+export const ENROLL_REQUEST_FIXTURE: EnrollRequest = {
+  token: 'ZW5yb2xsLWZpeHR1cmUtdG9rZW4',
+  hostname: 'bens-mbp',
+  os: 'darwin',
+  arch: 'arm64',
+  daemon_version: '0.2.0+eafa213',
+};
+
+/** Returned once; the server stores only the credential's hash. */
+export const ENROLL_RESPONSE_FIXTURE: EnrollResponse = {
+  machine_id: 'a0b1c2d3-e4f5-4a6b-8c7d-9e0f1a2b3c4d',
+  credential: 'bWFjaGluZS1jcmVkZW50aWFsLWZpeHR1cmUtMDAwMDAwMDAwMDAwMDAwMDAwMDA',
+};
+
+export const ENROLLMENT_TOKEN_CREATED_FIXTURE: EnrollmentTokenCreated = {
+  token: 'ZW5yb2xsLWZpeHR1cmUtdG9rZW4',
+  command: `curl -fsSL ${PUBLIC_URL}/install.sh | sh -s -- --token ZW5yb2xsLWZpeHR1cmUtdG9rZW4`,
+  expires_at: '2026-10-22T12:30:00.000Z',
+};
+
+export const MACHINE_ROW_FIXTURES: Record<'online' | 'revoked', MachineRow> = {
+  online: {
+    id: 'a0b1c2d3-e4f5-4a6b-8c7d-9e0f1a2b3c4d',
+    hostname: 'bens-mbp',
+    status: 'online',
+    tags: [],
+    last_heartbeat_at: ts,
+    max_sessions: 2,
+    running_sessions: 1,
+    cpu_free: 0.6,
+    mem_free_mb: 8192,
+    name: "Ben's MacBook",
+    daemon_version: '0.2.0+eafa213',
+    claude_version: '2.1.0',
+    outdated: false,
+    repo_count: 2,
+    revoked_at: null,
+  },
+  revoked: {
+    id: 'b1c2d3e4-f5a6-4b7c-9d8e-0f1a2b3c4d5e',
+    hostname: 'old-linux-box',
+    status: 'offline',
+    tags: [],
+    last_heartbeat_at: '2026-10-20T08:00:00.000Z',
+    max_sessions: 1,
+    running_sessions: 0,
+    cpu_free: null,
+    mem_free_mb: null,
+    name: 'old-linux-box',
+    daemon_version: '0.1.0+2e88cf8',
+    claude_version: null,
+    outdated: true,
+    repo_count: 0,
+    revoked_at: '2026-10-21T10:00:00.000Z',
+  },
+};
+
+export const MACHINE_DETAIL_FIXTURE: MachineDetail = {
+  ...MACHINE_ROW_FIXTURES.online,
+  os: 'darwin',
+  arch: 'arm64',
+  repos: [
+    {
+      remote: 'github.com/benjgrad/fixture-app',
+      path: '/Users/ben/code/fixture-app',
+      mode: 'reference',
+      default_branch: 'main',
+    },
+    {
+      remote: 'github.com/benjgrad/conductor',
+      path: '/Users/ben/code/conductor',
+      mode: 'checkout',
+      default_branch: 'main',
+    },
+  ],
+  capabilities: {
+    cli: [
+      { name: 'gh', version: '2.62.0', authed: true, repo: null },
+      { name: 'az', version: '2.67.0', authed: false, repo: null },
+    ],
+    mcp: [{ name: 'slack', version: null, authed: null, repo: null }],
+    skill: [{ name: 'pr', version: null, authed: null, repo: 'github.com/benjgrad/conductor' }],
+    agent: [],
+    claude: [{ name: 'claude', version: '2.1.0', authed: null, repo: null }],
+  },
+  alerts: [
+    {
+      id: 'c2d3e4f5-a6b7-4c8d-8e9f-1a2b3c4d5e6f',
+      kind: 'git_tamper',
+      repo: 'github.com/benjgrad/conductor',
+      session_id,
+      files: ['.git/hooks/pre-commit'],
+      created_at: ts,
+    },
+  ],
+  live_sessions: [
+    { session_id, ticket_id: '0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2', title: 'Add /health' },
+  ],
+};
+
+export const RENAME_MACHINE_REQUEST_FIXTURE: RenameMachineRequest = { name: 'Work laptop' };
+
+/** A Queued card no online machine can take (ADR-0013 §Routing). */
+export const BOARD_CARD_ROUTING_FIXTURE: BoardCard = {
+  ...BOARD_CARD_FIXTURE,
+  routing: {
+    missing_repo: 'github.com/benjgrad/fixture-app',
+    missing_capabilities: ['cli:az:authed'],
+  },
+};
+
+/** A running card whose checkout-mode session changed `.git` (U-060). */
+export const BOARD_CARD_ALERT_FIXTURE: BoardCard = {
+  ...BOARD_CARD_FIXTURE,
+  session_id,
+  workflow_state: 'implementing',
+  status: 'running',
+  column: 'implementing',
+  machine_id: 'a0b1c2d3-e4f5-4a6b-8c7d-9e0f1a2b3c4d',
+  alerts: [{ kind: 'git_tamper', files: ['.git/hooks/pre-commit'], at: ts }],
 };

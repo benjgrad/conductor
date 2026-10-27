@@ -127,3 +127,56 @@ export const OUTPUT_RING_BYTES = 256 * 1024;
 export function sessionBranch(ticketId: string, sessionId: string): string {
   return `conductor/${ticketId}/${sessionId.slice(0, 8)}`;
 }
+
+// ---------------------------------------------------------------- accounts (M2, ADR-0012, ADR-0017)
+
+/**
+ * The `local` account (ADR-0017 §Auth: schema sketch): every pre-M2 row is backfilled into it, and
+ * `local` mode runs as it. The bootstrap admin claims it (U-056). An RFC 9562 v4-shaped id, so it
+ * passes UuidSchema like every other account id.
+ */
+export const LOCAL_ACCOUNT_ID = '00000000-0000-4000-8000-000000000001';
+
+/**
+ * The `local` mode user: a virtual user with no `app_user` row. It is the actor of `local` mode
+ * requests (U-042 audit columns) and the user in `localMeResponse()`.
+ */
+export const LOCAL_USER_ID = '00000000-0000-4000-8000-000000000002';
+
+/** `CONDUCTOR_AUTH` (ADR-0017 §Modes): `local` = M1 (loopback, no sign-in); `password` = hosted. */
+export const AuthModeSchema = z.enum(['local', 'password']);
+export type AuthMode = z.infer<typeof AuthModeSchema>;
+
+/** Who is acting inside an account: a signed-in user, an enrolled machine, or conductor itself. */
+export const AccountActorSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('user'), user_id: z.string().min(1) }),
+  z.object({ kind: z.literal('machine'), machine_id: z.string().min(1) }),
+  z.object({ kind: z.literal('system') }),
+]);
+export type AccountActor = z.infer<typeof AccountActorSchema>;
+
+/**
+ * ADR-0012 §Tenancy: passed to every repository function, engine call and stream subscription.
+ * Every query filters on `account_id`; another account's id is `not_found`.
+ */
+export const AccountScopeSchema = z.object({
+  account_id: UuidSchema,
+  actor: AccountActorSchema,
+});
+export type AccountScope = z.infer<typeof AccountScopeSchema>;
+
+/** The scope of `local` mode (and of pre-M2 code paths): the `local` account. */
+export function localScope(actor: AccountActor): AccountScope {
+  return { account_id: LOCAL_ACCOUNT_ID, actor };
+}
+
+/**
+ * How a machine's sessions use a repo (ADR-0013, U-060): worktrees of a daemon `reference` clone
+ * (default) or of the user's own `checkout` (opt-in per repo, with the `.git` tamper check).
+ */
+export const MachineRepoModeSchema = z.enum(['reference', 'checkout']);
+export type MachineRepoMode = z.infer<typeof MachineRepoModeSchema>;
+
+/** Machine alert kinds (ADR-0013): `git_tamper` = a checkout's `.git` config or hooks changed. */
+export const MachineAlertKindSchema = z.enum(['git_tamper']);
+export type MachineAlertKind = z.infer<typeof MachineAlertKindSchema>;

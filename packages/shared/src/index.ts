@@ -33,6 +33,7 @@ export * from './protocol/outcome.js';
 export * from './protocol/fixtures.js';
 export * from './machines/index.js';
 export * from './api/rest.js';
+export * from './api/accounts.js';
 export * from './api/sse.js';
 export * from './api/fixtures.js';
 

@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs';
 import { cpus, homedir, hostname, totalmem } from 'node:os';
 import { join, resolve } from 'node:path';
 import { API_PATHS, conductorPort } from '@conductor/shared';
+import { daemonWsUrl, loadCredential, type MachineCredential } from './credential.js';
 
 // Daemon configuration (M1-T05; 07 §Compute, §Ports). Everything comes from env vars with
 // defaults that work for a single laptop talking to an orchestrator on localhost.
@@ -21,11 +23,19 @@ export interface BackoffConfig {
 }
 
 export interface DaemonConfig {
-  /** Full WS URL, `ws://<host>:<CONDUCTOR_PORT>` + `API_PATHS.daemonWs`. */
+  /**
+   * Full WS URL: CONDUCTOR_ORCHESTRATOR_URL, else the enrolled `url` (https → wss) + daemonWs, else
+   * `ws://<host>:<CONDUCTOR_PORT>` + `API_PATHS.daemonWs`.
+   */
   orchestratorUrl: string;
-  /** Root dir: shared clones (`repos/`), worktrees (`wt/`), daemon state (`state/`). */
+  /** Root dir: shared clones (`repos/`), worktrees (`wt/`), daemon state (`state/`), `machine.json`. */
   rootDir: string;
+  /** The enrolled `machine_id`, else (local mode) CONDUCTOR_MACHINE_ID or the hostname. */
   machineId: string;
+  /** The machine credential sent on the WS upgrade (M2-T04); null in local mode. Never logged. */
+  credential: string | null;
+  /** `register.daemon_version`: the package version, `+<CONDUCTOR_BUILD_SHA>` when set. */
+  daemonVersion: string;
   tags: string[];
   /** Advertised CPU budget (cores) after the owner reserve (07). */
   budgetCpu: number;
@@ -113,6 +123,27 @@ export function machineFacts(): MachineFacts {
   };
 }
 
+/** `<root>`: CONDUCTOR_ROOT, default `~/.conductor`. */
+export function rootDirFrom(env: Env, facts: Pick<MachineFacts, 'home'>): string {
+  return resolve(str(env, 'CONDUCTOR_ROOT', join(facts.home, '.conductor')));
+}
+
+let packageVersion: string | undefined;
+
+/**
+ * The daemon version: package.json's version, plus `+<CONDUCTOR_BUILD_SHA>` when set. Read at
+ * runtime: `src/` (vitest) and `dist/` (the bin) are both one level under the package root.
+ */
+export function daemonVersion(env: Env = process.env): string {
+  packageVersion ??= (
+    JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      version: string;
+    }
+  ).version;
+  const sha = str(env, 'CONDUCTOR_BUILD_SHA', '');
+  return sha === '' ? packageVersion : `${packageVersion}+${sha}`;
+}
+
 /**
  * Build the config from env. Variables (all optional):
  * CONDUCTOR_ORCHESTRATOR_URL (else ws://CONDUCTOR_HOST:CONDUCTOR_PORT/ws/daemon),
@@ -122,17 +153,23 @@ export function machineFacts(): MachineFacts {
  * CONDUCTOR_PORT_RANGE_SIZE (10), CONDUCTOR_MIN_FREE_MEM_MB (512), CONDUCTOR_WORK_POLL_MS (5000),
  * CONDUCTOR_GIT_NAME, CONDUCTOR_GIT_EMAIL, CONDUCTOR_ALLOW_LOCAL_REPOS (1/true; default off),
  * CONDUCTOR_ALLOWED_REPO_HOSTS (comma list; default any host), CLAUDE_CONFIG_DIR (~/.claude;
- * where Claude Code writes transcripts, ADR-0008).
+ * where Claude Code writes transcripts, ADR-0008), CONDUCTOR_BUILD_SHA (appended to daemon_version).
+ * When `<root>/machine.json` exists (M2-T04 `enroll`), its `machine_id` replaces
+ * CONDUCTOR_MACHINE_ID, its `url` is the default orchestrator URL, and its credential is sent on
+ * the WS upgrade.
  */
 export function loadConfig(
   env: Env = process.env,
   facts: MachineFacts = machineFacts(),
+  readCredential: (rootDir: string) => MachineCredential | null = loadCredential,
 ): DaemonConfig {
+  const rootDir = rootDirFrom(env, facts);
+  const cred = readCredential(rootDir);
   const host = str(env, 'CONDUCTOR_HOST', '127.0.0.1');
   const orchestratorUrl = str(
     env,
     'CONDUCTOR_ORCHESTRATOR_URL',
-    `ws://${host}:${conductorPort(env)}${API_PATHS.daemonWs}`,
+    cred ? daemonWsUrl(cred.url) : `ws://${host}:${conductorPort(env)}${API_PATHS.daemonWs}`,
   );
   const budgetCpu = int(
     env,
@@ -170,8 +207,10 @@ export function loadConfig(
   const tags = list(env, 'CONDUCTOR_TAGS');
   return {
     orchestratorUrl,
-    rootDir: resolve(str(env, 'CONDUCTOR_ROOT', join(facts.home, '.conductor'))),
-    machineId: str(env, 'CONDUCTOR_MACHINE_ID', facts.hostname),
+    rootDir,
+    machineId: cred ? cred.machine_id : str(env, 'CONDUCTOR_MACHINE_ID', facts.hostname),
+    credential: cred?.credential ?? null,
+    daemonVersion: daemonVersion(env),
     tags,
     budgetCpu,
     budgetMemMb,

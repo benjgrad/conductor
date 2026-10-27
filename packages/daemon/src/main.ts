@@ -3,12 +3,19 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createCliDriver } from './claude/cli-driver.js';
 import { startOutcomeServer } from './claude/outcome-server.js';
+import { enroll, ENROLL_USAGE } from './commands/enroll.js';
 import { loadConfig } from './config.js';
 import { Daemon } from './daemon.js';
 
 // `conductor-daemon` entry: env → config, the real ADR-0005 CLI driver (its MCP outcome server on
 // 127.0.0.1), signals. TD-021 resolved: a static import of the T05b driver, so tsc checks the
 // `createCliDriver` signature (claudeBin ← CONDUCTOR_CLAUDE_BIN ← 'claude' inside the driver).
+// M2-T04: subcommands `run` (default) and `enroll`.
+
+const USAGE = [
+  'usage: conductor-daemon [run]',
+  `       ${ENROLL_USAGE.replace(/^usage: /, '')}`,
+].join('\n');
 
 /** `claude --version` → "2.1.308", or null when the CLI is missing (U-015). */
 async function claudeCodeVersion(
@@ -22,7 +29,7 @@ async function claudeCodeVersion(
   }
 }
 
-async function main(): Promise<void> {
+async function run(): Promise<void> {
   const config = loadConfig(process.env);
   const outcomeServer = await startOutcomeServer();
   const driver = createCliDriver({
@@ -34,6 +41,8 @@ async function main(): Promise<void> {
     config,
     driver,
     claudeCodeVersion: await claudeCodeVersion(),
+    // Revoked, unauthorized or protocol too old: the daemon already logged why; exit non-zero.
+    onFatal: () => shutdown(1),
   });
   // TD-077: Claude Code treats any `.claude` directory as protected config, so a Write/Edit inside a
   // worktree under such a path is denied (dontAsk/manual) or left to auto mode's classifier.
@@ -45,19 +54,40 @@ async function main(): Promise<void> {
   }
   daemon.start();
   process.stderr.write(
-    `[conductor-daemon] ${config.machineId} → ${config.orchestratorUrl} (root ${config.rootDir})\n`,
+    `[conductor-daemon] ${config.machineId} → ${config.orchestratorUrl} (root ${config.rootDir}, ` +
+      `${config.credential !== null ? 'enrolled' : 'local mode'})\n`,
   );
-  const shutdown = () => {
+  function shutdown(code = 0): void {
     daemon.stop();
     void outcomeServer.close().catch(() => {});
     // Give killed children a moment to exit before the event loop ends.
-    setTimeout(() => process.exit(0), config.killGraceMs).unref();
-  };
-  process.once('SIGINT', shutdown);
-  process.once('SIGTERM', shutdown);
+    setTimeout(() => process.exit(code), config.killGraceMs).unref();
+  }
+  process.once('SIGINT', () => shutdown());
+  process.once('SIGTERM', () => shutdown());
 }
 
-main().catch((e: unknown) => {
+async function main(argv: string[]): Promise<void> {
+  const [sub, ...rest] = argv;
+  switch (sub) {
+    case undefined:
+    case 'run':
+      return run();
+    case 'enroll':
+      process.exitCode = await enroll(rest);
+      return;
+    case 'help':
+    case '-h':
+    case '--help':
+      process.stdout.write(`${USAGE}\n`);
+      return;
+    default:
+      process.stderr.write(`[conductor-daemon] unknown command: ${sub}\n${USAGE}\n`);
+      process.exitCode = 2;
+  }
+}
+
+main(process.argv.slice(2)).catch((e: unknown) => {
   process.stderr.write(
     `[conductor-daemon] fatal: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}\n`,
   );

@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import {
   API_PATHS,
+  CLOSE_REASONS,
+  DAEMON_AUTH_HEADER,
   parseDaemonMessage,
   type DaemonToOrchestrator,
   type OrchestratorToDaemon,
@@ -12,7 +14,8 @@ import { WebSocketServer, type WebSocket } from 'ws';
 
 // A fake orchestrator WS endpoint for daemon integration tests (M1-T05 acceptance). Every
 // daemon frame is validated with the shared `parseDaemonMessage`; an invalid frame is recorded
-// in `invalid` (tests assert it stays empty).
+// in `invalid` (tests assert it stays empty). M2-T04: records each upgrade's DAEMON_AUTH_HEADER,
+// can refuse upgrades with an HTTP status, and can close the socket with a protocol close code.
 
 type SessionEventMsg = Extract<DaemonToOrchestrator, { type: 'session_event' }>;
 type EventData<K extends SessionEventKind> = Extract<SessionEventPayload, { kind: K }>['data'];
@@ -33,21 +36,39 @@ export class FakeOrchestrator {
     payload: {},
   });
   connections = 0;
+  /** DAEMON_AUTH_HEADER of each accepted upgrade, in order (undefined = none: local mode). */
+  readonly authHeaders: (string | undefined)[] = [];
+  /** When set, upgrades are refused with this HTTP status (and counted in `rejected`). */
+  rejectUpgrade: number | null = null;
+  rejected = 0;
   private socket: WebSocket | null = null;
   private waiters: (() => void)[] = [];
 
   private constructor(private readonly wss: WebSocketServer) {
-    wss.on('connection', (ws) => {
+    wss.on('connection', (ws, req) => {
       this.connections++;
+      this.authHeaders.push(req.headers[DAEMON_AUTH_HEADER]);
       this.socket = ws;
       ws.on('message', (data) => this.onFrame(ws, (data as Buffer).toString('utf8')));
     });
   }
 
   static async start(): Promise<FakeOrchestrator> {
-    const wss = new WebSocketServer({ host: '127.0.0.1', port: 0, path: API_PATHS.daemonWs });
+    let self: FakeOrchestrator | null = null;
+    const wss = new WebSocketServer({
+      host: '127.0.0.1',
+      port: 0,
+      path: API_PATHS.daemonWs,
+      verifyClient: (_info, cb) => {
+        const status = self?.rejectUpgrade ?? null;
+        if (status === null) return cb(true);
+        self!.rejected++;
+        cb(false, status);
+      },
+    });
     await new Promise<void>((r) => wss.once('listening', () => r()));
-    return new FakeOrchestrator(wss);
+    self = new FakeOrchestrator(wss);
+    return self;
   }
 
   get url(): string {
@@ -94,6 +115,12 @@ export class FakeOrchestrator {
   send(msg: OrchestratorToDaemon): void {
     if (!this.socket) throw new Error('no daemon connected');
     this.sendOn(this.socket, msg);
+  }
+
+  /** Close the daemon's socket with a protocol close code (e.g. CLOSE_REVOKED). */
+  closeWith(code: keyof typeof CLOSE_REASONS): void {
+    this.socket?.close(code, CLOSE_REASONS[code]);
+    this.socket = null;
   }
 
   /** Drop the daemon's socket (it should reconnect). */

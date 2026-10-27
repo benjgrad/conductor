@@ -5,14 +5,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  CLOSE_REVOKED,
   NO_OUTCOME_OUTPUT_CHARS,
+  PROTOCOL_VERSION,
   resolveToolPolicy,
   sessionBranch,
   type OrchestratorToDaemon,
 } from '@conductor/shared';
 import { FakeClaudeDriver, type FakeClaudeScript } from './claude/fake-driver.js';
 import { FakeCommandRunner } from './commands/fake-runner.js';
-import { loadConfig, type DaemonConfig } from './config.js';
+import { daemonVersion, loadConfig, type DaemonConfig } from './config.js';
+import { writeCredential } from './credential.js';
 import { Daemon, NO_OUTCOME_NUDGE } from './daemon.js';
 import { DaemonStore } from './store.js';
 import type { LiveResources } from './sysinfo.js';
@@ -66,6 +69,7 @@ function makeDaemon(
     root?: string;
     config?: Partial<DaemonConfig>;
     ghCommand?: { cmd: string; args: readonly string[] };
+    onFatal?: (code: number, reason: string) => void;
   } = {},
 ): Daemon {
   const config = loadConfig({
@@ -91,6 +95,7 @@ function makeDaemon(
     claudeCodeVersion: '2.1.308',
     log: () => {},
     ...(opts.ghCommand ? { ghCommand: opts.ghCommand } : {}),
+    ...(opts.onFatal ? { onFatal: opts.onFatal } : {}),
   });
   daemons.push(d);
   d.start();
@@ -178,12 +183,50 @@ describe('daemon core: link', () => {
       max_sessions: 2,
       max_concurrent_builds: 2,
       claude_code_version: '2.1.308',
+      protocol_version: PROTOCOL_VERSION,
+      daemon_version: daemonVersion({}),
     });
+    expect(PROTOCOL_VERSION).toBe(2);
+    expect(orch.authHeaders).toEqual([undefined]); // local mode: no credential header
     expect(orch.ofType('heartbeat')[0]!.payload).toMatchObject({ mem_free_mb: 8000, sessions: [] });
     expect(orch.ofType('request_work')[0]!.payload).toMatchObject({
       free_slots: 2,
       mem_free_mb: 8000,
     });
+  });
+
+  it('register.daemon_version carries CONDUCTOR_BUILD_SHA', async () => {
+    makeDaemon(new FakeClaudeDriver(complete({})), { env: { CONDUCTOR_BUILD_SHA: 'abc1234' } });
+    const reg = await orch.until(() => orch.ofType('register')[0]);
+    expect(reg.payload.daemon_version).toBe(`${daemonVersion({})}+abc1234`);
+  });
+
+  it('enrolled: the enrolled machine id, the bearer header, no enrollment_token', async () => {
+    const root = join(tmp, 'root');
+    writeCredential(
+      root,
+      { url: 'http://127.0.0.1', machine_id: 'm-enrolled', credential: 'secret-cred' },
+      { force: false },
+    );
+    makeDaemon(new FakeClaudeDriver(complete({})), { root });
+    const reg = await orch.until(() => orch.ofType('register')[0]);
+    expect(reg.payload.machine_id).toBe('m-enrolled');
+    expect(reg.payload).not.toHaveProperty('enrollment_token');
+    expect(reg.payload.protocol_version).toBe(PROTOCOL_VERSION);
+    expect(orch.authHeaders).toEqual(['Bearer secret-cred']);
+  });
+
+  it('close 4001 (revoked) stops the link and calls onFatal; no re-register', async () => {
+    const fatal: number[] = [];
+    const d = makeDaemon(new FakeClaudeDriver(complete({})), { onFatal: (c) => fatal.push(c) });
+    await orch.until(() => d.isRegistered);
+    orch.closeWith(CLOSE_REVOKED);
+    await orch.until(() => fatal.length === 1);
+    await new Promise((r) => setTimeout(r, 300)); // reconnect backoff is 20-100 ms here
+    expect(fatal).toEqual([CLOSE_REVOKED]);
+    expect(d.isRegistered).toBe(false);
+    expect(orch.ofType('register')).toHaveLength(1);
+    expect(orch.connections).toBe(1);
   });
 
   it('reconnects with backoff after the socket drops and registers again', async () => {

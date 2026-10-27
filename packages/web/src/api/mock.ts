@@ -1,19 +1,35 @@
 import {
+  ADMIN_USER_ROW_FIXTURES,
   AnswerInputRequestSchema,
   boardColumns as defaultBoardColumns,
+  CreateInviteRequestSchema,
   CreateTicketRequestSchema,
   humanTransitionOptions,
+  INVITE_DEFAULT_DAYS,
+  INVITE_ROW_FIXTURES,
+  localMeResponse,
+  LoginRequestSchema,
+  ME_RESPONSE_FIXTURE,
+  PasswordChangeRequestSchema,
+  passwordProblems,
   placeCard,
   ReopenSessionRequestSchema,
+  RESET_LINK_TTL_MS,
+  ResetRequestSchema,
   RETURN_TO,
   SendMessageRequestSchema,
+  SignupRequestSchema,
   TransitionSessionRequestSchema,
+  type AdminUserRow,
+  type AuthMode,
   type BoardCard,
   type BoardResponse,
   type BoardSseEvent,
   type BoardSseEventDraft,
   type InputRequestKind,
+  type InviteRow,
   type MachineDto,
+  type MeResponse,
   type MoveDto,
   type OkResponse,
   type OutputChunk,
@@ -51,7 +67,24 @@ export interface MockApiOptions {
   latencyMs?: number;
   /** Delay before the fake agent replies to a sendMessage, ms. Default 700. */
   replyDelayMs?: number;
+  /**
+   * M2-T05. `local` (default): `me()` is the local user and nothing needs a session. `password`:
+   * one admin user (MOCK_ADMIN) and two open invites (MOCK_INVITE_TOKENS); the auth and admin
+   * calls behave like 10-contracts §Accounts and web auth.
+   */
+  auth?: AuthMode;
+  /** `password` mode: start signed in as the admin. Default true. */
+  signedIn?: boolean;
 }
+
+/** The mock's one user in `password` mode (an admin). */
+export const MOCK_ADMIN = { email: 'ben@example.com', password: 'correct horse battery' } as const;
+/** Tokens of the mock's two invites: one pinned to dana@example.com, one open to anyone. */
+export const MOCK_INVITE_TOKENS = {
+  pinned: 'mock-invite-pinned',
+  open: 'mock-invite-open',
+} as const;
+const INVALID_CREDENTIALS = 'Email or password is wrong';
 
 export interface MockApi extends ApiClient {
   /** Test/dev hooks: drive the board like a daemon would. */
@@ -59,6 +92,13 @@ export interface MockApi extends ApiClient {
   requestInput(sessionId: string, kind: InputRequestKind, question: string): string;
   /** Appends fake output to every running session every `ms`; returns a stop function. */
   simulate(ms: number): Unsubscribe;
+  /** `password` mode: lock a user's email, as repeated failed sign-ins would. */
+  lockUser(email: string): void;
+}
+
+interface MockUser {
+  row: AdminUserRow;
+  password: string;
 }
 
 const TERMINAL: ReadonlySet<SessionStatus> = new Set(['done', 'failed', 'lost']);
@@ -106,6 +146,85 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
   for (const s of mockSeeds(now())) {
     if (s.session && s.card.session_id) sessions.set(s.card.session_id, s.session);
     cards.set(s.card.ticket_id, { ...s.card, column: columnOf(s.card) });
+  }
+
+  // M2-T05: accounts. `session` is the signed-in user's id (null = signed out).
+  const authMode: AuthMode = opts.auth ?? 'local';
+  const day = 24 * 60 * 60_000;
+  const isoIn = (ms: number) => new Date(now().getTime() + ms).toISOString();
+  const users = new Map<string, MockUser>();
+  const admin = { ...ADMIN_USER_ROW_FIXTURES.admin, created_at: isoIn(-30 * day) };
+  users.set(admin.id, { row: admin, password: MOCK_ADMIN.password });
+  let session: string | null = authMode === 'password' && opts.signedIn !== false ? admin.id : null;
+  /** Invites by token, newest first in `listInvites`. */
+  const invites = new Map<string, InviteRow>([
+    [
+      MOCK_INVITE_TOKENS.pinned,
+      {
+        ...INVITE_ROW_FIXTURES.open,
+        created_at: isoIn(-2 * day),
+        expires_at: isoIn(5 * day),
+      },
+    ],
+    [
+      MOCK_INVITE_TOKENS.open,
+      {
+        ...INVITE_ROW_FIXTURES.open,
+        id: crypto.randomUUID(),
+        email: null,
+        created_at: isoIn(-1 * day),
+        expires_at: isoIn(6 * day),
+      },
+    ],
+  ]);
+  const resets = new Map<string, { userId: string; expires_at: string; used: boolean }>();
+  let issued = 0;
+
+  const inviteOpen = (row: InviteRow | undefined): row is InviteRow =>
+    row !== undefined &&
+    row.used_at === null &&
+    row.revoked_at === null &&
+    Date.parse(row.expires_at) > now().getTime();
+
+  function meFor(user: MockUser): MeResponse {
+    const { id, email, display_name, is_admin } = user.row;
+    return {
+      ...ME_RESPONSE_FIXTURE,
+      user: { id, email, display_name, is_admin },
+      account: { id: ME_RESPONSE_FIXTURE.account.id, name: display_name },
+    };
+  }
+
+  function signedInUser(): MockUser {
+    const user = session === null ? undefined : users.get(session);
+    if (!user || user.row.disabled_at !== null) {
+      throw new ApiRequestError(401, 'unauthorized', 'Sign in to continue');
+    }
+    return user;
+  }
+
+  function requireAdmin(): void {
+    if (authMode === 'local') throw new ApiRequestError(403, 'forbidden', 'Admins only');
+    if (!signedInUser().row.is_admin) throw new ApiRequestError(403, 'forbidden', 'Admins only');
+  }
+
+  function userById(id: string): MockUser {
+    const user = users.get(id);
+    if (!user) throw new ApiRequestError(404, 'not_found', `user ${id} not found`);
+    return user;
+  }
+
+  function badRequest(message: string, details: { path: string; message: string }[] = []) {
+    return new ApiRequestError(400, 'bad_request', message, details);
+  }
+
+  function passwordError(password: string, email: string): ApiRequestError | null {
+    const problems = passwordProblems(password, email);
+    if (problems.length === 0) return null;
+    return badRequest(
+      problems.join(' '),
+      problems.map((message) => ({ path: 'password', message })),
+    );
   }
 
   const reply = <T>(fn: () => T): Promise<T> =>
@@ -257,6 +376,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           pending_input: card.input_request,
           recent_output: s.output,
           moves: s.moves,
+          ...(s.ticket_body !== undefined ? { ticket_body: s.ticket_body } : {}),
         });
       }),
 
@@ -604,6 +724,182 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         }, replyDelay);
         return { session_id: id };
       }),
+
+    me: () =>
+      reply((): MeResponse => (authMode === 'local' ? localMeResponse() : meFor(signedInUser()))),
+
+    login: (raw) =>
+      reply((): MeResponse => {
+        const parsed = LoginRequestSchema.safeParse(raw);
+        if (!parsed.success) throw new ApiRequestError(401, 'unauthorized', INVALID_CREDENTIALS);
+        const user = [...users.values()].find((u) => u.row.email === parsed.data.email);
+        if (
+          !user ||
+          user.password !== parsed.data.password ||
+          user.row.disabled_at !== null ||
+          user.row.locked
+        ) {
+          throw new ApiRequestError(401, 'unauthorized', INVALID_CREDENTIALS);
+        }
+        session = user.row.id;
+        return meFor(user);
+      }),
+
+    logout: () =>
+      reply((): OkResponse => {
+        session = null;
+        return { ok: true };
+      }),
+
+    signup: (raw) =>
+      reply((): MeResponse => {
+        const parsed = SignupRequestSchema.safeParse(raw);
+        if (!parsed.success) {
+          throw badRequest(
+            parsed.error.message,
+            parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+          );
+        }
+        const req = parsed.data;
+        const invite = invites.get(req.invite);
+        if (!inviteOpen(invite)) throw badRequest('This invite is not valid');
+        if (invite.email !== null && invite.email !== req.email) {
+          throw badRequest('This invite is for another email address');
+        }
+        if ([...users.values()].some((u) => u.row.email === req.email)) {
+          throw badRequest('An account with this email already exists');
+        }
+        const row: AdminUserRow = {
+          id: crypto.randomUUID(),
+          email: req.email,
+          display_name: req.display_name,
+          is_admin: invite.is_admin,
+          disabled_at: null,
+          created_at: now().toISOString(),
+          locked: false,
+        };
+        const user = { row, password: req.password };
+        users.set(row.id, user);
+        invite.used_at = now().toISOString();
+        session = row.id;
+        return meFor(user);
+      }),
+
+    previewInvite: (token) =>
+      reply(() => {
+        const invite = invites.get(token);
+        if (!inviteOpen(invite)) return { valid: false, expires_at: null };
+        return {
+          valid: true,
+          ...(invite.email !== null ? { email: invite.email } : {}),
+          expires_at: invite.expires_at,
+        };
+      }),
+
+    resetPassword: (raw) =>
+      reply((): OkResponse => {
+        const parsed = ResetRequestSchema.safeParse(raw);
+        if (!parsed.success) throw badRequest(parsed.error.message);
+        const reset = resets.get(parsed.data.token);
+        if (!reset || reset.used || Date.parse(reset.expires_at) <= now().getTime()) {
+          throw badRequest('This reset link is not valid');
+        }
+        const user = userById(reset.userId);
+        const bad = passwordError(parsed.data.password, user.row.email);
+        if (bad) throw bad;
+        user.password = parsed.data.password;
+        reset.used = true;
+        if (session === user.row.id) session = null;
+        return { ok: true };
+      }),
+
+    changePassword: (raw) =>
+      reply((): OkResponse => {
+        const parsed = PasswordChangeRequestSchema.safeParse(raw);
+        if (!parsed.success) throw badRequest(parsed.error.message);
+        const user = signedInUser();
+        if (user.password !== parsed.data.current) {
+          throw new ApiRequestError(401, 'unauthorized', 'The current password is wrong');
+        }
+        const bad = passwordError(parsed.data.new, user.row.email);
+        if (bad) throw bad;
+        user.password = parsed.data.new;
+        return { ok: true };
+      }),
+
+    listInvites: () =>
+      reply((): InviteRow[] => {
+        requireAdmin();
+        return clone([...invites.values()].reverse());
+      }),
+
+    createInvite: (raw) =>
+      reply(() => {
+        requireAdmin();
+        const parsed = CreateInviteRequestSchema.safeParse(raw);
+        if (!parsed.success) throw badRequest(parsed.error.message);
+        const token = `mock-${++issued}-${crypto.randomUUID().slice(0, 8)}`;
+        const row: InviteRow = {
+          id: crypto.randomUUID(),
+          email: parsed.data.email ?? null,
+          is_admin: parsed.data.admin ?? false,
+          created_at: now().toISOString(),
+          expires_at: isoIn((parsed.data.days ?? INVITE_DEFAULT_DAYS) * day),
+          used_at: null,
+          revoked_at: null,
+        };
+        invites.set(token, row);
+        return {
+          id: row.id,
+          url: `http://localhost/signup?invite=${token}`,
+          expires_at: row.expires_at,
+        };
+      }),
+
+    revokeInvite: (inviteId) =>
+      reply((): OkResponse => {
+        requireAdmin();
+        const row = [...invites.values()].find((r) => r.id === inviteId);
+        if (!row) throw new ApiRequestError(404, 'not_found', `invite ${inviteId} not found`);
+        row.revoked_at ??= now().toISOString();
+        return { ok: true };
+      }),
+
+    listUsers: () =>
+      reply((): AdminUserRow[] => {
+        requireAdmin();
+        return clone([...users.values()].map((u) => u.row));
+      }),
+
+    createResetLink: (userId) =>
+      reply(() => {
+        requireAdmin();
+        userById(userId);
+        const token = `mock-reset-${++issued}`;
+        const expires_at = isoIn(RESET_LINK_TTL_MS);
+        resets.set(token, { userId, expires_at, used: false });
+        return { url: `http://localhost/reset?token=${token}`, expires_at };
+      }),
+
+    disableUser: (userId) =>
+      reply((): OkResponse => {
+        requireAdmin();
+        const user = userById(userId);
+        user.row.disabled_at ??= now().toISOString();
+        if (session === userId) session = null;
+        return { ok: true };
+      }),
+
+    unlockUser: (userId) =>
+      reply((): OkResponse => {
+        requireAdmin();
+        userById(userId).row.locked = false;
+        return { ok: true };
+      }),
+
+    lockUser(email) {
+      for (const u of users.values()) if (u.row.email === email) u.row.locked = true;
+    },
 
     pushOutput(sessionId, text, stream = 'assistant') {
       const s = sessionOf(sessionId);

@@ -1,6 +1,7 @@
-import type { OutputChunk, SessionDetail } from '@conductor/shared';
+import type { OutputChunk, SessionDetail, TranscriptResponse } from '@conductor/shared';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { ApiRequestError, errorMessage, type ApiClient } from '../api/client.js';
+import { initialPrompt } from '../brief/prompt.js';
 import { applyBoardEvent, boardFromResponse, EMPTY_BOARD, type BoardState } from './board.js';
 
 type BoardAction =
@@ -58,6 +59,12 @@ export interface SessionView {
   reload: () => void;
   /** Set once a transcript fetch was tried (the ring was empty when the panel opened). */
   history: HistoryNotice | null;
+  /**
+   * UX-2: that fetch's initial prompt (null until it settles), and whether it is under way, so
+   * useInitialPrompt doesn't fetch the transcript a second time.
+   */
+  historyPrompt: PromptResult | null;
+  historyPending: boolean;
 }
 
 /** The quiet notice for a transcript fetch result (ADR-0008). */
@@ -132,6 +139,7 @@ export function useSession(api: ApiClient, sessionId: string, version: string): 
     sessionId: string;
     chunks: OutputChunk[];
     notice: HistoryNotice;
+    prompt: PromptResult;
   } | null>(null);
   const tried = useRef<string | null>(null);
   const machine = current?.card.machine_id ?? null;
@@ -150,8 +158,15 @@ export function useSession(api: ApiClient, sessionId: string, version: string): 
             kind: 'loaded',
             text: `History loaded from Claude's transcript on ${res.machine_id}`,
           },
+          prompt: promptOfTranscript(res),
         }),
-      (err: unknown) => setHistory({ sessionId, chunks: [], notice: historyNotice(machine, err) }),
+      (err: unknown) =>
+        setHistory({
+          sessionId,
+          chunks: [],
+          notice: historyNotice(machine, err),
+          prompt: { text: null, reason: promptUnavailable(machine, err) },
+        }),
     );
   }, [api, sessionId, emptyRing, machine]);
 
@@ -167,5 +182,76 @@ export function useSession(api: ApiClient, sessionId: string, version: string): 
     error: error ?? streamError,
     reload,
     history: past?.notice ?? null,
+    historyPrompt: past?.prompt ?? null,
+    historyPending: emptyRing && machine !== null && past === null,
   };
+}
+
+/** UX-2: the agent's initial prompt (View prompt), or why it isn't available. */
+export interface PromptResult {
+  text: string | null;
+  /** Why `text` is null. */
+  reason: string | null;
+}
+
+export interface InitialPrompt extends PromptResult {
+  loading: boolean;
+}
+
+function promptOfTranscript(res: TranscriptResponse): PromptResult {
+  const text = initialPrompt(res.chunks);
+  if (text !== null) return { text, reason: null };
+  return {
+    text: null,
+    reason: res.truncated
+      ? 'the transcript no longer reaches the first prompt'
+      : 'no prompt in the transcript',
+  };
+}
+
+function promptUnavailable(machine: string, err: unknown): string {
+  if (err instanceof ApiRequestError) {
+    if (err.code === 'machine_offline') return `${machine} is offline`;
+    if (err.code === 'no_transcript') return 'no transcript found';
+  }
+  return errorMessage(err);
+}
+
+/**
+ * UX-2: the first prompt the agent received, from Claude's transcript (ADR-0008). Reuses the
+ * history fetch of `useSession` when there was one (`view.historyPrompt`); otherwise fetches the
+ * transcript once per session, and only while `enabled` (it can be large).
+ */
+export function useInitialPrompt(
+  api: ApiClient,
+  view: Pick<SessionView, 'detail' | 'historyPrompt' | 'historyPending'>,
+  enabled: boolean,
+): InitialPrompt {
+  const { detail, historyPrompt, historyPending } = view;
+  const sessionId = detail?.card.session_id ?? null;
+  const machine = detail?.card.machine_id ?? null;
+  const [fetched, setFetched] = useState<(PromptResult & { sessionId: string }) | null>(null);
+  const tried = useRef<string | null>(null);
+  const need =
+    enabled && historyPrompt === null && !historyPending && sessionId !== null && machine !== null;
+  useEffect(() => {
+    if (!need || sessionId === null || machine === null || tried.current === sessionId) return;
+    tried.current = sessionId;
+    // TD: View prompt reads Claude's transcript (needs the machine online, and the 2 MB cap can
+    // drop the start); an API field for the initial prompt would make it reliable.
+    api.getTranscript(sessionId).then(
+      (res) => setFetched({ sessionId, ...promptOfTranscript(res) }),
+      (err: unknown) =>
+        setFetched({ sessionId, text: null, reason: promptUnavailable(machine, err) }),
+    );
+  }, [api, need, sessionId, machine]);
+
+  if (detail === null) return { text: null, reason: null, loading: true };
+  if (historyPrompt) return { ...historyPrompt, loading: false };
+  if (machine === null) {
+    return { text: null, reason: "the session hasn't started on a machine yet", loading: false };
+  }
+  const mine = fetched?.sessionId === sessionId ? fetched : null;
+  if (mine) return { text: mine.text, reason: mine.reason, loading: false };
+  return { text: null, reason: null, loading: enabled || historyPending };
 }

@@ -3,8 +3,11 @@ import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { arch, homedir, hostname, platform } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import {
+  DAEMON_AUTH_HEADER,
+  daemonAuthHeaderValue,
   EvaluateConditionsArgsSchema,
   NO_OUTCOME_OUTPUT_CHARS,
+  PROTOCOL_VERSION,
   parseOrchestratorMessage,
   resolveToolPolicy,
   type JsonObject,
@@ -17,7 +20,7 @@ import type { ClaudeDriver, DriverEvent, DriverSession } from './claude/driver.j
 import { findTranscript, readTranscriptTail, transcriptChunks } from './claude/transcript.js';
 import { createCommandRunner as defaultCreateCommandRunner } from './commands/index.js';
 import type { CommandRunner, CreateCommandRunner } from './commands/runner.js';
-import { machineFacts, type DaemonConfig } from './config.js';
+import { daemonVersion, machineFacts, type DaemonConfig } from './config.js';
 import { PortPool, portEnv } from './ports.js';
 import { DaemonStore, type AckRecord, type PortRange } from './store.js';
 import { liveResources, type SysInfo } from './sysinfo.js';
@@ -36,7 +39,8 @@ import { ReconnectingWs } from './ws-client.js';
 // with the ack they got, so a re-sent command is re-acked, never re-run). The Claude driver
 // (ADR-0005) and the command runner (T06) are injected.
 
-export const DAEMON_VERSION = '0.0.0';
+/** The package version (without CONDUCTOR_BUILD_SHA); `register` sends `config.daemonVersion`. */
+export const DAEMON_VERSION = daemonVersion({});
 
 /**
  * U-028 (ADR-0005 addendum): the one user message sent when a turn ends with neither
@@ -59,6 +63,11 @@ export interface DaemonOptions {
   /** Test only: how open_pr runs gh (default `gh` from PATH). */
   ghCommand?: { cmd: string; args: readonly string[] };
   log?: (msg: string) => void;
+  /**
+   * The link can't recover (close 4001 revoked, 4003 unauthorized, 4005 protocol too old, or HTTP
+   * 401 at the upgrade); reconnecting has stopped. `main` stops and exits non-zero.
+   */
+  onFatal?: (code: number, reason: string) => void;
 }
 
 type Command = Extract<
@@ -127,6 +136,7 @@ export class Daemon {
   private readonly claudeCodeVersion: string | null;
   private readonly ghCommand: { cmd: string; args: readonly string[] } | null;
   private readonly log: (msg: string) => void;
+  private readonly onFatal: (code: number, reason: string) => void;
   private readonly ws: ReconnectingWs;
 
   private registered = false;
@@ -162,6 +172,7 @@ export class Daemon {
     this.claudeCodeVersion = opts.claudeCodeVersion ?? null;
     this.ghCommand = opts.ghCommand ?? null;
     this.log = opts.log ?? ((m) => process.stderr.write(`[conductor-daemon] ${m}\n`));
+    this.onFatal = opts.onFatal ?? ((code) => this.log(`link failed (${code}); stopped`));
     this.heartbeatMs = this.config.heartbeatIntervalMs;
     mkdirSync(this.config.rootDir, { recursive: true });
     this.store = DaemonStore.forRoot(this.config.rootDir);
@@ -192,8 +203,15 @@ export class Daemon {
         onOpen: () => this.onOpen(),
         onMessage: (t) => this.onMessage(t),
         onClose: () => this.onClose(),
+        onFatal: (code, reason) => this.onFatal(code, reason),
       },
-      this.log,
+      {
+        log: this.log,
+        // M2-T04: the machine credential on every upgrade; local mode sends no header.
+        ...(this.config.credential !== null
+          ? { headers: { [DAEMON_AUTH_HEADER]: daemonAuthHeaderValue(this.config.credential) } }
+          : {}),
+      },
     );
   }
 
@@ -226,7 +244,10 @@ export class Daemon {
     const res = this.sysinfo(this.config.rootDir);
     this.sendMachine('register', {
       machine_id: this.config.machineId,
-      enrollment_token: null,
+      // Local mode keeps M1's `enrollment_token: null`; an enrolled daemon authenticates on the
+      // upgrade instead (10-contracts §Machines protocol v2).
+      ...(this.config.credential === null ? { enrollment_token: null } : {}),
+      protocol_version: PROTOCOL_VERSION,
       hostname: hostname(),
       os: platform(),
       arch: arch(),
@@ -238,7 +259,7 @@ export class Daemon {
       budget_mem_mb: this.config.budgetMemMb,
       max_sessions: this.config.maxSessions,
       max_concurrent_builds: this.config.maxConcurrentBuilds,
-      daemon_version: DAEMON_VERSION,
+      daemon_version: this.config.daemonVersion,
       claude_code_version: this.claudeCodeVersion,
     });
   }

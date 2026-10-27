@@ -109,6 +109,122 @@ describe('history from the transcript (ADR-0008)', () => {
   });
 });
 
+describe('Brief card (UX-2)', () => {
+  const briefOf = (panel: Awaited<ReturnType<typeof setup>>['panel']) =>
+    panel.getByRole('region', { name: 'Brief' });
+
+  it('sits above the thread, open, with the goal and FR list from ticket_body', async () => {
+    const fetched: string[] = [];
+    const { panel } = await setup('Add pagination to /orders', (api) => {
+      api.getTranscript = (sid) => {
+        fetched.push(sid);
+        return Promise.reject(new Error('unexpected'));
+      };
+    });
+    const brief = briefOf(panel);
+    const log = panel.getByRole('log');
+    expect(brief.compareDocumentPosition(log) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      within(brief)
+        .getByRole('button', { name: /^Brief/ })
+        .getAttribute('aria-expanded'),
+    ).toBe('true');
+    expect(within(brief).getByText(/^Anyone opening a session sees/)).toBeTruthy();
+    expect(
+      within(within(brief).getByRole('list', { name: 'Functional' })).getAllByRole('listitem'),
+    ).toHaveLength(5);
+    expect(fetched).toEqual([]); // ticket_body is there: no transcript fetch
+  });
+
+  it('collapse persists across reopening the panel', async () => {
+    const { panel } = await setup('Add pagination to /orders');
+    fireEvent.click(within(briefOf(panel)).getByRole('button', { name: /^Brief/ }));
+    cleanup();
+    const again = await setup('Add pagination to /orders');
+    expect(
+      within(briefOf(again.panel))
+        .getByRole('button', { name: /^Brief/ })
+        .getAttribute('aria-expanded'),
+    ).toBe('false');
+    localStorage.clear();
+  });
+
+  it('an older server (no ticket_body): the brief comes from the transcript prompt, one fetch', async () => {
+    const fetched: string[] = [];
+    const { panel } = await setup('Rename user.fullname', (api) => {
+      const get = api.getTranscript.bind(api);
+      api.getTranscript = (sid) => {
+        fetched.push(sid);
+        return get(sid);
+      };
+    });
+    const brief = briefOf(panel);
+    expect(await within(brief).findByText(/Rename the field to/)).toBeTruthy();
+    expect(
+      within(brief).getByText('No recognised sections: showing the ticket as written'),
+    ).toBeTruthy();
+    fireEvent.click(within(brief).getByRole('button', { name: /View prompt/ }));
+    expect(within(brief).getByLabelText('Initial prompt').textContent).toMatch(
+      /^# Ticket: Rename user\.fullname\n\nRename the field/,
+    );
+    expect(fetched).toEqual([SEED_IDS.done.session]);
+  });
+
+  it('no ticket_body and the machine offline: brief unavailable, with the reason', async () => {
+    const { panel } = await setup('Add pagination to /orders', (api) => {
+      const get = api.getSession.bind(api);
+      api.getSession = async (sid) => {
+        const older = await get(sid);
+        delete older.ticket_body;
+        return older;
+      };
+      api.getTranscript = () =>
+        Promise.reject(new ApiRequestError(503, 'machine_offline', 'machine mbp-ben is offline'));
+    });
+    const brief = briefOf(panel);
+    expect(await within(brief).findByText('brief unavailable: mbp-ben is offline')).toBeTruthy();
+    fireEvent.click(within(brief).getByRole('button', { name: /View prompt/ }));
+    expect(within(brief).getByText('prompt unavailable: mbp-ben is offline')).toBeTruthy();
+  });
+
+  it('View prompt fetches the transcript on demand when ticket_body is there', async () => {
+    const fetched: string[] = [];
+    const { panel } = await setup('Add pagination to /orders', (api) => {
+      api.getTranscript = (sid) => {
+        fetched.push(sid);
+        return Promise.resolve({
+          machine_id: 'mbp-ben',
+          truncated: true,
+          chunks: [],
+        });
+      };
+    });
+    const brief = briefOf(panel);
+    fireEvent.click(within(brief).getByRole('button', { name: /View prompt/ }));
+    expect(
+      await within(brief).findByText(
+        'prompt unavailable: the transcript no longer reaches the first prompt',
+      ),
+    ).toBeTruthy();
+    expect(fetched).toEqual([SEED_IDS.running.session]);
+  });
+
+  it('NFR-4: 2,000 thread entries render with the Brief in place', async () => {
+    const { api, panel } = await setup('Add pagination to /orders');
+    const sid = SEED_IDS.running.session;
+    const t0 = performance.now();
+    act(() => {
+      for (let i = 0; i < 2000; i++)
+        api.pushOutput(sid, `line ${i}\n`, i % 2 ? 'stdout' : 'stderr');
+    });
+    const ms = performance.now() - t0;
+    expect(panel.getByText(/line 1999/)).toBeTruthy();
+    expect(briefOf(panel)).toBeTruthy();
+    // Generous for jsdom (a browser is far faster); catches an accidental quadratic render.
+    expect(ms).toBeLessThan(5000);
+  });
+});
+
 describe('session panel tabs', () => {
   it('opens on Messages and switches to Details by click and by arrow keys', async () => {
     const { panel } = await setup('Add pagination to /orders');

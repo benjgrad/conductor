@@ -434,6 +434,15 @@ describe('session detail', () => {
     expect(detail.branch).toBe('conductor/x');
   });
 
+  it('UX-2: ticket_body is the ticket body', async () => {
+    const { sessionId, ticket } = await seedSession('running');
+    const body = '## Goal\nShip it.\n\n## Functional requirements\n- FR-1 Works';
+    await db.pool.query('UPDATE ticket SET body = $2 WHERE id = $1', [ticket.id, body]);
+
+    const detail = SessionDetailSchema.parse((await get(`/api/sessions/${sessionId}`)).body);
+    expect(detail.ticket_body).toBe(body);
+  });
+
   it('hides a request a cancel left unanswered from the card and pending_input (TD-079)', async () => {
     const { sessionId } = await seedSession('failed', { input: true });
 

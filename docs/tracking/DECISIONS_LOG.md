@@ -4,6 +4,7 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-27 | M2-T04 QA follow-ups: the enrollment token leaves argv (TD-117, T14 + T18); credential file hardening (TD-118, T18); a fatal auth close exits 78 and the service units don't restart it (TD-119, T18); HTTP 403 at the WS upgrade is fatal like 401; an agent reading the machine credential is accepted under ADR-0006 until the OS sandbox (U-080, noted in ADR-0017) | M2-T04, ADR-0017, 10-contracts |
 | 2026-10-27 | Ben's design review: ticket bodies use the sections Goal / Context / FR-n / NFR-n / Out of scope / Verification, written in a WYSIWYG editor (BlockNote); web-only UX-1..3 run now as tickets; the verification model (agent claim, persisted check runs, reviewer / QA grades, human sign-off) is ADR-0019 (proposed), planned as M2c after M2's engine work | [ADR-0019](../adr/0019-ticket-requirements-and-verification.md), [M2c](../plan/milestones/M2c-requirements-verification.md) |
 | 2026-10-27 | Ticket dependencies (Ben): the claim never starts a ticket with an unfinished dependency; cycles are claimable together and the orchestrator relays bounded messages between their agents. ADR-0018 (proposed); planned as M2b after M2 and M2c, before M3 | [ADR-0018](../adr/0018-ticket-dependencies.md), [M2b](../plan/milestones/M2b-ticket-dependencies.md) |
 | 2026-10-27 | Roadmap order: M2 → M2c (overlapping M2's tail) → M2b → M3 | [ROADMAP](../plan/ROADMAP.md) |

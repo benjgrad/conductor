@@ -89,6 +89,7 @@ All in one migration (M2-T03). Column types are indicative; T03 finalises them a
 | Cross-account access | ADR-0012's isolation tests (schema, route matrix, gateway, unscoped-query lint), 404 for foreign ids, admins included |
 | Invite or reset link leak | Single use, short expiry (7 days / 1 hour), revocable, hashed at rest; a used reset revokes all sessions |
 | Leaked enrollment token or machine credential | 30-minute single-use enrollment token; revocable credential; revoke closes the socket at once and sends the machine's sessions to a human |
+| An agent reads the machine credential | **Accepted, not mitigated** (added 2026-10-27, T04 QA): agents run as the same OS user as the daemon, so a session can read `~/.conductor/machine.json` from its worktree under `~/.conductor/wt/`, and a prompt injection could exfiltrate it. This matches ADR-0006's trust model: agents can already read the user's `gh` token and SSH keys. Revoking the machine limits the damage. The real fix is the OS sandbox (U-004); deny rules or moving the file are not boundaries (U-080) |
 | Server compromise | Out of scope beyond: the container runs as non-root, Postgres is reachable only on the compose network, the stack is published on `127.0.0.1` only, root steps are a separate script Ben reads and runs |
 | Open redirect | `next` accepts same-origin paths only |
 

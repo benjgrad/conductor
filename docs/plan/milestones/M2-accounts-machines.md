@@ -440,6 +440,7 @@ Groups run in order A → J. Tasks within a group own disjoint files and can run
   - [ ] `test/install-script.test.ts`: runs the rendered script with `sh` against a local server serving a small fake tarball, with `HOME` and `--root` in a temp dir and a fake `node`/`git`/`claude` on `PATH`: installs, links `current`, runs the (fake) enroll with the token; a wrong SHA-256 aborts with nothing installed; `node` 20 aborts with the message; a second run without `--token` upgrades and keeps `machine.json`.
   - [ ] `scripts/build-daemon-tarball.sh` produces a tarball whose `bin/conductor-daemon --help` runs from an empty directory with only Node on `PATH` (no workspace links).
   - [ ] **QA step (lead)**: `docker build` on gradyserver (as in T07) includes `/app/.../downloads/conductor-daemon-*.tgz`.
+  - [ ] **TD-117 (install side; T18 does the daemon side)**: `install.sh` passes the enrollment token to `conductor-daemon enroll` in the environment variable `CONDUCTOR_ENROLL_TOKEN`, never in argv. `test/install-script.test.ts` asserts that the fake `conductor-daemon`'s recorded argv has no token and its environment has it. The command shown on the Machines page still carries `--token` for `sh -s --`; the script moves it off argv before calling the daemon.
   - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
 
 ### M2-T15 · Orchestrator: invites, sign-up, resets, admin, CLI
@@ -505,12 +506,16 @@ Groups run in order A → J. Tasks within a group own disjoint files and can run
   - **`docs/setup/add-a-machine.md`**: prerequisites (Node 22, `claude` installed and logged in, `gh auth login`; optional `az login`, a Jira CLI or MCP); the one-line install from the Machines page; `--service`; choosing roots (`conductor-daemon config roots ~/code`); per-repo mode (`config repo <path> --mode checkout` and what it risks, U-060); what is reported and what is never reported; upgrading; revoking and re-enrolling; troubleshooting (401 = token expired, 4001 = revoked, 4005 = update).
 - **Design refs**: ADR-0013 §Enrollment (setup guide); ADR-0017 §Daemon distribution.
 - **Depends on**: T04; T14 (the install script calls this command).
-- **Files owned**: `packages/daemon/src/commands/service.ts` (+ test), the `service` subcommand in `main.ts`, `docs/setup/add-a-machine.md`.
+- **Files owned**: `packages/daemon/src/commands/service.ts` (+ test), the `service` subcommand in `main.ts`, `docs/setup/add-a-machine.md`; for TD-117 / TD-118 / TD-119: the token input in `commands/enroll.ts`, `credential.ts`, and the fatal-exit code in `ws-client.ts` (+ their tests).
 - **Do not touch**: `workspace.ts`, `inventory/**`, `claude/**`, other packages, `docs/tracking/*`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `commands/service.test.ts` with `HOME` in a temp dir and fake `launchctl` / `systemctl` on `PATH`: the plist / unit content matches a snapshot; install twice changes nothing; uninstall removes it; no command uses sudo.
   - [ ] **QA step (lead)**: on Ben's Mac, `conductor-daemon service install` against a local orchestrator starts the daemon at login (log in `<root>/logs/`), and `uninstall` stops it.
+  - [ ] **TD-117 (daemon side)**: `enroll` reads the token from `CONDUCTOR_ENROLL_TOKEN` (or stdin with `--token -`); `--token <value>` still works and prints a warning that argv is visible in `ps`. `commands/enroll.test.ts` covers all three.
+  - [ ] **TD-119 (exit code)**: a fatal close (4001, 4003, HTTP 401, HTTP 403) exits with a distinct `EXIT_FATAL_AUTH` (78, `EX_CONFIG`), not 1; `ws-client.test.ts` asserts the code for each.
+  - [ ] **TD-118** (here, or in the M2 security pass before T25): `credential.ts` opens with `O_NOFOLLOW` + `fstat`, checks the root is 0700 and owned by the user, `fsync`s on write, and never `chmod`s through a symlink; `credential.test.ts` covers each case.
+  - [ ] **TD-119**: a revoked machine doesn't restart-loop. The systemd unit has `RestartPreventExitStatus=<EXIT_FATAL_AUTH>`; the launchd plist uses `KeepAlive {SuccessfulExit: false}` with the daemon's fatal-auth path stopping the job (or `ThrottleInterval` as a floor). `commands/service.test.ts` snapshots both; a fake daemon that exits with `EXIT_FATAL_AUTH` under the fake `systemctl` / `launchctl` is not restarted.
   - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
 
 ### M2-T19 · Orchestrator: engine and stream scoping

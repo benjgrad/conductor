@@ -1,6 +1,6 @@
 # ADR-0014 · One tool layer, served as an OAuth-protected MCP server, with results sized for a model's context
 
-- **Status**: proposed. Ben approved the plan on 2026-10-26. This ADR was rewritten on 2026-10-27 as a concrete design for M3, and it is accepted when Ben signs off [M3](../plan/milestones/M3-mcp.md).
+- **Status**: **accepted** (Ben, 2026-10-27, with every proposed default: U-054, U-069, U-092..U-096). Rewritten on 2026-10-27 as a concrete design for [M3](../plan/milestones/M3-mcp.md); implementation notes follow in M3-T16.
 - **Date**: 2026-10-26; rewritten 2026-10-27 (M3 detailed plan)
 - **Deciders**: Ben (+ Claude planning sessions 2026-10-26 and 2026-10-27)
 - **Builds on**:
@@ -10,7 +10,7 @@
   - [ADR-0008](0008-transcript-history-and-reopen.md) (reopen);
   - [ADR-0018](0018-ticket-dependencies.md) §5 and [ADR-0019](0019-ticket-requirements-and-verification.md) §1 (dependencies, the ticket section format);
   - [ADR-0020](0020-review-and-merge-flow.md) (proposed; Ready to merge, `requires.approvals`).
-- **Resolves (once accepted)**: [U-054](../tracking/UNKNOWNS.md) (rate limits) and [U-069](../tracking/UNKNOWNS.md) (scopes, confirmation for writes), with the defaults below. Raises U-092..U-096.
+- **Resolves**: [U-054](../tracking/UNKNOWNS.md) (rate limits), [U-069](../tracking/UNKNOWNS.md) (scopes, confirmation for writes) and U-092..U-096, with the defaults below (Ben, 2026-10-27).
 
 ## Context
 Ben wants conductor available in the MCP clients he already uses (Claude Code, claude.ai, Claude Desktop), behind OAuth, the way his `reso` and `personal-os` MCP servers on gradyserver work. On 2026-10-27 he scheduled M3 **right after M2r**, before the rest of M2. conductor is live at https://conductor.gradyserver.com for him only.

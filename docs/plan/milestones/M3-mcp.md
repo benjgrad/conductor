@@ -1,6 +1,8 @@
 # M3 · Tool layer & MCP server (ADR-0014)
 
-> **Proposed 2026-10-27** (branch `docs/m3-mcp-plan`). Ben chose to run M3 **right after M2r**, before the rest of M2, so he can use conductor from Claude Code and claude.ai ("my MCP setup"). [ADR-0014](../../adr/0014-tool-layer-and-oauth-mcp-server.md) was rewritten as a concrete design. It and this file are approved by Ben before work starts.
+> **Approved by Ben 2026-10-27**, as written and with every proposed default (U-054, U-069, U-092..U-096 resolved). [ADR-0014](../../adr/0014-tool-layer-and-oauth-mcp-server.md) is accepted. M3 runs **right after M2r**, before the rest of M2.
+>
+> **The hosted instance stays single-account until M2-T21** (confirmed by Ben 2026-10-27; TD-149). No second account is created on https://conductor.gradyserver.com until T21's route matrix (with `/mcp` and `/api/oauth/*`) is merged. M3's own two-account tests run only in test databases.
 
 **Goal** ([ADR-0014](../../adr/0014-tool-layer-and-oauth-mcp-server.md)):
 - one internal tool layer exposes conductor's operations, with compact, size-capped, paginated results (ADR-0014 §1–§3);
@@ -39,7 +41,7 @@
 - an external identity provider;
 - a second orchestrator instance.
 
-**Blocking unknowns**: none block group A. Every unknown has a proposed default that the tasks build to, and Ben confirms or changes it when he accepts ADR-0014.
+**Blocking unknowns**: none. Ben resolved each of these on 2026-10-27 with its default:
 - [U-054](../../tracking/UNKNOWNS.md) rate limits (ADR-0014 §6), used by T13 and T07;
 - [U-069](../../tracking/UNKNOWNS.md) scopes and confirmation (ADR-0014 §5), used by T05, T08 and T10;
 - U-092 CIMD (T08: metadata says `false`);
@@ -92,7 +94,7 @@ IDs follow ADR-0014's order; groups decide the order of work. Each task is one c
 **Migration**: **one**, in M3-T02. It adds five OAuth tables, the audit table and two `ticket` columns (`create_key`; `search` as a generated tsvector with a GIN index). Ben approves the SQL in T02's PR before it merges, and again before T17 runs it on the hosted database (backup first, as M2-T25's runbook says).
 
 **Gates (Ben)**:
-- before A: accept ADR-0014 (or amend it), take or change the U-054 / U-069 / U-092..U-096 defaults, and approve this file;
+- before A: ~~accept ADR-0014, the defaults and this file~~ done 2026-10-27;
 - after A: approve the 10-contracts diff (T01);
 - T02: approve the migration;
 - T17: run the sudo step for nginx, then connect Claude Code and claude.ai, and sign off.

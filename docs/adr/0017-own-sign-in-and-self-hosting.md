@@ -30,7 +30,7 @@ All in one migration (M2-T03). Column types are indicative; T03 finalises them a
 
 | Table | Columns | Notes |
 |---|---|---|
-| `account` | `id uuid pk`, `name`, `created_at` | ADR-0012. The migration creates the `local` account (fixed id `00000000-0000-0000-0000-000000000001`) and backfills every existing row into it |
+| `account` | `id uuid pk`, `name`, `created_at` | ADR-0012. The migration creates the `local` account (fixed id `LOCAL_ACCOUNT_ID` = `00000000-0000-4000-8000-000000000001`, RFC 9562-valid; `LOCAL_USER_ID` = `00000000-0000-4000-8000-000000000002` is a virtual local-mode user with no `app_user` row, served by `localMeResponse()`) and backfills every existing row into it |
 | `app_user` | `id uuid pk`, `email citext unique` (or `text` with a `lower(email)` unique index), `display_name`, `password_hash text`, `is_admin bool`, `disabled_at`, `password_changed_at`, `created_at` | `password_hash` is a PHC string (`$argon2id$v=19$m=…,t=…,p=…$salt$hash`), so its parameters travel with it |
 | `account_member` | `account_id`, `user_id`, `role ('owner')`, pk both | ADR-0012. Personal only in M2 (U-051): each user owns exactly one account and nobody else is a member |
 | `web_session` | `id_hash bytea pk`, `user_id`, `account_id`, `created_at`, `last_seen_at`, `expires_at`, `user_agent`, `ip` | ADR-0012's design. The cookie holds 32 random bytes; only their SHA-256 is stored |

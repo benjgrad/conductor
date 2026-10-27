@@ -4,43 +4,54 @@ import { isCanonicalRemote } from './inventory.js';
 // A machine's capabilities (ADR-0013 §Inventory, ADR-0016 owns the names). Names and versions
 // only: never account names, tokens, MCP commands, args, env or URLs.
 
-const NameSchema = z
+/** A capability name: 1–200 chars, no whitespace, `:`, `@` or NUL (`:` and `@` separate key parts). */
+const NAME = '[^\\s:@\\0]{1,200}';
+export const CAPABILITY_NAME_RE = new RegExp(`^${NAME}$`);
+/** The one name rule for capabilities and for the names inside requirement keys (M2-T10b). */
+export const CapabilityNameSchema = z
   .string()
-  .min(1)
-  .max(200)
-  .refine((s) => !/[\s\0]/.test(s), 'no whitespace');
+  .regex(CAPABILITY_NAME_RE, 'expected 1-200 chars without whitespace, ":", "@" or NUL');
 const RepoScopeSchema = z.string().refine(isCanonicalRemote, 'expected host/org/repo');
 
 export const CapabilitySchema = z.discriminatedUnion('kind', [
   /** `gh`, `az`, `jira`, `git`: `version` from `--version` (null = unknown), `authed` from a read-only probe. */
   z.object({
     kind: z.literal('cli'),
-    name: NameSchema,
+    name: CapabilityNameSchema,
     version: z.string().nullable(),
     authed: z.boolean(),
   }),
   /** An MCP server name from the user's Claude Code config (user scope and plugins). */
-  z.object({ kind: z.literal('mcp'), name: NameSchema }),
+  z.object({ kind: z.literal('mcp'), name: CapabilityNameSchema }),
   /**
    * `~/.claude/skills/<name>`, or `<repo>/.claude/skills/<name>` with `repo` = that repo's
    * canonical remote. A repo whose remote is null has its skills and agents not reported.
    */
-  z.object({ kind: z.literal('skill'), name: NameSchema, repo: RepoScopeSchema.optional() }),
+  z.object({
+    kind: z.literal('skill'),
+    name: CapabilityNameSchema,
+    repo: RepoScopeSchema.optional(),
+  }),
   /** `~/.claude/agents/<name>`, or a repo's `.claude/agents/<name>` with `repo` set. */
-  z.object({ kind: z.literal('agent'), name: NameSchema, repo: RepoScopeSchema.optional() }),
+  z.object({
+    kind: z.literal('agent'),
+    name: CapabilityNameSchema,
+    repo: RepoScopeSchema.optional(),
+  }),
   /** The `claude` CLI (also `machine.claude_code_version`). */
   z.object({ kind: z.literal('claude'), version: z.string() }),
 ]);
 export type Capability = z.infer<typeof CapabilitySchema>;
 export type CapabilityKind = Capability['kind'];
 
-const REQUIREMENT_RE =
-  /^(?:claude|cli:[^\s:@\0]+(?::authed)?|mcp:[^\s:@\0]+|(?:skill|agent):[^\s:@\0]+(?:@(.*))?)$/;
+const REQUIREMENT_RE = new RegExp(
+  `^(?:claude|cli:${NAME}(?::authed)?|mcp:${NAME}|(?:skill|agent):${NAME}(?:@(.*))?)$`,
+);
 
 /**
  * Whether `s` is a capability key (the 10-contracts key table): `claude`, `cli:<name>`,
- * `cli:<name>:authed`, `mcp:<name>`, `skill:<name>[@<repo>]`, `agent:<name>[@<repo>]`. A name has
- * no whitespace, `:` or `@`; `<repo>` is a canonical remote. So `cli:a:b:c` is refused.
+ * `cli:<name>:authed`, `mcp:<name>`, `skill:<name>[@<repo>]`, `agent:<name>[@<repo>]`. A name
+ * follows CapabilityNameSchema; `<repo>` is a canonical remote. So `cli:a:b:c` is refused.
  */
 export function isCapabilityRequirement(s: string): boolean {
   const m = REQUIREMENT_RE.exec(s);

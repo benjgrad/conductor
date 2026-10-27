@@ -257,6 +257,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           pending_input: card.input_request,
           recent_output: s.output,
           moves: s.moves,
+          ...(s.ticket_body !== undefined ? { ticket_body: s.ticket_body } : {}),
         });
       }),
 

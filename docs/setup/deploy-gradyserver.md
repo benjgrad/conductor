@@ -72,7 +72,7 @@ From a checkout on the lead's machine, with the sha to deploy:
 deploy/gradyserver/deploy.sh <sha> --no-smoke   # nginx isn't set up yet, so skip the smoke test
 ```
 
-This uploads `git archive <sha>` to `releases/<sha>`, creates `.env` with a random `POSTGRES_PASSWORD` (mode 0600; an existing `.env` is never touched), builds the image, starts postgres, runs `migrate`, starts the orchestrator, and waits for it to be healthy. Only then does it point `current` at the release and write `current.env`. Then check it from the server:
+This uploads `git archive <sha>` to `releases/<sha>`, creates `.env` with a random `POSTGRES_PASSWORD` (mode 0600; the password never appears on a command line; if generation fails, the deploy stops and no `.env` is left behind; an existing `.env` is never touched), builds the image, starts postgres, runs `migrate`, starts the orchestrator, and waits for it to be healthy. Only then does it point `current` at the release and write `current.env`. An existing `.env` that is empty or has no non-empty `POSTGRES_PASSWORD` (for example, one left by a broken first deploy before TD-144 was fixed) is refused before anything is touched: `~/deploy/conductor/.env is empty or missing POSTGRES_PASSWORD; remove it to regenerate`. Remove it (`rm ~/deploy/conductor/.env`) and deploy again. If the postgres volume already exists, it keeps its old password, so afterwards set the role to the new `.env` value with the `ALTER ROLE` step of §11. Then check it from the server:
 
 ```bash
 ssh -p 1024 bengrady4@gradyserver.com 'curl -fsS http://127.0.0.1:3040/healthz; echo'

@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +10,7 @@ import { FakeClaudeDriver, type FakeClaudeScript } from './claude/fake-driver.js
 import { claudeProjectSlug } from './claude/transcript.js';
 import { FakeCommandRunner } from './commands/fake-runner.js';
 import { loadConfig } from './config.js';
+import { removeTree } from './test-support/remove-tree.js';
 import { Daemon } from './daemon.js';
 import { FakeOrchestrator } from './test-support/fake-orchestrator.js';
 
@@ -48,8 +49,7 @@ afterEach(async () => {
   for (const d of daemons.splice(0)) d.stop();
   await orch.close();
   expect(orch.invalid).toEqual([]);
-  // TD-111: daemon.stop() is synchronous, so a git child can still be writing under tmp; retry for up to ~4 s.
-  rmSync(tmp, { recursive: true, force: true, maxRetries: 40, retryDelay: 100 });
+  await removeTree(tmp); // TD-111
 });
 
 function makeDaemon(driver: FakeClaudeDriver): Daemon {
@@ -169,7 +169,7 @@ describe('fetch_transcript (ADR-0008)', () => {
     });
 
     // The worktree may be gone (cleaned up): the transcript path doesn't need it.
-    rmSync(worktree, { recursive: true, force: true, maxRetries: 40, retryDelay: 100 });
+    await removeTree(worktree);
     const r2 = await reply(fetchTranscript(sid));
     expect('chunks' in r2.payload && r2.payload.chunks.length).toBe(11);
   });

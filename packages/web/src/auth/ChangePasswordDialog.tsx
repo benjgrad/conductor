@@ -7,6 +7,11 @@ import { PASSWORDS_DIFFER } from './Reset.js';
 
 export const WRONG_CURRENT_PASSWORD = 'Your current password is wrong.';
 
+const wrongCurrent = (err: unknown): boolean =>
+  err instanceof ApiRequestError &&
+  err.status === 400 &&
+  err.details.some((d) => d.path === 'current');
+
 interface ChangePasswordDialogProps {
   api: ApiClient;
   email: string;
@@ -14,8 +19,9 @@ interface ChangePasswordDialogProps {
 }
 
 /**
- * POST /auth/password (ADR-0017): signs out the user's other sessions. Its 401 means the
- * current password is wrong, not a lost session, so `withAuthRedirect` never redirects it.
+ * POST /auth/password (ADR-0017): signs out the user's other sessions. A wrong current password
+ * is a 400 with a detail at path `current`; a 401 means the session is gone, and
+ * `withAuthRedirect` sends the user to sign in (TD-125).
  */
 export function ChangePasswordDialog({ api, email, onClose }: ChangePasswordDialogProps) {
   const [current, setCurrent] = useState('');
@@ -42,9 +48,8 @@ export function ChangePasswordDialog({ api, email, onClose }: ChangePasswordDial
     } catch (err) {
       const details = passwordDetails(err);
       if (details.length > 0) setServerProblems(details);
-      else if (err instanceof ApiRequestError && err.status === 401) {
-        setError(WRONG_CURRENT_PASSWORD);
-      } else setError(authErrorMessage(err));
+      else if (wrongCurrent(err)) setError(WRONG_CURRENT_PASSWORD);
+      else setError(authErrorMessage(err));
     } finally {
       setBusy(false);
     }

@@ -3,18 +3,21 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createCliDriver } from './claude/cli-driver.js';
 import { startOutcomeServer } from './claude/outcome-server.js';
+import { configCommand, CONFIG_USAGE } from './commands/config.js';
 import { enroll, ENROLL_USAGE } from './commands/enroll.js';
 import { loadConfig } from './config.js';
 import { Daemon } from './daemon.js';
+import { watchSighup } from './inventory/report.js';
 
 // `conductor-daemon` entry: env → config, the real ADR-0005 CLI driver (its MCP outcome server on
 // 127.0.0.1), signals. TD-021 resolved: a static import of the T05b driver, so tsc checks the
 // `createCliDriver` signature (claudeBin ← CONDUCTOR_CLAUDE_BIN ← 'claude' inside the driver).
-// M2-T04: subcommands `run` (default) and `enroll`.
+// M2-T04: subcommands `run` (default) and `enroll`. M2-T10: `config`; SIGHUP rescans the inventory.
 
 const USAGE = [
   'usage: conductor-daemon [run]',
   `       ${ENROLL_USAGE.replace(/^usage: /, '')}`,
+  ...CONFIG_USAGE.split('\n').map((l) => `       ${l.replace(/^usage: |^ +/, '')}`),
 ].join('\n');
 
 /** `claude --version` → "2.1.308", or null when the CLI is missing (U-015). */
@@ -53,11 +56,13 @@ async function run(): Promise<void> {
     );
   }
   daemon.start();
+  const unwatchSighup = watchSighup(daemon.inventory);
   process.stderr.write(
     `[conductor-daemon] ${config.machineId} → ${config.orchestratorUrl} (root ${config.rootDir}, ` +
       `${config.credential !== null ? 'enrolled' : 'local mode'})\n`,
   );
   function shutdown(code = 0): void {
+    unwatchSighup();
     daemon.stop();
     void outcomeServer.close().catch(() => {});
     // Give killed children a moment to exit before the event loop ends.
@@ -75,6 +80,9 @@ async function main(argv: string[]): Promise<void> {
       return run();
     case 'enroll':
       process.exitCode = await enroll(rest);
+      return;
+    case 'config':
+      process.exitCode = configCommand(rest);
       return;
     case 'help':
     case '-h':

@@ -18,6 +18,7 @@ import {
   type WorkflowDefinition,
 } from '@conductor/shared';
 import { UX2_TICKET_BODY } from '../brief/ux2-ticket.js';
+import { implementerReport } from '../components/review-fixture.js';
 
 // Seed data for the mock API, built from the frozen shared fixtures so the mock drifts with the
 // contracts. Timestamps are relative to `now` so the board reads naturally in dev.
@@ -353,6 +354,18 @@ export const SEED_IDS = {
     session: BOARD_CARD_NEEDS_INPUT_FIXTURE.session_id!,
     input: BOARD_CARD_NEEDS_INPUT_FIXTURE.input_request!.id,
   },
+  /** UX-4: a review request (an implementer report after `personal_pr_ready_for_review`). */
+  review: {
+    ticket: 'a1000000-0000-4000-8000-00000000000a',
+    session: 'b2000000-0000-4000-8000-00000000000a',
+    input: 'c3000000-0000-4000-8000-00000000000a',
+  },
+  /** UX-4: a move step whose open_pr failed. */
+  stepFailed: {
+    ticket: 'a1000000-0000-4000-8000-00000000000b',
+    session: 'b2000000-0000-4000-8000-00000000000b',
+    input: 'c3000000-0000-4000-8000-00000000000b',
+  },
 } as const;
 
 interface SeedSpec {
@@ -510,6 +523,41 @@ function transitionSeeds(now: Date): MockSeed[] {
   ];
 }
 
+/** UX-4: a finished agent's report, opened by `personal_pr_ready_for_review`, with its PR. */
+function reviewSeed(now: Date): MockSeed {
+  const id = SEED_IDS.review;
+  const base = seed(now, {
+    ...id,
+    title: 'Board cards: review requests vs questions',
+    status: 'needs_input',
+    state: 'needs_input',
+    workflow: CONDUCTOR_V2_DRAFT_DEF,
+    ageMin: 95,
+    activeMinAgo: 19,
+    spend: 2.4,
+    returnTo: 'implementing',
+    input: {
+      id: id.input,
+      kind: 'agent_question',
+      question: implementerReport(40),
+      created_at: ago(now, 19),
+      origin_transition: 'personal_pr_ready_for_review',
+      step_failed: false,
+    },
+  });
+  return {
+    card: {
+      ...base.card,
+      kind: 'personal',
+      pr_url: 'https://github.com/benjgrad/conductor/pull/42',
+    },
+    session: {
+      ...base.session!,
+      context: { __pr: { pr_url: 'https://github.com/benjgrad/conductor/pull/42' } },
+    },
+  };
+}
+
 export function mockSeeds(now: Date): MockSeed[] {
   const id = SEED_IDS;
   return [
@@ -588,6 +636,27 @@ export function mockSeeds(now: Date): MockSeed[] {
         created_at: ago(now, 20),
       },
       output: ['> npm test\n', 'FAIL checkout.spec.ts › applies coupon\n', 'Tests: 1 failed\n'],
+    }),
+    reviewSeed(now),
+    seed(now, {
+      ...id.stepFailed,
+      title: 'Add CSV export',
+      status: 'needs_input',
+      state: 'needs_input',
+      workflow: CONDUCTOR_V2_DRAFT_DEF,
+      ageMin: 120,
+      activeMinAgo: 12,
+      spend: 0.8,
+      returnTo: 'implementing',
+      input: {
+        id: id.stepFailed.input,
+        kind: 'retries_exhausted',
+        question:
+          'Conductor could not PR opened to enter "Needs input": gh: GraphQL: No commits between main and conductor/b2000000 (createPullRequest). Retry, skip, or abort?',
+        created_at: ago(now, 12),
+        origin_transition: null,
+        step_failed: true,
+      },
     }),
     seed(now, {
       ...id.approval,

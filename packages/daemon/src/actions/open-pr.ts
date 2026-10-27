@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process';
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { GITHUB_PR_URL_RE } from '@conductor/shared';
+import { cliVersionAtLeast, GH_MIN_VERSION, GITHUB_PR_URL_RE } from '@conductor/shared';
+import { cliVersionFrom } from '../inventory/version.js';
 import { cloneSource, RepoNotAllowedError, type RepoPolicy } from '../workspace.js';
 
 // ADR-0010 `open_pr`: conductor (this daemon code, never an agent) pushes the session branch and
@@ -29,6 +30,8 @@ import { cloneSource, RepoNotAllowedError, type RepoPolicy } from '../workspace.
 //    `insteadOf` therefore come only from Ben's global git config;
 // 4. gh gets `--repo <owner>/<name>` from that trusted URL, explicit `--head` and `--base` (the
 //    default branch from `gh repo view`), and runs in the daemon root, outside every repository.
+//    Before anything is pushed, `gh --version` must be at least GH_MIN_VERSION (M2-T10): older gh
+//    can't run `pr create` outside a repository; the refusal is an action error (a human decides).
 // Residual risk (ADR-0010 implementation notes): agents run as the same uid with unconfined Bash
 // (U-004, TD-083), so an agent could still write the private repo, Ben's global config or the gh
 // binary; the sandbox is the real boundary.
@@ -196,6 +199,25 @@ export async function openPr(i: OpenPrInput): Promise<OpenPrResult> {
   }
 
   const gh = i.gh ?? { cmd: 'gh', args: [] };
+  // U-076: GH_MIN_VERSION is a safe floor, not a verified minimum.
+  const ver = await run(gh.cmd, [...gh.args, '--version'], i.root, i);
+  if (ver.spawnError) {
+    return {
+      ok: false,
+      error:
+        ver.spawnError.code === 'ENOENT'
+          ? GH_MISSING
+          : `gh could not run: ${ver.spawnError.message}`,
+    };
+  }
+  const found = ver.code === 0 ? cliVersionFrom(ver.stdout) : null;
+  if (found === null || !cliVersionAtLeast(found, GH_MIN_VERSION)) {
+    const shown = found ?? (tail(ver.stdout || ver.stderr, 60) || 'unknown');
+    return {
+      ok: false,
+      error: `gh ≥ ${GH_MIN_VERSION} required (found ${shown}): upgrade gh, e.g. brew upgrade gh`,
+    };
+  }
   const pushed = await pushChecked(i, target);
   if (!pushed.ok) return pushed;
 

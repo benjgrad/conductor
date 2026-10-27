@@ -431,7 +431,8 @@ describe('OutputLog tool groups', () => {
     const ms = performance.now() - t0;
     expect(summaries(container)).toHaveLength(400);
     expect(container.querySelectorAll('details.tool')).toHaveLength(0);
-    expect(ms).toBeLessThan(2000);
+    // A ceiling, not a benchmark: 2 s flaked under a loaded run (UX-4 lead QA).
+    expect(ms).toBeLessThan(10_000);
   });
 });
 

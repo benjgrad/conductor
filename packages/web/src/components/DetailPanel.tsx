@@ -22,6 +22,8 @@ import { ContextView } from './ContextView.js';
 import { duration, KIND_LABELS, STATUS_LABELS, TERMINAL_STATUSES, usd } from './format.js';
 import { Markdown } from './markdown.js';
 import { OutputLog } from './OutputLog.js';
+import { classifyRequest, lastMoveTransition } from './request-preview.js';
+import { ReviewRequest } from './ReviewRequest.js';
 import { MovesList, PendingChecklist, TransitionButtons } from './transitions.js';
 import { SessionWorkflowDiagram } from '../workflow/SessionWorkflowDiagram.js';
 import { stateLabel } from '../workflow/review.js';
@@ -185,16 +187,24 @@ export function DetailPanel({
               visible={tab === 'messages'}
               tailKey={detail.pending_input?.id ?? ''}
             >
-              {detail.pending_input && (
-                <PendingInput
-                  key={detail.pending_input.id}
-                  api={api}
-                  detail={detail}
-                  agent={name}
-                  request={detail.pending_input}
-                  onDone={reload}
-                />
-              )}
+              {detail.pending_input &&
+                (classifyRequest(detail.pending_input, lastMoveTransition(detail)) === 'review' ? (
+                  <ReviewRequest
+                    key={detail.pending_input.id}
+                    detail={detail}
+                    agent={name}
+                    request={detail.pending_input}
+                  />
+                ) : (
+                  <PendingInput
+                    key={detail.pending_input.id}
+                    api={api}
+                    detail={detail}
+                    agent={name}
+                    request={detail.pending_input}
+                    onDone={reload}
+                  />
+                ))}
             </OutputLog>
             {detail.card.session_id !== null && (
               <TransitionButtons
@@ -302,12 +312,17 @@ function PendingInput({ api, detail, agent, request, onDone }: PendingInputProps
     );
 
   const fromAgent = request.kind === 'agent_question';
+  const stepFailed = classifyRequest(request) === 'step_failed';
   return (
     <section aria-label="Pending input" className="pending">
       <div className="pending-head">
-        <span className={`badge badge-question kind-${request.kind}`}>
-          {KIND_LABELS[request.kind]}
-        </span>
+        {stepFailed ? (
+          <span className="badge badge-step-failed">Step failed</span>
+        ) : (
+          <span className={`badge badge-question kind-${request.kind}`}>
+            {KIND_LABELS[request.kind]}
+          </span>
+        )}
         <span className="muted">{fromAgent ? `${agent} asks` : 'Conductor needs a decision'}</span>
       </div>
       <div className="question-text">

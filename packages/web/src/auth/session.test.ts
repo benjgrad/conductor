@@ -19,6 +19,17 @@ describe('withAuthRedirect', () => {
     expect(onUnauthorized).toHaveBeenCalledTimes(2);
   });
 
+  it('reports a 401 from changePassword (the session is gone; a wrong current is a 400)', async () => {
+    const api = createMockApi();
+    const onUnauthorized = vi.fn();
+    const guarded = withAuthRedirect(api, onUnauthorized);
+    api.changePassword = () => Promise.reject(unauthorized());
+    await expect(
+      guarded.changePassword({ current: 'x', new: 'a different passphrase' }),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+  });
+
   it('ignores other errors and the sign-in calls, whose 401 means wrong credentials', async () => {
     const api = createMockApi({ auth: 'password' });
     const onUnauthorized = vi.fn();
@@ -27,7 +38,7 @@ describe('withAuthRedirect', () => {
     await expect(guarded.approve('x')).rejects.toMatchObject({ status: 409 });
     await expect(
       guarded.changePassword({ current: 'wrong', new: 'a different passphrase' }),
-    ).rejects.toMatchObject({ status: 401 });
+    ).rejects.toMatchObject({ status: 400 });
     await expect(guarded.login({ email: 'a@b.c', password: 'x' })).rejects.toMatchObject({
       status: 401,
     });

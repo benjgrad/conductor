@@ -99,3 +99,35 @@ export function missingCapabilities(
   const keys = new Set(caps.flatMap(capabilityKeys));
   return [...new Set(required)].filter((r) => !satisfiesCapability(keys, r, ticketRepo));
 }
+
+/**
+ * The oldest `gh` open_pr accepts (M2-T10). A safe floor, not a verified minimum (U-076): gh 2.14
+ * could not run `gh pr create --repo --head --base` outside a git repository, which open_pr does
+ * by design; 2.40.0 (Dec 2023) is well past it. T11 reads it to flag an old gh on a machine.
+ */
+export const GH_MIN_VERSION = '2.40.0';
+
+const VERSION_RE = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+\S*)?$/;
+
+function parseVersion(v: string): { nums: [number, number, number]; pre: string | null } | null {
+  const m = VERSION_RE.exec(v.trim());
+  if (!m) return null;
+  return { nums: [Number(m[1]), Number(m[2]), Number(m[3])], pre: m[4] ?? null };
+}
+
+/**
+ * Whether `version` (`X.Y.Z`, optional `v`, `-pre` and `+build`) is at least `min`. A pre-release
+ * sorts below its release (`2.40.0-rc.1` < `2.40.0`). Anything unparsable (either side) → false.
+ */
+export function cliVersionAtLeast(version: string | null | undefined, min: string): boolean {
+  if (typeof version !== 'string') return false;
+  const a = parseVersion(version);
+  const b = parseVersion(min);
+  if (a === null || b === null) return false;
+  for (let i = 0; i < 3; i++) {
+    if (a.nums[i]! !== b.nums[i]!) return a.nums[i]! > b.nums[i]!;
+  }
+  if (a.pre === null) return true;
+  if (b.pre === null) return false;
+  return a.pre.localeCompare(b.pre, 'en', { numeric: true }) >= 0;
+}

@@ -37,12 +37,26 @@ export const StateNameSchema = z.string().min(1);
  * `else`, which must be a human state (default `needs_input`), so every failure path ends at a
  * human and the loop is bounded.
  */
+/**
+ * ADR-0020 §4: the unmet reasons an action reports that `on_unmet.routes` can redirect (`inspect_pr`
+ * / `merge_pr` `head_moved`, `merge_pr` `conflict`). Adding one is a contract change (10-contracts).
+ */
+export const UnmetRouteReasonSchema = z.enum(['head_moved', 'conflict']);
+export type UnmetRouteReason = z.infer<typeof UnmetRouteReasonSchema>;
+export const UNMET_ROUTE_REASONS = UnmetRouteReasonSchema.options;
+
 export const OnUnmetSchema = z.strictObject({
   goto: StateNameSchema,
   /** Plain-language instruction for the agent on the way back. */
   instruction: z.string().trim().min(1).max(4_000).optional(),
   retries: z.number().int().min(0).max(10).default(2),
   else: StateNameSchema.default('needs_input'),
+  /**
+   * ADR-0020 §3: an action's unmet `reason` → a different `goto` (e.g. merge_pr `head_moved` →
+   * `in_qa`), bounded by the same counter. Absent ≡ every unmet reason goes to `goto`. Targets are
+   * validated like `goto` (T02).
+   */
+  routes: z.partialRecord(UnmetRouteReasonSchema, StateNameSchema).optional(),
 });
 export type OnUnmet = z.infer<typeof OnUnmetSchema>;
 
@@ -140,9 +154,22 @@ export const RETURN_TO = '$return_to';
  * Conductor's own actions on a move (ADR-0010 / ADR-0011). `open_pr` now; `update_jira` and
  * `slack_message` parse but the validator refuses them until M5 (rule 14).
  */
-export const TransitionActionSchema = z.enum(['open_pr', 'update_jira', 'slack_message']);
+export const TransitionActionSchema = z.enum([
+  'open_pr',
+  'update_jira',
+  'slack_message',
+  /** ADR-0020 §4: read the PR's head, files and mergeability (`InspectPrArgs` / `InspectPrResult`). */
+  'inspect_pr',
+  /** ADR-0020 §4: merge the PR with a merge commit, pinned to `expected_sha` (`MergePrArgs`). */
+  'merge_pr',
+  /** ADR-0020 §4: close the PR without merging, with a reason (`ClosePrArgs`). */
+  'close_pr',
+]);
 export type TransitionAction = z.infer<typeof TransitionActionSchema>;
-/** The actions that run in M1b (the validator refuses the others, "not available yet"). */
+/**
+ * The actions that run in M1b (the validator refuses the others, "not available yet"). ADR-0020's
+ * three PR actions join in M2r-T02.
+ */
 export const AVAILABLE_TRANSITION_ACTIONS: readonly TransitionAction[] = ['open_pr'];
 
 const conditionCommon = {
@@ -218,6 +245,29 @@ export function conditionLabel(c: Condition): string {
   }
 }
 
+/** ADR-0020 §5: an approval id, also a key of `InspectPrResult.matched`. */
+export const ApprovalIdSchema = z
+  .string()
+  .regex(/^[a-z][a-z0-9_-]*$/, 'lower-case slug')
+  .max(40);
+/** A path glob (minimatch style, e.g. `packages/orchestrator/migrations/**`). */
+export const PathGlobSchema = z.string().trim().min(1).max(200);
+
+/**
+ * ADR-0020 §5: an explicit human checkbox on a move, *active* when the PR changes a file matching
+ * `paths` (or its file list was truncated). Merge stays disabled until every active one is ticked
+ * (`TransitionSessionRequest.approvals`). Only on `actor: human` transitions (T02).
+ */
+export const ApprovalSchema = z.strictObject({
+  id: ApprovalIdSchema,
+  /** The checkbox label, e.g. "Approve migration". */
+  label: z.string().trim().min(1).max(60),
+  paths: z.array(PathGlobSchema).min(1).max(20),
+  /** Extra text under the checkbox. */
+  text: z.string().trim().min(1).max(500).optional(),
+});
+export type Approval = z.infer<typeof ApprovalSchema>;
+
 /** `requires.condition_poll` when omitted (ADR-0011: every 2 minutes, with backoff). */
 export const DEFAULT_CONDITION_POLL = '2m';
 /** The backoff cap for condition polling (M1b-T08: doubling after each unchanged result). */
@@ -247,6 +297,8 @@ export const TransitionRequiresSchema = z.strictObject({
   condition_timeout: DurationSchema.optional(),
   /** First poll interval; default DEFAULT_CONDITION_POLL. Tests set it lower (e.g. "1s"). */
   condition_poll: DurationSchema.optional(),
+  /** ADR-0020 §5: human checkboxes, checked before the move step starts. Ids unique (T02). */
+  approvals: z.array(ApprovalSchema).min(1).max(5).optional(),
 });
 export type TransitionRequires = z.infer<typeof TransitionRequiresSchema>;
 
@@ -257,7 +309,12 @@ export type TransitionRequires = z.infer<typeof TransitionRequiresSchema>;
 export const TransitionObjectSchema = z.strictObject({
   /** A state name, or RETURN_TO on a human-state transition. */
   goto: StateNameSchema,
-  attach: z.literal('output').optional(),
+  /**
+   * `output`: the source's output goes to the target's prompt (05 §Retry loops). ADR-0020
+   * `result`: the target's prompt gets "## Sent back by <title>" rendered from `context.<from>`
+   * (a QA result's fixes and findings).
+   */
+  attach: z.enum(['output', 'result']).optional(),
   retries: z.number().int().nonnegative().optional(),
   else: StateNameSchema.optional(),
   /** ADR-0009 (old versions): folded into `requires.review` + `on_unmet` on save. */
@@ -271,6 +328,12 @@ export const TransitionObjectSchema = z.strictObject({
   kinds: z.array(TicketKindSchema).min(1).max(2).optional(),
   /** A transition into a human state that asks a question: the agent's `reason` is the question. */
   question: z.boolean().optional(),
+  /**
+   * ADR-0020: a human button's text box. `required`: the button asks for text first (e.g.
+   * `request_changes`, `close_without_merging`'s reason); `optional`: it offers one. Absent =
+   * today's rule (`transitionNeedsText`).
+   */
+  text: z.enum(['required', 'optional']).optional(),
   requires: TransitionRequiresSchema.optional(),
   /** What happens when `requires` is not met (ADR-0010 semantics, U-063 for conditions). */
   on_unmet: OnUnmetSchema.optional(),
@@ -310,6 +373,17 @@ export const AgentStateSchema = z
     result: z.array(z.string().min(1)).optional(),
     model: z.string().min(1).optional(),
     max_turns: z.number().int().positive().optional(),
+    /**
+     * ADR-0020 §2: `qa` runs the state as an independent QA session (fresh conversation every
+     * visit, fenced, forced dontAsk, its Claude id in `context.__qa`, never the session's).
+     */
+    role: z.literal('qa').optional(),
+    /**
+     * ADR-0020 §2: run in a fresh, conductor-owned checkout of the PR head (`context.__qa.head_sha`)
+     * instead of the worktree. `setup` as `requires.setup`: null or absent = auto-detect, '' = none.
+     * Only on `role: 'qa'` states (T02).
+     */
+    checkout: z.strictObject({ setup: z.string().max(2_000).nullable().optional() }).optional(),
   })
   .refine((s) => (s.prompt === undefined) !== (s.skill === undefined), {
     message: 'agent state needs exactly one of "prompt" or "skill"',
@@ -370,6 +444,22 @@ export type EventState = z.infer<typeof EventStateSchema>;
 export type ConnectorState = z.infer<typeof ConnectorStateSchema>;
 export type HumanState = z.infer<typeof HumanStateSchema>;
 export type TerminalState = z.infer<typeof TerminalStateSchema>;
+
+/**
+ * Session context keys conductor writes itself (`session.context.<key>`): never a state name
+ * (validator rule 8), never an agent's result. ADR-0020 adds `__qa` (QA_CONTEXT_KEY). Literals here
+ * (not imported from engine/) to keep workflow/ free of engine imports; `schema.m2r.test.ts` holds
+ * them equal to the `*_CONTEXT_KEY` constants.
+ */
+export const RESERVED_CONTEXT_KEYS = [
+  '__review',
+  '__entry',
+  '__pr',
+  '__machine_lost',
+  '__working_copy',
+  '__qa',
+] as const;
+export type ReservedContextKey = (typeof RESERVED_CONTEXT_KEYS)[number];
 
 export const BudgetSchema = z.strictObject({
   usd: z.number().positive(),

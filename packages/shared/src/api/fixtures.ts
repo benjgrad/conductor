@@ -22,7 +22,14 @@ import type {
   MachineRow,
   RenameMachineRequest,
 } from './machines.js';
-import type { BoardCard, MoveDto, TransitionSessionRequest } from './rest.js';
+import { QA_RESULT_FIXTURES } from '../engine/fixtures.js';
+import type {
+  ApiError,
+  BoardCard,
+  MoveDto,
+  SessionDetail,
+  TransitionSessionRequest,
+} from './rest.js';
 import type { BoardSseEvent, BoardSseEventType, OutputChunk } from './sse.js';
 
 // One fixture per SSE board event type, plus an output chunk. Used by round-trip tests and
@@ -484,4 +491,106 @@ export const BOARD_CARD_ALERT_FIXTURE: BoardCard = {
   column: 'implementing',
   machine_id: 'a0b1c2d3-e4f5-4a6b-8c7d-9e0f1a2b3c4d',
   alerts: [{ kind: 'git_tamper', files: ['.git/hooks/pre-commit'], at: ts }],
+};
+
+// ---------------------------------------------------------------- review and merge (M2r-T01)
+
+const M2R_PR = 'https://github.com/benjgrad/fixture-app/pull/7';
+const M2R_MIGRATION = 'packages/orchestrator/migrations/1730000000000_qa.sql';
+
+/** ADR-0020 cards: In QA, Ready to merge (Merge behind the migration approval), and both Dones. */
+export const M2R_CARD_FIXTURES: {
+  in_qa: BoardCard;
+  ready_to_merge: BoardCard;
+  done_merged: BoardCard;
+  done_closed_unmerged: BoardCard;
+} = {
+  in_qa: {
+    ...BOARD_CARD_FIXTURE,
+    session_id,
+    workflow_state: 'in_qa',
+    status: 'running',
+    column: 'in_qa',
+    kind: 'personal',
+    pr_url: M2R_PR,
+    machine_id: 'mbp-ben',
+    qa: { verdict: null, round: 2, max_rounds: 4 },
+    pr: { url: M2R_PR, merged: false, closed: false },
+  },
+  ready_to_merge: {
+    ...BOARD_CARD_FIXTURE,
+    session_id,
+    workflow_state: 'ready_to_merge',
+    status: 'needs_input',
+    column: 'ready_to_merge',
+    kind: 'personal',
+    pr_url: M2R_PR,
+    machine_id: 'mbp-ben',
+    human_transitions: [
+      {
+        name: 'merge',
+        title: 'Merge',
+        goto: 'done',
+        needs_text: false,
+        approvals: [{ id: 'migration', label: 'Approve migration', files: [M2R_MIGRATION] }],
+      },
+      {
+        name: 'request_changes',
+        title: 'Request changes',
+        goto: 'implementing',
+        needs_text: true,
+        text: 'required',
+      },
+    ],
+    qa: { verdict: 'pass_with_debt', round: 1, max_rounds: 4 },
+    pr: { url: M2R_PR, merged: false, closed: false },
+  },
+  done_merged: {
+    ...BOARD_CARD_FIXTURE,
+    session_id,
+    workflow_state: 'done',
+    status: 'done',
+    column: 'done',
+    kind: 'personal',
+    badges: ['merged'],
+    pr_url: M2R_PR,
+    qa: { verdict: 'pass', round: 1, max_rounds: 4 },
+    pr: { url: M2R_PR, merged: true, closed: false },
+  },
+  done_closed_unmerged: {
+    ...BOARD_CARD_FIXTURE,
+    session_id,
+    workflow_state: 'done',
+    status: 'done',
+    column: 'done',
+    kind: 'personal',
+    badges: ['closed_unmerged'],
+    pr_url: M2R_PR,
+    pr: { url: M2R_PR, merged: false, closed: true },
+  },
+};
+
+/** POST /api/sessions/:id/transition bodies of ADR-0020. */
+export const M2R_TRANSITION_REQUEST_FIXTURES: Record<
+  'merge' | 'request_changes' | 'close_without_merging',
+  TransitionSessionRequest
+> = {
+  merge: { name: 'merge', approvals: ['migration'] },
+  request_changes: { name: 'request_changes', text: 'Cap the reason at 2 000 characters.' },
+  close_without_merging: { name: 'close_without_merging', text: 'Superseded by #12.' },
+};
+
+/** 409 for a Merge without the active migration approval. */
+export const APPROVAL_REQUIRED_ERROR_FIXTURE: ApiError = {
+  error: {
+    code: 'approval_required',
+    message: 'Approve the migration before merging.',
+    approvals: [{ id: 'migration', label: 'Approve migration', files: [M2R_MIGRATION] }],
+  },
+};
+
+/** SessionDetail.qa: the latest QA round and the commit it reviewed. */
+export const SESSION_QA_FIXTURE: NonNullable<SessionDetail['qa']> = {
+  result: QA_RESULT_FIXTURES.pass_with_debt,
+  head_sha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
 };

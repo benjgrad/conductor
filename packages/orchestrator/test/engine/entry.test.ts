@@ -100,6 +100,8 @@ describe('the step in context (no migration)', () => {
     conditions_deadline: null,
     conditions_poll_ms: null,
     conditions_note: null,
+    // ADR-0020 (M2r-T01): defaulted to null as well.
+    approvals: null,
   };
 
   it('splitStep reads __entry and the legacy ADR-0009 __review; joinStep writes __entry only', () => {

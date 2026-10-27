@@ -3,6 +3,7 @@ import { IsoDateTimeSchema, JsonObjectSchema, OutputStreamSchema, UuidSchema } f
 import { ConditionSchema, ConditionTypeSchema } from '../workflow/schema.js';
 import { AgentTransitionOptionSchema } from '../workflow/transition-rules.js';
 import { CapabilitySchema } from '../machines/capabilities.js';
+import { GitShaSchema, PrUrlSchema } from './actions.js';
 import {
   AbsolutePathSchema,
   InventoryRepoSchema,
@@ -221,6 +222,12 @@ export const COMMAND_REFUSAL_REASONS = [
   'unknown_session',
   /** send_message to a process parked for a human (after ask_user / no_outcome), ADR-0007. */
   'agent_parked',
+  /**
+   * ADR-0020 §2: a `start_session.checkout` could not be built (fetch failed, the PR head isn't
+   * `checkout.sha`, setup failed). Sent as `checkout_failed: <one sentence>`; apply (M2r-T03)
+   * routes the QA start to needs_input with it, uncounted.
+   */
+  'checkout_failed',
 ] as const;
 
 export const CommandAckPayloadSchema = z.object({
@@ -332,8 +339,10 @@ export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
   }),
   /**
    * ADR-0010: the result of a `run_action` (an entry action, e.g. open_pr). `result` on success
-   * (open_pr: `{pr_url}`; ADR-0011 evaluate_conditions: an EvaluateConditionsResult), `error`
-   * (one sentence for the human) on failure; exactly one is set. → EngineEvent `action.completed`.
+   * (open_pr: an OpenPrResult; ADR-0011 evaluate_conditions: an EvaluateConditionsResult; ADR-0020
+   * inspect_pr / close_pr: an InspectPrResult / ClosePrResult; merge_pr: a MergePrResult, its
+   * `ok: false` outcomes included), `error` (one sentence for the human) on failure; exactly one
+   * is set. → EngineEvent `action.completed`.
    */
   z.object({
     kind: z.literal('action_result'),
@@ -500,6 +509,16 @@ export const StartSessionPayloadSchema = z.object({
    * Absent = M1 behaviour (local mode: the daemon's shared clone at `base_ref`).
    */
   working_copy: WorkingCopySchema.optional(),
+  /**
+   * ADR-0020 §2 (a `role: 'qa'` start, always with `review: true`): run Claude in a fresh,
+   * conductor-owned checkout of `sha` fetched from the trusted remote (never the worktree), with a
+   * `qa-base` ref at the merge base, after `setup` (null = auto-detect, '' = none). The daemon
+   * re-checks that the PR head equals `sha` and that `pr_url` names the trusted repo; any failure
+   * refuses the start (`checkout_failed`). Absent = the worktree, as before.
+   */
+  checkout: z
+    .object({ sha: GitShaSchema, pr_url: PrUrlSchema, setup: z.string().max(2_000).nullable() })
+    .optional(),
 });
 export const StartSessionMessageSchema = msg(
   'start_session',
@@ -548,12 +567,16 @@ export const RunActionPayloadSchema = z.object({
   /**
    * `open_pr` (ADR-0010). ADR-0011 `evaluate_conditions`: read-only, `args` is an
    * EvaluateConditionsArgs, the `action_result.result` an EvaluateConditionsResult; it is not
-   * idempotency-guarded (the key is informational) and never pushes.
+   * idempotency-guarded (the key is informational) and never pushes. ADR-0020 §4 `inspect_pr`,
+   * `merge_pr`, `close_pr`: gh only, args and results in `protocol/actions.ts`.
    */
-  action: z.enum(['open_pr', 'evaluate_conditions']),
+  action: z.enum(['open_pr', 'evaluate_conditions', 'inspect_pr', 'merge_pr', 'close_pr']),
   /** `<session_id>:<state>:<visit>` (05 §Idempotency). */
   idempotency_key: z.string(),
-  /** open_pr: `{title, body}`. */
+  /**
+   * open_pr: OpenPrArgs `{title, body}`; inspect_pr / merge_pr / close_pr: InspectPrArgs /
+   * MergePrArgs / ClosePrArgs (`protocol/actions.ts`).
+   */
   args: JsonObjectSchema,
   /** The session branch to push (`session.branch`). */
   branch: z.string(),

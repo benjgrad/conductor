@@ -31,8 +31,11 @@ import {
   type ApplyRejectReason,
   type GateStep,
 } from '../engine/types.js';
+import { QaResultSchema, QaVerdictSchema } from '../engine/qa.types.js';
+import { GitShaSchema, PR_FILES_MAX, PrFilePathSchema, PrUrlSchema } from '../protocol/actions.js';
 import { QUEUED_COLUMN_ID, stateTitle, type BoardColumnInfo } from '../workflow/conductor.js';
 import {
+  ApprovalIdSchema,
   CONDUCTOR_WORKFLOW_ID,
   RETURN_TO,
   StateNameSchema,
@@ -382,6 +385,47 @@ export const BoardCardAlertSchema = z.object({
 });
 export type BoardCardAlert = z.infer<typeof BoardCardAlertSchema>;
 
+/**
+ * ADR-0020 §5: an active approval on a button (or in a 409 `approval_required`): its id and
+ * label, and the PR's changed files that matched its globs (all of them when the file list was
+ * truncated).
+ */
+export const ApprovalNeededSchema = z.object({
+  id: ApprovalIdSchema,
+  label: z.string().max(60),
+  files: z.array(PrFilePathSchema).max(PR_FILES_MAX),
+});
+export type ApprovalNeeded = z.infer<typeof ApprovalNeededSchema>;
+
+/**
+ * A card button: HumanTransitionOption plus ADR-0020's `approvals` (the active ones; the button
+ * stays disabled until each is ticked, and the request carries their ids) and `text` (the
+ * transition's `text`: `required` asks for text first). Both optional: absent ≡ none / today's
+ * `needs_text`. Filled by M2r-T08.
+ */
+export const BoardHumanTransitionSchema = HumanTransitionOptionSchema.extend({
+  approvals: z.array(ApprovalNeededSchema).max(5).optional(),
+  text: z.enum(['required', 'optional']).optional(),
+});
+export type BoardHumanTransition = z.infer<typeof BoardHumanTransitionSchema>;
+
+/** ADR-0020 §7: the card's QA line ("QA pass", "QA fail (round n/3)"), from `context.__qa`. */
+export const BoardCardQaSchema = z.object({
+  /** null while the round's QA is running. */
+  verdict: QaVerdictSchema.nullable(),
+  round: z.number().int().min(1),
+  max_rounds: z.number().int().min(1),
+});
+export type BoardCardQa = z.infer<typeof BoardCardQaSchema>;
+
+/** ADR-0020 §6: conductor's PR and how it ended, from `context.__pr`. */
+export const BoardCardPrSchema = z.object({
+  url: PrUrlSchema,
+  merged: z.boolean(),
+  closed: z.boolean(),
+});
+export type BoardCardPr = z.infer<typeof BoardCardPrSchema>;
+
 /** One card. A ticket with no session yet has `session_id: null` and `status: null`. */
 export const BoardCardSchema = z.object({
   ticket_id: UuidSchema,
@@ -411,7 +455,7 @@ export const BoardCardSchema = z.object({
    * state or `waiting_external` in an event state, outside a gate step; else []. Each posts
    * `TransitionSessionRequest {name, text}` (text required when `needs_text`).
    */
-  human_transitions: z.array(HumanTransitionOptionSchema).default([]),
+  human_transitions: z.array(BoardHumanTransitionSchema).default([]),
   /** The pull request conductor opened for it (`open_pr`, ADR-0010), if any. */
   pr_url: z.string().regex(GITHUB_PR_URL_RE).nullable().catch(null),
   machine_id: z.string().nullable(),
@@ -425,6 +469,10 @@ export const BoardCardSchema = z.object({
   routing: BoardCardRoutingSchema.optional(),
   /** M2: open alerts of the card's session; absent ≡ none. */
   alerts: z.array(BoardCardAlertSchema).optional(),
+  /** ADR-0020: the QA round and verdict while the session has `context.__qa`; absent ≡ none. */
+  qa: BoardCardQaSchema.optional(),
+  /** ADR-0020: conductor's PR, merged / closed; absent ≡ no PR (`pr_url` stays for older UIs). */
+  pr: BoardCardPrSchema.optional(),
 });
 export type BoardCard = z.infer<typeof BoardCardSchema>;
 
@@ -559,6 +607,11 @@ export const SessionDetailSchema = z.object({
    * absent ≡ [].
    */
   input_requests: z.array(SessionInputRequestSchema).optional(),
+  /**
+   * ADR-0020 §7: the latest QA round, for the QA tab: `result` = `context.<qa state>` and
+   * `head_sha` = `__qa.head_sha`, the commit it reviewed. null / absent ≡ no QA yet (older servers).
+   */
+  qa: z.object({ result: QaResultSchema, head_sha: GitShaSchema }).nullable().optional(),
 });
 export type SessionDetail = z.infer<typeof SessionDetailSchema>;
 
@@ -571,6 +624,11 @@ export type SessionDetail = z.infer<typeof SessionDetailSchema>;
 export const TransitionSessionRequestSchema = z.object({
   name: z.string().min(1).max(100),
   text: z.string().trim().min(1).max(20_000).optional(),
+  /**
+   * ADR-0020 §5: the approval ids the human ticked → `human.transition.approvals`. A missing
+   * active one → 409 `approval_required` (`error.approvals`). Absent ≡ [].
+   */
+  approvals: z.array(ApprovalIdSchema).max(5).optional(),
 });
 export type TransitionSessionRequest = z.infer<typeof TransitionSessionRequestSchema>;
 
@@ -664,10 +722,19 @@ export const ApiErrorSchema = z.object({
       'rate_limited',
       /** M2 (pays TD-070): an unsafe request without `content-type: application/json` (415). */
       'unsupported_media_type',
+      /** ADR-0020 §5: /transition without an active approval (409, with `approvals`). */
+      'approval_required',
+      /** ADR-0020 §6: /transition into Done while the PR is open, not via merge / close (409). */
+      'pr_open',
     ]),
     message: z.string(),
     /** Validation details (zod issues / validator rule failures). */
     details: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
+    /**
+     * ADR-0020 §5 (with `approval_required`): the active approvals the request didn't tick, with
+     * their files. A sibling of `details`, which stays a list for every other error.
+     */
+    approvals: z.array(ApprovalNeededSchema).max(5).optional(),
   }),
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;
@@ -701,6 +768,9 @@ export function httpForApplyResult(
     | { status: 'ignored'; reason: ApplyIgnoreReason },
 ): { status: number; code: ApiErrorCode } {
   if (result.status === 'rejected') return APPLY_REJECT_HTTP[result.reason];
+  // ADR-0020: these two say why, on any route (the transition route adds `approvals`).
+  if (result.reason === 'approval_required') return { status: 409, code: 'approval_required' };
+  if (result.reason === 'pr_open') return { status: 409, code: 'pr_open' };
   return { status: 409, code: route === 'input' ? 'input_not_pending' : 'conflict' };
 }
 

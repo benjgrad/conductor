@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { arch, homedir, hostname, platform } from 'node:os';
@@ -22,7 +23,7 @@ import { createCommandRunner as defaultCreateCommandRunner } from './commands/in
 import type { CommandRunner, CreateCommandRunner } from './commands/runner.js';
 import { daemonVersion, machineFacts, type DaemonConfig } from './config.js';
 import { PortPool, portEnv } from './ports.js';
-import { DaemonStore, type AckRecord, type PortRange } from './store.js';
+import { DaemonStore, type AckRecord, type PersistedSession, type PortRange } from './store.js';
 import { liveResources, type SysInfo } from './sysinfo.js';
 import { buildAppendSystemPrompt } from './system-prompt.js';
 import { inventoryDigest, Workspace } from './workspace.js';
@@ -95,6 +96,8 @@ interface AgentProc {
   /** Tail of the assistant text (NO_OUTCOME_OUTPUT_CHARS), attached to `no_outcome`. */
   lastOutput: string;
   exited: boolean;
+  /** BUG-1: a kill was sent (stopAgent): later kills of the same process are no-ops. */
+  killRequested: boolean;
   endTimer: NodeJS.Timeout | null;
   unsubscribe: () => void;
 }
@@ -104,6 +107,8 @@ interface Starting {
   fencingToken: number;
   /** A kill arrived while the worktree was being prepared: kill the process once it exists. */
   cancelled: boolean;
+  /** BUG-1: a newer start_session for the session arrived while this one was preparing. */
+  superseded: boolean;
 }
 
 interface RunningCmd {
@@ -187,8 +192,10 @@ export class Daemon {
     for (const [sid, s] of Object.entries(this.store.sessions)) {
       if (s.portRange) this.ports.adopt(sid, s.portRange);
       if (s.agent) {
-        // The process died with the previous daemon (children don't outlive it): report the
-        // exit, so the orchestrator resumes instead of waiting for the lease to expire.
+        // BUG-1: the previous daemon stopped with this process running. Claude runs in its own
+        // process group (detached), so it may still be alive: kill it, then report the exit, so
+        // the orchestrator resumes instead of waiting for the lease to expire.
+        this.killOrphan(sid, s.agent);
         this.emit(sid, s.agent.fencingToken, {
           kind: 'exit',
           data: { command_id: s.agent.commandId, code: null, signal: 'daemon_restart' },
@@ -226,8 +233,8 @@ export class Daemon {
     for (const t of this.assignments.values()) clearTimeout(t);
     this.assignments.clear();
     if (opts.killSessions ?? true) {
-      for (const live of this.live.values()) {
-        if (live.agent && !live.agent.exited) live.agent.session.kill(this.config.killGraceMs);
+      for (const [sid, live] of this.live) {
+        if (live.agent && !live.agent.exited) this.stopAgent(sid, live.agent, 'daemon stopping');
         for (const c of live.cmds.values()) c.abort.abort();
       }
     }
@@ -556,9 +563,20 @@ export class Daemon {
     if (current) {
       // A newer start for the same session supersedes the running process (same worktree).
       this.log(`session ${sid}: start ${p.command_id} supersedes ${current.commandId}`);
-      current.session.kill(this.config.killGraceMs);
+      this.stopAgent(sid, current, `superseded by start ${p.command_id}`);
     }
-    const starting: Starting = { commandId: p.command_id, fencingToken: token, cancelled: false };
+    if (live.starting) {
+      // BUG-1: an older start is still preparing its worktree. It must not spawn (it would
+      // orphan one of the two processes): it sees `superseded` before spawning and is refused.
+      this.log(`session ${sid}: start ${p.command_id} supersedes ${live.starting.commandId}`);
+      live.starting.superseded = true;
+    }
+    const starting: Starting = {
+      commandId: p.command_id,
+      fencingToken: token,
+      cancelled: false,
+      superseded: false,
+    };
     live.starting = starting;
 
     let agent: AgentProc;
@@ -579,6 +597,16 @@ export class Daemon {
         );
         if (busy) throw new Error(`worktree ${worktree} is in use by session ${busy[0]}`);
         this.log(`session ${sid}: reusing worktree ${worktree} (branch ${p.branch})`);
+      }
+      // BUG-1: superseded or killed while the worktree was prepared: never spawn.
+      if (starting.superseded || starting.cancelled) {
+        if (live.starting === starting) live.starting = null;
+        this.finish(msg, {
+          accepted: false,
+          reason: starting.superseded ? 'superseded' : 'killed',
+        });
+        this.releaseAssignment(sid);
+        return;
       }
       range = this.allocatePorts(sid);
       const tools = resolveToolPolicy(p.tools);
@@ -625,6 +653,7 @@ export class Daemon {
         nudged: false,
         lastOutput: '',
         exited: false,
+        killRequested: false,
         endTimer: null,
         unsubscribe: () => {},
       };
@@ -635,12 +664,23 @@ export class Daemon {
       return this.startRefused(sid, 0);
     }
     if (live.starting === starting) live.starting = null;
+    const prev = live.agent;
+    if (prev && prev !== agent && !prev.exited && prev.fencingToken <= token) {
+      // Defensive (BUG-1): never drop a live process from `live` without killing it.
+      this.stopAgent(sid, prev, `superseded by start ${p.command_id}`);
+    }
     live.agent = agent;
     const persisted = this.store.session(sid);
     if (persisted) {
       this.store.putSession(sid, {
         ...persisted,
-        agent: { commandId: p.command_id, fencingToken: token },
+        agent: {
+          commandId: p.command_id,
+          fencingToken: token,
+          ...(agent.session.pid !== undefined
+            ? { pid: agent.session.pid, claudeSessionId: agent.claudeSessionId }
+            : {}),
+        },
       });
     }
     this.finish(msg, { accepted: true });
@@ -653,7 +693,7 @@ export class Daemon {
         port_range: range,
       },
     });
-    if (starting.cancelled) agent.session.kill(this.config.killGraceMs);
+    if (starting.cancelled) this.stopAgent(sid, agent, 'killed while starting');
     void this.sendInventory(false).catch((e: unknown) => this.log(`inventory: ${String(e)}`));
   }
 
@@ -1103,10 +1143,10 @@ export class Daemon {
     const p = msg.payload;
     const a = live?.agent && !live.agent.exited ? live.agent : null;
     if (live && p.target_command_id !== null) {
-      if (a && a.commandId === p.target_command_id) a.session.kill(this.config.killGraceMs);
+      if (a && a.commandId === p.target_command_id) this.stopAgent(msg.session_id, a, p.reason);
       if (live.starting?.commandId === p.target_command_id) live.starting.cancelled = true;
     } else if (live) {
-      if (a && a.fencingToken <= msg.fencing_token) a.session.kill(this.config.killGraceMs);
+      if (a && a.fencingToken <= msg.fencing_token) this.stopAgent(msg.session_id, a, p.reason);
       if (live.starting && live.starting.fencingToken <= msg.fencing_token)
         live.starting.cancelled = true;
       for (const c of live.cmds.values()) {
@@ -1120,6 +1160,57 @@ export class Daemon {
       this.dropCheckout(msg.session_id, held);
     }
     this.finish(msg, { accepted: true });
+  }
+
+  /**
+   * BUG-1: the one way an agent process is killed (kill command, supersede, daemon stop). Signals
+   * the process group once and logs once, however often the same kill arrives (the heartbeat
+   * backstop repeats `stale_fencing_token` until the process is gone).
+   */
+  private stopAgent(sid: string, a: AgentProc, reason: string): void {
+    if (a.exited || a.killRequested) return;
+    a.killRequested = true;
+    this.log(`session ${sid}: kill (${reason}) stops process ${a.commandId}`);
+    a.session.kill(this.config.killGraceMs);
+  }
+
+  /**
+   * BUG-1: kill a Claude process a previous daemon left running. Only if its pid is alive AND its
+   * command line names the session's Claude session id (`--session-id` / `--resume`), so a reused
+   * pid is never hit. SIGTERM to the process group, SIGKILL after the grace period.
+   */
+  private killOrphan(sid: string, agent: NonNullable<PersistedSession['agent']>): void {
+    const { pid, claudeSessionId } = agent;
+    if (pid === undefined || claudeSessionId === undefined) return;
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return; // gone
+    }
+    let command: string;
+    try {
+      command = execFileSync('ps', ['-o', 'command=', '-p', String(pid)], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+    } catch {
+      return;
+    }
+    if (!command.includes(claudeSessionId)) return;
+    const signal = (sig: NodeJS.Signals) => {
+      try {
+        process.kill(-pid, sig);
+      } catch {
+        try {
+          process.kill(pid, sig);
+        } catch {
+          // already gone
+        }
+      }
+    };
+    signal('SIGTERM');
+    setTimeout(() => signal('SIGKILL'), this.config.killGraceMs).unref();
+    this.log(`startup: killed orphaned claude process ${pid} of session ${sid}`);
   }
 
   // ============================================================ transcripts (ADR-0008)

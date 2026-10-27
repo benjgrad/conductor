@@ -34,6 +34,9 @@ import {
   writeSession,
 } from './rows.js';
 
+/** Session statuses after which apply ignores every event. */
+const TERMINAL: ReadonlySet<string> = new Set(['done', 'failed', 'lost']);
+
 // The transactional shell around the pure apply() (M1-T04b; 05 §Execution, 10-contracts
 // §EngineService wrapper, §Board events). One transaction:
 //   lock session → fencing check → input.provided checks → apply → engine event row →
@@ -168,9 +171,14 @@ export class EngineServiceImpl implements EngineService {
     const stepFenced =
       (before.step !== null || s1.step !== null) &&
       (before.step === null || s1.step === null || before.workflow_state !== s1.workflow_state);
+    // BUG-1: a session that becomes terminal is fenced, so a process still running for it is
+    // stale and the heartbeat backstop kills it (10-contracts §Orphaned processes rules 4, 6).
+    // M2-T20 owns this fencing list.
+    const becameTerminal = !TERMINAL.has(before.status) && TERMINAL.has(s1.status);
     if (
       (event.type === 'command.refused' && event.command_kind === 'start_session') ||
-      stepFenced
+      stepFenced ||
+      becameTerminal
     ) {
       const r = await tx.query<{ t: string }>("SELECT nextval('fencing_seq')::text AS t");
       token = r.rows[0]!.t;

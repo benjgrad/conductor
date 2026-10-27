@@ -1991,10 +1991,26 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
       return;
     case 'terminal':
       s.pending_answer = null;
+      releaseAgent(st, 'session done');
       st.setStatus('done');
       st.ticket('done');
       return;
   }
+}
+
+/**
+ * BUG-1: a session that ends must not leave its live agent process behind (a parked ADR-0007
+ * process waits on stdin forever). Kill exactly that start_session's process, then detach it. A
+ * start not yet `started` needs no kill here: the wrapper fences a terminal session, so its late
+ * `started` is stale and the gateway kills it (10-contracts §Orphaned processes rule 6).
+ */
+function releaseAgent(st: Step, reason: string): void {
+  const s = st.s;
+  if (s.machine_id !== null && s.agent_command_id !== null && s.agent_process_live) {
+    st.emit({ type: 'kill', reason, target_command_id: s.agent_command_id });
+  }
+  s.agent_command_id = null;
+  s.agent_process_live = false;
 }
 
 /**
@@ -2037,7 +2053,10 @@ function requeue(st: Step): void {
 /** → failed; kill whatever runs on the machine. Cancel → ticket `cancelled`, else `failed`. */
 function failSession(st: Step, ticket: TicketStatus, reason: string): void {
   const s = st.s;
+  // The session kill (null target) covers the agent process too (BUG-1); then detach it.
   if (s.machine_id !== null) st.emit({ type: 'kill', reason });
+  s.agent_command_id = null;
+  s.agent_process_live = false;
   if (s.state_deadline !== null && s.workflow_state !== null)
     st.setDeadline(s.workflow_state, null);
   s.pending_answer = null;

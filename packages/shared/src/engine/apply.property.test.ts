@@ -260,6 +260,15 @@ function checkInvariants(def: WorkflowDefinition, prev: SessionSnapshot, h: Harn
     }
   }
   if (s.status === 'done' || s.status === 'failed') expect(s.pending_answer).toBeNull();
+  // BUG-1: terminal ⇒ no agent process left attached, and a live one was killed on the way.
+  const terminal = (x: SessionSnapshot) => ['done', 'failed', 'lost'].includes(x.status);
+  if (terminal(s)) {
+    expect(s.agent_process_live).toBe(false);
+    expect(s.agent_command_id).toBeNull();
+  }
+  if (!terminal(prev) && terminal(s) && prev.machine_id !== null && prev.agent_process_live) {
+    expect(r.effects.some((e) => e.type === 'kill')).toBe(true);
+  }
   // §Pending answer: cleared when apply enters a different state, unless it delivers an answer
   // (an `input.provided`, or a human's text delivered to an agent by a transition or a move).
   const delivers = r.effects.some((e) => e.type === 'start_session' || e.type === 'send_input');

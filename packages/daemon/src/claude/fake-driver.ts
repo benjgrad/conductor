@@ -84,6 +84,10 @@ export class FakeDriverSession implements DriverSession {
   private resumeTurn: (() => void) | null = null;
   ended = false;
   killed = false;
+  /** How many times kill() was called (BUG-1: the daemon kills a process once). */
+  killCalls = 0;
+  /** BUG-1: tests may set a pid to be persisted (none by default: there is no OS process). */
+  pid: number | undefined = undefined;
   exited = false;
   private readonly listeners = new Set<(ev: DriverEvent) => void>();
   private initSent = false;
@@ -127,6 +131,7 @@ export class FakeDriverSession implements DriverSession {
   }
 
   kill(): void {
+    this.killCalls += 1;
     if (this.exited) return;
     this.killed = true;
     queueMicrotask(() => this.exit(null, 'SIGTERM'));

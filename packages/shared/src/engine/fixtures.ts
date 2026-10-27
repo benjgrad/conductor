@@ -1,4 +1,11 @@
-import { moveStateLabel, type EngineEvent, type GateStep, type SessionSnapshot } from './types.js';
+import {
+  moveStateLabel,
+  type EngineEvent,
+  type GateStep,
+  type MachineLostMark,
+  type MachineLostReason,
+  type SessionSnapshot,
+} from './types.js';
 
 // A running m1_basic session in `implement`, for engine (T04) and EngineService fake tests.
 export const SNAPSHOT_FIXTURE: SessionSnapshot = {
@@ -156,4 +163,35 @@ export const M1B_EVENT_FIXTURES: {
     },
     error: null,
   },
+};
+
+// ---------------------------------------------------------------- lost machines (M2-T02, U-068)
+
+/** One `machine.lost` per reason, for SNAPSHOT_FIXTURE's machine (T06, T20 tests). */
+export const MACHINE_LOST_EVENT_FIXTURES: {
+  [R in MachineLostReason]: Extract<EngineEvent, { type: 'machine.lost' }>;
+} = {
+  lease_expired: {
+    type: 'machine.lost',
+    machine_id: 'mbp-ben',
+    reason: 'lease_expired',
+    machine_name: "Ben's MacBook",
+  },
+  revoked: { type: 'machine.lost', machine_id: 'mbp-ben', reason: 'revoked' },
+  pinned_machine_offline: {
+    type: 'machine.lost',
+    machine_id: 'mbp-ben',
+    reason: 'pinned_machine_offline',
+    machine_name: "Ben's MacBook",
+    offline_ms: 900_000,
+  },
+};
+
+/** `context.__machine_lost` after SNAPSHOT_FIXTURE's lease lapsed in `implement`. */
+export const MACHINE_LOST_MARK_FIXTURE: MachineLostMark = {
+  machine_id: 'mbp-ben',
+  machine_name: "Ben's MacBook",
+  reason: 'lease_expired',
+  state: 'implement',
+  at: '2026-10-22T12:10:00.000Z',
 };

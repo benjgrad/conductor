@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import type { OutboxEffect, SessionSnapshot } from '../engine/types.js';
+import { WORKING_COPY_CONTEXT_KEY, WorkingCopySchema } from '../machines/inventory.js';
 import type {
   KillPayloadSchema,
   RunActionPayloadSchema,
@@ -83,6 +84,10 @@ export function commandPayloadForEffect(
       if (effect.transitions !== undefined && effect.transitions.length > 0) {
         payload.transitions = effect.transitions;
       }
+      // M2 (ADR-0013): the claim's working copy, kept in the session context so every start of
+      // the session (re-emits included) carries it. Absent or malformed = M1 clone path.
+      const wc = WorkingCopySchema.safeParse(snapshot.context[WORKING_COPY_CONTEXT_KEY]);
+      if (wc.success) payload.working_copy = wc.data;
       return { kind: 'start_session', target, payload };
     }
     case 'send_input':

@@ -1,10 +1,13 @@
-import type {
-  DaemonMessageType,
-  DaemonToOrchestrator,
-  OrchestratorMessageType,
-  OrchestratorToDaemon,
-  SessionEventKind,
-  SessionEventPayload,
+import type { Capability } from '../machines/capabilities.js';
+import type { InventoryRepo } from '../machines/inventory.js';
+import {
+  PROTOCOL_VERSION,
+  type DaemonMessageType,
+  type DaemonToOrchestrator,
+  type OrchestratorMessageType,
+  type OrchestratorToDaemon,
+  type SessionEventKind,
+  type SessionEventPayload,
 } from './ws.js';
 
 // One valid fixture per WS message type (and per session_event kind). Used by the round-trip
@@ -90,6 +93,38 @@ export const SESSION_EVENT_FIXTURES: {
   },
 };
 
+// ---------------------------------------------------------------- M2-T02 inventory
+
+/** A repo in the default `reference` mode, routable (remote set). */
+export const INVENTORY_REPO_FIXTURE: InventoryRepo = {
+  path: '/Users/ben/code/fixture-app',
+  remote: 'github.com/benjgrad/fixture-app',
+  default_branch: 'main',
+  head_commit: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+  mode: 'reference',
+};
+
+/** A checkout-mode repo without an allowed remote (reported, never routed to). */
+export const INVENTORY_REPO_CHECKOUT_FIXTURE: InventoryRepo = {
+  path: '/Users/ben/code/scratch',
+  remote: null,
+  default_branch: 'master',
+  head_commit: '0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c',
+  mode: 'checkout',
+};
+
+/** One capability of each kind: gh authed, az not, a user and a repo-scoped skill. */
+export const CAPABILITY_FIXTURES: Capability[] = [
+  { kind: 'cli', name: 'gh', version: '2.62.0', authed: true },
+  { kind: 'cli', name: 'az', version: '2.67.0', authed: false },
+  { kind: 'cli', name: 'git', version: '2.47.1', authed: false },
+  { kind: 'mcp', name: 'slack' },
+  { kind: 'skill', name: 'review' },
+  { kind: 'skill', name: 'deploy', repo: 'github.com/benjgrad/fixture-app' },
+  { kind: 'agent', name: 'implementer', repo: 'github.com/benjgrad/conductor' },
+  { kind: 'claude', version: '2.1.308' },
+];
+
 const sessionEvent = (kind: SessionEventKind, seq: number): DaemonToOrchestrator => ({
   type: 'session_event',
   ...daemonSession(seq),
@@ -149,6 +184,31 @@ export const DAEMON_FIXTURES: {
       mem_free_mb: 12000,
       disk_free_mb: 199000,
       sessions: [{ session_id: S, fencing_token: 1 }],
+    },
+  },
+  inventory: {
+    type: 'inventory',
+    msg_id: id(),
+    seq: null,
+    session_id: null,
+    fencing_token: null,
+    payload: {
+      repos: [INVENTORY_REPO_FIXTURE, INVENTORY_REPO_CHECKOUT_FIXTURE],
+      capabilities: CAPABILITY_FIXTURES,
+      hash: 'sha256:9c1d0e7a',
+    },
+  },
+  alert: {
+    type: 'alert',
+    msg_id: id(),
+    seq: 7,
+    session_id: null,
+    fencing_token: null,
+    payload: {
+      kind: 'git_tamper',
+      repo: INVENTORY_REPO_CHECKOUT_FIXTURE.path,
+      files: ['hooks/pre-commit', 'config'],
+      at: TS,
     },
   },
   repo_inventory: {
@@ -443,6 +503,68 @@ export const M1B_WS_FIXTURES: {
         },
         error: null,
       },
+    },
+  },
+};
+
+// ---------------------------------------------------------------- protocol v2 (M2-T02)
+
+const REGISTER_V2_BASE = { ...DAEMON_FIXTURES.register.payload };
+delete REGISTER_V2_BASE.enrollment_token;
+
+/**
+ * The M2 WS shapes beyond DAEMON_FIXTURES, as full envelopes: a v2 `register` (versions, no
+ * enrollment token), the M1 `register` it must stay compatible with, a `start_session` with its
+ * working copy, an empty `inventory` and an `alert` naming its session. For the daemon (T04,
+ * T10, T13) and gateway (T09, T16) tests; round-tripped in ws.v2.test.ts.
+ */
+export const M2_WS_FIXTURES: {
+  register_v2: Extract<DaemonToOrchestrator, { type: 'register' }>;
+  register_v1: Extract<DaemonToOrchestrator, { type: 'register' }>;
+  start_session_working_copy: Extract<OrchestratorToDaemon, { type: 'start_session' }>;
+  inventory_empty: Extract<DaemonToOrchestrator, { type: 'inventory' }>;
+  alert_with_session: Extract<DaemonToOrchestrator, { type: 'alert' }>;
+} = {
+  register_v2: {
+    ...DAEMON_FIXTURES.register,
+    msg_id: id(),
+    payload: {
+      ...REGISTER_V2_BASE,
+      machine_id: 'b7f3c2a1-0d9e-4c8b-a7f6-e5d4c3b2a190',
+      protocol_version: PROTOCOL_VERSION,
+      daemon_version: '0.2.0+3b18e51',
+    },
+  },
+  /** The M1 shape: `enrollment_token: null`, no `protocol_version`. */
+  register_v1: { ...DAEMON_FIXTURES.register, msg_id: id() },
+  start_session_working_copy: {
+    ...ORCHESTRATOR_FIXTURES.start_session,
+    msg_id: id(),
+    payload: {
+      ...ORCHESTRATOR_FIXTURES.start_session.payload,
+      working_copy: { repo_path: INVENTORY_REPO_FIXTURE.path, mode: 'reference' },
+    },
+  },
+  inventory_empty: {
+    type: 'inventory',
+    msg_id: id(),
+    seq: null,
+    session_id: null,
+    fencing_token: null,
+    payload: { repos: [], capabilities: [], hash: 'sha256:e3b0c442' },
+  },
+  alert_with_session: {
+    type: 'alert',
+    msg_id: id(),
+    seq: 40,
+    session_id: null,
+    fencing_token: null,
+    payload: {
+      kind: 'git_tamper',
+      repo: INVENTORY_REPO_CHECKOUT_FIXTURE.path,
+      session_id: S,
+      files: ['hooks/post-checkout'],
+      at: TS,
     },
   },
 };

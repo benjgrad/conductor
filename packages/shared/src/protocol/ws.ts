@@ -2,11 +2,64 @@ import { z } from 'zod';
 import { IsoDateTimeSchema, JsonObjectSchema, OutputStreamSchema, UuidSchema } from '../domain.js';
 import { ConditionSchema, ConditionTypeSchema } from '../workflow/schema.js';
 import { AgentTransitionOptionSchema } from '../workflow/transition-rules.js';
+import { CapabilitySchema } from '../machines/capabilities.js';
+import {
+  AbsolutePathSchema,
+  InventoryRepoSchema,
+  WorkingCopySchema,
+} from '../machines/inventory.js';
 
 // Daemon ↔ orchestrator WebSocket protocol (03 §Daemon ↔ orchestrator). One JSON envelope per
 // WS text frame. Field names are snake_case on the wire.
 
 const SeqSchema = z.number().int().nonnegative();
+
+// ------------------------------------------------------------ protocol v2 (M2-T02)
+// 10-contracts §Machines protocol v2, ADR-0013 §Enrollment, ADR-0017 §Daemon distribution.
+
+/**
+ * The protocol version this build speaks, sent in `register.protocol_version` (absent = 1, the M1
+ * daemon). In `password` mode the gateway closes a register below it with CLOSE_PROTOCOL; `local`
+ * mode accepts v1.
+ */
+export const PROTOCOL_VERSION = 2;
+
+/**
+ * The WS upgrade request header carrying the machine credential: `Authorization: Bearer
+ * <credential>` (lower-case here, as Node reports request headers). An unknown or revoked
+ * credential is refused at the upgrade with HTTP 401, which the daemon treats like
+ * CLOSE_UNAUTHORIZED. Local mode (no `machine.json`) sends no header.
+ */
+export const DAEMON_AUTH_HEADER = 'authorization';
+
+/** The DAEMON_AUTH_HEADER value for a credential. */
+export function daemonAuthHeaderValue(credential: string): string {
+  return `Bearer ${credential}`;
+}
+
+/** The credential in a DAEMON_AUTH_HEADER value; null when absent or not `Bearer <token>`. */
+export function parseDaemonAuthHeader(value: string | undefined): string | null {
+  const m = value === undefined ? null : /^Bearer ([\x21-\x7e]+)$/.exec(value.trim());
+  return m ? m[1]! : null;
+}
+
+/** M1-T11: a newer connection for the same machine id replaced this one. */
+export const CLOSE_REPLACED = 4000;
+/** The machine was revoked while connected; the daemon stops reconnecting and exits non-zero. */
+export const CLOSE_REVOKED = 4001;
+/** The connection is not (or no longer) authorized; the daemon stops reconnecting. */
+export const CLOSE_UNAUTHORIZED = 4003;
+/** `register.protocol_version` is too old; the daemon logs "re-run the install command". */
+export const CLOSE_PROTOCOL = 4005;
+
+/** The close reason text sent with each close code. */
+export const CLOSE_REASONS = {
+  [CLOSE_REPLACED]: 'replaced by a newer connection',
+  [CLOSE_REVOKED]: 'machine revoked',
+  [CLOSE_UNAUTHORIZED]: 'unauthorized',
+  [CLOSE_PROTOCOL]:
+    'protocol version not supported: update the daemon (re-run the install command)',
+} as const;
 const TokenSchema = z.number().int().nonnegative();
 
 /** Common envelope. Concrete messages narrow `type`, `payload` and the nullability below. */
@@ -54,6 +107,10 @@ const orchSessionEnv = { seq: z.null(), ...sessionEnv };
 
 // ============================================================ daemon → orchestrator
 
+/**
+ * Superseded by `inventory` (ADR-0013): kept until M2-T16 switches the gateway, then deprecated;
+ * removed in M2-T21.
+ */
 export const RepoInventoryEntrySchema = z.object({
   repo: z.string().min(1),
   path: z.string().min(1),
@@ -64,8 +121,13 @@ export type RepoInventoryEntry = z.infer<typeof RepoInventoryEntrySchema>;
 
 export const RegisterPayloadSchema = z.object({
   machine_id: z.string().min(1),
-  /** Enrollment token (U-008). null in M1 (localhost only). */
-  enrollment_token: z.string().nullable(),
+  /**
+   * Local mode only, ignored (M1 sent null). Machines authenticate with DAEMON_AUTH_HEADER on the
+   * upgrade (ADR-0013). Removed in M2-T21.
+   */
+  enrollment_token: z.string().nullable().optional(),
+  /** PROTOCOL_VERSION of the daemon. Absent = 1 (an M1 daemon). */
+  protocol_version: z.number().int().positive().optional(),
   hostname: z.string(),
   os: z.string(),
   arch: z.string(),
@@ -77,6 +139,7 @@ export const RegisterPayloadSchema = z.object({
   budget_mem_mb: z.number().int().nonnegative(),
   max_sessions: z.number().int().nonnegative(),
   max_concurrent_builds: z.number().int().positive(),
+  /** The daemon package version (+ `CONDUCTOR_BUILD_SHA` when set). */
   daemon_version: z.string(),
   claude_code_version: z.string().nullable(),
 });
@@ -91,6 +154,7 @@ export const HeartbeatPayloadSchema = z.object({
 });
 export const HeartbeatMessageSchema = msg('heartbeat', HeartbeatPayloadSchema, machineEnv);
 
+/** Superseded by `inventory`; see RepoInventoryEntrySchema. */
 export const RepoInventoryPayloadSchema = z.object({ repos: z.array(RepoInventoryEntrySchema) });
 export const RepoInventoryMessageSchema = msg(
   'repo_inventory',
@@ -100,12 +164,54 @@ export const RepoInventoryMessageSchema = msg(
 
 export const RequestWorkPayloadSchema = z.object({
   free_slots: z.number().int().nonnegative(),
-  /** Hash of the last repo_inventory; the orchestrator uses its machine_repo rows. */
+  /**
+   * The `hash` of the last `inventory` sent (M1: of the last repo_inventory); the orchestrator
+   * uses its machine_repo / machine_capability rows.
+   */
   repos_digest: z.string(),
   cpu_free: z.number().nonnegative(),
   mem_free_mb: z.number().int().nonnegative(),
 });
 export const RequestWorkMessageSchema = msg('request_work', RequestWorkPayloadSchema, machineEnv);
+
+/**
+ * ADR-0013 §Inventory: the machine's repos and capabilities. Sent after every `registered` and
+ * whenever the scan changes (10-minute rescan, SIGHUP); each one replaces the previous one
+ * wholesale (repos and capabilities not listed are gone). Not durable: the next connection sends
+ * a fresh one. `hash` is the daemon's digest of the inventory; `request_work.repos_digest` carries
+ * the same value.
+ */
+export const InventoryPayloadSchema = z.object({
+  repos: z.array(InventoryRepoSchema),
+  capabilities: z.array(CapabilitySchema),
+  hash: z.string().min(1),
+});
+export type InventoryPayload = z.infer<typeof InventoryPayloadSchema>;
+export const InventoryMessageSchema = msg('inventory', InventoryPayloadSchema, machineEnv);
+
+/** Cap on `alert.files`. */
+export const ALERT_FILES_MAX = 200;
+
+/**
+ * U-060: the daemon found the user's checkout's `.git/config`, `.git/hooks/` or `core.hooksPath`
+ * target changed across a session (checkout mode only). `repo` is the inventory repo's `path`
+ * (the unique key on the machine; its remote may be null); `session_id` the session that ran
+ * there, when known; `files` the changed paths, relative to the checkout's `.git`.
+ * Machine-level envelope, but durable: `seq` is required, the daemon buffers and replays it like
+ * a session_event, and the orchestrator dedupes it on `(machine_id, seq)`.
+ */
+export const AlertPayloadSchema = z.object({
+  kind: z.literal('git_tamper'),
+  repo: AbsolutePathSchema,
+  session_id: UuidSchema.optional(),
+  files: z.array(z.string().min(1)).min(1).max(ALERT_FILES_MAX),
+  at: IsoDateTimeSchema,
+});
+export type AlertPayload = z.infer<typeof AlertPayloadSchema>;
+export const AlertMessageSchema = msg('alert', AlertPayloadSchema, {
+  ...machineEnv,
+  seq: SeqSchema,
+});
 
 /** Known `command_ack.reason` codes (free text allowed). */
 export const COMMAND_REFUSAL_REASONS = [
@@ -307,6 +413,8 @@ export const DaemonToOrchestratorSchema = z.discriminatedUnion('type', [
   HeartbeatMessageSchema,
   RepoInventoryMessageSchema,
   RequestWorkMessageSchema,
+  InventoryMessageSchema,
+  AlertMessageSchema,
   CommandAckMessageSchema,
   SessionEventMessageSchema,
   OutputMessageSchema,
@@ -383,6 +491,15 @@ export const StartSessionPayloadSchema = z.object({
    * empty = any name passes (old workflows, reviewers).
    */
   transitions: z.array(AgentTransitionOptionSchema).optional(),
+  /**
+   * ADR-0013 / U-060 (M2): the `machine_repo` the claim matched, kept in the session context
+   * (`WORKING_COPY_CONTEXT_KEY`) and carried by every start of the session, re-emits included.
+   * The daemon re-checks `repo_path` and `mode` against its own inventory (never trusting the
+   * message), reuses the session's existing worktree when there is one, else fetches the default
+   * branch and adds the worktree from `origin/<default_branch>`; `base_ref` is then informational.
+   * Absent = M1 behaviour (local mode: the daemon's shared clone at `base_ref`).
+   */
+  working_copy: WorkingCopySchema.optional(),
 });
 export const StartSessionMessageSchema = msg(
   'start_session',

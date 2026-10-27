@@ -89,6 +89,8 @@ A pull scheduler is greedy. A machine without the repo might grab a ticket a sec
 
 ## 4 · Leases and fencing
 
+> Superseded for lost machines by [10-contracts §Machines protocol v2](10-contracts.md#machines-protocol-v2) (no automatic requeue; M2-T20 rewrites this section).
+
 - Each heartbeat renews `lease_expires_at` for every session it lists, provided its token matches.
 - A **reaper** (periodic query, safe to run on any replica) finds sessions with `lease_expires_at < now() - grace` (grace **2 min**, which covers network blips). It marks them `lost`, writes an event, then **requeues**: a new assignment gets a higher `fencing_token`. It prefers resuming from `claude_session_id` when the branch was pushed. See [08](08-failure-modes.md#laptop-sleep).
 - Any event or ack carrying an older token is rejected, and the orchestrator sends `kill`.

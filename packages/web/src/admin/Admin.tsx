@@ -14,6 +14,8 @@ import { OneTimeLink } from './OneTimeLink.js';
 import './admin.css';
 
 export const ADMINS_ONLY = 'Only admins can see this page.';
+/** Sign-up with an API-created (general) invite is refused until M2-T15b. */
+export const NEW_ACCOUNTS_NOTE = 'New accounts arrive with M2-T15b';
 
 interface AdminPageProps {
   api: ApiClient;
@@ -209,6 +211,7 @@ export function AdminPage({ api, me }: AdminPageProps) {
                 }
               }}
             />
+            <p className="admin-note">{NEW_ACCOUNTS_NOTE}</p>
             <table className="admin-table">
               <thead>
                 <tr>

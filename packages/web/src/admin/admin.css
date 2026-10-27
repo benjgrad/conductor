@@ -86,3 +86,8 @@
   flex: 1;
   font-family: ui-monospace, monospace;
 }
+.admin-note {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 6px 0 8px;
+}

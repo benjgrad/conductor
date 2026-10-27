@@ -760,7 +760,7 @@ describe('review requests in the panel (UX-4 FR-4)', () => {
     const card = within(await panel.findByRole('region', { name: 'Ready for review' }));
     expect(card.getByText('Ready for review')).toBeTruthy();
     expect(card.getByText(/Acceptance 8\/10/).textContent).toBe(
-      'complete · Acceptance 8/10, gates ✓',
+      'complete · Acceptance 8/10, gates ✓ · 1 for review',
     );
     expect(card.getByRole('link', { name: /pull request/i }).getAttribute('href')).toBe(PR);
     const details = card.getByText('Full report').closest('details')!;

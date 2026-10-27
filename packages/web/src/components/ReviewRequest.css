@@ -1,13 +1,8 @@
-/* UX-4: the session panel's "Ready for review" card (neutral/accent, not the red question box). */
+/* UX-4: the session panel's "Ready for review" card (neutral/accent, not the red question box).
+   Its `.badge-review` is Board.css's, shared with the board card. */
 .review-request {
   border-color: var(--user-border);
   background: var(--user-bg);
-}
-.review-request .badge-review {
-  background: var(--panel);
-  color: var(--accent);
-  border: 1px solid var(--user-border);
-  font-weight: 600;
 }
 .review-request .review-pr-link {
   display: inline-block;

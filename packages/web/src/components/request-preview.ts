@@ -47,6 +47,12 @@ export function lastMoveTransition(detail: Pick<SessionDetail, 'moves' | 'card'>
 
 const HEADER_LINE = /^\s*[*_]*(TASK|BRANCH|STATUS)[*_]*\s*:/i;
 const FENCE = /^\s*(```|~~~)/;
+const HEADING = /^\s*#{1,6}\s/;
+/** A bare section label, e.g. `ACCEPTANCE:` or `**NEW UNKNOWNS (lead):**`. */
+const BARE_LABEL = /^\s*[*_]*[A-Z][A-Z ()-]*[*_]*:[*_]*\s*$/;
+/** A report field, e.g. `GATES: typecheck ✅` or `TECH DEBT: none`. */
+const REPORT_FIELD = /^\s*[*_]*[A-Z][A-Z ()-]*[*_]*:/;
+const CHECKBOX = /^\s*[-*]\s*\[( |x|X|-)\]/;
 
 /** A line without its markdown markers (heading, quote, bullet, checkbox, bold, code ticks). */
 function plain(line: string): string {
@@ -59,44 +65,71 @@ function plain(line: string): string {
     .trim();
 }
 
-/** The meaningful lines: after a leading TASK/BRANCH/STATUS header block, fences and blanks out. */
-function meaningfulLines(text: string, limit: number): string[] {
+/**
+ * The meaningful lines: after a leading TASK/BRANCH/STATUS header block, without fences,
+ * headings (`## Question` is a title, not the question) and bare section labels. `prose` also
+ * skips a report's checkbox items and `FIELD: value` lines.
+ */
+function meaningfulLines(text: string, limit: number, prose = false): string[] {
   const lines = text.split('\n');
   let i = 0;
   while (i < lines.length && (lines[i]!.trim() === '' || HEADER_LINE.test(lines[i]!))) i++;
   const out: string[] = [];
   for (; i < lines.length && out.length < limit; i++) {
-    if (FENCE.test(lines[i]!)) continue;
-    const p = plain(lines[i]!);
+    const line = lines[i]!;
+    if (FENCE.test(line) || HEADING.test(line) || BARE_LABEL.test(line)) continue;
+    if (prose && (CHECKBOX.test(line) || REPORT_FIELD.test(line))) continue;
+    const p = plain(line);
     if (p !== '') out.push(p);
   }
   return out;
+}
+
+/** Abbreviations whose dot doesn't end a sentence. */
+const ABBREVIATION = /(^|\s|\()(e\.g|i\.e|etc|vs|cf|approx)\.$/i;
+
+/** The first sentence of `line` (to a `.`, `?` or `!` before a space or the end), else all of it. */
+function firstSentence(line: string): string {
+  for (const m of line.matchAll(/[.?!](?=\s|$)/g)) {
+    const head = line.slice(0, m.index + 1);
+    if (!ABBREVIATION.test(head)) return head;
+  }
+  return line;
 }
 
 function cap(s: string): string {
   return s.length > PREVIEW_MAX ? `${s.slice(0, PREVIEW_MAX - 1).trimEnd()}…` : s;
 }
 
-/** The card's short preview of a request's text (FR-1, FR-3). */
+/**
+ * The card's short preview of a request's text (FR-1, FR-3). A review leads with its report
+ * summary when one parses (e.g. "complete · Acceptance 5/5 ✓, gates ✓"), then its first prose.
+ */
 export function previewText(text: string, cls: RequestClass): string {
-  if (cls === 'review') return cap(meaningfulLines(text, 3).join(' · '));
+  if (cls === 'review') {
+    const s = summarizeReport(text);
+    const summary = s ? formatSummary(s) : '';
+    const prose = meaningfulLines(text, summary ? 2 : 3, true);
+    const parts = summary ? [summary, ...prose] : prose;
+    return cap((parts.length > 0 ? parts : meaningfulLines(text, 3)).join(' · '));
+  }
   const first = meaningfulLines(text, 1)[0] ?? '';
   if (cls === 'step_failed') return cap(first);
-  const sentence = /^.+?[.?!](?=\s|$)/.exec(first);
-  return cap(sentence ? sentence[0] : first);
+  return cap(firstSentence(first));
 }
 
 export interface ReportSummary {
   status?: string;
+  /** ACCEPTANCE `[x]` items. */
   accepted?: number;
+  /** ACCEPTANCE `[x]` + `[ ]` items (the agent's own). */
   total?: number;
+  /** ACCEPTANCE `[-]` items: owned by the lead or Ben, not unmet. */
+  forReview?: number;
   gates?: 'ok' | 'failed';
 }
 
-const CHECKBOX = /^\s*[-*]\s*\[( |x|X|-)\]/;
-const SECTION = /^\s*[*_]*[A-Z][A-Z ]+[*_]*\s*:/;
-
-/** STATUS, ACCEPTANCE `[x]`/`[ ]` counts and GATES of an implementer report; null if none. */
+/** STATUS, ACCEPTANCE `[x]` / `[ ]` / `[-]` counts and GATES of an implementer report; null if none. */
 export function summarizeReport(text: string): ReportSummary | null {
   const lines = text.split('\n');
   const out: ReportSummary = {};
@@ -112,22 +145,26 @@ export function summarizeReport(text: string): ReportSummary | null {
     for (let i = start + 1; i < lines.length; i++) {
       const l = lines[i]!;
       if (CHECKBOX.test(l)) boxes.push(l);
-      else if (SECTION.test(l)) break;
+      else if (REPORT_FIELD.test(l)) break;
     }
   } else {
     boxes = lines.filter((l) => CHECKBOX.test(l));
   }
-  if (boxes.length > 0) {
-    out.total = boxes.length;
-    out.accepted = boxes.filter((l) => /\[(x|X)\]/.test(l)).length;
+  const mark = (l: string) => /\[( |x|X|-)\]/.exec(l)![1]!.toLowerCase();
+  const own = boxes.filter((l) => mark(l) !== '-');
+  if (own.length > 0) {
+    out.total = own.length;
+    out.accepted = own.filter((l) => mark(l) === 'x').length;
   }
+  const lead = boxes.length - own.length;
+  if (lead > 0) out.forReview = lead;
   const gates = lines.find((l) => /^\s*[*_]*GATES[*_]*\s*:/i.test(l));
   if (gates?.includes('❌')) out.gates = 'failed';
   else if (gates?.includes('✅')) out.gates = 'ok';
   return Object.keys(out).length > 0 ? out : null;
 }
 
-/** e.g. "complete · Acceptance 8/10, gates ✓". */
+/** e.g. "complete · Acceptance 8/10, gates ✓ · 1 for review". */
 export function formatSummary(s: ReportSummary): string {
   const parts: string[] = [];
   if (s.status) parts.push(s.status);
@@ -137,5 +174,6 @@ export function formatSummary(s: ReportSummary): string {
   }
   if (s.gates) counts.push(`gates ${s.gates === 'ok' ? '✓' : '✗'}`);
   if (counts.length > 0) parts.push(counts.join(', '));
+  if (s.forReview) parts.push(`${s.forReview} for review`);
   return parts.join(' · ');
 }

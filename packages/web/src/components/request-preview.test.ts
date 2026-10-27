@@ -7,7 +7,7 @@ import {
   previewText,
   summarizeReport,
 } from './request-preview.js';
-import { implementerReport, REPORT_FIRST_LINE } from './review-fixture.js';
+import { implementerReport, REPORT_PROSE_LINE } from './review-fixture.js';
 
 const req = (over: Partial<Parameters<typeof classifyRequest>[0]> = {}) => ({
   kind: 'agent_question' as const,
@@ -83,17 +83,30 @@ describe('classifyRequest (FR-2, FR-3)', () => {
 describe('previewText (FR-1, FR-3)', () => {
   it('a 60-line report: starts after the TASK/BRANCH/STATUS header, bounded', () => {
     const p = previewText(implementerReport(60), 'review');
-    expect(p.startsWith(REPORT_FIRST_LINE)).toBe(true);
-    expect(p).not.toMatch(/TASK:|BRANCH:|STATUS:/);
+    // Real reports go from the header straight into ACCEPTANCE: the summary leads, then prose.
+    expect(p).toBe(`complete · Acceptance 8/10, gates ✓ · 1 for review · ${REPORT_PROSE_LINE}`);
+    expect(p).not.toMatch(/^ACCEPTANCE|TASK:|BRANCH:|STATUS:|evidence/);
     expect(p.length).toBeLessThanOrEqual(PREVIEW_MAX);
-    expect(p.split(' · ')).toHaveLength(3);
+  });
+
+  it('a review without a parsable report: its first prose lines, labels skipped', () => {
+    expect(
+      previewText('TASK: x\nSUMMARY:\nThe PR adds pagination.\nPlease review.', 'review'),
+    ).toBe('The PR adds pagination. · Please review.');
   });
 
   it('a question shows its first sentence', () => {
     expect(
       previewText('Should I use pg or sqlite? The tradeoffs are below.\n\n- pg: …', 'question'),
     ).toBe('Should I use pg or sqlite?');
-    expect(previewText('## Decision needed\nPick one.', 'question')).toBe('Decision needed');
+    // A heading is a title, not the question.
+    expect(previewText('## Question\nPick one of them.', 'question')).toBe('Pick one of them.');
+    expect(previewText('QUESTION:\nWhich port?', 'question')).toBe('Which port?');
+    // An abbreviation's dot doesn't end the sentence.
+    expect(previewText('Use a queue, e.g. pg-boss, or cron? I lean queue.', 'question')).toBe(
+      'Use a queue, e.g. pg-boss, or cron?',
+    );
+    expect(previewText('Pick one, i.e. A or B.', 'question')).toBe('Pick one, i.e. A or B.');
   });
 
   it('a failed step shows its first line', () => {
@@ -113,10 +126,17 @@ describe('previewText (FR-1, FR-3)', () => {
 });
 
 describe('summarizeReport (FR-4)', () => {
-  it('status, acceptance 8/10 and green gates', () => {
+  it('status, acceptance 8/10, green gates, the lead-owned [-] item apart', () => {
     const s = summarizeReport(implementerReport())!;
-    expect(s).toEqual({ status: 'complete', accepted: 8, total: 10, gates: 'ok' });
-    expect(formatSummary(s)).toBe('complete · Acceptance 8/10, gates ✓');
+    expect(s).toEqual({ status: 'complete', accepted: 8, total: 10, forReview: 1, gates: 'ok' });
+    expect(formatSummary(s)).toBe('complete · Acceptance 8/10, gates ✓ · 1 for review');
+  });
+
+  it('[-] items are not unmet: 4/4 ✓ with 2 for review', () => {
+    const s = summarizeReport(
+      'ACCEPTANCE:\n- [x] a\n- [x] b\n- [x] c\n- [x] d\n- [-] e (lead)\n- [-] f (Ben)\nGATES: ✅',
+    )!;
+    expect(formatSummary(s)).toBe('Acceptance 4/4 ✓, gates ✓ · 2 for review');
   });
 
   it('a red gate, all met, and checkboxes without an ACCEPTANCE header', () => {

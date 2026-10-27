@@ -1,6 +1,6 @@
-import { localMeResponse, type MeResponse } from '@conductor/shared';
+import type { MeResponse } from '@conductor/shared';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ApiRequestError, type ApiClient } from './api/client.js';
+import type { ApiClient } from './api/client.js';
 import { AdminPage } from './admin/Admin.js';
 import { AccountMenu } from './auth/AccountMenu.js';
 import { NETWORK } from './auth/errors.js';
@@ -58,8 +58,6 @@ export function App({ api }: AppProps) {
       (err: unknown) => {
         if (cancelled) return;
         if (isUnauthorized(err)) onUnauthorized();
-        // TD: remove once M2-T08 serves /api/me; an orchestrator without it is a local one.
-        else if (err instanceof ApiRequestError && err.status === 404) setMe(localMeResponse());
         else setProbeError(NETWORK);
       },
     );

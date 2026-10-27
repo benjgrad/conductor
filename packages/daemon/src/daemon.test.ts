@@ -21,6 +21,7 @@ import { DaemonStore } from './store.js';
 import type { LiveResources } from './sysinfo.js';
 import { CONDUCTOR_INSTRUCTIONS } from './system-prompt.js';
 import { FakeOrchestrator } from './test-support/fake-orchestrator.js';
+import { removeTree } from './test-support/remove-tree.js';
 
 // M1-T05 acceptance: the daemon core against a fake orchestrator WS, with FakeClaudeDriver,
 // FakeCommandRunner and real git in temp dirs.
@@ -57,8 +58,8 @@ afterEach(async () => {
   for (const d of daemons.splice(0)) d.stop();
   await orch.close();
   expect(orch.invalid).toEqual([]);
-  // A background `git` (repo inventory) may still be writing when the test ends.
-  rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  // A background `git` (repo inventory) may still be writing when the test ends (TD-111).
+  await removeTree(tmp);
 });
 
 function makeDaemon(

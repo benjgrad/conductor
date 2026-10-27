@@ -3,6 +3,7 @@ import { BlockNoteEditor } from '@blocknote/core';
 import { describe, expect, it } from 'vitest';
 import ticket from './fixtures/ux-3-ticket.md?raw';
 import {
+  dropBreakIndent,
   editorMarkdown,
   escapeText,
   importMarkdown,
@@ -157,6 +158,26 @@ describe('markdown round-trip through BlockNote (UX-3 FR-1, FR-3, NFR-7)', () =>
   it('escapeText only escapes line-start syntax at the start of a block', () => {
     expect(escapeText('1. a - b # c > d', true)).toBe('1\\. a - b # c > d');
     expect(escapeText('1. a', false)).toBe('1. a');
+  });
+
+  // UX-3b FR-3: BlockNote's parser keeps the space after a line break ("a\n b").
+  it('imports a soft-wrapped paragraph with no indent on the continuation', () => {
+    expect(visibleText('line a\nline b')).toEqual(['line a\nline b']);
+    expect(visibleText('line a\\\nline b')).toEqual(['line a\nline b']);
+    const out = roundTrip('line a\nline b\n');
+    expect(out).toBe('line a\\\nline b\n');
+    expect(roundTrip(out)).toBe(out);
+  });
+
+  it('keeps indentation in code when dropping break indents', () => {
+    expect(roundTrip('```ts\na\n  b\n```\n')).toBe('```ts\na\n  b\n```\n');
+    const editor = BlockNoteEditor.create();
+    editor.replaceBlocks(editor.document, [
+      { type: 'paragraph', content: [{ type: 'text', text: 'x\n  y', styles: { code: true } }] },
+    ]);
+    expect(dropBreakIndent(editor.document)[0]!.content).toEqual([
+      { type: 'text', text: 'x\n  y', styles: { code: true } },
+    ]);
   });
 
   // TD-122: BlockNote's code mark excludes other marks, so bold/italic around inline code is

@@ -86,3 +86,55 @@ describe('markdown renderer: backslash escapes (UX-3 QA)', () => {
     expect(ticket.querySelector('em, a')).toBeNull();
   });
 });
+
+describe('markdown renderer: hard breaks and bold-italic (UX-3b)', () => {
+  function para(text: string): HTMLElement {
+    const { container } = render(<Markdown text={text} />);
+    return container.querySelector('p, blockquote')!;
+  }
+
+  it('a backslash at line end is a hard break: a br, no backslash', () => {
+    const p = para('a\\\nb');
+    expect(p.innerHTML).toBe('a<br>b');
+    expect(p.textContent).not.toContain('\\');
+  });
+
+  it('an editor Shift+Enter break renders without a backslash', () => {
+    const editor = BlockNoteEditor.create();
+    editor.replaceBlocks(editor.document, [{ type: 'paragraph', content: 'line a\nline b' }]);
+    const body = editorMarkdown(editor);
+    expect(body).toContain('line a\\\nline b');
+    const p = para(body);
+    expect(p.textContent).toBe('line aline b');
+    expect(p.querySelectorAll('br')).toHaveLength(1);
+  });
+
+  it('an escaped backslash at line end stays one literal backslash', () => {
+    const end = para('a\\\\');
+    expect(end.textContent).toBe('a\\');
+    expect(end.querySelector('br')).toBeNull();
+    cleanup();
+    // The br here is the renderer's plain newline, not a hard break.
+    expect(para('a\\\\\nb').textContent).toBe('a\\b');
+  });
+
+  it('a lone backslash ending the block is literal', () => {
+    expect(para('a\\').textContent).toBe('a\\');
+  });
+
+  it('hard breaks in a quote drop the backslash too', () => {
+    const q = para('> a\\\n> b');
+    expect(q.tagName).toBe('BLOCKQUOTE');
+    expect(q.innerHTML).toBe('a<br>b');
+  });
+
+  it.each([
+    ['***x***', '<em><strong>x</strong></em>'],
+    ['___x___', '<em><strong>x</strong></em>'],
+    ['a ***b*** c', 'a <em><strong>b</strong></em> c'],
+    ['***a \\* b***', '<em><strong>a * b</strong></em>'],
+    ['snake___case', 'snake___case'],
+  ])('%s renders bold+italic without stray markers', (src, out) => {
+    expect(html(src)).toBe(out);
+  });
+});

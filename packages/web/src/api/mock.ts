@@ -818,7 +818,8 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         if (!parsed.success) throw badRequest(parsed.error.message);
         const user = signedInUser();
         if (user.password !== parsed.data.current) {
-          throw new ApiRequestError(401, 'unauthorized', 'The current password is wrong');
+          const message = 'Your current password is wrong.';
+          throw badRequest(message, [{ path: 'current', message }]);
         }
         const bad = passwordError(parsed.data.new, user.row.email);
         if (bad) throw bad;

@@ -10,6 +10,7 @@ import { createCliDriver } from './claude/cli-driver.js';
 import { startOutcomeServer, type OutcomeServer } from './claude/outcome-server.js';
 import { loadConfig } from './config.js';
 import { Daemon } from './daemon.js';
+import { readProcInfo } from './orphan.js';
 import { FakeOrchestrator } from './test-support/fake-orchestrator.js';
 
 // BUG-1 FR-2: a kill for a parked agent process (ADR-0007: alive, idle, blocked reading stdin
@@ -53,7 +54,7 @@ afterEach(async () => {
   rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
 });
 
-function makeDaemon(): Daemon {
+function makeDaemon(opts: { claudeBin?: string; log?: (m: string) => void } = {}): Daemon {
   const config = loadConfig({
     CONDUCTOR_ORCHESTRATOR_URL: orch.url,
     CONDUCTOR_ROOT: join(tmp, 'root'),
@@ -76,7 +77,8 @@ function makeDaemon(): Daemon {
     }),
     sysinfo: () => ({ cpuFree: 4, memFreeMb: 8000, diskFreeMb: 50_000 }),
     claudeCodeVersion: 'fake',
-    log: () => {},
+    log: opts.log ?? (() => {}),
+    ...(opts.claudeBin !== undefined ? { claudeBin: opts.claudeBin } : {}),
   });
   d.start();
   daemon = d;
@@ -154,5 +156,36 @@ describe('BUG-1 FR-2: kill of a parked process (real process group)', () => {
     expect(orch.ack(killId)[0]!.payload.accepted).toBe(true);
     expect(alive(pid)).toBe(false);
     expect(d.store.session(sid)!.agent).toBeNull();
+  });
+});
+
+describe('BUG-1b: the startup sweep against a real (fake-claude) process group', () => {
+  it('FR-1: the start time is persisted at spawn; a restarted daemon kills its orphan', async () => {
+    const d1 = makeDaemon();
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    orch.send(parkedStart(sid));
+    await orch.until(() => orch.events('ask_user')[0]);
+    const agent = d1.store.session(sid)!.agent!;
+    const pid = agent.pid!;
+    try {
+      expect(agent.startedAt).toBe(readProcInfo(pid)!.startedAt);
+      expect(Math.abs(agent.startedAt! - Date.now())).toBeLessThan(10_000);
+      // The daemon dies with the process still running (a detached `node fake-claude.mjs
+      // --session-id <id> …`, the shebang-launcher form of argv).
+      d1.stop({ killSessions: false });
+      daemon = null;
+      const logs: string[] = [];
+      makeDaemon({ claudeBin: FAKE, log: (m) => logs.push(m) });
+      await orch.until(() => !alive(pid) || undefined, 5_000);
+      expect(logs).toContain(`startup: killed orphaned claude process ${pid} of session ${sid}`);
+      await orch.until(() => orch.eventData('exit').find((e) => e.signal === 'daemon_restart'));
+    } finally {
+      try {
+        process.kill(-pid, 'SIGKILL'); // the fake's own group, started by this test
+      } catch {
+        // gone
+      }
+    }
   });
 });

@@ -424,7 +424,10 @@ describe.each(WORKFLOWS)('apply property: %s', (_name, load, kind) => {
 
   it('no event sequence leaves the session undefined', () => {
     const reached = new Set<string>();
-    const lostRows = new Set<string>();
+    // BUG-2: deliberately unseeded, so every run explores fresh sequences. It asserts invariants
+    // (and the lost-row oracle per event), never lost-row coverage: that comes from the
+    // deterministic test below. On failure fast-check's reporter prints `seed` and `path`; pass
+    // `{ seed, path, endOnFailure: true }` to this fc.assert to replay the counterexample.
     fc.assert(
       fc.property(fc.array(stepArb, { minLength: 1, maxLength: 60 }), (steps) => {
         const h = new Harness(def, fresh());
@@ -450,7 +453,6 @@ describe.each(WORKFLOWS)('apply property: %s', (_name, load, kind) => {
           }
           if (event.type === 'machine.lost') {
             const [row, ignored] = lostRow(prev, event);
-            lostRows.add(row);
             expect(h.last.ignored, row).toBe(ignored);
             if (ignored === null) {
               // A park keeps the answer the agent never ran on (it is delivered on Continue).
@@ -473,10 +475,58 @@ describe.each(WORKFLOWS)('apply property: %s', (_name, load, kind) => {
     expect([...reached].sort()).toEqual(
       [...Object.keys(def.states), ...(gated ? ['(gate step)'] : [])].sort(),
     );
-    // every row of the lost-machines table is exercised
-    expect([...lostRows].sort()).toEqual([...LOST_ROWS].sort());
     // 1000 runs take ~5 s on their own; more when every package's tests run in parallel.
   }, 60_000);
+
+  it('every lost-machines row is hit (deterministic)', () => {
+    const lost = (machine_id: string, reason: LostEvent['reason']): LostEvent => ({
+      type: 'machine.lost',
+      machine_id,
+      reason,
+    });
+    const queued = () => new Harness(def, fresh());
+    const onMachine = () => new Harness(def, fresh()).claimAndStart('mbp-ben');
+    const cases: [string, () => Harness, LostEvent][] = [
+      [
+        'terminal',
+        () => {
+          const h = onMachine();
+          h.run({ type: 'operator.cancel' });
+          return h;
+        },
+        lost('mbp-ben', 'lease_expired'),
+      ],
+      ['(A) on machine', onMachine, lost('mbp-ben', 'lease_expired')],
+      ['mismatch', onMachine, lost('mini', 'lease_expired')],
+      ['(A) queued pinned', queued, lost('mbp-ben', 'pinned_machine_offline')],
+      [
+        '(B) revoked, marked',
+        () => {
+          const h = onMachine();
+          h.run(lost('mbp-ben', 'lease_expired'));
+          expect(h.snap.status).toBe('needs_input');
+          expect(machineLostMarkOf(h.snap.context)?.machine_id).toBe('mbp-ben');
+          return h;
+        },
+        lost('mbp-ben', 'revoked'),
+      ],
+      ['(A) queued revoked, no mark', queued, lost('mbp-ben', 'revoked')],
+      ['other', queued, lost('mbp-ben', 'lease_expired')],
+    ];
+    const hit = new Set<string>();
+    for (const [expected, setup, event] of cases) {
+      const h = setup();
+      const prev = h.snap;
+      h.run(event);
+      checkInvariants(def, prev, h);
+      const [row, ignored] = lostRow(prev, event);
+      expect(row).toBe(expected);
+      expect(h.last.ignored, row).toBe(ignored);
+      if (ignored === null) expect(h.snap.status).toBe('needs_input');
+      hit.add(row);
+    }
+    expect([...hit].sort()).toEqual([...LOST_ROWS].sort());
+  });
 
   it('terminal sessions ignore every event', () => {
     fc.assert(

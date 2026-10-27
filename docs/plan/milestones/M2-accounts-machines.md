@@ -74,19 +74,25 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 |---|---|---|---|---|---|
 | M2-T01 | **Contracts (web)**: auth, admin and machines REST DTOs, `API_PATHS`, error codes, `AccountScope`, card routing and tamper fields | M1b done | A | — | done |
 | M2-T02 | **Contracts (machines)**: daemon protocol v2 (credential on upgrade, register versions, `inventory`, `alert`), inventory and capability schemas, `requiredCapabilities` signature, `machine.lost` engine event | M1b done | A | — | done |
-| M2-T03 | Tenancy + auth schema, `local` backfill, schema isolation test | T01, T02 | B | **yes** | in_progress |
-| M2-T04 | Daemon: `enroll`, credential file, authenticated WebSocket, register v2 | T02 | B | — | in_progress |
-| M2-T05 | Web: sign-in, sign-up, reset, account menu, admin page | T01 | B | — | in_progress |
-| M2-T06 | Shared: `requiredCapabilities` + capability registry; the engine handles `machine.lost` | T02, T03 | C | — | todo |
-| M2-T07 | Deploy kit: Dockerfile, compose, nginx site, sudo script, deploy / backup / smoke scripts, runbook | T01 | B | — | in_progress |
-| M2-T08 | Orchestrator auth core: passwords, sessions, login / logout / me / password change, throttling and lockout, hosted security mode | T01, T03 | C | — | todo |
-| M2-T09 | Orchestrator machines: credential and enrollment tables, `enrollMachine`, WS upgrade auth, `revokeMachine` | T02, T03 | C | **yes** | todo |
-| M2-T10 | Daemon: inventory scanner and reports; `config` command (roots, per-repo mode); gh version floor | T04 | C | — | todo |
+| M2-T03 | Tenancy + auth schema, `local` backfill, schema isolation test | T01, T02 | B | **yes** | done |
+| M2-T04 | Daemon: `enroll`, credential file, authenticated WebSocket, register v2 | T02 | B | — | done |
+| M2-T05 | Web: sign-in, sign-up, reset, account menu, admin page | T01 | B | — | done |
+| M2-T06 | Shared: `requiredCapabilities` + capability registry; the engine handles `machine.lost` | T02, T03 | C | — | done |
+| M2-T07 | Deploy kit: Dockerfile, compose, nginx site, sudo script, deploy / backup / smoke scripts, runbook | T01 | B | — | done |
+| M2-T07b | Deploy kit follow-up: `.env` generation fails loudly (pays TD-144) | T07 | D | — | in_progress |
+| M2-T08 | Orchestrator auth core: passwords, sessions, login / logout / me / password change, throttling and lockout, hosted security mode | T01, T03 | C | — | done |
+| M2-T08b | Change-password follow-up: a wrong `current` counts against the email lockout (`login_throttle`) | T08 | C | — | done |
+| M2-T09 | Orchestrator machines: credential and enrollment tables, `enrollMachine`, WS upgrade auth, `revokeMachine` | T02, T03 | C | **yes** | done |
+| M2-T09b | Revoke race follow-up: a revoked machine processes nothing more (frames already sent are dropped) | T09 | C | — | done |
+| M2-T10 | Daemon: inventory scanner and reports; `config` command (roots, per-repo mode); gh version floor | T04 | C | — | done |
+| M2-T10b | Capability names follow-up: one shared name rule, plugin MCP normalisation, invalid names logged | T10 | C | — | done |
 | M2-T11 | Web: Machines page, Queued routing badge, tamper alerts, outdated-gh flag | T05, T10 | D | — | todo |
 | M2-T12 | Orchestrator: per-account workflows (key change, `required_capabilities` on save, `seedAccount`, per-account upgrade rule) | T03, T06, T08 | D | **yes** | todo |
 | M2-T13 | Daemon: working copies (reference clone default, checkout opt-in), fetch per session, push URL from the inventory, GC, tamper check; push credentials via gh | T10 | D | — | todo |
-| M2-T14 | Orchestrator: daemon distribution (`/install.sh`, tarball, `/healthz`) and the Dockerfile's tarball stage | T07, T08 | D | — | todo |
-| M2-T15 | Orchestrator: invites, sign-up, resets, admin routes, `conductor-admin` CLI (bootstrap claims `local`) | T08, T09, T12 | E | — | todo |
+| M2-T14 | Orchestrator: daemon distribution (`/install.sh`, tarball, `/healthz`) and the Dockerfile's tarball stage | T07, T08 | D | — | in_progress |
+| M2-T15 | Orchestrator: invites, sign-up, resets, admin routes, `conductor-admin` CLI (bootstrap claims `local`) | T08, T09, T12 | E | — | split → T15a, T15b |
+| M2-T15a | Orchestrator: bootstrap admin, `conductor-admin` CLI, reset links (the you-only deploy slice of T15) | T08, T09 | E | — | todo |
+| M2-T15b | Orchestrator: invites, sign-up into new accounts, admin routes (the rest of T15) | T12, T15a | E | — | todo |
 | M2-T16 | Orchestrator: inventory ingest, routing filters in the claim, routing badge, alert ingest; gateway isolation test | T06, T09, T12, T14 | E | — | todo |
 | M2-T17 | Orchestrator: machines REST (enroll endpoint, enrollment tokens, list, rename, revoke); ticket repo check (U-048) | T08, T09, T14 | E | — | todo |
 | M2-T18 | Daemon: `service install` (launchd / systemd user), upgrade-in-place; `docs/setup/add-a-machine.md` | T04, T14 | E | — | todo |
@@ -98,6 +104,8 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 | M2-T24 | E2E: laptop sleep, lease lapse, revoke, reconnect | T22 | I | — | todo |
 | M2-T25 | **Deploy** to conductor.gradyserver.com (lead + Ben's sudo script), bootstrap, enroll Ben's Mac, live checks, backup restore test | T22, T23, T24, T26 | J | — | todo |
 | M2-T26 | Shared: **Retry** a failed move step (a `$retry` human transition that re-runs the failed phase without an agent turn) | T06 | D | — | todo |
+
+**Follow-ups and splits (2026-10-27).** T08b, T09b and T10b came from post-merge QA of T08 (PR #16), T09 (PR #13) and T10 (PR #14) and merged as PR #21 (merge 32e6bb8), PR #17 (merge 881708e) and PR #19 (merge 74abf5f). T07b pays TD-144 and must land before T25's first deploy. Ben chose an early you-only deploy, so T15 is split: **T15a** (bootstrap, CLI, resets; critical path) and **T15b** (invites, sign-up, admin routes; after T12). Critical path for the you-only deploy: T09b, T08b, T14, T15a, T17, T07b. No second account until T16, T19 and T21 (TD-149). Deploy T09 and T17 together: after T09, password-mode gateways refuse every uncredentialed daemon and only T17 adds enrollment. Post-merge QA ran for T06 (OK, every item verified on main), T10 (follow-ups done as T10b) and T09b (security QA passed, 6 attack probes). T20 must settle U-084 (lease renewal for sessions parked in event states) before it starts.
 
 Groups run in order A → J. Tasks within a group own disjoint files and can run in parallel. The longest chain is A → B → C → D → E → F → G → H → I → J; the daemon lane (T04 → T10 → T13 → T18) and the web lane (T05 → T11, T11 after T10 for the gh floor) run beside it. The shared-engine lane is T06 (C) → T26 (D); nothing else edits `shared/src/engine/apply.ts` in M2.
 
@@ -122,6 +130,24 @@ Groups run in order A → J. Tasks within a group own disjoint files and can run
 - before T03, T09, T12 and T21 merge: approve each migration;
 - T25: read and run `sudo deploy/gradyserver/install-nginx-site.sh` on gradyserver; run `conductor-admin bootstrap` and sign up; enroll his Mac;
 - at the end: accept ADR-0012 and ADR-0013, sign off M2.
+
+### Out-of-plan work (2026-10-27)
+
+Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they don't change M2's exit criteria).
+
+| ID | Work | PR | State |
+|---|---|---|---|
+| UX-1 | Session thread: group tool calls, phase dividers, markdown fix | #8 | merged (c31f1bb) |
+| UX-2 | Session Brief card: ticket requirements at the top, View prompt | #9 | merged (b898581) |
+| UX-3 | Ticket editor: WYSIWYG (BlockNote) with the requirements template | #10 | merged (04303fb) |
+| UX-3b | Board renderer: hard breaks and bold-italic from the editor | — | in_progress (ticket) |
+| UX-4 | Board cards: review requests vs questions, clamped previews | #12 | merged (4c09499) |
+| UX-5 | Show conductor checks progress instead of a phantom running agent | #20 | merged (a8deac3) |
+| UX-6 | Collapsible check output; no internal state labels in the panel | — | in_progress (ticket) |
+| BUG-1 | Parked agent process outlives its session (Done / cancel / supersede) | #18 | merged (f7e58a5) |
+| BUG-1b | Orphan sweep must never kill a process that isn't provably ours | #22 | merged (8ad36d1) |
+| BUG-2 | `apply.property` coverage assertion is flaky (unseeded fast-check) | #23 | merged (7ee5d4c) |
+| TD-111 fix | `test(daemon)`: longer teardown retries in reopen-transcript (test-side; production fix still open) | #15 | merged (f6df4f1) |
 
 ---
 

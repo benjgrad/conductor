@@ -1,0 +1,120 @@
+/* UX-2: the Brief card above the Messages thread (BriefCard.tsx). */
+.brief {
+  flex: none;
+  margin: 0 12px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.brief-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.brief-head:focus-visible,
+.brief button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.brief-chevron {
+  display: inline-block;
+  color: var(--muted);
+  font-size: 11px;
+}
+.brief-head[aria-expanded='true'] .brief-chevron {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .brief-chevron {
+    transition: transform 0.15s ease;
+  }
+}
+.brief-title {
+  font-weight: 600;
+}
+.brief-tally {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+.brief-tally-warn {
+  color: var(--warn);
+  font-weight: 600;
+}
+.brief-body {
+  max-height: 40vh;
+  overflow: auto;
+  padding: 0 12px 10px;
+  font-size: 13px;
+}
+.brief-section h4 {
+  margin: 8px 0 4px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.brief-reqs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.brief-reqs label {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.brief-reqs input {
+  flex: none;
+  margin: 0;
+}
+.brief-id {
+  flex: none;
+  font-size: 12px;
+}
+.brief-how {
+  display: block;
+  margin-left: 22px;
+  font-size: 12px;
+}
+.brief-warnings {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+.brief-actions {
+  display: flex;
+  gap: 4px;
+  margin: 8px 0 0 -8px;
+}
+.brief-ticket {
+  margin-top: 4px;
+  padding: 6px 10px;
+  border-left: 3px solid var(--border);
+}
+.brief-prompt {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  max-height: 30vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 6px;
+  background: var(--code-bg);
+  color: var(--code-text);
+  font-size: 12px;
+}
+.brief-unavailable {
+  margin: 4px 0 0;
+}

@@ -510,6 +510,63 @@ describe('session detail', () => {
     expect(none.moves).toHaveLength(1);
   });
 
+  it('UX-4: input_request.origin_transition / step_failed on the board and the detail', async () => {
+    const enter = (sid: string, payload: Record<string, unknown>) =>
+      db.pool.query(
+        "INSERT INTO event (session_id, type, payload) VALUES ($1, 'state.entered', $2)",
+        [sid, payload],
+      );
+    const review = await seedSession('needs_input', { input: true });
+    await enter(review.sessionId, { from: null, to: 'implement', visit: 1 });
+    await enter(review.sessionId, {
+      from: 'implement → needs_input (move: personal_pr_ready_for_review)',
+      to: 'needs_input',
+      visit: 1,
+      transition: 'personal_pr_ready_for_review',
+      reason: 'TASK: UX-4',
+      actor: 'agent',
+    });
+    const failed = await seedSession('needs_input');
+    await db.pool.query(
+      "INSERT INTO input_request (session_id, kind, question) VALUES ($1, 'retries_exhausted', " +
+        "'Conductor could not open the PR') RETURNING id",
+      [failed.sessionId],
+    );
+    await enter(failed.sessionId, {
+      from: 'implement → needs_input (move: personal_pr_ready_for_review)',
+      to: 'needs_input',
+      visit: 1,
+    });
+    const bare = await seedSession('needs_input', { input: true });
+
+    const board = BoardResponseSchema.parse((await get('/api/board')).body);
+    const card = (sid: string) =>
+      board.columns.flatMap((c) => c.cards).find((c) => c.session_id === sid)!;
+    expect(card(review.sessionId).input_request).toMatchObject({
+      id: review.inputId,
+      origin_transition: 'personal_pr_ready_for_review',
+      step_failed: false,
+    });
+    expect(card(failed.sessionId).input_request).toMatchObject({
+      origin_transition: null,
+      step_failed: true,
+    });
+    expect(card(bare.sessionId).input_request).toMatchObject({
+      origin_transition: null,
+      step_failed: false,
+    });
+
+    const detail = SessionDetailSchema.parse((await get(`/api/sessions/${review.sessionId}`)).body);
+    expect(detail.card.input_request?.origin_transition).toBe('personal_pr_ready_for_review');
+    expect(detail.pending_input).toMatchObject({
+      id: review.inputId,
+      origin_transition: 'personal_pr_ready_for_review',
+      step_failed: false,
+    });
+    const fd = SessionDetailSchema.parse((await get(`/api/sessions/${failed.sessionId}`)).body);
+    expect(fd.pending_input?.step_failed).toBe(true);
+  });
+
   it('404s for an unknown or malformed id', async () => {
     const unknown = await get('/api/sessions/00000000-0000-4000-8000-000000000000');
     expect(unknown.status).toBe(404);

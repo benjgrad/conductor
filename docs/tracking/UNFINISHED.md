@@ -28,3 +28,16 @@ Remove the entry once the work is merged or deliberately abandoned. If abandoned
 ## Housekeeping · merged M1b branches and worktrees (no unfinished work)
 - **Branch / worktree**: `m1b-t01-contracts` … `m1b-t10-e2e` and 12 `worktree-agent-*` branches, with their `.claude/worktrees/*` checkouts. `git branch --no-merged main` is empty on 5c49010: every M1b task is merged, and there are no M1b WIP handoffs
 - **Exact next step**: the lead removes the merged worktrees and branches (`git worktree remove`, `git branch -d`); then delete this entry
+
+## M2 · dogfood tickets in flight on the board (2026-10-27)
+- **Branch / worktree**: conductor-owned branches `conductor/<ticket>/<session>` on the live board (`board-pinned`); no PRs open at 8ad36d1
+- **Done so far**: M2-T01..T10, T08b, T09b, T10b, UX-1..UX-5, BUG-1, BUG-1b, BUG-2 and the TD-111 test fix merged (PRs #1–#23)
+- **Not done**: M2-T07b (TD-144), M2-T14 (daemon distribution), UX-3b, UX-6 are running as tickets; M2-T15a (bootstrap / CLI / resets) is queued, not started
+- **Exact next step**: as each ticket opens its PR, QA it (light policy: targeted tests; conductor's checks are the full run), confirm it merges cleanly with main, then the lead merges. Next on the you-only critical path after these: M2-T17
+- **Gotchas**: Done on the board ≠ merged (U-083). Fast-forward the daemon's shared clone after each merge until M2-T13 (TD-026). Keep `machine.max_sessions` at 3 or less while checks run (TD-148). Never enter a worktree in the lead session while QA subagents run
+
+## M2 · post-merge QA (resolved 2026-10-27, nothing owed)
+- **Branch / worktree**: none; code on main
+- **Done so far**: all three post-merge QAs ran on 2026-10-27. M2-T06 (PR #11): OK, every QA item verified on main. M2-T10 (PR #14): its follow-ups were done as M2-T10b (PR #19, merged). M2-T09b (PR #17): the security QA passed (6 attack probes incl. queued frames, reconnect mid-close, two sockets, a silent peer at 1 002 ms, stress ×10)
+- **Not done**: nothing
+- **Exact next step**: none; delete this entry at the next session end

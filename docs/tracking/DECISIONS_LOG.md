@@ -4,6 +4,20 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-27 | BUG-1 / BUG-1b process safety: a parked claude process is killed when its session leaves the state (Done, cancel, supersede, a human move off it); the startup orphan sweep kills only a process that is provably ours (a matching binary basename, argv and start time recorded at spawn); anything unproven is left alone | BUG-1 (PR #18), BUG-1b (PR #22), TD-154, TD-164..167 |
+| 2026-10-27 | Live board: web-only or additive changes are hot-swapped onto the pinned branch `board-pinned` (worktree `.claude/worktrees/board-m1b`); the orchestrator is not restarted for web-only swaps. UX-1 / UX-2 first (fc69b0e, df51670, ab477b4, 95be2e7, 1774ab9); now 2e88cf8 + UX-1, UX-2, UX-3, UX-4, UX-5 (`board-pinned` @ d75d320) | U-075 |
+| 2026-10-27 | Live board's session cap is lowered under load via `machine.max_sessions` (6 → 4 → 2 → 3) until hardware-based admission | TD-148, M2b-T13 |
+| 2026-10-27 | QA policy is light: reviewers run targeted tests only; conductor's checks are the authoritative full run (no duplicate full runs) | M2 §How M2 is run |
+| 2026-10-27 | The ticket preamble requires merging `origin/main` before finishing (never rebase) and targeted tests only; conductor's checks are the authoritative full run | TD-141 |
+| 2026-10-27 | `conductor_dev` workflow v2 adds a "Merges cleanly with main" check | conductor_dev v2 |
+| 2026-10-27 | Ben: the lead merges conductor PRs after QA | M2 §How M2 is run |
+| 2026-10-27 | Ben: an early you-only deploy. Critical path T09b, T08b, T14, T15a, T17, T07b (TD-144). T15 splits into T15a (bootstrap, `conductor-admin` CLI, resets) and T15b (invites, sign-up, admin routes; after T12). No second account until T16 / T19 / T21 | M2-T15a, M2-T15b, TD-149 |
+| 2026-10-27 | T09 rollout: once T09 ships, password-mode gateways refuse every uncredentialed daemon and there is no enrollment path until T17, so T09 and T17 deploy together (T25 does anyway) | M2-T09, M2-T17 |
+| 2026-10-27 | The daemon's shared clone is fast-forwarded by hand after each merge until M2-T13 | TD-026, M2-T13 |
+| 2026-10-27 | Ben: Done on the board ≠ merged. T03 / T07 were marked Done at 14:05 with open PRs (T07 reopened) | U-083 |
+| 2026-10-27 | UX-2: additive `SessionDetail.ticket_body` (relaxed web-only rule); "View prompt" reads the transcript | UX-2 (PR #9), TD-130 |
+| 2026-10-27 | M2-T03 choices: `login_throttle.lockouts`, `account_member.role` text + CHECK, `web_session.ip` text, the down migration deletes `machine_lost` requests. Ben approved the migration | M2-T03 (PR #4) |
+| 2026-10-27 | M2-T04: close code 4005 is fatal; `enroll` allows http only for loopback; `redirect: 'manual'`; an enrolled daemon refuses cleartext | M2-T04 (PR #3) |
 | 2026-10-27 | Ben approved PR #6: ADR-0018 and ADR-0019 **accepted**; order M2 → M2c → M2b → M3 | [ADR-0018](../adr/0018-ticket-dependencies.md), [ADR-0019](../adr/0019-ticket-requirements-and-verification.md) |
 | 2026-10-27 | Amendment (Ben): a cancelled or failed dependency first gets an orchestrator **unblock assessment** (a one-shot `claude -p` on a machine of the account: proceed / retry_dependency once / replace (a human creates it) / escalate); one assessment per close event, one retry per dependency ever; errors, timeouts and no machine escalate to a human | ADR-0018 §2a, M2b-T14, M2b-T15, U-081 |
 | 2026-10-27 | Amendment (Ben): limits are **hardware-based**. No cycle-size cap (`cycle_too_large` removed); daemons admit work by measured free RAM / CPU with hysteresis and a start reservation; `max_sessions` becomes an optional ceiling; cycle members are claimed as headroom allows, with queued messages for members not yet running | ADR-0018 §3, §6, M2b-T13, U-082, TD-027 |

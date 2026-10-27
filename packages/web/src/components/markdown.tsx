@@ -7,8 +7,17 @@ import { Fragment, type ReactNode } from 'react';
 // `_` emphasis follows CommonMark's flanking rule for underscores: no letter, digit or `_` right
 // before the opening `_` or right after the closing one, so `snake_case` and `1_init.sql` stay
 // plain. `*` may be intraword (CommonMark allows it).
+// A backslash before ASCII punctuation is a CommonMark escape: the bare character, never markup.
+// It is the FIRST branch, and the other branches step over escapes (`\\.`) in their content, so
+// the stored `\*x\*` (UX-3's editor escapes typed text) is "*x*", not an `*x\*` italic.
 const INLINE =
-  /(`[^`\n]+`)|(\*\*[^*\n]+?\*\*)|(\[[^\]\n]{1,200}\]\(https?:\/\/[^)\s]+\))|(\*[^*\s][^*\n]*?\*)|((?<![\p{L}\p{N}_])_[^_\s][^_\n]*?(?<!\s)_(?![\p{L}\p{N}_]))/gu;
+  /(\\[!-/:-@[-`{-~])|(`[^`\n]+`)|(\*\*(?:\\.|[^*\n\\])+?\*\*)|(\[(?:\\.|[^\]\n\\]){1,200}\]\(https?:\/\/[^)\s]+\))|(\*(?:\\.|[^*\s\\])(?:\\.|[^*\n\\])*?\*)|((?<![\p{L}\p{N}_])_(?:\\.|[^_\s\\])(?:\\.|[^_\n\\])*?(?<!\s)_(?![\p{L}\p{N}_]))/gu;
+const ESCAPED = /\\([!-/:-@[-`{-~])/gu;
+
+/** Removes CommonMark backslash escapes (for text rendered without inline parsing). */
+export function unescapeMarkdown(text: string): string {
+  return text.replace(ESCAPED, '$1');
+}
 
 export function renderInline(text: string, keyBase = 'i'): ReactNode[] {
   const out: ReactNode[] = [];
@@ -20,14 +29,16 @@ export function renderInline(text: string, keyBase = 'i'): ReactNode[] {
     const tok = m[0];
     const key = `${keyBase}-${n++}`;
     if (m[1]) {
-      out.push(<code key={key}>{tok.slice(1, -1)}</code>);
+      out.push(tok.slice(1));
     } else if (m[2]) {
-      out.push(<strong key={key}>{renderInline(tok.slice(2, -2), key)}</strong>);
+      out.push(<code key={key}>{tok.slice(1, -1)}</code>);
     } else if (m[3]) {
+      out.push(<strong key={key}>{renderInline(tok.slice(2, -2), key)}</strong>);
+    } else if (m[4]) {
       const close = tok.indexOf('](');
       out.push(
         <a key={key} href={tok.slice(close + 2, -1)} target="_blank" rel="noreferrer noopener">
-          {tok.slice(1, close)}
+          {unescapeMarkdown(tok.slice(1, close))}
         </a>,
       );
     } else {

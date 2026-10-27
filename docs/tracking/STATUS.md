@@ -2,34 +2,36 @@
 
 > Living dashboard. Rewritten (not appended) by the lead session at the end of every session. Keep it under one screen.
 
-**Updated**: 2026-10-26 · session [2026-10-26-m1b-transition-rules](sessions/2026-10-26-m1b-transition-rules.md)
+**Updated**: 2026-10-27 · session [2026-10-27-m2-dogfooding](sessions/2026-10-27-m2-dogfooding.md)
 
 ## Now
-- **Milestone**: [M1b · Transition rules](../plan/milestones/M1b-transition-rules.md) is **done** (all 10 tasks merged, `scripts/ci.sh` green on 5c49010), pending Ben's sign-off. M1 is also still awaiting sign-off.
-- **Next**: [M2 · Accounts & machines](../plan/milestones/M2-accounts-machines.md). Its file is an outline. It gets planned in full once Ben answers the open unknowns below.
-- **Board**: orchestrator + daemon on :7400, restarted on 5c49010; the dev DB has `ticket.kind` and `conductor` v2.
+- **Milestone**: [M2 · Accounts & machines](../plan/milestones/M2-accounts-machines.md), **in progress**, built by conductor on itself (dogfood tickets on Ben's pinned board). T01–T10 and follow-ups T08b, T09b, T10b are merged (main 8ad36d1).
+- **Plan change**: Ben chose an **early you-only deploy**. T15 is split into T15a (bootstrap, CLI, resets) and T15b (invites, sign-up, admin routes; after T12). Critical path: T09b ✅, T08b ✅, T14, T15a, T17, T07b (TD-144). No second account until T16 / T19 / T21 (TD-149).
+- **Board**: pinned to `board-pinned` @ d75d320 (2e88cf8 + UX-1..UX-5); session cap `machine.max_sessions` = 3. The daemon's shared clone is fast-forwarded by hand after each merge (TD-026, until T13).
 - **Next action**:
-  - Ben: sign off M1b (and M1). Answer the M2 unknowns: U-051 (tenancy), U-056 (moving data into an account), U-057 (hosting, domain, Postgres), U-067 (publishing `@conductor/daemon`). Also open for M2: U-068 (lost lease → human), U-070 (fixed-path runtimes / IIS), U-071 (daemon on Windows).
-  - Ben: decide U-072 (`pr_checks_green` with zero checks: met or pending? Pending today).
-  - Later milestones, still open: U-052 (M5 webhooks), U-053 (M4 summaries), U-054 (M3 MCP rate limits), U-055 (M4 chat backend), U-064 (M4 triage questions), U-065 (M5 MCP connectors), U-066 (M4 chat history), U-069 (M3 MCP scopes).
-  - Lead: remove the merged `m1b-*` and `worktree-agent-*` branches and worktrees ([UNFINISHED](UNFINISHED.md)); then plan M2 with the `planner` agent.
-  - Main is ahead of origin; Ben pushes.
+  - Lead: QA and merge T07b, T14, T15a, UX-3b, UX-6 as their PRs open; start T15a (queued), then T17.
+  - Ben: decide U-083 (Done with an open PR: warn, or "merge, then Done"?). Review this tracking PR.
+  - Before T20 starts: settle U-084 (lease renewal for sessions parked in event states).
 
 ## In flight
-None.
+| Task | Where | State |
+|---|---|---|
+| M2-T07b | dogfood ticket | running (pays TD-144; must land before T25) |
+| M2-T14 | dogfood ticket | running |
+| UX-3b, UX-6 | dogfood tickets | running (web-only) |
+| M2-T15a | dogfood ticket | queued, not started |
 
 ## Health
 | Open unknowns | Open blockers | Tech debt items | Unfinished handoffs |
 |---|---|---|---|
-| 46 open of 72 ([UNKNOWNS](UNKNOWNS.md)) | 0 of 4 ([BLOCKERS](BLOCKERS.md)) | 79 open of 106 ([TECH_DEBT](TECH_DEBT.md)) | 2: the M1-T05a manual check, and branch cleanup ([UNFINISHED](UNFINISHED.md)) |
+| 49 open of 84 ([UNKNOWNS](UNKNOWNS.md)) | 0 of 4 ([BLOCKERS](BLOCKERS.md)) | 137 open of 170 ([TECH_DEBT](TECH_DEBT.md)); high: TD-026, TD-109, TD-144, TD-149 among them | 3 open: M1-T05a manual check, M1b branch cleanup, M2 tickets in flight; the post-merge QA entry is resolved ([UNFINISHED](UNFINISHED.md)) |
 
 ## Milestone progress
-- M1: 18 / 18 done; awaiting sign-off.
-- M1b: 10 / 10 done; awaiting sign-off.
-- M2: next, outline. M3–M5: outlined.
+- M1: 18 / 18 done; awaiting sign-off. M1b: 10 / 10 done; awaiting sign-off.
+- M2: 13 done (T01–T10, T08b, T09b, T10b); 2 in progress (T07b, T14); T15 split into T15a / T15b; 16 todo (incl. T15a queued, T15b); 32 rows. Out-of-plan: UX-1..UX-5, BUG-1, BUG-1b, BUG-2 merged; UX-3b, UX-6 running.
+- M2c, M2b: approved, not started. M3–M5: outlined.
 
 ## Last session
-- **M1b built and merged**, in groups A → B → C → D: contracts, validator rules 10–14, orchestrator (`ticket.kind`, transition route, moves), engine (named transitions, move steps), editor arrows and panel, board checklist and buttons, daemon (named outcomes, gh PR conditions), conditions phase, `conductor` v2 + seed upgrade, e2e + docs.
-- **T05 security**: three fix rounds. Only eligible reviewers count, approvals only on the current head, CHANGES_REQUESTED blocks until cleared, and conditions fail if the PR head isn't the commit conductor pushed.
-- **Tech debt**: TD-096..099 added and paid within M1b. TD-100..106 open. **New unknown**: U-072.
-- **Flakes**: U-046 / U-050 (daemon, cli-driver and web tests under load) recurred several times; every one passed on a rerun.
+- **Conductor built M2 on itself**: 23 PRs merged in one day (M2-T01..T10, three follow-ups, five UX tickets, three bugs, a test fix, the M2 plan update).
+- **Problems → fixes**: push credentials (gh credential helper on the daemon's push); gh too old (2.40.0 floor); merge conflicts (`conductor_dev` v2 "Merges cleanly with main" check, merge-main preamble); overload (session cap, light QA, no duplicate full runs); premature merges (lead merges after QA); phantom "running" cards (UX-5); a leaked claude process (BUG-1 / BUG-1b).
+- **Tracking**: TD-120..TD-170 added (51 rows; TD-120, TD-125..127 already paid by T08); TD-069, TD-070, TD-113, TD-114 paid; TD-111 mitigated. U-083, U-084 raised. 14 decisions logged.

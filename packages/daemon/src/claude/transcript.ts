@@ -25,7 +25,7 @@ export const TRANSCRIPT_TEXT_CHARS = 64 * 1024;
 /** Only the last this many bytes of a transcript file are read (the reply keeps the recent end). */
 export const TRANSCRIPT_READ_BYTES = 32 * 1024 * 1024;
 
-const CLAUDE_SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const CLAUDE_SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Claude Code's project dir name for a cwd: the realpath with non-alphanumerics → `-`. */
 export function claudeProjectSlug(realCwd: string): string {

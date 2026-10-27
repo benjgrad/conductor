@@ -175,7 +175,10 @@ function Shell({ api, me, onSignedOut }: ShellProps) {
             api={api}
             sessionId={selected}
             {...(selectedCard ? { ticketId: selectedCard.ticket_id } : {})}
-            version={selectedCard?.updated_at ?? ''}
+            // UX-5: a `card.badge` (e.g. the build-slot wait) doesn't touch updated_at; refetch on it too.
+            version={
+              selectedCard ? `${selectedCard.updated_at}|${selectedCard.badges.join(',')}` : ''
+            }
             onClose={() => setSelected(null)}
             onSelectSession={setSelected}
           />

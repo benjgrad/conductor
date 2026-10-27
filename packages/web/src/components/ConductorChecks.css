@@ -1,0 +1,60 @@
+/* UX-5: conductor running a gate step (ConductorChecks.tsx). Neutral: nothing is wrong. */
+.status-conductor {
+  color: var(--text);
+  font-weight: 600;
+}
+.avatar-idle {
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+
+.conductor-checks {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 13px;
+}
+.conductor-checks-slot {
+  margin: 6px 0 0;
+}
+.conductor-checks-items {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.check-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: baseline;
+  line-height: 20px;
+}
+.check-icon {
+  width: 1.2em;
+  text-align: center;
+}
+.check-item-passed .check-icon {
+  color: var(--ok);
+}
+.check-item-running .check-icon {
+  color: var(--accent);
+}
+.check-item-failed .check-icon,
+.check-item-failed .check-error {
+  color: var(--warn);
+}
+.check-item-disabled,
+.check-item-todo .check-status {
+  color: var(--muted);
+}
+.conductor-checks-note {
+  margin: 6px 0 0;
+}
+
+/* FR-4: the failed item under UX-4's "Step failed" badge. */
+.step-failed-item {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}

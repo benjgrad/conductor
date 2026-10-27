@@ -1,4 +1,4 @@
-import { LOCAL_ACCOUNT_ID } from '@conductor/shared';
+import { EmailSchema, LOCAL_ACCOUNT_ID } from '@conductor/shared';
 import { withTransaction } from '../db/index.js';
 import { revokeMachine, type MachineSockets } from '../gateway/revoke.js';
 import type { Db } from '../main.js';
@@ -13,6 +13,9 @@ import { clearThrottle, isLocked, throttleKey } from './throttle.js';
 // and plain facts only: never a hash, never a password. `invite` (general invites) is M2-T15b.
 
 export const BOOTSTRAP_TTL_MS = 3600_000;
+export const BOOTSTRAP_UNPINNED_WARNING =
+  'warning: this invite works for any email; run bootstrap --email <addr> to pin it to yours';
+const BOOTSTRAP_USAGE = 'usage: conductor-admin bootstrap [--email <addr>]';
 
 export interface AdminCliIo {
   db: Db;
@@ -25,7 +28,9 @@ export interface AdminCliIo {
 
 export const USAGE = [
   'usage: conductor-admin <command>',
-  '  bootstrap                 print a one-hour admin invite that claims the local account',
+  '  bootstrap [--email <addr>]',
+  '                            print a one-hour admin invite that claims the local account',
+  '                            (--email pins it: only that email can sign up with it)',
   '  reset-link <email>        print a one-hour password reset link',
   '  unlock <email>            clear the sign-in lockout for an email',
   '  revoke-sessions <email>   sign the user out everywhere',
@@ -68,9 +73,25 @@ export async function runAdminCli(argv: string[], io: AdminCliIo): Promise<numbe
 
   switch (command) {
     case 'bootstrap': {
-      if (args.length !== 0) {
-        err('usage: conductor-admin bootstrap');
+      // `bootstrap`, `bootstrap --email <addr>` or `bootstrap --email=<addr>`.
+      let rawEmail: string | null = null;
+      if (args.length === 2 && args[0] === '--email') rawEmail = args[1]!;
+      else if (args.length === 1 && args[0]!.startsWith('--email=')) {
+        rawEmail = args[0]!.slice('--email='.length);
+      } else if (args.length !== 0) {
+        err(BOOTSTRAP_USAGE);
         return 2;
+      }
+      let email: string | null = null;
+      if (rawEmail !== null) {
+        // Normalised like the sign-up body, so the pinned email compares equal.
+        const parsed = EmailSchema.safeParse(rawEmail);
+        if (!parsed.success) {
+          err(`invalid email: ${rawEmail}`);
+          err(BOOTSTRAP_USAGE);
+          return 2;
+        }
+        email = parsed.data;
       }
       const publicUrl = needUrl();
       if (publicUrl === null) return 1;
@@ -92,6 +113,7 @@ export async function runAdminCli(argv: string[], io: AdminCliIo): Promise<numbe
           ttlMs: BOOTSTRAP_TTL_MS,
           isAdmin: true,
           claimsAccount: LOCAL_ACCOUNT_ID,
+          email,
           createdBy: null,
         });
       });
@@ -99,7 +121,12 @@ export async function runAdminCli(argv: string[], io: AdminCliIo): Promise<numbe
         err('refusing: a user already exists (use reset-link <email> to recover access)');
         return 1;
       }
-      out('Admin invite (claims the local account). Open it and sign up:');
+      if (email === null) err(BOOTSTRAP_UNPINNED_WARNING);
+      out(
+        email === null
+          ? 'Admin invite (claims the local account). Open it and sign up:'
+          : `Admin invite for ${email} (claims the local account). Open it and sign up:`,
+      );
       out(invite.url);
       out(`expires ${invite.expires_at.toISOString()} (1 hour)`);
       return 0;
@@ -165,9 +192,10 @@ export async function runAdminCli(argv: string[], io: AdminCliIo): Promise<numbe
         [user.id],
       );
       for (const m of machines.rows) {
-        // TD: a live daemon socket stays open until it reconnects (the gateway is in another
-        // process); its credential is revoked and its outbox rows failed, so the reconnect is
-        // refused and it gets no new commands.
+        // TD-174: a live daemon socket stays open until it reconnects (the gateway is in
+        // another process) until M2-T15b runs this in-process with the gateway; its credential
+        // is revoked and its outbox rows failed, so the reconnect is refused and it gets no new
+        // commands.
         await revokeMachine(
           { db, sockets: NO_SOCKETS },
           { account_id: m.account_id, actor: { kind: 'system' } },

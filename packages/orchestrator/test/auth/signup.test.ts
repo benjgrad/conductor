@@ -1,7 +1,9 @@
 // M2-T15a: POST /auth/signup (ADR-0017 §Invites; bootstrap claims `local`). Needs `pnpm db:up`.
 import { LOCAL_ACCOUNT_ID } from '@conductor/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { runAdminCli } from '../../src/auth/admin-commands.js';
 import { createInvite } from '../../src/auth/invites.js';
+import type { PasswordHasher } from '../../src/auth/password.js';
 import { newSessionToken } from '../../src/auth/sessions.js';
 import {
   INVALID_INVITE_MESSAGE,
@@ -17,13 +19,17 @@ const PASSWORD = 'correct horse battery staple';
 // Sign-up allows 5 requests per 10 minutes per IP: each test gets its own API (own limiter).
 let api: TestApi;
 
-beforeEach(async () => {
-  // Every test starts from a fresh instance with no users and `local` unowned.
+// Every test starts from a fresh instance with no users and `local` unowned.
+async function resetInstance() {
   await db.pool.query('DELETE FROM web_session');
   await db.pool.query('DELETE FROM invite');
   await db.pool.query('DELETE FROM account_member');
   await db.pool.query('DELETE FROM app_user');
   await db.pool.query("UPDATE account SET name = 'local' WHERE id = $1", [LOCAL_ACCOUNT_ID]);
+}
+
+beforeEach(async () => {
+  await resetInstance();
   api = await startApi({ db: db.pool, auth: passwordAuth(LOOPBACK_URL) });
 });
 
@@ -46,6 +52,15 @@ const signup = (invite: string, email = 'ben@example.com', display_name = 'Ben')
 
 const userCount = async () =>
   Number((await db.pool.query<{ n: string }>('SELECT count(*) AS n FROM app_user')).rows[0]!.n);
+const ownersOfLocal = async () =>
+  Number(
+    (
+      await db.pool.query<{ n: string }>(
+        "SELECT count(*) AS n FROM account_member WHERE account_id = $1 AND role = 'owner'",
+        [LOCAL_ACCOUNT_ID],
+      )
+    ).rows[0]!.n,
+  );
 const usedAt = async (id: string) =>
   (await db.pool.query<{ used_at: Date | null }>('SELECT used_at FROM invite WHERE id = $1', [id]))
     .rows[0]!.used_at;
@@ -89,6 +104,66 @@ describe('POST /auth/signup with the bootstrap invite', () => {
     ]);
     expect(results.map((r) => r.status).sort()).toEqual([201, 400]);
     expect(await userCount()).toBe(1);
+  });
+
+  // A cheap hasher keeps the loops fast and the requests close together (a tighter race).
+  const fastHasher: PasswordHasher = {
+    hash: (p) => Promise.resolve(`fake:${p}`),
+    verify: (phc, p) => Promise.resolve(phc === `fake:${p}`),
+    needsRehash: () => false,
+  };
+  /** A fresh instance and API per round: sign-up allows 5 requests per IP per API. */
+  const freshRound = async () => {
+    await api.close();
+    await resetInstance();
+    api = await startApi({ db: db.pool, auth: passwordAuth(LOOPBACK_URL), hasher: fastHasher });
+  };
+
+  it('two open claims invites for one account + concurrent sign-ups with different emails → one owner (10×)', async () => {
+    for (let i = 0; i < 10; i++) {
+      await freshRound();
+      const [a, b] = [await bootstrapInvite(), await bootstrapInvite()];
+      const results = await Promise.all([
+        signup(a.token, 'a@example.com'),
+        signup(b.token, 'b@example.com'),
+      ]);
+      expect(results.map((r) => r.status).sort()).toEqual([201, 400]);
+      const refused = results.find((r) => r.status === 400)!;
+      expect(refused.json.error).toMatchObject({
+        code: 'bad_request',
+        message: INVALID_INVITE_MESSAGE,
+      });
+      expect(await ownersOfLocal()).toBe(1);
+      expect(await userCount()).toBe(1);
+    }
+  });
+
+  it('concurrent sign-ups + a bootstrap never deadlock (20×)', async () => {
+    for (let i = 0; i < 20; i++) {
+      await freshRound();
+      const [a, b] = [await bootstrapInvite(), await bootstrapInvite()];
+      const cliErr: string[] = [];
+      const [ra, rb, code] = await Promise.all([
+        signup(a.token, 'a@example.com'),
+        signup(b.token, 'b@example.com'),
+        runAdminCli(['bootstrap', '--email', 'ben@example.com'], {
+          db: db.pool,
+          publicUrl,
+          now: () => new Date(),
+          out: () => undefined,
+          err: (l) => cliErr.push(l),
+        }),
+      ]);
+      const statuses = [ra.status, rb.status];
+      for (const s of statuses) expect([201, 400]).toContain(s);
+      expect(statuses.filter((s) => s === 201).length).toBeLessThanOrEqual(1);
+      expect([0, 1]).toContain(code);
+      // Bootstrap issues a link only while there is no user; it refuses once a sign-up committed.
+      if (code === 0) expect(statuses).toEqual([400, 400]);
+      else expect(cliErr.join('\n')).toMatch(/refusing/);
+      expect(await ownersOfLocal()).toBeLessThanOrEqual(1);
+      expect(await userCount()).toBe(statuses.filter((s) => s === 201).length);
+    }
   });
 
   it('a second claims invite after `local` is owned is refused', async () => {

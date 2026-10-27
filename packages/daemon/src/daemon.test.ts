@@ -57,8 +57,18 @@ afterEach(async () => {
   for (const d of daemons.splice(0)) d.stop();
   await orch.close();
   expect(orch.invalid).toEqual([]);
-  // A background `git` (repo inventory) may still be writing when the test ends.
-  rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  // A background `git` (repo inventory, clone) may still be writing when the test ends; on a
+  // loaded machine that outlasts rmSync's own retries, so keep trying for a bounded while.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      rmSync(tmp, { recursive: true, force: true, maxRetries: 2, retryDelay: 50 });
+      break;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (attempt >= 20 || (code !== 'ENOTEMPTY' && code !== 'EBUSY')) throw err;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
 });
 
 function makeDaemon(

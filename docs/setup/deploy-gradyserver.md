@@ -20,7 +20,8 @@ Internet ─TLS─▶ nginx (host :443, Let's Encrypt cert)
 | What | Where (on gradyserver) |
 |---|---|
 | Releases (one per deployed sha, last 5 kept) | `~/deploy/conductor/releases/<sha>` |
-| Active release | `~/deploy/conductor/current` → `releases/<sha>` |
+| Active release (switched only after a successful deploy) | `~/deploy/conductor/current` → `releases/<sha>` |
+| Deployed image selector (non-secret) | `~/deploy/conductor/current.env`: `CONDUCTOR_GIT_SHA=<sha>` |
 | Secrets and settings (mode 0600) | `~/deploy/conductor/.env` (from [`env.example`](../../deploy/gradyserver/env.example)) |
 | Nightly dumps (14 days) | `~/deploy/conductor/backups/conductor-<UTC>.dump` |
 | Backup log | `~/deploy/conductor/logs/backup.log` |
@@ -29,8 +30,10 @@ Internet ─TLS─▶ nginx (host :443, Let's Encrypt cert)
 Shorthand used below (on gradyserver, in `~/deploy/conductor`):
 
 ```bash
-alias cdc='docker compose -p conductor -f ~/deploy/conductor/current/deploy/gradyserver/compose.yml --env-file ~/deploy/conductor/.env'
+alias cdc='docker compose -p conductor -f ~/deploy/conductor/current/deploy/gradyserver/compose.yml --env-file ~/deploy/conductor/.env --env-file ~/deploy/conductor/current.env'
 ```
+
+The second `--env-file` (`current.env`, written by `deploy.sh` after a successful deploy) sets `CONDUCTOR_GIT_SHA`, so `cdc up`, `cdc run` and `cdc start` use the deployed image `conductor-orchestrator:<sha>` and never build a `:latest` one. `backup.sh` passes it the same way. Don't deploy with a bare `cdc up`: `deploy.sh` owns the migration gate (§6).
 
 ## 1. Prerequisites
 
@@ -69,7 +72,7 @@ From a checkout on the lead's machine, with the sha to deploy:
 deploy/gradyserver/deploy.sh <sha> --no-smoke   # nginx isn't set up yet, so skip the smoke test
 ```
 
-This uploads `git archive <sha>` to `releases/<sha>`, points `current` at it, creates `.env` with a random `POSTGRES_PASSWORD` (mode 0600; an existing `.env` is never touched), builds the image, runs `migrate`, starts the orchestrator, and waits for it to be healthy. Then check it from the server:
+This uploads `git archive <sha>` to `releases/<sha>`, creates `.env` with a random `POSTGRES_PASSWORD` (mode 0600; an existing `.env` is never touched), builds the image, starts postgres, runs `migrate`, starts the orchestrator, and waits for it to be healthy. Only then does it point `current` at the release and write `current.env`. Then check it from the server:
 
 ```bash
 ssh -p 1024 bengrady4@gradyserver.com 'curl -fsS http://127.0.0.1:3040/healthz; echo'
@@ -119,9 +122,18 @@ crontab -l | grep conductor-backup
 deploy/gradyserver/deploy.sh <git-ref>      # e.g. main, a tag, a sha
 ```
 
-Every deploy rebuilds the image tagged with the sha, runs `migrate` (only new migrations apply), recreates the orchestrator, waits for healthy, keeps the last 5 releases, runs the smoke test, and prints `deployed <sha>`. If a migration fails, `deploy.sh` prints the migrate logs and exits non-zero. The previous orchestrator container keeps running, because compose only replaces it after `migrate` succeeds.
+Every deploy runs these steps, in this order, from the new release's compose file:
 
-Which sha is live: `ssh -p 1024 bengrady4@gradyserver.com 'readlink ~/deploy/conductor/current'`.
+1. `compose build`: the image `conductor-orchestrator:<sha>`. A failed build changes nothing.
+2. `compose up -d postgres`, then wait until it's healthy. Postgres is only recreated if its own config changed.
+3. **The migration gate**: `compose run --rm migrate` (only new migrations apply; the output streams to your terminal). If it fails, `deploy.sh` prints `migration failed — the previous orchestrator is still running` and exits 1. Nothing has touched the orchestrator yet, so the old one keeps serving, and `current` still points at the old release.
+4. `compose up -d --no-deps orchestrator`: recreates only the orchestrator, then waits until it's healthy. If it doesn't become healthy, `deploy.sh` prints its logs and exits 1, with `current` unchanged. The migrations are applied by then, so roll back (§7) by deploying the previous sha.
+5. Only after that: `current` → `releases/<sha>`, `current.env` gets `CONDUCTOR_GIT_SHA=<sha>`, and the last 5 releases are kept.
+6. The smoke test (unless `--no-smoke`), then `deployed <sha>`.
+
+The orchestrator deliberately has no `depends_on` on `migrate` in `compose.yml`. Compose v2 recreates dependents in its create phase and only waits for `service_completed_successfully` at start, so a bare `up` would stop the old orchestrator before migrating and leave the new one `Created` when the migration fails.
+
+Which sha is live: `ssh -p 1024 bengrady4@gradyserver.com 'cat ~/deploy/conductor/current.env'`.
 
 ## 7. Rollback
 
@@ -188,16 +200,16 @@ cdc start orchestrator
 
 ## 11. Rotate `POSTGRES_PASSWORD`
 
-The `postgres` image only reads `POSTGRES_PASSWORD` when it first creates the volume, so rotation is: change the role's password, then `.env`, then recreate the app containers.
+The `postgres` image only reads `POSTGRES_PASSWORD` when it first creates the volume, so rotation is: change the role's password, then `.env`, then recreate the orchestrator (the next `migrate` run picks up the new `.env` by itself).
 
 ```bash
 cd ~/deploy/conductor
 new=$(openssl rand -hex 32)                       # hex: URL-safe inside DATABASE_URL
 cdc exec -T postgres psql -U conductor -d conductor -c "ALTER ROLE conductor PASSWORD '$new'"
 cp -p .env .env.bak && sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$new/" .env && rm .env.bak
-cdc up -d                                          # recreates migrate and orchestrator with the new URL
+cdc up -d --no-deps orchestrator                   # recreates it with the new DATABASE_URL
 cdc ps                                             # orchestrator healthy again
 unset new
 ```
 
-`psql` inside the container connects over the local socket (trust auth), so the old password isn't needed. If `cdc up -d` fails to connect, the `.env` value and the role disagree: rerun the `ALTER ROLE` with the value in `.env`.
+`psql` inside the container connects over the local socket (trust auth), so the old password isn't needed. If the orchestrator can't connect afterwards, the `.env` value and the role disagree: rerun the `ALTER ROLE` with the value in `.env`.

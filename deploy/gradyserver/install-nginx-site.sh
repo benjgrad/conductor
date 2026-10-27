@@ -17,10 +17,58 @@
 #      restores the backups, removes files this run created, and exits non-zero.
 set -Eeuo pipefail
 
+usage() {
+  echo "usage: sudo $0 [--email <email>]   (--email is required until the certificate exists)" >&2
+  exit 2
+}
+
+# parse_args "$@": sets EMAIL; exits 2 with usage on a bad argument. Has no side effects.
+parse_args() {
+  EMAIL=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --email)
+        if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
+          echo "install-nginx-site.sh: --email needs a value" >&2
+          usage
+        fi
+        EMAIL="$2"
+        shift 2
+        ;;
+      --email=*)
+        EMAIL="${1#--email=}"
+        if [[ -z "$EMAIL" ]]; then
+          echo "install-nginx-site.sh: --email needs a value" >&2
+          usage
+        fi
+        shift
+        ;;
+      -h | --help)
+        sed -n '2,18p' "$0"
+        exit 0
+        ;;
+      *)
+        echo "install-nginx-site.sh: unknown argument: $1" >&2
+        usage
+        ;;
+    esac
+  done
+}
+
+# Test hook (deploy/gradyserver/test/scripts.test.sh): parse the arguments, print the result and
+# exit, so the parser can be tested without root. It does nothing else.
+if [[ "${CONDUCTOR_PARSE_ARGS_ONLY:-}" == 1 ]]; then
+  parse_args "$@"
+  echo "EMAIL=$EMAIL"
+  exit 0
+fi
+
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "install-nginx-site.sh: must run as root (sudo $0 [--email <email>])" >&2
   exit 1
 fi
+
+parse_args "$@"
 
 DOMAIN=conductor.gradyserver.com
 SRC="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)/nginx"
@@ -34,28 +82,6 @@ BOOTSTRAP_LINK="$ENABLED/$DOMAIN-bootstrap"
 LIVE_CERT="/etc/letsencrypt/live/$DOMAIN"
 WEBROOT=/var/www/html
 BACKUP_DIR="/var/backups/conductor-nginx/$(date -u +%Y%m%dT%H%M%SZ)"
-
-EMAIL=""
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --email)
-      EMAIL="${2:-}"
-      shift 2 || true
-      ;;
-    --email=*)
-      EMAIL="${1#--email=}"
-      shift
-      ;;
-    -h | --help)
-      sed -n '2,18p' "$0"
-      exit 0
-      ;;
-    *)
-      echo "install-nginx-site.sh: unknown argument: $1" >&2
-      exit 2
-      ;;
-  esac
-done
 
 step() { echo "==> $*"; }
 

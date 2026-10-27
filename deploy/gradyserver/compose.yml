@@ -1,6 +1,9 @@
-# Conductor on gradyserver (M2-T07; ADR-0017 §Hosting topology). Run by deploy.sh as:
-#   docker compose -p conductor -f current/deploy/gradyserver/compose.yml --env-file .env up -d --build
-# Variables: see env.example. CONDUCTOR_GIT_SHA is set by deploy.sh, not in .env.
+# Conductor on gradyserver (M2-T07; ADR-0017 §Hosting topology). deploy.sh drives it step by step:
+#   build → up -d postgres (healthy) → run --rm migrate → up -d --no-deps orchestrator (healthy).
+# Don't use a bare `up` to deploy: deploy.sh owns the migration gate (see the migrate service).
+# Variables: see env.example (.env). CONDUCTOR_GIT_SHA comes from ~/deploy/conductor/current.env,
+# written by deploy.sh after a successful deploy; operator commands pass it as a second
+# --env-file so they use the deployed image (runbook `cdc` alias, backup.sh).
 name: conductor
 
 # The orchestrator image. Both app services build it (the second build is a cache hit), so compose
@@ -38,8 +41,12 @@ services:
     networks:
       - conductor
 
-  # Migrations are a release step (ADR-0012 §Deployment shape): run once per `up`, never by the
-  # orchestrator. A failed migration leaves the old orchestrator container running.
+  # Migrations are a release step (ADR-0012 §Deployment shape), never run by the orchestrator.
+  # deploy.sh runs this one-shot service with `run --rm migrate` BEFORE it touches the
+  # orchestrator, so a failed migration leaves the old orchestrator serving. The orchestrator
+  # deliberately has no depends_on on migrate: Compose v2 recreates dependents in its create phase
+  # and only waits for service_completed_successfully at start, so `up` would stop the old
+  # orchestrator first and leave the new one `Created` when the migration fails.
   migrate:
     <<: *app
     command:
@@ -64,8 +71,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
     # Loopback only; nginx on the host proxies to it. Must equal the nginx upstream port.
     ports:
       - '127.0.0.1:${CONDUCTOR_HOST_PORT:-3040}:7400'

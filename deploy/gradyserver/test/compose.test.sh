@@ -27,8 +27,9 @@ check "postgres password from .env (required)" has "$postgres" \
 check "migrate runs node-pg-migrate up" has "$migrate" "'up'"
 check "migrate restart 'no'" has "$migrate" "restart: 'no'"
 check "orchestrator waits for healthy postgres" has "$orch" 'condition: service_healthy'
-check "orchestrator waits for migrate to complete" has "$orch" \
-  'condition: service_completed_successfully'
+# deploy.sh owns the migration gate; a depends_on would let `up` stop the old orchestrator first.
+check "orchestrator does not depend on migrate" lacks "$orch" '^      migrate:'
+check "no service_completed_successfully anywhere" lacks "$compose" 'service_completed_successfully'
 check "orchestrator restart unless-stopped" has "$orch" 'restart: unless-stopped'
 for kv in 'CONDUCTOR_AUTH: password' 'CONDUCTOR_BIND_HOST: 0\.0\.0\.0' \
   'CONDUCTOR_PUBLIC_URL: \$\{CONDUCTOR_PUBLIC_URL:\?' 'CONDUCTOR_TRUSTED_PROXY: ' 'DATABASE_URL: '; do
@@ -69,10 +70,7 @@ assert s["migrate"]["build"]["context"] == "../.."
 assert s["migrate"]["restart"] == "no"
 assert s["migrate"]["command"][:2] == ["node", "node_modules/node-pg-migrate/bin/node-pg-migrate.js"]
 assert s["migrate"]["depends_on"] == {"postgres": {"condition": "service_healthy"}}
-assert s["orchestrator"]["depends_on"] == {
-    "postgres": {"condition": "service_healthy"},
-    "migrate": {"condition": "service_completed_successfully"},
-}
+assert s["orchestrator"]["depends_on"] == {"postgres": {"condition": "service_healthy"}}
 assert s["migrate"]["environment"]["DATABASE_URL"] == s["orchestrator"]["environment"]["DATABASE_URL"]
 assert s["orchestrator"]["environment"]["DATABASE_URL"].endswith("@postgres:5432/conductor")
 assert "pg_isready" in " ".join(s["postgres"]["healthcheck"]["test"])

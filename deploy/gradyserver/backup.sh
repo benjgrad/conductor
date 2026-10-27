@@ -11,6 +11,9 @@ umask 077
 
 ROOT="${CONDUCTOR_DEPLOY_ROOT:-$HOME/deploy/conductor}"
 ENV_FILE="$ROOT/.env"
+# Written by deploy.sh after a successful deploy (CONDUCTOR_GIT_SHA): selects the deployed image,
+# so compose never resolves conductor-orchestrator:latest.
+CURRENT_ENV="$ROOT/current.env"
 COMPOSE_FILE="$ROOT/current/deploy/gradyserver/compose.yml"
 BACKUPS="$ROOT/backups"
 
@@ -30,7 +33,7 @@ partial="$BACKUPS/.conductor-$ts.dump.partial"
 trap 'rm -f "$partial"' EXIT
 
 echo "$(date -u +%FT%TZ) backup.sh: dumping to $out"
-docker compose -p conductor -f "$COMPOSE_FILE" --env-file "$ENV_FILE" \
+docker compose -p conductor -f "$COMPOSE_FILE" --env-file "$ENV_FILE" --env-file "$CURRENT_ENV" \
   exec -T postgres pg_dump -U conductor -Fc conductor >"$partial"
 
 if [[ ! -s "$partial" ]]; then

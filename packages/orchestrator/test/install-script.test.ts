@@ -18,8 +18,10 @@ import {
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { API_PATHS, EnrollRequestSchema } from '@conductor/shared';
 import { findDaemonBuild, serveDistribution } from '../src/distribution.js';
 
 const hasCmd = (c: string) =>
@@ -89,12 +91,15 @@ async function serve(version: string): Promise<Served> {
 const close = (s: Served) => new Promise<void>((r) => s.server.close(() => r()));
 
 /** A temp HOME with fake node/git/claude; `node` prints `nodeVersion`. */
-function makeHome(opts: { nodeVersion?: string; without?: string[] } = {}) {
+function makeHome(opts: { nodeVersion?: string; without?: string[]; realNode?: boolean } = {}) {
   const home = mkdtempSync(join(work, 'home-'));
   const bin = join(home, 'fakebin');
   mkdirSync(bin);
   const fakes: Record<string, string> = {
-    node: `#!/bin/sh\necho ${opts.nodeVersion ?? 'v22.4.0'}\n`,
+    // realNode: the real daemon tarball runs `node dist/main.js`.
+    node: opts.realNode
+      ? `#!/bin/sh\nexec '${process.execPath}' "$@"\n`
+      : `#!/bin/sh\necho ${opts.nodeVersion ?? 'v22.4.0'}\n`,
     git: '#!/bin/sh\necho git version 2.45.0\n',
     claude: '#!/bin/sh\necho 2.1.308\n',
   };
@@ -297,3 +302,87 @@ describe.skipIf(!runnable)('install.sh', () => {
     expect(r.stderr).toContain('usage: install.sh');
   });
 });
+
+// The real path, no fake daemon: the built tarball (scripts/build-daemon-tarball.sh), installed by
+// the served script, whose real `conductor-daemon enroll` posts to a stub enroll endpoint. The
+// token reaches the daemon only through CONDUCTOR_ENROLL_TOKEN (TD-117).
+const hasPnpm = spawnSync('pnpm', ['--version']).status === 0;
+
+describe.skipIf(!runnable || !hasPnpm)('install.sh with the real daemon tarball', () => {
+  const realWork = mkdtempSync(join(tmpdir(), 'conductor-install-real-'));
+  const enrolls: { body: string; contentType: string | undefined }[] = [];
+  let server: Server;
+  let url: string;
+  let script: string;
+
+  beforeAll(async () => {
+    const downloads = join(realWork, 'downloads');
+    const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+    const built = spawnSync(
+      'bash',
+      [join(pkgDir, 'scripts', 'build-daemon-tarball.sh'), '--no-verify', downloads],
+      { env: { ...process.env, CONDUCTOR_BUILD_SHA: 'feed123' }, encoding: 'utf8' },
+    );
+    expect(built.status, built.stderr).toBe(0);
+    const build = findDaemonBuild(downloads);
+    expect(build).not.toBeNull();
+
+    // The "API": only the enroll endpoint.
+    server = createServer((req, res) => {
+      let body = '';
+      req.on('data', (c: Buffer) => (body += c.toString('utf8')));
+      req.on('end', () => {
+        if (req.method === 'POST' && req.url === API_PATHS.machinesEnroll) {
+          enrolls.push({ body, contentType: req.headers['content-type'] });
+          res.writeHead(201, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ machine_id: 'm-real', credential: 'cred-real-secret' }));
+          return;
+        }
+        res.writeHead(404);
+        res.end();
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    serveDistribution(server, {
+      db: { query: () => Promise.resolve() },
+      publicUrl: url,
+      build,
+      version: build!.version,
+    });
+    script = await (await fetch(`${url}/install.sh`)).text();
+  }, 300_000);
+
+  afterAll(async () => {
+    await new Promise<void>((r) => server.close(() => r()));
+    rmSync(realWork, { recursive: true, force: true });
+  });
+
+  it('curl | sh -s -- --token installs and the real enroll saves the credential', async () => {
+    work = realWork;
+    const h = makeHome({ realNode: true });
+    const r = await run(h, script, ['--token', TOKEN, '--root', h.root]);
+    expect(r.status, r.stderr + r.stdout).toBe(0);
+    expect(readlinkSync(join(h.root, 'daemon', 'current'))).toBe(`${daemonPkgVersion()}+feed123`);
+
+    expect(enrolls).toHaveLength(1);
+    const sent = EnrollRequestSchema.parse(JSON.parse(enrolls[0]!.body));
+    expect(sent.token).toBe(TOKEN);
+    expect(sent.daemon_version).toBe(`${daemonPkgVersion()}+feed123`);
+
+    const machine = JSON.parse(readFileSync(join(h.root, 'machine.json'), 'utf8')) as {
+      url: string;
+      machine_id: string;
+      credential: string;
+    };
+    expect(machine).toMatchObject({ url, machine_id: 'm-real', credential: 'cred-real-secret' });
+    expect(r.stdout).toContain('enrolled as m-real');
+    expect(r.stdout + r.stderr).not.toContain(TOKEN);
+    expect(r.stdout + r.stderr).not.toContain('cred-real-secret');
+  }, 60_000);
+});
+
+function daemonPkgVersion(): string {
+  const pkg = resolve(dirname(fileURLToPath(import.meta.url)), '../../daemon/package.json');
+  return (JSON.parse(readFileSync(pkg, 'utf8')) as { version: string }).version;
+}

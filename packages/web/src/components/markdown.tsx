@@ -4,8 +4,11 @@
 import { Fragment, type ReactNode } from 'react';
 
 // Link text is capped at 200 chars: unbounded, a long line of `[`s made the scan quadratic (QA).
+// `_` emphasis follows CommonMark's flanking rule for underscores: no letter, digit or `_` right
+// before the opening `_` or right after the closing one, so `snake_case` and `1_init.sql` stay
+// plain. `*` may be intraword (CommonMark allows it).
 const INLINE =
-  /(`[^`\n]+`)|(\*\*[^*\n]+?\*\*)|(\[[^\]\n]{1,200}\]\(https?:\/\/[^)\s]+\))|(\*[^*\s][^*\n]*?\*)|(_[^_\s][^_\n]*?_)/g;
+  /(`[^`\n]+`)|(\*\*[^*\n]+?\*\*)|(\[[^\]\n]{1,200}\]\(https?:\/\/[^)\s]+\))|(\*[^*\s][^*\n]*?\*)|((?<![\p{L}\p{N}_])_[^_\s][^_\n]*?(?<!\s)_(?![\p{L}\p{N}_]))/gu;
 
 export function renderInline(text: string, keyBase = 'i'): ReactNode[] {
   const out: ReactNode[] = [];

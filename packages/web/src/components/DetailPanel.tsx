@@ -2,10 +2,21 @@
 // with the agent (the live log, the open question inline, a composer pinned at the bottom);
 // Details is who runs it and where, the workflow, spend, actions and the context.
 import type { InputRequestDto, MachineDto, SessionDetail } from '@conductor/shared';
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
-import { useSession } from '../board/hooks.js';
+import { useInitialPrompt, useSession } from '../board/hooks.js';
+import { parseBrief } from '../brief/parse.js';
+import { ticketBodyFromPrompt } from '../brief/prompt.js';
 import { AgentAvatar, agentName } from './agent-identity.js';
+import { BriefCard } from './BriefCard.js';
 import { Composer } from './Composer.js';
 import { ContextView } from './ContextView.js';
 import { duration, KIND_LABELS, STATUS_LABELS, TERMINAL_STATUSES, usd } from './format.js';
@@ -41,7 +52,8 @@ export function DetailPanel({
   onClose,
   onSelectSession,
 }: DetailPanelProps) {
-  const { detail, output, error, reload, history } = useSession(api, sessionId, version);
+  const view = useSession(api, sessionId, version);
+  const { detail, output, error, reload, history } = view;
   const [tab, setTab] = useState<PanelTab>('messages');
   // Identity is per ticket (Ben): the same agent across a ticket's retries and resumes.
   const agentKey = detail?.card.ticket_id ?? ticketId ?? null;
@@ -49,6 +61,26 @@ export function DetailPanel({
   const ids = useId();
   const tabRefs = useRef<Partial<Record<PanelTab, HTMLButtonElement | null>>>({});
   const status = detail?.card.status ?? null;
+
+  // UX-2: the Brief. The body is `ticket_body`; an older server doesn't send it, so it falls back
+  // to the ticket section of the initial prompt (Claude's transcript), fetched only when asked.
+  const [wantPrompt, setWantPrompt] = useState<string | null>(null);
+  const onWantPrompt = useCallback(() => setWantPrompt(sessionId), [sessionId]);
+  const prompt = useInitialPrompt(api, view, wantPrompt === sessionId);
+  const fromPrompt =
+    detail && prompt.text !== null
+      ? ticketBodyFromPrompt(prompt.text, detail.card.title, detail.card.repo)
+      : null;
+  const body = detail?.ticket_body ?? fromPrompt;
+  const brief = useMemo(() => (body === null ? null : parseBrief(body)), [body]);
+  const unavailable =
+    body !== null
+      ? null
+      : prompt.text !== null
+        ? 'the prompt has no ticket section'
+        : prompt.loading
+          ? null
+          : prompt.reason;
 
   function onTabKey(e: KeyboardEvent<HTMLButtonElement>) {
     const i = TABS.findIndex((t) => t.id === tab);
@@ -133,8 +165,21 @@ export function DetailPanel({
                 {history.text}
               </p>
             )}
+            <BriefCard
+              key={sessionId}
+              sessionId={sessionId}
+              brief={brief}
+              body={body}
+              unavailable={unavailable}
+              promptText={prompt.text}
+              promptReason={prompt.reason}
+              promptLoading={prompt.loading}
+              onWantPrompt={onWantPrompt}
+            />
             <OutputLog
               output={output}
+              moves={detail.moves ?? []}
+              workflow={detail.workflow}
               worktree={detail.worktree_path}
               variant="chat"
               visible={tab === 'messages'}

@@ -10,8 +10,10 @@ import { Fragment, type ReactNode } from 'react';
 // A backslash before ASCII punctuation is a CommonMark escape: the bare character, never markup.
 // It is the FIRST branch, and the other branches step over escapes (`\\.`) in their content, so
 // the stored `\*x\*` (UX-3's editor escapes typed text) is "*x*", not an `*x\*` italic.
+// `***x***` / `___x___` (the editor's bold+italic) come before `**` and `_`, else `**` would
+// match inside and leave a stray `*` on each side.
 const INLINE =
-  /(\\[!-/:-@[-`{-~])|(`[^`\n]+`)|(\*\*(?:\\.|[^*\n\\])+?\*\*)|(\[(?:\\.|[^\]\n\\]){1,200}\]\(https?:\/\/[^)\s]+\))|(\*(?:\\.|[^*\s\\])(?:\\.|[^*\n\\])*?\*)|((?<![\p{L}\p{N}_])_(?:\\.|[^_\s\\])(?:\\.|[^_\n\\])*?(?<!\s)_(?![\p{L}\p{N}_]))/gu;
+  /(?<esc>\\[!-/:-@[-`{-~])|(?<code>`[^`\n]+`)|(?<both>\*\*\*(?:\\.|[^*\n\\])+?\*\*\*)|(?<strong>\*\*(?:\\.|[^*\n\\])+?\*\*)|(?<link>\[(?:\\.|[^\]\n\\]){1,200}\]\(https?:\/\/[^)\s]+\))|(?<em>\*(?:\\.|[^*\s\\])(?:\\.|[^*\n\\])*?\*)|(?<uboth>(?<![\p{L}\p{N}_])___(?:\\.|[^_\s\\])(?:\\.|[^_\n\\])*?(?<!\s)___(?![\p{L}\p{N}_]))|(?<uem>(?<![\p{L}\p{N}_])_(?:\\.|[^_\s\\])(?:\\.|[^_\n\\])*?(?<!\s)_(?![\p{L}\p{N}_]))/gu;
 const ESCAPED = /\\([!-/:-@[-`{-~])/gu;
 
 /** Removes CommonMark backslash escapes (for text rendered without inline parsing). */
@@ -28,13 +30,20 @@ export function renderInline(text: string, keyBase = 'i'): ReactNode[] {
     if (at > last) out.push(text.slice(last, at));
     const tok = m[0];
     const key = `${keyBase}-${n++}`;
-    if (m[1]) {
+    const g = m.groups!;
+    if (g.esc) {
       out.push(tok.slice(1));
-    } else if (m[2]) {
+    } else if (g.code) {
       out.push(<code key={key}>{tok.slice(1, -1)}</code>);
-    } else if (m[3]) {
+    } else if (g.both || g.uboth) {
+      out.push(
+        <em key={key}>
+          <strong>{renderInline(tok.slice(3, -3), key)}</strong>
+        </em>,
+      );
+    } else if (g.strong) {
       out.push(<strong key={key}>{renderInline(tok.slice(2, -2), key)}</strong>);
-    } else if (m[4]) {
+    } else if (g.link) {
       const close = tok.indexOf('](');
       out.push(
         <a key={key} href={tok.slice(close + 2, -1)} target="_blank" rel="noreferrer noopener">
@@ -118,11 +127,20 @@ export function parseBlocks(src: string): Block[] {
   return blocks;
 }
 
+// Every newline renders as a line break. A CommonMark hard break (`\` at line end, which the
+// editor writes for Shift+Enter) drops its backslash; an even run is escaped `\`s, kept as text.
+// On the last line a lone `\` is literal (CommonMark: no hard break at the end of a block).
+function dropHardBreak(line: string): string {
+  const run = /\\+$/.exec(line)?.[0].length ?? 0;
+  return run % 2 === 1 ? line.slice(0, -1) : line;
+}
+
 function withBreaks(text: string, key: string): ReactNode[] {
-  return text.split('\n').map((l, j) => (
+  const lines = text.split('\n');
+  return lines.map((l, j) => (
     <Fragment key={`${key}-${j}`}>
       {j > 0 && <br />}
-      {renderInline(l, `${key}-${j}`)}
+      {renderInline(j < lines.length - 1 ? dropHardBreak(l) : l, `${key}-${j}`)}
     </Fragment>
   ));
 }

@@ -2,7 +2,9 @@
 // and exporter, and both need help to keep "what you see is what's stored":
 // - Import: it reads any tag-shaped `<word>` outside code as inline HTML and drops it, and it
 //   has no `\<` escape. protectAngles swaps every such `<` for a private-use sentinel before
-//   parsing; restoreAngles puts `<` back in the parsed blocks.
+//   parsing; restoreAngles puts `<` back in the parsed blocks. It also keeps the space after a
+//   soft or hard line break ("a\n b"), which the editor shows as an indent; dropBreakIndent
+//   removes it (CommonMark ignores a continuation line's leading whitespace).
 // - Export: it writes text runs verbatim, so typed `*x*` or `[n](u)` would come back as markup.
 //   escapeBlocks backslash-escapes markdown-significant characters in plain text runs first.
 // - Style: it writes `*` bullets and pads table cells; tidyMarkdown restores the house style.
@@ -110,50 +112,64 @@ export function escapeText(text: string, atStart: boolean): string {
   return s;
 }
 
-function escapeInline(content: unknown[], atStart: boolean): unknown[] {
+type TextFn = (text: string, atStart: boolean) => string;
+
+function mapInline(content: unknown[], atStart: boolean, fn: TextFn): unknown[] {
   return content.map((item, idx) => {
     if (!isObj(item)) return item;
     const first = atStart && idx === 0;
     if (item.type === 'text' && typeof item.text === 'string') {
       const code = isObj(item.styles) && item.styles.code === true;
-      return code ? item : { ...item, text: escapeText(item.text, first) };
+      return code ? item : { ...item, text: fn(item.text, first) };
     }
     if (item.type === 'link' && Array.isArray(item.content)) {
-      return { ...item, content: escapeInline(item.content, first) };
+      return { ...item, content: mapInline(item.content, first, fn) };
     }
     return item;
   });
 }
 
-function escapeCell(cell: unknown): unknown {
-  if (Array.isArray(cell)) return escapeInline(cell, false);
+function mapCell(cell: unknown, fn: TextFn): unknown {
+  if (Array.isArray(cell)) return mapInline(cell, false, fn);
   if (isObj(cell) && Array.isArray(cell.content)) {
-    return { ...cell, content: escapeInline(cell.content, false) };
+    return { ...cell, content: mapInline(cell.content, false, fn) };
   }
   return cell;
 }
 
-function escapeBlock(block: unknown): unknown {
+function mapBlock(block: unknown, fn: TextFn): unknown {
   if (!isObj(block)) return block;
   const out: Json = { ...block };
   const content = block.content;
   if (block.type !== 'codeBlock' && Array.isArray(content)) {
-    out.content = escapeInline(content, true);
+    out.content = mapInline(content, true, fn);
   } else if (isObj(content) && content.type === 'tableContent' && Array.isArray(content.rows)) {
     out.content = {
       ...content,
       rows: content.rows.map((row: unknown) =>
-        isObj(row) && Array.isArray(row.cells) ? { ...row, cells: row.cells.map(escapeCell) } : row,
+        isObj(row) && Array.isArray(row.cells)
+          ? { ...row, cells: row.cells.map((c: unknown) => mapCell(c, fn)) }
+          : row,
       ),
     };
   }
-  if (Array.isArray(block.children)) out.children = block.children.map(escapeBlock);
+  if (Array.isArray(block.children)) out.children = block.children.map((b) => mapBlock(b, fn));
   return out;
+}
+
+/** Copies of the blocks with `fn` applied to every plain text run (never code). */
+function mapTextRuns<B>(blocks: B[], fn: TextFn): B[] {
+  return blocks.map((b) => mapBlock(b, fn)) as B[];
 }
 
 /** Copies of the blocks whose plain text runs are escaped for BlockNote's verbatim exporter. */
 export function escapeBlocks<B>(blocks: B[]): B[] {
-  return blocks.map(escapeBlock) as B[];
+  return mapTextRuns(blocks, escapeText);
+}
+
+/** Copies of the blocks without the indent BlockNote's parser leaves after a line break. */
+export function dropBreakIndent<B>(blocks: B[]): B[] {
+  return mapTextRuns(blocks, (text) => text.replace(/\n[ \t]+/g, '\n'));
 }
 
 // ─── house style ────────────────────────────────────────────────────────────
@@ -206,7 +222,7 @@ export interface MarkdownEditor<B> {
 
 /** Markdown → blocks, keeping literal `<…>` text. */
 export function importMarkdown<B>(editor: MarkdownEditor<B>, md: string): B[] {
-  return restoreAngles(editor.tryParseMarkdownToBlocks(protectAngles(md)));
+  return dropBreakIndent(restoreAngles(editor.tryParseMarkdownToBlocks(protectAngles(md))));
 }
 
 /** The editor's whole document as escaped, house-style markdown. */

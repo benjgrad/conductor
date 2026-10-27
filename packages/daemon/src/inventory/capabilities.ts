@@ -32,6 +32,8 @@ export interface ScanCapabilitiesOptions {
   /** Probe environment (default process.env); PATH decides which CLIs are found. */
   env?: NodeJS.ProcessEnv;
   probeTimeoutMs?: number;
+  /** Where a capability that isn't reported is logged (once per scan). */
+  log?: (msg: string) => void;
 }
 
 interface Probe {
@@ -76,8 +78,8 @@ export function probe(
 const CLIS: readonly [string, readonly string[], readonly string[] | null][] = [
   ['gh', ['--version'], ['auth', 'status']],
   ['az', ['--version'], ['account', 'show', '--output', 'none']],
-  // TD: jira-cli has no agreed read-only auth probe yet (`jira me` prints the user), so `authed`
-  // is always false for jira.
+  // TD-151: jira-cli has no agreed read-only auth probe yet (`jira me` prints the user), so
+  // `authed` is always false for jira (payoff M5).
   ['jira', ['version'], null],
   ['git', ['--version'], null],
 ];
@@ -197,6 +199,18 @@ export function skillAndAgentNames(dir: string): { skills: string[]; agents: str
   };
 }
 
+/** Claude Code names a plugin's MCP server `plugin:<plugin>:<server>`; the capability is `<server>`. */
+export function normalizeMcpName(name: string): string {
+  const m = /^plugin:[^:]+:(.+)$/.exec(name);
+  return m ? m[1]! : name;
+}
+
+/** A name for the log: quoted and escaped (JSON), and cut at 200 chars. */
+function logName(name: unknown): string {
+  const s = typeof name === 'string' ? name : String(name);
+  return JSON.stringify(s.length > 200 ? `${s.slice(0, 200)}…` : s);
+}
+
 /** Every capability of this machine, schema-checked, de-duplicated and sorted. */
 export async function scanCapabilities(opts: ScanCapabilitiesOptions): Promise<Capability[]> {
   const env = opts.env ?? process.env;
@@ -206,8 +220,12 @@ export async function scanCapabilities(opts: ScanCapabilitiesOptions): Promise<C
     scanClaude(opts.claudeBin, env, timeoutMs),
   ]);
   const raw: unknown[] = [...clis, ...claude];
+  // The name as configured, for the log, when it was normalised.
+  const configured = new Map<unknown, string>();
   for (const name of mcpNames(opts.claudeConfigDir, opts.claudeUserConfig)) {
-    raw.push({ kind: 'mcp', name });
+    const c = { kind: 'mcp', name: normalizeMcpName(name) };
+    if (c.name !== name) configured.set(c, name);
+    raw.push(c);
   }
   const user = skillAndAgentNames(opts.claudeConfigDir);
   raw.push(...user.skills.map((name) => ({ kind: 'skill', name })));
@@ -220,9 +238,21 @@ export async function scanCapabilities(opts: ScanCapabilitiesOptions): Promise<C
     raw.push(...own.agents.map((name) => ({ kind: 'agent', name, repo: r.remote })));
   }
   const byKey = new Map<string, Capability>();
+  const logged = new Set<string>();
   for (const c of raw) {
     const parsed = CapabilitySchema.safeParse(c);
-    if (!parsed.success) continue; // e.g. a name with whitespace
+    if (!parsed.success) {
+      // Not reported, logged once per scan; the rest of the inventory still goes out.
+      const r = c as { kind?: unknown; name?: unknown };
+      const tag = `${String(r.kind)} ${logName(configured.get(c) ?? r.name)}`;
+      if (!logged.has(tag)) {
+        logged.add(tag);
+        opts.log?.(
+          `inventory: capability ${tag} not reported: ${parsed.error.issues[0]?.message ?? 'invalid'}`,
+        );
+      }
+      continue;
+    }
     const key = capabilityKey(parsed.data);
     // `cli:gh` and `cli:gh:authed` are one CLI: key on the name.
     const k = parsed.data.kind === 'cli' ? `cli:${parsed.data.name}` : key;

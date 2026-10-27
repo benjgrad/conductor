@@ -6,6 +6,7 @@ An autonomous orchestrator for Claude Code. Machine daemons on developer laptops
 
 - Design: [docs/design/00-overview.md](docs/design/00-overview.md)
 - Roadmap: [docs/plan/ROADMAP.md](docs/plan/ROADMAP.md)
+- Add a machine (install and run the daemon): [docs/setup/add-a-machine.md](docs/setup/add-a-machine.md), also in the app at `/help/add-a-machine`
 - How we work (planning, multi-agent sessions, QA): [CLAUDE.md](CLAUDE.md)
 
 ## Run it locally

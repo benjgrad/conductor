@@ -109,7 +109,7 @@ cdc exec orchestrator node dist/admin-cli.js bootstrap --email <Ben's email>
 
 `--email` pins the invite: only that email can sign up with the link (without it the CLI warns that anyone holding the link could claim `local`).
 
-**(Ben)** Open the printed link, sign up, and you own the (empty) `local` account. Then add your Mac from the Machines page (see `docs/setup/add-a-machine.md`, M2-T18).
+**(Ben)** Open the printed link, sign up, and you own the (empty) `local` account. Then add your Mac: the board's setup guide walks through it, and the full guide is at https://conductor.gradyserver.com/help/add-a-machine (also [add-a-machine.md](add-a-machine.md)).
 
 Turn on the nightly backups (as `bengrady4`, not root):
 

@@ -2,6 +2,8 @@ import type { EnrollmentTokenCreated, MachineDetail, MachineRow } from '@conduct
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { ago } from '../components/format.js';
+import { HelpLink } from '../help/HelpPage.js';
+import { routeHash } from '../nav.js';
 import { AddMachine } from './AddMachine.js';
 import { ghTooOld, ghTooOldText } from './format.js';
 import { MachineDrawer } from './MachineDrawer.js';
@@ -84,9 +86,12 @@ export function MachinesPage({ api }: MachinesPageProps) {
         <button type="button" onClick={() => void addMachine()} disabled={busy || !!enrollment}>
           Add a machine
         </button>
+        <a href={routeHash({ view: 'setup' })}>Guided setup</a>
+        <HelpLink>Help: add a machine</HelpLink>
       </div>
       {enrollment && (
         <AddMachine
+          key={enrollment.token}
           enrollment={enrollment}
           onClose={() => {
             setEnrollment(null);
@@ -120,7 +125,10 @@ export function MachinesPage({ api }: MachinesPageProps) {
         </p>
       )}
       {list.kind === 'loaded' && list.rows.length === 0 && (
-        <p className="muted">No machines yet. Add one to run sessions on it.</p>
+        <p className="muted">
+          No machines yet. Add one to run sessions on it:{' '}
+          <a href={routeHash({ view: 'setup' })}>follow the guided setup</a>.
+        </p>
       )}
       {list.kind === 'loaded' && list.rows.length > 0 && (
         <table className="machines-table">

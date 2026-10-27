@@ -1,0 +1,124 @@
+/* UX-8: the guided machine setup (a stepper in the board area or at #/setup). */
+
+.setup-guide {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 16px 20px 32px;
+}
+.setup-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.setup-head h2 {
+  font-size: 20px;
+  margin: 0;
+}
+.setup-intro {
+  color: var(--muted);
+}
+.setup-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+}
+.setup-steps button {
+  border-radius: 16px;
+}
+.setup-steps button[aria-current='step'] {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.setup-step-done button {
+  color: var(--ok);
+}
+.setup-step-num {
+  display: inline-block;
+  min-width: 1.2em;
+  text-align: center;
+}
+.setup-body {
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.setup-body h3 {
+  margin: 0 0 8px;
+}
+.setup-body h3:focus {
+  outline: none;
+}
+.setup-body h4 {
+  margin: 16px 0 4px;
+}
+.setup-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.setup-tabs [aria-selected='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.setup-checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.setup-checklist > li {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.setup-checklist h4 {
+  margin: 0;
+}
+.setup-checklist p {
+  margin: 2px 0 6px;
+}
+.setup-verify {
+  font-weight: 600;
+}
+.setup-success {
+  color: var(--ok);
+}
+.setup-waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.setup-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: setup-spin 1s linear infinite;
+}
+@keyframes setup-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.setup-checks {
+  list-style: none;
+  padding: 0;
+}
+.setup-check-ok {
+  color: var(--ok);
+}
+.setup-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+.help-entry {
+  font-size: 14px;
+}

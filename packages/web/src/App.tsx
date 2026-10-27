@@ -12,8 +12,20 @@ import { useBoard } from './board/hooks.js';
 import { Board } from './components/Board.js';
 import { CreateTicketForm } from './components/CreateTicketForm.js';
 import { DetailPanel } from './components/DetailPanel.js';
+import { HelpLink, HelpPage } from './help/HelpPage.js';
+import { SETUP_GUIDE_URL } from './machines/format.js';
 import { MachinesPage } from './machines/Machines.js';
-import { currentPath, goTo, routeHash, signInPath, useHashRoute, usePath } from './nav.js';
+import {
+  currentPath,
+  goTo,
+  parseHash,
+  routeHash,
+  signInPath,
+  useHashRoute,
+  usePath,
+} from './nav.js';
+import { dismiss, isDismissed } from './onboarding/dismissal.js';
+import { SetupGuide } from './onboarding/SetupGuide.js';
 import { DiscardDraftConfirm, useDraftGuard } from './workflow/draft-guard.js';
 import { WorkflowsView } from './workflow/WorkflowsView.js';
 
@@ -43,12 +55,16 @@ export function App({ api }: AppProps) {
 
   const authPage = pathname === '/signin' || pathname === '/signup' || pathname === '/reset';
   const adminAlias = pathname === '/admin';
+  // UX-8: the help page needs no account and no API; `#/help/…` is its alias.
+  const helpPage = pathname === SETUP_GUIDE_URL;
+  const helpAlias = pathname === '/' && parseHash(window.location.hash).view === 'help';
 
   useEffect(() => {
     if (adminAlias) goTo('/#/admin', { replace: true });
-  }, [adminAlias]);
+    else if (helpAlias) goTo(SETUP_GUIDE_URL, { replace: true });
+  }, [adminAlias, helpAlias]);
 
-  const needsProbe = !authPage && !adminAlias && me === null;
+  const needsProbe = !authPage && !adminAlias && !helpPage && !helpAlias && me === null;
   useEffect(() => {
     if (!needsProbe) return;
     let cancelled = false;
@@ -75,7 +91,8 @@ export function App({ api }: AppProps) {
     return <SignUp api={api} invite={params.get('invite')} onSignedIn={setMe} />;
   }
   if (pathname === '/reset') return <Reset api={api} token={params.get('token')} />;
-  if (adminAlias) return null;
+  if (helpPage) return <HelpPage />;
+  if (adminAlias || helpAlias) return null;
   if (probeError !== null) {
     return (
       <div className="app-gate">
@@ -119,6 +136,40 @@ function Shell({ api, me, onSignedOut }: ShellProps) {
   const [creating, setCreating] = useState(false);
   const draft = useDraftGuard();
   const [route, navigate] = useHashRoute(draft.guard, draft.onBlocked);
+  // UX-8 FR-1: the account's machine count, asked once per load. With none (and the guide not
+  // dismissed this visit), the board area shows the setup guide. Not re-polled, so the guide stays
+  // while the new machine connects in its step 3.
+  const [machineCount, setMachineCount] = useState<number | null>(null);
+  const [firstRun, setFirstRun] = useState(false);
+  const userId = me?.user.id ?? null;
+
+  useEffect(() => {
+    if (userId === null) return;
+    let cancelled = false;
+    api.listMachines().then(
+      (rows) => {
+        if (cancelled) return;
+        const count = rows.filter((r) => r.revoked_at === null).length;
+        setMachineCount(count);
+        setFirstRun(count === 0 && !isDismissed(userId));
+      },
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [api, userId]);
+
+  useEffect(() => {
+    if (route.view === 'help') goTo(SETUP_GUIDE_URL, { replace: true });
+  }, [route.view]);
+
+  const guide = route.view === 'setup' || (route.view === 'board' && firstRun);
+
+  function hideGuide() {
+    setFirstRun(false);
+    if (route.view === 'setup') navigate({ view: 'board' });
+  }
 
   const selectedCard = selected
     ? [...board.cards.values()].find((c) => c.session_id === selected)
@@ -148,7 +199,13 @@ function Shell({ api, me, onSignedOut }: ShellProps) {
             Machines
           </a>
         </nav>
-        {route.view === 'board' && (
+        <nav className="nav-tabs help-entry" aria-label="Help">
+          <a href={routeHash({ view: 'setup' })} aria-current={guide ? 'page' : undefined}>
+            Add a machine
+          </a>
+          <HelpLink>Help</HelpLink>
+        </nav>
+        {route.view === 'board' && !guide && (
           <button type="button" onClick={() => setCreating((v) => !v)} aria-expanded={creating}>
             {creating ? 'Close form' : 'New ticket'}
           </button>
@@ -172,10 +229,25 @@ function Shell({ api, me, onSignedOut }: ShellProps) {
       {route.view === 'machines' && <MachinesPage api={api} />}
       {route.view === 'admin' &&
         (me ? <AdminPage api={api} me={me} /> : <p className="loading">Loading…</p>)}
-      {route.view === 'board' && creating && (
+      {guide && (
+        <SetupGuide
+          api={api}
+          first={machineCount === 0}
+          onDismiss={() => {
+            if (userId !== null) dismiss(userId);
+            hideGuide();
+          }}
+          onCreateTicket={() => {
+            hideGuide();
+            setCreating(true);
+          }}
+          onFinish={() => setFirstRun(false)}
+        />
+      )}
+      {route.view === 'board' && !guide && creating && (
         <CreateTicketForm api={api} onCreated={() => setCreating(false)} />
       )}
-      <main hidden={route.view !== 'board'}>
+      <main hidden={route.view !== 'board' || guide}>
         <Board board={board} selectedSessionId={selected} onSelect={setSelected} api={api} />
         {selected && (
           <DetailPanel

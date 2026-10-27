@@ -87,6 +87,8 @@ export interface MockApiOptions {
   auth?: AuthMode;
   /** `password` mode: start signed in as the admin. Default true. */
   signedIn?: boolean;
+  /** UX-8: `none` starts the account with no machines (the first-run guide). Default `seeded`. */
+  machines?: 'seeded' | 'none';
 }
 
 /** The mock's one user in `password` mode (an admin). */
@@ -108,6 +110,13 @@ export interface MockApi extends ApiClient {
   simulate(ms: number): Unsubscribe;
   /** `password` mode: lock a user's email, as repeated failed sign-ins would. */
   lockUser(email: string): void;
+  /**
+   * UX-8: a machine enrolls and comes online, as a daemon would after the install command;
+   * `patch` overrides its fields (e.g. its capabilities). Returns its id.
+   */
+  connectMachine(patch?: Partial<MachineDetail>): string;
+  /** UX-8: a machine's new inventory report (repos, capabilities). */
+  updateMachine(id: string, patch: Partial<MachineDetail>): void;
 }
 
 interface MockUser {
@@ -196,7 +205,10 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
 
   // M2-T11: two machines (mbp-ben online with an open alert; an old, outdated one offline).
   // running_sessions and live_sessions come from the cards; the rest is stored here.
-  const machines = new Map(mockMachines(now()).map((m) => [m.id, m]));
+  const machines = new Map(
+    opts.machines === 'none' ? [] : mockMachines(now()).map((m) => [m.id, m]),
+  );
+  let connected = 0;
 
   function machineOf(id: string): MachineDetail {
     const m = machines.get(id);
@@ -987,6 +999,28 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           expires_at: isoIn(ENROLLMENT_TOKEN_TTL_MS),
         };
       }),
+
+    connectMachine(patch = {}) {
+      const id = `mock-machine-${++connected}`;
+      const base = mockMachines(now())[0]!;
+      machines.set(id, {
+        ...base,
+        id,
+        name: `new-machine-${connected}`,
+        hostname: `new-machine-${connected}.local`,
+        status: 'online',
+        last_heartbeat_at: now().toISOString(),
+        alerts: [],
+        ...patch,
+      });
+      return id;
+    },
+
+    updateMachine(id, patch) {
+      const m = machines.get(id);
+      if (!m) throw new Error(`no machine ${id}`);
+      machines.set(id, { ...m, ...patch });
+    },
 
     lockUser(email) {
       for (const u of users.values()) if (u.row.email === email) u.row.locked = true;

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMockApi, type MockApi } from '../api/mock.js';
 import { App } from '../App.js';
 import { SETUP_GUIDE_URL } from '../machines/format.js';
+import { SIGHUP_COMMAND } from './content.js';
 import { newVisitForTests } from './dismissal.js';
 import { SetupGuide } from './SetupGuide.js';
 import { POLL_MS, TROUBLESHOOT_AFTER_MS } from './steps.js';
@@ -117,8 +118,11 @@ describe('first-run guide (FR-1)', () => {
 
 describe('step 1, prerequisites (FR-2)', () => {
   it.each([
-    ['macOS', ['brew install node@22', 'brew install gh', 'xcode-select --install']],
-    ['Linux', ['nvm install 22', 'sudo apt install git']],
+    [
+      'macOS',
+      ['brew install node', '. ~/.nvm/nvm.sh', 'brew install gh', 'xcode-select --install'],
+    ],
+    ['Linux', ['. ~/.nvm/nvm.sh', 'nvm install 22', 'sudo apt install git']],
   ])('the %s tab shows install and check commands, each with a copy button', (tab, installs) => {
     renderGuide();
     fireEvent.click(screen.getByRole('tab', { name: tab }));
@@ -208,6 +212,44 @@ describe('step 3, wait for the machine (FR-4)', () => {
     expect(screen.getByText(/Waiting for your machine to connect/)).toBeTruthy();
   });
 
+  it('a machine enrolled but offline when the guide opened turns it green when it connects', async () => {
+    vi.useFakeTimers();
+    const api = createMockApi({ machines: 'none' });
+    const id = api.connectMachine({ name: 'enrolled-box', status: 'offline' });
+    renderGuide(api);
+    await act(async () => {});
+    goToStep('Connect');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_MS);
+    });
+    expect(screen.getByText(/Waiting for your machine to connect/)).toBeTruthy();
+
+    api.updateMachine(id, { status: 'online' });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_MS);
+    });
+    expect(screen.getByText(/enrolled-box is online/)).toBeTruthy();
+  });
+
+  it('…also after the guide remounts while that machine is still offline', async () => {
+    vi.useFakeTimers();
+    const api = createMockApi({ machines: 'none' });
+    const id = api.connectMachine({ name: 'enrolled-box', status: 'offline' });
+    renderGuide(api);
+    await act(async () => {});
+    goToStep('Connect');
+    cleanup();
+
+    renderGuide(api);
+    await act(async () => {}); // a new baseline, the machine still offline
+    goToStep('Connect');
+    api.updateMachine(id, { status: 'online' });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_MS);
+    });
+    expect(screen.getByText(/enrolled-box is online/)).toBeTruthy();
+  });
+
   it('shows troubleshooting after 2 minutes without a machine', async () => {
     vi.useFakeTimers();
     renderGuide();
@@ -271,6 +313,12 @@ describe('step 4, repos and capabilities (FR-5)', () => {
     expect(
       screen.getByDisplayValue('~/.conductor/bin/conductor-daemon config roots ~/code'),
     ).toBeTruthy();
+    // UX-8b FR-1: restart first, then the signal that reaches only the daemon.
+    expect(screen.getByText(/press Ctrl-C in\s+its terminal/)).toBeTruthy();
+    const restart = screen.getByLabelText<HTMLInputElement>('Start the daemon again');
+    expect(restart.value).toBe('~/.conductor/bin/conductor-daemon');
+    const signal = screen.getByDisplayValue(SIGHUP_COMMAND);
+    expect(restart.compareDocumentPosition(signal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const repos = within(screen.getByRole('region', { name: 'Reported repos' }));
     expect(repos.getByText('1 repo')).toBeTruthy();
     expect(repos.getByText('org/app')).toBeTruthy();

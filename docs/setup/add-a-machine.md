@@ -17,7 +17,7 @@ You need five things on the computer. Install what's missing, then run each chec
 
 ### On macOS
 
-- **Node.js 22 or newer** runs the daemon. Install it with Homebrew: `brew install node@22`. Or use nvm: `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash` then `nvm install 22`. Check: `node -v` prints v22 or higher.
+- **Node.js 22 or newer** runs the daemon. Install it with Homebrew: `brew install node`. Or use nvm: `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash`, then open a new terminal (or run `. ~/.nvm/nvm.sh`) and run `nvm install 22`. Check: `node -v` prints v22 or higher.
 - **git** works on your repos. Install it with `xcode-select --install` or `brew install git`. Check: `git --version`.
 - **Claude Code**, installed and signed in: the daemon runs your own Claude Code with your settings. Install it with `npm install -g @anthropic-ai/claude-code`, run `claude`, then type `/login`. Check: `claude --version`.
 - **GitHub CLI 2.40 or newer**, signed in: conductor uses it to open pull requests. Install it with `brew install gh`, then run `gh auth login`. Check: `gh --version` and `gh auth status`.
@@ -25,7 +25,7 @@ You need five things on the computer. Install what's missing, then run each chec
 
 ### On Linux
 
-- **Node.js 22 or newer** runs the daemon. Install it with nvm: `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash` then `nvm install 22`. Check: `node -v` prints v22 or higher.
+- **Node.js 22 or newer** runs the daemon. Install it with nvm: `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash`, then open a new terminal (or run `. ~/.nvm/nvm.sh`) and run `nvm install 22`. Check: `node -v` prints v22 or higher.
 - **git** works on your repos. Install it with your package manager, for example `sudo apt install git`. Check: `git --version`.
 - **Claude Code**, installed and signed in: the daemon runs your own Claude Code with your settings. Install it with `npm install -g @anthropic-ai/claude-code`, run `claude`, then type `/login`. Check: `claude --version`.
 - **GitHub CLI 2.40 or newer**, signed in: conductor uses it to open pull requests. Install it as shown on [cli.github.com](https://cli.github.com/), then run `gh auth login`. Check: `gh --version` and `gh auth status`.
@@ -73,10 +73,12 @@ The daemon looks for git repos under its repo roots. Set yours (one or more fold
 ~/.conductor/bin/conductor-daemon config roots ~/code
 ```
 
-A running daemon rescans every 10 minutes. To apply the change now, restart it (Ctrl-C, then start it again), or send it a hang-up signal:
+A running daemon rescans every 10 minutes. To apply the change now, restart it: press Ctrl-C in its terminal, then start it again with `~/.conductor/bin/conductor-daemon`.
+
+Or, without restarting, send it a hang-up signal. This signals only the conductor daemon:
 
 ```
-kill -HUP $(pgrep -f conductor-daemon)
+pkill -HUP -f "$HOME/.conductor/daemon/current/dist/main.js"
 ```
 
 To see the current settings, run `~/.conductor/bin/conductor-daemon config show`.

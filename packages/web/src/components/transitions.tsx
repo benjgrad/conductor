@@ -191,14 +191,14 @@ function stateName(workflow: WorkflowDefinition, state: string): string {
 }
 
 /** The transition's title from the state it left, else the name humanised. */
-function moveTitle(workflow: WorkflowDefinition, move: MoveDto): string | null {
+export function moveTitle(workflow: WorkflowDefinition, move: MoveDto): string | null {
   if (move.transition === null) return null;
   const from = move.from === null ? undefined : workflow.states[move.from];
   const t = from && 'on' in from ? from.on?.[move.transition] : undefined;
   return transitionTitle(move.transition, t);
 }
 
-const timeFormat = new Intl.DateTimeFormat(undefined, {
+export const timeFormat = new Intl.DateTimeFormat(undefined, {
   month: 'short',
   day: 'numeric',
   hour: '2-digit',

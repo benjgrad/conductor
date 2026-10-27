@@ -5,6 +5,7 @@ import {
   BOARD_SSE_EVENT_TYPES,
   BoardResponseSchema,
   BoardSseEventSchema,
+  INPUT_REQUEST_TEXT_LIMIT,
   MachineDtoSchema,
   OutputChunkSchema,
   SNAPSHOT_FIXTURE,
@@ -441,6 +442,39 @@ describe('session detail', () => {
 
     const detail = SessionDetailSchema.parse((await get(`/api/sessions/${sessionId}`)).body);
     expect(detail.ticket_body).toBe(body);
+  });
+
+  it('UX-7: input_requests lists asked and answered requests, oldest first, clipped', async () => {
+    const { sessionId } = await seedSession('running');
+    const long = 'Q'.repeat(INPUT_REQUEST_TEXT_LIMIT + 904);
+    await db.pool.query(
+      'INSERT INTO input_request (session_id, kind, question, answer, answered_at, created_at) ' +
+        "VALUES ($1, 'agent_question', $2, 'Postgres', '2026-10-27T10:05:00Z', '2026-10-27T10:00:00Z')",
+      [sessionId, long],
+    );
+    await db.pool.query(
+      'INSERT INTO input_request (session_id, kind, question, created_at) ' +
+        "VALUES ($1, 'approval', 'Ship it?', '2026-10-27T11:00:00Z')",
+      [sessionId],
+    );
+
+    const detail = SessionDetailSchema.parse((await get(`/api/sessions/${sessionId}`)).body);
+    const [first, second] = detail.input_requests ?? [];
+    expect(detail.input_requests).toHaveLength(2);
+    expect(first).toMatchObject({
+      kind: 'agent_question',
+      answer: 'Postgres',
+      answered_at: '2026-10-27T10:05:00.000Z',
+      truncated: true,
+    });
+    expect(first!.question).toHaveLength(INPUT_REQUEST_TEXT_LIMIT);
+    expect(second).toMatchObject({
+      kind: 'approval',
+      question: 'Ship it?',
+      answer: null,
+      answered_at: null,
+      truncated: false,
+    });
   });
 
   it('hides a request a cancel left unanswered from the card and pending_input (TD-079)', async () => {

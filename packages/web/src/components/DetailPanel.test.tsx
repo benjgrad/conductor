@@ -27,7 +27,11 @@ import { ContextView } from './ContextView.js';
 import { OutputLog } from './OutputLog.js';
 import { implementerReport } from './review-fixture.js';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  // UX-7: the Details sections' open state is per session in localStorage; don't leak it.
+  localStorage.clear();
+});
 
 async function setup(title: string, patch?: (api: ReturnType<typeof createMockApi>) => void) {
   const api = createMockApi({ replyDelayMs: 0 });
@@ -241,6 +245,9 @@ describe('session panel tabs', () => {
     fireEvent.click(details);
     expect(details.getAttribute('aria-selected')).toBe('true');
     expect(panel.queryByRole('log')).toBeNull(); // hidden with its tab
+    // UX-7: the agent card is under Technical details, collapsed.
+    expect(panel.queryByRole('region', { name: 'Agent' })).toBeNull();
+    fireEvent.click(panel.getByRole('button', { name: /^Technical details/ }));
     expect(panel.getByRole('region', { name: 'Agent' })).toBeTruthy();
 
     fireEvent.keyDown(details, { key: 'ArrowLeft' });
@@ -255,6 +262,7 @@ describe('session panel tabs', () => {
     const name = agentName(SEED_IDS.running.ticket);
     expect(panel.getByRole('heading', { level: 2 }).parentElement?.textContent).toContain(name);
     fireEvent.click(panel.getByRole('tab', { name: 'Details' }));
+    fireEvent.click(panel.getByRole('button', { name: /^Technical details/ }));
     const agent = within(panel.getByRole('region', { name: 'Agent' }));
     expect(agent.getByRole('img', { name: `${name}'s avatar` }).tagName.toLowerCase()).toBe('svg');
     expect(agent.getByText('Claude Code agent')).toBeTruthy();
@@ -336,7 +344,7 @@ describe('composer', () => {
     expect(message.placeholder).toBe(`Message ${name}… (/ for commands)`);
     expect(await now.findByText('Also rename it in the docs')).toBeTruthy();
     expect(now.getByText('running')).toBeTruthy();
-    expect(now.getByText('Rename user.fullname')).toBeTruthy();
+    expect(now.getByRole('heading', { level: 2, name: 'Rename user.fullname' })).toBeTruthy();
   });
 
   it('/help explains reopening', async () => {
@@ -726,6 +734,7 @@ describe('Details context', () => {
     act(() => {
       fireEvent.click(panel.getByRole('tab', { name: 'Details' }));
     });
+    fireEvent.click(await panel.findByRole('button', { name: /^Technical details/ }));
     const ctx = within(panel.getByRole('region', { name: 'Context' }));
     expect(ctx.getByRole('link').textContent).toBe(
       'https://github.com/benjgrad/fixture-app/pull/7',

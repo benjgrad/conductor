@@ -56,7 +56,7 @@ function Tally({ brief }: { brief: Brief }) {
   );
 }
 
-function Requirements({
+export function Requirements({
   title,
   reqs,
   brief,

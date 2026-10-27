@@ -173,6 +173,7 @@ describe('moves timeline (ADR-0011)', () => {
     const panel = within(await screen.findByRole('complementary', { name: 'Session detail' }));
     await panel.findByRole('log');
     fireEvent.click(panel.getByRole('tab', { name: 'Details' }));
+    fireEvent.click(panel.getByRole('button', { name: /^Technical details/ }));
     const moves = within(panel.getByRole('region', { name: 'Moves' }));
     expect(moves.getAllByRole('listitem')).toHaveLength(3);
     expect(moves.getByText('— The plan names every file it changes.')).toBeTruthy();

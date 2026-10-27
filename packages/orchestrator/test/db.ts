@@ -123,7 +123,19 @@ export async function createTestDatabase(
     if (dropped) return;
     dropped = true;
     await pool.end();
-    await withAdmin((c) => c.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`));
+    await withAdmin(async (c) => {
+      // Let the pool's sockets finish closing first (bounded), so FORCE rarely has anyone to
+      // terminate: a 57P01 slipping past the listeners above still fails the run.
+      for (let i = 0; i < 100; i++) {
+        const r = await c.query<{ n: number }>(
+          'SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = $1',
+          [name],
+        );
+        if (r.rows[0]!.n === 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      await c.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+    });
   };
 
   try {

@@ -18,21 +18,29 @@ import { RecordingEngine } from './recording-engine.js';
 
 export interface Harness {
   gateway: DaemonGateway;
+  engine: RecordingEngine;
+  boardBus: InMemoryBoardBus;
   port: number;
   daemons: FakeDaemon[];
   stop(): Promise<void>;
 }
 
-export async function startGateway(db: Db, requireCredential: boolean): Promise<Harness> {
+export async function startGateway(
+  db: Db,
+  requireCredential: boolean,
+  opts: { closeGraceMs?: number } = {},
+): Promise<Harness> {
   const boardBus = new InMemoryBoardBus();
+  const engine = new RecordingEngine(db, boardBus);
   const gateway = createGateway({
     db,
-    engine: new RecordingEngine(db, boardBus),
+    engine,
     boardBus,
     outputBus: new InMemoryOutputBus(),
     log: () => {},
     security: { allowedOrigins: [] },
     requireCredential,
+    ...opts,
   });
   const server: Server = createServer((_req, res) => res.writeHead(404).end());
   gateway.attach(server);
@@ -40,6 +48,8 @@ export async function startGateway(db: Db, requireCredential: boolean): Promise<
   const daemons: FakeDaemon[] = [];
   return {
     gateway,
+    engine,
+    boardBus,
     port: (server.address() as AddressInfo).port,
     daemons,
     async stop() {

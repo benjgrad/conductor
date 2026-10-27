@@ -35,13 +35,17 @@ export async function claimWork(
   if (freeSlots <= 0) return { status: 'no_work', reason: 'no_free_slots' };
   try {
     return await withTransaction(db, async (tx) => {
-      // Machine-side hard filters (04 §1): online, below max_sessions.
+      // Machine-side hard filters (04 §1): online, not revoked, below max_sessions. FOR SHARE (not
+      // KEY SHARE: revoke changes no key column) serialises the claim against revokeMachine's
+      // machine UPDATE, so revoke sees and fails whatever a claim in flight commits (M2-T09b;
+      // 10-contracts §Machines protocol v2 R4).
       // TD: no cpu/mem reservation headroom check (04 §1) in M1.
       const m = await tx.query<{ tags: string[]; max_sessions: number; live: string }>(
         `SELECT m.tags, m.max_sessions,
                 (SELECT count(*) FROM session s
                   WHERE s.machine_id = m.id AND s.status = ANY($2::session_status[])) AS live
-           FROM machine m WHERE m.id = $1 AND m.status = 'online'`,
+           FROM machine m WHERE m.id = $1 AND m.status = 'online' AND m.revoked_at IS NULL
+            FOR SHARE OF m`,
         [machineId, LIVE_STATUSES],
       );
       const machine = m.rows[0];

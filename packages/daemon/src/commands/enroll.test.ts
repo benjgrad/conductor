@@ -59,9 +59,18 @@ afterEach(async () => {
   rmSync(tmp, { recursive: true, force: true });
 });
 
-function run(args: string[], root = join(tmp, 'root'), env: Record<string, string> = {}) {
+function run(
+  args: string[],
+  root = join(tmp, 'root'),
+  env: Record<string, string | undefined> = {},
+  stdin?: string,
+) {
   return enroll(args, {
     env: { CONDUCTOR_ROOT: root, ...env },
+    readStdin: () =>
+      stdin === undefined
+        ? Promise.reject(new Error('no stdin in this test'))
+        : Promise.resolve(stdin),
     facts: { cpuTotal: 4, memTotalMb: 8192, hostname: 'test-host', home: tmp },
     out: (l) => out.push(l),
     err: (l) => err.push(l),
@@ -236,6 +245,69 @@ describe('conductor-daemon enroll', () => {
     expect(await run(['--url', base, '--token', TOKEN, '--bogus'])).toBe(2);
     expect(requests).toHaveLength(0);
     expect(err.join('\n')).toMatch(/must be https/);
+    expect(err.join('\n')).toMatch(/usage: conductor-daemon enroll/);
+  });
+});
+
+describe('enroll token sources (TD-117)', () => {
+  const sentToken = () => (JSON.parse(requests[0]?.body ?? '{}') as { token?: string }).token;
+
+  it('takes the token from CONDUCTOR_ENROLL_TOKEN and removes it from the environment', async () => {
+    const env: Record<string, string | undefined> = {
+      CONDUCTOR_ROOT: join(tmp, 'root'),
+      CONDUCTOR_ENROLL_TOKEN: TOKEN,
+    };
+    const code = await enroll(['--url', base], {
+      env,
+      facts: { cpuTotal: 4, memTotalMb: 8192, hostname: 'test-host', home: tmp },
+      out: (l) => out.push(l),
+      err: (l) => err.push(l),
+    });
+    expect(code, err.join('\n')).toBe(0);
+    expect(sentToken()).toBe(TOKEN);
+    expect('CONDUCTOR_ENROLL_TOKEN' in env).toBe(false);
+    expect(loadCredential(join(tmp, 'root'))?.machine_id).toBe('m-123');
+    noSecrets();
+  });
+
+  it('--token wins over the environment, which is still removed', async () => {
+    const env: Record<string, string | undefined> = {
+      CONDUCTOR_ROOT: join(tmp, 'root'),
+      CONDUCTOR_ENROLL_TOKEN: 'env-token-unused',
+    };
+    const code = await enroll(['--url', base, '--token', TOKEN], {
+      env,
+      facts: { cpuTotal: 4, memTotalMb: 8192, hostname: 'test-host', home: tmp },
+      out: (l) => out.push(l),
+      err: (l) => err.push(l),
+    });
+    expect(code).toBe(0);
+    expect(sentToken()).toBe(TOKEN);
+    expect('CONDUCTOR_ENROLL_TOKEN' in env).toBe(false);
+  });
+
+  it('--token - reads the first line of stdin', async () => {
+    expect(await run(['--url', base, '--token', '-'], undefined, {}, `${TOKEN}\r\nrest\n`)).toBe(0);
+    expect(sentToken()).toBe(TOKEN);
+    noSecrets();
+  });
+
+  it('an empty or over-long token from stdin or the environment is the same usage error', async () => {
+    expect(await run(['--url', base, '--token', '-'], undefined, {}, '\n')).toBe(2);
+    expect(await run(['--url', base, '--token', '-'], undefined, {}, 'x'.repeat(513))).toBe(2);
+    expect(await run(['--url', base], undefined, { CONDUCTOR_ENROLL_TOKEN: 'x'.repeat(513) })).toBe(
+      2,
+    );
+    expect(requests).toHaveLength(0);
+    expect(err.filter((l) => l.includes('--token is not a valid enrollment token'))).toHaveLength(
+      3,
+    );
+  });
+
+  it('no token anywhere is a usage error naming both sources', async () => {
+    expect(await run(['--url', base], undefined, { CONDUCTOR_ENROLL_TOKEN: '' })).toBe(2);
+    expect(requests).toHaveLength(0);
+    expect(err.join('\n')).toContain('missing --token (or CONDUCTOR_ENROLL_TOKEN)');
     expect(err.join('\n')).toMatch(/usage: conductor-daemon enroll/);
   });
 });

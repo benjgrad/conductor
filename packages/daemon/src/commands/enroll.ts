@@ -13,9 +13,15 @@ import {
 // §Enrollment, ADR-0017 §Daemon distribution): trade a one-time enrollment token for the machine
 // id and credential, saved to `<root>/machine.json`. Checks the root before the request so a
 // refused run doesn't spend the token. Never prints the credential or the token.
+// TD-117 (M2-T14): the token can stay off argv: `--token -` reads it from stdin, and without
+// `--token` it comes from CONDUCTOR_ENROLL_TOKEN (what install.sh uses). The variable is removed
+// from the environment first thing, so no child process ever inherits it.
+
+export const ENROLL_TOKEN_ENV = 'CONDUCTOR_ENROLL_TOKEN';
 
 export const ENROLL_USAGE =
-  'usage: conductor-daemon enroll --url <https url> --token <token> [--force]';
+  'usage: conductor-daemon enroll --url <https url> [--token <token> | --token -] [--force]\n' +
+  `       (without --token: the token from ${ENROLL_TOKEN_ENV}; --token - reads it from stdin)`;
 
 const ENROLL_TIMEOUT_MS = 15_000;
 
@@ -25,6 +31,14 @@ export interface EnrollDeps {
   fetch: typeof globalThis.fetch;
   out: (line: string) => void;
   err: (line: string) => void;
+  /** All of stdin, for `--token -`. */
+  readStdin: () => Promise<string>;
+}
+
+async function readProcessStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+  return Buffer.concat(chunks).toString('utf8');
 }
 
 function defaultDeps(): EnrollDeps {
@@ -34,6 +48,7 @@ function defaultDeps(): EnrollDeps {
     fetch: globalThis.fetch,
     out: (l) => process.stdout.write(`${l}\n`),
     err: (l) => process.stderr.write(`[conductor-daemon] ${l}\n`),
+    readStdin: readProcessStdin,
   };
 }
 
@@ -74,6 +89,9 @@ function causeOf(e: unknown): string {
 /** Run `enroll`; returns the exit code (0 ok, 1 failed, 2 usage). */
 export async function enroll(argv: string[], deps: Partial<EnrollDeps> = {}): Promise<number> {
   const d = { ...defaultDeps(), ...deps };
+  // Taken out of the environment before anything else runs (TD-117); never logged.
+  const envToken = d.env[ENROLL_TOKEN_ENV];
+  delete d.env[ENROLL_TOKEN_ENV];
   let values: { url?: string; token?: string; force?: boolean };
   try {
     ({ values } = parseArgs({
@@ -91,8 +109,27 @@ export async function enroll(argv: string[], deps: Partial<EnrollDeps> = {}): Pr
     d.err(ENROLL_USAGE);
     return 2;
   }
-  if (!values.url || !values.token) {
-    d.err(`missing ${!values.url ? '--url' : '--token'}`);
+  if (!values.url) {
+    d.err('missing --url');
+    d.err(ENROLL_USAGE);
+    return 2;
+  }
+  let token = values.token;
+  if (token === '-') {
+    let input: string;
+    try {
+      input = await d.readStdin();
+    } catch (e) {
+      d.err(`--token -: cannot read stdin: ${e instanceof Error ? e.message : String(e)}`);
+      return 2;
+    }
+    // The first line, without its line ending.
+    token = input.split(/\r?\n/, 1)[0] ?? '';
+  } else if (token === undefined && envToken !== undefined && envToken !== '') {
+    token = envToken;
+  }
+  if (token === undefined) {
+    d.err(`missing --token (or ${ENROLL_TOKEN_ENV})`);
     d.err(ENROLL_USAGE);
     return 2;
   }
@@ -111,7 +148,7 @@ export async function enroll(argv: string[], deps: Partial<EnrollDeps> = {}): Pr
   }
 
   const request = EnrollRequestSchema.safeParse({
-    token: values.token,
+    token,
     hostname: d.facts.hostname,
     os: platform(),
     arch: arch(),

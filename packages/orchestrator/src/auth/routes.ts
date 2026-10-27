@@ -13,8 +13,11 @@ import { withTransaction } from '../db/index.js';
 import type { Db } from '../main.js';
 import type { AuthConfig } from './config.js';
 import { clearedSessionCookie, parseCookie, sessionCookie } from './middleware.js';
+import { registerInviteRoutes } from './invites.js';
 import { DUMMY_HASH, type PasswordHasher } from './password.js';
+import { registerResetRoutes } from './reset.js';
 import { createSession, revokeSession, revokeUserSessions, sessionIdHash } from './sessions.js';
+import { registerSignupRoutes } from './signup.js';
 import {
   isLocked,
   rateLimitRouteConfig,
@@ -26,6 +29,8 @@ import {
 // M2-T08: sign-in routes (ADR-0017 §Auth: behaviour; 10-contracts §Accounts and web auth).
 // GET /api/me in both modes; POST /auth/login, /auth/logout and /auth/password in password mode
 // only (local mode has no sign-in: they are 404 there).
+// M2-T15a: the invite preview, sign-up and reset routes (invites.ts, signup.ts, reset.ts) are
+// registered here too, password mode only, so the per-IP limits apply to them.
 
 export interface AuthRouteDeps {
   db: Db;
@@ -67,6 +72,10 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): P
   });
 
   if (auth.mode === 'local') return Promise.resolve();
+
+  registerInviteRoutes(app, deps);
+  registerSignupRoutes(app, deps);
+  registerResetRoutes(app, deps);
 
   const failed = (reply: Parameters<typeof sendError>[0]) =>
     sendError(reply, 401, 'unauthorized', LOGIN_FAILED_MESSAGE);

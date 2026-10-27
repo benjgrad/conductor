@@ -38,6 +38,8 @@ export const InputRequestKindSchema = z.enum([
   'retries_exhausted',
   'timeout',
   'approval',
+  /** M2-T02 `machine.lost` (MACHINE_LOST_KIND): the machine running the session is gone. */
+  'machine_lost',
 ]);
 export type InputRequestKind = z.infer<typeof InputRequestKindSchema>;
 

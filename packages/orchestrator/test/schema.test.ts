@@ -1,7 +1,10 @@
+import { randomBytes } from 'node:crypto';
+import { readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   InputRequestKindSchema,
+  LOCAL_ACCOUNT_ID,
   MachineStatusSchema,
   OutboxKindSchema,
   OutboxStatusSchema,
@@ -14,21 +17,39 @@ import { DatabaseError } from 'pg';
 import { describe, expect, it } from 'vitest';
 import { createDb, withTransaction } from '../src/db/index.js';
 import type {
+  AccountMemberRow,
+  AccountRow,
+  AppUserRow,
   EventRow,
   InputRequestRow,
+  InviteRow,
+  LoginThrottleRow,
   MachineRepoRow,
   MachineRow,
   OutboxRow,
+  PasswordResetRow,
   SessionRow,
   Tables,
   TicketRow,
+  WebSessionRow,
   WorkflowDefinitionRow,
 } from '../src/db/types.js';
 import { createTestDatabase, useTestDatabase } from './db.js';
 
-// M1-T02 schema tests. Needs the shared server: `pnpm db:up`.
+// M1-T02 schema tests (M2-T03: accounts and sign-in). Needs the shared server: `pnpm db:up`.
 
 const migrationsDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'migrations');
+/** Migration files in run order; `migrationsBefore(f)` = the `up` count that stops just before f. */
+const FILES = readdirSync(migrationsDir)
+  .filter((f) => f.endsWith('.sql'))
+  .sort();
+function migrationsBefore(file: string): number {
+  const i = FILES.indexOf(file);
+  if (i < 0) throw new Error(`no migration ${file}`);
+  return i;
+}
+const TICKET_KIND = '1761500000000_ticket-kind.sql';
+const ACCOUNTS = '1761600000000_accounts-and-auth.sql';
 
 // ------------------------------------------------------------------ DDL ⇄ db/types.ts
 //
@@ -45,17 +66,19 @@ type EnumUdt =
   | 'outbox_kind'
   | 'outbox_status';
 type Udt<T> =
-  NonNullable<T> extends Date
-    ? 'timestamptz'
-    : NonNullable<T> extends boolean
-      ? 'bool'
-      : NonNullable<T> extends number
-        ? 'int4'
-        : NonNullable<T> extends string[]
-          ? '_text'
-          : NonNullable<T> extends string
-            ? 'text' | 'uuid' | 'int8' | 'numeric' | 'int4range' | EnumUdt
-            : 'jsonb';
+  NonNullable<T> extends Buffer
+    ? 'bytea'
+    : NonNullable<T> extends Date
+      ? 'timestamptz'
+      : NonNullable<T> extends boolean
+        ? 'bool'
+        : NonNullable<T> extends number
+          ? 'int4'
+          : NonNullable<T> extends string[]
+            ? '_text'
+            : NonNullable<T> extends string
+              ? 'text' | 'uuid' | 'int8' | 'numeric' | 'int4range' | EnumUdt
+              : 'jsonb';
 type ColumnSpec<R> = {
   [K in keyof R]-?: { udt: Udt<R[K]>; nullable: null extends R[K] ? true : false };
 };
@@ -68,6 +91,7 @@ const NULL = true as const;
 
 const machine: ColumnSpec<MachineRow> = {
   id: col(t, NN),
+  account_id: col('uuid', NN),
   hostname: col(t, NN),
   os: col(t, NN),
   arch: col(t, NN),
@@ -90,6 +114,7 @@ const machine: ColumnSpec<MachineRow> = {
 };
 const machine_repo: ColumnSpec<MachineRepoRow> = {
   machine_id: col(t, NN),
+  account_id: col('uuid', NN),
   repo: col(t, NN),
   path: col(t, NN),
   head_commit: col(t, NN),
@@ -98,6 +123,7 @@ const machine_repo: ColumnSpec<MachineRepoRow> = {
 };
 const ticket: ColumnSpec<TicketRow> = {
   id: col('uuid', NN),
+  account_id: col('uuid', NN),
   external_ref: col(t, NULL),
   repo: col(t, NN),
   title: col(t, NN),
@@ -116,12 +142,14 @@ const ticket: ColumnSpec<TicketRow> = {
 const workflow_definition: ColumnSpec<WorkflowDefinitionRow> = {
   id: col(t, NN),
   version: col('int4', NN),
+  account_id: col('uuid', NN),
   definition: col('jsonb', NN),
   created_at: col('timestamptz', NN),
   created_by: col(t, NULL),
 };
 const session: ColumnSpec<SessionRow> = {
   id: col('uuid', NN),
+  account_id: col('uuid', NN),
   ticket_id: col('uuid', NN),
   machine_id: col(t, NULL),
   workflow_id: col(t, NN),
@@ -152,6 +180,7 @@ const session: ColumnSpec<SessionRow> = {
 };
 const input_request: ColumnSpec<InputRequestRow> = {
   id: col('uuid', NN),
+  account_id: col('uuid', NN),
   session_id: col('uuid', NN),
   kind: col('input_request_kind', NN),
   question: col(t, NN),
@@ -163,6 +192,7 @@ const input_request: ColumnSpec<InputRequestRow> = {
 };
 const event: ColumnSpec<EventRow> = {
   id: col('int8', NN),
+  account_id: col('uuid', NN),
   session_id: col('uuid', NULL),
   type: col(t, NN),
   payload: col('jsonb', NN),
@@ -171,6 +201,7 @@ const event: ColumnSpec<EventRow> = {
 };
 const outbox: ColumnSpec<OutboxRow> = {
   id: col('int8', NN),
+  account_id: col('uuid', NN),
   command_id: col('uuid', NN),
   target: col(t, NN),
   kind: col('outbox_kind', NN),
@@ -184,6 +215,67 @@ const outbox: ColumnSpec<OutboxRow> = {
   last_error: col(t, NULL),
   created_at: col('timestamptz', NN),
 };
+// M2-T03: the instance-level tables (ADR-0017 §Auth: schema sketch).
+const account: ColumnSpec<AccountRow> = {
+  id: col('uuid', NN),
+  name: col(t, NN),
+  created_at: col('timestamptz', NN),
+};
+const app_user: ColumnSpec<AppUserRow> = {
+  id: col('uuid', NN),
+  email: col(t, NN),
+  display_name: col(t, NN),
+  password_hash: col(t, NN),
+  is_admin: col('bool', NN),
+  disabled_at: col('timestamptz', NULL),
+  password_changed_at: col('timestamptz', NN),
+  created_at: col('timestamptz', NN),
+};
+const account_member: ColumnSpec<AccountMemberRow> = {
+  account_id: col('uuid', NN),
+  user_id: col('uuid', NN),
+  role: col(t, NN),
+  created_at: col('timestamptz', NN),
+};
+const web_session: ColumnSpec<WebSessionRow> = {
+  id_hash: col('bytea', NN),
+  user_id: col('uuid', NN),
+  account_id: col('uuid', NN),
+  created_at: col('timestamptz', NN),
+  last_seen_at: col('timestamptz', NN),
+  expires_at: col('timestamptz', NN),
+  user_agent: col(t, NULL),
+  ip: col(t, NULL),
+};
+const invite: ColumnSpec<InviteRow> = {
+  id: col('uuid', NN),
+  token_hash: col('bytea', NN),
+  created_by: col('uuid', NULL),
+  email: col(t, NULL),
+  is_admin: col('bool', NN),
+  claims_account: col('uuid', NULL),
+  created_at: col('timestamptz', NN),
+  expires_at: col('timestamptz', NN),
+  used_at: col('timestamptz', NULL),
+  used_by: col('uuid', NULL),
+  revoked_at: col('timestamptz', NULL),
+};
+const password_reset: ColumnSpec<PasswordResetRow> = {
+  id: col('uuid', NN),
+  token_hash: col('bytea', NN),
+  user_id: col('uuid', NN),
+  created_by: col('uuid', NULL),
+  created_at: col('timestamptz', NN),
+  expires_at: col('timestamptz', NN),
+  used_at: col('timestamptz', NULL),
+};
+const login_throttle: ColumnSpec<LoginThrottleRow> = {
+  email_norm: col(t, NN),
+  failures: col('int4', NN),
+  lockouts: col('int4', NN),
+  locked_until: col('timestamptz', NULL),
+  updated_at: col('timestamptz', NN),
+};
 const SCHEMA: Schema = {
   machine,
   machine_repo,
@@ -193,7 +285,32 @@ const SCHEMA: Schema = {
   input_request,
   event,
   outbox,
+  account,
+  app_user,
+  account_member,
+  web_session,
+  invite,
+  password_reset,
+  login_throttle,
 };
+/** The tables M1/M1b created: every one carries `account_id` since M2-T03. */
+const M1_TABLES = [
+  'machine',
+  'machine_repo',
+  'workflow_definition',
+  'ticket',
+  'session',
+  'input_request',
+  'event',
+  'outbox',
+] as const;
+const M1B_INPUT_REQUEST_KINDS = [
+  'agent_question',
+  'budget_exceeded',
+  'retries_exhausted',
+  'timeout',
+  'approval',
+];
 const TABLES = Object.keys(SCHEMA).sort();
 
 const ENUMS: Record<EnumUdt, readonly string[]> = {
@@ -278,7 +395,7 @@ describe('migrations', () => {
       (await db.pool.query("SELECT 1 FROM pg_type WHERE typname = 'ticket_kind'")).rowCount;
     try {
       // The M1 schema (every migration before ticket-kind) with a ticket in it.
-      await migrate(db.url, 'up', 4);
+      await migrate(db.url, 'up', migrationsBefore(TICKET_KIND));
       expect(await kindColumn()).toBe(0);
       await db.pool.query(
         "INSERT INTO workflow_definition (id, version, definition) VALUES ('wf_m1', 1, '{}')",
@@ -302,12 +419,113 @@ describe('migrations', () => {
         '22P02',
       );
 
-      await migrate(db.url, 'down', 1);
+      // Down to just before ticket-kind (later migrations are undone first).
+      await migrate(db.url, 'down', FILES.length - migrationsBefore(TICKET_KIND));
       expect([await kindColumn(), await kindType()]).toEqual([0, 0]);
       expect((await db.pool.query('SELECT 1 FROM ticket')).rowCount).toBe(2);
 
       await migrate(db.url, 'up');
       expect([await kindColumn(), await kindType()]).toEqual([1, 1]);
+    } finally {
+      await db.drop();
+    }
+  }, 60_000);
+
+  it('accounts-and-auth (M2-T03): M1b rows end in the local account; down restores M1b', async () => {
+    const db = await createTestDatabase({ migrate: false });
+    const q = (text: string, values?: unknown[]) => db.pool.query(text, values);
+    const accountIdColumns = async () =>
+      (
+        await q(
+          `SELECT table_name FROM information_schema.columns
+           WHERE table_schema = 'public' AND column_name = 'account_id' ORDER BY 1`,
+        )
+      ).rows.map((r) => (r as { table_name: string }).table_name);
+    const kindLabels = async () =>
+      (
+        await q(
+          `SELECT array_agg(e.enumlabel::text ORDER BY e.enumsortorder) AS labels
+           FROM pg_type t JOIN pg_enum e ON e.enumtypid = t.oid
+           WHERE t.typname = 'input_request_kind'`,
+        )
+      ).rows[0] as { labels: string[] };
+    const counts = async () => {
+      const out: Record<string, string> = {};
+      for (const table of M1_TABLES) {
+        const { rows } = await q(`SELECT count(*) AS n FROM ${table}`);
+        out[table] = (rows[0] as { n: string }).n;
+      }
+      return out;
+    };
+    const expectAllLocal = async () => {
+      for (const table of M1_TABLES) {
+        const { rows } = await q(`SELECT DISTINCT account_id FROM ${table}`);
+        expect([table, rows]).toEqual([table, [{ account_id: LOCAL_ACCOUNT_ID }]]);
+      }
+      const { rows } = await q('SELECT id, name FROM account');
+      expect(rows).toEqual([{ id: LOCAL_ACCOUNT_ID, name: 'local' }]);
+    };
+    try {
+      // The M1b schema with one row in every table.
+      await migrate(db.url, 'up', migrationsBefore(ACCOUNTS));
+      expect(await accountIdColumns()).toEqual([]);
+      await q(
+        `INSERT INTO machine (id, hostname, os, arch, cpu_total, mem_total_mb, disk_free_mb,
+           budget_cpu, budget_mem_mb, max_sessions, max_concurrent_builds)
+         VALUES ('m-m1b', 'box', 'darwin', 'arm64', 10, 1, 1, 1, 1, 1, 1)`,
+      );
+      await q(
+        `INSERT INTO machine_repo (machine_id, repo, path, head_commit, tree_clean)
+         VALUES ('m-m1b', 'github.com/o/r', '/src/r', 'abc', true)`,
+      );
+      await q("INSERT INTO workflow_definition (id, version, definition) VALUES ('wf', 1, '{}')");
+      const tk = await q(
+        `INSERT INTO ticket (repo, title, workflow_id, kind)
+         VALUES ('github.com/o/r', 'm1b', 'wf', 'work') RETURNING id`,
+      );
+      const ticketId = (tk.rows[0] as { id: string }).id;
+      const ss = await q(
+        `INSERT INTO session (ticket_id, machine_id, workflow_id, workflow_version)
+         VALUES ($1, 'm-m1b', 'wf', 1) RETURNING id`,
+        [ticketId],
+      );
+      const sessionId = (ss.rows[0] as { id: string }).id;
+      await q(
+        "INSERT INTO input_request (session_id, kind, question) VALUES ($1, 'approval', 'ok?')",
+        [sessionId],
+      );
+      await q("INSERT INTO event (session_id, type) VALUES ($1, 'state.entered')", [sessionId]);
+      await q(
+        `INSERT INTO outbox (command_id, target, kind, session_id, payload)
+         VALUES (gen_random_uuid(), 'machine:m-m1b', 'kill', $1, '{}')`,
+        [sessionId],
+      );
+      const before = await counts();
+      expect(Object.values(before)).toEqual(M1_TABLES.map(() => '1'));
+
+      await migrate(db.url, 'up');
+      expect(await accountIdColumns()).toEqual(
+        [...M1_TABLES, 'account_member', 'web_session'].sort(),
+      );
+      await expectAllLocal();
+      // The temporary default (TD-109) keeps M1 inserts working.
+      await q("INSERT INTO event (session_id, type) VALUES ($1, 'state.entered')", [sessionId]);
+      await q(
+        "INSERT INTO input_request (session_id, kind, question) VALUES ($1, 'machine_lost', 'm?')",
+        [sessionId],
+      );
+      await expectAllLocal();
+
+      await migrate(db.url, 'down', 1);
+      expect(await accountIdColumns()).toEqual([]);
+      expect(await publicTables(db.pool)).toEqual([...M1_TABLES].sort());
+      expect(await kindLabels()).toEqual({ labels: M1B_INPUT_REQUEST_KINDS });
+      // Every M1b row survives; the machine_lost request is dropped with its enum value.
+      expect(await counts()).toEqual({ ...before, event: '2' });
+
+      await migrate(db.url, 'up');
+      await expectAllLocal();
+      expect(await kindLabels()).toEqual({ labels: InputRequestKindSchema.options });
     } finally {
       await db.drop();
     }
@@ -360,6 +578,25 @@ describe('schema (migrated test database)', () => {
     expect(defs.input_request_open_idx).toMatch(/\(session_id\) WHERE \(answer IS NULL\)$/);
     expect(defs.event_session_id_idx).toMatch(/ON public\.event USING btree \(session_id, id\)$/);
     expect(defs.outbox_command_id_key).toMatch(/^CREATE UNIQUE INDEX .* \(command_id\)$/);
+
+    // M2-T03.
+    expect(defs.app_user_email_key).toMatch(
+      /^CREATE UNIQUE INDEX .* ON public\.app_user USING btree \(lower\(email\)\)$/,
+    );
+    expect(defs.web_session_user_id_idx).toMatch(/ON public\.web_session USING btree \(user_id\)$/);
+    expect(defs.web_session_expires_at_idx).toMatch(
+      /ON public\.web_session USING btree \(expires_at\)$/,
+    );
+    expect(defs.account_member_user_id_idx).toMatch(/\(user_id\)$/);
+    expect(defs.invite_token_hash_key).toMatch(/^CREATE UNIQUE INDEX .* \(token_hash\)$/);
+    expect(defs.password_reset_token_hash_key).toMatch(/^CREATE UNIQUE INDEX .* \(token_hash\)$/);
+    for (const table of M1_TABLES) {
+      const columns = table === 'event' ? 'account_id, id' : 'account_id';
+      expect([table, defs[`${table}_account_id_idx`]]).toEqual([
+        table,
+        `CREATE INDEX ${table}_account_id_idx ON public.${table} USING btree (${columns})`,
+      ]);
+    }
   });
 
   it('inserts and reads back one row per table', async () => {
@@ -445,6 +682,58 @@ describe('schema (migrated test database)', () => {
     );
     expect(ob.rows[0]).toMatchObject({ status: 'pending', attempts: 0, last_error: null });
 
+    // M1 inserts don't name account_id: the temporary default (TD-109) puts them in `local`.
+    for (const row of [m, mr, wf, tk, s, ir, ev, ob].map((r) => r.rows[0])) {
+      expect(row).toMatchObject({ account_id: LOCAL_ACCOUNT_ID });
+    }
+
+    // M2-T03 instance tables; `account` keeps only the migration's `local` row.
+    const u = await pool.query<AppUserRow>(
+      `INSERT INTO app_user (email, display_name, password_hash)
+       VALUES ('Ben@Example.com', 'Ben', '$argon2id$v=19$m=19456,t=2,p=1$c2FsdA$aGFzaA')
+       RETURNING *`,
+    );
+    const user = u.rows[0]!;
+    expect(user).toMatchObject({ is_admin: false, disabled_at: null });
+    expect(user.password_changed_at).toBeInstanceOf(Date);
+
+    const am = await pool.query<AccountMemberRow>(
+      `INSERT INTO account_member (account_id, user_id, role) VALUES ($1, $2, 'owner')
+       RETURNING *`,
+      [LOCAL_ACCOUNT_ID, user.id],
+    );
+    expect(am.rows[0]).toMatchObject({ role: 'owner' });
+
+    const idHash = randomBytes(32);
+    const ws = await pool.query<WebSessionRow>(
+      `INSERT INTO web_session (id_hash, user_id, account_id, expires_at)
+       VALUES ($1, $2, $3, now() + interval '30 days') RETURNING *`,
+      [idHash, user.id, LOCAL_ACCOUNT_ID],
+    );
+    expect(Buffer.isBuffer(ws.rows[0]?.id_hash)).toBe(true);
+    expect(ws.rows[0]?.id_hash.equals(idHash)).toBe(true);
+    expect(ws.rows[0]).toMatchObject({ user_agent: null, ip: null });
+
+    const inv = await pool.query<InviteRow>(
+      `INSERT INTO invite (token_hash, claims_account, expires_at)
+       VALUES ($1, $2, now() + interval '1 hour') RETURNING *`,
+      [randomBytes(32), LOCAL_ACCOUNT_ID],
+    );
+    expect(inv.rows[0]).toMatchObject({ created_by: null, is_admin: false, used_at: null });
+    expect(Buffer.isBuffer(inv.rows[0]?.token_hash)).toBe(true);
+
+    const pr = await pool.query<PasswordResetRow>(
+      `INSERT INTO password_reset (token_hash, user_id, expires_at)
+       VALUES ($1, $2, now() + interval '1 hour') RETURNING *`,
+      [randomBytes(32), user.id],
+    );
+    expect(pr.rows[0]).toMatchObject({ created_by: null, used_at: null });
+
+    const lt = await pool.query<LoginThrottleRow>(
+      "INSERT INTO login_throttle (email_norm) VALUES ('ben@example.com') RETURNING *",
+    );
+    expect(lt.rows[0]).toMatchObject({ failures: 0, lockouts: 0, locked_until: null });
+
     // Every table has exactly the row just written.
     for (const table of TABLES) {
       const { rows } = await pool.query<{ n: string }>(`SELECT count(*) AS n FROM ${table}`);
@@ -470,6 +759,72 @@ describe('schema (migrated test database)', () => {
       );
     await insert();
     await expectPgError(insert(), '23505', 'outbox_command_id_key');
+  });
+
+  describe('accounts and sign-in constraints (M2-T03)', () => {
+    const user = async (email: string) =>
+      (
+        await db.pool.query<{ id: string }>(
+          "INSERT INTO app_user (email, display_name, password_hash) VALUES ($1, 'x', 'h') RETURNING id",
+          [email],
+        )
+      ).rows[0]!.id;
+
+    it('emails are unique case-insensitively', async () => {
+      await user('Dup@Example.com');
+      await expectPgError(user('dup@example.COM'), '23505', 'app_user_email_key');
+    });
+
+    it('token hashes are unique and 32 bytes', async () => {
+      const hash = randomBytes(32);
+      const invite = (h: Buffer) =>
+        db.pool.query('INSERT INTO invite (token_hash, expires_at) VALUES ($1, now())', [h]);
+      await invite(hash);
+      await expectPgError(invite(hash), '23505', 'invite_token_hash_key');
+      await expectPgError(invite(randomBytes(16)), '23514');
+      const id = await user('reset@example.com');
+      const reset = (h: Buffer) =>
+        db.pool.query(
+          'INSERT INTO password_reset (token_hash, user_id, expires_at) VALUES ($1, $2, now())',
+          [h, id],
+        );
+      await reset(hash);
+      await expectPgError(reset(hash), '23505', 'password_reset_token_hash_key');
+      await expectPgError(
+        db.pool.query(
+          `INSERT INTO web_session (id_hash, user_id, account_id, expires_at)
+           VALUES ($1, $2, $3, now())`,
+          [randomBytes(31), id, LOCAL_ACCOUNT_ID],
+        ),
+        '23514',
+      );
+    });
+
+    it('account_member.role is owner or member', async () => {
+      const id = await user('role@example.com');
+      await expectPgError(
+        db.pool.query(
+          "INSERT INTO account_member (account_id, user_id, role) VALUES ($1, $2, 'admin')",
+          [LOCAL_ACCOUNT_ID, id],
+        ),
+        '23514',
+      );
+    });
+
+    it('account_id must name an account', async () => {
+      await db.pool.query(
+        `INSERT INTO workflow_definition (id, version, definition) VALUES ('wf_acct', 1, '{}')
+         ON CONFLICT DO NOTHING`,
+      );
+      await expectPgError(
+        db.pool.query(
+          `INSERT INTO ticket (repo, title, workflow_id, account_id)
+           VALUES ('r', 't', 'wf_acct', gen_random_uuid())`,
+        ),
+        '23503',
+        'ticket_account_id_fkey',
+      );
+    });
   });
 
   describe('session_one_live_per_ticket', () => {

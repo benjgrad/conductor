@@ -6,6 +6,7 @@ export const KIND_LABELS: Record<InputRequestKind, string> = {
   budget_exceeded: 'Budget exceeded',
   timeout: 'Timed out',
   approval: 'Approval',
+  machine_lost: 'Machine lost',
 };
 
 export const STATUS_LABELS: Record<SessionStatus, string> = {

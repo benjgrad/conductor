@@ -1,6 +1,6 @@
 # 02 · Data model
 
-`session` is the hub. It runs on a `machine`, works on a `ticket`, can be blocked by an `input_request`, and has an `event` history. `ticket` follows a `workflow_definition`. `machine_repo` belongs to `machine`.
+`session` is the hub. It runs on a `machine`, works on a `ticket`, can be blocked by an `input_request`, and has an `event` history. `ticket` follows a `workflow_definition`. `machine_repo` belongs to `machine`. Every one of those rows belongs to an `account` ([ADR-0012](../adr/0012-hosted-multi-user-github-sign-in.md) §Tenancy); people (`app_user`) sign in ([ADR-0017](../adr/0017-own-sign-in-and-self-hosting.md)) and own their account through `account_member`.
 
 ```mermaid
 erDiagram
@@ -11,11 +11,17 @@ erDiagram
   session ||--o{ input_request : "blocked by"
   session ||--o{ event : "history"
   session ||--o{ outbox : "emits"
+  account ||--o{ ticket : "owns (and every table above)"
+  account ||--o{ account_member : "has"
+  app_user ||--o{ account_member : "belongs via"
+  app_user ||--o{ web_session : "signed in as"
 ```
 
 ## Tables
 
-The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.sql` (M1-T02, plain node-pg-migrate SQL) plus the later migrations in that directory (`1761200000000_machine-claude-code-version.sql`, M1-T07; `1761500000000_ticket-kind.sql`, M1b-T04), and this doc is updated when it diverges. `packages/orchestrator/test/schema.test.ts` checks every column's name, pg type and nullability against the row types, and every enum against `shared/src/domain.ts`. Enums are Postgres enum types named `<table>_<column>` (`machine_status`, `ticket_status`, `ticket_kind`, `session_status`, `input_request_kind`, `outbox_kind`, `outbox_status`). Nullability follows the row types exactly (a `| null` field is a nullable column, everything else is `NOT NULL`), including columns this table doesn't mark null (e.g. `lease_expires_at`, `worktree_path`, `port_range`); `jsonb` maps default to `'{}'`, `text[]` to `'{}'`, counters and money to 0, timestamps to `now()`, uuid keys to `gen_random_uuid()`. The TypeScript row types are pinned in `packages/orchestrator/src/db/types.ts` (M1-T12, [10](10-contracts.md)); they use node-postgres' default parsing (`bigint`/`numeric` → string, `timestamptz` → Date).
+The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.sql` (M1-T02, plain node-pg-migrate SQL) plus the later migrations in that directory (`1761200000000_machine-claude-code-version.sql`, M1-T07; `1761500000000_ticket-kind.sql`, M1b-T04; `1761600000000_accounts-and-auth.sql`, M2-T03), and this doc is updated when it diverges. `packages/orchestrator/test/schema.test.ts` checks every column's name, pg type and nullability against the row types, and every enum against `shared/src/domain.ts`. Enums are Postgres enum types named `<table>_<column>` (`machine_status`, `ticket_status`, `ticket_kind`, `session_status`, `input_request_kind`, `outbox_kind`, `outbox_status`). Nullability follows the row types exactly (a `| null` field is a nullable column, everything else is `NOT NULL`), including columns this table doesn't mark null (e.g. `lease_expires_at`, `worktree_path`, `port_range`); `jsonb` maps default to `'{}'`, `text[]` to `'{}'`, counters and money to 0, timestamps to `now()`, uuid keys to `gen_random_uuid()`. The TypeScript row types are pinned in `packages/orchestrator/src/db/types.ts` (M1-T12, [10](10-contracts.md)); they use node-postgres' default parsing (`bigint`/`numeric` → string, `timestamptz` → Date, `bytea` → Buffer).
+
+**Tenancy (M2-T03).** Every table carries `account_id uuid NOT NULL REFERENCES account (id)`, except the instance-level tables (`account`, `app_user`, `account_member`, `web_session`, `invite`, `password_reset`, `login_throttle`) and `pgmigrations`. `packages/orchestrator/test/schema-isolation.test.ts` enforces it (ADR-0012 §Proving isolation 1), so a new table either carries the column or joins that allow-list in review. Migration `1761600000000_accounts-and-auth` inserts the `local` account (`LOCAL_ACCOUNT_ID` = `00000000-0000-4000-8000-000000000001`, `packages/shared/src/domain.ts`) and adds `account_id` to the eight M1 tables with a constant `DEFAULT` of that id, which backfills every existing row into `local`. **The default is temporary** (TD-109): it lets M1 code keep inserting without naming an account, and M2-T21 drops it once every write is scoped. The down migration drops the column, the seven tables and the `machine_lost` kind (deleting any such requests), restoring the M1b schema. In the account_id rows below, "account_id (M2-T03)" means: uuid FK `account`, NOT NULL, backfilled to `local`, temporary default TD-109 until M2-T21, indexed (`<table>_account_id_idx`).
 
 ### machine
 | column | type | notes |
@@ -32,6 +38,7 @@ The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.
 | max_concurrent_builds | int | daemon build semaphore size |
 | last_seq | bigint null | highest daemon `seq` processed; the `(machine_id, seq)` dedupe and `registered.last_seq` ([10](10-contracts.md#daemon-seq-dedupe)) |
 | claude_code_version | text null | `register.claude_code_version` (`claude --version`), stored on every register so stream-json drift can be tied to a CLI version ([U-015](../tracking/UNKNOWNS.md), [U-032](../tracking/UNKNOWNS.md)). null = the daemon couldn't run the CLI. M1-T07 migration |
+| account_id | uuid fk account | M2-T03 (see Tenancy above) |
 | created_at, updated_at | timestamptz | |
 
 ### machine_repo
@@ -43,6 +50,7 @@ The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.
 | head_commit | text | |
 | tree_clean | bool | describes the shared clone, not the worktrees |
 | updated_at | timestamptz | |
+| account_id | uuid fk account | M2-T03 (see Tenancy above) |
 | pk | (machine_id, repo) | |
 
 ### ticket
@@ -59,6 +67,7 @@ The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.
 | status | enum | `ready` · `claimed` · `in_progress` · `done` · `failed` · `cancelled` |
 | priority | int | |
 | kind | enum `ticket_kind` null | `work` · `personal` ([ADR-0011](../adr/0011-transition-rules.md)): filters transitions (`kinds`). NULL for tickets created before M1b, matching both kinds ([U-062](../tracking/UNKNOWNS.md)); new tickets must set it (create form until triage, M4). Added by migration `1761500000000_ticket-kind` (M1b-T04; existing rows keep NULL, the down migration drops the column and the type). `POST /api/tickets` returns it in `TicketDto.kind` and every card carries it (`BoardCard.kind`) |
+| account_id | uuid fk account | M2-T03 (see Tenancy above) |
 | created_at, updated_at | timestamptz | the claim orders by `created_at` |
 
 ### workflow_definition
@@ -68,6 +77,7 @@ The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.
 | version | int | immutable once saved |
 | definition | jsonb | see [05](05-workflow-engine.md) |
 | | | [ADR-0010](../adr/0010-one-workflow-columns-are-states.md): the orchestrator seeds `conductor` v1 (`docs/design/workflows/conductor.v1.json`, a copy in `packages/shared/src/workflow/conductor.ts`) on startup when no `conductor` version exists (one guarded INSERT, `ON CONFLICT DO NOTHING`: idempotent, safe on concurrent starts). Older workflows (`m1_*`) stay so their tickets still render |
+| account_id | uuid fk account | M2-T03 (see Tenancy above). The primary key stays `(id, version)` here; M2-T12 makes it `(account_id, id, version)` |
 | created_at, created_by | | |
 | pk | (id, version) | |
 
@@ -97,6 +107,7 @@ The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.
 | state_entered_at | timestamptz | when the current state was entered |
 | state_deadline | timestamptz null | when the current state's `timeout` fires; read by the timeout sweep (M1-T04) |
 | waiting_for_build_slot | bool | card badge, **not** a status ([10](10-contracts.md)); set from session_event `build_slot` |
+| account_id | uuid fk account | M2-T03 (see Tenancy above) |
 | created_at, updated_at | | |
 
 **Reopen (ADR-0008, no migration).** `POST /api/sessions/:id/reopen` inserts a new `queued` session for the ticket that copies the old one's `workflow_id`/`workflow_version`, `branch`, `claude_session_id`, `context` and `claude_spend_totals` (Claude's cost is cumulative across `--resume`, so only new spend is added), sets `pending_answer` to the human's text, and leaves everything else at its default (`retry_counters`, `state_visits`, `spend_usd`, `wall_seconds`, `worktree_path`…). Two sessions of one ticket then share a `branch`; the claim uses that to pin the new one to the old one's machine ([04](04-scheduler.md#2--claim-query-ticket-side)). The human's text is kept durably in an `operator.reopen` event row on the new session (`{text, reopened_from, actor}`). The gate step (`__entry`, or a legacy `__review`, below) is never carried.
@@ -110,11 +121,12 @@ Constraints: `CREATE SEQUENCE fencing_seq` (bigint) is the only source of fencin
 |---|---|---|
 | id | uuid pk | |
 | session_id | fk | |
-| kind | enum | `agent_question` · `budget_exceeded` · `retries_exhausted` · `timeout` · `approval` |
+| kind | enum | `agent_question` · `budget_exceeded` · `retries_exhausted` · `timeout` · `approval` · `machine_lost` (`MACHINE_LOST_KIND`: the session's machine was lost or revoked, [10](10-contracts.md#machines-protocol-v2); added by M2-T03) |
 | question | text | shown as the card badge |
 | return_to | text null | copy of `session.return_to` when created |
 | answer | text null | |
 | answered_by | text null | user id or `slack:<user>` |
+| account_id | uuid fk account | M2-T03 (see Tenancy above) |
 | created_at, answered_at | | needs-input column sorts by created_at |
 
 ### event (append-only)
@@ -125,6 +137,7 @@ Constraints: `CREATE SEQUENCE fencing_seq` (bigint) is the only source of fencin
 | type | text | an `EngineEvent.type` (e.g. `agent.exited`), `state.entered`, `operator.reopen` (ADR-0008, written by the reopen route, not an engine event), or a board SSE type (`card.upserted`, `card.moved`, `session.status`, `input.requested`, `input.answered`, `card.badge`: one row per SSE event, [10](10-contracts.md#board-events-and-the-event-table)) |
 | payload | jsonb | |
 | fencing_token | bigint null | stale tokens are rejected *before* insert; null on board-event rows |
+| account_id | uuid fk account | M2-T03 (see Tenancy above) |
 | ts | timestamptz | |
 
 Only state changes and summaries go here. **Raw terminal output does not** (see [U-005](../tracking/UNKNOWNS.md)).
@@ -142,9 +155,79 @@ Only state changes and summaries go here. **Raw terminal output does not** (see 
 | fencing_token | bigint null | `session.fencing_token` when the row was written; the WS envelope's token. A row below the session's current token is failed `stale_fencing_token`, not sent. null for `connector:` rows ([10](10-contracts.md#effect--ws-fields)) |
 | status | enum | `pending` · `sent` · `acked` · `failed` ([10](10-contracts.md#outbox-state-machine): dispatcher writes `sent`, gateway writes `acked`/`failed`, all guarded) |
 | attempts, next_attempt_at | | |
+| account_id | uuid fk account | M2-T03 (see Tenancy above) |
 | last_error | text null | |
 | created_at | timestamptz | |
 
+### account
+Instance-level (not on the isolation check). ADR-0012 §Tenancy.
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | `LOCAL_ACCOUNT_ID` is the `local` account, inserted by the migration: every pre-M2 row, `local` mode, and the bootstrap admin's claim (U-056) |
+| name | text | a personal account is named after its owner's `display_name` |
+| created_at | timestamptz | |
+
+**account_member**: `account_id` fk account, `user_id` fk app_user, `role` text `CHECK (role IN ('owner','member'))`, `created_at`; pk `(account_id, user_id)`, index on `user_id`. Personal accounts only in M2 (U-051): each user owns exactly one account and nobody else is a member.
+
+### app_user
+Instance-level. ADR-0017 §Auth. `local` mode's `LOCAL_USER_ID` is virtual: no row.
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| email | text | as entered; unique on `lower(email)` (`app_user_email_key`). Plain `text`, no citext extension |
+| display_name | text | |
+| password_hash | text | PHC string `$argon2id$v=19$m=…,t=…,p=…$salt$hash`, so its parameters travel with it |
+| is_admin | bool | instance role, default false; an admin still sees only their own account's data |
+| disabled_at | timestamptz null | |
+| password_changed_at | timestamptz | default `now()` |
+| created_at | timestamptz | |
+
+### web_session
+Instance-level. One signed-in browser.
+| column | type | notes |
+|---|---|---|
+| id_hash | bytea pk | SHA-256 of the cookie's 32 random bytes (`CHECK octet_length = 32`); the cookie value is never stored |
+| user_id | fk app_user | |
+| account_id | fk account | the account the session acts in |
+| created_at, last_seen_at | timestamptz | `last_seen_at` is updated at most every 5 minutes; 7 days idle ends it |
+| expires_at | timestamptz | 30 days absolute |
+| user_agent, ip | text null | shown in the account menu; `ip` is text (the trusted client IP, ADR-0017 §Rate limiting) |
+
+### invite
+Instance-level. One-time sign-up link.
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| token_hash | bytea unique | SHA-256 of the 256-bit token (32 bytes, checked) |
+| created_by | fk app_user null | null = the CLI (`conductor-admin`) |
+| email | text null | set → sign-up must use this email |
+| is_admin | bool | the new user is an admin |
+| claims_account | fk account null | only bootstrap sets it (`LOCAL_ACCOUNT_ID`): sign-up claims that account instead of creating one |
+| created_at, expires_at | timestamptz | default 7 days, max 30 |
+| used_at, used_by | null | `used_by` fk app_user |
+| revoked_at | timestamptz null | |
+
+### password_reset
+Instance-level. One-time, 1 hour.
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| token_hash | bytea unique | SHA-256 of the token (32 bytes, checked) |
+| user_id | fk app_user | |
+| created_by | fk app_user null | the admin, or null for the CLI |
+| created_at, expires_at | timestamptz | |
+| used_at | timestamptz null | a used reset revokes all of the user's sessions |
+
+### login_throttle
+Instance-level. ADR-0017 §Rate limiting, layer 3: keyed by the normalised email **string**, whether or not a user has it, so a lockout reveals nothing.
+| column | type | notes |
+|---|---|---|
+| email_norm | text pk | |
+| failures | int | consecutive failures, default 0; 10 lock the email; a success resets the row |
+| lockouts | int | lockouts so far, default 0: the lock lasts 15 min × 2^(lockouts − 1), capped at 24 h. Not in ADR-0017's sketch; the doubling needs it |
+| locked_until | timestamptz null | `conductor-admin unlock` clears it |
+| updated_at | timestamptz | |
+
 ## Indexes
 
-Besides primary keys and `outbox.command_id UNIQUE`: `ticket (status, priority)`, `session (status)`, `session_one_live_per_ticket` ([session](#session)), `session (ticket_id, created_at DESC)` (the claim's affinity lookup, [04](04-scheduler.md)), `input_request (session_id) WHERE answer IS NULL`, `event (session_id, id)`, and `outbox (next_attempt_at) WHERE status = 'pending'` (the dispatcher's scan). `machine_repo.machine_id` cascades on machine delete; every other FK is plain (no cascade).
+Besides primary keys and `outbox.command_id UNIQUE`: `ticket (status, priority)`, `session (status)`, `session_one_live_per_ticket` ([session](#session)), `session (ticket_id, created_at DESC)` (the claim's affinity lookup, [04](04-scheduler.md)), `input_request (session_id) WHERE answer IS NULL`, `event (session_id, id)`, and `outbox (next_attempt_at) WHERE status = 'pending'` (the dispatcher's scan). M2-T03: `<table>_account_id_idx` on `account_id` for each of the eight M1 tables, except `event (account_id, id)` (the per-account SSE replay); `app_user (lower(email))` unique; `web_session (user_id)` and `(expires_at)`; `account_member (user_id)`; `invite.token_hash` and `password_reset.token_hash` unique. `machine_repo.machine_id` cascades on machine delete; every other FK is plain (no cascade).

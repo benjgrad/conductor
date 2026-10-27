@@ -7,7 +7,8 @@
 # 1. resolves <git-ref> to a sha and streams `git archive` over ssh into
 #    ~/deploy/conductor/releases/<sha> (skipped if that release already exists);
 # 2. creates ~/deploy/conductor/.env from env.example with a random POSTGRES_PASSWORD if it does
-#    not exist (mode 0600; never overwrites);
+#    not exist (mode 0600; never overwrites; a failed generation leaves no .env, and an existing
+#    .env without a non-empty POSTGRES_PASSWORD is refused before anything is touched);
 # 3. runs remote-deploy.sh from the uploaded release with `ssh -n` (stdin is /dev/null, so no
 #    server command can read the script): builds the image, starts postgres and waits for it,
 #    runs `migrate` as a separate gate (nothing has touched the running orchestrator yet, so a

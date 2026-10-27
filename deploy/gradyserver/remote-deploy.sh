@@ -55,19 +55,35 @@ wait_healthy() {
 
 [[ -f "$REL/deploy/gradyserver/compose.yml" ]] || die "$REL has no deploy/gradyserver/compose.yml"
 
+# .env: generated on the first deploy and checked step by step (TD-144). Every command is checked
+# on its own line, never inside a `( … ) || die` subshell or a function called under `||`, where
+# set -e is off. The file is written to .env.tmp, verified, and only then renamed; on any failure
+# the temp file is removed and no .env exists.
+ENV_FILE="$PWD/.env"
 if [[ ! -e .env ]]; then
   step "creating .env with a random POSTGRES_PASSWORD (mode 0600)"
-  (
-    umask 077
-    password="$(openssl rand -hex 32)"
-    sed "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$password/" \
-      "$REL/deploy/gradyserver/env.example" >.env.tmp
-    mv .env.tmp .env
-  ) || die "could not create .env"
-  chmod 600 .env
+  trap 'rm -f .env.tmp' EXIT
+  rm -f .env.tmp
+  password="$(openssl rand -hex 32)" ||
+    die "could not create .env: openssl rand -hex 32 failed; no .env was created"
+  [[ "$password" =~ ^[0-9a-f]{64}$ ]] ||
+    die "could not create .env: openssl rand -hex 32 did not print 64 hex digits; no .env was created"
+  (umask 077 && sed "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$password/" \
+    "$REL/deploy/gradyserver/env.example" >.env.tmp) ||
+    die "could not create .env: sed on $REL/deploy/gradyserver/env.example failed; no .env was created"
+  unset password
+  grep -qE '^POSTGRES_PASSWORD=[0-9a-f]{64}$' .env.tmp ||
+    die "could not create .env: the generated file has no POSTGRES_PASSWORD=<64 hex digits>; no .env was created"
+  chmod 600 .env.tmp || die "could not create .env: chmod 600 .env.tmp failed; no .env was created"
+  mv .env.tmp .env || die "could not create .env: mv .env.tmp .env failed; no .env was created"
+  trap - EXIT
 else
   step ".env exists; left unchanged"
 fi
+# An empty .env, or one without a non-empty POSTGRES_PASSWORD (e.g. left by an older, broken
+# first deploy), is refused before anything is touched.
+grep -qE '^POSTGRES_PASSWORD=.+' .env ||
+  die "$ENV_FILE is empty or missing POSTGRES_PASSWORD; remove it to regenerate"
 mkdir -p backups logs
 
 step "building the image ($SHA)"

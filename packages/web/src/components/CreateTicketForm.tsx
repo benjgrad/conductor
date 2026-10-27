@@ -1,7 +1,10 @@
 import { CONDUCTOR_WORKFLOW_ID, TICKET_KINDS, type TicketKind } from '@conductor/shared';
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { TICKET_KIND_LABELS } from './format.js';
+import type { RichEditorHandle } from './ticket-editor/RichTicketEditor.js';
+import { TicketBodyField } from './ticket-editor/TicketBodyField.js';
+import { stripPlaceholders, TICKET_TEMPLATE } from './ticket-editor/template.js';
 
 interface CreateTicketFormProps {
   api: ApiClient;
@@ -17,7 +20,10 @@ const DEFAULT_REPO = 'github.com/benjgrad/fixture-app';
  */
 export function CreateTicketForm({ api, onCreated }: CreateTicketFormProps) {
   const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
+  // UX-3: markdown from the requirements template; untouched placeholders are dropped on submit.
+  const [body, setBody] = useState(TICKET_TEMPLATE);
+  const [bodyKey, setBodyKey] = useState(0);
+  const bodyEditor = useRef<RichEditorHandle | null>(null);
   const [repo, setRepo] = useState(DEFAULT_REPO);
   const [priority, setPriority] = useState('0');
   const [kind, setKind] = useState<TicketKind | null>(null);
@@ -27,12 +33,15 @@ export function CreateTicketForm({ api, onCreated }: CreateTicketFormProps) {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (kind === null) return;
+    // The rich editor exports on a debounce: take its latest text now, so a click that doesn't
+    // move focus can't submit stale markdown.
+    const markdown = bodyEditor.current?.flush() ?? body;
     setBusy(true);
     setError(null);
     try {
       await api.createTicket({
         title: title.trim(),
-        body,
+        body: stripPlaceholders(markdown),
         repo: repo.trim(),
         // ADR-0010: one workflow, so no picker. The server defaults workflow_id to it; sending it
         // explicitly also works with a server (and shared contract) where the field is required.
@@ -42,7 +51,8 @@ export function CreateTicketForm({ api, onCreated }: CreateTicketFormProps) {
         kind,
       });
       setTitle('');
-      setBody('');
+      setBody(TICKET_TEMPLATE);
+      setBodyKey((k) => k + 1);
       setKind(null);
       onCreated?.();
     } catch (err) {
@@ -88,10 +98,14 @@ export function CreateTicketForm({ api, onCreated }: CreateTicketFormProps) {
           </label>
         ))}
       </fieldset>
-      <label className="wide">
-        Description
-        <textarea value={body} rows={4} onChange={(e) => setBody(e.target.value)} />
-      </label>
+      <div className="wide">
+        <TicketBodyField
+          value={body}
+          onChange={setBody}
+          resetKey={bodyKey}
+          editorHandle={bodyEditor}
+        />
+      </div>
       <div className="form-actions">
         <button type="submit" disabled={busy || !valid}>
           Create ticket

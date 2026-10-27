@@ -1,0 +1,17 @@
+# Build context for the root Dockerfile (M2-T07). e2e/ stays in: the root `tsc -b` references it.
+node_modules
+**/node_modules
+.git
+.claude
+spikes
+**/dist
+**/*.tsbuildinfo
+coverage
+.pgdata
+.DS_Store
+docs
+# Local secrets. deploy/gradyserver/env.example has no leading dot, so it stays in.
+.env*
+# `use-node-version` would make pnpm download its own Node; the base image is already pinned
+# to the same version (Dockerfile ARG NODE_VERSION).
+.npmrc

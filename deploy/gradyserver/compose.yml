@@ -1,0 +1,94 @@
+# Conductor on gradyserver (M2-T07; ADR-0017 §Hosting topology). Run by deploy.sh as:
+#   docker compose -p conductor -f current/deploy/gradyserver/compose.yml --env-file .env up -d --build
+# Variables: see env.example. CONDUCTOR_GIT_SHA is set by deploy.sh, not in .env.
+name: conductor
+
+# The orchestrator image. Both app services build it (the second build is a cache hit), so compose
+# never tries to pull it from a registry.
+x-app: &app
+  build:
+    context: ../..
+    dockerfile: Dockerfile
+    args:
+      GIT_SHA: ${CONDUCTOR_GIT_SHA:-unknown}
+  image: conductor-orchestrator:${CONDUCTOR_GIT_SHA:-latest}
+  networks:
+    - conductor
+
+# POSTGRES_PASSWORD is hex (deploy.sh: openssl rand -hex 32), so it is URL-safe here.
+x-database-url: &database-url postgres://conductor:${POSTGRES_PASSWORD}@postgres:5432/conductor
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: conductor
+      POSTGRES_DB: conductor
+      # Only applied when the volume is first initialised; see the runbook to rotate it.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+    # No published port: Postgres is reachable only on the compose network.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U conductor -d conductor']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks:
+      - conductor
+
+  # Migrations are a release step (ADR-0012 §Deployment shape): run once per `up`, never by the
+  # orchestrator. A failed migration leaves the old orchestrator container running.
+  migrate:
+    <<: *app
+    command:
+      [
+        'node',
+        'node_modules/node-pg-migrate/bin/node-pg-migrate.js',
+        'up',
+        '--migrations-dir',
+        'migrations',
+      ]
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    restart: 'no'
+
+  orchestrator:
+    <<: *app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Loopback only; nginx on the host proxies to it. Must equal the nginx upstream port.
+    ports:
+      - '127.0.0.1:${CONDUCTOR_HOST_PORT:-3040}:7400'
+    environment:
+      CONDUCTOR_AUTH: password
+      CONDUCTOR_PUBLIC_URL: ${CONDUCTOR_PUBLIC_URL:?CONDUCTOR_PUBLIC_URL must be set in .env}
+      CONDUCTOR_BIND_HOST: 0.0.0.0
+      CONDUCTOR_PORT: '7400'
+      # The published port reaches the container through Docker's userland proxy, so the TCP peer
+      # is the network gateway: this must equal CONDUCTOR_GATEWAY (ADR-0017 §Trusted proxy).
+      CONDUCTOR_TRUSTED_PROXY: ${CONDUCTOR_TRUSTED_PROXY:-192.168.80.1}
+      DATABASE_URL: *database-url
+    restart: unless-stopped
+
+networks:
+  conductor:
+    name: conductor
+    ipam:
+      config:
+        # 192.168.80.0/24 verified free on gradyserver by the lead on 2026-10-26.
+        - subnet: ${CONDUCTOR_SUBNET:-192.168.80.0/24}
+          gateway: ${CONDUCTOR_GATEWAY:-192.168.80.1}
+
+volumes:
+  # conductor_pgdata: survives releases because the project name is fixed.
+  pgdata:

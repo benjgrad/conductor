@@ -2,6 +2,8 @@
 
 > **Approved by Ben 2026-10-27** (PR #6), from his design review; [ADR-0019](../../adr/0019-ticket-requirements-and-verification.md) accepted.
 
+> **Note 2026-10-27 ([M2r](M2r-review-merge.md), ADR-0020 proposed).** M2r lands first and takes `conductor` **v3**, so T05's prompt-line version below becomes **v4** (T08 seeds v4 over an unedited v3). T04 also maps the In QA state's result (`role: qa`) onto the **review** layer: its `requirements[]` become `record_evidence {layer: 'review', source: 'qa'}` and its `verdict` feeds the tally's `QA` (ADR-0020 §7). T05's QA prompt switches from heading extraction to `parseTicketBody`.
+
 **Goal** ([ADR-0019](../../adr/0019-ticket-requirements-and-verification.md)):
 - A ticket body follows the sections **Goal / Context / FR-n / NFR-n / Out of scope / Verification**. It is written and **edited** in the BlockNote editor and parsed by one shared parser.
 - Each requirement's status is built from four recorded layers: the agent's claim, conductor's checks (persisted runs with durations), the reviewer's or QA's grades, and a human sign-off where the Verification line asks for one.

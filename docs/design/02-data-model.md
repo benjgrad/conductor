@@ -5,6 +5,10 @@
 ```mermaid
 erDiagram
   machine ||--o{ machine_repo : "has checked out"
+  machine ||--o{ machine_credential : "authenticates with"
+  machine ||--o{ machine_capability : "reports"
+  machine ||--o{ machine_alert : "raises"
+  enrollment_token |o--o| machine : "enrolled"
   machine ||--o{ session : "runs"
   ticket ||--o{ session : "worked by"
   workflow_definition ||--o{ ticket : "followed by"
@@ -19,7 +23,7 @@ erDiagram
 
 ## Tables
 
-The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.sql` (M1-T02, plain node-pg-migrate SQL) plus the later migrations in that directory (`1761200000000_machine-claude-code-version.sql`, M1-T07; `1761500000000_ticket-kind.sql`, M1b-T04; `1761600000000_accounts-and-auth.sql`, M2-T03), and this doc is updated when it diverges. `packages/orchestrator/test/schema.test.ts` checks every column's name, pg type and nullability against the row types, and every enum against `shared/src/domain.ts`. Enums are Postgres enum types named `<table>_<column>` (`machine_status`, `ticket_status`, `ticket_kind`, `session_status`, `input_request_kind`, `outbox_kind`, `outbox_status`). Nullability follows the row types exactly (a `| null` field is a nullable column, everything else is `NOT NULL`), including columns this table doesn't mark null (e.g. `lease_expires_at`, `worktree_path`, `port_range`); `jsonb` maps default to `'{}'`, `text[]` to `'{}'`, counters and money to 0, timestamps to `now()`, uuid keys to `gen_random_uuid()`. The TypeScript row types are pinned in `packages/orchestrator/src/db/types.ts` (M1-T12, [10](10-contracts.md)); they use node-postgres' default parsing (`bigint`/`numeric` → string, `timestamptz` → Date, `bytea` → Buffer).
+The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.sql` (M1-T02, plain node-pg-migrate SQL) plus the later migrations in that directory (`1761200000000_machine-claude-code-version.sql`, M1-T07; `1761500000000_ticket-kind.sql`, M1b-T04; `1761600000000_accounts-and-auth.sql`, M2-T03; `1761700000000_machine-credentials.sql`, M2-T09), and this doc is updated when it diverges. `packages/orchestrator/test/schema.test.ts` checks every column's name, pg type and nullability against the row types, and every enum against `shared/src/domain.ts`. Enums are Postgres enum types named `<table>_<column>` (`machine_status`, `ticket_status`, `ticket_kind`, `session_status`, `input_request_kind`, `outbox_kind`, `outbox_status`). Nullability follows the row types exactly (a `| null` field is a nullable column, everything else is `NOT NULL`), including columns this table doesn't mark null (e.g. `lease_expires_at`, `worktree_path`, `port_range`); `jsonb` maps default to `'{}'`, `text[]` to `'{}'`, counters and money to 0, timestamps to `now()`, uuid keys to `gen_random_uuid()`. The TypeScript row types are pinned in `packages/orchestrator/src/db/types.ts` (M1-T12, [10](10-contracts.md)); they use node-postgres' default parsing (`bigint`/`numeric` → string, `timestamptz` → Date, `bytea` → Buffer).
 
 **Tenancy (M2-T03).** Every table carries `account_id uuid NOT NULL REFERENCES account (id)`, except the instance-level tables (`account`, `app_user`, `account_member`, `web_session`, `invite`, `password_reset`, `login_throttle`) and `pgmigrations`. `packages/orchestrator/test/schema-isolation.test.ts` enforces it (ADR-0012 §Proving isolation 1), so a new table either carries the column or joins that allow-list in review. Migration `1761600000000_accounts-and-auth` inserts the `local` account (`LOCAL_ACCOUNT_ID` = `00000000-0000-4000-8000-000000000001`, `packages/shared/src/domain.ts`) and adds `account_id` to the eight M1 tables with a constant `DEFAULT` of that id, which backfills every existing row into `local`. **The default is temporary** (TD-109): it lets M1 code keep inserting without naming an account, and M2-T21 drops it once every write is scoped. The down migration drops the column, the seven tables and the `machine_lost` kind (deleting any such requests), restoring the M1b schema. In the account_id rows below, "account_id (M2-T03)" means: uuid FK `account`, NOT NULL, backfilled to `local`, temporary default TD-109 until M2-T21, indexed (`<table>_account_id_idx`).
 
@@ -39,6 +43,10 @@ The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.
 | last_seq | bigint null | highest daemon `seq` processed; the `(machine_id, seq)` dedupe and `registered.last_seq` ([10](10-contracts.md#daemon-seq-dedupe)) |
 | claude_code_version | text null | `register.claude_code_version` (`claude --version`), stored on every register so stream-json drift can be tied to a CLI version ([U-015](../tracking/UNKNOWNS.md), [U-032](../tracking/UNKNOWNS.md)). null = the daemon couldn't run the CLI. M1-T07 migration |
 | account_id | uuid fk account | M2-T03 (see Tenancy above) |
+| name | text null | display name (M2-T09; rename is M2-T17's). Enrollment and the local-mode register set it to the hostname, the migration backfills it; null = show the hostname. Nullable because M1 inserts don't name it |
+| daemon_version | text null | `register.daemon_version` (enrollment's first), written on every register |
+| protocol_version | int null | `register.protocol_version` (absent = 1); null = never registered |
+| revoked_at | timestamptz null | `revokeMachine` (M2-T09): its credentials stop upgrading (401) and `register` is closed 4003 in both modes |
 | created_at, updated_at | timestamptz | |
 
 ### machine_repo
@@ -48,10 +56,66 @@ The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.
 | repo | text | canonical remote, e.g. `github.com/org/app` |
 | path | text | the **shared clone** (agents never edit it) |
 | head_commit | text | |
-| tree_clean | bool | describes the shared clone, not the worktrees |
+| tree_clean | bool | describes the shared clone, not the worktrees. `DEFAULT true` since M2-T09: the M1 `repo_inventory` handler writes it until M2-T16, M2-T21 drops it |
 | updated_at | timestamptz | |
 | account_id | uuid fk account | M2-T03 (see Tenancy above) |
+| default_branch | text null | M2-T09; from `inventory` (M2-T16) |
+| mode | text | `CHECK (mode IN ('reference','checkout'))`, default `reference` (U-060); existing rows become `reference` |
+| remote | text null | canonical remote (`CANONICAL_REMOTE_RE`); null = no allowed remote, listed but never routed to. With `inventory` (M2-T16), `path` is the user's checkout |
 | pk | (machine_id, repo) | |
+
+### enrollment_token
+M2-T09, ADR-0013 §Enrollment. One-time, 30 minutes (`ENROLLMENT_TOKEN_TTL_MS`).
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| account_id | uuid fk account | the account the machine joins (no default) |
+| token_hash | bytea unique | SHA-256 of the 128-bit token (32 bytes, checked); the token is shown once, inside the install command |
+| created_by | uuid null | audit user id ([U-042](../tracking/UNKNOWNS.md)); no FK because `local` mode's `LOCAL_USER_ID` has no `app_user` row; null = the CLI or conductor |
+| created_at, expires_at | timestamptz | |
+| used_at | timestamptz null | `enrollMachine` consumes it with `UPDATE … WHERE used_at IS NULL AND expires_at > now() RETURNING`, so two concurrent uses make one machine |
+| used_by_machine | fk machine null | |
+
+### machine_credential
+M2-T09. Sent as `Authorization: Bearer <credential>` on every daemon WS upgrade.
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| machine_id | fk machine | |
+| account_id | uuid fk account | |
+| secret_hash | bytea unique | SHA-256 of the 256-bit credential (32 bytes, checked); the credential is returned once by `enrollMachine` |
+| created_at | timestamptz | |
+| last_used_at | timestamptz null | updated on every authenticated upgrade |
+| revoked_at | timestamptz null | set by `revokeMachine` |
+
+### machine_capability
+M2-T09 (10-contracts §Machines protocol v2, Storage). One row per element of `capabilityKeys(c)` for each reported capability: an authed cli gives `cli:<name>` **and** `cli:<name>:authed`; a repo-scoped skill or agent's key carries `@<repo>`, so `skill:review` and `skill:review@github.com/o/app` are separate rows. **Routing reads only `key`**; the other columns are for display. Written by the `inventory` ingest (M2-T16), replaced wholesale on each inventory.
+| column | type | notes |
+|---|---|---|
+| machine_id | fk machine | cascades on machine delete |
+| account_id | uuid fk account | |
+| key | text | `capabilityKey` grammar |
+| kind | text | `CHECK` `cli` · `mcp` · `skill` · `agent` · `claude` |
+| name | text | (`claude` for the claude kind) |
+| version | text null | cli / claude |
+| detail | jsonb | display extras (e.g. `authed`, `repo`), default `{}`; never secrets |
+| updated_at | timestamptz | |
+| pk | (machine_id, key) | |
+
+### machine_alert
+M2-T09; written from the daemon's `alert` message (M2-T16).
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| machine_id | fk machine | cascades on machine delete |
+| account_id | uuid fk account | |
+| session_id | fk session null | the session it was raised after, if any |
+| kind | text | `CHECK (kind IN ('git_tamper'))` (`MachineAlertKind`) |
+| detail | jsonb | `git_tamper`: `{repo, files}` |
+| created_at | timestamptz | |
+| cleared_at | timestamptz null | set by the owner (`POST /api/machines/alerts/:id/clear`) |
+
+The migration's down drops these four tables and the new `machine` / `machine_repo` columns (and `tree_clean`'s default), restoring the M2-T03 schema; enrollments, credentials, capabilities and alerts are lost.
 
 ### ticket
 | column | type | notes |
@@ -230,4 +294,4 @@ Instance-level. ADR-0017 §Rate limiting, layer 3: keyed by the normalised email
 
 ## Indexes
 
-Besides primary keys and `outbox.command_id UNIQUE`: `ticket (status, priority)`, `session (status)`, `session_one_live_per_ticket` ([session](#session)), `session (ticket_id, created_at DESC)` (the claim's affinity lookup, [04](04-scheduler.md)), `input_request (session_id) WHERE answer IS NULL`, `event (session_id, id)`, and `outbox (next_attempt_at) WHERE status = 'pending'` (the dispatcher's scan). M2-T03: `<table>_account_id_idx` on `account_id` for each of the eight M1 tables, except `event (account_id, id)` (the per-account SSE replay); `app_user (lower(email))` unique; `web_session (user_id)` and `(expires_at)`; `account_member (user_id)`; `invite.token_hash` and `password_reset.token_hash` unique. `machine_repo.machine_id` cascades on machine delete; every other FK is plain (no cascade).
+Besides primary keys and `outbox.command_id UNIQUE`: `ticket (status, priority)`, `session (status)`, `session_one_live_per_ticket` ([session](#session)), `session (ticket_id, created_at DESC)` (the claim's affinity lookup, [04](04-scheduler.md)), `input_request (session_id) WHERE answer IS NULL`, `event (session_id, id)`, and `outbox (next_attempt_at) WHERE status = 'pending'` (the dispatcher's scan). M2-T03: `<table>_account_id_idx` on `account_id` for each of the eight M1 tables, except `event (account_id, id)` (the per-account SSE replay); `app_user (lower(email))` unique; `web_session (user_id)` and `(expires_at)`; `account_member (user_id)`; `invite.token_hash` and `password_reset.token_hash` unique. M2-T09: `<table>_account_id_idx` on each of its four tables; `enrollment_token.token_hash` and `machine_credential.secret_hash` unique; `machine_credential (machine_id)`; `machine_alert (machine_id) WHERE cleared_at IS NULL` (`machine_alert_open_idx`). `machine_repo.machine_id`, `machine_capability.machine_id` and `machine_alert.machine_id` cascade on machine delete; every other FK is plain (no cascade).

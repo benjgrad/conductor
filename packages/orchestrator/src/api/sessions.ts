@@ -96,5 +96,6 @@ export async function loadSessionDetail(
     pending_input: openInput ? toInputRequestDto(openInput) : null,
     recent_output: outputBus.snapshot(id),
     moves,
+    ticket_body: ticket.body,
   };
 }

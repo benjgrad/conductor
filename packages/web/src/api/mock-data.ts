@@ -17,6 +17,7 @@ import {
   type SessionStatus,
   type WorkflowDefinition,
 } from '@conductor/shared';
+import { UX2_TICKET_BODY } from '../brief/ux2-ticket.js';
 import { implementerReport } from '../components/review-fixture.js';
 
 // Seed data for the mock API, built from the frozen shared fixtures so the mock drifts with the
@@ -295,6 +296,8 @@ export interface MockSession {
   transcript?: OutputChunk[];
   /** SessionDetail.moves (ADR-0011), oldest first; the mock appends one per move it makes. */
   moves: MoveDto[];
+  /** SessionDetail.ticket_body (UX-2); absent → as from an older server. */
+  ticket_body?: string;
 }
 
 export interface MockSeed {
@@ -382,6 +385,8 @@ interface SeedSpec {
   output?: string[];
   /** Claude-transcript history, as [stream, text] pairs (ADR-0008). */
   transcript?: [OutputChunk['stream'], string][];
+  /** UX-2: the ticket body (the Brief); absent → as from an older server. */
+  ticketBody?: string;
 }
 
 function seed(now: Date, s: SeedSpec): MockSeed {
@@ -422,6 +427,7 @@ function seed(now: Date, s: SeedSpec): MockSeed {
       branch: `conductor/${s.session.slice(0, 8)}`,
       output,
       moves: [],
+      ...(s.ticketBody !== undefined ? { ticket_body: s.ticketBody } : {}),
       ...(s.transcript
         ? {
             transcript: s.transcript.map(([stream, text], seq): OutputChunk => ({
@@ -594,6 +600,7 @@ export function mockSeeds(now: Date): MockSeed[] {
       activeMinAgo: 1,
       spend: 0.33,
       output: ['Reading src/routes/orders.ts\n', 'Editing src/routes/orders.ts\n'],
+      ticketBody: UX2_TICKET_BODY,
     }),
     seed(now, {
       ...id.askNewer,
@@ -674,7 +681,10 @@ export function mockSeeds(now: Date): MockSeed[] {
       // As after an orchestrator restart: the ring is empty, the history comes from the transcript.
       output: [],
       transcript: [
-        ['user', '# Ticket: Rename user.fullname\n\nRename the field to `full_name` everywhere.'],
+        [
+          'user',
+          `# Ticket: Rename user.fullname\n\nRename the field to \`full_name\` everywhere.\n\nRepository: ${BOARD_CARD_FIXTURE.repo}`,
+        ],
         ['assistant', 'Renaming `fullname` to `full_name` in the model and its callers.'],
         ['tool_use', 'Bash {"command":"grep -rn fullname src"}'],
         [

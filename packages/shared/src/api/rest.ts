@@ -477,6 +477,11 @@ export const SessionDetailSchema = z.object({
    * (absent ≡ []).
    */
   moves: z.array(MoveDtoSchema).optional(),
+  /**
+   * UX-2: the ticket's markdown body (the session panel's Brief). Optional so older servers still
+   * parse; the orchestrator always sends it.
+   */
+  ticket_body: z.string().optional(),
 });
 export type SessionDetail = z.infer<typeof SessionDetailSchema>;
 

@@ -15,7 +15,13 @@ import type { AuthConfig } from './config.js';
 import { clearedSessionCookie, parseCookie, sessionCookie } from './middleware.js';
 import { DUMMY_HASH, type PasswordHasher } from './password.js';
 import { createSession, revokeSession, revokeUserSessions, sessionIdHash } from './sessions.js';
-import { isLocked, rateLimitRouteConfig, recordFailure, recordSuccess } from './throttle.js';
+import {
+  isLocked,
+  rateLimitRouteConfig,
+  recordFailure,
+  recordSuccess,
+  throttleKey,
+} from './throttle.js';
 
 // M2-T08: sign-in routes (ADR-0017 §Auth: behaviour; 10-contracts §Accounts and web auth).
 // GET /api/me in both modes; POST /auth/login, /auth/logout and /auth/password in password mode
@@ -129,6 +135,14 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): P
 
   // ADR-0017 §Session cookie: a change revokes every other session of the user. No session →
   // 401 (the web signs the user out); a wrong `current` → 400 at path `current` (TD-123/125).
+  // M2-T08b: a wrong `current` counts against the user's email in `login_throttle` (ADR-0017
+  // layer 3, shared with login), so a stolen cookie can't brute-force it; while the email is
+  // locked the same 400 is returned without effect, and a successful change resets the count.
+  const wrongCurrent = (reply: Parameters<typeof sendError>[0]) =>
+    sendError(reply, 400, 'bad_request', WRONG_CURRENT_PASSWORD, [
+      { path: 'current', message: WRONG_CURRENT_PASSWORD },
+    ]);
+
   app.post(
     API_PATHS.authPassword,
     { config: rateLimitRouteConfig('login') },
@@ -137,15 +151,20 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): P
       if (who === null) return sendError(reply, 401, 'unauthorized', 'sign in required');
       const body = parseBody(PasswordChangeRequestSchema, req.body, reply);
       if (!body) return reply;
+      const t = now();
+      const email = throttleKey(who.user.email);
+      const locked = await isLocked(db, email, t);
       const res = await db.query<{ password_hash: string }>(
         'SELECT password_hash FROM app_user WHERE id = $1',
         [who.user.id],
       );
       const current = res.rows[0]?.password_hash ?? DUMMY_HASH;
-      if (!(await hasher.verify(current, body.current))) {
-        return sendError(reply, 400, 'bad_request', WRONG_CURRENT_PASSWORD, [
-          { path: 'current', message: WRONG_CURRENT_PASSWORD },
-        ]);
+      // Exactly one argon2 verify on every path, locked or not (as login).
+      const ok = await hasher.verify(current, body.current);
+      if (locked) return wrongCurrent(reply);
+      if (!ok) {
+        await recordFailure(db, email, t);
+        return wrongCurrent(reply);
       }
       const problems = passwordProblems(body.new, who.user.email);
       if (problems.length > 0) {
@@ -161,9 +180,10 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): P
       await withTransaction(db, async (tx) => {
         await tx.query(
           'UPDATE app_user SET password_hash = $2, password_changed_at = $3 WHERE id = $1',
-          [who.user.id, hashed, now()],
+          [who.user.id, hashed, t],
         );
         await revokeUserSessions(tx, who.user.id, { except: who.sessionIdHash });
+        await recordSuccess(tx, email);
       });
       return OK;
     },

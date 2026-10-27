@@ -38,6 +38,14 @@ import {
   pollDeadline,
   unmarkRunning,
 } from './conditions.js';
+import {
+  isRevokedPark,
+  machineLostMarkOf,
+  planMachineLost,
+  withMachineLostMark,
+  withoutMachineLostMark,
+  type MachineLostEvent,
+} from './machine-lost.js';
 import { moveCounter, moveName, moveSpecOf, PIN_CHECK, type GateSpec } from './move-step.js';
 import { renderPrompt, type PromptAttachment } from './render.js';
 import {
@@ -73,6 +81,9 @@ import {
 import {
   CONDITIONS_NO_MACHINE_NOTE,
   conditionsIdempotencyKey,
+  MACHINE_LOST_KILL_REASON,
+  MACHINE_LOST_KIND,
+  machineLostQuestion,
   moveStateLabel,
   type ApplyFn,
   type ApplyIgnoreReason,
@@ -166,10 +177,23 @@ function ignore(snapshot: SessionSnapshot, reason: ApplyIgnoreReason): ApplyResu
 // ---------------------------------------------------------------- event handlers
 
 function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
+  if (e.type === 'machine.lost') return onMachineLost(st, e);
+  // 10-contracts §Lost machines: a revoked machine can never come back, so Cancel only.
+  if (isRevokedPark(st.s)) {
+    if (e.type === 'human.transition') return 'transition_not_allowed';
+    if (e.type === 'input.provided') return 'wrong_status';
+  }
+  if (e.type === 'session.assigned') {
+    const reason = st.s.step !== null ? handleStep(st, e) : onAssigned(st, e.machine_id);
+    // The lost-machine mark pins the claim until the agent runs again (`session.started`). A
+    // re-emit with no start_session (a command, check, event or human state) never gets one.
+    if (reason === null && !st.effects.some((x) => x.type === 'start_session')) {
+      st.s.context = withoutMachineLostMark(st.s.context);
+    }
+    return reason;
+  }
   if (st.s.step !== null) return handleStep(st, e);
   switch (e.type) {
-    case 'session.assigned':
-      return onAssigned(st, e.machine_id);
     case 'command.refused':
       return onRefused(st, e);
     case 'session.started':
@@ -208,8 +232,6 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
       return 'unexpected_event';
     case 'human.transition':
       return onHumanTransition(st, e);
-    case 'machine.lost':
-      return 'unexpected_event'; // M2-T06
   }
 }
 
@@ -353,6 +375,7 @@ function onStarted(st: Step, commandId: string): ApplyIgnoreReason | null {
   }
   st.s.agent_process_live = true;
   st.s.pending_answer = null; // the agent is running on it (§Pending answer)
+  st.s.context = withoutMachineLostMark(st.s.context); // running again (§Lost machines)
   if (st.s.status === 'assigned') st.setStatus('running');
   return null;
 }
@@ -443,6 +466,13 @@ function onHumanTransition(
   const plan = planHumanTransition(st.def, st.s, e.name);
   if (!plan.ok) return plan.reason;
   const from = st.stateName!;
+  const target = st.def.states[plan.goto]!;
+  leaveLostPark(
+    st,
+    runsRequirements(plan.name, plan.transition) ||
+      target.type === 'agent' ||
+      target.type === 'command',
+  );
   const move: MoveRecord = { transition: plan.name, reason: e.text, actor: 'human' };
   const detail = e.text ?? `a human chose "${plan.name}"`;
   if (runsRequirements(plan.name, plan.transition)) {
@@ -457,7 +487,6 @@ function onHumanTransition(
     });
     return null;
   }
-  const target = st.def.states[plan.goto]!;
   const text = plan.continuation ? (e.text ?? `[${plan.name}]`) : e.text;
   const answer: PendingAnswer | null =
     target.type === 'agent' && text !== null
@@ -475,6 +504,73 @@ function onHumanTransition(
     move,
   });
   return null;
+}
+
+// ---------------------------------------------------------------- lost machines (U-068, M2-T06)
+//
+// 10-contracts §Machines protocol v2, "Lost machines" (machine-lost.ts plans; 05 §Lost machines).
+// (A) parks the session in the fallback human state with a `machine_lost` request and the
+// `__machine_lost` mark; (B) re-asks a parked or pinned session as revoked. apply never changes
+// `fencing_token`: the EngineService wrapper bumps it on an applied `machine.lost` (M2-T20).
+
+function onMachineLost(st: Step, e: MachineLostEvent): ApplyIgnoreReason | null {
+  const plan = planMachineLost(st.s, e);
+  if (plan.type === 'ignore') return plan.reason;
+  const s = st.s;
+  const prevMark = machineLostMarkOf(s.context);
+  const name = e.machine_name ?? prevMark?.machine_name ?? e.machine_id;
+  const at = st.now.toISOString();
+  if (plan.type === 'revoke_parked' && s.status === 'needs_input') {
+    // (B), already parked in a human state: a new question; the wrapper supersedes the old one.
+    s.context = withMachineLostMark(s.context, { ...prevMark!, reason: 'revoked', at });
+    st.emit({
+      type: 'create_input_request',
+      kind: MACHINE_LOST_KIND,
+      question: machineLostQuestion(name, 'revoked'),
+      return_to: s.return_to,
+    });
+    return null;
+  }
+  // (A), and (B) for a queued session waiting on its pinned machine after "Continue".
+  const prev = s.status;
+  const target = fallbackHumanState(st.def);
+  const question = machineLostQuestion(name, e.reason, e.offline_ms);
+  if (s.step !== null) leaveStep(st, false);
+  s.machine_id = e.machine_id;
+  s.agent_process_live = false;
+  if (target === null) {
+    failSession(st, 'failed', `no human state to route to: ${question}`);
+    return null;
+  }
+  if (plan.type === 'park' && plan.kill)
+    st.emit({ type: 'kill', reason: MACHINE_LOST_KILL_REASON });
+  s.context = withMachineLostMark(s.context, {
+    machine_id: e.machine_id,
+    machine_name: name,
+    reason: e.reason,
+    state: s.workflow_state,
+    at,
+  });
+  enter(st, target, {
+    ...NO_ROUTE,
+    kind: MACHINE_LOST_KIND,
+    question,
+    skipEntry: true,
+    noDeadline: true,
+  });
+  if (prev === 'queued') st.ticket('in_progress');
+  return null;
+}
+
+/**
+ * Leaving a lost-machine park (a human move or an answer; never a revoked one, refused earlier).
+ * Into something that needs the machine: no live process, so `enter` requeues (machine_id null)
+ * and the kept mark pins the claim to `mark.machine_id` (M2-T16). Anywhere else: the mark goes.
+ */
+function leaveLostPark(st: Step, needsMachine: boolean): void {
+  if (machineLostMarkOf(st.s.context) === null) return;
+  if (needsMachine) st.s.machine_id = null;
+  else st.s.context = withoutMachineLostMark(st.s.context);
 }
 
 function withReason(text: string, reason: string | null): string {
@@ -557,6 +653,7 @@ function onInput(
   if (targetState === undefined) return 'unexpected_event';
   const answer: PendingAnswer = { input_request_id: e.input_request_id, answer: e.answer };
   const continuation = target === st.s.return_to;
+  leaveLostPark(st, targetState.type === 'agent' || targetState.type === 'command');
   enter(st, target, {
     ...NO_ROUTE,
     kind: 'approval',
@@ -1113,7 +1210,10 @@ function emitReviewer(st: Step, spec: GateSpec, nudge: string | null): void {
   });
 }
 
-function handleStep(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
+function handleStep(
+  st: Step,
+  e: Exclude<EngineEvent, { type: 'machine.lost' }>,
+): ApplyIgnoreReason | null {
   const s = st.s;
   const r = s.step!;
   const spec = gateSpecOf(st.def, r);
@@ -1297,8 +1397,6 @@ function handleStep(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
       return 'wrong_status';
     case 'external.event':
       return conditionsOverride(st, r, e.name, e.data);
-    case 'machine.lost':
-      return 'unexpected_event'; // M2-T06
   }
 }
 
@@ -1865,6 +1963,8 @@ interface EnterOpts {
   info?: OutcomeInfo;
   /** ADR-0011: the named transition taken (agent / human / a move step): the `state_entered` record. */
   move?: MoveRecord;
+  /** U-068: no deadline in the target (a lost-machine park: parked time doesn't count). */
+  noDeadline?: boolean;
 }
 
 /** The ADR-0011 fields of a `state_entered` effect: only for a named transition (else legacy shape). */
@@ -1937,7 +2037,7 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
     return;
   }
 
-  st.setDeadline(target, deadlineFor(toState, st.now));
+  st.setDeadline(target, opts.noDeadline === true ? null : deadlineFor(toState, st.now));
 
   switch (toState.type) {
     case 'agent': {

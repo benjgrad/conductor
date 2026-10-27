@@ -112,6 +112,14 @@ const GENS: Gen[] = [
     result: p % 3 === 0 ? null : { pr_url: 'https://github.com/o/r/pull/1' },
     error: p % 3 === 0 ? 'gh failed' : null,
   }),
+  // M2-T06 (U-068): a lost machine, the session's own or another one, every reason.
+  (h, p) => ({
+    type: 'machine.lost',
+    machine_id: p % 3 === 0 ? 'mini' : (h.snap.machine_id ?? 'mbp-ben'),
+    reason: (['lease_expired', 'pinned_machine_offline', 'revoked'] as const)[p % 3]!,
+    ...(p % 2 ? { machine_name: 'Ben' } : {}),
+    ...(p % 5 === 0 ? { offline_ms: 3_600_000 } : {}),
+  }),
   () => ({ type: 'operator.cancel' }),
 ];
 
@@ -232,6 +240,8 @@ function checkInvariants(def: WorkflowDefinition, prev: SessionSnapshot, h: Harn
     expect(r.effects).toEqual([]);
     expect(r.snapshot).toEqual(prev);
   }
+  // apply never changes the fencing token (the wrapper bumps it, 10-contracts §Lost machines).
+  expect(r.snapshot.fencing_token).toBe(prev.fencing_token);
   if (s.step !== null && s.status !== 'failed') {
     // A gate step: its synthetic label, in the source state's column.
     const r = s.step;
@@ -262,7 +272,14 @@ function checkInvariants(def: WorkflowDefinition, prev: SessionSnapshot, h: Harn
   if (s.status === 'done' || s.status === 'failed') expect(s.pending_answer).toBeNull();
   // §Pending answer: cleared when apply enters a different state, unless it delivers an answer
   // (an `input.provided`, or a human's text delivered to an agent by a transition or a move).
-  const delivers = r.effects.some((e) => e.type === 'start_session' || e.type === 'send_input');
+  // A requeue into an agent state (U-068: an answer out of a lost-machine park) keeps the answer
+  // for the re-claim's start_session.
+  const requeuedAgent =
+    s.status === 'queued' &&
+    s.workflow_state !== null &&
+    def.states[s.workflow_state]?.type === 'agent';
+  const delivers =
+    requeuedAgent || r.effects.some((e) => e.type === 'start_session' || e.type === 'send_input');
   if (s.workflow_state !== prev.workflow_state && !delivers) {
     expect(s.pending_answer).toBeNull();
   }
@@ -270,7 +287,10 @@ function checkInvariants(def: WorkflowDefinition, prev: SessionSnapshot, h: Harn
     expect(s.machine_id).toBeNull();
     expect(s.state_deadline).toBeNull();
   }
-  if (r.effects.some(isOutboxEffect)) expect(r.snapshot.machine_id).not.toBeNull();
+  // Every outbox command but connector_call (target `connector:<name>`) goes to the machine.
+  if (r.effects.some((e) => isOutboxEffect(e) && e.type !== 'connector_call')) {
+    expect(r.snapshot.machine_id).not.toBeNull();
+  }
   for (const [key, n] of Object.entries(s.retry_counters)) {
     const move = /^move:([^:]+):(.+)$/.exec(key);
     if (move !== null) {

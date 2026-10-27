@@ -14,13 +14,18 @@ import {
   isGithubPrUrl,
   type BoardColumn,
   type CardBadge,
+  type InputRequestKind,
   type SessionStatus,
   type TicketStatus,
 } from '../domain.js';
+import { machineLostMarkOf } from '../engine/machine-lost.js';
 import { PR_CONTEXT_KEY, REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
 import {
   ConditionStatusValueSchema,
   GateStepSchema,
+  MACHINE_LOST_KIND,
+  machineLostCanContinue,
+  machineLostContinueTitle,
   StateEnteredPayloadSchema,
   type ApplyIgnoreReason,
   type ApplyRejectReason,
@@ -29,6 +34,7 @@ import {
 import { QUEUED_COLUMN_ID, stateTitle, type BoardColumnInfo } from '../workflow/conductor.js';
 import {
   CONDUCTOR_WORKFLOW_ID,
+  RETURN_TO,
   StateNameSchema,
   TicketKindSchema,
   TransitionActorSchema,
@@ -864,7 +870,12 @@ export function toBoardCard(
     kind: ticket.kind ?? null,
     pending:
       session && place.checking ? pendingOfStep(view.def, stepOfContext(session.context)) : null,
-    human_transitions: humanTransitionsOfCard(ticket, session, view),
+    human_transitions: humanTransitionsOfCard(
+      ticket,
+      session,
+      view,
+      openInput !== null && openInput.answer === null ? openInput.kind : null,
+    ),
     pr_url: session ? prUrlOfContext(session.context) : null,
     machine_id: session?.machine_id ?? null,
     spend_usd: session ? Number(session.spend_usd) : 0,
@@ -982,11 +993,15 @@ export function pendingOfStep(
 /**
  * ADR-0011: BoardCard.human_transitions. Only for a session `needs_input` in a human state or
  * `waiting_external` in an event state, outside a gate step, with a known definition; else [].
+ * U-068 (M2-T06): while the open request (`openInputKind`, null = none) is `machine_lost`, the
+ * `$return_to` buttons read `machineLostContinueTitle(<machine>)`; a revoked machine's card offers
+ * none (Cancel only, an operator action).
  */
 export function humanTransitionsOfCard(
   ticket: Pick<CardTicketLike, 'kind'>,
   session: Pick<CardSessionLike, 'status' | 'workflow_state' | 'context' | 'return_to'> | null,
   view: CardView,
+  openInputKind: InputRequestKind | null = null,
 ): HumanTransitionOption[] {
   if (session === null || view.def === null || session.workflow_state === null) return [];
   if (stepOfContext(session.context) !== null) return [];
@@ -995,10 +1010,26 @@ export function humanTransitionsOfCard(
     (session.status === 'needs_input' && type === 'human') ||
     (session.status === 'waiting_external' && type === 'event');
   if (!ok) return [];
-  return humanTransitionOptions(
+  const mark = machineLostMarkOf(session.context);
+  if (mark?.reason === 'revoked') return [];
+  const options = humanTransitionOptions(
     view.def,
     session.workflow_state,
     ticket.kind ?? null,
     session.return_to ?? null,
+  );
+  if (
+    openInputKind !== MACHINE_LOST_KIND ||
+    mark === null ||
+    !machineLostCanContinue(mark.reason)
+  ) {
+    return options;
+  }
+  const def = view.def;
+  const state = session.workflow_state;
+  return options.map((o) =>
+    transitionAt(def, state, o.name)?.goto === RETURN_TO
+      ? { ...o, title: machineLostContinueTitle(mark.machine_name) }
+      : o,
   );
 }

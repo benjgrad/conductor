@@ -34,13 +34,24 @@ export const CapabilitySchema = z.discriminatedUnion('kind', [
 export type Capability = z.infer<typeof CapabilitySchema>;
 export type CapabilityKind = Capability['kind'];
 
+const REQUIREMENT_RE =
+  /^(?:claude|cli:[^\s:@\0]+(?::authed)?|mcp:[^\s:@\0]+|(?:skill|agent):[^\s:@\0]+(?:@(.*))?)$/;
+
 /**
- * A required capability, as a key (`capabilityKey` grammar): `claude`, `cli:<name>`,
- * `cli:<name>:authed`, `mcp:<name>`, `skill:<name>[@<repo>]`, `agent:<name>[@<repo>]`.
+ * Whether `s` is a capability key (the 10-contracts key table): `claude`, `cli:<name>`,
+ * `cli:<name>:authed`, `mcp:<name>`, `skill:<name>[@<repo>]`, `agent:<name>[@<repo>]`. A name has
+ * no whitespace, `:` or `@`; `<repo>` is a canonical remote. So `cli:a:b:c` is refused.
  */
+export function isCapabilityRequirement(s: string): boolean {
+  const m = REQUIREMENT_RE.exec(s);
+  if (m === null) return false;
+  return m[1] === undefined || isCanonicalRemote(m[1]);
+}
+
+/** A required capability, as a key (`isCapabilityRequirement`). */
 export const CapabilityRequirementSchema = z
   .string()
-  .regex(/^(?:claude|(?:cli|mcp|skill|agent):\S+)$/);
+  .refine(isCapabilityRequirement, 'expected a capability key (e.g. cli:gh:authed)');
 export type CapabilityRequirement = string;
 
 /**

@@ -209,6 +209,8 @@ describe('m1_basic: build/test (command) and retry loops', () => {
   it('build exit_0 → test → exit_0 → done (terminal)', () => {
     const h = runningImplement();
     h.complete();
+    // The worker ends itself after complete_state; with no live process, `done` kills nothing.
+    h.run({ type: 'agent.exited', command_id: h.agentCmd, code: 0, signal: null });
     let r = h.cmdExit(0);
     expect(r.snapshot.workflow_state).toBe('test');
     expect(find(r.effects, 'run_cmd')).toMatchObject({ cmd: 'npm test', timeout_ms: 600_000 });

@@ -328,6 +328,15 @@ function checkInvariants(def: WorkflowDefinition, prev: SessionSnapshot, h: Harn
     }
   }
   if (s.status === 'done' || s.status === 'failed') expect(s.pending_answer).toBeNull();
+  // BUG-1: terminal ⇒ no agent process left attached, and a live one was killed on the way.
+  const terminal = (x: SessionSnapshot) => ['done', 'failed', 'lost'].includes(x.status);
+  if (terminal(s)) {
+    expect(s.agent_process_live).toBe(false);
+    expect(s.agent_command_id).toBeNull();
+  }
+  if (!terminal(prev) && terminal(s) && prev.machine_id !== null && prev.agent_process_live) {
+    expect(r.effects.some((e) => e.type === 'kill')).toBe(true);
+  }
   // §Pending answer: cleared when apply enters a different state, unless it delivers an answer
   // (an `input.provided`, or a human's text delivered to an agent by a transition or a move).
   // A requeue into an agent state (U-068: an answer out of a lost-machine park) keeps the answer
@@ -425,6 +434,20 @@ describe.each(WORKFLOWS)('apply property: %s', (_name, load, kind) => {
           const event = eventFor(gen, h, pick);
           h.run(event);
           checkInvariants(def, prev, h);
+          // BUG-1: a human move off a parked agent into a state that runs no agent kills it.
+          const landed = h.snap.workflow_state;
+          const landedType = landed === null ? undefined : def.states[landed]?.type;
+          if (
+            (event.type === 'human.transition' || event.type === 'input.provided') &&
+            h.last.ignored === null &&
+            prev.machine_id !== null &&
+            prev.agent_process_live &&
+            landedType !== undefined &&
+            landedType !== 'agent'
+          ) {
+            expect(h.last.effects.some((e) => e.type === 'kill')).toBe(true);
+            expect(h.snap.agent_process_live).toBe(false);
+          }
           if (event.type === 'machine.lost') {
             const [row, ignored] = lostRow(prev, event);
             lostRows.add(row);
@@ -452,7 +475,8 @@ describe.each(WORKFLOWS)('apply property: %s', (_name, load, kind) => {
     );
     // every row of the lost-machines table is exercised
     expect([...lostRows].sort()).toEqual([...LOST_ROWS].sort());
-  });
+    // 1000 runs take ~5 s on their own; more when every package's tests run in parallel.
+  }, 60_000);
 
   it('terminal sessions ignore every event', () => {
     fc.assert(

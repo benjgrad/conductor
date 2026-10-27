@@ -58,6 +58,8 @@ export function freshSnapshot(def: WorkflowDefinition): SessionSnapshot {
   };
 }
 
+const TERMINAL: ReadonlySet<string> = new Set(['done', 'failed', 'lost']);
+
 /** Deterministic v4-shaped uuids. */
 export function uuid(n: number): string {
   return `00000000-0000-4000-8000-${n.toString(16).padStart(12, '0')}`;
@@ -107,9 +109,11 @@ export class Harness {
       }
     }
     if (
-      event.type === 'command.refused' &&
-      event.command_kind === 'start_session' &&
-      result.ignored === null
+      (event.type === 'command.refused' &&
+        event.command_kind === 'start_session' &&
+        result.ignored === null) ||
+      // BUG-1: the wrapper also fences a session that becomes terminal.
+      (!TERMINAL.has(before.status) && TERMINAL.has(snap.status))
     ) {
       snap = { ...snap, fencing_token: snap.fencing_token + 1 };
     }

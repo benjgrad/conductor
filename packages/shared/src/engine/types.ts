@@ -429,7 +429,10 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
      */
     offline_ms: z.number().int().positive().optional(),
   }),
-  /** U: operator cancel (POST /cancel). → failed, kill. */
+  /**
+   * U: operator cancel (POST /cancel). → failed, kill (null target: everything the session runs,
+   * a parked agent process included; BUG-1), agent_command_id = null, agent_process_live = false.
+   */
   z.object({ type: z.literal('operator.cancel'), reason: z.string().optional() }),
   /**
    * U: a human's message to the running agent (POST /messages, ADR-0007). Accepted only while
@@ -518,7 +521,10 @@ export const EffectSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('kill'),
     reason: z.string(),
-    /** ADR-0010: kill only this start_session's process (the worker, when a gate step starts). */
+    /**
+     * ADR-0010: kill only this start_session's process (the worker, when a gate step starts; the
+     * outstanding agent process when the session enters a terminal state, BUG-1).
+     */
     target_command_id: UuidSchema.optional(),
   }),
   /**

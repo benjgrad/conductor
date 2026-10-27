@@ -4,7 +4,19 @@ import { fileURLToPath } from 'node:url';
 import { conductorPort } from '@conductor/shared';
 import pg from 'pg';
 import { createApi as createRealApi } from './api/index.js';
-import { parseServerConfig, type AuthConfig } from './auth/config.js';
+import {
+  parsePublicUrl,
+  parseServerConfig,
+  PUBLIC_URL_ENV,
+  type AuthConfig,
+  type ServerConfig,
+} from './auth/config.js';
+import {
+  defaultDownloadsDir,
+  findDaemonBuild,
+  orchestratorVersion,
+  serveDistribution,
+} from './distribution.js';
 import { seedConductorWorkflow } from './engine/seed.js';
 import { createDb as createPoolDb } from './db/index.js';
 import { createEngineService as createRealEngineService } from './engine/index.js';
@@ -173,7 +185,8 @@ export interface MainOptions {
   /**
    * Default `process.env`: DATABASE_URL (required), CONDUCTOR_PORT, CONDUCTOR_WEB_DIR, and the
    * M2-T08 server config (CONDUCTOR_AUTH, CONDUCTOR_PUBLIC_URL, CONDUCTOR_BIND_HOST,
-   * CONDUCTOR_TRUSTED_PROXY; `parseServerConfig`).
+   * CONDUCTOR_TRUSTED_PROXY; `parseServerConfig`), and the M2-T14 distribution settings
+   * (CONDUCTOR_DOWNLOADS_DIR, CONDUCTOR_BUILD_SHA / CONDUCTOR_GIT_SHA).
    */
   env?: NodeJS.ProcessEnv;
   /** Stop on SIGINT/SIGTERM, then exit (default true; tests pass false and call `stop()`). */
@@ -181,6 +194,19 @@ export interface MainOptions {
   /** Default REAL_FACTORIES (tests may wrap them). */
   factories?: OrchestratorFactories;
   log?: (msg: string) => void;
+}
+
+/**
+ * The origin `/install.sh` downloads from and enrolls against: the public URL in password mode;
+ * in local mode CONDUCTOR_PUBLIC_URL when set, else the loopback address it listens on.
+ */
+function installPublicUrl(env: NodeJS.ProcessEnv, server: ServerConfig, port: number): string {
+  if (server.auth.mode === 'password') return server.auth.publicUrl.origin;
+  const raw = env[PUBLIC_URL_ENV]?.trim();
+  if (raw) return parsePublicUrl(raw).publicUrl.origin;
+  const host =
+    server.bindHost === '0.0.0.0' || server.bindHost === '::' ? '127.0.0.1' : server.bindHost;
+  return `http://${host.includes(':') && !host.startsWith('[') ? `[${host}]` : host}:${port}`;
 }
 
 /**
@@ -201,12 +227,18 @@ export async function main(opts: MainOptions = {}): Promise<Orchestrator> {
   const webDir = env.CONDUCTOR_WEB_DIR || DEFAULT_WEB_DIR;
   const serveWeb = hasWebApp(webDir);
   const factories = opts.factories ?? REAL_FACTORIES;
+  // M2-T14: /install.sh, /downloads/*, /healthz (ADR-0017 §Daemon distribution).
+  const version = orchestratorVersion(env);
+  const downloadsDir = defaultDownloadsDir(env);
+  const build = findDaemonBuild(downloadsDir, log);
+  const publicUrl = installPublicUrl(env, server, port);
   const orchestrator = composeOrchestrator(
     {
       ...factories,
       createApi: (deps) => {
         const api = factories.createApi(deps);
         if (serveWeb) serveWebApp(api.server, webDir);
+        serveDistribution(api.server, { db: deps.db, publicUrl, build, version });
         return api;
       },
     },
@@ -221,6 +253,12 @@ export async function main(opts: MainOptions = {}): Promise<Orchestrator> {
   await orchestrator.start();
   log(`listening on http://${server.bindHost}:${port} (auth: ${server.auth.mode})`);
   log(serveWeb ? `web app from ${webDir}` : `no web app at ${webDir} (run pnpm build)`);
+  log(
+    build
+      ? `daemon ${build.version} served from ${downloadsDir} (version ${version})`
+      : `no daemon tarball in ${downloadsDir}: /install.sh answers 503 ` +
+          '(run packages/orchestrator/scripts/build-daemon-tarball.sh)',
+  );
 
   if (opts.signals ?? true) {
     let stopping = false;

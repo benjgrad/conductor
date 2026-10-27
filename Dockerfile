@@ -36,14 +36,17 @@ RUN pnpm --filter @conductor/orchestrator --prod deploy --legacy /out/app \
  && cp -r packages/web/dist /out/app/web \
  && test -f /out/app/web/index.html
 
-# ==== daemon-tarball: STUB, filled by M2-T14 =====================================================
-# T14 builds conductor-daemon-<version>.tgz and its .sha256 into /out/downloads
-# (ADR-0017 §Daemon distribution: `pnpm --filter @conductor/daemon deploy --prod` or an equivalent
-# self-contained bundle; <version> = package version + GIT_SHA). Until then the directory is empty.
+# ==== daemon-tarball (M2-T14) ===================================================================
+# conductor-daemon-<version>.tgz and its .sha256 into /out/downloads (ADR-0017 §Daemon
+# distribution): a `pnpm deploy --legacy` of the daemon, <version> = package version + the short
+# GIT_SHA. The script also unpacks the result and runs `bin/conductor-daemon --help` with only
+# Node on PATH. .git is dockerignored, so the sha comes only from the build arg.
 FROM build AS daemon-tarball
 ARG GIT_SHA=unknown
-RUN mkdir -p /out/downloads
-# ==== end daemon-tarball stub ====================================================================
+RUN sha="$(printf %.7s "$GIT_SHA")"; if [ "$GIT_SHA" = unknown ]; then sha=; fi; \
+    CONDUCTOR_BUILD_SHA="$sha" packages/orchestrator/scripts/build-daemon-tarball.sh /out/downloads \
+ && ls /out/downloads/conductor-daemon-*.tgz /out/downloads/conductor-daemon-*.tgz.sha256 \
+ && test -f /out/app/assets/install.sh.tmpl
 
 # ---- runtime: production deps, built output, web app, migrations; non-root ----
 FROM node:${NODE_VERSION}-bookworm-slim AS runtime
@@ -57,7 +60,6 @@ COPY --from=build --chown=node:node /out/app /app
 COPY --from=daemon-tarball --chown=node:node /out/downloads /app/downloads
 USER node
 EXPOSE 7400
-# /healthz comes from M2-T14; until it lands this check reports unhealthy.
 HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=3 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:7400/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
 # The migrate service overrides this with:

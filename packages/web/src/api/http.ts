@@ -5,10 +5,13 @@ import {
   BOARD_SSE_EVENT_TYPES,
   BoardResponseSchema,
   BoardSseEventSchema,
+  EnrollmentTokenCreatedSchema,
   InviteCreatedSchema,
   InviteListResponseSchema,
   InvitePreviewSchema,
-  MachineDtoSchema,
+  MachineDetailSchema,
+  MachineListResponseSchema,
+  MachineRowSchema,
   MeResponseSchema,
   OkResponseSchema,
   OutputChunkSchema,
@@ -28,6 +31,7 @@ import {
   type LoginRequest,
   type OutputChunk,
   type PasswordChangeRequest,
+  type RenameMachineRequest,
   type ReopenSessionRequest,
   type ResetRequest,
   type SendMessageRequest,
@@ -116,7 +120,7 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
 
   async function request<T>(
     schema: ResponseSchema<T>,
-    method: 'GET' | 'POST' | 'DELETE',
+    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
   ): Promise<T> {
@@ -308,7 +312,7 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
         req,
       ),
 
-    listMachines: () => request(MachineDtoSchema.array(), 'GET', API_PATHS.machines),
+    listMachines: () => request(MachineListResponseSchema, 'GET', API_PATHS.machines),
 
     getTranscript: (sessionId: string) =>
       request(
@@ -375,6 +379,19 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
 
     unlockUser: (userId: string) =>
       request(OkResponseSchema, 'POST', API_PATHS.adminUserUnlock(encodeURIComponent(userId)), {}),
+
+    // M2-T11: machines.
+    getMachine: (machineId: string) =>
+      request(MachineDetailSchema, 'GET', API_PATHS.machine(encodeURIComponent(machineId))),
+
+    renameMachine: (machineId: string, req: RenameMachineRequest) =>
+      request(MachineRowSchema, 'PATCH', API_PATHS.machine(encodeURIComponent(machineId)), req),
+
+    revokeMachine: (machineId: string) =>
+      request(OkResponseSchema, 'POST', API_PATHS.machineRevoke(encodeURIComponent(machineId)), {}),
+
+    createEnrollmentToken: () =>
+      request(EnrollmentTokenCreatedSchema, 'POST', API_PATHS.machineEnrollmentTokens, {}),
   };
 }
 

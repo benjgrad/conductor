@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 // Top-level navigation kept in the URL hash: `#/` (board), `#/workflows`, `#/workflows/<id>`,
-// `#/admin`. Every route change, from an in-app link or from the hash itself (typed URL,
+// `#/admin`, `#/machines` (M2-T11). Every route change, from an in-app link or from the hash itself (typed URL,
 // back/forward), goes through an optional guard, so a view with unsaved work can hold the user back.
 //
 // M2-T05: the sign-in pages are real paths (`/signin`, `/signup?invite=`, `/reset?token=`),
@@ -9,7 +9,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 // of `#/admin`. `goTo` / `usePath` move between paths without a reload.
 
 export type Route =
-  { view: 'board' } | { view: 'workflows'; workflowId: string | null } | { view: 'admin' };
+  | { view: 'board' }
+  | { view: 'workflows'; workflowId: string | null }
+  | { view: 'admin' }
+  | { view: 'machines' };
 
 export function parseHash(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
@@ -17,12 +20,14 @@ export function parseHash(hash: string): Route {
     return { view: 'workflows', workflowId: parts[1] ? decodeURIComponent(parts[1]) : null };
   }
   if (parts[0] === 'admin') return { view: 'admin' };
+  if (parts[0] === 'machines') return { view: 'machines' };
   return { view: 'board' };
 }
 
 export function routeHash(route: Route): string {
   if (route.view === 'board') return '#/';
   if (route.view === 'admin') return '#/admin';
+  if (route.view === 'machines') return '#/machines';
   return route.workflowId ? `#/workflows/${encodeURIComponent(route.workflowId)}` : '#/workflows';
 }
 

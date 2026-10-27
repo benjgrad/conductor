@@ -2,6 +2,9 @@ import {
   BoardResponseSchema,
   BoardSseEventSchema,
   CONDUCTOR_WORKFLOW_ID,
+  EnrollmentTokenCreatedSchema,
+  MachineDetailSchema,
+  MachineListResponseSchema,
   type CreateTicketRequest,
   SessionDetailSchema,
   validateWorkflow,
@@ -267,5 +270,38 @@ describe('UX-4 seeds', () => {
     });
     const failed = SessionDetailSchema.parse(await api.getSession(SEED_IDS.stepFailed.session));
     expect(failed.pending_input).toMatchObject({ kind: 'retries_exhausted', step_failed: true });
+  });
+});
+
+describe('mock machines (M2-T11)', () => {
+  it('serves two contract-valid machines, one with an open alert', async () => {
+    const api = createMockApi({ now });
+    const rows = MachineListResponseSchema.parse(await api.listMachines());
+    expect(rows.map((r) => [r.id, r.outdated])).toEqual([
+      ['mbp-ben', false],
+      ['linux-box', true],
+    ]);
+    const mbp = MachineDetailSchema.parse(await api.getMachine('mbp-ben'));
+    expect(mbp.alerts.map((a) => a.files)).toEqual([['.git/hooks/pre-commit']]);
+    expect(mbp.live_sessions.length).toBeGreaterThan(0);
+    expect(MachineDetailSchema.parse(await api.getMachine('linux-box')).alerts).toEqual([]);
+    await expect(api.getMachine('nope')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('renames (400 on a blank name), revokes (404 unknown), issues 30-minute tokens', async () => {
+    const api = createMockApi({ now });
+    expect((await api.renameMachine('linux-box', { name: ' Build box ' })).name).toBe('Build box');
+    await expect(api.renameMachine('linux-box', { name: '  ' })).rejects.toMatchObject({
+      status: 400,
+    });
+    await api.revokeMachine('linux-box');
+    expect((await api.getMachine('linux-box')).revoked_at).toBe(now().toISOString());
+    await expect(api.revokeMachine('nope')).rejects.toMatchObject({ status: 404 });
+
+    const a = EnrollmentTokenCreatedSchema.parse(await api.createEnrollmentToken());
+    const b = await api.createEnrollmentToken();
+    expect(a.token).not.toBe(b.token);
+    expect(a.command).toContain(a.token);
+    expect(Date.parse(a.expires_at) - now().getTime()).toBe(30 * 60_000);
   });
 });

@@ -12,6 +12,7 @@ import { useBoard } from './board/hooks.js';
 import { Board } from './components/Board.js';
 import { CreateTicketForm } from './components/CreateTicketForm.js';
 import { DetailPanel } from './components/DetailPanel.js';
+import { MachinesPage } from './machines/Machines.js';
 import { currentPath, goTo, routeHash, signInPath, useHashRoute, usePath } from './nav.js';
 import { DiscardDraftConfirm, useDraftGuard } from './workflow/draft-guard.js';
 import { WorkflowsView } from './workflow/WorkflowsView.js';
@@ -140,6 +141,12 @@ function Shell({ api, me, onSignedOut }: ShellProps) {
           >
             Workflow
           </a>
+          <a
+            href={routeHash({ view: 'machines' })}
+            aria-current={route.view === 'machines' ? 'page' : undefined}
+          >
+            Machines
+          </a>
         </nav>
         {route.view === 'board' && (
           <button type="button" onClick={() => setCreating((v) => !v)} aria-expanded={creating}>
@@ -162,6 +169,7 @@ function Shell({ api, me, onSignedOut }: ShellProps) {
       )}
       <DiscardDraftConfirm draft={draft} navigate={navigate} />
       {route.view === 'workflows' && <WorkflowsView api={api} onDirtyChange={draft.setDirty} />}
+      {route.view === 'machines' && <MachinesPage api={api} />}
       {route.view === 'admin' &&
         (me ? <AdminPage api={api} me={me} /> : <p className="loading">Loading…</p>)}
       {route.view === 'board' && creating && (

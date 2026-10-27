@@ -4,6 +4,7 @@ import {
   boardColumns as defaultBoardColumns,
   CreateInviteRequestSchema,
   CreateTicketRequestSchema,
+  ENROLLMENT_TOKEN_TTL_MS,
   humanTransitionOptions,
   INVITE_DEFAULT_DAYS,
   INVITE_ROW_FIXTURES,
@@ -13,6 +14,8 @@ import {
   PasswordChangeRequestSchema,
   passwordProblems,
   placeCard,
+  MachineRowSchema,
+  RenameMachineRequestSchema,
   ReopenSessionRequestSchema,
   RESET_LINK_TTL_MS,
   ResetRequestSchema,
@@ -28,7 +31,9 @@ import {
   type BoardSseEventDraft,
   type InputRequestKind,
   type InviteRow,
-  type MachineDto,
+  type EnrollmentTokenCreated,
+  type MachineDetail,
+  type MachineRow,
   type MeResponse,
   type MoveDto,
   type OkResponse,
@@ -52,7 +57,13 @@ import {
   type Unsubscribe,
 } from './client.js';
 import { validateColumns } from '../workflow/columns.js';
-import { CONDUCTOR, MOCK_WORKFLOW_HISTORY, mockSeeds, type MockSession } from './mock-data.js';
+import {
+  CONDUCTOR,
+  MOCK_WORKFLOW_HISTORY,
+  mockMachines,
+  mockSeeds,
+  type MockSession,
+} from './mock-data.js';
 
 // In-memory ApiClient for T09 (and tests). It mimics the orchestrator's observable behaviour:
 // every change is an id-ordered board event (card.upserted last, carrying the full card), the
@@ -182,6 +193,37 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
   ]);
   const resets = new Map<string, { userId: string; expires_at: string; used: boolean }>();
   let issued = 0;
+
+  // M2-T11: two machines (mbp-ben online with an open alert; an old, outdated one offline).
+  // running_sessions and live_sessions come from the cards; the rest is stored here.
+  const machines = new Map(mockMachines(now()).map((m) => [m.id, m]));
+
+  function machineOf(id: string): MachineDetail {
+    const m = machines.get(id);
+    if (!m) throw new ApiRequestError(404, 'not_found', `machine ${id} not found`);
+    const live = [...cards.values()].filter(
+      (c) =>
+        c.machine_id === id &&
+        c.session_id !== null &&
+        c.status !== null &&
+        !TERMINAL.has(c.status),
+    );
+    return clone({
+      ...m,
+      running_sessions: live.filter((c) => c.status === 'running').length,
+      live_sessions: live.map((c) => ({
+        session_id: c.session_id!,
+        ticket_id: c.ticket_id,
+        title: c.title,
+      })),
+    });
+  }
+
+  function machineRow(id: string): MachineRow {
+    const m = machineOf(id);
+    // The schema strips the detail-only fields, as the server's row has none.
+    return MachineRowSchema.parse({ ...m, repo_count: m.repos.length });
+  }
 
   const inviteOpen = (row: InviteRow | undefined): row is InviteRow =>
     row !== undefined &&
@@ -680,22 +722,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         return { ok: true };
       }),
 
-    listMachines: () =>
-      reply((): MachineDto[] => [
-        {
-          id: 'mbp-ben',
-          hostname: 'bens-macbook-pro.local',
-          status: 'online',
-          tags: ['macos', 'arm64'],
-          last_heartbeat_at: now().toISOString(),
-          max_sessions: 3,
-          running_sessions: [...cards.values()].filter(
-            (c) => c.machine_id === 'mbp-ben' && c.status === 'running',
-          ).length,
-          cpu_free: 0.62,
-          mem_free_mb: 9_400,
-        },
-      ]),
+    listMachines: () => reply(() => [...machines.keys()].map(machineRow)),
 
     getTranscript: (sessionId) =>
       reply((): TranscriptResponse => {
@@ -928,6 +955,37 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         requireAdmin();
         userById(userId).row.locked = false;
         return { ok: true };
+      }),
+
+    getMachine: (machineId) => reply(() => machineOf(machineId)),
+
+    renameMachine: (machineId, raw) =>
+      reply((): MachineRow => {
+        const m = machines.get(machineId);
+        if (!m) throw new ApiRequestError(404, 'not_found', `machine ${machineId} not found`);
+        const parsed = RenameMachineRequestSchema.safeParse(raw);
+        if (!parsed.success) throw badRequest(parsed.error.message);
+        m.name = parsed.data.name;
+        return machineRow(machineId);
+      }),
+
+    revokeMachine: (machineId) =>
+      reply((): OkResponse => {
+        const m = machines.get(machineId);
+        if (!m) throw new ApiRequestError(404, 'not_found', `machine ${machineId} not found`);
+        m.revoked_at ??= now().toISOString();
+        m.status = 'offline';
+        return { ok: true };
+      }),
+
+    createEnrollmentToken: () =>
+      reply((): EnrollmentTokenCreated => {
+        const token = `mock-enroll-${++issued}`;
+        return {
+          token,
+          command: `curl -fsSL http://localhost/install.sh | sh -s -- --token ${token}`,
+          expires_at: isoIn(ENROLLMENT_TOKEN_TTL_MS),
+        };
       }),
 
     lockUser(email) {

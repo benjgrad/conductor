@@ -12,6 +12,7 @@ import {
   isConductorStep,
   waitingForBuildSlot,
 } from './ConductorChecks.js';
+import { routingNeeds } from '../machines/format.js';
 import './Board.css';
 
 interface BoardProps {
@@ -114,6 +115,12 @@ function Card({ card, selected, onSelect, api }: CardProps) {
       {card.badges.includes('waiting_for_build_slot') && !waitingForBuildSlot(card) && (
         <span className="badge badge-slot">waiting for build slot</span>
       )}
+      {card.column === 'queued' && card.routing && (
+        <RoutingBadge needs={routingNeeds(card.routing)} />
+      )}
+      {card.alerts && card.alerts.length > 0 && (
+        <AlertBadge files={[...new Set(card.alerts.flatMap((a) => a.files))]} />
+      )}
       {conductor ? null : card.pending ? (
         <PendingChecklist pending={card.pending} />
       ) : (
@@ -165,6 +172,44 @@ function Card({ card, selected, onSelect, api }: CardProps) {
         <TransitionButtons api={api} sessionId={sessionId} options={card.human_transitions} />
       )}
     </article>
+  );
+}
+
+/** M2 (ADR-0013 §Routing): what no online machine has, e.g. "needs a machine with org/app and az". */
+function RoutingBadge({ needs }: { needs: string[] }) {
+  if (needs.length === 0) {
+    return <span className="badge badge-routing">no online machine can take it</span>;
+  }
+  return (
+    <span className="badge badge-routing">
+      needs a machine with{' '}
+      {needs.map((n, i) => (
+        <span key={n}>
+          {i > 0 && (i === needs.length - 1 ? ' and ' : ', ')}
+          <code>{n}</code>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** M2 (U-060): the session changed `.git` in a checkout-mode repo; the files it touched. */
+function AlertBadge({ files }: { files: string[] }) {
+  return (
+    <div className="card-alert">
+      <span className="badge badge-alert" title={files.join('\n')}>
+        .git changed
+      </span>
+      {files.length > 0 && (
+        <ul className="card-alert-files" aria-label=".git files changed">
+          {files.map((f) => (
+            <li key={f}>
+              <code>{f}</code>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

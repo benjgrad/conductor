@@ -46,7 +46,7 @@ export function requiredCapabilitiesOf(
   const out = new Set<CapabilityRequirement>();
   for (const state of Object.values(def.states)) {
     if (state.type === 'agent') out.add(CLAUDE_CAPABILITY);
-    // TD: connector states (`action` / `actions`) have no capability mapping until M5.
+    // TD-145: connector states (`action` / `actions`) have no capability mapping until M5.
     if (state.entry !== undefined) {
       for (const a of state.entry.actions ?? []) out.add(ACTION_CAPABILITIES[a]);
       if (state.entry.review !== undefined) out.add(CLAUDE_CAPABILITY);

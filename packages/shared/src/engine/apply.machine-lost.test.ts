@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CONDUCTOR_V2_DRAFT_DEF } from '../workflow/fixtures.js';
-import type { WorkflowDefinition } from '../workflow/schema.js';
+import { WorkflowDefinitionSchema, type WorkflowDefinition } from '../workflow/schema.js';
 import { apply } from './apply.js';
 import { freshSnapshot, Harness, referenceWorkflow } from './apply.testkit.js';
 import { MACHINE_LOST_EVENT_FIXTURES } from './fixtures.js';
@@ -419,5 +419,142 @@ describe('"Continue on <machine>" and the mark', () => {
     });
     expect(r.snapshot.status).toBe('waiting_external');
     expect(MACHINE_LOST_CONTEXT_KEY in r.snapshot.context).toBe(false);
+  });
+});
+
+/** conductor v2 (work): a reopened session, queued and never started, with the human's message. */
+function reopened(): Harness {
+  const snap = freshSnapshot(CONDUCTOR_V2_DRAFT_DEF);
+  snap.ticket = { ...snap.ticket, kind: 'work' };
+  snap.pending_answer = { input_request_id: null, answer: 'REOPEN TEXT' };
+  return new Harness(CONDUCTOR_V2_DRAFT_DEF, snap);
+}
+
+const cont = (h: Harness, text: string | null) =>
+  run(h, { type: 'human.transition', name: 'answer', text, actor: 'ui', input_request_id: REQ });
+
+/** The next start_session's prompt after the claim. */
+function promptAfterClaim(h: Harness): string {
+  const a = run(h, { type: 'session.assigned', machine_id: MBP });
+  const start = find(a.effects, 'start_session');
+  expect(start).toBeDefined();
+  return start!.prompt;
+}
+
+describe('an answer the agent never ran on survives the park (QA item 1)', () => {
+  const both = (earlier: string, text: string) =>
+    `Your earlier message (sent before Ben's MacBook was lost):\n${earlier}\n\nOn continuing:\n${text}`;
+
+  it('never-started reopen + pinned + Continue with text: both, the reopen text first', () => {
+    const h = reopened();
+    const park = run(h, LOST.pinned_machine_offline);
+    expect(park.snapshot.pending_answer).toBeNull();
+    const r = cont(h, 'CONTINUE TEXT');
+    expect(r.snapshot).toMatchObject({ status: 'queued', workflow_state: 'planning' });
+    expect(r.snapshot.pending_answer?.answer).toBe(both('REOPEN TEXT', 'CONTINUE TEXT'));
+    expect(promptAfterClaim(h)).toContain(both('REOPEN TEXT', 'CONTINUE TEXT'));
+  });
+
+  it('the same with no text: the reopen text alone', () => {
+    const h = reopened();
+    run(h, LOST.pinned_machine_offline);
+    cont(h, null);
+    expect(h.snap.pending_answer?.answer).toBe('REOPEN TEXT');
+    const prompt = promptAfterClaim(h);
+    expect(prompt).toContain('REOPEN TEXT');
+    expect(prompt).not.toContain('On continuing');
+  });
+
+  it('an answer through input.provided is combined the same way', () => {
+    const h = reopened();
+    run(h, LOST.pinned_machine_offline);
+    run(h, { type: 'input.provided', input_request_id: REQ, answer: 'ANSWER TEXT' });
+    expect(promptAfterClaim(h)).toContain(both('REOPEN TEXT', 'ANSWER TEXT'));
+  });
+
+  it('assigned but never started, then lease_expired: the reopen text is kept', () => {
+    const h = reopened();
+    run(h, { type: 'session.assigned', machine_id: MBP });
+    expect(h.snap.status).toBe('assigned');
+    run(h, LOST.lease_expired);
+    cont(h, 'CONTINUE TEXT');
+    expect(promptAfterClaim(h)).toContain(both('REOPEN TEXT', 'CONTINUE TEXT'));
+  });
+
+  it('Continue → lost again → Continue: both answers, in order', () => {
+    const h = implementing();
+    run(h, LOST.lease_expired);
+    cont(h, 'FIRST');
+    expect(h.snap.status).toBe('queued');
+    run(h, LOST.pinned_machine_offline);
+    cont(h, 'SECOND');
+    // a resume (the worker's Claude session is known): the prompt is the answer itself
+    expect(promptAfterClaim(h)).toBe(both('FIRST', 'SECOND'));
+  });
+
+  it('a revoked park → Cancel: nothing delivered, the pin and the kept answer are gone', () => {
+    const h = reopened();
+    run(h, LOST.revoked);
+    expect(h.snap.context.__machine_lost_answer).toEqual({
+      input_request_id: null,
+      answer: 'REOPEN TEXT',
+    });
+    const r = run(h, { type: 'operator.cancel' });
+    expect(r.snapshot.status).toBe('failed');
+    expect(all(r.effects, 'start_session')).toEqual([]);
+    expect(all(r.effects, 'send_input')).toEqual([]);
+    expect(r.snapshot.context).toEqual({});
+  });
+});
+
+describe('terminal sessions keep no pin (QA item 2)', () => {
+  it('a parked session cancelled: no __machine_lost left for a reopen to copy', () => {
+    const h = parkedLost();
+    expect(MACHINE_LOST_CONTEXT_KEY in h.snap.context).toBe(true);
+    const r = run(h, { type: 'operator.cancel' });
+    expect(MACHINE_LOST_CONTEXT_KEY in r.snapshot.context).toBe(false);
+  });
+
+  it('a pinned session parked again by the budget, then cancelled: the mark is stripped', () => {
+    const h = continued(); // queued in `implement` with the mark (m1_basic)
+    const r = run(h, { type: 'budget.exceeded', dimension: 'usd', spent: 3, limit: 2 });
+    expect(r.snapshot.status).toBe('needs_input');
+    // routed to a human by the budget: still pinned until it finishes
+    expect(MACHINE_LOST_CONTEXT_KEY in r.snapshot.context).toBe(true);
+    const failed = run(h, { type: 'operator.cancel' });
+    expect(failed.snapshot.context[MACHINE_LOST_CONTEXT_KEY]).toBeUndefined();
+  });
+});
+
+describe('a workflow without a human state (QA item 3)', () => {
+  const def = (): WorkflowDefinition =>
+    WorkflowDefinitionSchema.parse({
+      id: 'no_human',
+      version: 1,
+      start: 'work',
+      budget: { usd: 1, minutes: 10, max_loop_retries: 1 },
+      on_budget_exceeded: 'done',
+      states: {
+        work: { type: 'agent', prompt: 'Do it.', on: { done: 'done' } },
+        done: { type: 'terminal' },
+      },
+    });
+
+  it('revoked while running: failed with no kill', () => {
+    const r = run(running(def()), LOST.revoked);
+    expect(r.snapshot.status).toBe('failed');
+    expect(all(r.effects, 'kill')).toEqual([]);
+  });
+
+  it('a queued session (no process): failed with no kill', () => {
+    const r = run(new Harness(def()), LOST.pinned_machine_offline);
+    expect(r.snapshot.status).toBe('failed');
+    expect(all(r.effects, 'kill')).toEqual([]);
+  });
+
+  it('lease_expired while running: failed with exactly the machine_lost kill', () => {
+    const r = run(running(def()), LOST.lease_expired);
+    expect(r.snapshot.status).toBe('failed');
+    expect(all(r.effects, 'kill')).toEqual([{ type: 'kill', reason: 'machine_lost' }]);
   });
 });

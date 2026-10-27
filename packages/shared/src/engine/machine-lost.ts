@@ -1,9 +1,11 @@
 import {
   MACHINE_LOST_CONTEXT_KEY,
   MachineLostMarkSchema,
+  PendingAnswerSchema,
   type ApplyIgnoreReason,
   type EngineEvent,
   type MachineLostMark,
+  type PendingAnswer,
   type SessionSnapshot,
 } from './types.js';
 
@@ -28,10 +30,50 @@ export function withMachineLostMark(
 export function withoutMachineLostMark(
   context: SessionSnapshot['context'],
 ): SessionSnapshot['context'] {
-  if (!(MACHINE_LOST_CONTEXT_KEY in context)) return context;
+  return withoutKey(context, MACHINE_LOST_CONTEXT_KEY);
+}
+
+/**
+ * `session.context` key of the answer the agent never ran on when its machine was lost (a reopen
+ * message, an earlier Continue, an answer whose start never began): `PendingAnswer`. Parking in a
+ * human state clears `pending_answer`, so it waits here; the next Continue / answer into the agent
+ * delivers it first (`combineLostAnswer`). Cleared with the mark.
+ */
+export const MACHINE_LOST_ANSWER_KEY = '__machine_lost_answer';
+
+export function lostAnswerOf(context: Record<string, unknown>): PendingAnswer | null {
+  const parsed = PendingAnswerSchema.safeParse(context[MACHINE_LOST_ANSWER_KEY]);
+  return parsed.success ? parsed.data : null;
+}
+
+export function withLostAnswer(
+  context: SessionSnapshot['context'],
+  answer: PendingAnswer,
+): SessionSnapshot['context'] {
+  return { ...context, [MACHINE_LOST_ANSWER_KEY]: { ...answer } };
+}
+
+/** The context without the mark and the kept answer (a cleared pin, a terminal session). */
+export function withoutMachineLost(
+  context: SessionSnapshot['context'],
+): SessionSnapshot['context'] {
+  return withoutKey(withoutMachineLostMark(context), MACHINE_LOST_ANSWER_KEY);
+}
+
+function withoutKey(context: SessionSnapshot['context'], key: string): SessionSnapshot['context'] {
+  if (!(key in context)) return context;
   const rest = { ...context };
-  delete rest[MACHINE_LOST_CONTEXT_KEY];
+  delete rest[key];
   return rest;
+}
+
+/**
+ * The answer a Continue delivers when an earlier one was kept: the earlier text first, labelled,
+ * then the human's (`text` null: the earlier text alone).
+ */
+export function combineLostAnswer(earlier: string, machine: string, text: string | null): string {
+  if (text === null) return earlier;
+  return `Your earlier message (sent before ${machine} was lost):\n${earlier}\n\nOn continuing:\n${text}`;
 }
 
 /** Revoked = Cancel only: apply refuses human moves and answers while this holds. */

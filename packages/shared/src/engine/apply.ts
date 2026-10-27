@@ -39,11 +39,15 @@ import {
   unmarkRunning,
 } from './conditions.js';
 import {
+  combineLostAnswer,
   isRevokedPark,
+  lostAnswerOf,
   machineLostMarkOf,
+  MACHINE_LOST_ANSWER_KEY,
   planMachineLost,
+  withLostAnswer,
   withMachineLostMark,
-  withoutMachineLostMark,
+  withoutMachineLost,
   type MachineLostEvent,
 } from './machine-lost.js';
 import { moveCounter, moveName, moveSpecOf, PIN_CHECK, type GateSpec } from './move-step.js';
@@ -167,6 +171,8 @@ export const apply: ApplyFn = (def, snapshot, event, now) => {
   const step = new Step(def, snapshot, now);
   const reason = handle(step, event);
   if (reason !== null) return ignore(snapshot, reason);
+  // A finished session keeps no lost-machine pin: a reopen copies the context (ADR-0008).
+  if (TERMINAL_STATUSES.has(step.s.status)) step.s.context = withoutMachineLost(step.s.context);
   return { snapshot: step.s, effects: step.effects, ignored: null };
 };
 
@@ -188,7 +194,7 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
     // The lost-machine mark pins the claim until the agent runs again (`session.started`). A
     // re-emit with no start_session (a command, check, event or human state) never gets one.
     if (reason === null && !st.effects.some((x) => x.type === 'start_session')) {
-      st.s.context = withoutMachineLostMark(st.s.context);
+      st.s.context = withoutMachineLost(st.s.context);
     }
     return reason;
   }
@@ -375,7 +381,7 @@ function onStarted(st: Step, commandId: string): ApplyIgnoreReason | null {
   }
   st.s.agent_process_live = true;
   st.s.pending_answer = null; // the agent is running on it (§Pending answer)
-  st.s.context = withoutMachineLostMark(st.s.context); // running again (§Lost machines)
+  st.s.context = withoutMachineLost(st.s.context); // running again (§Lost machines)
   if (st.s.status === 'assigned') st.setStatus('running');
   return null;
 }
@@ -467,15 +473,15 @@ function onHumanTransition(
   if (!plan.ok) return plan.reason;
   const from = st.stateName!;
   const target = st.def.states[plan.goto]!;
-  leaveLostPark(
+  const moveStep = runsRequirements(plan.name, plan.transition);
+  const earlier = leaveLostPark(
     st,
-    runsRequirements(plan.name, plan.transition) ||
-      target.type === 'agent' ||
-      target.type === 'command',
+    moveStep || target.type === 'agent' || target.type === 'command',
+    !moveStep && target.type === 'agent',
   );
   const move: MoveRecord = { transition: plan.name, reason: e.text, actor: 'human' };
   const detail = e.text ?? `a human chose "${plan.name}"`;
-  if (runsRequirements(plan.name, plan.transition)) {
+  if (moveStep) {
     enterStep(st, {
       kind: 'move',
       from,
@@ -487,7 +493,12 @@ function onHumanTransition(
     });
     return null;
   }
-  const text = plan.continuation ? (e.text ?? `[${plan.name}]`) : e.text;
+  const text =
+    earlier !== null
+      ? combineLostAnswer(earlier.answer, earlier.machine, e.text)
+      : plan.continuation
+        ? (e.text ?? `[${plan.name}]`)
+        : e.text;
   const answer: PendingAnswer | null =
     target.type === 'agent' && text !== null
       ? { input_request_id: e.input_request_id ?? null, answer: text }
@@ -538,12 +549,15 @@ function onMachineLost(st: Step, e: MachineLostEvent): ApplyIgnoreReason | null 
   if (s.step !== null) leaveStep(st, false);
   s.machine_id = e.machine_id;
   s.agent_process_live = false;
+  const kill = plan.type === 'park' && plan.kill;
+  if (kill) st.emit({ type: 'kill', reason: MACHINE_LOST_KILL_REASON });
   if (target === null) {
-    failSession(st, 'failed', `no human state to route to: ${question}`);
+    failSession(st, 'failed', `no human state to route to: ${question}`, false);
     return null;
   }
-  if (plan.type === 'park' && plan.kill)
-    st.emit({ type: 'kill', reason: MACHINE_LOST_KILL_REASON });
+  // The answer the agent never ran on (a reopen message, an earlier Continue) survives the park.
+  const unread = s.pending_answer ?? lostAnswerOf(s.context);
+  if (unread !== null) s.context = withLostAnswer(s.context, unread);
   s.context = withMachineLostMark(s.context, {
     machine_id: e.machine_id,
     machine_name: name,
@@ -566,11 +580,27 @@ function onMachineLost(st: Step, e: MachineLostEvent): ApplyIgnoreReason | null 
  * Leaving a lost-machine park (a human move or an answer; never a revoked one, refused earlier).
  * Into something that needs the machine: no live process, so `enter` requeues (machine_id null)
  * and the kept mark pins the claim to `mark.machine_id` (M2-T16). Anywhere else: the mark goes.
+ * Returns the kept unread answer when the target is an agent state (`toAgent`), to be delivered
+ * before the human's text; anywhere else it is dropped.
  */
-function leaveLostPark(st: Step, needsMachine: boolean): void {
-  if (machineLostMarkOf(st.s.context) === null) return;
-  if (needsMachine) st.s.machine_id = null;
-  else st.s.context = withoutMachineLostMark(st.s.context);
+function leaveLostPark(
+  st: Step,
+  needsMachine: boolean,
+  toAgent: boolean,
+): { answer: string; machine: string } | null {
+  const s = st.s;
+  const mark = machineLostMarkOf(s.context);
+  if (mark === null) return null;
+  const kept = lostAnswerOf(s.context);
+  if (!needsMachine) {
+    s.context = withoutMachineLost(s.context);
+    return null;
+  }
+  s.machine_id = null;
+  const rest = { ...s.context };
+  delete rest[MACHINE_LOST_ANSWER_KEY];
+  s.context = rest;
+  return toAgent && kept !== null ? { answer: kept.answer, machine: mark.machine_name } : null;
 }
 
 function withReason(text: string, reason: string | null): string {
@@ -651,9 +681,17 @@ function onInput(
   const target = e.goto ?? st.s.return_to ?? st.def.start;
   const targetState = st.def.states[target];
   if (targetState === undefined) return 'unexpected_event';
-  const answer: PendingAnswer = { input_request_id: e.input_request_id, answer: e.answer };
   const continuation = target === st.s.return_to;
-  leaveLostPark(st, targetState.type === 'agent' || targetState.type === 'command');
+  const earlier = leaveLostPark(
+    st,
+    targetState.type === 'agent' || targetState.type === 'command',
+    targetState.type === 'agent',
+  );
+  const answer: PendingAnswer = {
+    input_request_id: e.input_request_id,
+    answer:
+      earlier !== null ? combineLostAnswer(earlier.answer, earlier.machine, e.answer) : e.answer,
+  };
   enter(st, target, {
     ...NO_ROUTE,
     kind: 'approval',
@@ -2134,10 +2172,13 @@ function requeue(st: Step): void {
   if (st.s.state_deadline !== null && st.stateName !== null) st.setDeadline(st.stateName, null);
 }
 
-/** → failed; kill whatever runs on the machine. Cancel → ticket `cancelled`, else `failed`. */
-function failSession(st: Step, ticket: TicketStatus, reason: string): void {
+/**
+ * → failed; kill whatever runs on the machine (`kill` false: the caller already decided, e.g. a
+ * lost machine). Cancel → ticket `cancelled`, else `failed`.
+ */
+function failSession(st: Step, ticket: TicketStatus, reason: string, kill = true): void {
   const s = st.s;
-  if (s.machine_id !== null) st.emit({ type: 'kill', reason });
+  if (kill && s.machine_id !== null) st.emit({ type: 'kill', reason });
   if (s.state_deadline !== null && s.workflow_state !== null)
     st.setDeadline(s.workflow_state, null);
   s.pending_answer = null;

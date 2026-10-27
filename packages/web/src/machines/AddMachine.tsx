@@ -16,6 +16,7 @@ export function AddMachine({ enrollment, onClose }: AddMachineProps) {
   const expiresAt = Date.parse(enrollment.expires_at);
   const [left, setLeft] = useState(() => expiresAt - Date.now());
   const expired = left <= 0;
+  const service = serviceCommand(enrollment.command);
 
   useEffect(() => {
     if (expired) return;
@@ -31,12 +32,12 @@ export function AddMachine({ enrollment, onClose }: AddMachineProps) {
         minutes.
       </p>
       <Command label="Install command" command={enrollment.command} disabled={expired} />
-      <p>To also start the daemon at login, use this instead:</p>
-      <Command
-        label="Install command (start at login)"
-        command={serviceCommand(enrollment.command)}
-        disabled={expired}
-      />
+      {service !== null && (
+        <>
+          <p>To also start the daemon at login, use this instead:</p>
+          <Command label="Install command (start at login)" command={service} disabled={expired} />
+        </>
+      )}
       {expired ? (
         <p role="alert" className="error">
           This command has expired. Close and add a machine again.

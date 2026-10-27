@@ -35,8 +35,8 @@ export function MachinesPage({ api }: MachinesPageProps) {
   const load = useCallback(() => {
     api.listMachines().then(
       async (rows) => {
-        // TD: the gh version (outdated-gh flag) is only in the detail, so the list fetches each
-        // machine's detail; a `gh_version` on MachineRow would make this one call.
+        // TD-186: the gh version (outdated-gh flag) and the alert count are only in the detail, so
+        // the list fetches each machine's detail (N+1); add them to MachineRow when the fleet grows.
         const settled = await Promise.allSettled(rows.map((r) => api.getMachine(r.id)));
         const details = new Map<string, MachineDetail>();
         for (const s of settled) if (s.status === 'fulfilled') details.set(s.value.id, s.value);

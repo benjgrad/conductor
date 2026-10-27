@@ -100,6 +100,22 @@ describe('machines page (M2-T11)', () => {
     ).toBe(true);
   });
 
+  it('hides the start-at-login variant for a command of unknown shape', () => {
+    render(
+      <AddMachine
+        enrollment={{
+          token: 't',
+          command: 'curl -fsSL https://c.example/install.sh | bash',
+          expires_at: new Date(Date.now() + 60_000).toISOString(),
+        }}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText('Install command')).toBeTruthy();
+    expect(screen.queryByLabelText('Install command (start at login)')).toBeNull();
+    expect(screen.queryByText(/start the daemon at login/)).toBeNull();
+  });
+
   it('revoke asks for confirmation, naming the sessions that go to a human', async () => {
     const api = await renderPage();
     const live = (await api.getMachine('mbp-ben')).live_sessions.map((s) => s.title);

@@ -26,16 +26,17 @@ export function ghTooOldText(version: string): string {
 }
 
 /**
- * The install command with `--service` (start the daemon at login). 10-contracts says the web
- * appends ` --service`; that is right while the command ends in `sh -s -- --token <t>`. If the
- * command pipes into a bare `sh` (the token in an env var, T17's fix), the script's arguments
- * need `-s --` first, or `sh` would take `--service` as its own option.
+ * The install command with `--service` (start the daemon at login), or null when `command` isn't
+ * one of the two shapes we know; the page then hides the variant rather than guess. 10-contracts
+ * says the web appends ` --service`, which is right for `… | sh -s -- --token <t>`. A command that
+ * pipes into a bare `sh` (the token in CONDUCTOR_ENROLL_TOKEN, T17's fix) needs `-s --` first, or
+ * `sh` would take `--service` as its own option.
  */
-export function serviceCommand(command: string): string {
+export function serviceCommand(command: string): string | null {
   const trimmed = command.trimEnd();
-  if (/\bsh -s --(\s|$)/.test(trimmed)) return `${trimmed} --service`;
-  if (/\bsh$/.test(trimmed)) return `${trimmed} -s -- --service`;
-  return `${trimmed} --service`;
+  if (/(^|[\s|])sh -s -- /.test(trimmed)) return `${trimmed} --service`;
+  if (/(^|[\s|])sh$/.test(trimmed)) return `${trimmed} -s -- --service`;
+  return null;
 }
 
 /** `mm:ss` for a countdown; never negative. */

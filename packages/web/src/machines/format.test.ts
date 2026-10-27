@@ -37,6 +37,14 @@ describe('machines format (M2-T11)', () => {
     );
   });
 
+  it('has no --service variant for any other command shape', () => {
+    expect(serviceCommand('curl -fsSL https://c.example/install.sh | sh -s')).toBeNull();
+    expect(serviceCommand('curl -fsSL https://c.example/install.sh | bash')).toBeNull();
+    expect(
+      serviceCommand('curl -fsSL https://c.example/install.sh | bash -s -- --token a'),
+    ).toBeNull();
+  });
+
   it('formats capability keys and repos as people read them', () => {
     expect(formatRequirement('cli:az:authed')).toBe('az (signed in)');
     expect(formatRequirement('cli:gh')).toBe('gh');

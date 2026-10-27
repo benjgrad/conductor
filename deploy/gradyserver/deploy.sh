@@ -8,14 +8,17 @@
 #    ~/deploy/conductor/releases/<sha> (skipped if that release already exists);
 # 2. creates ~/deploy/conductor/.env from env.example with a random POSTGRES_PASSWORD if it does
 #    not exist (mode 0600; never overwrites);
-# 3. using the new release's compose file: builds the image, starts postgres and waits for it to
-#    be healthy, then runs `migrate` as a separate gate. Nothing has touched the running
-#    orchestrator yet, so a failed migration leaves it serving (ADR-0012 §Deployment shape);
-# 4. recreates only the orchestrator (`up -d --no-deps`) and waits for it to be healthy;
-# 5. only then points ~/deploy/conductor/current at the release and writes
-#    ~/deploy/conductor/current.env (CONDUCTOR_GIT_SHA=<sha>, used by operator commands and
-#    backup.sh), and keeps the last 5 releases;
-# 6. runs smoke.sh against $SMOKE_URL (skip with --no-smoke, e.g. before nginx is installed).
+# 3. runs remote-deploy.sh from the uploaded release with `ssh -n` (stdin is /dev/null, so no
+#    server command can read the script): builds the image, starts postgres and waits for it,
+#    runs `migrate` as a separate gate (nothing has touched the running orchestrator yet, so a
+#    failed migration leaves it serving, ADR-0012 §Deployment shape), recreates only the
+#    orchestrator and waits for it to be healthy, and only then points current at the release and
+#    writes current.env (CONDUCTOR_GIT_SHA=<sha>, used by operator commands and backup.sh);
+#    keeps the last 5 releases;
+# 4. verifies, in a separate ssh call, that exactly one orchestrator is running, healthy, from
+#    conductor-orchestrator:<sha>, and that current / current.env name <sha>;
+# 5. runs smoke.sh against $SMOKE_URL with SMOKE_EXPECT_SHA=<sha> (skip with --no-smoke, e.g.
+#    before nginx is installed).
 # Every step that fails prints its logs and what state the server is left in, and exits 1.
 #
 # Env: DEPLOY_SSH (bengrady4@gradyserver.com), DEPLOY_SSH_PORT (1024),
@@ -58,8 +61,12 @@ die() {
   echo "!!> $*" >&2
   exit 1
 }
+# remote: stdin forwarded (only the git archive upload). remote_n: stdin is /dev/null (ssh -n).
 remote() { ssh -p "$DEPLOY_SSH_PORT" "$DEPLOY_SSH" "$@"; }
+remote_n() { ssh -n -p "$DEPLOY_SSH_PORT" "$DEPLOY_SSH" "$@"; }
 
+[[ "$DEPLOY_DIR" =~ ^[A-Za-z0-9._/-]+$ ]] || die "DEPLOY_DIR may only contain letters, digits, . _ / -"
+[[ "$DEPLOY_HEALTH_TIMEOUT" =~ ^[0-9]+$ ]] || die "DEPLOY_HEALTH_TIMEOUT must be a whole number of seconds"
 SHA="$(git rev-parse --verify "$REF^{commit}")" || die "cannot resolve git ref '$REF'"
 step "deploying $REF = $SHA to $DEPLOY_SSH:~/$DEPLOY_DIR"
 
@@ -78,118 +85,39 @@ git archive --format=tar "$SHA" | remote "set -eu
     echo \"==> unpacked \$d\"
   fi" || die "upload of $SHA failed; nothing on the server was changed"
 
+# The server half is a file in the uploaded release, run with remote_n (ssh -n): stdin is
+# /dev/null, so no command on the server (e.g. `docker compose run`) can read the script itself.
 step "building, migrating and starting $SHA on the server"
-remote bash -s -- "$DEPLOY_DIR" "$SHA" "$DEPLOY_HEALTH_TIMEOUT" <<'REMOTE' ||
-set -euo pipefail
-DEPLOY_DIR="$1" SHA="$2" TIMEOUT="$3"
-REL="releases/$SHA"
-cd "$HOME/$DEPLOY_DIR"
-step() { echo "==> $*"; }
-die() {
-  echo "!!> $*" >&2
-  exit 1
-}
-
-compose() {
-  CONDUCTOR_GIT_SHA="$SHA" docker compose -p conductor \
-    -f "$REL/deploy/gradyserver/compose.yml" --env-file .env "$@"
-}
-
-# wait_healthy <service>: returns 0 once the service's container reports healthy, 1 on timeout.
-wait_healthy() {
-  local svc="$1" id health="" deadline=$((SECONDS + TIMEOUT))
-  step "waiting up to ${TIMEOUT}s for $svc to be healthy"
-  while ((SECONDS < deadline)); do
-    id="$(compose ps -q "$svc" 2>/dev/null || true)"
-    health=""
-    if [[ -n "$id" ]]; then
-      health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$id" 2>/dev/null || true)"
-    fi
-    if [[ "$health" == healthy ]]; then
-      step "$svc healthy"
-      return 0
-    fi
-    sleep 3
-  done
-  echo "!!> $svc not healthy after ${TIMEOUT}s (health: ${health:-none})" >&2
-  return 1
-}
-
-[[ -f "$REL/deploy/gradyserver/compose.yml" ]] || die "$REL has no deploy/gradyserver/compose.yml"
-
-if [[ ! -e .env ]]; then
-  step "creating .env with a random POSTGRES_PASSWORD (mode 0600)"
-  (
-    umask 077
-    password="$(openssl rand -hex 32)"
-    sed "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$password/" \
-      "$REL/deploy/gradyserver/env.example" >.env.tmp
-    mv .env.tmp .env
-  ) || die "could not create .env"
-  chmod 600 .env
-else
-  step ".env exists; left unchanged"
-fi
-mkdir -p backups logs
-
-step "docker compose build ($SHA)"
-compose build ||
-  die "image build failed; the previous orchestrator is still running"
-
-step "starting postgres"
-compose up -d postgres || {
-  compose logs --no-color --tail 100 postgres >&2 || true
-  die "postgres failed to start; the previous orchestrator was not touched"
-}
-wait_healthy postgres || {
-  compose logs --no-color --tail 100 postgres >&2 || true
-  die "postgres is not healthy; the previous orchestrator was not touched"
-}
-
-# The migration gate: a one-shot container, before anything touches the orchestrator. Its output
-# streams to this terminal.
-step "running migrations"
-compose run --rm migrate || {
-  echo "!!> migration failed — the previous orchestrator is still running" >&2
-  exit 1
-}
-
-step "recreating the orchestrator"
-compose up -d --no-deps orchestrator || {
-  compose logs --no-color --tail 100 orchestrator >&2 || true
-  die "the orchestrator for $SHA failed to start (migrations already applied); roll back by deploying the previous sha"
-}
-wait_healthy orchestrator || {
-  compose logs --no-color --tail 100 orchestrator >&2 || true
-  die "the orchestrator for $SHA is unhealthy (migrations already applied); current still points at the previous release; roll back by deploying the previous sha"
-}
-
-# Only now does the release become `current`, and current.env select its image for operator
-# commands (runbook `cdc` alias, backup.sh).
-ln -sfn "$REL" current
-printf 'CONDUCTOR_GIT_SHA=%s\n' "$SHA" >current.env.tmp
-mv current.env.tmp current.env
-step "current -> $REL; current.env: CONDUCTOR_GIT_SHA=$SHA"
-
-step "keeping the last 5 releases"
-keep=5
-n=0
-# Newest first; `current` counts as one of the five.
-while IFS= read -r r; do
-  [[ "$r" == *.tmp ]] && continue
-  [[ "releases/$r" == "$REL" ]] && continue
-  n=$((n + 1))
-  if ((n >= keep)); then
-    step "removing releases/$r"
-    rm -rf "releases/$r"
-  fi
-done < <(ls -1t releases)
-REMOTE
+remote_n "bash \"\$HOME/$DEPLOY_DIR/releases/$SHA/deploy/gradyserver/remote-deploy.sh\" '$DEPLOY_DIR' '$SHA' '$DEPLOY_HEALTH_TIMEOUT'" ||
   die "deploy of $SHA failed on the server (see the messages above)"
+
+# Independent of remote-deploy.sh's exit code: the RUNNING orchestrator must be the new image and
+# healthy, and current / current.env must name the release. A deploy that stopped early can't
+# pass as deployed.
+step "verifying the running orchestrator is $SHA"
+# Each field is printed even if an earlier one fails, so a mismatch shows exactly what is wrong.
+verify_out="$(remote_n "cd \"\$HOME/$DEPLOY_DIR\";
+  ids=\$(docker ps -q --filter label=com.docker.compose.project=conductor --filter label=com.docker.compose.service=orchestrator);
+  echo \"containers=\$(echo \$ids | wc -w | tr -d ' ')\";
+  [ -n \"\$ids\" ] && docker inspect -f 'image={{.Config.Image}} health={{if .State.Health}}{{.State.Health.Status}}{{end}}' \$ids;
+  echo \"current=\$(readlink current)\";
+  echo \"current_env=\$(sed -n 's/^CONDUCTOR_GIT_SHA=//p' current.env 2>/dev/null)\"" 2>&1 || true)"
+expected="containers=1
+image=conductor-orchestrator:$SHA health=healthy
+current=releases/$SHA
+current_env=$SHA"
+if [[ "$verify_out" != "$expected" ]]; then
+  echo "!!> expected:" >&2
+  echo "$expected" | sed 's/^/!!>   /' >&2
+  echo "!!> found:" >&2
+  echo "$verify_out" | sed 's/^/!!>   /' >&2
+  die "the running orchestrator is not a healthy $SHA; NOT deployed"
+fi
+step "running orchestrator: conductor-orchestrator:$SHA, healthy; current = releases/$SHA"
 
 if [[ "$SMOKE" -eq 1 ]]; then
   step "smoke test against $SMOKE_URL"
-  "$HERE/smoke.sh" "$SMOKE_URL" ||
+  SMOKE_EXPECT_SHA="$SHA" "$HERE/smoke.sh" "$SMOKE_URL" ||
     die "smoke test failed; $SHA is deployed and current; investigate, or roll back by deploying the previous sha"
 else
   step "smoke test skipped (--no-smoke)"

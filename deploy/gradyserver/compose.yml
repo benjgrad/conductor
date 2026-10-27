@@ -1,5 +1,5 @@
-# Conductor on gradyserver (M2-T07; ADR-0017 §Hosting topology). deploy.sh drives it step by step:
-#   build → up -d postgres (healthy) → run --rm migrate → up -d --no-deps orchestrator (healthy).
+# Conductor on gradyserver (M2-T07; ADR-0017 §Hosting topology). deploy.sh (remote-deploy.sh) runs:
+#   build → up -d postgres (healthy) → run --rm -T migrate → up -d --no-deps orchestrator (healthy).
 # Don't use a bare `up` to deploy: deploy.sh owns the migration gate (see the migrate service).
 # Variables: see env.example (.env). CONDUCTOR_GIT_SHA comes from ~/deploy/conductor/current.env,
 # written by deploy.sh after a successful deploy; operator commands pass it as a second
@@ -42,7 +42,7 @@ services:
       - conductor
 
   # Migrations are a release step (ADR-0012 §Deployment shape), never run by the orchestrator.
-  # deploy.sh runs this one-shot service with `run --rm migrate` BEFORE it touches the
+  # remote-deploy.sh runs this one-shot service (`run --rm -T migrate`) BEFORE it touches the
   # orchestrator, so a failed migration leaves the old orchestrator serving. The orchestrator
   # deliberately has no depends_on on migrate: Compose v2 recreates dependents in its create phase
   # and only waits for service_completed_successfully at start, so `up` would stop the old

@@ -122,14 +122,15 @@ crontab -l | grep conductor-backup
 deploy/gradyserver/deploy.sh <git-ref>      # e.g. main, a tag, a sha
 ```
 
-Every deploy runs these steps, in this order, from the new release's compose file:
+`deploy.sh` uploads the release, then runs its server half, [`remote-deploy.sh`](../../deploy/gradyserver/remote-deploy.sh) from that release, with `ssh -n`. Stdin is `/dev/null`, so no command on the server can read the script (`docker compose run` would otherwise swallow the rest of it, and the deploy would stop silently after the migration). These steps run in order, from the new release's compose file:
 
 1. `compose build`: the image `conductor-orchestrator:<sha>`. A failed build changes nothing.
 2. `compose up -d postgres`, then wait until it's healthy. Postgres is only recreated if its own config changed.
-3. **The migration gate**: `compose run --rm migrate` (only new migrations apply; the output streams to your terminal). If it fails, `deploy.sh` prints `migration failed — the previous orchestrator is still running` and exits 1. Nothing has touched the orchestrator yet, so the old one keeps serving, and `current` still points at the old release.
-4. `compose up -d --no-deps orchestrator`: recreates only the orchestrator, then waits until it's healthy. If it doesn't become healthy, `deploy.sh` prints its logs and exits 1, with `current` unchanged. The migrations are applied by then, so roll back (§7) by deploying the previous sha.
+3. **The migration gate**: `compose run --rm -T migrate </dev/null` (only new migrations apply; the output streams to your terminal). If it fails, `deploy.sh` prints `migration failed — the previous orchestrator is still running` and exits 1. Nothing has touched the orchestrator yet, so the old one keeps serving, and `current` still points at the old release.
+4. `compose up -d --no-deps orchestrator`: recreates only the orchestrator, then waits until it's healthy and checks that it runs `conductor-orchestrator:<sha>`. If it doesn't become healthy, or still runs another image, `deploy.sh` prints its logs and exits 1, with `current` unchanged. The migrations are applied by then, so roll back (§7) by deploying the previous sha.
 5. Only after that: `current` → `releases/<sha>`, `current.env` gets `CONDUCTOR_GIT_SHA=<sha>`, and the last 5 releases are kept.
-6. The smoke test (unless `--no-smoke`), then `deployed <sha>`.
+6. Back on the lead's machine, a separate ssh call checks that exactly one orchestrator is running, healthy, from `conductor-orchestrator:<sha>`, and that `current` and `current.env` name `<sha>`. Anything else fails with expected-vs-found and `NOT deployed`, whatever the server half returned.
+7. The smoke test (unless `--no-smoke`), with `SMOKE_EXPECT_SHA=<sha>`: `/healthz`'s `version` must contain the sha (from M2-T14). Then `deployed <sha>`.
 
 The orchestrator deliberately has no `depends_on` on `migrate` in `compose.yml`. Compose v2 recreates dependents in its create phase and only waits for `service_completed_successfully` at start, so a bare `up` would stop the old orchestrator before migrating and leave the new one `Created` when the migration fails.
 

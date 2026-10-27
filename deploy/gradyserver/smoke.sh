@@ -5,6 +5,8 @@
 #   deploy/gradyserver/smoke.sh https://conductor.gradyserver.com
 #
 # SMOKE_COOKIE: a signed-in session cookie ("name=value"); enables the SSE check.
+# SMOKE_EXPECT_SHA: the git sha that must be live; /healthz's `version` (package version + git
+#   sha, ADR-0017 §Daemon distribution) must contain it. deploy.sh sets it.
 # Expected to fail until M2-T08 (auth, CSP, Origin check) and M2-T14 (/healthz, /install.sh) are
 # deployed.
 set -euo pipefail
@@ -57,6 +59,16 @@ done
 
 # 3. Health, auth and the Origin check.
 expect_status 200 "GET /healthz" "$URL/healthz"
+if [[ -n "${SMOKE_EXPECT_SHA:-}" ]]; then
+  health_body="$(curl -fsS --max-time 15 "$URL/healthz" 2>/dev/null || true)"
+  version="$(sed -nE 's/.*"version" *: *"([^"]*)".*/\1/p' <<<"$health_body")"
+  # The version may carry a short sha: match on its first 7 characters.
+  if [[ -n "$version" && "$version" == *"${SMOKE_EXPECT_SHA:0:7}"* ]]; then
+    ok "/healthz version $version is $SMOKE_EXPECT_SHA"
+  else
+    fail "/healthz version '${version:-none}' is not $SMOKE_EXPECT_SHA (stale orchestrator?)"
+  fi
+fi
 expect_status 401 "GET /api/board without a cookie" "$URL/api/board"
 expect_status 403 "POST /auth/login without Origin" -X POST -H 'content-type: application/json' \
   -d '{}' "$URL/auth/login"

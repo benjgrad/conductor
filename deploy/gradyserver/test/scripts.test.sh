@@ -81,40 +81,80 @@ check "--email x@y parses" test "$(parse --email x@y)" = 'EMAIL=x@y'
 check "--email=x@y parses" test "$(parse --email=x@y)" = 'EMAIL=x@y'
 check "no arguments parse to an empty email" test "$(parse)" = 'EMAIL='
 
-# deploy.sh ordering: build, postgres, the migration gate, and only then the orchestrator; `current`
-# and current.env switch only after the orchestrator is healthy.
+# Server-side ordering (remote-deploy.sh): build, postgres, the migration gate, and only then the
+# orchestrator; `current` and current.env switch only after the orchestrator is healthy and runs
+# the new image.
 DEPLOY="$KIT/deploy.sh"
-line_of() { grep -nE -- "$1" "$DEPLOY" | head -n 1 | cut -d: -f1; }
-l_build="$(line_of '^compose build \|\|')"
-l_pg="$(line_of '^compose up -d postgres \|\|')"
-l_migrate="$(line_of '^compose run --rm migrate \|\| \{$')"
+REMOTE_SH="$KIT/remote-deploy.sh"
+# Comment lines are blanked (line numbers kept) so prose never matches a step.
+line_of() { sed 's/^[[:space:]]*#.*//' "$REMOTE_SH" | grep -nE -- "$1" | head -n 1 | cut -d: -f1; }
+l_build="$(line_of '^compose build </dev/null \|\|')"
+l_pg="$(line_of '^compose up -d postgres </dev/null \|\|')"
+l_migrate="$(line_of '^compose run --rm -T migrate </dev/null \|\| \{$')"
 l_migrate_msg="$(line_of 'migration failed — the previous orchestrator is still running')"
 l_orch_up="$(line_of 'up .*orchestrator')"
 l_orch_health="$(line_of '^wait_healthy orchestrator \|\|')"
+l_image_check="$(line_of '^\[\[ "\$running_image" == "\$IMAGE" \]\] \|\|$')"
 l_ln="$(line_of '^ln -sfn "\$REL" current$')"
 l_current_env="$(line_of '^mv current\.env\.tmp current\.env$')"
-for v in l_build l_pg l_migrate l_migrate_msg l_orch_up l_orch_health l_ln l_current_env; do
-  check "deploy.sh has step $v" test -n "${!v}"
+for v in l_build l_pg l_migrate l_migrate_msg l_orch_up l_orch_health l_image_check l_ln l_current_env; do
+  check "remote-deploy.sh has step $v" test -n "${!v}"
 done
 lt() { [[ -n "$1" && -n "$2" && "$1" -lt "$2" ]]; }
-check "deploy.sh: build before postgres" lt "$l_build" "$l_pg"
-check "deploy.sh: postgres before migrate" lt "$l_pg" "$l_migrate"
-check "deploy.sh: migrate failure handler right after migrate" lt "$l_migrate" "$l_migrate_msg"
-check "deploy.sh: migrate handler exits before the orchestrator is touched" \
-  test "$(sed -n "${l_migrate:-1},${l_orch_up:-1}p" "$DEPLOY" | grep -c '^  exit 1$')" -ge 1
-check "deploy.sh: migrate checked before any up of the orchestrator" lt "$l_migrate_msg" "$l_orch_up"
-check "deploy.sh: orchestrator up is --no-deps" has "$(sed -n "${l_orch_up:-1}p" "$DEPLOY")" \
-  'up -d --no-deps orchestrator'
-check "deploy.sh: every compose up names a service" \
-  test -z "$(grep -E '^[^#]*compose up' "$DEPLOY" | grep -vE 'compose up -d (postgres|--no-deps orchestrator)')"
-check "deploy.sh: orchestrator health wait after its up" lt "$l_orch_up" "$l_orch_health"
-check "deploy.sh: current re-pointed only after the health wait" lt "$l_orch_health" "$l_ln"
-check "deploy.sh: current.env written only after the health wait" lt "$l_orch_health" "$l_current_env"
-check "deploy.sh: current.env carries CONDUCTOR_GIT_SHA" \
-  grep -qF "printf 'CONDUCTOR_GIT_SHA=%s\n' \"\$SHA\" >current.env.tmp" "$DEPLOY"
-check "deploy.sh: the remote step has a failure handler" grep -qE '<<.REMOTE. \|\|$' "$DEPLOY"
+check "remote-deploy.sh: build before postgres" lt "$l_build" "$l_pg"
+check "remote-deploy.sh: postgres before migrate" lt "$l_pg" "$l_migrate"
+check "remote-deploy.sh: migrate failure handler right after migrate" lt "$l_migrate" "$l_migrate_msg"
+check "remote-deploy.sh: migrate handler exits before the orchestrator is touched" \
+  test "$(sed -n "${l_migrate:-1},${l_orch_up:-1}p" "$REMOTE_SH" | grep -c '^  exit 1$')" -ge 1
+check "remote-deploy.sh: migrate checked before any up of the orchestrator" lt "$l_migrate_msg" "$l_orch_up"
+check "remote-deploy.sh: orchestrator up is --no-deps" \
+  has "$(sed -n "${l_orch_up:-1}p" "$REMOTE_SH")" 'up -d --no-deps orchestrator'
+check "remote-deploy.sh: every compose up names a service" \
+  test -z "$(grep -E '^[^#]*compose up' "$REMOTE_SH" | grep -vE 'compose up -d (postgres|--no-deps orchestrator) ')"
+check "remote-deploy.sh: orchestrator health wait after its up" lt "$l_orch_up" "$l_orch_health"
+check "remote-deploy.sh: running image checked after the health wait" lt "$l_orch_health" "$l_image_check"
+check "remote-deploy.sh: current re-pointed only after the image check" lt "$l_image_check" "$l_ln"
+check "remote-deploy.sh: current.env written only after the image check" lt "$l_image_check" "$l_current_env"
+check "remote-deploy.sh: current.env carries CONDUCTOR_GIT_SHA" \
+  grep -qF "printf 'CONDUCTOR_GIT_SHA=%s\n' \"\$SHA\" >current.env.tmp" "$REMOTE_SH"
+
+# stdin: the server half must never be fed through stdin, and nothing in it may read stdin.
+check "deploy.sh does not pipe a script into bash -s" lacks "$(sed 's/#.*//' "$DEPLOY")" 'bash -s'
+check "deploy.sh has no heredoc" lacks "$(sed 's/#.*//' "$DEPLOY")" '<<'
+check "deploy.sh runs remote-deploy.sh from the release with ssh -n" grep -qE \
+  '^remote_n "bash \\"\\\$HOME/\$DEPLOY_DIR/releases/\$SHA/deploy/gradyserver/remote-deploy\.sh\\"' "$DEPLOY"
+check "deploy.sh: remote_n is ssh -n" grep -qF 'remote_n() { ssh -n -p ' "$DEPLOY"
+check "deploy.sh: the upload is the only call of remote (stdin forwarded)" \
+  test "$(grep -cE '^[^#]*\| remote "|^[^#]*[^_]remote ' "$DEPLOY")" -eq 1
+check "deploy.sh: the upload is the only ssh call reading stdin (git archive)" \
+  grep -qE '^git archive --format=tar "\$SHA" \| remote "' "$DEPLOY"
+# Every docker / compose invocation in remote-deploy.sh (not the compose() definition) reads
+# /dev/null; run / exec also get -T.
+calls="$(sed 's/#.*//' "$REMOTE_SH" | grep -E '(^|[^_[:alnum:]-])(compose|docker) ' |
+  grep -vE 'CONDUCTOR_GIT_SHA="\$SHA" docker compose -p conductor \\$')"
+check "remote-deploy.sh has docker / compose calls to audit" test -n "$calls"
+check "remote-deploy.sh: every docker / compose call has </dev/null" \
+  test -z "$(grep -vE '</dev/null' <<<"$calls")"
+check "remote-deploy.sh: every compose run / exec has -T" \
+  test -z "$(grep -E 'compose (run|exec)' <<<"$calls" | grep -vE ' -T ')"
+
+# deploy.sh: failure handlers, and the independent check that the RUNNING orchestrator is new.
+check "deploy.sh: the remote step has a failure handler" \
+  grep -qF 'die "deploy of $SHA failed on the server' "$DEPLOY"
 check "deploy.sh: the upload has a failure handler" grep -qF '|| die "upload of $SHA failed' "$DEPLOY"
 check "deploy.sh: the smoke test has a failure handler" grep -qE '^    die "smoke test failed' "$DEPLOY"
+l_remote="$(grep -nF 'remote-deploy.sh\"' "$DEPLOY" | grep -v '^[0-9]*:#' | head -n 1 | cut -d: -f1)"
+l_verify="$(grep -nF 'die "the running orchestrator is not a healthy $SHA; NOT deployed"' "$DEPLOY" | cut -d: -f1)"
+l_smoke="$(grep -nF '"$HERE/smoke.sh"' "$DEPLOY" | cut -d: -f1)"
+l_done="$(grep -nF 'step "deployed $SHA"' "$DEPLOY" | cut -d: -f1)"
+check "deploy.sh: verification after the remote step" lt "$l_remote" "$l_verify"
+check "deploy.sh: verification before the smoke test" lt "$l_verify" "$l_smoke"
+check "deploy.sh: 'deployed' printed last" lt "$l_smoke" "$l_done"
+check "deploy.sh: verification expects the new image, healthy" \
+  grep -qF 'image=conductor-orchestrator:$SHA health=healthy' "$DEPLOY"
+check "deploy.sh: smoke test expects the new sha" grep -qF 'SMOKE_EXPECT_SHA="$SHA" "$HERE/smoke.sh"' "$DEPLOY"
+check "smoke.sh checks /healthz version against SMOKE_EXPECT_SHA" \
+  grep -qF '"$version" == *"${SMOKE_EXPECT_SHA:0:7}"*' "$KIT/smoke.sh"
 
 # Operator commands and backup.sh select the deployed image through current.env.
 check "backup.sh passes .env and current.env" \

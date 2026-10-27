@@ -34,13 +34,24 @@ export const CapabilitySchema = z.discriminatedUnion('kind', [
 export type Capability = z.infer<typeof CapabilitySchema>;
 export type CapabilityKind = Capability['kind'];
 
+const REQUIREMENT_RE =
+  /^(?:claude|cli:[^\s:@\0]+(?::authed)?|mcp:[^\s:@\0]+|(?:skill|agent):[^\s:@\0]+(?:@(.*))?)$/;
+
 /**
- * A required capability, as a key (`capabilityKey` grammar): `claude`, `cli:<name>`,
- * `cli:<name>:authed`, `mcp:<name>`, `skill:<name>[@<repo>]`, `agent:<name>[@<repo>]`.
+ * Whether `s` is a capability key (the 10-contracts key table): `claude`, `cli:<name>`,
+ * `cli:<name>:authed`, `mcp:<name>`, `skill:<name>[@<repo>]`, `agent:<name>[@<repo>]`. A name has
+ * no whitespace, `:` or `@`; `<repo>` is a canonical remote. So `cli:a:b:c` is refused.
  */
+export function isCapabilityRequirement(s: string): boolean {
+  const m = REQUIREMENT_RE.exec(s);
+  if (m === null) return false;
+  return m[1] === undefined || isCanonicalRemote(m[1]);
+}
+
+/** A required capability, as a key (`isCapabilityRequirement`). */
 export const CapabilityRequirementSchema = z
   .string()
-  .regex(/^(?:claude|(?:cli|mcp|skill|agent):\S+)$/);
+  .refine(isCapabilityRequirement, 'expected a capability key (e.g. cli:gh:authed)');
 export type CapabilityRequirement = string;
 
 /**
@@ -98,4 +109,36 @@ export function missingCapabilities(
 ): CapabilityRequirement[] {
   const keys = new Set(caps.flatMap(capabilityKeys));
   return [...new Set(required)].filter((r) => !satisfiesCapability(keys, r, ticketRepo));
+}
+
+/**
+ * The oldest `gh` open_pr accepts (M2-T10). A safe floor, not a verified minimum (U-076): gh 2.14
+ * could not run `gh pr create --repo --head --base` outside a git repository, which open_pr does
+ * by design; 2.40.0 (Dec 2023) is well past it. T11 reads it to flag an old gh on a machine.
+ */
+export const GH_MIN_VERSION = '2.40.0';
+
+const VERSION_RE = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+\S*)?$/;
+
+function parseVersion(v: string): { nums: [number, number, number]; pre: string | null } | null {
+  const m = VERSION_RE.exec(v.trim());
+  if (!m) return null;
+  return { nums: [Number(m[1]), Number(m[2]), Number(m[3])], pre: m[4] ?? null };
+}
+
+/**
+ * Whether `version` (`X.Y.Z`, optional `v`, `-pre` and `+build`) is at least `min`. A pre-release
+ * sorts below its release (`2.40.0-rc.1` < `2.40.0`). Anything unparsable (either side) → false.
+ */
+export function cliVersionAtLeast(version: string | null | undefined, min: string): boolean {
+  if (typeof version !== 'string') return false;
+  const a = parseVersion(version);
+  const b = parseVersion(min);
+  if (a === null || b === null) return false;
+  for (let i = 0; i < 3; i++) {
+    if (a.nums[i]! !== b.nums[i]!) return a.nums[i]! > b.nums[i]!;
+  }
+  if (a.pre === null) return true;
+  if (b.pre === null) return false;
+  return a.pre.localeCompare(b.pre, 'en', { numeric: true }) >= 0;
 }

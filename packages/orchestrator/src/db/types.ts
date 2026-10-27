@@ -1,6 +1,9 @@
 import type {
+  CapabilityKind,
   InputRequestKind,
   JsonObject,
+  MachineAlertKind,
+  MachineRepoMode,
   MachineStatus,
   OutboxKind,
   OutboxStatus,
@@ -50,6 +53,14 @@ export interface MachineRow {
    * gateway (T11) on every register. null = the daemon couldn't run `claude --version`.
    */
   claude_code_version: string | null;
+  /** Display name (M2-T09); null = show the hostname. Enrollment and register set it. */
+  name: string | null;
+  /** `register.daemon_version`, written on every register (M2-T09). */
+  daemon_version: string | null;
+  /** `register.protocol_version` (absent = 1, an M1 daemon); null = never registered. */
+  protocol_version: number | null;
+  /** Set by `revokeMachine`: the credentials stop upgrading and register is refused. */
+  revoked_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -61,8 +72,72 @@ export interface MachineRepoRow {
   repo: string;
   path: string;
   head_commit: string;
+  /** DEFAULT true since M2-T09; the M1 repo_inventory handler writes it until T16, T21 drops it. */
   tree_clean: boolean;
   updated_at: Date;
+  /** The repo's default branch (inventory, M2-T16); null = not reported. */
+  default_branch: string | null;
+  /** CHECK `reference` | `checkout` (U-060), DEFAULT `reference`. */
+  mode: MachineRepoMode;
+  /** Canonical remote (`CANONICAL_REMOTE_RE`); null = no allowed remote, never routed to. */
+  remote: string | null;
+}
+
+// ---------------------------------------------------------------- machines (M2-T09)
+// Migration 1761700000000_machine-credentials (ADR-0013 §Enrollment, §Inventory). Secrets are
+// stored as SHA-256 hashes only (`hashSecret`, gateway/enroll.ts).
+
+export interface EnrollmentTokenRow {
+  id: string;
+  account_id: string;
+  /** SHA-256 (32 bytes) of the 128-bit token, unique. */
+  token_hash: Buffer;
+  /** Audit user id (U-042; may be the virtual LOCAL_USER_ID, so no FK); null = the CLI. */
+  created_by: string | null;
+  created_at: Date;
+  /** 30 minutes after created_at (ENROLLMENT_TOKEN_TTL_MS). */
+  expires_at: Date;
+  used_at: Date | null;
+  used_by_machine: string | null;
+}
+
+export interface MachineCredentialRow {
+  id: string;
+  machine_id: string;
+  account_id: string;
+  /** SHA-256 (32 bytes) of the 256-bit credential, unique. */
+  secret_hash: Buffer;
+  created_at: Date;
+  /** Updated on every authenticated WS upgrade. */
+  last_used_at: Date | null;
+  revoked_at: Date | null;
+}
+
+/** One row per `capabilityKeys(c)` element; primary key (machine_id, key). Routing reads `key`. */
+export interface MachineCapabilityRow {
+  machine_id: string;
+  account_id: string;
+  /** `capabilityKey` grammar: `cli:gh`, `cli:gh:authed`, `skill:review@github.com/o/app`, … */
+  key: string;
+  /** CHECK on the CapabilityKind values. Display only, like name, version and detail. */
+  kind: CapabilityKind;
+  name: string;
+  version: string | null;
+  detail: JsonObject;
+  updated_at: Date;
+}
+
+export interface MachineAlertRow {
+  id: string;
+  machine_id: string;
+  account_id: string;
+  session_id: string | null;
+  /** CHECK on MachineAlertKind (`git_tamper`). */
+  kind: MachineAlertKind;
+  /** `git_tamper`: `{repo, files}`. */
+  detail: JsonObject;
+  created_at: Date;
+  cleared_at: Date | null;
 }
 
 export interface TicketRow {
@@ -310,6 +385,10 @@ export interface LoginThrottleRow {
 export interface Tables {
   machine: MachineRow;
   machine_repo: MachineRepoRow;
+  enrollment_token: EnrollmentTokenRow;
+  machine_credential: MachineCredentialRow;
+  machine_capability: MachineCapabilityRow;
+  machine_alert: MachineAlertRow;
   ticket: TicketRow;
   workflow_definition: WorkflowDefinitionRow;
   session: SessionRow;

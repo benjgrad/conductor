@@ -20,6 +20,11 @@ import {
   type TranscriptResponse,
 } from '@conductor/shared';
 import Fastify, { type FastifyReply } from 'fastify';
+import { DEFAULT_AUTH, type AuthConfig } from '../auth/config.js';
+import { authHook } from '../auth/middleware.js';
+import { argon2Hasher, type PasswordHasher } from '../auth/password.js';
+import { registerAuthRoutes } from '../auth/routes.js';
+import { registerRateLimit } from '../auth/throttle.js';
 import { insertBoardEvents, type ApplyEventOptions } from '../contracts.js';
 import { withTransaction } from '../db/index.js';
 import type { TicketRow } from '../db/types.js';
@@ -38,12 +43,7 @@ import {
   loadWorkflowDetail,
   toTicketDto,
 } from './queries.js';
-import {
-  HttpGuard,
-  httpSecurityFromEnv,
-  securityHook,
-  type HttpSecurityOptions,
-} from './security.js';
+import { httpSecurityFromEnv, securityHookFor, type HttpSecurityOptions } from './security.js';
 import { loadSessionDetail, sessionExists } from './sessions.js';
 
 // M1-T08: REST + SSE for the UI (03 §UI ↔ orchestrator), as the `CreateApi` factory (main.ts).
@@ -58,22 +58,48 @@ type IdParams = { Params: { id: string } };
 
 export {
   HttpGuard,
+  SECURITY_HEADERS,
+  hostedSecurityHook,
   httpSecurityFromEnv,
   securityHook,
+  securityHookFor,
   type HttpSecurityOptions,
 } from './security.js';
 
 export interface ApiOptions {
   /** Host / Origin allow-lists (M1-T14). Default: httpSecurityFromEnv(process.env). */
   security?: HttpSecurityOptions;
+  /** M2-T08: `local` (default) or `password` (ADR-0017 §Modes); from parseServerConfig. */
+  auth?: AuthConfig;
+  /** M2-T08: Fastify `trustProxy`, exactly this peer address (CONDUCTOR_TRUSTED_PROXY). */
+  trustedProxy?: string | null;
+  /** Clock for session expiry and login lockout (tests). */
+  now?: () => Date;
+  /** Password hashing (tests wrap it). Default argon2id. */
+  hasher?: PasswordHasher;
 }
 
 type ApiDeps = Parameters<CreateApi>[0] & ApiOptions;
 
-export const createApi = (({ db, engine, boardBus, outputBus, transcripts, security }: ApiDeps) => {
-  const app = Fastify({ logger: false });
-  // M1-T14: Host / Origin / content-type guard before routing (09 §M1 local hardening).
-  app.addHook('onRequest', securityHook(new HttpGuard(security ?? httpSecurityFromEnv())));
+export const createApi = (({
+  db,
+  engine,
+  boardBus,
+  outputBus,
+  transcripts,
+  security,
+  auth = DEFAULT_AUTH,
+  trustedProxy = null,
+  now = () => new Date(),
+  hasher = argon2Hasher,
+}: ApiDeps) => {
+  const app = Fastify({ logger: false, trustProxy: trustedProxy ?? false });
+  // M1-T14 / M2-T08: Host / Origin / content-type guard before routing (09), then who is asking.
+  app.addHook('onRequest', securityHookFor(auth, security ?? httpSecurityFromEnv()));
+  app.decorateRequest('auth', null);
+  app.addHook('onRequest', authHook({ db, auth, now }));
+  registerRateLimit(app);
+  void app.register(registerAuthRoutes, { db, auth, hasher, now });
   const hub = new SseHub();
   const logError = (err: unknown) => app.log.error(err);
 
@@ -96,6 +122,7 @@ export const createApi = (({ db, engine, boardBus, outputBus, transcripts, secur
   );
   app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
     const status = err.statusCode ?? 500;
+    if (status === 429) return sendError(reply, 429, 'rate_limited', err.message);
     if (status >= 400 && status < 500) return sendError(reply, status, 'bad_request', err.message);
     logError(err);
     return sendError(reply, 500, 'internal', 'internal error');

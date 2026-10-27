@@ -5,6 +5,8 @@ import { AgentAvatar, agentName } from './agent-identity.js';
 import { ago, KIND_LABELS, STATUS_LABELS, TICKET_KIND_LABELS, usd } from './format.js';
 import { PendingChecklist, TransitionButtons } from './transitions.js';
 import { stateLabel } from '../workflow/review.js';
+import { classifyRequest, previewText, type RequestClass } from './request-preview.js';
+import './Board.css';
 
 interface BoardProps {
   board: BoardState;
@@ -56,6 +58,7 @@ interface CardProps {
 function Card({ card, selected, onSelect, api }: CardProps) {
   const sessionId = card.session_id;
   const q = card.input_request;
+  const cls = q ? classifyRequest(q) : null;
   return (
     <article className={`card${selected ? ' selected' : ''}`} data-ticket={card.ticket_id}>
       <button
@@ -104,17 +107,34 @@ function Card({ card, selected, onSelect, api }: CardProps) {
             </span>
           ),
       )}
-      {card.pr_url && (
+      {card.pr_url && cls !== 'review' && (
         <a className="badge badge-pr" href={card.pr_url} target="_blank" rel="noreferrer">
           pull request
         </a>
       )}
-      {q && (
-        <div className="question" title={q.question}>
-          <span className={`badge badge-question kind-${q.kind}`}>
-            {KIND_LABELS[q.kind]} · {ago(q.created_at)}
+      {q && cls && (
+        <div className={`question request-${cls}`}>
+          <span className={BADGE_CLASS[cls](q.kind)}>
+            {requestLabel(cls, q.kind)} · {ago(q.created_at)}
           </span>
-          <p>{q.question}</p>
+          {/* UX-4: a clamped preview; the full text is its accessible name and tooltip. */}
+          <button
+            type="button"
+            className="card-preview"
+            disabled={sessionId === null}
+            aria-label={`${requestLabel(cls, q.kind)}: ${q.question}`}
+            title={q.question}
+            onClick={() => sessionId && onSelect(sessionId)}
+          >
+            <span className="card-preview-text" aria-hidden="true">
+              {previewText(q.question, cls)}
+            </span>
+          </button>
+          {cls === 'review' && card.pr_url && (
+            <a className="card-pr-link" href={card.pr_url} target="_blank" rel="noreferrer">
+              Review pull request ↗
+            </a>
+          )}
         </div>
       )}
       {api && sessionId !== null && card.human_transitions.length > 0 && (
@@ -122,4 +142,17 @@ function Card({ card, selected, onSelect, api }: CardProps) {
       )}
     </article>
   );
+}
+
+const BADGE_CLASS: Record<RequestClass, (kind: string) => string> = {
+  review: () => 'badge badge-review',
+  step_failed: () => 'badge badge-step-failed',
+  question: (kind) => `badge badge-question kind-${kind}`,
+};
+
+/** The card's request label, as text (NFR-3: never colour alone). */
+export function requestLabel(cls: RequestClass, kind: keyof typeof KIND_LABELS): string {
+  if (cls === 'review') return 'Ready for review';
+  if (cls === 'step_failed') return 'Step failed';
+  return KIND_LABELS[kind];
 }

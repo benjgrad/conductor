@@ -2,6 +2,8 @@
 import { randomUUID } from 'node:crypto';
 import {
   API_PATHS,
+  DAEMON_AUTH_HEADER,
+  daemonAuthHeaderValue,
   parseOrchestratorMessage,
   type OrchestratorToDaemon,
   type SessionEventPayload,
@@ -34,14 +36,29 @@ export class FakeDaemon {
     });
   }
 
-  static async connect(port: number, machineId: string): Promise<FakeDaemon> {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}${API_PATHS.daemonWs}`);
+  /** `credential`: sent as `Authorization: Bearer …` on the upgrade (M2-T09 password mode). */
+  static async connect(port: number, machineId: string, credential?: string): Promise<FakeDaemon> {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}${API_PATHS.daemonWs}`, {
+      headers:
+        credential === undefined ? {} : { [DAEMON_AUTH_HEADER]: daemonAuthHeaderValue(credential) },
+    });
+    // Registered before 'open' so a close right after the upgrade is never missed.
+    const closed = new Promise<{ code: number; reason: string }>((resolve) =>
+      ws.once('close', (code: number, reason: Buffer) =>
+        resolve({ code, reason: reason.toString('utf8') }),
+      ),
+    );
     await new Promise<void>((resolve, reject) => {
       ws.once('open', () => resolve());
       ws.once('error', reject);
     });
-    return new FakeDaemon(ws, machineId);
+    const d = new FakeDaemon(ws, machineId);
+    d.closedWith = closed;
+    return d;
   }
+
+  /** Resolves with the close code and reason once the socket closes. */
+  closedWith: Promise<{ code: number; reason: string }> = Promise.resolve({ code: 0, reason: '' });
 
   /** The next message of `type` received after the previous `next()` match (or already queued). */
   next<T extends OrchestratorToDaemon['type']>(type: T, timeoutMs = 5000): Promise<OrchMsg<T>> {

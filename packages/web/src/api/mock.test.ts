@@ -28,7 +28,7 @@ describe('mock ApiClient', () => {
     const api = createMockApi({ now });
     const board = BoardResponseSchema.parse(await api.getBoard());
     const col = (id: string) => board.columns.find((c) => c.id === id)!.cards;
-    expect(col('needs_input')).toHaveLength(3);
+    expect(col('needs_input')).toHaveLength(5);
     // ADR-0010: old m1_* states map by type (build, implement → Implementing).
     expect(col('implementing').some((c) => c.badges.includes('waiting_for_build_slot'))).toBe(true);
     for (const column of board.columns) {
@@ -253,5 +253,19 @@ describe('mock workflows (ADR-0009)', () => {
     await expect(
       api.answer(session, { input_request_id: input, answer: 'x' }),
     ).rejects.toMatchObject({ status: 409 });
+  });
+});
+
+describe('UX-4 seeds', () => {
+  it('a review request with its PR and a failed step, both with their origin', async () => {
+    const api = createMockApi({ now });
+    const review = SessionDetailSchema.parse(await api.getSession(SEED_IDS.review.session));
+    expect(review.card.pr_url).toBe('https://github.com/benjgrad/conductor/pull/42');
+    expect(review.pending_input).toMatchObject({
+      origin_transition: 'personal_pr_ready_for_review',
+      step_failed: false,
+    });
+    const failed = SessionDetailSchema.parse(await api.getSession(SEED_IDS.stepFailed.session));
+    expect(failed.pending_input).toMatchObject({ kind: 'retries_exhausted', step_failed: true });
   });
 });

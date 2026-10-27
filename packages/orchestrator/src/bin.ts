@@ -2,7 +2,8 @@
 import { main } from './main.js';
 
 // `conductor-orchestrator`: the orchestrator process (M1-T07). Env: DATABASE_URL (required),
-// CONDUCTOR_PORT (default 7400), CONDUCTOR_WEB_DIR (default packages/web/dist).
+// CONDUCTOR_PORT (default 7400), CONDUCTOR_WEB_DIR (default packages/web/dist), CONDUCTOR_AUTH,
+// CONDUCTOR_PUBLIC_URL, CONDUCTOR_BIND_HOST, CONDUCTOR_TRUSTED_PROXY (M2-T08, main.ts).
 main().catch((err: unknown) => {
   process.stderr.write(
     `[conductor-orchestrator] fatal: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,

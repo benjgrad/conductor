@@ -9,14 +9,8 @@ import {
 } from '@conductor/shared';
 import type { OutputBus, Queryable } from '../contracts.js';
 import { cardView } from '../engine/board-view.js';
-import { splitStep } from '../engine/rows.js';
-import type {
-  EventRow,
-  InputRequestRow,
-  SessionRow,
-  TicketRow,
-  WorkflowDefinitionRow,
-} from '../db/types.js';
+import { OPEN_INPUT_SELECT, splitStep, type OpenInputRow } from '../engine/rows.js';
+import type { EventRow, SessionRow, TicketRow, WorkflowDefinitionRow } from '../db/types.js';
 
 // GET /api/sessions/:id (M1-T08).
 
@@ -63,9 +57,9 @@ export async function loadSessionDetail(
       'SELECT * FROM workflow_definition WHERE id = $1 AND version = $2',
       [session.workflow_id, session.workflow_version],
     ),
-    db.query<InputRequestRow>(
-      'SELECT * FROM input_request WHERE session_id = $1 AND answer IS NULL ' +
-        'ORDER BY created_at DESC LIMIT 1',
+    db.query<OpenInputRow>(
+      OPEN_INPUT_SELECT +
+        'WHERE ir.session_id = $1 AND ir.answer IS NULL ORDER BY ir.created_at DESC LIMIT 1',
       [id],
     ),
     loadMoves(db, id),

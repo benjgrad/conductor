@@ -3,7 +3,17 @@ import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import {
   API_PATHS,
+  AuthModeSchema,
+  CLOSE_PROTOCOL,
+  CLOSE_REASONS,
+  CLOSE_REPLACED,
+  CLOSE_UNAUTHORIZED,
+  DAEMON_AUTH_HEADER,
   DaemonToOrchestratorSchema,
+  LOCAL_ACCOUNT_ID,
+  parseDaemonAuthHeader,
+  PROTOCOL_VERSION,
+  type AccountScope,
   EnvelopeSchema,
   OrchestratorToDaemonSchema,
   type BoardSseEvent,
@@ -26,7 +36,9 @@ import { withTransaction } from '../db/index.js';
 import { SCRUBBED_PAYLOAD_SQL } from '../engine/outbox.js';
 import type { CreateGateway, Db, GatewayHandle } from '../main.js';
 import { claimWork, LEASE_INTERVAL } from './claim.js';
+import { hashSecret } from './enroll.js';
 import { engineEventForSessionEvent } from './events.js';
+import type { MachineSockets } from './revoke.js';
 import { sendFrame, SocketTransport } from './transport.js';
 
 // M1-T11: the daemon gateway (03 §Daemon ↔ orchestrator, 10-contracts). One WS per daemon on
@@ -34,6 +46,13 @@ import { sendFrame, SocketTransport } from './transport.js';
 // dedupe depends on it).
 
 export { claimWork, type ClaimResult } from './claim.js';
+export {
+  createEnrollmentToken,
+  enrollMachine,
+  hashSecret,
+  type EnrollmentTokenIssued,
+} from './enroll.js';
+export { revokeMachine, type MachineSockets, type RevokeResult } from './revoke.js';
 export { engineEventForSessionEvent } from './events.js';
 export { SocketTransport } from './transport.js';
 
@@ -49,11 +68,24 @@ export interface GatewayOptions {
   security?: HttpSecurityOptions;
   /** ADR-0008: wait this long for a `transcript` reply (default TRANSCRIPT_TIMEOUT_MS, 10 s). */
   transcriptTimeoutMs?: number;
+  /**
+   * M2-T09 `password` mode: the upgrade needs `Authorization: Bearer <credential>` and `register`
+   * must be protocol v2 for the credential's machine. Default: requireCredentialFromEnv().
+   */
+  requireCredential?: boolean;
+}
+
+/** `CONDUCTOR_AUTH=password` (ADR-0017 §Modes); unset = `local`. */
+export function requireCredentialFromEnv(env: NodeJS.ProcessEnv = process.env): boolean {
+  return AuthModeSchema.parse(env.CONDUCTOR_AUTH ?? 'local') === 'password';
 }
 
 type GatewayDeps = Parameters<CreateGateway>[0] & GatewayOptions;
 
-export const createGateway = ((deps: GatewayDeps): GatewayHandle =>
+/** The gateway handle plus what `revokeMachine` needs to close a machine's sockets. */
+export type DaemonGateway = GatewayHandle & MachineSockets;
+
+export const createGateway = ((deps: GatewayDeps): DaemonGateway =>
   new Gateway(deps)) satisfies CreateGateway;
 
 type ProtocolErrorCode = 'invalid_message' | 'not_registered' | 'unknown_session' | 'internal';
@@ -61,9 +93,21 @@ type Msg<T extends DaemonToOrchestrator['type']> = Extract<DaemonToOrchestrator,
 
 type UpgradeListener = (req: IncomingMessage, socket: Duplex, head: Buffer) => void;
 
+/** Who the upgrade authenticated: a credential's machine (password mode) or nobody (local). */
+interface UpgradeAuth {
+  accountId: string;
+  machineId: string | null;
+}
+
 interface Conn {
   ws: WebSocket;
   machineId: string | null;
+  /** The account this connection acts in: the credential's, or LOCAL_ACCOUNT_ID in local mode. */
+  accountId: string;
+  /** The credential's machine (password mode); `register` must name it. null in local mode. */
+  authMachineId: string | null;
+  /** Set on a successful `register` (ADR-0012 §Tenancy; the handlers use it from M2-T16). */
+  scope: AccountScope | null;
   queue: Promise<void>;
   /**
    * Sessions this connection's machine holds, session id → current fencing token (M1-T14). Filled
@@ -79,7 +123,7 @@ interface TranscriptWaiter {
   timer: NodeJS.Timeout;
 }
 
-class Gateway implements GatewayHandle {
+class Gateway implements DaemonGateway {
   readonly transport = new SocketTransport();
   readonly transcripts: TranscriptSource = {
     fetchTranscript: (machineId, sessionId) => this.fetchTranscript(machineId, sessionId),
@@ -93,6 +137,7 @@ class Gateway implements GatewayHandle {
   private readonly heartbeatIntervalMs: number;
   private readonly log: (msg: string) => void;
   private readonly guard: HttpGuard;
+  private readonly requireCredential: boolean;
   private readonly wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
   private readonly conns = new Set<Conn>();
   private readonly pending = new Set<Promise<unknown>>();
@@ -108,7 +153,7 @@ class Gateway implements GatewayHandle {
     this.transcriptTimeoutMs = deps.transcriptTimeoutMs ?? TRANSCRIPT_TIMEOUT_MS;
     this.log = deps.log ?? ((m) => console.warn(`[gateway] ${m}`));
     this.guard = new HttpGuard(deps.security ?? httpSecurityFromEnv());
-    this.wss.on('connection', (ws: WebSocket) => this.onConnection(ws));
+    this.requireCredential = deps.requireCredential ?? requireCredentialFromEnv();
   }
 
   // ------------------------------------------------------------------ lifecycle
@@ -126,18 +171,69 @@ class Gateway implements GatewayHandle {
         return;
       }
       // M1-T14: browsers always send Origin on a WS upgrade, the daemon's ws client never does,
-      // so a cross-site page can't open the daemon socket. A non-browser client can still connect
-      // and register as any machine.
-      // TD: no daemon authentication until enrollment tokens are verified on register (U-008).
+      // so a cross-site page can't open the daemon socket.
       if (!this.guard.upgradeAllowed(req.headers)) {
         this.log(`refused WS upgrade from origin ${req.headers.origin ?? ''}`);
-        socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+        refuse(socket, 403, 'Forbidden');
         return;
       }
-      this.wss.handleUpgrade(req, socket, head, (ws) => this.wss.emit('connection', ws, req));
+      if (!this.requireCredential) {
+        // `local` mode (ADR-0017 §Modes): loopback only and unauthenticated by design.
+        this.accept(req, socket, head, { accountId: LOCAL_ACCOUNT_ID, machineId: null });
+        return;
+      }
+      // M2-T09 `password` mode: the machine and account come from the credential, resolved
+      // before the socket is accepted; unknown or revoked is 401 (fatal for the daemon).
+      const credential = parseDaemonAuthHeader(req.headers[DAEMON_AUTH_HEADER]);
+      if (credential === null) {
+        refuse(socket, 401, 'Unauthorized');
+        return;
+      }
+      const onSocketError = () => socket.destroy();
+      socket.on('error', onSocketError);
+      this.track(
+        this.authenticate(credential)
+          .then((auth) => {
+            socket.off('error', onSocketError);
+            if (socket.destroyed) return;
+            if (this.closed) socket.destroy();
+            else if (auth === null) refuse(socket, 401, 'Unauthorized');
+            else this.accept(req, socket, head, auth);
+          })
+          .catch((err: unknown) => {
+            socket.off('error', onSocketError);
+            this.log(`credential lookup failed: ${String(err)}`);
+            if (!socket.destroyed) refuse(socket, 503, 'Service Unavailable');
+          }),
+      );
     };
     server.on('upgrade', onUpgrade);
     this.servers.push({ server, onUpgrade });
+  }
+
+  private accept(req: IncomingMessage, socket: Duplex, head: Buffer, auth: UpgradeAuth): void {
+    this.wss.handleUpgrade(req, socket, head, (ws) => this.onConnection(ws, auth));
+  }
+
+  /** The live credential's machine and account, or null (unknown, revoked, revoked machine). */
+  private async authenticate(credential: string): Promise<UpgradeAuth | null> {
+    const r = await this.db.query<{ machine_id: string; account_id: string }>(
+      `UPDATE machine_credential c SET last_used_at = now()
+         FROM machine m
+        WHERE c.secret_hash = $1 AND c.revoked_at IS NULL
+          AND m.id = c.machine_id AND m.revoked_at IS NULL
+        RETURNING c.machine_id, c.account_id`,
+      [hashSecret(credential)],
+    );
+    const row = r.rows[0];
+    return row ? { accountId: row.account_id, machineId: row.machine_id } : null;
+  }
+
+  /** `revokeMachine`: close every connection of the machine, registered or not yet. */
+  disconnectMachine(machineId: string, code: number, reason: string): void {
+    for (const c of this.conns) {
+      if (c.machineId === machineId || c.authMachineId === machineId) c.ws.close(code, reason);
+    }
   }
 
   async close(): Promise<void> {
@@ -169,8 +265,16 @@ class Gateway implements GatewayHandle {
     void p.finally(() => this.pending.delete(p));
   }
 
-  private onConnection(ws: WebSocket): void {
-    const conn: Conn = { ws, machineId: null, queue: Promise.resolve(), owned: new Map() };
+  private onConnection(ws: WebSocket, auth: UpgradeAuth): void {
+    const conn: Conn = {
+      ws,
+      machineId: null,
+      accountId: auth.accountId,
+      authMachineId: auth.machineId,
+      scope: null,
+      queue: Promise.resolve(),
+      owned: new Map(),
+    };
     this.conns.add(conn);
     ws.on('message', (data: RawData, isBinary: boolean) => {
       conn.queue = conn.queue
@@ -365,40 +469,82 @@ class Gateway implements GatewayHandle {
 
   // ------------------------------------------------------------------ register / heartbeat / inventory
 
+  private closeWith(conn: Conn, code: keyof typeof CLOSE_REASONS): void {
+    conn.ws.close(code, CLOSE_REASONS[code]);
+  }
+
   private async onRegister(conn: Conn, msg: Msg<'register'>): Promise<void> {
     const p = msg.payload;
-    // TD: enrollment_token is not checked (U-008; M1 is localhost only).
+    const protocolVersion = p.protocol_version ?? 1;
+    if (this.requireCredential) {
+      // 10-contracts §Machines protocol v2: the machine id is the credential's, and v1 daemons
+      // can't authenticate.
+      if (p.machine_id !== conn.authMachineId) {
+        this.log(`register as ${p.machine_id} with ${conn.authMachineId ?? 'no'} credential`);
+        this.closeWith(conn, CLOSE_UNAUTHORIZED);
+        return;
+      }
+      if (protocolVersion < PROTOCOL_VERSION) {
+        this.closeWith(conn, CLOSE_PROTOCOL);
+        return;
+      }
+    }
+    const facts = [
+      p.machine_id,
+      p.hostname,
+      p.os,
+      p.arch,
+      p.tags,
+      p.cpu_total,
+      p.mem_total_mb,
+      p.disk_free_mb,
+      p.budget_cpu,
+      p.budget_mem_mb,
+      p.max_sessions,
+      p.max_concurrent_builds,
+      p.claude_code_version, // U-032
+      p.daemon_version,
+      protocolVersion,
+      conn.accountId,
+    ];
     const lastSeq = await withTransaction(this.db, async (tx) => {
-      const r = await tx.query<{ last_seq: string | null }>(
-        `INSERT INTO machine (id, hostname, os, arch, tags, status, last_heartbeat_at,
-                              cpu_total, mem_total_mb, disk_free_mb, budget_cpu, budget_mem_mb,
-                              max_sessions, max_concurrent_builds, claude_code_version)
-         VALUES ($1, $2, $3, $4, $5, 'online', now(), $6, $7, $8, $9, $10, $11, $12, $13)
-         ON CONFLICT (id) DO UPDATE SET
-           hostname = EXCLUDED.hostname, os = EXCLUDED.os, arch = EXCLUDED.arch,
-           tags = EXCLUDED.tags, status = 'online', last_heartbeat_at = now(),
-           cpu_total = EXCLUDED.cpu_total, mem_total_mb = EXCLUDED.mem_total_mb,
-           disk_free_mb = EXCLUDED.disk_free_mb, budget_cpu = EXCLUDED.budget_cpu,
-           budget_mem_mb = EXCLUDED.budget_mem_mb, max_sessions = EXCLUDED.max_sessions,
-           max_concurrent_builds = EXCLUDED.max_concurrent_builds,
-           claude_code_version = EXCLUDED.claude_code_version, updated_at = now()
-         RETURNING last_seq`,
-        [
-          p.machine_id,
-          p.hostname,
-          p.os,
-          p.arch,
-          p.tags,
-          p.cpu_total,
-          p.mem_total_mb,
-          p.disk_free_mb,
-          p.budget_cpu,
-          p.budget_mem_mb,
-          p.max_sessions,
-          p.max_concurrent_builds,
-          p.claude_code_version, // U-032
-        ],
-      );
+      // Password mode: the row exists since enrollment (its `name` is the user's). Local mode:
+      // the M1 upsert. Either way a revoked machine (or another account's id) gets no row.
+      const r = this.requireCredential
+        ? await tx.query<{ last_seq: string | null }>(
+            `UPDATE machine SET
+               hostname = $2, os = $3, arch = $4, tags = $5, status = 'online',
+               last_heartbeat_at = now(), cpu_total = $6, mem_total_mb = $7, disk_free_mb = $8,
+               budget_cpu = $9, budget_mem_mb = $10, max_sessions = $11,
+               max_concurrent_builds = $12, claude_code_version = $13, daemon_version = $14,
+               protocol_version = $15, updated_at = now()
+             WHERE id = $1 AND account_id = $16 AND revoked_at IS NULL
+             RETURNING last_seq`,
+            facts,
+          )
+        : await tx.query<{ last_seq: string | null }>(
+            `INSERT INTO machine (id, hostname, os, arch, tags, status, last_heartbeat_at,
+                                  cpu_total, mem_total_mb, disk_free_mb, budget_cpu, budget_mem_mb,
+                                  max_sessions, max_concurrent_builds, claude_code_version,
+                                  daemon_version, protocol_version, account_id, name)
+             VALUES ($1, $2, $3, $4, $5, 'online', now(), $6, $7, $8, $9, $10, $11, $12, $13,
+                     $14, $15, $16, $2)
+             ON CONFLICT (id) DO UPDATE SET
+               hostname = EXCLUDED.hostname, os = EXCLUDED.os, arch = EXCLUDED.arch,
+               tags = EXCLUDED.tags, status = 'online', last_heartbeat_at = now(),
+               cpu_total = EXCLUDED.cpu_total, mem_total_mb = EXCLUDED.mem_total_mb,
+               disk_free_mb = EXCLUDED.disk_free_mb, budget_cpu = EXCLUDED.budget_cpu,
+               budget_mem_mb = EXCLUDED.budget_mem_mb, max_sessions = EXCLUDED.max_sessions,
+               max_concurrent_builds = EXCLUDED.max_concurrent_builds,
+               claude_code_version = EXCLUDED.claude_code_version,
+               daemon_version = EXCLUDED.daemon_version,
+               protocol_version = EXCLUDED.protocol_version, updated_at = now()
+             WHERE machine.revoked_at IS NULL AND machine.account_id = EXCLUDED.account_id
+             RETURNING last_seq`,
+            facts,
+          );
+      const row = r.rows[0];
+      if (!row) return undefined;
       // Re-send this machine's open commands right away; a start_session always gets one more
       // send before its ack timeout (10-contracts §Outbox state machine).
       await tx.query(
@@ -407,16 +553,25 @@ class Gateway implements GatewayHandle {
           WHERE target = $1 AND status IN ('pending', 'sent')`,
         [`machine:${p.machine_id}`],
       );
-      return r.rows[0]!.last_seq;
+      return row.last_seq;
     });
+    if (lastSeq === undefined) {
+      this.log(`register refused for ${p.machine_id}: revoked or another account's`);
+      this.closeWith(conn, CLOSE_UNAUTHORIZED);
+      return;
+    }
 
     if (conn.machineId !== null && conn.machineId !== p.machine_id) {
       this.transport.unbind(conn.machineId, conn.ws);
       conn.owned.clear();
     }
     conn.machineId = p.machine_id;
+    conn.scope = {
+      account_id: conn.accountId,
+      actor: { kind: 'machine', machine_id: p.machine_id },
+    };
     const prev = this.transport.bind(p.machine_id, conn.ws);
-    if (prev) prev.close(4000, 'replaced by a newer connection');
+    if (prev) prev.close(CLOSE_REPLACED, CLOSE_REASONS[CLOSE_REPLACED]);
 
     this.reply(conn, {
       type: 'registered',
@@ -763,4 +918,9 @@ class Gateway implements GatewayHandle {
         return;
     }
   }
+}
+
+/** Answer an upgrade with a bodiless HTTP status and close it (no socket is accepted). */
+function refuse(socket: Duplex, status: number, text: string): void {
+  socket.end(`HTTP/1.1 ${status} ${text}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
 }

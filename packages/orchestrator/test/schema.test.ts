@@ -20,10 +20,14 @@ import type {
   AccountMemberRow,
   AccountRow,
   AppUserRow,
+  EnrollmentTokenRow,
   EventRow,
   InputRequestRow,
   InviteRow,
   LoginThrottleRow,
+  MachineAlertRow,
+  MachineCapabilityRow,
+  MachineCredentialRow,
   MachineRepoRow,
   MachineRow,
   OutboxRow,
@@ -50,6 +54,7 @@ function migrationsBefore(file: string): number {
 }
 const TICKET_KIND = '1761500000000_ticket-kind.sql';
 const ACCOUNTS = '1761600000000_accounts-and-auth.sql';
+const MACHINE_CREDENTIALS = '1761700000000_machine-credentials.sql';
 
 // ------------------------------------------------------------------ DDL ⇄ db/types.ts
 //
@@ -109,6 +114,10 @@ const machine: ColumnSpec<MachineRow> = {
   max_concurrent_builds: col('int4', NN),
   last_seq: col('int8', NULL),
   claude_code_version: col('text', NULL),
+  name: col(t, NULL),
+  daemon_version: col(t, NULL),
+  protocol_version: col('int4', NULL),
+  revoked_at: col('timestamptz', NULL),
   created_at: col('timestamptz', NN),
   updated_at: col('timestamptz', NN),
 };
@@ -120,6 +129,49 @@ const machine_repo: ColumnSpec<MachineRepoRow> = {
   head_commit: col(t, NN),
   tree_clean: col('bool', NN),
   updated_at: col('timestamptz', NN),
+  default_branch: col(t, NULL),
+  mode: col(t, NN),
+  remote: col(t, NULL),
+};
+// M2-T09: machine enrollment, credentials, capabilities and alerts.
+const enrollment_token: ColumnSpec<EnrollmentTokenRow> = {
+  id: col('uuid', NN),
+  account_id: col('uuid', NN),
+  token_hash: col('bytea', NN),
+  created_by: col('uuid', NULL),
+  created_at: col('timestamptz', NN),
+  expires_at: col('timestamptz', NN),
+  used_at: col('timestamptz', NULL),
+  used_by_machine: col(t, NULL),
+};
+const machine_credential: ColumnSpec<MachineCredentialRow> = {
+  id: col('uuid', NN),
+  machine_id: col(t, NN),
+  account_id: col('uuid', NN),
+  secret_hash: col('bytea', NN),
+  created_at: col('timestamptz', NN),
+  last_used_at: col('timestamptz', NULL),
+  revoked_at: col('timestamptz', NULL),
+};
+const machine_capability: ColumnSpec<MachineCapabilityRow> = {
+  machine_id: col(t, NN),
+  account_id: col('uuid', NN),
+  key: col(t, NN),
+  kind: col(t, NN),
+  name: col(t, NN),
+  version: col(t, NULL),
+  detail: col('jsonb', NN),
+  updated_at: col('timestamptz', NN),
+};
+const machine_alert: ColumnSpec<MachineAlertRow> = {
+  id: col('uuid', NN),
+  machine_id: col(t, NN),
+  account_id: col('uuid', NN),
+  session_id: col('uuid', NULL),
+  kind: col(t, NN),
+  detail: col('jsonb', NN),
+  created_at: col('timestamptz', NN),
+  cleared_at: col('timestamptz', NULL),
 };
 const ticket: ColumnSpec<TicketRow> = {
   id: col('uuid', NN),
@@ -279,6 +331,10 @@ const login_throttle: ColumnSpec<LoginThrottleRow> = {
 const SCHEMA: Schema = {
   machine,
   machine_repo,
+  enrollment_token,
+  machine_credential,
+  machine_capability,
+  machine_alert,
   ticket,
   workflow_definition,
   session,
@@ -503,7 +559,7 @@ describe('migrations', () => {
       const before = await counts();
       expect(Object.values(before)).toEqual(M1_TABLES.map(() => '1'));
 
-      await migrate(db.url, 'up');
+      await migrate(db.url, 'up', 1);
       expect(await accountIdColumns()).toEqual(
         [...M1_TABLES, 'account_member', 'web_session'].sort(),
       );
@@ -526,6 +582,105 @@ describe('migrations', () => {
       await migrate(db.url, 'up');
       await expectAllLocal();
       expect(await kindLabels()).toEqual({ labels: InputRequestKindSchema.options });
+      expect(await accountIdColumns()).toEqual(
+        [
+          ...M1_TABLES,
+          'account_member',
+          'web_session',
+          'enrollment_token',
+          'machine_alert',
+          'machine_capability',
+          'machine_credential',
+        ].sort(),
+      );
+    } finally {
+      await db.drop();
+    }
+  }, 60_000);
+
+  it('machine-credentials (M2-T09): M1b machines and repos survive up/down/up as reference', async () => {
+    const db = await createTestDatabase({ migrate: false });
+    const q = (text: string, values?: unknown[]) => db.pool.query(text, values);
+    const NEW_TABLES = [
+      'enrollment_token',
+      'machine_alert',
+      'machine_capability',
+      'machine_credential',
+    ];
+    const newTables = async () =>
+      (await publicTables(db.pool)).filter((name) => NEW_TABLES.includes(name));
+    const repoRows = async () =>
+      (await q('SELECT machine_id, repo, tree_clean FROM machine_repo ORDER BY repo')).rows as {
+        machine_id: string;
+        repo: string;
+        tree_clean: boolean;
+      }[];
+    try {
+      // Everything before T09, with M1b-style rows (no account_id, no T09 columns).
+      await migrate(db.url, 'up', migrationsBefore(MACHINE_CREDENTIALS));
+      await q(
+        `INSERT INTO machine (id, hostname, os, arch, cpu_total, mem_total_mb, disk_free_mb,
+           budget_cpu, budget_mem_mb, max_sessions, max_concurrent_builds)
+         VALUES ('m-m1b', 'box.local', 'darwin', 'arm64', 10, 1, 1, 1, 1, 1, 1)`,
+      );
+      await q(
+        `INSERT INTO machine_repo (machine_id, repo, path, head_commit, tree_clean)
+         VALUES ('m-m1b', 'github.com/o/r', '/src/r', 'abc', false)`,
+      );
+      const before = await repoRows();
+
+      await migrate(db.url, 'up');
+      expect(await newTables()).toEqual([...NEW_TABLES].sort());
+      expect(
+        (await q('SELECT name, daemon_version, protocol_version, revoked_at FROM machine')).rows,
+      ).toEqual([
+        { name: 'box.local', daemon_version: null, protocol_version: null, revoked_at: null },
+      ]);
+      expect((await q('SELECT mode, remote, default_branch FROM machine_repo')).rows).toEqual([
+        { mode: 'reference', remote: null, default_branch: null },
+      ]);
+      // The M1 repo_inventory insert still works without tree_clean (DEFAULT true).
+      await q(
+        `INSERT INTO machine_repo (machine_id, repo, path, head_commit)
+         VALUES ('m-m1b', 'github.com/o/s', '/src/s', 'def')`,
+      );
+      await expectPgError(
+        q(
+          `INSERT INTO machine_repo (machine_id, repo, path, head_commit, mode)
+           VALUES ('m-m1b', 'github.com/o/t', '/src/t', 'def', 'symlink')`,
+        ),
+        '23514',
+      );
+      const after = await repoRows();
+      expect(after).toEqual([
+        ...before,
+        { machine_id: 'm-m1b', repo: 'github.com/o/s', tree_clean: true },
+      ]);
+
+      await migrate(db.url, 'down', 1);
+      expect(await newTables()).toEqual([]);
+      const machineCols = await q(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_name IN ('machine', 'machine_repo')
+           AND column_name IN ('name', 'daemon_version', 'protocol_version', 'revoked_at',
+                               'default_branch', 'mode', 'remote')`,
+      );
+      expect(machineCols.rows).toEqual([]);
+      expect(await repoRows()).toEqual(after);
+      await expectPgError(
+        q(
+          `INSERT INTO machine_repo (machine_id, repo, path, head_commit)
+           VALUES ('m-m1b', 'github.com/o/u', '/src/u', 'def')`,
+        ),
+        '23502',
+      );
+
+      await migrate(db.url, 'up');
+      expect(await newTables()).toEqual([...NEW_TABLES].sort());
+      expect((await q('SELECT DISTINCT mode FROM machine_repo')).rows).toEqual([
+        { mode: 'reference' },
+      ]);
+      expect(await repoRows()).toEqual(after);
     } finally {
       await db.drop();
     }
@@ -590,6 +745,26 @@ describe('schema (migrated test database)', () => {
     expect(defs.account_member_user_id_idx).toMatch(/\(user_id\)$/);
     expect(defs.invite_token_hash_key).toMatch(/^CREATE UNIQUE INDEX .* \(token_hash\)$/);
     expect(defs.password_reset_token_hash_key).toMatch(/^CREATE UNIQUE INDEX .* \(token_hash\)$/);
+    // M2-T09.
+    expect(defs.enrollment_token_token_hash_key).toMatch(/^CREATE UNIQUE INDEX .* \(token_hash\)$/);
+    expect(defs.machine_credential_secret_hash_key).toMatch(
+      /^CREATE UNIQUE INDEX .* \(secret_hash\)$/,
+    );
+    expect(defs.machine_credential_machine_id_idx).toMatch(/\(machine_id\)$/);
+    expect(defs.machine_capability_pkey).toMatch(
+      /^CREATE UNIQUE INDEX .* ON public\.machine_capability USING btree \(machine_id, key\)$/,
+    );
+    expect(defs.machine_alert_open_idx).toMatch(/\(machine_id\) WHERE \(cleared_at IS NULL\)$/);
+    for (const table of [
+      'enrollment_token',
+      'machine_credential',
+      'machine_capability',
+      'machine_alert',
+    ]) {
+      expect(defs[`${table}_account_id_idx`]).toBe(
+        `CREATE INDEX ${table}_account_id_idx ON public.${table} USING btree (account_id)`,
+      );
+    }
     for (const table of M1_TABLES) {
       const columns = table === 'event' ? 'account_id, id' : 'account_id';
       expect([table, defs[`${table}_account_id_idx`]]).toEqual([
@@ -614,7 +789,7 @@ describe('schema (migrated test database)', () => {
       `INSERT INTO machine_repo (machine_id, repo, path, head_commit, tree_clean)
        VALUES ('m-rows', 'github.com/org/app', '/src/app', 'abc123', true) RETURNING *`,
     );
-    expect(mr.rows[0]).toMatchObject({ tree_clean: true });
+    expect(mr.rows[0]).toMatchObject({ tree_clean: true, mode: 'reference', remote: null });
 
     const wf = await pool.query<WorkflowDefinitionRow>(
       `INSERT INTO workflow_definition (id, version, definition)
@@ -728,6 +903,33 @@ describe('schema (migrated test database)', () => {
       [randomBytes(32), user.id],
     );
     expect(pr.rows[0]).toMatchObject({ created_by: null, used_at: null });
+
+    // M2-T09 machine tables (account_id named: they have no default).
+    const et = await pool.query<EnrollmentTokenRow>(
+      `INSERT INTO enrollment_token (account_id, token_hash, expires_at, used_by_machine)
+       VALUES ($1, $2, now() + interval '30 minutes', 'm-rows') RETURNING *`,
+      [LOCAL_ACCOUNT_ID, randomBytes(32)],
+    );
+    expect(et.rows[0]).toMatchObject({ created_by: null, used_at: null });
+    expect(Buffer.isBuffer(et.rows[0]?.token_hash)).toBe(true);
+    const mc = await pool.query<MachineCredentialRow>(
+      `INSERT INTO machine_credential (machine_id, account_id, secret_hash)
+       VALUES ('m-rows', $1, $2) RETURNING *`,
+      [LOCAL_ACCOUNT_ID, randomBytes(32)],
+    );
+    expect(mc.rows[0]).toMatchObject({ last_used_at: null, revoked_at: null });
+    const cap = await pool.query<MachineCapabilityRow>(
+      `INSERT INTO machine_capability (machine_id, account_id, key, kind, name, version)
+       VALUES ('m-rows', $1, 'cli:gh', 'cli', 'gh', '2.60.0') RETURNING *`,
+      [LOCAL_ACCOUNT_ID],
+    );
+    expect(cap.rows[0]).toMatchObject({ detail: {}, version: '2.60.0' });
+    const al = await pool.query<MachineAlertRow>(
+      `INSERT INTO machine_alert (machine_id, account_id, session_id, kind, detail)
+       VALUES ('m-rows', $1, $2, 'git_tamper', '{"files":["config"]}') RETURNING *`,
+      [LOCAL_ACCOUNT_ID, ses.id],
+    );
+    expect(al.rows[0]).toMatchObject({ kind: 'git_tamper', cleared_at: null });
 
     const lt = await pool.query<LoginThrottleRow>(
       "INSERT INTO login_throttle (email_norm) VALUES ('ben@example.com') RETURNING *",

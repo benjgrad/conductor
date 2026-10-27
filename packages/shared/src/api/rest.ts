@@ -14,13 +14,18 @@ import {
   isGithubPrUrl,
   type BoardColumn,
   type CardBadge,
+  type InputRequestKind,
   type SessionStatus,
   type TicketStatus,
 } from '../domain.js';
+import { machineLostMarkOf } from '../engine/machine-lost.js';
 import { PR_CONTEXT_KEY, REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
 import {
   ConditionStatusValueSchema,
   GateStepSchema,
+  MACHINE_LOST_KIND,
+  machineLostCanContinue,
+  machineLostContinueTitle,
   StateEnteredPayloadSchema,
   type ApplyIgnoreReason,
   type ApplyRejectReason,
@@ -29,6 +34,7 @@ import {
 import { QUEUED_COLUMN_ID, stateTitle, type BoardColumnInfo } from '../workflow/conductor.js';
 import {
   CONDUCTOR_WORKFLOW_ID,
+  RETURN_TO,
   StateNameSchema,
   TicketKindSchema,
   TransitionActorSchema,
@@ -282,6 +288,17 @@ export const InputRequestDtoSchema = z.object({
   answer: z.string().nullable(),
   answered_by: z.string().nullable(),
   answered_at: IsoDateTimeSchema.nullable(),
+  /**
+   * UX-4: the named transition whose move opened the request, e.g. `personal_pr_ready_for_review`
+   * (the board shows a review request, not a question); null for a fallback, budget or
+   * failed-step route. Absent ≡ unknown (older servers).
+   */
+  origin_transition: z.string().nullable().optional(),
+  /**
+   * UX-4: a gate step (entry, review or move) could not finish and routed to a human, e.g. open_pr
+   * failed. Absent ≡ false.
+   */
+  step_failed: z.boolean().optional(),
 });
 export type InputRequestDto = z.infer<typeof InputRequestDtoSchema>;
 
@@ -822,10 +839,24 @@ export interface InputRequestLike {
   answered_by: string | null;
   created_at: Ts;
   answered_at: Ts | null;
+  /**
+   * UX-4: the session's latest `state.entered` row's `transition` and `from` (the move that opened
+   * the request). Absent = not looked up: the DTO then omits `origin_transition` / `step_failed`.
+   */
+  origin_transition?: string | null | undefined;
+  origin_from?: string | null | undefined;
+}
+
+/**
+ * A gate step's synthetic state label: `… (entry)`, `… (review)` (engine/review.ts) or
+ * `… (move: name)` (engine/types.ts `moveStateLabel`). A test pins it to those helpers.
+ */
+export function isGateStepLabel(label: string): boolean {
+  return / \((entry|review|move: .+)\)$/.test(label);
 }
 
 export function toInputRequestDto(row: InputRequestLike): InputRequestDto {
-  return {
+  const dto: InputRequestDto = {
     id: row.id,
     session_id: row.session_id,
     kind: row.kind,
@@ -835,6 +866,16 @@ export function toInputRequestDto(row: InputRequestLike): InputRequestDto {
     answered_by: row.answered_by,
     answered_at: row.answered_at === null ? null : iso(row.answered_at),
   };
+  if (row.origin_transition === undefined && row.origin_from === undefined) return dto;
+  const transition = row.origin_transition ?? null;
+  const from = row.origin_from ?? null;
+  dto.origin_transition = transition;
+  dto.step_failed =
+    transition === null &&
+    from !== null &&
+    isGateStepLabel(from) &&
+    (row.kind === 'retries_exhausted' || row.kind === 'timeout');
+  return dto;
 }
 
 /**
@@ -869,7 +910,12 @@ export function toBoardCard(
     kind: ticket.kind ?? null,
     pending:
       session && place.checking ? pendingOfStep(view.def, stepOfContext(session.context)) : null,
-    human_transitions: humanTransitionsOfCard(ticket, session, view),
+    human_transitions: humanTransitionsOfCard(
+      ticket,
+      session,
+      view,
+      openInput !== null && openInput.answer === null ? openInput.kind : null,
+    ),
     pr_url: session ? prUrlOfContext(session.context) : null,
     machine_id: session?.machine_id ?? null,
     spend_usd: session ? Number(session.spend_usd) : 0,
@@ -987,11 +1033,15 @@ export function pendingOfStep(
 /**
  * ADR-0011: BoardCard.human_transitions. Only for a session `needs_input` in a human state or
  * `waiting_external` in an event state, outside a gate step, with a known definition; else [].
+ * U-068 (M2-T06): while the open request (`openInputKind`, null = none) is `machine_lost`, the
+ * `$return_to` buttons read `machineLostContinueTitle(<machine>)`; a revoked machine's card offers
+ * none (Cancel only, an operator action).
  */
 export function humanTransitionsOfCard(
   ticket: Pick<CardTicketLike, 'kind'>,
   session: Pick<CardSessionLike, 'status' | 'workflow_state' | 'context' | 'return_to'> | null,
   view: CardView,
+  openInputKind: InputRequestKind | null = null,
 ): HumanTransitionOption[] {
   if (session === null || view.def === null || session.workflow_state === null) return [];
   if (stepOfContext(session.context) !== null) return [];
@@ -1000,10 +1050,26 @@ export function humanTransitionsOfCard(
     (session.status === 'needs_input' && type === 'human') ||
     (session.status === 'waiting_external' && type === 'event');
   if (!ok) return [];
-  return humanTransitionOptions(
+  const mark = machineLostMarkOf(session.context);
+  if (mark?.reason === 'revoked') return [];
+  const options = humanTransitionOptions(
     view.def,
     session.workflow_state,
     ticket.kind ?? null,
     session.return_to ?? null,
+  );
+  if (
+    openInputKind !== MACHINE_LOST_KIND ||
+    mark === null ||
+    !machineLostCanContinue(mark.reason)
+  ) {
+    return options;
+  }
+  const def = view.def;
+  const state = session.workflow_state;
+  return options.map((o) =>
+    transitionAt(def, state, o.name)?.goto === RETURN_TO
+      ? { ...o, title: machineLostContinueTitle(mark.machine_name) }
+      : o,
   );
 }

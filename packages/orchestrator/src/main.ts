@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { conductorPort } from '@conductor/shared';
 import pg from 'pg';
 import { createApi as createRealApi } from './api/index.js';
+import { parseServerConfig, type AuthConfig } from './auth/config.js';
 import { seedConductorWorkflow } from './engine/seed.js';
 import { createDb as createPoolDb } from './db/index.js';
 import { createEngineService as createRealEngineService } from './engine/index.js';
@@ -73,6 +74,10 @@ export type CreateApi = (deps: {
   outputBus: OutputBus;
   /** ADR-0008: absent → GET /transcript answers 503 machine_offline. */
   transcripts?: TranscriptSource;
+  /** M2-T08: absent → `local` mode (ADR-0017 §Modes). */
+  auth?: AuthConfig;
+  /** M2-T08: CONDUCTOR_TRUSTED_PROXY (Fastify `trustProxy`); absent → none trusted. */
+  trustedProxy?: string | null;
 }) => ApiHandle;
 
 export type CreateDb = (opts: { databaseUrl: string }) => Db;
@@ -90,8 +95,11 @@ export interface OrchestratorConfig {
   databaseUrl: string;
   /** Default: `conductorPort(process.env)` (CONDUCTOR_PORT, else 7400). */
   port?: number;
-  /** M1: localhost only (09). */
+  /** CONDUCTOR_BIND_HOST (default 127.0.0.1; local mode is loopback only, parseServerConfig). */
   host?: string;
+  /** M2-T08: sign-in mode; absent → local. */
+  auth?: AuthConfig;
+  trustedProxy?: string | null;
 }
 
 export interface Orchestrator {
@@ -123,6 +131,8 @@ export function composeOrchestrator(
     boardBus,
     outputBus,
     ...(gateway.transcripts ? { transcripts: gateway.transcripts } : {}),
+    ...(config.auth ? { auth: config.auth } : {}),
+    ...(config.trustedProxy ? { trustedProxy: config.trustedProxy } : {}),
   });
   gateway.attach(api.server);
   let workers: Stoppable | null = null;
@@ -160,7 +170,11 @@ export const REAL_FACTORIES: Required<OrchestratorFactories> = {
 };
 
 export interface MainOptions {
-  /** Default `process.env`: DATABASE_URL (required), CONDUCTOR_PORT, CONDUCTOR_WEB_DIR. */
+  /**
+   * Default `process.env`: DATABASE_URL (required), CONDUCTOR_PORT, CONDUCTOR_WEB_DIR, and the
+   * M2-T08 server config (CONDUCTOR_AUTH, CONDUCTOR_PUBLIC_URL, CONDUCTOR_BIND_HOST,
+   * CONDUCTOR_TRUSTED_PROXY; `parseServerConfig`).
+   */
   env?: NodeJS.ProcessEnv;
   /** Stop on SIGINT/SIGTERM, then exit (default true; tests pass false and call `stop()`). */
   signals?: boolean;
@@ -172,11 +186,13 @@ export interface MainOptions {
 /**
  * Start the orchestrator: compose the real pieces on DATABASE_URL, serve the built web app (when
  * `CONDUCTOR_WEB_DIR`, default `packages/web/dist`, has an index.html), start the outbox
- * dispatcher and the timeout sweep, and listen on 127.0.0.1:CONDUCTOR_PORT (default 7400). The
- * schema is not migrated here: run `pnpm db:migrate` first.
+ * dispatcher and the timeout sweep, and listen on CONDUCTOR_BIND_HOST:CONDUCTOR_PORT (default
+ * 127.0.0.1:7400). The config is checked first (a bad one throws naming the variable, before the
+ * database is touched). The schema is not migrated here: run `pnpm db:migrate` first.
  */
 export async function main(opts: MainOptions = {}): Promise<Orchestrator> {
   const env = opts.env ?? process.env;
+  const server = parseServerConfig(env);
   const log =
     opts.log ?? ((m: string) => void process.stderr.write(`[conductor-orchestrator] ${m}\n`));
   const databaseUrl = env.DATABASE_URL;
@@ -194,10 +210,16 @@ export async function main(opts: MainOptions = {}): Promise<Orchestrator> {
         return api;
       },
     },
-    { databaseUrl, port },
+    {
+      databaseUrl,
+      port,
+      host: server.bindHost,
+      auth: server.auth,
+      trustedProxy: server.trustedProxy,
+    },
   );
   await orchestrator.start();
-  log(`listening on http://127.0.0.1:${port}`);
+  log(`listening on http://${server.bindHost}:${port} (auth: ${server.auth.mode})`);
   log(serveWeb ? `web app from ${webDir}` : `no web app at ${webDir} (run pnpm build)`);
 
   if (opts.signals ?? true) {

@@ -12,14 +12,9 @@ import {
 } from '@conductor/shared';
 import type { Queryable } from '../contracts.js';
 import { CardViews } from '../engine/board-view.js';
+import { OPEN_INPUT_SELECT, type OpenInputRow } from '../engine/rows.js';
 import type { Db } from '../main.js';
-import type {
-  InputRequestRow,
-  MachineRow,
-  SessionRow,
-  TicketRow,
-  WorkflowDefinitionRow,
-} from '../db/types.js';
+import type { MachineRow, SessionRow, TicketRow, WorkflowDefinitionRow } from '../db/types.js';
 import { maxBoardEventId } from '../stream/board.js';
 
 // Read models for the REST API (M1-T08). Cards always come from `toBoardCard` (10-contracts).
@@ -81,9 +76,9 @@ export function loadBoard(db: Db): Promise<BoardResponse> {
     const sessions = await q.query<SessionRow>(
       'SELECT DISTINCT ON (ticket_id) * FROM session ORDER BY ticket_id, created_at DESC',
     );
-    const inputs = await q.query<InputRequestRow>(
-      'SELECT DISTINCT ON (session_id) * FROM input_request WHERE answer IS NULL ' +
-        'ORDER BY session_id, created_at DESC',
+    const inputs = await q.query<OpenInputRow>(
+      OPEN_INPUT_SELECT.replace('SELECT ', 'SELECT DISTINCT ON (ir.session_id) ') +
+        'WHERE ir.answer IS NULL ORDER BY ir.session_id, ir.created_at DESC',
     );
     const lastEventId = await maxBoardEventId(q);
 

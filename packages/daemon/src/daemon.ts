@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { arch, homedir, hostname, platform } from 'node:os';
@@ -22,6 +21,7 @@ import { findTranscript, readTranscriptTail, transcriptChunks } from './claude/t
 import { createCommandRunner as defaultCreateCommandRunner } from './commands/index.js';
 import type { CommandRunner, CreateCommandRunner } from './commands/runner.js';
 import { daemonVersion, machineFacts, type DaemonConfig } from './config.js';
+import { checkOurs, readProcInfo, type ProcInfo } from './orphan.js';
 import { PortPool, portEnv } from './ports.js';
 import { DaemonStore, type AckRecord, type PersistedSession, type PortRange } from './store.js';
 import { liveResources, type SysInfo } from './sysinfo.js';
@@ -68,6 +68,13 @@ export interface DaemonOptions {
   log?: (msg: string) => void;
   /** Test seam: the inventory scan (default: inventory/report.ts `scanInventory`). */
   scanInventory?: () => Promise<InventoryScan>;
+  /**
+   * BUG-1b: the Claude executable the driver runs; the startup orphan sweep only kills a process
+   * whose argv is this binary. Default $CONDUCTOR_CLAUDE_BIN, else `claude` (as the CLI driver).
+   */
+  claudeBin?: string;
+  /** Test seam: a pid's start time and command line (default: orphan.ts `readProcInfo`). */
+  procInfo?: (pid: number) => ProcInfo | null;
   /**
    * The link can't recover (close 4001 revoked, 4003 unauthorized, 4005 protocol too old, or HTTP
    * 401 at the upgrade); reconnecting has stopped. `main` stops and exits non-zero.
@@ -146,6 +153,8 @@ export class Daemon {
   private readonly ghCommand: { cmd: string; args: readonly string[] } | null;
   private readonly log: (msg: string) => void;
   private readonly onFatal: (code: number, reason: string) => void;
+  private readonly claudeBin: string;
+  private readonly procInfo: (pid: number) => ProcInfo | null;
   private readonly ws: ReconnectingWs;
   /** M2-T10: the `inventory` message (rescans every 10 minutes and on SIGHUP, see main). */
   readonly inventory: InventoryReporter;
@@ -184,6 +193,8 @@ export class Daemon {
     this.ghCommand = opts.ghCommand ?? null;
     this.log = opts.log ?? ((m) => process.stderr.write(`[conductor-daemon] ${m}\n`));
     this.onFatal = opts.onFatal ?? ((code) => this.log(`link failed (${code}); stopped`));
+    this.claudeBin = opts.claudeBin ?? process.env.CONDUCTOR_CLAUDE_BIN ?? 'claude';
+    this.procInfo = opts.procInfo ?? readProcInfo;
     this.heartbeatMs = this.config.heartbeatIntervalMs;
     mkdirSync(this.config.rootDir, { recursive: true });
     this.store = DaemonStore.forRoot(this.config.rootDir);
@@ -697,13 +708,22 @@ export class Daemon {
     live.agent = agent;
     const persisted = this.store.session(sid);
     if (persisted) {
+      // BUG-1b: the startup sweep needs the pid, the Claude session id and the start time to
+      // recognise this process; without a readable start time it is never a sweep target.
+      const pid = agent.session.pid;
+      const info = pid !== undefined ? this.procInfo(pid) : null;
+      if (pid !== undefined && info === null) {
+        this.log(
+          `session ${sid}: cannot read start time of process ${pid}; not tracked for the orphan sweep`,
+        );
+      }
       this.store.putSession(sid, {
         ...persisted,
         agent: {
           commandId: p.command_id,
           fencingToken: token,
-          ...(agent.session.pid !== undefined
-            ? { pid: agent.session.pid, claudeSessionId: agent.claudeSessionId }
+          ...(pid !== undefined && info !== null
+            ? { pid, claudeSessionId: agent.claudeSessionId, startedAt: info.startedAt }
             : {}),
         },
       });
@@ -1201,42 +1221,55 @@ export class Daemon {
   }
 
   /**
-   * BUG-1: kill a Claude process a previous daemon left running. Only if its pid is alive AND its
-   * command line names the session's Claude session id (`--session-id` / `--resume`), so a reused
-   * pid is never hit. SIGTERM to the process group, SIGKILL after the grace period.
+   * BUG-1/BUG-1b: kill a Claude process a previous daemon left running, only if it is provably
+   * ours: the pid is alive, its start time equals the recorded `startedAt`, its argv is the
+   * configured Claude binary with `--session-id`/`--resume <id>` as adjacent tokens, and the stored
+   * id is a UUID (orphan.ts `checkOurs`). Anything else is logged and left alone. SIGTERM to the
+   * process group; the check is repeated before the SIGKILL after the grace period. Only the group
+   * is ever signalled (never a bare pid): if it is gone (ESRCH), so is the process.
    */
   private killOrphan(sid: string, agent: NonNullable<PersistedSession['agent']>): void {
-    const { pid, claudeSessionId } = agent;
-    if (pid === undefined || claudeSessionId === undefined) return;
-    try {
-      process.kill(pid, 0);
-    } catch {
-      return; // gone
-    }
-    let command: string;
-    try {
-      command = execFileSync('ps', ['-o', 'command=', '-p', String(pid)], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      });
-    } catch {
+    const { pid } = agent;
+    if (pid === undefined) return;
+    if (agent.startedAt === undefined) {
+      // FR-4: written by BUG-1's build; the caller clears the entry.
+      this.log(
+        `orphan sweep: pid ${pid} of session ${sid} has no recorded start time (old entry); left alone`,
+      );
       return;
     }
-    if (!command.includes(claudeSessionId)) return;
-    const signal = (sig: NodeJS.Signals) => {
+    const notOurs = (reason: string, extra = '') =>
+      this.log(`orphan sweep: pid ${pid} alive but not ours (${reason}); left alone${extra}`);
+    const liveness = (): boolean | null => {
+      try {
+        process.kill(pid, 0);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'ESRCH') return null; // gone
+        return false; // EPERM: another user's process, never ours
+      }
+      return true;
+    };
+    const signalGroup = (sig: NodeJS.Signals): boolean => {
       try {
         process.kill(-pid, sig);
+        return true;
       } catch {
-        try {
-          process.kill(pid, sig);
-        } catch {
-          // already gone
-        }
+        return false; // ESRCH: the group is gone
       }
     };
-    signal('SIGTERM');
-    setTimeout(() => signal('SIGKILL'), this.config.killGraceMs).unref();
+    const alive = liveness();
+    if (alive === null) return;
+    if (!alive) return notOurs('not signalable');
+    const c = checkOurs(this.procInfo(pid), agent, this.claudeBin);
+    if (!c.ok) return notOurs(c.reason);
+    if (!signalGroup('SIGTERM')) return;
     this.log(`startup: killed orphaned claude process ${pid} of session ${sid}`);
+    setTimeout(() => {
+      if (liveness() !== true) return;
+      const again = checkOurs(this.procInfo(pid), agent, this.claudeBin);
+      if (!again.ok) return notOurs(again.reason, ' (no SIGKILL)');
+      signalGroup('SIGKILL');
+    }, this.config.killGraceMs).unref();
   }
 
   // ============================================================ transcripts (ADR-0008)

@@ -68,9 +68,11 @@ if [[ ! -e .env ]]; then
     die "could not create .env: openssl rand -hex 32 failed; no .env was created"
   [[ "$password" =~ ^[0-9a-f]{64}$ ]] ||
     die "could not create .env: openssl rand -hex 32 did not print 64 hex digits; no .env was created"
-  (umask 077 && sed "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$password/" \
+  # The password reaches awk through its environment, never through argv (visible in ps).
+  (umask 077 && PW="$password" awk \
+    '/^POSTGRES_PASSWORD=/ { print "POSTGRES_PASSWORD=" ENVIRON["PW"]; next } { print }' \
     "$REL/deploy/gradyserver/env.example" >.env.tmp) ||
-    die "could not create .env: sed on $REL/deploy/gradyserver/env.example failed; no .env was created"
+    die "could not create .env: awk on $REL/deploy/gradyserver/env.example failed; no .env was created"
   unset password
   grep -qE '^POSTGRES_PASSWORD=[0-9a-f]{64}$' .env.tmp ||
     die "could not create .env: the generated file has no POSTGRES_PASSWORD=<64 hex digits>; no .env was created"

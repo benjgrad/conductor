@@ -120,8 +120,8 @@ fail_tool() {
 }
 fail_tool fail-openssl openssl "echo 'fake openssl: boom' >&2; exit 1"
 fail_tool bad-openssl openssl "echo not-hex"
-fail_tool fail-sed sed "echo CONDUCTOR_AUTH=password; echo 'fake sed: boom' >&2; exit 1"
-fail_tool empty-sed sed "exit 0"
+fail_tool fail-awk awk "echo CONDUCTOR_AUTH=password; echo 'fake awk: boom' >&2; exit 1"
+fail_tool empty-awk awk "exit 0"
 
 sha1="$(commit one)"
 
@@ -141,13 +141,30 @@ env_gen_fails() {
 }
 env_gen_fails fail-openssl 'openssl rand -hex 32 failed'
 env_gen_fails bad-openssl 'openssl rand -hex 32 did not print 64 hex digits'
-env_gen_fails fail-sed 'sed on releases/[0-9a-f]+/deploy/gradyserver/env.example failed'
-env_gen_fails empty-sed 'the generated file has no POSTGRES_PASSWORD='
+env_gen_fails fail-awk 'awk on releases/[0-9a-f]+/deploy/gradyserver/env.example failed'
+env_gen_fails empty-awk 'the generated file has no POSTGRES_PASSWORD='
+
+# Argv capture: wrappers that log their argv to $FAKE_STATE/argv, then exec the real tool (the
+# argv is what `ps` shows other users on the server).
+mkdir -p "$T/argv-log"
+for tool in ssh openssl awk sed grep chmod mv rm ln mkdir cat ls readlink tr wc cut head tail sort; do
+  real="$(PATH="$T/bin:$PATH" command -v "$tool")" || continue
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "%s $*" >>"$FAKE_STATE/argv"\nexec "%s" "$@"\n' \
+    "$tool" "$real" >"$T/argv-log/$tool"
+  chmod +x "$T/argv-log/$tool"
+done
 
 # 1. A good deploy replaces the orchestrator and switches current / current.env.
 : >"$T/state/calls"
-deploy
+: >"$T/state/argv"
+deploy PATH="$T/argv-log:$T/bin:$PATH"
 check "good deploy exits 0 (got $CODE)" test "$CODE" -eq 0
+pw_value="$(sed -n 's/^POSTGRES_PASSWORD=//p' "$ROOT/.env")"
+check "this deploy generated .env" has "$OUT" '^==> creating \.env with a random POSTGRES_PASSWORD'
+check "argv log captured openssl and awk" bash -c "grep -q '^openssl rand' '$T/state/argv' && grep -q '^awk ' '$T/state/argv'"
+check "the password is 64 hex digits" grep -qE '^[0-9a-f]{64}$' <<<"$pw_value"
+check "the password never appears in any process argv" \
+  bash -c "[[ -n '$pw_value' ]] && ! grep -qF -- '$pw_value' '$T/state/argv' '$T/state/calls'"
 check "good deploy prints 'deployed <sha>'" has "$OUT" "^==> deployed $sha1\$"
 check "good deploy verified the running orchestrator" has "$OUT" "running orchestrator: conductor-orchestrator:$sha1, healthy"
 check "migrate read nothing from stdin" test "$(cat "$T/state/migrate_stdin_bytes" 2>/dev/null)" = 0

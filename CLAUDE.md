@@ -108,7 +108,7 @@ pnpm format            # prettier --write
 pnpm test              # vitest, one project per package (DB tests need db:up)
 pnpm test:e2e          # db up + tsc -b + e2e/ suite: real orchestrator + daemon bins, fake Claude (~15 s)
 E2E_REAL_CLAUDE=1 pnpm test:e2e   # ask/answer only, real `claude` on haiku (spends money; not in CI)
-scripts/ci.sh          # all gates, in order: install, typecheck, lint, db:up, test, build, test:e2e
+scripts/ci.sh          # all gates, in order: install, typecheck, lint, deploy kit (deploy/gradyserver/test/run.sh), db:up, test, build, test:e2e
 ```
 
 `DATABASE_URL` is resolved the same way by `scripts/db.sh` and `vitest.config.ts`: process env, else `.env`, else `.env.example`. The orchestrator itself reads only `process.env.DATABASE_URL`; whatever launches it sets it. DB tests never use that database directly: `useTestDatabase()` / `createTestDatabase()` in `packages/orchestrator/test/db.ts` create `conductor_test_<branch>_<random>` on the same server, migrate it, and drop it afterwards, so worktrees can run DB tests at the same time. `tsc` is TypeScript 7 (the `typescript7` alias); the `typescript` module is `@typescript/typescript6` because typescript-eslint needs the TS 6 JS API. Workspace packages resolve each other from source in vitest/vite via the `source` export condition, so tests run without a build. `spikes/**` is outside the workspace, lint and typecheck.

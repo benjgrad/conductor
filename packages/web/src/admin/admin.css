@@ -1,0 +1,88 @@
+/* M2-T05: the admin page. */
+
+.admin {
+  padding: 16px;
+  max-width: 1000px;
+}
+.admin h2 {
+  font-size: 18px;
+  margin: 0 0 12px;
+}
+.admin h3 {
+  font-size: 15px;
+  margin: 20px 0 8px;
+}
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+.admin-table th,
+.admin-table td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.admin-table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+.admin-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.invite-open {
+  color: var(--ok);
+}
+.invite-used,
+.invite-revoked,
+.invite-expired {
+  color: var(--muted);
+}
+.new-invite {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.new-invite label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.new-invite label.checkbox {
+  flex-direction: row;
+  align-items: center;
+}
+.new-invite input[type='number'] {
+  width: 70px;
+}
+.one-time-link,
+.admin-confirm {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  background: var(--warn-bg);
+}
+.admin-confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.one-time-link h3 {
+  margin: 0 0 6px;
+}
+.one-time-url {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.one-time-url input {
+  flex: 1;
+  font-family: ui-monospace, monospace;
+}

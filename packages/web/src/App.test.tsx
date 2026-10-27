@@ -2,11 +2,15 @@
 import { BOARD_SSE_FIXTURES } from '@conductor/shared';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { ApiRequestError, type StreamHandlers } from './api/client.js';
 import { SEED_IDS } from './api/mock-data.js';
 import { createMockApi } from './api/mock.js';
 import { App } from './App.js';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  window.history.replaceState(null, '', '/');
+});
 
 const column = (name: string) => screen.getByRole('region', { name });
 const cardTitles = (name: string) =>
@@ -164,5 +168,68 @@ describe('create ticket', () => {
     fireEvent.click(form.getByRole('button', { name: 'Create ticket' }));
     await waitFor(() => expect(cardTitles('Queued')[0]).toBe('Add dark mode'));
     expect(screen.queryByRole('form', { name: 'Create ticket' })).toBeNull();
+  });
+});
+
+describe('session (M2-T05)', () => {
+  const unauthorized = () => new ApiRequestError(401, 'unauthorized', 'Sign in to continue');
+  const signInNext = () => {
+    expect(window.location.pathname).toBe('/signin');
+    return new URLSearchParams(window.location.search).get('next');
+  };
+
+  it('a 401 from /api/board redirects to /signin?next=/', async () => {
+    const api = createMockApi();
+    api.getBoard = () => Promise.reject(unauthorized());
+    render(<App api={api} />);
+    await screen.findByRole('form', { name: 'Sign in' });
+    expect(signInNext()).toBe('/');
+  });
+
+  it('a 401 from /api/me at start redirects, keeping the view in `next`', async () => {
+    window.history.replaceState(null, '', '/#/workflows');
+    const api = createMockApi({ auth: 'password', signedIn: false });
+    render(<App api={api} />);
+    await screen.findByRole('form', { name: 'Sign in' });
+    expect(signInNext()).toBe('/#/workflows');
+  });
+
+  it('a board stream error re-probes /api/me and redirects only on its 401', async () => {
+    const api = createMockApi();
+    let handlers: StreamHandlers<unknown> | undefined;
+    const stream = api.streamBoard.bind(api);
+    api.streamBoard = (from, h) => {
+      handlers = h as StreamHandlers<unknown>;
+      return stream(from, h);
+    };
+    render(<App api={api} />);
+    await screen.findByText('Add pagination to /orders');
+
+    act(() => handlers?.onError?.(new Error('board stream disconnected')));
+    await screen.findByRole('alert');
+    expect(window.location.pathname).toBe('/');
+
+    api.me = () => Promise.reject(unauthorized());
+    act(() => handlers?.onError?.(new Error('board stream disconnected')));
+    await screen.findByRole('form', { name: 'Sign in' });
+    expect(signInNext()).toBe('/');
+  });
+
+  it('/admin is the admin view', async () => {
+    window.history.replaceState(null, '', '/admin');
+    render(<App api={createMockApi({ auth: 'password' })} />);
+    await screen.findByRole('region', { name: 'Users' });
+    expect(window.location.pathname + window.location.hash).toBe('/#/admin');
+  });
+
+  it("shows a retry when /api/me can't be reached", async () => {
+    const api = createMockApi();
+    const me = api.me.bind(api);
+    api.me = () => Promise.reject(new TypeError('Failed to fetch'));
+    render(<App api={api} />);
+    expect((await screen.findByRole('alert')).textContent).toMatch(/Can't reach the server/);
+    api.me = me;
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await screen.findByText('Add pagination to /orders');
   });
 });

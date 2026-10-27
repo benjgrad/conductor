@@ -1,21 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-// Top-level navigation kept in the URL hash: `#/` (board), `#/workflows`, `#/workflows/<id>`.
-// Every route change, from an in-app link or from the hash itself (typed URL, back/forward),
-// goes through an optional guard, so a view with unsaved work can hold the user back.
+// Top-level navigation kept in the URL hash: `#/` (board), `#/workflows`, `#/workflows/<id>`,
+// `#/admin`. Every route change, from an in-app link or from the hash itself (typed URL,
+// back/forward), goes through an optional guard, so a view with unsaved work can hold the user back.
+//
+// M2-T05: the sign-in pages are real paths (`/signin`, `/signup?invite=`, `/reset?token=`),
+// because the server mints those URLs; they render outside the app shell. `/admin` is an alias
+// of `#/admin`. `goTo` / `usePath` move between paths without a reload.
 
-export type Route = { view: 'board' } | { view: 'workflows'; workflowId: string | null };
+export type Route =
+  { view: 'board' } | { view: 'workflows'; workflowId: string | null } | { view: 'admin' };
 
 export function parseHash(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
   if (parts[0] === 'workflows') {
     return { view: 'workflows', workflowId: parts[1] ? decodeURIComponent(parts[1]) : null };
   }
+  if (parts[0] === 'admin') return { view: 'admin' };
   return { view: 'board' };
 }
 
 export function routeHash(route: Route): string {
   if (route.view === 'board') return '#/';
+  if (route.view === 'admin') return '#/admin';
   return route.workflowId ? `#/workflows/${encodeURIComponent(route.workflowId)}` : '#/workflows';
 }
 
@@ -77,4 +84,52 @@ export function useHashRoute(
   }, [apply]);
 
   return [route, apply];
+}
+
+const NAVIGATE_EVENT = 'conductor:navigate';
+
+export interface PathLocation {
+  pathname: string;
+  search: string;
+}
+
+const readPath = (): PathLocation => ({
+  pathname: window.location.pathname,
+  search: window.location.search,
+});
+
+/** Go to a same-origin URL (path, query, hash) without a reload. */
+export function goTo(url: string, opts: { replace?: boolean } = {}): void {
+  if (opts.replace) window.history.replaceState(null, '', url);
+  else window.history.pushState(null, '', url);
+  window.dispatchEvent(new Event(NAVIGATE_EVENT));
+}
+
+/** The current path and query, updated by `goTo` and back/forward. */
+export function usePath(): PathLocation {
+  const [path, setPath] = useState(readPath);
+  useEffect(() => {
+    const onChange = () =>
+      setPath((prev) => {
+        const next = readPath();
+        return next.pathname === prev.pathname && next.search === prev.search ? prev : next;
+      });
+    window.addEventListener('popstate', onChange);
+    window.addEventListener(NAVIGATE_EVENT, onChange);
+    return () => {
+      window.removeEventListener('popstate', onChange);
+      window.removeEventListener(NAVIGATE_EVENT, onChange);
+    };
+  }, []);
+  return path;
+}
+
+/** Where the user is, as a `next` value: path + query + hash; the board's `#/` is just `/`. */
+export function currentPath(): string {
+  const { pathname, search, hash } = window.location;
+  return pathname + search + (hash === '' || hash === '#' || hash === '#/' ? '' : hash);
+}
+
+export function signInPath(next: string): string {
+  return `/signin?next=${encodeURIComponent(next)}`;
 }

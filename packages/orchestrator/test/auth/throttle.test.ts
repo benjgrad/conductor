@@ -1,7 +1,8 @@
 // M2-T08: login throttling (ADR-0017 §Rate limiting and lockout): the per-email lock in
 // `login_throttle` and the per-IP limit (`@fastify/rate-limit`, X-Forwarded-For only from
 // CONDUCTOR_TRUSTED_PROXY).
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { argon2Hasher } from '../../src/auth/password.js';
 import {
   LOCK_BASE_MS,
   LOCK_MAX_MS,
@@ -12,6 +13,7 @@ import {
 import { useTestDatabase } from '../db.js';
 import {
   HTTPS_URL,
+  cookieOf,
   createUser,
   fakeClock,
   passwordAuth,
@@ -123,6 +125,163 @@ describe('per-email lockout', () => {
   });
 });
 
+describe('POST /auth/password lockout (M2-T08b)', () => {
+  const NEW = 'a brand new passphrase';
+  const WRONG = 'a wrong password!!';
+
+  /** A signed-in user on an API with a fake clock; every request from a fresh forwarded IP. */
+  const setup = async (hasher?: typeof argon2Hasher) => {
+    const u = await createUser(db.pool, { password: PASSWORD });
+    const clock = fakeClock();
+    api = await startApi({
+      db: db.pool,
+      auth: passwordAuth(HTTPS_URL),
+      trustedProxy: '127.0.0.1',
+      now: clock.now,
+      ...(hasher ? { hasher } : {}),
+    });
+    const login = (password: string) =>
+      api!.send('POST', '/auth/login', {
+        headers: fromNewIp(),
+        body: { email: u.email, password },
+      });
+    const signedIn = await login(PASSWORD);
+    expect(signedIn.status).toBe(200);
+    const cookie = cookieOf(signedIn);
+    const change = (current: string, next = NEW) =>
+      api!.send('POST', '/auth/password', {
+        headers: { ...fromNewIp(), cookie },
+        body: { current, new: next },
+      });
+    const storedHash = async () =>
+      (
+        await db.pool.query<{ password_hash: string }>(
+          'SELECT password_hash FROM app_user WHERE id = $1',
+          [u.userId],
+        )
+      ).rows[0]!.password_hash;
+    return { u, clock, login, change, storedHash };
+  };
+
+  it('10 wrong `current` lock the email; the right one is then refused with the same 400', async () => {
+    const { u, clock, change, storedHash } = await setup();
+    let wrongText = '';
+    for (let i = 1; i <= 10; i++) {
+      const r = await change(WRONG);
+      expect(r.status, `failure ${i}`).toBe(400);
+      expect(r.json.error?.details?.map((d) => d.path)).toEqual(['current']);
+      wrongText = r.text;
+      if (i === 9) expect(await isLocked(db.pool, u.email, clock.now())).toBe(false);
+    }
+    expect(await isLocked(db.pool, u.email, clock.now())).toBe(true);
+    const refused = await change(PASSWORD);
+    expect(refused.status).toBe(400);
+    expect(refused.text).toBe(wrongText);
+    expect(await argon2Hasher.verify(await storedHash(), PASSWORD)).toBe(true);
+  });
+
+  it('the lock is shared with login, and both work again once it ends', async () => {
+    const { u, clock, login, change } = await setup();
+    for (let i = 0; i < 10; i++) expect((await change(WRONG)).status).toBe(400);
+    const refused = await login(PASSWORD);
+    expect(refused.status).toBe(401);
+    expect(JSON.parse(refused.text)).toEqual({
+      error: { code: 'unauthorized', message: 'Email or password is wrong' },
+    });
+    expect(refused.headers['set-cookie']).toBeUndefined();
+
+    clock.advance(LOCK_BASE_MS + 1000);
+    expect((await change(PASSWORD)).status).toBe(200);
+    expect((await login(NEW)).status).toBe(200);
+    expect(await throttleRow(u.email)).toBeUndefined();
+  });
+
+  it('login and change-password failures add up in one counter', async () => {
+    const { u, clock, login, change } = await setup();
+    for (let i = 0; i < 5; i++) expect((await login(WRONG)).status).toBe(401);
+    for (let i = 0; i < 4; i++) expect((await change(WRONG)).status).toBe(400);
+    expect(await isLocked(db.pool, u.email, clock.now())).toBe(false);
+    expect((await change(WRONG)).status).toBe(400);
+    expect(await isLocked(db.pool, u.email, clock.now())).toBe(true);
+    expect((await login(PASSWORD)).status).toBe(401);
+  });
+
+  it('the lock applies to a stored email with a different case', async () => {
+    const email = `Mixed.Case-${Date.now()}@Example.Test`;
+    const u = await createUser(db.pool, { email, password: PASSWORD });
+    const clock = fakeClock();
+    api = await startApi({
+      db: db.pool,
+      auth: passwordAuth(HTTPS_URL),
+      trustedProxy: '127.0.0.1',
+      now: clock.now,
+    });
+    const signedIn = await api.send('POST', '/auth/login', {
+      headers: fromNewIp(),
+      body: { email: u.email, password: PASSWORD },
+    });
+    const cookie = cookieOf(signedIn);
+    for (let i = 0; i < 10; i++) {
+      await api.send('POST', '/auth/password', {
+        headers: { ...fromNewIp(), cookie },
+        body: { current: WRONG, new: NEW },
+      });
+    }
+    expect(await isLocked(db.pool, email.toLowerCase(), clock.now())).toBe(true);
+    const r = await api.send('POST', '/auth/login', {
+      headers: fromNewIp(),
+      body: { email, password: PASSWORD },
+    });
+    expect(r.status).toBe(401);
+  });
+
+  it('a successful change resets the count', async () => {
+    const { u, clock, change } = await setup();
+    for (let i = 0; i < 9; i++) expect((await change(WRONG)).status).toBe(400);
+    expect((await throttleRow(u.email))?.failures).toBe(9);
+    expect((await change(PASSWORD)).status).toBe(200);
+    expect(await throttleRow(u.email)).toBeUndefined();
+    for (let i = 0; i < 9; i++) expect((await change(WRONG, PASSWORD)).status).toBe(400);
+    expect(await isLocked(db.pool, u.email, clock.now())).toBe(false);
+  });
+
+  it('a weak new password does not reset the count', async () => {
+    const { u, change } = await setup();
+    for (let i = 0; i < 3; i++) await change(WRONG);
+    const weak = await change(PASSWORD, 'short');
+    expect(weak.json.error?.details?.map((d) => d.path)).toEqual(['password']);
+    expect((await throttleRow(u.email))?.failures).toBe(3);
+  });
+
+  it('exactly one verify per request, locked or not', async () => {
+    const verify = vi.fn(argon2Hasher.verify);
+    const { u, clock, change, storedHash } = await setup({ ...argon2Hasher, verify });
+    const hash = await storedHash();
+    verify.mockClear();
+
+    const unlocked = await change(WRONG);
+    expect(unlocked.status).toBe(400);
+    expect(verify).toHaveBeenCalledTimes(1);
+    expect(verify).toHaveBeenCalledWith(hash, WRONG);
+
+    for (let i = 0; i < 10; i++) await recordFailure(db.pool, u.email, clock.now());
+    verify.mockClear();
+    const lockedWrong = await change(WRONG);
+    expect(verify).toHaveBeenCalledTimes(1);
+    verify.mockClear();
+    const lockedRight = await change(PASSWORD);
+    expect(verify).toHaveBeenCalledTimes(1);
+    expect(lockedRight.status).toBe(400);
+    expect(lockedRight.text).toBe(lockedWrong.text);
+    expect(lockedWrong.text).toBe(unlocked.text);
+
+    clock.advance(LOCK_BASE_MS + 1000);
+    verify.mockClear();
+    expect((await change(PASSWORD)).status).toBe(200);
+    expect(verify).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('per-IP limit', () => {
   const tooMany = async (send: TestApi['send'], headers: () => Record<string, string>) => {
     const statuses: number[] = [];
@@ -144,6 +303,29 @@ describe('per-IP limit', () => {
     expect(statuses[10]).toBe(429);
     expect(last.json.error?.code).toBe('rate_limited');
     expect(Number(last.headers['retry-after'])).toBeGreaterThan(0);
+  });
+
+  it('the 11th POST /auth/password in a minute from one IP gets 429 with Retry-After', async () => {
+    const u = await createUser(db.pool, { password: PASSWORD });
+    api = await startApi({ db: db.pool, auth: passwordAuth(HTTPS_URL), trustedProxy: '127.0.0.1' });
+    const signedIn = await api.send('POST', '/auth/login', {
+      headers: fromNewIp(),
+      body: { email: u.email, password: PASSWORD },
+    });
+    const cookie = cookieOf(signedIn);
+    const statuses: number[] = [];
+    let last = null as Awaited<ReturnType<TestApi['send']>> | null;
+    for (let i = 0; i < 11; i++) {
+      last = await api.send('POST', '/auth/password', {
+        headers: { 'x-forwarded-for': '198.51.100.99', cookie },
+        body: { current: 'a wrong password!!', new: 'a brand new passphrase' },
+      });
+      statuses.push(last.status);
+    }
+    expect(statuses.slice(0, 10).every((s) => s === 400)).toBe(true);
+    expect(statuses[10]).toBe(429);
+    expect(last!.json.error?.code).toBe('rate_limited');
+    expect(Number(last!.headers['retry-after'])).toBeGreaterThan(0);
   });
 
   it('X-Forwarded-For is ignored unless the peer is CONDUCTOR_TRUSTED_PROXY', async () => {

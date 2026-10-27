@@ -3,9 +3,14 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { LOCAL_ACCOUNT_ID } from '@conductor/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { BOOTSTRAP_TTL_MS, runAdminCli } from '../../src/auth/admin-commands.js';
+import {
+  BOOTSTRAP_TTL_MS,
+  BOOTSTRAP_UNPINNED_WARNING,
+  runAdminCli,
+} from '../../src/auth/admin-commands.js';
 import { previewInvite } from '../../src/auth/invites.js';
 import { createSession, hashToken } from '../../src/auth/sessions.js';
+import { WRONG_EMAIL_MESSAGE } from '../../src/auth/signup.js';
 import { isLocked, recordFailure } from '../../src/auth/throttle.js';
 import { useTestDatabase } from '../db.js';
 import { LOOPBACK_URL, createUser, passwordAuth, startApi, type TestApi } from './helpers.js';
@@ -95,6 +100,49 @@ describe('bootstrap', () => {
     const second = new URL(urlIn((await run(['bootstrap'])).out)).searchParams.get('invite')!;
     expect((await previewInvite(db.pool, first, new Date())).valid).toBe(false);
     expect((await previewInvite(db.pool, second, new Date())).valid).toBe(true);
+  });
+
+  it('without --email the invite is unpinned and a one-line warning recommends --email', async () => {
+    const r = await run(['bootstrap']);
+    expect(r.code).toBe(0);
+    expect(r.err).toBe(BOOTSTRAP_UNPINNED_WARNING);
+    expect(r.err).toMatch(/--email/);
+    const row = await db.pool.query('SELECT email FROM invite');
+    expect(row.rows).toEqual([{ email: null }]);
+  });
+
+  it('--email pins the invite: sign-up with another email → 400, with that email → 201', async () => {
+    const r = await run(['bootstrap', '--email', ' Ben@Example.com ']);
+    expect(r.code).toBe(0);
+    expect(r.err).toBe('');
+    expect(r.out).toContain('ben@example.com');
+    const row = await db.pool.query('SELECT email FROM invite');
+    expect(row.rows).toEqual([{ email: 'ben@example.com' }]);
+    const token = new URL(urlIn(r.out)).searchParams.get('invite')!;
+    expect((await previewInvite(db.pool, token, new Date())).email).toBe('ben@example.com');
+
+    api = await startApi({ db: db.pool, auth: passwordAuth(LOOPBACK_URL) });
+    const signup = (email: string) =>
+      api!.send('POST', '/auth/signup', {
+        body: { invite: token, email, display_name: 'Ben', password: PASSWORD },
+      });
+    const wrong = await signup('other@example.com');
+    expect(wrong.status).toBe(400);
+    expect(wrong.json.error?.message).toBe(WRONG_EMAIL_MESSAGE);
+    expect((await signup('ben@example.com')).status).toBe(201);
+  });
+
+  it('--email=<addr> works too; a missing or invalid email is a usage error with no invite', async () => {
+    expect((await run(['bootstrap', '--email'])).code).toBe(2);
+    expect((await run(['bootstrap', '--email='])).code).toBe(2);
+    const bad = await run(['bootstrap', '--email', 'not-an-email']);
+    expect(bad.code).toBe(2);
+    expect(bad.err).toMatch(/invalid email/);
+    expect((await run(['bootstrap', '--email', 'a@example.com', 'extra'])).code).toBe(2);
+    expect(await db.pool.query('SELECT 1 FROM invite')).toHaveProperty('rowCount', 0);
+    expect((await run(['bootstrap', '--email=ben@example.com'])).code).toBe(0);
+    const row = await db.pool.query('SELECT email FROM invite');
+    expect(row.rows).toEqual([{ email: 'ben@example.com' }]);
   });
 
   it('needs CONDUCTOR_PUBLIC_URL', async () => {

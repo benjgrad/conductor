@@ -11,7 +11,8 @@ import { rateLimitRouteConfig } from './throttle.js';
 
 // M2-T15a: POST /auth/signup (ADR-0017 §Invites; 10-contracts §Accounts and web auth). One
 // transaction: lock the invite (FOR UPDATE, so two sign-ups with one invite make exactly one
-// user), check it, create the user, claim the invite's account, mark it used, open a session.
+// user), check it, lock the claimed account (FOR UPDATE, so two invites for one account make
+// exactly one owner), create the user, claim the account, mark the invite used, open a session.
 // Only `claims_account` invites (bootstrap) are accepted until M2-T15b brings general sign-up
 // into a new personal account (it needs M2-T12's seedAccount).
 
@@ -53,6 +54,15 @@ export function registerSignupRoutes(app: FastifyInstance, deps: AuthRouteDeps):
     try {
       result = await withTransaction(db, async (tx) => {
         if (inviteHash === null) throw new SignupRefusal(INVALID_INVITE_MESSAGE);
+        // Lock order (every path that locks more than one of these takes them in this order):
+        // invite table (ROW EXCLUSIVE) → invite row (FOR UPDATE) → account row (FOR UPDATE) →
+        // app_user / account_member / web_session writes. Bootstrap takes the invite table in
+        // SHARE ROW EXCLUSIVE, then invite rows, and never locks an account. Taking ROW EXCLUSIVE
+        // up front (the lock `UPDATE invite` below takes anyway) makes a sign-up and a bootstrap
+        // wait for each other as a whole; FOR UPDATE alone (ROW SHARE) doesn't conflict with
+        // bootstrap's lock, and the late upgrade would deadlock against its revoking UPDATE.
+        // Concurrent sign-ups don't conflict on it (ROW EXCLUSIVE is self-compatible).
+        await tx.query('LOCK TABLE invite IN ROW EXCLUSIVE MODE');
         const inv = await tx.query<InviteRow>(
           'SELECT * FROM invite WHERE token_hash = $1 FOR UPDATE',
           [inviteHash],
@@ -66,13 +76,16 @@ export function registerSignupRoutes(app: FastifyInstance, deps: AuthRouteDeps):
         }
         const accountId = invite.claims_account;
         if (accountId === null) {
-          // TD: M2-T15b replaces this with sign-up into a new personal account. The code is
+          // TD-173: M2-T15b replaces this with sign-up into a new personal account. The code is
           // `bad_request` because ApiErrorCode (shared) has no `not_supported_yet`.
           throw new SignupRefusal(NOT_SUPPORTED_YET_MESSAGE, [
             { path: 'invite', message: 'not_supported_yet' },
           ]);
         }
-        // A claimed account is never claimed again (a second bootstrap invite, say).
+        // A claimed account is never claimed again (a second bootstrap invite, say). The row
+        // lock serialises claims of one account through different invites: the owner check
+        // below runs after the wait, so it sees the first claimer's committed owner.
+        await tx.query('SELECT 1 FROM account WHERE id = $1 FOR UPDATE', [accountId]);
         const owned = await tx.query(
           "SELECT 1 FROM account_member WHERE account_id = $1 AND role = 'owner'",
           [accountId],

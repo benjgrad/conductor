@@ -104,8 +104,10 @@ The SSE check runs only with `SMOKE_COOKIE='<cookie name>=<value>'` taken from a
 On gradyserver, the lead prints the one-hour admin invite. `conductor-admin` comes from M2-T15 (`src/admin-cli.ts`); in the image it is `dist/admin-cli.js`:
 
 ```bash
-cdc exec orchestrator node dist/admin-cli.js bootstrap
+cdc exec orchestrator node dist/admin-cli.js bootstrap --email <Ben's email>
 ```
+
+`--email` pins the invite: only that email can sign up with the link (without it the CLI warns that anyone holding the link could claim `local`).
 
 **(Ben)** Open the printed link, sign up, and you own the (empty) `local` account. Then add your Mac from the Machines page (see `docs/setup/add-a-machine.md`, M2-T18).
 

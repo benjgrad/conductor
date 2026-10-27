@@ -39,5 +39,12 @@ export function installEditorPolyfills(): () => void {
   define(Range.prototype, 'getClientRects', emptyRects);
   define(Range.prototype, 'getBoundingClientRect', () => new DOMRect());
   define(Element.prototype, 'scrollIntoView', () => {});
+  define(
+    window,
+    'ClipboardEvent',
+    class ClipboardEvent extends Event {
+      clipboardData: DataTransfer | null = null;
+    },
+  );
   return () => undo.reverse().forEach((u) => u());
 }

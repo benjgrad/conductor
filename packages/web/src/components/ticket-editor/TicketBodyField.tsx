@@ -1,8 +1,19 @@
 // The ticket body field (UX-3): a rich editor loaded on demand, a "Plain markdown" toggle, and
 // non-blocking requirement hints. The value is always markdown. Until the editor chunk arrives,
 // or if it fails to load or render, the field is the plain textarea.
-import { Component, lazy, Suspense, useId, useMemo, useState, type ReactNode } from 'react';
+import {
+  Component,
+  lazy,
+  Suspense,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import { requirementHints } from './hints.js';
+import type { RichEditorHandle } from './RichTicketEditor.js';
 import './ticket-editor.css';
 
 const RichTicketEditor = lazy(() => import('./RichTicketEditor.js'));
@@ -12,6 +23,8 @@ interface TicketBodyFieldProps {
   onChange: (markdown: string) => void;
   /** Bump to remount the editor with `value` (e.g. after the form resets). */
   resetKey?: number;
+  /** Filled while the rich editor is mounted; the form flushes it on submit. */
+  editorHandle?: RefObject<RichEditorHandle | null>;
 }
 
 class EditorBoundary extends Component<{ fallback: ReactNode; children: ReactNode }> {
@@ -24,7 +37,14 @@ class EditorBoundary extends Component<{ fallback: ReactNode; children: ReactNod
   }
 }
 
-export function TicketBodyField({ value, onChange, resetKey = 0 }: TicketBodyFieldProps) {
+export function TicketBodyField({
+  value,
+  onChange,
+  resetKey = 0,
+  editorHandle,
+}: TicketBodyFieldProps) {
+  const ownHandle = useRef<RichEditorHandle | null>(null);
+  const handle = editorHandle ?? ownHandle;
   const [plain, setPlain] = useState(false);
   const [hintsOpen, setHintsOpen] = useState(true);
   const labelId = useId();
@@ -50,7 +70,10 @@ export function TicketBodyField({ value, onChange, resetKey = 0 }: TicketBodyFie
           type="button"
           className="ticket-body-toggle"
           aria-pressed={plain}
-          onClick={() => setPlain((p) => !p)}
+          onClick={() => {
+            handle.current?.flush();
+            setPlain((p) => !p);
+          }}
         >
           Plain markdown
         </button>
@@ -71,7 +94,12 @@ export function TicketBodyField({ value, onChange, resetKey = 0 }: TicketBodyFie
         >
           <Suspense fallback={textarea}>
             <div className="ticket-body-rich">
-              <RichTicketEditor key={resetKey} initialMarkdown={value} onChange={onChange} />
+              <RichTicketEditor
+                key={resetKey}
+                initialMarkdown={value}
+                onChange={onChange}
+                ref={handle}
+              />
             </div>
           </Suspense>
         </EditorBoundary>

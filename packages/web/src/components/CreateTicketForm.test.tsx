@@ -55,8 +55,10 @@ describe('CreateTicketForm (ADR-0010, ADR-0011)', () => {
 
 describe('ticket body editor (UX-3)', () => {
   let undo = () => {};
-  beforeAll(() => {
+  beforeAll(async () => {
     undo = installEditorPolyfills();
+    // QA (PR #10): a cold lazy import of BlockNote can take longer than findBy's 1 s default.
+    await import('./ticket-editor/RichTicketEditor.js');
   });
   afterAll(() => undo());
 
@@ -64,9 +66,16 @@ describe('ticket body editor (UX-3)', () => {
     screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Description' });
   const toggle = () => screen.getByRole('button', { name: 'Plain markdown' });
   async function richEditor() {
-    await screen.findByRole('heading', { name: 'Goal' });
+    await screen.findByRole('heading', { name: 'Goal' }, { timeout: 10_000 });
     return screen.getByRole('textbox', { name: 'Description' });
   }
+  // "Types" into a rich-editor line: ProseMirror reads DOM edits through its mutation observer.
+  // The short wait lets it do so while staying well inside the 250 ms export debounce.
+  async function typeLine(editor: HTMLElement, from: string, to: string) {
+    within(editor).getByText(from).textContent = to;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  const GOAL = 'One or two sentences: what changes, and for whom.';
 
   it('starts from the template in the rich editor, with the six section headings (FR-2)', async () => {
     setup();
@@ -166,5 +175,71 @@ describe('ticket body editor (UX-3)', () => {
     fireEvent.click(submit);
     await waitFor(() => expect(state.created).toBe(true));
     expect((sent[0] as { body: string }).body).toContain('## Goal\n\nMake tickets easy to write.');
+  });
+
+  it('submit flushes the debounced export: no focus change, no stale text (QA #6)', async () => {
+    const { sent, state, submit } = setup();
+    fireEvent.click(screen.getByRole('radio', { name: 'Work' }));
+    const editor = await richEditor();
+    await new Promise((r) => setTimeout(r, 300)); // let the initial load's export settle
+    await typeLine(editor, GOAL, 'Typed just before submitting.');
+    fireEvent.click(submit); // no blur: jsdom doesn't move focus on click
+    await waitFor(() => expect(state.created).toBe(true));
+    expect((sent[0] as { body: string }).body).toContain(
+      '## Goal\n\nTyped just before submitting.',
+    );
+  });
+
+  it('a pending export never writes old text back after the form resets (QA #6)', async () => {
+    const api = createMockApi();
+    let release = () => {};
+    const create = api.createTicket.bind(api);
+    api.createTicket = async (req) => {
+      await new Promise<void>((r) => (release = r));
+      return create(req);
+    };
+    render(<CreateTicketForm api={api} />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), { target: { value: 'T' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'Work' }));
+    const editor = await richEditor();
+    await typeLine(editor, GOAL, 'First version.');
+    fireEvent.click(screen.getByRole('button', { name: 'Create ticket' }));
+    // Typing while the request is in flight leaves an export timer pending...
+    await typeLine(editor, 'First version.', 'Typed while saving.');
+    release();
+    // ...the form resets (new editor on the template) and the old timer must not fire into it.
+    await waitFor(() =>
+      expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Title' }).value).toBe(''),
+    );
+    await new Promise((r) => setTimeout(r, 400));
+    fireEvent.click(toggle());
+    expect(normaliseMarkdown(description().value)).toBe(normaliseMarkdown(TICKET_TEMPLATE));
+  });
+
+  it('typed <x> survives rich → plain → rich (QA #2)', async () => {
+    setup();
+    const editor = await richEditor();
+    await typeLine(editor, GOAL, 'Continue on <machine> in C:\\tmp.');
+    fireEvent.click(toggle());
+    expect(description().value).toContain('## Goal\n\nContinue on \\<machine> in C:\\\\tmp.');
+    fireEvent.click(toggle());
+    const again = await richEditor();
+    expect(within(again).getByText('Continue on <machine> in C:\\tmp.')).toBeTruthy();
+    fireEvent.click(toggle());
+    expect(description().value).toContain('Continue on \\<machine> in C:\\\\tmp.');
+  });
+
+  it.each([
+    ['text/plain', 'Continue on <machine>'],
+    ['text/markdown', 'Set <app>-ratelimit'],
+  ])('pasting %s keeps <…> text (QA #2)', async (type, text) => {
+    setup();
+    const editor = await richEditor();
+    const paste = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, 'clipboardData', {
+      value: { types: [type], getData: (t: string) => (t === type ? text : '') },
+    });
+    fireEvent(editor, paste);
+    await waitFor(() => expect(editor.textContent).toContain(text));
   });
 });

@@ -279,9 +279,9 @@ describe('password mode (09 §Hosted security)', () => {
     });
     expect(same.status).toBe(200);
     // the daemon's enroll call (no Origin, no Sec-Fetch-Site) passes the guard and needs no
-    // session: 404 until M2-T17 adds the route
+    // session: the empty body reaches the M2-T17 route and is a 400, not a 401 / 403
     const enroll = await rawPost(pw.port, API_PATHS.machinesEnroll, { host: HOST, ...json });
-    expect(enroll.status).toBe(404);
+    expect(enroll.status).toBe(400);
   });
 
   it('415 unsupported_media_type for text/plain', async () => {

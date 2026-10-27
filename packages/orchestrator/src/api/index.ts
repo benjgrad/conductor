@@ -10,6 +10,7 @@ import {
   SendMessageRequestSchema,
   TransitionSessionRequestSchema,
   UuidSchema,
+  canonicalRepo,
   httpForApplyResult,
   toBoardCard,
   validateWorkflow,
@@ -17,6 +18,7 @@ import {
   type EngineRoute,
   type OkResponse,
   type ReopenSessionResponse,
+  type TicketDto,
   type TranscriptResponse,
 } from '@conductor/shared';
 import Fastify, { type FastifyReply } from 'fastify';
@@ -30,19 +32,15 @@ import { withTransaction } from '../db/index.js';
 import type { TicketRow } from '../db/types.js';
 import { cardView } from '../engine/board-view.js';
 import { reopenSession } from '../engine/reopen.js';
+import type { MachineSockets } from '../gateway/revoke.js';
 import { conductorDefaultAvailable, seedConductorWorkflow } from '../engine/seed.js';
 import type { CreateApi } from '../main.js';
 import { parseLastEventId, serveBoardStream } from '../stream/board.js';
 import { serveOutputStream } from '../stream/output.js';
 import { SseHub } from '../stream/sse.js';
 import { parseBody, pathString, sendError } from './errors.js';
-import {
-  listMachines,
-  listWorkflows,
-  loadBoard,
-  loadWorkflowDetail,
-  toTicketDto,
-} from './queries.js';
+import { registerMachineRoutes } from './machines.js';
+import { listWorkflows, loadBoard, loadWorkflowDetail, toTicketDto } from './queries.js';
 import { httpSecurityFromEnv, securityHookFor, type HttpSecurityOptions } from './security.js';
 import { loadSessionDetail, sessionExists } from './sessions.js';
 
@@ -77,7 +75,18 @@ export interface ApiOptions {
   now?: () => Date;
   /** Password hashing (tests wrap it). Default argon2id. */
   hasher?: PasswordHasher;
+  /** M2-T17: closes a revoked machine's daemon sockets (the gateway). Default: none open. */
+  sockets?: MachineSockets;
+  /**
+   * M2-T17: the origin the install command downloads from. Default: the public URL in
+   * `password` mode; in `local` mode the request's Host (the security hook allowed it).
+   */
+  installUrl?: string;
+  /** M2-T17: the daemon version served (`servedVersion(build)`); null = none, never outdated. */
+  servedVersion?: string | null;
 }
+
+const NO_SOCKETS: MachineSockets = { disconnectMachine: () => undefined };
 
 type ApiDeps = Parameters<CreateApi>[0] & ApiOptions;
 
@@ -92,6 +101,9 @@ export const createApi = (({
   trustedProxy = null,
   now = () => new Date(),
   hasher = argon2Hasher,
+  sockets = NO_SOCKETS,
+  installUrl,
+  servedVersion = null,
 }: ApiDeps) => {
   const app = Fastify({ logger: false, trustProxy: trustedProxy ?? false });
   // M1-T14 / M2-T08: Host / Origin / content-type guard before routing (09), then who is asking.
@@ -100,6 +112,14 @@ export const createApi = (({
   app.addHook('onRequest', authHook({ db, auth, now }));
   registerRateLimit(app);
   void app.register(registerAuthRoutes, { db, auth, hasher, now });
+  void app.register(registerMachineRoutes, {
+    db,
+    sockets,
+    installUrl: (req) =>
+      installUrl ??
+      (auth.mode === 'password' ? auth.publicUrl.origin : `http://${req.headers.host ?? ''}`),
+    servedVersion,
+  });
   const hub = new SseHub();
   const logError = (err: unknown) => app.log.error(err);
 
@@ -313,6 +333,19 @@ export const createApi = (({
   app.post(API_PATHS.tickets, async (req, reply) => {
     const body = parseBody(CreateTicketRequestSchema, req.body, reply);
     if (!body) return reply;
+    const scope = req.auth!.scope;
+    // M2-T17 (U-048, ADR-0013 §Routing): in `password` mode the repo must be host/org/repo and is
+    // stored canonical; `local` mode keeps M1's rule (the e2e's local fixture repos).
+    let repo = body.repo;
+    if (auth.mode === 'password') {
+      const canonical = canonicalRepo(body.repo);
+      if (canonical === null) {
+        return sendError(reply, 400, 'bad_request', 'repo must be host/org/repo', [
+          { path: 'repo', message: 'expected host/org/repo (or an https / ssh git URL of one)' },
+        ]);
+      }
+      repo = canonical;
+    }
     // ADR-0010: `conductor` is seeded on startup; seeding here too keeps a bare database (tests,
     // a start that raced a migration) working. Idempotent.
     // Silent: the "newer default" notice is the start's (M1b-T09).
@@ -328,11 +361,11 @@ export const createApi = (({
     const { ticket, events } = await withTransaction(db, async (tx) => {
       const res = await tx.query<TicketRow>(
         'INSERT INTO ticket (external_ref, repo, title, body, workflow_id, required_tags, ' +
-          'repo_allow_machines, priority, kind) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ' +
-          'RETURNING *',
+          'repo_allow_machines, priority, kind, account_id) ' +
+          'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *',
         [
           body.external_ref,
-          body.repo,
+          repo,
           body.title,
           body.body,
           body.workflow_id,
@@ -340,6 +373,7 @@ export const createApi = (({
           body.repo_allow_machines,
           body.priority,
           body.kind,
+          scope.account_id,
         ],
       );
       const row = res.rows[0]!;
@@ -355,7 +389,18 @@ export const createApi = (({
       return { ticket: row, events: evs };
     });
     for (const ev of events) boardBus.publish(ev);
-    return reply.code(201).send(toTicketDto(ticket));
+    // U-048: a ticket for a repo no machine of the account has is created, and flagged. Offline
+    // machines count (routing per online machine is the card's, M2-T16); revoked ones don't.
+    // github.com org/repo compares case-insensitively; `r.repo` keeps M1 local-mode rows matching.
+    const has = await db.query(
+      'SELECT 1 FROM machine_repo r JOIN machine m ON m.id = r.machine_id ' +
+        'WHERE r.account_id = $1 AND m.revoked_at IS NULL ' +
+        'AND (lower(r.remote) = lower($2) OR r.repo = $3) LIMIT 1',
+      [scope.account_id, canonicalRepo(ticket.repo) ?? ticket.repo, ticket.repo],
+    );
+    const dto: TicketDto = toTicketDto(ticket);
+    if (has.rowCount === 0) dto.warnings = ['no_machine_has_repo'];
+    return reply.code(201).send(dto);
   });
 
   // ---------------------------------------------------------------- workflows
@@ -424,10 +469,6 @@ export const createApi = (({
       }
     }
   });
-
-  // ---------------------------------------------------------------- machines
-
-  app.get(API_PATHS.machines, () => listMachines(db));
 
   // ---------------------------------------------------------------- SSE
 

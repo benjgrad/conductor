@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, describe, expect, it } from 'vitest';
 import { createMockApi, MOCK_INVITE_TOKENS, type MockApi } from '../api/mock.js';
 import { App } from '../App.js';
-import { ADMINS_ONLY } from './Admin.js';
+import { ADMINS_ONLY, NEW_ACCOUNTS_NOTE } from './Admin.js';
 
 afterEach(() => {
   cleanup();
@@ -56,6 +56,12 @@ describe('admin page', () => {
     expect(screen.queryByRole('dialog', { name: 'Invite link' })).toBeNull();
     expect(screen.queryByDisplayValue(url)).toBeNull();
     expect(document.body.innerHTML).not.toContain(url);
+  });
+
+  it('notes beside New invite that general sign-up arrives with M2-T15b', async () => {
+    await renderAdmin();
+    const invites = within(screen.getByRole('region', { name: 'Invites' }));
+    expect(invites.getByText(NEW_ACCOUNTS_NOTE)).toBeTruthy();
   });
 
   it('revokes an open invite', async () => {

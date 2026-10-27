@@ -52,17 +52,21 @@ export async function recordSuccess(db: Queryable, emailNorm: string): Promise<v
   await clearThrottle(db, emailNorm);
 }
 
-/** `conductor-admin unlock` and the admin's unlock route (M2-T15). */
+/** `conductor-admin unlock` and the admin's unlock route (M2-T15b1), via `unlockUser`. */
 export async function clearThrottle(db: Queryable, emailNorm: string): Promise<void> {
   await db.query('DELETE FROM login_throttle WHERE email_norm = $1', [emailNorm]);
 }
 
-/** Per-IP limits (ADR-0017): login 10/min, sign-up and reset 5/10 min, enroll 10/10 min. */
+/**
+ * Per-IP limits (ADR-0017): login 10/min, sign-up and reset 5/10 min, enroll 10/10 min; the
+ * admin's reset-link creation 10/10 min (M2-T15b1).
+ */
 export const RATE_LIMITS = {
   login: { max: 10, timeWindow: 60_000 },
   signup: { max: 5, timeWindow: 600_000 },
   reset: { max: 5, timeWindow: 600_000 },
   enroll: { max: 10, timeWindow: 600_000 },
+  adminResetLink: { max: 10, timeWindow: 600_000 },
 } as const;
 export type RateLimitKind = keyof typeof RATE_LIMITS;
 

@@ -10,7 +10,9 @@ import {
 import type { FastifyInstance } from 'fastify';
 import { parseBody, sendError } from '../api/errors.js';
 import { withTransaction } from '../db/index.js';
+import type { MachineSockets } from '../gateway/revoke.js';
 import type { Db } from '../main.js';
+import { registerAdminRoutes } from './admin-routes.js';
 import type { AuthConfig } from './config.js';
 import { clearedSessionCookie, parseCookie, sessionCookie } from './middleware.js';
 import { registerInviteRoutes } from './invites.js';
@@ -31,12 +33,15 @@ import {
 // only (local mode has no sign-in: they are 404 there).
 // M2-T15a: the invite preview, sign-up and reset routes (invites.ts, signup.ts, reset.ts) are
 // registered here too, password mode only, so the per-IP limits apply to them.
+// M2-T15b1: the /api/admin/* routes (admin-routes.ts), password mode only, likewise.
 
 export interface AuthRouteDeps {
   db: Db;
   auth: AuthConfig;
   hasher: PasswordHasher;
   now: () => Date;
+  /** Closes a disabled user's machines' daemon sockets (the gateway). Default: none open. */
+  sockets?: MachineSockets;
 }
 
 /** One body for every failed login: unknown email, wrong password, disabled user, locked email. */
@@ -76,6 +81,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): P
   registerInviteRoutes(app, deps);
   registerSignupRoutes(app, deps);
   registerResetRoutes(app, deps);
+  registerAdminRoutes(app, deps);
 
   const failed = (reply: Parameters<typeof sendError>[0]) =>
     sendError(reply, 401, 'unauthorized', LOGIN_FAILED_MESSAGE);

@@ -4,7 +4,7 @@
 // `tool_result`, `stdout`/`stderr` from command states, `debug`, and `user`: a message the human
 // sent from the panel, ADR-0007); a result belongs to the oldest call still waiting for one (calls
 // and results arrive in order, parallel calls included).
-import type { OutputChunk } from '@conductor/shared';
+import type { MoveDto, OutputChunk } from '@conductor/shared';
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Markdown } from './markdown.js';
 
@@ -334,6 +334,8 @@ export interface OutputLogProps {
   tailKey?: string;
   /** False while the log is hidden (inactive tab): re-pins to the bottom when shown again. */
   visible?: boolean;
+  /** UX-1: the session's moves (`SessionDetail.moves`), shown in the thread. Not rendered yet. */
+  moves?: readonly MoveDto[];
 }
 
 export function OutputLog({

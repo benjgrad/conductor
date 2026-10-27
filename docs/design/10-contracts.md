@@ -268,15 +268,17 @@ M2-T01 ([ADR-0017](../adr/0017-own-sign-in-and-self-hosting.md) §Auth, §Invite
 
 | Seam | File | Producer → consumers | Fixtures |
 |---|---|---|---|
-| `LOCAL_ACCOUNT_ID` (`00000000-0000-0000-0000-000000000001`), `AccountIdSchema` (`z.guid()`: the local id is not an RFC 9562 uuid), `AccountScope` / `AccountActor` (`user` / `machine` / `system`), `localScope(actor)`, `AuthMode` (`local` / `password`), `MachineRepoModeSchema` (`reference` / `checkout`), `MachineAlertKindSchema` (`git_tamper`) | `shared/src/domain.ts` | T01 → T03 (rows), T08 (middleware), T09/T16 (gateway scope), T19 (engine), T21; T02 imports the two machine enums | `domain.test.ts` |
-| Auth DTOs: `LoginRequest`, `MeResponse`, `SignupRequest`, `InvitePreview`, `ResetRequest`, `PasswordChangeRequest`; `EmailSchema`, `LoginEmailSchema`; `PASSWORD_MIN` 12, `PASSWORD_MAX` 256, `passwordProblems(password, email)` and its messages; `safeNextPath(next)` | `shared/src/api/auth.ts` | T01 → T08, T15 (server); T05 (web) | `LOGIN_REQUEST_FIXTURE`, `ME_RESPONSE_FIXTURE`, `SIGNUP_REQUEST_FIXTURE`, `INVITE_PREVIEW_FIXTURES`, `RESET_REQUEST_FIXTURE`, `PASSWORD_CHANGE_REQUEST_FIXTURE` |
+| `LOCAL_ACCOUNT_ID` (`00000000-0000-4000-8000-000000000001`), `LOCAL_USER_ID` (`00000000-0000-4000-8000-000000000002`, a virtual user with no `app_user` row); both are RFC 9562-valid, so every account and user id is a `UuidSchema`; `AccountScope` / `AccountActor` (`user` / `machine` / `system`), `localScope(actor)`, `AuthMode` (`local` / `password`), `MachineRepoModeSchema` (`reference` / `checkout`), `MachineAlertKindSchema` (`git_tamper`) | `shared/src/domain.ts` | T01 → T03 (rows), T08 (middleware), T09/T16 (gateway scope), T19 (engine), T21; the two machine enums are duplicated in T02's `machines/` (TD-108) | `domain.test.ts` |
+| Auth DTOs: `LoginRequest`, `MeResponse`, `SignupRequest`, `InvitePreview`, `ResetRequest`, `PasswordChangeRequest`; `EmailSchema`, `LoginEmailSchema`; `PASSWORD_MIN` 12, `PASSWORD_MAX` 256, `passwordProblems(password, email)` and its messages; `safeNextPath(next)`; `localMeResponse()` (`/api/me` in `local` mode) | `shared/src/api/auth.ts` | T01 → T08, T15 (server); T05 (web) | `LOGIN_REQUEST_FIXTURE`, `ME_RESPONSE_FIXTURE`, `SIGNUP_REQUEST_FIXTURE`, `INVITE_PREVIEW_FIXTURES`, `RESET_REQUEST_FIXTURE`, `PASSWORD_CHANGE_REQUEST_FIXTURE` |
 | Admin DTOs: `CreateInviteRequest`, `InviteCreated`, `InviteRow`, `AdminUserRow`, `ResetLinkCreated`; `INVITE_DEFAULT_DAYS` 7, `INVITE_MAX_DAYS` 30, `RESET_LINK_TTL_MS` 1 h | `shared/src/api/admin.ts` | T01 → T15; T05 | `CREATE_INVITE_REQUEST_FIXTURE`, `INVITE_CREATED_FIXTURE`, `INVITE_ROW_FIXTURES`, `ADMIN_USER_ROW_FIXTURES`, `RESET_LINK_CREATED_FIXTURE` |
 | Machines DTOs: `EnrollRequest`, `EnrollResponse`, `EnrollmentTokenCreated`, `MachineRow` (extends M1 `MachineDto`), `MachineDetail` (`repos`, `capabilities` by kind, open `alerts`, `live_sessions`), `MachineRepoDto`, `MachineCapabilityDto`, `MachineAlertDto`, `RenameMachineRequest`; `ENROLLMENT_TOKEN_TTL_MS` 30 min | `shared/src/api/machines.ts` | T01 → T17 (server), T04 (enroll client); T11 (web) | `ENROLL_REQUEST_FIXTURE`, `ENROLL_RESPONSE_FIXTURE`, `ENROLLMENT_TOKEN_CREATED_FIXTURE`, `MACHINE_ROW_FIXTURES`, `MACHINE_DETAIL_FIXTURE`, `RENAME_MACHINE_REQUEST_FIXTURE` |
 | `API_PATHS` M2 entries, `apiPathTemplates()` (every entry as a route template, `:id` / `:token` / `:file`), `ApiErrorSchema` codes `unauthorized` / `forbidden` / `rate_limited` / `unsupported_media_type`, `BoardCard.routing` / `.alerts`, `TicketDto.warnings`, `canonicalRepo(repo)` | `shared/src/api/rest.ts` | T01 → T08, T14, T15, T16, T17, T21 (route matrix); T05, T11 | `BOARD_CARD_ROUTING_FIXTURE`, `BOARD_CARD_ALERT_FIXTURE` |
 
 Everything is exported from `@conductor/shared` (`api/accounts.ts` re-exports the three new modules).
 
-**Modes.** `CONDUCTOR_AUTH=local` (default): M1 behaviour, loopback only, no sign-in. Every request runs as `localScope({kind: 'user', …})` in the `local` account, and `GET /api/me` answers with the local user and `auth_mode: 'local'`. `password`: sign-in is required as below. Every repository function takes an `AccountScope`, and another account's id is `404 not_found`, for admins too.
+**`API_PATHS` scope.** It covers every API and auth route the server serves, plus the public `/install.sh`, `/downloads/:file` and `/healthz` (the M2-T21 route matrix is generated from `apiPathTemplates()`). The static web app (`/`, `/assets/*` and the SPA fallback) is deliberately not listed.
+
+**Modes.** `CONDUCTOR_AUTH=local` (default): M1 behaviour, loopback only, no sign-in. Every request runs as `localScope({kind: 'user', user_id: LOCAL_USER_ID})` in the `local` account, and `GET /api/me` answers `localMeResponse()`: user `{id: LOCAL_USER_ID, email: 'local@localhost', display_name: 'local', is_admin: false}`, the `local` account, `auth_mode: 'local'`. The M2-T08 server and the M2-T05 web mock both use it. `password`: sign-in is required as below. Every repository function takes an `AccountScope`, and another account's id is `404 not_found`, for admins too.
 
 **Routes.** Bodies are JSON. Every unsafe request carries `content-type: application/json`; a bodiless action posts `{}`. `OkResponse` = `{ok: true}`. Request-body validation failures are `400 bad_request` with `details`.
 
@@ -285,7 +287,7 @@ Everything is exported from `@conductor/shared` (`api/accounts.ts` re-exports th
 | POST | `authLogin` | `/auth/login` | `LoginRequest` → 200 `MeResponse` + `Set-Cookie` | 401 `unauthorized` "Email or password is wrong" (unknown email, wrong password, disabled user, locked email: byte-identical); 403 Origin; 429 |
 | POST | `authLogout` | `/auth/logout` | `{}` → 200 `OkResponse`, cookie cleared | 403 Origin |
 | GET | `authMe` | `/api/me` | → 200 `MeResponse` | 401 |
-| POST | `authSignup` | `/auth/signup` | `SignupRequest` → 201 `MeResponse` + `Set-Cookie` | 400 (invite not valid / unused / unexpired / unrevoked, pinned email differs, `passwordProblems` at path `password`); 403 Origin; 429 |
+| POST | `authSignup` | `/auth/signup` | `SignupRequest` → 201 `MeResponse` + `Set-Cookie`; a normal invite creates the user's personal account, named after their `display_name` (a bootstrap invite claims `local` instead) | 400 (invite not valid / unused / unexpired / unrevoked, pinned email differs, `passwordProblems` at path `password`); 403 Origin; 429 |
 | GET | `authInvitePreview(token)` | `/auth/invites/:token` | → 200 `InvitePreview` (`{valid: false, expires_at: null}` for any bad token; never 404) | 429 |
 | POST | `authReset` | `/auth/reset` | `ResetRequest` → 200 `OkResponse`; revokes all the user's sessions | 400 (bad / used / expired token, `passwordProblems`); 403 Origin; 429 |
 | POST | `authPassword` | `/auth/password` | `PasswordChangeRequest` → 200 `OkResponse`; revokes the user's other sessions | 401 (no session, or `current` wrong); 400 (`passwordProblems` on `new`); 403 Origin |
@@ -296,10 +298,11 @@ Everything is exported from `@conductor/shared` (`api/accounts.ts` re-exports th
 | POST | `adminUserDisable(id)` | `/api/admin/users/:id/disable` | `{}` → 200 `OkResponse`; revokes the user's sessions and machine credentials | 401; 403; 404 |
 | POST | `adminUserUnlock(id)` | `/api/admin/users/:id/unlock` | `{}` → 200 `OkResponse`; clears the email's `login_throttle` | 401; 403; 404 |
 | POST | `machinesEnroll` | `/api/machines/enroll` | `EnrollRequest` → 201 `EnrollResponse` (**public**: the token authenticates) | 401 `unauthorized` (unknown / used / expired token); 429 |
-| POST | `machineEnrollmentTokens` | `/api/machines/enrollment-tokens` | `{}` → 201 `EnrollmentTokenCreated` (`command` = `curl -fsSL <public url>/install.sh \| sh -s -- --token <token>`; 30 min, single use) | 401 |
+| POST | `machineEnrollmentTokens` | `/api/machines/enrollment-tokens` | `{}` → 201 `EnrollmentTokenCreated` (`command` = `curl -fsSL <public url>/install.sh \| sh -s -- --token <token>`; 30 min, single use; for the service variant the web appends ` --service` to `command`) | 401 |
 | GET | `machines` | `/api/machines` | → 200 `MachineRow[]` (the account's machines; M2-T17 switches from M1 `MachineDto[]`, a subset) | 401 |
 | GET / PATCH | `machine(id)` | `/api/machines/:id` | → 200 `MachineDetail` / `RenameMachineRequest` → 200 `MachineRow` | 401; 404 (unknown or another account's) |
 | POST | `machineRevoke(id)` | `/api/machines/:id/revoke` | `{}` → 200 `OkResponse`; socket closed with 4001, live sessions go to a human (U-068) | 401; 404 |
+| POST | `machineAlertClear(id)` | `/api/machines/alerts/:id/clear` | `{}` → 204; sets the alert's `cleared_at` (owner only) | 401; 404 (unknown alert, or another account's) |
 | POST | `tickets` | `/api/tickets` | `CreateTicketRequest` → 201 `TicketDto`, with `warnings: ['no_machine_has_repo']` when no machine of the account has the repo (U-048) | in `password` mode, 400 when `canonicalRepo(repo)` is null (the repo is stored canonical); `local` mode keeps M1's rule (local test repos) |
 | GET | `installScript` | `/install.sh` | → 200 `text/x-shellscript` (**public**) | 503 when no tarball is built |
 | GET | `daemonDownload(file)` | `/downloads/:file` | → 200 the tarball / `.sha256` (**public**; only built names) | 404 |
@@ -317,17 +320,19 @@ Everything is exported from `@conductor/shared` (`api/accounts.ts` re-exports th
 
 **Cookies.** With an `https` public URL: `__Host-conductor_session=<base64url 32 bytes>; HttpOnly; Secure; SameSite=Lax; Path=/`. In `password` mode on a loopback `http` URL (tests and e2e only): `conductor_session`, without `Secure`. Only the SHA-256 of the value is stored. Sessions last 30 days absolute and 7 days idle.
 
+**SSE and 401.** `EventSource` can't see a response status, so a 401 on a stream looks like any stream error. When the board or output stream errors, the web re-probes `GET /api/me`; a 401 there sends the user to `/signin?next=<current path>`.
+
 **CSRF** (no token): `SameSite=Lax`, the strict Origin check above, JSON-only unsafe requests, and no CORS headers at all. Every `GET` is side-effect free (asserted by the M2-T21 route matrix). **`next` redirects** go through `safeNextPath`: a same-origin path with a single leading `/`, no backslash, no scheme, no control or whitespace characters, and re-checked after normalisation (`/..//x` → `/`); anything else → `/`.
 
 **Board card fields.** `routing?: {missing_repo?, missing_capabilities: string[]}` appears on Queued cards only, when no **online** machine of the account can take the ticket (the repo first, then capability keys such as `cli:az:authed`). `alerts?: {kind: 'git_tamper', files, at}[]` holds the open alerts of the card's session. Both are absent, never null, when there is nothing, so pre-M2 cards and `toBoardCard` output are unchanged (M2-T16 fills them).
 
-**Repo grammar.** `canonicalRepo(repo)` returns `host/org/repo` with the host lower-cased and the path case kept. It accepts:
+**Repo grammar.** `canonicalRepo(repo)` returns `host/org/repo` with the host lower-cased and the path case kept. Routing compares github.com org/repo **case-insensitively**, as GitHub does: M2-T16 matches on `lower()`. It accepts:
 - `host/org/repo`;
 - `https://host/org/repo` (no userinfo, port, query or hash);
 - `ssh://user@host/org/repo`;
 - scp-style `user@host:org/repo`;
 
-each with an optional `.git` and trailing `/`. Anything else is null.
+each with an optional `.git` (any case: `.git`, `.GIT`, `.Git`) and trailing `/`. One `.git` is stripped, never two: a name still ending in `.git` after that (`app.git.git`) is null, because GitHub repo names can't end in `.git`. So `canonicalRepo` is idempotent (`canonicalRepo(canonicalRepo(x)) === canonicalRepo(x)`). Anything else is null. The grammar is duplicated in the daemon's `cloneSource`, `canonicalRepo` and `isCanonicalRemote` (TD-107).
 
 ## REST error map
 

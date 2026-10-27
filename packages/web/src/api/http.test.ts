@@ -1,6 +1,9 @@
 import {
   API_PATHS,
   BOARD_SSE_FIXTURES,
+  ENROLLMENT_TOKEN_CREATED_FIXTURE,
+  MACHINE_DETAIL_FIXTURE,
+  MACHINE_ROW_FIXTURES,
   OUTPUT_CHUNK_FIXTURE,
   TRANSITION_REQUEST_FIXTURES,
   type BoardSseEvent,
@@ -422,5 +425,45 @@ describe('backoffDelay', () => {
     expect([0, 1, 2, 3, 4, 5, 6].map((n) => backoffDelay(n))).toEqual([
       500, 1000, 2000, 4000, 8000, 15000, 15000,
     ]);
+  });
+});
+
+describe('createHttpApi machines (M2-T11)', () => {
+  it('maps the machines calls to their routes, methods and bodies, parsed by contract', async () => {
+    const { calls, fetch } = recordingFetch(({ url, method }) => {
+      if (url.endsWith(API_PATHS.machineEnrollmentTokens)) {
+        return json(201, ENROLLMENT_TOKEN_CREATED_FIXTURE);
+      }
+      if (method === 'GET' && url.endsWith(API_PATHS.machines)) {
+        return json(200, [MACHINE_ROW_FIXTURES.online, MACHINE_ROW_FIXTURES.revoked]);
+      }
+      if (method === 'GET') return json(200, MACHINE_DETAIL_FIXTURE);
+      if (method === 'PATCH') return json(200, { ...MACHINE_ROW_FIXTURES.online, name: 'Work' });
+      return json(200, { ok: true });
+    });
+    const api = createHttpApi({ fetch });
+    const id = MACHINE_ROW_FIXTURES.online.id;
+
+    expect(await api.listMachines()).toEqual([
+      MACHINE_ROW_FIXTURES.online,
+      MACHINE_ROW_FIXTURES.revoked,
+    ]);
+    expect(await api.getMachine(id)).toEqual(MACHINE_DETAIL_FIXTURE);
+    expect((await api.renameMachine(id, { name: 'Work' })).name).toBe('Work');
+    expect(await api.revokeMachine(id)).toEqual({ ok: true });
+    expect(await api.createEnrollmentToken()).toEqual(ENROLLMENT_TOKEN_CREATED_FIXTURE);
+
+    expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([
+      ['GET', API_PATHS.machines, undefined],
+      ['GET', API_PATHS.machine(id), undefined],
+      ['PATCH', API_PATHS.machine(id), { name: 'Work' }],
+      ['POST', API_PATHS.machineRevoke(id), {}],
+      ['POST', API_PATHS.machineEnrollmentTokens, {}],
+    ]);
+  });
+
+  it('rejects a machine detail that breaks the contract', async () => {
+    const { fetch } = recordingFetch(() => json(200, { ...MACHINE_DETAIL_FIXTURE, repos: null }));
+    await expect(createHttpApi({ fetch }).getMachine('x')).rejects.toThrow(/API contract/);
   });
 });

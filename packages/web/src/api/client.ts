@@ -7,17 +7,20 @@ import type {
   BoardSseEvent,
   CreateInviteRequest,
   CreateTicketRequest,
+  EnrollmentTokenCreated,
   InviteCreated,
   InvitePreview,
   InviteRow,
   LoginRequest,
-  MachineDto,
+  MachineDetail,
+  MachineRow,
   MeResponse,
   OkResponse,
   OutputChunk,
   PasswordChangeRequest,
   ReopenSessionRequest,
   ReopenSessionResponse,
+  RenameMachineRequest,
   ResetLinkCreated,
   ResetRequest,
   SendMessageRequest,
@@ -100,8 +103,11 @@ export interface ApiClient {
    * the output stream as a `user` chunk. 409 conflict unless an agent state has a live process.
    */
   sendMessage(sessionId: string, req: SendMessageRequest): Promise<OkResponse>;
-  /** GET /api/machines (the Details tab shows the session's machine hostname and status). */
-  listMachines(): Promise<MachineDto[]>;
+  /**
+   * GET /api/machines: the account's machines (the Details tab shows the session's machine
+   * hostname and status; M2-T11 the Machines page). MachineRow is a superset of the M1 MachineDto.
+   */
+  listMachines(): Promise<MachineRow[]>;
   /**
    * GET /api/sessions/:id/transcript (ADR-0008): history from Claude's transcript on the session's
    * machine. 503 machine_offline, 404 no_transcript, 504 timeout.
@@ -148,6 +154,16 @@ export interface ApiClient {
   disableUser(userId: string): Promise<OkResponse>;
   /** POST /api/admin/users/:id/unlock: clears the email's login lock. */
   unlockUser(userId: string): Promise<OkResponse>;
+
+  // M2-T11: machines (ADR-0013 §Enrollment, 10-contracts §Accounts and web auth).
+  /** GET /api/machines/:id: repos, capabilities, open alerts, live sessions. 404 not_found. */
+  getMachine(machineId: string): Promise<MachineDetail>;
+  /** PATCH /api/machines/:id → the renamed row. 400 bad name; 404 not_found. */
+  renameMachine(machineId: string, req: RenameMachineRequest): Promise<MachineRow>;
+  /** POST /api/machines/:id/revoke: disconnects it; its live sessions go to a human. 404. */
+  revokeMachine(machineId: string): Promise<OkResponse>;
+  /** POST /api/machines/enrollment-tokens → 201; `command` is shown once (30 min, single use). */
+  createEnrollmentToken(): Promise<EnrollmentTokenCreated>;
 }
 
 /** A non-2xx API response (ApiError body), thrown by every ApiClient method. */

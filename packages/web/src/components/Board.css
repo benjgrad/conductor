@@ -56,3 +56,24 @@
 .card .card-pr-link:hover {
   text-decoration: underline;
 }
+
+/* M2-T11: routing (Queued, no online machine can take it) and `.git` alert badges. */
+.badge-routing {
+  background: var(--warn-bg);
+  color: var(--warn);
+  white-space: normal;
+}
+.badge-routing code {
+  font-size: 11px;
+}
+.badge-alert {
+  background: var(--ask-bg);
+  color: var(--ask);
+  font-weight: 600;
+}
+.card-alert-files {
+  margin: 2px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--ask);
+}

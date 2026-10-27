@@ -34,6 +34,10 @@ const GUARDED = [
   'disableUser',
   'unlockUser',
   'changePassword',
+  'getMachine',
+  'renameMachine',
+  'revokeMachine',
+  'createEnrollmentToken',
 ] as const satisfies readonly (keyof ApiClient)[];
 
 const PASSTHROUGH = [

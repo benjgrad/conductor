@@ -13,6 +13,7 @@ import {
   type BoardCard,
   type BoardChecking,
   type InputRequestDto,
+  type MachineDetail,
   type MoveDto,
   type OutputChunk,
   type SessionDetail,
@@ -668,6 +669,18 @@ function checkingSeeds(now: Date): MockSeed[] {
   ];
 }
 
+/** M2-T11: a seed whose session changed `.git` in a checkout-mode repo (an open machine alert). */
+function withAlert(now: Date, s: SeedSpec): MockSeed {
+  const out = seed(now, s);
+  return {
+    ...out,
+    card: {
+      ...out.card,
+      alerts: [{ kind: 'git_tamper', files: ['.git/hooks/pre-commit'], at: ago(now, 1) }],
+    },
+  };
+}
+
 export function mockSeeds(now: Date): MockSeed[] {
   const id = SEED_IDS;
   return [
@@ -686,6 +699,11 @@ export function mockSeeds(now: Date): MockSeed[] {
         external_ref: 'GH-412',
         created_at: ago(now, 1),
         updated_at: ago(now, 1),
+        // M2-T11: no online machine can take it (ADR-0013 §Routing).
+        routing: {
+          missing_repo: 'github.com/acme/shop',
+          missing_capabilities: ['cli:az:authed'],
+        },
       },
       session: null,
     },
@@ -701,7 +719,7 @@ export function mockSeeds(now: Date): MockSeed[] {
       slot: true,
       output: ['> npm run build\n', 'waiting for a build slot (2/2 in use)…\n'],
     }),
-    seed(now, {
+    withAlert(now, {
       ...id.running,
       title: 'Add pagination to /orders',
       status: 'running',
@@ -817,5 +835,98 @@ export function mockSeeds(now: Date): MockSeed[] {
       activeMinAgo: 650,
       spend: 1.9,
     }),
+  ];
+}
+
+/**
+ * M2-T11: the mock's machines. `mbp-ben` (the cards' machine) is online with an open `.git`
+ * alert; `linux-box` is offline, runs an outdated daemon, and has a gh too old for open_pr.
+ * running_sessions and live_sessions are filled from the cards by the mock.
+ */
+export function mockMachines(now: Date): MachineDetail[] {
+  return [
+    {
+      id: 'mbp-ben',
+      hostname: 'bens-macbook-pro.local',
+      name: "Ben's MacBook",
+      status: 'online',
+      tags: ['macos', 'arm64'],
+      last_heartbeat_at: now.toISOString(),
+      max_sessions: 3,
+      running_sessions: 0,
+      cpu_free: 0.62,
+      mem_free_mb: 9_400,
+      daemon_version: '0.3.0+5c1d2e0',
+      claude_version: '2.1.0',
+      outdated: false,
+      repo_count: 2,
+      revoked_at: null,
+      os: 'darwin',
+      arch: 'arm64',
+      repos: [
+        {
+          remote: 'github.com/acme/shop',
+          path: '/Users/ben/code/shop',
+          mode: 'reference',
+          default_branch: 'main',
+        },
+        {
+          remote: 'github.com/benjgrad/conductor',
+          path: '/Users/ben/code/conductor',
+          mode: 'checkout',
+          default_branch: 'main',
+        },
+      ],
+      capabilities: {
+        cli: [
+          { name: 'gh', version: '2.62.0', authed: true, repo: null },
+          { name: 'git', version: '2.47.1', authed: false, repo: null },
+        ],
+        mcp: [{ name: 'slack', version: null, authed: null, repo: null }],
+        skill: [{ name: 'pr', version: null, authed: null, repo: 'github.com/benjgrad/conductor' }],
+        agent: [],
+        claude: [{ name: 'claude', version: '2.1.0', authed: null, repo: null }],
+      },
+      alerts: [
+        {
+          id: 'd4000000-0000-4000-8000-000000000001',
+          kind: 'git_tamper',
+          repo: 'github.com/benjgrad/conductor',
+          session_id: SEED_IDS.running.session,
+          files: ['.git/hooks/pre-commit'],
+          created_at: ago(now, 1),
+        },
+      ],
+      live_sessions: [],
+    },
+    {
+      id: 'linux-box',
+      hostname: 'old-linux-box',
+      name: 'old-linux-box',
+      status: 'offline',
+      tags: ['linux', 'x64'],
+      last_heartbeat_at: ago(now, 3 * 24 * 60),
+      max_sessions: 1,
+      running_sessions: 0,
+      cpu_free: null,
+      mem_free_mb: null,
+      daemon_version: '0.1.0+2e88cf8',
+      claude_version: '2.0.14',
+      outdated: true,
+      repo_count: 1,
+      revoked_at: null,
+      os: 'linux',
+      arch: 'x64',
+      repos: [{ remote: null, path: '/home/ben/scratch', mode: 'reference', default_branch: null }],
+      capabilities: {
+        cli: [{ name: 'gh', version: '2.14.0', authed: true, repo: null }],
+        mcp: [],
+        skill: [],
+        agent: [],
+        claude: [{ name: 'claude', version: '2.0.14', authed: null, repo: null }],
+      },
+      alerts: [],
+      live_sessions: [],
+    },
   ];
 }

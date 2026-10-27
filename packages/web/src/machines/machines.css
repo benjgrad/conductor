@@ -1,0 +1,135 @@
+/* M2-T11: the Machines page (same look as the admin page). */
+
+.machines {
+  padding: 16px;
+  max-width: 1100px;
+}
+.machines-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.machines h2 {
+  font-size: 18px;
+  margin: 0;
+}
+.machines-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+.machines-table th,
+.machines-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.machines-table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+.machines-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.machine-revoked {
+  color: var(--muted);
+}
+.machine-name {
+  font-weight: 600;
+}
+.machine-status-online {
+  color: var(--ok);
+}
+.machine-status-draining {
+  color: var(--warn);
+}
+.machine-status-offline,
+.machine-status-revoked {
+  color: var(--muted);
+}
+.machines .badge {
+  margin-left: 6px;
+}
+.badge-update {
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-weight: 600;
+}
+.machines .badge-alert {
+  background: var(--ask-bg);
+  color: var(--ask);
+  font-weight: 600;
+}
+.machine-warning {
+  margin: 4px 0 0;
+  color: var(--ask);
+  font-size: 13px;
+}
+.machine-rename {
+  display: inline-flex;
+  gap: 6px;
+}
+.machine-panel {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  background: var(--warn-bg);
+}
+.machine-panel h3 {
+  margin: 0 0 6px;
+}
+.machine-panel ul {
+  margin: 4px 0 8px;
+}
+.machine-command {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.machine-command input {
+  flex: 1;
+  font-family: ui-monospace, monospace;
+}
+.machine-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(560px, 100vw);
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  box-shadow: -4px 0 16px rgb(0 0 0 / 8%);
+  z-index: 10;
+}
+.machine-drawer header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.machine-drawer h3 {
+  margin: 0;
+}
+.machine-drawer h4 {
+  margin: 16px 0 6px;
+}
+.machine-drawer h5 {
+  margin: 8px 0 2px;
+  color: var(--muted);
+}
+.machine-sub,
+.machines .muted {
+  color: var(--muted);
+}
+.machine-alerts,
+.machine-caps ul {
+  margin: 0;
+  padding-left: 18px;
+}

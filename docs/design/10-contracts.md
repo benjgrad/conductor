@@ -374,7 +374,7 @@ M2-T02 froze the machine-side seams for M2 ([ADR-0013](../adr/0013-machine-enrol
 
 **Versioning and auth.**
 - The daemon sends `register.protocol_version = PROTOCOL_VERSION`; absent means 1, an M1 daemon. `daemon_version` (package version, plus `+<CONDUCTOR_BUILD_SHA>` when set) was already required and stays so.
-- `password` mode: the WS upgrade must carry `Authorization: Bearer <credential>` (`DAEMON_AUTH_HEADER`). The gateway resolves machine and account from it before accepting the socket; an unknown or revoked credential is answered **HTTP 401 at the upgrade** (no socket), which the daemon treats like `CLOSE_UNAUTHORIZED`. The machine id is the credential's machine; `register.machine_id` must match it. A register with `protocol_version` < 2 is closed `CLOSE_PROTOCOL`.
+- `password` mode: the WS upgrade must carry `Authorization: Bearer <credential>` (`DAEMON_AUTH_HEADER`). The gateway resolves machine and account from it before accepting the socket; an unknown or revoked credential is answered **HTTP 401 at the upgrade** (no socket), which the daemon treats like `CLOSE_UNAUTHORIZED`. **HTTP 403 at the upgrade is also fatal**, treated like 401 / `CLOSE_UNAUTHORIZED`: stop reconnecting, log why, exit non-zero (M2-T04 QA, 2026-10-27). The machine id is the credential's machine; `register.machine_id` must match it. A register with `protocol_version` < 2 is closed `CLOSE_PROTOCOL`.
 - `local` mode: no header, `register.machine_id` from `CONDUCTOR_MACHINE_ID`, v1 accepted, `enrollment_token` ignored (removed from the schema in M2-T21).
 - Close codes (with `CLOSE_REASONS` text, ≤ 123 bytes): 4000 replaced by a newer connection (M1-T11, reconnect is fine); **4001** revoked while connected and **4003** unauthorized: the daemon stops reconnecting, logs why and exits non-zero; **4005** protocol too old: the daemon logs "update the daemon: re-run the install command".
 
@@ -398,6 +398,8 @@ M2-T02 froze the machine-side seams for M2 ([ADR-0013](../adr/0013-machine-enrol
 - its exact key is stored for the machine; or
 - it is a bare `skill:<name>` / `agent:<name>` and the machine has `skill:<name>@<ticket.repo>` (the ticket's canonical repo). A repo-scoped skill or agent never meets a ticket for another repo.
 
+The repo part of a key (`@<repo>`) is compared **case-insensitively** for github.com, like the claim's repo filter (`lower(machine_repo.remote) = lower(ticket.repo)`; lead decision 2026-10-27): GitHub org and repo names are case-insensitive, so `skill:x@github.com/Org/App` meets a ticket for `github.com/org/app`.
+
 A repo whose `remote` is null has its repo-scoped skills and agents **not reported** (`CapabilitySchema.repo` must be a canonical remote): they can't be matched to any ticket. `missingCapabilities(caps, reqs, ticketRepo)` is the list a Queued card's routing badge names.
 
 **Alerts.** `alert {kind: 'git_tamper', repo, session_id?, files, at}`: in `checkout` mode the daemon hashes the checkout's `.git/config`, `.git/hooks/` and the `core.hooksPath` target before and after each session; a change raises one alert. `repo` is the inventory `path`; `files` (1–200) are relative to the checkout's `.git`. **Durable**: `seq` is required, so the daemon buffers and replays it like a `session_event`, and the gateway dedupes it on `(machine_id, seq)` with the same `machine.last_seq` guard ([Daemon seq dedupe](#daemon-seq-dedupe)).
@@ -411,9 +413,9 @@ Absent (or invalid) `__working_copy`: no `working_copy` in the payload, the M1 c
 **Lost machines (U-068).** The `input_request.kind` is a **new value `machine_lost`** (`MACHINE_LOST_KIND`), not `timeout`: the question isn't a timeout, and the card and filters need to tell them apart. **`input_request.kind = machine_lost`, added to the InputRequestKind enum + DB enum + web label by M2-T03.** Until then `create_input_request.kind` stays `InputRequestKindSchema`, and T06 (which now depends on T03) emits it.
 
 `machine.lost {machine_id, reason, machine_name?, offline_ms?}` comes from the orchestrator (T20):
-- `lease_expired`: the reaper, for a session whose `lease_expires_at` is past its expiry **plus the 2-minute grace** of [04 §4](04-scheduler.md#4--leases-and-fencing);
+- `lease_expired`: the reaper, for a session whose `lease_expires_at` is past its expiry **plus the 2-minute grace** of [04 §4](04-scheduler.md#4--leases-and-fencing). The reaper selects only `assigned` / `running` / `waiting_external` sessions (lead decision 2026-10-27): a parked or queued session holds no lease worth reaping;
 - `revoked`: the caller of `revokeMachine`, once per non-terminal session on that machine;
-- `pinned_machine_offline`: the reaper, for a queued session pinned to a machine (a reopen pin, TD-088, or a `__machine_lost` mark) that has been offline for `PINNED_MACHINE_OFFLINE_AFTER_MS` (900 000 ms; `CONDUCTOR_PIN_OFFLINE_MS` overrides it). `offline_ms` carries the threshold used.
+- `pinned_machine_offline`: the reaper, for a queued session pinned to a machine (a reopen pin, TD-088, or a `__machine_lost` mark: a queued session carrying the mark **is** pinned to `mark.machine_id`) that has been offline for `PINNED_MACHINE_OFFLINE_AFTER_MS` (900 000 ms; `CONDUCTOR_PIN_OFFLINE_MS` overrides it). `offline_ms` carries the threshold used. When the pinned machine has `revoked_at` set, the same pin SQL sends reason **`revoked`** instead (no waiting for the threshold): such a session can never continue there.
 
 **apply stays pure and trusts the event.** The pin check is the reaper's SQL (T20). `SessionSnapshot` has no pin field, and apply never decides whether a session is pinned. `machine_name` is the display name; the question falls back to `machine_id`. Frozen semantics, implemented by T06 (this table wins over the task block):
 
@@ -421,9 +423,10 @@ Absent (or invalid) `__working_copy`: no `working_copy` in the payload, the M1 c
 |---|---|---|
 | `done` / `failed` (terminal) | any | ignored `session_terminal` |
 | `assigned` / `running` / `waiting_external` (a gate step is left), `machine_id` = the event's | any reason | applied (A) |
-| same statuses, `machine_id` ≠ the event's | `lease_expired` / `revoked` | ignored `machine_mismatch` |
+| same statuses, `machine_id` ≠ the event's | any reason (`lease_expired` / `revoked` / `pinned_machine_offline`) | ignored `machine_mismatch` |
 | `queued` | `pinned_machine_offline` | applied (A), trusted |
 | `queued` or `needs_input` with a `__machine_lost` mark for the event's machine | `revoked` | applied (B) |
+| `queued`, no `__machine_lost` mark (a reopen-pinned session whose pinned machine was revoked; the reaper's pin SQL decided it) | `revoked` | applied (A), trusted; no kill; Cancel only |
 | `needs_input` / `queued`, any other case | any | ignored `wrong_status` |
 
 **(A) Applied:**

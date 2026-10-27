@@ -97,10 +97,20 @@ l_orch_health="$(line_of '^wait_healthy orchestrator \|\|')"
 l_image_check="$(line_of '^\[\[ "\$running_image" == "\$IMAGE" \]\] \|\|$')"
 l_ln="$(line_of '^ln -sfn "\$REL" current$')"
 l_current_env="$(line_of '^mv current\.env\.tmp current\.env$')"
-for v in l_build l_pg l_migrate l_migrate_msg l_orch_up l_orch_health l_image_check l_ln l_current_env; do
+l_env_check="$(line_of '^grep -qE .\^POSTGRES_PASSWORD=\.\+. \.env \|\|$')"
+l_mkdir="$(line_of '^mkdir -p backups logs$')"
+for v in l_build l_pg l_migrate l_migrate_msg l_orch_up l_orch_health l_image_check l_ln l_current_env \
+  l_env_check l_mkdir; do
   check "remote-deploy.sh has step $v" test -n "${!v}"
 done
 lt() { [[ -n "$1" && -n "$2" && "$1" -lt "$2" ]]; }
+check "remote-deploy.sh: .env refusal before anything is created" lt "$l_env_check" "$l_mkdir"
+check "remote-deploy.sh: .env refusal before the build" lt "$l_env_check" "$l_build"
+check "remote-deploy.sh: generated .env verified before the rename" lt \
+  "$(line_of "^  grep -qE '\\^POSTGRES_PASSWORD=\\[0-9a-f\\]\\{64\\}\\$' \\.env\\.tmp \\|\\|$")" \
+  "$(line_of '^  mv \.env\.tmp \.env \|\| die')"
+check "remote-deploy.sh: no .env generation inside a ( … ) || die subshell" \
+  test -z "$(sed 's/^[[:space:]]*#.*//' "$REMOTE_SH" | grep -E '^[[:space:]]*\)[[:space:]]*\|\|')"
 check "remote-deploy.sh: build before postgres" lt "$l_build" "$l_pg"
 check "remote-deploy.sh: postgres before migrate" lt "$l_pg" "$l_migrate"
 check "remote-deploy.sh: migrate failure handler right after migrate" lt "$l_migrate" "$l_migrate_msg"
@@ -163,6 +173,10 @@ check "backup.sh: CURRENT_ENV is current.env" grep -qF 'CURRENT_ENV="$ROOT/curre
 check "runbook cdc alias passes .env and current.env" grep -qE \
   "^alias cdc='.*--env-file ~/deploy/conductor/\.env --env-file ~/deploy/conductor/current\.env'$" \
   "$REPO/docs/setup/deploy-gradyserver.md"
+
+# scripts/ci.sh runs this kit's tests (TD-136).
+check "scripts/ci.sh runs the deploy kit tests" \
+  grep -qE '^step "deploy kit";[[:space:]]+bash deploy/gradyserver/test/run\.sh' "$REPO/scripts/ci.sh"
 
 out="$("$KIT/deploy.sh" 2>&1)"
 code=$?

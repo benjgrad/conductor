@@ -8,6 +8,7 @@ step() { printf '\n==> %s\n' "$*"; }
 step "install";   pnpm install --frozen-lockfile
 step "typecheck"; pnpm typecheck
 step "lint";      pnpm lint
+step "deploy kit"; bash deploy/gradyserver/test/run.sh   # shellcheck only if installed
 step "db:up";     pnpm db:up   # shared local cluster; DB tests create their own databases
 step "test";      pnpm test
 step "build";     pnpm build

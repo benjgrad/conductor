@@ -112,10 +112,59 @@ ROOT="$T/home/deploy/conductor"
 calls_line() { grep -nE -- "$1" "$T/state/calls" | tail -n 1 | cut -d: -f1; }
 lt() { [[ -n "$1" && -n "$2" && "$1" -lt "$2" ]]; }
 
-# 1. A good deploy replaces the orchestrator and switches current / current.env.
+# fail_tool <dir> <name> <body>: a fake tool in its own directory, put first on PATH for one case.
+fail_tool() {
+  mkdir -p "$T/$1"
+  printf '#!/usr/bin/env bash\n%s\n' "$3" >"$T/$1/$2"
+  chmod +x "$T/$1/$2"
+}
+fail_tool fail-openssl openssl "echo 'fake openssl: boom' >&2; exit 1"
+fail_tool bad-openssl openssl "echo not-hex"
+fail_tool fail-awk awk "echo CONDUCTOR_AUTH=password; echo 'fake awk: boom' >&2; exit 1"
+fail_tool empty-awk awk "exit 0"
+
 sha1="$(commit one)"
-deploy
+
+# 0. A first deploy whose .env generation fails stops before anything else: no .env, no temp
+#    file, no docker call, no current (TD-144).
+env_gen_fails() {
+  local dir="$1" msg="$2"
+  : >"$T/state/calls"
+  deploy PATH="$T/$dir:$T/bin:$PATH"
+  check "$dir: deploy exits 1 (got $CODE)" test "$CODE" -eq 1
+  check "$dir: says what failed" has "$OUT" "could not create .env: $msg"
+  check "$dir: no .env" test ! -e "$ROOT/.env"
+  check "$dir: no .env.tmp" test ! -e "$ROOT/.env.tmp"
+  check "$dir: no docker call" test ! -s "$T/state/calls"
+  check "$dir: no current" test ! -L "$ROOT/current"
+  check "$dir: no 'deployed'" lacks "$OUT" '^==> deployed'
+}
+env_gen_fails fail-openssl 'openssl rand -hex 32 failed'
+env_gen_fails bad-openssl 'openssl rand -hex 32 did not print 64 hex digits'
+env_gen_fails fail-awk 'awk on releases/[0-9a-f]+/deploy/gradyserver/env.example failed'
+env_gen_fails empty-awk 'the generated file has no POSTGRES_PASSWORD='
+
+# Argv capture: wrappers that log their argv to $FAKE_STATE/argv, then exec the real tool (the
+# argv is what `ps` shows other users on the server).
+mkdir -p "$T/argv-log"
+for tool in ssh openssl awk sed grep chmod mv rm ln mkdir cat ls readlink tr wc cut head tail sort; do
+  real="$(PATH="$T/bin:$PATH" command -v "$tool")" || continue
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "%s $*" >>"$FAKE_STATE/argv"\nexec "%s" "$@"\n' \
+    "$tool" "$real" >"$T/argv-log/$tool"
+  chmod +x "$T/argv-log/$tool"
+done
+
+# 1. A good deploy replaces the orchestrator and switches current / current.env.
+: >"$T/state/calls"
+: >"$T/state/argv"
+deploy PATH="$T/argv-log:$T/bin:$PATH"
 check "good deploy exits 0 (got $CODE)" test "$CODE" -eq 0
+pw_value="$(sed -n 's/^POSTGRES_PASSWORD=//p' "$ROOT/.env")"
+check "this deploy generated .env" has "$OUT" '^==> creating \.env with a random POSTGRES_PASSWORD'
+check "argv log captured openssl and awk" bash -c "grep -q '^openssl rand' '$T/state/argv' && grep -q '^awk ' '$T/state/argv'"
+check "the password is 64 hex digits" grep -qE '^[0-9a-f]{64}$' <<<"$pw_value"
+check "the password never appears in any process argv" \
+  bash -c "[[ -n '$pw_value' ]] && ! grep -qF -- '$pw_value' '$T/state/argv' '$T/state/calls'"
 check "good deploy prints 'deployed <sha>'" has "$OUT" "^==> deployed $sha1\$"
 check "good deploy verified the running orchestrator" has "$OUT" "running orchestrator: conductor-orchestrator:$sha1, healthy"
 check "migrate read nothing from stdin" test "$(cat "$T/state/migrate_stdin_bytes" 2>/dev/null)" = 0
@@ -160,5 +209,35 @@ check "stale orchestrator: no 'deployed'" lacks "$OUT" '^==> deployed'
 deploy
 check "retry of the sha succeeds (got $CODE)" test "$CODE" -eq 0
 check "retry: current -> the new release" test "$(readlink "$ROOT/current")" = "releases/$sha2"
+
+# 5. An existing .env that is empty, or has no non-empty POSTGRES_PASSWORD, is refused before
+#    anything is touched, and left as it is (TD-144).
+cp -p "$ROOT/.env" "$T/env.good"
+env_refused() {
+  local name="$1"
+  : >"$T/state/calls"
+  deploy
+  check "$name .env: deploy exits 1 (got $CODE)" test "$CODE" -eq 1
+  check "$name .env: refusal names the file and the fix" \
+    has "$OUT" "/deploy/conductor/\.env is empty or missing POSTGRES_PASSWORD; remove it to regenerate"
+  check "$name .env: no docker call" test ! -s "$T/state/calls"
+  check "$name .env: current unchanged" test "$(readlink "$ROOT/current")" = "releases/$sha2"
+  check "$name .env: current.env unchanged" test "$(cat "$ROOT/current.env")" = "CONDUCTOR_GIT_SHA=$sha2"
+  check "$name .env: no 'deployed'" lacks "$OUT" '^==> deployed'
+}
+: >"$ROOT/.env"
+env_refused empty
+check "empty .env: left empty (not regenerated)" test ! -s "$ROOT/.env"
+{
+  grep -v '^POSTGRES_PASSWORD=' "$T/env.good"
+  echo 'POSTGRES_PASSWORD='
+} >"$ROOT/.env"
+env_refused "blank-password"
+check "blank-password .env: left as it was" grep -qx 'POSTGRES_PASSWORD=' "$ROOT/.env"
+
+# 6. Once a good .env is back, deploys work again.
+cp -p "$T/env.good" "$ROOT/.env"
+deploy
+check "restored .env: deploy succeeds (got $CODE)" test "$CODE" -eq 0
 
 finish

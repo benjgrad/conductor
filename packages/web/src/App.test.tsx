@@ -49,6 +49,8 @@ describe('kanban board', () => {
     await renderApp();
     expect(cardTitles('Needs input')).toEqual([
       'Fix flaky checkout test',
+      'Board cards: review requests vs questions',
+      'Add CSV export',
       'Plan the garden',
       'Add audit log table',
     ]);
@@ -73,6 +75,8 @@ describe('kanban board', () => {
     await waitFor(() =>
       expect(cardTitles('Needs input')).toEqual([
         'Fix flaky checkout test',
+        'Board cards: review requests vs questions',
+        'Add CSV export',
         'Plan the garden',
         'Add audit log table',
         'Add pagination to /orders',
@@ -95,7 +99,12 @@ describe('detail panel', () => {
     fireEvent.click(send);
 
     await waitFor(() =>
-      expect(cardTitles('Needs input')).toEqual(['Fix flaky checkout test', 'Plan the garden']),
+      expect(cardTitles('Needs input')).toEqual([
+        'Fix flaky checkout test',
+        'Board cards: review requests vs questions',
+        'Add CSV export',
+        'Plan the garden',
+      ]),
     );
     expect(cardTitles('Implementing')).toContain('Add audit log table');
     await waitFor(() => expect(panel.queryByLabelText('Answer')).toBeNull());

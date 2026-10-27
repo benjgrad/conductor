@@ -288,6 +288,17 @@ export const InputRequestDtoSchema = z.object({
   answer: z.string().nullable(),
   answered_by: z.string().nullable(),
   answered_at: IsoDateTimeSchema.nullable(),
+  /**
+   * UX-4: the named transition whose move opened the request, e.g. `personal_pr_ready_for_review`
+   * (the board shows a review request, not a question); null for a fallback, budget or
+   * failed-step route. Absent ≡ unknown (older servers).
+   */
+  origin_transition: z.string().nullable().optional(),
+  /**
+   * UX-4: a gate step (entry, review or move) could not finish and routed to a human, e.g. open_pr
+   * failed. Absent ≡ false.
+   */
+  step_failed: z.boolean().optional(),
 });
 export type InputRequestDto = z.infer<typeof InputRequestDtoSchema>;
 
@@ -828,10 +839,24 @@ export interface InputRequestLike {
   answered_by: string | null;
   created_at: Ts;
   answered_at: Ts | null;
+  /**
+   * UX-4: the session's latest `state.entered` row's `transition` and `from` (the move that opened
+   * the request). Absent = not looked up: the DTO then omits `origin_transition` / `step_failed`.
+   */
+  origin_transition?: string | null | undefined;
+  origin_from?: string | null | undefined;
+}
+
+/**
+ * A gate step's synthetic state label: `… (entry)`, `… (review)` (engine/review.ts) or
+ * `… (move: name)` (engine/types.ts `moveStateLabel`). A test pins it to those helpers.
+ */
+export function isGateStepLabel(label: string): boolean {
+  return / \((entry|review|move: .+)\)$/.test(label);
 }
 
 export function toInputRequestDto(row: InputRequestLike): InputRequestDto {
-  return {
+  const dto: InputRequestDto = {
     id: row.id,
     session_id: row.session_id,
     kind: row.kind,
@@ -841,6 +866,16 @@ export function toInputRequestDto(row: InputRequestLike): InputRequestDto {
     answered_by: row.answered_by,
     answered_at: row.answered_at === null ? null : iso(row.answered_at),
   };
+  if (row.origin_transition === undefined && row.origin_from === undefined) return dto;
+  const transition = row.origin_transition ?? null;
+  const from = row.origin_from ?? null;
+  dto.origin_transition = transition;
+  dto.step_failed =
+    transition === null &&
+    from !== null &&
+    isGateStepLabel(from) &&
+    (row.kind === 'retries_exhausted' || row.kind === 'timeout');
+  return dto;
 }
 
 /**

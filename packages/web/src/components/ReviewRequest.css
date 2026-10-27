@@ -1,0 +1,37 @@
+/* UX-4: the session panel's "Ready for review" card (neutral/accent, not the red question box). */
+.review-request {
+  border-color: var(--user-border);
+  background: var(--user-bg);
+}
+.review-request .badge-review {
+  background: var(--panel);
+  color: var(--accent);
+  border: 1px solid var(--user-border);
+  font-weight: 600;
+}
+.review-request .review-pr-link {
+  display: inline-block;
+  margin: 6px 0 2px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+}
+.review-request .review-pr-link:focus-visible,
+.review-request .full-report > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.review-request .review-summary {
+  margin: 6px 0;
+  font-weight: 600;
+}
+.review-request .full-report > summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.review-request .full-report[open] > summary {
+  margin-bottom: 4px;
+}

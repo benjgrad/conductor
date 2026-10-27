@@ -3,9 +3,11 @@ import {
   BOARD_CARD_FIXTURE,
   type AnswerInputRequest,
   type BoardCard,
+  type InputRequestDto,
   type OutputChunk,
   type ReopenSessionRequest,
   type SendMessageRequest,
+  type SessionDetail,
 } from '@conductor/shared';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -23,6 +25,7 @@ import {
 import { Board } from './Board.js';
 import { ContextView } from './ContextView.js';
 import { OutputLog } from './OutputLog.js';
+import { implementerReport } from './review-fixture.js';
 
 afterEach(cleanup);
 
@@ -610,5 +613,73 @@ describe('Details context', () => {
       'https://github.com/benjgrad/fixture-app/pull/7',
     );
     expect(ctx.queryByText(/\{/)).toBeNull();
+  });
+});
+
+describe('review requests in the panel (UX-4 FR-4)', () => {
+  const PR = 'https://github.com/benjgrad/conductor/pull/42';
+  /** The askNewer session's open request, as a review request (or not). */
+  const asReview =
+    (input: Partial<InputRequestDto>, moves?: SessionDetail['moves']) =>
+    (api: ReturnType<typeof createMockApi>) => {
+      const get = api.getSession.bind(api);
+      api.getSession = async (sid) => {
+        const d = await get(sid);
+        if (sid !== SEED_IDS.askNewer.session || !d.pending_input) return d;
+        const pending = { ...d.pending_input, question: implementerReport(), ...input };
+        return {
+          ...d,
+          card: { ...d.card, pr_url: PR, input_request: pending },
+          pending_input: pending,
+          ...(moves ? { moves } : {}),
+        };
+      };
+    };
+
+  it('renders a Ready for review card: PR link, summary, full report collapsed', async () => {
+    const { panel } = await setup(
+      'Add audit log table',
+      asReview({ origin_transition: 'personal_pr_ready_for_review' }),
+    );
+    const card = within(await panel.findByRole('region', { name: 'Ready for review' }));
+    expect(card.getByText('Ready for review')).toBeTruthy();
+    expect(card.getByText(/Acceptance 8\/10/).textContent).toBe(
+      'complete · Acceptance 8/10, gates ✓',
+    );
+    expect(card.getByRole('link', { name: /pull request/i }).getAttribute('href')).toBe(PR);
+    const details = card.getByText('Full report').closest('details')!;
+    expect(details.open).toBe(false);
+    expect(panel.queryByRole('region', { name: 'Pending input' })).toBeNull();
+    expect(card.queryByText('Question')).toBeNull();
+    // The composer still answers it.
+    expect(panel.getByLabelText('Answer')).toBeTruthy();
+  });
+
+  it('a real question keeps the Pending input box', async () => {
+    const { panel } = await setup(
+      'Add audit log table',
+      asReview({ question: 'Which DB?', origin_transition: 'scope_changed' }),
+    );
+    const box = within(await panel.findByRole('region', { name: 'Pending input' }));
+    expect(box.getByText('Question')).toBeTruthy();
+    expect(panel.queryByRole('region', { name: 'Ready for review' })).toBeNull();
+  });
+
+  it('an older server (no origin_transition): the last move decides', async () => {
+    const at = new Date().toISOString();
+    const { panel } = await setup(
+      'Add audit log table',
+      asReview({}, [
+        {
+          at,
+          from: 'implement',
+          to: 'needs_input',
+          transition: 'pr_ready_for_review',
+          reason: null,
+          actor: 'agent',
+        },
+      ]),
+    );
+    expect(await panel.findByRole('region', { name: 'Ready for review' })).toBeTruthy();
   });
 });

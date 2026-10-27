@@ -1,0 +1,107 @@
+/* M2-T05: sign-in pages, account menu, change-password dialog. */
+
+.auth-page {
+  display: flex;
+  justify-content: center;
+  padding: 64px 16px;
+}
+.auth-card {
+  display: block;
+  width: 100%;
+  max-width: 380px;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.auth-brand {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 600;
+}
+.auth-card h1 {
+  font-size: 20px;
+  margin: 4px 0 16px;
+}
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.auth-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.auth-form button[type='submit'] {
+  align-self: flex-start;
+}
+.auth-hint {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 12px 0 0;
+}
+.auth-form .auth-hint {
+  margin: -6px 0 0;
+}
+.password-problems {
+  margin: -4px 0 0;
+  padding-left: 18px;
+  color: var(--ask);
+  font-size: 13px;
+}
+p.password-problems {
+  padding-left: 0;
+}
+.auth-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.account {
+  position: relative;
+}
+.account-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 200px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.12);
+}
+.account-menu [role='menuitem'] {
+  text-align: left;
+  border-color: transparent;
+}
+.account-menu [role='menuitem']:hover {
+  border-color: var(--border);
+}
+.account-email {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.auth-dialog {
+  position: fixed;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  width: min(380px, calc(100vw - 32px));
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.2);
+}
+.auth-dialog h2 {
+  font-size: 16px;
+  margin: 0 0 12px;
+}

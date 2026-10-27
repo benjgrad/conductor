@@ -646,8 +646,8 @@ export function unknownTransitionQuestion(name: string): string {
 // ---------------------------------------------------------------- lost machines (U-068, M2-T02)
 
 /**
- * The `input_request.kind` of a lost-machine question. Not yet in InputRequestKindSchema: M2-T03
- * adds it to the enum, the DB enum and the web label; T06 emits it after that.
+ * The `input_request.kind` of a lost-machine question. In InputRequestKindSchema, the DB enum and
+ * the web label since M2-T03; T06 emits it.
  */
 export const MACHINE_LOST_KIND = 'machine_lost' as const;
 

@@ -3,10 +3,13 @@
 // terminal blocks. Chunks arrive as the daemon's stream (`assistant`, `tool_use` = "Name {json}",
 // `tool_result`, `stdout`/`stderr` from command states, `debug`, and `user`: a message the human
 // sent from the panel, ADR-0007); a result belongs to the oldest call still waiting for one (calls
-// and results arrive in order, parallel calls included).
-import type { MoveDto, OutputChunk } from '@conductor/shared';
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+// and results arrive in order, parallel calls included). Runs of tool calls between the agent's
+// words collapse into one summary row (`buildThread`), and the session's moves, when given, show
+// as phase dividers at their time.
+import type { MoveDto, OutputChunk, WorkflowDefinition } from '@conductor/shared';
+import { useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Markdown } from './markdown.js';
+import './OutputLog.css';
 
 export interface ToolCall {
   name: string;
@@ -14,12 +17,15 @@ export interface ToolCall {
   raw: string;
 }
 
+/** `ts` is the time of the entry's first chunk. */
 export type Entry =
-  | { kind: 'text'; key: string; text: string }
-  | { kind: 'user'; key: string; text: string }
-  | { kind: 'tool'; key: string; call: ToolCall; result: string | null }
-  | { kind: 'stream'; key: string; stream: 'stdout' | 'stderr'; text: string }
-  | { kind: 'debug'; key: string; text: string };
+  | { kind: 'text'; key: string; ts: string; text: string }
+  | { kind: 'user'; key: string; ts: string; text: string }
+  | { kind: 'tool'; key: string; ts: string; call: ToolCall; result: string | null }
+  | { kind: 'stream'; key: string; ts: string; stream: 'stdout' | 'stderr'; text: string }
+  | { kind: 'debug'; key: string; ts: string; text: string };
+
+export type ToolEntry = Extract<Entry, { kind: 'tool' }>;
 
 export function parseToolUse(text: string): ToolCall {
   const sp = text.indexOf(' ');
@@ -39,21 +45,28 @@ export function parseToolUse(text: string): ToolCall {
 
 export function buildEntries(chunks: readonly OutputChunk[]): Entry[] {
   const out: Entry[] = [];
-  const waiting: Extract<Entry, { kind: 'tool' }>[] = [];
+  const waiting: ToolEntry[] = [];
   // Keyed by position: the list only grows at the end, and transcript history (ADR-0008) has its
   // own seq numbering, so seq alone is not unique once history precedes the ring's chunks.
   for (const [i, c] of chunks.entries()) {
     const key = String(i);
+    const ts = c.ts;
     const prev = out.at(-1);
     switch (c.stream) {
       case 'assistant':
-        if (c.text.trim() !== '') out.push({ kind: 'text', key, text: c.text });
+        if (c.text.trim() !== '') out.push({ kind: 'text', key, ts, text: c.text });
         // TD-085: pairing is by order (chunks carry no tool_use_id). The model only speaks
         // again after a batch's results are in, so a lost result can't shift later batches.
         waiting.length = 0;
         break;
       case 'tool_use': {
-        const entry = { kind: 'tool' as const, key, call: parseToolUse(c.text), result: null };
+        const entry: ToolEntry = {
+          kind: 'tool',
+          key,
+          ts,
+          call: parseToolUse(c.text),
+          result: null,
+        };
         out.push(entry);
         waiting.push(entry);
         break;
@@ -61,21 +74,21 @@ export function buildEntries(chunks: readonly OutputChunk[]): Entry[] {
       case 'tool_result': {
         const call = waiting.shift();
         if (call) call.result = c.text;
-        else out.push({ kind: 'stream', key, stream: 'stdout', text: c.text });
+        else out.push({ kind: 'stream', key, ts, stream: 'stdout', text: c.text });
         break;
       }
       case 'stdout':
       case 'stderr':
         if (prev?.kind === 'stream' && prev.stream === c.stream) prev.text += c.text;
-        else out.push({ kind: 'stream', key, stream: c.stream, text: c.text });
+        else out.push({ kind: 'stream', key, ts, stream: c.stream, text: c.text });
         break;
       case 'debug':
         if (prev?.kind === 'debug') prev.text += `\n${c.text}`;
-        else out.push({ kind: 'debug', key, text: c.text });
+        else out.push({ kind: 'debug', key, ts, text: c.text });
         break;
       case 'user':
         // One chunk = one message. Tool pairing is untouched: the message lands mid-turn.
-        if (c.text.trim() !== '') out.push({ kind: 'user', key, text: c.text });
+        if (c.text.trim() !== '') out.push({ kind: 'user', key, ts, text: c.text });
         break;
     }
   }
@@ -237,6 +250,161 @@ export function diffLines(h: Hunk): DiffLine[] {
   ];
 }
 
+/**
+ * Did the call fail? TD: tool_result chunks carry no is_error (the daemon passes only the text),
+ * so failure is read from the text: Claude Code's non-zero Bash exit, tool errors, hook refusals.
+ */
+export function isFailedResult(result: string | null): boolean {
+  if (result === null) return false;
+  const text = result.trim();
+  return (
+    /^Exit code [1-9]\d*/.test(text) ||
+    /^Error\b/i.test(text) ||
+    text.startsWith('<tool_use_error>') ||
+    /hook error/i.test(text.split('\n')[0] ?? '')
+  );
+}
+
+/** ask_user, complete_state and other conductor calls: always shown on their own. */
+const isConductorCall = (e: ToolEntry) => e.call.name.startsWith('mcp__conductor__');
+
+export type ThreadItem =
+  | { kind: 'entry'; entry: Entry }
+  | { kind: 'group'; key: string; tools: ToolEntry[]; failed: ToolEntry[] }
+  | { kind: 'phase'; key: string; move: MoveDto };
+
+/**
+ * The rows of the thread. With `moves`, a divider goes before the first entry at or after each
+ * move's time. With `group`, each run of 2+ tool calls (conductor calls excepted) becomes one
+ * group, and debug entries are dropped (they're hidden then anyway); without it, every entry is
+ * its own row, as before grouping existed.
+ */
+export function buildThread(
+  entries: readonly Entry[],
+  { moves, group }: { moves?: readonly MoveDto[] | undefined; group: boolean },
+): ThreadItem[] {
+  const out: ThreadItem[] = [];
+  let run: ToolEntry[] = [];
+  const flush = () => {
+    if (run.length === 1) out.push({ kind: 'entry', entry: run[0]! });
+    else if (run.length > 1) {
+      out.push({
+        kind: 'group',
+        key: `g${run[0]!.key}`,
+        tools: run,
+        failed: run.filter((t) => isFailedResult(t.result)),
+      });
+    }
+    run = [];
+  };
+  let m = 0;
+  const phasesUntil = (ts: number) => {
+    while (moves && m < moves.length && Date.parse(moves[m]!.at) <= ts) {
+      flush();
+      out.push({ kind: 'phase', key: `p${m}`, move: moves[m]! });
+      m++;
+    }
+  };
+  for (const e of entries) {
+    phasesUntil(Date.parse(e.ts));
+    if (group && e.kind === 'debug') continue;
+    if (group && e.kind === 'tool' && !isConductorCall(e)) {
+      run.push(e);
+      continue;
+    }
+    flush();
+    out.push({ kind: 'entry', entry: e });
+  }
+  phasesUntil(Infinity);
+  flush();
+  return out;
+}
+
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+
+const SUMMARIZED_TOOLS = new Set([
+  'Read',
+  'Grep',
+  'Glob',
+  'Bash',
+  ...EDIT_TOOLS,
+  'WebFetch',
+  'WebSearch',
+  'Task',
+  'Agent',
+  'TodoWrite',
+]);
+
+/** "Read 3 files · searched 1 pattern · ran 2 commands · edited 2 files +4 −1 · running…" */
+export function summarizeGroup(tools: readonly ToolEntry[]): string {
+  const count = (names: string[]) => tools.filter((t) => names.includes(t.call.name)).length;
+  // Distinct paths; a call whose input didn't parse counts on its own.
+  const files = (names: string[], keys: string[]) => {
+    const seen = new Set<string>();
+    let unknown = 0;
+    for (const t of tools) {
+      if (!names.includes(t.call.name)) continue;
+      const path = keys.map((k) => t.call.input?.[k]).find((v) => typeof v === 'string');
+      if (typeof path === 'string') seen.add(path);
+      else unknown++;
+    }
+    return seen.size + unknown;
+  };
+  const parts: string[] = [];
+  const reads = files(['Read'], ['file_path']);
+  if (reads > 0) parts.push(`read ${plural(reads, 'file')}`);
+  const searches = count(['Grep', 'Glob']);
+  if (searches > 0) parts.push(`searched ${plural(searches, 'pattern')}`);
+  const commands = count(['Bash']);
+  if (commands > 0) parts.push(`ran ${plural(commands, 'command')}`);
+  const edits = tools.filter((t) => EDIT_TOOLS.has(t.call.name));
+  if (edits.length > 0) {
+    let part = `edited ${plural(files([...EDIT_TOOLS], ['file_path', 'notebook_path']), 'file')}`;
+    const hunks = edits.map((t) => editHunks(t.call));
+    if (hunks.every((h) => h !== null)) {
+      const diff = hunks.flat().flatMap(diffLines);
+      const added = diff.filter((l) => l.sign === '+').length;
+      const removed = diff.filter((l) => l.sign === '-').length;
+      const stat = [added > 0 && `+${added}`, removed > 0 && `−${removed}`].filter(Boolean);
+      if (stat.length > 0) part += ` ${stat.join(' ')}`;
+    }
+    parts.push(part);
+  }
+  const fetches = count(['WebFetch']);
+  if (fetches > 0) parts.push(`fetched ${plural(fetches, 'page')}`);
+  const webSearches = count(['WebSearch']);
+  if (webSearches > 0) {
+    parts.push(`searched the web ${webSearches === 1 ? 'once' : `${webSearches} times`}`);
+  }
+  const agents = count(['Task', 'Agent']);
+  if (agents > 0) parts.push(`ran ${plural(agents, 'agent')}`);
+  if (count(['TodoWrite']) > 0) parts.push('updated todos');
+  const other = tools.filter((t) => !SUMMARIZED_TOOLS.has(t.call.name)).length;
+  if (other > 0) parts.push(`used ${other} other tool${other === 1 ? '' : 's'}`);
+  if (tools.some((t) => t.result === null)) parts.push('running…');
+  const text = parts.join(' · ');
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** A state's display name: its workflow title, else `snake_case` as words; gate labels as is. */
+export function phaseStateName(state: string, workflow?: WorkflowDefinition): string {
+  const title = workflow?.states[state]?.title;
+  if (title) return title;
+  if (!/^[a-z0-9_]+$/.test(state)) return state;
+  const words = state.replace(/_/g, ' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** "Planning → Implementing · plan_ready — <reason, first line>" (first move: "Started · Planning"). */
+export function phaseLabel(move: MoveDto, workflow?: WorkflowDefinition): string {
+  const to = phaseStateName(move.to, workflow);
+  let label =
+    move.from === null ? `Started · ${to}` : `${phaseStateName(move.from, workflow)} → ${to}`;
+  if (move.from !== null && move.transition) label += ` · ${move.transition}`;
+  if (move.reason) label += ` — ${firstLine(move.reason)}`;
+  return label;
+}
+
 const DIFF_LIMIT = 20;
 
 function Diff({ hunks }: { hunks: Hunk[] }) {
@@ -270,14 +438,10 @@ function Diff({ hunks }: { hunks: Hunk[] }) {
   );
 }
 
-function ToolRow({
-  entry,
-  short,
-}: {
-  entry: Extract<Entry, { kind: 'tool' }>;
-  short: (s: string) => string;
-}) {
+function ToolRow({ entry, short }: { entry: ToolEntry; short: (s: string) => string }) {
   const { call, result } = entry;
+  // A failed call is never hidden (shown open, also inside a collapsed group).
+  const failed = isFailedResult(result);
   const { label, arg } = describeTool(call, short);
   const hunks = editHunks(call);
   const kind = hunks
@@ -289,7 +453,10 @@ function ToolRow({
         : 'tool';
   const state = result === null ? 'running' : 'done';
   return (
-    <details className={`tool tool-${kind} tool-${state}`} open={hunks !== null}>
+    <details
+      className={`tool tool-${kind} tool-${state}${failed ? ' tool-failed' : ''}`}
+      open={hunks !== null || failed}
+    >
       <summary>
         <span className="tool-head">
           <span className="tool-label">{label}</span>
@@ -317,6 +484,74 @@ function ToolRow({
   );
 }
 
+/** A run of tool calls as one summary row; its failed calls stay visible while collapsed. */
+function ToolGroup({
+  tools,
+  failed,
+  open,
+  onToggle,
+  short,
+}: {
+  tools: ToolEntry[];
+  failed: ToolEntry[];
+  open: boolean;
+  onToggle: () => void;
+  short: (s: string) => string;
+}) {
+  const bodyId = useId();
+  return (
+    <div className="tool-group" role="group" aria-label="Tool calls">
+      <button
+        type="button"
+        className="tool-group-summary"
+        aria-expanded={open}
+        aria-controls={bodyId}
+        onClick={onToggle}
+      >
+        <span className="chev" aria-hidden="true">
+          ▸
+        </span>
+        <span className="tool-group-text">{summarizeGroup(tools)}</span>
+        {failed.length > 0 && <span className="tool-group-error">⚠ {failed.length} failed</span>}
+      </button>
+      <div id={bodyId} className="tool-group-body">
+        {(open ? tools : failed).map((t) => (
+          <ToolRow key={t.key} entry={t} short={short} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Where the session changed state; the full reason on expand. */
+function PhaseDivider({
+  move,
+  workflow,
+}: {
+  move: MoveDto;
+  workflow?: WorkflowDefinition | undefined;
+}) {
+  const [open, setOpen] = useState(false);
+  const label = phaseLabel(move, workflow);
+  return (
+    <div className="phase" role="group" aria-label={`Phase: ${label}`}>
+      {move.reason ? (
+        <button
+          type="button"
+          className="phase-label"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          {label}
+        </button>
+      ) : (
+        <span className="phase-label">{label}</span>
+      )}
+      {open && move.reason && <p className="phase-reason">{move.reason}</p>}
+    </div>
+  );
+}
+
 /** Scrolled up by more than this many viewports → offer "Jump to latest". */
 const JUMP_AFTER_SCREENS = 1;
 
@@ -334,8 +569,10 @@ export interface OutputLogProps {
   tailKey?: string;
   /** False while the log is hidden (inactive tab): re-pins to the bottom when shown again. */
   visible?: boolean;
-  /** UX-1: the session's moves (`SessionDetail.moves`), shown in the thread. Not rendered yet. */
-  moves?: readonly MoveDto[];
+  /** SessionDetail.moves (oldest first): a phase divider at each move's time. None without it. */
+  moves?: readonly MoveDto[] | undefined;
+  /** The session's workflow, for state titles in the dividers (else names are humanised). */
+  workflow?: WorkflowDefinition | undefined;
 }
 
 export function OutputLog({
@@ -345,10 +582,19 @@ export function OutputLog({
   children,
   tailKey = '',
   visible = true,
+  moves,
+  workflow,
 }: OutputLogProps) {
   const entries = useMemo(() => buildEntries(output), [output]);
   const short = useMemo(() => shortener(worktree), [worktree]);
   const [showDebug, setShowDebug] = useState(false);
+  // Debug lines show everything ungrouped, as before grouping existed.
+  const thread = useMemo(
+    () => buildThread(entries, { moves, group: !showDebug }),
+    [entries, moves, showDebug],
+  );
+  // Open groups by key (the first call's position), so they stay open as output streams in.
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const debugCount = entries.filter((e) => e.kind === 'debug').length;
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -357,7 +603,7 @@ export function OutputLog({
   useLayoutEffect(() => {
     const el = ref.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [output.length, showDebug, tailKey, visible]);
+  }, [output.length, showDebug, tailKey, visible, expanded]);
 
   const chat = variant === 'chat';
   const newCount = away === null ? 0 : Math.max(0, entries.length - away);
@@ -370,6 +616,46 @@ export function OutputLog({
     if (typeof el.scrollTo === 'function')
       el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     else el.scrollTop = el.scrollHeight;
+  }
+
+  function toggle(key: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  }
+
+  function renderEntry(e: Entry) {
+    switch (e.kind) {
+      case 'text':
+        return (
+          <div key={e.key} className="msg">
+            <Markdown text={short(e.text)} />
+          </div>
+        );
+      case 'user':
+        return (
+          <div key={e.key} className="user-msg" role="group" aria-label="Your message">
+            <span className="user-label">You</span>
+            <p className="user-text">{e.text}</p>
+          </div>
+        );
+      case 'tool':
+        return <ToolRow key={e.key} entry={e} short={short} />;
+      case 'stream':
+        return (
+          <pre key={e.key} className={`term out-${e.stream}`}>
+            {e.text}
+          </pre>
+        );
+      case 'debug':
+        return showDebug ? (
+          <pre key={e.key} className="out-debug">
+            {e.text}
+          </pre>
+        ) : null;
+    }
   }
 
   const debugToggle = debugCount > 0 && (
@@ -406,35 +692,23 @@ export function OutputLog({
           }}
         >
           {entries.length === 0 && <p className="muted">No output yet.</p>}
-          {entries.map((e) => {
-            switch (e.kind) {
-              case 'text':
+          {thread.map((item) => {
+            switch (item.kind) {
+              case 'entry':
+                return renderEntry(item.entry);
+              case 'group':
                 return (
-                  <div key={e.key} className="msg">
-                    <Markdown text={short(e.text)} />
-                  </div>
+                  <ToolGroup
+                    key={item.key}
+                    tools={item.tools}
+                    failed={item.failed}
+                    open={expanded.has(item.key)}
+                    onToggle={() => toggle(item.key)}
+                    short={short}
+                  />
                 );
-              case 'user':
-                return (
-                  <div key={e.key} className="user-msg" role="group" aria-label="Your message">
-                    <span className="user-label">You</span>
-                    <p className="user-text">{e.text}</p>
-                  </div>
-                );
-              case 'tool':
-                return <ToolRow key={e.key} entry={e} short={short} />;
-              case 'stream':
-                return (
-                  <pre key={e.key} className={`term out-${e.stream}`}>
-                    {e.text}
-                  </pre>
-                );
-              case 'debug':
-                return showDebug ? (
-                  <pre key={e.key} className="out-debug">
-                    {e.text}
-                  </pre>
-                ) : null;
+              case 'phase':
+                return <PhaseDivider key={item.key} move={item.move} workflow={workflow} />;
             }
           })}
           {children}

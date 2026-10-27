@@ -66,9 +66,11 @@ async function open() {
 }
 
 describe('DetailPanel → OutputLog', () => {
-  it('FR-5: passes SessionDetail.moves', async () => {
-    await open();
-    expect(seen.props.at(-1)?.moves).toEqual(MOVES);
+  it('FR-5: passes SessionDetail.moves, and the workflow for the dividers', async () => {
+    const { api, sid } = await open();
+    const last = seen.props.at(-1)!;
+    expect(last.moves).toEqual(MOVES);
+    expect(last.workflow).toEqual((await api.getSession(sid)).workflow);
   });
 
   it('NFR-4: 2,000 new chunks re-render the thread, not the Brief', async () => {

@@ -1,17 +1,28 @@
 import type {
+  AdminUserRow,
   AnswerInputRequest,
   ApiErrorCode,
   ApproveSessionRequest,
   BoardResponse,
   BoardSseEvent,
+  CreateInviteRequest,
   CreateTicketRequest,
+  InviteCreated,
+  InvitePreview,
+  InviteRow,
+  LoginRequest,
   MachineDto,
+  MeResponse,
   OkResponse,
   OutputChunk,
+  PasswordChangeRequest,
   ReopenSessionRequest,
   ReopenSessionResponse,
+  ResetLinkCreated,
+  ResetRequest,
   SendMessageRequest,
   SessionDetail,
+  SignupRequest,
   TicketDto,
   WorkflowDefinition,
   WorkflowDetail,
@@ -107,6 +118,36 @@ export interface ApiClient {
    * conflict when the transition isn't offered (wrong status, unknown, not allowed).
    */
   transition(sessionId: string, req: TransitionSessionRequest): Promise<OkResponse>;
+
+  // M2-T05: accounts and web auth (10-contracts §Accounts and web auth).
+  /** GET /api/me: the signed-in user and account. 401 without a session; `local` mode → local user. */
+  me(): Promise<MeResponse>;
+  /** POST /auth/login. 401 unauthorized "Email or password is wrong" (always the same); 429. */
+  login(req: LoginRequest): Promise<MeResponse>;
+  /** POST /auth/logout: ends the session and clears the cookie. */
+  logout(): Promise<OkResponse>;
+  /** POST /auth/signup → 201 and signed in. 400 (invite not valid, email differs, password); 429. */
+  signup(req: SignupRequest): Promise<MeResponse>;
+  /** GET /auth/invites/:token: never 404; `{valid: false}` for any bad token. 429. */
+  previewInvite(token: string): Promise<InvitePreview>;
+  /** POST /auth/reset: sets the password, revokes every session. 400 bad token / password; 429. */
+  resetPassword(req: ResetRequest): Promise<OkResponse>;
+  /** POST /auth/password. 401 when `current` is wrong (not a lost session); 400 password. */
+  changePassword(req: PasswordChangeRequest): Promise<OkResponse>;
+  /** GET /api/admin/invites (admin only, else 403), newest first. */
+  listInvites(): Promise<InviteRow[]>;
+  /** POST /api/admin/invites → 201; `url` holds the token and is shown only here. */
+  createInvite(req: CreateInviteRequest): Promise<InviteCreated>;
+  /** DELETE /api/admin/invites/:id: revokes the invite. 404 unknown. */
+  revokeInvite(inviteId: string): Promise<OkResponse>;
+  /** GET /api/admin/users (admin only). */
+  listUsers(): Promise<AdminUserRow[]>;
+  /** POST /api/admin/users/:id/reset-link → 201, a 1-hour link shown once. */
+  createResetLink(userId: string): Promise<ResetLinkCreated>;
+  /** POST /api/admin/users/:id/disable: revokes the user's sessions and machines. */
+  disableUser(userId: string): Promise<OkResponse>;
+  /** POST /api/admin/users/:id/unlock: clears the email's login lock. */
+  unlockUser(userId: string): Promise<OkResponse>;
 }
 
 /** A non-2xx API response (ApiError body), thrown by every ApiClient method. */

@@ -179,6 +179,7 @@ export function DetailPanel({
             <OutputLog
               output={output}
               moves={detail.moves ?? []}
+              workflow={detail.workflow}
               worktree={detail.worktree_path}
               variant="chat"
               visible={tab === 'messages'}

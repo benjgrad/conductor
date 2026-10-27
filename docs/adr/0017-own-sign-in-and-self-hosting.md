@@ -132,6 +132,7 @@ Internet ──TLS──▶ nginx (host, :443, cert for conductor.gradyserver.co
 - The consent page is a same-origin page posting JSON, covered by the Origin check above and `frame-ancestors 'none'`.
 - M3's e2e signs in with a test user (bootstrap + invite) instead of a fake GitHub; Ben's manual check uses his own password.
 - "GitHub login" in ADR-0014 and the M3 outline should be read as "conductor's sign-in". Nothing else in ADR-0014 changes.
+- **Note (2026-10-27, M3 plan)**: ADR-0014 §4 exempts `/oauth/register`, `/oauth/token`, `/oauth/revoke` and `/mcp` from the Origin rule above, and `/oauth/token` and `/oauth/revoke` from JSON-only (OAuth's form encoding). These paths never read the session cookie: they authenticate with PKCE, a refresh token or a bearer token. No CORS headers are sent. The consent decision stays a same-origin JSON `POST` under `/api`.
 
 ## Alternatives considered
 | Option | Why not |

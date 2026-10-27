@@ -4,6 +4,13 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-27 | Ben approved the M3 plan as written: ADR-0014 accepted. The order of work is M2r → M3 → the rest of M2 → M2c → M2b | ADR-0014, M3, ROADMAP |
+| 2026-10-27 | MCP rate limits: `/mcp` 120/min per grant (burst 40), 30 writes/min per grant, 300/min per account; registration 10/hour per IP; 25 active grants per user; nginx zones `conductor_mcp` / `conductor_oauth` | U-054, ADR-0014 §6 |
+| 2026-10-27 | MCP scopes `conductor:read` / `conductor:write` (write opt-in at consent). No server-side confirmation of writes; the client's tool approval is the check; every write audited with the client's name | U-069, ADR-0014 §5 |
+| 2026-10-27 | MCP OAuth: DCR only (no CIMD); `requires.approvals` stay board-only; no CORS | U-092, U-093, U-096 |
+| 2026-10-27 | OAuth grants: access 1 h, refresh 30 days rotated (reuse after 30 s revokes the grant), 30-day idle expiry; disable / reset / `revoke-sessions` revoke grants, a password change doesn't | U-094 |
+| 2026-10-27 | MCP audit: one `mcp_tool_call` row per call (reads too, no arguments), kept 90 days | U-095 |
+| 2026-10-27 | The hosted instance stays single-account until M2-T21 (route matrix incl. `/mcp`, `/api/oauth/*`) | TD-149, M3 |
 | 2026-10-27 | BUG-1 / BUG-1b process safety: a parked claude process is killed when its session leaves the state (Done, cancel, supersede, a human move off it); the startup orphan sweep kills only a process that is provably ours (a matching binary basename, argv and start time recorded at spawn); anything unproven is left alone | BUG-1 (PR #18), BUG-1b (PR #22), TD-154, TD-164..167 |
 | 2026-10-27 | Live board: web-only or additive changes are hot-swapped onto the pinned branch `board-pinned` (worktree `.claude/worktrees/board-m1b`); the orchestrator is not restarted for web-only swaps. UX-1 / UX-2 first (fc69b0e, df51670, ab477b4, 95be2e7, 1774ab9); now 2e88cf8 + UX-1, UX-2, UX-3, UX-4, UX-5 (`board-pinned` @ d75d320) | U-075 |
 | 2026-10-27 | Live board's session cap is lowered under load via `machine.max_sessions` (6 → 4 → 2 → 3) until hardware-based admission | TD-148, M2b-T13 |

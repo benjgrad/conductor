@@ -699,7 +699,8 @@ describe('daemon core: command_id dedupe and seq', () => {
     await orch.until(() => orch.ofType('request_work')[0]);
     const sid = randomUUID();
     orch.send(startSession(sid));
-    await orch.until(() => orch.events('ask_user')[0]);
+    // spend follows ask_user; wait for both so the count doesn't race it.
+    await orch.until(() => orch.events('ask_user')[0] && orch.events('spend')[0]);
     const before = orch.events().length; // started, claude_session_id, ask_user, spend
     expect(before).toBe(4);
 

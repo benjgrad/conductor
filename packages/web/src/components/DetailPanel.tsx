@@ -32,7 +32,7 @@ import { classifyRequest, lastMoveTransition } from './request-preview.js';
 import { ReviewRequest } from './ReviewRequest.js';
 import { MovesList, PendingChecklist, TransitionButtons } from './transitions.js';
 import { SessionWorkflowDiagram } from '../workflow/SessionWorkflowDiagram.js';
-import { stateLabel } from '../workflow/review.js';
+import { displayState } from '../workflow/review.js';
 
 interface DetailPanelProps {
   api: ApiClient;
@@ -133,8 +133,11 @@ export function DetailPanel({
                 <span className={`chip status status-${status}`}>{STATUS_LABELS[status]}</span>
               )
             )}
-            {detail?.card.workflow_state && (
-              <span className="muted head-state">{stateLabel(detail.card.workflow_state)}</span>
+            {/* UX-6: in a conductor step the chip says it all; never the synthetic label. */}
+            {detail?.card.workflow_state && !isConductorStep(detail.card) && (
+              <span className="muted head-state">
+                {displayState(detail.card.workflow_state, detail.workflow)}
+              </span>
             )}
           </div>
         </div>
@@ -200,6 +203,9 @@ export function DetailPanel({
               output={output}
               moves={detail.moves ?? []}
               workflow={detail.workflow}
+              checking={detail.card.checking}
+              failedItem={stepFailedItem(detail)}
+              active={commandActive(detail)}
               worktree={detail.worktree_path}
               variant="chat"
               visible={tab === 'messages'}
@@ -276,6 +282,21 @@ export function DetailPanel({
 }
 
 // ---------------------------------------------------------------- Messages
+
+/** UX-6: the check an open "Step failed" question names, for its run's status. */
+function stepFailedItem(detail: SessionDetail): string | null {
+  const request = detail.pending_input;
+  if (!request || classifyRequest(request) !== 'step_failed') return null;
+  return failedItemOfQuestion(request.question)?.item ?? null;
+}
+
+/** UX-6: conductor is running a command for the session (a gate step, or a command state). */
+function commandActive(detail: SessionDetail): boolean {
+  const { card, workflow } = detail;
+  if (isConductorStep(card)) return true;
+  const state = card.workflow_state ? workflow.states[card.workflow_state] : undefined;
+  return card.status === 'running' && state?.type === 'command';
+}
 
 interface PendingInputProps {
   api: ApiClient;
@@ -526,7 +547,7 @@ function WorkflowSection({ detail }: { detail: SessionDetail }) {
     <section aria-label="Workflow">
       <h3>Workflow</h3>
       <p className="state-line">
-        <strong>{card.workflow_state ? stateLabel(card.workflow_state) : '—'}</strong>{' '}
+        <strong>{card.workflow_state ? displayState(card.workflow_state, workflow) : '—'}</strong>{' '}
         <span className="muted">
           in {workflow.id} v{detail.workflow_version}
         </span>

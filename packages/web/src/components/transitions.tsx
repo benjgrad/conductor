@@ -10,6 +10,7 @@ import {
 } from '@conductor/shared';
 import { useId, useRef, useState, type FormEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
+import { displayState } from '../workflow/review.js';
 
 type ItemStatus = BoardPendingItem['status'];
 
@@ -184,9 +185,9 @@ export function TransitionButtons({
   );
 }
 
-/** A state's (or a gate step label's) display name: its title in the workflow, else as is. */
+/** A state's display name: its title in the workflow, a gate step as words (UX-6), else as is. */
 function stateName(workflow: WorkflowDefinition, state: string): string {
-  return workflow.states[state]?.title ?? state;
+  return displayState(state, workflow);
 }
 
 /** The transition's title from the state it left, else the name humanised. */

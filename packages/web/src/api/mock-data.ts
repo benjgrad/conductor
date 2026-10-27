@@ -589,11 +589,51 @@ export function mockChecking(current: number): BoardChecking {
   };
 }
 
+/** UX-6: a step's check output: the daemon's debug marker before each run, then its output. */
+function checkOutput(sessionId: string, ts: string): OutputChunk[] {
+  const sha = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
+  const chunks: [OutputChunk['stream'], string][] = [
+    ['debug', `conductor: setup \`npm ci\` in a fresh checkout of ${sha}`],
+    [
+      'stdout',
+      'Scope: all 5 workspace projects\nProgress: resolved 453, reused 453, downloaded 0\n',
+    ],
+    ['stderr', ' WARN  Failed to create bin at node_modules/.bin/tsc\n'],
+    ['stdout', 'Done in 3.2s\n'],
+    ['debug', `conductor: \`npm run build\` in a fresh checkout of ${sha}`],
+    ['stdout', '\n> conductor@ build\n> tsc -b && vite build\n\n'],
+  ];
+  return chunks.map(([stream, text], seq) => ({ session_id: sessionId, seq, stream, text, ts }));
+}
+
 /** UX-5: conductor running a move step (the agent took `personal_pr_ready_for_review` and exited). */
 function checkingSeeds(now: Date): MockSeed[] {
   const state = moveStateLabel('implementing', 'needs_input', 'personal_pr_ready_for_review');
   const step = (s: MockSeed, slot: boolean): MockSeed => ({
     ...s,
+    // UX-6: the move into the step, and the step's check output as the daemon streams it.
+    session: {
+      ...s.session!,
+      moves: [
+        {
+          at: ago(now, 180),
+          from: null,
+          to: 'implementing',
+          transition: null,
+          reason: null,
+          actor: null,
+        },
+        {
+          at: ago(now, 2),
+          from: 'implementing',
+          to: state,
+          transition: 'personal_pr_ready_for_review',
+          reason: 'Implemented and tested.',
+          actor: 'agent',
+        },
+      ],
+      output: slot ? [] : checkOutput(s.card.session_id!, ago(now, 1)),
+    },
     card: {
       ...s.card,
       kind: 'personal',

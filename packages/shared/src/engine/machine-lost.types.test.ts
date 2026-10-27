@@ -13,7 +13,11 @@ import {
   MACHINE_LOST_REASONS,
   MachineLostMarkSchema,
   machineLostContinueTitle,
+  machineLostCanContinue,
   machineLostQuestion,
+  formatOfflineDuration,
+  PIN_OFFLINE_ENV,
+  PINNED_MACHINE_OFFLINE_AFTER_MS,
 } from './types.js';
 
 // M2-T02 contracts for a lost machine (U-068). The engine behaviour is M2-T06's.
@@ -48,7 +52,20 @@ describe('machine.lost contract', () => {
     expect(machineLostQuestion('mbp-ben', 'pinned_machine_offline')).toBe(
       'mbp-ben has been offline for 15 minutes',
     );
+    expect(machineLostQuestion('mbp-ben', 'pinned_machine_offline', 3_600_000)).toBe(
+      'mbp-ben has been offline for 1 hour',
+    );
+    expect(PINNED_MACHINE_OFFLINE_AFTER_MS).toBe(900_000);
+    expect(PIN_OFFLINE_ENV).toBe('CONDUCTOR_PIN_OFFLINE_MS');
+    expect(formatOfflineDuration(60_000)).toBe('1 minute');
+    expect(formatOfflineDuration(10_000)).toBe('1 minute');
+    expect(formatOfflineDuration(90 * 60_000)).toBe('90 minutes');
+    expect(formatOfflineDuration(7_200_000)).toBe('2 hours');
     expect(machineLostContinueTitle('mbp-ben')).toBe('Continue on mbp-ben');
+    // R4: a revoked machine can never come back, so the human only gets Cancel.
+    expect(machineLostCanContinue('lease_expired')).toBe(true);
+    expect(machineLostCanContinue('pinned_machine_offline')).toBe(true);
+    expect(machineLostCanContinue('revoked')).toBe(false);
   });
 
   it('the kind is new (added to the enum by M2-T03), the kill reason and pin key are fixed', () => {

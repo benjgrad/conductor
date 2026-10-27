@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import type { OutboxEffect, SessionSnapshot } from '../engine/types.js';
-import type { WorkingCopy } from '../machines/inventory.js';
+import { WORKING_COPY_CONTEXT_KEY, WorkingCopySchema } from '../machines/inventory.js';
 import type {
   KillPayloadSchema,
   RunActionPayloadSchema,
@@ -37,11 +37,6 @@ export interface CommandPayloadContext {
   branch: string;
   /** Default M1_BASE_REF. */
   base_ref?: string;
-  /**
-   * M2 (ADR-0013): the `machine_repo` the claim matched, passed by the dispatcher / wrapper for a
-   * start_session. Absent = omitted from the payload (M1 local mode).
-   */
-  working_copy?: WorkingCopy;
 }
 
 export type MachineCommand =
@@ -89,7 +84,10 @@ export function commandPayloadForEffect(
       if (effect.transitions !== undefined && effect.transitions.length > 0) {
         payload.transitions = effect.transitions;
       }
-      if (ctx.working_copy !== undefined) payload.working_copy = ctx.working_copy;
+      // M2 (ADR-0013): the claim's working copy, kept in the session context so every start of
+      // the session (re-emits included) carries it. Absent or malformed = M1 clone path.
+      const wc = WorkingCopySchema.safeParse(snapshot.context[WORKING_COPY_CONTEXT_KEY]);
+      if (wc.success) payload.working_copy = wc.data;
       return { kind: 'start_session', target, payload };
     }
     case 'send_input':

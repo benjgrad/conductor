@@ -21,7 +21,10 @@ export const CapabilitySchema = z.discriminatedUnion('kind', [
   }),
   /** An MCP server name from the user's Claude Code config (user scope and plugins). */
   z.object({ kind: z.literal('mcp'), name: NameSchema }),
-  /** `~/.claude/skills/<name>`, or `<repo>/.claude/skills/<name>` with `repo` set. */
+  /**
+   * `~/.claude/skills/<name>`, or `<repo>/.claude/skills/<name>` with `repo` = that repo's
+   * canonical remote. A repo whose remote is null has its skills and agents not reported.
+   */
   z.object({ kind: z.literal('skill'), name: NameSchema, repo: RepoScopeSchema.optional() }),
   /** `~/.claude/agents/<name>`, or a repo's `.claude/agents/<name>` with `repo` set. */
   z.object({ kind: z.literal('agent'), name: NameSchema, repo: RepoScopeSchema.optional() }),
@@ -59,16 +62,40 @@ export function capabilityKey(c: Capability): CapabilityRequirement {
   }
 }
 
-/** Every key a capability satisfies: an authed cli also satisfies `cli:<name>`. */
+/**
+ * Every key a capability satisfies: an authed cli also satisfies `cli:<name>`. These are the rows
+ * T09 stores in `machine_capability (machine_id, key)` (PK `(machine_id, key)`), so
+ * `skill:review` and `skill:review@github.com/o/app` are separate rows.
+ */
 export function capabilityKeys(c: Capability): CapabilityRequirement[] {
   return c.kind === 'cli' && c.authed ? [`cli:${c.name}`, capabilityKey(c)] : [capabilityKey(c)];
 }
 
-/** The requirements none of `caps` satisfies, in the order given, de-duplicated. */
+/**
+ * Whether a machine's stored keys satisfy one requirement for a ticket of `ticketRepo` (its
+ * canonical repo; null = none). An exact key matches. A bare `skill:<name>` / `agent:<name>` is
+ * also met by the repo-scoped `skill:<name>@<ticketRepo>`, but never by a skill of another repo.
+ * The claim (M2-T16) applies the same rule in SQL.
+ */
+export function satisfiesCapability(
+  keys: ReadonlySet<string>,
+  required: CapabilityRequirement,
+  ticketRepo: string | null,
+): boolean {
+  if (keys.has(required)) return true;
+  const repoScoped = /^(?:skill|agent):[^@]+$/.test(required);
+  return repoScoped && ticketRepo !== null && keys.has(`${required}@${ticketRepo}`);
+}
+
+/**
+ * The requirements none of `caps` satisfies for a ticket of `ticketRepo` (see
+ * satisfiesCapability), in the order given, de-duplicated. The Queued card's routing badge.
+ */
 export function missingCapabilities(
   caps: readonly Capability[],
   required: readonly CapabilityRequirement[],
+  ticketRepo: string | null,
 ): CapabilityRequirement[] {
-  const have = new Set(caps.flatMap(capabilityKeys));
-  return [...new Set(required)].filter((r) => !have.has(r));
+  const keys = new Set(caps.flatMap(capabilityKeys));
+  return [...new Set(required)].filter((r) => !satisfiesCapability(keys, r, ticketRepo));
 }

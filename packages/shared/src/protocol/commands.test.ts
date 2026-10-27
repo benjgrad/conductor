@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SNAPSHOT_FIXTURE } from '../engine/fixtures.js';
 import { sessionBranch } from '../domain.js';
+import { WORKING_COPY_CONTEXT_KEY } from '../machines/inventory.js';
 import { commandPayloadForEffect, M1_BASE_REF } from './commands.js';
 import { OrchestratorToDaemonSchema } from './ws.js';
 
@@ -150,7 +151,7 @@ describe('commandPayloadForEffect (Effect → WS)', () => {
     ).toThrow(/unknown entry action/);
   });
 
-  it('M2: start_session carries the working copy from the context; none → field omitted', () => {
+  it('M2: every start_session carries the working copy from the session context; none → omitted', () => {
     const effect = {
       type: 'start_session' as const,
       state: 'implementing',
@@ -159,10 +160,27 @@ describe('commandPayloadForEffect (Effect → WS)', () => {
       resume_claude_session_id: null,
     };
     const working_copy = { repo_path: '/Users/ben/code/fixture-app', mode: 'reference' as const };
-    const c = commandPayloadForEffect(effect, { ...ctx, working_copy });
+    const snapshot = {
+      ...SNAPSHOT_FIXTURE,
+      context: { ...SNAPSHOT_FIXTURE.context, [WORKING_COPY_CONTEXT_KEY]: working_copy },
+    };
+    const c = commandPayloadForEffect(effect, { ...ctx, snapshot });
     expect(c.kind === 'start_session' && c.payload.working_copy).toEqual(working_copy);
     expect(envelope(c.kind, c.payload).type).toBe('start_session');
+    // A resume (re-emit) carries it the same way.
+    const resumed = commandPayloadForEffect(
+      { ...effect, resume_claude_session_id: 'claude-1' },
+      { ...ctx, snapshot },
+    );
+    expect(resumed.kind === 'start_session' && resumed.payload.working_copy).toEqual(working_copy);
     expect(commandPayloadForEffect(effect, ctx).payload).not.toHaveProperty('working_copy');
+    const bad = {
+      ...SNAPSHOT_FIXTURE,
+      context: { [WORKING_COPY_CONTEXT_KEY]: { repo_path: 'relative', mode: 'reference' } },
+    };
+    expect(commandPayloadForEffect(effect, { ...ctx, snapshot: bad }).payload).not.toHaveProperty(
+      'working_copy',
+    );
   });
 
   it('throws without a machine', () => {

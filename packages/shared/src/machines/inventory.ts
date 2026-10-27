@@ -13,14 +13,16 @@ export const WorkingCopyModeSchema = z.enum(['reference', 'checkout']);
 export type WorkingCopyMode = z.infer<typeof WorkingCopyModeSchema>;
 
 // The M1-T14 grammar (daemon/src/workspace.ts `CANONICAL`): a DNS host, then two or more path
-// segments (GitLab subgroups). TD: duplicated in the daemon and T01's `canonicalRepo`.
-const LABEL = '[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?';
+// segments (GitLab subgroups). Canonical form, as T01's `canonicalRepo` produces it: the host is
+// lower-case; org / repo keep their case (T16 compares github.com org/repo case-insensitively).
+// TD-107: this repo grammar is duplicated in daemon/src/workspace.ts and T01's `canonicalRepo`.
+const LABEL = '[a-z0-9](?:[a-z0-9-]*[a-z0-9])?';
 const HOST = `${LABEL}(?:\\.${LABEL})*`;
 const SEGMENT = '[A-Za-z0-9_][A-Za-z0-9._-]*';
 
 /**
- * A canonical remote: `host/org/repo[/sub…]`, no scheme, no user, no port, no `.git` suffix and
- * no `.` / `..` segment. What the inventory reports as `remote` and what `ticket.repo` names.
+ * A canonical remote: `host/org/repo[/sub…]` with a lower-case host, no scheme, no user, no port,
+ * no `.git` suffix (any case) and no `.` / `..` segment. What the inventory reports as `remote` and what `ticket.repo` names.
  */
 export const CANONICAL_REMOTE_RE = new RegExp(`^${HOST}(?:/${SEGMENT}){2,}$`);
 
@@ -78,3 +80,10 @@ export const WorkingCopySchema = z.object({
   mode: WorkingCopyModeSchema,
 });
 export type WorkingCopy = z.infer<typeof WorkingCopySchema>;
+
+/**
+ * `session.context` key holding the claim's chosen WorkingCopy (set by the claim, M2-T16, in the
+ * claim transaction; no migration). `commandPayloadForEffect` copies it into every start_session
+ * of the session, re-emits included. Absent = the M1 clone path (local mode).
+ */
+export const WORKING_COPY_CONTEXT_KEY = '__working_copy';

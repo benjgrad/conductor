@@ -159,6 +159,7 @@ describe('InventoryRepoSchema', () => {
       'github.com/org/app',
       'gitlab.com/g/sub/app',
       'git.example.co/o/r_1',
+      'github.com/BenjGrad/My-App', // org / repo keep their case; only the host is lower-case
       null,
     ]) {
       expect(InventoryRepoSchema.safeParse({ ...ok, remote }).success).toBe(true);
@@ -177,6 +178,9 @@ describe('InventoryRepoSchema', () => {
       'github.com/o',
       'github.com/o/../r',
       'github.com:22/o/r',
+      'GitHub.com/o/r',
+      'GITHUB.COM/o/r',
+      'github.com/o/r.GIT',
       '',
     ]) {
       expect(InventoryRepoSchema.safeParse({ ...ok, remote }).success, remote).toBe(false);
@@ -250,16 +254,57 @@ describe('capabilities', () => {
 
   it('missingCapabilities lists what the machine lacks, once, in order', () => {
     expect(
-      missingCapabilities(CAPABILITY_FIXTURES, [
-        'cli:gh:authed',
-        'cli:az:authed',
-        'cli:git',
-        'claude',
-        'mcp:jira',
-        'cli:az:authed',
-      ]),
+      missingCapabilities(
+        CAPABILITY_FIXTURES,
+        ['cli:gh:authed', 'cli:az:authed', 'cli:git', 'claude', 'mcp:jira', 'cli:az:authed'],
+        'github.com/benjgrad/fixture-app',
+      ),
     ).toEqual(['cli:az:authed', 'mcp:jira']);
-    expect(missingCapabilities([], ['claude'])).toEqual(['claude']);
+    expect(missingCapabilities([], ['claude'], null)).toEqual(['claude']);
+  });
+
+  it('a bare skill / agent requirement is met by a user-level one or one of the ticket repo only', () => {
+    const app = 'github.com/benjgrad/fixture-app';
+    const other = 'github.com/benjgrad/other';
+    // CAPABILITY_FIXTURES: skill review (user), skill deploy@fixture-app, agent implementer@conductor.
+    expect(missingCapabilities(CAPABILITY_FIXTURES, ['skill:review'], other)).toEqual([]);
+    expect(missingCapabilities(CAPABILITY_FIXTURES, ['skill:deploy'], app)).toEqual([]);
+    expect(missingCapabilities(CAPABILITY_FIXTURES, ['skill:deploy'], other)).toEqual([
+      'skill:deploy',
+    ]);
+    expect(missingCapabilities(CAPABILITY_FIXTURES, ['skill:deploy'], null)).toEqual([
+      'skill:deploy',
+    ]);
+    expect(
+      missingCapabilities(
+        CAPABILITY_FIXTURES,
+        ['agent:implementer'],
+        'github.com/benjgrad/conductor',
+      ),
+    ).toEqual([]);
+    // An explicit repo-scoped requirement matches exactly; a user-level skill doesn't meet it.
+    expect(missingCapabilities(CAPABILITY_FIXTURES, [`skill:deploy@${app}`], other)).toEqual([]);
+    expect(missingCapabilities(CAPABILITY_FIXTURES, [`skill:review@${app}`], app)).toEqual([
+      `skill:review@${app}`,
+    ]);
+    // Never across kinds: a skill doesn't satisfy an agent.
+    expect(missingCapabilities(CAPABILITY_FIXTURES, ['agent:review'], app)).toEqual([
+      'agent:review',
+    ]);
+  });
+
+  it('capabilityKeys gives the stored rows: user and repo-scoped skills are separate keys', () => {
+    expect(CAPABILITY_FIXTURES.flatMap(capabilityKeys)).toEqual([
+      'cli:gh',
+      'cli:gh:authed',
+      'cli:az',
+      'cli:git',
+      'mcp:slack',
+      'skill:review',
+      'skill:deploy@github.com/benjgrad/fixture-app',
+      'agent:implementer@github.com/benjgrad/conductor',
+      'claude',
+    ]);
   });
 
   it('refuses unknown kinds, blank names and a non-canonical repo scope', () => {

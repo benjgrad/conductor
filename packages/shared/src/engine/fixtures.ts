@@ -183,6 +183,7 @@ export const MACHINE_LOST_EVENT_FIXTURES: {
     machine_id: 'mbp-ben',
     reason: 'pinned_machine_offline',
     machine_name: "Ben's MacBook",
+    offline_ms: 900_000,
   },
 };
 

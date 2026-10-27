@@ -492,9 +492,11 @@ export const StartSessionPayloadSchema = z.object({
    */
   transitions: z.array(AgentTransitionOptionSchema).optional(),
   /**
-   * ADR-0013 / U-060 (M2): the `machine_repo` the claim matched. The daemon re-checks `repo_path`
-   * and `mode` against its own inventory (never trusting the message), fetches the default branch
-   * and adds the worktree from `origin/<default_branch>`; `base_ref` is then informational.
+   * ADR-0013 / U-060 (M2): the `machine_repo` the claim matched, kept in the session context
+   * (`WORKING_COPY_CONTEXT_KEY`) and carried by every start of the session, re-emits included.
+   * The daemon re-checks `repo_path` and `mode` against its own inventory (never trusting the
+   * message), reuses the session's existing worktree when there is one, else fetches the default
+   * branch and adds the worktree from `origin/<default_branch>`; `base_ref` is then informational.
    * Absent = M1 behaviour (local mode: the daemon's shared clone at `base_ref`).
    */
   working_copy: WorkingCopySchema.optional(),

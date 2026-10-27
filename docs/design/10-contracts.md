@@ -294,11 +294,11 @@ M2-T02 froze the machine-side seams for M2 ([ADR-0013](../adr/0013-machine-enrol
 |---|---|---|---|
 | `PROTOCOL_VERSION` 2, `register.protocol_version?`, `register.enrollment_token?` (local mode only, ignored), `DAEMON_AUTH_HEADER` + `daemonAuthHeaderValue` / `parseDaemonAuthHeader`, `CLOSE_REPLACED` 4000 / `CLOSE_REVOKED` 4001 / `CLOSE_UNAUTHORIZED` 4003 / `CLOSE_PROTOCOL` 4005 + `CLOSE_REASONS` | `shared/src/protocol/ws.ts` | T04 daemon ⇄ T09 gateway | `M2_WS_FIXTURES.register_v1`, `.register_v2` |
 | `inventory` (`InventoryPayloadSchema`), `alert` (`AlertPayloadSchema`, `ALERT_FILES_MAX` 200); `repo_inventory` kept (superseded) | `shared/src/protocol/ws.ts` | T10 daemon → T16 gateway | `DAEMON_FIXTURES.inventory`, `.alert`; `M2_WS_FIXTURES.inventory_empty`, `.alert_with_session` |
-| `start_session.working_copy?` (`WorkingCopySchema`), `CommandPayloadContext.working_copy?` | `shared/src/protocol/ws.ts`, `protocol/commands.ts` | T16 claim / T19 wrapper → T13 daemon | `M2_WS_FIXTURES.start_session_working_copy` |
+| `start_session.working_copy?` (`WorkingCopySchema`), `WORKING_COPY_CONTEXT_KEY` (`__working_copy`), read by `commandPayloadForEffect` | `shared/src/protocol/ws.ts`, `machines/inventory.ts`, `protocol/commands.ts` | T16 claim (writes the context) → T19 wrapper (unchanged call) → T13 daemon | `M2_WS_FIXTURES.start_session_working_copy` |
 | `InventoryRepoSchema`, `WorkingCopyModeSchema` (`reference` \| `checkout`), `CANONICAL_REMOTE_RE` / `isCanonicalRemote`, `AbsolutePathSchema` | `shared/src/machines/inventory.ts` | T10 → T09 (rows), T16, T11 (via T01 DTOs) | `INVENTORY_REPO_FIXTURE`, `INVENTORY_REPO_CHECKOUT_FIXTURE` |
-| `CapabilitySchema`, `capabilityKey`, `capabilityKeys`, `missingCapabilities`, `CapabilityRequirementSchema` | `shared/src/machines/capabilities.ts` | T10 → T09 (rows), T16 (claim, badge) | `CAPABILITY_FIXTURES` |
+| `CapabilitySchema`, `capabilityKey`, `capabilityKeys`, `satisfiesCapability`, `missingCapabilities(caps, reqs, ticketRepo)`, `CapabilityRequirementSchema` | `shared/src/machines/capabilities.ts` | T10 → T09 (rows), T16 (claim, badge) | `CAPABILITY_FIXTURES` |
 | `requiredCapabilities(def, kind)` (**stub returning `[]`** until T06) | `shared/src/machines/required.ts` | T06 → T12 (on save), T16 | — |
-| `machine.lost {machine_id, reason, machine_name?}`, `MACHINE_LOST_REASONS`, `MACHINE_LOST_KIND`, `machineLostQuestion`, `machineLostContinueTitle`, `MACHINE_LOST_KILL_REASON`, `MACHINE_LOST_CONTEXT_KEY` + `MachineLostMarkSchema`, `PINNED_MACHINE_OFFLINE_AFTER` 15m, ignore reason `machine_mismatch` | `shared/src/engine/types.ts` | T20 (reaper, revoke) → T06 apply → T16 claim, T11 card | `MACHINE_LOST_EVENT_FIXTURES`, `MACHINE_LOST_MARK_FIXTURE` (`engine/fixtures.ts`) |
+| `machine.lost {machine_id, reason, machine_name?, offline_ms?}`, `MACHINE_LOST_REASONS`, `MACHINE_LOST_KIND`, `machineLostQuestion(name, reason, offlineMs?)`, `formatOfflineDuration`, `machineLostCanContinue`, `machineLostContinueTitle`, `MACHINE_LOST_KILL_REASON`, `MACHINE_LOST_CONTEXT_KEY` + `MachineLostMarkSchema`, `PINNED_MACHINE_OFFLINE_AFTER_MS` 900 000 + `PIN_OFFLINE_ENV` (`CONDUCTOR_PIN_OFFLINE_MS`), ignore reason `machine_mismatch` | `shared/src/engine/types.ts` | T20 (reaper, revoke) → T06 apply → T16 claim, T11 card | `MACHINE_LOST_EVENT_FIXTURES`, `MACHINE_LOST_MARK_FIXTURE` (`engine/fixtures.ts`) |
 
 **Versioning and auth.**
 - The daemon sends `register.protocol_version = PROTOCOL_VERSION`; absent means 1, an M1 daemon. `daemon_version` (package version, plus `+<CONDUCTOR_BUILD_SHA>` when set) was already required and stays so.
@@ -308,7 +308,7 @@ M2-T02 froze the machine-side seams for M2 ([ADR-0013](../adr/0013-machine-enrol
 
 **Inventory.**
 - Sent after every `registered` and whenever the scan changes (10-minute rescan, `SIGHUP`). Each `inventory` **replaces** the machine's previous repos and capabilities wholesale. Not durable (`seq` null): a new connection sends a fresh one. `hash` is the daemon's digest of the inventory, and `request_work.repos_digest` carries the latest `hash`.
-- A repo: `path` (the user's checkout, absolute POSIX, no `.`/`..`; unique per machine), `remote` (canonical `host/org/repo[/sub…]` per `CANONICAL_REMOTE_RE`, the M1-T14 grammar without scheme, user, port or `.git`; `null` = no allowed remote: listed, never routed to), `default_branch`, `head_commit` (40 or 64 hex), `mode` (U-060: `reference` = worktrees of a daemon reference clone, the default; `checkout` = worktrees off the user's checkout, opt-in, with the tamper check).
+- A repo: `path` (the user's checkout, absolute POSIX, no `.`/`..`; unique per machine), `remote` (canonical `host/org/repo[/sub…]` per `CANONICAL_REMOTE_RE`, the M1-T14 grammar without scheme, user, port or `.git`, with a **lower-case host** and the org/repo case kept, as T01's `canonicalRepo` produces it; T16 compares github.com org/repo case-insensitively; `null` = no allowed remote: listed, never routed to), `default_branch`, `head_commit` (40 or 64 hex), `mode` (U-060: `reference` = worktrees of a daemon reference clone, the default; `checkout` = worktrees off the user's checkout, opt-in, with the tamper check).
 - `repo_inventory` stays in the protocol until T16 switches the gateway to `inventory`; it is then deprecated, and T21 removes it.
 
 **Capability keys.** `capabilityKey(c)` is the routing key; versions are never part of it:
@@ -320,44 +320,67 @@ M2-T02 froze the machine-side seams for M2 ([ADR-0013](../adr/0013-machine-enrol
 | `skill {name, repo?}` / `agent {name, repo?}` | `skill:<name>` / `skill:<name>@<repo>` (same for `agent`) |
 | `claude {version}` | `claude` |
 
-A machine satisfies a requirement when the requirement is in `capabilityKeys(c)` for one of its capabilities: an authed cli satisfies both `cli:<name>` and `cli:<name>:authed`. `missingCapabilities(caps, reqs)` is the list a Queued card's routing badge names. T09 stores the satisfied keys (`capabilityKeys`) so the claim's SQL can test membership.
+**Storage (T09).** `machine_capability` stores routing keys: a `key` text column, primary key `(machine_id, key)`, one row per element of `capabilityKeys(c)` for each reported capability (an authed cli gives both `cli:<name>` and `cli:<name>:authed`). The key includes `@<repo>` for a repo-scoped skill or agent, so `skill:review` and `skill:review@github.com/o/app` are separate rows. Other columns (kind, name, version, `detail`) are for display only; routing reads only `key`.
+
+**Matching (`satisfiesCapability`, the claim's SQL in T16, `missingCapabilities` for the badge).** A requirement is met when:
+- its exact key is stored for the machine; or
+- it is a bare `skill:<name>` / `agent:<name>` and the machine has `skill:<name>@<ticket.repo>` (the ticket's canonical repo). A repo-scoped skill or agent never meets a ticket for another repo.
+
+A repo whose `remote` is null has its repo-scoped skills and agents **not reported** (`CapabilitySchema.repo` must be a canonical remote): they can't be matched to any ticket. `missingCapabilities(caps, reqs, ticketRepo)` is the list a Queued card's routing badge names.
 
 **Alerts.** `alert {kind: 'git_tamper', repo, session_id?, files, at}`: in `checkout` mode the daemon hashes the checkout's `.git/config`, `.git/hooks/` and the `core.hooksPath` target before and after each session; a change raises one alert. `repo` is the inventory `path`; `files` (1–200) are relative to the checkout's `.git`. **Durable**: `seq` is required, so the daemon buffers and replays it like a `session_event`, and the gateway dedupes it on `(machine_id, seq)` with the same `machine.last_seq` guard ([Daemon seq dedupe](#daemon-seq-dedupe)).
 
-**Working copy.** `start_session.working_copy {repo_path, mode}` is the `machine_repo` the claim matched (T16 passes it through `CommandPayloadContext.working_copy`). The daemon re-checks that `repo_path` with that `mode` is in its own current inventory and refuses the start otherwise; it never uses a path it didn't scan. With a working copy the worktree is based on `origin/<default_branch>` after a fetch (hooks off), and `base_ref` is informational. Absent: M1 behaviour (local mode).
+**Working copy.** The claim (T16) chooses a `machine_repo` and writes `{repo_path, mode}` into `session.context.__working_copy` (`WORKING_COPY_CONTEXT_KEY`; no migration) in the claim transaction, before `applyEvent(session.assigned)`. apply keeps unknown context keys, and `commandPayloadForEffect` copies a valid `__working_copy` into **every** `start_session` of the session (first start, resumes, reviewer starts, the re-emit after a requeue), so no caller passes it. A re-claim by another machine rewrites it. The daemon:
+- re-checks that `repo_path` with that `mode` is in its own current inventory, and refuses the start otherwise; it never uses a path it didn't scan;
+- reuses its existing worktree for the session when one exists (same session, same branch, `Workspace.ensureWorktree`); otherwise it fetches (hooks off) and adds the worktree from `origin/<default_branch>`. `base_ref` is informational.
+
+Absent (or invalid) `__working_copy`: no `working_copy` in the payload, the M1 clone path (local mode).
 
 **Lost machines (U-068).** The `input_request.kind` is a **new value `machine_lost`** (`MACHINE_LOST_KIND`), not `timeout`: the question isn't a timeout, and the card and filters need to tell them apart. **`input_request.kind = machine_lost`, added to the InputRequestKind enum + DB enum + web label by M2-T03.** Until then `create_input_request.kind` stays `InputRequestKindSchema`, and T06 (which now depends on T03) emits it.
 
-`machine.lost {machine_id, reason, machine_name?}` comes from the orchestrator (T20): `lease_expired` (the reaper: a lease lapsed past its grace), `revoked` (`revokeMachine`, once per live session), `pinned_machine_offline` (a reopen-pinned queued session whose machine has been offline for `PINNED_MACHINE_OFFLINE_AFTER`, TD-088). `machine_name` is the machine's display name; the question falls back to `machine_id`. Frozen semantics, implemented by T06:
+`machine.lost {machine_id, reason, machine_name?, offline_ms?}` comes from the orchestrator (T20):
+- `lease_expired`: the reaper, for a session whose `lease_expires_at` is past its expiry **plus the 2-minute grace** of [04 §4](04-scheduler.md#4--leases-and-fencing);
+- `revoked`: the caller of `revokeMachine`, once per non-terminal session on that machine;
+- `pinned_machine_offline`: the reaper, for a queued session pinned to a machine (a reopen pin, TD-088, or a `__machine_lost` mark) that has been offline for `PINNED_MACHINE_OFFLINE_AFTER_MS` (900 000 ms; `CONDUCTOR_PIN_OFFLINE_MS` overrides it). `offline_ms` carries the threshold used.
 
-| Snapshot | Result |
-|---|---|
-| `done` / `failed` | ignored `session_terminal` |
-| `needs_input` (already with a human) | ignored `wrong_status` |
-| `queued`, unless `reason = pinned_machine_offline` on the pinned machine | ignored `wrong_status` |
-| `machine_id` (or the pin) is not the event's | ignored `machine_mismatch` |
-| `assigned` / `running` / `waiting_external` (a gate step is left), or the pinned `queued` case | applied, below |
+**apply stays pure and trusts the event.** The pin check is the reaper's SQL (T20). `SessionSnapshot` has no pin field, and apply never decides whether a session is pinned. `machine_name` is the display name; the question falls back to `machine_id`. Frozen semantics, implemented by T06 (this table wins over the task block):
 
-Applied:
-- status → `needs_input`; `return_to` = the current workflow state (the gate step's `from` when one was running; null for a never-started reopened session); `agent_process_live = false`; **`machine_id` is kept**; no deadline (parked time doesn't count);
-- `create_input_request {kind: machine_lost, question: machineLostQuestion(name, reason), return_to}`: `"<machine> stopped responding"`, `"<machine> was revoked"`, `"<machine> has been offline for 15 minutes"`;
-- `context.__machine_lost` (`MACHINE_LOST_CONTEXT_KEY`) = `MachineLostMark {machine_id, machine_name, reason, state, at}`: the re-dispatch pin, in `session.context` like `STEP_CONTEXT_KEY` (no migration);
-- one `kill {reason: 'machine_lost'}` effect (`target_command_id` absent: every process of the session at or below the row's token). Its outbox row targets `machine:<machine_id>` and waits there until the machine reconnects; it is delivered before any later command to that machine (outbox order per target).
-- **Wrapper (T19/T20):** on an applied `machine.lost`, `session.fencing_token = nextval('fencing_seq')`, like gate-step fencing, so the old worker's late events are refused `stale_fencing_token` and killed (the `spend` exception as today).
+| Snapshot | Event | Result |
+|---|---|---|
+| `done` / `failed` (terminal) | any | ignored `session_terminal` |
+| `assigned` / `running` / `waiting_external` (a gate step is left), `machine_id` = the event's | any reason | applied (A) |
+| same statuses, `machine_id` ≠ the event's | `lease_expired` / `revoked` | ignored `machine_mismatch` |
+| `queued` | `pinned_machine_offline` | applied (A), trusted |
+| `queued` or `needs_input` with a `__machine_lost` mark for the event's machine | `revoked` | applied (B) |
+| `needs_input` / `queued`, any other case | any | ignored `wrong_status` |
 
-The human then has:
-- **"Continue on <machine>"**: the human state's `$return_to` transition (`conductor`'s `answer`), shown with `machineLostContinueTitle(name)` while the open request's kind is `machine_lost` (card derivation). Taking it re-enters `return_to`; with no live process apply requeues (status `queued`, ticket `ready`), keeping the mark. The claim (T16) offers a queued session carrying the mark **only to `mark.machine_id`** (a hard filter, like the [reopen pin](04-scheduler.md#2--claim-query-ticket-side)); `session.assigned` then re-emits the state's `start_session` with `resume_claude_session_id`. The mark is cleared on the next matching `session.started`.
-- **Cancel**: the existing operator action.
-- No automatic requeue to another machine (U-011/U-012 stay open: the worktree and the transcript are on the lost machine).
+**(A) Applied:**
+- status → `needs_input`; ticket → `in_progress` when the session was `queued` (so the claim can't pick it); `return_to` = the current workflow state (the gate step's `from` when one was running; null when `workflow_state` is null); `agent_process_live = false`; **`machine_id` is kept** (for a queued session: the event's); no deadline (parked time doesn't count);
+- `create_input_request {kind: machine_lost, question: machineLostQuestion(name, reason, offline_ms), return_to}`: `"<machine> stopped responding"`, `"<machine> was revoked"`, `"<machine> has been offline for <formatOfflineDuration(offline_ms)>"` (default 15 minutes);
+- `context.__machine_lost` = `MachineLostMark {machine_id, machine_name, reason, state, at}` (`MACHINE_LOST_CONTEXT_KEY`, no migration);
+- for `lease_expired` and `pinned_machine_offline` when a process may still run (`assigned` / `running` / `waiting_external`): one `kill {reason: 'machine_lost'}` effect (`target_command_id` absent: every process of the session at or below the row's token). Its outbox row targets `machine:<machine_id>` and waits until the machine reconnects; outbox order per target delivers it before any later command. **No kill for `revoked`**: the machine can never reconnect, and see revoke below.
+
+**(B) Revoked while already parked or waiting on the machine:** status → `needs_input` (ticket `in_progress` if it was `queued`), the mark's `reason` becomes `revoked`, and a new `create_input_request` with the `revoked` question (`return_to` unchanged). The wrapper closes the previous open request as superseded (`answer = '[superseded]'`, `answered_by = 'system'`) in the same transaction. No kill.
+
+**Fencing (R5): one owner, the EngineService wrapper** (`orchestrator/src/engine/service.ts`). It already bumps `session.fencing_token = nextval('fencing_seq')` after apply and before writing the outbox rows: on a non-ignored `start_session` refusal and on gate-step changes ([EngineService wrapper](#engineservice-wrapper)). The re-claim bump stays in the claim (`gateway/claim.ts`). An applied (non-ignored) `machine.lost` joins the wrapper's list, so the kill row and every later command carry the new token. The old worker's late events are refused `stale_fencing_token` and killed (the `spend` exception as today). apply never changes `fencing_token`.
+
+**Revoke and the outbox (R4).** `revokeMachine` (T09), in its transaction: set `revoked_at`; mark every `pending` / `sent` outbox row targeting `machine:<id>` `failed` (`last_error = 'machine_revoked'`), with no engine event, including fenced kills left by an earlier `lease_expired`; close the socket with `CLOSE_REVOKED`. Its caller (T20) then applies `machine.lost {reason: 'revoked'}` to each non-terminal session of the machine. Nothing is left pending for a machine that can't return.
+
+**The human's options:**
+- **`lease_expired` / `pinned_machine_offline`** (`machineLostCanContinue` true):
+  - **"Continue on <machine>"**: the human state's `$return_to` transition (`conductor`'s `answer`), shown with `machineLostContinueTitle(name)` while the open request's kind is `machine_lost` (card derivation). Taking it re-enters `return_to`; with no live process apply requeues (status `queued`, ticket `ready`), keeping the mark. The claim (T16) offers a queued session carrying the mark **only to `mark.machine_id`** (a hard filter, like the [reopen pin](04-scheduler.md#2--claim-query-ticket-side)); `session.assigned` then re-emits the state's `start_session` with `resume_claude_session_id` (and its `__working_copy`). The mark is cleared on the next matching `session.started`. A `return_to` of null (a never-started reopened session) requeues the same way and enters `def.start` on the claim.
+  - **Cancel**: the existing operator action.
+- **`revoked`** (`machineLostCanContinue` false): **Cancel only.** The card shows no transitions. apply ignores any `human.transition` while the mark's reason is `revoked` (`transition_not_allowed`) and any `input.provided` (`wrong_status`).
+- In every case there is no automatic requeue to another machine (U-011/U-012 stay open: the worktree and the transcript are on the lost machine).
 
 **What each consumer builds from this** (for the interface review):
 - **T04** (daemon auth): `daemonAuthHeaderValue` on the upgrade when enrolled; `register.protocol_version = PROTOCOL_VERSION`; on 401 or 4003 / 4001 stop and exit non-zero; on 4005 log the update hint.
-- **T06** (engine): `requiredCapabilities` in `machines/required.ts` (replace the stub, or delegate to `workflow/capabilities.ts`); `machine.lost` in `apply.ts` (replace the two `// M2-T06` stub cases) per the table above, using `MACHINE_LOST_KIND` once T03 has widened the enum.
-- **T09** (credentials, register): `parseDaemonAuthHeader`, 401 at the upgrade, `CLOSE_REVOKED` on revoke, `CLOSE_PROTOCOL` for v1 in password mode; store `machine_repo` / `machine_capability` from `InventoryRepo` / `Capability` (+ `capabilityKeys`).
-- **T10** (scanner): emit `inventory` with `InventoryRepoSchema` / `CapabilitySchema` values only (names and versions, never secrets) and its `hash`; emit `alert` with a `seq`.
-- **T13** (working copies): honour `start_session.working_copy` after re-checking it against the inventory; base `origin/<default_branch>`.
-- **T16** (ingest, claim): replace a machine's rows on each `inventory`; dedupe `alert` on seq; claim filters on `remote` and `capabilityKeys`; `missingCapabilities` for the badge; the `__machine_lost` pin; pass `working_copy` to `commandPayloadForEffect`.
-- **T20** (reaper, revoke): emit `machine.lost` with `machine_name`; bump the fencing token; `PINNED_MACHINE_OFFLINE_AFTER` for TD-088.
+- **T06** (engine): `requiredCapabilities` in `machines/required.ts` (replace the stub, or delegate to `workflow/capabilities.ts`); `machine.lost` in `apply.ts` (replace the two `// M2-T06` stub cases) per the table above, using `MACHINE_LOST_KIND` once T03 has widened the enum; the `revoked` refusals of `human.transition` / `input.provided`.
+- **T09** (credentials, register, revoke): `parseDaemonAuthHeader`, 401 at the upgrade, `CLOSE_PROTOCOL` for v1 in password mode; `machine_repo` from `InventoryRepo`; `machine_capability (machine_id, key)` from `capabilityKeys`; `revokeMachine` fails the machine's pending / sent outbox rows and closes with `CLOSE_REVOKED`.
+- **T10** (scanner): emit `inventory` with `InventoryRepoSchema` / `CapabilitySchema` values only (names and versions, never secrets; no repo-scoped skills or agents for a repo whose remote is null) and its `hash`; emit `alert` with a `seq`.
+- **T13** (working copies): honour `start_session.working_copy` after re-checking it against the inventory; reuse the session's existing worktree, else base it on `origin/<default_branch>`.
+- **T16** (ingest, claim): replace a machine's rows on each `inventory`; dedupe `alert` on seq; claim filters on `remote` and the matching rule above; `missingCapabilities(…, ticket.repo)` for the badge; the `__machine_lost` pin; write `__working_copy` into the session context in the claim transaction.
+- **T20** (reaper, revoke wiring): emit `machine.lost` with `machine_name` (and `offline_ms` for `pinned_machine_offline`) after the 2-minute grace; the pin SQL; `PINNED_MACHINE_OFFLINE_AFTER_MS` / `CONDUCTOR_PIN_OFFLINE_MS`; add `machine.lost` to the wrapper's fencing-bump list in `engine/service.ts`; call `machine.lost revoked` after `revokeMachine`.
 
 ## Defaults recorded here (workshop reconciliation)
 

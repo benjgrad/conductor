@@ -46,6 +46,7 @@ export interface FakePrState {
 
 /**
  * The E2E fake `gh`: no network, ever. Its state lives in FAKE_GH_STATE:
+ * - `--version` → 2.103.3 (open_pr's GH_MIN_VERSION check, the inventory probe); `auth status` → 0;
  * - `repo view` → main;
  * - `pr create --head <b> --title <t>` → a new PR (`pr-<hex(b)>.json`: url, number, head, title),
  *   numbered from 42 (FAKE_GH_URL);
@@ -70,6 +71,8 @@ const read = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 const prFile = (head) => dir + '/pr-' + hex(head) + '.json';
 const prs = () => fs.readdirSync(dir).filter((f) => f.startsWith('pr-')).map((f) => read(dir + '/' + f));
 const opt = (name) => argv[argv.indexOf(name) + 1];
+if (argv[0] === '--version') { console.log('gh version 2.103.3 (2025-01-01)'); process.exit(0); }
+if (argv[0] === 'auth' && argv[1] === 'status') process.exit(0);
 if (argv[0] === 'repo' && argv[1] === 'view') { console.log('main'); process.exit(0); }
 if (argv[0] === 'pr' && argv[1] === 'view' && /^https:/.test(argv[2])) {
   const pr = prs().find((p) => p.url === argv[2]);

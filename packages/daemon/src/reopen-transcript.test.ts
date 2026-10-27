@@ -72,6 +72,7 @@ function makeDaemon(driver: FakeClaudeDriver): Daemon {
     sysinfo: () => ({ cpuFree: 4, memFreeMb: 8000, diskFreeMb: 50_000 }),
     claudeCodeVersion: '2.1.308',
     log: () => {},
+    scanInventory: () => Promise.resolve({ repos: [], capabilities: [] }),
   });
   daemons.push(d);
   d.start();

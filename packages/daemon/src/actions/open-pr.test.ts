@@ -25,6 +25,7 @@ import { checkClean, openPr, pushTarget, resolveHead, type OpenPrInput } from '.
 // node per call stalls for seconds under load on this macOS. Each call appends one line: the cwd
 // and every argument base64-encoded (bodies have newlines), space-separated.
 const FAKE_GH = `
+if [ "$1" = --version ]; then echo "gh version \${FAKE_GH_VERSION:-2.103.3} (2025-01-01)"; exit 0; fi
 dir="$FAKE_GH_DIR"
 line=$(printf '%s' "$PWD" | base64)
 for a in "$@"; do line="$line $(printf '%s' "$a" | base64)"; done

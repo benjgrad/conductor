@@ -28,7 +28,7 @@
 - per-tool confirmation for MCP writes (U-069);
 - a second instance.
 
-**Added 2026-10-27 (if ADR-0018 / ADR-0019 are accepted)**: `create_ticket` takes `depends_on` and the sectioned body (ADR-0019 template); a `set_dependencies` tool (ADR-0018 §5) joins the write tools, making thirteen; `get_ticket` returns dependencies, the cycle, the requirements and their evidence tally. Both call the M2b / M2c services.
+**Added 2026-10-27 (ADR-0018 / ADR-0019 accepted)**: `create_ticket` takes `depends_on` and the sectioned body (ADR-0019 template); a `set_dependencies` tool (ADR-0018 §5) joins the write tools, making thirteen; `get_ticket` returns dependencies, the cycle, the requirements and their evidence tally. Both call the M2b / M2c services.
 
 **Blocking unknowns**: proposed U-054 (rate limits and quotas), U-069 (scopes, and whether MCP writes need confirmation). The M2 exit is required, because tokens are account-scoped.
 

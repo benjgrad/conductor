@@ -1,6 +1,6 @@
 # M2c · Ticket requirements and verification (ADR-0019)
 
-> **Proposed 2026-10-27** (planner, branch `docs/m2-plan-update-deps`), from Ben's design review. Ben approves this file and [ADR-0019](../../adr/0019-ticket-requirements-and-verification.md) through that PR.
+> **Approved by Ben 2026-10-27** (PR #6), from his design review; [ADR-0019](../../adr/0019-ticket-requirements-and-verification.md) accepted.
 
 **Goal** ([ADR-0019](../../adr/0019-ticket-requirements-and-verification.md)):
 - A ticket body follows the sections **Goal / Context / FR-n / NFR-n / Out of scope / Verification**. It is written and **edited** in the BlockNote editor and parsed by one shared parser.

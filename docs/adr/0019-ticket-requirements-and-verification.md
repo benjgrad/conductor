@@ -1,6 +1,6 @@
 # ADR-0019 · Ticket requirements and verification
 
-- **Status**: proposed (Ben approves through the PR `docs/m2-plan-update-deps`)
+- **Status**: accepted (Ben, 2026-10-27; PR #6)
 - **Date**: 2026-10-27
 - **Deciders**: Ben (design review 2026-10-27, relayed by the lead) (+ Claude planner session https://claude.ai/code/session_01NhmNbZ2iRArH99MxNSABmj)
 - **Resolves**: nothing yet. Raises U-079 (live spend; related).

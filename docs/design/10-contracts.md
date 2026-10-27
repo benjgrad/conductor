@@ -301,8 +301,8 @@ Everything is exported from `@conductor/shared` (`api/accounts.ts` re-exports th
 | GET / POST | `adminInvites` | `/api/admin/invites` | → 200 `InviteRow[]` / `CreateInviteRequest` → 201 `InviteCreated` (the token, inside `url`, is shown only here) | 401; 403 `forbidden` (not admin) |
 | DELETE | `adminInvite(id)` | `/api/admin/invites/:id` | → 200 `OkResponse` (revoked) | 401; 403; 404 |
 | GET | `adminUsers` | `/api/admin/users` | → 200 `AdminUserRow[]` | 401; 403 |
-| POST | `adminUserResetLink(id)` | `/api/admin/users/:id/reset-link` | `{}` → 201 `ResetLinkCreated` (shown once, 1 h) | 401; 403; 404 |
-| POST | `adminUserDisable(id)` | `/api/admin/users/:id/disable` | `{}` → 200 `OkResponse`; revokes the user's sessions and machine credentials | 401; 403; 404 |
+| POST | `adminUserResetLink(id)` | `/api/admin/users/:id/reset-link` | `{}` → 201 `ResetLinkCreated` (shown once, 1 h) | 401; 403; 404; 429 (10 per 10 min per IP) |
+| POST | `adminUserDisable(id)` | `/api/admin/users/:id/disable` | `{}` → 200 `OkResponse`; revokes the user's sessions and machine credentials | 400 `bad_request` (disabling yourself); 401; 403; 404 |
 | POST | `adminUserUnlock(id)` | `/api/admin/users/:id/unlock` | `{}` → 200 `OkResponse`; clears the email's `login_throttle` | 401; 403; 404 |
 | POST | `machinesEnroll` | `/api/machines/enroll` | `EnrollRequest` → 201 `EnrollResponse` (**public**: the token authenticates) | 401 `unauthorized` (unknown / used / expired token); 429 |
 | POST | `machineEnrollmentTokens` | `/api/machines/enrollment-tokens` | `{}` → 201 `EnrollmentTokenCreated` (`command` = `curl -fsSL <public url>/install.sh \| sh -s -- --token <token>`; 30 min, single use; for the service variant the web appends ` --service` to `command`) | 401 |

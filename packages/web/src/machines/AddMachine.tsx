@@ -1,5 +1,6 @@
 import type { EnrollmentTokenCreated } from '@conductor/shared';
-import { useEffect, useState } from 'react';
+import { CopyCommand as Command } from './CopyCommand.js';
+import { useCountdown } from './countdown.js';
 import { countdown, serviceCommand, SETUP_GUIDE_URL } from './format.js';
 
 interface AddMachineProps {
@@ -13,16 +14,9 @@ interface AddMachineProps {
  * this is open; Close drops it. The command is shown verbatim, whatever form the server uses.
  */
 export function AddMachine({ enrollment, onClose }: AddMachineProps) {
-  const expiresAt = Date.parse(enrollment.expires_at);
-  const [left, setLeft] = useState(() => expiresAt - Date.now());
+  const left = useCountdown(enrollment.expires_at);
   const expired = left <= 0;
   const service = serviceCommand(enrollment.command);
-
-  useEffect(() => {
-    if (expired) return;
-    const timer = setInterval(() => setLeft(expiresAt - Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [expiresAt, expired]);
 
   return (
     <div className="machine-panel" role="dialog" aria-label="Add a machine">
@@ -56,49 +50,5 @@ export function AddMachine({ enrollment, onClose }: AddMachineProps) {
         Close
       </button>
     </div>
-  );
-}
-
-function Command({
-  label,
-  command,
-  disabled,
-}: {
-  label: string;
-  command: string;
-  disabled: boolean;
-}) {
-  const [copied, setCopied] = useState<'yes' | 'failed' | null>(null);
-
-  function copy() {
-    const clipboard = typeof navigator === 'undefined' ? undefined : navigator.clipboard;
-    if (!clipboard) {
-      setCopied('failed');
-      return;
-    }
-    clipboard.writeText(command).then(
-      () => setCopied('yes'),
-      () => setCopied('failed'),
-    );
-  }
-
-  return (
-    <>
-      <div className="machine-command">
-        <input
-          readOnly
-          value={command}
-          aria-label={label}
-          disabled={disabled}
-          onFocus={(e) => e.currentTarget.select()}
-        />
-        <button type="button" onClick={copy} disabled={disabled} aria-label={`Copy ${label}`}>
-          {copied === 'yes' ? 'Copied' : 'Copy'}
-        </button>
-      </div>
-      {copied === 'failed' && (
-        <p className="error">Couldn't copy. Select the command and copy it.</p>
-      )}
-    </>
   );
 }

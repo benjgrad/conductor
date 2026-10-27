@@ -274,6 +274,18 @@ describe('UX-4 seeds', () => {
 });
 
 describe('mock machines (M2-T11)', () => {
+  it('UX-8: `machines: none` starts empty; connectMachine enrolls one online', async () => {
+    const api = createMockApi({ now, machines: 'none' });
+    expect(await api.listMachines()).toEqual([]);
+    const id = api.connectMachine({ name: 'my-laptop' });
+    const rows = MachineListResponseSchema.parse(await api.listMachines());
+    expect(rows.map((r) => [r.id, r.name, r.status, r.revoked_at])).toEqual([
+      [id, 'my-laptop', 'online', null],
+    ]);
+    api.updateMachine(id, { repos: [] });
+    expect(MachineDetailSchema.parse(await api.getMachine(id)).repos).toEqual([]);
+  });
+
   it('serves two contract-valid machines, one with an open alert', async () => {
     const api = createMockApi({ now });
     const rows = MachineListResponseSchema.parse(await api.listMachines());

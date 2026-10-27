@@ -7,9 +7,18 @@ import {
 
 // M2-T11: text for the Machines page and the board's routing / alert badges.
 
-/** The setup guide the Add-a-machine panel links to (M2-T18), served from the repo on GitHub. */
-export const SETUP_GUIDE_URL =
-  'https://github.com/benjgrad/conductor/blob/main/docs/setup/add-a-machine.md';
+/**
+ * The add-a-machine guide (UX-8): a page of the web app itself (help/HelpPage.tsx), which works
+ * signed out and makes no API calls. docs/setup/add-a-machine.md is a copy for the repo.
+ */
+export const SETUP_GUIDE_URL = '/help/add-a-machine';
+
+/**
+ * Whether the installer's `--service` (start the daemon at login) works yet. The daemon's
+ * `service install` arrives with M2-T18; until then the setup guide says it's coming.
+ */
+// TD: flip when M2-T18 ships `conductor-daemon service install`.
+export const SERVICE_INSTALL_AVAILABLE = false;
 
 /**
  * The machine's `gh` version when it is below GH_MIN_VERSION (open_pr can't use it), else null.

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { HelpLink } from '../help/HelpPage.js';
 import './auth.css';
 
 /** The frame of the sign-in pages: no app header, no board streams. */
@@ -9,6 +10,9 @@ export function AuthPage({ title, children }: { title: string; children: ReactNo
         <p className="auth-brand">Conductor</p>
         <h1>{title}</h1>
         {children}
+        <p className="auth-help">
+          <HelpLink>Help: add a machine</HelpLink>
+        </p>
       </main>
     </div>
   );

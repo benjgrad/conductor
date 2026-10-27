@@ -145,7 +145,17 @@ function withBreaks(text: string, key: string): ReactNode[] {
   ));
 }
 
-export function Markdown({ text }: { text: string }) {
+/**
+ * `semantic`: headings render as `<h1>`–`<h6>` (a page, e.g. UX-8's help guide). The default
+ * styles them as paragraphs, since agent text sits inside a page that has its own outline.
+ */
+export function Markdown({
+  text,
+  headings = 'styled',
+}: {
+  text: string;
+  headings?: 'styled' | 'semantic';
+}) {
   return (
     <div className="md">
       {parseBlocks(text).map((b, k) => {
@@ -158,6 +168,10 @@ export function Markdown({ text }: { text: string }) {
               </pre>
             );
           case 'heading':
+            if (headings === 'semantic') {
+              const Tag = `h${b.level}` as 'h1';
+              return <Tag key={key}>{renderInline(b.text, key)}</Tag>;
+            }
             return (
               <p key={key} className={`md-h md-h${Math.min(b.level, 3)}`}>
                 {renderInline(b.text, key)}

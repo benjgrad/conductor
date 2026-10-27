@@ -317,6 +317,18 @@ describe('password mode (09 §Hosted security)', () => {
       expect(r.status, path).toBe(401);
       expect(r.json.error?.code).toBe('unauthorized');
     }
+    // spellings the router may resolve to an /api route are judged on the matched route
+    for (const path of [
+      '/%61pi/board',
+      '/%2Fapi/board',
+      '/API/board',
+      '//api/board',
+      '/api/../api/board',
+    ]) {
+      const r = await pw.send('GET', path);
+      expect([401, 404], path).toContain(r.status);
+    }
+    expect((await pw.send('GET', '/%61pi/board')).status).toBe(401);
     const bogus = await pw.send('GET', API_PATHS.board, {
       headers: { cookie: '__Host-conductor_session=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' },
     });

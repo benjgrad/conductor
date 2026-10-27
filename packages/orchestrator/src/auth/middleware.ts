@@ -9,6 +9,7 @@ import {
 } from '@conductor/shared';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { sendError } from '../api/errors.js';
+import { policyPath } from '../api/security.js';
 import type { Db } from '../main.js';
 import type { AuthConfig } from './config.js';
 import { SESSION_ABSOLUTE_MS, lookupSession } from './sessions.js';
@@ -18,7 +19,8 @@ import { SESSION_ABSOLUTE_MS, lookupSession } from './sessions.js';
 //   - local mode: the virtual local user in the `local` account (`localScope`), always;
 //   - password mode: the session cookie's user and account, or null. `/api/*` without a session
 //     is 401 `unauthorized`, except POST API_PATHS.machinesEnroll (token-authenticated). `/auth/*`
-//     routes check `request.auth` themselves.
+//     routes check `request.auth` themselves. The path is the matched route (`policyPath`), never
+//     the raw URL alone, so no encoding of it gets past the check.
 
 export interface RequestAuth {
   user: MeResponse['user'];
@@ -73,11 +75,6 @@ export function localAuth(): RequestAuth {
   };
 }
 
-const pathOf = (url: string): string => {
-  const q = url.indexOf('?');
-  return q === -1 ? url : url.slice(0, q);
-};
-
 const needsSession = (method: string, path: string): boolean =>
   (path === '/api' || path.startsWith('/api/')) &&
   !(method === 'POST' && path === API_PATHS.machinesEnroll);
@@ -103,7 +100,7 @@ export function authHook(deps: { db: Db; auth: AuthConfig; now: () => Date }) {
         };
       }
     }
-    if (req.auth === null && needsSession(req.method, pathOf(req.url))) {
+    if (req.auth === null && needsSession(req.method, policyPath(req))) {
       return sendError(reply, 401, 'unauthorized', 'sign in required');
     }
     return undefined;

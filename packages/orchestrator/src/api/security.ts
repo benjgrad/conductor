@@ -127,10 +127,25 @@ function setSecurityHeaders(reply: FastifyReply): void {
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) reply.raw.setHeader(k, v);
 }
 
-const pathOf = (url: string): string => {
-  const q = url.indexOf('?');
-  return q === -1 ? url : url.slice(0, q);
-};
+/**
+ * The path a policy decision is made on: the router-matched route template when a route matched
+ * (onRequest runs after routing), so it is what the handler will actually serve. Otherwise the
+ * raw path percent-decoded, lower-cased and with repeated slashes collapsed, so a spelling the
+ * router might still resolve (`/%61pi/board`) is judged like the canonical one (fail closed).
+ */
+export function policyPath(req: FastifyRequest): string {
+  const matched = req.routeOptions.url;
+  if (matched !== undefined && matched !== '') return matched;
+  const q = req.url.indexOf('?');
+  const raw = q === -1 ? req.url : req.url.slice(0, q);
+  let decoded = raw;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    // keep the raw path
+  }
+  return decoded.toLowerCase().replace(/\/{2,}/g, '/');
+}
 
 const refuseNonJson = (reply: FastifyReply, method: string) =>
   sendError(
@@ -185,7 +200,7 @@ export function hostedSecurityHook(opts: { publicOrigin: string; publicHost: str
     } else {
       const sameOrigin = req.headers['sec-fetch-site'] === 'same-origin';
       // The daemon's enroll call has neither header; the enrollment token authenticates it.
-      const enroll = req.method === 'POST' && pathOf(req.url) === API_PATHS.machinesEnroll;
+      const enroll = req.method === 'POST' && policyPath(req) === API_PATHS.machinesEnroll;
       if (!sameOrigin && !enroll) {
         return sendError(reply, 403, 'forbidden', 'a request without Origin is not allowed');
       }

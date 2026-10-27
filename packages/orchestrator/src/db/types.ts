@@ -12,12 +12,18 @@ import type {
 
 // Row types for every table in docs/design/02-data-model.md, as node-postgres returns them with
 // its default type parsers: timestamptz → Date, bigint (int8) and numeric → string (no precision
-// loss), int4range → string (e.g. "[41000,41010)"), jsonb → parsed JSON, text[] → string[].
+// loss), int4range → string (e.g. "[41000,41010)"), jsonb → parsed JSON, text[] → string[],
+// bytea → Buffer.
 // M1-T02 writes the DDL to match; a divergence is fixed here and in 02 in the same branch.
 // Conversions to engine/API shapes (numbers, ISO strings) live with the repositories (T04/T08).
 
 export interface MachineRow {
   id: string;
+  /**
+   * uuid, FK account (ADR-0012 §Tenancy). Pre-M2 rows were backfilled to LOCAL_ACCOUNT_ID by
+   * migration 1761600000000 (M2-T03); its temporary DEFAULT local (TD-109) is dropped in M2-T21.
+   */
+  account_id: string;
   hostname: string;
   os: string;
   arch: string;
@@ -50,6 +56,8 @@ export interface MachineRow {
 
 export interface MachineRepoRow {
   machine_id: string;
+  /** uuid, FK account (see MachineRow.account_id). */
+  account_id: string;
   repo: string;
   path: string;
   head_commit: string;
@@ -59,6 +67,8 @@ export interface MachineRepoRow {
 
 export interface TicketRow {
   id: string;
+  /** uuid, FK account (see MachineRow.account_id). */
+  account_id: string;
   external_ref: string | null;
   repo: string;
   title: string;
@@ -84,6 +94,8 @@ export interface TicketRow {
 export interface WorkflowDefinitionRow {
   id: string;
   version: number;
+  /** uuid, FK account (see MachineRow.account_id). */
+  account_id: string;
   definition: WorkflowDefinitionInput;
   created_at: Date;
   created_by: string | null;
@@ -91,6 +103,8 @@ export interface WorkflowDefinitionRow {
 
 export interface SessionRow {
   id: string;
+  /** uuid, FK account (see MachineRow.account_id). */
+  account_id: string;
   ticket_id: string;
   machine_id: string | null;
   workflow_id: string;
@@ -143,6 +157,8 @@ export interface SessionRow {
 
 export interface InputRequestRow {
   id: string;
+  /** uuid, FK account (see MachineRow.account_id). */
+  account_id: string;
   session_id: string;
   kind: InputRequestKind;
   question: string;
@@ -157,6 +173,8 @@ export interface InputRequestRow {
 export interface EventRow {
   /** bigserial; also the SSE `Last-Event-ID`. */
   id: string;
+  /** uuid, FK account (see MachineRow.account_id). */
+  account_id: string;
   session_id: string | null;
   type: string;
   payload: JsonObject;
@@ -168,6 +186,8 @@ export interface EventRow {
 export interface OutboxRow {
   /** bigserial. */
   id: string;
+  /** uuid, FK account (see MachineRow.account_id). */
+  account_id: string;
   command_id: string;
   /*
    * `payload` (below) is the WS command payload verbatim (`commandPayloadForEffect` in shared,
@@ -194,6 +214,98 @@ export interface OutboxRow {
   created_at: Date;
 }
 
+// ---------------------------------------------------------------- accounts and sign-in (M2-T03)
+// Instance-level tables (ADR-0017 §Auth: schema sketch): the ADR-0012 isolation allow-list, so
+// they are not filtered by an AccountScope. Migration 1761600000000_accounts-and-auth.
+
+export interface AccountRow {
+  /** uuid; LOCAL_ACCOUNT_ID is the `local` account the migration inserts. */
+  id: string;
+  name: string;
+  created_at: Date;
+}
+
+/** A signed-up person. `local` mode's LOCAL_USER_ID is virtual and has no row. */
+export interface AppUserRow {
+  id: string;
+  /** As entered; unique on `lower(email)` (`app_user_email_key`). */
+  email: string;
+  display_name: string;
+  /** PHC string `$argon2id$v=19$m=…,t=…,p=…$salt$hash`. */
+  password_hash: string;
+  /** Instance role (ADR-0017 §Invites): sees no other account's data. */
+  is_admin: boolean;
+  disabled_at: Date | null;
+  password_changed_at: Date;
+  created_at: Date;
+}
+
+export interface AccountMemberRow {
+  account_id: string;
+  user_id: string;
+  /** CHECK `owner` | `member`; M2 writes only `owner` (personal accounts, U-051). */
+  role: 'owner' | 'member';
+  created_at: Date;
+}
+
+export interface WebSessionRow {
+  /** SHA-256 (32 bytes) of the cookie's 32 random bytes; the primary key. */
+  id_hash: Buffer;
+  user_id: string;
+  /** The account the session acts in (the user's own in M2). */
+  account_id: string;
+  created_at: Date;
+  /** Updated at most every 5 minutes; 7 days idle ends the session. */
+  last_seen_at: Date;
+  /** 30 days absolute. */
+  expires_at: Date;
+  user_agent: string | null;
+  ip: string | null;
+}
+
+/** The DB row; the admin DTO is `InviteRow` in @conductor/shared (api/admin.ts). */
+export interface InviteRow {
+  id: string;
+  /** SHA-256 (32 bytes) of the 256-bit token, unique. */
+  token_hash: Buffer;
+  /** null = created by the CLI (`conductor-admin`). */
+  created_by: string | null;
+  /** Set → sign-up must use this email. */
+  email: string | null;
+  is_admin: boolean;
+  /** Bootstrap only: sign-up claims this account (LOCAL_ACCOUNT_ID) instead of creating one. */
+  claims_account: string | null;
+  created_at: Date;
+  expires_at: Date;
+  used_at: Date | null;
+  used_by: string | null;
+  revoked_at: Date | null;
+}
+
+export interface PasswordResetRow {
+  id: string;
+  /** SHA-256 (32 bytes) of the token, unique. */
+  token_hash: Buffer;
+  user_id: string;
+  /** The admin who made the link; null = the CLI. */
+  created_by: string | null;
+  created_at: Date;
+  /** 1 hour after created_at. */
+  expires_at: Date;
+  used_at: Date | null;
+}
+
+/** Per-email lockout (ADR-0017 §Rate limiting, layer 3), keyed by the string, user or not. */
+export interface LoginThrottleRow {
+  email_norm: string;
+  /** Consecutive failures; a success resets the row. */
+  failures: number;
+  /** Lockouts so far: the lock is 15 min × 2^(lockouts − 1), capped at 24 h. */
+  lockouts: number;
+  locked_until: Date | null;
+  updated_at: Date;
+}
+
 /** Table name → row type, for generic repository helpers. */
 export interface Tables {
   machine: MachineRow;
@@ -204,4 +316,11 @@ export interface Tables {
   input_request: InputRequestRow;
   event: EventRow;
   outbox: OutboxRow;
+  account: AccountRow;
+  app_user: AppUserRow;
+  account_member: AccountMemberRow;
+  web_session: WebSessionRow;
+  invite: InviteRow;
+  password_reset: PasswordResetRow;
+  login_throttle: LoginThrottleRow;
 }

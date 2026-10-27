@@ -699,7 +699,8 @@ describe('daemon core: command_id dedupe and seq', () => {
     await orch.until(() => orch.ofType('request_work')[0]);
     const sid = randomUUID();
     orch.send(startSession(sid));
-    await orch.until(() => orch.events('ask_user')[0]);
+    // spend follows ask_user; wait for both so the count doesn't race it.
+    await orch.until(() => orch.events('ask_user')[0] && orch.events('spend')[0]);
     const before = orch.events().length; // started, claude_session_id, ask_user, spend
     expect(before).toBe(4);
 
@@ -765,8 +766,9 @@ describe('daemon core: run_cmd and kill', () => {
     runner.release('npm test');
     await orch.until(() => orch.eventData('cmd_exit').length === 2);
 
+    // The two commands race for the build slot, so match by command_id / cwd, not by order.
     const id1 = (r1.payload as { command_id: string }).command_id;
-    expect(orch.eventData('cmd_exit')[0]).toEqual({
+    expect(orch.eventData('cmd_exit').find((d) => d.command_id === id1)).toEqual({
       command_id: id1,
       exit_code: 1,
       signal: null,
@@ -777,9 +779,10 @@ describe('daemon core: run_cmd and kill', () => {
       head_sha: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(),
     });
     const wt = orch.eventData('started')[0]!.worktree_path;
-    expect(runner.calls[0]).toMatchObject({ cwd: wt, sessionId: sid, timeoutMs: 1000 });
-    expect(runner.calls[0]!.env).toMatchObject({ PORT: '42000', CONDUCTOR_TICKET_ID: TICKET });
-    expect(runner.calls[1]!.cwd).toBe(join(wt, 'sub'));
+    const call1 = runner.calls.find((c) => c.cwd === wt);
+    expect(call1).toMatchObject({ cwd: wt, sessionId: sid, timeoutMs: 1000 });
+    expect(call1!.env).toMatchObject({ PORT: '42000', CONDUCTOR_TICKET_ID: TICKET });
+    expect(runner.calls.map((c) => c.cwd)).toContain(join(wt, 'sub'));
     expect(
       orch
         .ofType('output')

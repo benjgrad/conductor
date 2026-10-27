@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import {
   BOARD_SSE_FIXTURES,
+  LOCAL_ACCOUNT_ID,
   ORCHESTRATOR_FIXTURES,
   SNAPSHOT_FIXTURE,
   type BoardSseEvent,
@@ -127,6 +128,7 @@ describe('commandEnvelopeForOutboxRow', () => {
   const fx = ORCHESTRATOR_FIXTURES.start_session;
   const row: OutboxRow = {
     id: '1',
+    account_id: LOCAL_ACCOUNT_ID,
     command_id: fx.payload.command_id,
     target: 'machine:mbp-ben',
     kind: 'start_session',

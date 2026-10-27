@@ -218,6 +218,11 @@ export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;
 
 // ---------------------------------------------------------------- events
 
+/** Why a machine was lost (`machine.lost.reason`, U-068; see the lost machines section). */
+export const MACHINE_LOST_REASONS = ['lease_expired', 'revoked', 'pinned_machine_offline'] as const;
+export const MachineLostReasonSchema = z.enum(MACHINE_LOST_REASONS);
+export type MachineLostReason = z.infer<typeof MachineLostReasonSchema>;
+
 /**
  * Engine events. `type` doubles as `event.type` in the event table (02). Sources:
  * D = daemon session_event via gateway (T11), O = orchestrator internal, U = REST (T08).
@@ -403,6 +408,26 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
      * process is still parked live answers with `send_input {input_request_id}`.
      */
     input_request_id: UuidSchema.nullable().optional(),
+  }),
+  /**
+   * O (M2-T20): the session's machine is gone (U-068). Full semantics: 10-contracts §Machines
+   * protocol v2, Lost machines (M2-T06 implements them in apply). Sources: the reaper on a lease
+   * past its expiry plus the 2-minute grace (`lease_expired`); `revokeMachine`'s caller
+   * (`revoked`); the reaper for a pinned queued session whose machine has been offline for
+   * `offline_ms` (`pinned_machine_offline`, TD-088). apply is pure and trusts the event: the pin
+   * check is the reaper's SQL, and the snapshot has no pin field. `machine_name` is the display
+   * name for the question (absent → `machine_id`).
+   */
+  z.object({
+    type: z.literal('machine.lost'),
+    machine_id: z.string().min(1),
+    reason: MachineLostReasonSchema,
+    machine_name: z.string().min(1).optional(),
+    /**
+     * `pinned_machine_offline` only: how long the machine has been offline (the reaper's
+     * threshold, PINNED_MACHINE_OFFLINE_AFTER_MS unless CONDUCTOR_PIN_OFFLINE_MS overrides it).
+     */
+    offline_ms: z.number().int().positive().optional(),
   }),
   /** U: operator cancel (POST /cancel). → failed, kill. */
   z.object({ type: z.literal('operator.cancel'), reason: z.string().optional() }),
@@ -618,6 +643,88 @@ export function unknownTransitionQuestion(name: string): string {
   return `The agent named an unknown transition '${name}'.`;
 }
 
+// ---------------------------------------------------------------- lost machines (U-068, M2-T02)
+
+/**
+ * The `input_request.kind` of a lost-machine question. In InputRequestKindSchema, the DB enum and
+ * the web label since M2-T03; T06 emits it.
+ */
+export const MACHINE_LOST_KIND = 'machine_lost' as const;
+
+/** The `kill.reason` of the fenced kill sent to a lost machine's old worker. */
+export const MACHINE_LOST_KILL_REASON = 'machine_lost';
+
+/**
+ * How long a pinned queued session waits for its offline machine before a human is asked
+ * (TD-088, M2-T20): 15 minutes. T20 reads the override from PIN_OFFLINE_ENV.
+ */
+export const PINNED_MACHINE_OFFLINE_AFTER_MS = 900_000;
+export const PIN_OFFLINE_ENV = 'CONDUCTOR_PIN_OFFLINE_MS';
+
+/** `900000` → `15 minutes`, `3600000` → `1 hour`, `90000` → `2 minutes` (rounded, at least 1). */
+export function formatOfflineDuration(ms: number): string {
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  if (minutes % 60 === 0) {
+    const hours = minutes / 60;
+    return hours === 1 ? '1 hour' : `${hours} hours`;
+  }
+  return minutes === 1 ? '1 minute' : `${minutes} minutes`;
+}
+
+/**
+ * The needs_input question for a lost machine. `name` is the display name (or the id);
+ * `offlineMs` is the event's `offline_ms` (pinned_machine_offline only).
+ */
+export function machineLostQuestion(
+  name: string,
+  reason: MachineLostReason,
+  offlineMs: number = PINNED_MACHINE_OFFLINE_AFTER_MS,
+): string {
+  switch (reason) {
+    case 'lease_expired':
+      return `${name} stopped responding`;
+    case 'revoked':
+      return `${name} was revoked`;
+    case 'pinned_machine_offline':
+      return `${name} has been offline for ${formatOfflineDuration(offlineMs)}`;
+  }
+}
+
+/**
+ * Whether the human may continue on the lost machine: not for `revoked` (Cancel only, R4: the
+ * machine can never come back).
+ */
+export function machineLostCanContinue(reason: MachineLostReason): boolean {
+  return reason !== 'revoked';
+}
+
+/**
+ * The card title of the `$return_to` transition while a MACHINE_LOST_KIND request is open and
+ * `machineLostCanContinue(mark.reason)`.
+ */
+export function machineLostContinueTitle(name: string): string {
+  return `Continue on ${name}`;
+}
+
+/**
+ * `session.context` key of the lost-machine mark (like STEP_CONTEXT_KEY: no migration). Set by
+ * apply on `machine.lost`, kept through the requeue that "Continue" causes, cleared on the next
+ * matching `session.started`. The claim (M2-T16) offers a queued session carrying it only to
+ * `machine_id` (a hard filter, like the ADR-0008 reopen pin). apply reads only `reason` (to refuse
+ * transitions after a revoke); it never checks a pin.
+ */
+export const MACHINE_LOST_CONTEXT_KEY = '__machine_lost';
+
+export const MachineLostMarkSchema = z.object({
+  machine_id: z.string().min(1),
+  machine_name: z.string().min(1),
+  reason: MachineLostReasonSchema,
+  /** The workflow state the session was in (the step's `from`); null for a never-started one. */
+  state: z.string().nullable(),
+  at: IsoDateTimeSchema,
+});
+export type MachineLostMark = z.infer<typeof MachineLostMarkSchema>;
+
 /** `GateStep.conditions_note` while no machine could evaluate the conditions (U-058). */
 export const CONDITIONS_NO_MACHINE_NOTE = 'waiting for a machine to check conditions';
 
@@ -676,6 +783,11 @@ export const APPLY_IGNORE_REASONS = [
    * ticket's kind (→ 409). An agent's disallowed name is routed like an unknown one.
    */
   'transition_not_allowed',
+  /**
+   * M2: `machine.lost` `lease_expired` / `revoked` for a machine that is not `snapshot.machine_id`
+   * (a `pinned_machine_offline` is trusted: the pin check is the reaper's SQL).
+   */
+  'machine_mismatch',
 ] as const;
 export const ApplyIgnoreReasonSchema = z.enum(APPLY_IGNORE_REASONS);
 export type ApplyIgnoreReason = z.infer<typeof ApplyIgnoreReasonSchema>;

@@ -2,6 +2,8 @@
 
 > **Approved by Ben 2026-10-26.** Deploy at the end (M2-T25), no early deploy. U-073: the server DB starts fresh. U-074: backups stay on the server, 14 days. U-075: the local board stays pinned to the M1b build (2e88cf8) with its own DB for all of M2 and moves to the hosted instance at T25. U-070 is out of M2.
 
+> **Plan update 2026-10-27** (lead alignments after T01/T02 merged, 37df567; branch `docs/m2-plan-update-deps`): T06 moves to group C (after T03); T11 waits for T10 (gh floor); T17 waits for T14; follow-ups from dogfooding placed in T10, T11, T13 and a new M2-T26 (Retry for a failed move step). Where a block and [10-contracts](../../design/10-contracts.md) §Machines protocol v2 disagree, **10-contracts wins**.
+
 **Goal**: conductor runs hosted at **https://conductor.gradyserver.com** for several people, each seeing only their own account, with their machines enrolled by one command.
 - **Sign-in** ([ADR-0017](../../adr/0017-own-sign-in-and-self-hosting.md)): conductor's own email + password sign-in (argon2id, server-side sessions in an httpOnly cookie), invite-only sign-up, admin-made reset links, a bootstrap admin who claims the existing data.
 - **Accounts** ([ADR-0012](../../adr/0012-hosted-multi-user-github-sign-in.md) §Tenancy and §Proving isolation, still in force): every row, query, stream and socket is scoped to an account, proved by four isolation tests. Personal accounts only (U-051).
@@ -70,23 +72,23 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 
 | ID | Task | Depends on | Group | Migration | Status |
 |---|---|---|---|---|---|
-| M2-T01 | **Contracts (web)**: auth, admin and machines REST DTOs, `API_PATHS`, error codes, `AccountScope`, card routing and tamper fields | M1b done | A | — | todo |
-| M2-T02 | **Contracts (machines)**: daemon protocol v2 (credential on upgrade, register versions, `inventory`, `alert`), inventory and capability schemas, `requiredCapabilities` signature, `machine.lost` engine event | M1b done | A | — | todo |
-| M2-T03 | Tenancy + auth schema, `local` backfill, schema isolation test | T01, T02 | B | **yes** | todo |
-| M2-T04 | Daemon: `enroll`, credential file, authenticated WebSocket, register v2 | T02 | B | — | todo |
-| M2-T05 | Web: sign-in, sign-up, reset, account menu, admin page | T01 | B | — | todo |
-| M2-T06 | Shared: `requiredCapabilities` + capability registry; the engine handles `machine.lost` | T02 | B | — | todo |
-| M2-T07 | Deploy kit: Dockerfile, compose, nginx site, sudo script, deploy / backup / smoke scripts, runbook | T01 | B | — | todo |
+| M2-T01 | **Contracts (web)**: auth, admin and machines REST DTOs, `API_PATHS`, error codes, `AccountScope`, card routing and tamper fields | M1b done | A | — | done |
+| M2-T02 | **Contracts (machines)**: daemon protocol v2 (credential on upgrade, register versions, `inventory`, `alert`), inventory and capability schemas, `requiredCapabilities` signature, `machine.lost` engine event | M1b done | A | — | done |
+| M2-T03 | Tenancy + auth schema, `local` backfill, schema isolation test | T01, T02 | B | **yes** | in_progress |
+| M2-T04 | Daemon: `enroll`, credential file, authenticated WebSocket, register v2 | T02 | B | — | in_progress |
+| M2-T05 | Web: sign-in, sign-up, reset, account menu, admin page | T01 | B | — | in_progress |
+| M2-T06 | Shared: `requiredCapabilities` + capability registry; the engine handles `machine.lost` | T02, T03 | C | — | todo |
+| M2-T07 | Deploy kit: Dockerfile, compose, nginx site, sudo script, deploy / backup / smoke scripts, runbook | T01 | B | — | in_progress |
 | M2-T08 | Orchestrator auth core: passwords, sessions, login / logout / me / password change, throttling and lockout, hosted security mode | T01, T03 | C | — | todo |
 | M2-T09 | Orchestrator machines: credential and enrollment tables, `enrollMachine`, WS upgrade auth, `revokeMachine` | T02, T03 | C | **yes** | todo |
-| M2-T10 | Daemon: inventory scanner and reports; `config` command (roots, per-repo mode) | T04 | C | — | todo |
-| M2-T11 | Web: Machines page, Queued routing badge, tamper alerts | T05 | C | — | todo |
+| M2-T10 | Daemon: inventory scanner and reports; `config` command (roots, per-repo mode); gh version floor | T04 | C | — | todo |
+| M2-T11 | Web: Machines page, Queued routing badge, tamper alerts, outdated-gh flag | T05, T10 | D | — | todo |
 | M2-T12 | Orchestrator: per-account workflows (key change, `required_capabilities` on save, `seedAccount`, per-account upgrade rule) | T03, T06, T08 | D | **yes** | todo |
-| M2-T13 | Daemon: working copies (reference clone default, checkout opt-in), fetch per session, push URL from the inventory, GC, tamper check | T10 | D | — | todo |
+| M2-T13 | Daemon: working copies (reference clone default, checkout opt-in), fetch per session, push URL from the inventory, GC, tamper check; push credentials via gh | T10 | D | — | todo |
 | M2-T14 | Orchestrator: daemon distribution (`/install.sh`, tarball, `/healthz`) and the Dockerfile's tarball stage | T07, T08 | D | — | todo |
 | M2-T15 | Orchestrator: invites, sign-up, resets, admin routes, `conductor-admin` CLI (bootstrap claims `local`) | T08, T09, T12 | E | — | todo |
 | M2-T16 | Orchestrator: inventory ingest, routing filters in the claim, routing badge, alert ingest; gateway isolation test | T06, T09, T12, T14 | E | — | todo |
-| M2-T17 | Orchestrator: machines REST (enroll endpoint, enrollment tokens, list, rename, revoke); ticket repo check (U-048) | T08, T09 | E | — | todo |
+| M2-T17 | Orchestrator: machines REST (enroll endpoint, enrollment tokens, list, rename, revoke); ticket repo check (U-048) | T08, T09, T14 | E | — | todo |
 | M2-T18 | Daemon: `service install` (launchd / systemd user), upgrade-in-place; `docs/setup/add-a-machine.md` | T04, T14 | E | — | todo |
 | M2-T19 | Orchestrator: engine and stream scoping (`applyEvent(scope, …)`, engine SQL, dispatcher, per-account buses, SSE replay filter) | T08, T09, T12, T16, T17 | F | — | todo |
 | M2-T20 | Orchestrator: leases and the reaper (lapse → `machine.lost` → human); revoke reuses it; TD-088 | T06, T19 | G | — | todo |
@@ -94,11 +96,12 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 | M2-T22 | E2E: password-mode harness, two accounts × two machines, routing, isolation; M1 / M1b in local mode | T13, T15, T16, T18, T20, T21 | H | — | todo |
 | M2-T23 | Docs sweep: 00–10, ADR implementation notes, README "run hosted" | T21 | H | — | todo |
 | M2-T24 | E2E: laptop sleep, lease lapse, revoke, reconnect | T22 | I | — | todo |
-| M2-T25 | **Deploy** to conductor.gradyserver.com (lead + Ben's sudo script), bootstrap, enroll Ben's Mac, live checks, backup restore test | T22, T23, T24 | J | — | todo |
+| M2-T25 | **Deploy** to conductor.gradyserver.com (lead + Ben's sudo script), bootstrap, enroll Ben's Mac, live checks, backup restore test | T22, T23, T24, T26 | J | — | todo |
+| M2-T26 | Shared: **Retry** a failed move step (a `$retry` human transition that re-runs the failed phase without an agent turn) | T06 | D | — | todo |
 
-Groups run in order A → J. Tasks within a group own disjoint files and can run in parallel. The longest chain is A → B → C → D → E → F → G → H → I → J; the daemon lane (T04 → T10 → T13 → T18) and the web lane (T05 → T11) run beside it.
+Groups run in order A → J. Tasks within a group own disjoint files and can run in parallel. The longest chain is A → B → C → D → E → F → G → H → I → J; the daemon lane (T04 → T10 → T13 → T18) and the web lane (T05 → T11, T11 after T10 for the gh floor) run beside it. The shared-engine lane is T06 (C) → T26 (D); nothing else edits `shared/src/engine/apply.ts` in M2.
 
-**Migrations** (each needs Ben's approval before merge): T03 (tenancy + auth tables, `account_id` everywhere with a temporary default), T09 (machine credentials, enrollment tokens, capabilities, `machine_repo` columns), T12 (`workflow_definition` key and `required_capabilities`), T21 (drop the temporary defaults). If T02 adds a `machine_lost` value to `input_request_kind`, T03 adds it.
+**Migrations** (each needs Ben's approval before merge): T03 (tenancy + auth tables, `account_id` everywhere with a temporary default), T09 (machine credentials, enrollment tokens, capabilities, `machine_repo` columns), T12 (`workflow_definition` key and `required_capabilities`), T21 (drop the temporary defaults). T02 chose a new `input_request_kind` value `machine_lost` (10-contracts §Machines protocol v2), so T03's migration adds it.
 
 **Shared files with section ownership** (several tasks touch them, in different groups unless noted):
 - `packages/shared/src/index.ts`: T01 and T02 each add one export line (same group; trivial merge).
@@ -107,6 +110,11 @@ Groups run in order A → J. Tasks within a group own disjoint files and can run
 - `packages/orchestrator/src/api/index.ts`: T08 (security hook and auth plugin registration), T12 (workflow save handler), T17 (machines routes registration and ticket create), T19 (two `applyEvent` call sites), T21 (everything).
 - `packages/orchestrator/src/gateway/index.ts`: T09 (upgrade and register), T16 (inventory and alert message cases), T19 (`applyEvent` call sites), T20 (heartbeat lease renewal, revoke hook).
 - `packages/daemon/src/daemon.ts`: T04 (connect and register), T10 (inventory reports), T13 (start_session working copy), T18 (none, CLI only).
+- `packages/daemon/src/actions/open-pr.ts`: T10 (the gh version check before `gh pr create`), then T13 (push URL source and the push credential helper).
+- `packages/shared/src/engine/apply.ts`: T06 (`machine.lost`), then T26 (`$retry`).
+- `humanTransitionsOfCard` in `packages/shared/src/api/rest.ts`: T06 (the `machine_lost` title and the revoked "no transitions"), then T26 (the Retry button).
+- `packages/orchestrator/src/engine/service.ts`: T19 (scope), then T20 (`machine.lost` in the fencing-bump list).
+- `packages/shared/src/machines/capabilities.ts`: T10 adds `GH_MIN_VERSION` and `cliVersionAtLeast` (additive; read by T11).
 
 **Gates (Ben)**:
 - before A: review ADR-0017 (accepted from his decisions) and this plan;
@@ -134,7 +142,7 @@ Groups run in order A → J. Tasks within a group own disjoint files and can run
     - `ApiErrorSchema` codes gain `unauthorized`, `forbidden`, `rate_limited`, `unsupported_media_type` (pays TD-070).
     - Board card DTO gains `routing?: {missing_repo?: string, missing_capabilities: string[]}` (Queued only) and `alerts?: {kind: 'git_tamper', files: string[], at}[]`.
     - `canonicalRepo(repo)` (pure): the canonical `host/org/repo` grammar (U-048, ADR-0013 §Routing). The schema itself stays permissive, because `local` mode keeps accepting the M1 local-path test repos the e2e uses; the server applies `canonicalRepo` in `password` mode (T17). The create response may carry `warnings: ['no_machine_has_repo']`.
-  - **`packages/shared/src/domain.ts`**: `AccountScope {account_id: string, actor: {kind: 'user', user_id} | {kind: 'machine', machine_id} | {kind: 'system'}}`, `LOCAL_ACCOUNT_ID = '00000000-0000-0000-0000-000000000001'`, `localScope(actor)`; `AuthMode = 'local' | 'password'`.
+  - **`packages/shared/src/domain.ts`**: `AccountScope {account_id: string, actor: {kind: 'user', user_id} | {kind: 'machine', machine_id} | {kind: 'system'}}`, `LOCAL_ACCOUNT_ID = '00000000-0000-4000-8000-000000000001'`, `LOCAL_USER_ID = '00000000-0000-4000-8000-000000000002'` (a virtual user, no `app_user` row; `localMeResponse()` in `api/auth.ts`), `localScope(actor)`; `AuthMode = 'local' | 'password'`.
   - **Fixtures and fakes**: `shared/src/api/fixtures.ts` gains one valid example per new DTO; the web mock client (`packages/web/src/api/mock.ts`) is **not** touched here (T05/T11 extend it).
   - **10-contracts** §Accounts and web auth (new): the routes above with status codes (401 no session, 403 Origin / admin-only, 404 other account, 429 throttled), cookie names and the CSRF rule from ADR-0017.
 - **Design refs**: [ADR-0017](../../adr/0017-own-sign-in-and-self-hosting.md) §Auth, §Invites; [ADR-0012](../../adr/0012-hosted-multi-user-github-sign-in.md) §Tenancy; [ADR-0013](../../adr/0013-machine-enrollment-inventory-routing.md) §Enrollment, §Routing; [03](../../design/03-protocols.md) §REST; [10](../../design/10-contracts.md) §REST error map.
@@ -244,15 +252,25 @@ Groups run in order A → J. Tasks within a group own disjoint files and can run
 ### M2-T06 · Shared: required capabilities; the engine handles a lost machine
 - **Scope.**
   - `packages/shared/src/workflow/capabilities.ts`: the **capability registry** mapping each condition and action to its requirement (ADR-0013 §Routing, ADR-0016): `open_pr`, `pr_checks_green`, `pr_approvals`, `pr_merged` → `cli:gh:authed`; `azure_pipeline_succeeded` → `cli:az:authed`; `jira_fields_set` / `update_jira` → `cli:jira:authed` (placeholder until M5 decides CLI vs MCP, U-065); `slack_message` → `mcp:slack`. Disabled conditions (`enabled: false`) add nothing. Every agent state adds `claude`. Implement `requiredCapabilities(def, kind)` (replacing T02's stub): the union over every transition a ticket of that kind could take (kind filter as in ADR-0011; null kind = both), sorted and de-duplicated.
-  - `packages/shared/src/engine/apply.ts` (+ a small `engine/machine-lost.ts`): handle `machine.lost` per T02's frozen semantics: from any running, parked or conditions-pending status → needs_input with the `machine_lost` request and the "Continue on <machine>" transition; ignored (`wrong_status`) for terminal or already-needs-input sessions; the fencing counter bumps so late events from the old worker are refused; the outbox `kill` effect.
+  - `packages/shared/src/engine/apply.ts` (+ a small `engine/machine-lost.ts`): handle `machine.lost` exactly per the table in [10-contracts](../../design/10-contracts.md#machines-protocol-v2) §Machines protocol v2, "Lost machines" (**the authority; it wins over this block**). In short:
+    - `assigned` / `running` / `waiting_external` on the event's machine → (A) needs_input with the `machine_lost` request (`MACHINE_LOST_KIND`, which T03's migration adds to the enum) and "Continue on <machine>"; the `kill {reason: 'machine_lost'}` effect for `lease_expired` / `pinned_machine_offline`, none for `revoked`;
+    - the same statuses on **another** machine → ignored `machine_mismatch` for every reason, `pinned_machine_offline` included;
+    - `queued` + `pinned_machine_offline` → (A), trusted; `queued` + `revoked` with no `__machine_lost` mark → (A), trusted, no kill (the reaper's pin SQL found a revoked pinned machine); a queued session going to needs_input moves its ticket to `in_progress`;
+    - `queued` / `needs_input` with a mark for the event's machine + `revoked` → (B) (the wrapper supersedes the old request, T20);
+    - terminal sessions (`done` / `failed`) → ignored **`session_terminal`**; any other `needs_input` / `queued` case → ignored `wrong_status`;
+    - **revoked: Cancel only**: while the mark's reason is `revoked`, apply refuses `human.transition` (`transition_not_allowed`) and `input.provided` (`wrong_status`);
+    - **card derivation** (`humanTransitionsOfCard` in `shared/src/api/rest.ts`; no task owned it before this update): while the open request's kind is `machine_lost`, the `$return_to` button is titled `machineLostContinueTitle(name)`; when the mark's reason is `revoked` the card offers no transitions (Cancel stays an operator action).
+  - Tighten `CapabilityRequirementSchema` (`shared/src/machines/capabilities.ts`) to the key grammar of the 10-contracts table (`cli:<n>`, `cli:<n>:authed`, `mcp:<n>`, `skill|agent:<n>[@<canonical repo>]`, `claude`), so `cli:a:b:c` fails (pays TD-114).
+  - apply **never** changes `fencing_token`: the bump on an applied `machine.lost` belongs to the EngineService wrapper (`orchestrator/src/engine/service.ts`), which T20 extends; its test moved to T20.
 - **Design refs**: ADR-0013 §Routing; [ADR-0016](../../adr/0016-work-connectors-on-the-users-machine.md); [05](../../design/05-workflow-engine.md); 10-contracts §Machines protocol v2 (T02); U-068.
-- **Depends on**: T02.
-- **Files owned**: `packages/shared/src/workflow/capabilities.ts` (+ test), `packages/shared/src/engine/apply.ts`, `engine/machine-lost.ts` (+ tests), 05 §Lost machines (new).
-- **Do not touch**: `engine/types.ts`, `protocol/**`, `api/**`, other packages, `docs/tracking/*`.
+- **Depends on**: T02, T03 (the `machine_lost` enum value; 10-contracts says T06 emits `MACHINE_LOST_KIND` only once T03 has widened the enum).
+- **Files owned**: `packages/shared/src/workflow/capabilities.ts` (+ test), `CapabilityRequirementSchema` in `shared/src/machines/capabilities.ts`, `packages/shared/src/engine/apply.ts`, `engine/machine-lost.ts` (+ tests), `humanTransitionsOfCard` in `shared/src/api/rest.ts` (the `machine_lost` cases only) and `cards` tests for it, 05 §Lost machines (new).
+- **Do not touch**: `engine/types.ts`, `protocol/**`, the rest of `api/**`, other packages, `docs/tracking/*`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `capabilities.test.ts`: `conductor` v2 for `work` needs `cli:gh:authed` and `claude`; a definition with an enabled `azure_pipeline_succeeded` adds `cli:az:authed`, a disabled one doesn't; a personal-only transition's needs don't appear for `work`.
-  - [ ] `apply.machine-lost.test.ts`: running → needs_input with the question naming the machine; parked → needs_input; done → ignored; a `heartbeat`-era event with the old fencing token after `machine.lost` is refused.
+  - [ ] `apply.machine-lost.test.ts`, one case per row of the 10-contracts table: running on the event's machine → needs_input with the question naming the machine and one `kill`; running on another machine with `pinned_machine_offline` → `machine_mismatch`; queued + `pinned_machine_offline` → needs_input and ticket `in_progress`; queued + `revoked` without a mark → needs_input, no kill; parked with a mark + `revoked` → (B); done → ignored `session_terminal`; after a `revoked` lost, `human.transition` → `transition_not_allowed` and `input.provided` → `wrong_status`. (The stale-fencing-token refusal is tested in T20, where the bump lives.)
+  - [ ] `api/cards.machine-lost.test.ts`: a `machine_lost` card for `lease_expired` shows "Continue on <machine>" for `$return_to`; a `revoked` one shows no transitions.
   - [ ] The property test (`apply.property.test.ts`) includes `machine.lost` and stays green at 1 000 runs.
   - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
 
@@ -306,10 +324,11 @@ Groups run in order A → J. Tasks within a group own disjoint files and can run
 
 ### M2-T09 · Orchestrator machines: credentials, enrollment, upgrade auth, revoke
 - **Scope.**
-  - Migration `<ts>_machine-credentials.sql`: `enrollment_token (id, account_id, token_hash bytea unique, created_by, expires_at, used_at, used_by_machine)`, `machine_credential (id, machine_id, account_id, secret_hash bytea unique, created_at, last_used_at, revoked_at)`, `machine_capability (machine_id, account_id, kind, name, detail jsonb, updated_at, pk (machine_id, kind, name))`, `machine` gains `name`, `daemon_version`, `protocol_version`, `revoked_at`; `machine_repo` gains `default_branch`, `mode` (default `reference`) and `remote`; `tree_clean` gets `DEFAULT true` and stays until T21 drops it, because the M1 `repo_inventory` handler still writes it until T16; `machine_alert (id, machine_id, account_id, session_id null, kind, detail jsonb, created_at, cleared_at)`. All `account_id NOT NULL REFERENCES account` (no default: new tables have no M1 inserts).
+  - Migration `<ts>_machine-credentials.sql`: `enrollment_token (id, account_id, token_hash bytea unique, created_by, expires_at, used_at, used_by_machine)`, `machine_credential (id, machine_id, account_id, secret_hash bytea unique, created_at, last_used_at, revoked_at)`, `machine_capability (machine_id, account_id, key text, kind, name, version, detail jsonb, updated_at, pk (machine_id, key))`: one row per element of `capabilityKeys(c)` (an authed cli gives `cli:<name>` and `cli:<name>:authed`; a repo-scoped skill's key carries `@<repo>`); routing reads only `key` (10-contracts §Machines protocol v2, Storage), `machine` gains `name`, `daemon_version`, `protocol_version`, `revoked_at`; `machine_repo` gains `default_branch`, `mode` (default `reference`) and `remote`; `tree_clean` gets `DEFAULT true` and stays until T21 drops it, because the M1 `repo_inventory` handler still writes it until T16; `machine_alert (id, machine_id, account_id, session_id null, kind, detail jsonb, created_at, cleared_at)`. All `account_id NOT NULL REFERENCES account` (no default: new tables have no M1 inserts).
   - `gateway/enroll.ts`: `createEnrollmentToken(scope)` (128-bit, hashed, 30 min) and `enrollMachine(db, {token, hostname, os, arch, daemon_version})` → `{machine_id, credential}` in one transaction (the token is consumed with `used_at IS NULL AND expires_at > now()` in the `UPDATE … RETURNING`; the machine id is server-generated; the credential is 256-bit, only its hash stored). REST exposure is T17's.
   - **Upgrade auth** in `gateway/index.ts`: in `password` mode (gateway option `requireCredential`, default from `CONDUCTOR_AUTH`), the upgrade needs `Authorization: Bearer <credential>`; unknown or revoked → HTTP 401 before the socket is accepted; the connection gets `scope = {account_id, actor: {kind: 'machine', machine_id}}`; `register`'s machine id must equal the credential's (else close 4003). In `local` mode the M1 path stays, with `account_id = LOCAL_ACCOUNT_ID`. Both `// TD:` sites of TD-059 are removed. A `register` with `protocol_version` < 2 in `password` mode → close 4005.
-  - `gateway/revoke.ts`: `revokeMachine(scope, machine_id)` sets `revoked_at` on the machine and its credentials and closes its socket with 4001 within one tick; it returns the live session ids for T20 to hand to a human (T20 wires that).
+  - `gateway/revoke.ts`: `revokeMachine(scope, machine_id)`, in one transaction, sets `revoked_at` on the machine and its credentials and marks every `pending` / `sent` outbox row targeting `machine:<id>` `failed` with `last_error = 'machine_revoked'` (no engine event; fenced kills from an earlier `lease_expired` included); then it closes the socket with `CLOSE_REVOKED` (4001) within one tick. It returns the live session ids for T20 to hand to a human (T20 wires that). 10-contracts §Machines protocol v2 "Revoke and the outbox (R4)".
+  - Use `CLOSE_REPLACED` instead of the literal `4000` in `gateway/index.ts` (pays TD-113).
   - Row types in `db/types.ts` (machine section); 02 §machine, §machine_repo, new §machine_credential, §enrollment_token, §machine_capability, §machine_alert.
 - **Design refs**: ADR-0013 §Enrollment, §Inventory; ADR-0017 §Threat model; 10-contracts §Machines protocol v2 (T02); 10-contracts §Gateway details.
 - **Depends on**: T02, T03.
@@ -319,26 +338,30 @@ Groups run in order A → J. Tasks within a group own disjoint files and can run
 - **Acceptance**:
   - [ ] `test/gateway/enroll.test.ts`: a token enrolls once; a second use, an expired token and a token from a revoked list fail; two concurrent uses → exactly one machine; the credential's plaintext is in no table.
   - [ ] `test/gateway/upgrade-auth.test.ts` (password mode): no header → 401 and no `machine` row touched; a revoked credential → 401; a valid one registers; `register` with another machine's id → close 4003; `protocol_version: 1` → close 4005. Local mode: an M1 register without a header still works.
-  - [ ] `test/gateway/revoke.test.ts`: revoke closes the live socket with 4001 in < 1 s and the credential no longer upgrades.
+  - [ ] `test/gateway/revoke.test.ts`: revoke closes the live socket with 4001 in < 1 s and the credential no longer upgrades; the machine's `pending` and `sent` outbox rows are `failed` with `last_error = 'machine_revoked'`, another machine's rows are untouched.
+  - [ ] `test/gateway/capability-rows.test.ts` (or in `upgrade-auth`): the `machine_capability` primary key is `(machine_id, key)`; an authed `gh` stores two rows.
   - [ ] Migration up/down/up on a database with M1b rows; `machine_repo` rows survive with `mode = 'reference'`.
   - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e`.
 
 ### M2-T10 · Daemon: inventory scanner
 - **Scope.** `packages/daemon/src/inventory/`:
+  - Repo grammar: the scanner canonicalises remotes with T01's shared `canonicalRepo` rather than a fourth copy, and replaces the daemon's private copy where it can (TD-107; T13 finishes the `workspace.ts` side).
   - `repos.ts`: walk the configured roots (depth ≤ 4, no symlink following, skip `node_modules` and dot-directories), find git work trees, read `origin`'s fetch URL (canonicalised to `host/org/repo` with the M1-T14 grammar; else `remote: null`), `default_branch` (`origin/HEAD`, else `main` / `master`), `head_commit`, and the per-repo `mode` from config (default `reference`). All git calls with `-c core.hooksPath=/dev/null` and `GIT_CONFIG_NOSYSTEM=1`.
   - `capabilities.ts`: `cli` probes with a 5 s timeout each and no shell: `gh --version` + `gh auth status`, `az --version` + `az account show`, `jira version` (if present), `git --version`; `authed` is a boolean only (no account names in the report); `mcp` names from the user's Claude Code config (user scope and enabled plugins: names only, never command, args, env or URL); `skill` / `agent` names from `~/.claude/skills|agents` and each repo's `.claude/skills|agents`; `claude --version`.
   - `report.ts`: build the `inventory` message with a stable `hash`; send after `registered`, on `SIGHUP`, and every 10 min when the hash changed. Until T16 switches the orchestrator over, the daemon **also** sends the old `repo_inventory` (a `// TD: removed in M2-T21` site); T21 removes it.
   - **Test repos**: with `CONDUCTOR_ALLOW_LOCAL_REPOS` (tests only), `CONDUCTOR_TEST_REMOTE_ALIASES` (`<path>=<host/org/repo>,…`) gives local test repos a canonical remote so the e2e can route them; it is ignored without that flag.
+  - **gh version floor** (follow-up (b), dogfooding 2026-10-27: gh 2.14 couldn't run `gh pr create` outside a git repository, which `open_pr` does by design): `GH_MIN_VERSION` and a pure `cliVersionAtLeast(version, min)` in `packages/shared/src/machines/capabilities.ts` (additive; T11 reads them). The minimum version that supports `gh pr create --repo --head --base` run outside any git repository is **not verified** (U-076); the floor is **2.40.0** (Dec 2023), a safe floor well past the known-bad 2.14 and below Ben's 2.103.3. The inventory already reports `cli {name: 'gh', version}`; `actions/open-pr.ts` runs `gh --version` first and refuses the action with `"gh ≥ 2.40.0 required (found <v>): upgrade gh, e.g. brew upgrade gh"` (an action error, so the move goes to a human, ADR-0010) when it is older or unparsable. If T10 finds the true minimum (e.g. from gh's changelog), it sets the floor to it and says so in the PR.
   - `config.ts` + `main.ts`: `conductor-daemon config roots <dir…>`, `conductor-daemon config repo <path> --mode reference|checkout`, `conductor-daemon config show`; stored in `<root>/config.json` (0600). `CONDUCTOR_ROOTS` env overrides.
 - **Design refs**: ADR-0013 §Inventory; U-060 resolution; 10-contracts §Machines protocol v2 (T02).
 - **Depends on**: T04 (the daemon lane; `main.ts`, `config.ts`).
-- **Files owned**: `packages/daemon/src/inventory/**` (new), `config.ts`, `main.ts` (the `config` subcommand), the inventory section of `daemon.ts`, their tests.
-- **Do not touch**: `workspace.ts` (T13), `claude/**`, `actions/**`, other packages, `docs/tracking/*`.
+- **Files owned**: `packages/daemon/src/inventory/**` (new), `config.ts`, `main.ts` (the `config` subcommand), the inventory section of `daemon.ts`, the gh version check in `actions/open-pr.ts` (that check only), `GH_MIN_VERSION` / `cliVersionAtLeast` in `packages/shared/src/machines/capabilities.ts` (additive), their tests.
+- **Do not touch**: `workspace.ts` (T13), `claude/**`, other `actions/**`, other packages, `docs/tracking/*`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `inventory/repos.test.ts` on a temp tree: finds repos at depth 1–4, not 5; skips `node_modules`, dot-dirs and symlinks; canonicalises `git@github.com:org/app.git` and `https://github.com/org/app` to `github.com/org/app`; a repo without origin has `remote: null`; a planted `.git/hooks/post-checkout` in a scanned repo is never run (marker file absent).
   - [ ] `inventory/capabilities.test.ts` with fake binaries on `PATH`: `gh` authed → `{authed: true}` with no account name anywhere in the message; a hanging probe is killed at 5 s; MCP names are read from a fixture config and no `command`/`env` value appears in the output.
   - [ ] `inventory/report.test.ts`: sent after `registered`; not re-sent when unchanged; re-sent on `SIGHUP` after a change.
+  - [ ] `actions/open-pr.gh-version.test.ts` with a fake `gh` on `PATH`: `gh version 2.14.0` → the action fails with the "gh ≥ 2.40.0 required" message and nothing is pushed; `2.40.0` and `2.103.3` proceed. `cliVersionAtLeast` unit tests in shared (`2.9.0 < 2.40.0`, pre-release suffixes, garbage → false).
   - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e`.
 
 ### M2-T11 · Web: Machines page, routing badge, alerts
@@ -346,14 +369,15 @@ Groups run in order A → J. Tasks within a group own disjoint files and can run
   - `/machines`: list (name, online, last seen, daemon / claude versions with an "update" mark when `outdated`, repo count, revoked); a detail drawer (repos with remote, path and mode; capabilities grouped by kind; open alerts with changed files); rename inline; **Revoke** with a confirm naming the live sessions that will go to a human.
   - **Add a machine**: calls the enrollment-token route and shows the `command` once with a copy button, the 30-minute expiry, the `--service` variant, and a link to `docs/setup/add-a-machine.md` (served from the repo's GitHub URL).
   - Board: Queued cards with `routing` show "needs a machine with `org/app` and `az`"; cards with `alerts` show a red "`.git` changed" badge listing files.
+  - **Outdated gh** (follow-up (b)): a machine whose `cli` capability `gh` has a version below `GH_MIN_VERSION` (T10, `cliVersionAtLeast`) shows "gh <v> is too old for pull requests (needs ≥ <min>)" in the list row and the drawer.
   - `packages/web/src/api/{client,http,mock}.ts`: the machines calls (mock: two machines, one with an alert).
 - **Design refs**: ADR-0013 §Enrollment (Machines page), §Routing; ADR-0017 §Daemon distribution; 10-contracts §Accounts and web auth (T01).
-- **Depends on**: T05 (web lane: `App.tsx`, api client files).
+- **Depends on**: T05 (web lane: `App.tsx`, api client files); T10 (`GH_MIN_VERSION`, `cliVersionAtLeast`).
 - **Files owned**: `packages/web/src/machines/**` (new), the machines parts of `web/src/api/{client,http,mock}.ts`, the card badge in `web/src/components/Board.tsx` (badge only), `App.tsx` / `nav.ts` (route and nav entry), their tests.
 - **Do not touch**: `web/src/auth/**`, `web/src/admin/**`, `web/src/workflow/**`, other packages, `docs/tracking/*`.
 - **Migration**: no.
 - **Acceptance**:
-  - [ ] `machines/Machines.test.tsx`: the install command is shown once and gone after closing; revoke asks for confirmation listing sessions; an outdated daemon shows the update mark.
+  - [ ] `machines/Machines.test.tsx`: the install command is shown once and gone after closing; revoke asks for confirmation listing sessions; an outdated daemon shows the update mark; a machine with `gh` 2.14.0 shows the outdated-gh flag, one with 2.103.3 doesn't.
   - [ ] `components/Board.routing.test.tsx`: a Queued card with `routing` shows the missing repo and capabilities; a card with an alert shows the badge and files.
   - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
 
@@ -381,19 +405,23 @@ Groups run in order A → J. Tasks within a group own disjoint files and can run
   - **`reference` mode (default)**: a daemon clone at `<root>/repos/<slug>` made with `git clone --reference <user checkout> --dissociate <origin fetch URL>` (the user's own URL, so their git credentials work), then `git fetch origin <default_branch>` before **every** session (fixes the stale base, U-030); worktree `<root>/wt/<session>` on `conductor/<ticket>/<short>` from `origin/<default_branch>`. The user's `.git` is never written.
   - **`checkout` mode (opt-in)**: `git -C <checkout> -c core.hooksPath=/dev/null fetch origin <default_branch>` and `worktree add <root>/wt/<session> … origin/<default_branch>`; before the session and after it ends, hash `.git/config`, `.git/hooks/**` and the `core.hooksPath` target; any change sends `alert {kind: 'git_tamper', files}`.
   - All daemon git with `-c core.hooksPath=/dev/null` and `GIT_CONFIG_NOSYSTEM=1`.
+  - `cloneSource`'s repo grammar uses the shared `canonicalRepo` / `isCanonicalRemote` (pays TD-107 with T10).
   - Push URL for the ADR-0010 private push comes from the inventory's recorded remote, re-checked against `ticket.repo`; never read from a checkout's config at push time.
+  - **Push credentials** (follow-up (a), dogfooding 2026-10-27): `open_pr` pushes with `GIT_CONFIG_NOSYSTEM=1` (ADR-0010 hardening), so a credential helper configured only in system git config (Homebrew's `/opt/homebrew/etc/gitconfig`: `osxkeychain`) is invisible and HTTPS pushes fail. (Ben's Mac was fixed by hand with `gh auth setup-git`, which writes global config.) Fix: for an `https://github.com/…` push target, the daemon adds `-c credential.helper= -c "credential.helper=!<absolute path to gh> auth git-credential"` to **its own push command only** (the empty value first resets any inherited helper list). `<absolute path to gh>` is resolved once from `PATH` at daemon start (the same `gh` the inventory probed) and must be an absolute, existing, non-symlink-to-worktree path; if `gh` is missing, the push runs unchanged and fails with the existing error plus the hint "run `gh auth login` (and `gh auth setup-git`)". SSH targets are untouched. Nothing is written to any git config.
   - Worktree GC: `git worktree remove` + `prune` against the clone or the checkout; no `<root>/repos` first-use clone from a bare repo name any more (M1's `cloneSource` path is kept only for `CONDUCTOR_ALLOW_LOCAL_REPOS` test repos).
   - [07](../../design/07-multi-session-isolation.md) §Code rewritten.
 - **Design refs**: ADR-0013 §Sessions run in worktrees; U-060 resolution; [ADR-0010](../../adr/0010-one-workflow-columns-are-states.md) (fresh checkout, private push); [ADR-0008](../../adr/0008-transcript-history-and-reopen.md) (worktree location, reopen pin); 07 §Code.
 - **Depends on**: T10 (inventory store).
-- **Files owned**: `packages/daemon/src/workspace.ts`, `src/actions/checkout.ts` (push URL source only), the start_session section of `daemon.ts`, their tests, 07 §Code.
+- **Files owned**: `packages/daemon/src/workspace.ts`, `src/actions/checkout.ts` (push URL source only), `src/actions/open-pr.ts` (push URL source and the push credential helper; T10's gh version check stays), the start_session section of `daemon.ts`, their tests, 07 §Code.
 - **Do not touch**: `inventory/**` (read only), `claude/**`, other packages, `docs/tracking/*`.
 - **Migration**: no.
 - **Acceptance**:
+  - [ ] **TD-026 / U-030 (fresh base, actively hurting M2: every dogfood session so far started from a stale main and was rebased by hand; the lead fast-forwards the clone after each merge as a workaround)**: `workspace.fresh-base.test.ts`: the daemon runs `git fetch origin <default_branch>` **before creating each new session's worktree**, in both modes and on the M1 `cloneSource` path too (local test repos), and the session branch is created from the **fetched** `origin/<default_branch>` (not the clone's local `HEAD` or `main`). Test: create clone → push commit X to origin → start a session → the worktree's base contains X; push Y → start a second session → its base contains Y; a resumed session (same session id) reuses its existing worktree and is not rebased. A failed fetch fails the start with a clear error (no silent stale base). Pays TD-026.
   - [ ] `workspace.reference.test.ts`: with a temp "user checkout" and a temp origin, a session's worktree is based on the **fetched** origin default branch (a commit pushed to origin after the clone appears); the user checkout's `.git` directory tree hash is identical before and after two sessions.
   - [ ] `workspace.checkout.test.ts`: a session runs off the checkout; planting `.git/hooks/pre-commit` during it produces an `alert` naming that file; nothing is reported when nothing changed.
   - [ ] A `start_session` whose `repo_path` isn't in the inventory, or whose remote doesn't match the ticket, fails without touching disk.
   - [ ] The ADR-0010 fresh-checkout and private-push tests pass; `pnpm test:e2e` passes (its repos are local test repos via `CONDUCTOR_ALLOW_LOCAL_REPOS`).
+  - [ ] `actions/open-pr.credential.test.ts` with a fake `git` that records its argv: an `https://github.com/o/r` push carries `-c credential.helper=` followed by `-c credential.helper=!<abs gh> auth git-credential`, in that order and only on the push (not on the fetch); an `ssh` / `git@github.com:` push carries neither; a missing `gh` leaves the push unchanged and the failure text has the hint.
   - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e`.
 
 ### M2-T14 · Orchestrator: daemon distribution and health
@@ -412,6 +440,7 @@ Groups run in order A → J. Tasks within a group own disjoint files and can run
   - [ ] `test/install-script.test.ts`: runs the rendered script with `sh` against a local server serving a small fake tarball, with `HOME` and `--root` in a temp dir and a fake `node`/`git`/`claude` on `PATH`: installs, links `current`, runs the (fake) enroll with the token; a wrong SHA-256 aborts with nothing installed; `node` 20 aborts with the message; a second run without `--token` upgrades and keeps `machine.json`.
   - [ ] `scripts/build-daemon-tarball.sh` produces a tarball whose `bin/conductor-daemon --help` runs from an empty directory with only Node on `PATH` (no workspace links).
   - [ ] **QA step (lead)**: `docker build` on gradyserver (as in T07) includes `/app/.../downloads/conductor-daemon-*.tgz`.
+  - [ ] **TD-117 (install side; T18 does the daemon side)**: `install.sh` passes the enrollment token to `conductor-daemon enroll` in the environment variable `CONDUCTOR_ENROLL_TOKEN`, never in argv. `test/install-script.test.ts` asserts that the fake `conductor-daemon`'s recorded argv has no token and its environment has it. The command shown on the Machines page still carries `--token` for `sh -s --`; the script moves it off argv before calling the daemon.
   - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
 
 ### M2-T15 · Orchestrator: invites, sign-up, resets, admin, CLI
@@ -435,9 +464,10 @@ Groups run in order A → J. Tasks within a group own disjoint files and can run
 
 ### M2-T16 · Orchestrator: inventory ingest and routing
 - **Scope.**
-  - `gateway/inventory.ts`: on `inventory`, replace the machine's `machine_repo` and `machine_capability` rows in one transaction (scoped to the connection's account); ignore repos with `remote: null` for routing but keep them for display; mark `outdated` with T14's `isOutdated`. On `alert`, insert `machine_alert` and publish a board update for the session's card. `repo_inventory` handling is removed.
-  - `gateway/claim.ts` gains the hard filters (ADR-0013 §Routing; [04](../../design/04-scheduler.md) §2): `ticket.account_id = machine.account_id`; `EXISTS machine_repo (this machine, ticket.repo, remote not null)`; every requirement in the pinned (or latest) version's `required_capabilities` for the ticket's kind is present on the machine (`cli:*:authed` needs `authed = true`). The claim returns the matched `machine_repo.path` and `mode` for `start_session.working_copy`. The short hold is removed.
-  - `engine/board-view.ts`: Queued cards get `routing` = what no **online** machine of the account has (the repo, then missing capabilities), and `alerts` from open `machine_alert` rows.
+  - `gateway/inventory.ts`: on `inventory`, replace the machine's `machine_repo` and `machine_capability` rows in one transaction (scoped to the connection's account; capability rows keyed `(machine_id, key)`, one per `capabilityKeys` element, T09); ignore repos with `remote: null` for routing but keep them for display. (`outdated` is **not** stored: T17 computes it at read time with T14's `isOutdated`.) On `alert`, dedupe on `(machine_id, seq)` (10-contracts §Daemon seq dedupe), insert `machine_alert` and publish a board update for the session's card. `repo_inventory` handling is removed. This pays TD-112 (the M1 gateway dropped `inventory` / `alert` until now; alerts sent between T13 and T16 were lost, not replayed).
+  - `gateway/claim.ts` gains the hard filters (ADR-0013 §Routing; [04](../../design/04-scheduler.md) §2; 10-contracts §Machines protocol v2 "Matching" is the authority): `ticket.account_id = machine.account_id`; `EXISTS machine_repo (this machine, remote not null, lower(remote) = lower(ticket.repo))` (github.com org/repo are case-insensitive); every requirement in the pinned (or latest) version's `required_capabilities` for the ticket's kind is a stored `machine_capability.key` of the machine, or a bare `skill:<n>` / `agent:<n>` met by `skill:<n>@<ticket.repo>` with the `@<repo>` part compared case-insensitively too. A queued session carrying a `__machine_lost` mark is offered **only** to `mark.machine_id` (a hard filter like the reopen pin).
+  - **Working copy**: in the claim transaction, before `applyEvent(session.assigned)`, the claim writes the matched `machine_repo` as `{repo_path, mode}` into `session.context.__working_copy` (`WORKING_COPY_CONTEXT_KEY`); `commandPayloadForEffect` copies it into every `start_session`. The short hold is removed.
+  - `engine/board-view.ts`: Queued cards get `routing` = what no **online** machine of the account has (the repo, then missing capabilities via `missingCapabilities(caps, reqs, ticket.repo)`; it takes the ticket's repo so repo-scoped skills match), and `alerts` from open `machine_alert` rows.
   - **Gateway isolation test** (ADR-0012 §Proving isolation 3).
   - 04 §2 and §3 rewritten (filters, no short hold).
 - **Design refs**: ADR-0013 §Inventory, §Routing; ADR-0012 §Proving isolation; 04 §Claim query; 10-contracts §Claim.
@@ -446,7 +476,7 @@ Groups run in order A → J. Tasks within a group own disjoint files and can run
 - **Do not touch**: `api/**`, `auth/**`, `engine/**` besides `board-view.ts`, `shared/**`, `docs/tracking/*`.
 - **Migration**: no.
 - **Acceptance**:
-  - [ ] `test/gateway/claim.test.ts`: a ticket for `org/b` is claimed by machine B (has it), never by A; a ticket whose workflow needs `cli:az:authed` isn't claimed by a machine with `az` unauthed, and is claimed once an inventory with `authed: true` arrives; the claim returns B's path and mode.
+  - [ ] `test/gateway/claim.test.ts`: a ticket for `org/b` is claimed by machine B (has it), never by A; a ticket for `github.com/Org/B` is claimed by a machine reporting `github.com/org/b`; a ticket whose workflow needs `cli:az:authed` isn't claimed by a machine with `az` unauthed, and is claimed once an inventory with `authed: true` arrives; a bare `skill:review` requirement is met by `skill:review@github.com/Org/B` for a ticket on `github.com/org/b`; after the claim, `session.context.__working_copy` holds B's path and mode and the `start_session` outbox row carries `working_copy`; a queued session with a `__machine_lost` mark for B is never claimed by A.
   - [ ] `test/gateway/isolation.test.ts`: a machine of account B can't claim, send events or `complete_state` for, ack commands of, or fetch transcripts of an account-A session (each refused, nothing written).
   - [ ] `test/gateway/inventory.test.ts`: a second inventory replaces the first; an `alert` creates a row and the card shows it.
   - [ ] Board view: a Queued card with no capable online machine has `routing` naming the missing repo / capabilities.
@@ -456,11 +486,11 @@ Groups run in order A → J. Tasks within a group own disjoint files and can run
 - **Scope.** New `packages/orchestrator/src/api/machines.ts`, registered from `api/index.ts`:
   - `POST /api/machines/enroll` (public, rate-limited with T08's limiter, calls T09's `enrollMachine`; 401 `unauthorized` for a bad token);
   - `POST /api/machines/enrollment-tokens` → `EnrollmentTokenCreated` with the full `curl -fsSL <public url>/install.sh | sh -s -- --token <token>` command;
-  - `GET /api/machines` (the account's machines, `MachineRow`), `GET /api/machines/:id` (`MachineDetail`), `PATCH /api/machines/:id` (rename), `POST /api/machines/:id/revoke` (T09's `revokeMachine`; T20 adds the human hand-off). Another account's id → 404.
+  - `GET /api/machines` (the account's machines, `MachineRow`; `outdated` computed at read time with T14's `isOutdated(machine.daemon_version, served version)`, no column), `GET /api/machines/:id` (`MachineDetail`), `PATCH /api/machines/:id` (rename), `POST /api/machines/:id/revoke` (T09's `revokeMachine`; T20 adds the human hand-off). Another account's id → 404.
   - `POST /api/tickets` in `password` mode: `repo` must pass `canonicalRepo` and is stored canonical (400 otherwise); `local` mode keeps M1's rule (local paths allowed for the e2e fixture repos); when no machine of the account has the repo the ticket is created and the response carries `warnings: ['no_machine_has_repo']` (U-048, ADR-0013).
   - 03 §REST: the machines routes.
 - **Design refs**: ADR-0013 §Enrollment, §Routing; ADR-0017 §Daemon distribution; 10-contracts §Accounts and web auth (T01).
-- **Depends on**: T08, T09.
+- **Depends on**: T08, T09, T14 (`isOutdated` and the served version).
 - **Files owned**: `src/api/machines.ts`, its registration line and the ticket-create handler in `src/api/index.ts`, `test/api.machines.test.ts`, `test/api.tickets-repo.test.ts`, 03 §REST (machines).
 - **Do not touch**: other handlers in `api/index.ts`, `gateway/**` (call exported functions only), `auth/**`, `engine/**`, `shared/**`, `docs/tracking/*`.
 - **Migration**: no.
@@ -476,12 +506,16 @@ Groups run in order A → J. Tasks within a group own disjoint files and can run
   - **`docs/setup/add-a-machine.md`**: prerequisites (Node 22, `claude` installed and logged in, `gh auth login`; optional `az login`, a Jira CLI or MCP); the one-line install from the Machines page; `--service`; choosing roots (`conductor-daemon config roots ~/code`); per-repo mode (`config repo <path> --mode checkout` and what it risks, U-060); what is reported and what is never reported; upgrading; revoking and re-enrolling; troubleshooting (401 = token expired, 4001 = revoked, 4005 = update).
 - **Design refs**: ADR-0013 §Enrollment (setup guide); ADR-0017 §Daemon distribution.
 - **Depends on**: T04; T14 (the install script calls this command).
-- **Files owned**: `packages/daemon/src/commands/service.ts` (+ test), the `service` subcommand in `main.ts`, `docs/setup/add-a-machine.md`.
+- **Files owned**: `packages/daemon/src/commands/service.ts` (+ test), the `service` subcommand in `main.ts`, `docs/setup/add-a-machine.md`; for TD-117 / TD-118 / TD-119: the token input in `commands/enroll.ts`, `credential.ts`, and the fatal-exit code in `ws-client.ts` (+ their tests).
 - **Do not touch**: `workspace.ts`, `inventory/**`, `claude/**`, other packages, `docs/tracking/*`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `commands/service.test.ts` with `HOME` in a temp dir and fake `launchctl` / `systemctl` on `PATH`: the plist / unit content matches a snapshot; install twice changes nothing; uninstall removes it; no command uses sudo.
   - [ ] **QA step (lead)**: on Ben's Mac, `conductor-daemon service install` against a local orchestrator starts the daemon at login (log in `<root>/logs/`), and `uninstall` stops it.
+  - [ ] **TD-117 (daemon side)**: `enroll` reads the token from `CONDUCTOR_ENROLL_TOKEN` (or stdin with `--token -`); `--token <value>` still works and prints a warning that argv is visible in `ps`. `commands/enroll.test.ts` covers all three.
+  - [ ] **TD-119 (exit code)**: a fatal close (4001, 4003, HTTP 401, HTTP 403) exits with a distinct `EXIT_FATAL_AUTH` (78, `EX_CONFIG`), not 1; `ws-client.test.ts` asserts the code for each.
+  - [ ] **TD-118** (here, or in the M2 security pass before T25): `credential.ts` opens with `O_NOFOLLOW` + `fstat`, checks the root is 0700 and owned by the user, `fsync`s on write, and never `chmod`s through a symlink; `credential.test.ts` covers each case.
+  - [ ] **TD-119**: a revoked machine doesn't restart-loop. The systemd unit has `RestartPreventExitStatus=<EXIT_FATAL_AUTH>`; the launchd plist uses `KeepAlive {SuccessfulExit: false}` with the daemon's fatal-auth path stopping the job (or `ThrottleInterval` as a floor). `commands/service.test.ts` snapshots both; a fake daemon that exits with `EXIT_FATAL_AUTH` under the fake `systemctl` / `launchctl` is not restarted.
   - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
 
 ### M2-T19 · Orchestrator: engine and stream scoping
@@ -505,19 +539,24 @@ Groups run in order A → J. Tasks within a group own disjoint files and can run
 
 ### M2-T20 · Orchestrator: leases and the reaper
 - **Scope.**
-  - `engine/reaper.ts`, run from the existing sweep loop: a session whose `lease_expires_at` has passed (heartbeats renew it, 04 §4) gets `machine.lost {reason: 'lease_expired'}` through `applyEvent` (T06's engine semantics; human question "<machine> stopped responding"). A reconnect before the lapse changes nothing.
-  - **Revoke**: T09's `revokeMachine` result feeds `machine.lost {reason: 'revoked'}` for each live session (wired in `gateway/revoke.ts`' caller).
+  - **Authority**: [10-contracts](../../design/10-contracts.md#machines-protocol-v2) §Machines protocol v2 "Lost machines", "Fencing (R5)" and "Revoke and the outbox (R4)". Where this block and that section differ, 10-contracts wins.
+  - `engine/reaper.ts`, run from the existing sweep loop: a session in `assigned` / `running` / `waiting_external` (**only** those; queued and parked sessions are never lease-reaped) whose `lease_expires_at` + the 2-minute grace has passed (heartbeats renew it, 04 §4) gets `machine.lost {reason: 'lease_expired', machine_name}` through `applyEvent` (T06's engine semantics; human question "<machine> stopped responding"). A reconnect before the lapse changes nothing.
+  - **Pin SQL**: a `queued` session pinned to a machine (the reopen pin, TD-088, **or** a `__machine_lost` mark, which counts as a pin to `mark.machine_id`) whose machine has been offline for `PINNED_MACHINE_OFFLINE_AFTER_MS` gets `pinned_machine_offline` (with `offline_ms`); when the pinned machine has `revoked_at` set, it gets reason **`revoked`** at once instead.
+  - **Fencing**: add an applied (non-ignored) `machine.lost` to the EngineService wrapper's fencing-bump list in `engine/service.ts`, so the kill row and every later command carry the new token (apply never bumps).
+  - **Supersede**: when a `revoked` reaches an already-parked session (case (B)), the wrapper closes the previous open `input_request` as superseded (`answer = '[superseded]'`, `answered_by = 'system'`) in the same transaction.
+  - **Revoke**: T09's `revokeMachine` result (it has already failed the machine's pending / sent outbox rows) feeds `machine.lost {reason: 'revoked'}` for each non-terminal session of that machine (wired in `gateway/revoke.ts`' caller). Revoked sessions offer Cancel only.
   - **TD-088**: a reopened ticket pinned to a machine that has been offline longer than `CONDUCTOR_PIN_OFFLINE_MS` (default 15 min) goes to a human with `reason: 'pinned_machine_offline'`.
   - "Continue on <machine>": when the human takes it, the session is re-dispatched to the same machine once it is online (the reopen pin); the fenced `kill` stops a stale worker on reconnect.
   - Heartbeat lease renewal in `gateway/index.ts` checked (renew only for sessions of that machine and account).
   - 04 §4 and [08](../../design/08-failure-modes.md) laptop-sleep row updated.
 - **Design refs**: ADR-0013 §Overlap (leases); U-068; 04 §4 Leases and fencing; 08; TD-088.
 - **Depends on**: T06, T19.
-- **Files owned**: `src/engine/{reaper.ts, sweep.ts}`, the heartbeat and revoke-hook lines in `src/gateway/index.ts` / `gateway/revoke.ts`, `test/engine/reaper.test.ts`, 04 §4, 08 (laptop sleep).
+- **Files owned**: `src/engine/{reaper.ts, sweep.ts}`, `src/engine/service.ts` (the fencing-bump list and the supersede on (B)), the heartbeat and revoke-hook lines in `src/gateway/index.ts` / `gateway/revoke.ts`, `test/engine/{reaper,service.machine-lost}.test.ts`, 04 §4, 08 (laptop sleep).
 - **Do not touch**: `api/**`, `auth/**`, `gateway/claim.ts`, migrations, `shared/**`, `docs/tracking/*`.
 - **Migration**: no.
 - **Acceptance**:
-  - [ ] `test/engine/reaper.test.ts` (fake clock): lease lapse → needs_input with the machine named; a heartbeat just before the lapse → nothing; revoke → needs_input at once; a pinned reopen with its machine offline 15 min → needs_input (TD-088); "Continue" re-dispatches to the same machine when it reconnects, and the stale worker gets the fenced `kill`.
+  - [ ] `test/engine/reaper.test.ts` (fake clock): lease lapse → needs_input with the machine named; a heartbeat just before the lapse → nothing; a `needs_input` or `queued` session with an expired lease is not reaped; revoke → needs_input at once; a pinned reopen with its machine offline 15 min → needs_input (TD-088) and the ticket `in_progress`; a pinned reopen whose machine is revoked → `revoked` at once (Cancel only); a queued session with a `__machine_lost` mark is treated as pinned; "Continue" re-dispatches to the same machine when it reconnects, and the stale worker gets the fenced `kill`.
+  - [ ] `test/engine/service.machine-lost.test.ts`: an applied `machine.lost` bumps `fencing_token` and the kill row carries the new token; a late event from the old worker with the old token is refused `stale_fencing_token` (moved here from T06); an ignored one doesn't bump; a `revoked` on a parked session closes the old request as `[superseded]` in the same transaction.
   - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e`.
 
 ### M2-T21 · Orchestrator: REST scoping, isolation proofs, cleanup
@@ -526,10 +565,10 @@ Groups run in order A → J. Tasks within a group own disjoint files and can run
   - **Route-matrix test** `test/isolation/route-matrix.test.ts` (ADR-0012 §Proving isolation 2), generated from `API_PATHS`: account A creates one of everything (ticket, session, input request, machine, workflow version, invite as admin); for every route, account B calls it with A's ids and gets 404 or an empty list; a route missing from the matrix's table of "how to call it" fails the test; no `GET` writes a row (row counts before and after).
   - **SSE matrix**: B's board and output streams see nothing of A's (reuses T19's helpers).
   - **Unscoped-query lint** `test/isolation/unscoped-sql.test.ts` (ADR-0012 §Proving isolation 4): scans `src/**/*.ts` for SQL touching a scoped table without `account_id`, with a reviewed allow-list (the claim's joins, migrations, instance-level auth tables).
-  - Migration `<ts>_drop-account-defaults.sql`: drop the T03 `DEFAULT` on every `account_id` (the `-- TD:` comments go); drop `machine_repo.tree_clean`; drop `register.enrollment_token` and `repo_inventory` from the protocol schemas, and remove the daemon's `repo_inventory` send (the T10 `// TD:` site; a few lines in `packages/daemon`).
+  - Migration `<ts>_drop-account-defaults.sql`: drop the T03 `DEFAULT` on every `account_id` (the `-- TD:` comments go; pays TD-109); drop `machine_repo.tree_clean`; drop `register.enrollment_token` and `repo_inventory` from the protocol schemas, and remove the daemon's `repo_inventory` send (the T10 `// TD:` site; a few lines in `packages/daemon`; pays TD-110). Collapse the duplicated enums `MachineRepoModeSchema` / `MachineAlertKindSchema` (`domain.ts`) onto `machines/`' `WorkingCopyModeSchema` and alert kind, re-exporting one from the other (pays TD-108; T23 fixes the doc).
 - **Design refs**: ADR-0012 §Tenancy, §Proving isolation; 10-contracts §REST error map.
 - **Depends on**: T15, T17, T19.
-- **Files owned**: `src/api/**`, `test/isolation/**`, `test/api*.test.ts`, the new migration, the two deprecated fields in `shared/src/protocol/ws.ts`, the `repo_inventory` send in `packages/daemon/src/inventory/report.ts`.
+- **Files owned**: `src/api/**`, `test/isolation/**`, `test/api*.test.ts`, the new migration, the two deprecated fields in `shared/src/protocol/ws.ts`, the two duplicated machine enums in `shared/src/domain.ts` (TD-108), the `repo_inventory` send in `packages/daemon/src/inventory/report.ts`.
 - **Do not touch**: `engine/**`, `gateway/**`, `auth/**` (call only), `docs/tracking/*`.
 - **Migration**: **yes**. Ben approves before merge.
 - **Acceptance**:
@@ -603,6 +642,31 @@ Groups run in order A → J. Tasks within a group own disjoint files and can run
   11. (lead) Revoke a scratch machine from the page; it disconnects within 5 s.
 - **Depends on**: T22, T23, T24, and Ben's approvals of every migration.
 - **Acceptance**: each step above recorded with evidence (command output or screenshot) in the session log; the M2 exit criteria for hosting, enrollment and backups ticked.
+
+### M2-T26 · Shared: Retry a failed move step
+- **Why** (follow-up (c), dogfooding 2026-10-27): when a move step fails for a reason that isn't the agent's (open_pr errors, e.g. the push-credential and old-gh failures; a refused or timed-out check or action; conditions not met by `condition_timeout`; a reviewer with no verdict), the session goes to `on_unmet.else` with "… Retry, skip, or abort?", but a `conductor` v2 card only offers "Back with this answer" (sends the **agent** back), "Waiting on someone else" and "Done". There is no way to just run the step again.
+- **Scope** (decided here; the lead approves the semantics with the PR). In `packages/shared` only:
+  - **Retry point**: whenever a gate step (an ADR-0011 move step, or an ADR-0010 entry step; [05](../../design/05-workflow-engine.md) §Transitions, §Requirements to enter a column) leaves for `on_unmet.else` or the fallback human, apply stores `context.__retry = RetryPoint {kind: 'move' | 'entry', from, to, transition?, actor?, reason?, label, failed_phase: 'checks' | 'review' | 'actions' | 'conditions', head_sha | null, input_request_id, attempts}` (`RETRY_CONTEXT_KEY`, no migration; validator rule 8 reserves the name). It is cleared when the session enters any state other than through `$retry`.
+  - **`$retry`** (`RETRY_TRANSITION`, a reserved name like `$return_to`; real transition names are lower_snake_case, so it can't collide): a `human.transition {name: '$retry'}` accepted only while `needs_input` with a `__retry` point whose `input_request_id` is the open request and `attempts < MAX_HUMAN_RETRIES` (3). Otherwise `transition_not_allowed` (409). It re-enters the same gate step **without an agent turn** (no `start_session` for the worker, no `send_input`); the wrapper's existing gate-step rule bumps the fencing token:
+    - `failed_phase` `actions` or `conditions`, with a `head_sha`: resume **at that phase** with the stored `head_sha` as `expected_sha`. Checks and review that already passed are not re-run: they are bound to that commit, and `open_pr` refuses to push if the branch tip moved, so this is safe. Actions get a fresh idempotency key `<session>:<label>:<visit>:retry<attempts>` (the failed attempt's key may be cached as failed by the daemon). Conditions restart with a fresh `conditions_deadline`;
+    - `failed_phase` `checks` or `review`, or no `head_sha`: **re-run the whole step** from the checks phase (the commit is re-pinned).
+    - The step's counters (`move:<from>:<name>`, `entry:<to>`) are **not** reset or incremented by `$retry`: an unmet result after a retry routes exactly as before (to `on_unmet.goto` while the counter allows, else to a human). `attempts` increments on each `$retry`; at 3 the button is no longer offered (bounded; Back / Waiting / Done / Cancel remain).
+  - **Card**: `humanTransitionsOfCard` (`shared/src/api/rest.ts`) adds `{name: '$retry', title: 'Retry <step label>', needs_text: false}` first when the rule above allows it. The web already renders `human_transitions` as buttons; T26 adds no web code unless that turns out false (then it reports it, and the lead adds a small web task).
+  - The `/transition` request's `name` accepts `$retry` (extend the schema in `shared/src/api/` if it doesn't). The open request is answered `[retry]` by the move (the existing human-transition path).
+  - Docs: 05 §Transitions (a "Retry" bullet) and [10](../../design/10-contracts.md) §Transitions (`$retry`, `RetryPoint`, `MAX_HUMAN_RETRIES`).
+- **Engine invariants**: a human transition (an outcome); bounded by `MAX_HUMAN_RETRIES` and the step's own timeouts; every failure of the retried step still ends at `on_unmet.goto` (counted) or a human; state and commands in one apply; actions keep idempotency keys (new key per retry).
+- **Design refs**: [ADR-0011](../../adr/0011-transition-rules.md); [ADR-0010](../../adr/0010-one-workflow-columns-are-states.md) (entry steps, open_pr); 05 §Transitions, §Conditions, §Requirements to enter a column; 10-contracts §Transitions, §EngineService wrapper; [06](../../design/06-human-input.md) (the "Retry, skip, or abort?" questions).
+- **Depends on**: T06 (the only other M2 task that edits `shared/src/engine/apply.ts`).
+- **Files owned**: `packages/shared/src/engine/{apply.ts, retry.ts (new), types.ts (additive: RetryPoint, RETRY_CONTEXT_KEY, RETRY_TRANSITION, MAX_HUMAN_RETRIES)}`, `shared/src/api/rest.ts` (`humanTransitionsOfCard`, the transition request name), the validator's reserved-name list, their tests; 05 and 10-contracts (the sections above).
+- **Do not touch**: `packages/orchestrator/**`, `packages/daemon/**`, `packages/web/**`, `shared/src/machines/**`, `shared/src/protocol/**`, `docs/tracking/*`.
+- **Migration**: no.
+- **Acceptance**:
+  - [ ] `engine/apply.retry.test.ts`: an `open_pr` action error on a `personal_pr_ready_for_review` move → needs_input with `__retry {failed_phase: 'actions', head_sha}` and "Retry" first in `humanTransitionsOfCard`; `$retry` → the step resumes at `actions` with the same `expected_sha` and a `:retry1` idempotency key, **no** `start_session` for the worker and no `run_cmd` (checks not re-run); the action succeeding → the target (`needs_input`, PR ready) is entered as for a normal pass.
+  - [ ] Conditions timed out → `$retry` restarts the conditions phase with a new deadline, nothing else re-runs. A refused check → `$retry` re-runs the step from the checks phase.
+  - [ ] An unmet check after a retry routes to `on_unmet.goto` while the counter allows (counter unchanged by `$retry` itself). After 3 retries `$retry` → `transition_not_allowed` and the card no longer offers it.
+  - [ ] `$retry` with no retry point, or for a request that isn't the open one → `transition_not_allowed`; entering any state any other way clears `__retry`.
+  - [ ] `apply.property.test.ts` includes `$retry` and stays green at 1 000 runs (bounded: every run ends at a target, a counted goto, or a human).
+  - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e`.
 
 ---
 

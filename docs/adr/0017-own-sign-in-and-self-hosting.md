@@ -30,7 +30,7 @@ All in one migration (M2-T03). Column types are indicative; T03 finalises them a
 
 | Table | Columns | Notes |
 |---|---|---|
-| `account` | `id uuid pk`, `name`, `created_at` | ADR-0012. The migration creates the `local` account (fixed id `00000000-0000-0000-0000-000000000001`) and backfills every existing row into it |
+| `account` | `id uuid pk`, `name`, `created_at` | ADR-0012. The migration creates the `local` account (fixed id `LOCAL_ACCOUNT_ID` = `00000000-0000-4000-8000-000000000001`, RFC 9562-valid; `LOCAL_USER_ID` = `00000000-0000-4000-8000-000000000002` is a virtual local-mode user with no `app_user` row, served by `localMeResponse()`) and backfills every existing row into it |
 | `app_user` | `id uuid pk`, `email citext unique` (or `text` with a `lower(email)` unique index), `display_name`, `password_hash text`, `is_admin bool`, `disabled_at`, `password_changed_at`, `created_at` | `password_hash` is a PHC string (`$argon2id$v=19$m=…,t=…,p=…$salt$hash`), so its parameters travel with it |
 | `account_member` | `account_id`, `user_id`, `role ('owner')`, pk both | ADR-0012. Personal only in M2 (U-051): each user owns exactly one account and nobody else is a member |
 | `web_session` | `id_hash bytea pk`, `user_id`, `account_id`, `created_at`, `last_seen_at`, `expires_at`, `user_agent`, `ip` | ADR-0012's design. The cookie holds 32 random bytes; only their SHA-256 is stored |
@@ -89,6 +89,7 @@ All in one migration (M2-T03). Column types are indicative; T03 finalises them a
 | Cross-account access | ADR-0012's isolation tests (schema, route matrix, gateway, unscoped-query lint), 404 for foreign ids, admins included |
 | Invite or reset link leak | Single use, short expiry (7 days / 1 hour), revocable, hashed at rest; a used reset revokes all sessions |
 | Leaked enrollment token or machine credential | 30-minute single-use enrollment token; revocable credential; revoke closes the socket at once and sends the machine's sessions to a human |
+| An agent reads the machine credential | **Accepted, not mitigated** (added 2026-10-27, T04 QA): agents run as the same OS user as the daemon, so a session can read `~/.conductor/machine.json` from its worktree under `~/.conductor/wt/`, and a prompt injection could exfiltrate it. This matches ADR-0006's trust model: agents can already read the user's `gh` token and SSH keys. Revoking the machine limits the damage. The real fix is the OS sandbox (U-004); deny rules or moving the file are not boundaries (U-080) |
 | Server compromise | Out of scope beyond: the container runs as non-root, Postgres is reachable only on the compose network, the stack is published on `127.0.0.1` only, root steps are a separate script Ben reads and runs |
 | Open redirect | `next` accepts same-origin paths only |
 

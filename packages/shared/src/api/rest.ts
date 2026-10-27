@@ -5,6 +5,7 @@ import {
   InputRequestKindSchema,
   IsoDateTimeSchema,
   JsonObjectSchema,
+  MachineAlertKindSchema,
   MachineStatusSchema,
   SessionStatusSchema,
   TicketStatusSchema,
@@ -70,7 +71,68 @@ export const API_PATHS = {
   sessionOutputStream: (id: string) => `/api/stream/sessions/${id}/output`,
   /** Daemon ↔ orchestrator WebSocket (03), served on the same HTTP server as the API. */
   daemonWs: '/ws/daemon',
+
+  // M2-T01: accounts and web auth (10-contracts §Accounts and web auth). Every path the server
+  // serves is listed here: the route-matrix test (M2-T21) is generated from `apiPathTemplates()`.
+  /** POST LoginRequest → MeResponse + cookie. */
+  authLogin: '/auth/login',
+  /** POST `{}` → OkResponse; deletes the session and clears the cookie. */
+  authLogout: '/auth/logout',
+  /** GET → MeResponse. */
+  authMe: '/api/me',
+  /** POST SignupRequest → 201 MeResponse + cookie. */
+  authSignup: '/auth/signup',
+  /** GET → InvitePreview. */
+  authInvitePreview: (token: string) => `/auth/invites/${token}`,
+  /** POST ResetRequest → OkResponse. */
+  authReset: '/auth/reset',
+  /** POST PasswordChangeRequest → OkResponse. */
+  authPassword: '/auth/password',
+  /** Admin only. GET → InviteRow[]; POST CreateInviteRequest → 201 InviteCreated. */
+  adminInvites: '/api/admin/invites',
+  /** Admin only. DELETE → OkResponse (revokes the invite). */
+  adminInvite: (id: string) => `/api/admin/invites/${id}`,
+  /** Admin only. GET → AdminUserRow[]. */
+  adminUsers: '/api/admin/users',
+  /** Admin only. POST `{}` → 201 ResetLinkCreated. */
+  adminUserResetLink: (id: string) => `/api/admin/users/${id}/reset-link`,
+  /** Admin only. POST `{}` → OkResponse; revokes the user's sessions and machine credentials. */
+  adminUserDisable: (id: string) => `/api/admin/users/${id}/disable`,
+  /** Admin only. POST `{}` → OkResponse; clears the email's login lock. */
+  adminUserUnlock: (id: string) => `/api/admin/users/${id}/unlock`,
+  /** Public (token-authenticated). POST EnrollRequest → 201 EnrollResponse. */
+  machinesEnroll: '/api/machines/enroll',
+  /** POST `{}` → 201 EnrollmentTokenCreated. */
+  machineEnrollmentTokens: '/api/machines/enrollment-tokens',
+  /** GET → MachineDetail; PATCH RenameMachineRequest → MachineRow. */
+  machine: (id: string) => `/api/machines/${id}`,
+  /** POST `{}` → OkResponse; revokes the machine (socket closed with 4001). */
+  machineRevoke: (id: string) => `/api/machines/${id}/revoke`,
+  /**
+   * POST `{}` → 204; sets the alert's `cleared_at` (the machine's owner only). 404 for an unknown
+   * alert or another account's.
+   */
+  machineAlertClear: (id: string) => `/api/machines/alerts/${id}/clear`,
+  /** Public. GET → the install script (`text/x-shellscript`). */
+  installScript: '/install.sh',
+  /** Public. GET → the daemon tarball (and its `.sha256`), only the built names. */
+  daemonDownload: (file: string) => `/downloads/${file}`,
+  /** Public. GET → `{ok, db, version}`; 503 when the DB ping fails. */
+  healthz: '/healthz',
 } as const;
+
+/**
+ * Every API_PATHS entry as a route template: parameterised entries are called with `:<param>`
+ * (`:id`, `:token`, `:file`), so `session` → `/api/sessions/:id`. In declaration order.
+ */
+export function apiPathTemplates(): { key: keyof typeof API_PATHS; path: string }[] {
+  return (Object.keys(API_PATHS) as (keyof typeof API_PATHS)[]).map((key) => {
+    const entry: string | ((p: string) => string) = API_PATHS[key];
+    if (typeof entry === 'string') return { key, path: entry };
+    const param = key === 'authInvitePreview' ? 'token' : key === 'daemonDownload' ? 'file' : 'id';
+    return { key, path: entry(`:${param}`) };
+  });
+}
 
 /** Env var for the orchestrator's HTTP port (REST, SSE and the daemon WS). */
 export const CONDUCTOR_PORT_ENV = 'CONDUCTOR_PORT';
@@ -265,6 +327,24 @@ export const BoardPendingSchema = z.object({
 });
 export type BoardPending = z.infer<typeof BoardPendingSchema>;
 
+/**
+ * M2 (ADR-0013 §Routing): why a Queued card waits. What no online machine of the account has:
+ * the repo (`missing_repo`), then the capability keys (e.g. `cli:az:authed`).
+ */
+export const BoardCardRoutingSchema = z.object({
+  missing_repo: z.string().optional(),
+  missing_capabilities: z.array(z.string()),
+});
+export type BoardCardRouting = z.infer<typeof BoardCardRoutingSchema>;
+
+/** M2 (ADR-0013, U-060): an open machine alert on the card's session, e.g. `.git` changed. */
+export const BoardCardAlertSchema = z.object({
+  kind: MachineAlertKindSchema,
+  files: z.array(z.string()),
+  at: IsoDateTimeSchema,
+});
+export type BoardCardAlert = z.infer<typeof BoardCardAlertSchema>;
+
 /** One card. A ticket with no session yet has `session_id: null` and `status: null`. */
 export const BoardCardSchema = z.object({
   ticket_id: UuidSchema,
@@ -301,6 +381,10 @@ export const BoardCardSchema = z.object({
   created_at: IsoDateTimeSchema,
   /** Last activity (Running sort). */
   updated_at: IsoDateTimeSchema,
+  /** M2: Queued cards only, when no online machine can take it; absent otherwise. */
+  routing: BoardCardRoutingSchema.optional(),
+  /** M2: open alerts of the card's session; absent ≡ none. */
+  alerts: z.array(BoardCardAlertSchema).optional(),
 });
 export type BoardCard = z.infer<typeof BoardCardSchema>;
 
@@ -479,6 +563,14 @@ export const ApiErrorSchema = z.object({
       'no_transcript',
       /** ADR-0008 transcript: the machine did not answer in time (504). */
       'timeout',
+      /** M2 (ADR-0017): no valid session, wrong credentials, or a bad enrollment token (401). */
+      'unauthorized',
+      /** M2: a failed Origin / Host check, or an admin-only route for a non-admin (403). */
+      'forbidden',
+      /** M2: too many requests from one IP (429, with Retry-After). */
+      'rate_limited',
+      /** M2 (pays TD-070): an unsafe request without `content-type: application/json` (415). */
+      'unsupported_media_type',
     ]),
     message: z.string(),
     /** Validation details (zod issues / validator rule failures). */
@@ -519,6 +611,10 @@ export function httpForApplyResult(
   return { status: 409, code: route === 'input' ? 'input_not_pending' : 'conflict' };
 }
 
+/** `no_machine_has_repo`: created, but no machine of the account has the repo (ADR-0013). */
+export const TicketWarningSchema = z.enum(['no_machine_has_repo']);
+export type TicketWarning = z.infer<typeof TicketWarningSchema>;
+
 export const TicketDtoSchema = z.object({
   id: UuidSchema,
   external_ref: z.string().nullable(),
@@ -534,8 +630,64 @@ export const TicketDtoSchema = z.object({
   created_at: IsoDateTimeSchema,
   /** ADR-0011. Optional so older servers' responses still parse; absent ≡ null. */
   kind: TicketKindSchema.nullable().optional(),
+  /** M2 (U-048): only on the POST /api/tickets response; absent ≡ none. */
+  warnings: z.array(TicketWarningSchema).optional(),
 });
 export type TicketDto = z.infer<typeof TicketDtoSchema>;
+
+// ---------------------------------------------------------------- repo grammar (U-048)
+// The M1-T14 grammar (daemon `cloneSource`). TD-107: duplicated in the daemon's `cloneSource`
+// (packages/daemon/src/workspace.ts), canonicalRepo and `isCanonicalRemote` until they share one.
+const LABEL = '[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?';
+const HOST = `${LABEL}(?:\\.${LABEL})*`;
+const SEGMENT = '[A-Za-z0-9_][A-Za-z0-9._-]*';
+const REPO_PATH = `${SEGMENT}(?:/${SEGMENT})+`;
+const CANONICAL_RE = new RegExp(`^(${HOST})/(${REPO_PATH})$`);
+const SCP_RE = new RegExp(`^[A-Za-z0-9_][A-Za-z0-9._-]*@(${HOST}):(${REPO_PATH})$`);
+const URL_RE = new RegExp(
+  `^(https|ssh)://(?:([A-Za-z0-9_][A-Za-z0-9._-]*)@)?(${HOST})/(${REPO_PATH})$`,
+);
+
+/**
+ * The canonical `host/org/repo` form of a repo reference (U-048, ADR-0013 §Routing), or null.
+ * Accepts `host/org/repo`, `https://host/org/repo`, `ssh://user@host/org/repo` and scp-style
+ * `user@host:org/repo`, each with an optional `.git` (any case) and trailing `/`. The host is
+ * lower-cased; the path keeps its case (routing compares github.com org/repo case-insensitively).
+ * A name still ending in `.git` after one strip (`app.git.git`) is refused, so the result is
+ * idempotent: `canonicalRepo(canonicalRepo(x)) === canonicalRepo(x)`. Refused: other schemes and transports (`ext::`, `file:`, `http:`),
+ * local or relative paths, ports, https userinfo (a token), query or hash, `.`/`..` segments,
+ * whitespace and a leading `-`. `CreateTicketRequest.repo` stays permissive: `local` mode accepts
+ * local test repos; `password` mode applies this (M2-T17).
+ */
+export function canonicalRepo(repo: string): string | null {
+  if (repo === '' || repo.length > 1024 || /[\s\0]/.test(repo) || repo.startsWith('-')) {
+    return null;
+  }
+  let host: string;
+  let path: string;
+  let m: RegExpExecArray | null;
+  const trimmed = repo.replace(/\/$/, '');
+  if ((m = URL_RE.exec(trimmed))) {
+    if (m[1]!.toLowerCase() === 'https' && m[2] !== undefined) return null;
+    host = m[3]!;
+    path = m[4]!;
+  } else if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed) && !SCP_RE.test(trimmed)) {
+    return null;
+  } else if ((m = SCP_RE.exec(trimmed) ?? CANONICAL_RE.exec(trimmed))) {
+    host = m[1]!;
+    path = m[2]!;
+  } else {
+    return null;
+  }
+  path = path.replace(/\.git$/i, '');
+  // GitHub repo names can't end in `.git`; one is stripped, never two.
+  if (/\.git$/i.test(path)) return null;
+  const segments = path.split('/');
+  if (segments.length < 2 || segments.some((s) => s === '' || s === '.' || s === '..')) {
+    return null;
+  }
+  return `${host.toLowerCase()}/${path}`;
+}
 
 /**
  * POST /api/tickets → 201 TicketDto. ADR-0010: `workflow_id` defaults to `conductor` (the one

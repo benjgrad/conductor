@@ -262,6 +262,78 @@ A state's `guard` names an evaluator in `GUARD_REGISTRY` (`shared/src/workflow/g
 
 `TOOL_ALIASES` (`shared/src/workflow/tools.ts`) maps each workflow `tools` name to an ADR-0005 `ToolPolicy` fragment: `read` (base only), `edit` (`Edit(./**)`, `Write(./**)`: path-scoped, never bare), `bash` (`npm run:*`, `npm test:*`, exact `npm install` / `npm ci`; no interpreters or general runners), `git` (exact inspection commands, because diff/log/show accept `--output=<file>`, plus `add:*`, `commit:*`, `restore:*`; Claude Code also auto-allows commands it classifies as read-only), `pr_skill` (`Skill`, `gh pr view:*`; `gh pr create` is denied because it can push, so the PR is opened by a trusted state, TD-020), `review` (the requirements reviewer, [ADR-0009](../adr/0009-transition-requirements-review.md): `Bash` visible, only the exact read-only commands in `REVIEW_GIT_COMMANDS` pre-approved (`git status`, `git diff`, `git diff --stat HEAD~1`, `git log -p -n 5`, `git show --stat`…); no prefix rules, no edit tools, no staging or committing). `resolveToolPolicy(tools)` merges `BASE_TOOL_POLICY` (worktree-scoped `Read(./**)`/`Glob(./**)`/`Grep(./**)`, deny `Bash(git push:*)`) with each fragment, de-duplicates, and drops any allow rule that is also denied; it throws `UnknownToolAliasError` on a name not in `TOOL_ALIAS_NAMES` (T03 validates against the same list). `git push` is always denied. Since [ADR-0006](../adr/0006-agents-inherit-claude-code-settings.md) the `builtin` list still limits the visible tools, but `allow` rules only **pre-approve**: the user's own Claude Code settings (mode and rules) decide everything else, and the edit-guard hook keeps file edits in the worktree. **These rules are not a sandbox**: `npm run` executes repo scripts the agent can edit (TD-019), so the security boundary is the OS-level sandbox (U-004, slice 3). The daemon (T05) calls it on `start_session.tools`; the driver adds the conductor MCP tools.
 
+## Accounts and web auth
+
+M2-T01 ([ADR-0017](../adr/0017-own-sign-in-and-self-hosting.md) §Auth, §Invites; [ADR-0012](../adr/0012-hosted-multi-user-github-sign-in.md) §Tenancy; [ADR-0013](../adr/0013-machine-enrollment-inventory-routing.md) §Enrollment, §Routing). Only M2-T01 edits these schemas in M2; later tasks report changes to the lead.
+
+| Seam | File | Producer → consumers | Fixtures |
+|---|---|---|---|
+| `LOCAL_ACCOUNT_ID` (`00000000-0000-4000-8000-000000000001`), `LOCAL_USER_ID` (`00000000-0000-4000-8000-000000000002`, a virtual user with no `app_user` row); both are RFC 9562-valid, so every account and user id is a `UuidSchema`; `AccountScope` / `AccountActor` (`user` / `machine` / `system`), `localScope(actor)`, `AuthMode` (`local` / `password`), `MachineRepoModeSchema` (`reference` / `checkout`), `MachineAlertKindSchema` (`git_tamper`) | `shared/src/domain.ts` | T01 → T03 (rows), T08 (middleware), T09/T16 (gateway scope), T19 (engine), T21; the two machine enums are duplicated in T02's `machines/` (TD-108) | `domain.test.ts` |
+| Auth DTOs: `LoginRequest`, `MeResponse`, `SignupRequest`, `InvitePreview`, `ResetRequest`, `PasswordChangeRequest`; `EmailSchema`, `LoginEmailSchema`; `PASSWORD_MIN` 12, `PASSWORD_MAX` 256, `passwordProblems(password, email)` and its messages; `safeNextPath(next)`; `localMeResponse()` (`/api/me` in `local` mode) | `shared/src/api/auth.ts` | T01 → T08, T15 (server); T05 (web) | `LOGIN_REQUEST_FIXTURE`, `ME_RESPONSE_FIXTURE`, `SIGNUP_REQUEST_FIXTURE`, `INVITE_PREVIEW_FIXTURES`, `RESET_REQUEST_FIXTURE`, `PASSWORD_CHANGE_REQUEST_FIXTURE` |
+| Admin DTOs: `CreateInviteRequest`, `InviteCreated`, `InviteRow`, `AdminUserRow`, `ResetLinkCreated`; `INVITE_DEFAULT_DAYS` 7, `INVITE_MAX_DAYS` 30, `RESET_LINK_TTL_MS` 1 h | `shared/src/api/admin.ts` | T01 → T15; T05 | `CREATE_INVITE_REQUEST_FIXTURE`, `INVITE_CREATED_FIXTURE`, `INVITE_ROW_FIXTURES`, `ADMIN_USER_ROW_FIXTURES`, `RESET_LINK_CREATED_FIXTURE` |
+| Machines DTOs: `EnrollRequest`, `EnrollResponse`, `EnrollmentTokenCreated`, `MachineRow` (extends M1 `MachineDto`), `MachineDetail` (`repos`, `capabilities` by kind, open `alerts`, `live_sessions`), `MachineRepoDto`, `MachineCapabilityDto`, `MachineAlertDto`, `RenameMachineRequest`; `ENROLLMENT_TOKEN_TTL_MS` 30 min | `shared/src/api/machines.ts` | T01 → T17 (server), T04 (enroll client); T11 (web) | `ENROLL_REQUEST_FIXTURE`, `ENROLL_RESPONSE_FIXTURE`, `ENROLLMENT_TOKEN_CREATED_FIXTURE`, `MACHINE_ROW_FIXTURES`, `MACHINE_DETAIL_FIXTURE`, `RENAME_MACHINE_REQUEST_FIXTURE` |
+| `API_PATHS` M2 entries, `apiPathTemplates()` (every entry as a route template, `:id` / `:token` / `:file`), `ApiErrorSchema` codes `unauthorized` / `forbidden` / `rate_limited` / `unsupported_media_type`, `BoardCard.routing` / `.alerts`, `TicketDto.warnings`, `canonicalRepo(repo)` | `shared/src/api/rest.ts` | T01 → T08, T14, T15, T16, T17, T21 (route matrix); T05, T11 | `BOARD_CARD_ROUTING_FIXTURE`, `BOARD_CARD_ALERT_FIXTURE` |
+
+Everything is exported from `@conductor/shared` (`api/accounts.ts` re-exports the three new modules).
+
+**`API_PATHS` scope.** It covers every API and auth route the server serves, plus the public `/install.sh`, `/downloads/:file` and `/healthz` (the M2-T21 route matrix is generated from `apiPathTemplates()`). The static web app (`/`, `/assets/*` and the SPA fallback) is deliberately not listed.
+
+**Modes.** `CONDUCTOR_AUTH=local` (default): M1 behaviour, loopback only, no sign-in. Every request runs as `localScope({kind: 'user', user_id: LOCAL_USER_ID})` in the `local` account, and `GET /api/me` answers `localMeResponse()`: user `{id: LOCAL_USER_ID, email: 'local@localhost', display_name: 'local', is_admin: false}`, the `local` account, `auth_mode: 'local'`. The M2-T08 server and the M2-T05 web mock both use it. `password`: sign-in is required as below. Every repository function takes an `AccountScope`, and another account's id is `404 not_found`, for admins too.
+
+**Routes.** Bodies are JSON. Every unsafe request carries `content-type: application/json`; a bodiless action posts `{}`. `OkResponse` = `{ok: true}`. Request-body validation failures are `400 bad_request` with `details`.
+
+| Method | `API_PATHS` key | Path | Body → response | Errors |
+|---|---|---|---|---|
+| POST | `authLogin` | `/auth/login` | `LoginRequest` → 200 `MeResponse` + `Set-Cookie` | 401 `unauthorized` "Email or password is wrong" (unknown email, wrong password, disabled user, locked email: byte-identical); 403 Origin; 429 |
+| POST | `authLogout` | `/auth/logout` | `{}` → 200 `OkResponse`, cookie cleared | 403 Origin |
+| GET | `authMe` | `/api/me` | → 200 `MeResponse` | 401 |
+| POST | `authSignup` | `/auth/signup` | `SignupRequest` → 201 `MeResponse` + `Set-Cookie`; a normal invite creates the user's personal account, named after their `display_name` (a bootstrap invite claims `local` instead) | 400 (invite not valid / unused / unexpired / unrevoked, pinned email differs, `passwordProblems` at path `password`); 403 Origin; 429 |
+| GET | `authInvitePreview(token)` | `/auth/invites/:token` | → 200 `InvitePreview` (`{valid: false, expires_at: null}` for any bad token; never 404) | 429 |
+| POST | `authReset` | `/auth/reset` | `ResetRequest` → 200 `OkResponse`; revokes all the user's sessions | 400 (bad / used / expired token, `passwordProblems`); 403 Origin; 429 |
+| POST | `authPassword` | `/auth/password` | `PasswordChangeRequest` → 200 `OkResponse`; revokes the user's other sessions | 401 (no session, or `current` wrong); 400 (`passwordProblems` on `new`); 403 Origin |
+| GET / POST | `adminInvites` | `/api/admin/invites` | → 200 `InviteRow[]` / `CreateInviteRequest` → 201 `InviteCreated` (the token, inside `url`, is shown only here) | 401; 403 `forbidden` (not admin) |
+| DELETE | `adminInvite(id)` | `/api/admin/invites/:id` | → 200 `OkResponse` (revoked) | 401; 403; 404 |
+| GET | `adminUsers` | `/api/admin/users` | → 200 `AdminUserRow[]` | 401; 403 |
+| POST | `adminUserResetLink(id)` | `/api/admin/users/:id/reset-link` | `{}` → 201 `ResetLinkCreated` (shown once, 1 h) | 401; 403; 404 |
+| POST | `adminUserDisable(id)` | `/api/admin/users/:id/disable` | `{}` → 200 `OkResponse`; revokes the user's sessions and machine credentials | 401; 403; 404 |
+| POST | `adminUserUnlock(id)` | `/api/admin/users/:id/unlock` | `{}` → 200 `OkResponse`; clears the email's `login_throttle` | 401; 403; 404 |
+| POST | `machinesEnroll` | `/api/machines/enroll` | `EnrollRequest` → 201 `EnrollResponse` (**public**: the token authenticates) | 401 `unauthorized` (unknown / used / expired token); 429 |
+| POST | `machineEnrollmentTokens` | `/api/machines/enrollment-tokens` | `{}` → 201 `EnrollmentTokenCreated` (`command` = `curl -fsSL <public url>/install.sh \| sh -s -- --token <token>`; 30 min, single use; for the service variant the web appends ` --service` to `command`) | 401 |
+| GET | `machines` | `/api/machines` | → 200 `MachineRow[]` (the account's machines; M2-T17 switches from M1 `MachineDto[]`, a subset) | 401 |
+| GET / PATCH | `machine(id)` | `/api/machines/:id` | → 200 `MachineDetail` / `RenameMachineRequest` → 200 `MachineRow` | 401; 404 (unknown or another account's) |
+| POST | `machineRevoke(id)` | `/api/machines/:id/revoke` | `{}` → 200 `OkResponse`; socket closed with 4001, live sessions go to a human (U-068) | 401; 404 |
+| POST | `machineAlertClear(id)` | `/api/machines/alerts/:id/clear` | `{}` → 204; sets the alert's `cleared_at` (owner only) | 401; 404 (unknown alert, or another account's) |
+| POST | `tickets` | `/api/tickets` | `CreateTicketRequest` → 201 `TicketDto`, with `warnings: ['no_machine_has_repo']` when no machine of the account has the repo (U-048) | in `password` mode, 400 when `canonicalRepo(repo)` is null (the repo is stored canonical); `local` mode keeps M1's rule (local test repos) |
+| GET | `installScript` | `/install.sh` | → 200 `text/x-shellscript` (**public**) | 503 when no tarball is built |
+| GET | `daemonDownload(file)` | `/downloads/:file` | → 200 the tarball / `.sha256` (**public**; only built names) | 404 |
+| GET | `healthz` | `/healthz` | → 200 `{ok, db, version}` (**public**) | 503 when the DB ping fails |
+
+**Statuses, in every `password`-mode route.**
+
+| Case | HTTP | `ApiError.code` |
+|---|---|---|
+| No valid session on `/api/*` (and the SSE streams), except `machinesEnroll`; bad credentials; bad enrollment token | 401 | `unauthorized` |
+| Unsafe method on `/api/*` or `/auth/*` whose `Origin` is not the public origin (no `Origin` is allowed only with `Sec-Fetch-Site: same-origin`); a disallowed `Host`; an admin-only route for a non-admin | 403 | `forbidden` |
+| An id of another account (admins included) | 404 | `not_found` |
+| Unsafe request without `content-type: application/json` | 415 | `unsupported_media_type` |
+| Per-IP limits (login 10/min, sign-up and reset 5/10 min, enroll 10/10 min), with `Retry-After` | 429 | `rate_limited` |
+
+**Cookies.** With an `https` public URL: `__Host-conductor_session=<base64url 32 bytes>; HttpOnly; Secure; SameSite=Lax; Path=/`. In `password` mode on a loopback `http` URL (tests and e2e only): `conductor_session`, without `Secure`. Only the SHA-256 of the value is stored. Sessions last 30 days absolute and 7 days idle.
+
+**SSE and 401.** `EventSource` can't see a response status, so a 401 on a stream looks like any stream error. When the board or output stream errors, the web re-probes `GET /api/me`; a 401 there sends the user to `/signin?next=<current path>`.
+
+**CSRF** (no token): `SameSite=Lax`, the strict Origin check above, JSON-only unsafe requests, and no CORS headers at all. Every `GET` is side-effect free (asserted by the M2-T21 route matrix). **`next` redirects** go through `safeNextPath`: a same-origin path with a single leading `/`, no backslash, no scheme, no control or whitespace characters, and re-checked after normalisation (`/..//x` → `/`); anything else → `/`.
+
+**Board card fields.** `routing?: {missing_repo?, missing_capabilities: string[]}` appears on Queued cards only, when no **online** machine of the account can take the ticket (the repo first, then capability keys such as `cli:az:authed`). `alerts?: {kind: 'git_tamper', files, at}[]` holds the open alerts of the card's session. Both are absent, never null, when there is nothing, so pre-M2 cards and `toBoardCard` output are unchanged (M2-T16 fills them).
+
+**Repo grammar.** `canonicalRepo(repo)` returns `host/org/repo` with the host lower-cased and the path case kept. Routing compares github.com org/repo **case-insensitively**, as GitHub does: M2-T16 matches on `lower()`. It accepts:
+- `host/org/repo`;
+- `https://host/org/repo` (no userinfo, port, query or hash);
+- `ssh://user@host/org/repo`;
+- scp-style `user@host:org/repo`;
+
+each with an optional `.git` (any case: `.git`, `.GIT`, `.Git`) and trailing `/`. One `.git` is stripped, never two: a name still ending in `.git` after that (`app.git.git`) is null, because GitHub repo names can't end in `.git`. So `canonicalRepo` is idempotent (`canonicalRepo(canonicalRepo(x)) === canonicalRepo(x)`). Anything else is null. The grammar is duplicated in the daemon's `cloneSource`, `canonicalRepo` and `isCanonicalRemote` (TD-107).
+
 ## REST error map
 
 T08 maps a non-applied `applyEvent` result with `httpForApplyResult(route, result)` (`shared/src/api/rest.ts`); `applied` → **202** `{ok: true}` on `/input`, `/approve`, `/cancel` and `/messages`.
@@ -285,6 +357,105 @@ ADR-0008 routes that don't go through `applyEvent`: `GET /api/sessions/:id/trans
 `packages/orchestrator/src/main.ts` defines the factory signatures and `composeOrchestrator(factories, config)`, which wires db → buses (`InMemoryBoardBus`, `InMemoryOutputBus`) → `createEngineService` → `createGateway({engine})` → `createApi` (with `transcripts: gateway.transcripts`, ADR-0008) → `gateway.attach(api.server)`; `start()` runs `engine.startWorkers({transport: gateway.transport})` (outbox dispatcher + timeout sweep) then `api.listen(port, '127.0.0.1')`. `start()` first seeds `conductor` (`seedConductorWorkflow`, `src/engine/seed.ts`; idempotent): v1 when no version exists ([ADR-0010](../adr/0010-one-workflow-columns-are-states.md)), then v2 when the latest is the unedited v1 ([ADR-0011](../adr/0011-transition-rules.md), M1b-T09), so an empty database gets v1 then v2. Ownership: **T04** implements `createEngineService` in `src/engine/index.ts`, **T11** `createGateway` in `src/gateway/index.ts` (WS on `API_PATHS.daemonWs` = `/ws/daemon`, via the HTTP server's `upgrade`), **T08** `createApi` in `src/api/index.ts`, and **T07** adds `main()` (env, real factories, signals). `createDb` (a `pg.Pool`) lives in `main.ts`.
 
 **Process entry (T07).** `main(opts?)` in `main.ts`, run by `src/bin.ts` (the package's `conductor-orchestrator` bin, `dist/bin.js`): reads `DATABASE_URL` (required), `CONDUCTOR_PORT` and `CONDUCTOR_WEB_DIR` (default `packages/web/dist`), calls `composeOrchestrator(REAL_FACTORIES, …)` where `REAL_FACTORIES.createDb` is `src/db`'s pool with an idle-error listener ([U-038](../tracking/UNKNOWNS.md); `main.ts`'s bare default stays for fakes), `start()`s it (outbox dispatcher + timeout sweep + listen on 127.0.0.1), and on SIGINT/SIGTERM `stop()`s and exits. When the web dir holds an `index.html`, the API server also serves the built web app ([01](01-architecture.md#deployment-target)): any GET/HEAD outside `/api/*` and `/ws/*` is a file from that dir, an extensionless path with no file gets `index.html`, everything else falls through to the API (`src/web-static.ts`). `main()` does not migrate: run `pnpm db:migrate` first. The port is `CONDUCTOR_PORT` (default **7400**, `conductorPort(env)`); the daemon (T05) dials `ws://<host>:<port>/ws/daemon`.
+
+## Machines protocol v2
+
+M2-T02 froze the machine-side seams for M2 ([ADR-0013](../adr/0013-machine-enrollment-inventory-routing.md) §Enrollment, §Inventory, §Routing; [ADR-0017](../adr/0017-own-sign-in-and-self-hosting.md) §Daemon distribution; [U-060](../tracking/UNKNOWNS.md), [U-068](../tracking/UNKNOWNS.md)). Every change is additive: M1 daemons and messages still parse. Wire shapes are in [03](03-protocols.md#daemon--orchestrator-websocket).
+
+| Seam | File | Producer → consumers | Fixtures |
+|---|---|---|---|
+| `PROTOCOL_VERSION` 2, `register.protocol_version?`, `register.enrollment_token?` (local mode only, ignored), `DAEMON_AUTH_HEADER` + `daemonAuthHeaderValue` / `parseDaemonAuthHeader`, `CLOSE_REPLACED` 4000 / `CLOSE_REVOKED` 4001 / `CLOSE_UNAUTHORIZED` 4003 / `CLOSE_PROTOCOL` 4005 + `CLOSE_REASONS` | `shared/src/protocol/ws.ts` | T04 daemon ⇄ T09 gateway | `M2_WS_FIXTURES.register_v1`, `.register_v2` |
+| `inventory` (`InventoryPayloadSchema`), `alert` (`AlertPayloadSchema`, `ALERT_FILES_MAX` 200); `repo_inventory` kept (superseded) | `shared/src/protocol/ws.ts` | T10 daemon → T16 gateway | `DAEMON_FIXTURES.inventory`, `.alert`; `M2_WS_FIXTURES.inventory_empty`, `.alert_with_session` |
+| `start_session.working_copy?` (`WorkingCopySchema`), `WORKING_COPY_CONTEXT_KEY` (`__working_copy`), read by `commandPayloadForEffect` | `shared/src/protocol/ws.ts`, `machines/inventory.ts`, `protocol/commands.ts` | T16 claim (writes the context) → T19 wrapper (unchanged call) → T13 daemon | `M2_WS_FIXTURES.start_session_working_copy` |
+| `InventoryRepoSchema`, `WorkingCopyModeSchema` (`reference` \| `checkout`), `CANONICAL_REMOTE_RE` / `isCanonicalRemote`, `AbsolutePathSchema` | `shared/src/machines/inventory.ts` | T10 → T09 (rows), T16, T11 (via T01 DTOs) | `INVENTORY_REPO_FIXTURE`, `INVENTORY_REPO_CHECKOUT_FIXTURE` |
+| `CapabilitySchema`, `capabilityKey`, `capabilityKeys`, `satisfiesCapability`, `missingCapabilities(caps, reqs, ticketRepo)`, `CapabilityRequirementSchema` | `shared/src/machines/capabilities.ts` | T10 → T09 (rows), T16 (claim, badge) | `CAPABILITY_FIXTURES` |
+| `requiredCapabilities(def, kind)` (**stub returning `[]`** until T06) | `shared/src/machines/required.ts` | T06 → T12 (on save), T16 | — |
+| `machine.lost {machine_id, reason, machine_name?, offline_ms?}`, `MACHINE_LOST_REASONS`, `MACHINE_LOST_KIND`, `machineLostQuestion(name, reason, offlineMs?)`, `formatOfflineDuration`, `machineLostCanContinue`, `machineLostContinueTitle`, `MACHINE_LOST_KILL_REASON`, `MACHINE_LOST_CONTEXT_KEY` + `MachineLostMarkSchema`, `PINNED_MACHINE_OFFLINE_AFTER_MS` 900 000 + `PIN_OFFLINE_ENV` (`CONDUCTOR_PIN_OFFLINE_MS`), ignore reason `machine_mismatch` | `shared/src/engine/types.ts` | T20 (reaper, revoke) → T06 apply → T16 claim, T11 card | `MACHINE_LOST_EVENT_FIXTURES`, `MACHINE_LOST_MARK_FIXTURE` (`engine/fixtures.ts`) |
+
+**Versioning and auth.**
+- The daemon sends `register.protocol_version = PROTOCOL_VERSION`; absent means 1, an M1 daemon. `daemon_version` (package version, plus `+<CONDUCTOR_BUILD_SHA>` when set) was already required and stays so.
+- `password` mode: the WS upgrade must carry `Authorization: Bearer <credential>` (`DAEMON_AUTH_HEADER`). The gateway resolves machine and account from it before accepting the socket; an unknown or revoked credential is answered **HTTP 401 at the upgrade** (no socket), which the daemon treats like `CLOSE_UNAUTHORIZED`. **HTTP 403 at the upgrade is also fatal**, treated like 401 / `CLOSE_UNAUTHORIZED`: stop reconnecting, log why, exit non-zero (M2-T04 QA, 2026-10-27). The machine id is the credential's machine; `register.machine_id` must match it. A register with `protocol_version` < 2 is closed `CLOSE_PROTOCOL`.
+- `local` mode: no header, `register.machine_id` from `CONDUCTOR_MACHINE_ID`, v1 accepted, `enrollment_token` ignored (removed from the schema in M2-T21).
+- Close codes (with `CLOSE_REASONS` text, ≤ 123 bytes): 4000 replaced by a newer connection (M1-T11, reconnect is fine); **4001** revoked while connected and **4003** unauthorized: the daemon stops reconnecting, logs why and exits non-zero; **4005** protocol too old: the daemon logs "update the daemon: re-run the install command".
+
+**Inventory.**
+- Sent after every `registered` and whenever the scan changes (10-minute rescan, `SIGHUP`). Each `inventory` **replaces** the machine's previous repos and capabilities wholesale. Not durable (`seq` null): a new connection sends a fresh one. `hash` is the daemon's digest of the inventory, and `request_work.repos_digest` carries the latest `hash`.
+- A repo: `path` (the user's checkout, absolute POSIX, no `.`/`..`; unique per machine), `remote` (canonical `host/org/repo[/sub…]` per `CANONICAL_REMOTE_RE`, the M1-T14 grammar without scheme, user, port or `.git`, with a **lower-case host** and the org/repo case kept, as T01's `canonicalRepo` produces it; T16 compares github.com org/repo case-insensitively; `null` = no allowed remote: listed, never routed to), `default_branch`, `head_commit` (40 or 64 hex), `mode` (U-060: `reference` = worktrees of a daemon reference clone, the default; `checkout` = worktrees off the user's checkout, opt-in, with the tamper check).
+- `repo_inventory` stays in the protocol until T16 switches the gateway to `inventory`; it is then deprecated, and T21 removes it.
+
+**Capability keys.** `capabilityKey(c)` is the routing key; versions are never part of it:
+
+| kind | key |
+|---|---|
+| `cli {name, version, authed}` | `cli:<name>:authed` when authed, else `cli:<name>` |
+| `mcp {name}` | `mcp:<name>` |
+| `skill {name, repo?}` / `agent {name, repo?}` | `skill:<name>` / `skill:<name>@<repo>` (same for `agent`) |
+| `claude {version}` | `claude` |
+
+**Storage (T09).** `machine_capability` stores routing keys: a `key` text column, primary key `(machine_id, key)`, one row per element of `capabilityKeys(c)` for each reported capability (an authed cli gives both `cli:<name>` and `cli:<name>:authed`). The key includes `@<repo>` for a repo-scoped skill or agent, so `skill:review` and `skill:review@github.com/o/app` are separate rows. Other columns (kind, name, version, `detail`) are for display only; routing reads only `key`.
+
+**Matching (`satisfiesCapability`, the claim's SQL in T16, `missingCapabilities` for the badge).** A requirement is met when:
+- its exact key is stored for the machine; or
+- it is a bare `skill:<name>` / `agent:<name>` and the machine has `skill:<name>@<ticket.repo>` (the ticket's canonical repo). A repo-scoped skill or agent never meets a ticket for another repo.
+
+The repo part of a key (`@<repo>`) is compared **case-insensitively** for github.com, like the claim's repo filter (`lower(machine_repo.remote) = lower(ticket.repo)`; lead decision 2026-10-27): GitHub org and repo names are case-insensitive, so `skill:x@github.com/Org/App` meets a ticket for `github.com/org/app`.
+
+A repo whose `remote` is null has its repo-scoped skills and agents **not reported** (`CapabilitySchema.repo` must be a canonical remote): they can't be matched to any ticket. `missingCapabilities(caps, reqs, ticketRepo)` is the list a Queued card's routing badge names.
+
+**Alerts.** `alert {kind: 'git_tamper', repo, session_id?, files, at}`: in `checkout` mode the daemon hashes the checkout's `.git/config`, `.git/hooks/` and the `core.hooksPath` target before and after each session; a change raises one alert. `repo` is the inventory `path`; `files` (1–200) are relative to the checkout's `.git`. **Durable**: `seq` is required, so the daemon buffers and replays it like a `session_event`, and the gateway dedupes it on `(machine_id, seq)` with the same `machine.last_seq` guard ([Daemon seq dedupe](#daemon-seq-dedupe)).
+
+**Working copy.** The claim (T16) chooses a `machine_repo` and writes `{repo_path, mode}` into `session.context.__working_copy` (`WORKING_COPY_CONTEXT_KEY`; no migration) in the claim transaction, before `applyEvent(session.assigned)`. apply keeps unknown context keys, and `commandPayloadForEffect` copies a valid `__working_copy` into **every** `start_session` of the session (first start, resumes, reviewer starts, the re-emit after a requeue), so no caller passes it. A re-claim by another machine rewrites it. The daemon:
+- re-checks that `repo_path` with that `mode` is in its own current inventory, and refuses the start otherwise; it never uses a path it didn't scan;
+- reuses its existing worktree for the session when one exists (same session, same branch, `Workspace.ensureWorktree`); otherwise it fetches (hooks off) and adds the worktree from `origin/<default_branch>`. `base_ref` is informational.
+
+Absent (or invalid) `__working_copy`: no `working_copy` in the payload, the M1 clone path (local mode).
+
+**Lost machines (U-068).** The `input_request.kind` is a **new value `machine_lost`** (`MACHINE_LOST_KIND`), not `timeout`: the question isn't a timeout, and the card and filters need to tell them apart. **`input_request.kind = machine_lost`, added to the InputRequestKind enum + DB enum + web label by M2-T03.** Until then `create_input_request.kind` stays `InputRequestKindSchema`, and T06 (which now depends on T03) emits it.
+
+`machine.lost {machine_id, reason, machine_name?, offline_ms?}` comes from the orchestrator (T20):
+- `lease_expired`: the reaper, for a session whose `lease_expires_at` is past its expiry **plus the 2-minute grace** of [04 §4](04-scheduler.md#4--leases-and-fencing). The reaper selects only `assigned` / `running` / `waiting_external` sessions (lead decision 2026-10-27): a parked or queued session holds no lease worth reaping;
+- `revoked`: the caller of `revokeMachine`, once per non-terminal session on that machine;
+- `pinned_machine_offline`: the reaper, for a queued session pinned to a machine (a reopen pin, TD-088, or a `__machine_lost` mark: a queued session carrying the mark **is** pinned to `mark.machine_id`) that has been offline for `PINNED_MACHINE_OFFLINE_AFTER_MS` (900 000 ms; `CONDUCTOR_PIN_OFFLINE_MS` overrides it). `offline_ms` carries the threshold used. When the pinned machine has `revoked_at` set, the same pin SQL sends reason **`revoked`** instead (no waiting for the threshold): such a session can never continue there.
+
+**apply stays pure and trusts the event.** The pin check is the reaper's SQL (T20). `SessionSnapshot` has no pin field, and apply never decides whether a session is pinned. `machine_name` is the display name; the question falls back to `machine_id`. Frozen semantics, implemented by T06 (this table wins over the task block):
+
+| Snapshot | Event | Result |
+|---|---|---|
+| `done` / `failed` (terminal) | any | ignored `session_terminal` |
+| `assigned` / `running` / `waiting_external` (a gate step is left), `machine_id` = the event's | any reason | applied (A) |
+| same statuses, `machine_id` ≠ the event's | any reason (`lease_expired` / `revoked` / `pinned_machine_offline`) | ignored `machine_mismatch` |
+| `queued` | `pinned_machine_offline` | applied (A), trusted |
+| `queued` or `needs_input` with a `__machine_lost` mark for the event's machine | `revoked` | applied (B) |
+| `queued`, no `__machine_lost` mark (a reopen-pinned session whose pinned machine was revoked; the reaper's pin SQL decided it) | `revoked` | applied (A), trusted; no kill; Cancel only |
+| `needs_input` / `queued`, any other case | any | ignored `wrong_status` |
+
+**(A) Applied:**
+- status → `needs_input`; ticket → `in_progress` when the session was `queued` (so the claim can't pick it); `return_to` = the current workflow state (the gate step's `from` when one was running; null when `workflow_state` is null); `agent_process_live = false`; **`machine_id` is kept** (for a queued session: the event's); no deadline (parked time doesn't count);
+- `create_input_request {kind: machine_lost, question: machineLostQuestion(name, reason, offline_ms), return_to}`: `"<machine> stopped responding"`, `"<machine> was revoked"`, `"<machine> has been offline for <formatOfflineDuration(offline_ms)>"` (default 15 minutes);
+- `context.__machine_lost` = `MachineLostMark {machine_id, machine_name, reason, state, at}` (`MACHINE_LOST_CONTEXT_KEY`, no migration);
+- for `lease_expired` and `pinned_machine_offline` when a process may still run (`assigned` / `running` / `waiting_external`): one `kill {reason: 'machine_lost'}` effect (`target_command_id` absent: every process of the session at or below the row's token). Its outbox row targets `machine:<machine_id>` and waits until the machine reconnects; outbox order per target delivers it before any later command. **No kill for `revoked`**: the machine can never reconnect, and see revoke below.
+
+**(B) Revoked while already parked or waiting on the machine:** status → `needs_input` (ticket `in_progress` if it was `queued`), the mark's `reason` becomes `revoked`, and a new `create_input_request` with the `revoked` question (`return_to` unchanged). The wrapper closes the previous open request as superseded (`answer = '[superseded]'`, `answered_by = 'system'`) in the same transaction. No kill.
+
+**Fencing (R5): one owner, the EngineService wrapper** (`orchestrator/src/engine/service.ts`). It already bumps `session.fencing_token = nextval('fencing_seq')` after apply and before writing the outbox rows: on a non-ignored `start_session` refusal and on gate-step changes ([EngineService wrapper](#engineservice-wrapper)). The re-claim bump stays in the claim (`gateway/claim.ts`). An applied (non-ignored) `machine.lost` joins the wrapper's list, so the kill row and every later command carry the new token. The old worker's late events are refused `stale_fencing_token` and killed (the `spend` exception as today). apply never changes `fencing_token`.
+
+**Revoke and the outbox (R4).** `revokeMachine` (T09), in its transaction: set `revoked_at`; mark every `pending` / `sent` outbox row targeting `machine:<id>` `failed` (`last_error = 'machine_revoked'`), with no engine event, including fenced kills left by an earlier `lease_expired`; close the socket with `CLOSE_REVOKED`. Its caller (T20) then applies `machine.lost {reason: 'revoked'}` to each non-terminal session of the machine. Nothing is left pending for a machine that can't return.
+
+**The human's options:**
+- **`lease_expired` / `pinned_machine_offline`** (`machineLostCanContinue` true):
+  - **"Continue on <machine>"**: the human state's `$return_to` transition (`conductor`'s `answer`), shown with `machineLostContinueTitle(name)` while the open request's kind is `machine_lost` (card derivation). Taking it re-enters `return_to`; with no live process apply requeues (status `queued`, ticket `ready`), keeping the mark. The claim (T16) offers a queued session carrying the mark **only to `mark.machine_id`** (a hard filter, like the [reopen pin](04-scheduler.md#2--claim-query-ticket-side)); `session.assigned` then re-emits the state's `start_session` with `resume_claude_session_id` (and its `__working_copy`). The mark is cleared on the next matching `session.started`. A `return_to` of null (a never-started reopened session) requeues the same way and enters `def.start` on the claim.
+  - **Cancel**: the existing operator action.
+- **`revoked`** (`machineLostCanContinue` false): **Cancel only.** The card shows no transitions. apply ignores any `human.transition` while the mark's reason is `revoked` (`transition_not_allowed`) and any `input.provided` (`wrong_status`).
+- In every case there is no automatic requeue to another machine (U-011/U-012 stay open: the worktree and the transcript are on the lost machine).
+
+**What each consumer builds from this** (for the interface review):
+- **T04** (daemon auth): `daemonAuthHeaderValue` on the upgrade when enrolled; `register.protocol_version = PROTOCOL_VERSION`; on 401 or 4003 / 4001 stop and exit non-zero; on 4005 log the update hint.
+- **T06** (engine): `requiredCapabilities` in `machines/required.ts` (replace the stub, or delegate to `workflow/capabilities.ts`); `machine.lost` in `apply.ts` (replace the two `// M2-T06` stub cases) per the table above, using `MACHINE_LOST_KIND` once T03 has widened the enum; the `revoked` refusals of `human.transition` / `input.provided`.
+- **T09** (credentials, register, revoke): `parseDaemonAuthHeader`, 401 at the upgrade, `CLOSE_PROTOCOL` for v1 in password mode; `machine_repo` from `InventoryRepo`; `machine_capability (machine_id, key)` from `capabilityKeys`; `revokeMachine` fails the machine's pending / sent outbox rows and closes with `CLOSE_REVOKED`.
+- **T10** (scanner): emit `inventory` with `InventoryRepoSchema` / `CapabilitySchema` values only (names and versions, never secrets; no repo-scoped skills or agents for a repo whose remote is null) and its `hash`; emit `alert` with a `seq`.
+- **T13** (working copies): honour `start_session.working_copy` after re-checking it against the inventory; reuse the session's existing worktree, else base it on `origin/<default_branch>`.
+- **T16** (ingest, claim): replace a machine's rows on each `inventory`; dedupe `alert` on seq; claim filters on `remote` and the matching rule above; `missingCapabilities(…, ticket.repo)` for the badge; the `__machine_lost` pin; write `__working_copy` into the session context in the claim transaction.
+- **T20** (reaper, revoke wiring): emit `machine.lost` with `machine_name` (and `offline_ms` for `pinned_machine_offline`) after the 2-minute grace; the pin SQL; `PINNED_MACHINE_OFFLINE_AFTER_MS` / `CONDUCTOR_PIN_OFFLINE_MS`; add `machine.lost` to the wrapper's fencing-bump list in `engine/service.ts`; call `machine.lost revoked` after `revokeMachine`.
 
 ## Defaults recorded here (workshop reconciliation)
 

@@ -4,7 +4,11 @@ import { PR_CONTEXT_KEY, REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/
 import { APPLY_REJECT_REASONS } from '../engine/types.js';
 import { boardColumns, CONDUCTOR_V1_DEF } from '../workflow/conductor.js';
 import { WorkflowDefinitionSchema } from '../workflow/schema.js';
-import { BOARD_CARD_FIXTURE } from './fixtures.js';
+import {
+  BOARD_CARD_ALERT_FIXTURE,
+  BOARD_CARD_FIXTURE,
+  BOARD_CARD_ROUTING_FIXTURE,
+} from './fixtures.js';
 import {
   API_PATHS,
   APPLY_REJECT_HTTP,
@@ -285,5 +289,36 @@ describe('ports and paths', () => {
     expect(conductorPort({ CONDUCTOR_PORT: '8080' })).toBe(8080);
     expect(() => conductorPort({ CONDUCTOR_PORT: 'x' })).toThrow();
     expect(API_PATHS.daemonWs).toBe('/ws/daemon');
+  });
+});
+
+describe('M2 card fields (routing, alerts)', () => {
+  it('a card with routing and alerts parses and keeps them', () => {
+    const routed = BoardCardSchema.parse(BOARD_CARD_ROUTING_FIXTURE);
+    expect(routed.routing).toEqual({
+      missing_repo: 'github.com/benjgrad/fixture-app',
+      missing_capabilities: ['cli:az:authed'],
+    });
+    const alerted = BoardCardSchema.parse(BOARD_CARD_ALERT_FIXTURE);
+    expect(alerted.alerts).toEqual(BOARD_CARD_ALERT_FIXTURE.alerts);
+    expect(
+      BoardCardSchema.parse({ ...BOARD_CARD_FIXTURE, routing: { missing_capabilities: [] } })
+        .routing,
+    ).toEqual({ missing_capabilities: [] });
+  });
+
+  it('an old card without them parses (both absent)', () => {
+    const old = BoardCardSchema.parse(BOARD_CARD_FIXTURE);
+    expect(old.routing).toBeUndefined();
+    expect(old.alerts).toBeUndefined();
+    expect(old).toEqual(BOARD_CARD_FIXTURE);
+  });
+
+  it('refuses an unknown alert kind', () => {
+    const bad = {
+      ...BOARD_CARD_FIXTURE,
+      alerts: [{ kind: 'other', files: [], at: BOARD_CARD_FIXTURE.created_at }],
+    };
+    expect(BoardCardSchema.safeParse(bad).success).toBe(false);
   });
 });

@@ -35,7 +35,10 @@ describe('kanban board', () => {
     await renderApp();
     expect(cardTitles('Queued')).toEqual(['Hotfix: crash on empty cart', 'Add /health']);
     expect(cardTitles('Implementing')).toEqual([
+      // UX-5: conductor running a move step's checks (the agent has exited).
+      'Conductor checks demo',
       'Add pagination to /orders',
+      'Waiting for a build slot',
       'Migrate settings page to new form lib',
       // ADR-0011: held in its source column while the move's conditions run.
       'Ship the /health endpoint',

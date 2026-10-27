@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import {
   BOARD_CARD_NEEDS_INPUT_FIXTURE,
+  BOARD_CARD_PENDING_FIXTURE,
   type BoardCard,
   type InputRequestDto,
 } from '@conductor/shared';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mockChecking } from '../api/mock-data.js';
 import type { BoardState } from '../board/board.js';
 import { Board } from './Board.js';
 import { PREVIEW_MAX } from './request-preview.js';
@@ -152,5 +154,77 @@ describe('board card request preview (UX-4)', () => {
     }
     // A ceiling, not a benchmark: wall-clock time under a loaded run is 2.6–3.6 s (lead QA).
     expect(ms).toBeLessThan(10_000);
+  });
+});
+
+describe('board card in a gate step (UX-5)', () => {
+  const step = (n: number, over: Partial<BoardCard> = {}): BoardCard => ({
+    ...card(n, {}),
+    input_request: null,
+    status: 'running',
+    workflow_state: 'implementing → needs_input (move: personal_pr_ready_for_review)',
+    column: 'implementing',
+    badges: ['checking'],
+    checking: mockChecking(2),
+    ...over,
+  });
+
+  it('FR-2: says "Conductor is checking · Unit tests (3/5)", not "running"; the agent is idle', () => {
+    renderCards([step(1)]);
+    const a = article('Card 1');
+    expect(a.getByText('Conductor is checking · Unit tests (3/5)')).toBeTruthy();
+    expect(a.queryByText('running')).toBeNull();
+    expect(a.queryByText(/move: personal_pr_ready_for_review/)).toBeNull();
+    const agent = screen.getByText('Card 1').closest('article')!.querySelector('.card-agent')!;
+    expect(agent.querySelector('svg')!.getAttribute('class')).toContain('avatar-idle');
+    expect(agent.textContent).toContain('(idle)');
+    expect(agent.getAttribute('title')).toMatch(/is idle: conductor is checking/);
+  });
+
+  it('FR-5: waiting for a build slot reads so, once, and the agent is still idle', () => {
+    renderCards([
+      step(1, { badges: ['waiting_for_build_slot', 'checking'], checking: mockChecking(0) }),
+    ]);
+    const a = article('Card 1');
+    expect(a.getByText('Conductor is checking · waiting for a build slot')).toBeTruthy();
+    expect(a.queryByText('waiting for build slot')).toBeNull();
+    expect(a.queryByText('running')).toBeNull();
+    const avatar = screen.getByText('Card 1').closest('article')!.querySelector('.card-agent svg')!;
+    expect(avatar.getAttribute('class')).toContain('avatar-idle');
+  });
+
+  it('a running card outside a step keeps its status and build-slot badge; the agent is not idle', () => {
+    renderCards([
+      step(1, {
+        badges: ['waiting_for_build_slot'],
+        checking: null,
+        workflow_state: 'implementing',
+      }),
+    ]);
+    const a = article('Card 1');
+    expect(a.getByText('running')).toBeTruthy();
+    expect(a.getByText('waiting for build slot')).toBeTruthy();
+    const avatar = screen.getByText('Card 1').closest('article')!.querySelector('.card-agent svg')!;
+    expect(avatar.getAttribute('class')).not.toContain('avatar-idle');
+  });
+
+  it('an older server (checking without items) falls back to the target title', () => {
+    renderCards([
+      step(1, { checking: { to: 'needs_input', title: 'Needs input', phase: 'checks' } }),
+    ]);
+    expect(article('Card 1').getByText('Conductor is checking · Needs input')).toBeTruthy();
+  });
+
+  it('the conditions phase keeps the "waiting for" checklist', () => {
+    renderCards([
+      step(1, {
+        status: 'waiting_external',
+        checking: BOARD_CARD_PENDING_FIXTURE.checking,
+        pending: BOARD_CARD_PENDING_FIXTURE.pending,
+      }),
+    ]);
+    const a = article('Card 1');
+    expect(a.getByRole('group', { name: 'Waiting for Ready for testing' })).toBeTruthy();
+    expect(a.queryByText(/Conductor is checking/)).toBeNull();
   });
 });

@@ -503,6 +503,7 @@ function onHumanTransition(
     target.type === 'agent' && text !== null
       ? { input_request_id: e.input_request_id ?? null, answer: text }
       : null;
+  leaveParkedAgent(st, target);
   enter(st, plan.goto, {
     ...NO_ROUTE,
     kind: 'approval',
@@ -603,6 +604,18 @@ function leaveLostPark(
   return toAgent && kept !== null ? { answer: kept.answer, machine: mark.machine_name } : null;
 }
 
+/**
+ * BUG-1 (lead decision 2026-10-27): a human moving the ticket off a parked agent into a state
+ * that runs no agent (command, event, connector, human) ends the parked process: nothing will
+ * answer it there, and a later return to the agent resumes it with start_session. Into an agent
+ * state the process is answered (send_input) or superseded (start_session); into a terminal
+ * state `enter` kills it.
+ */
+function leaveParkedAgent(st: Step, target: WorkflowState): void {
+  if (target.type === 'agent' || target.type === 'terminal') return;
+  releaseAgent(st, 'a human moved the ticket off the agent');
+}
+
 function withReason(text: string, reason: string | null): string {
   return reason !== null && reason.trim() !== '' ? `${text}\n\n${reason}` : text;
 }
@@ -692,6 +705,7 @@ function onInput(
     answer:
       earlier !== null ? combineLostAnswer(earlier.answer, earlier.machine, e.answer) : e.answer,
   };
+  leaveParkedAgent(st, targetState);
   enter(st, target, {
     ...NO_ROUTE,
     kind: 'approval',
@@ -2129,10 +2143,26 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
       return;
     case 'terminal':
       s.pending_answer = null;
+      releaseAgent(st, 'session done');
       st.setStatus('done');
       st.ticket('done');
       return;
   }
+}
+
+/**
+ * BUG-1: a session that ends must not leave its live agent process behind (a parked ADR-0007
+ * process waits on stdin forever). Kill exactly that start_session's process, then detach it. A
+ * start not yet `started` needs no kill here: the wrapper fences a terminal session, so its late
+ * `started` is stale and the gateway kills it (10-contracts §Orphaned processes rule 6).
+ */
+function releaseAgent(st: Step, reason: string): void {
+  const s = st.s;
+  if (s.machine_id !== null && s.agent_command_id !== null && s.agent_process_live) {
+    st.emit({ type: 'kill', reason, target_command_id: s.agent_command_id });
+  }
+  s.agent_command_id = null;
+  s.agent_process_live = false;
 }
 
 /**
@@ -2178,7 +2208,11 @@ function requeue(st: Step): void {
  */
 function failSession(st: Step, ticket: TicketStatus, reason: string, kill = true): void {
   const s = st.s;
+  // The session kill (null target) covers the agent process too (BUG-1); then detach it. A lost
+  // machine's caller has already decided (its `machine_lost` kill, or none for a revoked one).
   if (kill && s.machine_id !== null) st.emit({ type: 'kill', reason });
+  s.agent_command_id = null;
+  s.agent_process_live = false;
   if (s.state_deadline !== null && s.workflow_state !== null)
     st.setDeadline(s.workflow_state, null);
   s.pending_answer = null;

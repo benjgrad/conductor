@@ -18,6 +18,12 @@ import { ticketBodyFromPrompt } from '../brief/prompt.js';
 import { AgentAvatar, agentName } from './agent-identity.js';
 import { BriefCard } from './BriefCard.js';
 import { Composer } from './Composer.js';
+import {
+  agentIdle,
+  ConductorCheckBanner,
+  failedItemOfQuestion,
+  isConductorStep,
+} from './ConductorChecks.js';
 import { ContextView } from './ContextView.js';
 import { duration, KIND_LABELS, STATUS_LABELS, TERMINAL_STATUSES, usd } from './format.js';
 import { Markdown } from './markdown.js';
@@ -107,7 +113,11 @@ export function DetailPanel({
     <aside className="detail" aria-label="Session detail">
       <header className="detail-head">
         {agentKey ? (
-          <AgentAvatar ticketId={agentKey} size={36} />
+          <AgentAvatar
+            ticketId={agentKey}
+            size={36}
+            {...(detail && agentIdle(detail.card) ? { className: 'avatar-idle' } : {})}
+          />
         ) : (
           <span className="avatar avatar-placeholder" aria-hidden="true" />
         )}
@@ -115,8 +125,13 @@ export function DetailPanel({
           <h2>{detail?.card.title ?? 'Loading…'}</h2>
           <div className="head-sub">
             <span className="agent-name">{name}</span>
-            {status && (
-              <span className={`chip status status-${status}`}>{STATUS_LABELS[status]}</span>
+            {detail && isConductorStep(detail.card) ? (
+              // UX-5: conductor runs the step; the agent has exited, so it isn't "running".
+              <span className="chip status status-conductor">Conductor is checking</span>
+            ) : (
+              status && (
+                <span className={`chip status status-${status}`}>{STATUS_LABELS[status]}</span>
+              )
             )}
             {detail?.card.workflow_state && (
               <span className="muted head-state">{stateLabel(detail.card.workflow_state)}</span>
@@ -166,6 +181,9 @@ export function DetailPanel({
               <p role="status" className={`history-notice muted history-${history.kind}`}>
                 {history.text}
               </p>
+            )}
+            {isConductorStep(detail.card) && (
+              <ConductorCheckBanner card={detail.card} agent={name} />
             )}
             <BriefCard
               key={sessionId}
@@ -313,6 +331,8 @@ function PendingInput({ api, detail, agent, request, onDone }: PendingInputProps
 
   const fromAgent = request.kind === 'agent_question';
   const stepFailed = classifyRequest(request) === 'step_failed';
+  // UX-5 FR-4: the failed item and its first error line, above the full question.
+  const failed = stepFailed ? failedItemOfQuestion(request.question) : null;
   return (
     <section aria-label="Pending input" className="pending">
       <div className="pending-head">
@@ -325,6 +345,13 @@ function PendingInput({ api, detail, agent, request, onDone }: PendingInputProps
         )}
         <span className="muted">{fromAgent ? `${agent} asks` : 'Conductor needs a decision'}</span>
       </div>
+      {failed?.error && (
+        <p className="step-failed-item">
+          {failed.item && <strong>{failed.item}</strong>}
+          {failed.item ? ': ' : ''}
+          {failed.error}
+        </p>
+      )}
       <div className="question-text">
         <Markdown text={request.question} />
       </div>

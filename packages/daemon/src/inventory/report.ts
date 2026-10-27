@@ -89,6 +89,7 @@ export async function scanInventory(
     claudeBin: env.CONDUCTOR_CLAUDE_BIN ?? 'claude',
     repos,
     env,
+    log,
   });
   return { repos, capabilities };
 }

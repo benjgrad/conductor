@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -71,6 +71,7 @@ function makeDaemon(
     config?: Partial<DaemonConfig>;
     ghCommand?: { cmd: string; args: readonly string[] };
     onFatal?: (code: number, reason: string) => void;
+    log?: (msg: string) => void;
   } = {},
 ): Daemon {
   const config = loadConfig({
@@ -94,7 +95,7 @@ function makeDaemon(
     createCommandRunner: () => runner,
     sysinfo: () => resources,
     claudeCodeVersion: '2.1.308',
-    log: () => {},
+    log: opts.log ?? (() => {}),
     // M2-T10: hermetic: no real gh / az / ~/.claude probes.
     scanInventory: () => Promise.resolve({ repos: [], capabilities: [] }),
     ...(opts.ghCommand ? { ghCommand: opts.ghCommand } : {}),
@@ -1137,6 +1138,171 @@ describe('daemon core: run_cmd and kill', () => {
       command_id: start.payload.command_id,
       code: null,
       signal: 'SIGTERM',
+    });
+  });
+});
+
+describe('daemon core: BUG-1 no process outlives its session', () => {
+  it('FR-3: a start superseding a parked process kills it before the new one runs', async () => {
+    const driver = new FakeClaudeDriver({ turns: [[{ askUser: 'q' }]] });
+    makeDaemon(driver);
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    const a = startSession(sid, {}, 1);
+    orch.send(a);
+    await orch.until(() => orch.events('ask_user')[0]);
+    const b = startSession(sid, {}, 2);
+    orch.send(b);
+    await orch.until(() => orch.ack(b.payload.command_id)[0]);
+    expect(orch.ack(b.payload.command_id)[0]!.payload.accepted).toBe(true);
+    const [procA, procB] = driver.sessions;
+    expect(procA!.killed).toBe(true);
+    expect(procB!.killed).toBe(false);
+    await orch.until(() =>
+      orch.eventData('exit').find((e) => e.command_id === a.payload.command_id),
+    );
+  });
+
+  it('FR-3: two starts racing through worktree preparation leave exactly one process', async () => {
+    const driver = new FakeClaudeDriver({ turns: [[{ askUser: 'q' }]] });
+    makeDaemon(driver);
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    const a = startSession(sid, {}, 1);
+    const b = startSession(sid, {}, 2);
+    orch.send(a); // still preparing its worktree when b arrives
+    orch.send(b);
+    await orch.until(() => orch.ack(a.payload.command_id)[0]);
+    await orch.until(() => orch.ack(b.payload.command_id)[0]);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(orch.ack(b.payload.command_id)[0]!.payload.accepted).toBe(true);
+    const alive = driver.sessions.filter((x) => !x.killed && !x.exited);
+    expect(alive.length).toBe(1);
+    expect(alive[0]!.opts.prompt).toBe(b.payload.prompt);
+    // a either never spawned (refused `superseded`) or was killed: never left running.
+    const ackA = orch.ack(a.payload.command_id)[0]!.payload;
+    if (!ackA.accepted) expect(ackA.reason).toBe('superseded');
+  });
+
+  it('FR-4: repeated heartbeat-backstop kills stop a parked process once, logged once', async () => {
+    const logs: string[] = [];
+    const driver = new FakeClaudeDriver({ turns: [[{ askUser: 'q' }]] });
+    makeDaemon(driver, { log: (m) => logs.push(m) });
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    const start = startSession(sid, {}, 3);
+    orch.send(start);
+    await orch.until(() => orch.events('ask_user')[0]);
+    // The session went terminal (token bumped); each heartbeat listing the old token gets this.
+    const backstop = () =>
+      cmd(
+        'kill',
+        sid,
+        { command_id: null, target_command_id: null, reason: 'stale_fencing_token' },
+        3,
+      );
+    orch.send(backstop());
+    orch.send(backstop());
+    await orch.until(() => orch.events('exit')[0]);
+    expect(driver.last!.killed).toBe(true);
+    expect(driver.last!.killCalls).toBe(1);
+    expect(logs.filter((l) => l.includes('kill (stale_fencing_token)'))).toEqual([
+      `session ${sid}: kill (stale_fencing_token) stops process ${start.payload.command_id}`,
+    ]);
+  });
+
+  it('FR-4: on startup, a claude process the previous daemon left running is killed', async () => {
+    const root = join(tmp, 'root');
+    const claudeSessionId = randomUUID();
+    // Stand-ins for a detached `claude --session-id <id>` and an unrelated process.
+    const spawnIdle = (marker: string) => {
+      const child = spawn(
+        process.execPath,
+        ['-e', 'setInterval(() => {}, 1e9)', '--', '--session-id', marker],
+        { detached: true, stdio: 'ignore' },
+      );
+      child.unref();
+      return child.pid!;
+    };
+    const orphan = spawnIdle(claudeSessionId);
+    const other = spawnIdle(randomUUID());
+    const alive = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    try {
+      const store = DaemonStore.forRoot(root);
+      const sid = randomUUID();
+      const sid2 = randomUUID();
+      const base = {
+        ticketId: TICKET,
+        repo,
+        worktreePath: join(tmp, 'wt'),
+        branch: 'b',
+        portRange: null,
+        claudeSessionId,
+        lastUsedAt: 0,
+      };
+      store.putSession(sid, {
+        ...base,
+        agent: { commandId: randomUUID(), fencingToken: 4, pid: orphan, claudeSessionId },
+      });
+      // Its pid's command line doesn't carry the stored id (pid reuse): left alone.
+      store.putSession(sid2, {
+        ...base,
+        agent: { commandId: randomUUID(), fencingToken: 4, pid: other, claudeSessionId },
+      });
+      const logs: string[] = [];
+      makeDaemon(new FakeClaudeDriver(complete({})), {
+        root,
+        log: (m) => logs.push(m),
+        config: { killGraceMs: 200 },
+      });
+      await orch.until(() => !alive(orphan) || undefined, 5_000);
+      expect(alive(other)).toBe(true);
+      expect(logs.filter((l) => l.startsWith('startup: killed'))).toEqual([
+        `startup: killed orphaned claude process ${orphan} of session ${sid}`,
+      ]);
+      // The exit is still reported, so the orchestrator resumes.
+      const exits = await orch.until(() => {
+        const e = orch.eventData('exit');
+        return e.length === 2 ? e : undefined;
+      });
+      expect(exits.map((e) => e.signal)).toEqual(['daemon_restart', 'daemon_restart']);
+    } finally {
+      for (const pid of [orphan, other]) {
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch {
+          // gone
+        }
+      }
+    }
+  });
+
+  it('FR-4: the pid of a started process is persisted for the startup sweep', async () => {
+    const driver = new FakeClaudeDriver({ turns: [[{ askUser: 'q' }]] });
+    const orig = driver.start.bind(driver);
+    driver.start = (o) => {
+      const s = orig(o);
+      s.pid = 4242;
+      return s;
+    };
+    const d = makeDaemon(driver);
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    const start = startSession(sid);
+    orch.send(start);
+    await orch.until(() => orch.events('ask_user')[0]);
+    expect(d.store.session(sid)!.agent).toEqual({
+      commandId: start.payload.command_id,
+      fencingToken: 1,
+      pid: 4242,
+      claudeSessionId: driver.last!.claudeSessionId,
     });
   });
 });

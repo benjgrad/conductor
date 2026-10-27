@@ -8,8 +8,10 @@ import {
   CONDUCTOR_WORKFLOW_ID,
   OUTPUT_CHUNK_FIXTURE,
   SESSION_MOVES_FIXTURE,
+  moveStateLabel,
   WorkflowDefinitionSchema,
   type BoardCard,
+  type BoardChecking,
   type InputRequestDto,
   type MoveDto,
   type OutputChunk,
@@ -366,6 +368,16 @@ export const SEED_IDS = {
     session: 'b2000000-0000-4000-8000-00000000000b',
     input: 'c3000000-0000-4000-8000-00000000000b',
   },
+  /** UX-5: conductor running a move step's checks (item 3 of 5, "Unit tests"). */
+  checking: {
+    ticket: 'a1000000-0000-4000-8000-00000000000c',
+    session: 'b2000000-0000-4000-8000-00000000000c',
+  },
+  /** UX-5 FR-5: a move step waiting for the machine's build slot. */
+  buildSlot: {
+    ticket: 'a1000000-0000-4000-8000-00000000000d',
+    session: 'b2000000-0000-4000-8000-00000000000d',
+  },
 } as const;
 
 interface SeedSpec {
@@ -558,10 +570,66 @@ function reviewSeed(now: Date): MockSeed {
   };
 }
 
+/** UX-5: `card.checking` of a `personal_pr_ready_for_review` step at item `current` (0-based). */
+export function mockChecking(current: number): BoardChecking {
+  const labels = ['Typecheck', 'Lint', 'Unit tests', 'Build passes', 'PR opened'];
+  return {
+    to: 'needs_input',
+    title: 'Needs input',
+    phase: current < 4 ? 'checks' : 'actions',
+    label: 'Checks before PR ready for review',
+    transition: 'personal_pr_ready_for_review',
+    items: labels.map((label, i) => ({
+      label,
+      kind: i < 4 ? 'check' : 'action',
+      status: i < current ? 'passed' : i === current ? 'running' : 'todo',
+      detail: null,
+    })),
+    current,
+  };
+}
+
+/** UX-5: conductor running a move step (the agent took `personal_pr_ready_for_review` and exited). */
+function checkingSeeds(now: Date): MockSeed[] {
+  const state = moveStateLabel('implementing', 'needs_input', 'personal_pr_ready_for_review');
+  const step = (s: MockSeed, slot: boolean): MockSeed => ({
+    ...s,
+    card: {
+      ...s.card,
+      kind: 'personal',
+      badges: slot ? ['waiting_for_build_slot', 'checking'] : ['checking'],
+      checking: mockChecking(slot ? 0 : 2),
+    },
+  });
+  const spec = {
+    status: 'running' as const,
+    state,
+    workflow: CONDUCTOR_V2_DRAFT_DEF,
+    ageMin: 180,
+    spend: 2.1,
+  };
+  return [
+    step(
+      seed(now, { ...SEED_IDS.checking, ...spec, title: 'Conductor checks demo', activeMinAgo: 1 }),
+      false,
+    ),
+    step(
+      seed(now, {
+        ...SEED_IDS.buildSlot,
+        ...spec,
+        title: 'Waiting for a build slot',
+        activeMinAgo: 2,
+      }),
+      true,
+    ),
+  ];
+}
+
 export function mockSeeds(now: Date): MockSeed[] {
   const id = SEED_IDS;
   return [
     ...transitionSeeds(now),
+    ...checkingSeeds(now),
     {
       card: { ...BOARD_CARD_FIXTURE, created_at: ago(now, 3), updated_at: ago(now, 3) },
       session: null,

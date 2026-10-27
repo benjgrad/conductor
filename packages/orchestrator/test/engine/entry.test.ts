@@ -137,6 +137,44 @@ describe('seed (ADR-0010)', () => {
   });
 });
 
+describe('UX-5: card.checking while conductor runs the step', () => {
+  it('each card.upserted carries the label and the items with their statuses', async () => {
+    const { sessionId, run, exit } = await implementing();
+    await run({ type: 'agent.complete_state', result: { summary: 'added /health' } });
+    const checking = async () => {
+      const last = (await boardEvents(sessionId)).filter((e) => e.type === 'card.upserted').at(-1)!;
+      return last.type === 'card.upserted' ? last.card.checking : null;
+    };
+    const statuses = async () => (await checking())?.items?.map((i) => [i.label, i.status]);
+
+    // Regression: before UX-5 the card had no label and no items while the checks ran.
+    expect(await checking()).toMatchObject({
+      phase: 'checks',
+      label: 'Checks before Waiting external',
+      transition: 'done',
+      current: 0,
+    });
+    expect(await statuses()).toEqual([
+      ['Build passes', 'running'],
+      ['Tests pass', 'todo'],
+      ['PR opened', 'todo'],
+    ]);
+    await exit(0);
+    expect(await statuses()).toEqual([
+      ['Build passes', 'passed'],
+      ['Tests pass', 'running'],
+      ['PR opened', 'todo'],
+    ]);
+    await exit(0);
+    expect(await checking()).toMatchObject({ phase: 'actions', current: 2 });
+    expect(await statuses()).toEqual([
+      ['Build passes', 'passed'],
+      ['Tests pass', 'passed'],
+      ['PR opened', 'running'],
+    ]);
+  });
+});
+
 describe('entry step through the EngineService', () => {
   it('checks → open_pr → Waiting external; the card stays in Implementing while checking', async () => {
     const { sessionId, run, exit } = await implementing();

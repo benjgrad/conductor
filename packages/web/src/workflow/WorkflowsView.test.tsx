@@ -16,14 +16,15 @@ afterEach(() => {
   window.location.hash = '';
 });
 
-/** The first render of the view can exceed findBy's 1 s default when the full suite runs. */
-const FIRST_LOAD = { timeout: 10_000 };
-
 /**
  * The app on the mock, whose conductor v3 is the shipped ADR-0011 conductor. Saves are recorded
  * and stored here as v4, v5… without the mock's validator (the request body is what these tests
  * check).
  */
+// The diagram appears once the mock API resolves; on a loaded machine running the full suite that
+// can take longer than findBy's 1 s default.
+const DIAGRAM_WAIT = { timeout: 10_000 };
+
 async function setup(api = createMockApi()) {
   const saved: WorkflowDefinition[] = [];
   const get = api.getWorkflow.bind(api);
@@ -40,7 +41,7 @@ async function setup(api = createMockApi()) {
     return get(id, version);
   };
   render(<App api={api} />);
-  const diagram = await screen.findByRole('group', { name: 'conductor v3 columns' }, FIRST_LOAD);
+  const diagram = await screen.findByRole('group', { name: 'conductor v3 columns' }, DIAGRAM_WAIT);
   return { api, saved, diagram };
 }
 
@@ -66,7 +67,7 @@ describe('Workflow view', () => {
     window.location.hash = '';
     render(<App api={createMockApi()} />);
     fireEvent.click(screen.getByRole('link', { name: 'Workflow' }));
-    await screen.findByRole('group', { name: 'conductor v3 columns' }, FIRST_LOAD);
+    await screen.findByRole('group', { name: 'conductor v3 columns' }, DIAGRAM_WAIT);
     expect(screen.queryByRole('navigation', { name: 'Workflows' })).toBeNull();
     expect(screen.getByRole('link', { name: 'Workflow' }).getAttribute('aria-current')).toBe(
       'page',
@@ -447,7 +448,7 @@ describe('unsaved draft guard', () => {
     await screen.findByText('Add pagination to /orders');
     expect(window.location.hash).toBe('#/');
     fireEvent.click(screen.getByRole('link', { name: 'Workflow' }));
-    await screen.findByRole('group', { name: 'conductor v3 columns' }, FIRST_LOAD);
+    await screen.findByRole('group', { name: 'conductor v3 columns' });
     expect(screen.queryByText('Unsaved changes')).toBeNull();
   });
 

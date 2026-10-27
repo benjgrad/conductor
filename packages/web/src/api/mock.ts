@@ -90,6 +90,8 @@ export interface MockApi extends ApiClient {
   /** Test/dev hooks: drive the board like a daemon would. */
   pushOutput(sessionId: string, text: string, stream?: OutputStream): void;
   requestInput(sessionId: string, kind: InputRequestKind, question: string): string;
+  /** UX-5: change a session's card as the engine would (e.g. the next check), with card.upserted. */
+  updateCard(sessionId: string, next: Partial<BoardCard>): void;
   /** Appends fake output to every running session every `ms`; returns a stop function. */
   simulate(ms: number): Unsubscribe;
   /** `password` mode: lock a user's email, as repeated failed sign-ins would. */
@@ -956,6 +958,10 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         ],
       );
       return id;
+    },
+
+    updateCard(sessionId, next) {
+      update(cardForSession(sessionId), next);
     },
 
     simulate(ms) {

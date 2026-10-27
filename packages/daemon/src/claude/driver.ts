@@ -70,6 +70,12 @@ export type DriverEvent =
 
 export interface DriverSession {
   readonly claudeSessionId: string;
+  /**
+   * BUG-1 amendment to ADR-0005: the OS pid of the Claude process (the leader of its own process
+   * group), when there is one. The daemon persists it so that, after a restart, it can kill a
+   * process the previous daemon left behind (the CLI driver spawns it detached).
+   */
+  readonly pid?: number | undefined;
   on(listener: (ev: DriverEvent) => void): () => void;
   sendInput(text: string): void; // live answer injection; queued by Claude if a turn is running
   /**

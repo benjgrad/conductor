@@ -6,6 +6,12 @@ import { ago, KIND_LABELS, STATUS_LABELS, TICKET_KIND_LABELS, usd } from './form
 import { PendingChecklist, TransitionButtons } from './transitions.js';
 import { stateLabel } from '../workflow/review.js';
 import { classifyRequest, previewText, type RequestClass } from './request-preview.js';
+import {
+  agentIdle,
+  checkingSummary,
+  isConductorStep,
+  waitingForBuildSlot,
+} from './ConductorChecks.js';
 import './Board.css';
 
 interface BoardProps {
@@ -59,6 +65,10 @@ function Card({ card, selected, onSelect, api }: CardProps) {
   const sessionId = card.session_id;
   const q = card.input_request;
   const cls = q ? classifyRequest(q) : null;
+  // UX-5: in a gate step the agent has exited and conductor runs the step, so no "running" agent.
+  const conductor = isConductorStep(card);
+  const idle = agentIdle(card);
+  const name = agentName(card.ticket_id);
   return (
     <article className={`card${selected ? ' selected' : ''}`} data-ticket={card.ticket_id}>
       <button
@@ -74,23 +84,37 @@ function Card({ card, selected, onSelect, api }: CardProps) {
         {card.kind && (
           <span className={`tag tag-kind tag-${card.kind}`}>{TICKET_KIND_LABELS[card.kind]}</span>
         )}
-        <span className="card-agent" title={`Agent ${agentName(card.ticket_id)}`}>
-          <AgentAvatar ticketId={card.ticket_id} size={20} />
-          {agentName(card.ticket_id)}
+        <span
+          className="card-agent"
+          title={idle ? `Agent ${name} is idle: conductor is checking` : `Agent ${name}`}
+        >
+          <AgentAvatar
+            ticketId={card.ticket_id}
+            size={20}
+            {...(idle ? { className: 'avatar-idle' } : {})}
+          />
+          {name}
+          {idle && <span className="visually-hidden"> (idle)</span>}
         </span>
         {card.external_ref && <span className="ref">{card.external_ref}</span>}
-        <span>{card.workflow_state ? stateLabel(card.workflow_state) : card.workflow_id}</span>
-        {card.status && (
-          <span className={`status status-${card.status}`}>{STATUS_LABELS[card.status]}</span>
+        {conductor ? (
+          <span className="status status-conductor">{checkingSummary(card)}</span>
+        ) : (
+          <>
+            <span>{card.workflow_state ? stateLabel(card.workflow_state) : card.workflow_id}</span>
+            {card.status && (
+              <span className={`status status-${card.status}`}>{STATUS_LABELS[card.status]}</span>
+            )}
+          </>
         )}
         {card.priority !== 0 && <span className="prio">P{card.priority}</span>}
         {card.spend_usd > 0 && <span>{usd(card.spend_usd)}</span>}
         <span className="age">{ago(card.updated_at)}</span>
       </div>
-      {card.badges.includes('waiting_for_build_slot') && (
+      {card.badges.includes('waiting_for_build_slot') && !waitingForBuildSlot(card) && (
         <span className="badge badge-slot">waiting for build slot</span>
       )}
-      {card.pending ? (
+      {conductor ? null : card.pending ? (
         <PendingChecklist pending={card.pending} />
       ) : (
         card.checking && (

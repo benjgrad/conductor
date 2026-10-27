@@ -42,9 +42,16 @@ export interface PersistedSession {
   lastUsedAt: number;
   /**
    * The live Claude process (its start_session command_id and fencing token), cleared on exit.
-   * Set at daemon start means the process died with the previous daemon: an `exit` is reported.
+   * Set at daemon start means the previous daemon stopped with it running: the new daemon kills
+   * it if it is still alive (BUG-1: it runs in its own process group, so it can outlive the
+   * daemon; `pid` and `claudeSessionId` identify it) and reports an `exit`.
    */
-  agent?: { commandId: string; fencingToken: number } | null;
+  agent?: {
+    commandId: string;
+    fencingToken: number;
+    pid?: number;
+    claudeSessionId?: string;
+  } | null;
 }
 
 interface StateFile {

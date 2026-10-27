@@ -1,16 +1,25 @@
 import {
+  SESSION_INPUT_REQUESTS_LIMIT,
   SESSION_MOVES_LIMIT,
   WorkflowDefinitionSchema,
   toBoardCard,
   toInputRequestDto,
   toMoveDto,
+  toSessionInputRequest,
   type MoveDto,
   type SessionDetail,
+  type SessionInputRequest,
 } from '@conductor/shared';
 import type { OutputBus, Queryable } from '../contracts.js';
 import { cardView } from '../engine/board-view.js';
 import { OPEN_INPUT_SELECT, splitStep, type OpenInputRow } from '../engine/rows.js';
-import type { EventRow, SessionRow, TicketRow, WorkflowDefinitionRow } from '../db/types.js';
+import type {
+  EventRow,
+  InputRequestRow,
+  SessionRow,
+  TicketRow,
+  WorkflowDefinitionRow,
+} from '../db/types.js';
 
 // GET /api/sessions/:id (M1-T08).
 
@@ -42,6 +51,21 @@ export async function loadMoves(db: Queryable, id: string): Promise<MoveDto[]> {
   return moves;
 }
 
+/**
+ * UX-7: the session's last SESSION_INPUT_REQUESTS_LIMIT input requests, answered or not, oldest
+ * first; question and answer clipped (`toSessionInputRequest`).
+ */
+export async function loadInputRequests(db: Queryable, id: string): Promise<SessionInputRequest[]> {
+  const res = await db.query<
+    Pick<InputRequestRow, 'id' | 'kind' | 'question' | 'created_at' | 'answer' | 'answered_at'>
+  >(
+    'SELECT id, kind, question, created_at, answer, answered_at FROM input_request ' +
+      'WHERE session_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2',
+    [id, SESSION_INPUT_REQUESTS_LIMIT],
+  );
+  return res.rows.reverse().map(toSessionInputRequest);
+}
+
 /** null = no such session. */
 export async function loadSessionDetail(
   db: Queryable,
@@ -51,7 +75,7 @@ export async function loadSessionDetail(
   const s = await db.query<SessionRow>('SELECT * FROM session WHERE id = $1', [id]);
   const session = s.rows[0];
   if (!session) return null;
-  const [t, wd, ir, moves] = await Promise.all([
+  const [t, wd, ir, moves, inputRequests] = await Promise.all([
     db.query<TicketRow>('SELECT * FROM ticket WHERE id = $1', [session.ticket_id]),
     db.query<WorkflowDefinitionRow>(
       'SELECT * FROM workflow_definition WHERE id = $1 AND version = $2',
@@ -63,6 +87,7 @@ export async function loadSessionDetail(
       [id],
     ),
     loadMoves(db, id),
+    loadInputRequests(db, id),
   ]);
   const ticket = t.rows[0];
   const defRow = wd.rows[0];
@@ -97,5 +122,6 @@ export async function loadSessionDetail(
     recent_output: outputBus.snapshot(id),
     moves,
     ticket_body: ticket.body,
+    input_requests: inputRequests,
   };
 }

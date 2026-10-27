@@ -481,6 +481,48 @@ export function toMoveDto(row: { ts: Date | string; payload: unknown }): MoveDto
   };
 }
 
+/** How many input requests `SessionDetail.input_requests` carries (the most recent). */
+export const SESSION_INPUT_REQUESTS_LIMIT = 50;
+/** `SessionDetail.input_requests`: a longer question or answer is clipped to this many characters. */
+export const INPUT_REQUEST_TEXT_LIMIT = 4096;
+
+/** UX-7: one of the session's input requests (asked, and answered or not), for the Details timeline. */
+export const SessionInputRequestSchema = z.object({
+  id: UuidSchema,
+  kind: InputRequestKindSchema,
+  question: z.string(),
+  created_at: IsoDateTimeSchema,
+  answer: z.string().nullable(),
+  answered_at: IsoDateTimeSchema.nullable(),
+  /** The question or the answer was clipped to INPUT_REQUEST_TEXT_LIMIT characters. */
+  truncated: z.boolean(),
+});
+export type SessionInputRequest = z.infer<typeof SessionInputRequestSchema>;
+
+/** An `input_request` row → SessionInputRequest, question and answer clipped. */
+export function toSessionInputRequest(row: {
+  id: string;
+  kind: SessionInputRequest['kind'];
+  question: string;
+  created_at: Date | string;
+  answer: string | null;
+  answered_at: Date | string | null;
+}): SessionInputRequest {
+  const clip = (s: string) =>
+    s.length > INPUT_REQUEST_TEXT_LIMIT ? s.slice(0, INPUT_REQUEST_TEXT_LIMIT) : s;
+  const question = clip(row.question);
+  const answer = row.answer === null ? null : clip(row.answer);
+  return {
+    id: row.id,
+    kind: row.kind,
+    question,
+    created_at: iso(row.created_at),
+    answer,
+    answered_at: row.answered_at === null ? null : iso(row.answered_at),
+    truncated: question !== row.question || answer !== row.answer,
+  };
+}
+
 /** GET /api/sessions/:id */
 export const SessionDetailSchema = z.object({
   card: BoardCardSchema,
@@ -511,6 +553,12 @@ export const SessionDetailSchema = z.object({
    * parse; the orchestrator always sends it.
    */
   ticket_body: z.string().optional(),
+  /**
+   * UX-7: the session's last SESSION_INPUT_REQUESTS_LIMIT input requests, oldest first (newest
+   * last), answered or not (`toSessionInputRequest`). Optional so older servers still parse;
+   * absent ≡ [].
+   */
+  input_requests: z.array(SessionInputRequestSchema).optional(),
 });
 export type SessionDetail = z.infer<typeof SessionDetailSchema>;
 

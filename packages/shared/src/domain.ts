@@ -132,15 +132,16 @@ export function sessionBranch(ticketId: string, sessionId: string): string {
 
 /**
  * The `local` account (ADR-0017 §Auth: schema sketch): every pre-M2 row is backfilled into it, and
- * `local` mode runs as it. The bootstrap admin claims it (U-056).
+ * `local` mode runs as it. The bootstrap admin claims it (U-056). An RFC 9562 v4-shaped id, so it
+ * passes UuidSchema like every other account id.
  */
-export const LOCAL_ACCOUNT_ID = '00000000-0000-0000-0000-000000000001';
+export const LOCAL_ACCOUNT_ID = '00000000-0000-4000-8000-000000000001';
 
 /**
- * An `account.id`: any 8-4-4-4-12 hex GUID. Not UuidSchema, because LOCAL_ACCOUNT_ID's version
- * nibble is 0, which RFC 9562 `z.uuid()` refuses. Accounts created later get random v4 ids.
+ * The `local` mode user: a virtual user with no `app_user` row. It is the actor of `local` mode
+ * requests (U-042 audit columns) and the user in `localMeResponse()`.
  */
-export const AccountIdSchema = z.guid();
+export const LOCAL_USER_ID = '00000000-0000-4000-8000-000000000002';
 
 /** `CONDUCTOR_AUTH` (ADR-0017 §Modes): `local` = M1 (loopback, no sign-in); `password` = hosted. */
 export const AuthModeSchema = z.enum(['local', 'password']);
@@ -159,7 +160,7 @@ export type AccountActor = z.infer<typeof AccountActorSchema>;
  * Every query filters on `account_id`; another account's id is `not_found`.
  */
 export const AccountScopeSchema = z.object({
-  account_id: AccountIdSchema,
+  account_id: UuidSchema,
   actor: AccountActorSchema,
 });
 export type AccountScope = z.infer<typeof AccountScopeSchema>;

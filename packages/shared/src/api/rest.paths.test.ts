@@ -40,6 +40,7 @@ describe('API_PATHS', () => {
       machineEnrollmentTokens: '/api/machines/enrollment-tokens',
       machine: '/api/machines/:id',
       machineRevoke: '/api/machines/:id/revoke',
+      machineAlertClear: '/api/machines/alerts/:id/clear',
       installScript: '/install.sh',
       daemonDownload: '/downloads/:file',
       healthz: '/healthz',

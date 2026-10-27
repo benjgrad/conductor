@@ -108,6 +108,11 @@ export const API_PATHS = {
   machine: (id: string) => `/api/machines/${id}`,
   /** POST `{}` → OkResponse; revokes the machine (socket closed with 4001). */
   machineRevoke: (id: string) => `/api/machines/${id}/revoke`,
+  /**
+   * POST `{}` → 204; sets the alert's `cleared_at` (the machine's owner only). 404 for an unknown
+   * alert or another account's.
+   */
+  machineAlertClear: (id: string) => `/api/machines/alerts/${id}/clear`,
   /** Public. GET → the install script (`text/x-shellscript`). */
   installScript: '/install.sh',
   /** Public. GET → the daemon tarball (and its `.sha256`), only the built names. */
@@ -631,8 +636,8 @@ export const TicketDtoSchema = z.object({
 export type TicketDto = z.infer<typeof TicketDtoSchema>;
 
 // ---------------------------------------------------------------- repo grammar (U-048)
-// The M1-T14 grammar (daemon `cloneSource`). TD: duplicated in packages/daemon/src/workspace.ts
-// until the daemon switches to canonicalRepo (M2-T10/T13).
+// The M1-T14 grammar (daemon `cloneSource`). TD-107: duplicated in the daemon's `cloneSource`
+// (packages/daemon/src/workspace.ts), canonicalRepo and `isCanonicalRemote` until they share one.
 const LABEL = '[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?';
 const HOST = `${LABEL}(?:\\.${LABEL})*`;
 const SEGMENT = '[A-Za-z0-9_][A-Za-z0-9._-]*';
@@ -646,8 +651,10 @@ const URL_RE = new RegExp(
 /**
  * The canonical `host/org/repo` form of a repo reference (U-048, ADR-0013 §Routing), or null.
  * Accepts `host/org/repo`, `https://host/org/repo`, `ssh://user@host/org/repo` and scp-style
- * `user@host:org/repo`, each with an optional `.git` and trailing `/`. The host is lower-cased;
- * the path keeps its case. Refused: other schemes and transports (`ext::`, `file:`, `http:`),
+ * `user@host:org/repo`, each with an optional `.git` (any case) and trailing `/`. The host is
+ * lower-cased; the path keeps its case (routing compares github.com org/repo case-insensitively).
+ * A name still ending in `.git` after one strip (`app.git.git`) is refused, so the result is
+ * idempotent: `canonicalRepo(canonicalRepo(x)) === canonicalRepo(x)`. Refused: other schemes and transports (`ext::`, `file:`, `http:`),
  * local or relative paths, ports, https userinfo (a token), query or hash, `.`/`..` segments,
  * whitespace and a leading `-`. `CreateTicketRequest.repo` stays permissive: `local` mode accepts
  * local test repos; `password` mode applies this (M2-T17).
@@ -672,7 +679,9 @@ export function canonicalRepo(repo: string): string | null {
   } else {
     return null;
   }
-  path = path.replace(/\.git$/, '');
+  path = path.replace(/\.git$/i, '');
+  // GitHub repo names can't end in `.git`; one is stripped, never two.
+  if (/\.git$/i.test(path)) return null;
   const segments = path.split('/');
   if (segments.length < 2 || segments.some((s) => s === '' || s === '.' || s === '..')) {
     return null;

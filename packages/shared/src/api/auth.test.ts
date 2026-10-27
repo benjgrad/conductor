@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   EmailSchema,
   InvitePreviewSchema,
+  localMeResponse,
   LoginRequestSchema,
   MeResponseSchema,
   PASSWORD_IS_EMAIL,
@@ -13,6 +14,7 @@ import {
   safeNextPath,
   SignupRequestSchema,
 } from './auth.js';
+import { LOCAL_ACCOUNT_ID, LOCAL_USER_ID } from '../domain.js';
 import {
   INVITE_PREVIEW_FIXTURES,
   LOGIN_REQUEST_FIXTURE,
@@ -100,6 +102,14 @@ describe('auth schemas', () => {
       password: SIGNUP_REQUEST_FIXTURE.email,
     });
     expect(same.error?.issues.map((i) => i.message)).toEqual([PASSWORD_IS_EMAIL]);
+  });
+
+  it('localMeResponse is the virtual local user in the local account', () => {
+    expect(MeResponseSchema.parse(localMeResponse())).toEqual({
+      user: { id: LOCAL_USER_ID, email: 'local@localhost', display_name: 'local', is_admin: false },
+      account: { id: LOCAL_ACCOUNT_ID, name: 'local' },
+      auth_mode: 'local',
+    });
   });
 
   it('every auth fixture parses', () => {

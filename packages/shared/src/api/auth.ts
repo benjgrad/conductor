@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { AccountIdSchema, AuthModeSchema, IsoDateTimeSchema, UuidSchema } from '../domain.js';
+import {
+  AuthModeSchema,
+  IsoDateTimeSchema,
+  LOCAL_ACCOUNT_ID,
+  LOCAL_USER_ID,
+  UuidSchema,
+} from '../domain.js';
 
 // Web sign-in DTOs (M2-T01, ADR-0017 §Auth: behaviour, §Invites). Routes and status codes:
 // 10-contracts §Accounts and web auth.
@@ -59,9 +65,9 @@ export const LoginRequestSchema = z.object({
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 
 /**
- * GET /api/me → 200 (401 without a session). In `local` mode the server answers with the local
- * user and the `local` account, `auth_mode: 'local'` (the web then hides sign-out and password
- * change).
+ * GET /api/me → 200 (401 without a session). In `local` mode the server answers
+ * `localMeResponse()`: the virtual local user and the `local` account, `auth_mode: 'local'` (the
+ * web then hides sign-out and password change).
  */
 export const MeResponseSchema = z.object({
   user: z.object({
@@ -70,10 +76,27 @@ export const MeResponseSchema = z.object({
     display_name: z.string(),
     is_admin: z.boolean(),
   }),
-  account: z.object({ id: AccountIdSchema, name: z.string() }),
+  account: z.object({ id: UuidSchema, name: z.string() }),
   auth_mode: AuthModeSchema,
 });
 export type MeResponse = z.infer<typeof MeResponseSchema>;
+
+/**
+ * GET /api/me in `local` mode: the virtual local user (LOCAL_USER_ID, no `app_user` row) in the
+ * `local` account. Pure; the orchestrator (M2-T08) and the web mock (M2-T05) both use it.
+ */
+export function localMeResponse(): MeResponse {
+  return {
+    user: {
+      id: LOCAL_USER_ID,
+      email: 'local@localhost',
+      display_name: 'local',
+      is_admin: false,
+    },
+    account: { id: LOCAL_ACCOUNT_ID, name: 'local' },
+    auth_mode: 'local',
+  };
+}
 
 /**
  * POST /auth/signup → 201 MeResponse + session cookie (ADR-0017 §Invites). 400 `bad_request` when

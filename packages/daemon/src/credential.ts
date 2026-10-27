@@ -20,10 +20,23 @@ import { z } from 'zod';
 
 export const CREDENTIAL_FILE = 'machine.json';
 
+/** Hosts that may be reached over plain http/ws (dev and tests); everything else needs TLS. */
+export const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+/** True for an https/wss URL, or an http/ws URL to a LOOPBACK_HOSTS host. */
+export function isSecureOrLoopback(url: URL): boolean {
+  if (url.protocol === 'https:' || url.protocol === 'wss:') return true;
+  return (url.protocol === 'http:' || url.protocol === 'ws:') && LOOPBACK_HOSTS.has(url.hostname);
+}
+
 const MachineCredentialSchema = z.object({
   url: z
     .string()
-    .refine((u) => URL.canParse(u) && /^https?:$/.test(new URL(u).protocol), 'not an http(s) URL'),
+    .refine(
+      (u) =>
+        URL.canParse(u) && /^https?:$/.test(new URL(u).protocol) && isSecureOrLoopback(new URL(u)),
+      'not an https URL (plain http only to a loopback host)',
+    ),
   machine_id: z.string().min(1),
   credential: z.string().min(1),
 });

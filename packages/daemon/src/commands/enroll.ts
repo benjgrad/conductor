@@ -2,7 +2,12 @@ import { arch, platform } from 'node:os';
 import { parseArgs } from 'node:util';
 import { API_PATHS, EnrollRequestSchema, EnrollResponseSchema } from '@conductor/shared';
 import { daemonVersion, machineFacts, rootDirFrom, type MachineFacts } from '../config.js';
-import { checkWritable, credentialPath, writeCredential } from '../credential.js';
+import {
+  checkWritable,
+  credentialPath,
+  isSecureOrLoopback,
+  writeCredential,
+} from '../credential.js';
 
 // `conductor-daemon enroll --url <https url> --token <token> [--force]` (M2-T04; ADR-0013
 // §Enrollment, ADR-0017 §Daemon distribution): trade a one-time enrollment token for the machine
@@ -32,8 +37,6 @@ function defaultDeps(): EnrollDeps {
   };
 }
 
-const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
-
 /**
  * The orchestrator URL to store (origin + path, no trailing slash), or an error. https only;
  * plain http only to a loopback host (dev and tests).
@@ -41,7 +44,7 @@ const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
 export function enrollUrl(raw: string): { url: string } | { error: string } {
   if (!URL.canParse(raw)) return { error: `--url ${raw} is not a URL` };
   const u = new URL(raw);
-  if (u.protocol !== 'https:' && !(u.protocol === 'http:' && LOOPBACK.has(u.hostname))) {
+  if (!/^https?:$/.test(u.protocol) || !isSecureOrLoopback(u)) {
     return { error: `--url must be https:// (got ${u.protocol}//${u.host})` };
   }
   return { url: `${u.origin}${u.pathname.replace(/\/+$/, '')}` };
@@ -107,13 +110,26 @@ export async function enroll(argv: string[], deps: Partial<EnrollDeps> = {}): Pr
     return 1;
   }
 
-  const body = EnrollRequestSchema.parse({
+  const request = EnrollRequestSchema.safeParse({
     token: values.token,
     hostname: d.facts.hostname,
     os: platform(),
     arch: arch(),
     daemon_version: daemonVersion(d.env),
   });
+  if (!request.success) {
+    const fields = [...new Set(request.error.issues.map((i) => String(i.path[0] ?? '')))];
+    if (fields.includes('token')) {
+      d.err('--token is not a valid enrollment token (empty or longer than 512 characters)');
+      d.err(ENROLL_USAGE);
+      return 2;
+    }
+    d.err(
+      `cannot enroll: this machine's ${fields.join(', ')} cannot be sent (invalid or too long)`,
+    );
+    return 1;
+  }
+  const body = request.data;
   const endpoint = new URL(API_PATHS.machinesEnroll, target.url);
   let res: Response;
   try {
@@ -122,12 +138,25 @@ export async function enroll(argv: string[], deps: Partial<EnrollDeps> = {}): Pr
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(ENROLL_TIMEOUT_MS),
+      // Never follow a redirect: it would re-POST the one-time token to wherever it points.
+      redirect: 'manual',
     });
   } catch (e) {
     d.err(`cannot reach ${target.url}: ${causeOf(e)}`);
     return 1;
   }
 
+  if (res.status >= 300 && res.status < 400) {
+    const location = res.headers.get('location');
+    let where = 'another location';
+    if (location !== null && URL.canParse(location, endpoint.href))
+      where = new URL(location, endpoint).host;
+    d.err(
+      `enrollment failed: the server redirected to ${where} ` +
+        '(conductor never follows redirects during enrollment)',
+    );
+    return 1;
+  }
   if (res.status === 401) {
     d.err(
       'enrollment token is expired, already used or unknown: create a new one with Add a machine',

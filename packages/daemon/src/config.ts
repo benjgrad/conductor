@@ -2,7 +2,13 @@ import { readFileSync } from 'node:fs';
 import { cpus, homedir, hostname, totalmem } from 'node:os';
 import { join, resolve } from 'node:path';
 import { API_PATHS, conductorPort } from '@conductor/shared';
-import { daemonWsUrl, loadCredential, type MachineCredential } from './credential.js';
+import {
+  credentialPath,
+  daemonWsUrl,
+  isSecureOrLoopback,
+  loadCredential,
+  type MachineCredential,
+} from './credential.js';
 
 // Daemon configuration (M1-T05; 07 §Compute, §Ports). Everything comes from env vars with
 // defaults that work for a single laptop talking to an orchestrator on localhost.
@@ -156,7 +162,7 @@ export function daemonVersion(env: Env = process.env): string {
  * where Claude Code writes transcripts, ADR-0008), CONDUCTOR_BUILD_SHA (appended to daemon_version).
  * When `<root>/machine.json` exists (M2-T04 `enroll`), its `machine_id` replaces
  * CONDUCTOR_MACHINE_ID, its `url` is the default orchestrator URL, and its credential is sent on
- * the WS upgrade.
+ * the WS upgrade; the orchestrator URL must then be wss:// (plain ws:// only to a loopback host).
  */
 export function loadConfig(
   env: Env = process.env,
@@ -171,6 +177,19 @@ export function loadConfig(
     'CONDUCTOR_ORCHESTRATOR_URL',
     cred ? daemonWsUrl(cred.url) : `ws://${host}:${conductorPort(env)}${API_PATHS.daemonWs}`,
   );
+  // An enrolled daemon never sends its credential in cleartext off this machine.
+  if (cred) {
+    const source =
+      env.CONDUCTOR_ORCHESTRATOR_URL !== undefined && env.CONDUCTOR_ORCHESTRATOR_URL !== ''
+        ? 'CONDUCTOR_ORCHESTRATOR_URL'
+        : `the url in ${credentialPath(rootDir)}`;
+    if (!URL.canParse(orchestratorUrl) || !isSecureOrLoopback(new URL(orchestratorUrl))) {
+      throw new Error(
+        `${source} (${orchestratorUrl}) is not wss://: refusing to send the machine ` +
+          'credential in cleartext (plain ws:// is allowed only to a loopback host)',
+      );
+    }
+  }
   const budgetCpu = int(
     env,
     'CONDUCTOR_BUDGET_CPU',

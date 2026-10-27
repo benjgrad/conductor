@@ -67,6 +67,28 @@ describe('loadCredential', () => {
   });
 });
 
+describe('machine.json url', () => {
+  it('rejects plain http to a non-loopback host, on load and on write', () => {
+    const root = join(tmp, 'root');
+    mkdirSync(root, { mode: 0o700 });
+    writeFileSync(
+      join(root, 'machine.json'),
+      JSON.stringify({ ...CRED, url: 'http://conductor.example.com' }),
+      { mode: 0o600 },
+    );
+    expect(() => loadCredential(root)).toThrow(/invalid \(url\)/);
+    expect(() =>
+      writeCredential(
+        join(tmp, 'other'),
+        { ...CRED, url: 'http://conductor.example.com' },
+        { force: false },
+      ),
+    ).toThrow();
+    writeCredential(join(tmp, 'ok'), { ...CRED, url: 'http://127.0.0.1:8080' }, { force: false });
+    expect(loadCredential(join(tmp, 'ok'))?.url).toBe('http://127.0.0.1:8080');
+  });
+});
+
 describe('daemonWsUrl', () => {
   it('maps https → wss and http → ws on the daemon WS path', () => {
     expect(daemonWsUrl('https://conductor.example.com/')).toBe(
@@ -82,6 +104,31 @@ describe('loadConfig with machine.json', () => {
     expect(c.machineId).toBe('m-1');
     expect(c.orchestratorUrl).toBe('wss://conductor.example.com/ws/daemon');
     expect(c.credential).toBe('secret-xyz');
+  });
+
+  it('refuses a cleartext URL to a non-loopback host when enrolled', () => {
+    expect(() =>
+      loadConfig(
+        { CONDUCTOR_ORCHESTRATOR_URL: 'ws://conductor.example.com/ws/daemon' },
+        FACTS,
+        () => CRED,
+      ),
+    ).toThrow(/CONDUCTOR_ORCHESTRATOR_URL .* cleartext/);
+    expect(() =>
+      loadConfig({}, FACTS, () => ({ ...CRED, url: 'http://conductor.example.com' })),
+    ).toThrow(/machine\.json .* cleartext/);
+    // Loopback and wss are fine; local mode (no credential) is never checked.
+    expect(
+      loadConfig({ CONDUCTOR_ORCHESTRATOR_URL: 'ws://localhost:1/ws/daemon' }, FACTS, () => CRED)
+        .orchestratorUrl,
+    ).toBe('ws://localhost:1/ws/daemon');
+    expect(
+      loadConfig(
+        { CONDUCTOR_ORCHESTRATOR_URL: 'ws://conductor.example.com/ws/daemon' },
+        FACTS,
+        () => null,
+      ).credential,
+    ).toBeNull();
   });
 
   it('CONDUCTOR_ORCHESTRATOR_URL still wins', () => {

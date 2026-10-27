@@ -192,6 +192,44 @@ describe('conductor-daemon enroll', () => {
     expect(err.join('\n')).toMatch(/server returned 500 \(internal\)/);
   });
 
+  it('never follows a redirect: the target gets no request and no file is written', async () => {
+    const targetHits: string[] = [];
+    const target = createServer((req, res) => {
+      targetHits.push(`${req.method} ${req.url}`);
+      res.writeHead(201, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ machine_id: 'm-evil', credential: 'evil-cred' }));
+    });
+    await new Promise<void>((r) => target.listen(0, '127.0.0.1', () => r()));
+    const targetHost = `127.0.0.1:${(target.address() as AddressInfo).port}`;
+    try {
+      handler = (_req, _body, res) => {
+        res.writeHead(307, { location: `http://${targetHost}${API_PATHS.machinesEnroll}` });
+        res.end();
+      };
+      const root = join(tmp, 'root');
+      expect(await run(['--url', base, '--token', TOKEN], root)).toBe(1);
+      expect(targetHits).toEqual([]);
+      expect(requests).toHaveLength(1);
+      expect(existsSync(join(root, 'machine.json'))).toBe(false);
+      expect(err.join('\n')).toContain(
+        `enrollment failed: the server redirected to ${targetHost} ` +
+          '(conductor never follows redirects during enrollment)',
+      );
+      noSecrets();
+    } finally {
+      await new Promise<void>((r) => target.close(() => r()));
+    }
+  });
+
+  it('an empty or over-long --token is a usage error naming the flag', async () => {
+    expect(await run(['--url', base, '--token', 'x'.repeat(513)])).toBe(2);
+    expect(await run(['--url', base, '--token='])).toBe(2);
+    expect(requests).toHaveLength(0);
+    const msg = err.join('\n');
+    expect(msg).toContain('--token is not a valid enrollment token');
+    expect(msg).not.toMatch(/ZodError|\bat .*\.ts:\d+/);
+  });
+
   it('refuses plain http to a non-loopback host and missing options', async () => {
     expect(await run(['--url', 'http://conductor.example.com', '--token', TOKEN])).toBe(2);
     expect(await run(['--url', base])).toBe(2);

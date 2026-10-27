@@ -5,7 +5,8 @@ import type { Queryable } from './sessions.js';
 // M2-T08: login throttling (ADR-0017 §Rate limiting and lockout), layers 2 and 3 (nginx is 1).
 //   - per email, in `login_throttle`: 10 consecutive failures lock the email for 15 minutes,
 //     doubling with each further lockout up to 24 h; a success resets it. Keyed by the normalised
-//     string whether or not a user has it, so a lock reveals nothing.
+//     string whether or not a user has it, so a lock reveals nothing. A wrong `current` on
+//     POST /auth/password feeds the same count (M2-T08b), and the same lock refuses it.
 //   - per client IP, in memory (`@fastify/rate-limit`, one instance): RATE_LIMITS. The key is
 //     `req.ip`, which honours X-Forwarded-For only from CONDUCTOR_TRUSTED_PROXY (Fastify
 //     `trustProxy`).
@@ -13,6 +14,9 @@ import type { Queryable } from './sessions.js';
 export const LOCK_AFTER_FAILURES = 10;
 export const LOCK_BASE_MS = 15 * 60_000;
 export const LOCK_MAX_MS = 24 * 3600_000;
+
+/** `login_throttle.email_norm` for a stored email: normalised as `LoginEmailSchema` does. */
+export const throttleKey = (email: string): string => email.trim().toLowerCase();
 
 export async function isLocked(db: Queryable, emailNorm: string, now: Date): Promise<boolean> {
   const res = await db.query<{ locked: boolean }>(

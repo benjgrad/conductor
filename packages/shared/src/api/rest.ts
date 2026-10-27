@@ -228,7 +228,7 @@ export function stepOfContext(context: Record<string, unknown>): GateStep | null
  *   `cancelled` / `failed` / `lost`;
  * - no session yet, or no state yet (status `queued` / `assigned` before the first state) → Queued;
  * - in a gate step (entry requirements, or an ADR-0009 review) → its source column, badged
- *   `checking`, with `checking: {to, title, phase}`;
+ *   `checking`, with `checking` = `checkingOfStep` (UX-5: label and items, not just the phase);
  * - otherwise its `workflow_state` (`columnForState`).
  * `waiting_for_build_slot` is added whenever the session has it.
  */
@@ -254,11 +254,7 @@ export function placeCard(
     return {
       column: columnForState(columns, def, step.from),
       badges: [...badges, 'checking'],
-      checking: {
-        to: step.to,
-        title: def ? stateTitle(def, step.to) : step.to,
-        phase: step.phase,
-      },
+      checking: checkingOfStep(def, step),
     };
   }
   if (session.workflow_state === null) return { column: QUEUED_COLUMN_ID, badges, checking: null };
@@ -303,8 +299,24 @@ export const InputRequestDtoSchema = z.object({
 export type InputRequestDto = z.infer<typeof InputRequestDtoSchema>;
 
 /**
+ * UX-5: one item of the step conductor is running: a check (by name), the review, an action or a
+ * condition, in run order. `passed` is the checklist's `met`; the other statuses are the same.
+ * TD-152: no per-item duration yet; persisted check runs with durations come with M2c (ADR-0019).
+ */
+export const BoardCheckingItemSchema = z.object({
+  label: z.string(),
+  kind: z.enum(['check', 'review', 'action', 'condition']),
+  status: z.enum(['todo', 'running', 'passed', 'failed', 'pending', 'disabled', 'unsupported']),
+  /** Hover text (the review's requirements, a condition's evidence), or null. */
+  detail: z.string().nullable(),
+});
+export type BoardCheckingItem = z.infer<typeof BoardCheckingItemSchema>;
+
+/**
  * ADR-0010: the card is checking the requirements to enter `to` (still in its source column).
  * `phase`: `checks` (commands), `review` (the reviewer agent) or `actions` (e.g. open_pr).
+ * UX-5 adds `label`, `transition`, `items` and `current` (`checkingOfStep`): what conductor is
+ * running, so the board doesn't show a "running" agent. Optional: older servers omit them.
  */
 export const BoardCheckingSchema = z.object({
   to: StateNameSchema,
@@ -312,6 +324,14 @@ export const BoardCheckingSchema = z.object({
   title: z.string(),
   /** ADR-0011 adds `conditions` (a move step waiting on external conditions). */
   phase: z.enum(['checks', 'review', 'actions', 'conditions']),
+  /** UX-5: e.g. "Checks before PR ready for review" ("Review before …" for an ADR-0009 review). */
+  label: z.string().optional(),
+  /** UX-5: the move's transition name (an entry step or ADR-0009 review: the outcome). */
+  transition: z.string().nullable().optional(),
+  /** UX-5: the step's items in run order; [] when the definition is unknown. */
+  items: z.array(BoardCheckingItemSchema).optional(),
+  /** UX-5: index in `items` of the running item, else null. */
+  current: z.number().int().nonnegative().nullable().optional(),
 });
 export type BoardChecking = z.infer<typeof BoardCheckingSchema>;
 
@@ -376,7 +396,10 @@ export const BoardCardSchema = z.object({
   /** A column id of `BoardResponse.columns` (ADR-0010: `queued` or a state name). */
   column: BoardColumnSchema,
   badges: z.array(CardBadgeSchema),
-  /** In an entry step: what it is checking (ADR-0010); null otherwise. Superseded by `pending`. */
+  /**
+   * In a gate step: what conductor is checking (ADR-0010; UX-5 adds its label and items, what the
+   * board shows instead of a running agent); null otherwise. `pending` is the waiting-for view.
+   */
   checking: BoardCheckingSchema.nullable().default(null),
   /** ADR-0011: `ticket.kind`; null = not set (tickets from before M1b). */
   kind: TicketKindSchema.nullable().default(null),
@@ -965,69 +988,126 @@ function requiresOfStep(
 
 const PHASE_ORDER = ['checks', 'review', 'actions', 'conditions'] as const;
 
+type StepItemKind = BoardCheckingItem['kind'];
+
+/** One item of a gate step in run order: the checklist line plus what kind of item it is. */
+interface StepItem extends BoardPendingItem {
+  kind: StepItemKind;
+}
+
+/** The title a gate step shows: the move's transition title, else the target column's title. */
+function stepTitle(def: Pick<WorkflowDefinition, 'states'> | null, step: GateStep): string {
+  if (def === null) return step.to;
+  const name = step.transition ?? step.outcome;
+  return step.kind === 'move'
+    ? transitionTitle(name, transitionAt(def, step.from, name))
+    : stateTitle(def, step.to);
+}
+
 /**
- * ADR-0011: a gate step's "waiting for" checklist (BoardCard.pending). Items in run order:
- * declared checks (the implicit commit-pin check is not shown), the review, actions, conditions.
- * An item in a phase before the current one is `met`; in the current phase, a check / action
- * before `step.index` is `met`, at it `running`, after it `todo` (the review is `running`);
- * conditions show `step.conditions` once the phase has them (else `todo`, or `disabled`); later
- * phases are `todo`. Null when there is no step; items [] when the definition is unknown.
+ * A gate step's items in run order: declared checks (the implicit commit-pin check is not shown),
+ * the review, actions, conditions. An item in a phase before the current one is `met`; in the
+ * current phase, a check / action before `step.index` is `met`, at it `running`, after it `todo`
+ * (the review is `running`); conditions show `step.conditions` once the phase has them (else
+ * `todo`, or `disabled`); later phases are `todo`. [] when the definition is unknown.
+ */
+function stepItems(def: Pick<WorkflowDefinition, 'states'> | null, step: GateStep): StepItem[] {
+  const req = def !== null ? requiresOfStep(def, step) : null;
+  const items: StepItem[] = [];
+  if (req === null) return items;
+  const cur = PHASE_ORDER.indexOf(step.phase);
+  const indexed = (phase: number, i: number): BoardPendingItem['status'] => {
+    if (phase < cur) return 'met';
+    if (phase > cur) return 'todo';
+    return i < step.index ? 'met' : i === step.index ? 'running' : 'todo';
+  };
+  (req.checks ?? []).forEach((c, i) =>
+    items.push({ kind: 'check', label: c.name, status: indexed(0, i), detail: null }),
+  );
+  if (req.review !== undefined) {
+    const n = req.review.items.length;
+    items.push({
+      kind: 'review',
+      label: `Review: ${n} requirement${n === 1 ? '' : 's'}`,
+      status: cur > 1 ? 'met' : cur === 1 ? 'running' : 'todo',
+      detail: req.review.items.join('\n'),
+    });
+  }
+  (req.actions ?? []).forEach((a, i) =>
+    items.push({ kind: 'action', label: actionLabel(a), status: indexed(2, i), detail: null }),
+  );
+  if (cur === 3 && step.conditions.length > 0) {
+    for (const c of step.conditions) {
+      items.push({
+        kind: 'condition',
+        label: c.value !== null ? `${c.label} (${c.value})` : c.label,
+        status: c.status,
+        detail: c.detail,
+      });
+    }
+  } else {
+    for (const c of req.conditions ?? []) {
+      items.push({
+        kind: 'condition',
+        label: conditionLabel(c),
+        status: conditionEnabled(c) ? 'todo' : 'disabled',
+        detail: null,
+      });
+    }
+  }
+  return items;
+}
+
+/**
+ * ADR-0011: a gate step's "waiting for" checklist (BoardCard.pending): `stepItems` as checklist
+ * lines. Null when there is no step; items [] when the definition is unknown.
  */
 export function pendingOfStep(
   def: Pick<WorkflowDefinition, 'states'> | null,
   step: GateStep | null,
 ): BoardPending | null {
   if (step === null) return null;
-  const name = step.transition ?? step.outcome;
-  let title = step.to;
-  if (def !== null) {
-    title =
-      step.kind === 'move'
-        ? transitionTitle(name, transitionAt(def, step.from, name))
-        : stateTitle(def, step.to);
-  }
-  const req = def !== null ? requiresOfStep(def, step) : null;
-  const items: BoardPendingItem[] = [];
-  if (req !== null) {
-    const cur = PHASE_ORDER.indexOf(step.phase);
-    const indexed = (phase: number, i: number): BoardPendingItem['status'] => {
-      if (phase < cur) return 'met';
-      if (phase > cur) return 'todo';
-      return i < step.index ? 'met' : i === step.index ? 'running' : 'todo';
-    };
-    (req.checks ?? []).forEach((c, i) =>
-      items.push({ label: c.name, status: indexed(0, i), detail: null }),
-    );
-    if (req.review !== undefined) {
-      const n = req.review.items.length;
-      items.push({
-        label: `Review: ${n} requirement${n === 1 ? '' : 's'}`,
-        status: cur > 1 ? 'met' : cur === 1 ? 'running' : 'todo',
-        detail: req.review.items.join('\n'),
-      });
-    }
-    (req.actions ?? []).forEach((a, i) =>
-      items.push({ label: actionLabel(a), status: indexed(2, i), detail: null }),
-    );
-    if (cur === 3 && step.conditions.length > 0) {
-      for (const c of step.conditions) {
-        items.push({
-          label: c.value !== null ? `${c.label} (${c.value})` : c.label,
-          status: c.status,
-          detail: c.detail,
-        });
-      }
-    } else {
-      for (const c of req.conditions ?? []) {
-        items.push({
-          label: conditionLabel(c),
-          status: conditionEnabled(c) ? 'todo' : 'disabled',
-          detail: null,
-        });
-      }
-    }
-  }
-  return { transition: name, to: step.to, title, items, note: step.conditions_note };
+  const items = stepItems(def, step).map(({ label, status, detail }) => ({
+    label,
+    status,
+    detail,
+  }));
+  return {
+    transition: step.transition ?? step.outcome,
+    to: step.to,
+    title: stepTitle(def, step),
+    items,
+    note: step.conditions_note,
+  };
+}
+
+/**
+ * UX-5: BoardCard.checking, what conductor (not an agent) is running in a gate step: today's
+ * `{to, title, phase}` plus a label ("Checks before PR ready for review"), the items with their
+ * statuses (`met` → `passed`) and the running item's index. An unknown definition gives
+ * `items: []` and the label falls back to the target state.
+ */
+export function checkingOfStep(
+  def: Pick<WorkflowDefinition, 'states'> | null,
+  step: GateStep,
+): BoardChecking {
+  // TD-152: per-item durations come with M2c (ADR-0019 evidence persistence); the step has none.
+  const items: BoardCheckingItem[] = stepItems(def, step).map((i) => ({
+    label: i.label,
+    kind: i.kind,
+    status: i.status === 'met' ? 'passed' : i.status,
+    detail: i.detail,
+  }));
+  const running = items.findIndex((i) => i.status === 'running');
+  return {
+    to: step.to,
+    title: def ? stateTitle(def, step.to) : step.to,
+    phase: step.phase,
+    label: `${step.kind === 'transition' ? 'Review' : 'Checks'} before ${stepTitle(def, step)}`,
+    transition: step.transition ?? step.outcome,
+    items,
+    current: running === -1 ? null : running,
+  };
 }
 
 /**

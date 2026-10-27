@@ -132,6 +132,14 @@ describe('BoardCard.pending (ADR-0011 checklist)', () => {
       to: 'waiting_external',
       title: 'Waiting external',
       phase: 'actions',
+      label: 'Checks before Waiting external',
+      transition: 'done',
+      items: [
+        { label: 'Build passes', kind: 'check', status: 'passed', detail: null },
+        { label: 'Tests pass', kind: 'check', status: 'passed', detail: null },
+        { label: 'PR opened', kind: 'action', status: 'running', detail: null },
+      ],
+      current: 2,
     });
     expect(card.pending).toEqual({
       transition: 'done',

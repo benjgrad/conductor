@@ -1,13 +1,19 @@
 import {
+  AdminUserListResponseSchema,
   API_PATHS,
   ApiErrorSchema,
   BOARD_SSE_EVENT_TYPES,
   BoardResponseSchema,
   BoardSseEventSchema,
+  InviteCreatedSchema,
+  InviteListResponseSchema,
+  InvitePreviewSchema,
   MachineDtoSchema,
+  MeResponseSchema,
   OkResponseSchema,
   OutputChunkSchema,
   ReopenSessionResponseSchema,
+  ResetLinkCreatedSchema,
   SessionDetailSchema,
   TranscriptResponseSchema,
   TicketDtoSchema,
@@ -17,10 +23,15 @@ import {
   type AnswerInputRequest,
   type ApproveSessionRequest,
   type BoardSseEvent,
+  type CreateInviteRequest,
   type CreateTicketRequest,
+  type LoginRequest,
   type OutputChunk,
+  type PasswordChangeRequest,
   type ReopenSessionRequest,
+  type ResetRequest,
   type SendMessageRequest,
+  type SignupRequest,
   type TransitionSessionRequest,
   type WorkflowDefinition,
 } from '@conductor/shared';
@@ -105,7 +116,7 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
 
   async function request<T>(
     schema: ResponseSchema<T>,
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'DELETE',
     path: string,
     body?: unknown,
   ): Promise<T> {
@@ -321,6 +332,49 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
         API_PATHS.sessionTransition(encodeURIComponent(sessionId)),
         req,
       ),
+
+    // M2-T05. Every unsafe request is JSON (10-contracts §Accounts and web auth: the CSRF rule),
+    // so bodiless actions, DELETE included, post `{}`.
+    me: () => request(MeResponseSchema, 'GET', API_PATHS.authMe),
+
+    login: (req: LoginRequest) => request(MeResponseSchema, 'POST', API_PATHS.authLogin, req),
+
+    logout: () => request(OkResponseSchema, 'POST', API_PATHS.authLogout, {}),
+
+    signup: (req: SignupRequest) => request(MeResponseSchema, 'POST', API_PATHS.authSignup, req),
+
+    previewInvite: (token: string) =>
+      request(InvitePreviewSchema, 'GET', API_PATHS.authInvitePreview(encodeURIComponent(token))),
+
+    resetPassword: (req: ResetRequest) =>
+      request(OkResponseSchema, 'POST', API_PATHS.authReset, req),
+
+    changePassword: (req: PasswordChangeRequest) =>
+      request(OkResponseSchema, 'POST', API_PATHS.authPassword, req),
+
+    listInvites: () => request(InviteListResponseSchema, 'GET', API_PATHS.adminInvites),
+
+    createInvite: (req: CreateInviteRequest) =>
+      request(InviteCreatedSchema, 'POST', API_PATHS.adminInvites, req),
+
+    revokeInvite: (inviteId: string) =>
+      request(OkResponseSchema, 'DELETE', API_PATHS.adminInvite(encodeURIComponent(inviteId)), {}),
+
+    listUsers: () => request(AdminUserListResponseSchema, 'GET', API_PATHS.adminUsers),
+
+    createResetLink: (userId: string) =>
+      request(
+        ResetLinkCreatedSchema,
+        'POST',
+        API_PATHS.adminUserResetLink(encodeURIComponent(userId)),
+        {},
+      ),
+
+    disableUser: (userId: string) =>
+      request(OkResponseSchema, 'POST', API_PATHS.adminUserDisable(encodeURIComponent(userId)), {}),
+
+    unlockUser: (userId: string) =>
+      request(OkResponseSchema, 'POST', API_PATHS.adminUserUnlock(encodeURIComponent(userId)), {}),
   };
 }
 

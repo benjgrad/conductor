@@ -16,6 +16,7 @@ import {
   type MoveDto,
   type OutputChunk,
   type SessionDetail,
+  type SessionInputRequest,
   type SessionStatus,
   type WorkflowDefinition,
 } from '@conductor/shared';
@@ -300,6 +301,8 @@ export interface MockSession {
   moves: MoveDto[];
   /** SessionDetail.ticket_body (UX-2); absent → as from an older server. */
   ticket_body?: string;
+  /** SessionDetail.input_requests (UX-7): the answered ones; the open one is the card's. */
+  input_requests?: SessionInputRequest[];
 }
 
 export interface MockSeed {

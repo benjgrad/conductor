@@ -36,6 +36,7 @@ import {
   type OutputStream,
   type ReopenSessionResponse,
   type SessionDetail,
+  type SessionInputRequest,
   type SessionStatus,
   type TicketDto,
   validateWorkflow,
@@ -276,6 +277,24 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     return open ? humanTransitionOptions(s.workflow, state, card.kind, s.return_to) : [];
   }
 
+  /** SessionDetail.input_requests (UX-7): the answered ones, then the card's open one. */
+  function inputRequestsOf(s: MockSession, card: BoardCard): SessionInputRequest[] {
+    const out = [...(s.input_requests ?? [])];
+    const open = card.input_request;
+    if (open && !out.some((r) => r.id === open.id)) {
+      out.push({
+        id: open.id,
+        kind: open.kind,
+        question: open.question,
+        created_at: open.created_at,
+        answer: null,
+        answered_at: null,
+        truncated: false,
+      });
+    }
+    return out;
+  }
+
   /** Append a SessionDetail.moves row (state.entered), as the engine records every move. */
   function recordMove(s: MockSession, move: Omit<MoveDto, 'at'>) {
     s.moves.push({ at: now().toISOString(), ...move });
@@ -379,6 +398,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           recent_output: s.output,
           moves: s.moves,
           ...(s.ticket_body !== undefined ? { ticket_body: s.ticket_body } : {}),
+          input_requests: inputRequestsOf(s, card),
         });
       }),
 
@@ -409,6 +429,16 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           throw new ApiRequestError(400, 'bad_request', `unknown state "${target}"`);
         }
         answered.add(req.input_request_id);
+        const open = card.input_request;
+        (s.input_requests ??= []).push({
+          id: open.id,
+          kind: open.kind,
+          question: open.question,
+          created_at: open.created_at,
+          answer: req.answer,
+          answered_at: now().toISOString(),
+          truncated: false,
+        });
         const status = enterState(s, target);
         recordMove(s, {
           from: card.workflow_state,

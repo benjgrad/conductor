@@ -1,0 +1,127 @@
+/* UX-7: the Details tab in STAR order (StarDetails.tsx). Fits the panel's width: long words,
+   paths and code wrap rather than scroll. */
+.star-section {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.star-section code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.detail h3.star-head {
+  margin: 0;
+  font-size: 12px;
+}
+.star-toggle,
+.star-static {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
+}
+.star-toggle {
+  cursor: pointer;
+}
+.star-toggle:focus-visible,
+.star-section button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.star-chevron {
+  display: inline-block;
+  font-size: 10px;
+}
+.star-toggle[aria-expanded='true'] .star-chevron {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .star-chevron {
+    transition: transform 0.15s ease;
+  }
+}
+.star-title {
+  color: var(--text);
+  font-weight: 700;
+  flex: none;
+}
+.star-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.star-body {
+  margin-top: 8px;
+}
+.star-body[hidden] {
+  display: none;
+}
+.star-body h4 {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 12px 0 6px;
+}
+.star-body > section + section {
+  border-top: 1px solid var(--border);
+  margin-top: 12px;
+  padding-top: 8px;
+}
+.star-facts {
+  margin-top: 8px;
+}
+.star-task {
+  padding: 0;
+}
+.star-timeline {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0;
+}
+.star-entry {
+  padding: 4px 0 4px 10px;
+  border-left: 2px solid var(--border);
+}
+.star-entry-label {
+  font-weight: 600;
+}
+.star-entry-question,
+.star-entry-live {
+  border-left-color: var(--ask);
+}
+.star-entry-review,
+.star-entry-check {
+  border-left-color: var(--ok);
+}
+.star-entry-more,
+.star-plan {
+  margin: 4px 0 0;
+}
+.star-disclosure {
+  padding-left: 0;
+}
+.star-hint {
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+.star-result p {
+  margin: 4px 0;
+}
+.star-acceptance {
+  font-weight: 600;
+}

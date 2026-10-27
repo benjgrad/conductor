@@ -518,6 +518,7 @@ describe('session Details diagram', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Add pagination to /orders' }));
     const panel = within(await screen.findByRole('complementary', { name: 'Session detail' }));
     fireEvent.click(panel.getByRole('tab', { name: 'Details' }));
+    fireEvent.click(panel.getByRole('button', { name: /^Technical details/ }));
     await waitFor(() =>
       expect(panel.getByRole('group', { name: /m1_basic v2 diagram, current state/ })).toBeTruthy(),
     );

@@ -1,16 +1,19 @@
-import { EmailSchema, LOCAL_ACCOUNT_ID } from '@conductor/shared';
+import { EmailSchema, LOCAL_ACCOUNT_ID, UuidSchema, type AdminUserRow } from '@conductor/shared';
 import { withTransaction } from '../db/index.js';
 import { revokeMachine, type MachineSockets } from '../gateway/revoke.js';
 import type { Db } from '../main.js';
 import { PUBLIC_URL_ENV } from './config.js';
 import { createInvite } from './invites.js';
 import { createResetLink } from './reset.js';
-import { clearThrottle, isLocked, throttleKey } from './throttle.js';
+import type { Queryable } from './sessions.js';
+import { clearThrottle, throttleKey } from './throttle.js';
 
 // M2-T15a: `conductor-admin` (ADR-0017 §Invites, sign-up, resets, the admin; U-056), run on the
 // server against DATABASE_URL (`node dist/admin-cli.js …` in the container). The entry point
 // is src/admin-cli.ts; the commands live here so tests can run them in-process. Output is links
 // and plain facts only: never a hash, never a password. `invite` (general invites) is M2-T15b.
+// M2-T15b1: listUsers, findVisibleUser, disableUser and unlockUser are the one implementation
+// shared by the CLI and the /api/admin/* routes (admin-routes.ts).
 
 export const BOOTSTRAP_TTL_MS = 3600_000;
 export const BOOTSTRAP_UNPINNED_WARNING =
@@ -44,6 +47,99 @@ const NO_SOCKETS: MachineSockets = { disconnectMachine: () => undefined };
 interface UserRow {
   id: string;
   email: string;
+}
+
+/**
+ * Users as the admin sees them, `locked` included. `visibleTo` (an admin's user id, the API)
+ * keeps only members of that user's accounts; without it (the CLI, the server operator) all.
+ */
+export async function listUsers(
+  db: Queryable,
+  now: Date,
+  opts: { visibleTo?: string } = {},
+): Promise<AdminUserRow[]> {
+  // Emails are stored normalised, so lower(email) is the throttle key (throttleKey).
+  const res = await db.query<{
+    id: string;
+    email: string;
+    display_name: string;
+    is_admin: boolean;
+    disabled_at: Date | null;
+    created_at: Date;
+    locked: boolean;
+  }>(
+    'SELECT u.id, u.email, u.display_name, u.is_admin, u.disabled_at, u.created_at, ' +
+      'COALESCE(t.locked_until > $1, false) AS locked ' +
+      'FROM app_user u LEFT JOIN login_throttle t ON t.email_norm = lower(u.email) ' +
+      'WHERE $2::uuid IS NULL OR u.id IN (SELECT m.user_id FROM account_member m ' +
+      'WHERE m.account_id IN (SELECT account_id FROM account_member WHERE user_id = $2)) ' +
+      'ORDER BY u.created_at, u.email',
+    [now, opts.visibleTo ?? null],
+  );
+  return res.rows.map((u) => ({
+    id: u.id,
+    email: u.email,
+    display_name: u.display_name,
+    is_admin: u.is_admin,
+    disabled_at: u.disabled_at === null ? null : u.disabled_at.toISOString(),
+    created_at: u.created_at.toISOString(),
+    locked: u.locked,
+  }));
+}
+
+/** A user the admin `adminUserId` may act on (a member of one of their accounts), or null. */
+export async function findVisibleUser(
+  db: Queryable,
+  adminUserId: string,
+  userId: string,
+): Promise<UserRow | null> {
+  if (!UuidSchema.safeParse(userId).success) return null;
+  const res = await db.query<UserRow>(
+    'SELECT u.id, u.email FROM app_user u WHERE u.id = $2 AND u.id IN (' +
+      'SELECT m.user_id FROM account_member m WHERE m.account_id IN (' +
+      'SELECT account_id FROM account_member WHERE user_id = $1))',
+    [adminUserId, userId],
+  );
+  return res.rows[0] ?? null;
+}
+
+/**
+ * Disable a user: set `disabled_at`, delete their sessions, and revoke the machines of the
+ * accounts they own (machines have no per-user owner). `sockets` closes live daemon sockets:
+ * the API passes the gateway's, the CLI has none.
+ */
+export async function disableUser(
+  deps: { db: Db; sockets: MachineSockets },
+  userId: string,
+  now: Date,
+): Promise<{ sessions: number; machines: number }> {
+  const { db } = deps;
+  const sessions = await withTransaction(db, async (tx) => {
+    await tx.query('UPDATE app_user SET disabled_at = COALESCE(disabled_at, $2) WHERE id = $1', [
+      userId,
+      now,
+    ]);
+    const res = await tx.query('DELETE FROM web_session WHERE user_id = $1', [userId]);
+    return res.rowCount ?? 0;
+  });
+  const machines = await db.query<{ id: string; account_id: string }>(
+    'SELECT m.id, m.account_id FROM machine m JOIN account_member am ' +
+      "ON am.account_id = m.account_id AND am.role = 'owner' " +
+      'WHERE am.user_id = $1 AND m.revoked_at IS NULL ORDER BY m.id',
+    [userId],
+  );
+  for (const m of machines.rows) {
+    // TD-174: from the CLI (NO_SOCKETS) a live daemon socket stays open until it reconnects (the
+    // gateway is in another process); its credential is revoked and its outbox rows failed, so
+    // the reconnect is refused and it gets no new commands. The API route closes it in-process.
+    await revokeMachine(deps, { account_id: m.account_id, actor: { kind: 'system' } }, m.id);
+  }
+  return { sessions, machines: machines.rows.length };
+}
+
+/** Clear the sign-in lockout for an email, keyed by the string, user or not (ADR-0017 layer 3). */
+export async function unlockUser(db: Queryable, email: string): Promise<void> {
+  await clearThrottle(db, throttleKey(email));
 }
 
 /** Run one command; resolves to the process exit code (0 ok, 1 refused or failed, 2 usage). */
@@ -154,8 +250,7 @@ export async function runAdminCli(argv: string[], io: AdminCliIo): Promise<numbe
     case 'unlock': {
       const email = oneEmail();
       if (email === null) return 2;
-      // Keyed by the string, user or not (ADR-0017 layer 3).
-      await clearThrottle(db, email);
+      await unlockUser(db, email);
       out(`unlocked ${email}`);
       return 0;
     }
@@ -175,36 +270,8 @@ export async function runAdminCli(argv: string[], io: AdminCliIo): Promise<numbe
       if (email === null) return 2;
       const user = await findUser(email);
       if (user === null) return 1;
-      const t = now();
-      const sessions = await withTransaction(db, async (tx) => {
-        await tx.query(
-          'UPDATE app_user SET disabled_at = COALESCE(disabled_at, $2) WHERE id = $1',
-          [user.id, t],
-        );
-        const res = await tx.query('DELETE FROM web_session WHERE user_id = $1', [user.id]);
-        return res.rowCount ?? 0;
-      });
-      // "The user's machines": those of the accounts they own (machines have no per-user owner).
-      const machines = await db.query<{ id: string; account_id: string }>(
-        'SELECT m.id, m.account_id FROM machine m JOIN account_member am ' +
-          "ON am.account_id = m.account_id AND am.role = 'owner' " +
-          'WHERE am.user_id = $1 AND m.revoked_at IS NULL ORDER BY m.id',
-        [user.id],
-      );
-      for (const m of machines.rows) {
-        // TD-174: a live daemon socket stays open until it reconnects (the gateway is in
-        // another process) until M2-T15b runs this in-process with the gateway; its credential
-        // is revoked and its outbox rows failed, so the reconnect is refused and it gets no new
-        // commands.
-        await revokeMachine(
-          { db, sockets: NO_SOCKETS },
-          { account_id: m.account_id, actor: { kind: 'system' } },
-          m.id,
-        );
-      }
-      out(
-        `disabled ${user.email}: revoked ${sessions} session(s) and ${machines.rows.length} machine(s)`,
-      );
+      const { sessions, machines } = await disableUser({ db, sockets: NO_SOCKETS }, user.id, now());
+      out(`disabled ${user.email}: revoked ${sessions} session(s) and ${machines} machine(s)`);
       return 0;
     }
 
@@ -213,32 +280,21 @@ export async function runAdminCli(argv: string[], io: AdminCliIo): Promise<numbe
         err('usage: conductor-admin list-users');
         return 2;
       }
-      const res = await db.query<{
-        email: string;
-        display_name: string;
-        is_admin: boolean;
-        disabled_at: Date | null;
-        created_at: Date;
-      }>(
-        'SELECT email, display_name, is_admin, disabled_at, created_at FROM app_user ' +
-          'ORDER BY created_at, email',
-      );
-      if (res.rows.length === 0) {
+      const users = await listUsers(db, now());
+      if (users.length === 0) {
         out('no users (run bootstrap)');
         return 0;
       }
-      const t = now();
       out('email\tname\tadmin\tdisabled\tlocked\tcreated');
-      for (const u of res.rows) {
-        const locked = await isLocked(db, throttleKey(u.email), t);
+      for (const u of users) {
         out(
           [
             u.email,
             u.display_name,
             u.is_admin ? 'yes' : 'no',
-            u.disabled_at === null ? 'no' : u.disabled_at.toISOString(),
-            locked ? 'yes' : 'no',
-            u.created_at.toISOString(),
+            u.disabled_at ?? 'no',
+            u.locked ? 'yes' : 'no',
+            u.created_at,
           ].join('\t'),
         );
       }

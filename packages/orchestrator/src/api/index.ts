@@ -111,7 +111,7 @@ export const createApi = (({
   app.decorateRequest('auth', null);
   app.addHook('onRequest', authHook({ db, auth, now }));
   registerRateLimit(app);
-  void app.register(registerAuthRoutes, { db, auth, hasher, now });
+  void app.register(registerAuthRoutes, { db, auth, hasher, now, sockets });
   void app.register(registerMachineRoutes, {
     db,
     sockets,

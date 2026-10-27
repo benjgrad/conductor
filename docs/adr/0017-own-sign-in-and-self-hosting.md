@@ -46,7 +46,7 @@ All in one migration (M2-T03). Column types are indicative; T03 finalises them a
 - **Rate limiting and lockout** (three layers):
   1. nginx `limit_req` on `/auth/` and `/api/machines/enroll` (a few requests per second per IP, small burst);
   2. in the orchestrator, per client IP (`@fastify/rate-limit`, in memory: one instance): login 10/min, sign-up and reset 5/10 min, enroll 10/10 min; `429 {code: 'rate_limited'}` with `Retry-After`;
-  3. per email, in `login_throttle`: 10 consecutive failures lock that email for 15 minutes (doubling for each further lockout, capped at 24 h); a success resets it; `conductor-admin unlock <email>` clears it. A locked email gets the same 401 as a wrong password, and the lock is only lifted by time or the admin.
+  3. per email, in `login_throttle`: 10 consecutive failures lock that email for 15 minutes (doubling for each further lockout, capped at 24 h); a success resets it; `conductor-admin unlock <email>` clears it. A locked email gets the same response as a wrong password on that route: login's generic 401, or change-password's 400 at path `current` (M2-T08b), which also counts its failures against the same lock. The lock is only lifted by time or the admin.
   The client IP is only trusted from `X-Forwarded-For` when the TCP peer is `CONDUCTOR_TRUSTED_PROXY` (see Hosting).
 - **Session cookie**:
   - hosted (`https` public URL): `__Host-conductor_session=<base64url 32 bytes>; HttpOnly; Secure; SameSite=Lax; Path=/`;

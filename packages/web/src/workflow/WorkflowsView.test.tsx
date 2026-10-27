@@ -448,7 +448,7 @@ describe('unsaved draft guard', () => {
     await screen.findByText('Add pagination to /orders');
     expect(window.location.hash).toBe('#/');
     fireEvent.click(screen.getByRole('link', { name: 'Workflow' }));
-    await screen.findByRole('group', { name: 'conductor v3 columns' });
+    await screen.findByRole('group', { name: 'conductor v3 columns' }, DIAGRAM_WAIT);
     expect(screen.queryByText('Unsaved changes')).toBeNull();
   });
 

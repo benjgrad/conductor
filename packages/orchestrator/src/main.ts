@@ -16,11 +16,13 @@ import {
   findDaemonBuild,
   orchestratorVersion,
   serveDistribution,
+  servedVersion,
 } from './distribution.js';
 import { seedConductorWorkflow } from './engine/seed.js';
 import { createDb as createPoolDb } from './db/index.js';
 import { createEngineService as createRealEngineService } from './engine/index.js';
 import { createGateway as createRealGateway } from './gateway/index.js';
+import type { MachineSockets } from './gateway/revoke.js';
 import { hasWebApp, serveWebApp } from './web-static.js';
 import {
   InMemoryBoardBus,
@@ -65,6 +67,8 @@ export interface GatewayHandle {
   transcripts?: TranscriptSource;
   attach(server: Server): void;
   close(): Promise<void>;
+  /** M2-T17: close a revoked machine's sockets (the real gateway always has it). */
+  disconnectMachine?: MachineSockets['disconnectMachine'];
 }
 export type CreateGateway = (deps: {
   db: Db;
@@ -90,6 +94,12 @@ export type CreateApi = (deps: {
   auth?: AuthConfig;
   /** M2-T08: CONDUCTOR_TRUSTED_PROXY (Fastify `trustProxy`); absent → none trusted. */
   trustedProxy?: string | null;
+  /** M2-T17: what a machine revoke closes (the gateway); absent → nothing to close. */
+  sockets?: MachineSockets;
+  /** M2-T17: the origin in the install command; absent → the public URL, or the request's Host. */
+  installUrl?: string;
+  /** M2-T17: the served daemon version, for `MachineRow.outdated`; absent → none. */
+  servedVersion?: string | null;
 }) => ApiHandle;
 
 export type CreateDb = (opts: { databaseUrl: string }) => Db;
@@ -145,6 +155,14 @@ export function composeOrchestrator(
     ...(gateway.transcripts ? { transcripts: gateway.transcripts } : {}),
     ...(config.auth ? { auth: config.auth } : {}),
     ...(config.trustedProxy ? { trustedProxy: config.trustedProxy } : {}),
+    ...(gateway.disconnectMachine
+      ? {
+          sockets: {
+            disconnectMachine: (id: string, code: number, reason: string) =>
+              gateway.disconnectMachine!(id, code, reason),
+          },
+        }
+      : {}),
   });
   gateway.attach(api.server);
   let workers: Stoppable | null = null;
@@ -236,7 +254,11 @@ export async function main(opts: MainOptions = {}): Promise<Orchestrator> {
     {
       ...factories,
       createApi: (deps) => {
-        const api = factories.createApi(deps);
+        const api = factories.createApi({
+          ...deps,
+          installUrl: publicUrl,
+          servedVersion: servedVersion(build),
+        });
         if (serveWeb) serveWebApp(api.server, webDir);
         serveDistribution(api.server, { db: deps.db, publicUrl, build, version });
         return api;

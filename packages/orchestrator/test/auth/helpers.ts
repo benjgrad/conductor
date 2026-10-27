@@ -3,7 +3,7 @@
 import { request } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type pg from 'pg';
-import { createApi } from '../../src/api/index.js';
+import { createApi, type ApiOptions } from '../../src/api/index.js';
 import { parseServerConfig, type AuthConfig } from '../../src/auth/config.js';
 import { argon2Hasher, type PasswordHasher } from '../../src/auth/password.js';
 import { FakeEngineService, InMemoryBoardBus, InMemoryOutputBus } from '../../src/contracts.js';
@@ -54,6 +54,8 @@ export async function startApi(opts: {
   trustedProxy?: string | null;
   now?: () => Date;
   hasher?: PasswordHasher;
+  /** Any other createApi option (M2-T17: sockets, installUrl, servedVersion). */
+  api?: Partial<ApiOptions>;
 }): Promise<TestApi> {
   const api = createApi({
     db: opts.db,
@@ -65,6 +67,7 @@ export async function startApi(opts: {
     ...(opts.trustedProxy !== undefined ? { trustedProxy: opts.trustedProxy } : {}),
     ...(opts.now ? { now: opts.now } : {}),
     ...(opts.hasher ? { hasher: opts.hasher } : {}),
+    ...opts.api,
   });
   await api.listen(0, '127.0.0.1');
   const port = (api.server.address() as AddressInfo).port;

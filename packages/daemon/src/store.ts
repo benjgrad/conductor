@@ -44,13 +44,17 @@ export interface PersistedSession {
    * The live Claude process (its start_session command_id and fencing token), cleared on exit.
    * Set at daemon start means the previous daemon stopped with it running: the new daemon kills
    * it if it is still alive (BUG-1: it runs in its own process group, so it can outlive the
-   * daemon; `pid` and `claudeSessionId` identify it) and reports an `exit`.
+   * daemon) and reports an `exit`. BUG-1b: it is killed only if the pid's start time equals
+   * `startedAt` and its argv is the Claude binary with `--session-id`/`--resume <claudeSessionId>`
+   * (orphan.ts). An entry without `startedAt` (BUG-1's build) is never killed, only cleared.
    */
   agent?: {
     commandId: string;
     fencingToken: number;
     pid?: number;
     claudeSessionId?: string;
+    /** ms epoch, the process's start time from `ps lstart` (1 s precision), read at spawn. */
+    startedAt?: number;
   } | null;
 }
 

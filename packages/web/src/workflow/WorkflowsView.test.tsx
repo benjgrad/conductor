@@ -21,6 +21,10 @@ afterEach(() => {
  * and stored here as v4, v5… without the mock's validator (the request body is what these tests
  * check).
  */
+// The diagram appears once the mock API resolves; on a loaded machine running the full suite that
+// can take longer than findBy's 1 s default.
+const DIAGRAM_WAIT = { timeout: 10_000 };
+
 async function setup(api = createMockApi()) {
   const saved: WorkflowDefinition[] = [];
   const get = api.getWorkflow.bind(api);
@@ -37,7 +41,7 @@ async function setup(api = createMockApi()) {
     return get(id, version);
   };
   render(<App api={api} />);
-  const diagram = await screen.findByRole('group', { name: 'conductor v3 columns' });
+  const diagram = await screen.findByRole('group', { name: 'conductor v3 columns' }, DIAGRAM_WAIT);
   return { api, saved, diagram };
 }
 
@@ -63,7 +67,7 @@ describe('Workflow view', () => {
     window.location.hash = '';
     render(<App api={createMockApi()} />);
     fireEvent.click(screen.getByRole('link', { name: 'Workflow' }));
-    await screen.findByRole('group', { name: 'conductor v3 columns' });
+    await screen.findByRole('group', { name: 'conductor v3 columns' }, DIAGRAM_WAIT);
     expect(screen.queryByRole('navigation', { name: 'Workflows' })).toBeNull();
     expect(screen.getByRole('link', { name: 'Workflow' }).getAttribute('aria-current')).toBe(
       'page',

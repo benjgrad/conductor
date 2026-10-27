@@ -48,7 +48,8 @@ afterEach(async () => {
   for (const d of daemons.splice(0)) d.stop();
   await orch.close();
   expect(orch.invalid).toEqual([]);
-  rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  // TD-111: daemon.stop() is synchronous, so a git child can still be writing under tmp; retry for up to ~4 s.
+  rmSync(tmp, { recursive: true, force: true, maxRetries: 40, retryDelay: 100 });
 });
 
 function makeDaemon(driver: FakeClaudeDriver): Daemon {
@@ -168,7 +169,7 @@ describe('fetch_transcript (ADR-0008)', () => {
     });
 
     // The worktree may be gone (cleaned up): the transcript path doesn't need it.
-    rmSync(worktree, { recursive: true, force: true });
+    rmSync(worktree, { recursive: true, force: true, maxRetries: 40, retryDelay: 100 });
     const r2 = await reply(fetchTranscript(sid));
     expect('chunks' in r2.payload && r2.payload.chunks.length).toBe(11);
   });

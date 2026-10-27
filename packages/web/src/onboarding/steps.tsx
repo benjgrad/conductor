@@ -195,7 +195,10 @@ function OneTimeCommand({ enrollment }: { enrollment: EnrollmentTokenCreated }) 
   );
 }
 
-/** FR-4: wait for a new machine to come online; troubleshooting after 2 minutes. */
+/**
+ * FR-4: wait for a machine that wasn't online when the guide opened to come online;
+ * troubleshooting after 2 minutes.
+ */
 export function WaitForMachine({
   api,
   baseline,
@@ -346,8 +349,12 @@ export function RepoCaps({
       </p>
       <CopyCommand label="Set the repo roots" command={ROOTS_COMMAND} />
       <p>
-        The daemon rescans every 10 minutes. To apply it now, restart the daemon (Ctrl-C, then start
-        it again), or send it a hang-up signal:
+        The daemon rescans every 10 minutes. To apply it now, restart the daemon: press Ctrl-C in
+        its terminal, then start it again:
+      </p>
+      <CopyCommand label="Start the daemon again" command={DAEMON_BIN} />
+      <p>
+        Or, without restarting, send it a hang-up signal. This signals only the conductor daemon:
       </p>
       <CopyCommand label="Rescan now" command={SIGHUP_COMMAND} />
 

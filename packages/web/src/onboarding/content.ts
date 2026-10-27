@@ -27,6 +27,8 @@ const NVM: Command[] = [
     label: 'Install nvm',
     command: 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash',
   },
+  // nvm is a shell function: a terminal opened before its install doesn't have it yet.
+  { label: 'Load nvm in this terminal (or open a new terminal)', command: '. ~/.nvm/nvm.sh' },
   { label: 'Install Node.js 22 with nvm', command: 'nvm install 22' },
 ];
 
@@ -42,7 +44,8 @@ export const PREREQUISITES: Prerequisite[] = [
     why: 'The daemon is a Node.js program.',
     install: {
       macos: [
-        { label: 'Install Node.js 22 with Homebrew', command: 'brew install node@22' },
+        // Not node@22: that formula is keg-only, so it isn't on the PATH after installing.
+        { label: 'Install Node.js with Homebrew', command: 'brew install node' },
         ...NVM,
       ],
       linux: NVM,
@@ -100,7 +103,12 @@ export const GH_INSTALL_URL = 'https://github.com/cli/cli#installation';
 
 export const DAEMON_BIN = '~/.conductor/bin/conductor-daemon';
 export const ROOTS_COMMAND = `${DAEMON_BIN} config roots ~/code`;
-export const SIGHUP_COMMAND = 'kill -HUP $(pgrep -f conductor-daemon)';
+/**
+ * Signals only the daemon. The bin is a wrapper, so the running process is
+ * `node ~/.conductor/daemon/current/dist/main.js` and has no `conductor-daemon` in it.
+ * M2-T18 may make this exact (a process title or pid file).
+ */
+export const SIGHUP_COMMAND = 'pkill -HUP -f "$HOME/.conductor/daemon/current/dist/main.js"';
 
 /** macOS unless the browser says Linux. */
 export function guessOs(): Os {

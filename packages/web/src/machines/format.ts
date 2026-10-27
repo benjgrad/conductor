@@ -17,7 +17,7 @@ export const SETUP_GUIDE_URL = '/help/add-a-machine';
  * Whether the installer's `--service` (start the daemon at login) works yet. The daemon's
  * `service install` arrives with M2-T18; until then the setup guide says it's coming.
  */
-// TD: flip when M2-T18 ships `conductor-daemon service install`.
+// TD-189: flip when M2-T18 ships `conductor-daemon service install`.
 export const SERVICE_INSTALL_AVAILABLE = false;
 
 /**

@@ -34,7 +34,10 @@ interface SetupGuideProps {
 export function SetupGuide({ api, first, onDismiss, onCreateTicket, onFinish }: SetupGuideProps) {
   const [step, setStep] = useState(0);
   const [enrollment, setEnrollment] = useState<EnrollmentTokenCreated | null>(null);
-  /** The account's machine ids when the guide opened: only a machine not in it is "new". */
+  /**
+   * The machines online when the guide opened: any other machine that comes online is "new",
+   * including one the installer enrolled before the guide (re)mounted but that hadn't started.
+   */
   const [baseline, setBaseline] = useState<ReadonlySet<string> | null>(null);
   const [machine, setMachine] = useState<MachineDetail | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -44,7 +47,9 @@ export function SetupGuide({ api, first, onDismiss, onCreateTicket, onFinish }: 
     let cancelled = false;
     api.listMachines().then(
       (rows) => {
-        if (!cancelled) setBaseline(new Set(rows.map((r) => r.id)));
+        if (cancelled) return;
+        const online = rows.filter((r) => r.status === 'online' && r.revoked_at === null);
+        setBaseline(new Set(online.map((r) => r.id)));
       },
       () => {
         if (!cancelled) setBaseline(new Set());

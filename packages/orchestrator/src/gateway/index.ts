@@ -57,6 +57,8 @@ export { engineEventForSessionEvent } from './events.js';
 export { SocketTransport } from './transport.js';
 
 export const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000;
+/** M2-T09b: how long a closed socket's peer gets to answer the close before it's terminated. */
+export const CLOSE_GRACE_MS = 1_000;
 /** Largest accepted daemon frame. Output chunks are the big ones. */
 const MAX_FRAME_BYTES = 4 * 1024 * 1024;
 
@@ -73,6 +75,11 @@ export interface GatewayOptions {
    * must be protocol v2 for the credential's machine. Default: requireCredentialFromEnv().
    */
   requireCredential?: boolean;
+  /**
+   * M2-T09b: terminate a socket whose peer hasn't finished the close handshake after this long
+   * (default CLOSE_GRACE_MS; at most 2 s, so a peer can't hold a closing socket open).
+   */
+  closeGraceMs?: number;
 }
 
 /** `CONDUCTOR_AUTH=password` (ADR-0017 §Modes); unset = `local`. */
@@ -109,6 +116,8 @@ interface Conn {
   /** Set on a successful `register` (ADR-0012 §Tenancy; the handlers use it from M2-T16). */
   scope: AccountScope | null;
   queue: Promise<void>;
+  /** Set before the gateway closes the socket: from then on no frame of it is processed. */
+  closing: boolean;
   /**
    * Sessions this connection's machine holds, session id → current fencing token (M1-T14). Filled
    * from work claims, DB-verified heartbeat leases and accepted session_events; `output` for a
@@ -138,6 +147,7 @@ class Gateway implements DaemonGateway {
   private readonly log: (msg: string) => void;
   private readonly guard: HttpGuard;
   private readonly requireCredential: boolean;
+  private readonly closeGraceMs: number;
   private readonly wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
   private readonly conns = new Set<Conn>();
   private readonly pending = new Set<Promise<unknown>>();
@@ -154,6 +164,7 @@ class Gateway implements DaemonGateway {
     this.log = deps.log ?? ((m) => console.warn(`[gateway] ${m}`));
     this.guard = new HttpGuard(deps.security ?? httpSecurityFromEnv());
     this.requireCredential = deps.requireCredential ?? requireCredentialFromEnv();
+    this.closeGraceMs = deps.closeGraceMs ?? CLOSE_GRACE_MS;
   }
 
   // ------------------------------------------------------------------ lifecycle
@@ -232,8 +243,30 @@ class Gateway implements DaemonGateway {
   /** `revokeMachine`: close every connection of the machine, registered or not yet. */
   disconnectMachine(machineId: string, code: number, reason: string): void {
     for (const c of this.conns) {
-      if (c.machineId === machineId || c.authMachineId === machineId) c.ws.close(code, reason);
+      if (c.machineId === machineId || c.authMachineId === machineId) {
+        this.closeConn(c, code, reason);
+      }
     }
+  }
+
+  /**
+   * Every gateway-initiated close (M2-T09b). The connection is marked closing first, so frames
+   * the peer already sent (ws keeps emitting `message` while CLOSING) are dropped; a peer that
+   * doesn't answer the close within the grace is terminated.
+   */
+  private closeConn(conn: Conn, code: number, reason: string): void {
+    conn.closing = true;
+    conn.owned.clear();
+    if (conn.ws.readyState === WebSocket.CLOSED) return;
+    conn.ws.close(code, reason);
+    const timer = setTimeout(() => conn.ws.terminate(), this.closeGraceMs);
+    timer.unref();
+    conn.ws.once('close', () => clearTimeout(timer));
+  }
+
+  /** Whether a frame from `conn` may still be processed (M2-T09b FR-1/FR-2). */
+  private live(conn: Conn): boolean {
+    return !this.closed && !conn.closing && conn.ws.readyState === WebSocket.OPEN;
   }
 
   async close(): Promise<void> {
@@ -253,7 +286,10 @@ class Gateway implements DaemonGateway {
           }),
       ),
     );
-    for (const c of conns) c.ws.terminate();
+    for (const c of conns) {
+      c.closing = true;
+      c.ws.terminate();
+    }
     await closedAll;
     await Promise.allSettled(conns.map((c) => c.queue));
     await Promise.allSettled([...this.pending]);
@@ -273,12 +309,16 @@ class Gateway implements DaemonGateway {
       authMachineId: auth.machineId,
       scope: null,
       queue: Promise.resolve(),
+      closing: false,
       owned: new Map(),
     };
     this.conns.add(conn);
     ws.on('message', (data: RawData, isBinary: boolean) => {
+      // M2-T09b: nothing is processed once the connection is closing or not OPEN, neither on
+      // arrival nor when the queue drains (no log per frame: a peer could flood it).
+      if (!this.live(conn)) return;
       conn.queue = conn.queue
-        .then(() => this.handleFrame(conn, data, isBinary))
+        .then(() => (this.live(conn) ? this.handleFrame(conn, data, isBinary) : undefined))
         .catch((err: unknown) => {
           this.log(`handler error (${conn.machineId ?? 'unregistered'}): ${String(err)}`);
           this.protocolError(conn, 'internal', 'internal error', null);
@@ -470,7 +510,7 @@ class Gateway implements DaemonGateway {
   // ------------------------------------------------------------------ register / heartbeat / inventory
 
   private closeWith(conn: Conn, code: keyof typeof CLOSE_REASONS): void {
-    conn.ws.close(code, CLOSE_REASONS[code]);
+    this.closeConn(conn, code, CLOSE_REASONS[code]);
   }
 
   private async onRegister(conn: Conn, msg: Msg<'register'>): Promise<void> {
@@ -560,6 +600,8 @@ class Gateway implements DaemonGateway {
       this.closeWith(conn, CLOSE_UNAUTHORIZED);
       return;
     }
+    // Revoked or replaced while the register was in flight: don't bind a closing socket.
+    if (!this.live(conn)) return;
 
     if (conn.machineId !== null && conn.machineId !== p.machine_id) {
       this.transport.unbind(conn.machineId, conn.ws);
@@ -571,7 +613,11 @@ class Gateway implements DaemonGateway {
       actor: { kind: 'machine', machine_id: p.machine_id },
     };
     const prev = this.transport.bind(p.machine_id, conn.ws);
-    if (prev) prev.close(CLOSE_REPLACED, CLOSE_REASONS[CLOSE_REPLACED]);
+    if (prev) {
+      const old = [...this.conns].find((c) => c.ws === prev);
+      if (old) this.closeConn(old, CLOSE_REPLACED, CLOSE_REASONS[CLOSE_REPLACED]);
+      else prev.close(CLOSE_REPLACED, CLOSE_REASONS[CLOSE_REPLACED]);
+    }
 
     this.reply(conn, {
       type: 'registered',
@@ -592,13 +638,14 @@ class Gateway implements DaemonGateway {
     const ids = p.sessions.map((s) => s.session_id);
     const tokens = p.sessions.map((s) => String(s.fencing_token));
     const { stale, held } = await withTransaction(this.db, async (tx) => {
-      await tx.query(
+      // M2-T09b: a revoked machine never comes back online, and renews no lease.
+      const m = await tx.query(
         `UPDATE machine SET cpu_free = $2, mem_free_mb = $3, disk_free_mb = $4,
                 last_heartbeat_at = now(), status = 'online', updated_at = now()
-          WHERE id = $1`,
+          WHERE id = $1 AND revoked_at IS NULL`,
         [machineId, Math.floor(p.cpu_free), p.mem_free_mb, p.disk_free_mb],
       );
-      if (ids.length === 0) return { stale: [], held: [] };
+      if (m.rowCount === 0 || ids.length === 0) return { stale: [], held: [] };
       // Lease renewal: only sessions this machine holds under their current token (04 §Leases).
       const renewed = await tx.query<{ id: string; fencing_token: string }>(
         `UPDATE session s SET lease_expires_at = now() + ${LEASE_INTERVAL}
@@ -792,10 +839,11 @@ class Gateway implements DaemonGateway {
       | { kind: 'done'; events: BoardSseEvent[]; superseded: { token: number } | null };
 
     const outcome = await withTransaction(this.db, async (tx): Promise<Outcome> => {
-      // Seq dedupe (10-contracts §Daemon seq dedupe).
+      // Seq dedupe (10-contracts §Daemon seq dedupe). A revoked machine's event is dropped the
+      // same way (M2-T09b: the row lock orders it against revokeMachine).
       const seq = await tx.query(
         `UPDATE machine SET last_seq = $2
-          WHERE id = $1 AND (last_seq IS NULL OR last_seq < $2)`,
+          WHERE id = $1 AND revoked_at IS NULL AND (last_seq IS NULL OR last_seq < $2)`,
         [machineId, msg.seq],
       );
       if (seq.rowCount === 0) return { kind: 'duplicate' };

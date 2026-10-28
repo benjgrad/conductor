@@ -5,6 +5,7 @@
 **Updated**: 2026-10-28 · sessions [2026-10-28-agent-permissions](sessions/2026-10-28-agent-permissions.md), [2026-10-28-stuck-resume-and-plan-approval](sessions/2026-10-28-stuck-resume-and-plan-approval.md)
 
 ## Now
+- **Permission prompts built (2026-10-28, local main, not pushed/deployed)**: M2-T29b (daemon), T29c (orchestrator), T29d (web) merged. Deploy order (U-102): orchestrator first via `deploy/gradyserver/deploy.sh`, then the daemons. Until then agents' off-list tool calls are still silently denied. Follow-ups: TD-187 (too-old-CLI alert), TD-188 (`session_allow` not fed to new processes), U-104, U-105.
 - **Milestone**: [M2 · Accounts & machines](../plan/milestones/M2-accounts-machines.md), **in progress**, built by conductor on itself (dogfood tickets on Ben's pinned board). T01–T10, T08b, T09b, T10b and T30 are done.
 - **Plan change**: early you-only deploy (T15a / T15b split). Added this session: T13a (fetch per session), T27 / T27b (update from main), T28..T28e (layered settings, [ADR-0022](../adr/0022-layered-agent-settings.md) proposed), T29..T29d (permission prompts, [ADR-0023](../adr/0023-permission-prompts-through-conductor.md) accepted), T30 (pnpm-aware checks, done).
 - **Why**: Hazel (M2-T18b) could not see ADR-0021 or update its branch (stale clone, TD-026; planning is read-only). Nova (M2-T18) had 18 tool calls silently denied (no `defaultMode`, prompts `none`; npm run in a pnpm repo). Ops fix: daemon clone and Hazel's branch fast-forwarded to eb45d46.

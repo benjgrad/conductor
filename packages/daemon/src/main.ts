@@ -38,7 +38,7 @@ async function run(): Promise<void> {
   // ADR-0023: auto mode + prompts to the board need a CLI that has them; probed once per start.
   const prompts = await probePermissionPrompts();
   if (!prompts.supported) {
-    // TD-NEW-1: ADR-0023 asks for a machine alert; the alert frame has no kind for this yet.
+    // TD-187: ADR-0023 asks for a machine alert; the alert frame has no kind for this yet.
     process.stderr.write(
       `[conductor-daemon] WARNING: this Claude Code can't send permission prompts to conductor (${prompts.reason ?? 'unknown'}); ` +
         'agents run with the old flags and anything that would prompt is denied. Update Claude Code.\n',

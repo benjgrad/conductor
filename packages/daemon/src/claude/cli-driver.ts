@@ -353,7 +353,7 @@ class Session implements CliDriverSession {
         `running in ${WORKER_PERMISSION_MODE} mode; permission prompts go to the conductor board`,
       );
     } else {
-      // TD-NEW-1: ADR-0023 asks for a machine alert here; the alert frame has no kind for it yet.
+      // TD-187: ADR-0023 asks for a machine alert here; the alert frame has no kind for it yet.
       notes.push(
         'this Claude Code has no auto mode / --permission-prompts host: running with the old flags, so anything that would prompt is denied (update Claude Code)',
       );

@@ -108,7 +108,7 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 | M2-T24 | E2E: laptop sleep, lease lapse, revoke, reconnect | T22 | I | — | todo |
 | M2-T25 | **Deploy** to conductor.gradyserver.com (lead + Ben's sudo script), bootstrap, enroll Ben's Mac, live checks, backup restore test | T22, T23, T24, T26 | J | — | todo |
 | M2-T26 | Shared: **Retry** a failed move step (a `$retry` human transition that re-runs the failed phase without an agent turn) | T06 | D | — | todo |
-| M2-T13a | Daemon: **fetch per session** (split out of T13; pays TD-026's stale base) | T10 | D | — | todo |
+| M2-T13a | Daemon: **fetch per session** (split out of T13; pays TD-026's stale base) | T10 | D | — | in_review (PR #48, QA passed with debt TD-181; merge after #44) |
 | M2-T27 | Daemon + shared: `update_branch` MCP tool (all states), planning `inspect` alias, denial counts on session events | T13a | E | — | todo |
 | M2-T27b | Orchestrator + web: "Update from main" on an idle session (REST → daemon command → same action) | T27 | F | — | todo |
 | M2-T28 | **Contracts (agent settings)**: `machine_settings`, settings REST, `settings_update`, `reported_settings` ([ADR-0022](../../adr/0022-layered-agent-settings.md), proposed) | — | D | — | todo |
@@ -116,7 +116,7 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 | M2-T28c | Orchestrator: `machine_settings` migration, settings routes, audit, push on connect / change | T28b | F | **yes** | todo |
 | M2-T28d | Daemon: apply pushed override (ceiling `remote_settings`), report `reported_settings` (pays TD-081) | T28b, T13a, T29b | F | — | todo |
 | M2-T28e | Web: Machines drawer **Settings** tab (effective policy per state, override editor) | T28c | G | — | todo |
-| M2-T29 | **Contracts (permission prompts)**: `permission_request` / `permission_decision`, `needs_permission`, REST ([ADR-0023](../../adr/0023-permission-prompts-through-conductor.md)) | — | D | — | todo |
+| M2-T29 | **Contracts (permission prompts)**: `permission_request` / `permission_decision`, `needs_permission`, REST ([ADR-0023](../../adr/0023-permission-prompts-through-conductor.md)) | — | D | — | in_review (PR #47, QA passed with debt TD-178..180; merge after #44) |
 | M2-T29b | Daemon: auto mode default, `--permission-prompts host` + `permission` MCP tool held until decision / timeout | T29 | E | — | todo |
 | M2-T29c | Orchestrator: store requests, `needs_permission` on the board, decision route → daemon | T29 | E | **yes** | todo |
 | M2-T29d | Web: Needs-permission card state with Allow once / Allow always / Deny | T29c | F | — | todo |

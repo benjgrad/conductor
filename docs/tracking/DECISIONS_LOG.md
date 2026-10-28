@@ -4,6 +4,7 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-28 | `AbsolutePathSchema` also refuses a leading `//` on every OS: it is Windows' forward-slash UNC form, and a realpath'd POSIX path never starts with `//` (lead, from MW-T02; cheap to reverse) | ADR-0024 §8, MW-T02 |
 | 2026-10-28 | U-108 (Ben): the Windows daemon supports only the native `claude.exe`. With only npm's `claude.cmd` it refuses with a hint, because cmd.exe can't pass the multi-line system prompt | ADR-0024 §9, U-108 |
 | 2026-10-28 | Daemon on Windows (Ben): **native port**, not WSL2 first; owner-only DACL written with icacls and verified on load (amends ADR-0010); tree kill `taskkill /T /F` + orphan sweep (TD-187); `install.ps1` + Scheduled Task in scope; Windows CI on GitHub Actions `windows-latest` (first hosted CI) | ADR-0024, MW, U-071 |
 | 2026-10-28 | Plan approval reuses the `$return_to` answer transition (a question transition keeps its non-empty result in context); no workflow version bump | feat-plan-approval-ui (cf880dc), TD-184, TD-185 |

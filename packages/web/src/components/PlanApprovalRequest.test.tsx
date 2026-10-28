@@ -116,13 +116,13 @@ describe('PlanApprovalRequest (06 §Plan approval)', () => {
   });
 
   it('Back closes the feedback box without posting; an error is shown', async () => {
-    const { api, transition, panel } = await setup();
+    const { transition, panel } = await setup();
     fireEvent.click(panel.getByRole('button', { name: 'Request changes…' }));
     fireEvent.click(panel.getByRole('button', { name: 'Back' }));
     expect(panel.queryByRole('form', { name: 'Request changes' })).toBeNull();
     expect(transition).not.toHaveBeenCalled();
 
-    vi.mocked(api.transition).mockRejectedValueOnce(new Error('session moved on'));
+    transition.mockRejectedValueOnce(new Error('session moved on'));
     fireEvent.click(panel.getByRole('button', { name: 'Approve plan' }));
     expect((await panel.findByRole('alert')).textContent).toContain('session moved on');
   });

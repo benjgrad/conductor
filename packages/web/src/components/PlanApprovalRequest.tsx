@@ -4,10 +4,11 @@
 // answer option, `planAnswerOption`). The workflow's other human transitions stay one click away
 // under "Other actions"; "Start fresh conversation…" is the secondary escape hatch.
 import type { HumanTransitionOption, InputRequestDto, SessionDetail } from '@conductor/shared';
-import { useId, useRef, useState, type FormEvent } from 'react';
-import { errorMessage, type ApiClient } from '../api/client.js';
+import { useId, useState, type FormEvent } from 'react';
+import type { ApiClient } from '../api/client.js';
 import { FreshConversation, freshConversationOffer } from './FreshConversation.js';
 import { Markdown } from './markdown.js';
+import { usePlanAnswer } from './plan-answer.js';
 import { PLAN_APPROVED_TEXT, planChangesText } from './request-preview.js';
 import { TransitionButtons } from './transitions.js';
 import './PlanApprovalRequest.css';
@@ -48,26 +49,14 @@ export function PlanApprovalRequest({
   const sessionId = request.session_id;
   const [changing, setChanging] = useState(false);
   const [feedback, setFeedback] = useState('');
-  const [busy, setBusy] = useState(false);
-  const inflight = useRef(false);
-  const [error, setError] = useState<string | null>(null);
+  const answer = usePlanAnswer(api, sessionId, option, onDone);
+  const { busy, error } = answer;
   const ids = useId();
 
   async function post(text: string) {
-    if (inflight.current) return;
-    inflight.current = true;
-    setBusy(true);
-    setError(null);
-    try {
-      await api.transition(sessionId, { name: option.name, text });
+    if (await answer.post(text)) {
       setChanging(false);
       setFeedback('');
-      onDone();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      inflight.current = false;
-      setBusy(false);
     }
   }
 
@@ -103,7 +92,7 @@ export function PlanApprovalRequest({
             type="button"
             disabled={busy}
             onClick={() => {
-              setError(null);
+              answer.clearError();
               setChanging(true);
             }}
           >

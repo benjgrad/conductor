@@ -1,9 +1,9 @@
 import type { BoardCard, HumanTransitionOption } from '@conductor/shared';
-import { useRef, useState } from 'react';
-import { errorMessage, type ApiClient } from '../api/client.js';
+import type { ApiClient } from '../api/client.js';
 import { boardColumns, type BoardState } from '../board/board.js';
 import { AgentAvatar, agentName } from './agent-identity.js';
 import { ago, KIND_LABELS, STATUS_LABELS, TICKET_KIND_LABELS, usd } from './format.js';
+import { usePlanAnswer } from './plan-answer.js';
 import { PendingChecklist, TransitionButtons } from './transitions.js';
 import { stateLabel } from '../workflow/review.js';
 import {
@@ -215,24 +215,8 @@ function PlanApprovalActions({
   option: HumanTransitionOption;
   onReview: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
-  const inflight = useRef(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function approve() {
-    if (inflight.current) return;
-    inflight.current = true;
-    setBusy(true);
-    setError(null);
-    try {
-      await api.transition(sessionId, { name: option.name, text: PLAN_APPROVED_TEXT });
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      inflight.current = false;
-      setBusy(false);
-    }
-  }
+  // The board stream carries the card change; no reload needed.
+  const { busy, error, post } = usePlanAnswer(api, sessionId, option);
 
   return (
     <div className="transitions">
@@ -241,7 +225,7 @@ function PlanApprovalActions({
           type="button"
           className="plan-approve"
           disabled={busy}
-          onClick={() => void approve()}
+          onClick={() => void post(PLAN_APPROVED_TEXT)}
         >
           Approve plan
         </button>

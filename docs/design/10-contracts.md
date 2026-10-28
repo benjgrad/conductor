@@ -385,7 +385,7 @@ M2-T02 froze the machine-side seams for M2 ([ADR-0013](../adr/0013-machine-enrol
 | Seam | File | Producer → consumers | Fixtures |
 |---|---|---|---|
 | `PROTOCOL_VERSION` 2, `register.protocol_version?`, `register.enrollment_token?` (local mode only, ignored), `DAEMON_AUTH_HEADER` + `daemonAuthHeaderValue` / `parseDaemonAuthHeader`, `CLOSE_REPLACED` 4000 / `CLOSE_REVOKED` 4001 / `CLOSE_UNAUTHORIZED` 4003 / `CLOSE_PROTOCOL` 4005 + `CLOSE_REASONS` | `shared/src/protocol/ws.ts` | T04 daemon ⇄ T09 gateway | `M2_WS_FIXTURES.register_v1`, `.register_v2` |
-| `inventory` (`InventoryPayloadSchema`), `alert` (`AlertPayloadSchema`, `ALERT_FILES_MAX` 200); `repo_inventory` kept (superseded) | `shared/src/protocol/ws.ts` | T10 daemon → T16 gateway | `DAEMON_FIXTURES.inventory`, `.alert`; `M2_WS_FIXTURES.inventory_empty`, `.alert_with_session` |
+| `inventory` (`InventoryPayloadSchema`), `alert` (`AlertPayloadSchema`: `git_tamper` here, `ALERT_FILES_MAX` 200; `update_failed` in [§Daemon auto-update](#daemon-auto-update)); `repo_inventory` kept (superseded) | `shared/src/protocol/ws.ts` | T10 daemon → T16 gateway | `DAEMON_FIXTURES.inventory`, `.alert`; `M2_WS_FIXTURES.inventory_empty`, `.alert_with_session` |
 | `start_session.working_copy?` (`WorkingCopySchema`), `WORKING_COPY_CONTEXT_KEY` (`__working_copy`), read by `commandPayloadForEffect` | `shared/src/protocol/ws.ts`, `machines/inventory.ts`, `protocol/commands.ts` | T16 claim (writes the context) → T19 wrapper (unchanged call) → T13 daemon | `M2_WS_FIXTURES.start_session_working_copy` |
 | `InventoryRepoSchema`, `WorkingCopyModeSchema` (`reference` \| `checkout`), `CANONICAL_REMOTE_RE` / `isCanonicalRemote`, `AbsolutePathSchema` | `shared/src/machines/inventory.ts` | T10 → T09 (rows), T16, T11 (via T01 DTOs) | `INVENTORY_REPO_FIXTURE`, `INVENTORY_REPO_CHECKOUT_FIXTURE` |
 | `CapabilitySchema`, `CapabilityNameSchema` / `CAPABILITY_NAME_RE`, `capabilityKey`, `capabilityKeys`, `satisfiesCapability`, `missingCapabilities(caps, reqs, ticketRepo)`, `CapabilityRequirementSchema` | `shared/src/machines/capabilities.ts` | T10 → T09 (rows), T16 (claim, badge) | `CAPABILITY_FIXTURES` |
@@ -487,12 +487,17 @@ Absent (or invalid) `__working_copy`: no `working_copy` in the payload, the M1 c
 
 [ADR-0021](../adr/0021-daemon-auto-update.md); tasks M2-T18 (launcher, wake), T18b (these contracts), T18c (daemon), T18d (orchestrator), T18e (web). Additive: daemons that don't know it ignore `update_available` (unknown frame types are logged and dropped) and keep the 4005 hint.
 
-| Seam | File | Producer → consumers |
-|---|---|---|
-| `update_available {version, file, sha256, size}` (`UpdateAvailableSchema`, `DAEMON_TARBALL_RE`, `DAEMON_TARBALL_MAX_BYTES`) | `shared/src/protocol/ws.ts` | T18d gateway → T18c daemon |
-| `heartbeat.draining?: {reason: 'update', version}` | `shared/src/protocol/ws.ts` | T18c → T18d (`machine.status`) |
-| `alert {kind: 'update_failed', version, stage, error, at}` | `shared/src/protocol/ws.ts` | T18c → T18d ingest → T18e |
-| `LatestDaemonSchema` (`GET /downloads/latest.json`), `EXIT_RESTART_FOR_UPDATE` 75, `UPDATE_*` limits | `shared/src/machines/update.ts` | T18d route → T18c (4005 path); T18 units |
+| Seam | File | Producer → consumers | Fixtures |
+|---|---|---|---|
+| `update_available {version, file, sha256, size}` (`UpdateAvailableSchema` = `LatestDaemonSchema`; `DAEMON_TARBALL_RE`, `DAEMON_TARBALL_MAX_BYTES` re-exported) | `shared/src/protocol/ws.ts` | T18d gateway → T18c daemon | `ORCHESTRATOR_FIXTURES.update_available`, `M2_WS_FIXTURES.update_available` |
+| `heartbeat.draining?: {reason: 'update', version}` | `shared/src/protocol/ws.ts` | T18c → T18d (`machine.status`) | `M2_WS_FIXTURES.heartbeat_draining` |
+| `alert {kind: 'update_failed', version, stage, error, at}` (`UpdateFailedAlertPayloadSchema`; `AlertPayloadSchema` is now a union on `kind` with `GitTamperAlertPayloadSchema`) | `shared/src/protocol/ws.ts` | T18c → T18d ingest → T18e | `M2_WS_FIXTURES.alert_update_failed` |
+| `LatestDaemonSchema` (`GET /downloads/latest.json`), `daemonTarballName`, `DaemonVersionSchema`, `Sha256HexSchema`, `UpdateStageSchema`, `UPDATE_ERROR_MAX_CHARS` 500, `EXIT_RESTART_FOR_UPDATE` 75, `UPDATE_*` limits | `shared/src/machines/update.ts` | T18d route → T18c (4005 path); T18 units | `LATEST_DAEMON_FIXTURE` (`protocol/fixtures.ts`) |
+| `MachineRow.alerts?` (`MachineRowAlertSchema` = `MachineUpdateAlertSchema` \| `MachineAlertDtoSchema`) | `shared/src/api/machines.ts` | T18d machines list → T18e | `MACHINE_ROW_UPDATE_FAILED_FIXTURE` |
+
+**Validation.** `file` must be exactly `conductor-daemon-<version>.tgz` (`daemonTarballName`), so it never holds a `/` and always names the announced version; `version` is `[0-9A-Za-z][0-9A-Za-z.+-]*` (≤ 100); `sha256` is 64 lowercase hex; `size` is a positive integer ≤ 100 MB; `update_failed.error` is 1–500 characters. A frame that fails any of these doesn't parse, and the daemon drops it.
+
+**Machines list.** The list carries a machine's open `update_failed` alerts in `alerts`, absent (never null) when there are none. The row type also admits the git_tamper `MachineAlertDto`, because `MachineDetail` (a `MachineRow` extension) narrows `alerts` to those; consumers narrow on `kind`. `MachineAlertKindSchema` (`git_tamper`, mirroring the `machine_alert.kind` CHECK) is unchanged: how `update_failed` is stored is T18d's.
 
 **On disk** (`<root>` = `~/.conductor`): `daemon/<version>/`, `daemon/current` → one of them (always swapped by renaming a temp symlink), `daemon/trial` (`from=`, `to=`, `attempts=`: an update not yet committed), `daemon/bad-versions` (one version per line; never offered again), `bin/conductor-launch` (the version-independent launcher the units run).
 

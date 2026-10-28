@@ -9,6 +9,14 @@ import {
   InventoryRepoSchema,
   WorkingCopySchema,
 } from '../machines/inventory.js';
+import {
+  DaemonVersionSchema,
+  LatestDaemonSchema,
+  UPDATE_ERROR_MAX_CHARS,
+  UpdateStageSchema,
+} from '../machines/update.js';
+
+export { DAEMON_TARBALL_MAX_BYTES, DAEMON_TARBALL_RE } from '../machines/update.js';
 
 // Daemon ↔ orchestrator WebSocket protocol (03 §Daemon ↔ orchestrator). One JSON envelope per
 // WS text frame. Field names are snake_case on the wire.
@@ -152,6 +160,11 @@ export const HeartbeatPayloadSchema = z.object({
   disk_free_mb: z.number().int().nonnegative(),
   /** Renews each session's lease when its token matches (04 §Leases). */
   sessions: z.array(z.object({ session_id: UuidSchema, fencing_token: TokenSchema })),
+  /**
+   * ADR-0021 §2: the daemon has stopped sending `request_work` to update to `version`. Present →
+   * `machine.status = 'draining'`; absent → `online`. Absent on M1/M2 daemons.
+   */
+  draining: z.object({ reason: z.literal('update'), version: DaemonVersionSchema }).optional(),
 });
 export const HeartbeatMessageSchema = msg('heartbeat', HeartbeatPayloadSchema, machineEnv);
 
@@ -201,13 +214,32 @@ export const ALERT_FILES_MAX = 200;
  * Machine-level envelope, but durable: `seq` is required, the daemon buffers and replays it like
  * a session_event, and the orchestrator dedupes it on `(machine_id, seq)`.
  */
-export const AlertPayloadSchema = z.object({
+export const GitTamperAlertPayloadSchema = z.object({
   kind: z.literal('git_tamper'),
   repo: AbsolutePathSchema,
   session_id: UuidSchema.optional(),
   files: z.array(z.string().min(1)).min(1).max(ALERT_FILES_MAX),
   at: IsoDateTimeSchema,
 });
+export type GitTamperAlertPayload = z.infer<typeof GitTamperAlertPayloadSchema>;
+
+/**
+ * ADR-0021 §3: an update to `version` failed at `stage` (after a `trial` failure the old version
+ * is running again and reports it). Machine-level: no repo, no session. Durable like git_tamper.
+ */
+export const UpdateFailedAlertPayloadSchema = z.object({
+  kind: z.literal('update_failed'),
+  version: DaemonVersionSchema,
+  stage: UpdateStageSchema,
+  error: z.string().min(1).max(UPDATE_ERROR_MAX_CHARS),
+  at: IsoDateTimeSchema,
+});
+export type UpdateFailedAlertPayload = z.infer<typeof UpdateFailedAlertPayloadSchema>;
+
+export const AlertPayloadSchema = z.discriminatedUnion('kind', [
+  GitTamperAlertPayloadSchema,
+  UpdateFailedAlertPayloadSchema,
+]);
 export type AlertPayload = z.infer<typeof AlertPayloadSchema>;
 export const AlertMessageSchema = msg('alert', AlertPayloadSchema, {
   ...machineEnv,
@@ -713,6 +745,20 @@ export const FetchTranscriptMessageSchema = msg(
   orchMachineEnv,
 );
 
+/**
+ * ADR-0021 §1: the build an outdated daemon should fetch (`LatestDaemonSchema`: `file` is
+ * `conductor-daemon-<version>.tgz`, `sha256` lowercase hex). A direct frame sent after
+ * `registered` on every register, so idempotent: not an outbox command, no command_id, no ack.
+ * Daemons that don't know it log and drop it.
+ */
+export const UpdateAvailableSchema = LatestDaemonSchema;
+export type UpdateAvailablePayload = z.infer<typeof UpdateAvailableSchema>;
+export const UpdateAvailableMessageSchema = msg(
+  'update_available',
+  UpdateAvailableSchema,
+  orchMachineEnv,
+);
+
 export const OrchestratorToDaemonSchema = z.discriminatedUnion('type', [
   RegisteredMessageSchema,
   WorkAssignmentMessageSchema,
@@ -726,6 +772,7 @@ export const OrchestratorToDaemonSchema = z.discriminatedUnion('type', [
   KillMessageSchema,
   ProtocolErrorMessageSchema,
   FetchTranscriptMessageSchema,
+  UpdateAvailableMessageSchema,
 ]);
 export type OrchestratorToDaemon = z.infer<typeof OrchestratorToDaemonSchema>;
 export type OrchestratorMessageType = OrchestratorToDaemon['type'];

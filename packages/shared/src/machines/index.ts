@@ -2,3 +2,4 @@
 export * from './inventory.js';
 export * from './capabilities.js';
 export * from './required.js';
+export * from './update.js';

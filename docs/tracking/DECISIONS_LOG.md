@@ -4,6 +4,8 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-28 | MW built in one lead session without implementer/QA agents, targeted tests locally, the win32 job as proof (Ben: "kill the multi-agent approach, this is too slow"); MW tasks land on one branch `mw-windows-daemon` | MW |
+| 2026-10-28 | A child the daemon killed is reported as the signal it sent on every OS (win32 taskkill leaves exit code 1): `killedExit` | ADR-0024 §2 |
 | 2026-10-28 | `AbsolutePathSchema` also refuses a leading `//` on every OS: it is Windows' forward-slash UNC form, and a realpath'd POSIX path never starts with `//` (lead, from MW-T02; cheap to reverse) | ADR-0024 §8, MW-T02 |
 | 2026-10-28 | U-110 (Ben): the Windows daemon supports only the native `claude.exe`. With only npm's `claude.cmd` it refuses with a hint, because cmd.exe can't pass the multi-line system prompt | ADR-0024 §9, U-110 |
 | 2026-10-28 | Daemon on Windows (Ben): **native port**, not WSL2 first; owner-only DACL written with icacls and verified on load (amends ADR-0010); tree kill `taskkill /T /F` + orphan sweep (TD-189); `install.ps1` + Scheduled Task in scope; Windows CI on GitHub Actions `windows-latest` (first hosted CI) | ADR-0024, MW, U-071 |

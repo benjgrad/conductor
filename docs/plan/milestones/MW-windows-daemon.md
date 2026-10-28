@@ -1,5 +1,7 @@
 # MW · Native Windows daemon (ADR-0024)
 
+> **Process (Ben, 2026-10-28):** built in one lead session, no implementer/QA agent fan-out, targeted tests locally; the Windows proof is the `daemon-windows` Actions job. Tasks land on the single branch `mw-windows-daemon` (T01–T04 were merged into it from their own branches).
+>
 > **Approved by Ben 2026-10-28** (plan approval), with his four decisions: native port (not WSL2), owner-only DACL verified on load, `taskkill /T /F` plus the orphan sweep, and `install.ps1` with a Scheduled Task in scope. Windows CI is a GitHub Actions `windows-latest` job.
 
 **Goal** ([ADR-0024](../../adr/0024-native-windows-daemon.md)): the daemon runs as a native `win32` Node process on Ben's work laptop with the same safety guarantees as on macOS/Linux: tree kill, orphan sweep, a fail-closed edit guard and owner-only credentials. `irm https://conductor.gradyserver.com/install.ps1 | iex` installs, enrolls and starts it at logon.
@@ -39,15 +41,15 @@
 | ID | Task | Depends on | Group | Migration | Status |
 |---|---|---|---|---|---|
 | MW-T00 | ADR-0024, this file, ROADMAP, design-doc touch-ups, tracking | — | — | — | done |
-| MW-T01 | Windows CI workflow + portable test support (`fake-bin`), POSIX-only tests skipped with markers | T00 | A | — | todo |
-| MW-T02 | shared: `AbsolutePathSchema` accepts Windows drive paths | T00 | A | — | todo |
-| MW-T03 | platform: `spawn`, `kill-tree`, `shell`, `procinfo` (not wired in) | T00 | A | — | todo |
-| MW-T04 | platform: `acl` (owner-only DACL write + verify) | T00 | A | — | todo |
-| MW-T05 | Wire spawn + kill into the claude driver, process runner, capability probes, conditions | T01, T03, T04 | B | — | todo |
-| MW-T06 | Orphan sweep on Windows (procinfo, `checkOurs`, sweep kill) | T01, T03 | B | — | todo |
-| MW-T07 | Credential, config, private repos and git env on Windows | T01, T04 | B | — | todo |
-| MW-T08 | Edit guard on Windows (command quoting, resolver), fail-closed path table | T01 | B | — | todo |
-| MW-T09 | CLI, paths, sysinfo, rescan, long paths, transcript slug | T01, M2-T18 | B | — | todo |
+| MW-T01 | Windows CI workflow + portable test support (`fake-bin`), POSIX-only tests skipped with markers | T00 | A | — | done (on mw-windows-daemon) |
+| MW-T02 | shared: `AbsolutePathSchema` accepts Windows drive paths | T00 | A | — | done (on mw-windows-daemon) |
+| MW-T03 | platform: `spawn`, `kill-tree`, `shell`, `procinfo` (not wired in) | T00 | A | — | done (on mw-windows-daemon) |
+| MW-T04 | platform: `acl` (owner-only DACL write + verify) | T00 | A | — | done (on mw-windows-daemon) |
+| MW-T05 | Wire spawn + kill into the claude driver, process runner, capability probes, conditions | T01, T03, T04 | B | — | in_review (win32 CI) |
+| MW-T06 | Orphan sweep on Windows (procinfo, `checkOurs`, sweep kill) | T01, T03 | B | — | in_review (win32 CI) |
+| MW-T07 | Credential, config, private repos and git env on Windows | T01, T04 | B | — | in_review (win32 CI) |
+| MW-T08 | Edit guard on Windows (command quoting, resolver), fail-closed path table | T01 | B | — | in_review (win32 CI) |
+| MW-T09 | CLI, paths, sysinfo, rescan, long paths, transcript slug | T01, M2-T18 | B | — | in_progress (main.ts part waits for M2-T18) |
 | MW-T10 | `service` on win32: Scheduled Task + `conductor-launch.ps1` | T05, T09, M2-T18 | C | — | todo |
 | MW-T11 | `install.ps1` + tarball `.cmd` shim + Machines page PowerShell line | T07, T10 | D | — | todo |
 | MW-T12 | E2E on Windows, remove the remaining skips, setup docs | T05–T11 | E | — | todo |

@@ -18,7 +18,10 @@ import type { DaemonStore } from './store.js';
 
 // Shared clones and per-session worktrees (07 §Code). One shared clone per repo under
 // <root>/repos/; agents never edit it. Each session gets `git worktree add <root>/wt/<session_id>`
-// on its own branch (`start_session.branch` = sessionBranch()) from `base_ref` (M1: HEAD).
+// on its own branch (`start_session.branch` = sessionBranch()). A NEW worktree is based on the
+// freshly fetched `origin/<default_branch>` (M2-T13a, TD-026): `git fetch origin <default_branch>`
+// runs before each new worktree, serialised per clone. Existing worktrees and branches are reused
+// untouched (never fetched into or rebased).
 
 const exec = promisify(execFile);
 
@@ -65,8 +68,8 @@ const HTTPS_PATH = new RegExp(`^/${REPO_PATH}$`);
  * Anything else (relative paths, other schemes and transports such as `ext::`, `.`/`..`
  * segments, a leading `-`) is refused, and a remote host must be in `allowedRepoHosts` when that
  * list is non-empty. Throws RepoNotAllowedError.
- * TD-026: https with no auth, and the shared clone is never fetched after the first clone, so
- * `base_ref` resolves against a stale copy.
+ * TD-026: https with no auth (private repos can't clone; M2-T13). The stale-base half is paid:
+ * Workspace.ensureWorktree fetches the default branch before each new worktree (M2-T13a).
  */
 export function cloneSource(repo: string, policy: RepoPolicy = {}): string {
   if (repo === '' || /[\s\0]/.test(repo)) {
@@ -183,15 +186,29 @@ export class Workspace {
    * (uncommitted ones too), same cwd, so the resumed Claude conversation and its transcript stay
    * where they were. The caller must make sure no live process still uses it. A branch checked out
    * anywhere else is an error.
+   *
+   * M2-T13a (TD-026): only when a NEW branch is created, `git fetch origin <default_branch>` runs
+   * first (inside the per-clone lock, so concurrent starts fetch one at a time) and the branch is
+   * created from the fetched `origin/<default_branch>`, without upstream tracking. `baseRef`
+   * `HEAD` (what the orchestrator sends, M1_BASE_REF) means exactly that; any other `baseRef` is
+   * used as given after the fetch. A failed fetch throws an error naming the repo: never a silent
+   * stale base.
    */
   async ensureWorktree(opts: {
     repo: string;
     sessionId: string;
     branch: string;
     baseRef: string;
+    /**
+     * The repo's default branch (`start_session.working_copy.default_branch` once the contract
+     * carries it). Absent = the clone's `origin/HEAD`.
+     */
+    defaultBranch?: string | undefined;
   }): Promise<string> {
     // The refs come from the orchestrator: never let one be read as a git option.
-    for (const ref of [opts.branch, opts.baseRef]) {
+    const refs = [opts.branch, opts.baseRef];
+    if (opts.defaultBranch !== undefined) refs.push(opts.defaultBranch);
+    for (const ref of refs) {
       if (ref === '' || ref.startsWith('-')) throw new Error(`invalid git ref: ${ref}`);
     }
     if (opts.repo.startsWith('-')) throw new Error(`invalid repo: ${opts.repo}`);
@@ -216,10 +233,91 @@ export class Workspace {
       if (hasBranch.trim() !== '') {
         await git(clone, ['worktree', 'add', '--quiet', path, opts.branch]);
       } else {
-        await git(clone, ['worktree', 'add', '--quiet', '-b', opts.branch, path, opts.baseRef]);
+        const base = await this.freshBase(opts.repo, clone, opts.baseRef, opts.defaultBranch);
+        await git(clone, [
+          'worktree',
+          'add',
+          '--quiet',
+          '--no-track',
+          '-b',
+          opts.branch,
+          path,
+          base,
+        ]);
       }
       return path;
     });
+  }
+
+  /**
+   * Fetch the default branch into the clone and return the ref a new session branch starts from.
+   * Runs inside `serialized(clone)`. Hooks are disabled for the fetch (the repo is untrusted).
+   */
+  private async freshBase(
+    repo: string,
+    clone: string,
+    baseRef: string,
+    defaultBranch: string | undefined,
+  ): Promise<string> {
+    let branch: string;
+    try {
+      branch = defaultBranch ?? (await this.originHead(clone));
+    } catch (err) {
+      throw new Error(`cannot resolve the default branch of ${repo}: ${errText(err)}`, {
+        cause: err,
+      });
+    }
+    if (!isSafeBranchName(branch)) {
+      throw new Error(`invalid default branch for ${repo}: ${JSON.stringify(branch)}`);
+    }
+    try {
+      await git(clone, [
+        '-c',
+        'core.hooksPath=/dev/null',
+        'fetch',
+        '--quiet',
+        'origin',
+        `+refs/heads/${branch}:refs/remotes/origin/${branch}`,
+      ]);
+    } catch (err) {
+      throw new Error(`git fetch origin ${branch} failed for ${repo}: ${errText(err)}`, {
+        cause: err,
+      });
+    }
+    return baseRef === 'HEAD' ? `refs/remotes/origin/${branch}` : baseRef;
+  }
+
+  /**
+   * The clone's default branch from `refs/remotes/origin/HEAD`. When that ref is missing (an old
+   * clone, or a remote whose HEAD was unborn at clone time) it is set once with
+   * `git remote set-head origin --auto` and read again. The loose ref file is read first (a
+   * symref is never packed), which saves a git spawn per session start.
+   */
+  private async originHead(clone: string): Promise<string> {
+    const prefix = 'refs/remotes/origin/';
+    const read = async (): Promise<string | null> => {
+      try {
+        const file = readFileSync(join(clone, '.git', 'refs', 'remotes', 'origin', 'HEAD'), 'utf8');
+        const m = /^ref: refs\/remotes\/origin\/(\S+)\s*$/.exec(file);
+        if (m) return m[1]!;
+      } catch {
+        // absent (or not a loose file): ask git
+      }
+      try {
+        const ref = (await git(clone, ['symbolic-ref', '--quiet', `${prefix}HEAD`])).trim();
+        return ref.startsWith(prefix) && ref.length > prefix.length
+          ? ref.slice(prefix.length)
+          : null;
+      } catch {
+        return null;
+      }
+    };
+    const known = await read();
+    if (known !== null) return known;
+    await git(clone, ['remote', 'set-head', 'origin', '--auto']);
+    const set = await read();
+    if (set === null) throw new Error('origin/HEAD is not set');
+    return set;
   }
 
   /** The worktree that has `branch` checked out (`git worktree list --porcelain`), or null. */
@@ -304,6 +402,25 @@ export class Workspace {
     }
     return out.sort((a, b) => a.repo.localeCompare(b.repo));
   }
+}
+
+/**
+ * A conservative subset of `git check-ref-format --branch` (checked in JS to save a spawn): ASCII
+ * letters, digits, `._/-`; no leading `-` / `/` / `.`, no `..`, `//`, `/.`, trailing `/` or `.lock`.
+ */
+export function isSafeBranchName(name: string): boolean {
+  return (
+    /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/.test(name) &&
+    !/\.\.|\/\/|\/\.|\/$|\.lock$|\.$/.test(name) &&
+    !name.split('/').some((seg) => seg.endsWith('.lock'))
+  );
+}
+
+/** An exec error's stderr (git's own message), else its message. */
+function errText(err: unknown): string {
+  const stderr = (err as { stderr?: unknown } | null)?.stderr;
+  if (typeof stderr === 'string' && stderr.trim() !== '') return stderr.trim();
+  return err instanceof Error ? err.message : String(err);
 }
 
 /** Whether two paths name the same directory (realpaths; false if either is missing). */

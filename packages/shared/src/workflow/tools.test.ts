@@ -68,12 +68,28 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
       'Bash(pnpm test:*)',
       'Bash(pnpm install)',
       'Bash(pnpm i)',
+      'Bash(pnpm install --frozen-lockfile)',
+      'Bash(pnpm i --frozen-lockfile)',
+      'Bash(pnpm typecheck)',
+      'Bash(pnpm lint)',
+      'Bash(pnpm build)',
+      'Bash(pnpm format)',
+      'Bash(pnpm vitest:*)',
       'Bash(pnpm exec vitest:*)',
       'Bash(pnpm exec prettier:*)',
+      'Bash(pnpm exec eslint:*)',
+      'Bash(pnpm exec tsc -b)',
       'Bash(chmod +x:*)',
     ]);
-    // Installs are exact: no `pnpm install <pkg>` / `pnpm add`, no flags.
-    expect(bash.some((r) => /^Bash\(pnpm (install|i|add)[: ]/.test(r))).toBe(false);
+    // Installs are exact: no `pnpm install <pkg>` / `pnpm add`; only `--frozen-lockfile`.
+    expect(bash.some((r) => /^Bash\(pnpm (install|i|add):/.test(r))).toBe(false);
+    expect(
+      bash
+        .filter((r) => /^Bash\(pnpm (install|i|add) /.test(r))
+        .every((r) => r.endsWith(' --frozen-lockfile)')),
+    ).toBe(true);
+    // No general runner: `pnpm exec` and `pnpm dlx` only for named tools.
+    expect(bash.some((r) => /^Bash\(pnpm (exec|dlx)(:|\))/.test(r))).toBe(false);
     // Only the `+x` prefix rule (`chmod 777` is not pre-approved). TD-175: the prefix still
     // matches `chmod +x -R …`, absolute paths and `--reference=`.
     expect(bash.filter((r) => r.startsWith('Bash(chmod'))).toEqual(['Bash(chmod +x:*)']);

@@ -109,6 +109,18 @@ export function buildEntries(chunks: readonly OutputChunk[]): Entry[] {
 /** Strip the session worktree from paths and commands (macOS reports it with or without /private). */
 export function shortener(worktree: string | null): (s: string) => string {
   if (!worktree) return (s) => s;
+  if (/^[A-Za-z]:[\\/]/.test(worktree)) {
+    // A Windows daemon (MW-T02): tools report the worktree with `\` or `/`.
+    const win = worktree.replace(/[\\/]+$/, '');
+    const roots = [win.replace(/\//g, '\\'), win.replace(/\\/g, '/')];
+    return (s) => {
+      let r = s;
+      for (const root of roots) {
+        r = r.split(`${root}\\`).join('').split(`${root}/`).join('').split(root).join('.');
+      }
+      return r;
+    };
+  }
   const base = worktree.replace(/\/+$/, '');
   // Longest first, so `/private/tmp/x` isn't cut at its `/tmp/x` suffix.
   const roots = [...new Set([base, base.replace(/^\/private(?=\/)/, ''), `/private${base}`])].sort(

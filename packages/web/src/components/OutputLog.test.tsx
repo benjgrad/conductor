@@ -115,6 +115,14 @@ describe('describeTool / resultSummary', () => {
     ).toBe('Step complete');
   });
 
+  it('strips a Windows worktree written with either separator (MW-T02)', () => {
+    const win = shortener('C:\\Users\\b\\.conductor\\wt\\s1\\');
+    expect(win('C:\\Users\\b\\.conductor\\wt\\s1\\src\\x.ts')).toBe('src\\x.ts');
+    expect(win('C:/Users/b/.conductor/wt/s1/src/x.ts')).toBe('src/x.ts');
+    expect(win('cd C:\\Users\\b\\.conductor\\wt\\s1 && npm test')).toBe('cd . && npm test');
+    expect(win('C:\\Users\\b\\other\\x.ts')).toBe('C:\\Users\\b\\other\\x.ts');
+  });
+
   it('summarises edits by what changed, but shows a refusal as is', () => {
     const write = toolUse('Write', { file_path: `${WT}/a.ts`, content: 'x\ny\nz' });
     const call = parseToolUse(write.text);

@@ -44,9 +44,10 @@ Tracking files are edited on `main`, not on task branches, to keep branches free
 ### 2 · Build
 1. One task, one branch: `m<N>-t<NN>-<slug>`. Work on it directly; parallelize only when tasks are independent and big enough to be worth it.
 2. Record new unknowns, blockers, tech debt and unfinished items in the tracking files as you go. A blocked task gets a B-### row and status `blocked`; tell Ben if the unblock action is his.
+3. **Run only targeted tests while you work**: the files and package you touched, e.g. `pnpm vitest run --project daemon src/actions/open-pr.test.ts`, plus `pnpm typecheck`. Never run the full `pnpm test` or `pnpm lint` to check progress: the full gate runs **once per branch**, in step 3, or as conductor's own checks when a conductor ticket leaves `implementing` (they run in a fresh checkout under the daemon's build slots, so running them yourself first only doubles the load). If a targeted run reports `test slot: waiting…`, it is queued behind other runs on the machine: wait, don't retry or kill it (M2-T32).
 
 ### 3 · Check and merge
-1. Before merging, check the branch against the task's acceptance criteria and [docs/qa/QA_CHECKLIST.md](docs/qa/QA_CHECKLIST.md): read the diff, run the gates (`pnpm typecheck && pnpm lint && pnpm test && pnpm build`).
+1. Before merging, check the branch against the task's acceptance criteria and [docs/qa/QA_CHECKLIST.md](docs/qa/QA_CHECKLIST.md): read the diff, run the gates once (`pnpm typecheck && pnpm lint && pnpm test && pnpm build`, Bash `timeout: 600000`: it may queue for a test slot). When a QA subagent runs them, the lead doesn't run them again.
 2. Record any TD rows, then `git merge --no-ff` into `main`, set the task to `done`, and remove the worktree. **Never merge with a red gate.**
 
 ### 4 · Session end (always, even if the session was short or failed)
@@ -89,13 +90,15 @@ pnpm db:migrate        # node-pg-migrate up, migrations in packages/orchestrator
 pnpm db:migrate down   # roll back one; `scripts/db.sh migrate create <name>` makes a new one
 pnpm build             # tsc -b (all packages) + vite build (web)
 pnpm typecheck         # tsc -b across the workspace (project references; emits to gitignored dist/)
-pnpm lint              # eslint (type-aware) + prettier --check
+pnpm lint              # eslint (type-aware, in a test slot) + prettier --check
 pnpm format            # prettier --write
-pnpm test              # vitest, one project per package (DB tests need db:up)
+pnpm test              # vitest, one project per package (DB tests need db:up), in a test slot
 pnpm test:e2e          # db up + tsc -b + e2e/ suite: real orchestrator + daemon bins, fake Claude (~15 s)
 E2E_REAL_CLAUDE=1 pnpm test:e2e   # ask/answer only, real `claude` on haiku (spends money; not in CI)
 scripts/ci.sh          # all gates, in order: install, typecheck, lint, deploy kit (deploy/gradyserver/test/run.sh), db:up, test, build, test:e2e
 ```
+
+**Test slots (M2-T31).** Every vitest run (however it is started) and `pnpm lint` first takes one of `CONDUCTOR_TEST_SLOTS` (default 2) machine-wide slots, shared by every worktree and agent (`scripts/test-slot.js`: a localhost port from 54330, freed when the holder exits), and vitest uses only its share of the CPUs (`maxWorkers`). If both are taken it prints `test slot: waiting…` with the holders and starts by itself; that is a queue, not a hang, so give long test commands a long Bash timeout (`timeout: 600000`) rather than retrying. Watch mode takes no slot.
 
 `DATABASE_URL` is resolved the same way by `scripts/db.sh` and `vitest.config.ts`: process env, else `.env`, else `.env.example`. The orchestrator itself reads only `process.env.DATABASE_URL`; whatever launches it sets it. DB tests never use that database directly: `useTestDatabase()` / `createTestDatabase()` in `packages/orchestrator/test/db.ts` create `conductor_test_<branch>_<random>` on the same server, migrate it, and drop it afterwards, so worktrees can run DB tests at the same time. `tsc` is TypeScript 7 (the `typescript7` alias); the `typescript` module is `@typescript/typescript6` because typescript-eslint needs the TS 6 JS API. Workspace packages resolve each other from source in vitest/vite via the `source` export condition, so tests run without a build. `spikes/**` is outside the workspace, lint and typecheck.
 

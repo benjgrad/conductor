@@ -431,7 +431,8 @@ describe('the conditions phase', () => {
     }
     expect(t.snap.workflow_state).toBe('needs_input');
     expect(t.snap.wall_seconds).toBe(60);
-  });
+    // CPU-bound, not flaky: ~300 polls through apply took 6-9 s at load 30, past the 5 s default.
+  }, 30_000);
 
   it('an awaited external.event on the source event state overrides pending conditions', () => {
     const def = v2With((raw) => {
@@ -569,7 +570,9 @@ describe('apply property: the conditions phase is bounded', () => {
         expect(allowed).toContain(h.snap.workflow_state);
         expect(h.snap.wall_seconds).toBe(wall);
       }),
-      { numRuns: 150 },
+      // M2-T33: unseeded, so every run explores new sequences; `pnpm test:all` runs the full 150.
+      { numRuns: process.env.CONDUCTOR_TEST_ALL === '1' ? 150 : 50 },
     );
-  });
+    // CPU-bound: 150 runs took 10 s at load 30, past vitest's 5 s default.
+  }, 60_000);
 });

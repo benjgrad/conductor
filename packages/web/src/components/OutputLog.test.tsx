@@ -121,6 +121,10 @@ describe('describeTool / resultSummary', () => {
     expect(win('C:/Users/b/.conductor/wt/s1/src/x.ts')).toBe('src/x.ts');
     expect(win('cd C:\\Users\\b\\.conductor\\wt\\s1 && npm test')).toBe('cd . && npm test');
     expect(win('C:\\Users\\b\\other\\x.ts')).toBe('C:\\Users\\b\\other\\x.ts');
+    expect(win('c:\\Users\\b\\.conductor\\wt\\s1\\x.ts')).toBe('x.ts');
+    expect(win('C:\\users\\b\\.conductor\\wt\\s1\\x.ts')).toBe(
+      'C:\\users\\b\\.conductor\\wt\\s1\\x.ts',
+    );
   });
 
   it('summarises edits by what changed, but shows a refusal as is', () => {

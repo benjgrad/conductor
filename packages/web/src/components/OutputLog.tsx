@@ -112,7 +112,11 @@ export function shortener(worktree: string | null): (s: string) => string {
   if (/^[A-Za-z]:[\\/]/.test(worktree)) {
     // A Windows daemon (MW-T02): tools report the worktree with `\` or `/`.
     const win = worktree.replace(/[\\/]+$/, '');
-    const roots = [win.replace(/\//g, '\\'), win.replace(/\\/g, '/')];
+    // Both separators, and the drive letter in either case (`c:\` vs `C:\`).
+    const roots = [win.replace(/\//g, '\\'), win.replace(/\\/g, '/')].flatMap((r) => [
+      r[0]!.toUpperCase() + r.slice(1),
+      r[0]!.toLowerCase() + r.slice(1),
+    ]);
     return (s) => {
       let r = s;
       for (const root of roots) {

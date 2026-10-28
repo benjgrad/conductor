@@ -10,7 +10,7 @@
 - **Board**: pinned to `board-pinned` @ d75d320 (2e88cf8 + UX-1..UX-5); session cap `machine.max_sessions` = 3. The daemon's shared clone is fast-forwarded by hand after each merge (TD-026, until T13).
 - **Next action**:
   - Lead: QA and merge T07b, T14, T15a, UX-3b, UX-6 as their PRs open; start T15a (queued), then T17.
-  - Lead: start M2-T18 and M2-T18b (daemon auto-update, [ADR-0021](../adr/0021-daemon-auto-update.md) accepted 2026-10-28); T18c follows both.
+  - Lead: QA M2-T18 and M2-T18b (on the board since 2026-10-28, [ADR-0021](../adr/0021-daemon-auto-update.md)) as their PRs open; then T18c.
   - Ben: decide U-083 (Done with an open PR: warn, or "merge, then Done"?). Review this tracking PR.
   - Before T20 starts: settle U-084 (lease renewal for sessions parked in event states).
 
@@ -21,6 +21,7 @@
 | M2-T14 | dogfood ticket | running |
 | UX-3b, UX-6 | dogfood tickets | running (web-only) |
 | M2-T15a | dogfood ticket | queued, not started |
+| M2-T18, M2-T18b | dogfood tickets (hosted board, 2026-10-28) | queued (ADR-0021 daemon auto-update; T18c follows both) |
 
 ## Health
 | Open unknowns | Open blockers | Tech debt items | Unfinished handoffs |

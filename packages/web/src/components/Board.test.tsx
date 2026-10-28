@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import {
   BOARD_CARD_NEEDS_INPUT_FIXTURE,
+  BOARD_CARD_NEEDS_PERMISSION_FIXTURE,
   BOARD_CARD_PENDING_FIXTURE,
   type BoardCard,
   type InputRequestDto,
@@ -318,5 +319,23 @@ describe('board card: plan approval (06 §Plan approval)', () => {
     const a = article('Card 1');
     expect(a.queryByRole('button', { name: 'Approve plan' })).toBeNull();
     expect(a.getByRole('button', { name: /Back with this answer/ })).toBeTruthy();
+  });
+});
+
+describe('board card: needs permission (ADR-0023)', () => {
+  it('shows the tool and how many more are waiting; the summary is the title', () => {
+    const c = BOARD_CARD_NEEDS_PERMISSION_FIXTURE;
+    renderCards([{ ...c, permission: { ...c.permission!, pending_count: 3 } }]);
+    const badge = article(c.title).getByText(/needs permission:/);
+    expect(badge.textContent).toBe(`needs permission: ${c.permission!.tool} (+2)`);
+    expect(badge.getAttribute('title')).toBe(c.permission!.summary);
+  });
+
+  it('no badge without the sub-status', () => {
+    const c: BoardCard = { ...BOARD_CARD_NEEDS_PERMISSION_FIXTURE };
+    delete c.sub_status;
+    delete c.permission;
+    renderCards([c]);
+    expect(article(c.title).queryByText(/needs permission:/)).toBeNull();
   });
 });

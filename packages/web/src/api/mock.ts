@@ -24,6 +24,8 @@ import {
   SignupRequestSchema,
   TransitionSessionRequestSchema,
   FreshConversationRequestSchema,
+  PermissionDecisionRequestSchema,
+  permissionSummary,
   FRESH_CONVERSATION_MOVE,
   type AdminUserRow,
   type AuthMode,
@@ -41,6 +43,7 @@ import {
   type OkResponse,
   type OutputChunk,
   type OutputStream,
+  type PermissionRequestDto,
   type ReopenSessionResponse,
   type SessionDetail,
   type SessionInputRequest,
@@ -119,6 +122,16 @@ export interface MockApi extends ApiClient {
   connectMachine(patch?: Partial<MachineDetail>): string;
   /** UX-8: a machine's new inventory report (repos, capabilities). */
   updateMachine(id: string, patch: Partial<MachineDetail>): void;
+  /**
+   * ADR-0023: the agent asks for a tool (a pending permission request), as the gateway stores a
+   * daemon's `permission_request`; the card shows `needs_permission`. Returns the request id.
+   */
+  requestPermission(
+    sessionId: string,
+    tool: string,
+    input: Record<string, unknown>,
+    alwaysRule?: string | null,
+  ): string;
 }
 
 interface MockUser {
@@ -138,6 +151,8 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
   const cards = new Map<string, BoardCard>();
   const sessions = new Map<string, MockSession>();
   const answered = new Set<string>();
+  /** ADR-0023: permission requests by session, oldest first. */
+  const permissions = new Map<string, PermissionRequestDto[]>();
   const log: BoardSseEvent[] = [];
   const boardSubs = new Set<StreamHandlers<BoardSseEvent>>();
   const outputSubs = new Map<string, Set<StreamHandlers<OutputChunk>>>();
@@ -357,6 +372,30 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
   }
 
   /** Apply a card change and emit the events EngineService would. */
+  /** ADR-0023: `sub_status` / `permission` from the session's pending requests (oldest first). */
+  function syncPermissionCard(sessionId: string) {
+    const pending = (permissions.get(sessionId) ?? []).filter((r) => r.status === 'pending');
+    const rest: BoardCard = { ...cardForSession(sessionId) };
+    delete rest.sub_status;
+    delete rest.permission;
+    const oldest = pending[0];
+    update(
+      rest,
+      oldest
+        ? {
+            sub_status: 'needs_permission',
+            permission: {
+              request_id: oldest.id,
+              tool: oldest.tool,
+              summary: oldest.summary,
+              expires_at: oldest.expires_at,
+              pending_count: pending.length,
+            },
+          }
+        : {},
+    );
+  }
+
   function update(card: BoardCard, next: Partial<BoardCard>, extra: BoardSseEventDraft[] = []) {
     const sessionId = card.session_id;
     if (sessionId === null) throw new Error('update() needs a session card');
@@ -740,6 +779,53 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         s.return_to = null;
         update(card, { status, workflow_state: target, input_request: null }, extra);
         return { ok: true };
+      }),
+
+    listPermissionRequests: (sessionId) =>
+      reply(() => {
+        cardForSession(sessionId);
+        return { requests: [...(permissions.get(sessionId) ?? [])] };
+      }),
+
+    decidePermission: (requestId, raw) =>
+      reply((): PermissionRequestDto => {
+        const parsed = PermissionDecisionRequestSchema.safeParse(raw);
+        if (!parsed.success) throw new ApiRequestError(400, 'bad_request', parsed.error.message);
+        const { behavior, scope, message } = parsed.data;
+        const list = [...permissions.values()].find((l) => l.some((r) => r.id === requestId));
+        const i = list?.findIndex((r) => r.id === requestId) ?? -1;
+        const req = list?.[i];
+        if (!list || !req) {
+          throw new ApiRequestError(404, 'not_found', `permission request ${requestId} not found`);
+        }
+        // Like the route: the same decision again is idempotent; anything else on a decided or
+        // expired request is 409.
+        if (req.status !== 'pending') {
+          if (req.decision?.behavior === behavior && req.decision.scope === scope) return req;
+          throw new ApiRequestError(
+            409,
+            'permission_not_pending',
+            'permission request not pending',
+          );
+        }
+        if (scope === 'always' && req.always_rule === null) {
+          throw new ApiRequestError(400, 'bad_request', 'this request has no exact rule');
+        }
+        const decided: PermissionRequestDto = {
+          ...req,
+          status: behavior === 'allow' ? 'allowed' : 'denied',
+          decision: {
+            behavior,
+            scope,
+            message: message ?? null,
+            rule: scope === 'always' ? req.always_rule : null,
+            decided_by: 'ben',
+          },
+          resolved_at: now().toISOString(),
+        };
+        list[i] = decided;
+        syncPermissionCard(req.session_id);
+        return decided;
       }),
 
     cancel: (sessionId) =>
@@ -1131,6 +1217,30 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
 
     updateCard(sessionId, next) {
       update(cardForSession(sessionId), next);
+    },
+
+    requestPermission(sessionId, tool, input, alwaysRule = null) {
+      const id = crypto.randomUUID();
+      const created = now();
+      const list = permissions.get(sessionId) ?? [];
+      list.push({
+        id,
+        session_id: sessionId,
+        tool,
+        input: input as PermissionRequestDto['input'],
+        suggestions: [],
+        summary: permissionSummary(input),
+        always_rule: alwaysRule,
+        status: 'pending',
+        decision: null,
+        expired_reason: null,
+        created_at: created.toISOString(),
+        expires_at: new Date(created.getTime() + 30 * 60_000).toISOString(),
+        resolved_at: null,
+      });
+      permissions.set(sessionId, list);
+      syncPermissionCard(sessionId);
+      return id;
     },
 
     simulate(ms) {

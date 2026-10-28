@@ -167,10 +167,15 @@ export const TransitionActionSchema = z.enum([
 ]);
 export type TransitionAction = z.infer<typeof TransitionActionSchema>;
 /**
- * The actions that run in M1b (the validator refuses the others, "not available yet"). ADR-0020's
- * three PR actions join in M2r-T02.
+ * The actions conductor can run (the validator refuses the others, "not available yet"). ADR-0020's
+ * three PR actions run from M2r (M2r-T02).
  */
-export const AVAILABLE_TRANSITION_ACTIONS: readonly TransitionAction[] = ['open_pr'];
+export const AVAILABLE_TRANSITION_ACTIONS: readonly TransitionAction[] = [
+  'open_pr',
+  'inspect_pr',
+  'merge_pr',
+  'close_pr',
+];
 
 const conditionCommon = {
   /** Default true. A disabled condition is declared but skipped (Jira / Azure until M5). */

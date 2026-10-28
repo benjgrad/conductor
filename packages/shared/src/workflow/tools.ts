@@ -68,6 +68,20 @@ export const REVIEW_GIT_COMMANDS: readonly string[] = [
   'git branch --show-current',
 ];
 
+/**
+ * ADR-0020 §2: fixed diff commands against `qa-base`, the ref the daemon creates at the merge base
+ * in a QA checkout (exact, for the same `--output` reason as above).
+ */
+export const QA_GIT_COMMANDS: readonly string[] = [
+  'git diff --stat qa-base...HEAD',
+  'git diff qa-base...HEAD',
+  'git log --oneline qa-base..HEAD',
+];
+
+/** ADR-0020 §2: the test runners a QA session may run (prefixes, then exact commands). */
+const QA_TEST_PREFIXES = ['pnpm test', 'pnpm vitest', 'pnpm exec vitest', 'npm test', 'npm run'];
+const QA_TEST_EXACT = ['pnpm typecheck', 'pnpm lint'];
+
 export const TOOL_ALIASES = {
   /** Read only (the base policy). */
   read: { builtin: [], allow: [], deny: [] },
@@ -104,6 +118,21 @@ export const TOOL_ALIASES = {
     builtin: ['Bash'],
     allow: REVIEW_GIT_COMMANDS.map((c) => `Bash(${c})`),
     deny: [],
+  },
+  /**
+   * A `role: 'qa'` state (ADR-0020 §2), run in forced dontAsk: the read base, the reviewer's git
+   * commands plus the `qa-base` diffs, and test runners. No tool can change the PR (U-085): no
+   * Edit/Write, no staging or committing, no gh. The test runners execute repository code, so
+   * this is not a security boundary (TD-019, U-004).
+   */
+  qa: {
+    builtin: ['Bash'],
+    allow: [
+      ...[...REVIEW_GIT_COMMANDS, ...QA_GIT_COMMANDS].map((c) => `Bash(${c})`),
+      ...QA_TEST_PREFIXES.map((c) => `Bash(${c}:*)`),
+      ...QA_TEST_EXACT.map((c) => `Bash(${c})`),
+    ],
+    deny: ['Edit', 'Write', 'Bash(git add:*)', 'Bash(git commit:*)', 'Bash(gh:*)'],
   },
   /**
    * The PR skill (pr_flow `open_pr`, M3). `gh pr create` can push the branch, so agents only get

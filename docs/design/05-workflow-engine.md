@@ -235,8 +235,20 @@ Rules 10–14 are the transition rules of [ADR-0011](../adr/0011-transition-rule
     - So is an **enabled** condition whose type isn't in `AVAILABLE_CONDITION_TYPES` (`….requires.conditions.<i>`). It is an error, not a warning, because the editor has no warning channel. Declare it with `enabled: false` until M5.
     - A transition into the start state can't carry `requires` (`….requires`).
 
+Rules 15–16 are the review-and-merge rules of [ADR-0020](../adr/0020-review-and-merge-flow.md) (M2r-T02, the same file). The PR actions `inspect_pr`, `merge_pr` and `close_pr` are available (`AVAILABLE_TRANSITION_ACTIONS`), so rule 14 doesn't refuse them. Neither rule fires on a definition without the new fields or `merge_pr` (v1, v2):
+
+15. **Done only through a merge** (ADR-0020 §6). In a *merge-aware* definition (one that names `merge_pr` in any transition's `requires.actions`), every transition into a `terminal` state, except the fallbacks (`ask_user`, `timeout`, `budget_exceeded`), carries `merge_pr` or `close_pr` in `requires.actions`. The error is at `….requires.actions`, or at the transition for a string one. A counted `else` into a terminal state bypasses the merge too, so it is refused (`….else`). `on_unmet.else` is already a human state (rule 13).
+16. **Review-and-merge fields** (ADR-0020 §2, §3, §5).
+    - `role: "qa"` never on the start state (`states.<s>.role`). The schema allows `role` only on agent states, so on any other state it is a rule 1 error.
+    - A qa state's `tools` are exactly `["qa"]` (`states.<s>.tools`). `checkout` is only on a qa state (`states.<s>.checkout`).
+    - `attach: "result"` only on transitions out of agent states (`….attach`).
+    - `text` only on a human-actor transition (`….text`).
+    - `requires.approvals` only on a human-actor transition that carries `merge_pr` (`….requires.approvals`). Approval ids are unique (`….requires.approvals.<i>.id`).
+    - `on_unmet.routes` targets are validated like `on_unmet.goto`. A missing one is rule 1's, `$return_to` is rule 10's, and a terminal state or one with an `entry` is refused (`….on_unmet.routes.<reason>`). Unknown reasons (anything but `head_moved` and `conflict`) are refused by the schema (rule 1).
+
 ADR-0011 changes how rules 1–5 read the graph:
 - **Edges.** A transition's `on_unmet.goto` / `else` are edges too. `$return_to` is not an edge, like `answered`.
+- **Routes (ADR-0020).** Each `on_unmet.routes.<reason>` target is an edge too. Like `on_unmet.goto`, it is bounded for rule 4, because it shares the move counter.
 - **Rule 4.** Uses `isCountedTransition` ([§Counting](#counting-adr-0011)): only an object with `attach`, `retries` or `else` has a bounded `goto` leg. A plain object (`{goto, when}`, or one with only `requires`) is a plain edge. A requirements `on_unmet.goto` leg is bounded by its `move:` counter; its `else` leg is not. A human-actor transition is bounded wherever it is, e.g. `back_to_implementing` out of Waiting external.
 - **Rule 5.** The producer completes on any **completing** transition: an agent-actor transition out of the agent state that is neither a question nor a fallback (`done`, `plan_ready`, …). A human-actor move is an operator override, like "skip to". It is not a path the ref must hold on: an unresolved ref renders `(missing)`. Without that, conductor v2's Needs input → Waiting external → back to Implementing would fail rule 5 after a planning question.
 

@@ -43,8 +43,10 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
     const p = resolveToolPolicy(['edit', 'bash', 'git', 'pr_skill']);
     expect(p.allow).toEqual(expect.arrayContaining(['Read(./**)', 'Glob(./**)', 'Grep(./**)']));
     for (const bare of ['Read', 'Glob', 'Grep']) expect(p.allow).not.toContain(bare);
-    for (const runner of ['node', 'npx', 'pnpm', 'cat', 'ls'])
+    for (const runner of ['node', 'npx', 'pnpm dlx', 'pnpm exec node', 'pnpm exec:', 'cat', 'ls'])
       expect(p.allow.some((r) => r.startsWith(`Bash(${runner}`))).toBe(false);
+    // `pnpm` itself is never a bare prefix (that would allow `pnpm dlx`, `pnpm exec <anything>`).
+    expect(p.allow.some((r) => r === 'Bash(pnpm:*)' || r === 'Bash(pnpm exec:*)')).toBe(false);
     // diff/log/show take --output=<file>: only exact forms may be allowed.
     for (const sub of ['diff', 'log', 'show'])
       expect(p.allow.some((r) => r.startsWith(`Bash(git ${sub}`) && r.endsWith(':*)'))).toBe(false);
@@ -52,6 +54,30 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
     // Real agents commit as `git commit -q -m …`; the rule must be a plain `git commit` prefix.
     expect(p.allow).toContain('Bash(git commit:*)');
     expect(p.deny).toContain('Bash(gh pr create:*)');
+  });
+
+  it('M2-T30: bash pre-approves the npm and pnpm script runners, exact installs and chmod +x', () => {
+    const p = resolveToolPolicy(['bash']);
+    const bash = p.allow.filter((r) => r.startsWith('Bash('));
+    expect(bash).toEqual([
+      'Bash(npm run:*)',
+      'Bash(npm test:*)',
+      'Bash(npm install)',
+      'Bash(npm ci)',
+      'Bash(pnpm run:*)',
+      'Bash(pnpm test:*)',
+      'Bash(pnpm install)',
+      'Bash(pnpm i)',
+      'Bash(pnpm exec vitest:*)',
+      'Bash(pnpm exec prettier:*)',
+      'Bash(chmod +x:*)',
+    ]);
+    // Installs are exact: no `pnpm install <pkg>` / `pnpm add`, no flags.
+    expect(bash.some((r) => /^Bash\(pnpm (install|i|add)[: ]/.test(r))).toBe(false);
+    // Only the `+x` prefix rule (`chmod 777` is not pre-approved). TD-171: the prefix still
+    // matches `chmod +x -R …`, absolute paths and `--reference=`.
+    expect(bash.filter((r) => r.startsWith('Bash(chmod'))).toEqual(['Bash(chmod +x:*)']);
+    expect(p.builtin).toContain('Bash');
   });
 
   it('always denies git push, even with only the read base', () => {

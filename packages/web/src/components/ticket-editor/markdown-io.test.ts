@@ -200,9 +200,12 @@ describe('markdown round-trip through BlockNote (UX-3 FR-1, FR-3, NFR-7)', () =>
     const frs = Array.from({ length: 2000 }, (_, i) => `- FR-${i + 1} Requirement number ${i + 1}`);
     const rows = Array.from({ length: 200 }, (_, i) => `| FR-${i + 1} | test ${i + 1} |`);
     const md = `## Functional requirements\n${frs.join('\n')}\n\n## Verification\n| Req | How |\n|---|---|\n${rows.join('\n')}\n`;
-    const start = performance.now();
+    // CPU time, not wall time: a loaded machine running the whole suite in parallel stretches the
+    // wall clock past the budget without this code getting any slower.
+    const start = process.cpuUsage();
     const out = roundTrip(md);
-    const ms = performance.now() - start;
+    const cpu = process.cpuUsage(start);
+    const ms = (cpu.user + cpu.system) / 1000;
     expect(items(out)).toHaveLength(2000);
     expect(tableRows(out)).toHaveLength(202);
     expect(ms).toBeLessThan(15_000);

@@ -39,7 +39,8 @@ export default defineConfig({
     env: { DATABASE_URL: resolveDatabaseUrl() },
     exclude: ['**/node_modules/**', '**/dist/**', 'spikes/**'],
     projects: [
-      nodePackage('shared'),
+      // fast-check property tests run hundreds of cases each: past 5 s under a full parallel run.
+      { ...nodePackage('shared'), test: { ...nodePackage('shared').test, testTimeout: 30_000 } },
       // test/** holds DB integration tests and the per-run test database helper (test/db.ts).
       nodePackage('orchestrator', ['src/**/*.test.ts', 'test/**/*.test.ts']),
       // Daemon tests spawn node children (fake claude, edit guard) that can stall for seconds on a

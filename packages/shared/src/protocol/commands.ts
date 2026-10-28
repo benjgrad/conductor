@@ -1,13 +1,15 @@
 import type { z } from 'zod';
 import type { OutboxEffect, SessionSnapshot } from '../engine/types.js';
 import { WORKING_COPY_CONTEXT_KEY, WorkingCopySchema } from '../machines/inventory.js';
-import type {
-  KillPayloadSchema,
-  RunActionPayloadSchema,
-  RunCmdPayloadSchema,
-  SendInputPayloadSchema,
-  SendMessagePayloadSchema,
-  StartSessionPayloadSchema,
+import {
+  PermissionDecisionPayloadSchema,
+  type KillPayloadSchema,
+  type PermissionDecisionPayload,
+  type RunActionPayloadSchema,
+  type RunCmdPayloadSchema,
+  type SendInputPayloadSchema,
+  type SendMessagePayloadSchema,
+  type StartSessionPayloadSchema,
 } from './ws.js';
 
 // Effect → WS command payload (10-contracts §Effect → WS). Pure. The EngineService wrapper (T04)
@@ -153,4 +155,44 @@ export function commandPayloadForEffect(
         },
       };
   }
+}
+
+// ---------------------------------------------------------------- permission prompts (ADR-0023)
+
+export interface PermissionDecisionInput {
+  /** Assigned by the decision route (= `outbox.command_id`). */
+  command_id: string;
+  /** The machine the request came from (the session's `machine_id`). */
+  machine_id: string;
+  request_id: string;
+  behavior: PermissionDecisionPayload['behavior'];
+  scope: PermissionDecisionPayload['scope'];
+  /** The human's note; null / '' = none. */
+  message?: string | null;
+  /** The exact allow rule recorded for `scope: always` (`PermissionRequestDto.always_rule`). */
+  rule?: string | null;
+}
+
+export interface PermissionDecisionCommand {
+  kind: 'permission_decision';
+  target: string;
+  payload: PermissionDecisionPayload;
+}
+
+/**
+ * ADR-0023: the outbox `kind`, `target` and `payload` of a decision on a permission request. Not
+ * an engine Effect: the decision route (M2-T29c) writes the row itself, in the transaction that
+ * records the decision. Throws (ZodError) on a deny with `scope: always`, or a `rule` without
+ * `scope: always`.
+ */
+export function permissionDecisionCommand(d: PermissionDecisionInput): PermissionDecisionCommand {
+  const payload = PermissionDecisionPayloadSchema.parse({
+    command_id: d.command_id,
+    request_id: d.request_id,
+    behavior: d.behavior,
+    scope: d.scope,
+    ...(d.message ? { message: d.message } : {}),
+    ...(d.rule ? { rule: d.rule } : {}),
+  });
+  return { kind: 'permission_decision', target: `machine:${d.machine_id}`, payload };
 }

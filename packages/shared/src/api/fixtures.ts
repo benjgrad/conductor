@@ -27,6 +27,8 @@ import type {
   ApiError,
   BoardCard,
   MoveDto,
+  PermissionDecisionRequest,
+  PermissionRequestDto,
   SessionDetail,
   TransitionSessionRequest,
 } from './rest.js';
@@ -593,4 +595,119 @@ export const APPROVAL_REQUIRED_ERROR_FIXTURE: ApiError = {
 export const SESSION_QA_FIXTURE: NonNullable<SessionDetail['qa']> = {
   result: QA_RESULT_FIXTURES.pass_with_debt,
   head_sha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+};
+
+// ---------------------------------------------------------------- ADR-0023 (M2-T29)
+
+const PERMISSION_REQUEST_ID = '4f3e2d1c-0b9a-4876-9543-210fedcba987';
+const PERMISSION_REQUEST_ID_2 = '5a4f3e2d-1c0b-4a98-8654-3210fedcba98';
+
+/** GET /api/sessions/:id/permission-requests items: one per status. */
+export const PERMISSION_REQUEST_DTO_FIXTURES: {
+  pending: PermissionRequestDto;
+  allowed_always: PermissionRequestDto;
+  denied: PermissionRequestDto;
+  expired: PermissionRequestDto;
+} = {
+  pending: {
+    id: PERMISSION_REQUEST_ID,
+    session_id,
+    tool: 'Bash',
+    input: { command: 'pnpm exec tsc -b', description: 'Type-check the workspace' },
+    suggestions: [],
+    summary: 'pnpm exec tsc -b',
+    always_rule: 'Bash(pnpm exec tsc -b)',
+    status: 'pending',
+    decision: null,
+    expired_reason: null,
+    created_at: ts,
+    expires_at: '2026-10-22T12:30:00.000Z',
+    resolved_at: null,
+  },
+  allowed_always: {
+    id: PERMISSION_REQUEST_ID_2,
+    session_id,
+    tool: 'Bash',
+    input: { command: 'chmod 755 scripts/db.sh' },
+    suggestions: [],
+    summary: 'chmod 755 scripts/db.sh',
+    always_rule: 'Bash(chmod 755 scripts/db.sh)',
+    status: 'allowed',
+    decision: {
+      behavior: 'allow',
+      scope: 'always',
+      message: null,
+      rule: 'Bash(chmod 755 scripts/db.sh)',
+      decided_by: BEN_USER_ID,
+    },
+    expired_reason: null,
+    created_at: ts,
+    expires_at: '2026-10-22T12:30:00.000Z',
+    resolved_at: '2026-10-22T12:01:00.000Z',
+  },
+  denied: {
+    id: '6b5a4f3e-2d1c-4b09-a876-543210fedcba',
+    session_id,
+    tool: 'WebFetch',
+    input: { url: 'https://example.com/install.sh', prompt: 'Read the installer' },
+    suggestions: [],
+    summary: 'https://example.com/install.sh',
+    always_rule: null,
+    status: 'denied',
+    decision: {
+      behavior: 'deny',
+      scope: 'once',
+      message: 'Use the vendored copy instead.',
+      rule: null,
+      decided_by: BEN_USER_ID,
+    },
+    expired_reason: null,
+    created_at: ts,
+    expires_at: '2026-10-22T12:30:00.000Z',
+    resolved_at: '2026-10-22T12:02:00.000Z',
+  },
+  expired: {
+    id: '7c6b5a4f-3e2d-4c1b-8a98-76543210fedc',
+    session_id,
+    tool: 'Bash',
+    input: { command: 'rm -rf node_modules' },
+    suggestions: [],
+    summary: 'rm -rf node_modules',
+    always_rule: 'Bash(rm -rf node_modules)',
+    status: 'expired',
+    decision: null,
+    expired_reason: 'timeout',
+    created_at: ts,
+    expires_at: '2026-10-22T12:30:00.000Z',
+    resolved_at: '2026-10-22T12:30:00.000Z',
+  },
+};
+
+/** A Running card holding on a permission prompt (sub-status `needs_permission`). */
+export const BOARD_CARD_NEEDS_PERMISSION_FIXTURE: BoardCard = {
+  ...BOARD_CARD_FIXTURE,
+  session_id,
+  workflow_state: 'implementing',
+  status: 'running',
+  column: 'implementing',
+  machine_id: 'mbp-ben',
+  sub_status: 'needs_permission',
+  permission: {
+    request_id: PERMISSION_REQUEST_ID,
+    tool: 'Bash',
+    summary: 'pnpm exec tsc -b',
+    expires_at: '2026-10-22T12:30:00.000Z',
+    pending_count: 1,
+  },
+};
+
+/** POST /api/permission-requests/:id/decision bodies: the card's three buttons. */
+export const PERMISSION_DECISION_REQUEST_FIXTURES: {
+  allow_once: PermissionDecisionRequest;
+  allow_always: PermissionDecisionRequest;
+  deny: PermissionDecisionRequest;
+} = {
+  allow_once: { behavior: 'allow', scope: 'once' },
+  allow_always: { behavior: 'allow', scope: 'always' },
+  deny: { behavior: 'deny', scope: 'once', message: 'Not on this machine; ask me first.' },
 };

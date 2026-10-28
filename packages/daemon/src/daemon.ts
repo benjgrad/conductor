@@ -84,7 +84,16 @@ export interface DaemonOptions {
 
 type Command = Extract<
   OrchestratorToDaemon,
-  { type: 'start_session' | 'run_cmd' | 'run_action' | 'send_input' | 'send_message' | 'kill' }
+  {
+    type:
+      | 'start_session'
+      | 'run_cmd'
+      | 'run_action'
+      | 'send_input'
+      | 'send_message'
+      | 'kill'
+      | 'permission_decision';
+  }
 >;
 type StartSession = Extract<Command, { type: 'start_session' }>;
 type RunCmd = Extract<Command, { type: 'run_cmd' }>;
@@ -513,6 +522,10 @@ export class Daemon {
           return this.sendMessage(msg);
         case 'kill':
           return this.kill(msg);
+        case 'permission_decision':
+          // ADR-0023: M2-T29b resolves the held `permission` call. Until then this daemon never
+          // sends a permission_request, so it holds none (10-contracts §Permission prompts).
+          return this.finish(msg, { accepted: false, reason: 'unknown_permission_request' });
       }
     };
     run()

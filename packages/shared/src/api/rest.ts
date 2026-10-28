@@ -56,6 +56,15 @@ import {
   type HumanTransitionOption,
 } from '../workflow/transition-rules.js';
 import { OutputChunkSchema } from './output.js';
+import {
+  PERMISSION_MESSAGE_MAX,
+  PERMISSION_RULE_MAX,
+  PermissionBehaviorSchema,
+  PermissionInputSchema,
+  PermissionScopeSchema,
+  PermissionSuggestionsSchema,
+  PermissionToolSchema,
+} from '../protocol/ws.js';
 
 // REST DTOs for UI ↔ orchestrator (03 §REST). Implemented by M1-T08, consumed by M1-T09.
 
@@ -72,6 +81,10 @@ export const API_PATHS = {
   sessionTranscript: (id: string) => `/api/sessions/${id}/transcript`,
   /** ADR-0008: reopen a finished ticket by resuming the same Claude conversation. */
   sessionReopen: (id: string) => `/api/sessions/${id}/reopen`,
+  /** ADR-0023: GET → PermissionRequestListResponse (the session's permission prompts). */
+  sessionPermissionRequests: (id: string) => `/api/sessions/${id}/permission-requests`,
+  /** ADR-0023: POST PermissionDecisionRequest → PermissionRequestDto. `:id` is the request_id. */
+  permissionDecision: (id: string) => `/api/permission-requests/${id}/decision`,
   tickets: '/api/tickets',
   workflows: '/api/workflows',
   workflow: (id: string) => `/api/workflows/${id}`,
@@ -426,6 +439,46 @@ export const BoardCardPrSchema = z.object({
 });
 export type BoardCardPr = z.infer<typeof BoardCardPrSchema>;
 
+/**
+ * ADR-0023: a session sub-status. Not a `session.status` and not an FSM transition: the session
+ * stays `running` in its state while it holds. `needs_permission`: the agent waits on a permission
+ * prompt (`BoardCard.permission` says which). Unknown values from a newer server read as null.
+ */
+export const SessionSubStatusSchema = z.enum(['needs_permission']);
+export type SessionSubStatus = z.infer<typeof SessionSubStatusSchema>;
+
+/** Cap on `PermissionRequestDto.summary` / `BoardCardPermission.summary` (characters). */
+export const PERMISSION_SUMMARY_MAX = 500;
+
+/**
+ * ADR-0023: the one-line view of a prompt's input for a card: the Bash `command`, else the
+ * `file_path`, `path`, `url` or `pattern`, else the input's JSON; cut to PERMISSION_SUMMARY_MAX
+ * characters with "…". The drawer shows the whole input.
+ */
+export function permissionSummary(input: Record<string, unknown>): string {
+  const field = ['command', 'file_path', 'path', 'url', 'pattern']
+    .map((k) => input[k])
+    .find((v): v is string => typeof v === 'string' && v.length > 0);
+  const text = field ?? JSON.stringify(input);
+  return text.length <= PERMISSION_SUMMARY_MAX
+    ? text
+    : `${text.slice(0, PERMISSION_SUMMARY_MAX - 1)}…`;
+}
+
+/**
+ * ADR-0023: the card's "Needs permission" panel, set exactly when `sub_status` is
+ * `needs_permission`: the oldest pending request (the one the buttons answer) and how many are
+ * pending (Claude can ask for more than one tool call at once).
+ */
+export const BoardCardPermissionSchema = z.object({
+  request_id: UuidSchema,
+  tool: PermissionToolSchema,
+  summary: z.string().max(PERMISSION_SUMMARY_MAX),
+  expires_at: IsoDateTimeSchema,
+  pending_count: z.number().int().min(1),
+});
+export type BoardCardPermission = z.infer<typeof BoardCardPermissionSchema>;
+
 /** One card. A ticket with no session yet has `session_id: null` and `status: null`. */
 export const BoardCardSchema = z.object({
   ticket_id: UuidSchema,
@@ -473,6 +526,13 @@ export const BoardCardSchema = z.object({
   qa: BoardCardQaSchema.optional(),
   /** ADR-0020: conductor's PR, merged / closed; absent ≡ no PR (`pr_url` stays for older UIs). */
   pr: BoardCardPrSchema.optional(),
+  /**
+   * ADR-0023: the session's sub-status; absent / null ≡ none. `status` and `column` don't change
+   * while it is set.
+   */
+  sub_status: SessionSubStatusSchema.nullable().optional().catch(null),
+  /** ADR-0023: set exactly when `sub_status` is `needs_permission`; absent ≡ none. */
+  permission: BoardCardPermissionSchema.optional(),
 });
 export type BoardCard = z.infer<typeof BoardCardSchema>;
 
@@ -697,6 +757,97 @@ export const CancelSessionRequestSchema = z.object({ reason: z.string().optional
 export const ApproveSessionRequestSchema = z.object({ comment: z.string().optional() });
 export type ApproveSessionRequest = z.infer<typeof ApproveSessionRequestSchema>;
 
+// ---------------------------------------------------------------- permission prompts (ADR-0023)
+// 10-contracts §Permission prompts. Implemented by M2-T29c, consumed by M2-T29d.
+
+/** `pending` until a human decides (`allowed` / `denied`) or it ends without one (`expired`). */
+export const PermissionRequestStatusSchema = z.enum(['pending', 'allowed', 'denied', 'expired']);
+export type PermissionRequestStatus = z.infer<typeof PermissionRequestStatusSchema>;
+
+/**
+ * Why a request ended without a decision (`expired`):
+ * - `timeout`: `expires_at` passed; the daemon denied the call with "no human answered".
+ * - `agent_gone`: the agent process exited (a daemon restart included) or the daemon refused the
+ *   decision `unknown_permission_request`.
+ * - `session_moved`: the session left the agent state, parked, or ended (cancel included).
+ *
+ * Unknown values from a newer server read as null.
+ */
+export const PermissionExpiryReasonSchema = z.enum(['timeout', 'agent_gone', 'session_moved']);
+export type PermissionExpiryReason = z.infer<typeof PermissionExpiryReasonSchema>;
+
+/** A decision on a request, as stored. */
+export const PermissionDecisionDtoSchema = z.object({
+  behavior: PermissionBehaviorSchema,
+  scope: PermissionScopeSchema,
+  /** The deny note (or an allow comment); null = none. */
+  message: z.string().max(PERMISSION_MESSAGE_MAX).nullable(),
+  /** The exact allow rule recorded for `scope: always`; null otherwise. */
+  rule: z.string().max(PERMISSION_RULE_MAX).nullable(),
+  /** The user id that decided; null = conductor itself (e.g. the session wasn't running). */
+  decided_by: z.string().nullable(),
+});
+export type PermissionDecisionDto = z.infer<typeof PermissionDecisionDtoSchema>;
+
+/** One permission prompt (`permission_request` as stored). `id` is the daemon's request_id. */
+export const PermissionRequestDtoSchema = z.object({
+  id: UuidSchema,
+  session_id: UuidSchema,
+  tool: PermissionToolSchema,
+  input: PermissionInputSchema,
+  suggestions: PermissionSuggestionsSchema.default([]),
+  /** `permissionSummary(input)`. */
+  summary: z.string().max(PERMISSION_SUMMARY_MAX),
+  /**
+   * The exact allow rule "Allow always" would record (e.g. `Bash(pnpm exec tsc -b)`); null = the
+   * input has no exact rule, and the UI doesn't offer "Allow always".
+   */
+  always_rule: z.string().max(PERMISSION_RULE_MAX).nullable(),
+  status: PermissionRequestStatusSchema,
+  /** Set exactly when `status` is `allowed` / `denied`. */
+  decision: PermissionDecisionDtoSchema.nullable(),
+  /** Set when `status` is `expired`. */
+  expired_reason: PermissionExpiryReasonSchema.nullable().catch(null),
+  created_at: IsoDateTimeSchema,
+  expires_at: IsoDateTimeSchema,
+  /** When it was decided or expired; null while pending. */
+  resolved_at: IsoDateTimeSchema.nullable(),
+});
+export type PermissionRequestDto = z.infer<typeof PermissionRequestDtoSchema>;
+
+/** Cap on GET /api/sessions/:id/permission-requests (the most recent; pending ones always). */
+export const SESSION_PERMISSION_REQUESTS_LIMIT = 50;
+
+/**
+ * GET /api/sessions/:id/permission-requests → 200. The session's last
+ * SESSION_PERMISSION_REQUESTS_LIMIT requests, oldest first, every pending one included. 404 for
+ * an unknown session or another account's.
+ */
+export const PermissionRequestListResponseSchema = z.object({
+  requests: z.array(PermissionRequestDtoSchema),
+});
+export type PermissionRequestListResponse = z.infer<typeof PermissionRequestListResponseSchema>;
+
+/**
+ * POST /api/permission-requests/:id/decision → 200 PermissionRequestDto (the decided request).
+ * The ticket owner only. Idempotent on the request id: the same `{behavior, scope}` again → 200
+ * with the stored decision (no second command). 409 `permission_not_pending` when it expired or
+ * was decided differently; 404 unknown or another account's; 400 a bad body, or `scope: always`
+ * when the request's `always_rule` is null. "Allow once" `{allow, once}`, "Allow always"
+ * `{allow, always}`, "Deny" `{deny, once, message?}`; a deny is never `always`.
+ */
+export const PermissionDecisionRequestSchema = z
+  .object({
+    behavior: PermissionBehaviorSchema,
+    scope: PermissionScopeSchema,
+    message: z.string().trim().min(1).max(PERMISSION_MESSAGE_MAX).optional(),
+  })
+  .refine((d) => d.behavior === 'allow' || d.scope === 'once', {
+    message: 'a deny is always scope once',
+    path: ['scope'],
+  });
+export type PermissionDecisionRequest = z.infer<typeof PermissionDecisionRequestSchema>;
+
 /** Error body for every 4xx/5xx. */
 export const ApiErrorSchema = z.object({
   error: z.object({
@@ -726,6 +877,11 @@ export const ApiErrorSchema = z.object({
       'approval_required',
       /** ADR-0020 §6: /transition into Done while the PR is open, not via merge / close (409). */
       'pr_open',
+      /**
+       * ADR-0023: a permission decision for a request that is no longer pending (expired, or
+       * already decided differently) (409). The same decision again is 200, not this.
+       */
+      'permission_not_pending',
     ]),
     message: z.string(),
     /** Validation details (zod issues / validator rule failures). */

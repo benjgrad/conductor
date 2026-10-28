@@ -120,6 +120,8 @@ crontab -l | grep conductor-backup
 
 ## 6. Routine deploys
 
+Every merge to `main` deploys itself once CI is green (§12). By hand, for a specific ref or a rollback:
+
 ```bash
 deploy/gradyserver/deploy.sh <git-ref>      # e.g. main, a tag, a sha
 ```
@@ -216,3 +218,53 @@ unset new
 ```
 
 `psql` inside the container connects over the local socket (trust auth), so the old password isn't needed. If the orchestrator can't connect afterwards, the `.env` value and the role disagree: rerun the `ALTER ROLE` with the value in `.env`.
+
+## 12. CI/CD (GitHub Actions)
+
+[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) has two jobs:
+
+| Job | Runs on | What it does |
+|---|---|---|
+| `gates` | every PR (each push to it; a newer push cancels the older run), every push to `main`, manual dispatch | [`scripts/ci.sh`](../../scripts/ci.sh): install, typecheck, lint (eslint + prettier), deploy kit tests (with shellcheck), Postgres via docker compose, unit/DB tests, build, E2E with the fake Claude. The same script you run locally. |
+| `deploy` | push to `main` of `benjgrad/conductor`, after `gates` passed | `deploy/gradyserver/deploy.sh $GITHUB_SHA`, i.e. §6 with the smoke test. One deploy at a time (`concurrency: deploy-gradyserver`, never cancelled half-way). It deploys only if the sha is still the head of `main`: a run that finishes after a newer merge leaves the deploy to the newer run. |
+
+A failed deploy is a red `deploy` job on the `main` commit; its log has the same messages as a manual `deploy.sh`, and §7 (rollback) applies. A red `gates` on `main` deploys nothing: fix forward, or deploy a sha by hand (§6). Manual deploys still work and share nothing with CI except the server, so don't run one while a `deploy` job is running.
+
+### One-time setup (Ben)
+
+1. **Deploy key.** On the lead's machine, make a key used only by CI and authorize it for `bengrady4` on gradyserver:
+
+   ```bash
+   ssh-keygen -t ed25519 -N '' -C conductor-ci-deploy -f /tmp/conductor-ci-deploy
+   ssh-copy-id -p 1024 -i /tmp/conductor-ci-deploy.pub bengrady4@gradyserver.com
+   ssh-keyscan -p 1024 gradyserver.com > /tmp/conductor-known-hosts   # compare with ~/.ssh/known_hosts
+   ```
+
+   `bengrady4` is in the `docker` group, so this key is effectively root on gradyserver. It lives only in the `gradyserver` environment (step 2), which only `main` can use, so PR runs never see it.
+
+2. **Environment.** Repo → Settings → Environments → New environment `gradyserver`. Deployment branches: *Selected branches* → `main`. Add the secrets `DEPLOY_SSH_KEY` (contents of `/tmp/conductor-ci-deploy`) and `DEPLOY_SSH_KNOWN_HOSTS` (contents of `/tmp/conductor-known-hosts`), then `rm /tmp/conductor-ci-deploy* /tmp/conductor-known-hosts`. Without both secrets the `deploy` job fails with a message naming them.
+
+   ```bash
+   gh api -X PUT repos/benjgrad/conductor/environments/gradyserver \
+     -F 'deployment_branch_policy[protected_branches]=false' -F 'deployment_branch_policy[custom_branch_policies]=true'
+   gh api -X POST repos/benjgrad/conductor/environments/gradyserver/deployment-branch-policies -f name=main
+   gh secret set DEPLOY_SSH_KEY --env gradyserver < /tmp/conductor-ci-deploy
+   gh secret set DEPLOY_SSH_KNOWN_HOSTS --env gradyserver < /tmp/conductor-known-hosts
+   ```
+
+3. **Reachability.** GitHub-hosted runners connect from changing Azure addresses, so `ssh` on port 1024 must accept connections from the internet (no source allow-list). If fail2ban or a firewall limits it, the `deploy` job fails at the upload step.
+
+4. **Branch protection.** Require the `gates` check (and an up-to-date branch) before merging into `main`:
+
+   ```bash
+   gh api -X PUT repos/benjgrad/conductor/branches/main/protection --input - <<'JSON'
+   {
+     "required_status_checks": { "strict": true, "contexts": ["gates"] },
+     "enforce_admins": false,
+     "required_pull_request_reviews": null,
+     "restrictions": null
+   }
+   JSON
+   ```
+
+   Conductor's own merges go through `gh pr merge` without `--admin` (ADR-0020), so they wait for `gates` too.

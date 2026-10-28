@@ -8,11 +8,21 @@ import {
   COMPLETE_STATE_PENDING_QUESTION,
   COMPLETE_STATE_RETURN,
   OUTCOME_SERVER_NAME,
+  PERMISSION_DENIED_ON_BOARD,
+  PERMISSION_NO_HANDLER,
+  PERMISSION_SESSION_ENDED,
+  PERMISSION_SHUTDOWN,
+  PERMISSION_UNSUPPORTED_SERVER,
+  parsePermissionRule,
+  permissionTimeoutText,
+  permissionTooLargeText,
   startOutcomeServer,
   unknownTransitionText,
   type OutcomeRegisterOptions,
   type OutcomeServer,
+  type PermissionPrompt,
 } from './outcome-server.js';
+import { PERMISSION_INPUT_MAX_BYTES, PERMISSION_SUGGESTIONS_MAX } from '@conductor/shared';
 
 type Call =
   | { kind: 'ask'; question: string }
@@ -124,10 +134,10 @@ describe('outcome server', () => {
     });
   });
 
-  it('lists exactly complete_state and ask_user', async () => {
+  it('lists exactly complete_state, ask_user and (ADR-0023) permission', async () => {
     const c = await connect(register().reg.url);
     const { tools } = await c.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(['ask_user', 'complete_state']);
+    expect(tools.map((t) => t.name).sort()).toEqual(['ask_user', 'complete_state', 'permission']);
   });
 
   it('ask_user returns at once with the ADR text; complete_state after the answer records', async () => {
@@ -292,5 +302,206 @@ describe('outcome server', () => {
       expect(r.isError).toBe(true);
       expect(calls).toEqual([]);
     });
+  });
+});
+
+describe('ADR-0023 permission tool', () => {
+  let srv: OutcomeServer | undefined;
+  afterEach(async () => {
+    const s = srv;
+    srv = undefined;
+    await s?.close();
+  });
+
+  async function setup(opts: { timeoutMs?: number; noHandler?: boolean } = {}) {
+    const server = await startOutcomeServer(
+      opts.timeoutMs !== undefined ? { permissionTimeoutMs: opts.timeoutMs } : {},
+    );
+    srv = server;
+    const prompts: PermissionPrompt[] = [];
+    const reg = server.register({
+      onAskUser: () => {},
+      onCompleteState: () => {},
+      ...(opts.noHandler ? {} : { onPermissionRequest: (p: PermissionPrompt) => prompts.push(p) }),
+    });
+    const c = await connect(reg.url);
+    /** Start a held call; resolves with the parsed reply when it returns. */
+    const ask = (args: Record<string, unknown>) =>
+      callText(c, 'permission', args).then((t) => JSON.parse(t) as Record<string, unknown>);
+    const nextPrompt = async (n = 1) => {
+      for (let i = 0; i < 200 && prompts.length < n; i++)
+        await new Promise((r) => setTimeout(r, 10));
+      expect(prompts.length).toBeGreaterThanOrEqual(n);
+      return prompts[n - 1]!;
+    };
+    return { server, reg, prompts, ask, nextPrompt };
+  }
+
+  const BASH = {
+    tool_name: 'Bash',
+    input: { command: 'pnpm exec tsc -b' },
+    tool_use_id: 'toolu_1',
+  };
+
+  it('holds the call until allow once: Claude gets the input back', async () => {
+    const { reg, ask, nextPrompt } = await setup();
+    const t0 = Date.now();
+    const reply = ask(BASH);
+    const p = await nextPrompt();
+    expect(p).toMatchObject({ tool: 'Bash', input: BASH.input, toolUseId: 'toolu_1' });
+    expect(p.requestId).toMatch(/^[0-9a-f-]{36}$/);
+    // expires_at = now + the default 30 min
+    const exp = Date.parse(p.expiresAt) - t0;
+    expect(exp).toBeGreaterThan(29 * 60_000);
+    expect(exp).toBeLessThanOrEqual(30 * 60_000 + 5_000);
+    expect(reg.pendingPermissions).toBe(1);
+    expect(reg.resolvePermission(p.requestId, { behavior: 'allow', scope: 'once' })).toBe(
+      'resolved',
+    );
+    expect(await reply).toEqual({ behavior: 'allow', updatedInput: BASH.input });
+    expect(reg.pendingPermissions).toBe(0);
+    // A second decision for the same request: accepted and ignored. Unknown ids: refused.
+    expect(reg.resolvePermission(p.requestId, { behavior: 'deny', scope: 'once' })).toBe(
+      'duplicate',
+    );
+    expect(
+      reg.resolvePermission('00000000-0000-4000-8000-000000000000', {
+        behavior: 'allow',
+        scope: 'once',
+      }),
+    ).toBe('unknown');
+  });
+
+  it('allow always with a rule adds a session rule so this process does not ask again', async () => {
+    const { reg, ask, nextPrompt } = await setup();
+    const reply = ask(BASH);
+    const p = await nextPrompt();
+    reg.resolvePermission(p.requestId, {
+      behavior: 'allow',
+      scope: 'always',
+      rule: 'Bash(pnpm exec tsc -b)',
+    });
+    expect(await reply).toEqual({
+      behavior: 'allow',
+      updatedInput: BASH.input,
+      updatedPermissions: [
+        {
+          type: 'addRules',
+          rules: [{ toolName: 'Bash', ruleContent: 'pnpm exec tsc -b' }],
+          behavior: 'allow',
+          destination: 'session',
+        },
+      ],
+    });
+  });
+
+  it('deny: the human note, or the default text', async () => {
+    const { reg, ask, nextPrompt } = await setup();
+    const r1 = ask(BASH);
+    const p1 = await nextPrompt(1);
+    reg.resolvePermission(p1.requestId, {
+      behavior: 'deny',
+      scope: 'once',
+      message: '  use pnpm typecheck  ',
+    });
+    expect(await r1).toEqual({
+      behavior: 'deny',
+      message: 'Permission denied by a human on the board: use pnpm typecheck',
+    });
+    const r2 = ask(BASH);
+    const p2 = await nextPrompt(2);
+    reg.resolvePermission(p2.requestId, { behavior: 'deny', scope: 'once' });
+    expect(await r2).toEqual({ behavior: 'deny', message: PERMISSION_DENIED_ON_BOARD });
+  });
+
+  it('denies itself at the timeout; a later decision is unknown', async () => {
+    const { reg, ask, nextPrompt } = await setup({ timeoutMs: 150 });
+    const reply = ask(BASH);
+    const p = await nextPrompt();
+    expect(await reply).toEqual({ behavior: 'deny', message: permissionTimeoutText(150) });
+    expect(permissionTimeoutText(30 * 60_000)).toContain('no human answered within 30 min');
+    expect(reg.resolvePermission(p.requestId, { behavior: 'allow', scope: 'once' })).toBe(
+      'unknown',
+    );
+  });
+
+  it('U-101: input over 64 KiB is denied at once and never sent', async () => {
+    const { prompts, ask } = await setup();
+    const input = { content: 'x'.repeat(PERMISSION_INPUT_MAX_BYTES) };
+    const bytes = Buffer.byteLength(JSON.stringify(input));
+    expect(await ask({ tool_name: 'Write', input })).toEqual({
+      behavior: 'deny',
+      message: permissionTooLargeText(bytes),
+    });
+    expect(permissionTooLargeText(bytes)).toContain(`input too large to review (${bytes} bytes)`);
+    expect(prompts).toEqual([]);
+  });
+
+  it('passes suggestions within bounds, drops them over the bounds', async () => {
+    const { reg, ask, nextPrompt } = await setup();
+    const one = [{ type: 'addRules', rules: [{ toolName: 'Bash' }], behavior: 'allow' }];
+    const r1 = ask({ ...BASH, permission_suggestions: one });
+    const p1 = await nextPrompt(1);
+    expect(p1.suggestions).toEqual(one);
+    reg.resolvePermission(p1.requestId, { behavior: 'allow', scope: 'once' });
+    await r1;
+    const many = Array.from({ length: PERMISSION_SUGGESTIONS_MAX + 1 }, () => one[0]);
+    const r2 = ask({ ...BASH, permission_suggestions: many });
+    const p2 = await nextPrompt(2);
+    expect(p2.suggestions).toBeUndefined();
+    const big = [{ type: 'x', pad: 'y'.repeat(17 * 1024) }];
+    const r3 = ask({ ...BASH, permission_suggestions: big });
+    const p3 = await nextPrompt(3);
+    expect(p3.suggestions).toBeUndefined();
+    reg.resolvePermission(p2.requestId, { behavior: 'allow', scope: 'once' });
+    reg.resolvePermission(p3.requestId, { behavior: 'allow', scope: 'once' });
+    await Promise.all([r2, r3]);
+  });
+
+  it('denyPermission (an old server) denies the held call at once', async () => {
+    const { reg, ask, nextPrompt } = await setup();
+    const reply = ask(BASH);
+    const p = await nextPrompt();
+    expect(reg.denyPermission(p.requestId, PERMISSION_UNSUPPORTED_SERVER)).toBe(true);
+    expect(await reply).toEqual({ behavior: 'deny', message: PERMISSION_UNSUPPORTED_SERVER });
+    expect(reg.denyPermission(p.requestId, 'again')).toBe(false);
+  });
+
+  it('unregister (process gone) denies every held call; later prompts too', async () => {
+    const { reg, ask, nextPrompt } = await setup();
+    const a = ask(BASH);
+    const b = ask({ ...BASH, tool_use_id: 'toolu_2' });
+    await nextPrompt(2);
+    // The registration is gone, but the in-flight HTTP responses still carry the deny.
+    reg.unregister();
+    expect(await a).toEqual({ behavior: 'deny', message: PERMISSION_SESSION_ENDED });
+    expect(await b).toEqual({ behavior: 'deny', message: PERMISSION_SESSION_ENDED });
+  });
+
+  it('close (daemon shutdown) denies every held call', async () => {
+    const { server, ask, nextPrompt } = await setup();
+    const a = ask(BASH);
+    await nextPrompt();
+    srv = undefined;
+    const closed = server.close();
+    expect(await a).toEqual({ behavior: 'deny', message: PERMISSION_SHUTDOWN });
+    await closed;
+  });
+
+  it('no handler: denied at once', async () => {
+    const { ask } = await setup({ noHandler: true });
+    expect(await ask(BASH)).toEqual({ behavior: 'deny', message: PERMISSION_NO_HANDLER });
+  });
+
+  it('parses exact rules into toolName / ruleContent', () => {
+    expect(parsePermissionRule('Bash(git status)')).toEqual({
+      toolName: 'Bash',
+      ruleContent: 'git status',
+    });
+    expect(parsePermissionRule('Bash(echo (a))')).toEqual({
+      toolName: 'Bash',
+      ruleContent: 'echo (a)',
+    });
+    expect(parsePermissionRule('WebFetch')).toEqual({ toolName: 'WebFetch' });
   });
 });

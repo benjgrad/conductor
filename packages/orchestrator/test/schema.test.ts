@@ -32,6 +32,7 @@ import type {
   MachineRow,
   OutboxRow,
   PasswordResetRow,
+  PermissionRequestRow,
   SessionRow,
   Tables,
   TicketRow,
@@ -188,6 +189,7 @@ const ticket: ColumnSpec<TicketRow> = {
   status: col('ticket_status', NN),
   priority: col('int4', NN),
   kind: col('ticket_kind', NULL),
+  session_allow: col('_text', NN),
   created_at: col('timestamptz', NN),
   updated_at: col('timestamptz', NN),
 };
@@ -267,6 +269,30 @@ const outbox: ColumnSpec<OutboxRow> = {
   last_error: col(t, NULL),
   created_at: col('timestamptz', NN),
 };
+// M2-T29c: permission prompts (ADR-0023).
+const permission_request: ColumnSpec<PermissionRequestRow> = {
+  id: col('uuid', NN),
+  account_id: col('uuid', NN),
+  session_id: col('uuid', NN),
+  machine_id: col(t, NN),
+  fencing_token: col('int8', NN),
+  tool: col(t, NN),
+  input: col('jsonb', NN),
+  suggestions: col('jsonb', NN),
+  tool_use_id: col(t, NULL),
+  always_rule: col(t, NULL),
+  status: col(t, NN),
+  behavior: col(t, NULL),
+  scope: col(t, NULL),
+  message: col(t, NULL),
+  rule: col(t, NULL),
+  decided_by: col('uuid', NULL),
+  decision_command_id: col('uuid', NULL),
+  expired_reason: col(t, NULL),
+  created_at: col('timestamptz', NN),
+  expires_at: col('timestamptz', NN),
+  resolved_at: col('timestamptz', NULL),
+};
 // M2-T03: the instance-level tables (ADR-0017 §Auth: schema sketch).
 const account: ColumnSpec<AccountRow> = {
   id: col('uuid', NN),
@@ -341,6 +367,7 @@ const SCHEMA: Schema = {
   input_request,
   event,
   outbox,
+  permission_request,
   account,
   app_user,
   account_member,
@@ -591,6 +618,7 @@ describe('migrations', () => {
           'machine_alert',
           'machine_capability',
           'machine_credential',
+          'permission_request',
         ].sort(),
       );
     } finally {
@@ -657,7 +685,8 @@ describe('migrations', () => {
         { machine_id: 'm-m1b', repo: 'github.com/o/s', tree_clean: true },
       ]);
 
-      await migrate(db.url, 'down', 1);
+      // Down to just before machine-credentials (later migrations are undone first).
+      await migrate(db.url, 'down', FILES.length - migrationsBefore(MACHINE_CREDENTIALS));
       expect(await newTables()).toEqual([]);
       const machineCols = await q(
         `SELECT column_name FROM information_schema.columns
@@ -931,6 +960,26 @@ describe('schema (migrated test database)', () => {
     );
     expect(al.rows[0]).toMatchObject({ kind: 'git_tamper', cleared_at: null });
 
+    // M2-T29c permission prompts (account_id named: no default).
+    const prq = await pool.query<PermissionRequestRow>(
+      `INSERT INTO permission_request (id, account_id, session_id, machine_id, fencing_token, tool,
+         input, expires_at)
+       VALUES (gen_random_uuid(), $1, $2, 'm-rows', $3, 'Bash', '{"command":"ls"}',
+         now() + interval '30 minutes') RETURNING *`,
+      [LOCAL_ACCOUNT_ID, ses.id, ses.fencing_token],
+    );
+    expect(prq.rows[0]).toMatchObject({
+      status: 'pending',
+      suggestions: [],
+      behavior: null,
+      decided_by: null,
+      resolved_at: null,
+      fencing_token: ses.fencing_token,
+    });
+    expect((await pool.query<TicketRow>('SELECT * FROM ticket')).rows[0]?.session_allow).toEqual(
+      [],
+    );
+
     const lt = await pool.query<LoginThrottleRow>(
       "INSERT INTO login_throttle (email_norm) VALUES ('ben@example.com') RETURNING *",
     );
@@ -961,6 +1010,55 @@ describe('schema (migrated test database)', () => {
       );
     await insert();
     await expectPgError(insert(), '23505', 'outbox_command_id_key');
+  });
+
+  it('permission_request CHECKs keep status, decision and expiry consistent (M2-T29c)', async () => {
+    const pool = db.pool;
+    await pool.query(
+      `INSERT INTO machine (id, hostname, os, arch, cpu_total, mem_total_mb, disk_free_mb,
+         budget_cpu, budget_mem_mb, max_sessions, max_concurrent_builds)
+       VALUES ('m-prq', 'h', 'linux', 'x64', 1, 1, 1, 1, 1, 1, 1)`,
+    );
+    await pool.query(
+      `INSERT INTO workflow_definition (id, version, definition) VALUES ('wf_prq', 1, '{}')`,
+    );
+    const t = await pool.query<{ id: string }>(
+      "INSERT INTO ticket (repo, title, workflow_id) VALUES ('r', 't', 'wf_prq') RETURNING id",
+    );
+    const sess = await pool.query<{ id: string }>(
+      `INSERT INTO session (ticket_id, workflow_id, workflow_version) VALUES ($1, 'wf_prq', 1)
+       RETURNING id`,
+      [t.rows[0]!.id],
+    );
+    const insert = (cols: string, vals: string) =>
+      pool.query(
+        `INSERT INTO permission_request (id, account_id, session_id, machine_id, fencing_token,
+           tool, input, expires_at${cols})
+         VALUES (gen_random_uuid(), $1, $2, 'm-prq', 1, 'Bash', '{}', now()${vals})`,
+        [LOCAL_ACCOUNT_ID, sess.rows[0]!.id],
+      );
+    // Decided without a behavior; a behavior while pending; expired without a reason; a reason
+    // while pending; resolved while pending; a deny with scope always; a rule without always.
+    for (const [cols, vals] of [
+      [', status, resolved_at', ", 'allowed', now()"],
+      [', behavior, scope', ", 'allow', 'once'"],
+      [', status, resolved_at', ", 'expired', now()"],
+      [', expired_reason', ", 'timeout'"],
+      [', resolved_at', ', now()'],
+      [', status, behavior, scope, resolved_at', ", 'denied', 'deny', 'always', now()"],
+      [
+        ', status, behavior, scope, rule, resolved_at',
+        ", 'allowed', 'allow', 'once', 'Bash(ls)', now()",
+      ],
+      [', status', ", 'maybe'"],
+    ] as const) {
+      await expectPgError(insert(cols, vals), '23514');
+    }
+    await insert(
+      ', status, behavior, scope, rule, resolved_at',
+      ", 'allowed', 'allow', 'always', 'Bash(ls)', now()",
+    );
+    await insert(', status, expired_reason, resolved_at', ", 'expired', 'agent_gone', now()");
   });
 
   describe('accounts and sign-in constraints (M2-T03)', () => {

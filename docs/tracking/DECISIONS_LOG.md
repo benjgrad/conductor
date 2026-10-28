@@ -4,6 +4,8 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-28 | Lighter process: no default agent teams or separate QA agents; the lead builds, reviews diffs and runs targeted tests (CLAUDE.md slimmed) | e9d0f1f |
+| 2026-10-28 | U-100..U-102 (Ben): "Allow always" covers exact Bash commands, MCP tools, Edit/Write absolute paths (Claude Code's `//` form) and WebFetch domains; >64 KiB input is denied locally; T29c deploys before T29b | U-100, U-101, U-102 |
 | 2026-10-28 | Plan approval reuses the `$return_to` answer transition (a question transition keeps its non-empty result in context); no workflow version bump | feat-plan-approval-ui (cf880dc), TD-184, TD-185 |
 | 2026-10-28 | Raw stderr is never stored in events: the exit carries `stderr_tail`, the event row keeps only `stderr_tail_bytes`; the failure question quotes the last stderr line (≤300 chars) | fix-resume-no-conversation (7cf97f2) |
 | 2026-10-28 | A resume needs the transcript at this worktree's exact cwd-slug path; otherwise the daemon refuses `no_conversation`, the engine clears `claude_session_id`, records `conversation.reset` and requeues, and the re-claim starts fresh with the full prompt plus the pending answer | fix-resume-no-conversation (7cf97f2), U-103 |

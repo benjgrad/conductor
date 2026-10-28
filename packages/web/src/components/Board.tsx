@@ -126,6 +126,12 @@ function Card({ card, selected, onSelect, agentStates, api }: CardProps) {
         {card.spend_usd > 0 && <span>{usd(card.spend_usd)}</span>}
         <span className="age">{ago(card.updated_at)}</span>
       </div>
+      {card.sub_status === 'needs_permission' && card.permission && (
+        <span className="badge badge-permission" title={card.permission.summary}>
+          needs permission: {card.permission.tool}
+          {card.permission.pending_count > 1 ? ` (+${card.permission.pending_count - 1})` : ''}
+        </span>
+      )}
       {card.badges.includes('waiting_for_build_slot') && !waitingForBuildSlot(card) && (
         <span className="badge badge-slot">waiting for build slot</span>
       )}

@@ -22,6 +22,7 @@ import { KIND_LABELS, STATUS_LABELS } from './format.js';
 import { FreshConversation, freshConversationOffer } from './FreshConversation.js';
 import { Markdown } from './markdown.js';
 import { OutputLog } from './OutputLog.js';
+import { PermissionRequests } from './PermissionRequests.js';
 import { PlanApprovalRequest } from './PlanApprovalRequest.js';
 import { classifyRequest, lastMoveTransition, planAnswerOption } from './request-preview.js';
 import { ReviewRequest } from './ReviewRequest.js';
@@ -207,7 +208,7 @@ export function DetailPanel({
               worktree={detail.worktree_path}
               variant="chat"
               visible={tab === 'messages'}
-              tailKey={detail.pending_input?.id ?? ''}
+              tailKey={detail.pending_input?.id ?? detail.card.permission?.request_id ?? ''}
             >
               {detail.pending_input &&
                 (classifyRequest(detail.pending_input, lastMoveTransition(detail)) === 'review' ? (
@@ -237,6 +238,17 @@ export function DetailPanel({
                     onDone={reload}
                   />
                 ))}
+              {detail.card.sub_status === 'needs_permission' &&
+                detail.card.permission &&
+                detail.card.session_id !== null && (
+                  <PermissionRequests
+                    api={api}
+                    sessionId={detail.card.session_id}
+                    permission={detail.card.permission}
+                    agent={name}
+                    onDone={reload}
+                  />
+                )}
             </OutputLog>
             {/* 06 §Plan approval: the plan panel carries the buttons (other actions inside). */}
             {detail.card.session_id !== null && !planOption && (

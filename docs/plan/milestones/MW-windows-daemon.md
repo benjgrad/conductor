@@ -130,7 +130,9 @@ Shared rules for every task:
   - [ ] win32: a session kill takes down claude (the fake, via `.cmd`) and a grandchild started by its fake Bash tool.
   - [ ] A workflow command `echo $FOO && exit 3` runs in Git Bash and reports exit 3.
   - [ ] The build semaphore is released after a kill.
-  - [ ] The `az.cmd` fake is detected as present.
+  - [ ] The `az.cmd` fake is detected as present, **from a dir whose path contains a space and parentheses** (TD-191), e.g. `…\Program Files (x86)\wbin\az.cmd`.
+  - [ ] TD-190: `spawnCli` throws `ERR_CMD_UNSAFE_ARG` when a `.cmd` payload exceeds 8191 chars.
+  - [ ] U-109 decided before merge (lead): lookalike `"`/`\` refusal for `.exe` args, or a recorded no.
   - [ ] U-108 (native `claude.exe` only): with only a `claude.cmd` on PATH, `run` and the claude capability probe fail with a clear "install native Claude Code (claude.exe)" message. The test uses a fake `.cmd`.
   - [ ] On win32, `killTree` skips an already-exited ChildProcess (MW-T03), so process-runner's "reap the group after the shell exits" is a no-op there. Document this at the call site with TD-187.
   - [ ] POSIX tests unchanged and green.

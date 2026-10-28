@@ -27,7 +27,7 @@ Re-checking the current tree found more breaks than the spike listed:
 ### 1 · Platform seam
 | Module | POSIX (unchanged behaviour) | win32 |
 |---|---|---|
-| `spawn.ts` `spawnCli` | `spawn(bin, args, {detached})` | Resolve `bin` via PATH/PATHEXT. Spawn an `.exe` directly. Run a `.cmd`/`.bat` (npm `claude.cmd`, `az.cmd`) through `cmd.exe /d /s /c` with cross-spawn-style escaping. Always `windowsHide: true`, never `detached`, never `shell: true` |
+| `spawn.ts` `spawnCli` | `spawn(bin, args, {detached})` | Resolve `bin` via absolute PATH entries + PATHEXT. Spawn an `.exe` directly. Run a `.cmd`/`.bat` (`az.cmd`, test fakes; never npm `claude.cmd`, U-108) through `cmd.exe /d /v:off /s /c` with double caret escaping. Always `windowsHide: true`, never `detached`, never `shell: true` |
 | `kill-tree.ts` `killTree` | Signal the process group: SIGTERM, then SIGKILL after the grace period | `taskkill /T /F /PID <pid>`: forceful, with no grace step |
 | `shell.ts` `workflowShell` | `/bin/sh` | Git Bash `bash.exe`, from `CONDUCTOR_SHELL`, then `CLAUDE_CODE_GIT_BASH_PATH`, then relative to `git --exec-path`, then `%ProgramFiles%` / `%ProgramW6432%` / `%LOCALAPPDATA%\Programs\Git` |
 | `acl.ts` | 0600 / 0700, `lstat` and uid checks | Owner-only DACL (§3) |

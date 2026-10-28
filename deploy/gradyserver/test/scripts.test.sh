@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Checks of the deploy kit's shell scripts (M2-T07): bash -n on all of them, shellcheck when it is
 # installed, and the argument / privilege guards (nothing here touches a server or the network).
+# shellcheck disable=SC2016 # single-quoted patterns match a literal $ on purpose
 set -uo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -19,7 +20,14 @@ done
 
 if command -v shellcheck >/dev/null; then
   for f in "${scripts[@]}"; do
-    check "shellcheck ${f#"$KIT"/}" shellcheck -x "$f"
+    # Not `check`: a failure prints shellcheck's findings, so a CI log says what to fix.
+    # -P SCRIPTDIR: `# shellcheck source=lib.sh` resolves next to the script, from any cwd.
+    if sc_out="$(shellcheck -x -P SCRIPTDIR "$f" 2>&1)"; then
+      pass "shellcheck ${f#"$KIT"/}"
+    else
+      failed "shellcheck ${f#"$KIT"/}"
+      sed 's/^/        /' <<<"$sc_out"
+    fi
   done
 else
   echo "  skip  shellcheck (not installed)"

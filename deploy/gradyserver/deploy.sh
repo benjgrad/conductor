@@ -25,6 +25,8 @@
 # Env: DEPLOY_SSH (bengrady4@gradyserver.com), DEPLOY_SSH_PORT (1024),
 #      DEPLOY_DIR (deploy/conductor, relative to the remote home), SMOKE_URL
 #      (https://conductor.gradyserver.com), DEPLOY_HEALTH_TIMEOUT (180 seconds, per wait).
+# SC2029: the ssh wrappers pass a command string built here for the server; that is the point.
+# shellcheck disable=SC2029
 set -euo pipefail
 
 usage() {

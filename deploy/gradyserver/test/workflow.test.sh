@@ -2,6 +2,7 @@
 # Checks of the CI/CD workflow (.github/workflows/ci.yml): PRs and main run scripts/ci.sh, and only
 # a push to main, after the gates pass, deploys with deploy.sh, one deploy at a time. Structural
 # checks need python3 with PyYAML and are skipped without it; the text checks always run.
+# shellcheck disable=SC2016 # single-quoted patterns match a literal $ on purpose
 set -uo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"

@@ -95,8 +95,8 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 | M2-T15b | Orchestrator: invites, sign-up into new accounts, admin routes (the rest of T15) | T12, T15a | E | — | todo |
 | M2-T16 | Orchestrator: inventory ingest, routing filters in the claim, routing badge, alert ingest; gateway isolation test | T06, T09, T12, T14 | E | — | todo |
 | M2-T17 | Orchestrator: machines REST (enroll endpoint, enrollment tokens, list, rename, revoke); ticket repo check (U-048) | T08, T09, T14 | E | — | todo |
-| M2-T18 | Daemon: `service install` (launchd / systemd user), upgrade-in-place, `conductor-launch` launcher, wake reconnect; `docs/setup/add-a-machine.md` | T04, T14 | E | — | todo |
-| M2-T18b | **Contracts (auto-update)**: `update_available`, `heartbeat.draining`, `alert` kind `update_failed`, `latest.json` DTO, exit codes ([ADR-0021](../../adr/0021-daemon-auto-update.md)) | T02 | E | — | todo |
+| M2-T18 | Daemon: `service install` (launchd / systemd user), upgrade-in-place, `conductor-launch` launcher, wake reconnect; `docs/setup/add-a-machine.md` | T04, T14 | E | — | in_progress |
+| M2-T18b | **Contracts (auto-update)**: `update_available`, `heartbeat.draining`, `alert` kind `update_failed`, `latest.json` DTO, exit codes ([ADR-0021](../../adr/0021-daemon-auto-update.md)) | T02 | E | — | in_progress |
 | M2-T18c | Daemon: self-update (stage, verify, drain, switch, exit 75), launcher trial + rollback, `config auto-update`, 4005 → latest.json | T18, T18b | F | — | todo |
 | M2-T18d | Orchestrator: send `update_available` after register, `GET /downloads/latest.json`, `draining` heartbeat → `machine.status`, `update_failed` alert ingest | T14, T16, T17, T18b | F | — | todo |
 | M2-T18e | Web: Machines page shows updating (draining) and update-failed alerts | T11, T18d | G | — | todo |

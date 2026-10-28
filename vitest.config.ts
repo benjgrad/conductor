@@ -4,7 +4,13 @@ import { parseEnv } from 'node:util';
 import { defaultClientConditions, defaultServerConditions } from 'vite';
 import { defineConfig } from 'vitest/config';
 import { workersPerSlot } from './scripts/test-slot.js';
-import { asksForAll, changedFiles, namesTestFiles, planTiers } from './scripts/test-tiers.js';
+import {
+  asksForAll,
+  changedFiles,
+  moduleMockingTests,
+  namesTestFiles,
+  planTiers,
+} from './scripts/test-tiers.js';
 
 // DATABASE_URL resolution (U-021), the same order scripts/db.sh uses:
 //   process env  >  .env  >  .env.example
@@ -45,16 +51,25 @@ const skip = (name: string) => [...EXCLUDE, ...(tiers.exclude[name] ?? [])];
 
 // One vitest project per workspace package. Workspace packages are resolved from source
 // via the "source" export condition, so `pnpm test` works on a clean clone without a build.
-const nodePackage = (name: string, include = ['src/**/*.test.ts']) => ({
-  extends: true as const,
-  test: {
-    name,
-    root: `packages/${name}`,
-    include,
-    exclude: skip(name),
-    environment: 'node',
-  },
-});
+// M2-T33: `isolate: false` reuses each worker's module graph across files (shared went 61 s → 21 s:
+// every file re-imported the engine). A file that mocks modules (`vi.mock`) needs a fresh graph, so
+// those run in a sibling `<name>-isolated` project; `--project '<name>*'` selects both.
+const pkg = (name: string, include: string[], extra: { testTimeout?: number } = {}) => {
+  const root = `packages/${name}`;
+  const mocking = moduleMockingTests(fileURLToPath(new URL(root, import.meta.url)));
+  const base = { root, include, environment: 'node', ...extra };
+  const isolated = {
+    extends: true as const,
+    test: { ...base, name: `${name}-isolated`, include: mocking, exclude: skip(name) },
+  };
+  return [
+    {
+      extends: true as const,
+      test: { ...base, name, isolate: false, exclude: [...skip(name), ...mocking] },
+    },
+    ...(mocking.length > 0 ? [isolated] : []),
+  ];
+};
 
 export default defineConfig({
   // vite splits client and SSR resolution; vitest's node environment uses the SSR side.
@@ -69,25 +84,16 @@ export default defineConfig({
     maxWorkers: workersPerSlot(),
     exclude: [...EXCLUDE, 'spikes/**'],
     projects: [
-      nodePackage('shared'),
+      ...pkg('shared', ['src/**/*.test.ts']),
       // test/** holds DB integration tests and the per-run test database helper (test/db.ts).
-      nodePackage('orchestrator', ['src/**/*.test.ts', 'test/**/*.test.ts']),
+      ...pkg('orchestrator', ['src/**/*.test.ts', 'test/**/*.test.ts']),
       // Daemon tests spawn node children (fake claude, edit guard) that can stall for seconds on a
       // loaded macOS: a longer per-test timeout (U-046-style flake).
-      { ...nodePackage('daemon'), test: { ...nodePackage('daemon').test, testTimeout: 30_000 } },
+      ...pkg('daemon', ['src/**/*.test.ts'], { testTimeout: 30_000 }),
+      ...pkg('web', ['src/**/*.test.{ts,tsx}']),
       {
         extends: true,
         test: { name: 'scripts', root: '.', include: ['scripts/*.test.js'], environment: 'node' },
-      },
-      {
-        extends: true,
-        test: {
-          name: 'web',
-          root: 'packages/web',
-          include: ['src/**/*.test.{ts,tsx}'],
-          exclude: skip('web'),
-          environment: 'node',
-        },
       },
     ],
   },

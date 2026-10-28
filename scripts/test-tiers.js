@@ -8,6 +8,8 @@
 // or untracked). Anything uncertain runs more, never less: no git, no merge-base, a global file
 // changed, or file filters on the command line (`pnpm vitest run open-pr`) all run every tier.
 import { execFileSync } from 'node:child_process';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, sep } from 'node:path';
 
 /** Changing any of these runs every test. Paths are relative to the repo root. */
 export const GLOBAL_TRIGGERS = [
@@ -179,6 +181,31 @@ export function changedFiles(cwd) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Test files under `dir` that mock modules (`vi.mock` / `vi.doMock`), relative to `dir`. Without
+ * isolation a module mock can't apply once another file in the worker loaded the real module, so
+ * vitest.config.ts runs just these in an isolated project and everything else with isolate: false.
+ * @param {string} dir package root
+ */
+export function moduleMockingTests(dir) {
+  /** @type {string[]} */
+  const found = [];
+  for (const sub of ['src', 'test']) {
+    let names;
+    try {
+      names = readdirSync(join(dir, sub), { recursive: true, encoding: 'utf8' });
+    } catch {
+      continue; // no such dir in this package
+    }
+    for (const name of names) {
+      if (!/\.test\.tsx?$/.test(name) || name.includes('node_modules')) continue;
+      const rel = `${sub}/${name.split(sep).join('/')}`;
+      if (/\bvi\.(do)?[mM]ock\(/.test(readFileSync(join(dir, rel), 'utf8'))) found.push(rel);
+    }
+  }
+  return found.sort();
 }
 
 /**

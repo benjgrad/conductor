@@ -103,7 +103,7 @@ export type PackageManager = 'pnpm' | 'yarn' | 'npm';
  */
 const LOCKFILES: readonly { file: string; manager: PackageManager; install: string }[] = [
   { file: 'pnpm-lock.yaml', manager: 'pnpm', install: 'pnpm install --frozen-lockfile' },
-  // TD-172: Yarn 1.x ignores --immutable (it needs --frozen-lockfile).
+  // TD-176: Yarn 1.x ignores --immutable (it needs --frozen-lockfile).
   { file: 'yarn.lock', manager: 'yarn', install: 'yarn install --immutable' },
   { file: 'package-lock.json', manager: 'npm', install: 'npm ci' },
 ];

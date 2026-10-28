@@ -406,7 +406,8 @@ function onStarted(st: Step, commandId: string): ApplyIgnoreReason | null {
  * - no name and no declared `done`: the M1 `done` outcome;
  * - `ask_user`, or a name the agent may not take: to a human through `ask_user` (U-028 path);
  * - a `question: true` transition: its target opens an `agent_question` with the reason; the
- *   state's `result` keys and guard are not checked (it is not a finished step);
+ *   state's `result` keys and guard are not checked (it is not a finished step); a non-empty
+ *   result is still stored as `context[<state>]` (the plan a human is asked to approve);
  * - any other transition: result keys, then the guard (failed → `fail`), then it is taken.
  */
 function onComplete(
@@ -437,6 +438,9 @@ function onComplete(
       ? { transition: plan.name, reason, actor: 'agent' }
       : undefined;
   if (plan.type === 'take' && plan.question) {
+    // 05 §Transitions: a question's non-empty result (e.g. plan_needs_approval's plan) is kept, so
+    // the human can read what they are asked to approve. Its keys and guard are not checked.
+    if (Object.keys(result).length > 0) st.s.context = { ...st.s.context, [name]: result };
     takeOutcome(
       st,
       outcome,

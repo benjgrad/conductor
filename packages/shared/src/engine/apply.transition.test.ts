@@ -151,6 +151,35 @@ describe('agent transitions (conductor v2)', () => {
     },
   );
 
+  it('plan_needs_approval stores its result as context.planning (the plan to approve)', () => {
+    const h = planning('work');
+    const before = { ...h.snap.context };
+    const r = take(h, 'plan_needs_approval', 'Approve this plan?', {
+      plan: '1. add /health\n2. test it',
+      summary: 'health endpoint',
+    });
+    expect(r.snapshot.workflow_state).toBe('needs_input');
+    expect(r.snapshot.context).toEqual({
+      ...before,
+      planning: { plan: '1. add /health\n2. test it', summary: 'health endpoint' },
+    });
+  });
+
+  it('a question with an empty result leaves the context alone; a partial one is kept as is', () => {
+    const h = planning('work');
+    const before = structuredClone(h.snap.context);
+    const r = take(h, 'scope_changed', 'Split it?', {});
+    expect(r.snapshot.context).toEqual(before);
+    // No result-key check on a question: `summary` alone is fine and stored.
+    const h2 = planning('work');
+    const r2 = take(h2, 'plan_needs_approval', 'Approve?', { summary: 'only a summary' });
+    expect(r2.snapshot.workflow_state).toBe('needs_input');
+    expect(find(r2.effects, 'create_input_request')?.kind).toBe('agent_question');
+    expect((r2.snapshot.context as Record<string, unknown>).planning).toEqual({
+      summary: 'only a summary',
+    });
+  });
+
   it('a question transition without a reason still asks something', () => {
     const r = take(planning('work'), 'scope_changed', null);
     expect(find(r.effects, 'create_input_request')?.question).toBe(

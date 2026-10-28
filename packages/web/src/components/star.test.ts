@@ -215,6 +215,26 @@ describe('result (FR-4)', () => {
     expect(r.status).toBe('Waiting for you');
     expect(r.next).toBe("Your call: answer Ada's question.");
   });
+
+  it('a plan to approve is your call to approve it (06 §Plan approval)', () => {
+    const detail: SessionDetail = {
+      ...review,
+      moves: [],
+      pending_input: {
+        ...review.pending_input!,
+        origin_transition: 'plan_needs_approval',
+        question: 'Approve?',
+      },
+    };
+    const r = result(detail, AGENT);
+    expect(r.status).toBe('Waiting for you');
+    expect(r.next).toBe("Your call: approve Ada's plan or ask for changes.");
+    expect(timeline(detail, AGENT).at(-1)).toMatchObject({
+      kind: 'live',
+      label: 'Plan to approve',
+      reason: 'Approve?',
+    });
+  });
 });
 
 describe('situation (FR-1)', () => {

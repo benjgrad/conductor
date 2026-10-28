@@ -29,12 +29,12 @@ Re-checking the current tree found more breaks than the spike listed:
 |---|---|---|
 | `spawn.ts` `spawnCli` | `spawn(bin, args, {detached})` | Resolve `bin` via PATH/PATHEXT. Spawn an `.exe` directly. Run a `.cmd`/`.bat` (npm `claude.cmd`, `az.cmd`) through `cmd.exe /d /s /c` with cross-spawn-style escaping. Always `windowsHide: true`, never `detached`, never `shell: true` |
 | `kill-tree.ts` `killTree` | Signal the process group: SIGTERM, then SIGKILL after the grace period | `taskkill /T /F /PID <pid>`: forceful, with no grace step |
-| `shell.ts` `workflowShell` | `/bin/sh` | Git Bash `bash.exe`, from `CONDUCTOR_SHELL`, then `CLAUDE_CODE_GIT_BASH_PATH`, then relative to `git --exec-path`, then Program Files |
+| `shell.ts` `workflowShell` | `/bin/sh` | Git Bash `bash.exe`, from `CONDUCTOR_SHELL`, then `CLAUDE_CODE_GIT_BASH_PATH`, then relative to `git --exec-path`, then `%ProgramFiles%` / `%ProgramW6432%` / `%LOCALAPPDATA%\Programs\Git` |
 | `acl.ts` | 0600 / 0700, `lstat` and uid checks | Owner-only DACL (§3) |
 | `procinfo.ts` `readProcInfo` | `ps -ww -o lstart= -o command=` | `Get-CimInstance Win32_Process`: CreationDate, ExecutablePath, CommandLine (parsed with Windows argv rules) |
 
 `spawnCli` (MW-T03) vendors cross-spawn's approach rather than adding the package:
-- it always double-escapes cmd metacharacters, because every `.cmd` it runs forwards `%*`;
+- it always double-escapes cmd metacharacters (including `%` and `:`, so no `%NAME%` or `%NAME:…%` span can match a variable), because every `.cmd` it runs forwards `%*`. cmd runs as `/d /v:off /s /c` with `NoDefaultCurrentDirectoryInExePath=1`, so the shim's own bare commands (`node`) never resolve from the cwd;
 - it resolves a bare name only through absolute PATH entries and spawns the absolute path, so a planted `git.exe` in an agent-writable cwd never runs;
 - `cmd.exe`, `taskkill.exe` and `powershell.exe` run from `%SystemRoot%\System32`.
 

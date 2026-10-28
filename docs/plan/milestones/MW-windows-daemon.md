@@ -144,7 +144,7 @@ Shared rules for every task:
   - `daemon.kill.test.ts` runs the fake claude via `fake-bin`.
 - **Acceptance**:
   - [ ] win32: after a simulated daemon crash, the next start kills a recorded `ours` claude and spares a recorded pid that now belongs to a different process (a reused pid).
-  - [ ] Start-time comparison tolerates CIM's precision.
+  - [ ] Start-time comparison tolerates CIM's precision. Note from MW-T03 QA: `readProcInfo` truncates to whole ms and is stable across reads, but equality only holds if the **recorded** start time also comes from `readProcInfo` (right after spawn), not from `Date.now()`. A DST-ambiguous local time could be an hour off any other source.
   - [ ] Unskipped tests green on both OSes.
 
 ### MW-T07 · Credential, config, private repos, git env (N6, N7)

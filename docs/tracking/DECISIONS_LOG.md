@@ -4,6 +4,10 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-28 | "Attach a running Claude session to conductor" is a wanted future feature, unscheduled; design open as U-097 | ROADMAP §Future features |
+| 2026-10-28 | Agent names come from two pools: the account's **team** (agents already hired, reused across tickets) and the much larger **hiring pool**. A ticket gets a free teammate; conductor hires only when nobody on the team is free (UX-13a/b) | docs/plan/UX-board-and-notifications.md |
+| 2026-10-28 | Needs-input notifications: in-tab (UX-14) plus Web Push with a service worker and VAPID (UX-15/16), through the browsers' push services; no email | docs/plan/UX-board-and-notifications.md |
+| 2026-10-28 | M3 tickets go on the hosted board (conductor.gradyserver.com) in dependency waves, none before M2r is done; `scripts/create-tickets.js` posts each `### M3-Tnn` block + the M3 rules, workflow `conductor_dev`. T17 is the lead's; T18/T19 wait for M2b/M2c | TD-172, M3 §Ticket waves |
 | 2026-10-28 | Agent permissions (Ben): working agents run in auto mode; prompts go to the board via `--permission-prompt-tool` (Allow once / always / Deny); bypass only as a per-machine opt-in; pushes stay denied | ADR-0023, M2-T29..T29d |
 | 2026-10-28 | Agent settings in two layers (Ben): workflow-state profile as base, per-machine override on top, viewable and editable on the Machines page, under a daemon-local ceiling. ADR-0022 proposed | ADR-0022, M2-T28..T28e |
 | 2026-10-28 | Fresh base pulled forward: fetch per session split out of T13 as M2-T13a; `update_branch` for agents (T27) and humans (T27b); pnpm-aware checks (T30). The lead fast-forwarded the daemon clone and Hazel's (T18b) branch by hand | TD-026, M2-T13a, T27, T30 |

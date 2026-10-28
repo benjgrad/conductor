@@ -12,12 +12,14 @@
 //   4. A personal ticket: Planning → Implementing → `done` → Done; no conditions, never Waiting
 //      external, and its prompt offers only the personal transitions.
 //   5. Regression: a ticket pinned to conductor v1's definition still runs the ADR-0010 path.
+//   6. M2-T30: a personal ticket on a pnpm repo: the entry checks install with
+//      `pnpm install --frozen-lockfile` and run `npm run build` / `npm test` as pnpm → Done.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { BoardCard, TicketKind } from '../packages/shared/src/index.js';
 import { Api, BoardWatcher } from './harness/api.js';
-import { createFixtureRepo } from './harness/fixture-repo.js';
+import { createFixtureRepo, createPnpmFixtureRepo } from './harness/fixture-repo.js';
 import { FAKE_GH_URL_RE, REPO_ROOT, Stack, waitFor } from './harness/stack.js';
 
 const REAL = process.env.E2E_REAL_CLAUDE === '1';
@@ -192,11 +194,11 @@ beforeEach(({ onTestFailed }) => {
 });
 
 /** POST a conductor ticket for the fake scenario; returns the ticket id. */
-async function ticket(title: string, scenario: string, kind: TicketKind = 'work') {
+async function ticket(title: string, scenario: string, kind: TicketKind = 'work', at = repo) {
   const t = await api.createTicket({
     title,
     body: `Add a /health endpoint that returns 200.\n\nfake-scenario: ${scenario}`,
-    repo,
+    repo: at,
     kind,
   });
   expect(t.workflow_id).toBe('conductor');
@@ -490,5 +492,25 @@ describe.skipIf(REAL)('ADR-0011 transition rules (fake Claude, fake gh)', () => 
     } finally {
       if (!restored) await api.saveWorkflow(CONDUCTOR_V2_FAST);
     }
+  });
+
+  it('6. M2-T30: on a pnpm repo the checks install and run with pnpm, then Done', async () => {
+    // The fixture's build/test fail unless pnpm runs them after `pnpm install --frozen-lockfile`.
+    const pnpmRepo = createPnpmFixtureRepo(join(stack.tmp, 'pnpm-fixture-repo'));
+    const id = await ticket('Personal change on pnpm', 'personal', 'personal', pnpmRepo);
+    const done = await board.card(
+      id,
+      'done',
+      (c) => c.column === 'done' && c.status === 'done',
+      60_000,
+    );
+    const step = 'implementing → done (move: done)';
+    // Straight through: no failed check sent it back to Implementing.
+    expect(board.states(id)).toEqual(['planning', 'implementing', step, 'done']);
+    const detail = await api.session(done.session_id!);
+    expect(detail.retry_counters).toEqual({});
+    expect(detail.moves).toEqual(
+      expect.arrayContaining([expect.objectContaining({ to: 'done', transition: 'done' })]),
+    );
   });
 });

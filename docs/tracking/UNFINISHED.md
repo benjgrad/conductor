@@ -16,6 +16,14 @@ Remove the entry once the work is merged or deliberately abandoned. If abandoned
 - **Gates**: typecheck ✅ lint ✅ tests ❌ (worktree.test.ts skipped)
 -->
 
+## MW · Native Windows daemon (ADR-0024): T00–T08 done, not merged
+- **Branch / worktree**: `mw-windows-daemon` (pushed) @ `.claude/worktrees/mw-lead`. It contains `mw-t00-windows-adr` (docs + CI) and the merged `mw-t01..t04` branches; origin/main was merged in at fd9c597. The older per-task branches/worktrees (`mw-t00-windows-adr` worktree, `agent-*` worktrees of T01–T04 and their QA runs) can be removed once this merges.
+- **Done so far**: platform seam (`packages/daemon/src/platform/`: spawn, kill-tree, shell, procinfo, acl, git, hook, fs); credentials/config/private repos with owner-only DACLs; spawn/kill wiring incl. U-110 (native claude.exe only); orphan sweep via CIM; edit guard for cmd.exe + Git Bash with a 31-row win32 path table; 8.3-safe worktree reuse. `daemon-windows` Actions job green (run 40777091109): typecheck + full daemon/shared suites on windows-latest.
+- **Not done**: MW-T09 rest (main.ts SIGBREAK + `rescan` subcommand / trigger file instead of SIGHUP, win32 CPU in sysinfo, `-c core.longpaths=true`), MW-T10 (`service` on win32: Scheduled Task + conductor-launch.ps1), MW-T11 (install.ps1), MW-T12 (win32 e2e; the fresh-base fake-git test still skips with `// MW-T12`), MW-T13 (laptop smoke, answers U-106).
+- **Exact next step**: Ben reviews/merges `mw-windows-daemon` (or asks for a PR). Then, after M2-T18 (`service` subcommand) is on main: merge main into the MW branch and do MW-T09's main.ts part, then MW-T10 → MW-T11 → MW-T12.
+- **Gotchas**: the Windows job takes ~15 min (each acl check starts powershell.exe; TD-194); a push cancels the running job (concurrency group). Git Bash background jobs escape taskkill /T (TD-189; Job Objects would fix). IDs were renumbered once to avoid main's TD-187/188, U-104/105: MW owns TD-189..194, U-106..111.
+- **Gates**: Linux: typecheck ✅ lint (eslint+prettier on packages/daemon/src) ✅ `vitest --project daemon --project shared` ✅ 1349 passed. Windows: run 40777091109 ✅. Not run: full `scripts/ci.sh` (orchestrator/web/e2e untouched except the shared path schema and one web shortener, both covered by targeted tests).
+
 ## M1-T05a · Real-mode manual check (code merged; one acceptance item outstanding)
 - **Branch / worktree**: none; daemon core merged via `integrate/B` (d5841e7), wiring via M1-T07 (66ab745). Work from the main checkout or a fresh worktree off main
 - **Last commit**: 344a0c9 (main after group E, M1-T10 merged)

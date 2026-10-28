@@ -24,7 +24,7 @@
 | M2-T29 | PR #47 | in_review, QA passed with debt; merge after #44 |
 | M2-T13a | PR #48 | in_review, QA passed with debt; merge after #44 |
 | UX-3b, UX-6, M2-T15a | dogfood tickets | as of 2026-10-27 (not re-checked) |
-| MW-T00 (ADR-0024, MW milestone) | branch `mw-t00-windows-adr` | done on branch, awaiting Ben's merge; MW-T01..T04 (group A) next |
+| MW-T00..T08 (native Windows daemon) | branch `mw-windows-daemon` (pushed; worktree `.claude/worktrees/mw-lead`) | daemon core works natively on Windows: `daemon-windows` Actions green (run 40777091109) + full Linux daemon/shared green; awaiting Ben's review/merge. T09 part, T10, T11 wait for M2-T18 |
 
 ## Health
 | Open unknowns | Open blockers | Tech debt items | Unfinished handoffs |
@@ -35,7 +35,7 @@
 - M1: 18 / 18 done; awaiting sign-off. M1b: 10 / 10 done; awaiting sign-off.
 - M2 (49 rows, counted from the table): 14 done, 4 in progress (T07b, T14, T18, T18b), 2 in review (T13a PR #48, T29 PR #47), 1 split (T15), 28 todo (incl. T27, T27b, T28..T28e, T29b..d). Out-of-plan: UX-1..UX-5, BUG-1, BUG-1b, BUG-2 merged.
 - M2c, M2b: approved, not started. M3–M5: outlined.
-- MW (native Windows daemon, ADR-0024): approved 2026-10-28; 1 / 14 done (T00, on branch).
+- MW (native Windows daemon, ADR-0024): approved 2026-10-28; 9 / 14 done on `mw-windows-daemon` (T00–T08), T09 in progress, T10–T13 todo (T10/T11 after M2-T18).
 
 ## Last session
 - **Stuck-resume incident (production)**: ticket "CI/CD" (session 4b5cde62) asked for plan approval on the Mac; `start_session` timed out, gradyserver claimed it and got `--resume` for a Mac-only conversation: "No conversation found", exit 1, forever.

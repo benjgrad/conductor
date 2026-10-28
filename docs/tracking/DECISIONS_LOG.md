@@ -4,6 +4,7 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-28 | M3 tickets go on the hosted board (conductor.gradyserver.com) in dependency waves, none before M2r is done; `scripts/create-m3-tickets.js` posts each `### M3-Tnn` block + the M3 rules, workflow `conductor_dev`. T17 is the lead's; T18/T19 wait for M2b/M2c | TD-172, M3 §Ticket waves |
 | 2026-10-27 | Ben approved the M3 plan as written: ADR-0014 accepted. The order of work is M2r → M3 → the rest of M2 → M2c → M2b | ADR-0014, M3, ROADMAP |
 | 2026-10-27 | MCP rate limits: `/mcp` 120/min per grant (burst 40), 30 writes/min per grant, 300/min per account; registration 10/hour per IP; 25 active grants per user; nginx zones `conductor_mcp` / `conductor_oauth` | U-054, ADR-0014 §6 |
 | 2026-10-27 | MCP scopes `conductor:read` / `conductor:write` (write opt-in at consent). No server-side confirmation of writes; the client's tool approval is the check; every write audited with the client's name | U-069, ADR-0014 §5 |

@@ -29,6 +29,13 @@ Remove the entry once the work is merged or deliberately abandoned. If abandoned
 - **Branch / worktree**: `m1b-t01-contracts` … `m1b-t10-e2e` and 12 `worktree-agent-*` branches, with their `.claude/worktrees/*` checkouts. `git branch --no-merged main` is empty on 5c49010: every M1b task is merged, and there are no M1b WIP handoffs
 - **Exact next step**: the lead removes the merged worktrees and branches (`git worktree remove`, `git branch -d`); then delete this entry
 
+## M3 · ticket waves on the hosted board (2026-10-28)
+- **Branch / worktree**: none yet; tickets are created by `scripts/create-m3-tickets.js` on https://conductor.gradyserver.com
+- **Done so far**: the script and its dry run (16 tickets, T01–T16); nothing posted, because M2r is not done (only M2r-T01 merged)
+- **Not done**: every wave. A: T01 · B: T02, T03, T04, T05, T06, T07, T11 · C: T08 (after T02), T09 (T02+T04), T10 (T02+T03+T04) · D: T12 · E: T13 · F: T14, T15 · G: T16
+- **Exact next step**: when M2r is merged, Ben runs `! CONDUCTOR_EMAIL=<email> node scripts/create-m3-tickets.js T01` (it prompts for the password). After each merge, post the tickets whose deps are now all merged (`--dry-run` first). Wave B order: T02 T03 T04 T05 T06 T07 T11
+- **Gotchas**: no `depends_on` and no edit (TD-172), so never post a wave early. Re-running skips titles already on the board. Session cap 3 queues the rest of wave B
+
 ## M2 · dogfood tickets in flight on the board (2026-10-27)
 - **Branch / worktree**: conductor-owned branches `conductor/<ticket>/<session>` on the live board (`board-pinned`); no PRs open at 8ad36d1
 - **Done so far**: M2-T01..T10, T08b, T09b, T10b, UX-1..UX-5, BUG-1, BUG-1b, BUG-2 and the TD-111 test fix merged (PRs #1–#23)

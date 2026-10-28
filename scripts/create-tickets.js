@@ -23,7 +23,9 @@ const BASE = (process.env.CONDUCTOR_URL ?? 'https://conductor.gradyserver.com').
 const WORKFLOW = process.env.CONDUCTOR_WORKFLOW ?? 'conductor_dev';
 const REPO = 'github.com/benjgrad/conductor';
 const NOT_TICKETS = new Set(['M3-T17', 'M3-T18', 'M3-T19']); // T17 is the lead's; T18/T19 "later"
-const PRIORITY = { 'M3-T02': 1, 'UX-13a': 1, 'UX-15': 1 }; // migrations need Ben's review early
+// The M3 migration needs Ben's review early. The UX migrations (UX-13a, UX-15) stay at 0 so they
+// queue behind M2/M2r work instead of jumping it (Ben, 2026-10-28).
+const PRIORITY = { 'M3-T02': 1 };
 
 const M3_CONTRACTS =
   '- Code against the M3-T01 contracts (`shared/src/mcp/**`, `shared/src/api/oauth.ts`, `api/rest.ts`). A needed contract change is reported in the PR, never made locally.\n';

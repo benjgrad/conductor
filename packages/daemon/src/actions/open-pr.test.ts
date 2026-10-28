@@ -7,7 +7,6 @@ import {
   readFileSync,
   realpathSync,
   readdirSync,
-  rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
@@ -17,6 +16,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { assertOwnerOnly, mkdirPrivate, workflowShell } from '../platform/index.js';
 import { envWithPath } from '../test-support/fake-bin.js';
+import { removeTreeOrLeave } from '../test-support/remove-tree.js';
 import { checkClean, openPr, pushTarget, resolveHead, type OpenPrInput } from './open-pr.js';
 
 // win32 (ADR-0024): the /bin/sh fakes run under Git Bash (`workflowShell()`), and the daemon root
@@ -137,9 +137,9 @@ beforeEach(() => {
   ghCwd = join(tmp, 'daemon-root');
   mkdirPrivate(ghCwd);
   checked = git(worktree, 'rev-parse', 'HEAD').trim();
-});
+}, 60_000); // win32: many git calls plus private-dir ACLs (TD-194)
 
-afterEach(() => rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+afterEach(() => removeTreeOrLeave(tmp));
 
 function input(over: Partial<OpenPrInput> = {}): OpenPrInput {
   return {
@@ -249,7 +249,7 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
     writeFileSync(hook, `#!/bin/sh\ntouch ${marker}\nexit 1\n`);
     chmodSync(hook, 0o755);
     const r = await openPr(input());
-    expect(r).toMatchObject({ ok: true });
+    expect(r.ok ? 'ok' : r.error).toBe('ok');
     expect(existsSync(marker)).toBe(false);
     expect(hasBranch(origin)).toBe(true);
   });
@@ -257,7 +257,7 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
   it('a rewritten remote.origin.url does not redirect the push (explicit trusted URL)', async () => {
     git(clone, 'config', 'remote.origin.url', attacker);
     const r = await openPr(input());
-    expect(r).toMatchObject({ ok: true });
+    expect(r.ok ? 'ok' : r.error).toBe('ok');
     expect(hasBranch(origin)).toBe(true);
     expect(hasBranch(attacker)).toBe(false);
   });
@@ -289,7 +289,7 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
   it("the push never reads the shared clone's config: planted redirects and hooks are ignored", async () => {
     const marker = plant();
     const r = await openPr(input());
-    expect(r).toMatchObject({ ok: true });
+    expect(r.ok ? 'ok' : r.error).toBe('ok');
     expect(hasBranch(origin)).toBe(true);
     expect(hasBranch(attacker)).toBe(false);
     expect(existsSync(marker)).toBe(false);
@@ -298,7 +298,7 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
   it("a config change racing between the fetch and the push can't matter", async () => {
     let marker = '';
     const r = await openPr(input({ afterFetch: () => (marker = plant()) }));
-    expect(r).toMatchObject({ ok: true });
+    expect(r.ok ? 'ok' : r.error).toBe('ok');
     expect(marker).not.toBe('');
     expect(hasBranch(origin)).toBe(true);
     expect(hasBranch(attacker)).toBe(false);
@@ -321,7 +321,7 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
         },
       }),
     );
-    expect(r).toMatchObject({ ok: true });
+    expect(r.ok ? 'ok' : r.error).toBe('ok');
     expect(seen.startsWith(join(ghCwd, 'private', 'push-'))).toBe(true);
     expect(isPrivate).toBe(true);
     for (const k of keys) expect(k).toMatch(/^core\./);

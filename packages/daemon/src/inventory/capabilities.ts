@@ -54,7 +54,13 @@ export function probe(
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
 ): Promise<Probe> {
-  return new Promise((done) => {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (p: Probe) => {
+      if (settled) return;
+      settled = true;
+      resolve(p);
+    };
     let timedOut = false;
     let timer: NodeJS.Timeout | undefined;
     const child = execFileCli(
@@ -77,6 +83,13 @@ export function probe(
       timer = setTimeout(() => {
         timedOut = true;
         killTree(child, { signal: 'SIGKILL' });
+        // A survivor holding the pipes (win32 Git Bash job, TD-189) would keep execFile from
+        // calling back: settle anyway, shortly after the kill.
+        setTimeout(() => {
+          child.stdout?.destroy();
+          child.stderr?.destroy();
+          done({ code: null, stdout: '', missing: false });
+        }, 1_000).unref();
       }, timeoutMs);
     }
     child?.stdin?.end();

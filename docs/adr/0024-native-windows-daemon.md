@@ -39,7 +39,7 @@ Re-checking the current tree found more breaks than the spike listed:
 - `cmd.exe`, `taskkill.exe` and `powershell.exe` run from `%SystemRoot%\System32`.
 
 ### 2 · Tree kill: `taskkill /T /F`, with the orphan sweep as backstop (Ben)
-Windows has no process groups and no signals. `taskkill /T` walks the parent-pid tree, so it misses a grandchild whose parent has already exited. The orphan sweep (BUG-1b) on the next start catches daemon-owned `claude` processes. A reparented build or dev-server process can still survive. That gap is a recorded shortcut (TD-189).
+Windows has no process groups and no signals. `taskkill /T` walks the parent-pid tree, so it misses a grandchild whose parent has already exited. The orphan sweep (BUG-1b) on the next start catches daemon-owned `claude` processes. A reparented build or dev-server process can still survive. That gap is a recorded shortcut (TD-189). The Actions runner showed the worst case: a Git Bash background job (`cmd &`) loses its Windows parent link and survives `taskkill /T`. The process runner therefore stops reading 2 s after the shell exits, so a survivor can't hold a build slot. Job Objects would close the gap, since membership is inherited whatever the parent link.
 
 Job Objects (`KILL_ON_JOB_CLOSE`) would close it, but they need native code in the tarball. That is the payoff path if the gap bites.
 

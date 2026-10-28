@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +14,7 @@ import { readProcInfo } from './orphan.js';
 import { mkdirPrivate, signalTree } from './platform/index.js';
 import { DaemonStore } from './store.js';
 import { FakeOrchestrator } from './test-support/fake-orchestrator.js';
+import { removeTreeOrLeave } from './test-support/remove-tree.js';
 
 // BUG-1 FR-2: a kill for a parked agent process (ADR-0007: alive, idle, blocked reading stdin
 // for an answer) ends it and is acked. The real CLI driver against the process-boundary fake
@@ -55,7 +56,7 @@ afterEach(async () => {
   daemon?.stop();
   daemon = null;
   await orch.close();
-  rmSync(tmp, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+  await removeTreeOrLeave(tmp);
 });
 
 function makeDaemon(opts: { claudeBin?: string; log?: (m: string) => void } = {}): Daemon {

@@ -106,7 +106,7 @@ describe('edit guard', () => {
     for (const p of [join(dir, 'outside.txt'), join(wt, '..', 'x'), '/etc/hosts', `${wt}-sib/x`]) {
       const r = run({ file_path: p });
       expect(r.code, p).toBe(2);
-      expect(r.stderr).toMatch(/limited to the session worktree/);
+      expect(r.stderr).toMatch(/limited to the session worktree|start with a drive letter/);
     }
   });
 
@@ -192,7 +192,10 @@ describe.runIf(onWin32)('edit guard path forms (win32)', () => {
       [`${wt}\\new\\dir\\g.txt`, 0],
       [`${fwd(wt)}/sub\\h.txt`, 0],
       [join(wt, 'k', 'y.txt'), 0], // a junction that stays inside
-      [`${wt}.\\i.txt`, 0], // Windows strips the trailing dot: wt\i.txt
+      [`${wt}.\\i.txt`, 2], // a trailing dot (Windows would strip it): refused, fail-closed
+      [`${wt}\\.. \\x`, 2], // '.. ' is '..' to Windows: an escape if read as a name
+      [`${wt}\\sub\\.. \\.. \\x`, 2],
+      [`${wt}\\name \\x`, 2],
       [join(dir, 'outside.txt'), 2],
       [`${wt}\\..\\x`, 2],
       [`${wt}-sib\\x`, 2],

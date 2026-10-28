@@ -26,6 +26,8 @@ export interface ProcessCommandRunnerOptions {
 }
 
 const DEFAULT_KILL_GRACE_MS = 5_000;
+/** After the shell exits, how long its output may keep draining before the pipes are closed. */
+const DRAIN_MS = 2_000;
 
 export class ProcessCommandRunner implements CommandRunner {
   readonly maxConcurrent: number;
@@ -154,6 +156,14 @@ export class ProcessCommandRunner implements CommandRunner {
         // Reap anything the shell left behind in its group (it would hold the pipes open and
         // keep running outside the semaphore).
         killGroup('SIGKILL');
+        // A leftover that survived (win32: a Git Bash background job escapes taskkill /T,
+        // TD-189) keeps the pipes open and 'close' never comes: stop reading after a drain
+        // period so the build slot is always released.
+        setTimeout(() => {
+          child.stdout.destroy();
+          child.stderr.destroy();
+          child.emit('close', code, signal);
+        }, DRAIN_MS).unref();
       });
 
       child.once('close', (code: number | null, signal: NodeJS.Signals | null) => {

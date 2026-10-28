@@ -26,6 +26,7 @@ import {
 } from './cli-driver.js';
 import { assertOwnerOnly } from '../platform/index.js';
 import { writeFakeBin } from '../test-support/fake-bin.js';
+import { removeTreeOrLeave } from '../test-support/remove-tree.js';
 import type { DriverEvent, DriverStartOptions, ToolPolicy } from './driver.js';
 import {
   ASK_USER_TOOL,
@@ -69,7 +70,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   for (const s of live.splice(0)) s.kill(0);
-  rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  return removeTreeOrLeave(dir);
 });
 
 type Scenario = unknown[][] | { turns: unknown[][]; costPerTurnUsd?: number };
@@ -472,7 +473,9 @@ describe('createCliDriver against fake-claude', () => {
     };
     const [entry] = settings.hooks.PreToolUse;
     expect(entry?.matcher).toBe('Edit|Write|MultiEdit|NotebookEdit');
-    expect(entry?.hooks[0]?.command).toContain(`'${dir}'`);
+    expect(entry?.hooks[0]?.command).toContain(
+      onWin32 ? `"${dir.replace(/\\/g, '/')}"` : `'${dir}'`,
+    );
 
     s.kill(1_000);
     await t.exit();

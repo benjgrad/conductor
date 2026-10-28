@@ -62,6 +62,13 @@ const winCanon = (raw, depth = 0) => {
   if (!/^[A-Za-z]:[\\/]/.test(raw)) {
     deny('file paths must start with a drive letter (C:\\...); refused ' + raw);
   }
+  // Win32 strips trailing dots and spaces from a component ('.. ' is '..'), which textual
+  // resolution would read as a literal name: refuse such components rather than model it.
+  for (const part of raw.slice(3).split(/[\\/]+/)) {
+    if (part !== '.' && part !== '..' && /[. ]$/.test(part)) {
+      deny('path components ending in a dot or space are refused: ' + raw);
+    }
+  }
   // Win32 normalises '.' and '..' textually before the file system follows any link, so do the
   // same first: C:\wt\link\..\..\x is C:\x whatever 'link' points at.
   const p = resolve(raw);

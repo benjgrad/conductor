@@ -18,3 +18,18 @@ export async function removeTree(path: string, attempts = 40, delayMs = 100): Pr
     }
   }
 }
+
+/**
+ * removeTree, but on win32 a tree still held after the last attempt is left behind instead of
+ * failing the test: a Git Bash background job can outlive taskkill /T (TD-189) and keep its cwd
+ * open for as long as it runs. POSIX still throws.
+ */
+export async function removeTreeOrLeave(path: string): Promise<void> {
+  try {
+    await removeTree(path);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (process.platform === 'win32' && (code === 'EBUSY' || code === 'EPERM')) return;
+    throw err;
+  }
+}

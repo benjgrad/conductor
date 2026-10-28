@@ -17,6 +17,10 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { checkClean, openPr, pushTarget, resolveHead, type OpenPrInput } from './open-pr.js';
 
+// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
+// the task that unskips them.
+const onWin32 = process.platform === 'win32';
+
 // ADR-0010 open_pr against a local bare repo as the ticket's repo and a fake `gh` first on PATH:
 // no network, no GitHub. The fake records argv + cwd and keeps "the PR" in a state file. Includes
 // the security review's hardening cases: planted hooks and repo-config redirects don't work.
@@ -137,7 +141,8 @@ const ghCalls = () =>
         })
     : [];
 
-describe('open_pr (ADR-0010)', () => {
+// MW-T07: git env (autocrlf), fake gh and 0700 push repo are POSIX
+describe.skipIf(onWin32)('open_pr (ADR-0010)', () => {
   it('pushes the branch to the ticket repo and opens the PR with gh --repo/--head/--base', async () => {
     const r = await openPr(input());
     expect(r).toEqual({
@@ -212,24 +217,32 @@ describe('open_pr (ADR-0010)', () => {
 });
 
 describe('open_pr hardening (security review 2026-10-23)', () => {
-  it('an agent-planted pre-push hook in the shared clone does not run', async () => {
-    const marker = join(tmp, 'hook-ran');
-    const hook = join(clone, '.git', 'hooks', 'pre-push');
-    writeFileSync(hook, `#!/bin/sh\ntouch ${marker}\nexit 1\n`);
-    chmodSync(hook, 0o755);
-    const r = await openPr(input());
-    expect(r.ok).toBe(true);
-    expect(existsSync(marker)).toBe(false);
-    expect(hasBranch(origin)).toBe(true);
-  });
+  // MW-T07: git env (autocrlf), fake gh and 0700 push repo are POSIX
+  it.skipIf(onWin32)(
+    'an agent-planted pre-push hook in the shared clone does not run',
+    async () => {
+      const marker = join(tmp, 'hook-ran');
+      const hook = join(clone, '.git', 'hooks', 'pre-push');
+      writeFileSync(hook, `#!/bin/sh\ntouch ${marker}\nexit 1\n`);
+      chmodSync(hook, 0o755);
+      const r = await openPr(input());
+      expect(r.ok).toBe(true);
+      expect(existsSync(marker)).toBe(false);
+      expect(hasBranch(origin)).toBe(true);
+    },
+  );
 
-  it('a rewritten remote.origin.url does not redirect the push (explicit trusted URL)', async () => {
-    git(clone, 'config', 'remote.origin.url', attacker);
-    const r = await openPr(input());
-    expect(r.ok).toBe(true);
-    expect(hasBranch(origin)).toBe(true);
-    expect(hasBranch(attacker)).toBe(false);
-  });
+  // MW-T07: git env (autocrlf), fake gh and 0700 push repo are POSIX
+  it.skipIf(onWin32)(
+    'a rewritten remote.origin.url does not redirect the push (explicit trusted URL)',
+    async () => {
+      git(clone, 'config', 'remote.origin.url', attacker);
+      const r = await openPr(input());
+      expect(r.ok).toBe(true);
+      expect(hasBranch(origin)).toBe(true);
+      expect(hasBranch(attacker)).toBe(false);
+    },
+  );
 
   /** Plant everything an agent could write into the shared clone to hijack the push. */
   function plant(): string {
@@ -255,87 +268,109 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
     return marker;
   }
 
-  it("the push never reads the shared clone's config: planted redirects and hooks are ignored", async () => {
-    const marker = plant();
-    const r = await openPr(input());
-    expect(r.ok).toBe(true);
-    expect(hasBranch(origin)).toBe(true);
-    expect(hasBranch(attacker)).toBe(false);
-    expect(existsSync(marker)).toBe(false);
-  });
+  // MW-T07: git env (autocrlf), fake gh and 0700 push repo are POSIX
+  it.skipIf(onWin32)(
+    "the push never reads the shared clone's config: planted redirects and hooks are ignored",
+    async () => {
+      const marker = plant();
+      const r = await openPr(input());
+      expect(r.ok).toBe(true);
+      expect(hasBranch(origin)).toBe(true);
+      expect(hasBranch(attacker)).toBe(false);
+      expect(existsSync(marker)).toBe(false);
+    },
+  );
 
-  it("a config change racing between the fetch and the push can't matter", async () => {
-    let marker = '';
-    const r = await openPr(input({ afterFetch: () => (marker = plant()) }));
-    expect(r.ok).toBe(true);
-    expect(marker).not.toBe('');
-    expect(hasBranch(origin)).toBe(true);
-    expect(hasBranch(attacker)).toBe(false);
-    expect(existsSync(marker)).toBe(false);
-  });
+  // MW-T07: git env (autocrlf), fake gh and 0700 push repo are POSIX
+  it.skipIf(onWin32)(
+    "a config change racing between the fetch and the push can't matter",
+    async () => {
+      let marker = '';
+      const r = await openPr(input({ afterFetch: () => (marker = plant()) }));
+      expect(r.ok).toBe(true);
+      expect(marker).not.toBe('');
+      expect(hasBranch(origin)).toBe(true);
+      expect(hasBranch(attacker)).toBe(false);
+      expect(existsSync(marker)).toBe(false);
+    },
+  );
 
-  it("the push repo is a fresh 0700 dir under <root>/private with git's minimal config, deleted after", async () => {
-    let seen = '';
-    let mode = 0;
-    let keys: string[] = [];
-    const r = await openPr(
-      input({
-        afterFetch: (priv) => {
-          seen = priv;
-          mode = statSync(priv).mode & 0o777;
-          keys = git(priv, 'config', '--local', '--list')
-            .trim()
-            .split('\n')
-            .map((l) => l.split('=')[0]!);
-        },
-      }),
-    );
-    expect(r.ok).toBe(true);
-    expect(seen.startsWith(join(ghCwd, 'private', 'push-'))).toBe(true);
-    expect(mode).toBe(0o700);
-    for (const k of keys) expect(k).toMatch(/^core\./);
-    expect(existsSync(seen)).toBe(false);
-    expect(readdirSync(join(ghCwd, 'private'))).toEqual([]);
-  });
+  // MW-T07: git env (autocrlf), fake gh and 0700 push repo are POSIX
+  it.skipIf(onWin32)(
+    "the push repo is a fresh 0700 dir under <root>/private with git's minimal config, deleted after",
+    async () => {
+      let seen = '';
+      let mode = 0;
+      let keys: string[] = [];
+      const r = await openPr(
+        input({
+          afterFetch: (priv) => {
+            seen = priv;
+            mode = statSync(priv).mode & 0o777;
+            keys = git(priv, 'config', '--local', '--list')
+              .trim()
+              .split('\n')
+              .map((l) => l.split('=')[0]!);
+          },
+        }),
+      );
+      expect(r.ok).toBe(true);
+      expect(seen.startsWith(join(ghCwd, 'private', 'push-'))).toBe(true);
+      expect(mode).toBe(0o700);
+      for (const k of keys) expect(k).toMatch(/^core\./);
+      expect(existsSync(seen)).toBe(false);
+      expect(readdirSync(join(ghCwd, 'private'))).toEqual([]);
+    },
+  );
 
-  it('a symlinked <root>/private is refused (nothing followed, nothing pushed)', async () => {
-    const elsewhere = join(tmp, 'elsewhere');
-    mkdirSync(elsewhere);
-    symlinkSync(elsewhere, join(ghCwd, 'private'));
-    const r = await openPr(input());
-    expect(!r.ok && r.error).toContain('private push repo');
-    expect(readdirSync(elsewhere)).toEqual([]);
-    expect(hasBranch(origin)).toBe(false);
-  });
+  // MW-T07: git env (autocrlf), fake gh and 0700 push repo are POSIX
+  it.skipIf(onWin32)(
+    'a symlinked <root>/private is refused (nothing followed, nothing pushed)',
+    async () => {
+      const elsewhere = join(tmp, 'elsewhere');
+      mkdirSync(elsewhere);
+      symlinkSync(elsewhere, join(ghCwd, 'private'));
+      const r = await openPr(input());
+      expect(!r.ok && r.error).toContain('private push repo');
+      expect(readdirSync(elsewhere)).toEqual([]);
+      expect(hasBranch(origin)).toBe(false);
+    },
+  );
 
-  it('pushes exactly the checked commit', async () => {
+  // MW-T07: git env (autocrlf), fake gh and 0700 push repo are POSIX
+  it.skipIf(onWin32)('pushes exactly the checked commit', async () => {
     const r = await openPr(input());
     expect(r.ok).toBe(true);
     expect(git(origin, 'rev-parse', `refs/heads/${BRANCH}`).trim()).toBe(checked);
   });
 
-  it('a commit made after the checks makes the action refuse; nothing is pushed', async () => {
-    writeFileSync(join(worktree, 'sneaky.txt'), 'unchecked\n');
-    git(worktree, 'add', '.');
-    git(
-      worktree,
-      '-c',
-      'user.email=t@localhost',
-      '-c',
-      'user.name=t',
-      'commit',
-      '--quiet',
-      '-m',
-      'after the checks',
-    );
-    const r = await openPr(input());
-    expect(r.ok).toBe(false);
-    expect(!r.ok && r.error).toContain('the branch moved after the checks');
-    expect(hasBranch(origin)).toBe(false);
-    expect(ghCalls()).toEqual([]);
-  });
+  // MW-T07: git env (autocrlf), fake gh and 0700 push repo are POSIX
+  it.skipIf(onWin32)(
+    'a commit made after the checks makes the action refuse; nothing is pushed',
+    async () => {
+      writeFileSync(join(worktree, 'sneaky.txt'), 'unchecked\n');
+      git(worktree, 'add', '.');
+      git(
+        worktree,
+        '-c',
+        'user.email=t@localhost',
+        '-c',
+        'user.name=t',
+        'commit',
+        '--quiet',
+        '-m',
+        'after the checks',
+      );
+      const r = await openPr(input());
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.error).toContain('the branch moved after the checks');
+      expect(hasBranch(origin)).toBe(false);
+      expect(ghCalls()).toEqual([]);
+    },
+  );
 
-  it('a gh URL that is not a GitHub PR URL is not reported', async () => {
+  // MW-T07: git env (autocrlf), fake gh and 0700 push repo are POSIX
+  it.skipIf(onWin32)('a gh URL that is not a GitHub PR URL is not reported', async () => {
     const r = await openPr(
       input({ env: { ...input().env, FAKE_GH_URL: 'https://evil.example/x' } }),
     );
@@ -350,7 +385,8 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
 });
 
 describe('checkClean (ADR-0010: only committed changes are checked)', () => {
-  it('a clean tree reports its HEAD', async () => {
+  // MW-T07: git env (autocrlf), fake gh and 0700 push repo are POSIX
+  it.skipIf(onWin32)('a clean tree reports its HEAD', async () => {
     expect(await checkClean(worktree)).toEqual({ head: checked, dirty: null });
   });
 
@@ -363,7 +399,8 @@ describe('checkClean (ADR-0010: only committed changes are checked)', () => {
     expect(r.dirty).toEqual(expect.arrayContaining([' M health.txt', '?? new/x.txt']));
   });
 
-  it(".gitignore'd files (build outputs) do not count", async () => {
+  // MW-T07: git env (autocrlf), fake gh and 0700 push repo are POSIX
+  it.skipIf(onWin32)(".gitignore'd files (build outputs) do not count", async () => {
     writeFileSync(join(worktree, '.gitignore'), 'dist/\nnode_modules/\n');
     git(worktree, 'add', '.gitignore');
     git(
@@ -403,24 +440,33 @@ describe('checkClean (ADR-0010: only committed changes are checked)', () => {
     expect(r.dirty).toEqual(expect.arrayContaining(['hidden (S): health.txt']));
   });
 
-  it('an untracked file listed in .git/info/exclude (shared clone) is dirty', async () => {
-    mkdirSync(join(clone, '.git', 'info'), { recursive: true });
-    writeFileSync(join(clone, '.git', 'info', 'exclude'), 'sneaky.txt\n');
-    writeFileSync(join(worktree, 'sneaky.txt'), 'x');
-    const r = await checkClean(worktree);
-    expect(r.head).toBeNull();
-    expect(r.dirty).toEqual(['?? sneaky.txt']);
-  });
+  // MW-T07: git env (autocrlf), fake gh and 0700 push repo are POSIX
+  it.skipIf(onWin32)(
+    'an untracked file listed in .git/info/exclude (shared clone) is dirty',
+    async () => {
+      mkdirSync(join(clone, '.git', 'info'), { recursive: true });
+      writeFileSync(join(clone, '.git', 'info', 'exclude'), 'sneaky.txt\n');
+      writeFileSync(join(worktree, 'sneaky.txt'), 'x');
+      const r = await checkClean(worktree);
+      expect(r.head).toBeNull();
+      expect(r.dirty).toEqual(['?? sneaky.txt']);
+    },
+  );
 
-  it('QA 1a: an uncommitted .gitignore that ignores itself (and a file) is dirty', async () => {
-    writeFileSync(join(worktree, '.gitignore'), '.gitignore\nsneaky.txt\n');
-    writeFileSync(join(worktree, 'sneaky.txt'), 'x');
-    const r = await checkClean(worktree);
-    expect(r.head).toBeNull();
-    expect(r.dirty).toEqual(['?? .gitignore (ignores itself)']);
-  });
+  // MW-T07: git env (autocrlf), fake gh and 0700 push repo are POSIX
+  it.skipIf(onWin32)(
+    'QA 1a: an uncommitted .gitignore that ignores itself (and a file) is dirty',
+    async () => {
+      writeFileSync(join(worktree, '.gitignore'), '.gitignore\nsneaky.txt\n');
+      writeFileSync(join(worktree, 'sneaky.txt'), 'x');
+      const r = await checkClean(worktree);
+      expect(r.head).toBeNull();
+      expect(r.dirty).toEqual(['?? .gitignore (ignores itself)']);
+    },
+  );
 
-  it('QA 1a: a nested self-ignoring .gitignore is dirty too', async () => {
+  // MW-T07: git env (autocrlf), fake gh and 0700 push repo are POSIX
+  it.skipIf(onWin32)('QA 1a: a nested self-ignoring .gitignore is dirty too', async () => {
     mkdirSync(join(worktree, 'deep'));
     writeFileSync(join(worktree, 'deep', '.gitignore'), '*\n');
     writeFileSync(join(worktree, 'deep', 'x.txt'), 'x');
@@ -428,54 +474,66 @@ describe('checkClean (ADR-0010: only committed changes are checked)', () => {
     expect(r.dirty).toEqual(['?? deep/.gitignore (ignores itself)']);
   });
 
-  it('QA 1b: submodule changes hidden by submodule.<name>.ignore=all are dirty', async () => {
-    const sub = join(tmp, 'subrepo');
-    mkdirSync(sub);
-    git(sub, 'init', '--quiet', '-b', 'main');
-    writeFileSync(join(sub, 'a.txt'), '1\n');
-    git(sub, 'add', '.');
-    git(sub, '-c', 'user.email=t@localhost', '-c', 'user.name=t', 'commit', '--quiet', '-m', 's');
-    git(worktree, '-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', sub, 'sub');
-    git(
-      worktree,
-      '-c',
-      'user.email=t@localhost',
-      '-c',
-      'user.name=t',
-      'commit',
-      '--quiet',
-      '-m',
-      'sub',
-    );
-    expect((await checkClean(worktree)).dirty).toBeNull();
-    // A change inside the submodule, hidden by agent-writable config.
-    writeFileSync(join(worktree, 'sub', 'a.txt'), '2\n');
-    git(clone, 'config', 'submodule.sub.ignore', 'all');
-    git(clone, 'config', 'diff.ignoreSubmodules', 'all');
-    expect(git(worktree, 'status', '--porcelain').trim()).toBe(''); // hidden from a plain status
-    const r = await checkClean(worktree);
-    expect(r.head).toBeNull();
-    expect(r.dirty).toEqual([' M sub']);
-  });
+  // MW-T07: git env (autocrlf), fake gh and 0700 push repo are POSIX
+  it.skipIf(onWin32)(
+    'QA 1b: submodule changes hidden by submodule.<name>.ignore=all are dirty',
+    async () => {
+      const sub = join(tmp, 'subrepo');
+      mkdirSync(sub);
+      git(sub, 'init', '--quiet', '-b', 'main');
+      writeFileSync(join(sub, 'a.txt'), '1\n');
+      git(sub, 'add', '.');
+      git(sub, '-c', 'user.email=t@localhost', '-c', 'user.name=t', 'commit', '--quiet', '-m', 's');
+      git(worktree, '-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', sub, 'sub');
+      git(
+        worktree,
+        '-c',
+        'user.email=t@localhost',
+        '-c',
+        'user.name=t',
+        'commit',
+        '--quiet',
+        '-m',
+        'sub',
+      );
+      expect((await checkClean(worktree)).dirty).toBeNull();
+      // A change inside the submodule, hidden by agent-writable config.
+      writeFileSync(join(worktree, 'sub', 'a.txt'), '2\n');
+      git(clone, 'config', 'submodule.sub.ignore', 'all');
+      git(clone, 'config', 'diff.ignoreSubmodules', 'all');
+      expect(git(worktree, 'status', '--porcelain').trim()).toBe(''); // hidden from a plain status
+      const r = await checkClean(worktree);
+      expect(r.head).toBeNull();
+      expect(r.dirty).toEqual([' M sub']);
+    },
+  );
 
-  it('an untracked file matched by a repo-config core.excludesFile is dirty', async () => {
-    writeFileSync(join(tmp, 'evil-excludes'), 'sneaky.txt\n');
-    git(clone, 'config', 'core.excludesFile', join(tmp, 'evil-excludes'));
-    writeFileSync(join(worktree, 'sneaky.txt'), 'x');
-    const r = await checkClean(worktree);
-    expect(r.head).toBeNull();
-    expect(r.dirty).toEqual(['?? sneaky.txt']);
-  });
+  // MW-T07: git env (autocrlf), fake gh and 0700 push repo are POSIX
+  it.skipIf(onWin32)(
+    'an untracked file matched by a repo-config core.excludesFile is dirty',
+    async () => {
+      writeFileSync(join(tmp, 'evil-excludes'), 'sneaky.txt\n');
+      git(clone, 'config', 'core.excludesFile', join(tmp, 'evil-excludes'));
+      writeFileSync(join(worktree, 'sneaky.txt'), 'x');
+      const r = await checkClean(worktree);
+      expect(r.head).toBeNull();
+      expect(r.dirty).toEqual(['?? sneaky.txt']);
+    },
+  );
 
-  it('a planted core.fsmonitor / hooks in the shared clone do not run', async () => {
-    const marker = join(tmp, 'pwned');
-    git(clone, 'config', 'core.fsmonitor', `touch ${marker}`);
-    git(clone, 'config', 'core.hooksPath', tmp);
-    writeFileSync(join(worktree, 'health.txt'), 'changed\n');
-    const r = await checkClean(worktree);
-    expect(r.dirty).toEqual([' M health.txt']);
-    expect(existsSync(marker)).toBe(false);
-  });
+  // MW-T07: git env (autocrlf), fake gh and 0700 push repo are POSIX
+  it.skipIf(onWin32)(
+    'a planted core.fsmonitor / hooks in the shared clone do not run',
+    async () => {
+      const marker = join(tmp, 'pwned');
+      git(clone, 'config', 'core.fsmonitor', `touch ${marker}`);
+      git(clone, 'config', 'core.hooksPath', tmp);
+      writeFileSync(join(worktree, 'health.txt'), 'changed\n');
+      const r = await checkClean(worktree);
+      expect(r.dirty).toEqual([' M health.txt']);
+      expect(existsSync(marker)).toBe(false);
+    },
+  );
 
   it('a non-allowlisted repo (local path, another host) is a clear error, nothing pushed', async () => {
     const local = await openPr(input({ policy: { allowLocalRepos: false } }));

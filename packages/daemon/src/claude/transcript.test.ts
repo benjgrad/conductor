@@ -24,6 +24,10 @@ import {
   transcriptPathFor,
 } from './transcript.js';
 
+// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
+// the task that unskips them.
+const onWin32 = process.platform === 'win32';
+
 const FIXTURE = resolve(
   fileURLToPath(new URL('.', import.meta.url)),
   '../../test/fixtures/transcript.jsonl',
@@ -115,7 +119,8 @@ describe('transcriptChunks (ADR-0008)', () => {
 });
 
 describe('findTranscript', () => {
-  it('uses the realpath slug of the cwd, even when the worktree is gone', () => {
+  // MW-T09: transcript slug of a drive-letter path
+  it.skipIf(onWin32)('uses the realpath slug of the cwd, even when the worktree is gone', () => {
     const root = tmp();
     const config = join(root, 'claude');
     const real = join(root, 'real');

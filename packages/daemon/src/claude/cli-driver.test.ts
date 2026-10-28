@@ -29,6 +29,10 @@ import {
   type OutcomeServer,
 } from './outcome-server.js';
 
+// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
+// the task that unskips them.
+const onWin32 = process.platform === 'win32';
+
 const FAKE = fileURLToPath(new URL('../../test/fixtures/fake-claude.mjs', import.meta.url));
 /** The fake reads its script from these state-env keys; production drops them (STATE_ENV_ALLOWED). */
 const FAKE_ENV = /^FAKE_CLAUDE_/;
@@ -228,44 +232,49 @@ describe('createCliDriver against fake-claude', () => {
       extraStateEnv: FAKE_ENV,
     });
 
-  it('ADR-0011: an unknown transition is nudged once, then the named one is forwarded with its reason', async () => {
-    const o = opts(
-      [
+  // MW-T05: fake claude is a shebang script (spawn EFTYPE)
+  it.skipIf(onWin32)(
+    'ADR-0011: an unknown transition is nudged once, then the named one is forwarded with its reason',
+    async () => {
+      const o = opts(
         [
-          { complete_state: { x: 1 }, transition: 'ship_it' },
-          { complete_state: { x: 2 }, transition: 'plan_ready', reason: 'Plan done: $answer' },
+          [
+            { complete_state: { x: 1 }, transition: 'ship_it' },
+            { complete_state: { x: 2 }, transition: 'plan_ready', reason: 'Plan done: $answer' },
+          ],
         ],
-      ],
-      {
-        prompt: 'go',
-        transitions: [
-          { name: 'plan_ready', when: 'The plan is complete.', question: false },
-          { name: 'scope_changed', when: 'The scope changed.', question: true },
-        ],
-      },
-    );
-    const s = driver().start(o);
-    const t = track(s);
-    await t.turnEnds(1);
-    expect(t.events.filter((e) => e.kind === 'complete_state')).toEqual([
-      {
-        kind: 'complete_state',
-        result: { x: 2 },
-        transition: 'plan_ready',
-        reason: 'Plan done: go',
-      },
-    ]);
-    expect(
-      t.events.some(
-        (e) =>
-          e.kind === 'output' &&
-          e.stream === 'tool_result' &&
-          e.text.includes('"ship_it" is not a transition you can take here'),
-      ),
-    ).toBe(true);
-  });
+        {
+          prompt: 'go',
+          transitions: [
+            { name: 'plan_ready', when: 'The plan is complete.', question: false },
+            { name: 'scope_changed', when: 'The scope changed.', question: true },
+          ],
+        },
+      );
+      const s = driver().start(o);
+      const t = track(s);
+      await t.turnEnds(1);
+      expect(t.events.filter((e) => e.kind === 'complete_state')).toEqual([
+        {
+          kind: 'complete_state',
+          result: { x: 2 },
+          transition: 'plan_ready',
+          reason: 'Plan done: go',
+        },
+      ]);
+      expect(
+        t.events.some(
+          (e) =>
+            e.kind === 'output' &&
+            e.stream === 'tool_result' &&
+            e.text.includes('"ship_it" is not a transition you can take here'),
+        ),
+      ).toBe(true);
+    },
+  );
 
-  it('ask_user → park → sendInput → complete_state → end() → exit 0', async () => {
+  // MW-T05: fake claude is a shebang script (spawn EFTYPE)
+  it.skipIf(onWin32)('ask_user → park → sendInput → complete_state → end() → exit 0', async () => {
     const o = opts([
       [{ say: 'Need a decision.' }, { ask_user: 'Which colour?' }],
       [{ complete_state: { colour: '$answer' } }],
@@ -339,65 +348,81 @@ describe('createCliDriver against fake-claude', () => {
     expect(first?.env.ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false'); // ADR-0006
   });
 
-  it('ADR-0007: sendMessage is folded into the running turn (a slash command passes through)', async () => {
-    const o = opts([
-      [
-        { say: 'working' },
-        { await_message: true },
-        { say: 'got $message' },
-        { complete_state: { message: '$message' } },
-      ],
-    ]);
-    const s = driver().start(o);
-    const t = track(s);
-    await t.waitFor((e) => e.kind === 'output' && e.text === 'working');
-    s.sendMessage('/context');
-    await t.turnEnds(1);
-    expect(t.events).toContainEqual({ kind: 'output', stream: 'assistant', text: 'got /context' });
-    expect(t.events).toContainEqual({ kind: 'complete_state', result: { message: '/context' } });
-    expect(t.events.filter((e) => e.kind === 'turn_end')).toHaveLength(1);
-    s.end();
-    await t.exit();
-    expect(() => s.sendMessage('late')).toThrow(/no live process/);
-  });
+  // MW-T05: fake claude is a shebang script (spawn EFTYPE)
+  it.skipIf(onWin32)(
+    'ADR-0007: sendMessage is folded into the running turn (a slash command passes through)',
+    async () => {
+      const o = opts([
+        [
+          { say: 'working' },
+          { await_message: true },
+          { say: 'got $message' },
+          { complete_state: { message: '$message' } },
+        ],
+      ]);
+      const s = driver().start(o);
+      const t = track(s);
+      await t.waitFor((e) => e.kind === 'output' && e.text === 'working');
+      s.sendMessage('/context');
+      await t.turnEnds(1);
+      expect(t.events).toContainEqual({
+        kind: 'output',
+        stream: 'assistant',
+        text: 'got /context',
+      });
+      expect(t.events).toContainEqual({ kind: 'complete_state', result: { message: '/context' } });
+      expect(t.events.filter((e) => e.kind === 'turn_end')).toHaveLength(1);
+      s.end();
+      await t.exit();
+      expect(() => s.sendMessage('late')).toThrow(/no live process/);
+    },
+  );
 
-  it('ADR-0007: sendMessage is not an answer: a pending ask_user question stays pending', async () => {
-    const o = opts([[{ ask_user: 'Which colour?' }], [{ complete_state: { colour: 'x' } }]]);
-    const s = driver().start(o);
-    const t = track(s);
-    await t.turnEnds(1);
-    s.sendMessage('what are you doing?');
-    await t.turnEnds(2);
-    // The outcome server refused the complete_state (question still pending), so none surfaced.
-    expect(t.events.some((e) => e.kind === 'complete_state')).toBe(false);
-    s.end();
-    await t.exit();
-  });
+  // MW-T05: fake claude is a shebang script (spawn EFTYPE)
+  it.skipIf(onWin32)(
+    'ADR-0007: sendMessage is not an answer: a pending ask_user question stays pending',
+    async () => {
+      const o = opts([[{ ask_user: 'Which colour?' }], [{ complete_state: { colour: 'x' } }]]);
+      const s = driver().start(o);
+      const t = track(s);
+      await t.turnEnds(1);
+      s.sendMessage('what are you doing?');
+      await t.turnEnds(2);
+      // The outcome server refused the complete_state (question still pending), so none surfaced.
+      expect(t.events.some((e) => e.kind === 'complete_state')).toBe(false);
+      s.end();
+      await t.exit();
+    },
+  );
 
-  it('ADR-0006: --settings is the edit-guard hook for the worktree, beside mcp.json, removed on exit', async () => {
-    const o = opts([[{ say: 'up' }, { hang: true }]]);
-    // a state env can't turn the claude.ai connectors back on
-    const s = driver().start({ ...o, env: { ...o.env, ENABLE_CLAUDEAI_MCP_SERVERS: 'true' } });
-    const t = track(s);
-    await t.waitFor((e) => e.kind === 'output' && e.text === 'up');
+  // MW-T05: fake claude is a shebang script (spawn EFTYPE)
+  it.skipIf(onWin32)(
+    'ADR-0006: --settings is the edit-guard hook for the worktree, beside mcp.json, removed on exit',
+    async () => {
+      const o = opts([[{ say: 'up' }, { hang: true }]]);
+      // a state env can't turn the claude.ai connectors back on
+      const s = driver().start({ ...o, env: { ...o.env, ENABLE_CLAUDEAI_MCP_SERVERS: 'true' } });
+      const t = track(s);
+      await t.waitFor((e) => e.kind === 'output' && e.text === 'up');
 
-    const [spawned] = argvLog();
-    expect(spawned?.env.ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false');
-    const argv = spawned?.argv ?? [];
-    const settingsPath = argv[argv.indexOf('--settings') + 1] ?? '';
-    expect(dirname(settingsPath)).toBe(dirname(argv[argv.indexOf('--mcp-config') + 1] ?? ''));
-    expect(statSync(settingsPath).mode & 0o777).toBe(0o600);
-    const settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as {
-      hooks: { PreToolUse: { matcher: string; hooks: { command: string }[] }[] };
-    };
-    const [entry] = settings.hooks.PreToolUse;
-    expect(entry?.matcher).toBe('Edit|Write|MultiEdit|NotebookEdit');
-    expect(entry?.hooks[0]?.command).toContain(`'${dir}'`);
+      const [spawned] = argvLog();
+      expect(spawned?.env.ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false');
+      const argv = spawned?.argv ?? [];
+      const settingsPath = argv[argv.indexOf('--settings') + 1] ?? '';
+      expect(dirname(settingsPath)).toBe(dirname(argv[argv.indexOf('--mcp-config') + 1] ?? ''));
+      expect(statSync(settingsPath).mode & 0o777).toBe(0o600);
+      const settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as {
+        hooks: { PreToolUse: { matcher: string; hooks: { command: string }[] }[] };
+      };
+      const [entry] = settings.hooks.PreToolUse;
+      expect(entry?.matcher).toBe('Edit|Write|MultiEdit|NotebookEdit');
+      expect(entry?.hooks[0]?.command).toContain(`'${dir}'`);
 
-    s.kill(1_000);
-    await t.exit();
-    expect(existsSync(settingsPath)).toBe(false);
-  });
+      s.kill(1_000);
+      await t.exit();
+      expect(existsSync(settingsPath)).toBe(false);
+    },
+  );
 
   it('ADR-0006: agentEnv passes only allowlisted state keys and pins connectors and safe mode off', () => {
     const state = {
@@ -459,7 +484,8 @@ describe('createCliDriver against fake-claude', () => {
     expect(agentEnv(state, /^FAKE_CLAUDE_/).env.FAKE_CLAUDE_SCENARIO).toBe('[]');
   });
 
-  it('ADR-0006: logs the state env keys it dropped', async () => {
+  // MW-T05: fake claude is a shebang script (spawn EFTYPE)
+  it.skipIf(onWin32)('ADR-0006: logs the state env keys it dropped', async () => {
     const o = opts([[{ say: 'up' }, { hang: true }]]);
     const s = driver().start({ ...o, env: { ...o.env, NODE_OPTIONS: '--inspect' } });
     const t = track(s);
@@ -487,35 +513,40 @@ describe('createCliDriver against fake-claude', () => {
     expect(agentPermissionMode(join(dir, 'missing.json'))).toBeUndefined();
   });
 
-  it('M1-T14: the MCP URL token never appears in argv; it is in a 0600 file, removed on exit', async () => {
-    const s = driver().start(opts([[{ say: 'up' }, { hang: true }]]));
-    const t = track(s);
-    await t.waitFor((e) => e.kind === 'output' && e.text === 'up');
+  // MW-T05: fake claude is a shebang script (spawn EFTYPE)
+  it.skipIf(onWin32)(
+    'M1-T14: the MCP URL token never appears in argv; it is in a 0600 file, removed on exit',
+    async () => {
+      const s = driver().start(opts([[{ say: 'up' }, { hang: true }]]));
+      const t = track(s);
+      await t.waitFor((e) => e.kind === 'output' && e.text === 'up');
 
-    const [spawned] = argvLog();
-    const argv = spawned?.argv ?? [];
-    const cfgPath = argv[argv.indexOf('--mcp-config') + 1] ?? '';
-    const st = statSync(cfgPath);
-    expect(st.isFile()).toBe(true);
-    expect(st.mode & 0o777).toBe(0o600);
-    expect(statSync(dirname(cfgPath)).mode & 0o777).toBe(0o700);
-    const cfg = JSON.parse(readFileSync(cfgPath, 'utf8')) as {
-      mcpServers: { conductor: { url: string } };
-    };
-    const token = /\/mcp\/([a-f0-9]{32})$/.exec(cfg.mcpServers.conductor.url)?.[1] ?? '';
-    expect(token).toMatch(/^[a-f0-9]{32}$/);
-    for (const arg of argv) {
-      expect(arg).not.toContain(token);
-      expect(arg).not.toContain('mcpServers');
-    }
+      const [spawned] = argvLog();
+      const argv = spawned?.argv ?? [];
+      const cfgPath = argv[argv.indexOf('--mcp-config') + 1] ?? '';
+      const st = statSync(cfgPath);
+      expect(st.isFile()).toBe(true);
+      expect(st.mode & 0o777).toBe(0o600);
+      expect(statSync(dirname(cfgPath)).mode & 0o777).toBe(0o700);
+      const cfg = JSON.parse(readFileSync(cfgPath, 'utf8')) as {
+        mcpServers: { conductor: { url: string } };
+      };
+      const token = /\/mcp\/([a-f0-9]{32})$/.exec(cfg.mcpServers.conductor.url)?.[1] ?? '';
+      expect(token).toMatch(/^[a-f0-9]{32}$/);
+      for (const arg of argv) {
+        expect(arg).not.toContain(token);
+        expect(arg).not.toContain('mcpServers');
+      }
 
-    s.kill(1_000);
-    await t.exit();
-    expect(existsSync(cfgPath)).toBe(false);
-    expect(existsSync(dirname(cfgPath))).toBe(false);
-  });
+      s.kill(1_000);
+      await t.exit();
+      expect(existsSync(cfgPath)).toBe(false);
+      expect(existsSync(dirname(cfgPath))).toBe(false);
+    },
+  );
 
-  it('resume continues the script and the cumulative spend (TD-001)', async () => {
+  // MW-T05: fake claude is a shebang script (spawn EFTYPE)
+  it.skipIf(onWin32)('resume continues the script and the cumulative spend (TD-001)', async () => {
     const scenario = {
       turns: [[{ ask_user: 'Name?' }], [{ complete_state: { name: '$answer' } }]],
       costPerTurnUsd: 0.25,
@@ -538,7 +569,8 @@ describe('createCliDriver against fake-claude', () => {
     expect(argvLog()[1]?.argv).toContain('--resume');
   });
 
-  it('resume of an unknown session exits non-zero, like the real CLI', async () => {
+  // MW-T05: fake claude is a shebang script (spawn EFTYPE)
+  it.skipIf(onWin32)('resume of an unknown session exits non-zero, like the real CLI', async () => {
     const s = driver().start(opts([], { resume: true }));
     const t = track(s);
     expect((await t.exit()).code).toBe(1);
@@ -550,30 +582,39 @@ describe('createCliDriver against fake-claude', () => {
     ).toBe(true);
   });
 
-  it('kill(): SIGTERM first; SIGKILL after the grace period when SIGTERM is ignored (TD-003)', async () => {
-    const s = driver().start(
-      opts([[{ ignore_sigterm: true }, { say: 'stubborn' }, { hang: true }]]),
-    );
-    const t = track(s);
-    await t.waitFor((e) => e.kind === 'output' && e.text === 'stubborn');
-    const t0 = Date.now();
-    s.kill(300);
-    const ev = await t.exit();
-    expect(ev).toEqual({ kind: 'exit', code: null, signal: 'SIGKILL' });
-    expect(Date.now() - t0).toBeGreaterThanOrEqual(250);
-    expect(server.size).toBe(0);
-  });
+  // MW-T05: fake claude is a shebang script (spawn EFTYPE)
+  it.skipIf(onWin32)(
+    'kill(): SIGTERM first; SIGKILL after the grace period when SIGTERM is ignored (TD-003)',
+    async () => {
+      const s = driver().start(
+        opts([[{ ignore_sigterm: true }, { say: 'stubborn' }, { hang: true }]]),
+      );
+      const t = track(s);
+      await t.waitFor((e) => e.kind === 'output' && e.text === 'stubborn');
+      const t0 = Date.now();
+      s.kill(300);
+      const ev = await t.exit();
+      expect(ev).toEqual({ kind: 'exit', code: null, signal: 'SIGKILL' });
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(250);
+      expect(server.size).toBe(0);
+    },
+  );
 
-  it('kill() of a cooperative process exits on SIGTERM and never escalates', async () => {
-    const s = driver().start(opts([[{ say: 'busy' }, { hang: true }]]));
-    const t = track(s);
-    await t.waitFor((e) => e.kind === 'output' && e.text === 'busy');
-    s.kill(5_000);
-    s.kill(5_000); // idempotent
-    expect(await t.exit()).toEqual({ kind: 'exit', code: null, signal: 'SIGTERM' });
-  });
+  // MW-T05: fake claude is a shebang script (spawn EFTYPE)
+  it.skipIf(onWin32)(
+    'kill() of a cooperative process exits on SIGTERM and never escalates',
+    async () => {
+      const s = driver().start(opts([[{ say: 'busy' }, { hang: true }]]));
+      const t = track(s);
+      await t.waitFor((e) => e.kind === 'output' && e.text === 'busy');
+      s.kill(5_000);
+      s.kill(5_000); // idempotent
+      expect(await t.exit()).toEqual({ kind: 'exit', code: null, signal: 'SIGTERM' });
+    },
+  );
 
-  it('end() escalates to kill when the process ignores stdin EOF', async () => {
+  // MW-T05: fake claude is a shebang script (spawn EFTYPE)
+  it.skipIf(onWin32)('end() escalates to kill when the process ignores stdin EOF', async () => {
     const d = createCliDriver({
       claudeBin: FAKE,
       outcomeServer: server,
@@ -588,59 +629,68 @@ describe('createCliDriver against fake-claude', () => {
     expect((await t.exit()).signal).toBe('SIGKILL');
   });
 
-  it('parses leniently: raw lines and stderr pass through, a crash still reports exit', async () => {
-    const s = driver().start(
-      opts([
-        [
-          { raw: 'garbage {' },
-          { raw: '{"type":"rate_limit_event"}' },
-          { stderr: 'warn\n' },
-          { exit: 3 },
-        ],
-      ]),
-    );
-    const t = track(s);
-    expect(await t.exit()).toEqual({ kind: 'exit', code: 3, signal: null });
-    expect(t.events).toContainEqual({ kind: 'output', stream: 'debug', text: 'garbage {' });
-    expect(t.events).toContainEqual({
-      kind: 'output',
-      stream: 'debug',
-      text: '{"type":"rate_limit_event"}',
-    });
-    expect(
-      t.events
-        .filter((e) => e.kind === 'output' && e.stream === 'stderr')
-        .map((e) => (e as { text: string }).text)
-        .join(''),
-    ).toContain('warn');
-    expect(t.kinds()).toEqual(['claude_session_id', 'exit']);
-  });
+  // MW-T05: fake claude is a shebang script (spawn EFTYPE)
+  it.skipIf(onWin32)(
+    'parses leniently: raw lines and stderr pass through, a crash still reports exit',
+    async () => {
+      const s = driver().start(
+        opts([
+          [
+            { raw: 'garbage {' },
+            { raw: '{"type":"rate_limit_event"}' },
+            { stderr: 'warn\n' },
+            { exit: 3 },
+          ],
+        ]),
+      );
+      const t = track(s);
+      expect(await t.exit()).toEqual({ kind: 'exit', code: 3, signal: null });
+      expect(t.events).toContainEqual({ kind: 'output', stream: 'debug', text: 'garbage {' });
+      expect(t.events).toContainEqual({
+        kind: 'output',
+        stream: 'debug',
+        text: '{"type":"rate_limit_event"}',
+      });
+      expect(
+        t.events
+          .filter((e) => e.kind === 'output' && e.stream === 'stderr')
+          .map((e) => (e as { text: string }).text)
+          .join(''),
+      ).toContain('warn');
+      expect(t.kinds()).toEqual(['claude_session_id', 'exit']);
+    },
+  );
 
-  it('reports error turns and permission denials; refuses a guarded complete_state', async () => {
-    const s = driver().start(
-      opts([
-        [
-          { ask_user: 'Q?' },
-          { complete_state: { early: true } },
-          { denials: 2 },
-          { error: 'error_max_turns' },
-        ],
-      ]),
-    );
-    const t = track(s);
-    await t.turnEnds(1);
-    expect(t.events.find((e) => e.kind === 'turn_end')).toEqual({
-      kind: 'turn_end',
-      isError: true,
-      subtype: 'error_max_turns',
-      permissionDenials: 2,
-    });
-    expect(t.kinds()).not.toContain('complete_state');
-    s.end();
-    await t.exit();
-  });
+  // MW-T05: fake claude is a shebang script (spawn EFTYPE)
+  it.skipIf(onWin32)(
+    'reports error turns and permission denials; refuses a guarded complete_state',
+    async () => {
+      const s = driver().start(
+        opts([
+          [
+            { ask_user: 'Q?' },
+            { complete_state: { early: true } },
+            { denials: 2 },
+            { error: 'error_max_turns' },
+          ],
+        ]),
+      );
+      const t = track(s);
+      await t.turnEnds(1);
+      expect(t.events.find((e) => e.kind === 'turn_end')).toEqual({
+        kind: 'turn_end',
+        isError: true,
+        subtype: 'error_max_turns',
+        permissionDenials: 2,
+      });
+      expect(t.kinds()).not.toContain('complete_state');
+      s.end();
+      await t.exit();
+    },
+  );
 
-  it('a missing binary yields stderr output and an exit event', async () => {
+  // MW-T05: fake claude is a shebang script (spawn EFTYPE)
+  it.skipIf(onWin32)('a missing binary yields stderr output and an exit event', async () => {
     const d = createCliDriver({
       claudeBin: join(dir, 'no-such-claude'),
       outcomeServer: server,
@@ -658,7 +708,8 @@ describe('createCliDriver against fake-claude', () => {
     expect(() => s.sendInput('x')).toThrow();
   });
 
-  it('defaults claudeBin to $CONDUCTOR_CLAUDE_BIN', async () => {
+  // MW-T05: fake claude is a shebang script (spawn EFTYPE)
+  it.skipIf(onWin32)('defaults claudeBin to $CONDUCTOR_CLAUDE_BIN', async () => {
     const prev = process.env.CONDUCTOR_CLAUDE_BIN;
     process.env.CONDUCTOR_CLAUDE_BIN = FAKE;
     try {

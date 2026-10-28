@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadConfig } from './config.js';
 import { daemonWsUrl, loadCredential, writeCredential } from './credential.js';
 
+// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
+// the task that unskips them.
+const onWin32 = process.platform === 'win32';
+
 // M2-T04: `<root>/machine.json` checks and the config it feeds.
 
 const CRED = { url: 'https://conductor.example.com', machine_id: 'm-1', credential: 'secret-xyz' };
@@ -22,7 +26,8 @@ describe('loadCredential', () => {
     expect(loadCredential(tmp)).toBeNull();
   });
 
-  it('round-trips what writeCredential wrote', () => {
+  // MW-T07: machine.json 0600 needs the win32 ACL check
+  it.skipIf(onWin32)('round-trips what writeCredential wrote', () => {
     const root = join(tmp, 'root');
     writeCredential(root, CRED, { force: false });
     expect(loadCredential(root)).toEqual(CRED);
@@ -50,7 +55,8 @@ describe('loadCredential', () => {
     expect(() => loadCredential(link)).toThrow(/symlink/);
   });
 
-  it('refuses invalid content without echoing it', () => {
+  // MW-T07: machine.json 0600 needs the win32 ACL check
+  it.skipIf(onWin32)('refuses invalid content without echoing it', () => {
     const root = join(tmp, 'root');
     mkdirSync(root, { mode: 0o700 });
     writeFileSync(join(root, 'machine.json'), JSON.stringify({ ...CRED, url: 'ftp://x' }), {
@@ -67,7 +73,8 @@ describe('loadCredential', () => {
   });
 });
 
-describe('machine.json url', () => {
+// MW-T07: machine.json 0600 needs the win32 ACL check
+describe.skipIf(onWin32)('machine.json url', () => {
   it('rejects plain http to a non-loopback host, on load and on write', () => {
     const root = join(tmp, 'root');
     mkdirSync(root, { mode: 0o700 });

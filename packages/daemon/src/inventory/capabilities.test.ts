@@ -10,6 +10,10 @@ import {
   type ScanCapabilitiesOptions,
 } from './capabilities.js';
 
+// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
+// the task that unskips them.
+const onWin32 = process.platform === 'win32';
+
 // M2-T10 acceptance: capability probes against fake binaries on PATH, MCP / skill / agent names
 // from fixture Claude Code config. Names and versions only: no account name, command or env.
 
@@ -46,7 +50,8 @@ beforeEach(() => {
 
 afterEach(() => rmSync(tmp, { recursive: true, force: true }));
 
-describe('inventory capabilities: cli probes (M2-T10)', () => {
+// MW-T05: fake CLIs are /bin/sh scripts; probe kill
+describe.skipIf(onWin32)('inventory capabilities: cli probes (M2-T10)', () => {
   it('gh / az authed → {authed: true}, and no account name anywhere in the output', async () => {
     fake(
       'gh',
@@ -262,43 +267,47 @@ describe('inventory capabilities: names from Claude Code config (M2-T10)', () =>
     expect(keys.some((k) => k.startsWith('mcp:plugin'))).toBe(false);
   });
 
-  it('an invalid name is logged once per scan and not reported; the rest is (M2-T10b)', async () => {
-    fake('gh', 'if [ "$1" = --version ]; then echo "gh version 2.50.0"; exit 0; fi\nexit 0');
-    writeFileSync(
-      join(tmp, '.claude.json'),
-      JSON.stringify({
-        mcpServers: { slack: {}, 'a:b': {}, 'my server': {}, 'plugin:p:x@y': {} },
-      }),
-    );
-    plugin('dup', ['a:b']);
-    mkdirSync(join(claudeDir, 'skills', 'review'), { recursive: true });
-    mkdirSync(join(claudeDir, 'skills', 'x@host'), { recursive: true });
-    const lines: string[] = [];
-    const caps = await scanCapabilities(opts({ log: (m) => lines.push(m) }));
+  // MW-T05: fake CLIs are /bin/sh scripts; probe kill
+  it.skipIf(onWin32)(
+    'an invalid name is logged once per scan and not reported; the rest is (M2-T10b)',
+    async () => {
+      fake('gh', 'if [ "$1" = --version ]; then echo "gh version 2.50.0"; exit 0; fi\nexit 0');
+      writeFileSync(
+        join(tmp, '.claude.json'),
+        JSON.stringify({
+          mcpServers: { slack: {}, 'a:b': {}, 'my server': {}, 'plugin:p:x@y': {} },
+        }),
+      );
+      plugin('dup', ['a:b']);
+      mkdirSync(join(claudeDir, 'skills', 'review'), { recursive: true });
+      mkdirSync(join(claudeDir, 'skills', 'x@host'), { recursive: true });
+      const lines: string[] = [];
+      const caps = await scanCapabilities(opts({ log: (m) => lines.push(m) }));
 
-    const ab = lines.filter((l) => l.includes('"a:b"'));
-    expect(ab).toHaveLength(1);
-    expect(ab[0]).toMatch(/^inventory: capability mcp "a:b" not reported: .+/);
-    expect(lines).toContainEqual(
-      expect.stringMatching(/^inventory: capability mcp "my server" not reported: /),
-    );
-    expect(lines).toContainEqual(
-      expect.stringMatching(/^inventory: capability skill "x@host" not reported: /),
-    );
-    // A normalised name is logged as configured.
-    expect(lines).toContainEqual(
-      expect.stringMatching(/^inventory: capability mcp "plugin:p:x@y" not reported: /),
-    );
-    expect(lines).toHaveLength(4);
+      const ab = lines.filter((l) => l.includes('"a:b"'));
+      expect(ab).toHaveLength(1);
+      expect(ab[0]).toMatch(/^inventory: capability mcp "a:b" not reported: .+/);
+      expect(lines).toContainEqual(
+        expect.stringMatching(/^inventory: capability mcp "my server" not reported: /),
+      );
+      expect(lines).toContainEqual(
+        expect.stringMatching(/^inventory: capability skill "x@host" not reported: /),
+      );
+      // A normalised name is logged as configured.
+      expect(lines).toContainEqual(
+        expect.stringMatching(/^inventory: capability mcp "plugin:p:x@y" not reported: /),
+      );
+      expect(lines).toHaveLength(4);
 
-    const text = JSON.stringify(caps);
-    for (const bad of ['a:b', 'my server', 'x@host', 'x@y']) expect(text).not.toContain(bad);
-    expect(caps).toContainEqual({ kind: 'mcp', name: 'slack' });
-    expect(caps).toContainEqual({ kind: 'skill', name: 'review' });
-    expect(caps).toContainEqual({ kind: 'cli', name: 'gh', version: '2.50.0', authed: true });
+      const text = JSON.stringify(caps);
+      for (const bad of ['a:b', 'my server', 'x@host', 'x@y']) expect(text).not.toContain(bad);
+      expect(caps).toContainEqual({ kind: 'mcp', name: 'slack' });
+      expect(caps).toContainEqual({ kind: 'skill', name: 'review' });
+      expect(caps).toContainEqual({ kind: 'cli', name: 'gh', version: '2.50.0', authed: true });
 
-    // Once per scan, not once ever.
-    await scanCapabilities(opts({ log: (m) => lines.push(m) }));
-    expect(lines).toHaveLength(8);
-  });
+      // Once per scan, not once ever.
+      await scanCapabilities(opts({ log: (m) => lines.push(m) }));
+      expect(lines).toHaveLength(8);
+    },
+  );
 });

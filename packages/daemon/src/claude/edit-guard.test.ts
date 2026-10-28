@@ -15,6 +15,10 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { EDIT_GUARD_MATCHER, writeEditGuard } from './edit-guard.js';
 
+// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
+// the task that unskips them.
+const onWin32 = process.platform === 'win32';
+
 interface GuardSettings {
   disableAllHooks: boolean;
   env: Record<string, string>;
@@ -56,13 +60,15 @@ describe('edit guard settings', () => {
     expect(command.endsWith(' || exit 2')).toBe(true);
   });
 
-  it('writes the script and settings 0600', () => {
+  // MW-T08: guard hook command and 0600 modes are POSIX
+  it.skipIf(onWin32)('writes the script and settings 0600', () => {
     expect(statSync(join(guardDir, 'edit-guard.mjs')).mode & 0o777).toBe(0o600);
     expect(statSync(join(guardDir, 'settings.json')).mode & 0o777).toBe(0o600);
   });
 });
 
-describe('edit guard', () => {
+// MW-T08: guard hook command and 0600 modes are POSIX
+describe.skipIf(onWin32)('edit guard', () => {
   it('allows absolute paths inside the worktree, including new files in new directories', () => {
     expect(run({ file_path: join(wt, 'src', 'deep', 'new.ts') }).code).toBe(0);
     expect(run({ file_path: `${wt}/a/../b.txt` }).code).toBe(0);

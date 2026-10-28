@@ -13,6 +13,10 @@ import { Daemon } from './daemon.js';
 import { readProcInfo } from './orphan.js';
 import { FakeOrchestrator } from './test-support/fake-orchestrator.js';
 
+// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
+// the task that unskips them.
+const onWin32 = process.platform === 'win32';
+
 // BUG-1 FR-2: a kill for a parked agent process (ADR-0007: alive, idle, blocked reading stdin
 // for an answer) ends it and is acked. The real CLI driver against the process-boundary fake
 // (test/fixtures/fake-claude.mjs), so a real process group is signalled.
@@ -120,7 +124,8 @@ const alive = (pid: number) => {
   }
 };
 
-describe('BUG-1 FR-2: kill of a parked process (real process group)', () => {
+// MW-T06: kills a real POSIX process group
+describe.skipIf(onWin32)('BUG-1 FR-2: kill of a parked process (real process group)', () => {
   it.each([
     ['aimed at its start_session', (cid: string) => cid],
     ['null target at its fencing token', () => null],
@@ -159,33 +164,37 @@ describe('BUG-1 FR-2: kill of a parked process (real process group)', () => {
   });
 });
 
-describe('BUG-1b: the startup sweep against a real (fake-claude) process group', () => {
-  it('FR-1: the start time is persisted at spawn; a restarted daemon kills its orphan', async () => {
-    const d1 = makeDaemon();
-    await orch.until(() => orch.ofType('request_work')[0]);
-    const sid = randomUUID();
-    orch.send(parkedStart(sid));
-    await orch.until(() => orch.events('ask_user')[0]);
-    const agent = d1.store.session(sid)!.agent!;
-    const pid = agent.pid!;
-    try {
-      expect(agent.startedAt).toBe(readProcInfo(pid)!.startedAt);
-      expect(Math.abs(agent.startedAt! - Date.now())).toBeLessThan(10_000);
-      // The daemon dies with the process still running (a detached `node fake-claude.mjs
-      // --session-id <id> …`, the shebang-launcher form of argv).
-      d1.stop({ killSessions: false });
-      daemon = null;
-      const logs: string[] = [];
-      makeDaemon({ claudeBin: FAKE, log: (m) => logs.push(m) });
-      await orch.until(() => !alive(pid) || undefined, 5_000);
-      expect(logs).toContain(`startup: killed orphaned claude process ${pid} of session ${sid}`);
-      await orch.until(() => orch.eventData('exit').find((e) => e.signal === 'daemon_restart'));
-    } finally {
+// MW-T06: kills a real POSIX process group
+describe.skipIf(onWin32)(
+  'BUG-1b: the startup sweep against a real (fake-claude) process group',
+  () => {
+    it('FR-1: the start time is persisted at spawn; a restarted daemon kills its orphan', async () => {
+      const d1 = makeDaemon();
+      await orch.until(() => orch.ofType('request_work')[0]);
+      const sid = randomUUID();
+      orch.send(parkedStart(sid));
+      await orch.until(() => orch.events('ask_user')[0]);
+      const agent = d1.store.session(sid)!.agent!;
+      const pid = agent.pid!;
       try {
-        process.kill(-pid, 'SIGKILL'); // the fake's own group, started by this test
-      } catch {
-        // gone
+        expect(agent.startedAt).toBe(readProcInfo(pid)!.startedAt);
+        expect(Math.abs(agent.startedAt! - Date.now())).toBeLessThan(10_000);
+        // The daemon dies with the process still running (a detached `node fake-claude.mjs
+        // --session-id <id> …`, the shebang-launcher form of argv).
+        d1.stop({ killSessions: false });
+        daemon = null;
+        const logs: string[] = [];
+        makeDaemon({ claudeBin: FAKE, log: (m) => logs.push(m) });
+        await orch.until(() => !alive(pid) || undefined, 5_000);
+        expect(logs).toContain(`startup: killed orphaned claude process ${pid} of session ${sid}`);
+        await orch.until(() => orch.eventData('exit').find((e) => e.signal === 'daemon_restart'));
+      } finally {
+        try {
+          process.kill(-pid, 'SIGKILL'); // the fake's own group, started by this test
+        } catch {
+          // gone
+        }
       }
-    }
-  });
-});
+    });
+  },
+);

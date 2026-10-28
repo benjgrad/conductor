@@ -50,6 +50,27 @@ Remove the entry once the work is merged or deliberately abandoned. If abandoned
 - **Exact next step**: as each ticket opens its PR, QA it (light policy: targeted tests; conductor's checks are the full run), confirm it merges cleanly with main, then the lead merges. Next on the you-only critical path after these: M2-T17
 - **Gotchas**: Done on the board ≠ merged (U-083). Fast-forward the daemon's shared clone after each merge until M2-T13 (TD-026). Keep `machine.max_sessions` at 3 or less while checks run (TD-148). Never enter a worktree in the lead session while QA subagents run
 
+## M2-T29 · permission-prompt contracts (PR #47, QA passed with debt)
+- **Branch / worktree**: PR #47, base main
+- **Done so far**: contracts built; QA PASS WITH DEBT (TD-178..180)
+- **Not done**: merge
+- **Exact next step**: merge after #44 (`git merge --no-ff`), set M2-T29 to `done`, remove the worktree. Then T29b and T29c (T29c needs U-099 decided)
+- **Gotchas**: U-102: deploy T29c before T29b. Full test suite times out under load; run targeted tests
+
+## M2-T13a · fetch per session (PR #48, QA passed with debt)
+- **Branch / worktree**: PR #48, base main
+- **Done so far**: daemon fetches `origin/<default_branch>` before each new session's worktree; QA PASS WITH DEBT (TD-181: `start_session.working_copy` has no `default_branch`)
+- **Not done**: merge
+- **Exact next step**: merge after #44, set M2-T13a to `done`, mark TD-026's stale base paid; then T27 (also needs T29b)
+- **Gotchas**: until it is merged, keep fast-forwarding the daemon's shared clone by hand
+
+## Hazel and Nova · dogfood sessions waiting on Ben (2026-10-28)
+- **Branch / worktree**: Hazel: ticket d0f8e9aa (M2-T18b planning), branch fast-forwarded to eb45d46. Nova: session 005f1e8c (M2-T18), branch untouched
+- **Done so far**: Hazel now sees ADR-0021. Nova's gates run by hand: typecheck OK, prettier OK, lint FAIL at `packages/daemon/src/credential.ts:80` (preserve-caught-error); web `SetupGuide.test.tsx` fails on main too (flaky)
+- **Not done**: Ben's answers to both `ask_user` prompts; the lint fix on Nova's branch
+- **Exact next step**: Ben answers Hazel's and Nova's `ask_user` on the board; tell Nova to fix `credential.ts:80` and use pnpm (not npm) for its checks
+- **Gotchas**: Nova had 18 denied tool calls (no `defaultMode`, prompts `none`) until T29b lands; expect more denials in the meantime
+
 ## M2 · post-merge QA (resolved 2026-10-27, nothing owed)
 - **Branch / worktree**: none; code on main
 - **Done so far**: all three post-merge QAs ran on 2026-10-27. M2-T06 (PR #11): OK, every QA item verified on main. M2-T10 (PR #14): its follow-ups were done as M2-T10b (PR #19, merged). M2-T09b (PR #17): the security QA passed (6 attack probes incl. queued frames, reconnect mid-close, two sockets, a silent peer at 1 002 ms, stress ×10)

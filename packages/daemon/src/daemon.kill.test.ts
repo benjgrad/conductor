@@ -55,7 +55,7 @@ afterEach(async () => {
   daemon?.stop();
   daemon = null;
   await orch.close();
-  rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  rmSync(tmp, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 });
 
 function makeDaemon(opts: { claudeBin?: string; log?: (m: string) => void } = {}): Daemon {

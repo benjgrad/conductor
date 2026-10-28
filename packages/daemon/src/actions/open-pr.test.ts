@@ -58,8 +58,8 @@ function onlyGitPath(): string {
 const FAKE_GH = `
 if [ "$1" = --version ]; then echo "gh version \${FAKE_GH_VERSION:-2.103.3} (2025-01-01)"; exit 0; fi
 dir="$FAKE_GH_DIR"
-line=$(printf '%s' "$(pwd -W 2>/dev/null || pwd)" | base64)
-for a in "$@"; do line="$line $(printf '%s' "$a" | base64)"; done
+line=$(printf '%s' "$(pwd -W 2>/dev/null || pwd)" | base64 | tr -d '\\n')
+for a in "$@"; do line="$line $(printf '%s' "$a" | base64 | tr -d '\\n')"; done
 echo "$line" >> "$dir/gh-calls"
 state="$dir/pr-url"
 if [ "$1" = repo ] && [ "$2" = view ]; then echo main; exit 0; fi
@@ -139,7 +139,7 @@ beforeEach(() => {
   checked = git(worktree, 'rev-parse', 'HEAD').trim();
 });
 
-afterEach(() => rmSync(tmp, { recursive: true, force: true }));
+afterEach(() => rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
 function input(over: Partial<OpenPrInput> = {}): OpenPrInput {
   return {
@@ -249,7 +249,7 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
     writeFileSync(hook, `#!/bin/sh\ntouch ${marker}\nexit 1\n`);
     chmodSync(hook, 0o755);
     const r = await openPr(input());
-    expect(r.ok).toBe(true);
+    expect(r).toMatchObject({ ok: true });
     expect(existsSync(marker)).toBe(false);
     expect(hasBranch(origin)).toBe(true);
   });
@@ -257,7 +257,7 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
   it('a rewritten remote.origin.url does not redirect the push (explicit trusted URL)', async () => {
     git(clone, 'config', 'remote.origin.url', attacker);
     const r = await openPr(input());
-    expect(r.ok).toBe(true);
+    expect(r).toMatchObject({ ok: true });
     expect(hasBranch(origin)).toBe(true);
     expect(hasBranch(attacker)).toBe(false);
   });
@@ -289,7 +289,7 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
   it("the push never reads the shared clone's config: planted redirects and hooks are ignored", async () => {
     const marker = plant();
     const r = await openPr(input());
-    expect(r.ok).toBe(true);
+    expect(r).toMatchObject({ ok: true });
     expect(hasBranch(origin)).toBe(true);
     expect(hasBranch(attacker)).toBe(false);
     expect(existsSync(marker)).toBe(false);
@@ -298,7 +298,7 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
   it("a config change racing between the fetch and the push can't matter", async () => {
     let marker = '';
     const r = await openPr(input({ afterFetch: () => (marker = plant()) }));
-    expect(r.ok).toBe(true);
+    expect(r).toMatchObject({ ok: true });
     expect(marker).not.toBe('');
     expect(hasBranch(origin)).toBe(true);
     expect(hasBranch(attacker)).toBe(false);
@@ -321,7 +321,7 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
         },
       }),
     );
-    expect(r.ok).toBe(true);
+    expect(r).toMatchObject({ ok: true });
     expect(seen.startsWith(join(ghCwd, 'private', 'push-'))).toBe(true);
     expect(isPrivate).toBe(true);
     for (const k of keys) expect(k).toMatch(/^core\./);

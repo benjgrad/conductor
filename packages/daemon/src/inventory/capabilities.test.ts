@@ -74,7 +74,7 @@ beforeEach(() => {
   mkdirSync(claudeDir);
 });
 
-afterEach(() => rmSync(tmp, { recursive: true, force: true }));
+afterEach(() => rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
 describe('inventory capabilities: cli probes (M2-T10)', () => {
   it('gh / az authed → {authed: true}, and no account name anywhere in the output', async () => {
@@ -133,7 +133,14 @@ describe('inventory capabilities: cli probes (M2-T10)', () => {
 
   it('a hanging probe is killed at 5 s', { timeout: 20_000 }, async () => {
     const pidFile = join(tmp, 'az.pid');
-    fake('az', `echo $$ >> ${pidFile}\nexec sleep 30`);
+    // The sleeper's own pid: win32 reads its Windows pid from MSYS /proc (bash's $! is not one).
+    const sh = (p: string) => p.replace(/\\/g, '/');
+    fake(
+      'az',
+      onWin32
+        ? `sleep 30 & cat /proc/$!/winpid >> "${sh(pidFile)}"; wait`
+        : `echo $$ >> ${pidFile}\nexec sleep 30`,
+    );
     const t0 = Date.now();
     const caps = await scanCapabilities(opts());
     const elapsed = Date.now() - t0;
@@ -141,7 +148,7 @@ describe('inventory capabilities: cli probes (M2-T10)', () => {
     expect(elapsed).toBeLessThan(9_000);
     expect(caps).toContainEqual({ kind: 'cli', name: 'az', version: null, authed: false });
     // Both az probes (version + account show) were killed: no sleeper is left.
-    const pids = readFileSync(pidFile, 'utf8').trim().split('\n').map(Number);
+    const pids = readFileSync(pidFile, 'utf8').trim().split(/\r?\n/).map(Number);
     expect(pids.length).toBe(2);
     for (const pid of pids) expect(() => process.kill(pid, 0)).toThrow();
   });

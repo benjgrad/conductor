@@ -9,8 +9,14 @@ import type { CommandOutputChunk, RunCommandOptions } from './runner.js';
 import { Semaphore } from './semaphore.js';
 import { TailBuffer } from './tail.js';
 
+const onWin32 = process.platform === 'win32';
+/** A path as written inside a POSIX shell script (Git Bash on win32 takes C:/…). */
+const sh = (p: string) => p.replace(/\\/g, '/');
+/** Shell that prints the OS pid of the last background job (MSYS `$!` is not a Windows pid). */
+const LAST_BG_PID = onWin32 ? 'cat /proc/$!/winpid' : 'echo $!';
+
 const wt = mkdtempSync(join(tmpdir(), 'conductor-cmd-'));
-afterAll(() => rmSync(wt, { recursive: true, force: true }));
+afterAll(() => rmSync(wt, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
 const opts = (cmd: string, over: Partial<RunCommandOptions> = {}): RunCommandOptions => ({
   commandId: '11111111-1111-4111-8111-111111111111',
@@ -52,7 +58,7 @@ describe('ProcessCommandRunner', () => {
     const r = new ProcessCommandRunner({ maxConcurrent: 2 });
     const chunks: CommandOutputChunk[] = [];
     const res = await r.run(
-      opts('pwd; echo "port=$PORT"; echo oops >&2', {
+      opts('(pwd -W 2>/dev/null || pwd); echo "port=$PORT"; echo oops >&2', {
         env: { PORT: '41000' },
         onOutput: (c) => chunks.push(c),
       }),
@@ -62,7 +68,7 @@ describe('ProcessCommandRunner', () => {
     expect(res.outputTail).toContain('port=41000');
     expect(res.outputTail).toContain('oops');
     // macOS tmpdir may resolve through /private.
-    expect(res.outputTail).toContain(wt.replace(/^\/private/, ''));
+    expect(res.outputTail).toContain(sh(wt).replace(/^\/private/, ''));
     const out = chunks
       .filter((c) => c.stream === 'stdout')
       .map((c) => c.text)
@@ -88,7 +94,9 @@ describe('ProcessCommandRunner', () => {
     const started = Date.now();
     // A grandchild that would outlive a plain child kill.
     const res = await r.run(
-      opts(`sleep 30 & echo $! > ${pidFile}; echo started; wait`, { timeoutMs: 300 }),
+      opts(`sleep 30 & ${LAST_BG_PID} > "${sh(pidFile)}"; echo started; wait`, {
+        timeoutMs: 300,
+      }),
     );
     expect(res).toMatchObject({ exitCode: null, signal: 'SIGTERM', timedOut: true });
     expect(res.outputTail).toBe('started\n');
@@ -99,7 +107,8 @@ describe('ProcessCommandRunner', () => {
     expect(r.runningCount).toBe(0);
   });
 
-  it('timeout escalates to SIGKILL when SIGTERM is ignored', async () => {
+  // win32 has no grace step: taskkill /T /F is final at once (TD-189).
+  it.skipIf(onWin32)('timeout escalates to SIGKILL when SIGTERM is ignored', async () => {
     const r = new ProcessCommandRunner({ maxConcurrent: 1, killGraceMs: 200 });
     const res = await r.run(
       opts(`trap '' TERM; echo ready; while :; do sleep 0.05; done`, { timeoutMs: 200 }),
@@ -124,7 +133,7 @@ describe('ProcessCommandRunner', () => {
     const r = new ProcessCommandRunner({ maxConcurrent: 2 });
     const gate = join(wt, 'gate');
     const cmd = (name: string): string =>
-      `echo ${name}; while [ ! -f ${gate} ]; do sleep 0.02; done`;
+      `echo ${name}; while [ ! -f "${sh(gate)}" ]; do sleep 0.02; done`;
     const waits: Record<string, boolean[]> = { a: [], b: [], c: [] };
     const out: Record<string, string> = { a: '', b: '', c: '' };
     const run = (n: 'a' | 'b' | 'c') =>
@@ -156,7 +165,7 @@ describe('ProcessCommandRunner', () => {
   it('aborting a queued command resolves SIGTERM without spawning or taking a slot', async () => {
     const r = new ProcessCommandRunner({ maxConcurrent: 1 });
     const gate = join(wt, 'gate2');
-    const a = r.run(opts(`while [ ! -f ${gate} ]; do sleep 0.02; done`));
+    const a = r.run(opts(`while [ ! -f "${sh(gate)}" ]; do sleep 0.02; done`));
     const ac = new AbortController();
     const waits: boolean[] = [];
     const out: string[] = [];

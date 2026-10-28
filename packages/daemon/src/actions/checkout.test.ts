@@ -67,7 +67,7 @@ beforeEach(() => {
   mkdirPrivate(root); // as the daemon does at start; <root>/private needs a private parent
 });
 
-afterEach(() => rmSync(tmp, { recursive: true, force: true }));
+afterEach(() => rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
 const fresh = (sha = head) => freshCheckout({ root, worktree, branch: BRANCH, sha });
 
@@ -82,7 +82,9 @@ describe('freshCheckout', () => {
     expect(r.dir.startsWith(join(root, 'private', 'check-'))).toBe(true);
     if (onWin32) assertOwnerOnly(r.dir, { kind: 'dir' });
     else expect(statSync(r.dir).mode & 0o777).toBe(0o700);
-    expect(readFileSync(join(r.dir, 'health.txt'), 'utf8')).toBe('committed\n');
+    expect(readFileSync(join(r.dir, 'health.txt'), 'utf8').replace(/\r\n/g, '\n')).toBe(
+      'committed\n',
+    );
     expect(existsSync(join(r.dir, 'ignored', 'make-tests-pass'))).toBe(false);
     expect(git(r.dir, 'rev-parse', 'HEAD').trim()).toBe(head);
     // Its config is git's minimal defaults.
@@ -110,7 +112,9 @@ describe('freshCheckout', () => {
     const r = await fresh(sha);
     if (!r.ok) throw new Error(r.error);
     expect(existsSync(marker)).toBe(false);
-    expect(readFileSync(join(r.dir, 'health.txt'), 'utf8')).toBe('committed\n');
+    expect(readFileSync(join(r.dir, 'health.txt'), 'utf8').replace(/\r\n/g, '\n')).toBe(
+      'committed\n',
+    );
   });
 
   it('refuses when the branch tip is not the commit to check (reports the tip), leaving nothing', async () => {

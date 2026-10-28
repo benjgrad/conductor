@@ -7,7 +7,7 @@ import {
   type InventoryRepo,
 } from '@conductor/shared';
 import { cleanEnv } from '../actions/open-pr.js';
-import { execFileCli, nativeExeProblem } from '../platform/index.js';
+import { execFileCli, killTree, nativeExeProblem } from '../platform/index.js';
 import { cliVersionFrom } from './version.js';
 
 // The capability half of the inventory (M2-T10; ADR-0013 §Inventory, ADR-0016). Names and
@@ -55,24 +55,30 @@ export function probe(
   timeoutMs: number,
 ): Promise<Probe> {
   return new Promise((done) => {
+    let timedOut = false;
+    let timer: NodeJS.Timeout | undefined;
     const child = execFileCli(
       cmd,
       args,
-      {
-        env: { ...cleanEnv(env), NO_COLOR: '1' },
-        timeout: timeoutMs,
-        killSignal: 'SIGKILL',
-        maxBuffer: 256 * 1024,
-      },
+      { env: { ...cleanEnv(env), NO_COLOR: '1' }, maxBuffer: 256 * 1024 },
       (err, stdout) => {
+        clearTimeout(timer);
         const e = err as (NodeJS.ErrnoException & { code?: unknown }) | null;
         done({
-          code: e === null ? 0 : typeof e.code === 'number' ? e.code : null,
+          code: timedOut ? null : e === null ? 0 : typeof e.code === 'number' ? e.code : null,
           stdout: String(stdout),
           missing: e?.code === 'ENOENT',
         });
       },
     );
+    // Our own timer, not execFile's: its timeout kills only the direct child, and on win32 a
+    // `.cmd` shim's cmd.exe → its real program would live on (killTree: taskkill /T).
+    if (child) {
+      timer = setTimeout(() => {
+        timedOut = true;
+        killTree(child, { signal: 'SIGKILL' });
+      }, timeoutMs);
+    }
     child?.stdin?.end();
   });
 }

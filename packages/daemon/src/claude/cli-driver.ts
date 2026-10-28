@@ -14,6 +14,7 @@ import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
   execFileCli,
+  killedExit,
   killTree,
   mkdirPrivate,
   nativeExeProblem,
@@ -486,9 +487,13 @@ class Session implements CliDriverSession {
     this.killTimer = setTimeout(() => this.signal('SIGKILL'), graceMs ?? this.killGraceMs);
   }
 
+  /** The last kill signal sent (win32 reports a killed child as this, see killedExit). */
+  private lastSignal: NodeJS.Signals | null = null;
+
   /** The whole tree: POSIX the process group (then the child), win32 taskkill /T (TD-189). */
   private signal(sig: NodeJS.Signals): void {
     if (this.child.pid === undefined) return;
+    this.lastSignal = sig;
     killTree(this.child, { signal: sig });
   }
 
@@ -527,7 +532,11 @@ class Session implements CliDriverSession {
   private onChildGone(code: number | null, signal: string | null, spawnFailed: boolean): void {
     if (this.childGone) return;
     this.childGone = true;
-    this.exitInfo = { code, signal };
+    this.exitInfo = killedExit(
+      code,
+      signal as NodeJS.Signals | null,
+      this.killRequested ? this.lastSignal : null,
+    );
     clearTimeout(this.killTimer);
     clearTimeout(this.endTimer);
     this.reg.unregister();

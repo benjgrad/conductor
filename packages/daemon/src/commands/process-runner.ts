@@ -2,7 +2,7 @@ import type { ChildProcessByStdio } from 'node:child_process';
 import type { Readable } from 'node:stream';
 import { StringDecoder } from 'node:string_decoder';
 import { OUTPUT_TAIL_BYTES } from '@conductor/shared';
-import { killTree, spawnCli, workflowShell } from '../platform/index.js';
+import { killedExit, killTree, spawnCli, workflowShell } from '../platform/index.js';
 import type { CommandResult, CommandRunner, RunCommandOptions } from './runner.js';
 import { Semaphore } from './semaphore.js';
 import { TailBuffer } from './tail.js';
@@ -93,10 +93,16 @@ export class ProcessCommandRunner implements CommandRunner {
         if (child.pid === undefined) return;
         killTree(child, { signal: sig });
       };
+      // The last signal a timeout/abort sent (win32 reports a killed command as it, killedExit).
+      let sent: NodeJS.Signals | null = null;
       const terminate = (): void => {
         if (exit || killTimer) return;
+        sent = 'SIGTERM';
         killGroup('SIGTERM');
-        killTimer = setTimeout(() => killGroup('SIGKILL'), this.killGraceMs);
+        killTimer = setTimeout(() => {
+          sent = 'SIGKILL';
+          killGroup('SIGKILL');
+        }, this.killGraceMs);
         killTimer.unref();
       };
       const onAbort = (): void => terminate();
@@ -154,7 +160,9 @@ export class ProcessCommandRunner implements CommandRunner {
         if (settled) return;
         settled = true;
         cleanup();
-        const e = exit ?? { code, signal };
+        const raw = exit ?? { code, signal };
+        const k = killedExit(raw.code, raw.signal, sent);
+        const e = { code: k.code, signal: k.signal };
         resolve({
           exitCode: e.signal ? null : e.code,
           signal: e.signal,

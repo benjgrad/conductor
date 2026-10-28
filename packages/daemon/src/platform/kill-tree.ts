@@ -119,3 +119,19 @@ export function signalTree(pid: number, sig: NodeJS.Signals): boolean {
     return false; // not found (already gone) or access denied
   }
 }
+
+/**
+ * How a child the daemon killed exits, reported the same on every OS. POSIX reports the signal
+ * itself. win32 has no signals (taskkill leaves exit code 1), so when the daemon sent `sent` and
+ * the child exited without a signal, it is reported as `{code: null, signal: sent}`.
+ */
+export function killedExit(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+  sent: NodeJS.Signals | null,
+): { code: number | null; signal: NodeJS.Signals | null } {
+  if (process.platform === 'win32' && sent !== null && signal === null) {
+    return { code: null, signal: sent };
+  }
+  return { code, signal };
+}

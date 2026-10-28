@@ -6,7 +6,13 @@ export {
   type CliSpawnOptions,
   type CliExecSyncOptions,
 } from './spawn.js';
-export { killTree, signalTree, type KillTreeOptions, type KillTreeHandle } from './kill-tree.js';
+export {
+  killedExit,
+  killTree,
+  signalTree,
+  type KillTreeOptions,
+  type KillTreeHandle,
+} from './kill-tree.js';
 export { workflowShell, type WorkflowShell } from './shell.js';
 export { exeName, readProcInfo, sameExecutable, type ProcInfo } from './procinfo.js';
 export {

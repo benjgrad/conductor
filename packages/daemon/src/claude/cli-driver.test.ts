@@ -24,6 +24,7 @@ import {
   userMessageLine,
   type CliDriverSession,
 } from './cli-driver.js';
+import { assertOwnerOnly } from '../platform/index.js';
 import { writeFakeBin } from '../test-support/fake-bin.js';
 import type { DriverEvent, DriverStartOptions, ToolPolicy } from './driver.js';
 import {
@@ -68,7 +69,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   for (const s of live.splice(0)) s.kill(0);
-  rmSync(dir, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 type Scenario = unknown[][] | { turns: unknown[][]; costPerTurnUsd?: number };
@@ -464,7 +465,8 @@ describe('createCliDriver against fake-claude', () => {
     const argv = spawned?.argv ?? [];
     const settingsPath = argv[argv.indexOf('--settings') + 1] ?? '';
     expect(dirname(settingsPath)).toBe(dirname(argv[argv.indexOf('--mcp-config') + 1] ?? ''));
-    expect(statSync(settingsPath).mode & 0o777).toBe(0o600);
+    if (onWin32) assertOwnerOnly(settingsPath, { kind: 'file' });
+    else expect(statSync(settingsPath).mode & 0o777).toBe(0o600);
     const settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as {
       hooks: { PreToolUse: { matcher: string; hooks: { command: string }[] }[] };
     };
@@ -575,8 +577,13 @@ describe('createCliDriver against fake-claude', () => {
     const cfgPath = argv[argv.indexOf('--mcp-config') + 1] ?? '';
     const st = statSync(cfgPath);
     expect(st.isFile()).toBe(true);
-    expect(st.mode & 0o777).toBe(0o600);
-    expect(statSync(dirname(cfgPath)).mode & 0o777).toBe(0o700);
+    if (onWin32) {
+      assertOwnerOnly(cfgPath, { kind: 'file' });
+      assertOwnerOnly(dirname(cfgPath), { kind: 'dir' });
+    } else {
+      expect(st.mode & 0o777).toBe(0o600);
+      expect(statSync(dirname(cfgPath)).mode & 0o777).toBe(0o700);
+    }
     const cfg = JSON.parse(readFileSync(cfgPath, 'utf8')) as {
       mcpServers: { conductor: { url: string } };
     };
@@ -628,19 +635,23 @@ describe('createCliDriver against fake-claude', () => {
     ).toBe(true);
   });
 
-  it('kill(): SIGTERM first; SIGKILL after the grace period when SIGTERM is ignored (TD-003)', async () => {
-    const s = driver().start(
-      opts([[{ ignore_sigterm: true }, { say: 'stubborn' }, { hang: true }]]),
-    );
-    const t = track(s);
-    await t.waitFor((e) => e.kind === 'output' && e.text === 'stubborn');
-    const t0 = Date.now();
-    s.kill(300);
-    const ev = await t.exit();
-    expect(ev).toEqual({ kind: 'exit', code: null, signal: 'SIGKILL' });
-    expect(Date.now() - t0).toBeGreaterThanOrEqual(250);
-    expect(server.size).toBe(0);
-  });
+  // win32 has no grace step: taskkill /T /F is final at once (TD-189).
+  it.skipIf(onWin32)(
+    'kill(): SIGTERM first; SIGKILL after the grace period when SIGTERM is ignored (TD-003)',
+    async () => {
+      const s = driver().start(
+        opts([[{ ignore_sigterm: true }, { say: 'stubborn' }, { hang: true }]]),
+      );
+      const t = track(s);
+      await t.waitFor((e) => e.kind === 'output' && e.text === 'stubborn');
+      const t0 = Date.now();
+      s.kill(300);
+      const ev = await t.exit();
+      expect(ev).toEqual({ kind: 'exit', code: null, signal: 'SIGKILL' });
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(250);
+      expect(server.size).toBe(0);
+    },
+  );
 
   it('kill() of a cooperative process exits on SIGTERM and never escalates', async () => {
     const s = driver().start(opts([[{ say: 'busy' }, { hang: true }]]));
@@ -663,7 +674,9 @@ describe('createCliDriver against fake-claude', () => {
     const t = track(s);
     await t.waitFor((e) => e.kind === 'output' && e.text === 'x');
     s.end();
-    expect((await t.exit()).signal).toBe('SIGKILL');
+    // POSIX: SIGTERM is ignored, so the grace period ends in SIGKILL. win32: taskkill on the first
+    // kill, reported as the SIGTERM that was sent (killedExit).
+    expect((await t.exit()).signal).toBe(onWin32 ? 'SIGTERM' : 'SIGKILL');
   });
 
   it('parses leniently: raw lines and stderr pass through, a crash still reports exit', async () => {

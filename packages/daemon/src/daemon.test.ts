@@ -1757,7 +1757,7 @@ describe('daemon core: ADR-0011 transitions', () => {
 describe('daemon core: run_action evaluate_conditions (ADR-0011)', () => {
   /** A fake gh whose `pr view` reports green checks and one approval. */
   const FAKE_GH_VIEW = {
-    cmd: '/bin/sh',
+    cmd: workflowShell().file, // /bin/sh; Git Bash on win32
     args: [
       '-c',
       [

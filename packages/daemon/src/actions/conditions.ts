@@ -6,7 +6,7 @@ import {
   type ConditionResult,
   type EvaluateConditionsResult,
 } from '@conductor/shared';
-import { spawnCli } from '../platform/index.js';
+import { killTree, spawnCli } from '../platform/index.js';
 import { cleanEnv, tail } from './open-pr.js';
 
 // ADR-0011 `run_action {action: 'evaluate_conditions'}`: external facts about conductor's PR,
@@ -119,7 +119,7 @@ function runCapped(
     }) as ChildProcessByStdio<null, Readable, Readable>;
     // gh's own children could hold the pipes open after the kill: settle now, don't wait for 'close'.
     const stop = () => {
-      child.kill('SIGKILL');
+      killTree(child, { signal: 'SIGKILL' }); // win32: gh's own children too (taskkill /T)
       child.stdout.destroy();
       child.stderr.destroy();
       done(null);

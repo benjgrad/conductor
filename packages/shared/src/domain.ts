@@ -95,6 +95,10 @@ export const CardBadgeSchema = z.enum([
   'failed',
   'lost',
   'cancelled',
+  /** ADR-0020 §6: Done through a merge (`context.__pr.merged`). */
+  'merged',
+  /** ADR-0020 §6: Done through "Close without merging" (`context.__pr.closed`). */
+  'closed_unmerged',
 ]);
 export type CardBadge = z.infer<typeof CardBadgeSchema>;
 

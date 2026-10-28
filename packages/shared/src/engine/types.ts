@@ -9,12 +9,14 @@ import {
   UuidSchema,
 } from '../domain.js';
 import {
+  ApprovalIdSchema,
   ConditionTypeSchema,
   TicketKindSchema,
   TransitionActorSchema,
   type WorkflowDefinition,
 } from '../workflow/schema.js';
 import { AgentTransitionOptionSchema } from '../workflow/transition-rules.js';
+import { GitShaSchema, PR_FILES_MAX, PrFilePathSchema, PrUrlSchema } from '../protocol/actions.js';
 
 // FSM engine contract (05). `apply()` is pure: no clock (pass `now`), no ids, no I/O.
 // The orchestrator's EngineService (orchestrator/src/contracts.ts) persists the result
@@ -144,6 +146,19 @@ export const GateStepSchema = z.object({
    * evaluation was refused or timed out. null when there is nothing to say.
    */
   conditions_note: z.string().nullable().default(null),
+  /**
+   * ADR-0020 §5 (M2r-T04): the approvals the human gave for this move, for the audit and
+   * `merge_pr.approved_paths`: who ticked them, the active approval ids, and each one's matched
+   * files. null when none; defaults to null, so older rows parse.
+   */
+  approvals: z
+    .object({
+      who: z.string().min(1).max(200),
+      ids: z.array(ApprovalIdSchema).max(5),
+      files: z.record(ApprovalIdSchema, z.array(PrFilePathSchema).max(PR_FILES_MAX)),
+    })
+    .nullable()
+    .default(null),
 });
 export type GateStep = z.infer<typeof GateStepSchema>;
 /** ADR-0009 name of GateStepSchema. */
@@ -408,6 +423,12 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
      * process is still parked live answers with `send_input {input_request_id}`.
      */
     input_request_id: UuidSchema.nullable().optional(),
+    /**
+     * ADR-0020 §5: the approval ids the human ticked (`TransitionSessionRequest.approvals`).
+     * Absent ≡ []. A transition with an active approval not listed here is ignored
+     * `approval_required` (M2r-T04).
+     */
+    approvals: z.array(ApprovalIdSchema).max(5).optional(),
   }),
   /**
    * O (M2-T20): the session's machine is gone (U-068). Full semantics: 10-contracts §Machines
@@ -479,6 +500,13 @@ export const EffectSchema = z.discriminatedUnion('type', [
      * reviewers).
      */
     transitions: z.array(AgentTransitionOptionSchema).optional(),
+    /**
+     * ADR-0020 §2: a `role: 'qa'` start runs in a fresh checkout of the PR head (WS
+     * `start_session.checkout`). M2r-T03 sets it; `commandPayloadForEffect` copies it then.
+     */
+    checkout: z
+      .object({ sha: GitShaSchema, pr_url: PrUrlSchema, setup: z.string().max(2_000).nullable() })
+      .optional(),
   }),
   /** outbox `send_input` → WS send_input (live stdin). */
   z.object({
@@ -794,6 +822,18 @@ export const APPLY_IGNORE_REASONS = [
    * (a `pinned_machine_offline` is trusted: the pin check is the reaper's SQL).
    */
   'machine_mismatch',
+  /**
+   * ADR-0020 §5: `human.transition` for a move with an active approval (its globs match a file
+   * of `context.__pr.inspect`, or the file list was truncated) that isn't in `approvals` (→ 409
+   * `approval_required` with the approvals and their files; nothing changes).
+   */
+  'approval_required',
+  /**
+   * ADR-0020 §6: `human.transition` into a terminal state of a merge-aware definition while the
+   * PR is open, other than through `merge_pr` / `close_pr` (→ 409 `pr_open`). An agent's is
+   * routed to needs_input instead (M2r-T04).
+   */
+  'pr_open',
 ] as const;
 export const ApplyIgnoreReasonSchema = z.enum(APPLY_IGNORE_REASONS);
 export type ApplyIgnoreReason = z.infer<typeof ApplyIgnoreReasonSchema>;

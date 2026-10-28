@@ -1051,6 +1051,7 @@ function enterStep(
     conditions_deadline: null,
     conditions_poll_ms: null,
     conditions_note: null,
+    approvals: null,
   };
   st.emit({ type: 'state_entered', from: p.from, to: label, visit, ...moveFields(p.move) });
   if (s.machine_id === null) {
@@ -1922,6 +1923,13 @@ function actionLabel(action: TransitionAction): string {
       return 'update the Jira issue (update_jira)';
     case 'slack_message':
       return 'send the Slack message (slack_message)';
+    // TD: M2r-T01 stub so the switch stays exhaustive; M2r-T04 owns these actions.
+    case 'inspect_pr':
+      return 'inspect the pull request (inspect_pr)';
+    case 'merge_pr':
+      return 'merge the pull request (merge_pr)';
+    case 'close_pr':
+      return 'close the pull request (close_pr)';
   }
 }
 
@@ -1964,6 +1972,9 @@ function actionArgs(st: Step, r: GateStep, action: TransitionAction): JsonObject
     }
     case 'update_jira':
     case 'slack_message':
+    case 'inspect_pr': // TD: M2r-T01 stub; M2r-T04 builds these args (protocol/actions.ts).
+    case 'merge_pr':
+    case 'close_pr':
       return {};
   }
 }

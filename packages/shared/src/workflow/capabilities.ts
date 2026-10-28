@@ -30,6 +30,10 @@ export const ACTION_CAPABILITIES = {
   // Placeholder until M5 decides CLI vs MCP for Jira (U-065).
   update_jira: 'cli:jira:authed',
   slack_message: 'mcp:slack',
+  // ADR-0020 §4: gh only, on the session's machine.
+  inspect_pr: 'cli:gh:authed',
+  merge_pr: 'cli:gh:authed',
+  close_pr: 'cli:gh:authed',
 } as const satisfies Record<TransitionAction, CapabilityRequirement>;
 
 /**

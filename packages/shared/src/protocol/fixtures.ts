@@ -1,3 +1,4 @@
+import type { JsonObject } from '../domain.js';
 import type { Capability } from '../machines/capabilities.js';
 import type { InventoryRepo } from '../machines/inventory.js';
 import {
@@ -9,6 +10,15 @@ import {
   type SessionEventKind,
   type SessionEventPayload,
 } from './ws.js';
+import type {
+  ClosePrArgs,
+  ClosePrResult,
+  InspectPrArgs,
+  InspectPrResult,
+  MergePrArgs,
+  MergePrResult,
+  OpenPrResult,
+} from './actions.js';
 
 // One valid fixture per WS message type (and per session_event kind). Used by the round-trip
 // tests here and as ready-made messages for fake daemons / fake orchestrators in T05/T11 tests.
@@ -567,4 +577,229 @@ export const M2_WS_FIXTURES: {
       at: TS,
     },
   },
+};
+
+// ---------------------------------------------------------------- review and merge (M2r-T01)
+
+/** The commit QA reviewed and conductor merges in the M2r fixtures (`context.__qa.head_sha`). */
+export const M2R_HEAD_SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
+/** Someone pushed after QA: the PR head merge_pr / inspect_pr observed. */
+export const M2R_MOVED_SHA = 'b2c3d4e5f60718293a4b5c6d7e8f901234567890';
+const M2R_MERGE_COMMIT = 'c3d4e5f60718293a4b5c6d7e8f9012345678901a';
+const MIGRATION = 'packages/orchestrator/migrations/1730000000000_qa.sql';
+
+/** `run_action` args and `action_result.result` per ADR-0020 action (protocol/actions.ts). */
+export const M2R_ACTION_FIXTURES: {
+  open_pr_result: OpenPrResult;
+  open_pr_result_m1: OpenPrResult;
+  inspect_pr_args: InspectPrArgs;
+  inspect_pr_result: InspectPrResult;
+  inspect_pr_result_truncated: InspectPrResult;
+  merge_pr_args: MergePrArgs;
+  merge_pr_merged: MergePrResult;
+  merge_pr_already: MergePrResult;
+  merge_pr_head_moved: MergePrResult;
+  merge_pr_conflict: MergePrResult;
+  merge_pr_approval_missing: MergePrResult;
+  merge_pr_blocked: MergePrResult;
+  close_pr_args: ClosePrArgs;
+  close_pr_args_no_pr: ClosePrArgs;
+  close_pr_result: ClosePrResult;
+  close_pr_result_merged: ClosePrResult;
+} = {
+  open_pr_result: { pr_url: M1B_PR_URL, head_sha: M2R_HEAD_SHA },
+  open_pr_result_m1: { pr_url: M1B_PR_URL },
+  inspect_pr_args: {
+    pr_url: M1B_PR_URL,
+    approval_paths: { migration: ['packages/orchestrator/migrations/**'] },
+  },
+  inspect_pr_result: {
+    head_sha: M2R_HEAD_SHA,
+    files: ['packages/shared/src/engine/qa.ts', MIGRATION],
+    files_truncated: false,
+    mergeable: 'MERGEABLE',
+    state: 'OPEN',
+    matched: { migration: [MIGRATION] },
+  },
+  inspect_pr_result_truncated: {
+    head_sha: M2R_HEAD_SHA,
+    files: Array.from({ length: 300 }, (_, i) => `src/generated/file-${i}.ts`),
+    files_truncated: true,
+    mergeable: 'UNKNOWN',
+    state: 'OPEN',
+    matched: {},
+  },
+  merge_pr_args: {
+    pr_url: M1B_PR_URL,
+    expected_sha: M2R_HEAD_SHA,
+    method: 'merge',
+    approved_paths: [MIGRATION],
+  },
+  merge_pr_merged: {
+    ok: true,
+    merged: true,
+    already: false,
+    merge_commit_sha: M2R_MERGE_COMMIT,
+    head_sha: M2R_HEAD_SHA,
+  },
+  merge_pr_already: {
+    ok: true,
+    merged: true,
+    already: true,
+    merge_commit_sha: M2R_MERGE_COMMIT,
+    head_sha: M2R_MOVED_SHA,
+    note: 'merged a different head',
+  },
+  merge_pr_head_moved: {
+    ok: false,
+    unmet: 'head_moved',
+    observed_sha: M2R_MOVED_SHA,
+    detail: 'The PR head moved after QA.',
+  },
+  merge_pr_conflict: {
+    ok: false,
+    unmet: 'conflict',
+    detail: 'The PR conflicts with main.',
+  },
+  merge_pr_approval_missing: {
+    ok: false,
+    error: 'approval_missing',
+    detail: `Not approved: ${MIGRATION}`,
+  },
+  merge_pr_blocked: {
+    ok: false,
+    error: 'blocked',
+    detail: 'Required status check "ci" is expected.',
+  },
+  close_pr_args: { pr_url: M1B_PR_URL, reason: 'Superseded by #12.' },
+  close_pr_args_no_pr: { pr_url: null, reason: 'Not needed any more.' },
+  close_pr_result: { closed: true, merged: false, already: false },
+  close_pr_result_merged: { closed: false, merged: true, already: true },
+};
+
+const m2rRunAction = (
+  action: 'inspect_pr' | 'merge_pr' | 'close_pr',
+  state: string,
+  target: string,
+  args: JsonObject,
+): Extract<OrchestratorToDaemon, { type: 'run_action' }> => ({
+  type: 'run_action',
+  msg_id: id(),
+  seq: null,
+  session_id: S,
+  fencing_token: 3,
+  payload: {
+    command_id: FIXTURE_IDS.command,
+    workflow_state: state,
+    target_state: target,
+    action,
+    idempotency_key: `${S}:${state}:1`,
+    args,
+    branch: M1B_BRANCH,
+    expected_sha: action === 'merge_pr' ? M2R_HEAD_SHA : null,
+  },
+});
+const m2rActionResult = (
+  seq: number,
+  action: string,
+  result: object | null,
+  error: string | null,
+): Extract<DaemonToOrchestrator, { type: 'session_event' }> => ({
+  type: 'session_event',
+  ...daemonSession(seq),
+  payload: {
+    kind: 'action_result',
+    data: {
+      command_id: FIXTURE_IDS.command,
+      action,
+      // The action result types have optional fields, which JsonObject doesn't admit.
+      result: result as JsonObject | null,
+      error,
+    },
+  },
+});
+
+/**
+ * One fixture per ADR-0020 WS shape, as full envelopes: the QA start with its checkout, the three
+ * `run_action`s and their `action_result`s. For the daemon (M2r-T05, T06) and engine (T03, T04)
+ * tests; round-tripped in actions.m2r.test.ts.
+ */
+export const M2R_WS_FIXTURES: {
+  start_session_qa_checkout: Extract<OrchestratorToDaemon, { type: 'start_session' }>;
+  run_action_inspect_pr: Extract<OrchestratorToDaemon, { type: 'run_action' }>;
+  run_action_merge_pr: Extract<OrchestratorToDaemon, { type: 'run_action' }>;
+  run_action_close_pr: Extract<OrchestratorToDaemon, { type: 'run_action' }>;
+  action_result_inspect_pr: Extract<DaemonToOrchestrator, { type: 'session_event' }>;
+  action_result_merge_pr: Extract<DaemonToOrchestrator, { type: 'session_event' }>;
+  action_result_merge_pr_head_moved: Extract<DaemonToOrchestrator, { type: 'session_event' }>;
+  action_result_close_pr: Extract<DaemonToOrchestrator, { type: 'session_event' }>;
+  action_result_inspect_pr_error: Extract<DaemonToOrchestrator, { type: 'session_event' }>;
+} = {
+  start_session_qa_checkout: {
+    ...ORCHESTRATOR_FIXTURES.start_session,
+    msg_id: id(),
+    fencing_token: 3,
+    payload: {
+      ...ORCHESTRATOR_FIXTURES.start_session.payload,
+      workflow_state: 'in_qa',
+      tools: ['qa'],
+      resume_claude_session_id: null,
+      review: true,
+      model: 'opus',
+      transitions: [
+        { name: 'qa_pass', when: 'Every requirement is met.', question: false },
+        { name: 'qa_fail', when: 'At least one required fix.', question: false },
+        { name: 'qa_needs_human', when: null, question: true },
+      ],
+      checkout: { sha: M2R_HEAD_SHA, pr_url: M1B_PR_URL, setup: 'pnpm i --frozen-lockfile' },
+    },
+  },
+  run_action_inspect_pr: m2rRunAction(
+    'inspect_pr',
+    'in_qa → ready_to_merge (move: qa_pass)',
+    'ready_to_merge',
+    M2R_ACTION_FIXTURES.inspect_pr_args,
+  ),
+  run_action_merge_pr: m2rRunAction(
+    'merge_pr',
+    'ready_to_merge → done (move: merge)',
+    'done',
+    M2R_ACTION_FIXTURES.merge_pr_args,
+  ),
+  run_action_close_pr: m2rRunAction(
+    'close_pr',
+    'needs_input → done (move: close_without_merging)',
+    'done',
+    M2R_ACTION_FIXTURES.close_pr_args,
+  ),
+  action_result_inspect_pr: m2rActionResult(
+    40,
+    'inspect_pr',
+    M2R_ACTION_FIXTURES.inspect_pr_result,
+    null,
+  ),
+  action_result_merge_pr: m2rActionResult(
+    41,
+    'merge_pr',
+    M2R_ACTION_FIXTURES.merge_pr_merged,
+    null,
+  ),
+  action_result_merge_pr_head_moved: m2rActionResult(
+    42,
+    'merge_pr',
+    M2R_ACTION_FIXTURES.merge_pr_head_moved,
+    null,
+  ),
+  action_result_close_pr: m2rActionResult(
+    43,
+    'close_pr',
+    M2R_ACTION_FIXTURES.close_pr_result,
+    null,
+  ),
+  action_result_inspect_pr_error: m2rActionResult(
+    44,
+    'inspect_pr',
+    null,
+    'gh not available: gh: command not found',
+  ),
 };

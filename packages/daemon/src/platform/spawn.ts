@@ -1,0 +1,234 @@
+import {
+  ChildProcess,
+  execFileSync,
+  spawn,
+  type ExecFileSyncOptions,
+  type SpawnOptions,
+} from 'node:child_process';
+import { statSync } from 'node:fs';
+import { win32 } from 'node:path';
+import { PassThrough } from 'node:stream';
+
+// ADR-0024 §1 (spawn.ts): run a CLI (`claude`, `gh`, `git`, `az`) without a shell on every OS.
+//
+// POSIX: `spawn(bin, args, opts)` exactly as the call sites do today (they pass `detached: true`
+// to get a process group, which kill-tree.ts relies on).
+//
+// win32:
+// - `bin` is resolved through PATH and PATHEXT here, never by libuv: for a bare name libuv
+//   searches the child's cwd before PATH, and the cwd is usually an agent-writable worktree (a
+//   planted `git.exe` would run). PATH entries that are relative are skipped for the same reason.
+// - An `.exe`/`.com` is spawned directly by its absolute path.
+// - Anything else (`claude.cmd` from npm, `az.cmd`) runs as `cmd.exe /d /s /c "<line>"` with
+//   `windowsVerbatimArguments`, because Node refuses to spawn a batch file without a shell since
+//   CVE-2024-27980. The line is escaped like cross-spawn does, but the metacharacters are always
+//   escaped twice: every batch file we run forwards `%*` to a real program, and `%*` is parsed a
+//   second time by cmd (cross-spawn double-escapes only `node_modules\.bin` shims, so it would
+//   mangle `"` + `&` for the global npm shim `%APPDATA%\npm\claude.cmd`).
+// - cmd.exe can't carry CR/LF/NUL inside an argument (a newline ends the command), so such an
+//   argument is refused with an error rather than truncated or reinterpreted.
+// - Always `windowsHide: true`; `detached` is dropped (on Windows it means "own console", not a
+//   process group); `shell` is never honoured.
+
+/** spawn options minus `shell`, which is never allowed (MW shared rules). */
+export type CliSpawnOptions = Omit<SpawnOptions, 'shell'>;
+export type CliExecSyncOptions = Omit<ExecFileSyncOptions, 'shell'>;
+
+/** What to hand to `child_process`: the resolved program, its argv and the adjusted options. */
+export interface PreparedCli<O> {
+  file: string;
+  args: string[];
+  options: O;
+}
+
+/** Injected OS facts, so the win32 logic is testable on Linux. */
+export interface PrepareDeps {
+  platform?: NodeJS.Platform;
+  /** Is `p` an existing regular file? Default: `fs.statSync`. */
+  isFile?: (p: string) => boolean;
+}
+
+const DEFAULT_PATHEXT = '.COM;.EXE;.BAT;.CMD';
+const DIRECT_EXEC = /\.(?:exe|com)$/i;
+// cross-spawn's set: cmd.exe metacharacters plus space (it separates tokens) and `"`.
+const CMD_META = /([()\][%!^"`<>&|;, *?])/g;
+const CMD_UNSAFE = /[\r\n\0]/;
+
+function defaultIsFile(p: string): boolean {
+  try {
+    return statSync(p).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** Case-insensitive env lookup (Windows env names are; `{...process.env}` keeps `Path`). */
+export function envGet(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const want = name.toLowerCase();
+  for (const [k, v] of Object.entries(env)) {
+    if (k.toLowerCase() === want && v !== undefined) return v;
+  }
+  return undefined;
+}
+
+/** `%SystemRoot%\System32\<exe>`: system tools are never looked up through PATH or the cwd. */
+export function system32(exe: string, env: NodeJS.ProcessEnv = process.env): string {
+  const root = envGet(env, 'SystemRoot') ?? envGet(env, 'windir') ?? 'C:\\Windows';
+  return win32.join(root, 'System32', exe);
+}
+
+/**
+ * Resolve a Windows command name to an absolute file, like cmd.exe would but without the cwd:
+ * - a name with a directory part (`.\x`, `C:\x\y`) resolves against `cwd` only;
+ * - a bare name is searched in the absolute PATH entries, in order;
+ * - a name whose extension is in PATHEXT is tried as-is, otherwise each PATHEXT extension is
+ *   appended in order.
+ * Returns null when nothing matches.
+ */
+export function resolveWindowsBin(
+  bin: string,
+  opts: { env: NodeJS.ProcessEnv; cwd?: string | undefined; isFile?: (p: string) => boolean },
+): string | null {
+  const isFile = opts.isFile ?? defaultIsFile;
+  const exts = (envGet(opts.env, 'PATHEXT') ?? DEFAULT_PATHEXT)
+    .split(';')
+    .map((e) => e.trim().toLowerCase()) // the file system ignores case; lower reads better
+    .filter((e) => e.startsWith('.'));
+  const ext = win32.extname(bin).toLowerCase();
+  const candidates = (base: string): string[] =>
+    ext !== '' && exts.includes(ext) ? [base] : exts.map((e) => base + e);
+
+  if (/[\\/]/.test(bin) || win32.isAbsolute(bin)) {
+    const base = opts.cwd !== undefined ? win32.resolve(opts.cwd, bin) : win32.resolve(bin);
+    return candidates(base).find(isFile) ?? null;
+  }
+  for (const raw of (envGet(opts.env, 'PATH') ?? '').split(';')) {
+    const dir = raw.trim().replace(/^"(.*)"$/, '$1');
+    if (dir === '' || !win32.isAbsolute(dir)) continue;
+    const hit = candidates(win32.join(dir, bin)).find(isFile);
+    if (hit !== undefined) return hit;
+  }
+  return null;
+}
+
+/** cross-spawn's `escapeCommand`: caret-escape the program path (it is not quoted). */
+export function escapeCmdCommand(file: string): string {
+  return file.replace(CMD_META, '^$1');
+}
+
+/**
+ * Quote one argument for the program's own (MSVCRT / CommandLineToArgvW) parser, then
+ * caret-escape every cmd metacharacter, including the quotes, twice (see the header): once for
+ * `cmd /c` and once for the batch file's `%*`.
+ */
+export function escapeCmdArg(arg: string): string {
+  if (CMD_UNSAFE.test(arg)) {
+    throw Object.assign(new Error('spawnCli: an argument for a .cmd/.bat contains CR, LF or NUL'), {
+      code: 'ERR_CMD_UNSAFE_ARG',
+    });
+  }
+  // Backslashes before a quote are doubled and the quote escaped; trailing backslashes are
+  // doubled (the closing quote follows them).
+  let a = arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1');
+  a = `"${a}"`;
+  return a.replace(CMD_META, '^$1').replace(CMD_META, '^$1');
+}
+
+/** The `/c` payload for running `file args…` through cmd.exe. Pure. */
+export function buildCmdLine(file: string, args: readonly string[]): string {
+  return [escapeCmdCommand(win32.normalize(file)), ...args.map(escapeCmdArg)].join(' ');
+}
+
+/** An ENOENT shaped like the one `spawn` reports for a missing program. */
+export function enoent(bin: string, args: readonly string[]): NodeJS.ErrnoException {
+  return Object.assign(new Error(`spawn ${bin} ENOENT`), {
+    errno: -4058, // UV_ENOENT on Windows
+    code: 'ENOENT',
+    syscall: `spawn ${bin}`,
+    path: bin,
+    spawnargs: [...args],
+  });
+}
+
+/**
+ * Work out what to spawn. Returns null on win32 when `bin` doesn't resolve (the caller reports
+ * ENOENT). Throws for an argument cmd.exe can't carry.
+ */
+export function prepareCli<O extends CliSpawnOptions | CliExecSyncOptions>(
+  bin: string,
+  args: readonly string[],
+  opts: O,
+  deps: PrepareDeps = {},
+): PreparedCli<O> | null {
+  const platform = deps.platform ?? process.platform;
+  const options = { ...opts } as O & { shell?: unknown };
+  delete options.shell;
+  if (platform !== 'win32') return { file: bin, args: [...args], options };
+
+  delete (options as SpawnOptions).detached;
+  options.windowsHide = true;
+  const env = opts.env ?? process.env;
+  const cwd = typeof opts.cwd === 'string' ? opts.cwd : opts.cwd?.pathname;
+  const resolveOpts = { env, cwd, ...(deps.isFile ? { isFile: deps.isFile } : {}) };
+  const file = resolveWindowsBin(bin, resolveOpts);
+  if (file === null) return null;
+  if (DIRECT_EXEC.test(file)) return { file, args: [...args], options };
+  // execFileSync passes it through to spawnSync, which honours it; only its typing lacks it.
+  (options as SpawnOptions).windowsVerbatimArguments = true;
+  return {
+    file: system32('cmd.exe', env),
+    args: ['/d', '/s', '/c', `"${buildCmdLine(file, args)}"`],
+    options,
+  };
+}
+
+/** A never-spawned child that fails with ENOENT on the next tick, as `spawn` does. */
+function missingChild(bin: string, args: readonly string[]): ChildProcess {
+  const child = new ChildProcess();
+  const streams = child as unknown as Record<'stdin' | 'stdout' | 'stderr', PassThrough>;
+  streams.stdin = new PassThrough();
+  streams.stdout = new PassThrough();
+  streams.stderr = new PassThrough();
+  process.nextTick(() => {
+    child.emit('error', enoent(bin, args));
+    streams.stdout.end();
+    streams.stderr.end();
+    child.emit('close', -4058, null);
+  });
+  return child;
+}
+
+/**
+ * `child_process.spawn` for a CLI, safe on every OS (see the header). A program that can't be
+ * found fails the same way on every OS: an `'error'` event with `code: 'ENOENT'` and no pid.
+ */
+export function spawnCli(
+  bin: string,
+  args: readonly string[],
+  opts: CliSpawnOptions = {},
+): ChildProcess {
+  const p = prepareCli(bin, args, opts);
+  if (p === null) return missingChild(bin, args);
+  return spawn(p.file, p.args, p.options);
+}
+
+/** `child_process.execFileSync` for a CLI, with spawnCli's resolution and escaping. */
+export function execFileCliSync(
+  bin: string,
+  args: readonly string[],
+  opts: CliExecSyncOptions & { encoding: BufferEncoding },
+): string;
+export function execFileCliSync(
+  bin: string,
+  args: readonly string[],
+  opts?: CliExecSyncOptions,
+): string | Buffer;
+export function execFileCliSync(
+  bin: string,
+  args: readonly string[],
+  opts: CliExecSyncOptions = {},
+): string | Buffer {
+  const p = prepareCli(bin, args, opts);
+  if (p === null) throw enoent(bin, args);
+  return execFileSync(p.file, p.args, p.options);
+}

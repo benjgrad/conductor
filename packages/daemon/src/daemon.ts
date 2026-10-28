@@ -529,6 +529,7 @@ export class Daemon {
           return this.sendMessage(msg);
         case 'kill':
           return this.kill(msg);
+        // TD-180: no test; M2-T29b replaces this case.
         case 'permission_decision':
           // ADR-0023: M2-T29b resolves the held `permission` call. Until then this daemon never
           // sends a permission_request, so it holds none (10-contracts §Permission prompts).

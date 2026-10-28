@@ -477,6 +477,7 @@ export type PermissionBehavior = z.infer<typeof PermissionBehaviorSchema>;
 export const PermissionScopeSchema = z.enum(['once', 'always']);
 export type PermissionScope = z.infer<typeof PermissionScopeSchema>;
 
+// TD-178: until M2-T29c the gateway parses this and drops it silently (no protocol_error).
 /**
  * ADR-0023 §2: auto mode would still ask, so Claude called conductor's `permission` tool; the
  * daemon holds the call open and asks the orchestrator. Session-scoped and **durable** (`seq`

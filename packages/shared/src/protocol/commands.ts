@@ -179,6 +179,7 @@ export interface PermissionDecisionCommand {
   payload: PermissionDecisionPayload;
 }
 
+// TD-179: outbox kind with no engine Effect (an exception; U-099 decides before T29c).
 /**
  * ADR-0023: the outbox `kind`, `target` and `payload` of a decision on a permission request. Not
  * an engine Effect: the decision route (M2-T29c) writes the row itself, in the transaction that

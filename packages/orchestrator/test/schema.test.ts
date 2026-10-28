@@ -618,6 +618,7 @@ describe('migrations', () => {
           'machine_alert',
           'machine_capability',
           'machine_credential',
+          'permission_request',
         ].sort(),
       );
     } finally {
@@ -684,7 +685,8 @@ describe('migrations', () => {
         { machine_id: 'm-m1b', repo: 'github.com/o/s', tree_clean: true },
       ]);
 
-      await migrate(db.url, 'down', 1);
+      // Down to just before machine-credentials (later migrations are undone first).
+      await migrate(db.url, 'down', FILES.length - migrationsBefore(MACHINE_CREDENTIALS));
       expect(await newTables()).toEqual([]);
       const machineCols = await q(
         `SELECT column_name FROM information_schema.columns
@@ -958,6 +960,26 @@ describe('schema (migrated test database)', () => {
     );
     expect(al.rows[0]).toMatchObject({ kind: 'git_tamper', cleared_at: null });
 
+    // M2-T29c permission prompts (account_id named: no default).
+    const prq = await pool.query<PermissionRequestRow>(
+      `INSERT INTO permission_request (id, account_id, session_id, machine_id, fencing_token, tool,
+         input, expires_at)
+       VALUES (gen_random_uuid(), $1, $2, 'm-rows', $3, 'Bash', '{"command":"ls"}',
+         now() + interval '30 minutes') RETURNING *`,
+      [LOCAL_ACCOUNT_ID, ses.id, ses.fencing_token],
+    );
+    expect(prq.rows[0]).toMatchObject({
+      status: 'pending',
+      suggestions: [],
+      behavior: null,
+      decided_by: null,
+      resolved_at: null,
+      fencing_token: ses.fencing_token,
+    });
+    expect((await pool.query<TicketRow>('SELECT * FROM ticket')).rows[0]?.session_allow).toEqual(
+      [],
+    );
+
     const lt = await pool.query<LoginThrottleRow>(
       "INSERT INTO login_throttle (email_norm) VALUES ('ben@example.com') RETURNING *",
     );
@@ -988,6 +1010,55 @@ describe('schema (migrated test database)', () => {
       );
     await insert();
     await expectPgError(insert(), '23505', 'outbox_command_id_key');
+  });
+
+  it('permission_request CHECKs keep status, decision and expiry consistent (M2-T29c)', async () => {
+    const pool = db.pool;
+    await pool.query(
+      `INSERT INTO machine (id, hostname, os, arch, cpu_total, mem_total_mb, disk_free_mb,
+         budget_cpu, budget_mem_mb, max_sessions, max_concurrent_builds)
+       VALUES ('m-prq', 'h', 'linux', 'x64', 1, 1, 1, 1, 1, 1, 1)`,
+    );
+    await pool.query(
+      `INSERT INTO workflow_definition (id, version, definition) VALUES ('wf_prq', 1, '{}')`,
+    );
+    const t = await pool.query<{ id: string }>(
+      "INSERT INTO ticket (repo, title, workflow_id) VALUES ('r', 't', 'wf_prq') RETURNING id",
+    );
+    const sess = await pool.query<{ id: string }>(
+      `INSERT INTO session (ticket_id, workflow_id, workflow_version) VALUES ($1, 'wf_prq', 1)
+       RETURNING id`,
+      [t.rows[0]!.id],
+    );
+    const insert = (cols: string, vals: string) =>
+      pool.query(
+        `INSERT INTO permission_request (id, account_id, session_id, machine_id, fencing_token,
+           tool, input, expires_at${cols})
+         VALUES (gen_random_uuid(), $1, $2, 'm-prq', 1, 'Bash', '{}', now()${vals})`,
+        [LOCAL_ACCOUNT_ID, sess.rows[0]!.id],
+      );
+    // Decided without a behavior; a behavior while pending; expired without a reason; a reason
+    // while pending; resolved while pending; a deny with scope always; a rule without always.
+    for (const [cols, vals] of [
+      [', status, resolved_at', ", 'allowed', now()"],
+      [', behavior, scope', ", 'allow', 'once'"],
+      [', status, resolved_at', ", 'expired', now()"],
+      [', expired_reason', ", 'timeout'"],
+      [', resolved_at', ', now()'],
+      [', status, behavior, scope, resolved_at', ", 'denied', 'deny', 'always', now()"],
+      [
+        ', status, behavior, scope, rule, resolved_at',
+        ", 'allowed', 'allow', 'once', 'Bash(ls)', now()",
+      ],
+      [', status', ", 'maybe'"],
+    ] as const) {
+      await expectPgError(insert(cols, vals), '23514');
+    }
+    await insert(
+      ', status, behavior, scope, rule, resolved_at',
+      ", 'allowed', 'allow', 'always', 'Bash(ls)', now()",
+    );
+    await insert(', status, expired_reason, resolved_at', ", 'expired', 'agent_gone', now()");
   });
 
   describe('accounts and sign-in constraints (M2-T03)', () => {

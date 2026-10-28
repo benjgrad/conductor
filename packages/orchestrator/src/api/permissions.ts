@@ -130,6 +130,8 @@ export const registerPermissionRoutes: FastifyPluginAsync<PermissionRoutesOption
       );
       if (rule !== null) {
         // ADR-0023 §2: on the ticket until M2-T28c's machine override exists.
+        // TD-NEW-1: session_allow is recorded but not fed into the next start_session (the
+        // daemon's `tools` list only takes aliases); a resumed process asks again.
         await tx.query(
           'UPDATE ticket SET session_allow = array_append(session_allow, $2::text) ' +
             'WHERE id = $1 AND NOT ($2::text = ANY (session_allow))',

@@ -12,6 +12,7 @@ const isReviewTransition = (name: string | null | undefined) =>
   typeof name === 'string' && name.endsWith('ready_for_review');
 
 /** 06 §Plan approval: conductor v2's planning question "Plan needs approval". */
+// TD-174: hardcodes conductor v2's plan_needs_approval / plan_ready names.
 export const PLAN_APPROVAL_TRANSITION = 'plan_needs_approval';
 
 /** Older servers send no `step_failed`: the engine's failed-step questions start like this. */
@@ -56,6 +57,7 @@ export function lastMoveTransition(detail: Pick<SessionDetail, 'moves' | 'card'>
  * its agent columns and gets the one `needs_text` option into an agent state. null when there is
  * none (or the board can't tell which): the caller falls back to the generic buttons.
  */
+// TD-173: the board has no return_to, so this guesses the answer option (fails safe).
 export function planAnswerOption<T extends HumanTransitionOption>(
   options: readonly T[],
   returnTo: string | ReadonlySet<string> | null | undefined,

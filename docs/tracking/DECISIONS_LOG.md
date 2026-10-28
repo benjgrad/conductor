@@ -4,6 +4,9 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-28 | Plan approval reuses the `$return_to` answer transition (a question transition keeps its non-empty result in context); no workflow version bump | feat-plan-approval-ui (cf880dc), TD-173, TD-174 |
+| 2026-10-28 | Raw stderr is never stored in events: the exit carries `stderr_tail`, the event row keeps only `stderr_tail_bytes`; the failure question quotes the last stderr line (≤300 chars) | fix-resume-no-conversation (7cf97f2) |
+| 2026-10-28 | A resume needs the transcript at this worktree's exact cwd-slug path; otherwise the daemon refuses `no_conversation`, the engine clears `claude_session_id`, records `conversation.reset` and requeues, and the re-claim starts fresh with the full prompt plus the pending answer | fix-resume-no-conversation (7cf97f2), U-097 |
 | 2026-10-27 | Ben approved the M3 plan as written: ADR-0014 accepted. The order of work is M2r → M3 → the rest of M2 → M2c → M2b | ADR-0014, M3, ROADMAP |
 | 2026-10-27 | MCP rate limits: `/mcp` 120/min per grant (burst 40), 30 writes/min per grant, 300/min per account; registration 10/hour per IP; 25 active grants per user; nginx zones `conductor_mcp` / `conductor_oauth` | U-054, ADR-0014 §6 |
 | 2026-10-27 | MCP scopes `conductor:read` / `conductor:write` (write opt-in at consent). No server-side confirmation of writes; the client's tool approval is the check; every write audited with the client's name | U-069, ADR-0014 §5 |

@@ -28,7 +28,14 @@ import { liveResources, type SysInfo } from './sysinfo.js';
 import { buildAppendSystemPrompt } from './system-prompt.js';
 import { inventoryDigest, Workspace } from './workspace.js';
 import { InventoryReporter, scanInventory, type InventoryScan } from './inventory/report.js';
-import { detectSetup, freshCheckout, removeCheckout, sweepPrivate } from './actions/checkout.js';
+import {
+  detectSetup,
+  freshCheckout,
+  managedCommand,
+  missingManager,
+  removeCheckout,
+  sweepPrivate,
+} from './actions/checkout.js';
 import { evaluateConditions } from './actions/conditions.js';
 import { checkClean, openPr, resolveHead } from './actions/open-pr.js';
 import { ReconnectingWs } from './ws-client.js';
@@ -84,7 +91,16 @@ export interface DaemonOptions {
 
 type Command = Extract<
   OrchestratorToDaemon,
-  { type: 'start_session' | 'run_cmd' | 'run_action' | 'send_input' | 'send_message' | 'kill' }
+  {
+    type:
+      | 'start_session'
+      | 'run_cmd'
+      | 'run_action'
+      | 'send_input'
+      | 'send_message'
+      | 'kill'
+      | 'permission_decision';
+  }
 >;
 type StartSession = Extract<Command, { type: 'start_session' }>;
 type RunCmd = Extract<Command, { type: 'run_cmd' }>;
@@ -513,6 +529,11 @@ export class Daemon {
           return this.sendMessage(msg);
         case 'kill':
           return this.kill(msg);
+        // TD-180: no test; M2-T29b replaces this case.
+        case 'permission_decision':
+          // ADR-0023: M2-T29b resolves the held `permission` call. Until then this daemon never
+          // sends a permission_request, so it holds none (10-contracts §Permission prompts).
+          return this.finish(msg, { accepted: false, reason: 'unknown_permission_request' });
       }
     };
     run()
@@ -619,6 +640,7 @@ export class Daemon {
     let worktree: string;
     let range: PortRange;
     try {
+      // TD-181: working_copy has no default_branch yet, so the base is the clone's origin/HEAD.
       worktree = await this.workspace.ensureWorktree({
         repo: p.repo,
         sessionId: sid,
@@ -1008,8 +1030,14 @@ export class Daemon {
           held = { sha: want, dir: fresh.dir, token };
           this.checkouts.set(sid, held);
           mine = held;
+          // TD-177: the missing-manager guards here are unit-tested only, not at daemon level.
           const setup = detectSetup(held.dir, co.setup);
           if (setup !== null) {
+            const missing = missingManager(setup);
+            if (missing !== null) {
+              setupFailed = true;
+              return notRun(missing);
+            }
             this.sendOutput(
               sid,
               token,
@@ -1027,13 +1055,17 @@ export class Daemon {
         const at = resolve(held.dir, p.cwd ?? '.');
         const inside = relative(held.dir, at);
         if (inside.startsWith('..') || isAbsolute(inside)) return notRun('invalid cwd');
+        // M2-T30: `npm run build` runs as `pnpm run build` in a pnpm repo (its lockfile decides).
+        const cmd = managedCommand(held.dir, p.cmd);
+        const missing = missingManager(cmd);
+        if (missing !== null) return notRun(missing);
         this.sendOutput(
           sid,
           token,
           'debug',
-          `conductor: \`${p.cmd}\` in a fresh checkout of ${want}`,
+          `conductor: \`${cmd}\` in a fresh checkout of ${want}`,
         );
-        const r = await exec(p.cmd, at);
+        const r = await exec(cmd, at);
         ok = r.exitCode === 0 && !r.timedOut;
         return r;
       } finally {

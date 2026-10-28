@@ -4,7 +4,8 @@ There are four things to isolate: **code**, **CPU/memory**, **network ports**, a
 
 ## Code: one worktree per session
 - The daemon keeps one **shared clone** per repo (recorded in `machine_repo`). Agents never edit it.
-- Each session gets `git worktree add <root>/wt/<session_id> -b conductor/<ticket>/<short> <base_ref>`. The object store is shared, so checkout is cheap. Five agents on one repo never touch each other's files.
+- Each session gets `git worktree add <root>/wt/<session_id> -b conductor/<ticket>/<short> <base>`. The object store is shared, so checkout is cheap. Five agents on one repo never touch each other's files.
+- **Fresh base (M2-T13a, TD-026).** Before creating a *new* session branch the daemon runs `git -c core.hooksPath=/dev/null fetch origin <default_branch>` in the shared clone, serialised per clone (concurrent starts fetch one at a time), and `<base>` is the fetched `origin/<default_branch>` (no upstream tracking), never the clone's own `HEAD`. `<default_branch>` is the caller's value when given (`start_session.working_copy.default_branch` once the contract carries it), else the clone's `origin/HEAD`, set once with `git remote set-head origin --auto` if missing. `base_ref` `HEAD` (the M1 default) means exactly this; another `base_ref` is used as given after the fetch. A failed fetch fails the start with an error naming the repo: no silent stale base. An existing worktree or branch (resume, re-sent start, ADR-0008 reopen) is reused untouched: no fetch into it, no rebase.
 - `machine_repo.tree_clean` therefore describes only the shared clone. A dirty main checkout no longer matters.
 - Worktree GC: the daemon removes worktrees of sessions that are `done`/`failed`/`lost` after their branch is pushed (or after N days). Policy is TBD in M2.
 

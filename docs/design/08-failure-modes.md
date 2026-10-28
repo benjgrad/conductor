@@ -55,3 +55,12 @@ Notes:
 
 ## Daemon refuses a start
 - `command_ack accepted=false` → session `queued`, ticket `ready`, event recorded. A machine that refuses 3 times in a row is skipped for 1 min.
+
+## Bad daemon update
+
+[ADR-0021](../adr/0021-daemon-auto-update.md). A deploy serves a daemon build that crashes on start or can't register.
+- The daemon only switched after draining, so no turn was cut. `<root>/daemon/trial` records `from` / `to`.
+- The launcher (`<root>/bin/conductor-launch`, outside every version) counts starts. On the third start it repoints `current` to `from` and records `to` in `bad-versions`.
+- The old version comes back, sends `alert update_failed` (stage `trial`), and ignores `update_available` for that version, so it doesn't loop. A human sees it on the Machines page; the next deploy's build is tried normally.
+- A laptop that wakes without a network is not rolled back: only a crash, or reaching the server without `registered` in 120 s, counts as a failed start.
+- Not covered: a new build that hangs without exiting and never reaches the server. It shows as offline + outdated; recovery is a manual `install.sh` re-run.

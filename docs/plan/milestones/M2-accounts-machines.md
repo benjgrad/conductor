@@ -95,11 +95,15 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 | M2-T15b | Orchestrator: invites, sign-up into new accounts, admin routes (the rest of T15) | T12, T15a | E | — | todo |
 | M2-T16 | Orchestrator: inventory ingest, routing filters in the claim, routing badge, alert ingest; gateway isolation test | T06, T09, T12, T14 | E | — | todo |
 | M2-T17 | Orchestrator: machines REST (enroll endpoint, enrollment tokens, list, rename, revoke); ticket repo check (U-048) | T08, T09, T14 | E | — | todo |
-| M2-T18 | Daemon: `service install` (launchd / systemd user), upgrade-in-place; `docs/setup/add-a-machine.md` | T04, T14 | E | — | todo |
+| M2-T18 | Daemon: `service install` (launchd / systemd user), upgrade-in-place, `conductor-launch` launcher, wake reconnect; `docs/setup/add-a-machine.md` | T04, T14 | E | — | todo |
+| M2-T18b | **Contracts (auto-update)**: `update_available`, `heartbeat.draining`, `alert` kind `update_failed`, `latest.json` DTO, exit codes ([ADR-0021](../../adr/0021-daemon-auto-update.md)) | T02 | E | — | todo |
+| M2-T18c | Daemon: self-update (stage, verify, drain, switch, exit 75), launcher trial + rollback, `config auto-update`, 4005 → latest.json | T18, T18b | F | — | todo |
+| M2-T18d | Orchestrator: send `update_available` after register, `GET /downloads/latest.json`, `draining` heartbeat → `machine.status`, `update_failed` alert ingest | T14, T16, T17, T18b | F | — | todo |
+| M2-T18e | Web: Machines page shows updating (draining) and update-failed alerts | T11, T18d | G | — | todo |
 | M2-T19 | Orchestrator: engine and stream scoping (`applyEvent(scope, …)`, engine SQL, dispatcher, per-account buses, SSE replay filter) | T08, T09, T12, T16, T17 | F | — | todo |
 | M2-T20 | Orchestrator: leases and the reaper (lapse → `machine.lost` → human); revoke reuses it; TD-088 | T06, T19 | G | — | todo |
 | M2-T21 | Orchestrator: REST scoping, route-matrix and SSE isolation tests, unscoped-query lint, drop the temporary defaults | T15, T17, T19 | G | **yes** | todo |
-| M2-T22 | E2E: password-mode harness, two accounts × two machines, routing, isolation; M1 / M1b in local mode | T13, T15, T16, T18, T20, T21 | H | — | todo |
+| M2-T22 | E2E: password-mode harness, two accounts × two machines, routing, isolation; M1 / M1b in local mode; one daemon auto-update and one rollback | T13, T15, T16, T18, T18c, T18d, T20, T21 | H | — | todo |
 | M2-T23 | Docs sweep: 00–10, ADR implementation notes, README "run hosted" | T21 | H | — | todo |
 | M2-T24 | E2E: laptop sleep, lease lapse, revoke, reconnect | T22 | I | — | todo |
 | M2-T25 | **Deploy** to conductor.gradyserver.com (lead + Ben's sudo script), bootstrap, enroll Ben's Mac, live checks, backup restore test | T22, T23, T24, T26 | J | — | todo |
@@ -529,19 +533,113 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 - **Scope.**
   - `conductor-daemon service install | uninstall | status` (`packages/daemon/src/commands/service.ts`): macOS writes `~/Library/LaunchAgents/com.conductor.daemon.plist` (RunAtLoad, KeepAlive, logs to `<root>/logs/`) and `launchctl bootstrap gui/<uid>`; Linux writes `~/.config/systemd/user/conductor-daemon.service` (`Restart=on-failure`) and `systemctl --user enable --now`; both run `<root>/daemon/current/bin/conductor-daemon run`, so upgrades by the install script take effect on restart. Never needs sudo. `install` is idempotent.
   - After an in-place upgrade the install script (T14) calls `conductor-daemon service restart` if a unit is installed (this task provides `restart`).
+  - **Launcher ([ADR-0021](../../adr/0021-daemon-auto-update.md) §3)**: the units run `<root>/bin/conductor-launch`, not the daemon directly. In this task it is only `exec "<root>/daemon/current/bin/conductor-daemon" run "$@"` (POSIX `sh`), kept in `packages/daemon/assets/conductor-launch.sh`; `service install` writes it, and `install.sh` writes the same bytes (the template embeds it at tarball build time; a test asserts identical bytes). T18c adds the trial / rollback logic. Both units set `CONDUCTOR_SUPERVISED=launchd|systemd`.
+  - **Wake ([ADR-0021](../../adr/0021-daemon-auto-update.md) §5)**: a 5 s tick in `ws-client.ts` that sees wall-clock time jump by more than 30 s resets the backoff and reconnects at once, so opening the lid reconnects in seconds rather than after up to 30 s (`reconnect.maxMs`).
   - **`docs/setup/add-a-machine.md`**: prerequisites (Node 22, `claude` installed and logged in, `gh auth login`; optional `az login`, a Jira CLI or MCP); the one-line install from the Machines page; `--service`; choosing roots (`conductor-daemon config roots ~/code`); per-repo mode (`config repo <path> --mode checkout` and what it risks, U-060); what is reported and what is never reported; upgrading; revoking and re-enrolling; troubleshooting (401 = token expired, 4001 = revoked, 4005 = update).
 - **Design refs**: ADR-0013 §Enrollment (setup guide); ADR-0017 §Daemon distribution.
 - **Depends on**: T04; T14 (the install script calls this command).
-- **Files owned**: `packages/daemon/src/commands/service.ts` (+ test), the `service` subcommand in `main.ts`, `docs/setup/add-a-machine.md`; for TD-117 / TD-118 / TD-119: the token input in `commands/enroll.ts`, `credential.ts`, and the fatal-exit code in `ws-client.ts` (+ their tests).
+- **Files owned**: `packages/daemon/src/commands/service.ts` (+ test), `packages/daemon/assets/conductor-launch.sh`, the launcher step in `packages/orchestrator/assets/install.sh.tmpl` and `scripts/build-daemon-tarball.sh`, the wake tick in `ws-client.ts`, the `service` subcommand in `main.ts`, `docs/setup/add-a-machine.md`; for TD-117 / TD-118 / TD-119: the token input in `commands/enroll.ts`, `credential.ts`, and the fatal-exit code in `ws-client.ts` (+ their tests).
 - **Do not touch**: `workspace.ts`, `inventory/**`, `claude/**`, other packages, `docs/tracking/*`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `commands/service.test.ts` with `HOME` in a temp dir and fake `launchctl` / `systemctl` on `PATH`: the plist / unit content matches a snapshot; install twice changes nothing; uninstall removes it; no command uses sudo.
   - [ ] **QA step (lead)**: on Ben's Mac, `conductor-daemon service install` against a local orchestrator starts the daemon at login (log in `<root>/logs/`), and `uninstall` stops it.
+  - [ ] The plist / unit run `<root>/bin/conductor-launch` and set `CONDUCTOR_SUPERVISED`; the launcher written by `service install` and by the rendered `install.sh` is byte-identical (`commands/service.test.ts`, `install-script.test.ts`).
+  - [ ] `ws-client.test.ts` (fake clock): a 60 s wall-clock jump during a 30 s backoff reconnects within one tick and resets the attempt counter; normal ticks don't.
+  - [ ] **QA step (lead)**: on Ben's Mac, close the lid for > 1 min with the daemon running, then open it: the orchestrator log shows the machine re-registered within 10 s of wake.
   - [ ] **TD-117 (daemon side)**: `enroll` reads the token from `CONDUCTOR_ENROLL_TOKEN` (or stdin with `--token -`); `--token <value>` still works and prints a warning that argv is visible in `ps`. `commands/enroll.test.ts` covers all three.
   - [ ] **TD-119 (exit code)**: a fatal close (4001, 4003, HTTP 401, HTTP 403) exits with a distinct `EXIT_FATAL_AUTH` (78, `EX_CONFIG`), not 1; `ws-client.test.ts` asserts the code for each.
   - [ ] **TD-118** (here, or in the M2 security pass before T25): `credential.ts` opens with `O_NOFOLLOW` + `fstat`, checks the root is 0700 and owned by the user, `fsync`s on write, and never `chmod`s through a symlink; `credential.test.ts` covers each case.
   - [ ] **TD-119**: a revoked machine doesn't restart-loop. The systemd unit has `RestartPreventExitStatus=<EXIT_FATAL_AUTH>`; the launchd plist uses `KeepAlive {SuccessfulExit: false}` with the daemon's fatal-auth path stopping the job (or `ThrottleInterval` as a floor). `commands/service.test.ts` snapshots both; a fake daemon that exits with `EXIT_FATAL_AUTH` under the fake `systemctl` / `launchctl` is not restarted.
+  - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
+
+### M2-T18b · Contracts: daemon auto-update
+- **Scope** ([ADR-0021](../../adr/0021-daemon-auto-update.md) §1–§4; additive, so M1/M2 daemons still parse).
+  - `shared/src/protocol/ws.ts`: orchestrator → daemon direct frame `update_available {version, file, sha256, size}` (`UpdateAvailableSchema`; `file` matches `DAEMON_TARBALL_RE` = `^conductor-daemon-[0-9A-Za-z.+-]+\.tgz$` and embeds `version`; `sha256` is 64 lowercase hex; `size` ≤ `DAEMON_TARBALL_MAX_BYTES` 100 MB). `heartbeat.draining?: {reason: 'update', version}`. `alert` gains a second kind `{kind: 'update_failed', version, stage: 'download'|'verify'|'unpack'|'drain_timeout'|'trial', error (≤ 500 chars), at}` (machine-level, no `repo`; still carries `seq`).
+  - `shared/src/machines/update.ts`: `LatestDaemonSchema` (`{version, file, sha256, size}`, the `/downloads/latest.json` body), `EXIT_RESTART_FOR_UPDATE` 75, `UPDATE_MAX_DRAIN_MS` 21 600 000, `UPDATE_TRIAL_REGISTER_MS` 120 000, `UPDATE_MAX_DRAIN_ATTEMPTS` 3, `UPDATE_DRAIN_COOLDOWN_MS` 3 600 000, `UPDATE_MAX_TRIAL_ATTEMPTS` 2. (`EXIT_FATAL_AUTH` 78 stays T18's.)
+  - Machines list DTO (T01's): `alerts?: {kind: 'update_failed', version, stage, error, at}[]` on a machine.
+  - Fixtures: `M2_WS_FIXTURES.update_available`, `.heartbeat_draining`, `.alert_update_failed`; `LATEST_DAEMON_FIXTURE`.
+  - `docs/design/10-contracts.md` §Daemon auto-update and the `03-protocols.md` rows: confirm or correct what ADR-0021's docs branch wrote.
+- **Design refs**: ADR-0021; 10-contracts §Machines protocol v2, §Daemon auto-update; 03 daemon protocol tables.
+- **Depends on**: T02.
+- **Files owned**: `packages/shared/src/protocol/ws.ts` (these additions), `packages/shared/src/machines/update.ts` (+ test), the machines DTO field, the fixtures, the two doc sections above.
+- **Do not touch**: `packages/daemon/**`, `packages/orchestrator/**`, `packages/web/**`, `docs/tracking/*`.
+- **Migration**: no.
+- **Acceptance**:
+  - [ ] Schema tests: every fixture parses; T02's `git_tamper` alert fixtures still parse; `update_available` with `file` `../x.tgz`, a `version` not in `file`, or an uppercase or short `sha256` is rejected; `heartbeat` without `draining` still parses.
+  - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
+
+### M2-T18c · Daemon: self-update, launcher rollback, opt-out
+- **Scope** ([ADR-0021](../../adr/0021-daemon-auto-update.md) §1–§4).
+  - `packages/daemon/src/update/` (`updater.ts`, `stage.ts`, `drain.ts`). The daemon acts on `update_available`, and on close 4005 via `GET <enrolled url>/downloads/latest.json`. It skips the update when `auto-update` is `off`, the version is in `<root>/daemon/bad-versions`, the version is already `current`, or a drain for it is cooling down.
+  - **Stage** (in the background):
+    - download with `redirect: 'manual'` and `isSecureOrLoopback`, under the size cap, and check the SHA-256;
+    - list the archive with `tar -tzf` and refuse absolute paths, `..`, links escaping the archive, and devices; unpack with `tar -xzf --no-same-owner`;
+    - run `bin/conductor-daemon --version` with a 10 s timeout and check it prints `version`, then rename the result to `<root>/daemon/<version>`;
+    - on any failure, delete the staging dir and send `alert update_failed`.
+  - **Drain**:
+    - stop `request_work`, send `heartbeat.draining`, and keep honouring queued commands;
+    - wait until no live Claude turn, `run_cmd` or `run_action` is in flight (parked sessions don't count);
+    - give up after `UPDATE_MAX_DRAIN_MS`: resume work, send `alert drain_timeout`, and start the cooldown. Stop trying that version after `UPDATE_MAX_DRAIN_ATTEMPTS`.
+  - **Switch**: write `<root>/daemon/trial`, repoint `current` by renaming a temp symlink over it, and exit `EXIT_RESTART_FOR_UPDATE`. When `CONDUCTOR_SUPERVISED` is unset, only stage and log once.
+  - Trial in the new version: delete `trial` on the first `registered`. If the socket opened (or an HTTP status came back) but no `registered` arrived within `UPDATE_TRIAL_REGISTER_MS`, exit 75. With no network, keep waiting.
+  - At start: if `bad-versions` has an entry not yet reported, send `alert update_failed` stage `trial` once and record it as reported. After a commit, delete every version except `current` and the previous one.
+  - `assets/conductor-launch.sh` (T18's launcher) gains the trial logic: `attempts` += 1. When it exceeds `UPDATE_MAX_TRIAL_ATTEMPTS`, repoint `current` to `from`, append `to` to `bad-versions` and delete `trial`; then `exec` the daemon. POSIX `sh` with no bash-isms: it must work with macOS `/bin/sh` and with dash.
+  - `conductor-daemon config auto-update on|off` (default `on`) in `commands/config.ts`.
+- **Design refs**: ADR-0021; ADR-0017 §Daemon distribution; 10-contracts §Daemon auto-update, §Orphaned processes, §Refusals (resume after `no_live_process`).
+- **Depends on**: T18 (launcher, units, exit code 78), T18b.
+- **Files owned**: `packages/daemon/src/update/**` (+ tests), `packages/daemon/assets/conductor-launch.sh` (+ its test), the update hooks in `daemon.ts` / `ws-client.ts` (the request_work gate, the heartbeat field, the 4005 branch), `commands/config.ts` (the `auto-update` key).
+- **Do not touch**: `workspace.ts`, `inventory/**`, `claude/**`, `credential.ts`, other packages, `docs/tracking/*`.
+- **Migration**: no.
+- **Acceptance**:
+  - [ ] `update/stage.test.ts`, with a local http server and a temp `<root>`: a good tarball lands in `<root>/daemon/<version>`. A wrong SHA-256, an oversize file, a `../evil` entry, an absolute path, a symlink to `/etc` and a `--version` mismatch each leave nothing behind and raise one `update_failed` with the right `stage`. A redirect is not followed.
+  - [ ] `update/drain.test.ts` (fake daemon state, fake clock):
+    - no `request_work` after the drain starts;
+    - a running turn blocks the switch, and its end releases it;
+    - a parked (`ask_user`) session doesn't block;
+    - at the 6 h limit, work resumes and an alert goes out; the 1 h cooldown and the 3-attempt stop hold;
+    - `auto-update off` ignores the frame, and so does a version in `bad-versions`.
+  - [ ] Switch: `current` points at the new version, `trial` is written and the process exits 75. Unsupervised: the build is staged, `current` is unchanged and the process doesn't exit.
+  - [ ] `assets/conductor-launch.test.ts` runs the launcher under `sh` (and `dash` when present) with a fake daemon:
+    - the first and second starts keep the new version;
+    - the third start rolls back, writes `bad-versions` and `exec`s the old version;
+    - with no `trial` file it is a plain `exec`;
+    - the symlink swap is a rename (`current` is never missing).
+  - [ ] Trial: `registered` deletes `trial`. Socket open with no `registered` in 120 s exits 75. An unreachable server causes no exit within 10 min (fake clock).
+  - [ ] Close 4005 fetches latest.json and runs the same flow.
+  - [ ] A parked session survives an update restart: after the restart, an answer is refused `no_live_process` and resumes (the existing path; a daemon-level test with the fake runner).
+  - [ ] **QA step (lead)**: on Ben's Mac under launchd, serve a newer build from a local orchestrator. The daemon drains, restarts on it, and the Machines page shows the new version. Then serve a build whose `run` exits 1: after two failed starts it rolls back and the `update_failed` alert is visible.
+  - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
+
+### M2-T18d · Orchestrator: announce updates, latest.json, draining, update alerts
+- **Scope** ([ADR-0021](../../adr/0021-daemon-auto-update.md) §1–§3).
+  - Gateway: after sending `registered`, if a build is served and `isOutdated(register.daemon_version, servedVersion(build))`, send `update_available` from the served `DaemonBuild`. Not through the outbox.
+  - `distribution.ts`: `GET /downloads/latest.json` returns a `LatestDaemonSchema` body with `Cache-Control: no-store`. It returns 503 with the dev hint when no build is served, like `/install.sh`.
+  - When `heartbeat.draining` is present, set `machine.status = 'draining'`. When it's absent from a later heartbeat or register, set it back to `online`. Draining machines get no new claims (the claim already takes only `online` machines; confirm and test).
+  - `alert` `update_failed` ingest: deduped on seq like `git_tamper` (T16's ingest), stored machine-level, and returned on the machines list (T17) as `alerts`. If T16/T17 storage has no machine-level slot, **stop and report**: a migration needs Ben.
+- **Design refs**: ADR-0021; 10-contracts §Daemon auto-update; M2-T14 `distribution.ts`.
+- **Depends on**: T14, T16 (alert ingest), T17 (machines list), T18b.
+- **Files owned**: the register / heartbeat / alert branches in `src/gateway/**` for these fields, `src/distribution.ts` (latest.json), the machines list's `alerts` field, `test/gateway-update*.test.ts`, the `test/distribution*.test.ts` additions.
+- **Do not touch**: `src/auth/**`, `packages/daemon/**`, `packages/web/**`, `docs/tracking/*`.
+- **Migration**: no (stop and report if one turns out to be needed).
+- **Acceptance**:
+  - [ ] `test/gateway-update.test.ts`: an outdated v2 daemon gets exactly one `update_available` per register, with the served file and SHA-256. A current daemon gets none, and so does any daemon when no build is served. Nothing is written to the outbox.
+  - [ ] `latest.json` matches the served build, and returns 503 without one.
+  - [ ] `heartbeat.draining` sets `draining` and no claim is granted; a clean heartbeat sets `online` again.
+  - [ ] An `alert update_failed` is stored once per seq and listed on the machine.
+  - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
+
+### M2-T18e · Web: update states on the Machines page
+- **Scope**: on the Machines page (T11):
+  - a machine with `status = 'draining'` shows "Updating to <version>: waiting for running work";
+  - an `update_failed` alert shows "Update to <version> failed (<stage>), rolled back to <current>" with its error;
+  - the existing "outdated" mark stays.
+- **Depends on**: T11, T18d.
+- **Files owned**: `packages/web/src/machines/**` for these states (+ tests).
+- **Do not touch**: other packages, `docs/tracking/*`.
+- **Migration**: no.
+- **Acceptance**:
+  - [ ] `Machines.test.tsx` renders all three states from fixtures.
   - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
 
 ### M2-T19 · Orchestrator: engine and stream scoping

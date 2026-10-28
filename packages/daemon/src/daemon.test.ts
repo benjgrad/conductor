@@ -1,22 +1,24 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   CLOSE_REVOKED,
+  NO_CONVERSATION_REASON,
   NO_OUTCOME_OUTPUT_CHARS,
   PROTOCOL_VERSION,
   resolveToolPolicy,
   sessionBranch,
+  STDERR_TAIL_CHARS,
   type OrchestratorToDaemon,
 } from '@conductor/shared';
 import { FakeClaudeDriver, type FakeClaudeScript } from './claude/fake-driver.js';
 import { FakeCommandRunner } from './commands/fake-runner.js';
 import { daemonVersion, loadConfig, type DaemonConfig } from './config.js';
 import { writeCredential } from './credential.js';
-import { Daemon, NO_OUTCOME_NUDGE } from './daemon.js';
+import { appendTail, Daemon, NO_OUTCOME_NUDGE } from './daemon.js';
 import { readProcInfo, type ProcInfo } from './orphan.js';
 import { DaemonStore } from './store.js';
 import type { LiveResources } from './sysinfo.js';
@@ -75,6 +77,7 @@ function makeDaemon(
     log?: (msg: string) => void;
     claudeBin?: string;
     procInfo?: (pid: number) => ProcInfo | null;
+    hasConversation?: (cwd: string, claudeSessionId: string) => boolean;
   } = {},
 ): Daemon {
   const config = loadConfig({
@@ -86,6 +89,7 @@ function makeDaemon(
     CONDUCTOR_MIN_FREE_MEM_MB: '1000',
     CONDUCTOR_WORK_POLL_MS: '60000',
     CONDUCTOR_ALLOW_LOCAL_REPOS: '1', // the fixture origin is a local path (M1-T14)
+    CLAUDE_CONFIG_DIR: claudeDir(), // transcripts (the resume check) never come from ~/.claude
     ...opts.env,
   });
   config.reconnect = { initialMs: 20, maxMs: 100, factor: 2 };
@@ -105,10 +109,22 @@ function makeDaemon(
     ...(opts.onFatal ? { onFatal: opts.onFatal } : {}),
     ...(opts.claudeBin !== undefined ? { claudeBin: opts.claudeBin } : {}),
     ...(opts.procInfo ? { procInfo: opts.procInfo } : {}),
+    ...(opts.hasConversation ? { hasConversation: opts.hasConversation } : {}),
   });
   daemons.push(d);
   d.start();
   return d;
+}
+
+function claudeDir(): string {
+  return join(tmp, 'claude-config');
+}
+
+/** A Claude transcript for `claudeSessionId` on this machine (any project dir counts). */
+function writeTranscriptFor(claudeSessionId: string): void {
+  const dir = join(claudeDir(), 'projects', '-elsewhere');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${claudeSessionId}.jsonl`), '{"type":"user"}\n');
 }
 
 function startSession(
@@ -384,14 +400,91 @@ describe('daemon core: start_session', () => {
     const driver = new FakeClaudeDriver(complete({}));
     makeDaemon(driver);
     await orch.until(() => orch.ofType('request_work')[0]);
-    orch.send(
-      startSession(randomUUID(), { resume_claude_session_id: 'claude-abc', prompt: 'the answer' }),
-    );
+    const claudeId = randomUUID();
+    writeTranscriptFor(claudeId);
+    const start = startSession(randomUUID(), {
+      resume_claude_session_id: claudeId,
+      prompt: 'the answer',
+    });
+    orch.send(start);
     await orch.until(() => orch.events('exit')[0]);
+    expect(orch.ack(start.payload.command_id)[0]!.payload.accepted).toBe(true);
     expect(driver.starts[0]).toMatchObject({
-      claudeSessionId: 'claude-abc',
+      claudeSessionId: claudeId,
       resume: true,
       prompt: 'the answer',
+    });
+  });
+
+  it('refuses no_conversation (never spawns) when the resumed conversation is not on this machine', async () => {
+    const lines: string[] = [];
+    const driver = new FakeClaudeDriver(complete({}));
+    makeDaemon(driver, { log: (m) => lines.push(m) });
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    const claudeId = randomUUID(); // ran on another machine: no transcript here
+    for (const review of [false, true]) {
+      const start = startSession(sid, {
+        resume_claude_session_id: claudeId,
+        prompt: 'the answer',
+        ...(review ? { review: true, tools: ['review'] } : {}),
+      });
+      orch.send(start);
+      const ack = await orch.until(() => orch.ack(start.payload.command_id)[0]);
+      expect(ack.payload).toEqual({
+        command_id: start.payload.command_id,
+        accepted: false,
+        reason: NO_CONVERSATION_REASON,
+      });
+    }
+    expect(driver.starts).toHaveLength(0);
+    expect(orch.events()).toHaveLength(0);
+    expect(lines.filter((l) => l.includes(NO_CONVERSATION_REASON))).toHaveLength(2);
+    // The slot is free again: a fresh start for the session runs.
+    const fresh = startSession(sid);
+    orch.send(fresh);
+    await orch.until(() => orch.events('exit')[0]);
+    expect(orch.ack(fresh.payload.command_id)[0]!.payload.accepted).toBe(true);
+    expect(driver.starts[0]!.resume).toBe(false);
+  });
+
+  it('the hasConversation seam decides the resume check', async () => {
+    const driver = new FakeClaudeDriver(complete({}));
+    const asked: string[] = [];
+    makeDaemon(driver, {
+      hasConversation: (_cwd, id) => {
+        asked.push(id);
+        return true;
+      },
+    });
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const start = startSession(randomUUID(), { resume_claude_session_id: 'claude-abc' });
+    orch.send(start);
+    await orch.until(() => orch.events('exit')[0]);
+    expect(asked).toEqual(['claude-abc']);
+    expect(driver.starts[0]).toMatchObject({ claudeSessionId: 'claude-abc', resume: true });
+  });
+
+  it('sends the last stderr lines on exit (stderr_tail)', async () => {
+    const driver = new FakeClaudeDriver({
+      turns: [
+        [
+          { emit: { kind: 'output', stream: 'stderr', text: 'line 1\nNo conversation ' } },
+          { emit: { kind: 'output', stream: 'stderr', text: 'found with session ID: x\n' } },
+          { crash: { code: 1 } },
+        ],
+      ],
+    });
+    makeDaemon(driver);
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const start = startSession(randomUUID());
+    orch.send(start);
+    const exit = await orch.until(() => orch.eventData('exit')[0]);
+    expect(exit).toEqual({
+      command_id: start.payload.command_id,
+      code: 1,
+      signal: null,
+      stderr_tail: 'line 1\nNo conversation found with session ID: x\n',
     });
   });
 
@@ -1708,5 +1801,20 @@ describe('daemon core: run_action evaluate_conditions (ADR-0011)', () => {
     const res = await orch.until(() => orch.eventData('action_result')[0]);
     expect(res.result).toBeNull();
     expect(res.error).toContain('evaluate_conditions: invalid args');
+  });
+});
+
+describe('appendTail (exit stderr_tail)', () => {
+  it('keeps the last STDERR_TAIL_LINES lines across chunk boundaries', () => {
+    let tail = '';
+    for (let i = 0; i < 30; i++) tail = appendTail(tail, `l${i}\n`);
+    expect(tail.split('\n').filter((l) => l !== '')).toEqual(
+      Array.from({ length: 20 }, (_, i) => `l${i + 10}`),
+    );
+    expect(appendTail('par', 'tial')).toBe('partial');
+  });
+
+  it('caps the characters', () => {
+    expect(appendTail('', 'y'.repeat(10_000))).toHaveLength(STDERR_TAIL_CHARS);
   });
 });

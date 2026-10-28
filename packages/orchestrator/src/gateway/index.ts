@@ -11,6 +11,7 @@ import {
   DAEMON_AUTH_HEADER,
   DaemonToOrchestratorSchema,
   LOCAL_ACCOUNT_ID,
+  NO_CONVERSATION_REASON,
   parseDaemonAuthHeader,
   PROTOCOL_VERSION,
   type AccountScope,
@@ -57,6 +58,12 @@ export { engineEventForSessionEvent } from './events.js';
 export { SocketTransport } from './transport.js';
 
 export const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000;
+/**
+ * The `debug` output line after a start refused `no_conversation` (10-contracts §Refusals): the
+ * board's output log shows why the agent starts over.
+ */
+export const CONVERSATION_RESET_LINE =
+  "conductor: the earlier conversation isn't on this machine; starting a fresh one";
 /** M2-T09b: how long a closed socket's peer gets to answer the close before it's terminated. */
 export const CLOSE_GRACE_MS = 1_000;
 /** Largest accepted daemon frame. Output chunks are the big ones. */
@@ -751,6 +758,8 @@ class Gateway implements DaemonGateway {
       unknown?: string;
       /** A refused send_message (ADR-0007): told to the board as a debug output line. */
       messageRefused?: { sessionId: string; reason: string };
+      /** A start refused `no_conversation` that apply took: told to the board the same way. */
+      conversationReset?: { sessionId: string };
     };
     const out = await withTransaction(this.db, async (tx): Promise<AckOutcome> => {
       const r = await tx.query<{ kind: OutboxKind; session_id: string | null }>(
@@ -789,6 +798,11 @@ class Gateway implements DaemonGateway {
           ...(row.kind === 'send_message'
             ? { messageRefused: { sessionId: row.session_id, reason: reason ?? 'refused' } }
             : {}),
+          ...(row.kind === 'start_session' &&
+          reason === NO_CONVERSATION_REASON &&
+          res.status === 'applied'
+            ? { conversationReset: { sessionId: row.session_id } }
+            : {}),
         };
       }
       if (!accepted) return { kill: null, events: [] };
@@ -818,6 +832,9 @@ class Gateway implements DaemonGateway {
         'debug',
         `conductor: message not delivered to the agent (${out.messageRefused.reason})`,
       );
+    }
+    if (out.conversationReset) {
+      this.outputBus.append(out.conversationReset.sessionId, 'debug', CONVERSATION_RESET_LINE);
     }
     if (out.kill) this.sendKill(conn, out.kill.sessionId, out.kill.token, commandId, 'ack_timeout');
   }

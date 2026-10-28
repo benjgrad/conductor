@@ -256,6 +256,20 @@ export class EngineServiceImpl implements EngineService {
             ],
           );
           break;
+        case 'conversation_reset':
+          // Audit only (ConversationResetPayload): a start refused `no_conversation` made apply
+          // forget the Claude conversation; the next start is a fresh one.
+          await tx.query(
+            "INSERT INTO event (session_id, type, payload) VALUES ($1, 'conversation.reset', $2)",
+            [
+              sessionId,
+              JSON.stringify({
+                claude_session_id: effect.claude_session_id,
+                reason: effect.reason,
+              }),
+            ],
+          );
+          break;
         case 'session_status':
           drafts.push({
             type: 'session.status',

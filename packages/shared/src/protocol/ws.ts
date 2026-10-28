@@ -214,6 +214,15 @@ export const AlertMessageSchema = msg('alert', AlertPayloadSchema, {
   seq: SeqSchema,
 });
 
+/**
+ * `command_ack.reason` of a `start_session` that asked to resume a Claude conversation
+ * (`resume_claude_session_id`) whose transcript is not on this machine: `claude --resume` would
+ * exit 1 ("No conversation found"). The daemon refuses before spawning; apply forgets the id and
+ * requeues, so the re-claim starts a fresh conversation with the full state prompt and the pending
+ * answer in it (10-contracts §Refusals).
+ */
+export const NO_CONVERSATION_REASON = 'no_conversation';
+
 /** Known `command_ack.reason` codes (free text allowed). */
 export const COMMAND_REFUSAL_REASONS = [
   'memory_pressure',
@@ -228,6 +237,7 @@ export const COMMAND_REFUSAL_REASONS = [
    * routes the QA start to needs_input with it, uncounted.
    */
   'checkout_failed',
+  NO_CONVERSATION_REASON,
 ] as const;
 
 export const CommandAckPayloadSchema = z.object({
@@ -237,6 +247,11 @@ export const CommandAckPayloadSchema = z.object({
 });
 /** Session-scoped when the command was; duplicates are harmless (acks are idempotent). */
 export const CommandAckMessageSchema = msg('command_ack', CommandAckPayloadSchema, {});
+
+/** `session_event exit.stderr_tail`: the daemon keeps this many last stderr lines per agent. */
+export const STDERR_TAIL_LINES = 20;
+/** Cap on `session_event exit.stderr_tail` (UTF-16 code units, the daemon keeps the tail). */
+export const STDERR_TAIL_CHARS = 4000;
 
 /** Cap on `session_event no_outcome.last_output` (UTF-16 code units, the daemon keeps the tail). */
 export const NO_OUTCOME_OUTPUT_CHARS = 4000;
@@ -299,7 +314,9 @@ export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
   }),
   /**
    * The Claude process exited. `command_id` is the start_session that spawned it, so a late exit
-   * from an earlier process is told apart from the current one (10-contracts).
+   * from an earlier process is told apart from the current one (10-contracts). `stderr_tail`: the
+   * process's last STDERR_TAIL_LINES stderr lines (at most STDERR_TAIL_CHARS), absent when it wrote
+   * none (or from an older daemon); apply puts its last line in the failure question.
    */
   z.object({
     kind: z.literal('exit'),
@@ -307,6 +324,7 @@ export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
       command_id: UuidSchema,
       code: z.number().int().nullable(),
       signal: z.string().nullable(),
+      stderr_tail: z.string().max(STDERR_TAIL_CHARS).optional(),
     }),
   }),
   z.object({

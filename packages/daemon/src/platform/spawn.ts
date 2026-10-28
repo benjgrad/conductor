@@ -7,6 +7,7 @@ import {
 } from 'node:child_process';
 import { statSync } from 'node:fs';
 import { win32 } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { PassThrough } from 'node:stream';
 
 // ADR-0024 §1 (spawn.ts): run a CLI (`claude`, `gh`, `git`, `az`) without a shell on every OS.
@@ -19,12 +20,15 @@ import { PassThrough } from 'node:stream';
 //   searches the child's cwd before PATH, and the cwd is usually an agent-writable worktree (a
 //   planted `git.exe` would run). PATH entries that are relative are skipped for the same reason.
 // - An `.exe`/`.com` is spawned directly by its absolute path.
-// - Anything else (`claude.cmd` from npm, `az.cmd`) runs as `cmd.exe /d /s /c "<line>"` with
-//   `windowsVerbatimArguments`, because Node refuses to spawn a batch file without a shell since
-//   CVE-2024-27980. The line is escaped like cross-spawn does, but the metacharacters are always
-//   escaped twice: every batch file we run forwards `%*` to a real program, and `%*` is parsed a
-//   second time by cmd (cross-spawn double-escapes only `node_modules\.bin` shims, so it would
-//   mangle `"` + `&` for the global npm shim `%APPDATA%\npm\claude.cmd`).
+// - Anything else (`az.cmd`, test fakes; U-108: never npm's `claude.cmd`) runs as
+//   `cmd.exe /d /v:off /s /c "<line>"` with `windowsVerbatimArguments`, because Node refuses to
+//   spawn a batch file without a shell since CVE-2024-27980. AutoRun and delayed expansion are
+//   off, and the batch file's own bare-name lookups skip the cwd
+//   (NoDefaultCurrentDirectoryInExePath). The line is escaped like cross-spawn does (plus `:`,
+//   see CMD_META), but the metacharacters are always escaped twice: every batch file we run
+//   forwards `%*` to a real program, and `%*` is parsed a second time by cmd (cross-spawn
+//   double-escapes only `node_modules\.bin` shims, so it would mangle `"` + `&` for a shim
+//   elsewhere, such as `%APPDATA%\npm\*.cmd`).
 // - cmd.exe can't carry CR/LF/NUL inside an argument (a newline ends the command), so such an
 //   argument is refused with an error rather than truncated or reinterpreted.
 // - Always `windowsHide: true`; `detached` is dropped (on Windows it means "own console", not a
@@ -50,8 +54,12 @@ export interface PrepareDeps {
 
 const DEFAULT_PATHEXT = '.COM;.EXE;.BAT;.CMD';
 const DIRECT_EXEC = /\.(?:exe|com)$/i;
-// cross-spawn's set: cmd.exe metacharacters plus space (it separates tokens) and `"`.
-const CMD_META = /([()\][%!^"`<>&|;, *?])/g;
+// cross-spawn's set (cmd.exe metacharacters plus space, which separates tokens, and `"`) plus
+// `:`. Percent expansion runs before caret removal, and a variable name ends at `:`, so an
+// unescaped `%PATH:a=b%` or `%SECRET:~0%` would expand (substitution syntax) and paste env values
+// into argv. With `:` caret-escaped the name always ends in `^` (`PATH^^^`), which no variable
+// is called, and cmd leaves an undefined `%…%` span as typed.
+const CMD_META = /([()\][%!^"`<>&|;, *?:])/g;
 const CMD_UNSAFE = /[\r\n\0]/;
 
 function defaultIsFile(p: string): boolean {
@@ -168,16 +176,21 @@ export function prepareCli<O extends CliSpawnOptions | CliExecSyncOptions>(
   delete (options as SpawnOptions).detached;
   options.windowsHide = true;
   const env = opts.env ?? process.env;
-  const cwd = typeof opts.cwd === 'string' ? opts.cwd : opts.cwd?.pathname;
+  const cwd =
+    typeof opts.cwd === 'string' || opts.cwd === undefined ? opts.cwd : fileURLToPath(opts.cwd);
   const resolveOpts = { env, cwd, ...(deps.isFile ? { isFile: deps.isFile } : {}) };
   const file = resolveWindowsBin(bin, resolveOpts);
   if (file === null) return null;
   if (DIRECT_EXEC.test(file)) return { file, args: [...args], options };
   // execFileSync passes it through to spawnSync, which honours it; only its typing lacks it.
   (options as SpawnOptions).windowsVerbatimArguments = true;
+  // The batch file runs bare names (`node`, `python`), and cmd looks in the cwd before PATH
+  // unless this is set: same hijack as above, one level down.
+  options.env = { ...env, NoDefaultCurrentDirectoryInExePath: '1' };
   return {
     file: system32('cmd.exe', env),
-    args: ['/d', '/s', '/c', `"${buildCmdLine(file, args)}"`],
+    // /d: no AutoRun; /v:off: no `!VAR!` delayed expansion whatever the registry says.
+    args: ['/d', '/v:off', '/s', '/c', `"${buildCmdLine(file, args)}"`],
     options,
   };
 }

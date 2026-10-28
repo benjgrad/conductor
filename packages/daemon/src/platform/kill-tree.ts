@@ -15,8 +15,8 @@ import { system32 } from './spawn.js';
 // parent-pid tree and terminates it forcefully, so there is no grace step and `signal` is
 // ignored. A ChildProcess that has already exited is skipped: its pid may be reused, and its
 // tree can't be walked any more anyway (its children were reparented).
-// TD: taskkill /T misses a grandchild whose parent already exited (reparented); the orphan
-// sweep is the backstop. ADR-0024 §2 records this as TD-187 (Job Objects are the payoff path).
+// TD-187: taskkill /T misses a grandchild whose parent already exited (reparented); the orphan
+// sweep is the backstop (ADR-0024 §2; Job Objects are the payoff path).
 
 export interface KillTreeOptions {
   /** First signal (POSIX). Default SIGTERM. */

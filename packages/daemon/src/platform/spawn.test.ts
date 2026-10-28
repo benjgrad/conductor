@@ -23,6 +23,10 @@ const NASTY = [
   'x&y',
   'c^d',
   '%PATH%',
+  '%PATH:a=b%',
+  '%PATH:~0,3%',
+  '%=C:%',
+  '%:%',
   '%',
   'q"uote',
   'q"&calc',
@@ -30,6 +34,7 @@ const NASTY = [
   'back\\"slash',
   'two\\\\"q',
   '!bang!',
+  '!PATH!',
   '<in>|out',
   '(paren)',
   '',
@@ -139,16 +144,26 @@ describe('buildCmdLine round trip (cmd model + CommandLineToArgvW)', () => {
     const payload = buildCmdLine(file, NASTY);
     // cmd /d /s /c "<payload>": /s strips the outer quotes, then pass 1.
     const pass1 = cmdPass(payload);
+    const fileEsc = cmdPass(buildCmdLine(file, []));
+    expect(fileEsc).toBe(file);
     expect(pass1.startsWith(`${file} `)).toBe(true);
     // The shim runs `node "<script>" %*`: %* is the text after the program, parsed again.
     const pass2 = cmdPass(pass1.slice(file.length + 1));
     expect(parseWindowsCommandLine(`node.exe script.mjs ${pass2}`).slice(2)).toEqual(NASTY);
   });
 
-  it('caret-escapes spaces and parens in the program path', () => {
+  it('caret-escapes spaces, parens and the colon in the program path', () => {
     expect(buildCmdLine('C:/Program Files (x86)/a.cmd', [])).toBe(
-      'C:\\Program^ Files^ ^(x86^)\\a.cmd',
+      'C^:\\Program^ Files^ ^(x86^)\\a.cmd',
     );
+  });
+
+  it('leaves no %NAME% / %NAME:…% span whose name is a real variable', () => {
+    for (const a of ['%PATH%', '%PATH:a=b%', '%PATH:~0,3%', '%=C:%', 'x%PATH%y%HOME:~1%']) {
+      const line = escapeCmdArg(a);
+      // cmd's percent phase: a name runs from `%` to the next `%` or `:`.
+      for (const m of line.matchAll(/%([^%:]*)[%:]/g)) expect(m[1]).toMatch(/\^$|^$/);
+    }
   });
 });
 
@@ -179,15 +194,16 @@ describe('prepareCli', () => {
   it('win32: a .cmd/.bat runs via System32 cmd.exe /d /s /c with verbatim arguments', () => {
     const p = prepareCli('claude', ['--resume', 'x&y'], { env, cwd: 'D:\\w' }, win);
     expect(p?.file).toBe('C:\\WINDOWS\\System32\\cmd.exe');
-    expect(p?.args.slice(0, 3)).toEqual(['/d', '/s', '/c']);
-    expect(p?.args[3]).toBe(`"${buildCmdLine('C:\\npm\\claude.cmd', ['--resume', 'x&y'])}"`);
+    expect(p?.args.slice(0, 4)).toEqual(['/d', '/v:off', '/s', '/c']);
+    expect(p?.args[4]).toBe(`"${buildCmdLine('C:\\npm\\claude.cmd', ['--resume', 'x&y'])}"`);
     expect(p?.options).toEqual({
-      env,
+      env: { ...env, NoDefaultCurrentDirectoryInExePath: '1' },
       cwd: 'D:\\w',
       windowsHide: true,
       windowsVerbatimArguments: true,
     });
-    expect(prepareCli('az', [], { env }, win)?.args[3]).toBe('"C:\\npm\\az.bat"');
+    expect(prepareCli('az', [], { env }, win)?.args[4]).toBe('"C^:\\npm\\az.bat"');
+    expect(env).not.toHaveProperty('NoDefaultCurrentDirectoryInExePath'); // caller's env untouched
   });
 
   it('win32: an unresolvable bin is null (the caller reports ENOENT)', () => {
@@ -277,6 +293,23 @@ describe('spawnCli (real processes)', () => {
       expect.objectContaining({ code: 'ENOENT' }) as Error,
     );
   });
+
+  it.runIf(isWin)(
+    'win32: a node.cmd/node.bat planted in the cwd is not run by the shim',
+    async () => {
+      const cwd = mkdtempSync(join(tmpdir(), 'conductor-cwd-'));
+      try {
+        for (const ext of ['cmd', 'bat', 'exe']) {
+          writeFileSync(join(cwd, `node.${ext}`), '@echo PLANTED\r\n');
+        }
+        const out = await run('echo-args', ['a b', '!PATH!'], { cwd, env: envWithPath(dir) });
+        expect(out).not.toContain('PLANTED');
+        expect(JSON.parse(out)).toEqual(['a b', '!PATH!']);
+      } finally {
+        rmSync(cwd, { recursive: true, force: true });
+      }
+    },
+  );
 
   it.runIf(isWin)('win32: a program planted in the cwd is not run for a bare name', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'conductor-cwd-'));

@@ -20,7 +20,12 @@ import {
   type TranscriptPayload,
 } from '@conductor/shared';
 import type { ClaudeDriver, DriverEvent, DriverSession } from './claude/driver.js';
-import { findTranscript, readTranscriptTail, transcriptChunks } from './claude/transcript.js';
+import {
+  findTranscript,
+  hasTranscriptInCwd,
+  readTranscriptTail,
+  transcriptChunks,
+} from './claude/transcript.js';
 import { createCommandRunner as defaultCreateCommandRunner } from './commands/index.js';
 import type { CommandRunner, CreateCommandRunner } from './commands/runner.js';
 import { daemonVersion, machineFacts, type DaemonConfig } from './config.js';
@@ -85,7 +90,8 @@ export interface DaemonOptions {
   onFatal?: (code: number, reason: string) => void;
   /**
    * Is the Claude conversation `claudeSessionId` (to be resumed in `cwd`) on this machine? Default:
-   * its transcript exists under the Claude config dir (`findTranscript`). A start that resumes one
+   * its transcript is in the cwd's own project dir (`hasTranscriptInCwd`: `claude --resume` looks
+   * nowhere else). A start that resumes one
    * that isn't is refused `no_conversation` before spawning (10-contracts §Refusals).
    */
   hasConversation?: (cwd: string, claudeSessionId: string) => boolean;
@@ -208,7 +214,7 @@ export class Daemon {
     this.claudeBin = opts.claudeBin ?? process.env.CONDUCTOR_CLAUDE_BIN ?? 'claude';
     this.procInfo = opts.procInfo ?? readProcInfo;
     this.hasConversation =
-      opts.hasConversation ?? ((cwd, id) => findTranscript(this.claudeConfigDir, cwd, id) !== null);
+      opts.hasConversation ?? ((cwd, id) => hasTranscriptInCwd(this.claudeConfigDir, cwd, id));
     this.heartbeatMs = this.config.heartbeatIntervalMs;
     mkdirSync(this.config.rootDir, { recursive: true });
     this.store = DaemonStore.forRoot(this.config.rootDir);

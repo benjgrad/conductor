@@ -198,7 +198,7 @@ Constraints: `CREATE SEQUENCE fencing_seq` (bigint) is the only source of fencin
 |---|---|---|
 | id | bigserial pk | also the SSE `Last-Event-ID`. Board rows are inserted only via `insertBoardEvents` under `pg_advisory_xact_lock`, so they commit in id order ([10](10-contracts.md#board-events-and-the-event-table)) |
 | session_id | fk null | null for machine-level events |
-| type | text | an `EngineEvent.type` (e.g. `agent.exited`), `state.entered`, `operator.reopen` (ADR-0008, written by the reopen route, not an engine event), or a board SSE type (`card.upserted`, `card.moved`, `session.status`, `input.requested`, `input.answered`, `card.badge`: one row per SSE event, [10](10-contracts.md#board-events-and-the-event-table)) |
+| type | text | an `EngineEvent.type` (e.g. `agent.exited`), `state.entered`, `conversation.reset` (`{claude_session_id, reason: 'not_on_machine'}`: a start refused `no_conversation` made apply forget the conversation, [10](10-contracts.md#refusals)), `operator.reopen` (ADR-0008, written by the reopen route, not an engine event), or a board SSE type (`card.upserted`, `card.moved`, `session.status`, `input.requested`, `input.answered`, `card.badge`: one row per SSE event, [10](10-contracts.md#board-events-and-the-event-table)) |
 | payload | jsonb | |
 | fencing_token | bigint null | stale tokens are rejected *before* insert; null on board-event rows |
 | account_id | uuid fk account | M2-T03 (see Tenancy above) |

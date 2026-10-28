@@ -2,7 +2,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   CLOSE_REVOKED,
@@ -15,6 +15,7 @@ import {
   type OrchestratorToDaemon,
 } from '@conductor/shared';
 import { FakeClaudeDriver, type FakeClaudeScript } from './claude/fake-driver.js';
+import { transcriptPathFor } from './claude/transcript.js';
 import { FakeCommandRunner } from './commands/fake-runner.js';
 import { daemonVersion, loadConfig, type DaemonConfig } from './config.js';
 import { writeCredential } from './credential.js';
@@ -120,11 +121,23 @@ function claudeDir(): string {
   return join(tmp, 'claude-config');
 }
 
-/** A Claude transcript for `claudeSessionId` on this machine (any project dir counts). */
-function writeTranscriptFor(claudeSessionId: string): void {
-  const dir = join(claudeDir(), 'projects', '-elsewhere');
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, `${claudeSessionId}.jsonl`), '{"type":"user"}\n');
+/**
+ * A Claude transcript for `claudeSessionId`: in the project dir of session `sid`'s worktree (where
+ * `claude --resume` looks), or under an unrelated project dir with `elsewhere`.
+ */
+function writeTranscriptFor(
+  d: Daemon,
+  sid: string,
+  claudeSessionId: string,
+  elsewhere = false,
+): void {
+  const wt = d.workspace.worktreePath(sid);
+  mkdirSync(dirname(wt), { recursive: true }); // so realCwd resolves the parent like the real one
+  const file = elsewhere
+    ? join(claudeDir(), 'projects', '-elsewhere', `${claudeSessionId}.jsonl`)
+    : transcriptPathFor(claudeDir(), wt, claudeSessionId)!;
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, '{"type":"user"}\n');
 }
 
 function startSession(
@@ -398,11 +411,12 @@ describe('daemon core: start_session', () => {
 
   it('resumes with --resume semantics when resume_claude_session_id is set', async () => {
     const driver = new FakeClaudeDriver(complete({}));
-    makeDaemon(driver);
+    const d = makeDaemon(driver);
     await orch.until(() => orch.ofType('request_work')[0]);
     const claudeId = randomUUID();
-    writeTranscriptFor(claudeId);
-    const start = startSession(randomUUID(), {
+    const sid = randomUUID();
+    writeTranscriptFor(d, sid, claudeId);
+    const start = startSession(sid, {
       resume_claude_session_id: claudeId,
       prompt: 'the answer',
     });
@@ -419,10 +433,13 @@ describe('daemon core: start_session', () => {
   it('refuses no_conversation (never spawns) when the resumed conversation is not on this machine', async () => {
     const lines: string[] = [];
     const driver = new FakeClaudeDriver(complete({}));
-    makeDaemon(driver, { log: (m) => lines.push(m) });
+    const d = makeDaemon(driver, { log: (m) => lines.push(m) });
     await orch.until(() => orch.ofType('request_work')[0]);
     const sid = randomUUID();
     const claudeId = randomUUID(); // ran on another machine: no transcript here
+    // A transcript under another project dir doesn't count: `claude --resume` only looks in the
+    // worktree's own (findTranscript would have found this one).
+    writeTranscriptFor(d, sid, claudeId, true);
     for (const review of [false, true]) {
       const start = startSession(sid, {
         resume_claude_session_id: claudeId,

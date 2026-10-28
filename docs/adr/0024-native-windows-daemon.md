@@ -75,14 +75,16 @@ Workflow JSON commands stay POSIX `sh`, so one workflow runs on every OS. Claude
 
 ### 6 · Edit-guard hook
 - The hook command is `"<node>" "<guard.mjs>" "<worktree>" || exit 2`, with double quotes and forward-slash paths. It means the same under `cmd.exe` and Git Bash.
-- A worktree root or guard path containing `"`, `%`, `!` or `^` is refused at session start.
+- A worktree root or guard path containing `"`, `%`, `!`, `^`, `$` or a backtick is refused at session start: inside double quotes, cmd.exe still expands `%`/`!`/`^` and bash still expands `$` and backticks (`platform/hook.ts`).
 - Which shell Claude Code uses for hooks on Windows is U-106. The command is built so the answer doesn't change the guard's behaviour.
 - The resolver:
-  - roots at `path.parse(p).root`;
+  - normalises `.`/`..` **textually first**, as the Win32 layer does before the file system follows any link. Otherwise `C:\wt\junction\..\..\x` would be judged by the junction's target and allowed, while Windows writes `C:\x` (found while writing MW-T08's tests). POSIX keeps kernel semantics: links first;
+  - roots at the path's drive;
   - compares case-insensitively on win32;
   - refuses UNC, `\\?\`, `\\.\` and alternate data streams;
   - expands 8.3 short names with `realpathSync.native`.
 - It stays fail-closed: a target it can't classify is denied.
+- Tests run every hook call under each shell that may run it (sh; or cmd.exe and Git Bash, asserting they agree), with a 31-row win32 path-form table and a missing-node case.
 
 ### 7 · Service, launcher, installer
 - **Install:** `install.ps1` (`irm <url>/install.ps1 | iex`) does what `install.sh` does:

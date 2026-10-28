@@ -10,7 +10,7 @@
 - **Board**: pinned to `board-pinned` @ d75d320 (2e88cf8 + UX-1..UX-5); session cap `machine.max_sessions` = 3. The daemon's shared clone is fast-forwarded by hand after each merge (TD-026, until T13).
 - **Next action**:
   - Lead: QA and merge T07b, T14, T15a, UX-3b, UX-6 as their PRs open; start T15a (queued), then T17.
-  - Ben: accept [ADR-0021](../adr/0021-daemon-auto-update.md) (daemon auto-update) and merge its plan PR; then T18 + T18b can start.
+  - Lead: start M2-T18 and M2-T18b (daemon auto-update, [ADR-0021](../adr/0021-daemon-auto-update.md) accepted 2026-10-28); T18c follows both.
   - Ben: decide U-083 (Done with an open PR: warn, or "merge, then Done"?). Review this tracking PR.
   - Before T20 starts: settle U-084 (lease renewal for sessions parked in event states).
 
@@ -29,7 +29,7 @@
 
 ## Milestone progress
 - M1: 18 / 18 done; awaiting sign-off. M1b: 10 / 10 done; awaiting sign-off.
-- M2: 13 done (T01–T10, T08b, T09b, T10b); 2 in progress (T07b, T14); T15 split into T15a / T15b; 16 todo (incl. T15a queued, T15b); 32 rows; T18b..T18e added 2026-10-28 for auto-update (ADR-0021, proposed): 36 rows. Out-of-plan: UX-1..UX-5, BUG-1, BUG-1b, BUG-2 merged; UX-3b, UX-6 running.
+- M2: 13 done (T01–T10, T08b, T09b, T10b); 2 in progress (T07b, T14); T15 split into T15a / T15b; 16 todo (incl. T15a queued, T15b); 32 rows; T18b..T18e added 2026-10-28 for auto-update (ADR-0021, accepted): 36 rows. Out-of-plan: UX-1..UX-5, BUG-1, BUG-1b, BUG-2 merged; UX-3b, UX-6 running.
 - M2c, M2b: approved, not started. M3–M5: outlined.
 
 ## Last session

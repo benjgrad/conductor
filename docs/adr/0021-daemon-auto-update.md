@@ -1,6 +1,6 @@
 # ADR-0021 · Daemon auto-update: server-announced, drained, rolled back on failure
 
-- **Status**: proposed (the four choices below were made by Ben on 2026-10-28; this write-up awaits his acceptance)
+- **Status**: accepted (Ben merged PR #41, 2026-10-28)
 - **Date**: 2026-10-28
 - **Deciders**: Ben (+ Claude lead session, 2026-10-28)
 - **Resolves**: none open. Amends [ADR-0017](0017-own-sign-in-and-self-hosting.md) §Daemon distribution, "Upgrades" (manual re-run → automatic)

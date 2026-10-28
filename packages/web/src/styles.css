@@ -1191,3 +1191,19 @@ button.link {
 .move-title {
   font-weight: 600;
 }
+
+/* "Start fresh conversation…" (FreshConversation.tsx), inside the pending request. */
+.fresh-conversation {
+  margin-top: 8px;
+}
+.fresh-conversation-prominent {
+  margin: 4px 0 8px;
+}
+button.fresh-conversation-button.prominent {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.fresh-conversation-help {
+  margin: 0;
+}

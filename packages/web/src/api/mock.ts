@@ -23,6 +23,8 @@ import {
   SendMessageRequestSchema,
   SignupRequestSchema,
   TransitionSessionRequestSchema,
+  FreshConversationRequestSchema,
+  FRESH_CONVERSATION_MOVE,
   type AdminUserRow,
   type AuthMode,
   type BoardCard,
@@ -691,6 +693,51 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         });
         const status = enterState(s, target);
         if (s.workflow.states[target]?.type !== 'human') s.return_to = null;
+        update(card, { status, workflow_state: target, input_request: null }, extra);
+        return { ok: true };
+      }),
+
+    freshConversation: (sessionId, raw) =>
+      reply((): OkResponse => {
+        const parsed = FreshConversationRequestSchema.safeParse(raw);
+        if (!parsed.success) throw new ApiRequestError(400, 'bad_request', parsed.error.message);
+        const card = cardForSession(sessionId);
+        const s = sessionOf(sessionId);
+        // Like apply(): only while parked in a human state with an agent state to return to.
+        const state = card.workflow_state ? s.workflow.states[card.workflow_state] : undefined;
+        const target = s.return_to;
+        if (
+          card.status !== 'needs_input' ||
+          state?.type !== 'human' ||
+          target === null ||
+          s.workflow.states[target]?.type !== 'agent'
+        ) {
+          throw new ApiRequestError(
+            409,
+            'conflict',
+            'the session is not waiting on a human with an agent to return to',
+          );
+        }
+        const extra: BoardSseEventDraft[] = card.input_request
+          ? [
+              {
+                type: 'input.answered',
+                session_id: sessionId,
+                input_request_id: card.input_request.id,
+                answered_by: 'ben',
+              },
+            ]
+          : [];
+        if (card.input_request) answered.add(card.input_request.id);
+        recordMove(s, {
+          from: card.workflow_state,
+          to: target,
+          transition: FRESH_CONVERSATION_MOVE,
+          reason: parsed.data.text,
+          actor: 'human',
+        });
+        const status = enterState(s, target);
+        s.return_to = null;
         update(card, { status, workflow_state: target, input_request: null }, extra);
         return { ok: true };
       }),

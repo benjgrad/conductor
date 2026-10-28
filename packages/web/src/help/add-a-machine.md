@@ -95,6 +95,17 @@ It reports repo paths and remotes, and the names and versions of the tools it fo
 - **Reading the daemon's output.** The daemon prints its errors in the terminal it runs in. Copy the last lines when you ask for help.
 - **Pull requests don't open.** Run `gh auth status`. If it says you aren't signed in, run `gh auth login`. If `gh --version` is older than 2.40, upgrade gh.
 
+## Stuck agent?
+
+When an agent stops without finishing (it crashed, timed out, or failed too many times), its ticket moves to **Needs input** with a question like *"implement: the agent exited (exit code 1: No conversation found with session ID: …) without calling complete_state"*. The text in brackets is how the agent's process ended, followed by the last line it printed as an error. That line usually says what went wrong.
+
+Open the ticket and choose one:
+
+- **Retry** (or reply in the box) sends the agent back to work in the same conversation, with your reply as its next message. Use it when the problem is fixed or was a one-off (a network blip, a check that failed once).
+- **Start fresh conversation…** starts the agent over with its instructions and your message, without its earlier chat. The ticket's branch and worktree stay as they are. Use it when the agent can't resume: its conversation was on another machine, or it keeps failing on start (the same error after every Retry). Say in your message what it had done so far, since it won't remember. On a failure this button is shown first.
+
+If the question says a machine stopped responding or is offline, open **Machines** and check that machine is **online**. If it isn't, start its daemon again (step 3). Once it's back, the **Continue on …** button picks up where the agent left off.
+
 ## Remove a machine
 
 1. Stop the daemon (Ctrl-C in its terminal).

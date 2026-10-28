@@ -37,6 +37,7 @@ import {
   type SendMessageRequest,
   type SignupRequest,
   type TransitionSessionRequest,
+  type FreshConversationRequest,
   type WorkflowDefinition,
 } from '@conductor/shared';
 import {
@@ -334,6 +335,14 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
         OkResponseSchema,
         'POST',
         API_PATHS.sessionTransition(encodeURIComponent(sessionId)),
+        req,
+      ),
+
+    freshConversation: (sessionId: string, req: FreshConversationRequest) =>
+      request(
+        OkResponseSchema,
+        'POST',
+        API_PATHS.sessionFreshConversation(encodeURIComponent(sessionId)),
         req,
       ),
 

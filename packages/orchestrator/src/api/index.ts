@@ -5,6 +5,7 @@ import {
   ApproveSessionRequestSchema,
   CancelSessionRequestSchema,
   CreateTicketRequestSchema,
+  FreshConversationRequestSchema,
   ReopenSessionRequestSchema,
   SaveWorkflowRequestSchema,
   SendMessageRequestSchema,
@@ -220,6 +221,38 @@ export const createApi = (({
       input_request_id: open.rows[0]?.id ?? null,
     };
     return applyFromRoute(reply, 'transition', id, event);
+  });
+
+  /**
+   * "Start fresh conversation…" → `human.fresh_conversation {text, actor: 'ui'}` (10-contracts
+   * §Fresh conversation). Like /transition, the open input_request rides along and the wrapper
+   * closes it (answered_by = 'ui').
+   */
+  app.post<IdParams>(API_PATHS.sessionFreshConversation(':id'), async (req, reply) => {
+    const id = sessionId(req.params.id, reply);
+    if (id === undefined) return reply;
+    const body = parseBody(FreshConversationRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const open = await db.query<{ id: string }>(
+      'SELECT id FROM input_request WHERE session_id = $1 AND answer IS NULL ' +
+        'ORDER BY created_at DESC LIMIT 1',
+      [id],
+    );
+    const event: EngineEvent = {
+      type: 'human.fresh_conversation',
+      text: body.text,
+      actor: UI_ACTOR,
+      input_request_id: open.rows[0]?.id ?? null,
+    };
+    const result = await engine.applyEvent(id, event);
+    if (result.status === 'applied') return reply.code(202).send(OK);
+    const { status, code } = httpForApplyResult('fresh_conversation', result);
+    const message =
+      result.status === 'ignored' && result.reason !== 'session_terminal'
+        ? 'the session is not waiting on a human with an agent to return to; a fresh ' +
+          `conversation can only start then (${result.reason})`
+        : `${event.type}: ${result.reason}`;
+    return sendError(reply, status, code, message);
   });
 
   app.post<IdParams>('/api/sessions/:id/approve', async (req, reply) => {

@@ -46,7 +46,7 @@ export interface CliDriverOptions {
   extraStateEnv?: RegExp;
   /**
    * Tests only: args put before claude's own, e.g. `claudeBin: process.execPath` +
-   * `[fake-claude.mjs]`, since win32 only runs a native .exe as claude (U-108).
+   * `[fake-claude.mjs]`, since win32 only runs a native .exe as claude (U-110).
    */
   claudePrefixArgs?: readonly string[];
 }
@@ -288,7 +288,7 @@ class Session implements CliDriverSession {
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
       // Own process group (POSIX), so kill() also reaches the tools Claude spawned (bash, test
-      // runners); win32 kills the tree with taskkill /T (TD-187).
+      // runners); win32 kills the tree with taskkill /T (TD-189).
       detached: true,
     }) as ChildProcessWithoutNullStreams;
 
@@ -367,7 +367,7 @@ class Session implements CliDriverSession {
     this.killTimer = setTimeout(() => this.signal('SIGKILL'), graceMs ?? this.killGraceMs);
   }
 
-  /** The whole tree: POSIX the process group (then the child), win32 taskkill /T (TD-187). */
+  /** The whole tree: POSIX the process group (then the child), win32 taskkill /T (TD-189). */
   private signal(sig: NodeJS.Signals): void {
     if (this.child.pid === undefined) return;
     killTree(this.child, { signal: sig });
@@ -461,7 +461,7 @@ export function createCliDriver(opts: CliDriverOptions): CliDriver {
   const endGraceMs = opts.endGraceMs ?? DEFAULT_END_GRACE_MS;
   return {
     start(startOpts) {
-      // U-108: on win32 only the native claude.exe can take the multi-line system prompt. Checked
+      // U-110: on win32 only the native claude.exe can take the multi-line system prompt. Checked
       // before the Session registers with the outcome server or writes its MCP config.
       const notNative = nativeExeProblem(bin, process.env, startOpts.cwd);
       if (notNative !== null) throw new Error(notNative);

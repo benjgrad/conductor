@@ -48,7 +48,7 @@ afterEach(() => {
 
 /**
  * Run the hook command through every shell Claude Code might use for it: sh on POSIX; on win32
- * both cmd.exe and Git Bash (U-104), which must agree.
+ * both cmd.exe and Git Bash (U-106), which must agree.
  */
 function runRaw(input: string, cmd = command) {
   const shells: [string, string[], boolean][] = onWin32

@@ -112,7 +112,7 @@ async function scanClaude(
   timeoutMs: number,
   log: (msg: string) => void,
 ): Promise<Capability[]> {
-  // U-108: a claude.cmd shim can't run conductor's sessions, so it is not a claude capability.
+  // U-110: a claude.cmd shim can't run conductor's sessions, so it is not a claude capability.
   const notNative = nativeExeProblem(bin, env);
   if (notNative !== null) {
     log(notNative);

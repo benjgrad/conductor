@@ -67,7 +67,7 @@ const GIT = onWin32
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 'conductor-caps-'));
-  // TD-191: a space and parentheses, like `C:\\Program Files (x86)\\…\\wbin\\az.cmd`.
+  // TD-193: a space and parentheses, like `C:\\Program Files (x86)\\…\\wbin\\az.cmd`.
   bin = join(tmp, 'Program Files (x86)', 'wbin');
   claudeDir = join(tmp, 'claude-config');
   mkdirSync(bin, { recursive: true });
@@ -100,7 +100,7 @@ describe('inventory capabilities: cli probes (M2-T10)', () => {
     expect(caps).toContainEqual({ kind: 'cli', name: 'gh', version: '2.50.0', authed: true });
     expect(caps).toContainEqual({ kind: 'cli', name: 'az', version: '2.60.0', authed: true });
     if (onWin32) {
-      // U-108: a claude.cmd shim is not a usable claude on Windows.
+      // U-110: a claude.cmd shim is not a usable claude on Windows.
       expect(caps.some((c) => c.kind === 'claude')).toBe(false);
       expect(lines.join('\n')).toMatch(/not a native \.exe/);
     } else {

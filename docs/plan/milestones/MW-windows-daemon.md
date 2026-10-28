@@ -17,15 +17,15 @@
 
 **Not in MW**:
 - the IIS runtime slot and deploy step (U-070; the spike's WIN-3..5);
-- Job Objects (TD-187 payoff);
+- Job Objects (TD-189 payoff);
 - WSL2 setup docs;
 - code signing of the scripts or the tarball;
 - an ARM64-specific build (the tarball is plain JS).
 
 **Blocking unknowns**: none open. U-071 is resolved by ADR-0024. These are answered during MW:
-- U-104 (hook shell on Windows): MW-T13. The guard is built to be shell-independent.
-- U-105 (`lstat` on junctions): MW-T03 test.
-- U-106 (Scheduled Task stop signal): MW-T10.
+- U-106 (hook shell on Windows): MW-T13. The guard is built to be shell-independent.
+- U-107 (`lstat` on junctions): MW-T03 test.
+- U-108 (Scheduled Task stop signal): MW-T10.
 
 **Design refs for every task**:
 - [ADR-0024](../../adr/0024-native-windows-daemon.md);
@@ -51,7 +51,7 @@
 | MW-T10 | `service` on win32: Scheduled Task + `conductor-launch.ps1` | T05, T09, M2-T18 | C | — | todo |
 | MW-T11 | `install.ps1` + tarball `.cmd` shim + Machines page PowerShell line | T07, T10 | D | — | todo |
 | MW-T12 | E2E on Windows, remove the remaining skips, setup docs | T05–T11 | E | — | todo |
-| MW-T13 | Laptop smoke test (Ben, guided); answers U-104 | T12 | F | — | todo |
+| MW-T13 | Laptop smoke test (Ben, guided); answers U-106 | T12 | F | — | todo |
 
 Groups run in order A → F, and tasks within a group own disjoint files. Branch names are `mw-tNN-<slug>`. Every task is green on the Windows Actions job **and** `scripts/ci.sh` before merge.
 
@@ -101,7 +101,7 @@ Shared rules for every task:
   - [ ] win32: a `.cmd` fake (via `fake-bin`, or the T01 helper copied if T01 isn't merged) gets metachar args intact. A bare name resolves through PATHEXT. A missing bin rejects with ENOENT.
   - [ ] win32: `killTree` kills a node child **and its grandchild** (assert both pids are gone).
   - [ ] Both OSes: `readProcInfo` returns the start time and argv for a spawned child, and null for a dead pid. CIM JSON fixtures cover quoted `C:\Program Files\…` argv.
-  - [ ] win32: a test records whether `lstatSync(junction).isSymbolicLink()` is true. The result goes in the report and answers U-105.
+  - [ ] win32: a test records whether `lstatSync(junction).isSymbolicLink()` is true. The result goes in the report and answers U-107.
   - [ ] `workflowShell()` finds Git Bash on the runner.
 
 ### MW-T04 · platform: acl
@@ -130,13 +130,13 @@ Shared rules for every task:
   - [ ] win32: a session kill takes down claude (the fake, via `.cmd`) and a grandchild started by its fake Bash tool.
   - [ ] A workflow command `echo $FOO && exit 3` runs in Git Bash and reports exit 3.
   - [ ] The build semaphore is released after a kill.
-  - [ ] The `az.cmd` fake is detected as present, **from a dir whose path contains a space and parentheses** (TD-191), e.g. `…\Program Files (x86)\wbin\az.cmd`.
-  - [ ] TD-190: `spawnCli` throws `ERR_CMD_UNSAFE_ARG` when a `.cmd` payload exceeds 8191 chars.
-  - [ ] U-109 decided before merge (lead): lookalike `"`/`\` refusal for `.exe` args, or a recorded no.
-  - [ ] U-108 (native `claude.exe` only): with only a `claude.cmd` on PATH, `run` and the claude capability probe fail with a clear "install native Claude Code (claude.exe)" message. The test uses a fake `.cmd`.
-  - [ ] On win32, `killTree` skips an already-exited ChildProcess (MW-T03), so process-runner's "reap the group after the shell exits" is a no-op there. Document this at the call site with TD-187.
+  - [ ] The `az.cmd` fake is detected as present, **from a dir whose path contains a space and parentheses** (TD-193), e.g. `…\Program Files (x86)\wbin\az.cmd`.
+  - [ ] TD-192: `spawnCli` throws `ERR_CMD_UNSAFE_ARG` when a `.cmd` payload exceeds 8191 chars.
+  - [ ] U-111 decided before merge (lead): lookalike `"`/`\` refusal for `.exe` args, or a recorded no.
+  - [ ] U-110 (native `claude.exe` only): with only a `claude.cmd` on PATH, `run` and the claude capability probe fail with a clear "install native Claude Code (claude.exe)" message. The test uses a fake `.cmd`.
+  - [ ] On win32, `killTree` skips an already-exited ChildProcess (MW-T03), so process-runner's "reap the group after the shell exits" is a no-op there. Document this at the call site with TD-189.
   - [ ] POSIX tests unchanged and green.
-  - [ ] TD-187 comment at the win32 `killTree` call sites.
+  - [ ] TD-189 comment at the win32 `killTree` call sites.
 
 ### MW-T06 · Orphan sweep (N2)
 - **Scope**:
@@ -164,7 +164,7 @@ Shared rules for every task:
 ### MW-T08 · Edit guard (N4, N5; security)
 - **Scope**: `claude/edit-guard.ts`, per ADR-0024 §6:
   - the hook command format, and refusing `"%!^` in paths;
-  - the resolver: per-drive root, case-insensitive containment, refusing UNC, `\\?\`, `\\.\` and ADS, expanding 8.3 names via `realpathSync.native`, junctions treated as links (per U-105, or defensively if T03 hasn't answered it);
+  - the resolver: per-drive root, case-insensitive containment, refusing UNC, `\\?\`, `\\.\` and ADS, expanding 8.3 names via `realpathSync.native`, junctions treated as links (per U-107, or defensively if T03 hasn't answered it);
   - `~\` expansion.
 - **Acceptance**:
   - [ ] A table test (≥ 25 rows) of path forms. Every out-of-worktree target is denied: other drive, UNC, `\\?\C:\…`, `C:\WT\x` vs `c:\wt\x` (allowed only when inside), `PROGRA~1`, `file.txt:stream`, a junction out of the worktree, `..\..`. In-worktree targets are allowed.
@@ -186,7 +186,7 @@ Shared rules for every task:
 - **Scope**: the win32 backend of M2-T18's `service install|uninstall|restart|status`:
   - `Register-ScheduledTask`: logon trigger, current user, `RunLevel Limited`, no visible console (`conhost.exe --headless` or a hidden PowerShell host; pick one and justify it), restart on failure.
   - `conductor-launch.ps1` (an asset in the tarball) implements ADR-0021's launcher contract: exit 75 → switch the `current` junction → relaunch; trial + rollback.
-  - Record U-106's answer (does Stop-ScheduledTask give any graceful signal?) and TD-188.
+  - Record U-108's answer (does Stop-ScheduledTask give any graceful signal?) and TD-190.
 - **Acceptance**:
   - [ ] On the runner: install registers the task; status reports it; restart restarts it; uninstall removes it.
   - [ ] The launcher's switch + rollback is tested with fake versions.
@@ -194,7 +194,7 @@ Shared rules for every task:
 
 ### MW-T11 · `install.ps1`
 - **Scope**:
-  - `packages/orchestrator/assets/install.ps1.tmpl`, served at `/install.ps1` (`distribution.ts`). Flags `-Token`, `-Service`, `-Root`. It checks node ≥ 22, git, Git Bash and the native `claude.exe` (U-108: only a `claude.cmd` → "install native Claude Code" hint), listing what's missing. It downloads the tarball over https, checks `Get-FileHash -Algorithm SHA256`, unpacks with `tar.exe`, makes the `current` junction and `bin\conductor-daemon.cmd`, applies the root DACL, enrolls with the token in `CONDUCTOR_ENROLL_TOKEN` (never argv; TD-117), runs `service install` with `-Service`, and adds `bin` to the user PATH.
+  - `packages/orchestrator/assets/install.ps1.tmpl`, served at `/install.ps1` (`distribution.ts`). Flags `-Token`, `-Service`, `-Root`. It checks node ≥ 22, git, Git Bash and the native `claude.exe` (U-110: only a `claude.cmd` → "install native Claude Code" hint), listing what's missing. It downloads the tarball over https, checks `Get-FileHash -Algorithm SHA256`, unpacks with `tar.exe`, makes the `current` junction and `bin\conductor-daemon.cmd`, applies the root DACL, enrolls with the token in `CONDUCTOR_ENROLL_TOKEN` (never argv; TD-117), runs `service install` with `-Service`, and adds `bin` to the user PATH.
   - `build-daemon-tarball.sh` adds the `.cmd` shim and `conductor-launch.ps1`.
   - The web Machines page's install command shows a Windows (PowerShell) tab.
 - **Acceptance**:
@@ -215,6 +215,6 @@ Shared rules for every task:
 - **Scope**: Ben installs on the work laptop with `install.ps1 -Service`, logs out and back in (the daemon reconnects), and runs one real-claude ticket on a repo there. The lead guides and records the results.
 - **Acceptance**:
   - [ ] The ticket reaches a PR, pushed through Git Credential Manager.
-  - [ ] Asking the agent to edit a file outside its worktree is blocked. This answers U-104: which shell runs hooks.
+  - [ ] Asking the agent to edit a file outside its worktree is blocked. This answers U-106: which shell runs hooks.
   - [ ] The Machines page shows `win32` and the repos.
-  - [ ] Results are recorded against U-104 and U-071.
+  - [ ] Results are recorded against U-106 and U-071.

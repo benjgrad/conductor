@@ -1322,7 +1322,7 @@ export class Daemon {
       }
       return true;
     };
-    // POSIX the process group (ESRCH: gone); win32 taskkill /T (TD-187).
+    // POSIX the process group (ESRCH: gone); win32 taskkill /T (TD-189).
     const signalGroup = (sig: NodeJS.Signals): boolean => signalTree(pid, sig);
     const alive = liveness();
     if (alive === null) return;

@@ -13,9 +13,9 @@ describe('platform seam', () => {
     expect(typeof platform.readProcInfo).toBe('function');
   });
 
-  // U-105 / spike N8: does lstat report a junction as a symbolic link? The edit guard and the
+  // U-107 / spike N8: does lstat report a junction as a symbolic link? The edit guard and the
   // "never follow a symlink" checks rely on it. The value is printed for the record.
-  it.runIf(process.platform === 'win32')('U-105: lstat on a junction', () => {
+  it.runIf(process.platform === 'win32')('U-107: lstat on a junction', () => {
     const dir = mkdtempSync(join(tmpdir(), 'conductor-junction-'));
     try {
       const target = join(dir, 'target');
@@ -24,7 +24,7 @@ describe('platform seam', () => {
       symlinkSync(target, link, 'junction');
       const st = lstatSync(link);
       console.log(
-        `U-105: lstatSync(junction).isSymbolicLink() = ${st.isSymbolicLink()}, ` +
+        `U-107: lstatSync(junction).isSymbolicLink() = ${st.isSymbolicLink()}, ` +
           `isDirectory() = ${st.isDirectory()}, readlinkSync = ${readlinkSync(link)}`,
       );
       expect(typeof st.isSymbolicLink()).toBe('boolean');

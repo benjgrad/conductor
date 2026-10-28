@@ -13,7 +13,7 @@ import { TailBuffer } from './tail.js';
 // env + `opts.env`. Timeout and abort send SIGTERM to the whole group, then SIGKILL after
 // `killGraceMs` (win32: taskkill /T at once). When the shell exits, anything it left in its group is
 // SIGKILLed so no build escapes the semaphore (POSIX only: on win32 the exited shell's tree can't be
-// walked any more, TD-187). Output streams to `onOutput` and the last `tailBytes` of stdout+stderr
+// walked any more, TD-189). Output streams to `onOutput` and the last `tailBytes` of stdout+stderr
 // (interleaved) become `outputTail`.
 
 export interface ProcessCommandRunnerOptions {

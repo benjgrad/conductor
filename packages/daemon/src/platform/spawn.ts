@@ -23,7 +23,7 @@ import { PassThrough } from 'node:stream';
 //   searches the child's cwd before PATH, and the cwd is usually an agent-writable worktree (a
 //   planted `git.exe` would run). PATH entries that are relative are skipped for the same reason.
 // - An `.exe`/`.com` is spawned directly by its absolute path.
-// - Anything else (`az.cmd`, test fakes; U-108: never npm's `claude.cmd`) runs as
+// - Anything else (`az.cmd`, test fakes; U-110: never npm's `claude.cmd`) runs as
 //   `cmd.exe /d /v:off /s /c "<line>"` with `windowsVerbatimArguments`, because Node refuses to
 //   spawn a batch file without a shell since CVE-2024-27980. AutoRun and delayed expansion are
 //   off, and the batch file's own bare-name lookups skip the cwd
@@ -152,7 +152,7 @@ export const CMD_MAX_LINE = 8191;
 /**
  * The `/c` payload for running `file args…` through cmd.exe. Pure. Throws ERR_CMD_UNSAFE_ARG when
  * the whole cmd.exe line would exceed CMD_MAX_LINE, rather than let cmd fail with a generic error
- * (TD-190).
+ * (TD-192).
  */
 export function buildCmdLine(file: string, args: readonly string[]): string {
   const line = [escapeCmdCommand(win32.normalize(file)), ...args.map(escapeCmdArg)].join(' ');
@@ -318,7 +318,7 @@ export function isOnPath(
 }
 
 /**
- * U-108 (Ben): on win32 `claude` must be the native `claude.exe`. npm's `claude.cmd` shim can only
+ * U-110 (Ben): on win32 `claude` must be the native `claude.exe`. npm's `claude.cmd` shim can only
  * be started through cmd.exe, which can't carry the multi-line `--append-system-prompt`. Returns a
  * message when `bin` resolves to something other than an `.exe`/`.com`; null when it is fine, when
  * it doesn't resolve at all (the spawn reports ENOENT), and always on POSIX.

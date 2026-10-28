@@ -18,7 +18,7 @@ import { FakeOrchestrator } from './test-support/fake-orchestrator.js';
 // BUG-1 FR-2: a kill for a parked agent process (ADR-0007: alive, idle, blocked reading stdin
 // for an answer) ends it and is acked. The real CLI driver against the process-boundary fake
 // (test/fixtures/fake-claude.mjs), so a real process group is signalled (win32: a real process
-// tree, taskkill /T). The fake runs as `node fake-claude.mjs …` (U-108: claude must be an .exe).
+// tree, taskkill /T). The fake runs as `node fake-claude.mjs …` (U-110: claude must be an .exe).
 
 const FAKE = fileURLToPath(new URL('../test/fixtures/fake-claude.mjs', import.meta.url));
 const TICKET = '0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2';

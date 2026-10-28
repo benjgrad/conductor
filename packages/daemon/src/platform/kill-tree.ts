@@ -15,7 +15,7 @@ import { system32 } from './spawn.js';
 // parent-pid tree and terminates it forcefully, so there is no grace step and `signal` is
 // ignored. A ChildProcess that has already exited is skipped: its pid may be reused, and its
 // tree can't be walked any more anyway (its children were reparented).
-// TD-187: taskkill /T misses a grandchild whose parent already exited (reparented); the orphan
+// TD-189: taskkill /T misses a grandchild whose parent already exited (reparented); the orphan
 // sweep is the backstop (ADR-0024 §2; Job Objects are the payoff path).
 
 export interface KillTreeOptions {
@@ -32,7 +32,7 @@ export interface KillTreeHandle {
   cancel(): void;
   /**
    * Resolves once the last kill was issued or the escalation was cancelled. On win32 that is
-   * when `taskkill` has exited, so the tree is gone (modulo TD-187) when it resolves.
+   * when `taskkill` has exited, so the tree is gone (modulo TD-189) when it resolves.
    */
   readonly settled: Promise<void>;
 }

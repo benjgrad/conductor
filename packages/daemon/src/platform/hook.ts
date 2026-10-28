@@ -1,5 +1,5 @@
 // ADR-0024 §6: a Claude Code hook `command` string that runs `argv` the same way whichever shell
-// Claude uses for hooks (U-104: Git Bash or cmd.exe on Windows), and blocks when it can't run.
+// Claude uses for hooks (U-106: Git Bash or cmd.exe on Windows), and blocks when it can't run.
 //
 // POSIX: each word single-quoted for sh, then `|| exit 2` (a missing node or script blocks: only
 // exit 2 blocks a tool call).

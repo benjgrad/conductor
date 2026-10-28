@@ -35,7 +35,7 @@ import {
 const onWin32 = process.platform === 'win32';
 
 const FAKE = fileURLToPath(new URL('../../test/fixtures/fake-claude.mjs', import.meta.url));
-/** node + the fake: a real .exe on win32, where claude must be native (U-108). */
+/** node + the fake: a real .exe on win32, where claude must be native (U-110). */
 const FAKE_BIN = { claudeBin: process.execPath, claudePrefixArgs: [FAKE] };
 /** The fake reads its script from these state-env keys; production drops them (STATE_ENV_ALLOWED). */
 const FAKE_ENV = /^FAKE_CLAUDE_/;
@@ -670,7 +670,7 @@ describe('createCliDriver against fake-claude', () => {
   });
 
   it.runIf(onWin32)(
-    'U-108: a claude.cmd is refused with the install hint, before anything is registered',
+    'U-110: a claude.cmd is refused with the install hint, before anything is registered',
     () => {
       const dir = mkdtempSync(join(tmpdir(), 'conductor-claude-cmd-'));
       try {

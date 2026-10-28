@@ -27,7 +27,7 @@ Re-checking the current tree found more breaks than the spike listed:
 ### 1 · Platform seam
 | Module | POSIX (unchanged behaviour) | win32 |
 |---|---|---|
-| `spawn.ts` `spawnCli` | `spawn(bin, args, {detached})` | Resolve `bin` via absolute PATH entries + PATHEXT. Spawn an `.exe` directly. Run a `.cmd`/`.bat` (`az.cmd`, test fakes; never npm `claude.cmd`, U-108) through `cmd.exe /d /v:off /s /c` with double caret escaping. Always `windowsHide: true`, never `detached`, never `shell: true` |
+| `spawn.ts` `spawnCli` | `spawn(bin, args, {detached})` | Resolve `bin` via absolute PATH entries + PATHEXT. Spawn an `.exe` directly. Run a `.cmd`/`.bat` (`az.cmd`, test fakes; never npm `claude.cmd`, U-110) through `cmd.exe /d /v:off /s /c` with double caret escaping. Always `windowsHide: true`, never `detached`, never `shell: true` |
 | `kill-tree.ts` `killTree` | Signal the process group: SIGTERM, then SIGKILL after the grace period | `taskkill /T /F /PID <pid>`: forceful, with no grace step |
 | `shell.ts` `workflowShell` | `/bin/sh` | Git Bash `bash.exe`, from `CONDUCTOR_SHELL`, then `CLAUDE_CODE_GIT_BASH_PATH`, then relative to `git --exec-path`, then `%ProgramFiles%` / `%ProgramW6432%` / `%LOCALAPPDATA%\Programs\Git` |
 | `acl.ts` | 0600 / 0700, `lstat` and uid checks | Owner-only DACL (§3) |
@@ -39,7 +39,7 @@ Re-checking the current tree found more breaks than the spike listed:
 - `cmd.exe`, `taskkill.exe` and `powershell.exe` run from `%SystemRoot%\System32`.
 
 ### 2 · Tree kill: `taskkill /T /F`, with the orphan sweep as backstop (Ben)
-Windows has no process groups and no signals. `taskkill /T` walks the parent-pid tree, so it misses a grandchild whose parent has already exited. The orphan sweep (BUG-1b) on the next start catches daemon-owned `claude` processes. A reparented build or dev-server process can still survive. That gap is a recorded shortcut (TD-187).
+Windows has no process groups and no signals. `taskkill /T` walks the parent-pid tree, so it misses a grandchild whose parent has already exited. The orphan sweep (BUG-1b) on the next start catches daemon-owned `claude` processes. A reparented build or dev-server process can still survive. That gap is a recorded shortcut (TD-189).
 
 Job Objects (`KILL_ON_JOB_CLOSE`) would close it, but they need native code in the tarball. That is the payoff path if the gap bites.
 
@@ -55,7 +55,7 @@ This is the Windows equivalent of ADR-0010's `mode & 0o077` and uid checks. The 
 
 Implementation details (MW-T04):
 - **Directories** get `(OI)(CI)F` grants. Files created inside a private dir inherit only user, SYSTEM and Administrators, not the token's default DACL.
-- **Ownership:** `icacls <p> /setowner *<user SID>` runs before restricting. An elevated process creates files owned by `BUILTIN\Administrators`, which would otherwise fail "owner is the user". Only `mkdirPrivate`'s pre-check (type + owner, before it takes ownership) tolerates an Administrators owner. `assertOwnerOnly` accepts the user as owner and nothing else. Whether an elevated daemon is supported at all is U-107.
+- **Ownership:** `icacls <p> /setowner *<user SID>` runs before restricting. An elevated process creates files owned by `BUILTIN\Administrators`, which would otherwise fail "owner is the user". Only `mkdirPrivate`'s pre-check (type + owner, before it takes ownership) tolerates an Administrators owner. `assertOwnerOnly` accepts the user as owner and nothing else. Whether an elevated daemon is supported at all is U-109.
 - **Atomic secret writes:** `writePrivateFile` first requires the parent dir to pass the owner-only check (no inherited-permission window: Windows checks access at handle open, so a handle opened before restricting would survive). It then creates the temp file empty, restricts it, verifies it, and only then writes the data and renames.
 - **Private dirs** are created one level at a time from the nearest existing ancestor. That ancestor must be owner-only, or the per-user profile (`os.homedir()`) / `%LOCALAPPDATA%`, which are per-user by default (an assumption). Each level is restricted and verified before the next is created.
 - **Hidden ACEs:** `GetAccessRules` skips conditional/callback/object ACEs, so the check also reads the SDDL and the raw DACL ACE count. It refuses any ACE type other than plain `A`/`D`, a NULL DACL, an `ID` (inherited) flag, and any disagreement between the SDDL, the raw count and the parsed rules.
@@ -76,7 +76,7 @@ Workflow JSON commands stay POSIX `sh`, so one workflow runs on every OS. Claude
 ### 6 · Edit-guard hook
 - The hook command is `"<node>" "<guard.mjs>" "<worktree>" || exit 2`, with double quotes and forward-slash paths. It means the same under `cmd.exe` and Git Bash.
 - A worktree root or guard path containing `"`, `%`, `!` or `^` is refused at session start.
-- Which shell Claude Code uses for hooks on Windows is U-104. The command is built so the answer doesn't change the guard's behaviour.
+- Which shell Claude Code uses for hooks on Windows is U-106. The command is built so the answer doesn't change the guard's behaviour.
 - The resolver:
   - roots at `path.parse(p).root`;
   - compares case-insensitively on win32;
@@ -91,7 +91,7 @@ Workflow JSON commands stay POSIX `sh`, so one workflow runs on every OS. Claude
   - it passes the enrollment token in the environment (TD-117 parity).
 - **Service:** `service install` registers a user-level **Scheduled Task at logon**. It needs no admin and shows no visible console.
 - **Launcher:** `conductor-launch.ps1` implements ADR-0021's launcher on Windows: on exit 75 it switches the junction and relaunches, with trial and rollback.
-- **Stopping:** a Scheduled Task stop terminates the process without a signal (U-106), so a stop is ungraceful (TD-188). Live sessions go to `machine.lost` on the orchestrator, and the next start's orphan sweep reaps what is left. `SIGINT` and `SIGBREAK` are handled when it runs in a console.
+- **Stopping:** a Scheduled Task stop terminates the process without a signal (U-108), so a stop is ungraceful (TD-190). Live sessions go to `machine.lost` on the orchestrator, and the next start's orphan sweep reaps what is left. `SIGINT` and `SIGBREAK` are handled when it runs in a console.
 
 ### 8 · Smaller changes
 - `AbsolutePathSchema` accepts `^[A-Za-z]:[\\/]` and still refuses UNC, `\\?\` and relative paths.
@@ -100,17 +100,17 @@ Workflow JSON commands stay POSIX `sh`, so one workflow runs on every OS. Claude
 - On win32, free CPU comes from `os.cpus()` time deltas.
 
 ### 9 · Requirements and CI
-- **Supported:** Windows 10 1809+ or Windows 11, Node ≥ 22, Git for Windows ≥ 2.40 (Git Bash), and the **native `claude.exe`** (U-108, Ben). npm's `claude.cmd` is refused with a hint: cmd.exe can't pass the multi-line `--append-system-prompt`, and `spawnCli` throws `ERR_CMD_UNSAFE_ARG` for CR/LF/NUL in a `.cmd` argument. Other `.cmd` CLIs (`az.cmd`) still work through `spawnCli`.
+- **Supported:** Windows 10 1809+ or Windows 11, Node ≥ 22, Git for Windows ≥ 2.40 (Git Bash), and the **native `claude.exe`** (U-110, Ben). npm's `claude.cmd` is refused with a hint: cmd.exe can't pass the multi-line `--append-system-prompt`, and `spawnCli` throws `ERR_CMD_UNSAFE_ARG` for CR/LF/NUL in a `.cmd` argument. Other `.cmd` CLIs (`az.cmd`) still work through `spawnCli`.
 - **CI:** a GitHub Actions `windows-latest` job (`.github/workflows/daemon-windows.yml`) runs typecheck and the daemon and shared test projects on every pushed task branch. After MW-T12 it also runs the fake-claude e2e. This is the repo's first hosted CI (Ben, 2026-10-28). Linux and macOS keep `scripts/ci.sh`.
 
 ## Consequences
 - Every change to `platform/`, the edit guard or the credential code needs the Windows job green as well as `ci.sh`.
 - The edit guard and ADR-0010 checks now have two implementations. QA reviews both on every change.
-- TD-187 (tree kill gap) and TD-188 (ungraceful stop) are accepted shortcuts.
+- TD-189 (tree kill gap) and TD-190 (ungraceful stop) are accepted shortcuts.
 - IIS (U-070) is not solved here. The spike's WIN-3..5 runtime slot comes later and works the same on native Windows.
 
 ## Alternatives considered
 - **WSL2 first** (the spike's recommendation). It needs no code, but depends on corporate policy, keep-alive tasks and logins inside the VM, and can't run Windows-only builds well. Ben chose native.
 - **Trust `%LOCALAPPDATA%` and skip the checks on Windows.** Simpler, but it silently weakens ADR-0010. Rejected.
-- **Job Objects for tree kill.** Robust, but needs native code (an addon or helper exe) plus a build toolchain and signing. Deferred to TD-187's payoff.
+- **Job Objects for tree kill.** Robust, but needs native code (an addon or helper exe) plus a build toolchain and signing. Deferred to TD-189's payoff.
 - **`cmd.exe` for workflow commands.** It would fork every workflow's quoting by OS. Rejected.

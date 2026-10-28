@@ -23,7 +23,7 @@ export const EDIT_GUARD_MATCHER = 'Edit|Write|MultiEdit|NotebookEdit';
  * UNC and device paths (`\\host\`, `//host/`, `\\?\`, `\\.\`, `\??\`), root- and drive-relative
  * paths and any `:` after the drive (alternate data streams) are refused. Each existing component
  * is canonicalised with `realpathSync.native`, which expands 8.3 short names (`PROGRA~1`) and
- * follows junctions (lstat reports them as links, U-105); the comparison is per drive and
+ * follows junctions (lstat reports them as links, U-107); the comparison is per drive and
  * case-insensitive. `~\` expands like `~/`.
  */
 export const EDIT_GUARD_SCRIPT = String.raw`import { lstatSync, readlinkSync, realpathSync } from 'node:fs';

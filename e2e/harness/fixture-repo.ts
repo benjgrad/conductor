@@ -34,10 +34,11 @@ console.log(\`\${step}: ok\`);
 `;
 
 // M2-T30: the pnpm fixture's build/test fail unless pnpm runs them (`npm_config_user_agent`) in a
-// checkout where `pnpm install --frozen-lockfile` ran (pnpm writes node_modules/.modules.yaml even
-// with no dependencies), so a pass proves the daemon followed the lockfile.
+// checkout where `pnpm install --frozen-lockfile` ran, so a pass proves the daemon followed the
+// lockfile. With no dependencies pnpm 10 writes only node_modules/.pnpm-workspace-state*.json, and
+// later versions also .modules.yaml: either counts.
 const PNPM_STEP_SCRIPT = `// e2e pnpm fixture: node scripts/step.mjs <build|test>
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 
 const step = process.argv[2];
 const agent = process.env.npm_config_user_agent ?? '';
@@ -45,7 +46,11 @@ if (!agent.startsWith('pnpm/')) {
   console.error(\`${FAILURE_MARKER} (\${step} ran under "\${agent}", not pnpm)\`);
   process.exit(1);
 }
-if (!existsSync('node_modules/.modules.yaml')) {
+const installed =
+  existsSync('node_modules/.modules.yaml') ||
+  (existsSync('node_modules') &&
+    readdirSync('node_modules').some((f) => f.startsWith('.pnpm-workspace-state')));
+if (!installed) {
   console.error(\`${FAILURE_MARKER} (\${step}: pnpm install did not run)\`);
   process.exit(1);
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the deploy kit's tests (M2-T07): bash deploy/gradyserver/test/run.sh
+# Runs the deploy kit's tests (M2-T07) and the CI/CD workflow's: bash deploy/gradyserver/test/run.sh
 # Needs bash, awk and grep; python3 with PyYAML and shellcheck are used when present.
 set -uo pipefail
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -498,12 +498,23 @@ describe.skipIf(REAL)('ADR-0011 transition rules (fake Claude, fake gh)', () => 
     // The fixture's build/test fail unless pnpm runs them after `pnpm install --frozen-lockfile`.
     const pnpmRepo = createPnpmFixtureRepo(join(stack.tmp, 'pnpm-fixture-repo'));
     const id = await ticket('Personal change on pnpm', 'personal', 'personal', pnpmRepo);
-    const done = await board.card(
-      id,
-      'done',
-      (c) => c.column === 'done' && c.status === 'done',
-      60_000,
-    );
+    const done = await board
+      .card(id, 'done', (c) => c.column === 'done' && c.status === 'done', 60_000)
+      .catch(async (err: unknown) => {
+        // Where it stopped, and what the checks printed: a timeout alone says nothing.
+        const last = board.cards(id).at(-1);
+        const detail = last?.session_id ? await api.session(last.session_id) : null;
+        console.error(
+          [
+            `states: ${board.states(id).join(' → ')}`,
+            `last card: ${JSON.stringify(last)}`,
+            `pending input: ${JSON.stringify(detail?.pending_input ?? null)}`,
+            '----- recent output',
+            ...(detail?.recent_output ?? []).map((c) => JSON.stringify(c)),
+          ].join('\n'),
+        );
+        throw err;
+      });
     const step = 'implementing → done (move: done)';
     // Straight through: no failed check sent it back to Implementing.
     expect(board.states(id)).toEqual(['planning', 'implementing', step, 'done']);

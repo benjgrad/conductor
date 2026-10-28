@@ -1,5 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -15,6 +23,7 @@ import {
 
 let tmp: string;
 let bin: string;
+let sys: string;
 let claudeDir: string;
 
 function fake(name: string, body: string): void {
@@ -22,25 +31,33 @@ function fake(name: string, body: string): void {
   chmodSync(join(bin, name), 0o755);
 }
 
-/** PATH = the fake bin dir + /bin and /usr/bin (sh, sleep); no real gh / az / jira / claude. */
+/**
+ * PATH = the fake bin dir + `sys` (links to the real sh, sleep and git only). Never /bin or
+ * /usr/bin: a CI runner has real gh / az there, which would answer the probes.
+ */
 function opts(over: Partial<ScanCapabilitiesOptions> = {}): ScanCapabilitiesOptions {
   return {
     claudeConfigDir: claudeDir,
     claudeUserConfig: join(tmp, '.claude.json'),
     claudeBin: 'claude',
     repos: [],
-    env: { PATH: `${bin}:/bin:/usr/bin`, HOME: tmp },
+    env: { PATH: `${bin}:${sys}`, HOME: tmp },
     ...over,
   };
 }
 
-const GIT = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+const which = (name: string) => execFileSync('which', [name], { encoding: 'utf8' }).trim();
+const GIT = which('git');
+const SYSTEM_TOOLS = ['sh', 'sleep', 'git'].map((name) => [name, which(name)] as const);
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 'conductor-caps-'));
   bin = join(tmp, 'bin');
   claudeDir = join(tmp, 'claude-config');
+  sys = join(tmp, 'sys');
   mkdirSync(bin);
+  mkdirSync(sys);
+  for (const [name, path] of SYSTEM_TOOLS) symlinkSync(path, join(sys, name));
   mkdirSync(claudeDir);
 });
 

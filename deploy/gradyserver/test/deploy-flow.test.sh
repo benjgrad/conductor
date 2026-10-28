@@ -3,6 +3,9 @@
 # The fake ssh runs the command locally under a scratch HOME (stdin from /dev/null with -n, like
 # the real one). The fake `docker compose run` reads stdin like the real one does, so a server
 # half fed through stdin would be swallowed and fail these checks.
+# SC2016: single-quoted patterns and generated scripts keep a literal $ on purpose.
+# SC2012: `ls -l` is read for a single known file's mode, not to list names.
+# shellcheck disable=SC2016,SC2012
 set -uo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"

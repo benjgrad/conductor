@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Static checks of the nginx files (M2-T07 acceptance). No nginx needed.
+# shellcheck disable=SC2016 # single-quoted patterns match nginx's literal $variables on purpose
 set -uo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"

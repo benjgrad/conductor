@@ -1,0 +1,96 @@
+# CI/CD. Every PR runs the gates; every push to main runs them again and, if they pass, deploys
+# that commit to gradyserver with deploy/gradyserver/deploy.sh. Runbook:
+# docs/setup/deploy-gradyserver.md §12.
+#
+# The gates are scripts/ci.sh, the same script run locally, so CI and a laptop never disagree on
+# what "green" means. Branch protection on main requires the `gates` check (runbook §12).
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to a PR cancels that PR's previous run. Runs on main are never cancelled: each one
+# may end in a deploy.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  gates:
+    name: gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      # pnpm version from package.json `packageManager`; .npmrc `use-node-version` pins the Node
+      # that runs the scripts.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      # Postgres comes from scripts/db.sh through docker compose (Docker is on the runner).
+      # shellcheck is preinstalled, so the deploy kit tests run it.
+      - name: scripts/ci.sh
+        run: scripts/ci.sh
+        env:
+          CI: 'true'
+
+  deploy:
+    name: deploy
+    needs: gates
+    # Only main of this repository, never a PR (PR runs get no deploy secrets: they live in the
+    # `gradyserver` environment, which only main may use).
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'benjgrad/conductor'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: gradyserver
+      url: https://conductor.gradyserver.com
+    # One deploy at a time, never cancelled half-way. GitHub keeps only the newest pending run, so
+    # a burst of merges deploys the last one.
+    concurrency:
+      group: deploy-gradyserver
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      # A run that finished its gates after a newer commit landed must not overwrite that newer
+      # commit's deploy: only main's current head is deployed.
+      - name: still the head of main?
+        id: head
+        run: |
+          head="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [[ "$head" == "$GITHUB_SHA" ]]; then
+            echo "deploy=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >>"$GITHUB_OUTPUT"
+            echo "::notice::main is now $head, not $GITHUB_SHA; skipping (the newer commit's run deploys)"
+          fi
+      # The host key is pinned from a secret: no ssh-keyscan trust-on-first-use.
+      - name: ssh key
+        if: steps.head.outputs.deploy == 'true'
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+        run: |
+          if [[ -z "$DEPLOY_SSH_KEY" || -z "$DEPLOY_SSH_KNOWN_HOSTS" ]]; then
+            echo "::error::the gradyserver environment needs the DEPLOY_SSH_KEY and DEPLOY_SSH_KNOWN_HOSTS secrets (runbook §12)"
+            exit 1
+          fi
+          install -d -m 700 ~/.ssh
+          (umask 077 && printf '%s\n' "$DEPLOY_SSH_KEY" >~/.ssh/id_ed25519)
+          printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" >~/.ssh/known_hosts
+          printf 'Host *\n  IdentitiesOnly yes\n  IdentityFile ~/.ssh/id_ed25519\n  StrictHostKeyChecking yes\n  BatchMode yes\n' >~/.ssh/config
+          chmod 600 ~/.ssh/config ~/.ssh/known_hosts
+      - name: deploy/gradyserver/deploy.sh
+        if: steps.head.outputs.deploy == 'true'
+        run: deploy/gradyserver/deploy.sh "$GITHUB_SHA"
+      - name: remove the ssh key
+        if: always()
+        run: rm -rf ~/.ssh

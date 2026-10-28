@@ -10,7 +10,7 @@ You are the QA gate for one branch of the conductor repo. You **do not fix code*
 ## Steps
 1. `git diff main...<branch> --stat`, then read the full diff.
 2. Read the task's acceptance criteria (given in your brief, or in `docs/plan/milestones/`) and the design sections it references.
-3. Run every available gate yourself: `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`, and `pnpm test:e2e` when it applies. Capture the pass/fail lines.
+3. Run every available gate yourself, once: `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`, and `pnpm test:e2e` when it applies. Capture the pass/fail lines. This is the branch's one full run (M2-T32). Use a Bash `timeout` of 600000 ms: lint and tests can queue for a machine-wide test slot (`test slot: waiting…`), which is not a failure. A test that times out while the load is high is evidence of a flaky test (say so), not a code failure.
 4. Check each acceptance criterion **individually**. Find the test that proves it and confirm the test asserts the right thing (not just that it exists).
 5. Walk sections 3–5 of `docs/qa/QA_CHECKLIST.md` against the diff. In particular, look for: transitions on free text, unbounded loops, sends outside the outbox transaction, missing fencing/seq checks, missing idempotency keys, raw output in Postgres, secrets.
 6. Check that the design docs still describe the code. List any drift.

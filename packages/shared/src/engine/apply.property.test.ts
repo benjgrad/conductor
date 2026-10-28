@@ -503,7 +503,8 @@ describe.each(WORKFLOWS)('apply property: %s', (_name, load, kind) => {
           else if (at !== null && h.snap.step !== null) reached.add('(gate step)');
         }
       }),
-      { numRuns: 1000 },
+      // M2-T33: unseeded, so every run explores new sequences; `pnpm test:all` runs the full 1000.
+      { numRuns: process.env.CONDUCTOR_TEST_ALL === '1' ? 1000 : 200 },
     );
     // the sequences actually exercise the whole workflow, not just the first state
     // (and a workflow with `requires` gets into its move steps)

@@ -6,10 +6,13 @@ import {
   DAEMON_AUTH_HEADER,
   daemonAuthHeaderValue,
   EvaluateConditionsArgsSchema,
+  NO_CONVERSATION_REASON,
   NO_OUTCOME_OUTPUT_CHARS,
   PROTOCOL_VERSION,
   parseOrchestratorMessage,
   resolveToolPolicy,
+  STDERR_TAIL_CHARS,
+  STDERR_TAIL_LINES,
   type JsonObject,
   type OrchestratorToDaemon,
   type OutputStream,
@@ -17,13 +20,25 @@ import {
   type TranscriptPayload,
 } from '@conductor/shared';
 import type { ClaudeDriver, DriverEvent, DriverSession } from './claude/driver.js';
-import { findTranscript, readTranscriptTail, transcriptChunks } from './claude/transcript.js';
+import { PERMISSION_SHUTDOWN, PERMISSION_UNSUPPORTED_SERVER } from './claude/outcome-server.js';
+import {
+  findTranscript,
+  hasTranscriptInCwd,
+  readTranscriptTail,
+  transcriptChunks,
+} from './claude/transcript.js';
 import { createCommandRunner as defaultCreateCommandRunner } from './commands/index.js';
 import type { CommandRunner, CreateCommandRunner } from './commands/runner.js';
 import { daemonVersion, machineFacts, type DaemonConfig } from './config.js';
 import { checkOurs, readProcInfo, type ProcInfo } from './orphan.js';
 import { PortPool, portEnv } from './ports.js';
-import { DaemonStore, type AckRecord, type PersistedSession, type PortRange } from './store.js';
+import {
+  DaemonStore,
+  type AckRecord,
+  type DurableMessage,
+  type PersistedSession,
+  type PortRange,
+} from './store.js';
 import { liveResources, type SysInfo } from './sysinfo.js';
 import { buildAppendSystemPrompt } from './system-prompt.js';
 import { inventoryDigest, Workspace } from './workspace.js';
@@ -87,6 +102,13 @@ export interface DaemonOptions {
    * 401 at the upgrade); reconnecting has stopped. `main` stops and exits non-zero.
    */
   onFatal?: (code: number, reason: string) => void;
+  /**
+   * Is the Claude conversation `claudeSessionId` (to be resumed in `cwd`) on this machine? Default:
+   * its transcript is in the cwd's own project dir (`hasTranscriptInCwd`: `claude --resume` looks
+   * nowhere else). A start that resumes one
+   * that isn't is refused `no_conversation` before spawning (10-contracts §Refusals).
+   */
+  hasConversation?: (cwd: string, claudeSessionId: string) => boolean;
 }
 
 type Command = Extract<
@@ -108,6 +130,14 @@ type RunAction = Extract<Command, { type: 'run_action' }>;
 type SendInput = Extract<Command, { type: 'send_input' }>;
 type SendMessage = Extract<Command, { type: 'send_message' }>;
 type Kill = Extract<Command, { type: 'kill' }>;
+type PermissionDecisionCmd = Extract<Command, { type: 'permission_decision' }>;
+
+/** ADR-0023: a `permission_request` this daemon sent, by its msg_id (for `protocol_error`). */
+interface SentPermission {
+  sid: string;
+  agent: AgentProc;
+  requestId: string;
+}
 
 interface AgentProc {
   /** command_id of the start_session that spawned it (`started` / `exit` correlation). */
@@ -122,6 +152,8 @@ interface AgentProc {
   nudged: boolean;
   /** Tail of the assistant text (NO_OUTCOME_OUTPUT_CHARS), attached to `no_outcome`. */
   lastOutput: string;
+  /** Last STDERR_TAIL_LINES lines of stderr (STDERR_TAIL_CHARS), sent on `exit`. */
+  stderrTail: string;
   exited: boolean;
   /** BUG-1: a kill was sent (stopAgent): later kills of the same process are no-ops. */
   killRequested: boolean;
@@ -171,6 +203,7 @@ export class Daemon {
   private readonly onFatal: (code: number, reason: string) => void;
   private readonly claudeBin: string;
   private readonly procInfo: (pid: number) => ProcInfo | null;
+  private readonly hasConversation: (cwd: string, claudeSessionId: string) => boolean;
   private readonly ws: ReconnectingWs;
   /** M2-T10: the `inventory` message (rescans every 10 minutes and on SIGHUP, see main). */
   readonly inventory: InventoryReporter;
@@ -187,6 +220,11 @@ export class Daemon {
   private readonly inFlight = new Set<string>();
   /** ADR-0010: the fresh checkout an entry step's checks share (session id → its commit and dir). */
   private readonly checkouts = new Map<string, Checkout>();
+  /**
+   * ADR-0023: the permission_requests sent for live processes, by msg_id, so a `protocol_error`
+   * naming one (an old server) denies the held call at once. Dropped when the process exits.
+   */
+  private readonly sentPermissions = new Map<string, SentPermission>();
 
   /**
    * Remove a session's fresh checkout. With `only`, remove just that one: the map entry is
@@ -211,6 +249,8 @@ export class Daemon {
     this.onFatal = opts.onFatal ?? ((code) => this.log(`link failed (${code}); stopped`));
     this.claudeBin = opts.claudeBin ?? process.env.CONDUCTOR_CLAUDE_BIN ?? 'claude';
     this.procInfo = opts.procInfo ?? readProcInfo;
+    this.hasConversation =
+      opts.hasConversation ?? ((cwd, id) => hasTranscriptInCwd(this.claudeConfigDir, cwd, id));
     this.heartbeatMs = this.config.heartbeatIntervalMs;
     mkdirSync(this.config.rootDir, { recursive: true });
     this.store = DaemonStore.forRoot(this.config.rootDir);
@@ -280,6 +320,10 @@ export class Daemon {
     for (const t of this.assignments.values()) clearTimeout(t);
     this.assignments.clear();
     if (opts.killSessions ?? true) {
+      // ADR-0023: every held permission prompt is denied before its process is stopped.
+      for (const p of this.sentPermissions.values()) {
+        p.agent.session.denyPermission?.(p.requestId, PERMISSION_SHUTDOWN);
+      }
       for (const [sid, live] of this.live) {
         if (live.agent && !live.agent.exited) this.stopAgent(sid, live.agent, 'daemon stopping');
         for (const c of live.cmds.values()) c.abort.abort();
@@ -353,9 +397,25 @@ export class Daemon {
       case 'retry_after':
         this.workReplied(msg.payload.ms);
         return;
-      case 'protocol_error':
+      case 'protocol_error': {
         this.log(`protocol_error ${msg.payload.code}: ${msg.payload.message}`);
+        // ADR-0023 / 10-contracts §Versioning: a server that can't take a permission_request
+        // answers it with protocol_error; deny the held call now instead of after 30 min.
+        const ref = msg.payload.ref_msg_id;
+        const sent = ref === null ? undefined : this.sentPermissions.get(ref);
+        if (sent !== undefined && ref !== null) {
+          this.sentPermissions.delete(ref);
+          if (sent.agent.session.denyPermission?.(sent.requestId, PERMISSION_UNSUPPORTED_SERVER)) {
+            this.sendOutput(
+              sent.sid,
+              sent.agent.fencingToken,
+              'debug',
+              `conductor: the server refused permission request ${sent.requestId}; denied`,
+            );
+          }
+        }
         return;
+      }
       case 'fetch_transcript':
         this.sendMachine(
           'transcript',
@@ -529,11 +589,8 @@ export class Daemon {
           return this.sendMessage(msg);
         case 'kill':
           return this.kill(msg);
-        // TD-180: no test; M2-T29b replaces this case.
         case 'permission_decision':
-          // ADR-0023: M2-T29b resolves the held `permission` call. Until then this daemon never
-          // sends a permission_request, so it holds none (10-contracts §Permission prompts).
-          return this.finish(msg, { accepted: false, reason: 'unknown_permission_request' });
+          return this.permissionDecision(msg);
       }
     };
     run()
@@ -666,6 +723,17 @@ export class Daemon {
         this.releaseAssignment(sid);
         return;
       }
+      // A resume whose conversation isn't here (it ran on another machine): `claude --resume`
+      // would exit 1. Refuse; apply forgets the id and the re-claim starts a fresh one.
+      const resumeId = p.resume_claude_session_id;
+      if (resumeId !== null && !this.hasConversation(worktree, resumeId)) {
+        this.log(
+          `session ${sid}: refusing start ${p.command_id} (${NO_CONVERSATION_REASON}: Claude conversation ${resumeId} is not on this machine)`,
+        );
+        if (live.starting === starting) live.starting = null;
+        this.finish(msg, { accepted: false, reason: NO_CONVERSATION_REASON });
+        return this.startRefused(sid, 0);
+      }
       range = this.allocatePorts(sid);
       const tools = resolveToolPolicy(p.tools);
       const appendSystemPrompt = buildAppendSystemPrompt(this.workspace.readClaudeMd(worktree));
@@ -710,6 +778,7 @@ export class Daemon {
         askPending: false,
         nudged: false,
         lastOutput: '',
+        stderrTail: '',
         exited: false,
         killRequested: false,
         endTimer: null,
@@ -765,6 +834,40 @@ export class Daemon {
     void this.sendRepoInventory(false).catch((e: unknown) => this.log(`inventory: ${String(e)}`));
   }
 
+  /**
+   * ADR-0023 / 10-contracts §Permission prompts: resolve the held call `request_id` of the
+   * session's live process, at most once. Already resolved by a decision → accepted, ignored.
+   * Not held (timed out, denied, process gone, daemon restarted) → `unknown_permission_request`.
+   */
+  private permissionDecision(msg: PermissionDecisionCmd): void {
+    const p = msg.payload;
+    const a = this.live.get(msg.session_id)?.agent;
+    const result =
+      a && !a.exited && a.session.resolvePermission
+        ? a.session.resolvePermission(p.request_id, {
+            behavior: p.behavior,
+            scope: p.scope,
+            message: p.message,
+            rule: p.rule,
+          })
+        : 'unknown';
+    if (result === 'unknown') {
+      return this.finish(msg, { accepted: false, reason: 'unknown_permission_request' });
+    }
+    if (result === 'resolved' && a) {
+      for (const [id, sent] of this.sentPermissions) {
+        if (sent.agent === a && sent.requestId === p.request_id) this.sentPermissions.delete(id);
+      }
+      this.sendOutput(
+        msg.session_id,
+        a.fencingToken,
+        'debug',
+        `conductor: permission request ${p.request_id}: ${p.behavior === 'allow' ? `allowed (${p.scope})` : 'denied'} on the board`,
+      );
+    }
+    this.finish(msg, { accepted: true });
+  }
+
   private onDriverEvent(sid: string, a: AgentProc, ev: DriverEvent): void {
     switch (ev.kind) {
       case 'claude_session_id':
@@ -774,6 +877,8 @@ export class Daemon {
         if (ev.stream === 'assistant') {
           const joined = a.lastOutput ? `${a.lastOutput}\n${ev.text}` : ev.text;
           a.lastOutput = joined.slice(-NO_OUTCOME_OUTPUT_CHARS);
+        } else if (ev.stream === 'stderr') {
+          a.stderrTail = appendTail(a.stderrTail, ev.text);
         }
         this.sendOutput(sid, a.fencingToken, ev.stream, ev.text);
         return;
@@ -781,6 +886,34 @@ export class Daemon {
         a.askPending = true;
         this.emit(sid, a.fencingToken, { kind: 'ask_user', data: { question: ev.question } });
         return;
+      case 'permission_request': {
+        // ADR-0023: durable like a session_event (buffered, replayed, deduped on seq); the
+        // request_id is the idempotency key end to end.
+        const msgId = randomUUID();
+        this.sentPermissions.set(msgId, { sid, agent: a, requestId: ev.requestId });
+        this.pushDurable({
+          type: 'permission_request',
+          msg_id: msgId,
+          session_id: sid,
+          fencing_token: a.fencingToken,
+          payload: {
+            request_id: ev.requestId,
+            session_id: sid,
+            tool: ev.tool,
+            input: ev.input,
+            ...(ev.suggestions !== undefined ? { suggestions: ev.suggestions } : {}),
+            ...(ev.toolUseId !== undefined ? { tool_use_id: ev.toolUseId } : {}),
+            expires_at: ev.expiresAt,
+          },
+        });
+        this.sendOutput(
+          sid,
+          a.fencingToken,
+          'debug',
+          `conductor: ${ev.tool} needs permission; asked on the board (request ${ev.requestId}, expires ${ev.expiresAt})`,
+        );
+        return;
+      }
       case 'complete_state':
         a.completed = true;
         this.emit(sid, a.fencingToken, {
@@ -826,9 +959,17 @@ export class Daemon {
         if (a.endTimer) clearTimeout(a.endTimer);
         a.endTimer = null;
         a.unsubscribe();
+        for (const [id, sent] of this.sentPermissions) {
+          if (sent.agent === a) this.sentPermissions.delete(id);
+        }
         this.emit(sid, a.fencingToken, {
           kind: 'exit',
-          data: { command_id: a.commandId, code: ev.code, signal: ev.signal },
+          data: {
+            command_id: a.commandId,
+            code: ev.code,
+            signal: ev.signal,
+            ...(a.stderrTail.trim() !== '' ? { stderr_tail: a.stderrTail } : {}),
+          },
         });
         const live = this.live.get(sid);
         if (live?.agent === a) live.agent = null;
@@ -1381,16 +1522,18 @@ export class Daemon {
 
   /** A durable session_event: buffered on disk, sequenced when registered, replayed on reconnect. */
   private emit(sid: string, token: number, payload: SessionEventPayload): void {
-    const ev = this.store.pushEvent(
-      {
-        type: 'session_event',
-        msg_id: randomUUID(),
-        session_id: sid,
-        fencing_token: token,
-        payload,
-      },
-      this.registered,
-    );
+    this.pushDurable({
+      type: 'session_event',
+      msg_id: randomUUID(),
+      session_id: sid,
+      fencing_token: token,
+      payload,
+    });
+  }
+
+  /** A durable message (session_event, permission_request): buffered, sequenced, replayed. */
+  private pushDurable(msg: DurableMessage): void {
+    const ev = this.store.pushEvent(msg, this.registered);
     if (this.registered && ev.seq !== null)
       this.ws.send(JSON.stringify({ ...ev.msg, seq: ev.seq }));
   }
@@ -1435,4 +1578,15 @@ function sameWorktree(a: string, b: string): boolean {
 
 function errText(e: unknown): string {
   return (e instanceof Error ? e.message : String(e)).slice(0, 300);
+}
+
+/**
+ * The last STDERR_TAIL_LINES lines (at most STDERR_TAIL_CHARS) of `prev` + `chunk`. Chunks are
+ * raw stderr reads, so a line may span two of them; the tail keeps the text as it arrived.
+ */
+export function appendTail(prev: string, chunk: string): string {
+  const lines = (prev + chunk).split('\n');
+  // A trailing newline leaves an empty last element: it doesn't count as a line.
+  const keep = lines.at(-1) === '' ? STDERR_TAIL_LINES + 1 : STDERR_TAIL_LINES;
+  return lines.slice(-keep).join('\n').slice(-STDERR_TAIL_CHARS);
 }

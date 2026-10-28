@@ -10,11 +10,22 @@ import type { DaemonToOrchestrator } from '@conductor/shared';
 // acts on it (e.g. the Claude session id before spawning).
 
 export type SessionEventMessage = Extract<DaemonToOrchestrator, { type: 'session_event' }>;
+/** ADR-0023: also durable, buffered and replayed like a session_event (10-contracts). */
+export type PermissionRequestMessage = Extract<
+  DaemonToOrchestrator,
+  { type: 'permission_request' }
+>;
+/** A durable daemon message without its `seq` (distributes over the union). */
+export type DurableMessage =
+  Omit<SessionEventMessage, 'seq'> | Omit<PermissionRequestMessage, 'seq'>;
 
-/** A session_event waiting for confirmation. `seq` is null until the daemon is registered. */
+/**
+ * A durable message (session_event, permission_request) waiting for confirmation. `seq` is null
+ * until the daemon is registered.
+ */
 export interface BufferedEvent {
   seq: number | null;
-  msg: Omit<SessionEventMessage, 'seq'>;
+  msg: DurableMessage;
 }
 
 export interface AckRecord {
@@ -148,7 +159,7 @@ export class DaemonStore {
   }
 
   /** Buffer an event; assign a seq now if `sequenced` (registered), else at the next register. */
-  pushEvent(msg: Omit<SessionEventMessage, 'seq'>, sequenced: boolean): BufferedEvent {
+  pushEvent(msg: DurableMessage, sequenced: boolean): BufferedEvent {
     let seq: number | null = null;
     if (sequenced) {
       seq = (this.data.lastSeq ?? -1) + 1;

@@ -8,7 +8,12 @@
 // `tools` is built from the state's workflow `tools` list with `resolveToolPolicy` (shared
 // workflow/tools.ts, TOOL_ALIASES).
 
-import type { AgentTransitionOption } from '@conductor/shared';
+import type {
+  AgentTransitionOption,
+  JsonObject,
+  PermissionBehavior,
+  PermissionScope,
+} from '@conductor/shared';
 
 export interface ToolPolicy {
   builtin: string[]; // --tools, e.g. ["Read","Edit","Write","Glob","Grep","Bash"]
@@ -48,6 +53,20 @@ export type DriverEvent =
       text: string;
     }
   | { kind: 'ask_user'; question: string }
+  /**
+   * ADR-0023 (M2-T29b): Claude called the `permission` prompt tool; the call is held until
+   * `resolvePermission` / `denyPermission`, its timeout at `expiresAt`, or the process exits. The
+   * daemon forwards it as a durable `permission_request`.
+   */
+  | {
+      kind: 'permission_request';
+      requestId: string;
+      tool: string;
+      input: JsonObject;
+      suggestions?: JsonObject[];
+      toolUseId?: string;
+      expiresAt: string;
+    }
   | {
       kind: 'complete_state';
       result: Record<string, unknown>;
@@ -84,6 +103,22 @@ export interface DriverSession {
    * but it is not an answer: a pending ask_user question stays pending.
    */
   sendMessage(text: string): void;
+  /**
+   * ADR-0023: a human's decision for a held permission prompt. `resolved` the first time,
+   * `duplicate` for a request a decision already resolved, `unknown` for one not held (timed
+   * out, denied, process gone). Optional: a driver without permission prompts holds none.
+   */
+  resolvePermission?(
+    requestId: string,
+    decision: {
+      behavior: PermissionBehavior;
+      scope: PermissionScope;
+      message?: string | undefined;
+      rule?: string | undefined;
+    },
+  ): 'resolved' | 'duplicate' | 'unknown';
+  /** ADR-0023: deny a held permission prompt with `message`. False when it isn't held. */
+  denyPermission?(requestId: string, message: string): boolean;
   end(): void; // graceful: close stdin → exit 0
   kill(graceMs?: number): void; // SIGTERM, then SIGKILL after graceMs
 }

@@ -191,6 +191,8 @@ describe('reopen: a new session on the earlier session’s branch (ADR-0008)', (
     const oldSid = randomUUID();
     const first = await runToExit(driver, startSession(oldSid));
     writeFileSync(join(first.worktree, 'uncommitted.txt'), 'keep me\n');
+    // The fake driver writes no transcript; the resume check needs one on this machine.
+    writeTranscript(first.worktree, first.claudeSessionId);
 
     const newSid = randomUUID();
     const start = startSession(newSid, {
@@ -216,7 +218,6 @@ describe('reopen: a new session on the earlier session’s branch (ADR-0008)', (
       'keep me\n',
     );
 
-    writeTranscript(first.worktree, first.claudeSessionId);
     for (const sid of [oldSid, newSid]) {
       const r = await reply(fetchTranscript(sid));
       expect('chunks' in r.payload && r.payload.chunks.length).toBe(11);

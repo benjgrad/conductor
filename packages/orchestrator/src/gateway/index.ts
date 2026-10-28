@@ -11,6 +11,7 @@ import {
   DAEMON_AUTH_HEADER,
   DaemonToOrchestratorSchema,
   LOCAL_ACCOUNT_ID,
+  NO_CONVERSATION_REASON,
   parseDaemonAuthHeader,
   PROTOCOL_VERSION,
   type AccountScope,
@@ -25,6 +26,7 @@ import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import {
   insertBoardEvents,
   TRANSCRIPT_TIMEOUT_MS,
+  type Queryable,
   type BoardBus,
   type EngineService,
   type OutputBus,
@@ -34,7 +36,16 @@ import {
 import { HttpGuard, httpSecurityFromEnv, type HttpSecurityOptions } from '../api/security.js';
 import { withTransaction } from '../db/index.js';
 import { SCRUBBED_PAYLOAD_SQL } from '../engine/outbox.js';
+import { DefinitionCache, splitStep } from '../engine/rows.js';
+import type { PermissionRequestRow, SessionRow } from '../db/types.js';
 import type { CreateGateway, Db, GatewayHandle } from '../main.js';
+import { alwaysRuleFor } from '../permissions/rule.js';
+import {
+  cardUpserted,
+  decisionFrame,
+  NOT_RUNNING_MESSAGE,
+  sendDecision,
+} from '../permissions/store.js';
 import { claimWork, LEASE_INTERVAL } from './claim.js';
 import { hashSecret } from './enroll.js';
 import { engineEventForSessionEvent } from './events.js';
@@ -57,6 +68,12 @@ export { engineEventForSessionEvent } from './events.js';
 export { SocketTransport } from './transport.js';
 
 export const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000;
+/**
+ * The `debug` output line after a start refused `no_conversation` (10-contracts §Refusals): the
+ * board's output log shows why the agent starts over.
+ */
+export const CONVERSATION_RESET_LINE =
+  "conductor: the earlier conversation isn't on this machine; starting a fresh one";
 /** M2-T09b: how long a closed socket's peer gets to answer the close before it's terminated. */
 export const CLOSE_GRACE_MS = 1_000;
 /** Largest accepted daemon frame. Output chunks are the big ones. */
@@ -148,6 +165,7 @@ class Gateway implements DaemonGateway {
   private readonly guard: HttpGuard;
   private readonly requireCredential: boolean;
   private readonly closeGraceMs: number;
+  private readonly defs = new DefinitionCache();
   private readonly wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
   private readonly conns = new Set<Conn>();
   private readonly pending = new Set<Promise<unknown>>();
@@ -431,6 +449,8 @@ class Gateway implements DaemonGateway {
       case 'transcript':
         this.onTranscript(machineId, msg);
         return;
+      case 'permission_request':
+        return this.onPermissionRequest(conn, machineId, msg);
       case 'output':
         // M1-T14: only for a session this connection owns, under its current token (no DB read
         // per chunk: `owned` is kept from claims, heartbeats and session_events).
@@ -751,6 +771,10 @@ class Gateway implements DaemonGateway {
       unknown?: string;
       /** A refused send_message (ADR-0007): told to the board as a debug output line. */
       messageRefused?: { sessionId: string; reason: string };
+      /** A start refused `no_conversation` that apply took: told to the board the same way. */
+      conversationReset?: { sessionId: string };
+      /** ADR-0023: a permission_decision the daemon no longer held a call for. */
+      decisionRefused?: { sessionId: string };
     };
     const out = await withTransaction(this.db, async (tx): Promise<AckOutcome> => {
       const r = await tx.query<{ kind: OutboxKind; session_id: string | null }>(
@@ -789,7 +813,15 @@ class Gateway implements DaemonGateway {
           ...(row.kind === 'send_message'
             ? { messageRefused: { sessionId: row.session_id, reason: reason ?? 'refused' } }
             : {}),
+          ...(row.kind === 'start_session' &&
+          reason === NO_CONVERSATION_REASON &&
+          res.status === 'applied'
+            ? { conversationReset: { sessionId: row.session_id } }
+            : {}),
         };
+      }
+      if (!accepted && reason === 'unknown_permission_request') {
+        return this.onDecisionRefused(tx, machineId, commandId);
       }
       if (!accepted) return { kill: null, events: [] };
       // Late accepted ack for a start_session the ack timeout already failed: the daemon spawned
@@ -818,6 +850,12 @@ class Gateway implements DaemonGateway {
         'debug',
         `conductor: message not delivered to the agent (${out.messageRefused.reason})`,
       );
+    }
+    if (out.conversationReset) {
+      this.outputBus.append(out.conversationReset.sessionId, 'debug', CONVERSATION_RESET_LINE);
+    }
+    if (out.decisionRefused) {
+      this.outputBus.append(out.decisionRefused.sessionId, 'debug', DECISION_REFUSED_LINE);
     }
     if (out.kill) this.sendKill(conn, out.kill.sessionId, out.kill.token, commandId, 'ack_timeout');
   }
@@ -966,7 +1004,159 @@ class Gateway implements DaemonGateway {
         return;
     }
   }
+
+  // ------------------------------------------------------------------ permission prompts (ADR-0023)
+
+  /**
+   * `unknown_permission_request` for a decision (no outbox row: U-099): the daemon no longer holds
+   * the call (timed out, process gone, restarted). A request still pending expires `agent_gone`
+   * with the card; a decided one keeps its decision, and the board's output says it didn't land.
+   * Never retried.
+   */
+  private async onDecisionRefused(
+    tx: Queryable,
+    machineId: string,
+    commandId: string,
+  ): Promise<{ kill: null; events: BoardSseEvent[]; decisionRefused?: { sessionId: string } }> {
+    const r = await tx.query<Pick<PermissionRequestRow, 'session_id'>>(
+      'SELECT session_id FROM permission_request WHERE decision_command_id = $1 AND machine_id = $2',
+      [commandId, machineId],
+    );
+    const sessionId = r.rows[0]?.session_id;
+    if (sessionId === undefined) return { kill: null, events: [] };
+    await tx.query('SELECT 1 FROM session WHERE id = $1 FOR UPDATE', [sessionId]);
+    const u = await tx.query(
+      `UPDATE permission_request SET status = 'expired', expired_reason = 'agent_gone',
+              resolved_at = now()
+        WHERE decision_command_id = $1 AND status = 'pending'`,
+      [commandId],
+    );
+    const events = (u.rowCount ?? 0) > 0 ? await cardUpserted(tx, sessionId) : [];
+    return { kill: null, events, decisionRefused: { sessionId } };
+  }
+
+  /**
+   * Whether the session is `running` an agent state with a live process, outside a gate step: the
+   * only time a permission prompt can be answered (10-contracts §Permission prompts).
+   */
+  private async runsAgent(tx: Queryable, s: SessionRow): Promise<boolean> {
+    if (s.status !== 'running' || !s.agent_process_live || s.workflow_state === null) return false;
+    if (splitStep(s.context).step !== null) return false;
+    const def = await this.defs.get(tx, s.workflow_id, s.workflow_version).catch(() => null);
+    return def?.states[s.workflow_state]?.type === 'agent';
+  }
+
+  /**
+   * ADR-0023 `permission_request`: durable (deduped on `(machine_id, seq)` like a session_event),
+   * stored once per request_id. While the session runs an agent it is `pending` and the card
+   * shows `needs_permission` (same transaction, `card.upserted`); otherwise it is stored already
+   * denied by conductor and the deny goes straight back on this socket. Stale or unowned: the
+   * same answers as a session_event.
+   */
+  private async onPermissionRequest(
+    conn: Conn,
+    machineId: string,
+    msg: Msg<'permission_request'>,
+  ): Promise<void> {
+    const sessionId = msg.session_id;
+    const token = msg.fencing_token;
+    const p = msg.payload;
+    if (p.session_id !== sessionId) {
+      this.protocolError(
+        conn,
+        'invalid_message',
+        'permission_request payload.session_id differs from the envelope',
+        msg.msg_id,
+      );
+      return;
+    }
+    type Outcome =
+      | { kind: 'duplicate' | 'stale' | 'unknown' }
+      | { kind: 'stored'; events: BoardSseEvent[] }
+      | { kind: 'denied'; row: PermissionRequestRow };
+
+    const outcome = await withTransaction(this.db, async (tx): Promise<Outcome> => {
+      // Seq dedupe (10-contracts §Daemon seq dedupe), as for session_event.
+      const seq = await tx.query(
+        `UPDATE machine SET last_seq = $2
+          WHERE id = $1 AND revoked_at IS NULL AND (last_seq IS NULL OR last_seq < $2)`,
+        [machineId, msg.seq],
+      );
+      if (seq.rowCount === 0) return { kind: 'duplicate' };
+      const s = await tx.query<SessionRow>('SELECT * FROM session WHERE id = $1 FOR UPDATE', [
+        sessionId,
+      ]);
+      const row = s.rows[0];
+      if (!row || row.machine_id !== machineId) return { kind: 'unknown' };
+      if (token !== Number(row.fencing_token)) return { kind: 'stale' };
+
+      const running = await this.runsAgent(tx, row);
+      const ins = await tx.query<PermissionRequestRow>(
+        `INSERT INTO permission_request
+           (id, account_id, session_id, machine_id, fencing_token, tool, input, suggestions,
+            tool_use_id, always_rule, expires_at, status, behavior, scope, message, resolved_at,
+            decision_command_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+                 CASE WHEN $12::boolean THEN 'pending' ELSE 'denied' END,
+                 CASE WHEN $12::boolean THEN NULL ELSE 'deny' END,
+                 CASE WHEN $12::boolean THEN NULL ELSE 'once' END,
+                 CASE WHEN $12::boolean THEN NULL ELSE $13::text END,
+                 CASE WHEN $12::boolean THEN NULL ELSE now() END,
+                 CASE WHEN $12::boolean THEN NULL ELSE $14::uuid END)
+         ON CONFLICT (id) DO NOTHING
+         RETURNING *`,
+        [
+          p.request_id,
+          row.account_id,
+          sessionId,
+          machineId,
+          token,
+          p.tool,
+          JSON.stringify(p.input),
+          JSON.stringify(p.suggestions ?? []),
+          p.tool_use_id ?? null,
+          alwaysRuleFor(p.tool, p.input),
+          p.expires_at,
+          running,
+          NOT_RUNNING_MESSAGE,
+          randomUUID(),
+        ],
+      );
+      const stored = ins.rows[0];
+      // A request_id seen before (under another seq) changes nothing.
+      if (!stored) return { kind: 'stored', events: [] };
+      if (!running) return { kind: 'denied', row: stored };
+      return { kind: 'stored', events: await cardUpserted(tx, sessionId) };
+    });
+
+    switch (outcome.kind) {
+      case 'duplicate':
+        return;
+      case 'stale':
+        if (conn.owned.get(sessionId) === token) conn.owned.delete(sessionId);
+        this.sendKill(conn, sessionId, token, null, 'stale_fencing_token');
+        return;
+      case 'unknown':
+        conn.owned.delete(sessionId);
+        this.protocolError(conn, 'unknown_session', `unknown session ${sessionId}`, msg.msg_id);
+        return;
+      case 'stored':
+        conn.owned.set(sessionId, token);
+        this.publish(outcome.events);
+        return;
+      case 'denied': {
+        conn.owned.set(sessionId, token);
+        const frame = decisionFrame(outcome.row, outcome.row.decision_command_id!, token);
+        await sendDecision(this.transport, machineId, frame, this.log);
+        return;
+      }
+    }
+  }
 }
+
+/** The board's output line when the daemon refused a decision `unknown_permission_request`. */
+export const DECISION_REFUSED_LINE =
+  'conductor: the permission decision reached the machine after the agent stopped waiting for it';
 
 /** Answer an upgrade with a bodiless HTTP status and close it (no socket is accepted). */
 function refuse(socket: Duplex, status: number, text: string): void {

@@ -3,6 +3,9 @@ import {
   classifyRequest,
   formatSummary,
   lastMoveTransition,
+  PLAN_APPROVED_TEXT,
+  planAnswerOption,
+  planChangesText,
   PREVIEW_MAX,
   previewText,
   summarizeReport,
@@ -21,6 +24,17 @@ describe('classifyRequest (FR-2, FR-3)', () => {
       'review',
     );
     expect(classifyRequest(req({ origin_transition: 'pr_ready_for_review' }))).toBe('review');
+  });
+
+  it('a plan_needs_approval origin is a plan to approve (06 §Plan approval)', () => {
+    expect(classifyRequest(req({ origin_transition: 'plan_needs_approval' }))).toBe(
+      'plan_approval',
+    );
+    expect(classifyRequest(req(), 'plan_needs_approval')).toBe('plan_approval');
+    expect(classifyRequest(req({ origin_transition: null }), 'plan_needs_approval')).toBe(
+      'question',
+    );
+    expect(classifyRequest(req({ origin_transition: 'needs_product_context' }))).toBe('question');
   });
 
   it('other transitions and ask_user stay questions', () => {
@@ -147,5 +161,44 @@ describe('summarizeReport (FR-4)', () => {
 
   it('null for plain text', () => {
     expect(summarizeReport('Done, please review.')).toBeNull();
+  });
+});
+
+describe('planAnswerOption (06 §Plan approval)', () => {
+  const answer = {
+    name: 'answer',
+    title: 'Back with this answer',
+    goto: 'planning',
+    needs_text: true,
+  };
+  const wait = {
+    name: 'waiting_on_someone',
+    title: 'Waiting on someone else',
+    goto: 'waiting_external',
+    needs_text: true,
+  };
+  const done = { name: 'done', title: 'Done', goto: 'done', needs_text: false };
+  const options = [answer, wait, done];
+
+  it('the needs_text option into return_to', () => {
+    expect(planAnswerOption(options, 'planning')).toBe(answer);
+    expect(planAnswerOption(options, 'implementing')).toBeNull();
+    expect(planAnswerOption(options, null)).toBeNull();
+    expect(planAnswerOption([{ ...answer, needs_text: false }], 'planning')).toBeNull();
+  });
+
+  it('the board: the one needs_text option into an agent column, else null', () => {
+    expect(planAnswerOption(options, new Set(['planning', 'implementing']))).toBe(answer);
+    expect(planAnswerOption(options, new Set(['planning', 'waiting_external']))).toBeNull();
+    expect(planAnswerOption([wait, done], new Set(['planning']))).toBeNull();
+  });
+
+  it('the texts it posts', () => {
+    expect(PLAN_APPROVED_TEXT).toBe(
+      'Plan approved. Proceed: call complete_state with plan_ready and this plan.',
+    );
+    expect(planChangesText('  Split step 2.  ')).toBe(
+      'Changes requested to the plan:\n\nSplit step 2.',
+    );
   });
 });

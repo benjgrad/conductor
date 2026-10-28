@@ -24,6 +24,8 @@ export default defineConfig({
     root: fileURLToPath(new URL('.', import.meta.url)),
     include: ['**/*.e2e.test.ts'],
     environment: 'node',
+    // M2-T31: the e2e stack counts as a test run for the machine-wide slots.
+    globalSetup: ['../scripts/test-slot-setup.js'],
     env: { DATABASE_URL: resolveDatabaseUrl() },
     // One stack per file, scenarios in order on it.
     fileParallelism: false,

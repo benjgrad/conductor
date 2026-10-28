@@ -179,11 +179,11 @@ export interface PermissionDecisionCommand {
   payload: PermissionDecisionPayload;
 }
 
-// TD-179: outbox kind with no engine Effect (an exception; U-099 decides before T29c).
+// TD-179: sent on the live socket, not via the outbox (U-099), so a decision can be lost.
 /**
- * ADR-0023: the outbox `kind`, `target` and `payload` of a decision on a permission request. Not
- * an engine Effect: the decision route (M2-T29c) writes the row itself, in the transaction that
- * records the decision. Throws (ZodError) on a deny with `scope: always`, or a `rule` without
+ * ADR-0023: the `kind`, `target` and `payload` of a decision on a permission request. Not an
+ * outbox row and not an engine Effect (U-099): the decision route (M2-T29c) sends it directly on
+ * the machine's live socket after the transaction that records the decision commits. Throws (ZodError) on a deny with `scope: always`, or a `rule` without
  * `scope: always`.
  */
 export function permissionDecisionCommand(d: PermissionDecisionInput): PermissionDecisionCommand {

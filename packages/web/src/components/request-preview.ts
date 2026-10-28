@@ -1,15 +1,19 @@
-import type { InputRequestDto, SessionDetail } from '@conductor/shared';
+import type { HumanTransitionOption, InputRequestDto, SessionDetail } from '@conductor/shared';
 
-// UX-4: what an open input request is (a review request, a failed step, or a real question) and
-// the short preview the board card shows. Pure, so the card and the panel agree.
+// UX-4: what an open input request is (a review request, a plan to approve, a failed step, or a
+// real question) and the short preview the board card shows. Pure, so the card and the panel agree.
 
-export type RequestClass = 'review' | 'step_failed' | 'question';
+export type RequestClass = 'review' | 'plan_approval' | 'step_failed' | 'question';
 
 /** Max characters of a card preview: the CSS clamps it to 3 lines; this bounds the DOM. */
 export const PREVIEW_MAX = 280;
 
 const isReviewTransition = (name: string | null | undefined) =>
   typeof name === 'string' && name.endsWith('ready_for_review');
+
+/** 06 §Plan approval: conductor v2's planning question "Plan needs approval". */
+// TD-185: hardcodes conductor v2's plan_needs_approval / plan_ready names.
+export const PLAN_APPROVAL_TRANSITION = 'plan_needs_approval';
 
 /** Older servers send no `step_failed`: the engine's failed-step questions start like this. */
 const STEP_FAILED_TEXT =
@@ -25,6 +29,7 @@ export function classifyRequest(
 ): RequestClass {
   const origin = req.origin_transition !== undefined ? req.origin_transition : fallbackTransition;
   if (isReviewTransition(origin)) return 'review';
+  if (origin === PLAN_APPROVAL_TRANSITION) return 'plan_approval';
   if (req.step_failed !== undefined) return req.step_failed ? 'step_failed' : 'question';
   if (
     (req.kind === 'retries_exhausted' || req.kind === 'timeout') &&
@@ -43,6 +48,35 @@ export function lastMoveTransition(detail: Pick<SessionDetail, 'moves' | 'card'>
     if (m.to === detail.card.workflow_state) return m.transition;
   }
   return null;
+}
+
+/**
+ * 06 §Plan approval: the human transition that answers the agent that asked (the resolved
+ * `$return_to`, a `needs_text` button), which Approve plan / Request changes post. `returnTo` is
+ * the session's `return_to` (the panel); the board has no `return_to`, so it passes the ids of
+ * its agent columns and gets the one `needs_text` option into an agent state. null when there is
+ * none (or the board can't tell which): the caller falls back to the generic buttons.
+ */
+// TD-184: the board has no return_to, so this guesses the answer option (fails safe).
+export function planAnswerOption<T extends HumanTransitionOption>(
+  options: readonly T[],
+  returnTo: string | ReadonlySet<string> | null | undefined,
+): T | null {
+  if (returnTo == null) return null;
+  if (typeof returnTo === 'string') {
+    return options.find((o) => o.needs_text && o.goto === returnTo) ?? null;
+  }
+  const matches = options.filter((o) => o.needs_text && returnTo.has(o.goto));
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+/** The text of the Approve plan button's transition. */
+export const PLAN_APPROVED_TEXT =
+  'Plan approved. Proceed: call complete_state with plan_ready and this plan.';
+
+/** The text of Request changes: the human's feedback after a fixed lead line. */
+export function planChangesText(feedback: string): string {
+  return `Changes requested to the plan:\n\n${feedback.trim()}`;
 }
 
 const HEADER_LINE = /^\s*[*_]*(TASK|BRANCH|STATUS)[*_]*\s*:/i;

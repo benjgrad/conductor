@@ -227,9 +227,11 @@ export function timeline(detail: SessionDetail, agent: string): TimelineEntry[] 
       label:
         cls === 'review'
           ? 'Ready for review'
-          : cls === 'step_failed'
-            ? 'Step failed'
-            : requestLabel(open, agent),
+          : cls === 'plan_approval'
+            ? 'Plan to approve'
+            : cls === 'step_failed'
+              ? 'Step failed'
+              : requestLabel(open, agent),
       reason: cls === 'review' ? null : open.question,
     });
   }
@@ -307,21 +309,23 @@ export function result(detail: SessionDetail, agent: string): Result {
       ? 'Nothing: the ticket is closed.'
       : cls === 'review'
         ? 'Your call: review the PR, then approve or ask for changes.'
-        : cls === 'step_failed'
-          ? `Your call: retry or fix ${failure?.item ?? 'the failed step'}.`
-          : cls === 'question'
-            ? open?.kind === 'agent_question'
-              ? `Your call: answer ${agent}'s question.`
-              : 'Your call: decide how to go on.'
-            : card.checking
-              ? `Waiting for ${card.checking.label ?? `Checks before ${card.checking.title}`}.`
-              : card.human_transitions.length > 0
-                ? `Your call: ${card.human_transitions.map((t) => t.title).join(' or ')}.`
-                : stateType === 'event'
-                  ? `Waiting for ${where}.`
-                  : card.status === 'queued' || card.status === 'assigned'
-                    ? 'Waiting for a machine to start it.'
-                    : `${agent} is working on ${where}.`;
+        : cls === 'plan_approval'
+          ? `Your call: approve ${agent}'s plan or ask for changes.`
+          : cls === 'step_failed'
+            ? `Your call: retry or fix ${failure?.item ?? 'the failed step'}.`
+            : cls === 'question'
+              ? open?.kind === 'agent_question'
+                ? `Your call: answer ${agent}'s question.`
+                : 'Your call: decide how to go on.'
+              : card.checking
+                ? `Waiting for ${card.checking.label ?? `Checks before ${card.checking.title}`}.`
+                : card.human_transitions.length > 0
+                  ? `Your call: ${card.human_transitions.map((t) => t.title).join(' or ')}.`
+                  : stateType === 'event'
+                    ? `Waiting for ${where}.`
+                    : card.status === 'queued' || card.status === 'assigned'
+                      ? 'Waiting for a machine to start it.'
+                      : `${agent} is working on ${where}.`;
 
   return { status, prUrl: card.pr_url, checks, failure, acceptance, next };
 }

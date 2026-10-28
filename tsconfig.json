@@ -6,6 +6,7 @@
     { "path": "packages/orchestrator/test" },
     { "path": "packages/daemon" },
     { "path": "packages/web" },
-    { "path": "e2e" }
+    { "path": "e2e" },
+    { "path": "scripts" }
   ]
 }

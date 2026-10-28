@@ -88,6 +88,7 @@ import {
   type QaState,
 } from './qa.js';
 import { applySpend } from './spend.js';
+import { NO_CONVERSATION_REASON } from '../protocol/ws.js';
 import {
   ASK_USER,
   fallbackHumanState,
@@ -102,6 +103,7 @@ import {
 import {
   CONDITIONS_NO_MACHINE_NOTE,
   conditionsIdempotencyKey,
+  FRESH_CONVERSATION_MOVE,
   MACHINE_LOST_KILL_REASON,
   MACHINE_LOST_KIND,
   machineLostQuestion,
@@ -109,6 +111,7 @@ import {
   type ApplyFn,
   type ApplyIgnoreReason,
   type ApplyResult,
+  type ConversationResetReason,
   type Effect,
   type EngineEvent,
   type GateStep,
@@ -204,7 +207,9 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
   // 10-contracts §Lost machines: a revoked machine can never come back, so Cancel only.
   if (isRevokedPark(st.s)) {
     if (e.type === 'human.transition') return 'transition_not_allowed';
-    if (e.type === 'input.provided') return 'wrong_status';
+    if (e.type === 'input.provided' || e.type === 'human.fresh_conversation') {
+      return 'wrong_status';
+    }
   }
   if (e.type === 'session.assigned') {
     const reason = st.s.step !== null ? handleStep(st, e) : onAssigned(st, e.machine_id);
@@ -260,6 +265,8 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
       return 'unexpected_event';
     case 'human.transition':
       return onHumanTransition(st, e);
+    case 'human.fresh_conversation':
+      return onFreshConversation(st, e);
   }
 }
 
@@ -355,6 +362,13 @@ function onRefused(
       }
       st.s.agent_command_id = null;
       st.s.agent_process_live = false;
+      // The claiming machine doesn't have the conversation (its transcript lives only where it
+      // ran): forget it, so the re-claim starts a fresh one with the full prompt (+ pending answer).
+      if (e.reason === NO_CONVERSATION_REASON) {
+        const old = st.s.claude_session_id;
+        st.s.claude_session_id = null;
+        if (old !== null) conversationReset(st, old);
+      }
       // The session already left the agent state that start was for (e.g. its timer fired into
       // needs_input before `started`): nothing needs the process now, so don't requeue a parked
       // session. A later answer finds agent_process_live false and resumes via start_session.
@@ -425,7 +439,8 @@ function onStarted(st: Step, commandId: string): ApplyIgnoreReason | null {
  * - no name and no declared `done`: the M1 `done` outcome;
  * - `ask_user`, or a name the agent may not take: to a human through `ask_user` (U-028 path);
  * - a `question: true` transition: its target opens an `agent_question` with the reason; the
- *   state's `result` keys and guard are not checked (it is not a finished step);
+ *   state's `result` keys and guard are not checked (it is not a finished step); a non-empty
+ *   result is still stored as `context[<state>]` (the plan a human is asked to approve);
  * - any other transition: result keys, then the guard (failed → `fail`), then it is taken.
  */
 function onComplete(
@@ -456,6 +471,9 @@ function onComplete(
       ? { transition: plan.name, reason, actor: 'agent' }
       : undefined;
   if (plan.type === 'take' && plan.question) {
+    // 05 §Transitions: a question's non-empty result (e.g. plan_needs_approval's plan) is kept, so
+    // the human can read what they are asked to approve. Its keys and guard are not checked.
+    if (Object.keys(result).length > 0) st.s.context = { ...st.s.context, [name]: result };
     takeOutcome(
       st,
       outcome,
@@ -561,6 +579,49 @@ function onHumanTransition(
     outcome: plan.name,
     info: { detail },
     move,
+  });
+  return null;
+}
+
+/**
+ * "Start fresh conversation…" (10-contracts §Fresh conversation): only while parked in a human
+ * state whose `return_to` is an agent state (a gate step and a revoked park were refused in
+ * `handle`). The parked process, if any, is ended (targeted kill) and the conversation forgotten;
+ * then `return_to` is entered with the text as its answer, exactly like `input.provided` without
+ * `send_input`: `startSession` has no id to resume, so it renders the full prompt with the answer.
+ * A session without a machine (or leaving a lost-machine park) is requeued by `enter`, keeping the
+ * answer pending. The wrapper answers the open input_request and bumps the fencing token.
+ */
+function onFreshConversation(
+  st: Step,
+  e: Extract<EngineEvent, { type: 'human.fresh_conversation' }>,
+): ApplyIgnoreReason | null {
+  const s = st.s;
+  if (s.status !== 'needs_input' || st.state?.type !== 'human') return 'wrong_status';
+  const target = s.return_to;
+  if (target === null || st.def.states[target]?.type !== 'agent') return 'wrong_status';
+  const text = e.text.trim();
+  if (text === '') return 'wrong_status';
+  releaseAgent(st, 'a human started a fresh conversation');
+  // TD-182: a lost-machine (non-revoked) park keeps its machine pin, so fresh conversation can't move off a dead machine.
+  const earlier = leaveLostPark(st, true, true);
+  const old = s.claude_session_id;
+  s.claude_session_id = null;
+  if (old !== null) conversationReset(st, old, 'user_requested');
+  const answer: PendingAnswer = {
+    input_request_id: e.input_request_id ?? null,
+    answer: earlier !== null ? combineLostAnswer(earlier.answer, earlier.machine, text) : text,
+  };
+  enter(st, target, {
+    ...NO_ROUTE,
+    answer,
+    sendInput: false,
+    continuation: true,
+    // The session was already in `return_to`: it was admitted, so its `entry` doesn't run again.
+    skipEntry: true,
+    outcome: FRESH_CONVERSATION_MOVE,
+    info: { detail: `a human started a fresh conversation: ${text}` },
+    move: { transition: FRESH_CONVERSATION_MOVE, reason: text, actor: 'human' },
   });
   return null;
 }
@@ -700,9 +761,42 @@ function onAgentExited(
     st.emit(startFor(st, name, state, { attachment: null, answer: answer.answer }));
     return null;
   }
-  const how = e.signal !== null ? `signal ${e.signal}` : `exit code ${String(e.code)}`;
-  takeOutcome(st, 'fail', { detail: `the agent exited (${how}) without calling complete_state` });
+  takeOutcome(st, 'fail', {
+    detail: `the agent exited (${exitHow(e)}) without calling complete_state`,
+  });
   return null;
+}
+
+/** Longest stderr line quoted in a failure question (`exitHow`). */
+export const EXIT_STDERR_LINE_CHARS = 300;
+
+/**
+ * How an agent process ended, for a failure question: `exit code 1` / `signal SIGKILL`, plus the
+ * last non-empty stderr line when the daemon sent one (`exit code 1: No conversation found …`).
+ */
+function exitHow(e: Extract<EngineEvent, { type: 'agent.exited' }>): string {
+  const how = e.signal !== null ? `signal ${e.signal}` : `exit code ${String(e.code)}`;
+  const line = (e.stderr_tail ?? '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l !== '')
+    .at(-1);
+  if (line === undefined) return how;
+  const clipped =
+    line.length > EXIT_STDERR_LINE_CHARS ? `${line.slice(0, EXIT_STDERR_LINE_CHARS - 1)}…` : line;
+  return `${how}: ${clipped}`;
+}
+
+/**
+ * Audit: the Claude conversation `old` was forgotten (refused `no_conversation`, or a human's
+ * "Start fresh conversation…").
+ */
+function conversationReset(
+  st: Step,
+  old: string,
+  reason: ConversationResetReason = 'not_on_machine',
+): void {
+  st.emit({ type: 'conversation_reset', claude_session_id: old, reason });
 }
 
 /** `cmd_exit`: 0 → exit_0; timed_out → timeout if mapped, else fail; anything else → fail. */
@@ -1343,6 +1437,13 @@ function handleStep(
           s.agent_command_id = null;
           s.agent_process_live = false;
           s.machine_id = null;
+          // A resumed reviewer's conversation isn't on the claiming machine: forget the
+          // reviewer's id (never the worker's `claude_session_id`).
+          if (e.reason === NO_CONVERSATION_REASON && r.claude_session_id !== null) {
+            const old = r.claude_session_id;
+            r.claude_session_id = null;
+            conversationReset(st, old);
+          }
           requeue(st);
           return null;
         case 'run_cmd': {
@@ -1418,8 +1519,7 @@ function handleStep(
       }
       s.agent_process_live = false;
       if (r.phase !== 'review' || !AGENT_ACTIVE.has(s.status)) return null;
-      const how = e.signal !== null ? `signal ${e.signal}` : `exit code ${String(e.code)}`;
-      reviewNoVerdict(st, spec, r, `the reviewer exited (${how}) without a verdict`, true);
+      reviewNoVerdict(st, spec, r, `the reviewer exited (${exitHow(e)}) without a verdict`, true);
       return null;
     }
     case 'command.exited': {
@@ -1496,6 +1596,7 @@ function handleStep(
       return 'wrong_status';
     case 'input.provided':
     case 'human.transition':
+    case 'human.fresh_conversation':
       return 'wrong_status';
     case 'external.event':
       return conditionsOverride(st, r, e.name, e.data);

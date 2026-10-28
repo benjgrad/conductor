@@ -27,6 +27,7 @@ Before M1-T01 lands, gates are `n/a (no scaffold)`.
 - [ ] New logic has unit tests. The pure FSM `apply()` has a test for every new transition.
 - [ ] DB code has an integration test against real Postgres (no mocks for SQL).
 - [ ] Failure paths are tested, not just happy paths.
+- [ ] New tests are the cheapest kind that proves the point (CLAUDE.md *Rules*): no full-`<App>` mount, per-test git repo, process spawn or database unless that is what's under test. A near-duplicate of an existing test is a finding: ask for it to be merged into that test.
 
 ## 5 · Docs & tracking (the lead or doc-keeper applies these from the report)
 - [ ] The design doc matches the code. If behaviour diverged, the doc is updated in this branch, plus an ADR if it reverses a decision.

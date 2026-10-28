@@ -1,6 +1,41 @@
 // @ts-check
 import { describe, expect, it } from 'vitest';
-import { SLOW_TIERS, asksForAll, matchGlob, namesTestFiles, planTiers } from './test-tiers.js';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  EXPENSIVE,
+  SLOW_TIERS,
+  asksForAll,
+  matchGlob,
+  namesTestFiles,
+  planTiers,
+  untieredExpensiveTests,
+} from './test-tiers.js';
+
+describe('cost guard (M2-T33)', () => {
+  it('every expensive test file is in a slow tier', () => {
+    // A failure here names the file and what makes it expensive. Fix it one of two ways:
+    // make the test cheaper (render the component, not <App>; no process or database unless
+    // that is what's under test), or add the file to SLOW_TIERS in scripts/test-tiers.js.
+    // (not `new URL('..', import.meta.url)`: vite rewrites that pattern as an asset URL)
+    const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+    expect(untieredExpensiveTests(repoRoot)).toEqual([]);
+  });
+
+  it.each([
+    ['render(<App api={api} />);', 'mounts the whole <App>'],
+    ["import { spawn } from 'node:child_process';", 'spawns processes (node:child_process)'],
+    ['const db = useTestDatabase();', 'creates a Postgres database'],
+    ['// @vitest-environment jsdom', 'opens a jsdom environment'],
+  ])('detects %s', (line, what) => {
+    expect(EXPENSIVE.filter((e) => e.re.test(line)).map((e) => e.what)).toEqual([what]);
+  });
+
+  it('ignores cheap look-alikes', () => {
+    const cheap = ['render(<AppHeader />);', "import { App } from './App.js';", 'useTestDb()'];
+    for (const line of cheap) expect(EXPENSIVE.filter((e) => e.re.test(line))).toEqual([]);
+  });
+});
 
 const plan = (/** @type {string[] | null} */ changed, over = {}) =>
   planTiers({ all: false, filtered: false, changed, ...over });

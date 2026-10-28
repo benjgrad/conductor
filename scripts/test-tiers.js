@@ -45,7 +45,11 @@ export const SLOW_TIERS = [
     // jsdom + React, most render the whole <App> on the mock API: 1-5 s per test under load.
     name: 'web jsdom',
     project: 'web',
-    files: ['src/**/*.test.tsx', 'src/components/ticket-editor/**/*.test.ts'],
+    files: [
+      'src/**/*.test.tsx',
+      'src/components/ticket-editor/**/*.test.ts',
+      'src/onboarding/dismissal.test.ts',
+    ],
     triggers: ['packages/web/**', SHARED, 'docs/design/workflows/*.json'],
   },
   {
@@ -184,13 +188,12 @@ export function changedFiles(cwd) {
 }
 
 /**
- * Test files under `dir` that mock modules (`vi.mock` / `vi.doMock`), relative to `dir`. Without
- * isolation a module mock can't apply once another file in the worker loaded the real module, so
- * vitest.config.ts runs just these in an isolated project and everything else with isolate: false.
+ * Every test file of a package with its source: `[path relative to dir, text]`, sorted.
  * @param {string} dir package root
+ * @returns {Array<[string, string]>}
  */
-export function moduleMockingTests(dir) {
-  /** @type {string[]} */
+export function testFiles(dir) {
+  /** @type {Array<[string, string]>} */
   const found = [];
   for (const sub of ['src', 'test']) {
     let names;
@@ -202,10 +205,52 @@ export function moduleMockingTests(dir) {
     for (const name of names) {
       if (!/\.test\.tsx?$/.test(name) || name.includes('node_modules')) continue;
       const rel = `${sub}/${name.split(sep).join('/')}`;
-      if (/\bvi\.(do)?[mM]ock\(/.test(readFileSync(join(dir, rel), 'utf8'))) found.push(rel);
+      found.push([rel, readFileSync(join(dir, rel), 'utf8')]);
     }
   }
-  return found.sort();
+  return found.sort(([a], [b]) => a.localeCompare(b));
+}
+
+/**
+ * Test files under `dir` that mock modules (`vi.mock` / `vi.doMock`), relative to `dir`. Without
+ * isolation a module mock can't apply once another file in the worker loaded the real module, so
+ * vitest.config.ts runs just these in an isolated project and everything else with isolate: false.
+ * @param {string} dir package root
+ */
+export function moduleMockingTests(dir) {
+  return testFiles(dir)
+    .filter(([, text]) => /\bvi\.(do)?[mM]ock\(/.test(text))
+    .map(([rel]) => rel);
+}
+
+/**
+ * What makes a test file expensive enough for a slow tier (M2-T33): checked statically, so the
+ * guard in test-tiers.test.js can't flake under load the way a time budget would.
+ */
+export const EXPENSIVE = [
+  { what: 'mounts the whole <App>', re: /\brender\(\s*<App\b/ },
+  { what: 'spawns processes (node:child_process)', re: /from ['"](node:)?child_process['"]/ },
+  { what: 'creates a Postgres database', re: /\b(useTestDatabase|createTestDatabase)\(/ },
+  { what: 'opens a jsdom environment', re: /@vitest-environment\s+jsdom/ },
+];
+
+/**
+ * Test files that do something expensive but aren't in any slow tier, as
+ * `<package>/<file>: <what>`. A new entry means: add the file to SLOW_TIERS (or make it cheaper).
+ * @param {string} repoRoot
+ */
+export function untieredExpensiveTests(repoRoot) {
+  /** @type {string[]} */
+  const found = [];
+  for (const project of ['shared', 'orchestrator', 'daemon', 'web']) {
+    const tiers = SLOW_TIERS.filter((t) => t.project === project);
+    for (const [rel, text] of testFiles(join(repoRoot, 'packages', project))) {
+      if (tiers.some((t) => t.files.some((g) => matchGlob(g, rel)))) continue;
+      const hits = EXPENSIVE.filter((e) => e.re.test(text)).map((e) => e.what);
+      if (hits.length > 0) found.push(`packages/${project}/${rel}: ${hits.join(', ')}`);
+    }
+  }
+  return found;
 }
 
 /**

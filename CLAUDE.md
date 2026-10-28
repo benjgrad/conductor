@@ -67,6 +67,7 @@ Tracking files are edited on `main`, not on task branches, to keep branches free
 - **Ask Ben** before anything hard to reverse or outward-facing: new external services, schema changes after M1, pushing to a remote, spending money, deleting data. Use AskUserQuestion with a recommended option.
 - **Shortcuts are allowed only when recorded.** Add a TD-### row and leave a `// TD-###` comment at the site.
 - **Raise unknowns early.** If you notice yourself guessing, write the U-### row.
+- **Tests cost machine time on a shared box; write the cheapest one that proves the behaviour.** Extend an existing test before adding a near-copy. Render the component, not `<App>`, unless navigation or the board is what's under test. Build git repos and databases once per file, not per test. A file that still must mount `<App>`, spawn processes, open jsdom or create a database goes in `SLOW_TIERS` (`scripts/test-tiers.js`); the cost-guard test fails until it is. See [TEST_STRATEGY](docs/qa/TEST_STRATEGY.md#keeping-the-suite-fast-m2-t33).
 - Workflow-engine invariants (enforced in review): transitions only on outcomes; every loop bounded; every failure path ends at a human; state + commands in one transaction; idempotency keys on external side effects.
 - Prefer small PR-sized branches. One task, one branch.
 - Commit messages: conventional style (`feat(daemon): …`, `docs(design): …`), with the session's attribution trailer.
@@ -92,7 +93,9 @@ pnpm build             # tsc -b (all packages) + vite build (web)
 pnpm typecheck         # tsc -b across the workspace (project references; emits to gitignored dist/)
 pnpm lint              # eslint (type-aware, in a test slot) + prettier --check
 pnpm format            # prettier --write
-pnpm test              # vitest, one project per package (DB tests need db:up), in a test slot
+pnpm test              # vitest, one project per package (DB tests need db:up), in a test slot;
+                       #   skips the slow tiers the branch didn't touch and says so (M2-T33)
+pnpm test:all          # every tier, property tests at full run counts (scripts/ci.sh uses it)
 pnpm test:e2e          # db up + tsc -b + e2e/ suite: real orchestrator + daemon bins, fake Claude (~15 s)
 E2E_REAL_CLAUDE=1 pnpm test:e2e   # ask/answer only, real `claude` on haiku (spends money; not in CI)
 scripts/ci.sh          # all gates, in order: install, typecheck, lint, deploy kit (deploy/gradyserver/test/run.sh), db:up, test, build, test:e2e

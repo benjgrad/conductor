@@ -396,7 +396,7 @@ M2-T02 froze the machine-side seams for M2 ([ADR-0013](../adr/0013-machine-enrol
 - The daemon sends `register.protocol_version = PROTOCOL_VERSION`; absent means 1, an M1 daemon. `daemon_version` (package version, plus `+<CONDUCTOR_BUILD_SHA>` when set) was already required and stays so.
 - `password` mode: the WS upgrade must carry `Authorization: Bearer <credential>` (`DAEMON_AUTH_HEADER`). The gateway resolves machine and account from it before accepting the socket; an unknown or revoked credential is answered **HTTP 401 at the upgrade** (no socket), which the daemon treats like `CLOSE_UNAUTHORIZED`. **HTTP 403 at the upgrade is also fatal**, treated like 401 / `CLOSE_UNAUTHORIZED`: stop reconnecting, log why, exit non-zero (M2-T04 QA, 2026-10-27). The machine id is the credential's machine; `register.machine_id` must match it. A register with `protocol_version` < 2 is closed `CLOSE_PROTOCOL`.
 - `local` mode: no header, `register.machine_id` from `CONDUCTOR_MACHINE_ID`, v1 accepted, `enrollment_token` ignored (removed from the schema in M2-T21).
-- Close codes (with `CLOSE_REASONS` text, ≤ 123 bytes): 4000 replaced by a newer connection (M1-T11, reconnect is fine); **4001** revoked while connected and **4003** unauthorized: the daemon stops reconnecting, logs why and exits non-zero; **4005** protocol too old: the daemon logs "update the daemon: re-run the install command".
+- Close codes (with `CLOSE_REASONS` text, ≤ 123 bytes): 4000 replaced by a newer connection (M1-T11, reconnect is fine); **4001** revoked while connected and **4003** unauthorized: the daemon stops reconnecting, logs why and exits non-zero; **4005** protocol too old: the daemon logs "update the daemon: re-run the install command". Since [ADR-0021](../adr/0021-daemon-auto-update.md) a daemon that knows it fetches `/downloads/latest.json` and updates itself ([§Daemon auto-update](#daemon-auto-update)).
 
 **Inventory.**
 - Sent after every `registered` and whenever the scan changes (10-minute rescan, `SIGHUP`). Each `inventory` **replaces** the machine's previous repos and capabilities wholesale. Not durable (`seq` null): a new connection sends a fresh one. `hash` is the daemon's digest of the inventory, and `request_work.repos_digest` carries the latest `hash`.
@@ -482,6 +482,23 @@ Absent (or invalid) `__working_copy`: no `working_copy` in the payload, the M1 c
 - **T13** (working copies): honour `start_session.working_copy` after re-checking it against the inventory; reuse the session's existing worktree, else base it on `origin/<default_branch>`.
 - **T16** (ingest, claim): replace a machine's rows on each `inventory`; dedupe `alert` on seq; claim filters on `remote` and the matching rule above; `missingCapabilities(…, ticket.repo)` for the badge; the `__machine_lost` pin; write `__working_copy` into the session context in the claim transaction.
 - **T20** (reaper, revoke wiring): emit `machine.lost` with `machine_name` (and `offline_ms` for `pinned_machine_offline`) after the 2-minute grace; the pin SQL; `PINNED_MACHINE_OFFLINE_AFTER_MS` / `CONDUCTOR_PIN_OFFLINE_MS`; add `machine.lost` to the wrapper's fencing-bump list in `engine/service.ts`; call `machine.lost revoked` after `revokeMachine`.
+
+## Daemon auto-update
+
+[ADR-0021](../adr/0021-daemon-auto-update.md); tasks M2-T18 (launcher, wake), T18b (these contracts), T18c (daemon), T18d (orchestrator), T18e (web). Additive: daemons that don't know it ignore `update_available` (unknown frame types are logged and dropped) and keep the 4005 hint.
+
+| Seam | File | Producer → consumers |
+|---|---|---|
+| `update_available {version, file, sha256, size}` (`UpdateAvailableSchema`, `DAEMON_TARBALL_RE`, `DAEMON_TARBALL_MAX_BYTES`) | `shared/src/protocol/ws.ts` | T18d gateway → T18c daemon |
+| `heartbeat.draining?: {reason: 'update', version}` | `shared/src/protocol/ws.ts` | T18c → T18d (`machine.status`) |
+| `alert {kind: 'update_failed', version, stage, error, at}` | `shared/src/protocol/ws.ts` | T18c → T18d ingest → T18e |
+| `LatestDaemonSchema` (`GET /downloads/latest.json`), `EXIT_RESTART_FOR_UPDATE` 75, `UPDATE_*` limits | `shared/src/machines/update.ts` | T18d route → T18c (4005 path); T18 units |
+
+**On disk** (`<root>` = `~/.conductor`): `daemon/<version>/`, `daemon/current` → one of them (always swapped by renaming a temp symlink), `daemon/trial` (`from=`, `to=`, `attempts=`: an update not yet committed), `daemon/bad-versions` (one version per line; never offered again), `bin/conductor-launch` (the version-independent launcher the units run).
+
+**Exit codes**: 75 `EXIT_RESTART_FOR_UPDATE` (restart me; both units restart on it), 78 `EXIT_FATAL_AUTH` (don't restart, M2-T18).
+
+**Limits**: drain ≤ 6 h, then resume work, alert `drain_timeout`, 1 h cooldown, at most 3 drains per version; trial = 2 starts, and a start fails if the new version crashes or reaches the server without `registered` in 120 s (no network doesn't count).
 
 ## Defaults recorded here (workshop reconciliation)
 

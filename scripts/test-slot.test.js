@@ -6,8 +6,14 @@ import { HELD_ENV, acquireSlot } from './test-slot.js';
 
 const SCRIPT = fileURLToPath(new URL('./test-slot.js', import.meta.url));
 
-/** Ports away from the real slots (54330+) and the daemon's pool (41000-48999). */
-const freshBase = () => 20_000 + Math.floor(Math.random() * 900) * 20;
+/** Two free ports in a row, away from the real slots (54330+) and the daemon's pool (41000-48999). */
+function freshBase() {
+  for (;;) {
+    const base = 20_000 + Math.floor(Math.random() * 900) * 20;
+    const probe = `const s=require('net').createServer().listen(${base},'127.0.0.1',()=>{const t=require('net').createServer().listen(${base + 1},'127.0.0.1',()=>process.exit(0))})`;
+    if (spawnSync(process.execPath, ['-e', probe], { timeout: 2000 }).status === 0) return base;
+  }
+}
 
 /** @param {Partial<import('./test-slot.js').SlotOptions>} over */
 function options(over = {}) {

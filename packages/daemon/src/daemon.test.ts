@@ -27,6 +27,10 @@ import { CONDUCTOR_INSTRUCTIONS } from './system-prompt.js';
 import { FakeOrchestrator } from './test-support/fake-orchestrator.js';
 import { removeTree } from './test-support/remove-tree.js';
 
+// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
+// the task that unskips them.
+const onWin32 = process.platform === 'win32';
+
 // M1-T05 acceptance: the daemon core against a fake orchestrator WS, with FakeClaudeDriver,
 // FakeCommandRunner and real git in temp dirs.
 
@@ -246,20 +250,24 @@ describe('daemon core: link', () => {
     expect(reg.payload.daemon_version).toBe(`${daemonVersion({})}+abc1234`);
   });
 
-  it('enrolled: the enrolled machine id, the bearer header, no enrollment_token', async () => {
-    const root = join(tmp, 'root');
-    writeCredential(
-      root,
-      { url: 'http://127.0.0.1', machine_id: 'm-enrolled', credential: 'secret-cred' },
-      { force: false },
-    );
-    makeDaemon(new FakeClaudeDriver(complete({})), { root });
-    const reg = await orch.until(() => orch.ofType('register')[0]);
-    expect(reg.payload.machine_id).toBe('m-enrolled');
-    expect(reg.payload).not.toHaveProperty('enrollment_token');
-    expect(reg.payload.protocol_version).toBe(PROTOCOL_VERSION);
-    expect(orch.authHeaders).toEqual(['Bearer secret-cred']);
-  });
+  // MW-T07: machine.json 0600 needs the win32 ACL check
+  it.skipIf(onWin32)(
+    'enrolled: the enrolled machine id, the bearer header, no enrollment_token',
+    async () => {
+      const root = join(tmp, 'root');
+      writeCredential(
+        root,
+        { url: 'http://127.0.0.1', machine_id: 'm-enrolled', credential: 'secret-cred' },
+        { force: false },
+      );
+      makeDaemon(new FakeClaudeDriver(complete({})), { root });
+      const reg = await orch.until(() => orch.ofType('register')[0]);
+      expect(reg.payload.machine_id).toBe('m-enrolled');
+      expect(reg.payload).not.toHaveProperty('enrollment_token');
+      expect(reg.payload.protocol_version).toBe(PROTOCOL_VERSION);
+      expect(orch.authHeaders).toEqual(['Bearer secret-cred']);
+    },
+  );
 
   it('close 4001 (revoked) stops the link and calls onFatal; no re-register', async () => {
     const fatal: number[] = [];
@@ -959,187 +967,210 @@ describe('daemon core: run_cmd and kill', () => {
     ).toBe(true);
   });
 
-  it('ADR-0010 (Ben 2026-10-26): entry checks run in a fresh checkout of the commit, setup once, then it is removed', async () => {
-    const runner = new FakeCommandRunner(1, true).script('npm run build', { exitCode: 0 });
-    makeDaemon(new FakeClaudeDriver(complete({})), { runner });
-    await orch.until(() => orch.ofType('request_work')[0]);
-    const sid = randomUUID();
-    orch.send(startSession(sid, {}, 3));
-    await orch.until(() => orch.events('exit')[0]);
-    const wt = orch.eventData('started')[0]!.worktree_path;
-    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: wt, encoding: 'utf8' }).trim();
-    const check = (command: string, sha: string | null, last: boolean) =>
-      orch.send(
-        cmdMsg(sid, {
-          command_id: randomUUID(),
-          workflow_state: 'implementing → waiting_external (entry)',
-          cmd: command,
-          cwd: null,
-          timeout_ms: 1000,
-          require_clean: true,
-          checkout: { sha, setup: 'make deps', last },
-        }),
-      );
-    check('npm run build', null, false);
-    await orch.until(() => orch.eventData('cmd_exit')[0], 10_000);
-    check('npm test', head, true);
-    await orch.until(() => orch.eventData('cmd_exit')[1], 10_000);
-    expect(orch.eventData('cmd_exit').map((e) => [e.exit_code, e.head_sha])).toEqual([
-      [0, head],
-      [0, head],
-    ]);
-    // Setup once, then both checks, all in the same fresh checkout under <root>/private.
-    expect(runner.calls.map((c) => c.cmd)).toEqual(['make deps', 'npm run build', 'npm test']);
-    const dirs = new Set(runner.calls.map((c) => c.cwd));
-    expect(dirs.size).toBe(1);
-    const dir = [...dirs][0]!;
-    expect(dir.startsWith(join(tmp, 'root', 'private', 'check-'))).toBe(true);
-    expect(dir).not.toBe(wt);
-    // The last check removed it.
-    expect(existsSync(dir)).toBe(false);
-  });
+  // MW-T05: checks run through /bin/sh -c
+  it.skipIf(onWin32)(
+    'ADR-0010 (Ben 2026-10-26): entry checks run in a fresh checkout of the commit, setup once, then it is removed',
+    async () => {
+      const runner = new FakeCommandRunner(1, true).script('npm run build', { exitCode: 0 });
+      makeDaemon(new FakeClaudeDriver(complete({})), { runner });
+      await orch.until(() => orch.ofType('request_work')[0]);
+      const sid = randomUUID();
+      orch.send(startSession(sid, {}, 3));
+      await orch.until(() => orch.events('exit')[0]);
+      const wt = orch.eventData('started')[0]!.worktree_path;
+      const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: wt, encoding: 'utf8' }).trim();
+      const check = (command: string, sha: string | null, last: boolean) =>
+        orch.send(
+          cmdMsg(sid, {
+            command_id: randomUUID(),
+            workflow_state: 'implementing → waiting_external (entry)',
+            cmd: command,
+            cwd: null,
+            timeout_ms: 1000,
+            require_clean: true,
+            checkout: { sha, setup: 'make deps', last },
+          }),
+        );
+      check('npm run build', null, false);
+      await orch.until(() => orch.eventData('cmd_exit')[0], 10_000);
+      check('npm test', head, true);
+      await orch.until(() => orch.eventData('cmd_exit')[1], 10_000);
+      expect(orch.eventData('cmd_exit').map((e) => [e.exit_code, e.head_sha])).toEqual([
+        [0, head],
+        [0, head],
+      ]);
+      // Setup once, then both checks, all in the same fresh checkout under <root>/private.
+      expect(runner.calls.map((c) => c.cmd)).toEqual(['make deps', 'npm run build', 'npm test']);
+      const dirs = new Set(runner.calls.map((c) => c.cwd));
+      expect(dirs.size).toBe(1);
+      const dir = [...dirs][0]!;
+      expect(dir.startsWith(join(tmp, 'root', 'private', 'check-'))).toBe(true);
+      expect(dir).not.toBe(wt);
+      // The last check removed it.
+      expect(existsSync(dir)).toBe(false);
+    },
+  );
 
-  it('ADR-0010: a session kill between checks removes the kept checkout', async () => {
-    const runner = new FakeCommandRunner(1, true);
-    makeDaemon(new FakeClaudeDriver(complete({})), { runner });
-    await orch.until(() => orch.ofType('request_work')[0]);
-    const sid = randomUUID();
-    orch.send(startSession(sid, {}, 3));
-    await orch.until(() => orch.events('exit')[0]);
-    orch.send(
-      cmdMsg(sid, {
-        command_id: randomUUID(),
-        workflow_state: 'x',
-        cmd: 'npm run build',
-        cwd: null,
-        timeout_ms: 1000,
-        require_clean: true,
-        checkout: { sha: null, setup: '', last: false },
-      }),
-    );
-    await orch.until(() => orch.eventData('cmd_exit')[0], 10_000);
-    const dir = runner.calls[0]!.cwd;
-    expect(existsSync(dir)).toBe(true); // kept for the next check
-    // The step ends (cancel / timeout / budget): the engine's session kill.
-    const kill = cmd(
-      'kill',
-      sid,
-      { command_id: randomUUID(), target_command_id: null, reason: 'x' },
-      3,
-    );
-    orch.send(kill);
-    await orch.until(() => orch.ack((kill.payload as { command_id: string }).command_id)[0]);
-    expect(existsSync(dir)).toBe(false);
-  });
-
-  it('ADR-0010: an older run cleanup never removes a newer checkout of the same session', async () => {
-    const runner = new FakeCommandRunner(2).script('npm run build', { exitCode: 1 });
-    makeDaemon(new FakeClaudeDriver(complete({})), { runner });
-    await orch.until(() => orch.ofType('request_work')[0]);
-    const sid = randomUUID();
-    orch.send(startSession(sid, {}, 3));
-    await orch.until(() => orch.events('exit')[0]);
-    const wt = orch.eventData('started')[0]!.worktree_path;
-    const send = (command: string, sha: string | null) =>
+  // MW-T05: checks run through /bin/sh -c
+  it.skipIf(onWin32)(
+    'ADR-0010: a session kill between checks removes the kept checkout',
+    async () => {
+      const runner = new FakeCommandRunner(1, true);
+      makeDaemon(new FakeClaudeDriver(complete({})), { runner });
+      await orch.until(() => orch.ofType('request_work')[0]);
+      const sid = randomUUID();
+      orch.send(startSession(sid, {}, 3));
+      await orch.until(() => orch.events('exit')[0]);
       orch.send(
         cmdMsg(sid, {
           command_id: randomUUID(),
           workflow_state: 'x',
-          cmd: command,
+          cmd: 'npm run build',
           cwd: null,
-          timeout_ms: 5000,
+          timeout_ms: 1000,
           require_clean: true,
-          checkout: { sha, setup: '', last: false },
+          checkout: { sha: null, setup: '', last: false },
         }),
       );
-    // Visit 1's check runs (and will fail) in checkout A.
-    send('npm run build', null);
-    await orch.until(() => runner.calls[0]);
-    const a = runner.calls[0]!.cwd;
-    // A newer visit: a new commit, its check in checkout B (A is replaced).
-    writeFileSync(join(wt, 'next.txt'), 'x');
-    execFileSync('git', ['add', '.'], { cwd: wt });
-    execFileSync('git', ['-c', 'user.email=t@x', '-c', 'user.name=t', 'commit', '-qm', 'next'], {
-      cwd: wt,
-    });
-    const head2 = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: wt, encoding: 'utf8' }).trim();
-    send('npm test', head2);
-    await orch.until(() => runner.calls[1]);
-    const b = runner.calls[1]!.cwd;
-    expect(b).not.toBe(a);
-    expect(existsSync(a)).toBe(false);
-    // Visit 1's check now fails: its cleanup must not touch checkout B.
-    runner.release('npm run build');
-    await orch.until(() => orch.eventData('cmd_exit')[0], 10_000);
-    expect(existsSync(b)).toBe(true);
-    runner.release('npm test');
-    await orch.until(() => orch.eventData('cmd_exit')[1], 10_000);
-    expect(existsSync(b)).toBe(true); // passed, not last: kept
-  });
+      await orch.until(() => orch.eventData('cmd_exit')[0], 10_000);
+      const dir = runner.calls[0]!.cwd;
+      expect(existsSync(dir)).toBe(true); // kept for the next check
+      // The step ends (cancel / timeout / budget): the engine's session kill.
+      const kill = cmd(
+        'kill',
+        sid,
+        { command_id: randomUUID(), target_command_id: null, reason: 'x' },
+        3,
+      );
+      orch.send(kill);
+      await orch.until(() => orch.ack((kill.payload as { command_id: string }).command_id)[0]);
+      expect(existsSync(dir)).toBe(false);
+    },
+  );
 
-  it('ADR-0010: a failed setup is reported (setup_failed), the check does not run, the checkout goes', async () => {
-    const runner = new FakeCommandRunner(1, true).script('make deps', {
-      exitCode: 2,
-      output: 'deps: no such target\n',
-    });
-    makeDaemon(new FakeClaudeDriver(complete({})), { runner });
-    await orch.until(() => orch.ofType('request_work')[0]);
-    const sid = randomUUID();
-    orch.send(startSession(sid, {}, 3));
-    await orch.until(() => orch.events('exit')[0]);
-    orch.send(
-      cmdMsg(sid, {
-        command_id: randomUUID(),
-        workflow_state: 'x',
-        cmd: 'npm run build',
-        cwd: null,
-        timeout_ms: 1000,
-        require_clean: true,
-        checkout: { sha: null, setup: 'make deps', last: false },
-      }),
-    );
-    const exit = await orch.until(() => orch.eventData('cmd_exit')[0], 10_000);
-    expect(exit).toMatchObject({
-      exit_code: 2,
-      setup_failed: true,
-      output_tail: 'deps: no such target\n',
-    });
-    expect(runner.calls.map((c) => c.cmd)).toEqual(['make deps']);
-    expect(existsSync(runner.calls[0]!.cwd)).toBe(false);
-  });
+  // MW-T05: checks run through /bin/sh -c
+  it.skipIf(onWin32)(
+    'ADR-0010: an older run cleanup never removes a newer checkout of the same session',
+    async () => {
+      const runner = new FakeCommandRunner(2).script('npm run build', { exitCode: 1 });
+      makeDaemon(new FakeClaudeDriver(complete({})), { runner });
+      await orch.until(() => orch.ofType('request_work')[0]);
+      const sid = randomUUID();
+      orch.send(startSession(sid, {}, 3));
+      await orch.until(() => orch.events('exit')[0]);
+      const wt = orch.eventData('started')[0]!.worktree_path;
+      const send = (command: string, sha: string | null) =>
+        orch.send(
+          cmdMsg(sid, {
+            command_id: randomUUID(),
+            workflow_state: 'x',
+            cmd: command,
+            cwd: null,
+            timeout_ms: 5000,
+            require_clean: true,
+            checkout: { sha, setup: '', last: false },
+          }),
+        );
+      // Visit 1's check runs (and will fail) in checkout A.
+      send('npm run build', null);
+      await orch.until(() => runner.calls[0]);
+      const a = runner.calls[0]!.cwd;
+      // A newer visit: a new commit, its check in checkout B (A is replaced).
+      writeFileSync(join(wt, 'next.txt'), 'x');
+      execFileSync('git', ['add', '.'], { cwd: wt });
+      execFileSync('git', ['-c', 'user.email=t@x', '-c', 'user.name=t', 'commit', '-qm', 'next'], {
+        cwd: wt,
+      });
+      const head2 = execFileSync('git', ['rev-parse', 'HEAD'], {
+        cwd: wt,
+        encoding: 'utf8',
+      }).trim();
+      send('npm test', head2);
+      await orch.until(() => runner.calls[1]);
+      const b = runner.calls[1]!.cwd;
+      expect(b).not.toBe(a);
+      expect(existsSync(a)).toBe(false);
+      // Visit 1's check now fails: its cleanup must not touch checkout B.
+      runner.release('npm run build');
+      await orch.until(() => orch.eventData('cmd_exit')[0], 10_000);
+      expect(existsSync(b)).toBe(true);
+      runner.release('npm test');
+      await orch.until(() => orch.eventData('cmd_exit')[1], 10_000);
+      expect(existsSync(b)).toBe(true); // passed, not last: kept
+    },
+  );
 
-  it('ADR-0010: a require_clean check on a dirty worktree is not run; cmd_exit reports dirty', async () => {
-    const runner = new FakeCommandRunner(1, true);
-    makeDaemon(new FakeClaudeDriver(complete({})), { runner });
-    await orch.until(() => orch.ofType('request_work')[0]);
-    const sid = randomUUID();
-    orch.send(startSession(sid, {}, 3));
-    await orch.until(() => orch.events('exit')[0]);
-    const wt = orch.eventData('started')[0]!.worktree_path;
-    writeFileSync(join(wt, 'uncommitted.txt'), 'x');
-    const check = cmd(
-      'run_cmd',
-      sid,
-      {
-        command_id: randomUUID(),
-        workflow_state: 'implementing → waiting_external (entry)',
-        cmd: 'npm run build',
-        cwd: null,
-        timeout_ms: 1000,
-        require_clean: true,
-      },
-      3,
-    );
-    orch.send(check);
-    const exit = await orch.until(() => orch.eventData('cmd_exit')[0], 10_000);
-    expect(exit).toMatchObject({
-      exit_code: null,
-      head_sha: null,
-      dirty: ['?? uncommitted.txt'],
-    });
-    expect(exit.output_tail).toContain('?? uncommitted.txt');
-    expect(runner.calls).toHaveLength(0);
-  });
+  // MW-T05: checks run through /bin/sh -c
+  it.skipIf(onWin32)(
+    'ADR-0010: a failed setup is reported (setup_failed), the check does not run, the checkout goes',
+    async () => {
+      const runner = new FakeCommandRunner(1, true).script('make deps', {
+        exitCode: 2,
+        output: 'deps: no such target\n',
+      });
+      makeDaemon(new FakeClaudeDriver(complete({})), { runner });
+      await orch.until(() => orch.ofType('request_work')[0]);
+      const sid = randomUUID();
+      orch.send(startSession(sid, {}, 3));
+      await orch.until(() => orch.events('exit')[0]);
+      orch.send(
+        cmdMsg(sid, {
+          command_id: randomUUID(),
+          workflow_state: 'x',
+          cmd: 'npm run build',
+          cwd: null,
+          timeout_ms: 1000,
+          require_clean: true,
+          checkout: { sha: null, setup: 'make deps', last: false },
+        }),
+      );
+      const exit = await orch.until(() => orch.eventData('cmd_exit')[0], 10_000);
+      expect(exit).toMatchObject({
+        exit_code: 2,
+        setup_failed: true,
+        output_tail: 'deps: no such target\n',
+      });
+      expect(runner.calls.map((c) => c.cmd)).toEqual(['make deps']);
+      expect(existsSync(runner.calls[0]!.cwd)).toBe(false);
+    },
+  );
+
+  // MW-T05: checks run through /bin/sh -c
+  it.skipIf(onWin32)(
+    'ADR-0010: a require_clean check on a dirty worktree is not run; cmd_exit reports dirty',
+    async () => {
+      const runner = new FakeCommandRunner(1, true);
+      makeDaemon(new FakeClaudeDriver(complete({})), { runner });
+      await orch.until(() => orch.ofType('request_work')[0]);
+      const sid = randomUUID();
+      orch.send(startSession(sid, {}, 3));
+      await orch.until(() => orch.events('exit')[0]);
+      const wt = orch.eventData('started')[0]!.worktree_path;
+      writeFileSync(join(wt, 'uncommitted.txt'), 'x');
+      const check = cmd(
+        'run_cmd',
+        sid,
+        {
+          command_id: randomUUID(),
+          workflow_state: 'implementing → waiting_external (entry)',
+          cmd: 'npm run build',
+          cwd: null,
+          timeout_ms: 1000,
+          require_clean: true,
+        },
+        3,
+      );
+      orch.send(check);
+      const exit = await orch.until(() => orch.eventData('cmd_exit')[0], 10_000);
+      expect(exit).toMatchObject({
+        exit_code: null,
+        head_sha: null,
+        dirty: ['?? uncommitted.txt'],
+      });
+      expect(exit.output_tail).toContain('?? uncommitted.txt');
+      expect(runner.calls).toHaveLength(0);
+    },
+  );
 
   it('refuses run_cmd for an unknown session and a cwd outside the worktree', async () => {
     makeDaemon(new FakeClaudeDriver(complete({})));
@@ -1378,212 +1409,220 @@ describe('daemon core: BUG-1 no process outlives its session', () => {
 
 // BUG-1b: harmless stand-ins (`sh -c 'sleep 300 & …; wait'`, each the leader of its own process
 // group) with a crafted argv0/argv at the stored pid. Only pids this block spawned are signalled.
-describe('daemon core: BUG-1b orphan sweep only kills provably-ours processes', () => {
-  const BIN = '/opt/conductor-test/claude';
-  const GRACE = 200;
-  const spawned: { leader: number; child: number }[] = [];
+// MW-T06: orphan sweep reads ps and kills process groups
+describe.skipIf(onWin32)(
+  'daemon core: BUG-1b orphan sweep only kills provably-ours processes',
+  () => {
+    const BIN = '/opt/conductor-test/claude';
+    const GRACE = 200;
+    const spawned: { leader: number; child: number }[] = [];
 
-  const alive = (pid: number) => {
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  /** A detached `sh` whose ps command line is `<argv0> -c <script> x <extra…>`, plus its sleep child. */
-  async function standIn(argv0: string, extra: string[], ignoreTerm = false) {
-    const script = `${ignoreTerm ? "trap '' TERM; " : ''}sleep 300 & echo $!; wait`;
-    const sh = spawn('/bin/sh', ['-c', script, 'x', ...extra], {
-      argv0,
-      detached: true,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    sh.unref();
-    const child = await new Promise<number>((resolve, reject) => {
-      sh.stdout.once('data', (d: Buffer) => resolve(Number(String(d).trim())));
-      sh.once('error', reject);
-    });
-    sh.stdout.destroy();
-    const p = { leader: sh.pid!, child };
-    spawned.push(p);
-    const info = readProcInfo(p.leader);
-    expect(info).not.toBeNull();
-    return { ...p, startedAt: info!.startedAt };
-  }
-
-  afterEach(async () => {
-    for (const { leader } of spawned) {
+    const alive = (pid: number) => {
       try {
-        process.kill(-leader, 'SIGKILL');
+        process.kill(pid, 0);
+        return true;
       } catch {
-        // gone
+        return false;
       }
-    }
-    // NFR-2: nothing this block started is left running.
-    const pids = spawned.flatMap((p) => [p.leader, p.child]);
-    spawned.length = 0;
-    await orch.until(() => (pids.every((pid) => !alive(pid)) ? true : undefined), 5_000);
-  });
-
-  const root = () => join(tmp, 'root');
-  function seed(agents: NonNullable<Parameters<DaemonStore['putSession']>[1]['agent']>[]) {
-    const store = DaemonStore.forRoot(root());
-    return agents.map((agent) => {
-      const sid = randomUUID();
-      store.putSession(sid, {
-        ticketId: TICKET,
-        repo,
-        worktreePath: join(tmp, 'wt'),
-        branch: 'b',
-        portRange: null,
-        claudeSessionId: agent.claudeSessionId ?? null,
-        lastUsedAt: 0,
-        agent,
-      });
-      return sid;
-    });
-  }
-  const agentOf = (pid: number, claudeSessionId: string | undefined, startedAt?: number) => ({
-    commandId: randomUUID(),
-    fencingToken: 4,
-    pid,
-    ...(claudeSessionId !== undefined ? { claudeSessionId } : {}),
-    ...(startedAt !== undefined ? { startedAt } : {}),
-  });
-  const exits = (n: number) =>
-    orch.until(() => {
-      const e = orch.eventData('exit');
-      return e.length === n ? e : undefined;
-    });
-  const settle = () => new Promise((r) => setTimeout(r, GRACE + 300));
-
-  it('FR-2 (c): our argv, start time and UUID: killed with its whole group', async () => {
-    const id = randomUUID();
-    const s = await standIn(BIN, ['--session-id', id]);
-    const [sid] = seed([agentOf(s.leader, id, s.startedAt)]);
-    const logs: string[] = [];
-    const d = makeDaemon(new FakeClaudeDriver(complete({})), {
-      root: root(),
-      claudeBin: BIN,
-      log: (m) => logs.push(m),
-      config: { killGraceMs: GRACE },
-    });
-    await orch.until(() => (!alive(s.leader) && !alive(s.child)) || undefined, 5_000);
-    expect(logs).toContain(`startup: killed orphaned claude process ${s.leader} of session ${sid}`);
-    expect((await exits(1)).map((e) => e.signal)).toEqual(['daemon_restart']);
-    expect(d.store.session(sid!)!.agent).toBeNull();
-  });
-
-  it('FR-2 (a)(b)(d)(e): anything not provably ours is untouched and logged', async () => {
-    const id = randomUUID();
-    // (a) the user's own `claude --resume <same uuid>` at the stored pid, started at another time.
-    const a = await standIn(BIN, ['--resume', id]);
-    // (b) an argv that only mentions the id.
-    const b = await standIn('grep', ['-r', id, '.']);
-    // (d) an empty and a non-UUID stored id, with argv carrying the same.
-    const d1 = await standIn(BIN, ['--session-id', '']);
-    const d2 = await standIn(BIN, ['--session-id', 'not-a-uuid']);
-    // (e) another binary with matching tokens.
-    const e = await standIn('/usr/bin/notclaude', ['--session-id', id]);
-    seed([
-      agentOf(a.leader, id, a.startedAt - 60_000),
-      agentOf(b.leader, id, b.startedAt),
-      agentOf(d1.leader, '', d1.startedAt),
-      agentOf(d2.leader, 'not-a-uuid', d2.startedAt),
-      agentOf(e.leader, id, e.startedAt),
-    ]);
-    const logs: string[] = [];
-    makeDaemon(new FakeClaudeDriver(complete({})), {
-      root: root(),
-      claudeBin: BIN,
-      log: (m) => logs.push(m),
-      config: { killGraceMs: GRACE },
-    });
-    expect((await exits(5)).map((x) => x.signal)).toEqual(Array(5).fill('daemon_restart'));
-    await settle();
-    for (const p of [a, b, d1, d2, e]) {
-      expect(alive(p.leader)).toBe(true);
-      expect(alive(p.child)).toBe(true);
-    }
-    const notOurs = (pid: number, reason: string) =>
-      `orphan sweep: pid ${pid} alive but not ours (${reason}); left alone`;
-    expect(logs).toEqual(
-      expect.arrayContaining([
-        notOurs(a.leader, 'start time differs (pid reused)'),
-        notOurs(b.leader, 'not the claude binary'),
-        notOurs(d1.leader, 'invalid stored claude session id'),
-        notOurs(d2.leader, 'invalid stored claude session id'),
-        notOurs(e.leader, 'not the claude binary'),
-      ]),
-    );
-    expect(logs.filter((l) => l.startsWith('startup: killed'))).toEqual([]);
-  });
-
-  it('FR-4: an old entry without startedAt is untouched, logged and cleared', async () => {
-    const id = randomUUID();
-    const s = await standIn(BIN, ['--session-id', id]);
-    const [sid] = seed([agentOf(s.leader, id)]);
-    const logs: string[] = [];
-    const d = makeDaemon(new FakeClaudeDriver(complete({})), {
-      root: root(),
-      claudeBin: BIN,
-      log: (m) => logs.push(m),
-      config: { killGraceMs: GRACE },
-    });
-    expect((await exits(1)).map((x) => x.signal)).toEqual(['daemon_restart']);
-    await settle();
-    expect(alive(s.leader)).toBe(true);
-    expect(logs).toContain(
-      `orphan sweep: pid ${s.leader} of session ${sid} has no recorded start time (old entry); left alone`,
-    );
-    expect(d.store.session(sid!)!.agent).toBeNull();
-  });
-
-  it('FR-3: a process replaced between SIGTERM and SIGKILL gets no SIGKILL', async () => {
-    const id = randomUUID();
-    // Ignores SIGTERM, so only a SIGKILL would end it.
-    const s = await standIn(BIN, ['--session-id', id], true);
-    const [sid] = seed([agentOf(s.leader, id, s.startedAt)]);
-    let calls = 0;
-    // The re-check sees another start time: the pid now belongs to another process.
-    const procInfo = (pid: number) => {
-      const info = readProcInfo(pid);
-      return info && calls++ > 0 ? { ...info, startedAt: info.startedAt + 1000 } : info;
     };
-    const logs: string[] = [];
-    makeDaemon(new FakeClaudeDriver(complete({})), {
-      root: root(),
-      claudeBin: BIN,
-      procInfo,
-      log: (m) => logs.push(m),
-      config: { killGraceMs: GRACE },
-    });
-    await exits(1);
-    expect(logs).toContain(`startup: killed orphaned claude process ${s.leader} of session ${sid}`);
-    await orch.until(() => (calls >= 2 ? true : undefined), 5_000);
-    await settle();
-    expect(alive(s.leader)).toBe(true);
-    expect(logs).toContain(
-      `orphan sweep: pid ${s.leader} alive but not ours (start time differs (pid reused)); left alone (no SIGKILL)`,
-    );
-  });
 
-  it('FR-3 control: a process still ours after the grace period is SIGKILLed', async () => {
-    const id = randomUUID();
-    const s = await standIn(BIN, ['--session-id', id], true);
-    seed([agentOf(s.leader, id, s.startedAt)]);
-    makeDaemon(new FakeClaudeDriver(complete({})), {
-      root: root(),
-      claudeBin: BIN,
-      config: { killGraceMs: GRACE },
+    /** A detached `sh` whose ps command line is `<argv0> -c <script> x <extra…>`, plus its sleep child. */
+    async function standIn(argv0: string, extra: string[], ignoreTerm = false) {
+      const script = `${ignoreTerm ? "trap '' TERM; " : ''}sleep 300 & echo $!; wait`;
+      const sh = spawn('/bin/sh', ['-c', script, 'x', ...extra], {
+        argv0,
+        detached: true,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      sh.unref();
+      const child = await new Promise<number>((resolve, reject) => {
+        sh.stdout.once('data', (d: Buffer) => resolve(Number(String(d).trim())));
+        sh.once('error', reject);
+      });
+      sh.stdout.destroy();
+      const p = { leader: sh.pid!, child };
+      spawned.push(p);
+      const info = readProcInfo(p.leader);
+      expect(info).not.toBeNull();
+      return { ...p, startedAt: info!.startedAt };
+    }
+
+    afterEach(async () => {
+      for (const { leader } of spawned) {
+        try {
+          process.kill(-leader, 'SIGKILL');
+        } catch {
+          // gone
+        }
+      }
+      // NFR-2: nothing this block started is left running.
+      const pids = spawned.flatMap((p) => [p.leader, p.child]);
+      spawned.length = 0;
+      await orch.until(() => (pids.every((pid) => !alive(pid)) ? true : undefined), 5_000);
     });
-    await exits(1);
-    // It ignores SIGTERM: only the SIGKILL after the grace period ends it (and its group).
-    await orch.until(() => (!alive(s.leader) && !alive(s.child)) || undefined, 5_000);
-  });
-});
+
+    const root = () => join(tmp, 'root');
+    function seed(agents: NonNullable<Parameters<DaemonStore['putSession']>[1]['agent']>[]) {
+      const store = DaemonStore.forRoot(root());
+      return agents.map((agent) => {
+        const sid = randomUUID();
+        store.putSession(sid, {
+          ticketId: TICKET,
+          repo,
+          worktreePath: join(tmp, 'wt'),
+          branch: 'b',
+          portRange: null,
+          claudeSessionId: agent.claudeSessionId ?? null,
+          lastUsedAt: 0,
+          agent,
+        });
+        return sid;
+      });
+    }
+    const agentOf = (pid: number, claudeSessionId: string | undefined, startedAt?: number) => ({
+      commandId: randomUUID(),
+      fencingToken: 4,
+      pid,
+      ...(claudeSessionId !== undefined ? { claudeSessionId } : {}),
+      ...(startedAt !== undefined ? { startedAt } : {}),
+    });
+    const exits = (n: number) =>
+      orch.until(() => {
+        const e = orch.eventData('exit');
+        return e.length === n ? e : undefined;
+      });
+    const settle = () => new Promise((r) => setTimeout(r, GRACE + 300));
+
+    it('FR-2 (c): our argv, start time and UUID: killed with its whole group', async () => {
+      const id = randomUUID();
+      const s = await standIn(BIN, ['--session-id', id]);
+      const [sid] = seed([agentOf(s.leader, id, s.startedAt)]);
+      const logs: string[] = [];
+      const d = makeDaemon(new FakeClaudeDriver(complete({})), {
+        root: root(),
+        claudeBin: BIN,
+        log: (m) => logs.push(m),
+        config: { killGraceMs: GRACE },
+      });
+      await orch.until(() => (!alive(s.leader) && !alive(s.child)) || undefined, 5_000);
+      expect(logs).toContain(
+        `startup: killed orphaned claude process ${s.leader} of session ${sid}`,
+      );
+      expect((await exits(1)).map((e) => e.signal)).toEqual(['daemon_restart']);
+      expect(d.store.session(sid!)!.agent).toBeNull();
+    });
+
+    it('FR-2 (a)(b)(d)(e): anything not provably ours is untouched and logged', async () => {
+      const id = randomUUID();
+      // (a) the user's own `claude --resume <same uuid>` at the stored pid, started at another time.
+      const a = await standIn(BIN, ['--resume', id]);
+      // (b) an argv that only mentions the id.
+      const b = await standIn('grep', ['-r', id, '.']);
+      // (d) an empty and a non-UUID stored id, with argv carrying the same.
+      const d1 = await standIn(BIN, ['--session-id', '']);
+      const d2 = await standIn(BIN, ['--session-id', 'not-a-uuid']);
+      // (e) another binary with matching tokens.
+      const e = await standIn('/usr/bin/notclaude', ['--session-id', id]);
+      seed([
+        agentOf(a.leader, id, a.startedAt - 60_000),
+        agentOf(b.leader, id, b.startedAt),
+        agentOf(d1.leader, '', d1.startedAt),
+        agentOf(d2.leader, 'not-a-uuid', d2.startedAt),
+        agentOf(e.leader, id, e.startedAt),
+      ]);
+      const logs: string[] = [];
+      makeDaemon(new FakeClaudeDriver(complete({})), {
+        root: root(),
+        claudeBin: BIN,
+        log: (m) => logs.push(m),
+        config: { killGraceMs: GRACE },
+      });
+      expect((await exits(5)).map((x) => x.signal)).toEqual(Array(5).fill('daemon_restart'));
+      await settle();
+      for (const p of [a, b, d1, d2, e]) {
+        expect(alive(p.leader)).toBe(true);
+        expect(alive(p.child)).toBe(true);
+      }
+      const notOurs = (pid: number, reason: string) =>
+        `orphan sweep: pid ${pid} alive but not ours (${reason}); left alone`;
+      expect(logs).toEqual(
+        expect.arrayContaining([
+          notOurs(a.leader, 'start time differs (pid reused)'),
+          notOurs(b.leader, 'not the claude binary'),
+          notOurs(d1.leader, 'invalid stored claude session id'),
+          notOurs(d2.leader, 'invalid stored claude session id'),
+          notOurs(e.leader, 'not the claude binary'),
+        ]),
+      );
+      expect(logs.filter((l) => l.startsWith('startup: killed'))).toEqual([]);
+    });
+
+    it('FR-4: an old entry without startedAt is untouched, logged and cleared', async () => {
+      const id = randomUUID();
+      const s = await standIn(BIN, ['--session-id', id]);
+      const [sid] = seed([agentOf(s.leader, id)]);
+      const logs: string[] = [];
+      const d = makeDaemon(new FakeClaudeDriver(complete({})), {
+        root: root(),
+        claudeBin: BIN,
+        log: (m) => logs.push(m),
+        config: { killGraceMs: GRACE },
+      });
+      expect((await exits(1)).map((x) => x.signal)).toEqual(['daemon_restart']);
+      await settle();
+      expect(alive(s.leader)).toBe(true);
+      expect(logs).toContain(
+        `orphan sweep: pid ${s.leader} of session ${sid} has no recorded start time (old entry); left alone`,
+      );
+      expect(d.store.session(sid!)!.agent).toBeNull();
+    });
+
+    it('FR-3: a process replaced between SIGTERM and SIGKILL gets no SIGKILL', async () => {
+      const id = randomUUID();
+      // Ignores SIGTERM, so only a SIGKILL would end it.
+      const s = await standIn(BIN, ['--session-id', id], true);
+      const [sid] = seed([agentOf(s.leader, id, s.startedAt)]);
+      let calls = 0;
+      // The re-check sees another start time: the pid now belongs to another process.
+      const procInfo = (pid: number) => {
+        const info = readProcInfo(pid);
+        return info && calls++ > 0 ? { ...info, startedAt: info.startedAt + 1000 } : info;
+      };
+      const logs: string[] = [];
+      makeDaemon(new FakeClaudeDriver(complete({})), {
+        root: root(),
+        claudeBin: BIN,
+        procInfo,
+        log: (m) => logs.push(m),
+        config: { killGraceMs: GRACE },
+      });
+      await exits(1);
+      expect(logs).toContain(
+        `startup: killed orphaned claude process ${s.leader} of session ${sid}`,
+      );
+      await orch.until(() => (calls >= 2 ? true : undefined), 5_000);
+      await settle();
+      expect(alive(s.leader)).toBe(true);
+      expect(logs).toContain(
+        `orphan sweep: pid ${s.leader} alive but not ours (start time differs (pid reused)); left alone (no SIGKILL)`,
+      );
+    });
+
+    it('FR-3 control: a process still ours after the grace period is SIGKILLed', async () => {
+      const id = randomUUID();
+      const s = await standIn(BIN, ['--session-id', id], true);
+      seed([agentOf(s.leader, id, s.startedAt)]);
+      makeDaemon(new FakeClaudeDriver(complete({})), {
+        root: root(),
+        claudeBin: BIN,
+        config: { killGraceMs: GRACE },
+      });
+      await exits(1);
+      // It ignores SIGTERM: only the SIGKILL after the grace period ends it (and its group).
+      await orch.until(() => (!alive(s.leader) && !alive(s.child)) || undefined, 5_000);
+    });
+  },
+);
 
 describe('daemon core: misc', () => {
   it('reports exit (daemon_restart) for a process that died with the previous daemon', async () => {
@@ -1623,55 +1662,60 @@ describe('daemon core: misc', () => {
 });
 
 describe('daemon core: run_action (ADR-0010 open_pr)', () => {
-  it('acks, pushes the session branch to origin, opens the PR with gh, reports action_result', async () => {
-    {
-      // A fake gh (no network): `/bin/sh -c <script> gh <args>`. (Spawning a node script per
-      // gh call stalls for seconds under load on this macOS; /bin/sh doesn't.)
-      makeDaemon(new FakeClaudeDriver(complete({})), { ghCommand: FAKE_GH_SH });
-      await orch.until(() => orch.ofType('request_work')[0]);
-      const sid = randomUUID();
-      orch.send(startSession(sid, {}, 4));
-      await orch.until(() => orch.events('exit')[0]);
-      const action = cmd(
-        'run_action',
-        sid,
-        {
-          command_id: randomUUID(),
-          workflow_state: 'implementing → waiting_external (entry)',
-          target_state: 'waiting_external',
+  // MW-T07: open_pr: fake gh, git env, private push repo
+  it.skipIf(onWin32)(
+    'acks, pushes the session branch to origin, opens the PR with gh, reports action_result',
+    async () => {
+      {
+        // A fake gh (no network): `/bin/sh -c <script> gh <args>`. (Spawning a node script per
+        // gh call stalls for seconds under load on this macOS; /bin/sh doesn't.)
+        makeDaemon(new FakeClaudeDriver(complete({})), { ghCommand: FAKE_GH_SH });
+        await orch.until(() => orch.ofType('request_work')[0]);
+        const sid = randomUUID();
+        orch.send(startSession(sid, {}, 4));
+        await orch.until(() => orch.events('exit')[0]);
+        const action = cmd(
+          'run_action',
+          sid,
+          {
+            command_id: randomUUID(),
+            workflow_state: 'implementing → waiting_external (entry)',
+            target_state: 'waiting_external',
+            action: 'open_pr',
+            idempotency_key: `${sid}:waiting_external:1`,
+            args: { title: 'Add /health', body: 'Opened by conductor.' },
+            branch: 'ignored/the-daemon-uses-its-own-record',
+            // The worktree was branched from the fixture's HEAD and has no new commits.
+            expected_sha: execFileSync('git', ['rev-parse', 'HEAD'], {
+              cwd: repo,
+              encoding: 'utf8',
+            }).trim(),
+          },
+          4,
+        );
+        orch.send(action);
+        const id = (action.payload as { command_id: string }).command_id;
+        expect((await orch.until(() => orch.ack(id)[0])).payload.accepted).toBe(true);
+        // Several git / gh subprocesses: allow for a loaded test machine.
+        const res = await orch.until(() => orch.eventData('action_result')[0], 15_000);
+        expect(res).toEqual({
+          command_id: id,
           action: 'open_pr',
-          idempotency_key: `${sid}:waiting_external:1`,
-          args: { title: 'Add /health', body: 'Opened by conductor.' },
-          branch: 'ignored/the-daemon-uses-its-own-record',
-          // The worktree was branched from the fixture's HEAD and has no new commits.
-          expected_sha: execFileSync('git', ['rev-parse', 'HEAD'], {
+          result: { pr_url: 'https://github.com/benjgrad/fixture-app/pull/9' },
+          error: null,
+        });
+        // The session branch (the daemon's own record) is now on the origin repo.
+        const branch = sessionBranch(TICKET, sid);
+        expect(() =>
+          execFileSync('git', ['rev-parse', '--verify', `refs/heads/${branch}`], {
             cwd: repo,
-            encoding: 'utf8',
-          }).trim(),
-        },
-        4,
-      );
-      orch.send(action);
-      const id = (action.payload as { command_id: string }).command_id;
-      expect((await orch.until(() => orch.ack(id)[0])).payload.accepted).toBe(true);
-      // Several git / gh subprocesses: allow for a loaded test machine.
-      const res = await orch.until(() => orch.eventData('action_result')[0], 15_000);
-      expect(res).toEqual({
-        command_id: id,
-        action: 'open_pr',
-        result: { pr_url: 'https://github.com/benjgrad/fixture-app/pull/9' },
-        error: null,
-      });
-      // The session branch (the daemon's own record) is now on the origin repo.
-      const branch = sessionBranch(TICKET, sid);
-      expect(() =>
-        execFileSync('git', ['rev-parse', '--verify', `refs/heads/${branch}`], {
-          cwd: repo,
-          stdio: 'pipe',
-        }),
-      ).not.toThrow();
-    }
-  }, 30_000);
+            stdio: 'pipe',
+          }),
+        ).not.toThrow();
+      }
+    },
+    30_000,
+  );
 
   it('refuses run_action for an unknown session', async () => {
     makeDaemon(new FakeClaudeDriver(complete({})));
@@ -1770,43 +1814,47 @@ describe('daemon core: run_action evaluate_conditions (ADR-0011)', () => {
       4,
     );
 
-  it('acks accepted and reports one action_result with a result per condition', async () => {
-    makeDaemon(new FakeClaudeDriver(complete({})), { ghCommand: FAKE_GH_VIEW });
-    await orch.until(() => orch.ofType('request_work')[0]);
-    // Read-only and worktree-free: no session on this daemon is needed (ADR-0016).
-    const sid = randomUUID();
-    const action = evaluate(sid, {
-      conditions: [
-        { type: 'pr_checks_green' },
-        { type: 'pr_approvals', min: 2 },
-        { type: 'jira_fields_set', fields: ['status'], enabled: false },
-      ],
-      pr_url: 'https://github.com/benjgrad/fixture-app/pull/9',
-      branch: 'b',
-    });
-    orch.send(action);
-    const id = (action.payload as { command_id: string }).command_id;
-    expect((await orch.until(() => orch.ack(id)[0])).payload.accepted).toBe(true);
-    const res = await orch.until(() => orch.eventData('action_result')[0], 15_000);
-    expect(res).toEqual({
-      command_id: id,
-      action: 'evaluate_conditions',
-      result: {
-        results: [
-          { type: 'pr_checks_green', status: 'met', value: '1/1 passed', detail: null },
-          { type: 'pr_approvals', status: 'pending', value: '1/2', detail: 'approved by amy' },
-          {
-            type: 'jira_fields_set',
-            status: 'unsupported',
-            value: null,
-            detail: "jira_fields_set can't be evaluated on this machine yet",
-          },
+  // MW-T05: fake gh is a /bin/sh script
+  it.skipIf(onWin32)(
+    'acks accepted and reports one action_result with a result per condition',
+    async () => {
+      makeDaemon(new FakeClaudeDriver(complete({})), { ghCommand: FAKE_GH_VIEW });
+      await orch.until(() => orch.ofType('request_work')[0]);
+      // Read-only and worktree-free: no session on this daemon is needed (ADR-0016).
+      const sid = randomUUID();
+      const action = evaluate(sid, {
+        conditions: [
+          { type: 'pr_checks_green' },
+          { type: 'pr_approvals', min: 2 },
+          { type: 'jira_fields_set', fields: ['status'], enabled: false },
         ],
-      },
-      error: null,
-    });
-    expect(orch.eventData('action_result')).toHaveLength(1);
-  });
+        pr_url: 'https://github.com/benjgrad/fixture-app/pull/9',
+        branch: 'b',
+      });
+      orch.send(action);
+      const id = (action.payload as { command_id: string }).command_id;
+      expect((await orch.until(() => orch.ack(id)[0])).payload.accepted).toBe(true);
+      const res = await orch.until(() => orch.eventData('action_result')[0], 15_000);
+      expect(res).toEqual({
+        command_id: id,
+        action: 'evaluate_conditions',
+        result: {
+          results: [
+            { type: 'pr_checks_green', status: 'met', value: '1/1 passed', detail: null },
+            { type: 'pr_approvals', status: 'pending', value: '1/2', detail: 'approved by amy' },
+            {
+              type: 'jira_fields_set',
+              status: 'unsupported',
+              value: null,
+              detail: "jira_fields_set can't be evaluated on this machine yet",
+            },
+          ],
+        },
+        error: null,
+      });
+      expect(orch.eventData('action_result')).toHaveLength(1);
+    },
+  );
 
   it('invalid args → accepted, then an action_result error', async () => {
     makeDaemon(new FakeClaudeDriver(complete({})), { ghCommand: FAKE_GH_VIEW });

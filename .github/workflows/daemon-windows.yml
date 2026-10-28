@@ -1,6 +1,7 @@
 # Native Windows gate for the daemon (ADR-0024, milestone MW). Linux/macOS keep scripts/ci.sh.
-# MW-T00 starts it narrow (typecheck + shared + daemon/src/platform); MW-T01 widens it to the whole
-# daemon project with POSIX-only tests skipped, and MW-T12 adds the fake-claude e2e.
+# MW-T00 started it narrow; MW-T01 runs the whole shared + daemon projects, with tests that can't
+# pass on win32 yet skipped behind `skipIf(process.platform === 'win32')` + a `// MW-Tnn` marker
+# naming the task that unskips them. MW-T12 adds the fake-claude e2e.
 name: daemon-windows
 
 on:
@@ -28,5 +29,4 @@ jobs:
       - run: npm install -g pnpm@10.34.7
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - run: pnpm vitest run --project shared
-      - run: pnpm vitest run --project daemon packages/daemon/src/platform --passWithNoTests
+      - run: pnpm vitest run --project daemon --project shared

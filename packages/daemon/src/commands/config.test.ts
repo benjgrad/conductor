@@ -14,6 +14,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fileConfigPath, loadConfig, readFileConfig, writeFileConfig } from '../config.js';
 import { configCommand } from './config.js';
 
+// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
+// the task that unskips them.
+const onWin32 = process.platform === 'win32';
+
 // M2-T10: `conductor-daemon config roots|repo|show`, `<root>/config.json` (0600), CONDUCTOR_ROOTS,
 // CONDUCTOR_TEST_REMOTE_ALIASES.
 
@@ -42,7 +46,8 @@ const run = (argv: string[], env: Record<string, string> = {}) =>
 const mode = (path: string) => statSync(path).mode & 0o777;
 
 describe('config.json', () => {
-  it('missing → defaults; round-trips at 0600', () => {
+  // MW-T07: config 0600 modes, `:`-separated roots and POSIX paths
+  it.skipIf(onWin32)('missing → defaults; round-trips at 0600', () => {
     expect(readFileConfig(root)).toEqual({ roots: [], repos: {} });
     const path = writeFileConfig(root, { roots: ['/a'], repos: { '/a/b': { mode: 'checkout' } } });
     expect(path).toBe(fileConfigPath(root));
@@ -65,7 +70,8 @@ describe('config.json', () => {
 describe('loadConfig inventory env', () => {
   const base = { CONDUCTOR_ROOT: '/tmp/r', CONDUCTOR_MACHINE_ID: 'm' };
 
-  it('CONDUCTOR_ROOTS (`:`-separated) overrides the file; unset → null', () => {
+  // MW-T07: config 0600 modes, `:`-separated roots and POSIX paths
+  it.skipIf(onWin32)('CONDUCTOR_ROOTS (`:`-separated) overrides the file; unset → null', () => {
     expect(loadConfig(base).rootsOverride).toBeNull();
     expect(loadConfig({ ...base, CONDUCTOR_ROOTS: '/a:/b/../c' }).rootsOverride).toEqual([
       '/a',
@@ -73,19 +79,23 @@ describe('loadConfig inventory env', () => {
     ]);
   });
 
-  it('CONDUCTOR_TEST_REMOTE_ALIASES is ignored without CONDUCTOR_ALLOW_LOCAL_REPOS', () => {
-    const aliases = '/tmp/fixture=github.com/benjgrad/fixture-app';
-    expect(
-      loadConfig({ ...base, CONDUCTOR_TEST_REMOTE_ALIASES: aliases }).testRemoteAliases,
-    ).toEqual({});
-    expect(
-      loadConfig({
-        ...base,
-        CONDUCTOR_ALLOW_LOCAL_REPOS: '1',
-        CONDUCTOR_TEST_REMOTE_ALIASES: aliases,
-      }).testRemoteAliases,
-    ).toEqual({ '/tmp/fixture': 'github.com/benjgrad/fixture-app' });
-  });
+  // MW-T07: config 0600 modes, `:`-separated roots and POSIX paths
+  it.skipIf(onWin32)(
+    'CONDUCTOR_TEST_REMOTE_ALIASES is ignored without CONDUCTOR_ALLOW_LOCAL_REPOS',
+    () => {
+      const aliases = '/tmp/fixture=github.com/benjgrad/fixture-app';
+      expect(
+        loadConfig({ ...base, CONDUCTOR_TEST_REMOTE_ALIASES: aliases }).testRemoteAliases,
+      ).toEqual({});
+      expect(
+        loadConfig({
+          ...base,
+          CONDUCTOR_ALLOW_LOCAL_REPOS: '1',
+          CONDUCTOR_TEST_REMOTE_ALIASES: aliases,
+        }).testRemoteAliases,
+      ).toEqual({ '/tmp/fixture': 'github.com/benjgrad/fixture-app' });
+    },
+  );
 
   it('a bad alias throws (with the flag)', () => {
     for (const bad of [
@@ -105,7 +115,8 @@ describe('loadConfig inventory env', () => {
 });
 
 describe('conductor-daemon config', () => {
-  it('roots: saves realpaths (deduped) at 0600', () => {
+  // MW-T07: config 0600 modes, `:`-separated roots and POSIX paths
+  it.skipIf(onWin32)('roots: saves realpaths (deduped) at 0600', () => {
     const a = join(tmp, 'code');
     mkdirSync(a);
     expect(run(['roots', a, join(a, '.'), join(tmp, 'code/')])).toBe(0);
@@ -148,7 +159,8 @@ describe('conductor-daemon config', () => {
     expect(readFileConfig(root).repos).toEqual({});
   });
 
-  it('show: the file, effective roots and repos; CONDUCTOR_ROOTS wins', () => {
+  // MW-T07: config 0600 modes, `:`-separated roots and POSIX paths
+  it.skipIf(onWin32)('show: the file, effective roots and repos; CONDUCTOR_ROOTS wins', () => {
     writeFileConfig(root, { roots: ['/from/file'], repos: {} });
     expect(run(['show'])).toBe(0);
     expect(JSON.parse(out.join('\n'))).toEqual({

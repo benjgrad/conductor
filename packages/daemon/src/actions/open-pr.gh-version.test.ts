@@ -14,6 +14,10 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openPr, type OpenPrInput } from './open-pr.js';
 
+// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
+// the task that unskips them.
+const onWin32 = process.platform === 'win32';
+
 // M2-T10: open_pr refuses a gh older than GH_MIN_VERSION (2.40.0, U-076) before anything is
 // pushed. The fake `gh` is an executable on PATH (no `gh` override), as the daemon finds it.
 
@@ -104,7 +108,8 @@ function input(versionOut: string): OpenPrInput {
   };
 }
 
-describe('open_pr gh version floor (M2-T10)', () => {
+// MW-T07: fake gh is a /bin/sh script; private push repo is POSIX
+describe.skipIf(onWin32)('open_pr gh version floor (M2-T10)', () => {
   it('gh 2.14.0 → refused with the upgrade message; nothing is pushed', async () => {
     const r = await openPr(input('gh version 2.14.0 (2022-07-20)'));
     expect(r).toEqual({

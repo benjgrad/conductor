@@ -111,8 +111,10 @@ current=releases/$SHA
 current_env=$SHA"
 if [[ "$verify_out" != "$expected" ]]; then
   echo "!!> expected:" >&2
+  # shellcheck disable=SC2001 # prefixes every line; ${var//…} can't anchor at line starts
   echo "$expected" | sed 's/^/!!>   /' >&2
   echo "!!> found:" >&2
+  # shellcheck disable=SC2001 # prefixes every line; ${var//…} can't anchor at line starts
   echo "$verify_out" | sed 's/^/!!>   /' >&2
   die "the running orchestrator is not a healthy $SHA; NOT deployed"
 fi

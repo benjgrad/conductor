@@ -26,6 +26,7 @@ if command -v shellcheck >/dev/null; then
       pass "shellcheck ${f#"$KIT"/}"
     else
       failed "shellcheck ${f#"$KIT"/}"
+      # shellcheck disable=SC2001 # prefixes every line; ${var//…} can't anchor at line starts
       sed 's/^/        /' <<<"$sc_out"
     fi
   done

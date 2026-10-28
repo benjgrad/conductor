@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DaemonStore } from './store.js';
-import { Workspace } from './workspace.js';
+import { isSafeBranchName, Workspace } from './workspace.js';
 
 function run(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, {
@@ -118,6 +118,43 @@ describe('Workspace fresh base (M2-T13a)', () => {
         defaultBranch: '-oops',
       }),
     ).rejects.toThrow(/invalid git ref/);
+    await expect(
+      ws.ensureWorktree({
+        repo: origin,
+        sessionId: 's3',
+        branch: 'conductor/t/s3',
+        baseRef: 'HEAD',
+        defaultBranch: 'a..b',
+      }),
+    ).rejects.toThrow(/invalid default branch for .*origin\.git/);
+  });
+
+  it('isSafeBranchName accepts usual names and refuses refspec tricks', () => {
+    for (const ok of ['main', 'trunk', 'release/1.2', 'feature_x-y']) {
+      expect(isSafeBranchName(ok), ok).toBe(true);
+    }
+    for (const bad of [
+      '',
+      '-x',
+      '/x',
+      'x/',
+      'a..b',
+      'a//b',
+      'a/.b',
+      'x.lock',
+      'a.lock/b',
+      'x.',
+      'a:b',
+      'a b',
+      'a*',
+      '+x',
+      'a~1',
+      'a^',
+      'a@{1}',
+      '.x',
+    ]) {
+      expect(isSafeBranchName(bad), bad).toBe(false);
+    }
   });
 
   it('sets origin/HEAD once when the clone lacks it', async () => {

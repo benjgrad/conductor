@@ -267,9 +267,7 @@ export class Workspace {
         cause: err,
       });
     }
-    try {
-      await git(clone, ['check-ref-format', '--branch', branch]);
-    } catch {
+    if (!isSafeBranchName(branch)) {
       throw new Error(`invalid default branch for ${repo}: ${JSON.stringify(branch)}`);
     }
     try {
@@ -292,11 +290,19 @@ export class Workspace {
   /**
    * The clone's default branch from `refs/remotes/origin/HEAD`. When that ref is missing (an old
    * clone, or a remote whose HEAD was unborn at clone time) it is set once with
-   * `git remote set-head origin --auto` and read again.
+   * `git remote set-head origin --auto` and read again. The loose ref file is read first (a
+   * symref is never packed), which saves a git spawn per session start.
    */
   private async originHead(clone: string): Promise<string> {
     const prefix = 'refs/remotes/origin/';
     const read = async (): Promise<string | null> => {
+      try {
+        const file = readFileSync(join(clone, '.git', 'refs', 'remotes', 'origin', 'HEAD'), 'utf8');
+        const m = /^ref: refs\/remotes\/origin\/(\S+)\s*$/.exec(file);
+        if (m) return m[1]!;
+      } catch {
+        // absent (or not a loose file): ask git
+      }
       try {
         const ref = (await git(clone, ['symbolic-ref', '--quiet', `${prefix}HEAD`])).trim();
         return ref.startsWith(prefix) && ref.length > prefix.length
@@ -396,6 +402,18 @@ export class Workspace {
     }
     return out.sort((a, b) => a.repo.localeCompare(b.repo));
   }
+}
+
+/**
+ * A conservative subset of `git check-ref-format --branch` (checked in JS to save a spawn): ASCII
+ * letters, digits, `._/-`; no leading `-` / `/` / `.`, no `..`, `//`, `/.`, trailing `/` or `.lock`.
+ */
+export function isSafeBranchName(name: string): boolean {
+  return (
+    /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/.test(name) &&
+    !/\.\.|\/\/|\/\.|\/$|\.lock$|\.$/.test(name) &&
+    !name.split('/').some((seg) => seg.endsWith('.lock'))
+  );
 }
 
 /** An exec error's stderr (git's own message), else its message. */

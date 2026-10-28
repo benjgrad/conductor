@@ -7,7 +7,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { API_PATHS, NO_OUTCOME_QUESTION } from '@conductor/shared';
+import { API_PATHS, NO_CONVERSATION_REASON, NO_OUTCOME_QUESTION } from '@conductor/shared';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import {
@@ -22,7 +22,7 @@ import type {
   SessionRow,
   TicketRow,
 } from '../../src/db/types.js';
-import { createGateway } from '../../src/gateway/index.js';
+import { CONVERSATION_RESET_LINE, createGateway } from '../../src/gateway/index.js';
 import type { GatewayHandle } from '../../src/main.js';
 import { useTestDatabase } from '../db.js';
 import { RecordingEngine } from './recording-engine.js';
@@ -359,6 +359,36 @@ describe('command_ack', () => {
     expect(second.start.payload.command_id).not.toBe(first.row.command_id);
     const live = await db.pool.query('SELECT 1 FROM session WHERE ticket_id = $1', [t.id]);
     expect(live.rowCount).toBe(1);
+  });
+
+  it('no_conversation: the re-claim starts a fresh conversation; the reset is recorded and shown', async () => {
+    await ticket();
+    const d = await registered();
+    const first = await claimAndDeliver(d);
+    const sid = first.wa.payload.session_id;
+    // As if the conversation ran on another machine before a requeue.
+    const old = randomUUID();
+    await db.pool.query('UPDATE session SET claude_session_id = $2 WHERE id = $1', [sid, old]);
+    const seen: string[] = [];
+    outputBus.subscribe(sid, (c) => seen.push(`${c.stream}:${c.text}`));
+
+    d.ack(first.row.command_id, false, NO_CONVERSATION_REASON, sid, first.wa.fencing_token);
+    await d.settle();
+    expect(await sessionRow(sid)).toMatchObject({
+      status: 'queued',
+      machine_id: null,
+      claude_session_id: null,
+    });
+    const reset = await one<{ payload: Record<string, unknown> }>(
+      `SELECT payload FROM event WHERE session_id = $1 AND type = 'conversation.reset'`,
+      [sid],
+    );
+    expect(reset.payload).toEqual({ claude_session_id: old, reason: 'not_on_machine' });
+    expect(seen).toEqual([`debug:${CONVERSATION_RESET_LINE}`]);
+
+    const second = await claimAndDeliver(d);
+    expect(second.wa.payload.session_id).toBe(sid);
+    expect(second.start.payload.resume_claude_session_id).toBeNull();
   });
 
   it('a late accepted ack for a timed-out start_session kills the orphan', async () => {

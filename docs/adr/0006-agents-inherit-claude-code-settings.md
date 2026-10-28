@@ -1,6 +1,6 @@
 # ADR-0006 · Agents inherit the user's Claude Code settings, with conductor's hard guards
 
-- **Status**: accepted (Ben, 2026-10-23)
+- **Status**: accepted (Ben, 2026-10-23). The permission mode choice and `--permission-prompts none` are superseded by [ADR-0023](0023-permission-prompts-through-conductor.md) (2026-10-28)
 - **Date**: 2026-10-23
 - **Deciders**: Ben (+ Claude session 2026-10-23-agent-inherit-settings)
 - **Supersedes**: the permission parts of [ADR-0005](0005-claude-code-driver.md): §Spawn `--setting-sources ""` and `--permission-mode dontAsk`, and §Tool allow-list mapping "everything else is denied by dontAsk". The rest of ADR-0005 stands, including the daemon passing the repo's CLAUDE.md via `--append-system-prompt` (U-013).
@@ -27,13 +27,14 @@ Spawn changes against ADR-0005 §Spawn:
 --setting-sources user                  (was ""; never "project": the repo is untrusted)
 --settings <private dir>/settings.json  (new: {"disableAllHooks": false, "env": {"CLAUDE_CODE_SAFE_MODE": "0"}, edit-guard PreToolUse hook})
 --permission-mode auto                  only when the user's defaultMode is bypassPermissions (was dontAsk always)
+                                        [superseded by ADR-0023: always auto for workers, see Notes]
 env += ENABLE_CLAUDEAI_MCP_SERVERS=false, CLAUDE_CODE_SAFE_MODE=0 (after the state env, so a state can't override them);
        the state env is allowlisted (STATE_ENV_ALLOWED: CONDUCTOR_*, PORT, GIT_AUTHOR_/GIT_COMMITTER_ NAME/EMAIL);
        any other key (HOME, NODE_OPTIONS, CLAUDE_*, ANTHROPIC_*, …) is dropped with a debug line, so claude reads
        the same settings the cap checked and a state can't switch billing or inject code. A future per-state
        workflow env must extend the list deliberately
 ```
-These are unchanged: `--strict-mcp-config`, `--permission-prompts none`, the conductor `--mcp-config`, the state's `--tools`, `--allowedTools` and `--disallowedTools`, and the CLAUDE.md append (`Workspace.readClaudeMd`: a regular file inside the worktree, ≤ 64 KB, no symlinks).
+These are unchanged: `--strict-mcp-config`, `--permission-prompts none` (superseded by ADR-0023 for workers, see Notes), the conductor `--mcp-config`, the state's `--tools`, `--allowedTools` and `--disallowedTools`, and the CLAUDE.md append (`Workspace.readClaudeMd`: a regular file inside the worktree, ≤ 64 KB, no symlinks).
 - **Workflow `tools` aliases** still pick the visible built-ins per state (a read-only state stays read-only) and still pre-approve their rules. They are no longer the only things allowed: whatever the user's mode and rules would allow is allowed too.
 - **Hard guards**:
   - **The edit-guard hook** (`packages/daemon/src/claude/edit-guard.ts`) runs for Edit, Write, MultiEdit and NotebookEdit:
@@ -69,6 +70,15 @@ These are unchanged: `--strict-mcp-config`, `--permission-prompts none`, the con
   - The repo's CLAUDE.md, untrusted text, is still appended to the system prompt as plain text, after conductor's instructions (unchanged since M1-T14; TD-084).
 - **Exception: requirements reviewers** ([ADR-0009](0009-transition-requirements-review.md), 2026-10-23). A reviewer (`start_session.review`) does not inherit the user's mode: it always runs with `--permission-mode dontAsk`, so only its pre-approved read-only rules run and everything else is denied without prompting. The other guards here (`--setting-sources user`, the edit-guard hook, AGENT_ENV, the state-env allowlist) apply to it unchanged.
 - Follow-ups: TD-081, TD-082, TD-083, TD-084; U-004.
+
+## Notes (ADR-0023, M2-T29b, 2026-10-28)
+What the daemon passes now (`packages/daemon/src/claude/cli-driver.ts` `buildClaudeArgs`):
+- **Workers**: `--permission-mode auto --permission-prompts host --permission-prompt-tool mcp__conductor__permission`, whatever the user's `defaultMode`. The `bypassPermissions` cap above is now part of that: every worker runs in `auto`. A per-machine `bypassPermissions` opt-in is ADR-0022's machine override (not built yet).
+- **Requirements reviewers** (ADR-0009): `--permission-mode dontAsk --permission-prompts none`, unchanged. Nothing a reviewer does ever asks a human.
+- **Deny rules** stay in `--disallowedTools` (`Bash(git push:*)` and the other alias denies). Claude evaluates them before the prompt tool, so a human is never asked to approve a push (ADR-0023 §4).
+- `mcp__conductor__permission` is not in `--allowedTools`: Claude's permission system calls it, not the model. It holds the call until a human decides on the board, the 30-min timeout, or the process / daemon goes away (10-contracts §Permission prompts).
+- `AGENT_ENV` adds `MCP_TOOL_TIMEOUT` (35 min), so the CLI's MCP tool timeout can't cut a held prompt before conductor's own 30-min timeout.
+- **Old CLI fallback**: at start the daemon runs `claude --help` once (`probePermissionPrompts`). If it lists no `--permission-prompts` or no `auto` mode, agents get exactly the flags above this section (the user's mode with the bypass cap, `--permission-prompts none`). The daemon logs a warning, and every session's terminal shows a debug line. ADR-0023 asks for a machine alert as well; the `alert` frame has only `git_tamper` so far, so that part waits on a contract change.
 
 ## Revisit when
 Agents run on machines whose owner is not the person who configured them (M2 fleet with shared daemons), a repo needs its own project settings honoured (trusted-repo allowlist), or a sandbox lands (U-004).

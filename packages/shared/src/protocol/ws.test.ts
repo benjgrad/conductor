@@ -7,6 +7,7 @@ import {
   SESSION_EVENT_MESSAGE_FIXTURES,
 } from './fixtures.js';
 import {
+  COMMAND_REFUSAL_REASONS,
   ConditionResultSchema,
   DAEMON_MESSAGE_TYPES,
   EvaluateConditionsArgsSchema,
@@ -15,9 +16,11 @@ import {
   EnvelopeSchema,
   ORCHESTRATOR_MESSAGE_TYPES,
   OrchestratorToDaemonSchema,
+  NO_CONVERSATION_REASON,
   NO_OUTCOME_OUTPUT_CHARS,
   SESSION_EVENT_KINDS,
   SessionEventPayloadSchema,
+  STDERR_TAIL_CHARS,
   parseDaemonMessage,
   parseOrchestratorMessage,
 } from './ws.js';
@@ -149,6 +152,17 @@ describe('WS envelope rules', () => {
       expect(DaemonToOrchestratorSchema.safeParse(bad).success).toBe(false);
     },
   );
+
+  it('exit carries an optional stderr_tail, capped at STDERR_TAIL_CHARS', () => {
+    const data = SESSION_EVENT_FIXTURES.exit.data;
+    const parse = (tail: string) =>
+      SessionEventPayloadSchema.safeParse({ kind: 'exit', data: { ...data, stderr_tail: tail } });
+    expect(parse('No conversation found\n').success).toBe(true);
+    expect(parse('x'.repeat(STDERR_TAIL_CHARS)).success).toBe(true);
+    expect(parse('x'.repeat(STDERR_TAIL_CHARS + 1)).success).toBe(false);
+    expect(COMMAND_REFUSAL_REASONS).toContain(NO_CONVERSATION_REASON);
+    expect(NO_CONVERSATION_REASON).toBe('no_conversation');
+  });
 
   it('rejects a session-scoped orchestrator command without session_id', () => {
     const bad = { ...ORCHESTRATOR_FIXTURES.run_cmd, session_id: null };

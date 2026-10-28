@@ -38,6 +38,14 @@ let n = 0;
 /** Deterministic, valid v4 UUIDs for msg_id. */
 const id = () => `00000000-0000-4000-8000-${(++n).toString(16).padStart(12, '0')}`;
 
+/** M2-T29 (ADR-0023): fixed ids, so adding these fixtures shifts no other fixture's msg_id. */
+export const PERMISSION_FIXTURE_IDS = {
+  request: '4f3e2d1c-0b9a-4876-9543-210fedcba987',
+  requestMsg: '00000000-0000-4000-8000-0000000a0001',
+  decisionMsg: '00000000-0000-4000-8000-0000000a0002',
+  decisionCommand: '6b5a4938-2716-4504-9f3e-2d1c0b9a8765',
+} as const;
+
 const daemonSession = (seq: number) => ({
   msg_id: id(),
   seq,
@@ -282,6 +290,20 @@ export const DAEMON_FIXTURES: {
       truncated: false,
     },
   },
+  permission_request: {
+    type: 'permission_request',
+    msg_id: PERMISSION_FIXTURE_IDS.requestMsg,
+    seq: 21,
+    session_id: S,
+    fencing_token: 1,
+    payload: {
+      request_id: PERMISSION_FIXTURE_IDS.request,
+      session_id: S,
+      tool: 'Bash',
+      input: { command: 'pnpm exec tsc -b', description: 'Type-check the workspace' },
+      expires_at: '2026-10-22T12:30:00.000Z',
+    },
+  },
 };
 
 export const ORCHESTRATOR_FIXTURES: {
@@ -421,6 +443,20 @@ export const ORCHESTRATOR_FIXTURES: {
     session_id: null,
     fencing_token: null,
     payload: { request_id: '7a6b5c4d-3e2f-4a1b-8c9d-0e1f2a3b4c5d', session_id: S },
+  },
+  permission_decision: {
+    type: 'permission_decision',
+    msg_id: PERMISSION_FIXTURE_IDS.decisionMsg,
+    seq: null,
+    session_id: S,
+    fencing_token: 1,
+    payload: {
+      command_id: PERMISSION_FIXTURE_IDS.decisionCommand,
+      request_id: PERMISSION_FIXTURE_IDS.request,
+      behavior: 'deny',
+      scope: 'once',
+      message: 'Not on this machine; ask me first.',
+    },
   },
 };
 
@@ -802,4 +838,63 @@ export const M2R_WS_FIXTURES: {
     null,
     'gh not available: gh: command not found',
   ),
+};
+
+// ---------------------------------------------------------------- ADR-0023 (M2-T29)
+
+type PermissionRequestMessage = Extract<DaemonToOrchestrator, { type: 'permission_request' }>;
+type PermissionDecisionMessage = Extract<OrchestratorToDaemon, { type: 'permission_decision' }>;
+
+const decision = (
+  msgId: string,
+  payload: Omit<PermissionDecisionMessage['payload'], 'command_id' | 'request_id'>,
+): PermissionDecisionMessage => ({
+  ...ORCHESTRATOR_FIXTURES.permission_decision,
+  msg_id: msgId,
+  payload: {
+    command_id: PERMISSION_FIXTURE_IDS.decisionCommand,
+    request_id: PERMISSION_FIXTURE_IDS.request,
+    ...payload,
+  },
+});
+
+/** Permission prompt frames beyond the one-per-type fixtures (10-contracts §Permission prompts). */
+export const PERMISSION_WS_FIXTURES: {
+  request_with_suggestions: PermissionRequestMessage;
+  allow_once: PermissionDecisionMessage;
+  allow_always: PermissionDecisionMessage;
+  deny_without_note: PermissionDecisionMessage;
+} = {
+  request_with_suggestions: {
+    ...DAEMON_FIXTURES.permission_request,
+    msg_id: '00000000-0000-4000-8000-0000000a0003',
+    seq: 22,
+    payload: {
+      ...DAEMON_FIXTURES.permission_request.payload,
+      tool: 'Write',
+      input: { file_path: '/Users/ben/.config/app/settings.json', content: '{}\n' },
+      suggestions: [
+        {
+          type: 'addRules',
+          rules: [{ toolName: 'Write', ruleContent: '//Users/ben/.config/app/**' }],
+          behavior: 'allow',
+          destination: 'session',
+        },
+      ],
+      tool_use_id: 'toolu_01AbCdEf',
+    },
+  },
+  allow_once: decision('00000000-0000-4000-8000-0000000a0004', {
+    behavior: 'allow',
+    scope: 'once',
+  }),
+  allow_always: decision('00000000-0000-4000-8000-0000000a0005', {
+    behavior: 'allow',
+    scope: 'always',
+    rule: 'Bash(pnpm exec tsc -b)',
+  }),
+  deny_without_note: decision('00000000-0000-4000-8000-0000000a0006', {
+    behavior: 'deny',
+    scope: 'once',
+  }),
 };

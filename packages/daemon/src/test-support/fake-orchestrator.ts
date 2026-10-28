@@ -101,8 +101,8 @@ export class FakeOrchestrator {
     } else if (msg.type === 'request_work') {
       const reply = this.workReply(msg);
       if (reply) this.sendOn(ws, reply);
-    } else if (msg.type === 'session_event') {
-      // Mirror machine.last_seq: the highest processed seq.
+    } else if (msg.type === 'session_event' || msg.type === 'permission_request') {
+      // Mirror machine.last_seq: the highest processed seq (ADR-0023: permission_request too).
       if (this.lastSeq === null || msg.seq > this.lastSeq) this.lastSeq = msg.seq;
     }
     for (const w of this.waiters.splice(0)) w();

@@ -15,6 +15,8 @@ export default tseslint.config(
       '.claude/**',
       // M1-T00 throwaway spike code lives outside the workspace and the gates.
       'spikes/**',
+      // TD-171: operator script, untyped fetch/JSON; prettier still checks it.
+      'scripts/create-tickets.js',
     ],
   },
   eslint.configs.recommended,
@@ -24,7 +26,7 @@ export default tseslint.config(
       globals: { ...globals.node },
       parserOptions: {
         projectService: {
-          allowDefaultProject: ['*.js', '*.ts', 'scripts/*.js'],
+          allowDefaultProject: ['*.js', '*.ts'],
         },
         tsconfigRootDir: import.meta.dirname,
       },

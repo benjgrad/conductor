@@ -1,22 +1,26 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   CLOSE_REVOKED,
+  NO_CONVERSATION_REASON,
   NO_OUTCOME_OUTPUT_CHARS,
   PROTOCOL_VERSION,
   resolveToolPolicy,
   sessionBranch,
+  STDERR_TAIL_CHARS,
   type OrchestratorToDaemon,
 } from '@conductor/shared';
 import { FakeClaudeDriver, type FakeClaudeScript } from './claude/fake-driver.js';
+import { PERMISSION_SHUTDOWN, PERMISSION_UNSUPPORTED_SERVER } from './claude/outcome-server.js';
+import { transcriptPathFor } from './claude/transcript.js';
 import { FakeCommandRunner } from './commands/fake-runner.js';
 import { daemonVersion, loadConfig, type DaemonConfig } from './config.js';
 import { writeCredential } from './credential.js';
-import { Daemon, NO_OUTCOME_NUDGE } from './daemon.js';
+import { appendTail, Daemon, NO_OUTCOME_NUDGE } from './daemon.js';
 import { readProcInfo, type ProcInfo } from './orphan.js';
 import { DaemonStore } from './store.js';
 import type { LiveResources } from './sysinfo.js';
@@ -75,6 +79,7 @@ function makeDaemon(
     log?: (msg: string) => void;
     claudeBin?: string;
     procInfo?: (pid: number) => ProcInfo | null;
+    hasConversation?: (cwd: string, claudeSessionId: string) => boolean;
   } = {},
 ): Daemon {
   const config = loadConfig({
@@ -86,6 +91,7 @@ function makeDaemon(
     CONDUCTOR_MIN_FREE_MEM_MB: '1000',
     CONDUCTOR_WORK_POLL_MS: '60000',
     CONDUCTOR_ALLOW_LOCAL_REPOS: '1', // the fixture origin is a local path (M1-T14)
+    CLAUDE_CONFIG_DIR: claudeDir(), // transcripts (the resume check) never come from ~/.claude
     ...opts.env,
   });
   config.reconnect = { initialMs: 20, maxMs: 100, factor: 2 };
@@ -105,10 +111,34 @@ function makeDaemon(
     ...(opts.onFatal ? { onFatal: opts.onFatal } : {}),
     ...(opts.claudeBin !== undefined ? { claudeBin: opts.claudeBin } : {}),
     ...(opts.procInfo ? { procInfo: opts.procInfo } : {}),
+    ...(opts.hasConversation ? { hasConversation: opts.hasConversation } : {}),
   });
   daemons.push(d);
   d.start();
   return d;
+}
+
+function claudeDir(): string {
+  return join(tmp, 'claude-config');
+}
+
+/**
+ * A Claude transcript for `claudeSessionId`: in the project dir of session `sid`'s worktree (where
+ * `claude --resume` looks), or under an unrelated project dir with `elsewhere`.
+ */
+function writeTranscriptFor(
+  d: Daemon,
+  sid: string,
+  claudeSessionId: string,
+  elsewhere = false,
+): void {
+  const wt = d.workspace.worktreePath(sid);
+  mkdirSync(dirname(wt), { recursive: true }); // so realCwd resolves the parent like the real one
+  const file = elsewhere
+    ? join(claudeDir(), 'projects', '-elsewhere', `${claudeSessionId}.jsonl`)
+    : transcriptPathFor(claudeDir(), wt, claudeSessionId)!;
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, '{"type":"user"}\n');
 }
 
 function startSession(
@@ -382,16 +412,97 @@ describe('daemon core: start_session', () => {
 
   it('resumes with --resume semantics when resume_claude_session_id is set', async () => {
     const driver = new FakeClaudeDriver(complete({}));
-    makeDaemon(driver);
+    const d = makeDaemon(driver);
     await orch.until(() => orch.ofType('request_work')[0]);
-    orch.send(
-      startSession(randomUUID(), { resume_claude_session_id: 'claude-abc', prompt: 'the answer' }),
-    );
+    const claudeId = randomUUID();
+    const sid = randomUUID();
+    writeTranscriptFor(d, sid, claudeId);
+    const start = startSession(sid, {
+      resume_claude_session_id: claudeId,
+      prompt: 'the answer',
+    });
+    orch.send(start);
     await orch.until(() => orch.events('exit')[0]);
+    expect(orch.ack(start.payload.command_id)[0]!.payload.accepted).toBe(true);
     expect(driver.starts[0]).toMatchObject({
-      claudeSessionId: 'claude-abc',
+      claudeSessionId: claudeId,
       resume: true,
       prompt: 'the answer',
+    });
+  });
+
+  it('refuses no_conversation (never spawns) when the resumed conversation is not on this machine', async () => {
+    const lines: string[] = [];
+    const driver = new FakeClaudeDriver(complete({}));
+    const d = makeDaemon(driver, { log: (m) => lines.push(m) });
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    const claudeId = randomUUID(); // ran on another machine: no transcript here
+    // A transcript under another project dir doesn't count: `claude --resume` only looks in the
+    // worktree's own (findTranscript would have found this one).
+    writeTranscriptFor(d, sid, claudeId, true);
+    for (const review of [false, true]) {
+      const start = startSession(sid, {
+        resume_claude_session_id: claudeId,
+        prompt: 'the answer',
+        ...(review ? { review: true, tools: ['review'] } : {}),
+      });
+      orch.send(start);
+      const ack = await orch.until(() => orch.ack(start.payload.command_id)[0]);
+      expect(ack.payload).toEqual({
+        command_id: start.payload.command_id,
+        accepted: false,
+        reason: NO_CONVERSATION_REASON,
+      });
+    }
+    expect(driver.starts).toHaveLength(0);
+    expect(orch.events()).toHaveLength(0);
+    expect(lines.filter((l) => l.includes(NO_CONVERSATION_REASON))).toHaveLength(2);
+    // The slot is free again: a fresh start for the session runs.
+    const fresh = startSession(sid);
+    orch.send(fresh);
+    await orch.until(() => orch.events('exit')[0]);
+    expect(orch.ack(fresh.payload.command_id)[0]!.payload.accepted).toBe(true);
+    expect(driver.starts[0]!.resume).toBe(false);
+  });
+
+  it('the hasConversation seam decides the resume check', async () => {
+    const driver = new FakeClaudeDriver(complete({}));
+    const asked: string[] = [];
+    makeDaemon(driver, {
+      hasConversation: (_cwd, id) => {
+        asked.push(id);
+        return true;
+      },
+    });
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const start = startSession(randomUUID(), { resume_claude_session_id: 'claude-abc' });
+    orch.send(start);
+    await orch.until(() => orch.events('exit')[0]);
+    expect(asked).toEqual(['claude-abc']);
+    expect(driver.starts[0]).toMatchObject({ claudeSessionId: 'claude-abc', resume: true });
+  });
+
+  it('sends the last stderr lines on exit (stderr_tail)', async () => {
+    const driver = new FakeClaudeDriver({
+      turns: [
+        [
+          { emit: { kind: 'output', stream: 'stderr', text: 'line 1\nNo conversation ' } },
+          { emit: { kind: 'output', stream: 'stderr', text: 'found with session ID: x\n' } },
+          { crash: { code: 1 } },
+        ],
+      ],
+    });
+    makeDaemon(driver);
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const start = startSession(randomUUID());
+    orch.send(start);
+    const exit = await orch.until(() => orch.eventData('exit')[0]);
+    expect(exit).toEqual({
+      command_id: start.payload.command_id,
+      code: 1,
+      signal: null,
+      stderr_tail: 'line 1\nNo conversation found with session ID: x\n',
     });
   });
 
@@ -1708,5 +1819,189 @@ describe('daemon core: run_action evaluate_conditions (ADR-0011)', () => {
     const res = await orch.until(() => orch.eventData('action_result')[0]);
     expect(res.result).toBeNull();
     expect(res.error).toContain('evaluate_conditions: invalid args');
+  });
+});
+
+describe('appendTail (exit stderr_tail)', () => {
+  it('keeps the last STDERR_TAIL_LINES lines across chunk boundaries', () => {
+    let tail = '';
+    for (let i = 0; i < 30; i++) tail = appendTail(tail, `l${i}\n`);
+    expect(tail.split('\n').filter((l) => l !== '')).toEqual(
+      Array.from({ length: 20 }, (_, i) => `l${i + 10}`),
+    );
+    expect(appendTail('par', 'tial')).toBe('partial');
+  });
+
+  it('caps the characters', () => {
+    expect(appendTail('', 'y'.repeat(10_000))).toHaveLength(STDERR_TAIL_CHARS);
+  });
+});
+
+describe('daemon core: ADR-0023 permission prompts', () => {
+  const REQ = '5b0c3a52-0f7e-4b8e-9b51-3d2f6f0e7a11';
+  const held = (): FakeClaudeScript => ({
+    turns: [
+      [
+        { permission: { requestId: REQ, tool: 'Bash', input: { command: 'pnpm i' } } },
+        { askUser: 'park here' },
+      ],
+    ],
+  });
+  const decision = (
+    sid: string,
+    over: Partial<Extract<OrchestratorToDaemon, { type: 'permission_decision' }>['payload']> = {},
+  ): Extract<OrchestratorToDaemon, { type: 'permission_decision' }> => ({
+    type: 'permission_decision',
+    msg_id: randomUUID(),
+    seq: null,
+    session_id: sid,
+    fencing_token: 1,
+    payload: {
+      command_id: randomUUID(),
+      request_id: REQ,
+      behavior: 'allow',
+      scope: 'once',
+      ...over,
+    },
+  });
+
+  async function started(driver: FakeClaudeDriver) {
+    const d = makeDaemon(driver);
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    orch.send(startSession(sid));
+    const req = await orch.until(() => orch.ofType('permission_request')[0]);
+    return { d, sid, req };
+  }
+
+  it('sends a durable permission_request on the session envelope', async () => {
+    const driver = new FakeClaudeDriver(held());
+    const { sid, req } = await started(driver);
+    expect(req.session_id).toBe(sid);
+    expect(req.fencing_token).toBe(1);
+    expect(typeof req.seq).toBe('number');
+    expect(req.payload).toMatchObject({
+      request_id: REQ,
+      session_id: sid,
+      tool: 'Bash',
+      input: { command: 'pnpm i' },
+    });
+    // seq is shared with session_events: strictly after `started`.
+    expect(req.seq).toBeGreaterThan(orch.events('started')[0]!.seq);
+  });
+
+  it('a decision resolves the held call once; a second decision is accepted and ignored; unknown is refused', async () => {
+    const driver = new FakeClaudeDriver(held());
+    const { sid } = await started(driver);
+    const allow = decision(sid, {
+      scope: 'always',
+      rule: 'Bash(pnpm i)',
+    });
+    orch.send(allow);
+    const ack = await orch.until(() => orch.ack(allow.payload.command_id)[0]);
+    expect(ack.payload).toEqual({ command_id: allow.payload.command_id, accepted: true });
+    expect(driver.last!.permissionReplies.get(REQ)).toEqual({
+      behavior: 'allow',
+      updatedInput: { command: 'pnpm i' },
+      updatedPermissions: [
+        {
+          type: 'addRules',
+          rules: [{ toolName: 'Bash', ruleContent: 'pnpm i' }],
+          behavior: 'allow',
+          destination: 'session',
+        },
+      ],
+    });
+
+    // The same command again: re-acked from the dedupe store, not re-run.
+    orch.send({ ...allow, msg_id: randomUUID() });
+    await orch.until(() => orch.ack(allow.payload.command_id).length === 2);
+
+    // Another decision (another command_id) for the resolved request: accepted, ignored.
+    const late = decision(sid, { behavior: 'deny' });
+    orch.send(late);
+    const lateAck = await orch.until(() => orch.ack(late.payload.command_id)[0]);
+    expect(lateAck.payload.accepted).toBe(true);
+    expect(driver.last!.permissionReplies.get(REQ)?.behavior).toBe('allow');
+
+    // A request this daemon doesn't hold.
+    const unknown = decision(sid, { request_id: randomUUID() });
+    orch.send(unknown);
+    const unknownAck = await orch.until(() => orch.ack(unknown.payload.command_id)[0]);
+    expect(unknownAck.payload).toEqual({
+      command_id: unknown.payload.command_id,
+      accepted: false,
+      reason: 'unknown_permission_request',
+    });
+
+    // No live process for the session at all.
+    const none = decision(randomUUID());
+    orch.send(none);
+    const noneAck = await orch.until(() => orch.ack(none.payload.command_id)[0]);
+    expect(noneAck.payload.reason).toBe('unknown_permission_request');
+  });
+
+  it('a deny carries the human note to Claude', async () => {
+    const driver = new FakeClaudeDriver(held());
+    const { sid } = await started(driver);
+    const deny = decision(sid, { behavior: 'deny', message: 'not on this machine' });
+    orch.send(deny);
+    await orch.until(() => orch.ack(deny.payload.command_id)[0]);
+    expect(driver.last!.permissionReplies.get(REQ)).toEqual({
+      behavior: 'deny',
+      message: 'Permission denied by a human on the board: not on this machine',
+    });
+  });
+
+  it("an old server's protocol_error naming the request denies the held call at once", async () => {
+    const driver = new FakeClaudeDriver(held());
+    const { req } = await started(driver);
+    orch.send({
+      type: 'protocol_error',
+      msg_id: randomUUID(),
+      seq: null,
+      session_id: null,
+      fencing_token: null,
+      payload: { code: 'invalid_message', message: 'unknown type', ref_msg_id: req.msg_id },
+    });
+    await orch.until(() => driver.last!.permissionReplies.get(REQ));
+    expect(driver.last!.permissionReplies.get(REQ)).toEqual({
+      behavior: 'deny',
+      message: PERMISSION_UNSUPPORTED_SERVER,
+    });
+    // An unrelated protocol_error changes nothing.
+    orch.send({
+      type: 'protocol_error',
+      msg_id: randomUUID(),
+      seq: null,
+      session_id: null,
+      fencing_token: null,
+      payload: { code: 'internal', message: 'x', ref_msg_id: randomUUID() },
+    });
+  });
+
+  it('the request is replayed after a socket drop (durable seq), same msg_id', async () => {
+    const driver = new FakeClaudeDriver(held());
+    const { req } = await started(driver);
+    orch.lastSeq = req.seq - 1; // the orchestrator never processed it
+    orch.drop();
+    await orch.until(() => orch.ofType('register').length === 2);
+    const replays = await orch.until(() => {
+      const all = orch.ofType('permission_request');
+      return all.length === 2 ? all : undefined;
+    });
+    expect(replays[1]!.msg_id).toBe(req.msg_id);
+    expect(replays[1]!.seq).toBe(req.seq);
+    expect(driver.last!.pendingPermissions).toEqual([REQ]); // still held
+  });
+
+  it('daemon shutdown denies every held call', async () => {
+    const driver = new FakeClaudeDriver(held());
+    const { d } = await started(driver);
+    d.stop();
+    expect(driver.last!.permissionReplies.get(REQ)).toEqual({
+      behavior: 'deny',
+      message: PERMISSION_SHUTDOWN,
+    });
   });
 });

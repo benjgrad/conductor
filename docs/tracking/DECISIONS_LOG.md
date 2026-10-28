@@ -4,6 +4,22 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-28 | Lighter process: no default agent teams or separate QA agents; the lead builds, reviews diffs and runs targeted tests (CLAUDE.md slimmed) | e9d0f1f |
+| 2026-10-28 | U-100..U-102 (Ben): "Allow always" covers exact Bash commands, MCP tools, Edit/Write absolute paths (Claude Code's `//` form) and WebFetch domains; >64 KiB input is denied locally; T29c deploys before T29b | U-100, U-101, U-102 |
+| 2026-10-28 | Plan approval reuses the `$return_to` answer transition (a question transition keeps its non-empty result in context); no workflow version bump | feat-plan-approval-ui (cf880dc), TD-184, TD-185 |
+| 2026-10-28 | Raw stderr is never stored in events: the exit carries `stderr_tail`, the event row keeps only `stderr_tail_bytes`; the failure question quotes the last stderr line (≤300 chars) | fix-resume-no-conversation (7cf97f2) |
+| 2026-10-28 | A resume needs the transcript at this worktree's exact cwd-slug path; otherwise the daemon refuses `no_conversation`, the engine clears `claude_session_id`, records `conversation.reset` and requeues, and the re-claim starts fresh with the full prompt plus the pending answer | fix-resume-no-conversation (7cf97f2), U-103 |
+| 2026-10-28 | U-098 (Ben): no settings-refusal mechanism on the daemon for now; ADR-0022 accepted with the local ceiling deferred | ADR-0022, U-098 |
+| 2026-10-28 | U-099 (Ben): no dedicated permission outbox; `permission_decision` goes straight down the live socket, expiry covers a disconnected daemon | U-099, TD-179, 10-contracts §Permission prompts |
+| 2026-10-28 | "Attach a running Claude session to conductor" is a wanted future feature, unscheduled; design open as U-097 | ROADMAP §Future features |
+| 2026-10-28 | Agent names come from two pools: the account's **team** (agents already hired, reused across tickets) and the much larger **hiring pool**. A ticket gets a free teammate; conductor hires only when nobody on the team is free (UX-13a/b) | docs/plan/UX-board-and-notifications.md |
+| 2026-10-28 | Needs-input notifications: in-tab (UX-14) plus Web Push with a service worker and VAPID (UX-15/16), through the browsers' push services; no email | docs/plan/UX-board-and-notifications.md |
+| 2026-10-28 | M3 tickets go on the hosted board (conductor.gradyserver.com) in dependency waves, none before M2r is done; `scripts/create-tickets.js` posts each `### M3-Tnn` block + the M3 rules, workflow `conductor_dev`. T17 is the lead's; T18/T19 wait for M2b/M2c | TD-172, M3 §Ticket waves |
+| 2026-10-28 | Agent permissions (Ben): working agents run in auto mode; prompts go to the board via `--permission-prompt-tool` (Allow once / always / Deny); bypass only as a per-machine opt-in; pushes stay denied | ADR-0023, M2-T29..T29d |
+| 2026-10-28 | Agent settings in two layers (Ben): workflow-state profile as base, per-machine override on top, viewable and editable on the Machines page, under a daemon-local ceiling. ADR-0022 proposed | ADR-0022, M2-T28..T28e |
+| 2026-10-28 | Fresh base pulled forward: fetch per session split out of T13 as M2-T13a; `update_branch` for agents (T27) and humans (T27b); pnpm-aware checks (T30). The lead fast-forwarded the daemon clone and Hazel's (T18b) branch by hand | TD-026, M2-T13a, T27, T30 |
+| 2026-10-28 | ADR-0021 (daemon auto-update) accepted: Ben merged the plan, PR #41. M2-T18 and T18b are unblocked | ADR-0021 |
+| 2026-10-28 | Daemon auto-update (Ben): the orchestrator announces `update_available` after register; the daemon drains (6 h cap) then switches and exits 75; a version-independent launcher rolls back after 2 failed starts and an `update_failed` alert reaches a human; on by default, `config auto-update off` per machine. Start at login stays M2-T18, plus a wake reconnect check | ADR-0021, M2-T18..T18e |
 | 2026-10-27 | Ben approved the M3 plan as written: ADR-0014 accepted. The order of work is M2r → M3 → the rest of M2 → M2c → M2b | ADR-0014, M3, ROADMAP |
 | 2026-10-27 | MCP rate limits: `/mcp` 120/min per grant (burst 40), 30 writes/min per grant, 300/min per account; registration 10/hour per IP; 25 active grants per user; nginx zones `conductor_mcp` / `conductor_oauth` | U-054, ADR-0014 §6 |
 | 2026-10-27 | MCP scopes `conductor:read` / `conductor:write` (write opt-in at consent). No server-side confirmation of writes; the client's tool approval is the check; every write audited with the client's name | U-069, ADR-0014 §5 |

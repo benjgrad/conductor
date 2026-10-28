@@ -100,6 +100,11 @@ export type CreateApi = (deps: {
   installUrl?: string;
   /** M2-T17: the served daemon version, for `MachineRow.outdated`; absent → none. */
   servedVersion?: string | null;
+  /**
+   * M2-T29c: the daemons' live sockets (the gateway's transport), for a permission decision sent
+   * directly (U-099: no outbox row); absent → decisions are stored and never sent.
+   */
+  machineTransport?: OutboxTransport;
 }) => ApiHandle;
 
 export type CreateDb = (opts: { databaseUrl: string }) => Db;
@@ -153,6 +158,7 @@ export function composeOrchestrator(
     boardBus,
     outputBus,
     ...(gateway.transcripts ? { transcripts: gateway.transcripts } : {}),
+    machineTransport: gateway.transport,
     ...(config.auth ? { auth: config.auth } : {}),
     ...(config.trustedProxy ? { trustedProxy: config.trustedProxy } : {}),
     ...(gateway.disconnectMachine

@@ -179,6 +179,12 @@ export const SessionSnapshotSchema = z.object({
   workflow_state: z.string().nullable(),
   status: SessionStatusSchema,
   fencing_token: z.number().int().nonnegative(),
+  /**
+   * The worker's Claude conversation; every agent start_session resumes it when set. Its
+   * transcript lives only on the machine that ran it: a start refused `no_conversation`
+   * (NO_CONVERSATION_REASON, the claiming machine doesn't have it) sets it back to null, so the
+   * re-claim starts a fresh conversation (10-contracts §Refusals).
+   */
   claude_session_id: z.string().nullable(),
   /**
    * command_id of the current `start_session` (the agent process this visit owns). Written by the
@@ -191,14 +197,17 @@ export const SessionSnapshotSchema = z.object({
    * allocates a start_session; apply sets it true on a matching `session.started` and false on a
    * matching `agent.exited` or on `command.refused` with reason `no_live_process`. When false,
    * apply answers an `input.provided` with start_session(resume_claude_session_id, prompt =
-   * answer) instead of send_input (10-contracts §Resume).
+   * answer) instead of send_input (10-contracts §Resume). A refused start_session (any reason,
+   * `no_conversation` included) leaves it false.
    */
   agent_process_live: z.boolean(),
   /**
    * The human answer apply has accepted but the agent has not started running on yet (10-contracts
    * §Pending answer). `input.provided` stores it; every start_session apply emits while it is set
    * (the `no_live_process` re-answer, the exit-while-parked resume, and the `session.assigned`
-   * re-emit after a requeue) uses `answer` as its `prompt` with `resume_claude_session_id`.
+   * re-emit after a requeue) uses `answer` as its `prompt` with `resume_claude_session_id`. Kept
+   * through a `no_conversation` refusal: with `claude_session_id` then null, the re-claim renders
+   * the full state prompt with the answer in it instead.
    * Cleared when the agent is running on it: a matching `session.started`, or (live send_input
    * path, whose accepted ack is not an engine event) the agent's next `complete_state` /
    * `ask_user`; also cleared when apply enters a different state. A reopened session (ADR-0008)
@@ -324,13 +333,15 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
    * D `exit`: the Claude process of start_session `command_id` exited. Ignored unless
    * `command_id` equals `agent_command_id` (a late exit of an earlier visit's process). Otherwise
    * agent_process_live = false; while `running` without a prior complete_state this is outcome
-   * `fail`; while parked (`needs_input`) it only clears agent_process_live.
+   * `fail`; while parked (`needs_input`) it only clears agent_process_live. `stderr_tail` (the
+   * daemon's last stderr lines, optional): its last non-empty line goes into the failure question.
    */
   z.object({
     type: z.literal('agent.exited'),
     command_id: UuidSchema,
     code: z.number().int().nullable(),
     signal: z.string().nullable(),
+    stderr_tail: z.string().optional(),
   }),
   /**
    * D `cmd_exit`: exit_code 0 → `exit_0`; otherwise `fail`. `timed_out` → `timeout` if the
@@ -431,6 +442,25 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
     approvals: z.array(ApprovalIdSchema).max(5).optional(),
   }),
   /**
+   * U: "Start fresh conversation…" (POST /api/sessions/:id/fresh-conversation, actor = who, e.g.
+   * `ui`): a manual escape hatch for an agent whose Claude conversation is broken (not on the
+   * machine, corrupt transcript, keeps crashing on resume). Accepted only while parked: status
+   * `needs_input` in a `human` state whose `return_to` names an `agent` state, outside a gate step
+   * and not after a revoked machine; ignored `wrong_status` otherwise. apply ends a live parked
+   * process (targeted kill), forgets `claude_session_id` (a `conversation_reset {reason:
+   * 'user_requested'}` effect when it was set) and enters `return_to` with `text` as the answer:
+   * with no conversation to resume, the start_session renders the state's full prompt with the
+   * answer in it. No machine → requeue (pending answer kept). The wrapper closes the open
+   * input_request (answer = `text`, answered_by = `actor`) and bumps the fencing token.
+   */
+  z.object({
+    type: z.literal('human.fresh_conversation'),
+    text: z.string().trim().min(1),
+    actor: z.string().min(1),
+    /** The open input_request this answers (the route fills it; null/absent when none). */
+    input_request_id: UuidSchema.nullable().optional(),
+  }),
+  /**
    * O (M2-T20): the session's machine is gone (U-068). Full semantics: 10-contracts §Machines
    * protocol v2, Lost machines (M2-T06 implements them in apply). Sources: the reaper on a lease
    * past its expiry plus the 2-minute grace (`lease_expired`); `revokeMachine`'s caller
@@ -468,6 +498,17 @@ export type EngineEvent = z.infer<typeof EngineEventSchema>;
 export type EngineEventType = EngineEvent['type'];
 
 // ---------------------------------------------------------------- effects
+
+/**
+ * Why a Claude conversation was forgotten (`conversation_reset.reason`): `not_on_machine` (a
+ * start refused `no_conversation`), `user_requested` (`human.fresh_conversation`).
+ */
+export const CONVERSATION_RESET_REASONS = ['not_on_machine', 'user_requested'] as const;
+export const ConversationResetReasonSchema = z.enum(CONVERSATION_RESET_REASONS);
+export type ConversationResetReason = z.infer<typeof ConversationResetReasonSchema>;
+
+/** The `state_entered.transition` of a `human.fresh_conversation` (not a workflow transition). */
+export const FRESH_CONVERSATION_MOVE = 'fresh_conversation';
 
 /**
  * Effects. The first six map 1:1 to an outbox kind (02) and, except connector_call, to the
@@ -612,6 +653,18 @@ export const EffectSchema = z.discriminatedUnion('type', [
     reason: z.string().nullable().optional(),
     actor: TransitionActorSchema.nullable().optional(),
   }),
+  /**
+   * Internal: event row `conversation.reset` (audit). The Claude conversation `claude_session_id`
+   * was forgotten and the next start is a fresh conversation: `not_on_machine`, a start_session
+   * was refused `no_conversation` (it is not on the claiming machine); `user_requested`, a human
+   * chose "Start fresh conversation…" (`human.fresh_conversation`). Payload:
+   * ConversationResetPayloadSchema.
+   */
+  z.object({
+    type: z.literal('conversation_reset'),
+    claude_session_id: z.string(),
+    reason: ConversationResetReasonSchema,
+  }),
   /** Internal: event row `session.status`; SSE `session.status` (+ `card.moved` if the column changes). */
   z.object({
     type: z.literal('session_status'),
@@ -622,6 +675,13 @@ export const EffectSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ticket_status'), to: TicketStatusSchema }),
 ]);
 export type Effect = z.infer<typeof EffectSchema>;
+
+/** The `conversation.reset` event row's payload (the `conversation_reset` effect). */
+export const ConversationResetPayloadSchema = z.object({
+  claude_session_id: z.string(),
+  reason: ConversationResetReasonSchema,
+});
+export type ConversationResetPayload = z.infer<typeof ConversationResetPayloadSchema>;
 export type EffectType = Effect['type'];
 export type OutboxEffect = Extract<
   Effect,

@@ -16,3 +16,9 @@ The design concentrates risk in three places: the **workflow engine** (determini
 - The fake Claude is a first-class test fixture. Most E2E runs never call the real model: deterministic, fast, free.
 - Every bug fix lands with a test that would have caught it.
 - Flaky tests are bugs. Quarantine them with a TD-### row, never by silently retrying.
+
+## Running on a shared machine (M2-T31)
+Many worktrees, conductor sessions and Claude subagents run gates on the same box. Unthrottled, a dozen parallel runs pushed the load average past 40 on 4 cores and tests failed on their 5 s timeouts. So every vitest run (root and e2e configs, via `globalSetup`) and `pnpm lint` takes one of `CONDUCTOR_TEST_SLOTS` (default 2) machine-wide slots first (`scripts/test-slot.js`), and vitest's `maxWorkers` is the CPU count divided by the slots.
+- A slot is a localhost port (`CONDUCTOR_TEST_SLOT_PORT`, default 54330, +1 per slot). The OS frees it when the holder exits, even on SIGKILL, so there's no stale lock.
+- A waiter prints who holds the slots every 30 s and gives up after `CONDUCTOR_TEST_SLOT_WAIT_S` (default 1800) with the holders in the error.
+- A holder sets `CONDUCTOR_TEST_SLOT_HELD=1` for its children, so nested runs don't deadlock. Watch mode takes no slot. `CONDUCTOR_TEST_SLOTS=0` turns the limit off (a dedicated CI runner).

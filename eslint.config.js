@@ -26,7 +26,7 @@ export default tseslint.config(
       globals: { ...globals.node },
       parserOptions: {
         projectService: {
-          allowDefaultProject: ['*.js', '*.ts', 'scripts/*.js'],
+          allowDefaultProject: ['*.js', '*.ts'],
         },
         tsconfigRootDir: import.meta.dirname,
       },

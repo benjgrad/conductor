@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { parseEnv } from 'node:util';
 import { defaultClientConditions, defaultServerConditions } from 'vite';
 import { defineConfig } from 'vitest/config';
+import { workersPerSlot } from './scripts/test-slot.js';
 
 // DATABASE_URL resolution (U-021), the same order scripts/db.sh uses:
 //   process env  >  .env  >  .env.example
@@ -37,6 +38,10 @@ export default defineConfig({
   ssr: { resolve: { conditions: ['source', ...defaultServerConditions] } },
   test: {
     env: { DATABASE_URL: resolveDatabaseUrl() },
+    // M2-T31: one machine-wide test slot per run (scripts/test-slot.js), and only this run's share
+    // of the CPUs, so parallel worktrees and agents queue instead of starving each other.
+    globalSetup: ['./scripts/test-slot-setup.js'],
+    maxWorkers: workersPerSlot(),
     exclude: ['**/node_modules/**', '**/dist/**', 'spikes/**'],
     projects: [
       nodePackage('shared'),
@@ -45,6 +50,10 @@ export default defineConfig({
       // Daemon tests spawn node children (fake claude, edit guard) that can stall for seconds on a
       // loaded macOS: a longer per-test timeout (U-046-style flake).
       { ...nodePackage('daemon'), test: { ...nodePackage('daemon').test, testTimeout: 30_000 } },
+      {
+        extends: true,
+        test: { name: 'scripts', root: '.', include: ['scripts/*.test.js'], environment: 'node' },
+      },
       {
         extends: true,
         test: {

@@ -442,6 +442,25 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
     approvals: z.array(ApprovalIdSchema).max(5).optional(),
   }),
   /**
+   * U: "Start fresh conversation…" (POST /api/sessions/:id/fresh-conversation, actor = who, e.g.
+   * `ui`): a manual escape hatch for an agent whose Claude conversation is broken (not on the
+   * machine, corrupt transcript, keeps crashing on resume). Accepted only while parked: status
+   * `needs_input` in a `human` state whose `return_to` names an `agent` state, outside a gate step
+   * and not after a revoked machine; ignored `wrong_status` otherwise. apply ends a live parked
+   * process (targeted kill), forgets `claude_session_id` (a `conversation_reset {reason:
+   * 'user_requested'}` effect when it was set) and enters `return_to` with `text` as the answer:
+   * with no conversation to resume, the start_session renders the state's full prompt with the
+   * answer in it. No machine → requeue (pending answer kept). The wrapper closes the open
+   * input_request (answer = `text`, answered_by = `actor`) and bumps the fencing token.
+   */
+  z.object({
+    type: z.literal('human.fresh_conversation'),
+    text: z.string().trim().min(1),
+    actor: z.string().min(1),
+    /** The open input_request this answers (the route fills it; null/absent when none). */
+    input_request_id: UuidSchema.nullable().optional(),
+  }),
+  /**
    * O (M2-T20): the session's machine is gone (U-068). Full semantics: 10-contracts §Machines
    * protocol v2, Lost machines (M2-T06 implements them in apply). Sources: the reaper on a lease
    * past its expiry plus the 2-minute grace (`lease_expired`); `revokeMachine`'s caller
@@ -479,6 +498,17 @@ export type EngineEvent = z.infer<typeof EngineEventSchema>;
 export type EngineEventType = EngineEvent['type'];
 
 // ---------------------------------------------------------------- effects
+
+/**
+ * Why a Claude conversation was forgotten (`conversation_reset.reason`): `not_on_machine` (a
+ * start refused `no_conversation`), `user_requested` (`human.fresh_conversation`).
+ */
+export const CONVERSATION_RESET_REASONS = ['not_on_machine', 'user_requested'] as const;
+export const ConversationResetReasonSchema = z.enum(CONVERSATION_RESET_REASONS);
+export type ConversationResetReason = z.infer<typeof ConversationResetReasonSchema>;
+
+/** The `state_entered.transition` of a `human.fresh_conversation` (not a workflow transition). */
+export const FRESH_CONVERSATION_MOVE = 'fresh_conversation';
 
 /**
  * Effects. The first six map 1:1 to an outbox kind (02) and, except connector_call, to the
@@ -624,15 +654,16 @@ export const EffectSchema = z.discriminatedUnion('type', [
     actor: TransitionActorSchema.nullable().optional(),
   }),
   /**
-   * Internal: event row `conversation.reset` (audit). A start_session was refused
-   * `no_conversation`: the Claude conversation `claude_session_id` is not on the claiming
-   * machine, so it was forgotten and the next start is a fresh conversation. Payload:
+   * Internal: event row `conversation.reset` (audit). The Claude conversation `claude_session_id`
+   * was forgotten and the next start is a fresh conversation: `not_on_machine`, a start_session
+   * was refused `no_conversation` (it is not on the claiming machine); `user_requested`, a human
+   * chose "Start fresh conversation…" (`human.fresh_conversation`). Payload:
    * ConversationResetPayloadSchema.
    */
   z.object({
     type: z.literal('conversation_reset'),
     claude_session_id: z.string(),
-    reason: z.literal('not_on_machine'),
+    reason: ConversationResetReasonSchema,
   }),
   /** Internal: event row `session.status`; SSE `session.status` (+ `card.moved` if the column changes). */
   z.object({
@@ -648,7 +679,7 @@ export type Effect = z.infer<typeof EffectSchema>;
 /** The `conversation.reset` event row's payload (the `conversation_reset` effect). */
 export const ConversationResetPayloadSchema = z.object({
   claude_session_id: z.string(),
-  reason: z.literal('not_on_machine'),
+  reason: ConversationResetReasonSchema,
 });
 export type ConversationResetPayload = z.infer<typeof ConversationResetPayloadSchema>;
 export type EffectType = Effect['type'];

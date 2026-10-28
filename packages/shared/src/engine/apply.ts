@@ -86,6 +86,7 @@ import {
 import {
   CONDITIONS_NO_MACHINE_NOTE,
   conditionsIdempotencyKey,
+  FRESH_CONVERSATION_MOVE,
   MACHINE_LOST_KILL_REASON,
   MACHINE_LOST_KIND,
   machineLostQuestion,
@@ -93,6 +94,7 @@ import {
   type ApplyFn,
   type ApplyIgnoreReason,
   type ApplyResult,
+  type ConversationResetReason,
   type Effect,
   type EngineEvent,
   type GateStep,
@@ -188,7 +190,9 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
   // 10-contracts §Lost machines: a revoked machine can never come back, so Cancel only.
   if (isRevokedPark(st.s)) {
     if (e.type === 'human.transition') return 'transition_not_allowed';
-    if (e.type === 'input.provided') return 'wrong_status';
+    if (e.type === 'input.provided' || e.type === 'human.fresh_conversation') {
+      return 'wrong_status';
+    }
   }
   if (e.type === 'session.assigned') {
     const reason = st.s.step !== null ? handleStep(st, e) : onAssigned(st, e.machine_id);
@@ -239,6 +243,8 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
       return 'unexpected_event';
     case 'human.transition':
       return onHumanTransition(st, e);
+    case 'human.fresh_conversation':
+      return onFreshConversation(st, e);
   }
 }
 
@@ -526,6 +532,48 @@ function onHumanTransition(
   return null;
 }
 
+/**
+ * "Start fresh conversation…" (10-contracts §Fresh conversation): only while parked in a human
+ * state whose `return_to` is an agent state (a gate step and a revoked park were refused in
+ * `handle`). The parked process, if any, is ended (targeted kill) and the conversation forgotten;
+ * then `return_to` is entered with the text as its answer, exactly like `input.provided` without
+ * `send_input`: `startSession` has no id to resume, so it renders the full prompt with the answer.
+ * A session without a machine (or leaving a lost-machine park) is requeued by `enter`, keeping the
+ * answer pending. The wrapper answers the open input_request and bumps the fencing token.
+ */
+function onFreshConversation(
+  st: Step,
+  e: Extract<EngineEvent, { type: 'human.fresh_conversation' }>,
+): ApplyIgnoreReason | null {
+  const s = st.s;
+  if (s.status !== 'needs_input' || st.state?.type !== 'human') return 'wrong_status';
+  const target = s.return_to;
+  if (target === null || st.def.states[target]?.type !== 'agent') return 'wrong_status';
+  const text = e.text.trim();
+  if (text === '') return 'wrong_status';
+  releaseAgent(st, 'a human started a fresh conversation');
+  const earlier = leaveLostPark(st, true, true);
+  const old = s.claude_session_id;
+  s.claude_session_id = null;
+  if (old !== null) conversationReset(st, old, 'user_requested');
+  const answer: PendingAnswer = {
+    input_request_id: e.input_request_id ?? null,
+    answer: earlier !== null ? combineLostAnswer(earlier.answer, earlier.machine, text) : text,
+  };
+  enter(st, target, {
+    ...NO_ROUTE,
+    answer,
+    sendInput: false,
+    continuation: true,
+    // The session was already in `return_to`: it was admitted, so its `entry` doesn't run again.
+    skipEntry: true,
+    outcome: FRESH_CONVERSATION_MOVE,
+    info: { detail: `a human started a fresh conversation: ${text}` },
+    move: { transition: FRESH_CONVERSATION_MOVE, reason: text, actor: 'human' },
+  });
+  return null;
+}
+
 // ---------------------------------------------------------------- lost machines (U-068, M2-T06)
 //
 // 10-contracts §Machines protocol v2, "Lost machines" (machine-lost.ts plans; 05 §Lost machines).
@@ -687,9 +735,16 @@ function exitHow(e: Extract<EngineEvent, { type: 'agent.exited' }>): string {
   return `${how}: ${clipped}`;
 }
 
-/** Audit: the Claude conversation `old` was forgotten (refused `no_conversation`). */
-function conversationReset(st: Step, old: string): void {
-  st.emit({ type: 'conversation_reset', claude_session_id: old, reason: 'not_on_machine' });
+/**
+ * Audit: the Claude conversation `old` was forgotten (refused `no_conversation`, or a human's
+ * "Start fresh conversation…").
+ */
+function conversationReset(
+  st: Step,
+  old: string,
+  reason: ConversationResetReason = 'not_on_machine',
+): void {
+  st.emit({ type: 'conversation_reset', claude_session_id: old, reason });
 }
 
 /** `cmd_exit`: 0 → exit_0; timed_out → timeout if mapped, else fail; anything else → fail. */
@@ -1487,6 +1542,7 @@ function handleStep(
       return 'wrong_status';
     case 'input.provided':
     case 'human.transition':
+    case 'human.fresh_conversation':
       return 'wrong_status';
     case 'external.event':
       return conditionsOverride(st, r, e.name, e.data);

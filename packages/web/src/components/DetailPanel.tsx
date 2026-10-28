@@ -19,6 +19,7 @@ import {
 } from './ConductorChecks.js';
 import { isOldVersion } from './details-sections.js';
 import { KIND_LABELS, STATUS_LABELS } from './format.js';
+import { FreshConversation, freshConversationOffer } from './FreshConversation.js';
 import { Markdown } from './markdown.js';
 import { OutputLog } from './OutputLog.js';
 import { classifyRequest, lastMoveTransition } from './request-preview.js';
@@ -339,6 +340,18 @@ function PendingInput({ api, detail, agent, request, onDone }: PendingInputProps
   const stepFailed = classifyRequest(request) === 'step_failed';
   // UX-5 FR-4: the failed item and its first error line, above the full question.
   const failed = stepFailed ? failedItemOfQuestion(request.question) : null;
+  // The escape hatch for an agent that can't resume: first (highlighted) on a failure, the stuck
+  // case; otherwise a secondary action at the end.
+  const offer = freshConversationOffer(detail, request);
+  const fresh =
+    offer === 'none' ? null : (
+      <FreshConversation
+        api={api}
+        sessionId={sessionId}
+        prominent={offer === 'prominent'}
+        onDone={onDone}
+      />
+    );
   return (
     <section aria-label="Pending input" className="pending">
       <div className="pending-head">
@@ -361,6 +374,7 @@ function PendingInput({ api, detail, agent, request, onDone }: PendingInputProps
       <div className="question-text">
         <Markdown text={request.question} />
       </div>
+      {offer === 'prominent' && fresh}
       <p className="pending-hint muted">Reply in the box below to answer.</p>
       {!fromAgent && isOldVersion(detail) && (
         <div className="quick-actions" role="group" aria-label="Quick actions">
@@ -400,6 +414,7 @@ function PendingInput({ api, detail, agent, request, onDone }: PendingInputProps
           </button>
         </div>
       )}
+      {offer === 'secondary' && fresh}
       {error && (
         <p role="alert" className="error">
           {error}

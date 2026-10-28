@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { capabilityKeys, type InventoryRepo } from '@conductor/shared';
 import {
@@ -9,9 +9,8 @@ import {
   scanCapabilities,
   type ScanCapabilitiesOptions,
 } from './capabilities.js';
+import { workflowShell } from '../platform/index.js';
 
-// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
-// the task that unskips them.
 const onWin32 = process.platform === 'win32';
 
 // M2-T10 acceptance: capability probes against fake binaries on PATH, MCP / skill / agent names
@@ -21,37 +20,63 @@ let tmp: string;
 let bin: string;
 let claudeDir: string;
 
+/**
+ * A fake CLI on PATH running `body` in sh. POSIX: a `#!/bin/sh` script. win32: `name.sh` plus a
+ * `name.cmd` shim that runs it in Git Bash (as `az.cmd` is a shim), so the probe goes through
+ * spawnCli's PATHEXT lookup and cmd.exe escaping.
+ */
 function fake(name: string, body: string): void {
+  if (onWin32) {
+    writeFileSync(join(bin, `${name}.sh`), `${body}\n`);
+    writeFileSync(join(bin, `${name}.cmd`), `@"${workflowShell().file}" "%~dp0${name}.sh" %*\r\n`);
+    return;
+  }
   writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`);
   chmodSync(join(bin, name), 0o755);
 }
 
-/** PATH = the fake bin dir + /bin and /usr/bin (sh, sleep); no real gh / az / jira / claude. */
+/**
+ * PATH = the fake bin dir + /bin and /usr/bin (sh, sleep); no real gh / az / jira / claude. win32:
+ * the bin dir + System32, plus what cmd.exe needs (SystemRoot, PATHEXT).
+ */
 function opts(over: Partial<ScanCapabilitiesOptions> = {}): ScanCapabilitiesOptions {
+  const env: NodeJS.ProcessEnv = onWin32
+    ? {
+        PATH: [bin, join(process.env.SystemRoot ?? 'C:\\Windows', 'System32')].join(delimiter),
+        PATHEXT: process.env.PATHEXT,
+        SystemRoot: process.env.SystemRoot,
+        HOME: tmp,
+      }
+    : { PATH: `${bin}:/bin:/usr/bin`, HOME: tmp };
   return {
     claudeConfigDir: claudeDir,
     claudeUserConfig: join(tmp, '.claude.json'),
     claudeBin: 'claude',
     repos: [],
-    env: { PATH: `${bin}:/bin:/usr/bin`, HOME: tmp },
+    env,
     ...over,
   };
 }
 
-const GIT = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+const GIT = onWin32
+  ? execFileSync('where', ['git'], { encoding: 'utf8' })
+      .split(/\r?\n/)[0]!
+      .trim()
+      .replaceAll('\\', '/')
+  : execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 'conductor-caps-'));
-  bin = join(tmp, 'bin');
+  // TD-191: a space and parentheses, like `C:\\Program Files (x86)\\…\\wbin\\az.cmd`.
+  bin = join(tmp, 'Program Files (x86)', 'wbin');
   claudeDir = join(tmp, 'claude-config');
-  mkdirSync(bin);
+  mkdirSync(bin, { recursive: true });
   mkdirSync(claudeDir);
 });
 
 afterEach(() => rmSync(tmp, { recursive: true, force: true }));
 
-// MW-T05: fake CLIs are /bin/sh scripts; probe kill
-describe.skipIf(onWin32)('inventory capabilities: cli probes (M2-T10)', () => {
+describe('inventory capabilities: cli probes (M2-T10)', () => {
   it('gh / az authed → {authed: true}, and no account name anywhere in the output', async () => {
     fake(
       'gh',
@@ -70,10 +95,17 @@ describe.skipIf(onWin32)('inventory capabilities: cli probes (M2-T10)', () => {
       ].join('\n'),
     );
     fake('claude', 'echo "2.1.308 (Claude Code)"');
-    const caps = await scanCapabilities(opts());
+    const lines: string[] = [];
+    const caps = await scanCapabilities(opts({ log: (m) => lines.push(m) }));
     expect(caps).toContainEqual({ kind: 'cli', name: 'gh', version: '2.50.0', authed: true });
     expect(caps).toContainEqual({ kind: 'cli', name: 'az', version: '2.60.0', authed: true });
-    expect(caps).toContainEqual({ kind: 'claude', version: '2.1.308' });
+    if (onWin32) {
+      // U-108: a claude.cmd shim is not a usable claude on Windows.
+      expect(caps.some((c) => c.kind === 'claude')).toBe(false);
+      expect(lines.join('\n')).toMatch(/not a native \.exe/);
+    } else {
+      expect(caps).toContainEqual({ kind: 'claude', version: '2.1.308' });
+    }
     const text = JSON.stringify(caps);
     for (const secret of ['octo-secret-user', 'gho_SECRET', 'az-secret', 'corp.example']) {
       expect(text).not.toContain(secret);
@@ -91,8 +123,7 @@ describe.skipIf(onWin32)('inventory capabilities: cli probes (M2-T10)', () => {
 
   it('jira and git report their versions, never authed', async () => {
     fake('jira', 'echo \'(Version="1.5.1", GitCommit="abc", GoVersion="go1.22")\'');
-    writeFileSync(join(bin, 'git'), `#!/bin/sh\nexec ${GIT} "$@"\n`);
-    chmodSync(join(bin, 'git'), 0o755);
+    fake('git', `exec "${GIT}" "$@"`);
     const caps = await scanCapabilities(opts());
     expect(caps).toContainEqual({ kind: 'cli', name: 'jira', version: '1.5.1', authed: false });
     const g = caps.find((c) => c.kind === 'cli' && c.name === 'git');
@@ -267,47 +298,43 @@ describe('inventory capabilities: names from Claude Code config (M2-T10)', () =>
     expect(keys.some((k) => k.startsWith('mcp:plugin'))).toBe(false);
   });
 
-  // MW-T05: fake CLIs are /bin/sh scripts; probe kill
-  it.skipIf(onWin32)(
-    'an invalid name is logged once per scan and not reported; the rest is (M2-T10b)',
-    async () => {
-      fake('gh', 'if [ "$1" = --version ]; then echo "gh version 2.50.0"; exit 0; fi\nexit 0');
-      writeFileSync(
-        join(tmp, '.claude.json'),
-        JSON.stringify({
-          mcpServers: { slack: {}, 'a:b': {}, 'my server': {}, 'plugin:p:x@y': {} },
-        }),
-      );
-      plugin('dup', ['a:b']);
-      mkdirSync(join(claudeDir, 'skills', 'review'), { recursive: true });
-      mkdirSync(join(claudeDir, 'skills', 'x@host'), { recursive: true });
-      const lines: string[] = [];
-      const caps = await scanCapabilities(opts({ log: (m) => lines.push(m) }));
+  it('an invalid name is logged once per scan and not reported; the rest is (M2-T10b)', async () => {
+    fake('gh', 'if [ "$1" = --version ]; then echo "gh version 2.50.0"; exit 0; fi\nexit 0');
+    writeFileSync(
+      join(tmp, '.claude.json'),
+      JSON.stringify({
+        mcpServers: { slack: {}, 'a:b': {}, 'my server': {}, 'plugin:p:x@y': {} },
+      }),
+    );
+    plugin('dup', ['a:b']);
+    mkdirSync(join(claudeDir, 'skills', 'review'), { recursive: true });
+    mkdirSync(join(claudeDir, 'skills', 'x@host'), { recursive: true });
+    const lines: string[] = [];
+    const caps = await scanCapabilities(opts({ log: (m) => lines.push(m) }));
 
-      const ab = lines.filter((l) => l.includes('"a:b"'));
-      expect(ab).toHaveLength(1);
-      expect(ab[0]).toMatch(/^inventory: capability mcp "a:b" not reported: .+/);
-      expect(lines).toContainEqual(
-        expect.stringMatching(/^inventory: capability mcp "my server" not reported: /),
-      );
-      expect(lines).toContainEqual(
-        expect.stringMatching(/^inventory: capability skill "x@host" not reported: /),
-      );
-      // A normalised name is logged as configured.
-      expect(lines).toContainEqual(
-        expect.stringMatching(/^inventory: capability mcp "plugin:p:x@y" not reported: /),
-      );
-      expect(lines).toHaveLength(4);
+    const ab = lines.filter((l) => l.includes('"a:b"'));
+    expect(ab).toHaveLength(1);
+    expect(ab[0]).toMatch(/^inventory: capability mcp "a:b" not reported: .+/);
+    expect(lines).toContainEqual(
+      expect.stringMatching(/^inventory: capability mcp "my server" not reported: /),
+    );
+    expect(lines).toContainEqual(
+      expect.stringMatching(/^inventory: capability skill "x@host" not reported: /),
+    );
+    // A normalised name is logged as configured.
+    expect(lines).toContainEqual(
+      expect.stringMatching(/^inventory: capability mcp "plugin:p:x@y" not reported: /),
+    );
+    expect(lines).toHaveLength(4);
 
-      const text = JSON.stringify(caps);
-      for (const bad of ['a:b', 'my server', 'x@host', 'x@y']) expect(text).not.toContain(bad);
-      expect(caps).toContainEqual({ kind: 'mcp', name: 'slack' });
-      expect(caps).toContainEqual({ kind: 'skill', name: 'review' });
-      expect(caps).toContainEqual({ kind: 'cli', name: 'gh', version: '2.50.0', authed: true });
+    const text = JSON.stringify(caps);
+    for (const bad of ['a:b', 'my server', 'x@host', 'x@y']) expect(text).not.toContain(bad);
+    expect(caps).toContainEqual({ kind: 'mcp', name: 'slack' });
+    expect(caps).toContainEqual({ kind: 'skill', name: 'review' });
+    expect(caps).toContainEqual({ kind: 'cli', name: 'gh', version: '2.50.0', authed: true });
 
-      // Once per scan, not once ever.
-      await scanCapabilities(opts({ log: (m) => lines.push(m) }));
-      expect(lines).toHaveLength(8);
-    },
-  );
+    // Once per scan, not once ever.
+    await scanCapabilities(opts({ log: (m) => lines.push(m) }));
+    expect(lines).toHaveLength(8);
+  });
 });

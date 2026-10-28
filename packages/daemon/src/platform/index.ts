@@ -19,5 +19,5 @@ export {
   type AclRefusal,
   type AssertOwnerOnlyOptions,
 } from './acl.js';
-export { execFileCli, isOnPath, type CliExecOptions } from './spawn.js';
+export { execFileCli, isOnPath, nativeExeProblem, type CliExecOptions } from './spawn.js';
 export { gitHooksOffArgs, gitSystemConfigEnv, nullDevice } from './git.js';

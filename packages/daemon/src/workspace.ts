@@ -1,4 +1,3 @@
-import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   closeSync,
@@ -12,8 +11,8 @@ import {
   realpathSync,
 } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
-import { promisify } from 'node:util';
 import type { RepoInventoryEntry } from '@conductor/shared';
+import { execFileCli } from './platform/index.js';
 import type { DaemonStore } from './store.js';
 
 // Shared clones and per-session worktrees (07 §Code). One shared clone per repo under
@@ -23,15 +22,29 @@ import type { DaemonStore } from './store.js';
 // runs before each new worktree, serialised per clone. Existing worktrees and branches are reused
 // untouched (never fetched into or rebased).
 
-const exec = promisify(execFile);
-
-export async function git(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await exec('git', args, {
-    cwd,
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
-    maxBuffer: 16 * 1024 * 1024,
+/**
+ * Run git in `cwd`; rejects like promisified execFile (the error carries `stdout`/`stderr`).
+ * `execFileCli`: on win32 a bare `git` must never resolve from the cwd, which is often an
+ * agent-writable worktree (a planted git.exe would run with the user's credentials).
+ */
+export function git(cwd: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFileCli(
+      'git',
+      args,
+      { cwd, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }, maxBuffer: 16 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        if (!err) {
+          resolve(stdout);
+          return;
+        }
+        const e: Error & { stdout?: string; stderr?: string } = err;
+        e.stdout = stdout;
+        e.stderr = stderr;
+        reject(e);
+      },
+    );
   });
-  return stdout;
 }
 
 /** Which `ticket.repo` values the daemon will clone (M1-T14; DaemonConfig). */

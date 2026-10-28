@@ -7,11 +7,18 @@
 //
 // Events are emitted synchronously from stream / HTTP callbacks, never inside start(), so a
 // listener attached right after start() sees everything. Nothing is emitted after `exit`.
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
+import {
+  killTree,
+  mkdirPrivate,
+  nativeExeProblem,
+  spawnCli,
+  writePrivateFile,
+} from '../platform/index.js';
 import type { ClaudeDriver, DriverEvent, DriverSession, DriverStartOptions } from './driver.js';
 import { writeEditGuard } from './edit-guard.js';
 import {
@@ -37,6 +44,11 @@ export interface CliDriverOptions {
   endGraceMs?: number;
   /** Tests only: extra state-env keys to pass through (the fake's `FAKE_CLAUDE_*`). */
   extraStateEnv?: RegExp;
+  /**
+   * Tests only: args put before claude's own, e.g. `claudeBin: process.execPath` +
+   * `[fake-claude.mjs]`, since win32 only runs a native .exe as claude (U-108).
+   */
+  claudePrefixArgs?: readonly string[];
 }
 
 /** A DriverSession plus what the CLI reported about itself (U-015). */
@@ -51,15 +63,15 @@ export interface CliDriver extends ClaudeDriver {
 }
 
 /**
- * Write the session's `--mcp-config` JSON (it holds the per-session URL token) to a 0600 file in a
- * fresh private 0700 directory, so the token never appears in argv / `ps` (M1-T14). The caller
- * removes the directory with `removeMcpConfigFile` when the process is gone.
+ * Write the session's `--mcp-config` JSON (it holds the per-session URL token) to a private file
+ * (0600 / owner-only DACL) in a fresh private directory, so the token never appears in argv / `ps`
+ * (M1-T14). The caller removes the directory with `removeMcpConfigFile` when the process is gone.
  */
 export function writeMcpConfigFile(mcpConfig: string, parent = tmpdir()): string {
   const dir = mkdtempSync(join(parent, 'conductor-mcp-'));
-  chmodSync(dir, 0o700);
+  mkdirPrivate(dir);
   const path = join(dir, 'mcp.json');
-  writeFileSync(path, mcpConfig, { mode: 0o600, flag: 'wx' });
+  writePrivateFile(path, mcpConfig);
   return path;
 }
 
@@ -228,6 +240,7 @@ class Session implements CliDriverSession {
     private readonly killGraceMs: number,
     private readonly endGraceMs: number,
     extraStateEnv?: RegExp,
+    private readonly prefixArgs: readonly string[] = [],
   ) {
     this.id = opts.claudeSessionId;
     this.reg = server.register(
@@ -269,13 +282,15 @@ class Session implements CliDriverSession {
         this.emit({ kind: 'output', stream: 'debug', text: `conductor: ${note}` }),
       );
     }
-    this.child = spawn(bin, buildClaudeArgs(opts, this.mcpConfigPath, settings, mode), {
+    const args = [...this.prefixArgs, ...buildClaudeArgs(opts, this.mcpConfigPath, settings, mode)];
+    this.child = spawnCli(bin, args, {
       cwd: opts.cwd,
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
-      // Own process group, so kill() also reaches the tools Claude spawned (bash, test runners).
+      // Own process group (POSIX), so kill() also reaches the tools Claude spawned (bash, test
+      // runners); win32 kills the tree with taskkill /T (TD-187).
       detached: true,
-    });
+    }) as ChildProcessWithoutNullStreams;
 
     this.child.on('error', (err) => {
       this.emit({
@@ -352,18 +367,10 @@ class Session implements CliDriverSession {
     this.killTimer = setTimeout(() => this.signal('SIGKILL'), graceMs ?? this.killGraceMs);
   }
 
+  /** The whole tree: POSIX the process group (then the child), win32 taskkill /T (TD-187). */
   private signal(sig: NodeJS.Signals): void {
-    const pid = this.child.pid;
-    if (pid === undefined) return;
-    try {
-      process.kill(-pid, sig); // the whole process group
-    } catch {
-      try {
-        this.child.kill(sig);
-      } catch {
-        // already gone
-      }
-    }
+    if (this.child.pid === undefined) return;
+    killTree(this.child, { signal: sig });
   }
 
   private onLine(line: string): void {
@@ -454,6 +461,10 @@ export function createCliDriver(opts: CliDriverOptions): CliDriver {
   const endGraceMs = opts.endGraceMs ?? DEFAULT_END_GRACE_MS;
   return {
     start(startOpts) {
+      // U-108: on win32 only the native claude.exe can take the multi-line system prompt. Checked
+      // before the Session registers with the outcome server or writes its MCP config.
+      const notNative = nativeExeProblem(bin, process.env, startOpts.cwd);
+      if (notNative !== null) throw new Error(notNative);
       return new Session(
         bin,
         startOpts,
@@ -461,6 +472,7 @@ export function createCliDriver(opts: CliDriverOptions): CliDriver {
         killGraceMs,
         endGraceMs,
         opts.extraStateEnv,
+        opts.claudePrefixArgs,
       );
     },
   };

@@ -301,3 +301,24 @@ export function isOnPath(
   }
   return false;
 }
+
+/**
+ * U-108 (Ben): on win32 `claude` must be the native `claude.exe`. npm's `claude.cmd` shim can only
+ * be started through cmd.exe, which can't carry the multi-line `--append-system-prompt`. Returns a
+ * message when `bin` resolves to something other than an `.exe`/`.com`; null when it is fine, when
+ * it doesn't resolve at all (the spawn reports ENOENT), and always on POSIX.
+ */
+export function nativeExeProblem(
+  bin: string,
+  env: NodeJS.ProcessEnv = process.env,
+  cwd?: string,
+): string | null {
+  if (process.platform !== 'win32') return null;
+  const file = resolveWindowsBin(bin, { env, cwd });
+  if (file === null || DIRECT_EXEC.test(file)) return null;
+  return (
+    `${bin} resolves to ${file}, not a native .exe: conductor needs the native Claude Code ` +
+    `(claude.exe) on Windows. Install it with the native installer ` +
+    `(https://docs.anthropic.com/en/docs/claude-code/setup) or point CONDUCTOR_CLAUDE_BIN at claude.exe`
+  );
+}

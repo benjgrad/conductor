@@ -1,23 +1,27 @@
-import { spawn } from 'node:child_process';
+import type { ChildProcessByStdio } from 'node:child_process';
+import type { Readable } from 'node:stream';
 import { StringDecoder } from 'node:string_decoder';
 import { OUTPUT_TAIL_BYTES } from '@conductor/shared';
+import { killTree, spawnCli, workflowShell } from '../platform/index.js';
 import type { CommandResult, CommandRunner, RunCommandOptions } from './runner.js';
 import { Semaphore } from './semaphore.js';
 import { TailBuffer } from './tail.js';
 
 // The real CommandRunner (M1-T06, 07 §Compute). Each `run` takes a slot on the per-machine build
 // semaphore (FIFO; `onWaitingForSlot(true/false)` only when it actually waits), then runs
-// `sh -c <cmd>` in its own process group in `cwd` with the daemon env + `opts.env`. Timeout and
-// abort send SIGTERM to the whole group, then SIGKILL after `killGraceMs`. When the shell exits,
-// anything it left in its group is SIGKILLed so no build escapes the semaphore. Output streams to
-// `onOutput` and the last `tailBytes` of stdout+stderr (interleaved) become `outputTail`.
+// `sh -c <cmd>` (Git Bash on win32, ADR-0024 §4) in its own process group in `cwd` with the daemon
+// env + `opts.env`. Timeout and abort send SIGTERM to the whole group, then SIGKILL after
+// `killGraceMs` (win32: taskkill /T at once). When the shell exits, anything it left in its group is
+// SIGKILLed so no build escapes the semaphore (POSIX only: on win32 the exited shell's tree can't be
+// walked any more, TD-187). Output streams to `onOutput` and the last `tailBytes` of stdout+stderr
+// (interleaved) become `outputTail`.
 
 export interface ProcessCommandRunnerOptions {
   /** Build semaphore size (`machine.max_concurrent_builds`). */
   maxConcurrent: number;
   /** SIGTERM → SIGKILL grace on timeout/abort. Default 5 s (the daemon's kill grace). */
   killGraceMs?: number;
-  /** Shell used as `<shell> -c <cmd>`. Default `/bin/sh`. */
+  /** Shell used as `<shell> -c <cmd>`. Default `/bin/sh`; Git Bash on win32 (`workflowShell`). */
   shell?: string;
 }
 
@@ -27,13 +31,19 @@ export class ProcessCommandRunner implements CommandRunner {
   readonly maxConcurrent: number;
   private readonly slots: Semaphore;
   private readonly killGraceMs: number;
-  private readonly shell: string;
+  private shellFile: string | undefined;
 
   constructor(opts: ProcessCommandRunnerOptions) {
     this.maxConcurrent = opts.maxConcurrent;
     this.slots = new Semaphore(opts.maxConcurrent);
     this.killGraceMs = opts.killGraceMs ?? DEFAULT_KILL_GRACE_MS;
-    this.shell = opts.shell ?? '/bin/sh';
+    this.shellFile = opts.shell;
+  }
+
+  /** Resolved on first use, so a machine without Git Bash fails the command, not the daemon. */
+  private get shell(): string {
+    this.shellFile ??= workflowShell().file;
+    return this.shellFile;
   }
 
   /** Commands currently holding a build slot. */
@@ -65,12 +75,12 @@ export class ProcessCommandRunner implements CommandRunner {
     return new Promise<CommandResult>((resolve, reject) => {
       const started = performance.now();
       const tail = new TailBuffer(opts.tailBytes ?? OUTPUT_TAIL_BYTES);
-      const child = spawn(this.shell, ['-c', opts.cmd], {
+      const child = spawnCli(this.shell, ['-c', opts.cmd], {
         cwd: opts.cwd,
         env: { ...process.env, ...opts.env },
         detached: true, // own process group, so kills reach the whole tree
         stdio: ['ignore', 'pipe', 'pipe'],
-      });
+      }) as ChildProcessByStdio<null, Readable, Readable>;
 
       let spawned = false;
       let settled = false;
@@ -81,11 +91,7 @@ export class ProcessCommandRunner implements CommandRunner {
 
       const killGroup = (sig: NodeJS.Signals): void => {
         if (child.pid === undefined) return;
-        try {
-          process.kill(-child.pid, sig);
-        } catch {
-          // ESRCH: the group is already gone.
-        }
+        killTree(child, { signal: sig });
       };
       const terminate = (): void => {
         if (exit || killTimer) return;

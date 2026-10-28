@@ -1,5 +1,5 @@
-import { execFile } from 'node:child_process';
 import { cleanEnv, NO_HOOKS } from '../actions/open-pr.js';
+import { execFileCli } from '../platform/index.js';
 
 // Read-only git for the inventory scanner (M2-T10, ADR-0013 §Inventory: it runs no repo code).
 // Hooks and fsmonitor off, no system config and no inherited GIT_* overrides (`cleanEnv`).
@@ -17,7 +17,7 @@ export function gitRead(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<GitRead> {
   return new Promise((resolve) => {
-    execFile(
+    execFileCli(
       'git',
       [...NO_HOOKS, '-c', 'core.fsmonitor=false', ...args],
       {

@@ -1,4 +1,3 @@
-import { execFile } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import {
@@ -8,6 +7,7 @@ import {
   type InventoryRepo,
 } from '@conductor/shared';
 import { cleanEnv } from '../actions/open-pr.js';
+import { execFileCli, nativeExeProblem } from '../platform/index.js';
 import { cliVersionFrom } from './version.js';
 
 // The capability half of the inventory (M2-T10; ADR-0013 §Inventory, ADR-0016). Names and
@@ -44,7 +44,10 @@ interface Probe {
   missing: boolean;
 }
 
-/** Run one CLI with no shell, stdin closed, killed (SIGKILL) at the timeout. Never throws. */
+/**
+ * Run one CLI with no shell (win32: PATHEXT, so `az.cmd` is found), stdin closed, killed
+ * (SIGKILL) at the timeout. Never throws.
+ */
 export function probe(
   cmd: string,
   args: readonly string[],
@@ -52,7 +55,7 @@ export function probe(
   timeoutMs: number,
 ): Promise<Probe> {
   return new Promise((done) => {
-    const child = execFile(
+    const child = execFileCli(
       cmd,
       args,
       {
@@ -70,7 +73,7 @@ export function probe(
         });
       },
     );
-    child.stdin?.end();
+    child?.stdin?.end();
   });
 }
 
@@ -107,7 +110,14 @@ async function scanClaude(
   bin: string,
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
+  log: (msg: string) => void,
 ): Promise<Capability[]> {
+  // U-108: a claude.cmd shim can't run conductor's sessions, so it is not a claude capability.
+  const notNative = nativeExeProblem(bin, env);
+  if (notNative !== null) {
+    log(notNative);
+    return [];
+  }
   const r = await probe(bin, ['--version'], env, timeoutMs);
   const version = r.code === 0 ? cliVersionFrom(r.stdout) : null;
   return version === null ? [] : [{ kind: 'claude', version }];
@@ -217,7 +227,7 @@ export async function scanCapabilities(opts: ScanCapabilitiesOptions): Promise<C
   const timeoutMs = opts.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
   const [clis, claude] = await Promise.all([
     scanClis(env, timeoutMs),
-    scanClaude(opts.claudeBin, env, timeoutMs),
+    scanClaude(opts.claudeBin, env, timeoutMs, opts.log ?? (() => undefined)),
   ]);
   const raw: unknown[] = [...clis, ...claude];
   // The name as configured, for the log, when it was normalised.

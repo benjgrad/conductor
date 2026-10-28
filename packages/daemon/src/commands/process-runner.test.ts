@@ -9,10 +9,6 @@ import type { CommandOutputChunk, RunCommandOptions } from './runner.js';
 import { Semaphore } from './semaphore.js';
 import { TailBuffer } from './tail.js';
 
-// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
-// the task that unskips them.
-const onWin32 = process.platform === 'win32';
-
 const wt = mkdtempSync(join(tmpdir(), 'conductor-cmd-'));
 afterAll(() => rmSync(wt, { recursive: true, force: true }));
 
@@ -51,8 +47,7 @@ describe('createCommandRunner', () => {
   });
 });
 
-// MW-T05: runs /bin/sh -c and kills a process group
-describe.skipIf(onWin32)('ProcessCommandRunner', () => {
+describe('ProcessCommandRunner', () => {
   it('exit 0: runs in cwd with merged env and streams output', async () => {
     const r = new ProcessCommandRunner({ maxConcurrent: 2 });
     const chunks: CommandOutputChunk[] = [];

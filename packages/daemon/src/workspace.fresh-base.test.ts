@@ -186,7 +186,7 @@ describe('Workspace fresh base (M2-T13a)', () => {
     expect(existsSync(ws.worktreePath('s1'))).toBe(false);
   });
 
-  // MW-T09: fake git fetch wrapper is a /bin/sh script
+  // MW-T12: fake git fetch wrapper is a /bin/sh script
   describe.skipIf(onWin32)('concurrent starts', () => {
     let savedPath: string | undefined;
     let fetchLog: string;

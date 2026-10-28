@@ -15,10 +15,6 @@ import { Daemon } from './daemon.js';
 import { mkdirPrivate } from './platform/index.js';
 import { FakeOrchestrator } from './test-support/fake-orchestrator.js';
 
-// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
-// the task that unskips them.
-const onWin32 = process.platform === 'win32';
-
 // ADR-0008 on the daemon: `fetch_transcript` → `transcript` (located from the daemon's own
 // store only), and a reopened session's start on a branch still checked out in the earlier
 // session's worktree (that worktree is reused).
@@ -189,8 +185,7 @@ describe('fetch_transcript (ADR-0008)', () => {
   });
 });
 
-// MW-T09: worktree reuse and transcript paths on win32
-describe.skipIf(onWin32)('reopen: a new session on the earlier session’s branch (ADR-0008)', () => {
+describe('reopen: a new session on the earlier session’s branch (ADR-0008)', () => {
   it('reuses the old worktree, resumes the Claude session, and both transcripts resolve', async () => {
     const driver = new FakeClaudeDriver(complete);
     makeDaemon(driver);

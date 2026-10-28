@@ -22,3 +22,4 @@ export {
 export { execFileCli, isOnPath, nativeExeProblem, type CliExecOptions } from './spawn.js';
 export { gitHooksOffArgs, gitSystemConfigEnv, nullDevice } from './git.js';
 export { hookCommand, WIN_HOOK_UNSAFE } from './hook.js';
+export { samePath } from './fs.js';

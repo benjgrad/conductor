@@ -24,10 +24,6 @@ import {
   transcriptPathFor,
 } from './transcript.js';
 
-// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
-// the task that unskips them.
-const onWin32 = process.platform === 'win32';
-
 const FIXTURE = resolve(
   fileURLToPath(new URL('.', import.meta.url)),
   '../../test/fixtures/transcript.jsonl',
@@ -119,8 +115,7 @@ describe('transcriptChunks (ADR-0008)', () => {
 });
 
 describe('findTranscript', () => {
-  // MW-T09: transcript slug of a drive-letter path
-  it.skipIf(onWin32)('uses the realpath slug of the cwd, even when the worktree is gone', () => {
+  it('uses the realpath slug of the cwd, even when the worktree is gone', () => {
     const root = tmp();
     const config = join(root, 'claude');
     const real = join(root, 'real');
@@ -129,7 +124,9 @@ describe('findTranscript', () => {
     const cwd = join(root, 'link', 'wt', 'gone-session'); // never created / removed
     expect(realCwd(cwd)).toBe(join(real, 'wt', 'gone-session'));
     const slug = claudeProjectSlug(join(real, 'wt', 'gone-session'));
-    expect(slug).toMatch(/^-.*-real-wt-gone-session$/);
+    // Every non-alphanumeric is `-`, as Claude Code names its project dirs: `/tmp/x` → `-tmp-x`,
+    // `C:\\Users\\x` → `C--Users-x`.
+    expect(slug).toMatch(/^(-|[A-Za-z]--).*-real-wt-gone-session$/);
     const file = join(config, 'projects', slug, `${ID}.jsonl`);
     mkdirSync(join(config, 'projects', slug), { recursive: true });
     writeFileSync(file, '');

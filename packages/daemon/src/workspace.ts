@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import type { RepoInventoryEntry } from '@conductor/shared';
-import { execFileCli } from './platform/index.js';
+import { execFileCli, samePath } from './platform/index.js';
 import type { DaemonStore } from './store.js';
 
 // Shared clones and per-session worktrees (07 §Code). One shared clone per repo under
@@ -437,13 +437,8 @@ function errText(err: unknown): string {
 }
 
 /** Whether two paths name the same directory (realpaths; false if either is missing). */
-function sameDir(a: string, b: string): boolean {
-  try {
-    return realpathSync(a) === realpathSync(b);
-  } catch {
-    return false;
-  }
-}
+/** win32: 8.3 names and case differ between git's output and ours (platform/fs.ts). */
+const sameDir = samePath;
 
 export function inventoryDigest(entries: readonly RepoInventoryEntry[]): string {
   return createHash('sha256').update(JSON.stringify(entries)).digest('hex');

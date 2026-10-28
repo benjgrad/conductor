@@ -351,13 +351,18 @@ function system32(...parts: string[]): string {
   return join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', ...parts);
 }
 
-function run(file: string, args: string[], env?: Record<string, string>): string {
+function run(file: string, args: string[], extraEnv?: Record<string, string>): string {
+  const env: NodeJS.ProcessEnv = { ...process.env, ...extraEnv };
+  // A PSModulePath inherited from PowerShell 7 (pwsh) points Windows PowerShell 5.1 at modules it
+  // can't load, so Get-Acl fails ("found in the module ... but the module could not be loaded").
+  // Without it, powershell.exe uses its own defaults.
+  for (const k of Object.keys(env)) if (k.toLowerCase() === 'psmodulepath') delete env[k];
   return execFileSync(file, args, {
     encoding: 'utf8',
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
     timeout: 30_000,
-    ...(env ? { env: { ...process.env, ...env } } : {}),
+    env,
   });
 }
 

@@ -41,6 +41,7 @@ import { serveOutputStream } from '../stream/output.js';
 import { SseHub } from '../stream/sse.js';
 import { parseBody, pathString, sendError } from './errors.js';
 import { registerMachineRoutes } from './machines.js';
+import { registerPermissionRoutes } from './permissions.js';
 import { listWorkflows, loadBoard, loadWorkflowDetail, toTicketDto } from './queries.js';
 import { httpSecurityFromEnv, securityHookFor, type HttpSecurityOptions } from './security.js';
 import { loadSessionDetail, sessionExists } from './sessions.js';
@@ -105,6 +106,7 @@ export const createApi = (({
   sockets = NO_SOCKETS,
   installUrl,
   servedVersion = null,
+  machineTransport,
 }: ApiDeps) => {
   const app = Fastify({ logger: false, trustProxy: trustedProxy ?? false });
   // M1-T14 / M2-T08: Host / Origin / content-type guard before routing (09), then who is asking.
@@ -123,6 +125,14 @@ export const createApi = (({
   });
   const hub = new SseHub();
   const logError = (err: unknown) => app.log.error(err);
+  // M2-T29c (ADR-0023): the permission-prompt list and decision routes.
+  void app.register(registerPermissionRoutes, {
+    db,
+    boardBus,
+    ...(machineTransport ? { transport: machineTransport } : {}),
+    now,
+    log: (m) => console.warn(`[api] ${m}`),
+  });
 
   // JSON bodies; an empty body (POST /cancel with no payload) is `{}`.
   app.removeContentTypeParser('application/json');

@@ -48,6 +48,13 @@ Loading the credential or a private dir reads the owner and the ACEs (`Get-Acl`)
 
 This is the Windows equivalent of ADR-0010's `mode & 0o077` and uid checks. The checks never silently pass on Windows: `process.getuid` being undefined is not "same owner". The current user's SID comes from `whoami /user /fo csv`.
 
+Implementation details (MW-T04):
+- **Directories** get `(OI)(CI)F` grants. Files created inside a private dir inherit only user, SYSTEM and Administrators, not the token's default DACL.
+- **Ownership:** `icacls <p> /setowner *<user SID>` runs before restricting. An elevated process creates files owned by `BUILTIN\Administrators`, which would otherwise fail "owner is the user". Only `mkdirPrivate`'s pre-check (type + owner, before it takes ownership) tolerates an Administrators owner. `assertOwnerOnly` accepts the user as owner and nothing else. Whether an elevated daemon is supported at all is U-107.
+- **Atomic secret writes:** `writePrivateFile` creates the temp file empty, restricts it, verifies it, and only then writes the data and renames.
+- **Invocation:** `icacls`, `whoami` and `powershell.exe` run by absolute `%SystemRoot%\System32` path, with argv arrays and no shell. The path reaches PowerShell through an env var and `-LiteralPath`. Identities are read as SIDs, never names. `PSModulePath` is dropped from the child env, because a pwsh 7 parent breaks Windows PowerShell 5.1's `Get-Acl`. Unreadable output means refusal.
+- **Cost:** a check starts `powershell.exe` (about 0.5–1.7 s), so checks run at load time, not on hot paths.
+
 ### 4 · Workflow commands run in Git Bash
 Workflow JSON commands stay POSIX `sh`, so one workflow runs on every OS. Claude Code on Windows already requires Git for Windows and uses its Bash, so the daemon adds no new dependency. `cmd.exe` would change every workflow's quoting, so it is not used.
 

@@ -28,7 +28,14 @@ import { liveResources, type SysInfo } from './sysinfo.js';
 import { buildAppendSystemPrompt } from './system-prompt.js';
 import { inventoryDigest, Workspace } from './workspace.js';
 import { InventoryReporter, scanInventory, type InventoryScan } from './inventory/report.js';
-import { detectSetup, freshCheckout, removeCheckout, sweepPrivate } from './actions/checkout.js';
+import {
+  detectSetup,
+  freshCheckout,
+  managedCommand,
+  missingManager,
+  removeCheckout,
+  sweepPrivate,
+} from './actions/checkout.js';
 import { evaluateConditions } from './actions/conditions.js';
 import { checkClean, openPr, resolveHead } from './actions/open-pr.js';
 import { ReconnectingWs } from './ws-client.js';
@@ -1010,6 +1017,11 @@ export class Daemon {
           mine = held;
           const setup = detectSetup(held.dir, co.setup);
           if (setup !== null) {
+            const missing = missingManager(setup);
+            if (missing !== null) {
+              setupFailed = true;
+              return notRun(missing);
+            }
             this.sendOutput(
               sid,
               token,
@@ -1027,13 +1039,17 @@ export class Daemon {
         const at = resolve(held.dir, p.cwd ?? '.');
         const inside = relative(held.dir, at);
         if (inside.startsWith('..') || isAbsolute(inside)) return notRun('invalid cwd');
+        // M2-T30: `npm run build` runs as `pnpm run build` in a pnpm repo (its lockfile decides).
+        const cmd = managedCommand(held.dir, p.cmd);
+        const missing = missingManager(cmd);
+        if (missing !== null) return notRun(missing);
         this.sendOutput(
           sid,
           token,
           'debug',
-          `conductor: \`${p.cmd}\` in a fresh checkout of ${want}`,
+          `conductor: \`${cmd}\` in a fresh checkout of ${want}`,
         );
-        const r = await exec(p.cmd, at);
+        const r = await exec(cmd, at);
         ok = r.exitCode === 0 && !r.timedOut;
         return r;
       } finally {

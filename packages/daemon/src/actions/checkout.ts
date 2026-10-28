@@ -1,5 +1,13 @@
-import { existsSync, lstatSync, readdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  accessSync,
+  constants,
+  existsSync,
+  lstatSync,
+  readdirSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
+import { delimiter, join } from 'node:path';
 import { NO_HOOKS, privateDir, run, tail } from './open-pr.js';
 
 // ADR-0010 (Ben, 2026-10-26): entry checks run in a fresh, conductor-owned checkout of the exact
@@ -9,6 +17,7 @@ import { NO_HOOKS, privateDir, run, tail } from './open-pr.js';
 // drivers, hooks off). The session branch is fetched in with the open_pr hardening
 // (`--upload-pack=git-upload-pack`, file protocol only, `GIT_CONFIG_NOSYSTEM`, inherited `GIT_*`
 // dropped), its tip must equal the commit to check, and that commit is checked out detached.
+// M2-T30: the setup and the npm-style checks follow the repo's lockfile (pnpm / yarn / npm).
 // The checks are the agent's own code (`npm test`), so they can still do anything the daemon's
 // user can (U-004); what is gone is checking a working tree that differs from the pushed commit,
 // and running filters / attributes config the agent planted in the shared clone.
@@ -85,15 +94,99 @@ export async function freshCheckout(i: FreshCheckoutInput): Promise<FreshCheckou
   }
 }
 
+export type PackageManager = 'pnpm' | 'yarn' | 'npm';
+
+/**
+ * M2-T30: the lockfiles that name a package manager, in precedence order, with the install each
+ * implies. A repo with only a `package.json` is npm (`npm install`); one with neither is not a
+ * Node repo (no setup, commands run as written).
+ */
+const LOCKFILES: readonly { file: string; manager: PackageManager; install: string }[] = [
+  { file: 'pnpm-lock.yaml', manager: 'pnpm', install: 'pnpm install --frozen-lockfile' },
+  { file: 'yarn.lock', manager: 'yarn', install: 'yarn install --immutable' },
+  { file: 'package-lock.json', manager: 'npm', install: 'npm ci' },
+];
+
+export interface DetectedManager {
+  manager: PackageManager;
+  /** The lockfile that decided it; null = only a `package.json`. */
+  lockfile: string | null;
+  install: string;
+}
+
+/** The package manager of the repo at `dir`, from its committed lockfile; null = not a Node repo. */
+export function detectPackageManager(dir: string): DetectedManager | null {
+  for (const l of LOCKFILES) {
+    if (existsSync(join(dir, l.file))) {
+      return { manager: l.manager, lockfile: l.file, install: l.install };
+    }
+  }
+  if (existsSync(join(dir, 'package.json'))) {
+    return { manager: 'npm', lockfile: null, install: 'npm install' };
+  }
+  return null;
+}
+
 /**
  * The fresh checkout's setup: `configured` when set ('' = none), else auto-detect from the
- * committed files: `package-lock.json` → `npm ci`, `package.json` → `npm install`, else none.
+ * committed lockfile (M2-T30): `pnpm-lock.yaml` → `pnpm install --frozen-lockfile`, `yarn.lock` →
+ * `yarn install --immutable`, `package-lock.json` → `npm ci`, a bare `package.json` →
+ * `npm install`, else none.
  */
 export function detectSetup(dir: string, configured: string | null): string | null {
   if (configured !== null) return configured.trim() === '' ? null : configured;
-  if (existsSync(join(dir, 'package-lock.json'))) return 'npm ci';
-  if (existsSync(join(dir, 'package.json'))) return 'npm install';
-  return null;
+  return detectPackageManager(dir)?.install ?? null;
+}
+
+// A command segment starts the string or follows `&&`, `||`, `;` or a newline. Only these npm
+// forms are rewritten (the ones workflows use); anything else runs exactly as written.
+const NPM_SCRIPT_RE = /(^|&&|\|\||;|\n)(\s*)npm (run|run-script|test)(?=\s|$)/g;
+
+/**
+ * M2-T30: a workflow check written for npm (`npm run <script>`, `npm test`) runs with the repo's
+ * own package manager: `pnpm run build` in a pnpm repo, `yarn run build` in a yarn repo. npm repos
+ * and non-Node repos get `cmd` unchanged.
+ */
+export function managedCommand(dir: string, cmd: string): string {
+  const pm = detectPackageManager(dir)?.manager;
+  if (pm === undefined || pm === 'npm') return cmd;
+  return cmd.replace(NPM_SCRIPT_RE, (_m, sep: string, ws: string, sub: string) => {
+    return `${sep}${ws}${pm} ${sub === 'test' ? 'test' : 'run'}`;
+  });
+}
+
+const MANAGER_RE = /(?:^|&&|\|\||;|\n)\s*(pnpm|yarn|npm)(?=\s|$)/g;
+
+/** Is `bin` an executable file in one of `path`'s directories? */
+function onPath(bin: string, path: string): boolean {
+  for (const d of path.split(delimiter)) {
+    if (d === '') continue;
+    const f = join(d, bin);
+    try {
+      if (!statSync(f).isFile()) continue;
+      accessSync(f, constants.X_OK);
+      return true;
+    } catch {
+      // not in this directory
+    }
+  }
+  return false;
+}
+
+/**
+ * M2-T30: when `cmd` runs a package manager (at the start of a command segment) that is not on
+ * `path` (default: the daemon's PATH, which the command runner inherits), a message naming it for
+ * the check's output; null = every one it uses is there.
+ */
+export function missingManager(cmd: string, path = process.env.PATH ?? ''): string | null {
+  const used = new Set([...cmd.matchAll(MANAGER_RE)].map((m) => m[1]!));
+  const missing = [...used].filter((b) => !onPath(b, path));
+  if (missing.length === 0) return null;
+  const names = missing.map((b) => `\`${b}\``).join(' and ');
+  return (
+    `${names} ${missing.length === 1 ? 'is' : 'are'} not on this machine's PATH, so \`${cmd}\` ` +
+    `cannot run: install ${missing.join(' and ')} for the daemon's user and restart the daemon`
+  );
 }
 
 export function removeCheckout(dir: string): void {

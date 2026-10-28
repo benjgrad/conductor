@@ -626,6 +626,7 @@ export class Daemon {
     let worktree: string;
     let range: PortRange;
     try {
+      // TD-181: working_copy has no default_branch yet, so the base is the clone's origin/HEAD.
       worktree = await this.workspace.ensureWorktree({
         repo: p.repo,
         sessionId: sid,

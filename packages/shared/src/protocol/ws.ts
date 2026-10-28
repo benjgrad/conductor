@@ -506,7 +506,9 @@ export const StartSessionPayloadSchema = z.object({
    * The daemon re-checks `repo_path` and `mode` against its own inventory (never trusting the
    * message), reuses the session's existing worktree when there is one, else fetches the default
    * branch and adds the worktree from `origin/<default_branch>`; `base_ref` is then informational.
-   * Absent = M1 behaviour (local mode: the daemon's shared clone at `base_ref`).
+   * Absent = the daemon's shared clone (local mode): it fetches the default branch and bases a new
+   * worktree on `origin/<default branch>` (M2-T13a), with `base_ref` `HEAD` meaning exactly that.
+   * TD-181: this schema has no `default_branch` yet, so the base is the clone's `origin/HEAD`.
    */
   working_copy: WorkingCopySchema.optional(),
   /**

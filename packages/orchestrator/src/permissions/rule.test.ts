@@ -55,18 +55,18 @@ describe('alwaysRuleFor', () => {
   });
 
   describe('file edits', () => {
-    it('Edit / MultiEdit / NotebookEdit → Edit(<absolute path>); Write → Write(<path>)', () => {
+    it('Edit / MultiEdit / NotebookEdit → Edit(//<absolute path>); Write → Write(//<path>)', () => {
       expect(alwaysRuleFor('Edit', { file_path: '/w/src/a.ts', old_string: 'a' })).toBe(
-        'Edit(/w/src/a.ts)',
+        'Edit(//w/src/a.ts)',
       );
       expect(alwaysRuleFor('MultiEdit', { file_path: '/w/src/a.ts', edits: [] })).toBe(
-        'Edit(/w/src/a.ts)',
+        'Edit(//w/src/a.ts)',
       );
       expect(alwaysRuleFor('NotebookEdit', { notebook_path: '/w/n.ipynb' })).toBe(
-        'Edit(/w/n.ipynb)',
+        'Edit(//w/n.ipynb)',
       );
       expect(alwaysRuleFor('Write', { file_path: '/w/new file.md', content: 'x' })).toBe(
-        'Write(/w/new file.md)',
+        'Write(//w/new file.md)',
       );
     });
 

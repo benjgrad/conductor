@@ -31,14 +31,15 @@ function bounded(rule: string): string | null {
 
 function pathRule(name: 'Edit' | 'Write', path: string | null): string | null {
   if (path === null || !path.startsWith('/') || PATH_UNSAFE.test(path)) return null;
-  return bounded(`${name}(${path})`);
+  // Claude Code path rules: `/p` is relative to the settings source, `//p` is absolute.
+  return bounded(`${name}(/${path})`);
 }
 
 /**
  * - `Bash`: `Bash(<exact command>)`; null if the command contains `)`, a newline or `*`, or ends
  *   in `:*` (a prefix rule).
  * - `mcp__*`: the bare tool name.
- * - `Edit` / `MultiEdit` / `NotebookEdit`: `Edit(<absolute path>)`; `Write`: `Write(<absolute
+ * - `Edit` / `MultiEdit` / `NotebookEdit`: `Edit(//<absolute path>)`; `Write`: `Write(//<absolute
  *   path>)`; null if the path isn't absolute or contains `)`, a newline or a glob character.
  * - `WebFetch`: `WebFetch(domain:<host>)` from the URL; null if it doesn't parse or has no host.
  * - Anything else: null. Any rule longer than PERMISSION_RULE_MAX: null.

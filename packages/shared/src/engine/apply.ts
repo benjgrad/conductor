@@ -10,6 +10,7 @@ import { stateTitle } from '../workflow/conductor.js';
 import {
   AVAILABLE_TRANSITION_ACTIONS,
   parseDuration,
+  RETURN_TO,
   type AgentState,
   type EntryCheck,
   type RequirementsGate,
@@ -70,6 +71,22 @@ import {
   reviewSubject,
   type ReviewFeedback,
 } from './review.js';
+import { GitShaSchema } from '../protocol/actions.js';
+import {
+  checkQaResult,
+  fixesLines,
+  isQaState,
+  patchQa,
+  planQaEntry,
+  qaNoVerdictQuestion,
+  qaNudge,
+  qaNudgeKey,
+  qaRoundResets,
+  qaStartSession,
+  sentBackFor,
+  withQa,
+  type QaState,
+} from './qa.js';
 import { applySpend } from './spend.js';
 import {
   ASK_USER,
@@ -205,6 +222,11 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
     case 'session.started':
       return onStarted(st, e.command_id);
     case 'agent.claude_session_id':
+      // ADR-0020 §2: the QA's conversation is its own, never the worker's.
+      if (isQaState(st.state)) {
+        st.s.context = patchQa(st.s.context, { claude_session_id: e.claude_session_id });
+        return null;
+      }
       st.s.claude_session_id = e.claude_session_id;
       return null;
     case 'agent.complete_state':
@@ -257,6 +279,8 @@ function onMessage(st: Step, text: string): ApplyIgnoreReason | null {
   if (st.s.status !== 'running' || st.state?.type !== 'agent' || !st.s.agent_process_live) {
     return 'wrong_status';
   }
+  // ADR-0020 §2: QA judges independently, like a reviewer.
+  if (isQaState(st.state)) return 'wrong_status';
   st.emit({ type: 'send_message', text });
   return null;
 }
@@ -284,7 +308,7 @@ function onAssigned(st: Step, machineId: string): ApplyIgnoreReason | null {
       // (the snapshot doesn't keep the attachment); the resumed Claude session still has it
       // only if the earlier start ran.
       const answer = st.s.pending_answer;
-      st.emit(startSession(st, name, state, { attachment: null, answer: answer?.answer ?? null }));
+      st.emit(startFor(st, name, state, { attachment: null, answer: answer?.answer ?? null }));
       st.setStatus('assigned');
       st.setDeadline(name, deadlineFor(state, st.now));
       return null;
@@ -335,6 +359,15 @@ function onRefused(
       // needs_input before `started`): nothing needs the process now, so don't requeue a parked
       // session. A later answer finds agent_process_live false and resumes via start_session.
       if (state?.type !== 'agent') return null;
+      // ADR-0020 §2: the QA's checkout failed (fetch, head ≠ sha, setup): a human, uncounted.
+      if (isQaState(state) && e.reason.startsWith('checkout_failed')) {
+        toFallbackHuman(
+          st,
+          'agent_question',
+          `QA could not start (${e.reason}). Answer to run QA again, or move the ticket.`,
+        );
+        return null;
+      }
       st.s.machine_id = null;
       // pending_answer is kept so the re-claim re-answers (U-026).
       requeue(st);
@@ -348,7 +381,7 @@ function onRefused(
         st.s.agent_process_live = false;
         const answer = st.s.pending_answer;
         if (answer !== null) {
-          st.emit(startSession(st, name, state, { attachment: null, answer: answer.answer }));
+          st.emit(startFor(st, name, state, { attachment: null, answer: answer.answer }));
         }
         return null;
       }
@@ -431,7 +464,18 @@ function onComplete(
     );
     return null;
   }
-  const missing = (state.result ?? []).filter((k) => !(k in result));
+  // ADR-0020 §2: a QA result is parsed and must match the transition; else one nudge, then a human.
+  let stored: JsonObject = result;
+  if (plan.type === 'take' && isQaState(state)) {
+    const checked = checkQaResult(plan.name, result);
+    if (!checked.ok) {
+      qaNoVerdict(st, name, state, checked.why);
+      return null;
+    }
+    stored = checked.result as unknown as JsonObject;
+    st.s.context = patchQa(st.s.context, { verdict: checked.result.verdict });
+  }
+  const missing = (state.result ?? []).filter((k) => !(k in stored));
   if (missing.length > 0) {
     takeOutcome(st, 'fail', { detail: `complete_state result is missing ${missing.join(', ')}` });
     return null;
@@ -443,14 +487,14 @@ function onComplete(
       return null;
     }
   }
-  st.s.context = { ...st.s.context, [name]: result };
+  st.s.context = { ...st.s.context, [name]: stored };
   if (move === undefined) {
-    takeOutcome(st, outcome, { result });
+    takeOutcome(st, outcome, { result: stored });
   } else {
     takeOutcome(
       st,
       outcome,
-      { result, ...(reason !== null && reason.trim() !== '' ? { detail: reason } : {}) },
+      { result: stored, ...(reason !== null && reason.trim() !== '' ? { detail: reason } : {}) },
       { move },
     );
   }
@@ -471,6 +515,9 @@ function onHumanTransition(
 ): ApplyIgnoreReason | null {
   const plan = planHumanTransition(st.def, st.s, e.name);
   if (!plan.ok) return plan.reason;
+  // ADR-0020 §2: a human sending the ticket back opens a new round of QA ("Back with this
+  // answer", `$return_to`, continues the round it interrupted).
+  if (plan.transition.goto !== RETURN_TO) resetQaRounds(st, plan.goto);
   const from = st.stateName!;
   const target = st.def.states[plan.goto]!;
   const moveStep = runsRequirements(plan.name, plan.transition);
@@ -650,7 +697,7 @@ function onAgentExited(
   if (state?.type !== 'agent' || name === null || !AGENT_ACTIVE.has(st.s.status)) return null;
   const answer = st.s.pending_answer;
   if (answer !== null) {
-    st.emit(startSession(st, name, state, { attachment: null, answer: answer.answer }));
+    st.emit(startFor(st, name, state, { attachment: null, answer: answer.answer }));
     return null;
   }
   const how = e.signal !== null ? `signal ${e.signal}` : `exit code ${String(e.code)}`;
@@ -865,10 +912,12 @@ function takeOutcome(
     enter(st, t.goto, { ...NO_ROUTE, kind, question, attachment, outcome, info, ...move });
     return;
   }
-  const exhausted = withOutput(
-    `"${from}" failed ${taken} time${taken === 1 ? '' : 's'} (${info.detail ?? outcome}; retry limit ${cap}). Retry, skip, or abort?`,
-    info.output,
-  );
+  const fixes = t.attach === 'result' ? fixesLines(info.result) : [];
+  const exhausted =
+    withOutput(
+      `"${from}" failed ${taken} time${taken === 1 ? '' : 's'} (${info.detail ?? outcome}; retry limit ${cap}). Retry, skip, or abort?`,
+      info.output,
+    ) + (fixes.length > 0 ? `\n${fixes.join('\n')}` : '');
   if (t.else !== undefined) {
     enter(st, t.else, {
       ...NO_ROUTE,
@@ -1767,7 +1816,22 @@ function onActionCompleted(
         );
         return;
       }
-      s.context = { ...s.context, [PR_CONTEXT_KEY]: { pr_url: url, state: r.to } };
+      // ADR-0020 §2: the pushed commit, which a QA state reviews (the daemon's, else the checked one
+      // when the move enters QA; older moves keep M1b's shape).
+      const pushed = GitShaSchema.safeParse(e.result.head_sha);
+      const head = pushed.success
+        ? pushed.data
+        : isQaState(st.def.states[r.to])
+          ? r.head_sha
+          : null;
+      s.context = {
+        ...s.context,
+        [PR_CONTEXT_KEY]: {
+          pr_url: url,
+          state: r.to,
+          ...(head !== null ? { head_sha: head } : {}),
+        },
+      };
       break;
     }
   }
@@ -2072,6 +2136,7 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
     });
     return;
   }
+  if (isQaState(toState) && !enterQa(st, target)) return;
   addWallTime(st);
   const visit = (s.state_visits[target] ?? 0) + 1;
   s.state_visits = { ...s.state_visits, [target]: visit };
@@ -2104,7 +2169,12 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
 
   switch (toState.type) {
     case 'agent': {
-      if (opts.sendInput && opts.answer !== null && opts.answer.input_request_id !== null) {
+      if (
+        opts.sendInput &&
+        opts.answer !== null &&
+        opts.answer.input_request_id !== null &&
+        !isQaState(toState)
+      ) {
         // Live process of return_to: the answer goes to stdin; it stays pending until the agent's
         // next complete_state / ask_user (§Pending answer).
         s.pending_answer = opts.answer;
@@ -2117,7 +2187,7 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
         const answer = opts.answer ?? s.pending_answer;
         s.pending_answer = answer;
         st.emit(
-          startSession(st, target, toState, {
+          startFor(st, target, toState, {
             attachment: opts.attachment,
             answer: answer?.answer ?? null,
             verbatim: opts.continuation,
@@ -2232,6 +2302,69 @@ function failSession(st: Step, ticket: TicketStatus, reason: string, kill = true
   st.ticket(ticket);
 }
 
+// ---------------------------------------------------------------- the QA state (ADR-0020 §2, qa.ts)
+
+/**
+ * Entering a `role: 'qa'` state: no PR (or no recorded commit) → a human, uncounted (false).
+ * Otherwise the previous agent is done (kill exactly its process and detach it; the wrapper
+ * fences the change, `qaFenceChanged`), `__qa` is written for this round and the nudge resets.
+ */
+function enterQa(st: Step, target: string): boolean {
+  const s = st.s;
+  const plan = planQaEntry(st.def, s, target);
+  if (!plan.ok) {
+    // It lands in a human state, so a parked agent is ended as on any such move (BUG-1).
+    releaseAgent(st, 'nothing to QA');
+    toFallbackHuman(st, 'agent_question', plan.question);
+    return false;
+  }
+  if (s.machine_id !== null && s.agent_command_id !== null) {
+    st.emit({
+      type: 'kill',
+      reason: 'QA started: the previous agent is done',
+      target_command_id: s.agent_command_id,
+    });
+  }
+  s.agent_command_id = null;
+  s.agent_process_live = false;
+  s.context = withQa(s.context, plan.qa);
+  const counters = { ...s.retry_counters };
+  delete counters[qaNudgeKey(target)];
+  s.retry_counters = counters;
+  return true;
+}
+
+/** A QA result that doesn't parse or match its transition: one nudge, then a human (uncounted). */
+function qaNoVerdict(st: Step, name: string, state: QaState, why: string): void {
+  const key = qaNudgeKey(name);
+  if ((st.s.retry_counters[key] ?? 0) === 0) {
+    st.s.retry_counters = { ...st.s.retry_counters, [key]: 1 };
+    st.emit(qaStartSession(st.def, st.s, name, state, { answer: null, nudge: qaNudge(why) }));
+    return;
+  }
+  toFallbackHuman(st, 'retries_exhausted', qaNoVerdictQuestion(why));
+}
+
+function resetQaRounds(st: Step, goto: string): void {
+  const keys = qaRoundResets(st.def, goto).filter((k) => k in st.s.retry_counters);
+  if (keys.length === 0) return;
+  const counters = { ...st.s.retry_counters };
+  for (const k of keys) delete counters[k];
+  st.s.retry_counters = counters;
+}
+
+/** The start of agent state `name`: a QA's own (fresh, review, checkout) or the worker's. */
+function startFor(
+  st: Step,
+  name: string,
+  state: AgentState,
+  p: Parameters<typeof startSession>[3],
+): Extract<Effect, { type: 'start_session' }> {
+  return isQaState(state)
+    ? qaStartSession(st.def, st.s, name, state, { answer: p.answer })
+    : startSession(st, name, state, p);
+}
+
 // ---------------------------------------------------------------- command effects
 
 function startSession(
@@ -2263,6 +2396,7 @@ function startSession(
           attachment: p.attachment,
           answer: p.answer,
           feedback: p.feedback ?? null,
+          sentBack: sentBackFor(st.def, st.s.context, name),
           transitions,
         });
   return {

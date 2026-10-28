@@ -155,6 +155,7 @@ Shared rules for every task:
   - [ ] win32: `enroll` then `loadCredential` round-trips. An added Everyone ACE makes the daemon refuse to start with the message.
   - [ ] A planted `pre-push` hook in the private repo does **not** run during `open_pr`'s push (both OSes).
   - [ ] `CONDUCTOR_ROOTS=C:\a;D:\b` parses to two roots.
+  - [ ] The MW-T01 skips (35 markers) are removed. Note from MW-T01: on the runner, checkClean/open_pr see ` M README.md` on fresh files, which looks like `core.autocrlf`. Pin `core.autocrlf=false` in the daemon's git env, or in the test repos only if the daemon really doesn't care, and justify the choice.
   - [ ] Unskipped tests green.
 
 ### MW-T08 · Edit guard (N4, N5; security)

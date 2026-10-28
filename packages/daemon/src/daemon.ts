@@ -346,6 +346,10 @@ export class Daemon {
           this.transcript(msg.payload.request_id, msg.payload.session_id),
         );
         return;
+      case 'update_available':
+        // ADR-0021: the updater arrives with M2-T18c.
+        this.log(`update_available ${msg.payload.version} ignored until M2-T18c`);
+        return;
       default:
         this.onCommand(msg);
     }

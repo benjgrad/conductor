@@ -271,7 +271,12 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
       writeFileSync(join(evilHooks, h), `#!/bin/sh\ntouch ${marker}\n`);
       chmodSync(join(evilHooks, h), 0o755);
     }
-    writeFileSync(join(tmp, 'evil.gitconfig'), `[url "${attacker}"]\n\tinsteadOf = ${origin}\n`);
+    // gitconfig syntax reads backslashes as escapes: write Windows paths with forward slashes.
+    const cfgPath = (p: string) => p.replace(/\\/g, '/');
+    writeFileSync(
+      join(tmp, 'evil.gitconfig'),
+      `[url "${cfgPath(attacker)}"]\n\tinsteadOf = ${cfgPath(origin)}\n`,
+    );
     const set = (k: string, v: string) => git(clone, 'config', '--add', k, v);
     set('remote.origin.url', attacker);
     set('remote.origin.pushurl', attacker);

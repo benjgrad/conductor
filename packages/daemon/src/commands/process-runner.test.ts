@@ -99,7 +99,12 @@ describe('ProcessCommandRunner', () => {
         timeoutMs: 300,
       }),
     );
-    expect(res).toMatchObject({ exitCode: null, signal: 'SIGTERM', timedOut: true });
+    // win32: the 200 ms grace can end before taskkill returns, so the escalation is reported.
+    expect(res).toMatchObject({
+      exitCode: null,
+      signal: onWin32 ? (expect.stringMatching(/^SIG(TERM|KILL)$/) as unknown) : 'SIGTERM',
+      timedOut: true,
+    });
     expect(res.outputTail).toBe('started\n');
     expect(Date.now() - started).toBeLessThan(5_000);
     expect(existsSync(pidFile)).toBe(true);

@@ -1,0 +1,32 @@
+# Native Windows gate for the daemon (ADR-0024, milestone MW). Linux/macOS keep scripts/ci.sh.
+# MW-T00 starts it narrow (typecheck + shared + daemon/src/platform); MW-T01 widens it to the whole
+# daemon project with POSIX-only tests skipped, and MW-T12 adds the fake-claude e2e.
+name: daemon-windows
+
+on:
+  push:
+    branches: ['mw-*', 'm*-t*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: daemon-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - run: git config --global core.longpaths true
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      # pnpm from npm, never corepack (CLAUDE.md); version matches package.json packageManager.
+      - run: npm install -g pnpm@10.34.7
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm vitest run --project shared
+      - run: pnpm vitest run --project daemon packages/daemon/src/platform --passWithNoTests

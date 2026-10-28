@@ -4,6 +4,10 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-28 | "Attach a running Claude session to conductor" is a wanted future feature, unscheduled; design open as U-097 | ROADMAP §Future features |
+| 2026-10-28 | Agent names come from two pools: the account's **team** (agents already hired, reused across tickets) and the much larger **hiring pool**. A ticket gets a free teammate; conductor hires only when nobody on the team is free (UX-13a/b) | docs/plan/UX-board-and-notifications.md |
+| 2026-10-28 | Needs-input notifications: in-tab (UX-14) plus Web Push with a service worker and VAPID (UX-15/16), through the browsers' push services; no email | docs/plan/UX-board-and-notifications.md |
+| 2026-10-28 | M3 tickets go on the hosted board (conductor.gradyserver.com) in dependency waves, none before M2r is done; `scripts/create-tickets.js` posts each `### M3-Tnn` block + the M3 rules, workflow `conductor_dev`. T17 is the lead's; T18/T19 wait for M2b/M2c | TD-172, M3 §Ticket waves |
 | 2026-10-28 | ADR-0021 (daemon auto-update) accepted: Ben merged the plan, PR #41. M2-T18 and T18b are unblocked | ADR-0021 |
 | 2026-10-28 | Daemon auto-update (Ben): the orchestrator announces `update_available` after register; the daemon drains (6 h cap) then switches and exits 75; a version-independent launcher rolls back after 2 failed starts and an `update_failed` alert reaches a human; on by default, `config auto-update off` per machine. Start at login stays M2-T18, plus a wake reconnect check | ADR-0021, M2-T18..T18e |
 | 2026-10-27 | Ben approved the M3 plan as written: ADR-0014 accepted. The order of work is M2r → M3 → the rest of M2 → M2c → M2b | ADR-0014, M3, ROADMAP |

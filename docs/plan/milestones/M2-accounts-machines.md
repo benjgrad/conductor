@@ -114,7 +114,7 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 | M2-T28 | **Contracts (agent settings)**: `machine_settings`, settings REST, `settings_update`, `reported_settings` ([ADR-0022](../../adr/0022-layered-agent-settings.md), proposed) | — | D | — | todo |
 | M2-T28b | Shared: `resolveEffectivePolicy` + invariants, settings schemas | T28 | E | — | todo |
 | M2-T28c | Orchestrator: `machine_settings` migration, settings routes, audit, push on connect / change | T28b | F | **yes** | todo |
-| M2-T28d | Daemon: apply pushed override (ceiling `remote_settings`), report `reported_settings` (pays TD-081) | T28b, T13a, T29b | F | — | todo |
+| M2-T28d | Daemon: apply pushed override, report `reported_settings` (pays TD-081) | T28b, T13a, T29b | F | — | todo |
 | M2-T28e | Web: Machines drawer **Settings** tab (effective policy per state, override editor) | T28c | G | — | todo |
 | M2-T29 | **Contracts (permission prompts)**: `permission_request` / `permission_decision`, `needs_permission`, REST ([ADR-0023](../../adr/0023-permission-prompts-through-conductor.md)) | — | D | — | in_review (PR #47, QA passed with debt TD-178..180; merge after #44) |
 | M2-T29b | Daemon: auto mode default, `--permission-prompts host` + `permission` MCP tool held until decision / timeout | T29 | E | — | todo |
@@ -893,11 +893,10 @@ The lead fast-forwarded the daemon clone and Hazel's branch by hand (the interim
 - **Files owned**: those schema files, the doc sections. **Acceptance**: schema round-trip tests; an old daemon's inventory still parses; gates.
 
 ### M2-T28b · Shared: effective policy
-- `resolveEffectivePolicy(stateTools, override, ceiling)` returns `{builtin, allow, deny, permissionMode}`, with the ADR-0022 invariants. A save-time validator returns field errors.
+- `resolveEffectivePolicy(stateTools, override)` returns `{builtin, allow, deny, permissionMode}`, with the ADR-0022 invariants. A save-time validator returns field errors.
 - **Acceptance**:
   - [ ] `git push` can't be un-denied.
   - [ ] `Bash`, `Bash(*)`, `Bash(git diff:*)` and `Read(//**)` are rejected.
-  - [ ] The ceiling values `deny_only` and `off` behave as the ADR says.
   - [ ] Gates.
 
 ### M2-T28c · Orchestrator: machine settings
@@ -910,7 +909,7 @@ The lead fast-forwarded the daemon clone and Hazel's branch by hand (the interim
 
 ### M2-T28d · Daemon: apply settings
 - Persist the override in `<root>/state/settings.json` (0600).
-- Apply it in `resolveToolPolicy` and in the permission-mode choice, under the `config.json` `remote_settings` ceiling (`conductor-daemon config remote-settings full|deny_only|off`).
+- Apply it in `resolveToolPolicy` and in the permission-mode choice (no local ceiling: U-098 resolved "no" for now).
 - Report `reported_settings`; remove the credential.
 - Pays TD-081.
 - **Acceptance**:
@@ -924,7 +923,7 @@ The lead fast-forwarded the daemon clone and Hazel's branch by hand (the interim
   - **Effective per state**: a table of tools, allow, deny and mode.
   - **Override editor**: states, aliases, exact rules, mode (bypass behind a confirm), timeout, limits.
 
-  It shows API validation errors in place, plus the ack status ("applied v3" / "refused: remote_settings off").
+  It shows API validation errors in place, plus the ack status ("applied v3" / "refused: <reason>").
 - **Acceptance**: component tests against the mock API; gates.
 
 ### M2-T29 · Contracts: permission prompts

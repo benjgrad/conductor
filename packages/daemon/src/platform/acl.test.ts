@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -10,7 +11,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -22,8 +23,10 @@ import {
   icaclsRestrictArgs,
   mkdirPrivate,
   parseGetAclJson,
+  parseSddl,
   parseWhoamiCsv,
   readWinAcl,
+  resolveSddlSid,
   SID_ADMINISTRATORS,
   SID_SYSTEM,
   writePrivateFile,
@@ -75,8 +78,23 @@ describe('parseWhoamiCsv', () => {
   });
 });
 
+// A Get-Acl result with its SDDL and raw ACE count derived from the rules (what Windows emits for a
+// DACL with only plain ACEs).
+type BaseAcl = Omit<WinAcl, 'sddl' | 'aceCount'>;
+function mk(base: BaseAcl): WinAcl {
+  const aces = base.rules
+    .map((r) => `(${r.type === 'Allow' ? 'A' : 'D'};${r.inherited ? 'ID' : ''};FA;;;${r.sid})`)
+    .join('');
+  return {
+    ...base,
+    sddl: `O:${base.owner}D:${base.protected ? 'PAI' : 'AI'}${aces}`,
+    aceCount: base.rules.length,
+  };
+}
+const TAIL = `,"sddl":"O:${USER}D:PAI","aceCount":0`;
+
 describe('parseGetAclJson', () => {
-  it('reads owner, protection and rules', () => {
+  it('reads owner, protection, rules, SDDL and ACE count', () => {
     const acl = parseGetAclJson(
       JSON.stringify({
         owner: USER,
@@ -85,42 +103,94 @@ describe('parseGetAclJson', () => {
           { sid: USER, type: 'Allow', inherited: false, rights: 'FullControl' },
           { sid: SID_SYSTEM, type: 'Allow', inherited: false, rights: 'FullControl' },
         ],
+        sddl: `O:${USER}D:PAI(A;;FA;;;${USER})(A;;FA;;;SY)`,
+        aceCount: 2,
       }) + '\r\n',
     );
     expect(acl.owner).toBe(USER);
     expect(acl.protected).toBe(true);
     expect(acl.rules).toHaveLength(2);
+    expect(acl.aceCount).toBe(2);
   });
 
   it('accepts ConvertTo-Json flattening a single rule to an object, and null for none', () => {
     const one = parseGetAclJson(
-      `{"owner":"${USER}","protected":true,"rules":{"sid":"${USER}","type":"Allow","inherited":false}}`,
+      `{"owner":"${USER}","protected":true,"rules":{"sid":"${USER}","type":"Allow","inherited":false}${TAIL}}`,
     );
     expect(one.rules).toEqual([{ sid: USER, type: 'Allow', inherited: false }]);
-    expect(parseGetAclJson(`{"owner":"${USER}","protected":true,"rules":null}`).rules).toEqual([]);
+    expect(
+      parseGetAclJson(`{"owner":"${USER}","protected":true,"rules":null${TAIL}}`).rules,
+    ).toEqual([]);
   });
 
   it.each([
     ['not JSON', 'Get-Acl : Access is denied.'],
     ['empty', ''],
-    ['no owner', '{"protected":true,"rules":[]}'],
-    ['owner as a name', '{"owner":"DESKTOP\\\\ben","protected":true,"rules":[]}'],
-    ['protected missing', `{"owner":"${USER}","rules":[]}`],
+    ['no owner', `{"protected":true,"rules":[]${TAIL}}`],
+    ['owner as a name', `{"owner":"DESKTOP\\\\ben","protected":true,"rules":[]${TAIL}}`],
+    ['protected missing', `{"owner":"${USER}","rules":[]${TAIL}}`],
+    ['sddl missing', `{"owner":"${USER}","protected":true,"rules":[],"aceCount":0}`],
+    ['aceCount missing', `{"owner":"${USER}","protected":true,"rules":[],"sddl":"O:${USER}D:P"}`],
     [
       'rule with a name',
-      `{"owner":"${USER}","protected":true,"rules":[{"sid":"Everyone","type":"Allow","inherited":false}]}`,
+      `{"owner":"${USER}","protected":true,"rules":[{"sid":"Everyone","type":"Allow","inherited":false}]${TAIL}}`,
     ],
     [
       'unknown rule type',
-      `{"owner":"${USER}","protected":true,"rules":[{"sid":"${USER}","type":"Audit","inherited":false}]}`,
+      `{"owner":"${USER}","protected":true,"rules":[{"sid":"${USER}","type":"Audit","inherited":false}]${TAIL}}`,
     ],
   ])('throws on %s (callers fail closed)', (_name, out) => {
     expect(() => parseGetAclJson(out)).toThrow();
   });
 });
 
+describe('parseSddl / resolveSddlSid', () => {
+  it('reads owner, DACL flags and ACEs, skipping over conditional expressions', () => {
+    const p = parseSddl(
+      `O:${USER}G:DUD:PAI(A;OICI;FA;;;${USER})(XA;;FX;;;WD;(Member_of {SID(BA)} && (@User.x == "a;b)")))(A;ID;FA;;;SY)S:AI`,
+    );
+    expect(p.owner).toBe(USER);
+    expect(p.daclFlags).toBe('PAI');
+    expect(p.nullDacl).toBe(false);
+    expect(p.aces).toEqual([
+      { type: 'A', flags: 'OICI', sid: USER },
+      { type: 'XA', flags: '', sid: 'WD' },
+      { type: 'A', flags: 'ID', sid: 'SY' },
+    ]);
+  });
+
+  it('finds the DACL after alias owners and groups that contain a D', () => {
+    expect(parseSddl('O:DDG:DDD:P(A;;FA;;;DD)')).toMatchObject({
+      owner: 'DD',
+      daclFlags: 'P',
+      aces: [{ type: 'A', sid: 'DD' }],
+    });
+    expect(parseSddl('O:BAD:NO_ACCESS_CONTROL')).toMatchObject({ owner: 'BA', nullDacl: true });
+  });
+
+  it.each([
+    ['no DACL', `O:${USER}`],
+    ['unterminated ACE', `O:${USER}D:P(A;;FA;;;${USER}`],
+    ['too few fields', `O:${USER}D:P(A;;FA;${USER})`],
+    ['empty trustee', `O:${USER}D:P(A;;FA;;;)`],
+    ['junk after the DACL', `O:${USER}D:P(A;;FA;;;SY)junk`],
+    ['unbalanced', `O:${USER})D:P`],
+  ])('throws on %s', (_name, sddl) => {
+    expect(() => parseSddl(sddl)).toThrow();
+  });
+
+  it('resolves SIDs, fixed aliases and domain-relative aliases; refuses unknown aliases', () => {
+    expect(resolveSddlSid(USER.toLowerCase(), USER)).toBe(USER);
+    expect(resolveSddlSid('SY', USER)).toBe(SID_SYSTEM);
+    expect(resolveSddlSid('ba', USER)).toBe(SID_ADMINISTRATORS);
+    expect(resolveSddlSid('WD', USER)).toBe(EVERYONE);
+    expect(resolveSddlSid('LA', USER)).toBe('S-1-5-21-1004336348-1177238915-682003330-500');
+    expect(() => resolveSddlSid('QQ', USER)).toThrow(/unknown trustee alias/);
+  });
+});
+
 describe('evaluateWinAcl', () => {
-  const ownerOnly = (): WinAcl => ({
+  const ownerOnly = (): BaseAcl => ({
     owner: USER,
     protected: true,
     rules: [
@@ -130,22 +200,26 @@ describe('evaluateWinAcl', () => {
     ],
   });
   const opts = { path: 'C:\\Users\\ben\\.conductor\\machine.json', userSid: USER };
+  // What Windows prints for icacls' owner-only DACL: aliases for SYSTEM and Administrators.
+  const realSddl = `O:${USER}D:PAI(A;;FA;;;${USER})(A;;FA;;;SY)(A;;FA;;;BA)`;
 
-  it('passes an owner-only ACL (SIDs compared case-insensitively)', () => {
-    expect(evaluateWinAcl(ownerOnly(), opts)).toBeNull();
-    expect(evaluateWinAcl({ ...ownerOnly(), owner: USER.toLowerCase() }, opts)).toBeNull();
-    expect(evaluateWinAcl({ ...ownerOnly(), rules: [] }, opts)).toBeNull();
+  it('passes an owner-only ACL (SIDs compared case-insensitively, aliases resolved)', () => {
+    expect(evaluateWinAcl(mk(ownerOnly()), opts)).toBeNull();
+    expect(evaluateWinAcl({ ...mk(ownerOnly()), sddl: realSddl }, opts)).toBeNull();
+    expect(evaluateWinAcl(mk({ ...ownerOnly(), owner: USER.toLowerCase() }), opts)).toBeNull();
+    expect(evaluateWinAcl(mk({ ...ownerOnly(), rules: [] }), opts)).toBeNull();
   });
 
   it('refuses a file owned by another SID, naming it', () => {
-    const r = evaluateWinAcl({ ...ownerOnly(), owner: SID_ADMINISTRATORS }, opts);
+    const r = evaluateWinAcl(mk({ ...ownerOnly(), owner: SID_ADMINISTRATORS }), opts);
     expect(r?.reason).toBe('foreign-owner');
+    expect(r?.owner).toBe(SID_ADMINISTRATORS);
     expect(r?.message).toBe(
       `${opts.path} is owned by another user (${SID_ADMINISTRATORS}); refusing to use it`,
     );
     // Even when only the owner is being checked.
     expect(
-      evaluateWinAcl({ ...ownerOnly(), owner: SID_SYSTEM }, { ...opts, checkAccess: false })
+      evaluateWinAcl(mk({ ...ownerOnly(), owner: SID_SYSTEM }), { ...opts, checkAccess: false })
         ?.reason,
     ).toBe('foreign-owner');
   });
@@ -154,7 +228,7 @@ describe('evaluateWinAcl', () => {
     for (const sid of [EVERYONE, USERS, 'S-1-5-11', 'S-1-5-21-1-2-3-1002']) {
       const acl = ownerOnly();
       acl.rules.push({ sid, type: 'Allow', inherited: false });
-      const r = evaluateWinAcl(acl, opts);
+      const r = evaluateWinAcl(mk(acl), opts);
       expect(r?.reason).toBe('too-open');
       expect(r?.message).toContain(`is accessible to other users (${sid})`);
       expect(r?.message).toContain(`icacls "${opts.path}" /inheritance:r /grant:r *${USER}:F`);
@@ -164,25 +238,83 @@ describe('evaluateWinAcl', () => {
   it('ignores deny-ACEs for other SIDs', () => {
     const acl = ownerOnly();
     acl.rules.push({ sid: EVERYONE, type: 'Deny', inherited: false });
-    expect(evaluateWinAcl(acl, opts)).toBeNull();
+    expect(evaluateWinAcl(mk(acl), opts)).toBeNull();
   });
 
-  it('refuses inheritance, whether flagged on the ACL or on a rule', () => {
-    expect(evaluateWinAcl({ ...ownerOnly(), protected: false }, opts)?.reason).toBe('inherited');
+  it('refuses inheritance, whether flagged on the ACL, on a rule or on an SDDL ACE', () => {
+    expect(evaluateWinAcl(mk({ ...ownerOnly(), protected: false }), opts)?.reason).toBe(
+      'inherited',
+    );
     const acl = ownerOnly();
     acl.rules[0] = { sid: USER, type: 'Allow', inherited: true };
-    const r = evaluateWinAcl(acl, opts);
+    const r = evaluateWinAcl(mk(acl), opts);
     expect(r?.reason).toBe('inherited');
     expect(r?.message).toContain('inherits permissions from its parent folder');
+    const sddlOnly = {
+      ...mk(ownerOnly()),
+      sddl: realSddl.replace('(A;;FA;;;SY)', '(A;ID;FA;;;SY)'),
+    };
+    expect(evaluateWinAcl(sddlOnly, opts)?.reason).toBe('inherited');
   });
 
   it('checkAccess: false checks only the owner', () => {
-    const acl: WinAcl = {
+    const acl = mk({
       owner: USER,
       protected: false,
       rules: [{ sid: EVERYONE, type: 'Allow', inherited: true }],
-    };
+    });
     expect(evaluateWinAcl(acl, { ...opts, checkAccess: false })).toBeNull();
+  });
+
+  // Conditional / callback / object ACEs are dropped by GetAccessRules: the rules look owner-only.
+  it.each([
+    ['XA', `(XA;;FA;;;WD;(@User.Department == "Eng"))`],
+    ['XD', `(XD;;FA;;;WD;(@User.x == 1))`],
+    ['ZA', `(ZA;;FA;;;WD;;(@Resource.x == 1))`],
+    ['OA', `(OA;;FA;bf967aba-0de6-11d0-a285-00aa003049e2;;WD)`],
+    ['XU', `(XU;;FA;;;WD;(@User.x == 1))`],
+  ])('refuses a %s ACE the rules do not show', (type, ace) => {
+    const base = mk(ownerOnly());
+    for (const aceCount of [3, 4]) {
+      const r = evaluateWinAcl({ ...base, sddl: realSddl + ace, aceCount }, opts);
+      expect(r?.reason).toBe('too-open');
+      expect(r?.message).toContain(`can't be verified (${type}`);
+    }
+  });
+
+  it('refuses a NULL DACL, from the SDDL or the raw count', () => {
+    const base = mk({ ...ownerOnly(), rules: [] });
+    expect(evaluateWinAcl({ ...base, sddl: `O:${USER}D:NO_ACCESS_CONTROL` }, opts)?.reason).toBe(
+      'too-open',
+    );
+    expect(evaluateWinAcl({ ...base, aceCount: -1 }, opts)?.reason).toBe('too-open');
+  });
+
+  it('treats SDDL / raw count / rules disagreement as unreadable', () => {
+    const base = mk(ownerOnly());
+    const cases: WinAcl[] = [
+      // The raw DACL has an ACE the rules don't.
+      { ...base, aceCount: 4 },
+      // The SDDL has an Everyone allow the rules don't (same counts).
+      { ...base, sddl: realSddl.replace('(A;;FA;;;BA)', '(A;;FA;;;WD)') },
+      // Allow vs deny disagree.
+      { ...base, sddl: realSddl.replace('(A;;FA;;;BA)', '(D;;FA;;;BA)') },
+      // Owner disagrees.
+      { ...base, sddl: realSddl.replace(`O:${USER}`, 'O:BA') },
+      // No owner in the SDDL.
+      { ...base, sddl: realSddl.replace(`O:${USER}`, '') },
+      // Protection flag disagrees.
+      { ...base, sddl: realSddl.replace('D:PAI', 'D:AI') },
+      // Unknown alias.
+      { ...base, sddl: realSddl.replace('(A;;FA;;;BA)', '(A;;FA;;;QQ)') },
+      // Malformed SDDL.
+      { ...base, sddl: 'garbage' },
+    ];
+    for (const acl of cases) {
+      const r = evaluateWinAcl(acl, opts);
+      expect(r?.reason, acl.sddl).toBe('unreadable');
+      expect(r?.message).toContain('refusing to use it');
+    }
   });
 });
 
@@ -207,6 +339,8 @@ describe('icaclsRestrictArgs / GET_ACL_SCRIPT', () => {
   it('reads the path from the environment, never from the script text', () => {
     expect(GET_ACL_SCRIPT).toContain('-LiteralPath $env:CONDUCTOR_ACL_PATH');
     expect(GET_ACL_SCRIPT).toContain('SecurityIdentifier');
+    expect(GET_ACL_SCRIPT).toContain('RawSecurityDescriptor');
+    expect(GET_ACL_SCRIPT).toContain('GetSecurityDescriptorSddlForm');
   });
 });
 
@@ -311,6 +445,9 @@ describe.skipIf(!WIN)('win32', () => {
       encoding: 'utf8',
       windowsHide: true,
     });
+
+  // %TEMP% is not owner-only, so make the test dir private first (it exists: nothing is created).
+  beforeEach(() => mkdirPrivate(tmp));
 
   it('currentUserSid is a user SID', () => {
     expect(currentUserSid()).toMatch(/^S-1-5-21-\d+-\d+-\d+-\d+$/);
@@ -422,5 +559,65 @@ describe.skipIf(!WIN)('win32', () => {
     const f = join(d, "it's.json");
     writePrivateFile(f, 'x');
     expect(() => assertOwnerOnly(f, { kind: 'file' })).not.toThrow();
+  });
+
+  describe('no inherited-permission window', () => {
+    let plain: string;
+    beforeEach(() => {
+      plain = mkdtempSync(join(tmpdir(), 'conductor-acl-plain-'));
+    });
+    afterEach(() => rmSync(plain, { recursive: true, force: true }));
+
+    it('writePrivateFile refuses a folder that is not private, creating nothing', () => {
+      const p = join(plain, 'machine.json');
+      const r = refusal(() => writePrivateFile(p, 'secret'));
+      // Inheriting; or owned by Administrators when the runner is elevated.
+      expect(['inherited', 'foreign-owner']).toContain(r.reason);
+      expect(r.message).toContain(`refusing to write ${p}: its folder is not private`);
+      expect(readdirSync(plain)).toEqual([]);
+    });
+
+    it('mkdirPrivate refuses to create under a non-private ancestor, creating nothing', () => {
+      const d = join(plain, 'a', 'b');
+      const r = refusal(() => mkdirPrivate(d));
+      expect(['inherited', 'foreign-owner']).toContain(r.reason);
+      expect(r.message).toContain(`refusing to create ${d}: ${plain} is not private`);
+      expect(existsSync(join(plain, 'a'))).toBe(false);
+    });
+
+    it('mkdirPrivate creates directly under %LOCALAPPDATA%, every new level owner-only', () => {
+      const base = process.env.LOCALAPPDATA;
+      expect(base).toBeTruthy();
+      const top = join(base ?? '', `conductor-acl-test-${process.pid}-${Date.now()}`);
+      try {
+        const d = join(top, 'private', 'push-1');
+        mkdirPrivate(d);
+        for (const level of [top, join(top, 'private'), d]) {
+          expect(() => assertOwnerOnly(level, { kind: 'dir' })).not.toThrow();
+        }
+        writePrivateFile(join(d, 'cred.json'), 'x');
+      } finally {
+        rmSync(top, { recursive: true, force: true });
+      }
+    });
+
+    it('mkdirPrivate creates directly under the profile dir', () => {
+      const top = join(homedir(), `.conductor-acl-test-${process.pid}-${Date.now()}`);
+      try {
+        mkdirPrivate(top);
+        expect(() => assertOwnerOnly(top, { kind: 'dir' })).not.toThrow();
+      } finally {
+        rmSync(top, { recursive: true, force: true });
+      }
+    });
+
+    it('a real owner-only ACL has matching SDDL, raw ACE count and rules', () => {
+      const f = join(tmp, 'x.json');
+      writePrivateFile(f, 'x');
+      const acl = readWinAcl(f);
+      expect(acl.aceCount).toBe(3);
+      expect(acl.rules).toHaveLength(3);
+      expect(parseSddl(acl.sddl).aces.map((a) => a.type)).toEqual(['A', 'A', 'A']);
+    });
   });
 });

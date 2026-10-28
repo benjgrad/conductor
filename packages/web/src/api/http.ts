@@ -15,6 +15,8 @@ import {
   MeResponseSchema,
   OkResponseSchema,
   OutputChunkSchema,
+  PermissionRequestDtoSchema,
+  PermissionRequestListResponseSchema,
   ReopenSessionResponseSchema,
   ResetLinkCreatedSchema,
   SessionDetailSchema,
@@ -31,6 +33,7 @@ import {
   type LoginRequest,
   type OutputChunk,
   type PasswordChangeRequest,
+  type PermissionDecisionRequest,
   type RenameMachineRequest,
   type ReopenSessionRequest,
   type ResetRequest,
@@ -343,6 +346,21 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
         OkResponseSchema,
         'POST',
         API_PATHS.sessionFreshConversation(encodeURIComponent(sessionId)),
+        req,
+      ),
+
+    listPermissionRequests: (sessionId: string) =>
+      request(
+        PermissionRequestListResponseSchema,
+        'GET',
+        API_PATHS.sessionPermissionRequests(encodeURIComponent(sessionId)),
+      ),
+
+    decidePermission: (requestId: string, req: PermissionDecisionRequest) =>
+      request(
+        PermissionRequestDtoSchema,
+        'POST',
+        API_PATHS.permissionDecision(encodeURIComponent(requestId)),
         req,
       ),
 

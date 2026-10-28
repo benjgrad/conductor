@@ -38,6 +38,8 @@ export class AclError extends Error {
   constructor(
     readonly reason: AclRefusal,
     message: string,
+    /** win32 'foreign-owner': the owner SID found. */
+    readonly owner?: string,
   ) {
     super(message);
     this.name = 'AclError';
@@ -116,12 +118,23 @@ export function writePrivateFile(path: string, data: string | Uint8Array): void 
  */
 export function mkdirPrivate(path: string): void {
   mkdirSync(path, { recursive: true, mode: 0o700 });
-  // Type and owner first: chmod follows symlinks, and a foreign dir must not be touched.
-  assertOwnerOnly(path, { kind: 'dir', checkAccess: false });
   if (!isWin32()) {
+    // Type and owner first: chmod follows symlinks, and a foreign dir must not be touched.
+    assertOwnerOnly(path, { kind: 'dir', checkAccess: false });
     chmodSync(path, 0o700);
     return;
   }
+  // Type and owner first, as on POSIX. An elevated admin's new dirs are owned by Administrators
+  // (the token's default owner), so that owner is accepted here only: Administrators already holds
+  // full control in the final DACL, restrictWin32 makes the user the owner, and the final check
+  // requires exactly that.
+  assertType(path, lstatSync(path), 'dir');
+  const pre = evaluateWinAcl(readWinAcl(path), {
+    path,
+    userSid: currentUserSid(),
+    checkAccess: false,
+  });
+  if (pre && !(pre.reason === 'foreign-owner' && pre.owner === SID_ADMINISTRATORS)) throw pre;
   restrictWin32(path, 'dir');
   assertWin32(path, { kind: 'dir' });
 }
@@ -176,9 +189,18 @@ function assertWin32(path: string, opts: AssertOwnerOnlyOptions): void {
   // Node's lstat reports junctions as symlinks too.
   assertType(path, lstatSync(path), opts.kind);
   const userSid = currentUserSid();
-  let acl: WinAcl;
+  const refusal = evaluateWinAcl(readWinAcl(path), {
+    path,
+    userSid,
+    checkAccess: opts.checkAccess ?? true,
+  });
+  if (refusal) throw refusal;
+}
+
+/** win32: the owner and DACL of `path` as SIDs (Get-Acl). Throws AclError 'unreadable'. */
+export function readWinAcl(path: string): WinAcl {
   try {
-    acl = parseGetAclJson(
+    return parseGetAclJson(
       run(system32('WindowsPowerShell', 'v1.0', 'powershell.exe'), POWERSHELL_ARGS, {
         CONDUCTOR_ACL_PATH: path,
       }),
@@ -189,8 +211,6 @@ function assertWin32(path: string, opts: AssertOwnerOnlyOptions): void {
       `cannot read the permissions of ${path} (${errText(e)}); refusing to use it`,
     );
   }
-  const refusal = evaluateWinAcl(acl, { path, userSid, checkAccess: opts.checkAccess ?? true });
-  if (refusal) throw refusal;
 }
 
 function restrictWin32(path: string, kind: AclKind): void {
@@ -318,6 +338,7 @@ export function evaluateWinAcl(
     return new AclError(
       'foreign-owner',
       `${path} is owned by another user (${acl.owner}); refusing to use it`,
+      acl.owner.toUpperCase(),
     );
   }
   if (opts.checkAccess === false) return null;

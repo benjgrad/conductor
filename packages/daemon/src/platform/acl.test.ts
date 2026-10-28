@@ -23,6 +23,7 @@ import {
   mkdirPrivate,
   parseGetAclJson,
   parseWhoamiCsv,
+  readWinAcl,
   SID_ADMINISTRATORS,
   SID_SYSTEM,
   writePrivateFile,
@@ -331,6 +332,11 @@ describe.skipIf(!WIN)('win32', () => {
   it('refuses a plain (inheriting) file', () => {
     const p = join(tmp, 'plain.json');
     writeFileSync(p, '{}');
+    // Owned by Administrators when the test runs elevated (the Actions runner), else by the user.
+    expect(['inherited', 'foreign-owner']).toContain(
+      refusal(() => assertOwnerOnly(p, { kind: 'file' })).reason,
+    );
+    icacls(p, '/setowner', `*${currentUserSid()}`);
     expect(refusal(() => assertOwnerOnly(p, { kind: 'file' })).reason).toBe('inherited');
   });
 
@@ -364,16 +370,36 @@ describe.skipIf(!WIN)('win32', () => {
     expect(r.message).toContain(`(${SID_SYSTEM})`);
   });
 
+  it('mkdirPrivate refuses an existing dir owned by another SID (when the runner may set one)', (ctx) => {
+    const d = join(tmp, 'foreign');
+    mkdirSync(d);
+    try {
+      icacls(d, '/setowner', `*${SID_SYSTEM}`);
+    } catch {
+      ctx.skip();
+    }
+    const r = refusal(() => mkdirPrivate(d));
+    expect(r.reason).toBe('foreign-owner');
+    expect(r.owner).toBe(SID_SYSTEM);
+  });
+
   it('mkdirPrivate makes an owner-only dir whose new children inherit only those grants', () => {
     const d = join(tmp, 'private', 'push-1');
     mkdirPrivate(d);
     expect(() => assertOwnerOnly(d, { kind: 'dir' })).not.toThrow();
-    // A child created inside inherits (so it is refused until restricted itself)...
+    // A child created inside inherits only user/SYSTEM/Administrators (and so is refused as
+    // inheriting until it is restricted itself).
     const child = join(d, 'child');
     writeFileSync(child, 'x');
-    expect(refusal(() => assertOwnerOnly(child, { kind: 'file' })).reason).toBe('inherited');
-    // ...but only user/SYSTEM/Administrators: the owner-only check passes.
-    expect(() => assertOwnerOnly(child, { kind: 'file', checkAccess: false })).not.toThrow();
+    const acl = readWinAcl(child);
+    expect(acl.rules.length).toBeGreaterThan(0);
+    for (const r of acl.rules) {
+      expect(r.inherited).toBe(true);
+      expect([currentUserSid(), SID_SYSTEM, SID_ADMINISTRATORS]).toContain(r.sid.toUpperCase());
+    }
+    expect(['inherited', 'foreign-owner']).toContain(
+      refusal(() => assertOwnerOnly(child, { kind: 'file' })).reason,
+    );
     // writePrivateFile inside it passes.
     const f = join(d, 'cred.json');
     writePrivateFile(f, 'x');

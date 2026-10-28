@@ -146,9 +146,24 @@ export function escapeCmdArg(arg: string): string {
   return a.replace(CMD_META, '^$1').replace(CMD_META, '^$1');
 }
 
-/** The `/c` payload for running `file args…` through cmd.exe. Pure. */
+/** cmd.exe's command-line limit (characters), `/d /v:off /s /c "…"` included. */
+export const CMD_MAX_LINE = 8191;
+
+/**
+ * The `/c` payload for running `file args…` through cmd.exe. Pure. Throws ERR_CMD_UNSAFE_ARG when
+ * the whole cmd.exe line would exceed CMD_MAX_LINE, rather than let cmd fail with a generic error
+ * (TD-190).
+ */
 export function buildCmdLine(file: string, args: readonly string[]): string {
-  return [escapeCmdCommand(win32.normalize(file)), ...args.map(escapeCmdArg)].join(' ');
+  const line = [escapeCmdCommand(win32.normalize(file)), ...args.map(escapeCmdArg)].join(' ');
+  // + `cmd.exe /d /v:off /s /c "` and the closing quote.
+  if (line.length + 'cmd.exe /d /v:off /s /c ""'.length > CMD_MAX_LINE) {
+    throw Object.assign(
+      new Error(`spawnCli: the command line for ${file} is over ${CMD_MAX_LINE} characters`),
+      { code: 'ERR_CMD_UNSAFE_ARG' },
+    );
+  }
+  return line;
 }
 
 /** An ENOENT shaped like the one `spawn` reports for a missing program. */

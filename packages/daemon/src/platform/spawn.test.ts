@@ -138,6 +138,17 @@ function cmdPass(line: string): string {
   return out;
 }
 
+describe('buildCmdLine length guard (TD-190)', () => {
+  it('refuses a cmd.exe line over 8191 characters with ERR_CMD_UNSAFE_ARG', () => {
+    expect(() => buildCmdLine('C:\\x\\a.cmd', ['a'.repeat(9_000)])).toThrow(
+      expect.objectContaining({ code: 'ERR_CMD_UNSAFE_ARG' }),
+    );
+    // Quotes double in size once escaped: 2,000 of them is over the limit too.
+    expect(() => buildCmdLine('C:\\x\\a.cmd', ['"'.repeat(2_000)])).toThrow(/over 8191/);
+    expect(buildCmdLine('C:\\x\\a.cmd', ['a'.repeat(7_000)])).toContain('a'.repeat(7_000));
+  });
+});
+
 describe('buildCmdLine round trip (cmd model + CommandLineToArgvW)', () => {
   it('delivers every nasty arg intact through cmd /c and a %* batch shim', () => {
     const file = 'C:\\Users\\b\\AppData\\Roaming\\npm\\claude.cmd';

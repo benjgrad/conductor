@@ -82,9 +82,9 @@ export const TOOL_ALIASES = {
    * interpreters or general runners (node/npx/`pnpm exec`/`pnpm dlx`/cat): `pnpm exec` is allowed
    * only for vitest and prettier, and `pnpm install` / `pnpm i` are exact (no `--` flags, no
    * `pnpm add`). TD-019: `npm run`/`pnpm run`/the installs still execute repo-defined code the
-   * agent can edit (scripts, lifecycle hooks, vitest/prettier config files), and `chmod +x` makes
-   * any file it wrote executable, so this is not a security boundary; that needs the sandbox
-   * (U-004).
+   * agent can edit (scripts, lifecycle hooks, vitest/prettier config files), and `chmod +x:*` is a
+   * prefix rule that can make any file executable, in or outside the worktree (TD-171), so this is
+   * not a security boundary; that needs the sandbox (U-004).
    */
   bash: {
     builtin: ['Bash'],
@@ -99,6 +99,7 @@ export const TOOL_ALIASES = {
       'Bash(pnpm i)',
       'Bash(pnpm exec vitest:*)',
       'Bash(pnpm exec prettier:*)',
+      // TD-171: a prefix rule, so it also matches `-R`, absolute paths and `--reference=`.
       'Bash(chmod +x:*)',
     ],
     deny: [],

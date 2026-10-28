@@ -1015,6 +1015,7 @@ export class Daemon {
           held = { sha: want, dir: fresh.dir, token };
           this.checkouts.set(sid, held);
           mine = held;
+          // TD-173: the missing-manager guards here are unit-tested only, not at daemon level.
           const setup = detectSetup(held.dir, co.setup);
           if (setup !== null) {
             const missing = missingManager(setup);

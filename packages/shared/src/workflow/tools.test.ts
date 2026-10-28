@@ -74,7 +74,8 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
     ]);
     // Installs are exact: no `pnpm install <pkg>` / `pnpm add`, no flags.
     expect(bash.some((r) => /^Bash\(pnpm (install|i|add)[: ]/.test(r))).toBe(false);
-    // chmod only adds the execute bit (`chmod 777`, `chmod -R` are not pre-approved).
+    // Only the `+x` prefix rule (`chmod 777` is not pre-approved). TD-171: the prefix still
+    // matches `chmod +x -R …`, absolute paths and `--reference=`.
     expect(bash.filter((r) => r.startsWith('Bash(chmod'))).toEqual(['Bash(chmod +x:*)']);
     expect(p.builtin).toContain('Bash');
   });

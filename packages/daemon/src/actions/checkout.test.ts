@@ -64,7 +64,7 @@ beforeEach(() => {
   commit(worktree, 'health');
   head = git(worktree, 'rev-parse', 'HEAD').trim();
   root = join(tmp, 'daemon-root');
-  mkdirSync(root);
+  mkdirPrivate(root); // as the daemon does at start; <root>/private needs a private parent
 });
 
 afterEach(() => rmSync(tmp, { recursive: true, force: true }));

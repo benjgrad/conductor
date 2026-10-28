@@ -11,15 +11,14 @@ import { startOutcomeServer, type OutcomeServer } from './claude/outcome-server.
 import { loadConfig } from './config.js';
 import { Daemon } from './daemon.js';
 import { readProcInfo } from './orphan.js';
+import { mkdirPrivate, signalTree } from './platform/index.js';
+import { DaemonStore } from './store.js';
 import { FakeOrchestrator } from './test-support/fake-orchestrator.js';
-
-// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
-// the task that unskips them.
-const onWin32 = process.platform === 'win32';
 
 // BUG-1 FR-2: a kill for a parked agent process (ADR-0007: alive, idle, blocked reading stdin
 // for an answer) ends it and is acked. The real CLI driver against the process-boundary fake
-// (test/fixtures/fake-claude.mjs), so a real process group is signalled.
+// (test/fixtures/fake-claude.mjs), so a real process group is signalled (win32: a real process
+// tree, taskkill /T). The fake runs as `node fake-claude.mjs …` (U-108: claude must be an .exe).
 
 const FAKE = fileURLToPath(new URL('../test/fixtures/fake-claude.mjs', import.meta.url));
 const TICKET = '0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2';
@@ -39,6 +38,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   tmp = mkdtempSync(join(tmpdir(), 'conductor-daemon-kill-'));
+  mkdirPrivate(tmp); // win32: the daemon makes its root private, which needs a private parent
   repo = join(tmp, 'origin');
   mkdirSync(repo);
   const g = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'pipe' });
@@ -74,7 +74,8 @@ function makeDaemon(opts: { claudeBin?: string; log?: (m: string) => void } = {}
   const d = new Daemon({
     config,
     driver: createCliDriver({
-      claudeBin: FAKE,
+      claudeBin: process.execPath,
+      claudePrefixArgs: [FAKE],
       outcomeServer: server,
       killGraceMs: 2_000,
       extraStateEnv: /^FAKE_CLAUDE_/,
@@ -124,8 +125,7 @@ const alive = (pid: number) => {
   }
 };
 
-// MW-T06: kills a real POSIX process group
-describe.skipIf(onWin32)('BUG-1 FR-2: kill of a parked process (real process group)', () => {
+describe('BUG-1 FR-2: kill of a parked process (real process group)', () => {
   it.each([
     ['aimed at its start_session', (cid: string) => cid],
     ['null target at its fencing token', () => null],
@@ -164,37 +164,59 @@ describe.skipIf(onWin32)('BUG-1 FR-2: kill of a parked process (real process gro
   });
 });
 
-// MW-T06: kills a real POSIX process group
-describe.skipIf(onWin32)(
-  'BUG-1b: the startup sweep against a real (fake-claude) process group',
-  () => {
-    it('FR-1: the start time is persisted at spawn; a restarted daemon kills its orphan', async () => {
-      const d1 = makeDaemon();
-      await orch.until(() => orch.ofType('request_work')[0]);
-      const sid = randomUUID();
-      orch.send(parkedStart(sid));
-      await orch.until(() => orch.events('ask_user')[0]);
-      const agent = d1.store.session(sid)!.agent!;
-      const pid = agent.pid!;
-      try {
-        expect(agent.startedAt).toBe(readProcInfo(pid)!.startedAt);
-        expect(Math.abs(agent.startedAt! - Date.now())).toBeLessThan(10_000);
-        // The daemon dies with the process still running (a detached `node fake-claude.mjs
-        // --session-id <id> …`, the shebang-launcher form of argv).
-        d1.stop({ killSessions: false });
-        daemon = null;
-        const logs: string[] = [];
-        makeDaemon({ claudeBin: FAKE, log: (m) => logs.push(m) });
-        await orch.until(() => !alive(pid) || undefined, 5_000);
-        expect(logs).toContain(`startup: killed orphaned claude process ${pid} of session ${sid}`);
-        await orch.until(() => orch.eventData('exit').find((e) => e.signal === 'daemon_restart'));
-      } finally {
-        try {
-          process.kill(-pid, 'SIGKILL'); // the fake's own group, started by this test
-        } catch {
-          // gone
-        }
-      }
-    });
-  },
-);
+describe('BUG-1b: the startup sweep against a real (fake-claude) process group', () => {
+  it('FR-1: the start time is persisted at spawn; a restarted daemon kills its orphan', async () => {
+    const d1 = makeDaemon();
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    orch.send(parkedStart(sid));
+    await orch.until(() => orch.events('ask_user')[0]);
+    const agent = d1.store.session(sid)!.agent!;
+    const pid = agent.pid!;
+    try {
+      expect(agent.startedAt).toBe(readProcInfo(pid)!.startedAt);
+      expect(Math.abs(agent.startedAt! - Date.now())).toBeLessThan(10_000);
+      // The daemon dies with the process still running (a detached `node fake-claude.mjs
+      // --session-id <id> …`, the shebang-launcher form of argv).
+      d1.stop({ killSessions: false });
+      daemon = null;
+      const logs: string[] = [];
+      makeDaemon({ claudeBin: FAKE, log: (m) => logs.push(m) });
+      await orch.until(() => !alive(pid) || undefined, 5_000);
+      expect(logs).toContain(`startup: killed orphaned claude process ${pid} of session ${sid}`);
+      await orch.until(() => orch.eventData('exit').find((e) => e.signal === 'daemon_restart'));
+    } finally {
+      signalTree(pid, 'SIGKILL'); // the fake's own group / tree, started by this test
+    }
+  });
+
+  it('FR-2 (b): a recorded pid whose start time differs (reused) is left alone', async () => {
+    const d1 = makeDaemon();
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    orch.send(parkedStart(sid));
+    await orch.until(() => orch.events('ask_user')[0]);
+    const pid = d1.store.session(sid)!.agent!.pid!;
+    try {
+      d1.stop({ killSessions: false });
+      daemon = null;
+      // As if the pid now belonged to another process: same pid, another start time.
+      const store = DaemonStore.forRoot(join(tmp, 'root'));
+      const s = store.session(sid)!;
+      store.putSession(sid, {
+        ...s,
+        agent: { ...s.agent!, startedAt: s.agent!.startedAt! - 60_000 },
+      });
+      const logs: string[] = [];
+      makeDaemon({ claudeBin: FAKE, log: (m) => logs.push(m) });
+      await orch.until(() =>
+        logs.some((l) => l.includes(`pid ${pid} alive but not ours (start time differs`))
+          ? true
+          : undefined,
+      );
+      expect(alive(pid)).toBe(true);
+    } finally {
+      signalTree(pid, 'SIGKILL');
+    }
+  });
+});

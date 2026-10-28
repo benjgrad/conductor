@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, isAbsolute, join } from 'node:path';
 import { cliVersionAtLeast, GH_MIN_VERSION, GITHUB_PR_URL_RE } from '@conductor/shared';
 import { cliVersionFrom } from '../inventory/version.js';
 import {
@@ -104,7 +104,7 @@ export function pushTarget(repo: string, policy: RepoPolicy): PushTarget {
   } catch (e) {
     throw new Error(e instanceof RepoNotAllowedError ? e.message : String(e), { cause: e });
   }
-  if (url.startsWith('/') || /^file:/i.test(url)) {
+  if (isAbsolute(url) || /^file:/i.test(url)) {
     if (policy.allowLocalRepos !== true) {
       throw new Error(`${repo} is a local path, not a GitHub repository`);
     }

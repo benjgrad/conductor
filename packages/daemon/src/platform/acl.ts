@@ -38,6 +38,12 @@ import { z } from 'zod';
 //   open/mkdir create the file/dir 0600/0700 themselves.
 // Every tool runs by absolute System32 path through execFile (argv array, no shell). The path is
 // passed to PowerShell in the environment, never spliced into the script.
+// Cost: each Get-Acl starts powershell.exe (~1 s). So a parent dir this process has already
+// verified owner-only is remembered (verifiedDirs) and not re-read for the next file or dir under
+// it: once owner-only, only the user, SYSTEM or Administrators hold WRITE_DAC to widen it again.
+// A level mkdirPrivate has just created itself skips the pre-check read (its owner can only be
+// the user, or Administrators for an elevated token, which the pre-check accepts anyway); the
+// final verify after icacls always runs.
 
 /** SYSTEM. */
 export const SID_SYSTEM = 'S-1-5-18';
@@ -122,7 +128,7 @@ export function writePrivateFile(path: string, data: string | Uint8Array): void 
   // private. Then: create it empty, restrict it, check it, and only then put the secret in it.
   const dir = dirname(resolve(path));
   try {
-    assertWin32(dir, { kind: 'dir' });
+    assertPrivateDirCached(dir);
   } catch (e) {
     if (!(e instanceof AclError)) throw e;
     throw new AclError(
@@ -167,7 +173,7 @@ export function mkdirPrivate(path: string): void {
   }
   if (missing.length > 0 && !isPerUserBase(ancestor)) {
     try {
-      assertWin32(ancestor, { kind: 'dir' });
+      assertPrivateDirCached(ancestor);
     } catch (e) {
       if (!(e instanceof AclError)) throw e;
       throw new AclError(
@@ -178,15 +184,34 @@ export function mkdirPrivate(path: string): void {
     }
   }
   for (const dir of missing) {
+    let created = true;
     try {
       mkdirSync(dir);
     } catch (e) {
       // Created concurrently: the owner check below decides whether it is ours.
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+      created = false;
     }
-    makeDirPrivateWin32(dir);
+    makeDirPrivateWin32(dir, created);
   }
-  if (missing.length === 0) makeDirPrivateWin32(resolve(path));
+  if (missing.length === 0) makeDirPrivateWin32(resolve(path), false);
+}
+
+/** Directories this process has verified owner-only (canonical, lower-cased); see the header. */
+const verifiedDirs = new Set<string>();
+
+function dirKey(dir: string): string {
+  return realpathSync.native(dir).toLowerCase();
+}
+
+/** assertWin32(dir, {kind: 'dir'}), skipped for a dir already verified by this process. */
+function assertPrivateDirCached(dir: string): void {
+  // lstat every time: a dir swapped for a junction or symlink is never trusted from the cache.
+  assertType(dir, lstatSync(dir), 'dir');
+  const key = dirKey(dir);
+  if (verifiedDirs.has(key)) return;
+  assertWin32(dir, { kind: 'dir' });
+  verifiedDirs.add(key);
 }
 
 /**
@@ -195,16 +220,19 @@ export function mkdirPrivate(path: string): void {
  * control in the final DACL, restrictWin32 makes the user the owner, and the final check requires
  * exactly that.
  */
-function makeDirPrivateWin32(dir: string): void {
+function makeDirPrivateWin32(dir: string, created: boolean): void {
   assertType(dir, lstatSync(dir), 'dir');
-  const pre = evaluateWinAcl(readWinAcl(dir), {
-    path: dir,
-    userSid: currentUserSid(),
-    checkAccess: false,
-  });
-  if (pre && !(pre.reason === 'foreign-owner' && pre.owner === SID_ADMINISTRATORS)) throw pre;
+  if (!created) {
+    const pre = evaluateWinAcl(readWinAcl(dir), {
+      path: dir,
+      userSid: currentUserSid(),
+      checkAccess: false,
+    });
+    if (pre && !(pre.reason === 'foreign-owner' && pre.owner === SID_ADMINISTRATORS)) throw pre;
+  }
   restrictWin32(dir, 'dir');
   assertWin32(dir, { kind: 'dir' });
+  verifiedDirs.add(dirKey(dir));
 }
 
 /** The user's profile dir or %LOCALAPPDATA% (per-user by default; see the header). */
@@ -709,5 +737,6 @@ function errText(e: unknown): string {
 
 /** Test hook: forget the cached SID. */
 export function resetAclCacheForTests(): void {
+  verifiedDirs.clear();
   cachedSid = undefined;
 }

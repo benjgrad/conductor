@@ -1,4 +1,4 @@
-import { execFile, type ChildProcess } from 'node:child_process';
+import { execFile, execFileSync, type ChildProcess } from 'node:child_process';
 import { system32 } from './spawn.js';
 
 // ADR-0024 §1–§2 (kill-tree.ts): end a child and everything it started.
@@ -100,4 +100,22 @@ export function killTree(
     },
     settled,
   };
+}
+
+/**
+ * Signal a whole tree now and say whether it was there: POSIX the process group (`kill(-pid)`, no
+ * per-pid fallback); win32 a synchronous `taskkill /T /F` (`sig` ignored), true when it exited 0.
+ * For a pid the caller has just proven is its own (the orphan sweep checks the start time first).
+ */
+export function signalTree(pid: number, sig: NodeJS.Signals): boolean {
+  if (process.platform !== 'win32') return signalGroup(pid, sig);
+  try {
+    execFileSync(system32('taskkill.exe'), taskkillArgs(pid), {
+      windowsHide: true,
+      stdio: 'ignore',
+    });
+    return true;
+  } catch {
+    return false; // not found (already gone) or access denied
+  }
 }

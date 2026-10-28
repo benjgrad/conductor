@@ -31,7 +31,7 @@ import type { CommandRunner, CreateCommandRunner } from './commands/runner.js';
 import { daemonVersion, machineFacts, type DaemonConfig } from './config.js';
 import { checkOurs, readProcInfo, type ProcInfo } from './orphan.js';
 import { PortPool, portEnv } from './ports.js';
-import { mkdirPrivate } from './platform/index.js';
+import { mkdirPrivate, signalTree } from './platform/index.js';
 import { DaemonStore, type AckRecord, type PersistedSession, type PortRange } from './store.js';
 import { liveResources, type SysInfo } from './sysinfo.js';
 import { buildAppendSystemPrompt } from './system-prompt.js';
@@ -1322,14 +1322,8 @@ export class Daemon {
       }
       return true;
     };
-    const signalGroup = (sig: NodeJS.Signals): boolean => {
-      try {
-        process.kill(-pid, sig);
-        return true;
-      } catch {
-        return false; // ESRCH: the group is gone
-      }
-    };
+    // POSIX the process group (ESRCH: gone); win32 taskkill /T (TD-187).
+    const signalGroup = (sig: NodeJS.Signals): boolean => signalTree(pid, sig);
     const alive = liveness();
     if (alive === null) return;
     if (!alive) return notOurs('not signalable');

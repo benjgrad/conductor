@@ -1344,7 +1344,8 @@ describe('daemon core: BUG-1 no process outlives its session', () => {
       return s;
     };
     const d = makeDaemon(driver, {
-      procInfo: (pid) => (pid === 4242 ? { startedAt: 1_700_000_000_000, command: '' } : null),
+      procInfo: (pid) =>
+        pid === 4242 ? { startedAt: 1_700_000_000_000, command: '', argv: [] } : null,
     });
     await orch.until(() => orch.ofType('request_work')[0]);
     const sid = randomUUID();
@@ -1387,7 +1388,9 @@ describe('daemon core: BUG-1 no process outlives its session', () => {
 
 // BUG-1b: harmless stand-ins (`sh -c 'sleep 300 & …; wait'`, each the leader of its own process
 // group) with a crafted argv0/argv at the stored pid. Only pids this block spawned are signalled.
-// MW-T06: orphan sweep reads ps and kills process groups
+// POSIX-only: the stand-ins rely on argv0 spoofing of /bin/sh and `$!` pids (MSYS pids under Git
+// Bash). checkOurs itself is OS-agnostic; win32 is covered against a real fake-claude process in
+// daemon.kill.test.ts (kill ours, spare a reused pid).
 describe.skipIf(onWin32)(
   'daemon core: BUG-1b orphan sweep only kills provably-ours processes',
   () => {

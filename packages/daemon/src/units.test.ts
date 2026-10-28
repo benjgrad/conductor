@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadConfig, type MachineFacts } from './config.js';
 import { PortPool, PortPoolExhaustedError, portEnv } from './ports.js';
@@ -15,7 +15,7 @@ describe('loadConfig', () => {
   it('defaults: localhost orchestrator on CONDUCTOR_PORT, 25 % owner reserve, port pool', () => {
     const c = loadConfig({}, facts);
     expect(c.orchestratorUrl).toBe('ws://127.0.0.1:7400/ws/daemon');
-    expect(c.rootDir).toBe(join('/home/me', '.conductor'));
+    expect(c.rootDir).toBe(resolve('/home/me', '.conductor'));
     expect(c.machineId).toBe('box');
     expect(c.budgetCpu).toBe(6);
     expect(c.budgetMemMb).toBe(12288);

@@ -6,9 +6,9 @@ export {
   type CliSpawnOptions,
   type CliExecSyncOptions,
 } from './spawn.js';
-export { killTree, type KillTreeOptions, type KillTreeHandle } from './kill-tree.js';
+export { killTree, signalTree, type KillTreeOptions, type KillTreeHandle } from './kill-tree.js';
 export { workflowShell, type WorkflowShell } from './shell.js';
-export { readProcInfo, type ProcInfo } from './procinfo.js';
+export { exeName, readProcInfo, sameExecutable, type ProcInfo } from './procinfo.js';
 export {
   writePrivateFile,
   mkdirPrivate,

@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { checkOurs, parseLstart, readProcInfo } from './orphan.js';
 
-// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
-// the task that unskips them.
-const onWin32 = process.platform === 'win32';
-
 // BUG-1b FR-2: the matching rules, without processes (daemon.test.ts probes real stand-ins).
 
 const ID = '3c1f7a52-2b9e-4d61-8f04-6e5d4c3b2a19';
@@ -23,8 +19,7 @@ describe('parseLstart', () => {
     expect(parseLstart('Tue Foo 27 10:11:12 2026')).toBeNull();
   });
 
-  // MW-T06: readProcInfo uses ps
-  it.skipIf(onWin32)('readProcInfo reads this process (read-only) and null for no such pid', () => {
+  it('readProcInfo reads this process (read-only) and null for no such pid', () => {
     const me = readProcInfo(process.pid);
     expect(me).not.toBeNull();
     expect(Math.abs(me!.startedAt - (Date.now() - process.uptime() * 1000))).toBeLessThan(5_000);

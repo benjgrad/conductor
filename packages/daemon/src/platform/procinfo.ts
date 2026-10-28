@@ -1,13 +1,13 @@
 import { execFileSync } from 'node:child_process';
 import { system32 } from './spawn.js';
+import { posix as posixPath, win32 as win32Path } from 'node:path';
 
 // ADR-0024 §1 (procinfo.ts): the start time and command line of a live pid, for the orphan sweep
 // (BUG-1b, 10-contracts §Orphaned processes rule 7). The start time defeats pid reuse, which is
 // fast on Windows, so it must be read in the same call as the command line.
 //
-// POSIX: `ps -ww -o lstart= -o command=`, copied from `orphan.ts` (MW-T06 switches orphan.ts over
-// and deletes its copy). `argv` is the command line split on whitespace, the same lossy view
-// `checkOurs` uses.
+// POSIX: `ps -ww -o lstart= -o command=` (LC_ALL=C, TZ=UTC). `argv` is the command line split
+// on whitespace, the same lossy view `checkOurs` used before it took argv.
 // win32: `Get-CimInstance Win32_Process` through Windows PowerShell. CreationDate is formatted in
 // PowerShell as ISO-8601 UTC (ConvertTo-Json's own DateTime shape differs between 5.1 and 7);
 // the parser still accepts the other shapes. CommandLine is split with CommandLineToArgvW rules.
@@ -222,4 +222,32 @@ function readWin32(pid: number): ProcInfo | null {
 export function readProcInfo(pid: number): ProcInfo | null {
   if (!Number.isInteger(pid) || pid <= 0) return null;
   return process.platform === 'win32' ? readWin32(pid) : readPosix(pid);
+}
+
+/**
+ * The comparable name of an executable: its basename, and on win32 also lower-cased without an
+ * `.exe`/`.cmd`/`.bat`/`.com` extension (`C:\\…\\Claude.EXE` → `claude`). Paths are compared the
+ * same way by `sameExecutable`.
+ */
+export function exeName(path: string, platform: NodeJS.Platform = process.platform): string {
+  if (platform !== 'win32') return posixPath.basename(path);
+  return win32Path
+    .basename(path)
+    .replace(/\.(?:exe|cmd|bat|com)$/i, '')
+    .toLowerCase();
+}
+
+/** Same executable path: exact on POSIX; case- and extension-insensitive on win32. */
+export function sameExecutable(
+  a: string,
+  b: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  if (platform !== 'win32') return a === b;
+  const norm = (p: string) =>
+    win32Path
+      .normalize(p)
+      .replace(/\.(?:exe|cmd|bat|com)$/i, '')
+      .toLowerCase();
+  return norm(a) === norm(b);
 }

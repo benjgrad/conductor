@@ -495,7 +495,6 @@ export type PermissionBehavior = z.infer<typeof PermissionBehaviorSchema>;
 export const PermissionScopeSchema = z.enum(['once', 'always']);
 export type PermissionScope = z.infer<typeof PermissionScopeSchema>;
 
-// TD-178: until M2-T29c the gateway parses this and drops it silently (no protocol_error).
 /**
  * ADR-0023 §2: auto mode would still ask, so Claude called conductor's `permission` tool; the
  * daemon holds the call open and asks the orchestrator. Session-scoped and **durable** (`seq`
@@ -822,8 +821,10 @@ export const FetchTranscriptMessageSchema = msg(
 );
 
 /**
- * ADR-0023 §2: a human's answer to a `permission_request`, an outbox command (`command_id`,
- * acked, at-least-once) written by the decision route in the same transaction as the decision.
+ * ADR-0023 §2: a human's answer to a `permission_request` (`command_id`, acked). Not an outbox
+ * row (U-099): the decision route sends it on the machine's live socket once the transaction
+ * that records the decision commits; best effort (TD-179), a lost one ends in the daemon's
+ * timeout deny.
  * The daemon resolves the held call whose `request_id` matches, at most once: a second decision
  * for the same request (a different command_id) is acked `accepted: true` and ignored; a request
  * it no longer holds is refused `unknown_permission_request`. `scope: 'always'` only with

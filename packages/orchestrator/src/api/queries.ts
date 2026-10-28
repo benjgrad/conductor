@@ -14,6 +14,7 @@ import type { Queryable } from '../contracts.js';
 import { CardViews } from '../engine/board-view.js';
 import { OPEN_INPUT_SELECT, type OpenInputRow } from '../engine/rows.js';
 import type { Db } from '../main.js';
+import { readCardPermissions, withPermission } from '../permissions/store.js';
 import type { MachineRow, SessionRow, TicketRow, WorkflowDefinitionRow } from '../db/types.js';
 import { maxBoardEventId } from '../stream/board.js';
 
@@ -80,6 +81,7 @@ export function loadBoard(db: Db): Promise<BoardResponse> {
       OPEN_INPUT_SELECT.replace('SELECT ', 'SELECT DISTINCT ON (ir.session_id) ') +
         'WHERE ir.answer IS NULL ORDER BY ir.session_id, ir.created_at DESC',
     );
+    const permissions = await readCardPermissions(q);
     const lastEventId = await maxBoardEventId(q);
 
     const sessionByTicket = new Map(sessions.rows.map((s) => [s.ticket_id, s]));
@@ -93,11 +95,14 @@ export function loadBoard(db: Db): Promise<BoardResponse> {
         session?.workflow_id ?? ticket.workflow_id,
         session?.workflow_version ?? ticket.workflow_version,
       );
-      const card = toBoardCard(
-        ticket,
-        session,
-        session ? (inputBySession.get(session.id) ?? null) : null,
-        view,
+      const card = withPermission(
+        toBoardCard(
+          ticket,
+          session,
+          session ? (inputBySession.get(session.id) ?? null) : null,
+          view,
+        ),
+        session ? (permissions.get(session.id) ?? null) : null,
       );
       // placeCard only returns ids of `layout`; anything else would be a bug, shown in Queued.
       (cards.get(card.column) ?? cards.get(layout[0]!.id)!).push(card);

@@ -32,6 +32,7 @@ import type {
   MachineRow,
   OutboxRow,
   PasswordResetRow,
+  PermissionRequestRow,
   SessionRow,
   Tables,
   TicketRow,
@@ -188,6 +189,7 @@ const ticket: ColumnSpec<TicketRow> = {
   status: col('ticket_status', NN),
   priority: col('int4', NN),
   kind: col('ticket_kind', NULL),
+  session_allow: col('_text', NN),
   created_at: col('timestamptz', NN),
   updated_at: col('timestamptz', NN),
 };
@@ -267,6 +269,30 @@ const outbox: ColumnSpec<OutboxRow> = {
   last_error: col(t, NULL),
   created_at: col('timestamptz', NN),
 };
+// M2-T29c: permission prompts (ADR-0023).
+const permission_request: ColumnSpec<PermissionRequestRow> = {
+  id: col('uuid', NN),
+  account_id: col('uuid', NN),
+  session_id: col('uuid', NN),
+  machine_id: col(t, NN),
+  fencing_token: col('int8', NN),
+  tool: col(t, NN),
+  input: col('jsonb', NN),
+  suggestions: col('jsonb', NN),
+  tool_use_id: col(t, NULL),
+  always_rule: col(t, NULL),
+  status: col(t, NN),
+  behavior: col(t, NULL),
+  scope: col(t, NULL),
+  message: col(t, NULL),
+  rule: col(t, NULL),
+  decided_by: col('uuid', NULL),
+  decision_command_id: col('uuid', NULL),
+  expired_reason: col(t, NULL),
+  created_at: col('timestamptz', NN),
+  expires_at: col('timestamptz', NN),
+  resolved_at: col('timestamptz', NULL),
+};
 // M2-T03: the instance-level tables (ADR-0017 §Auth: schema sketch).
 const account: ColumnSpec<AccountRow> = {
   id: col('uuid', NN),
@@ -341,6 +367,7 @@ const SCHEMA: Schema = {
   input_request,
   event,
   outbox,
+  permission_request,
   account,
   app_user,
   account_member,

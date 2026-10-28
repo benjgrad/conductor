@@ -7,6 +7,10 @@ import type {
   MachineStatus,
   OutboxKind,
   OutboxStatus,
+  PermissionBehavior,
+  PermissionExpiryReason,
+  PermissionRequestStatus,
+  PermissionScope,
   SessionStatus,
   TicketKind,
   TicketStatus,
@@ -162,6 +166,11 @@ export interface TicketRow {
    * NULL for tickets created before M1b, matching both kinds (U-062); the create route requires it.
    */
   kind: TicketKind | null;
+  /**
+   * M2-T29c (ADR-0023 §2): the exact allow rules "Allow always" recorded for this ticket's
+   * sessions, until the machine override exists (M2-T28c). Default `{}`.
+   */
+  session_allow: string[];
   created_at: Date;
   updated_at: Date;
 }
@@ -289,6 +298,43 @@ export interface OutboxRow {
   created_at: Date;
 }
 
+// ---------------------------------------------------------------- permission prompts (M2-T29c)
+// ADR-0023, 10-contracts §Permission prompts. Migration 1761800000000_permission-requests.
+
+export interface PermissionRequestRow {
+  /** The daemon's request_id (the idempotency key). */
+  id: string;
+  /** uuid, FK account: the session's. */
+  account_id: string;
+  session_id: string;
+  /** The machine that sent it (the session's at the time). */
+  machine_id: string;
+  /** bigint: the envelope's fencing token. */
+  fencing_token: string;
+  tool: string;
+  input: JsonObject;
+  suggestions: JsonObject[];
+  tool_use_id: string | null;
+  /** `alwaysRuleFor(tool, input)`; null = no exact rule. */
+  always_rule: string | null;
+  /** CHECK on PermissionRequestStatus. */
+  status: PermissionRequestStatus;
+  /** Set exactly when `status` is `allowed` / `denied`. */
+  behavior: PermissionBehavior | null;
+  scope: PermissionScope | null;
+  message: string | null;
+  /** The recorded exact allow rule, for `scope: always`. */
+  rule: string | null;
+  /** uuid, the deciding user (no FK); null = conductor itself. */
+  decided_by: string | null;
+  /** The `permission_decision` command_id sent for the decision. */
+  decision_command_id: string | null;
+  expired_reason: PermissionExpiryReason | null;
+  created_at: Date;
+  expires_at: Date;
+  resolved_at: Date | null;
+}
+
 // ---------------------------------------------------------------- accounts and sign-in (M2-T03)
 // Instance-level tables (ADR-0017 §Auth: schema sketch): the ADR-0012 isolation allow-list, so
 // they are not filtered by an AccountScope. Migration 1761600000000_accounts-and-auth.
@@ -395,6 +441,7 @@ export interface Tables {
   input_request: InputRequestRow;
   event: EventRow;
   outbox: OutboxRow;
+  permission_request: PermissionRequestRow;
   account: AccountRow;
   app_user: AppUserRow;
   account_member: AccountMemberRow;

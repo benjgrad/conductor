@@ -1,6 +1,7 @@
 import type { ApplyFn } from '@conductor/shared';
 import type { OutboxTransport } from '../contracts.js';
 import type { CreateEngineService, EngineHandle, Stoppable } from '../main.js';
+import { sweepPermissionTimeouts } from '../permissions/store.js';
 import { dispatchOnce, type DispatchStats } from './dispatcher.js';
 import { EngineServiceImpl } from './service.js';
 import { sweepOnce, type SweepStats } from './sweep.js';
@@ -28,6 +29,8 @@ export interface EngineServiceHandle extends EngineHandle {
   dispatchOnce(transport: OutboxTransport): Promise<DispatchStats>;
   /** One timeout-sweep pass. */
   sweepOnce(): Promise<SweepStats>;
+  /** One permission-request timeout pass (ADR-0023): how many requests expired. */
+  sweepPermissionsOnce(): Promise<number>;
 }
 
 /** A self-rescheduling loop that never overlaps itself; `wake()` runs it again soon. */
@@ -90,11 +93,15 @@ export function createEngineService(deps: EngineServiceDeps): EngineServiceHandl
     engine,
     dispatchOnce: (transport) => dispatchOnce(workerDeps, transport),
     sweepOnce: () => sweepOnce(workerDeps),
+    sweepPermissionsOnce: () => sweepPermissionTimeouts(workerDeps),
     startWorkers({ transport }): Stoppable {
       const dispatcher = loop(deps.dispatchIntervalMs ?? 500, () =>
         dispatchOnce(workerDeps, transport),
       );
-      const sweeper = loop(deps.sweepIntervalMs ?? 1000, () => sweepOnce(workerDeps));
+      const sweeper = loop(deps.sweepIntervalMs ?? 1000, async () => {
+        await sweepOnce(workerDeps);
+        await sweepPermissionTimeouts(workerDeps);
+      });
       wake = () => dispatcher.wake();
       return {
         async stop() {

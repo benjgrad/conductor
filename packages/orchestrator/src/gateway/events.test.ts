@@ -72,6 +72,19 @@ describe('engineEventForSessionEvent', () => {
       code: 0,
       signal: null,
     });
+    // The daemon's last stderr lines, when it sent them (the failure question quotes the last).
+    expect(
+      engineEventForSessionEvent({
+        kind: 'exit',
+        data: { ...SESSION_EVENT_FIXTURES.exit.data, code: 1, stderr_tail: 'No conversation\n' },
+      }),
+    ).toEqual({
+      type: 'agent.exited',
+      command_id: SESSION_EVENT_FIXTURES.exit.data.command_id,
+      code: 1,
+      signal: null,
+      stderr_tail: 'No conversation\n',
+    });
     expect(engineEventForSessionEvent(SESSION_EVENT_FIXTURES.no_outcome)).toEqual({
       type: 'agent.no_outcome',
       last_output: SESSION_EVENT_FIXTURES.no_outcome.data.last_output,

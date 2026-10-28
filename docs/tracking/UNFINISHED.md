@@ -76,3 +76,11 @@ Remove the entry once the work is merged or deliberately abandoned. If abandoned
 - **Done so far**: all three post-merge QAs ran on 2026-10-27. M2-T06 (PR #11): OK, every QA item verified on main. M2-T10 (PR #14): its follow-ups were done as M2-T10b (PR #19, merged). M2-T09b (PR #17): the security QA passed (6 attack probes incl. queued frames, reconnect mid-close, two sockets, a silent peer at 1 002 ms, stress ×10)
 - **Not done**: nothing
 - **Exact next step**: none; delete this entry at the next session end
+
+## Stuck ticket "CI/CD" (session 4b5cde62) + deploy of the 2026-10-28 fixes
+- **Branch / worktree**: none; all code merged on main (cf880dc), local only, not pushed
+- **Done so far**: the daemon refuses a resume with no transcript at its exact path (`no_conversation`, engine clears `claude_session_id`, requeues fresh); "Start fresh conversation…" (engine, API, panel button, help section); plan approval panel and board-card buttons
+- **Not done**: the ticket is still stuck. Snapshot `claude_session_id`=5a13ac51… (exists on the Mac only), `pending_answer` null; the original critique answer was consumed. Nothing is deployed yet (waiting for Ben's OK). Ben pushes main
+- **Exact next step**: (1) with Ben's OK deploy the orchestrator via `deploy/gradyserver/deploy.sh`; upgrade the gradyserver daemon (`~/.conductor/daemon`, runs in a terminal) and the Mac daemon. (2) On the "CI/CD" card use "Start fresh conversation…" and paste the critique: "The plan isn't detailed enough. This implementer session is on the server... We also need to think about the daemon upgrades". (3) Ben pushes main
+- **Gotchas**: TD-182: if the session is parked for a lost (non-revoked) machine, fresh conversation keeps the pin; Cancel is the only way off it
+- **Gates**: run by the lead after this commit

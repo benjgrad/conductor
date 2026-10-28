@@ -77,6 +77,8 @@ export const API_PATHS = {
   sessionMessages: (id: string) => `/api/sessions/${id}/messages`,
   /** ADR-0011: a human takes a transition (TransitionSessionRequest). */
   sessionTransition: (id: string) => `/api/sessions/${id}/transition`,
+  /** "Start fresh conversation…" (FreshConversationRequest; 10-contracts §Fresh conversation). */
+  sessionFreshConversation: (id: string) => `/api/sessions/${id}/fresh-conversation`,
   /** ADR-0008: the session's history from Claude's own transcript on its machine. */
   sessionTranscript: (id: string) => `/api/sessions/${id}/transcript`,
   /** ADR-0008: reopen a finished ticket by resuming the same Claude conversation. */
@@ -692,6 +694,18 @@ export const TransitionSessionRequestSchema = z.object({
 });
 export type TransitionSessionRequest = z.infer<typeof TransitionSessionRequestSchema>;
 
+/**
+ * POST /api/sessions/:id/fresh-conversation → 202 OkResponse. Becomes `human.fresh_conversation
+ * {text, actor: 'ui', input_request_id: <the open request, or null>}`: the agent of `return_to`
+ * starts over (a new Claude conversation) with its state's instructions and this text. 409
+ * `conflict` when apply ignored it (not parked in a human state with an agent to return to, a gate
+ * step, a revoked machine, or finished); 404 unknown session; 400 bad body (text required).
+ */
+export const FreshConversationRequestSchema = z.object({
+  text: z.string().trim().min(1).max(20_000),
+});
+export type FreshConversationRequest = z.infer<typeof FreshConversationRequestSchema>;
+
 /** POST /api/sessions/:id/input → 202 `{ok: true}`; 409 if already answered / not pending. */
 export const AnswerInputRequestSchema = z.object({
   input_request_id: UuidSchema,
@@ -897,7 +911,8 @@ export type ApiError = z.infer<typeof ApiErrorSchema>;
 export type ApiErrorCode = ApiError['error']['code'];
 
 /** The REST routes that call EngineService.applyEvent (T08). */
-export type EngineRoute = 'input' | 'approve' | 'cancel' | 'message' | 'transition';
+export type EngineRoute =
+  'input' | 'approve' | 'cancel' | 'message' | 'transition' | 'fresh_conversation';
 
 /** Rejected (nothing written) → HTTP. Same for every route. */
 export const APPLY_REJECT_HTTP = {

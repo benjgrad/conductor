@@ -56,7 +56,9 @@ export interface EngineServiceCoreDeps {
 /**
  * The engine event row's payload: the event minus `type` (+ the ignore reason, if any).
  * Raw command output never goes in an event row (02-data-model §event, ADR-0003):
- * `command.exited.output_tail` is replaced by its UTF-8 byte length, `output_tail_bytes`.
+ * `command.exited.output_tail` is replaced by its UTF-8 byte length, `output_tail_bytes`, and
+ * `agent.exited.stderr_tail` by `stderr_tail_bytes` (stderr may carry secrets; only apply's
+ * clipped last line reaches the failure question).
  */
 function eventPayload(event: EngineEvent, ignored: string | null): JsonObject {
   const payload = JSON.parse(JSON.stringify(event)) as JsonObject;
@@ -64,6 +66,10 @@ function eventPayload(event: EngineEvent, ignored: string | null): JsonObject {
   if (event.type === 'command.exited') {
     delete payload.output_tail;
     payload.output_tail_bytes = Buffer.byteLength(event.output_tail, 'utf8');
+  }
+  if (event.type === 'agent.exited' && event.stderr_tail !== undefined) {
+    delete payload.stderr_tail;
+    payload.stderr_tail_bytes = Buffer.byteLength(event.stderr_tail, 'utf8');
   }
   if (ignored !== null) payload.ignored = ignored;
   return payload;
@@ -177,6 +183,9 @@ export class EngineServiceImpl implements EngineService {
     const becameTerminal = !TERMINAL.has(before.status) && TERMINAL.has(s1.status);
     if (
       (event.type === 'command.refused' && event.command_kind === 'start_session') ||
+      // A fresh conversation replaces the parked agent: its old process (killed by apply) is
+      // stale, so nothing it still sends can reach the new visit (10-contracts §Fresh conversation).
+      event.type === 'human.fresh_conversation' ||
       stepFenced ||
       becameTerminal
     ) {
@@ -256,6 +265,21 @@ export class EngineServiceImpl implements EngineService {
             ],
           );
           break;
+        case 'conversation_reset':
+          // Audit only (ConversationResetPayload): a start refused `no_conversation`, or a human's
+          // "Start fresh conversation…", made apply forget the Claude conversation; the next start
+          // is a fresh one.
+          await tx.query(
+            "INSERT INTO event (session_id, type, payload) VALUES ($1, 'conversation.reset', $2)",
+            [
+              sessionId,
+              JSON.stringify({
+                claude_session_id: effect.claude_session_id,
+                reason: effect.reason,
+              }),
+            ],
+          );
+          break;
         case 'session_status':
           drafts.push({
             type: 'session.status',
@@ -297,11 +321,14 @@ export class EngineServiceImpl implements EngineService {
     }
     // ADR-0011: a human transition taken from a human state answers its open input_request
     // (answer = the text, else "[<name>]"; answered_by = the event's actor), like input.provided.
-    if (event.type === 'human.transition') {
+    // "Start fresh conversation…" answers it the same way (answer = the text).
+    if (event.type === 'human.transition' || event.type === 'human.fresh_conversation') {
+      const answerText =
+        event.type === 'human.transition' ? (event.text ?? `[${event.name}]`) : event.text;
       const r = await tx.query<InputRequestRow>(
         'UPDATE input_request SET answer = $2, answered_by = $3, answered_at = $4 ' +
           'WHERE session_id = $1 AND answer IS NULL RETURNING *',
-        [sessionId, event.text ?? `[${event.name}]`, event.actor, now],
+        [sessionId, answerText, event.actor, now],
       );
       for (const row of r.rows) {
         drafts.push({

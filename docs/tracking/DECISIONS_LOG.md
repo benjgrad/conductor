@@ -4,6 +4,9 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-28 | Plan approval reuses the `$return_to` answer transition (a question transition keeps its non-empty result in context); no workflow version bump | feat-plan-approval-ui (cf880dc), TD-184, TD-185 |
+| 2026-10-28 | Raw stderr is never stored in events: the exit carries `stderr_tail`, the event row keeps only `stderr_tail_bytes`; the failure question quotes the last stderr line (≤300 chars) | fix-resume-no-conversation (7cf97f2) |
+| 2026-10-28 | A resume needs the transcript at this worktree's exact cwd-slug path; otherwise the daemon refuses `no_conversation`, the engine clears `claude_session_id`, records `conversation.reset` and requeues, and the re-claim starts fresh with the full prompt plus the pending answer | fix-resume-no-conversation (7cf97f2), U-103 |
 | 2026-10-28 | U-098 (Ben): no settings-refusal mechanism on the daemon for now; ADR-0022 accepted with the local ceiling deferred | ADR-0022, U-098 |
 | 2026-10-28 | U-099 (Ben): no dedicated permission outbox; `permission_decision` goes straight down the live socket, expiry covers a disconnected daemon | U-099, TD-179, 10-contracts §Permission prompts |
 | 2026-10-28 | "Attach a running Claude session to conductor" is a wanted future feature, unscheduled; design open as U-097 | ROADMAP §Future features |

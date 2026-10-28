@@ -6,10 +6,13 @@ import {
   DAEMON_AUTH_HEADER,
   daemonAuthHeaderValue,
   EvaluateConditionsArgsSchema,
+  NO_CONVERSATION_REASON,
   NO_OUTCOME_OUTPUT_CHARS,
   PROTOCOL_VERSION,
   parseOrchestratorMessage,
   resolveToolPolicy,
+  STDERR_TAIL_CHARS,
+  STDERR_TAIL_LINES,
   type JsonObject,
   type OrchestratorToDaemon,
   type OutputStream,
@@ -17,7 +20,12 @@ import {
   type TranscriptPayload,
 } from '@conductor/shared';
 import type { ClaudeDriver, DriverEvent, DriverSession } from './claude/driver.js';
-import { findTranscript, readTranscriptTail, transcriptChunks } from './claude/transcript.js';
+import {
+  findTranscript,
+  hasTranscriptInCwd,
+  readTranscriptTail,
+  transcriptChunks,
+} from './claude/transcript.js';
 import { createCommandRunner as defaultCreateCommandRunner } from './commands/index.js';
 import type { CommandRunner, CreateCommandRunner } from './commands/runner.js';
 import { daemonVersion, machineFacts, type DaemonConfig } from './config.js';
@@ -87,6 +95,13 @@ export interface DaemonOptions {
    * 401 at the upgrade); reconnecting has stopped. `main` stops and exits non-zero.
    */
   onFatal?: (code: number, reason: string) => void;
+  /**
+   * Is the Claude conversation `claudeSessionId` (to be resumed in `cwd`) on this machine? Default:
+   * its transcript is in the cwd's own project dir (`hasTranscriptInCwd`: `claude --resume` looks
+   * nowhere else). A start that resumes one
+   * that isn't is refused `no_conversation` before spawning (10-contracts §Refusals).
+   */
+  hasConversation?: (cwd: string, claudeSessionId: string) => boolean;
 }
 
 type Command = Extract<
@@ -122,6 +137,8 @@ interface AgentProc {
   nudged: boolean;
   /** Tail of the assistant text (NO_OUTCOME_OUTPUT_CHARS), attached to `no_outcome`. */
   lastOutput: string;
+  /** Last STDERR_TAIL_LINES lines of stderr (STDERR_TAIL_CHARS), sent on `exit`. */
+  stderrTail: string;
   exited: boolean;
   /** BUG-1: a kill was sent (stopAgent): later kills of the same process are no-ops. */
   killRequested: boolean;
@@ -171,6 +188,7 @@ export class Daemon {
   private readonly onFatal: (code: number, reason: string) => void;
   private readonly claudeBin: string;
   private readonly procInfo: (pid: number) => ProcInfo | null;
+  private readonly hasConversation: (cwd: string, claudeSessionId: string) => boolean;
   private readonly ws: ReconnectingWs;
   /** M2-T10: the `inventory` message (rescans every 10 minutes and on SIGHUP, see main). */
   readonly inventory: InventoryReporter;
@@ -211,6 +229,8 @@ export class Daemon {
     this.onFatal = opts.onFatal ?? ((code) => this.log(`link failed (${code}); stopped`));
     this.claudeBin = opts.claudeBin ?? process.env.CONDUCTOR_CLAUDE_BIN ?? 'claude';
     this.procInfo = opts.procInfo ?? readProcInfo;
+    this.hasConversation =
+      opts.hasConversation ?? ((cwd, id) => hasTranscriptInCwd(this.claudeConfigDir, cwd, id));
     this.heartbeatMs = this.config.heartbeatIntervalMs;
     mkdirSync(this.config.rootDir, { recursive: true });
     this.store = DaemonStore.forRoot(this.config.rootDir);
@@ -666,6 +686,17 @@ export class Daemon {
         this.releaseAssignment(sid);
         return;
       }
+      // A resume whose conversation isn't here (it ran on another machine): `claude --resume`
+      // would exit 1. Refuse; apply forgets the id and the re-claim starts a fresh one.
+      const resumeId = p.resume_claude_session_id;
+      if (resumeId !== null && !this.hasConversation(worktree, resumeId)) {
+        this.log(
+          `session ${sid}: refusing start ${p.command_id} (${NO_CONVERSATION_REASON}: Claude conversation ${resumeId} is not on this machine)`,
+        );
+        if (live.starting === starting) live.starting = null;
+        this.finish(msg, { accepted: false, reason: NO_CONVERSATION_REASON });
+        return this.startRefused(sid, 0);
+      }
       range = this.allocatePorts(sid);
       const tools = resolveToolPolicy(p.tools);
       const appendSystemPrompt = buildAppendSystemPrompt(this.workspace.readClaudeMd(worktree));
@@ -710,6 +741,7 @@ export class Daemon {
         askPending: false,
         nudged: false,
         lastOutput: '',
+        stderrTail: '',
         exited: false,
         killRequested: false,
         endTimer: null,
@@ -774,6 +806,8 @@ export class Daemon {
         if (ev.stream === 'assistant') {
           const joined = a.lastOutput ? `${a.lastOutput}\n${ev.text}` : ev.text;
           a.lastOutput = joined.slice(-NO_OUTCOME_OUTPUT_CHARS);
+        } else if (ev.stream === 'stderr') {
+          a.stderrTail = appendTail(a.stderrTail, ev.text);
         }
         this.sendOutput(sid, a.fencingToken, ev.stream, ev.text);
         return;
@@ -828,7 +862,12 @@ export class Daemon {
         a.unsubscribe();
         this.emit(sid, a.fencingToken, {
           kind: 'exit',
-          data: { command_id: a.commandId, code: ev.code, signal: ev.signal },
+          data: {
+            command_id: a.commandId,
+            code: ev.code,
+            signal: ev.signal,
+            ...(a.stderrTail.trim() !== '' ? { stderr_tail: a.stderrTail } : {}),
+          },
         });
         const live = this.live.get(sid);
         if (live?.agent === a) live.agent = null;
@@ -1435,4 +1474,15 @@ function sameWorktree(a: string, b: string): boolean {
 
 function errText(e: unknown): string {
   return (e instanceof Error ? e.message : String(e)).slice(0, 300);
+}
+
+/**
+ * The last STDERR_TAIL_LINES lines (at most STDERR_TAIL_CHARS) of `prev` + `chunk`. Chunks are
+ * raw stderr reads, so a line may span two of them; the tail keeps the text as it arrived.
+ */
+export function appendTail(prev: string, chunk: string): string {
+  const lines = (prev + chunk).split('\n');
+  // A trailing newline leaves an empty last element: it doesn't count as a line.
+  const keep = lines.at(-1) === '' ? STDERR_TAIL_LINES + 1 : STDERR_TAIL_LINES;
+  return lines.slice(-keep).join('\n').slice(-STDERR_TAIL_CHARS);
 }

@@ -5,12 +5,13 @@ import {
   type BoardCard,
   type InputRequestDto,
 } from '@conductor/shared';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ApiClient } from '../api/client.js';
 import { mockChecking } from '../api/mock-data.js';
 import type { BoardState } from '../board/board.js';
 import { Board } from './Board.js';
-import { PREVIEW_MAX } from './request-preview.js';
+import { PLAN_APPROVED_TEXT, PREVIEW_MAX } from './request-preview.js';
 import { implementerReport, REPORT_PROSE_LINE } from './review-fixture.js';
 
 afterEach(cleanup);
@@ -226,5 +227,96 @@ describe('board card in a gate step (UX-5)', () => {
     const a = article('Card 1');
     expect(a.getByRole('group', { name: 'Waiting for Ready for testing' })).toBeTruthy();
     expect(a.queryByText(/Conductor is checking/)).toBeNull();
+  });
+});
+
+describe('board card: plan approval (06 §Plan approval)', () => {
+  const SID = 'b2000000-0000-4000-8000-000000000001';
+  const transitions = BASE.human_transitions;
+  const planCard = (over: Partial<BoardCard> = {}) =>
+    card(
+      1,
+      { question: 'Raised beds cost $400. Approve?', origin_transition: 'plan_needs_approval' },
+      { human_transitions: transitions, ...over },
+    );
+  type Post = ApiClient['transition'];
+
+  function renderWithApi(
+    cards: BoardCard[],
+    transition: Post = vi.fn<Post>(() => Promise.resolve({ ok: true as const })),
+  ) {
+    const onSelect = vi.fn();
+    const api = { transition } as unknown as ApiClient;
+    render(<Board board={board(cards)} selectedSessionId={null} onSelect={onSelect} api={api} />);
+    return { onSelect, transition };
+  }
+
+  it('shows the "Plan to approve" label and badge instead of the generic buttons', () => {
+    renderWithApi([planCard()]);
+    const a = article('Card 1');
+    const badge = a.getByText(/^Plan to approve · /);
+    expect(badge.className).toContain('badge-plan-approval');
+    expect(a.getByRole('button', { name: /^Plan to approve: Raised beds/ })).toBeTruthy();
+    expect(a.getByRole('group', { name: 'Plan to approve' })).toBeTruthy();
+    expect(a.queryByRole('group', { name: 'Move to' })).toBeNull();
+    expect(a.queryByRole('button', { name: /Back with this answer/ })).toBeNull();
+  });
+
+  it('Approve plan posts exactly {name: answer option, text: PLAN_APPROVED_TEXT}, busy while in flight', async () => {
+    let resolve!: (v: { ok: true }) => void;
+    const transition = vi.fn<Post>(() => new Promise<{ ok: true }>((r) => (resolve = r)));
+    renderWithApi([planCard()], transition);
+    const approve = article('Card 1').getByRole<HTMLButtonElement>('button', {
+      name: 'Approve plan',
+    });
+    fireEvent.click(approve);
+    expect(approve.disabled).toBe(true);
+    fireEvent.click(approve); // in flight: not posted twice
+    expect(transition).toHaveBeenCalledTimes(1);
+    expect(transition).toHaveBeenCalledWith(SID, { name: 'answer', text: PLAN_APPROVED_TEXT });
+    expect(PLAN_APPROVED_TEXT).toBe(
+      'Plan approved. Proceed: call complete_state with plan_ready and this plan.',
+    );
+    resolve({ ok: true });
+    await waitFor(() => expect(approve.disabled).toBe(false));
+    expect(article('Card 1').queryByRole('alert')).toBeNull();
+  });
+
+  it('a rejected Approve plan shows the error', async () => {
+    const transition = vi.fn<Post>(() => Promise.reject(new Error('session moved on')));
+    renderWithApi([planCard()], transition);
+    fireEvent.click(article('Card 1').getByRole('button', { name: 'Approve plan' }));
+    expect((await article('Card 1').findByRole('alert')).textContent).toContain('session moved on');
+    expect(
+      article('Card 1').getByRole<HTMLButtonElement>('button', { name: 'Approve plan' }).disabled,
+    ).toBe(false);
+  });
+
+  it('Review plan selects the session (opens the panel) without posting', () => {
+    const { onSelect, transition } = renderWithApi([planCard()]);
+    fireEvent.click(article('Card 1').getByRole('button', { name: 'Review plan' }));
+    expect(onSelect).toHaveBeenCalledWith(SID);
+    expect(transition).not.toHaveBeenCalled();
+  });
+
+  it('without a matching answer option: the generic TransitionButtons', () => {
+    renderWithApi([
+      planCard({ human_transitions: transitions.filter((o) => o.name !== 'answer') }),
+    ]);
+    const a = article('Card 1');
+    expect(a.getByText(/^Plan to approve · /)).toBeTruthy();
+    expect(a.queryByRole('button', { name: 'Approve plan' })).toBeNull();
+    expect(a.queryByRole('button', { name: 'Review plan' })).toBeNull();
+    const group = a.getByRole('group', { name: 'Move to' });
+    expect(within(group).getByRole('button', { name: /Waiting on someone else/ })).toBeTruthy();
+  });
+
+  it('an ordinary question keeps the generic buttons', () => {
+    renderWithApi([
+      card(1, { origin_transition: 'scope_changed' }, { human_transitions: transitions }),
+    ]);
+    const a = article('Card 1');
+    expect(a.queryByRole('button', { name: 'Approve plan' })).toBeNull();
+    expect(a.getByRole('button', { name: /Back with this answer/ })).toBeTruthy();
   });
 });

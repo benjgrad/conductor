@@ -7,6 +7,7 @@ import type {
   BoardSseEvent,
   CreateInviteRequest,
   CreateTicketRequest,
+  FreshConversationRequest,
   EnrollmentTokenCreated,
   InviteCreated,
   InvitePreview,
@@ -124,6 +125,12 @@ export interface ApiClient {
    * conflict when the transition isn't offered (wrong status, unknown, not allowed).
    */
   transition(sessionId: string, req: TransitionSessionRequest): Promise<OkResponse>;
+  /**
+   * POST /api/sessions/:id/fresh-conversation: "Start fresh conversation…". The parked session's
+   * agent (`return_to`) starts over in a new Claude conversation with its instructions and `text`.
+   * 409 conflict unless parked in a human state with an agent state to return to.
+   */
+  freshConversation(sessionId: string, req: FreshConversationRequest): Promise<OkResponse>;
 
   // M2-T05: accounts and web auth (10-contracts §Accounts and web auth).
   /** GET /api/me: the signed-in user and account. 401 without a session; `local` mode → local user. */

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { createCliDriver } from './claude/cli-driver.js';
+import { createCliDriver, probePermissionPrompts } from './claude/cli-driver.js';
 import { startOutcomeServer } from './claude/outcome-server.js';
 import { configCommand, CONFIG_USAGE } from './commands/config.js';
 import { enroll, ENROLL_USAGE } from './commands/enroll.js';
@@ -35,10 +35,20 @@ async function claudeCodeVersion(
 async function run(): Promise<void> {
   const config = loadConfig(process.env);
   const outcomeServer = await startOutcomeServer();
+  // ADR-0023: auto mode + prompts to the board need a CLI that has them; probed once per start.
+  const prompts = await probePermissionPrompts();
+  if (!prompts.supported) {
+    // TD-NEW-1: ADR-0023 asks for a machine alert; the alert frame has no kind for this yet.
+    process.stderr.write(
+      `[conductor-daemon] WARNING: this Claude Code can't send permission prompts to conductor (${prompts.reason ?? 'unknown'}); ` +
+        'agents run with the old flags and anything that would prompt is denied. Update Claude Code.\n',
+    );
+  }
   const driver = createCliDriver({
     outcomeServer,
     killGraceMs: config.killGraceMs,
     endGraceMs: config.endGraceMs,
+    permissionPrompts: prompts.supported,
   });
   const daemon = new Daemon({
     config,

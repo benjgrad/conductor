@@ -13,11 +13,14 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { resolveToolPolicy } from '@conductor/shared';
 import {
   agentEnv,
   agentPermissionMode,
   buildClaudeArgs,
   createCliDriver,
+  permissionPromptSupport,
+  probePermissionPrompts,
   userMessageLine,
   type CliDriverSession,
 } from './cli-driver.js';
@@ -25,6 +28,10 @@ import type { DriverEvent, DriverStartOptions, ToolPolicy } from './driver.js';
 import {
   ASK_USER_TOOL,
   COMPLETE_STATE_TOOL,
+  PERMISSION_DENIED_ON_BOARD,
+  PERMISSION_SESSION_ENDED,
+  PERMISSION_TOOL,
+  permissionTimeoutText,
   startOutcomeServer,
   type OutcomeServer,
 } from './outcome-server.js';
@@ -140,8 +147,12 @@ describe('buildClaudeArgs', () => {
       '--settings',
       '/tmp/s/settings.json',
       '--strict-mcp-config',
+      '--permission-mode',
+      'auto',
       '--permission-prompts',
-      'none',
+      'host',
+      '--permission-prompt-tool',
+      PERMISSION_TOOL,
       '--mcp-config',
       '{"mcp":1}',
       '--tools',
@@ -155,27 +166,82 @@ describe('buildClaudeArgs', () => {
     ]);
   });
 
-  it('ADR-0009: a reviewer always runs in dontAsk; a worker keeps the user mode (or the cap)', () => {
-    const modeOf = (args: string[]) => {
-      const i = args.indexOf('--permission-mode');
-      return i < 0 ? undefined : args[i + 1];
-    };
+  const flagOf = (args: string[], flag: string) => {
+    const i = args.indexOf(flag);
+    return i < 0 ? undefined : args[i + 1];
+  };
+  const modeOf = (args: string[]) => flagOf(args, '--permission-mode');
+
+  it('ADR-0009: a reviewer always runs in dontAsk and never prompts; ADR-0023: a worker runs in auto', () => {
     const reviewer = opts([], { review: true });
-    expect(modeOf(buildClaudeArgs(reviewer, '{}', 's.json'))).toBe('dontAsk');
-    // Even when the user's bypassPermissions would cap a worker to auto.
-    expect(modeOf(buildClaudeArgs(reviewer, '{}', 's.json', 'auto'))).toBe('dontAsk');
-    expect(
-      buildClaudeArgs(reviewer, '{}', 's.json').filter((a) => a === '--permission-mode'),
-    ).toHaveLength(1);
-    // The other ADR-0006 guards stay.
-    const args = buildClaudeArgs(reviewer, '{}', 's.json');
-    expect(args).toEqual(
-      expect.arrayContaining(['--setting-sources', 'user', '--settings', 's.json']),
-    );
+    for (const perm of [
+      undefined,
+      { prompts: 'host' as const },
+      { prompts: 'none' as const, legacyMode: 'auto' },
+    ]) {
+      const args = buildClaudeArgs(reviewer, '{}', 's.json', perm);
+      expect(modeOf(args), JSON.stringify(perm)).toBe('dontAsk');
+      expect(args.filter((a) => a === '--permission-mode')).toHaveLength(1);
+      expect(flagOf(args, '--permission-prompts')).toBe('none');
+      expect(args).not.toContain('--permission-prompt-tool');
+      // The other ADR-0006 guards stay.
+      expect(args).toEqual(
+        expect.arrayContaining(['--setting-sources', 'user', '--settings', 's.json']),
+      );
+    }
+    for (const worker of [opts([]), opts([], { review: false })]) {
+      const args = buildClaudeArgs(worker, '{}', 's.json');
+      expect(modeOf(args)).toBe('auto');
+      expect(args.filter((a) => a === '--permission-mode')).toHaveLength(1);
+      expect(flagOf(args, '--permission-prompts')).toBe('host');
+      expect(flagOf(args, '--permission-prompt-tool')).toBe('mcp__conductor__permission');
+      // The prompt tool is Claude's, not the model's: never pre-approved.
+      expect(flagOf(args, '--allowedTools')).not.toContain(PERMISSION_TOOL);
+    }
+  });
+
+  it('ADR-0023 fallback (old CLI): the pre-ADR-0023 flags, the user mode or the bypass cap, prompts denied', () => {
     const worker = opts([]);
-    expect(modeOf(buildClaudeArgs(worker, '{}', 's.json'))).toBeUndefined();
-    expect(modeOf(buildClaudeArgs(worker, '{}', 's.json', 'auto'))).toBe('auto');
-    expect(modeOf(buildClaudeArgs(opts([], { review: false }), '{}', 's.json'))).toBeUndefined();
+    const plain = buildClaudeArgs(worker, '{}', 's.json', { prompts: 'none' });
+    expect(modeOf(plain)).toBeUndefined();
+    expect(flagOf(plain, '--permission-prompts')).toBe('none');
+    expect(plain).not.toContain('--permission-prompt-tool');
+    const capped = buildClaudeArgs(worker, '{}', 's.json', { prompts: 'none', legacyMode: 'auto' });
+    expect(modeOf(capped)).toBe('auto');
+    expect(flagOf(capped, '--permission-prompts')).toBe('none');
+  });
+
+  it('ADR-0023 §4: git push stays a deny rule beside the prompt tool, so it never reaches a human', () => {
+    // The real workflow aliases, as start_session sends them.
+    const tools = resolveToolPolicy(['read', 'edit', 'bash', 'git']);
+    const args = buildClaudeArgs(opts([], { tools }), '{}', 's.json');
+    const deny = (flagOf(args, '--disallowedTools') ?? '').split(',');
+    expect(deny).toContain('Bash(git push:*)');
+    expect(flagOf(args, '--permission-prompt-tool')).toBe(PERMISSION_TOOL);
+    expect(flagOf(args, '--allowedTools')).not.toMatch(/git push/);
+  });
+
+  it('ADR-0023: detects auto mode and --permission-prompts in claude --help', async () => {
+    const real = [
+      '  --permission-mode <mode>              Permission mode to use for the session',
+      '                                        (choices: "acceptEdits", "auto",',
+      '                                        "bypassPermissions", "manual",',
+      '                                        "dontAsk", "plan")',
+      '  --permission-prompts <target>         Who answers permission prompts with',
+    ].join('\n');
+    expect(permissionPromptSupport(real)).toEqual({ supported: true, reason: null });
+    const noPrompts = real.split('\n').slice(0, 4).join('\n');
+    expect(permissionPromptSupport(noPrompts)).toMatchObject({
+      supported: false,
+      reason: expect.stringContaining('--permission-prompts') as unknown,
+    });
+    const noAuto = real.replace('"auto",', '');
+    expect(permissionPromptSupport(noAuto)).toMatchObject({
+      supported: false,
+      reason: expect.stringContaining('--permission-mode auto') as unknown,
+    });
+    expect(await probePermissionPrompts(FAKE)).toEqual({ supported: true, reason: null });
+    expect((await probePermissionPrompts(join(dir, 'no-such-claude'))).supported).toBe(false);
   });
 
   it('uses --resume for resume, omits unset optionals and an empty deny list', () => {
@@ -185,11 +251,9 @@ describe('buildClaudeArgs', () => {
       tools: { builtin: [], allow: [], deny: [] },
     });
     const args = buildClaudeArgs(o, '{}', 's.json');
-    expect(args).not.toContain('--permission-mode'); // the user's own mode applies (ADR-0006)
-    const capped = buildClaudeArgs(o, '{}', 's.json', 'auto');
     expect(
-      capped.slice(capped.indexOf('--permission-mode'), capped.indexOf('--permission-mode') + 2),
-    ).toEqual(['--permission-mode', 'auto']);
+      args.slice(args.indexOf('--permission-mode'), args.indexOf('--permission-mode') + 2),
+    ).toEqual(['--permission-mode', 'auto']); // ADR-0023: whatever the user's own mode
     expect(args.slice(6, 8)).toEqual(['--resume', 'sid-2']);
     expect(args).not.toContain('--session-id');
     for (const f of [
@@ -332,7 +396,7 @@ describe('createCliDriver against fake-claude', () => {
     const [first] = argvLog();
     const argAfter = (flag: string) => first?.argv[first.argv.indexOf(flag) + 1] ?? '';
     expect(first?.argv).toEqual(
-      buildClaudeArgs(o, argAfter('--mcp-config'), argAfter('--settings'), agentPermissionMode()),
+      buildClaudeArgs(o, argAfter('--mcp-config'), argAfter('--settings')),
     );
     expect(first?.cwd).toBe(realpathSync(dir)); // macOS tmpdir is a symlink
     expect(first?.env.PORT).toBe('41000');
@@ -656,6 +720,125 @@ describe('createCliDriver against fake-claude', () => {
     ).toBe(true);
     expect(server.size).toBe(0);
     expect(() => s.sendInput('x')).toThrow();
+  });
+
+  describe('ADR-0023 permission prompts', () => {
+    const BASH = { tool_name: 'Bash', input: { command: 'pnpm i' }, tool_use_id: 'toolu_x' };
+    const heldScenario = () => [[{ tool: 'permission', args: BASH }, { say: 'after' }]];
+    const toolResult = (t: ReturnType<typeof track>) =>
+      t.waitFor(
+        (e) => e.kind === 'output' && e.stream === 'tool_result' && e.text.includes('behavior'),
+      ) as Promise<Extract<DriverEvent, { kind: 'output' }>>;
+    const prompt = (t: ReturnType<typeof track>) =>
+      t.waitFor((e) => e.kind === 'permission_request') as Promise<
+        Extract<DriverEvent, { kind: 'permission_request' }>
+      >;
+
+    it('a held call resolves on allow: Claude gets the input back', async () => {
+      const s = driver().start(opts(heldScenario()));
+      const t = track(s);
+      const p = await prompt(t);
+      expect(p).toMatchObject({ tool: 'Bash', input: { command: 'pnpm i' }, toolUseId: 'toolu_x' });
+      // held: the turn does not go on until a decision
+      await new Promise((r) => setTimeout(r, 100));
+      expect(t.events.some((e) => e.kind === 'output' && e.text === 'after')).toBe(false);
+      expect(s.resolvePermission(p.requestId, { behavior: 'allow', scope: 'once' })).toBe(
+        'resolved',
+      );
+      expect(JSON.parse((await toolResult(t)).text)).toEqual({
+        behavior: 'allow',
+        updatedInput: { command: 'pnpm i' },
+      });
+      await t.turnEnds(1);
+      expect(s.resolvePermission(p.requestId, { behavior: 'allow', scope: 'once' })).toBe(
+        'duplicate',
+      );
+      s.end();
+      await t.exit();
+    });
+
+    it('a held call resolves on deny with the default text', async () => {
+      const s = driver().start(opts(heldScenario()));
+      const t = track(s);
+      const p = await prompt(t);
+      s.resolvePermission(p.requestId, { behavior: 'deny', scope: 'once' });
+      expect(JSON.parse((await toolResult(t)).text)).toEqual({
+        behavior: 'deny',
+        message: PERMISSION_DENIED_ON_BOARD,
+      });
+      s.end();
+      await t.exit();
+    });
+
+    it('a held call is denied at the timeout', async () => {
+      const short = await startOutcomeServer({ permissionTimeoutMs: 200 });
+      try {
+        const s = createCliDriver({
+          claudeBin: FAKE,
+          outcomeServer: short,
+          extraStateEnv: FAKE_ENV,
+        }).start(opts(heldScenario()));
+        const t = track(s);
+        const p = await prompt(t);
+        expect(JSON.parse((await toolResult(t)).text)).toEqual({
+          behavior: 'deny',
+          message: permissionTimeoutText(200),
+        });
+        expect(s.resolvePermission(p.requestId, { behavior: 'allow', scope: 'once' })).toBe(
+          'unknown',
+        );
+        s.end();
+        await t.exit();
+      } finally {
+        await short.close();
+      }
+    });
+
+    it('kill while held: the call is denied and the process exits', async () => {
+      const s = driver().start(opts(heldScenario()));
+      const t = track(s);
+      const p = await prompt(t);
+      s.kill(1_000);
+      await t.exit();
+      expect(s.resolvePermission(p.requestId, { behavior: 'allow', scope: 'once' })).toBe(
+        'unknown',
+      );
+      expect(s.denyPermission(p.requestId, PERMISSION_SESSION_ENDED)).toBe(false);
+    });
+
+    it('a worker announces auto mode; an old CLI falls back to the old flags with a warning', async () => {
+      const s = driver().start(opts([[{ say: 'up' }]]));
+      const t = track(s);
+      await t.turnEnds(1);
+      expect(t.events).toContainEqual({
+        kind: 'output',
+        stream: 'debug',
+        text: 'conductor: running in auto mode; permission prompts go to the conductor board',
+      });
+      s.end();
+      await t.exit();
+      const old = createCliDriver({
+        claudeBin: FAKE,
+        outcomeServer: server,
+        extraStateEnv: FAKE_ENV,
+        permissionPrompts: false,
+      }).start(opts([[{ say: 'up' }]]));
+      const to = track(old);
+      await to.turnEnds(1);
+      expect(
+        to.events.some(
+          (e) => e.kind === 'output' && e.stream === 'debug' && e.text.includes('old flags'),
+        ),
+      ).toBe(true);
+      old.end();
+      await to.exit();
+      const [, second] = argvLog();
+      const argv = second?.argv ?? [];
+      expect(argv[argv.indexOf('--permission-prompts') + 1]).toBe('none');
+      expect(argv).not.toContain('--permission-prompt-tool');
+      const legacy = agentPermissionMode();
+      expect(argv.includes('--permission-mode')).toBe(legacy !== undefined);
+    });
   });
 
   it('defaults claudeBin to $CONDUCTOR_CLAUDE_BIN', async () => {

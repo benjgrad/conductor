@@ -63,6 +63,8 @@
 //   FAKE_CLAUDE_ARGV_LOG    append one JSON line {argv, cwd, env} per process start
 //   FAKE_CLAUDE_VERSION     claude_code_version reported in init and by `--version`
 //                           (default "0.0.0-fake")
+//   FAKE_CLAUDE_OLD_HELP    "1": `--help` lists no auto mode / --permission-prompts (ADR-0023
+//                           fallback); otherwise `--help` lists both
 //   CLAUDE_CONFIG_DIR       when set, write a transcript like the real CLI (ADR-0008):
 //                           <dir>/projects/<realpath(cwd), non-alphanumerics → '-'>/<id>.jsonl,
 //                           appending on --resume. Lines: each turn's user prompt, a
@@ -101,6 +103,25 @@ const version = process.env.FAKE_CLAUDE_VERSION ?? '0.0.0-fake';
 
 if (argv.length === 1 && (argv[0] === '--version' || argv[0] === '-v')) {
   process.stdout.write(`${version} (Claude Code)\n`);
+  process.exit(0);
+}
+
+// ADR-0023: the daemon probes `claude --help` once for auto mode and `--permission-prompts`.
+// FAKE_CLAUDE_OLD_HELP=1 answers like a CLI that has neither.
+if (argv.length === 1 && (argv[0] === '--help' || argv[0] === '-h')) {
+  const old = process.env.FAKE_CLAUDE_OLD_HELP === '1';
+  process.stdout.write(
+    [
+      'Usage: claude [options] [command] [prompt]',
+      old
+        ? '  --permission-mode <mode>  (choices: "acceptEdits", "bypassPermissions", "default", "dontAsk", "plan")'
+        : '  --permission-mode <mode>  (choices: "acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan")',
+      ...(old
+        ? []
+        : ['  --permission-prompts <target>  (choices: "host", "none", default: "host")']),
+      '',
+    ].join('\n'),
+  );
   process.exit(0);
 }
 

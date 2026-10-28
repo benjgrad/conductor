@@ -10,7 +10,7 @@
 - Feature 2, `feat-fresh-conversation` (merge 220e79f): "Start fresh conversation…": engine event `human.fresh_conversation`, `POST /api/sessions/:id/fresh-conversation`, a session-panel button, an in-app "Stuck agent?" help section. QA: PASS WITH DEBT.
 - Feature 3, `feat-plan-approval-ui` (merge cf880dc): a question transition keeps its non-empty result in context; `PlanApprovalRequest` panel (plan, Approve plan, Request changes…, other actions collapsed); board card Approve plan / Review plan. QA: FAIL (board-card tests claimed but missing), added, PASS WITH DEBT.
 - Decisions: see DECISIONS_LOG 2026-10-28 (three lines).
-- `// TD-171..174` comments added at the code sites (comments only).
+- `// TD-182..185` comments added at the code sites (comments only).
 - Nothing pushed; nothing deployed.
 
 ## Agents dispatched
@@ -21,9 +21,9 @@
 | implementer + qa-reviewer | plan approval UI | feat-plan-approval-ui | FAIL, then PASS WITH DEBT |
 
 ## Tracking changes
-- Unknowns raised / resolved: U-097 raised (does `claude --resume` find a transcript under a different project dir? resolve at the next `E2E_REAL_CLAUDE` run)
+- Unknowns raised / resolved: U-103 raised (does `claude --resume` find a transcript under a different project dir? resolve at the next `E2E_REAL_CLAUDE` run)
 - Blockers raised / cleared: none
-- Tech debt added / paid: TD-171 (lost-machine park keeps the pin), TD-172 (`moveTitle` vs a workflow's `fresh_conversation`), TD-173 (`planAnswerOption` guess), TD-174 (hardcoded plan approval names), TD-175 (flaky SetupGuide / markdown-io tests under load)
+- Tech debt added / paid: TD-182 (lost-machine park keeps the pin), TD-183 (`moveTitle` vs a workflow's `fresh_conversation`), TD-184 (`planAnswerOption` guess), TD-185 (hardcoded plan approval names), TD-186 (flaky SetupGuide / markdown-io tests under load)
 - ADRs: none
 - Unfinished handoffs written: stuck ticket "CI/CD" + deploy
 

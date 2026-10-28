@@ -109,8 +109,10 @@ export const EntryRequirementsSchema = z
     /**
      * (Ben, 2026-10-26) Checks run in a fresh, conductor-owned checkout of the exact commit, never
      * the agent's worktree. `setup` runs once in it before the checks (e.g. `npm ci`). Omitted =
-     * auto-detect: `package-lock.json` → `npm ci`, else `package.json` → `npm install`, else
-     * nothing. '' = no setup. A failed setup is unmet, like a failed check.
+     * auto-detect from the lockfile (M2-T30): `pnpm-lock.yaml` → `pnpm install --frozen-lockfile`,
+     * `yarn.lock` → `yarn install --immutable`, `package-lock.json` → `npm ci`, else
+     * `package.json` → `npm install`, else nothing. '' = no setup. A failed setup is unmet, like a
+     * failed check.
      */
     setup: z.string().max(2_000).optional(),
     review: z

@@ -88,22 +88,39 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 | M2-T10b | Capability names follow-up: one shared name rule, plugin MCP normalisation, invalid names logged | T10 | C | — | done |
 | M2-T11 | Web: Machines page, Queued routing badge, tamper alerts, outdated-gh flag | T05, T10 | D | — | todo |
 | M2-T12 | Orchestrator: per-account workflows (key change, `required_capabilities` on save, `seedAccount`, per-account upgrade rule) | T03, T06, T08 | D | **yes** | todo |
-| M2-T13 | Daemon: working copies (reference clone default, checkout opt-in), fetch per session, push URL from the inventory, GC, tamper check; push credentials via gh | T10 | D | — | todo |
+| M2-T13 | Daemon: working copies (reference clone default, checkout opt-in), push URL from the inventory, GC, tamper check; push credentials via gh | T10 | D | — | todo |
 | M2-T14 | Orchestrator: daemon distribution (`/install.sh`, tarball, `/healthz`) and the Dockerfile's tarball stage | T07, T08 | D | — | in_progress |
 | M2-T15 | Orchestrator: invites, sign-up, resets, admin routes, `conductor-admin` CLI (bootstrap claims `local`) | T08, T09, T12 | E | — | split → T15a, T15b |
 | M2-T15a | Orchestrator: bootstrap admin, `conductor-admin` CLI, reset links (the you-only deploy slice of T15) | T08, T09 | E | — | todo |
 | M2-T15b | Orchestrator: invites, sign-up into new accounts, admin routes (the rest of T15) | T12, T15a | E | — | todo |
 | M2-T16 | Orchestrator: inventory ingest, routing filters in the claim, routing badge, alert ingest; gateway isolation test | T06, T09, T12, T14 | E | — | todo |
 | M2-T17 | Orchestrator: machines REST (enroll endpoint, enrollment tokens, list, rename, revoke); ticket repo check (U-048) | T08, T09, T14 | E | — | todo |
-| M2-T18 | Daemon: `service install` (launchd / systemd user), upgrade-in-place; `docs/setup/add-a-machine.md` | T04, T14 | E | — | todo |
+| M2-T18 | Daemon: `service install` (launchd / systemd user), upgrade-in-place, `conductor-launch` launcher, wake reconnect; `docs/setup/add-a-machine.md` | T04, T14 | E | — | in_progress |
+| M2-T18b | **Contracts (auto-update)**: `update_available`, `heartbeat.draining`, `alert` kind `update_failed`, `latest.json` DTO, exit codes ([ADR-0021](../../adr/0021-daemon-auto-update.md)) | T02 | E | — | in_progress |
+| M2-T18c | Daemon: self-update (stage, verify, drain, switch, exit 75), launcher trial + rollback, `config auto-update`, 4005 → latest.json | T18, T18b | F | — | todo |
+| M2-T18d | Orchestrator: send `update_available` after register, `GET /downloads/latest.json`, `draining` heartbeat → `machine.status`, `update_failed` alert ingest | T14, T16, T17, T18b | F | — | todo |
+| M2-T18e | Web: Machines page shows updating (draining) and update-failed alerts | T11, T18d | G | — | todo |
 | M2-T19 | Orchestrator: engine and stream scoping (`applyEvent(scope, …)`, engine SQL, dispatcher, per-account buses, SSE replay filter) | T08, T09, T12, T16, T17 | F | — | todo |
 | M2-T20 | Orchestrator: leases and the reaper (lapse → `machine.lost` → human); revoke reuses it; TD-088 | T06, T19 | G | — | todo |
 | M2-T21 | Orchestrator: REST scoping, route-matrix and SSE isolation tests, unscoped-query lint, drop the temporary defaults | T15, T17, T19 | G | **yes** | todo |
-| M2-T22 | E2E: password-mode harness, two accounts × two machines, routing, isolation; M1 / M1b in local mode | T13, T15, T16, T18, T20, T21 | H | — | todo |
+| M2-T22 | E2E: password-mode harness, two accounts × two machines, routing, isolation; M1 / M1b in local mode; one daemon auto-update and one rollback | T13, T15, T16, T18, T18c, T18d, T20, T21 | H | — | todo |
 | M2-T23 | Docs sweep: 00–10, ADR implementation notes, README "run hosted" | T21 | H | — | todo |
 | M2-T24 | E2E: laptop sleep, lease lapse, revoke, reconnect | T22 | I | — | todo |
 | M2-T25 | **Deploy** to conductor.gradyserver.com (lead + Ben's sudo script), bootstrap, enroll Ben's Mac, live checks, backup restore test | T22, T23, T24, T26 | J | — | todo |
 | M2-T26 | Shared: **Retry** a failed move step (a `$retry` human transition that re-runs the failed phase without an agent turn) | T06 | D | — | todo |
+| M2-T13a | Daemon: **fetch per session** (split out of T13; pays TD-026's stale base) | T10 | D | — | in_review (PR #48, QA passed with debt TD-181; merge after #44) |
+| M2-T27 | Daemon + shared: `update_branch` MCP tool (all states), planning `inspect` alias, denial counts on session events | T13a | E | — | todo |
+| M2-T27b | Orchestrator + web: "Update from main" on an idle session (REST → daemon command → same action) | T27 | F | — | todo |
+| M2-T28 | **Contracts (agent settings)**: `machine_settings`, settings REST, `settings_update`, `reported_settings` ([ADR-0022](../../adr/0022-layered-agent-settings.md), proposed) | — | D | — | todo |
+| M2-T28b | Shared: `resolveEffectivePolicy` + invariants, settings schemas | T28 | E | — | todo |
+| M2-T28c | Orchestrator: `machine_settings` migration, settings routes, audit, push on connect / change | T28b | F | **yes** | todo |
+| M2-T28d | Daemon: apply pushed override, report `reported_settings` (pays TD-081) | T28b, T13a, T29b | F | — | todo |
+| M2-T28e | Web: Machines drawer **Settings** tab (effective policy per state, override editor) | T28c | G | — | todo |
+| M2-T29 | **Contracts (permission prompts)**: `permission_request` / `permission_decision`, `needs_permission`, REST ([ADR-0023](../../adr/0023-permission-prompts-through-conductor.md)) | — | D | — | in_review (PR #47, QA passed with debt TD-178..180; merge after #44) |
+| M2-T29b | Daemon: auto mode default, `--permission-prompts host` + `permission` MCP tool held until decision / timeout | T29 | E | — | todo |
+| M2-T29c | Orchestrator: store requests, `needs_permission` on the board, decision route → daemon | T29 | E | **yes** | todo |
+| M2-T29d | Web: Needs-permission card state with Allow once / Allow always / Deny | T29c | F | — | todo |
+| M2-T30 | Daemon + shared: package-manager-aware build checks (pnpm / yarn lockfiles) and pnpm rules in the `bash` alias | — | D | — | done |
 
 **Follow-ups and splits (2026-10-27).** T08b, T09b and T10b came from post-merge QA of T08 (PR #16), T09 (PR #13) and T10 (PR #14) and merged as PR #21 (merge 32e6bb8), PR #17 (merge 881708e) and PR #19 (merge 74abf5f). T07b pays TD-144 and must land before T25's first deploy. Ben chose an early you-only deploy, so T15 is split: **T15a** (bootstrap, CLI, resets; critical path) and **T15b** (invites, sign-up, admin routes; after T12). Critical path for the you-only deploy: T09b, T08b, T14, T15a, T17, T07b. No second account until T16, T19 and T21 (TD-149). Deploy T09 and T17 together: after T09, password-mode gateways refuse every uncredentialed daemon and only T17 adds enrollment. Post-merge QA ran for T06 (OK, every item verified on main), T10 (follow-ups done as T10b) and T09b (security QA passed, 6 attack probes). T20 must settle U-084 (lease renewal for sessions parked in event states) before it starts.
 
@@ -442,7 +459,7 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 - **Do not touch**: `inventory/**` (read only), `claude/**`, other packages, `docs/tracking/*`.
 - **Migration**: no.
 - **Acceptance**:
-  - [ ] **TD-026 / U-030 (fresh base, actively hurting M2: every dogfood session so far started from a stale main and was rebased by hand; the lead fast-forwards the clone after each merge as a workaround)**: `workspace.fresh-base.test.ts`: the daemon runs `git fetch origin <default_branch>` **before creating each new session's worktree**, in both modes and on the M1 `cloneSource` path too (local test repos), and the session branch is created from the **fetched** `origin/<default_branch>` (not the clone's local `HEAD` or `main`). Test: create clone → push commit X to origin → start a session → the worktree's base contains X; push Y → start a second session → its base contains Y; a resumed session (same session id) reuses its existing worktree and is not rebased. A failed fetch fails the start with a clear error (no silent stale base). Pays TD-026.
+  - [ ] *(Built in **M2-T13a**, 2026-10-28; T13 keeps it passing in both new modes.)* **TD-026 / U-030 (fresh base, actively hurting M2: every dogfood session so far started from a stale main and was rebased by hand; the lead fast-forwards the clone after each merge as a workaround)**: `workspace.fresh-base.test.ts`: the daemon runs `git fetch origin <default_branch>` **before creating each new session's worktree**, in both modes and on the M1 `cloneSource` path too (local test repos), and the session branch is created from the **fetched** `origin/<default_branch>` (not the clone's local `HEAD` or `main`). Test: create clone → push commit X to origin → start a session → the worktree's base contains X; push Y → start a second session → its base contains Y; a resumed session (same session id) reuses its existing worktree and is not rebased. A failed fetch fails the start with a clear error (no silent stale base). Pays TD-026.
   - [ ] `workspace.reference.test.ts`: with a temp "user checkout" and a temp origin, a session's worktree is based on the **fetched** origin default branch (a commit pushed to origin after the clone appears); the user checkout's `.git` directory tree hash is identical before and after two sessions.
   - [ ] `workspace.checkout.test.ts`: a session runs off the checkout; planting `.git/hooks/pre-commit` during it produces an `alert` naming that file; nothing is reported when nothing changed.
   - [ ] A `start_session` whose `repo_path` isn't in the inventory, or whose remote doesn't match the ticket, fails without touching disk.
@@ -529,19 +546,113 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 - **Scope.**
   - `conductor-daemon service install | uninstall | status` (`packages/daemon/src/commands/service.ts`): macOS writes `~/Library/LaunchAgents/com.conductor.daemon.plist` (RunAtLoad, KeepAlive, logs to `<root>/logs/`) and `launchctl bootstrap gui/<uid>`; Linux writes `~/.config/systemd/user/conductor-daemon.service` (`Restart=on-failure`) and `systemctl --user enable --now`; both run `<root>/daemon/current/bin/conductor-daemon run`, so upgrades by the install script take effect on restart. Never needs sudo. `install` is idempotent.
   - After an in-place upgrade the install script (T14) calls `conductor-daemon service restart` if a unit is installed (this task provides `restart`).
+  - **Launcher ([ADR-0021](../../adr/0021-daemon-auto-update.md) §3)**: the units run `<root>/bin/conductor-launch`, not the daemon directly. In this task it is only `exec "<root>/daemon/current/bin/conductor-daemon" run "$@"` (POSIX `sh`), kept in `packages/daemon/assets/conductor-launch.sh`; `service install` writes it, and `install.sh` writes the same bytes (the template embeds it at tarball build time; a test asserts identical bytes). T18c adds the trial / rollback logic. Both units set `CONDUCTOR_SUPERVISED=launchd|systemd`.
+  - **Wake ([ADR-0021](../../adr/0021-daemon-auto-update.md) §5)**: a 5 s tick in `ws-client.ts` that sees wall-clock time jump by more than 30 s resets the backoff and reconnects at once, so opening the lid reconnects in seconds rather than after up to 30 s (`reconnect.maxMs`).
   - **`docs/setup/add-a-machine.md`**: prerequisites (Node 22, `claude` installed and logged in, `gh auth login`; optional `az login`, a Jira CLI or MCP); the one-line install from the Machines page; `--service`; choosing roots (`conductor-daemon config roots ~/code`); per-repo mode (`config repo <path> --mode checkout` and what it risks, U-060); what is reported and what is never reported; upgrading; revoking and re-enrolling; troubleshooting (401 = token expired, 4001 = revoked, 4005 = update).
 - **Design refs**: ADR-0013 §Enrollment (setup guide); ADR-0017 §Daemon distribution.
 - **Depends on**: T04; T14 (the install script calls this command).
-- **Files owned**: `packages/daemon/src/commands/service.ts` (+ test), the `service` subcommand in `main.ts`, `docs/setup/add-a-machine.md`; for TD-117 / TD-118 / TD-119: the token input in `commands/enroll.ts`, `credential.ts`, and the fatal-exit code in `ws-client.ts` (+ their tests).
+- **Files owned**: `packages/daemon/src/commands/service.ts` (+ test), `packages/daemon/assets/conductor-launch.sh`, the launcher step in `packages/orchestrator/assets/install.sh.tmpl` and `scripts/build-daemon-tarball.sh`, the wake tick in `ws-client.ts`, the `service` subcommand in `main.ts`, `docs/setup/add-a-machine.md`; for TD-117 / TD-118 / TD-119: the token input in `commands/enroll.ts`, `credential.ts`, and the fatal-exit code in `ws-client.ts` (+ their tests).
 - **Do not touch**: `workspace.ts`, `inventory/**`, `claude/**`, other packages, `docs/tracking/*`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `commands/service.test.ts` with `HOME` in a temp dir and fake `launchctl` / `systemctl` on `PATH`: the plist / unit content matches a snapshot; install twice changes nothing; uninstall removes it; no command uses sudo.
   - [ ] **QA step (lead)**: on Ben's Mac, `conductor-daemon service install` against a local orchestrator starts the daemon at login (log in `<root>/logs/`), and `uninstall` stops it.
+  - [ ] The plist / unit run `<root>/bin/conductor-launch` and set `CONDUCTOR_SUPERVISED`; the launcher written by `service install` and by the rendered `install.sh` is byte-identical (`commands/service.test.ts`, `install-script.test.ts`).
+  - [ ] `ws-client.test.ts` (fake clock): a 60 s wall-clock jump during a 30 s backoff reconnects within one tick and resets the attempt counter; normal ticks don't.
+  - [ ] **QA step (lead)**: on Ben's Mac, close the lid for > 1 min with the daemon running, then open it: the orchestrator log shows the machine re-registered within 10 s of wake.
   - [ ] **TD-117 (daemon side)**: `enroll` reads the token from `CONDUCTOR_ENROLL_TOKEN` (or stdin with `--token -`); `--token <value>` still works and prints a warning that argv is visible in `ps`. `commands/enroll.test.ts` covers all three.
   - [ ] **TD-119 (exit code)**: a fatal close (4001, 4003, HTTP 401, HTTP 403) exits with a distinct `EXIT_FATAL_AUTH` (78, `EX_CONFIG`), not 1; `ws-client.test.ts` asserts the code for each.
   - [ ] **TD-118** (here, or in the M2 security pass before T25): `credential.ts` opens with `O_NOFOLLOW` + `fstat`, checks the root is 0700 and owned by the user, `fsync`s on write, and never `chmod`s through a symlink; `credential.test.ts` covers each case.
   - [ ] **TD-119**: a revoked machine doesn't restart-loop. The systemd unit has `RestartPreventExitStatus=<EXIT_FATAL_AUTH>`; the launchd plist uses `KeepAlive {SuccessfulExit: false}` with the daemon's fatal-auth path stopping the job (or `ThrottleInterval` as a floor). `commands/service.test.ts` snapshots both; a fake daemon that exits with `EXIT_FATAL_AUTH` under the fake `systemctl` / `launchctl` is not restarted.
+  - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
+
+### M2-T18b · Contracts: daemon auto-update
+- **Scope** ([ADR-0021](../../adr/0021-daemon-auto-update.md) §1–§4; additive, so M1/M2 daemons still parse).
+  - `shared/src/protocol/ws.ts`: orchestrator → daemon direct frame `update_available {version, file, sha256, size}` (`UpdateAvailableSchema`; `file` matches `DAEMON_TARBALL_RE` = `^conductor-daemon-[0-9A-Za-z.+-]+\.tgz$` and embeds `version`; `sha256` is 64 lowercase hex; `size` ≤ `DAEMON_TARBALL_MAX_BYTES` 100 MB). `heartbeat.draining?: {reason: 'update', version}`. `alert` gains a second kind `{kind: 'update_failed', version, stage: 'download'|'verify'|'unpack'|'drain_timeout'|'trial', error (≤ 500 chars), at}` (machine-level, no `repo`; still carries `seq`).
+  - `shared/src/machines/update.ts`: `LatestDaemonSchema` (`{version, file, sha256, size}`, the `/downloads/latest.json` body), `EXIT_RESTART_FOR_UPDATE` 75, `UPDATE_MAX_DRAIN_MS` 21 600 000, `UPDATE_TRIAL_REGISTER_MS` 120 000, `UPDATE_MAX_DRAIN_ATTEMPTS` 3, `UPDATE_DRAIN_COOLDOWN_MS` 3 600 000, `UPDATE_MAX_TRIAL_ATTEMPTS` 2. (`EXIT_FATAL_AUTH` 78 stays T18's.)
+  - Machines list DTO (T01's): `alerts?: {kind: 'update_failed', version, stage, error, at}[]` on a machine.
+  - Fixtures: `M2_WS_FIXTURES.update_available`, `.heartbeat_draining`, `.alert_update_failed`; `LATEST_DAEMON_FIXTURE`.
+  - `docs/design/10-contracts.md` §Daemon auto-update and the `03-protocols.md` rows: confirm or correct what ADR-0021's docs branch wrote.
+- **Design refs**: ADR-0021; 10-contracts §Machines protocol v2, §Daemon auto-update; 03 daemon protocol tables.
+- **Depends on**: T02.
+- **Files owned**: `packages/shared/src/protocol/ws.ts` (these additions), `packages/shared/src/machines/update.ts` (+ test), the machines DTO field, the fixtures, the two doc sections above.
+- **Do not touch**: `packages/daemon/**`, `packages/orchestrator/**`, `packages/web/**`, `docs/tracking/*`.
+- **Migration**: no.
+- **Acceptance**:
+  - [ ] Schema tests: every fixture parses; T02's `git_tamper` alert fixtures still parse; `update_available` with `file` `../x.tgz`, a `version` not in `file`, or an uppercase or short `sha256` is rejected; `heartbeat` without `draining` still parses.
+  - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
+
+### M2-T18c · Daemon: self-update, launcher rollback, opt-out
+- **Scope** ([ADR-0021](../../adr/0021-daemon-auto-update.md) §1–§4).
+  - `packages/daemon/src/update/` (`updater.ts`, `stage.ts`, `drain.ts`). The daemon acts on `update_available`, and on close 4005 via `GET <enrolled url>/downloads/latest.json`. It skips the update when `auto-update` is `off`, the version is in `<root>/daemon/bad-versions`, the version is already `current`, or a drain for it is cooling down.
+  - **Stage** (in the background):
+    - download with `redirect: 'manual'` and `isSecureOrLoopback`, under the size cap, and check the SHA-256;
+    - list the archive with `tar -tzf` and refuse absolute paths, `..`, links escaping the archive, and devices; unpack with `tar -xzf --no-same-owner`;
+    - run `bin/conductor-daemon --version` with a 10 s timeout and check it prints `version`, then rename the result to `<root>/daemon/<version>`;
+    - on any failure, delete the staging dir and send `alert update_failed`.
+  - **Drain**:
+    - stop `request_work`, send `heartbeat.draining`, and keep honouring queued commands;
+    - wait until no live Claude turn, `run_cmd` or `run_action` is in flight (parked sessions don't count);
+    - give up after `UPDATE_MAX_DRAIN_MS`: resume work, send `alert drain_timeout`, and start the cooldown. Stop trying that version after `UPDATE_MAX_DRAIN_ATTEMPTS`.
+  - **Switch**: write `<root>/daemon/trial`, repoint `current` by renaming a temp symlink over it, and exit `EXIT_RESTART_FOR_UPDATE`. When `CONDUCTOR_SUPERVISED` is unset, only stage and log once.
+  - Trial in the new version: delete `trial` on the first `registered`. If the socket opened (or an HTTP status came back) but no `registered` arrived within `UPDATE_TRIAL_REGISTER_MS`, exit 75. With no network, keep waiting.
+  - At start: if `bad-versions` has an entry not yet reported, send `alert update_failed` stage `trial` once and record it as reported. After a commit, delete every version except `current` and the previous one.
+  - `assets/conductor-launch.sh` (T18's launcher) gains the trial logic: `attempts` += 1. When it exceeds `UPDATE_MAX_TRIAL_ATTEMPTS`, repoint `current` to `from`, append `to` to `bad-versions` and delete `trial`; then `exec` the daemon. POSIX `sh` with no bash-isms: it must work with macOS `/bin/sh` and with dash.
+  - `conductor-daemon config auto-update on|off` (default `on`) in `commands/config.ts`.
+- **Design refs**: ADR-0021; ADR-0017 §Daemon distribution; 10-contracts §Daemon auto-update, §Orphaned processes, §Refusals (resume after `no_live_process`).
+- **Depends on**: T18 (launcher, units, exit code 78), T18b.
+- **Files owned**: `packages/daemon/src/update/**` (+ tests), `packages/daemon/assets/conductor-launch.sh` (+ its test), the update hooks in `daemon.ts` / `ws-client.ts` (the request_work gate, the heartbeat field, the 4005 branch), `commands/config.ts` (the `auto-update` key).
+- **Do not touch**: `workspace.ts`, `inventory/**`, `claude/**`, `credential.ts`, other packages, `docs/tracking/*`.
+- **Migration**: no.
+- **Acceptance**:
+  - [ ] `update/stage.test.ts`, with a local http server and a temp `<root>`: a good tarball lands in `<root>/daemon/<version>`. A wrong SHA-256, an oversize file, a `../evil` entry, an absolute path, a symlink to `/etc` and a `--version` mismatch each leave nothing behind and raise one `update_failed` with the right `stage`. A redirect is not followed.
+  - [ ] `update/drain.test.ts` (fake daemon state, fake clock):
+    - no `request_work` after the drain starts;
+    - a running turn blocks the switch, and its end releases it;
+    - a parked (`ask_user`) session doesn't block;
+    - at the 6 h limit, work resumes and an alert goes out; the 1 h cooldown and the 3-attempt stop hold;
+    - `auto-update off` ignores the frame, and so does a version in `bad-versions`.
+  - [ ] Switch: `current` points at the new version, `trial` is written and the process exits 75. Unsupervised: the build is staged, `current` is unchanged and the process doesn't exit.
+  - [ ] `assets/conductor-launch.test.ts` runs the launcher under `sh` (and `dash` when present) with a fake daemon:
+    - the first and second starts keep the new version;
+    - the third start rolls back, writes `bad-versions` and `exec`s the old version;
+    - with no `trial` file it is a plain `exec`;
+    - the symlink swap is a rename (`current` is never missing).
+  - [ ] Trial: `registered` deletes `trial`. Socket open with no `registered` in 120 s exits 75. An unreachable server causes no exit within 10 min (fake clock).
+  - [ ] Close 4005 fetches latest.json and runs the same flow.
+  - [ ] A parked session survives an update restart: after the restart, an answer is refused `no_live_process` and resumes (the existing path; a daemon-level test with the fake runner).
+  - [ ] **QA step (lead)**: on Ben's Mac under launchd, serve a newer build from a local orchestrator. The daemon drains, restarts on it, and the Machines page shows the new version. Then serve a build whose `run` exits 1: after two failed starts it rolls back and the `update_failed` alert is visible.
+  - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
+
+### M2-T18d · Orchestrator: announce updates, latest.json, draining, update alerts
+- **Scope** ([ADR-0021](../../adr/0021-daemon-auto-update.md) §1–§3).
+  - Gateway: after sending `registered`, if a build is served and `isOutdated(register.daemon_version, servedVersion(build))`, send `update_available` from the served `DaemonBuild`. Not through the outbox.
+  - `distribution.ts`: `GET /downloads/latest.json` returns a `LatestDaemonSchema` body with `Cache-Control: no-store`. It returns 503 with the dev hint when no build is served, like `/install.sh`.
+  - When `heartbeat.draining` is present, set `machine.status = 'draining'`. When it's absent from a later heartbeat or register, set it back to `online`. Draining machines get no new claims (the claim already takes only `online` machines; confirm and test).
+  - `alert` `update_failed` ingest: deduped on seq like `git_tamper` (T16's ingest), stored machine-level, and returned on the machines list (T17) as `alerts`. If T16/T17 storage has no machine-level slot, **stop and report**: a migration needs Ben.
+- **Design refs**: ADR-0021; 10-contracts §Daemon auto-update; M2-T14 `distribution.ts`.
+- **Depends on**: T14, T16 (alert ingest), T17 (machines list), T18b.
+- **Files owned**: the register / heartbeat / alert branches in `src/gateway/**` for these fields, `src/distribution.ts` (latest.json), the machines list's `alerts` field, `test/gateway-update*.test.ts`, the `test/distribution*.test.ts` additions.
+- **Do not touch**: `src/auth/**`, `packages/daemon/**`, `packages/web/**`, `docs/tracking/*`.
+- **Migration**: no (stop and report if one turns out to be needed).
+- **Acceptance**:
+  - [ ] `test/gateway-update.test.ts`: an outdated v2 daemon gets exactly one `update_available` per register, with the served file and SHA-256. A current daemon gets none, and so does any daemon when no build is served. Nothing is written to the outbox.
+  - [ ] `latest.json` matches the served build, and returns 503 without one.
+  - [ ] `heartbeat.draining` sets `draining` and no claim is granted; a clean heartbeat sets `online` again.
+  - [ ] An `alert update_failed` is stored once per seq and listed on the machine.
+  - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
+
+### M2-T18e · Web: update states on the Machines page
+- **Scope**: on the Machines page (T11):
+  - a machine with `status = 'draining'` shows "Updating to <version>: waiting for running work";
+  - an `update_failed` alert shows "Update to <version> failed (<stage>), rolled back to <current>" with its error;
+  - the existing "outdated" mark stays.
+- **Depends on**: T11, T18d.
+- **Files owned**: `packages/web/src/machines/**` for these states (+ tests).
+- **Do not touch**: other packages, `docs/tracking/*`.
+- **Migration**: no.
+- **Acceptance**:
+  - [ ] `Machines.test.tsx` renders all three states from fixtures.
   - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
 
 ### M2-T19 · Orchestrator: engine and stream scoping
@@ -695,6 +806,179 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
   - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e`.
 
 ---
+
+### Agent permissions and fresh bases (2026-10-28)
+Two dogfood sessions stalled on 2026-10-28:
+- **M2-T18b ("Hazel")** planned from a base cut before ADR-0021 merged. The daemon clone is never fetched (TD-026), and planning has no shell, so it couldn't refresh.
+- **M2-T18 ("Nova")** had 18 calls silently denied (pnpm, chmod, diff, prettier, `git update-index`). The machine has no `defaultMode`, prompts are `none`, and `bash` allows only npm. Its build check also ran npm in a pnpm repo.
+
+Ben's decisions:
+- fetch per session now (T13a);
+- an agent and human "update from main" (T27, T27b);
+- auto mode with prompts to the board (ADR-0023: T29–T29d);
+- both-layer settings, viewable and editable per machine (ADR-0022: T28–T28e);
+- pnpm-aware checks (T30).
+
+The lead fast-forwarded the daemon clone and Hazel's branch by hand (the interim workaround).
+
+**Order and file ownership:**
+- T13a, T28, T29 and T30 can run in parallel.
+  - T13a: `workspace.ts` and the start_session section of `daemon.ts`.
+  - T28 and T29: shared protocol and design docs, with disjoint sections.
+  - T30: `actions/checkout.ts` install/scripts and `tools.ts` `bash`.
+- T27 needs T13a.
+- T29b owns `claude/cli-driver.ts` and `claude/outcome-server.ts`. T27 also adds an MCP tool there, so **T27 runs after T29b** (or rebases onto it).
+
+### M2-T13a · Daemon: fetch per session
+- **Scope.** The "fetch per session" slice of T13, on today's M1 `cloneSource` path (reference and checkout modes stay in T13):
+  - In `Workspace.ensureWorktree`, before creating a **new** worktree:
+    - run `git -c core.hooksPath=/dev/null fetch origin <default_branch>`;
+    - serialise it per repo, so concurrent session starts don't race;
+    - branch from `origin/<default_branch>`, not `HEAD`.
+  - `<default_branch>` comes from `start_session.working_copy.default_branch` when present. Otherwise it is the clone's `origin/HEAD` (set once with `git remote set-head origin --auto`).
+  - A failed fetch fails the start with a clear error. No silent stale base (T13's acceptance).
+  - Existing worktrees and branches (resume, reopen) are reused untouched.
+  - The `// TD-026` comment is updated.
+- **Design refs**: TD-026, U-030; T13 block above (its first acceptance item is this task's); 07 §Code.
+- **Depends on**: T10.
+- **Files owned**: `packages/daemon/src/workspace.ts`, the start_session section of `daemon.ts`, `workspace*.test.ts`, 07 §Code (one paragraph).
+- **Do not touch**: `claude/**`, `actions/**`, other packages, `docs/tracking/*`.
+- **Migration**: no.
+- **Acceptance**:
+  - [ ] `workspace.fresh-base.test.ts`, with a temp bare origin:
+    - clone, push X, start a session: its base contains X;
+    - push Y, start a second session: its base contains Y;
+    - a resumed session (same id) reuses its worktree and is not rebased;
+    - an unreachable origin fails the start with an error that names the repo.
+  - [ ] Two concurrent `ensureWorktree` calls on one repo run one fetch at a time (no `index.lock` / `shallow.lock` errors).
+  - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e`.
+
+### M2-T27 · Daemon + shared: `update_branch`
+- **Scope.**
+  - New `packages/daemon/src/actions/update-branch.ts`. In the session worktree it runs:
+    1. `git fetch origin <default_branch>` (T13a's helper);
+    2. `git merge --no-edit origin/<default_branch>`.
+  - It refuses a dirty tree in a read-only state.
+  - On conflict it runs `git merge --abort` and returns the conflicting paths.
+  - It returns `{merged, from, to}` or `{conflict: string[]}` or `{refused: reason}`.
+  - Conductor MCP tool `update_branch` (`claude/outcome-server.ts`) is offered in every state. It doesn't end the turn.
+  - New `inspect` alias in `shared/src/workflow/tools.ts` = `REVIEW_GIT_COMMANDS` (exact rules). `conductor.v1/v2.json` planning becomes `["read","inspect"]`.
+  - Planning prompt (`shared/src/engine/render.ts`): "If a file the ticket cites is missing, call `update_branch` before planning."
+  - Session events carry `permission_denials {count, tools[]}` from `stream-parser.ts` (today dropped in `daemon.ts`).
+- **Design refs**: ADR-0023 §5; 03-protocols §MCP tools; 10-contracts.
+- **Depends on**: T13a; after T29b (shares `outcome-server.ts`).
+- **Files owned**: `actions/update-branch.ts`, the outcome-server tool registration, `shared/src/workflow/tools.ts` (`inspect` only), `workflows/conductor.v*.json` planning `tools`, `render.ts` plan prompt line, the session-event denial field, their tests, docs sections.
+- **Do not touch**: `workspace.ts` (import only), orchestrator, web, `docs/tracking/*`.
+- **Acceptance**:
+  - [ ] Unit tests: clean fast-forward; true merge; conflict, aborted with the paths listed and the tree clean; dirty tree refused in planning.
+  - [ ] e2e: a fake-Claude planning turn calls `update_branch` after a commit lands on origin, then reads the new file.
+  - [ ] A denied tool call shows up as `permission_denials.count ≥ 1` on the session event.
+  - [ ] Gates.
+
+### M2-T27b · Orchestrator + web: "Update from main"
+- **Scope.**
+  - `POST /api/sessions/:id/update-branch` (owner of the ticket). Allowed only when the session has no live turn (`needs_input`, `needs_permission`, or between states); otherwise 409.
+  - The orchestrator sends daemon command `update_branch {session_id}` with an idempotency key. The daemon runs T27's action and replies with the result.
+  - The result goes in the session log and a toast. The ticket drawer gets the button.
+- **Depends on**: T27. **Acceptance**: a route test (409 during a live turn; the result is stored); a web test; the e2e path; gates.
+
+### M2-T28 · Contracts: layered agent settings
+- **Scope** ([ADR-0022](../../adr/0022-layered-agent-settings.md); Ben approves the ADR before T28b starts):
+  - Contract sections in 10-contracts and 03-protocols:
+    - `machine_settings` (machine_id PK, override jsonb, version, updated_by, updated_at) plus a `machine_settings_audit` table;
+    - `GET/PUT /api/machines/:id/settings`;
+    - WS `settings_update {version, override}` and an ack `{version, applied | refused, reason?}`;
+    - inventory `reported_settings`.
+  - The zod schemas in `shared/src/protocol` and `shared/src/api`, additive, so M1/M2 daemons still parse.
+- **Files owned**: those schema files, the doc sections. **Acceptance**: schema round-trip tests; an old daemon's inventory still parses; gates.
+
+### M2-T28b · Shared: effective policy
+- `resolveEffectivePolicy(stateTools, override)` returns `{builtin, allow, deny, permissionMode}`, with the ADR-0022 invariants. A save-time validator returns field errors.
+- **Acceptance**:
+  - [ ] `git push` can't be un-denied.
+  - [ ] `Bash`, `Bash(*)`, `Bash(git diff:*)` and `Read(//**)` are rejected.
+  - [ ] Gates.
+
+### M2-T28c · Orchestrator: machine settings
+- Migration; routes (owner/admin only, account-scoped); audit rows; push `settings_update` on register and on PUT; store the daemon's ack and `reported_settings`.
+- **Acceptance**:
+  - [ ] Route tests, including cross-account 404.
+  - [ ] A migration up/down test.
+  - [ ] The push happens on reconnect.
+  - [ ] Gates.
+
+### M2-T28d · Daemon: apply settings
+- Persist the override in `<root>/state/settings.json` (0600).
+- Apply it in `resolveToolPolicy` and in the permission-mode choice (no local ceiling: U-098 resolved "no" for now).
+- Report `reported_settings`; remove the credential.
+- Pays TD-081.
+- **Acceptance**:
+  - [ ] The override changes the next session's argv, not a running one.
+  - [ ] `off` ignores it and acks `refused`.
+  - [ ] Gates.
+
+### M2-T28e · Web: Settings tab
+- `MachineDrawer` Settings tab with three parts:
+  - **Reported**: read-only `reported_settings`.
+  - **Effective per state**: a table of tools, allow, deny and mode.
+  - **Override editor**: states, aliases, exact rules, mode (bypass behind a confirm), timeout, limits.
+
+  It shows API validation errors in place, plus the ack status ("applied v3" / "refused: <reason>").
+- **Acceptance**: component tests against the mock API; gates.
+
+### M2-T29 · Contracts: permission prompts
+- **Scope** ([ADR-0023](../../adr/0023-permission-prompts-through-conductor.md)):
+  - WS `permission_request {session_id, request_id, tool, input, suggestions?, expires_at}` (daemon → orchestrator).
+  - `permission_decision {request_id, behavior: allow|deny, scope: once|always, message?}` (orchestrator → daemon).
+  - Session sub-status `needs_permission`.
+  - `GET /api/sessions/:id/permission-requests`, `POST /api/permission-requests/:id/decision`.
+  - Doc sections in 10-contracts, 03-protocols and 08-failure-modes (timeout, daemon restart while held: deny on reconnect).
+- **Acceptance**: schema tests; gates.
+
+### M2-T29b · Daemon: auto mode + prompt tool
+- `cli-driver.ts`:
+  - `--permission-mode auto` for working agents (reviewers stay `dontAsk`);
+  - `--permission-prompts host --permission-prompt-tool mcp__conductor__permission`;
+  - an unsupported Claude version falls back to today's flags and raises a machine alert.
+- `outcome-server.ts` `permission` tool:
+  - sends `permission_request` and awaits the decision;
+  - on timeout (default 30 min) or daemon shutdown, returns a deny with a reason;
+  - returns the Claude permission-prompt-tool JSON (`{behavior, updatedInput?, message?}`).
+- ADR-0006 notes updated.
+- **Acceptance**:
+  - [ ] argv tests.
+  - [ ] A held call resolves on allow, on deny and on timeout.
+  - [ ] `git push` never reaches the tool (deny first).
+  - [ ] A real-Claude probe noted in the PR: one prompt round-trip with haiku.
+  - [ ] Gates.
+
+### M2-T29c · Orchestrator: permission requests
+- Store requests; set and clear `needs_permission` in the same transaction as the board update (SSE); decision route (ticket owner) → `permission_decision` with an idempotency key.
+- "Always" appends an exact rule: to the ticket's `session_allow` until T28c, then to the machine override.
+- **Acceptance**: route tests; idempotent double decision; the card leaves `needs_permission` after a decision or expiry; gates.
+
+### M2-T29d · Web: Needs permission
+- Card badge and drawer panel. They show the tool and its input (a command shown as code; long input collapsed) and three buttons: **Allow once**, **Allow always**, **Deny** (with a note).
+- **Acceptance**: component tests; gates.
+
+### M2-T30 · Package-manager-aware checks
+- `actions/checkout.ts` picks the install step from the lockfile:
+
+  | Lockfile | Install command |
+  |---|---|
+  | `pnpm-lock.yaml` | `pnpm install --frozen-lockfile` |
+  | `yarn.lock` | `yarn install --immutable` |
+  | `package-lock.json` | `npm ci` |
+  | none | `npm install` |
+
+  Workflow check scripts run with the same manager (`pnpm run <script>`).
+- The `tools.ts` `bash` alias adds `Bash(pnpm run:*)`, `Bash(pnpm test:*)`, `Bash(pnpm install)`, `Bash(pnpm i)`, `Bash(pnpm exec vitest:*)`, `Bash(pnpm exec prettier:*)` and `Bash(chmod +x:*)`, with the same TD-019 caveat.
+- **Files owned**: `actions/checkout.ts` (install and script runner only; T13 owns its push URL source), `shared/src/workflow/tools.ts` (`bash` only), tests.
+- **Acceptance**:
+  - [ ] Checkout tests for each lockfile.
+  - [ ] Alias rule tests.
+  - [ ] A pnpm fixture repo's build check passes in e2e.
+  - [ ] Gates.
 
 ## Risks
 - **No Docker on Ben's Mac**: the Dockerfile and compose file are first built on gradyserver. Mitigation: T07 and T14 have a lead QA step that runs `docker build` there before merge, and T25 starts with a dry build.

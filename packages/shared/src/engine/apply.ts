@@ -556,7 +556,7 @@ function onFreshConversation(
   const text = e.text.trim();
   if (text === '') return 'wrong_status';
   releaseAgent(st, 'a human started a fresh conversation');
-  // TD-171: a lost-machine (non-revoked) park keeps its machine pin, so fresh conversation can't move off a dead machine.
+  // TD-182: a lost-machine (non-revoked) park keeps its machine pin, so fresh conversation can't move off a dead machine.
   const earlier = leaveLostPark(st, true, true);
   const old = s.claude_session_id;
   s.claude_session_id = null;

@@ -191,7 +191,7 @@ function stateName(workflow: WorkflowDefinition, state: string): string {
 }
 
 /** The transition's title from the state it left, else the name humanised. */
-// TD-172: a workflow's own transition named `fresh_conversation` would be mislabelled here.
+// TD-183: a workflow's own transition named `fresh_conversation` would be mislabelled here.
 export function moveTitle(workflow: WorkflowDefinition, move: MoveDto): string | null {
   if (move.transition === null) return null;
   const from = move.from === null ? undefined : workflow.states[move.from];

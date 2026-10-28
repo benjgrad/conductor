@@ -48,6 +48,11 @@ The 2026-10-22 roadmap had M2 · Fleet, M3 · Production workflow and M4 · Auth
 | Slack answering of input requests | M4 Authoring | **Deferred** (U-007); the assistant chat covers answering from elsewhere |
 | Triage / plan states with child tickets | M4 Authoring | Triage as intake **M4**; child tickets **deferred** (U-010) |
 
+## Future features (wanted, not yet scheduled)
+Ben's asks that have no milestone yet. Each gets a milestone (or a ticket in one) when it's planned, and Ben approves it like any other plan.
+
+- **Attach a running Claude session to conductor** (Ben, 2026-10-28). A Claude Code session the user started themselves (in a terminal, the IDE or the desktop app) joins conductor as a ticket, so it shows on the board, surfaces needs-input, and can be finished by conductor. The design is open: [U-097](../tracking/UNKNOWNS.md). The likely shape is a hand-off. From inside the session, a `conductor` MCP tool (M3's tool layer) or a `conductor attach` command creates or links a ticket with the session's `claude_session_id`, cwd and branch. The daemon on that machine then resumes the session (`claude --resume`, ADR-0005) in stream-json mode and the user's terminal steps away. It needs M3 (the client-side tool), M2's machines and routing (the daemon that owns that checkout), and a decision on the user's own checkout versus a daemon worktree (ADR-0013).
+
 ## Out of scope (until a decision says otherwise)
 - Shared (team) accounts and moving machines between accounts (U-051). Accounts are personal in M2.
 - A second orchestrator instance, sharded schedulers, thousands of machines (ADR-0003's revisit trigger).

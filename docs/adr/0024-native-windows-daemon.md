@@ -33,6 +33,11 @@ Re-checking the current tree found more breaks than the spike listed:
 | `acl.ts` | 0600 / 0700, `lstat` and uid checks | Owner-only DACL (§3) |
 | `procinfo.ts` `readProcInfo` | `ps -ww -o lstart= -o command=` | `Get-CimInstance Win32_Process`: CreationDate, ExecutablePath, CommandLine (parsed with Windows argv rules) |
 
+`spawnCli` (MW-T03) vendors cross-spawn's approach rather than adding the package:
+- it always double-escapes cmd metacharacters, because every `.cmd` it runs forwards `%*`;
+- it resolves a bare name only through absolute PATH entries and spawns the absolute path, so a planted `git.exe` in an agent-writable cwd never runs;
+- `cmd.exe`, `taskkill.exe` and `powershell.exe` run from `%SystemRoot%\System32`.
+
 ### 2 · Tree kill: `taskkill /T /F`, with the orphan sweep as backstop (Ben)
 Windows has no process groups and no signals. `taskkill /T` walks the parent-pid tree, so it misses a grandchild whose parent has already exited. The orphan sweep (BUG-1b) on the next start catches daemon-owned `claude` processes. A reparented build or dev-server process can still survive. That gap is a recorded shortcut (TD-187).
 
@@ -90,7 +95,7 @@ Workflow JSON commands stay POSIX `sh`, so one workflow runs on every OS. Claude
 - On win32, free CPU comes from `os.cpus()` time deltas.
 
 ### 9 · Requirements and CI
-- **Supported:** Windows 10 1809+ or Windows 11, Node ≥ 22, Git for Windows ≥ 2.40 (Git Bash), and `claude` (native `claude.exe` or npm `claude.cmd`).
+- **Supported:** Windows 10 1809+ or Windows 11, Node ≥ 22, Git for Windows ≥ 2.40 (Git Bash), and the **native `claude.exe`** (U-108, Ben). npm's `claude.cmd` is refused with a hint: cmd.exe can't pass the multi-line `--append-system-prompt`, and `spawnCli` throws `ERR_CMD_UNSAFE_ARG` for CR/LF/NUL in a `.cmd` argument. Other `.cmd` CLIs (`az.cmd`) still work through `spawnCli`.
 - **CI:** a GitHub Actions `windows-latest` job (`.github/workflows/daemon-windows.yml`) runs typecheck and the daemon and shared test projects on every pushed task branch. After MW-T12 it also runs the fake-claude e2e. This is the repo's first hosted CI (Ben, 2026-10-28). Linux and macOS keep `scripts/ci.sh`.
 
 ## Consequences

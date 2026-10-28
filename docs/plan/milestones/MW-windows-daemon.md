@@ -131,6 +131,8 @@ Shared rules for every task:
   - [ ] A workflow command `echo $FOO && exit 3` runs in Git Bash and reports exit 3.
   - [ ] The build semaphore is released after a kill.
   - [ ] The `az.cmd` fake is detected as present.
+  - [ ] U-108 (native `claude.exe` only): with only a `claude.cmd` on PATH, `run` and the claude capability probe fail with a clear "install native Claude Code (claude.exe)" message. The test uses a fake `.cmd`.
+  - [ ] On win32, `killTree` skips an already-exited ChildProcess (MW-T03), so process-runner's "reap the group after the shell exits" is a no-op there. Document this at the call site with TD-187.
   - [ ] POSIX tests unchanged and green.
   - [ ] TD-187 comment at the win32 `killTree` call sites.
 
@@ -188,7 +190,7 @@ Shared rules for every task:
 
 ### MW-T11 · `install.ps1`
 - **Scope**:
-  - `packages/orchestrator/assets/install.ps1.tmpl`, served at `/install.ps1` (`distribution.ts`). Flags `-Token`, `-Service`, `-Root`. It checks node ≥ 22, git, Git Bash and claude, listing what's missing. It downloads the tarball over https, checks `Get-FileHash -Algorithm SHA256`, unpacks with `tar.exe`, makes the `current` junction and `bin\conductor-daemon.cmd`, applies the root DACL, enrolls with the token in `CONDUCTOR_ENROLL_TOKEN` (never argv; TD-117), runs `service install` with `-Service`, and adds `bin` to the user PATH.
+  - `packages/orchestrator/assets/install.ps1.tmpl`, served at `/install.ps1` (`distribution.ts`). Flags `-Token`, `-Service`, `-Root`. It checks node ≥ 22, git, Git Bash and the native `claude.exe` (U-108: only a `claude.cmd` → "install native Claude Code" hint), listing what's missing. It downloads the tarball over https, checks `Get-FileHash -Algorithm SHA256`, unpacks with `tar.exe`, makes the `current` junction and `bin\conductor-daemon.cmd`, applies the root DACL, enrolls with the token in `CONDUCTOR_ENROLL_TOKEN` (never argv; TD-117), runs `service install` with `-Service`, and adds `bin` to the user PATH.
   - `build-daemon-tarball.sh` adds the `.cmd` shim and `conductor-launch.ps1`.
   - The web Machines page's install command shows a Windows (PowerShell) tab.
 - **Acceptance**:

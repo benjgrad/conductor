@@ -23,6 +23,8 @@ import {
   removeCheckout,
   sweepPrivate,
 } from './checkout.js';
+import { assertOwnerOnly, mkdirPrivate } from '../platform/index.js';
+import { writeFakeBin } from '../test-support/fake-bin.js';
 
 // Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
 // the task that unskips them.
@@ -45,6 +47,7 @@ const commit = (cwd: string, msg: string) =>
 
 beforeEach(() => {
   tmp = realpathSync(mkdtempSync(join(tmpdir(), 'conductor-checkout-')));
+  mkdirPrivate(tmp);
   const origin = join(tmp, 'origin');
   mkdirSync(origin);
   git(origin, 'init', '--quiet', '-b', 'main');
@@ -69,31 +72,28 @@ afterEach(() => rmSync(tmp, { recursive: true, force: true }));
 const fresh = (sha = head) => freshCheckout({ root, worktree, branch: BRANCH, sha });
 
 describe('freshCheckout', () => {
-  // MW-T07: fresh checkout perms (0700) and PATH probes are POSIX
-  it.skipIf(onWin32)(
-    'checks out exactly the commit in a 0700 dir under <root>/private, not the worktree',
-    async () => {
-      // Worktree-only state the checks must not see: an ignored file, an uncommitted edit.
-      mkdirSync(join(worktree, 'ignored'));
-      writeFileSync(join(worktree, 'ignored', 'make-tests-pass'), 'x');
-      writeFileSync(join(worktree, 'health.txt'), 'uncommitted\n');
-      const r = await fresh();
-      if (!r.ok) throw new Error(r.error);
-      expect(r.dir.startsWith(join(root, 'private', 'check-'))).toBe(true);
-      expect(statSync(r.dir).mode & 0o777).toBe(0o700);
-      expect(readFileSync(join(r.dir, 'health.txt'), 'utf8')).toBe('committed\n');
-      expect(existsSync(join(r.dir, 'ignored', 'make-tests-pass'))).toBe(false);
-      expect(git(r.dir, 'rev-parse', 'HEAD').trim()).toBe(head);
-      // Its config is git's minimal defaults.
-      const keys = git(r.dir, 'config', '--local', '--list')
-        .trim()
-        .split('\n')
-        .map((l) => l.split('=')[0]!);
-      for (const k of keys) expect(k).toMatch(/^(core\.|remote\.|branch\.)/);
-      removeCheckout(r.dir);
-      expect(existsSync(r.dir)).toBe(false);
-    },
-  );
+  it('checks out exactly the commit in a 0700 dir under <root>/private, not the worktree', async () => {
+    // Worktree-only state the checks must not see: an ignored file, an uncommitted edit.
+    mkdirSync(join(worktree, 'ignored'));
+    writeFileSync(join(worktree, 'ignored', 'make-tests-pass'), 'x');
+    writeFileSync(join(worktree, 'health.txt'), 'uncommitted\n');
+    const r = await fresh();
+    if (!r.ok) throw new Error(r.error);
+    expect(r.dir.startsWith(join(root, 'private', 'check-'))).toBe(true);
+    if (onWin32) assertOwnerOnly(r.dir, { kind: 'dir' });
+    else expect(statSync(r.dir).mode & 0o777).toBe(0o700);
+    expect(readFileSync(join(r.dir, 'health.txt'), 'utf8')).toBe('committed\n');
+    expect(existsSync(join(r.dir, 'ignored', 'make-tests-pass'))).toBe(false);
+    expect(git(r.dir, 'rev-parse', 'HEAD').trim()).toBe(head);
+    // Its config is git's minimal defaults.
+    const keys = git(r.dir, 'config', '--local', '--list')
+      .trim()
+      .split('\n')
+      .map((l) => l.split('=')[0]!);
+    for (const k of keys) expect(k).toMatch(/^(core\.|remote\.|branch\.)/);
+    removeCheckout(r.dir);
+    expect(existsSync(r.dir)).toBe(false);
+  });
 
   it('a filter driver / hooks planted in the shared clone do not execute', async () => {
     const marker = join(tmp, 'pwned');
@@ -216,20 +216,16 @@ describe('package manager from the lockfile', () => {
     expect(managedCommand(repoWith('Makefile'), 'npm run build')).toBe('npm run build');
   });
 
-  // MW-T07: fresh checkout perms (0700) and PATH probes are POSIX
-  it.skipIf(onWin32)(
-    'names a package manager missing from PATH; present ones and other commands pass',
-    () => {
-      const bin = mkdtempSync(join(tmp, 'bin-'));
-      writeFileSync(join(bin, 'npm'), '#!/bin/sh\n', { mode: 0o755 });
-      writeFileSync(join(bin, 'yarn'), 'not executable\n', { mode: 0o644 });
-      expect(missingManager('npm test', bin)).toBeNull();
-      expect(missingManager('make test', bin)).toBeNull();
-      const msg = missingManager('pnpm install --frozen-lockfile', bin);
-      expect(msg).toContain('`pnpm` is not on this machine');
-      expect(msg).toContain('install pnpm');
-      expect(missingManager('yarn run build && pnpm test', bin)).toContain('`yarn` and `pnpm` are');
-      expect(missingManager('npm test', '')).toContain('`npm`');
-    },
-  );
+  it('names a package manager missing from PATH; present ones and other commands pass', () => {
+    const bin = mkdtempSync(join(tmp, 'bin-'));
+    writeFakeBin(bin, 'npm', ''); // win32: npm.cmd, found through PATHEXT
+    writeFileSync(join(bin, 'yarn'), 'not executable\n', { mode: 0o644 });
+    expect(missingManager('npm test', bin)).toBeNull();
+    expect(missingManager('make test', bin)).toBeNull();
+    const msg = missingManager('pnpm install --frozen-lockfile', bin);
+    expect(msg).toContain('`pnpm` is not on this machine');
+    expect(msg).toContain('install pnpm');
+    expect(missingManager('yarn run build && pnpm test', bin)).toContain('`yarn` and `pnpm` are');
+    expect(missingManager('npm test', '')).toContain('`npm`');
+  });
 });

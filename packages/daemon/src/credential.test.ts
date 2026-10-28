@@ -1,13 +1,19 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadConfig } from './config.js';
 import { daemonWsUrl, loadCredential, writeCredential } from './credential.js';
+import { mkdirPrivate, writePrivateFile } from './platform/index.js';
 
-// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
-// the task that unskips them.
 const onWin32 = process.platform === 'win32';
+
+/** Let other users read `path`: chmod 644/755 (POSIX), or grant Everyone read (win32). */
+function widen(path: string, kind: 'file' | 'dir' = 'file'): void {
+  if (onWin32) execFileSync('icacls', [path, '/grant', '*S-1-1-0:R']);
+  else chmodSync(path, kind === 'dir' ? 0o755 : 0o644);
+}
 
 // M2-T04: `<root>/machine.json` checks and the config it feeds.
 
@@ -17,6 +23,7 @@ const FACTS = { cpuTotal: 8, memTotalMb: 16_384, hostname: 'host-a', home: '/hom
 let tmp: string;
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 'conductor-cred-'));
+  mkdirPrivate(tmp);
 });
 afterEach(() => rmSync(tmp, { recursive: true, force: true }));
 
@@ -26,8 +33,7 @@ describe('loadCredential', () => {
     expect(loadCredential(tmp)).toBeNull();
   });
 
-  // MW-T07: machine.json 0600 needs the win32 ACL check
-  it.skipIf(onWin32)('round-trips what writeCredential wrote', () => {
+  it('round-trips what writeCredential wrote', () => {
     const root = join(tmp, 'root');
     writeCredential(root, CRED, { force: false });
     expect(loadCredential(root)).toEqual(CRED);
@@ -36,13 +42,24 @@ describe('loadCredential', () => {
   it('refuses a group/other-readable file and says how to fix it', () => {
     const root = join(tmp, 'root');
     const path = writeCredential(root, CRED, { force: false });
-    chmodSync(path, 0o644);
-    expect(() => loadCredential(root)).toThrow(`chmod 600 ${path}`);
+    widen(path);
+    expect(() => loadCredential(root)).toThrow(
+      onWin32 ? /accessible to other users \(S-1-1-0\); run: icacls/ : `chmod 600 ${path}`,
+    );
+  });
+
+  it('refuses a root other users can read (win32: any non-owner-only DACL)', () => {
+    const root = join(tmp, 'root');
+    writeCredential(root, CRED, { force: false });
+    widen(root, 'dir');
+    // POSIX checks only a root's type and owner (ADR-0010); win32 checks its DACL (ADR-0024 §3).
+    if (onWin32) expect(() => loadCredential(root)).toThrow(/accessible to other users/);
+    else expect(loadCredential(root)).toEqual(CRED);
   });
 
   it('refuses a symlinked file and a symlinked root', () => {
     const root = join(tmp, 'root');
-    mkdirSync(root, { mode: 0o700 });
+    mkdirPrivate(root);
     const elsewhere = join(tmp, 'elsewhere.json');
     writeFileSync(elsewhere, JSON.stringify(CRED), { mode: 0o600 });
     symlinkSync(elsewhere, join(root, 'machine.json'));
@@ -55,13 +72,10 @@ describe('loadCredential', () => {
     expect(() => loadCredential(link)).toThrow(/symlink/);
   });
 
-  // MW-T07: machine.json 0600 needs the win32 ACL check
-  it.skipIf(onWin32)('refuses invalid content without echoing it', () => {
+  it('refuses invalid content without echoing it', () => {
     const root = join(tmp, 'root');
-    mkdirSync(root, { mode: 0o700 });
-    writeFileSync(join(root, 'machine.json'), JSON.stringify({ ...CRED, url: 'ftp://x' }), {
-      mode: 0o600,
-    });
+    mkdirPrivate(root);
+    writePrivateFile(join(root, 'machine.json'), JSON.stringify({ ...CRED, url: 'ftp://x' }));
     let msg = '';
     try {
       loadCredential(root);
@@ -73,15 +87,13 @@ describe('loadCredential', () => {
   });
 });
 
-// MW-T07: machine.json 0600 needs the win32 ACL check
-describe.skipIf(onWin32)('machine.json url', () => {
+describe('machine.json url', () => {
   it('rejects plain http to a non-loopback host, on load and on write', () => {
     const root = join(tmp, 'root');
-    mkdirSync(root, { mode: 0o700 });
-    writeFileSync(
+    mkdirPrivate(root);
+    writePrivateFile(
       join(root, 'machine.json'),
       JSON.stringify({ ...CRED, url: 'http://conductor.example.com' }),
-      { mode: 0o600 },
     );
     expect(() => loadCredential(root)).toThrow(/invalid \(url\)/);
     expect(() =>

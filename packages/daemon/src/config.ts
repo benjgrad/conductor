@@ -1,7 +1,6 @@
-import { randomBytes } from 'node:crypto';
-import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { cpus, homedir, hostname, totalmem } from 'node:os';
-import { join, resolve } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { z } from 'zod';
 import {
   API_PATHS,
@@ -16,6 +15,7 @@ import {
   loadCredential,
   type MachineCredential,
 } from './credential.js';
+import { mkdirPrivate, writePrivateFile } from './platform/index.js';
 
 // Daemon configuration (M1-T05; 07 §Compute, §Ports). Everything comes from env vars with
 // defaults that work for a single laptop talking to an orchestrator on localhost.
@@ -169,29 +169,21 @@ export function readFileConfig(rootDir: string): DaemonFileConfig {
   return parsed.data;
 }
 
-/** Write `<root>/config.json` atomically, mode 0600. Returns its path. */
+/** Write `<root>/config.json` atomically, private (0600 / owner-only DACL). Returns its path. */
 export function writeFileConfig(rootDir: string, cfg: DaemonFileConfig): string {
   const data = DaemonFileConfigSchema.parse(cfg);
-  mkdirSync(rootDir, { recursive: true, mode: 0o700 });
+  mkdirPrivate(rootDir);
   const path = fileConfigPath(rootDir);
-  const tmp = `${path}.${randomBytes(6).toString('hex')}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
-  try {
-    chmodSync(tmp, 0o600);
-    renameSync(tmp, path);
-  } catch (e) {
-    rmSync(tmp, { force: true });
-    throw e;
-  }
+  writePrivateFile(path, `${JSON.stringify(data, null, 2)}\n`);
   return path;
 }
 
-/** CONDUCTOR_ROOTS (`:`-separated), resolved; null when unset. */
+/** CONDUCTOR_ROOTS (`path.delimiter`-separated: `:` POSIX, `;` win32), resolved; null when unset. */
 export function rootsFromEnv(env: Env): string[] | null {
   const raw = env.CONDUCTOR_ROOTS;
   if (raw === undefined || raw.trim() === '') return null;
   return raw
-    .split(':')
+    .split(delimiter)
     .map((p) => p.trim())
     .filter((p) => p !== '')
     .map((p) => resolve(p));

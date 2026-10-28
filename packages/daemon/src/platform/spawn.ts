@@ -1,12 +1,15 @@
 import {
   ChildProcess,
+  execFile,
   execFileSync,
   spawn,
+  type ExecFileException,
+  type ExecFileOptions,
   type ExecFileSyncOptions,
   type SpawnOptions,
 } from 'node:child_process';
-import { statSync } from 'node:fs';
-import { win32 } from 'node:path';
+import { accessSync, constants, statSync } from 'node:fs';
+import { delimiter, join, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PassThrough } from 'node:stream';
 
@@ -37,6 +40,7 @@ import { PassThrough } from 'node:stream';
 /** spawn options minus `shell`, which is never allowed (MW shared rules). */
 export type CliSpawnOptions = Omit<SpawnOptions, 'shell'>;
 export type CliExecSyncOptions = Omit<ExecFileSyncOptions, 'shell'>;
+export type CliExecOptions = Omit<ExecFileOptions, 'shell' | 'encoding'>;
 
 /** What to hand to `child_process`: the resolved program, its argv and the adjusted options. */
 export interface PreparedCli<O> {
@@ -162,7 +166,7 @@ export function enoent(bin: string, args: readonly string[]): NodeJS.ErrnoExcept
  * Work out what to spawn. Returns null on win32 when `bin` doesn't resolve (the caller reports
  * ENOENT). Throws for an argument cmd.exe can't carry.
  */
-export function prepareCli<O extends CliSpawnOptions | CliExecSyncOptions>(
+export function prepareCli<O extends CliSpawnOptions | CliExecSyncOptions | CliExecOptions>(
   bin: string,
   args: readonly string[],
   opts: O,
@@ -244,4 +248,56 @@ export function execFileCliSync(
   const p = prepareCli(bin, args, opts);
   if (p === null) throw enoent(bin, args);
   return execFileSync(p.file, p.args, p.options);
+}
+
+/**
+ * `child_process.execFile` (utf8) for a CLI, with spawnCli's resolution and escaping. A program
+ * that can't be found calls back (asynchronously) with an ENOENT error and empty output, as
+ * execFile does. Returns the child, or null when nothing was spawned.
+ */
+export function execFileCli(
+  bin: string,
+  args: readonly string[],
+  opts: CliExecOptions,
+  callback: (err: ExecFileException | null, stdout: string, stderr: string) => void,
+): ChildProcess | null {
+  let p: PreparedCli<CliExecOptions> | null;
+  try {
+    p = prepareCli(bin, args, opts);
+  } catch (e) {
+    process.nextTick(() => callback(e as ExecFileException, '', ''));
+    return null;
+  }
+  if (p === null) {
+    process.nextTick(() => callback(enoent(bin, args) as ExecFileException, '', ''));
+    return null;
+  }
+  return execFile(p.file, p.args, { ...p.options, encoding: 'utf8' }, callback);
+}
+
+/**
+ * Whether `bin` (a bare name) would be found on `pathValue`: POSIX, a regular file with an exec
+ * bit in some PATH dir; win32, what spawnCli would resolve (absolute PATH dirs × PATHEXT).
+ */
+export function isOnPath(
+  bin: string,
+  pathValue: string,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (process.platform === 'win32') {
+    const lookup = { PATHEXT: envGet(env, 'PATHEXT'), PATH: pathValue };
+    return resolveWindowsBin(bin, { env: lookup }) !== null;
+  }
+  for (const d of pathValue.split(delimiter)) {
+    if (d === '') continue;
+    const f = join(d, bin);
+    try {
+      if (!statSync(f).isFile()) continue;
+      accessSync(f, constants.X_OK);
+      return true;
+    } catch {
+      // not in this directory
+    }
+  }
+  return false;
 }

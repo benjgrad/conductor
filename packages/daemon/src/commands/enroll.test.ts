@@ -16,11 +16,16 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { API_PATHS, EnrollRequestSchema } from '@conductor/shared';
 import { daemonVersion } from '../config.js';
 import { loadCredential } from '../credential.js';
+import { assertOwnerOnly, mkdirPrivate } from '../platform/index.js';
 import { enroll, enrollUrl } from './enroll.js';
 
-// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
-// the task that unskips them.
 const onWin32 = process.platform === 'win32';
+
+/** 0600 file / 0700 dir on POSIX; an owner-only DACL on win32 (ADR-0024 §3). */
+function expectPrivate(path: string, kind: 'file' | 'dir'): void {
+  if (onWin32) assertOwnerOnly(path, { kind });
+  else expect(statSync(path).mode & 0o777).toBe(kind === 'file' ? 0o600 : 0o700);
+}
 
 // M2-T04 acceptance: `enroll` against a stub HTTP server.
 
@@ -39,6 +44,7 @@ let err: string[];
 
 beforeEach(async () => {
   tmp = mkdtempSync(join(tmpdir(), 'conductor-enroll-'));
+  mkdirPrivate(tmp); // win32: mkdtemp under %TEMP% inherits; a private root needs a private parent
   requests = [];
   out = [];
   err = [];
@@ -88,8 +94,7 @@ function noSecrets(): void {
 }
 
 describe('conductor-daemon enroll', () => {
-  // MW-T07: machine.json 0600 needs the win32 ACL check
-  it.skipIf(onWin32)('posts the token and writes machine.json 0600 in a 0700 root', async () => {
+  it('posts the token and writes machine.json 0600 in a 0700 root', async () => {
     const root = join(tmp, 'root');
     expect(
       await run(['--url', `${base}/`, '--token', TOKEN], root, { CONDUCTOR_BUILD_SHA: 'abc' }),
@@ -105,8 +110,8 @@ describe('conductor-daemon enroll', () => {
     });
 
     const file = join(root, 'machine.json');
-    expect(statSync(file).mode & 0o777).toBe(0o600);
-    expect(statSync(root).mode & 0o777).toBe(0o700);
+    expectPrivate(file, 'file');
+    expectPrivate(root, 'dir');
     expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({
       url: base,
       machine_id: 'm-123',
@@ -133,31 +138,27 @@ describe('conductor-daemon enroll', () => {
     noSecrets();
   });
 
-  // MW-T07: machine.json 0600 needs the win32 ACL check
-  it.skipIf(onWin32)(
-    'refuses an existing file without --force (no request sent) and replaces it with --force',
-    async () => {
-      const root = join(tmp, 'root');
-      expect(await run(['--url', base, '--token', TOKEN], root)).toBe(0);
-      const file = join(root, 'machine.json');
-      const before = readFileSync(file, 'utf8');
-      handler = (_req, _body, res) => {
-        res.writeHead(201, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ machine_id: 'm-456', credential: `${CREDENTIAL}-2` }));
-      };
+  it('refuses an existing file without --force (no request sent) and replaces it with --force', async () => {
+    const root = join(tmp, 'root');
+    expect(await run(['--url', base, '--token', TOKEN], root)).toBe(0);
+    const file = join(root, 'machine.json');
+    const before = readFileSync(file, 'utf8');
+    handler = (_req, _body, res) => {
+      res.writeHead(201, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ machine_id: 'm-456', credential: `${CREDENTIAL}-2` }));
+    };
 
-      expect(await run(['--url', base, '--token', TOKEN], root)).toBe(1);
-      expect(requests).toHaveLength(1);
-      expect(readFileSync(file, 'utf8')).toBe(before);
-      expect(err.join('\n')).toMatch(/already exists.*--force/);
+    expect(await run(['--url', base, '--token', TOKEN], root)).toBe(1);
+    expect(requests).toHaveLength(1);
+    expect(readFileSync(file, 'utf8')).toBe(before);
+    expect(err.join('\n')).toMatch(/already exists.*--force/);
 
-      expect(await run(['--url', base, '--token', TOKEN, '--force'], root)).toBe(0);
-      expect(requests).toHaveLength(2);
-      expect(loadCredential(root)?.machine_id).toBe('m-456');
-      expect(statSync(file).mode & 0o777).toBe(0o600);
-      noSecrets();
-    },
-  );
+    expect(await run(['--url', base, '--token', TOKEN, '--force'], root)).toBe(0);
+    expect(requests).toHaveLength(2);
+    expect(loadCredential(root)?.machine_id).toBe('m-456');
+    expectPrivate(file, 'file');
+    noSecrets();
+  });
 
   it('refuses a symlinked root without sending a request', async () => {
     const real = join(tmp, 'real');
@@ -172,7 +173,7 @@ describe('conductor-daemon enroll', () => {
 
   it('refuses a symlinked machine.json even with --force', async () => {
     const root = join(tmp, 'root');
-    mkdirSync(root, { mode: 0o700 });
+    mkdirPrivate(root);
     const target = join(tmp, 'elsewhere.json');
     writeFileSync(target, '{}');
     symlinkSync(target, join(root, 'machine.json'));
@@ -261,27 +262,23 @@ describe('conductor-daemon enroll', () => {
 describe('enroll token sources (TD-117)', () => {
   const sentToken = () => (JSON.parse(requests[0]?.body ?? '{}') as { token?: string }).token;
 
-  // MW-T07: machine.json 0600 needs the win32 ACL check
-  it.skipIf(onWin32)(
-    'takes the token from CONDUCTOR_ENROLL_TOKEN and removes it from the environment',
-    async () => {
-      const env: Record<string, string | undefined> = {
-        CONDUCTOR_ROOT: join(tmp, 'root'),
-        CONDUCTOR_ENROLL_TOKEN: TOKEN,
-      };
-      const code = await enroll(['--url', base], {
-        env,
-        facts: { cpuTotal: 4, memTotalMb: 8192, hostname: 'test-host', home: tmp },
-        out: (l) => out.push(l),
-        err: (l) => err.push(l),
-      });
-      expect(code, err.join('\n')).toBe(0);
-      expect(sentToken()).toBe(TOKEN);
-      expect('CONDUCTOR_ENROLL_TOKEN' in env).toBe(false);
-      expect(loadCredential(join(tmp, 'root'))?.machine_id).toBe('m-123');
-      noSecrets();
-    },
-  );
+  it('takes the token from CONDUCTOR_ENROLL_TOKEN and removes it from the environment', async () => {
+    const env: Record<string, string | undefined> = {
+      CONDUCTOR_ROOT: join(tmp, 'root'),
+      CONDUCTOR_ENROLL_TOKEN: TOKEN,
+    };
+    const code = await enroll(['--url', base], {
+      env,
+      facts: { cpuTotal: 4, memTotalMb: 8192, hostname: 'test-host', home: tmp },
+      out: (l) => out.push(l),
+      err: (l) => err.push(l),
+    });
+    expect(code, err.join('\n')).toBe(0);
+    expect(sentToken()).toBe(TOKEN);
+    expect('CONDUCTOR_ENROLL_TOKEN' in env).toBe(false);
+    expect(loadCredential(join(tmp, 'root'))?.machine_id).toBe('m-123');
+    noSecrets();
+  });
 
   it('--token wins over the environment, which is still removed', async () => {
     const env: Record<string, string | undefined> = {

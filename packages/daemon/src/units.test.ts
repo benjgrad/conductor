@@ -9,28 +9,20 @@ import { buildAppendSystemPrompt, CONDUCTOR_INSTRUCTIONS } from './system-prompt
 import { cloneSource, repoSlug } from './workspace.js';
 import { backoffDelay } from './ws-client.js';
 
-// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
-// the task that unskips them.
-const onWin32 = process.platform === 'win32';
-
 const facts: MachineFacts = { cpuTotal: 8, memTotalMb: 16384, hostname: 'box', home: '/home/me' };
 
 describe('loadConfig', () => {
-  // MW-T07: config rootDir from a POSIX home dir
-  it.skipIf(onWin32)(
-    'defaults: localhost orchestrator on CONDUCTOR_PORT, 25 % owner reserve, port pool',
-    () => {
-      const c = loadConfig({}, facts);
-      expect(c.orchestratorUrl).toBe('ws://127.0.0.1:7400/ws/daemon');
-      expect(c.rootDir).toBe('/home/me/.conductor');
-      expect(c.machineId).toBe('box');
-      expect(c.budgetCpu).toBe(6);
-      expect(c.budgetMemMb).toBe(12288);
-      expect(c.maxSessions).toBe(6); // min(6 cores / 1, 12288 MB / 2048)
-      expect(c.maxConcurrentBuilds).toBe(2);
-      expect(c.portPool).toEqual({ start: 41000, end: 48999, rangeSize: 10 });
-    },
-  );
+  it('defaults: localhost orchestrator on CONDUCTOR_PORT, 25 % owner reserve, port pool', () => {
+    const c = loadConfig({}, facts);
+    expect(c.orchestratorUrl).toBe('ws://127.0.0.1:7400/ws/daemon');
+    expect(c.rootDir).toBe(join('/home/me', '.conductor'));
+    expect(c.machineId).toBe('box');
+    expect(c.budgetCpu).toBe(6);
+    expect(c.budgetMemMb).toBe(12288);
+    expect(c.maxSessions).toBe(6); // min(6 cores / 1, 12288 MB / 2048)
+    expect(c.maxConcurrentBuilds).toBe(2);
+    expect(c.portPool).toEqual({ start: 41000, end: 48999, rangeSize: 10 });
+  });
 
   it('reads env overrides and rejects bad values', () => {
     const c = loadConfig(

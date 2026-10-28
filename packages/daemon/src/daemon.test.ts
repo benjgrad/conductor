@@ -21,6 +21,7 @@ import { daemonVersion, loadConfig, type DaemonConfig } from './config.js';
 import { writeCredential } from './credential.js';
 import { appendTail, Daemon, NO_OUTCOME_NUDGE } from './daemon.js';
 import { readProcInfo, type ProcInfo } from './orphan.js';
+import { mkdirPrivate, workflowShell } from './platform/index.js';
 import { DaemonStore } from './store.js';
 import type { LiveResources } from './sysinfo.js';
 import { CONDUCTOR_INSTRUCTIONS } from './system-prompt.js';
@@ -55,6 +56,7 @@ function gitInit(dir: string): void {
 
 beforeEach(async () => {
   tmp = mkdtempSync(join(tmpdir(), 'conductor-daemon-'));
+  mkdirPrivate(tmp); // win32: the daemon makes its root private, which needs a private parent
   repo = join(tmp, 'origin');
   execFileSync('mkdir', ['-p', repo]);
   gitInit(repo);
@@ -190,7 +192,7 @@ function cmd<T extends 'send_input' | 'send_message' | 'run_cmd' | 'run_action' 
 
 /** ADR-0010 open_pr's fake gh: `repo view` → main, `pr view` → none, `pr create` → a PR URL. */
 const FAKE_GH_SH = {
-  cmd: '/bin/sh',
+  cmd: workflowShell().file, // /bin/sh; Git Bash on win32
   args: [
     '-c',
     [
@@ -250,24 +252,20 @@ describe('daemon core: link', () => {
     expect(reg.payload.daemon_version).toBe(`${daemonVersion({})}+abc1234`);
   });
 
-  // MW-T07: machine.json 0600 needs the win32 ACL check
-  it.skipIf(onWin32)(
-    'enrolled: the enrolled machine id, the bearer header, no enrollment_token',
-    async () => {
-      const root = join(tmp, 'root');
-      writeCredential(
-        root,
-        { url: 'http://127.0.0.1', machine_id: 'm-enrolled', credential: 'secret-cred' },
-        { force: false },
-      );
-      makeDaemon(new FakeClaudeDriver(complete({})), { root });
-      const reg = await orch.until(() => orch.ofType('register')[0]);
-      expect(reg.payload.machine_id).toBe('m-enrolled');
-      expect(reg.payload).not.toHaveProperty('enrollment_token');
-      expect(reg.payload.protocol_version).toBe(PROTOCOL_VERSION);
-      expect(orch.authHeaders).toEqual(['Bearer secret-cred']);
-    },
-  );
+  it('enrolled: the enrolled machine id, the bearer header, no enrollment_token', async () => {
+    const root = join(tmp, 'root');
+    writeCredential(
+      root,
+      { url: 'http://127.0.0.1', machine_id: 'm-enrolled', credential: 'secret-cred' },
+      { force: false },
+    );
+    makeDaemon(new FakeClaudeDriver(complete({})), { root });
+    const reg = await orch.until(() => orch.ofType('register')[0]);
+    expect(reg.payload.machine_id).toBe('m-enrolled');
+    expect(reg.payload).not.toHaveProperty('enrollment_token');
+    expect(reg.payload.protocol_version).toBe(PROTOCOL_VERSION);
+    expect(orch.authHeaders).toEqual(['Bearer secret-cred']);
+  });
 
   it('close 4001 (revoked) stops the link and calls onFatal; no re-register', async () => {
     const fatal: number[] = [];
@@ -1662,60 +1660,55 @@ describe('daemon core: misc', () => {
 });
 
 describe('daemon core: run_action (ADR-0010 open_pr)', () => {
-  // MW-T07: open_pr: fake gh, git env, private push repo
-  it.skipIf(onWin32)(
-    'acks, pushes the session branch to origin, opens the PR with gh, reports action_result',
-    async () => {
-      {
-        // A fake gh (no network): `/bin/sh -c <script> gh <args>`. (Spawning a node script per
-        // gh call stalls for seconds under load on this macOS; /bin/sh doesn't.)
-        makeDaemon(new FakeClaudeDriver(complete({})), { ghCommand: FAKE_GH_SH });
-        await orch.until(() => orch.ofType('request_work')[0]);
-        const sid = randomUUID();
-        orch.send(startSession(sid, {}, 4));
-        await orch.until(() => orch.events('exit')[0]);
-        const action = cmd(
-          'run_action',
-          sid,
-          {
-            command_id: randomUUID(),
-            workflow_state: 'implementing → waiting_external (entry)',
-            target_state: 'waiting_external',
-            action: 'open_pr',
-            idempotency_key: `${sid}:waiting_external:1`,
-            args: { title: 'Add /health', body: 'Opened by conductor.' },
-            branch: 'ignored/the-daemon-uses-its-own-record',
-            // The worktree was branched from the fixture's HEAD and has no new commits.
-            expected_sha: execFileSync('git', ['rev-parse', 'HEAD'], {
-              cwd: repo,
-              encoding: 'utf8',
-            }).trim(),
-          },
-          4,
-        );
-        orch.send(action);
-        const id = (action.payload as { command_id: string }).command_id;
-        expect((await orch.until(() => orch.ack(id)[0])).payload.accepted).toBe(true);
-        // Several git / gh subprocesses: allow for a loaded test machine.
-        const res = await orch.until(() => orch.eventData('action_result')[0], 15_000);
-        expect(res).toEqual({
-          command_id: id,
+  it('acks, pushes the session branch to origin, opens the PR with gh, reports action_result', async () => {
+    {
+      // A fake gh (no network): `/bin/sh -c <script> gh <args>`. (Spawning a node script per
+      // gh call stalls for seconds under load on this macOS; /bin/sh doesn't.)
+      makeDaemon(new FakeClaudeDriver(complete({})), { ghCommand: FAKE_GH_SH });
+      await orch.until(() => orch.ofType('request_work')[0]);
+      const sid = randomUUID();
+      orch.send(startSession(sid, {}, 4));
+      await orch.until(() => orch.events('exit')[0]);
+      const action = cmd(
+        'run_action',
+        sid,
+        {
+          command_id: randomUUID(),
+          workflow_state: 'implementing → waiting_external (entry)',
+          target_state: 'waiting_external',
           action: 'open_pr',
-          result: { pr_url: 'https://github.com/benjgrad/fixture-app/pull/9' },
-          error: null,
-        });
-        // The session branch (the daemon's own record) is now on the origin repo.
-        const branch = sessionBranch(TICKET, sid);
-        expect(() =>
-          execFileSync('git', ['rev-parse', '--verify', `refs/heads/${branch}`], {
+          idempotency_key: `${sid}:waiting_external:1`,
+          args: { title: 'Add /health', body: 'Opened by conductor.' },
+          branch: 'ignored/the-daemon-uses-its-own-record',
+          // The worktree was branched from the fixture's HEAD and has no new commits.
+          expected_sha: execFileSync('git', ['rev-parse', 'HEAD'], {
             cwd: repo,
-            stdio: 'pipe',
-          }),
-        ).not.toThrow();
-      }
-    },
-    30_000,
-  );
+            encoding: 'utf8',
+          }).trim(),
+        },
+        4,
+      );
+      orch.send(action);
+      const id = (action.payload as { command_id: string }).command_id;
+      expect((await orch.until(() => orch.ack(id)[0])).payload.accepted).toBe(true);
+      // Several git / gh subprocesses: allow for a loaded test machine.
+      const res = await orch.until(() => orch.eventData('action_result')[0], 15_000);
+      expect(res).toEqual({
+        command_id: id,
+        action: 'open_pr',
+        result: { pr_url: 'https://github.com/benjgrad/fixture-app/pull/9' },
+        error: null,
+      });
+      // The session branch (the daemon's own record) is now on the origin repo.
+      const branch = sessionBranch(TICKET, sid);
+      expect(() =>
+        execFileSync('git', ['rev-parse', '--verify', `refs/heads/${branch}`], {
+          cwd: repo,
+          stdio: 'pipe',
+        }),
+      ).not.toThrow();
+    }
+  }, 30_000);
 
   it('refuses run_action for an unknown session', async () => {
     makeDaemon(new FakeClaudeDriver(complete({})));

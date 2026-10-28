@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { arch, homedir, hostname, platform } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import {
@@ -31,6 +31,7 @@ import type { CommandRunner, CreateCommandRunner } from './commands/runner.js';
 import { daemonVersion, machineFacts, type DaemonConfig } from './config.js';
 import { checkOurs, readProcInfo, type ProcInfo } from './orphan.js';
 import { PortPool, portEnv } from './ports.js';
+import { mkdirPrivate } from './platform/index.js';
 import { DaemonStore, type AckRecord, type PersistedSession, type PortRange } from './store.js';
 import { liveResources, type SysInfo } from './sysinfo.js';
 import { buildAppendSystemPrompt } from './system-prompt.js';
@@ -232,7 +233,8 @@ export class Daemon {
     this.hasConversation =
       opts.hasConversation ?? ((cwd, id) => hasTranscriptInCwd(this.claudeConfigDir, cwd, id));
     this.heartbeatMs = this.config.heartbeatIntervalMs;
-    mkdirSync(this.config.rootDir, { recursive: true });
+    // Private (0700 / owner-only DACL): <root>/private and machine.json live under it.
+    mkdirPrivate(this.config.rootDir);
     this.store = DaemonStore.forRoot(this.config.rootDir);
     // Fresh checkouts / push repos a previous daemon left behind (ADR-0010).
     sweepPrivate(this.config.rootDir);

@@ -67,8 +67,11 @@ Workflow JSON commands stay POSIX `sh`, so one workflow runs on every OS. Claude
 
 ### 5 · Git on Windows
 - Every daemon git call adds `-c core.longpaths=true`. Worktree paths under `%USERPROFILE%\.conductor\wt\<uuid>` exceed MAX_PATH easily.
-- `core.hooksPath` is `NUL` on win32. Tests prove that a planted hook does not run.
+- `core.hooksPath` is `NUL` on win32, **not** `/dev/null`: Git for Windows reads `/dev/null` as the drive-relative `C:\dev\null`, which any local user may create, so a planted `C:\dev\null\pre-push` would run. Tests prove that a planted hook does not run (`platform/git.ts`).
 - `cleanEnv` does **not** set `GIT_CONFIG_NOSYSTEM` on win32. The system gitconfig lives under Program Files, where only admins can write. It carries `credential.helper=manager`, `http.sslBackend=schannel` and corporate CAs, and `open_pr` can't push without them. On POSIX, `GIT_CONFIG_NOSYSTEM` stays.
+- No `core.autocrlf` pin: the `checkClean` false positives MW-T01 saw on the runner (` M README.md`) came from dropping the system config (with `autocrlf=true`) only on the daemon side, so the checkout and the status check disagreed. With the system config kept, the daemon's git agrees with the user's.
+- A bare-name PATH probe (`missingManager`) uses `isOnPath`, the same PATHEXT resolution as `spawnCli`: on Windows `npm`/`pnpm`/`yarn` are `.cmd` files with no exec bit.
+- `<root>` itself is created with `mkdirPrivate` at daemon start (not just on enroll), since `<root>/private` and `machine.json` need a private parent on win32.
 
 ### 6 · Edit-guard hook
 - The hook command is `"<node>" "<guard.mjs>" "<worktree>" || exit 2`, with double quotes and forward-slash paths. It means the same under `cmd.exe` and Git Bash.

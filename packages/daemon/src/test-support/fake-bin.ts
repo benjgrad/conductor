@@ -36,3 +36,15 @@ export function writeFakeBin(
 export function pathWith(...dirs: string[]): string {
   return dirs.filter((d) => d !== '').join(delimiter);
 }
+
+/**
+ * `base` with `PATH` replaced. Every case variant is removed first: Windows env names are
+ * case-insensitive, `{...process.env}` keeps `Path`, and a second `PATH` key next to it would lose
+ * to it in a case-insensitive lookup (platform/spawn.ts envGet takes the first match).
+ */
+export function envWithPath(base: NodeJS.ProcessEnv, path: string): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(base)) if (k.toLowerCase() !== 'path') out[k] = v;
+  out.PATH = path;
+  return out;
+}

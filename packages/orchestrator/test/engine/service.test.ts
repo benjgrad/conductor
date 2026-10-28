@@ -268,6 +268,58 @@ describe('applyEvent: no raw output in the event row (02-data-model §event)', (
   });
 });
 
+describe('applyEvent: no raw stderr in the event row (02-data-model §event)', () => {
+  const STDERR = 'warming up\nAPI_KEY=sk-live-xyz789 rejected\n';
+  const exited = {
+    type: 'agent.exited' as const,
+    command_id: '22222222-2222-4222-8222-222222222222',
+    code: 1,
+    signal: null,
+    stderr_tail: STDERR,
+  };
+
+  it.each([
+    ['applied', true],
+    ['ignored', false],
+  ])('agent.exited (%s) stores stderr_tail_bytes, never the tail text', async (_, scripted) => {
+    const { sessionId } = await seedSession(db.pool);
+    const { engine } = make();
+    if (scripted) script.on('agent.exited', () => ({ snapshot: {} }));
+    const res = await engine.applyEvent(sessionId, exited);
+    expect(res.status).toBe(scripted ? 'applied' : 'ignored');
+    // apply still received the full tail (the failure question quotes its last line)
+    expect(script.calls[0]!.event).toMatchObject({ stderr_tail: STDERR });
+    const row = (await events(sessionId)).find((e) => e.type === 'agent.exited')!;
+    expect(row.payload).not.toHaveProperty('stderr_tail');
+    expect(row.payload).toMatchObject({
+      command_id: exited.command_id,
+      code: 1,
+      signal: null,
+      stderr_tail_bytes: Buffer.byteLength(STDERR, 'utf8'),
+    });
+    const raw = await db.pool.query<{ text: string }>(
+      'SELECT payload::text AS text FROM event WHERE session_id = $1',
+      [sessionId],
+    );
+    for (const r of raw.rows) expect(r.text).not.toContain('sk-live-xyz789');
+  });
+
+  it('agent.exited without a tail stores no stderr_tail_bytes', async () => {
+    const { sessionId } = await seedSession(db.pool);
+    const { engine } = make();
+    script.on('agent.exited', () => ({ snapshot: {} }));
+    await engine.applyEvent(sessionId, {
+      type: 'agent.exited',
+      command_id: exited.command_id,
+      code: 1,
+      signal: null,
+    });
+    const row = (await events(sessionId)).find((e) => e.type === 'agent.exited')!;
+    expect(row.payload).not.toHaveProperty('stderr_tail');
+    expect(row.payload).not.toHaveProperty('stderr_tail_bytes');
+  });
+});
+
 describe('applyEvent: wrapper-owned writes', () => {
   it('session.started writes worktree_path, branch and port_range', async () => {
     const { sessionId } = await seedSession(db.pool, {

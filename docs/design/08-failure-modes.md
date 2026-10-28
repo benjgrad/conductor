@@ -29,6 +29,7 @@ sequenceDiagram
 
 Notes:
 - **Resume vs restart**: resume needs the branch pushed. Agent states checkpoint (commit + push to the session branch) when they enter `needs_input` / park, and every N minutes ([U-011](../tracking/UNKNOWNS.md)). Without a pushed branch, the new incarnation restarts the *current state* from the last pushed commit.
+- **The conversation stays on its machine**: Claude Code keeps a conversation's transcript only where it ran, so another machine can't `--resume` it. The daemon refuses such a start `no_conversation` before spawning; the orchestrator forgets the Claude session id and the re-claim starts a fresh conversation with the full state prompt and any pending answer ([10 §Refusals](10-contracts.md#refusals)). The event row `conversation.reset` records it.
 - **Git remote safety**: fencing protects the DB only. Two incarnations could both push, but each session has its **own branch**, so they never fight over a shared one. The new incarnation is the only one whose PR the orchestrator will accept.
 - The **requeue limit** is 3 lost incarnations per session. After that, `failed` → Failed column.
 

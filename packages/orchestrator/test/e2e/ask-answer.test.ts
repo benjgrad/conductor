@@ -97,7 +97,14 @@ async function freePort(): Promise<number> {
   });
 }
 
-function startDaemon(driver: FakeClaudeDriver): Daemon {
+/**
+ * `hasConversation`: whether a resumed Claude conversation is on this machine. The in-memory fake
+ * writes no transcripts, so by default every conversation counts as here.
+ */
+function startDaemon(
+  driver: FakeClaudeDriver,
+  hasConversation: (cwd: string, claudeSessionId: string) => boolean = () => true,
+): Daemon {
   const config = loadConfig({
     CONDUCTOR_ORCHESTRATOR_URL: `ws://127.0.0.1:${port}${API_PATHS.daemonWs}`,
     CONDUCTOR_ROOT: join(tmp, 'root'),
@@ -119,6 +126,7 @@ function startDaemon(driver: FakeClaudeDriver): Daemon {
     sysinfo: () => ({ cpuFree: 4, memFreeMb: 8000, diskFreeMb: 50_000 }),
     claudeCodeVersion: '2.1.308',
     log: () => {},
+    hasConversation,
   });
   daemons.push(d);
   d.start();
@@ -277,6 +285,52 @@ describe('ask_user → needs_input → REST answer → agent continues (M1-T07)'
     expect(starts[1]!.payload).toMatchObject({
       resume_claude_session_id: driver.starts[0]!.claudeSessionId,
     });
+  });
+
+  it('no_conversation: an answer whose conversation is not on this machine continues in a fresh one', async () => {
+    // A fresh conversation gets the full prompt with the answer in it, and finishes with it.
+    const driver = new FakeClaudeDriver((opts) =>
+      opts.prompt.includes('## Answer from a human')
+        ? { turns: [[{ completeState: { fresh: opts.prompt } }]] }
+        : askThenComplete,
+    );
+    const asked: string[] = [];
+    startDaemon(driver, (_cwd, id) => {
+      asked.push(id);
+      return false; // as on a machine the conversation never ran on
+    });
+    const ticketId = await createTicket();
+    const { s, req } = await parked(ticketId);
+    const first = driver.starts[0]!.claudeSessionId;
+    driver.last!.kill();
+    await until(async () => (await sessionOf(ticketId))?.agent_process_live === false);
+
+    await answer(s.id, req.id, '7070');
+    const end = await done(ticketId);
+
+    expect(asked).toEqual([first]);
+    // Refused before spawning: the second start is a fresh Claude session.
+    expect(driver.starts).toHaveLength(2);
+    expect(driver.starts[1]!.resume).toBe(false);
+    expect(driver.starts[1]!.claudeSessionId).not.toBe(first);
+    const fresh = (end.context as { implement?: { fresh?: string } }).implement?.fresh ?? '';
+    expect(fresh).toContain('## Answer from a human\n\n7070');
+    expect(fresh).toContain('Return 200'); // the full state prompt (ticket body)
+    expect(end.claude_session_id).toBe(driver.starts[1]!.claudeSessionId);
+
+    const starts = (await outboxRows(s.id)).filter((o) => o.kind === 'start_session');
+    expect(starts.map((o) => [o.status, o.last_error])).toEqual([
+      ['acked', null],
+      ['failed', 'no_conversation'],
+      ['acked', null],
+    ]);
+    expect(starts[1]!.payload).toMatchObject({ resume_claude_session_id: first });
+    expect(starts[2]!.payload).toMatchObject({ resume_claude_session_id: null });
+    const reset = await one<{ payload: unknown }>(
+      "SELECT payload FROM event WHERE session_id = $1 AND type = 'conversation.reset'",
+      [s.id],
+    );
+    expect(reset?.payload).toEqual({ claude_session_id: first, reason: 'not_on_machine' });
   });
 
   it('no outcome twice (U-028): one nudge, then an agent_question; the answer continues it', async () => {

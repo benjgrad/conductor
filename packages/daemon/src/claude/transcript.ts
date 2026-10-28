@@ -50,6 +50,38 @@ export function realCwd(cwd: string): string {
 }
 
 /**
+ * Where Claude Code keeps the transcript of conversation `claudeSessionId` run in `cwd`:
+ * `<configDir>/projects/<claudeProjectSlug(realCwd(cwd))>/<id>.jsonl`. Null for a non-uuid id.
+ */
+export function transcriptPathFor(
+  configDir: string,
+  cwd: string,
+  claudeSessionId: string,
+): string | null {
+  if (!CLAUDE_SESSION_ID.test(claudeSessionId)) return null;
+  return join(configDir, 'projects', claudeProjectSlug(realCwd(cwd)), `${claudeSessionId}.jsonl`);
+}
+
+/**
+ * Can `claude --resume <id>` run in `cwd`? It resolves the conversation from the cwd's own
+ * project dir only, so a transcript under another project dir doesn't count (unlike
+ * `findTranscript`, which history and reopen use to read it from anywhere).
+ */
+export function hasTranscriptInCwd(
+  configDir: string,
+  cwd: string,
+  claudeSessionId: string,
+): boolean {
+  const path = transcriptPathFor(configDir, cwd, claudeSessionId);
+  if (path === null) return false;
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The transcript file for a Claude session that ran in `cwd`, or null. First the exact path;
  * then any project dir holding `<id>.jsonl` (a `--resume` from another cwd), newest first. The
  * id comes from the daemon's own store and must be a uuid, so it can't escape `projects/`.

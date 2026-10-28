@@ -34,6 +34,7 @@ export function engineEventForSessionEvent(p: SessionEventPayload): EngineEvent 
         command_id: p.data.command_id,
         code: p.data.code,
         signal: p.data.signal,
+        ...(p.data.stderr_tail !== undefined ? { stderr_tail: p.data.stderr_tail } : {}),
       };
     case 'cmd_exit':
       return {

@@ -71,6 +71,7 @@ import {
   type ReviewFeedback,
 } from './review.js';
 import { applySpend } from './spend.js';
+import { NO_CONVERSATION_REASON } from '../protocol/ws.js';
 import {
   ASK_USER,
   fallbackHumanState,
@@ -331,6 +332,13 @@ function onRefused(
       }
       st.s.agent_command_id = null;
       st.s.agent_process_live = false;
+      // The claiming machine doesn't have the conversation (its transcript lives only where it
+      // ran): forget it, so the re-claim starts a fresh one with the full prompt (+ pending answer).
+      if (e.reason === NO_CONVERSATION_REASON) {
+        const old = st.s.claude_session_id;
+        st.s.claude_session_id = null;
+        if (old !== null) conversationReset(st, old);
+      }
       // The session already left the agent state that start was for (e.g. its timer fired into
       // needs_input before `started`): nothing needs the process now, so don't requeue a parked
       // session. A later answer finds agent_process_live false and resumes via start_session.
@@ -653,9 +661,35 @@ function onAgentExited(
     st.emit(startSession(st, name, state, { attachment: null, answer: answer.answer }));
     return null;
   }
-  const how = e.signal !== null ? `signal ${e.signal}` : `exit code ${String(e.code)}`;
-  takeOutcome(st, 'fail', { detail: `the agent exited (${how}) without calling complete_state` });
+  takeOutcome(st, 'fail', {
+    detail: `the agent exited (${exitHow(e)}) without calling complete_state`,
+  });
   return null;
+}
+
+/** Longest stderr line quoted in a failure question (`exitHow`). */
+export const EXIT_STDERR_LINE_CHARS = 300;
+
+/**
+ * How an agent process ended, for a failure question: `exit code 1` / `signal SIGKILL`, plus the
+ * last non-empty stderr line when the daemon sent one (`exit code 1: No conversation found …`).
+ */
+function exitHow(e: Extract<EngineEvent, { type: 'agent.exited' }>): string {
+  const how = e.signal !== null ? `signal ${e.signal}` : `exit code ${String(e.code)}`;
+  const line = (e.stderr_tail ?? '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l !== '')
+    .at(-1);
+  if (line === undefined) return how;
+  const clipped =
+    line.length > EXIT_STDERR_LINE_CHARS ? `${line.slice(0, EXIT_STDERR_LINE_CHARS - 1)}…` : line;
+  return `${how}: ${clipped}`;
+}
+
+/** Audit: the Claude conversation `old` was forgotten (refused `no_conversation`). */
+function conversationReset(st: Step, old: string): void {
+  st.emit({ type: 'conversation_reset', claude_session_id: old, reason: 'not_on_machine' });
 }
 
 /** `cmd_exit`: 0 → exit_0; timed_out → timeout if mapped, else fail; anything else → fail. */
@@ -1294,6 +1328,13 @@ function handleStep(
           s.agent_command_id = null;
           s.agent_process_live = false;
           s.machine_id = null;
+          // A resumed reviewer's conversation isn't on the claiming machine: forget the
+          // reviewer's id (never the worker's `claude_session_id`).
+          if (e.reason === NO_CONVERSATION_REASON && r.claude_session_id !== null) {
+            const old = r.claude_session_id;
+            r.claude_session_id = null;
+            conversationReset(st, old);
+          }
           requeue(st);
           return null;
         case 'run_cmd': {
@@ -1369,8 +1410,7 @@ function handleStep(
       }
       s.agent_process_live = false;
       if (r.phase !== 'review' || !AGENT_ACTIVE.has(s.status)) return null;
-      const how = e.signal !== null ? `signal ${e.signal}` : `exit code ${String(e.code)}`;
-      reviewNoVerdict(st, spec, r, `the reviewer exited (${how}) without a verdict`, true);
+      reviewNoVerdict(st, spec, r, `the reviewer exited (${exitHow(e)}) without a verdict`, true);
       return null;
     }
     case 'command.exited': {

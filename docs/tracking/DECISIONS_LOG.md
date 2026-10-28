@@ -4,6 +4,9 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-28 | Agent permissions (Ben): working agents run in auto mode; prompts go to the board via `--permission-prompt-tool` (Allow once / always / Deny); bypass only as a per-machine opt-in; pushes stay denied | ADR-0023, M2-T29..T29d |
+| 2026-10-28 | Agent settings in two layers (Ben): workflow-state profile as base, per-machine override on top, viewable and editable on the Machines page, under a daemon-local ceiling. ADR-0022 proposed | ADR-0022, M2-T28..T28e |
+| 2026-10-28 | Fresh base pulled forward: fetch per session split out of T13 as M2-T13a; `update_branch` for agents (T27) and humans (T27b); pnpm-aware checks (T30). The lead fast-forwarded the daemon clone and Hazel's (T18b) branch by hand | TD-026, M2-T13a, T27, T30 |
 | 2026-10-28 | ADR-0021 (daemon auto-update) accepted: Ben merged the plan, PR #41. M2-T18 and T18b are unblocked | ADR-0021 |
 | 2026-10-28 | Daemon auto-update (Ben): the orchestrator announces `update_available` after register; the daemon drains (6 h cap) then switches and exits 75; a version-independent launcher rolls back after 2 failed starts and an `update_failed` alert reaches a human; on by default, `config auto-update off` per machine. Start at login stays M2-T18, plus a wake reconnect check | ADR-0021, M2-T18..T18e |
 | 2026-10-27 | Ben approved the M3 plan as written: ADR-0014 accepted. The order of work is M2r → M3 → the rest of M2 → M2c → M2b | ADR-0014, M3, ROADMAP |

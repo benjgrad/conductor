@@ -88,7 +88,7 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 | M2-T10b | Capability names follow-up: one shared name rule, plugin MCP normalisation, invalid names logged | T10 | C | — | done |
 | M2-T11 | Web: Machines page, Queued routing badge, tamper alerts, outdated-gh flag | T05, T10 | D | — | todo |
 | M2-T12 | Orchestrator: per-account workflows (key change, `required_capabilities` on save, `seedAccount`, per-account upgrade rule) | T03, T06, T08 | D | **yes** | todo |
-| M2-T13 | Daemon: working copies (reference clone default, checkout opt-in), fetch per session, push URL from the inventory, GC, tamper check; push credentials via gh | T10 | D | — | todo |
+| M2-T13 | Daemon: working copies (reference clone default, checkout opt-in), push URL from the inventory, GC, tamper check; push credentials via gh | T10 | D | — | todo |
 | M2-T14 | Orchestrator: daemon distribution (`/install.sh`, tarball, `/healthz`) and the Dockerfile's tarball stage | T07, T08 | D | — | in_progress |
 | M2-T15 | Orchestrator: invites, sign-up, resets, admin routes, `conductor-admin` CLI (bootstrap claims `local`) | T08, T09, T12 | E | — | split → T15a, T15b |
 | M2-T15a | Orchestrator: bootstrap admin, `conductor-admin` CLI, reset links (the you-only deploy slice of T15) | T08, T09 | E | — | todo |
@@ -108,6 +108,19 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 | M2-T24 | E2E: laptop sleep, lease lapse, revoke, reconnect | T22 | I | — | todo |
 | M2-T25 | **Deploy** to conductor.gradyserver.com (lead + Ben's sudo script), bootstrap, enroll Ben's Mac, live checks, backup restore test | T22, T23, T24, T26 | J | — | todo |
 | M2-T26 | Shared: **Retry** a failed move step (a `$retry` human transition that re-runs the failed phase without an agent turn) | T06 | D | — | todo |
+| M2-T13a | Daemon: **fetch per session** (split out of T13; pays TD-026's stale base) | T10 | D | — | todo |
+| M2-T27 | Daemon + shared: `update_branch` MCP tool (all states), planning `inspect` alias, denial counts on session events | T13a | E | — | todo |
+| M2-T27b | Orchestrator + web: "Update from main" on an idle session (REST → daemon command → same action) | T27 | F | — | todo |
+| M2-T28 | **Contracts (agent settings)**: `machine_settings`, settings REST, `settings_update`, `reported_settings` ([ADR-0022](../../adr/0022-layered-agent-settings.md), proposed) | — | D | — | todo |
+| M2-T28b | Shared: `resolveEffectivePolicy` + invariants, settings schemas | T28 | E | — | todo |
+| M2-T28c | Orchestrator: `machine_settings` migration, settings routes, audit, push on connect / change | T28b | F | **yes** | todo |
+| M2-T28d | Daemon: apply pushed override (ceiling `remote_settings`), report `reported_settings` (pays TD-081) | T28b, T13a, T29b | F | — | todo |
+| M2-T28e | Web: Machines drawer **Settings** tab (effective policy per state, override editor) | T28c | G | — | todo |
+| M2-T29 | **Contracts (permission prompts)**: `permission_request` / `permission_decision`, `needs_permission`, REST ([ADR-0023](../../adr/0023-permission-prompts-through-conductor.md)) | — | D | — | todo |
+| M2-T29b | Daemon: auto mode default, `--permission-prompts host` + `permission` MCP tool held until decision / timeout | T29 | E | — | todo |
+| M2-T29c | Orchestrator: store requests, `needs_permission` on the board, decision route → daemon | T29 | E | **yes** | todo |
+| M2-T29d | Web: Needs-permission card state with Allow once / Allow always / Deny | T29c | F | — | todo |
+| M2-T30 | Daemon + shared: package-manager-aware build checks (pnpm / yarn lockfiles) and pnpm rules in the `bash` alias | — | D | — | todo |
 
 **Follow-ups and splits (2026-10-27).** T08b, T09b and T10b came from post-merge QA of T08 (PR #16), T09 (PR #13) and T10 (PR #14) and merged as PR #21 (merge 32e6bb8), PR #17 (merge 881708e) and PR #19 (merge 74abf5f). T07b pays TD-144 and must land before T25's first deploy. Ben chose an early you-only deploy, so T15 is split: **T15a** (bootstrap, CLI, resets; critical path) and **T15b** (invites, sign-up, admin routes; after T12). Critical path for the you-only deploy: T09b, T08b, T14, T15a, T17, T07b. No second account until T16, T19 and T21 (TD-149). Deploy T09 and T17 together: after T09, password-mode gateways refuse every uncredentialed daemon and only T17 adds enrollment. Post-merge QA ran for T06 (OK, every item verified on main), T10 (follow-ups done as T10b) and T09b (security QA passed, 6 attack probes). T20 must settle U-084 (lease renewal for sessions parked in event states) before it starts.
 
@@ -446,7 +459,7 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 - **Do not touch**: `inventory/**` (read only), `claude/**`, other packages, `docs/tracking/*`.
 - **Migration**: no.
 - **Acceptance**:
-  - [ ] **TD-026 / U-030 (fresh base, actively hurting M2: every dogfood session so far started from a stale main and was rebased by hand; the lead fast-forwards the clone after each merge as a workaround)**: `workspace.fresh-base.test.ts`: the daemon runs `git fetch origin <default_branch>` **before creating each new session's worktree**, in both modes and on the M1 `cloneSource` path too (local test repos), and the session branch is created from the **fetched** `origin/<default_branch>` (not the clone's local `HEAD` or `main`). Test: create clone → push commit X to origin → start a session → the worktree's base contains X; push Y → start a second session → its base contains Y; a resumed session (same session id) reuses its existing worktree and is not rebased. A failed fetch fails the start with a clear error (no silent stale base). Pays TD-026.
+  - [ ] *(Built in **M2-T13a**, 2026-10-28; T13 keeps it passing in both new modes.)* **TD-026 / U-030 (fresh base, actively hurting M2: every dogfood session so far started from a stale main and was rebased by hand; the lead fast-forwards the clone after each merge as a workaround)**: `workspace.fresh-base.test.ts`: the daemon runs `git fetch origin <default_branch>` **before creating each new session's worktree**, in both modes and on the M1 `cloneSource` path too (local test repos), and the session branch is created from the **fetched** `origin/<default_branch>` (not the clone's local `HEAD` or `main`). Test: create clone → push commit X to origin → start a session → the worktree's base contains X; push Y → start a second session → its base contains Y; a resumed session (same session id) reuses its existing worktree and is not rebased. A failed fetch fails the start with a clear error (no silent stale base). Pays TD-026.
   - [ ] `workspace.reference.test.ts`: with a temp "user checkout" and a temp origin, a session's worktree is based on the **fetched** origin default branch (a commit pushed to origin after the clone appears); the user checkout's `.git` directory tree hash is identical before and after two sessions.
   - [ ] `workspace.checkout.test.ts`: a session runs off the checkout; planting `.git/hooks/pre-commit` during it produces an `alert` naming that file; nothing is reported when nothing changed.
   - [ ] A `start_session` whose `repo_path` isn't in the inventory, or whose remote doesn't match the ticket, fails without touching disk.
@@ -793,6 +806,180 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
   - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e`.
 
 ---
+
+### Agent permissions and fresh bases (2026-10-28)
+Two dogfood sessions stalled on 2026-10-28:
+- **M2-T18b ("Hazel")** planned from a base cut before ADR-0021 merged. The daemon clone is never fetched (TD-026), and planning has no shell, so it couldn't refresh.
+- **M2-T18 ("Nova")** had 18 calls silently denied (pnpm, chmod, diff, prettier, `git update-index`). The machine has no `defaultMode`, prompts are `none`, and `bash` allows only npm. Its build check also ran npm in a pnpm repo.
+
+Ben's decisions:
+- fetch per session now (T13a);
+- an agent and human "update from main" (T27, T27b);
+- auto mode with prompts to the board (ADR-0023: T29–T29d);
+- both-layer settings, viewable and editable per machine (ADR-0022: T28–T28e);
+- pnpm-aware checks (T30).
+
+The lead fast-forwarded the daemon clone and Hazel's branch by hand (the interim workaround).
+
+**Order and file ownership:**
+- T13a, T28, T29 and T30 can run in parallel.
+  - T13a: `workspace.ts` and the start_session section of `daemon.ts`.
+  - T28 and T29: shared protocol and design docs, with disjoint sections.
+  - T30: `actions/checkout.ts` install/scripts and `tools.ts` `bash`.
+- T27 needs T13a.
+- T29b owns `claude/cli-driver.ts` and `claude/outcome-server.ts`. T27 also adds an MCP tool there, so **T27 runs after T29b** (or rebases onto it).
+
+### M2-T13a · Daemon: fetch per session
+- **Scope.** The "fetch per session" slice of T13, on today's M1 `cloneSource` path (reference and checkout modes stay in T13):
+  - In `Workspace.ensureWorktree`, before creating a **new** worktree:
+    - run `git -c core.hooksPath=/dev/null fetch origin <default_branch>`;
+    - serialise it per repo, so concurrent session starts don't race;
+    - branch from `origin/<default_branch>`, not `HEAD`.
+  - `<default_branch>` comes from `start_session.working_copy.default_branch` when present. Otherwise it is the clone's `origin/HEAD` (set once with `git remote set-head origin --auto`).
+  - A failed fetch fails the start with a clear error. No silent stale base (T13's acceptance).
+  - Existing worktrees and branches (resume, reopen) are reused untouched.
+  - The `// TD-026` comment is updated.
+- **Design refs**: TD-026, U-030; T13 block above (its first acceptance item is this task's); 07 §Code.
+- **Depends on**: T10.
+- **Files owned**: `packages/daemon/src/workspace.ts`, the start_session section of `daemon.ts`, `workspace*.test.ts`, 07 §Code (one paragraph).
+- **Do not touch**: `claude/**`, `actions/**`, other packages, `docs/tracking/*`.
+- **Migration**: no.
+- **Acceptance**:
+  - [ ] `workspace.fresh-base.test.ts`, with a temp bare origin:
+    - clone, push X, start a session: its base contains X;
+    - push Y, start a second session: its base contains Y;
+    - a resumed session (same id) reuses its worktree and is not rebased;
+    - an unreachable origin fails the start with an error that names the repo.
+  - [ ] Two concurrent `ensureWorktree` calls on one repo run one fetch at a time (no `index.lock` / `shallow.lock` errors).
+  - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e`.
+
+### M2-T27 · Daemon + shared: `update_branch`
+- **Scope.**
+  - New `packages/daemon/src/actions/update-branch.ts`. In the session worktree it runs:
+    1. `git fetch origin <default_branch>` (T13a's helper);
+    2. `git merge --no-edit origin/<default_branch>`.
+  - It refuses a dirty tree in a read-only state.
+  - On conflict it runs `git merge --abort` and returns the conflicting paths.
+  - It returns `{merged, from, to}` or `{conflict: string[]}` or `{refused: reason}`.
+  - Conductor MCP tool `update_branch` (`claude/outcome-server.ts`) is offered in every state. It doesn't end the turn.
+  - New `inspect` alias in `shared/src/workflow/tools.ts` = `REVIEW_GIT_COMMANDS` (exact rules). `conductor.v1/v2.json` planning becomes `["read","inspect"]`.
+  - Planning prompt (`shared/src/engine/render.ts`): "If a file the ticket cites is missing, call `update_branch` before planning."
+  - Session events carry `permission_denials {count, tools[]}` from `stream-parser.ts` (today dropped in `daemon.ts`).
+- **Design refs**: ADR-0023 §5; 03-protocols §MCP tools; 10-contracts.
+- **Depends on**: T13a; after T29b (shares `outcome-server.ts`).
+- **Files owned**: `actions/update-branch.ts`, the outcome-server tool registration, `shared/src/workflow/tools.ts` (`inspect` only), `workflows/conductor.v*.json` planning `tools`, `render.ts` plan prompt line, the session-event denial field, their tests, docs sections.
+- **Do not touch**: `workspace.ts` (import only), orchestrator, web, `docs/tracking/*`.
+- **Acceptance**:
+  - [ ] Unit tests: clean fast-forward; true merge; conflict, aborted with the paths listed and the tree clean; dirty tree refused in planning.
+  - [ ] e2e: a fake-Claude planning turn calls `update_branch` after a commit lands on origin, then reads the new file.
+  - [ ] A denied tool call shows up as `permission_denials.count ≥ 1` on the session event.
+  - [ ] Gates.
+
+### M2-T27b · Orchestrator + web: "Update from main"
+- **Scope.**
+  - `POST /api/sessions/:id/update-branch` (owner of the ticket). Allowed only when the session has no live turn (`needs_input`, `needs_permission`, or between states); otherwise 409.
+  - The orchestrator sends daemon command `update_branch {session_id}` with an idempotency key. The daemon runs T27's action and replies with the result.
+  - The result goes in the session log and a toast. The ticket drawer gets the button.
+- **Depends on**: T27. **Acceptance**: a route test (409 during a live turn; the result is stored); a web test; the e2e path; gates.
+
+### M2-T28 · Contracts: layered agent settings
+- **Scope** ([ADR-0022](../../adr/0022-layered-agent-settings.md); Ben approves the ADR before T28b starts):
+  - Contract sections in 10-contracts and 03-protocols:
+    - `machine_settings` (machine_id PK, override jsonb, version, updated_by, updated_at) plus a `machine_settings_audit` table;
+    - `GET/PUT /api/machines/:id/settings`;
+    - WS `settings_update {version, override}` and an ack `{version, applied | refused, reason?}`;
+    - inventory `reported_settings`.
+  - The zod schemas in `shared/src/protocol` and `shared/src/api`, additive, so M1/M2 daemons still parse.
+- **Files owned**: those schema files, the doc sections. **Acceptance**: schema round-trip tests; an old daemon's inventory still parses; gates.
+
+### M2-T28b · Shared: effective policy
+- `resolveEffectivePolicy(stateTools, override, ceiling)` returns `{builtin, allow, deny, permissionMode}`, with the ADR-0022 invariants. A save-time validator returns field errors.
+- **Acceptance**:
+  - [ ] `git push` can't be un-denied.
+  - [ ] `Bash`, `Bash(*)`, `Bash(git diff:*)` and `Read(//**)` are rejected.
+  - [ ] The ceiling values `deny_only` and `off` behave as the ADR says.
+  - [ ] Gates.
+
+### M2-T28c · Orchestrator: machine settings
+- Migration; routes (owner/admin only, account-scoped); audit rows; push `settings_update` on register and on PUT; store the daemon's ack and `reported_settings`.
+- **Acceptance**:
+  - [ ] Route tests, including cross-account 404.
+  - [ ] A migration up/down test.
+  - [ ] The push happens on reconnect.
+  - [ ] Gates.
+
+### M2-T28d · Daemon: apply settings
+- Persist the override in `<root>/state/settings.json` (0600).
+- Apply it in `resolveToolPolicy` and in the permission-mode choice, under the `config.json` `remote_settings` ceiling (`conductor-daemon config remote-settings full|deny_only|off`).
+- Report `reported_settings`; remove the credential.
+- Pays TD-081.
+- **Acceptance**:
+  - [ ] The override changes the next session's argv, not a running one.
+  - [ ] `off` ignores it and acks `refused`.
+  - [ ] Gates.
+
+### M2-T28e · Web: Settings tab
+- `MachineDrawer` Settings tab with three parts:
+  - **Reported**: read-only `reported_settings`.
+  - **Effective per state**: a table of tools, allow, deny and mode.
+  - **Override editor**: states, aliases, exact rules, mode (bypass behind a confirm), timeout, limits.
+
+  It shows API validation errors in place, plus the ack status ("applied v3" / "refused: remote_settings off").
+- **Acceptance**: component tests against the mock API; gates.
+
+### M2-T29 · Contracts: permission prompts
+- **Scope** ([ADR-0023](../../adr/0023-permission-prompts-through-conductor.md)):
+  - WS `permission_request {session_id, request_id, tool, input, suggestions?, expires_at}` (daemon → orchestrator).
+  - `permission_decision {request_id, behavior: allow|deny, scope: once|always, message?}` (orchestrator → daemon).
+  - Session sub-status `needs_permission`.
+  - `GET /api/sessions/:id/permission-requests`, `POST /api/permission-requests/:id/decision`.
+  - Doc sections in 10-contracts, 03-protocols and 08-failure-modes (timeout, daemon restart while held: deny on reconnect).
+- **Acceptance**: schema tests; gates.
+
+### M2-T29b · Daemon: auto mode + prompt tool
+- `cli-driver.ts`:
+  - `--permission-mode auto` for working agents (reviewers stay `dontAsk`);
+  - `--permission-prompts host --permission-prompt-tool mcp__conductor__permission`;
+  - an unsupported Claude version falls back to today's flags and raises a machine alert.
+- `outcome-server.ts` `permission` tool:
+  - sends `permission_request` and awaits the decision;
+  - on timeout (default 30 min) or daemon shutdown, returns a deny with a reason;
+  - returns the Claude permission-prompt-tool JSON (`{behavior, updatedInput?, message?}`).
+- ADR-0006 notes updated.
+- **Acceptance**:
+  - [ ] argv tests.
+  - [ ] A held call resolves on allow, on deny and on timeout.
+  - [ ] `git push` never reaches the tool (deny first).
+  - [ ] A real-Claude probe noted in the PR: one prompt round-trip with haiku.
+  - [ ] Gates.
+
+### M2-T29c · Orchestrator: permission requests
+- Store requests; set and clear `needs_permission` in the same transaction as the board update (SSE); decision route (ticket owner) → `permission_decision` with an idempotency key.
+- "Always" appends an exact rule: to the ticket's `session_allow` until T28c, then to the machine override.
+- **Acceptance**: route tests; idempotent double decision; the card leaves `needs_permission` after a decision or expiry; gates.
+
+### M2-T29d · Web: Needs permission
+- Card badge and drawer panel. They show the tool and its input (a command shown as code; long input collapsed) and three buttons: **Allow once**, **Allow always**, **Deny** (with a note).
+- **Acceptance**: component tests; gates.
+
+### M2-T30 · Package-manager-aware checks
+- `actions/checkout.ts` picks the install step from the lockfile:
+
+  | Lockfile | Install command |
+  |---|---|
+  | `pnpm-lock.yaml` | `pnpm install --frozen-lockfile` |
+  | `yarn.lock` | `yarn install --immutable` |
+  | `package-lock.json` | `npm ci` |
+  | none | `npm install` |
+
+  Workflow check scripts run with the same manager (`pnpm run <script>`).
+- The `tools.ts` `bash` alias adds `Bash(pnpm run:*)`, `Bash(pnpm test:*)`, `Bash(pnpm install)`, `Bash(pnpm i)`, `Bash(pnpm exec vitest:*)`, `Bash(pnpm exec prettier:*)` and `Bash(chmod +x:*)`, with the same TD-019 caveat.
+- **Files owned**: `actions/checkout.ts` (install and script runner only; T13 owns its push URL source), `shared/src/workflow/tools.ts` (`bash` only), tests.
+- **Acceptance**:
+  - [ ] Checkout tests for each lockfile.
+  - [ ] Alias rule tests.
+  - [ ] A pnpm fixture repo's build check passes in e2e.
+  - [ ] Gates.
 
 ## Risks
 - **No Docker on Ben's Mac**: the Dockerfile and compose file are first built on gradyserver. Mitigation: T07 and T14 have a lead QA step that runs `docker build` there before merge, and T25 starts with a dry build.

@@ -16,7 +16,7 @@ export default tseslint.config(
       // M1-T00 throwaway spike code lives outside the workspace and the gates.
       'spikes/**',
       // TD-171: operator script, untyped fetch/JSON; prettier still checks it.
-      'scripts/create-m3-tickets.js',
+      'scripts/create-tickets.js',
     ],
   },
   eslint.configs.recommended,

@@ -1,48 +1,58 @@
 #!/usr/bin/env node
-// Create M3 tickets on the conductor board, one per `### M3-Tnn` block of the milestone file.
+// Create conductor tickets on the board, one per `### <ID> · <title>` block of a plan file
+// (M3-Tnn in the M3 milestone, UX-nn in docs/plan/UX-board-and-notifications.md).
 //
-//   node scripts/create-m3-tickets.js --dry-run T01 T02 ...
-//   CONDUCTOR_EMAIL=... node scripts/create-m3-tickets.js T01          # prompts for the password
+//   node scripts/create-tickets.js --dry-run T01 T02 ...                   # M3, the default file
+//   node scripts/create-tickets.js --file docs/plan/UX-board-and-notifications.md UX-10 UX-11
+//   CONDUCTOR_EMAIL=... node scripts/create-tickets.js T01                  # prompts for the password
 //
-// Env: CONDUCTOR_URL (default https://conductor.gradyserver.com), CONDUCTOR_EMAIL,
-// CONDUCTOR_PASSWORD (optional; prompted if absent), CONDUCTOR_WORKFLOW (default conductor_dev).
+// With no ids it takes every ticket block in the file. Env: CONDUCTOR_URL (default
+// https://conductor.gradyserver.com), CONDUCTOR_EMAIL, CONDUCTOR_PASSWORD (optional; prompted if
+// absent), CONDUCTOR_WORKFLOW (default conductor_dev).
 // Re-running is safe: a ticket whose title is already on the board is skipped.
-// TD-172: no depends_on until M2b, so only create a wave once every dependency is merged
-// (M3-mcp.md §Ticket waves).
+// TD-172: no depends_on until M2b, so only create a wave once every dependency is merged (each
+// plan file's ticket waves).
 import { readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const MILESTONE = resolve(REPO_ROOT, 'docs/plan/milestones/M3-mcp.md');
+const DEFAULT_FILE = 'docs/plan/milestones/M3-mcp.md';
 const BASE = (process.env.CONDUCTOR_URL ?? 'https://conductor.gradyserver.com').replace(/\/$/, '');
 const WORKFLOW = process.env.CONDUCTOR_WORKFLOW ?? 'conductor_dev';
 const REPO = 'github.com/benjgrad/conductor';
-const NOT_TICKETS = new Set(['T17', 'T18', 'T19']); // T17 is the lead's deploy; T18/T19 are "later"
-const PRIORITY = { T02: 1 }; // the migration needs Ben's review early
+const NOT_TICKETS = new Set(['M3-T17', 'M3-T18', 'M3-T19']); // T17 is the lead's; T18/T19 "later"
+const PRIORITY = { 'M3-T02': 1, 'UX-13a': 1, 'UX-15': 1 }; // migrations need Ben's review early
 
-const RULES = `
+const M3_CONTRACTS =
+  '- Code against the M3-T01 contracts (`shared/src/mcp/**`, `shared/src/api/oauth.ts`, `api/rest.ts`). A needed contract change is reported in the PR, never made locally.\n';
+const M3_DESIGN =
+  'Start at 10-contracts §Tool layer and MCP and `docs/adr/0014-tool-layer-and-oauth-mcp-server.md`. The full plan is `docs/plan/milestones/M3-mcp.md`.';
+
+const rules = (id, planFile) => {
+  const m3 = id.startsWith('M3-');
+  return `
 ---
 
-## Rules for every M3 ticket
+## Rules for every ticket
 - Do not edit \`docs/tracking/*\`. Report new unknowns, tech debt, unfinished items and needed contract changes in the PR description instead.
-- Code against the M3-T01 contracts (\`shared/src/mcp/**\`, \`shared/src/api/oauth.ts\`, \`api/rest.ts\`). A needed contract change is reported in the PR, never made locally.
-- A shortcut needs a \`// TD: <what>\` comment at the site and a line in the PR report (the lead assigns the TD number).
+${m3 ? M3_CONTRACTS : ''}- A shortcut needs a \`// TD: <what>\` comment at the site and a line in the PR report (the lead assigns the TD number).
 - A migration is never merged without Ben's approval: a task with a migration stops at "PR open, awaiting Ben".
-- Work on branch \`m3-tNN-<slug>\`. Merge \`origin/main\` before finishing (never rebase); the "Merges cleanly with main" check must pass.
+- Work on branch \`${id.toLowerCase()}-<slug>\`. Merge \`origin/main\` before finishing (never rebase); the "Merges cleanly with main" check must pass.
 - Gates: \`pnpm typecheck && pnpm lint && pnpm test && pnpm build\` (DB tests need \`pnpm db:up\`), plus \`pnpm test:e2e\` where the block says so. Run targeted tests while iterating; conductor's checks are the full run.
-- Design source of truth: \`docs/design/\` (start at 10-contracts §Tool layer and MCP) and \`docs/adr/0014-tool-layer-and-oauth-mcp-server.md\`. The full M3 plan is \`docs/plan/milestones/M3-mcp.md\`.
+- Design source of truth: \`docs/design/\` and \`docs/adr/\`. ${m3 ? M3_DESIGN : `The full plan is \`${planFile}\`.`}
 `;
+};
 
 function parseBlocks(md) {
   const lines = md.split('\n');
   const blocks = new Map();
   let cur = null;
   for (const line of lines) {
-    const m = /^### M3-(T\d\d) · (.+)$/.exec(line);
+    const m = /^### ([A-Z][A-Za-z0-9]*-[A-Za-z0-9]+) · (.+)$/.exec(line);
     if (m) {
-      cur = { id: m[1], title: `M3-${m[1]} · ${m[2].trim()}`, lines: [] };
+      cur = { id: m[1], title: `${m[1]} · ${m[2].trim()}`, lines: [] };
       blocks.set(m[1], cur);
       continue;
     }
@@ -52,8 +62,8 @@ function parseBlocks(md) {
   return blocks;
 }
 
-function buildRequest(block) {
-  const body = block.lines.join('\n').trim() + '\n' + RULES;
+function buildRequest(block, planFile) {
+  const body = block.lines.join('\n').trim() + '\n' + rules(block.id, planFile);
   for (const h of ['## Goal', '## Verification']) {
     if (!body.includes(h)) throw new Error(`${block.id}: block has no "${h}" section`);
   }
@@ -107,24 +117,31 @@ class Client {
 async function main() {
   const args = process.argv.slice(2);
   const dry = args.includes('--dry-run');
+  const fi = args.indexOf('--file');
+  const planFile = fi >= 0 ? args[fi + 1] : DEFAULT_FILE;
+  if (!planFile) throw new Error('--file needs a path');
   const ids = args
-    .filter((a) => !a.startsWith('--'))
-    .map((a) => a.toUpperCase().replace(/^M3-/, ''));
-  const blocks = parseBlocks(readFileSync(MILESTONE, 'utf8'));
+    .filter((a, i) => !a.startsWith('--') && !(fi >= 0 && i === fi + 1))
+    // A bare Tnn means M3-Tnn (the default file).
+    .map((a) => (/^T\d\d$/i.test(a) ? `M3-${a.toUpperCase()}` : a));
+  const path = resolve(REPO_ROOT, planFile);
+  const blocks = parseBlocks(readFileSync(path, 'utf8'));
   const wanted = ids.length ? ids : [...blocks.keys()].filter((id) => !NOT_TICKETS.has(id));
 
   const reqs = wanted.map((id) => {
     if (NOT_TICKETS.has(id)) throw new Error(`${id} is not a ticket (lead task or "later")`);
     const b = blocks.get(id);
-    if (!b) throw new Error(`no "### M3-${id} · …" block in ${MILESTONE}`);
-    return buildRequest(b);
+    if (!b) throw new Error(`no "### ${id} · …" block in ${path}`);
+    return buildRequest(b, planFile);
   });
   const titles = new Set(reqs.map((r) => r.title));
   if (titles.size !== reqs.length) throw new Error('duplicate titles');
 
   if (dry) {
     for (const r of reqs) {
-      const firstLines = r.body.split('\n').slice(0, 3).join(' | ');
+      const firstLines = args.includes('--full')
+        ? '\n' + r.body
+        : r.body.split('\n').slice(0, 3).join(' | ');
       console.log(
         `${r.title}  [${Buffer.byteLength(r.body)} B, priority ${r.priority}, ${r.workflow_id}]\n    ${firstLines}`,
       );

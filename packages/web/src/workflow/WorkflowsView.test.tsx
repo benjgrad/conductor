@@ -7,6 +7,7 @@ import { CONDUCTOR, SEED_IDS } from '../api/mock-data.js';
 import { createMockApi } from '../api/mock.js';
 import { App } from '../App.js';
 import { SessionWorkflowDiagram } from './SessionWorkflowDiagram.js';
+import { WorkflowsView } from './WorkflowsView.js';
 
 beforeEach(() => {
   window.location.hash = '#/workflows';
@@ -17,15 +18,16 @@ afterEach(() => {
 });
 
 /**
- * The app on the mock, whose conductor v3 is the shipped ADR-0011 conductor. Saves are recorded
+ * The view on the mock, whose conductor v3 is the shipped ADR-0011 conductor. Saves are recorded
  * and stored here as v4, v5… without the mock's validator (the request body is what these tests
- * check).
+ * check). `app: true` mounts the whole <App> (nav links, the draft guard); otherwise just the view,
+ * which is ~10× cheaper per test (M2-T33).
  */
 // The diagram appears once the mock API resolves; on a loaded machine running the full suite that
 // can take longer than findBy's 1 s default.
 const DIAGRAM_WAIT = { timeout: 10_000 };
 
-async function setup(api = createMockApi()) {
+async function setup(api = createMockApi(), { app = false } = {}) {
   const saved: WorkflowDefinition[] = [];
   const get = api.getWorkflow.bind(api);
   api.saveWorkflow = (def) => {
@@ -40,7 +42,7 @@ async function setup(api = createMockApi()) {
     }
     return get(id, version);
   };
-  render(<App api={api} />);
+  render(app ? <App api={api} /> : <WorkflowsView api={api} />);
   const diagram = await screen.findByRole('group', { name: 'conductor v3 columns' }, DIAGRAM_WAIT);
   return { api, saved, diagram };
 }
@@ -421,7 +423,7 @@ describe('old versions (ADR-0010 entry)', () => {
 
 describe('unsaved draft guard', () => {
   async function dirty() {
-    const ctx = await setup();
+    const ctx = await setup(createMockApi(), { app: true });
     fireEvent.click(lane('Planning'));
     type(editor().getByLabelText('Title'), 'Thinking');
     expect(screen.getByText('Unsaved changes')).toBeTruthy();

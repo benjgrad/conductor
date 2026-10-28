@@ -20,6 +20,7 @@ import {
   type TranscriptPayload,
 } from '@conductor/shared';
 import type { ClaudeDriver, DriverEvent, DriverSession } from './claude/driver.js';
+import { PERMISSION_SHUTDOWN, PERMISSION_UNSUPPORTED_SERVER } from './claude/outcome-server.js';
 import {
   findTranscript,
   hasTranscriptInCwd,
@@ -32,7 +33,13 @@ import { daemonVersion, machineFacts, type DaemonConfig } from './config.js';
 import { checkOurs, readProcInfo, type ProcInfo } from './orphan.js';
 import { PortPool, portEnv } from './ports.js';
 import { mkdirPrivate, signalTree } from './platform/index.js';
-import { DaemonStore, type AckRecord, type PersistedSession, type PortRange } from './store.js';
+import {
+  DaemonStore,
+  type AckRecord,
+  type DurableMessage,
+  type PersistedSession,
+  type PortRange,
+} from './store.js';
 import { liveResources, type SysInfo } from './sysinfo.js';
 import { buildAppendSystemPrompt } from './system-prompt.js';
 import { inventoryDigest, Workspace } from './workspace.js';
@@ -124,6 +131,14 @@ type RunAction = Extract<Command, { type: 'run_action' }>;
 type SendInput = Extract<Command, { type: 'send_input' }>;
 type SendMessage = Extract<Command, { type: 'send_message' }>;
 type Kill = Extract<Command, { type: 'kill' }>;
+type PermissionDecisionCmd = Extract<Command, { type: 'permission_decision' }>;
+
+/** ADR-0023: a `permission_request` this daemon sent, by its msg_id (for `protocol_error`). */
+interface SentPermission {
+  sid: string;
+  agent: AgentProc;
+  requestId: string;
+}
 
 interface AgentProc {
   /** command_id of the start_session that spawned it (`started` / `exit` correlation). */
@@ -206,6 +221,11 @@ export class Daemon {
   private readonly inFlight = new Set<string>();
   /** ADR-0010: the fresh checkout an entry step's checks share (session id → its commit and dir). */
   private readonly checkouts = new Map<string, Checkout>();
+  /**
+   * ADR-0023: the permission_requests sent for live processes, by msg_id, so a `protocol_error`
+   * naming one (an old server) denies the held call at once. Dropped when the process exits.
+   */
+  private readonly sentPermissions = new Map<string, SentPermission>();
 
   /**
    * Remove a session's fresh checkout. With `only`, remove just that one: the map entry is
@@ -302,6 +322,10 @@ export class Daemon {
     for (const t of this.assignments.values()) clearTimeout(t);
     this.assignments.clear();
     if (opts.killSessions ?? true) {
+      // ADR-0023: every held permission prompt is denied before its process is stopped.
+      for (const p of this.sentPermissions.values()) {
+        p.agent.session.denyPermission?.(p.requestId, PERMISSION_SHUTDOWN);
+      }
       for (const [sid, live] of this.live) {
         if (live.agent && !live.agent.exited) this.stopAgent(sid, live.agent, 'daemon stopping');
         for (const c of live.cmds.values()) c.abort.abort();
@@ -375,9 +399,25 @@ export class Daemon {
       case 'retry_after':
         this.workReplied(msg.payload.ms);
         return;
-      case 'protocol_error':
+      case 'protocol_error': {
         this.log(`protocol_error ${msg.payload.code}: ${msg.payload.message}`);
+        // ADR-0023 / 10-contracts §Versioning: a server that can't take a permission_request
+        // answers it with protocol_error; deny the held call now instead of after 30 min.
+        const ref = msg.payload.ref_msg_id;
+        const sent = ref === null ? undefined : this.sentPermissions.get(ref);
+        if (sent !== undefined && ref !== null) {
+          this.sentPermissions.delete(ref);
+          if (sent.agent.session.denyPermission?.(sent.requestId, PERMISSION_UNSUPPORTED_SERVER)) {
+            this.sendOutput(
+              sent.sid,
+              sent.agent.fencingToken,
+              'debug',
+              `conductor: the server refused permission request ${sent.requestId}; denied`,
+            );
+          }
+        }
         return;
+      }
       case 'fetch_transcript':
         this.sendMachine(
           'transcript',
@@ -551,11 +591,8 @@ export class Daemon {
           return this.sendMessage(msg);
         case 'kill':
           return this.kill(msg);
-        // TD-180: no test; M2-T29b replaces this case.
         case 'permission_decision':
-          // ADR-0023: M2-T29b resolves the held `permission` call. Until then this daemon never
-          // sends a permission_request, so it holds none (10-contracts §Permission prompts).
-          return this.finish(msg, { accepted: false, reason: 'unknown_permission_request' });
+          return this.permissionDecision(msg);
       }
     };
     run()
@@ -799,6 +836,40 @@ export class Daemon {
     void this.sendRepoInventory(false).catch((e: unknown) => this.log(`inventory: ${String(e)}`));
   }
 
+  /**
+   * ADR-0023 / 10-contracts §Permission prompts: resolve the held call `request_id` of the
+   * session's live process, at most once. Already resolved by a decision → accepted, ignored.
+   * Not held (timed out, denied, process gone, daemon restarted) → `unknown_permission_request`.
+   */
+  private permissionDecision(msg: PermissionDecisionCmd): void {
+    const p = msg.payload;
+    const a = this.live.get(msg.session_id)?.agent;
+    const result =
+      a && !a.exited && a.session.resolvePermission
+        ? a.session.resolvePermission(p.request_id, {
+            behavior: p.behavior,
+            scope: p.scope,
+            message: p.message,
+            rule: p.rule,
+          })
+        : 'unknown';
+    if (result === 'unknown') {
+      return this.finish(msg, { accepted: false, reason: 'unknown_permission_request' });
+    }
+    if (result === 'resolved' && a) {
+      for (const [id, sent] of this.sentPermissions) {
+        if (sent.agent === a && sent.requestId === p.request_id) this.sentPermissions.delete(id);
+      }
+      this.sendOutput(
+        msg.session_id,
+        a.fencingToken,
+        'debug',
+        `conductor: permission request ${p.request_id}: ${p.behavior === 'allow' ? `allowed (${p.scope})` : 'denied'} on the board`,
+      );
+    }
+    this.finish(msg, { accepted: true });
+  }
+
   private onDriverEvent(sid: string, a: AgentProc, ev: DriverEvent): void {
     switch (ev.kind) {
       case 'claude_session_id':
@@ -817,6 +888,34 @@ export class Daemon {
         a.askPending = true;
         this.emit(sid, a.fencingToken, { kind: 'ask_user', data: { question: ev.question } });
         return;
+      case 'permission_request': {
+        // ADR-0023: durable like a session_event (buffered, replayed, deduped on seq); the
+        // request_id is the idempotency key end to end.
+        const msgId = randomUUID();
+        this.sentPermissions.set(msgId, { sid, agent: a, requestId: ev.requestId });
+        this.pushDurable({
+          type: 'permission_request',
+          msg_id: msgId,
+          session_id: sid,
+          fencing_token: a.fencingToken,
+          payload: {
+            request_id: ev.requestId,
+            session_id: sid,
+            tool: ev.tool,
+            input: ev.input,
+            ...(ev.suggestions !== undefined ? { suggestions: ev.suggestions } : {}),
+            ...(ev.toolUseId !== undefined ? { tool_use_id: ev.toolUseId } : {}),
+            expires_at: ev.expiresAt,
+          },
+        });
+        this.sendOutput(
+          sid,
+          a.fencingToken,
+          'debug',
+          `conductor: ${ev.tool} needs permission; asked on the board (request ${ev.requestId}, expires ${ev.expiresAt})`,
+        );
+        return;
+      }
       case 'complete_state':
         a.completed = true;
         this.emit(sid, a.fencingToken, {
@@ -862,6 +961,9 @@ export class Daemon {
         if (a.endTimer) clearTimeout(a.endTimer);
         a.endTimer = null;
         a.unsubscribe();
+        for (const [id, sent] of this.sentPermissions) {
+          if (sent.agent === a) this.sentPermissions.delete(id);
+        }
         this.emit(sid, a.fencingToken, {
           kind: 'exit',
           data: {
@@ -1416,16 +1518,18 @@ export class Daemon {
 
   /** A durable session_event: buffered on disk, sequenced when registered, replayed on reconnect. */
   private emit(sid: string, token: number, payload: SessionEventPayload): void {
-    const ev = this.store.pushEvent(
-      {
-        type: 'session_event',
-        msg_id: randomUUID(),
-        session_id: sid,
-        fencing_token: token,
-        payload,
-      },
-      this.registered,
-    );
+    this.pushDurable({
+      type: 'session_event',
+      msg_id: randomUUID(),
+      session_id: sid,
+      fencing_token: token,
+      payload,
+    });
+  }
+
+  /** A durable message (session_event, permission_request): buffered, sequenced, replayed. */
+  private pushDurable(msg: DurableMessage): void {
+    const ev = this.store.pushEvent(msg, this.registered);
     if (this.registered && ev.seq !== null)
       this.ws.send(JSON.stringify({ ...ev.msg, seq: ev.seq }));
   }

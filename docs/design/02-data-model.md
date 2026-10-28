@@ -131,6 +131,7 @@ The migration's down drops these four tables and the new `machine` / `machine_re
 | status | enum | `ready` · `claimed` · `in_progress` · `done` · `failed` · `cancelled` |
 | priority | int | |
 | kind | enum `ticket_kind` null | `work` · `personal` ([ADR-0011](../adr/0011-transition-rules.md)): filters transitions (`kinds`). NULL for tickets created before M1b, matching both kinds ([U-062](../tracking/UNKNOWNS.md)); new tickets must set it (create form until triage, M4). Added by migration `1761500000000_ticket-kind` (M1b-T04; existing rows keep NULL, the down migration drops the column and the type). `POST /api/tickets` returns it in `TicketDto.kind` and every card carries it (`BoardCard.kind`) |
+| session_allow | text[] | default `{}`. M2-T29c ([ADR-0023](../adr/0023-permission-prompts-through-conductor.md) §2): the exact allow rules "Allow always" recorded for this ticket's sessions, each once, until the machine override exists (M2-T28c). Not yet passed to `start_session` (that needs daemon changes); the live process gets the rule through the decision itself |
 | account_id | uuid fk account | M2-T03 (see Tenancy above) |
 | created_at, updated_at | timestamptz | the claim orders by `created_at` |
 
@@ -223,6 +224,32 @@ Only state changes and summaries go here. **Raw terminal output does not** (see 
 | last_error | text null | |
 | created_at | timestamptz | |
 
+### permission_request
+M2-T29c, migration `1761800000000_permission-requests` ([ADR-0023](../adr/0023-permission-prompts-through-conductor.md), [10 §Permission prompts](10-contracts.md#permission-prompts)). One row per daemon `permission_request`; the session's `needs_permission` card fields are derived from its `pending` rows, never stored.
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | the daemon's `request_id`, the idempotency key (`INSERT … ON CONFLICT (id) DO NOTHING`) |
+| account_id | uuid fk account | the session's |
+| session_id | fk session | |
+| machine_id | fk machine | the machine that sent it |
+| fencing_token | bigint | the envelope's (= the session's when stored) |
+| tool | text | Claude's `tool_name` |
+| input | jsonb | the tool input (≤ 64 KiB of JSON) |
+| suggestions | jsonb | Claude's `permission_suggestions`, shown only; default `[]` |
+| tool_use_id | text null | informational |
+| always_rule | text null | `alwaysRuleFor(tool, input)` (U-100 grammar in 10); null = no "Allow always" |
+| status | text | `CHECK IN ('pending', 'allowed', 'denied', 'expired')` |
+| behavior, scope | text null | `allow`/`deny`, `once`/`always`; set exactly when `allowed`/`denied`; a deny is always `once` |
+| message | text null | the human's note (or conductor's own deny reason) |
+| rule | text null | the recorded rule, only with `scope = 'always'` |
+| decided_by | uuid null | the deciding user's id (no FK: may be the virtual local user); null = conductor itself |
+| decision_command_id | uuid null unique | the `permission_decision` command_id sent, matched against the daemon's `command_ack` |
+| expired_reason | text null | `timeout` · `agent_gone` · `session_moved`; set exactly when `expired` |
+| created_at, expires_at | timestamptz | `expires_at` from the daemon (the sweep expires it then) |
+| resolved_at | timestamptz null | when decided or expired; null exactly while `pending` |
+
+The migration's down drops the table and `ticket.session_allow`.
+
 ### account
 Instance-level (not on the isolation check). ADR-0012 §Tenancy.
 | column | type | notes |
@@ -294,4 +321,4 @@ Instance-level. ADR-0017 §Rate limiting, layer 3: keyed by the normalised email
 
 ## Indexes
 
-Besides primary keys and `outbox.command_id UNIQUE`: `ticket (status, priority)`, `session (status)`, `session_one_live_per_ticket` ([session](#session)), `session (ticket_id, created_at DESC)` (the claim's affinity lookup, [04](04-scheduler.md)), `input_request (session_id) WHERE answer IS NULL`, `event (session_id, id)`, and `outbox (next_attempt_at) WHERE status = 'pending'` (the dispatcher's scan). M2-T03: `<table>_account_id_idx` on `account_id` for each of the eight M1 tables, except `event (account_id, id)` (the per-account SSE replay); `app_user (lower(email))` unique; `web_session (user_id)` and `(expires_at)`; `account_member (user_id)`; `invite.token_hash` and `password_reset.token_hash` unique. M2-T09: `<table>_account_id_idx` on each of its four tables; `enrollment_token.token_hash` and `machine_credential.secret_hash` unique; `machine_credential (machine_id)`; `machine_alert (machine_id) WHERE cleared_at IS NULL` (`machine_alert_open_idx`). `machine_repo.machine_id`, `machine_capability.machine_id` and `machine_alert.machine_id` cascade on machine delete; every other FK is plain (no cascade).
+Besides primary keys and `outbox.command_id UNIQUE`: `ticket (status, priority)`, `session (status)`, `session_one_live_per_ticket` ([session](#session)), `session (ticket_id, created_at DESC)` (the claim's affinity lookup, [04](04-scheduler.md)), `input_request (session_id) WHERE answer IS NULL`, `event (session_id, id)`, and `outbox (next_attempt_at) WHERE status = 'pending'` (the dispatcher's scan). M2-T03: `<table>_account_id_idx` on `account_id` for each of the eight M1 tables, except `event (account_id, id)` (the per-account SSE replay); `app_user (lower(email))` unique; `web_session (user_id)` and `(expires_at)`; `account_member (user_id)`; `invite.token_hash` and `password_reset.token_hash` unique. M2-T09: `<table>_account_id_idx` on each of its four tables; `enrollment_token.token_hash` and `machine_credential.secret_hash` unique; `machine_credential (machine_id)`; `machine_alert (machine_id) WHERE cleared_at IS NULL` (`machine_alert_open_idx`). M2-T29c: `permission_request (account_id)`, `(session_id, created_at)` and `(expires_at) WHERE status = 'pending'` (the timeout sweep). `machine_repo.machine_id`, `machine_capability.machine_id` and `machine_alert.machine_id` cascade on machine delete; every other FK is plain (no cascade).

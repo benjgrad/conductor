@@ -117,9 +117,9 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 | M2-T28d | Daemon: apply pushed override, report `reported_settings` (pays TD-081) | T28b, T13a, T29b | F | — | todo |
 | M2-T28e | Web: Machines drawer **Settings** tab (effective policy per state, override editor) | T28c | G | — | todo |
 | M2-T29 | **Contracts (permission prompts)**: `permission_request` / `permission_decision`, `needs_permission`, REST ([ADR-0023](../../adr/0023-permission-prompts-through-conductor.md)) | — | D | — | in_review (PR #47, QA passed with debt TD-178..180; merge after #44) |
-| M2-T29b | Daemon: auto mode default, `--permission-prompts host` + `permission` MCP tool held until decision / timeout | T29 | E | — | in_progress |
-| M2-T29c | Orchestrator: store requests, `needs_permission` on the board, decision route → daemon | T29 | E | **yes** | in_progress |
-| M2-T29d | Web: Needs-permission card state with Allow once / Allow always / Deny | T29c | F | — | todo |
+| M2-T29b | Daemon: auto mode default, `--permission-prompts host` + `permission` MCP tool held until decision / timeout | T29 | E | — | done (merged 8fdd410; TD-187, U-104, U-105) |
+| M2-T29c | Orchestrator: store requests, `needs_permission` on the board, decision route → daemon | T29 | E | **yes** | done (merged 6ef80c1; TD-188) |
+| M2-T29d | Web: Needs-permission card state with Allow once / Allow always / Deny | T29c | F | — | done (merged 96836be) |
 | M2-T30 | Daemon + shared: package-manager-aware build checks (pnpm / yarn lockfiles) and pnpm rules in the `bash` alias | — | D | — | done |
 
 **Follow-ups and splits (2026-10-27).** T08b, T09b and T10b came from post-merge QA of T08 (PR #16), T09 (PR #13) and T10 (PR #14) and merged as PR #21 (merge 32e6bb8), PR #17 (merge 881708e) and PR #19 (merge 74abf5f). T07b pays TD-144 and must land before T25's first deploy. Ben chose an early you-only deploy, so T15 is split: **T15a** (bootstrap, CLI, resets; critical path) and **T15b** (invites, sign-up, admin routes; after T12). Critical path for the you-only deploy: T09b, T08b, T14, T15a, T17, T07b. No second account until T16, T19 and T21 (TD-149). Deploy T09 and T17 together: after T09, password-mode gateways refuse every uncredentialed daemon and only T17 adds enrollment. Post-merge QA ran for T06 (OK, every item verified on main), T10 (follow-ups done as T10b) and T09b (security QA passed, 6 attack probes). T20 must settle U-084 (lease renewal for sessions parked in event states) before it starts.

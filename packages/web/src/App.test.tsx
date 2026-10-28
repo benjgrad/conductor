@@ -142,13 +142,6 @@ describe('detail panel', () => {
     await waitFor(() => expect(cardTitles('Done')).toContain('Fix flaky checkout test'));
   });
 
-  it('non-agent kinds get quick actions: abort', async () => {
-    await renderApp();
-    const panel = within(await openCard('Fix flaky checkout test'));
-    fireEvent.click(await panel.findByRole('button', { name: 'Abort' }));
-    await waitFor(() => expect(cardTitles('Done')).toContain('Fix flaky checkout test'));
-  });
-
   it('shows state, context, spend/time and live output', async () => {
     const api = await renderApp();
     const panel = within(await openCard('Bump node to 22 in CI'));

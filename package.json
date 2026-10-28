@@ -9,9 +9,10 @@
   "scripts": {
     "build": "tsc -b && pnpm --filter @conductor/web run build",
     "typecheck": "tsc -b",
-    "lint": "eslint . && prettier --check .",
+    "lint": "node scripts/test-slot.js eslint . && prettier --check .",
     "format": "prettier --write .",
     "test": "vitest run",
+    "test:all": "vitest run --mode all",
     "test:watch": "vitest",
     "test:e2e": "e2e/run.sh",
     "db:up": "scripts/db.sh up",

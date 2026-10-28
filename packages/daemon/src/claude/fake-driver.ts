@@ -1,5 +1,12 @@
+import type { JsonObject } from '@conductor/shared';
 import type { ClaudeDriver, DriverEvent, DriverSession, DriverStartOptions } from './driver.js';
-import { refuseTransition } from './outcome-server.js';
+import {
+  PERMISSION_SESSION_ENDED,
+  permissionReply,
+  refuseTransition,
+  type PermissionDecision,
+  type PermissionReply,
+} from './outcome-server.js';
 
 // In-memory, scripted ClaudeDriver for unit tests of daemon logic above the driver (ADR-0005
 // §Fake Claude). The process-boundary fake for E2E (CONDUCTOR_CLAUDE_BIN) is M1-T10.
@@ -26,7 +33,12 @@ export type FakeTurnAction =
    * ADR-0007: the turn pauses until a sendMessage arrives, which is folded into it (as the real
    * CLI does mid-turn); then the rest of the turn plays.
    */
-  | { awaitMessage: true };
+  | { awaitMessage: true }
+  /**
+   * ADR-0023: Claude calls the permission prompt tool: emits `permission_request` and the call is
+   * held (the turn goes on, unlike the real CLI; tests read `permissionReplies`).
+   */
+  | { permission: { requestId: string; tool: string; input: JsonObject } };
 
 /** Static actions, or a function of the user message that started the turn (`$answer`). */
 export type FakeTurn = FakeTurnAction[] | ((input: string) => FakeTurnAction[]);
@@ -89,6 +101,10 @@ export class FakeDriverSession implements DriverSession {
   /** BUG-1: tests may set a pid to be persisted (none by default: there is no OS process). */
   pid: number | undefined = undefined;
   exited = false;
+  /** ADR-0023: the reply each held permission prompt got, by request id. */
+  readonly permissionReplies = new Map<string, PermissionReply>();
+  private readonly heldPermissions = new Map<string, JsonObject>();
+  private readonly decidedPermissions = new Set<string>();
   private readonly listeners = new Set<(ev: DriverEvent) => void>();
   private initSent = false;
   private askPending = false;
@@ -124,6 +140,31 @@ export class FakeDriverSession implements DriverSession {
     if (resume) queueMicrotask(resume);
   }
 
+  resolvePermission(
+    requestId: string,
+    d: PermissionDecision,
+  ): 'resolved' | 'duplicate' | 'unknown' {
+    const input = this.heldPermissions.get(requestId);
+    if (input === undefined) {
+      return this.decidedPermissions.has(requestId) ? 'duplicate' : 'unknown';
+    }
+    this.heldPermissions.delete(requestId);
+    this.decidedPermissions.add(requestId);
+    this.permissionReplies.set(requestId, permissionReply(input, d));
+    return 'resolved';
+  }
+
+  denyPermission(requestId: string, message: string): boolean {
+    if (!this.heldPermissions.delete(requestId)) return false;
+    this.permissionReplies.set(requestId, { behavior: 'deny', message });
+    return true;
+  }
+
+  /** ADR-0023: the request ids still held. */
+  get pendingPermissions(): string[] {
+    return [...this.heldPermissions.keys()];
+  }
+
   end(): void {
     if (this.exited) return;
     this.ended = true;
@@ -139,6 +180,7 @@ export class FakeDriverSession implements DriverSession {
 
   private exit(code: number | null, signal: string | null): void {
     if (this.exited) return;
+    for (const id of this.pendingPermissions) this.denyPermission(id, PERMISSION_SESSION_ENDED);
     this.emit({ kind: 'exit', code, signal });
     this.exited = true;
   }
@@ -196,6 +238,13 @@ export class FakeDriverSession implements DriverSession {
   private act(a: Exclude<FakeTurnAction, { crash: unknown } | { awaitMessage: true }>): void {
     if ('say' in a) {
       this.emit({ kind: 'output', stream: 'assistant', text: a.say });
+    } else if ('permission' in a) {
+      this.heldPermissions.set(a.permission.requestId, a.permission.input);
+      this.emit({
+        kind: 'permission_request',
+        ...a.permission,
+        expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+      });
     } else if ('emit' in a) {
       this.emit(a.emit);
     } else if ('askUser' in a) {

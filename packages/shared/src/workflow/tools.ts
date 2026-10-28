@@ -80,11 +80,14 @@ export const TOOL_ALIASES = {
   /**
    * Shell for building and testing the repo's own scripts, with npm or pnpm (M2-T30). No
    * interpreters or general runners (node/npx/`pnpm exec`/`pnpm dlx`/cat): `pnpm exec` is allowed
-   * only for vitest and prettier, and `pnpm install` / `pnpm i` are exact (no `--` flags, no
-   * `pnpm add`). TD-019: `npm run`/`pnpm run`/the installs still execute repo-defined code the
-   * agent can edit (scripts, lifecycle hooks, vitest/prettier config files), and `chmod +x:*` is a
-   * prefix rule that can make any file executable, in or outside the worktree (TD-175), so this is
-   * not a security boundary; that needs the sandbox (U-004).
+   * only for vitest, prettier, eslint and `tsc -b`, and the installs are exact (`pnpm install` /
+   * `pnpm i`, each also with `--frozen-lockfile`; no `pnpm add`). M2-T30b: the script shorthands
+   * agents actually type (`pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm format`, exact, as in
+   * ADR-0020's `qa` alias) and `pnpm vitest:*`; without them every gate run was silently denied
+   * under `--permission-prompts none`. TD-019: `npm run`/`pnpm run`/the installs still execute
+   * repo-defined code the agent can edit (scripts, lifecycle hooks, tool config files), and
+   * `chmod +x:*` is a prefix rule that can make any file executable, in or outside the worktree
+   * (TD-175), so this is not a security boundary; that needs the sandbox (U-004).
    */
   bash: {
     builtin: ['Bash'],
@@ -97,8 +100,17 @@ export const TOOL_ALIASES = {
       'Bash(pnpm test:*)',
       'Bash(pnpm install)',
       'Bash(pnpm i)',
+      'Bash(pnpm install --frozen-lockfile)',
+      'Bash(pnpm i --frozen-lockfile)',
+      'Bash(pnpm typecheck)',
+      'Bash(pnpm lint)',
+      'Bash(pnpm build)',
+      'Bash(pnpm format)',
+      'Bash(pnpm vitest:*)',
       'Bash(pnpm exec vitest:*)',
       'Bash(pnpm exec prettier:*)',
+      'Bash(pnpm exec eslint:*)',
+      'Bash(pnpm exec tsc -b)',
       // TD-175: a prefix rule, so it also matches `-R`, absolute paths and `--reference=`.
       'Bash(chmod +x:*)',
     ],

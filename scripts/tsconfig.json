@@ -1,0 +1,17 @@
+{
+  // Typechecks (and type-aware lints) the checked-JS tooling in scripts/ (M2-T31: test slots).
+  // create-tickets.js stays out until TD-171 is paid. composite needs some emit, so declarations
+  // go to a throwaway dir.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "allowJs": true,
+    "checkJs": true,
+    "emitDeclarationOnly": true,
+    "declarationMap": false,
+    "outDir": "../node_modules/.tmp/scripts",
+    "tsBuildInfoFile": "../node_modules/.tmp/scripts/tsconfig.tsbuildinfo"
+  },
+  "include": ["*.js"],
+  "exclude": ["create-tickets.js"]
+}

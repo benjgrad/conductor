@@ -180,6 +180,8 @@ describe('open_pr (ADR-0010)', () => {
     expect(git(origin, 'rev-parse', `refs/heads/${BRANCH}`).trim()).toBe(
       git(worktree, 'rev-parse', 'HEAD').trim(),
     );
+    // exactly the checked commit (a later commit is refused, below)
+    expect(git(origin, 'rev-parse', `refs/heads/${BRANCH}`).trim()).toBe(checked);
     const calls = ghCalls();
     expect(calls.map((c) => c.argv)).toEqual([
       ['pr', 'view', BRANCH, '--repo', 'local/origin', '--json', 'url', '--jq', '.url'],
@@ -335,12 +337,6 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
     expect(!r.ok && r.error).toContain('private push repo');
     expect(readdirSync(elsewhere)).toEqual([]);
     expect(hasBranch(origin)).toBe(false);
-  });
-
-  it('pushes exactly the checked commit', async () => {
-    const r = await openPr(input());
-    expect(r.ok).toBe(true);
-    expect(git(origin, 'rev-parse', `refs/heads/${BRANCH}`).trim()).toBe(checked);
   });
 
   it('a commit made after the checks makes the action refuse; nothing is pushed', async () => {

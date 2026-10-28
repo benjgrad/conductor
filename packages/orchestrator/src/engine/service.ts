@@ -23,6 +23,7 @@ import {
 import { withTransaction } from '../db/index.js';
 import type { InputRequestRow } from '../db/types.js';
 import type { Db } from '../main.js';
+import { expireOnApply, readCardPermission, withPermission } from '../permissions/store.js';
 import { CardViews } from './board-view.js';
 import {
   DefinitionCache,
@@ -145,7 +146,10 @@ export class EngineServiceImpl implements EngineService {
       session.workflow_id,
       session.workflow_version,
     );
-    const cardBefore = toBoardCard(ticket, session, await readOpenInput(tx, sessionId), view);
+    const cardBefore = withPermission(
+      toBoardCard(ticket, session, await readOpenInput(tx, sessionId), view),
+      await readCardPermission(tx, sessionId),
+    );
     const res = this.applyFn(def, before, event, now);
 
     const ev = await tx.query<{ id: string }>(
@@ -341,6 +345,10 @@ export class EngineServiceImpl implements EngineService {
     }
 
     await writeSession(tx, s1, token, now);
+    // ADR-0023: a session that no longer holds its agent process expires its pending permission
+    // requests here, so the card never shows a prompt nobody can answer (10-contracts §Permission
+    // prompts, Expiry).
+    await expireOnApply(tx, sessionId, event.type, before, s1, now);
 
     // Outbox rows after the session row is final: the payload sees the post-apply snapshot (and
     // the started branch), the row carries the post-apply token (10-contracts §Effect → WS).
@@ -366,11 +374,14 @@ export class EngineServiceImpl implements EngineService {
     }
 
     // card.upserted last, if any card field changed.
-    const cardAfter = toBoardCard(
-      await readTicket(tx, ticket.id),
-      await readSession(tx, sessionId),
-      await readOpenInput(tx, sessionId),
-      view,
+    const cardAfter = withPermission(
+      toBoardCard(
+        await readTicket(tx, ticket.id),
+        await readSession(tx, sessionId),
+        await readOpenInput(tx, sessionId),
+        view,
+      ),
+      await readCardPermission(tx, sessionId),
     );
     // ADR-0010: card.moved when the card's column (a state, or Queued / Done) changed.
     if (cardAfter.column !== cardBefore.column) {

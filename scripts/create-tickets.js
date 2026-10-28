@@ -8,7 +8,7 @@
 //
 // With no ids it takes every ticket block in the file. Env: CONDUCTOR_URL (default
 // https://conductor.gradyserver.com), CONDUCTOR_EMAIL, CONDUCTOR_PASSWORD (optional; prompted if
-// absent), CONDUCTOR_WORKFLOW (default conductor_dev).
+// absent; or CONDUCTOR_PASSWORD_FILE, a file holding it), CONDUCTOR_WORKFLOW (default conductor_dev).
 // Re-running is safe: a ticket whose title is already on the board is skipped.
 // TD-172: no depends_on until M2b, so only create a wave once every dependency is merged (each
 // plan file's ticket waves).
@@ -153,7 +153,10 @@ async function main() {
   }
 
   const email = process.env.CONDUCTOR_EMAIL ?? (await prompt('email: '));
-  const password = process.env.CONDUCTOR_PASSWORD ?? (await prompt('password: '));
+  const pwFile = process.env.CONDUCTOR_PASSWORD_FILE;
+  const password =
+    process.env.CONDUCTOR_PASSWORD ??
+    (pwFile ? readFileSync(pwFile, 'utf8').replace(/\r?\n$/, '') : await prompt('password: '));
   const c = new Client();
   await c.req('POST', '/auth/login', { email, password });
   if (!c.cookie) throw new Error('login returned no session cookie');

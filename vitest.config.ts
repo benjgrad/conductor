@@ -52,6 +52,9 @@ export default defineConfig({
           root: 'packages/web',
           include: ['src/**/*.test.{ts,tsx}'],
           environment: 'node',
+          // jsdom tests that render a whole <App> take a few seconds each when the full suite
+          // runs in parallel (CI, conductor's check), past vitest's 5 s default.
+          testTimeout: 30_000,
         },
       },
     ],

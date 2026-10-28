@@ -25,7 +25,6 @@ const FIRST = { name: 'Set up your first machine' } as const;
 // first tests in this file also pay for cold imports, which can take longer than findBy's 1 s
 // default when the full suite runs in parallel (e.g. in CI).
 const APP_LOAD = { timeout: 10_000 } as const;
-vi.setConfig({ testTimeout: 20_000 });
 
 function renderGuide(api: MockApi = createMockApi({ machines: 'none' })) {
   const handlers = { onDismiss: vi.fn(), onCreateTicket: vi.fn(), onFinish: vi.fn() };

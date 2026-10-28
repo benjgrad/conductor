@@ -154,6 +154,7 @@ Shared rules for every task:
 - **Acceptance**:
   - [ ] win32: `enroll` then `loadCredential` round-trips. An added Everyone ACE makes the daemon refuse to start with the message.
   - [ ] A planted `pre-push` hook in the private repo does **not** run during `open_pr`'s push (both OSes).
+  - [ ] On win32, `<root>` is created with `mkdirPrivate` before anything is written into it (MW-T04: `writePrivateFile` refuses a non-private parent, and `mkdirPrivate` refuses unless the nearest existing ancestor is owner-only, the profile dir or `%LOCALAPPDATA%`). A custom `--root` under a permissive dir (e.g. `C:\conductor`) fails with a clear message.
   - [ ] `CONDUCTOR_ROOTS=C:\a;D:\b` parses to two roots.
   - [ ] The MW-T01 skips (35 markers) are removed. Note from MW-T01: on the runner, checkClean/open_pr see ` M README.md` on fresh files, which looks like `core.autocrlf`. Pin `core.autocrlf=false` in the daemon's git env, or in the test repos only if the daemon really doesn't care, and justify the choice.
   - [ ] Unskipped tests green.

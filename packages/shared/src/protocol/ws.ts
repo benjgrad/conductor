@@ -228,6 +228,12 @@ export const COMMAND_REFUSAL_REASONS = [
    * routes the QA start to needs_input with it, uncounted.
    */
   'checkout_failed',
+  /**
+   * ADR-0023 (M2-T29): a `permission_decision` for a request the daemon no longer holds (it timed
+   * out, the agent process exited, the daemon restarted). The orchestrator marks the request
+   * expired (`agent_gone`) if it is still pending; never retried.
+   */
+  'unknown_permission_request',
 ] as const;
 
 export const CommandAckPayloadSchema = z.object({
@@ -417,6 +423,87 @@ export const TranscriptPayloadSchema = z.union([
 export type TranscriptPayload = z.infer<typeof TranscriptPayloadSchema>;
 export const TranscriptMessageSchema = msg('transcript', TranscriptPayloadSchema, machineEnv);
 
+// ------------------------------------------------------------ permission prompts (M2-T29)
+// ADR-0023, 10-contracts §Permission prompts. Additive: older daemons never send
+// `permission_request`, so older orchestrators never send `permission_decision`.
+
+/** ADR-0023 §2: a held prompt is denied when no human answers within this (daemon default). */
+export const DEFAULT_PERMISSION_TIMEOUT_MS = 30 * 60 * 1000;
+/**
+ * Cap on `permission_request.input` as UTF-8 JSON (64 KiB). A human can't review more than this
+ * on a card; over it the daemon denies the call itself ("input too large to review") and sends
+ * nothing.
+ */
+export const PERMISSION_INPUT_MAX_BYTES = 64 * 1024;
+/** Cap on the number of `permission_request.suggestions`. */
+export const PERMISSION_SUGGESTIONS_MAX = 10;
+/** Cap on `permission_request.suggestions` as UTF-8 JSON (16 KiB); over it the daemon drops them. */
+export const PERMISSION_SUGGESTIONS_MAX_BYTES = 16 * 1024;
+/** Cap on a tool name (`Bash`, `mcp__server__tool`, …). */
+export const PERMISSION_TOOL_MAX = 200;
+/** Cap on `permission_decision.message` (and the REST request's): the note a human denies with. */
+export const PERMISSION_MESSAGE_MAX = 2000;
+/** Cap on an exact allow rule (`Bash(<command>)`), `permission_decision.rule`. */
+export const PERMISSION_RULE_MAX = 4096;
+
+/** UTF-8 byte length of a value's JSON. */
+export function jsonByteLength(v: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(v)).length;
+}
+
+/** Claude's tool name, as the permission prompt tool receives it (`tool_name`). */
+export const PermissionToolSchema = z.string().min(1).max(PERMISSION_TOOL_MAX);
+
+/** The tool input Claude asked to run with, ≤ PERMISSION_INPUT_MAX_BYTES of JSON. */
+export const PermissionInputSchema = JsonObjectSchema.refine(
+  (v) => jsonByteLength(v) <= PERMISSION_INPUT_MAX_BYTES,
+  { message: `input is larger than ${PERMISSION_INPUT_MAX_BYTES} bytes of JSON` },
+);
+
+/**
+ * Claude Code's `permission_suggestions` (its PermissionUpdate objects), passed through as-is
+ * for display. Never applied by conductor: "Allow always" records conductor's own exact rule.
+ */
+export const PermissionSuggestionsSchema = z
+  .array(JsonObjectSchema)
+  .max(PERMISSION_SUGGESTIONS_MAX)
+  .refine((v) => jsonByteLength(v) <= PERMISSION_SUGGESTIONS_MAX_BYTES, {
+    message: `suggestions are larger than ${PERMISSION_SUGGESTIONS_MAX_BYTES} bytes of JSON`,
+  });
+
+export const PermissionBehaviorSchema = z.enum(['allow', 'deny']);
+export type PermissionBehavior = z.infer<typeof PermissionBehaviorSchema>;
+/** `always`: allow this exact call from now on (an exact allow rule). Only with `allow`. */
+export const PermissionScopeSchema = z.enum(['once', 'always']);
+export type PermissionScope = z.infer<typeof PermissionScopeSchema>;
+
+// TD-178: until M2-T29c the gateway parses this and drops it silently (no protocol_error).
+/**
+ * ADR-0023 §2: auto mode would still ask, so Claude called conductor's `permission` tool; the
+ * daemon holds the call open and asks the orchestrator. Session-scoped and **durable** (`seq`
+ * required, buffered and replayed like a `session_event`, deduped on `(machine_id, seq)`), so a
+ * socket drop while held loses nothing. `request_id` is the daemon's id for the held call and the
+ * idempotency key of everything after it (the stored row, the decision, a replay). `expires_at`
+ * is when the daemon will deny it itself (now + DEFAULT_PERMISSION_TIMEOUT_MS by default).
+ */
+export const PermissionRequestPayloadSchema = z.object({
+  request_id: UuidSchema,
+  /** Same as the envelope's (the orchestrator checks they match). */
+  session_id: UuidSchema,
+  tool: PermissionToolSchema,
+  input: PermissionInputSchema,
+  suggestions: PermissionSuggestionsSchema.optional(),
+  /** Claude's `tool_use_id` for the call, when it sent one (informational). */
+  tool_use_id: z.string().min(1).max(200).optional(),
+  expires_at: IsoDateTimeSchema,
+});
+export type PermissionRequestPayload = z.infer<typeof PermissionRequestPayloadSchema>;
+export const PermissionRequestMessageSchema = msg(
+  'permission_request',
+  PermissionRequestPayloadSchema,
+  durableSessionEnv,
+);
+
 export const DaemonToOrchestratorSchema = z.discriminatedUnion('type', [
   RegisterMessageSchema,
   HeartbeatMessageSchema,
@@ -428,6 +515,7 @@ export const DaemonToOrchestratorSchema = z.discriminatedUnion('type', [
   SessionEventMessageSchema,
   OutputMessageSchema,
   TranscriptMessageSchema,
+  PermissionRequestMessageSchema,
 ]);
 export type DaemonToOrchestrator = z.infer<typeof DaemonToOrchestratorSchema>;
 export type DaemonMessageType = DaemonToOrchestrator['type'];
@@ -715,6 +803,40 @@ export const FetchTranscriptMessageSchema = msg(
   orchMachineEnv,
 );
 
+/**
+ * ADR-0023 §2: a human's answer to a `permission_request`, an outbox command (`command_id`,
+ * acked, at-least-once) written by the decision route in the same transaction as the decision.
+ * The daemon resolves the held call whose `request_id` matches, at most once: a second decision
+ * for the same request (a different command_id) is acked `accepted: true` and ignored; a request
+ * it no longer holds is refused `unknown_permission_request`. `scope: 'always'` only with
+ * `allow`; then `rule` is the exact allow rule the orchestrator recorded, and the daemon also
+ * returns it to Claude for the rest of this process (`updatedPermissions`, destination
+ * `session`). `message` is the human's note: on a deny, Claude sees it as the denial reason.
+ */
+export const PermissionDecisionPayloadSchema = z
+  .object({
+    command_id: UuidSchema,
+    request_id: UuidSchema,
+    behavior: PermissionBehaviorSchema,
+    scope: PermissionScopeSchema,
+    message: z.string().max(PERMISSION_MESSAGE_MAX).optional(),
+    rule: z.string().min(1).max(PERMISSION_RULE_MAX).optional(),
+  })
+  .refine((d) => d.behavior === 'allow' || d.scope === 'once', {
+    message: 'a deny is always scope once',
+    path: ['scope'],
+  })
+  .refine((d) => d.rule === undefined || d.scope === 'always', {
+    message: 'rule is only sent with scope always',
+    path: ['rule'],
+  });
+export type PermissionDecisionPayload = z.infer<typeof PermissionDecisionPayloadSchema>;
+export const PermissionDecisionMessageSchema = msg(
+  'permission_decision',
+  PermissionDecisionPayloadSchema,
+  orchSessionEnv,
+);
+
 export const OrchestratorToDaemonSchema = z.discriminatedUnion('type', [
   RegisteredMessageSchema,
   WorkAssignmentMessageSchema,
@@ -728,6 +850,7 @@ export const OrchestratorToDaemonSchema = z.discriminatedUnion('type', [
   KillMessageSchema,
   ProtocolErrorMessageSchema,
   FetchTranscriptMessageSchema,
+  PermissionDecisionMessageSchema,
 ]);
 export type OrchestratorToDaemon = z.infer<typeof OrchestratorToDaemonSchema>;
 export type OrchestratorMessageType = OrchestratorToDaemon['type'];
@@ -735,7 +858,16 @@ export type OrchestratorMessageType = OrchestratorToDaemon['type'];
 /** Commands delivered through the outbox (carry `command_id`, deduped by the daemon). */
 export type OrchestratorCommand = Extract<
   OrchestratorToDaemon,
-  { type: 'start_session' | 'run_cmd' | 'run_action' | 'send_input' | 'send_message' | 'kill' }
+  {
+    type:
+      | 'start_session'
+      | 'run_cmd'
+      | 'run_action'
+      | 'send_input'
+      | 'send_message'
+      | 'kill'
+      | 'permission_decision';
+  }
 >;
 
 export const DAEMON_MESSAGE_TYPES = DaemonToOrchestratorSchema.options.map(

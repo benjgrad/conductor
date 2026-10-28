@@ -56,6 +56,17 @@ Notes:
 ## Daemon refuses a start
 - `command_ack accepted=false` → session `queued`, ticket `ready`, event recorded. A machine that refuses 3 times in a row is skipped for 1 min.
 
+## Permission prompt held open
+
+[ADR-0023](../adr/0023-permission-prompts-through-conductor.md), contract in [10 §Permission prompts](10-contracts.md#permission-prompts). An agent's tool call waits on a human (`needs_permission`). Every path ends in a decision or a deny, within a bound:
+- **Nobody answers**: the daemon denies the call at `expires_at` (30 min by default) with "no human answered"; the agent can then `ask_user`, which reaches a human the usual way. The orchestrator marks the request `expired` (`timeout`) at the same time and clears the card.
+- **Socket drop while held**: the request is durable (`seq`), so it is replayed on reconnect and deduped on `request_id`; a decision is an outbox command, delivered when the machine is back. The daemon keeps holding the call until then (or its timeout).
+- **Daemon restart while held**: the held MCP call dies with the old process, and with it the Claude process ([03 §Delivery](03-protocols.md#delivery-guarantees): Claude processes don't outlive the daemon). On reconnect the daemon's `exit {signal: 'daemon_restart'}` expires the request (`agent_gone`) and clears the card; a decision that still arrives is refused `unknown_permission_request`. Net effect: a deny on reconnect.
+- **Orchestrator restart**: pending requests are rows, so they survive, and so does the card. A decision already recorded is in the outbox and is re-sent; the daemon dedupes on `command_id` and resolves a `request_id` at most once. A human clicking again gets the stored decision back (idempotent on `request_id`), not a second command.
+- **Two humans, two different answers**: the first one wins; the second gets 409 `permission_not_pending`.
+- **The session moves on** (cancel, budget, a lost machine, the agent's own exit): the pending request expires (`session_moved` / `agent_gone`) in the same transaction, so the card never shows a prompt nobody can answer.
+- **Old server**: a daemon talking to a pre-T29 orchestrator gets `protocol_error` for the request and denies at once.
+
 ## Bad daemon update
 
 [ADR-0021](../adr/0021-daemon-auto-update.md). A deploy serves a daemon build that crashes on start or can't register.

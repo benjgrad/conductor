@@ -76,7 +76,7 @@
 
 IDs follow ADR-0014's order; groups decide the order of work. Each task is one conductor ticket (≲ 400 lines changed, one package), except T17, which is the lead's.
 
-**Ticket waves** (2026-10-28, TD-172): with no `depends_on` until M2b, a ticket goes on the hosted board only when every task it depends on is merged. `scripts/create-tickets.js <ids>` posts each `### M3-Tnn` block below with the M3 rules appended (workflow `conductor_dev`, repo `github.com/benjgrad/conductor`, kind `personal`; T02 at priority 1). The waves are: A T01 (after M2r) · B T02 T03 T04 T05 T06 T07 T11 · C T08, T09, T10, each as its own deps merge · D T12 · E T13 · F T14 T15 · G T16. T17 is the lead's; T18/T19 are later.
+**Ticket waves** (2026-10-28, TD-172): with no `depends_on` until M2b, a ticket goes on the hosted board only when every task it depends on is merged. `scripts/create-tickets.js <ids>` posts each `### M3-Tnn` block below with the M3 rules appended (workflow `conductor`, repo `github.com/benjgrad/conductor`, kind `personal`; T02 at priority 1). The waves are: A T01 (after M2r) · B T02 T03 T04 T05 T06 T07 T11 · C T08, T09, T10, each as its own deps merge · D T12 · E T13 · F T14 T15 · G T16. T17 is the lead's; T18/T19 are later.
 
 **Shared files and ownership**:
 - `shared/src/mcp/**`, `shared/src/api/oauth.ts`, `shared/src/api/rest.ts` (additions): T01 only. Later tasks report needed changes to the lead.

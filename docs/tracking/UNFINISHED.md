@@ -31,9 +31,9 @@ Remove the entry once the work is merged or deliberately abandoned. If abandoned
 
 ## UX-9..UX-16 · board polish, agent team, notifications: ticket waves (2026-10-28)
 - **Branch / worktree**: none yet; bodies in `docs/plan/UX-board-and-notifications.md`, posted with `scripts/create-tickets.js --file docs/plan/UX-board-and-notifications.md <ids>`
-- **Done so far**: the 9 ticket bodies and their dry run; nothing posted
+- **Done so far**: the 9 ticket bodies; **wave 1 posted 2026-10-28** (UX-10, UX-11, UX-13a, UX-14, UX-15, workflow `conductor` v2, all priority 0, queued behind M2-T18/T18b and CI/CD)
 - **Not done**: wave 1: UX-10, UX-11, UX-13a (migration), UX-14, UX-15 (migration) · wave 2: UX-9 (after UX-10), UX-13b (after UX-13a), UX-16 (after UX-14 + UX-15) · wave 3: UX-12 (after UX-9 + UX-11)
-- **Exact next step**: Ben posts wave 1 now (they don't share files, apart from a top-bar line in App.tsx); after each merge, post the next tickets whose deps are merged
+- **Exact next step**: QA each wave-1 PR as it opens (UX-13a and UX-15 stop at "awaiting Ben" for their migrations); after each merge, post the next tickets whose deps are merged
 - **Gotchas**: UX-9, UX-10 and UX-12 all edit `Board.tsx`, so never run them together. After UX-15 merges, VAPID keys for prod are a lead + Ben step (`conductor-admin vapid-keys`, then the deploy env)
 
 ## M3 · ticket waves on the hosted board (2026-10-28)

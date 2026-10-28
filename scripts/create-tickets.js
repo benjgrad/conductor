@@ -8,7 +8,7 @@
 //
 // With no ids it takes every ticket block in the file. Env: CONDUCTOR_URL (default
 // https://conductor.gradyserver.com), CONDUCTOR_EMAIL, CONDUCTOR_PASSWORD (optional; prompted if
-// absent; or CONDUCTOR_PASSWORD_FILE, a file holding it), CONDUCTOR_WORKFLOW (default conductor_dev).
+// absent; or CONDUCTOR_PASSWORD_FILE, a file holding it), CONDUCTOR_WORKFLOW (default conductor).
 // Re-running is safe: a ticket whose title is already on the board is skipped.
 // TD-172: no depends_on until M2b, so only create a wave once every dependency is merged (each
 // plan file's ticket waves).
@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_FILE = 'docs/plan/milestones/M3-mcp.md';
 const BASE = (process.env.CONDUCTOR_URL ?? 'https://conductor.gradyserver.com').replace(/\/$/, '');
-const WORKFLOW = process.env.CONDUCTOR_WORKFLOW ?? 'conductor_dev';
+const WORKFLOW = process.env.CONDUCTOR_WORKFLOW ?? 'conductor'; // the hosted board's only workflow
 const REPO = 'github.com/benjgrad/conductor';
 const NOT_TICKETS = new Set(['M3-T17', 'M3-T18', 'M3-T19']); // T17 is the lead's; T18/T19 "later"
 // The M3 migration needs Ben's review early. The UX migrations (UX-13a, UX-15) stay at 0 so they

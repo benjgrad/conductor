@@ -26,6 +26,9 @@ importers:
       globals:
         specifier: ^17.13.0
         version: 17.13.0
+      playwright-core:
+        specifier: 1.64.1
+        version: 1.64.1
       prettier:
         specifier: ^3.9.10
         version: 3.9.10
@@ -1985,6 +1988,11 @@ packages:
   pkce-challenge@5.0.1:
     resolution: {integrity: sha512-wQ0b/W4Fr01qtpHlqSqspcj3EhBvimsdh0KlHhH8HRZnMsEa0ea2fTULOXOS9ccQr3om+GcGRk4e+isrZWV8qQ==}
     engines: {node: '>=16.20.0'}
+
+  playwright-core@1.64.1:
+    resolution: {integrity: sha512-BC4s8y6SEVA6Q1rSxZTto8hI1KUI3xXlHGZgvGqP4IqPdI/a6FX9H29IDNz7vKo9l21b6LfYosScPL6M3xxyDQ==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   postcss@8.5.31:
     resolution: {integrity: sha512-YUbWYCgErwnMAVkjUnYa+KlMBzGpHwiIt/DE7f0G33AuX2LH9UcTk6KgWxd3zRU+pN3u/C+Xl3EnMLM4Hea7Sg==}
@@ -4395,6 +4403,8 @@ snapshots:
       thread-stream: 4.2.0
 
   pkce-challenge@5.0.1: {}
+
+  playwright-core@1.64.1: {}
 
   postcss@8.5.31:
     dependencies:

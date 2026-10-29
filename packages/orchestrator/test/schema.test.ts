@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest';
 import { createDb, withTransaction } from '../src/db/index.js';
 import type {
   AccountMemberRow,
+  AgentRow,
   AccountRow,
   AppUserRow,
   EnrollmentTokenRow,
@@ -57,6 +58,7 @@ function migrationsBefore(file: string): number {
 const TICKET_KIND = '1761500000000_ticket-kind.sql';
 const ACCOUNTS = '1761600000000_accounts-and-auth.sql';
 const MACHINE_CREDENTIALS = '1761700000000_machine-credentials.sql';
+const AGENT_TEAM = '1762000000000_agent-team.sql';
 
 // ------------------------------------------------------------------ DDL ⇄ db/types.ts
 //
@@ -191,6 +193,7 @@ const ticket: ColumnSpec<TicketRow> = {
   priority: col('int4', NN),
   kind: col('ticket_kind', NULL),
   session_allow: col('_text', NN),
+  agent_id: col('uuid', NULL),
   created_at: col('timestamptz', NN),
   updated_at: col('timestamptz', NN),
 };
@@ -368,6 +371,14 @@ const push_subscription: ColumnSpec<PushSubscriptionRow> = {
   last_ok_at: col('timestamptz', NULL),
   failures: col('int4', NN),
 };
+// UX-13a: the agent team.
+const agent: ColumnSpec<AgentRow> = {
+  id: col('uuid', NN),
+  account_id: col('uuid', NN),
+  name: col(t, NN),
+  hired_at: col('timestamptz', NN),
+  last_assigned_at: col('timestamptz', NULL),
+};
 const SCHEMA: Schema = {
   machine,
   machine_repo,
@@ -390,6 +401,7 @@ const SCHEMA: Schema = {
   password_reset,
   login_throttle,
   push_subscription,
+  agent,
 };
 /** The tables M1/M1b created: every one carries `account_id` since M2-T03. */
 const M1_TABLES = [
@@ -529,6 +541,51 @@ describe('migrations', () => {
     }
   }, 60_000);
 
+  it('agent-team (UX-13a): existing tickets end with agent_id NULL; down drops column and table', async () => {
+    const db = await createTestDatabase({ migrate: false });
+    const agentColumn = async () =>
+      (
+        await db.pool.query(
+          "SELECT 1 FROM information_schema.columns WHERE table_name = 'ticket' AND column_name = 'agent_id'",
+        )
+      ).rowCount;
+    try {
+      await migrate(db.url, 'up', migrationsBefore(AGENT_TEAM));
+      await db.pool.query(
+        "INSERT INTO workflow_definition (id, version, definition) VALUES ('wf_old', 1, '{}')",
+      );
+      await db.pool.query(
+        "INSERT INTO ticket (repo, title, workflow_id) VALUES ('r', 'before', 'wf_old')",
+      );
+
+      await migrate(db.url, 'up');
+      expect((await db.pool.query('SELECT title, agent_id FROM ticket')).rows).toEqual([
+        { title: 'before', agent_id: null },
+      ]);
+      await db.pool.query("INSERT INTO agent (account_id, name) VALUES ($1, 'Ada')", [
+        LOCAL_ACCOUNT_ID,
+      ]);
+      await expectPgError(
+        db.pool.query("INSERT INTO agent (account_id, name) VALUES ($1, 'Ada')", [
+          LOCAL_ACCOUNT_ID,
+        ]),
+        '23505',
+        'agent_account_id_name_key',
+      );
+
+      await migrate(db.url, 'down', FILES.length - migrationsBefore(AGENT_TEAM));
+      expect(await agentColumn()).toBe(0);
+      expect(await publicTables(db.pool)).not.toContain('agent');
+      expect((await db.pool.query('SELECT 1 FROM ticket')).rowCount).toBe(1);
+
+      await migrate(db.url, 'up');
+      expect(await agentColumn()).toBe(1);
+      expect(await publicTables(db.pool)).toContain('agent');
+    } finally {
+      await db.drop();
+    }
+  }, 60_000);
+
   it('accounts-and-auth (M2-T03): M1b rows end in the local account; down restores M1b', async () => {
     const db = await createTestDatabase({ migrate: false });
     const q = (text: string, values?: unknown[]) => db.pool.query(text, values);
@@ -635,6 +692,7 @@ describe('migrations', () => {
           'machine_credential',
           'permission_request',
           'push_subscription',
+          'agent',
         ].sort(),
       );
     } finally {
@@ -808,11 +866,19 @@ describe('schema (migrated test database)', () => {
     expect(defs.outbox_push_idem_idx).toMatch(
       /^CREATE UNIQUE INDEX .* ON public\.outbox USING btree \(target, idempotency_key\) WHERE \(target ~~ 'user:%'::text\)$/,
     );
+    // UX-13a.
+    expect(defs.agent_account_id_name_key).toMatch(
+      /^CREATE UNIQUE INDEX .* ON public\.agent USING btree \(account_id, name\)$/,
+    );
+    expect(defs.ticket_agent_id_idx).toMatch(
+      /ON public\.ticket USING btree \(agent_id\) WHERE \(agent_id IS NOT NULL\)$/,
+    );
     for (const table of [
       'enrollment_token',
       'machine_credential',
       'machine_capability',
       'machine_alert',
+      'agent',
     ]) {
       expect(defs[`${table}_account_id_idx`]).toBe(
         `CREATE INDEX ${table}_account_id_idx ON public.${table} USING btree (account_id)`,
@@ -1011,6 +1077,17 @@ describe('schema (migrated test database)', () => {
       [LOCAL_ACCOUNT_ID],
     );
     expect(ps.rows[0]).toMatchObject({ failures: 0, last_ok_at: null, user_agent: null });
+
+    // UX-13a: an agent, and the ticket assigned to it.
+    const ag = await pool.query<AgentRow>(
+      "INSERT INTO agent (account_id, name) VALUES ($1, 'Ada') RETURNING *",
+      [LOCAL_ACCOUNT_ID],
+    );
+    expect(ag.rows[0]).toMatchObject({ name: 'Ada', last_assigned_at: null });
+    await pool.query('UPDATE ticket SET agent_id = $1', [ag.rows[0]!.id]);
+    expect((await pool.query<TicketRow>('SELECT * FROM ticket')).rows[0]?.agent_id).toBe(
+      ag.rows[0]!.id,
+    );
 
     const lt = await pool.query<LoginThrottleRow>(
       "INSERT INTO login_throttle (email_norm) VALUES ('ben@example.com') RETURNING *",

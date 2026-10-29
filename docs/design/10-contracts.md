@@ -33,6 +33,7 @@ M1-T12 froze every cross-agent seam as exported zod schemas / TS interfaces, eac
 | `reopenSession(db, sessionId, text, actor)`, `REOPENABLE_STATUSES` ([Reopen](#reopen)) | `orchestrator/src/engine/reopen.ts` | → T08 `POST /reopen` | tested on real Postgres |
 | Transcript reading: `findTranscript`, `transcriptChunks`, `claudeProjectSlug` ([ADR-0008](../adr/0008-transcript-history-and-reopen.md)) | `daemon/src/claude/transcript.ts` | → daemon `fetch_transcript` handler | fixture `daemon/test/fixtures/transcript.jsonl` |
 | DB row types ([02](02-data-model.md)) | `orchestrator/src/db/types.ts` | T02 DDL ⇄ T04, T08, T11 | — |
+| **Agent team (UX-13a, [§Agent assignment](#agent-assignment-ux-13a))**: `AGENT_NAMES` (the hiring pool), `fnv1a`, `hireOrder`, `hireName`; `BoardCard` / `SessionDetail` / `TicketDto` `.agent_name`, `TeamMemberSchema`, `TeamResponseSchema`, `API_PATHS.team` | `shared/src/agents/names.ts`, `shared/src/api/rest.ts` | claim (`orchestrator/src/agents/team.ts` `assignAgent`, `listTeam`) → card readers (`TICKET_SELECT`, `engine/rows.ts`), `GET /api/team` → web (UX-13b) | `agents/names.test.ts`, `api/agent-team.test.ts`; DB: `orchestrator/test/agents/team.test.ts` |
 | `ClaudeDriver` / `DriverSession` / `DriverEvent` ([ADR-0005](../adr/0005-claude-code-driver.md) §Contract, verbatim, plus `DriverSession.sendMessage` from [ADR-0007](../adr/0007-live-messages-to-agents.md)) | `daemon/src/claude/driver.ts` | T05/T07 real driver → T05 daemon core | `FakeClaudeDriver` (`claude/fake-driver.ts`) |
 | `CommandRunner`, `CreateCommandRunner` | `daemon/src/commands/runner.ts`; factory `createCommandRunner` in `daemon/src/commands/index.ts` (the real `ProcessCommandRunner`, T06) | T06 → T05 | `FakeCommandRunner` (`commands/fake-runner.ts`) |
 
@@ -112,10 +113,25 @@ The client keeps one card per `ticket_id`; `card.upserted` replaces it wholesale
 
 T11, one transaction ([04](04-scheduler.md#2--claim-query-ticket-side)). The partial unique index `session_one_live_per_ticket` ([02](02-data-model.md#session)) enforces step 2's "never a second session":
 
-1. Claim query (`FOR UPDATE OF t SKIP LOCKED`), `UPDATE ticket SET status = 'claimed'`.
+1. Claim query (`FOR UPDATE OF t SKIP LOCKED`); assign the ticket's agent ([below](#agent-assignment-ux-13a)); `UPDATE ticket SET status = 'claimed', agent_id`.
 2. If the ticket already has a non-terminal session (a `queued` one left by a refused `start_session`), `UPDATE` it: new `fencing_token = nextval('fencing_seq')`, new lease. Otherwise `INSERT session` with `status = 'queued'`, `workflow_state = null`, `machine_id = null`, `agent_command_id = null`, `agent_process_live = false`, a new fencing token and lease, `branch = sessionBranch(ticket_id, session_id)` = `` `conductor/${ticket_id}/${session_id.slice(0, 8)}` ``. Never a second session per ticket.
 3. `applyEvent(session_id, {type: 'session.assigned', machine_id}, {tx})`: `queued → assigned`, `machine_id` set, `start_session` outbox row (its `branch` is read from `session.branch` by the dispatcher).
 4. `COMMIT`, then publish the result's `boardEvents`, then reply `work_assignment`.
+
+### Agent assignment (UX-13a)
+
+`assignAgent` (`orchestrator/src/agents/team.ts`), in the claim's transaction, before `session.assigned` (so that event's `card.upserted` carries `agent_name`). The team is the **ticket's** account's ([02 §agent](02-data-model.md#agent)), whichever machine claims. A queued ticket holds no one.
+
+1. **Keep.** The ticket already has an agent (`ticket.agent_id`, never cleared): keep it, so a retry, requeue or reopen keeps the same agent, even if it is busy elsewhere.
+2. **Free teammate.** Else the teammate with no other active ticket (a session not `done` / `failed` / `lost`), oldest `last_assigned_at` first (never-assigned first), then oldest `hired_at`: `SELECT … FOR UPDATE OF a SKIP LOCKED`, so two claims never take one free teammate. Once the row is locked, the busy check runs again in a statement of its own (the locking statement's snapshot can predate the commit of the claim that held the lock); a busy one is skipped and the next tried.
+3. **Hire.** Nobody free: insert an `agent` with the first name of `hireOrder(ticket_id)` not on the team. The order starts at `fnv1a('name:<ticket_id>') % AGENT_NAMES.length` (the name web derived before UX-13a) and walks forward, wrapping around. `ON CONFLICT (account_id, name) DO NOTHING`: a concurrent hire of the same name walks on to the next.
+4. **Pool exhausted.** Every pool name is on the team and busy: reuse the teammate assigned longest ago, and log a warning.
+
+Every path sets `last_assigned_at = now()`. Lock order: machine, ticket, agent.
+
+**Reads.** Every ticket read that feeds `toBoardCard` uses `TICKET_SELECT` (`engine/rows.ts`: `ticket t LEFT JOIN agent a`), so every card, including each `card.upserted`, has `agent_name` (null = not assigned yet). `SessionDetail.agent_name` and `TicketDto.agent_name` are the same name; all three are optional on the wire (absent from older servers ≡ null). A new ticket's `POST /api/tickets` reply and card carry `agent_name: null`.
+
+**`GET /api/team`** (`API_PATHS.team`, `orchestrator/src/api/team.ts`; signed in, 401 otherwise) → `TeamResponse`: the signed-in account's agents, oldest hire first, `[{name, hired_at, last_assigned_at | null, active_ticket_id | null}]`. `active_ticket_id` is the ticket of the agent's newest session that is not done, failed or lost. Another account's agents are never listed.
 
 ## Reopen
 

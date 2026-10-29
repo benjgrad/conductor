@@ -40,6 +40,7 @@ export * from './api/rest.js';
 export * from './api/accounts.js';
 export * from './api/sse.js';
 export * from './api/fixtures.js';
+export * from './agents/names.js';
 
 export const PACKAGE_NAME = '@conductor/shared';
 

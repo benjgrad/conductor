@@ -48,6 +48,7 @@ import { registerPushRoutes } from './push.js';
 import { listWorkflows, loadBoard, loadWorkflowDetail, toTicketDto } from './queries.js';
 import { httpSecurityFromEnv, securityHookFor, type HttpSecurityOptions } from './security.js';
 import { loadSessionDetail, sessionExists } from './sessions.js';
+import { registerTeamRoutes } from './team.js';
 
 // M1-T08: REST + SSE for the UI (03 §UI ↔ orchestrator), as the `CreateApi` factory (main.ts).
 
@@ -149,6 +150,8 @@ export const createApi = (({
     ...(pushSender ? { sender: pushSender } : {}),
     now,
   });
+  // UX-13a: the account's agent team.
+  void app.register(registerTeamRoutes, { db });
 
   // JSON bodies; an empty body (POST /cancel with no payload) is `{}`.
   app.removeContentTypeParser('application/json');
@@ -442,7 +445,13 @@ export const createApi = (({
           type: 'card.upserted',
           session_id: null,
           ticket_id: row.id,
-          card: toBoardCard(row, null, null, await cardView(tx, row.workflow_id, null)),
+          // UX-13a: a new ticket holds no agent until a claim starts it.
+          card: toBoardCard(
+            { ...row, agent_name: null },
+            null,
+            null,
+            await cardView(tx, row.workflow_id, null),
+          ),
         },
       ]);
       return { ticket: row, events: evs };

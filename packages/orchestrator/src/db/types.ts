@@ -171,6 +171,11 @@ export interface TicketRow {
    * sessions, until the machine override exists (M2-T28c). Default `{}`.
    */
   session_allow: string[];
+  /**
+   * UX-13a: uuid, FK agent: the teammate the claim assigned (migration 1762000000000). Never
+   * cleared; null = not assigned yet (queued, or a ticket from before UX-13a).
+   */
+  agent_id: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -445,6 +450,18 @@ export interface PushSubscriptionRow {
   failures: number;
 }
 
+/** UX-13a: one agent on an account's team (10-contracts §Claim, "Agent assignment"). */
+export interface AgentRow {
+  id: string;
+  /** uuid, FK account. */
+  account_id: string;
+  /** From the hiring pool (AGENT_NAMES); unique per account. */
+  name: string;
+  hired_at: Date;
+  /** Set by every claim that assigns it; null only for a row inserted outside the claim. */
+  last_assigned_at: Date | null;
+}
+
 /** Table name → row type, for generic repository helpers. */
 export interface Tables {
   machine: MachineRow;
@@ -468,4 +485,5 @@ export interface Tables {
   password_reset: PasswordResetRow;
   login_throttle: LoginThrottleRow;
   push_subscription: PushSubscriptionRow;
+  agent: AgentRow;
 }

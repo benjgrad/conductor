@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { sessionBranch, type BoardSseEvent } from '@conductor/shared';
+import { assignAgent } from '../agents/team.js';
 import type { EngineService } from '../contracts.js';
 import { withTransaction } from '../db/index.js';
 import type { Db } from '../main.js';
@@ -60,8 +61,14 @@ export async function claimWork(
       // TD-088: the ADR-0008 reopen pin is hard: a reopened ticket whose machine never comes back
       // waits in Queued until a human cancels it (cross-machine reopen needs a pushed branch and
       // a shipped transcript).
-      const t = await tx.query<{ id: string; workflow_id: string; workflow_version: number }>(
-        `SELECT t.id, t.workflow_id,
+      const t = await tx.query<{
+        id: string;
+        account_id: string;
+        agent_id: string | null;
+        workflow_id: string;
+        workflow_version: number;
+      }>(
+        `SELECT t.id, t.account_id, t.agent_id, t.workflow_id,
                 COALESCE(t.workflow_version,
                   (SELECT max(w.version) FROM workflow_definition w WHERE w.id = t.workflow_id))
                   AS workflow_version
@@ -89,10 +96,19 @@ export async function claimWork(
       const ticket = t.rows[0];
       if (!ticket) return { status: 'no_work', reason: 'no_ready_ticket' } as const;
 
+      // UX-13a: the ticket's agent, assigned as work starts (a queued ticket holds no one).
+      // Before session.assigned, so the card event the engine emits carries its name.
+      const agent = await assignAgent(tx, {
+        ticketId: ticket.id,
+        accountId: ticket.account_id,
+        currentAgentId: ticket.agent_id,
+        log: (m) => console.warn(`[claim] ${m}`),
+      });
       await tx.query(
-        `UPDATE ticket SET status = 'claimed', workflow_version = $2, updated_at = now()
+        `UPDATE ticket SET status = 'claimed', workflow_version = $2, agent_id = $3,
+                updated_at = now()
           WHERE id = $1`,
-        [ticket.id, ticket.workflow_version],
+        [ticket.id, ticket.workflow_version, agent.agentId],
       );
 
       // Re-use the queued session left by a refused start_session; else create one.

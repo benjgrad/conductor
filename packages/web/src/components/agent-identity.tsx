@@ -3,6 +3,7 @@
 // across retries and resumes). They are pure functions of the id, so a ticket's agent looks the
 // same everywhere (board card, panel header, Details) and on every machine. Nothing is stored. The
 // avatar is drawn procedurally as inline SVG: no image service, no library.
+import { AGENT_NAMES } from '@conductor/shared';
 import { useId } from 'react';
 
 /** FNV-1a, 32-bit. Stable across platforms (only Math.imul and unsigned shifts). */
@@ -29,42 +30,8 @@ function rng(seed: number): () => number {
 
 const pick = <T,>(list: readonly T[], r: () => number): T => list[Math.floor(r() * list.length)]!;
 
-/**
- * About 160 first names: every gender, many cultures, short enough to read on a board card, and
- * none of them a word that also appears in workflows (no "Build", "Test", "Done").
- */
-// prettier-ignore
-export const AGENT_NAMES: readonly string[] = [
-  // West Africa / East Africa / Southern Africa
-  'Ada', 'Amara', 'Chidi', 'Kofi', 'Ama', 'Kwame', 'Ngozi', 'Tunde', 'Zuri', 'Baraka',
-  'Wanjiru', 'Juma', 'Thandi', 'Sipho', 'Lerato', 'Femi', 'Abena', 'Nia', 'Obi', 'Asha',
-  // Middle East / North Africa / Persia / Turkey
-  'Layla', 'Omar', 'Yasmin', 'Karim', 'Noor', 'Samir', 'Leila', 'Tariq', 'Dara', 'Reza',
-  'Shirin', 'Emre', 'Elif', 'Yusuf', 'Zeynep', 'Hana', 'Rami', 'Salma',
-  // South Asia
-  'Priya', 'Arjun', 'Ananya', 'Rohan', 'Meera', 'Vikram', 'Kavya', 'Dev', 'Isha', 'Nikhil',
-  'Sana', 'Imran', 'Anjali', 'Ravi', 'Tara', 'Farhan', 'Nadia',
-  // East Asia
-  'Mei', 'Wei', 'Lin', 'Jun', 'Hiro', 'Yuki', 'Aiko', 'Kenji', 'Haruto', 'Sakura',
-  'Min-jun', 'Ji-woo', 'Seo-yeon', 'Ren', 'Xin', 'Bo',
-  // Southeast Asia / Pacific
-  'Linh', 'Minh', 'Thao', 'Bao', 'Siti', 'Rizal', 'Mahina', 'Kai', 'Leilani', 'Tavita',
-  'Malia', 'Dewi', 'Arief',
-  // Latin America / Iberia
-  'Sofia', 'Mateo', 'Valentina', 'Diego', 'Camila', 'Javier', 'Lucia', 'Pablo', 'Ximena',
-  'Joaquin', 'Inés', 'Rafael', 'Paloma', 'Tomás', 'Catalina', 'Andrés', 'Marisol', 'Joao',
-  'Beatriz', 'Thiago',
-  // Europe
-  'Elena', 'Luca', 'Giulia', 'Marco', 'Chiara', 'Klaus', 'Greta', 'Lukas', 'Freya',
-  'Soren', 'Astrid', 'Nils', 'Ingrid', 'Anya', 'Mikhail', 'Olga', 'Dmitri', 'Zofia',
-  'Piotr', 'Katya', 'Niamh', 'Ciaran', 'Siobhan', 'Eamon', 'Rhys', 'Cerys', 'Isla',
-  'Callum', 'Margot', 'Hugo', 'Elodie', 'Bastien', 'Agnes', 'Milan',
-  // North America / Indigenous / anglophone
-  'Avery', 'Jordan', 'Riley', 'Morgan', 'Quinn', 'Casey', 'Rowan', 'Sage', 'Jamie', 'Alex',
-  'Ellis', 'Harper', 'Wren', 'Nova', 'Theo', 'Maya', 'Ezra', 'Ruby', 'Miles', 'Iris',
-  'Dakota', 'Aiyana', 'Takoda', 'Winona', 'Kieran', 'Simone', 'Marcus', 'Imani', 'Andre',
-  'Zora', 'Grace', 'Felix', 'Hazel', 'Oscar', 'June', 'Arlo',
-];
+/** The hiring pool (UX-13a: moved to @conductor/shared; re-exported for the old imports). */
+export { AGENT_NAMES };
 
 const SKIN = ['#ffdcb5', '#f5c99b', '#e8b07f', '#c98e5a', '#a4693f', '#7a4a2a', '#5a3620'] as const;
 const HAIR = [

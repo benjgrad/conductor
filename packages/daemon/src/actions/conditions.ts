@@ -1,10 +1,12 @@
-import { spawn } from 'node:child_process';
+import type { ChildProcessByStdio } from 'node:child_process';
+import type { Readable } from 'node:stream';
 import {
   GITHUB_PR_URL_RE,
   type Condition,
   type ConditionResult,
   type EvaluateConditionsResult,
 } from '@conductor/shared';
+import { killTree, spawnCli } from '../platform/index.js';
 import { cleanEnv, tail } from './open-pr.js';
 
 // ADR-0011 `run_action {action: 'evaluate_conditions'}`: external facts about conductor's PR,
@@ -109,15 +111,15 @@ function runCapped(
     let timedOut = false;
     let spawnError: NodeJS.ErrnoException | null = null;
     let settled = false;
-    const child = spawn(cmd, args, {
+    const child = spawnCli(cmd, args, {
       cwd,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
       ...(signal ? { signal } : {}),
-    });
+    }) as ChildProcessByStdio<null, Readable, Readable>;
     // gh's own children could hold the pipes open after the kill: settle now, don't wait for 'close'.
     const stop = () => {
-      child.kill('SIGKILL');
+      killTree(child, { signal: 'SIGKILL' }); // win32: gh's own children too (taskkill /T)
       child.stdout.destroy();
       child.stderr.destroy();
       done(null);

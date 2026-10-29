@@ -9,10 +9,13 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fileConfigPath, loadConfig, readFileConfig, writeFileConfig } from '../config.js';
+import { assertOwnerOnly, mkdirPrivate } from '../platform/index.js';
 import { configCommand } from './config.js';
+
+const onWin32 = process.platform === 'win32';
 
 // M2-T10: `conductor-daemon config roots|repo|show`, `<root>/config.json` (0600), CONDUCTOR_ROOTS,
 // CONDUCTOR_TEST_REMOTE_ALIASES.
@@ -24,6 +27,7 @@ let err: string[];
 
 beforeEach(() => {
   tmp = realpathSync(mkdtempSync(join(tmpdir(), 'conductor-config-')));
+  mkdirPrivate(tmp); // win32: the daemon root must be created under a private parent
   root = join(tmp, 'daemon-root');
   out = [];
   err = [];
@@ -39,14 +43,18 @@ const run = (argv: string[], env: Record<string, string> = {}) =>
     err: (l) => err.push(l),
   });
 
-const mode = (path: string) => statSync(path).mode & 0o777;
+/** 0600 on POSIX; an owner-only DACL on win32 (ADR-0024 §3). */
+function expectPrivateFile(path: string): void {
+  if (onWin32) assertOwnerOnly(path, { kind: 'file' });
+  else expect(statSync(path).mode & 0o777).toBe(0o600);
+}
 
 describe('config.json', () => {
   it('missing → defaults; round-trips at 0600', () => {
     expect(readFileConfig(root)).toEqual({ roots: [], repos: {} });
     const path = writeFileConfig(root, { roots: ['/a'], repos: { '/a/b': { mode: 'checkout' } } });
     expect(path).toBe(fileConfigPath(root));
-    expect(mode(path)).toBe(0o600);
+    expectPrivateFile(path);
     expect(readFileConfig(root)).toEqual({
       roots: ['/a'],
       repos: { '/a/b': { mode: 'checkout' } },
@@ -65,11 +73,17 @@ describe('config.json', () => {
 describe('loadConfig inventory env', () => {
   const base = { CONDUCTOR_ROOT: '/tmp/r', CONDUCTOR_MACHINE_ID: 'm' };
 
-  it('CONDUCTOR_ROOTS (`:`-separated) overrides the file; unset → null', () => {
+  it('CONDUCTOR_ROOTS (`path.delimiter`-separated) overrides the file; unset → null', () => {
     expect(loadConfig(base).rootsOverride).toBeNull();
-    expect(loadConfig({ ...base, CONDUCTOR_ROOTS: '/a:/b/../c' }).rootsOverride).toEqual([
-      '/a',
-      '/c',
+    expect(
+      loadConfig({ ...base, CONDUCTOR_ROOTS: ['/a', '/b/../c'].join(delimiter) }).rootsOverride,
+    ).toEqual([resolve('/a'), resolve('/c')]);
+  });
+
+  it.runIf(onWin32)('CONDUCTOR_ROOTS with drive letters: `C:\\a;D:\\b` is two roots', () => {
+    expect(loadConfig({ ...base, CONDUCTOR_ROOTS: 'C:\\a;D:\\b' }).rootsOverride).toEqual([
+      'C:\\a',
+      'D:\\b',
     ]);
   });
 
@@ -84,7 +98,7 @@ describe('loadConfig inventory env', () => {
         CONDUCTOR_ALLOW_LOCAL_REPOS: '1',
         CONDUCTOR_TEST_REMOTE_ALIASES: aliases,
       }).testRemoteAliases,
-    ).toEqual({ '/tmp/fixture': 'github.com/benjgrad/fixture-app' });
+    ).toEqual({ [resolve('/tmp/fixture')]: 'github.com/benjgrad/fixture-app' });
   });
 
   it('a bad alias throws (with the flag)', () => {
@@ -110,7 +124,7 @@ describe('conductor-daemon config', () => {
     mkdirSync(a);
     expect(run(['roots', a, join(a, '.'), join(tmp, 'code/')])).toBe(0);
     expect(readFileConfig(root).roots).toEqual([a]);
-    expect(mode(fileConfigPath(root))).toBe(0o600);
+    expectPrivateFile(fileConfigPath(root));
     expect(out.join('\n')).toContain('kill -HUP');
   });
 
@@ -160,7 +174,7 @@ describe('conductor-daemon config', () => {
     out = [];
     expect(run(['show'], { CONDUCTOR_ROOTS: '/from/env' })).toBe(0);
     expect(JSON.parse(out.join('\n'))).toMatchObject({
-      roots: ['/from/env'],
+      roots: [resolve('/from/env')],
       roots_from: 'CONDUCTOR_ROOTS',
     });
     expect(readFileSync(fileConfigPath(root), 'utf8')).toContain('/from/file');

@@ -4,6 +4,12 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-29 | `daemon-windows` CI is diff-aware (daemon/shared/toolchain paths only, PRs + main; no duplicate push runs); a seam test keeps every daemon OS branch inside `src/platform/` so mac/linux-only behaviour can't land untested on Windows (Ben) | ADR-0024 §9 |
+| 2026-10-28 | MW built in one lead session without implementer/QA agents, targeted tests locally, the win32 job as proof (Ben: "kill the multi-agent approach, this is too slow"); MW tasks land on one branch `mw-windows-daemon` | MW |
+| 2026-10-28 | A child the daemon killed is reported as the signal it sent on every OS (win32 taskkill leaves exit code 1): `killedExit` | ADR-0024 §2 |
+| 2026-10-28 | `AbsolutePathSchema` also refuses a leading `//` on every OS: it is Windows' forward-slash UNC form, and a realpath'd POSIX path never starts with `//` (lead, from MW-T02; cheap to reverse) | ADR-0024 §8, MW-T02 |
+| 2026-10-28 | U-110 (Ben): the Windows daemon supports only the native `claude.exe`. With only npm's `claude.cmd` it refuses with a hint, because cmd.exe can't pass the multi-line system prompt | ADR-0024 §9, U-110 |
+| 2026-10-28 | Daemon on Windows (Ben): **native port**, not WSL2 first; owner-only DACL written with icacls and verified on load (amends ADR-0010); tree kill `taskkill /T /F` + orphan sweep (TD-189); `install.ps1` + Scheduled Task in scope; Windows CI on GitHub Actions `windows-latest` (first hosted CI) | ADR-0024, MW, U-071 |
 | 2026-10-28 | Lighter process: no default agent teams or separate QA agents; the lead builds, reviews diffs and runs targeted tests (CLAUDE.md slimmed) | e9d0f1f |
 | 2026-10-28 | U-100..U-102 (Ben): "Allow always" covers exact Bash commands, MCP tools, Edit/Write absolute paths (Claude Code's `//` form) and WebFetch domains; >64 KiB input is denied locally; T29c deploys before T29b | U-100, U-101, U-102 |
 | 2026-10-28 | Plan approval reuses the `$return_to` answer transition (a question transition keeps its non-empty result in context); no workflow version bump | feat-plan-approval-ui (cf880dc), TD-184, TD-185 |

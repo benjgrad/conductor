@@ -24,6 +24,9 @@ import {
   userMessageLine,
   type CliDriverSession,
 } from './cli-driver.js';
+import { assertOwnerOnly } from '../platform/index.js';
+import { writeFakeBin } from '../test-support/fake-bin.js';
+import { removeTreeOrLeave } from '../test-support/remove-tree.js';
 import type { DriverEvent, DriverStartOptions, ToolPolicy } from './driver.js';
 import {
   ASK_USER_TOOL,
@@ -36,7 +39,13 @@ import {
   type OutcomeServer,
 } from './outcome-server.js';
 
+// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
+// the task that unskips them.
+const onWin32 = process.platform === 'win32';
+
 const FAKE = fileURLToPath(new URL('../../test/fixtures/fake-claude.mjs', import.meta.url));
+/** node + the fake: a real .exe on win32, where claude must be native (U-110). */
+const FAKE_BIN = { claudeBin: process.execPath, claudePrefixArgs: [FAKE] };
 /** The fake reads its script from these state-env keys; production drops them (STATE_ENV_ALLOWED). */
 const FAKE_ENV = /^FAKE_CLAUDE_/;
 
@@ -61,7 +70,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   for (const s of live.splice(0)) s.kill(0);
-  rmSync(dir, { recursive: true, force: true });
+  return removeTreeOrLeave(dir);
 });
 
 type Scenario = unknown[][] | { turns: unknown[][]; costPerTurnUsd?: number };
@@ -240,7 +249,10 @@ describe('buildClaudeArgs', () => {
       supported: false,
       reason: expect.stringContaining('--permission-mode auto') as unknown,
     });
-    expect(await probePermissionPrompts(FAKE)).toEqual({ supported: true, reason: null });
+    expect(await probePermissionPrompts(FAKE_BIN.claudeBin, FAKE_BIN.claudePrefixArgs)).toEqual({
+      supported: true,
+      reason: null,
+    });
     expect((await probePermissionPrompts(join(dir, 'no-such-claude'))).supported).toBe(false);
   });
 
@@ -286,7 +298,7 @@ describe('buildClaudeArgs', () => {
 describe('createCliDriver against fake-claude', () => {
   const driver = () =>
     createCliDriver({
-      claudeBin: FAKE,
+      ...FAKE_BIN,
       outcomeServer: server,
       endGraceMs: 5_000,
       extraStateEnv: FAKE_ENV,
@@ -417,7 +429,11 @@ describe('createCliDriver against fake-claude', () => {
     await t.waitFor((e) => e.kind === 'output' && e.text === 'working');
     s.sendMessage('/context');
     await t.turnEnds(1);
-    expect(t.events).toContainEqual({ kind: 'output', stream: 'assistant', text: 'got /context' });
+    expect(t.events).toContainEqual({
+      kind: 'output',
+      stream: 'assistant',
+      text: 'got /context',
+    });
     expect(t.events).toContainEqual({ kind: 'complete_state', result: { message: '/context' } });
     expect(t.events.filter((e) => e.kind === 'turn_end')).toHaveLength(1);
     s.end();
@@ -450,13 +466,16 @@ describe('createCliDriver against fake-claude', () => {
     const argv = spawned?.argv ?? [];
     const settingsPath = argv[argv.indexOf('--settings') + 1] ?? '';
     expect(dirname(settingsPath)).toBe(dirname(argv[argv.indexOf('--mcp-config') + 1] ?? ''));
-    expect(statSync(settingsPath).mode & 0o777).toBe(0o600);
+    if (onWin32) assertOwnerOnly(settingsPath, { kind: 'file' });
+    else expect(statSync(settingsPath).mode & 0o777).toBe(0o600);
     const settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as {
       hooks: { PreToolUse: { matcher: string; hooks: { command: string }[] }[] };
     };
     const [entry] = settings.hooks.PreToolUse;
     expect(entry?.matcher).toBe('Edit|Write|MultiEdit|NotebookEdit');
-    expect(entry?.hooks[0]?.command).toContain(`'${dir}'`);
+    expect(entry?.hooks[0]?.command).toContain(
+      onWin32 ? `"${dir.replace(/\\/g, '/')}"` : `'${dir}'`,
+    );
 
     s.kill(1_000);
     await t.exit();
@@ -561,8 +580,13 @@ describe('createCliDriver against fake-claude', () => {
     const cfgPath = argv[argv.indexOf('--mcp-config') + 1] ?? '';
     const st = statSync(cfgPath);
     expect(st.isFile()).toBe(true);
-    expect(st.mode & 0o777).toBe(0o600);
-    expect(statSync(dirname(cfgPath)).mode & 0o777).toBe(0o700);
+    if (onWin32) {
+      assertOwnerOnly(cfgPath, { kind: 'file' });
+      assertOwnerOnly(dirname(cfgPath), { kind: 'dir' });
+    } else {
+      expect(st.mode & 0o777).toBe(0o600);
+      expect(statSync(dirname(cfgPath)).mode & 0o777).toBe(0o700);
+    }
     const cfg = JSON.parse(readFileSync(cfgPath, 'utf8')) as {
       mcpServers: { conductor: { url: string } };
     };
@@ -614,19 +638,23 @@ describe('createCliDriver against fake-claude', () => {
     ).toBe(true);
   });
 
-  it('kill(): SIGTERM first; SIGKILL after the grace period when SIGTERM is ignored (TD-003)', async () => {
-    const s = driver().start(
-      opts([[{ ignore_sigterm: true }, { say: 'stubborn' }, { hang: true }]]),
-    );
-    const t = track(s);
-    await t.waitFor((e) => e.kind === 'output' && e.text === 'stubborn');
-    const t0 = Date.now();
-    s.kill(300);
-    const ev = await t.exit();
-    expect(ev).toEqual({ kind: 'exit', code: null, signal: 'SIGKILL' });
-    expect(Date.now() - t0).toBeGreaterThanOrEqual(250);
-    expect(server.size).toBe(0);
-  });
+  // win32 has no grace step: taskkill /T /F is final at once (TD-189).
+  it.skipIf(onWin32)(
+    'kill(): SIGTERM first; SIGKILL after the grace period when SIGTERM is ignored (TD-003)',
+    async () => {
+      const s = driver().start(
+        opts([[{ ignore_sigterm: true }, { say: 'stubborn' }, { hang: true }]]),
+      );
+      const t = track(s);
+      await t.waitFor((e) => e.kind === 'output' && e.text === 'stubborn');
+      const t0 = Date.now();
+      s.kill(300);
+      const ev = await t.exit();
+      expect(ev).toEqual({ kind: 'exit', code: null, signal: 'SIGKILL' });
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(250);
+      expect(server.size).toBe(0);
+    },
+  );
 
   it('kill() of a cooperative process exits on SIGTERM and never escalates', async () => {
     const s = driver().start(opts([[{ say: 'busy' }, { hang: true }]]));
@@ -639,7 +667,7 @@ describe('createCliDriver against fake-claude', () => {
 
   it('end() escalates to kill when the process ignores stdin EOF', async () => {
     const d = createCliDriver({
-      claudeBin: FAKE,
+      ...FAKE_BIN,
       outcomeServer: server,
       endGraceMs: 200,
       killGraceMs: 200,
@@ -649,7 +677,9 @@ describe('createCliDriver against fake-claude', () => {
     const t = track(s);
     await t.waitFor((e) => e.kind === 'output' && e.text === 'x');
     s.end();
-    expect((await t.exit()).signal).toBe('SIGKILL');
+    // POSIX: SIGTERM is ignored, so the grace period ends in SIGKILL. win32: taskkill on the first
+    // kill, reported as the SIGTERM that was sent (killedExit).
+    expect((await t.exit()).signal).toBe(onWin32 ? 'SIGTERM' : 'SIGKILL');
   });
 
   it('parses leniently: raw lines and stderr pass through, a crash still reports exit', async () => {
@@ -722,6 +752,24 @@ describe('createCliDriver against fake-claude', () => {
     expect(() => s.sendInput('x')).toThrow();
   });
 
+  it.runIf(onWin32)(
+    'U-110: a claude.cmd is refused with the install hint, before anything is registered',
+    () => {
+      const dir = mkdtempSync(join(tmpdir(), 'conductor-claude-cmd-'));
+      try {
+        const shim = writeFakeBin(dir, 'claude', '');
+        const before = server.size;
+        const d = createCliDriver({ claudeBin: shim, outcomeServer: server });
+        expect(() => d.start(opts([[{ say: 'x' }]]))).toThrow(
+          /not a native \.exe: conductor needs the native Claude Code \(claude\.exe\)/,
+        );
+        expect(server.size).toBe(before);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
   describe('ADR-0023 permission prompts', () => {
     const BASH = { tool_name: 'Bash', input: { command: 'pnpm i' }, tool_use_id: 'toolu_x' };
     const heldScenario = () => [[{ tool: 'permission', args: BASH }, { say: 'after' }]];
@@ -774,7 +822,7 @@ describe('createCliDriver against fake-claude', () => {
       const short = await startOutcomeServer({ permissionTimeoutMs: 200 });
       try {
         const s = createCliDriver({
-          claudeBin: FAKE,
+          ...FAKE_BIN,
           outcomeServer: short,
           extraStateEnv: FAKE_ENV,
         }).start(opts(heldScenario()));
@@ -818,7 +866,7 @@ describe('createCliDriver against fake-claude', () => {
       s.end();
       await t.exit();
       const old = createCliDriver({
-        claudeBin: FAKE,
+        ...FAKE_BIN,
         outcomeServer: server,
         extraStateEnv: FAKE_ENV,
         permissionPrompts: false,
@@ -843,11 +891,13 @@ describe('createCliDriver against fake-claude', () => {
 
   it('defaults claudeBin to $CONDUCTOR_CLAUDE_BIN', async () => {
     const prev = process.env.CONDUCTOR_CLAUDE_BIN;
-    process.env.CONDUCTOR_CLAUDE_BIN = FAKE;
+    process.env.CONDUCTOR_CLAUDE_BIN = FAKE_BIN.claudeBin;
     try {
-      const s = createCliDriver({ outcomeServer: server, extraStateEnv: FAKE_ENV }).start(
-        opts([[{ say: 'env bin' }]]),
-      );
+      const s = createCliDriver({
+        outcomeServer: server,
+        extraStateEnv: FAKE_ENV,
+        claudePrefixArgs: FAKE_BIN.claudePrefixArgs,
+      }).start(opts([[{ say: 'env bin' }]]));
       const t = track(s);
       await t.turnEnds(1);
       s.end();

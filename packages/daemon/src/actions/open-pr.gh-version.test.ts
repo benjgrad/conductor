@@ -1,6 +1,5 @@
 import { execFileSync } from 'node:child_process';
 import {
-  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -12,18 +11,24 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { mkdirPrivate } from '../platform/index.js';
+import { envWithPath, pathWith, writeFakeBin } from '../test-support/fake-bin.js';
 import { openPr, type OpenPrInput } from './open-pr.js';
 
 // M2-T10: open_pr refuses a gh older than GH_MIN_VERSION (2.40.0, U-076) before anything is
 // pushed. The fake `gh` is an executable on PATH (no `gh` override), as the daemon finds it.
 
-const FAKE_GH = `#!/bin/sh
-echo "$*" >> "$FAKE_GH_DIR/gh-calls"
-if [ "$1" = --version ]; then printf '%s\\n' "$FAKE_GH_VERSION_OUT"; exit 0; fi
-if [ "$1" = repo ] && [ "$2" = view ]; then echo main; exit 0; fi
-if [ "$1" = pr ] && [ "$2" = view ]; then echo 'no pull requests found' >&2; exit 1; fi
-if [ "$1" = pr ] && [ "$2" = create ]; then echo https://github.com/benjgrad/fixture-app/pull/7; exit 0; fi
-exit 2
+const FAKE_GH = `
+import { appendFileSync } from 'node:fs';
+import { join } from 'node:path';
+const a = process.argv.slice(2);
+appendFileSync(join(process.env.FAKE_GH_DIR, 'gh-calls'), a.join(' ') + '\\n');
+const is = (x, y) => a[0] === x && (y === undefined || a[1] === y);
+if (is('--version')) { console.log(process.env.FAKE_GH_VERSION_OUT); process.exit(0); }
+if (is('repo', 'view')) { console.log('main'); process.exit(0); }
+if (is('pr', 'view')) { console.error('no pull requests found'); process.exit(1); }
+if (is('pr', 'create')) { console.log('https://github.com/benjgrad/fixture-app/pull/7'); process.exit(0); }
+process.exit(2);
 `;
 
 const BRANCH = 'conductor/ticket/abcd1234';
@@ -50,6 +55,7 @@ const calls = () => {
 
 beforeEach(() => {
   tmp = realpathSync(mkdtempSync(join(tmpdir(), 'conductor-gh-version-')));
+  mkdirPrivate(tmp);
   origin = join(tmp, 'origin.git');
   git(tmp, 'init', '--quiet', '--bare', '-b', 'main', origin);
   const seed = join(tmp, 'seed');
@@ -77,10 +83,9 @@ beforeEach(() => {
   );
   bin = join(tmp, 'bin');
   mkdirSync(bin);
-  writeFileSync(join(bin, 'gh'), FAKE_GH);
-  chmodSync(join(bin, 'gh'), 0o755);
+  writeFakeBin(bin, 'gh', FAKE_GH);
   root = join(tmp, 'daemon-root');
-  mkdirSync(root);
+  mkdirPrivate(root);
 });
 
 afterEach(() => rmSync(tmp, { recursive: true, force: true }));
@@ -96,8 +101,7 @@ function input(versionOut: string): OpenPrInput {
     root,
     expectedSha: git(worktree, 'rev-parse', 'HEAD').trim(),
     env: {
-      ...process.env,
-      PATH: `${bin}:${process.env.PATH ?? ''}`,
+      ...envWithPath(process.env, pathWith(bin, process.env.PATH ?? '')),
       FAKE_GH_DIR: tmp,
       FAKE_GH_VERSION_OUT: versionOut,
     },

@@ -1,14 +1,20 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Condition } from '@conductor/shared';
+import { workflowShell } from '../platform/index.js';
+import { removeTreeOrLeave } from '../test-support/remove-tree.js';
 import {
   GH_OUTPUT_CAP_BYTES,
   evaluateConditions,
   mapCondition,
   parsePrView,
 } from './conditions.js';
+
+// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
+// the task that unskips them.
+const onWin32 = process.platform === 'win32';
 
 // M1b-T05 acceptance: evaluate_conditions against a fake `gh` (a /bin/sh script run as
 // `/bin/sh <script> <args>`, the ADR-0010 open_pr pattern). No real GitHub calls.
@@ -18,7 +24,7 @@ const PR = 'https://github.com/benjgrad/fixture-app/pull/9';
 // Logs argv, cwd and the git env it got; prints $FAKE_GH_OUT; exits $FAKE_GH_EXIT.
 const FAKE_GH = `
 echo "$*" >> "$FAKE_GH_DIR/argv"
-pwd >> "$FAKE_GH_DIR/cwd"
+(pwd -W 2>/dev/null || pwd) >> "$FAKE_GH_DIR/cwd"
 echo "GIT_DIR=$GIT_DIR GIT_CONFIG_NOSYSTEM=$GIT_CONFIG_NOSYSTEM GH_REPO=$GH_REPO" >> "$FAKE_GH_DIR/env"
 if [ -n "$FAKE_GH_ERR" ]; then echo "$FAKE_GH_ERR" >&2; fi
 if [ -n "$FAKE_GH_SLEEP" ]; then sleep "$FAKE_GH_SLEEP"; fi
@@ -37,9 +43,9 @@ beforeEach(() => {
   writeFileSync(script, FAKE_GH);
   writeFileSync(join(tmp, 'out'), '{}');
 });
-afterEach(() => {
-  rmSync(tmp, { recursive: true, force: true });
-  rmSync(root, { recursive: true, force: true });
+afterEach(async () => {
+  await removeTreeOrLeave(tmp);
+  await removeTreeOrLeave(root);
 });
 
 function evalWith(
@@ -53,7 +59,7 @@ function evalWith(
     conditions,
     prUrl: more.prUrl === undefined ? PR : more.prUrl,
     root,
-    gh: { cmd: '/bin/sh', args: [script] },
+    gh: { cmd: workflowShell().file, args: [script] }, // Git Bash on win32
     env: {
       ...process.env,
       FAKE_GH_DIR: tmp,
@@ -117,9 +123,10 @@ describe('evaluate_conditions with a fake gh', () => {
       `pr view ${PR} --json statusCheckRollup,reviewDecision,reviews,state,mergedAt,author,headRefOid --jq`,
     );
     const { realpathSync } = await import('node:fs');
-    expect(readFileSync(join(tmp, 'cwd'), 'utf8').trim()).toBe(realpathSync(root));
+    expect(realpathSync(readFileSync(join(tmp, 'cwd'), 'utf8').trim())).toBe(realpathSync(root));
     expect(readFileSync(join(tmp, 'env'), 'utf8').trim()).toBe(
-      'GIT_DIR= GIT_CONFIG_NOSYSTEM=1 GH_REPO=',
+      // win32 keeps the system gitconfig (Git Credential Manager; ADR-0024 §5).
+      `GIT_DIR= GIT_CONFIG_NOSYSTEM=${onWin32 ? '' : '1'} GH_REPO=`,
     );
   });
 
@@ -171,7 +178,10 @@ describe('evaluate_conditions with a fake gh', () => {
     expect(legacyRed.results[0]?.status).toBe('failed');
 
     const none = await evalWith([CHECKS], view());
-    expect(none.results[0]).toMatchObject({ status: 'pending', detail: 'no checks reported yet' });
+    expect(none.results[0]).toMatchObject({
+      status: 'pending',
+      detail: 'no checks reported yet',
+    });
   });
 
   it('approvals: 0/1 → pending, 1/1 → met, changes requested → failed', async () => {

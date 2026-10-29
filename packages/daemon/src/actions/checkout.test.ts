@@ -23,6 +23,12 @@ import {
   removeCheckout,
   sweepPrivate,
 } from './checkout.js';
+import { assertOwnerOnly, mkdirPrivate } from '../platform/index.js';
+import { writeFakeBin } from '../test-support/fake-bin.js';
+
+// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
+// the task that unskips them.
+const onWin32 = process.platform === 'win32';
 
 // ADR-0010 (Ben, 2026-10-26): entry checks run in a fresh, conductor-owned checkout of the exact
 // commit. A shared clone + session worktree like the daemon's, with a planted filter driver.
@@ -41,6 +47,7 @@ const commit = (cwd: string, msg: string) =>
 
 beforeEach(() => {
   tmp = realpathSync(mkdtempSync(join(tmpdir(), 'conductor-checkout-')));
+  mkdirPrivate(tmp);
   const origin = join(tmp, 'origin');
   mkdirSync(origin);
   git(origin, 'init', '--quiet', '-b', 'main');
@@ -57,10 +64,10 @@ beforeEach(() => {
   commit(worktree, 'health');
   head = git(worktree, 'rev-parse', 'HEAD').trim();
   root = join(tmp, 'daemon-root');
-  mkdirSync(root);
+  mkdirPrivate(root); // as the daemon does at start; <root>/private needs a private parent
 });
 
-afterEach(() => rmSync(tmp, { recursive: true, force: true }));
+afterEach(() => rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
 const fresh = (sha = head) => freshCheckout({ root, worktree, branch: BRANCH, sha });
 
@@ -73,8 +80,11 @@ describe('freshCheckout', () => {
     const r = await fresh();
     if (!r.ok) throw new Error(r.error);
     expect(r.dir.startsWith(join(root, 'private', 'check-'))).toBe(true);
-    expect(statSync(r.dir).mode & 0o777).toBe(0o700);
-    expect(readFileSync(join(r.dir, 'health.txt'), 'utf8')).toBe('committed\n');
+    if (onWin32) assertOwnerOnly(r.dir, { kind: 'dir' });
+    else expect(statSync(r.dir).mode & 0o777).toBe(0o700);
+    expect(readFileSync(join(r.dir, 'health.txt'), 'utf8').replace(/\r\n/g, '\n')).toBe(
+      'committed\n',
+    );
     expect(existsSync(join(r.dir, 'ignored', 'make-tests-pass'))).toBe(false);
     expect(git(r.dir, 'rev-parse', 'HEAD').trim()).toBe(head);
     // Its config is git's minimal defaults.
@@ -102,7 +112,9 @@ describe('freshCheckout', () => {
     const r = await fresh(sha);
     if (!r.ok) throw new Error(r.error);
     expect(existsSync(marker)).toBe(false);
-    expect(readFileSync(join(r.dir, 'health.txt'), 'utf8')).toBe('committed\n');
+    expect(readFileSync(join(r.dir, 'health.txt'), 'utf8').replace(/\r\n/g, '\n')).toBe(
+      'committed\n',
+    );
   });
 
   it('refuses when the branch tip is not the commit to check (reports the tip), leaving nothing', async () => {
@@ -210,7 +222,7 @@ describe('package manager from the lockfile', () => {
 
   it('names a package manager missing from PATH; present ones and other commands pass', () => {
     const bin = mkdtempSync(join(tmp, 'bin-'));
-    writeFileSync(join(bin, 'npm'), '#!/bin/sh\n', { mode: 0o755 });
+    writeFakeBin(bin, 'npm', ''); // win32: npm.cmd, found through PATHEXT
     writeFileSync(join(bin, 'yarn'), 'not executable\n', { mode: 0o644 });
     expect(missingManager('npm test', bin)).toBeNull();
     expect(missingManager('make test', bin)).toBeNull();

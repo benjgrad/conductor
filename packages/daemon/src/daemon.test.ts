@@ -22,11 +22,16 @@ import { daemonVersion, loadConfig, type DaemonConfig } from './config.js';
 import { writeCredential } from './credential.js';
 import { appendTail, Daemon, NO_OUTCOME_NUDGE } from './daemon.js';
 import { readProcInfo, type ProcInfo } from './orphan.js';
+import { mkdirPrivate, workflowShell } from './platform/index.js';
 import { DaemonStore } from './store.js';
 import type { LiveResources } from './sysinfo.js';
 import { CONDUCTOR_INSTRUCTIONS } from './system-prompt.js';
 import { FakeOrchestrator } from './test-support/fake-orchestrator.js';
 import { removeTree } from './test-support/remove-tree.js';
+
+// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
+// the task that unskips them.
+const onWin32 = process.platform === 'win32';
 
 // M1-T05 acceptance: the daemon core against a fake orchestrator WS, with FakeClaudeDriver,
 // FakeCommandRunner and real git in temp dirs.
@@ -52,6 +57,7 @@ function gitInit(dir: string): void {
 
 beforeEach(async () => {
   tmp = mkdtempSync(join(tmpdir(), 'conductor-daemon-'));
+  mkdirPrivate(tmp); // win32: the daemon makes its root private, which needs a private parent
   repo = join(tmp, 'origin');
   execFileSync('mkdir', ['-p', repo]);
   gitInit(repo);
@@ -187,7 +193,7 @@ function cmd<T extends 'send_input' | 'send_message' | 'run_cmd' | 'run_action' 
 
 /** ADR-0010 open_pr's fake gh: `repo view` → main, `pr view` → none, `pr create` → a PR URL. */
 const FAKE_GH_SH = {
-  cmd: '/bin/sh',
+  cmd: workflowShell().file, // /bin/sh; Git Bash on win32
   args: [
     '-c',
     [
@@ -1063,7 +1069,10 @@ describe('daemon core: run_cmd and kill', () => {
     execFileSync('git', ['-c', 'user.email=t@x', '-c', 'user.name=t', 'commit', '-qm', 'next'], {
       cwd: wt,
     });
-    const head2 = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: wt, encoding: 'utf8' }).trim();
+    const head2 = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: wt,
+      encoding: 'utf8',
+    }).trim();
     send('npm test', head2);
     await orch.until(() => runner.calls[1]);
     const b = runner.calls[1]!.cwd;
@@ -1336,7 +1345,8 @@ describe('daemon core: BUG-1 no process outlives its session', () => {
       return s;
     };
     const d = makeDaemon(driver, {
-      procInfo: (pid) => (pid === 4242 ? { startedAt: 1_700_000_000_000, command: '' } : null),
+      procInfo: (pid) =>
+        pid === 4242 ? { startedAt: 1_700_000_000_000, command: '', argv: [] } : null,
     });
     await orch.until(() => orch.ofType('request_work')[0]);
     const sid = randomUUID();
@@ -1379,212 +1389,222 @@ describe('daemon core: BUG-1 no process outlives its session', () => {
 
 // BUG-1b: harmless stand-ins (`sh -c 'sleep 300 & …; wait'`, each the leader of its own process
 // group) with a crafted argv0/argv at the stored pid. Only pids this block spawned are signalled.
-describe('daemon core: BUG-1b orphan sweep only kills provably-ours processes', () => {
-  const BIN = '/opt/conductor-test/claude';
-  const GRACE = 200;
-  const spawned: { leader: number; child: number }[] = [];
+// POSIX-only: the stand-ins rely on argv0 spoofing of /bin/sh and `$!` pids (MSYS pids under Git
+// Bash). checkOurs itself is OS-agnostic; win32 is covered against a real fake-claude process in
+// daemon.kill.test.ts (kill ours, spare a reused pid).
+describe.skipIf(onWin32)(
+  'daemon core: BUG-1b orphan sweep only kills provably-ours processes',
+  () => {
+    const BIN = '/opt/conductor-test/claude';
+    const GRACE = 200;
+    const spawned: { leader: number; child: number }[] = [];
 
-  const alive = (pid: number) => {
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  /** A detached `sh` whose ps command line is `<argv0> -c <script> x <extra…>`, plus its sleep child. */
-  async function standIn(argv0: string, extra: string[], ignoreTerm = false) {
-    const script = `${ignoreTerm ? "trap '' TERM; " : ''}sleep 300 & echo $!; wait`;
-    const sh = spawn('/bin/sh', ['-c', script, 'x', ...extra], {
-      argv0,
-      detached: true,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    sh.unref();
-    const child = await new Promise<number>((resolve, reject) => {
-      sh.stdout.once('data', (d: Buffer) => resolve(Number(String(d).trim())));
-      sh.once('error', reject);
-    });
-    sh.stdout.destroy();
-    const p = { leader: sh.pid!, child };
-    spawned.push(p);
-    const info = readProcInfo(p.leader);
-    expect(info).not.toBeNull();
-    return { ...p, startedAt: info!.startedAt };
-  }
-
-  afterEach(async () => {
-    for (const { leader } of spawned) {
+    const alive = (pid: number) => {
       try {
-        process.kill(-leader, 'SIGKILL');
+        process.kill(pid, 0);
+        return true;
       } catch {
-        // gone
+        return false;
       }
-    }
-    // NFR-2: nothing this block started is left running.
-    const pids = spawned.flatMap((p) => [p.leader, p.child]);
-    spawned.length = 0;
-    await orch.until(() => (pids.every((pid) => !alive(pid)) ? true : undefined), 5_000);
-  });
-
-  const root = () => join(tmp, 'root');
-  function seed(agents: NonNullable<Parameters<DaemonStore['putSession']>[1]['agent']>[]) {
-    const store = DaemonStore.forRoot(root());
-    return agents.map((agent) => {
-      const sid = randomUUID();
-      store.putSession(sid, {
-        ticketId: TICKET,
-        repo,
-        worktreePath: join(tmp, 'wt'),
-        branch: 'b',
-        portRange: null,
-        claudeSessionId: agent.claudeSessionId ?? null,
-        lastUsedAt: 0,
-        agent,
-      });
-      return sid;
-    });
-  }
-  const agentOf = (pid: number, claudeSessionId: string | undefined, startedAt?: number) => ({
-    commandId: randomUUID(),
-    fencingToken: 4,
-    pid,
-    ...(claudeSessionId !== undefined ? { claudeSessionId } : {}),
-    ...(startedAt !== undefined ? { startedAt } : {}),
-  });
-  const exits = (n: number) =>
-    orch.until(() => {
-      const e = orch.eventData('exit');
-      return e.length === n ? e : undefined;
-    });
-  const settle = () => new Promise((r) => setTimeout(r, GRACE + 300));
-
-  it('FR-2 (c): our argv, start time and UUID: killed with its whole group', async () => {
-    const id = randomUUID();
-    const s = await standIn(BIN, ['--session-id', id]);
-    const [sid] = seed([agentOf(s.leader, id, s.startedAt)]);
-    const logs: string[] = [];
-    const d = makeDaemon(new FakeClaudeDriver(complete({})), {
-      root: root(),
-      claudeBin: BIN,
-      log: (m) => logs.push(m),
-      config: { killGraceMs: GRACE },
-    });
-    await orch.until(() => (!alive(s.leader) && !alive(s.child)) || undefined, 5_000);
-    expect(logs).toContain(`startup: killed orphaned claude process ${s.leader} of session ${sid}`);
-    expect((await exits(1)).map((e) => e.signal)).toEqual(['daemon_restart']);
-    expect(d.store.session(sid!)!.agent).toBeNull();
-  });
-
-  it('FR-2 (a)(b)(d)(e): anything not provably ours is untouched and logged', async () => {
-    const id = randomUUID();
-    // (a) the user's own `claude --resume <same uuid>` at the stored pid, started at another time.
-    const a = await standIn(BIN, ['--resume', id]);
-    // (b) an argv that only mentions the id.
-    const b = await standIn('grep', ['-r', id, '.']);
-    // (d) an empty and a non-UUID stored id, with argv carrying the same.
-    const d1 = await standIn(BIN, ['--session-id', '']);
-    const d2 = await standIn(BIN, ['--session-id', 'not-a-uuid']);
-    // (e) another binary with matching tokens.
-    const e = await standIn('/usr/bin/notclaude', ['--session-id', id]);
-    seed([
-      agentOf(a.leader, id, a.startedAt - 60_000),
-      agentOf(b.leader, id, b.startedAt),
-      agentOf(d1.leader, '', d1.startedAt),
-      agentOf(d2.leader, 'not-a-uuid', d2.startedAt),
-      agentOf(e.leader, id, e.startedAt),
-    ]);
-    const logs: string[] = [];
-    makeDaemon(new FakeClaudeDriver(complete({})), {
-      root: root(),
-      claudeBin: BIN,
-      log: (m) => logs.push(m),
-      config: { killGraceMs: GRACE },
-    });
-    expect((await exits(5)).map((x) => x.signal)).toEqual(Array(5).fill('daemon_restart'));
-    await settle();
-    for (const p of [a, b, d1, d2, e]) {
-      expect(alive(p.leader)).toBe(true);
-      expect(alive(p.child)).toBe(true);
-    }
-    const notOurs = (pid: number, reason: string) =>
-      `orphan sweep: pid ${pid} alive but not ours (${reason}); left alone`;
-    expect(logs).toEqual(
-      expect.arrayContaining([
-        notOurs(a.leader, 'start time differs (pid reused)'),
-        notOurs(b.leader, 'not the claude binary'),
-        notOurs(d1.leader, 'invalid stored claude session id'),
-        notOurs(d2.leader, 'invalid stored claude session id'),
-        notOurs(e.leader, 'not the claude binary'),
-      ]),
-    );
-    expect(logs.filter((l) => l.startsWith('startup: killed'))).toEqual([]);
-  });
-
-  it('FR-4: an old entry without startedAt is untouched, logged and cleared', async () => {
-    const id = randomUUID();
-    const s = await standIn(BIN, ['--session-id', id]);
-    const [sid] = seed([agentOf(s.leader, id)]);
-    const logs: string[] = [];
-    const d = makeDaemon(new FakeClaudeDriver(complete({})), {
-      root: root(),
-      claudeBin: BIN,
-      log: (m) => logs.push(m),
-      config: { killGraceMs: GRACE },
-    });
-    expect((await exits(1)).map((x) => x.signal)).toEqual(['daemon_restart']);
-    await settle();
-    expect(alive(s.leader)).toBe(true);
-    expect(logs).toContain(
-      `orphan sweep: pid ${s.leader} of session ${sid} has no recorded start time (old entry); left alone`,
-    );
-    expect(d.store.session(sid!)!.agent).toBeNull();
-  });
-
-  it('FR-3: a process replaced between SIGTERM and SIGKILL gets no SIGKILL', async () => {
-    const id = randomUUID();
-    // Ignores SIGTERM, so only a SIGKILL would end it.
-    const s = await standIn(BIN, ['--session-id', id], true);
-    const [sid] = seed([agentOf(s.leader, id, s.startedAt)]);
-    let calls = 0;
-    // The re-check sees another start time: the pid now belongs to another process.
-    const procInfo = (pid: number) => {
-      const info = readProcInfo(pid);
-      return info && calls++ > 0 ? { ...info, startedAt: info.startedAt + 1000 } : info;
     };
-    const logs: string[] = [];
-    makeDaemon(new FakeClaudeDriver(complete({})), {
-      root: root(),
-      claudeBin: BIN,
-      procInfo,
-      log: (m) => logs.push(m),
-      config: { killGraceMs: GRACE },
-    });
-    await exits(1);
-    expect(logs).toContain(`startup: killed orphaned claude process ${s.leader} of session ${sid}`);
-    await orch.until(() => (calls >= 2 ? true : undefined), 5_000);
-    await settle();
-    expect(alive(s.leader)).toBe(true);
-    expect(logs).toContain(
-      `orphan sweep: pid ${s.leader} alive but not ours (start time differs (pid reused)); left alone (no SIGKILL)`,
-    );
-  });
 
-  it('FR-3 control: a process still ours after the grace period is SIGKILLed', async () => {
-    const id = randomUUID();
-    const s = await standIn(BIN, ['--session-id', id], true);
-    seed([agentOf(s.leader, id, s.startedAt)]);
-    makeDaemon(new FakeClaudeDriver(complete({})), {
-      root: root(),
-      claudeBin: BIN,
-      config: { killGraceMs: GRACE },
+    /** A detached `sh` whose ps command line is `<argv0> -c <script> x <extra…>`, plus its sleep child. */
+    async function standIn(argv0: string, extra: string[], ignoreTerm = false) {
+      const script = `${ignoreTerm ? "trap '' TERM; " : ''}sleep 300 & echo $!; wait`;
+      const sh = spawn('/bin/sh', ['-c', script, 'x', ...extra], {
+        argv0,
+        detached: true,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      sh.unref();
+      const child = await new Promise<number>((resolve, reject) => {
+        sh.stdout.once('data', (d: Buffer) => resolve(Number(String(d).trim())));
+        sh.once('error', reject);
+      });
+      sh.stdout.destroy();
+      const p = { leader: sh.pid!, child };
+      spawned.push(p);
+      const info = readProcInfo(p.leader);
+      expect(info).not.toBeNull();
+      return { ...p, startedAt: info!.startedAt };
+    }
+
+    afterEach(async () => {
+      for (const { leader } of spawned) {
+        try {
+          process.kill(-leader, 'SIGKILL');
+        } catch {
+          // gone
+        }
+      }
+      // NFR-2: nothing this block started is left running.
+      const pids = spawned.flatMap((p) => [p.leader, p.child]);
+      spawned.length = 0;
+      await orch.until(() => (pids.every((pid) => !alive(pid)) ? true : undefined), 5_000);
     });
-    await exits(1);
-    // It ignores SIGTERM: only the SIGKILL after the grace period ends it (and its group).
-    await orch.until(() => (!alive(s.leader) && !alive(s.child)) || undefined, 5_000);
-  });
-});
+
+    const root = () => join(tmp, 'root');
+    function seed(agents: NonNullable<Parameters<DaemonStore['putSession']>[1]['agent']>[]) {
+      const store = DaemonStore.forRoot(root());
+      return agents.map((agent) => {
+        const sid = randomUUID();
+        store.putSession(sid, {
+          ticketId: TICKET,
+          repo,
+          worktreePath: join(tmp, 'wt'),
+          branch: 'b',
+          portRange: null,
+          claudeSessionId: agent.claudeSessionId ?? null,
+          lastUsedAt: 0,
+          agent,
+        });
+        return sid;
+      });
+    }
+    const agentOf = (pid: number, claudeSessionId: string | undefined, startedAt?: number) => ({
+      commandId: randomUUID(),
+      fencingToken: 4,
+      pid,
+      ...(claudeSessionId !== undefined ? { claudeSessionId } : {}),
+      ...(startedAt !== undefined ? { startedAt } : {}),
+    });
+    const exits = (n: number) =>
+      orch.until(() => {
+        const e = orch.eventData('exit');
+        return e.length === n ? e : undefined;
+      });
+    const settle = () => new Promise((r) => setTimeout(r, GRACE + 300));
+
+    it('FR-2 (c): our argv, start time and UUID: killed with its whole group', async () => {
+      const id = randomUUID();
+      const s = await standIn(BIN, ['--session-id', id]);
+      const [sid] = seed([agentOf(s.leader, id, s.startedAt)]);
+      const logs: string[] = [];
+      const d = makeDaemon(new FakeClaudeDriver(complete({})), {
+        root: root(),
+        claudeBin: BIN,
+        log: (m) => logs.push(m),
+        config: { killGraceMs: GRACE },
+      });
+      await orch.until(() => (!alive(s.leader) && !alive(s.child)) || undefined, 5_000);
+      expect(logs).toContain(
+        `startup: killed orphaned claude process ${s.leader} of session ${sid}`,
+      );
+      expect((await exits(1)).map((e) => e.signal)).toEqual(['daemon_restart']);
+      expect(d.store.session(sid!)!.agent).toBeNull();
+    });
+
+    it('FR-2 (a)(b)(d)(e): anything not provably ours is untouched and logged', async () => {
+      const id = randomUUID();
+      // (a) the user's own `claude --resume <same uuid>` at the stored pid, started at another time.
+      const a = await standIn(BIN, ['--resume', id]);
+      // (b) an argv that only mentions the id.
+      const b = await standIn('grep', ['-r', id, '.']);
+      // (d) an empty and a non-UUID stored id, with argv carrying the same.
+      const d1 = await standIn(BIN, ['--session-id', '']);
+      const d2 = await standIn(BIN, ['--session-id', 'not-a-uuid']);
+      // (e) another binary with matching tokens.
+      const e = await standIn('/usr/bin/notclaude', ['--session-id', id]);
+      seed([
+        agentOf(a.leader, id, a.startedAt - 60_000),
+        agentOf(b.leader, id, b.startedAt),
+        agentOf(d1.leader, '', d1.startedAt),
+        agentOf(d2.leader, 'not-a-uuid', d2.startedAt),
+        agentOf(e.leader, id, e.startedAt),
+      ]);
+      const logs: string[] = [];
+      makeDaemon(new FakeClaudeDriver(complete({})), {
+        root: root(),
+        claudeBin: BIN,
+        log: (m) => logs.push(m),
+        config: { killGraceMs: GRACE },
+      });
+      expect((await exits(5)).map((x) => x.signal)).toEqual(Array(5).fill('daemon_restart'));
+      await settle();
+      for (const p of [a, b, d1, d2, e]) {
+        expect(alive(p.leader)).toBe(true);
+        expect(alive(p.child)).toBe(true);
+      }
+      const notOurs = (pid: number, reason: string) =>
+        `orphan sweep: pid ${pid} alive but not ours (${reason}); left alone`;
+      expect(logs).toEqual(
+        expect.arrayContaining([
+          notOurs(a.leader, 'start time differs (pid reused)'),
+          notOurs(b.leader, 'not the claude binary'),
+          notOurs(d1.leader, 'invalid stored claude session id'),
+          notOurs(d2.leader, 'invalid stored claude session id'),
+          notOurs(e.leader, 'not the claude binary'),
+        ]),
+      );
+      expect(logs.filter((l) => l.startsWith('startup: killed'))).toEqual([]);
+    });
+
+    it('FR-4: an old entry without startedAt is untouched, logged and cleared', async () => {
+      const id = randomUUID();
+      const s = await standIn(BIN, ['--session-id', id]);
+      const [sid] = seed([agentOf(s.leader, id)]);
+      const logs: string[] = [];
+      const d = makeDaemon(new FakeClaudeDriver(complete({})), {
+        root: root(),
+        claudeBin: BIN,
+        log: (m) => logs.push(m),
+        config: { killGraceMs: GRACE },
+      });
+      expect((await exits(1)).map((x) => x.signal)).toEqual(['daemon_restart']);
+      await settle();
+      expect(alive(s.leader)).toBe(true);
+      expect(logs).toContain(
+        `orphan sweep: pid ${s.leader} of session ${sid} has no recorded start time (old entry); left alone`,
+      );
+      expect(d.store.session(sid!)!.agent).toBeNull();
+    });
+
+    it('FR-3: a process replaced between SIGTERM and SIGKILL gets no SIGKILL', async () => {
+      const id = randomUUID();
+      // Ignores SIGTERM, so only a SIGKILL would end it.
+      const s = await standIn(BIN, ['--session-id', id], true);
+      const [sid] = seed([agentOf(s.leader, id, s.startedAt)]);
+      let calls = 0;
+      // The re-check sees another start time: the pid now belongs to another process.
+      const procInfo = (pid: number) => {
+        const info = readProcInfo(pid);
+        return info && calls++ > 0 ? { ...info, startedAt: info.startedAt + 1000 } : info;
+      };
+      const logs: string[] = [];
+      makeDaemon(new FakeClaudeDriver(complete({})), {
+        root: root(),
+        claudeBin: BIN,
+        procInfo,
+        log: (m) => logs.push(m),
+        config: { killGraceMs: GRACE },
+      });
+      await exits(1);
+      expect(logs).toContain(
+        `startup: killed orphaned claude process ${s.leader} of session ${sid}`,
+      );
+      await orch.until(() => (calls >= 2 ? true : undefined), 5_000);
+      await settle();
+      expect(alive(s.leader)).toBe(true);
+      expect(logs).toContain(
+        `orphan sweep: pid ${s.leader} alive but not ours (start time differs (pid reused)); left alone (no SIGKILL)`,
+      );
+    });
+
+    it('FR-3 control: a process still ours after the grace period is SIGKILLed', async () => {
+      const id = randomUUID();
+      const s = await standIn(BIN, ['--session-id', id], true);
+      seed([agentOf(s.leader, id, s.startedAt)]);
+      makeDaemon(new FakeClaudeDriver(complete({})), {
+        root: root(),
+        claudeBin: BIN,
+        config: { killGraceMs: GRACE },
+      });
+      await exits(1);
+      // It ignores SIGTERM: only the SIGKILL after the grace period ends it (and its group).
+      await orch.until(() => (!alive(s.leader) && !alive(s.child)) || undefined, 5_000);
+    });
+  },
+);
 
 describe('daemon core: misc', () => {
   it('reports exit (daemon_restart) for a process that died with the previous daemon', async () => {
@@ -1737,7 +1757,7 @@ describe('daemon core: ADR-0011 transitions', () => {
 describe('daemon core: run_action evaluate_conditions (ADR-0011)', () => {
   /** A fake gh whose `pr view` reports green checks and one approval. */
   const FAKE_GH_VIEW = {
-    cmd: '/bin/sh',
+    cmd: workflowShell().file, // /bin/sh; Git Bash on win32
     args: [
       '-c',
       [

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { arch, homedir, hostname, platform } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import {
@@ -32,6 +32,7 @@ import type { CommandRunner, CreateCommandRunner } from './commands/runner.js';
 import { daemonVersion, machineFacts, type DaemonConfig } from './config.js';
 import { checkOurs, readProcInfo, type ProcInfo } from './orphan.js';
 import { PortPool, portEnv } from './ports.js';
+import { mkdirPrivate, signalTree } from './platform/index.js';
 import {
   DaemonStore,
   type AckRecord,
@@ -252,7 +253,8 @@ export class Daemon {
     this.hasConversation =
       opts.hasConversation ?? ((cwd, id) => hasTranscriptInCwd(this.claudeConfigDir, cwd, id));
     this.heartbeatMs = this.config.heartbeatIntervalMs;
-    mkdirSync(this.config.rootDir, { recursive: true });
+    // Private (0700 / owner-only DACL): <root>/private and machine.json live under it.
+    mkdirPrivate(this.config.rootDir);
     this.store = DaemonStore.forRoot(this.config.rootDir);
     // Fresh checkouts / push repos a previous daemon left behind (ADR-0010).
     sweepPrivate(this.config.rootDir);
@@ -1422,14 +1424,8 @@ export class Daemon {
       }
       return true;
     };
-    const signalGroup = (sig: NodeJS.Signals): boolean => {
-      try {
-        process.kill(-pid, sig);
-        return true;
-      } catch {
-        return false; // ESRCH: the group is gone
-      }
-    };
+    // POSIX the process group (ESRCH: gone); win32 taskkill /T (TD-189).
+    const signalGroup = (sig: NodeJS.Signals): boolean => signalTree(pid, sig);
     const alive = liveness();
     if (alive === null) return;
     if (!alive) return notOurs('not signalable');

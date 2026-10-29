@@ -16,7 +16,16 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { API_PATHS, EnrollRequestSchema } from '@conductor/shared';
 import { daemonVersion } from '../config.js';
 import { loadCredential } from '../credential.js';
+import { assertOwnerOnly, mkdirPrivate } from '../platform/index.js';
 import { enroll, enrollUrl } from './enroll.js';
+
+const onWin32 = process.platform === 'win32';
+
+/** 0600 file / 0700 dir on POSIX; an owner-only DACL on win32 (ADR-0024 §3). */
+function expectPrivate(path: string, kind: 'file' | 'dir'): void {
+  if (onWin32) assertOwnerOnly(path, { kind });
+  else expect(statSync(path).mode & 0o777).toBe(kind === 'file' ? 0o600 : 0o700);
+}
 
 // M2-T04 acceptance: `enroll` against a stub HTTP server.
 
@@ -35,6 +44,7 @@ let err: string[];
 
 beforeEach(async () => {
   tmp = mkdtempSync(join(tmpdir(), 'conductor-enroll-'));
+  mkdirPrivate(tmp); // win32: mkdtemp under %TEMP% inherits; a private root needs a private parent
   requests = [];
   out = [];
   err = [];
@@ -100,8 +110,8 @@ describe('conductor-daemon enroll', () => {
     });
 
     const file = join(root, 'machine.json');
-    expect(statSync(file).mode & 0o777).toBe(0o600);
-    expect(statSync(root).mode & 0o777).toBe(0o700);
+    expectPrivate(file, 'file');
+    expectPrivate(root, 'dir');
     expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({
       url: base,
       machine_id: 'm-123',
@@ -146,7 +156,7 @@ describe('conductor-daemon enroll', () => {
     expect(await run(['--url', base, '--token', TOKEN, '--force'], root)).toBe(0);
     expect(requests).toHaveLength(2);
     expect(loadCredential(root)?.machine_id).toBe('m-456');
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expectPrivate(file, 'file');
     noSecrets();
   });
 
@@ -163,7 +173,7 @@ describe('conductor-daemon enroll', () => {
 
   it('refuses a symlinked machine.json even with --force', async () => {
     const root = join(tmp, 'root');
-    mkdirSync(root, { mode: 0o700 });
+    mkdirPrivate(root);
     const target = join(tmp, 'elsewhere.json');
     writeFileSync(target, '{}');
     symlinkSync(target, join(root, 'machine.json'));

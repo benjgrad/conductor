@@ -1,4 +1,3 @@
-import { execFile } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import {
@@ -8,6 +7,7 @@ import {
   type InventoryRepo,
 } from '@conductor/shared';
 import { cleanEnv } from '../actions/open-pr.js';
+import { execFileCli, killTree, nativeExeProblem } from '../platform/index.js';
 import { cliVersionFrom } from './version.js';
 
 // The capability half of the inventory (M2-T10; ADR-0013 §Inventory, ADR-0016). Names and
@@ -44,33 +44,55 @@ interface Probe {
   missing: boolean;
 }
 
-/** Run one CLI with no shell, stdin closed, killed (SIGKILL) at the timeout. Never throws. */
+/**
+ * Run one CLI with no shell (win32: PATHEXT, so `az.cmd` is found), stdin closed, killed
+ * (SIGKILL) at the timeout. Never throws.
+ */
 export function probe(
   cmd: string,
   args: readonly string[],
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
 ): Promise<Probe> {
-  return new Promise((done) => {
-    const child = execFile(
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (p: Probe) => {
+      if (settled) return;
+      settled = true;
+      resolve(p);
+    };
+    let timedOut = false;
+    let timer: NodeJS.Timeout | undefined;
+    const child = execFileCli(
       cmd,
       args,
-      {
-        env: { ...cleanEnv(env), NO_COLOR: '1' },
-        timeout: timeoutMs,
-        killSignal: 'SIGKILL',
-        maxBuffer: 256 * 1024,
-      },
+      { env: { ...cleanEnv(env), NO_COLOR: '1' }, maxBuffer: 256 * 1024 },
       (err, stdout) => {
+        clearTimeout(timer);
         const e = err as (NodeJS.ErrnoException & { code?: unknown }) | null;
         done({
-          code: e === null ? 0 : typeof e.code === 'number' ? e.code : null,
+          code: timedOut ? null : e === null ? 0 : typeof e.code === 'number' ? e.code : null,
           stdout: String(stdout),
           missing: e?.code === 'ENOENT',
         });
       },
     );
-    child.stdin?.end();
+    // Our own timer, not execFile's: its timeout kills only the direct child, and on win32 a
+    // `.cmd` shim's cmd.exe → its real program would live on (killTree: taskkill /T).
+    if (child) {
+      timer = setTimeout(() => {
+        timedOut = true;
+        killTree(child, { signal: 'SIGKILL' });
+        // A survivor holding the pipes (win32 Git Bash job, TD-189) would keep execFile from
+        // calling back: settle anyway, shortly after the kill.
+        setTimeout(() => {
+          child.stdout?.destroy();
+          child.stderr?.destroy();
+          done({ code: null, stdout: '', missing: false });
+        }, 1_000).unref();
+      }, timeoutMs);
+    }
+    child?.stdin?.end();
   });
 }
 
@@ -107,7 +129,14 @@ async function scanClaude(
   bin: string,
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
+  log: (msg: string) => void,
 ): Promise<Capability[]> {
+  // U-110: a claude.cmd shim can't run conductor's sessions, so it is not a claude capability.
+  const notNative = nativeExeProblem(bin, env);
+  if (notNative !== null) {
+    log(notNative);
+    return [];
+  }
   const r = await probe(bin, ['--version'], env, timeoutMs);
   const version = r.code === 0 ? cliVersionFrom(r.stdout) : null;
   return version === null ? [] : [{ kind: 'claude', version }];
@@ -217,7 +246,7 @@ export async function scanCapabilities(opts: ScanCapabilitiesOptions): Promise<C
   const timeoutMs = opts.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
   const [clis, claude] = await Promise.all([
     scanClis(env, timeoutMs),
-    scanClaude(opts.claudeBin, env, timeoutMs),
+    scanClaude(opts.claudeBin, env, timeoutMs, opts.log ?? (() => undefined)),
   ]);
   const raw: unknown[] = [...clis, ...claude];
   // The name as configured, for the log, when it was normalised.

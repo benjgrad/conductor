@@ -16,6 +16,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DaemonStore } from './store.js';
 import { isSafeBranchName, Workspace } from './workspace.js';
 
+// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
+// the task that unskips them.
+const onWin32 = process.platform === 'win32';
+
 function run(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, {
     cwd,
@@ -182,7 +186,8 @@ describe('Workspace fresh base (M2-T13a)', () => {
     expect(existsSync(ws.worktreePath('s1'))).toBe(false);
   });
 
-  describe('concurrent starts', () => {
+  // MW-T12: fake git fetch wrapper is a /bin/sh script
+  describe.skipIf(onWin32)('concurrent starts', () => {
     let savedPath: string | undefined;
     let fetchLog: string;
 

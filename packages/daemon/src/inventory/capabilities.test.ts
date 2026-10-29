@@ -4,12 +4,11 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { capabilityKeys, type InventoryRepo } from '@conductor/shared';
 import {
@@ -17,6 +16,10 @@ import {
   scanCapabilities,
   type ScanCapabilitiesOptions,
 } from './capabilities.js';
+import { workflowShell } from '../platform/index.js';
+import { removeTreeOrLeave } from '../test-support/remove-tree.js';
+
+const onWin32 = process.platform === 'win32';
 
 // M2-T10 acceptance: capability probes against fake binaries on PATH, MCP / skill / agent names
 // from fixture Claude Code config. Names and versions only: no account name, command or env.
@@ -26,42 +29,70 @@ let bin: string;
 let sys: string;
 let claudeDir: string;
 
+/**
+ * A fake CLI on PATH running `body` in sh. POSIX: a `#!/bin/sh` script. win32: `name.sh` plus a
+ * `name.cmd` shim that runs it in Git Bash (as `az.cmd` is a shim), so the probe goes through
+ * spawnCli's PATHEXT lookup and cmd.exe escaping.
+ */
 function fake(name: string, body: string): void {
+  if (onWin32) {
+    writeFileSync(join(bin, `${name}.sh`), `${body}\n`);
+    writeFileSync(join(bin, `${name}.cmd`), `@"${workflowShell().file}" "%~dp0${name}.sh" %*\r\n`);
+    return;
+  }
   writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`);
   chmodSync(join(bin, name), 0o755);
 }
 
 /**
  * PATH = the fake bin dir + `sys` (links to the real sh, sleep and git only). Never /bin or
- * /usr/bin: a CI runner has real gh / az there, which would answer the probes.
+ * /usr/bin: a CI runner has real gh / az there, which would answer the probes. win32: the bin dir
+ * + System32, plus what cmd.exe needs (SystemRoot, PATHEXT).
  */
 function opts(over: Partial<ScanCapabilitiesOptions> = {}): ScanCapabilitiesOptions {
+  const env: NodeJS.ProcessEnv = onWin32
+    ? {
+        PATH: [bin, join(process.env.SystemRoot ?? 'C:\\Windows', 'System32')].join(delimiter),
+        PATHEXT: process.env.PATHEXT,
+        SystemRoot: process.env.SystemRoot,
+        HOME: tmp,
+      }
+    : { PATH: `${bin}:${sys}`, HOME: tmp };
   return {
     claudeConfigDir: claudeDir,
     claudeUserConfig: join(tmp, '.claude.json'),
     claudeBin: 'claude',
     repos: [],
-    env: { PATH: `${bin}:${sys}`, HOME: tmp },
+    env,
     ...over,
   };
 }
 
 const which = (name: string) => execFileSync('which', [name], { encoding: 'utf8' }).trim();
-const GIT = which('git');
-const SYSTEM_TOOLS = ['sh', 'sleep', 'git'].map((name) => [name, which(name)] as const);
+const GIT = onWin32
+  ? execFileSync('where', ['git'], { encoding: 'utf8' })
+      .split(/\r?\n/)[0]!
+      .trim()
+      .replaceAll('\\', '/')
+  : which('git');
+/** POSIX only: win32 has no `which`, and its PATH is the bin dir + System32 (see opts). */
+const SYSTEM_TOOLS = onWin32
+  ? []
+  : ['sh', 'sleep', 'git'].map((name) => [name, which(name)] as const);
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 'conductor-caps-'));
-  bin = join(tmp, 'bin');
+  // TD-193: a space and parentheses, like `C:\\Program Files (x86)\\…\\wbin\\az.cmd`.
+  bin = join(tmp, 'Program Files (x86)', 'wbin');
   claudeDir = join(tmp, 'claude-config');
   sys = join(tmp, 'sys');
-  mkdirSync(bin);
+  mkdirSync(bin, { recursive: true });
   mkdirSync(sys);
   for (const [name, path] of SYSTEM_TOOLS) symlinkSync(path, join(sys, name));
   mkdirSync(claudeDir);
 });
 
-afterEach(() => rmSync(tmp, { recursive: true, force: true }));
+afterEach(() => removeTreeOrLeave(tmp));
 
 describe('inventory capabilities: cli probes (M2-T10)', () => {
   it('gh / az authed → {authed: true}, and no account name anywhere in the output', async () => {
@@ -82,10 +113,17 @@ describe('inventory capabilities: cli probes (M2-T10)', () => {
       ].join('\n'),
     );
     fake('claude', 'echo "2.1.308 (Claude Code)"');
-    const caps = await scanCapabilities(opts());
+    const lines: string[] = [];
+    const caps = await scanCapabilities(opts({ log: (m) => lines.push(m) }));
     expect(caps).toContainEqual({ kind: 'cli', name: 'gh', version: '2.50.0', authed: true });
     expect(caps).toContainEqual({ kind: 'cli', name: 'az', version: '2.60.0', authed: true });
-    expect(caps).toContainEqual({ kind: 'claude', version: '2.1.308' });
+    if (onWin32) {
+      // U-110: a claude.cmd shim is not a usable claude on Windows.
+      expect(caps.some((c) => c.kind === 'claude')).toBe(false);
+      expect(lines.join('\n')).toMatch(/not a native \.exe/);
+    } else {
+      expect(caps).toContainEqual({ kind: 'claude', version: '2.1.308' });
+    }
     const text = JSON.stringify(caps);
     for (const secret of ['octo-secret-user', 'gho_SECRET', 'az-secret', 'corp.example']) {
       expect(text).not.toContain(secret);
@@ -103,8 +141,7 @@ describe('inventory capabilities: cli probes (M2-T10)', () => {
 
   it('jira and git report their versions, never authed', async () => {
     fake('jira', 'echo \'(Version="1.5.1", GitCommit="abc", GoVersion="go1.22")\'');
-    writeFileSync(join(bin, 'git'), `#!/bin/sh\nexec ${GIT} "$@"\n`);
-    chmodSync(join(bin, 'git'), 0o755);
+    fake('git', `exec "${GIT}" "$@"`);
     const caps = await scanCapabilities(opts());
     expect(caps).toContainEqual({ kind: 'cli', name: 'jira', version: '1.5.1', authed: false });
     const g = caps.find((c) => c.kind === 'cli' && c.name === 'git');
@@ -114,7 +151,14 @@ describe('inventory capabilities: cli probes (M2-T10)', () => {
 
   it('a hanging probe is killed at 5 s', { timeout: 20_000 }, async () => {
     const pidFile = join(tmp, 'az.pid');
-    fake('az', `echo $$ >> ${pidFile}\nexec sleep 30`);
+    // The sleeper's own pid: win32 reads its Windows pid from MSYS /proc (bash's $! is not one).
+    const sh = (p: string) => p.replace(/\\/g, '/');
+    fake(
+      'az',
+      onWin32
+        ? `sleep 30 & cat /proc/$!/winpid >> "${sh(pidFile)}"; wait`
+        : `echo $$ >> ${pidFile}\nexec sleep 30`,
+    );
     const t0 = Date.now();
     const caps = await scanCapabilities(opts());
     const elapsed = Date.now() - t0;
@@ -122,9 +166,10 @@ describe('inventory capabilities: cli probes (M2-T10)', () => {
     expect(elapsed).toBeLessThan(9_000);
     expect(caps).toContainEqual({ kind: 'cli', name: 'az', version: null, authed: false });
     // Both az probes (version + account show) were killed: no sleeper is left.
-    const pids = readFileSync(pidFile, 'utf8').trim().split('\n').map(Number);
+    const pids = readFileSync(pidFile, 'utf8').trim().split(/\r?\n/).map(Number);
     expect(pids.length).toBe(2);
-    for (const pid of pids) expect(() => process.kill(pid, 0)).toThrow();
+    // TD-189: on win32 a Git Bash background job escapes taskkill /T; the probe still settles.
+    if (!onWin32) for (const pid of pids) expect(() => process.kill(pid, 0)).toThrow();
   });
 });
 

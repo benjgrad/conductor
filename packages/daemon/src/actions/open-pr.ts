@@ -1,8 +1,13 @@
-import { execFile } from 'node:child_process';
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { basename, isAbsolute, join } from 'node:path';
 import { cliVersionAtLeast, GH_MIN_VERSION, GITHUB_PR_URL_RE } from '@conductor/shared';
 import { cliVersionFrom } from '../inventory/version.js';
+import {
+  execFileCli,
+  gitHooksOffArgs,
+  gitSystemConfigEnv,
+  mkdirPrivate,
+} from '../platform/index.js';
 import { cloneSource, RepoNotAllowedError, type RepoPolicy } from '../workspace.js';
 
 // ADR-0010 `open_pr`: conductor (this daemon code, never an agent) pushes the session branch and
@@ -99,7 +104,7 @@ export function pushTarget(repo: string, policy: RepoPolicy): PushTarget {
   } catch (e) {
     throw new Error(e instanceof RepoNotAllowedError ? e.message : String(e), { cause: e });
   }
-  if (url.startsWith('/') || /^file:/i.test(url)) {
+  if (isAbsolute(url) || /^file:/i.test(url)) {
     if (policy.allowLocalRepos !== true) {
       throw new Error(`${repo} is a local path, not a GitHub repository`);
     }
@@ -143,7 +148,7 @@ export function cleanEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   }
   return {
     ...out,
-    GIT_CONFIG_NOSYSTEM: '1',
+    ...gitSystemConfigEnv(), // POSIX: no system gitconfig; win32 keeps it (ADR-0024 §5)
     GIT_TERMINAL_PROMPT: '0',
     GH_PROMPT_DISABLED: '1',
   };
@@ -156,7 +161,7 @@ export function run(
   i: Pick<OpenPrInput, 'env' | 'signal'>,
 ): Promise<Run> {
   return new Promise((resolve) => {
-    execFile(
+    execFileCli(
       cmd,
       args,
       {
@@ -184,7 +189,8 @@ export const tail = (s: string, n = 600) => {
 const URL_RE = /https?:\/\/\S+/g;
 const BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 
-export const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null'];
+/** Hooks off for every daemon git call (`NUL` on win32, see platform/git.ts). */
+export const NO_HOOKS = gitHooksOffArgs();
 
 const GH_MISSING =
   'gh (the GitHub CLI) is not on PATH: install it and run `gh auth login` on this machine';
@@ -301,27 +307,21 @@ function prResult(url: string, reused: boolean): OpenPrResult {
 }
 
 /**
- * A fresh private bare repo for one push: `mkdtemp` under `<root>/private` (0700, owned by this
- * uid, not a symlink: checked with lstat), removed afterwards. No agent cwd is ever inside it, and
- * it lives only for this push, so nothing can be planted in it ahead of time.
+ * A fresh private bare repo for one push: `mkdtemp` under `<root>/private` (0700 and owned by this
+ * uid, or an owner-only DACL on win32; never a symlink: platform/acl.ts), removed afterwards. No
+ * agent cwd is ever inside it, and it lives only for this push, so nothing can be planted in it
+ * ahead of time.
  */
 export function privateDir(root: string, prefix = 'push-'): string | Error {
-  const base = join(root, 'private');
-  mkdirSync(base, { recursive: true, mode: 0o700 });
-  const ownedDir = (path: string): Error | null => {
-    const st = lstatSync(path);
-    if (st.isSymbolicLink() || !st.isDirectory()) return new Error(`${path} is not a directory`);
-    if (process.getuid !== undefined && st.uid !== process.getuid()) {
-      return new Error(`${path} is not owned by this user`);
-    }
-    return null;
-  };
-  const bad = ownedDir(base);
-  if (bad) return bad;
-  chmodSync(base, 0o700);
-  const dir = mkdtempSync(join(base, prefix));
-  chmodSync(dir, 0o700);
-  return ownedDir(dir) ?? dir;
+  try {
+    const base = join(root, 'private');
+    mkdirPrivate(base);
+    const dir = mkdtempSync(join(base, prefix));
+    mkdirPrivate(dir);
+    return dir;
+  } catch (e) {
+    return e instanceof Error ? e : new Error(String(e));
+  }
 }
 
 /**

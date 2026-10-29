@@ -1,13 +1,6 @@
-import {
-  accessSync,
-  constants,
-  existsSync,
-  lstatSync,
-  readdirSync,
-  rmSync,
-  statSync,
-} from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { existsSync, readdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { assertOwnerOnly, isOnPath } from '../platform/index.js';
 import { NO_HOOKS, privateDir, run, tail } from './open-pr.js';
 
 // ADR-0010 (Ben, 2026-10-26): entry checks run in a fresh, conductor-owned checkout of the exact
@@ -159,20 +152,6 @@ export function managedCommand(dir: string, cmd: string): string {
 const MANAGER_RE = /(?:^|&&|\|\||;|\n)\s*(pnpm|yarn|npm)(?=\s|$)/g;
 
 /** Is `bin` an executable file in one of `path`'s directories? */
-function onPath(bin: string, path: string): boolean {
-  for (const d of path.split(delimiter)) {
-    if (d === '') continue;
-    const f = join(d, bin);
-    try {
-      if (!statSync(f).isFile()) continue;
-      accessSync(f, constants.X_OK);
-      return true;
-    } catch {
-      // not in this directory
-    }
-  }
-  return false;
-}
 
 /**
  * M2-T30: when `cmd` runs a package manager (at the start of a command segment) that is not on
@@ -181,7 +160,7 @@ function onPath(bin: string, path: string): boolean {
  */
 export function missingManager(cmd: string, path = process.env.PATH ?? ''): string | null {
   const used = new Set([...cmd.matchAll(MANAGER_RE)].map((m) => m[1]!));
-  const missing = [...used].filter((b) => !onPath(b, path));
+  const missing = [...used].filter((b) => !isOnPath(b, path));
   if (missing.length === 0) return null;
   const names = missing.map((b) => `\`${b}\``).join(' and ');
   return (
@@ -198,10 +177,12 @@ export function removeCheckout(dir: string): void {
 export function sweepPrivate(root: string): void {
   const base = join(root, 'private');
   if (!existsSync(base)) return;
-  // Same rule as privateDir: a real directory owned by this uid, never followed through a symlink.
-  const st = lstatSync(base);
-  if (st.isSymbolicLink() || !st.isDirectory()) return;
-  if (process.getuid !== undefined && st.uid !== process.getuid()) return;
+  // Same rule as privateDir: a real directory owned by this user, never followed through a symlink.
+  try {
+    assertOwnerOnly(base, { kind: 'dir', checkAccess: false });
+  } catch {
+    return;
+  }
   for (const name of readdirSync(base)) {
     if (name.startsWith('check-') || name.startsWith('push-')) removeCheckout(join(base, name));
   }

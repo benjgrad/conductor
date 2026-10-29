@@ -12,6 +12,7 @@ import { FakeCommandRunner } from './commands/fake-runner.js';
 import { loadConfig } from './config.js';
 import { removeTree } from './test-support/remove-tree.js';
 import { Daemon } from './daemon.js';
+import { mkdirPrivate } from './platform/index.js';
 import { FakeOrchestrator } from './test-support/fake-orchestrator.js';
 
 // ADR-0008 on the daemon: `fetch_transcript` → `transcript` (located from the daemon's own
@@ -32,6 +33,7 @@ const daemons: Daemon[] = [];
 
 beforeEach(async () => {
   tmp = realpathSync(mkdtempSync(join(tmpdir(), 'conductor-daemon-reopen-')));
+  mkdirPrivate(tmp); // win32: the daemon makes its root private, which needs a private parent
   repo = join(tmp, 'origin');
   claudeDir = join(tmp, 'claude-config');
   mkdirSync(repo);

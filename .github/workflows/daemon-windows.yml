@@ -1,0 +1,66 @@
+# Native Windows gate for the daemon (ADR-0024, milestone MW). Linux/macOS keep scripts/ci.sh
+# (the `ci` workflow). Tests that can't pass on win32 yet skip behind
+# `skipIf(process.platform === 'win32')` with a `// MW-Tnn` marker; MW-T12 adds the e2e.
+#
+# Diff-aware: it runs only when something the daemon is built or tested from changes. That set
+# always includes packages/daemon and packages/shared, so no daemon change reaches main without
+# passing here too; platform/seam.test.ts keeps every OS branch inside src/platform/, where the
+# win32 twin is tested. Docs, web, orchestrator and deploy-only changes skip it (~15 min, TD-194).
+name: daemon-windows
+
+on:
+  pull_request:
+    # Keep the two lists identical.
+    paths:
+      - 'packages/daemon/**'
+      - 'packages/shared/**'
+      - '.github/workflows/daemon-windows.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.json'
+      - 'tsconfig.base.json'
+      - 'vitest.config.ts'
+      - '.nvmrc'
+      - '.npmrc'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/daemon/**'
+      - 'packages/shared/**'
+      - '.github/workflows/daemon-windows.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.json'
+      - 'tsconfig.base.json'
+      - 'vitest.config.ts'
+      - '.nvmrc'
+      - '.npmrc'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to a PR cancels that PR's previous run; runs on main are never cancelled.
+concurrency:
+  group: daemon-windows-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - run: git config --global core.longpaths true
+      - uses: actions/checkout@v4
+      # As the `ci` workflow: pnpm from package.json `packageManager` (never corepack), Node from
+      # .nvmrc, the pnpm store cached between runs.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm vitest run --project daemon --project shared

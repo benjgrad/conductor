@@ -124,7 +124,9 @@ describe('findTranscript', () => {
     const cwd = join(root, 'link', 'wt', 'gone-session'); // never created / removed
     expect(realCwd(cwd)).toBe(join(real, 'wt', 'gone-session'));
     const slug = claudeProjectSlug(join(real, 'wt', 'gone-session'));
-    expect(slug).toMatch(/^-.*-real-wt-gone-session$/);
+    // Every non-alphanumeric is `-`, as Claude Code names its project dirs: `/tmp/x` → `-tmp-x`,
+    // `C:\\Users\\x` → `C--Users-x`.
+    expect(slug).toMatch(/^(-|[A-Za-z]--).*-real-wt-gone-session$/);
     const file = join(config, 'projects', slug, `${ID}.jsonl`);
     mkdirSync(join(config, 'projects', slug), { recursive: true });
     writeFileSync(file, '');

@@ -63,7 +63,7 @@ beforeEach(async () => {
   gitInit(repo);
   orch = await FakeOrchestrator.start();
   resources = { cpuFree: 4, memFreeMb: 8000, diskFreeMb: 50_000 };
-});
+}, 60_000); // win32: a private root, git init and the fake orchestrator can pass 10 s on CI (TD-194)
 
 afterEach(async () => {
   for (const d of daemons.splice(0)) d.stop();

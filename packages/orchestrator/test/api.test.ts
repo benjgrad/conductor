@@ -266,16 +266,16 @@ describe('tickets and board', () => {
     expect(TicketDtoSchema.parse(res.body).workflow_id).toBe('conductor');
     const wf = await get('/api/workflows/conductor');
     expect(wf.status).toBe(200);
-    // M1b-T09 / ADR-0025: a bare database gets v1, v2, v3; v3 is the shipped default, so none is
-    // pending.
+    // M1b-T09 / ADR-0025 / M2-T34: a bare database gets v1 … v4; v4 is the shipped default, so
+    // none is pending.
     const detail = WorkflowDetailSchema.parse(wf.body);
-    expect(detail.version).toBe(3);
-    expect(detail.versions).toEqual([1, 2, 3]);
+    expect(detail.version).toBe(4);
+    expect(detail.versions).toEqual([1, 2, 3, 4]);
     expect(detail.default_available).toBeNull();
   });
 
-  it('M1b-T09: default_available is 3 once the shipped v3 is gone (only edited versions)', async () => {
-    // A database where the user's edit took version 2 before the shipped v2 and v3 were seeded.
+  it('M1b-T09: default_available is 4 once the shipped v4 is gone (only edited versions)', async () => {
+    // A database where the user's edit took version 2 before the shipped v2 … v4 were seeded.
     const v1 = (await get('/api/workflows/conductor?version=1')).body as {
       definition: Record<string, unknown>;
     };
@@ -285,7 +285,7 @@ describe('tickets and board', () => {
     const detail = WorkflowDetailSchema.parse((await get('/api/workflows/conductor')).body);
     expect(detail.version).toBe(2);
     expect(detail.definition.budget?.usd).toBe(9);
-    expect(detail.default_available).toBe(3);
+    expect(detail.default_available).toBe(4);
     // Another id never has one.
     const basic = WorkflowDetailSchema.parse((await get('/api/workflows/m1_basic')).body);
     expect(basic.default_available).toBeNull();

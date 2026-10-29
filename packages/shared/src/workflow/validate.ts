@@ -29,10 +29,11 @@ import { checkTransitions } from './validate-transitions.js';
 /**
  * Rule numbers from 05 §Validation on save (1–6) plus rule 7 (unknown tool alias), rule 8
  * (requirements gates, ADR-0009), rule 9 (entry requirements and columns, ADR-0010) and rules
- * 10–14 (transitions, ADR-0011) and 15–16 (review and merge, ADR-0020), in
- * `validate-transitions.ts`.
+ * 10–14 (transitions, ADR-0011), 15–16 (review and merge, ADR-0020) and 17 (a PR reaches Done
+ * only through a human, M2-T34), in `validate-transitions.ts`.
  */
-export type WorkflowRule = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
+export type WorkflowRule =
+  1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17;
 
 export interface WorkflowValidationError {
   rule: WorkflowRule;

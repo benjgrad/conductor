@@ -17,10 +17,17 @@ const reference = (name: string): unknown =>
 type Raw = { start: string; columns: string[]; states: Record<string, Record<string, any>> };
 const v2 = (): Raw => structuredClone(CONDUCTOR_V2_DRAFT) as Raw;
 const on = (raw: Raw, state: string) => raw.states[state]!.on as Record<string, any>;
-const paths = (input: unknown) => {
+const allPaths = (input: unknown) => {
   const r = validateWorkflow(input);
   return r.ok ? [] : r.errors.map((e) => `${e.rule} ${e.path.join('.')}`);
 };
+/**
+ * The v2 draft predates rule 17 (M2-T34): its personal `done` opens a PR straight into Done. The
+ * rules 10–14 cases below mutate the draft for other reasons, so they leave that one finding out;
+ * rule 17's own cases use `allPaths`.
+ */
+const DRAFT_RULE_17 = '17 states.implementing.on.done.goto';
+const paths = (input: unknown) => allPaths(input).filter((p) => p !== DRAFT_RULE_17);
 
 describe('shipped workflows still validate', () => {
   it.each(['conductor.v1.json', 'm1_basic.v1.json', 'm1_reviewed.v1.json', 'pr_flow.v1.json'])(
@@ -42,8 +49,8 @@ describe('shipped workflows still validate', () => {
     expect(paths(foldLegacyRequirements(r.def))).toEqual([]);
   });
 
-  it('the conductor v2 draft (M1b-T01) validates', () => {
-    expect(paths(CONDUCTOR_V2_DRAFT)).toEqual([]);
+  it('the conductor v2 draft (M1b-T01) validates, but for rule 17', () => {
+    expect(allPaths(CONDUCTOR_V2_DRAFT)).toEqual([DRAFT_RULE_17]);
   });
 
   it('conductor v1 is still a valid starting point for the raw-edit tests', () => {
@@ -310,5 +317,50 @@ describe('graph rules read transitions (ADR-0011)', () => {
     // needs_input -waiting_on_someone-> waiting_external -back_to_implementing-> implementing can
     // follow a planning question, before the plan exists; it is a human's choice.
     expect(paths(CONDUCTOR_V2_DRAFT)).toEqual([]);
+  });
+});
+
+describe('rule 17: a PR reaches Done only through a human (M2-T34)', () => {
+  const IMPL_DONE = `${IMPL}.done`;
+
+  it('an agent transition that opens a PR into a terminal state is refused, and so is its else', () => {
+    expect(allPaths(v2())).toEqual([`17 ${IMPL_DONE}.goto`]);
+
+    const viaElse = v2();
+    on(viaElse, 'implementing').pr_ready_for_review.retries = 2;
+    on(viaElse, 'implementing').pr_ready_for_review.else = 'done';
+    expect(allPaths(viaElse)).toContain(`17 ${IMPL}.pr_ready_for_review.else`);
+  });
+
+  it('waiting for an approval or a merge is a human on the PR', () => {
+    for (const type of ['pr_approvals', 'pr_merged'] as const) {
+      const r = v2();
+      on(r, 'implementing').done.requires.conditions = [
+        type === 'pr_approvals' ? { type, min: 1 } : { type },
+      ];
+      on(r, 'implementing').done.requires.condition_timeout = '3d';
+      expect(allPaths(r), type).not.toContain(`17 ${IMPL_DONE}.goto`);
+    }
+  });
+
+  it('a disabled approval does not count', () => {
+    const r = v2();
+    on(r, 'implementing').done.requires.conditions = [
+      { type: 'pr_approvals', min: 1, enabled: false },
+    ];
+    on(r, 'implementing').done.requires.condition_timeout = '3d';
+    expect(allPaths(r)).toContain(`17 ${IMPL_DONE}.goto`);
+  });
+
+  it('a gate into Done that opens no PR, a PR into a human state, and a human move to Done are fine', () => {
+    const noPr = v2();
+    on(noPr, 'implementing').done.requires.actions = [];
+    expect(allPaths(noPr)).toEqual([]);
+
+    const removed = v2();
+    delete on(removed, 'implementing').done;
+    expect(allPaths(removed)).toEqual([]);
+    // needs_input's human `done` → Done and personal_pr_ready_for_review (open_pr → needs_input)
+    // are both in the draft and never reported.
   });
 });

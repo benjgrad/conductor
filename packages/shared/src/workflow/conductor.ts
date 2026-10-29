@@ -319,6 +319,37 @@ function v3From(v2: WorkflowDefinitionInput): WorkflowDefinitionInput {
 /** CONDUCTOR_V3 parsed (defaults applied). */
 export const CONDUCTOR_V3_DEF: WorkflowDefinition = WorkflowDefinitionSchema.parse(CONDUCTOR_V3);
 
+// ---------------------------------------------------------------- conductor v4 (M2-T34)
+
+/** v4: what tells a personal agent that shipping means handing the PR to the user. */
+export const V4_PERSONAL_SHIP_WHEN =
+  'The work is done: conductor opens the PR, waits for its checks, and hands it to the user to ' +
+  'review. This is the only way to finish; the user closes the ticket.';
+
+/**
+ * M2-T34 (Ben, 2026-10-29): v3 without Implementing's personal `done`. That transition let the
+ * agent close its own ticket the moment the PR existed (ticket UX-11, twice), before the user saw
+ * it. A personal ticket now ships only through `personal_pr_ready_for_review` (checks, open_pr,
+ * green PR CI, then Needs input), and the user picks Done there. Validator rule 17 keeps it so.
+ * A copy of docs/design/workflows/conductor.v4.json (a test checks they are equal); seeded after
+ * an unedited shipped v3.
+ */
+export const CONDUCTOR_V4: WorkflowDefinitionInput = v4From(CONDUCTOR_V3);
+
+function v4From(v3: WorkflowDefinitionInput): WorkflowDefinitionInput {
+  const def = structuredClone(v3) as WorkflowDefinitionInput & {
+    states: Record<string, { on?: Record<string, unknown> }>;
+  };
+  def.version = 4;
+  const on = def.states.implementing!.on!;
+  delete on.done;
+  (on.personal_pr_ready_for_review as { when: string }).when = V4_PERSONAL_SHIP_WHEN;
+  return def;
+}
+
+/** CONDUCTOR_V4 parsed (defaults applied). */
+export const CONDUCTOR_V4_DEF: WorkflowDefinition = WorkflowDefinitionSchema.parse(CONDUCTOR_V4);
+
 // ---------------------------------------------------------------- board columns (ADR-0010)
 
 /** The implicit first column: sessions no machine has claimed yet. */

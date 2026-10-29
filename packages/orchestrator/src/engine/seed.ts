@@ -3,6 +3,7 @@ import {
   CONDUCTOR_V1,
   CONDUCTOR_V2,
   CONDUCTOR_V3,
+  CONDUCTOR_V4,
   CONDUCTOR_WORKFLOW_ID,
   WorkflowDefinitionSchema,
   validateWorkflow,
@@ -11,15 +12,15 @@ import {
 } from '@conductor/shared';
 import type { Queryable } from '../contracts.js';
 
-// ADR-0010 / ADR-0011 (M1b-T09) / ADR-0025: the orchestrator seeds the shipped `conductor`
-// workflow, v1 → v2 → v3 (`shipped()`, oldest first).
+// ADR-0010 / ADR-0011 (M1b-T09) / ADR-0025 / M2-T34: the orchestrator seeds the shipped
+// `conductor` workflow, v1 → v2 → v3 → v4 (`shipped()`, oldest first).
 // - v1 when no `conductor` version exists: one INSERT that only fires while no version exists,
 //   and `ON CONFLICT DO NOTHING` on the (id, version) primary key for the race where two starts
 //   both saw none.
 // - The next shipped version while the latest is an **unedited** shipped one (its parsed
 //   definition deep-equals that version's): one INSERT that only fires while no version at or
 //   above it exists, with the same ON CONFLICT, so concurrent starts insert exactly one. Repeated
-//   until the latest is the newest shipped version: an empty database gets v1, v2, v3 (v3 latest).
+//   until the latest is the newest shipped version: an empty database gets v1 … v4 (v4 latest).
 // - Anything else (the user saved a version of their own) is never touched: the start logs that a
 //   newer default is available, and `GET /api/workflows/conductor` carries `default_available`.
 
@@ -31,8 +32,22 @@ export interface SeedOptions {
   log?: ((msg: string) => void) | null;
 }
 
-function checkedDef(input: WorkflowDefinitionInput): WorkflowDefinition {
+/**
+ * Rules a superseded shipped version may break: v2 and v3 predate rule 17 (their personal `done`
+ * opens a PR straight into Done). They stay stored and parsed, because sessions pinned to them
+ * still run, but the newest shipped version must pass every rule.
+ */
+const SUPERSEDED_RULE_EXEMPTIONS: readonly number[] = [17];
+
+function checkedDef(input: WorkflowDefinitionInput, superseded: boolean): WorkflowDefinition {
   const checked = validateWorkflow(input);
+  if (
+    !checked.ok &&
+    superseded &&
+    checked.errors.every((e) => SUPERSEDED_RULE_EXEMPTIONS.includes(e.rule))
+  ) {
+    return WorkflowDefinitionSchema.parse(input);
+  }
   if (!checked.ok) {
     // A shipped definition that fails its own validator is a build bug: fail loudly.
     throw new Error(
@@ -46,7 +61,8 @@ function checkedDef(input: WorkflowDefinitionInput): WorkflowDefinition {
 
 /** The shipped `conductor` versions, oldest first, each validated. */
 function shipped(): WorkflowDefinition[] {
-  return [CONDUCTOR_V1, CONDUCTOR_V2, CONDUCTOR_V3].map(checkedDef);
+  const all = [CONDUCTOR_V1, CONDUCTOR_V2, CONDUCTOR_V3, CONDUCTOR_V4];
+  return all.map((v, i) => checkedDef(v, i < all.length - 1));
 }
 
 /**

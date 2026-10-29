@@ -109,8 +109,9 @@ describe('rule 15', () => {
     on(counted, 'in_qa').qa_fail.else = 'done';
     expect(paths(counted)).toEqual([`15 ${QA}.on.qa_fail.else`]);
 
-    // v2 has the same plain moves into Done, but names no merge_pr.
-    expect(paths(v2())).toEqual([]);
+    // v2 has the same plain moves into Done, but names no merge_pr: nothing for rule 15 (its
+    // personal done is rule 17's, M2-T34).
+    expect(paths(v2())).toEqual(['17 states.implementing.on.done.goto']);
   });
 
   it('close_pr also satisfies it, and the fallbacks are exempt', () => {

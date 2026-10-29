@@ -67,3 +67,6 @@ Facts we rely on:
 - Claude Code changes its transcript location, slug rule or line format (re-check on a CLI upgrade, like the stream-json spike).
 - Multi-machine fleets (M2): cross-machine reopen and history (push the branch; ship or proxy the transcript).
 - Durable output becomes a requirement (U-005 reopened).
+
+## Amendment (M2-T34, 2026-10-29): a reopen takes the newest workflow version
+The reopened session used to copy the old session's `workflow_version`. It now takes the newest version of the same workflow id when that version has `def.start` (where a reopen always enters), and the ticket's `workflow_version` follows (`reopenVersion`, `orchestrator/src/engine/repin.ts`; [05 §Versioning](../design/05-workflow-engine.md#versioning)). The cause: ticket UX-11 was reopened on conductor v2 and closed itself a second time through v2's personal `done`, which v4 removes. Branch, context and Claude session still carry over unchanged; `operator.reopen` records `workflow_version: {from, to}` when it changed. The rest of this ADR stands.

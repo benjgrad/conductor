@@ -4,6 +4,7 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-29 | `daemon-windows` CI is diff-aware (daemon/shared/toolchain paths only, PRs + main; no duplicate push runs); a seam test keeps every daemon OS branch inside `src/platform/` so mac/linux-only behaviour can't land untested on Windows (Ben) | ADR-0024 §9 |
 | 2026-10-28 | MW built in one lead session without implementer/QA agents, targeted tests locally, the win32 job as proof (Ben: "kill the multi-agent approach, this is too slow"); MW tasks land on one branch `mw-windows-daemon` | MW |
 | 2026-10-28 | A child the daemon killed is reported as the signal it sent on every OS (win32 taskkill leaves exit code 1): `killedExit` | ADR-0024 §2 |
 | 2026-10-28 | `AbsolutePathSchema` also refuses a leading `//` on every OS: it is Windows' forward-slash UNC form, and a realpath'd POSIX path never starts with `//` (lead, from MW-T02; cheap to reverse) | ADR-0024 §8, MW-T02 |

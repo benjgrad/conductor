@@ -104,6 +104,7 @@ Workflow JSON commands stay POSIX `sh`, so one workflow runs on every OS. Claude
 ### 9 · Requirements and CI
 - **Supported:** Windows 10 1809+ or Windows 11, Node ≥ 22, Git for Windows ≥ 2.40 (Git Bash), and the **native `claude.exe`** (U-110, Ben). npm's `claude.cmd` is refused with a hint: cmd.exe can't pass the multi-line `--append-system-prompt`, and `spawnCli` throws `ERR_CMD_UNSAFE_ARG` for CR/LF/NUL in a `.cmd` argument. Other `.cmd` CLIs (`az.cmd`) still work through `spawnCli`.
 - **CI:** a GitHub Actions `windows-latest` job (`.github/workflows/daemon-windows.yml`) runs typecheck and the daemon and shared test projects on every pushed task branch. After MW-T12 it also runs the fake-claude e2e. This is the repo's first hosted CI (Ben, 2026-10-28). Linux and macOS keep `scripts/ci.sh`.
+- **Diff-aware (Ben, 2026-10-29):** the job runs on PRs and pushes to main only when `packages/daemon`, `packages/shared`, the workflow or the shared toolchain change. Daemon changes always run it, and `platform/seam.test.ts` (on every OS) fails if any daemon source outside `src/platform/` branches on `process.platform`. So a daemon behaviour can't be added for macOS/Linux without its Windows side living in, and being tested through, the platform layer.
 
 ## Consequences
 - Every change to `platform/`, the edit guard or the credential code needs the Windows job green as well as `ci.sh`.

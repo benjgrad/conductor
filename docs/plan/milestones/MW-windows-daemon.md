@@ -49,7 +49,7 @@
 | MW-T06 | Orphan sweep on Windows (procinfo, `checkOurs`, sweep kill) | T01, T03 | B | — | done (on mw-windows-daemon; win32 CI green) |
 | MW-T07 | Credential, config, private repos and git env on Windows | T01, T04 | B | — | done (on mw-windows-daemon; win32 CI green) |
 | MW-T08 | Edit guard on Windows (command quoting, resolver), fail-closed path table | T01 | B | — | done (on mw-windows-daemon; win32 CI green) |
-| MW-T09 | CLI, paths, sysinfo, rescan, long paths, transcript slug | T01, M2-T18 | B | — | in_progress (done: 8.3 worktree reuse, repo scan, transcript slug; left: main.ts SIGBREAK + `rescan`, sysinfo CPU, core.longpaths; after M2-T18) |
+| MW-T09 | CLI, paths, sysinfo, rescan, long paths, transcript slug | T01, M2-T18 | B | — | in_progress (done: 8.3 worktree reuse, repo scan, transcript slug; left: main.ts SIGBREAK + `rescan`, core.longpaths; win32 CPU done (platform/sysres.ts); after M2-T18) |
 | MW-T10 | `service` on win32: Scheduled Task + `conductor-launch.ps1` | T05, T09, M2-T18 | C | — | todo |
 | MW-T11 | `install.ps1` + tarball `.cmd` shim + Machines page PowerShell line | T07, T10 | D | — | todo |
 | MW-T12 | E2E on Windows, remove the remaining skips, setup docs | T05–T11 | E | — | todo |

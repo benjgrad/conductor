@@ -5,7 +5,8 @@
 # Diff-aware: it runs only when something the daemon is built or tested from changes. That set
 # always includes packages/daemon and packages/shared, so no daemon change reaches main without
 # passing here too; platform/seam.test.ts keeps every OS branch inside src/platform/, where the
-# win32 twin is tested. Docs, web, orchestrator and deploy-only changes skip it (~15 min, TD-194).
+# win32 twin is tested. Docs, web, orchestrator and deploy-only changes skip it (~15 min, TD-194),
+# except the Windows installer (install.ps1 and the tarball's .cmd entry, MW-T11), tested here.
 name: daemon-windows
 
 on:
@@ -23,6 +24,9 @@ on:
       - 'vitest.config.ts'
       - '.nvmrc'
       - '.npmrc'
+      - 'packages/orchestrator/assets/**'
+      - 'packages/orchestrator/src/distribution.ts'
+      - 'packages/orchestrator/test/install-ps1.test.ts'
   push:
     branches: [main]
     paths:
@@ -37,6 +41,9 @@ on:
       - 'vitest.config.ts'
       - '.nvmrc'
       - '.npmrc'
+      - 'packages/orchestrator/assets/**'
+      - 'packages/orchestrator/src/distribution.ts'
+      - 'packages/orchestrator/test/install-ps1.test.ts'
   workflow_dispatch:
 
 permissions:
@@ -64,3 +71,5 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm vitest run --project daemon --project shared
+      # MW-T11: install.ps1 under Windows PowerShell 5.1 against a fake tarball server (no DB).
+      - run: pnpm vitest run --project orchestrator test/install-ps1.test.ts

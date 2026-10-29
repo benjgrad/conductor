@@ -77,12 +77,15 @@ afterEach(async () => {
 });
 
 describe('enrollment tokens and enroll', () => {
-  it('the token command is the curl | sh line on the public URL', async () => {
+  it('the token commands are the curl | sh and irm | iex lines on the public URL', async () => {
     const res = await api.send('POST', API_PATHS.machineEnrollmentTokens, { ...as(a), body: {} });
     expect(res.status).toBe(201);
     const created = EnrollmentTokenCreatedSchema.parse(res.json);
     expect(created.command).toBe(
       `curl -fsSL ${HTTPS_URL}/install.sh | sh -s -- --token ${created.token}`,
+    );
+    expect(created.command_windows).toBe(
+      `$env:CONDUCTOR_ENROLL_TOKEN='${created.token}'; irm ${HTTPS_URL}/install.ps1 | iex`,
     );
     expect(Date.parse(created.expires_at)).toBeGreaterThan(Date.now());
 

@@ -1129,6 +1129,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         return {
           token,
           command: `curl -fsSL http://localhost/install.sh | sh -s -- --token ${token}`,
+          command_windows: `$env:CONDUCTOR_ENROLL_TOKEN='${token}'; irm http://localhost/install.ps1 | iex`,
           expires_at: isoIn(ENROLLMENT_TOKEN_TTL_MS),
         };
       }),

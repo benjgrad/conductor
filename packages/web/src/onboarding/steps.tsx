@@ -1,5 +1,5 @@
 import type { EnrollmentTokenCreated, MachineDetail } from '@conductor/shared';
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useState } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { CopyCommand } from '../machines/CopyCommand.js';
 import { useCountdown } from '../machines/countdown.js';
@@ -13,15 +13,14 @@ import {
 } from '../machines/format.js';
 import { routeHash } from '../nav.js';
 import {
-  DAEMON_BIN,
+  DAEMON_COMMANDS,
   GH_INSTALL_URL,
-  guessOs,
   OS_LABELS,
+  OSES,
   PREREQUISITES,
-  ROOTS_COMMAND,
-  SIGHUP_COMMAND,
   type Os,
 } from './content.js';
+import { OsTabs } from './OsTabs.js';
 
 // UX-8: the setup guide's five steps (SetupGuide.tsx holds the state they share).
 
@@ -32,45 +31,21 @@ export const INVENTORY_POLL_MS = 5000;
 /** After this long without a machine, step 3 shows troubleshooting. */
 export const TROUBLESHOOT_AFTER_MS = 2 * 60_000;
 
-const OSES: Os[] = ['macos', 'linux'];
+const OS_TABS = OSES.map((key) => ({ key, label: OS_LABELS[key] }));
+
+/** The guide's OS choice, made once in SetupGuide and changeable from steps 1 and 2. */
+interface OsChoice {
+  os: Os;
+  onOs: (os: Os) => void;
+}
 
 /** FR-2: what the computer needs, with install and check commands per OS. */
-export function Prerequisites() {
-  const [os, setOs] = useState<Os>(guessOs);
-  const tabs = useRef<Record<Os, HTMLButtonElement | null>>({ macos: null, linux: null });
-
-  function onKey(e: KeyboardEvent) {
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-    e.preventDefault();
-    const next = OSES[(OSES.indexOf(os) + 1) % OSES.length]!;
-    setOs(next);
-    tabs.current[next]?.focus();
-  }
-
+export function Prerequisites({ os, onOs }: OsChoice) {
   return (
     <>
       <p>Install anything missing, then run each check in a terminal on the computer.</p>
-      <div className="setup-tabs" role="tablist" aria-label="Operating system">
-        {OSES.map((o) => (
-          <button
-            key={o}
-            ref={(el) => {
-              tabs.current[o] = el;
-            }}
-            type="button"
-            role="tab"
-            id={`setup-tab-${o}`}
-            aria-selected={o === os}
-            aria-controls="setup-tabpanel"
-            tabIndex={o === os ? 0 : -1}
-            onClick={() => setOs(o)}
-            onKeyDown={onKey}
-          >
-            {OS_LABELS[o]}
-          </button>
-        ))}
-      </div>
-      <div role="tabpanel" id="setup-tabpanel" aria-labelledby={`setup-tab-${os}`}>
+      <OsTabs label="Operating system" idPrefix="setup" tabs={OS_TABS} value={os} onChange={onOs}>
+        {os === 'windows' && <p>Run every command in PowerShell.</p>}
         <ul className="setup-checklist">
           {PREREQUISITES.map((p) => (
             <li key={p.id}>
@@ -96,7 +71,7 @@ export function Prerequisites() {
             </li>
           ))}
         </ul>
-      </div>
+      </OsTabs>
     </>
   );
 }
@@ -106,11 +81,14 @@ export function Install({
   api,
   enrollment,
   onEnrollment,
+  os,
+  onOs,
 }: {
   api: ApiClient;
   enrollment: EnrollmentTokenCreated | null;
   onEnrollment: (e: EnrollmentTokenCreated) => void;
-}) {
+} & OsChoice) {
+  const windows = os === 'windows';
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -129,44 +107,72 @@ export function Install({
   return (
     <>
       <p>
-        Generate a one-time command and run it in a terminal on the computer. It's shown once, works
-        once, and expires in 30 minutes.
+        Generate a one-time command and run it in a terminal on the computer
+        {windows ? ' (PowerShell)' : ''}. It's shown once, works once, and expires in 30 minutes.
       </p>
-      <button type="button" onClick={() => void generate()} disabled={busy}>
-        {enrollment ? 'Generate a new command' : 'Generate install command'}
-      </button>
-      {error && (
-        <p role="alert" className="error">
-          {error}
+      <OsTabs
+        label="Operating system"
+        idPrefix="setup-install"
+        tabs={OS_TABS}
+        value={os}
+        onChange={onOs}
+      >
+        <button type="button" onClick={() => void generate()} disabled={busy}>
+          {enrollment ? 'Generate a new command' : 'Generate install command'}
+        </button>
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+        {enrollment && <OneTimeCommand key={enrollment.token} enrollment={enrollment} os={os} />}
+
+        <h4>What the installer does</h4>
+        <ul>
+          <li>Downloads the daemon and checks its fingerprint (SHA-256) before installing it.</li>
+          {windows ? (
+            <li>
+              Installs it in .conductor in your user folder and adds it to your PATH. No
+              administrator rights, nothing outside your user folder.
+            </li>
+          ) : (
+            <li>Installs it in ~/.conductor. No sudo, nothing outside your home folder.</li>
+          )}
+          <li>Enrolls the computer: connects it to your conductor account.</li>
+        </ul>
+        <p className="muted">
+          It installs none of the prerequisites; if one is missing, it says which and stops.
         </p>
-      )}
-      {enrollment && <OneTimeCommand key={enrollment.token} enrollment={enrollment} />}
 
-      <h4>What the installer does</h4>
-      <ul>
-        <li>Downloads the daemon and checks its fingerprint (SHA-256) before installing it.</li>
-        <li>Installs it in ~/.conductor. No sudo, nothing outside your home folder.</li>
-        <li>Enrolls the computer: connects it to your conductor account.</li>
-      </ul>
-      <p className="muted">
-        It installs none of the prerequisites; if one is missing, it says which and stops.
-      </p>
-
-      <h4>Start the daemon</h4>
-      <p>When the installer finishes, start the daemon and keep that terminal open:</p>
-      <CopyCommand label="Start the daemon" command={DAEMON_BIN} />
-      <p className="muted">Stop it with Ctrl-C.</p>
+        <h4>Start the daemon</h4>
+        <p>
+          When the installer finishes, start the daemon
+          {windows ? ' in the same PowerShell window' : ''} and keep that terminal open:
+        </p>
+        <CopyCommand label="Start the daemon" command={DAEMON_COMMANDS[os].start} />
+        <p className="muted">Stop it with Ctrl-C.</p>
+      </OsTabs>
     </>
   );
 }
 
-function OneTimeCommand({ enrollment }: { enrollment: EnrollmentTokenCreated }) {
+function OneTimeCommand({ enrollment, os }: { enrollment: EnrollmentTokenCreated; os: Os }) {
   const left = useCountdown(enrollment.expires_at);
   const expired = left <= 0;
-  const service = SERVICE_INSTALL_AVAILABLE ? serviceCommand(enrollment.command) : null;
+  const windows = os === 'windows';
+  // A server from before MW-T11 sends no Windows command.
+  const command = windows ? (enrollment.command_windows ?? null) : enrollment.command;
+  const service = SERVICE_INSTALL_AVAILABLE && !windows ? serviceCommand(enrollment.command) : null;
+  if (command === null) {
+    return (
+      <p role="alert" className="error">
+        This conductor server has no Windows installer yet.
+      </p>
+    );
+  }
   return (
     <div className="machine-panel">
-      <CopyCommand label="Install command" command={enrollment.command} disabled={expired} />
+      <CopyCommand label="Install command" command={command} disabled={expired} />
       {expired ? (
         <p role="alert" className="error">
           This command has expired. Generate a new one.
@@ -205,12 +211,14 @@ export function WaitForMachine({
   machine,
   onFound,
   onNewCommand,
+  os,
 }: {
   api: ApiClient;
   baseline: ReadonlySet<string> | null;
   machine: MachineDetail | null;
   onFound: (m: MachineDetail) => void;
   onNewCommand: () => void;
+  os: Os;
 }) {
   const [slow, setSlow] = useState(false);
   const found = machine !== null;
@@ -282,7 +290,7 @@ export function WaitForMachine({
           <ul>
             <li>
               <b>Is the daemon running?</b> Look at the terminal where you started it. If you closed
-              it, start <code>{DAEMON_BIN}</code> again.
+              it, start <code>{DAEMON_COMMANDS[os].start}</code> again.
             </li>
             <li>
               <b>Is Node.js 22 on the PATH?</b> Run <code>node -v</code> in that same terminal; it
@@ -316,13 +324,16 @@ export function RepoCaps({
   machine,
   onMachine,
   onConnect,
+  os,
 }: {
   api: ApiClient;
   machine: MachineDetail | null;
   onMachine: (m: MachineDetail) => void;
   onConnect: () => void;
+  os: Os;
 }) {
   const id = machine?.id ?? null;
+  const commands = DAEMON_COMMANDS[os];
 
   useEffect(() => {
     if (id === null) return;
@@ -347,16 +358,21 @@ export function RepoCaps({
         Tell the daemon which folders hold your repos (one or more). Run this on the computer, with
         your own folder:
       </p>
-      <CopyCommand label="Set the repo roots" command={ROOTS_COMMAND} />
+      <CopyCommand label="Set the repo roots" command={commands.roots} />
       <p>
         The daemon rescans every 10 minutes. To apply it now, restart the daemon: press Ctrl-C in
         its terminal, then start it again:
       </p>
-      <CopyCommand label="Start the daemon again" command={DAEMON_BIN} />
-      <p>
-        Or, without restarting, send it a hang-up signal. This signals only the conductor daemon:
-      </p>
-      <CopyCommand label="Rescan now" command={SIGHUP_COMMAND} />
+      <CopyCommand label="Start the daemon again" command={commands.start} />
+      {commands.rescan !== null && (
+        <>
+          <p>
+            Or, without restarting, send it a hang-up signal. This signals only the conductor
+            daemon:
+          </p>
+          <CopyCommand label="Rescan now" command={commands.rescan} />
+        </>
+      )}
 
       <h4>What your machine reported</h4>
       {machine === null ? (

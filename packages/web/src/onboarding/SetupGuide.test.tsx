@@ -150,10 +150,74 @@ describe('step 1, prerequisites (FR-2)', () => {
     fireEvent.keyDown(screen.getByRole('tab', { name: 'macOS' }), { key: 'ArrowRight' });
     expect(screen.getByRole('tab', { name: 'Linux' }).getAttribute('aria-selected')).toBe('true');
     expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Linux' }));
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Linux' }), { key: 'ArrowLeft' });
+    expect(screen.getByRole('tab', { name: 'macOS' }).getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'macOS' }), { key: 'ArrowLeft' });
+    expect(screen.getByRole('tab', { name: 'Windows' }).getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('the Windows tab shows PowerShell commands and the native Claude Code (MW-T11)', () => {
+    renderGuide();
+    fireEvent.click(screen.getByRole('tab', { name: 'Windows' }));
+    const panel = within(screen.getByRole('tabpanel'));
+    expect(panel.getByText('Run every command in PowerShell.')).toBeTruthy();
+    for (const command of [
+      'winget install OpenJS.NodeJS.LTS',
+      'winget install --id Git.Git -e',
+      'irm https://claude.ai/install.ps1 | iex',
+      'winget install --id GitHub.cli -e',
+      'gh auth login',
+      'node -v',
+      'claude --version',
+    ]) {
+      expect(panel.getByDisplayValue(command)).toBeTruthy();
+    }
+    // U-110: npm's claude.cmd doesn't work on Windows.
+    expect(panel.queryByDisplayValue('npm install -g @anthropic-ai/claude-code')).toBeNull();
+    expect(panel.queryByDisplayValue(/nvm|brew|apt/)).toBeNull();
   });
 });
 
 describe('step 2, install and enroll (FR-3)', () => {
+  it('Windows, picked in step 1, gets the PowerShell command and start line (MW-T11)', async () => {
+    renderGuide();
+    fireEvent.click(screen.getByRole('tab', { name: 'Windows' }));
+    goToStep(/Install and enroll/);
+    expect(screen.getByRole('tab', { name: 'Windows' }).getAttribute('aria-selected')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Generate install command' }));
+    const input = await screen.findByLabelText<HTMLInputElement>('Install command');
+    expect(input.value).toBe(
+      "$env:CONDUCTOR_ENROLL_TOKEN='mock-enroll-1'; irm http://localhost/install.ps1 | iex",
+    );
+    expect(screen.getByText(/No\s+administrator rights/)).toBeTruthy();
+    expect(screen.queryByText(/No sudo/)).toBeNull();
+    expect(screen.getByLabelText<HTMLInputElement>('Start the daemon').value).toBe(
+      'conductor-daemon',
+    );
+
+    // The same token, the other OS: no new command needed.
+    fireEvent.click(screen.getByRole('tab', { name: 'Linux' }));
+    expect(screen.getByLabelText<HTMLInputElement>('Install command').value).toBe(
+      'curl -fsSL http://localhost/install.sh | sh -s -- --token mock-enroll-1',
+    );
+  });
+
+  it('says so when the server sends no Windows command', async () => {
+    const api = createMockApi({ machines: 'none' });
+    const create = api.createEnrollmentToken.bind(api);
+    vi.spyOn(api, 'createEnrollmentToken').mockImplementation(async () => {
+      const created = await create();
+      delete created.command_windows;
+      return created;
+    });
+    renderGuide(api);
+    goToStep(/Install and enroll/);
+    fireEvent.click(screen.getByRole('tab', { name: 'Windows' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Generate install command' }));
+    expect((await screen.findByRole('alert')).textContent).toMatch(/no Windows installer/);
+    expect(screen.queryByLabelText('Install command')).toBeNull();
+  });
+
   it('shows the command once with a countdown; a remount drops it', async () => {
     renderGuide();
     goToStep(/Install and enroll/);
@@ -288,6 +352,28 @@ describe('step 4, repos and capabilities (FR-5)', () => {
     });
     goToStep(/Repos and checks/);
   }
+
+  it('on Windows: PowerShell roots and restart, no hang-up signal (MW-T11)', async () => {
+    const api = createMockApi({ machines: 'none' });
+    vi.useFakeTimers();
+    renderGuide(api);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('tab', { name: 'Windows' }));
+    goToStep('Connect');
+    api.connectMachine({ name: 'work-laptop', os: 'win32', arch: 'x64' });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_MS);
+    });
+    goToStep(/Repos and checks/);
+    expect(screen.getByLabelText<HTMLInputElement>('Set the repo roots').value).toBe(
+      'conductor-daemon config roots $HOME/code',
+    );
+    expect(screen.getByLabelText<HTMLInputElement>('Start the daemon again').value).toBe(
+      'conductor-daemon',
+    );
+    expect(screen.queryByLabelText('Rescan now')).toBeNull();
+    expect(screen.queryByText(/hang-up signal/)).toBeNull();
+  });
 
   const caps = (cli: { name: string; version: string | null; authed: boolean | null }[]) => ({
     cli: cli.map((c) => ({ ...c, repo: null })),

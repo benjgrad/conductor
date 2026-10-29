@@ -58,6 +58,15 @@ export function installCommand(installUrl: string, token: string): string {
   return `curl -fsSL ${installUrl}${API_PATHS.installScript} | sh -s -- --token ${token}`;
 }
 
+/**
+ * The same for Windows PowerShell (MW-T11). `irm | iex` takes no arguments, so the token goes in
+ * the session's environment; install.ps1 removes it as soon as it reads it.
+ */
+export function installCommandWindows(installUrl: string, token: string): string {
+  if (!TOKEN_RE.test(token)) throw new Error('enrollment token is not base64url');
+  return `$env:CONDUCTOR_ENROLL_TOKEN='${token}'; irm ${installUrl}${API_PATHS.installScriptWindows} | iex`;
+}
+
 type MachineListRow = MachineDbRow & { running_sessions: number; repo_count: number };
 
 const MACHINE_SELECT =
@@ -220,6 +229,7 @@ export const registerMachineRoutes: FastifyPluginAsync<MachineRoutesOptions> = (
     const out: EnrollmentTokenCreated = {
       token: issued.token,
       command: installCommand(installUrl(req), issued.token),
+      command_windows: installCommandWindows(installUrl(req), issued.token),
       expires_at: issued.expires_at.toISOString(),
     };
     return reply.code(201).send(out);

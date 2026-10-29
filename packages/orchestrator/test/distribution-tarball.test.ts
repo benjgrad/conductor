@@ -2,18 +2,9 @@
 // bin/conductor-daemon runs from an empty directory with only Node on PATH (no workspace links).
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import {
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  readlinkSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-} from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve, sep } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { findDaemonBuild } from '../src/distribution.js';
@@ -60,14 +51,13 @@ describe.skipIf(!hasPnpm)('build-daemon-tarball.sh', () => {
     const x = join(work, 'x');
     mkdirSync(x);
     expect(spawnSync('tar', ['-C', x, '-xzf', join(out, file)]).status).toBe(0);
-    const root = realpathSync(x);
-    for (const link of symlinks(x)) {
-      const target = realpathSync(link);
-      expect(
-        target === root || target.startsWith(root + sep),
-        `${link} → ${readlinkSync(link)}`,
-      ).toBe(true);
-    }
+    // MW-T11: none at all, since Windows tar.exe can't create them without Developer Mode.
+    expect(symlinks(x)).toEqual([]);
+    // The Windows entry: CRLF batch file with the build sha, running dist/main.js.
+    const cmd = readFileSync(join(x, 'bin', 'conductor-daemon.cmd'), 'utf8');
+    expect(cmd.split('\r\n').every((line) => !line.includes('\n'))).toBe(true);
+    expect(cmd).toContain('set "CONDUCTOR_BUILD_SHA=abc1234"');
+    expect(cmd).toContain('node "%~dp0..\\dist\\main.js" %*');
 
     const pathbin = join(work, 'pathbin');
     const cwd = join(work, 'empty');

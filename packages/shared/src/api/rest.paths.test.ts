@@ -42,6 +42,7 @@ describe('API_PATHS', () => {
       machineRevoke: '/api/machines/:id/revoke',
       machineAlertClear: '/api/machines/alerts/:id/clear',
       installScript: '/install.sh',
+      installScriptWindows: '/install.ps1',
       daemonDownload: '/downloads/:file',
       healthz: '/healthz',
       session: '/api/sessions/:id',

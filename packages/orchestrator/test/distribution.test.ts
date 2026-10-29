@@ -222,6 +222,24 @@ describe('serveDistribution with a build', () => {
     expect(body).not.toMatch(/@@[A-Z0-9_]+@@/);
   });
 
+  it('/install.ps1 is the PowerShell installer, filled in the same way (MW-T11)', async () => {
+    const r = await get(s.port, '/install.ps1');
+    expect(r.status).toBe(200);
+    expect(r.headers['content-type']).toBe('text/plain; charset=utf-8');
+    expect(r.headers['cache-control']).toBe('no-store');
+    for (const [k, v] of Object.entries(SECURITY_HEADERS)) expect(r.headers[k], k).toBe(v);
+    const body = r.body.toString('utf8');
+    expect(body).toContain(`$PublicUrl = '${PUBLIC_URL}'`);
+    expect(body).toContain(`$Version = '${VERSION}'`);
+    expect(body).toContain(`$File = '${FILE}'`);
+    expect(body).toContain(`$Sha256 = '${f.sha}'`);
+    expect(body).not.toMatch(/@@[A-Z0-9_]+@@/);
+    // Windows PowerShell 5.1 decodes by the charset; keep the script ASCII anyway.
+    expect(/[^\t\n\r -~]/.test(body)).toBe(false);
+    // irm | iex runs it in the caller's session: `exit` would close their window.
+    expect(body).not.toMatch(/^\s*exit\b/m);
+  });
+
   it('/downloads serves exactly the tarball and its .sha256', async () => {
     const tgz = await get(s.port, `/downloads/${FILE}`);
     expect(tgz.status).toBe(200);
@@ -257,16 +275,19 @@ describe('serveDistribution with a build', () => {
   it('leaves everything else to the API', async () => {
     expect((await get(s.port, '/api/board')).status).toBe(418);
     expect((await get(s.port, '/install.sh', 'POST')).status).toBe(418);
+    expect((await get(s.port, '/install.ps1', 'POST')).status).toBe(418);
   });
 });
 
 describe('serveDistribution without a build (dev)', () => {
-  it('/install.sh is 503 with a hint; /downloads is 404', async () => {
+  it('/install.sh and /install.ps1 are 503 with a hint; /downloads is 404', async () => {
     const s = await start({ db: okDb, publicUrl: PUBLIC_URL, build: null, version: '0.0.0' });
     try {
-      const r = await get(s.port, '/install.sh');
-      expect(r.status).toBe(503);
-      expect(r.body.toString()).toContain('build-daemon-tarball.sh');
+      for (const path of ['/install.sh', '/install.ps1']) {
+        const r = await get(s.port, path);
+        expect(r.status, path).toBe(503);
+        expect(r.body.toString(), path).toContain('build-daemon-tarball.sh');
+      }
       expect((await get(s.port, `/downloads/${FILE}`)).status).toBe(404);
     } finally {
       await stop(s);

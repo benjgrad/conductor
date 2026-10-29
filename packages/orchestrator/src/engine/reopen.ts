@@ -12,6 +12,7 @@ import type { SessionRow, TicketRow } from '../db/types.js';
 import { LEASE_INTERVAL } from '../gateway/claim.js';
 import type { Db } from '../main.js';
 import { cardView } from './board-view.js';
+import { reopenVersion } from './repin.js';
 import { readSession, splitStep } from './rows.js';
 
 // ADR-0008: reopen a finished ticket by resuming the same agent. One transaction:
@@ -22,6 +23,9 @@ import { readSession, splitStep } from './rows.js';
 // pin in claim.ts) and its `session.assigned` enters the workflow's start state, resuming the
 // Claude conversation with the text as prompt (apply's onAssigned + §Pending answer). No outbox
 // row is written here: the first command comes from the claim, through the usual path.
+//
+// M2-T34: a reopen re-pins the ticket to the newest version of its workflow (`reopenVersion`,
+// repin.ts), so a fix to the workflow reaches the tickets Ben sends back, not only new ones.
 
 /** The statuses a session can be reopened from. `lost` is not one (see ADR-0008). */
 export const REOPENABLE_STATUSES: ReadonlySet<SessionStatus> = new Set(['done', 'failed']);
@@ -64,6 +68,7 @@ export async function reopenSession(
     }
 
     const sessionId = randomUUID();
+    const version = await reopenVersion(tx, old.workflow_id, old.workflow_version);
     const pending: PendingAnswer = { input_request_id: null, answer: text };
     // Carried: the branch (same worktree contents on the same machine), the context (earlier
     // state results), the Claude session id (resume the same conversation) and the per-Claude-
@@ -80,7 +85,7 @@ export async function reopenSession(
         sessionId,
         ticket.id,
         old.workflow_id,
-        old.workflow_version,
+        version,
         old.branch ?? sessionBranch(ticket.id, old.id),
         old.claude_session_id,
         JSON.stringify(pending),
@@ -90,19 +95,39 @@ export async function reopenSession(
         JSON.stringify(old.claude_spend_totals),
       ],
     );
-    await tx.query(`UPDATE ticket SET status = 'ready', updated_at = now() WHERE id = $1`, [
-      ticket.id,
-    ]);
+    await tx.query(
+      `UPDATE ticket SET status = 'ready', workflow_version = $2, updated_at = now() WHERE id = $1`,
+      [ticket.id, version],
+    );
     // The durable record of what the human asked (the output ring is in memory, U-005).
     await tx.query(
       "INSERT INTO event (session_id, type, payload) VALUES ($1, 'operator.reopen', $2)",
-      [sessionId, JSON.stringify({ text, reopened_from: oldSessionId, actor })],
+      [
+        sessionId,
+        JSON.stringify({
+          text,
+          reopened_from: oldSessionId,
+          actor,
+          ...(version !== old.workflow_version
+            ? { workflow_version: { from: old.workflow_version, to: version } }
+            : {}),
+        }),
+      ],
     );
     const fresh = await readSession(tx, sessionId);
     const t2 = await tx.query<TicketRow>('SELECT * FROM ticket WHERE id = $1', [ticket.id]);
-    const view = await cardView(tx, old.workflow_id, old.workflow_version);
-    const before = toBoardCard(ticket, old, null, view);
-    const after = toBoardCard(t2.rows[0]!, fresh, null, view);
+    const before = toBoardCard(
+      ticket,
+      old,
+      null,
+      await cardView(tx, old.workflow_id, old.workflow_version),
+    );
+    const after = toBoardCard(
+      t2.rows[0]!,
+      fresh,
+      null,
+      await cardView(tx, old.workflow_id, version),
+    );
     const boardEvents = await insertBoardEvents(tx, [
       {
         type: 'card.moved',

@@ -2,6 +2,7 @@ import type { ChildProcessByStdio } from 'node:child_process';
 import type { Readable } from 'node:stream';
 import {
   GITHUB_PR_URL_RE,
+  matchingPaths,
   type Condition,
   type ConditionResult,
   type EvaluateConditionsResult,
@@ -44,6 +45,12 @@ import { cleanEnv, tail } from './open-pr.js';
 //       wants reviews);
 //       eligible approvals ≥ min → met, else pending.
 //   - pr_merged: merged → met; else pending.
+//   - pr_screenshots {ui_paths, min_pairs} (M2-T35a): the PR changes no file matching `ui_paths`
+//     → met; else the body's `screenshotsMarker` (written by open_pr with the Before / After table,
+//     M2-T35b) must count ≥ min_pairs (default 1) → met; fewer → failed, the detail naming the UI
+//     files and where the agent saves the screenshots (back to Implementing, counted). gh lists at
+//     most 100 files; when `changedFiles` says more, the list is treated as touching the UI. The
+//     files and body are only asked for when a pr_screenshots condition is evaluated.
 //   - Head pinning: with `headSha` (the commit conductor checked and pushed), a PR whose
 //     `headRefOid` differs fails every PR condition ("someone pushed to the branch").
 //   - A closed, unmerged PR fails every gh condition (it can't become true without a human).
@@ -59,6 +66,7 @@ const GH_TYPES: ReadonlySet<Condition['type']> = new Set([
   'pr_checks_green',
   'pr_approvals',
   'pr_merged',
+  'pr_screenshots',
 ]);
 
 const GH_FIELDS = 'statusCheckRollup,reviewDecision,reviews,state,mergedAt,author,headRefOid';
@@ -66,7 +74,25 @@ const GH_FIELDS = 'statusCheckRollup,reviewDecision,reviews,state,mergedAt,autho
 const GH_JQ =
   '{state, mergedAt, reviewDecision, headRefOid, author: {login: .author.login},' +
   ' statusCheckRollup: [(.statusCheckRollup // [])[] | {__typename, name, context, status, conclusion, state, detailsUrl, targetUrl}],' +
-  ' reviews: [(.reviews // [])[] | {author: {login: .author.login}, authorAssociation, state, commit: {oid: .commit.oid}}]}';
+  ' reviews: [(.reviews // [])[] | {author: {login: .author.login}, authorAssociation, state, commit: {oid: .commit.oid}}]';
+/** pr_screenshots adds the changed paths and the body's pair count (never the body itself). */
+const GH_SCREENSHOT_FIELDS = ',files,changedFiles,body';
+const GH_SCREENSHOT_JQ =
+  ', files: [(.files // [])[] | .path], changedFiles,' +
+  ' screenshotPairs: ((((.body // "") | capture("<!-- conductor:screenshots pairs=(?<n>[0-9]{1,3}) -->") | .n | tonumber)) // null)';
+/** The `gh pr view` args for `conditions`. */
+function ghViewArgs(prUrl: string, conditions: readonly Condition[]): string[] {
+  const shots = conditions.some((c) => c.type === 'pr_screenshots');
+  return [
+    'pr',
+    'view',
+    prUrl,
+    '--json',
+    GH_FIELDS + (shots ? GH_SCREENSHOT_FIELDS : ''),
+    '--jq',
+    GH_JQ + (shots ? GH_SCREENSHOT_JQ : '') + '}',
+  ];
+}
 
 export interface EvaluateConditionsInput {
   /** The move step's conditions, in declaration order (results match by position). */
@@ -212,7 +238,7 @@ export async function evaluateConditions(
   const gh = i.gh ?? { cmd: 'gh', args: [] };
   const r = await runCapped(
     gh.cmd,
-    [...gh.args, 'pr', 'view', i.prUrl, '--json', GH_FIELDS, '--jq', GH_JQ],
+    [...gh.args, ...ghViewArgs(i.prUrl, i.conditions)],
     i.root,
     cleanEnv(i.env ?? process.env),
     i.timeoutMs ?? GH_CONDITION_TIMEOUT_MS,
@@ -269,6 +295,11 @@ export interface PrView {
   /** The PR's current head commit (null: unknown). */
   headRefOid: string | null;
   reviews: { author: string; association: string | null; state: string; commit: string | null }[];
+  /** The changed paths gh listed (null: not asked for); `changedFiles` may say there are more. */
+  files: string[] | null;
+  changedFiles: number | null;
+  /** The pair count in the body's screenshots marker (null: none). */
+  screenshotPairs: number | null;
 }
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
@@ -312,6 +343,8 @@ export function parsePrView(raw: unknown): PrView {
     };
   });
   const state = str(o.state) ?? 'OPEN';
+  const count = (v: unknown): number | null =>
+    typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : null;
   return {
     state,
     merged: state === 'MERGED' || str(o.mergedAt) !== null,
@@ -320,6 +353,11 @@ export function parsePrView(raw: unknown): PrView {
     headRefOid: str(o.headRefOid),
     checks,
     reviews,
+    files: Array.isArray(o.files)
+      ? o.files.map((f) => (typeof f === 'string' ? f : str(rec(f).path))).filter((f) => f !== null)
+      : null,
+    changedFiles: count(o.changedFiles),
+    screenshotPairs: count(o.screenshotPairs),
   };
 }
 
@@ -374,6 +412,7 @@ export function mapCondition(c: Condition, pr: PrView, headSha?: string): Condit
     return result(c.type, 'pending', pr.state.toLowerCase(), 'not merged yet');
   }
   const closed = pr.state === 'CLOSED' && !pr.merged;
+  if (c.type === 'pr_screenshots') return mapScreenshots(c, pr, closed);
   if (c.type === 'pr_checks_green') {
     const total = pr.checks.length;
     const failed = pr.checks.filter((k) => checkVerdict(k) === 'fail');
@@ -425,5 +464,37 @@ export function mapCondition(c: Condition, pr: PrView, headSha?: string): Condit
     'pending',
     value,
     approvers.length > 0 ? `approved by ${approvers.join(', ')}` : 'no approvals yet',
+  );
+}
+
+/** At most `n` items, then `+k more`. */
+const some = (xs: readonly string[], n = 5) =>
+  xs.length <= n ? xs.join(', ') : `${xs.slice(0, n).join(', ')}, +${xs.length - n} more`;
+
+function mapScreenshots(
+  c: Extract<Condition, { type: 'pr_screenshots' }>,
+  pr: PrView,
+  closed: boolean,
+): ConditionResult {
+  if (pr.files === null) return result(c.type, 'pending', null, 'gh listed no changed files');
+  const ui = matchingPaths(pr.files, c.ui_paths);
+  const unlisted = pr.changedFiles !== null && pr.changedFiles > pr.files.length;
+  if (ui.length === 0 && !unlisted) return result(c.type, 'met', 'no UI change', null);
+  const need = c.min_pairs ?? 1;
+  const pairs = pr.screenshotPairs ?? 0;
+  const value = `${pairs}/${need} pairs`;
+  const changed =
+    ui.length > 0
+      ? `UI files changed (${some(ui)})`
+      : `more files changed than gh lists (${pr.changedFiles ?? '?'}), so some may be UI files`;
+  if (pairs >= need) return result(c.type, 'met', value, `${changed}; screenshots attached`);
+  if (closed) return result(c.type, 'failed', value, 'the PR was closed without merging');
+  return result(
+    c.type,
+    'failed',
+    value,
+    `${changed}, but the PR shows ${pairs} of ${need} before/after screenshot pair${need === 1 ? '' : 's'}. ` +
+      'For each changed view, save before-<view>.png (the default branch) and after-<view>.png ' +
+      '(this branch) in $CONDUCTOR_SCREENSHOT_DIR, then finish the step again; conductor attaches them to the PR.',
   );
 }

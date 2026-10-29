@@ -19,6 +19,7 @@ export const CONDITION_CAPABILITIES = {
   pr_checks_green: 'cli:gh:authed',
   pr_approvals: 'cli:gh:authed',
   pr_merged: 'cli:gh:authed',
+  pr_screenshots: 'cli:gh:authed',
   azure_pipeline_succeeded: 'cli:az:authed',
   // Placeholder until M5 decides CLI vs MCP for Jira (U-065).
   jira_fields_set: 'cli:jira:authed',

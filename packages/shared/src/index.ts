@@ -11,6 +11,7 @@ export * from './workflow/transition-rules.js';
 export * from './workflow/fold.js';
 export * from './workflow/fixtures.js';
 export * from './workflow/capabilities.js';
+export * from './workflow/screenshots.js';
 export * from './engine/types.js';
 export {
   apply,

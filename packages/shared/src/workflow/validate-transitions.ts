@@ -18,6 +18,7 @@ import type { WorkflowValidationError } from './validate.js';
 
 // Validator rules 10–14 (ADR-0011, M1b-T02; 05 §Validation on save): the per-transition rules.
 // Rules 15–16 (ADR-0020, M2r-T02): Done only through a merge, and the review-and-merge fields.
+// Rule 17 (M2-T34): a PR the agent opens never reaches a terminal state without a human.
 // The graph rules (2–5) see the same transitions through `collectEdges` in validate.ts. Paths
 // point into the transition (`states.<s>.on.<name>.requires.conditions.1`) so the editor (T06)
 // can map an error to the arrow and the field.
@@ -25,7 +26,7 @@ import type { WorkflowValidationError } from './validate.js';
 type Path = (string | number)[];
 
 /**
- * Rules 10–16. `has(name)` says whether a state exists; a missing target is rule 1's, so these
+ * Rules 10–17. `has(name)` says whether a state exists; a missing target is rule 1's, so these
  * rules skip what they can't judge rather than report it twice.
  */
 export function checkTransitions(
@@ -50,6 +51,7 @@ export function checkTransitions(
       checkRequires(errors, def, name, t, base, stateOf);
       checkMergeFields(errors, def, from, state, name, raw, t, base, stateOf);
       if (mergeAware) checkDoneViaMerge(errors, name, raw, t, base, stateOf);
+      checkPrNeedsHuman(errors, def, from, name, raw, t, base, stateOf);
     }
     if (state.type === 'agent') checkCanAsk(errors, def, from, on, isHuman);
   }
@@ -314,6 +316,44 @@ function checkDoneViaMerge(
     err(
       [...base, 'else'],
       `in a merge-aware workflow, "${name}" can't fall back to terminal "${t.else}" (only merge_pr or close_pr reach it)`,
+    );
+  }
+}
+
+/**
+ * Rule 17, a PR reaches Done only through a human (M2-T34, Ben 2026-10-29): an agent-actor
+ * transition that opens conductor's PR (`open_pr`) can't go to a terminal state, nor fall back to
+ * one, unless it waits for a human on that PR (an enabled `pr_approvals` or `pr_merged`
+ * condition). conductor v2/v3's personal `done` broke this: the agent closed its own ticket the
+ * moment the PR existed, before CI or review.
+ */
+function checkPrNeedsHuman(
+  errors: WorkflowValidationError[],
+  def: WorkflowDefinition,
+  from: string,
+  name: string,
+  raw: Transition,
+  t: TransitionObject,
+  base: Path,
+  stateOf: (name: string) => WorkflowState | undefined,
+): void {
+  if (!t.requires?.actions?.includes('open_pr')) return;
+  if (transitionActor(def, from, name, raw) !== 'agent') return;
+  const human = (t.requires.conditions ?? []).some(
+    (c) => (c.type === 'pr_approvals' || c.type === 'pr_merged') && conditionEnabled(c),
+  );
+  if (human) return;
+  const err = (path: Path, message: string) => errors.push({ rule: 17, path, message });
+  if (stateOf(t.goto)?.type === 'terminal') {
+    err(
+      [...base, 'goto'],
+      `"${name}" opens a PR and goes straight to terminal "${t.goto}": send it to a human state, or wait for pr_approvals or pr_merged`,
+    );
+  }
+  if (t.else !== undefined && stateOf(t.else)?.type === 'terminal') {
+    err(
+      [...base, 'else'],
+      `"${name}" opens a PR and can fall back to terminal "${t.else}" without a human`,
     );
   }
 }

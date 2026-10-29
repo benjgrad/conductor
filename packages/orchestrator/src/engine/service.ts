@@ -34,6 +34,7 @@ import {
   toSnapshot,
   writeSession,
 } from './rows.js';
+import { repinParked } from './repin.js';
 
 /** Session statuses after which apply ignores every event. */
 const TERMINAL: ReadonlySet<string> = new Set(['done', 'failed', 'lost']);
@@ -125,7 +126,26 @@ export class EngineServiceImpl implements EngineService {
     if (opts.fencingToken !== undefined && opts.fencingToken < Number(session.fencing_token)) {
       return rejected('stale_fencing_token');
     }
-    const def = await this.defs.get(tx, session.workflow_id, session.workflow_version);
+    let def = await this.defs.get(tx, session.workflow_id, session.workflow_version);
+    // M2-T34: a human acting on a parked session moves it (and its ticket) to the newest version.
+    const repinned = await repinParked(tx, session, def, event);
+    if (repinned !== null) {
+      await tx.query(
+        "INSERT INTO event (session_id, type, payload) VALUES ($1, 'workflow.repinned', $2)",
+        [sessionId, JSON.stringify({ from: session.workflow_version, to: repinned })],
+      );
+      await tx.query('UPDATE session SET workflow_version = $2 WHERE id = $1', [
+        sessionId,
+        repinned,
+      ]);
+      await tx.query('UPDATE ticket SET workflow_version = $2, updated_at = now() WHERE id = $1', [
+        ticket.id,
+        repinned,
+      ]);
+      session.workflow_version = repinned;
+      ticket.workflow_version = repinned;
+      def = await this.defs.get(tx, session.workflow_id, repinned);
+    }
 
     let inputRow: InputRequestRow | null = null;
     if (event.type === 'input.provided') {

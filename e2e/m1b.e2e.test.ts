@@ -2,26 +2,29 @@
 // orchestrator and daemon bins, the fake Claude, the fake `gh`), its own database and fixture repo.
 //
 // Scenarios, on `conductor` v2 saved again with `condition_poll: "1s"` (so the conditions poll
-// fast without a test-only knob; tickets pin it as the latest version):
+// fast without a test-only knob; tickets pin it as the latest version) and without its personal
+// `done`, which validator rule 17 now refuses on save (M2-T34):
 //   1. Planning → Needs input via `scope_changed` (its reason is the question) → answered →
 //      back to Planning → `plan_ready` → Implementing → `needs_approval_to_message` → the human
 //      takes "Waiting on someone else" → Approve → Done.
 //   2. A work ticket: `ready_for_testing` → checks → review → open_pr → held in Implementing with
 //      the checklist (approvals 0/1) → the fake gh flips to 1/1 → Waiting external.
 //   3. Needs input → Done by the human `done` transition (POST /transition).
-//   4. A personal ticket: Planning → Implementing → `done` → Done; no conditions, never Waiting
-//      external, and its prompt offers only the personal transitions.
+//   4. A personal ticket: Planning → Implementing → `personal_pr_ready_for_review` → Needs input
+//      (never Done by itself) → the human's `done` → Done; never Waiting external, and its prompt
+//      offers only the personal transitions, `done` not among them. Saving a definition with an
+//      agent `done` that opens a PR is refused (rule 17).
 //   5. Regression: a ticket pinned to conductor v1's definition still runs the ADR-0010 path.
 //   6. M2-T30: a personal ticket on a pnpm repo: the entry checks install with
-//      `pnpm install --frozen-lockfile` and run `npm run build` / `npm test` as pnpm → Done.
-//   7. ADR-0025 (conductor v3, polled every second): a personal ticket whose PR CI is red goes
-//      back to Implementing with the failing check and how to read its log; the agent's fix is
-//      pushed, CI turns green, and only then is the ticket Done.
+//      `pnpm install --frozen-lockfile` and run `npm run build` / `npm test` as pnpm → Needs input.
+//   7. ADR-0025 / M2-T34 (conductor v4, polled every second): a personal ticket whose PR CI is red
+//      goes back to Implementing with the failing check and how to read its log; the agent's fix
+//      is pushed, CI turns green, and only then does it reach Needs input; Done is the human's.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { BoardCard, TicketKind } from '../packages/shared/src/index.js';
-import { Api, BoardWatcher } from './harness/api.js';
+import { Api, ApiError, BoardWatcher } from './harness/api.js';
 import { createFixtureRepo, createPnpmFixtureRepo } from './harness/fixture-repo.js';
 import { FAKE_GH_URL_RE, REPO_ROOT, Stack, waitFor } from './harness/stack.js';
 
@@ -36,12 +39,14 @@ const readDef = (file: string) =>
   JSON.parse(readFileSync(join(REPO_ROOT, 'docs/design/workflows', file), 'utf8')) as Def;
 const CONDUCTOR_V1 = readDef('conductor.v1.json');
 const CONDUCTOR_V2 = readDef('conductor.v2.json');
-const CONDUCTOR_V3 = readDef('conductor.v3.json');
-/** conductor v3 with the personal `done` move's CI polled every second (scenario 7). */
-const CONDUCTOR_V3_FAST: Def = (() => {
-  const def = structuredClone(CONDUCTOR_V3);
-  const done = def.states.implementing!.on!.done as { requires: { condition_poll: string } };
-  done.requires.condition_poll = '1s';
+const CONDUCTOR_V4 = readDef('conductor.v4.json');
+/** The personal ship move (M2-T34: the only way a personal ticket leaves Implementing with a PR). */
+const SHIP = 'personal_pr_ready_for_review';
+/** conductor v4 with the personal ship move's CI polled every second (scenario 7). */
+const CONDUCTOR_V4_FAST: Def = (() => {
+  const def = structuredClone(CONDUCTOR_V4);
+  const ship = def.states.implementing!.on![SHIP] as { requires: { condition_poll: string } };
+  ship.requires.condition_poll = '1s';
   return def;
 })();
 
@@ -49,7 +54,11 @@ interface ReadyForTesting {
   requires: { review: { items: string[] }; condition_poll: string };
 }
 const READY = CONDUCTOR_V2.states.implementing!.on!.ready_for_testing as ReadyForTesting;
-/** conductor v2 with the conditions polled every second (the version the scenarios pin). */
+const { done: V2_PERSONAL_DONE, ...V2_IMPLEMENTING_ON } = CONDUCTOR_V2.states.implementing!.on!;
+/**
+ * conductor v2 with the conditions polled every second (the version the scenarios pin), without
+ * the personal `done` (rule 17 refuses it on save, M2-T34).
+ */
 const CONDUCTOR_V2_FAST: Def = {
   ...CONDUCTOR_V2,
   states: {
@@ -57,7 +66,7 @@ const CONDUCTOR_V2_FAST: Def = {
     implementing: {
       ...CONDUCTOR_V2.states.implementing!,
       on: {
-        ...CONDUCTOR_V2.states.implementing!.on,
+        ...V2_IMPLEMENTING_ON,
         ready_for_testing: { ...READY, requires: { ...READY.requires, condition_poll: '1s' } },
       },
     },
@@ -68,7 +77,7 @@ const SCOPE_QUESTION = 'Adding /health needs a new dependency (express). Is that
 const MESSAGE_QUESTION = 'May I email the API team about the new /health endpoint?';
 const PRODUCT_QUESTION = 'Which clients call /health, and what should it report?';
 const READY_REASON = 'The /health endpoint is implemented and committed.';
-const DONE_REASON = 'The personal /health change is finished.';
+const SHIP_REASON = 'The personal /health change is finished; please review the PR.';
 const PLAN_READY = { transition: 'plan_ready', reason: 'The plan is complete.' };
 const PLAN = { complete_state: { plan: '1. add src/health.txt', summary: 'plan' }, ...PLAN_READY };
 const COMMIT = [
@@ -140,31 +149,31 @@ const SCENARIOS: Record<string, unknown> = {
       ],
     ],
   },
-  // 4. A personal ticket: `done` checks and opens the PR, then Done.
+  // 4. A personal ticket: the ship move checks and opens the PR, then Needs input.
   personal: {
     turns: [
       [{ say: 'Planning.' }, PLAN],
       [
         { say: 'Implementing.' },
         ...COMMIT,
-        { complete_state: { summary: 'added /health' }, transition: 'done', reason: DONE_REASON },
+        { complete_state: { summary: 'added /health' }, transition: SHIP, reason: SHIP_REASON },
       ],
     ],
   },
-  // 7. conductor v3: `done` held by red CI, sent back, fixed, then green.
+  // 7. conductor v4: the ship move held by red CI, sent back, fixed, then green.
   ci_fix: {
     turns: [
       [{ say: 'Planning.' }, PLAN],
       [
         { say: 'Implementing.' },
         ...COMMIT,
-        { complete_state: { summary: 'added /health' }, transition: 'done', reason: DONE_REASON },
+        { complete_state: { summary: 'added /health' }, transition: SHIP, reason: SHIP_REASON },
       ],
       [
         { say: 'Reading the failing CI log and fixing it.' },
         { write_file: { path: 'src/health.txt', content: 'ok, fixed\n' } },
         { git_commit: 'Fix CI' },
-        { complete_state: { summary: 'fixed CI' }, transition: 'done', reason: DONE_REASON },
+        { complete_state: { summary: 'fixed CI' }, transition: SHIP, reason: SHIP_REASON },
       ],
     ],
   },
@@ -204,7 +213,7 @@ beforeAll(async () => {
   api = new Api(stack.baseUrl);
   board = new BoardWatcher(stack.baseUrl);
   fastVersion = (await api.saveWorkflow(CONDUCTOR_V2_FAST)).version;
-  expect(fastVersion).toBe(4); // the seed's v1, v2 and v3, then this
+  expect(fastVersion).toBe(5); // the seed's v1 … v4, then this
   await waitFor('the daemon to register', async () =>
     (await api.machines()).find((m) => m.id === stack.machineId && m.status === 'online'),
   );
@@ -437,25 +446,42 @@ describe.skipIf(REAL)('ADR-0011 transition rules (fake Claude, fake gh)', () => 
     });
   });
 
-  it('4. personal: Planning → Implementing → done → Done, with no conditions and no Waiting external', async () => {
+  it('4. personal: Planning → Implementing → PR ready for review → Needs input; Done only by the human', async () => {
+    // M2-T34 (UX-11 closed itself twice): an agent move that opens a PR into Done can't be saved.
+    const refused = await api
+      .saveWorkflow({
+        ...CONDUCTOR_V2_FAST,
+        states: {
+          ...CONDUCTOR_V2_FAST.states,
+          implementing: {
+            ...CONDUCTOR_V2_FAST.states.implementing!,
+            on: { ...CONDUCTOR_V2_FAST.states.implementing!.on, done: V2_PERSONAL_DONE },
+          },
+        },
+      })
+      .then(
+        () => null,
+        (err: unknown) => err,
+      );
+    expect(refused).toBeInstanceOf(ApiError);
+    expect((refused as ApiError).status).toBe(400);
+    expect((refused as ApiError).body).toContain('states.implementing.on.done.goto');
+
     const id = await ticket('Personal change', 'personal', 'personal');
-    const done = await board.card(
+    const asked = await board.card(
       id,
-      'done',
-      (c) => c.column === 'done' && c.status === 'done',
+      'needs_input',
+      (c) => c.column === 'needs_input' && c.status === 'needs_input',
       45_000,
     );
-    expect(done.kind).toBe('personal');
-    expect(done.pr_url).toMatch(FAKE_GH_URL_RE);
-    const cards = board.cards(id);
-    expect(new Set(cards.map((c) => c.column))).toEqual(
-      new Set(['queued', 'planning', 'implementing', 'done']),
-    );
-    expect(cards.some((c) => c.status === 'waiting_external')).toBe(false);
-    const step = 'implementing → done (move: done)';
-    expect(board.states(id)).toEqual(['planning', 'implementing', step, 'done']);
+    expect(asked.kind).toBe('personal');
+    expect(asked.pr_url).toMatch(FAKE_GH_URL_RE);
+    expect(names(asked)).toEqual(['answer', 'done', 'waiting_on_someone']);
+    const step = `implementing → needs_input (move: ${SHIP})`;
+    expect(board.states(id)).toEqual(['planning', 'implementing', step, 'needs_input']);
     expect(
-      cards
+      board
+        .cards(id)
         .filter((c) => c.workflow_state === step)
         .every(
           (c) =>
@@ -464,24 +490,36 @@ describe.skipIf(REAL)('ADR-0011 transition rules (fake Claude, fake gh)', () => 
         ),
     ).toBe(true);
 
-    const sid = done.session_id!;
-    const detail = await api.session(sid);
-    expect(detail.moves).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ to: 'done', transition: 'done', reason: DONE_REASON }),
-      ]),
-    );
-    // The implementing prompt offered the personal transitions only.
+    const sid = asked.session_id!;
+    // The implementing prompt offered the personal transitions only, and no `done`.
     const prompts = (await api.transcript(sid)).chunks
       .filter((c) => c.stream === 'user')
       .map((c) => c.text);
     const implementing = prompts.find(
-      (p) => p.includes('## How to finish') && p.includes('- done'),
+      (p) => p.includes('## How to finish') && p.includes(`- ${SHIP}`),
     );
     expect(implementing).toBeDefined();
-    expect(implementing).toContain('personal_pr_ready_for_review');
+    expect(implementing).not.toMatch(/^- done\b/m);
     expect(implementing).not.toContain('ready_for_testing');
     expect(implementing).not.toMatch(/^- pr_ready_for_review/m);
+
+    // The human closes it.
+    await api.transition(sid, 'done', 'Reviewed and merged.');
+    const done = await board.card(id, 'done', (c) => c.column === 'done' && c.status === 'done');
+    expect(new Set(board.cards(id).map((c) => c.column))).toEqual(
+      new Set(['queued', 'planning', 'implementing', 'needs_input', 'done']),
+    );
+    expect(board.cards(id).some((c) => c.status === 'waiting_external')).toBe(false);
+    const detail = await api.session(done.session_id!);
+    expect(detail.moves).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ to: 'needs_input', transition: SHIP, reason: SHIP_REASON }),
+        expect.objectContaining({ to: 'done', transition: 'done', actor: 'human' }),
+      ]),
+    );
+    expect(
+      (detail.moves ?? []).filter((m) => m.to === 'done').every((m) => m.actor === 'human'),
+    ).toBe(true);
   });
 
   it('5. regression: a ticket pinned to conductor v1 still runs the ADR-0010 path', async () => {
@@ -522,12 +560,12 @@ describe.skipIf(REAL)('ADR-0011 transition rules (fake Claude, fake gh)', () => 
     }
   });
 
-  it('6. M2-T30: on a pnpm repo the checks install and run with pnpm, then Done', async () => {
+  it('6. M2-T30: on a pnpm repo the checks install and run with pnpm, then Needs input', async () => {
     // The fixture's build/test fail unless pnpm runs them after `pnpm install --frozen-lockfile`.
     const pnpmRepo = createPnpmFixtureRepo(join(stack.tmp, 'pnpm-fixture-repo'));
     const id = await ticket('Personal change on pnpm', 'personal', 'personal', pnpmRepo);
-    const done = await board
-      .card(id, 'done', (c) => c.column === 'done' && c.status === 'done', 60_000)
+    const asked = await board
+      .card(id, 'needs_input', (c) => c.column === 'needs_input', 60_000)
       .catch(async (err: unknown) => {
         // Where it stopped, and what the checks printed: a timeout alone says nothing.
         const last = board.cards(id).at(-1);
@@ -543,46 +581,50 @@ describe.skipIf(REAL)('ADR-0011 transition rules (fake Claude, fake gh)', () => 
         );
         throw err;
       });
-    const step = 'implementing → done (move: done)';
+    const step = `implementing → needs_input (move: ${SHIP})`;
     // Straight through: no failed check sent it back to Implementing.
-    expect(board.states(id)).toEqual(['planning', 'implementing', step, 'done']);
-    const detail = await api.session(done.session_id!);
+    expect(board.states(id)).toEqual(['planning', 'implementing', step, 'needs_input']);
+    const detail = await api.session(asked.session_id!);
     expect(detail.retry_counters).toEqual({});
     expect(detail.moves).toEqual(
-      expect.arrayContaining([expect.objectContaining({ to: 'done', transition: 'done' })]),
+      expect.arrayContaining([expect.objectContaining({ to: 'needs_input', transition: SHIP })]),
     );
   });
 
-  it('7. ADR-0025: red PR CI sends a personal ticket back to Implementing; Done only once green', async () => {
+  it('7. ADR-0025 / M2-T34: red PR CI sends a personal ticket back; green reaches Needs input, Done is the human', async () => {
     const title = 'CI red then green';
     stack.setFakePr(title, { checks: 'red' });
-    const v3 = (await api.saveWorkflow(CONDUCTOR_V3_FAST)).version;
+    const v4 = (await api.saveWorkflow(CONDUCTOR_V4_FAST)).version;
     let id: string;
     let sid: string;
     try {
       id = await ticket(title, 'ci_fix', 'personal');
       sid = (await board.card(id, 'a session', (c) => c.session_id !== null)).session_id!;
-      expect((await api.session(sid)).workflow_version).toBe(v3);
+      expect((await api.session(sid)).workflow_version).toBe(v4);
     } finally {
-      // Later scenarios run on the v2 copy again; this ticket keeps v3 (pinned).
+      // Later scenarios run on the v2 copy again; this ticket keeps v4 (pinned).
       await api.saveWorkflow(CONDUCTOR_V2_FAST);
     }
 
-    // The red check fails the move: back to Implementing, counted, never Done.
+    // The red check fails the move: back to Implementing, counted, never to a human or Done.
+    const counter = `move:implementing:${SHIP}`;
     await waitFor(
       'the red CI to send the ticket back',
-      async () => (await api.session(sid)).retry_counters?.['move:implementing:done'] === 1,
+      async () => (await api.session(sid)).retry_counters?.[counter] === 1,
       45_000,
     );
-    expect(board.cards(id).some((c) => c.column === 'done')).toBe(false);
+    expect(board.cards(id).some((c) => c.column === 'done' || c.column === 'needs_input')).toBe(
+      false,
+    );
     stack.setFakePr(title, { checks: 'green' });
-    const done = await board.card(
+    const asked = await board.card(
       id,
-      'done',
-      (c) => c.column === 'done' && c.status === 'done',
+      'needs_input',
+      (c) => c.column === 'needs_input' && c.status === 'needs_input',
       45_000,
     );
-    expect(done.pr_url).toMatch(FAKE_GH_URL_RE);
+    expect(asked.pr_url).toMatch(FAKE_GH_URL_RE);
+    expect(board.cards(id).some((c) => c.column === 'done')).toBe(false);
 
     // The agent was told which check failed and how to read its log, in its own conversation.
     const prompts = (await api.transcript(sid)).chunks
@@ -592,7 +634,9 @@ describe.skipIf(REAL)('ADR-0011 transition rules (fake Claude, fake gh)', () => 
     expect(resumed).toBeDefined();
     expect(resumed).toContain('failing:');
     expect(resumed).toContain('gh run view <run-id> --log-failed');
-    const detail = await api.session(sid);
-    expect(detail.retry_counters).toEqual({ 'move:implementing:done': 1 });
+    expect((await api.session(sid)).retry_counters).toEqual({ [counter]: 1 });
+
+    await api.transition(sid, 'done', 'Looks good.');
+    await board.card(id, 'done', (c) => c.column === 'done' && c.status === 'done');
   });
 });

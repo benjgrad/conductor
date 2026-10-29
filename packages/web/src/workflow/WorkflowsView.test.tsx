@@ -1,5 +1,10 @@
 // @vitest-environment jsdom
-import type { SessionDetail, WorkflowDefinition, WorkflowDetail } from '@conductor/shared';
+import {
+  CONDUCTOR_V2_DEF,
+  type SessionDetail,
+  type WorkflowDefinition,
+  type WorkflowDetail,
+} from '@conductor/shared';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ApiRequestError } from '../api/client.js';
@@ -299,7 +304,20 @@ describe('transition arrows (ADR-0011)', () => {
   });
 
   it('edits checks, setup, review items and actions on a transition', async () => {
-    const { saved } = await setup();
+    // M2-T34: the shipped conductor no longer has an Implementing → Done arrow; this editor case
+    // still runs on one (v2's personal `done`, added to the mock's latest).
+    const api = createMockApi();
+    const get = api.getWorkflow.bind(api);
+    api.getWorkflow = async (id, version) => {
+      const detail = await get(id, version);
+      if (detail.version !== 3) return detail;
+      const def = structuredClone(detail.definition);
+      const v2On = onOf(CONDUCTOR_V2_DEF, 'implementing');
+      const st = def.states.implementing!;
+      if (st.type !== 'terminal') st.on = { ...st.on, done: structuredClone(v2On.done!) };
+      return { ...detail, definition: def };
+    };
+    const { saved } = await setup(api);
     fireEvent.click(arrow('Implementing', 'Done'));
     fireEvent.click(panel().getByRole('button', { name: 'Remove check 1' }));
     fireEvent.click(panel().getByRole('button', { name: 'Add check' }));

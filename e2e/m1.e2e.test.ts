@@ -34,11 +34,11 @@ const M1_REVIEWED = JSON.parse(
 };
 const GATE_ITEMS = M1_REVIEWED.states.implement.on.done.requirements.items;
 /**
- * ADR-0011 / ADR-0025: conductor v3 (seeded as latest; v2's transitions with the CI gate), the work
- * reviewer's items on ready_for_testing.
+ * ADR-0011 / ADR-0025 / M2-T34: conductor v4 (seeded as latest; v3 without the personal `done`),
+ * the work reviewer's items on ready_for_testing.
  */
 const CONDUCTOR_LATEST = JSON.parse(
-  readFileSync(join(REPO_ROOT, 'docs/design/workflows/conductor.v3.json'), 'utf8'),
+  readFileSync(join(REPO_ROOT, 'docs/design/workflows/conductor.v4.json'), 'utf8'),
 ) as {
   version: number;
   states: {

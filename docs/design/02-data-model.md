@@ -124,7 +124,7 @@ The migration's down drops these four tables and the new `machine` / `machine_re
 | external_ref | text | e.g. `JIRA-123` ([U-003](../tracking/UNKNOWNS.md)) |
 | repo | text | target repo |
 | title, body | text | |
-| workflow_id, workflow_version | fk | version is null until pinned when the first session starts. One composite FK to `workflow_definition (id, version)`, MATCH SIMPLE: checked only once the version is set |
+| workflow_id, workflow_version | fk | version is null until pinned when the first session starts; re-pinned to the newest version on a reopen and on a human move on a parked session (M2-T34, [05 §Versioning](05-workflow-engine.md#versioning)). One composite FK to `workflow_definition (id, version)`, MATCH SIMPLE: checked only once the version is set |
 | parent_ticket_id | fk ticket null | child tickets from a plan state |
 | required_tags | text[] | hard constraints for the claim |
 | repo_allow_machines | text[] null | hard allow-list of machine ids for the claim ([04](04-scheduler.md)); `null` = any machine. Kept, nullable ([U-009](../tracking/UNKNOWNS.md), M1-T12) |
@@ -152,7 +152,7 @@ The migration's down drops these four tables and the new `machine` / `machine_re
 | id | uuid pk | |
 | ticket_id | fk | |
 | machine_id | fk null | null while parked/released |
-| workflow_id, workflow_version | | pinned |
+| workflow_id, workflow_version | | pinned; moved to the newest version only while no agent runs (M2-T34, [05 §Versioning](05-workflow-engine.md#versioning)) |
 | workflow_state | text null | current FSM state name; null until the first `session.assigned` enters `start`. During a gate step the synthetic label `<from> → <to> (review)` ([ADR-0009](../adr/0009-transition-requirements-review.md) transition review) or `<from> → <to> (entry)` ([ADR-0010](../adr/0010-one-workflow-columns-are-states.md) requirements to enter a column), which names no state |
 | status | enum | `queued` · `assigned` · `running` · `needs_input` · `waiting_external` · `done` · `failed` · `lost` |
 | lease_expires_at | timestamptz | renewed by heartbeat |

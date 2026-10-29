@@ -29,7 +29,7 @@ Before M1-T01 lands, gates are `n/a (no scaffold)`.
 - [ ] DB code has an integration test against real Postgres (no mocks for SQL).
 - [ ] Failure paths are tested, not just happy paths.
 
-## 5 · Docs & tracking (the lead or doc-keeper applies these from the report)
+## 5 · Docs & tracking (the implementing agent writes these on its branch; QA checks they are there)
 - [ ] The design doc matches the code. If behaviour diverged, the doc is updated in this branch, plus an ADR if it reverses a decision.
 - [ ] Shortcuts → TD-### rows, with `// TD-###` at the site.
 - [ ] New questions → U-### rows.

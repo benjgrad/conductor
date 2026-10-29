@@ -77,7 +77,7 @@ Shared rules for every task:
   - Each test that can't pass on win32 today gets `describe.skipIf(process.platform === 'win32')` (or `it.skipIf`) with a `// MW-Tnn` marker naming the task that will unskip it. The job is green from the first push.
   - Out of scope: changing any `src/` behaviour.
 - **Files owned**: `.github/**`, `packages/daemon/src/test-support/fake-bin.ts` (+ test), skip markers in `packages/daemon/**/*.test.ts`, the root `package.json` only if a script is needed.
-- **Do not touch**: `docs/tracking/**`, `packages/daemon/src/**` outside `test-support/`.
+- **Do not touch**: `packages/daemon/src/**` outside `test-support/`.
 - **Acceptance**:
   - [ ] The workflow runs green on the pushed branch on `windows-latest` (link the run).
   - [ ] `fake-bin` tests pass on both OSes: a fake with args containing spaces, `&`, `^`, `%` and `"` echoes them back exactly when run through `execFile` on POSIX, and through `cmd.exe /d /s /c` with escaping on win32.

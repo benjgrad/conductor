@@ -53,8 +53,8 @@ const rules = (id, planFile) => {
 ---
 
 ## Rules for every ticket
-- Do not edit \`docs/tracking/*\`. Report new unknowns, tech debt, unfinished items and needed contract changes in the PR description instead.
-${m3 ? M3_CONTRACTS : ''}${mr ? MR_RULES : ''}- A shortcut needs a \`// TD: <what>\` comment at the site and a line in the PR report (the lead assigns the TD number).
+- Update the tracking docs in this PR, as CLAUDE.md §Every agent updates the tracking docs says: set this ticket's row in the plan file to \`done\` (or \`blocked\`), add U-/B-/TD- rows and DECISIONS_LOG lines for what you find, add an UNFINISHED.md entry for anything left undone, and write a session log in \`docs/tracking/sessions/\`. In STATUS.md touch only this ticket's *In flight* row. Take IDs after the highest on \`origin/main\` and open PRs; renumber yours on a collision. Also list new unknowns, tech debt and needed contract changes in the PR description.
+${m3 ? M3_CONTRACTS : ''}${mr ? MR_RULES : ''}- A shortcut needs a TD-### row and a \`// TD-###\` comment at the site.
 - A migration is never merged without Ben's approval: a task with a migration stops at "PR open, awaiting Ben".
 - Work on branch \`${id.toLowerCase()}-<slug>\`. Merge \`origin/main\` before finishing (never rebase); the "Merges cleanly with main" check must pass.
 ${mr ? MR_GATES : PNPM_GATES}- Design source of truth: \`docs/design/\` and \`docs/adr/\`. ${m3 ? M3_DESIGN : `The full plan is \`${planFile}\`.`}

@@ -120,7 +120,7 @@ crontab -l | grep conductor-backup
 
 ## 6. Routine deploys
 
-Every merge to `main` deploys itself once CI is green (§12). By hand, for a specific ref or a rollback:
+Every merge to `main` deploys itself once CI is green, with an automatic rollback and a Discord alert on failure (§12). By hand from a Mac, for a specific ref:
 
 ```bash
 deploy/gradyserver/deploy.sh <git-ref>      # e.g. main, a tag, a sha
@@ -142,7 +142,7 @@ Which sha is live: `ssh -p 1024 bengrady4@gradyserver.com 'cat ~/deploy/conducto
 
 ## 7. Rollback
 
-Deploy the previous sha: `deploy/gradyserver/deploy.sh <previous sha>`. Old releases are in `~/deploy/conductor/releases/` (newest first: `ls -1t`).
+A failed CI deploy has already rolled itself back (§12). Otherwise, deploy the previous sha: Actions → ci → *Run workflow* with `sha: <previous sha>`, or `deploy/gradyserver/deploy.sh <previous sha>` from a Mac. Old releases are in `~/deploy/conductor/releases/` (newest first: `ls -1t`).
 
 **Migrations don't roll back.** The old code must work with the new schema; M2 migrations are additive. If a down-migration is really needed, run it as a deliberate, separate step **before** deploying the old sha, and take a backup first (§8):
 
@@ -225,46 +225,55 @@ unset new
 
 | Job | Runs on | What it does |
 |---|---|---|
-| `gates` | every PR (each push to it; a newer push cancels the older run), every push to `main`, manual dispatch | [`scripts/ci.sh`](../../scripts/ci.sh): install, typecheck, lint (eslint + prettier), deploy kit tests (with shellcheck), Postgres via docker compose, unit/DB tests, build, E2E with the fake Claude. The same script you run locally. |
-| `deploy` | push to `main` of `benjgrad/conductor`, after `gates` passed | `deploy/gradyserver/deploy.sh $GITHUB_SHA`, i.e. §6 with the smoke test. One deploy at a time (`concurrency: deploy-gradyserver`, never cancelled half-way). It deploys only if the sha is still the head of `main`: a run that finishes after a newer merge leaves the deploy to the newer run. |
+| `gates` | GitHub's machines (`ubuntu-latest`): every PR (a newer push cancels the older run), every push to `main`, every dispatch | [`scripts/ci.sh`](../../scripts/ci.sh): install, typecheck, lint (eslint + prettier), deploy kit tests (with shellcheck), Postgres via docker compose, unit/DB tests, build, E2E with the fake Claude. The same script you run locally. |
+| `deploy` | **gradyserver itself**, on the self-hosted runner `gradyserver-conductor`: a push to `main` or a dispatch on `main`, after `gates` passed | [`ci-deploy.sh`](../../deploy/gradyserver/ci-deploy.sh) `<sha>`. One deploy at a time (`concurrency: deploy-gradyserver`, never cancelled half-way). A push deploys only if its sha is still the head of `main`: a run that finishes after a newer merge leaves the deploy to the newer run. |
 
-A failed deploy is a red `deploy` job on the `main` commit; its log has the same messages as a manual `deploy.sh`, and §7 (rollback) applies. A red `gates` on `main` deploys nothing: fix forward, or deploy a sha by hand (§6). Manual deploys still work and share nothing with CI except the server, so don't run one while a `deploy` job is running.
+**Nothing connects in and there is no deploy credential.** The runner calls out to GitHub for work, the job checks out with its read-only token, and `ci-deploy.sh` runs locally as `bengrady4`. No ssh, no key in GitHub secrets, no port opened for CI. `deploy.sh` over ssh (§6) is still the by-hand door from a Mac, and shares the server half with CI.
 
-### One-time setup (Ben)
+`ci-deploy.sh` is §6 without the ssh, plus what nobody is watching a CI deploy for:
 
-1. **Deploy key.** On the lead's machine, make a key used only by CI and authorize it for `bengrady4` on gradyserver:
+1. It takes `~/deploy/conductor/.deploy.lock`, so two CI deploys (or CI and a by-hand `ci-deploy.sh`) never interleave. `deploy.sh` from a Mac doesn't take it: don't run one while a `deploy` job is running.
+2. `git archive <sha>` into `releases/<sha>`, as `deploy.sh` does.
+3. **If `packages/orchestrator/migrations/` changed** since the live sha, it runs `backup.sh` first (the dump lands with the nightlies, §8). A rollback restores code, not schema, so this dump is the only undo for a bad migration. A failed dump stops the deploy before anything is touched.
+4. `remote-deploy.sh` from the release (§6 steps 1–5), then the same check as §6 step 6 (one orchestrator, healthy, `conductor-orchestrator:<sha>`, `current` names it), then the smoke test with `SMOKE_EXPECT_SHA=<sha>`.
+5. **On any failure in 4, it rolls back on its own**: `up -d --no-deps orchestrator` from the previous release (no migrate; no rebuild while `conductor-orchestrator:<prev>` exists), waits for it to be healthy, points `current` and `current.env` back at it, and smokes it. Then it posts to Discord: amber *Deploy failed: rolled back*, or red *Deploy failed and rollback failed* if the old sha didn't come back either. A deploy that stopped before step 4 posts amber *Deploy did not run*. **Success is silent.**
 
-   ```bash
-   ssh-keygen -t ed25519 -N '' -C conductor-ci-deploy -f /tmp/conductor-ci-deploy
-   ssh-copy-id -p 1024 -i /tmp/conductor-ci-deploy.pub bengrady4@gradyserver.com
-   ssh-keyscan -p 1024 gradyserver.com > /tmp/conductor-known-hosts   # compare with ~/.ssh/known_hosts
-   ```
+Alerts go to `DISCORD_WEBHOOK_URL` in `~/deploy/conductor/.env` (the maintenance channel personal-os uses). Unset, they only reach the job log.
 
-   `bengrady4` is in the `docker` group, so this key is effectively root on gradyserver. It lives only in the `gradyserver` environment (step 2), which only `main` can use, so PR runs never see it.
+**Rollback by hand:** Actions → ci → *Run workflow* on `main` with `sha: <good sha>`. It waits for `gates` on main's head (about 6 minutes), then deploys that sha. Faster, on the box: `deploy/gradyserver/ci-deploy.sh <good sha>` from any checkout with that sha.
 
-2. **Environment.** Repo → Settings → Environments → New environment `gradyserver`. Deployment branches: *Selected branches* → `main`. Add the secrets `DEPLOY_SSH_KEY` (contents of `/tmp/conductor-ci-deploy`) and `DEPLOY_SSH_KNOWN_HOSTS` (contents of `/tmp/conductor-known-hosts`), then `rm /tmp/conductor-ci-deploy* /tmp/conductor-known-hosts`. Without both secrets the `deploy` job fails with a message naming them.
+**Drill** (after any change to `ci-deploy.sh` or the runner): *Run workflow* with `drill: true` and no sha. The first smoke test is failed on purpose, production is re-released, and an amber alert marked *TEST* arrives. Production ends where it started.
 
-   ```bash
-   gh api -X PUT repos/benjgrad/conductor/environments/gradyserver \
-     -F 'deployment_branch_policy[protected_branches]=false' -F 'deployment_branch_policy[custom_branch_policies]=true'
-   gh api -X POST repos/benjgrad/conductor/environments/gradyserver/deployment-branch-policies -f name=main
-   gh secret set DEPLOY_SSH_KEY --env gradyserver < /tmp/conductor-ci-deploy
-   gh secret set DEPLOY_SSH_KNOWN_HOSTS --env gradyserver < /tmp/conductor-known-hosts
-   ```
+### Why the runner can't be used from a branch
 
-3. **Reachability.** GitHub-hosted runners connect from changing Azure addresses, so `ssh` on port 1024 must accept connections from the internet (no source allow-list). If fail2ban or a firewall limits it, the `deploy` job fails at the upload step.
+The repo is private on the free plan, so GitHub can't protect `main`, require a check, or limit an environment to `main` (all return `403 Upgrade to GitHub Pro`). Any branch could edit `ci.yml` to send a job to this runner, and `bengrady4` is in the `docker` group, which makes it effectively root. So the gate is on the box: the runner's **job-started hook** ([`runner-job-started.sh`](../../deploy/gradyserver/runner-job-started.sh)) runs before every job and fails it unless it is the `deploy` job of `ci.yml@refs/heads/main`, started by a push or a dispatch. It is installed as a **copy** in the runner's directory, never run from a checkout, so a branch can't rewrite the gate it is checked by. The `gates` job never runs here, so PR code never executes on gradyserver.
 
-4. **Branch protection.** Require the `gates` check (and an up-to-date branch) before merging into `main`:
+### One-time setup (done 2026-10-29)
 
-   ```bash
-   gh api -X PUT repos/benjgrad/conductor/branches/main/protection --input - <<'JSON'
-   {
-     "required_status_checks": { "strict": true, "contexts": ["gates"] },
-     "enforce_admins": false,
-     "required_pull_request_reviews": null,
-     "restrictions": null
-   }
-   JSON
-   ```
+The runner is a `bengrady4` systemd user service (linger is on; no sudo), in its own directory, next to personal-os's `~/actions-runner`. A runner registered to a repo only serves that repo.
 
-   Conductor's own merges go through `gh pr merge` without `--admin` (ADR-0020), so they wait for `gates` too.
+```bash
+mkdir ~/actions-runner-conductor && cd ~/actions-runner-conductor
+# actions-runner-linux-x64-<version>.tar.gz from github.com/actions/runner/releases; check its sha256
+tar xzf runner.tar.gz && rm runner.tar.gz
+install -m 755 <checkout>/deploy/gradyserver/runner-job-started.sh job-started.sh
+./config.sh --unattended --url https://github.com/benjgrad/conductor \
+  --name gradyserver-conductor --labels gradyserver-conductor \
+  --token "$(gh api -X POST repos/benjgrad/conductor/actions/runners/registration-token --jq .token)"
+echo "ACTIONS_RUNNER_HOOK_JOB_STARTED=$HOME/actions-runner-conductor/job-started.sh" >> .env
+cat > ~/.config/systemd/user/actions-runner-conductor.service <<'EOF'
+[Unit]
+Description=GitHub Actions runner for benjgrad/conductor (deploy job only; job-started.sh refuses anything else)
+[Service]
+WorkingDirectory=%h/actions-runner-conductor
+ExecStart=%h/actions-runner-conductor/run.sh
+Restart=always
+[Install]
+WantedBy=default.target
+EOF
+systemctl --user daemon-reload && systemctl --user enable --now actions-runner-conductor
+```
+
+After changing `runner-job-started.sh`, copy it again: `install -m 755 deploy/gradyserver/runner-job-started.sh ~/actions-runner-conductor/job-started.sh`. Health: `systemctl --user status actions-runner-conductor`, and `gh api repos/benjgrad/conductor/actions/runners` should show it `online`.
+
+The first CI deploy runs from the deploy kit as it is on `main`; `~/deploy/conductor` must already exist (§3). The `gradyserver` environment is kept only for the deployment history and URL in GitHub's UI: it holds no secrets.

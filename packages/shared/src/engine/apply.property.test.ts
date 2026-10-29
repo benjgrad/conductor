@@ -1,5 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import type { JsonObject } from '../domain.js';
 import { CONDUCTOR_V2_DRAFT_DEF } from '../workflow/fixtures.js';
 import {
   WorkflowDefinitionSchema,
@@ -8,7 +9,17 @@ import {
 } from '../workflow/schema.js';
 import { transitionObject, transitionsOf } from '../workflow/transition-rules.js';
 import { apply } from './apply.js';
-import { freshSnapshot, Harness, HEAD_SHA, referenceWorkflow, uuid } from './apply.testkit.js';
+import {
+  freshSnapshot,
+  Harness,
+  HEAD_SHA,
+  qaDefinition,
+  referenceWorkflow,
+  uuid,
+} from './apply.testkit.js';
+import { QA_RESULT_FIXTURES } from './fixtures.js';
+import { isQaState } from './qa.js';
+import { QA_CONTEXT_KEY, QaContextSchema } from './qa.types.js';
 import { entryStateLabel, reviewStateLabel } from './review.js';
 import { lostAnswerOf, machineLostMarkOf } from './machine-lost.js';
 import {
@@ -47,7 +58,8 @@ const GENS: Gen[] = [
     command_kind: (
       ['start_session', 'send_input', 'send_message', 'run_cmd', 'kill', 'connector_call'] as const
     )[p % 6]!,
-    reason: p % 2 ? 'no_live_process' : 'ack_timeout',
+    // M2r-T03: a QA start whose checkout failed.
+    reason: p % 5 === 0 ? 'checkout_failed: x' : p % 2 ? 'no_live_process' : 'ack_timeout',
   }),
   (h, p) => ({
     type: 'session.started',
@@ -240,6 +252,22 @@ const progress: Gen = (h, p) => {
       return p % 2 ? { ...e, goto: states[Math.floor(p / 2) % states.length]! } : e;
     }
   }
+  if (isQaState(state) && p % 4 !== 0) {
+    // M2r-T03: a QA reports a result that matches its transition (now and then one that doesn't).
+    const pick = (['qa_pass', 'qa_fail', 'qa_needs_human'] as const)[p % 3]!;
+    const result =
+      pick === 'qa_fail'
+        ? QA_RESULT_FIXTURES.fail
+        : p % 11 === 0
+          ? QA_RESULT_FIXTURES.fail
+          : QA_RESULT_FIXTURES.pass;
+    return {
+      type: 'agent.complete_state',
+      result: result as unknown as JsonObject,
+      transition: pick,
+      reason: `r${p}`,
+    };
+  }
   if (state?.type === 'agent') {
     const agents =
       s.workflow_state === null
@@ -379,6 +407,12 @@ function checkInvariants(def: WorkflowDefinition, prev: SessionSnapshot, h: Harn
   }
   expect(s.wall_seconds).toBeGreaterThanOrEqual(prev.wall_seconds);
   expect(s.spend_usd).toBeGreaterThanOrEqual(prev.spend_usd);
+  // M2r-T03: `__qa` is always well formed (round ≤ max_rounds), and only a QA definition has one.
+  const qa = s.context[QA_CONTEXT_KEY];
+  if (qa !== undefined) {
+    expect(Object.values(def.states).some(isQaState)).toBe(true);
+    expect(QaContextSchema.safeParse(qa).success).toBe(true);
+  }
 }
 
 /**
@@ -413,6 +447,8 @@ const WORKFLOWS: [string, () => WorkflowDefinition, TicketKind | null][] = [
   ['conductor v2 (work)', () => CONDUCTOR_V2_DRAFT_DEF, 'work'],
   ['conductor v2 (personal)', () => CONDUCTOR_V2_DRAFT_DEF, 'personal'],
   ['conductor v2 (no kind)', () => CONDUCTOR_V2_DRAFT_DEF, null],
+  // ADR-0020 §2 (M2r-T03): a `role: 'qa'` state behind a move step.
+  ['qa flow', qaDefinition, null],
 ];
 
 describe.each(WORKFLOWS)('apply property: %s', (_name, load, kind) => {
@@ -472,7 +508,8 @@ describe.each(WORKFLOWS)('apply property: %s', (_name, load, kind) => {
     );
     // the sequences actually exercise the whole workflow, not just the first state
     // (and a workflow with `requires` gets into its move steps)
-    const gated = def.id === CONDUCTOR_V2_DRAFT_DEF.id && def.version === 2;
+    const gated =
+      (def.id === CONDUCTOR_V2_DRAFT_DEF.id && def.version === 2) || def.id === qaDefinition().id;
     expect([...reached].sort()).toEqual(
       [...Object.keys(def.states), ...(gated ? ['(gate step)'] : [])].sort(),
     );

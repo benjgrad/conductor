@@ -79,7 +79,19 @@ AND NOT EXISTS (SELECT 1 FROM session q
 ```
 It holds across requeues (it reads the earlier session, not the queued one's `machine_id`). If that machine never comes back, the card waits in Queued until a human cancels it (TD: cross-machine reopen would need the branch pushed and the transcript shipped, ADR-0005 revisit).
 
+**Routing filters (M2-T16a, [ADR-0013](../adr/0013-machine-enrollment-inventory-routing.md) §Routing).** The claim as built has no soft score yet (the query above is the target); it orders by `priority DESC, created_at, id` and adds these hard filters to the tag, allow-list and pin filters ([10 §Machines protocol v2](10-contracts.md#machines-protocol-v2) "Matching" is the authority):
+- **Account**: `t.account_id` = the machine's.
+- **Repo**: the machine has a `machine_repo` with `remote IS NOT NULL AND lower(remote) = lower(t.repo)` (github.com org/repo are case-insensitive). A ticket whose `repo` is not canonical (`CANONICAL_REMOTE_RE`, no `.git`; only `local` mode allows it) skips this filter, as in M1.
+- **Capabilities**: every requirement of the ticket's effective workflow version (pinned, else latest) for its `kind` is a stored `machine_capability.key` of the machine; a key with `@<repo>` compares case-insensitively, and a bare `skill:<n>` / `agent:<n>` is also met by `…@<t.repo>`. The requirements come from `requiredCapabilities(def, kind)`, cached in memory per (workflow, version, kind) until M2-T12 stores them on save. One pre-pass per claim reads the distinct (workflow, version, kind) of the account's ready tickets and passes the requirement rows as arrays; a ticket whose combination isn't in that set is not picked. The inner lookups use the `(machine_id, …)` primary keys, so no new index.
+- **Machine-lost pin**: a ticket with a `queued` session whose `context.__machine_lost.machine_id` names another machine is not offered ([10](10-contracts.md#machines-protocol-v2) "Lost machines").
+
+In the same transaction, before `session.assigned`, the claim writes the matched `machine_repo` (by `path`) as `{repo_path, mode}` into `session.context.__working_copy` (none, and any old one removed, for a non-canonical repo), so every `start_session` carries `working_copy`.
+
+The board's Queued card gets `routing` when no **online** machine of the account passes the repo and capability filters (`gateway/routing.ts`, the same rules in TypeScript): `missing_repo` when none has the repo, and the capabilities the closest machine (fewest missing, among those with the repo when any has it) lacks. The machine drawer's "Can't take" list (`MachineDetail.cannot_take`) uses the same rules per machine. TD: routing is recomputed on the card's own events and on board load, not when a machine or inventory changes.
+
 ## 3 · Short-hold rule (softening greedy pull)
+
+> **Not built, and not needed for now (M2-T16a).** Routing is a hard repo filter, so a machine without the repo never takes the ticket. The rule below stays as the design if a soft score (clone penalty) ever replaces the hard filter.
 
 A pull scheduler is greedy. A machine without the repo might grab a ticket a second before a machine that has it. The fix:
 

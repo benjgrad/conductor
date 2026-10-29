@@ -29,7 +29,17 @@ If you were started by conductor on a ticket (your system prompt says "running u
 | `docs/qa/` | QA checklist + test strategy |
 | `docs/templates/` | Task, session-log, unknown, ADR templates |
 
-Tracking files are edited on `main`, not on task branches, to keep branches free of merge conflicts in them.
+### Every agent updates the tracking docs
+The docs are how we track the status of work, so **every agent keeps them current**: a lead session, a local subagent, or a conductor ticket. Write the tracking changes on the same branch as the work they describe, so they land on `main` when it merges. A session with no task branch (planning, QA, reconcile) uses a `docs/<slug>` branch.
+- **Your task's row** in the milestone table: `done` in the branch that finishes it (it becomes true when that branch merges), or `blocked` plus a B-### row. Update ROADMAP if the milestone changes state.
+- **New rows** for what you find: U-### unknowns, B-### blockers, TD-### shortcuts (with `// TD-###` at the site), and one line per decision in DECISIONS_LOG.
+- **UNFINISHED.md**: add an entry for anything you leave unmerged; remove your own entry when it lands.
+- **A session log** in `docs/tracking/sessions/<YYYY-MM-DD>-<slug>.md`. It is a new file, so it never conflicts.
+- **STATUS.md**: on a task branch, add, update or remove **only your own *In flight* row**. The full rewrite (now / health / progress / last session) belongs to the lead, at session end.
+
+Parallel branches touch the same files, so:
+- **IDs**: `git fetch origin`, then take the next free number after the highest on `origin/main` *and* on open PRs. If merging `origin/main` shows a collision, renumber **yours** (the row, `// TD-###` comments, references), never the one already on `main`.
+- **Conflicts** in tracking files are resolved by keeping both sides' rows. Never drop or rewrite rows that came from `main`.
 
 ---
 
@@ -49,20 +59,20 @@ Tracking files are edited on `main`, not on task branches, to keep branches free
 
 ### 2 · Build
 1. One task, one branch: `m<N>-t<NN>-<slug>`. Work on it directly; parallelize only when tasks are independent and big enough to be worth it.
-2. Record new unknowns, blockers, tech debt and unfinished items in the tracking files as you go. A blocked task gets a B-### row and status `blocked`; tell Ben if the unblock action is his.
+2. Record new unknowns, blockers, tech debt and unfinished items in the tracking files **on your branch** as you go ([§Every agent updates the tracking docs](#every-agent-updates-the-tracking-docs)). A blocked task gets a B-### row and status `blocked`; tell Ben if the unblock action is his.
 3. **Run only targeted tests while you work**: the files and package you touched, e.g. `pnpm vitest run --project daemon src/actions/open-pr.test.ts`, plus `pnpm typecheck`. Never run the full `pnpm test` or `pnpm lint` to check progress: the full gate runs **once per branch**, in step 3, or as conductor's own checks when a conductor ticket leaves `implementing` (they run in a fresh checkout under the daemon's build slots, so running them yourself first only doubles the load). If a targeted run reports `test slot: waiting…`, it is queued behind other runs on the machine: wait, don't retry or kill it (M2-T32).
 4. **Write small, fast tests.** Test cases through pure functions. Spawn a process (node, git, gh, PowerShell) or use a real repo, DB or browser only when that boundary is what's under test, and say why in a comment. Every slow test is paid for on every branch, by every agent, and ~10× over on the Windows CI job ([TEST_STRATEGY §Write small, fast tests](docs/qa/TEST_STRATEGY.md#write-small-fast-tests)).
 
 ### 3 · Check and merge
 1. Before merging, check the branch against the task's acceptance criteria and [docs/qa/QA_CHECKLIST.md](docs/qa/QA_CHECKLIST.md): read the diff, run the gates once (`pnpm typecheck && pnpm lint && pnpm test && pnpm build`, Bash `timeout: 600000`: it may queue for a test slot). When a QA subagent runs them, the lead doesn't run them again.
-2. Record any TD rows, then `git merge --no-ff` into `main`, set the task to `done`, and remove the worktree. **Never merge with a red gate.**
+2. Check that the branch carries its own tracking updates (task row, TD/U rows, session log) and add anything missing to the branch, then `git merge --no-ff` into `main`, set the task to `done`, and remove the worktree. **Never merge with a red gate.**
 
 ### 4 · Session end (always, even if the session was short or failed)
 1. Every branch not merged gets an entry in `UNFINISHED.md` with the **exact next step**. Commit WIP on its branch (never leave uncommitted work in a worktree).
 2. **Rewrite** `STATUS.md`: now / in flight / health counts / milestone progress / last session.
 3. Write `docs/tracking/sessions/<YYYY-MM-DD>-<slug>.md` from the template.
 4. Update the milestone table statuses and ROADMAP if a milestone changed state.
-5. Commit the tracking updates on `main`: `docs(tracking): session <date> <slug>`.
+5. Commit the tracking updates on the branch the work is on, or on a `docs/<slug>` branch for a session without one: `docs(tracking): session <date> <slug>`.
 6. End with a short report to Ben: done, merged, open, and the next command to run.
 
 ---
@@ -102,10 +112,20 @@ pnpm format            # prettier --write
 pnpm test              # vitest, one project per package (DB tests need db:up), in a test slot
 pnpm test:e2e          # db up + tsc -b + e2e/ suite: real orchestrator + daemon bins, fake Claude (~15 s)
 E2E_REAL_CLAUDE=1 pnpm test:e2e   # ask/answer only, real `claude` on haiku (spends money; not in CI)
-scripts/ci.sh          # all gates, in order: install, typecheck, lint, deploy kit (deploy/gradyserver/test/run.sh), db:up, test, build, test:e2e
+scripts/ci.sh          # all gates, in order: install, typecheck, lint, cargo fmt/clippy/nextest, parity, deploy kit (deploy/gradyserver/test/run.sh), db:up, test, build, test:e2e
 ```
 
-GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `scripts/ci.sh` as the `gates` check on every PR; a PR runs only the slow test tiers its diff reaches (`CONDUCTOR_CI_TIERED=1` → `pnpm test`), and `main` runs `test:all`. `daemon-windows.yml` runs the daemon tests on Windows only when the diff reaches the daemon (`scripts/test-affected.js`). Every push to `main` that passes it is deployed to gradyserver by `deploy/gradyserver/deploy.sh` (runbook [§12](docs/setup/deploy-gradyserver.md#12-cicd-github-actions)), so merging to `main` ships.
+The Rust daemon (ADR-0026, milestone MR) is a Cargo workspace at the root (`crates/*`, toolchain pinned in `rust-toolchain.toml`), outside the pnpm workspace:
+```bash
+cargo fmt --all [--check]                                  # rustfmt
+cargo clippy --workspace --all-targets -- -D warnings      # lint; warnings fail
+node scripts/test-slot.js cargo nextest run --workspace    # every Rust test, in a test slot
+cargo nextest run -p conductor-daemon <filter>             # targeted while iterating (e.g. `seam`)
+cargo build --release -p conductor-daemon                  # target/release/conductor-daemon
+node scripts/test-parity.js [--files <glob>]… [--write]    # crates/conductor-daemon/PARITY.md vs the TS tests
+```
+
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `scripts/ci.sh` as the `gates` check on every PR; a PR runs only the slow test tiers its diff reaches (`CONDUCTOR_CI_TIERED=1` → `pnpm test`), and `main` runs `test:all`. `daemon-windows.yml` runs the daemon tests on Windows only when the diff reaches the daemon (`scripts/test-affected.js`). `daemon-rust.yml` runs the cargo gates and a release build on ubuntu, macos and windows only when the diff reaches `crates/**`, `Cargo.*`, `rust-toolchain.toml` or `packages/shared/**`. Every push to `main` that passes it is deployed to gradyserver by `deploy/gradyserver/deploy.sh` (runbook [§12](docs/setup/deploy-gradyserver.md#12-cicd-github-actions)), so merging to `main` ships.
 
 **Test slots (M2-T31).** Every vitest run (however it is started) and `pnpm lint` first takes one of `CONDUCTOR_TEST_SLOTS` (default 2) machine-wide slots, shared by every worktree and agent (`scripts/test-slot.js`: a localhost port from 54330, freed when the holder exits), and vitest uses only its share of the CPUs (`maxWorkers`). If both are taken it prints `test slot: waiting…` with the holders and starts by itself; that is a queue, not a hang, so give long test commands a long Bash timeout (`timeout: 600000`) rather than retrying. Watch mode takes no slot.
 

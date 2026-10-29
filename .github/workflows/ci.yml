@@ -50,6 +50,19 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
+      # The Rust gates in scripts/ci.sh (ADR-0026 §6): the toolchain pinned in rust-toolchain.toml,
+      # the cargo registry and target/ cached, and cargo-nextest prebuilt.
+      - name: rust toolchain from rust-toolchain.toml
+        id: rust
+        run: echo "channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" >>"$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.rust.outputs.channel }}
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       # Postgres comes from scripts/db.sh through docker compose (Docker is on the runner).
       # shellcheck is preinstalled, so the deploy kit tests run it.
       - name: scripts/ci.sh

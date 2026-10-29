@@ -41,7 +41,7 @@
 - **U-082**: the admission thresholds: 3 GB or 15 % of RAM free, 1 idle core, hysteresis of +1 GB / +0.5 core, and a 90 s start reservation of 2 GB / 1 core.
 
 ## How M2b is run
-The same as M2 ([M2 §How M2 is run](M2-accounts-machines.md#how-m2-is-run-dogfooding)): each block is a conductor ticket on the hosted board, on branch `m2b-tNN-<slug>`, ending in a PR with the report. The same rules apply: do not edit `docs/tracking/*`; code against the T01 contracts; shortcuts get a `// TD:` comment and a line in the PR report; a migration waits for Ben; standard gates apply. Once M2b-T08 and T09 are deployed, later M2b tickets may use dependencies themselves.
+The same as M2 ([M2 §How M2 is run](M2-accounts-machines.md#how-m2-is-run-dogfooding)): each block is a conductor ticket on the hosted board, on branch `m2b-tNN-<slug>`, ending in a PR with the report. The same rules apply: update the tracking docs in the PR (CLAUDE.md §Every agent updates the tracking docs); code against the T01 contracts; shortcuts get a TD-### row and a `// TD-###` comment; a migration waits for Ben; standard gates apply. Once M2b-T08 and T09 are deployed, later M2b tickets may use dependencies themselves.
 
 ## Task board
 
@@ -113,7 +113,7 @@ Groups run A → G. Tasks within a group own disjoint files. The longest chain i
 - **Design refs**: ADR-0018 (all); [ADR-0007](../../adr/0007-live-messages-to-agents.md); [10](../../design/10-contracts.md) §EngineService wrapper, §Machines protocol v2 conventions.
 - **Depends on**: M2c-T01 merged (shared contract files in sequence).
 - **Files owned**: `packages/shared/src/api/dependencies.ts` (new), the additions in `api/rest.ts`, `engine/types.ts`, `engine/fixtures.ts`, `protocol/ws.ts`, `protocol/fixtures.ts`, one export line in `shared/src/index.ts`, 10-contracts §Ticket dependencies.
-- **Do not touch**: `engine/apply.ts`, `engine/render.ts`, `workflow/**`, other packages, `docs/tracking/*`.
+- **Do not touch**: `engine/apply.ts`, `engine/render.ts`, `workflow/**`, other packages.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `api/dependencies.test.ts`: every fixture parses; `shortTicketId` gives 8 hex characters; `depends_on` over 20 is refused.
@@ -153,7 +153,7 @@ Groups run A → G. Tasks within a group own disjoint files. The longest chain i
 - **Design refs**: ADR-0018 §1; ADR-0012 §Proving isolation; [02](../../design/02-data-model.md).
 - **Depends on**: T01.
 - **Files owned**: the migration, `db/types.ts` (the new rows), `test/schema*.test.ts`, 02 (§ticket_dependency, §dependency_cycle, §cycle_message, §ticket `cycle_id`).
-- **Do not touch**: `src/api/**`, `src/engine/**`, `src/gateway/**`, `shared/**`, `docs/tracking/*`.
+- **Do not touch**: `src/api/**`, `src/engine/**`, `src/gateway/**`, `shared/**`.
 - **Migration**: **yes**. Ben approves before merge.
 - **Acceptance**:
   - [ ] Migration up, down, up on a database with M2 rows.
@@ -171,7 +171,7 @@ Groups run A → G. Tasks within a group own disjoint files. The longest chain i
 - **Design refs**: ADR-0018 §3–§4; ADR-0007; [05](../../design/05-workflow-engine.md).
 - **Depends on**: T01.
 - **Files owned**: `shared/src/engine/{apply.ts, peer.ts}` and their tests.
-- **Do not touch**: `render.ts` (T05), `types.ts` (T01), other packages, `docs/tracking/*`.
+- **Do not touch**: `render.ts` (T05), `types.ts` (T01), other packages.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `engine/apply.peer.test.ts`:
@@ -196,7 +196,7 @@ Groups run A → G. Tasks within a group own disjoint files. The longest chain i
 - **Depends on**: T01.
   - `shared/src/engine/assessment-prompt.ts` (new): `renderUnblockAssessment(input)` per ADR-0018 §2a (metadata only, no output; body caps of 4 000 characters; `retry_dependency` left out of the allowed outcomes when the retry is used).
 - **Files owned**: `shared/src/engine/render.ts` (+ `render.cycle.test.ts`), `shared/src/engine/assessment-prompt.ts` (+ test).
-- **Do not touch**: `apply.ts`, other packages, `docs/tracking/*`.
+- **Do not touch**: `apply.ts`, other packages.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `engine/assessment-prompt.test.ts`: the prompt names both tickets, the reason, the PR URL when there is one, and the dependent's FR lines; with the retry used, the schema has no `retry_dependency`; a 20 000-character body is capped.
@@ -215,7 +215,7 @@ Groups run A → G. Tasks within a group own disjoint files. The longest chain i
 - **Design refs**: ADR-0018 §3.2; ADR-0005 (outcome server); ADR-0007 (daemon side).
 - **Depends on**: T01.
 - **Files owned**: `packages/daemon/src/claude/outcome-server.ts` (the tool), `packages/daemon/src/peer.ts` (new: the wait registry), the `send_message` case in `daemon.ts`, their tests.
-- **Do not touch**: `workspace.ts`, `inventory/**`, `actions/**`, other packages, `docs/tracking/*`.
+- **Do not touch**: `workspace.ts`, `inventory/**`, `actions/**`, other packages.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `peer.test.ts`:
@@ -236,7 +236,7 @@ Groups run A → G. Tasks within a group own disjoint files. The longest chain i
 - **Design refs**: ADR-0018 §1–§3; 10-contracts §Ticket dependencies.
 - **Depends on**: T01.
 - **Files owned**: `packages/web/src/dependencies/**` (new), the dependency parts of `web/src/api/{client,http,mock}.ts`, the badge in `components/Board.tsx`, the picker slot in the create form and the detail panel, their tests.
-- **Do not touch**: `web/src/auth/**`, `web/src/machines/**`, `web/src/workflow/**`, other packages, `docs/tracking/*`.
+- **Do not touch**: `web/src/auth/**`, `web/src/machines/**`, `web/src/workflow/**`, other packages.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `dependencies/BlockedBy.test.tsx`: adding a dependency shows a chip; dropping one calls the DELETE route; each assessment state renders.
@@ -257,7 +257,7 @@ Groups run A → G. Tasks within a group own disjoint files. The longest chain i
 - **Design refs**: ADR-0018 §1, §3; ADR-0012 §Tenancy.
 - **Depends on**: T02, T03.
 - **Files owned**: `src/tickets/dependencies.ts` (new), `src/api/dependencies.ts`, its registration line in `src/api/index.ts`, the `depends_on` part of the ticket-create handler (in `src/api/tickets.ts` since M2c-T07), `test/tickets/dependencies.test.ts`, `test/api.dependencies.test.ts`.
-- **Do not touch**: `gateway/**`, `engine/**`, `auth/**`, `shared/**`, the PATCH handler in `api/tickets.ts`, `docs/tracking/*`.
+- **Do not touch**: `gateway/**`, `engine/**`, `auth/**`, `shared/**`, the PATCH handler in `api/tickets.ts`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `test/tickets/dependencies.test.ts`:
@@ -278,7 +278,7 @@ Groups run A → G. Tasks within a group own disjoint files. The longest chain i
 - **Design refs**: ADR-0018 §2; 04 §2; 10-contracts §Claim.
 - **Depends on**: T02, T03.
 - **Files owned**: `src/gateway/claim.ts`, `src/engine/board-view.ts`, `test/gateway/claim.dependencies.test.ts`, `test/engine/board-view.dependencies.test.ts`, 04 §2 (the filter paragraph).
-- **Do not touch**: `api/**`, `engine/service.ts`, `tickets/**`, `shared/**`, `docs/tracking/*`.
+- **Do not touch**: `api/**`, `engine/service.ts`, `tickets/**`, `shared/**`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `test/gateway/claim.dependencies.test.ts`:
@@ -312,7 +312,7 @@ Groups run A → G. Tasks within a group own disjoint files. The longest chain i
 - **Design refs**: ADR-0018 §3.2–§3.6, §4; ADR-0007; 10-contracts §EngineService wrapper, §Ticket dependencies.
 - **Depends on**: T04, T05, T08.
 - **Files owned**: `src/engine/service.ts` (the relay and the close hook), the `peer_message` case in `src/gateway/index.ts`, `src/api/cycles.ts` (+ its registration line), `test/engine/relay.test.ts`, `test/api.cycles.test.ts`.
-- **Do not touch**: `gateway/claim.ts`, `engine/board-view.ts`, `tickets/**` (call only), `shared/**`, `docs/tracking/*`.
+- **Do not touch**: `gateway/claim.ts`, `engine/board-view.ts`, `tickets/**` (call only), `shared/**`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `test/engine/relay.test.ts`:
@@ -335,7 +335,7 @@ Groups run A → G. Tasks within a group own disjoint files. The longest chain i
 - **Design refs**: ADR-0018; [e2e/README.md](../../../e2e/README.md).
 - **Depends on**: T07, T09, T10, T13, T15 (and T06, T14 through them).
 - **Files owned**: `e2e/m2b.e2e.test.ts`, additive helpers in `e2e/harness/**`, the fake `claude`'s `message_peer` step and `-p` assessment mode (`packages/daemon/test/fixtures/fake-claude.mjs`, additive).
-- **Do not touch**: `packages/**/src`, `docs/tracking/*`.
+- **Do not touch**: `packages/**/src`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `pnpm test:e2e` green with every scenario above and every earlier one; 3 consecutive green runs.
@@ -368,7 +368,7 @@ Groups run A → G. Tasks within a group own disjoint files. The longest chain i
 - **Design refs**: ADR-0018 §6; [07](../../design/07-multi-session-isolation.md); [04](../../design/04-scheduler.md) §1; TD-027.
 - **Depends on**: T01, T06 (`daemon.ts` in sequence).
 - **Files owned**: `packages/daemon/src/admission.ts` (new), `sysinfo.ts` (total RAM), `maybeRequestWork` and the register `max_sessions` in `daemon.ts`, the `config admit` subcommand in `config.ts` / `main.ts`, the inventory's admission field in `inventory/report.ts`, their tests, 07 §resources.
-- **Do not touch**: `claude/**`, `workspace.ts`, `actions/**`, other packages, `docs/tracking/*`.
+- **Do not touch**: `claude/**`, `workspace.ts`, `actions/**`, other packages.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `admission.test.ts` (fake clock and fake `SysInfo`):
@@ -394,7 +394,7 @@ Groups run A → G. Tasks within a group own disjoint files. The longest chain i
 - **Design refs**: ADR-0018 §2a; ADR-0005 (driver); ADR-0006; ADR-0015 (the same one-shot pattern M4 triage will reuse).
 - **Depends on**: T01, T13.
 - **Files owned**: `packages/daemon/src/assessment.ts` (new), the `run_assessment` case in `daemon.ts`, their tests.
-- **Do not touch**: `claude/outcome-server.ts`, `workspace.ts`, `inventory/**` (except reading admission), other packages, `docs/tracking/*`.
+- **Do not touch**: `claude/outcome-server.ts`, `workspace.ts`, `inventory/**` (except reading admission), other packages.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `assessment.test.ts` with a fake `claude` on `PATH`:
@@ -424,7 +424,7 @@ Groups run A → G. Tasks within a group own disjoint files. The longest chain i
 - **Design refs**: ADR-0018 §2a, §4; ADR-0008 (reopen); 10-contracts §Ticket dependencies, §Outbox state machine.
 - **Depends on**: T03, T05, T08, T10 (`gateway/index.ts` and the close hook in sequence).
 - **Files owned**: `src/tickets/assessment.ts` (new), the assessment hook in `src/tickets/dependencies.ts` (`onTicketClosed`), the `assessment_result` case in `src/gateway/index.ts`, the sweep registration line, `src/api/dependency-decision.ts` (+ its registration line), `test/tickets/assessment.test.ts`, `test/api.dependency-decision.test.ts`.
-- **Do not touch**: `engine/service.ts` (call `applyEvent` only), `gateway/claim.ts`, `engine/board-view.ts`, `shared/**`, `docs/tracking/*`.
+- **Do not touch**: `engine/service.ts` (call `applyEvent` only), `gateway/claim.ts`, `engine/board-view.ts`, `shared/**`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `test/tickets/assessment.test.ts`:

@@ -172,7 +172,7 @@ Validator rules (T02), engine behaviour (T03, T04).
 
 - **Depends on**: none.
 - **Files owned**: `shared/src/workflow/schema.ts` (additions), `shared/src/engine/{types.ts, qa.types.ts, fixtures.ts}`, `shared/src/protocol/{ws.ts, actions*.ts, fixtures.ts}`, `shared/src/api/{rest.ts, fixtures.ts}`, one export line, 10-contracts §Review and merge.
-- **Do not touch**: `apply.ts`, `render.ts`, `validate*.ts`, other packages, `docs/tracking/*`.
+- **Do not touch**: `apply.ts`, `render.ts`, `validate*.ts`, other packages.
 - **Acceptance**:
   - [ ] the tests named in Verification;
   - [ ] gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
@@ -216,7 +216,7 @@ The definitions themselves (T10).
 
 - **Depends on**: T01.
 - **Files owned**: `shared/src/workflow/{validate.ts, validate-transitions.ts, tools.ts}` and their tests, 05 §Validation on save (rules 15–16).
-- **Do not touch**: `schema.ts` (T01), `engine/**`, other packages, `docs/tracking/*`.
+- **Do not touch**: `schema.ts` (T01), `engine/**`, other packages.
 - **Acceptance**:
   - [ ] the Verification tests;
   - [ ] gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
@@ -259,7 +259,7 @@ The merge path (T04); the prompt text (T07).
 
 - **Depends on**: T01.
 - **Files owned**: `shared/src/engine/qa.ts` (new), the QA routing lines in `apply.ts`, `renderSentBack` in `render.ts`, `engine/apply.qa.test.ts`, additions to `apply.testkit.ts`.
-- **Do not touch**: `merge.ts` (T04), `qa-prompt.ts` (T07), the schema files (T01), other packages, `docs/tracking/*`.
+- **Do not touch**: `merge.ts` (T04), `qa-prompt.ts` (T07), the schema files (T01), other packages.
 - **Acceptance**:
   - [ ] the Verification tests;
   - [ ] gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
@@ -306,7 +306,7 @@ gh calls (T05); the API's 409 shape (T08).
 
 - **Depends on**: T03 (the same `apply.ts`, in sequence).
 - **Files owned**: `shared/src/engine/merge.ts` (new), the merge routing lines in `apply.ts` / `move-step.ts`, `engine/apply.merge.test.ts`.
-- **Do not touch**: `qa.ts` (T03), the schema files, other packages, `docs/tracking/*`.
+- **Do not touch**: `qa.ts` (T03), the schema files, other packages.
 - **Acceptance**:
   - [ ] the Verification tests;
   - [ ] gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
@@ -352,7 +352,7 @@ Engine routing (T04); branch deletion.
 
 - **Depends on**: T01.
 - **Files owned**: `packages/daemon/src/actions/pr-merge.ts` (new) and its tests, the three dispatch cases in `daemon.ts`.
-- **Do not touch**: `open-pr.ts` beyond `head_sha` in its result (one line), `checkout.ts` (T06), other packages, `docs/tracking/*`.
+- **Do not touch**: `open-pr.ts` beyond `head_sha` in its result (one line), `checkout.ts` (T06), other packages.
 - **Acceptance**:
   - [ ] the Verification tests;
   - [ ] gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e`.
@@ -392,7 +392,7 @@ The QA prompt (T07); the `qa` alias (T02).
 
 - **Depends on**: T01.
 - **Files owned**: `packages/daemon/src/actions/qa-checkout.ts` (new, reusing `checkout.ts` exports), the start-path branch in `daemon.ts` / `workspace.ts`, their tests.
-- **Do not touch**: `pr-merge.ts` (T05), `open-pr.ts`, `claude/cli-driver.ts` beyond passing cwd, other packages, `docs/tracking/*`.
+- **Do not touch**: `pr-merge.ts` (T05), `open-pr.ts`, `claude/cli-driver.ts` beyond passing cwd, other packages.
 - **Acceptance**:
   - [ ] the Verification tests;
   - [ ] gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e`.
@@ -428,7 +428,7 @@ Changes to `.claude/agents/qa-reviewer.md` itself; M2c's parser.
 
 - **Depends on**: T01.
 - **Files owned**: `shared/src/engine/qa-prompt.ts` (new), its test, the `QA_TEMPLATE` dispatch line in `render.ts`.
-- **Do not touch**: `apply.ts`, `qa.ts`, other packages, `docs/tracking/*`.
+- **Do not touch**: `apply.ts`, `qa.ts`, other packages.
 - **Acceptance**:
   - [ ] the Verification tests;
   - [ ] gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
@@ -463,7 +463,7 @@ The web UI (T09); per-account seeding (M2-T12; rebase onto it if it lands first)
 
 - **Depends on**: T04, T10.
 - **Files owned**: the transition handler in `src/api/index.ts` (or `api/sessions.ts`), `src/engine/board-view.ts` (M2r fields), `src/engine/seed.ts` (v3), their tests.
-- **Do not touch**: `shared/**`, `gateway/**`, `auth/**`, other api handlers, `docs/tracking/*`.
+- **Do not touch**: `shared/**`, `gateway/**`, `auth/**`, other api handlers.
 - **Acceptance**:
   - [ ] the Verification tests;
   - [ ] gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e`.
@@ -504,7 +504,7 @@ The workflow editor's panels for the new fields (shows raw JSON for them until a
 
 - **Depends on**: T01.
 - **Files owned**: `packages/web/src/components/{transitions.tsx, QaTab.tsx (new), Board.tsx (QA / merge parts), DetailPanel.tsx (the tab)}`, the M2r parts of `web/src/api/{client,mock}.ts`, their tests.
-- **Do not touch**: `web/src/auth/**`, `web/src/admin/**`, `web/src/workflow/**`, other packages, `docs/tracking/*`.
+- **Do not touch**: `web/src/auth/**`, `web/src/admin/**`, `web/src/workflow/**`, other packages.
 - **Acceptance**:
   - [ ] the Verification tests;
   - [ ] gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
@@ -533,7 +533,7 @@ The seed (T08); posting to the hosted instance (the lead, at deploy).
 
 - **Depends on**: T02; U-090 answered.
 - **Files owned**: `shared/src/workflow/conductor.ts` (v3), `conductor.test.ts`, the two JSON files, 05 §Reference workflows.
-- **Do not touch**: everything else, `docs/tracking/*`.
+- **Do not touch**: everything else.
 - **Acceptance**:
   - [ ] the Verification tests;
   - [ ] gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.

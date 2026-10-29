@@ -38,7 +38,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # Full history, so the test tiers (scripts/test-tiers.js) find the merge-base with
+      # origin/main: on a PR that is the base, and the diff is exactly the PR.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       # pnpm version from package.json `packageManager`; .npmrc `use-node-version` pins the Node
       # that runs the scripts.
       - uses: pnpm/action-setup@v4
@@ -52,6 +56,9 @@ jobs:
         run: scripts/ci.sh
         env:
           CI: 'true'
+          # A PR runs only the slow test tiers its diff reaches (e.g. no daemon process tests for
+          # a web change). main runs every tier, so a deploy is still gated by all of them.
+          CONDUCTOR_CI_TIERED: ${{ github.event_name == 'pull_request' && '1' || '' }}
 
   deploy:
     name: deploy

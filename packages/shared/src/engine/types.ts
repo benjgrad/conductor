@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import {
+  CommandKindSchema,
   InputRequestKindSchema,
   IsoDateTimeSchema,
   JsonObjectSchema,
-  OutboxKindSchema,
   SessionStatusSchema,
   TicketStatusSchema,
   UuidSchema,
@@ -284,7 +284,7 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('command.refused'),
     command_id: UuidSchema,
-    command_kind: OutboxKindSchema,
+    command_kind: CommandKindSchema,
     reason: z.string(),
   }),
   /**

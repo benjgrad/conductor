@@ -2,48 +2,42 @@
 
 > Living dashboard. Rewritten (not appended) by the lead session at the end of every session. Keep it under one screen.
 
-**Updated**: 2026-10-29 (MR plan only; the rest is as of 2026-10-28) · sessions [2026-10-29-rust-daemon-plan](sessions/2026-10-29-rust-daemon-plan.md), [2026-10-28-agent-permissions](sessions/2026-10-28-agent-permissions.md), [2026-10-28-stuck-resume-and-plan-approval](sessions/2026-10-28-stuck-resume-and-plan-approval.md)
+**Updated**: 2026-10-29 · sessions [2026-10-29-inventory-reconcile](sessions/2026-10-29-inventory-reconcile.md), [2026-10-29-rust-daemon-plan](sessions/2026-10-29-rust-daemon-plan.md)
 
 ## Now
-- **Rust daemon planned (2026-10-29)**: Ben chose to port `packages/daemon` to Rust now. [ADR-0026](../adr/0026-rust-daemon.md) and [MR](../plan/milestones/MR-rust-daemon.md) (19 tasks) are on branch `mr-t00-rust-daemon-plan`. The TS daemon freezes to bug fixes at tag `daemon-ts-freeze` after the merge. Daemon-side M2/MW tasks move to MR: M2-T18c, the daemon parts of T27 and T28d, MW-T09 rest, T10, T11b, T12 and T13. The Rust daemon ships through the existing tarball layout and install/upgrade path. MR is built on the board: 18 ticket blocks in 13 waves (`scripts/create-tickets.js --file docs/plan/milestones/MR-rust-daemon.md`), wave 1 (MR-T01, ticket e4bbe7dd) posted 2026-10-29. **Ben**: merge the branch, install rustup on the agent machines (B-005), answer U-112 (recommended: let the in-flight M2-T18 finish in TS), then post wave 1 (MR-T01).
-- **Permission prompts built (2026-10-28, local main, not pushed/deployed)**: M2-T29b (daemon), T29c (orchestrator), T29d (web) merged. Deploy order (U-102): orchestrator first via `deploy/gradyserver/deploy.sh`, then the daemons. Until then agents' off-list tool calls are still silently denied. Follow-ups: TD-187 (too-old-CLI alert), TD-188 (`session_allow` not fed to new processes), U-104, U-105.
-- **Milestone**: [M2 · Accounts & machines](../plan/milestones/M2-accounts-machines.md), **in progress**, built by conductor on itself (dogfood tickets on Ben's pinned board). T01–T10, T08b, T09b, T10b and T30 are done.
-- **Plan change**: early you-only deploy (T15a / T15b split). Added this session: T13a (fetch per session), T27 / T27b (update from main), T28..T28e (layered settings, [ADR-0022](../adr/0022-layered-agent-settings.md) proposed), T29..T29d (permission prompts, [ADR-0023](../adr/0023-permission-prompts-through-conductor.md) accepted), T30 (pnpm-aware checks, done).
-- **Why**: Hazel (M2-T18b) could not see ADR-0021 or update its branch (stale clone, TD-026; planning is read-only). Nova (M2-T18) had 18 tool calls silently denied (no `defaultMode`, prompts `none`; npm run in a pnpm repo). Ops fix: daemon clone and Hazel's branch fast-forwarded to eb45d46.
-- **Open PRs**: #44 (this plan, ADRs, tracking; includes T30), #47 (M2-T29 contracts, QA PASS WITH DEBT TD-178..180), #48 (M2-T13a, QA PASS WITH DEBT TD-181). #47 and #48 target main: merge after #44.
+- **Rust daemon (MR, 2026-10-29)**: Ben chose to port `packages/daemon` to Rust now ([ADR-0026](../adr/0026-rust-daemon.md), [MR](../plan/milestones/MR-rust-daemon.md), 19 tasks, PR #69). The TS daemon freezes to bug fixes at tag `daemon-ts-freeze` once #69 merges; daemon-side M2/MW tasks move to MR. Built on the board in 13 waves: wave 1 (MR-T01 spike, ticket e4bbe7dd) posted 2026-10-29. **Ben**: merge #69, install rustup on the agent machines (B-005), answer U-112.
+- **Live**: https://conductor.gradyserver.com runs origin/main **0b3b8bb** (`/healthz`, CI deploys from the self-hosted runner, PR #57). Sign-in, invites, machine enrollment (macOS / Linux `install.sh`, Windows `install.ps1`), the Machines page, permission prompts on the board, `conductor` v5 (green CI before review, Done only through a human, screenshots on UI PRs).
+- **The gap (code review, 2026-10-29)**: the gateway drops the daemon's v2 `inventory` and `alert` (TD-112), so the Machines drawer's Capabilities list is always empty. The claim has no routing, so **every online machine takes every ready ticket**. IIS is a spike report only (U-070).
+- **New order** ([ROADMAP §2026-10-29](../plan/ROADMAP.md)): M2-T16a (ingest + routing + badge) → IIS runtime slot (ADR + U-070 first) → dependencies-lite (not planned yet), with mobile (UX-9 → UX-12) and push (UX-15 → UX-14 / UX-16) beside them, then M2r → M3 (MCP).
 - **Next action**:
-  - Ben: OK the deploy (orchestrator via `deploy/gradyserver/deploy.sh`; upgrade the gradyserver and Mac daemons), then push main (local main is merged with origin/main). Then use "Start fresh conversation…" on the stuck "CI/CD" card (see [UNFINISHED](UNFINISHED.md)).
-  - Ben: merge #44, then #47 and #48. Answer Hazel's and Nova's `ask_user` on the board. Approve ADR-0022 and answer U-098 (may the daemon refuse remote widening; default `full`?) before T28b. Decide U-099 (`permission_decision` as outbox kind without Effect, or through apply) before T29c, and U-102 (deploy order: T29c before T29b).
-  - Lead: after the merges, T29b (daemon) and T29c (orchestrator) in parallel once U-099 is decided; T27 after T13a + T29b; T28 contracts after ADR-0022 approval. Nova's lint failure (`packages/daemon/src/credential.ts:80`, preserve-caught-error) still needs fixing on its branch.
-  - Still open from before: U-083 (Done with an open PR) and U-084 (lease renewal; before T20).
+  - Ben: merge `docs/reconcile-2026-10-29`. On the local checkout, drop the unpushed 178f5a8 (its TD-189 collides with origin's TD-189; it is TD-195 now) and fast-forward `main`.
+  - Ben: approve UX-15's migration (PR #67); review #56 (M2r-T03), #65 (M2-T35b), #69 (Rust daemon plan).
+  - Lead: post M2-T16a, UX-9 and UX-14 as tickets (disjoint files); write the IIS runtime-slot ADR and U-070's sub-questions; plan dependencies-lite.
 
 ## In flight
 | Task | Where | State |
 |---|---|---|
-| M2-T07b, M2-T14 | dogfood tickets | running |
-| M2-T18, M2-T18b | dogfood tickets (hosted board) | running; Hazel and Nova wait on Ben's answers |
-| M2-T29 | PR #47 | in_review, QA passed with debt; merge after #44 |
-| M2-T13a | PR #48 | in_review, QA passed with debt; merge after #44 |
-| UX-3b, UX-6, M2-T15a | dogfood tickets | as of 2026-10-27 (not re-checked) |
-| MR-T00 (Rust daemon plan) | branch `mr-t00-rust-daemon-plan` (worktree `.claude/worktrees/mr-t00-rust-daemon-plan`) | in_review: docs and tracking only; MR-T01 spike waits on B-005 (rustup) |
-| MW-T00..T08 (native Windows daemon) | branch `mw-windows-daemon` (pushed; worktree `.claude/worktrees/mw-lead`) | daemon core works natively on Windows: `daemon-windows` Actions green (run 40777091109) + full Linux daemon/shared green; awaiting Ben's review/merge. T09 part, T10, T11 wait for M2-T18 |
+| M2r-T03 QA state | PR #56 | in_review |
+| M2-T35b screenshots attached to the PR | PR #65 | in_review (v5 already asks for them, T35c merged first) |
+| UX-15 Web Push (server) | PR #67 | in_review; migration needs Ben |
+| MR-T00 Rust daemon plan | PR #69 | in_review (plan only) |
+| MR-T01 Rust spike | board ticket e4bbe7dd | ready (posted 2026-10-29); stops for `cargo` until B-005 |
+| M2-T18 `service install`, M2-T18b, MW-T09 | tickets / branches | in_progress; TD-195 (`install.sh --service` fails) until T18 |
 
 ## Health
 | Open unknowns | Open blockers | Tech debt items | Unfinished handoffs |
 |---|---|---|---|
-| 65 open of 116 ([UNKNOWNS](UNKNOWNS.md); recounted 2026-10-29, incl. U-112..116 for MR) | 1 open of 5 ([BLOCKERS](BLOCKERS.md): B-005 Rust toolchain) | 154 open of 187 ([TECH_DEBT](TECH_DEBT.md)); high: TD-026 (stale base paid by T13a once merged), TD-109, TD-144, TD-149 among them | 9 open: stuck "CI/CD" ticket + deploy, M1-T05a manual check, M1b branch cleanup, UX-9..16 waves, M3 waves, M2 tickets in flight, PR #47, PR #48, Hazel / Nova follow-ups ([UNFINISHED](UNFINISHED.md)) |
+| 65 open of 116 ([UNKNOWNS](UNKNOWNS.md); +U-112..116 for MR) | 1 open of 5 ([BLOCKERS](BLOCKERS.md): B-005 Rust toolchain) | 153 open of 195 ([TECH_DEBT](TECH_DEBT.md)); high: TD-112 (inventory dropped; T16a), TD-195 (no `service` command), TD-149 (no second account before T21) | 6 ([UNFINISHED](UNFINISHED.md)): open PRs + next tickets, UX waves, M3 waves, Hazel / Nova, M1-T05a manual check, M1b branch cleanup |
 
 ## Milestone progress
 - M1: 18 / 18 done; awaiting sign-off. M1b: 10 / 10 done; awaiting sign-off.
-- M2 (49 rows, counted from the table): 14 done, 4 in progress (T07b, T14, T18, T18b), 2 in review (T13a PR #48, T29 PR #47), 1 split (T15), 28 todo (incl. T27, T27b, T28..T28e, T29b..d). Out-of-plan: UX-1..UX-5, BUG-1, BUG-1b, BUG-2 merged.
-- M2c, M2b: approved, not started. M3–M5: outlined.
-- MR (Rust daemon, ADR-0026): approved 2026-10-29; 0 / 19 done, T00 in review.
-- MW (native Windows daemon, ADR-0024): approved 2026-10-28; T09 rest..T13 moved to MR on 2026-10-29; 9 / 14 done on `mw-windows-daemon` (T00–T08), T09 in progress, T10–T13 todo (T10/T11 after M2-T18).
+- M2 (61 rows): 32 done, 3 in progress (T15b, T18, T18b), 1 in review (T35b), 2 split (T15, T16 → T16a), 22 todo (incl. T16a), 1 cancelled. Out of plan: UX-1..UX-8b, BUG-1/1b/2, SPIKE-1, FIX-1, CI-1..3 merged.
+- M2r: 2 / 13 done (T01, T02), T03 in review. MW: 9 / 15 done (T00–T08, T11), T09 in progress.
+- UX board: UX-10, UX-11 done; UX-15 in review; UX-9, UX-12, UX-13a/b, UX-14, UX-16 todo.
+- MR (Rust daemon, ADR-0026): approved 2026-10-29; 0 / 19 done, T00 in review (PR #69), T01 posted. MW-T09 rest..T13 moved to MR.
+- M2c, M2b: approved, not started. M3: approved, waits on M2r. M4, M5: outlined.
 
 ## Last session
-- **Stuck-resume incident (production)**: ticket "CI/CD" (session 4b5cde62) asked for plan approval on the Mac; `start_session` timed out, gradyserver claimed it and got `--resume` for a Mac-only conversation: "No conversation found", exit 1, forever.
-- **Merged to main (QA'd, local only)**: `fix-resume-no-conversation` (7cf97f2: daemon refuses a resume without the transcript at its exact path; engine resets and starts fresh; QA FAIL on raw stderr in the event row, then PASS), `feat-fresh-conversation` (220e79f: "Start fresh conversation…" event, API, button, help; PASS WITH DEBT), `feat-plan-approval-ui` (cf880dc: plan panel, Approve plan / Request changes, board card; QA FAIL on missing card tests, then PASS WITH DEBT).
-- **Tracking**: TD-182..TD-186 and U-103 added (renumbered from TD-171..175 / U-097 when merging origin/main); 3 decisions logged; UNFINISHED entry for the stuck ticket and the pending deploy.
-- **Agent permissions and fresh base**: traced two stuck dogfood sessions to a stale daemon clone and silent permission denials. Planned T13a, T27, T28, T29, T30; ADR-0023 accepted, ADR-0022 proposed.
-- **PRs**: #44 plan (merged main in; renumbered U-097..101 to U-098..102, TD-171..173 to TD-175..177; backfilled TD-173 / TD-174), #46 T30 merged, #47 T29 and #48 T13a QA-passed with debt.
-- **Env issues**: full test suite times out under load (load average 20+); `pnpm db:up` fails when another worktree's docker Postgres holds :54329.
+- **Inventory**: mapped PRs #1–#69 to tasks against the code at 0b3b8bb; the milestone tables had missed ~25 merges (2026-10-27..29). Updated M2, M2r, MW and the UX board; added the out-of-plan rows.
+- **Found**: no inventory ingest and no routing (above); TD-189 used twice (renumbered the local one to TD-195); TD-187 / TD-188 sat inside the template comment (moved out).
+- **Planned**: M2-T16a split out of T16 (doesn't wait for T12); new order of work in ROADMAP.

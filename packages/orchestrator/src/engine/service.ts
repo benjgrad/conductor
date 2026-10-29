@@ -24,6 +24,7 @@ import { withTransaction } from '../db/index.js';
 import type { InputRequestRow } from '../db/types.js';
 import type { Db } from '../main.js';
 import { expireOnApply, readCardPermission, withPermission } from '../permissions/store.js';
+import { enqueueNeedsInputPush } from '../push/enqueue.js';
 import { CardViews } from './board-view.js';
 import {
   DefinitionCache,
@@ -53,6 +54,10 @@ export interface EngineServiceCoreDeps {
   apply?: ApplyFn;
   /** Called after a wrapper-owned COMMIT that wrote outbox rows (wakes the dispatcher). */
   onOutboxWritten?: () => void;
+  /** UX-15: Web Push is configured; a new input_request enqueues push_needs_input rows. */
+  pushEnabled?: boolean;
+  /** Called after a wrapper-owned COMMIT that wrote push rows (wakes the push dispatcher). */
+  onPushWritten?: () => void;
 }
 
 /**
@@ -99,13 +104,14 @@ export class EngineServiceImpl implements EngineService {
       const { result } = await this.applyInTx(opts.tx, sessionId, event, opts);
       return result; // caller publishes result.boardEvents after its COMMIT
     }
-    const { result, wroteOutbox } = await withTransaction(this.deps.db, (tx) =>
+    const { result, wroteOutbox, wrotePush } = await withTransaction(this.deps.db, (tx) =>
       this.applyInTx(tx, sessionId, event, opts),
     );
     if (result.status === 'applied') {
       for (const ev of result.boardEvents) this.deps.boardBus.publish(ev);
     }
     if (wroteOutbox) this.deps.onOutboxWritten?.();
+    if (wrotePush) this.deps.onPushWritten?.();
     return result;
   }
 
@@ -114,7 +120,7 @@ export class EngineServiceImpl implements EngineService {
     sessionId: string,
     event: EngineEvent,
     opts: ApplyEventOptions,
-  ): Promise<{ result: ApplyEventResult; wroteOutbox: boolean }> {
+  ): Promise<{ result: ApplyEventResult; wroteOutbox: boolean; wrotePush?: boolean }> {
     const rejected = (reason: Extract<ApplyEventResult, { status: 'rejected' }>['reason']) => ({
       result: { status: 'rejected' as const, reason },
       wroteOutbox: false,
@@ -219,6 +225,7 @@ export class EngineServiceImpl implements EngineService {
     s1.fencing_token = Number(token);
 
     const drafts: BoardSseEventDraft[] = [];
+    let wrotePush = false;
     const commands: { effect: MachineCommandEffect; commandId: string }[] = [];
     for (const effect of res.effects) {
       switch (effect.type) {
@@ -258,6 +265,21 @@ export class EngineServiceImpl implements EngineService {
             [randomUUID(), sessionId, effect.kind, effect.question, effect.return_to, now],
           );
           const row = r.rows[0]!;
+          // UX-15: "needs input" pushes to the account's subscribed users, in this transaction.
+          if (this.deps.pushEnabled) {
+            const n = await enqueueNeedsInputPush(tx, {
+              accountId: ticket.account_id,
+              sessionId,
+              ticketId: ticket.id,
+              ticketTitle: ticket.title,
+              // The asking step (the request returns there), else the state it waits in.
+              agent: effect.return_to ?? s1.workflow_state,
+              inputRequestId: row.id,
+              question: row.question,
+              now,
+            });
+            if (n > 0) wrotePush = true;
+          }
           drafts.push({
             type: 'input.requested',
             session_id: sessionId,
@@ -426,6 +448,7 @@ export class EngineServiceImpl implements EngineService {
     return {
       result: { status: 'applied', eventId, snapshot: s1, effects: res.effects, boardEvents },
       wroteOutbox: commands.length > 0,
+      wrotePush,
     };
   }
 }

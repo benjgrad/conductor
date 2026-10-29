@@ -2,6 +2,8 @@ import { EmailSchema, LOCAL_ACCOUNT_ID, UuidSchema, type AdminUserRow } from '@c
 import { withTransaction } from '../db/index.js';
 import { revokeMachine, type MachineSockets } from '../gateway/revoke.js';
 import type { Db } from '../main.js';
+import { VAPID_PRIVATE_KEY_ENV, VAPID_PUBLIC_KEY_ENV, VAPID_SUBJECT_ENV } from '../push/config.js';
+import { generateVapidKeys } from '../push/sender.js';
 import { PUBLIC_URL_ENV } from './config.js';
 import { createInvite } from './invites.js';
 import { createResetLink } from './reset.js';
@@ -39,7 +41,24 @@ export const USAGE = [
   '  revoke-sessions <email>   sign the user out everywhere',
   "  disable <email>           disable the user, sign them out, revoke their accounts' machines",
   '  list-users                list users',
+  '  vapid-keys                print a new Web Push (VAPID) key pair for the env (no database)',
 ].join('\n');
+
+/**
+ * UX-15 `vapid-keys`: a new key pair as the three env lines (the subject is a placeholder to
+ * edit). Needs no database, so the CLI runs it before checking DATABASE_URL.
+ */
+export function runVapidKeys(args: string[], out: (l: string) => void, err: (l: string) => void) {
+  if (args.length > 0) {
+    err('usage: conductor-admin vapid-keys');
+    return 2;
+  }
+  const { publicKey, privateKey } = generateVapidKeys();
+  out(`${VAPID_PUBLIC_KEY_ENV}=${publicKey}`);
+  out(`${VAPID_PRIVATE_KEY_ENV}=${privateKey}`);
+  out(`${VAPID_SUBJECT_ENV}=mailto:you@example.com`);
+  return 0;
+}
 
 /** The CLI has no gateway: it can't reach the orchestrator process's daemon sockets. */
 const NO_SOCKETS: MachineSockets = { disconnectMachine: () => undefined };
@@ -301,6 +320,8 @@ export async function runAdminCli(argv: string[], io: AdminCliIo): Promise<numbe
       return 0;
     }
 
+    case 'vapid-keys':
+      return runVapidKeys(args, out, err);
     case undefined:
     case 'help':
     case '--help':

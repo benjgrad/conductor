@@ -18,7 +18,7 @@
   - M2-T28d → MR-T17b
   - MW-T09, T10, T11b → MR-T13
   - MW-T12 → MR-T16
-  - MW-T13 → MR-T18
+  - MW-T13 → MR-T18b
 - M2-T18 (in flight) is the recommended exception: it finishes in TS (U-112).
 
 **Exit criteria**:
@@ -91,7 +91,7 @@ Shared rules for every task:
 ## Ticket waves (conductor board)
 
 MR is built by conductor on itself:
-- **Posting:** `scripts/create-tickets.js --file docs/plan/milestones/MR-rust-daemon.md <ids>` posts each `### MR-Tnn` block below, plus the MR rules, with workflow `conductor_dev`.
+- **Posting:** `scripts/create-tickets.js --file docs/plan/milestones/MR-rust-daemon.md <ids>` posts each `### MR-Tnn` block below, plus the MR rules, with workflow `conductor` (the hosted board's only workflow).
 - **Before wave 1:** MR-T00 must be merged (agents branch from `origin/main`, and this file is their plan), and `cargo` must be on PATH on every machine that claims MR tickets (B-005).
 - **Pacing:** the board has no `depends_on` until M2b (TD-172), so a wave is posted only once every dependency in it is **merged**. The session cap is 3.
 

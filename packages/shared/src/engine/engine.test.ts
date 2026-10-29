@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { OutboxKindSchema } from '../domain.js';
+import { CommandKindSchema } from '../domain.js';
 import { ORCHESTRATOR_MESSAGE_TYPES } from '../protocol/ws.js';
 import { WorkflowDefinitionSchema } from '../workflow/schema.js';
 import { applySpend, spendDelta } from './spend.js';
@@ -34,9 +34,10 @@ describe('engine contract', () => {
   });
 
   it('has an Effect for every outbox kind', () => {
-    expect([...OUTBOX_EFFECT_TYPES].sort()).toEqual([...OutboxKindSchema.options].sort());
+    // UX-15: push_needs_input (NON_EFFECT_OUTBOX_KINDS) is written by the wrapper, not apply.
+    expect([...OUTBOX_EFFECT_TYPES].sort()).toEqual([...CommandKindSchema.options].sort());
     const effectTypes = EffectSchema.options.map((o) => o.shape.type.value);
-    for (const k of OutboxKindSchema.options) expect(effectTypes).toContain(k);
+    for (const k of CommandKindSchema.options) expect(effectTypes).toContain(k);
   });
 
   it('every outbox effect except connector_call has a same-named WS message', () => {

@@ -17,22 +17,14 @@ Remove the entry once the work is merged or deliberately abandoned. If abandoned
 -->
 
 ## MR-T00 · Rust daemon plan (ADR-0026): written, not merged
-- **Branch / worktree**: `mr-t00-rust-daemon-plan` (off origin/main 5ecec4d) @ `.claude/worktrees/mr-t00-rust-daemon-plan`
+- **Branch / worktree**: `mr-t00-rust-daemon-plan` (PR #69; origin/main merged in on 2026-10-29) @ `.claude/worktrees/mr-t00-rust-daemon-plan`
 - **Done so far**: ADR-0026; `docs/plan/milestones/MR-rust-daemon.md` (19 tasks, groups A–H); ROADMAP row; `→ MR` marks on M2-T18c/T27/T28d and MW-T09..T13; amendment notes on ADR-0004/0017/0021/0024; U-112..U-116, B-005; decisions-log line. Docs only, no code.
 - **Also done (Ben: "implement it all using the conductor board")**: every MR task is a ticket block (`### MR-Tnn` with Goal / Context / FR / NFR / Verification) in `MR-rust-daemon.md` §Tickets, with a 13-wave table. `scripts/create-tickets.js` adds MR rules (frozen TS reference, PARITY rows, seam rule, stop if no `cargo`, cargo gates) and refuses MR-T00. The dry run builds all 18 tickets. T18 split into T18a (docs, parity 100%) and T18b (delete the TS daemon after Ben's dogfood).
 - **Posted**: wave 1, MR-T01 → ticket e4bbe7dd-6ad4-496d-8dcc-ad7605b1ad49 (2026-10-29, workflow `conductor` v4, starts in planning), with `CONDUCTOR_EMAIL=bengrady4@gmail.com CONDUCTOR_PASSWORD_FILE=~/.conductor-pw` (the login from session 96231ac4, M3/UX waves).
 - **Not done**: the `daemon-ts-freeze` tag (on the merge commit, after Ben merges); waves 2–13.
-- **Exact next step**: Ben merges the branch, installs rustup on every machine that claims tickets (B-005), and answers U-112. Then he posts wave 1: `! CONDUCTOR_EMAIL=<email> node scripts/create-tickets.js --file docs/plan/milestones/MR-rust-daemon.md MR-T01` (it prompts for the password). The lead tags `daemon-ts-freeze`. After each merge, post the next wave from the §Ticket waves table (`--dry-run` first), and QA each PR before the lead merges.
+- **Exact next step**: Ben merges PR #69, installs rustup on every machine that claims tickets (B-005) and answers U-112. The lead tags the merge commit `daemon-ts-freeze`, QAs MR-T01's PR when it opens, and after it merges posts wave 2 (`CONDUCTOR_EMAIL=bengrady4@gmail.com CONDUCTOR_PASSWORD_FILE=~/.conductor-pw node scripts/create-tickets.js --file docs/plan/milestones/MR-rust-daemon.md MR-T02`, `--dry-run` first).
 - **Gotchas**: ADR-0025 was already taken on origin/main (CI-gated review), so the Rust ADR is 0026. Local `main` has an unpushed TD-189 (install.sh `--service`), which collides with origin/main's TD-189 (orphan sweep); renumber it when local main is reconciled.
 - **Gates**: docs only; markdown links checked by hand.
-
-## MW · Native Windows daemon (ADR-0024): T00–T08 done, not merged
-- **Branch / worktree**: `mw-windows-daemon` (pushed) @ `.claude/worktrees/mw-lead`. It contains `mw-t00-windows-adr` (docs + CI) and the merged `mw-t01..t04` branches; origin/main was merged in at fd9c597. The older per-task branches/worktrees (`mw-t00-windows-adr` worktree, `agent-*` worktrees of T01–T04 and their QA runs) can be removed once this merges.
-- **Done so far**: platform seam (`packages/daemon/src/platform/`: spawn, kill-tree, shell, procinfo, acl, git, hook, fs); credentials/config/private repos with owner-only DACLs; spawn/kill wiring incl. U-110 (native claude.exe only); orphan sweep via CIM; edit guard for cmd.exe + Git Bash with a 31-row win32 path table; 8.3-safe worktree reuse. `daemon-windows` Actions job green (run 40777091109): typecheck + full daemon/shared suites on windows-latest.
-- **Not done**: MW-T09 rest (main.ts SIGBREAK + `rescan` subcommand / trigger file instead of SIGHUP, win32 CPU in sysinfo, `-c core.longpaths=true`), MW-T10 (`service` on win32: Scheduled Task + conductor-launch.ps1), MW-T11 (install.ps1), MW-T12 (win32 e2e; the fresh-base fake-git test still skips with `// MW-T12`), MW-T13 (laptop smoke, answers U-106).
-- **Exact next step**: Ben reviews/merges `mw-windows-daemon` (or asks for a PR). Then, after M2-T18 (`service` subcommand) is on main: merge main into the MW branch and do MW-T09's main.ts part, then MW-T10 → MW-T11 → MW-T12.
-- **Gotchas**: the Windows job takes ~15 min (each acl check starts powershell.exe; TD-194); a push cancels the running job (concurrency group). Git Bash background jobs escape taskkill /T (TD-189; Job Objects would fix). IDs were renumbered once to avoid main's TD-187/188, U-104/105: MW owns TD-189..194, U-106..111.
-- **Gates**: Linux: typecheck ✅ lint (eslint+prettier on packages/daemon/src) ✅ `vitest --project daemon --project shared` ✅ 1349 passed. Windows: run 40777091109 ✅. Not run: full `scripts/ci.sh` (orchestrator/web/e2e untouched except the shared path schema and one web shortener, both covered by targeted tests).
 
 ## M1-T05a · Real-mode manual check (code merged; one acceptance item outstanding)
 - **Branch / worktree**: none; daemon core merged via `integrate/B` (d5841e7), wiring via M1-T07 (66ab745). Work from the main checkout or a fresh worktree off main
@@ -61,44 +53,15 @@ Remove the entry once the work is merged or deliberately abandoned. If abandoned
 - **Exact next step**: when M2r is merged, Ben runs `! CONDUCTOR_EMAIL=<email> node scripts/create-tickets.js T01` (it prompts for the password). After each merge, post the tickets whose deps are now all merged (`--dry-run` first). Wave B order: T02 T03 T04 T05 T06 T07 T11
 - **Gotchas**: no `depends_on` and no edit (TD-172), so never post a wave early. Re-running skips titles already on the board. Session cap 3 queues the rest of wave B
 
-## M2 · dogfood tickets in flight on the board (2026-10-27)
-- **Branch / worktree**: conductor-owned branches `conductor/<ticket>/<session>` on the live board (`board-pinned`); no PRs open at 8ad36d1
-- **Done so far**: M2-T01..T10, T08b, T09b, T10b, UX-1..UX-5, BUG-1, BUG-1b, BUG-2 and the TD-111 test fix merged (PRs #1–#23)
-- **Not done**: M2-T07b (TD-144), M2-T14 (daemon distribution), UX-3b, UX-6 are running as tickets; M2-T15a (bootstrap / CLI / resets) is queued, not started
-- **Exact next step**: as each ticket opens its PR, QA it (light policy: targeted tests; conductor's checks are the full run), confirm it merges cleanly with main, then the lead merges. Next on the you-only critical path after these: M2-T17
-- **Gotchas**: Done on the board ≠ merged (U-083). Fast-forward the daemon's shared clone after each merge until M2-T13 (TD-026). Keep `machine.max_sessions` at 3 or less while checks run (TD-148). Never enter a worktree in the lead session while QA subagents run
-
-## M2-T29 · permission-prompt contracts (PR #47, QA passed with debt)
-- **Branch / worktree**: PR #47, base main
-- **Done so far**: contracts built; QA PASS WITH DEBT (TD-178..180)
-- **Not done**: merge
-- **Exact next step**: merge after #44 (`git merge --no-ff`), set M2-T29 to `done`, remove the worktree. Then T29b and T29c (T29c needs U-099 decided)
-- **Gotchas**: U-102: deploy T29c before T29b. Full test suite times out under load; run targeted tests
-
-## M2-T13a · fetch per session (PR #48, QA passed with debt)
-- **Branch / worktree**: PR #48, base main
-- **Done so far**: daemon fetches `origin/<default_branch>` before each new session's worktree; QA PASS WITH DEBT (TD-181: `start_session.working_copy` has no `default_branch`)
-- **Not done**: merge
-- **Exact next step**: merge after #44, set M2-T13a to `done`, mark TD-026's stale base paid; then T27 (also needs T29b)
-- **Gotchas**: until it is merged, keep fast-forwarding the daemon's shared clone by hand
-
+## Open PRs and next tickets (2026-10-29, reconciled against origin/main 0b3b8bb)
+- **Branch / worktree**: open PRs #56 (M2r-T03 QA state), #65 (M2-T35b screenshots), #67 (UX-15 Web Push server; migration), #69 (MR-T00 Rust daemon plan); this reconcile is branch `docs/reconcile-2026-10-29`
+- **Done so far**: PRs #1–#68 except those four are merged; every one maps to a row in M2, M2r, MW or the UX board (`docs/plan/...`), or to the out-of-plan table in M2
+- **Not done**: the four PRs above; M2-T16a (inventory ingest + routing, new); UX-9 → UX-12 (mobile); UX-14, UX-16 (push, web); dependencies-lite (not planned yet); IIS runtime slot (spike only, U-070)
+- **Exact next step**: Ben merges `docs/reconcile-2026-10-29`; then post M2-T16a as a ticket (it is the first thing that makes several machines safe), UX-9 and UX-14 alongside it (disjoint files). QA #67 (migration: Ben approves) and #56 as they stand
+- **Gotchas**: until T16a lands, **every online machine takes every ready ticket**, whatever repo or tools it has (the claim checks only `required_tags` and an explicit `repo_allow_machines`, which the board never sets): run only the daemons that can do the queued work. Done on the board ≠ merged (U-083). Keep `machine.max_sessions` at 3 or less while checks run (TD-148). The Lead's local `main` has an unpushed commit 178f5a8 whose TD-189 collides with origin's; its content is TD-195 here, so drop 178f5a8 when syncing
 ## Hazel and Nova · dogfood sessions waiting on Ben (2026-10-28)
 - **Branch / worktree**: Hazel: ticket d0f8e9aa (M2-T18b planning), branch fast-forwarded to eb45d46. Nova: session 005f1e8c (M2-T18), branch untouched
 - **Done so far**: Hazel now sees ADR-0021. Nova's gates run by hand: typecheck OK, prettier OK, lint FAIL at `packages/daemon/src/credential.ts:80` (preserve-caught-error); web `SetupGuide.test.tsx` fails on main too (flaky)
 - **Not done**: Ben's answers to both `ask_user` prompts; the lint fix on Nova's branch
 - **Exact next step**: Ben answers Hazel's and Nova's `ask_user` on the board; tell Nova to fix `credential.ts:80` and use pnpm (not npm) for its checks
 - **Gotchas**: Nova had 18 denied tool calls (no `defaultMode`, prompts `none`) until T29b lands; expect more denials in the meantime
-
-## M2 · post-merge QA (resolved 2026-10-27, nothing owed)
-- **Branch / worktree**: none; code on main
-- **Done so far**: all three post-merge QAs ran on 2026-10-27. M2-T06 (PR #11): OK, every QA item verified on main. M2-T10 (PR #14): its follow-ups were done as M2-T10b (PR #19, merged). M2-T09b (PR #17): the security QA passed (6 attack probes incl. queued frames, reconnect mid-close, two sockets, a silent peer at 1 002 ms, stress ×10)
-- **Not done**: nothing
-- **Exact next step**: none; delete this entry at the next session end
-
-## Stuck ticket "CI/CD" (session 4b5cde62) + deploy of the 2026-10-28 fixes
-- **Branch / worktree**: none; all code merged on main (cf880dc), local only, not pushed
-- **Done so far**: the daemon refuses a resume with no transcript at its exact path (`no_conversation`, engine clears `claude_session_id`, requeues fresh); "Start fresh conversation…" (engine, API, panel button, help section); plan approval panel and board-card buttons
-- **Not done**: the ticket is still stuck. Snapshot `claude_session_id`=5a13ac51… (exists on the Mac only), `pending_answer` null; the original critique answer was consumed. Nothing is deployed yet (waiting for Ben's OK). Ben pushes main
-- **Exact next step**: (1) with Ben's OK deploy the orchestrator via `deploy/gradyserver/deploy.sh`; upgrade the gradyserver daemon (`~/.conductor/daemon`, runs in a terminal) and the Mac daemon. (2) On the "CI/CD" card use "Start fresh conversation…" and paste the critique: "The plan isn't detailed enough. This implementer session is on the server... We also need to think about the daemon upgrades". (3) Ben pushes main
-- **Gotchas**: TD-182: if the session is parked for a lost (non-revoked) machine, fresh conversation keeps the pin; Cancel is the only way off it
-- **Gates**: run by the lead after this commit

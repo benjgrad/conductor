@@ -33,6 +33,7 @@ import type {
   OutboxRow,
   PasswordResetRow,
   PermissionRequestRow,
+  PushSubscriptionRow,
   SessionRow,
   Tables,
   TicketRow,
@@ -354,6 +355,19 @@ const login_throttle: ColumnSpec<LoginThrottleRow> = {
   locked_until: col('timestamptz', NULL),
   updated_at: col('timestamptz', NN),
 };
+// UX-15: Web Push subscriptions.
+const push_subscription: ColumnSpec<PushSubscriptionRow> = {
+  id: col('uuid', NN),
+  account_id: col('uuid', NN),
+  user_id: col('uuid', NN),
+  endpoint: col(t, NN),
+  p256dh: col(t, NN),
+  auth: col(t, NN),
+  user_agent: col(t, NULL),
+  created_at: col('timestamptz', NN),
+  last_ok_at: col('timestamptz', NULL),
+  failures: col('int4', NN),
+};
 const SCHEMA: Schema = {
   machine,
   machine_repo,
@@ -375,6 +389,7 @@ const SCHEMA: Schema = {
   invite,
   password_reset,
   login_throttle,
+  push_subscription,
 };
 /** The tables M1/M1b created: every one carries `account_id` since M2-T03. */
 const M1_TABLES = [
@@ -619,6 +634,7 @@ describe('migrations', () => {
           'machine_capability',
           'machine_credential',
           'permission_request',
+          'push_subscription',
         ].sort(),
       );
     } finally {
@@ -784,6 +800,14 @@ describe('schema (migrated test database)', () => {
       /^CREATE UNIQUE INDEX .* ON public\.machine_capability USING btree \(machine_id, key\)$/,
     );
     expect(defs.machine_alert_open_idx).toMatch(/\(machine_id\) WHERE \(cleared_at IS NULL\)$/);
+    // UX-15.
+    expect(defs.push_subscription_endpoint_key).toMatch(/^CREATE UNIQUE INDEX .* \(endpoint\)$/);
+    expect(defs.push_subscription_account_user_idx).toMatch(
+      /ON public\.push_subscription USING btree \(account_id, user_id\)$/,
+    );
+    expect(defs.outbox_push_idem_idx).toMatch(
+      /^CREATE UNIQUE INDEX .* ON public\.outbox USING btree \(target, idempotency_key\) WHERE \(target ~~ 'user:%'::text\)$/,
+    );
     for (const table of [
       'enrollment_token',
       'machine_credential',
@@ -979,6 +1003,14 @@ describe('schema (migrated test database)', () => {
     expect((await pool.query<TicketRow>('SELECT * FROM ticket')).rows[0]?.session_allow).toEqual(
       [],
     );
+
+    // UX-15 (account_id named: no default; user_id may be the virtual local user).
+    const ps = await pool.query<PushSubscriptionRow>(
+      `INSERT INTO push_subscription (account_id, user_id, endpoint, p256dh, auth)
+       VALUES ($1, gen_random_uuid(), 'https://push.example/abc', 'k', 'a') RETURNING *`,
+      [LOCAL_ACCOUNT_ID],
+    );
+    expect(ps.rows[0]).toMatchObject({ failures: 0, last_ok_at: null, user_agent: null });
 
     const lt = await pool.query<LoginThrottleRow>(
       "INSERT INTO login_throttle (email_norm) VALUES ('ben@example.com') RETURNING *",

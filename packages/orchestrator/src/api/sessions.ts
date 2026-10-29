@@ -24,6 +24,12 @@ import type { EventRow, InputRequestRow, SessionRow, WorkflowDefinitionRow } fro
 
 // GET /api/sessions/:id (M1-T08).
 
+/**
+ * The output ring is in memory (U-005): a session created before this process started may have
+ * had output the ring never saw (`output_complete`).
+ */
+const PROCESS_STARTED_AT = Date.now();
+
 export async function sessionExists(db: Queryable, id: string): Promise<boolean> {
   const res = await db.query('SELECT 1 FROM session WHERE id = $1', [id]);
   return res.rowCount === 1;
@@ -73,7 +79,10 @@ export async function loadSessionDetail(
   outputBus: OutputBus,
   id: string,
 ): Promise<SessionDetail | null> {
-  const s = await db.query<SessionRow>('SELECT * FROM session WHERE id = $1', [id]);
+  const s = await db.query<SessionRow & { created_at: Date }>(
+    'SELECT * FROM session WHERE id = $1',
+    [id],
+  );
   const session = s.rows[0];
   if (!session) return null;
   const [t, wd, ir, moves, inputRequests, permission] = await Promise.all([
@@ -125,6 +134,7 @@ export async function loadSessionDetail(
     worktree_path: session.worktree_path,
     pending_input: openInput ? toInputRequestDto(openInput) : null,
     recent_output: outputBus.snapshot(id),
+    output_complete: outputBus.complete(id) && session.created_at.getTime() >= PROCESS_STARTED_AT,
     moves,
     ticket_body: ticket.body,
     input_requests: inputRequests,

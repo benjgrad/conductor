@@ -229,9 +229,11 @@ describe.skipIf(process.platform !== 'win32')('install.ps1 (Windows PowerShell 5
       expect(existsSync(join(root, 'bin', 'conductor-daemon.cmd'))).toBe(true);
       expect((await userPath()).toLowerCase()).toContain(join(root, 'bin').toLowerCase());
 
-      // Owner-only (ADR-0024 section 3): no inherited entries, you as the owner.
+      // Owner-only (ADR-0024 section 3): no inherited entries, you as the owner. .NET rather than
+      // Get-Acl, which doesn't autoload here (5.1 started from pwsh 7's PSModulePath).
       const acl = await ps(
-        `$a = Get-Acl -LiteralPath '${root}'; Write-Output ('PROTECTED=' + $a.AreAccessRulesProtected); ` +
+        `$a = (Get-Item -LiteralPath '${root}').GetAccessControl(); ` +
+          "Write-Output ('PROTECTED=' + $a.AreAccessRulesProtected); " +
           "Write-Output ('OWNER=' + $a.GetOwner([Security.Principal.SecurityIdentifier]).Value); " +
           "Write-Output ('ME=' + [Security.Principal.WindowsIdentity]::GetCurrent().User.Value)",
         process.env,

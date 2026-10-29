@@ -719,6 +719,12 @@ export const EvaluateConditionsArgsSchema = z.object({
 export type EvaluateConditionsArgs = z.infer<typeof EvaluateConditionsArgsSchema>;
 
 /**
+ * `pr_checks_green`'s `value` when the PR reports no checks at all (`<passed>/<total> passed`
+ * with total 0). The engine reads it for `no_checks_after` (U-072).
+ */
+export const NO_PR_CHECKS_VALUE = '0/0 passed';
+
+/**
  * One evaluated condition. `met` / `pending` / `failed` per ADR-0016's table; `unsupported` for
  * a type the machine can't evaluate (M5 types). `value` is what was observed (e.g. `"1/2"`
  * approvals), `detail` the evidence (failing check names, "gh not available: …").

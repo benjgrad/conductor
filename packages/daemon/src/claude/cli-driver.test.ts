@@ -525,6 +525,9 @@ describe('createCliDriver against fake-claude', () => {
     }
     expect(env.CLAUDE_CODE_SAFE_MODE).toBe('0');
     expect(env.ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false');
+    // The agent's own long commands (a full test run) get 10 min by default, 30 at most.
+    expect(env.BASH_DEFAULT_TIMEOUT_MS).toBe('600000');
+    expect(env.BASH_MAX_TIMEOUT_MS).toBe('1800000');
     expect(dropped.sort()).toEqual(
       [
         'ANTHROPIC_API_KEY',

@@ -142,6 +142,11 @@ export const GateStepSchema = z.object({
    */
   conditions_poll_ms: z.number().int().positive().nullable().default(null),
   /**
+   * When the conditions phase started (`pr_checks_green.no_checks_after` counts from it, U-072).
+   * null outside it; defaults to null, so older rows parse (they count from now).
+   */
+  conditions_started_at: IsoDateTimeSchema.nullable().default(null),
+  /**
    * ADR-0011 (U-058): a note for the checklist, e.g. CONDITIONS_NO_MACHINE_NOTE while the
    * evaluation was refused or timed out. null when there is nothing to say.
    */

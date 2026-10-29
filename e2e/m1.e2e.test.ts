@@ -33,16 +33,20 @@ const M1_REVIEWED = JSON.parse(
   states: { implement: { on: { done: { requirements: { items: string[] } } } } };
 };
 const GATE_ITEMS = M1_REVIEWED.states.implement.on.done.requirements.items;
-/** ADR-0011: conductor v2 (seeded as latest), the work reviewer's items on ready_for_testing. */
-const CONDUCTOR_V2 = JSON.parse(
-  readFileSync(join(REPO_ROOT, 'docs/design/workflows/conductor.v2.json'), 'utf8'),
+/**
+ * ADR-0011 / ADR-0025: conductor v3 (seeded as latest; v2's transitions with the CI gate), the work
+ * reviewer's items on ready_for_testing.
+ */
+const CONDUCTOR_LATEST = JSON.parse(
+  readFileSync(join(REPO_ROOT, 'docs/design/workflows/conductor.v3.json'), 'utf8'),
 ) as {
+  version: number;
   states: {
     implementing: { on: { ready_for_testing: { requires: { review: { items: string[] } } } } };
   };
 };
 const CONDUCTOR_V2_REVIEW_ITEMS =
-  CONDUCTOR_V2.states.implementing.on.ready_for_testing.requires.review.items;
+  CONDUCTOR_LATEST.states.implementing.on.ready_for_testing.requires.review.items;
 
 /** Fake Claude scenarios (fake-claude.mjs), picked per ticket by `fake-scenario: <name>`. */
 const SCENARIOS: Record<string, unknown> = {
@@ -644,11 +648,11 @@ describe.skipIf(REAL)('fake Claude', () => {
     expect(h.some((t) => t.includes('Reviewing the requirements.'))).toBe(false);
   });
 
-  it('ADR-0010 on conductor v2: Planning → Implementing → ready_for_testing (red once) → open_pr → conditions → Waiting external → Approve → Done', async () => {
-    // The fake gh reports this ticket's PR green and approved from its first poll (v2 polls
-    // every 2 min, so the first answer has to be the one that lets it through).
+  it('ADR-0010 on conductor (latest): Planning → Implementing → ready_for_testing (red once) → open_pr → conditions → Waiting external → Approve → Done', async () => {
+    // The fake gh reports this ticket's PR green and approved from its first poll (ready_for_testing
+    // polls every 2 min, so the first answer has to be the one that lets it through).
     stack.setFakePr('Conductor flow', { approvals: 1, checks: 'green' });
-    // No workflow_id: the server default, conductor (v2, seeded as latest).
+    // No workflow_id: the server default, conductor (v3, seeded as latest).
     const t = await api.createTicket({
       title: 'Conductor flow',
       body: fakeBody('conductor'),
@@ -695,7 +699,7 @@ describe.skipIf(REAL)('fake Claude', () => {
 
     const sid = waiting.session_id!;
     const detail = await api.session(sid);
-    expect(detail.workflow_version).toBe(2);
+    expect(detail.workflow_version).toBe(CONDUCTOR_LATEST.version);
     expect(detail.retry_counters).toEqual({ 'move:implementing:ready_for_testing': 2 });
     // The first unmet: the work was not committed (the worker's next prompt, in its transcript).
     const prompts = (await api.transcript(sid)).chunks

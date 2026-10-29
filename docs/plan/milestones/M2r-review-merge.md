@@ -54,7 +54,7 @@
 | M2r-T07 | Shared engine: the `qa_template` prompt | T01 | B | no | todo |
 | M2r-T09 | Web: In QA and Ready to merge cards, Merge and the migration approval, Request changes, Close without merging, the QA tab, Done badges | T01 | B | no | todo |
 | M2r-T04 | Shared engine: the merge path (approvals gate, `inspect_pr` / `merge_pr` / `close_pr` results, `on_unmet.routes`, `__pr.merged` / `closed`, the Done guard) | T03 | C | no | todo |
-| M2r-T10 | Definitions: `conductor` v3 (`CONDUCTOR_V3` + JSON) and `conductor_dev.v3.json` | T02, U-090 | C | JSON only (posted by the lead after T11) | todo |
+| M2r-T10 | Definitions: `conductor` v4 (`CONDUCTOR_V4` + JSON; v3 went to ADR-0025 / M2-T31a, build on it) and `conductor_dev.v3.json` | T02, U-090 | C | JSON only (posted by the lead after T11) | todo |
 | M2r-T08 | Orchestrator: the transition route's `approvals` (409 `approval_required`), card and detail fields, the v3 seed | T04, T10 | D | no | todo |
 | M2r-T11 | E2E: the ten scenarios with the fake gh and fake Claude | T05, T06, T07, T08, T09 | E | — | todo |
 | M2r-T12 | Docs: 05, 06, 10, ADR-0020 notes, CLAUDE.md §2–3, M2c notes | T11 | F | — | todo |

@@ -121,6 +121,10 @@ describe('transition edits', () => {
       conditionOfType('pr_approvals', { type: 'pr_merged', enabled: false, label: 'L' }),
     ).toEqual({ type: 'pr_approvals', min: 1, enabled: false, label: 'L' });
     expect(conditionOfType('jira_fields_set')).toEqual({ type: 'jira_fields_set', fields: [] });
+    // U-072: re-picking PR checks keeps its no-CI grace; another type drops it.
+    const graced = { type: 'pr_checks_green', no_checks_after: '5m' } as const;
+    expect(conditionOfType('pr_checks_green', graced)).toEqual(graced);
+    expect(conditionOfType('pr_merged', graced)).toEqual({ type: 'pr_merged' });
   });
 });
 

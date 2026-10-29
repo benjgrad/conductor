@@ -1144,6 +1144,7 @@ function enterStep(
     conditions: [],
     conditions_deadline: null,
     conditions_poll_ms: null,
+    conditions_started_at: null,
     conditions_note: null,
     approvals: null,
   };
@@ -1585,6 +1586,7 @@ function startConditions(st: Step, spec: GateSpec): void {
       spec.condition_timeout ?? FALLBACK_CONDITION_TIMEOUT,
     );
     r.conditions_poll_ms = basePollMs(spec.condition_poll);
+    r.conditions_started_at = st.now.toISOString();
     r.conditions_note = null;
     const failed = failWithoutPr(s, spec.conditions, r.conditions, st.now);
     if (failed !== null) {
@@ -1606,6 +1608,8 @@ function startConditions(st: Step, spec: GateSpec): void {
       return;
     }
   }
+  // A step persisted before `conditions_started_at` existed counts from its resume.
+  r.conditions_started_at ??= st.now.toISOString();
   st.setStatus('waiting_external');
   evaluateConditions(st, spec, r);
 }
@@ -1656,7 +1660,7 @@ function onConditionsResult(
     conditionsNoAnswer(st, spec, r, `the last check failed: ${e.error}`);
     return;
   }
-  const v = mergeResults(r.conditions, spec.conditions, e.result, st.now);
+  const v = mergeResults(r.conditions, spec.conditions, e.result, st.now, r.conditions_started_at);
   if (v.type === 'malformed') {
     conditionsNoAnswer(st, spec, r, `the last check returned an unusable result (${v.why})`);
     return;

@@ -179,6 +179,10 @@ export function conditionOfType(type: ConditionType, prev?: Condition): Conditio
       };
     case 'jira_fields_set':
       return { type, fields: prev?.type === 'jira_fields_set' ? prev.fields : [], ...common };
+    case 'pr_checks_green':
+      return prev?.type === 'pr_checks_green' && prev.no_checks_after !== undefined
+        ? { type, no_checks_after: prev.no_checks_after, ...common }
+        : { type, ...common };
     default:
       return { type, ...common };
   }

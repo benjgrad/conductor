@@ -511,6 +511,35 @@ function TransitionForm({
                     onChange={(e) => set({ ...c, pipeline: e.target.value })}
                   />
                 )}
+                {c.type === 'pr_screenshots' && (
+                  <>
+                    <ListInput
+                      label={`Condition ${i + 1} UI paths`}
+                      value={c.ui_paths}
+                      placeholder="**/*.{tsx,css}"
+                      onChange={(ui_paths) => set({ ...c, ui_paths })}
+                    />
+                    <input
+                      aria-label={`Condition ${i + 1} screenshot pairs`}
+                      type="number"
+                      min={1}
+                      max={20}
+                      step={1}
+                      placeholder="pairs (1)"
+                      title="Before/after pairs the PR must show when it changes a UI path"
+                      value={c.min_pairs ?? ''}
+                      onChange={(e) => {
+                        const next = { ...c };
+                        delete next.min_pairs;
+                        set(
+                          e.target.value === ''
+                            ? next
+                            : { ...next, min_pairs: Number(e.target.value) },
+                        );
+                      }}
+                    />
+                  </>
+                )}
                 {c.type === 'jira_fields_set' && (
                   <ListInput
                     label={`Condition ${i + 1} fields`}
@@ -545,6 +574,8 @@ function TransitionForm({
                 {at(`.requires.conditions.${i}.min`)}
                 {at(`.requires.conditions.${i}.pipeline`)}
                 {at(`.requires.conditions.${i}.fields`)}
+                {at(`.requires.conditions.${i}.ui_paths`)}
+                {at(`.requires.conditions.${i}.min_pairs`)}
                 {at(`.requires.conditions.${i}.label`)}
               </div>
               <ItemActions

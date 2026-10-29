@@ -82,6 +82,10 @@ services:
       # The published port reaches the container through Docker's userland proxy, so the TCP peer
       # is the network gateway: this must equal CONDUCTOR_GATEWAY (ADR-0017 §Trusted proxy).
       CONDUCTOR_TRUSTED_PROXY: ${CONDUCTOR_TRUSTED_PROXY:-192.168.80.1}
+      # UX-15: Web Push (VAPID); empty = push off. See env.example and the runbook, §13.
+      CONDUCTOR_VAPID_PUBLIC_KEY: ${CONDUCTOR_VAPID_PUBLIC_KEY:-}
+      CONDUCTOR_VAPID_PRIVATE_KEY: ${CONDUCTOR_VAPID_PRIVATE_KEY:-}
+      CONDUCTOR_VAPID_SUBJECT: ${CONDUCTOR_VAPID_SUBJECT:-}
       DATABASE_URL: *database-url
     restart: unless-stopped
 

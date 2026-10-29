@@ -145,6 +145,14 @@ export const API_PATHS = {
   daemonDownload: (file: string) => `/downloads/${file}`,
   /** Public. GET → `{ok, db, version}`; 503 when the DB ping fails. */
   healthz: '/healthz',
+
+  // UX-15: Web Push (10-contracts §Web Push). Every route is 404 `push_disabled` without VAPID.
+  /** GET → PushVapidPublicKeyResponse. */
+  pushVapidPublicKey: '/api/push/vapid-public-key',
+  /** POST PushSubscribeRequest → 201 OkResponse (upsert by endpoint); DELETE PushUnsubscribeRequest → OkResponse. */
+  pushSubscriptions: '/api/push/subscriptions',
+  /** POST `{}` → PushTestResponse ("Notifications are on" to the caller's subscriptions). */
+  pushTest: '/api/push/test',
 } as const;
 
 /**
@@ -720,6 +728,39 @@ export type AnswerInputRequest = z.infer<typeof AnswerInputRequestSchema>;
 export const OkResponseSchema = z.object({ ok: z.literal(true) });
 export type OkResponse = z.infer<typeof OkResponseSchema>;
 
+// ---------------------------------------------------------------- UX-15: Web Push
+
+/** GET API_PATHS.pushVapidPublicKey: the VAPID public key (base64url) for `pushManager.subscribe`. */
+export const PushVapidPublicKeyResponseSchema = z.object({ public_key: z.string().min(1) });
+export type PushVapidPublicKeyResponse = z.infer<typeof PushVapidPublicKeyResponseSchema>;
+
+/** A push service endpoint: an https URL (never returned by the API, NFR-2). */
+export const PushEndpointSchema = z
+  .string()
+  .max(2048)
+  .regex(/^https:\/\/[^\s]+$/, 'expected an https URL');
+
+/**
+ * POST API_PATHS.pushSubscriptions: `PushSubscription.toJSON()` (other fields, such as
+ * `expirationTime`, are ignored). An upsert by endpoint for the signed-in user → 201 OkResponse.
+ */
+export const PushSubscribeRequestSchema = z.object({
+  endpoint: PushEndpointSchema,
+  keys: z.object({
+    p256dh: z.string().min(1).max(256),
+    auth: z.string().min(1).max(64),
+  }),
+});
+export type PushSubscribeRequest = z.infer<typeof PushSubscribeRequestSchema>;
+
+/** DELETE API_PATHS.pushSubscriptions: the caller's subscription by endpoint → OkResponse. */
+export const PushUnsubscribeRequestSchema = z.object({ endpoint: PushEndpointSchema });
+export type PushUnsubscribeRequest = z.infer<typeof PushUnsubscribeRequestSchema>;
+
+/** POST API_PATHS.pushTest → how many of the caller's subscriptions took the test push. */
+export const PushTestResponseSchema = z.object({ sent: z.number().int().nonnegative() });
+export type PushTestResponse = z.infer<typeof PushTestResponseSchema>;
+
 /**
  * POST /api/sessions/:id/messages → 202 OkResponse (ADR-0007). A message to the agent while it is
  * running: written into the live Claude process, which folds it into its current turn. A `/...`
@@ -898,6 +939,8 @@ export const ApiErrorSchema = z.object({
        * already decided differently) (409). The same decision again is 200, not this.
        */
       'permission_not_pending',
+      /** UX-15: Web Push is not configured (CONDUCTOR_VAPID_* unset) (404). */
+      'push_disabled',
     ]),
     message: z.string(),
     /** Validation details (zod issues / validator rule failures). */

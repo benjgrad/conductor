@@ -34,6 +34,8 @@ import type { TicketRow } from '../db/types.js';
 import { cardView } from '../engine/board-view.js';
 import { reopenSession } from '../engine/reopen.js';
 import type { MachineSockets } from '../gateway/revoke.js';
+import type { PushConfig } from '../push/config.js';
+import type { PushSender } from '../push/sender.js';
 import { conductorDefaultAvailable, seedConductorWorkflow } from '../engine/seed.js';
 import type { CreateApi } from '../main.js';
 import { parseLastEventId, serveBoardStream } from '../stream/board.js';
@@ -42,6 +44,7 @@ import { SseHub } from '../stream/sse.js';
 import { parseBody, pathString, sendError } from './errors.js';
 import { registerMachineRoutes } from './machines.js';
 import { registerPermissionRoutes } from './permissions.js';
+import { registerPushRoutes } from './push.js';
 import { listWorkflows, loadBoard, loadWorkflowDetail, toTicketDto } from './queries.js';
 import { httpSecurityFromEnv, securityHookFor, type HttpSecurityOptions } from './security.js';
 import { loadSessionDetail, sessionExists } from './sessions.js';
@@ -86,6 +89,10 @@ export interface ApiOptions {
   installUrl?: string;
   /** M2-T17: the daemon version served (`servedVersion(build)`); null = none, never outdated. */
   servedVersion?: string | null;
+  /** UX-15: Web Push (also a CreateApi dep); null = the /api/push/* routes answer push_disabled. */
+  push?: PushConfig | null;
+  /** UX-15: the push sender for POST /api/push/test (default: web-push with `push`). */
+  pushSender?: PushSender;
 }
 
 const NO_SOCKETS: MachineSockets = { disconnectMachine: () => undefined };
@@ -107,6 +114,8 @@ export const createApi = (({
   installUrl,
   servedVersion = null,
   machineTransport,
+  push = null,
+  pushSender,
 }: ApiDeps) => {
   const app = Fastify({ logger: false, trustProxy: trustedProxy ?? false });
   // M1-T14 / M2-T08: Host / Origin / content-type guard before routing (09), then who is asking.
@@ -132,6 +141,13 @@ export const createApi = (({
     ...(machineTransport ? { transport: machineTransport } : {}),
     now,
     log: (m) => console.warn(`[api] ${m}`),
+  });
+  // UX-15: Web Push subscriptions and the test push.
+  void app.register(registerPushRoutes, {
+    db,
+    push,
+    ...(pushSender ? { sender: pushSender } : {}),
+    now,
   });
 
   // JSON bodies; an empty body (POST /cancel with no payload) is `{}`.

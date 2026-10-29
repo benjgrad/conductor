@@ -1,16 +1,19 @@
 #!/usr/bin/env node
-import { runAdminCli } from './auth/admin-commands.js';
+import { runAdminCli, runVapidKeys } from './auth/admin-commands.js';
 import { ConfigError, PUBLIC_URL_ENV, parsePublicUrl } from './auth/config.js';
 import { createDb } from './db/index.js';
 
 // `conductor-admin` (M2-T15a; commands in auth/admin-commands.ts). Env: DATABASE_URL (required),
-// CONDUCTOR_PUBLIC_URL (for the links). In the container: `node dist/admin-cli.js <command>`.
+// CONDUCTOR_PUBLIC_URL (for the links); `vapid-keys` needs neither. In the container: `node dist/admin-cli.js <command>`.
 const write = (stream: NodeJS.WriteStream) => (line: string) => {
   stream.write(`${line}\n`);
 };
 
 async function run(): Promise<number> {
   const err = write(process.stderr);
+  const [command, ...args] = process.argv.slice(2);
+  // UX-15: key generation touches no database.
+  if (command === 'vapid-keys') return runVapidKeys(args, write(process.stdout), err);
   const databaseUrl = process.env.DATABASE_URL?.trim();
   if (!databaseUrl) {
     err('[conductor-admin] DATABASE_URL is required');

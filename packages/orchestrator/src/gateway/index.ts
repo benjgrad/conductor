@@ -20,7 +20,7 @@ import {
   type BoardSseEvent,
   type DaemonToOrchestrator,
   type OrchestratorToDaemon,
-  type OutboxKind,
+  type CommandKind,
 } from '@conductor/shared';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import {
@@ -777,7 +777,8 @@ class Gateway implements DaemonGateway {
       decisionRefused?: { sessionId: string };
     };
     const out = await withTransaction(this.db, async (tx): Promise<AckOutcome> => {
-      const r = await tx.query<{ kind: OutboxKind; session_id: string | null }>(
+      // A `machine:` target (the acking daemon), so never a push row: a CommandKind.
+      const r = await tx.query<{ kind: CommandKind; session_id: string | null }>(
         `UPDATE outbox
             SET status = CASE WHEN $2 THEN 'acked'::outbox_status ELSE 'failed'::outbox_status END,
                 last_error = $3,

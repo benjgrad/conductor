@@ -277,3 +277,15 @@ systemctl --user daemon-reload && systemctl --user enable --now actions-runner-c
 After changing `runner-job-started.sh`, copy it again: `install -m 755 deploy/gradyserver/runner-job-started.sh ~/actions-runner-conductor/job-started.sh`. Health: `systemctl --user status actions-runner-conductor`, and `gh api repos/benjgrad/conductor/actions/runners` should show it `online`.
 
 The first CI deploy runs from the deploy kit as it is on `main`; `~/deploy/conductor` must already exist (§3). The `gradyserver` environment is kept only for the deployment history and URL in GitHub's UI: it holds no secrets.
+
+## 13. Enable Web Push (UX-15)
+
+"Needs input" notifications to subscribed browsers and phones (UX-16 adds the subscribe toggle) are off until the three `CONDUCTOR_VAPID_*` are set; the /api/push/* routes answer 404 `push_disabled` until then. **(lead + Ben)** Generate the pair once, put it in `.env` with a `mailto:` subject, and recreate the orchestrator:
+
+```bash
+cdc exec orchestrator node dist/admin-cli.js vapid-keys   # prints the three lines (edit the subject)
+nano ~/deploy/conductor/.env                              # paste them; .env stays mode 0600
+cdc up -d --no-deps orchestrator && cdc logs orchestrator | grep 'push: on'
+```
+
+The private key is a secret. Never rotate the pair casually: a new one invalidates every browser's subscription (each has to subscribe again). The orchestrator sends to the browsers' push services over HTTPS (fcm.googleapis.com, updates.push.services.mozilla.com, web.push.apple.com …), so the container needs outbound HTTPS.

@@ -278,7 +278,7 @@ export interface OutboxRow {
    * built by the EngineService wrapper in the apply tx); the dispatcher only wraps it in an
    * envelope (`commandEnvelopeForOutboxRow`, orchestrator contracts).
    */
-  /** `machine:<id>` or `connector:<name>`. */
+  /** `machine:<id>`, `connector:<name>`, or `user:<id>` (UX-15 `push_needs_input`). */
   target: string;
   kind: OutboxKind;
   session_id: string | null;
@@ -427,6 +427,24 @@ export interface LoginThrottleRow {
   updated_at: Date;
 }
 
+/** UX-15: one browser's Web Push subscription (10-contracts §Web Push). */
+export interface PushSubscriptionRow {
+  id: string;
+  /** uuid, FK account. */
+  account_id: string;
+  /** uuid, no FK: may be the virtual LOCAL_USER_ID. */
+  user_id: string;
+  /** The push service URL; a per-browser secret, never returned by the API. */
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  user_agent: string | null;
+  created_at: Date;
+  last_ok_at: Date | null;
+  /** Consecutive failed sends; the 5th drops the row. */
+  failures: number;
+}
+
 /** Table name → row type, for generic repository helpers. */
 export interface Tables {
   machine: MachineRow;
@@ -449,4 +467,5 @@ export interface Tables {
   invite: InviteRow;
   password_reset: PasswordResetRow;
   login_throttle: LoginThrottleRow;
+  push_subscription: PushSubscriptionRow;
 }

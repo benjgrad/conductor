@@ -5,6 +5,7 @@ import {
   ENROLLMENT_TOKEN_CREATED_FIXTURE,
   MACHINE_DETAIL_FIXTURE,
   MACHINE_ROW_FIXTURES,
+  MACHINE_ROW_UPDATE_FAILED_FIXTURE,
   RENAME_MACHINE_REQUEST_FIXTURE,
 } from './fixtures.js';
 import {
@@ -14,6 +15,7 @@ import {
   MachineDetailSchema,
   MachineRowSchema,
   RenameMachineRequestSchema,
+  type MachineRow,
 } from './machines.js';
 import { MachineDtoSchema } from './rest.js';
 
@@ -52,6 +54,36 @@ describe('machines DTOs', () => {
 
   it('a MachineRow is still an M1 MachineDto', () => {
     expect(MachineDtoSchema.safeParse(MACHINE_ROW_FIXTURES.online).success).toBe(true);
+  });
+
+  describe('update alerts on a MachineRow (ADR-0021, M2-T18b)', () => {
+    it('a row with an update_failed alert parses; rows without one still do', () => {
+      expect(MachineRowSchema.parse(MACHINE_ROW_UPDATE_FAILED_FIXTURE)).toEqual(
+        MACHINE_ROW_UPDATE_FAILED_FIXTURE,
+      );
+      expect(MachineRowSchema.parse(MACHINE_ROW_FIXTURES.online).alerts).toBeUndefined();
+      expect(MachineDtoSchema.safeParse(MACHINE_ROW_UPDATE_FAILED_FIXTURE).success).toBe(true);
+    });
+
+    it('a MachineDetail is still a MachineRow (the web mock parses one as a row)', () => {
+      const row: MachineRow = MACHINE_DETAIL_FIXTURE;
+      expect(MachineRowSchema.parse(row).alerts).toEqual(MACHINE_DETAIL_FIXTURE.alerts);
+    });
+
+    it('refuses an unknown stage, a long error or a null list', () => {
+      const [alert] = MACHINE_ROW_UPDATE_FAILED_FIXTURE.alerts!;
+      for (const bad of [
+        { alerts: [{ ...alert, stage: 'bogus' }] },
+        { alerts: [{ ...alert, error: 'x'.repeat(501) }] },
+        { alerts: [{ ...alert, version: '../x' }] },
+        { alerts: null },
+      ]) {
+        expect(
+          MachineRowSchema.safeParse({ ...MACHINE_ROW_UPDATE_FAILED_FIXTURE, ...bad }).success,
+          JSON.stringify(bad).slice(0, 80),
+        ).toBe(false);
+      }
+    });
   });
 
   it('refuses an empty rename and an unknown repo mode', () => {

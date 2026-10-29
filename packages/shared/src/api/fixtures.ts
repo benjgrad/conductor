@@ -430,6 +430,21 @@ export const MACHINE_ROW_FIXTURES: Record<'online' | 'revoked', MachineRow> = {
   },
 };
 
+/** ADR-0021: an outdated machine whose update was rolled back (M2-T18d list, T18e page). */
+export const MACHINE_ROW_UPDATE_FAILED_FIXTURE: MachineRow = {
+  ...MACHINE_ROW_FIXTURES.online,
+  outdated: true,
+  alerts: [
+    {
+      kind: 'update_failed',
+      version: '0.3.0+4c5d6e7',
+      stage: 'trial',
+      error: 'no registered within 120 s after 2 starts; rolled back',
+      at: ts,
+    },
+  ],
+};
+
 export const MACHINE_DETAIL_FIXTURE: MachineDetail = {
   ...MACHINE_ROW_FIXTURES.online,
   os: 'darwin',

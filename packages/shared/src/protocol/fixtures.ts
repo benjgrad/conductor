@@ -1,6 +1,7 @@
 import type { JsonObject } from '../domain.js';
 import type { Capability } from '../machines/capabilities.js';
 import type { InventoryRepo } from '../machines/inventory.js';
+import type { LatestDaemon } from '../machines/update.js';
 import {
   PROTOCOL_VERSION,
   type DaemonMessageType,
@@ -37,6 +38,22 @@ const TS = '2026-10-22T12:00:00.000Z';
 let n = 0;
 /** Deterministic, valid v4 UUIDs for msg_id. */
 const id = () => `00000000-0000-4000-8000-${(++n).toString(16).padStart(12, '0')}`;
+
+/** ADR-0021: the served build (`/downloads/latest.json`, `update_available.payload`). */
+export const LATEST_DAEMON_FIXTURE: LatestDaemon = {
+  version: '0.3.0+4c5d6e7',
+  file: 'conductor-daemon-0.3.0+4c5d6e7.tgz',
+  sha256: 'ab'.repeat(32),
+  size: 12_345_678,
+};
+
+/** M2-T18b: fixed msg_ids, so adding these fixtures shifts no other fixture's msg_id. */
+const UPDATE_FIXTURE_MSG_IDS = {
+  updateAvailable: '00000000-0000-4000-8000-0000000b0001',
+  m2UpdateAvailable: '00000000-0000-4000-8000-0000000b0002',
+  heartbeatDraining: '00000000-0000-4000-8000-0000000b0003',
+  alertUpdateFailed: '00000000-0000-4000-8000-0000000b0004',
+} as const;
 
 /** M2-T29 (ADR-0023): fixed ids, so adding these fixtures shifts no other fixture's msg_id. */
 export const PERMISSION_FIXTURE_IDS = {
@@ -444,6 +461,14 @@ export const ORCHESTRATOR_FIXTURES: {
     fencing_token: null,
     payload: { request_id: '7a6b5c4d-3e2f-4a1b-8c9d-0e1f2a3b4c5d', session_id: S },
   },
+  update_available: {
+    type: 'update_available',
+    msg_id: UPDATE_FIXTURE_MSG_IDS.updateAvailable,
+    seq: null,
+    session_id: null,
+    fencing_token: null,
+    payload: { ...LATEST_DAEMON_FIXTURE },
+  },
   permission_decision: {
     type: 'permission_decision',
     msg_id: PERMISSION_FIXTURE_IDS.decisionMsg,
@@ -562,7 +587,9 @@ delete REGISTER_V2_BASE.enrollment_token;
  * The M2 WS shapes beyond DAEMON_FIXTURES, as full envelopes: a v2 `register` (versions, no
  * enrollment token), the M1 `register` it must stay compatible with, a `start_session` with its
  * working copy, an empty `inventory` and an `alert` naming its session. For the daemon (T04,
- * T10, T13) and gateway (T09, T16) tests; round-tripped in ws.v2.test.ts.
+ * T10, T13) and gateway (T09, T16) tests; round-tripped in ws.v2.test.ts. ADR-0021 (M2-T18b):
+ * `update_available`, a draining `heartbeat` and an `update_failed` alert, for T18c / T18d;
+ * round-tripped in ws.update.test.ts.
  */
 export const M2_WS_FIXTURES: {
   register_v2: Extract<DaemonToOrchestrator, { type: 'register' }>;
@@ -570,6 +597,9 @@ export const M2_WS_FIXTURES: {
   start_session_working_copy: Extract<OrchestratorToDaemon, { type: 'start_session' }>;
   inventory_empty: Extract<DaemonToOrchestrator, { type: 'inventory' }>;
   alert_with_session: Extract<DaemonToOrchestrator, { type: 'alert' }>;
+  update_available: Extract<OrchestratorToDaemon, { type: 'update_available' }>;
+  heartbeat_draining: Extract<DaemonToOrchestrator, { type: 'heartbeat' }>;
+  alert_update_failed: Extract<DaemonToOrchestrator, { type: 'alert' }>;
 } = {
   register_v2: {
     ...DAEMON_FIXTURES.register,
@@ -610,6 +640,32 @@ export const M2_WS_FIXTURES: {
       repo: INVENTORY_REPO_CHECKOUT_FIXTURE.path,
       session_id: S,
       files: ['hooks/post-checkout'],
+      at: TS,
+    },
+  },
+  update_available: {
+    ...ORCHESTRATOR_FIXTURES.update_available,
+    msg_id: UPDATE_FIXTURE_MSG_IDS.m2UpdateAvailable,
+  },
+  heartbeat_draining: {
+    ...DAEMON_FIXTURES.heartbeat,
+    msg_id: UPDATE_FIXTURE_MSG_IDS.heartbeatDraining,
+    payload: {
+      ...DAEMON_FIXTURES.heartbeat.payload,
+      draining: { reason: 'update', version: LATEST_DAEMON_FIXTURE.version },
+    },
+  },
+  alert_update_failed: {
+    type: 'alert',
+    msg_id: UPDATE_FIXTURE_MSG_IDS.alertUpdateFailed,
+    seq: 41,
+    session_id: null,
+    fencing_token: null,
+    payload: {
+      kind: 'update_failed',
+      version: LATEST_DAEMON_FIXTURE.version,
+      stage: 'trial',
+      error: 'no registered within 120 s after 2 starts; rolled back',
       at: TS,
     },
   },

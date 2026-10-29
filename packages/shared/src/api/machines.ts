@@ -5,6 +5,11 @@ import {
   MachineRepoModeSchema,
   UuidSchema,
 } from '../domain.js';
+import {
+  DaemonVersionSchema,
+  UPDATE_ERROR_MAX_CHARS,
+  UpdateStageSchema,
+} from '../machines/update.js';
 import { MachineDtoSchema } from './rest.js';
 
 // Machines REST DTOs (M2-T01, ADR-0013 §Enrollment, ADR-0017 §Daemon distribution). The daemon
@@ -47,6 +52,34 @@ export const EnrollmentTokenCreatedSchema = z.object({
 });
 export type EnrollmentTokenCreated = z.infer<typeof EnrollmentTokenCreatedSchema>;
 
+/** An open machine alert (e.g. the `.git` of a checkout-mode repo changed during a session). */
+export const MachineAlertDtoSchema = z.object({
+  id: UuidSchema,
+  kind: MachineAlertKindSchema,
+  repo: z.string().nullable(),
+  session_id: UuidSchema.nullable(),
+  files: z.array(z.string()),
+  created_at: IsoDateTimeSchema,
+});
+export type MachineAlertDto = z.infer<typeof MachineAlertDtoSchema>;
+
+/** ADR-0021 §3: an update to `version` failed at `stage` (the `alert update_failed` payload). */
+export const MachineUpdateAlertSchema = z.object({
+  kind: z.literal('update_failed'),
+  version: DaemonVersionSchema,
+  stage: UpdateStageSchema,
+  error: z.string().max(UPDATE_ERROR_MAX_CHARS),
+  at: IsoDateTimeSchema,
+});
+export type MachineUpdateAlert = z.infer<typeof MachineUpdateAlertSchema>;
+
+/**
+ * A `MachineRow.alerts` entry. The list (M2-T18d) carries `update_failed` ones; the git_tamper
+ * DTO is admitted so a MachineDetail (which narrows `alerts` to it) is still a valid MachineRow.
+ */
+export const MachineRowAlertSchema = z.union([MachineUpdateAlertSchema, MachineAlertDtoSchema]);
+export type MachineRowAlert = z.infer<typeof MachineRowAlertSchema>;
+
 /**
  * GET /api/machines → MachineRow[] (the caller's account only). A superset of the M1 MachineDto,
  * so M1 clients still parse it. "Last seen" is `last_heartbeat_at`; `outdated`: the daemon is older
@@ -59,6 +92,8 @@ export const MachineRowSchema = MachineDtoSchema.extend({
   outdated: z.boolean(),
   repo_count: z.number().int().nonnegative(),
   revoked_at: IsoDateTimeSchema.nullable(),
+  /** ADR-0021: the machine's open `update_failed` alerts (M2-T18d). Absent ≡ none, never null. */
+  alerts: z.array(MachineRowAlertSchema).optional(),
 });
 export type MachineRow = z.infer<typeof MachineRowSchema>;
 export const MachineListResponseSchema = z.array(MachineRowSchema);
@@ -83,17 +118,6 @@ export const MachineCapabilityDtoSchema = z.object({
   repo: z.string().nullable(),
 });
 export type MachineCapabilityDto = z.infer<typeof MachineCapabilityDtoSchema>;
-
-/** An open machine alert (e.g. the `.git` of a checkout-mode repo changed during a session). */
-export const MachineAlertDtoSchema = z.object({
-  id: UuidSchema,
-  kind: MachineAlertKindSchema,
-  repo: z.string().nullable(),
-  session_id: UuidSchema.nullable(),
-  files: z.array(z.string()),
-  created_at: IsoDateTimeSchema,
-});
-export type MachineAlertDto = z.infer<typeof MachineAlertDtoSchema>;
 
 /**
  * GET /api/machines/:id → MachineDetail (404 for another account's id). `live_sessions`: what a

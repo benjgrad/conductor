@@ -53,7 +53,7 @@ describe('readScreenshots', () => {
     save('before-board.png');
     save('after-board.png');
     save('after-lonely.png');
-    save('Before-Nav.png');
+    save('Before-Other.png'); // not Before-Nav.png: a case-insensitive FS (NTFS) would overwrite before-nav.png
     save('notes.txt');
     const r = readScreenshots(dir);
     expect(r.views).toEqual(['board', 'nav']);
@@ -66,7 +66,7 @@ describe('readScreenshots', () => {
     expect(r.files[0]!.bytes.equals(PNG)).toBe(true);
     expect(r.skipped).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('Before-Nav.png: not named'),
+        expect.stringContaining('Before-Other.png: not named'),
         expect.stringContaining('notes.txt: not named'),
         'after-lonely.png: no matching before file',
       ]),

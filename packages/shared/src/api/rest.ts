@@ -91,6 +91,8 @@ export const API_PATHS = {
   workflows: '/api/workflows',
   workflow: (id: string) => `/api/workflows/${id}`,
   machines: '/api/machines',
+  /** UX-13a: GET → TeamResponse (the signed-in account's agent team). */
+  team: '/api/team',
   boardStream: '/api/stream/board',
   sessionOutputStream: (id: string) => `/api/stream/sessions/${id}/output`,
   /** Daemon ↔ orchestrator WebSocket (03), served on the same HTTP server as the API. */
@@ -545,6 +547,11 @@ export const BoardCardSchema = z.object({
   sub_status: SessionSubStatusSchema.nullable().optional().catch(null),
   /** ADR-0023: set exactly when `sub_status` is `needs_permission`; absent ≡ none. */
   permission: BoardCardPermissionSchema.optional(),
+  /**
+   * UX-13a: the name of the teammate working the ticket (`ticket.agent_id`, set by the claim).
+   * null / absent ≡ not assigned yet (queued, or a ticket from before UX-13a).
+   */
+  agent_name: z.string().nullable().optional(),
 });
 export type BoardCard = z.infer<typeof BoardCardSchema>;
 
@@ -684,6 +691,8 @@ export const SessionDetailSchema = z.object({
    * `head_sha` = `__qa.head_sha`, the commit it reviewed. null / absent ≡ no QA yet (older servers).
    */
   qa: z.object({ result: QaResultSchema, head_sha: GitShaSchema }).nullable().optional(),
+  /** UX-13a: the ticket's teammate, as `card.agent_name`; null / absent ≡ not assigned yet. */
+  agent_name: z.string().nullable().optional(),
 });
 export type SessionDetail = z.infer<typeof SessionDetailSchema>;
 
@@ -1011,8 +1020,25 @@ export const TicketDtoSchema = z.object({
   kind: TicketKindSchema.nullable().optional(),
   /** M2 (U-048): only on the POST /api/tickets response; absent ≡ none. */
   warnings: z.array(TicketWarningSchema).optional(),
+  /** UX-13a: the ticket's teammate; null / absent ≡ not assigned yet. */
+  agent_name: z.string().nullable().optional(),
 });
 export type TicketDto = z.infer<typeof TicketDtoSchema>;
+
+/**
+ * UX-13a: GET /api/team. One agent of the signed-in account's team, oldest hire first.
+ * `active_ticket_id`: the ticket it is working now (a session not done / failed / lost), or null.
+ */
+export const TeamMemberSchema = z.object({
+  name: z.string(),
+  hired_at: IsoDateTimeSchema,
+  last_assigned_at: IsoDateTimeSchema.nullable(),
+  active_ticket_id: UuidSchema.nullable(),
+});
+export type TeamMember = z.infer<typeof TeamMemberSchema>;
+
+export const TeamResponseSchema = z.array(TeamMemberSchema);
+export type TeamResponse = z.infer<typeof TeamResponseSchema>;
 
 // ---------------------------------------------------------------- repo grammar (U-048)
 // The M1-T14 grammar (daemon `cloneSource`). TD-107: duplicated in the daemon's `cloneSource`
@@ -1162,6 +1188,8 @@ export interface CardTicketLike {
   status: TicketStatus;
   /** ADR-0011 `ticket.kind`; absent (rows from before the migration) ≡ null. */
   kind?: TicketKind | null;
+  /** UX-13a: the agent's name (joined from `agent`); absent ≡ the card omits `agent_name`. */
+  agent_name?: string | null;
   title: string;
   external_ref: string | null;
   repo: string;
@@ -1282,6 +1310,7 @@ export function toBoardCard(
         : null,
     created_at: iso(ticket.created_at),
     updated_at: sUpd > tUpd ? sUpd : tUpd,
+    ...(ticket.agent_name !== undefined ? { agent_name: ticket.agent_name } : {}),
   };
 }
 

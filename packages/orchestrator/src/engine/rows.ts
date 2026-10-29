@@ -12,9 +12,19 @@ import type { InputRequestRow, SessionRow, TicketRow } from '../db/types.js';
 
 // Row ⇄ engine-shape conversions and the reads the EngineService needs (M1-T04b).
 
+/**
+ * UX-13a: a ticket row plus its agent's name (null = not assigned yet), for cards. Every ticket
+ * read that feeds `toBoardCard` uses TICKET_SELECT, so no card event drops the name.
+ */
+export type TicketCardRow = TicketRow & { agent_name: string | null };
+
+/** `SELECT` a TicketCardRow from `ticket t`; append `WHERE` (and `FOR UPDATE OF t`). */
+export const TICKET_SELECT =
+  'SELECT t.*, a.name AS agent_name FROM ticket t LEFT JOIN agent a ON a.id = t.agent_id ';
+
 export interface LockedSession {
   session: SessionRow;
-  ticket: TicketRow;
+  ticket: TicketCardRow;
 }
 
 /** `SELECT … FOR UPDATE` the session (and its ticket). null = unknown session. */
@@ -24,7 +34,7 @@ export async function lockSession(tx: Queryable, sessionId: string): Promise<Loc
   ]);
   const session = s.rows[0];
   if (!session) return null;
-  const t = await tx.query<TicketRow>('SELECT * FROM ticket WHERE id = $1', [session.ticket_id]);
+  const t = await tx.query<TicketCardRow>(TICKET_SELECT + 'WHERE t.id = $1', [session.ticket_id]);
   return { session, ticket: t.rows[0]! };
 }
 
@@ -33,8 +43,8 @@ export async function readSession(tx: Queryable, sessionId: string): Promise<Ses
   return s.rows[0]!;
 }
 
-export async function readTicket(tx: Queryable, ticketId: string): Promise<TicketRow> {
-  const t = await tx.query<TicketRow>('SELECT * FROM ticket WHERE id = $1', [ticketId]);
+export async function readTicket(tx: Queryable, ticketId: string): Promise<TicketCardRow> {
+  const t = await tx.query<TicketCardRow>(TICKET_SELECT + 'WHERE t.id = $1', [ticketId]);
   return t.rows[0]!;
 }
 

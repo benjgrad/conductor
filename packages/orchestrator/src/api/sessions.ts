@@ -12,15 +12,15 @@ import {
 } from '@conductor/shared';
 import type { OutputBus, Queryable } from '../contracts.js';
 import { cardView } from '../engine/board-view.js';
-import { OPEN_INPUT_SELECT, splitStep, type OpenInputRow } from '../engine/rows.js';
+import {
+  OPEN_INPUT_SELECT,
+  splitStep,
+  TICKET_SELECT,
+  type OpenInputRow,
+  type TicketCardRow,
+} from '../engine/rows.js';
 import { readCardPermission, withPermission } from '../permissions/store.js';
-import type {
-  EventRow,
-  InputRequestRow,
-  SessionRow,
-  TicketRow,
-  WorkflowDefinitionRow,
-} from '../db/types.js';
+import type { EventRow, InputRequestRow, SessionRow, WorkflowDefinitionRow } from '../db/types.js';
 
 // GET /api/sessions/:id (M1-T08).
 
@@ -77,7 +77,7 @@ export async function loadSessionDetail(
   const session = s.rows[0];
   if (!session) return null;
   const [t, wd, ir, moves, inputRequests, permission] = await Promise.all([
-    db.query<TicketRow>('SELECT * FROM ticket WHERE id = $1', [session.ticket_id]),
+    db.query<TicketCardRow>(TICKET_SELECT + 'WHERE t.id = $1', [session.ticket_id]),
     db.query<WorkflowDefinitionRow>(
       'SELECT * FROM workflow_definition WHERE id = $1 AND version = $2',
       [session.workflow_id, session.workflow_version],
@@ -128,5 +128,6 @@ export async function loadSessionDetail(
     moves,
     ticket_body: ticket.body,
     input_requests: inputRequests,
+    agent_name: ticket.agent_name,
   };
 }

@@ -8,12 +8,12 @@ import {
 } from '@conductor/shared';
 import { insertBoardEvents } from '../contracts.js';
 import { withTransaction } from '../db/index.js';
-import type { SessionRow, TicketRow } from '../db/types.js';
+import type { SessionRow } from '../db/types.js';
 import { LEASE_INTERVAL } from '../gateway/claim.js';
 import type { Db } from '../main.js';
 import { cardView } from './board-view.js';
 import { reopenVersion } from './repin.js';
-import { readSession, splitStep } from './rows.js';
+import { readSession, splitStep, TICKET_SELECT, type TicketCardRow } from './rows.js';
 
 // ADR-0008: reopen a finished ticket by resuming the same agent. One transaction:
 //   lock ticket → lock the old session → checks (terminal, latest) → INSERT the new session
@@ -48,7 +48,7 @@ export async function reopenSession(
     );
     if (!peek.rows[0]) return { status: 'not_found' } as const;
     // Ticket first: serializes two reopens (and a reopen against a claim) of the same ticket.
-    const t = await tx.query<TicketRow>('SELECT * FROM ticket WHERE id = $1 FOR UPDATE', [
+    const t = await tx.query<TicketCardRow>(TICKET_SELECT + 'WHERE t.id = $1 FOR UPDATE OF t', [
       peek.rows[0].ticket_id,
     ]);
     const ticket = t.rows[0]!;
@@ -115,7 +115,7 @@ export async function reopenSession(
       ],
     );
     const fresh = await readSession(tx, sessionId);
-    const t2 = await tx.query<TicketRow>('SELECT * FROM ticket WHERE id = $1', [ticket.id]);
+    const t2 = await tx.query<TicketCardRow>(TICKET_SELECT + 'WHERE t.id = $1', [ticket.id]);
     const before = toBoardCard(
       ticket,
       old,

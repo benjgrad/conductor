@@ -171,7 +171,7 @@ Any real daemon code; protocol codegen (T03).
 - FR-4/FR-5: PR checks show `gates` and the three `daemon-rust` jobs green.
 - FR-6: `node scripts/test-parity.js` lists ~440 cases, all `todo`; `--files` with no ported globs passes; test-parity.test.js covers missing row, extra row, and dropped rows.
 
-- **Depends on**: MR-T01. **Files owned**: `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.gitignore`, `crates/**` (skeleton), `scripts/ci.sh`, `scripts/test-parity*.js`, `.github/workflows/ci.yml`, `.github/workflows/daemon-rust.yml`, `CLAUDE.md` §Commands, `docs/qa/QA_CHECKLIST.md`. **Do not touch**: `packages/**`, `docs/tracking/*`.
+- **Depends on**: MR-T01. **Files owned**: `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.gitignore`, `crates/**` (skeleton), `scripts/ci.sh`, `scripts/test-parity*.js`, `.github/workflows/ci.yml`, `.github/workflows/daemon-rust.yml`, `CLAUDE.md` §Commands, `docs/qa/QA_CHECKLIST.md`. **Do not touch**: `packages/**`.
 - **Acceptance**: [ ] gates green on all three OSes; [ ] PARITY.md pre-filled; [ ] seam test proven.
 
 ### MR-T03 · Protocol codegen: zod → JSON Schema → Rust, two-sided fixture parity
@@ -199,7 +199,7 @@ Daemon logic; orchestrator changes.
 - FR-2/FR-4: `cargo nextest run -p conductor-protocol` round-trips every fixture; `pnpm vitest run --project shared` parses the Rust output.
 - FR-3: vectors pass on both sides.
 
-- **Depends on**: MR-T02. **Files owned**: `packages/shared/scripts/emit-protocol.ts`, `packages/shared/protocol-json/**`, `packages/shared/package.json` (script line), the new shared vector tests, `crates/conductor-protocol/**`, the drift step in `scripts/ci.sh`. **Do not touch**: `packages/shared/src/**` behaviour, `crates/conductor-daemon/**`, `docs/tracking/*`.
+- **Depends on**: MR-T02. **Files owned**: `packages/shared/scripts/emit-protocol.ts`, `packages/shared/protocol-json/**`, `packages/shared/package.json` (script line), the new shared vector tests, `crates/conductor-protocol/**`, the drift step in `scripts/ci.sh`. **Do not touch**: `packages/shared/src/**` behaviour, `crates/conductor-daemon/**`.
 - **Acceptance**: [ ] every fixture round-trips; [ ] drift check; [ ] vectors on both sides.
 
 ### MR-T04 · platform/: spawn, kill tree (Job Objects), procinfo, ACLs, shell and the rest
@@ -229,7 +229,7 @@ Wiring into callers (T07, T09).
 - A Windows test kills a tree with a detached grandchild and finds no survivor.
 - `daemon-rust` green on all three OSes.
 
-- **Depends on**: MR-T02. **Files owned**: `crates/conductor-daemon/src/platform/**`, `src/test_support/{fake_bin,remove_tree}.rs`, their PARITY rows. **Do not touch**: other modules, `packages/**`, `docs/tracking/*`.
+- **Depends on**: MR-T02. **Files owned**: `crates/conductor-daemon/src/platform/**`, `src/test_support/{fake_bin,remove_tree}.rs`, their PARITY rows. **Do not touch**: other modules, `packages/**`.
 - **Acceptance**: [ ] parity rows done; [ ] three-OS green; [ ] seam test green.
 
 ### MR-T05 · Core: config, credential, store, ports and small modules
@@ -256,7 +256,7 @@ WS, processes, git.
 - PARITY rows filled for the listed TS test files (semaphore/tail cases in `process-runner.test.ts` too).
 - The FR-5 fixtures read on both sides.
 
-- **Depends on**: MR-T03, MR-T04. **Files owned**: `src/{config,credential,store,ports,system_prompt,orphan,sysinfo}.rs`, `src/commands/{semaphore,tail}.rs`, `src/inventory/version.rs`, `tests/fixtures/ts/**`, the one vitest compat test, their PARITY rows. **Do not touch**: `packages/daemon/src/**` (except the new compat test), `docs/tracking/*`.
+- **Depends on**: MR-T03, MR-T04. **Files owned**: `src/{config,credential,store,ports,system_prompt,orphan,sysinfo}.rs`, `src/commands/{semaphore,tail}.rs`, `src/inventory/version.rs`, `tests/fixtures/ts/**`, the one vitest compat test, their PARITY rows. **Do not touch**: `packages/daemon/src/**` (except the new compat test).
 - **Acceptance**: [ ] parity rows; [ ] cross-reading fixtures; [ ] three-OS green.
 
 ### MR-T06 · Test support: fake orchestrator, fake driver, fake runner
@@ -278,7 +278,7 @@ Real driver and runner.
 - PARITY rows for `fake-driver.test.ts` and `fake-runner.test.ts`.
 - A self-test of the fake orchestrator rejecting an invalid frame.
 
-- **Depends on**: MR-T03. **Files owned**: `src/test_support/fake_orchestrator.rs`, `src/claude/{driver,fake_driver}.rs`, `src/commands/{runner,fake_runner}.rs`, their PARITY rows. **Do not touch**: other modules, `docs/tracking/*`.
+- **Depends on**: MR-T03. **Files owned**: `src/test_support/fake_orchestrator.rs`, `src/claude/{driver,fake_driver}.rs`, `src/commands/{runner,fake_runner}.rs`, their PARITY rows. **Do not touch**: other modules.
 - **Acceptance**: [ ] parity rows; [ ] three-OS green.
 
 ### MR-T07 · WS client and process runner
@@ -296,7 +296,7 @@ Reference: `packages/daemon/src/ws-client.ts` (+ `ws-client.test.ts`, the backof
 - PARITY rows for `ws-client.test.ts`, the ws-client backoff cases in `units.test.ts`, and `process-runner.test.ts`.
 - Three-OS green.
 
-- **Depends on**: MR-T05, MR-T06. **Files owned**: `src/ws_client.rs`, `src/commands/{process_runner,mod}.rs` factory, their PARITY rows. **Do not touch**: other modules, `docs/tracking/*`.
+- **Depends on**: MR-T05, MR-T06. **Files owned**: `src/ws_client.rs`, `src/commands/{process_runner,mod}.rs` factory, their PARITY rows. **Do not touch**: other modules.
 - **Acceptance**: [ ] parity rows; [ ] three-OS green.
 
 ### MR-T08 · claude/: stream parser, transcript, edit guard, outcome and permission MCP server
@@ -316,7 +316,7 @@ ADR-0005, ADR-0023 (permission prompts), ADR-0024 §edit guard, ADR-0026 §5 (`h
 - PARITY rows for `stream-parser`, `transcript`, `edit-guard`, `outcome-server` tests (the raw JSON-RPC posts in `outcome-server.test.ts` are replayed byte-for-byte).
 - `fake-claude.mjs` completes a state against the Rust server.
 
-- **Depends on**: MR-T05, MR-T06. **Files owned**: `src/claude/{stream_parser,transcript,edit_guard,outcome_server}.rs`, their PARITY rows. **Do not touch**: `src/claude/cli_driver.rs`, `docs/tracking/*`.
+- **Depends on**: MR-T05, MR-T06. **Files owned**: `src/claude/{stream_parser,transcript,edit_guard,outcome_server}.rs`, their PARITY rows. **Do not touch**: `src/claude/cli_driver.rs`.
 - **Acceptance**: [ ] parity rows; [ ] three-OS green.
 
 ### MR-T09 · claude/cli_driver: the long-lived claude process
@@ -336,7 +336,7 @@ ADR-0005, ADR-0023, ADR-0024 (`claude.exe` only). Reference: `packages/daemon/sr
 - PARITY rows for both cli-driver test files.
 - Three-OS green.
 
-- **Depends on**: MR-T07, MR-T08. **Files owned**: `src/claude/cli_driver.rs`, its PARITY rows. **Do not touch**: other modules, `docs/tracking/*`.
+- **Depends on**: MR-T07, MR-T08. **Files owned**: `src/claude/cli_driver.rs`, its PARITY rows. **Do not touch**: other modules.
 - **Acceptance**: [ ] parity rows; [ ] argv parity test; [ ] three-OS green.
 
 ### MR-T10 · Workspace, hardened exec, and actions (open_pr, checkout, conditions)
@@ -355,7 +355,7 @@ ADR-0010 (private repos, `open_pr`), ADR-0013 (reference clones), M2-T13a (fresh
 - PARITY rows for the six TS test files.
 - Three-OS green (Git Bash on Windows for the sh-based fake gh, as TS).
 
-- **Depends on**: MR-T07. **Files owned**: `src/{exec,workspace}.rs`, `src/actions/**`, their PARITY rows. **Do not touch**: other modules, `docs/tracking/*`.
+- **Depends on**: MR-T07. **Files owned**: `src/{exec,workspace}.rs`, `src/actions/**`, their PARITY rows. **Do not touch**: other modules.
 - **Acceptance**: [ ] parity rows; [ ] three-OS green.
 
 ### MR-T11 · Inventory: capabilities, repos, report, rescan
@@ -374,7 +374,7 @@ ADR-0013. Reference: `packages/daemon/src/inventory/{capabilities,repos,git,repo
 - PARITY rows for the three TS files.
 - The golden payload test.
 
-- **Depends on**: MR-T10. **Files owned**: `src/inventory/{capabilities,repos,git,report}.rs`, their PARITY rows and golden files. **Do not touch**: other modules, `docs/tracking/*`.
+- **Depends on**: MR-T10. **Files owned**: `src/inventory/{capabilities,repos,git,report}.rs`, their PARITY rows and golden files. **Do not touch**: other modules.
 - **Acceptance**: [ ] parity rows; [ ] golden payload; [ ] three-OS green.
 
 ### MR-T12 · Daemon core
@@ -393,7 +393,7 @@ Reference: `packages/daemon/src/daemon.ts` (1,588 lines), `daemon.test.ts` (63 c
 - PARITY rows for `daemon.test.ts`, `daemon.kill.test.ts`, `reopen-transcript.test.ts`, the rest of `units.test.ts`. They run against `fake_orchestrator`, the fakes, real git and `fake-claude.mjs`, as in TS.
 - Three-OS green.
 
-- **Depends on**: MR-T09, MR-T10, MR-T11. **Files owned**: `src/daemon.rs`, its PARITY rows. **Do not touch**: other modules except to fix a bug found here (say so in the PR), `docs/tracking/*`.
+- **Depends on**: MR-T09, MR-T10, MR-T11. **Files owned**: `src/daemon.rs`, its PARITY rows. **Do not touch**: other modules except to fix a bug found here (say so in the PR).
 - **Acceptance**: [ ] parity rows; [ ] three-OS green.
 
 ### MR-T13 · main and subcommands: run, enroll, config, help, hook, rescan, service
@@ -414,7 +414,7 @@ Reference: `packages/daemon/src/main.ts`, `src/commands/{enroll,config}.ts` (+ t
 - `assert_cmd` tests for every subcommand and exit code.
 - On each OS in CI, `service install` writes the expected file in a temp HOME (no real launchctl/systemctl/schtasks calls in CI; those are behind a runner trait).
 
-- **Depends on**: MR-T12, U-112. **Files owned**: `src/main.rs`, `src/commands/{enroll,config,service}.rs`, `assets/conductor-launch*`, their PARITY rows. **Do not touch**: other modules, `packages/orchestrator/assets/**` (T15), `docs/tracking/*`.
+- **Depends on**: MR-T12, U-112. **Files owned**: `src/main.rs`, `src/commands/{enroll,config,service}.rs`, `assets/conductor-launch*`, their PARITY rows. **Do not touch**: other modules, `packages/orchestrator/assets/**` (T15).
 - **Acceptance**: [ ] parity rows; [ ] subcommand tests; [ ] three-OS green.
 
 ### MR-T14 · Auto-update (ADR-0021) in Rust
@@ -435,7 +435,7 @@ ADR-0021 in full (it replaces M2-T18c), ADR-0026 §4 (one tarball per target). T
 - Unit tests for each stage and bound (fake clock, fake orchestrator serving a tarball).
 - e2e: one update and one rollback (the M2-T22 cases) against the Rust binary, Linux and Windows.
 
-- **Depends on**: MR-T13, M2-T18b, U-114. **Files owned**: `src/update.rs`, the launcher assets, the update e2e cases. **Do not touch**: orchestrator code, `docs/tracking/*`.
+- **Depends on**: MR-T13, M2-T18b, U-114. **Files owned**: `src/update.rs`, the launcher assets, the update e2e cases. **Do not touch**: orchestrator code.
 - **Acceptance**: [ ] unit tests; [ ] update + rollback e2e; [ ] three-OS green.
 
 ### MR-T15 · Distribution on the existing upgrade path
@@ -456,7 +456,7 @@ ADR-0026 §4, ADR-0017, ADR-0021 §1 (`file` rule), ADR-0024 (install.ps1). Toda
 - The FR-4 test.
 - `docker build` produces an image whose `/downloads` lists all five targets.
 
-- **Depends on**: MR-T13, U-115. **Files owned**: the files named in Context, `.github/workflows/daemon-rust.yml` release job. **Do not touch**: daemon crate code, `docs/tracking/*`.
+- **Depends on**: MR-T13, U-115. **Files owned**: the files named in Context, `.github/workflows/daemon-rust.yml` release job. **Do not touch**: daemon crate code.
 - **Acceptance**: [ ] five targets served; [ ] install tests; [ ] in-place upgrade test.
 
 ### MR-T16 · e2e on the Rust binary
@@ -477,7 +477,7 @@ The end-to-end suites prove the Rust daemon works against the real orchestrator 
 - The Windows e2e job green.
 - FR-4 green.
 
-- **Depends on**: MR-T13, MR-T15. **Files owned**: `e2e/**`, `packages/orchestrator/test/e2e/ask-answer.test.ts`, `packages/orchestrator/package.json` (that dependency), the Windows e2e job. **Do not touch**: daemon crate code (report bugs in the PR), `docs/tracking/*`.
+- **Depends on**: MR-T13, MR-T15. **Files owned**: `e2e/**`, `packages/orchestrator/test/e2e/ask-answer.test.ts`, `packages/orchestrator/package.json` (that dependency), the Windows e2e job. **Do not touch**: daemon crate code (report bugs in the PR).
 - **Acceptance**: [ ] e2e green on Linux and Windows; [ ] upgrade e2e.
 
 ### MR-T18a · Cutover docs and parity at 100%
@@ -495,7 +495,7 @@ ADR-0026. Docs that describe the daemon: `docs/design/10-contracts.md`, `03-prot
 ## Verification
 - Parity at 100%; `scripts/ci.sh` green; web help tests green.
 
-- **Depends on**: MR-T14, MR-T15, MR-T16. **Files owned**: the docs listed. **Do not touch**: code, `docs/tracking/*`.
+- **Depends on**: MR-T14, MR-T15, MR-T16. **Files owned**: the docs listed. **Do not touch**: code.
 - **Acceptance**: [ ] parity 100%; [ ] docs; [ ] gates.
 
 ### MR-T18b · Delete the TypeScript daemon
@@ -512,5 +512,5 @@ Only after Ben's dogfood day on each OS passed on the Rust daemon and Ben OKs th
 ## Verification
 - `scripts/ci.sh` green; `grep -r "packages/daemon"` only hits history docs (ADRs, session logs, the ledger).
 
-- **Depends on**: MR-T18a, Ben's OK. **Files owned**: the files above. **Do not touch**: `docs/tracking/*`.
+- **Depends on**: MR-T18a, Ben's OK. **Files owned**: the files above.
 - **Acceptance**: [ ] gates; [ ] grep clean.

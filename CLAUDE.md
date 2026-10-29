@@ -23,7 +23,17 @@ This file is the **operating manual for every Claude session in this repo**. The
 | `docs/qa/` | QA checklist + test strategy |
 | `docs/templates/` | Task, session-log, unknown, ADR templates |
 
-Tracking files are edited on `main`, not on task branches, to keep branches free of merge conflicts in them.
+### Every agent updates the tracking docs
+The docs are how we track the status of work, so **every agent keeps them current**: a lead session, a local subagent, or a conductor ticket. Write the tracking changes on the same branch as the work they describe, so they land on `main` when it merges. A session with no task branch (planning, QA, reconcile) uses a `docs/<slug>` branch.
+- **Your task's row** in the milestone table: `done` in the branch that finishes it (it becomes true when that branch merges), or `blocked` plus a B-### row. Update ROADMAP if the milestone changes state.
+- **New rows** for what you find: U-### unknowns, B-### blockers, TD-### shortcuts (with `// TD-###` at the site), and one line per decision in DECISIONS_LOG.
+- **UNFINISHED.md**: add an entry for anything you leave unmerged; remove your own entry when it lands.
+- **A session log** in `docs/tracking/sessions/<YYYY-MM-DD>-<slug>.md`. It is a new file, so it never conflicts.
+- **STATUS.md**: on a task branch, add, update or remove **only your own *In flight* row**. The full rewrite (now / health / progress / last session) belongs to the lead, at session end.
+
+Parallel branches touch the same files, so:
+- **IDs**: `git fetch origin`, then take the next free number after the highest on `origin/main` *and* on open PRs. If merging `origin/main` shows a collision, renumber **yours** (the row, `// TD-###` comments, references), never the one already on `main`.
+- **Conflicts** in tracking files are resolved by keeping both sides' rows. Never drop or rewrite rows that came from `main`.
 
 ---
 
@@ -43,19 +53,19 @@ Tracking files are edited on `main`, not on task branches, to keep branches free
 
 ### 2 · Build
 1. One task, one branch: `m<N>-t<NN>-<slug>`. Work on it directly; parallelize only when tasks are independent and big enough to be worth it.
-2. Record new unknowns, blockers, tech debt and unfinished items in the tracking files as you go. A blocked task gets a B-### row and status `blocked`; tell Ben if the unblock action is his.
+2. Record new unknowns, blockers, tech debt and unfinished items in the tracking files **on your branch** as you go ([§Every agent updates the tracking docs](#every-agent-updates-the-tracking-docs)). A blocked task gets a B-### row and status `blocked`; tell Ben if the unblock action is his.
 3. **Run only targeted tests while you work**: the files and package you touched, e.g. `pnpm vitest run --project daemon src/actions/open-pr.test.ts`, plus `pnpm typecheck`. Never run the full `pnpm test` or `pnpm lint` to check progress: the full gate runs **once per branch**, in step 3, or as conductor's own checks when a conductor ticket leaves `implementing` (they run in a fresh checkout under the daemon's build slots, so running them yourself first only doubles the load). If a targeted run reports `test slot: waiting…`, it is queued behind other runs on the machine: wait, don't retry or kill it (M2-T32).
 
 ### 3 · Check and merge
 1. Before merging, check the branch against the task's acceptance criteria and [docs/qa/QA_CHECKLIST.md](docs/qa/QA_CHECKLIST.md): read the diff, run the gates once (`pnpm typecheck && pnpm lint && pnpm test && pnpm build`, Bash `timeout: 600000`: it may queue for a test slot). When a QA subagent runs them, the lead doesn't run them again.
-2. Record any TD rows, then `git merge --no-ff` into `main`, set the task to `done`, and remove the worktree. **Never merge with a red gate.**
+2. Check that the branch carries its own tracking updates (task row, TD/U rows, session log) and add anything missing to the branch, then `git merge --no-ff` into `main`, set the task to `done`, and remove the worktree. **Never merge with a red gate.**
 
 ### 4 · Session end (always, even if the session was short or failed)
 1. Every branch not merged gets an entry in `UNFINISHED.md` with the **exact next step**. Commit WIP on its branch (never leave uncommitted work in a worktree).
 2. **Rewrite** `STATUS.md`: now / in flight / health counts / milestone progress / last session.
 3. Write `docs/tracking/sessions/<YYYY-MM-DD>-<slug>.md` from the template.
 4. Update the milestone table statuses and ROADMAP if a milestone changed state.
-5. Commit the tracking updates on `main`: `docs(tracking): session <date> <slug>`.
+5. Commit the tracking updates on the branch the work is on, or on a `docs/<slug>` branch for a session without one: `docs(tracking): session <date> <slug>`.
 6. End with a short report to Ben: done, merged, open, and the next command to run.
 
 ---

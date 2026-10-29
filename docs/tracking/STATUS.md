@@ -1,6 +1,6 @@
 # Status
 
-> Living dashboard. Rewritten (not appended) by the lead session at the end of every session. Keep it under one screen.
+> Living dashboard. Rewritten (not appended) by the lead session at the end of every session. Every other agent (local or conductor ticket) updates only its own *In flight* row, on its branch. Keep it under one screen.
 
 **Updated**: 2026-10-29 · sessions [2026-10-29-inventory-reconcile](sessions/2026-10-29-inventory-reconcile.md), [2026-10-29-rust-daemon-plan](sessions/2026-10-29-rust-daemon-plan.md)
 

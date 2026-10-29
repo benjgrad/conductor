@@ -1,6 +1,6 @@
 # ADR-0007 · Live messages to a running agent (slash commands pass through)
 
-- **Status**: accepted (Ben, 2026-10-23)
+- **Status**: accepted (Ben, 2026-10-23); §1 amended by [ADR-0027](0027-messages-while-waiting-on-pr-checks.md) (a message while waiting on the PR's checks resumes the agent)
 - **Date**: 2026-10-23
 - **Deciders**: Ben (+ Claude session 2026-10-23, branch `lm-backend-live-messages`)
 - **Extends**: [ADR-0005](0005-claude-code-driver.md) (driver contract gains `DriverSession.sendMessage`; the U-028 nudge rule is unchanged) and the human-input path ([06](../design/06-human-input.md#live-messages-to-a-running-agent)).

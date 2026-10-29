@@ -1,6 +1,6 @@
 # ADR-0021 · Daemon auto-update: server-announced, drained, rolled back on failure
 
-- **Status**: accepted (Ben merged PR #41, 2026-10-28)
+- **Status**: accepted (Ben merged PR #41, 2026-10-28); amended by [ADR-0026](0026-rust-daemon.md): one tarball per target picked from `register.os`/`arch`, the updater is built in Rust (MR-T14)
 - **Date**: 2026-10-28
 - **Deciders**: Ben (+ Claude lead session, 2026-10-28)
 - **Resolves**: none open. Amends [ADR-0017](0017-own-sign-in-and-self-hosting.md) §Daemon distribution, "Upgrades" (manual re-run → automatic)

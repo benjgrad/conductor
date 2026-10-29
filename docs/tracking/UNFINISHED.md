@@ -16,6 +16,16 @@ Remove the entry once the work is merged or deliberately abandoned. If abandoned
 - **Gates**: typecheck ✅ lint ✅ tests ❌ (worktree.test.ts skipped)
 -->
 
+## MR-T00 · Rust daemon plan (ADR-0026): written, not merged
+- **Branch / worktree**: `mr-t00-rust-daemon-plan` (PR #69; origin/main merged in on 2026-10-29) @ `.claude/worktrees/mr-t00-rust-daemon-plan`
+- **Done so far**: ADR-0026; `docs/plan/milestones/MR-rust-daemon.md` (19 tasks, groups A–H); ROADMAP row; `→ MR` marks on M2-T18c/T27/T28d and MW-T09..T13; amendment notes on ADR-0004/0017/0021/0024; U-112..U-116, B-005; decisions-log line. Docs only, no code.
+- **Also done (Ben: "implement it all using the conductor board")**: every MR task is a ticket block (`### MR-Tnn` with Goal / Context / FR / NFR / Verification) in `MR-rust-daemon.md` §Tickets, with a 13-wave table. `scripts/create-tickets.js` adds MR rules (frozen TS reference, PARITY rows, seam rule, stop if no `cargo`, cargo gates) and refuses MR-T00. The dry run builds all 18 tickets. T18 split into T18a (docs, parity 100%) and T18b (delete the TS daemon after Ben's dogfood).
+- **Posted**: wave 1, MR-T01 → ticket e4bbe7dd-6ad4-496d-8dcc-ad7605b1ad49 (2026-10-29, workflow `conductor` v4, starts in planning), with `CONDUCTOR_EMAIL=bengrady4@gmail.com CONDUCTOR_PASSWORD_FILE=~/.conductor-pw` (the login from session 96231ac4, M3/UX waves).
+- **Not done**: the `daemon-ts-freeze` tag (on the merge commit, after Ben merges); waves 2–13.
+- **Exact next step**: Ben merges PR #69, installs rustup on every machine that claims tickets (B-005) and answers U-112. The lead tags the merge commit `daemon-ts-freeze`, QAs MR-T01's PR when it opens, and after it merges posts wave 2 (`CONDUCTOR_EMAIL=bengrady4@gmail.com CONDUCTOR_PASSWORD_FILE=~/.conductor-pw node scripts/create-tickets.js --file docs/plan/milestones/MR-rust-daemon.md MR-T02`, `--dry-run` first).
+- **Gotchas**: ADR-0025 was already taken on origin/main (CI-gated review), so the Rust ADR is 0026. Local `main` has an unpushed TD-189 (install.sh `--service`), which collides with origin/main's TD-189 (orphan sweep); renumber it when local main is reconciled.
+- **Gates**: docs only; markdown links checked by hand.
+
 ## M1-T05a · Real-mode manual check (code merged; one acceptance item outstanding)
 - **Branch / worktree**: none; daemon core merged via `integrate/B` (d5841e7), wiring via M1-T07 (66ab745). Work from the main checkout or a fresh worktree off main
 - **Last commit**: 344a0c9 (main after group E, M1-T10 merged)

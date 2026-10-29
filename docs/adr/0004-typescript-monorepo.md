@@ -1,6 +1,6 @@
 # ADR-0004 · TypeScript pnpm monorepo
 
-- **Status**: accepted
+- **Status**: accepted; the daemon part is superseded by [ADR-0026](0026-rust-daemon.md) (2026-10-29: the daemon is a Rust binary)
 - **Date**: 2026-10-22
 - **Deciders**: Ben
 

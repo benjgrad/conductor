@@ -8,7 +8,7 @@
 //
 // With no ids it takes every ticket block in the file. Env: CONDUCTOR_URL (default
 // https://conductor.gradyserver.com), CONDUCTOR_EMAIL, CONDUCTOR_PASSWORD (optional; prompted if
-// absent), CONDUCTOR_WORKFLOW (default conductor_dev).
+// absent; or CONDUCTOR_PASSWORD_FILE, a file holding it), CONDUCTOR_WORKFLOW (default conductor).
 // Re-running is safe: a ticket whose title is already on the board is skipped.
 // TD-172: no depends_on until M2b, so only create a wave once every dependency is merged (each
 // plan file's ticket waves).
@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_FILE = 'docs/plan/milestones/M3-mcp.md';
 const BASE = (process.env.CONDUCTOR_URL ?? 'https://conductor.gradyserver.com').replace(/\/$/, '');
-const WORKFLOW = process.env.CONDUCTOR_WORKFLOW ?? 'conductor_dev';
+const WORKFLOW = process.env.CONDUCTOR_WORKFLOW ?? 'conductor'; // the hosted board's only workflow
 const REPO = 'github.com/benjgrad/conductor';
 // M3: T17 is the lead's; T18/T19 "later". MR: T00 is the lead's (plan, ADR-0026).
 const NOT_TICKETS = new Set(['M3-T17', 'M3-T18', 'M3-T19', 'MR-T00']);
@@ -35,6 +35,7 @@ const M3_DESIGN =
 
 // MR (Rust daemon, ADR-0026): the TS daemon is frozen and is the behaviour reference.
 const MR_RULES =
+  "- If `docs/adr/0026-rust-daemon.md` or `docs/plan/milestones/MR-rust-daemon.md` is missing on `origin/main`, the plan isn't merged yet (PR #69): read them with `git fetch origin mr-t00-rust-daemon-plan && git show origin/mr-t00-rust-daemon-plan:<path>`. Don't merge that branch into yours.\n" +
   '- The TypeScript daemon (`packages/daemon`) is frozen and is the behaviour reference: read it, never change it, except where this ticket\'s "Files owned" says so. A behaviour difference you intend needs a design-doc edit in this PR.\n' +
   '- Every TS test case your ticket ports gets its row in `crates/conductor-daemon/PARITY.md` (Rust test path, or `dropped: <reason>` listed in the PR for Ben), and its file globs go in the ported list; `node scripts/test-parity.js` must pass.\n' +
   '- OS-specific code (`cfg(windows)`, `cfg(unix)`, `cfg(target_os …)`) only under `crates/conductor-daemon/src/platform/`. Protocol frames only through `conductor-protocol` types. On-disk files stay byte-compatible with the TS daemon.\n' +
@@ -166,7 +167,10 @@ async function main() {
   }
 
   const email = process.env.CONDUCTOR_EMAIL ?? (await prompt('email: '));
-  const password = process.env.CONDUCTOR_PASSWORD ?? (await prompt('password: '));
+  const pwFile = process.env.CONDUCTOR_PASSWORD_FILE;
+  const password =
+    process.env.CONDUCTOR_PASSWORD ??
+    (pwFile ? readFileSync(pwFile, 'utf8').replace(/\r?\n$/, '') : await prompt('password: '));
   const c = new Client();
   await c.req('POST', '/auth/login', { email, password });
   if (!c.cookie) throw new Error('login returned no session cookie');

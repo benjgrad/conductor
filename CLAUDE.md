@@ -98,7 +98,7 @@ E2E_REAL_CLAUDE=1 pnpm test:e2e   # ask/answer only, real `claude` on haiku (spe
 scripts/ci.sh          # all gates, in order: install, typecheck, lint, deploy kit (deploy/gradyserver/test/run.sh), db:up, test, build, test:e2e
 ```
 
-GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `scripts/ci.sh` as the `gates` check on every PR. Every push to `main` that passes it is deployed to gradyserver by `deploy/gradyserver/deploy.sh` (runbook [§12](docs/setup/deploy-gradyserver.md#12-cicd-github-actions)), so merging to `main` ships.
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `scripts/ci.sh` as the `gates` check on every PR; a PR runs only the slow test tiers its diff reaches (`CONDUCTOR_CI_TIERED=1` → `pnpm test`), and `main` runs `test:all`. `daemon-windows.yml` runs the daemon tests on Windows only when the diff reaches the daemon (`scripts/test-affected.js`). Every push to `main` that passes it is deployed to gradyserver by `deploy/gradyserver/deploy.sh` (runbook [§12](docs/setup/deploy-gradyserver.md#12-cicd-github-actions)), so merging to `main` ships.
 
 **Test slots (M2-T31).** Every vitest run (however it is started) and `pnpm lint` first takes one of `CONDUCTOR_TEST_SLOTS` (default 2) machine-wide slots, shared by every worktree and agent (`scripts/test-slot.js`: a localhost port from 54330, freed when the holder exits), and vitest uses only its share of the CPUs (`maxWorkers`). If both are taken it prints `test slot: waiting…` with the holders and starts by itself; that is a queue, not a hang, so give long test commands a long Bash timeout (`timeout: 600000`) rather than retrying. Watch mode takes no slot.
 

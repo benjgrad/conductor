@@ -96,6 +96,12 @@ Sort, by the column's kind: Queued by priority then age; human (Needs input) old
 - **Create form**: Work / Personal is a required choice (no default); the form always sends `kind`.
 - **Plan to approve** ([§Plan approval](#plan-approval)): a request opened by `plan_needs_approval` is labelled "Plan to approve" and, instead of the human transition buttons, offers **Approve plan** (posts the answer, below) and **Review plan** (opens the session panel). Without an answer option the card keeps the generic buttons.
 
+### In-tab notifications (UX-14)
+While any conductor tab is open, the page tells Ben when an agent needs input (`packages/web/src/notify/`):
+- The document title reads `(N) Conductor` and the favicon gets a dot while N cards have an open `input_request`. Both clear at zero.
+- Each **new** open request, keyed by `input_request.id`, shows one browser notification when notifications are on and the page is hidden or unfocused. Title: "<agent> needs input"; body: the ticket title and the question, clipped to 120 characters; `tag`: the request id. Clicking it focuses the tab and opens that card's session panel. Requests already open when the board loads are only counted. An id seen once never fires again, so reconnects, re-renders and the user's own answer don't re-fire. A notification closes when its request is answered.
+- Opt-in per browser from the account menu's **Notifications** item (off, on, or blocked by the browser), stored in localStorage. The browser's permission is asked only from that click, never on load. Without `Notification` the item is hidden and the title count still works. Web Push for a closed tab is UX-15/UX-16.
+
 ## Session detail panel
 - The workflow state diagram with the current state highlighted.
 - Recent output from the orchestrator's per-session ring buffer, streamed live while open.

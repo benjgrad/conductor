@@ -3,6 +3,12 @@ import { CircleUser } from 'lucide-react';
 import { useState } from 'react';
 import type { ApiClient } from '../api/client.js';
 import { NavIcon } from '../components/NavIcon.js';
+import {
+  disableNotifications,
+  enableNotifications,
+  notifyState,
+  type NotifyState,
+} from '../notify/settings.js';
 import { ChangePasswordDialog } from './ChangePasswordDialog.js';
 import { authErrorMessage } from './errors.js';
 import './auth.css';
@@ -20,13 +26,15 @@ interface AccountMenuProps {
 
 /**
  * The header's account menu: the user's name; "Admin" for admins; "Change password" and "Sign
- * out" in `password` mode (in `local` mode there is nothing to sign out of).
+ * out" in `password` mode (in `local` mode there is nothing to sign out of). UX-14: the
+ * Notifications toggle (hidden when the browser has no `Notification`).
  */
 export function AccountMenu({ api, me, onAdmin, onSignedOut, compact }: AccountMenuProps) {
   const [open, setOpen] = useState(false);
   const [changing, setChanging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notify, setNotify] = useState<NotifyState>(notifyState);
   const passwordMode = me.auth_mode === 'password';
 
   async function signOut() {
@@ -43,6 +51,16 @@ export function AccountMenu({ api, me, onAdmin, onSignedOut, compact }: AccountM
     }
   }
 
+  // UX-14 FR-4: the permission prompt comes only from this click, never on load.
+  async function toggleNotifications() {
+    if (notify === 'on') {
+      disableNotifications();
+      setNotify('off');
+    } else if (notify === 'off') {
+      setNotify(await enableNotifications());
+    }
+  }
+
   return (
     <div className="account">
       <button
@@ -50,7 +68,11 @@ export function AccountMenu({ api, me, onAdmin, onSignedOut, compact }: AccountM
         className="account-button"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          // The permission can change in the browser's site settings while the page is open.
+          if (!open) setNotify(notifyState());
+          setOpen((v) => !v);
+        }}
         {...(compact ? { 'aria-label': me.user.display_name, title: me.user.email } : {})}
       >
         <NavIcon icon={CircleUser} />
@@ -69,6 +91,24 @@ export function AccountMenu({ api, me, onAdmin, onSignedOut, compact }: AccountM
               }}
             >
               Admin
+            </button>
+          )}
+          {notify !== 'unsupported' && (
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={notify === 'on'}
+              disabled={notify === 'blocked'}
+              title={
+                notify === 'blocked'
+                  ? "Allow notifications for this site in the browser's settings"
+                  : undefined
+              }
+              onClick={() => void toggleNotifications()}
+            >
+              {notify === 'blocked'
+                ? 'Notifications: blocked by the browser'
+                : `Notifications: ${notify}`}
             </button>
           )}
           {passwordMode && (

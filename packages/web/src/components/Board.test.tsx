@@ -204,7 +204,9 @@ describe('board card in a gate step (UX-5)', () => {
       }),
     ]);
     const a = article('Card 1');
-    expect(a.getByText('running')).toBeTruthy();
+    // The Implementing column says it visually; screen readers still hear it (NFR-2).
+    expect(a.getByText('running').className).toBe('visually-hidden');
+    expect(document.querySelector('.status-running')).toBeNull();
     expect(a.getByText('waiting for build slot')).toBeTruthy();
     const avatar = screen.getByText('Card 1').closest('article')!.querySelector('.card-agent svg')!;
     expect(avatar.getAttribute('class')).not.toContain('avatar-idle');
@@ -228,6 +230,62 @@ describe('board card in a gate step (UX-5)', () => {
     const a = article('Card 1');
     expect(a.getByRole('group', { name: 'Waiting for Ready for testing' })).toBeTruthy();
     expect(a.queryByText(/Conductor is checking/)).toBeNull();
+  });
+
+  it('FR-4: the summary and the checking badge never both show', () => {
+    renderCards([
+      step(1),
+      step(2, {
+        status: 'waiting_external',
+        checking: { ...mockChecking(0), phase: 'conditions' },
+      }),
+    ]);
+    const conductor = screen.getByText('Card 1').closest('article')!;
+    expect(conductor.querySelector('.status-conductor')).not.toBeNull();
+    expect(conductor.querySelector('.badge-checking')).toBeNull();
+    const conditions = screen.getByText('Card 2').closest('article')!;
+    expect(conditions.querySelector('.status-conductor')).toBeNull();
+  });
+});
+
+/** Text a sighted user sees: `.visually-hidden` spans left out. */
+function visibleText(el: Element): string {
+  const copy = el.cloneNode(true) as Element;
+  copy.querySelectorAll('.visually-hidden').forEach((n) => n.remove());
+  return copy.textContent;
+}
+
+describe('board card says only what its column does not (UX card cleanup)', () => {
+  it('FR-1/FR-2: a needs-input card in Needs input says "needs input" once, in the heading', () => {
+    renderCards([card(1, {})]);
+    const column = screen.getByRole('region', { name: 'Needs input' });
+    expect(visibleText(column).match(/needs[ _]input/gi)).toHaveLength(1);
+    const meta = column.querySelector('article .card-meta')!;
+    expect(visibleText(meta)).not.toMatch(/needs[ _]input/i);
+    // NFR-2: screen readers still hear the status.
+    expect(meta.querySelector('.visually-hidden')!.textContent).toBe('needs input');
+  });
+
+  it('FR-1: a state that is not the column stays', () => {
+    renderCards([
+      card(
+        1,
+        {},
+        { input_request: null, column: 'queued', status: 'assigned', workflow_state: 'planning' },
+      ),
+    ]);
+    const meta = screen.getByText('Card 1').closest('article')!.querySelector('.card-meta')!;
+    expect(visibleText(meta)).toContain('planning');
+    expect(visibleText(meta)).toContain('assigned');
+  });
+
+  it('FR-4: a failed card in Done says "failed" once', () => {
+    renderCards([
+      card(1, {}, { input_request: null, column: 'done', status: 'failed', badges: ['failed'] }),
+    ]);
+    const a = screen.getByText('Card 1').closest('article')!;
+    expect(visibleText(a).match(/failed/g)).toHaveLength(1);
+    expect(a.querySelector('.badge-failed')).not.toBeNull();
   });
 });
 

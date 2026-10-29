@@ -192,6 +192,8 @@ main {
 .card-meta {
   display: flex;
   flex-wrap: wrap;
+  /* NFR-1: the row keeps its height when cardMeta hides the state or status. */
+  min-height: 20px;
   gap: 4px 8px;
   color: var(--muted);
   font-size: 12px;

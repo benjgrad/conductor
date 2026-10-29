@@ -548,6 +548,55 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
   - [ ] Board view: a Queued card with no capable online machine has `routing` naming the missing repo / capabilities.
   - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e` (the daemon sends both messages since T10, so the M1/M1b e2e keeps working. A ticket whose `repo` is not canonical, which only `local` mode allows, skips the repo filter as in M1; the capability filter always applies. Test both).
 
+### M2-T16a · Machine inventory and routing: a ticket goes only to a machine that can do it
+
+## Goal
+A ticket is claimed only by a machine that has the ticket's repo and every capability its workflow needs. Ben can see why a ticket is waiting and what a machine can't take.
+
+## Context
+Code on 0b3b8bb:
+- **Inventory is dropped.** `packages/orchestrator/src/gateway/index.ts` handles only the M1 `repo_inventory` (repo, path, head; `onRepoInventory`). The daemon's v2 `inventory` (repos with `remote`, `mode`, `default_branch`, and capabilities; `InventoryPayloadSchema` in `shared/src/protocol/ws.ts`, sent since M2-T10) and `alert` messages are dropped (TD-112). So `machine_capability` is never written, and the Machines drawer's Capabilities list is always empty.
+- **The claim has no routing.** `src/gateway/claim.ts` filters only on `required_tags` and `repo_allow_machines`, which the board never sets, so every online machine takes every ready ticket.
+- **The pieces exist.** The tables are `machine_repo` (`remote`, `mode`), `machine_capability` (PK `(machine_id, key)`) and `machine_alert`, all from migration `1761700000000_machine-credentials.sql`. The shared helpers are `capabilityKeys`, `missingCapabilities` and `satisfiesCapability` in `shared/src/machines/capabilities.ts`, `requiredCapabilities` in `shared/src/machines/required.ts`, and `WORKING_COPY_CONTEXT_KEY`. The card's `routing` field is `BoardCardRoutingSchema`, and the web badge (`RoutingBadge` in `web/src/components/Board.tsx`, M2-T11) already renders it.
+- The full matching rule is in the M2-T16 block above (10-contracts §Machines protocol v2 "Matching" is the authority). This task is T16 minus the gateway isolation test, which moves to M2-T19.
+
+## Functional requirements
+- **FR-1** On `inventory`, `gateway/inventory.ts` replaces the machine's `machine_repo` and `machine_capability` rows in one transaction, scoped to the connection's account, with one capability row per `capabilityKeys` element. Repos with `remote: null` stay for display but never match. The M1 `repo_inventory` case keeps working for older daemons.
+- **FR-2** On `alert`, the gateway dedupes on `(machine_id, seq)`, inserts a `machine_alert` row and publishes a board update for the session's card. This pays TD-112.
+- **FR-3** The claim (`gateway/claim.ts`) adds hard filters:
+  - the ticket's `account_id` equals the machine's;
+  - the machine has a `machine_repo` whose `lower(remote)` equals `lower(ticket.repo)`;
+  - every requirement of the pinned (or latest) workflow version is a stored `machine_capability.key` of the machine, with bare `skill:<n>` / `agent:<n>` met by `…@<ticket.repo>` (case-insensitive).
+
+  Until M2-T12 stores `required_capabilities` on save, compute it with `requiredCapabilities(definition, ticket.kind)`. It may be cached per (workflow id, version) in memory. A ticket whose `repo` is not canonical (only `local` mode allows that) skips the repo filter, as in M1. The capability filter always applies.
+- **FR-4** In the claim transaction, write the matched `machine_repo` as `{repo_path, mode}` into `session.context[WORKING_COPY_CONTEXT_KEY]`, and carry it into the `start_session` payload.
+- **FR-5** `engine/board-view.ts`: a Queued card gets `routing` when no **online** machine of the account can take it: `missing_repo` first, else `missing_capabilities` from `missingCapabilities(caps, reqs, ticket.repo)` against the closest machine. The badge then shows "needs a machine with …".
+- **FR-6** `GET /api/machines/:id` gains `cannot_take: {ticket_id, title, missing_repo?, missing_capabilities[]}[]`, the queued tickets this machine is excluded from (capped at 50). The drawer (`web/src/machines/MachineDrawer.tsx`) shows them as "Can't take" under Capabilities. This is an additive change to `MachineDetailSchema` in `shared/src/api/machines.ts`; report it in the PR.
+
+## Non-functional requirements
+- **NFR-1** The claim stays a single transaction with `FOR UPDATE SKIP LOCKED`. The new filters are SQL `EXISTS` clauses against indexed columns, with no per-ticket round trips.
+- **NFR-2** No migration. If one turns out to be needed (e.g. an index on `lower(remote)`), stop at "PR open, awaiting Ben".
+
+## Out of scope
+- the gateway isolation test (M2-T19);
+- storing `required_capabilities` on workflow save (M2-T12);
+- runtime slots such as IIS (U-070, its own ADR);
+- ticket dependencies;
+- the daemon's use of `working_copy` (M2-T13).
+
+## Verification
+- FR-1, FR-2: `test/gateway/inventory.test.ts`: a second inventory replaces the first; an `alert` creates a row once (a replayed `seq` doesn't) and the card shows it.
+- FR-3, FR-4: `test/gateway/claim.test.ts`:
+  - a ticket for `org/b` is claimed by machine B (which has it), never by A;
+  - `github.com/Org/B` matches a machine reporting `github.com/org/b`;
+  - a workflow needing `cli:az:authed` isn't claimed by a machine with `az` unauthed, and is claimed after an inventory with `authed: true`;
+  - bare `skill:review` is met by `skill:review@github.com/Org/B`;
+  - after the claim, `session.context.__working_copy` holds B's path and mode, and the `start_session` outbox row carries it;
+  - a non-canonical repo in `local` mode skips the repo filter only.
+- FR-5: a board-view test where a Queued card with no capable online machine has `routing` naming the missing repo or capabilities.
+- FR-6: an API test for `cannot_take`, and a `Machines.test.tsx` case for the drawer's "Can't take" list.
+- Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e`. The M1 / M1b e2e must stay green: their fake daemon sends `inventory` since T10, so check that it reports the fixture repo and the capabilities the e2e workflows need.
+
 ### M2-T17 · Orchestrator: machines REST and ticket repo check
 - **Scope.** New `packages/orchestrator/src/api/machines.ts`, registered from `api/index.ts`:
   - `POST /api/machines/enroll` (public, rate-limited with T08's limiter, calls T09's `enrollMachine`; 401 `unauthorized` for a bad token);

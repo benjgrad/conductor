@@ -31,7 +31,7 @@ export interface DriverStartOptions {
   model?: string;
   maxTurns?: number;
   maxBudgetUsd?: number; // remaining workflow budget, passed as a hard backstop
-  appendSystemPrompt?: string; // conductor instructions (how to use complete_state / ask_user)
+  appendSystemPrompt?: string; // conductor instructions (complete_state / ask_user / permission prompts)
   /**
    * ADR-0009: a requirements reviewer. Runs with `--permission-mode dontAsk` whatever the user's
    * mode (the one exception to ADR-0006's inherited mode): only its pre-approved read-only rules

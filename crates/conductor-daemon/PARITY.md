@@ -710,6 +710,7 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 | units.test.ts › helpers › cloneSource / repoSlug | todo |
 | units.test.ts › helpers › backoff grows exponentially with jitter and is capped | todo |
 | units.test.ts › helpers › appendSystemPrompt carries CLAUDE.md after the conductor instructions | todo |
+| units.test.ts › helpers › tells the agent to attempt commands and ask on a denial, not refuse (ADR-0023) | todo |
 
 ### workspace.fresh-base.test.ts
 

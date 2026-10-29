@@ -11,7 +11,7 @@ import { withTransaction } from '../db/index.js';
 import type { SessionRow } from '../db/types.js';
 import { LEASE_INTERVAL } from '../gateway/claim.js';
 import type { Db } from '../main.js';
-import { cardView } from './board-view.js';
+import { cardView, withMachineFields } from './board-view.js';
 import { reopenVersion } from './repin.js';
 import { readSession, splitStep, TICKET_SELECT, type TicketCardRow } from './rows.js';
 
@@ -122,11 +122,10 @@ export async function reopenSession(
       null,
       await cardView(tx, old.workflow_id, old.workflow_version),
     );
-    const after = toBoardCard(
+    const after = await withMachineFields(
+      tx,
+      toBoardCard(t2.rows[0]!, fresh, null, await cardView(tx, old.workflow_id, version)),
       t2.rows[0]!,
-      fresh,
-      null,
-      await cardView(tx, old.workflow_id, version),
     );
     const boardEvents = await insertBoardEvents(tx, [
       {

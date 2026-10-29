@@ -95,9 +95,26 @@ export const MachineAlertDtoSchema = z.object({
 });
 export type MachineAlertDto = z.infer<typeof MachineAlertDtoSchema>;
 
+/** Cap on `MachineDetail.cannot_take`. */
+export const MACHINE_CANNOT_TAKE_MAX = 50;
+
+/**
+ * M2-T16a (ADR-0013 §Routing): a queued ticket this machine is excluded from, and why: the repo
+ * (`missing_repo`, absent when it has it) and the capability keys it lacks.
+ */
+export const MachineCannotTakeSchema = z.object({
+  ticket_id: UuidSchema,
+  title: z.string(),
+  missing_repo: z.string().optional(),
+  missing_capabilities: z.array(z.string()),
+});
+export type MachineCannotTake = z.infer<typeof MachineCannotTakeSchema>;
+
 /**
  * GET /api/machines/:id → MachineDetail (404 for another account's id). `live_sessions`: what a
- * revoke would hand to a human (the Machines page names them in its confirmation).
+ * revoke would hand to a human (the Machines page names them in its confirmation). `cannot_take`:
+ * the account's queued tickets this machine can't take (highest priority first, at most
+ * MACHINE_CANNOT_TAKE_MAX; absent from older servers ≡ []).
  */
 export const MachineDetailSchema = MachineRowSchema.extend({
   os: z.string().nullable(),
@@ -114,6 +131,7 @@ export const MachineDetailSchema = MachineRowSchema.extend({
   live_sessions: z.array(
     z.object({ session_id: UuidSchema, ticket_id: UuidSchema, title: z.string() }),
   ),
+  cannot_take: z.array(MachineCannotTakeSchema).max(MACHINE_CANNOT_TAKE_MAX).default([]),
 });
 export type MachineDetail = z.infer<typeof MachineDetailSchema>;
 

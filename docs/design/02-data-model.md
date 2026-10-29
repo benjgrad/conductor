@@ -55,7 +55,7 @@ The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.
 | column | type | notes |
 |---|---|---|
 | machine_id | fk machine | |
-| repo | text | canonical remote, e.g. `github.com/org/app` |
+| repo | text | the row's key on the machine: an M1 `repo_inventory` row's repo name (e.g. `github.com/org/app`); an `inventory` row's `path` (M2-T16a: unique per machine, while two checkouts may share a remote). Routing reads `remote`, never `repo` |
 | path | text | the **shared clone** (agents never edit it) |
 | head_commit | text | |
 | tree_clean | bool | describes the shared clone, not the worktrees. `DEFAULT true` since M2-T09: the M1 `repo_inventory` handler writes it until M2-T16, M2-T21 drops it |

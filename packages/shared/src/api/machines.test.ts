@@ -12,6 +12,7 @@ import {
   EnrollRequestSchema,
   EnrollResponseSchema,
   MachineDetailSchema,
+  MACHINE_CANNOT_TAKE_MAX,
   MachineRowSchema,
   RenameMachineRequestSchema,
 } from './machines.js';
@@ -61,5 +62,23 @@ describe('machines DTOs', () => {
       repos: [{ ...MACHINE_DETAIL_FIXTURE.repos[0], mode: 'clone' }],
     };
     expect(MachineDetailSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('cannot_take (M2-T16a) is additive: absent reads as [], capped at 50', () => {
+    const { cannot_take: _c, ...older } = MACHINE_DETAIL_FIXTURE;
+    void _c;
+    expect(MachineDetailSchema.parse(older).cannot_take).toEqual([]);
+    const entry = MACHINE_DETAIL_FIXTURE.cannot_take[0]!;
+    const many = {
+      ...MACHINE_DETAIL_FIXTURE,
+      cannot_take: Array(MACHINE_CANNOT_TAKE_MAX + 1).fill(entry),
+    };
+    expect(MachineDetailSchema.safeParse(many).success).toBe(false);
+    expect(
+      MachineDetailSchema.parse({
+        ...MACHINE_DETAIL_FIXTURE,
+        cannot_take: [{ ...entry, missing_repo: 'github.com/o/r' }],
+      }).cannot_take[0]!.missing_repo,
+    ).toBe('github.com/o/r');
   });
 });

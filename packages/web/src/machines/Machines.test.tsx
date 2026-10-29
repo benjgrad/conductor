@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMockApi, type MockApi } from '../api/mock.js';
 import { App } from '../App.js';
 import { AddMachine } from './AddMachine.js';
-import { SETUP_GUIDE_URL } from './format.js';
+import { routingNeeds, SETUP_GUIDE_URL } from './format.js';
 import { MachinesPage } from './Machines.js';
 
 afterEach(() => {
@@ -272,5 +272,25 @@ describe('machines page (M2-T11)', () => {
 
     fireEvent.click(drawer.getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog', { name: /^Machine / })).toBeNull();
+  });
+  it("the drawer lists the queued tickets the machine can't take, with what they need", async () => {
+    await renderPage();
+    fireEvent.click(screen.getByRole('button', { name: "Details of Ben's MacBook" }));
+    const drawer = within(screen.getByRole('dialog', { name: "Machine Ben's MacBook" }));
+    const items = within(drawer.getByRole('list', { name: "Can't take" })).getAllByRole('listitem');
+    const needs = routingNeeds({
+      missing_repo: 'github.com/acme/shop',
+      missing_capabilities: ['cli:az:authed'],
+    });
+    expect(needs[0]).toBe('acme/shop');
+    expect(items.map((li) => li.textContent)).toEqual([
+      `Hotfix: crash on empty cart: needs ${needs.join(', ')}`,
+    ]);
+    fireEvent.click(drawer.getByRole('button', { name: 'Close' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Details of old-linux-box' }));
+    const other = within(screen.getByRole('dialog', { name: 'Machine old-linux-box' }));
+    expect(other.queryByRole('list', { name: "Can't take" })).toBeNull();
+    expect(other.getByText(/it can take every queued ticket/)).toBeTruthy();
   });
 });

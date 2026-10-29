@@ -11,7 +11,7 @@ import {
   WorkflowDefinitionSchema,
 } from '@conductor/shared';
 import type { Queryable } from '../contracts.js';
-import { CardViews } from '../engine/board-view.js';
+import { CardViews, MachineCardFields } from '../engine/board-view.js';
 import {
   OPEN_INPUT_SELECT,
   TICKET_SELECT,
@@ -92,6 +92,8 @@ export function loadBoard(db: Db): Promise<BoardResponse> {
     const sessionByTicket = new Map(sessions.rows.map((s) => [s.ticket_id, s]));
     const inputBySession = new Map(inputs.rows.map((i) => [i.session_id, i]));
     const views = new CardViews(q);
+    const machineFields = new MachineCardFields(q);
+    await machineFields.preloadAlerts();
     const layout = await views.boardColumns();
     const cards = new Map<string, BoardCard[]>(layout.map((c) => [c.id, []]));
     for (const ticket of tickets.rows) {
@@ -100,14 +102,17 @@ export function loadBoard(db: Db): Promise<BoardResponse> {
         session?.workflow_id ?? ticket.workflow_id,
         session?.workflow_version ?? ticket.workflow_version,
       );
-      const card = withPermission(
-        toBoardCard(
-          ticket,
-          session,
-          session ? (inputBySession.get(session.id) ?? null) : null,
-          view,
+      const card = await machineFields.apply(
+        withPermission(
+          toBoardCard(
+            ticket,
+            session,
+            session ? (inputBySession.get(session.id) ?? null) : null,
+            view,
+          ),
+          session ? (permissions.get(session.id) ?? null) : null,
         ),
-        session ? (permissions.get(session.id) ?? null) : null,
+        ticket,
       );
       // placeCard only returns ids of `layout`; anything else would be a bug, shown in Queued.
       (cards.get(card.column) ?? cards.get(layout[0]!.id)!).push(card);

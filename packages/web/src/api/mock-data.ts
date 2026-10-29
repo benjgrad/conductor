@@ -899,6 +899,15 @@ export function mockMachines(now: Date): MachineDetail[] {
         },
       ],
       live_sessions: [],
+      // M2-T16a: the Queued hotfix needs a repo and az, which this machine lacks.
+      cannot_take: [
+        {
+          ticket_id: SEED_IDS.queuedUrgent.ticket,
+          title: 'Hotfix: crash on empty cart',
+          missing_repo: 'github.com/acme/shop',
+          missing_capabilities: ['cli:az:authed'],
+        },
+      ],
     },
     {
       id: 'linux-box',
@@ -928,6 +937,7 @@ export function mockMachines(now: Date): MachineDetail[] {
       },
       alerts: [],
       live_sessions: [],
+      cannot_take: [],
     },
   ];
 }

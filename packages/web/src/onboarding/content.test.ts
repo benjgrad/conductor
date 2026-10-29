@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import guide from '../help/add-a-machine.md?raw';
-import { PREREQUISITES, SIGHUP_COMMAND, type Os } from './content.js';
+import { guessOs, PREREQUISITES, SIGHUP_COMMAND, type Os } from './content.js';
 
 // UX-8b: every command the setup guide and the help page show works as shown.
 
@@ -67,6 +67,22 @@ describe('Node.js install (FR-2, FR-3)', () => {
       expect(line.indexOf('open a new terminal')).toBeGreaterThan(line.indexOf('nvm-sh/nvm'));
       expect(line.indexOf('`. ~/.nvm/nvm.sh`')).toBeGreaterThan(-1);
       expect(line.indexOf('`. ~/.nvm/nvm.sh`')).toBeLessThan(install);
+    }
+  });
+});
+
+describe('guessOs (MW-T11)', () => {
+  it.each([
+    ['Win32', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'windows'],
+    ['MacIntel', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Darwin', 'macos'],
+    ['Linux x86_64', 'Mozilla/5.0 (X11; Linux x86_64)', 'linux'],
+    ['Linux armv8l', 'Mozilla/5.0 (Linux; Android 14)', 'macos'],
+  ])('%s / %s → %s', (platform, userAgent, os) => {
+    vi.stubGlobal('navigator', { platform, userAgent });
+    try {
+      expect(guessOs()).toBe(os);
+    } finally {
+      vi.unstubAllGlobals();
     }
   });
 });

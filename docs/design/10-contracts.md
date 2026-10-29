@@ -309,7 +309,7 @@ M2-T01 ([ADR-0017](../adr/0017-own-sign-in-and-self-hosting.md) §Auth, §Invite
 
 Everything is exported from `@conductor/shared` (`api/accounts.ts` re-exports the three new modules).
 
-**`API_PATHS` scope.** It covers every API and auth route the server serves, plus the public `/install.sh`, `/downloads/:file` and `/healthz` (the M2-T21 route matrix is generated from `apiPathTemplates()`). The static web app (`/`, `/assets/*` and the SPA fallback) is deliberately not listed.
+**`API_PATHS` scope.** It covers every API and auth route the server serves, plus the public `/install.sh`, `/install.ps1`, `/downloads/:file` and `/healthz` (the M2-T21 route matrix is generated from `apiPathTemplates()`). The static web app (`/`, `/assets/*` and the SPA fallback) is deliberately not listed.
 
 **Modes.** `CONDUCTOR_AUTH=local` (default): M1 behaviour, loopback only, no sign-in. Every request runs as `localScope({kind: 'user', user_id: LOCAL_USER_ID})` in the `local` account, and `GET /api/me` answers `localMeResponse()`: user `{id: LOCAL_USER_ID, email: 'local@localhost', display_name: 'local', is_admin: false}`, the `local` account, `auth_mode: 'local'`. The M2-T08 server and the M2-T05 web mock both use it. `password`: sign-in is required as below. Every repository function takes an `AccountScope`, and another account's id is `404 not_found`, for admins too.
 
@@ -331,13 +331,14 @@ Everything is exported from `@conductor/shared` (`api/accounts.ts` re-exports th
 | POST | `adminUserDisable(id)` | `/api/admin/users/:id/disable` | `{}` → 200 `OkResponse`; revokes the user's sessions and machine credentials | 400 `bad_request` (disabling yourself); 401; 403; 404 |
 | POST | `adminUserUnlock(id)` | `/api/admin/users/:id/unlock` | `{}` → 200 `OkResponse`; clears the email's `login_throttle` | 401; 403; 404 |
 | POST | `machinesEnroll` | `/api/machines/enroll` | `EnrollRequest` → 201 `EnrollResponse` (**public**: the token authenticates) | 401 `unauthorized` (unknown / used / expired token); 429 |
-| POST | `machineEnrollmentTokens` | `/api/machines/enrollment-tokens` | `{}` → 201 `EnrollmentTokenCreated` (`command` = `curl -fsSL <public url>/install.sh \| sh -s -- --token <token>`; 30 min, single use; for the service variant the web appends ` --service` to `command`) | 401 |
+| POST | `machineEnrollmentTokens` | `/api/machines/enrollment-tokens` | `{}` → 201 `EnrollmentTokenCreated` (`command` = `curl -fsSL <public url>/install.sh \| sh -s -- --token <token>`; optional `command_windows` = `$env:CONDUCTOR_ENROLL_TOKEN='<token>'; irm <public url>/install.ps1 \| iex` (MW-T11); 30 min, single use; for the service variant the web appends ` --service` to `command`) | 401 |
 | GET | `machines` | `/api/machines` | → 200 `MachineRow[]` (the account's machines; M2-T17 switches from M1 `MachineDto[]`, a subset) | 401 |
 | GET / PATCH | `machine(id)` | `/api/machines/:id` | → 200 `MachineDetail` / `RenameMachineRequest` → 200 `MachineRow` | 401; 404 (unknown or another account's) |
 | POST | `machineRevoke(id)` | `/api/machines/:id/revoke` | `{}` → 200 `OkResponse`; socket closed with 4001, live sessions go to a human (U-068) | 401; 404 |
 | POST | `machineAlertClear(id)` | `/api/machines/alerts/:id/clear` | `{}` → 204; sets the alert's `cleared_at` (owner only) | 401; 404 (unknown alert, or another account's) |
 | POST | `tickets` | `/api/tickets` | `CreateTicketRequest` → 201 `TicketDto`, with `warnings: ['no_machine_has_repo']` when no machine of the account has the repo (U-048) | in `password` mode, 400 when `canonicalRepo(repo)` is null (the repo is stored canonical); `local` mode keeps M1's rule (local test repos) |
 | GET | `installScript` | `/install.sh` | → 200 `text/x-shellscript` (**public**) | 503 when no tarball is built |
+| GET | `installScriptWindows` | `/install.ps1` | → 200 `text/plain` (**public**; Windows PowerShell 5.1+, run with `irm \| iex`; MW-T11) | 503 when no tarball is built |
 | GET | `daemonDownload(file)` | `/downloads/:file` | → 200 the tarball / `.sha256` (**public**; only built names) | 404 |
 | GET | `healthz` | `/healthz` | → 200 `{ok, db, version}` (**public**) | 503 when the DB ping fails |
 

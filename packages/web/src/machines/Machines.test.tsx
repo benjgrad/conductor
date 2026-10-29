@@ -10,6 +10,7 @@ import { MachinesPage } from './Machines.js';
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.restoreAllMocks();
   window.history.replaceState(null, '', '/');
 });
 
@@ -114,6 +115,66 @@ describe('machines page (M2-T11)', () => {
     expect(screen.getByLabelText('Install command')).toBeTruthy();
     expect(screen.queryByLabelText('Install command (start at login)')).toBeNull();
     expect(screen.queryByText(/start the daemon at login/)).toBeNull();
+  });
+
+  it('offers the PowerShell command on a Windows tab (MW-T11)', () => {
+    const windows = "$env:CONDUCTOR_ENROLL_TOKEN='t'; irm https://c.example/install.ps1 | iex";
+    render(
+      <AddMachine
+        enrollment={{
+          token: 't',
+          command: 'curl -fsSL https://c.example/install.sh | sh -s -- --token t',
+          command_windows: windows,
+          expires_at: new Date(Date.now() + 60_000).toISOString(),
+        }}
+        onClose={vi.fn()}
+      />,
+    );
+    // jsdom's browser says Linux.
+    const unix = screen.getByRole('tab', { name: 'macOS or Linux' });
+    expect(unix.getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByLabelText<HTMLInputElement>('Install command').value).toMatch(/\| sh/);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Windows' }));
+    const panel = within(screen.getByRole('tabpanel'));
+    expect(panel.getByLabelText<HTMLInputElement>('Install command').value).toBe(windows);
+    expect(panel.getByText(/Run this in PowerShell/)).toBeTruthy();
+    expect(panel.queryByLabelText('Install command (start at login)')).toBeNull();
+    expect(panel.getByRole('button', { name: 'Copy Install command' })).toBeTruthy();
+  });
+
+  it('opens on the Windows tab in a Windows browser', () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    );
+    render(
+      <AddMachine
+        enrollment={{
+          token: 't',
+          command: 'curl -fsSL https://c.example/install.sh | sh -s -- --token t',
+          command_windows:
+            "$env:CONDUCTOR_ENROLL_TOKEN='t'; irm https://c.example/install.ps1 | iex",
+          expires_at: new Date(Date.now() + 60_000).toISOString(),
+        }}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('tab', { name: 'Windows' }).getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('shows no tabs when the server sends no Windows command', () => {
+    render(
+      <AddMachine
+        enrollment={{
+          token: 't',
+          command: 'curl -fsSL https://c.example/install.sh | sh -s -- --token t',
+          expires_at: new Date(Date.now() + 60_000).toISOString(),
+        }}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('tablist')).toBeNull();
+    expect(screen.getByLabelText('Install command')).toBeTruthy();
   });
 
   it('revoke asks for confirmation, naming the sessions that go to a human', async () => {

@@ -90,7 +90,8 @@ Workflow JSON commands stay POSIX `sh`, so one workflow runs on every OS. Claude
 - **Install:** `install.ps1` (`irm <url>/install.ps1 | iex`) does what `install.sh` does:
   - it unpacks into `<root>\daemon\<version>`, makes `current` a **junction**, and adds `<root>\bin\conductor-daemon.cmd`;
   - it applies §3's DACL to `<root>`;
-  - it passes the enrollment token in the environment (TD-117 parity).
+  - it passes the enrollment token in the environment (TD-117 parity). Add a machine's Windows line sets it first: `$env:CONDUCTOR_ENROLL_TOKEN='<token>'; irm <url>/install.ps1 | iex`. The script removes it from the session as soon as it reads it, and never calls `exit`, which would close the caller's window (MW-T11).
+- **Tarball (MW-T11):** one tarball for every OS. It has `bin\conductor-daemon.cmd` next to the `sh` entry, and its `node_modules` is pnpm's hoisted layout with **no symlinks**, because Windows `tar.exe` can't create them without Developer Mode. The build fails if it finds one.
 - **Service:** `service install` registers a user-level **Scheduled Task at logon**. It needs no admin and shows no visible console.
 - **Launcher:** `conductor-launch.ps1` implements ADR-0021's launcher on Windows: on exit 75 it switches the junction and relaunches, with trial and rollback.
 - **Stopping:** a Scheduled Task stop terminates the process without a signal (U-108), so a stop is ungraceful (TD-190). Live sessions go to `machine.lost` on the orchestrator, and the next start's orphan sweep reaps what is left. `SIGINT` and `SIGBREAK` are handled when it runs in a console.

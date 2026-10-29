@@ -1,0 +1,7 @@
+@echo off
+rem conductor-daemon entry on Windows (MW-T11): packages/orchestrator/scripts/build-daemon-tarball.sh
+rem writes it to bin\conductor-daemon.cmd with the build sha filled in and CRLF line ends.
+setlocal
+if not defined CONDUCTOR_BUILD_SHA set "CONDUCTOR_BUILD_SHA=@@BUILD_SHA@@"
+node "%~dp0..\dist\main.js" %*
+exit /b %ERRORLEVEL%

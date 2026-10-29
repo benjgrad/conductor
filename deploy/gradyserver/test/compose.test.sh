@@ -2,6 +2,7 @@
 # Static checks of compose.yml, env.example, the Dockerfile and .dockerignore (M2-T07). No Docker
 # needed; `docker compose config` and `docker build` run on gradyserver in the lead's QA step.
 # Structural checks use PyYAML when python3 has it; the grep checks always run.
+# shellcheck disable=SC2016 # single-quoted patterns match a literal $ on purpose
 set -uo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"

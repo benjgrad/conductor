@@ -1,5 +1,12 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -19,6 +26,7 @@ const onWin32 = process.platform === 'win32';
 
 let tmp: string;
 let bin: string;
+let sys: string;
 let claudeDir: string;
 
 /**
@@ -37,8 +45,9 @@ function fake(name: string, body: string): void {
 }
 
 /**
- * PATH = the fake bin dir + /bin and /usr/bin (sh, sleep); no real gh / az / jira / claude. win32:
- * the bin dir + System32, plus what cmd.exe needs (SystemRoot, PATHEXT).
+ * PATH = the fake bin dir + `sys` (links to the real sh, sleep and git only). Never /bin or
+ * /usr/bin: a CI runner has real gh / az there, which would answer the probes. win32: the bin dir
+ * + System32, plus what cmd.exe needs (SystemRoot, PATHEXT).
  */
 function opts(over: Partial<ScanCapabilitiesOptions> = {}): ScanCapabilitiesOptions {
   const env: NodeJS.ProcessEnv = onWin32
@@ -48,7 +57,7 @@ function opts(over: Partial<ScanCapabilitiesOptions> = {}): ScanCapabilitiesOpti
         SystemRoot: process.env.SystemRoot,
         HOME: tmp,
       }
-    : { PATH: `${bin}:/bin:/usr/bin`, HOME: tmp };
+    : { PATH: `${bin}:${sys}`, HOME: tmp };
   return {
     claudeConfigDir: claudeDir,
     claudeUserConfig: join(tmp, '.claude.json'),
@@ -59,19 +68,27 @@ function opts(over: Partial<ScanCapabilitiesOptions> = {}): ScanCapabilitiesOpti
   };
 }
 
+const which = (name: string) => execFileSync('which', [name], { encoding: 'utf8' }).trim();
 const GIT = onWin32
   ? execFileSync('where', ['git'], { encoding: 'utf8' })
       .split(/\r?\n/)[0]!
       .trim()
       .replaceAll('\\', '/')
-  : execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+  : which('git');
+/** POSIX only: win32 has no `which`, and its PATH is the bin dir + System32 (see opts). */
+const SYSTEM_TOOLS = onWin32
+  ? []
+  : ['sh', 'sleep', 'git'].map((name) => [name, which(name)] as const);
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 'conductor-caps-'));
   // TD-193: a space and parentheses, like `C:\\Program Files (x86)\\…\\wbin\\az.cmd`.
   bin = join(tmp, 'Program Files (x86)', 'wbin');
   claudeDir = join(tmp, 'claude-config');
+  sys = join(tmp, 'sys');
   mkdirSync(bin, { recursive: true });
+  mkdirSync(sys);
+  for (const [name, path] of SYSTEM_TOOLS) symlinkSync(path, join(sys, name));
   mkdirSync(claudeDir);
 });
 

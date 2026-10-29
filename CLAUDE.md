@@ -2,7 +2,13 @@
 
 Conductor is an orchestrator that runs Claude Code sessions autonomously across a fleet of machines. Tickets move through user-defined FSM workflows, and a kanban UI surfaces sessions that need a human. Start at [docs/design/00-overview.md](docs/design/00-overview.md).
 
-This file is the **operating manual for every Claude session in this repo**. The repo is developed doc-first: design docs are the source of truth, and the files in `docs/tracking/` carry state between sessions. Follow the lifecycle below every time.
+This file is the **operating manual for every Claude session in this repo**. The repo is developed doc-first: design docs are the source of truth, and the files in `docs/tracking/` carry state between sessions. Follow the lifecycle below every time, unless you are a conductor agent (next section).
+
+### Running as a conductor agent
+If you were started by conductor on a ticket (your system prompt says "running unattended as a conductor session"), the workflow replaces the lifecycle:
+- **Skip steps 0 and 4.** Don't brief Ben or wait for a go-ahead: the ticket is the go-ahead. Don't edit `docs/tracking/*` on the ticket branch. Put new unknowns, tech debt and follow-ups in your `complete_state` summary, and a human copies them onto `main`.
+- **Skip the merge and push in step 3.** Conductor runs the gates, pushes and opens the PR. Commit your work and finish the step.
+- **"Ask Ben" means `ask_user`**, never AskUserQuestion. **Commands that need approval** (installing a toolchain or package, curl, a new tool): just run them. The permission prompt reaches Ben on the board ([ADR-0023](docs/adr/0023-permission-prompts-through-conductor.md)). A rule here is a reason to ask, never a reason to give up on the ticket.
 
 ---
 

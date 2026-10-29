@@ -148,7 +148,17 @@ describe('helpers', () => {
     expect(buildAppendSystemPrompt(null)).toBe(CONDUCTOR_INSTRUCTIONS);
     expect(buildAppendSystemPrompt('  ')).toBe(CONDUCTOR_INSTRUCTIONS);
     expect(buildAppendSystemPrompt('use pnpm')).toMatch(
-      /^You are running[\s\S]*CLAUDE\.md\)\n\nuse pnpm$/,
+      /^You are running[\s\S]*# Repository instructions \(CLAUDE\.md[^\n]*\)\n\nuse pnpm$/,
     );
+  });
+
+  it('tells the agent to attempt commands and ask on a denial, not refuse (ADR-0023)', () => {
+    expect(CONDUCTOR_INSTRUCTIONS).toMatch(/installing toolchains/);
+    expect(CONDUCTOR_INSTRUCTIONS).toMatch(/If a command needs approval, just run it/);
+    expect(CONDUCTOR_INSTRUCTIONS).toMatch(/If a call is denied[^\n]*`ask_user`/);
+    expect(CONDUCTOR_INSTRUCTIONS).toMatch(
+      /AskUserQuestion\), use a permission prompt or `ask_user`/,
+    );
+    expect(CONDUCTOR_INSTRUCTIONS).toMatch(/Never push/);
   });
 });

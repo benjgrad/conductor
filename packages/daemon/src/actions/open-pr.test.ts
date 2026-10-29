@@ -73,6 +73,7 @@ if [ "$1" = pr ] && [ "$2" = create ]; then
   printf '%s' "$url" > "$state"
   echo 'Creating pull request...'; echo "$url"; exit 0
 fi
+if [ "$1" = pr ] && [ "$2" = edit ]; then exit \${FAKE_GH_EDIT_EXIT:-0}; fi
 exit 2
 `;
 
@@ -529,5 +530,88 @@ describe('checkClean (ADR-0010: only committed changes are checked)', () => {
     expect(() => pushTarget('https://gitlab.com/o/r', {})).toThrow(/not a GitHub repository/);
     expect(() => pushTarget('/tmp/x.git', {})).toThrow();
     expect(() => pushTarget('ext::sh -c touch', {})).toThrow();
+  });
+});
+
+describe('open_pr attaches screenshots (M2-T35b)', () => {
+  const SID = '0f0e0d0c-0b0a-4908-8706-050403020100';
+  const PNG = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.from('img'),
+  ]);
+  const ASSETS = 'refs/heads/conductor-pr-assets';
+  let shots: string;
+  beforeEach(() => {
+    shots = join(tmp, 'shots');
+    mkdirSync(shots);
+  });
+  const withShots = (over: Partial<OpenPrInput> = {}) =>
+    input({ screenshots: { dir: shots, sessionId: SID }, ...over });
+  const save = (...names: string[]) => {
+    for (const n of names) writeFileSync(join(shots, n), PNG);
+  };
+  const createBody = () =>
+    ghCalls()
+      .find((c) => c.argv[1] === 'create')!
+      .argv.at(-1)!;
+
+  it('pushes the pairs to conductor-pr-assets and puts the table and marker in the new PR', async () => {
+    save('before-nav.png', 'after-nav.png', 'before-lonely.png');
+    const r = await openPr(withShots());
+    expect(r).toMatchObject({ ok: true, reused: false });
+    const tip = git(origin, 'rev-parse', ASSETS).trim();
+    expect(git(origin, 'ls-tree', '-r', '--name-only', tip).trim().split('\n')).toEqual([
+      `${SID}/after-nav.png`,
+      `${SID}/before-nav.png`,
+    ]);
+    expect(
+      Buffer.from(git(origin, 'cat-file', 'blob', `${tip}:${SID}/after-nav.png`), 'latin1').length,
+    ).toBeGreaterThan(0);
+    const body = createBody();
+    expect(body.startsWith('added /health\n\nOpened by conductor.\n\n## Screenshots')).toBe(true);
+    expect(body).toContain(
+      `| nav | ![before nav](${origin}/blob/${tip}/${SID}/before-nav.png?raw=true)`,
+    );
+    expect(body).toContain('<!-- conductor:screenshots pairs=1 -->');
+    // The session branch push is unchanged.
+    expect(git(origin, 'rev-parse', `refs/heads/${BRANCH}`).trim()).toBe(checked);
+  });
+
+  it('a reused PR gets the table through gh pr edit; the next upload builds on the last one', async () => {
+    await openPr(input());
+    save('before-nav.png', 'after-nav.png');
+    const first = await openPr(withShots());
+    expect(first).toMatchObject({ ok: true, reused: true });
+    const edit = ghCalls().find((c) => c.argv[1] === 'edit')!;
+    expect(edit.argv.slice(0, 5)).toEqual([
+      'pr',
+      'edit',
+      'https://github.com/benjgrad/fixture-app/pull/7',
+      '--repo',
+      'local/origin',
+    ]);
+    expect(edit.argv.at(-1)).toContain('<!-- conductor:screenshots pairs=1 -->');
+    const tip1 = git(origin, 'rev-parse', ASSETS).trim();
+    await openPr(withShots());
+    const tip2 = git(origin, 'rev-parse', ASSETS).trim();
+    expect(tip2).not.toBe(tip1);
+    expect(git(origin, 'rev-parse', `${tip2}^`).trim()).toBe(tip1);
+  });
+
+  it('no pairs: nothing is pushed to the assets branch and the body is as before', async () => {
+    save('before-nav.png');
+    expect(await openPr(withShots())).toMatchObject({ ok: true, reused: false });
+    expect(() => git(origin, 'rev-parse', '--verify', ASSETS)).toThrow();
+    expect(createBody()).toBe('added /health\n\nOpened by conductor.');
+  });
+
+  it('a failed gh pr edit is the action error (the PR would not show the screenshots)', async () => {
+    await openPr(input());
+    save('before-nav.png', 'after-nav.png');
+    const r = await openPr(
+      withShots({ env: { ...process.env, FAKE_GH_DIR: tmp, FAKE_GH_EDIT_EXIT: '1' } }),
+    );
+    expect(r).toMatchObject({ ok: false });
+    if (!r.ok) expect(r.error).toMatch(/gh pr edit failed/);
   });
 });

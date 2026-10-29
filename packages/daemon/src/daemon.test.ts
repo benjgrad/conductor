@@ -348,6 +348,11 @@ describe('daemon core: start_session', () => {
       PORT: '42000',
       CONDUCTOR_PORT_COUNT: '10',
     });
+    // M2-T35b: the session's screenshot directory, created outside the worktree.
+    const shots = opts.env?.CONDUCTOR_SCREENSHOT_DIR;
+    expect(shots).toMatch(new RegExp(`artifacts[\\\\/]${sid}[\\\\/]screenshots$`));
+    expect(existsSync(shots!)).toBe(true);
+    expect(shots!.startsWith(wt)).toBe(false);
 
     expect(orch.eventData('claude_session_id')[0]).toEqual({ id: opts.claudeSessionId });
     expect(orch.eventData('complete_state')[0]).toEqual({ result: { summary: 'done' } });

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join } from 'node:path';
 import { cliVersionAtLeast, GH_MIN_VERSION, GITHUB_PR_URL_RE } from '@conductor/shared';
 import { cliVersionFrom } from '../inventory/version.js';
@@ -9,6 +9,7 @@ import {
   mkdirPrivate,
 } from '../platform/index.js';
 import { cloneSource, RepoNotAllowedError, type RepoPolicy } from '../workspace.js';
+import { readScreenshots, screenshotsSection, type Screenshot } from './screenshots.js';
 
 // ADR-0010 `open_pr`: conductor (this daemon code, never an agent) pushes the session branch and
 // opens a pull request against the repo's default branch with the GitHub CLI, or reuses the PR
@@ -75,7 +76,15 @@ export interface OpenPrInput {
   /** Environment for git and gh (default process.env); tests put a fake `gh` first on PATH. */
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
+  /**
+   * M2-T35b: the session's screenshot directory. Its before/after pairs are pushed to
+   * SCREENSHOTS_BRANCH and shown in the PR body (also on a reused PR, via `gh pr edit`).
+   */
+  screenshots?: { dir: string; sessionId: string };
 }
+
+/** M2-T35b: the never-merged branch that holds PR screenshots, one commit per upload. */
+export const SCREENSHOTS_BRANCH = 'conductor-pr-assets';
 
 export type OpenPrResult =
   { ok: true; url: string; reused: boolean } | { ok: false; error: string };
@@ -227,6 +236,19 @@ export async function openPr(i: OpenPrInput): Promise<OpenPrResult> {
   const pushed = await pushChecked(i, target);
   if (!pushed.ok) return pushed;
 
+  // M2-T35b: attach the screenshots before the PR is created, so a new PR gets them at once.
+  let body = i.body;
+  let withScreenshots = false;
+  if (i.screenshots !== undefined) {
+    const shots = readScreenshots(i.screenshots.dir);
+    if (shots.views.length > 0) {
+      const att = await pushScreenshots(i, target, shots.files, i.screenshots.sessionId);
+      if (!att.ok) return { ok: false, error: `could not attach the screenshots: ${att.error}` };
+      body = `${i.body}\n\n${screenshotsSection(shots.views, att.urlFor)}`;
+      withScreenshots = true;
+    }
+  }
+
   // Reuse the PR that already exists for the branch (a repeat of the same visit, or a retry).
   const repo = ['--repo', target.ghRepo];
   const view = await run(
@@ -245,7 +267,26 @@ export async function openPr(i: OpenPrInput): Promise<OpenPrResult> {
     };
   }
   const existing = view.code === 0 ? view.stdout.trim().match(URL_RE)?.at(-1) : undefined;
-  if (existing) return prResult(existing, true);
+  if (existing) {
+    if (withScreenshots) {
+      // The agent finished again with screenshots (the pr_screenshots condition sent it back):
+      // the reused PR's body gets the new summary and the table.
+      const edit = await run(
+        gh.cmd,
+        [...gh.args, 'pr', 'edit', existing, ...repo, '--body', body],
+        i.root,
+        i,
+      );
+      if (edit.code !== 0) {
+        const why = edit.stderr || edit.stdout || edit.spawnError?.message || '';
+        return {
+          ok: false,
+          error: `gh pr edit failed (screenshots not shown on ${existing}): ${tail(why)}`,
+        };
+      }
+    }
+    return prResult(existing, true);
+  }
 
   const repoView = await run(
     gh.cmd,
@@ -283,7 +324,7 @@ export async function openPr(i: OpenPrInput): Promise<OpenPrResult> {
       '--title',
       i.title,
       '--body',
-      i.body,
+      body,
     ],
     i.root,
     i,
@@ -426,6 +467,127 @@ async function pushChecked(
   } finally {
     rmSync(priv, { recursive: true, force: true });
   }
+}
+
+/**
+ * M2-T35b: one commit on SCREENSHOTS_BRANCH holding `files` under `<sessionId>/`, its parent the
+ * branch's current tip (fetched, depth 1), pushed without force. Built in a fresh private bare repo
+ * from the bytes `readScreenshots` validated, with plumbing only (hooks off, the same protocol
+ * allow-list as the branch push), so nothing agent-written is read or run. The images are linked by
+ * commit (`blob/<commit>/<path>`), so a later upload never breaks an older PR's table. A push that
+ * loses a race with another session's upload is retried once on the new tip.
+ */
+async function pushScreenshots(
+  i: OpenPrInput,
+  target: PushTarget,
+  files: readonly Screenshot[],
+  sessionId: string,
+): Promise<{ ok: true; urlFor: (name: string) => string } | { ok: false; error: string }> {
+  const protocols = [
+    '-c',
+    'protocol.allow=never',
+    '-c',
+    'protocol.https.allow=always',
+    '-c',
+    'protocol.ssh.allow=always',
+    ...(target.local ? ['-c', 'protocol.file.allow=always'] : []),
+  ];
+  const ref = `refs/heads/${SCREENSHOTS_BRANCH}`;
+  let lastError = '';
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const d = privateDir(i.root, 'shots-');
+    if (d instanceof Error) return { ok: false, error: `private repo: ${d.message}` };
+    const priv = d;
+    try {
+      const git = (args: string[]) => run('git', [...NO_HOOKS, ...args], priv, i);
+      const init = await run('git', [...NO_HOOKS, 'init', '--quiet', '--bare', priv], i.root, i);
+      if (init.code !== 0) return { ok: false, error: `git init failed: ${tail(init.stderr)}` };
+      const remote = await git([...protocols, 'ls-remote', target.url, ref]);
+      if (remote.code !== 0) {
+        return {
+          ok: false,
+          error: `git ls-remote failed: ${tail(remote.stderr || remote.stdout)}`,
+        };
+      }
+      const parent = /^([0-9a-f]{40,64})\s/.exec(remote.stdout)?.[1] ?? null;
+      if (parent !== null) {
+        const fetch = await git([
+          ...protocols,
+          'fetch',
+          '--quiet',
+          '--no-tags',
+          '--no-write-fetch-head',
+          '--depth=1',
+          '--upload-pack=git-upload-pack',
+          target.url,
+          `+${ref}:${ref}`,
+        ]);
+        if (fetch.code !== 0) {
+          return {
+            ok: false,
+            error: `could not fetch ${SCREENSHOTS_BRANCH}: ${tail(fetch.stderr)}`,
+          };
+        }
+      }
+      for (const f of files) {
+        const tmp = join(priv, `upload-${f.name}`);
+        writeFileSync(tmp, f.bytes, { mode: 0o600 });
+        const blob = await git(['hash-object', '-w', '--no-filters', tmp]);
+        const sha = blob.stdout.trim();
+        if (blob.code !== 0 || !/^[0-9a-f]{40,64}$/.test(sha)) {
+          return { ok: false, error: `git hash-object failed: ${tail(blob.stderr)}` };
+        }
+        const add = await git([
+          'update-index',
+          '--add',
+          '--cacheinfo',
+          `100644,${sha},${sessionId}/${f.name}`,
+        ]);
+        if (add.code !== 0) {
+          return { ok: false, error: `git update-index failed: ${tail(add.stderr)}` };
+        }
+      }
+      const tree = await git(['write-tree']);
+      if (tree.code !== 0)
+        return { ok: false, error: `git write-tree failed: ${tail(tree.stderr)}` };
+      const commit = await git([
+        '-c',
+        'user.name=conductor',
+        '-c',
+        'user.email=conductor@localhost',
+        'commit-tree',
+        tree.stdout.trim(),
+        ...(parent !== null ? ['-p', parent] : []),
+        '-m',
+        `Screenshots for session ${sessionId}`,
+      ]);
+      const commitSha = commit.stdout.trim();
+      if (commit.code !== 0 || !/^[0-9a-f]{40,64}$/.test(commitSha)) {
+        return { ok: false, error: `git commit-tree failed: ${tail(commit.stderr)}` };
+      }
+      const push = await git([
+        ...protocols,
+        'push',
+        '--quiet',
+        '--no-verify',
+        target.url,
+        `${commitSha}:${ref}`,
+      ]);
+      if (push.code === 0) {
+        const web = target.local
+          ? target.url
+          : `https://${target.ghRepo.split('/').length === 3 ? target.ghRepo : `github.com/${target.ghRepo}`}`;
+        return {
+          ok: true,
+          urlFor: (name) => `${web}/blob/${commitSha}/${sessionId}/${name}?raw=true`,
+        };
+      }
+      lastError = `git push failed: ${tail(push.stderr || push.stdout)}`;
+    } finally {
+      rmSync(priv, { recursive: true, force: true });
+    }
+  }
+  return { ok: false, error: lastError };
 }
 
 /**

@@ -16,6 +16,8 @@
 - Wrote ADR-0026 and the MR milestone (19 tasks) on `mr-t00-rust-daemon-plan`.
 - Found that the `service` subcommand `install.sh.tmpl` calls doesn't exist yet in the daemon (in flight as M2-T18). U-112 asks whether T18 finishes in TS. The recommendation is yes, because its launcher and units are the reused upgrade path.
 
+- Ben: "implement it all using the conductor board". The task details became 18 ticket blocks (T01–T16, T18a, T18b) with a 13-wave posting table. `scripts/create-tickets.js` gained MR rules and cargo gates, and its dry run builds all 18. Nothing was posted: posting needs Ben's board login, and the tickets need T00 on `main` and `cargo` on the agent machines (B-005).
+
 ## Agents dispatched
 | Agent | Task | Branch | Result (PASS / FAIL / partial) |
 |---|---|---|---|

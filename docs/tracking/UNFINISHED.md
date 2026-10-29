@@ -19,8 +19,9 @@ Remove the entry once the work is merged or deliberately abandoned. If abandoned
 ## MR-T00 · Rust daemon plan (ADR-0026): written, not merged
 - **Branch / worktree**: `mr-t00-rust-daemon-plan` (off origin/main 5ecec4d) @ `.claude/worktrees/mr-t00-rust-daemon-plan`
 - **Done so far**: ADR-0026; `docs/plan/milestones/MR-rust-daemon.md` (19 tasks, groups A–H); ROADMAP row; `→ MR` marks on M2-T18c/T27/T28d and MW-T09..T13; amendment notes on ADR-0004/0017/0021/0024; U-112..U-116, B-005; decisions-log line. Docs only, no code.
-- **Not done**: the `daemon-ts-freeze` tag (on the merge commit, after Ben merges); MR-T01 spike.
-- **Exact next step**: Ben merges the branch (or the PR), answers U-112 and installs rustup (B-005). Then the lead tags the merge commit `daemon-ts-freeze` and starts MR-T01 in `spikes/rust-daemon` (probes: WS register, `rmcp` tool called by real `claude -p` on haiku with Ben's OK to spend, Job Object tree kill on Windows CI).
+- **Also done (Ben: "implement it all using the conductor board")**: every MR task is a ticket block (`### MR-Tnn` with Goal / Context / FR / NFR / Verification) in `MR-rust-daemon.md` §Tickets, with a 13-wave table. `scripts/create-tickets.js` adds MR rules (frozen TS reference, PARITY rows, seam rule, stop if no `cargo`, cargo gates) and refuses MR-T00. The dry run builds all 18 tickets. T18 split into T18a (docs, parity 100%) and T18b (delete the TS daemon after Ben's dogfood).
+- **Not done**: the `daemon-ts-freeze` tag (on the merge commit, after Ben merges); every wave (nothing posted).
+- **Exact next step**: Ben merges the branch, installs rustup on every machine that claims tickets (B-005), and answers U-112. Then he posts wave 1: `! CONDUCTOR_EMAIL=<email> node scripts/create-tickets.js --file docs/plan/milestones/MR-rust-daemon.md MR-T01` (it prompts for the password). The lead tags `daemon-ts-freeze`. After each merge, post the next wave from the §Ticket waves table (`--dry-run` first), and QA each PR before the lead merges.
 - **Gotchas**: ADR-0025 was already taken on origin/main (CI-gated review), so the Rust ADR is 0026. Local `main` has an unpushed TD-189 (install.sh `--service`), which collides with origin/main's TD-189 (orphan sweep); renumber it when local main is reconciled.
 - **Gates**: docs only; markdown links checked by hand.
 

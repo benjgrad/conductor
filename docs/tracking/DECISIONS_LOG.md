@@ -4,6 +4,7 @@ One line per decision, newest first. Big or reversible-only-at-cost decisions ge
 
 | Date | Decision | Ref |
 |---|---|---|
+| 2026-10-29 | MR is built on the hosted conductor board (Ben: "implement it all using the conductor board"): one ticket per `### MR-Tnn` block, workflow `conductor_dev`, posted in 13 dependency waves by `scripts/create-tickets.js` (no `depends_on` until M2b, TD-172); MR-T02 pre-declares every Rust module, dependency and PARITY row so parallel tickets don't collide | MR §Ticket waves |
 | 2026-10-29 | Daemon ported to Rust now (Ben, overriding the lead's "after M2"): TS daemon frozen to bug fixes, unbuilt daemon features built in Rust only; protocol types by zod → JSON Schema → Rust codegen with two-sided fixture parity; parity on macOS, Linux and Windows before cutover; every TS test reimplemented (PARITY.md ledger); shipped through the existing tarball layout and install/upgrade path (Ben: "use our existing daemon upgrade path if possible") | ADR-0026, MR |
 | 2026-10-29 | `daemon-windows` CI is diff-aware (daemon/shared/toolchain paths only, PRs + main; no duplicate push runs); a seam test keeps every daemon OS branch inside `src/platform/` so mac/linux-only behaviour can't land untested on Windows (Ben) | ADR-0024 §9 |
 | 2026-10-28 | MW built in one lead session without implementer/QA agents, targeted tests locally, the win32 job as proof (Ben: "kill the multi-agent approach, this is too slow"); MW tasks land on one branch `mw-windows-daemon` | MW |

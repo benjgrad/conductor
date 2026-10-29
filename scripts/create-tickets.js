@@ -22,7 +22,8 @@ const DEFAULT_FILE = 'docs/plan/milestones/M3-mcp.md';
 const BASE = (process.env.CONDUCTOR_URL ?? 'https://conductor.gradyserver.com').replace(/\/$/, '');
 const WORKFLOW = process.env.CONDUCTOR_WORKFLOW ?? 'conductor_dev';
 const REPO = 'github.com/benjgrad/conductor';
-const NOT_TICKETS = new Set(['M3-T17', 'M3-T18', 'M3-T19']); // T17 is the lead's; T18/T19 "later"
+// M3: T17 is the lead's; T18/T19 "later". MR: T00 is the lead's (plan, ADR-0026).
+const NOT_TICKETS = new Set(['M3-T17', 'M3-T18', 'M3-T19', 'MR-T00']);
 // The M3 migration needs Ben's review early. The UX migrations (UX-13a, UX-15) stay at 0 so they
 // queue behind M2/M2r work instead of jumping it (Ben, 2026-10-28).
 const PRIORITY = { 'M3-T02': 1 };
@@ -32,18 +33,30 @@ const M3_CONTRACTS =
 const M3_DESIGN =
   'Start at 10-contracts §Tool layer and MCP and `docs/adr/0014-tool-layer-and-oauth-mcp-server.md`. The full plan is `docs/plan/milestones/M3-mcp.md`.';
 
+// MR (Rust daemon, ADR-0026): the TS daemon is frozen and is the behaviour reference.
+const MR_RULES =
+  '- The TypeScript daemon (`packages/daemon`) is frozen and is the behaviour reference: read it, never change it, except where this ticket\'s "Files owned" says so. A behaviour difference you intend needs a design-doc edit in this PR.\n' +
+  '- Every TS test case your ticket ports gets its row in `crates/conductor-daemon/PARITY.md` (Rust test path, or `dropped: <reason>` listed in the PR for Ben), and its file globs go in the ported list; `node scripts/test-parity.js` must pass.\n' +
+  '- OS-specific code (`cfg(windows)`, `cfg(unix)`, `cfg(target_os …)`) only under `crates/conductor-daemon/src/platform/`. Protocol frames only through `conductor-protocol` types. On-disk files stay byte-compatible with the TS daemon.\n' +
+  '- If `cargo` is not on PATH, stop and ask (B-005). Never install a toolchain on the machine yourself.\n' +
+  '- Windows is proven by the `daemon-rust` GitHub Actions matrix on your PR; wait for it to be green before finishing.\n';
+const MR_GATES =
+  "- Gates: `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && node scripts/test-slot.js cargo nextest run --workspace`, plus `pnpm typecheck && pnpm lint` (and `pnpm test` / `pnpm test:e2e` where the block touches TS or says so). Run targeted tests (`cargo nextest run -p conductor-daemon <module>`) while iterating; conductor's checks and the PR's Actions are the full run.\n";
+const PNPM_GATES =
+  "- Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build` (DB tests need `pnpm db:up`), plus `pnpm test:e2e` where the block says so. Run targeted tests while iterating; conductor's checks are the full run.\n";
+
 const rules = (id, planFile) => {
   const m3 = id.startsWith('M3-');
+  const mr = id.startsWith('MR-');
   return `
 ---
 
 ## Rules for every ticket
 - Do not edit \`docs/tracking/*\`. Report new unknowns, tech debt, unfinished items and needed contract changes in the PR description instead.
-${m3 ? M3_CONTRACTS : ''}- A shortcut needs a \`// TD: <what>\` comment at the site and a line in the PR report (the lead assigns the TD number).
+${m3 ? M3_CONTRACTS : ''}${mr ? MR_RULES : ''}- A shortcut needs a \`// TD: <what>\` comment at the site and a line in the PR report (the lead assigns the TD number).
 - A migration is never merged without Ben's approval: a task with a migration stops at "PR open, awaiting Ben".
 - Work on branch \`${id.toLowerCase()}-<slug>\`. Merge \`origin/main\` before finishing (never rebase); the "Merges cleanly with main" check must pass.
-- Gates: \`pnpm typecheck && pnpm lint && pnpm test && pnpm build\` (DB tests need \`pnpm db:up\`), plus \`pnpm test:e2e\` where the block says so. Run targeted tests while iterating; conductor's checks are the full run.
-- Design source of truth: \`docs/design/\` and \`docs/adr/\`. ${m3 ? M3_DESIGN : `The full plan is \`${planFile}\`.`}
+${mr ? MR_GATES : PNPM_GATES}- Design source of truth: \`docs/design/\` and \`docs/adr/\`. ${m3 ? M3_DESIGN : `The full plan is \`${planFile}\`.`}
 `;
 };
 

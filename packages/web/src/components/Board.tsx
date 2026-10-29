@@ -1,11 +1,10 @@
 import type { BoardCard, HumanTransitionOption } from '@conductor/shared';
 import type { ApiClient } from '../api/client.js';
-import { boardColumns, type BoardState } from '../board/board.js';
+import { boardColumns, type BoardColumnView, type BoardState } from '../board/board.js';
 import { AgentAvatar, agentName } from './agent-identity.js';
-import { ago, KIND_LABELS, STATUS_LABELS, TICKET_KIND_LABELS, usd } from './format.js';
+import { ago, cardMeta, KIND_LABELS, TICKET_KIND_LABELS, usd } from './format.js';
 import { usePlanAnswer } from './plan-answer.js';
 import { PendingChecklist, TransitionButtons } from './transitions.js';
-import { stateLabel } from '../workflow/review.js';
 import {
   classifyRequest,
   PLAN_APPROVED_TEXT,
@@ -51,6 +50,7 @@ export function Board({ board, selectedSessionId, onSelect, api }: BoardProps) {
               <li key={card.ticket_id}>
                 <Card
                   card={card}
+                  column={col}
                   selected={card.session_id !== null && card.session_id === selectedSessionId}
                   onSelect={onSelect}
                   agentStates={agentStates}
@@ -67,6 +67,8 @@ export function Board({ board, selectedSessionId, onSelect, api }: BoardProps) {
 
 interface CardProps {
   card: BoardCard;
+  /** The card's column: the meta row leaves out what it already says. */
+  column: Pick<BoardColumnView, 'id' | 'title' | 'kind'>;
   selected: boolean;
   onSelect: (sessionId: string) => void;
   /** The board's agent-state columns, for the plan approval's answer option. */
@@ -74,7 +76,7 @@ interface CardProps {
   api?: ApiClient;
 }
 
-function Card({ card, selected, onSelect, agentStates, api }: CardProps) {
+function Card({ card, column, selected, onSelect, agentStates, api }: CardProps) {
   const sessionId = card.session_id;
   const q = card.input_request;
   const cls = q ? classifyRequest(q) : null;
@@ -84,6 +86,7 @@ function Card({ card, selected, onSelect, agentStates, api }: CardProps) {
   const conductor = isConductorStep(card);
   const idle = agentIdle(card);
   const name = agentName(card.ticket_id);
+  const meta = cardMeta(card, column);
   return (
     <article className={`card${selected ? ' selected' : ''}`} data-ticket={card.ticket_id}>
       <button
@@ -116,10 +119,11 @@ function Card({ card, selected, onSelect, agentStates, api }: CardProps) {
           <span className="status status-conductor">{checkingSummary(card)}</span>
         ) : (
           <>
-            <span>{card.workflow_state ? stateLabel(card.workflow_state) : card.workflow_id}</span>
-            {card.status && (
-              <span className={`status status-${card.status}`}>{STATUS_LABELS[card.status]}</span>
+            {meta.stateLabel && <span className="card-state">{meta.stateLabel}</span>}
+            {meta.statusLabel && (
+              <span className={`status status-${card.status}`}>{meta.statusLabel}</span>
             )}
+            {meta.srStatusLabel && <span className="visually-hidden">{meta.srStatusLabel}</span>}
           </>
         )}
         {card.priority !== 0 && <span className="prio">P{card.priority}</span>}

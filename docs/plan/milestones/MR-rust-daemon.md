@@ -56,9 +56,9 @@
 
 | ID | Task | Depends on | Group | Migration | Status |
 |---|---|---|---|---|---|
-| MR-T00 | ADR-0026, this file, ROADMAP, `→ MR` marks in M2/MW, ADR amendment notes, tracking (U-112..116, B-005), freeze tag | — | A | — | in_review (branch `mr-t00-rust-daemon-plan`) |
-| MR-T01 | Spike `spikes/rust-daemon`: WS register + heartbeat; `rmcp` outcome tool called by real `claude -p`; Job Object tree kill on Windows | T00, B-005 | A | — | todo |
-| MR-T02 | Cargo workspace, toolchain pin, cargo CI gates + 3-OS matrix, `scripts/test-parity.js`, `PARITY.md` skeleton | T01 | B | — | todo |
+| MR-T00 | ADR-0026, this file, ROADMAP, `→ MR` marks in M2/MW, ADR amendment notes, tracking (U-112..116, B-005), freeze tag | — | A | — | done (PR #69, a9a04c8) |
+| MR-T01 | Spike `spikes/rust-daemon`: WS register + heartbeat; `rmcp` outcome tool called by real `claude -p`; Job Object tree kill on Windows | T00, B-005 | A | — | done (PR #74, 9bf630e; GO on WS, rmcp vs fake-claude, Job Objects; real-claude run owed, U-113) |
+| MR-T02 | Cargo workspace, toolchain pin, cargo CI gates + 3-OS matrix, `scripts/test-parity.js`, `PARITY.md` skeleton | T01 | B | — | in_progress (board ticket 0a3cc07e, posted 2026-10-29) |
 | MR-T03 | Protocol codegen (zod → JSON Schema → typify), JSON fixtures, two-sided round-trip + drift check; ports `resolveToolPolicy`, `canonicalRepo`, `cliVersionAtLeast` with shared vectors | T02 | B | — | todo |
 | MR-T04 | `platform/`: spawn, kill-tree (+ Job Objects), procinfo, acl, shell, sysres, hook, git, fs; seam test | T02 | C | — | todo |
 | MR-T05 | Core: store, config, credential, ports, system-prompt, semaphore, tail, version, orphan, sysinfo | T03, T04 | C | — | todo |
@@ -97,11 +97,11 @@ MR is built by conductor on itself:
 
 | Wave | Tickets | Posted when |
 |---|---|---|
-| 1 | MR-T01 | T00 merged, B-005 cleared |
-| 2 | MR-T02 | T01 merged with a go on `rmcp` (U-113), or the axum fallback chosen |
+| 1 | MR-T01 | T00 merged, B-005 cleared. **Posted 2026-10-29** (ticket e4bbe7dd), merged as PR #74 |
+| 2 | MR-T02 | T01 merged with a go on `rmcp` (U-113), or the axum fallback chosen. **Posted 2026-10-29** (ticket 0a3cc07e) |
 | 3 | MR-T03, MR-T04 | T02 merged |
 | 4 | MR-T05, MR-T06 | T03 and T04 merged (T06 only needs T03) |
-| 5 | MR-T07, MR-T08 | T05 and T06 merged |
+| 5 | MR-T07, MR-T08 | T05 and T06 merged, and the U-113 real-claude run passed (or the axum fallback chosen) |
 | 6 | MR-T09, MR-T10 | T07 and T08 merged (T10 only needs T07) |
 | 7 | MR-T11 | T10 merged |
 | 8 | MR-T12 | T09, T10, T11 merged |
@@ -179,7 +179,7 @@ Any real daemon code; protocol codegen (T03).
 The Rust daemon speaks exactly the protocol the orchestrator speaks, and any drift between the zod schemas and the Rust types fails CI.
 
 ## Context
-ADR-0026 §2. The daemon imports ~62 symbols from `@conductor/shared` (all through `packages/shared/src/index.ts`): `protocol/ws.ts` (messages, close codes, limits, `parseOrchestratorMessage`, …), `protocol/outcome.ts`, `domain.ts` (`OUTPUT_TAIL_BYTES`, `GITHUB_PR_URL_RE`, `JsonObject`), `api/machines.ts` (enroll DTOs), `api/rest.ts` (`API_PATHS`, `canonicalRepo`, `conductorPort`), `machines/capabilities.ts`, `machines/inventory.ts`, `workflow/schema.ts` (`Condition`), `workflow/tools.ts` (`resolveToolPolicy`). Fixtures: `packages/shared/src/protocol/fixtures.ts` (one per message type and per `session_event` kind). zod 4 has `z.toJSONSchema`.
+ADR-0026 §2. The daemon imports ~62 symbols from `@conductor/shared` (all through `packages/shared/src/index.ts`): `protocol/ws.ts` (messages, close codes, limits, `parseOrchestratorMessage`, …), `protocol/outcome.ts`, `domain.ts` (`OUTPUT_TAIL_BYTES`, `GITHUB_PR_URL_RE`, `JsonObject`), `api/machines.ts` (enroll DTOs), `api/rest.ts` (`API_PATHS`, `canonicalRepo`, `conductorPort`), `machines/capabilities.ts`, `machines/inventory.ts`, `workflow/schema.ts` (`Condition`), `workflow/tools.ts` (`resolveToolPolicy`). Fixtures: `packages/shared/src/protocol/fixtures.ts` (one per message type and per `session_event` kind). zod 4 has `z.toJSONSchema`. **Spike finding (PR #74):** schemars renders `Option<String>` as `"type": ["string", "null"]`, where zod emits `type: string` and leaves the field out of `required`. Generated types must serialise an absent optional as *absent*, not `null` (`#[serde(skip_serializing_if = "Option::is_none")]`), or the fixture round-trip fails.
 
 ## Functional requirements
 - **FR-1**: `packages/shared/scripts/emit-protocol.ts` writes `packages/shared/protocol-json/`: one JSON Schema per daemon-facing schema (both directions of the WS protocol, outcome, enroll request/response, capability, inventory, condition), `constants.json` (`PROTOCOL_VERSION`, `CLOSE_*`, every byte/char limit, `DEFAULT_PERMISSION_TIMEOUT_MS`, `PERMISSION_*`, `GH_MIN_VERSION`, `NO_CONVERSATION_REASON`, `DAEMON_AUTH_HEADER`, `API_PATHS` the daemon uses), and `fixtures/*.json` from every fixture export in `protocol/fixtures.ts`. A `pnpm --filter @conductor/shared emit:protocol` script runs it.
@@ -207,7 +207,7 @@ Daemon logic; orchestrator changes.
 Every OS-specific behaviour of the daemon lives in one Rust module, with the same safety guarantees as the TS daemon on macOS, Linux and Windows, and Job Objects on Windows.
 
 ## Context
-ADR-0024 (all of it: tree kill, owner-only DACL, Git Bash, `claude.exe` only per U-110) and ADR-0026. The reference is `packages/daemon/src/platform/*.ts` and their tests. The spike's Job Object result (U-116) decides how far `taskkill /T` can be retired.
+ADR-0024 (all of it: tree kill, owner-only DACL, Git Bash, `claude.exe` only per U-110) and ADR-0026. The reference is `packages/daemon/src/platform/*.ts` and their tests. The spike's Job Object result (U-116) decides how far `taskkill /T` can be retired. **Spike findings (`spikes/rust-daemon/README.md`, PR #74):** Job Objects are GO (variants a–c in `job-probe` left no survivor on `windows-latest`; `taskkill /T` left a reparented grandchild). Assignment must be atomic: `CreateProcessW(CREATE_SUSPENDED)` → `AssignProcessToJobObject` → `ResumeThread` (or `PROC_THREAD_ATTRIBUTE_JOB_LIST`); assigning after `std::process::Command::spawn` lets cmd start node outside the job. On POSIX a `setsid` grandchild escapes `killpg`, exactly as in the TS daemon today: keep TS parity here and don't add a subreaper (U-117).
 
 ## Functional requirements
 - **FR-1** `spawn`: PATHEXT resolution, `.cmd` refusal of unsafe args / `ERR_CMD_UNSAFE_ARG` equivalent, the command-line length cap, ENOENT → typed error, the U-110 rule (native `claude.exe` only); no shell, ever.
@@ -304,7 +304,7 @@ Reference: `packages/daemon/src/ws-client.ts` (+ `ws-client.test.ts`, the backof
 The Rust daemon understands Claude's stream and transcripts, keeps Edit/Write inside the worktree without Node, and serves the outcome and permission tools Claude calls.
 
 ## Context
-ADR-0005, ADR-0023 (permission prompts), ADR-0024 §edit guard, ADR-0026 §5 (`hook edit-guard` subcommand, `rmcp` or the axum fallback per the T01 spike). Reference: `packages/daemon/src/claude/{stream-parser,transcript,edit-guard,outcome-server}.ts` and their tests.
+ADR-0005, ADR-0023 (permission prompts), ADR-0024 §edit guard, ADR-0026 §5 (`hook edit-guard` subcommand, `rmcp` or the axum fallback per the T01 spike). **Spike findings (`spikes/rust-daemon/`, PR #74), reuse its `mcp-probe` server as the starting point:** rmcp 3.8 with `StreamableHttpServerConfig::with_allowed_hosts` (loopback Host check → 403; drop the hand-written TS check), `with_legacy_session_mode(false)` + `with_json_response(true)` (the TS stateless JSON shape; GET → 405), an axum route `/mcp/{token}` in front of one `StreamableHttpService` per token via `tower::ServiceExt::oneshot` (unknown token → 404), `#[tool(meta = …)]` for `anthropic/alwaysLoad`. Leave `stateless_protocol_metadata_required` off (fake-claude negotiates `2025-06-18`). Caps (`minLength`/`maxLength`) are enforced in the handler, not by the schema. fake-claude's SDK client times out at 60 s, so the held permission call is tested with a raw JSON-RPC client, and the real-claude permission test sets `MCP_TOOL_TIMEOUT`. Reference: `packages/daemon/src/claude/{stream-parser,transcript,edit-guard,outcome-server}.ts` and their tests.
 
 ## Functional requirements
 - **FR-1** `stream_parser`: lenient NDJSON stream-json line parser that never panics.

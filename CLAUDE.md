@@ -2,7 +2,13 @@
 
 Conductor is an orchestrator that runs Claude Code sessions autonomously across a fleet of machines. Tickets move through user-defined FSM workflows, and a kanban UI surfaces sessions that need a human. Start at [docs/design/00-overview.md](docs/design/00-overview.md).
 
-This file is the **operating manual for every Claude session in this repo**. The repo is developed doc-first: design docs are the source of truth, and the files in `docs/tracking/` carry state between sessions. Follow the lifecycle below every time.
+This file is the **operating manual for every Claude session in this repo**. The repo is developed doc-first: design docs are the source of truth, and the files in `docs/tracking/` carry state between sessions. Follow the lifecycle below every time, unless you are a conductor agent (next section).
+
+### Running as a conductor agent
+If you were started by conductor on a ticket (your system prompt says "running unattended as a conductor session"), the workflow replaces the lifecycle:
+- **Skip steps 0 and 4.** Don't brief Ben or wait for a go-ahead: the ticket is the go-ahead. Don't edit `docs/tracking/*` on the ticket branch. Put new unknowns, tech debt and follow-ups in your `complete_state` summary, and a human copies them onto `main`.
+- **Skip the merge and push in step 3.** Conductor runs the gates, pushes and opens the PR. Commit your work and finish the step.
+- **"Ask Ben" means `ask_user`**, never AskUserQuestion. **Commands that need approval** (installing a toolchain or package, curl, a new tool): just run them. The permission prompt reaches Ben on the board ([ADR-0023](docs/adr/0023-permission-prompts-through-conductor.md)). A rule here is a reason to ask, never a reason to give up on the ticket.
 
 ---
 
@@ -105,10 +111,20 @@ pnpm format            # prettier --write
 pnpm test              # vitest, one project per package (DB tests need db:up), in a test slot
 pnpm test:e2e          # db up + tsc -b + e2e/ suite: real orchestrator + daemon bins, fake Claude (~15 s)
 E2E_REAL_CLAUDE=1 pnpm test:e2e   # ask/answer only, real `claude` on haiku (spends money; not in CI)
-scripts/ci.sh          # all gates, in order: install, typecheck, lint, deploy kit (deploy/gradyserver/test/run.sh), db:up, test, build, test:e2e
+scripts/ci.sh          # all gates, in order: install, typecheck, lint, cargo fmt/clippy/nextest, parity, deploy kit (deploy/gradyserver/test/run.sh), db:up, test, build, test:e2e
 ```
 
-GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `scripts/ci.sh` as the `gates` check on every PR; a PR runs only the slow test tiers its diff reaches (`CONDUCTOR_CI_TIERED=1` → `pnpm test`), and `main` runs `test:all`. `daemon-windows.yml` runs the daemon tests on Windows only when the diff reaches the daemon (`scripts/test-affected.js`). Every push to `main` that passes it is deployed to gradyserver by `deploy/gradyserver/deploy.sh` (runbook [§12](docs/setup/deploy-gradyserver.md#12-cicd-github-actions)), so merging to `main` ships.
+The Rust daemon (ADR-0026, milestone MR) is a Cargo workspace at the root (`crates/*`, toolchain pinned in `rust-toolchain.toml`), outside the pnpm workspace:
+```bash
+cargo fmt --all [--check]                                  # rustfmt
+cargo clippy --workspace --all-targets -- -D warnings      # lint; warnings fail
+node scripts/test-slot.js cargo nextest run --workspace    # every Rust test, in a test slot
+cargo nextest run -p conductor-daemon <filter>             # targeted while iterating (e.g. `seam`)
+cargo build --release -p conductor-daemon                  # target/release/conductor-daemon
+node scripts/test-parity.js [--files <glob>]… [--write]    # crates/conductor-daemon/PARITY.md vs the TS tests
+```
+
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `scripts/ci.sh` as the `gates` check on every PR; a PR runs only the slow test tiers its diff reaches (`CONDUCTOR_CI_TIERED=1` → `pnpm test`), and `main` runs `test:all`. `daemon-windows.yml` runs the daemon tests on Windows only when the diff reaches the daemon (`scripts/test-affected.js`). `daemon-rust.yml` runs the cargo gates and a release build on ubuntu, macos and windows only when the diff reaches `crates/**`, `Cargo.*`, `rust-toolchain.toml` or `packages/shared/**`. Every push to `main` that passes it is deployed to gradyserver by `deploy/gradyserver/deploy.sh` (runbook [§12](docs/setup/deploy-gradyserver.md#12-cicd-github-actions)), so merging to `main` ships.
 
 **Test slots (M2-T31).** Every vitest run (however it is started) and `pnpm lint` first takes one of `CONDUCTOR_TEST_SLOTS` (default 2) machine-wide slots, shared by every worktree and agent (`scripts/test-slot.js`: a localhost port from 54330, freed when the holder exits), and vitest uses only its share of the CPUs (`maxWorkers`). If both are taken it prints `test slot: waiting…` with the holders and starts by itself; that is a queue, not a hang, so give long test commands a long Bash timeout (`timeout: 600000`) rather than retrying. Watch mode takes no slot.
 

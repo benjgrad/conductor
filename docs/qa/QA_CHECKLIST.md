@@ -7,6 +7,7 @@ Every task branch passes this before it merges to `main`. The `qa-reviewer` agen
 - [ ] `pnpm lint`
 - [ ] `pnpm test` (unit + integration)
 - [ ] `pnpm build`
+- [ ] Rust, if the task touches `crates/**` or `Cargo.*`: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace`, `node scripts/test-parity.js`, and the `daemon-rust` matrix green on ubuntu, macos and windows
 - [ ] `pnpm test:e2e`, if the task touches the orchestrator↔daemon contract, the engine, or the web flows (from M1-T10 onward)
 
 Before M1-T01 lands, gates are `n/a (no scaffold)`.

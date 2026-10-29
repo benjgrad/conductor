@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { WorkflowDefinitionSchema, type WorkflowDefinition } from '../workflow/schema.js';
 import { apply } from './apply.js';
+import { qaFenceChanged } from './qa.js';
 import {
   ApplyResultSchema,
   type ApplyResult,
@@ -10,7 +11,8 @@ import {
 
 // Test-only helpers for apply*.test.ts: reference workflows, a fresh claimed session, and a tiny
 // stand-in for the EngineService wrapper (assigns start_session command ids, bumps the fencing
-// token on a non-ignored start refusal), per 10-contracts §EngineService wrapper.
+// token on a non-ignored start refusal, a terminal session, and entering or leaving a QA state),
+// per 10-contracts §EngineService wrapper.
 
 export function referenceWorkflow(
   name: 'm1_basic' | 'm1_reviewed' | 'pr_flow',
@@ -113,13 +115,24 @@ export class Harness {
         event.command_kind === 'start_session' &&
         result.ignored === null) ||
       // BUG-1: the wrapper also fences a session that becomes terminal.
-      (!TERMINAL.has(before.status) && TERMINAL.has(snap.status))
+      (!TERMINAL.has(before.status) && TERMINAL.has(snap.status)) ||
+      // ADR-0020 §2 (M2r-T03): and one that enters or leaves a QA state.
+      qaFenceChanged(this.def, before, snap)
     ) {
       snap = { ...snap, fencing_token: snap.fencing_token + 1 };
     }
     this.snap = snap;
     this.last = result;
     return result;
+  }
+
+  /**
+   * An event sent under fencing token `token`: refused like the wrapper does (`stale_fencing_token`,
+   * nothing applied) when it is below the session's current token.
+   */
+  runFenced(event: EngineEvent, token: number): ApplyResult | { ignored: 'stale_fencing_token' } {
+    if (token < this.snap.fencing_token) return { ignored: 'stale_fencing_token' };
+    return this.run(event);
   }
 
   /** Claim + matching `started` → running in the start state. */
@@ -158,4 +171,114 @@ export class Harness {
       head_sha,
     });
   }
+}
+
+// ---------------------------------------------------------------- the QA state (M2r-T03)
+
+/** The PR conductor opened in the QA tests (`__pr.pr_url`). */
+export const QA_PR_URL = 'https://github.com/benjgrad/fixture-app/pull/7';
+
+/**
+ * A minimal ADR-0020 §10 shape: Implementing → (checks, open_pr) → In QA (`role: qa`) → Ready to
+ * merge; `qa_fail` sends the findings back (`attach: 'result'`, 3 rounds, then Needs input).
+ * No `inspect_pr` / `merge_pr` (M2r-T04).
+ */
+export function qaDefinition(): WorkflowDefinition {
+  return WorkflowDefinitionSchema.parse({
+    id: 'qa_flow',
+    version: 1,
+    start: 'implementing',
+    budget: { usd: 20, minutes: 600, max_loop_retries: 3 },
+    on_budget_exceeded: 'needs_input',
+    states: {
+      implementing: {
+        type: 'agent',
+        title: 'Implementing',
+        prompt: 'implement_template',
+        tools: ['edit', 'bash'],
+        timeout: '60m',
+        on: {
+          pr_ready: {
+            goto: 'in_qa',
+            title: 'PR ready for QA',
+            when: 'The work is done and committed.',
+            requires: {
+              checks: [{ name: 'Tests pass', cmd: 'npm test', timeout: '10m' }],
+              actions: ['open_pr'],
+            },
+            on_unmet: {
+              goto: 'implementing',
+              instruction: 'Fix it, commit, then finish again.',
+              retries: 3,
+              else: 'needs_input',
+            },
+          },
+          ask_user: 'needs_input',
+          timeout: 'needs_input',
+        },
+      },
+      in_qa: {
+        type: 'agent',
+        role: 'qa',
+        title: 'In QA',
+        prompt: 'QA the pull request for {{ticket.title}}.',
+        tools: ['qa'],
+        model: 'opus',
+        timeout: '40m',
+        checkout: { setup: 'pnpm i --frozen-lockfile' },
+        result: ['verdict', 'summary'],
+        on: {
+          qa_pass: {
+            goto: 'ready_to_merge',
+            title: 'QA passed',
+            when: 'Every requirement is met.',
+          },
+          qa_fail: {
+            goto: 'implementing',
+            attach: 'result',
+            retries: 3,
+            else: 'needs_input',
+            title: 'Changes required',
+            when: 'At least one required fix.',
+          },
+          qa_needs_human: {
+            goto: 'needs_input',
+            question: true,
+            title: 'QA needs a human',
+            when: 'You need a human decision.',
+          },
+          ask_user: 'needs_input',
+          timeout: 'needs_input',
+        },
+      },
+      ready_to_merge: {
+        type: 'human',
+        title: 'Ready to merge',
+        on: {
+          merged: { goto: 'done', title: 'Merged', actor: 'human' },
+          request_changes: {
+            goto: 'implementing',
+            title: 'Request changes',
+            actor: 'human',
+            text: 'required',
+          },
+        },
+      },
+      needs_input: {
+        type: 'human',
+        title: 'Needs input',
+        on: {
+          answer: { goto: '$return_to', title: 'Back with this answer', actor: 'human' },
+          back_to_implementing: {
+            goto: 'implementing',
+            title: 'Back to Implementing',
+            actor: 'human',
+            text: 'required',
+          },
+          close: { goto: 'done', title: 'Close', actor: 'human' },
+        },
+      },
+      done: { type: 'terminal' },
+    },
+  });
 }

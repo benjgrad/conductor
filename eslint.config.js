@@ -13,6 +13,8 @@ export default tseslint.config(
       '**/coverage/**',
       '.pgdata/**',
       '.claude/**',
+      // Cargo build output (crates/*, ADR-0026); `cargo doc` writes .js there.
+      'target/**',
       // M1-T00 throwaway spike code lives outside the workspace and the gates.
       'spikes/**',
       // TD-171: operator script, untyped fetch/JSON; prettier still checks it.

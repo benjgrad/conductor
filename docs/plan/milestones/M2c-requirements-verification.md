@@ -86,7 +86,7 @@ T07 and T08 both touch `src/api/index.ts` registration lines only (different lin
 - **Design refs**: ADR-0019; ADR-0011 (complete_state); ADR-0009 (verdict).
 - **Depends on**: M2-T20 merged (apply and the wrapper are settled).
 - **Files owned**: `shared/src/api/tickets.ts` (new), the additions in `api/rest.ts`, `engine/types.ts`, `engine/fixtures.ts`, `protocol/ws.ts`, `protocol/fixtures.ts`, one export line, 10-contracts §Requirements and verification.
-- **Do not touch**: `apply.ts`, `render.ts`, `tickets/body.ts` (T02), other packages, `docs/tracking/*`.
+- **Do not touch**: `apply.ts`, `render.ts`, `tickets/body.ts` (T02), other packages.
 - **Acceptance**:
   - [ ] `api/tickets.test.ts`, `engine/verification.types.test.ts`: every fixture parses; a `complete_state` without `verification` and a verdict without `requirements` still parse; evidence of 1 001 characters is refused.
   - [ ] An interface-review agent confirms T03–T09 can be built from these contracts.
@@ -122,7 +122,7 @@ T07 and T08 both touch `src/api/index.ts` registration lines only (different lin
   Add the row types, schema tests and 02 sections.
 - **Depends on**: T01, T02.
 - **Files owned**: the migration, the backfill script, `db/types.ts` (the new rows), `test/schema*.test.ts`, 02 (the new sections).
-- **Do not touch**: `src/api/**`, `src/engine/**`, `shared/**`, `docs/tracking/*`.
+- **Do not touch**: `src/api/**`, `src/engine/**`, `shared/**`.
 - **Migration**: **yes**. Ben approves.
 - **Acceptance**:
   - [ ] Migration up, down, up on a database with M2 rows; the backfill gives every existing sectioned ticket its requirements and leaves free-form ones `[]`.
@@ -137,7 +137,7 @@ T07 and T08 both touch `src/api/index.ts` registration lines only (different lin
   - `ticket.edited` updates the snapshot's requirement list. There is no transition.
 - **Depends on**: T01.
 - **Files owned**: `shared/src/engine/{apply.ts, evidence.ts}` (+ tests).
-- **Do not touch**: `render.ts`, `types.ts`, other packages, `docs/tracking/*`.
+- **Do not touch**: `render.ts`, `types.ts`, other packages.
 - **Acceptance**:
   - [ ] `engine/apply.evidence.test.ts`:
     - a `complete_state` with three claims and one unknown id → one `record_evidence` with three entries and the same transition as without them;
@@ -154,7 +154,7 @@ T07 and T08 both touch `src/api/index.ts` registration lines only (different lin
   - `workflow/conductor.ts` + `docs/design/workflows/conductor.v3.json`: `conductor` v3 = v2 + the one-line instruction in `planning` and `implementing`. The seed rule is unchanged; T08 seeds it.
 - **Depends on**: T01, T02.
 - **Files owned**: `shared/src/engine/{render.ts, review.ts}`, `shared/src/workflow/conductor.ts`, `docs/design/workflows/conductor.v3.json`, their tests.
-- **Do not touch**: `apply.ts`, other packages, `docs/tracking/*`.
+- **Do not touch**: `apply.ts`, other packages.
 - **Acceptance**:
   - [ ] `engine/render.requirements.test.ts`: a sectioned ticket's prompt lists FR-1..n with ids and the reporting instruction; a free-form ticket's prompt is byte-identical to before (snapshot); the reviewer prompt lists the requirements.
   - [ ] `conductor.v3.json` passes the validator (`validateWorkflow`) and `python3 -m json.tool`.
@@ -164,7 +164,7 @@ T07 and T08 both touch `src/api/index.ts` registration lines only (different lin
 - **Scope.** The outcome MCP server's `complete_state` accepts `verification` (T01's schema) and forwards it in the `session_event`. The reviewer's `complete_state` forwards a verdict's `requirements` unchanged. Size limits are enforced with a clear tool error (not a silent drop).
 - **Depends on**: T01.
 - **Files owned**: `packages/daemon/src/claude/outcome-server.ts` (the `complete_state` schema), its tests.
-- **Do not touch**: `workspace.ts`, `inventory/**`, `actions/**`, other packages, `docs/tracking/*`.
+- **Do not touch**: `workspace.ts`, `inventory/**`, `actions/**`, other packages.
 - **Acceptance**:
   - [ ] `outcome-server.verification.test.ts`: `verification` reaches the session_event; 51 entries → a tool error naming the limit; no `verification` → unchanged behaviour.
   - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e`.
@@ -180,7 +180,7 @@ T07 and T08 both touch `src/api/index.ts` registration lines only (different lin
   - `GET /api/sessions/:id/prompt?state=`: re-render with `renderPrompt` from the snapshot, the pinned definition and the current ticket; the output attachment is replaced; the response is labelled (ADR-0019 §6). 404 for another account's session.
 - **Depends on**: T03, T05, M2-T21.
 - **Files owned**: `src/api/tickets.ts` (new: create, PATCH), `src/api/prompt.ts` (new), their registration lines and the moved create handler in `src/api/index.ts`, `test/api.tickets-edit.test.ts`, `test/api.prompt.test.ts`.
-- **Do not touch**: `engine/**`, `gateway/**`, `auth/**`, `shared/**`, `docs/tracking/*`.
+- **Do not touch**: `engine/**`, `gateway/**`, `auth/**`, `shared/**`.
 - **Acceptance**:
   - [ ] `test/api.tickets-edit.test.ts`:
     - PATCH with the right `expected_updated_at` updates the body and `requirements`;
@@ -202,7 +202,7 @@ T07 and T08 both touch `src/api/index.ts` registration lines only (different lin
   - `engine/seed.ts`: seed `conductor` v3 under the per-account upgrade rule.
 - **Depends on**: T03, T04, M2-T21.
 - **Files owned**: `src/engine/{service.ts (evidence writes), board-view.ts (tally), seed.ts (v3)}`, `src/api/verification.ts` (+ its registration line), `test/engine/evidence.test.ts`, `test/api.verification.test.ts`.
-- **Do not touch**: `api/tickets.ts`, `api/prompt.ts` (T07), `gateway/**`, `shared/**`, `docs/tracking/*`.
+- **Do not touch**: `api/tickets.ts`, `api/prompt.ts` (T07), `gateway/**`, `shared/**`.
 - **Acceptance**:
   - [ ] `test/engine/evidence.test.ts`:
     - a `complete_state` with claims writes rows in the same transaction as the state change (a failure injected after apply leaves neither);
@@ -226,7 +226,7 @@ T07 and T08 both touch `src/api/index.ts` registration lines only (different lin
   - View prompt (UX-2) calls the real route and shows the "reconstructed, output omitted" note.
 - **Depends on**: T01, T02.
 - **Files owned**: `packages/web/src/tickets/**` (the editor and the Brief card, where UX-2 and UX-3 put them), `packages/web/src/verification/**` (new), the tally in `components/Board.tsx`, the ticket / verification / prompt parts of `web/src/api/{client,http,mock}.ts`, their tests.
-- **Do not touch**: `web/src/auth/**`, `web/src/machines/**`, `web/src/dependencies/**`, other packages, `docs/tracking/*`.
+- **Do not touch**: `web/src/auth/**`, `web/src/machines/**`, `web/src/dependencies/**`, other packages.
 - **Acceptance**:
   - [ ] `tickets/Editor.roundtrip.test.tsx`: the template and a full example survive load → save byte-equivalently (modulo trailing whitespace); an unsupported construct falls back to the plain box.
   - [ ] `tickets/EditTicket.test.tsx`: save sends `expected_updated_at`; a 409 shows the conflict message.

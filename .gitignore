@@ -9,3 +9,4 @@ dist/
 coverage/
 .pgdata/
 *.tsbuildinfo
+target/

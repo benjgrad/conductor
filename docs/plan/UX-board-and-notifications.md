@@ -58,7 +58,7 @@ Collapsing columns (UX-9), mobile (UX-12), agent names (UX-13b).
 - FR-4: the PR lists each removed duplicate with a before/after screenshot of the board.
 - Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
 
-- **Files owned**: `packages/web/src/components/{Board.tsx, Board.css, format.ts, format.test.ts, Board.test.tsx}`. **Do not touch**: other packages, `App.tsx`, `docs/tracking/*`.
+- **Files owned**: `packages/web/src/components/{Board.tsx, Board.css, format.ts, format.test.ts, Board.test.tsx}`. **Do not touch**: other packages, `App.tsx`.
 - **Acceptance**: [ ] the tests above; [ ] screenshots in the PR; [ ] gates green.
 
 ### UX-11 · Top-nav icons
@@ -96,7 +96,7 @@ Icons anywhere else in the app (cards, detail panel); the mobile layout itself (
 - NFR-1: the bundle sizes are in the PR.
 - Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
 
-- **Files owned**: `packages/web/package.json`, `pnpm-lock.yaml`, `packages/web/src/App.tsx` (top bar only), `auth/AccountMenu.tsx`, `help/HelpPage.tsx` (`HelpLink` only), `components/NavIcon.tsx`, `styles.css` (topbar rules). **Do not touch**: `components/Board.*`, other packages, `docs/tracking/*`.
+- **Files owned**: `packages/web/package.json`, `pnpm-lock.yaml`, `packages/web/src/App.tsx` (top bar only), `auth/AccountMenu.tsx`, `help/HelpPage.tsx` (`HelpLink` only), `components/NavIcon.tsx`, `styles.css` (topbar rules). **Do not touch**: `components/Board.*`, other packages.
 - **Acceptance**: [ ] tests; [ ] bundle sizes; [ ] gates green.
 
 ### UX-13a · Agent team (server): team and hiring pools
@@ -145,7 +145,7 @@ The web changes (UX-13b); renaming or firing agents; per-user teams.
 - FR-4: contract tests; old fixtures without `agent_name` still parse.
 - Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`. Migration: stop at "PR open, awaiting Ben".
 
-- **Files owned**: `packages/shared/src/agents/**`, `shared/src/api/rest.ts` (the additions), the new migration, `orchestrator/src/gateway/claim.ts` (the assignment call), `orchestrator/src/agents/**` (new), the board, detail and ticket queries for `agent_name`, `docs/design/{02-data-model.md, 10-contracts.md}`. **Do not touch**: `packages/web` (except the re-export line in `agent-identity.tsx`), `docs/tracking/*`.
+- **Files owned**: `packages/shared/src/agents/**`, `shared/src/api/rest.ts` (the additions), the new migration, `orchestrator/src/gateway/claim.ts` (the assignment call), `orchestrator/src/agents/**` (new), the board, detail and ticket queries for `agent_name`, `docs/design/{02-data-model.md, 10-contracts.md}`. **Do not touch**: `packages/web` (except the re-export line in `agent-identity.tsx`).
 - **Acceptance**: [ ] tests; [ ] Ben approves the migration; [ ] gates green.
 
 ### UX-13b · Agent team (web): stored names and the Team list
@@ -173,7 +173,7 @@ Server assignment (UX-13a); editing the team.
 - FR-3: a component test of the Team list against a fixture.
 - Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
 
-- **Files owned**: `packages/web/src/components/agent-identity.tsx`, its call sites in `Board.tsx` / `DetailPanel.tsx` / `details-sections.tsx` (the name and avatar only), `packages/web/src/team/**` (new), one nav or route line. **Do not touch**: other packages, `docs/tracking/*`.
+- **Files owned**: `packages/web/src/components/agent-identity.tsx`, its call sites in `Board.tsx` / `DetailPanel.tsx` / `details-sections.tsx` (the name and avatar only), `packages/web/src/team/**` (new), one nav or route line. **Do not touch**: other packages.
 - **Acceptance**: [ ] tests; [ ] gates green.
 
 ### UX-14 · Notifications (in-tab)
@@ -214,7 +214,7 @@ Web Push and the service worker (UX-15, UX-16); sounds; email.
 - FR-4: an AccountMenu test covering the permission states.
 - Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
 
-- **Files owned**: `packages/web/src/notify/**` (new), one hook line in `App.tsx`, the menu item in `auth/AccountMenu.tsx`, `packages/web/index.html` (the favicon link id). **Do not touch**: `components/Board.*`, other packages, `docs/tracking/*`.
+- **Files owned**: `packages/web/src/notify/**` (new), one hook line in `App.tsx`, the menu item in `auth/AccountMenu.tsx`, `packages/web/index.html` (the favicon link id). **Do not touch**: `components/Board.*`, other packages.
 - **Acceptance**: [ ] tests; [ ] Ben gets a notification on the hosted board with the tab in the background; [ ] gates green.
 
 ### UX-15 · Notifications (Web Push, server)
@@ -259,7 +259,7 @@ The service worker and the subscribe UI (UX-16); email; quiet hours.
 - FR-1: `schema.test.ts` migrates up, down and up.
 - Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`. Migration: stop at "PR open, awaiting Ben".
 
-- **Files owned**: the new migration, `orchestrator/src/push/**` (new), its outbox kind and dispatcher registration, one `app.register` line, `auth/admin-commands.ts` (`vapid-keys`), `shared/src/api/rest.ts` (the push additions), `deploy/gradyserver/` (env and runbook), `docs/design/{02-data-model.md, 10-contracts.md}`. **Do not touch**: `packages/web`, `docs/tracking/*`.
+- **Files owned**: the new migration, `orchestrator/src/push/**` (new), its outbox kind and dispatcher registration, one `app.register` line, `auth/admin-commands.ts` (`vapid-keys`), `shared/src/api/rest.ts` (the push additions), `deploy/gradyserver/` (env and runbook), `docs/design/{02-data-model.md, 10-contracts.md}`. **Do not touch**: `packages/web`.
 - **Acceptance**: [ ] tests; [ ] Ben approves the migration; [ ] gates green.
 
 ### UX-16 · Notifications (Web Push, web)
@@ -295,7 +295,7 @@ Server sending (UX-15); offline caching; per-ticket mute.
 - Manual check by Ben on the hosted board: desktop with the tab closed, and iPhone from the Home Screen. Both show a notification for a real needs-input ticket, and tapping it opens that ticket.
 - Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
 
-- **Files owned**: `packages/web/public/{sw.js, manifest.webmanifest, icons}`, `packages/web/index.html`, `packages/web/src/notify/push.ts` (new), the push part of the Notifications menu item, the `deploy/gradyserver/` nginx line for `/sw.js`. **Do not touch**: other packages, `docs/tracking/*`.
+- **Files owned**: `packages/web/public/{sw.js, manifest.webmanifest, icons}`, `packages/web/index.html`, `packages/web/src/notify/push.ts` (new), the push part of the Notifications menu item, the `deploy/gradyserver/` nginx line for `/sw.js`. **Do not touch**: other packages.
 - **Acceptance**: [ ] tests; [ ] Ben's manual check on desktop and iPhone; [ ] gates green.
 
 ### UX-9 · Collapsible board columns
@@ -329,7 +329,7 @@ Reordering or hiding columns permanently; mobile (UX-12, which builds on this).
 - NFR-1: keyboard test.
 - Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
 
-- **Files owned**: `packages/web/src/components/{Board.tsx, Board.css, Board.test.tsx}`, `components/board-layout.ts` (new, the stored layout). **Do not touch**: other packages, `App.tsx`, `docs/tracking/*`.
+- **Files owned**: `packages/web/src/components/{Board.tsx, Board.css, Board.test.tsx}`, `components/board-layout.ts` (new, the stored layout). **Do not touch**: other packages, `App.tsx`.
 - **Acceptance**: [ ] tests; [ ] gates green.
 
 ### UX-12 · Mobile-friendly view
@@ -362,5 +362,5 @@ A native app; offline; editing workflows on mobile (the Workflow page may stay d
 - Ben's manual check on his phone against the hosted board.
 - Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
 
-- **Files owned**: `packages/web/src/components/{Board.tsx, Board.css}`, `DetailPanel` layout CSS, `styles.css` (the responsive rules), `App.tsx` (layout switch only), `index.html` (viewport meta), `components/useMediaQuery.ts` (new). **Do not touch**: other packages, `docs/tracking/*`.
+- **Files owned**: `packages/web/src/components/{Board.tsx, Board.css}`, `DetailPanel` layout CSS, `styles.css` (the responsive rules), `App.tsx` (layout switch only), `index.html` (viewport meta), `components/useMediaQuery.ts` (new). **Do not touch**: other packages.
 - **Acceptance**: [ ] tests; [ ] screenshots; [ ] Ben's phone check; [ ] gates green.

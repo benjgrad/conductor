@@ -57,12 +57,12 @@ Not blocking, with the default the plan assumes:
 - **U-075**: resolved (Ben, 2026-10-26): Ben's local board stays pinned to the M1b build (2e88cf8) with its own database for all of M2, and dogfooding moves to the hosted instance at M2-T25.
 
 ## How M2 is run (dogfooding)
-Each task block below is pasted as the description of a ticket on Ben's conductor board (repo `github.com/benjgrad/conductor`, kind `personal`). The agent works on branch `m2-tNN-<slug>`, ends by opening a PR, and puts its report (new unknowns, tech debt, unfinished items, contract changes it needed) in the PR description. The lead QAs the branch with the `qa-reviewer` checklist, records tracking rows, and merges with `--no-ff`. So every block is self-contained: scope, design refs as paths, files owned, do-not-touch, acceptance with test names and commands, and gates.
+Each task block below is pasted as the description of a ticket on Ben's conductor board (repo `github.com/benjgrad/conductor`, kind `personal`). The agent works on branch `m2-tNN-<slug>`, updates the tracking docs in that branch ([CLAUDE.md §Every agent updates the tracking docs](../../../CLAUDE.md#every-agent-updates-the-tracking-docs)), and ends by opening a PR whose description repeats the report (new unknowns, tech debt, unfinished items, contract changes it needed). The lead QAs the branch with the `qa-reviewer` checklist, checks its tracking updates, and merges with `--no-ff`. So every block is self-contained: scope, design refs as paths, files owned, do-not-touch, acceptance with test names and commands, and gates.
 
 Rules for every M2 ticket (copy with the block):
-- Do not edit `docs/tracking/*`. Report instead.
+- Update the tracking docs in the PR: this task's row, new U/B/TD rows, an UNFINISHED entry for anything left undone, and a session log. In STATUS.md touch only this task's *In flight* row. IDs come after the highest on `origin/main` and open PRs.
 - Code against the T01/T02 contracts and their fakes. A needed contract change is reported in the PR, never made locally.
-- A shortcut needs a `// TD: <what>` comment at the site and a line in the PR report (the lead assigns the TD number).
+- A shortcut needs a TD-### row and a `// TD-###` comment at the site.
 - A migration is never merged without Ben's approval; tasks marked **Migration: yes** stop at "PR open, awaiting Ben".
 - Standard gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build` (DB tests need `pnpm db:up`). `pnpm test:e2e` where the block says so.
 
@@ -211,7 +211,7 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 - **Design refs**: [ADR-0017](../../adr/0017-own-sign-in-and-self-hosting.md) §Auth, §Invites; [ADR-0012](../../adr/0012-hosted-multi-user-github-sign-in.md) §Tenancy; [ADR-0013](../../adr/0013-machine-enrollment-inventory-routing.md) §Enrollment, §Routing; [03](../../design/03-protocols.md) §REST; [10](../../design/10-contracts.md) §REST error map.
 - **Depends on**: M1b done.
 - **Files owned**: `packages/shared/src/api/**`, `packages/shared/src/domain.ts`, one export line in `packages/shared/src/index.ts`, 10-contracts §Accounts and web auth.
-- **Do not touch**: `shared/src/protocol/**`, `shared/src/engine/**`, `shared/src/workflow/**` (T02/T06), other packages, `docs/tracking/*`.
+- **Do not touch**: `shared/src/protocol/**`, `shared/src/engine/**`, `shared/src/workflow/**` (T02/T06), other packages.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `packages/shared/src/api/auth.test.ts`: `passwordProblems` (too short, too long, equals email, 12 chars ok); `safeNextPath` refuses `//evil.com`, `https://x`, `/\\evil`, `javascript:` and returns `/` for null.
@@ -241,7 +241,7 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 - **Design refs**: [ADR-0013](../../adr/0013-machine-enrollment-inventory-routing.md) §Enrollment, §Inventory, §Routing; [ADR-0017](../../adr/0017-own-sign-in-and-self-hosting.md) §Daemon distribution; U-060 and U-068 in [UNKNOWNS](../../tracking/UNKNOWNS.md); [04](../../design/04-scheduler.md) §Leases and fencing.
 - **Depends on**: M1b done.
 - **Files owned**: `packages/shared/src/protocol/**`, `packages/shared/src/machines/**`, `packages/shared/src/engine/types.ts` and `engine/fixtures.ts`, one export line in `packages/shared/src/index.ts`; 10-contracts §Machines protocol v2; 03 §Daemon ↔ orchestrator.
-- **Do not touch**: `shared/src/api/**` (T01), `engine/apply.ts` (T06), `workflow/**`, other packages, `docs/tracking/*`.
+- **Do not touch**: `shared/src/api/**` (T01), `engine/apply.ts` (T06), `workflow/**`, other packages.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `packages/shared/src/protocol/ws.v2.test.ts`: every new message fixture parses; a v1 `register` (with `enrollment_token: null`, no versions) still parses; `capabilityKey` is stable for each kind.
@@ -265,7 +265,7 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 - **Design refs**: ADR-0017 §Auth: schema sketch; ADR-0012 §Tenancy, §Proving isolation; [02](../../design/02-data-model.md).
 - **Depends on**: T01, T02.
 - **Files owned**: the new migration file, `packages/orchestrator/src/db/types.ts`, `packages/orchestrator/test/schema*.test.ts`, 02 (the sections above).
-- **Do not touch**: `src/api/**`, `src/engine/**`, `src/gateway/**`, existing migrations, `shared/**`, `docs/tracking/*`.
+- **Do not touch**: `src/api/**`, `src/engine/**`, `src/gateway/**`, existing migrations, `shared/**`.
 - **Migration**: **yes**. Ben approves before merge.
 - **Acceptance**:
   - [ ] `pnpm db:migrate` then `pnpm db:migrate down` then up again on a database holding M1b rows: every row ends in the `local` account; down restores the M1b schema.
@@ -283,7 +283,7 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 - **Design refs**: ADR-0013 §Enrollment; ADR-0017 §Daemon distribution; 10-contracts §Machines protocol v2 (T02).
 - **Depends on**: T02.
 - **Files owned**: `packages/daemon/src/{commands/enroll.ts, credential.ts, ws-client.ts, main.ts, config.ts}`, the connect/register section of `daemon.ts`, their tests, `packages/daemon/src/test-support/fake-orchestrator.ts` (accepts and records the header).
-- **Do not touch**: `workspace.ts`, `claude/**`, `actions/**`, other packages, `docs/tracking/*`.
+- **Do not touch**: `workspace.ts`, `claude/**`, `actions/**`, other packages.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `packages/daemon/src/commands/enroll.test.ts` against a stub HTTP server: success writes the file with mode 0600 in a 0700 directory; a 401 leaves no file; an existing file without `--force` is refused; a symlinked root is refused.
@@ -303,7 +303,7 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 - **Design refs**: ADR-0017 §Auth: behaviour, §Invites; 10-contracts §Accounts and web auth (T01).
 - **Depends on**: T01.
 - **Files owned**: `packages/web/src/auth/**`, `packages/web/src/admin/**` (new), `packages/web/src/api/{client,http,mock}.ts` (auth and admin parts), `App.tsx` and `nav.ts` (routes and header), their tests.
-- **Do not touch**: `web/src/board/**`, `web/src/workflow/**`, `web/src/components/**` except the header if it lives there, other packages, `docs/tracking/*`.
+- **Do not touch**: `web/src/board/**`, `web/src/workflow/**`, `web/src/components/**` except the header if it lives there, other packages.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `auth/SignIn.test.tsx`: wrong password shows the generic error; 429 shows the throttle message; success navigates to a safe `next` and ignores `//evil.com`.
@@ -328,7 +328,7 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 - **Design refs**: ADR-0013 §Routing; [ADR-0016](../../adr/0016-work-connectors-on-the-users-machine.md); [05](../../design/05-workflow-engine.md); 10-contracts §Machines protocol v2 (T02); U-068.
 - **Depends on**: T02, T03 (the `machine_lost` enum value; 10-contracts says T06 emits `MACHINE_LOST_KIND` only once T03 has widened the enum).
 - **Files owned**: `packages/shared/src/workflow/capabilities.ts` (+ test), `CapabilityRequirementSchema` in `shared/src/machines/capabilities.ts`, `packages/shared/src/engine/apply.ts`, `engine/machine-lost.ts` (+ tests), `humanTransitionsOfCard` in `shared/src/api/rest.ts` (the `machine_lost` cases only) and `cards` tests for it, 05 §Lost machines (new).
-- **Do not touch**: `engine/types.ts`, `protocol/**`, the rest of `api/**`, other packages, `docs/tracking/*`.
+- **Do not touch**: `engine/types.ts`, `protocol/**`, the rest of `api/**`, other packages.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `capabilities.test.ts`: `conductor` v2 for `work` needs `cli:gh:authed` and `claude`; a definition with an enabled `azure_pipeline_succeeded` adds `cli:az:authed`, a disabled one doesn't; a personal-only transition's needs don't appear for `work`.
@@ -351,7 +351,7 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 - **Design refs**: ADR-0017 §Hosting topology, §Daemon distribution; ADR-0012 §Deployment shape (migrations as a release step).
 - **Depends on**: T01 (paths). Uses the env names from ADR-0017; `/healthz` and `/install.sh` come from T14, `CONDUCTOR_BIND_HOST` and `CONDUCTOR_TRUSTED_PROXY` from T08.
 - **Files owned**: `Dockerfile`, `.dockerignore`, `deploy/gradyserver/**`, `docs/setup/deploy-gradyserver.md`.
-- **Do not touch**: `packages/**`, `docker-compose.yml` (local dev), `scripts/**`, `docs/tracking/*`.
+- **Do not touch**: `packages/**`, `docker-compose.yml` (local dev), `scripts/**`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `bash -n` passes on every script, and `shellcheck` too if installed (the PR says which ran).
@@ -374,7 +374,7 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 - **Design refs**: ADR-0017 §Auth: behaviour, §Modes, §Threat model; ADR-0012 §Security changes against M1-T14; 09 §M1 local hardening; 10-contracts §Accounts and web auth (T01).
 - **Depends on**: T01, T03.
 - **Files owned**: `packages/orchestrator/src/auth/**` (new), `src/api/security.ts`, `src/main.ts`, the registration lines in `src/api/index.ts`, `packages/orchestrator/package.json` (dependencies), `test/auth/**`, `test/api-security.test.ts`, 09 §Hosted security.
-- **Do not touch**: other handlers in `api/index.ts`, `src/engine/**`, `src/gateway/**`, migrations, `shared/**`, `docs/tracking/*`.
+- **Do not touch**: other handlers in `api/index.ts`, `src/engine/**`, `src/gateway/**`, migrations, `shared/**`.
 - **Migration**: no.
 - **Acceptance** (DB tests via `useTestDatabase()`):
   - [ ] `test/auth/login.test.ts`: success sets `__Host-conductor_session` with `HttpOnly; Secure; SameSite=Lax; Path=/` for an https public URL and `conductor_session` without `Secure` for `http://127.0.0.1`; wrong password, unknown email and disabled user give byte-identical 401 bodies; the unknown-email path calls argon2 verify (spy).
@@ -396,7 +396,7 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 - **Design refs**: ADR-0013 §Enrollment, §Inventory; ADR-0017 §Threat model; 10-contracts §Machines protocol v2 (T02); 10-contracts §Gateway details.
 - **Depends on**: T02, T03.
 - **Files owned**: the new migration, `packages/orchestrator/src/gateway/{index.ts (upgrade + register), enroll.ts, revoke.ts}`, `db/types.ts` (machine rows), `test/gateway/**`, 02 (sections above).
-- **Do not touch**: `src/api/**`, `src/auth/**`, `src/engine/**`, `gateway/claim.ts` (T16), `shared/**`, `docs/tracking/*`.
+- **Do not touch**: `src/api/**`, `src/auth/**`, `src/engine/**`, `gateway/claim.ts` (T16), `shared/**`.
 - **Migration**: **yes**. Ben approves before merge.
 - **Acceptance**:
   - [ ] `test/gateway/enroll.test.ts`: a token enrolls once; a second use, an expired token and a token from a revoked list fail; two concurrent uses → exactly one machine; the credential's plaintext is in no table.
@@ -418,7 +418,7 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 - **Design refs**: ADR-0013 §Inventory; U-060 resolution; 10-contracts §Machines protocol v2 (T02).
 - **Depends on**: T04 (the daemon lane; `main.ts`, `config.ts`).
 - **Files owned**: `packages/daemon/src/inventory/**` (new), `config.ts`, `main.ts` (the `config` subcommand), the inventory section of `daemon.ts`, the gh version check in `actions/open-pr.ts` (that check only), `GH_MIN_VERSION` / `cliVersionAtLeast` in `packages/shared/src/machines/capabilities.ts` (additive), their tests.
-- **Do not touch**: `workspace.ts` (T13), `claude/**`, other `actions/**`, other packages, `docs/tracking/*`.
+- **Do not touch**: `workspace.ts` (T13), `claude/**`, other `actions/**`, other packages.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `inventory/repos.test.ts` on a temp tree: finds repos at depth 1–4, not 5; skips `node_modules`, dot-dirs and symlinks; canonicalises `git@github.com:org/app.git` and `https://github.com/org/app` to `github.com/org/app`; a repo without origin has `remote: null`; a planted `.git/hooks/post-checkout` in a scanned repo is never run (marker file absent).
@@ -437,7 +437,7 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 - **Design refs**: ADR-0013 §Enrollment (Machines page), §Routing; ADR-0017 §Daemon distribution; 10-contracts §Accounts and web auth (T01).
 - **Depends on**: T05 (web lane: `App.tsx`, api client files); T10 (`GH_MIN_VERSION`, `cliVersionAtLeast`).
 - **Files owned**: `packages/web/src/machines/**` (new), the machines parts of `web/src/api/{client,http,mock}.ts`, the card badge in `web/src/components/Board.tsx` (badge only), `App.tsx` / `nav.ts` (route and nav entry), their tests.
-- **Do not touch**: `web/src/auth/**`, `web/src/admin/**`, `web/src/workflow/**`, other packages, `docs/tracking/*`.
+- **Do not touch**: `web/src/auth/**`, `web/src/admin/**`, `web/src/workflow/**`, other packages.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `machines/Machines.test.tsx`: the install command is shown once and gone after closing; revoke asks for confirmation listing sessions; an outdated daemon shows the update mark; a machine with `gh` 2.14.0 shows the outdated-gh flag, one with 2.103.3 doesn't.
@@ -453,7 +453,7 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 - **Design refs**: ADR-0012 §Tenancy (per-account `conductor`); ADR-0011 seed-upgrade rule; ADR-0013 §Routing (`required_capabilities`).
 - **Depends on**: T03, T06, T08 (`request.auth`).
 - **Files owned**: the new migration, `src/engine/seed.ts`, the workflow handlers in `src/api/index.ts`, `db/types.ts` (workflow rows), `test/engine/seed.test.ts`, a new `test/api.workflows.test.ts`, 02 §workflow_definition.
-- **Do not touch**: other `api/index.ts` handlers, `engine/**` besides `seed.ts`, `gateway/**`, `auth/**`, `shared/**`, `docs/tracking/*`.
+- **Do not touch**: other `api/index.ts` handlers, `engine/**` besides `seed.ts`, `gateway/**`, `auth/**`, `shared/**`.
 - **Migration**: **yes**. Ben approves before merge.
 - **Acceptance**:
   - [ ] `test/engine/seed.test.ts`: `seedAccount(B)` gives B its own `conductor` v2 while `local`'s is untouched; editing B's doesn't block upgrading `local`'s; the per-account upgrade rule is tested for both.
@@ -476,7 +476,7 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 - **Design refs**: ADR-0013 §Sessions run in worktrees; U-060 resolution; [ADR-0010](../../adr/0010-one-workflow-columns-are-states.md) (fresh checkout, private push); [ADR-0008](../../adr/0008-transcript-history-and-reopen.md) (worktree location, reopen pin); 07 §Code.
 - **Depends on**: T10 (inventory store).
 - **Files owned**: `packages/daemon/src/workspace.ts`, `src/actions/checkout.ts` (push URL source only), `src/actions/open-pr.ts` (push URL source and the push credential helper; T10's gh version check stays), the start_session section of `daemon.ts`, their tests, 07 §Code.
-- **Do not touch**: `inventory/**` (read only), `claude/**`, other packages, `docs/tracking/*`.
+- **Do not touch**: `inventory/**` (read only), `claude/**`, other packages.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] *(Built in **M2-T13a**, 2026-10-28; T13 keeps it passing in both new modes.)* **TD-026 / U-030 (fresh base, actively hurting M2: every dogfood session so far started from a stale main and was rebased by hand; the lead fast-forwards the clone after each merge as a workaround)**: `workspace.fresh-base.test.ts`: the daemon runs `git fetch origin <default_branch>` **before creating each new session's worktree**, in both modes and on the M1 `cloneSource` path too (local test repos), and the session branch is created from the **fetched** `origin/<default_branch>` (not the clone's local `HEAD` or `main`). Test: create clone → push commit X to origin → start a session → the worktree's base contains X; push Y → start a second session → its base contains Y; a resumed session (same session id) reuses its existing worktree and is not rebased. A failed fetch fails the start with a clear error (no silent stale base). Pays TD-026.
@@ -496,7 +496,7 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 - **Design refs**: ADR-0017 §Daemon distribution, §Hosting topology.
 - **Depends on**: T07 (Dockerfile stub), T08 (public URL config).
 - **Files owned**: `packages/orchestrator/src/distribution.ts`, `packages/orchestrator/assets/**`, `packages/orchestrator/scripts/build-daemon-tarball.sh`, the `daemon-tarball` stage of `Dockerfile`, the route registration in `src/main.ts`, `test/distribution*.test.ts`.
-- **Do not touch**: `src/api/**`, `src/auth/**`, `src/gateway/**`, `packages/daemon/**`, `docs/tracking/*`.
+- **Do not touch**: `src/api/**`, `src/auth/**`, `src/gateway/**`, `packages/daemon/**`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `test/distribution.test.ts`: `/install.sh` embeds the public URL, version and the right SHA-256; `/downloads/../../etc/passwd` → 404; `/healthz` 200 with a DB and 503 without.
@@ -517,7 +517,7 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 - **Design refs**: ADR-0017 §Invites, sign-up, resets, the admin; ADR-0012 §Tenancy; U-056.
 - **Depends on**: T08, T09 (`revokeMachine`), T12 (`seedAccount`).
 - **Files owned**: `src/auth/{invites,signup,reset,admin-routes}.ts`, the route registration inside `src/auth/` , `src/admin-cli.ts`, the `bin` entry in `packages/orchestrator/package.json`, `test/auth/{invites,signup,reset,admin,cli}.test.ts`.
-- **Do not touch**: `src/api/**`, `src/engine/**`, `src/gateway/**` (call `revokeMachine` only), `shared/**`, `docs/tracking/*`.
+- **Do not touch**: `src/api/**`, `src/engine/**`, `src/gateway/**` (call `revokeMachine` only), `shared/**`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `test/auth/signup.test.ts`: no invite, a used, expired or revoked invite, or the wrong email → refused with no user created; two concurrent sign-ups with one invite → exactly one user; a normal invite creates a new account seeded with `conductor`; the bootstrap invite makes the user admin and owner of `local`, whose existing ticket is then visible to them via `GET /api/board`.
@@ -539,7 +539,7 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 - **Design refs**: ADR-0013 §Inventory, §Routing; ADR-0012 §Proving isolation; 04 §Claim query; 10-contracts §Claim.
 - **Depends on**: T06, T09, T12, T14 (`isOutdated`).
 - **Files owned**: `src/gateway/{inventory.ts, claim.ts}`, the `inventory` / `alert` / `repo_inventory` cases in `gateway/index.ts`, `src/engine/board-view.ts`, `test/gateway/{claim,inventory,isolation}.test.ts`, 04 §2–§3.
-- **Do not touch**: `api/**`, `auth/**`, `engine/**` besides `board-view.ts`, `shared/**`, `docs/tracking/*`.
+- **Do not touch**: `api/**`, `auth/**`, `engine/**` besides `board-view.ts`, `shared/**`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `test/gateway/claim.test.ts`: a ticket for `org/b` is claimed by machine B (has it), never by A; a ticket for `github.com/Org/B` is claimed by a machine reporting `github.com/org/b`; a ticket whose workflow needs `cli:az:authed` isn't claimed by a machine with `az` unauthed, and is claimed once an inventory with `authed: true` arrives; a bare `skill:review` requirement is met by `skill:review@github.com/Org/B` for a ticket on `github.com/org/b`; after the claim, `session.context.__working_copy` holds B's path and mode and the `start_session` outbox row carries `working_copy`; a queued session with a `__machine_lost` mark for B is never claimed by A.
@@ -607,7 +607,7 @@ Code on 0b3b8bb:
 - **Design refs**: ADR-0013 §Enrollment, §Routing; ADR-0017 §Daemon distribution; 10-contracts §Accounts and web auth (T01).
 - **Depends on**: T08, T09, T14 (`isOutdated` and the served version).
 - **Files owned**: `src/api/machines.ts`, its registration line and the ticket-create handler in `src/api/index.ts`, `test/api.machines.test.ts`, `test/api.tickets-repo.test.ts`, 03 §REST (machines).
-- **Do not touch**: other handlers in `api/index.ts`, `gateway/**` (call exported functions only), `auth/**`, `engine/**`, `shared/**`, `docs/tracking/*`.
+- **Do not touch**: other handlers in `api/index.ts`, `gateway/**` (call exported functions only), `auth/**`, `engine/**`, `shared/**`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `test/api.machines.test.ts`: create a token → the command contains the public URL; enroll with it via the REST route → the machine lists; rename; revoke → `revoked_at` set and the socket closed (fake gateway); account B gets 404 on A's machine routes; the 11th enroll in 10 min from one IP → 429.
@@ -624,7 +624,7 @@ Code on 0b3b8bb:
 - **Design refs**: ADR-0013 §Enrollment (setup guide); ADR-0017 §Daemon distribution.
 - **Depends on**: T04; T14 (the install script calls this command).
 - **Files owned**: `packages/daemon/src/commands/service.ts` (+ test), `packages/daemon/assets/conductor-launch.sh`, the launcher step in `packages/orchestrator/assets/install.sh.tmpl` and `scripts/build-daemon-tarball.sh`, the wake tick in `ws-client.ts`, the `service` subcommand in `main.ts`, `docs/setup/add-a-machine.md`; for TD-117 / TD-118 / TD-119: the token input in `commands/enroll.ts`, `credential.ts`, and the fatal-exit code in `ws-client.ts` (+ their tests).
-- **Do not touch**: `workspace.ts`, `inventory/**`, `claude/**`, other packages, `docs/tracking/*`.
+- **Do not touch**: `workspace.ts`, `inventory/**`, `claude/**`, other packages.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `commands/service.test.ts` with `HOME` in a temp dir and fake `launchctl` / `systemctl` on `PATH`: the plist / unit content matches a snapshot; install twice changes nothing; uninstall removes it; no command uses sudo.
@@ -648,7 +648,7 @@ Code on 0b3b8bb:
 - **Design refs**: ADR-0021; 10-contracts §Machines protocol v2, §Daemon auto-update; 03 daemon protocol tables.
 - **Depends on**: T02.
 - **Files owned**: `packages/shared/src/protocol/ws.ts` (these additions), `packages/shared/src/machines/update.ts` (+ test), the machines DTO field, the fixtures, the two doc sections above.
-- **Do not touch**: `packages/daemon/**`, `packages/orchestrator/**`, `packages/web/**`, `docs/tracking/*`.
+- **Do not touch**: `packages/daemon/**`, `packages/orchestrator/**`, `packages/web/**`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] Schema tests: every fixture parses; T02's `git_tamper` alert fixtures still parse; `update_available` with `file` `../x.tgz`, a `version` not in `file`, or an uppercase or short `sha256` is rejected; `heartbeat` without `draining` still parses.
@@ -674,7 +674,7 @@ Code on 0b3b8bb:
 - **Design refs**: ADR-0021; ADR-0017 §Daemon distribution; 10-contracts §Daemon auto-update, §Orphaned processes, §Refusals (resume after `no_live_process`).
 - **Depends on**: T18 (launcher, units, exit code 78), T18b.
 - **Files owned**: `packages/daemon/src/update/**` (+ tests), `packages/daemon/assets/conductor-launch.sh` (+ its test), the update hooks in `daemon.ts` / `ws-client.ts` (the request_work gate, the heartbeat field, the 4005 branch), `commands/config.ts` (the `auto-update` key).
-- **Do not touch**: `workspace.ts`, `inventory/**`, `claude/**`, `credential.ts`, other packages, `docs/tracking/*`.
+- **Do not touch**: `workspace.ts`, `inventory/**`, `claude/**`, `credential.ts`, other packages.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `update/stage.test.ts`, with a local http server and a temp `<root>`: a good tarball lands in `<root>/daemon/<version>`. A wrong SHA-256, an oversize file, a `../evil` entry, an absolute path, a symlink to `/etc` and a `--version` mismatch each leave nothing behind and raise one `update_failed` with the right `stage`. A redirect is not followed.
@@ -705,7 +705,7 @@ Code on 0b3b8bb:
 - **Design refs**: ADR-0021; 10-contracts §Daemon auto-update; M2-T14 `distribution.ts`.
 - **Depends on**: T14, T16 (alert ingest), T17 (machines list), T18b.
 - **Files owned**: the register / heartbeat / alert branches in `src/gateway/**` for these fields, `src/distribution.ts` (latest.json), the machines list's `alerts` field, `test/gateway-update*.test.ts`, the `test/distribution*.test.ts` additions.
-- **Do not touch**: `src/auth/**`, `packages/daemon/**`, `packages/web/**`, `docs/tracking/*`.
+- **Do not touch**: `src/auth/**`, `packages/daemon/**`, `packages/web/**`.
 - **Migration**: no (stop and report if one turns out to be needed).
 - **Acceptance**:
   - [ ] `test/gateway-update.test.ts`: an outdated v2 daemon gets exactly one `update_available` per register, with the served file and SHA-256. A current daemon gets none, and so does any daemon when no build is served. Nothing is written to the outbox.
@@ -721,7 +721,7 @@ Code on 0b3b8bb:
   - the existing "outdated" mark stays.
 - **Depends on**: T11, T18d.
 - **Files owned**: `packages/web/src/machines/**` for these states (+ tests).
-- **Do not touch**: other packages, `docs/tracking/*`.
+- **Do not touch**: other packages.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `Machines.test.tsx` renders all three states from fixtures.
@@ -737,7 +737,7 @@ Code on 0b3b8bb:
 - **Design refs**: ADR-0012 §Tenancy; 10-contracts §EngineService wrapper, §Board events and the event table, §Outbox state machine.
 - **Depends on**: T08, T09, T12, T16, T17 (all their files settled first).
 - **Files owned**: `src/contracts.ts`, `src/engine/**` except `seed.ts`, `src/stream/**`, the `applyEvent` call sites in `src/api/*.ts` and `src/gateway/*.ts`, `test/engine/**`, `test/stream/**` (new), 10-contracts sections above.
-- **Do not touch**: `auth/**`, `api/machines.ts` (other than call sites), migrations, `shared/**`, `docs/tracking/*`.
+- **Do not touch**: `auth/**`, `api/machines.ts` (other than call sites), migrations, `shared/**`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `test/engine/scope.test.ts`: `applyEvent(scopeB, sessionOfA, …)` → `not_found` and no `event` or `outbox` row; a normal event writes rows with A's `account_id`.
@@ -761,7 +761,7 @@ Code on 0b3b8bb:
 - **Design refs**: ADR-0013 §Overlap (leases); U-068; 04 §4 Leases and fencing; 08; TD-088.
 - **Depends on**: T06, T19.
 - **Files owned**: `src/engine/{reaper.ts, sweep.ts}`, `src/engine/service.ts` (the fencing-bump list and the supersede on (B)), the heartbeat and revoke-hook lines in `src/gateway/index.ts` / `gateway/revoke.ts`, `test/engine/{reaper,service.machine-lost}.test.ts`, 04 §4, 08 (laptop sleep).
-- **Do not touch**: `api/**`, `auth/**`, `gateway/claim.ts`, migrations, `shared/**`, `docs/tracking/*`.
+- **Do not touch**: `api/**`, `auth/**`, `gateway/claim.ts`, migrations, `shared/**`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `test/engine/reaper.test.ts` (fake clock): lease lapse → needs_input with the machine named; a heartbeat just before the lapse → nothing; a `needs_input` or `queued` session with an expired lease is not reaped; revoke → needs_input at once; a pinned reopen with its machine offline 15 min → needs_input (TD-088) and the ticket `in_progress`; a pinned reopen whose machine is revoked → `revoked` at once (Cancel only); a queued session with a `__machine_lost` mark is treated as pinned; "Continue" re-dispatches to the same machine when it reconnects, and the stale worker gets the fenced `kill`.
@@ -778,7 +778,7 @@ Code on 0b3b8bb:
 - **Design refs**: ADR-0012 §Tenancy, §Proving isolation; 10-contracts §REST error map.
 - **Depends on**: T15, T17, T19.
 - **Files owned**: `src/api/**`, `test/isolation/**`, `test/api*.test.ts`, the new migration, the two deprecated fields in `shared/src/protocol/ws.ts`, the two duplicated machine enums in `shared/src/domain.ts` (TD-108), the `repo_inventory` send in `packages/daemon/src/inventory/report.ts`.
-- **Do not touch**: `engine/**`, `gateway/**`, `auth/**` (call only), `docs/tracking/*`.
+- **Do not touch**: `engine/**`, `gateway/**`, `auth/**` (call only).
 - **Migration**: **yes**. Ben approves before merge.
 - **Acceptance**:
   - [ ] The route-matrix, SSE and unscoped-SQL tests pass, and each fails on a planted bug (a self-test: an unscoped query string in a fixture file; a route added to `API_PATHS` without a matrix entry).
@@ -797,7 +797,7 @@ Code on 0b3b8bb:
 - **Design refs**: ADR-0012 §Proving isolation; ADR-0013; ADR-0017; [e2e/README.md](../../../e2e/README.md).
 - **Depends on**: T13, T15, T16, T18, T20, T21.
 - **Files owned**: `e2e/m2.e2e.test.ts`, `e2e/harness/**`, `e2e/README.md`.
-- **Do not touch**: `packages/**` (report bugs; the lead routes fixes), `docs/tracking/*`.
+- **Do not touch**: `packages/**` (report bugs; the lead routes fixes).
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `pnpm test:e2e` green: the four scenarios plus every M1 / M1b scenario; total run time stays under 3 minutes on Ben's Mac.
@@ -808,7 +808,7 @@ Code on 0b3b8bb:
 - **Design refs**: all M2 ADRs and tasks.
 - **Depends on**: T21 (the code is final).
 - **Files owned**: `docs/design/**`, `docs/adr/0012*`, `0013*`, `0017*` (implementation notes only), `README.md`, `CLAUDE.md` §Commands.
-- **Do not touch**: `packages/**`, `e2e/**`, `docs/tracking/*`, `docs/plan/**`.
+- **Do not touch**: `packages/**`, `e2e/**`, `docs/plan/**`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] A QA agent reading each doc against the code finds no contradiction (listed per doc in the QA notes).
@@ -824,7 +824,7 @@ Code on 0b3b8bb:
 - **Design refs**: ADR-0013 §Overlap (laptop-sleep e2e); U-068; 04 §4.
 - **Depends on**: T22 (harness).
 - **Files owned**: `e2e/m2-leases.e2e.test.ts`; additive helpers in `e2e/harness/**` only.
-- **Do not touch**: `packages/**`, `docs/tracking/*`.
+- **Do not touch**: `packages/**`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `pnpm test:e2e` green with these four scenarios, no flake in 3 consecutive runs (`for i in 1 2 3; do pnpm test:e2e || exit 1; done`).
@@ -867,7 +867,7 @@ Code on 0b3b8bb:
 - **Design refs**: [ADR-0011](../../adr/0011-transition-rules.md); [ADR-0010](../../adr/0010-one-workflow-columns-are-states.md) (entry steps, open_pr); 05 §Transitions, §Conditions, §Requirements to enter a column; 10-contracts §Transitions, §EngineService wrapper; [06](../../design/06-human-input.md) (the "Retry, skip, or abort?" questions).
 - **Depends on**: T06 (the only other M2 task that edits `shared/src/engine/apply.ts`).
 - **Files owned**: `packages/shared/src/engine/{apply.ts, retry.ts (new), types.ts (additive: RetryPoint, RETRY_CONTEXT_KEY, RETRY_TRANSITION, MAX_HUMAN_RETRIES)}`, `shared/src/api/rest.ts` (`humanTransitionsOfCard`, the transition request name), the validator's reserved-name list, their tests; 05 and 10-contracts (the sections above).
-- **Do not touch**: `packages/orchestrator/**`, `packages/daemon/**`, `packages/web/**`, `shared/src/machines/**`, `shared/src/protocol/**`, `docs/tracking/*`.
+- **Do not touch**: `packages/orchestrator/**`, `packages/daemon/**`, `packages/web/**`, `shared/src/machines/**`, `shared/src/protocol/**`.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `engine/apply.retry.test.ts`: an `open_pr` action error on a `personal_pr_ready_for_review` move → needs_input with `__retry {failed_phase: 'actions', head_sha}` and "Retry" first in `humanTransitionsOfCard`; `$retry` → the step resumes at `actions` with the same `expected_sha` and a `:retry1` idempotency key, **no** `start_session` for the worker and no `run_cmd` (checks not re-run); the action succeeding → the target (`needs_input`, PR ready) is entered as for a normal pass.
@@ -914,7 +914,7 @@ The lead fast-forwarded the daemon clone and Hazel's branch by hand (the interim
 - **Design refs**: TD-026, U-030; T13 block above (its first acceptance item is this task's); 07 §Code.
 - **Depends on**: T10.
 - **Files owned**: `packages/daemon/src/workspace.ts`, the start_session section of `daemon.ts`, `workspace*.test.ts`, 07 §Code (one paragraph).
-- **Do not touch**: `claude/**`, `actions/**`, other packages, `docs/tracking/*`.
+- **Do not touch**: `claude/**`, `actions/**`, other packages.
 - **Migration**: no.
 - **Acceptance**:
   - [ ] `workspace.fresh-base.test.ts`, with a temp bare origin:
@@ -940,7 +940,7 @@ The lead fast-forwarded the daemon clone and Hazel's branch by hand (the interim
 - **Design refs**: ADR-0023 §5; 03-protocols §MCP tools; 10-contracts.
 - **Depends on**: T13a; after T29b (shares `outcome-server.ts`).
 - **Files owned**: `actions/update-branch.ts`, the outcome-server tool registration, `shared/src/workflow/tools.ts` (`inspect` only), `workflows/conductor.v*.json` planning `tools`, `render.ts` plan prompt line, the session-event denial field, their tests, docs sections.
-- **Do not touch**: `workspace.ts` (import only), orchestrator, web, `docs/tracking/*`.
+- **Do not touch**: `workspace.ts` (import only), orchestrator, web.
 - **Acceptance**:
   - [ ] Unit tests: clean fast-forward; true merge; conflict, aborted with the paths listed and the tree clean; dirty tree refused in planning.
   - [ ] e2e: a fake-Claude planning turn calls `update_branch` after a commit lands on origin, then reads the new file.

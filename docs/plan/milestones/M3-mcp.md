@@ -152,7 +152,7 @@ Handlers, migrations, UI.
 - NFR-1: the existing contract tests pass unchanged.
 - An interface-review agent confirms that T02–T13 can be built from these contracts. Ben approves the 10-contracts diff.
 
-- **Depends on**: M2r done. **Files owned**: `shared/src/mcp/**`, `shared/src/api/{oauth.ts, rest.ts (additions), fixtures.ts}`, export lines, `docs/design/10-contracts.md` §Tool layer and MCP. **Do not touch**: other packages, `docs/tracking/*`.
+- **Depends on**: M2r done. **Files owned**: `shared/src/mcp/**`, `shared/src/api/{oauth.ts, rest.ts (additions), fixtures.ts}`, export lines, `docs/design/10-contracts.md` §Tool layer and MCP. **Do not touch**: other packages.
 - **Acceptance**: [ ] the Verification tests; [ ] `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
 
 ### M3-T02 · Migration: OAuth, audit and ticket search
@@ -183,7 +183,7 @@ Queries and handlers.
 - FR-1..FR-3: `schema-isolation.test.ts` passes with the new tables (only `oauth_client` on the allow-list); `migrations.m3.test.ts` checks up, down, up.
 - NFR-1: a timing note in the PR. NFR-2: a schema test on the column types.
 
-- **Depends on**: T01. **Files owned**: `orchestrator/migrations/17619…_mcp-oauth.sql`, `orchestrator/src/db/*rows*.ts`, `test/schema-isolation.test.ts` (the allow-list line). **Do not touch**: other migrations, `docs/tracking/*`.
+- **Depends on**: T01. **Files owned**: `orchestrator/migrations/17619…_mcp-oauth.sql`, `orchestrator/src/db/*rows*.ts`, `test/schema-isolation.test.ts` (the allow-list line). **Do not touch**: other migrations.
 - **Acceptance**: [ ] tests; [ ] gates; [ ] **Ben approves the SQL** in the PR.
 
 ### M3-T03 · Orchestrator: ticket services
@@ -212,7 +212,7 @@ New routes, tools, the engine's own scoping (M2-T19).
 - FR-1..FR-3: `services/tickets.test.ts` (DB), including a two-account `not_found` case for each service.
 - FR-4 / NFR-1: `pnpm test` and `pnpm test:e2e` green with no test edits beyond imports.
 
-- **Depends on**: T01. **Files owned**: `orchestrator/src/services/**`, the write handlers in `orchestrator/src/api/index.ts`. **Do not touch**: `engine/**`, `gateway/**`, `docs/tracking/*`.
+- **Depends on**: T01. **Files owned**: `orchestrator/src/services/**`, the write handlers in `orchestrator/src/api/index.ts`. **Do not touch**: `engine/**`, `gateway/**`.
 - **Acceptance**: [ ] tests; [ ] gates incl. `pnpm test:e2e`.
 
 ### M3-T04 · Shared: pure helpers for tool results
@@ -246,7 +246,7 @@ DB queries and tool handlers.
 - FR-5: `mcp/summary.test.ts`, with snapshots for six states.
 - FR-6, FR-7: `tickets/sections.test.ts` (round trip: render → split gives the same sections).
 
-- **Depends on**: T01. **Files owned**: `shared/src/mcp/{cap,cursor,refs-impl,summary}.ts`, `shared/src/tickets/sections.ts`, tests. **Do not touch**: T01's schema files, `docs/tracking/*`.
+- **Depends on**: T01. **Files owned**: `shared/src/mcp/{cap,cursor,refs-impl,summary}.ts`, `shared/src/tickets/sections.ts`, tests. **Do not touch**: T01's schema files.
 - **Acceptance**: [ ] tests; [ ] gates.
 
 ### M3-T05 · Web: the consent page
@@ -279,7 +279,7 @@ Connected apps and the Connect page (T06).
 - FR-4: `http.oauth.test.ts`.
 - NFR-1: a keyboard test in `Consent.test.tsx`.
 
-- **Depends on**: T01. **Files owned**: `web/src/oauth/**`, the `/consent` route line, the consent calls in `web/src/api/*`. **Do not touch**: `components/**`, `docs/tracking/*`.
+- **Depends on**: T01. **Files owned**: `web/src/oauth/**`, the `/consent` route line, the consent calls in `web/src/api/*`. **Do not touch**: `components/**`.
 - **Acceptance**: [ ] tests; [ ] gates; [ ] a screenshot in the PR.
 
 ### M3-T06 · Web: Connect Claude and Connected apps
@@ -316,7 +316,7 @@ Per-tool permissions and editing scopes (reconnect instead).
 - FR-3: `ConnectedApps.test.tsx` covers list, revoke, empty state.
 - FR-4: `nav` tests.
 
-- **Depends on**: T01. **Files owned**: `web/src/connect/**`, `web/src/settings/**`, `nav.ts` (two routes), `AccountMenu.tsx` (one link), the grants calls in `web/src/api/*`. **Do not touch**: `oauth/**` (T05), `components/**`, `docs/tracking/*`.
+- **Depends on**: T01. **Files owned**: `web/src/connect/**`, `web/src/settings/**`, `nav.ts` (two routes), `AccountMenu.tsx` (one link), the grants calls in `web/src/api/*`. **Do not touch**: `oauth/**` (T05), `components/**`.
 - **Acceptance**: [ ] tests; [ ] gates; [ ] screenshots.
 
 ### M3-T07 · Deploy kit: nginx for `/mcp` and OAuth
@@ -344,7 +344,7 @@ Running it on the server (T17).
 ## Verification
 FR-1..FR-4, NFR-1: `deploy/gradyserver/test/run.sh` green.
 
-- **Depends on**: T01 (paths). **Files owned**: `deploy/gradyserver/**`. **Do not touch**: `packages/**`, `docs/tracking/*`.
+- **Depends on**: T01 (paths). **Files owned**: `deploy/gradyserver/**`. **Do not touch**: `packages/**`.
 - **Acceptance**: [ ] the deploy tests; [ ] gates.
 
 ### M3-T08 · Orchestrator OAuth (1): discovery, registration, authorize, consent
@@ -390,7 +390,7 @@ The token and revoke endpoints and grants REST (T12); `/mcp` (T13).
 - FR-6: `security.oauth.test.ts` (cookie ignored on `/mcp`; the Origin rule still enforced on `/api/oauth/*`).
 - NFR-1/2: assertions in the same tests.
 
-- **Depends on**: T02. **Files owned**: `orchestrator/src/oauth/{metadata,register,authorize,consent,secrets}.ts`, `api/security.ts`, one register line in `api/index.ts`, tests. **Do not touch**: `tools/**`, `services/**`, `docs/tracking/*`.
+- **Depends on**: T02. **Files owned**: `orchestrator/src/oauth/{metadata,register,authorize,consent,secrets}.ts`, `api/security.ts`, one register line in `api/index.ts`, tests. **Do not touch**: `tools/**`, `services/**`.
 - **Acceptance**: [ ] tests; [ ] gates.
 
 ### M3-T09 · Orchestrator: the read tools
@@ -422,7 +422,7 @@ Writes, transport, audit.
 - NFR-1: `tools/size.test.ts`.
 - NFR-3: `tools/isolation.test.ts`: two accounts, and every tool given B's ids answers `not_found` or empty.
 
-- **Depends on**: T02, T04. **Files owned**: `orchestrator/src/tools/{registry.ts, read/**, queries.ts}`, tests. **Do not touch**: `tools/write/**`, `api/**`, `docs/tracking/*`.
+- **Depends on**: T02, T04. **Files owned**: `orchestrator/src/tools/{registry.ts, read/**, queries.ts}`, tests. **Do not touch**: `tools/write/**`, `api/**`.
 - **Acceptance**: [ ] tests; [ ] gates.
 
 ### M3-T10 · Orchestrator: the write tools and audit
@@ -462,7 +462,7 @@ Transport, scope checks, rate limits (T13).
 - FR-5, FR-6: `tools/audit.test.ts` (the event payload has `via`; detail lists the activity).
 - NFR-1: assertions in the same tests.
 
-- **Depends on**: T02, T03, T04. **Files owned**: `orchestrator/src/tools/{write/**, audit.ts}`, the `mcp_activity` part of `api/sessions.ts`, tests. **Do not touch**: `services/**` (T03; report needed changes), `tools/read/**`, `docs/tracking/*`.
+- **Depends on**: T02, T03, T04. **Files owned**: `orchestrator/src/tools/{write/**, audit.ts}`, the `mcp_activity` part of `api/sessions.ts`, tests. **Do not touch**: `services/**` (T03; report needed changes), `tools/read/**`.
 - **Acceptance**: [ ] tests; [ ] gates.
 
 ### M3-T11 · Web: MCP activity on the ticket
@@ -486,7 +486,7 @@ Filtering the board by client.
 ## Verification
 FR-1..FR-3, NFR-1: `DetailPanel.mcp.test.tsx`.
 
-- **Depends on**: T01. **Files owned**: `web/src/components/{DetailPanel.mcp.test.tsx, details-sections.tsx (one section), mcp-activity.tsx}`. **Do not touch**: `oauth/**`, `connect/**`, `docs/tracking/*`.
+- **Depends on**: T01. **Files owned**: `web/src/components/{DetailPanel.mcp.test.tsx, details-sections.tsx (one section), mcp-activity.tsx}`. **Do not touch**: `oauth/**`, `connect/**`.
 - **Acceptance**: [ ] tests; [ ] gates.
 
 ### M3-T12 · Orchestrator OAuth (2): tokens, revocation, grants
@@ -521,7 +521,7 @@ The `/mcp` endpoint (T13).
 - FR-5, FR-6: `oauth/verify.test.ts`.
 - NFR-1: a concurrent-refresh test.
 
-- **Depends on**: T08. **Files owned**: `orchestrator/src/oauth/{token,revoke,grants,verify}.ts`, one call each in `auth/{admin-commands,reset,admin-routes}.ts`, one register line, tests. **Do not touch**: `tools/**`, `docs/tracking/*`.
+- **Depends on**: T08. **Files owned**: `orchestrator/src/oauth/{token,revoke,grants,verify}.ts`, one call each in `auth/{admin-commands,reset,admin-routes}.ts`, one register line, tests. **Do not touch**: `tools/**`.
 - **Acceptance**: [ ] tests; [ ] gates.
 
 ### M3-T13 · Orchestrator: the `/mcp` endpoint
@@ -558,7 +558,7 @@ Stateful sessions, server-initiated streams, resources and prompts.
 - FR-7: `mcp/audit.test.ts`.
 - NFR-1: `mcp/list-size.test.ts`. NFR-2: `mcp/isolation.test.ts`.
 
-- **Depends on**: T09, T10, T12. **Files owned**: `orchestrator/src/mcp/**`, `orchestrator/package.json` (the SDK), one register line, tests. **Do not touch**: `tools/**` (report changes), `oauth/**`, `docs/tracking/*`.
+- **Depends on**: T09, T10, T12. **Files owned**: `orchestrator/src/mcp/**`, `orchestrator/package.json` (the SDK), one register line, tests. **Do not touch**: `tools/**` (report changes), `oauth/**`.
 - **Acceptance**: [ ] tests; [ ] gates.
 
 ### M3-T14 · E2E: a real MCP client end to end
@@ -591,7 +591,7 @@ Real claude.ai or Claude Code (Ben's manual check, T17).
 ## Verification
 FR-2..FR-5: `e2e/mcp-oauth.e2e.test.ts` green in `scripts/ci.sh`.
 
-- **Depends on**: T05, T06, T13. **Files owned**: `e2e/mcp-*.ts`, `e2e/harness/password-mode.ts` (new, small). **Do not touch**: `packages/**` (report bugs), `docs/tracking/*`.
+- **Depends on**: T05, T06, T13. **Files owned**: `e2e/mcp-*.ts`, `e2e/harness/password-mode.ts` (new, small). **Do not touch**: `packages/**` (report bugs).
 - **Acceptance**: [ ] e2e green; [ ] gates.
 
 ### M3-T15 · Security review of the authorization server
@@ -624,7 +624,7 @@ Pen-testing the live server (T17 runs smoke checks only).
 ## Verification
 FR-1, FR-2: `oauth/security.review.test.ts` plus the report in the PR body.
 
-- **Depends on**: T13. **Files owned**: `orchestrator/src/{oauth,mcp}/**` (fixes), `oauth/security.review.test.ts`. **Do not touch**: `docs/tracking/*`.
+- **Depends on**: T13. **Files owned**: `orchestrator/src/{oauth,mcp}/**` (fixes), `oauth/security.review.test.ts`.
 - **Acceptance**: [ ] tests; [ ] gates; [ ] the report.
 
 ### M3-T16 · Docs sweep
@@ -644,12 +644,12 @@ CLAUDE.md: "code and docs never knowingly disagree on `main`".
 None.
 
 ## Out of scope
-Tracking files (the lead's).
+The full STATUS.md rewrite (the lead's). This ticket's own tracking updates are in scope, as for every ticket.
 
 ## Verification
 FR-1..FR-4: the qa-reviewer checks each doc claim against the code.
 
-- **Depends on**: T14, T15. **Files owned**: `docs/design/**`, `docs/adr/0014-*`, `docs/setup/connect-claude.md`, `README.md`, the M2 note. **Do not touch**: `docs/tracking/*`.
+- **Depends on**: T14, T15. **Files owned**: `docs/design/**`, `docs/adr/0014-*`, `docs/setup/connect-claude.md`, `README.md`, the M2 note.
 - **Acceptance**: [ ] review passes.
 
 ### M3-T17 · Deploy (lead + Ben)

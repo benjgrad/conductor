@@ -1,0 +1,104 @@
+# The Rust daemon on every OS it ships for (ADR-0026 §6, milestone MR): fmt, clippy, nextest and a
+# release build on ubuntu, macos and windows. scripts/ci.sh (the `ci` workflow) runs the same
+# gates on Linux, plus the parity ledger. tests/seam.rs keeps every OS branch inside
+# crates/conductor-daemon/src/platform/, so each one runs here on its own OS.
+#
+# Diff-aware, like daemon-windows.yml: `changes` (cheap, on Linux) asks whether the diff reaches
+# what the Rust daemon is built or tested from, and `test` runs only then. A PR is checked out as
+# its merge commit (first parent = base side); a push compares with the commit main was at before
+# it; a dispatch, a new branch or a failing diff runs. A skipped `test` reports SKIPPED.
+name: daemon-rust
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to a PR cancels that PR's previous run; runs on main are never cancelled.
+concurrency:
+  group: daemon-rust-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      rust: ${{ steps.affected.outputs.rust }}
+    steps:
+      # Full history: the base commit has to be here to diff against.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: does the diff reach the Rust daemon?
+        id: affected
+        env:
+          # Through env, never interpolated into the script.
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          case "$EVENT" in
+            pull_request) base="$(git rev-parse HEAD^1)" ;;
+            push) base="$BEFORE" ;;
+            *) base="" ;;
+          esac
+          rust=true
+          if [[ -n "$base" && ! "$base" =~ ^0+$ ]] && changed="$(git diff --name-only "$base" HEAD)"; then
+            rust=false
+            while IFS= read -r f; do
+              case "$f" in
+                crates/* | Cargo.toml | Cargo.lock | rust-toolchain.toml | packages/shared/* | \
+                  .github/workflows/daemon-rust.yml) rust=true ;;
+              esac
+            done <<<"$changed"
+          fi
+          echo "rust=$rust" >>"$GITHUB_OUTPUT"
+          if [[ "$rust" != true ]]; then
+            echo "::notice::nothing the Rust daemon is built or tested from changed; skipping"
+          fi
+
+  test:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    name: daemon-rust (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v4
+      # Later MR tests run test fixtures under Node (fake-claude.mjs and its MCP SDK), so Node and
+      # the pnpm install are here from the start: as the other workflows, pnpm from package.json
+      # `packageManager` (never corepack), Node from .nvmrc.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: rust toolchain from rust-toolchain.toml
+        id: rust
+        run: echo "channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" >>"$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.rust.outputs.channel }}
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo nextest run --workspace --locked
+      - run: cargo build --workspace --release --locked

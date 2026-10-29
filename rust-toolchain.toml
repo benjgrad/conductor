@@ -1,0 +1,5 @@
+# Pinned stable (ADR-0026 §6). CI reads `channel` from here; bump it in its own PR.
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

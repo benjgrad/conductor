@@ -104,6 +104,24 @@ textarea {
   margin: 0;
   flex: 1;
 }
+/* UX-11: every top-bar control is an icon before its label. */
+.topbar .nav-tabs a,
+.topbar > button,
+.topbar .account-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.nav-icon {
+  flex: none;
+}
+/* UX-11: icon-only bar; UX-12 turns it on below its breakpoint. */
+.topbar.compact {
+  gap: 8px;
+}
+.topbar.compact .nav-label {
+  display: none;
+}
 
 main {
   display: flex;

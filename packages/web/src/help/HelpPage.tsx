@@ -38,14 +38,21 @@ export function HelpPage() {
 export function HelpLink({
   children,
   className,
+  title,
+  'aria-label': ariaLabel,
 }: {
   children: ReactNode;
   className?: string | undefined;
+  /** UX-11: the top bar's compact mode names the icon-only link with these. */
+  title?: string | undefined;
+  'aria-label'?: string | undefined;
 }) {
   return (
     <a
       href={SETUP_GUIDE_URL}
       className={className}
+      title={title}
+      aria-label={ariaLabel}
       onClick={(e) => followInApp(e, SETUP_GUIDE_URL)}
     >
       {children}

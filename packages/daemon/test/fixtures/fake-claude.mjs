@@ -51,6 +51,8 @@
 //   {"if_exists": {path, then, else}}   play the `then` actions if <cwd>/<path> exists, else the
 //                                       `else` actions (ADR-0009 reviewer scenarios)
 //   {"remove_file": path}               delete a file relative to cwd (must stay inside cwd)
+//   {"screenshot": name}                write a tiny PNG `name` (e.g. before-nav.png) in
+//                                       $CONDUCTOR_SCREENSHOT_DIR, as an agent capturing a view (M2-T35)
 //   {"git_commit": message}             `git add -A && git commit -m <message>` in cwd, like an
 //                                       agent committing its work (ADR-0010: only committed
 //                                       changes are checked); nothing to commit is a no-op
@@ -303,6 +305,15 @@ function writeFile(spec, answer) {
   writeFileSync(target, subst(String(spec.content ?? ''), answer));
 }
 
+/** M2-T35: a tiny PNG named `name` in $CONDUCTOR_SCREENSHOT_DIR (the daemon's per-session dir). */
+function saveScreenshot(name) {
+  const dir = process.env.CONDUCTOR_SCREENSHOT_DIR;
+  if (!dir) fail('screenshot: CONDUCTOR_SCREENSHOT_DIR is not set');
+  if (!/^[a-z0-9.-]+$/.test(name)) fail(`screenshot: bad name ${name}`);
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  writeFileSync(join(dir, name), png);
+}
+
 function removeFile(path) {
   const target = resolve(process.cwd(), path);
   const rel = relative(process.cwd(), target);
@@ -370,6 +381,7 @@ async function runTurn(text) {
     if (a.stderr !== undefined) process.stderr.write(a.stderr);
     if (a.write_file !== undefined) writeFile(a.write_file, text);
     if (a.remove_file !== undefined) removeFile(String(a.remove_file));
+    if (a.screenshot !== undefined) saveScreenshot(String(a.screenshot));
     if (a.git_commit !== undefined) gitCommit(subst(String(a.git_commit), text));
     if (a.raw !== undefined) process.stdout.write(a.raw + '\n');
     if (a.sleep !== undefined) await new Promise((r) => setTimeout(r, a.sleep));

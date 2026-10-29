@@ -205,10 +205,17 @@ describe('transition arrows (ADR-0011)', () => {
         name: 'Open a pull request (by conductor)',
       }).checked,
     ).toBe(true);
+    // M2-T35c: the mock's latest is conductor v5, with the screenshots condition second.
     expect(panel().getByLabelText<HTMLSelectElement>('Condition 2 type').value).toBe(
+      'pr_screenshots',
+    );
+    expect(panel().getByLabelText<HTMLInputElement>('Condition 2 UI paths').value).toBe(
+      '**/*.{tsx,jsx,vue,svelte,css,scss,html}',
+    );
+    expect(panel().getByLabelText<HTMLSelectElement>('Condition 3 type').value).toBe(
       'pr_approvals',
     );
-    expect(panel().getByLabelText<HTMLInputElement>('Condition 2 approvals').value).toBe('1');
+    expect(panel().getByLabelText<HTMLInputElement>('Condition 3 approvals').value).toBe('1');
     expect(panel().getByLabelText<HTMLInputElement>('Wait at most').value).toBe('3d');
     expect(panel().getByLabelText<HTMLSelectElement>('Back to').value).toBe('implementing');
     expect(panel().getByLabelText<HTMLInputElement>('Up to (times)').value).toBe('3');

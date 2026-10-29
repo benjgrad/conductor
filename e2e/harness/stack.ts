@@ -56,7 +56,9 @@ export interface FakePrState {
  *   conductor pushed to the fixture repo (FAKE_GH_REPO), so head pinning holds. The conditions
  *   come from `review-<hex(title)>.json` (FakePrState, rewritten by a test between polls): one CI
  *   check, N MEMBER approvals on the head, plus two approvals that must never count (the PR
- *   author's own, and a drive-by with association NONE).
+ *   author's own, and a drive-by with association NONE). M2-T35: `files` is the fixture repo's
+ *   `main...<head>` diff and `body` the PR's (from create, or the last `pr edit --body`);
+ * - `pr edit <url> --body <b>` (open_pr attaching screenshots to a reused PR) → stores the body.
  * Every call is logged to FAKE_GH_LOG.
  */
 const FAKE_GH = `#!/usr/bin/env node
@@ -87,8 +89,16 @@ if (argv[0] === 'pr' && argv[1] === 'view' && /^https:/.test(argv[2])) {
   const review = (login, assoc) => ({ author: { login }, authorAssociation: assoc, state: 'APPROVED', commit: { oid: head } });
   const reviews = [review('${FAKE_GH_AUTHOR}', 'OWNER'), review('drive-by', 'NONE')];
   for (let i = 0; i < (st.approvals || 0); i++) reviews.push(review('reviewer-' + (i + 1), 'MEMBER'));
+  let files = [];
+  if (head) {
+    try {
+      files = execFileSync('git', ['-C', process.env.FAKE_GH_REPO, 'diff', '--name-only', 'main...' + head], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).split('\\n').filter(Boolean);
+    } catch {}
+  }
   console.log(JSON.stringify({
     state: 'OPEN', mergedAt: null, reviewDecision: '', headRefOid: head,
+    files: files.map((path) => ({ path, additions: 1, deletions: 0 })), changedFiles: files.length,
+    body: pr.body || '',
     author: { login: '${FAKE_GH_AUTHOR}' },
     statusCheckRollup: [{ __typename: 'CheckRun', name: 'ci',
       status: checks === 'pending' ? 'IN_PROGRESS' : 'COMPLETED',
@@ -105,8 +115,14 @@ if (argv[0] === 'pr' && argv[1] === 'create') {
   const head = opt('--head');
   const number = 42 + prs().length;
   const url = 'https://github.com/benjgrad/fixture-app/pull/' + number;
-  fs.writeFileSync(prFile(head), JSON.stringify({ url, number, head, title: opt('--title') }));
+  fs.writeFileSync(prFile(head), JSON.stringify({ url, number, head, title: opt('--title'), body: opt('--body') }));
   console.log(url);
+  process.exit(0);
+}
+if (argv[0] === 'pr' && argv[1] === 'edit' && /^https:/.test(argv[2])) {
+  const f = fs.readdirSync(dir).filter((n) => n.startsWith('pr-')).map((n) => dir + '/' + n).find((p) => read(p).url === argv[2]);
+  if (!f) { console.error('no pull requests found'); process.exit(1); }
+  fs.writeFileSync(f, JSON.stringify({ ...read(f), body: opt('--body') }));
   process.exit(0);
 }
 process.exit(2);

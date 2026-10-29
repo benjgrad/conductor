@@ -15,3 +15,5 @@ docs
 # `use-node-version` would make pnpm download its own Node; the base image is already pinned
 # to the same version (Dockerfile ARG NODE_VERSION).
 .npmrc
+# Cargo build output (ADR-0026): not part of the image.
+target

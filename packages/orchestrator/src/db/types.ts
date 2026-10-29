@@ -7,6 +7,10 @@ import type {
   MachineStatus,
   OutboxKind,
   OutboxStatus,
+  PermissionBehavior,
+  PermissionExpiryReason,
+  PermissionRequestStatus,
+  PermissionScope,
   SessionStatus,
   TicketKind,
   TicketStatus,
@@ -162,6 +166,16 @@ export interface TicketRow {
    * NULL for tickets created before M1b, matching both kinds (U-062); the create route requires it.
    */
   kind: TicketKind | null;
+  /**
+   * M2-T29c (ADR-0023 §2): the exact allow rules "Allow always" recorded for this ticket's
+   * sessions, until the machine override exists (M2-T28c). Default `{}`.
+   */
+  session_allow: string[];
+  /**
+   * UX-13a: uuid, FK agent: the teammate the claim assigned (migration 1762000000000). Never
+   * cleared; null = not assigned yet (queued, or a ticket from before UX-13a).
+   */
+  agent_id: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -269,7 +283,7 @@ export interface OutboxRow {
    * built by the EngineService wrapper in the apply tx); the dispatcher only wraps it in an
    * envelope (`commandEnvelopeForOutboxRow`, orchestrator contracts).
    */
-  /** `machine:<id>` or `connector:<name>`. */
+  /** `machine:<id>`, `connector:<name>`, or `user:<id>` (UX-15 `push_needs_input`). */
   target: string;
   kind: OutboxKind;
   session_id: string | null;
@@ -287,6 +301,43 @@ export interface OutboxRow {
   next_attempt_at: Date;
   last_error: string | null;
   created_at: Date;
+}
+
+// ---------------------------------------------------------------- permission prompts (M2-T29c)
+// ADR-0023, 10-contracts §Permission prompts. Migration 1761800000000_permission-requests.
+
+export interface PermissionRequestRow {
+  /** The daemon's request_id (the idempotency key). */
+  id: string;
+  /** uuid, FK account: the session's. */
+  account_id: string;
+  session_id: string;
+  /** The machine that sent it (the session's at the time). */
+  machine_id: string;
+  /** bigint: the envelope's fencing token. */
+  fencing_token: string;
+  tool: string;
+  input: JsonObject;
+  suggestions: JsonObject[];
+  tool_use_id: string | null;
+  /** `alwaysRuleFor(tool, input)`; null = no exact rule. */
+  always_rule: string | null;
+  /** CHECK on PermissionRequestStatus. */
+  status: PermissionRequestStatus;
+  /** Set exactly when `status` is `allowed` / `denied`. */
+  behavior: PermissionBehavior | null;
+  scope: PermissionScope | null;
+  message: string | null;
+  /** The recorded exact allow rule, for `scope: always`. */
+  rule: string | null;
+  /** uuid, the deciding user (no FK); null = conductor itself. */
+  decided_by: string | null;
+  /** The `permission_decision` command_id sent for the decision. */
+  decision_command_id: string | null;
+  expired_reason: PermissionExpiryReason | null;
+  created_at: Date;
+  expires_at: Date;
+  resolved_at: Date | null;
 }
 
 // ---------------------------------------------------------------- accounts and sign-in (M2-T03)
@@ -381,6 +432,36 @@ export interface LoginThrottleRow {
   updated_at: Date;
 }
 
+/** UX-15: one browser's Web Push subscription (10-contracts §Web Push). */
+export interface PushSubscriptionRow {
+  id: string;
+  /** uuid, FK account. */
+  account_id: string;
+  /** uuid, no FK: may be the virtual LOCAL_USER_ID. */
+  user_id: string;
+  /** The push service URL; a per-browser secret, never returned by the API. */
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  user_agent: string | null;
+  created_at: Date;
+  last_ok_at: Date | null;
+  /** Consecutive failed sends; the 5th drops the row. */
+  failures: number;
+}
+
+/** UX-13a: one agent on an account's team (10-contracts §Claim, "Agent assignment"). */
+export interface AgentRow {
+  id: string;
+  /** uuid, FK account. */
+  account_id: string;
+  /** From the hiring pool (AGENT_NAMES); unique per account. */
+  name: string;
+  hired_at: Date;
+  /** Set by every claim that assigns it; null only for a row inserted outside the claim. */
+  last_assigned_at: Date | null;
+}
+
 /** Table name → row type, for generic repository helpers. */
 export interface Tables {
   machine: MachineRow;
@@ -395,6 +476,7 @@ export interface Tables {
   input_request: InputRequestRow;
   event: EventRow;
   outbox: OutboxRow;
+  permission_request: PermissionRequestRow;
   account: AccountRow;
   app_user: AppUserRow;
   account_member: AccountMemberRow;
@@ -402,4 +484,6 @@ export interface Tables {
   invite: InviteRow;
   password_reset: PasswordResetRow;
   login_throttle: LoginThrottleRow;
+  push_subscription: PushSubscriptionRow;
+  agent: AgentRow;
 }

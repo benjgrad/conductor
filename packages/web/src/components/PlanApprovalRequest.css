@@ -1,0 +1,48 @@
+/* 06 §Plan approval: the session panel's "Plan to approve" card (accent, like a review request,
+   not the red question box). `.badge-plan-approval` is Board.css's, shared with the board card. */
+.plan-approval {
+  border-color: var(--user-border);
+  background: var(--user-bg);
+}
+.plan-approval .plan-body {
+  margin: 6px 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--user-border);
+  border-radius: 6px;
+  background: var(--panel);
+}
+.plan-approval .plan-text.clamped {
+  max-height: 24em;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 80%, transparent);
+}
+.plan-approval .plan-json {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.plan-approval .plan-missing {
+  margin: 6px 0 8px;
+  font-style: italic;
+}
+.plan-approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0;
+}
+.plan-approval .plan-other-actions {
+  margin-top: 8px;
+}
+.plan-approval .plan-other-actions > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+.plan-approval .plan-other-actions[open] > summary {
+  margin-bottom: 6px;
+}
+.plan-approval .plan-other-actions > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

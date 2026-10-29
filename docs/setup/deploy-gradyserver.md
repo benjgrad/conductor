@@ -120,6 +120,8 @@ crontab -l | grep conductor-backup
 
 ## 6. Routine deploys
 
+Every merge to `main` deploys itself once CI is green, with an automatic rollback and a Discord alert on failure (§12). By hand from a Mac, for a specific ref:
+
 ```bash
 deploy/gradyserver/deploy.sh <git-ref>      # e.g. main, a tag, a sha
 ```
@@ -140,7 +142,7 @@ Which sha is live: `ssh -p 1024 bengrady4@gradyserver.com 'cat ~/deploy/conducto
 
 ## 7. Rollback
 
-Deploy the previous sha: `deploy/gradyserver/deploy.sh <previous sha>`. Old releases are in `~/deploy/conductor/releases/` (newest first: `ls -1t`).
+A failed CI deploy has already rolled itself back (§12). Otherwise, deploy the previous sha: Actions → ci → *Run workflow* with `sha: <previous sha>`, or `deploy/gradyserver/deploy.sh <previous sha>` from a Mac. Old releases are in `~/deploy/conductor/releases/` (newest first: `ls -1t`).
 
 **Migrations don't roll back.** The old code must work with the new schema; M2 migrations are additive. If a down-migration is really needed, run it as a deliberate, separate step **before** deploying the old sha, and take a backup first (§8):
 
@@ -216,3 +218,74 @@ unset new
 ```
 
 `psql` inside the container connects over the local socket (trust auth), so the old password isn't needed. If the orchestrator can't connect afterwards, the `.env` value and the role disagree: rerun the `ALTER ROLE` with the value in `.env`.
+
+## 12. CI/CD (GitHub Actions)
+
+[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) has two jobs:
+
+| Job | Runs on | What it does |
+|---|---|---|
+| `gates` | GitHub's machines (`ubuntu-latest`): every PR (a newer push cancels the older run), every push to `main`, every dispatch | [`scripts/ci.sh`](../../scripts/ci.sh): install, typecheck, lint (eslint + prettier), deploy kit tests (with shellcheck), Postgres via docker compose, unit/DB tests, build, E2E with the fake Claude. The same script you run locally. |
+| `deploy` | **gradyserver itself**, on the self-hosted runner `gradyserver-conductor`: a push to `main` or a dispatch on `main`, after `gates` passed | [`ci-deploy.sh`](../../deploy/gradyserver/ci-deploy.sh) `<sha>`. One deploy at a time (`concurrency: deploy-gradyserver`, never cancelled half-way). A push deploys only if its sha is still the head of `main`: a run that finishes after a newer merge leaves the deploy to the newer run. |
+
+**Nothing connects in and there is no deploy credential.** The runner calls out to GitHub for work, the job checks out with its read-only token, and `ci-deploy.sh` runs locally as `bengrady4`. No ssh, no key in GitHub secrets, no port opened for CI. `deploy.sh` over ssh (§6) is still the by-hand door from a Mac, and shares the server half with CI.
+
+`ci-deploy.sh` is §6 without the ssh, plus what nobody is watching a CI deploy for:
+
+1. It takes `~/deploy/conductor/.deploy.lock`, so two CI deploys (or CI and a by-hand `ci-deploy.sh`) never interleave. `deploy.sh` from a Mac doesn't take it: don't run one while a `deploy` job is running.
+2. `git archive <sha>` into `releases/<sha>`, as `deploy.sh` does.
+3. **If `packages/orchestrator/migrations/` changed** since the live sha, it runs `backup.sh` first (the dump lands with the nightlies, §8). A rollback restores code, not schema, so this dump is the only undo for a bad migration. A failed dump stops the deploy before anything is touched.
+4. `remote-deploy.sh` from the release (§6 steps 1–5), then the same check as §6 step 6 (one orchestrator, healthy, `conductor-orchestrator:<sha>`, `current` names it), then the smoke test with `SMOKE_EXPECT_SHA=<sha>`.
+5. **On any failure in 4, it rolls back on its own**: `up -d --no-deps orchestrator` from the previous release (no migrate; no rebuild while `conductor-orchestrator:<prev>` exists), waits for it to be healthy, points `current` and `current.env` back at it, and smokes it. Then it posts to Discord: amber *Deploy failed: rolled back*, or red *Deploy failed and rollback failed* if the old sha didn't come back either. A deploy that stopped before step 4 posts amber *Deploy did not run*. **Success is silent.**
+
+Alerts go to `DISCORD_WEBHOOK_URL` in `~/deploy/conductor/.env` (the maintenance channel personal-os uses). Unset, they only reach the job log.
+
+**Rollback by hand:** Actions → ci → *Run workflow* on `main` with `sha: <good sha>`. It waits for `gates` on main's head (about 6 minutes), then deploys that sha. Faster, on the box: `deploy/gradyserver/ci-deploy.sh <good sha>` from any checkout with that sha.
+
+**Drill** (after any change to `ci-deploy.sh` or the runner): *Run workflow* with `drill: true` and no sha. The first smoke test is failed on purpose, production is re-released, and an amber alert marked *TEST* arrives. Production ends where it started.
+
+### Why the runner can't be used from a branch
+
+The repo is private on the free plan, so GitHub can't protect `main`, require a check, or limit an environment to `main` (all return `403 Upgrade to GitHub Pro`). Any branch could edit `ci.yml` to send a job to this runner, and `bengrady4` is in the `docker` group, which makes it effectively root. So the gate is on the box: the runner's **job-started hook** ([`runner-job-started.sh`](../../deploy/gradyserver/runner-job-started.sh)) runs before every job and fails it unless it is the `deploy` job of `ci.yml@refs/heads/main`, started by a push or a dispatch. It is installed as a **copy** in the runner's directory, never run from a checkout, so a branch can't rewrite the gate it is checked by. The `gates` job never runs here, so PR code never executes on gradyserver.
+
+### One-time setup (done 2026-10-29)
+
+The runner is a `bengrady4` systemd user service (linger is on; no sudo), in its own directory, next to personal-os's `~/actions-runner`. A runner registered to a repo only serves that repo.
+
+```bash
+mkdir ~/actions-runner-conductor && cd ~/actions-runner-conductor
+# actions-runner-linux-x64-<version>.tar.gz from github.com/actions/runner/releases; check its sha256
+tar xzf runner.tar.gz && rm runner.tar.gz
+install -m 755 <checkout>/deploy/gradyserver/runner-job-started.sh job-started.sh
+./config.sh --unattended --url https://github.com/benjgrad/conductor \
+  --name gradyserver-conductor --labels gradyserver-conductor \
+  --token "$(gh api -X POST repos/benjgrad/conductor/actions/runners/registration-token --jq .token)"
+echo "ACTIONS_RUNNER_HOOK_JOB_STARTED=$HOME/actions-runner-conductor/job-started.sh" >> .env
+cat > ~/.config/systemd/user/actions-runner-conductor.service <<'EOF'
+[Unit]
+Description=GitHub Actions runner for benjgrad/conductor (deploy job only; job-started.sh refuses anything else)
+[Service]
+WorkingDirectory=%h/actions-runner-conductor
+ExecStart=%h/actions-runner-conductor/run.sh
+Restart=always
+[Install]
+WantedBy=default.target
+EOF
+systemctl --user daemon-reload && systemctl --user enable --now actions-runner-conductor
+```
+
+After changing `runner-job-started.sh`, copy it again: `install -m 755 deploy/gradyserver/runner-job-started.sh ~/actions-runner-conductor/job-started.sh`. Health: `systemctl --user status actions-runner-conductor`, and `gh api repos/benjgrad/conductor/actions/runners` should show it `online`.
+
+The first CI deploy runs from the deploy kit as it is on `main`; `~/deploy/conductor` must already exist (§3). The `gradyserver` environment is kept only for the deployment history and URL in GitHub's UI: it holds no secrets.
+
+## 13. Enable Web Push (UX-15)
+
+"Needs input" notifications to subscribed browsers and phones (UX-16 adds the subscribe toggle) are off until the three `CONDUCTOR_VAPID_*` are set; the /api/push/* routes answer 404 `push_disabled` until then. **(lead + Ben)** Generate the pair once, put it in `.env` with a `mailto:` subject, and recreate the orchestrator:
+
+```bash
+cdc exec orchestrator node dist/admin-cli.js vapid-keys   # prints the three lines (edit the subject)
+nano ~/deploy/conductor/.env                              # paste them; .env stays mode 0600
+cdc up -d --no-deps orchestrator && cdc logs orchestrator | grep 'push: on'
+```
+
+The private key is a secret. Never rotate the pair casually: a new one invalidates every browser's subscription (each has to subscribe again). The orchestrator sends to the browsers' push services over HTTPS (fcm.googleapis.com, updates.push.services.mozilla.com, web.push.apple.com …), so the container needs outbound HTTPS.

@@ -488,6 +488,21 @@ function TransitionForm({
                     }
                   />
                 )}
+                {c.type === 'pr_checks_green' && (
+                  <input
+                    aria-label={`Condition ${i + 1} no CI after`}
+                    value={c.no_checks_after ?? ''}
+                    placeholder="no CI after (e.g. 5m)"
+                    title="Met when the PR still reports no checks this long after it was pushed (a repo without CI)"
+                    onChange={(e) => {
+                      const next = { ...c };
+                      delete next.no_checks_after;
+                      set(
+                        e.target.value === '' ? next : { ...next, no_checks_after: e.target.value },
+                      );
+                    }}
+                  />
+                )}
                 {c.type === 'azure_pipeline_succeeded' && (
                   <input
                     aria-label={`Condition ${i + 1} pipeline`}
@@ -495,6 +510,35 @@ function TransitionForm({
                     placeholder="pipeline name"
                     onChange={(e) => set({ ...c, pipeline: e.target.value })}
                   />
+                )}
+                {c.type === 'pr_screenshots' && (
+                  <>
+                    <ListInput
+                      label={`Condition ${i + 1} UI paths`}
+                      value={c.ui_paths}
+                      placeholder="**/*.{tsx,css}"
+                      onChange={(ui_paths) => set({ ...c, ui_paths })}
+                    />
+                    <input
+                      aria-label={`Condition ${i + 1} screenshot pairs`}
+                      type="number"
+                      min={1}
+                      max={20}
+                      step={1}
+                      placeholder="pairs (1)"
+                      title="Before/after pairs the PR must show when it changes a UI path"
+                      value={c.min_pairs ?? ''}
+                      onChange={(e) => {
+                        const next = { ...c };
+                        delete next.min_pairs;
+                        set(
+                          e.target.value === ''
+                            ? next
+                            : { ...next, min_pairs: Number(e.target.value) },
+                        );
+                      }}
+                    />
+                  </>
                 )}
                 {c.type === 'jira_fields_set' && (
                   <ListInput
@@ -530,6 +574,8 @@ function TransitionForm({
                 {at(`.requires.conditions.${i}.min`)}
                 {at(`.requires.conditions.${i}.pipeline`)}
                 {at(`.requires.conditions.${i}.fields`)}
+                {at(`.requires.conditions.${i}.ui_paths`)}
+                {at(`.requires.conditions.${i}.min_pairs`)}
                 {at(`.requires.conditions.${i}.label`)}
               </div>
               <ItemActions

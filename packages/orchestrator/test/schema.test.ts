@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest';
 import { createDb, withTransaction } from '../src/db/index.js';
 import type {
   AccountMemberRow,
+  AgentRow,
   AccountRow,
   AppUserRow,
   EnrollmentTokenRow,
@@ -32,6 +33,8 @@ import type {
   MachineRow,
   OutboxRow,
   PasswordResetRow,
+  PermissionRequestRow,
+  PushSubscriptionRow,
   SessionRow,
   Tables,
   TicketRow,
@@ -55,6 +58,7 @@ function migrationsBefore(file: string): number {
 const TICKET_KIND = '1761500000000_ticket-kind.sql';
 const ACCOUNTS = '1761600000000_accounts-and-auth.sql';
 const MACHINE_CREDENTIALS = '1761700000000_machine-credentials.sql';
+const AGENT_TEAM = '1762000000000_agent-team.sql';
 
 // ------------------------------------------------------------------ DDL ⇄ db/types.ts
 //
@@ -188,6 +192,8 @@ const ticket: ColumnSpec<TicketRow> = {
   status: col('ticket_status', NN),
   priority: col('int4', NN),
   kind: col('ticket_kind', NULL),
+  session_allow: col('_text', NN),
+  agent_id: col('uuid', NULL),
   created_at: col('timestamptz', NN),
   updated_at: col('timestamptz', NN),
 };
@@ -267,6 +273,30 @@ const outbox: ColumnSpec<OutboxRow> = {
   last_error: col(t, NULL),
   created_at: col('timestamptz', NN),
 };
+// M2-T29c: permission prompts (ADR-0023).
+const permission_request: ColumnSpec<PermissionRequestRow> = {
+  id: col('uuid', NN),
+  account_id: col('uuid', NN),
+  session_id: col('uuid', NN),
+  machine_id: col(t, NN),
+  fencing_token: col('int8', NN),
+  tool: col(t, NN),
+  input: col('jsonb', NN),
+  suggestions: col('jsonb', NN),
+  tool_use_id: col(t, NULL),
+  always_rule: col(t, NULL),
+  status: col(t, NN),
+  behavior: col(t, NULL),
+  scope: col(t, NULL),
+  message: col(t, NULL),
+  rule: col(t, NULL),
+  decided_by: col('uuid', NULL),
+  decision_command_id: col('uuid', NULL),
+  expired_reason: col(t, NULL),
+  created_at: col('timestamptz', NN),
+  expires_at: col('timestamptz', NN),
+  resolved_at: col('timestamptz', NULL),
+};
 // M2-T03: the instance-level tables (ADR-0017 §Auth: schema sketch).
 const account: ColumnSpec<AccountRow> = {
   id: col('uuid', NN),
@@ -328,6 +358,27 @@ const login_throttle: ColumnSpec<LoginThrottleRow> = {
   locked_until: col('timestamptz', NULL),
   updated_at: col('timestamptz', NN),
 };
+// UX-15: Web Push subscriptions.
+const push_subscription: ColumnSpec<PushSubscriptionRow> = {
+  id: col('uuid', NN),
+  account_id: col('uuid', NN),
+  user_id: col('uuid', NN),
+  endpoint: col(t, NN),
+  p256dh: col(t, NN),
+  auth: col(t, NN),
+  user_agent: col(t, NULL),
+  created_at: col('timestamptz', NN),
+  last_ok_at: col('timestamptz', NULL),
+  failures: col('int4', NN),
+};
+// UX-13a: the agent team.
+const agent: ColumnSpec<AgentRow> = {
+  id: col('uuid', NN),
+  account_id: col('uuid', NN),
+  name: col(t, NN),
+  hired_at: col('timestamptz', NN),
+  last_assigned_at: col('timestamptz', NULL),
+};
 const SCHEMA: Schema = {
   machine,
   machine_repo,
@@ -341,6 +392,7 @@ const SCHEMA: Schema = {
   input_request,
   event,
   outbox,
+  permission_request,
   account,
   app_user,
   account_member,
@@ -348,6 +400,8 @@ const SCHEMA: Schema = {
   invite,
   password_reset,
   login_throttle,
+  push_subscription,
+  agent,
 };
 /** The tables M1/M1b created: every one carries `account_id` since M2-T03. */
 const M1_TABLES = [
@@ -487,6 +541,51 @@ describe('migrations', () => {
     }
   }, 60_000);
 
+  it('agent-team (UX-13a): existing tickets end with agent_id NULL; down drops column and table', async () => {
+    const db = await createTestDatabase({ migrate: false });
+    const agentColumn = async () =>
+      (
+        await db.pool.query(
+          "SELECT 1 FROM information_schema.columns WHERE table_name = 'ticket' AND column_name = 'agent_id'",
+        )
+      ).rowCount;
+    try {
+      await migrate(db.url, 'up', migrationsBefore(AGENT_TEAM));
+      await db.pool.query(
+        "INSERT INTO workflow_definition (id, version, definition) VALUES ('wf_old', 1, '{}')",
+      );
+      await db.pool.query(
+        "INSERT INTO ticket (repo, title, workflow_id) VALUES ('r', 'before', 'wf_old')",
+      );
+
+      await migrate(db.url, 'up');
+      expect((await db.pool.query('SELECT title, agent_id FROM ticket')).rows).toEqual([
+        { title: 'before', agent_id: null },
+      ]);
+      await db.pool.query("INSERT INTO agent (account_id, name) VALUES ($1, 'Ada')", [
+        LOCAL_ACCOUNT_ID,
+      ]);
+      await expectPgError(
+        db.pool.query("INSERT INTO agent (account_id, name) VALUES ($1, 'Ada')", [
+          LOCAL_ACCOUNT_ID,
+        ]),
+        '23505',
+        'agent_account_id_name_key',
+      );
+
+      await migrate(db.url, 'down', FILES.length - migrationsBefore(AGENT_TEAM));
+      expect(await agentColumn()).toBe(0);
+      expect(await publicTables(db.pool)).not.toContain('agent');
+      expect((await db.pool.query('SELECT 1 FROM ticket')).rowCount).toBe(1);
+
+      await migrate(db.url, 'up');
+      expect(await agentColumn()).toBe(1);
+      expect(await publicTables(db.pool)).toContain('agent');
+    } finally {
+      await db.drop();
+    }
+  }, 60_000);
+
   it('accounts-and-auth (M2-T03): M1b rows end in the local account; down restores M1b', async () => {
     const db = await createTestDatabase({ migrate: false });
     const q = (text: string, values?: unknown[]) => db.pool.query(text, values);
@@ -591,6 +690,9 @@ describe('migrations', () => {
           'machine_alert',
           'machine_capability',
           'machine_credential',
+          'permission_request',
+          'push_subscription',
+          'agent',
         ].sort(),
       );
     } finally {
@@ -657,7 +759,8 @@ describe('migrations', () => {
         { machine_id: 'm-m1b', repo: 'github.com/o/s', tree_clean: true },
       ]);
 
-      await migrate(db.url, 'down', 1);
+      // Down to just before machine-credentials (later migrations are undone first).
+      await migrate(db.url, 'down', FILES.length - migrationsBefore(MACHINE_CREDENTIALS));
       expect(await newTables()).toEqual([]);
       const machineCols = await q(
         `SELECT column_name FROM information_schema.columns
@@ -755,11 +858,27 @@ describe('schema (migrated test database)', () => {
       /^CREATE UNIQUE INDEX .* ON public\.machine_capability USING btree \(machine_id, key\)$/,
     );
     expect(defs.machine_alert_open_idx).toMatch(/\(machine_id\) WHERE \(cleared_at IS NULL\)$/);
+    // UX-15.
+    expect(defs.push_subscription_endpoint_key).toMatch(/^CREATE UNIQUE INDEX .* \(endpoint\)$/);
+    expect(defs.push_subscription_account_user_idx).toMatch(
+      /ON public\.push_subscription USING btree \(account_id, user_id\)$/,
+    );
+    expect(defs.outbox_push_idem_idx).toMatch(
+      /^CREATE UNIQUE INDEX .* ON public\.outbox USING btree \(target, idempotency_key\) WHERE \(target ~~ 'user:%'::text\)$/,
+    );
+    // UX-13a.
+    expect(defs.agent_account_id_name_key).toMatch(
+      /^CREATE UNIQUE INDEX .* ON public\.agent USING btree \(account_id, name\)$/,
+    );
+    expect(defs.ticket_agent_id_idx).toMatch(
+      /ON public\.ticket USING btree \(agent_id\) WHERE \(agent_id IS NOT NULL\)$/,
+    );
     for (const table of [
       'enrollment_token',
       'machine_credential',
       'machine_capability',
       'machine_alert',
+      'agent',
     ]) {
       expect(defs[`${table}_account_id_idx`]).toBe(
         `CREATE INDEX ${table}_account_id_idx ON public.${table} USING btree (account_id)`,
@@ -931,6 +1050,45 @@ describe('schema (migrated test database)', () => {
     );
     expect(al.rows[0]).toMatchObject({ kind: 'git_tamper', cleared_at: null });
 
+    // M2-T29c permission prompts (account_id named: no default).
+    const prq = await pool.query<PermissionRequestRow>(
+      `INSERT INTO permission_request (id, account_id, session_id, machine_id, fencing_token, tool,
+         input, expires_at)
+       VALUES (gen_random_uuid(), $1, $2, 'm-rows', $3, 'Bash', '{"command":"ls"}',
+         now() + interval '30 minutes') RETURNING *`,
+      [LOCAL_ACCOUNT_ID, ses.id, ses.fencing_token],
+    );
+    expect(prq.rows[0]).toMatchObject({
+      status: 'pending',
+      suggestions: [],
+      behavior: null,
+      decided_by: null,
+      resolved_at: null,
+      fencing_token: ses.fencing_token,
+    });
+    expect((await pool.query<TicketRow>('SELECT * FROM ticket')).rows[0]?.session_allow).toEqual(
+      [],
+    );
+
+    // UX-15 (account_id named: no default; user_id may be the virtual local user).
+    const ps = await pool.query<PushSubscriptionRow>(
+      `INSERT INTO push_subscription (account_id, user_id, endpoint, p256dh, auth)
+       VALUES ($1, gen_random_uuid(), 'https://push.example/abc', 'k', 'a') RETURNING *`,
+      [LOCAL_ACCOUNT_ID],
+    );
+    expect(ps.rows[0]).toMatchObject({ failures: 0, last_ok_at: null, user_agent: null });
+
+    // UX-13a: an agent, and the ticket assigned to it.
+    const ag = await pool.query<AgentRow>(
+      "INSERT INTO agent (account_id, name) VALUES ($1, 'Ada') RETURNING *",
+      [LOCAL_ACCOUNT_ID],
+    );
+    expect(ag.rows[0]).toMatchObject({ name: 'Ada', last_assigned_at: null });
+    await pool.query('UPDATE ticket SET agent_id = $1', [ag.rows[0]!.id]);
+    expect((await pool.query<TicketRow>('SELECT * FROM ticket')).rows[0]?.agent_id).toBe(
+      ag.rows[0]!.id,
+    );
+
     const lt = await pool.query<LoginThrottleRow>(
       "INSERT INTO login_throttle (email_norm) VALUES ('ben@example.com') RETURNING *",
     );
@@ -961,6 +1119,55 @@ describe('schema (migrated test database)', () => {
       );
     await insert();
     await expectPgError(insert(), '23505', 'outbox_command_id_key');
+  });
+
+  it('permission_request CHECKs keep status, decision and expiry consistent (M2-T29c)', async () => {
+    const pool = db.pool;
+    await pool.query(
+      `INSERT INTO machine (id, hostname, os, arch, cpu_total, mem_total_mb, disk_free_mb,
+         budget_cpu, budget_mem_mb, max_sessions, max_concurrent_builds)
+       VALUES ('m-prq', 'h', 'linux', 'x64', 1, 1, 1, 1, 1, 1, 1)`,
+    );
+    await pool.query(
+      `INSERT INTO workflow_definition (id, version, definition) VALUES ('wf_prq', 1, '{}')`,
+    );
+    const t = await pool.query<{ id: string }>(
+      "INSERT INTO ticket (repo, title, workflow_id) VALUES ('r', 't', 'wf_prq') RETURNING id",
+    );
+    const sess = await pool.query<{ id: string }>(
+      `INSERT INTO session (ticket_id, workflow_id, workflow_version) VALUES ($1, 'wf_prq', 1)
+       RETURNING id`,
+      [t.rows[0]!.id],
+    );
+    const insert = (cols: string, vals: string) =>
+      pool.query(
+        `INSERT INTO permission_request (id, account_id, session_id, machine_id, fencing_token,
+           tool, input, expires_at${cols})
+         VALUES (gen_random_uuid(), $1, $2, 'm-prq', 1, 'Bash', '{}', now()${vals})`,
+        [LOCAL_ACCOUNT_ID, sess.rows[0]!.id],
+      );
+    // Decided without a behavior; a behavior while pending; expired without a reason; a reason
+    // while pending; resolved while pending; a deny with scope always; a rule without always.
+    for (const [cols, vals] of [
+      [', status, resolved_at', ", 'allowed', now()"],
+      [', behavior, scope', ", 'allow', 'once'"],
+      [', status, resolved_at', ", 'expired', now()"],
+      [', expired_reason', ", 'timeout'"],
+      [', resolved_at', ', now()'],
+      [', status, behavior, scope, resolved_at', ", 'denied', 'deny', 'always', now()"],
+      [
+        ', status, behavior, scope, rule, resolved_at',
+        ", 'allowed', 'allow', 'once', 'Bash(ls)', now()",
+      ],
+      [', status', ", 'maybe'"],
+    ] as const) {
+      await expectPgError(insert(cols, vals), '23514');
+    }
+    await insert(
+      ', status, behavior, scope, rule, resolved_at',
+      ", 'allowed', 'allow', 'always', 'Bash(ls)', now()",
+    );
+    await insert(', status, expired_reason, resolved_at', ", 'expired', 'agent_gone', now()");
   });
 
   describe('accounts and sign-in constraints (M2-T03)', () => {

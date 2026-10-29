@@ -1,4 +1,5 @@
 import type { AgentState } from '../workflow/schema.js';
+import type { SentBack } from './qa.js';
 import type { AgentTransitionOption } from '../workflow/transition-rules.js';
 import { renderReviewFeedback, type ReviewFeedback } from './review.js';
 import type { SessionSnapshot } from './types.js';
@@ -45,6 +46,8 @@ export interface RenderPromptInput {
   answer?: string | null;
   /** ADR-0009: an unmet requirements review that routed here (`on_unmet.goto`). */
   feedback?: ReviewFeedback | null;
+  /** ADR-0020 §2 (`attach: 'result'`): the findings of the QA round that sent the ticket back. */
+  sentBack?: SentBack | null;
   /**
    * ADR-0011: the transitions the agent may name (`promptTransitions`, the same list as
    * `start_session.transitions`), listed under "How to finish". null/absent: the M1 "When you are
@@ -102,6 +105,8 @@ export function renderPrompt(input: RenderPromptInput): string {
   }
 
   if (input.feedback) parts.push(renderReviewFeedback(input.feedback));
+
+  if (input.sentBack) parts.push(renderSentBack(input.sentBack));
 
   if (input.answer != null) {
     parts.push(`## Answer from a human\n\n${input.answer}`);
@@ -226,6 +231,35 @@ function finishSection(state: AgentState): string {
     `When the work for this step is finished, ${result}, then stop.`,
     'If you are blocked and need a human decision, call `ask_user` with one clear question and end your turn.',
   ].join('\n');
+}
+
+/** The heading prefix of the `attach: 'result'` section. */
+export const SENT_BACK_HEADING = '## Sent back by';
+
+/**
+ * ADR-0020 §2: what a QA's `qa_fail` sends the worker: the summary, the required fixes
+ * (numbered), the blocker and major findings, and the instruction.
+ */
+export function renderSentBack(s: SentBack): string {
+  const r = s.result;
+  const lines = [`${SENT_BACK_HEADING} ${s.title}`, '', r.summary];
+  if (r.required_fixes.length > 0) {
+    lines.push('', 'Required fixes:', ...r.required_fixes.map((f, i) => `${i + 1}. ${f}`));
+  }
+  const serious = r.findings.filter((f) => f.severity === 'blocker' || f.severity === 'major');
+  if (serious.length > 0) {
+    lines.push(
+      '',
+      'Findings:',
+      ...serious.map((f) => {
+        const at =
+          f.file !== undefined ? ` (${f.file}${f.line !== undefined ? `:${f.line}` : ''})` : '';
+        return `- [${f.severity}] ${f.text}${at}`;
+      }),
+    );
+  }
+  lines.push('', 'Fix every required item, commit, then finish again.');
+  return lines.join('\n');
 }
 
 /** A Markdown code fence long enough that the output can't close it early. */

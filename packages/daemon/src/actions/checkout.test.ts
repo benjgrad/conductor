@@ -14,7 +14,21 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { detectSetup, freshCheckout, removeCheckout, sweepPrivate } from './checkout.js';
+import {
+  detectPackageManager,
+  detectSetup,
+  freshCheckout,
+  managedCommand,
+  missingManager,
+  removeCheckout,
+  sweepPrivate,
+} from './checkout.js';
+import { assertOwnerOnly, mkdirPrivate } from '../platform/index.js';
+import { writeFakeBin } from '../test-support/fake-bin.js';
+
+// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
+// the task that unskips them.
+const onWin32 = process.platform === 'win32';
 
 // ADR-0010 (Ben, 2026-10-26): entry checks run in a fresh, conductor-owned checkout of the exact
 // commit. A shared clone + session worktree like the daemon's, with a planted filter driver.
@@ -33,6 +47,7 @@ const commit = (cwd: string, msg: string) =>
 
 beforeEach(() => {
   tmp = realpathSync(mkdtempSync(join(tmpdir(), 'conductor-checkout-')));
+  mkdirPrivate(tmp);
   const origin = join(tmp, 'origin');
   mkdirSync(origin);
   git(origin, 'init', '--quiet', '-b', 'main');
@@ -49,10 +64,10 @@ beforeEach(() => {
   commit(worktree, 'health');
   head = git(worktree, 'rev-parse', 'HEAD').trim();
   root = join(tmp, 'daemon-root');
-  mkdirSync(root);
+  mkdirPrivate(root); // as the daemon does at start; <root>/private needs a private parent
 });
 
-afterEach(() => rmSync(tmp, { recursive: true, force: true }));
+afterEach(() => rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
 const fresh = (sha = head) => freshCheckout({ root, worktree, branch: BRANCH, sha });
 
@@ -65,8 +80,11 @@ describe('freshCheckout', () => {
     const r = await fresh();
     if (!r.ok) throw new Error(r.error);
     expect(r.dir.startsWith(join(root, 'private', 'check-'))).toBe(true);
-    expect(statSync(r.dir).mode & 0o777).toBe(0o700);
-    expect(readFileSync(join(r.dir, 'health.txt'), 'utf8')).toBe('committed\n');
+    if (onWin32) assertOwnerOnly(r.dir, { kind: 'dir' });
+    else expect(statSync(r.dir).mode & 0o777).toBe(0o700);
+    expect(readFileSync(join(r.dir, 'health.txt'), 'utf8').replace(/\r\n/g, '\n')).toBe(
+      'committed\n',
+    );
     expect(existsSync(join(r.dir, 'ignored', 'make-tests-pass'))).toBe(false);
     expect(git(r.dir, 'rev-parse', 'HEAD').trim()).toBe(head);
     // Its config is git's minimal defaults.
@@ -94,7 +112,9 @@ describe('freshCheckout', () => {
     const r = await fresh(sha);
     if (!r.ok) throw new Error(r.error);
     expect(existsSync(marker)).toBe(false);
-    expect(readFileSync(join(r.dir, 'health.txt'), 'utf8')).toBe('committed\n');
+    expect(readFileSync(join(r.dir, 'health.txt'), 'utf8').replace(/\r\n/g, '\n')).toBe(
+      'committed\n',
+    );
   });
 
   it('refuses when the branch tip is not the commit to check (reports the tip), leaving nothing', async () => {
@@ -136,5 +156,80 @@ describe('freshCheckout', () => {
     mkdirSync(join(root, 'private', 'push-old'));
     sweepPrivate(root);
     expect(readdirSync(join(root, 'private'))).toEqual([]);
+  });
+});
+
+// M2-T30: the install and the npm-style checks follow the committed lockfile.
+describe('package manager from the lockfile', () => {
+  const repoWith = (...files: string[]) => {
+    const d = mkdtempSync(join(tmp, 'repo-'));
+    for (const f of files) writeFileSync(join(d, f), f === 'package.json' ? '{}' : '');
+    return d;
+  };
+
+  it.each([
+    ['pnpm-lock.yaml', 'pnpm', 'pnpm install --frozen-lockfile'],
+    ['yarn.lock', 'yarn', 'yarn install --immutable'],
+    ['package-lock.json', 'npm', 'npm ci'],
+  ] as const)('%s → %s, setup `%s`', (lockfile, manager, install) => {
+    const d = repoWith('package.json', lockfile);
+    expect(detectPackageManager(d)).toEqual({ manager, lockfile, install });
+    expect(detectSetup(d, null)).toBe(install);
+    // Configured setup still wins; '' = none.
+    expect(detectSetup(d, 'make deps')).toBe('make deps');
+    expect(detectSetup(d, '')).toBeNull();
+  });
+
+  it('no lockfile: package.json → npm install; neither → no setup', () => {
+    expect(detectPackageManager(repoWith('package.json'))).toEqual({
+      manager: 'npm',
+      lockfile: null,
+      install: 'npm install',
+    });
+    expect(detectSetup(repoWith('package.json'), null)).toBe('npm install');
+    expect(detectPackageManager(repoWith('Makefile'))).toBeNull();
+    expect(detectSetup(repoWith('Makefile'), null)).toBeNull();
+  });
+
+  it('pnpm wins over the other lockfiles, yarn over package-lock.json', () => {
+    const all = repoWith('package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml');
+    expect(detectPackageManager(all)?.manager).toBe('pnpm');
+    const two = repoWith('package.json', 'package-lock.json', 'yarn.lock');
+    expect(detectPackageManager(two)?.manager).toBe('yarn');
+  });
+
+  it('runs npm-style checks with the repo’s manager; npm and non-Node repos unchanged', () => {
+    const pnpm = repoWith('package.json', 'pnpm-lock.yaml');
+    expect(managedCommand(pnpm, 'npm run build')).toBe('pnpm run build');
+    expect(managedCommand(pnpm, 'npm test')).toBe('pnpm test');
+    expect(managedCommand(pnpm, 'npm run-script lint')).toBe('pnpm run lint');
+    expect(managedCommand(pnpm, 'npm run build && npm test -- --run')).toBe(
+      'pnpm run build && pnpm test -- --run',
+    );
+    expect(managedCommand(pnpm, 'npm ci; npm run x')).toBe('npm ci; pnpm run x');
+    // Only segment starts: an argument that mentions npm is left alone.
+    expect(managedCommand(pnpm, 'echo npm run build')).toBe('echo npm run build');
+    expect(managedCommand(pnpm, 'npm testing')).toBe('npm testing');
+    const yarn = repoWith('package.json', 'yarn.lock');
+    expect(managedCommand(yarn, 'npm run build')).toBe('yarn run build');
+    expect(managedCommand(yarn, 'npm test')).toBe('yarn test');
+    expect(managedCommand(repoWith('package.json', 'package-lock.json'), 'npm test')).toBe(
+      'npm test',
+    );
+    expect(managedCommand(repoWith('package.json'), 'npm run build')).toBe('npm run build');
+    expect(managedCommand(repoWith('Makefile'), 'npm run build')).toBe('npm run build');
+  });
+
+  it('names a package manager missing from PATH; present ones and other commands pass', () => {
+    const bin = mkdtempSync(join(tmp, 'bin-'));
+    writeFakeBin(bin, 'npm', ''); // win32: npm.cmd, found through PATHEXT
+    writeFileSync(join(bin, 'yarn'), 'not executable\n', { mode: 0o644 });
+    expect(missingManager('npm test', bin)).toBeNull();
+    expect(missingManager('make test', bin)).toBeNull();
+    const msg = missingManager('pnpm install --frozen-lockfile', bin);
+    expect(msg).toContain('`pnpm` is not on this machine');
+    expect(msg).toContain('install pnpm');
+    expect(missingManager('yarn run build && pnpm test', bin)).toContain('`yarn` and `pnpm` are');
+    expect(missingManager('npm test', '')).toContain('`npm`');
   });
 });

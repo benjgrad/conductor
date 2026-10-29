@@ -1,4 +1,14 @@
 import type { MeResponse } from '@conductor/shared';
+import {
+  CircleHelp,
+  LayoutDashboard,
+  Plus,
+  Server,
+  ServerCog,
+  Workflow,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ApiClient } from './api/client.js';
 import { AdminPage } from './admin/Admin.js';
@@ -12,6 +22,7 @@ import { useBoard } from './board/hooks.js';
 import { Board } from './components/Board.js';
 import { CreateTicketForm } from './components/CreateTicketForm.js';
 import { DetailPanel } from './components/DetailPanel.js';
+import { NavIcon } from './components/NavIcon.js';
 import { HelpLink, HelpPage } from './help/HelpPage.js';
 import { SETUP_GUIDE_URL } from './machines/format.js';
 import { MachinesPage } from './machines/Machines.js';
@@ -24,6 +35,7 @@ import {
   useHashRoute,
   usePath,
 } from './nav.js';
+import { useNeedsInputNotifications } from './notify/useNeedsInputNotifications.js';
 import { dismiss, isDismissed } from './onboarding/dismissal.js';
 import { SetupGuide } from './onboarding/SetupGuide.js';
 import { DiscardDraftConfirm, useDraftGuard } from './workflow/draft-guard.js';
@@ -31,6 +43,8 @@ import { WorkflowsView } from './workflow/WorkflowsView.js';
 
 export interface AppProps {
   api: ApiClient;
+  /** UX-11: icon-only top bar. Test-only until UX-12 drives it from its breakpoint. */
+  compact?: boolean | undefined;
 }
 
 /**
@@ -39,7 +53,7 @@ export interface AppProps {
  * unchanged); the account menu waits for the answer. The app's ApiClient sends any 401, REST or
  * SSE, to `/signin?next=<where they were>` (auth/session.ts), as does a 401 from /api/me.
  */
-export function App({ api }: AppProps) {
+export function App({ api, compact = false }: AppProps) {
   const { pathname, search } = usePath();
   const [me, setMe] = useState<MeResponse | null>(null);
   const [probeError, setProbeError] = useState<string | null>(null);
@@ -115,6 +129,7 @@ export function App({ api }: AppProps) {
     <Shell
       api={guarded}
       me={me}
+      compact={compact}
       onSignedOut={() => {
         setMe(null);
         goTo('/signin', { replace: true });
@@ -128,14 +143,20 @@ interface ShellProps {
   /** null until GET /api/me answers. */
   me: MeResponse | null;
   onSignedOut: () => void;
+  compact: boolean;
 }
 
-function Shell({ api, me, onSignedOut }: ShellProps) {
+function Shell({ api, me, onSignedOut, compact }: ShellProps) {
   const { board, error } = useBoard(api);
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const draft = useDraftGuard();
   const [route, navigate] = useHashRoute(draft.guard, draft.onBlocked);
+  // UX-14: title count, favicon dot and a browser notification per new question.
+  useNeedsInputNotifications(board, (sessionId) => {
+    navigate({ view: 'board' });
+    setSelected(sessionId);
+  });
   // UX-8 FR-1: the account's machine count, asked once per load. With none (and the guide not
   // dismissed this visit), the board area shows the setup guide. Not re-polled, so the guide stays
   // while the new machine connects in its step 3.
@@ -171,43 +192,64 @@ function Shell({ api, me, onSignedOut }: ShellProps) {
     if (route.view === 'setup') navigate({ view: 'board' });
   }
 
+  // UX-11: in compact mode only the icon shows, so the control is named by its label instead.
+  const iconOnly = (label: string) => (compact ? { 'aria-label': label, title: label } : {});
+  const labelled = (icon: LucideIcon, label: string) => (
+    <>
+      <NavIcon icon={icon} />
+      <span className="nav-label">{label}</span>
+    </>
+  );
+
   const selectedCard = selected
     ? [...board.cards.values()].find((c) => c.session_id === selected)
     : undefined;
 
   return (
     <div className={`app${selected ? ' with-detail' : ''}`}>
-      <header className="topbar">
+      <header className={`topbar${compact ? ' compact' : ''}`}>
         <h1>Conductor</h1>
         <nav className="nav-tabs" aria-label="Main">
           <a
             href={routeHash({ view: 'board' })}
             aria-current={route.view === 'board' ? 'page' : undefined}
+            {...iconOnly('Board')}
           >
-            Board
+            {labelled(LayoutDashboard, 'Board')}
           </a>
           <a
             href={routeHash({ view: 'workflows', workflowId: null })}
             aria-current={route.view === 'workflows' ? 'page' : undefined}
+            {...iconOnly('Workflow')}
           >
-            Workflow
+            {labelled(Workflow, 'Workflow')}
           </a>
           <a
             href={routeHash({ view: 'machines' })}
             aria-current={route.view === 'machines' ? 'page' : undefined}
+            {...iconOnly('Machines')}
           >
-            Machines
+            {labelled(Server, 'Machines')}
           </a>
         </nav>
         <nav className="nav-tabs help-entry" aria-label="Help">
-          <a href={routeHash({ view: 'setup' })} aria-current={guide ? 'page' : undefined}>
-            Add a machine
+          <a
+            href={routeHash({ view: 'setup' })}
+            aria-current={guide ? 'page' : undefined}
+            {...iconOnly('Add a machine')}
+          >
+            {labelled(ServerCog, 'Add a machine')}
           </a>
-          <HelpLink>Help</HelpLink>
+          <HelpLink {...iconOnly('Help')}>{labelled(CircleHelp, 'Help')}</HelpLink>
         </nav>
         {route.view === 'board' && !guide && (
-          <button type="button" onClick={() => setCreating((v) => !v)} aria-expanded={creating}>
-            {creating ? 'Close form' : 'New ticket'}
+          <button
+            type="button"
+            onClick={() => setCreating((v) => !v)}
+            aria-expanded={creating}
+            {...iconOnly(creating ? 'Close form' : 'New ticket')}
+          >
+            {creating ? labelled(X, 'Close form') : labelled(Plus, 'New ticket')}
           </button>
         )}
         {me && (
@@ -216,6 +258,7 @@ function Shell({ api, me, onSignedOut }: ShellProps) {
             me={me}
             onAdmin={() => navigate({ view: 'admin' })}
             onSignedOut={onSignedOut}
+            compact={compact}
           />
         )}
       </header>

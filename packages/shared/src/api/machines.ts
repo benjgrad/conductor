@@ -40,11 +40,14 @@ export type EnrollResponse = z.infer<typeof EnrollResponseSchema>;
 
 /**
  * POST /api/machines/enrollment-tokens `{}` → 201. `command` is the full install line, shown once:
- * `curl -fsSL <public url>/install.sh | sh -s -- --token <token>`.
+ * `curl -fsSL <public url>/install.sh | sh -s -- --token <token>`. `command_windows` is the same
+ * for PowerShell (MW-T11): `$env:CONDUCTOR_ENROLL_TOKEN='<token>'; irm <public url>/install.ps1 | iex`;
+ * optional, so a client hides the Windows form when an older server leaves it out.
  */
 export const EnrollmentTokenCreatedSchema = z.object({
   token: z.string().min(1),
   command: z.string().min(1),
+  command_windows: z.string().min(1).optional(),
   expires_at: IsoDateTimeSchema,
 });
 export type EnrollmentTokenCreated = z.infer<typeof EnrollmentTokenCreatedSchema>;

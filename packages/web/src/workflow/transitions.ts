@@ -2,6 +2,7 @@ import {
   AVAILABLE_CONDITION_TYPES,
   AVAILABLE_TRANSITION_ACTIONS,
   conditionEnabled,
+  DEFAULT_UI_PATHS,
   DurationSchema,
   RETURN_TO,
   transitionActor,
@@ -158,6 +159,7 @@ export const CONDITION_TEXT: Record<ConditionType, string> = {
   pr_checks_green: 'PR checks green',
   pr_approvals: 'PR approvals',
   pr_merged: 'PR merged',
+  pr_screenshots: 'Before/after screenshots (UI changes)',
   azure_pipeline_succeeded: 'Azure pipeline succeeded',
   jira_fields_set: 'Jira fields set',
 };
@@ -179,6 +181,14 @@ export function conditionOfType(type: ConditionType, prev?: Condition): Conditio
       };
     case 'jira_fields_set':
       return { type, fields: prev?.type === 'jira_fields_set' ? prev.fields : [], ...common };
+    case 'pr_screenshots':
+      return prev?.type === 'pr_screenshots'
+        ? { ...prev, ...common }
+        : { type, ui_paths: [...DEFAULT_UI_PATHS], ...common };
+    case 'pr_checks_green':
+      return prev?.type === 'pr_checks_green' && prev.no_checks_after !== undefined
+        ? { type, no_checks_after: prev.no_checks_after, ...common }
+        : { type, ...common };
     default:
       return { type, ...common };
   }

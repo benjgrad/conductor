@@ -7,6 +7,7 @@ import type {
   BoardSseEvent,
   CreateInviteRequest,
   CreateTicketRequest,
+  FreshConversationRequest,
   EnrollmentTokenCreated,
   InviteCreated,
   InvitePreview,
@@ -17,6 +18,9 @@ import type {
   MeResponse,
   OkResponse,
   OutputChunk,
+  PermissionDecisionRequest,
+  PermissionRequestDto,
+  PermissionRequestListResponse,
   PasswordChangeRequest,
   ReopenSessionRequest,
   ReopenSessionResponse,
@@ -124,6 +128,26 @@ export interface ApiClient {
    * conflict when the transition isn't offered (wrong status, unknown, not allowed).
    */
   transition(sessionId: string, req: TransitionSessionRequest): Promise<OkResponse>;
+  /**
+   * POST /api/sessions/:id/fresh-conversation: "Start fresh conversation…". The parked session's
+   * agent (`return_to`) starts over in a new Claude conversation with its instructions and `text`.
+   * 409 conflict unless parked in a human state with an agent state to return to.
+   */
+  freshConversation(sessionId: string, req: FreshConversationRequest): Promise<OkResponse>;
+  /**
+   * GET /api/sessions/:id/permission-requests (ADR-0023): the session's permission prompts,
+   * oldest first, every pending one included. 404 for an unknown or another account's session.
+   */
+  listPermissionRequests(sessionId: string): Promise<PermissionRequestListResponse>;
+  /**
+   * POST /api/permission-requests/:id/decision (ADR-0023): Allow once / Allow always / Deny.
+   * Idempotent for the same decision; 409 `permission_not_pending` once it expired or was decided
+   * differently; 400 `scope: always` without an `always_rule`.
+   */
+  decidePermission(
+    requestId: string,
+    req: PermissionDecisionRequest,
+  ): Promise<PermissionRequestDto>;
 
   // M2-T05: accounts and web auth (10-contracts §Accounts and web auth).
   /** GET /api/me: the signed-in user and account. 401 without a session; `local` mode → local user. */

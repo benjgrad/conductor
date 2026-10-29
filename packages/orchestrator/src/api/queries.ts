@@ -12,8 +12,14 @@ import {
 } from '@conductor/shared';
 import type { Queryable } from '../contracts.js';
 import { CardViews } from '../engine/board-view.js';
-import { OPEN_INPUT_SELECT, type OpenInputRow } from '../engine/rows.js';
+import {
+  OPEN_INPUT_SELECT,
+  TICKET_SELECT,
+  type OpenInputRow,
+  type TicketCardRow,
+} from '../engine/rows.js';
 import type { Db } from '../main.js';
+import { readCardPermissions, withPermission } from '../permissions/store.js';
 import type { MachineRow, SessionRow, TicketRow, WorkflowDefinitionRow } from '../db/types.js';
 import { maxBoardEventId } from '../stream/board.js';
 
@@ -72,7 +78,7 @@ function sortColumn(kind: BoardColumnInfo['kind'], cards: BoardCard[]): BoardCar
  */
 export function loadBoard(db: Db): Promise<BoardResponse> {
   return withSnapshot(db, async (q) => {
-    const tickets = await q.query<TicketRow>('SELECT * FROM ticket ORDER BY created_at');
+    const tickets = await q.query<TicketCardRow>(TICKET_SELECT + 'ORDER BY t.created_at');
     const sessions = await q.query<SessionRow>(
       'SELECT DISTINCT ON (ticket_id) * FROM session ORDER BY ticket_id, created_at DESC',
     );
@@ -80,6 +86,7 @@ export function loadBoard(db: Db): Promise<BoardResponse> {
       OPEN_INPUT_SELECT.replace('SELECT ', 'SELECT DISTINCT ON (ir.session_id) ') +
         'WHERE ir.answer IS NULL ORDER BY ir.session_id, ir.created_at DESC',
     );
+    const permissions = await readCardPermissions(q);
     const lastEventId = await maxBoardEventId(q);
 
     const sessionByTicket = new Map(sessions.rows.map((s) => [s.ticket_id, s]));
@@ -93,11 +100,14 @@ export function loadBoard(db: Db): Promise<BoardResponse> {
         session?.workflow_id ?? ticket.workflow_id,
         session?.workflow_version ?? ticket.workflow_version,
       );
-      const card = toBoardCard(
-        ticket,
-        session,
-        session ? (inputBySession.get(session.id) ?? null) : null,
-        view,
+      const card = withPermission(
+        toBoardCard(
+          ticket,
+          session,
+          session ? (inputBySession.get(session.id) ?? null) : null,
+          view,
+        ),
+        session ? (permissions.get(session.id) ?? null) : null,
       );
       // placeCard only returns ids of `layout`; anything else would be a bug, shown in Queued.
       (cards.get(card.column) ?? cards.get(layout[0]!.id)!).push(card);
@@ -112,7 +122,8 @@ export function loadBoard(db: Db): Promise<BoardResponse> {
   });
 }
 
-export function toTicketDto(row: TicketRow): TicketDto {
+/** `agentName`: UX-13a, the ticket's teammate (null = not assigned yet). */
+export function toTicketDto(row: TicketRow, agentName: string | null = null): TicketDto {
   return {
     id: row.id,
     external_ref: row.external_ref,
@@ -127,6 +138,7 @@ export function toTicketDto(row: TicketRow): TicketDto {
     priority: row.priority,
     created_at: row.created_at.toISOString(),
     kind: row.kind,
+    agent_name: agentName,
   };
 }
 

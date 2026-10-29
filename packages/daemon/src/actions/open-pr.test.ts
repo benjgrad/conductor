@@ -7,28 +7,59 @@ import {
   readFileSync,
   realpathSync,
   readdirSync,
-  rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { assertOwnerOnly, mkdirPrivate, workflowShell } from '../platform/index.js';
+import { envWithPath } from '../test-support/fake-bin.js';
+import { removeTreeOrLeave } from '../test-support/remove-tree.js';
 import { checkClean, openPr, pushTarget, resolveHead, type OpenPrInput } from './open-pr.js';
+
+// win32 (ADR-0024): the /bin/sh fakes run under Git Bash (`workflowShell()`), and the daemon root
+// is made private first, as the daemon does at start.
+const SH = workflowShell().file;
+const onWin32 = process.platform === 'win32';
+
+/** 0700 on POSIX; an owner-only DACL on win32 (ADR-0024 §3). */
+function isPrivateDir(path: string): boolean {
+  if (!onWin32) return (statSync(path).mode & 0o777) === 0o700;
+  try {
+    assertOwnerOnly(path, { kind: 'dir' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A dir whose only CLI is git: POSIX links git into an empty dir (gh may share /usr/bin);
+ * win32 uses git.exe's own dir (Git\cmd has no gh), since a moved git.exe can't find its install. */
+function onlyGitPath(): string {
+  if (onWin32) {
+    const git = execFileSync('where', ['git'], { encoding: 'utf8' }).split(/\r?\n/)[0]!.trim();
+    return dirname(git);
+  }
+  const onlyGit = join(tmp, 'only-git');
+  mkdirSync(onlyGit);
+  symlinkSync(execFileSync('which', ['git'], { encoding: 'utf8' }).trim(), join(onlyGit, 'git'));
+  return onlyGit;
+}
 
 // ADR-0010 open_pr against a local bare repo as the ticket's repo and a fake `gh` first on PATH:
 // no network, no GitHub. The fake records argv + cwd and keeps "the PR" in a state file. Includes
 // the security review's hardening cases: planted hooks and repo-config redirects don't work.
 
-// The fake gh is a /bin/sh script run as `/bin/sh <script> <args>` (OpenPrInput.gh): spawning
+// The fake gh is a /bin/sh script run as `<sh> <script> <args>` (OpenPrInput.gh): spawning
 // node per call stalls for seconds under load on this macOS. Each call appends one line: the cwd
 // and every argument base64-encoded (bodies have newlines), space-separated.
 const FAKE_GH = `
 if [ "$1" = --version ]; then echo "gh version \${FAKE_GH_VERSION:-2.103.3} (2025-01-01)"; exit 0; fi
 dir="$FAKE_GH_DIR"
-line=$(printf '%s' "$PWD" | base64)
-for a in "$@"; do line="$line $(printf '%s' "$a" | base64)"; done
+line=$(printf '%s' "$(pwd -W 2>/dev/null || pwd)" | base64 | tr -d '\\n')
+for a in "$@"; do line="$line $(printf '%s' "$a" | base64 | tr -d '\\n')"; done
 echo "$line" >> "$dir/gh-calls"
 state="$dir/pr-url"
 if [ "$1" = repo ] && [ "$2" = view ]; then echo main; exit 0; fi
@@ -69,6 +100,7 @@ const hasBranch = (bare: string) => {
 
 beforeEach(() => {
   tmp = realpathSync(mkdtempSync(join(tmpdir(), 'conductor-open-pr-')));
+  mkdirPrivate(tmp);
   origin = join(tmp, 'origin.git');
   attacker = join(tmp, 'attacker.git');
   git(tmp, 'init', '--quiet', '--bare', '-b', 'main', origin);
@@ -103,11 +135,11 @@ beforeEach(() => {
   fakeGh = join(tmp, 'fake-gh.sh');
   writeFileSync(fakeGh, FAKE_GH);
   ghCwd = join(tmp, 'daemon-root');
-  mkdirSync(ghCwd);
+  mkdirPrivate(ghCwd);
   checked = git(worktree, 'rev-parse', 'HEAD').trim();
-});
+}, 60_000); // win32: many git calls plus private-dir ACLs (TD-194)
 
-afterEach(() => rmSync(tmp, { recursive: true, force: true }));
+afterEach(() => removeTreeOrLeave(tmp));
 
 function input(over: Partial<OpenPrInput> = {}): OpenPrInput {
   return {
@@ -119,7 +151,7 @@ function input(over: Partial<OpenPrInput> = {}): OpenPrInput {
     body: 'added /health\n\nOpened by conductor.',
     root: ghCwd,
     expectedSha: checked,
-    gh: { cmd: '/bin/sh', args: [fakeGh] },
+    gh: { cmd: SH, args: [fakeGh] },
     env: { ...process.env, FAKE_GH_DIR: tmp },
     ...over,
   };
@@ -148,6 +180,8 @@ describe('open_pr (ADR-0010)', () => {
     expect(git(origin, 'rev-parse', `refs/heads/${BRANCH}`).trim()).toBe(
       git(worktree, 'rev-parse', 'HEAD').trim(),
     );
+    // exactly the checked commit (a later commit is refused, below)
+    expect(git(origin, 'rev-parse', `refs/heads/${BRANCH}`).trim()).toBe(checked);
     const calls = ghCalls();
     expect(calls.map((c) => c.argv)).toEqual([
       ['pr', 'view', BRANCH, '--repo', 'local/origin', '--json', 'url', '--jq', '.url'],
@@ -192,11 +226,8 @@ describe('open_pr (ADR-0010)', () => {
   });
 
   it('a missing gh is a clear error', async () => {
-    const onlyGit = join(tmp, 'only-git');
-    mkdirSync(onlyGit);
-    symlinkSync(execFileSync('which', ['git'], { encoding: 'utf8' }).trim(), join(onlyGit, 'git'));
     // The real lookup: `gh` from PATH (no `gh` override).
-    const { gh: _gh, ...noGh } = input({ env: { ...process.env, PATH: onlyGit } });
+    const { gh: _gh, ...noGh } = input({ env: envWithPath(process.env, onlyGitPath()) });
     void _gh;
     const r = await openPr(noGh);
     expect(r).toEqual({
@@ -218,7 +249,7 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
     writeFileSync(hook, `#!/bin/sh\ntouch ${marker}\nexit 1\n`);
     chmodSync(hook, 0o755);
     const r = await openPr(input());
-    expect(r.ok).toBe(true);
+    expect(r.ok ? 'ok' : r.error).toBe('ok');
     expect(existsSync(marker)).toBe(false);
     expect(hasBranch(origin)).toBe(true);
   });
@@ -226,7 +257,7 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
   it('a rewritten remote.origin.url does not redirect the push (explicit trusted URL)', async () => {
     git(clone, 'config', 'remote.origin.url', attacker);
     const r = await openPr(input());
-    expect(r.ok).toBe(true);
+    expect(r.ok ? 'ok' : r.error).toBe('ok');
     expect(hasBranch(origin)).toBe(true);
     expect(hasBranch(attacker)).toBe(false);
   });
@@ -240,7 +271,12 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
       writeFileSync(join(evilHooks, h), `#!/bin/sh\ntouch ${marker}\n`);
       chmodSync(join(evilHooks, h), 0o755);
     }
-    writeFileSync(join(tmp, 'evil.gitconfig'), `[url "${attacker}"]\n\tinsteadOf = ${origin}\n`);
+    // gitconfig syntax reads backslashes as escapes: write Windows paths with forward slashes.
+    const cfgPath = (p: string) => p.replace(/\\/g, '/');
+    writeFileSync(
+      join(tmp, 'evil.gitconfig'),
+      `[url "${cfgPath(attacker)}"]\n\tinsteadOf = ${cfgPath(origin)}\n`,
+    );
     const set = (k: string, v: string) => git(clone, 'config', '--add', k, v);
     set('remote.origin.url', attacker);
     set('remote.origin.pushurl', attacker);
@@ -258,7 +294,7 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
   it("the push never reads the shared clone's config: planted redirects and hooks are ignored", async () => {
     const marker = plant();
     const r = await openPr(input());
-    expect(r.ok).toBe(true);
+    expect(r.ok ? 'ok' : r.error).toBe('ok');
     expect(hasBranch(origin)).toBe(true);
     expect(hasBranch(attacker)).toBe(false);
     expect(existsSync(marker)).toBe(false);
@@ -267,7 +303,7 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
   it("a config change racing between the fetch and the push can't matter", async () => {
     let marker = '';
     const r = await openPr(input({ afterFetch: () => (marker = plant()) }));
-    expect(r.ok).toBe(true);
+    expect(r.ok ? 'ok' : r.error).toBe('ok');
     expect(marker).not.toBe('');
     expect(hasBranch(origin)).toBe(true);
     expect(hasBranch(attacker)).toBe(false);
@@ -276,13 +312,13 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
 
   it("the push repo is a fresh 0700 dir under <root>/private with git's minimal config, deleted after", async () => {
     let seen = '';
-    let mode = 0;
+    let isPrivate = false;
     let keys: string[] = [];
     const r = await openPr(
       input({
         afterFetch: (priv) => {
           seen = priv;
-          mode = statSync(priv).mode & 0o777;
+          isPrivate = isPrivateDir(priv);
           keys = git(priv, 'config', '--local', '--list')
             .trim()
             .split('\n')
@@ -290,9 +326,9 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
         },
       }),
     );
-    expect(r.ok).toBe(true);
+    expect(r.ok ? 'ok' : r.error).toBe('ok');
     expect(seen.startsWith(join(ghCwd, 'private', 'push-'))).toBe(true);
-    expect(mode).toBe(0o700);
+    expect(isPrivate).toBe(true);
     for (const k of keys) expect(k).toMatch(/^core\./);
     expect(existsSync(seen)).toBe(false);
     expect(readdirSync(join(ghCwd, 'private'))).toEqual([]);
@@ -306,12 +342,6 @@ describe('open_pr hardening (security review 2026-10-23)', () => {
     expect(!r.ok && r.error).toContain('private push repo');
     expect(readdirSync(elsewhere)).toEqual([]);
     expect(hasBranch(origin)).toBe(false);
-  });
-
-  it('pushes exactly the checked commit', async () => {
-    const r = await openPr(input());
-    expect(r.ok).toBe(true);
-    expect(git(origin, 'rev-parse', `refs/heads/${BRANCH}`).trim()).toBe(checked);
   });
 
   it('a commit made after the checks makes the action refuse; nothing is pushed', async () => {

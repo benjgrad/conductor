@@ -4,6 +4,7 @@ import type { ApiClient } from '../api/client.js';
 import { SETUP_GUIDE_URL } from '../machines/format.js';
 import '../machines/machines.css';
 import './onboarding.css';
+import { guessOs, type Os } from './content.js';
 import { Done, Install, Prerequisites, RepoCaps, WaitForMachine } from './steps.js';
 
 const STEPS = [
@@ -40,6 +41,8 @@ export function SetupGuide({ api, first, onDismiss, onCreateTicket, onFinish }: 
    */
   const [baseline, setBaseline] = useState<ReadonlySet<string> | null>(null);
   const [machine, setMachine] = useState<MachineDetail | null>(null);
+  /** The computer being set up: picked in step 1 or 2, used by every step. */
+  const [os, setOs] = useState<Os>(guessOs);
   const heading = useRef<HTMLHeadingElement>(null);
   const moved = useRef(false);
 
@@ -115,8 +118,16 @@ export function SetupGuide({ api, first, onDismiss, onCreateTicket, onFinish }: 
         <h3 ref={heading} tabIndex={-1}>
           {`${step + 1}. ${STEPS[step]}`}
         </h3>
-        {step === 0 && <Prerequisites />}
-        {step === 1 && <Install api={api} enrollment={enrollment} onEnrollment={setEnrollment} />}
+        {step === 0 && <Prerequisites os={os} onOs={setOs} />}
+        {step === 1 && (
+          <Install
+            api={api}
+            enrollment={enrollment}
+            onEnrollment={setEnrollment}
+            os={os}
+            onOs={setOs}
+          />
+        )}
         {step === 2 && (
           <WaitForMachine
             api={api}
@@ -124,10 +135,17 @@ export function SetupGuide({ api, first, onDismiss, onCreateTicket, onFinish }: 
             machine={machine}
             onFound={setMachine}
             onNewCommand={() => goTo(1)}
+            os={os}
           />
         )}
         {step === 3 && (
-          <RepoCaps api={api} machine={machine} onMachine={setMachine} onConnect={() => goTo(2)} />
+          <RepoCaps
+            api={api}
+            machine={machine}
+            onMachine={setMachine}
+            onConnect={() => goTo(2)}
+            os={os}
+          />
         )}
         {step === 4 && <Done onCreateTicket={onCreateTicket} onFinish={onFinish} />}
       </div>

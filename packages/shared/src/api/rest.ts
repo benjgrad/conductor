@@ -56,6 +56,15 @@ import {
   type HumanTransitionOption,
 } from '../workflow/transition-rules.js';
 import { OutputChunkSchema } from './output.js';
+import {
+  PERMISSION_MESSAGE_MAX,
+  PERMISSION_RULE_MAX,
+  PermissionBehaviorSchema,
+  PermissionInputSchema,
+  PermissionScopeSchema,
+  PermissionSuggestionsSchema,
+  PermissionToolSchema,
+} from '../protocol/ws.js';
 
 // REST DTOs for UI ↔ orchestrator (03 §REST). Implemented by M1-T08, consumed by M1-T09.
 
@@ -68,14 +77,22 @@ export const API_PATHS = {
   sessionMessages: (id: string) => `/api/sessions/${id}/messages`,
   /** ADR-0011: a human takes a transition (TransitionSessionRequest). */
   sessionTransition: (id: string) => `/api/sessions/${id}/transition`,
+  /** "Start fresh conversation…" (FreshConversationRequest; 10-contracts §Fresh conversation). */
+  sessionFreshConversation: (id: string) => `/api/sessions/${id}/fresh-conversation`,
   /** ADR-0008: the session's history from Claude's own transcript on its machine. */
   sessionTranscript: (id: string) => `/api/sessions/${id}/transcript`,
   /** ADR-0008: reopen a finished ticket by resuming the same Claude conversation. */
   sessionReopen: (id: string) => `/api/sessions/${id}/reopen`,
+  /** ADR-0023: GET → PermissionRequestListResponse (the session's permission prompts). */
+  sessionPermissionRequests: (id: string) => `/api/sessions/${id}/permission-requests`,
+  /** ADR-0023: POST PermissionDecisionRequest → PermissionRequestDto. `:id` is the request_id. */
+  permissionDecision: (id: string) => `/api/permission-requests/${id}/decision`,
   tickets: '/api/tickets',
   workflows: '/api/workflows',
   workflow: (id: string) => `/api/workflows/${id}`,
   machines: '/api/machines',
+  /** UX-13a: GET → TeamResponse (the signed-in account's agent team). */
+  team: '/api/team',
   boardStream: '/api/stream/board',
   sessionOutputStream: (id: string) => `/api/stream/sessions/${id}/output`,
   /** Daemon ↔ orchestrator WebSocket (03), served on the same HTTP server as the API. */
@@ -124,10 +141,20 @@ export const API_PATHS = {
   machineAlertClear: (id: string) => `/api/machines/alerts/${id}/clear`,
   /** Public. GET → the install script (`text/x-shellscript`). */
   installScript: '/install.sh',
+  /** Public. GET → the Windows install script (`text/plain`, for `irm … | iex`; MW-T11). */
+  installScriptWindows: '/install.ps1',
   /** Public. GET → the daemon tarball (and its `.sha256`), only the built names. */
   daemonDownload: (file: string) => `/downloads/${file}`,
   /** Public. GET → `{ok, db, version}`; 503 when the DB ping fails. */
   healthz: '/healthz',
+
+  // UX-15: Web Push (10-contracts §Web Push). Every route is 404 `push_disabled` without VAPID.
+  /** GET → PushVapidPublicKeyResponse. */
+  pushVapidPublicKey: '/api/push/vapid-public-key',
+  /** POST PushSubscribeRequest → 201 OkResponse (upsert by endpoint); DELETE PushUnsubscribeRequest → OkResponse. */
+  pushSubscriptions: '/api/push/subscriptions',
+  /** POST `{}` → PushTestResponse ("Notifications are on" to the caller's subscriptions). */
+  pushTest: '/api/push/test',
 } as const;
 
 /**
@@ -426,6 +453,46 @@ export const BoardCardPrSchema = z.object({
 });
 export type BoardCardPr = z.infer<typeof BoardCardPrSchema>;
 
+/**
+ * ADR-0023: a session sub-status. Not a `session.status` and not an FSM transition: the session
+ * stays `running` in its state while it holds. `needs_permission`: the agent waits on a permission
+ * prompt (`BoardCard.permission` says which). Unknown values from a newer server read as null.
+ */
+export const SessionSubStatusSchema = z.enum(['needs_permission']);
+export type SessionSubStatus = z.infer<typeof SessionSubStatusSchema>;
+
+/** Cap on `PermissionRequestDto.summary` / `BoardCardPermission.summary` (characters). */
+export const PERMISSION_SUMMARY_MAX = 500;
+
+/**
+ * ADR-0023: the one-line view of a prompt's input for a card: the Bash `command`, else the
+ * `file_path`, `path`, `url` or `pattern`, else the input's JSON; cut to PERMISSION_SUMMARY_MAX
+ * characters with "…". The drawer shows the whole input.
+ */
+export function permissionSummary(input: Record<string, unknown>): string {
+  const field = ['command', 'file_path', 'path', 'url', 'pattern']
+    .map((k) => input[k])
+    .find((v): v is string => typeof v === 'string' && v.length > 0);
+  const text = field ?? JSON.stringify(input);
+  return text.length <= PERMISSION_SUMMARY_MAX
+    ? text
+    : `${text.slice(0, PERMISSION_SUMMARY_MAX - 1)}…`;
+}
+
+/**
+ * ADR-0023: the card's "Needs permission" panel, set exactly when `sub_status` is
+ * `needs_permission`: the oldest pending request (the one the buttons answer) and how many are
+ * pending (Claude can ask for more than one tool call at once).
+ */
+export const BoardCardPermissionSchema = z.object({
+  request_id: UuidSchema,
+  tool: PermissionToolSchema,
+  summary: z.string().max(PERMISSION_SUMMARY_MAX),
+  expires_at: IsoDateTimeSchema,
+  pending_count: z.number().int().min(1),
+});
+export type BoardCardPermission = z.infer<typeof BoardCardPermissionSchema>;
+
 /** One card. A ticket with no session yet has `session_id: null` and `status: null`. */
 export const BoardCardSchema = z.object({
   ticket_id: UuidSchema,
@@ -473,6 +540,18 @@ export const BoardCardSchema = z.object({
   qa: BoardCardQaSchema.optional(),
   /** ADR-0020: conductor's PR, merged / closed; absent ≡ no PR (`pr_url` stays for older UIs). */
   pr: BoardCardPrSchema.optional(),
+  /**
+   * ADR-0023: the session's sub-status; absent / null ≡ none. `status` and `column` don't change
+   * while it is set.
+   */
+  sub_status: SessionSubStatusSchema.nullable().optional().catch(null),
+  /** ADR-0023: set exactly when `sub_status` is `needs_permission`; absent ≡ none. */
+  permission: BoardCardPermissionSchema.optional(),
+  /**
+   * UX-13a: the name of the teammate working the ticket (`ticket.agent_id`, set by the claim).
+   * null / absent ≡ not assigned yet (queued, or a ticket from before UX-13a).
+   */
+  agent_name: z.string().nullable().optional(),
 });
 export type BoardCard = z.infer<typeof BoardCardSchema>;
 
@@ -612,6 +691,8 @@ export const SessionDetailSchema = z.object({
    * `head_sha` = `__qa.head_sha`, the commit it reviewed. null / absent ≡ no QA yet (older servers).
    */
   qa: z.object({ result: QaResultSchema, head_sha: GitShaSchema }).nullable().optional(),
+  /** UX-13a: the ticket's teammate, as `card.agent_name`; null / absent ≡ not assigned yet. */
+  agent_name: z.string().nullable().optional(),
 });
 export type SessionDetail = z.infer<typeof SessionDetailSchema>;
 
@@ -632,6 +713,18 @@ export const TransitionSessionRequestSchema = z.object({
 });
 export type TransitionSessionRequest = z.infer<typeof TransitionSessionRequestSchema>;
 
+/**
+ * POST /api/sessions/:id/fresh-conversation → 202 OkResponse. Becomes `human.fresh_conversation
+ * {text, actor: 'ui', input_request_id: <the open request, or null>}`: the agent of `return_to`
+ * starts over (a new Claude conversation) with its state's instructions and this text. 409
+ * `conflict` when apply ignored it (not parked in a human state with an agent to return to, a gate
+ * step, a revoked machine, or finished); 404 unknown session; 400 bad body (text required).
+ */
+export const FreshConversationRequestSchema = z.object({
+  text: z.string().trim().min(1).max(20_000),
+});
+export type FreshConversationRequest = z.infer<typeof FreshConversationRequestSchema>;
+
 /** POST /api/sessions/:id/input → 202 `{ok: true}`; 409 if already answered / not pending. */
 export const AnswerInputRequestSchema = z.object({
   input_request_id: UuidSchema,
@@ -643,6 +736,39 @@ export type AnswerInputRequest = z.infer<typeof AnswerInputRequestSchema>;
 
 export const OkResponseSchema = z.object({ ok: z.literal(true) });
 export type OkResponse = z.infer<typeof OkResponseSchema>;
+
+// ---------------------------------------------------------------- UX-15: Web Push
+
+/** GET API_PATHS.pushVapidPublicKey: the VAPID public key (base64url) for `pushManager.subscribe`. */
+export const PushVapidPublicKeyResponseSchema = z.object({ public_key: z.string().min(1) });
+export type PushVapidPublicKeyResponse = z.infer<typeof PushVapidPublicKeyResponseSchema>;
+
+/** A push service endpoint: an https URL (never returned by the API, NFR-2). */
+export const PushEndpointSchema = z
+  .string()
+  .max(2048)
+  .regex(/^https:\/\/[^\s]+$/, 'expected an https URL');
+
+/**
+ * POST API_PATHS.pushSubscriptions: `PushSubscription.toJSON()` (other fields, such as
+ * `expirationTime`, are ignored). An upsert by endpoint for the signed-in user → 201 OkResponse.
+ */
+export const PushSubscribeRequestSchema = z.object({
+  endpoint: PushEndpointSchema,
+  keys: z.object({
+    p256dh: z.string().min(1).max(256),
+    auth: z.string().min(1).max(64),
+  }),
+});
+export type PushSubscribeRequest = z.infer<typeof PushSubscribeRequestSchema>;
+
+/** DELETE API_PATHS.pushSubscriptions: the caller's subscription by endpoint → OkResponse. */
+export const PushUnsubscribeRequestSchema = z.object({ endpoint: PushEndpointSchema });
+export type PushUnsubscribeRequest = z.infer<typeof PushUnsubscribeRequestSchema>;
+
+/** POST API_PATHS.pushTest → how many of the caller's subscriptions took the test push. */
+export const PushTestResponseSchema = z.object({ sent: z.number().int().nonnegative() });
+export type PushTestResponse = z.infer<typeof PushTestResponseSchema>;
 
 /**
  * POST /api/sessions/:id/messages → 202 OkResponse (ADR-0007). A message to the agent while it is
@@ -697,6 +823,97 @@ export const CancelSessionRequestSchema = z.object({ reason: z.string().optional
 export const ApproveSessionRequestSchema = z.object({ comment: z.string().optional() });
 export type ApproveSessionRequest = z.infer<typeof ApproveSessionRequestSchema>;
 
+// ---------------------------------------------------------------- permission prompts (ADR-0023)
+// 10-contracts §Permission prompts. Implemented by M2-T29c, consumed by M2-T29d.
+
+/** `pending` until a human decides (`allowed` / `denied`) or it ends without one (`expired`). */
+export const PermissionRequestStatusSchema = z.enum(['pending', 'allowed', 'denied', 'expired']);
+export type PermissionRequestStatus = z.infer<typeof PermissionRequestStatusSchema>;
+
+/**
+ * Why a request ended without a decision (`expired`):
+ * - `timeout`: `expires_at` passed; the daemon denied the call with "no human answered".
+ * - `agent_gone`: the agent process exited (a daemon restart included) or the daemon refused the
+ *   decision `unknown_permission_request`.
+ * - `session_moved`: the session left the agent state, parked, or ended (cancel included).
+ *
+ * Unknown values from a newer server read as null.
+ */
+export const PermissionExpiryReasonSchema = z.enum(['timeout', 'agent_gone', 'session_moved']);
+export type PermissionExpiryReason = z.infer<typeof PermissionExpiryReasonSchema>;
+
+/** A decision on a request, as stored. */
+export const PermissionDecisionDtoSchema = z.object({
+  behavior: PermissionBehaviorSchema,
+  scope: PermissionScopeSchema,
+  /** The deny note (or an allow comment); null = none. */
+  message: z.string().max(PERMISSION_MESSAGE_MAX).nullable(),
+  /** The exact allow rule recorded for `scope: always`; null otherwise. */
+  rule: z.string().max(PERMISSION_RULE_MAX).nullable(),
+  /** The user id that decided; null = conductor itself (e.g. the session wasn't running). */
+  decided_by: z.string().nullable(),
+});
+export type PermissionDecisionDto = z.infer<typeof PermissionDecisionDtoSchema>;
+
+/** One permission prompt (`permission_request` as stored). `id` is the daemon's request_id. */
+export const PermissionRequestDtoSchema = z.object({
+  id: UuidSchema,
+  session_id: UuidSchema,
+  tool: PermissionToolSchema,
+  input: PermissionInputSchema,
+  suggestions: PermissionSuggestionsSchema.default([]),
+  /** `permissionSummary(input)`. */
+  summary: z.string().max(PERMISSION_SUMMARY_MAX),
+  /**
+   * The exact allow rule "Allow always" would record (e.g. `Bash(pnpm exec tsc -b)`); null = the
+   * input has no exact rule, and the UI doesn't offer "Allow always".
+   */
+  always_rule: z.string().max(PERMISSION_RULE_MAX).nullable(),
+  status: PermissionRequestStatusSchema,
+  /** Set exactly when `status` is `allowed` / `denied`. */
+  decision: PermissionDecisionDtoSchema.nullable(),
+  /** Set when `status` is `expired`. */
+  expired_reason: PermissionExpiryReasonSchema.nullable().catch(null),
+  created_at: IsoDateTimeSchema,
+  expires_at: IsoDateTimeSchema,
+  /** When it was decided or expired; null while pending. */
+  resolved_at: IsoDateTimeSchema.nullable(),
+});
+export type PermissionRequestDto = z.infer<typeof PermissionRequestDtoSchema>;
+
+/** Cap on GET /api/sessions/:id/permission-requests (the most recent; pending ones always). */
+export const SESSION_PERMISSION_REQUESTS_LIMIT = 50;
+
+/**
+ * GET /api/sessions/:id/permission-requests → 200. The session's last
+ * SESSION_PERMISSION_REQUESTS_LIMIT requests, oldest first, every pending one included. 404 for
+ * an unknown session or another account's.
+ */
+export const PermissionRequestListResponseSchema = z.object({
+  requests: z.array(PermissionRequestDtoSchema),
+});
+export type PermissionRequestListResponse = z.infer<typeof PermissionRequestListResponseSchema>;
+
+/**
+ * POST /api/permission-requests/:id/decision → 200 PermissionRequestDto (the decided request).
+ * The ticket owner only. Idempotent on the request id: the same `{behavior, scope}` again → 200
+ * with the stored decision (no second command). 409 `permission_not_pending` when it expired or
+ * was decided differently; 404 unknown or another account's; 400 a bad body, or `scope: always`
+ * when the request's `always_rule` is null. "Allow once" `{allow, once}`, "Allow always"
+ * `{allow, always}`, "Deny" `{deny, once, message?}`; a deny is never `always`.
+ */
+export const PermissionDecisionRequestSchema = z
+  .object({
+    behavior: PermissionBehaviorSchema,
+    scope: PermissionScopeSchema,
+    message: z.string().trim().min(1).max(PERMISSION_MESSAGE_MAX).optional(),
+  })
+  .refine((d) => d.behavior === 'allow' || d.scope === 'once', {
+    message: 'a deny is always scope once',
+    path: ['scope'],
+  });
+export type PermissionDecisionRequest = z.infer<typeof PermissionDecisionRequestSchema>;
+
 /** Error body for every 4xx/5xx. */
 export const ApiErrorSchema = z.object({
   error: z.object({
@@ -726,6 +943,13 @@ export const ApiErrorSchema = z.object({
       'approval_required',
       /** ADR-0020 §6: /transition into Done while the PR is open, not via merge / close (409). */
       'pr_open',
+      /**
+       * ADR-0023: a permission decision for a request that is no longer pending (expired, or
+       * already decided differently) (409). The same decision again is 200, not this.
+       */
+      'permission_not_pending',
+      /** UX-15: Web Push is not configured (CONDUCTOR_VAPID_* unset) (404). */
+      'push_disabled',
     ]),
     message: z.string(),
     /** Validation details (zod issues / validator rule failures). */
@@ -741,7 +965,8 @@ export type ApiError = z.infer<typeof ApiErrorSchema>;
 export type ApiErrorCode = ApiError['error']['code'];
 
 /** The REST routes that call EngineService.applyEvent (T08). */
-export type EngineRoute = 'input' | 'approve' | 'cancel' | 'message' | 'transition';
+export type EngineRoute =
+  'input' | 'approve' | 'cancel' | 'message' | 'transition' | 'fresh_conversation';
 
 /** Rejected (nothing written) → HTTP. Same for every route. */
 export const APPLY_REJECT_HTTP = {
@@ -795,8 +1020,25 @@ export const TicketDtoSchema = z.object({
   kind: TicketKindSchema.nullable().optional(),
   /** M2 (U-048): only on the POST /api/tickets response; absent ≡ none. */
   warnings: z.array(TicketWarningSchema).optional(),
+  /** UX-13a: the ticket's teammate; null / absent ≡ not assigned yet. */
+  agent_name: z.string().nullable().optional(),
 });
 export type TicketDto = z.infer<typeof TicketDtoSchema>;
+
+/**
+ * UX-13a: GET /api/team. One agent of the signed-in account's team, oldest hire first.
+ * `active_ticket_id`: the ticket it is working now (a session not done / failed / lost), or null.
+ */
+export const TeamMemberSchema = z.object({
+  name: z.string(),
+  hired_at: IsoDateTimeSchema,
+  last_assigned_at: IsoDateTimeSchema.nullable(),
+  active_ticket_id: UuidSchema.nullable(),
+});
+export type TeamMember = z.infer<typeof TeamMemberSchema>;
+
+export const TeamResponseSchema = z.array(TeamMemberSchema);
+export type TeamResponse = z.infer<typeof TeamResponseSchema>;
 
 // ---------------------------------------------------------------- repo grammar (U-048)
 // The M1-T14 grammar (daemon `cloneSource`). TD-107: duplicated in the daemon's `cloneSource`
@@ -946,6 +1188,8 @@ export interface CardTicketLike {
   status: TicketStatus;
   /** ADR-0011 `ticket.kind`; absent (rows from before the migration) ≡ null. */
   kind?: TicketKind | null;
+  /** UX-13a: the agent's name (joined from `agent`); absent ≡ the card omits `agent_name`. */
+  agent_name?: string | null;
   title: string;
   external_ref: string | null;
   repo: string;
@@ -1066,6 +1310,7 @@ export function toBoardCard(
         : null,
     created_at: iso(ticket.created_at),
     updated_at: sUpd > tUpd ? sUpd : tUpd,
+    ...(ticket.agent_name !== undefined ? { agent_name: ticket.agent_name } : {}),
   };
 }
 

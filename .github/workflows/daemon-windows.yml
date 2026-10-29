@@ -1,0 +1,83 @@
+# Native Windows gate for the daemon (ADR-0024, milestone MW). Linux/macOS keep scripts/ci.sh
+# (the `ci` workflow). Tests that can't pass on win32 yet skip behind
+# `skipIf(process.platform === 'win32')` with a `// MW-Tnn` marker; MW-T12 adds the e2e.
+#
+# Diff-aware: `changes` (cheap, on Linux) asks scripts/test-affected.js whether the diff reaches
+# what the daemon is built or tested from, and `test` (~15 min, TD-194) runs only then. That set
+# always includes packages/daemon and packages/shared, so no daemon change reaches main without
+# passing here too; platform/seam.test.ts keeps every OS branch inside src/platform/, where the
+# win32 twin is tested. The Windows installer (install.ps1 and the tarball's .cmd entry, MW-T11)
+# is tested here too. A pnpm-lock.yaml change counts only if it changed what the daemon resolves
+# (a web dependency doesn't). A skipped `test` reports SKIPPED, which the PR-CI gate passes.
+name: daemon-windows
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to a PR cancels that PR's previous run; runs on main are never cancelled.
+concurrency:
+  group: daemon-windows-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      daemon: ${{ steps.affected.outputs.daemon }}
+    steps:
+      # Full history: the base commit has to be here to diff against.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile # the lockfile parser (yaml)
+      # A PR is checked out as its merge commit: its first parent is the base side, so the diff is
+      # exactly the PR. A push compares with the commit main was at before it. A dispatch runs.
+      - name: scripts/test-affected.js
+        id: affected
+        env:
+          # Through env, never interpolated into the script.
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          case "$EVENT" in
+            pull_request) daemon="$(node scripts/test-affected.js daemon --base "$(git rev-parse HEAD^1)")" ;;
+            push) daemon="$(node scripts/test-affected.js daemon --base "$BEFORE")" ;;
+            *) daemon=true ;;
+          esac
+          echo "daemon=$daemon" >>"$GITHUB_OUTPUT"
+          if [[ "$daemon" != true ]]; then
+            echo "::notice::nothing the daemon is built or tested from changed; skipping the Windows tests"
+          fi
+
+  test:
+    needs: changes
+    if: needs.changes.outputs.daemon == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - run: git config --global core.longpaths true
+      - uses: actions/checkout@v4
+      # As the `ci` workflow: pnpm from package.json `packageManager` (never corepack), Node from
+      # .nvmrc, the pnpm store cached between runs.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm vitest run --project daemon --project shared
+      # MW-T11: install.ps1 under Windows PowerShell 5.1 against a fake tarball server (no DB).
+      - run: pnpm vitest run --project orchestrator test/install-ps1.test.ts

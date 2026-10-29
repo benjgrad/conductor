@@ -16,6 +16,8 @@ erDiagram
   session ||--o{ event : "history"
   session ||--o{ outbox : "emits"
   account ||--o{ ticket : "owns (and every table above)"
+  agent |o--o{ ticket : "works"
+  account ||--o{ agent : "team"
   account ||--o{ account_member : "has"
   app_user ||--o{ account_member : "belongs via"
   app_user ||--o{ web_session : "signed in as"
@@ -23,7 +25,7 @@ erDiagram
 
 ## Tables
 
-The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.sql` (M1-T02, plain node-pg-migrate SQL) plus the later migrations in that directory (`1761200000000_machine-claude-code-version.sql`, M1-T07; `1761500000000_ticket-kind.sql`, M1b-T04; `1761600000000_accounts-and-auth.sql`, M2-T03; `1761700000000_machine-credentials.sql`, M2-T09), and this doc is updated when it diverges. `packages/orchestrator/test/schema.test.ts` checks every column's name, pg type and nullability against the row types, and every enum against `shared/src/domain.ts`. Enums are Postgres enum types named `<table>_<column>` (`machine_status`, `ticket_status`, `ticket_kind`, `session_status`, `input_request_kind`, `outbox_kind`, `outbox_status`). Nullability follows the row types exactly (a `| null` field is a nullable column, everything else is `NOT NULL`), including columns this table doesn't mark null (e.g. `lease_expires_at`, `worktree_path`, `port_range`); `jsonb` maps default to `'{}'`, `text[]` to `'{}'`, counters and money to 0, timestamps to `now()`, uuid keys to `gen_random_uuid()`. The TypeScript row types are pinned in `packages/orchestrator/src/db/types.ts` (M1-T12, [10](10-contracts.md)); they use node-postgres' default parsing (`bigint`/`numeric` → string, `timestamptz` → Date, `bytea` → Buffer).
+The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.sql` (M1-T02, plain node-pg-migrate SQL) plus the later migrations in that directory (`1761200000000_machine-claude-code-version.sql`, M1-T07; `1761500000000_ticket-kind.sql`, M1b-T04; `1761600000000_accounts-and-auth.sql`, M2-T03; `1761700000000_machine-credentials.sql`, M2-T09; `1762000000000_agent-team.sql`, UX-13a), and this doc is updated when it diverges. `packages/orchestrator/test/schema.test.ts` checks every column's name, pg type and nullability against the row types, and every enum against `shared/src/domain.ts`. Enums are Postgres enum types named `<table>_<column>` (`machine_status`, `ticket_status`, `ticket_kind`, `session_status`, `input_request_kind`, `outbox_kind`, `outbox_status`). Nullability follows the row types exactly (a `| null` field is a nullable column, everything else is `NOT NULL`), including columns this table doesn't mark null (e.g. `lease_expires_at`, `worktree_path`, `port_range`); `jsonb` maps default to `'{}'`, `text[]` to `'{}'`, counters and money to 0, timestamps to `now()`, uuid keys to `gen_random_uuid()`. The TypeScript row types are pinned in `packages/orchestrator/src/db/types.ts` (M1-T12, [10](10-contracts.md)); they use node-postgres' default parsing (`bigint`/`numeric` → string, `timestamptz` → Date, `bytea` → Buffer).
 
 **Tenancy (M2-T03).** Every table carries `account_id uuid NOT NULL REFERENCES account (id)`, except the instance-level tables (`account`, `app_user`, `account_member`, `web_session`, `invite`, `password_reset`, `login_throttle`) and `pgmigrations`. `packages/orchestrator/test/schema-isolation.test.ts` enforces it (ADR-0012 §Proving isolation 1), so a new table either carries the column or joins that allow-list in review. Migration `1761600000000_accounts-and-auth` inserts the `local` account (`LOCAL_ACCOUNT_ID` = `00000000-0000-4000-8000-000000000001`, `packages/shared/src/domain.ts`) and adds `account_id` to the eight M1 tables with a constant `DEFAULT` of that id, which backfills every existing row into `local`. **The default is temporary** (TD-109): it lets M1 code keep inserting without naming an account, and M2-T21 drops it once every write is scoped. The down migration drops the column, the seven tables and the `machine_lost` kind (deleting any such requests), restoring the M1b schema. In the account_id rows below, "account_id (M2-T03)" means: uuid FK `account`, NOT NULL, backfilled to `local`, temporary default TD-109 until M2-T21, indexed (`<table>_account_id_idx`).
 
@@ -124,14 +126,16 @@ The migration's down drops these four tables and the new `machine` / `machine_re
 | external_ref | text | e.g. `JIRA-123` ([U-003](../tracking/UNKNOWNS.md)) |
 | repo | text | target repo |
 | title, body | text | |
-| workflow_id, workflow_version | fk | version is null until pinned when the first session starts. One composite FK to `workflow_definition (id, version)`, MATCH SIMPLE: checked only once the version is set |
+| workflow_id, workflow_version | fk | version is null until pinned when the first session starts; re-pinned to the newest version on a reopen and on a human move on a parked session (M2-T34, [05 §Versioning](05-workflow-engine.md#versioning)). One composite FK to `workflow_definition (id, version)`, MATCH SIMPLE: checked only once the version is set |
 | parent_ticket_id | fk ticket null | child tickets from a plan state |
 | required_tags | text[] | hard constraints for the claim |
 | repo_allow_machines | text[] null | hard allow-list of machine ids for the claim ([04](04-scheduler.md)); `null` = any machine. Kept, nullable ([U-009](../tracking/UNKNOWNS.md), M1-T12) |
 | status | enum | `ready` · `claimed` · `in_progress` · `done` · `failed` · `cancelled` |
 | priority | int | |
 | kind | enum `ticket_kind` null | `work` · `personal` ([ADR-0011](../adr/0011-transition-rules.md)): filters transitions (`kinds`). NULL for tickets created before M1b, matching both kinds ([U-062](../tracking/UNKNOWNS.md)); new tickets must set it (create form until triage, M4). Added by migration `1761500000000_ticket-kind` (M1b-T04; existing rows keep NULL, the down migration drops the column and the type). `POST /api/tickets` returns it in `TicketDto.kind` and every card carries it (`BoardCard.kind`) |
+| session_allow | text[] | default `{}`. M2-T29c ([ADR-0023](../adr/0023-permission-prompts-through-conductor.md) §2): the exact allow rules "Allow always" recorded for this ticket's sessions, each once, until the machine override exists (M2-T28c). Not yet passed to `start_session` (that needs daemon changes); the live process gets the rule through the decision itself |
 | account_id | uuid fk account | M2-T03 (see Tenancy above) |
+| agent_id | uuid fk agent null | UX-13a: the teammate working the ticket ([agent](#agent)). Set by the claim that starts work and never cleared, so retries, requeues and reopens keep the same agent. NULL = not assigned yet (queued, or a ticket from before UX-13a; existing rows keep NULL). Indexed `ticket_agent_id_idx` (`WHERE agent_id IS NOT NULL`) |
 | created_at, updated_at | timestamptz | the claim orders by `created_at` |
 
 ### workflow_definition
@@ -151,7 +155,7 @@ The migration's down drops these four tables and the new `machine` / `machine_re
 | id | uuid pk | |
 | ticket_id | fk | |
 | machine_id | fk null | null while parked/released |
-| workflow_id, workflow_version | | pinned |
+| workflow_id, workflow_version | | pinned; moved to the newest version only while no agent runs (M2-T34, [05 §Versioning](05-workflow-engine.md#versioning)) |
 | workflow_state | text null | current FSM state name; null until the first `session.assigned` enters `start`. During a gate step the synthetic label `<from> → <to> (review)` ([ADR-0009](../adr/0009-transition-requirements-review.md) transition review) or `<from> → <to> (entry)` ([ADR-0010](../adr/0010-one-workflow-columns-are-states.md) requirements to enter a column), which names no state |
 | status | enum | `queued` · `assigned` · `running` · `needs_input` · `waiting_external` · `done` · `failed` · `lost` |
 | lease_expires_at | timestamptz | renewed by heartbeat |
@@ -198,7 +202,7 @@ Constraints: `CREATE SEQUENCE fencing_seq` (bigint) is the only source of fencin
 |---|---|---|
 | id | bigserial pk | also the SSE `Last-Event-ID`. Board rows are inserted only via `insertBoardEvents` under `pg_advisory_xact_lock`, so they commit in id order ([10](10-contracts.md#board-events-and-the-event-table)) |
 | session_id | fk null | null for machine-level events |
-| type | text | an `EngineEvent.type` (e.g. `agent.exited`), `state.entered`, `operator.reopen` (ADR-0008, written by the reopen route, not an engine event), or a board SSE type (`card.upserted`, `card.moved`, `session.status`, `input.requested`, `input.answered`, `card.badge`: one row per SSE event, [10](10-contracts.md#board-events-and-the-event-table)) |
+| type | text | an `EngineEvent.type` (e.g. `agent.exited`), `state.entered`, `conversation.reset` (`{claude_session_id, reason}`: apply forgot the conversation, `not_on_machine` when a start was refused `no_conversation` ([10](10-contracts.md#refusals)), `user_requested` on "Start fresh conversation…" ([10](10-contracts.md#fresh-conversation))), `operator.reopen` (ADR-0008, written by the reopen route, not an engine event), or a board SSE type (`card.upserted`, `card.moved`, `session.status`, `input.requested`, `input.answered`, `card.badge`: one row per SSE event, [10](10-contracts.md#board-events-and-the-event-table)) |
 | payload | jsonb | |
 | fencing_token | bigint null | stale tokens are rejected *before* insert; null on board-event rows |
 | account_id | uuid fk account | M2-T03 (see Tenancy above) |
@@ -211,17 +215,43 @@ Only state changes and summaries go here. **Raw terminal output does not** (see 
 |---|---|---|
 | id | bigserial pk | |
 | command_id | uuid unique | the daemon dedupes on this |
-| target | text | `machine:<id>` or `connector:<name>` |
-| kind | enum | `start_session` · `send_input` · `send_message` · `run_cmd` · `run_action` · `kill` · `connector_call` (one engine `Effect` each, [10](10-contracts.md)). `send_message` was added by migration `1761300000000_outbox-send-message` ([ADR-0007](../adr/0007-live-messages-to-agents.md)), `run_action` (an entry action such as `open_pr`) by `1761400000000_outbox-run-action` ([ADR-0010](../adr/0010-one-workflow-columns-are-states.md)) |
+| target | text | `machine:<id>`, `connector:<name>`, or `user:<id>` (a `push_needs_input` row, UX-15) |
+| kind | enum | `start_session` · `send_input` · `send_message` · `run_cmd` · `run_action` · `kill` · `connector_call` (one engine `Effect` each, [10](10-contracts.md)). `send_message` was added by migration `1761300000000_outbox-send-message` ([ADR-0007](../adr/0007-live-messages-to-agents.md)), `run_action` (an entry action such as `open_pr`) by `1761400000000_outbox-run-action` ([ADR-0010](../adr/0010-one-workflow-columns-are-states.md)). `push_needs_input` (UX-15, `1761900000000_push-subscriptions`) is the one kind that is **not** an Effect: the EngineService wrapper writes it when it inserts an `input_request`, the push dispatcher sends it, and it has no WS message ([10 §Web Push](10-contracts.md#web-push)) |
 | session_id | fk session null | |
 | payload | jsonb | the WS command payload verbatim (`commandPayloadForEffect`). Once a `start_session` row is terminal (`acked`/`failed`) its `prompt` is set to JSON `null` in the same guarded UPDATE, other fields kept: the prompt can carry the `attach: output` command tail ([U-039](../tracking/UNKNOWNS.md)). A terminal `send_message` row gets the same treatment for its `text` (the message's record is its `operator.message` event row; [ADR-0007](../adr/0007-live-messages-to-agents.md)) |
-| idempotency_key | text null | connectors and `run_action` rows: `<session_id>:<state>:<visit>`, see [05](05-workflow-engine.md#idempotency) |
+| idempotency_key | text null | connectors and `run_action` rows: `<session_id>:<state>:<visit>`, see [05](05-workflow-engine.md#idempotency); `push_needs_input` rows: the input request id, unique per target (`outbox_push_idem_idx`) |
 | fencing_token | bigint null | `session.fencing_token` when the row was written; the WS envelope's token. A row below the session's current token is failed `stale_fencing_token`, not sent. null for `connector:` rows ([10](10-contracts.md#effect--ws-fields)) |
 | status | enum | `pending` · `sent` · `acked` · `failed` ([10](10-contracts.md#outbox-state-machine): dispatcher writes `sent`, gateway writes `acked`/`failed`, all guarded) |
 | attempts, next_attempt_at | | |
 | account_id | uuid fk account | M2-T03 (see Tenancy above) |
 | last_error | text null | |
 | created_at | timestamptz | |
+
+### permission_request
+M2-T29c, migration `1761800000000_permission-requests` ([ADR-0023](../adr/0023-permission-prompts-through-conductor.md), [10 §Permission prompts](10-contracts.md#permission-prompts)). One row per daemon `permission_request`; the session's `needs_permission` card fields are derived from its `pending` rows, never stored.
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | the daemon's `request_id`, the idempotency key (`INSERT … ON CONFLICT (id) DO NOTHING`) |
+| account_id | uuid fk account | the session's |
+| session_id | fk session | |
+| machine_id | fk machine | the machine that sent it |
+| fencing_token | bigint | the envelope's (= the session's when stored) |
+| tool | text | Claude's `tool_name` |
+| input | jsonb | the tool input (≤ 64 KiB of JSON) |
+| suggestions | jsonb | Claude's `permission_suggestions`, shown only; default `[]` |
+| tool_use_id | text null | informational |
+| always_rule | text null | `alwaysRuleFor(tool, input)` (U-100 grammar in 10); null = no "Allow always" |
+| status | text | `CHECK IN ('pending', 'allowed', 'denied', 'expired')` |
+| behavior, scope | text null | `allow`/`deny`, `once`/`always`; set exactly when `allowed`/`denied`; a deny is always `once` |
+| message | text null | the human's note (or conductor's own deny reason) |
+| rule | text null | the recorded rule, only with `scope = 'always'` |
+| decided_by | uuid null | the deciding user's id (no FK: may be the virtual local user); null = conductor itself |
+| decision_command_id | uuid null unique | the `permission_decision` command_id sent, matched against the daemon's `command_ack` |
+| expired_reason | text null | `timeout` · `agent_gone` · `session_moved`; set exactly when `expired` |
+| created_at, expires_at | timestamptz | `expires_at` from the daemon (the sweep expires it then) |
+| resolved_at | timestamptz null | when decided or expired; null exactly while `pending` |
+
+The migration's down drops the table and `ticket.session_allow`.
 
 ### account
 Instance-level (not on the isolation check). ADR-0012 §Tenancy.
@@ -282,6 +312,34 @@ Instance-level. One-time, 1 hour.
 | created_at, expires_at | timestamptz | |
 | used_at | timestamptz null | a used reset revokes all of the user's sessions |
 
+### push_subscription
+UX-15, migration `1761900000000_push-subscriptions` ([10 §Web Push](10-contracts.md#web-push)). One browser's Web Push subscription (`PushSubscription.toJSON()`), per user and account-scoped. The endpoint is never returned by the API.
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| account_id | uuid fk account | the subscriber's account (the scope of the enqueue) |
+| user_id | uuid | the subscriber (no FK: may be the virtual local user) |
+| endpoint | text unique | the push service URL, a per-browser secret; `POST /api/push/subscriptions` upserts on it |
+| p256dh, auth | text | the browser's message-encryption keys (RFC 8291) |
+| user_agent | text null | the subscribing request's, clipped to 512 chars (informational) |
+| created_at | timestamptz | |
+| last_ok_at | timestamptz null | the last accepted send |
+| failures | int | consecutive failed sends (not 404 / 410), default 0, `CHECK >= 0`; the 5th deletes the row. A 404 / 410 deletes it at once |
+
+The migration's down drops the table and `outbox_push_idem_idx`, deletes the `push_needs_input` rows and rebuilds `outbox_kind` without the value.
+
+### agent
+UX-13a, migration `1762000000000_agent-team` ([10 §Claim, Agent assignment](10-contracts.md#agent-assignment-ux-13a)). One agent on an account's **team**, hired from the hiring pool (`AGENT_NAMES`, `packages/shared/src/agents/names.ts`) only when no teammate is free. Account-scoped: a team is never seen or used by another account.
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| account_id | uuid fk account | indexed `agent_account_id_idx` (the claim's team query) |
+| name | text | from the hiring pool; `UNIQUE (account_id, name)` (two accounts can both have an Ada) |
+| hired_at | timestamptz | default `now()`; breaks `last_assigned_at` ties |
+| last_assigned_at | timestamptz null | set by every claim that assigns the agent (the hire included) |
+
+A teammate is **busy** while another ticket assigned to it has a session that is not `done`, `failed` or `lost` (`session_status` has no `cancelled`: a cancel ends the session `failed`). A queued session counts, so a reopened ticket waiting in Queued still holds its agent. The migration's down drops `ticket.agent_id` and the table.
+
 ### login_throttle
 Instance-level. ADR-0017 §Rate limiting, layer 3: keyed by the normalised email **string**, whether or not a user has it, so a lockout reveals nothing.
 | column | type | notes |
@@ -294,4 +352,4 @@ Instance-level. ADR-0017 §Rate limiting, layer 3: keyed by the normalised email
 
 ## Indexes
 
-Besides primary keys and `outbox.command_id UNIQUE`: `ticket (status, priority)`, `session (status)`, `session_one_live_per_ticket` ([session](#session)), `session (ticket_id, created_at DESC)` (the claim's affinity lookup, [04](04-scheduler.md)), `input_request (session_id) WHERE answer IS NULL`, `event (session_id, id)`, and `outbox (next_attempt_at) WHERE status = 'pending'` (the dispatcher's scan). M2-T03: `<table>_account_id_idx` on `account_id` for each of the eight M1 tables, except `event (account_id, id)` (the per-account SSE replay); `app_user (lower(email))` unique; `web_session (user_id)` and `(expires_at)`; `account_member (user_id)`; `invite.token_hash` and `password_reset.token_hash` unique. M2-T09: `<table>_account_id_idx` on each of its four tables; `enrollment_token.token_hash` and `machine_credential.secret_hash` unique; `machine_credential (machine_id)`; `machine_alert (machine_id) WHERE cleared_at IS NULL` (`machine_alert_open_idx`). `machine_repo.machine_id`, `machine_capability.machine_id` and `machine_alert.machine_id` cascade on machine delete; every other FK is plain (no cascade).
+Besides primary keys and `outbox.command_id UNIQUE`: `ticket (status, priority)`, `session (status)`, `session_one_live_per_ticket` ([session](#session)), `session (ticket_id, created_at DESC)` (the claim's affinity lookup, [04](04-scheduler.md)), `input_request (session_id) WHERE answer IS NULL`, `event (session_id, id)`, and `outbox (next_attempt_at) WHERE status = 'pending'` (the dispatcher's scan). M2-T03: `<table>_account_id_idx` on `account_id` for each of the eight M1 tables, except `event (account_id, id)` (the per-account SSE replay); `app_user (lower(email))` unique; `web_session (user_id)` and `(expires_at)`; `account_member (user_id)`; `invite.token_hash` and `password_reset.token_hash` unique. M2-T09: `<table>_account_id_idx` on each of its four tables; `enrollment_token.token_hash` and `machine_credential.secret_hash` unique; `machine_credential (machine_id)`; `machine_alert (machine_id) WHERE cleared_at IS NULL` (`machine_alert_open_idx`). M2-T29c: `permission_request (account_id)`, `(session_id, created_at)` and `(expires_at) WHERE status = 'pending'` (the timeout sweep). UX-15: `push_subscription.endpoint` unique, `push_subscription (account_id, user_id)`, and `outbox_push_idem_idx` unique on `outbox (target, idempotency_key) WHERE target LIKE 'user:%'` (on `target`, not `kind`: an enum value can't be used in the migration that adds it). UX-13a: `agent (account_id)`, `agent (account_id, name)` unique, and `ticket (agent_id) WHERE agent_id IS NOT NULL`. `machine_repo.machine_id`, `machine_capability.machine_id` and `machine_alert.machine_id` cascade on machine delete; every other FK is plain (no cascade).

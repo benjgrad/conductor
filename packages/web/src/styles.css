@@ -104,6 +104,24 @@ textarea {
   margin: 0;
   flex: 1;
 }
+/* UX-11: every top-bar control is an icon before its label. */
+.topbar .nav-tabs a,
+.topbar > button,
+.topbar .account-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.nav-icon {
+  flex: none;
+}
+/* UX-11: icon-only bar; UX-12 turns it on below its breakpoint. */
+.topbar.compact {
+  gap: 8px;
+}
+.topbar.compact .nav-label {
+  display: none;
+}
 
 main {
   display: flex;
@@ -174,6 +192,8 @@ main {
 .card-meta {
   display: flex;
   flex-wrap: wrap;
+  /* NFR-1: the row keeps its height when cardMeta hides the state or status. */
+  min-height: 20px;
   gap: 4px 8px;
   color: var(--muted);
   font-size: 12px;
@@ -1190,4 +1210,20 @@ button.link {
 }
 .move-title {
   font-weight: 600;
+}
+
+/* "Start fresh conversation…" (FreshConversation.tsx), inside the pending request. */
+.fresh-conversation {
+  margin-top: 8px;
+}
+.fresh-conversation-prominent {
+  margin: 4px 0 8px;
+}
+button.fresh-conversation-button.prominent {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.fresh-conversation-help {
+  margin: 0;
 }

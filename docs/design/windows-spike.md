@@ -1,5 +1,7 @@
 # Spike · A conductor machine on Windows (WSL2 vs native) and IIS
 
+> **Superseded in part by [ADR-0024](../adr/0024-native-windows-daemon.md) (2026-10-28):** Ben chose the **native** port, not WSL2 first. The FR-2 table (N1–N13) remains the work inventory for milestone [MW](../plan/milestones/MW-windows-daemon.md); FR-3 (IIS, U-070) is still open.
+
 Status: **spike report (SPIKE-1), not yet a decision.** It answers U-071 (the daemon on Windows) and U-070 (fixed-path runtimes such as IIS) far enough to plan the work. Nothing here has been run on Windows: every claim is either _from the code_ (with `file:line` on `main` at bb197a7) or _from the docs_ (with a link). Claims marked **verify** need the work laptop. Once Ben agrees, the decision itself goes into an ADR.
 
 ## TL;DR

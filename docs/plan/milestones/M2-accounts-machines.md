@@ -79,25 +79,26 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 | M2-T05 | Web: sign-in, sign-up, reset, account menu, admin page | T01 | B | — | done |
 | M2-T06 | Shared: `requiredCapabilities` + capability registry; the engine handles `machine.lost` | T02, T03 | C | — | done |
 | M2-T07 | Deploy kit: Dockerfile, compose, nginx site, sudo script, deploy / backup / smoke scripts, runbook | T01 | B | — | done |
-| M2-T07b | Deploy kit follow-up: `.env` generation fails loudly (pays TD-144) | T07 | D | — | in_progress |
+| M2-T07b | Deploy kit follow-up: `.env` generation fails loudly (pays TD-144) | T07 | D | — | done (PR #24, 0d70fef) |
 | M2-T08 | Orchestrator auth core: passwords, sessions, login / logout / me / password change, throttling and lockout, hosted security mode | T01, T03 | C | — | done |
 | M2-T08b | Change-password follow-up: a wrong `current` counts against the email lockout (`login_throttle`) | T08 | C | — | done |
 | M2-T09 | Orchestrator machines: credential and enrollment tables, `enrollMachine`, WS upgrade auth, `revokeMachine` | T02, T03 | C | **yes** | done |
 | M2-T09b | Revoke race follow-up: a revoked machine processes nothing more (frames already sent are dropped) | T09 | C | — | done |
 | M2-T10 | Daemon: inventory scanner and reports; `config` command (roots, per-repo mode); gh version floor | T04 | C | — | done |
 | M2-T10b | Capability names follow-up: one shared name rule, plugin MCP normalisation, invalid names logged | T10 | C | — | done |
-| M2-T11 | Web: Machines page, Queued routing badge, tamper alerts, outdated-gh flag | T05, T10 | D | — | todo |
+| M2-T11 | Web: Machines page, Queued routing badge, tamper alerts, outdated-gh flag | T05, T10 | D | — | done (PR #35, 2648d99); the Queued routing badge renders, but no card carries `routing` until T16a |
 | M2-T12 | Orchestrator: per-account workflows (key change, `required_capabilities` on save, `seedAccount`, per-account upgrade rule) | T03, T06, T08 | D | **yes** | todo |
-| M2-T13 | Daemon: working copies (reference clone default, checkout opt-in), fetch per session, push URL from the inventory, GC, tamper check; push credentials via gh | T10 | D | — | todo |
-| M2-T14 | Orchestrator: daemon distribution (`/install.sh`, tarball, `/healthz`) and the Dockerfile's tarball stage | T07, T08 | D | — | in_progress |
+| M2-T13 | Daemon: working copies (reference clone default, checkout opt-in), push URL from the inventory, GC, tamper check; push credentials via gh | T10 | D | — | todo |
+| M2-T14 | Orchestrator: daemon distribution (`/install.sh`, tarball, `/healthz`) and the Dockerfile's tarball stage | T07, T08 | D | — | done (PR #26, 571174f) |
 | M2-T15 | Orchestrator: invites, sign-up, resets, admin routes, `conductor-admin` CLI (bootstrap claims `local`) | T08, T09, T12 | E | — | split → T15a, T15b |
-| M2-T15a | Orchestrator: bootstrap admin, `conductor-admin` CLI, reset links (the you-only deploy slice of T15) | T08, T09 | E | — | todo |
-| M2-T15b | Orchestrator: invites, sign-up into new accounts, admin routes (the rest of T15) | T12, T15a | E | — | todo |
-| M2-T16 | Orchestrator: inventory ingest, routing filters in the claim, routing badge, alert ingest; gateway isolation test | T06, T09, T12, T14 | E | — | todo |
-| M2-T17 | Orchestrator: machines REST (enroll endpoint, enrollment tokens, list, rename, revoke); ticket repo check (U-048) | T08, T09, T14 | E | — | todo |
+| M2-T15a | Orchestrator: bootstrap admin, `conductor-admin` CLI, reset links (the you-only deploy slice of T15) | T08, T09 | E | — | done (PR #27, 9ccb7c4; follow-up T15a2 PR #29, 635b449: sign-up owner race, `bootstrap --email`) |
+| M2-T15b | Orchestrator: invites, sign-up into new accounts, admin routes (the rest of T15) | T12, T15a | E | — | in_progress: T15b1 (admin routes: users, invites, reset links, disable, unlock) done (PR #34, 187fba3); sign-up into a new account per invite not yet checked against T12 |
+| M2-T16 | Orchestrator: inventory ingest, routing filters in the claim, routing badge, alert ingest; gateway isolation test | T06, T09, T12, T14 | E | — | split → **T16a** (ingest, routing, badge; 2026-10-29); the gateway isolation test moves to T19 |
+| M2-T16a | Orchestrator + web: **inventory ingest and routing in the claim** (split out of T16, 2026-10-29; T16's scope below, minus the gateway isolation test). (1) The gateway stores the v2 `inventory` (repo remotes, `machine_capability` rows) and `alert` messages, which it drops today (pays TD-112: the Machines drawer's Capabilities section is always empty). (2) The claim takes a ticket only on a machine of the ticket's account whose inventory has the ticket's repo and every capability the workflow requires (`requiredCapabilities`, computed at claim time from the pinned definition until T12 stores it on save). (3) Queued cards carry `routing` (T11's badge). (4) The machine drawer lists the queued tickets it can't take and why | T06, T09, T10, T11, T14, T17 | E | — | todo |
+| M2-T17 | Orchestrator: machines REST (enroll endpoint, enrollment tokens, list, rename, revoke); ticket repo check (U-048) | T08, T09, T14 | E | — | done (PR #31, cdbec20) |
 | M2-T18 | Daemon: `service install` (launchd / systemd user), upgrade-in-place, `conductor-launch` launcher, wake reconnect; `docs/setup/add-a-machine.md` | T04, T14 | E | — | in_progress |
 | M2-T18b | **Contracts (auto-update)**: `update_available`, `heartbeat.draining`, `alert` kind `update_failed`, `latest.json` DTO, exit codes ([ADR-0021](../../adr/0021-daemon-auto-update.md)) | T02 | E | — | in_progress |
-| M2-T18c | Daemon: self-update (stage, verify, drain, switch, exit 75), launcher trial + rollback, `config auto-update`, 4005 → latest.json | T18, T18b | F | — | todo |
+| M2-T18c | Daemon: self-update (stage, verify, drain, switch, exit 75), launcher trial + rollback, `config auto-update`, 4005 → latest.json | T18, T18b | F | — | moved → MR-T14 (Rust, ADR-0026) |
 | M2-T18d | Orchestrator: send `update_available` after register, `GET /downloads/latest.json`, `draining` heartbeat → `machine.status`, `update_failed` alert ingest | T14, T16, T17, T18b | F | — | todo |
 | M2-T18e | Web: Machines page shows updating (draining) and update-failed alerts | T11, T18d | G | — | todo |
 | M2-T19 | Orchestrator: engine and stream scoping (`applyEvent(scope, …)`, engine SQL, dispatcher, per-account buses, SSE replay filter) | T08, T09, T12, T16, T17 | F | — | todo |
@@ -108,6 +109,30 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 | M2-T24 | E2E: laptop sleep, lease lapse, revoke, reconnect | T22 | I | — | todo |
 | M2-T25 | **Deploy** to conductor.gradyserver.com (lead + Ben's sudo script), bootstrap, enroll Ben's Mac, live checks, backup restore test | T22, T23, T24, T26 | J | — | todo |
 | M2-T26 | Shared: **Retry** a failed move step (a `$retry` human transition that re-runs the failed phase without an agent turn) | T06 | D | — | todo |
+| M2-T13a | Daemon: **fetch per session** (split out of T13; pays TD-026's stale base) | T10 | D | — | done (PR #48, 14264a3; TD-181) |
+| M2-T27 | Daemon + shared: `update_branch` MCP tool (all states), planning `inspect` alias, denial counts on session events | T13a | E | — | todo (daemon part moved → MR-T17a, ADR-0026; shared part stays here) |
+| M2-T27b | Orchestrator + web: "Update from main" on an idle session (REST → daemon command → same action) | T27 | F | — | todo |
+| M2-T28 | **Contracts (agent settings)**: `machine_settings`, settings REST, `settings_update`, `reported_settings` ([ADR-0022](../../adr/0022-layered-agent-settings.md), proposed) | — | D | — | todo |
+| M2-T28b | Shared: `resolveEffectivePolicy` + invariants, settings schemas | T28 | E | — | todo |
+| M2-T28c | Orchestrator: `machine_settings` migration, settings routes, audit, push on connect / change | T28b | F | **yes** | todo |
+| M2-T28d | Daemon: apply pushed override, report `reported_settings` (pays TD-081) | T28b, T13a, T29b | F | — | moved → MR-T17b (Rust, ADR-0026) |
+| M2-T28e | Web: Machines drawer **Settings** tab (effective policy per state, override editor) | T28c | G | — | todo |
+| M2-T29 | **Contracts (permission prompts)**: `permission_request` / `permission_decision`, `needs_permission`, REST ([ADR-0023](../../adr/0023-permission-prompts-through-conductor.md)) | — | D | — | done (PR #47, 634388e; TD-178..180) |
+| M2-T29b | Daemon: auto mode default, `--permission-prompts host` + `permission` MCP tool held until decision / timeout | T29 | E | — | done (PR #53, 4d07791; TD-187, U-104, U-105) |
+| M2-T29c | Orchestrator: store requests, `needs_permission` on the board, decision route → daemon | T29 | E | **yes** | done (PR #53, 4d07791; TD-188) |
+| M2-T29d | Web: Needs-permission card state with Allow once / Allow always / Deny | T29c | F | — | done (PR #53, 4d07791) |
+| M2-T30 | Daemon + shared: package-manager-aware build checks (pnpm / yarn lockfiles) and pnpm rules in the `bash` alias | — | D | — | done (PR #46, d38c573) |
+| M2-T30b | Shared: pre-approve the pnpm shorthand commands agents actually run | T30 | D | — | done (PR #52, acaa852) |
+| M2-T31 | Tests: per-run test slots (throttled suite) | — | D | — | done (PR #54, afa210a) |
+| M2-T32 | Tests: conductor's gate runs the full suite only, no per-file isolation | T31 | D | — | done (PR #54, afa210a) |
+| M2-T33 | Tests: test tiers | T31 | D | — | done (PR #54, afa210a) |
+| M2-T31a | ADR-0025 §1: `conductor` v3 (green PR CI before review, `no_checks_after`, longer ceilings), seed v1 → v2 → v3, check links in the evidence, the agent's Bash limits | — | D | — | done (PR #59, merge 38624dd) |
+| M2-T31b | ADR-0025 §2: activity-aware agent timeouts (`idle_timeout`, heartbeat activity, `session.last_activity_at`, `agent.idle`, ceiling re-armed at init, kill on timeout) | T31a | E | **yes** (one nullable column) | todo |
+| M2-T34 | A PR reaches Done only through a human: `conductor` v4 (no agent `done`), validator rule 17, seed v3 → v4, re-pin to the newest version on reopen and on a human move on a parked session | T31a | D | — | done (PR #62, 5ecec4d) |
+| M2-T35a | Screenshot gate: the `pr_screenshots {ui_paths, min_pairs}` condition (schema, capability, daemon evaluation from the PR's files and the body's marker), glob helpers, editor fields | T34 | E | — | done (PR #64, 20d9166) |
+| M2-T35b | Screenshot gate, daemon: per-session `CONDUCTOR_SCREENSHOT_DIR` outside the worktree; `open_pr` validates the PNGs, pushes them to the never-merged `conductor-pr-assets` branch and writes the Before / After table + marker in the PR body (also on a reused PR) | T35a | F | — | in_review (PR #65) |
+| M2-T35c | `conductor` v5: `pr_screenshots` on every shipping transition, the capture instruction (also in `implement_template`), seed v4 → v5, e2e | T35b | G | — | done (PR #66, 49c39ae; merged ahead of T35b, so v5 asks for screenshots that only T35b attaches) |
+| M2-T35d | (folded into T35a–c when the gate became a condition, 2026-10-29) | — | — | — | cancelled |
 
 **Follow-ups and splits (2026-10-27).** T08b, T09b and T10b came from post-merge QA of T08 (PR #16), T09 (PR #13) and T10 (PR #14) and merged as PR #21 (merge 32e6bb8), PR #17 (merge 881708e) and PR #19 (merge 74abf5f). T07b pays TD-144 and must land before T25's first deploy. Ben chose an early you-only deploy, so T15 is split: **T15a** (bootstrap, CLI, resets; critical path) and **T15b** (invites, sign-up, admin routes; after T12). Critical path for the you-only deploy: T09b, T08b, T14, T15a, T17, T07b. No second account until T16, T19 and T21 (TD-149). Deploy T09 and T17 together: after T09, password-mode gateways refuse every uncredentialed daemon and only T17 adds enrollment. Post-merge QA ran for T06 (OK, every item verified on main), T10 (follow-ups done as T10b) and T09b (security QA passed, 6 attack probes). T20 must settle U-084 (lease renewal for sessions parked in event states) before it starts.
 
@@ -144,10 +169,18 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 | UX-1 | Session thread: group tool calls, phase dividers, markdown fix | #8 | merged (c31f1bb) |
 | UX-2 | Session Brief card: ticket requirements at the top, View prompt | #9 | merged (b898581) |
 | UX-3 | Ticket editor: WYSIWYG (BlockNote) with the requirements template | #10 | merged (04303fb) |
-| UX-3b | Board renderer: hard breaks and bold-italic from the editor | — | in_progress (ticket) |
+| UX-3b | Board renderer: hard breaks and bold-italic from the editor | #28 | merged (5588b15) |
 | UX-4 | Board cards: review requests vs questions, clamped previews | #12 | merged (4c09499) |
 | UX-5 | Show conductor checks progress instead of a phantom running agent | #20 | merged (a8deac3) |
-| UX-6 | Collapsible check output; no internal state labels in the panel | — | in_progress (ticket) |
+| UX-6 | Collapsible check output; no internal state labels in the panel | #30 | merged (9fce00f) |
+| UX-7 | Details tab in STAR order (Situation, Task, Action, Result) | #33 | merged (3749c9f) |
+| UX-8 | Onboarding: guided first-machine setup + add-a-machine guide | #36 | merged (65e4e11) |
+| UX-8b | Fix the setup guide's rescan and macOS Node commands | #37 | merged (bb197a7) |
+| SPIKE-1 | Windows machine support (WSL2 vs native) and IIS (U-070/U-071): report `docs/design/windows-spike.md`; native chosen in ADR-0024, IIS still open | #38 | merged (39d7449) |
+| FIX-1 | Stuck resume across machines; "Start fresh conversation"; plan approval UI | #50 | merged (c7899f0) |
+| CI-1 | CI/CD: GitHub Actions workflow (`ci.yml`) running the gates and the deploy-kit tests | #51 | merged (462233a) |
+| CI-2 | CI deploys gradyserver from a self-hosted runner, with rollback and alerts | #57 | merged (37f47d7) |
+| CI-3 | CI runs daemon tests only when the diff reaches the daemon | #63 | merged (87f3609) |
 | BUG-1 | Parked agent process outlives its session (Done / cancel / supersede) | #18 | merged (f7e58a5) |
 | BUG-1b | Orphan sweep must never kill a process that isn't provably ours | #22 | merged (8ad36d1) |
 | BUG-2 | `apply.property` coverage assertion is flaky (unseeded fast-check) | #23 | merged (7ee5d4c) |
@@ -446,7 +479,7 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
 - **Do not touch**: `inventory/**` (read only), `claude/**`, other packages, `docs/tracking/*`.
 - **Migration**: no.
 - **Acceptance**:
-  - [ ] **TD-026 / U-030 (fresh base, actively hurting M2: every dogfood session so far started from a stale main and was rebased by hand; the lead fast-forwards the clone after each merge as a workaround)**: `workspace.fresh-base.test.ts`: the daemon runs `git fetch origin <default_branch>` **before creating each new session's worktree**, in both modes and on the M1 `cloneSource` path too (local test repos), and the session branch is created from the **fetched** `origin/<default_branch>` (not the clone's local `HEAD` or `main`). Test: create clone → push commit X to origin → start a session → the worktree's base contains X; push Y → start a second session → its base contains Y; a resumed session (same session id) reuses its existing worktree and is not rebased. A failed fetch fails the start with a clear error (no silent stale base). Pays TD-026.
+  - [ ] *(Built in **M2-T13a**, 2026-10-28; T13 keeps it passing in both new modes.)* **TD-026 / U-030 (fresh base, actively hurting M2: every dogfood session so far started from a stale main and was rebased by hand; the lead fast-forwards the clone after each merge as a workaround)**: `workspace.fresh-base.test.ts`: the daemon runs `git fetch origin <default_branch>` **before creating each new session's worktree**, in both modes and on the M1 `cloneSource` path too (local test repos), and the session branch is created from the **fetched** `origin/<default_branch>` (not the clone's local `HEAD` or `main`). Test: create clone → push commit X to origin → start a session → the worktree's base contains X; push Y → start a second session → its base contains Y; a resumed session (same session id) reuses its existing worktree and is not rebased. A failed fetch fails the start with a clear error (no silent stale base). Pays TD-026.
   - [ ] `workspace.reference.test.ts`: with a temp "user checkout" and a temp origin, a session's worktree is based on the **fetched** origin default branch (a commit pushed to origin after the clone appears); the user checkout's `.git` directory tree hash is identical before and after two sessions.
   - [ ] `workspace.checkout.test.ts`: a session runs off the checkout; planting `.git/hooks/pre-commit` during it produces an `alert` naming that file; nothing is reported when nothing changed.
   - [ ] A `start_session` whose `repo_path` isn't in the inventory, or whose remote doesn't match the ticket, fails without touching disk.
@@ -493,6 +526,9 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
   - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e`.
 
 ### M2-T16 · Orchestrator: inventory ingest and routing
+
+> **Split 2026-10-29 → M2-T16a.** Code review on 0b3b8bb: the gateway still handles only the M1 `repo_inventory` (repo, path, head; no remote, no capabilities) and drops `inventory` and `alert`, and `gateway/claim.ts` filters only on `required_tags` and `repo_allow_machines`. So every online machine takes every ready ticket. **T16a** takes everything below except the gateway isolation test (which moves to T19, the task that scopes the gateway), and adds a drawer section: the queued tickets this machine can't take, with the reason from the same `missingCapabilities`. It doesn't wait for T12: until T12 stores `required_capabilities` on save, the claim computes it from the pinned (or latest) definition with `requiredCapabilities`. It doesn't wait for T14 either (merged).
+
 - **Scope.**
   - `gateway/inventory.ts`: on `inventory`, replace the machine's `machine_repo` and `machine_capability` rows in one transaction (scoped to the connection's account; capability rows keyed `(machine_id, key)`, one per `capabilityKeys` element, T09); ignore repos with `remote: null` for routing but keep them for display. (`outdated` is **not** stored: T17 computes it at read time with T14's `isOutdated`.) On `alert`, dedupe on `(machine_id, seq)` (10-contracts §Daemon seq dedupe), insert `machine_alert` and publish a board update for the session's card. `repo_inventory` handling is removed. This pays TD-112 (the M1 gateway dropped `inventory` / `alert` until now; alerts sent between T13 and T16 were lost, not replayed).
   - `gateway/claim.ts` gains the hard filters (ADR-0013 §Routing; [04](../../design/04-scheduler.md) §2; 10-contracts §Machines protocol v2 "Matching" is the authority): `ticket.account_id = machine.account_id`; `EXISTS machine_repo (this machine, remote not null, lower(remote) = lower(ticket.repo))` (github.com org/repo are case-insensitive); every requirement in the pinned (or latest) version's `required_capabilities` for the ticket's kind is a stored `machine_capability.key` of the machine, or a bare `skill:<n>` / `agent:<n>` met by `skill:<n>@<ticket.repo>` with the `@<repo>` part compared case-insensitively too. A queued session carrying a `__machine_lost` mark is offered **only** to `mark.machine_id` (a hard filter like the reopen pin).
@@ -511,6 +547,55 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
   - [ ] `test/gateway/inventory.test.ts`: a second inventory replaces the first; an `alert` creates a row and the card shows it.
   - [ ] Board view: a Queued card with no capable online machine has `routing` naming the missing repo / capabilities.
   - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e` (the daemon sends both messages since T10, so the M1/M1b e2e keeps working. A ticket whose `repo` is not canonical, which only `local` mode allows, skips the repo filter as in M1; the capability filter always applies. Test both).
+
+### M2-T16a · Machine inventory and routing: a ticket goes only to a machine that can do it
+
+## Goal
+A ticket is claimed only by a machine that has the ticket's repo and every capability its workflow needs. Ben can see why a ticket is waiting and what a machine can't take.
+
+## Context
+Code on 0b3b8bb:
+- **Inventory is dropped.** `packages/orchestrator/src/gateway/index.ts` handles only the M1 `repo_inventory` (repo, path, head; `onRepoInventory`). The daemon's v2 `inventory` (repos with `remote`, `mode`, `default_branch`, and capabilities; `InventoryPayloadSchema` in `shared/src/protocol/ws.ts`, sent since M2-T10) and `alert` messages are dropped (TD-112). So `machine_capability` is never written, and the Machines drawer's Capabilities list is always empty.
+- **The claim has no routing.** `src/gateway/claim.ts` filters only on `required_tags` and `repo_allow_machines`, which the board never sets, so every online machine takes every ready ticket.
+- **The pieces exist.** The tables are `machine_repo` (`remote`, `mode`), `machine_capability` (PK `(machine_id, key)`) and `machine_alert`, all from migration `1761700000000_machine-credentials.sql`. The shared helpers are `capabilityKeys`, `missingCapabilities` and `satisfiesCapability` in `shared/src/machines/capabilities.ts`, `requiredCapabilities` in `shared/src/machines/required.ts`, and `WORKING_COPY_CONTEXT_KEY`. The card's `routing` field is `BoardCardRoutingSchema`, and the web badge (`RoutingBadge` in `web/src/components/Board.tsx`, M2-T11) already renders it.
+- The full matching rule is in the M2-T16 block above (10-contracts §Machines protocol v2 "Matching" is the authority). This task is T16 minus the gateway isolation test, which moves to M2-T19.
+
+## Functional requirements
+- **FR-1** On `inventory`, `gateway/inventory.ts` replaces the machine's `machine_repo` and `machine_capability` rows in one transaction, scoped to the connection's account, with one capability row per `capabilityKeys` element. Repos with `remote: null` stay for display but never match. The M1 `repo_inventory` case keeps working for older daemons.
+- **FR-2** On `alert`, the gateway dedupes on `(machine_id, seq)`, inserts a `machine_alert` row and publishes a board update for the session's card. This pays TD-112.
+- **FR-3** The claim (`gateway/claim.ts`) adds hard filters:
+  - the ticket's `account_id` equals the machine's;
+  - the machine has a `machine_repo` whose `lower(remote)` equals `lower(ticket.repo)`;
+  - every requirement of the pinned (or latest) workflow version is a stored `machine_capability.key` of the machine, with bare `skill:<n>` / `agent:<n>` met by `…@<ticket.repo>` (case-insensitive).
+
+  Until M2-T12 stores `required_capabilities` on save, compute it with `requiredCapabilities(definition, ticket.kind)`. It may be cached per (workflow id, version) in memory. A ticket whose `repo` is not canonical (only `local` mode allows that) skips the repo filter, as in M1. The capability filter always applies.
+- **FR-4** In the claim transaction, write the matched `machine_repo` as `{repo_path, mode}` into `session.context[WORKING_COPY_CONTEXT_KEY]`, and carry it into the `start_session` payload.
+- **FR-5** `engine/board-view.ts`: a Queued card gets `routing` when no **online** machine of the account can take it: `missing_repo` first, else `missing_capabilities` from `missingCapabilities(caps, reqs, ticket.repo)` against the closest machine. The badge then shows "needs a machine with …".
+- **FR-6** `GET /api/machines/:id` gains `cannot_take: {ticket_id, title, missing_repo?, missing_capabilities[]}[]`, the queued tickets this machine is excluded from (capped at 50). The drawer (`web/src/machines/MachineDrawer.tsx`) shows them as "Can't take" under Capabilities. This is an additive change to `MachineDetailSchema` in `shared/src/api/machines.ts`; report it in the PR.
+
+## Non-functional requirements
+- **NFR-1** The claim stays a single transaction with `FOR UPDATE SKIP LOCKED`. The new filters are SQL `EXISTS` clauses against indexed columns, with no per-ticket round trips.
+- **NFR-2** No migration. If one turns out to be needed (e.g. an index on `lower(remote)`), stop at "PR open, awaiting Ben".
+
+## Out of scope
+- the gateway isolation test (M2-T19);
+- storing `required_capabilities` on workflow save (M2-T12);
+- runtime slots such as IIS (U-070, its own ADR);
+- ticket dependencies;
+- the daemon's use of `working_copy` (M2-T13).
+
+## Verification
+- FR-1, FR-2: `test/gateway/inventory.test.ts`: a second inventory replaces the first; an `alert` creates a row once (a replayed `seq` doesn't) and the card shows it.
+- FR-3, FR-4: `test/gateway/claim.test.ts`:
+  - a ticket for `org/b` is claimed by machine B (which has it), never by A;
+  - `github.com/Org/B` matches a machine reporting `github.com/org/b`;
+  - a workflow needing `cli:az:authed` isn't claimed by a machine with `az` unauthed, and is claimed after an inventory with `authed: true`;
+  - bare `skill:review` is met by `skill:review@github.com/Org/B`;
+  - after the claim, `session.context.__working_copy` holds B's path and mode, and the `start_session` outbox row carries it;
+  - a non-canonical repo in `local` mode skips the repo filter only.
+- FR-5: a board-view test where a Queued card with no capable online machine has `routing` naming the missing repo or capabilities.
+- FR-6: an API test for `cannot_take`, and a `Machines.test.tsx` case for the drawer's "Can't take" list.
+- Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e`. The M1 / M1b e2e must stay green: their fake daemon sends `inventory` since T10, so check that it reports the fixture repo and the capabilities the e2e workflows need.
 
 ### M2-T17 · Orchestrator: machines REST and ticket repo check
 - **Scope.** New `packages/orchestrator/src/api/machines.ts`, registered from `api/index.ts`:
@@ -793,6 +878,217 @@ Web UX and bug tickets run on the dogfood board beside M2 (not M2 tasks; they do
   - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e`.
 
 ---
+
+### Agent permissions and fresh bases (2026-10-28)
+Two dogfood sessions stalled on 2026-10-28:
+- **M2-T18b ("Hazel")** planned from a base cut before ADR-0021 merged. The daemon clone is never fetched (TD-026), and planning has no shell, so it couldn't refresh.
+- **M2-T18 ("Nova")** had 18 calls silently denied (pnpm, chmod, diff, prettier, `git update-index`). The machine has no `defaultMode`, prompts are `none`, and `bash` allows only npm. Its build check also ran npm in a pnpm repo.
+
+Ben's decisions:
+- fetch per session now (T13a);
+- an agent and human "update from main" (T27, T27b);
+- auto mode with prompts to the board (ADR-0023: T29–T29d);
+- both-layer settings, viewable and editable per machine (ADR-0022: T28–T28e);
+- pnpm-aware checks (T30).
+
+The lead fast-forwarded the daemon clone and Hazel's branch by hand (the interim workaround).
+
+**Order and file ownership:**
+- T13a, T28, T29 and T30 can run in parallel.
+  - T13a: `workspace.ts` and the start_session section of `daemon.ts`.
+  - T28 and T29: shared protocol and design docs, with disjoint sections.
+  - T30: `actions/checkout.ts` install/scripts and `tools.ts` `bash`.
+- T27 needs T13a.
+- T29b owns `claude/cli-driver.ts` and `claude/outcome-server.ts`. T27 also adds an MCP tool there, so **T27 runs after T29b** (or rebases onto it).
+
+### M2-T13a · Daemon: fetch per session
+- **Scope.** The "fetch per session" slice of T13, on today's M1 `cloneSource` path (reference and checkout modes stay in T13):
+  - In `Workspace.ensureWorktree`, before creating a **new** worktree:
+    - run `git -c core.hooksPath=/dev/null fetch origin <default_branch>`;
+    - serialise it per repo, so concurrent session starts don't race;
+    - branch from `origin/<default_branch>`, not `HEAD`.
+  - `<default_branch>` comes from `start_session.working_copy.default_branch` when present. Otherwise it is the clone's `origin/HEAD` (set once with `git remote set-head origin --auto`).
+  - A failed fetch fails the start with a clear error. No silent stale base (T13's acceptance).
+  - Existing worktrees and branches (resume, reopen) are reused untouched.
+  - The `// TD-026` comment is updated.
+- **Design refs**: TD-026, U-030; T13 block above (its first acceptance item is this task's); 07 §Code.
+- **Depends on**: T10.
+- **Files owned**: `packages/daemon/src/workspace.ts`, the start_session section of `daemon.ts`, `workspace*.test.ts`, 07 §Code (one paragraph).
+- **Do not touch**: `claude/**`, `actions/**`, other packages, `docs/tracking/*`.
+- **Migration**: no.
+- **Acceptance**:
+  - [ ] `workspace.fresh-base.test.ts`, with a temp bare origin:
+    - clone, push X, start a session: its base contains X;
+    - push Y, start a second session: its base contains Y;
+    - a resumed session (same id) reuses its worktree and is not rebased;
+    - an unreachable origin fails the start with an error that names the repo.
+  - [ ] Two concurrent `ensureWorktree` calls on one repo run one fetch at a time (no `index.lock` / `shallow.lock` errors).
+  - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e`.
+
+### M2-T27 · Daemon + shared: `update_branch`
+- **Scope.**
+  - New `packages/daemon/src/actions/update-branch.ts`. In the session worktree it runs:
+    1. `git fetch origin <default_branch>` (T13a's helper);
+    2. `git merge --no-edit origin/<default_branch>`.
+  - It refuses a dirty tree in a read-only state.
+  - On conflict it runs `git merge --abort` and returns the conflicting paths.
+  - It returns `{merged, from, to}` or `{conflict: string[]}` or `{refused: reason}`.
+  - Conductor MCP tool `update_branch` (`claude/outcome-server.ts`) is offered in every state. It doesn't end the turn.
+  - New `inspect` alias in `shared/src/workflow/tools.ts` = `REVIEW_GIT_COMMANDS` (exact rules). `conductor.v1/v2.json` planning becomes `["read","inspect"]`.
+  - Planning prompt (`shared/src/engine/render.ts`): "If a file the ticket cites is missing, call `update_branch` before planning."
+  - Session events carry `permission_denials {count, tools[]}` from `stream-parser.ts` (today dropped in `daemon.ts`).
+- **Design refs**: ADR-0023 §5; 03-protocols §MCP tools; 10-contracts.
+- **Depends on**: T13a; after T29b (shares `outcome-server.ts`).
+- **Files owned**: `actions/update-branch.ts`, the outcome-server tool registration, `shared/src/workflow/tools.ts` (`inspect` only), `workflows/conductor.v*.json` planning `tools`, `render.ts` plan prompt line, the session-event denial field, their tests, docs sections.
+- **Do not touch**: `workspace.ts` (import only), orchestrator, web, `docs/tracking/*`.
+- **Acceptance**:
+  - [ ] Unit tests: clean fast-forward; true merge; conflict, aborted with the paths listed and the tree clean; dirty tree refused in planning.
+  - [ ] e2e: a fake-Claude planning turn calls `update_branch` after a commit lands on origin, then reads the new file.
+  - [ ] A denied tool call shows up as `permission_denials.count ≥ 1` on the session event.
+  - [ ] Gates.
+
+### M2-T27b · Orchestrator + web: "Update from main"
+- **Scope.**
+  - `POST /api/sessions/:id/update-branch` (owner of the ticket). Allowed only when the session has no live turn (`needs_input`, `needs_permission`, or between states); otherwise 409.
+  - The orchestrator sends daemon command `update_branch {session_id}` with an idempotency key. The daemon runs T27's action and replies with the result.
+  - The result goes in the session log and a toast. The ticket drawer gets the button.
+- **Depends on**: T27. **Acceptance**: a route test (409 during a live turn; the result is stored); a web test; the e2e path; gates.
+
+### M2-T28 · Contracts: layered agent settings
+- **Scope** ([ADR-0022](../../adr/0022-layered-agent-settings.md); Ben approves the ADR before T28b starts):
+  - Contract sections in 10-contracts and 03-protocols:
+    - `machine_settings` (machine_id PK, override jsonb, version, updated_by, updated_at) plus a `machine_settings_audit` table;
+    - `GET/PUT /api/machines/:id/settings`;
+    - WS `settings_update {version, override}` and an ack `{version, applied | refused, reason?}`;
+    - inventory `reported_settings`.
+  - The zod schemas in `shared/src/protocol` and `shared/src/api`, additive, so M1/M2 daemons still parse.
+- **Files owned**: those schema files, the doc sections. **Acceptance**: schema round-trip tests; an old daemon's inventory still parses; gates.
+
+### M2-T28b · Shared: effective policy
+- `resolveEffectivePolicy(stateTools, override)` returns `{builtin, allow, deny, permissionMode}`, with the ADR-0022 invariants. A save-time validator returns field errors.
+- **Acceptance**:
+  - [ ] `git push` can't be un-denied.
+  - [ ] `Bash`, `Bash(*)`, `Bash(git diff:*)` and `Read(//**)` are rejected.
+  - [ ] Gates.
+
+### M2-T28c · Orchestrator: machine settings
+- Migration; routes (owner/admin only, account-scoped); audit rows; push `settings_update` on register and on PUT; store the daemon's ack and `reported_settings`.
+- **Acceptance**:
+  - [ ] Route tests, including cross-account 404.
+  - [ ] A migration up/down test.
+  - [ ] The push happens on reconnect.
+  - [ ] Gates.
+
+### M2-T28d · Daemon: apply settings
+- Persist the override in `<root>/state/settings.json` (0600).
+- Apply it in `resolveToolPolicy` and in the permission-mode choice (no local ceiling: U-098 resolved "no" for now).
+- Report `reported_settings`; remove the credential.
+- Pays TD-081.
+- **Acceptance**:
+  - [ ] The override changes the next session's argv, not a running one.
+  - [ ] `off` ignores it and acks `refused`.
+  - [ ] Gates.
+
+### M2-T28e · Web: Settings tab
+- `MachineDrawer` Settings tab with three parts:
+  - **Reported**: read-only `reported_settings`.
+  - **Effective per state**: a table of tools, allow, deny and mode.
+  - **Override editor**: states, aliases, exact rules, mode (bypass behind a confirm), timeout, limits.
+
+  It shows API validation errors in place, plus the ack status ("applied v3" / "refused: <reason>").
+- **Acceptance**: component tests against the mock API; gates.
+
+### M2-T29 · Contracts: permission prompts
+- **Scope** ([ADR-0023](../../adr/0023-permission-prompts-through-conductor.md)):
+  - WS `permission_request {session_id, request_id, tool, input, suggestions?, expires_at}` (daemon → orchestrator).
+  - `permission_decision {request_id, behavior: allow|deny, scope: once|always, message?}` (orchestrator → daemon).
+  - Session sub-status `needs_permission`.
+  - `GET /api/sessions/:id/permission-requests`, `POST /api/permission-requests/:id/decision`.
+  - Doc sections in 10-contracts, 03-protocols and 08-failure-modes (timeout, daemon restart while held: deny on reconnect).
+- **Acceptance**: schema tests; gates.
+
+### M2-T29b · Daemon: auto mode + prompt tool
+- `cli-driver.ts`:
+  - `--permission-mode auto` for working agents (reviewers stay `dontAsk`);
+  - `--permission-prompts host --permission-prompt-tool mcp__conductor__permission`;
+  - an unsupported Claude version falls back to today's flags and raises a machine alert.
+- `outcome-server.ts` `permission` tool:
+  - sends `permission_request` and awaits the decision;
+  - on timeout (default 30 min) or daemon shutdown, returns a deny with a reason;
+  - returns the Claude permission-prompt-tool JSON (`{behavior, updatedInput?, message?}`).
+- ADR-0006 notes updated.
+- **Acceptance**:
+  - [ ] argv tests.
+  - [ ] A held call resolves on allow, on deny and on timeout.
+  - [ ] `git push` never reaches the tool (deny first).
+  - [ ] A real-Claude probe noted in the PR: one prompt round-trip with haiku.
+  - [ ] Gates.
+
+### M2-T29c · Orchestrator: permission requests
+- Store requests; set and clear `needs_permission` in the same transaction as the board update (SSE); decision route (ticket owner) → `permission_decision` with an idempotency key.
+- "Always" appends an exact rule: to the ticket's `session_allow` until T28c, then to the machine override.
+- **Acceptance**: route tests; idempotent double decision; the card leaves `needs_permission` after a decision or expiry; gates.
+
+### M2-T29d · Web: Needs permission
+- Card badge and drawer panel. They show the tool and its input (a command shown as code; long input collapsed) and three buttons: **Allow once**, **Allow always**, **Deny** (with a note).
+- **Acceptance**: component tests; gates.
+
+### M2-T30 · Package-manager-aware checks
+- `actions/checkout.ts` picks the install step from the lockfile:
+
+  | Lockfile | Install command |
+  |---|---|
+  | `pnpm-lock.yaml` | `pnpm install --frozen-lockfile` |
+  | `yarn.lock` | `yarn install --immutable` |
+  | `package-lock.json` | `npm ci` |
+  | none | `npm install` |
+
+  Workflow check scripts run with the same manager (`pnpm run <script>`).
+- The `tools.ts` `bash` alias adds `Bash(pnpm run:*)`, `Bash(pnpm test:*)`, `Bash(pnpm install)`, `Bash(pnpm i)`, `Bash(pnpm exec vitest:*)`, `Bash(pnpm exec prettier:*)` and `Bash(chmod +x:*)`, with the same TD-019 caveat.
+- **Files owned**: `actions/checkout.ts` (install and script runner only; T13 owns its push URL source), `shared/src/workflow/tools.ts` (`bash` only), tests.
+- **Acceptance**:
+  - [ ] Checkout tests for each lockfile.
+  - [ ] Alias rule tests.
+  - [ ] A pnpm fixture repo's build check passes in e2e.
+  - [ ] Gates.
+
+### M2-T31a · Green PR CI before review (ADR-0025 §1)
+- Why: production `conductor` v2 data, 2026-10-29. `timeout` was the most common input request (20 of 44), and personal tickets reached Ben with red PR CI.
+- `pr_checks_green.no_checks_after` (engine-only; stripped from the daemon's args), `GateStep.conditions_started_at`, `NO_PR_CHECKS_VALUE` (U-072).
+- `CONDUCTOR_V3` (derived from v2 in code) and `conductor.v3.json`: `pr_checks_green` (5m grace) on every shipping transition; review hand-offs and `done` poll 1m for at most 2h; the CI-aware `on_unmet` instruction; Planning 60m, Implementing 2h, budget 240 min.
+- The seed walks v1 → v2 → v3; `default_available` names the newest shipped version.
+- The daemon: failing checks carry their https link; the agent env has `BASH_DEFAULT_TIMEOUT_MS` 10m / `BASH_MAX_TIMEOUT_MS` 30m.
+- Web: the PR-checks condition has a "no CI after" input.
+- **Acceptance**:
+  - [x] Unit: the grace (pending before 5m, met after; running checks never graced; absent field = v2 behaviour); args stripped; the seed chain (incl. concurrent starts and an unedited v2); v3 equals its JSON and validates; agent env.
+  - [x] E2E scenario 7 (m1b): red CI → back to Implementing with the failing check and the log instruction → fix pushed → green → Done.
+  - [x] Gates.
+
+### M2-T31b · Activity-aware agent timeouts (ADR-0025 §2)
+- Daemon: per `AgentProc`, `lastActivityAt` (every assistant / tool_use / tool_result / debug line), the tool calls in flight, and a held permission prompt. All three go in the heartbeat as optional per-session fields.
+- Orchestrator: additive migration `session.last_activity_at timestamptz NULL`, written from the heartbeat (busy = now).
+- Shared: agent-state `idle_timeout` (duration); a new engine event `agent.idle {state, last_activity_at}` from the sweep. It takes the `timeout` outcome ("no agent activity for <idle_timeout>"), and is ignored unless the session is running in that state. On `agent.claude_session_id` for the current command, re-arm `state_deadline = now + timeout`. A `timeout` that leaves an agent state emits `kill {reason: 'timeout'}`.
+- The next `conductor` version after what has shipped by then (v4 shipped with M2-T34; v5 is planned for M2-T35d): `idle_timeout: 15m` on Planning and Implementing.
+- **Acceptance**: apply tests (idle → timeout + kill; ignored when not running; re-arm at init); sweep test (busy sessions don't fire); heartbeat schema with and without the fields; e2e with a silent fake Claude; gates.
+
+### M2-T34 · A PR reaches Done only through a human (conductor v4)
+- Why (Ben, 2026-10-29): ticket UX-11 (PR #60) reached Done twice with no CI and no review. `conductor` v2's personal `done` (agent → Done, gated only by local checks and `open_pr`) let the agent close its own ticket the moment the PR existed; v3 added green PR CI but still no human. The ticket was pinned to v2, and the reopen copied v2, so it repeated.
+- `CONDUCTOR_V4` (v3 without Implementing's `done`; the personal ship `when` says the user closes the ticket) and `conductor.v4.json`; the seed walks v1 → v4 and tolerates rule 17 only on superseded shipped versions.
+- Validator **rule 17**: an agent-actor transition with `open_pr` can't go (or fall back) to a terminal state without an enabled `pr_approvals` / `pr_merged`.
+- Re-pin (`engine/repin.ts`): a reopen takes the newest version that has `def.start`; a human event on a session parked in a human/event state with no live agent takes the newest version that has the state, its `return_to` and the move (`workflow.repinned` event row). ADR-0008 amended; 05 §Versioning.
+- **Acceptance**:
+  - [x] Unit: rule 17 (v2/v3 refused, v4 valid, `else` leg, approvals/merged accepted, disabled approval not, no-PR gate fine); v4 equals its JSON and is v3 minus `done`; no agent move reaches Done in v4.
+  - [x] DB: seed v3 → v4 (and an edited v3 kept, `default_available = 4`); reopen re-pins (and stays without the start state); a parked answer re-pins, a live agent / agent state / unknown move / machine event does not.
+  - [x] E2E (m1b): saving an agent `done` that opens a PR is refused (400, rule 17); personal tickets stop at Needs input after the PR and only the human's `done` closes them; scenario 7 on v4 (red CI → back → green → Needs input → human Done).
+  - [x] Gates.
+
+### M2-T35 · Before/after screenshots on UI PRs (split a–d)
+- Why (Ben, 2026-10-29): a PR with a UI change carries before and after screenshots. The workflow tells the agent to take them; the daemon checks they exist and re-prompts the agent (`on_unmet`) when they don't.
+- **Design change (2026-10-29, while building T35a)**: the check is a **condition** (`pr_screenshots`), not a new gate phase. The conditions phase already is "the daemon checks, and a failure goes back to the agent with evidence" (how red CI works), with retries, the card checklist and head pinning, so no new phase, protocol command or step kind is needed. It runs after `open_pr`, so it checks what the PR really shows (the marker `open_pr` writes with the table). The bullets below are the original split; T35a–c above is what is built.
+- **T35a (shared)**: `TransitionRequiresSchema.screenshots?: {ui_paths: glob[1..50], min_pairs = 1}`; met when the diff `merge-base(default)..checked sha` touches no `ui_paths` file, or the session's screenshot dir holds `min_pairs` `before-<view>.png` / `after-<view>.png` pairs. Gate order checks → screenshots → review → actions; unmet names the changed UI files and the missing pairs; card item "Screenshots"; a daemon capability so older daemons aren't sent it; validator (globs valid, only with `open_pr`); 05 / 10 docs and an ADR (pushing assets is new outward-facing behaviour).
+- **T35b (daemon)**: `<daemon root>/artifacts/<session>/screenshots/`, created by the daemon, passed as `CONDUCTOR_SCREENSHOT_DIR`; nothing lands in the user's repo. The diff runs in the private checkout; the dir is untrusted (lstat, regular files, no symlinks, PNG magic, ≤ 5 MB each, ≤ 20 files, `^(before|after)-[a-z0-9-]{1,40}\.png$`).
+- **T35c (`open_pr`)**: after the hardened branch push, re-validate and push the PNGs from the daemon-private repo (hooks off, allow-listed URL) to `conductor-pr-assets` under `<ticket>/<session>/`; append `## Screenshots` (Before | After, `blob/conductor-pr-assets/<path>?raw=true`) to the body; on a reused PR, `gh pr edit --body`, keyed on the session id.
+- **T35d (`conductor` v5)**: `requires.screenshots` on `personal_pr_ready_for_review`, `pr_ready_for_review`, `ready_for_testing` (`ui_paths` default `**/*.{tsx,jsx,vue,svelte,css,scss,html}`); the `on_unmet` instruction and `implement_template` say how (headless Chrome / Playwright on the system Chrome, base = a worktree of the merge-base, a port from the session's range, save to `$CONDUCTOR_SCREENSHOT_DIR`); seed v4 → v5; editor field; e2e (UI diff without images re-prompted; with a pair, the PR body has the table and the assets branch the files; a non-UI diff skips).
 
 ## Risks
 - **No Docker on Ben's Mac**: the Dockerfile and compose file are first built on gradyserver. Mitigation: T07 and T14 have a lead QA step that runs `docker build` there before merge, and T25 starts with a dry build.

@@ -38,6 +38,7 @@ His Implementing → Waiting external rule for work tickets needs:
 | `pr_checks_green` | condition | `cli:gh authed` | `gh pr view <url> --json statusCheckRollup`: all success → met; any failure → failed; else pending |
 | `pr_approvals {min}` | condition | `cli:gh authed` | `gh pr view --json reviewDecision,reviews,author,headRefOid`. Per **eligible** reviewer (`authorAssociation` OWNER / MEMBER / COLLABORATOR, never the PR author), in review order: `CHANGES_REQUESTED` on any commit blocks; `APPROVED` on the current head (`commit.oid` = `headRefOid`) approves and clears a block; `APPROVED` on an older commit is stale (no approval, and a block stays); `DISMISSED` clears the verdict. Then: `reviewDecision` `CHANGES_REQUESTED` or any blocked reviewer → failed; `REVIEW_REQUIRED` → pending; otherwise met when approvals ≥ `min`, else pending (M1b-T05) |
 | `pr_merged` | condition | `cli:gh authed` | `gh pr view --json mergedAt,state` |
+| `pr_screenshots` (M2-T35a) | condition | `cli:gh authed` | `gh pr view --json files,changedFiles,body` (paths and the screenshots marker's count only) |
 | `azure_pipeline_succeeded {pipeline}` | condition | `cli:az authed` (devops extension) | `az pipelines runs list --branch <b> --pipeline-ids/--name … --top 1`, then the run's `result` for the PR's head commit |
 | `jira_fields_set {fields}` | condition | `cli:jira authed` or `mcp:<atlassian>` | read the issue named by `ticket.external_ref`; each listed field non-empty (or equal to a value) |
 | `open_pr` | action | `cli:gh authed` | unchanged from ADR-0010 (writes) |

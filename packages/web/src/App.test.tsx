@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
-import { BOARD_SSE_FIXTURES } from '@conductor/shared';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { BOARD_SSE_FIXTURES, localMeResponse } from '@conductor/shared';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ApiRequestError, type StreamHandlers } from './api/client.js';
@@ -142,13 +144,6 @@ describe('detail panel', () => {
     await waitFor(() => expect(cardTitles('Done')).toContain('Fix flaky checkout test'));
   });
 
-  it('non-agent kinds get quick actions: abort', async () => {
-    await renderApp();
-    const panel = within(await openCard('Fix flaky checkout test'));
-    fireEvent.click(await panel.findByRole('button', { name: 'Abort' }));
-    await waitFor(() => expect(cardTitles('Done')).toContain('Fix flaky checkout test'));
-  });
-
   it('shows state, context, spend/time and live output', async () => {
     const api = await renderApp();
     const panel = within(await openCard('Bump node to 22 in CI'));
@@ -180,6 +175,55 @@ describe('create ticket', () => {
     fireEvent.click(form.getByRole('button', { name: 'Create ticket' }));
     await waitFor(() => expect(cardTitles('Queued')[0]).toBe('Add dark mode'));
     expect(screen.queryByRole('form', { name: 'Create ticket' })).toBeNull();
+  });
+});
+
+describe('top nav icons (UX-11)', () => {
+  const me = localMeResponse().user;
+  const controls = [
+    ['link', 'Board'],
+    ['link', 'Workflow'],
+    ['link', 'Machines'],
+    ['link', 'Add a machine'],
+    ['link', 'Help'],
+    ['button', 'New ticket'],
+    ['button', me.display_name],
+  ] as const;
+  const icon = (el: HTMLElement) => el.querySelector('svg[aria-hidden="true"]');
+
+  it('every control has an icon and keeps its accessible name', async () => {
+    await renderApp();
+    await screen.findByRole('button', { name: me.display_name });
+    for (const [role, name] of controls) {
+      expect(icon(screen.getByRole(role, { name })), name).toBeTruthy();
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'New ticket' }));
+    expect(icon(screen.getByRole('button', { name: 'Close form' }))).toBeTruthy();
+  });
+
+  it('compact mode hides the labels and keeps the names', async () => {
+    // jsdom applies no imported CSS (and vitest turns `?raw` CSS into ''), so load the real
+    // stylesheet from disk to compute the cascade.
+    const style = document.createElement('style');
+    style.textContent = readFileSync(join(import.meta.dirname, 'styles.css'), 'utf8');
+    document.head.append(style);
+    try {
+      render(<App api={createMockApi()} compact />);
+      await screen.findByText('Add pagination to /orders');
+      await screen.findByRole('button', { name: me.display_name });
+      const header = document.querySelector<HTMLElement>('header.topbar.compact');
+      expect(header).toBeTruthy();
+      const labels = header?.querySelectorAll<HTMLElement>('.nav-label') ?? [];
+      expect(labels.length).toBe(controls.length);
+      for (const label of labels) expect(getComputedStyle(label).display).toBe('none');
+      for (const [role, name] of controls) {
+        const el = screen.getByRole(role, { name });
+        expect(icon(el), name).toBeTruthy();
+        expect(el.title).toBe(name === me.display_name ? me.email : name);
+      }
+    } finally {
+      style.remove();
+    }
   });
 });
 

@@ -1,14 +1,20 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { Condition } from '@conductor/shared';
+import { NO_PR_CHECKS_VALUE, type Condition } from '@conductor/shared';
+import { workflowShell } from '../platform/index.js';
+import { removeTreeOrLeave } from '../test-support/remove-tree.js';
 import {
   GH_OUTPUT_CAP_BYTES,
   evaluateConditions,
   mapCondition,
   parsePrView,
 } from './conditions.js';
+
+// Tests that can't pass on native Windows yet skip there (ADR-0024); each `// MW-Tnn` names
+// the task that unskips them.
+const onWin32 = process.platform === 'win32';
 
 // M1b-T05 acceptance: evaluate_conditions against a fake `gh` (a /bin/sh script run as
 // `/bin/sh <script> <args>`, the ADR-0010 open_pr pattern). No real GitHub calls.
@@ -18,7 +24,7 @@ const PR = 'https://github.com/benjgrad/fixture-app/pull/9';
 // Logs argv, cwd and the git env it got; prints $FAKE_GH_OUT; exits $FAKE_GH_EXIT.
 const FAKE_GH = `
 echo "$*" >> "$FAKE_GH_DIR/argv"
-pwd >> "$FAKE_GH_DIR/cwd"
+(pwd -W 2>/dev/null || pwd) >> "$FAKE_GH_DIR/cwd"
 echo "GIT_DIR=$GIT_DIR GIT_CONFIG_NOSYSTEM=$GIT_CONFIG_NOSYSTEM GH_REPO=$GH_REPO" >> "$FAKE_GH_DIR/env"
 if [ -n "$FAKE_GH_ERR" ]; then echo "$FAKE_GH_ERR" >&2; fi
 if [ -n "$FAKE_GH_SLEEP" ]; then sleep "$FAKE_GH_SLEEP"; fi
@@ -37,9 +43,9 @@ beforeEach(() => {
   writeFileSync(script, FAKE_GH);
   writeFileSync(join(tmp, 'out'), '{}');
 });
-afterEach(() => {
-  rmSync(tmp, { recursive: true, force: true });
-  rmSync(root, { recursive: true, force: true });
+afterEach(async () => {
+  await removeTreeOrLeave(tmp);
+  await removeTreeOrLeave(root);
 });
 
 function evalWith(
@@ -53,7 +59,7 @@ function evalWith(
     conditions,
     prUrl: more.prUrl === undefined ? PR : more.prUrl,
     root,
-    gh: { cmd: '/bin/sh', args: [script] },
+    gh: { cmd: workflowShell().file, args: [script] }, // Git Bash on win32
     env: {
       ...process.env,
       FAKE_GH_DIR: tmp,
@@ -117,9 +123,10 @@ describe('evaluate_conditions with a fake gh', () => {
       `pr view ${PR} --json statusCheckRollup,reviewDecision,reviews,state,mergedAt,author,headRefOid --jq`,
     );
     const { realpathSync } = await import('node:fs');
-    expect(readFileSync(join(tmp, 'cwd'), 'utf8').trim()).toBe(realpathSync(root));
+    expect(realpathSync(readFileSync(join(tmp, 'cwd'), 'utf8').trim())).toBe(realpathSync(root));
     expect(readFileSync(join(tmp, 'env'), 'utf8').trim()).toBe(
-      'GIT_DIR= GIT_CONFIG_NOSYSTEM=1 GH_REPO=',
+      // win32 keeps the system gitconfig (Git Credential Manager; ADR-0024 §5).
+      `GIT_DIR= GIT_CONFIG_NOSYSTEM=${onWin32 ? '' : '1'} GH_REPO=`,
     );
   });
 
@@ -171,7 +178,10 @@ describe('evaluate_conditions with a fake gh', () => {
     expect(legacyRed.results[0]?.status).toBe('failed');
 
     const none = await evalWith([CHECKS], view());
-    expect(none.results[0]).toMatchObject({ status: 'pending', detail: 'no checks reported yet' });
+    expect(none.results[0]).toMatchObject({
+      status: 'pending',
+      detail: 'no checks reported yet',
+    });
   });
 
   it('approvals: 0/1 → pending, 1/1 → met, changes requested → failed', async () => {
@@ -536,5 +546,87 @@ describe('condition mapping (pure)', () => {
     expect(mapCondition(CHECKS, pr).status).toBe('met');
     expect(mapCondition(APPROVALS_1, pr).status).toBe('met');
     expect(() => parsePrView([])).toThrow();
+  });
+
+  it('a failing check names its https link so the agent can read the log; others are dropped', () => {
+    const pr = parsePrView({
+      state: 'OPEN',
+      statusCheckRollup: [
+        {
+          __typename: 'CheckRun',
+          name: 'test',
+          status: 'COMPLETED',
+          conclusion: 'FAILURE',
+          detailsUrl: 'https://github.com/o/r/actions/runs/1/job/2',
+        },
+        {
+          __typename: 'StatusContext',
+          context: 'ci/legacy',
+          state: 'ERROR',
+          targetUrl: 'javascript:alert(1)',
+        },
+      ],
+    });
+    expect(mapCondition(CHECKS, pr)).toMatchObject({
+      status: 'failed',
+      detail: 'failing: test (https://github.com/o/r/actions/runs/1/job/2), ci/legacy',
+    });
+  });
+
+  it('no checks at all reports NO_PR_CHECKS_VALUE, which the engine keys no_checks_after on', () => {
+    const r = mapCondition(CHECKS, parsePrView({ state: 'OPEN', statusCheckRollup: [] }));
+    expect(r).toMatchObject({ status: 'pending', value: NO_PR_CHECKS_VALUE });
+  });
+});
+
+describe('pr_screenshots (M2-T35a)', () => {
+  const SHOTS: Condition = { type: 'pr_screenshots', ui_paths: ['**/*.{tsx,css}'] };
+  const SHOTS_2: Condition = { type: 'pr_screenshots', ui_paths: ['**/*.tsx'], min_pairs: 2 };
+  const pr = (over: Record<string, unknown>) => parsePrView(view(over));
+
+  it('asks gh for the files and the pair count only when a pr_screenshots condition is there', async () => {
+    await evalWith([CHECKS], view());
+    await evalWith([CHECKS, SHOTS], view({ files: [], changedFiles: 0 }));
+    const argv = readFileSync(join(tmp, 'argv'), 'utf8').trim().split('\n');
+    expect(argv[0]).not.toContain('files');
+    expect(argv[1]).toContain(
+      '--json statusCheckRollup,reviewDecision,reviews,state,mergedAt,author,headRefOid,files,changedFiles,body --jq',
+    );
+    expect(argv[1]).toContain('conductor:screenshots pairs=');
+  });
+
+  it('no UI file changed → met, whatever the body', () => {
+    const r = mapCondition(SHOTS, pr({ files: ['README.md', 'src/a.ts'], changedFiles: 2 }));
+    expect(r).toMatchObject({ type: 'pr_screenshots', status: 'met', value: 'no UI change' });
+  });
+
+  it('a UI file changed: enough pairs in the body → met; fewer → failed, telling the agent what to do', () => {
+    const ui = { files: ['packages/web/src/App.tsx', 'README.md'], changedFiles: 2 };
+    expect(mapCondition(SHOTS, pr({ ...ui, screenshotPairs: 1 }))).toMatchObject({
+      status: 'met',
+      value: '1/1 pairs',
+    });
+    const missing = mapCondition(SHOTS, pr(ui));
+    expect(missing).toMatchObject({ status: 'failed', value: '0/1 pairs' });
+    expect(missing.detail).toContain('UI files changed (packages/web/src/App.tsx)');
+    expect(missing.detail).toContain('before-<view>.png');
+    expect(missing.detail).toContain('$CONDUCTOR_SCREENSHOT_DIR');
+    expect(mapCondition(SHOTS_2, pr({ ...ui, screenshotPairs: 1 }))).toMatchObject({
+      status: 'failed',
+      value: '1/2 pairs',
+    });
+  });
+
+  it('more files than gh lists counts as touching the UI; many UI files are summarised', () => {
+    const r = mapCondition(SHOTS, pr({ files: ['README.md'], changedFiles: 150 }));
+    expect(r.status).toBe('failed');
+    expect(r.detail).toContain('more files changed than gh lists (150)');
+    const many = Array.from({ length: 8 }, (_, k) => `src/v${k}.tsx`);
+    expect(mapCondition(SHOTS, pr({ files: many, changedFiles: 8 })).detail).toContain('+3 more');
+  });
+
+  it('a moved head fails it like every PR condition; no file list keeps it pending', () => {
+    expect(mapCondition(SHOTS, pr({ files: [], changedFiles: 0 }), OLD).status).toBe('failed');
+    expect(mapCondition(SHOTS, pr({}))).toMatchObject({ status: 'pending' });
   });
 });

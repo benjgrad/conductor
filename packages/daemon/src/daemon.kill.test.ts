@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,11 +11,15 @@ import { startOutcomeServer, type OutcomeServer } from './claude/outcome-server.
 import { loadConfig } from './config.js';
 import { Daemon } from './daemon.js';
 import { readProcInfo } from './orphan.js';
+import { mkdirPrivate, signalTree } from './platform/index.js';
+import { DaemonStore } from './store.js';
 import { FakeOrchestrator } from './test-support/fake-orchestrator.js';
+import { removeTreeOrLeave } from './test-support/remove-tree.js';
 
 // BUG-1 FR-2: a kill for a parked agent process (ADR-0007: alive, idle, blocked reading stdin
 // for an answer) ends it and is acked. The real CLI driver against the process-boundary fake
-// (test/fixtures/fake-claude.mjs), so a real process group is signalled.
+// (test/fixtures/fake-claude.mjs), so a real process group is signalled (win32: a real process
+// tree, taskkill /T). The fake runs as `node fake-claude.mjs …` (U-110: claude must be an .exe).
 
 const FAKE = fileURLToPath(new URL('../test/fixtures/fake-claude.mjs', import.meta.url));
 const TICKET = '0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2';
@@ -35,6 +39,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   tmp = mkdtempSync(join(tmpdir(), 'conductor-daemon-kill-'));
+  mkdirPrivate(tmp); // win32: the daemon makes its root private, which needs a private parent
   repo = join(tmp, 'origin');
   mkdirSync(repo);
   const g = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'pipe' });
@@ -51,7 +56,7 @@ afterEach(async () => {
   daemon?.stop();
   daemon = null;
   await orch.close();
-  rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  await removeTreeOrLeave(tmp);
 });
 
 function makeDaemon(opts: { claudeBin?: string; log?: (m: string) => void } = {}): Daemon {
@@ -70,7 +75,8 @@ function makeDaemon(opts: { claudeBin?: string; log?: (m: string) => void } = {}
   const d = new Daemon({
     config,
     driver: createCliDriver({
-      claudeBin: FAKE,
+      claudeBin: process.execPath,
+      claudePrefixArgs: [FAKE],
       outcomeServer: server,
       killGraceMs: 2_000,
       extraStateEnv: /^FAKE_CLAUDE_/,
@@ -181,11 +187,37 @@ describe('BUG-1b: the startup sweep against a real (fake-claude) process group',
       expect(logs).toContain(`startup: killed orphaned claude process ${pid} of session ${sid}`);
       await orch.until(() => orch.eventData('exit').find((e) => e.signal === 'daemon_restart'));
     } finally {
-      try {
-        process.kill(-pid, 'SIGKILL'); // the fake's own group, started by this test
-      } catch {
-        // gone
-      }
+      signalTree(pid, 'SIGKILL'); // the fake's own group / tree, started by this test
+    }
+  });
+
+  it('FR-2 (b): a recorded pid whose start time differs (reused) is left alone', async () => {
+    const d1 = makeDaemon();
+    await orch.until(() => orch.ofType('request_work')[0]);
+    const sid = randomUUID();
+    orch.send(parkedStart(sid));
+    await orch.until(() => orch.events('ask_user')[0]);
+    const pid = d1.store.session(sid)!.agent!.pid!;
+    try {
+      d1.stop({ killSessions: false });
+      daemon = null;
+      // As if the pid now belonged to another process: same pid, another start time.
+      const store = DaemonStore.forRoot(join(tmp, 'root'));
+      const s = store.session(sid)!;
+      store.putSession(sid, {
+        ...s,
+        agent: { ...s.agent!, startedAt: s.agent!.startedAt! - 60_000 },
+      });
+      const logs: string[] = [];
+      makeDaemon({ claudeBin: FAKE, log: (m) => logs.push(m) });
+      await orch.until(() =>
+        logs.some((l) => l.includes(`pid ${pid} alive but not ours (start time differs`))
+          ? true
+          : undefined,
+      );
+      expect(alive(pid)).toBe(true);
+    } finally {
+      signalTree(pid, 'SIGKILL');
     }
   });
 });

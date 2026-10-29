@@ -34,17 +34,32 @@ export function isCanonicalRemote(s: string): boolean {
   );
 }
 
-/** An absolute POSIX path with no NUL and no `.` / `..` segment (Windows is out of M2, U-071). */
+/** A Windows drive-absolute path: `C:\…` or `C:/…` (ADR-0024 §8). */
+const WIN_DRIVE_ABS_RE = /^[A-Za-z]:[\\/]/;
+
+/**
+ * True for an absolute path without NUL and without a `.` / `..` segment:
+ * - POSIX: starts with `/` but not `//` (M2, plus the `//` refusal); segments split on `/` only, since `\` is an
+ *   ordinary filename character there.
+ * - Windows (ADR-0024 §8, answers U-071): a drive letter, `:`, then `\` or `/`; segments split on
+ *   both separators, and no further `:` (NTFS alternate data streams are never a repo root).
+ * Refused: UNC (`\\host\share`, and `//host/share` on every platform), the `\\?\` / `\\.\`
+ * device namespaces, drive-relative `C:foo`, and anything relative.
+ */
+export function isAbsolutePath(p: string): boolean {
+  if (p.length < 2 || p.includes('\0')) return false; // `/` alone is refused, as in M2
+  const dotSeg = (seg: string) => seg === '.' || seg === '..';
+  if (p.startsWith('//')) return false; // forward-slash UNC; no realpath starts with //
+  if (p.startsWith('/')) return !p.split('/').some(dotSeg);
+  if (WIN_DRIVE_ABS_RE.test(p)) return !p.slice(2).includes(':') && !p.split(/[\\/]/).some(dotSeg);
+  return false;
+}
+
+/** An absolute path (POSIX or Windows drive), see `isAbsolutePath`. */
 export const AbsolutePathSchema = z
   .string()
   .min(2)
-  .refine(
-    (p) =>
-      p.startsWith('/') &&
-      !p.includes('\0') &&
-      !p.split('/').some((seg) => seg === '.' || seg === '..'),
-    'expected an absolute path without . or .. segments',
-  );
+  .refine(isAbsolutePath, 'expected an absolute path without . or .. segments');
 
 /** `origin/HEAD`'s branch, else `main` / `master`. A plain ref name. */
 const BranchNameSchema = z

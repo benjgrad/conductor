@@ -12,14 +12,15 @@ import {
 } from '@conductor/shared';
 import type { OutputBus, Queryable } from '../contracts.js';
 import { cardView } from '../engine/board-view.js';
-import { OPEN_INPUT_SELECT, splitStep, type OpenInputRow } from '../engine/rows.js';
-import type {
-  EventRow,
-  InputRequestRow,
-  SessionRow,
-  TicketRow,
-  WorkflowDefinitionRow,
-} from '../db/types.js';
+import {
+  OPEN_INPUT_SELECT,
+  splitStep,
+  TICKET_SELECT,
+  type OpenInputRow,
+  type TicketCardRow,
+} from '../engine/rows.js';
+import { readCardPermission, withPermission } from '../permissions/store.js';
+import type { EventRow, InputRequestRow, SessionRow, WorkflowDefinitionRow } from '../db/types.js';
 
 // GET /api/sessions/:id (M1-T08).
 
@@ -75,8 +76,8 @@ export async function loadSessionDetail(
   const s = await db.query<SessionRow>('SELECT * FROM session WHERE id = $1', [id]);
   const session = s.rows[0];
   if (!session) return null;
-  const [t, wd, ir, moves, inputRequests] = await Promise.all([
-    db.query<TicketRow>('SELECT * FROM ticket WHERE id = $1', [session.ticket_id]),
+  const [t, wd, ir, moves, inputRequests, permission] = await Promise.all([
+    db.query<TicketCardRow>(TICKET_SELECT + 'WHERE t.id = $1', [session.ticket_id]),
     db.query<WorkflowDefinitionRow>(
       'SELECT * FROM workflow_definition WHERE id = $1 AND version = $2',
       [session.workflow_id, session.workflow_version],
@@ -88,6 +89,7 @@ export async function loadSessionDetail(
     ),
     loadMoves(db, id),
     loadInputRequests(db, id),
+    readCardPermission(db, id),
   ]);
   const ticket = t.rows[0];
   const defRow = wd.rows[0];
@@ -98,11 +100,14 @@ export async function loadSessionDetail(
   // A cancel leaves the request unanswered; only a needs_input session is waiting on it (TD-079).
   const openInput = session.status === 'needs_input' ? (ir.rows[0] ?? null) : null;
   return {
-    card: toBoardCard(
-      ticket,
-      session,
-      openInput,
-      await cardView(db, session.workflow_id, session.workflow_version),
+    card: withPermission(
+      toBoardCard(
+        ticket,
+        session,
+        openInput,
+        await cardView(db, session.workflow_id, session.workflow_version),
+      ),
+      permission,
     ),
     workflow,
     workflow_version: session.workflow_version,
@@ -123,5 +128,6 @@ export async function loadSessionDetail(
     moves,
     ticket_body: ticket.body,
     input_requests: inputRequests,
+    agent_name: ticket.agent_name,
   };
 }

@@ -33,8 +33,56 @@ if (left > 0) {
 console.log(\`\${step}: ok\`);
 `;
 
+// M2-T30: the pnpm fixture's build/test fail unless pnpm runs them (`npm_config_user_agent`) in a
+// checkout where `pnpm install --frozen-lockfile` ran, so a pass proves the daemon followed the
+// lockfile. With no dependencies pnpm 10 writes only node_modules/.pnpm-workspace-state*.json, and
+// later versions also .modules.yaml: either counts.
+const PNPM_STEP_SCRIPT = `// e2e pnpm fixture: node scripts/step.mjs <build|test>
+import { existsSync, readdirSync } from 'node:fs';
+
+const step = process.argv[2];
+const agent = process.env.npm_config_user_agent ?? '';
+if (!agent.startsWith('pnpm/')) {
+  console.error(\`${FAILURE_MARKER} (\${step} ran under "\${agent}", not pnpm)\`);
+  process.exit(1);
+}
+const installed =
+  existsSync('node_modules/.modules.yaml') ||
+  (existsSync('node_modules') &&
+    readdirSync('node_modules').some((f) => f.startsWith('.pnpm-workspace-state')));
+if (!installed) {
+  console.error(\`${FAILURE_MARKER} (\${step}: pnpm install did not run)\`);
+  process.exit(1);
+}
+console.log(\`\${step}: ok (pnpm)\`);
+`;
+
+/** The lockfile pnpm 9+ writes for a package with no dependencies. */
+const EMPTY_PNPM_LOCK = `lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .: {}
+`;
+
+/**
+ * M2-T30: a pnpm repo (pnpm-lock.yaml, no dependencies) at `dir` whose `build` / `test` pass only
+ * when pnpm installed and runs them. Returns its path.
+ */
+export function createPnpmFixtureRepo(dir: string): string {
+  return createFixtureRepo(dir, { 'pnpm-lock.yaml': EMPTY_PNPM_LOCK }, PNPM_STEP_SCRIPT);
+}
+
 /** Create the fixture repo at `dir` (git, branch main, one commit). Returns its path. */
-export function createFixtureRepo(dir: string): string {
+export function createFixtureRepo(
+  dir: string,
+  extraFiles: Record<string, string> = {},
+  stepScript = STEP_SCRIPT,
+): string {
   mkdirSync(join(dir, 'scripts'), { recursive: true });
   writeFileSync(
     join(dir, 'package.json'),
@@ -49,7 +97,8 @@ export function createFixtureRepo(dir: string): string {
       2,
     ) + '\n',
   );
-  writeFileSync(join(dir, 'scripts', 'step.mjs'), STEP_SCRIPT);
+  writeFileSync(join(dir, 'scripts', 'step.mjs'), stepScript);
+  for (const [f, content] of Object.entries(extraFiles)) writeFileSync(join(dir, f), content);
   writeFileSync(join(dir, '.gitignore'), '.e2e/\nnode_modules/\n');
   writeFileSync(join(dir, 'README.md'), '# conductor E2E fixture\n');
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'pipe' });

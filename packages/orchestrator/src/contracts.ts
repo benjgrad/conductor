@@ -236,10 +236,12 @@ export async function insertBoardEvents(
  * Wrap an outbox row in its WS envelope (T04 dispatcher). `payload` is stored verbatim
  * (`commandPayloadForEffect`); the envelope carries the ROW's `fencing_token` (the session's
  * token when the command was written), never the session's current one (10-contracts
- * §Effect → WS). Throws for `connector_call` rows and on a payload that fails the schema.
+ * §Effect → WS). Throws for `connector_call` and `push_needs_input` rows (UX-15) and on a
+ * payload that fails the schema.
  */
 export function commandEnvelopeForOutboxRow(row: OutboxRow, msgId: string): OrchestratorCommand {
   if (row.kind === 'connector_call') throw new Error('connector_call rows have no WS message');
+  if (row.kind === 'push_needs_input') throw new Error('push_needs_input rows have no WS message');
   const msg = OrchestratorToDaemonSchema.parse({
     type: row.kind,
     msg_id: msgId,

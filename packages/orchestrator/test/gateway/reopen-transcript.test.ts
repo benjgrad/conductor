@@ -237,6 +237,59 @@ describe('reopenSession', () => {
     expect(await sessionRow(old.id)).toMatchObject({ status: 'done', machine_id: 'm-x' });
   });
 
+  describe('M2-T34: re-pins to the newest version of the workflow', () => {
+    /** `finished()`, moved onto a workflow of its own with versions `defs` (1, 2, …). */
+    async function onOwnWorkflow(defs: ((d: Record<string, unknown>) => void)[]) {
+      const id = `repin_${randomUUID().slice(0, 8)}`;
+      const base = JSON.parse(readFileSync(workflowPath, 'utf8')) as Record<string, unknown>;
+      for (const [i, edit] of defs.entries()) {
+        const d = { ...structuredClone(base), id, version: i + 1 };
+        edit(d);
+        await db.pool.query(
+          'INSERT INTO workflow_definition (id, version, definition) VALUES ($1, $2, $3)',
+          [id, i + 1, JSON.stringify(d)],
+        );
+      }
+      const f = await finished('m-x');
+      await db.pool.query('UPDATE ticket SET workflow_id = $2 WHERE id = $1', [f.ticket.id, id]);
+      await db.pool.query('UPDATE session SET workflow_id = $2 WHERE id = $1', [f.session.id, id]);
+      return { ...f, id };
+    }
+
+    it('a newer version with the start state: the session and the ticket move to it', async () => {
+      const { ticket, session: old } = await onOwnWorkflow([() => {}, () => {}]);
+      const res = await reopenSession(db.pool, old.id, 'Open the PR', 'ui');
+      if (res.status !== 'reopened') throw new Error(res.status);
+      expect((await sessionRow(res.sessionId)).workflow_version).toBe(2);
+      expect((await ticketRow(ticket.id)).workflow_version).toBe(2);
+      const ev = await one<EventRow>(
+        `SELECT * FROM event WHERE session_id = $1 AND type = 'operator.reopen'`,
+        [res.sessionId],
+      );
+      expect(ev.payload).toEqual({
+        text: 'Open the PR',
+        reopened_from: old.id,
+        actor: 'ui',
+        workflow_version: { from: 1, to: 2 },
+      });
+      // The old session keeps the version it ran.
+      expect((await sessionRow(old.id)).workflow_version).toBe(1);
+    });
+
+    it('a newer version without the start state: stays on the old one', async () => {
+      const { ticket, session: old } = await onOwnWorkflow([
+        () => {},
+        (d) => {
+          d.start = 'nowhere';
+        },
+      ]);
+      const res = await reopenSession(db.pool, old.id, 'again');
+      if (res.status !== 'reopened') throw new Error(res.status);
+      expect((await sessionRow(res.sessionId)).workflow_version).toBe(1);
+      expect((await ticketRow(ticket.id)).workflow_version).toBe(1);
+    });
+  });
+
   it('reopens a failed session too', async () => {
     const { session } = await finished('m-x', 'failed');
     expect((await reopenSession(db.pool, session.id, 'try again')).status).toBe('reopened');

@@ -1,4 +1,12 @@
-import type { InputRequestKind, SessionStatus, TicketKind } from '@conductor/shared';
+import type {
+  BoardCard,
+  BoardColumnInfo,
+  BoardColumnKind,
+  InputRequestKind,
+  SessionStatus,
+  TicketKind,
+} from '@conductor/shared';
+import { stateLabel } from '../workflow/review.js';
 
 export const KIND_LABELS: Record<InputRequestKind, string> = {
   agent_question: 'Question',
@@ -46,3 +54,42 @@ export const TICKET_KIND_LABELS: Record<TicketKind, string> = {
   work: 'Work',
   personal: 'Personal',
 };
+
+/** What a card's meta row shows; an absent label is already said by the column or a badge. */
+export interface CardMeta {
+  stateLabel?: string;
+  statusLabel?: string;
+  /** The status for screen readers when the column heading carries it visually (NFR-2). */
+  srStatusLabel?: string;
+}
+
+/** The status a column already says. "Work" columns are where work runs: agent, command, connector. */
+const STATUS_IMPLIED_BY_KIND: Partial<Record<SessionStatus, ReadonlySet<BoardColumnKind>>> = {
+  needs_input: new Set(['human']),
+  waiting_external: new Set(['event']),
+  running: new Set(['agent', 'command', 'connector']),
+  queued: new Set(['queued']),
+};
+
+const norm = (s: string) => s.replace(/_/g, ' ').trim().toLowerCase();
+
+/** UX card cleanup: a card says only what its column (and its badges) don't. */
+export function cardMeta(
+  card: Pick<BoardCard, 'workflow_state' | 'workflow_id' | 'status' | 'badges'>,
+  column: Pick<BoardColumnInfo, 'id' | 'title' | 'kind'>,
+): CardMeta {
+  const meta: CardMeta = {};
+  const label = card.workflow_state ? stateLabel(card.workflow_state) : card.workflow_id;
+  if (card.workflow_state !== column.id && norm(label) !== norm(column.title)) {
+    meta.stateLabel = label;
+  }
+  const status = card.status;
+  if (status === null) return meta;
+  if (STATUS_IMPLIED_BY_KIND[status]?.has(column.kind)) {
+    meta.srStatusLabel = STATUS_LABELS[status];
+  } else if (!(card.badges as readonly string[]).includes(status)) {
+    // A `failed` / `lost` badge already says it, for everyone.
+    meta.statusLabel = STATUS_LABELS[status];
+  }
+  return meta;
+}

@@ -246,6 +246,15 @@ export const AlertMessageSchema = msg('alert', AlertPayloadSchema, {
   seq: SeqSchema,
 });
 
+/**
+ * `command_ack.reason` of a `start_session` that asked to resume a Claude conversation
+ * (`resume_claude_session_id`) whose transcript is not on this machine: `claude --resume` would
+ * exit 1 ("No conversation found"). The daemon refuses before spawning; apply forgets the id and
+ * requeues, so the re-claim starts a fresh conversation with the full state prompt and the pending
+ * answer in it (10-contracts §Refusals).
+ */
+export const NO_CONVERSATION_REASON = 'no_conversation';
+
 /** Known `command_ack.reason` codes (free text allowed). */
 export const COMMAND_REFUSAL_REASONS = [
   'memory_pressure',
@@ -260,6 +269,13 @@ export const COMMAND_REFUSAL_REASONS = [
    * routes the QA start to needs_input with it, uncounted.
    */
   'checkout_failed',
+  /**
+   * ADR-0023 (M2-T29): a `permission_decision` for a request the daemon no longer holds (it timed
+   * out, the agent process exited, the daemon restarted). The orchestrator marks the request
+   * expired (`agent_gone`) if it is still pending; never retried.
+   */
+  'unknown_permission_request',
+  NO_CONVERSATION_REASON,
 ] as const;
 
 export const CommandAckPayloadSchema = z.object({
@@ -269,6 +285,11 @@ export const CommandAckPayloadSchema = z.object({
 });
 /** Session-scoped when the command was; duplicates are harmless (acks are idempotent). */
 export const CommandAckMessageSchema = msg('command_ack', CommandAckPayloadSchema, {});
+
+/** `session_event exit.stderr_tail`: the daemon keeps this many last stderr lines per agent. */
+export const STDERR_TAIL_LINES = 20;
+/** Cap on `session_event exit.stderr_tail` (UTF-16 code units, the daemon keeps the tail). */
+export const STDERR_TAIL_CHARS = 4000;
 
 /** Cap on `session_event no_outcome.last_output` (UTF-16 code units, the daemon keeps the tail). */
 export const NO_OUTCOME_OUTPUT_CHARS = 4000;
@@ -331,7 +352,9 @@ export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
   }),
   /**
    * The Claude process exited. `command_id` is the start_session that spawned it, so a late exit
-   * from an earlier process is told apart from the current one (10-contracts).
+   * from an earlier process is told apart from the current one (10-contracts). `stderr_tail`: the
+   * process's last STDERR_TAIL_LINES stderr lines (at most STDERR_TAIL_CHARS), absent when it wrote
+   * none (or from an older daemon); apply puts its last line in the failure question.
    */
   z.object({
     kind: z.literal('exit'),
@@ -339,6 +362,7 @@ export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
       command_id: UuidSchema,
       code: z.number().int().nullable(),
       signal: z.string().nullable(),
+      stderr_tail: z.string().max(STDERR_TAIL_CHARS).optional(),
     }),
   }),
   z.object({
@@ -449,6 +473,86 @@ export const TranscriptPayloadSchema = z.union([
 export type TranscriptPayload = z.infer<typeof TranscriptPayloadSchema>;
 export const TranscriptMessageSchema = msg('transcript', TranscriptPayloadSchema, machineEnv);
 
+// ------------------------------------------------------------ permission prompts (M2-T29)
+// ADR-0023, 10-contracts §Permission prompts. Additive: older daemons never send
+// `permission_request`, so older orchestrators never send `permission_decision`.
+
+/** ADR-0023 §2: a held prompt is denied when no human answers within this (daemon default). */
+export const DEFAULT_PERMISSION_TIMEOUT_MS = 30 * 60 * 1000;
+/**
+ * Cap on `permission_request.input` as UTF-8 JSON (64 KiB). A human can't review more than this
+ * on a card; over it the daemon denies the call itself ("input too large to review") and sends
+ * nothing.
+ */
+export const PERMISSION_INPUT_MAX_BYTES = 64 * 1024;
+/** Cap on the number of `permission_request.suggestions`. */
+export const PERMISSION_SUGGESTIONS_MAX = 10;
+/** Cap on `permission_request.suggestions` as UTF-8 JSON (16 KiB); over it the daemon drops them. */
+export const PERMISSION_SUGGESTIONS_MAX_BYTES = 16 * 1024;
+/** Cap on a tool name (`Bash`, `mcp__server__tool`, …). */
+export const PERMISSION_TOOL_MAX = 200;
+/** Cap on `permission_decision.message` (and the REST request's): the note a human denies with. */
+export const PERMISSION_MESSAGE_MAX = 2000;
+/** Cap on an exact allow rule (`Bash(<command>)`), `permission_decision.rule`. */
+export const PERMISSION_RULE_MAX = 4096;
+
+/** UTF-8 byte length of a value's JSON. */
+export function jsonByteLength(v: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(v)).length;
+}
+
+/** Claude's tool name, as the permission prompt tool receives it (`tool_name`). */
+export const PermissionToolSchema = z.string().min(1).max(PERMISSION_TOOL_MAX);
+
+/** The tool input Claude asked to run with, ≤ PERMISSION_INPUT_MAX_BYTES of JSON. */
+export const PermissionInputSchema = JsonObjectSchema.refine(
+  (v) => jsonByteLength(v) <= PERMISSION_INPUT_MAX_BYTES,
+  { message: `input is larger than ${PERMISSION_INPUT_MAX_BYTES} bytes of JSON` },
+);
+
+/**
+ * Claude Code's `permission_suggestions` (its PermissionUpdate objects), passed through as-is
+ * for display. Never applied by conductor: "Allow always" records conductor's own exact rule.
+ */
+export const PermissionSuggestionsSchema = z
+  .array(JsonObjectSchema)
+  .max(PERMISSION_SUGGESTIONS_MAX)
+  .refine((v) => jsonByteLength(v) <= PERMISSION_SUGGESTIONS_MAX_BYTES, {
+    message: `suggestions are larger than ${PERMISSION_SUGGESTIONS_MAX_BYTES} bytes of JSON`,
+  });
+
+export const PermissionBehaviorSchema = z.enum(['allow', 'deny']);
+export type PermissionBehavior = z.infer<typeof PermissionBehaviorSchema>;
+/** `always`: allow this exact call from now on (an exact allow rule). Only with `allow`. */
+export const PermissionScopeSchema = z.enum(['once', 'always']);
+export type PermissionScope = z.infer<typeof PermissionScopeSchema>;
+
+/**
+ * ADR-0023 §2: auto mode would still ask, so Claude called conductor's `permission` tool; the
+ * daemon holds the call open and asks the orchestrator. Session-scoped and **durable** (`seq`
+ * required, buffered and replayed like a `session_event`, deduped on `(machine_id, seq)`), so a
+ * socket drop while held loses nothing. `request_id` is the daemon's id for the held call and the
+ * idempotency key of everything after it (the stored row, the decision, a replay). `expires_at`
+ * is when the daemon will deny it itself (now + DEFAULT_PERMISSION_TIMEOUT_MS by default).
+ */
+export const PermissionRequestPayloadSchema = z.object({
+  request_id: UuidSchema,
+  /** Same as the envelope's (the orchestrator checks they match). */
+  session_id: UuidSchema,
+  tool: PermissionToolSchema,
+  input: PermissionInputSchema,
+  suggestions: PermissionSuggestionsSchema.optional(),
+  /** Claude's `tool_use_id` for the call, when it sent one (informational). */
+  tool_use_id: z.string().min(1).max(200).optional(),
+  expires_at: IsoDateTimeSchema,
+});
+export type PermissionRequestPayload = z.infer<typeof PermissionRequestPayloadSchema>;
+export const PermissionRequestMessageSchema = msg(
+  'permission_request',
+  PermissionRequestPayloadSchema,
+  durableSessionEnv,
+);
+
 export const DaemonToOrchestratorSchema = z.discriminatedUnion('type', [
   RegisterMessageSchema,
   HeartbeatMessageSchema,
@@ -460,6 +564,7 @@ export const DaemonToOrchestratorSchema = z.discriminatedUnion('type', [
   SessionEventMessageSchema,
   OutputMessageSchema,
   TranscriptMessageSchema,
+  PermissionRequestMessageSchema,
 ]);
 export type DaemonToOrchestrator = z.infer<typeof DaemonToOrchestratorSchema>;
 export type DaemonMessageType = DaemonToOrchestrator['type'];
@@ -538,7 +643,9 @@ export const StartSessionPayloadSchema = z.object({
    * The daemon re-checks `repo_path` and `mode` against its own inventory (never trusting the
    * message), reuses the session's existing worktree when there is one, else fetches the default
    * branch and adds the worktree from `origin/<default_branch>`; `base_ref` is then informational.
-   * Absent = M1 behaviour (local mode: the daemon's shared clone at `base_ref`).
+   * Absent = the daemon's shared clone (local mode): it fetches the default branch and bases a new
+   * worktree on `origin/<default branch>` (M2-T13a), with `base_ref` `HEAD` meaning exactly that.
+   * TD-181: this schema has no `default_branch` yet, so the base is the clone's `origin/HEAD`.
    */
   working_copy: WorkingCopySchema.optional(),
   /**
@@ -642,6 +749,12 @@ export const EvaluateConditionsArgsSchema = z.object({
     .optional(),
 });
 export type EvaluateConditionsArgs = z.infer<typeof EvaluateConditionsArgsSchema>;
+
+/**
+ * `pr_checks_green`'s `value` when the PR reports no checks at all (`<passed>/<total> passed`
+ * with total 0). The engine reads it for `no_checks_after` (U-072).
+ */
+export const NO_PR_CHECKS_VALUE = '0/0 passed';
 
 /**
  * One evaluated condition. `met` / `pending` / `failed` per ADR-0016's table; `unsupported` for
@@ -759,6 +872,42 @@ export const UpdateAvailableMessageSchema = msg(
   orchMachineEnv,
 );
 
+/**
+ * ADR-0023 §2: a human's answer to a `permission_request` (`command_id`, acked). Not an outbox
+ * row (U-099): the decision route sends it on the machine's live socket once the transaction
+ * that records the decision commits; best effort (TD-179), a lost one ends in the daemon's
+ * timeout deny.
+ * The daemon resolves the held call whose `request_id` matches, at most once: a second decision
+ * for the same request (a different command_id) is acked `accepted: true` and ignored; a request
+ * it no longer holds is refused `unknown_permission_request`. `scope: 'always'` only with
+ * `allow`; then `rule` is the exact allow rule the orchestrator recorded, and the daemon also
+ * returns it to Claude for the rest of this process (`updatedPermissions`, destination
+ * `session`). `message` is the human's note: on a deny, Claude sees it as the denial reason.
+ */
+export const PermissionDecisionPayloadSchema = z
+  .object({
+    command_id: UuidSchema,
+    request_id: UuidSchema,
+    behavior: PermissionBehaviorSchema,
+    scope: PermissionScopeSchema,
+    message: z.string().max(PERMISSION_MESSAGE_MAX).optional(),
+    rule: z.string().min(1).max(PERMISSION_RULE_MAX).optional(),
+  })
+  .refine((d) => d.behavior === 'allow' || d.scope === 'once', {
+    message: 'a deny is always scope once',
+    path: ['scope'],
+  })
+  .refine((d) => d.rule === undefined || d.scope === 'always', {
+    message: 'rule is only sent with scope always',
+    path: ['rule'],
+  });
+export type PermissionDecisionPayload = z.infer<typeof PermissionDecisionPayloadSchema>;
+export const PermissionDecisionMessageSchema = msg(
+  'permission_decision',
+  PermissionDecisionPayloadSchema,
+  orchSessionEnv,
+);
+
 export const OrchestratorToDaemonSchema = z.discriminatedUnion('type', [
   RegisteredMessageSchema,
   WorkAssignmentMessageSchema,
@@ -772,6 +921,7 @@ export const OrchestratorToDaemonSchema = z.discriminatedUnion('type', [
   KillMessageSchema,
   ProtocolErrorMessageSchema,
   FetchTranscriptMessageSchema,
+  PermissionDecisionMessageSchema,
   UpdateAvailableMessageSchema,
 ]);
 export type OrchestratorToDaemon = z.infer<typeof OrchestratorToDaemonSchema>;
@@ -780,7 +930,16 @@ export type OrchestratorMessageType = OrchestratorToDaemon['type'];
 /** Commands delivered through the outbox (carry `command_id`, deduped by the daemon). */
 export type OrchestratorCommand = Extract<
   OrchestratorToDaemon,
-  { type: 'start_session' | 'run_cmd' | 'run_action' | 'send_input' | 'send_message' | 'kill' }
+  {
+    type:
+      | 'start_session'
+      | 'run_cmd'
+      | 'run_action'
+      | 'send_input'
+      | 'send_message'
+      | 'kill'
+      | 'permission_decision';
+  }
 >;
 
 export const DAEMON_MESSAGE_TYPES = DaemonToOrchestratorSchema.options.map(

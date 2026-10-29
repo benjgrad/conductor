@@ -5,6 +5,7 @@ import {
   ApproveSessionRequestSchema,
   CancelSessionRequestSchema,
   CreateTicketRequestSchema,
+  FreshConversationRequestSchema,
   ReopenSessionRequestSchema,
   SaveWorkflowRequestSchema,
   SendMessageRequestSchema,
@@ -33,6 +34,8 @@ import type { TicketRow } from '../db/types.js';
 import { cardView } from '../engine/board-view.js';
 import { reopenSession } from '../engine/reopen.js';
 import type { MachineSockets } from '../gateway/revoke.js';
+import type { PushConfig } from '../push/config.js';
+import type { PushSender } from '../push/sender.js';
 import { conductorDefaultAvailable, seedConductorWorkflow } from '../engine/seed.js';
 import type { CreateApi } from '../main.js';
 import { parseLastEventId, serveBoardStream } from '../stream/board.js';
@@ -40,9 +43,12 @@ import { serveOutputStream } from '../stream/output.js';
 import { SseHub } from '../stream/sse.js';
 import { parseBody, pathString, sendError } from './errors.js';
 import { registerMachineRoutes } from './machines.js';
+import { registerPermissionRoutes } from './permissions.js';
+import { registerPushRoutes } from './push.js';
 import { listWorkflows, loadBoard, loadWorkflowDetail, toTicketDto } from './queries.js';
 import { httpSecurityFromEnv, securityHookFor, type HttpSecurityOptions } from './security.js';
 import { loadSessionDetail, sessionExists } from './sessions.js';
+import { registerTeamRoutes } from './team.js';
 
 // M1-T08: REST + SSE for the UI (03 §UI ↔ orchestrator), as the `CreateApi` factory (main.ts).
 
@@ -84,6 +90,10 @@ export interface ApiOptions {
   installUrl?: string;
   /** M2-T17: the daemon version served (`servedVersion(build)`); null = none, never outdated. */
   servedVersion?: string | null;
+  /** UX-15: Web Push (also a CreateApi dep); null = the /api/push/* routes answer push_disabled. */
+  push?: PushConfig | null;
+  /** UX-15: the push sender for POST /api/push/test (default: web-push with `push`). */
+  pushSender?: PushSender;
 }
 
 const NO_SOCKETS: MachineSockets = { disconnectMachine: () => undefined };
@@ -104,6 +114,9 @@ export const createApi = (({
   sockets = NO_SOCKETS,
   installUrl,
   servedVersion = null,
+  machineTransport,
+  push = null,
+  pushSender,
 }: ApiDeps) => {
   const app = Fastify({ logger: false, trustProxy: trustedProxy ?? false });
   // M1-T14 / M2-T08: Host / Origin / content-type guard before routing (09), then who is asking.
@@ -122,6 +135,23 @@ export const createApi = (({
   });
   const hub = new SseHub();
   const logError = (err: unknown) => app.log.error(err);
+  // M2-T29c (ADR-0023): the permission-prompt list and decision routes.
+  void app.register(registerPermissionRoutes, {
+    db,
+    boardBus,
+    ...(machineTransport ? { transport: machineTransport } : {}),
+    now,
+    log: (m) => console.warn(`[api] ${m}`),
+  });
+  // UX-15: Web Push subscriptions and the test push.
+  void app.register(registerPushRoutes, {
+    db,
+    push,
+    ...(pushSender ? { sender: pushSender } : {}),
+    now,
+  });
+  // UX-13a: the account's agent team.
+  void app.register(registerTeamRoutes, { db });
 
   // JSON bodies; an empty body (POST /cancel with no payload) is `{}`.
   app.removeContentTypeParser('application/json');
@@ -220,6 +250,38 @@ export const createApi = (({
       input_request_id: open.rows[0]?.id ?? null,
     };
     return applyFromRoute(reply, 'transition', id, event);
+  });
+
+  /**
+   * "Start fresh conversation…" → `human.fresh_conversation {text, actor: 'ui'}` (10-contracts
+   * §Fresh conversation). Like /transition, the open input_request rides along and the wrapper
+   * closes it (answered_by = 'ui').
+   */
+  app.post<IdParams>(API_PATHS.sessionFreshConversation(':id'), async (req, reply) => {
+    const id = sessionId(req.params.id, reply);
+    if (id === undefined) return reply;
+    const body = parseBody(FreshConversationRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const open = await db.query<{ id: string }>(
+      'SELECT id FROM input_request WHERE session_id = $1 AND answer IS NULL ' +
+        'ORDER BY created_at DESC LIMIT 1',
+      [id],
+    );
+    const event: EngineEvent = {
+      type: 'human.fresh_conversation',
+      text: body.text,
+      actor: UI_ACTOR,
+      input_request_id: open.rows[0]?.id ?? null,
+    };
+    const result = await engine.applyEvent(id, event);
+    if (result.status === 'applied') return reply.code(202).send(OK);
+    const { status, code } = httpForApplyResult('fresh_conversation', result);
+    const message =
+      result.status === 'ignored' && result.reason !== 'session_terminal'
+        ? 'the session is not waiting on a human with an agent to return to; a fresh ' +
+          `conversation can only start then (${result.reason})`
+        : `${event.type}: ${result.reason}`;
+    return sendError(reply, status, code, message);
   });
 
   app.post<IdParams>('/api/sessions/:id/approve', async (req, reply) => {
@@ -383,7 +445,13 @@ export const createApi = (({
           type: 'card.upserted',
           session_id: null,
           ticket_id: row.id,
-          card: toBoardCard(row, null, null, await cardView(tx, row.workflow_id, null)),
+          // UX-13a: a new ticket holds no agent until a claim starts it.
+          card: toBoardCard(
+            { ...row, agent_name: null },
+            null,
+            null,
+            await cardView(tx, row.workflow_id, null),
+          ),
         },
       ]);
       return { ticket: row, events: evs };

@@ -15,7 +15,8 @@
             "conditions": [
               { "type": "pr_checks_green" },
               { "type": "azure_pipeline_succeeded", "pipeline": "ci" },
-              { "type": "jira_fields_set", "fields": ["resolution"], "enabled": false }
+              { "type": "jira_fields_set", "fields": ["resolution"], "enabled": false },
+              { "type": "pr_approvals", "min": 1 }
             ],
             "condition_timeout": "3d"
           },

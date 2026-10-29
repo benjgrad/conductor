@@ -11,6 +11,7 @@ export * from './workflow/transition-rules.js';
 export * from './workflow/fold.js';
 export * from './workflow/fixtures.js';
 export * from './workflow/capabilities.js';
+export * from './workflow/screenshots.js';
 export * from './engine/types.js';
 export {
   apply,
@@ -39,6 +40,7 @@ export * from './api/rest.js';
 export * from './api/accounts.js';
 export * from './api/sse.js';
 export * from './api/fixtures.js';
+export * from './agents/names.js';
 
 export const PACKAGE_NAME = '@conductor/shared';
 

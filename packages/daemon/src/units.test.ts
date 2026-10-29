@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadConfig, type MachineFacts } from './config.js';
 import { PortPool, PortPoolExhaustedError, portEnv } from './ports.js';
@@ -15,7 +15,7 @@ describe('loadConfig', () => {
   it('defaults: localhost orchestrator on CONDUCTOR_PORT, 25 % owner reserve, port pool', () => {
     const c = loadConfig({}, facts);
     expect(c.orchestratorUrl).toBe('ws://127.0.0.1:7400/ws/daemon');
-    expect(c.rootDir).toBe('/home/me/.conductor');
+    expect(c.rootDir).toBe(resolve('/home/me', '.conductor'));
     expect(c.machineId).toBe('box');
     expect(c.budgetCpu).toBe(6);
     expect(c.budgetMemMb).toBe(12288);
@@ -148,7 +148,17 @@ describe('helpers', () => {
     expect(buildAppendSystemPrompt(null)).toBe(CONDUCTOR_INSTRUCTIONS);
     expect(buildAppendSystemPrompt('  ')).toBe(CONDUCTOR_INSTRUCTIONS);
     expect(buildAppendSystemPrompt('use pnpm')).toMatch(
-      /^You are running[\s\S]*CLAUDE\.md\)\n\nuse pnpm$/,
+      /^You are running[\s\S]*# Repository instructions \(CLAUDE\.md[^\n]*\)\n\nuse pnpm$/,
     );
+  });
+
+  it('tells the agent to attempt commands and ask on a denial, not refuse (ADR-0023)', () => {
+    expect(CONDUCTOR_INSTRUCTIONS).toMatch(/installing toolchains/);
+    expect(CONDUCTOR_INSTRUCTIONS).toMatch(/If a command needs approval, just run it/);
+    expect(CONDUCTOR_INSTRUCTIONS).toMatch(/If a call is denied[^\n]*`ask_user`/);
+    expect(CONDUCTOR_INSTRUCTIONS).toMatch(
+      /AskUserQuestion\), use a permission prompt or `ask_user`/,
+    );
+    expect(CONDUCTOR_INSTRUCTIONS).toMatch(/Never push/);
   });
 });

@@ -2,6 +2,7 @@
 # Static checks of compose.yml, env.example, the Dockerfile and .dockerignore (M2-T07). No Docker
 # needed; `docker compose config` and `docker build` run on gradyserver in the lead's QA step.
 # Structural checks use PyYAML when python3 has it; the grep checks always run.
+# shellcheck disable=SC2016 # single-quoted patterns match a literal $ on purpose
 set -uo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -40,6 +41,10 @@ check "subnet default 192.168.80.0/24" has "$compose" \
 check "gateway default 192.168.80.1" has "$compose" 'gateway: \$\{CONDUCTOR_GATEWAY:-192\.168\.80\.1\}'
 check "trusted proxy default = gateway" has "$compose" \
   'CONDUCTOR_TRUSTED_PROXY: \$\{CONDUCTOR_TRUSTED_PROXY:-192\.168\.80\.1\}'
+for var in CONDUCTOR_VAPID_PUBLIC_KEY CONDUCTOR_VAPID_PRIVATE_KEY CONDUCTOR_VAPID_SUBJECT; do
+  check "orchestrator env $var (optional, empty = push off)" has "$orch" \
+    "^      $var: \\\$\\{$var:-\\}"
+done
 
 # Every ${VAR} used in compose.yml is documented in env.example (CONDUCTOR_GIT_SHA is set by
 # deploy.sh and documented in env.example's header instead).

@@ -13,7 +13,7 @@
 // E2E_REAL_CLAUDE=1 runs only the ask/answer scenario against the installed `claude` on haiku
 // (spends money; never in CI). See e2e/README.md.
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NO_OUTCOME_QUESTION } from '../packages/shared/src/index.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -33,16 +33,20 @@ const M1_REVIEWED = JSON.parse(
   states: { implement: { on: { done: { requirements: { items: string[] } } } } };
 };
 const GATE_ITEMS = M1_REVIEWED.states.implement.on.done.requirements.items;
-/** ADR-0011: conductor v2 (seeded as latest), the work reviewer's items on ready_for_testing. */
-const CONDUCTOR_V2 = JSON.parse(
-  readFileSync(join(REPO_ROOT, 'docs/design/workflows/conductor.v2.json'), 'utf8'),
+/**
+ * ADR-0011 / ADR-0025 / M2-T34: conductor v4 (seeded as latest; v3 without the personal `done`),
+ * the work reviewer's items on ready_for_testing.
+ */
+const CONDUCTOR_LATEST = JSON.parse(
+  readFileSync(join(REPO_ROOT, 'docs/design/workflows/conductor.v4.json'), 'utf8'),
 ) as {
+  version: number;
   states: {
     implementing: { on: { ready_for_testing: { requires: { review: { items: string[] } } } } };
   };
 };
 const CONDUCTOR_V2_REVIEW_ITEMS =
-  CONDUCTOR_V2.states.implementing.on.ready_for_testing.requires.review.items;
+  CONDUCTOR_LATEST.states.implementing.on.ready_for_testing.requires.review.items;
 
 /** Fake Claude scenarios (fake-claude.mjs), picked per ticket by `fake-scenario: <name>`. */
 const SCENARIOS: Record<string, unknown> = {
@@ -75,6 +79,28 @@ const SCENARIOS: Record<string, unknown> = {
       ],
     ],
     defaultTurn: [{ complete_state: { retry_prompt: '$answer' } }],
+  },
+  // 10-contracts §Refusals `no_conversation`: asks, then its process goes away while parked. The
+  // answer's resume finds no transcript (deleted by the test, as if the conversation ran on
+  // another machine), so a fresh conversation starts on the same worktree: it sees the marker
+  // file and finishes with the prompt it got (the full state prompt with the answer in it).
+  no_conversation: {
+    turns: [
+      [
+        {
+          if_exists: {
+            path: '.e2e/asked',
+            then: [{ complete_state: { fresh_prompt: '$answer' } }],
+            else: [
+              { write_file: { path: '.e2e/asked', content: '1' } },
+              { ask_user: 'Which port should /health listen on?' },
+              { sleep: 200 },
+              { exit: 0 },
+            ],
+          },
+        },
+      ],
+    ],
   },
   ask_answer: {
     turns: [
@@ -622,11 +648,11 @@ describe.skipIf(REAL)('fake Claude', () => {
     expect(h.some((t) => t.includes('Reviewing the requirements.'))).toBe(false);
   });
 
-  it('ADR-0010 on conductor v2: Planning → Implementing → ready_for_testing (red once) → open_pr → conditions → Waiting external → Approve → Done', async () => {
-    // The fake gh reports this ticket's PR green and approved from its first poll (v2 polls
-    // every 2 min, so the first answer has to be the one that lets it through).
+  it('ADR-0010 on conductor (latest): Planning → Implementing → ready_for_testing (red once) → open_pr → conditions → Waiting external → Approve → Done', async () => {
+    // The fake gh reports this ticket's PR green and approved from its first poll (ready_for_testing
+    // polls every 2 min, so the first answer has to be the one that lets it through).
     stack.setFakePr('Conductor flow', { approvals: 1, checks: 'green' });
-    // No workflow_id: the server default, conductor (v2, seeded as latest).
+    // No workflow_id: the server default, conductor (v3, seeded as latest).
     const t = await api.createTicket({
       title: 'Conductor flow',
       body: fakeBody('conductor'),
@@ -673,7 +699,7 @@ describe.skipIf(REAL)('fake Claude', () => {
 
     const sid = waiting.session_id!;
     const detail = await api.session(sid);
-    expect(detail.workflow_version).toBe(2);
+    expect(detail.workflow_version).toBe(CONDUCTOR_LATEST.version);
     expect(detail.retry_counters).toEqual({ 'move:implementing:ready_for_testing': 2 });
     // The first unmet: the work was not committed (the worker's next prompt, in its transcript).
     const prompts = (await api.transcript(sid)).chunks
@@ -744,6 +770,52 @@ describe.skipIf(REAL)('fake Claude', () => {
     expect(done).toMatchObject({ status: 'done', pr_url: waiting.pr_url, badges: [] });
   });
 
+  it('no_conversation: an answer whose conversation is not on the machine continues in a fresh one', async () => {
+    const id = await ticket('No conversation here', fakeBody('no_conversation'));
+    const parked = await board.card(
+      id,
+      'needs_input',
+      (c) => c.column === 'needs_input' && c.input_request !== null,
+    );
+    const sid = parked.session_id!;
+    const { claudeSessionId: first } = fakeState('no_conversation');
+    // The parked process is gone, and so is its transcript (as on a machine that never ran it).
+    await waitFor('the parked process to exit', () => Promise.resolve(!running(first)), 10_000);
+    const projects = join(stack.claudeConfigDir, 'projects');
+    for (const d of readdirSync(projects)) {
+      rmSync(join(projects, d, `${first}.jsonl`), { force: true });
+    }
+
+    await api.answer(sid, parked.input_request!.id, '8080');
+    await board.card(id, 'done', (c) => c.column === 'done', 30_000);
+    expect(board.states(id)).toEqual([
+      'implement',
+      'needs_input',
+      'implement',
+      'build',
+      'test',
+      'done',
+    ]);
+    // A second, fresh Claude session; the first was never resumed (refused before spawning).
+    const states = fakeStates('no_conversation');
+    expect(states).toHaveLength(2);
+    const second = states.find((st) => st.claudeSessionId !== first)!.claudeSessionId;
+    const starts = readFileSync(stack.fakeArgvLog, 'utf8')
+      .split('\n')
+      .filter((l) => l.trim() !== '')
+      .map((l) => (JSON.parse(l) as { argv: string[] }).argv)
+      .filter((argv) => argv.includes(first) || argv.includes(second));
+    expect(starts).toHaveLength(2);
+    for (const argv of starts) {
+      expect(argv).toContain('--session-id');
+      expect(argv).not.toContain('--resume');
+    }
+    // Its prompt was the full state prompt with the human's answer in it.
+    const fresh = (await api.session(sid)).context.implement?.fresh_prompt;
+    expect(fresh).toContain('fake-scenario: no_conversation');
+    expect(fresh).toContain('## Answer from a human\n\n8080');
+  });
+
   it('shutdown: stopping the daemon kills a parked Claude process; nothing is left behind', async () => {
     const id = await ticket('Parked at shutdown', fakeBody('ask_answer'));
     await board.card(id, 'needs_input', (c) => c.column === 'needs_input');
@@ -764,6 +836,16 @@ describe.runIf(REAL)('real Claude (haiku, E2E_REAL_CLAUDE=1; spends money)', () 
     await askAnswerRoundTrip(id, 150_000, null);
   }, 300_000);
 });
+
+/** Whether a process whose command line mentions `text` (e.g. a Claude session id) runs. */
+function running(text: string): boolean {
+  try {
+    execFileSync('pgrep', ['-f', text], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false; // pgrep exits 1 when nothing matches
+  }
+}
 
 /** The fake's persisted state for every Claude session that ran the named scenario. */
 function fakeStates(scenario: string): { claudeSessionId: string; turn: number }[] {

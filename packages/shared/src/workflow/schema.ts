@@ -109,8 +109,10 @@ export const EntryRequirementsSchema = z
     /**
      * (Ben, 2026-10-26) Checks run in a fresh, conductor-owned checkout of the exact commit, never
      * the agent's worktree. `setup` runs once in it before the checks (e.g. `npm ci`). Omitted =
-     * auto-detect: `package-lock.json` → `npm ci`, else `package.json` → `npm install`, else
-     * nothing. '' = no setup. A failed setup is unmet, like a failed check.
+     * auto-detect from the lockfile (M2-T30): `pnpm-lock.yaml` → `pnpm install --frozen-lockfile`,
+     * `yarn.lock` → `yarn install --immutable`, `package-lock.json` → `npm ci`, else
+     * `package.json` → `npm install`, else nothing. '' = no setup. A failed setup is unmet, like a
+     * failed check.
      */
     setup: z.string().max(2_000).optional(),
     review: z
@@ -167,10 +169,18 @@ export const TransitionActionSchema = z.enum([
 ]);
 export type TransitionAction = z.infer<typeof TransitionActionSchema>;
 /**
- * The actions that run in M1b (the validator refuses the others, "not available yet"). ADR-0020's
- * three PR actions join in M2r-T02.
+ * The actions conductor can run (the validator refuses the others, "not available yet"). ADR-0020's
+ * three PR actions run from M2r (M2r-T02).
  */
-export const AVAILABLE_TRANSITION_ACTIONS: readonly TransitionAction[] = ['open_pr'];
+export const AVAILABLE_TRANSITION_ACTIONS: readonly TransitionAction[] = [
+  'open_pr',
+  'inspect_pr',
+  'merge_pr',
+  'close_pr',
+];
+
+/** A path glob (minimatch style, e.g. `packages/orchestrator/migrations/**`). */
+export const PathGlobSchema = z.string().trim().min(1).max(200);
 
 const conditionCommon = {
   /** Default true. A disabled condition is declared but skipped (Jira / Azure until M5). */
@@ -183,18 +193,32 @@ const conditionCommon = {
  * ADR-0011 external conditions, evaluated on the user's machine (`run_action evaluate_conditions`)
  * and re-polled until all are met, one turns false, or `condition_timeout` passes.
  * - `pr_checks_green`: every status check on conductor's PR (`context.__pr.pr_url`) succeeded;
+ *   with `no_checks_after`, a PR that still reports no checks that long after the conditions
+ *   started counts as met (a repo without CI, U-072); without it, no checks stays pending;
  * - `pr_approvals`: at least `min` approving reviews, and no "changes requested";
  * - `pr_merged`: the PR is merged;
+ * - `pr_screenshots` (M2-T35a): the PR changes no file matching `ui_paths`, or its body carries at
+ *   least `min_pairs` before/after screenshot pairs (the table `open_pr` writes, M2-T35b);
  * - `azure_pipeline_succeeded` / `jira_fields_set`: M5 (the daemon reports them `unsupported`).
  */
 export const ConditionSchema = z.discriminatedUnion('type', [
-  z.strictObject({ type: z.literal('pr_checks_green'), ...conditionCommon }),
+  z.strictObject({
+    type: z.literal('pr_checks_green'),
+    no_checks_after: DurationSchema.optional(),
+    ...conditionCommon,
+  }),
   z.strictObject({
     type: z.literal('pr_approvals'),
     min: z.number().int().min(1).max(20),
     ...conditionCommon,
   }),
   z.strictObject({ type: z.literal('pr_merged'), ...conditionCommon }),
+  z.strictObject({
+    type: z.literal('pr_screenshots'),
+    ui_paths: z.array(PathGlobSchema).min(1).max(50),
+    min_pairs: z.number().int().min(1).max(20).optional(),
+    ...conditionCommon,
+  }),
   z.strictObject({
     type: z.literal('azure_pipeline_succeeded'),
     pipeline: z.string().trim().min(1).max(200),
@@ -211,6 +235,7 @@ export const ConditionTypeSchema = z.enum([
   'pr_checks_green',
   'pr_approvals',
   'pr_merged',
+  'pr_screenshots',
   'azure_pipeline_succeeded',
   'jira_fields_set',
 ]);
@@ -221,6 +246,7 @@ export const AVAILABLE_CONDITION_TYPES: readonly ConditionType[] = [
   'pr_checks_green',
   'pr_approvals',
   'pr_merged',
+  'pr_screenshots',
 ];
 
 /** `enabled` defaults to true. */
@@ -238,6 +264,8 @@ export function conditionLabel(c: Condition): string {
       return c.min === 1 ? 'PR approved' : `PR approvals ≥ ${c.min}`;
     case 'pr_merged':
       return 'PR merged';
+    case 'pr_screenshots':
+      return 'Before/after screenshots';
     case 'azure_pipeline_succeeded':
       return `Pipeline ${c.pipeline} succeeded`;
     case 'jira_fields_set':
@@ -250,8 +278,6 @@ export const ApprovalIdSchema = z
   .string()
   .regex(/^[a-z][a-z0-9_-]*$/, 'lower-case slug')
   .max(40);
-/** A path glob (minimatch style, e.g. `packages/orchestrator/migrations/**`). */
-export const PathGlobSchema = z.string().trim().min(1).max(200);
 
 /**
  * ADR-0020 §5: an explicit human checkbox on a move, *active* when the PR changes a file matching

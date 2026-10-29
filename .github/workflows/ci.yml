@@ -1,0 +1,104 @@
+# CI/CD. Every PR runs the gates; every push to main runs them again and, if they pass, deploys
+# that commit to gradyserver with deploy/gradyserver/ci-deploy.sh, on a self-hosted runner on
+# gradyserver itself: nothing connects in, and no deploy credential exists. Runbook:
+# docs/setup/deploy-gradyserver.md §12.
+#
+# The gates are scripts/ci.sh, the same script run locally, so CI and a laptop never disagree on
+# what "green" means. The repo is private on the free plan, so GitHub can't require a check or
+# protect main: `needs: gates` is the gate, structurally, and the runner's job-started hook refuses
+# any job that isn't this deploy job from main (runbook §12).
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Commit to deploy (default: main's head). A rollback is an older sha."
+        required: false
+      drill:
+        description: 'Fail the first smoke test on purpose, to prove the rollback and the alert'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# A new push to a PR cancels that PR's previous run. Runs on main are never cancelled: each one
+# may end in a deploy.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  gates:
+    name: gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Full history, so the test tiers (scripts/test-tiers.js) find the merge-base with
+      # origin/main: on a PR that is the base, and the diff is exactly the PR.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # pnpm version from package.json `packageManager`; .npmrc `use-node-version` pins the Node
+      # that runs the scripts.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      # Postgres comes from scripts/db.sh through docker compose (Docker is on the runner).
+      # shellcheck is preinstalled, so the deploy kit tests run it.
+      - name: scripts/ci.sh
+        run: scripts/ci.sh
+        env:
+          CI: 'true'
+          # A PR runs only the slow test tiers its diff reaches (e.g. no daemon process tests for
+          # a web change). main runs every tier, so a deploy is still gated by all of them.
+          CONDUCTOR_CI_TIERED: ${{ github.event_name == 'pull_request' && '1' || '' }}
+
+  deploy:
+    name: deploy
+    needs: gates
+    # Only main of this repository, never a PR. workflow_dispatch is the by-hand door: a rollback
+    # (pass an older sha) or a drill. The runner's job-started hook enforces the same, on the box.
+    if: >-
+      github.ref == 'refs/heads/main' && github.repository == 'benjgrad/conductor' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: [self-hosted, gradyserver-conductor]
+    timeout-minutes: 30
+    environment:
+      name: gradyserver
+      url: https://conductor.gradyserver.com
+    # One deploy at a time, never cancelled half-way. GitHub keeps only the newest pending run, so
+    # a burst of merges deploys the last one.
+    concurrency:
+      group: deploy-gradyserver
+      cancel-in-progress: false
+    steps:
+      # Full history: ci-deploy.sh diffs the live sha against this one for migration changes.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # A push run that finished its gates after a newer commit landed must not overwrite that newer
+      # commit's deploy: only main's current head is deployed. A dispatch always deploys.
+      - name: still the head of main?
+        id: head
+        run: |
+          head="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch || "$head" == "$GITHUB_SHA" ]]; then
+            echo "deploy=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >>"$GITHUB_OUTPUT"
+            echo "::notice::main is now $head, not $GITHUB_SHA; skipping (the newer commit's run deploys)"
+          fi
+      - name: deploy/gradyserver/ci-deploy.sh
+        if: steps.head.outputs.deploy == 'true'
+        env:
+          # Through env, never interpolated into the script: an input is text, not code.
+          TARGET: ${{ inputs.sha || github.sha }}
+          DEPLOY_DRILL: ${{ inputs.drill && '1' || '' }}
+        run: deploy/gradyserver/ci-deploy.sh "$TARGET"

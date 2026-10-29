@@ -1,13 +1,12 @@
 #!/usr/bin/env node
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { createCliDriver } from './claude/cli-driver.js';
+import { createCliDriver, probePermissionPrompts } from './claude/cli-driver.js';
 import { startOutcomeServer } from './claude/outcome-server.js';
 import { configCommand, CONFIG_USAGE } from './commands/config.js';
 import { enroll, ENROLL_USAGE } from './commands/enroll.js';
 import { loadConfig } from './config.js';
 import { Daemon } from './daemon.js';
 import { watchSighup } from './inventory/report.js';
+import { execFileCli, nativeExeProblem } from './platform/index.js';
 
 // `conductor-daemon` entry: env → config, the real ADR-0005 CLI driver (its MCP outcome server on
 // 127.0.0.1), signals. TD-021 resolved: a static import of the T05b driver, so tsc checks the
@@ -24,21 +23,35 @@ const USAGE = [
 async function claudeCodeVersion(
   bin = process.env.CONDUCTOR_CLAUDE_BIN ?? 'claude',
 ): Promise<string | null> {
-  try {
-    const { stdout } = await promisify(execFile)(bin, ['--version'], { timeout: 10_000 });
-    return /\d+\.\d+\.\d+/.exec(stdout)?.[0] ?? (stdout.trim() || null);
-  } catch {
+  const notNative = nativeExeProblem(bin);
+  if (notNative !== null) {
+    process.stderr.write(`[conductor-daemon] ${notNative}\n`);
     return null;
   }
+  const stdout = await new Promise<string | null>((done) => {
+    execFileCli(bin, ['--version'], { timeout: 10_000 }, (err, out) => done(err ? null : out));
+  });
+  if (stdout === null) return null;
+  return /\d+\.\d+\.\d+/.exec(stdout)?.[0] ?? (stdout.trim() || null);
 }
 
 async function run(): Promise<void> {
   const config = loadConfig(process.env);
   const outcomeServer = await startOutcomeServer();
+  // ADR-0023: auto mode + prompts to the board need a CLI that has them; probed once per start.
+  const prompts = await probePermissionPrompts();
+  if (!prompts.supported) {
+    // TD-187: ADR-0023 asks for a machine alert; the alert frame has no kind for this yet.
+    process.stderr.write(
+      `[conductor-daemon] WARNING: this Claude Code can't send permission prompts to conductor (${prompts.reason ?? 'unknown'}); ` +
+        'agents run with the old flags and anything that would prompt is denied. Update Claude Code.\n',
+    );
+  }
   const driver = createCliDriver({
     outcomeServer,
     killGraceMs: config.killGraceMs,
     endGraceMs: config.endGraceMs,
+    permissionPrompts: prompts.supported,
   });
   const daemon = new Daemon({
     config,

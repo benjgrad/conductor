@@ -321,6 +321,7 @@ describe('engine contract (ADR-0011)', () => {
       conditions: [],
       conditions_deadline: null,
       conditions_poll_ms: null,
+      conditions_started_at: null,
       conditions_note: null,
     });
     expect(GateStepSchema.parse(MOVE_STEP_FIXTURE)).toEqual(MOVE_STEP_FIXTURE);

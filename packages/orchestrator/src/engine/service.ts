@@ -23,6 +23,8 @@ import {
 import { withTransaction } from '../db/index.js';
 import type { InputRequestRow } from '../db/types.js';
 import type { Db } from '../main.js';
+import { expireOnApply, readCardPermission, withPermission } from '../permissions/store.js';
+import { enqueueNeedsInputPush } from '../push/enqueue.js';
 import { CardViews } from './board-view.js';
 import {
   DefinitionCache,
@@ -33,6 +35,7 @@ import {
   toSnapshot,
   writeSession,
 } from './rows.js';
+import { repinParked } from './repin.js';
 
 /** Session statuses after which apply ignores every event. */
 const TERMINAL: ReadonlySet<string> = new Set(['done', 'failed', 'lost']);
@@ -51,12 +54,18 @@ export interface EngineServiceCoreDeps {
   apply?: ApplyFn;
   /** Called after a wrapper-owned COMMIT that wrote outbox rows (wakes the dispatcher). */
   onOutboxWritten?: () => void;
+  /** UX-15: Web Push is configured; a new input_request enqueues push_needs_input rows. */
+  pushEnabled?: boolean;
+  /** Called after a wrapper-owned COMMIT that wrote push rows (wakes the push dispatcher). */
+  onPushWritten?: () => void;
 }
 
 /**
  * The engine event row's payload: the event minus `type` (+ the ignore reason, if any).
  * Raw command output never goes in an event row (02-data-model §event, ADR-0003):
- * `command.exited.output_tail` is replaced by its UTF-8 byte length, `output_tail_bytes`.
+ * `command.exited.output_tail` is replaced by its UTF-8 byte length, `output_tail_bytes`, and
+ * `agent.exited.stderr_tail` by `stderr_tail_bytes` (stderr may carry secrets; only apply's
+ * clipped last line reaches the failure question).
  */
 function eventPayload(event: EngineEvent, ignored: string | null): JsonObject {
   const payload = JSON.parse(JSON.stringify(event)) as JsonObject;
@@ -64,6 +73,10 @@ function eventPayload(event: EngineEvent, ignored: string | null): JsonObject {
   if (event.type === 'command.exited') {
     delete payload.output_tail;
     payload.output_tail_bytes = Buffer.byteLength(event.output_tail, 'utf8');
+  }
+  if (event.type === 'agent.exited' && event.stderr_tail !== undefined) {
+    delete payload.stderr_tail;
+    payload.stderr_tail_bytes = Buffer.byteLength(event.stderr_tail, 'utf8');
   }
   if (ignored !== null) payload.ignored = ignored;
   return payload;
@@ -91,13 +104,14 @@ export class EngineServiceImpl implements EngineService {
       const { result } = await this.applyInTx(opts.tx, sessionId, event, opts);
       return result; // caller publishes result.boardEvents after its COMMIT
     }
-    const { result, wroteOutbox } = await withTransaction(this.deps.db, (tx) =>
+    const { result, wroteOutbox, wrotePush } = await withTransaction(this.deps.db, (tx) =>
       this.applyInTx(tx, sessionId, event, opts),
     );
     if (result.status === 'applied') {
       for (const ev of result.boardEvents) this.deps.boardBus.publish(ev);
     }
     if (wroteOutbox) this.deps.onOutboxWritten?.();
+    if (wrotePush) this.deps.onPushWritten?.();
     return result;
   }
 
@@ -106,7 +120,7 @@ export class EngineServiceImpl implements EngineService {
     sessionId: string,
     event: EngineEvent,
     opts: ApplyEventOptions,
-  ): Promise<{ result: ApplyEventResult; wroteOutbox: boolean }> {
+  ): Promise<{ result: ApplyEventResult; wroteOutbox: boolean; wrotePush?: boolean }> {
     const rejected = (reason: Extract<ApplyEventResult, { status: 'rejected' }>['reason']) => ({
       result: { status: 'rejected' as const, reason },
       wroteOutbox: false,
@@ -118,7 +132,26 @@ export class EngineServiceImpl implements EngineService {
     if (opts.fencingToken !== undefined && opts.fencingToken < Number(session.fencing_token)) {
       return rejected('stale_fencing_token');
     }
-    const def = await this.defs.get(tx, session.workflow_id, session.workflow_version);
+    let def = await this.defs.get(tx, session.workflow_id, session.workflow_version);
+    // M2-T34: a human acting on a parked session moves it (and its ticket) to the newest version.
+    const repinned = await repinParked(tx, session, def, event);
+    if (repinned !== null) {
+      await tx.query(
+        "INSERT INTO event (session_id, type, payload) VALUES ($1, 'workflow.repinned', $2)",
+        [sessionId, JSON.stringify({ from: session.workflow_version, to: repinned })],
+      );
+      await tx.query('UPDATE session SET workflow_version = $2 WHERE id = $1', [
+        sessionId,
+        repinned,
+      ]);
+      await tx.query('UPDATE ticket SET workflow_version = $2, updated_at = now() WHERE id = $1', [
+        ticket.id,
+        repinned,
+      ]);
+      session.workflow_version = repinned;
+      ticket.workflow_version = repinned;
+      def = await this.defs.get(tx, session.workflow_id, repinned);
+    }
 
     let inputRow: InputRequestRow | null = null;
     if (event.type === 'input.provided') {
@@ -139,7 +172,10 @@ export class EngineServiceImpl implements EngineService {
       session.workflow_id,
       session.workflow_version,
     );
-    const cardBefore = toBoardCard(ticket, session, await readOpenInput(tx, sessionId), view);
+    const cardBefore = withPermission(
+      toBoardCard(ticket, session, await readOpenInput(tx, sessionId), view),
+      await readCardPermission(tx, sessionId),
+    );
     const res = this.applyFn(def, before, event, now);
 
     const ev = await tx.query<{ id: string }>(
@@ -177,6 +213,9 @@ export class EngineServiceImpl implements EngineService {
     const becameTerminal = !TERMINAL.has(before.status) && TERMINAL.has(s1.status);
     if (
       (event.type === 'command.refused' && event.command_kind === 'start_session') ||
+      // A fresh conversation replaces the parked agent: its old process (killed by apply) is
+      // stale, so nothing it still sends can reach the new visit (10-contracts §Fresh conversation).
+      event.type === 'human.fresh_conversation' ||
       stepFenced ||
       becameTerminal
     ) {
@@ -186,6 +225,7 @@ export class EngineServiceImpl implements EngineService {
     s1.fencing_token = Number(token);
 
     const drafts: BoardSseEventDraft[] = [];
+    let wrotePush = false;
     const commands: { effect: MachineCommandEffect; commandId: string }[] = [];
     for (const effect of res.effects) {
       switch (effect.type) {
@@ -225,6 +265,21 @@ export class EngineServiceImpl implements EngineService {
             [randomUUID(), sessionId, effect.kind, effect.question, effect.return_to, now],
           );
           const row = r.rows[0]!;
+          // UX-15: "needs input" pushes to the account's subscribed users, in this transaction.
+          if (this.deps.pushEnabled) {
+            const n = await enqueueNeedsInputPush(tx, {
+              accountId: ticket.account_id,
+              sessionId,
+              ticketId: ticket.id,
+              ticketTitle: ticket.title,
+              // The asking step (the request returns there), else the state it waits in.
+              agent: effect.return_to ?? s1.workflow_state,
+              inputRequestId: row.id,
+              question: row.question,
+              now,
+            });
+            if (n > 0) wrotePush = true;
+          }
           drafts.push({
             type: 'input.requested',
             session_id: sessionId,
@@ -252,6 +307,21 @@ export class EngineServiceImpl implements EngineService {
                 ...(effect.transition !== undefined ? { transition: effect.transition } : {}),
                 ...(effect.reason !== undefined ? { reason: effect.reason } : {}),
                 ...(effect.actor !== undefined ? { actor: effect.actor } : {}),
+              }),
+            ],
+          );
+          break;
+        case 'conversation_reset':
+          // Audit only (ConversationResetPayload): a start refused `no_conversation`, or a human's
+          // "Start fresh conversation…", made apply forget the Claude conversation; the next start
+          // is a fresh one.
+          await tx.query(
+            "INSERT INTO event (session_id, type, payload) VALUES ($1, 'conversation.reset', $2)",
+            [
+              sessionId,
+              JSON.stringify({
+                claude_session_id: effect.claude_session_id,
+                reason: effect.reason,
               }),
             ],
           );
@@ -297,11 +367,14 @@ export class EngineServiceImpl implements EngineService {
     }
     // ADR-0011: a human transition taken from a human state answers its open input_request
     // (answer = the text, else "[<name>]"; answered_by = the event's actor), like input.provided.
-    if (event.type === 'human.transition') {
+    // "Start fresh conversation…" answers it the same way (answer = the text).
+    if (event.type === 'human.transition' || event.type === 'human.fresh_conversation') {
+      const answerText =
+        event.type === 'human.transition' ? (event.text ?? `[${event.name}]`) : event.text;
       const r = await tx.query<InputRequestRow>(
         'UPDATE input_request SET answer = $2, answered_by = $3, answered_at = $4 ' +
           'WHERE session_id = $1 AND answer IS NULL RETURNING *',
-        [sessionId, event.text ?? `[${event.name}]`, event.actor, now],
+        [sessionId, answerText, event.actor, now],
       );
       for (const row of r.rows) {
         drafts.push({
@@ -314,6 +387,10 @@ export class EngineServiceImpl implements EngineService {
     }
 
     await writeSession(tx, s1, token, now);
+    // ADR-0023: a session that no longer holds its agent process expires its pending permission
+    // requests here, so the card never shows a prompt nobody can answer (10-contracts §Permission
+    // prompts, Expiry).
+    await expireOnApply(tx, sessionId, event.type, before, s1, now);
 
     // Outbox rows after the session row is final: the payload sees the post-apply snapshot (and
     // the started branch), the row carries the post-apply token (10-contracts §Effect → WS).
@@ -339,11 +416,14 @@ export class EngineServiceImpl implements EngineService {
     }
 
     // card.upserted last, if any card field changed.
-    const cardAfter = toBoardCard(
-      await readTicket(tx, ticket.id),
-      await readSession(tx, sessionId),
-      await readOpenInput(tx, sessionId),
-      view,
+    const cardAfter = withPermission(
+      toBoardCard(
+        await readTicket(tx, ticket.id),
+        await readSession(tx, sessionId),
+        await readOpenInput(tx, sessionId),
+        view,
+      ),
+      await readCardPermission(tx, sessionId),
     );
     // ADR-0010: card.moved when the card's column (a state, or Queued / Done) changed.
     if (cardAfter.column !== cardBefore.column) {
@@ -368,6 +448,7 @@ export class EngineServiceImpl implements EngineService {
     return {
       result: { status: 'applied', eventId, snapshot: s1, effects: res.effects, boardEvents },
       wroteOutbox: commands.length > 0,
+      wrotePush,
     };
   }
 }

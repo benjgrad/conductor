@@ -99,6 +99,7 @@ describe('the step in context (no migration)', () => {
     conditions: [],
     conditions_deadline: null,
     conditions_poll_ms: null,
+    conditions_started_at: null,
     conditions_note: null,
     // ADR-0020 (M2r-T01): defaulted to null as well.
     approvals: null,
@@ -122,7 +123,7 @@ describe('the step in context (no migration)', () => {
 
 describe('seed (ADR-0010)', () => {
   // The seed's own cases (v2 upgrade, edits, concurrency) are in seed.test.ts (M1b-T09).
-  it('seeded conductor v1 (these sessions pin it) and v2; idempotent on concurrent starts', async () => {
+  it('seeded conductor v1 (these sessions pin it) … v4; idempotent on concurrent starts', async () => {
     // beforeAll already seeded: every further call (also concurrent) is a no-op.
     const again = await Promise.all(
       [1, 2, 3, 4].map(() => seedConductorWorkflow(db.pool, { log: null })),
@@ -131,7 +132,7 @@ describe('seed (ADR-0010)', () => {
     const rows = await db.pool.query<{ version: number; definition: unknown }>(
       "SELECT version, definition FROM workflow_definition WHERE id = 'conductor' ORDER BY version",
     );
-    expect(rows.rows.map((r) => r.version)).toEqual([1, 2]);
+    expect(rows.rows.map((r) => r.version)).toEqual([1, 2, 3, 4]);
     expect(rows.rows[0]!.definition).toMatchObject({
       start: 'planning',
       columns: CONDUCTOR_V1.columns,

@@ -24,7 +24,9 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
         if (st.type === 'agent') for (const t of st.tools ?? []) expect(isToolAlias(t)).toBe(true);
       }
     }
-    expect(TOOL_ALIAS_NAMES).toEqual(expect.arrayContaining(['edit', 'bash', 'git', 'pr_skill']));
+    expect(TOOL_ALIAS_NAMES).toEqual(
+      expect.arrayContaining(['edit', 'bash', 'git', 'pr_skill', 'qa']),
+    );
   });
 
   it('scopes file tools to the worktree and never allows a bare Edit/Write', () => {
@@ -43,8 +45,10 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
     const p = resolveToolPolicy(['edit', 'bash', 'git', 'pr_skill']);
     expect(p.allow).toEqual(expect.arrayContaining(['Read(./**)', 'Glob(./**)', 'Grep(./**)']));
     for (const bare of ['Read', 'Glob', 'Grep']) expect(p.allow).not.toContain(bare);
-    for (const runner of ['node', 'npx', 'pnpm', 'cat', 'ls'])
+    for (const runner of ['node', 'npx', 'pnpm dlx', 'pnpm exec node', 'pnpm exec:', 'cat', 'ls'])
       expect(p.allow.some((r) => r.startsWith(`Bash(${runner}`))).toBe(false);
+    // `pnpm` itself is never a bare prefix (that would allow `pnpm dlx`, `pnpm exec <anything>`).
+    expect(p.allow.some((r) => r === 'Bash(pnpm:*)' || r === 'Bash(pnpm exec:*)')).toBe(false);
     // diff/log/show take --output=<file>: only exact forms may be allowed.
     for (const sub of ['diff', 'log', 'show'])
       expect(p.allow.some((r) => r.startsWith(`Bash(git ${sub}`) && r.endsWith(':*)'))).toBe(false);
@@ -54,6 +58,46 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
     expect(p.deny).toContain('Bash(gh pr create:*)');
   });
 
+  it('M2-T30: bash pre-approves the npm and pnpm script runners, exact installs and chmod +x', () => {
+    const p = resolveToolPolicy(['bash']);
+    const bash = p.allow.filter((r) => r.startsWith('Bash('));
+    expect(bash).toEqual([
+      'Bash(npm run:*)',
+      'Bash(npm test:*)',
+      'Bash(npm install)',
+      'Bash(npm ci)',
+      'Bash(pnpm run:*)',
+      'Bash(pnpm test:*)',
+      'Bash(pnpm install)',
+      'Bash(pnpm i)',
+      'Bash(pnpm install --frozen-lockfile)',
+      'Bash(pnpm i --frozen-lockfile)',
+      'Bash(pnpm typecheck)',
+      'Bash(pnpm lint)',
+      'Bash(pnpm build)',
+      'Bash(pnpm format)',
+      'Bash(pnpm vitest:*)',
+      'Bash(pnpm exec vitest:*)',
+      'Bash(pnpm exec prettier:*)',
+      'Bash(pnpm exec eslint:*)',
+      'Bash(pnpm exec tsc -b)',
+      'Bash(chmod +x:*)',
+    ]);
+    // Installs are exact: no `pnpm install <pkg>` / `pnpm add`; only `--frozen-lockfile`.
+    expect(bash.some((r) => /^Bash\(pnpm (install|i|add):/.test(r))).toBe(false);
+    expect(
+      bash
+        .filter((r) => /^Bash\(pnpm (install|i|add) /.test(r))
+        .every((r) => r.endsWith(' --frozen-lockfile)')),
+    ).toBe(true);
+    // No general runner: `pnpm exec` and `pnpm dlx` only for named tools.
+    expect(bash.some((r) => /^Bash\(pnpm (exec|dlx)(:|\))/.test(r))).toBe(false);
+    // Only the `+x` prefix rule (`chmod 777` is not pre-approved). TD-175: the prefix still
+    // matches `chmod +x -R …`, absolute paths and `--reference=`.
+    expect(bash.filter((r) => r.startsWith('Bash(chmod'))).toEqual(['Bash(chmod +x:*)']);
+    expect(p.builtin).toContain('Bash');
+  });
+
   it('always denies git push, even with only the read base', () => {
     for (const tools of [[], ['git'], ['pr_skill', 'bash']]) {
       const p = resolveToolPolicy(tools);
@@ -61,6 +105,48 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
       expect(p.allow.some((r) => r.includes('git push'))).toBe(false);
     }
     expect(resolveToolPolicy([]).builtin).toEqual(['Read', 'Glob', 'Grep']);
+  });
+
+  it('qa alias has no edit tools and denies commit/push/gh', () => {
+    const p = resolveToolPolicy(['qa']);
+    expect(p.builtin).toEqual(['Read', 'Glob', 'Grep', 'Bash']);
+    expect(p.deny).toEqual(
+      expect.arrayContaining([
+        'Edit',
+        'Write',
+        'Bash(git add:*)',
+        'Bash(git commit:*)',
+        'Bash(gh:*)',
+        'Bash(git push:*)',
+      ]),
+    );
+    expect(p.allow).toEqual(
+      expect.arrayContaining([
+        'Read(./**)',
+        'Bash(git status)',
+        'Bash(git diff --stat qa-base...HEAD)',
+        'Bash(git diff qa-base...HEAD)',
+        'Bash(git log --oneline qa-base..HEAD)',
+        'Bash(pnpm test:*)',
+        'Bash(pnpm vitest:*)',
+        'Bash(pnpm exec vitest:*)',
+        'Bash(npm test:*)',
+        'Bash(npm run:*)',
+        'Bash(pnpm typecheck)',
+        'Bash(pnpm lint)',
+      ]),
+    );
+    for (const sub of ['diff', 'log', 'show'])
+      expect(p.allow.some((r) => r.startsWith(`Bash(git ${sub}`) && r.endsWith(':*)'))).toBe(false);
+    for (const bad of [
+      'Edit',
+      'Write',
+      'Bash(gh',
+      'Bash(git commit',
+      'Bash(git add',
+      'Bash(git push',
+    ])
+      expect(p.allow.some((r) => r.startsWith(bad))).toBe(false);
   });
 
   it('de-duplicates and rejects unknown names', () => {

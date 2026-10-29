@@ -116,12 +116,12 @@ describe('on_unmet.routes', () => {
 });
 
 describe('actions and reserved keys', () => {
-  it('parses the three PR actions, which are not available yet (T02)', () => {
+  it('parses the three PR actions, which are available (T02)', () => {
     for (const a of ['inspect_pr', 'merge_pr', 'close_pr'] as const) {
       expect(TransitionActionSchema.parse(a)).toBe(a);
       expect(TransitionRequiresSchema.parse({ actions: [a] }).actions).toEqual([a]);
     }
-    expect(AVAILABLE_TRANSITION_ACTIONS).toEqual(['open_pr']);
+    expect(AVAILABLE_TRANSITION_ACTIONS).toEqual(['open_pr', 'inspect_pr', 'merge_pr', 'close_pr']);
   });
 
   it('RESERVED_CONTEXT_KEYS are the engine context keys, __qa included', () => {

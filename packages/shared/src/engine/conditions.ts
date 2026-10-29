@@ -1,6 +1,7 @@
 import { isGithubPrUrl, sessionBranch, type JsonObject } from '../domain.js';
 import {
   EvaluateConditionsResultSchema,
+  NO_PR_CHECKS_VALUE,
   type ConditionResult,
   type EvaluateConditionsArgs,
 } from '../protocol/ws.js';
@@ -28,6 +29,7 @@ export const PR_CONDITION_TYPES: ReadonlySet<ConditionType> = new Set([
   'pr_checks_green',
   'pr_approvals',
   'pr_merged',
+  'pr_screenshots',
 ]);
 
 /**
@@ -117,12 +119,47 @@ export function evaluateConditionsArgs(
   conditions: readonly Condition[],
 ): JsonObject {
   const args: EvaluateConditionsArgs = {
-    conditions: conditions.filter(conditionEnabled),
+    conditions: conditions.filter(conditionEnabled).map(forDaemon),
     pr_url: conductorPrUrl(s),
     branch: sessionBranch(s.ticket.id, s.id),
     ...(step.head_sha !== null && SHA_RE.test(step.head_sha) ? { head_sha: step.head_sha } : {}),
   };
   return args as unknown as JsonObject;
+}
+
+/**
+ * A condition as the daemon sees it: `no_checks_after` is the engine's rule (U-072), and a daemon
+ * that predates it would refuse the unknown key (the condition schema is strict).
+ * TD-195: `pr_screenshots` (M2-T35a) is sent as is. A daemon before M2-T35a refuses the args, which
+ * reads as "no answer": the card notes it and the step polls to `condition_timeout`, then a human.
+ * Update the daemons before shipping a workflow that uses it (no per-machine capability gate yet).
+ */
+function forDaemon(c: Condition): Condition {
+  if (c.type !== 'pr_checks_green' || c.no_checks_after === undefined) return c;
+  const rest = { ...c };
+  delete rest.no_checks_after;
+  return rest;
+}
+
+/**
+ * U-072: `pr_checks_green` with `no_checks_after` whose PR still reports no checks at all that long
+ * after the conditions started is met (the repo has no CI). Anything else is unchanged.
+ */
+function noChecksGrace(
+  c: Condition,
+  res: ConditionResult,
+  now: Date,
+  startedAt: string | null,
+): ConditionResult {
+  if (c.type !== 'pr_checks_green' || c.no_checks_after === undefined) return res;
+  if (res.status !== 'pending' || res.value !== NO_PR_CHECKS_VALUE || startedAt === null)
+    return res;
+  if (now.getTime() - Date.parse(startedAt) < parseDuration(c.no_checks_after)) return res;
+  return {
+    ...res,
+    status: 'met',
+    detail: `no CI checks reported within ${c.no_checks_after}`,
+  };
 }
 
 /** A failed condition's evidence for the feedback: `- <type>: failed (<detail>; last value …)`. */
@@ -183,12 +220,14 @@ export type ConditionsVerdict =
  * Merge a result (`results[i]` answers the i-th ENABLED condition, by position) into the step's
  * statuses. Any `failed` → failed; all `met` → met; anything else (`pending`, `unsupported`) →
  * pending. A result of the wrong length or types is malformed (kept pending by the caller).
+ * `startedAt` (the step's `conditions_started_at`) times `pr_checks_green.no_checks_after`.
  */
 export function mergeResults(
   statuses: ConditionStatus[],
   conditions: readonly Condition[],
   result: JsonObject | null,
   now: Date,
+  startedAt: string | null = null,
 ): ConditionsVerdict {
   const parsed = EvaluateConditionsResultSchema.safeParse(result);
   if (!parsed.success) return { type: 'malformed', why: 'the result has the wrong shape' };
@@ -203,11 +242,12 @@ export function mergeResults(
   const next = statuses.map((c) => ({ ...c }));
   let unchanged = true;
   for (const [k, i] of idx.entries()) {
-    const res = results[k]!;
+    const raw = results[k]!;
     const prev = next[i]!;
-    if (res.type !== conditions[i]!.type) {
-      return { type: 'malformed', why: `result ${k + 1} is ${res.type}, not ${prev.type}` };
+    if (raw.type !== conditions[i]!.type) {
+      return { type: 'malformed', why: `result ${k + 1} is ${raw.type}, not ${prev.type}` };
     }
+    const res = noChecksGrace(conditions[i]!, raw, now, startedAt);
     // `running` hides the previous status: compare what was observed (value and detail), and
     // count a first answer (never checked) as a change.
     if (prev.checked_at === null || prev.value !== res.value || prev.detail !== res.detail) {

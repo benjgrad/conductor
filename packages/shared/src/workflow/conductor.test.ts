@@ -6,6 +6,13 @@ import {
   CONDUCTOR_V1_DEF,
   CONDUCTOR_V2,
   CONDUCTOR_V2_DEF,
+  CONDUCTOR_V3,
+  CONDUCTOR_V3_DEF,
+  CONDUCTOR_V4,
+  CONDUCTOR_V4_DEF,
+  V3_NO_CHECKS_AFTER,
+  V3_UNMET_INSTRUCTION,
+  V4_PERSONAL_SHIP_WHEN,
   WORK_COMMIT_REVIEW_ITEM,
 } from './conductor.js';
 import { CONDUCTOR_WORKFLOW_ID, RETURN_TO, type TicketKind } from './schema.js';
@@ -189,9 +196,9 @@ describe('conductor v2 (ADR-0011)', () => {
     expect(CONDUCTOR_V2).toEqual(readDoc('conductor.v2.json'));
   });
 
-  it('validates (rules 1–14)', () => {
-    expect(errorsOf(CONDUCTOR_V2)).toEqual([]);
-    expect(errorsOf(readDoc('conductor.v2.json'))).toEqual([]);
+  it('validates (rules 1–16); its personal done breaks rule 17, which v4 fixes', () => {
+    expect(paths(CONDUCTOR_V2)).toEqual(['17:states.implementing.on.done.goto']);
+    expect(paths(readDoc('conductor.v2.json'))).toEqual(['17:states.implementing.on.done.goto']);
   });
 
   it('keeps v1’s states, columns and budget; is the next version; no entry requirements', () => {
@@ -311,5 +318,124 @@ describe('conductor v2 (ADR-0011)', () => {
       { type: 'azure_pipeline_succeeded', pipeline: 'ci', enabled: false },
     ]);
     expect(t.requires?.condition_timeout).toBe('3d');
+  });
+});
+
+describe('conductor v3 (ADR-0025)', () => {
+  const v3Shipping = () =>
+    transitionsOf(CONDUCTOR_V3_DEF, 'implementing').filter(
+      (e) => e.transition.requires?.actions?.includes('open_pr') === true,
+    );
+
+  it('the code copy equals docs/design/workflows/conductor.v3.json', () => {
+    expect(CONDUCTOR_V3).toEqual(readDoc('conductor.v3.json'));
+  });
+
+  it('validates (rules 1–16); its personal done breaks rule 17, which v4 fixes', () => {
+    expect(paths(CONDUCTOR_V3)).toEqual(['17:states.implementing.on.done.goto']);
+    expect(paths(readDoc('conductor.v3.json'))).toEqual(['17:states.implementing.on.done.goto']);
+  });
+
+  it('is the next version with longer timeouts and budget; v2 left as it was', () => {
+    const d = CONDUCTOR_V3_DEF;
+    expect(d.version).toBe(CONDUCTOR_V2_DEF.version + 1);
+    expect(d.budget).toEqual({ usd: 5, minutes: 240, max_loop_retries: 3 });
+    expect(d.states.planning).toMatchObject({ timeout: '60m' });
+    expect(d.states.implementing).toMatchObject({ timeout: '2h' });
+    expect(CONDUCTOR_V2_DEF.states.implementing).toMatchObject({ timeout: '30m' });
+    expect(Object.keys(d.states)).toEqual(Object.keys(CONDUCTOR_V2_DEF.states));
+  });
+
+  it('every kind sees the same transitions as in v2', () => {
+    for (const kind of ['work', 'personal', null] as const) {
+      for (const state of Object.keys(CONDUCTOR_V2_DEF.states)) {
+        const names = (def: typeof CONDUCTOR_V2_DEF) =>
+          transitionsOf(def, state, { kind }).map((e) => `${e.name} → ${e.transition.goto}`);
+        expect(names(CONDUCTOR_V3_DEF), `${state} ${kind}`).toEqual(names(CONDUCTOR_V2_DEF));
+      }
+    }
+  });
+
+  it('every shipping transition waits for green PR checks (no CI after 5m counts as green)', () => {
+    expect(v3Shipping().map((e) => e.name)).toEqual([
+      'pr_ready_for_review',
+      'personal_pr_ready_for_review',
+      'ready_for_testing',
+      'done',
+    ]);
+    for (const e of v3Shipping()) {
+      expect(e.transition.requires?.conditions?.[0], e.name).toEqual({
+        type: 'pr_checks_green',
+        no_checks_after: V3_NO_CHECKS_AFTER,
+      });
+      expect(e.transition.on_unmet, e.name).toMatchObject({
+        goto: 'implementing',
+        instruction: V3_UNMET_INSTRUCTION,
+        retries: 3,
+        else: 'needs_input',
+      });
+    }
+  });
+
+  it('the review hand-offs poll every minute for at most 2h; ready_for_testing keeps 3d', () => {
+    for (const e of v3Shipping()) {
+      const r = e.transition.requires!;
+      if (e.name === 'ready_for_testing') {
+        expect([r.condition_timeout, r.condition_poll]).toEqual(['3d', '2m']);
+        expect(r.conditions?.map((c) => c.type)).toEqual([
+          'pr_checks_green',
+          'pr_approvals',
+          'jira_fields_set',
+          'azure_pipeline_succeeded',
+        ]);
+      } else {
+        expect([r.condition_timeout, r.condition_poll], e.name).toEqual(['2h', '1m']);
+        expect(r.conditions, e.name).toHaveLength(1);
+      }
+    }
+  });
+});
+
+describe('conductor v4 (M2-T34)', () => {
+  const seen4 = (state: string, kind: TicketKind | null) =>
+    transitionsOf(CONDUCTOR_V4_DEF, state, { kind }).map(
+      (e) => `${e.actor} ${e.name} → ${e.transition.goto}`,
+    );
+
+  it('the code copy equals docs/design/workflows/conductor.v4.json', () => {
+    expect(CONDUCTOR_V4).toEqual(readDoc('conductor.v4.json'));
+  });
+
+  it('validates, rule 17 included', () => {
+    expect(errorsOf(CONDUCTOR_V4)).toEqual([]);
+    expect(errorsOf(readDoc('conductor.v4.json'))).toEqual([]);
+  });
+
+  it('is v3 without the personal done; v3 left as it was', () => {
+    expect(CONDUCTOR_V4_DEF.version).toBe(CONDUCTOR_V3_DEF.version + 1);
+    const v3 = structuredClone(CONDUCTOR_V3) as unknown as Raw;
+    const v3On = v3.states.implementing!.on as Record<string, Record<string, unknown>>;
+    expect(v3On.done).toBeDefined();
+    delete v3On.done;
+    v3On.personal_pr_ready_for_review!.when = V4_PERSONAL_SHIP_WHEN;
+    expect(CONDUCTOR_V4).toEqual({ ...v3, version: 4 });
+  });
+
+  it('no agent transition reaches Done: a personal ticket ships to Needs input, the user closes it', () => {
+    for (const kind of ['work', 'personal', null] as const) {
+      for (const state of Object.keys(CONDUCTOR_V4_DEF.states)) {
+        for (const e of transitionsOf(CONDUCTOR_V4_DEF, state, { kind })) {
+          if (e.actor !== 'agent') continue;
+          expect(e.transition.goto, `${state} ${kind} ${e.name}`).not.toBe('done');
+        }
+      }
+    }
+    expect(seen4('implementing', 'personal')).toEqual([
+      'agent needs_approval_to_message → needs_input',
+      'agent personal_pr_ready_for_review → needs_input',
+      'agent ask_user → needs_input',
+      'system timeout → needs_input',
+    ]);
+    expect(seen4('needs_input', 'personal')).toContain('human done → done');
   });
 });

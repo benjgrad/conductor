@@ -17,9 +17,11 @@ import { parseStreamLine } from './stream-parser.js';
 import {
   claudeProjectSlug,
   findTranscript,
+  hasTranscriptInCwd,
   readTranscriptTail,
   realCwd,
   transcriptChunks,
+  transcriptPathFor,
 } from './transcript.js';
 
 const FIXTURE = resolve(
@@ -122,7 +124,9 @@ describe('findTranscript', () => {
     const cwd = join(root, 'link', 'wt', 'gone-session'); // never created / removed
     expect(realCwd(cwd)).toBe(join(real, 'wt', 'gone-session'));
     const slug = claudeProjectSlug(join(real, 'wt', 'gone-session'));
-    expect(slug).toMatch(/^-.*-real-wt-gone-session$/);
+    // Every non-alphanumeric is `-`, as Claude Code names its project dirs: `/tmp/x` → `-tmp-x`,
+    // `C:\\Users\\x` → `C--Users-x`.
+    expect(slug).toMatch(/^(-|[A-Za-z]--).*-real-wt-gone-session$/);
     const file = join(config, 'projects', slug, `${ID}.jsonl`);
     mkdirSync(join(config, 'projects', slug), { recursive: true });
     writeFileSync(file, '');
@@ -157,5 +161,30 @@ describe('findTranscript', () => {
     const f = join(d, 't.jsonl');
     writeFileSync(f, 'a\nb\n');
     expect(readTranscriptTail(f)).toEqual({ text: 'a\nb\n', cut: false });
+  });
+});
+
+describe('hasTranscriptInCwd (the resume check)', () => {
+  it("only the cwd's own project dir counts (claude --resume looks nowhere else)", () => {
+    const root = tmp();
+    const config = join(root, 'claude');
+    const cwd = join(root, 'wt', 's1');
+    mkdirSync(cwd, { recursive: true });
+    const elsewhere = join(config, 'projects', '-other-cwd', `${ID}.jsonl`);
+    mkdirSync(join(elsewhere, '..'), { recursive: true });
+    writeFileSync(elsewhere, '');
+    expect(findTranscript(config, cwd, ID)).toBe(elsewhere); // history/reopen still find it
+    expect(hasTranscriptInCwd(config, cwd, ID)).toBe(false);
+
+    const own = transcriptPathFor(config, cwd, ID)!;
+    expect(own).toBe(join(config, 'projects', claudeProjectSlug(realCwd(cwd)), `${ID}.jsonl`));
+    mkdirSync(join(own, '..'), { recursive: true });
+    writeFileSync(own, '');
+    expect(hasTranscriptInCwd(config, cwd, ID)).toBe(true);
+  });
+
+  it('refuses an id that is not a uuid', () => {
+    expect(transcriptPathFor('/c', '/w', '../../etc/passwd')).toBeNull();
+    expect(hasTranscriptInCwd('/c', '/w', 'claude-abc')).toBe(false);
   });
 });

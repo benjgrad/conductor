@@ -1,5 +1,10 @@
 // @vitest-environment jsdom
-import type { SessionDetail, WorkflowDefinition, WorkflowDetail } from '@conductor/shared';
+import {
+  CONDUCTOR_V2_DEF,
+  type SessionDetail,
+  type WorkflowDefinition,
+  type WorkflowDetail,
+} from '@conductor/shared';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ApiRequestError } from '../api/client.js';
@@ -7,6 +12,7 @@ import { CONDUCTOR, SEED_IDS } from '../api/mock-data.js';
 import { createMockApi } from '../api/mock.js';
 import { App } from '../App.js';
 import { SessionWorkflowDiagram } from './SessionWorkflowDiagram.js';
+import { WorkflowsView } from './WorkflowsView.js';
 
 beforeEach(() => {
   window.location.hash = '#/workflows';
@@ -17,15 +23,16 @@ afterEach(() => {
 });
 
 /**
- * The app on the mock, whose conductor v3 is the shipped ADR-0011 conductor. Saves are recorded
+ * The view on the mock, whose conductor v3 is the shipped ADR-0011 conductor. Saves are recorded
  * and stored here as v4, v5… without the mock's validator (the request body is what these tests
- * check).
+ * check). `app: true` mounts the whole <App> (nav links, the draft guard); otherwise just the view,
+ * which is ~10× cheaper per test (M2-T33).
  */
 // The diagram appears once the mock API resolves; on a loaded machine running the full suite that
 // can take longer than findBy's 1 s default.
 const DIAGRAM_WAIT = { timeout: 10_000 };
 
-async function setup(api = createMockApi()) {
+async function setup(api = createMockApi(), { app = false } = {}) {
   const saved: WorkflowDefinition[] = [];
   const get = api.getWorkflow.bind(api);
   api.saveWorkflow = (def) => {
@@ -40,7 +47,7 @@ async function setup(api = createMockApi()) {
     }
     return get(id, version);
   };
-  render(<App api={api} />);
+  render(app ? <App api={api} /> : <WorkflowsView api={api} />);
   const diagram = await screen.findByRole('group', { name: 'conductor v3 columns' }, DIAGRAM_WAIT);
   return { api, saved, diagram };
 }
@@ -297,7 +304,20 @@ describe('transition arrows (ADR-0011)', () => {
   });
 
   it('edits checks, setup, review items and actions on a transition', async () => {
-    const { saved } = await setup();
+    // M2-T34: the shipped conductor no longer has an Implementing → Done arrow; this editor case
+    // still runs on one (v2's personal `done`, added to the mock's latest).
+    const api = createMockApi();
+    const get = api.getWorkflow.bind(api);
+    api.getWorkflow = async (id, version) => {
+      const detail = await get(id, version);
+      if (detail.version !== 3) return detail;
+      const def = structuredClone(detail.definition);
+      const v2On = onOf(CONDUCTOR_V2_DEF, 'implementing');
+      const st = def.states.implementing!;
+      if (st.type !== 'terminal') st.on = { ...st.on, done: structuredClone(v2On.done!) };
+      return { ...detail, definition: def };
+    };
+    const { saved } = await setup(api);
     fireEvent.click(arrow('Implementing', 'Done'));
     fireEvent.click(panel().getByRole('button', { name: 'Remove check 1' }));
     fireEvent.click(panel().getByRole('button', { name: 'Add check' }));
@@ -421,7 +441,7 @@ describe('old versions (ADR-0010 entry)', () => {
 
 describe('unsaved draft guard', () => {
   async function dirty() {
-    const ctx = await setup();
+    const ctx = await setup(createMockApi(), { app: true });
     fireEvent.click(lane('Planning'));
     type(editor().getByLabelText('Title'), 'Thinking');
     expect(screen.getByText('Unsaved changes')).toBeTruthy();

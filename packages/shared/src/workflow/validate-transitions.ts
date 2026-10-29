@@ -17,6 +17,8 @@ import {
 import type { WorkflowValidationError } from './validate.js';
 
 // Validator rules 10–14 (ADR-0011, M1b-T02; 05 §Validation on save): the per-transition rules.
+// Rules 15–16 (ADR-0020, M2r-T02): Done only through a merge, and the review-and-merge fields.
+// Rule 17 (M2-T34): a PR the agent opens never reaches a terminal state without a human.
 // The graph rules (2–5) see the same transitions through `collectEdges` in validate.ts. Paths
 // point into the transition (`states.<s>.on.<name>.requires.conditions.1`) so the editor (T06)
 // can map an error to the arrow and the field.
@@ -24,7 +26,7 @@ import type { WorkflowValidationError } from './validate.js';
 type Path = (string | number)[];
 
 /**
- * Rules 10–14. `has(name)` says whether a state exists; a missing target is rule 1's, so these
+ * Rules 10–17. `has(name)` says whether a state exists; a missing target is rule 1's, so these
  * rules skip what they can't judge rather than report it twice.
  */
 export function checkTransitions(
@@ -35,8 +37,10 @@ export function checkTransitions(
   const stateOf = (name: string): WorkflowState | undefined =>
     has(name) ? def.states[name] : undefined;
   const isHuman = (name: string) => stateOf(name)?.type === 'human';
+  const mergeAware = isMergeAware(def);
 
   for (const [from, state] of Object.entries(def.states)) {
+    checkQaState(errors, def, from, state);
     if (state.type === 'terminal') continue;
     const on = state.on ?? {};
     for (const [name, raw] of Object.entries(on)) {
@@ -45,6 +49,9 @@ export function checkTransitions(
       checkActor(errors, def, from, state, name, raw, t, base);
       checkQuestion(errors, t, base, stateOf);
       checkRequires(errors, def, name, t, base, stateOf);
+      checkMergeFields(errors, def, from, state, name, raw, t, base, stateOf);
+      if (mergeAware) checkDoneViaMerge(errors, name, raw, t, base, stateOf);
+      checkPrNeedsHuman(errors, def, from, name, raw, t, base, stateOf);
     }
     if (state.type === 'agent') checkCanAsk(errors, def, from, on, isHuman);
   }
@@ -102,6 +109,7 @@ function checkActor(
     [['on_unmet', 'else'], t.on_unmet?.else],
     [['requirements', 'on_unmet', 'goto'], t.requirements?.on_unmet.goto],
     [['requirements', 'on_unmet', 'else'], t.requirements?.on_unmet.else],
+    ...routeLegs(t).map(([leg, target]): [Path, string] => [leg, target]),
   ];
   for (const [leg, target] of legs) {
     if (target === RETURN_TO) {
@@ -250,5 +258,193 @@ function checkRequires(
       [...u, 'goto'],
       `on_unmet.goto "${unmet.goto}" has entry requirements of its own (no nested steps)`,
     );
+  }
+}
+
+/** ADR-0020 `on_unmet.routes` of a transition (and its ADR-0009 gate), as `[path, target]`. */
+function routeLegs(t: TransitionObject): [Path, string][] {
+  const legs: [Path, string][] = [];
+  const add = (key: string[], routes: Partial<Record<string, string>> | undefined) => {
+    for (const [reason, target] of Object.entries(routes ?? {})) {
+      if (target !== undefined) legs.push([[...key, 'routes', reason], target]);
+    }
+  };
+  add(['on_unmet'], t.on_unmet?.routes);
+  add(['requirements', 'on_unmet'], t.requirements?.on_unmet.routes);
+  return legs;
+}
+
+/** ADR-0020 §6: a definition that names `merge_pr` anywhere is "merge-aware" (rule 15). */
+function isMergeAware(def: WorkflowDefinition): boolean {
+  return Object.values(def.states).some(
+    (s) =>
+      s.type !== 'terminal' &&
+      Object.values(s.on ?? {}).some((raw) =>
+        transitionObject(raw).requires?.actions?.includes('merge_pr'),
+      ),
+  );
+}
+
+/**
+ * Rule 15, Done only through a merge (ADR-0020 §6), in a merge-aware definition: every
+ * non-fallback transition into a terminal state carries `merge_pr` or `close_pr` in
+ * `requires.actions`. A counted `else` into a terminal state bypasses the merge too, so it is
+ * refused (`on_unmet.else` is a human state by rule 13; routes into a terminal are rule 16's).
+ */
+function checkDoneViaMerge(
+  errors: WorkflowValidationError[],
+  name: string,
+  raw: Transition,
+  t: TransitionObject,
+  base: Path,
+  stateOf: (name: string) => WorkflowState | undefined,
+): void {
+  if (FALLBACK_TRANSITION_NAMES.includes(name)) return;
+  const err = (path: Path, message: string) => errors.push({ rule: 15, path, message });
+  const actions = t.requires?.actions ?? [];
+  if (
+    stateOf(t.goto)?.type === 'terminal' &&
+    !actions.includes('merge_pr') &&
+    !actions.includes('close_pr')
+  ) {
+    err(
+      typeof raw === 'string' ? base : [...base, 'requires', 'actions'],
+      `in a merge-aware workflow, "${name}" can reach terminal "${t.goto}" only through merge_pr or close_pr`,
+    );
+  }
+  if (t.else !== undefined && stateOf(t.else)?.type === 'terminal') {
+    err(
+      [...base, 'else'],
+      `in a merge-aware workflow, "${name}" can't fall back to terminal "${t.else}" (only merge_pr or close_pr reach it)`,
+    );
+  }
+}
+
+/**
+ * Rule 17, a PR reaches Done only through a human (M2-T34, Ben 2026-10-29): an agent-actor
+ * transition that opens conductor's PR (`open_pr`) can't go to a terminal state, nor fall back to
+ * one, unless it waits for a human on that PR (an enabled `pr_approvals` or `pr_merged`
+ * condition). conductor v2/v3's personal `done` broke this: the agent closed its own ticket the
+ * moment the PR existed, before CI or review.
+ */
+function checkPrNeedsHuman(
+  errors: WorkflowValidationError[],
+  def: WorkflowDefinition,
+  from: string,
+  name: string,
+  raw: Transition,
+  t: TransitionObject,
+  base: Path,
+  stateOf: (name: string) => WorkflowState | undefined,
+): void {
+  if (!t.requires?.actions?.includes('open_pr')) return;
+  if (transitionActor(def, from, name, raw) !== 'agent') return;
+  const human = (t.requires.conditions ?? []).some(
+    (c) => (c.type === 'pr_approvals' || c.type === 'pr_merged') && conditionEnabled(c),
+  );
+  if (human) return;
+  const err = (path: Path, message: string) => errors.push({ rule: 17, path, message });
+  if (stateOf(t.goto)?.type === 'terminal') {
+    err(
+      [...base, 'goto'],
+      `"${name}" opens a PR and goes straight to terminal "${t.goto}": send it to a human state, or wait for pr_approvals or pr_merged`,
+    );
+  }
+  if (t.else !== undefined && stateOf(t.else)?.type === 'terminal') {
+    err(
+      [...base, 'else'],
+      `"${name}" opens a PR and can fall back to terminal "${t.else}" without a human`,
+    );
+  }
+}
+
+/**
+ * Rule 16, the QA state (ADR-0020 §2): `role: 'qa'` never on the start state (it is entered by a
+ * claim, with no PR to review; the schema keeps `role` off non-agent states); a qa state's tools
+ * are exactly `['qa']`; `checkout` only on a qa state.
+ */
+function checkQaState(
+  errors: WorkflowValidationError[],
+  def: WorkflowDefinition,
+  name: string,
+  state: WorkflowState,
+): void {
+  if (state.type !== 'agent') return;
+  const err = (path: Path, message: string) => errors.push({ rule: 16, path, message });
+  const base: Path = ['states', name];
+  if (state.role === 'qa') {
+    if (name === def.start) {
+      err([...base, 'role'], `the start state "${name}" can't be a QA state (there is no PR yet)`);
+    }
+    const tools = state.tools ?? [];
+    if (tools.length !== 1 || tools[0] !== 'qa') {
+      err([...base, 'tools'], `QA state "${name}" must have exactly the tools ["qa"]`);
+    }
+  } else if (state.checkout !== undefined) {
+    err([...base, 'checkout'], `checkout is only for QA states ("role": "qa")`);
+  }
+}
+
+/**
+ * Rule 16, the review-and-merge transition fields (ADR-0020 §2, §3, §5):
+ * - `attach: 'result'` only out of an agent state (it renders the state's stored result);
+ * - `text` only on a human-actor transition (it is a button's text box);
+ * - `requires.approvals` only on a human-actor transition that carries `merge_pr`, ids unique;
+ * - `on_unmet.routes` targets aren't terminal and have no `entry` (as `on_unmet.goto`; a missing
+ *   target is rule 1's, `$return_to` rule 10's, an unknown reason the schema's).
+ */
+function checkMergeFields(
+  errors: WorkflowValidationError[],
+  def: WorkflowDefinition,
+  from: string,
+  state: Exclude<WorkflowState, { type: 'terminal' }>,
+  name: string,
+  raw: Transition,
+  t: TransitionObject,
+  base: Path,
+  stateOf: (name: string) => WorkflowState | undefined,
+): void {
+  if (typeof raw === 'string') return;
+  const err = (path: Path, message: string) => errors.push({ rule: 16, path, message });
+  const human = transitionActor(def, from, name, raw) === 'human';
+  if (t.attach === 'result' && state.type !== 'agent') {
+    err(
+      [...base, 'attach'],
+      `attach "result" is only for transitions out of agent states ("${from}" is ${state.type})`,
+    );
+  }
+  if (t.text !== undefined && !human) {
+    err(
+      [...base, 'text'],
+      `text is a human button's text box: this transition's actor must be human`,
+    );
+  }
+  const approvals = t.requires?.approvals;
+  if (approvals !== undefined) {
+    if (!human || !(t.requires?.actions ?? []).includes('merge_pr')) {
+      err(
+        [...base, 'requires', 'approvals'],
+        'approvals are only for a human-actor transition that carries merge_pr',
+      );
+    }
+    const ids = new Set<string>();
+    approvals.forEach((a, i) => {
+      if (ids.has(a.id)) {
+        err([...base, 'requires', 'approvals', i, 'id'], `approval "${a.id}" is listed twice`);
+      }
+      ids.add(a.id);
+    });
+  }
+  for (const [leg, target] of routeLegs(t)) {
+    if (target === RETURN_TO) continue;
+    const to = stateOf(target);
+    if (to?.type === 'terminal') {
+      err([...base, ...leg], `on_unmet route "${target}" can't be a terminal state`);
+    } else if (to?.entry !== undefined) {
+      err(
+        [...base, ...leg],
+        `on_unmet route "${target}" has entry requirements of its own (no nested steps)`,
+      );
+    }
   }
 }

@@ -10,7 +10,10 @@
       "on": {
         "done": {
           "goto": "done",
-          "requires": { "actions": ["open_pr"], "conditions": [{ "type": "pr_checks_green" }] },
+          "requires": {
+            "actions": ["open_pr"],
+            "conditions": [{ "type": "pr_checks_green" }, { "type": "pr_approvals", "min": 1 }]
+          },
           "on_unmet": { "goto": "work", "retries": 2, "else": "needs_input" }
         },
         "ask_user": "needs_input"

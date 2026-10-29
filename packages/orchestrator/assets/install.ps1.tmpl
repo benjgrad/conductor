@@ -1,0 +1,261 @@
+# conductor daemon installer for Windows (MW-T11; ADR-0024 section 7), served by the orchestrator
+# at /install.ps1 with its public URL, the daemon version and the tarball's SHA-256 filled in.
+#
+#   $env:CONDUCTOR_ENROLL_TOKEN='<token>'; irm @@PUBLIC_URL@@/install.ps1 | iex
+#
+# Installs the daemon into <root>\daemon\<version>, points the <root>\daemon\current junction at
+# it, writes <root>\bin\conductor-daemon.cmd and adds <root>\bin to the user PATH. With an
+# enrollment token (CONDUCTOR_ENROLL_TOKEN, removed as soon as it is read) it then enrolls this
+# machine; without one it upgrades in place and keeps <root>\machine.json. <root> is
+# $env:CONDUCTOR_ROOT, else ~\.conductor. It installs none of its prerequisites (Node.js 22+, Git
+# for Windows, the native claude.exe); it says what is missing. Starting at logon is MW-T10.
+#
+# It runs inside the caller's PowerShell (irm | iex), so everything is in one script block (its
+# variables and preferences stay local) and it never calls exit, which would close that window.
+# Windows PowerShell 5.1 compatible: no ?? / ?:, no pwsh-only parameters.
+
+& {
+  $PublicUrl = '@@PUBLIC_URL@@'
+  $Version = '@@VERSION@@'
+  $File = '@@FILE@@'
+  $Sha256 = '@@SHA256@@'
+
+  # Read the token first and take it out of the session, whatever happens next (TD-117).
+  $token = $env:CONDUCTOR_ENROLL_TOKEN
+  Remove-Item Env:\CONDUCTOR_ENROLL_TOKEN -ErrorAction SilentlyContinue
+
+  $ErrorActionPreference = 'Stop'
+  # Windows PowerShell 5.1 redraws its progress bar per chunk, which makes downloads crawl.
+  $ProgressPreference = 'SilentlyContinue'
+  $prefix = 'conductor install: '
+
+  function Fail([string]$msg) { throw "$prefix$msg" }
+
+  # A native command's first output line, or $null; stderr and a non-zero exit are ignored.
+  function FirstLine([string]$exe, [string[]]$argv) {
+    $ErrorActionPreference = 'Continue'
+    try { $out = & $exe @argv 2>$null } catch { return $null }
+    if ($LASTEXITCODE -ne 0) { return $null }
+    return ($out | Select-Object -First 1)
+  }
+
+  function FindApp([string]$name) {
+    return Get-Command $name -CommandType Application -ErrorAction SilentlyContinue |
+      Select-Object -First 1
+  }
+
+  # Git Bash, looked up like the daemon does (packages/daemon/src/platform/shell.ts): never a
+  # bare bash from PATH, which may be WSL's.
+  function FindGitBash([string]$git) {
+    $bases = @()
+    $exec = FirstLine $git @('--exec-path')
+    if ($exec -and $exec -match '^(.*)[\\/](mingw64|mingw32|clangarm64|usr)[\\/]libexec[\\/]git-core[\\/]?$') {
+      $bases += $Matches[1]
+    }
+    foreach ($base in @($env:ProgramFiles, $env:ProgramW6432, ${env:ProgramFiles(x86)})) {
+      if ($base) { $bases += (Join-Path $base 'Git') }
+    }
+    if ($env:LOCALAPPDATA) { $bases += (Join-Path $env:LOCALAPPDATA 'Programs\Git') }
+    $candidates = @()
+    if ($env:CLAUDE_CODE_GIT_BASH_PATH) { $candidates += $env:CLAUDE_CODE_GIT_BASH_PATH }
+    foreach ($b in $bases) {
+      $candidates += (Join-Path $b 'bin\bash.exe')
+      $candidates += (Join-Path $b 'usr\bin\bash.exe')
+    }
+    foreach ($c in $candidates) {
+      if (Test-Path -LiteralPath $c -PathType Leaf) { return $c }
+    }
+    return $null
+  }
+
+  function IsLink([string]$path) {
+    $item = Get-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+    return ($null -ne $item) -and (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+  }
+
+  function Run([string]$exe, [string[]]$argv, [string]$what) {
+    & $exe @argv | Out-Null
+    if ($LASTEXITCODE -ne 0) { Fail "$what failed (exit code $LASTEXITCODE)" }
+  }
+
+  try {
+    $root = $env:CONDUCTOR_ROOT
+    if (-not $root) { $root = Join-Path $HOME '.conductor' }
+    $root = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($root)
+    # The edit-guard hook can't carry these through cmd.exe or Git Bash (platform/hook.ts).
+    if ($root -match '["%!^$`]') { Fail "the install root $root contains one of `"%!^`$``; set CONDUCTOR_ROOT to another folder" }
+
+    # ---- prerequisites: list everything missing, then stop ----
+    $missing = @()
+    $node = FindApp 'node'
+    if ($null -eq $node) {
+      $missing += 'Node.js 22 or newer is required (node is not on PATH): winget install OpenJS.NodeJS.LTS'
+    } else {
+      $nodeVersion = FirstLine $node.Source @('--version')
+      if ("$nodeVersion" -match '^v(\d+)\.') {
+        if ([int]$Matches[1] -lt 22) { $missing += "Node.js 22 or newer is required (found $nodeVersion)" }
+      } else {
+        $missing += "Node.js 22 or newer is required (node --version printed '$nodeVersion')"
+      }
+    }
+    $git = FindApp 'git'
+    if ($null -eq $git) {
+      $missing += 'Git for Windows is required: winget install --id Git.Git -e'
+    } elseif ($null -eq (FindGitBash $git.Source)) {
+      $missing += 'Git Bash (bash.exe from Git for Windows) is required; if it is installed somewhere unusual, set CLAUDE_CODE_GIT_BASH_PATH to it'
+    }
+    $claude = FindApp 'claude'
+    if ($null -eq $claude) {
+      $missing += 'Claude Code (claude.exe) is required: irm https://claude.ai/install.ps1 | iex'
+    } elseif ([IO.Path]::GetExtension($claude.Source) -ne '.exe') {
+      # U-110: npm's claude.cmd can't take the daemon's multi-line arguments.
+      $missing += "the native Claude Code (claude.exe) is required, but claude is $($claude.Source); install it with: irm https://claude.ai/install.ps1 | iex"
+    }
+    $tar = Join-Path $env:SystemRoot 'System32\tar.exe'
+    if (-not (Test-Path -LiteralPath $tar -PathType Leaf)) { $missing += 'tar.exe is required (Windows 10 1803 or newer)' }
+    $icacls = Join-Path $env:SystemRoot 'System32\icacls.exe'
+    if (-not (Test-Path -LiteralPath $icacls -PathType Leaf)) { $missing += 'icacls.exe is required' }
+    if ($missing.Count -gt 0) {
+      Fail ("missing prerequisites (this script installs none of them):`n  - " + ($missing -join "`n  - "))
+    }
+
+    # ---- download and verify, before anything is written under the root ----
+    if ($PublicUrl -notmatch '^https://' -and $PublicUrl -notmatch '^http://(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$') {
+      Fail "refusing to download over a non-https URL: $PublicUrl"
+    }
+    # Windows PowerShell 5.1 may not offer TLS 1.2 by default.
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ('conductor-install-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $tmp | Out-Null
+    try {
+      $tgz = Join-Path $tmp $File
+      $url = "$PublicUrl/downloads/$File"
+      Write-Host "downloading conductor-daemon $Version"
+      try {
+        Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $tgz -MaximumRedirection 0
+      } catch {
+        Fail "download failed: $url ($($_.Exception.Message))"
+      }
+      # .NET, not Get-FileHash: a 5.1 window started from pwsh 7 inherits its PSModulePath and
+      # can't autoload Get-FileHash (seen on the windows-latest runner).
+      $stream = [IO.File]::OpenRead($tgz)
+      try {
+        $hasher = [Security.Cryptography.SHA256]::Create()
+        $got = -join ($hasher.ComputeHash($stream) | ForEach-Object { $_.ToString('x2') })
+      } finally {
+        $stream.Dispose()
+      }
+      if ($got -ne $Sha256) { Fail "SHA-256 mismatch for $File (expected $Sha256, got $got); nothing installed" }
+
+      # ---- install ----
+      if (IsLink $root) { Fail "$root is a link or junction; refusing to install through it" }
+      New-Item -ItemType Directory -Force -Path $root | Out-Null
+      # ADR-0024 section 3: owner-only (you, SYSTEM, Administrators), the DACL the daemon verifies.
+      $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+      Run $icacls @($root, '/setowner', "*$sid", '/q') "making you the owner of $root"
+      Run $icacls @($root, '/inheritance:r', '/grant:r', "*${sid}:(OI)(CI)F", '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F', '/q') "restricting $root to you"
+
+      $daemonDir = Join-Path $root 'daemon'
+      $binDir = Join-Path $root 'bin'
+      foreach ($d in @($daemonDir, $binDir)) {
+        if (IsLink $d) { Fail "$d is a link or junction; refusing to install through it" }
+        New-Item -ItemType Directory -Force -Path $d | Out-Null
+      }
+      $stage = Join-Path $daemonDir ".$Version.tmp.$PID"
+      if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
+      New-Item -ItemType Directory -Path $stage | Out-Null
+      & $tar -xzf $tgz -C $stage
+      if ($LASTEXITCODE -ne 0) {
+        Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+        Fail "could not unpack $File"
+      }
+      if (-not (Test-Path -LiteralPath (Join-Path $stage 'bin\conductor-daemon.cmd') -PathType Leaf)) {
+        Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+        Fail "$File has no bin\conductor-daemon.cmd"
+      }
+      $target = Join-Path $daemonDir $Version
+      if (Test-Path -LiteralPath $target) {
+        try {
+          Remove-Item -LiteralPath $target -Recurse -Force
+        } catch {
+          Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+          Fail "could not replace $target (is the daemon running? stop it and re-run): $($_.Exception.Message)"
+        }
+      }
+      Move-Item -LiteralPath $stage -Destination $target
+
+      # `current` is a junction (no admin needed, unlike a symlink). There is no atomic swap:
+      # remove the old one, never its target, then make the new one.
+      $current = Join-Path $daemonDir 'current'
+      if (IsLink $current) {
+        [IO.Directory]::Delete($current)
+      } elseif (Test-Path -LiteralPath $current) {
+        Fail "$current is not a junction; move it away and re-run"
+      }
+      New-Item -ItemType Junction -Path $current -Target $target | Out-Null
+
+      # A batch file that hands over to another (no `call`) never returns, so its exit code is the
+      # daemon's; `call` would double any ^ in the arguments.
+      $shim = "@echo off`r`nrem conductor-daemon (written by install.ps1): runs the version in daemon\current.`r`n`"%~dp0..\daemon\current\bin\conductor-daemon.cmd`" %*`r`n"
+      $daemon = Join-Path $binDir 'conductor-daemon.cmd'
+      [IO.File]::WriteAllText($daemon, $shim, (New-Object Text.ASCIIEncoding))
+      Write-Host "installed conductor-daemon $Version in $target"
+
+      # ---- PATH: the user's (new terminals) and this session's ----
+      # Read and write the raw registry value: [Environment]::GetEnvironmentVariable expands
+      # %USERPROFILE%-style entries, and writing that back would freeze them.
+      $envKey = Get-Item -LiteralPath 'HKCU:\Environment'
+      $userPath = [string]$envKey.GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+      $entries = @($userPath -split ';' | Where-Object { $_ -ne '' })
+      $onPath = $entries | Where-Object { $_.TrimEnd('\') -ieq $binDir.TrimEnd('\') }
+      if (-not $onPath) {
+        $kind = 'ExpandString'
+        if ($userPath -ne '') { $kind = $envKey.GetValueKind('Path').ToString() }
+        New-ItemProperty -LiteralPath 'HKCU:\Environment' -Name 'Path' -Value (($entries + $binDir) -join ';') -PropertyType $kind -Force | Out-Null
+        # Setting any user variable broadcasts WM_SETTINGCHANGE, so new terminals see the PATH.
+        [Environment]::SetEnvironmentVariable('CONDUCTOR_INSTALL_REFRESH', '1', 'User')
+        [Environment]::SetEnvironmentVariable('CONDUCTOR_INSTALL_REFRESH', [NullString]::Value, 'User')
+        Write-Host "added $binDir to your PATH"
+      }
+      if (-not (@($env:Path -split ';') | Where-Object { $_.TrimEnd('\') -ieq $binDir.TrimEnd('\') })) {
+        $env:Path = "$binDir;$env:Path"
+      }
+
+      # ---- enroll (the token goes in the environment, never in argv: TD-117) ----
+      if ($token) {
+        $savedRoot = $env:CONDUCTOR_ROOT
+        try {
+          $env:CONDUCTOR_ROOT = $root
+          $env:CONDUCTOR_ENROLL_TOKEN = $token
+          & $daemon enroll --url $PublicUrl
+          $code = $LASTEXITCODE
+        } finally {
+          Remove-Item Env:\CONDUCTOR_ENROLL_TOKEN -ErrorAction SilentlyContinue
+          $token = $null
+          if ($null -eq $savedRoot) { Remove-Item Env:\CONDUCTOR_ROOT -ErrorAction SilentlyContinue }
+          else { $env:CONDUCTOR_ROOT = $savedRoot }
+        }
+        if ($code -ne 0) {
+          Fail 'enrollment failed (the daemon is installed; get a new command from Add a machine and run it again)'
+        }
+      } elseif (Test-Path -LiteralPath (Join-Path $root 'machine.json')) {
+        Write-Host "upgraded in place; enrollment kept ($(Join-Path $root 'machine.json'))"
+        Write-Host 'If the daemon is running, stop it (Ctrl-C) and start it again to run the new version.'
+      } else {
+        Write-Host 'not enrolled: run the command from Add a machine'
+      }
+    } finally {
+      Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    Write-Host ''
+    Write-Host 'Start the daemon, and keep this window open (stop it with Ctrl-C):'
+    Write-Host '  conductor-daemon'
+    Write-Host 'Then tell it where your repos are, for example:'
+    Write-Host '  conductor-daemon config roots $HOME\code'
+  } catch {
+    $msg = $_.Exception.Message
+    if (-not $msg.StartsWith($prefix)) { $msg = "$prefix$msg" }
+    Write-Host $msg -ForegroundColor Red
+  }
+}

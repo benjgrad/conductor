@@ -7,6 +7,7 @@ import { FakeClaudeDriver } from '../claude/fake-driver.js';
 import { FakeCommandRunner } from '../commands/fake-runner.js';
 import { loadConfig } from '../config.js';
 import { Daemon } from '../daemon.js';
+import { mkdirPrivate } from '../platform/index.js';
 import { FakeOrchestrator } from '../test-support/fake-orchestrator.js';
 import { inventoryHash, InventoryReporter, watchSighup, type InventoryScan } from './report.js';
 
@@ -98,6 +99,7 @@ describe('daemon inventory over the link (M2-T10)', () => {
 
   beforeEach(async () => {
     tmp = mkdtempSync(join(tmpdir(), 'conductor-report-'));
+    mkdirPrivate(tmp); // win32: the daemon makes its root private, which needs a private parent
     orch = await FakeOrchestrator.start();
     scan = { repos: [REPO], capabilities: [GH] };
   });

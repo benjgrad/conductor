@@ -1,21 +1,13 @@
-import { randomBytes } from 'node:crypto';
-import {
-  chmodSync,
-  lstatSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-  type Stats,
-} from 'node:fs';
+import { lstatSync, readFileSync, type Stats } from 'node:fs';
 import { join } from 'node:path';
 import { API_PATHS } from '@conductor/shared';
 import { z } from 'zod';
+import { assertOwnerOnly, mkdirPrivate, writePrivateFile } from './platform/index.js';
 
 // The machine credential (M2-T04; ADR-0013 §Enrollment, ADR-0017 §Daemon distribution):
 // `<root>/machine.json` = {url, machine_id, credential}, file 0600 in a 0700 directory, both
-// lstat- and owner-checked like ADR-0010's private repos. No file = local mode (M1 behaviour).
+// lstat- and owner-checked like ADR-0010's private repos. On win32 the same checks are an owner-only
+// DACL (ADR-0024 §3, platform/acl.ts). No file = local mode (M1 behaviour).
 // Error messages name paths, never the credential.
 
 export const CREDENTIAL_FILE = 'machine.json';
@@ -55,23 +47,12 @@ function lstatOrNull(path: string): Stats | null {
   }
 }
 
-function foreign(st: Stats): boolean {
-  return process.getuid !== undefined && st.uid !== process.getuid();
-}
-
-/** Refuse a root that is a symlink, not a directory, or owned by another user. */
+/**
+ * Refuse a root that is a symlink, not a directory, or owned by another user (win32: also any DACL
+ * that isn't owner-only).
+ */
 export function checkPrivateDir(dir: string): void {
-  const st = lstatSync(dir);
-  if (st.isSymbolicLink()) throw new Error(`${dir} is a symlink; refusing to use it`);
-  if (!st.isDirectory()) throw new Error(`${dir} is not a directory`);
-  if (foreign(st)) throw new Error(`${dir} is owned by another user; refusing to use it`);
-}
-
-/** Refuse an existing credential file that is a symlink, not a file, or owned by another user. */
-function checkFile(path: string, st: Stats): void {
-  if (st.isSymbolicLink()) throw new Error(`${path} is a symlink; refusing to use it`);
-  if (!st.isFile()) throw new Error(`${path} is not a regular file`);
-  if (foreign(st)) throw new Error(`${path} is owned by another user; refusing to use it`);
+  assertOwnerOnly(dir, { kind: 'dir' });
 }
 
 /**
@@ -83,9 +64,9 @@ export function checkWritable(rootDir: string, opts: { force: boolean }): void {
   if (lstatOrNull(rootDir) === null) return;
   checkPrivateDir(rootDir);
   const path = credentialPath(rootDir);
-  const st = lstatOrNull(path);
-  if (st === null) return;
-  checkFile(path, st);
+  if (lstatOrNull(path) === null) return;
+  // Type and owner only: the file is about to be replaced, so its mode doesn't matter.
+  assertOwnerOnly(path, { kind: 'file', checkAccess: false });
   if (!opts.force) {
     throw new Error(
       `${path} already exists (this machine is enrolled); pass --force to replace it`,
@@ -97,13 +78,10 @@ export function checkWritable(rootDir: string, opts: { force: boolean }): void {
 export function loadCredential(rootDir: string): MachineCredential | null {
   const path = credentialPath(rootDir);
   if (lstatOrNull(rootDir) === null) return null;
-  const st = lstatOrNull(path);
-  if (st === null) return null;
+  if (lstatOrNull(path) === null) return null;
   checkPrivateDir(rootDir);
-  checkFile(path, st);
-  if ((st.mode & 0o077) !== 0) {
-    throw new Error(`${path} is readable by other users; run: chmod 600 ${path}`);
-  }
+  // Type, owner, and nobody else can read it (POSIX `mode & 0o077`, win32 the DACL).
+  assertOwnerOnly(path, { kind: 'file' });
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(path, 'utf8'));
@@ -118,25 +96,17 @@ export function loadCredential(rootDir: string): MachineCredential | null {
   return parsed.data;
 }
 
-/** Write the credential atomically (temp file 0600 + rename) into a 0700 root. */
+/** Write the credential atomically (private temp file + rename) into a private root. */
 export function writeCredential(
   rootDir: string,
   cred: MachineCredential,
   opts: { force: boolean },
 ): string {
   const data = MachineCredentialSchema.parse(cred);
-  mkdirSync(rootDir, { recursive: true, mode: 0o700 });
+  mkdirPrivate(rootDir);
   checkWritable(rootDir, opts);
-  chmodSync(rootDir, 0o700);
   const path = credentialPath(rootDir);
-  const tmp = `${path}.${randomBytes(6).toString('hex')}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
-  try {
-    renameSync(tmp, path);
-  } catch (e) {
-    rmSync(tmp, { force: true });
-    throw e;
-  }
+  writePrivateFile(path, `${JSON.stringify(data, null, 2)}\n`);
   return path;
 }
 

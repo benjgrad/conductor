@@ -111,7 +111,7 @@ fi
 # deploy that didn't happen. The rollback path sends its own alert and sets ALERTED.
 ALERTED=0
 PREV=""
-# shellcheck disable=SC2329 # invoked by the EXIT trap
+# shellcheck disable=SC2317,SC2329 # invoked by the EXIT trap (SC2317 on shellcheck < 0.10)
 on_exit() {
   local code=$?
   ((code == 0 || ALERTED == 1)) && return

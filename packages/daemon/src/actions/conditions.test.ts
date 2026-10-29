@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { Condition } from '@conductor/shared';
+import { NO_PR_CHECKS_VALUE, type Condition } from '@conductor/shared';
 import { workflowShell } from '../platform/index.js';
 import { removeTreeOrLeave } from '../test-support/remove-tree.js';
 import {
@@ -546,5 +546,35 @@ describe('condition mapping (pure)', () => {
     expect(mapCondition(CHECKS, pr).status).toBe('met');
     expect(mapCondition(APPROVALS_1, pr).status).toBe('met');
     expect(() => parsePrView([])).toThrow();
+  });
+
+  it('a failing check names its https link so the agent can read the log; others are dropped', () => {
+    const pr = parsePrView({
+      state: 'OPEN',
+      statusCheckRollup: [
+        {
+          __typename: 'CheckRun',
+          name: 'test',
+          status: 'COMPLETED',
+          conclusion: 'FAILURE',
+          detailsUrl: 'https://github.com/o/r/actions/runs/1/job/2',
+        },
+        {
+          __typename: 'StatusContext',
+          context: 'ci/legacy',
+          state: 'ERROR',
+          targetUrl: 'javascript:alert(1)',
+        },
+      ],
+    });
+    expect(mapCondition(CHECKS, pr)).toMatchObject({
+      status: 'failed',
+      detail: 'failing: test (https://github.com/o/r/actions/runs/1/job/2), ci/legacy',
+    });
+  });
+
+  it('no checks at all reports NO_PR_CHECKS_VALUE, which the engine keys no_checks_after on', () => {
+    const r = mapCondition(CHECKS, parsePrView({ state: 'OPEN', statusCheckRollup: [] }));
+    expect(r).toMatchObject({ status: 'pending', value: NO_PR_CHECKS_VALUE });
   });
 });

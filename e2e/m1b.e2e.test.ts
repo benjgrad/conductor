@@ -14,6 +14,9 @@
 //   5. Regression: a ticket pinned to conductor v1's definition still runs the ADR-0010 path.
 //   6. M2-T30: a personal ticket on a pnpm repo: the entry checks install with
 //      `pnpm install --frozen-lockfile` and run `npm run build` / `npm test` as pnpm → Done.
+//   7. ADR-0025 (conductor v3, polled every second): a personal ticket whose PR CI is red goes
+//      back to Implementing with the failing check and how to read its log; the agent's fix is
+//      pushed, CI turns green, and only then is the ticket Done.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -33,6 +36,14 @@ const readDef = (file: string) =>
   JSON.parse(readFileSync(join(REPO_ROOT, 'docs/design/workflows', file), 'utf8')) as Def;
 const CONDUCTOR_V1 = readDef('conductor.v1.json');
 const CONDUCTOR_V2 = readDef('conductor.v2.json');
+const CONDUCTOR_V3 = readDef('conductor.v3.json');
+/** conductor v3 with the personal `done` move's CI polled every second (scenario 7). */
+const CONDUCTOR_V3_FAST: Def = (() => {
+  const def = structuredClone(CONDUCTOR_V3);
+  const done = def.states.implementing!.on!.done as { requires: { condition_poll: string } };
+  done.requires.condition_poll = '1s';
+  return def;
+})();
 
 interface ReadyForTesting {
   requires: { review: { items: string[] }; condition_poll: string };
@@ -140,6 +151,23 @@ const SCENARIOS: Record<string, unknown> = {
       ],
     ],
   },
+  // 7. conductor v3: `done` held by red CI, sent back, fixed, then green.
+  ci_fix: {
+    turns: [
+      [{ say: 'Planning.' }, PLAN],
+      [
+        { say: 'Implementing.' },
+        ...COMMIT,
+        { complete_state: { summary: 'added /health' }, transition: 'done', reason: DONE_REASON },
+      ],
+      [
+        { say: 'Reading the failing CI log and fixing it.' },
+        { write_file: { path: 'src/health.txt', content: 'ok, fixed\n' } },
+        { git_commit: 'Fix CI' },
+        { complete_state: { summary: 'fixed CI' }, transition: 'done', reason: DONE_REASON },
+      ],
+    ],
+  },
   // 5. conductor v1: unnamed `done`s; the ADR-0010 entry step into Waiting external.
   v1flow: {
     turns: [
@@ -176,7 +204,7 @@ beforeAll(async () => {
   api = new Api(stack.baseUrl);
   board = new BoardWatcher(stack.baseUrl);
   fastVersion = (await api.saveWorkflow(CONDUCTOR_V2_FAST)).version;
-  expect(fastVersion).toBe(3); // the seed's v1 and v2, then this
+  expect(fastVersion).toBe(4); // the seed's v1, v2 and v3, then this
   await waitFor('the daemon to register', async () =>
     (await api.machines()).find((m) => m.id === stack.machineId && m.status === 'online'),
   );
@@ -523,5 +551,48 @@ describe.skipIf(REAL)('ADR-0011 transition rules (fake Claude, fake gh)', () => 
     expect(detail.moves).toEqual(
       expect.arrayContaining([expect.objectContaining({ to: 'done', transition: 'done' })]),
     );
+  });
+
+  it('7. ADR-0025: red PR CI sends a personal ticket back to Implementing; Done only once green', async () => {
+    const title = 'CI red then green';
+    stack.setFakePr(title, { checks: 'red' });
+    const v3 = (await api.saveWorkflow(CONDUCTOR_V3_FAST)).version;
+    let id: string;
+    let sid: string;
+    try {
+      id = await ticket(title, 'ci_fix', 'personal');
+      sid = (await board.card(id, 'a session', (c) => c.session_id !== null)).session_id!;
+      expect((await api.session(sid)).workflow_version).toBe(v3);
+    } finally {
+      // Later scenarios run on the v2 copy again; this ticket keeps v3 (pinned).
+      await api.saveWorkflow(CONDUCTOR_V2_FAST);
+    }
+
+    // The red check fails the move: back to Implementing, counted, never Done.
+    await waitFor(
+      'the red CI to send the ticket back',
+      async () => (await api.session(sid)).retry_counters?.['move:implementing:done'] === 1,
+      45_000,
+    );
+    expect(board.cards(id).some((c) => c.column === 'done')).toBe(false);
+    stack.setFakePr(title, { checks: 'green' });
+    const done = await board.card(
+      id,
+      'done',
+      (c) => c.column === 'done' && c.status === 'done',
+      45_000,
+    );
+    expect(done.pr_url).toMatch(FAKE_GH_URL_RE);
+
+    // The agent was told which check failed and how to read its log, in its own conversation.
+    const prompts = (await api.transcript(sid)).chunks
+      .filter((c) => c.stream === 'user')
+      .map((c) => c.text);
+    const resumed = prompts.find((p) => p.includes('pr_checks_green: failed'));
+    expect(resumed).toBeDefined();
+    expect(resumed).toContain('failing:');
+    expect(resumed).toContain('gh run view <run-id> --log-failed');
+    const detail = await api.session(sid);
+    expect(detail.retry_counters).toEqual({ 'move:implementing:done': 1 });
   });
 });

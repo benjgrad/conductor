@@ -22,8 +22,10 @@ import { cleanEnv, tail } from './open-pr.js';
 // means something is wrong and the conditions stay pending).
 //
 // Mapping (ADR-0016 §The connector registry):
-//   - pr_checks_green: every check SUCCESS / NEUTRAL / SKIPPED → met; any failure → failed; else
-//     pending. No checks reported yet is pending (CI may not have started).
+//   - pr_checks_green: every check SUCCESS / NEUTRAL / SKIPPED → met; any failure → failed (the
+//     detail names each failing check with its https link); else pending. No checks reported yet
+//     is pending (CI may not have started); the engine's `no_checks_after` decides when that
+//     means "no CI" (U-072).
 //   - pr_approvals {min} (security review 2026-10-26: on a public repo anyone can approve). Only
 //     ELIGIBLE reviewers count: `authorAssociation` OWNER / MEMBER / COLLABORATOR, never the PR's
 //     own author. Their latest APPROVED / CHANGES_REQUESTED / DISMISSED review each (COMMENTED
@@ -63,7 +65,7 @@ const GH_FIELDS = 'statusCheckRollup,reviewDecision,reviews,state,mergedAt,autho
 /** Keeps only the fields the mapping reads (same names, so unprojected output parses too). */
 const GH_JQ =
   '{state, mergedAt, reviewDecision, headRefOid, author: {login: .author.login},' +
-  ' statusCheckRollup: [(.statusCheckRollup // [])[] | {__typename, name, context, status, conclusion, state}],' +
+  ' statusCheckRollup: [(.statusCheckRollup // [])[] | {__typename, name, context, status, conclusion, state, detailsUrl, targetUrl}],' +
   ' reviews: [(.reviews // [])[] | {author: {login: .author.login}, authorAssociation, state, commit: {oid: .commit.oid}}]}';
 
 export interface EvaluateConditionsInput {
@@ -253,6 +255,8 @@ export interface PrCheck {
   status: string | null;
   /** CheckRun conclusion, or a StatusContext's state (SUCCESS / FAILURE / ERROR / PENDING …). */
   conclusion: string | null;
+  /** CheckRun `detailsUrl` / StatusContext `targetUrl` when https; null otherwise. */
+  url: string | null;
 }
 
 export interface PrView {
@@ -268,6 +272,11 @@ export interface PrView {
 }
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
+/** A check's link, only when it is a plain https URL (it reaches the agent as evidence). */
+const httpsUrl = (v: unknown): string | null => {
+  const s = str(v);
+  return s !== null && /^https:\/\/[^\s]{1,500}$/.test(s) ? s : null;
+};
 const rec = (v: unknown): Record<string, unknown> =>
   v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 
@@ -283,12 +292,14 @@ export function parsePrView(raw: unknown): PrView {
         name: str(c.context) ?? str(c.name) ?? 'status',
         status: null,
         conclusion: str(c.state),
+        url: httpsUrl(c.targetUrl),
       };
     }
     return {
       name: str(c.name) ?? str(c.context) ?? 'check',
       status: str(c.status),
       conclusion: str(c.conclusion),
+      url: httpsUrl(c.detailsUrl),
     };
   });
   const reviews = (Array.isArray(o.reviews) ? o.reviews : []).map((x) => {
@@ -340,6 +351,9 @@ function eligibleReviewer(r: PrView['reviews'][number], prAuthor: string | null)
 }
 
 const names = (cs: PrCheck[]) => tail(cs.map((c) => c.name).join(', '), 300);
+/** Failing checks with their links, so the agent can open the logs: `lint (https://…), test`. */
+const failing = (cs: PrCheck[]) =>
+  tail(cs.map((c) => (c.url !== null ? `${c.name} (${c.url})` : c.name)).join(', '), 1200);
 
 export function mapCondition(c: Condition, pr: PrView, headSha?: string): ConditionResult {
   if (!GH_TYPES.has(c.type)) return unsupported(c);
@@ -366,8 +380,9 @@ export function mapCondition(c: Condition, pr: PrView, headSha?: string): Condit
     const pending = pr.checks.filter((k) => checkVerdict(k) === 'pending');
     const passed = total - failed.length - pending.length;
     const value = `${passed}/${total} passed`;
-    if (failed.length > 0) return result(c.type, 'failed', value, `failing: ${names(failed)}`);
+    if (failed.length > 0) return result(c.type, 'failed', value, `failing: ${failing(failed)}`);
     if (closed) return result(c.type, 'failed', value, 'the PR was closed without merging');
+    // value is NO_PR_CHECKS_VALUE here: the engine's `no_checks_after` keys on it (U-072).
     if (total === 0) return result(c.type, 'pending', value, 'no checks reported yet');
     if (pending.length > 0) {
       return result(c.type, 'pending', value, `waiting for: ${names(pending)}`);

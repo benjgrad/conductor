@@ -6,6 +6,10 @@ import {
   CONDUCTOR_V1_DEF,
   CONDUCTOR_V2,
   CONDUCTOR_V2_DEF,
+  CONDUCTOR_V3,
+  CONDUCTOR_V3_DEF,
+  V3_NO_CHECKS_AFTER,
+  V3_UNMET_INSTRUCTION,
   WORK_COMMIT_REVIEW_ITEM,
 } from './conductor.js';
 import { CONDUCTOR_WORKFLOW_ID, RETURN_TO, type TicketKind } from './schema.js';
@@ -311,5 +315,80 @@ describe('conductor v2 (ADR-0011)', () => {
       { type: 'azure_pipeline_succeeded', pipeline: 'ci', enabled: false },
     ]);
     expect(t.requires?.condition_timeout).toBe('3d');
+  });
+});
+
+describe('conductor v3 (ADR-0025)', () => {
+  const v3Shipping = () =>
+    transitionsOf(CONDUCTOR_V3_DEF, 'implementing').filter(
+      (e) => e.transition.requires?.actions?.includes('open_pr') === true,
+    );
+
+  it('the code copy equals docs/design/workflows/conductor.v3.json', () => {
+    expect(CONDUCTOR_V3).toEqual(readDoc('conductor.v3.json'));
+  });
+
+  it('validates', () => {
+    expect(errorsOf(CONDUCTOR_V3)).toEqual([]);
+    expect(errorsOf(readDoc('conductor.v3.json'))).toEqual([]);
+  });
+
+  it('is the next version with longer timeouts and budget; v2 left as it was', () => {
+    const d = CONDUCTOR_V3_DEF;
+    expect(d.version).toBe(CONDUCTOR_V2_DEF.version + 1);
+    expect(d.budget).toEqual({ usd: 5, minutes: 240, max_loop_retries: 3 });
+    expect(d.states.planning).toMatchObject({ timeout: '60m' });
+    expect(d.states.implementing).toMatchObject({ timeout: '2h' });
+    expect(CONDUCTOR_V2_DEF.states.implementing).toMatchObject({ timeout: '30m' });
+    expect(Object.keys(d.states)).toEqual(Object.keys(CONDUCTOR_V2_DEF.states));
+  });
+
+  it('every kind sees the same transitions as in v2', () => {
+    for (const kind of ['work', 'personal', null] as const) {
+      for (const state of Object.keys(CONDUCTOR_V2_DEF.states)) {
+        const names = (def: typeof CONDUCTOR_V2_DEF) =>
+          transitionsOf(def, state, { kind }).map((e) => `${e.name} → ${e.transition.goto}`);
+        expect(names(CONDUCTOR_V3_DEF), `${state} ${kind}`).toEqual(names(CONDUCTOR_V2_DEF));
+      }
+    }
+  });
+
+  it('every shipping transition waits for green PR checks (no CI after 5m counts as green)', () => {
+    expect(v3Shipping().map((e) => e.name)).toEqual([
+      'pr_ready_for_review',
+      'personal_pr_ready_for_review',
+      'ready_for_testing',
+      'done',
+    ]);
+    for (const e of v3Shipping()) {
+      expect(e.transition.requires?.conditions?.[0], e.name).toEqual({
+        type: 'pr_checks_green',
+        no_checks_after: V3_NO_CHECKS_AFTER,
+      });
+      expect(e.transition.on_unmet, e.name).toMatchObject({
+        goto: 'implementing',
+        instruction: V3_UNMET_INSTRUCTION,
+        retries: 3,
+        else: 'needs_input',
+      });
+    }
+  });
+
+  it('the review hand-offs poll every minute for at most 2h; ready_for_testing keeps 3d', () => {
+    for (const e of v3Shipping()) {
+      const r = e.transition.requires!;
+      if (e.name === 'ready_for_testing') {
+        expect([r.condition_timeout, r.condition_poll]).toEqual(['3d', '2m']);
+        expect(r.conditions?.map((c) => c.type)).toEqual([
+          'pr_checks_green',
+          'pr_approvals',
+          'jira_fields_set',
+          'azure_pipeline_succeeded',
+        ]);
+      } else {
+        expect([r.condition_timeout, r.condition_poll], e.name).toEqual(['2h', '1m']);
+        expect(r.conditions, e.name).toHaveLength(1);
+      }
+    }
   });
 });

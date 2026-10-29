@@ -121,6 +121,8 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 | M2-T29c | Orchestrator: store requests, `needs_permission` on the board, decision route → daemon | T29 | E | **yes** | done (merged 6ef80c1; TD-188) |
 | M2-T29d | Web: Needs-permission card state with Allow once / Allow always / Deny | T29c | F | — | done (merged 96836be) |
 | M2-T30 | Daemon + shared: package-manager-aware build checks (pnpm / yarn lockfiles) and pnpm rules in the `bash` alias | — | D | — | done |
+| M2-T31a | ADR-0025 §1: `conductor` v3 (green PR CI before review, `no_checks_after`, longer ceilings), seed v1 → v2 → v3, check links in the evidence, the agent's Bash limits | — | D | — | in_review (branch `m2-t31a-ci-gate`) |
+| M2-T31b | ADR-0025 §2: activity-aware agent timeouts (`idle_timeout`, heartbeat activity, `session.last_activity_at`, `agent.idle`, ceiling re-armed at init, kill on timeout) | T31a | E | **yes** (one nullable column) | todo |
 
 **Follow-ups and splits (2026-10-27).** T08b, T09b and T10b came from post-merge QA of T08 (PR #16), T09 (PR #13) and T10 (PR #14) and merged as PR #21 (merge 32e6bb8), PR #17 (merge 881708e) and PR #19 (merge 74abf5f). T07b pays TD-144 and must land before T25's first deploy. Ben chose an early you-only deploy, so T15 is split: **T15a** (bootstrap, CLI, resets; critical path) and **T15b** (invites, sign-up, admin routes; after T12). Critical path for the you-only deploy: T09b, T08b, T14, T15a, T17, T07b. No second account until T16, T19 and T21 (TD-149). Deploy T09 and T17 together: after T09, password-mode gateways refuse every uncredentialed daemon and only T17 adds enrollment. Post-merge QA ran for T06 (OK, every item verified on main), T10 (follow-ups done as T10b) and T09b (security QA passed, 6 attack probes). T20 must settle U-084 (lease renewal for sessions parked in event states) before it starts.
 
@@ -979,6 +981,25 @@ The lead fast-forwarded the daemon clone and Hazel's branch by hand (the interim
   - [ ] Alias rule tests.
   - [ ] A pnpm fixture repo's build check passes in e2e.
   - [ ] Gates.
+
+### M2-T31a · Green PR CI before review (ADR-0025 §1)
+- Why: production `conductor` v2 data, 2026-10-29. `timeout` was the most common input request (20 of 44), and personal tickets reached Ben with red PR CI.
+- `pr_checks_green.no_checks_after` (engine-only; stripped from the daemon's args), `GateStep.conditions_started_at`, `NO_PR_CHECKS_VALUE` (U-072).
+- `CONDUCTOR_V3` (derived from v2 in code) and `conductor.v3.json`: `pr_checks_green` (5m grace) on every shipping transition; review hand-offs and `done` poll 1m for at most 2h; the CI-aware `on_unmet` instruction; Planning 60m, Implementing 2h, budget 240 min.
+- The seed walks v1 → v2 → v3; `default_available` names the newest shipped version.
+- The daemon: failing checks carry their https link; the agent env has `BASH_DEFAULT_TIMEOUT_MS` 10m / `BASH_MAX_TIMEOUT_MS` 30m.
+- Web: the PR-checks condition has a "no CI after" input.
+- **Acceptance**:
+  - [x] Unit: the grace (pending before 5m, met after; running checks never graced; absent field = v2 behaviour); args stripped; the seed chain (incl. concurrent starts and an unedited v2); v3 equals its JSON and validates; agent env.
+  - [x] E2E scenario 7 (m1b): red CI → back to Implementing with the failing check and the log instruction → fix pushed → green → Done.
+  - [x] Gates.
+
+### M2-T31b · Activity-aware agent timeouts (ADR-0025 §2)
+- Daemon: per `AgentProc`, `lastActivityAt` (every assistant / tool_use / tool_result / debug line), the tool calls in flight, and a held permission prompt. All three go in the heartbeat as optional per-session fields.
+- Orchestrator: additive migration `session.last_activity_at timestamptz NULL`, written from the heartbeat (busy = now).
+- Shared: agent-state `idle_timeout` (duration); a new engine event `agent.idle {state, last_activity_at}` from the sweep. It takes the `timeout` outcome ("no agent activity for <idle_timeout>"), and is ignored unless the session is running in that state. On `agent.claude_session_id` for the current command, re-arm `state_deadline = now + timeout`. A `timeout` that leaves an agent state emits `kill {reason: 'timeout'}`.
+- `conductor` v3 (or v4 if v3 has shipped by then): `idle_timeout: 15m` on Planning and Implementing.
+- **Acceptance**: apply tests (idle → timeout + kill; ignored when not running; re-arm at init); sweep test (busy sessions don't fire); heartbeat schema with and without the fields; e2e with a silent fake Claude; gates.
 
 ## Risks
 - **No Docker on Ben's Mac**: the Dockerfile and compose file are first built on gradyserver. Mitigation: T07 and T14 have a lead QA step that runs `docker build` there before merge, and T25 starts with a dry build.

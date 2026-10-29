@@ -217,6 +217,81 @@ describe('the conditions phase', () => {
     expect(find(r.effects, 'state_entered')).toMatchObject({ from: LABEL, to: 'implementing' });
   });
 
+  describe('pr_checks_green.no_checks_after (U-072)', () => {
+    const NO_CHECKS: Res = {
+      status: 'pending',
+      value: '0/0 passed',
+      detail: 'no checks reported yet',
+    };
+    const graced = () =>
+      v2With((raw) => {
+        raw.states.implementing.on.ready_for_testing.requires.conditions[0].no_checks_after = '5m';
+      });
+
+    it('the daemon never sees no_checks_after (an older daemon would refuse the key)', () => {
+      const h = implementing(graced());
+      const run = find(toConditions(h).effects, 'run_action')!;
+      expect((run.args as { conditions: unknown[] }).conditions[0]).toEqual({
+        type: 'pr_checks_green',
+      });
+    });
+
+    it('no checks at all stays pending until 5 min after the conditions started, then is met', () => {
+      const h = implementing(graced());
+      toConditions(h);
+      const start = h.now.getTime();
+      let r = evaluate(h, NO_CHECKS, APPROVED);
+      expect(r.snapshot.step!.conditions[0]).toMatchObject({ status: 'pending' });
+      fire(h); // +2 min
+      r = evaluate(h, NO_CHECKS, APPROVED);
+      expect(r.snapshot.step!.conditions[0]).toMatchObject({ status: 'pending' });
+      fire(h); // +6 min: past the grace
+      expect(h.now.getTime() - start).toBeGreaterThanOrEqual(5 * MIN);
+      r = evaluate(h, NO_CHECKS, APPROVED);
+      expect(r.snapshot).toMatchObject({ workflow_state: 'waiting_external', step: null });
+    });
+
+    it('checks that exist but are still running are never graced', () => {
+      const h = implementing(graced());
+      toConditions(h);
+      for (let i = 0; i < 4; i++) {
+        evaluate(
+          h,
+          { status: 'pending', value: '0/2 passed', detail: 'waiting for: ci' },
+          APPROVED,
+        );
+        fire(h);
+      }
+      const r = evaluate(h, { status: 'pending', value: '0/2 passed' }, APPROVED);
+      expect(r.snapshot.step!.conditions[0]).toMatchObject({ status: 'pending' });
+    });
+
+    it('without no_checks_after, no checks stays pending however long it takes', () => {
+      const h = implementing();
+      toConditions(h);
+      for (let i = 0; i < 4; i++) {
+        evaluate(h, NO_CHECKS, APPROVED);
+        fire(h);
+      }
+      const r = evaluate(h, NO_CHECKS, APPROVED);
+      expect(r.snapshot.step!.conditions[0]).toMatchObject({ status: 'pending' });
+    });
+
+    it('a met-by-grace checklist line says why', () => {
+      const h = implementing(graced());
+      toConditions(h);
+      evaluate(h, NO_CHECKS, NO_APPROVAL);
+      fire(h);
+      evaluate(h, NO_CHECKS, NO_APPROVAL);
+      fire(h);
+      const r = evaluate(h, NO_CHECKS, NO_APPROVAL);
+      expect(r.snapshot.step!.conditions[0]).toMatchObject({
+        status: 'met',
+        detail: 'no CI checks reported within 5m',
+      });
+    });
+  });
+
   it('a failed condition past on_unmet.retries → on_unmet.else listing the evidence', () => {
     const def = v2With((raw) => {
       raw.states.implementing.on.ready_for_testing.on_unmet.retries = 0;

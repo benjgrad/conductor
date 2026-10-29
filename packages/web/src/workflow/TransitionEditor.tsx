@@ -488,6 +488,21 @@ function TransitionForm({
                     }
                   />
                 )}
+                {c.type === 'pr_checks_green' && (
+                  <input
+                    aria-label={`Condition ${i + 1} no CI after`}
+                    value={c.no_checks_after ?? ''}
+                    placeholder="no CI after (e.g. 5m)"
+                    title="Met when the PR still reports no checks this long after it was pushed (a repo without CI)"
+                    onChange={(e) => {
+                      const next = { ...c };
+                      delete next.no_checks_after;
+                      set(
+                        e.target.value === '' ? next : { ...next, no_checks_after: e.target.value },
+                      );
+                    }}
+                  />
+                )}
                 {c.type === 'azure_pipeline_succeeded' && (
                   <input
                     aria-label={`Condition ${i + 1} pipeline`}

@@ -109,6 +109,10 @@ export const AGENT_ENV = {
   // ADR-0023: a held `permission` call lasts up to DEFAULT_PERMISSION_TIMEOUT_MS (30 min); the
   // CLI's MCP tool timeout must not cut it first. Conductor's server is the only MCP server.
   MCP_TOOL_TIMEOUT: String(DEFAULT_PERMISSION_TIMEOUT_MS + 5 * 60_000),
+  // The CLI's Bash tool kills a command after 2 min by default (10 max), so an agent's own test
+  // run died and was retried until the state timed out. 10 min by default, 30 at most.
+  BASH_DEFAULT_TIMEOUT_MS: String(10 * 60_000),
+  BASH_MAX_TIMEOUT_MS: String(30 * 60_000),
 } as const;
 
 /**

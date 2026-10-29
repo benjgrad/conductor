@@ -98,6 +98,7 @@ export const MOVE_STEP_FIXTURE: GateStep = {
   ],
   conditions_deadline: '2026-10-29T12:01:00.000Z',
   conditions_poll_ms: 120_000,
+  conditions_started_at: '2026-10-26T12:01:00.000Z',
   conditions_note: null,
   approvals: null,
 };
@@ -294,6 +295,7 @@ export const MERGE_STEP_FIXTURE: GateStep = {
   conditions: [],
   conditions_deadline: null,
   conditions_poll_ms: null,
+  conditions_started_at: null,
   approvals: { who: 'ui', ids: ['migration'], files: { migration: [M2R_MIGRATION] } },
 };
 

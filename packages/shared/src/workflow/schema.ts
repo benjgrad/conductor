@@ -190,12 +190,18 @@ const conditionCommon = {
  * ADR-0011 external conditions, evaluated on the user's machine (`run_action evaluate_conditions`)
  * and re-polled until all are met, one turns false, or `condition_timeout` passes.
  * - `pr_checks_green`: every status check on conductor's PR (`context.__pr.pr_url`) succeeded;
+ *   with `no_checks_after`, a PR that still reports no checks that long after the conditions
+ *   started counts as met (a repo without CI, U-072); without it, no checks stays pending;
  * - `pr_approvals`: at least `min` approving reviews, and no "changes requested";
  * - `pr_merged`: the PR is merged;
  * - `azure_pipeline_succeeded` / `jira_fields_set`: M5 (the daemon reports them `unsupported`).
  */
 export const ConditionSchema = z.discriminatedUnion('type', [
-  z.strictObject({ type: z.literal('pr_checks_green'), ...conditionCommon }),
+  z.strictObject({
+    type: z.literal('pr_checks_green'),
+    no_checks_after: DurationSchema.optional(),
+    ...conditionCommon,
+  }),
   z.strictObject({
     type: z.literal('pr_approvals'),
     min: z.number().int().min(1).max(20),

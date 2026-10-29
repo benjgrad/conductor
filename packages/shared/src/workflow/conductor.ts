@@ -253,6 +253,72 @@ export const CONDUCTOR_V2: WorkflowDefinitionInput = {
 /** CONDUCTOR_V2 parsed (defaults applied). */
 export const CONDUCTOR_V2_DEF: WorkflowDefinition = WorkflowDefinitionSchema.parse(CONDUCTOR_V2);
 
+// ---------------------------------------------------------------- conductor v3 (ADR-0025)
+
+/** The transitions out of Implementing that ship code (each opens conductor's PR). */
+const SHIPPING_TRANSITIONS = [
+  'pr_ready_for_review',
+  'personal_pr_ready_for_review',
+  'ready_for_testing',
+  'done',
+] as const;
+
+/** v3: what a failed check or a red PR check sends back to Implementing. */
+export const V3_UNMET_INSTRUCTION =
+  'Fix what is listed above, commit, then finish the step again. If a PR check failed, read its ' +
+  'log first (`gh pr checks <pr>`, then `gh run view <run-id> --log-failed`).';
+
+/** v3: no CI check on the PR this long after it was pushed means the repo has no CI (U-072). */
+export const V3_NO_CHECKS_AFTER = '5m';
+
+/**
+ * ADR-0025 (Ben, 2026-10-29): v2 with two changes. A copy of docs/design/workflows/conductor.v3.json
+ * (a test checks they are equal); seeded after an unedited shipped v2 (`seedConductorWorkflow`).
+ * - Timeouts: v2's 20m / 30m boxes timed out working agents (the box covered startup, permission
+ *   prompts and the agent's own test runs). Planning gets 60m, Implementing 2h, the budget 240 min.
+ * - CI gates review: every shipping transition waits for `pr_checks_green` on the pushed commit
+ *   (`no_checks_after` 5m, polled every minute, 2h at most). A red check goes back to
+ *   Implementing with the failing checks and their links (counted, 3 retries, then Needs input),
+ *   so a ticket reaches a human only with green CI. `ready_for_testing` keeps its approval and
+ *   3-day timeout.
+ */
+export const CONDUCTOR_V3: WorkflowDefinitionInput = v3From(CONDUCTOR_V2);
+
+function v3From(v2: WorkflowDefinitionInput): WorkflowDefinitionInput {
+  const def = structuredClone(v2) as WorkflowDefinitionInput & {
+    states: Record<string, { timeout?: string; on?: Record<string, unknown> }>;
+  };
+  def.version = 3;
+  def.budget = { usd: 5, minutes: 240, max_loop_retries: 3 };
+  def.states.planning!.timeout = '60m';
+  const implementing = def.states.implementing!;
+  implementing.timeout = '2h';
+  for (const name of SHIPPING_TRANSITIONS) {
+    const t = implementing.on![name] as {
+      requires: { conditions?: { type: string; no_checks_after?: string }[] } & Record<
+        string,
+        unknown
+      >;
+      on_unmet: { instruction: string };
+    };
+    const ci = { type: 'pr_checks_green', no_checks_after: V3_NO_CHECKS_AFTER };
+    if (t.requires.conditions === undefined) {
+      t.requires.conditions = [ci];
+      t.requires.condition_timeout = '2h';
+      t.requires.condition_poll = '1m';
+    } else {
+      t.requires.conditions = t.requires.conditions.map((c) =>
+        c.type === 'pr_checks_green' ? ci : c,
+      );
+    }
+    t.on_unmet.instruction = V3_UNMET_INSTRUCTION;
+  }
+  return def;
+}
+
+/** CONDUCTOR_V3 parsed (defaults applied). */
+export const CONDUCTOR_V3_DEF: WorkflowDefinition = WorkflowDefinitionSchema.parse(CONDUCTOR_V3);
+
 // ---------------------------------------------------------------- board columns (ADR-0010)
 
 /** The implicit first column: sessions no machine has claimed yet. */

@@ -46,9 +46,9 @@
 | ID | Task | Depends on | Group | Hot-swap to the pinned board | Status |
 |---|---|---|---|---|---|
 | M2r-T00 | **Lead (no ticket)**: interim `conductor_dev` version on the pinned board, data only (ADR-0020 §11) | — | now | **yes** (it is the hot-swap) | todo |
-| M2r-T01 | **Contracts**: schema fields, `QaResult`, action args and results, WS / engine / REST / card fields; 10-contracts §Review and merge | — | A | no | todo |
-| M2r-T02 | Shared: validator rules for the new fields (rule 15 Done-only-via-merge), the `qa` tool alias | T01 | B | no | todo |
-| M2r-T03 | Shared engine: the QA state (`role: qa` start, fencing, `__qa`, result checks and nudge, the counted `qa_fail` loop, `attach: 'result'`, counter reset) | T01 | B | no | todo |
+| M2r-T01 | **Contracts**: schema fields, `QaResult`, action args and results, WS / engine / REST / card fields; 10-contracts §Review and merge | — | A | no | done (PR #40, 61e2696) |
+| M2r-T02 | Shared: validator rules for the new fields (rule 15 Done-only-via-merge), the `qa` tool alias | T01 | B | no | done (PR #55, a76c9ce) |
+| M2r-T03 | Shared engine: the QA state (`role: qa` start, fencing, `__qa`, result checks and nudge, the counted `qa_fail` loop, `attach: 'result'`, counter reset) | T01 | B | no | in_review (PR #56) |
 | M2r-T05 | Daemon: `inspect_pr`, `merge_pr`, `close_pr` (gh only, hardened, idempotent) | T01 | B | no | todo |
 | M2r-T06 | Daemon: the QA start in a fresh checkout of the PR head (`start_session.checkout`, `qa-base`, setup, forced dontAsk) | T01 | B | no | todo |
 | M2r-T07 | Shared engine: the `qa_template` prompt | T01 | B | no | todo |

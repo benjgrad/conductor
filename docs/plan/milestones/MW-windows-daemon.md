@@ -51,7 +51,8 @@
 | MW-T08 | Edit guard on Windows (command quoting, resolver), fail-closed path table | T01 | B | — | done (on mw-windows-daemon; win32 CI green) |
 | MW-T09 | CLI, paths, sysinfo, rescan, long paths, transcript slug | T01, M2-T18 | B | — | in_progress (done: 8.3 worktree reuse, repo scan, transcript slug; left: main.ts SIGBREAK + `rescan`, core.longpaths; win32 CPU done (platform/sysres.ts); after M2-T18) |
 | MW-T10 | `service` on win32: Scheduled Task + `conductor-launch.ps1` | T05, T09, M2-T18 | C | — | todo |
-| MW-T11 | `install.ps1` + tarball `.cmd` shim + Machines page PowerShell line | T07, T10 | D | — | todo |
+| MW-T11 | `install.ps1` + tarball `.cmd` shim + Windows tabs (Machines page, setup guide) + help docs | T07 | D | — | in_review (branch `mw-t11-install-ps1`; split 2026-10-29, Ben asked for the Windows instructions before T10) |
+| MW-T11b | install.ps1 starts the daemon at logon (`service install`, `conductor-launch.ps1` in the tarball) | T10, T11 | D | — | todo |
 | MW-T12 | E2E on Windows, remove the remaining skips, setup docs | T05–T11 | E | — | todo |
 | MW-T13 | Laptop smoke test (Ben, guided); answers U-106 | T12 | F | — | todo |
 
@@ -195,14 +196,19 @@ Shared rules for every task:
   - [ ] No admin required (the runner job runs the test un-elevated, or documents why it can't).
 
 ### MW-T11 · `install.ps1`
+- **Split 2026-10-29**: Ben wanted the Windows install instructions before T10. T11 ships the installer without starting at logon, and T11b adds that once T10 has the `service` command. T11 also takes T12's help-doc item.
 - **Scope**:
-  - `packages/orchestrator/assets/install.ps1.tmpl`, served at `/install.ps1` (`distribution.ts`). Flags `-Token`, `-Service`, `-Root`. It checks node ≥ 22, git, Git Bash and the native `claude.exe` (U-110: only a `claude.cmd` → "install native Claude Code" hint), listing what's missing. It downloads the tarball over https, checks `Get-FileHash -Algorithm SHA256`, unpacks with `tar.exe`, makes the `current` junction and `bin\conductor-daemon.cmd`, applies the root DACL, enrolls with the token in `CONDUCTOR_ENROLL_TOKEN` (never argv; TD-117), runs `service install` with `-Service`, and adds `bin` to the user PATH.
-  - `build-daemon-tarball.sh` adds the `.cmd` shim and `conductor-launch.ps1`.
-  - The web Machines page's install command shows a Windows (PowerShell) tab.
+  - `packages/orchestrator/assets/install.ps1.tmpl`, served at `/install.ps1` (`distribution.ts`). `irm | iex` passes no arguments, so instead of `-Token` / `-Root` flags it reads `CONDUCTOR_ENROLL_TOKEN` (removed from the session at once) and `CONDUCTOR_ROOT`, like install.sh's environment forms. It checks node ≥ 22, git, Git Bash and the native `claude.exe` (U-110: only a `claude.cmd` → "install native Claude Code" hint), listing what's missing. It downloads the tarball over https, checks its SHA-256 (with .NET's SHA256: `Get-FileHash` doesn't autoload in a 5.1 window started from pwsh 7), unpacks with `tar.exe`, makes the `current` junction and `bin\conductor-daemon.cmd`, applies the root DACL, enrolls with the token in `CONDUCTOR_ENROLL_TOKEN` (never argv; TD-117), and adds `bin` to the user PATH.
+  - `build-daemon-tarball.sh` adds the `.cmd` entry (`assets/conductor-daemon.cmd.tmpl`) and deploys with pnpm's hoisted linker, so the tarball has no symlinks (Windows `tar.exe` can't make them).
+  - `EnrollmentTokenCreated.command_windows`; the Machines page's Add a machine and the setup guide get a Windows tab; the help page gets Windows sections.
 - **Acceptance**:
-  - [ ] A `pwsh` test on the windows job against a fake tarball server: install, enroll (the recorded argv has no token), DACL verified, upgrade-in-place re-run.
-  - [ ] A wrong SHA-256 aborts with nothing switched.
-  - [ ] Distribution route test for `/install.ps1`.
+  - [x] A PowerShell (5.1) test on the windows job against a fake tarball server: install, enroll (the recorded argv has no token), DACL verified, upgrade-in-place re-run (`test/install-ps1.test.ts`).
+  - [x] A wrong SHA-256 aborts with nothing switched.
+  - [x] Distribution route test for `/install.ps1`.
+
+### MW-T11b · install.ps1 starts the daemon at logon
+- **Scope**: once T10 has `service install` on win32, install.ps1 runs it when asked (an environment switch such as `CONDUCTOR_INSTALL_SERVICE=1`, since `irm | iex` takes no flags) and on an upgrade restarts a registered task; the tarball carries `conductor-launch.ps1`; Add a machine shows the "start at logon" variant.
+- **Acceptance**: the T11 test also covers the service path on the windows job; no admin needed.
 
 ### MW-T12 · E2E on Windows + cleanup
 - **Scope**:
@@ -210,7 +216,7 @@ Shared rules for every task:
   - A node e2e entry so win32 doesn't need `e2e/run.sh`.
   - The Actions job adds `Start-Service postgresql*` (preinstalled on the image; set `DATABASE_URL`) and `test:e2e`.
   - Remove every remaining `skipIf(win32)`; any survivor gets a TD row.
-  - Add a Windows section to `docs/setup/add-a-machine.md` and `packages/web/src/help/add-a-machine.md`, replacing "Windows isn't yet".
+  - ~~Add a Windows section to the help docs~~: done in T11.
 - **Acceptance**: the e2e is green on `windows-latest` and on Linux `ci.sh`, and `grep -r "skipIf(process.platform === 'win32')"` is empty or every hit is TD-tagged.
 
 ### MW-T13 · Laptop smoke (Ben, guided)

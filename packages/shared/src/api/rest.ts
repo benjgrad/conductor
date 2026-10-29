@@ -139,6 +139,8 @@ export const API_PATHS = {
   machineAlertClear: (id: string) => `/api/machines/alerts/${id}/clear`,
   /** Public. GET → the install script (`text/x-shellscript`). */
   installScript: '/install.sh',
+  /** Public. GET → the Windows install script (`text/plain`, for `irm … | iex`; MW-T11). */
+  installScriptWindows: '/install.ps1',
   /** Public. GET → the daemon tarball (and its `.sha256`), only the built names. */
   daemonDownload: (file: string) => `/downloads/${file}`,
   /** Public. GET → `{ok, db, version}`; 503 when the DB ping fails. */

@@ -16,6 +16,10 @@ export const DAEMON_TRIGGERS = [
   'packages/daemon/**',
   'packages/shared/**',
   '.github/workflows/daemon-windows.yml',
+  // the Windows installer (MW-T11), also tested by the job
+  'packages/orchestrator/assets/**',
+  'packages/orchestrator/src/distribution.ts',
+  'packages/orchestrator/test/install-ps1.test.ts',
   'package.json',
   'pnpm-lock.yaml', // left in only when it reaches the root toolchain or can't be read
   'pnpm-workspace.yaml',

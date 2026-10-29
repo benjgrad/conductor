@@ -9,8 +9,10 @@
 # served. <version> is the daemon package version plus `+<sha>`, the same form as the daemon's
 # `daemonVersion()`: the sha is CONDUCTOR_BUILD_SHA, else `git rev-parse --short=7 HEAD`, cut to
 # 7 characters; empty or `unknown` means none. The tarball is flat (./bin, ./dist,
-# ./node_modules, ./package.json); its entry is bin/conductor-daemon, which runs
-# `node dist/main.js` with CONDUCTOR_BUILD_SHA set. Needs node, pnpm and the installed
+# ./node_modules, ./package.json); its entries are bin/conductor-daemon (sh) and
+# bin/conductor-daemon.cmd (Windows, MW-T11), which run `node dist/main.js` with
+# CONDUCTOR_BUILD_SHA set. node_modules is hoisted and holds no symlinks: Windows tar.exe can't
+# create them without Developer Mode, so one tarball serves every OS. Needs node, pnpm and the installed
 # workspace; no Docker. Unless --no-verify, the result is unpacked into an empty directory and
 # `bin/conductor-daemon --help` must run with only Node on PATH.
 set -euo pipefail
@@ -48,11 +50,12 @@ pkg="$stage/pkg"
 
 # pnpm 10 without inject-workspace-packages needs --legacy to deploy a workspace package (same as
 # the orchestrator in the Dockerfile): production deps only, @conductor/shared copied, not linked.
-pnpm --filter @conductor/daemon --prod deploy --legacy "$pkg" >/dev/null
+# The hoisted linker gives an npm-style flat node_modules of real directories (no symlinks).
+pnpm --filter @conductor/daemon --prod --config.node-linker=hoisted deploy --legacy "$pkg" >/dev/null
 
-# pnpm's hoisted self-link (.pnpm/node_modules/@conductor/daemon) points back into the workspace.
+# node_modules/.bin holds the only symlinks; .pnpm holds only pnpm's lock file.
 rm -rf "$pkg/src" "$pkg/test" "$pkg/node_modules/.bin" "$pkg/node_modules/.modules.yaml" \
-  "$pkg/node_modules/.pnpm/node_modules/@conductor/daemon"
+  "$pkg/node_modules/.pnpm"
 find "$pkg" \( -name '*.test.*' -o -name '*.tsbuildinfo' -o -name 'tsconfig*.json' \) \
   -not -path '*/node_modules/*' -exec rm -rf {} +
 for f in dist/main.js package.json node_modules/@conductor/shared/dist/index.js; do
@@ -84,16 +87,17 @@ EOF
   echo 'exec node "$here/dist/main.js" "$@"'
 } >"$pkg/bin/conductor-daemon"
 chmod 755 "$pkg/bin/conductor-daemon"
+# The Windows entry: the same, as a batch file with CRLF line ends (cmd.exe misreads bare LF).
+sed -e "s/@@BUILD_SHA@@/$sha/" -e 's/$/\r/' "$pkg_dir/assets/conductor-daemon.cmd.tmpl" \
+  >"$pkg/bin/conductor-daemon.cmd"
 
-# No workspace links: every symlink must resolve inside the package.
-pkg_real="$(cd "$pkg" && pwd -P)"
-while IFS= read -r -d '' link; do
-  target="$(cd "$(dirname "$link")" && cd "$(dirname "$(readlink "$link")")" 2>/dev/null && pwd -P)" || target=""
-  if [[ -z "$target" || ( "$target" != "$pkg_real" && "$target" != "$pkg_real"/* ) ]]; then
-    echo "build-daemon-tarball: $link points outside the package ($(readlink "$link"))" >&2
-    exit 1
-  fi
-done < <(find "$pkg" -type l -print0)
+# No symlinks at all: Windows can't unpack them (and none may point back into the workspace).
+links="$(find "$pkg" -type l | head -5)"
+if [[ -n "$links" ]]; then
+  echo "build-daemon-tarball: the package holds symlinks, which Windows tar.exe can't unpack:" >&2
+  echo "$links" >&2
+  exit 1
+fi
 
 mkdir -p "$out"
 rm -f "$out"/conductor-daemon-*.tgz "$out"/conductor-daemon-*.tgz.sha256

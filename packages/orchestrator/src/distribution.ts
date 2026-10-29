@@ -9,8 +9,9 @@ import { SECURITY_HEADERS } from './api/security.js';
 // M2-T14 (ADR-0017 §Daemon distribution): the orchestrator serves the daemon it was built with.
 // `scripts/build-daemon-tarball.sh` writes conductor-daemon-<version>.tgz + .sha256 into the
 // downloads dir; this module finds that build and serves, in front of the API's listeners (like
-// web-static), three public read-only routes:
+// web-static), four public read-only routes:
 //   GET /install.sh        assets/install.sh.tmpl filled with the public URL, version, SHA-256
+//   GET /install.ps1       the same for Windows PowerShell, assets/install.ps1.tmpl (MW-T11)
 //   GET /downloads/:file   exactly the built tarball and its .sha256, nothing else
 //   GET /healthz           {ok, db, version}; 503 when the DB ping fails
 // They skip Fastify's hooks (rate limit, Host check): they are public by design, and nginx's
@@ -18,6 +19,7 @@ import { SECURITY_HEADERS } from './api/security.js';
 
 const PACKAGE_DIR = fileURLToPath(new URL('..', import.meta.url));
 const TEMPLATE_PATH = fileURLToPath(new URL('../assets/install.sh.tmpl', import.meta.url));
+const WINDOWS_TEMPLATE_PATH = fileURLToPath(new URL('../assets/install.ps1.tmpl', import.meta.url));
 
 export const DOWNLOADS_DIR_ENV = 'CONDUCTOR_DOWNLOADS_DIR';
 const DB_PING_TIMEOUT_MS = 2_000;
@@ -196,6 +198,8 @@ export interface DistributionOptions {
   version: string;
   /** Default `assets/install.sh.tmpl`. */
   templatePath?: string;
+  /** Default `assets/install.ps1.tmpl`. */
+  windowsTemplatePath?: string;
 }
 
 type RequestListener = (req: IncomingMessage, res: ServerResponse) => void;
@@ -224,18 +228,26 @@ async function pingDb(db: DistributionOptions['db']): Promise<boolean> {
 }
 
 /**
- * Serve /install.sh, /downloads/* and /healthz on `server` in front of its existing request
- * listeners (Fastify's). Call once, after the API server is created and before it listens.
+ * Serve /install.sh, /install.ps1, /downloads/* and /healthz on `server` in front of its existing
+ * request listeners (Fastify's). Call once, after the API server is created and before it listens.
  */
 export function serveDistribution(server: Server, opts: DistributionOptions): void {
   const { build } = opts;
-  const script =
+  const render = (path: string) =>
     build === null
       ? null
-      : renderInstallScript(readFileSync(opts.templatePath ?? TEMPLATE_PATH, 'utf8'), {
-          publicUrl: opts.publicUrl,
-          build,
-        });
+      : renderInstallScript(readFileSync(path, 'utf8'), { publicUrl: opts.publicUrl, build });
+  // `irm` returns a string for text/plain; PowerShell has no script media type of its own.
+  const scripts = new Map<string, { body: string | null; type: string }>([
+    [
+      API_PATHS.installScript,
+      { body: render(opts.templatePath ?? TEMPLATE_PATH), type: 'text/x-shellscript' },
+    ],
+    [
+      API_PATHS.installScriptWindows,
+      { body: render(opts.windowsTemplatePath ?? WINDOWS_TEMPLATE_PATH), type: 'text/plain' },
+    ],
+  ]);
   const files = new Map<string, { path: string; type: string }>();
   if (build !== null) {
     files.set(build.file, { path: build.path, type: 'application/gzip' });
@@ -293,8 +305,9 @@ export function serveDistribution(server: Server, opts: DistributionOptions): vo
       );
       return;
     }
-    if (rawPath === API_PATHS.installScript) {
-      if (script === null) {
+    const script = scripts.get(rawPath);
+    if (script !== undefined) {
+      if (script.body === null) {
         send(
           req,
           res,
@@ -307,8 +320,8 @@ export function serveDistribution(server: Server, opts: DistributionOptions): vo
           req,
           res,
           200,
-          { 'content-type': 'text/x-shellscript; charset=utf-8', 'cache-control': 'no-store' },
-          script,
+          { 'content-type': `${script.type}; charset=utf-8`, 'cache-control': 'no-store' },
+          script.body,
         );
       }
       return;

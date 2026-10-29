@@ -139,6 +139,7 @@ describe('daemonAffected (the daemon-windows job)', () => {
     [['pnpm-lock.yaml'], true],
     [['.github/workflows/daemon-windows.yml'], true],
     [['tsconfig.base.json'], true],
+    [['packages/orchestrator/assets/install.ps1.tmpl'], true],
     [['docs/tracking/STATUS.md'], false],
     [['packages/web/src/App.tsx', 'packages/web/package.json'], false],
     [['packages/orchestrator/src/server.ts', 'deploy/gradyserver/compose.yml'], false],

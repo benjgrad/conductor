@@ -6,7 +6,8 @@
 # what the daemon is built or tested from, and `test` (~15 min, TD-194) runs only then. That set
 # always includes packages/daemon and packages/shared, so no daemon change reaches main without
 # passing here too; platform/seam.test.ts keeps every OS branch inside src/platform/, where the
-# win32 twin is tested. A pnpm-lock.yaml change counts only if it changed what the daemon resolves
+# win32 twin is tested. The Windows installer (install.ps1 and the tarball's .cmd entry, MW-T11)
+# is tested here too. A pnpm-lock.yaml change counts only if it changed what the daemon resolves
 # (a web dependency doesn't). A skipped `test` reports SKIPPED, which the PR-CI gate passes.
 name: daemon-windows
 
@@ -78,3 +79,5 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm vitest run --project daemon --project shared
+      # MW-T11: install.ps1 under Windows PowerShell 5.1 against a fake tarball server (no DB).
+      - run: pnpm vitest run --project orchestrator test/install-ps1.test.ts

@@ -20,6 +20,11 @@
 //   7. ADR-0025 / M2-T34 (conductor v4, polled every second): a personal ticket whose PR CI is red
 //      goes back to Implementing with the failing check and how to read its log; the agent's fix
 //      is pushed, CI turns green, and only then does it reach Needs input; Done is the human's.
+//   8. M2-T35c (conductor v5): a personal ticket that changes a UI file and ships without
+//      screenshots goes back with what to save where; it saves a before/after pair, open_pr
+//      attaches them (conductor-pr-assets, the table in the reused PR via `gh pr edit`), and only
+//      then does it reach Needs input.
+import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -40,11 +45,19 @@ const readDef = (file: string) =>
 const CONDUCTOR_V1 = readDef('conductor.v1.json');
 const CONDUCTOR_V2 = readDef('conductor.v2.json');
 const CONDUCTOR_V4 = readDef('conductor.v4.json');
+const CONDUCTOR_V5 = readDef('conductor.v5.json');
 /** The personal ship move (M2-T34: the only way a personal ticket leaves Implementing with a PR). */
 const SHIP = 'personal_pr_ready_for_review';
 /** conductor v4 with the personal ship move's CI polled every second (scenario 7). */
 const CONDUCTOR_V4_FAST: Def = (() => {
   const def = structuredClone(CONDUCTOR_V4);
+  const ship = def.states.implementing!.on![SHIP] as { requires: { condition_poll: string } };
+  ship.requires.condition_poll = '1s';
+  return def;
+})();
+/** conductor v5 with the personal ship move's conditions polled every second (scenario 8). */
+const CONDUCTOR_V5_FAST: Def = (() => {
+  const def = structuredClone(CONDUCTOR_V5);
   const ship = def.states.implementing!.on![SHIP] as { requires: { condition_poll: string } };
   ship.requires.condition_poll = '1s';
   return def;
@@ -177,6 +190,32 @@ const SCENARIOS: Record<string, unknown> = {
       ],
     ],
   },
+  // 8. conductor v5: a UI change shipped without screenshots, sent back, then a pair saved.
+  ui_change: {
+    turns: [
+      [{ say: 'Planning.' }, PLAN],
+      [
+        { say: 'Implementing the page.' },
+        { write_file: { path: 'src/Health.tsx', content: 'export const Health = () => null;\n' } },
+        { git_commit: 'Add the health page' },
+        {
+          complete_state: { summary: 'added the health page' },
+          transition: SHIP,
+          reason: SHIP_REASON,
+        },
+      ],
+      [
+        { say: 'Capturing before and after.' },
+        { screenshot: 'before-health.png' },
+        { screenshot: 'after-health.png' },
+        {
+          complete_state: { summary: 'added the health page' },
+          transition: SHIP,
+          reason: SHIP_REASON,
+        },
+      ],
+    ],
+  },
   // 5. conductor v1: unnamed `done`s; the ADR-0010 entry step into Waiting external.
   v1flow: {
     turns: [
@@ -213,7 +252,7 @@ beforeAll(async () => {
   api = new Api(stack.baseUrl);
   board = new BoardWatcher(stack.baseUrl);
   fastVersion = (await api.saveWorkflow(CONDUCTOR_V2_FAST)).version;
-  expect(fastVersion).toBe(5); // the seed's v1 … v4, then this
+  expect(fastVersion).toBe(6); // the seed's v1 … v5, then this
   await waitFor('the daemon to register', async () =>
     (await api.machines()).find((m) => m.id === stack.machineId && m.status === 'online'),
   );
@@ -638,5 +677,56 @@ describe.skipIf(REAL)('ADR-0011 transition rules (fake Claude, fake gh)', () => 
 
     await api.transition(sid, 'done', 'Looks good.');
     await board.card(id, 'done', (c) => c.column === 'done' && c.status === 'done');
+  });
+
+  it('8. M2-T35c: a UI change without screenshots goes back; with a pair it reaches Needs input, table attached', async () => {
+    const v5 = (await api.saveWorkflow(CONDUCTOR_V5_FAST)).version;
+    let id: string;
+    let sid: string;
+    try {
+      id = await ticket('UI change', 'ui_change', 'personal');
+      sid = (await board.card(id, 'a session', (c) => c.session_id !== null)).session_id!;
+      expect((await api.session(sid)).workflow_version).toBe(v5);
+    } finally {
+      await api.saveWorkflow(CONDUCTOR_V2_FAST);
+    }
+
+    const counter = `move:implementing:${SHIP}`;
+    const asked = await board.card(
+      id,
+      'needs_input',
+      (c) => c.column === 'needs_input' && c.status === 'needs_input',
+      60_000,
+    );
+    expect(asked.pr_url).toMatch(FAKE_GH_URL_RE);
+    expect((await api.session(sid)).retry_counters).toEqual({ [counter]: 1 });
+
+    // The agent was told what was missing and where to save it, in its own conversation.
+    const prompts = (await api.transcript(sid)).chunks
+      .filter((c) => c.stream === 'user')
+      .map((c) => c.text);
+    expect(prompts.some((p) => p.includes('## Screenshots of UI changes'))).toBe(true);
+    const resumed = prompts.find((p) => p.includes('pr_screenshots: failed'));
+    expect(resumed).toBeDefined();
+    expect(resumed).toContain('src/Health.tsx');
+    expect(resumed).toContain('$CONDUCTOR_SCREENSHOT_DIR');
+
+    // open_pr attached the pair to the reused PR and pushed the images to conductor-pr-assets.
+    const edits = readFileSync(stack.fakeGhLog, 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => (JSON.parse(l) as { argv: string[] }).argv)
+      .filter((a) => a[0] === 'pr' && a[1] === 'edit');
+    expect(edits).toHaveLength(1);
+    const body = edits[0]![edits[0]!.indexOf('--body') + 1]!;
+    expect(body).toContain('| health | ![before health](');
+    expect(body).toContain('<!-- conductor:screenshots pairs=1 -->');
+    const assets = execFileSync(
+      'git',
+      ['-C', stack.fixtureRepo, 'ls-tree', '-r', '--name-only', 'conductor-pr-assets'],
+      { encoding: 'utf8' },
+    );
+    expect(assets).toContain(`${sid}/before-health.png`);
+    expect(assets).toContain(`${sid}/after-health.png`);
   });
 });

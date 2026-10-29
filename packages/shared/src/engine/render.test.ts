@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentState } from '../workflow/schema.js';
+import { CONDUCTOR_V4_DEF, CONDUCTOR_V5_DEF } from '../workflow/conductor.js';
 import {
   HOW_TO_FINISH_HEADING,
   renderPrompt,
+  SCREENSHOTS_HEADING,
   TICKET_TEMPLATE,
   WORK_REPOSITORY_HEADING,
 } from './render.js';
@@ -124,5 +126,45 @@ describe('renderPrompt (ADR-0011)', () => {
       `${HOW_TO_FINISH_HEADING}\n\nWhen you finish this step, take exactly one of these transitions:\n\n- ship: It is done.\n- ask: Your \`reason\` is the question for the human.\n- other\n`,
     );
     expect(p).toContain('a `result` object containing `summary`');
+  });
+});
+
+describe('renderPrompt: screenshots of UI changes (M2-T35c)', () => {
+  const implementing = (def: typeof CONDUCTOR_V5_DEF) => {
+    const s = def.states.implementing!;
+    if (s.type !== 'agent') throw new Error('not an agent state');
+    return s;
+  };
+  const render = (def: typeof CONDUCTOR_V5_DEF, kind: 'work' | 'personal' | null) =>
+    renderPrompt({
+      stateName: 'implementing',
+      state: implementing(def),
+      snapshot: { ...SNAPSHOT_FIXTURE, ticket: { ...SNAPSHOT_FIXTURE.ticket, kind } },
+      transitions: [],
+    });
+
+  it('a state with a pr_screenshots way out says how to capture and where to save, before how to finish', () => {
+    for (const kind of ['work', 'personal', null] as const) {
+      const p = render(CONDUCTOR_V5_DEF, kind);
+      expect(p, String(kind)).toContain(SCREENSHOTS_HEADING);
+      expect(p.indexOf(SCREENSHOTS_HEADING)).toBeLessThan(p.indexOf(HOW_TO_FINISH_HEADING));
+    }
+    const p = render(CONDUCTOR_V5_DEF, 'personal');
+    expect(p).toContain('`**/*.{tsx,jsx,vue,svelte,css,scss,html}`');
+    expect(p).toContain('$CONDUCTOR_SCREENSHOT_DIR/before-<view>.png');
+    expect(p).toContain('$CONDUCTOR_PORT_BASE');
+    expect(p).toContain('Do not commit them');
+  });
+
+  it('no pr_screenshots (v4), or a disabled one, adds nothing', () => {
+    expect(render(CONDUCTOR_V4_DEF, 'personal')).not.toContain(SCREENSHOTS_HEADING);
+    const off = structuredClone(CONDUCTOR_V5_DEF);
+    for (const t of Object.values(implementing(off).on ?? {})) {
+      if (typeof t === 'string') continue;
+      for (const c of t.requires?.conditions ?? []) {
+        if (c.type === 'pr_screenshots') c.enabled = false;
+      }
+    }
+    expect(render(off, 'personal')).not.toContain(SCREENSHOTS_HEADING);
   });
 });

@@ -6,6 +6,7 @@ import {
   type WorkflowDefinition,
   type WorkflowDefinitionInput,
 } from './schema.js';
+import { DEFAULT_UI_PATHS } from './screenshots.js';
 
 // ADR-0010: the one workflow, `conductor`. v1 below is what the orchestrator seeds on startup
 // when no `conductor` version exists. It is a copy of docs/design/workflows/conductor.v1.json
@@ -349,6 +350,44 @@ function v4From(v3: WorkflowDefinitionInput): WorkflowDefinitionInput {
 
 /** CONDUCTOR_V4 parsed (defaults applied). */
 export const CONDUCTOR_V4_DEF: WorkflowDefinition = WorkflowDefinitionSchema.parse(CONDUCTOR_V4);
+
+// ---------------------------------------------------------------- conductor v5 (M2-T35c)
+
+/** v5: the transitions out of Implementing that ship code (v4 has no personal `done`). */
+const V5_SHIPPING_TRANSITIONS = [
+  'pr_ready_for_review',
+  'personal_pr_ready_for_review',
+  'ready_for_testing',
+] as const;
+
+/**
+ * M2-T35c (Ben, 2026-10-29; ADR-0026): v4 with `pr_screenshots` (the default `ui_paths`, one pair)
+ * right after `pr_checks_green` on every shipping transition, so a PR that changes UI files reaches
+ * the user only with before/after screenshots in its body. A miss goes back to Implementing like a
+ * red check, with what to save where. A copy of docs/design/workflows/conductor.v5.json (a test
+ * checks they are equal); seeded after an unedited shipped v4.
+ */
+export const CONDUCTOR_V5: WorkflowDefinitionInput = v5From(CONDUCTOR_V4);
+
+function v5From(v4: WorkflowDefinitionInput): WorkflowDefinitionInput {
+  const def = structuredClone(v4) as WorkflowDefinitionInput & {
+    states: Record<string, { on?: Record<string, unknown> }>;
+  };
+  def.version = 5;
+  const on = def.states.implementing!.on!;
+  for (const name of V5_SHIPPING_TRANSITIONS) {
+    const t = on[name] as { requires: { conditions: { type: string }[] } };
+    const at = t.requires.conditions.findIndex((c) => c.type === 'pr_checks_green') + 1;
+    t.requires.conditions.splice(at, 0, {
+      type: 'pr_screenshots',
+      ui_paths: [...DEFAULT_UI_PATHS],
+    } as { type: string });
+  }
+  return def;
+}
+
+/** CONDUCTOR_V5 parsed (defaults applied). */
+export const CONDUCTOR_V5_DEF: WorkflowDefinition = WorkflowDefinitionSchema.parse(CONDUCTOR_V5);
 
 // ---------------------------------------------------------------- board columns (ADR-0010)
 

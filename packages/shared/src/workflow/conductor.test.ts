@@ -10,6 +10,8 @@ import {
   CONDUCTOR_V3_DEF,
   CONDUCTOR_V4,
   CONDUCTOR_V4_DEF,
+  CONDUCTOR_V5,
+  CONDUCTOR_V5_DEF,
   V3_NO_CHECKS_AFTER,
   V3_UNMET_INSTRUCTION,
   V4_PERSONAL_SHIP_WHEN,
@@ -437,5 +439,45 @@ describe('conductor v4 (M2-T34)', () => {
       'system timeout → needs_input',
     ]);
     expect(seen4('needs_input', 'personal')).toContain('human done → done');
+  });
+});
+
+describe('conductor v5 (M2-T35c, ADR-0026)', () => {
+  it('the code copy equals docs/design/workflows/conductor.v5.json', () => {
+    expect(CONDUCTOR_V5).toEqual(readDoc('conductor.v5.json'));
+  });
+
+  it('validates', () => {
+    expect(errorsOf(CONDUCTOR_V5)).toEqual([]);
+    expect(errorsOf(readDoc('conductor.v5.json'))).toEqual([]);
+  });
+
+  it('is v4 with pr_screenshots right after pr_checks_green on every shipping transition', () => {
+    expect(CONDUCTOR_V5_DEF.version).toBe(CONDUCTOR_V4_DEF.version + 1);
+    const shipping = transitionsOf(CONDUCTOR_V5_DEF, 'implementing').filter(
+      (e) => e.transition.requires?.actions?.includes('open_pr') === true,
+    );
+    expect(shipping.map((e) => e.name)).toEqual([
+      'pr_ready_for_review',
+      'personal_pr_ready_for_review',
+      'ready_for_testing',
+    ]);
+    for (const e of shipping) {
+      const types = e.transition.requires!.conditions!.map((c) => c.type);
+      expect(types.slice(0, 2), e.name).toEqual(['pr_checks_green', 'pr_screenshots']);
+      expect(e.transition.requires!.conditions![1]).toEqual({
+        type: 'pr_screenshots',
+        ui_paths: ['**/*.{tsx,jsx,vue,svelte,css,scss,html}'],
+      });
+    }
+    // Everything else is v4's.
+    const v5 = structuredClone(CONDUCTOR_V5) as unknown as Raw;
+    type Shipping = { requires?: { conditions?: { type: string }[] } };
+    for (const t of Object.values(v5.states.implementing!.on as Record<string, Shipping>)) {
+      const conditions = t.requires?.conditions;
+      if (conditions)
+        t.requires!.conditions = conditions.filter((c) => c.type !== 'pr_screenshots');
+    }
+    expect({ ...v5, version: 4 }).toEqual(CONDUCTOR_V4);
   });
 });

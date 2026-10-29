@@ -578,3 +578,55 @@ describe('condition mapping (pure)', () => {
     expect(r).toMatchObject({ status: 'pending', value: NO_PR_CHECKS_VALUE });
   });
 });
+
+describe('pr_screenshots (M2-T35a)', () => {
+  const SHOTS: Condition = { type: 'pr_screenshots', ui_paths: ['**/*.{tsx,css}'] };
+  const SHOTS_2: Condition = { type: 'pr_screenshots', ui_paths: ['**/*.tsx'], min_pairs: 2 };
+  const pr = (over: Record<string, unknown>) => parsePrView(view(over));
+
+  it('asks gh for the files and the pair count only when a pr_screenshots condition is there', async () => {
+    await evalWith([CHECKS], view());
+    await evalWith([CHECKS, SHOTS], view({ files: [], changedFiles: 0 }));
+    const argv = readFileSync(join(tmp, 'argv'), 'utf8').trim().split('\n');
+    expect(argv[0]).not.toContain('files');
+    expect(argv[1]).toContain(
+      '--json statusCheckRollup,reviewDecision,reviews,state,mergedAt,author,headRefOid,files,changedFiles,body --jq',
+    );
+    expect(argv[1]).toContain('conductor:screenshots pairs=');
+  });
+
+  it('no UI file changed → met, whatever the body', () => {
+    const r = mapCondition(SHOTS, pr({ files: ['README.md', 'src/a.ts'], changedFiles: 2 }));
+    expect(r).toMatchObject({ type: 'pr_screenshots', status: 'met', value: 'no UI change' });
+  });
+
+  it('a UI file changed: enough pairs in the body → met; fewer → failed, telling the agent what to do', () => {
+    const ui = { files: ['packages/web/src/App.tsx', 'README.md'], changedFiles: 2 };
+    expect(mapCondition(SHOTS, pr({ ...ui, screenshotPairs: 1 }))).toMatchObject({
+      status: 'met',
+      value: '1/1 pairs',
+    });
+    const missing = mapCondition(SHOTS, pr(ui));
+    expect(missing).toMatchObject({ status: 'failed', value: '0/1 pairs' });
+    expect(missing.detail).toContain('UI files changed (packages/web/src/App.tsx)');
+    expect(missing.detail).toContain('before-<view>.png');
+    expect(missing.detail).toContain('$CONDUCTOR_SCREENSHOT_DIR');
+    expect(mapCondition(SHOTS_2, pr({ ...ui, screenshotPairs: 1 }))).toMatchObject({
+      status: 'failed',
+      value: '1/2 pairs',
+    });
+  });
+
+  it('more files than gh lists counts as touching the UI; many UI files are summarised', () => {
+    const r = mapCondition(SHOTS, pr({ files: ['README.md'], changedFiles: 150 }));
+    expect(r.status).toBe('failed');
+    expect(r.detail).toContain('more files changed than gh lists (150)');
+    const many = Array.from({ length: 8 }, (_, k) => `src/v${k}.tsx`);
+    expect(mapCondition(SHOTS, pr({ files: many, changedFiles: 8 })).detail).toContain('+3 more');
+  });
+
+  it('a moved head fails it like every PR condition; no file list keeps it pending', () => {
+    expect(mapCondition(SHOTS, pr({ files: [], changedFiles: 0 }), OLD).status).toBe('failed');
+    expect(mapCondition(SHOTS, pr({}))).toMatchObject({ status: 'pending' });
+  });
+});

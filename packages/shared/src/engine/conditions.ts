@@ -29,6 +29,7 @@ export const PR_CONDITION_TYPES: ReadonlySet<ConditionType> = new Set([
   'pr_checks_green',
   'pr_approvals',
   'pr_merged',
+  'pr_screenshots',
 ]);
 
 /**
@@ -129,6 +130,9 @@ export function evaluateConditionsArgs(
 /**
  * A condition as the daemon sees it: `no_checks_after` is the engine's rule (U-072), and a daemon
  * that predates it would refuse the unknown key (the condition schema is strict).
+ * TD-195: `pr_screenshots` (M2-T35a) is sent as is. A daemon before M2-T35a refuses the args, which
+ * reads as "no answer": the card notes it and the step polls to `condition_timeout`, then a human.
+ * Update the daemons before shipping a workflow that uses it (no per-machine capability gate yet).
  */
 function forDaemon(c: Condition): Condition {
   if (c.type !== 'pr_checks_green' || c.no_checks_after === undefined) return c;

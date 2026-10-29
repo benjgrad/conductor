@@ -16,6 +16,14 @@ Remove the entry once the work is merged or deliberately abandoned. If abandoned
 - **Gates**: typecheck ✅ lint ✅ tests ❌ (worktree.test.ts skipped)
 -->
 
+## MR-T00 · Rust daemon plan (ADR-0026): written, not merged
+- **Branch / worktree**: `mr-t00-rust-daemon-plan` (off origin/main 5ecec4d) @ `.claude/worktrees/mr-t00-rust-daemon-plan`
+- **Done so far**: ADR-0026; `docs/plan/milestones/MR-rust-daemon.md` (19 tasks, groups A–H); ROADMAP row; `→ MR` marks on M2-T18c/T27/T28d and MW-T09..T13; amendment notes on ADR-0004/0017/0021/0024; U-112..U-116, B-005; decisions-log line. Docs only, no code.
+- **Not done**: the `daemon-ts-freeze` tag (on the merge commit, after Ben merges); MR-T01 spike.
+- **Exact next step**: Ben merges the branch (or the PR), answers U-112 and installs rustup (B-005). Then the lead tags the merge commit `daemon-ts-freeze` and starts MR-T01 in `spikes/rust-daemon` (probes: WS register, `rmcp` tool called by real `claude -p` on haiku with Ben's OK to spend, Job Object tree kill on Windows CI).
+- **Gotchas**: ADR-0025 was already taken on origin/main (CI-gated review), so the Rust ADR is 0026. Local `main` has an unpushed TD-189 (install.sh `--service`), which collides with origin/main's TD-189 (orphan sweep); renumber it when local main is reconciled.
+- **Gates**: docs only; markdown links checked by hand.
+
 ## MW · Native Windows daemon (ADR-0024): T00–T08 done, not merged
 - **Branch / worktree**: `mw-windows-daemon` (pushed) @ `.claude/worktrees/mw-lead`. It contains `mw-t00-windows-adr` (docs + CI) and the merged `mw-t01..t04` branches; origin/main was merged in at fd9c597. The older per-task branches/worktrees (`mw-t00-windows-adr` worktree, `agent-*` worktrees of T01–T04 and their QA runs) can be removed once this merges.
 - **Done so far**: platform seam (`packages/daemon/src/platform/`: spawn, kill-tree, shell, procinfo, acl, git, hook, fs); credentials/config/private repos with owner-only DACLs; spawn/kill wiring incl. U-110 (native claude.exe only); orphan sweep via CIM; edit guard for cmd.exe + Git Bash with a 31-row win32 path table; 8.3-safe worktree reuse. `daemon-windows` Actions job green (run 40777091109): typecheck + full daemon/shared suites on windows-latest.

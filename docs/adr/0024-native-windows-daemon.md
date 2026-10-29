@@ -1,6 +1,6 @@
 # ADR-0024 · The daemon runs natively on Windows
 
-- **Status**: accepted (Ben approved the MW plan, 2026-10-28)
+- **Status**: accepted (Ben approved the MW plan, 2026-10-28); amended by [ADR-0026](0026-rust-daemon.md): MW's remaining daemon work (T09..T13) is built in Rust in MR, and Job Objects return to scope
 - **Date**: 2026-10-28
 - **Deciders**: Ben (+ Claude lead session, 2026-10-28)
 - **Resolves**: [U-071](../tracking/UNKNOWNS.md) (daemon on Windows). Leaves [U-070](../tracking/UNKNOWNS.md) (IIS fixed-path runtime) open.

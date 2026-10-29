@@ -2,9 +2,10 @@
 
 > Living dashboard. Rewritten (not appended) by the lead session at the end of every session. Keep it under one screen.
 
-**Updated**: 2026-10-28 · sessions [2026-10-28-agent-permissions](sessions/2026-10-28-agent-permissions.md), [2026-10-28-stuck-resume-and-plan-approval](sessions/2026-10-28-stuck-resume-and-plan-approval.md)
+**Updated**: 2026-10-29 (MR plan only; the rest is as of 2026-10-28) · sessions [2026-10-29-rust-daemon-plan](sessions/2026-10-29-rust-daemon-plan.md), [2026-10-28-agent-permissions](sessions/2026-10-28-agent-permissions.md), [2026-10-28-stuck-resume-and-plan-approval](sessions/2026-10-28-stuck-resume-and-plan-approval.md)
 
 ## Now
+- **Rust daemon planned (2026-10-29)**: Ben chose to port `packages/daemon` to Rust now. [ADR-0026](../adr/0026-rust-daemon.md) and [MR](../plan/milestones/MR-rust-daemon.md) (19 tasks) are on branch `mr-t00-rust-daemon-plan`. The TS daemon freezes to bug fixes at tag `daemon-ts-freeze` after the merge. Daemon-side M2/MW tasks move to MR: M2-T18c, the daemon parts of T27 and T28d, MW-T09 rest, T10, T11b, T12 and T13. The Rust daemon ships through the existing tarball layout and install/upgrade path. **Ben**: merge the branch, install rustup (B-005), answer U-112 (recommended: let the in-flight M2-T18 finish in TS).
 - **Permission prompts built (2026-10-28, local main, not pushed/deployed)**: M2-T29b (daemon), T29c (orchestrator), T29d (web) merged. Deploy order (U-102): orchestrator first via `deploy/gradyserver/deploy.sh`, then the daemons. Until then agents' off-list tool calls are still silently denied. Follow-ups: TD-187 (too-old-CLI alert), TD-188 (`session_allow` not fed to new processes), U-104, U-105.
 - **Milestone**: [M2 · Accounts & machines](../plan/milestones/M2-accounts-machines.md), **in progress**, built by conductor on itself (dogfood tickets on Ben's pinned board). T01–T10, T08b, T09b, T10b and T30 are done.
 - **Plan change**: early you-only deploy (T15a / T15b split). Added this session: T13a (fetch per session), T27 / T27b (update from main), T28..T28e (layered settings, [ADR-0022](../adr/0022-layered-agent-settings.md) proposed), T29..T29d (permission prompts, [ADR-0023](../adr/0023-permission-prompts-through-conductor.md) accepted), T30 (pnpm-aware checks, done).
@@ -24,18 +25,20 @@
 | M2-T29 | PR #47 | in_review, QA passed with debt; merge after #44 |
 | M2-T13a | PR #48 | in_review, QA passed with debt; merge after #44 |
 | UX-3b, UX-6, M2-T15a | dogfood tickets | as of 2026-10-27 (not re-checked) |
+| MR-T00 (Rust daemon plan) | branch `mr-t00-rust-daemon-plan` (worktree `.claude/worktrees/mr-t00-rust-daemon-plan`) | in_review: docs and tracking only; MR-T01 spike waits on B-005 (rustup) |
 | MW-T00..T08 (native Windows daemon) | branch `mw-windows-daemon` (pushed; worktree `.claude/worktrees/mw-lead`) | daemon core works natively on Windows: `daemon-windows` Actions green (run 40777091109) + full Linux daemon/shared green; awaiting Ben's review/merge. T09 part, T10, T11 wait for M2-T18 |
 
 ## Health
 | Open unknowns | Open blockers | Tech debt items | Unfinished handoffs |
 |---|---|---|---|
-| 61 open of 103 ([UNKNOWNS](UNKNOWNS.md)) | 0 of 4 ([BLOCKERS](BLOCKERS.md)) | 154 open of 187 ([TECH_DEBT](TECH_DEBT.md)); high: TD-026 (stale base paid by T13a once merged), TD-109, TD-144, TD-149 among them | 9 open: stuck "CI/CD" ticket + deploy, M1-T05a manual check, M1b branch cleanup, UX-9..16 waves, M3 waves, M2 tickets in flight, PR #47, PR #48, Hazel / Nova follow-ups ([UNFINISHED](UNFINISHED.md)) |
+| 65 open of 116 ([UNKNOWNS](UNKNOWNS.md); recounted 2026-10-29, incl. U-112..116 for MR) | 1 open of 5 ([BLOCKERS](BLOCKERS.md): B-005 Rust toolchain) | 154 open of 187 ([TECH_DEBT](TECH_DEBT.md)); high: TD-026 (stale base paid by T13a once merged), TD-109, TD-144, TD-149 among them | 9 open: stuck "CI/CD" ticket + deploy, M1-T05a manual check, M1b branch cleanup, UX-9..16 waves, M3 waves, M2 tickets in flight, PR #47, PR #48, Hazel / Nova follow-ups ([UNFINISHED](UNFINISHED.md)) |
 
 ## Milestone progress
 - M1: 18 / 18 done; awaiting sign-off. M1b: 10 / 10 done; awaiting sign-off.
 - M2 (49 rows, counted from the table): 14 done, 4 in progress (T07b, T14, T18, T18b), 2 in review (T13a PR #48, T29 PR #47), 1 split (T15), 28 todo (incl. T27, T27b, T28..T28e, T29b..d). Out-of-plan: UX-1..UX-5, BUG-1, BUG-1b, BUG-2 merged.
 - M2c, M2b: approved, not started. M3–M5: outlined.
-- MW (native Windows daemon, ADR-0024): approved 2026-10-28; 9 / 14 done on `mw-windows-daemon` (T00–T08), T09 in progress, T10–T13 todo (T10/T11 after M2-T18).
+- MR (Rust daemon, ADR-0026): approved 2026-10-29; 0 / 19 done, T00 in review.
+- MW (native Windows daemon, ADR-0024): approved 2026-10-28; T09 rest..T13 moved to MR on 2026-10-29; 9 / 14 done on `mw-windows-daemon` (T00–T08), T09 in progress, T10–T13 todo (T10/T11 after M2-T18).
 
 ## Last session
 - **Stuck-resume incident (production)**: ticket "CI/CD" (session 4b5cde62) asked for plan approval on the Mac; `start_session` timed out, gradyserver claimed it and got `--resume` for a Mac-only conversation: "No conversation found", exit 1, forever.

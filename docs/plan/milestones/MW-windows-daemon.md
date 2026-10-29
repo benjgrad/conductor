@@ -6,6 +6,8 @@
 
 **Goal** ([ADR-0024](../../adr/0024-native-windows-daemon.md)): the daemon runs as a native `win32` Node process on Ben's work laptop with the same safety guarantees as on macOS/Linux: tree kill, orphan sweep, a fail-closed edit guard and owner-only credentials. `irm https://conductor.gradyserver.com/install.ps1 | iex` installs, enrolls and starts it at logon.
 
+> **2026-10-29 ([ADR-0026](../../adr/0026-rust-daemon.md)):** the daemon is being ported to Rust. MW-T09's remaining items, T10, T11b, T12 and T13 move to [MR](MR-rust-daemon.md); MW-T00..T08 and T11 stay done in TS and are the behaviour reference.
+
 **Placement**: the MW lane is independent of M2r/M3/M2c. Groups A and B touch only daemon and shared files. Two cross-lane constraints:
 - **MW-T09** (owns `main.ts`) starts after **M2-T18** merges.
 - **MW-T10** extends M2-T18's `service` subcommand.
@@ -49,12 +51,12 @@
 | MW-T06 | Orphan sweep on Windows (procinfo, `checkOurs`, sweep kill) | T01, T03 | B | — | done (on mw-windows-daemon; win32 CI green) |
 | MW-T07 | Credential, config, private repos and git env on Windows | T01, T04 | B | — | done (on mw-windows-daemon; win32 CI green) |
 | MW-T08 | Edit guard on Windows (command quoting, resolver), fail-closed path table | T01 | B | — | done (on mw-windows-daemon; win32 CI green) |
-| MW-T09 | CLI, paths, sysinfo, rescan, long paths, transcript slug | T01, M2-T18 | B | — | in_progress (done: 8.3 worktree reuse, repo scan, transcript slug; left: main.ts SIGBREAK + `rescan`, core.longpaths; win32 CPU done (platform/sysres.ts); after M2-T18) |
-| MW-T10 | `service` on win32: Scheduled Task + `conductor-launch.ps1` | T05, T09, M2-T18 | C | — | todo |
+| MW-T09 | CLI, paths, sysinfo, rescan, long paths, transcript slug | T01, M2-T18 | B | — | moved → MR-T13 for the rest (ADR-0026; done in TS: 8.3 worktree reuse, repo scan, transcript slug; left: main.ts SIGBREAK + `rescan`, core.longpaths; win32 CPU done (platform/sysres.ts); after M2-T18) |
+| MW-T10 | `service` on win32: Scheduled Task + `conductor-launch.ps1` | T05, T09, M2-T18 | C | — | moved → MR-T13 (ADR-0026) |
 | MW-T11 | `install.ps1` + tarball `.cmd` shim + Windows tabs (Machines page, setup guide) + help docs | T07 | D | — | in_review (branch `mw-t11-install-ps1`; split 2026-10-29, Ben asked for the Windows instructions before T10) |
-| MW-T11b | install.ps1 starts the daemon at logon (`service install`, `conductor-launch.ps1` in the tarball) | T10, T11 | D | — | todo |
-| MW-T12 | E2E on Windows, remove the remaining skips, setup docs | T05–T11 | E | — | todo |
-| MW-T13 | Laptop smoke test (Ben, guided); answers U-106 | T12 | F | — | todo |
+| MW-T11b | install.ps1 starts the daemon at logon (`service install`, `conductor-launch.ps1` in the tarball) | T10, T11 | D | — | moved → MR-T13 (ADR-0026) |
+| MW-T12 | E2E on Windows, remove the remaining skips, setup docs | T05–T11 | E | — | moved → MR-T16 (ADR-0026) |
+| MW-T13 | Laptop smoke test (Ben, guided); answers U-106 | T12 | F | — | moved → MR-T18 (ADR-0026) |
 
 Groups run in order A → F, and tasks within a group own disjoint files. Branch names are `mw-tNN-<slug>`. Every task is green on the Windows Actions job **and** `scripts/ci.sh` before merge.
 

@@ -1,6 +1,6 @@
 # ADR-0017 · Conductor's own sign-in (email + password, invite-only), self-hosted on gradyserver, and the daemon served by the orchestrator
 
-- **Status**: accepted (Ben's decisions, 2026-10-26)
+- **Status**: accepted (Ben's decisions, 2026-10-26); §Daemon distribution amended by [ADR-0026](0026-rust-daemon.md) (no Node prerequisite, one tarball per target)
 - **Date**: 2026-10-26
 - **Deciders**: Ben (+ Claude planning session 2026-10-26, M2 plan)
 - **Resolves**: [U-057](../tracking/UNKNOWNS.md) (hosting platform, domain, Postgres), [U-067](../tracking/UNKNOWNS.md) (superseded: no npm publish), [U-051](../tracking/UNKNOWNS.md) (personal accounts only through M2), [U-056](../tracking/UNKNOWNS.md) (existing data goes to the bootstrap admin), [U-068](../tracking/UNKNOWNS.md) (a lost lease or a revoked machine goes to a human). The web-user half of [U-008](../tracking/UNKNOWNS.md).

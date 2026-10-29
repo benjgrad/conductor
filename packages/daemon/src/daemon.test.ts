@@ -63,7 +63,7 @@ beforeEach(async () => {
   gitInit(repo);
   orch = await FakeOrchestrator.start();
   resources = { cpuFree: 4, memFreeMb: 8000, diskFreeMb: 50_000 };
-});
+}, 60_000); // win32: a private root, git init and the fake orchestrator can pass 10 s on CI (TD-194)
 
 afterEach(async () => {
   for (const d of daemons.splice(0)) d.stop();
@@ -348,6 +348,11 @@ describe('daemon core: start_session', () => {
       PORT: '42000',
       CONDUCTOR_PORT_COUNT: '10',
     });
+    // M2-T35b: the session's screenshot directory, created outside the worktree.
+    const shots = opts.env?.CONDUCTOR_SCREENSHOT_DIR;
+    expect(shots).toMatch(new RegExp(`artifacts[\\\\/]${sid}[\\\\/]screenshots$`));
+    expect(existsSync(shots!)).toBe(true);
+    expect(shots!.startsWith(wt)).toBe(false);
 
     expect(orch.eventData('claude_session_id')[0]).toEqual({ id: opts.claudeSessionId });
     expect(orch.eventData('complete_state')[0]).toEqual({ result: { summary: 'done' } });

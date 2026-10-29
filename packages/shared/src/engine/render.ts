@@ -1,5 +1,5 @@
-import type { AgentState } from '../workflow/schema.js';
-import type { AgentTransitionOption } from '../workflow/transition-rules.js';
+import { conditionEnabled, type AgentState, type TicketKind } from '../workflow/schema.js';
+import { transitionObject, type AgentTransitionOption } from '../workflow/transition-rules.js';
 import { renderReviewFeedback, type ReviewFeedback } from './review.js';
 import type { SessionSnapshot } from './types.js';
 
@@ -110,10 +110,48 @@ export function renderPrompt(input: RenderPromptInput): string {
   // Ben, 2026-10-26 (M1b): a work repository is shared with developers who don't use conductor.
   if (snapshot.ticket.kind === 'work') parts.push(WORK_REPOSITORY);
 
+  // M2-T35c (ADR-0026): a way out of this state checks the PR for screenshots of UI changes.
+  const uiPaths = screenshotPaths(state, snapshot.ticket.kind ?? null);
+  if (uiPaths.length > 0) parts.push(screenshotsSection(uiPaths));
+
   parts.push(
     input.transitions != null ? howToFinish(state, input.transitions) : finishSection(state),
   );
   return parts.join('\n\n');
+}
+
+/** The heading of the before/after screenshots instructions (M2-T35c). */
+export const SCREENSHOTS_HEADING = '## Screenshots of UI changes';
+
+/**
+ * The `ui_paths` of every enabled `pr_screenshots` condition on this state's transitions that a
+ * ticket of `kind` can take (a null kind sees every transition), without duplicates.
+ */
+function screenshotPaths(state: AgentState, kind: TicketKind | null): string[] {
+  const out = new Set<string>();
+  for (const raw of Object.values(state.on ?? {})) {
+    const t = transitionObject(raw);
+    if (kind !== null && t.kinds !== undefined && !t.kinds.includes(kind)) continue;
+    for (const c of t.requires?.conditions ?? []) {
+      if (c.type === 'pr_screenshots' && conditionEnabled(c)) c.ui_paths.forEach((p) => out.add(p));
+    }
+  }
+  return [...out];
+}
+
+function screenshotsSection(uiPaths: readonly string[]): string {
+  return [
+    SCREENSHOTS_HEADING,
+    '',
+    `If your change alters anything a user sees (files matching ${uiPaths.map((p) => `\`${p}\``).join(', ')}), the pull request must show a before and an after screenshot of each changed view; conductor checks this and sends the work back without them.`,
+    '',
+    '1. Before: the default branch. Export it without touching this worktree, e.g. `git archive $(git merge-base HEAD origin/HEAD) | tar -x -C <a temporary dir>`, then build and serve it there.',
+    '2. After: this branch, built and served from the worktree.',
+    '3. Serve each on a port from your range (`$CONDUCTOR_PORT_BASE`, `$CONDUCTOR_PORT_COUNT` ports) and capture the same view of both with a headless browser: Chrome (`--headless=new --screenshot=<file> --window-size=1280,800 <url>`), or Playwright or Puppeteer.',
+    '4. Save them as `$CONDUCTOR_SCREENSHOT_DIR/before-<view>.png` and `$CONDUCTOR_SCREENSHOT_DIR/after-<view>.png` (`<view>`: lower-case letters, digits and dashes; PNG, at most 5 MB each). Do not commit them: conductor attaches them to the pull request.',
+    '',
+    'If nothing a user sees changed, skip this.',
+  ].join('\n');
 }
 
 const PLAN_INSTRUCTIONS = [

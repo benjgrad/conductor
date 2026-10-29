@@ -54,6 +54,7 @@ import {
 } from './actions/checkout.js';
 import { evaluateConditions } from './actions/conditions.js';
 import { checkClean, openPr, resolveHead } from './actions/open-pr.js';
+import { readScreenshots, screenshotDir, screenshotEnv } from './actions/screenshots.js';
 import { ReconnectingWs } from './ws-client.js';
 
 // Daemon core (M1-T05; 03 §Daemon ↔ orchestrator, 07, 10-contracts, ADR-0005).
@@ -762,7 +763,13 @@ export class Daemon {
         tools,
         claudeSessionId,
         resume,
-        env: { ...p.env, ...portEnv(range), ...this.gitEnv() },
+        env: {
+          ...p.env,
+          ...portEnv(range),
+          ...this.gitEnv(),
+          // M2-T35b: where the agent saves before/after screenshots for open_pr to attach.
+          ...(p.review === true ? {} : screenshotEnv(this.config.rootDir, sid)),
+        },
         appendSystemPrompt,
         ...(p.model !== undefined ? { model: p.model } : {}),
         ...(p.max_turns !== undefined ? { maxTurns: p.max_turns } : {}),
@@ -1270,6 +1277,12 @@ export class Daemon {
     this.touch(sid);
     const str = (v: unknown, fallback: string) => (typeof v === 'string' ? v : fallback);
     this.sendOutput(sid, token, 'debug', `conductor: ${p.action} for ${p.target_state}`);
+    const shots = screenshotDir(this.config.rootDir, sid);
+    if (shots !== null) {
+      for (const why of readScreenshots(shots).skipped) {
+        this.sendOutput(sid, token, 'debug', `conductor: screenshot skipped: ${why}`);
+      }
+    }
     openPr({
       worktree: s.worktreePath,
       // The daemon's own records (not the message): the branch it created the worktree on and
@@ -1285,6 +1298,7 @@ export class Daemon {
       root: this.config.rootDir,
       expectedSha: p.expected_sha,
       ...(this.ghCommand ? { gh: this.ghCommand } : {}),
+      ...(shots !== null ? { screenshots: { dir: shots, sessionId: sid } } : {}),
       signal: abort.signal,
     })
       .catch((e: unknown) => ({ ok: false as const, error: errText(e) }))

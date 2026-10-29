@@ -3,6 +3,7 @@ import type { Readable } from 'node:stream';
 import {
   GITHUB_PR_URL_RE,
   matchingPaths,
+  SCREENSHOTS_MARKER_RE,
   type Condition,
   type ConditionResult,
   type EvaluateConditionsResult,
@@ -357,7 +358,12 @@ export function parsePrView(raw: unknown): PrView {
       ? o.files.map((f) => (typeof f === 'string' ? f : str(rec(f).path))).filter((f) => f !== null)
       : null,
     changedFiles: count(o.changedFiles),
-    screenshotPairs: count(o.screenshotPairs),
+    // Projected (`--jq`): the count; unprojected (tests, a gh that ignores --jq): the raw body.
+    screenshotPairs:
+      count(o.screenshotPairs) ??
+      (typeof o.body === 'string'
+        ? count(Number(SCREENSHOTS_MARKER_RE.exec(o.body)?.[1] ?? NaN))
+        : null),
   };
 }
 

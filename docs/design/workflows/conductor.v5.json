@@ -1,0 +1,296 @@
+{
+  "id": "conductor",
+  "version": 5,
+  "start": "planning",
+  "budget": {
+    "usd": 5,
+    "minutes": 240,
+    "max_loop_retries": 3
+  },
+  "on_budget_exceeded": "needs_input",
+  "columns": [
+    "planning",
+    "implementing",
+    "needs_input",
+    "waiting_external",
+    "done"
+  ],
+  "states": {
+    "planning": {
+      "type": "agent",
+      "title": "Planning",
+      "prompt": "plan_template",
+      "tools": [
+        "read"
+      ],
+      "result": [
+        "plan",
+        "summary"
+      ],
+      "timeout": "60m",
+      "on": {
+        "plan_ready": {
+          "goto": "implementing",
+          "title": "Plan ready",
+          "when": "The plan is complete and needs no decision from a human."
+        },
+        "scope_changed": {
+          "goto": "needs_input",
+          "title": "Scope changed",
+          "when": "A new dependency or finding changes the scope of the ticket.",
+          "question": true
+        },
+        "plan_needs_approval": {
+          "goto": "needs_input",
+          "title": "Plan needs approval",
+          "when": "The plan is ready but a human must approve it before implementation.",
+          "question": true
+        },
+        "needs_product_context": {
+          "goto": "needs_input",
+          "title": "Needs product context",
+          "when": "You need more product context to plan the work.",
+          "question": true
+        },
+        "impossible": {
+          "goto": "needs_input",
+          "title": "Impossible",
+          "when": "The work cannot be done as asked.",
+          "question": true
+        },
+        "ask_user": "needs_input",
+        "timeout": "needs_input"
+      }
+    },
+    "implementing": {
+      "type": "agent",
+      "title": "Implementing",
+      "prompt": "implement_template",
+      "tools": [
+        "edit",
+        "bash",
+        "git"
+      ],
+      "input": {
+        "plan": "$planning.plan"
+      },
+      "timeout": "2h",
+      "on": {
+        "needs_approval_to_message": {
+          "goto": "needs_input",
+          "title": "Approve a message",
+          "when": "You are about to message a person and need approval of the text first.",
+          "question": true
+        },
+        "pr_ready_for_review": {
+          "goto": "needs_input",
+          "title": "PR ready for review",
+          "when": "The work is done and you want the user to review the PR.",
+          "kinds": [
+            "work"
+          ],
+          "question": true,
+          "requires": {
+            "checks": [
+              {
+                "name": "Build passes",
+                "cmd": "npm run build",
+                "timeout": "10m"
+              },
+              {
+                "name": "Tests pass",
+                "cmd": "npm test",
+                "timeout": "10m"
+              }
+            ],
+            "review": {
+              "items": [
+                "The change contains nothing conductor-specific (no workflow or agent configuration, no notes for conductor); everything committed is useful to the other developers on this repository."
+              ]
+            },
+            "actions": [
+              "open_pr"
+            ],
+            "conditions": [
+              {
+                "type": "pr_checks_green",
+                "no_checks_after": "5m"
+              },
+              {
+                "type": "pr_screenshots",
+                "ui_paths": [
+                  "**/*.{tsx,jsx,vue,svelte,css,scss,html}"
+                ]
+              }
+            ],
+            "condition_timeout": "2h",
+            "condition_poll": "1m"
+          },
+          "on_unmet": {
+            "goto": "implementing",
+            "instruction": "Fix what is listed above, commit, then finish the step again. If a PR check failed, read its log first (`gh pr checks <pr>`, then `gh run view <run-id> --log-failed`).",
+            "retries": 3,
+            "else": "needs_input"
+          }
+        },
+        "personal_pr_ready_for_review": {
+          "goto": "needs_input",
+          "title": "PR ready for review",
+          "when": "The work is done: conductor opens the PR, waits for its checks, and hands it to the user to review. This is the only way to finish; the user closes the ticket.",
+          "kinds": [
+            "personal"
+          ],
+          "question": true,
+          "requires": {
+            "checks": [
+              {
+                "name": "Build passes",
+                "cmd": "npm run build",
+                "timeout": "10m"
+              },
+              {
+                "name": "Tests pass",
+                "cmd": "npm test",
+                "timeout": "10m"
+              }
+            ],
+            "actions": [
+              "open_pr"
+            ],
+            "conditions": [
+              {
+                "type": "pr_checks_green",
+                "no_checks_after": "5m"
+              },
+              {
+                "type": "pr_screenshots",
+                "ui_paths": [
+                  "**/*.{tsx,jsx,vue,svelte,css,scss,html}"
+                ]
+              }
+            ],
+            "condition_timeout": "2h",
+            "condition_poll": "1m"
+          },
+          "on_unmet": {
+            "goto": "implementing",
+            "instruction": "Fix what is listed above, commit, then finish the step again. If a PR check failed, read its log first (`gh pr checks <pr>`, then `gh run view <run-id> --log-failed`).",
+            "retries": 3,
+            "else": "needs_input"
+          }
+        },
+        "ready_for_testing": {
+          "goto": "waiting_external",
+          "title": "Ready for testing",
+          "when": "The work is complete and should go to testing.",
+          "kinds": [
+            "work"
+          ],
+          "requires": {
+            "checks": [
+              {
+                "name": "Build passes",
+                "cmd": "npm run build",
+                "timeout": "10m"
+              },
+              {
+                "name": "Tests pass",
+                "cmd": "npm test",
+                "timeout": "10m"
+              }
+            ],
+            "review": {
+              "items": [
+                "The change contains nothing conductor-specific (no workflow or agent configuration, no notes for conductor); everything committed is useful to the other developers on this repository."
+              ]
+            },
+            "actions": [
+              "open_pr"
+            ],
+            "conditions": [
+              {
+                "type": "pr_checks_green",
+                "no_checks_after": "5m"
+              },
+              {
+                "type": "pr_screenshots",
+                "ui_paths": [
+                  "**/*.{tsx,jsx,vue,svelte,css,scss,html}"
+                ]
+              },
+              {
+                "type": "pr_approvals",
+                "min": 1
+              },
+              {
+                "type": "jira_fields_set",
+                "fields": [
+                  "resolution"
+                ],
+                "enabled": false
+              },
+              {
+                "type": "azure_pipeline_succeeded",
+                "pipeline": "ci",
+                "enabled": false
+              }
+            ],
+            "condition_timeout": "3d",
+            "condition_poll": "2m"
+          },
+          "on_unmet": {
+            "goto": "implementing",
+            "instruction": "Fix what is listed above, commit, then finish the step again. If a PR check failed, read its log first (`gh pr checks <pr>`, then `gh run view <run-id> --log-failed`).",
+            "retries": 3,
+            "else": "needs_input"
+          }
+        },
+        "ask_user": "needs_input",
+        "timeout": "needs_input"
+      }
+    },
+    "needs_input": {
+      "type": "human",
+      "title": "Needs input",
+      "on": {
+        "answer": {
+          "goto": "$return_to",
+          "title": "Back with this answer",
+          "actor": "human"
+        },
+        "waiting_on_someone": {
+          "goto": "waiting_external",
+          "title": "Waiting on someone else",
+          "actor": "human"
+        },
+        "done": {
+          "goto": "done",
+          "title": "Done",
+          "actor": "human"
+        }
+      }
+    },
+    "waiting_external": {
+      "type": "event",
+      "title": "Waiting external",
+      "wait_for": [
+        "ui.approve"
+      ],
+      "on": {
+        "ui.approve": {
+          "goto": "done",
+          "title": "Approved"
+        },
+        "back_to_implementing": {
+          "goto": "implementing",
+          "title": "Back to Implementing",
+          "actor": "human"
+        }
+      }
+    },
+    "done": {
+      "type": "terminal",
+      "title": "Done"
+    }
+  }
+}

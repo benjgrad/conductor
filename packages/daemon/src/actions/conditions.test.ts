@@ -629,4 +629,17 @@ describe('pr_screenshots (M2-T35a)', () => {
     expect(mapCondition(SHOTS, pr({ files: [], changedFiles: 0 }), OLD).status).toBe('failed');
     expect(mapCondition(SHOTS, pr({}))).toMatchObject({ status: 'pending' });
   });
+
+  it('unprojected output (a gh that ignores --jq): the marker is read from the raw body', () => {
+    const files = [{ path: 'src/App.tsx', additions: 1 }];
+    const withTable = pr({
+      files,
+      changedFiles: 1,
+      body: 'summary\n\n## Screenshots\n…\n<!-- conductor:screenshots pairs=2 -->\n',
+    });
+    expect(withTable.files).toEqual(['src/App.tsx']);
+    expect(withTable.screenshotPairs).toBe(2);
+    expect(mapCondition(SHOTS, withTable)).toMatchObject({ status: 'met', value: '2/1 pairs' });
+    expect(pr({ files, changedFiles: 1, body: 'no table' }).screenshotPairs).toBeNull();
+  });
 });

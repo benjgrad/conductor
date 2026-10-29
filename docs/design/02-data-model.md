@@ -212,11 +212,11 @@ Only state changes and summaries go here. **Raw terminal output does not** (see 
 |---|---|---|
 | id | bigserial pk | |
 | command_id | uuid unique | the daemon dedupes on this |
-| target | text | `machine:<id>` or `connector:<name>` |
-| kind | enum | `start_session` · `send_input` · `send_message` · `run_cmd` · `run_action` · `kill` · `connector_call` (one engine `Effect` each, [10](10-contracts.md)). `send_message` was added by migration `1761300000000_outbox-send-message` ([ADR-0007](../adr/0007-live-messages-to-agents.md)), `run_action` (an entry action such as `open_pr`) by `1761400000000_outbox-run-action` ([ADR-0010](../adr/0010-one-workflow-columns-are-states.md)) |
+| target | text | `machine:<id>`, `connector:<name>`, or `user:<id>` (a `push_needs_input` row, UX-15) |
+| kind | enum | `start_session` · `send_input` · `send_message` · `run_cmd` · `run_action` · `kill` · `connector_call` (one engine `Effect` each, [10](10-contracts.md)). `send_message` was added by migration `1761300000000_outbox-send-message` ([ADR-0007](../adr/0007-live-messages-to-agents.md)), `run_action` (an entry action such as `open_pr`) by `1761400000000_outbox-run-action` ([ADR-0010](../adr/0010-one-workflow-columns-are-states.md)). `push_needs_input` (UX-15, `1761900000000_push-subscriptions`) is the one kind that is **not** an Effect: the EngineService wrapper writes it when it inserts an `input_request`, the push dispatcher sends it, and it has no WS message ([10 §Web Push](10-contracts.md#web-push)) |
 | session_id | fk session null | |
 | payload | jsonb | the WS command payload verbatim (`commandPayloadForEffect`). Once a `start_session` row is terminal (`acked`/`failed`) its `prompt` is set to JSON `null` in the same guarded UPDATE, other fields kept: the prompt can carry the `attach: output` command tail ([U-039](../tracking/UNKNOWNS.md)). A terminal `send_message` row gets the same treatment for its `text` (the message's record is its `operator.message` event row; [ADR-0007](../adr/0007-live-messages-to-agents.md)) |
-| idempotency_key | text null | connectors and `run_action` rows: `<session_id>:<state>:<visit>`, see [05](05-workflow-engine.md#idempotency) |
+| idempotency_key | text null | connectors and `run_action` rows: `<session_id>:<state>:<visit>`, see [05](05-workflow-engine.md#idempotency); `push_needs_input` rows: the input request id, unique per target (`outbox_push_idem_idx`) |
 | fencing_token | bigint null | `session.fencing_token` when the row was written; the WS envelope's token. A row below the session's current token is failed `stale_fencing_token`, not sent. null for `connector:` rows ([10](10-contracts.md#effect--ws-fields)) |
 | status | enum | `pending` · `sent` · `acked` · `failed` ([10](10-contracts.md#outbox-state-machine): dispatcher writes `sent`, gateway writes `acked`/`failed`, all guarded) |
 | attempts, next_attempt_at | | |
@@ -309,6 +309,22 @@ Instance-level. One-time, 1 hour.
 | created_at, expires_at | timestamptz | |
 | used_at | timestamptz null | a used reset revokes all of the user's sessions |
 
+### push_subscription
+UX-15, migration `1761900000000_push-subscriptions` ([10 §Web Push](10-contracts.md#web-push)). One browser's Web Push subscription (`PushSubscription.toJSON()`), per user and account-scoped. The endpoint is never returned by the API.
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| account_id | uuid fk account | the subscriber's account (the scope of the enqueue) |
+| user_id | uuid | the subscriber (no FK: may be the virtual local user) |
+| endpoint | text unique | the push service URL, a per-browser secret; `POST /api/push/subscriptions` upserts on it |
+| p256dh, auth | text | the browser's message-encryption keys (RFC 8291) |
+| user_agent | text null | the subscribing request's, clipped to 512 chars (informational) |
+| created_at | timestamptz | |
+| last_ok_at | timestamptz null | the last accepted send |
+| failures | int | consecutive failed sends (not 404 / 410), default 0, `CHECK >= 0`; the 5th deletes the row. A 404 / 410 deletes it at once |
+
+The migration's down drops the table and `outbox_push_idem_idx`, deletes the `push_needs_input` rows and rebuilds `outbox_kind` without the value.
+
 ### login_throttle
 Instance-level. ADR-0017 §Rate limiting, layer 3: keyed by the normalised email **string**, whether or not a user has it, so a lockout reveals nothing.
 | column | type | notes |
@@ -321,4 +337,4 @@ Instance-level. ADR-0017 §Rate limiting, layer 3: keyed by the normalised email
 
 ## Indexes
 
-Besides primary keys and `outbox.command_id UNIQUE`: `ticket (status, priority)`, `session (status)`, `session_one_live_per_ticket` ([session](#session)), `session (ticket_id, created_at DESC)` (the claim's affinity lookup, [04](04-scheduler.md)), `input_request (session_id) WHERE answer IS NULL`, `event (session_id, id)`, and `outbox (next_attempt_at) WHERE status = 'pending'` (the dispatcher's scan). M2-T03: `<table>_account_id_idx` on `account_id` for each of the eight M1 tables, except `event (account_id, id)` (the per-account SSE replay); `app_user (lower(email))` unique; `web_session (user_id)` and `(expires_at)`; `account_member (user_id)`; `invite.token_hash` and `password_reset.token_hash` unique. M2-T09: `<table>_account_id_idx` on each of its four tables; `enrollment_token.token_hash` and `machine_credential.secret_hash` unique; `machine_credential (machine_id)`; `machine_alert (machine_id) WHERE cleared_at IS NULL` (`machine_alert_open_idx`). M2-T29c: `permission_request (account_id)`, `(session_id, created_at)` and `(expires_at) WHERE status = 'pending'` (the timeout sweep). `machine_repo.machine_id`, `machine_capability.machine_id` and `machine_alert.machine_id` cascade on machine delete; every other FK is plain (no cascade).
+Besides primary keys and `outbox.command_id UNIQUE`: `ticket (status, priority)`, `session (status)`, `session_one_live_per_ticket` ([session](#session)), `session (ticket_id, created_at DESC)` (the claim's affinity lookup, [04](04-scheduler.md)), `input_request (session_id) WHERE answer IS NULL`, `event (session_id, id)`, and `outbox (next_attempt_at) WHERE status = 'pending'` (the dispatcher's scan). M2-T03: `<table>_account_id_idx` on `account_id` for each of the eight M1 tables, except `event (account_id, id)` (the per-account SSE replay); `app_user (lower(email))` unique; `web_session (user_id)` and `(expires_at)`; `account_member (user_id)`; `invite.token_hash` and `password_reset.token_hash` unique. M2-T09: `<table>_account_id_idx` on each of its four tables; `enrollment_token.token_hash` and `machine_credential.secret_hash` unique; `machine_credential (machine_id)`; `machine_alert (machine_id) WHERE cleared_at IS NULL` (`machine_alert_open_idx`). M2-T29c: `permission_request (account_id)`, `(session_id, created_at)` and `(expires_at) WHERE status = 'pending'` (the timeout sweep). UX-15: `push_subscription.endpoint` unique, `push_subscription (account_id, user_id)`, and `outbox_push_idem_idx` unique on `outbox (target, idempotency_key) WHERE target LIKE 'user:%'` (on `target`, not `kind`: an enum value can't be used in the migration that adds it). `machine_repo.machine_id`, `machine_capability.machine_id` and `machine_alert.machine_id` cascade on machine delete; every other FK is plain (no cascade).

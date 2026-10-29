@@ -53,8 +53,20 @@ export const OutboxKindSchema = z.enum([
   'run_action',
   'kill',
   'connector_call',
+  /**
+   * UX-15: a Web Push "needs input" notification. Written by the engine wrapper when an
+   * input_request is created; not an Effect, no WS message; target `user:<id>`.
+   */
+  'push_needs_input',
 ]);
 export type OutboxKind = z.infer<typeof OutboxKindSchema>;
+
+/** Outbox kinds that are not engine Effects (no apply effect, no WS command). */
+export const NON_EFFECT_OUTBOX_KINDS = ['push_needs_input'] as const;
+
+/** The outbox kinds that are machine (or connector) commands: every kind but the push ones. */
+export const CommandKindSchema = OutboxKindSchema.exclude(NON_EFFECT_OUTBOX_KINDS);
+export type CommandKind = z.infer<typeof CommandKindSchema>;
 
 /** `outbox.status` (02). */
 export const OutboxStatusSchema = z.enum(['pending', 'sent', 'acked', 'failed']);

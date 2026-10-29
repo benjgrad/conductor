@@ -19,6 +19,7 @@ import {
   servedVersion,
 } from './distribution.js';
 import { seedConductorWorkflow } from './engine/seed.js';
+import { parsePushConfig, type PushConfig } from './push/config.js';
 import { createDb as createPoolDb } from './db/index.js';
 import { createEngineService as createRealEngineService } from './engine/index.js';
 import { createGateway as createRealGateway } from './gateway/index.js';
@@ -58,6 +59,8 @@ export type CreateEngineService = (deps: {
   db: Db;
   boardBus: BoardBus;
   now?: () => Date;
+  /** UX-15: Web Push (VAPID); absent or null → disabled, nothing is enqueued or sent. */
+  push?: PushConfig | null;
 }) => EngineHandle;
 
 /** M1-T11. `attach` serves API_PATHS.daemonWs via the HTTP server's `upgrade` event. */
@@ -105,6 +108,8 @@ export type CreateApi = (deps: {
    * directly (U-099: no outbox row); absent → decisions are stored and never sent.
    */
   machineTransport?: OutboxTransport;
+  /** UX-15: Web Push (VAPID); absent or null → the /api/push/* routes answer 404 push_disabled. */
+  push?: PushConfig | null;
 }) => ApiHandle;
 
 export type CreateDb = (opts: { databaseUrl: string }) => Db;
@@ -127,6 +132,8 @@ export interface OrchestratorConfig {
   /** M2-T08: sign-in mode; absent → local. */
   auth?: AuthConfig;
   trustedProxy?: string | null;
+  /** UX-15: CONDUCTOR_VAPID_* (parsePushConfig); absent or null → push disabled. */
+  push?: PushConfig | null;
 }
 
 export interface Orchestrator {
@@ -149,7 +156,8 @@ export function composeOrchestrator(
   const db = (f.createDb ?? createDb)({ databaseUrl: config.databaseUrl });
   const boardBus = new InMemoryBoardBus();
   const outputBus = new InMemoryOutputBus();
-  const engineHandle = f.createEngineService({ db, boardBus });
+  const push = config.push ?? null;
+  const engineHandle = f.createEngineService({ db, boardBus, push });
   const engine = engineHandle.engine;
   const gateway = f.createGateway({ db, engine, boardBus, outputBus });
   const api = f.createApi({
@@ -159,6 +167,7 @@ export function composeOrchestrator(
     outputBus,
     ...(gateway.transcripts ? { transcripts: gateway.transcripts } : {}),
     machineTransport: gateway.transport,
+    push,
     ...(config.auth ? { auth: config.auth } : {}),
     ...(config.trustedProxy ? { trustedProxy: config.trustedProxy } : {}),
     ...(gateway.disconnectMachine
@@ -210,7 +219,9 @@ export interface MainOptions {
    * Default `process.env`: DATABASE_URL (required), CONDUCTOR_PORT, CONDUCTOR_WEB_DIR, and the
    * M2-T08 server config (CONDUCTOR_AUTH, CONDUCTOR_PUBLIC_URL, CONDUCTOR_BIND_HOST,
    * CONDUCTOR_TRUSTED_PROXY; `parseServerConfig`), and the M2-T14 distribution settings
-   * (CONDUCTOR_DOWNLOADS_DIR, CONDUCTOR_BUILD_SHA / CONDUCTOR_GIT_SHA).
+   * (CONDUCTOR_DOWNLOADS_DIR, CONDUCTOR_BUILD_SHA / CONDUCTOR_GIT_SHA), and the UX-15 Web Push
+   * keys (CONDUCTOR_VAPID_PUBLIC_KEY, CONDUCTOR_VAPID_PRIVATE_KEY, CONDUCTOR_VAPID_SUBJECT;
+   * `parsePushConfig`, all unset = push off).
    */
   env?: NodeJS.ProcessEnv;
   /** Stop on SIGINT/SIGTERM, then exit (default true; tests pass false and call `stop()`). */
@@ -243,6 +254,7 @@ function installPublicUrl(env: NodeJS.ProcessEnv, server: ServerConfig, port: nu
 export async function main(opts: MainOptions = {}): Promise<Orchestrator> {
   const env = opts.env ?? process.env;
   const server = parseServerConfig(env);
+  const push = parsePushConfig(env);
   const log =
     opts.log ?? ((m: string) => void process.stderr.write(`[conductor-orchestrator] ${m}\n`));
   const databaseUrl = env.DATABASE_URL;
@@ -276,10 +288,12 @@ export async function main(opts: MainOptions = {}): Promise<Orchestrator> {
       host: server.bindHost,
       auth: server.auth,
       trustedProxy: server.trustedProxy,
+      push,
     },
   );
   await orchestrator.start();
   log(`listening on http://${server.bindHost}:${port} (auth: ${server.auth.mode})`);
+  log(push ? 'push: on (Web Push, VAPID)' : 'push: off (CONDUCTOR_VAPID_* unset)');
   log(serveWeb ? `web app from ${webDir}` : `no web app at ${webDir} (run pnpm build)`);
   log(
     build

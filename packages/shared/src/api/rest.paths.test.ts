@@ -45,16 +45,23 @@ describe('API_PATHS', () => {
       installScriptWindows: '/install.ps1',
       daemonDownload: '/downloads/:file',
       healthz: '/healthz',
+      pushVapidPublicKey: '/api/push/vapid-public-key',
+      pushSubscriptions: '/api/push/subscriptions',
+      pushTest: '/api/push/test',
       session: '/api/sessions/:id',
     });
   });
 });
 
 describe('ApiErrorSchema', () => {
-  it.each(['unauthorized', 'forbidden', 'rate_limited', 'unsupported_media_type', 'not_found'])(
-    'accepts code %s',
-    (code) => {
-      expect(ApiErrorSchema.safeParse({ error: { code, message: 'm' } }).success).toBe(true);
-    },
-  );
+  it.each([
+    'unauthorized',
+    'forbidden',
+    'rate_limited',
+    'unsupported_media_type',
+    'not_found',
+    'push_disabled',
+  ])('accepts code %s', (code) => {
+    expect(ApiErrorSchema.safeParse({ error: { code, message: 'm' } }).success).toBe(true);
+  });
 });

@@ -115,11 +115,10 @@ describe('alert update_failed', () => {
   });
 
   it('git_tamper fields do not make an update_failed alert valid', () => {
-    const { kind: _kind, ...tamper } = M2_WS_FIXTURES.alert_with_session.payload;
     expect(
       DaemonToOrchestratorSchema.safeParse({
         ...base,
-        payload: { ...tamper, kind: 'update_failed' },
+        payload: { ...M2_WS_FIXTURES.alert_with_session.payload, kind: 'update_failed' },
       }).success,
     ).toBe(false);
   });

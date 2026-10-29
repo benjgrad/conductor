@@ -136,7 +136,15 @@
       } catch {
         Fail "download failed: $url ($($_.Exception.Message))"
       }
-      $got = (Get-FileHash -Algorithm SHA256 -LiteralPath $tgz).Hash.ToLowerInvariant()
+      # .NET, not Get-FileHash: a 5.1 window started from pwsh 7 inherits its PSModulePath and
+      # can't autoload Get-FileHash (seen on the windows-latest runner).
+      $stream = [IO.File]::OpenRead($tgz)
+      try {
+        $hasher = [Security.Cryptography.SHA256]::Create()
+        $got = -join ($hasher.ComputeHash($stream) | ForEach-Object { $_.ToString('x2') })
+      } finally {
+        $stream.Dispose()
+      }
       if ($got -ne $Sha256) { Fail "SHA-256 mismatch for $File (expected $Sha256, got $got); nothing installed" }
 
       # ---- install ----

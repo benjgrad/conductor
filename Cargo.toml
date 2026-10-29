@@ -1,0 +1,68 @@
+# The Rust daemon workspace (ADR-0026 §6, MR-T02). Outside the pnpm workspace; spikes/rust-daemon
+# has its own [workspace] and stays out.
+#
+# Every crate MR uses is listed here and referenced by crates/conductor-daemon/Cargo.toml up front,
+# so Cargo.lock is resolved once and later tickets don't edit either file except to add a missing
+# dependency (or feature). Versions are the ones the MR-T01 spike proved (spikes/rust-daemon/README.md).
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+license = "UNLICENSED"
+
+[workspace.dependencies]
+conductor-protocol = { path = "crates/conductor-protocol" }
+
+anyhow = "1"
+axum = "0.8.9"
+clap = { version = "4", features = ["derive"] }
+futures-util = "0.3.34"
+hex = "0.4.3"
+http = "1.5.0"
+rand = "0.10.3"
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
+rmcp = { version = "3.8.0", features = ["server", "macros", "transport-streamable-http-server"] }
+schemars = "1.2.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+thiserror = "2"
+tokio = { version = "1.54", features = ["full"] }
+tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-webpki-roots"] }
+tower = "0.5.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1.29.0", features = ["v4"] }
+
+# unix
+libc = "0.2.191"
+nix = { version = "0.31", features = ["process", "signal", "fs", "user"] }
+
+# windows
+windows-sys = { version = "0.61.2", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_JobObjects",
+  "Win32_System_ProcessStatus",
+  "Win32_System_SystemInformation",
+  "Win32_System_Threading",
+] }
+
+# tests
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3.27.0"
+
+# What the shipped daemon uses (as in the spike).
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1

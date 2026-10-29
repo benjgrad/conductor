@@ -41,17 +41,17 @@
 | ID | Task | Depends on | Group | Migration | Status |
 |---|---|---|---|---|---|
 | MW-T00 | ADR-0024, this file, ROADMAP, design-doc touch-ups, tracking | — | — | — | done |
-| MW-T01 | Windows CI workflow + portable test support (`fake-bin`), POSIX-only tests skipped with markers | T00 | A | — | done (on mw-windows-daemon) |
-| MW-T02 | shared: `AbsolutePathSchema` accepts Windows drive paths | T00 | A | — | done (on mw-windows-daemon) |
-| MW-T03 | platform: `spawn`, `kill-tree`, `shell`, `procinfo` (not wired in) | T00 | A | — | done (on mw-windows-daemon) |
-| MW-T04 | platform: `acl` (owner-only DACL write + verify) | T00 | A | — | done (on mw-windows-daemon) |
-| MW-T05 | Wire spawn + kill into the claude driver, process runner, capability probes, conditions | T01, T03, T04 | B | — | done (on mw-windows-daemon; win32 CI green) |
-| MW-T06 | Orphan sweep on Windows (procinfo, `checkOurs`, sweep kill) | T01, T03 | B | — | done (on mw-windows-daemon; win32 CI green) |
-| MW-T07 | Credential, config, private repos and git env on Windows | T01, T04 | B | — | done (on mw-windows-daemon; win32 CI green) |
-| MW-T08 | Edit guard on Windows (command quoting, resolver), fail-closed path table | T01 | B | — | done (on mw-windows-daemon; win32 CI green) |
+| MW-T01 | Windows CI workflow + portable test support (`fake-bin`), POSIX-only tests skipped with markers | T00 | A | — | done (PR #58, b790864) |
+| MW-T02 | shared: `AbsolutePathSchema` accepts Windows drive paths | T00 | A | — | done (PR #58, b790864) |
+| MW-T03 | platform: `spawn`, `kill-tree`, `shell`, `procinfo` (not wired in) | T00 | A | — | done (PR #58, b790864) |
+| MW-T04 | platform: `acl` (owner-only DACL write + verify) | T00 | A | — | done (PR #58, b790864) |
+| MW-T05 | Wire spawn + kill into the claude driver, process runner, capability probes, conditions | T01, T03, T04 | B | — | done (PR #58, b790864; win32 CI green) |
+| MW-T06 | Orphan sweep on Windows (procinfo, `checkOurs`, sweep kill) | T01, T03 | B | — | done (PR #58, b790864; win32 CI green) |
+| MW-T07 | Credential, config, private repos and git env on Windows | T01, T04 | B | — | done (PR #58, b790864; win32 CI green) |
+| MW-T08 | Edit guard on Windows (command quoting, resolver), fail-closed path table | T01 | B | — | done (PR #58, b790864; win32 CI green) |
 | MW-T09 | CLI, paths, sysinfo, rescan, long paths, transcript slug | T01, M2-T18 | B | — | in_progress (done: 8.3 worktree reuse, repo scan, transcript slug; left: main.ts SIGBREAK + `rescan`, core.longpaths; win32 CPU done (platform/sysres.ts); after M2-T18) |
 | MW-T10 | `service` on win32: Scheduled Task + `conductor-launch.ps1` | T05, T09, M2-T18 | C | — | todo |
-| MW-T11 | `install.ps1` + tarball `.cmd` shim + Windows tabs (Machines page, setup guide) + help docs | T07 | D | — | in_review (branch `mw-t11-install-ps1`; split 2026-10-29, Ben asked for the Windows instructions before T10) |
+| MW-T11 | `install.ps1` + tarball `.cmd` shim + Windows tabs (Machines page, setup guide) + help docs | T07 | D | — | done (PR #61, 363b31e; split 2026-10-29, Ben asked for the Windows instructions before T10) |
 | MW-T11b | install.ps1 starts the daemon at logon (`service install`, `conductor-launch.ps1` in the tarball) | T10, T11 | D | — | todo |
 | MW-T12 | E2E on Windows, remove the remaining skips, setup docs | T05–T11 | E | — | todo |
 | MW-T13 | Laptop smoke test (Ben, guided); answers U-106 | T12 | F | — | todo |

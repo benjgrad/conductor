@@ -29,9 +29,10 @@ import { checkTransitions } from './validate-transitions.js';
 /**
  * Rule numbers from 05 §Validation on save (1–6) plus rule 7 (unknown tool alias), rule 8
  * (requirements gates, ADR-0009), rule 9 (entry requirements and columns, ADR-0010) and rules
- * 10–14 (transitions, ADR-0011: `validate-transitions.ts`).
+ * 10–14 (transitions, ADR-0011) and 15–16 (review and merge, ADR-0020), in
+ * `validate-transitions.ts`.
  */
-export type WorkflowRule = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14;
+export type WorkflowRule = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
 
 export interface WorkflowValidationError {
   rule: WorkflowRule;
@@ -77,7 +78,7 @@ function flattenIssue(issue: Issue, prefix: PropertyKey[] = []): Issue[] {
   return branches[0]!.flatMap((i) => flattenIssue(i, path));
 }
 
-/** Parse a workflow definition and check rules 1–14. Never throws. */
+/** Parse a workflow definition and check rules 1–16. Never throws. */
 export function validateWorkflow(input: unknown): WorkflowValidationResult {
   const parsed = WorkflowDefinitionSchema.safeParse(input);
   if (!parsed.success) {
@@ -322,6 +323,9 @@ function collectEdges(def: WorkflowDefinition): Edge[] {
         outcome: 'entry:else',
         path: [...unmet, 'else'],
       });
+      for (const [reason, to] of Object.entries(state.entry.on_unmet.routes ?? {})) {
+        edges.push({ ...common, to, outcome: 'entry:unmet', path: [...unmet, 'routes', reason] });
+      }
     }
     if (state.type === 'terminal') continue;
     for (const [outcome, raw] of Object.entries(state.on ?? {})) {
@@ -360,6 +364,10 @@ function collectEdges(def: WorkflowDefinition): Edge[] {
         if (unmet === undefined) continue;
         push(unmet.goto, [...base, ...key, 'goto'], true);
         push(unmet.else, [...base, ...key, 'else'], plain);
+        // ADR-0020: a routed unmet reason shares the goto leg's counter.
+        for (const [reason, to] of Object.entries(unmet.routes ?? {})) {
+          push(to, [...base, ...key, 'routes', reason], true);
+        }
       }
     }
   }
@@ -370,7 +378,8 @@ function collectEdges(def: WorkflowDefinition): Edge[] {
  * Rule 4 interpretation (05 §Retry loops, §Counting): a loop is bounded when it takes
  * - a counted transition's `goto` leg (`isCountedTransition`: `attach`, `retries` or `else`): it
  *   has a retry counter `"<from>-><goto>"`, capped at `retries`, or at `budget.max_loop_retries`;
- * - a requirements `on_unmet.goto` leg: its counter is capped at `on_unmet.retries`;
+ * - a requirements `on_unmet.goto` leg: its counter is capped at `on_unmet.retries`; so is an
+ *   `on_unmet.routes` leg (ADR-0020), which shares that counter;
  * - an edge out of a `human` state, or a human-actor transition (ADR-0011): a person decides each
  *   iteration;
  * - an `event` state's edge on one of its `wait_for` events (not `timeout`): an external actor

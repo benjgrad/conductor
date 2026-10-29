@@ -24,7 +24,9 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
         if (st.type === 'agent') for (const t of st.tools ?? []) expect(isToolAlias(t)).toBe(true);
       }
     }
-    expect(TOOL_ALIAS_NAMES).toEqual(expect.arrayContaining(['edit', 'bash', 'git', 'pr_skill']));
+    expect(TOOL_ALIAS_NAMES).toEqual(
+      expect.arrayContaining(['edit', 'bash', 'git', 'pr_skill', 'qa']),
+    );
   });
 
   it('scopes file tools to the worktree and never allows a bare Edit/Write', () => {
@@ -103,6 +105,48 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
       expect(p.allow.some((r) => r.includes('git push'))).toBe(false);
     }
     expect(resolveToolPolicy([]).builtin).toEqual(['Read', 'Glob', 'Grep']);
+  });
+
+  it('qa alias has no edit tools and denies commit/push/gh', () => {
+    const p = resolveToolPolicy(['qa']);
+    expect(p.builtin).toEqual(['Read', 'Glob', 'Grep', 'Bash']);
+    expect(p.deny).toEqual(
+      expect.arrayContaining([
+        'Edit',
+        'Write',
+        'Bash(git add:*)',
+        'Bash(git commit:*)',
+        'Bash(gh:*)',
+        'Bash(git push:*)',
+      ]),
+    );
+    expect(p.allow).toEqual(
+      expect.arrayContaining([
+        'Read(./**)',
+        'Bash(git status)',
+        'Bash(git diff --stat qa-base...HEAD)',
+        'Bash(git diff qa-base...HEAD)',
+        'Bash(git log --oneline qa-base..HEAD)',
+        'Bash(pnpm test:*)',
+        'Bash(pnpm vitest:*)',
+        'Bash(pnpm exec vitest:*)',
+        'Bash(npm test:*)',
+        'Bash(npm run:*)',
+        'Bash(pnpm typecheck)',
+        'Bash(pnpm lint)',
+      ]),
+    );
+    for (const sub of ['diff', 'log', 'show'])
+      expect(p.allow.some((r) => r.startsWith(`Bash(git ${sub}`) && r.endsWith(':*)'))).toBe(false);
+    for (const bad of [
+      'Edit',
+      'Write',
+      'Bash(gh',
+      'Bash(git commit',
+      'Bash(git add',
+      'Bash(git push',
+    ])
+      expect(p.allow.some((r) => r.startsWith(bad))).toBe(false);
   });
 
   it('de-duplicates and rejects unknown names', () => {

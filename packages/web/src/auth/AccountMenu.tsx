@@ -1,6 +1,8 @@
 import type { MeResponse } from '@conductor/shared';
+import { CircleUser } from 'lucide-react';
 import { useState } from 'react';
 import type { ApiClient } from '../api/client.js';
+import { NavIcon } from '../components/NavIcon.js';
 import { ChangePasswordDialog } from './ChangePasswordDialog.js';
 import { authErrorMessage } from './errors.js';
 import './auth.css';
@@ -12,13 +14,15 @@ interface AccountMenuProps {
   onAdmin: () => void;
   /** After POST /auth/logout succeeded. */
   onSignedOut: () => void;
+  /** UX-11: icon-only button; the name moves to `aria-label`, the email to the tooltip. */
+  compact?: boolean | undefined;
 }
 
 /**
  * The header's account menu: the user's name; "Admin" for admins; "Change password" and "Sign
  * out" in `password` mode (in `local` mode there is nothing to sign out of).
  */
-export function AccountMenu({ api, me, onAdmin, onSignedOut }: AccountMenuProps) {
+export function AccountMenu({ api, me, onAdmin, onSignedOut, compact }: AccountMenuProps) {
   const [open, setOpen] = useState(false);
   const [changing, setChanging] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -47,8 +51,10 @@ export function AccountMenu({ api, me, onAdmin, onSignedOut }: AccountMenuProps)
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
+        {...(compact ? { 'aria-label': me.user.display_name, title: me.user.email } : {})}
       >
-        {me.user.display_name}
+        <NavIcon icon={CircleUser} />
+        <span className="nav-label">{me.user.display_name}</span>
       </button>
       {open && (
         <div className="account-menu" role="menu" aria-label="Account">

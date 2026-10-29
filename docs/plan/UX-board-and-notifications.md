@@ -81,7 +81,7 @@ Every top-nav control has an icon from a public icon library, so the bar is quic
 
   Each icon sits before its visible label, `aria-hidden="true"`, 16 px, `currentColor`.
 - **FR-3** One `NavIcon` wrapper (`components/NavIcon.tsx`) sets the size, stroke and alignment, so every icon matches.
-- **FR-4** Add a `.topbar.compact` style that hides the labels and keeps the icons. Icon-only links keep an accessible name (`aria-label` = the label) and a `title` tooltip. UX-12 turns it on below its breakpoint; this ticket ships it behind a test-only prop.
+- **FR-4** Add a `.topbar.compact` style that hides the labels and keeps the icons. Icon-only links keep an accessible name (`aria-label` = the label) and a `title` tooltip. UX-12 turns it on below its breakpoint; this ticket ships it behind a test-only prop. (Built: `App`'s `compact` prop, passed to `Shell` and `AccountMenu`; in compact mode each control gets `aria-label` + `title`, so UX-12 should flip that prop rather than only adding the class in CSS.)
 
 ## Non-functional requirements
 - **NFR-1** The web bundle grows by at most 15 KB gzipped. Report the before/after `vite build` sizes in the PR.

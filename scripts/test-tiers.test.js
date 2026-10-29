@@ -40,11 +40,21 @@ describe('planTiers (M2-T33)', () => {
   });
 
   it('runs everything when a global file changed, and says which', () => {
-    for (const f of ['pnpm-lock.yaml', 'vitest.config.ts', 'packages/web/package.json']) {
+    for (const f of ['pnpm-lock.yaml', 'vitest.config.ts', 'packages/web/tsconfig.json']) {
       const p = plan(['docs/x.md', f]);
       expect(p.skipped).toEqual([]);
       expect(p.reason).toBe(`${f} changed`);
     }
+  });
+
+  it("a package.json runs its own package's tier; shared's runs every tier", () => {
+    // changedFiles turns a lockfile change into these (scripts/test-lockfile.js)
+    expect(plan(['packages/web/package.json']).skipped).toEqual([
+      'daemon processes',
+      'orchestrator database',
+      'engine properties',
+    ]);
+    expect(plan(['packages/shared/package.json']).skipped).toEqual([]);
   });
 
   it('runs everything when unsure or asked: no merge-base, named files, test:all', () => {

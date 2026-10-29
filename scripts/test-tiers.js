@@ -7,9 +7,12 @@
 // "Changed" is every file that differs from the merge-base with main (committed, staged, unstaged
 // or untracked). Anything uncertain runs more, never less: no git, no merge-base, a global file
 // changed, or file filters on the command line (`pnpm vitest run open-pr`) all run every tier.
+// A pnpm-lock.yaml change counts only against the packages whose resolved dependencies it changed
+// (scripts/test-lockfile.js), as if their package.json had changed.
 import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, sep } from 'node:path';
+import { LOCKFILE, translateLockfile } from './test-lockfile.js';
 
 /** Changing any of these runs every test. Paths are relative to the repo root. */
 export const GLOBAL_TRIGGERS = [
@@ -23,13 +26,12 @@ export const GLOBAL_TRIGGERS = [
   'tsconfig*.json',
   'scripts/test-*.js',
   'scripts/db.sh',
-  'packages/*/package.json',
   'packages/*/tsconfig*.json',
   'packages/*/vitest*.ts',
 ];
 
-/** Source paths every package depends on (workspace packages import shared from source). */
-const SHARED = 'packages/shared/src/**';
+/** Paths every package depends on (workspace packages import shared from source). */
+const SHARED = ['packages/shared/src/**', 'packages/shared/package.json'];
 
 /**
  * @typedef {object} SlowTier
@@ -46,7 +48,7 @@ export const SLOW_TIERS = [
     name: 'web jsdom',
     project: 'web',
     files: ['src/**/*.test.tsx', 'src/components/ticket-editor/**/*.test.ts'],
-    triggers: ['packages/web/**', SHARED, 'docs/design/workflows/*.json'],
+    triggers: ['packages/web/**', ...SHARED, 'docs/design/workflows/*.json'],
   },
   {
     // Real git repos, real node children (fake claude, edit guard), real `gh` shims.
@@ -68,14 +70,14 @@ export const SLOW_TIERS = [
       'src/reopen-transcript.test.ts',
       'src/workspace.fresh-base.test.ts',
     ],
-    triggers: ['packages/daemon/**', SHARED],
+    triggers: ['packages/daemon/**', ...SHARED],
   },
   {
     // One migrated Postgres database per file (test/db.ts).
     name: 'orchestrator database',
     project: 'orchestrator',
     files: ['test/**/*.test.ts'],
-    triggers: ['packages/orchestrator/**', SHARED, 'deploy/**'],
+    triggers: ['packages/orchestrator/**', ...SHARED, 'deploy/**'],
   },
   {
     // fast-check over every reference workflow: CPU-bound for seconds.
@@ -85,6 +87,7 @@ export const SLOW_TIERS = [
     triggers: [
       'packages/shared/src/engine/**',
       'packages/shared/src/workflow/**',
+      'packages/shared/package.json',
       'docs/design/workflows/*.json',
     ],
   },
@@ -154,17 +157,19 @@ export function matchGlob(glob, path) {
 }
 
 /**
- * Repo-relative paths that differ from the merge-base with main, or null when that can't be known.
+ * Repo-relative paths that differ from the merge-base with main (or from `since`, when given), or
+ * null when that can't be known. A lockfile change is translated (scripts/test-lockfile.js).
  * @param {string} cwd repo root
+ * @param {string} [since] commit to compare against instead of the merge-base with main
  * @returns {string[] | null}
  */
-export function changedFiles(cwd) {
+export function changedFiles(cwd, since) {
   /** @param {string[]} args */
   const git = (args) =>
     execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   try {
-    let base = '';
-    for (const ref of ['main', 'origin/main']) {
+    let base = since ? git(['rev-parse', '--verify', `${since}^{commit}`]).trim() : '';
+    for (const ref of since ? [] : ['main', 'origin/main']) {
       try {
         base = git(['merge-base', 'HEAD', ref]).trim();
         if (base) break;
@@ -177,7 +182,14 @@ export function changedFiles(cwd) {
       git(['diff', '--name-only', base]), // committed since the base + staged + unstaged
       git(['ls-files', '--others', '--exclude-standard']), // untracked
     ].join('\n');
-    return [...new Set(out.split('\n').filter(Boolean))];
+    const changed = [...new Set(out.split('\n').filter(Boolean))];
+    return translateLockfile(changed, () => {
+      try {
+        return [git(['show', `${base}:${LOCKFILE}`]), readFileSync(join(cwd, LOCKFILE), 'utf8')];
+      } catch {
+        return null; // no lockfile at the base or here: can't compare, so it stays a global change
+      }
+    });
   } catch {
     return null;
   }

@@ -1,0 +1,87 @@
+# MR-T01 spike (ADR-0026): Rust daemon risk probes in spikes/rust-daemon, on Windows and Linux.
+# Throwaway: runs only when the spike changes, deploys nothing, and is not a required check.
+#   job-probe  Windows: kill-on-close Job Object kills cmd → node → detached node grandchild,
+#              survivor check (U-116); Linux: the process-group contrast, informational.
+#   mcp-probe  rmcp streamable-HTTP outcome server called by fake-claude (needs `pnpm install`
+#              for its MCP SDK), plus a call held 65 s (U-113).
+#   ws-probe   built and linted only: it needs Postgres and the orchestrator (scripts/run-ws-probe.sh).
+# The release binary sizes go to the job summary.
+name: spike-rust-daemon
+
+on:
+  pull_request:
+    paths:
+      - 'spikes/rust-daemon/**'
+      - '.github/workflows/spike-rust-daemon.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'spikes/rust-daemon/**'
+      - '.github/workflows/spike-rust-daemon.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spike-rust-daemon-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probes:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+        working-directory: spikes/rust-daemon
+    steps:
+      - if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+        working-directory: .
+      - uses: actions/checkout@v4
+      # As the other workflows: pnpm from package.json `packageManager`, Node from .nvmrc.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+      # Runners ship rustup; no third-party toolchain action.
+      - run: rustup toolchain install stable --profile minimal -c rustfmt,clippy && rustup default stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            spikes/rust-daemon/target
+          key: spike-rust-daemon-${{ runner.os }}-${{ hashFiles('spikes/rust-daemon/Cargo.lock') }}
+      - run: rustc --version && cargo --version
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo build --locked --release
+      - name: job-probe
+        run: ./target/release/job-probe
+      - name: mcp-probe
+        run: ./target/release/mcp-probe --hold-secs 65
+      - name: release binary sizes
+        if: always()
+        run: |
+          {
+            echo "### Release binary sizes (${{ runner.os }})"
+            echo
+            echo "| binary | bytes | MiB |"
+            echo "|---|---:|---:|"
+            for b in ws-probe mcp-probe job-probe; do
+              f="target/release/$b"
+              [[ -f "$f.exe" ]] && f="$f.exe"
+              [[ -f "$f" ]] || continue
+              n=$(wc -c <"$f" | tr -d ' ')
+              echo "| $b | $n | $(awk "BEGIN{printf \"%.2f\", $n/1048576}") |"
+            done
+          } | tee -a "$GITHUB_STEP_SUMMARY"

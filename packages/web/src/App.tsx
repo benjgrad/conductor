@@ -35,6 +35,7 @@ import {
   useHashRoute,
   usePath,
 } from './nav.js';
+import { useNeedsInputNotifications } from './notify/useNeedsInputNotifications.js';
 import { dismiss, isDismissed } from './onboarding/dismissal.js';
 import { SetupGuide } from './onboarding/SetupGuide.js';
 import { DiscardDraftConfirm, useDraftGuard } from './workflow/draft-guard.js';
@@ -151,6 +152,11 @@ function Shell({ api, me, onSignedOut, compact }: ShellProps) {
   const [creating, setCreating] = useState(false);
   const draft = useDraftGuard();
   const [route, navigate] = useHashRoute(draft.guard, draft.onBlocked);
+  // UX-14: title count, favicon dot and a browser notification per new question.
+  useNeedsInputNotifications(board, (sessionId) => {
+    navigate({ view: 'board' });
+    setSelected(sessionId);
+  });
   // UX-8 FR-1: the account's machine count, asked once per load. With none (and the guide not
   // dismissed this visit), the board area shows the setup guide. Not re-polled, so the guide stays
   // while the new machine connects in its step 3.

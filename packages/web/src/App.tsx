@@ -9,7 +9,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import type { ApiClient } from './api/client.js';
 import { AdminPage } from './admin/Admin.js';
 import { AccountMenu } from './auth/AccountMenu.js';
@@ -23,7 +23,11 @@ import { Board } from './components/Board.js';
 import { CreateTicketForm } from './components/CreateTicketForm.js';
 import { DetailPanel } from './components/DetailPanel.js';
 import { NavIcon } from './components/NavIcon.js';
-import { useIsMobile, useVisualViewportHeight } from './components/useMediaQuery.js';
+import {
+  useElementHeightVar,
+  useIsMobile,
+  useVisualViewportHeight,
+} from './components/useMediaQuery.js';
 import { followInApp, HelpLink, HelpPage } from './help/HelpPage.js';
 import { SETUP_GUIDE_URL } from './machines/format.js';
 import { MachinesPage } from './machines/Machines.js';
@@ -167,6 +171,8 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
   const { board, error } = useBoard(api);
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const topbarRef = useRef<HTMLElement>(null);
+  useElementHeightVar(topbarRef, '--topbar-h');
   const draft = useDraftGuard();
   const [route, navigate] = useHashRoute(draft.guard, draft.onBlocked);
   // UX-14: title count, favicon dot and a browser notification per new question.
@@ -241,7 +247,7 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
 
   return (
     <div className={`app${selected ? ' with-detail' : ''}${mobile ? ' mobile' : ''}`}>
-      <header className={`topbar${compact ? ' compact' : ''}`}>
+      <header ref={topbarRef} className={`topbar${compact ? ' compact' : ''}`}>
         {mobile ? (
           <h1>
             <LogoMark />

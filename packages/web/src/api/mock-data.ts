@@ -862,6 +862,8 @@ export function mockMachines(now: Date): MachineDetail[] {
       outdated: false,
       repo_count: 2,
       revoked_at: null,
+      repo_allow: null,
+      repo_exclusive: [],
       os: 'darwin',
       arch: 'arm64',
       repos: [
@@ -925,6 +927,8 @@ export function mockMachines(now: Date): MachineDetail[] {
       outdated: true,
       repo_count: 1,
       revoked_at: null,
+      repo_allow: null,
+      repo_exclusive: [],
       os: 'linux',
       arch: 'x64',
       repos: [{ remote: null, path: '/home/ben/scratch', mode: 'reference', default_branch: null }],

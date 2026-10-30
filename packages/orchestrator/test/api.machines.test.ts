@@ -305,6 +305,117 @@ describe('list, detail, rename, revoke', () => {
     expect(empty.json.error?.code).toBe('bad_request');
   });
 
+  it('PATCH sets and clears the repo rules; bad patterns are 400 (ADR-0013 amendment)', async () => {
+    const id = await enrollFor(a);
+    const patch = (body: unknown, who = a) =>
+      api.send('PATCH', API_PATHS.machine(id), { ...as(who), body });
+    const set = await patch({
+      repo_allow: ['GitHub.com/me/*', 'github.com/work/app'],
+      repo_exclusive: ['github.com/work/*'],
+    });
+    expect(set.status).toBe(200);
+    expect(MachineRowSchema.parse(set.json)).toMatchObject({
+      id,
+      repo_allow: ['github.com/me/*', 'github.com/work/app'],
+      repo_exclusive: ['github.com/work/*'],
+    });
+    // A rename alone leaves the rules.
+    expect((await patch({ name: 'laptop' })).status).toBe(200);
+    const detail = MachineDetailSchema.parse(
+      (await api.send('GET', API_PATHS.machine(id), as(a))).json,
+    );
+    expect(detail).toMatchObject({
+      name: 'laptop',
+      repo_allow: ['github.com/me/*', 'github.com/work/app'],
+      repo_exclusive: ['github.com/work/*'],
+    });
+
+    const cleared = await patch({ repo_allow: null, repo_exclusive: [] });
+    expect(MachineRowSchema.parse(cleared.json)).toMatchObject({
+      name: 'laptop',
+      repo_allow: null,
+      repo_exclusive: [],
+    });
+
+    for (const body of [{ repo_allow: ['*'] }, { repo_exclusive: ['github.com/*'] }, {}]) {
+      const bad = await patch(body);
+      expect(bad.status).toBe(400);
+      expect(bad.json.error?.code).toBe('bad_request');
+    }
+    expect((await patch({ repo_exclusive: ['github.com/x/*'] }, b)).status).toBe(404);
+  });
+
+  it('PATCH: an exclusive pattern another machine holds is 409; a revoked one’s is free', async () => {
+    const laptop = await enrollFor(a);
+    const mac = await enrollFor(a);
+    const other = await enrollFor(b);
+    const exclusive = (id: string, who: typeof a, repo_exclusive: string[]) =>
+      api.send('PATCH', API_PATHS.machine(id), { ...as(who), body: { repo_exclusive } });
+    expect((await exclusive(laptop, a, ['github.com/work/*'])).status).toBe(200);
+    const clash = await exclusive(mac, a, ['github.com/me/*', 'github.com/Work/*']);
+    expect(clash.status).toBe(409);
+    expect(clash.json.error?.code).toBe('conflict');
+    // Its own pattern again, and another account's machine, are fine.
+    expect((await exclusive(laptop, a, ['github.com/work/*'])).status).toBe(200);
+    expect((await exclusive(other, b, ['github.com/work/*'])).status).toBe(200);
+    await api.send('POST', API_PATHS.machineRevoke(laptop), { ...as(a), body: {} });
+    expect((await exclusive(mac, a, ['github.com/work/*'])).status).toBe(200);
+  });
+
+  it('cannot_take names the exclusive holder and the machine’s own allow-list', async () => {
+    await db.pool.query(
+      `INSERT INTO workflow_definition (id, version, definition) VALUES ('m1_basic', 1, $1)
+       ON CONFLICT DO NOTHING`,
+      [readFileSync(M1_BASIC, 'utf8')],
+    );
+    const laptop = await enrollFor(a);
+    const mac = await enrollFor(a);
+    await ingestInventory(
+      db.pool,
+      { machineId: mac, accountId: a.accountId },
+      {
+        repos: [
+          {
+            path: '/Users/me/work',
+            remote: 'github.com/work/app',
+            default_branch: 'main',
+            head_commit: 'a'.repeat(40),
+            mode: 'reference',
+          },
+        ],
+        capabilities: [{ kind: 'claude', version: '2.1.0' }],
+        hash: 'h',
+      },
+    );
+    await api.send('PATCH', API_PATHS.machine(laptop), {
+      ...as(a),
+      body: { name: 'Work laptop', repo_exclusive: ['github.com/work/*'] },
+    });
+    await api.send('PATCH', API_PATHS.machine(mac), {
+      ...as(a),
+      body: { repo_allow: ['github.com/me/*'] },
+    });
+    const t = (
+      await db.pool.query<{ id: string }>(
+        `INSERT INTO ticket (account_id, repo, title, workflow_id)
+         VALUES ($1, 'github.com/work/app', 'iis fix', 'm1_basic') RETURNING id`,
+        [a.accountId],
+      )
+    ).rows[0]!.id;
+    const detail = MachineDetailSchema.parse(
+      (await api.send('GET', API_PATHS.machine(mac), as(a))).json,
+    );
+    expect(detail.cannot_take).toEqual([
+      {
+        ticket_id: t,
+        title: 'iis fix',
+        missing_capabilities: [],
+        excluded_by_rule: true,
+        exclusive_to: ['Work laptop'],
+      },
+    ]);
+  });
+
   it('revoke sets revoked_at and closes the socket with 4001', async () => {
     const id = await enrollFor(a);
     const res = await api.send('POST', API_PATHS.machineRevoke(id), { ...as(a), body: {} });

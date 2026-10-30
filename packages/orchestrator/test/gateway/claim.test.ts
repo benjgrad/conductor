@@ -232,3 +232,76 @@ describe('claimWork routing (M2-T16a)', () => {
     expect(await claimed(b)).toBe(t);
   });
 });
+
+describe('claimWork repo rules (ADR-0013 amendment 2026-10-30)', () => {
+  const WORK = 'github.com/work/app';
+  const rules = (id: string, allow: string[] | null, exclusive: string[] = []) =>
+    db.pool.query('UPDATE machine SET repo_allow = $2, repo_exclusive = $3 WHERE id = $1', [
+      id,
+      allow,
+      exclusive,
+    ]);
+
+  it('repo_allow: only matching repos; null takes any', async () => {
+    const scope = await newAccount(db.pool);
+    const m = await machine(scope, [repo('/src/w', WORK), repo('/src/p', 'github.com/me/site')]);
+    await rules(m, ['github.com/me/*']);
+    const work = await ticket(scope, WORK);
+    const site = await ticket(scope, 'github.com/me/site');
+    expect(await claimed(m)).toBe(site);
+    expect(await claimed(m)).toBeNull();
+    await rules(m, null);
+    expect(await claimed(m)).toBe(work);
+  });
+
+  it('repo_exclusive: another machine never takes it, even while the holder is offline', async () => {
+    const scope = await newAccount(db.pool);
+    const laptop = await machine(scope, [repo('/src/w', WORK)]);
+    const mac = await machine(scope, [repo('/src/w', WORK)]);
+    await rules(laptop, null, ['github.com/Work/*']);
+    await db.pool.query(`UPDATE machine SET status = 'offline' WHERE id = $1`, [laptop]);
+    const t = await ticket(scope, WORK);
+    expect(await claimed(mac)).toBeNull();
+    await db.pool.query(`UPDATE machine SET status = 'online' WHERE id = $1`, [laptop]);
+    expect(await claimed(mac)).toBeNull();
+    expect(await claimed(laptop)).toBe(t);
+  });
+
+  it('the holder still takes repos outside its exclusive list; others take those too', async () => {
+    const scope = await newAccount(db.pool);
+    const laptop = await machine(scope, [repo('/src/p', 'github.com/me/site')]);
+    const mac = await machine(scope, [repo('/src/p', 'github.com/me/site')]);
+    await rules(laptop, null, [`${WORK}`]);
+    const t = await ticket(scope, 'github.com/me/site');
+    expect(await claimed(mac)).toBe(t);
+  });
+
+  it('a revoked holder’s exclusive rules stop applying', async () => {
+    const scope = await newAccount(db.pool);
+    const laptop = await machine(scope, [repo('/src/w', WORK)]);
+    const mac = await machine(scope, [repo('/src/w', WORK)]);
+    await rules(laptop, null, ['github.com/work/*']);
+    const t = await ticket(scope, WORK);
+    expect(await claimed(mac)).toBeNull();
+    await db.pool.query('UPDATE machine SET revoked_at = now() WHERE id = $1', [laptop]);
+    expect(await claimed(mac)).toBe(t);
+  });
+
+  it('another account’s exclusive rules don’t apply', async () => {
+    const mine = await newAccount(db.pool);
+    const theirs = await newAccount(db.pool);
+    const holder = await machine(theirs, [repo('/src/w', WORK)]);
+    await rules(holder, null, ['github.com/work/*']);
+    const m = await machine(mine, [repo('/src/w', WORK)]);
+    const t = await ticket(mine, WORK);
+    expect(await claimed(m)).toBe(t);
+  });
+
+  it('empty rules behave as before', async () => {
+    const scope = await newAccount(db.pool);
+    const m = await machine(scope, [repo('/src/w', WORK)]);
+    await rules(m, null, []);
+    const t = await ticket(scope, WORK);
+    expect(await claimed(m)).toBe(t);
+  });
+});

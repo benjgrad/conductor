@@ -14,6 +14,7 @@ import type { Db } from '../main.js';
 import {
   CANONICAL_REMOTE_SQL,
   EFFECTIVE_VERSION_SQL,
+  REPO_PATTERN_MATCH_SQL,
   REPO_SCOPED_SQL,
   requiredCaps,
   type RequiredCaps,
@@ -23,7 +24,9 @@ import {
 // age, hard filters only, FOR UPDATE SKIP LOCKED, one transaction. Filters: tags, allow-list,
 // account, repo (ADR-0013 §Routing: a machine_repo whose lower(remote) = lower(ticket.repo); a
 // non-canonical repo, which only local mode allows, skips it), capabilities (every requirement of
-// the effective workflow version, 10-contracts "Matching"), and the reopen / `__machine_lost` pins.
+// the effective workflow version, 10-contracts "Matching"), the repo rules (this machine's
+// `repo_allow`, every other unrevoked machine's `repo_exclusive`; ADR-0013 amendment 2026-10-30),
+// and the reopen / `__machine_lost` pins.
 // TD: no soft score (repo locality, affinity) yet (04 §2).
 
 /** Lease set by the claim and renewed by each heartbeat (04 §Leases). */
@@ -72,8 +75,9 @@ export async function claimWork(
         max_sessions: number;
         live: string;
         account_id: string;
+        repo_allow: string[] | null;
       }>(
-        `SELECT m.tags, m.max_sessions, m.account_id,
+        `SELECT m.tags, m.max_sessions, m.account_id, m.repo_allow,
                 (SELECT count(*) FROM session s
                   WHERE s.machine_id = m.id AND s.status = ANY($2::session_status[])) AS live
            FROM machine m WHERE m.id = $1 AND m.status = 'online' AND m.revoked_at IS NULL
@@ -187,6 +191,15 @@ export async function claimWork(
                              WHERE q.ticket_id = t.id AND q.status = 'queued'
                                AND q.context ? $13
                                AND (q.context -> $13 ->> 'machine_id') IS DISTINCT FROM $1)
+            -- Repo rules: this machine's allow-list (null = any repo)…
+            AND ($14::text[] IS NULL
+                 OR EXISTS (SELECT 1 FROM unnest($14::text[]) AS a(p)
+                             WHERE ${REPO_PATTERN_MATCH_SQL}))
+            -- …and no other unrevoked machine of the account (online or not) holds the repo
+            -- exclusively.
+            AND NOT EXISTS (SELECT 1 FROM machine o CROSS JOIN LATERAL unnest(o.repo_exclusive) AS x(p)
+                             WHERE o.account_id = $3 AND o.id <> $1 AND o.revoked_at IS NULL
+                               AND ${REPO_PATTERN_MATCH_SQL})
           ORDER BY t.priority DESC, t.created_at, t.id
           LIMIT 1
           FOR UPDATE OF t SKIP LOCKED`,
@@ -204,6 +217,7 @@ export async function claimWork(
           reqs.req,
           REPO_SCOPED_SQL,
           MACHINE_LOST_CONTEXT_KEY,
+          machine.repo_allow,
         ],
       );
       const ticket = t.rows[0];

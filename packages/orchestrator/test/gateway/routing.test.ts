@@ -5,7 +5,12 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isCanonicalRemote, type AccountScope, type BoardCard } from '@conductor/shared';
+import {
+  isCanonicalRemote,
+  repoPatternMatches,
+  type AccountScope,
+  type BoardCard,
+} from '@conductor/shared';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { loadBoard } from '../../src/api/queries.js';
 import { ingestInventory } from '../../src/gateway/inventory.js';
@@ -15,7 +20,9 @@ import {
   keySatisfies,
   machineFacts,
   missingKeys,
+  REPO_PATTERN_MATCH_SQL,
   routingFor,
+  type ExclusiveRule,
 } from '../../src/gateway/routing.js';
 import { useTestDatabase } from '../db.js';
 import { enrolled, newAccount } from './auth-harness.js';
@@ -86,6 +93,7 @@ describe('routingFor / cannotTake', () => {
   });
 
   it('the claim’s SQL canonical test agrees with isCanonicalRemote', async () => {
+    // (see also the repo-pattern agreement test below)
     const samples = [
       'github.com/org/b',
       'gitlab.example.com/group/sub/repo',
@@ -103,6 +111,91 @@ describe('routingFor / cannotTake', () => {
       [samples, CANONICAL_REMOTE_SQL],
     );
     for (const { s, ok } of r.rows) expect([s, ok]).toEqual([s, isCanonicalRemote(s)]);
+  });
+});
+
+describe('repo rules (ADR-0013 amendment 2026-10-30)', () => {
+  const reqs = ['claude'];
+  const repo = 'github.com/work/app';
+  const laptop = machineFacts('laptop', [repo], ['claude']);
+  const mac = machineFacts('mac', [repo], ['claude']);
+  const personalOnly = machineFacts('server', [repo], ['claude'], ['github.com/me/*']);
+  const workExclusive: ExclusiveRule[] = [
+    { machineId: 'laptop', name: 'Work laptop', patterns: ['github.com/work/*'] },
+  ];
+
+  it('cannotTake: its own repo_allow, and another machine’s repo_exclusive', () => {
+    expect(cannotTake(personalOnly, repo, reqs)).toEqual({
+      missing_capabilities: [],
+      excluded_by_rule: true,
+    });
+    expect(cannotTake(personalOnly, 'github.com/me/site', reqs)).toEqual({
+      missing_repo: 'github.com/me/site',
+      missing_capabilities: [],
+    });
+    expect(cannotTake(mac, repo, reqs, workExclusive)).toEqual({
+      missing_capabilities: [],
+      exclusive_to: ['Work laptop'],
+    });
+    // The holder's own rule doesn't exclude it.
+    expect(cannotTake(laptop, repo, reqs, workExclusive)).toBeNull();
+    expect(cannotTake(mac, 'github.com/me/site', reqs, workExclusive)).toEqual({
+      missing_repo: 'github.com/me/site',
+      missing_capabilities: [],
+    });
+  });
+
+  it('routingFor: undefined while the holder is online, exclusive_to while it is offline', () => {
+    expect(routingFor([laptop, mac], repo, reqs, workExclusive)).toBeUndefined();
+    expect(routingFor([mac], repo, reqs, workExclusive)).toEqual({
+      missing_capabilities: [],
+      exclusive_to: ['Work laptop'],
+    });
+    expect(routingFor([], repo, reqs, workExclusive)).toEqual({
+      missing_capabilities: [],
+      exclusive_to: ['Work laptop'],
+    });
+  });
+
+  it('routingFor: excluded_by_rule when every online machine’s allow-list leaves it out', () => {
+    expect(routingFor([personalOnly], repo, reqs)).toEqual({
+      missing_capabilities: [],
+      excluded_by_rule: true,
+    });
+    // Another machine can take it: no routing.
+    expect(routingFor([personalOnly, mac], repo, reqs)).toBeUndefined();
+  });
+
+  it('two machines holding the same repo exclusively block each other', () => {
+    const both: ExclusiveRule[] = [
+      ...workExclusive,
+      { machineId: 'mac', name: 'Mac', patterns: [repo] },
+    ];
+    expect(routingFor([laptop, mac], repo, reqs, both)).toEqual({
+      missing_capabilities: [],
+      exclusive_to: ['Work laptop', 'Mac'],
+    });
+  });
+
+  it('the claim’s SQL pattern match agrees with repoPatternMatches', async () => {
+    const cases: [string, string][] = [
+      ['github.com/org/app', 'github.com/org/app'],
+      ['github.com/Org/App', 'github.com/org/app'],
+      ['github.com/org/app', 'github.com/org/app2'],
+      ['github.com/org/*', 'github.com/ORG/app'],
+      ['github.com/org/*', 'github.com/org2/app'],
+      ['github.com/org/*', 'github.com/org'],
+      ['gitlab.com/g/*', 'gitlab.com/g/sub/app'],
+      ['github.com/my_org/*', 'github.com/myXorg/app'],
+    ];
+    const r = await db.pool.query<{ p: string; repo: string; ok: boolean }>(
+      `SELECT c.p, t.repo, ${REPO_PATTERN_MATCH_SQL} AS ok
+         FROM unnest($1::text[], $2::text[]) AS c(p, r) CROSS JOIN LATERAL (SELECT c.r AS repo) t`,
+      [cases.map((c) => c[0]), cases.map((c) => c[1])],
+    );
+    expect(r.rows.map((x) => [x.p, x.repo, x.ok])).toEqual(
+      cases.map(([p, repo]) => [p, repo, repoPatternMatches(p, repo)]),
+    );
   });
 });
 
@@ -166,6 +259,28 @@ describe('the Queued card’s routing (board view)', () => {
     expect((await card(scope, 'github.com/Org/B')).routing).toEqual({
       missing_capabilities: ['claude'],
     });
+  });
+
+  it('names the exclusive holder while it is offline; nothing once it is online', async () => {
+    const scope = await newAccount(db.pool);
+    const capable = { ...DEFAULT_INVENTORY.repos[0]!, remote: 'github.com/work/app' };
+    const other = await machine(scope, 'online', 'github.com/work/app');
+    await ingestInventory(
+      db.pool,
+      { machineId: other, accountId: scope.account_id },
+      { ...DEFAULT_INVENTORY, repos: [capable] },
+    );
+    const laptop = await machine(scope, 'offline', 'github.com/work/app');
+    await db.pool.query(
+      `UPDATE machine SET name = 'Work laptop', repo_exclusive = '{github.com/work/*}' WHERE id = $1`,
+      [laptop],
+    );
+    expect((await card(scope, 'github.com/work/app')).routing).toEqual({
+      missing_capabilities: [],
+      exclusive_to: ['Work laptop'],
+    });
+    await db.pool.query(`UPDATE machine SET revoked_at = now() WHERE id = $1`, [laptop]);
+    expect((await card(scope, 'github.com/work/app')).routing).toBeUndefined();
   });
 
   it('no routing when an online machine can take it', async () => {

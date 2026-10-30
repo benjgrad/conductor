@@ -21,6 +21,7 @@ import type {
   MachineDetail,
   MachineRow,
   RenameMachineRequest,
+  UpdateMachineRequest,
 } from './machines.js';
 import { QA_RESULT_FIXTURES } from '../engine/fixtures.js';
 import type {
@@ -410,6 +411,8 @@ export const MACHINE_ROW_FIXTURES: Record<'online' | 'revoked', MachineRow> = {
     outdated: false,
     repo_count: 2,
     revoked_at: null,
+    repo_allow: null,
+    repo_exclusive: ['github.com/benjgrad/*'],
   },
   revoked: {
     id: 'b1c2d3e4-f5a6-4b7c-9d8e-0f1a2b3c4d5e',
@@ -427,6 +430,8 @@ export const MACHINE_ROW_FIXTURES: Record<'online' | 'revoked', MachineRow> = {
     outdated: true,
     repo_count: 0,
     revoked_at: '2026-10-21T10:00:00.000Z',
+    repo_allow: ['github.com/benjgrad/conductor'],
+    repo_exclusive: [],
   },
 };
 
@@ -477,10 +482,24 @@ export const MACHINE_DETAIL_FIXTURE: MachineDetail = {
       title: 'Deploy to Azure',
       missing_capabilities: ['cli:az:authed'],
     },
+    {
+      ticket_id: '2d8b4c9e-0f3a-4b5c-87d8-e9f0a1b2c3d4',
+      title: 'Fix the IIS login page',
+      missing_repo: 'github.com/acme/work-app',
+      missing_capabilities: [],
+      excluded_by_rule: true,
+      exclusive_to: ['Work laptop'],
+    },
   ],
 };
 
 export const RENAME_MACHINE_REQUEST_FIXTURE: RenameMachineRequest = { name: 'Work laptop' };
+
+/** Repo rules (ADR-0013 amendment 2026-10-30): the work laptop alone takes the work org. */
+export const UPDATE_MACHINE_REQUEST_FIXTURE: UpdateMachineRequest = {
+  repo_allow: null,
+  repo_exclusive: ['github.com/acme/*'],
+};
 
 /** A Queued card no online machine can take (ADR-0013 §Routing). */
 export const BOARD_CARD_ROUTING_FIXTURE: BoardCard = {

@@ -65,6 +65,13 @@ export interface MachineRow {
   protocol_version: number | null;
   /** Set by `revokeMachine`: the credentials stop upgrading and register is refused. */
   revoked_at: Date | null;
+  /**
+   * Repo patterns (`RepoPatternSchema`) this machine may take; null = any (migration 1762100000000,
+   * edited from the Machines drawer).
+   */
+  repo_allow: string[] | null;
+  /** Repo patterns only this machine may take; DEFAULT '{}'. Ignored once revoked. */
+  repo_exclusive: string[];
   created_at: Date;
   updated_at: Date;
 }

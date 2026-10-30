@@ -381,15 +381,16 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
+| commands/service.test.ts › unit files › launchd on macOS, systemd on Linux, none on Windows | todo |
 | commands/service.test.ts › unit files › the launchd plist runs the launcher, supervised, with pinned node, logs and a throttle | todo |
 | commands/service.test.ts › unit files › the systemd unit runs the launcher, supervised, and never restarts on 78 | todo |
 | commands/service.test.ts › unit files › escapes XML and systemd specifiers, and refuses what systemd cannot quote | todo |
 | commands/service.test.ts › unit files › restart policy: 75 and crashes restart, 0 and 78 do not (TD-119, ADR-0021) | todo |
 | commands/service.test.ts › unit files › stopSupervisedJob does nothing when unsupervised or under systemd | todo |
-| commands/service.test.ts › service install / uninstall / restart › `${platform}: install writes the unit and the launcher; a second install changes nothing` | todo |
-| commands/service.test.ts › service install / uninstall / restart › `${platform}: restart, status and uninstall; sudo is never used` | todo |
-| commands/service.test.ts › service install / uninstall / restart › `${platform}: refuses without an installed daemon, and with Node 20` | todo |
-| commands/service.test.ts › service install / uninstall / restart › usage errors and unsupported platforms exit 2 | todo |
+| commands/service.test.ts › service install / uninstall / restart › `${manager}: install writes the unit and the launcher; a second install changes nothing` | todo |
+| commands/service.test.ts › service install / uninstall / restart › `${manager}: restart, status and uninstall; sudo is never used` | todo |
+| commands/service.test.ts › service install / uninstall / restart › `${manager}: refuses without an installed daemon, and with Node 20` | todo |
+| commands/service.test.ts › service install / uninstall / restart › usage errors and an OS without a service manager exit 2 | todo |
 
 ### credential.test.ts
 

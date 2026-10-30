@@ -17,6 +17,7 @@ import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rootDirFrom } from '../config.js';
+import { serviceManager, type ServiceManager } from '../platform/index.js';
 
 // `conductor-daemon service install | uninstall | restart | status` (M2-T18; ADR-0017 §Daemon
 // distribution, ADR-0021 §3/§5). Starts the daemon at login, as the user, never with sudo:
@@ -51,7 +52,8 @@ export interface RunResult {
 }
 
 export interface ServiceDeps {
-  platform: NodeJS.Platform;
+  /** launchd, systemd, or null where `service` isn't supported (win32). */
+  manager: ServiceManager | null;
   home: string;
   uid: number;
   env: Record<string, string | undefined>;
@@ -80,7 +82,7 @@ function spawnRunner(env: Record<string, string | undefined>): ServiceDeps['run'
 function defaultDeps(deps: Partial<ServiceDeps>): ServiceDeps {
   const env = deps.env ?? process.env;
   return {
-    platform: process.platform,
+    manager: serviceManager(),
     home: homedir(),
     uid: process.getuid?.() ?? -1,
     env,
@@ -342,12 +344,12 @@ export function serviceCommand(argv: string[], deps: Partial<ServiceDeps> = {}):
     d.err(SERVICE_USAGE);
     return 2;
   }
-  if (d.platform !== 'darwin' && d.platform !== 'linux') {
-    d.err(`service is not supported on ${d.platform} yet; start conductor-daemon yourself`);
+  if (d.manager === null) {
+    d.err('service is not supported on this OS yet; start conductor-daemon yourself');
     return 2;
   }
   const root = rootDirFrom(d.env, { home: d.home });
-  const ctl = d.platform === 'darwin' ? launchd(d) : systemd(d);
+  const ctl = d.manager === 'launchd' ? launchd(d) : systemd(d);
   try {
     switch (sub) {
       case 'install':

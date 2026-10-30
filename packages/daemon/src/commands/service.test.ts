@@ -10,6 +10,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { serviceManager } from '../platform/index.js';
 import { pathWith, writeFakeBin } from '../test-support/fake-bin.js';
 import { EXIT_FATAL_AUTH } from '../ws-client.js';
 import {
@@ -50,6 +51,12 @@ function launchdRestarts(plist: string, code: number, bootedOut: boolean): boole
 }
 
 describe('unit files', () => {
+  it('launchd on macOS, systemd on Linux, none on Windows', () => {
+    expect(serviceManager('darwin')).toBe('launchd');
+    expect(serviceManager('linux')).toBe('systemd');
+    expect(serviceManager('win32')).toBeNull();
+  });
+
   it('the launchd plist runs the launcher, supervised, with pinned node, logs and a throttle', () => {
     const plist = renderPlist(INPUTS);
     expect(plist).toMatchSnapshot();
@@ -155,7 +162,7 @@ if (args[1] === 'is-active') { console.log('active'); }
   afterEach(() => rmSync(tmp, { recursive: true, force: true }));
 
   function deps(
-    platform: 'darwin' | 'linux',
+    manager: 'launchd' | 'systemd',
     env: Record<string, string> = {},
   ): Partial<ServiceDeps> {
     const full: Record<string, string> = {
@@ -167,7 +174,7 @@ if (args[1] === 'is-active') { console.log('active'); }
       ...env,
     };
     return {
-      platform,
+      manager,
       home,
       uid: 501,
       env: full,
@@ -181,14 +188,14 @@ if (args[1] === 'is-active') { console.log('active'); }
   const calls = () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : []);
   const service = (argv: string[], d: Partial<ServiceDeps>) => serviceCommand(argv, d);
 
-  for (const platform of ['darwin', 'linux'] as const) {
+  for (const manager of ['launchd', 'systemd'] as const) {
     const unitFile = () =>
-      platform === 'darwin'
+      manager === 'launchd'
         ? join(home, 'Library', 'LaunchAgents', `${LAUNCHD_LABEL}.plist`)
         : join(home, '.config', 'systemd', 'user', 'conductor-daemon.service');
 
-    it(`${platform}: install writes the unit and the launcher; a second install changes nothing`, () => {
-      const d = deps(platform);
+    it(`${manager}: install writes the unit and the launcher; a second install changes nothing`, () => {
+      const d = deps(manager);
       expect(service(['install'], d), err.join('\n')).toBe(0);
       const inputs = {
         root,
@@ -198,7 +205,7 @@ if (args[1] === 'is-active') { console.log('active'); }
         ),
         home,
       };
-      const expected = platform === 'darwin' ? renderPlist(inputs) : renderSystemdUnit(inputs);
+      const expected = manager === 'launchd' ? renderPlist(inputs) : renderSystemdUnit(inputs);
       expect(readFileSync(unitFile(), 'utf8')).toBe(expected);
       const launcher = join(root, 'bin', 'conductor-launch');
       expect(readFileSync(launcher)).toEqual(readFileSync(LAUNCHER_ASSET));
@@ -206,7 +213,7 @@ if (args[1] === 'is-active') { console.log('active'); }
       expect(statSync(join(root, 'logs')).isDirectory()).toBe(true);
       const first = calls();
       expect(first).toEqual(
-        platform === 'darwin'
+        manager === 'launchd'
           ? [
               `launchctl print gui/501/${LAUNCHD_LABEL}`,
               `launchctl enable gui/501/${LAUNCHD_LABEL}`,
@@ -229,20 +236,20 @@ if (args[1] === 'is-active') { console.log('active'); }
       ).toEqual(before);
       // Nothing re-bootstrapped or reloaded: only a check (launchd) or the idempotent enable.
       expect(calls().slice(first.length)).toEqual(
-        platform === 'darwin'
+        manager === 'launchd'
           ? [`launchctl print gui/501/${LAUNCHD_LABEL}`]
           : ['systemctl --user enable --now conductor-daemon.service'],
       );
     });
 
-    it(`${platform}: restart, status and uninstall; sudo is never used`, () => {
-      const d = deps(platform);
+    it(`${manager}: restart, status and uninstall; sudo is never used`, () => {
+      const d = deps(manager);
       expect(service(['restart'], d)).toBe(1);
       expect(err.join('\n')).toContain('not installed');
       expect(service(['install'], d)).toBe(0);
       expect(service(['restart'], d)).toBe(0);
       expect(calls().at(-1)).toBe(
-        platform === 'darwin'
+        manager === 'launchd'
           ? `launchctl kickstart -k gui/501/${LAUNCHD_LABEL}`
           : 'systemctl --user restart conductor-daemon.service',
       );
@@ -251,7 +258,7 @@ if (args[1] === 'is-active') { console.log('active'); }
       expect(service(['uninstall'], d)).toBe(0);
       expect(existsSync(unitFile())).toBe(false);
       expect(calls()).toContain(
-        platform === 'darwin'
+        manager === 'launchd'
           ? `launchctl bootout gui/501/${LAUNCHD_LABEL}`
           : 'systemctl --user disable --now conductor-daemon.service',
       );
@@ -259,20 +266,20 @@ if (args[1] === 'is-active') { console.log('active'); }
       expect(calls().filter((c) => /(^|\s)sudo(\s|$)/.test(c))).toEqual([]);
     });
 
-    it(`${platform}: refuses without an installed daemon, and with Node 20`, () => {
-      expect(
-        service(['install'], deps(platform, { CONDUCTOR_NODE: join(fakebin, 'node20') })),
-      ).toBe(1);
+    it(`${manager}: refuses without an installed daemon, and with Node 20`, () => {
+      expect(service(['install'], deps(manager, { CONDUCTOR_NODE: join(fakebin, 'node20') }))).toBe(
+        1,
+      );
       expect(err.join('\n')).toMatch(/needs Node\.js 22\+.*v20\.18\.0.*CONDUCTOR_NODE=/);
       rmSync(join(root, 'daemon'), { recursive: true });
-      expect(service(['install'], deps(platform))).toBe(1);
+      expect(service(['install'], deps(manager))).toBe(1);
       expect(err.join('\n')).toContain('install conductor with install.sh first');
       expect(existsSync(unitFile())).toBe(false);
     });
   }
 
-  it('usage errors and unsupported platforms exit 2', () => {
-    expect(service(['bogus'], deps('linux'))).toBe(2);
-    expect(service(['install'], { ...deps('linux'), platform: 'win32' })).toBe(2);
+  it('usage errors and an OS without a service manager exit 2', () => {
+    expect(service(['bogus'], deps('systemd'))).toBe(2);
+    expect(service(['install'], { ...deps('systemd'), manager: null })).toBe(2);
   });
 });

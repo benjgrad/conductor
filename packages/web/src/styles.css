@@ -133,6 +133,10 @@ textarea {
 }
 
 .topbar {
+  /* Sticky at every width; App measures its height into --topbar-h for the sticky .detail. */
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
   display: flex;
   align-items: center;
   gap: var(--space-4);
@@ -288,9 +292,10 @@ main {
   border: 1px solid var(--border);
   border-radius: 10px;
   position: sticky;
-  top: 12px;
-  height: calc(100vh - 80px);
-  height: calc(100dvh - 80px);
+  /* 12 px below the sticky top bar, and 12 px above the bottom of the window. */
+  top: calc(var(--topbar-h, 49px) + 12px);
+  height: calc(100vh - var(--topbar-h, 49px) - 24px);
+  height: calc(100dvh - var(--topbar-h, 49px) - 24px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1198,9 +1203,6 @@ button.link {
     font-size: 16px;
   }
   .topbar {
-    position: sticky;
-    top: 0;
-    z-index: var(--z-sticky);
     gap: var(--space-1);
     padding: calc(var(--space-1) + env(safe-area-inset-top))
       max(var(--space-2), env(safe-area-inset-right)) var(--space-1)

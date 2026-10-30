@@ -28,7 +28,7 @@ Only the rules this design touched use the spacing, type and radius tokens so fa
 `MOBILE_QUERY = '(max-width: 699.98px)'` (`components/useMediaQuery.ts`).
 - **JS** uses `useIsMobile()`, which returns false without `matchMedia`, so jsdom tests render the desktop layout unless they call `mockViewport(width)` from `src/test/match-media.ts`.
 - **CSS** uses the same `@media (max-width: 699.98px)`.
-- **Desktop is unchanged** above the breakpoint, apart from the token colour fixes.
+- **Desktop is unchanged** above the breakpoint, apart from the token colour fixes and the top bar, which is sticky at every width. `useElementHeightVar` sets `--topbar-h` on `<html>` from the bar's measured height (it is taller on a coarse pointer), so the sticky desktop session panel sits 12 px below the bar. The CSS falls back to 49 px.
 - Tablets (700 px and up) get the desktop layout, plus the touch sizes on a coarse pointer.
 
 While the phone layout is on, `useVisualViewportHeight` sets `--vvh` on `<html>` from `visualViewport.height`. Full-screen surfaces use `height: var(--vvh, 100dvh)`, so they end above the on-screen keyboard. `100vh` is always paired with a `100dvh` override.
@@ -37,7 +37,7 @@ While the phone layout is on, `useVisualViewportHeight` sets `--vvh` on `<html>`
 
 | Surface | Phone behaviour |
 |---|---|
-| Top bar | UX-11's compact mode: `App`'s `compact` prop defaults to `useIsMobile()`, and the prop still overrides it. The title becomes the logo mark; the text "Conductor" stays as the heading's accessible name. Add a machine and Help move into the account menu (`AccountMenu extraItems`). The bar is sticky and padded by `env(safe-area-inset-top)`. |
+| Top bar | UX-11's compact mode: `App`'s `compact` prop defaults to `useIsMobile()`, and the prop still overrides it. The title becomes the logo mark; the text "Conductor" stays as the heading's accessible name. Add a machine and Help move into the account menu (`AccountMenu extraItems`). The bar is sticky (as it is at every width) and padded by `env(safe-area-inset-top)`. |
 | Board | One column at a time, chosen in a `role=tablist` switcher that scrolls sideways (title and count per column; the active tab is scrolled into view). It opens on Needs input when that column has cards, else the first non-empty column, until the user picks one. A horizontal swipe (more than 50 px, and 1.5× more sideways than vertical) moves to the next or previous column. The board is `touch-action: pan-y`, so vertical scrolling is never blocked. |
 | Detail panel | `DetailPanel fullScreen`: fixed over the whole screen with safe-area padding. The board isn't laid out behind it. A 44 px Back button ("Back to board") replaces `×`, the tabs share the width, and the composer is pinned at the bottom of `--vvh`. |
 | Create ticket | `CreateTicketForm sheet`: a full-screen modal dialog ("New ticket", with Close, and Escape also closes it). The fields are stacked, Kind is two segmented buttons (the radios stay for keyboard and screen readers), Priority has a numeric keypad, and the footer is sticky. The footer holds Create ticket and, while it is disabled, what's still needed. The editor's max height is half of `--vvh`, with a narrower BlockNote gutter. |

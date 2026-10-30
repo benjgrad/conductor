@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/definitions/ConditionResult",
+  "definitions": {
+    "ConditionResult": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/ConditionType"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "met",
+            "pending",
+            "failed",
+            "unsupported"
+          ]
+        },
+        "value": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "status",
+        "value",
+        "detail"
+      ]
+    },
+    "ConditionType": {
+      "type": "string",
+      "enum": [
+        "pr_checks_green",
+        "pr_approvals",
+        "pr_merged",
+        "pr_screenshots",
+        "azure_pipeline_succeeded",
+        "jira_fields_set"
+      ]
+    }
+  }
+}

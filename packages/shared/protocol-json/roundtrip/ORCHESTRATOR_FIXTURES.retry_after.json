@@ -1,0 +1,10 @@
+{
+  "fencing_token": null,
+  "msg_id": "00000000-0000-4000-8000-000000000019",
+  "payload": {
+    "ms": 3000
+  },
+  "seq": null,
+  "session_id": null,
+  "type": "retry_after"
+}

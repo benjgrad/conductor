@@ -1,0 +1,12 @@
+{
+  "fencing_token": null,
+  "msg_id": "00000000-0000-4000-8000-000000000016",
+  "payload": {
+    "heartbeat_interval_ms": 10000,
+    "last_seq": null,
+    "machine_id": "mbp-ben"
+  },
+  "seq": null,
+  "session_id": null,
+  "type": "registered"
+}

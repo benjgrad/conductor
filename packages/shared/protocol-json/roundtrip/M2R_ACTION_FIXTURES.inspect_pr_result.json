@@ -1,0 +1,15 @@
+{
+  "files": [
+    "packages/shared/src/engine/qa.ts",
+    "packages/orchestrator/migrations/1730000000000_qa.sql"
+  ],
+  "files_truncated": false,
+  "head_sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+  "matched": {
+    "migration": [
+      "packages/orchestrator/migrations/1730000000000_qa.sql"
+    ]
+  },
+  "mergeable": "MERGEABLE",
+  "state": "OPEN"
+}

@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "pr_url": {
+      "$ref": "#/definitions/PrUrl"
+    },
+    "expected_sha": {
+      "$ref": "#/definitions/GitSha"
+    },
+    "method": {
+      "type": "string",
+      "const": "merge"
+    },
+    "approved_paths": {
+      "maxItems": 1500,
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PrFilePath"
+      }
+    }
+  },
+  "required": [
+    "pr_url",
+    "expected_sha",
+    "method",
+    "approved_paths"
+  ],
+  "definitions": {
+    "PrUrl": {
+      "type": "string",
+      "pattern": "^https:\\/\\/github\\.com\\/[\\w.-]+\\/[\\w.-]+\\/pull\\/\\d+$"
+    },
+    "GitSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "PrFilePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    }
+  }
+}

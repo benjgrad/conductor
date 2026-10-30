@@ -8,6 +8,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import { parseBody, sendError, type ErrorDetail } from '../api/errors.js';
 import { withTransaction } from '../db/index.js';
+import { revokeUserOAuthTokens } from '../oauth/tokens.js';
 import type { AuthRouteDeps } from './routes.js';
 import {
   hashToken,
@@ -103,6 +104,7 @@ export function registerResetRoutes(app: FastifyInstance, deps: AuthRouteDeps): 
           [row.user_id, t],
         );
         await revokeUserSessions(tx, row.user_id);
+        await revokeUserOAuthTokens(tx, row.user_id, t);
       });
     } catch (err) {
       if (err instanceof ResetRefusal) {

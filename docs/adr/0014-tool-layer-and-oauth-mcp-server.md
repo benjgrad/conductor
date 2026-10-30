@@ -1,6 +1,7 @@
 # ADR-0014 · One tool layer, served as an OAuth-protected MCP server, with results sized for a model's context
 
 - **Status**: **accepted** (Ben, 2026-10-27, with every proposed default: U-054, U-069, U-092..U-096). Rewritten on 2026-10-27 as a concrete design for [M3](../plan/milestones/M3-mcp.md); implementation notes follow in M3-T16.
+- **Amended by**: [ADR-0028](0028-simple-oauth-for-mcp.md) (2026-10-30): a simple subset of §3–§7 and §10 ships first (one scope, a server-rendered consent page, five tools, no audit table or Connected apps). This ADR stays the target design.
 - **Date**: 2026-10-26; rewritten 2026-10-27 (M3 detailed plan)
 - **Deciders**: Ben (+ Claude planning sessions 2026-10-26 and 2026-10-27)
 - **Builds on**:

@@ -31,6 +31,9 @@ import type {
   MachineCredentialRow,
   MachineRepoRow,
   MachineRow,
+  OAuthClientRow,
+  OAuthCodeRow,
+  OAuthTokenRow,
   OutboxRow,
   PasswordResetRow,
   PermissionRequestRow,
@@ -381,6 +384,36 @@ const agent: ColumnSpec<AgentRow> = {
   hired_at: col('timestamptz', NN),
   last_assigned_at: col('timestamptz', NULL),
 };
+// ADR-0028: OAuth for /mcp.
+const oauth_client: ColumnSpec<OAuthClientRow> = {
+  id: col(t, NN),
+  name: col(t, NN),
+  redirect_uris: col('_text', NN),
+  created_at: col('timestamptz', NN),
+};
+const oauth_code: ColumnSpec<OAuthCodeRow> = {
+  code_hash: col('bytea', NN),
+  client_id: col(t, NN),
+  account_id: col('uuid', NN),
+  user_id: col('uuid', NN),
+  grant_id: col('uuid', NN),
+  redirect_uri: col(t, NN),
+  code_challenge: col(t, NN),
+  created_at: col('timestamptz', NN),
+  expires_at: col('timestamptz', NN),
+  used_at: col('timestamptz', NULL),
+};
+const oauth_token: ColumnSpec<OAuthTokenRow> = {
+  token_hash: col('bytea', NN),
+  kind: col(t, NN),
+  grant_id: col('uuid', NN),
+  client_id: col(t, NN),
+  account_id: col('uuid', NN),
+  user_id: col('uuid', NN),
+  created_at: col('timestamptz', NN),
+  expires_at: col('timestamptz', NN),
+  revoked_at: col('timestamptz', NULL),
+};
 const SCHEMA: Schema = {
   machine,
   machine_repo,
@@ -404,6 +437,9 @@ const SCHEMA: Schema = {
   login_throttle,
   push_subscription,
   agent,
+  oauth_client,
+  oauth_code,
+  oauth_token,
 };
 /** The tables M1/M1b created: every one carries `account_id` since M2-T03. */
 const M1_TABLES = [
@@ -695,6 +731,8 @@ describe('migrations', () => {
           'permission_request',
           'push_subscription',
           'agent',
+          'oauth_code',
+          'oauth_token',
         ].sort(),
       );
     } finally {
@@ -1095,6 +1133,35 @@ describe('schema (migrated test database)', () => {
       "INSERT INTO login_throttle (email_norm) VALUES ('ben@example.com') RETURNING *",
     );
     expect(lt.rows[0]).toMatchObject({ failures: 0, lockouts: 0, locked_until: null });
+
+    // ADR-0028: an OAuth client, a code and a token (user_id may be the virtual local user).
+    await pool.query(
+      "INSERT INTO oauth_client (id, name, redirect_uris) VALUES ('c1', 'Claude', '{https://claude.ai/cb}')",
+    );
+    const oc = await pool.query<OAuthCodeRow>(
+      `INSERT INTO oauth_code (code_hash, client_id, account_id, user_id, grant_id, redirect_uri,
+         code_challenge, expires_at)
+       VALUES ($1, 'c1', $2, gen_random_uuid(), gen_random_uuid(), 'https://claude.ai/cb', 'ch',
+         now() + interval '1 minute') RETURNING *`,
+      [randomBytes(32), LOCAL_ACCOUNT_ID],
+    );
+    expect(oc.rows[0]).toMatchObject({ used_at: null });
+    const ot = await pool.query<OAuthTokenRow>(
+      `INSERT INTO oauth_token (token_hash, kind, grant_id, client_id, account_id, user_id,
+         expires_at)
+       VALUES ($1, 'access', gen_random_uuid(), 'c1', $2, gen_random_uuid(),
+         now() + interval '1 hour') RETURNING *`,
+      [randomBytes(32), LOCAL_ACCOUNT_ID],
+    );
+    expect(ot.rows[0]).toMatchObject({ kind: 'access', revoked_at: null });
+    await expectPgError(
+      pool.query(
+        `INSERT INTO oauth_token (token_hash, kind, grant_id, client_id, account_id, user_id,
+           expires_at) VALUES ($1, 'id', gen_random_uuid(), 'c1', $2, gen_random_uuid(), now())`,
+        [randomBytes(32), LOCAL_ACCOUNT_ID],
+      ),
+      '23514',
+    );
 
     // Every table has exactly the row just written.
     for (const table of TABLES) {

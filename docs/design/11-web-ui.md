@@ -31,7 +31,9 @@ Only the rules this design touched use the spacing, type and radius tokens so fa
 - **Desktop is unchanged** above the breakpoint, apart from the token colour fixes and the top bar, which is sticky at every width. `useElementHeightVar` sets `--topbar-h` on `<html>` from the bar's measured height (it is taller on a coarse pointer), so the sticky desktop session panel sits 12 px below the bar. The CSS falls back to 49 px.
 - Tablets (700 px and up) get the desktop layout, plus the touch sizes on a coarse pointer.
 
-While the phone layout is on, `useVisualViewportHeight` sets `--vvh` on `<html>` from `visualViewport.height`. Full-screen surfaces use `height: var(--vvh, 100dvh)`, so they end above the on-screen keyboard. `100vh` is always paired with a `100dvh` override.
+While the phone layout is on, `useVisualViewportHeight` sets `--vvh` and `--vvt` on `<html>` from `visualViewport.height` and `offsetTop`. Full-screen surfaces use `top: var(--vvt, 0); height: var(--vvh, 100dvh)`, so they end above the on-screen keyboard and stay in view when iOS pans the layout viewport to a focused field. `100vh` is always paired with a `100dvh` override.
+
+**The document never scrolls on a phone.** While the signed-in shell renders at phone width, `useDocumentClass('app-shell', mobile)` puts `app-shell` on `<html>`. Then `html` and `body` are `overflow: hidden; overscroll-behavior: none`, and `.app.mobile` is a fixed box the size of the visual viewport that does the scrolling (the sticky top bar sticks inside it). Inner scrollers (chat, Details tab, the sheet's form, menus) have `overscroll-behavior: contain`, so a fling never chains out to the page. While the create sheet is open, `.app` also has `creating` and stops scrolling. The auth pages and the help page render outside the shell and scroll the document as before.
 
 ## Phone layout
 
@@ -39,10 +41,11 @@ While the phone layout is on, `useVisualViewportHeight` sets `--vvh` on `<html>`
 |---|---|
 | Top bar | UX-11's compact mode: `App`'s `compact` prop defaults to `useIsMobile()`, and the prop still overrides it. The title becomes the logo mark; the text "Conductor" stays as the heading's accessible name. Add a machine and Help move into the account menu (`AccountMenu extraItems`). The bar is sticky (as it is at every width) and padded by `env(safe-area-inset-top)`. |
 | Board | One column at a time, chosen in a `role=tablist` switcher that scrolls sideways (title and count per column; the active tab is scrolled into view). It opens on Needs input when that column has cards, else the first non-empty column, until the user picks one. A horizontal swipe (more than 50 px, and 1.5× more sideways than vertical) moves to the next or previous column. The board is `touch-action: pan-y`, so vertical scrolling is never blocked. |
-| Detail panel | `DetailPanel fullScreen`: fixed over the whole screen with safe-area padding. The board isn't laid out behind it. A 44 px Back button ("Back to board") replaces `×`, the tabs share the width, and the composer is pinned at the bottom of `--vvh`. |
-| Create ticket | `CreateTicketForm sheet`: a full-screen modal dialog ("New ticket", with Close, and Escape also closes it). The fields are stacked, Kind is two segmented buttons (the radios stay for keyboard and screen readers), Priority has a numeric keypad, Repo's list of suggestions sits under its field with tap-tall rows, and the footer is sticky. The footer holds Create ticket and, while it is disabled, what's still needed. The editor's max height is half of `--vvh`, with a narrower BlockNote gutter. |
+| Detail panel | `DetailPanel fullScreen`: fixed over the whole screen with safe-area padding. The board isn't laid out behind it. A 44 px Back button ("Back to board") replaces `×`, the tabs share the width, and the composer is pinned at the bottom of `--vvh`. It can't be scrolled away: the document under it never scrolls, and it follows `--vvt`. |
+| Create ticket | `CreateTicketForm sheet`: a full-screen modal dialog ("New ticket", with Close, and Escape also closes it). The fields are stacked, Kind is two segmented buttons (the radios stay for keyboard and screen readers), Priority has a numeric keypad, Repo's list of suggestions sits under its field with tap-tall rows, and the footer is sticky. The footer holds Create ticket and, while it is disabled, what's still needed. The editor's max height is half of `--vvh`, with a narrower BlockNote gutter. Like the panel, it follows `--vvt` and the shell under it doesn't scroll. |
 | Machines, Admin | Tables scroll inside their own box (`display: block; overflow-x: auto; position: relative`), never the page. |
 | Workflow | A "best on a larger screen" note; the diagram already scrolls in its own box. |
+| Agent markdown (chat, plans, ticket) | At every width, GFM tables and code blocks scroll sideways in their own box (`.md-table-wrap`, `.md-code`), and long words and inline code wrap. The chat (`.output`) never scrolls sideways. |
 
 `index.html` sets `viewport-fit=cover` and `interactive-widget=resizes-content`, and has a `theme-color` meta for each scheme.
 
@@ -66,10 +69,10 @@ At every width, Repo is a free-text ARIA combobox (`components/RepoCombobox.tsx`
 
 ## Install (UX-16)
 
-Conductor installs to a phone's Home Screen and opens standalone (`manifest.webmanifest`; iOS Safari: Share → Add to Home Screen). The status bar is `black-translucent`, so the top bar's `env(safe-area-inset-top)` padding keeps it clear of the clock. On iOS, push notifications work only from the installed app: in a Safari tab the account menu says so. Web Push details: [10 §Web Push](10-contracts.md#web-push).
+Conductor installs to a phone's Home Screen and opens standalone (`manifest.webmanifest`; iOS Safari: Share → Add to Home Screen). The status bar is `black-translucent`, so the top bar's `env(safe-area-inset-top)` padding keeps it clear of the clock. iOS blurs whatever scrolls under a translucent status bar; since the document never scrolls on a phone ([§Breakpoint](#breakpoint)), nothing does, and `html` is painted `--panel` so the band matches the top bar. On iOS, push notifications work only from the installed app: in a Safari tab the account menu says so. Web Push details: [10 §Web Push](10-contracts.md#web-push).
 
 ## Not covered
 
 - Browser Back doesn't close the panel or the sheet.
-- The iOS keyboard, `dvh` and standalone mode can't be verified in Chromium emulation; they need a real phone.
+- The iOS keyboard, `dvh`, `visualViewport.offsetTop`, standalone mode and the status-bar blur can't be verified in Chromium emulation; they need a real phone. If the blur persists, the fallback is `apple-mobile-web-app-status-bar-style=default` (an opaque status bar).
 - BlockNote on touch is unverified. The Plain markdown toggle is the fallback.

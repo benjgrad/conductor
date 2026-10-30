@@ -405,6 +405,7 @@ main {
 }
 .details-tab {
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 4px 14px 16px;
 }
 .details-tab > section {
@@ -609,6 +610,7 @@ button.copy {
   font-size: 12px;
   max-height: 320px;
   overflow: auto;
+  overscroll-behavior: contain;
   margin: 4px 0 0;
 }
 
@@ -677,6 +679,8 @@ button.copy {
   color: var(--accent);
 }
 .pending {
+  min-width: 0;
+  max-width: 100%;
   background: var(--ask-bg);
   border: 1px solid color-mix(in srgb, var(--ask) 35%, transparent);
   border-radius: 10px;
@@ -830,6 +834,7 @@ button.copy {
   z-index: 3;
   max-height: 260px;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .slash-menu li {
   display: flex;
@@ -904,7 +909,10 @@ button.copy {
 }
 .output {
   max-height: 60vh;
-  overflow: auto;
+  /* A wide table or code block scrolls in its own box, never the whole chat. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -936,6 +944,11 @@ button.copy {
   font-size: 10px;
   line-height: 19px;
 }
+.md {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
 .md > :first-child {
   margin-top: 0;
 }
@@ -958,8 +971,10 @@ button.copy {
   border-radius: 4px;
   padding: 0 4px;
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 .md .md-code {
+  max-width: 100%;
   background: var(--code-bg);
   color: var(--code-text);
   border-radius: 6px;
@@ -983,6 +998,34 @@ button.copy {
 }
 .md a {
   color: var(--accent);
+}
+/* GFM tables keep readable columns and scroll sideways in their own box (UXR-21). */
+.md .md-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  margin: 0 0 6px;
+}
+.md .md-table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.md .md-table th,
+.md .md-table td {
+  border: 1px solid var(--border);
+  padding: 3px 6px;
+  vertical-align: top;
+  text-align: left;
+  overflow-wrap: normal;
+}
+.md .md-table th {
+  background: var(--inline-code-bg);
+  font-weight: 600;
+}
+.md hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 8px 0;
 }
 
 /* tool calls */
@@ -1160,6 +1203,7 @@ button.link {
   z-index: var(--z-menu);
   max-height: 260px;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .repo-options li {
   display: flex;
@@ -1284,13 +1328,42 @@ button.link {
   main {
     padding: var(--space-2) var(--space-3);
   }
+  /* The document never scrolls on a phone; the shell does. So the panel and the sheet can't be
+     scrolled away, and iOS draws no blurred scroll edge under the translucent status bar. */
+  html.app-shell,
+  html.app-shell body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+  /* The status-bar band matches the top bar. */
+  html.app-shell {
+    background: var(--panel);
+  }
+  .app.mobile {
+    position: fixed;
+    top: var(--vvt, 0);
+    left: 0;
+    right: 0;
+    height: var(--vvh, 100dvh);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--bg);
+  }
+  /* Nothing scrolls under the open sheet. */
+  .app.mobile.creating {
+    overflow: hidden;
+  }
   /* The panel covers the board, so the board isn't laid out (or scrolled) behind it. */
   .with-detail main > .board {
     display: none;
   }
   .detail.full-screen {
     position: fixed;
-    inset: 0;
+    top: var(--vvt, 0);
+    left: 0;
+    right: 0;
     z-index: var(--z-sheet);
     width: auto;
     height: var(--vvh, 100dvh);
@@ -1328,7 +1401,9 @@ button.link {
   /* Create ticket: a full-screen sheet with a sticky footer. */
   .sheet {
     position: fixed;
-    inset: 0;
+    top: var(--vvt, 0);
+    left: 0;
+    right: 0;
     z-index: var(--z-sheet);
     height: var(--vvh, 100dvh);
     display: flex;
@@ -1361,6 +1436,7 @@ button.link {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
     display: flex;
     flex-direction: column;
     gap: var(--space-3);

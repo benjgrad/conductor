@@ -3,7 +3,14 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import { useRef } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mockViewport, type MockViewport } from '../test/match-media.js';
-import { MOBILE_QUERY, useElementHeightVar, useIsMobile, useMediaQuery } from './useMediaQuery.js';
+import {
+  MOBILE_QUERY,
+  useDocumentClass,
+  useElementHeightVar,
+  useIsMobile,
+  useMediaQuery,
+  useVisualViewportHeight,
+} from './useMediaQuery.js';
 
 let viewport: MockViewport | null = null;
 afterEach(() => {
@@ -90,5 +97,54 @@ describe('useElementHeightVar', () => {
     expect(typeof globalThis.ResizeObserver).toBe('undefined');
     render(<Bar />);
     expect(value()).toBe('');
+  });
+});
+
+describe('useVisualViewportHeight', () => {
+  function Shell({ active }: { active: boolean }) {
+    useVisualViewportHeight(active);
+    return null;
+  }
+  const prop = (name: string) => document.documentElement.style.getPropertyValue(name);
+
+  it('sets --vvh and --vvt, follows resize and scroll, and clears them on unmount', () => {
+    const vv = Object.assign(new EventTarget(), { height: 600, offsetTop: 0 });
+    vi.stubGlobal('visualViewport', vv);
+    const { unmount } = render(<Shell active />);
+    expect([prop('--vvh'), prop('--vvt')]).toEqual(['600px', '0px']);
+    vv.height = 320;
+    act(() => void vv.dispatchEvent(new Event('resize')));
+    expect(prop('--vvh')).toBe('320px');
+    vv.offsetTop = 140;
+    act(() => void vv.dispatchEvent(new Event('scroll')));
+    expect(prop('--vvt')).toBe('140px');
+    unmount();
+    expect([prop('--vvh'), prop('--vvt')]).toEqual(['', '']);
+  });
+
+  it('does nothing while inactive', () => {
+    vi.stubGlobal('visualViewport', Object.assign(new EventTarget(), { height: 1, offsetTop: 1 }));
+    render(<Shell active={false} />);
+    expect(prop('--vvh')).toBe('');
+  });
+});
+
+describe('useDocumentClass', () => {
+  function Lock({ active }: { active: boolean }) {
+    useDocumentClass('app-shell', active);
+    return null;
+  }
+  const has = () => document.documentElement.classList.contains('app-shell');
+
+  it('adds the class to <html> while active and removes it after', () => {
+    const { rerender, unmount } = render(<Lock active={false} />);
+    expect(has()).toBe(false);
+    rerender(<Lock active />);
+    expect(has()).toBe(true);
+    rerender(<Lock active={false} />);
+    expect(has()).toBe(false);
+    rerender(<Lock active />);
+    unmount();
+    expect(has()).toBe(false);
   });
 });

@@ -57,6 +57,41 @@ describe('phone top bar (11-web-ui §Top bar)', () => {
   });
 });
 
+describe('phone app shell (11-web-ui §Breakpoint)', () => {
+  const locked = () => document.documentElement.classList.contains('app-shell');
+
+  it('at 375 the document is locked and the shell is the scroller', async () => {
+    await renderAt(375);
+    expect(locked()).toBe(true);
+    expect(document.querySelector('.app.mobile')).toBeTruthy();
+    cleanup();
+    expect(locked()).toBe(false);
+  });
+
+  it('at 1440 the document scrolls as before', async () => {
+    await renderAt(1440);
+    expect(locked()).toBe(false);
+  });
+
+  it('the sign-in page at 375 keeps document scrolling', async () => {
+    viewport = mockViewport(375);
+    window.history.replaceState(null, '', '/signin');
+    render(<App api={createMockApi({ replyDelayMs: 0 })} />);
+    await screen.findByRole('button', { name: 'Sign in' });
+    expect(locked()).toBe(false);
+  });
+
+  it('the shell under the New ticket sheet is marked so it does not scroll', async () => {
+    await renderAt(375);
+    const app = document.querySelector('.app')!;
+    expect(app.classList.contains('creating')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'New ticket' }));
+    expect(app.classList.contains('creating')).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(app.classList.contains('creating')).toBe(false);
+  });
+});
+
 describe('phone detail panel (11-web-ui §Detail panel)', () => {
   it('opens full-screen and Back to board closes it', async () => {
     await renderAt(375);

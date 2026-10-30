@@ -214,6 +214,8 @@ export class Daemon {
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private workTimer: NodeJS.Timeout | null = null;
   private awaitingWork: NodeJS.Timeout | null = null;
+  /** The last `no_work` reason logged (M2-T36: log only on a change). */
+  private lastNoWork: string | null = null;
   private lastInventoryDigest = '';
   private readonly live = new Map<string, LiveSession>();
   /** session_id → timer that releases the slot a `work_assignment` holds (config.assignmentHoldMs). */
@@ -390,12 +392,18 @@ export class Daemon {
         );
         return;
       case 'work_assignment':
+        this.lastNoWork = null;
         this.holdAssignment(msg.payload.session_id);
         this.workReplied(0);
         return;
-      case 'no_work':
+      case 'no_work': {
+        // An older orchestrator sends no reason; log nothing then.
+        const reason = msg.payload.reason ?? null;
+        if (reason !== null && reason !== this.lastNoWork) this.log(`no work: ${reason}`);
+        this.lastNoWork = reason;
         this.workReplied(this.config.workPollMs);
         return;
+      }
       case 'retry_after':
         this.workReplied(msg.payload.ms);
         return;

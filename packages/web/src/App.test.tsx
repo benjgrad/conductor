@@ -225,6 +225,23 @@ describe('top nav icons (UX-11)', () => {
       style.remove();
     }
   });
+
+  it('the bar is sticky on desktop, not only on a phone', async () => {
+    // jsdom matches no `max-width` media rule, so this checks the base .topbar rule.
+    const style = document.createElement('style');
+    style.textContent = readFileSync(join(import.meta.dirname, 'styles.css'), 'utf8');
+    document.head.append(style);
+    try {
+      render(<App api={createMockApi()} />);
+      await screen.findByRole('button', { name: me.display_name });
+      const header = document.querySelector<HTMLElement>('header.topbar')!;
+      expect(header.classList.contains('compact')).toBe(false);
+      expect(getComputedStyle(header).position).toBe('sticky');
+      expect(getComputedStyle(header).top).toBe('0px');
+    } finally {
+      style.remove();
+    }
+  });
 });
 
 describe('session (M2-T05)', () => {

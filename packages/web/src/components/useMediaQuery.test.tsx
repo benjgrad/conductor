@@ -1,14 +1,16 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { useRef } from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mockViewport, type MockViewport } from '../test/match-media.js';
-import { MOBILE_QUERY, useIsMobile, useMediaQuery } from './useMediaQuery.js';
+import { MOBILE_QUERY, useElementHeightVar, useIsMobile, useMediaQuery } from './useMediaQuery.js';
 
 let viewport: MockViewport | null = null;
 afterEach(() => {
   cleanup();
   viewport?.restore();
   viewport = null;
+  vi.unstubAllGlobals();
 });
 
 function Probe() {
@@ -46,5 +48,47 @@ describe('useMediaQuery', () => {
     expect(window.matchMedia(MOBILE_QUERY).matches).toBe(true);
     viewport.resize(700);
     expect(window.matchMedia(MOBILE_QUERY).matches).toBe(false);
+  });
+});
+
+describe('useElementHeightVar', () => {
+  let height = 49;
+  function Bar() {
+    const ref = useRef<HTMLElement>(null);
+    useElementHeightVar(ref, '--topbar-h');
+    return <header ref={ref} />;
+  }
+  const value = () => document.documentElement.style.getPropertyValue('--topbar-h');
+
+  it("sets the variable from the element's height, follows resizes and clears it on unmount", () => {
+    let onResize: (() => void) | null = null;
+    const disconnect = vi.fn();
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(cb: () => void) {
+          onResize = cb;
+        }
+        observe() {}
+        disconnect = disconnect;
+      },
+    );
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(() => height);
+    height = 49;
+    const { unmount } = render(<Bar />);
+    expect(value()).toBe('49px');
+    height = 65;
+    act(() => onResize!());
+    expect(value()).toBe('65px');
+    unmount();
+    expect(disconnect).toHaveBeenCalled();
+    expect(value()).toBe('');
+    vi.restoreAllMocks();
+  });
+
+  it('does nothing without ResizeObserver (jsdom), so the CSS fallback applies', () => {
+    expect(typeof globalThis.ResizeObserver).toBe('undefined');
+    render(<Bar />);
+    expect(value()).toBe('');
   });
 });

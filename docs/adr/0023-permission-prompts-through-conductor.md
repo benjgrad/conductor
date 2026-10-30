@@ -1,6 +1,6 @@
 # ADR-0023 · Agents run in auto mode; permission prompts reach a human through conductor
 
-- **Status**: accepted (Ben, 2026-10-28)
+- **Status**: accepted (Ben, 2026-10-28); §4 superseded for `git push` by [ADR-0027](0027-promptable-git-push.md)
 - **Date**: 2026-10-28
 - **Deciders**: Ben (+ Claude session 2026-10-28-agent-permissions)
 - **Supersedes**: these parts of [ADR-0006](0006-agents-inherit-claude-code-settings.md):
@@ -38,7 +38,7 @@ Verified (Claude Code 2.1.312, `claude --help`):
      - *Allow always* records an exact allow rule: on the ticket until ADR-0022's machine override exists, then on the machine override.
    - With no answer within 30 min (configurable per machine later), the call is denied with "no human answered". The agent can then `ask_user`.
 3. **`bypassPermissions` is opt-in per machine, never a default.** It is an ADR-0022 machine-override value, set by the owner and shown on the Machines page. Without it, a user-settings `bypassPermissions` is still capped to `auto` (ADR-0006).
-4. **Deny rules never reach a human.** `Bash(git push:*)` and the other alias denies are evaluated before the prompt tool, in every mode. A prompt can't approve a push.
+4. *(Superseded for `git push` by [ADR-0027](0027-promptable-git-push.md): a host worker's push is an `ask` rule, so it reaches the board.)* **Deny rules never reach a human.** `Bash(git push:*)` and the other alias denies are evaluated before the prompt tool, in every mode. A prompt can't approve a push.
 5. **Denials are visible.** Each turn's `permissionDenials` count and the denied tool names go on the session event, and the card shows "N tool calls denied".
 
 ## Consequences

@@ -2,16 +2,22 @@
 //   E2E_REAL_CLAUDE=flags        zero cost: the CLI accepts the ADR-0005 argv (stdin closed before
 //                                any user message, so no model call; init comes only after one)
 //   E2E_REAL_CLAUDE=1            spends ~$0.01 on haiku: ask_user → sendInput → complete_state
-//   E2E_REAL_CLAUDE=permission   spends ~$0.02 on haiku (ADR-0023): `git push` is denied by the
-//                                deny rule without reaching the prompt tool; `touch` reaches it,
-//                                is allowed through the held call, and runs
+//   E2E_REAL_CLAUDE=permission   spends ~$0.02 on haiku (ADR-0023, ADR-0027): the production worker
+//                                argv in auto mode; `git push` reaches the prompt tool through its
+//                                ask rule, is allowed through the held call, and pushes
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { agentEnv, buildClaudeArgs, createCliDriver, userMessageLine } from './cli-driver.js';
+import {
+  agentEnv,
+  buildClaudeArgs,
+  createCliDriver,
+  splitPromptableDenies,
+  userMessageLine,
+} from './cli-driver.js';
 import type { DriverEvent, DriverStartOptions } from './driver.js';
 import { writeEditGuard } from './edit-guard.js';
 import {
@@ -107,7 +113,30 @@ describe.runIf(mode === '1')('real claude CLI: ask_user round trip (spends money
 describe.runIf(mode === 'permission')(
   'real claude CLI: permission prompt round trip (spends money)',
   () => {
-    it('git push never reaches the prompt tool; touch does, is allowed, and runs', async () => {
+    // ADR-0027 spike (2026-10-30, CLI 2.1.314): in auto mode a plain `git push` with no rule runs
+    // unprompted; an ask rule (or a PreToolUse hook answering `ask`) sends it to the prompt tool.
+    it('auto mode: git push reaches the prompt tool through its ask rule, is allowed, and pushes', async () => {
+      const work = mkdtempSync(join(dir, 'work-'));
+      const remote = mkdtempSync(join(dir, 'remote-'));
+      const git = (args: string[], cwd: string) =>
+        new Promise<number | null>((r) => spawn('git', args, { cwd }).on('exit', (c) => r(c)));
+      await git(['init', '-q', '--bare', '.'], remote);
+      await git(['init', '-q', '-b', 'main', '.'], work);
+      await git(
+        [
+          '-c',
+          'user.email=p@p',
+          '-c',
+          'user.name=p',
+          'commit',
+          '-q',
+          '--allow-empty',
+          '-m',
+          'init',
+        ],
+        work,
+      );
+      await git(['remote', 'add', 'origin', remote], work);
       const prompts: PermissionPrompt[] = [];
       const reg = server.register({
         onAskUser: () => {},
@@ -121,22 +150,17 @@ describe.runIf(mode === 'permission')(
           );
         },
       });
-      const settings = writeEditGuard(mkdtempSync(join(dir, 'guard-')), dir);
       const o: DriverStartOptions = {
         ...base(),
-        tools: {
-          builtin: ['Bash'],
-          allow: [],
-          deny: ['Bash(git push:*)'],
-        },
+        cwd: work,
+        tools: { builtin: ['Bash'], allow: [], deny: ['Bash(git push:*)'] },
       };
-      // The worker argv, but in `manual` (default) mode: auto mode's classifier would approve a plain touch
-      // without asking, and this probe needs a prompt.
-      const args = buildClaudeArgs(o, reg.mcpConfig, settings).map((a) =>
-        a === 'auto' ? 'manual' : a,
-      );
-      expect(args).toContain('--permission-prompt-tool');
-      const child = spawn(bin, args, { cwd: dir, env: agentEnv({}).env });
+      // What CliDriver.start writes for a host worker.
+      const { ask } = splitPromptableDenies(o.tools.deny, true);
+      const settings = writeEditGuard(mkdtempSync(join(dir, 'guard-')), work, undefined, ask);
+      const args = buildClaudeArgs(o, reg.mcpConfig, settings);
+      expect(args[args.indexOf('--permission-mode') + 1]).toBe('auto');
+      const child = spawn(bin, args, { cwd: work, env: agentEnv({}).env });
       const lines: Record<string, unknown>[] = [];
       let buf = '';
       let stderr = '';
@@ -161,7 +185,7 @@ describe.runIf(mode === 'permission')(
       });
       child.stdin.write(
         userMessageLine(
-          'Use the Bash tool to run exactly `git push origin HEAD`. Whatever happens, then use the Bash tool to run exactly `touch probe.txt`. Then reply DONE and stop. Do not call any other tool.',
+          'Use the Bash tool to run exactly `git push -u origin HEAD` once. Then reply DONE and stop. Do not call any other tool and do not retry.',
         ),
       );
       await done;
@@ -169,11 +193,7 @@ describe.runIf(mode === 'permission')(
       const init = lines.find((l) => l.type === 'system' && l.subtype === 'init') as
         { tools?: string[]; claude_code_version?: string; permissionMode?: string } | undefined;
       const result = lines.find((l) => l.type === 'result') as
-        | {
-            permission_denials?: { tool_name: string; tool_input: unknown }[];
-            total_cost_usd?: number;
-          }
-        | undefined;
+        { permission_denials?: unknown[]; total_cost_usd?: number } | undefined;
       console.log(
         JSON.stringify(
           {
@@ -189,13 +209,12 @@ describe.runIf(mode === 'permission')(
           2,
         ),
       );
-      // Deny rules first: no prompt ever named git push.
-      expect(prompts.some((p) => JSON.stringify(p.input).includes('git push'))).toBe(false);
-      // touch reached the prompt tool and, allowed, ran.
+      expect(init?.permissionMode).toBe('auto');
       expect(
-        prompts.some((p) => p.tool === 'Bash' && JSON.stringify(p.input).includes('touch')),
+        prompts.some((p) => p.tool === 'Bash' && JSON.stringify(p.input).includes('git push')),
       ).toBe(true);
-      expect(existsSync(join(dir, 'probe.txt'))).toBe(true);
+      // Allowed once, the push ran: the remote has the branch.
+      expect(await git(['rev-parse', '--verify', '-q', 'refs/heads/main'], remote)).toBe(0);
     }, 180_000);
   },
 );

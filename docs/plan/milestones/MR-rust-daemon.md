@@ -324,7 +324,7 @@ ADR-0005, ADR-0023 (permission prompts), ADR-0024 §edit guard, ADR-0026 §5 (`h
 The Rust daemon drives a real `claude -p` session exactly as the TS daemon does: same flags, same input and output handling, same kill and end behaviour.
 
 ## Context
-ADR-0005, ADR-0023, ADR-0024 (`claude.exe` only). Reference: `packages/daemon/src/claude/cli-driver.ts`, `cli-driver.test.ts`, `cli-driver.real.test.ts` (opt-in, `E2E_REAL_CLAUDE`). Tests drive `packages/daemon/test/fixtures/fake-claude.mjs` (`CONDUCTOR_CLAUDE_BIN`), which logs its argv.
+ADR-0005, ADR-0023, ADR-0024 (`claude.exe` only), ADR-0027 (`splitPromptableDenies`: a host worker's `git push` goes to `permissions.ask` in the edit-guard settings, not `--disallowedTools`; the settings writer in MR-T08 takes the ask list). Reference: `packages/daemon/src/claude/cli-driver.ts`, `cli-driver.test.ts`, `cli-driver.real.test.ts` (opt-in, `E2E_REAL_CLAUDE`). Tests drive `packages/daemon/test/fixtures/fake-claude.mjs` (`CONDUCTOR_CLAUDE_BIN`), which logs its argv.
 
 ## Functional requirements
 - **FR-1**: spawn via `platform::spawn` in its own group/job; bidirectional stream-json; MCP config file pointing at the outcome server; agent env; permission mode and `--permission-prompts`; system prompt; `--resume`.

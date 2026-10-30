@@ -18,6 +18,11 @@ const EDIT_TOOLS: Readonly<Record<string, string>> = {
  * paths also gitignore's `?`, `[`, `]` and `\`.
  */
 const BASH_UNSAFE = /[)\r\n*]/;
+/**
+ * ADR-0027: a push reaches the board through an `ask` rule, and ask outranks allow, so an allow
+ * rule for it would never take effect. Every push is Allow once or Deny.
+ */
+const GIT_PUSH = /\bgit\s+push\b/;
 const PATH_UNSAFE = /[)\r\n*?[\]\\]/;
 
 function str(input: JsonObject, key: string): string | null {
@@ -37,7 +42,7 @@ function pathRule(name: 'Edit' | 'Write', path: string | null): string | null {
 
 /**
  * - `Bash`: `Bash(<exact command>)`; null if the command contains `)`, a newline or `*`, or ends
- *   in `:*` (a prefix rule).
+ *   in `:*` (a prefix rule), and for any command with `git push` in it (ADR-0027: once only).
  * - `mcp__*`: the bare tool name.
  * - `Edit` / `MultiEdit` / `NotebookEdit`: `Edit(//<absolute path>)`; `Write`: `Write(//<absolute
  *   path>)`; null if the path isn't absolute or contains `)`, a newline or a glob character.
@@ -48,6 +53,7 @@ export function alwaysRuleFor(tool: string, input: JsonObject): string | null {
   if (tool === 'Bash') {
     const command = str(input, 'command');
     if (command === null || BASH_UNSAFE.test(command) || command.endsWith(':*')) return null;
+    if (GIT_PUSH.test(command)) return null;
     return bounded(`Bash(${command})`);
   }
   if (tool.startsWith('mcp__') && tool.length > 'mcp__'.length && !/[()\s*]/.test(tool)) {

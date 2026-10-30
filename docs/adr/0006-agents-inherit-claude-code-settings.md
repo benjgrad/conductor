@@ -46,7 +46,7 @@ These are unchanged: `--strict-mcp-config`, `--permission-prompts none` (superse
     It fails closed: any error blocks, and the command ends in `|| exit 2`, so a missing node or script blocks too. The script and the settings file are 0600, in the per-session 0700 directory beside mcp.json, and are removed on exit.
   - **The hook's two known off-switches are pinned off** in the `--settings` file, which outranks user settings: `disableAllHooks: false` and `CLAUDE_CODE_SAFE_MODE=0`.
   - **A `bypassPermissions` default is capped to `auto`**, so an unattended agent keeps the classifier. The daemon logs a debug line when it does this.
-  - **`Bash(git push:*)`** and the other alias denies.
+  - **`Bash(git push:*)`** and the other alias denies. ([ADR-0027](0027-promptable-git-push.md): a worker whose prompts reach the board gets `git push` as an `ask` rule instead.)
   - **No MCP servers except conductor's.**
 - **Model**: unchanged, but now visible in practice. With no `model` in the workflow and none in user settings, a subscription login uses the account default (Opus 5.5 on Max, as observed).
 
@@ -75,7 +75,7 @@ These are unchanged: `--strict-mcp-config`, `--permission-prompts none` (superse
 What the daemon passes now (`packages/daemon/src/claude/cli-driver.ts` `buildClaudeArgs`):
 - **Workers**: `--permission-mode auto --permission-prompts host --permission-prompt-tool mcp__conductor__permission`, whatever the user's `defaultMode`. The `bypassPermissions` cap above is now part of that: every worker runs in `auto`. A per-machine `bypassPermissions` opt-in is ADR-0022's machine override (not built yet).
 - **Requirements reviewers** (ADR-0009): `--permission-mode dontAsk --permission-prompts none`, unchanged. Nothing a reviewer does ever asks a human.
-- **Deny rules** stay in `--disallowedTools` (`Bash(git push:*)` and the other alias denies). Claude evaluates them before the prompt tool, so a human is never asked to approve a push (ADR-0023 §4).
+- **Deny rules** stay in `--disallowedTools` (`Bash(git push:*)` and the other alias denies). Claude evaluates them before the prompt tool, so a human is never asked to approve a push (ADR-0023 §4). Superseded for `git push` by [ADR-0027](0027-promptable-git-push.md).
 - `mcp__conductor__permission` is not in `--allowedTools`: Claude's permission system calls it, not the model. It holds the call until a human decides on the board, the 30-min timeout, or the process / daemon goes away (10-contracts §Permission prompts).
 - `AGENT_ENV` adds `MCP_TOOL_TIMEOUT` (35 min), so the CLI's MCP tool timeout can't cut a held prompt before conductor's own 30-min timeout.
 - **Old CLI fallback**: at start the daemon runs `claude --help` once (`probePermissionPrompts`). If it lists no `--permission-prompts` or no `auto` mode, agents get exactly the flags above this section (the user's mode with the bypass cap, `--permission-prompts none`). The daemon logs a warning, and every session's terminal shows a debug line. ADR-0023 asks for a machine alert as well; the `alert` frame has only `git_tamper` so far, so that part waits on a contract change.

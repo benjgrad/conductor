@@ -22,7 +22,7 @@ import {
   writePrivateFile,
 } from '../platform/index.js';
 import type { ClaudeDriver, DriverEvent, DriverSession, DriverStartOptions } from './driver.js';
-import { DEFAULT_PERMISSION_TIMEOUT_MS } from '@conductor/shared';
+import { DEFAULT_PERMISSION_TIMEOUT_MS, PROMPTABLE_DENY_RULES } from '@conductor/shared';
 import { writeEditGuard } from './edit-guard.js';
 import {
   OUTCOME_TOOL_NAMES,
@@ -178,6 +178,22 @@ export const WORKER_PERMISSION_MODE = 'auto';
  */
 export type PermissionArgs = { prompts: 'host' } | { prompts: 'none'; legacyMode?: string };
 
+/**
+ * ADR-0027: a worker whose prompts reach the board (`host`, not a reviewer) gets its promptable
+ * denies (`git push`) as `ask` rules in the settings file instead of `--disallowedTools`. Everyone
+ * else keeps them as denies: nobody could answer the prompt.
+ */
+export function splitPromptableDenies(
+  deny: readonly string[],
+  host: boolean,
+): { deny: string[]; ask: string[] } {
+  if (!host) return { deny: [...deny], ask: [] };
+  return {
+    deny: deny.filter((r) => !PROMPTABLE_DENY_RULES.includes(r)),
+    ask: deny.filter((r) => PROMPTABLE_DENY_RULES.includes(r)),
+  };
+}
+
 /** What `probePermissionPrompts` found. `reason` says what is missing when unsupported. */
 export interface PermissionPromptSupport {
   supported: boolean;
@@ -234,9 +250,11 @@ export const REVIEWER_PERMISSION_MODE = 'dontAsk';
  * ADR-0006: the user's settings load (`--setting-sources user`; never `project`: the repo is
  * untrusted and its settings could disable the guard hook), so the user's rules, hooks and skills
  * apply. The state's policy still limits the visible built-ins (`--tools`), pre-approves its rules
- * and adds its denies (`--disallowedTools`, e.g. `Bash(git push:*)`): deny rules are evaluated
- * before any prompt, so they never reach a human (ADR-0023 §4). TD-081: what the user's settings
- * allow is per machine and not recorded.
+ * and adds its denies (`--disallowedTools`): deny rules are evaluated before any prompt, so they
+ * never reach a human (ADR-0023 §4). ADR-0027: for a host worker the promptable ones
+ * (`Bash(git push:*)`) are left out here and written as `ask` rules into `settings`
+ * (`splitPromptableDenies`), so a push reaches the board. TD-081: what the user's settings allow
+ * is per machine and not recorded.
  *
  * ADR-0023 (`permission` = `{prompts: 'host'}`, the default): a worker runs in
  * `--permission-mode auto` whatever the user's defaultMode, and what auto mode would still ask
@@ -288,7 +306,8 @@ export function buildClaudeArgs(
     '--allowedTools',
     [...t.allow, ...OUTCOME_TOOL_NAMES].join(','),
   );
-  if (t.deny.length > 0) args.push('--disallowedTools', t.deny.join(','));
+  const { deny } = splitPromptableDenies(t.deny, host);
+  if (deny.length > 0) args.push('--disallowedTools', deny.join(','));
   if (opts.appendSystemPrompt !== undefined) {
     args.push('--append-system-prompt', opts.appendSystemPrompt);
   }
@@ -357,7 +376,9 @@ class Session implements CliDriverSession {
       throw err;
     }
     try {
-      settings = writeEditGuard(dirname(this.mcpConfigPath), opts.cwd);
+      const host = permissionPrompts && opts.review !== true;
+      const { ask } = splitPromptableDenies(opts.tools.deny, host);
+      settings = writeEditGuard(dirname(this.mcpConfigPath), opts.cwd, undefined, ask);
     } catch (err) {
       this.reg.unregister();
       removeMcpConfigFile(this.mcpConfigPath);

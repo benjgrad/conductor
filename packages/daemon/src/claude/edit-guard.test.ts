@@ -14,7 +14,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { assertOwnerOnly, mkdirPrivate, workflowShell } from '../platform/index.js';
-import { EDIT_GUARD_MATCHER, writeEditGuard } from './edit-guard.js';
+import { EDIT_GUARD_MATCHER, editGuardSettings, writeEditGuard } from './edit-guard.js';
 
 const onWin32 = process.platform === 'win32';
 const CMD = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'cmd.exe');
@@ -77,6 +77,12 @@ describe('edit guard settings', () => {
       ),
     ).toBe(true);
     expect(command.endsWith(' || exit 2')).toBe(true);
+    expect(settings).not.toHaveProperty('permissions');
+  });
+
+  it('ADR-0027: ask rules go in permissions.ask', () => {
+    const s = editGuardSettings('/g.mjs', '/wt', '/node', ['Bash(git push:*)']);
+    expect(s).toMatchObject({ permissions: { ask: ['Bash(git push:*)'] } });
   });
 
   it('writes the script and settings 0600 (win32: owner-only DACL)', () => {

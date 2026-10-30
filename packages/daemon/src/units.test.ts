@@ -159,6 +159,7 @@ describe('helpers', () => {
     expect(CONDUCTOR_INSTRUCTIONS).toMatch(
       /AskUserQuestion\), use a permission prompt or `ask_user`/,
     );
-    expect(CONDUCTOR_INSTRUCTIONS).toMatch(/Never push/);
+    expect(CONDUCTOR_INSTRUCTIONS).toMatch(/every push waits for a human to approve it/);
+    expect(CONDUCTOR_INSTRUCTIONS).toMatch(/Never force-push/);
   });
 });

@@ -21,6 +21,7 @@ import {
   createCliDriver,
   permissionPromptSupport,
   probePermissionPrompts,
+  splitPromptableDenies,
   userMessageLine,
   type CliDriverSession,
 } from './cli-driver.js';
@@ -169,7 +170,7 @@ describe('buildClaudeArgs', () => {
       '--allowedTools',
       `Read(./**),Edit(./**),Bash(git commit -m:*),${COMPLETE_STATE_TOOL},${ASK_USER_TOOL}`,
       '--disallowedTools',
-      'Bash(git push:*),WebFetch',
+      'WebFetch', // ADR-0027: git push is an ask rule in the settings file instead
       '--append-system-prompt',
       'use complete_state',
     ]);
@@ -220,14 +221,31 @@ describe('buildClaudeArgs', () => {
     expect(flagOf(capped, '--permission-prompts')).toBe('none');
   });
 
-  it('ADR-0023 §4: git push stays a deny rule beside the prompt tool, so it never reaches a human', () => {
+  it('ADR-0027: a host worker gets git push as an ask rule, not a deny; nobody pre-approves it', () => {
     // The real workflow aliases, as start_session sends them.
     const tools = resolveToolPolicy(['read', 'edit', 'bash', 'git']);
     const args = buildClaudeArgs(opts([], { tools }), '{}', 's.json');
-    const deny = (flagOf(args, '--disallowedTools') ?? '').split(',');
-    expect(deny).toContain('Bash(git push:*)');
+    expect(flagOf(args, '--disallowedTools') ?? '').not.toMatch(/git push/);
     expect(flagOf(args, '--permission-prompt-tool')).toBe(PERMISSION_TOOL);
     expect(flagOf(args, '--allowedTools')).not.toMatch(/git push/);
+    expect(splitPromptableDenies(tools.deny, true)).toEqual({
+      deny: tools.deny.filter((r) => r !== 'Bash(git push:*)'),
+      ask: ['Bash(git push:*)'],
+    });
+  });
+
+  it('ADR-0027: a reviewer and the no-prompt fallback keep git push denied (nobody could answer)', () => {
+    const tools = resolveToolPolicy(['read', 'edit', 'bash', 'git']);
+    for (const args of [
+      buildClaudeArgs(opts([], { tools, review: true }), '{}', 's.json'),
+      buildClaudeArgs(opts([], { tools }), '{}', 's.json', { prompts: 'none' }),
+    ]) {
+      expect((flagOf(args, '--disallowedTools') ?? '').split(',')).toContain('Bash(git push:*)');
+    }
+    expect(splitPromptableDenies(['Bash(git push:*)', 'WebFetch'], false)).toEqual({
+      deny: ['Bash(git push:*)', 'WebFetch'],
+      ask: [],
+    });
   });
 
   it('ADR-0023: detects auto mode and --permission-prompts in claude --help', async () => {
@@ -470,7 +488,11 @@ describe('createCliDriver against fake-claude', () => {
     else expect(statSync(settingsPath).mode & 0o777).toBe(0o600);
     const settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as {
       hooks: { PreToolUse: { matcher: string; hooks: { command: string }[] }[] };
+      permissions?: { ask?: string[] };
     };
+    // ADR-0027: a host worker's git push is an ask rule here, and gone from --disallowedTools.
+    expect(settings.permissions?.ask).toEqual(['Bash(git push:*)']);
+    expect(argv[argv.indexOf('--disallowedTools') + 1]).toBe('WebFetch');
     const [entry] = settings.hooks.PreToolUse;
     expect(entry?.matcher).toBe('Edit|Write|MultiEdit|NotebookEdit');
     expect(entry?.hooks[0]?.command).toContain(

@@ -33,6 +33,8 @@ describe('alwaysRuleFor', () => {
       ['a * wildcard', 'ls *.ts'],
       ['an empty command', ''],
       ['a blank command', '   '],
+      ['a git push (ADR-0027: once only)', 'git push -u origin HEAD'],
+      ['a git push inside a compound command', 'cd /w && git  push origin HEAD'],
     ])('null for %s', (_what, command) => {
       expect(alwaysRuleFor('Bash', { command })).toBeNull();
     });

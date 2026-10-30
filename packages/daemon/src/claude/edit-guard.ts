@@ -141,10 +141,19 @@ try {
  * (QA, verified). `|| exit 2` makes a missing node or script block instead of passing (only exit
  * 2 blocks). The command is quoted for sh (POSIX) or for cmd.exe and Git Bash alike (win32,
  * platform/hook.ts; throws for a path it can't carry).
+ *
+ * ADR-0027: `ask` rules (a host worker's PROMPTABLE_DENY_RULES) go in `permissions.ask`. There is
+ * no flag for them, and the flag scope's ask outranks any allow rule in the user's settings.
  */
-export function editGuardSettings(scriptPath: string, worktree: string, nodeBin: string): object {
+export function editGuardSettings(
+  scriptPath: string,
+  worktree: string,
+  nodeBin: string,
+  ask: readonly string[] = [],
+): object {
   return {
     disableAllHooks: false,
+    ...(ask.length > 0 ? { permissions: { ask: [...ask] } } : {}),
     env: { CLAUDE_CODE_SAFE_MODE: '0' },
     hooks: {
       PreToolUse: [
@@ -167,11 +176,16 @@ export function editGuardSettings(scriptPath: string, worktree: string, nodeBin:
  * from `writeMcpConfigFile`, removed with it). Returns the settings path for `--settings`.
  * TD-083: same uid as the agent, so its Bash could rewrite the script.
  */
-export function writeEditGuard(dir: string, worktree: string, nodeBin = process.execPath): string {
+export function writeEditGuard(
+  dir: string,
+  worktree: string,
+  nodeBin = process.execPath,
+  ask: readonly string[] = [],
+): string {
   const script = join(dir, 'edit-guard.mjs');
   const settings = join(dir, 'settings.json');
   // Built first: a path the hook can't carry (win32) fails before anything is written.
-  const json = JSON.stringify(editGuardSettings(script, worktree, nodeBin));
+  const json = JSON.stringify(editGuardSettings(script, worktree, nodeBin, ask));
   writePrivateFile(script, EDIT_GUARD_SCRIPT);
   writePrivateFile(settings, json);
   return settings;

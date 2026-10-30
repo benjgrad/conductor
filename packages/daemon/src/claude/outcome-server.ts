@@ -19,7 +19,7 @@
 //
 // ADR-0023 (M2-T29b): a third tool, `permission`, is Claude's `--permission-prompt-tool`
 // (`mcp__conductor__permission`). Claude calls it only when its permission mode would still ask
-// (deny rules such as `Bash(git push:*)` are evaluated first and never reach it). The call is HELD:
+// (deny rules are evaluated first and never reach it; ADR-0027's `git push` ask rule always does). The call is HELD:
 // the registration hands the request to the driver (`onPermissionRequest`, which the daemon sends
 // as a durable `permission_request`) and the tool returns only when the request is resolved:
 //   - `resolvePermission` (a human's `permission_decision`), at most once per request;

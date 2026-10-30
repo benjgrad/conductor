@@ -121,6 +121,7 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 | M2-T29b | Daemon: auto mode default, `--permission-prompts host` + `permission` MCP tool held until decision / timeout | T29 | E | — | done (PR #53, 4d07791; TD-187, U-104, U-105) |
 | M2-T29c | Orchestrator: store requests, `needs_permission` on the board, decision route → daemon | T29 | E | **yes** | done (PR #53, 4d07791; TD-188) |
 | M2-T29d | Web: Needs-permission card state with Allow once / Allow always / Deny | T29c | F | — | done (PR #53, 4d07791) |
+| M2-T29e | Daemon + shared + orchestrator: a worker's `git push` is an `ask` rule, so it reaches the board (Allow once / Deny) ([ADR-0027](../../adr/0027-promptable-git-push.md)) | T29b | F | — | in_progress |
 | M2-T30 | Daemon + shared: package-manager-aware build checks (pnpm / yarn lockfiles) and pnpm rules in the `bash` alias | — | D | — | done (PR #46, d38c573) |
 | M2-T30b | Shared: pre-approve the pnpm shorthand commands agents actually run | T30 | D | — | done (PR #52, acaa852) |
 | M2-T31 | Tests: per-run test slots (throttled suite) | — | D | — | done (PR #54, afa210a) |
@@ -967,7 +968,7 @@ The lead fast-forwarded the daemon clone and Hazel's branch by hand (the interim
 ### M2-T28b · Shared: effective policy
 - `resolveEffectivePolicy(stateTools, override)` returns `{builtin, allow, deny, permissionMode}`, with the ADR-0022 invariants. A save-time validator returns field errors.
 - **Acceptance**:
-  - [ ] `git push` can't be un-denied.
+  - [ ] `git push` can't be allowed: it stays a deny, or an `ask` rule for a host worker (ADR-0027).
   - [ ] `Bash`, `Bash(*)`, `Bash(git diff:*)` and `Read(//**)` are rejected.
   - [ ] Gates.
 
@@ -1020,7 +1021,7 @@ The lead fast-forwarded the daemon clone and Hazel's branch by hand (the interim
 - **Acceptance**:
   - [ ] argv tests.
   - [ ] A held call resolves on allow, on deny and on timeout.
-  - [ ] `git push` never reaches the tool (deny first).
+  - [ ] `git push` never reaches the tool (deny first). *(Superseded by M2-T29e / ADR-0027: a host worker's push is an ask rule and does reach it.)*
   - [ ] A real-Claude probe noted in the PR: one prompt round-trip with haiku.
   - [ ] Gates.
 
@@ -1032,6 +1033,16 @@ The lead fast-forwarded the daemon clone and Hazel's branch by hand (the interim
 ### M2-T29d · Web: Needs permission
 - Card badge and drawer panel. They show the tool and its input (a command shown as code; long input collapsed) and three buttons: **Allow once**, **Allow always**, **Deny** (with a note).
 - **Acceptance**: component tests; gates.
+
+### M2-T29e · Promptable `git push` (ADR-0027)
+- Found 2026-10-30. "Morgan" was hard-denied a `git push` it needed for a draft PR, and nothing reached the board. A spike showed that in auto mode an `ask` rule in the `--settings` file sends the push to `mcp__conductor__permission`, and that with no rule auto mode pushes unprompted.
+- shared: `PROMPTABLE_DENY_RULES`. daemon: `splitPromptableDenies` (`--disallowedTools` minus the rule, `permissions.ask` in the edit-guard settings, host workers only) and the agent prompt's push line. orchestrator: `alwaysRuleFor` gives null for `git push` (ask outranks allow).
+- **Acceptance**:
+  - [x] A host worker's argv has no push deny, and its settings file has the ask rule.
+  - [x] Reviewers and the `none` fallback keep the deny.
+  - [x] A push has no `always_rule`.
+  - [x] Real-CLI probe (`E2E_REAL_CLAUDE=permission`, auto mode): the push reaches the prompt tool, Allow once pushes.
+  - [ ] Gates.
 
 ### M2-T30 · Package-manager-aware checks
 - `actions/checkout.ts` picks the install step from the lockfile:

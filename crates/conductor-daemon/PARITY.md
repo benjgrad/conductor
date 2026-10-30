@@ -189,7 +189,7 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 |---|---|
 | claude/cli-driver.real.test.ts › real claude CLI: flags › accepts the exact ADR-0005 argv and exits 0 on stdin EOF | todo |
 | claude/cli-driver.real.test.ts › real claude CLI: ask_user round trip (spends money) › asks, takes the live answer, completes | todo |
-| claude/cli-driver.real.test.ts › real claude CLI: permission prompt round trip (spends money) › git push never reaches the prompt tool; touch does, is allowed, and runs | todo |
+| claude/cli-driver.real.test.ts › real claude CLI: permission prompt round trip (spends money) › auto mode: git push reaches the prompt tool through its ask rule, is allowed, and pushes | todo |
 
 ### claude/cli-driver.test.ts
 
@@ -198,7 +198,8 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 | claude/cli-driver.test.ts › buildClaudeArgs › emits exactly the ADR-0005/ADR-0006 flags for a new session | todo |
 | claude/cli-driver.test.ts › buildClaudeArgs › ADR-0009: a reviewer always runs in dontAsk and never prompts; ADR-0023: a worker runs in auto | todo |
 | claude/cli-driver.test.ts › buildClaudeArgs › ADR-0023 fallback (old CLI): the pre-ADR-0023 flags, the user mode or the bypass cap, prompts denied | todo |
-| claude/cli-driver.test.ts › buildClaudeArgs › ADR-0023 §4: git push stays a deny rule beside the prompt tool, so it never reaches a human | todo |
+| claude/cli-driver.test.ts › buildClaudeArgs › ADR-0027: a host worker gets git push as an ask rule, not a deny; nobody pre-approves it | todo |
+| claude/cli-driver.test.ts › buildClaudeArgs › ADR-0027: a reviewer and the no-prompt fallback keep git push denied (nobody could answer) | todo |
 | claude/cli-driver.test.ts › buildClaudeArgs › ADR-0023: detects auto mode and --permission-prompts in claude --help | todo |
 | claude/cli-driver.test.ts › buildClaudeArgs › uses --resume for resume, omits unset optionals and an empty deny list | todo |
 | claude/cli-driver.test.ts › buildClaudeArgs › writes stream-json user messages | todo |
@@ -232,6 +233,7 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 | TS case | Rust |
 |---|---|
 | claude/edit-guard.test.ts › edit guard settings › matches the file tools and pins the hook kill switches off (disableAllHooks, safe mode) | todo |
+| claude/edit-guard.test.ts › edit guard settings › ADR-0027: ask rules go in permissions.ask | todo |
 | claude/edit-guard.test.ts › edit guard settings › writes the script and settings 0600 (win32: owner-only DACL) | todo |
 | claude/edit-guard.test.ts › edit guard settings › a path cmd.exe or Git Bash would reinterpret is refused at setup | todo |
 | claude/edit-guard.test.ts › edit guard › allows absolute paths inside the worktree, including new files in new directories | todo |

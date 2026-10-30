@@ -12,7 +12,7 @@ import { cloneSource, RepoNotAllowedError, type RepoPolicy } from '../workspace.
 
 // ADR-0010 `open_pr`: conductor (this daemon code, never an agent) pushes the session branch and
 // opens a pull request against the repo's default branch with the GitHub CLI, or reuses the PR
-// that already exists for the branch. Agents keep their `git push` deny (ADR-0006).
+// that already exists for the branch. An agent may have pushed the branch already (ADR-0027, approved on the board).
 //
 // Hardening (security reviews, 2026-10-23). This runs with Ben's own git / gh credentials, while
 // the worktree's `.git` points into the shared clone, whose `config` and `hooks/` any session's

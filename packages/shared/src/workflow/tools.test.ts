@@ -4,7 +4,9 @@ import type { SessionSnapshot } from '../engine/types.js';
 import { evaluateGuard, GUARD_REGISTRY, isRegisteredGuard, type GuardInput } from './guards.js';
 import { WorkflowDefinitionSchema } from './schema.js';
 import {
+  BASE_TOOL_POLICY,
   isToolAlias,
+  PROMPTABLE_DENY_RULES,
   resolveToolPolicy,
   TOOL_ALIAS_NAMES,
   UnknownToolAliasError,
@@ -105,6 +107,11 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
       expect(p.allow.some((r) => r.includes('git push'))).toBe(false);
     }
     expect(resolveToolPolicy([]).builtin).toEqual(['Read', 'Glob', 'Grep']);
+  });
+
+  it('ADR-0027: the promptable denies are base denies (only git push)', () => {
+    expect(PROMPTABLE_DENY_RULES).toEqual(['Bash(git push:*)']);
+    for (const r of PROMPTABLE_DENY_RULES) expect(BASE_TOOL_POLICY.deny).toContain(r);
   });
 
   it('qa alias has no edit tools and denies commit/push/gh', () => {

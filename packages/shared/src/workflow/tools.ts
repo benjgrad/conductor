@@ -6,8 +6,9 @@
 // Rules from ADR-0005, amended by ADR-0006: `builtin` limits the visible tools; `allow` rules are
 // pre-approved on top of the user's own Claude Code settings (their mode decides the rest);
 // `deny` holds in every mode. File-writing tools are always path-scoped (`Edit(./**)`, `Write(./**)`): a bare `Edit` escapes
-// the worktree. Bash entries are prefix rules. `git push` is always denied for agents (command /
-// connector states push). The conductor MCP outcome tools are added by the driver, not here.
+// the worktree. Bash entries are prefix rules. `git push` is denied in the policy; ADR-0027: a
+// worker whose prompts reach the board gets it as an `ask` rule instead (PROMPTABLE_DENY_RULES),
+// so each push needs a human's click. The conductor MCP outcome tools are added by the driver.
 
 /** Same shape as the daemon's `ToolPolicy` (daemon/src/claude/driver.ts). */
 export interface ToolPolicyFragment {
@@ -19,12 +20,20 @@ export interface ToolPolicyFragment {
   deny: readonly string[];
 }
 
-/** Every agent gets read-only access to its worktree, and never `git push`. */
+/** Every agent gets read-only access to its worktree, and no unapproved `git push`. */
 export const BASE_TOOL_POLICY: ToolPolicyFragment = {
   builtin: ['Read', 'Glob', 'Grep'],
   allow: ['Read(./**)', 'Glob(./**)', 'Grep(./**)'],
   deny: ['Bash(git push:*)'],
 };
+
+/**
+ * ADR-0027: deny rules that become `ask` rules when a human can answer the session's permission
+ * prompts (a worker with `--permission-prompts host`). Ask outranks every allow rule and auto
+ * mode's classifier, so the call always reaches the board. Reviewers and the no-prompt fallback
+ * keep them as denies.
+ */
+export const PROMPTABLE_DENY_RULES: readonly string[] = ['Bash(git push:*)'];
 
 // Inspection commands are exact matches: diff/log/show accept `--output=<file>`, so an open
 // `git diff:*` prefix would be an arbitrary file write. Global options (`git -c`, `--exec-path`)

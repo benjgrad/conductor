@@ -7,3 +7,4 @@ docs/
 .claude/
 pnpm-lock.yaml
 *.md
+packages/shared/protocol-json/

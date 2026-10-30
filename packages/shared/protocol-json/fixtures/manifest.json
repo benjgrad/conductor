@@ -1,0 +1,646 @@
+[
+  {
+    "file": "CAPABILITY_FIXTURES.json",
+    "export": "CAPABILITY_FIXTURES",
+    "key": null,
+    "schema": "Capability",
+    "array": true
+  },
+  {
+    "file": "DAEMON_FIXTURES.alert.json",
+    "export": "DAEMON_FIXTURES",
+    "key": "alert",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "DAEMON_FIXTURES.command_ack.json",
+    "export": "DAEMON_FIXTURES",
+    "key": "command_ack",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "DAEMON_FIXTURES.heartbeat.json",
+    "export": "DAEMON_FIXTURES",
+    "key": "heartbeat",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "DAEMON_FIXTURES.inventory.json",
+    "export": "DAEMON_FIXTURES",
+    "key": "inventory",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "DAEMON_FIXTURES.output.json",
+    "export": "DAEMON_FIXTURES",
+    "key": "output",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "DAEMON_FIXTURES.permission_request.json",
+    "export": "DAEMON_FIXTURES",
+    "key": "permission_request",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "DAEMON_FIXTURES.register.json",
+    "export": "DAEMON_FIXTURES",
+    "key": "register",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "DAEMON_FIXTURES.repo_inventory.json",
+    "export": "DAEMON_FIXTURES",
+    "key": "repo_inventory",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "DAEMON_FIXTURES.request_work.json",
+    "export": "DAEMON_FIXTURES",
+    "key": "request_work",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "DAEMON_FIXTURES.session_event.json",
+    "export": "DAEMON_FIXTURES",
+    "key": "session_event",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "DAEMON_FIXTURES.transcript.json",
+    "export": "DAEMON_FIXTURES",
+    "key": "transcript",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "FIXTURE_IDS.json",
+    "export": "FIXTURE_IDS",
+    "key": null,
+    "schema": null,
+    "array": false
+  },
+  {
+    "file": "INVENTORY_REPO_CHECKOUT_FIXTURE.json",
+    "export": "INVENTORY_REPO_CHECKOUT_FIXTURE",
+    "key": null,
+    "schema": "InventoryRepo",
+    "array": false
+  },
+  {
+    "file": "INVENTORY_REPO_FIXTURE.json",
+    "export": "INVENTORY_REPO_FIXTURE",
+    "key": null,
+    "schema": "InventoryRepo",
+    "array": false
+  },
+  {
+    "file": "M1B_PR_URL.json",
+    "export": "M1B_PR_URL",
+    "key": null,
+    "schema": null,
+    "array": false
+  },
+  {
+    "file": "M1B_WS_FIXTURES.action_result_evaluate_conditions.json",
+    "export": "M1B_WS_FIXTURES",
+    "key": "action_result_evaluate_conditions",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "M1B_WS_FIXTURES.complete_state_transition.json",
+    "export": "M1B_WS_FIXTURES",
+    "key": "complete_state_transition",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "M1B_WS_FIXTURES.run_action_evaluate_conditions.json",
+    "export": "M1B_WS_FIXTURES",
+    "key": "run_action_evaluate_conditions",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "M1B_WS_FIXTURES.start_session_transitions.json",
+    "export": "M1B_WS_FIXTURES",
+    "key": "start_session_transitions",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "M2R_ACTION_FIXTURES.close_pr_args.json",
+    "export": "M2R_ACTION_FIXTURES",
+    "key": "close_pr_args",
+    "schema": "ClosePrArgs",
+    "array": false
+  },
+  {
+    "file": "M2R_ACTION_FIXTURES.close_pr_args_no_pr.json",
+    "export": "M2R_ACTION_FIXTURES",
+    "key": "close_pr_args_no_pr",
+    "schema": "ClosePrArgs",
+    "array": false
+  },
+  {
+    "file": "M2R_ACTION_FIXTURES.close_pr_result.json",
+    "export": "M2R_ACTION_FIXTURES",
+    "key": "close_pr_result",
+    "schema": "ClosePrResult",
+    "array": false
+  },
+  {
+    "file": "M2R_ACTION_FIXTURES.close_pr_result_merged.json",
+    "export": "M2R_ACTION_FIXTURES",
+    "key": "close_pr_result_merged",
+    "schema": "ClosePrResult",
+    "array": false
+  },
+  {
+    "file": "M2R_ACTION_FIXTURES.inspect_pr_args.json",
+    "export": "M2R_ACTION_FIXTURES",
+    "key": "inspect_pr_args",
+    "schema": "InspectPrArgs",
+    "array": false
+  },
+  {
+    "file": "M2R_ACTION_FIXTURES.inspect_pr_result.json",
+    "export": "M2R_ACTION_FIXTURES",
+    "key": "inspect_pr_result",
+    "schema": "InspectPrResult",
+    "array": false
+  },
+  {
+    "file": "M2R_ACTION_FIXTURES.inspect_pr_result_truncated.json",
+    "export": "M2R_ACTION_FIXTURES",
+    "key": "inspect_pr_result_truncated",
+    "schema": "InspectPrResult",
+    "array": false
+  },
+  {
+    "file": "M2R_ACTION_FIXTURES.merge_pr_already.json",
+    "export": "M2R_ACTION_FIXTURES",
+    "key": "merge_pr_already",
+    "schema": "MergePrResult",
+    "array": false
+  },
+  {
+    "file": "M2R_ACTION_FIXTURES.merge_pr_approval_missing.json",
+    "export": "M2R_ACTION_FIXTURES",
+    "key": "merge_pr_approval_missing",
+    "schema": "MergePrResult",
+    "array": false
+  },
+  {
+    "file": "M2R_ACTION_FIXTURES.merge_pr_args.json",
+    "export": "M2R_ACTION_FIXTURES",
+    "key": "merge_pr_args",
+    "schema": "MergePrArgs",
+    "array": false
+  },
+  {
+    "file": "M2R_ACTION_FIXTURES.merge_pr_blocked.json",
+    "export": "M2R_ACTION_FIXTURES",
+    "key": "merge_pr_blocked",
+    "schema": "MergePrResult",
+    "array": false
+  },
+  {
+    "file": "M2R_ACTION_FIXTURES.merge_pr_conflict.json",
+    "export": "M2R_ACTION_FIXTURES",
+    "key": "merge_pr_conflict",
+    "schema": "MergePrResult",
+    "array": false
+  },
+  {
+    "file": "M2R_ACTION_FIXTURES.merge_pr_head_moved.json",
+    "export": "M2R_ACTION_FIXTURES",
+    "key": "merge_pr_head_moved",
+    "schema": "MergePrResult",
+    "array": false
+  },
+  {
+    "file": "M2R_ACTION_FIXTURES.merge_pr_merged.json",
+    "export": "M2R_ACTION_FIXTURES",
+    "key": "merge_pr_merged",
+    "schema": "MergePrResult",
+    "array": false
+  },
+  {
+    "file": "M2R_ACTION_FIXTURES.open_pr_result.json",
+    "export": "M2R_ACTION_FIXTURES",
+    "key": "open_pr_result",
+    "schema": "OpenPrResult",
+    "array": false
+  },
+  {
+    "file": "M2R_ACTION_FIXTURES.open_pr_result_m1.json",
+    "export": "M2R_ACTION_FIXTURES",
+    "key": "open_pr_result_m1",
+    "schema": "OpenPrResult",
+    "array": false
+  },
+  {
+    "file": "M2R_HEAD_SHA.json",
+    "export": "M2R_HEAD_SHA",
+    "key": null,
+    "schema": null,
+    "array": false
+  },
+  {
+    "file": "M2R_MOVED_SHA.json",
+    "export": "M2R_MOVED_SHA",
+    "key": null,
+    "schema": null,
+    "array": false
+  },
+  {
+    "file": "M2R_WS_FIXTURES.action_result_close_pr.json",
+    "export": "M2R_WS_FIXTURES",
+    "key": "action_result_close_pr",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "M2R_WS_FIXTURES.action_result_inspect_pr.json",
+    "export": "M2R_WS_FIXTURES",
+    "key": "action_result_inspect_pr",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "M2R_WS_FIXTURES.action_result_inspect_pr_error.json",
+    "export": "M2R_WS_FIXTURES",
+    "key": "action_result_inspect_pr_error",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "M2R_WS_FIXTURES.action_result_merge_pr.json",
+    "export": "M2R_WS_FIXTURES",
+    "key": "action_result_merge_pr",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "M2R_WS_FIXTURES.action_result_merge_pr_head_moved.json",
+    "export": "M2R_WS_FIXTURES",
+    "key": "action_result_merge_pr_head_moved",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "M2R_WS_FIXTURES.run_action_close_pr.json",
+    "export": "M2R_WS_FIXTURES",
+    "key": "run_action_close_pr",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "M2R_WS_FIXTURES.run_action_inspect_pr.json",
+    "export": "M2R_WS_FIXTURES",
+    "key": "run_action_inspect_pr",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "M2R_WS_FIXTURES.run_action_merge_pr.json",
+    "export": "M2R_WS_FIXTURES",
+    "key": "run_action_merge_pr",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "M2R_WS_FIXTURES.start_session_qa_checkout.json",
+    "export": "M2R_WS_FIXTURES",
+    "key": "start_session_qa_checkout",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "M2_WS_FIXTURES.alert_with_session.json",
+    "export": "M2_WS_FIXTURES",
+    "key": "alert_with_session",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "M2_WS_FIXTURES.inventory_empty.json",
+    "export": "M2_WS_FIXTURES",
+    "key": "inventory_empty",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "M2_WS_FIXTURES.register_v1.json",
+    "export": "M2_WS_FIXTURES",
+    "key": "register_v1",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "M2_WS_FIXTURES.register_v2.json",
+    "export": "M2_WS_FIXTURES",
+    "key": "register_v2",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "M2_WS_FIXTURES.start_session_working_copy.json",
+    "export": "M2_WS_FIXTURES",
+    "key": "start_session_working_copy",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "ORCHESTRATOR_FIXTURES.fetch_transcript.json",
+    "export": "ORCHESTRATOR_FIXTURES",
+    "key": "fetch_transcript",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "ORCHESTRATOR_FIXTURES.kill.json",
+    "export": "ORCHESTRATOR_FIXTURES",
+    "key": "kill",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "ORCHESTRATOR_FIXTURES.no_work.json",
+    "export": "ORCHESTRATOR_FIXTURES",
+    "key": "no_work",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "ORCHESTRATOR_FIXTURES.permission_decision.json",
+    "export": "ORCHESTRATOR_FIXTURES",
+    "key": "permission_decision",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "ORCHESTRATOR_FIXTURES.protocol_error.json",
+    "export": "ORCHESTRATOR_FIXTURES",
+    "key": "protocol_error",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "ORCHESTRATOR_FIXTURES.registered.json",
+    "export": "ORCHESTRATOR_FIXTURES",
+    "key": "registered",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "ORCHESTRATOR_FIXTURES.retry_after.json",
+    "export": "ORCHESTRATOR_FIXTURES",
+    "key": "retry_after",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "ORCHESTRATOR_FIXTURES.run_action.json",
+    "export": "ORCHESTRATOR_FIXTURES",
+    "key": "run_action",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "ORCHESTRATOR_FIXTURES.run_cmd.json",
+    "export": "ORCHESTRATOR_FIXTURES",
+    "key": "run_cmd",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "ORCHESTRATOR_FIXTURES.send_input.json",
+    "export": "ORCHESTRATOR_FIXTURES",
+    "key": "send_input",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "ORCHESTRATOR_FIXTURES.send_message.json",
+    "export": "ORCHESTRATOR_FIXTURES",
+    "key": "send_message",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "ORCHESTRATOR_FIXTURES.start_session.json",
+    "export": "ORCHESTRATOR_FIXTURES",
+    "key": "start_session",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "ORCHESTRATOR_FIXTURES.work_assignment.json",
+    "export": "ORCHESTRATOR_FIXTURES",
+    "key": "work_assignment",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "PERMISSION_FIXTURE_IDS.json",
+    "export": "PERMISSION_FIXTURE_IDS",
+    "key": null,
+    "schema": null,
+    "array": false
+  },
+  {
+    "file": "PERMISSION_WS_FIXTURES.allow_always.json",
+    "export": "PERMISSION_WS_FIXTURES",
+    "key": "allow_always",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "PERMISSION_WS_FIXTURES.allow_once.json",
+    "export": "PERMISSION_WS_FIXTURES",
+    "key": "allow_once",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "PERMISSION_WS_FIXTURES.deny_without_note.json",
+    "export": "PERMISSION_WS_FIXTURES",
+    "key": "deny_without_note",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "PERMISSION_WS_FIXTURES.request_with_suggestions.json",
+    "export": "PERMISSION_WS_FIXTURES",
+    "key": "request_with_suggestions",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_FIXTURES.action_result.json",
+    "export": "SESSION_EVENT_FIXTURES",
+    "key": "action_result",
+    "schema": "SessionEventPayload",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_FIXTURES.ask_user.json",
+    "export": "SESSION_EVENT_FIXTURES",
+    "key": "ask_user",
+    "schema": "SessionEventPayload",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_FIXTURES.build_slot.json",
+    "export": "SESSION_EVENT_FIXTURES",
+    "key": "build_slot",
+    "schema": "SessionEventPayload",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_FIXTURES.claude_session_id.json",
+    "export": "SESSION_EVENT_FIXTURES",
+    "key": "claude_session_id",
+    "schema": "SessionEventPayload",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_FIXTURES.cmd_exit.json",
+    "export": "SESSION_EVENT_FIXTURES",
+    "key": "cmd_exit",
+    "schema": "SessionEventPayload",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_FIXTURES.complete_state.json",
+    "export": "SESSION_EVENT_FIXTURES",
+    "key": "complete_state",
+    "schema": "SessionEventPayload",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_FIXTURES.exit.json",
+    "export": "SESSION_EVENT_FIXTURES",
+    "key": "exit",
+    "schema": "SessionEventPayload",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_FIXTURES.heartbeat.json",
+    "export": "SESSION_EVENT_FIXTURES",
+    "key": "heartbeat",
+    "schema": "SessionEventPayload",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_FIXTURES.no_outcome.json",
+    "export": "SESSION_EVENT_FIXTURES",
+    "key": "no_outcome",
+    "schema": "SessionEventPayload",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_FIXTURES.spend.json",
+    "export": "SESSION_EVENT_FIXTURES",
+    "key": "spend",
+    "schema": "SessionEventPayload",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_FIXTURES.started.json",
+    "export": "SESSION_EVENT_FIXTURES",
+    "key": "started",
+    "schema": "SessionEventPayload",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_MESSAGE_FIXTURES.action_result.json",
+    "export": "SESSION_EVENT_MESSAGE_FIXTURES",
+    "key": "action_result",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_MESSAGE_FIXTURES.ask_user.json",
+    "export": "SESSION_EVENT_MESSAGE_FIXTURES",
+    "key": "ask_user",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_MESSAGE_FIXTURES.build_slot.json",
+    "export": "SESSION_EVENT_MESSAGE_FIXTURES",
+    "key": "build_slot",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_MESSAGE_FIXTURES.claude_session_id.json",
+    "export": "SESSION_EVENT_MESSAGE_FIXTURES",
+    "key": "claude_session_id",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_MESSAGE_FIXTURES.cmd_exit.json",
+    "export": "SESSION_EVENT_MESSAGE_FIXTURES",
+    "key": "cmd_exit",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_MESSAGE_FIXTURES.complete_state.json",
+    "export": "SESSION_EVENT_MESSAGE_FIXTURES",
+    "key": "complete_state",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_MESSAGE_FIXTURES.exit.json",
+    "export": "SESSION_EVENT_MESSAGE_FIXTURES",
+    "key": "exit",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_MESSAGE_FIXTURES.heartbeat.json",
+    "export": "SESSION_EVENT_MESSAGE_FIXTURES",
+    "key": "heartbeat",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_MESSAGE_FIXTURES.no_outcome.json",
+    "export": "SESSION_EVENT_MESSAGE_FIXTURES",
+    "key": "no_outcome",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_MESSAGE_FIXTURES.spend.json",
+    "export": "SESSION_EVENT_MESSAGE_FIXTURES",
+    "key": "spend",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "SESSION_EVENT_MESSAGE_FIXTURES.started.json",
+    "export": "SESSION_EVENT_MESSAGE_FIXTURES",
+    "key": "started",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  }
+]

@@ -10,6 +10,9 @@
       "default": "./dist/index.js"
     }
   },
+  "scripts": {
+    "emit:protocol": "tsc -b scripts && node scripts/emit-protocol.ts"
+  },
   "dependencies": {
     "zod": "^4.6.7"
   },

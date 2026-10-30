@@ -1,0 +1,1978 @@
+{
+  "function": "canonicalRepo",
+  "description": "canonicalRepo(repo) → canonical host/org/repo or null (api/rest.ts)",
+  "cases": [
+    {
+      "input": "github.com/org/app",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "https://github.com/org/app",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "git@github.com:org/app",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "ssh://git@github.com/org/app",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "github.com/org/app.git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "https://github.com/org/app.git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "git@github.com:org/app.git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "ssh://git@github.com/org/app.git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "github.com/org/app.GIT",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "https://github.com/org/app.GIT",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "git@github.com:org/app.GIT",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "ssh://git@github.com/org/app.GIT",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "github.com/org/app.Git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "https://github.com/org/app.Git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "git@github.com:org/app.Git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "ssh://git@github.com/org/app.Git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "github.com/org/app.git.git",
+      "expected": null
+    },
+    {
+      "input": "https://github.com/org/app.git.git",
+      "expected": null
+    },
+    {
+      "input": "git@github.com:org/app.git.git",
+      "expected": null
+    },
+    {
+      "input": "ssh://git@github.com/org/app.git.git",
+      "expected": null
+    },
+    {
+      "input": "github.com/org/app/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "https://github.com/org/app/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "git@github.com:org/app/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "ssh://git@github.com/org/app/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "github.com/org/app.git/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "https://github.com/org/app.git/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "git@github.com:org/app.git/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "ssh://git@github.com/org/app.git/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "github.com/Org/App",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "https://github.com/Org/App",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "git@github.com:Org/App",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "ssh://git@github.com/Org/App",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "github.com/Org/App.git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "https://github.com/Org/App.git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "git@github.com:Org/App.git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "ssh://git@github.com/Org/App.git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "github.com/Org/App.GIT",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "https://github.com/Org/App.GIT",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "git@github.com:Org/App.GIT",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "ssh://git@github.com/Org/App.GIT",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "github.com/Org/App.Git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "https://github.com/Org/App.Git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "git@github.com:Org/App.Git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "ssh://git@github.com/Org/App.Git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "github.com/Org/App.git.git",
+      "expected": null
+    },
+    {
+      "input": "https://github.com/Org/App.git.git",
+      "expected": null
+    },
+    {
+      "input": "git@github.com:Org/App.git.git",
+      "expected": null
+    },
+    {
+      "input": "ssh://git@github.com/Org/App.git.git",
+      "expected": null
+    },
+    {
+      "input": "github.com/Org/App/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "https://github.com/Org/App/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "git@github.com:Org/App/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "ssh://git@github.com/Org/App/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "github.com/Org/App.git/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "https://github.com/Org/App.git/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "git@github.com:Org/App.git/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "ssh://git@github.com/Org/App.git/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "github.com/group/sub/App_1",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "https://github.com/group/sub/App_1",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "git@github.com:group/sub/App_1",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@github.com/group/sub/App_1",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "github.com/group/sub/App_1.git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "https://github.com/group/sub/App_1.git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "git@github.com:group/sub/App_1.git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@github.com/group/sub/App_1.git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "github.com/group/sub/App_1.GIT",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "https://github.com/group/sub/App_1.GIT",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "git@github.com:group/sub/App_1.GIT",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@github.com/group/sub/App_1.GIT",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "github.com/group/sub/App_1.Git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "https://github.com/group/sub/App_1.Git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "git@github.com:group/sub/App_1.Git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@github.com/group/sub/App_1.Git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "github.com/group/sub/App_1.git.git",
+      "expected": null
+    },
+    {
+      "input": "https://github.com/group/sub/App_1.git.git",
+      "expected": null
+    },
+    {
+      "input": "git@github.com:group/sub/App_1.git.git",
+      "expected": null
+    },
+    {
+      "input": "ssh://git@github.com/group/sub/App_1.git.git",
+      "expected": null
+    },
+    {
+      "input": "github.com/group/sub/App_1/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "https://github.com/group/sub/App_1/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "git@github.com:group/sub/App_1/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@github.com/group/sub/App_1/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "github.com/group/sub/App_1.git/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "https://github.com/group/sub/App_1.git/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "git@github.com:group/sub/App_1.git/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@github.com/group/sub/App_1.git/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "github.com/o-r/a.b",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "https://github.com/o-r/a.b",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "git@github.com:o-r/a.b",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@github.com/o-r/a.b",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "github.com/o-r/a.b.git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "https://github.com/o-r/a.b.git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "git@github.com:o-r/a.b.git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@github.com/o-r/a.b.git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "github.com/o-r/a.b.GIT",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "https://github.com/o-r/a.b.GIT",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "git@github.com:o-r/a.b.GIT",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@github.com/o-r/a.b.GIT",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "github.com/o-r/a.b.Git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "https://github.com/o-r/a.b.Git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "git@github.com:o-r/a.b.Git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@github.com/o-r/a.b.Git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "github.com/o-r/a.b.git.git",
+      "expected": null
+    },
+    {
+      "input": "https://github.com/o-r/a.b.git.git",
+      "expected": null
+    },
+    {
+      "input": "git@github.com:o-r/a.b.git.git",
+      "expected": null
+    },
+    {
+      "input": "ssh://git@github.com/o-r/a.b.git.git",
+      "expected": null
+    },
+    {
+      "input": "github.com/o-r/a.b/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "https://github.com/o-r/a.b/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "git@github.com:o-r/a.b/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@github.com/o-r/a.b/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "github.com/o-r/a.b.git/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "https://github.com/o-r/a.b.git/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "git@github.com:o-r/a.b.git/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@github.com/o-r/a.b.git/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "GitHub.com/org/app",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "https://GitHub.com/org/app",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "git@GitHub.com:org/app",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "ssh://git@GitHub.com/org/app",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "GitHub.com/org/app.git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "https://GitHub.com/org/app.git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "git@GitHub.com:org/app.git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "ssh://git@GitHub.com/org/app.git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "GitHub.com/org/app.GIT",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "https://GitHub.com/org/app.GIT",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "git@GitHub.com:org/app.GIT",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "ssh://git@GitHub.com/org/app.GIT",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "GitHub.com/org/app.Git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "https://GitHub.com/org/app.Git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "git@GitHub.com:org/app.Git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "ssh://git@GitHub.com/org/app.Git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "GitHub.com/org/app.git.git",
+      "expected": null
+    },
+    {
+      "input": "https://GitHub.com/org/app.git.git",
+      "expected": null
+    },
+    {
+      "input": "git@GitHub.com:org/app.git.git",
+      "expected": null
+    },
+    {
+      "input": "ssh://git@GitHub.com/org/app.git.git",
+      "expected": null
+    },
+    {
+      "input": "GitHub.com/org/app/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "https://GitHub.com/org/app/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "git@GitHub.com:org/app/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "ssh://git@GitHub.com/org/app/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "GitHub.com/org/app.git/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "https://GitHub.com/org/app.git/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "git@GitHub.com:org/app.git/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "ssh://git@GitHub.com/org/app.git/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "GitHub.com/Org/App",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "https://GitHub.com/Org/App",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "git@GitHub.com:Org/App",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "ssh://git@GitHub.com/Org/App",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "GitHub.com/Org/App.git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "https://GitHub.com/Org/App.git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "git@GitHub.com:Org/App.git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "ssh://git@GitHub.com/Org/App.git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "GitHub.com/Org/App.GIT",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "https://GitHub.com/Org/App.GIT",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "git@GitHub.com:Org/App.GIT",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "ssh://git@GitHub.com/Org/App.GIT",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "GitHub.com/Org/App.Git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "https://GitHub.com/Org/App.Git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "git@GitHub.com:Org/App.Git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "ssh://git@GitHub.com/Org/App.Git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "GitHub.com/Org/App.git.git",
+      "expected": null
+    },
+    {
+      "input": "https://GitHub.com/Org/App.git.git",
+      "expected": null
+    },
+    {
+      "input": "git@GitHub.com:Org/App.git.git",
+      "expected": null
+    },
+    {
+      "input": "ssh://git@GitHub.com/Org/App.git.git",
+      "expected": null
+    },
+    {
+      "input": "GitHub.com/Org/App/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "https://GitHub.com/Org/App/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "git@GitHub.com:Org/App/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "ssh://git@GitHub.com/Org/App/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "GitHub.com/Org/App.git/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "https://GitHub.com/Org/App.git/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "git@GitHub.com:Org/App.git/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "ssh://git@GitHub.com/Org/App.git/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "GitHub.com/group/sub/App_1",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "https://GitHub.com/group/sub/App_1",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "git@GitHub.com:group/sub/App_1",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@GitHub.com/group/sub/App_1",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "GitHub.com/group/sub/App_1.git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "https://GitHub.com/group/sub/App_1.git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "git@GitHub.com:group/sub/App_1.git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@GitHub.com/group/sub/App_1.git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "GitHub.com/group/sub/App_1.GIT",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "https://GitHub.com/group/sub/App_1.GIT",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "git@GitHub.com:group/sub/App_1.GIT",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@GitHub.com/group/sub/App_1.GIT",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "GitHub.com/group/sub/App_1.Git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "https://GitHub.com/group/sub/App_1.Git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "git@GitHub.com:group/sub/App_1.Git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@GitHub.com/group/sub/App_1.Git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "GitHub.com/group/sub/App_1.git.git",
+      "expected": null
+    },
+    {
+      "input": "https://GitHub.com/group/sub/App_1.git.git",
+      "expected": null
+    },
+    {
+      "input": "git@GitHub.com:group/sub/App_1.git.git",
+      "expected": null
+    },
+    {
+      "input": "ssh://git@GitHub.com/group/sub/App_1.git.git",
+      "expected": null
+    },
+    {
+      "input": "GitHub.com/group/sub/App_1/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "https://GitHub.com/group/sub/App_1/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "git@GitHub.com:group/sub/App_1/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@GitHub.com/group/sub/App_1/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "GitHub.com/group/sub/App_1.git/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "https://GitHub.com/group/sub/App_1.git/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "git@GitHub.com:group/sub/App_1.git/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@GitHub.com/group/sub/App_1.git/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "GitHub.com/o-r/a.b",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "https://GitHub.com/o-r/a.b",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "git@GitHub.com:o-r/a.b",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@GitHub.com/o-r/a.b",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "GitHub.com/o-r/a.b.git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "https://GitHub.com/o-r/a.b.git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "git@GitHub.com:o-r/a.b.git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@GitHub.com/o-r/a.b.git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "GitHub.com/o-r/a.b.GIT",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "https://GitHub.com/o-r/a.b.GIT",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "git@GitHub.com:o-r/a.b.GIT",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@GitHub.com/o-r/a.b.GIT",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "GitHub.com/o-r/a.b.Git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "https://GitHub.com/o-r/a.b.Git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "git@GitHub.com:o-r/a.b.Git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@GitHub.com/o-r/a.b.Git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "GitHub.com/o-r/a.b.git.git",
+      "expected": null
+    },
+    {
+      "input": "https://GitHub.com/o-r/a.b.git.git",
+      "expected": null
+    },
+    {
+      "input": "git@GitHub.com:o-r/a.b.git.git",
+      "expected": null
+    },
+    {
+      "input": "ssh://git@GitHub.com/o-r/a.b.git.git",
+      "expected": null
+    },
+    {
+      "input": "GitHub.com/o-r/a.b/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "https://GitHub.com/o-r/a.b/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "git@GitHub.com:o-r/a.b/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@GitHub.com/o-r/a.b/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "GitHub.com/o-r/a.b.git/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "https://GitHub.com/o-r/a.b.git/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "git@GitHub.com:o-r/a.b.git/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@GitHub.com/o-r/a.b.git/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "GITHUB.COM/org/app",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "https://GITHUB.COM/org/app",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "git@GITHUB.COM:org/app",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/org/app",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "GITHUB.COM/org/app.git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "https://GITHUB.COM/org/app.git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "git@GITHUB.COM:org/app.git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/org/app.git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "GITHUB.COM/org/app.GIT",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "https://GITHUB.COM/org/app.GIT",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "git@GITHUB.COM:org/app.GIT",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/org/app.GIT",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "GITHUB.COM/org/app.Git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "https://GITHUB.COM/org/app.Git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "git@GITHUB.COM:org/app.Git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/org/app.Git",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "GITHUB.COM/org/app.git.git",
+      "expected": null
+    },
+    {
+      "input": "https://GITHUB.COM/org/app.git.git",
+      "expected": null
+    },
+    {
+      "input": "git@GITHUB.COM:org/app.git.git",
+      "expected": null
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/org/app.git.git",
+      "expected": null
+    },
+    {
+      "input": "GITHUB.COM/org/app/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "https://GITHUB.COM/org/app/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "git@GITHUB.COM:org/app/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/org/app/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "GITHUB.COM/org/app.git/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "https://GITHUB.COM/org/app.git/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "git@GITHUB.COM:org/app.git/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/org/app.git/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "GITHUB.COM/Org/App",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "https://GITHUB.COM/Org/App",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "git@GITHUB.COM:Org/App",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/Org/App",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "GITHUB.COM/Org/App.git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "https://GITHUB.COM/Org/App.git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "git@GITHUB.COM:Org/App.git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/Org/App.git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "GITHUB.COM/Org/App.GIT",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "https://GITHUB.COM/Org/App.GIT",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "git@GITHUB.COM:Org/App.GIT",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/Org/App.GIT",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "GITHUB.COM/Org/App.Git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "https://GITHUB.COM/Org/App.Git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "git@GITHUB.COM:Org/App.Git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/Org/App.Git",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "GITHUB.COM/Org/App.git.git",
+      "expected": null
+    },
+    {
+      "input": "https://GITHUB.COM/Org/App.git.git",
+      "expected": null
+    },
+    {
+      "input": "git@GITHUB.COM:Org/App.git.git",
+      "expected": null
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/Org/App.git.git",
+      "expected": null
+    },
+    {
+      "input": "GITHUB.COM/Org/App/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "https://GITHUB.COM/Org/App/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "git@GITHUB.COM:Org/App/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/Org/App/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "GITHUB.COM/Org/App.git/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "https://GITHUB.COM/Org/App.git/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "git@GITHUB.COM:Org/App.git/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/Org/App.git/",
+      "expected": "github.com/Org/App"
+    },
+    {
+      "input": "GITHUB.COM/group/sub/App_1",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "https://GITHUB.COM/group/sub/App_1",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "git@GITHUB.COM:group/sub/App_1",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/group/sub/App_1",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "GITHUB.COM/group/sub/App_1.git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "https://GITHUB.COM/group/sub/App_1.git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "git@GITHUB.COM:group/sub/App_1.git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/group/sub/App_1.git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "GITHUB.COM/group/sub/App_1.GIT",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "https://GITHUB.COM/group/sub/App_1.GIT",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "git@GITHUB.COM:group/sub/App_1.GIT",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/group/sub/App_1.GIT",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "GITHUB.COM/group/sub/App_1.Git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "https://GITHUB.COM/group/sub/App_1.Git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "git@GITHUB.COM:group/sub/App_1.Git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/group/sub/App_1.Git",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "GITHUB.COM/group/sub/App_1.git.git",
+      "expected": null
+    },
+    {
+      "input": "https://GITHUB.COM/group/sub/App_1.git.git",
+      "expected": null
+    },
+    {
+      "input": "git@GITHUB.COM:group/sub/App_1.git.git",
+      "expected": null
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/group/sub/App_1.git.git",
+      "expected": null
+    },
+    {
+      "input": "GITHUB.COM/group/sub/App_1/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "https://GITHUB.COM/group/sub/App_1/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "git@GITHUB.COM:group/sub/App_1/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/group/sub/App_1/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "GITHUB.COM/group/sub/App_1.git/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "https://GITHUB.COM/group/sub/App_1.git/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "git@GITHUB.COM:group/sub/App_1.git/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/group/sub/App_1.git/",
+      "expected": "github.com/group/sub/App_1"
+    },
+    {
+      "input": "GITHUB.COM/o-r/a.b",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "https://GITHUB.COM/o-r/a.b",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "git@GITHUB.COM:o-r/a.b",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/o-r/a.b",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "GITHUB.COM/o-r/a.b.git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "https://GITHUB.COM/o-r/a.b.git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "git@GITHUB.COM:o-r/a.b.git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/o-r/a.b.git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "GITHUB.COM/o-r/a.b.GIT",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "https://GITHUB.COM/o-r/a.b.GIT",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "git@GITHUB.COM:o-r/a.b.GIT",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/o-r/a.b.GIT",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "GITHUB.COM/o-r/a.b.Git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "https://GITHUB.COM/o-r/a.b.Git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "git@GITHUB.COM:o-r/a.b.Git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/o-r/a.b.Git",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "GITHUB.COM/o-r/a.b.git.git",
+      "expected": null
+    },
+    {
+      "input": "https://GITHUB.COM/o-r/a.b.git.git",
+      "expected": null
+    },
+    {
+      "input": "git@GITHUB.COM:o-r/a.b.git.git",
+      "expected": null
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/o-r/a.b.git.git",
+      "expected": null
+    },
+    {
+      "input": "GITHUB.COM/o-r/a.b/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "https://GITHUB.COM/o-r/a.b/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "git@GITHUB.COM:o-r/a.b/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/o-r/a.b/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "GITHUB.COM/o-r/a.b.git/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "https://GITHUB.COM/o-r/a.b.git/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "git@GITHUB.COM:o-r/a.b.git/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@GITHUB.COM/o-r/a.b.git/",
+      "expected": "github.com/o-r/a.b"
+    },
+    {
+      "input": "gitlab.example.org/org/app",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "https://gitlab.example.org/org/app",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "git@gitlab.example.org:org/app",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/org/app",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "gitlab.example.org/org/app.git",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "https://gitlab.example.org/org/app.git",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "git@gitlab.example.org:org/app.git",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/org/app.git",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "gitlab.example.org/org/app.GIT",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "https://gitlab.example.org/org/app.GIT",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "git@gitlab.example.org:org/app.GIT",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/org/app.GIT",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "gitlab.example.org/org/app.Git",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "https://gitlab.example.org/org/app.Git",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "git@gitlab.example.org:org/app.Git",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/org/app.Git",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "gitlab.example.org/org/app.git.git",
+      "expected": null
+    },
+    {
+      "input": "https://gitlab.example.org/org/app.git.git",
+      "expected": null
+    },
+    {
+      "input": "git@gitlab.example.org:org/app.git.git",
+      "expected": null
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/org/app.git.git",
+      "expected": null
+    },
+    {
+      "input": "gitlab.example.org/org/app/",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "https://gitlab.example.org/org/app/",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "git@gitlab.example.org:org/app/",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/org/app/",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "gitlab.example.org/org/app.git/",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "https://gitlab.example.org/org/app.git/",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "git@gitlab.example.org:org/app.git/",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/org/app.git/",
+      "expected": "gitlab.example.org/org/app"
+    },
+    {
+      "input": "gitlab.example.org/Org/App",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "https://gitlab.example.org/Org/App",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "git@gitlab.example.org:Org/App",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/Org/App",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "gitlab.example.org/Org/App.git",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "https://gitlab.example.org/Org/App.git",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "git@gitlab.example.org:Org/App.git",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/Org/App.git",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "gitlab.example.org/Org/App.GIT",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "https://gitlab.example.org/Org/App.GIT",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "git@gitlab.example.org:Org/App.GIT",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/Org/App.GIT",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "gitlab.example.org/Org/App.Git",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "https://gitlab.example.org/Org/App.Git",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "git@gitlab.example.org:Org/App.Git",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/Org/App.Git",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "gitlab.example.org/Org/App.git.git",
+      "expected": null
+    },
+    {
+      "input": "https://gitlab.example.org/Org/App.git.git",
+      "expected": null
+    },
+    {
+      "input": "git@gitlab.example.org:Org/App.git.git",
+      "expected": null
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/Org/App.git.git",
+      "expected": null
+    },
+    {
+      "input": "gitlab.example.org/Org/App/",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "https://gitlab.example.org/Org/App/",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "git@gitlab.example.org:Org/App/",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/Org/App/",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "gitlab.example.org/Org/App.git/",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "https://gitlab.example.org/Org/App.git/",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "git@gitlab.example.org:Org/App.git/",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/Org/App.git/",
+      "expected": "gitlab.example.org/Org/App"
+    },
+    {
+      "input": "gitlab.example.org/group/sub/App_1",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "https://gitlab.example.org/group/sub/App_1",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "git@gitlab.example.org:group/sub/App_1",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/group/sub/App_1",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "gitlab.example.org/group/sub/App_1.git",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "https://gitlab.example.org/group/sub/App_1.git",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "git@gitlab.example.org:group/sub/App_1.git",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/group/sub/App_1.git",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "gitlab.example.org/group/sub/App_1.GIT",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "https://gitlab.example.org/group/sub/App_1.GIT",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "git@gitlab.example.org:group/sub/App_1.GIT",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/group/sub/App_1.GIT",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "gitlab.example.org/group/sub/App_1.Git",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "https://gitlab.example.org/group/sub/App_1.Git",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "git@gitlab.example.org:group/sub/App_1.Git",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/group/sub/App_1.Git",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "gitlab.example.org/group/sub/App_1.git.git",
+      "expected": null
+    },
+    {
+      "input": "https://gitlab.example.org/group/sub/App_1.git.git",
+      "expected": null
+    },
+    {
+      "input": "git@gitlab.example.org:group/sub/App_1.git.git",
+      "expected": null
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/group/sub/App_1.git.git",
+      "expected": null
+    },
+    {
+      "input": "gitlab.example.org/group/sub/App_1/",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "https://gitlab.example.org/group/sub/App_1/",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "git@gitlab.example.org:group/sub/App_1/",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/group/sub/App_1/",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "gitlab.example.org/group/sub/App_1.git/",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "https://gitlab.example.org/group/sub/App_1.git/",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "git@gitlab.example.org:group/sub/App_1.git/",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/group/sub/App_1.git/",
+      "expected": "gitlab.example.org/group/sub/App_1"
+    },
+    {
+      "input": "gitlab.example.org/o-r/a.b",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "https://gitlab.example.org/o-r/a.b",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "git@gitlab.example.org:o-r/a.b",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/o-r/a.b",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "gitlab.example.org/o-r/a.b.git",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "https://gitlab.example.org/o-r/a.b.git",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "git@gitlab.example.org:o-r/a.b.git",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/o-r/a.b.git",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "gitlab.example.org/o-r/a.b.GIT",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "https://gitlab.example.org/o-r/a.b.GIT",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "git@gitlab.example.org:o-r/a.b.GIT",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/o-r/a.b.GIT",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "gitlab.example.org/o-r/a.b.Git",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "https://gitlab.example.org/o-r/a.b.Git",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "git@gitlab.example.org:o-r/a.b.Git",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/o-r/a.b.Git",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "gitlab.example.org/o-r/a.b.git.git",
+      "expected": null
+    },
+    {
+      "input": "https://gitlab.example.org/o-r/a.b.git.git",
+      "expected": null
+    },
+    {
+      "input": "git@gitlab.example.org:o-r/a.b.git.git",
+      "expected": null
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/o-r/a.b.git.git",
+      "expected": null
+    },
+    {
+      "input": "gitlab.example.org/o-r/a.b/",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "https://gitlab.example.org/o-r/a.b/",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "git@gitlab.example.org:o-r/a.b/",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/o-r/a.b/",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "gitlab.example.org/o-r/a.b.git/",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "https://gitlab.example.org/o-r/a.b.git/",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "git@gitlab.example.org:o-r/a.b.git/",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "ssh://git@gitlab.example.org/o-r/a.b.git/",
+      "expected": "gitlab.example.org/o-r/a.b"
+    },
+    {
+      "input": "gitlab.com/Group/Sub/App",
+      "expected": "gitlab.com/Group/Sub/App"
+    },
+    {
+      "input": "github.com/org/.git",
+      "expected": null
+    },
+    {
+      "input": "HTTPS://github.com/org/app",
+      "expected": null
+    },
+    {
+      "input": "SSH://git@github.com/org/app",
+      "expected": null
+    },
+    {
+      "input": "ext::sh -c x",
+      "expected": null
+    },
+    {
+      "input": "ext::sh",
+      "expected": null
+    },
+    {
+      "input": "../x",
+      "expected": null
+    },
+    {
+      "input": "./x",
+      "expected": null
+    },
+    {
+      "input": "/tmp/x",
+      "expected": null
+    },
+    {
+      "input": "file:///x",
+      "expected": null
+    },
+    {
+      "input": "http://github.com/org/app",
+      "expected": null
+    },
+    {
+      "input": "git://github.com/org/app",
+      "expected": null
+    },
+    {
+      "input": "https://tok@github.com/org/app",
+      "expected": null
+    },
+    {
+      "input": "https://github.com:8443/org/app",
+      "expected": null
+    },
+    {
+      "input": "https://github.com/org/app?x=1",
+      "expected": null
+    },
+    {
+      "input": "https://github.com/org/app#x",
+      "expected": null
+    },
+    {
+      "input": "github.com/app",
+      "expected": null
+    },
+    {
+      "input": "github.com/org/../app",
+      "expected": null
+    },
+    {
+      "input": "github.com/org/./app",
+      "expected": null
+    },
+    {
+      "input": "github.com//org/app",
+      "expected": null
+    },
+    {
+      "input": "github.com/org/app//",
+      "expected": null
+    },
+    {
+      "input": "github.com:org/app",
+      "expected": null
+    },
+    {
+      "input": "-x/y/z",
+      "expected": null
+    },
+    {
+      "input": "",
+      "expected": null
+    },
+    {
+      "input": "github.com/org/app\n",
+      "expected": null
+    },
+    {
+      "input": "github.com/org/app\t",
+      "expected": null
+    },
+    {
+      "input": "github.com/org/a pp",
+      "expected": null
+    },
+    {
+      "input": "github.com/org/a﻿pp",
+      "expected": null
+    },
+    {
+      "input": "github.com/org/app",
+      "expected": null
+    },
+    {
+      "input": "github.com/org/a pp",
+      "expected": null
+    },
+    {
+      "input": "github.com/org/a\u0000pp",
+      "expected": null
+    },
+    {
+      "input": "git@github.com:org/app/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "x@github.com:org/app",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "git@-github.com:org/app",
+      "expected": null
+    },
+    {
+      "input": "github-.com/org/app",
+      "expected": null
+    },
+    {
+      "input": "git+ssh://github.com/org/app",
+      "expected": null
+    },
+    {
+      "input": "github.com/org/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "github.com/org/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "input": "github.com/org/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": null
+    },
+    {
+      "input": "github.com/org/é",
+      "expected": null
+    },
+    {
+      "input": "github.com/_org/app",
+      "expected": "github.com/_org/app"
+    },
+    {
+      "input": "github.com/.org/app",
+      "expected": null
+    },
+    {
+      "input": "C:/org/app",
+      "expected": null
+    },
+    {
+      "input": "c:org/app",
+      "expected": null
+    },
+    {
+      "input": "github.com/org/app.git/",
+      "expected": "github.com/org/app"
+    },
+    {
+      "input": "github.com/org/app.gitx",
+      "expected": "github.com/org/app.gitx"
+    }
+  ]
+}

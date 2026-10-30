@@ -28,6 +28,7 @@ Before M1-T01 lands, gates are `n/a (no scaffold)`.
 - [ ] New logic has unit tests. The pure FSM `apply()` has a test for every new transition.
 - [ ] DB code has an integration test against real Postgres (no mocks for SQL).
 - [ ] Failure paths are tested, not just happy paths.
+- [ ] New tests are small and fast ([TEST_STRATEGY §Write small, fast tests](TEST_STRATEGY.md#write-small-fast-tests)): cases go through a pure function. A test that spawns a process, or uses a real repo, DB or browser, says in a comment why only that can show it, and is in `SLOW_TIERS`.
 
 ## 5 · Docs & tracking (the implementing agent writes these on its branch; QA checks they are there)
 - [ ] The design doc matches the code. If behaviour diverged, the doc is updated in this branch, plus an ADR if it reverses a decision.

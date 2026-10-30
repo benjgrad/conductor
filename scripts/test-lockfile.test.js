@@ -134,8 +134,11 @@ describe('translateLockfile', () => {
 describe('daemonAffected (the daemon-windows job)', () => {
   it.each([
     [['packages/daemon/src/daemon.ts'], true],
-    [['packages/shared/src/api/rest.ts'], true],
+    [['packages/shared/src/api/rest.ts'], false],
+    [['packages/shared/package.json'], true],
     [['packages/daemon/package.json'], true],
+    [['scripts/test-slot.js'], true],
+    [['scripts/test-parity.js', 'scripts/test-parity.test.js'], false],
     [['pnpm-lock.yaml'], true],
     [['.github/workflows/daemon-windows.yml'], true],
     [['tsconfig.base.json'], true],
@@ -149,5 +152,10 @@ describe('daemonAffected (the daemon-windows job)', () => {
 
   it('runs when the diff is unknown', () => {
     expect(daemonAffected(null)).toBe(true);
+  });
+
+  it('a push to main also runs on a shared change', () => {
+    expect(daemonAffected(['packages/shared/src/api/rest.ts'], { main: true })).toBe(true);
+    expect(daemonAffected(['packages/web/src/App.tsx'], { main: true })).toBe(false);
   });
 });

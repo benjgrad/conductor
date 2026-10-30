@@ -23,6 +23,7 @@ import type {
   PermissionRequestListResponse,
   PasswordChangeRequest,
   ReopenSessionRequest,
+  RepoSuggestion,
   ReopenSessionResponse,
   RenameMachineRequest,
   UpdateMachineRequest,
@@ -87,6 +88,11 @@ export interface ApiClient {
   answer(sessionId: string, req: AnswerInputRequest): Promise<OkResponse>;
   /** POST /api/tickets → the new ticket; its card arrives on the board stream (card.upserted). */
   createTicket(req: CreateTicketRequest): Promise<TicketDto>;
+  /**
+   * GET /api/repos (create-ticket form): the account's ticket repos, most used first with a
+   * recency bias (`rankRepos`), then its machines' repos no ticket has used yet.
+   */
+  listRepos(): Promise<RepoSuggestion[]>;
   /** GET /api/workflows (create-ticket form, Workflows view): the latest version of each. */
   listWorkflows(): Promise<WorkflowSummary[]>;
   /**

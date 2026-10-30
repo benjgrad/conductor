@@ -14,6 +14,7 @@ import {
   PasswordChangeRequestSchema,
   passwordProblems,
   placeCard,
+  rankRepos,
   MachineRowSchema,
   RenameMachineRequestSchema,
   UpdateMachineRequestSchema,
@@ -610,6 +611,19 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         emit([{ type: 'card.upserted', session_id: null, ticket_id: card.ticket_id, card }]);
         return clone(ticket);
       }),
+
+    listRepos: () =>
+      reply(() =>
+        rankRepos(
+          [...cards.values()],
+          [...machines.values()].flatMap((mc) =>
+            mc.revoked_at === null
+              ? mc.repos.flatMap((r) => (r.remote === null ? [] : [r.remote]))
+              : [],
+          ),
+          now(),
+        ),
+      ),
 
     listWorkflows: () =>
       reply((): WorkflowSummary[] =>

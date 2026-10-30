@@ -93,6 +93,8 @@ export const API_PATHS = {
   machines: '/api/machines',
   /** UX-13a: GET → TeamResponse (the signed-in account's agent team). */
   team: '/api/team',
+  /** GET → RepoListResponse (the create-ticket form's repo suggestions, most used first). */
+  repos: '/api/repos',
   boardStream: '/api/stream/board',
   sessionOutputStream: (id: string) => `/api/stream/sessions/${id}/output`,
   /** Daemon ↔ orchestrator WebSocket (03), served on the same HTTP server as the API. */
@@ -1059,6 +1061,21 @@ export type TeamMember = z.infer<typeof TeamMemberSchema>;
 
 export const TeamResponseSchema = z.array(TeamMemberSchema);
 export type TeamResponse = z.infer<typeof TeamResponseSchema>;
+
+/**
+ * GET /api/repos. One repo the create-ticket form suggests: the account's ticket repos by
+ * frecency (`rankRepos`, ./repo-rank.ts), then its machines' repos no ticket has used yet
+ * (`ticket_count` 0, `last_used_at` null).
+ */
+export const RepoSuggestionSchema = z.object({
+  repo: z.string(),
+  ticket_count: z.number().int().nonnegative(),
+  last_used_at: IsoDateTimeSchema.nullable(),
+});
+export type RepoSuggestion = z.infer<typeof RepoSuggestionSchema>;
+
+export const RepoListResponseSchema = z.array(RepoSuggestionSchema);
+export type RepoListResponse = z.infer<typeof RepoListResponseSchema>;
 
 // ---------------------------------------------------------------- repo grammar (U-048)
 // The M1-T14 grammar (daemon `cloneSource`). TD-107: duplicated in the daemon's `cloneSource`

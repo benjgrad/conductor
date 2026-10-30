@@ -690,6 +690,12 @@ export const SessionDetailSchema = z.object({
   /** Ring-buffer snapshot at request time; live chunks via the output stream. */
   recent_output: z.array(OutputChunkSchema),
   /**
+   * ADR-0008: false when `recent_output` may not reach the start of the conversation (a
+   * conversation chunk was evicted, or the session is older than the orchestrator process), so
+   * the web loads the earlier part from Claude's transcript. Absent (older servers) ≡ true.
+   */
+  output_complete: z.boolean().optional(),
+  /**
    * ADR-0011: the last SESSION_MOVES_LIMIT `state.entered` rows, oldest first (`toMoveDto`).
    * Optional so older servers and fixtures still parse; the orchestrator always sends it
    * (absent ≡ []).

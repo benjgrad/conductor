@@ -3,6 +3,7 @@
 //! it by hand (see README.md). The other modules are hand-written ports of the shared helpers the
 //! daemon calls, checked against the same JSON vectors as their TypeScript originals.
 
+// TD-196: zod refinements and non-tag literals are not enforced by these types (README §Known gaps).
 #[allow(
     clippy::all,
     clippy::pedantic,

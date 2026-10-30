@@ -100,6 +100,7 @@ const ROOTS: Record<string, z.ZodType> = {
 /** `z.json()` is a recursive lazy union; any JSON value is `{}` (serde_json::Value in Rust). */
 const JSON_VALUE = 'JsonValue';
 
+// TD-196: toJSONSchema drops `.refine()` checks; the Rust side has to check those itself.
 function emitSchema(rootName: string, schema: z.ZodType): JsonSchema {
   const out = z.toJSONSchema(schema, {
     // typify reads draft-07 (`definitions`), not 2020-12 (`$defs`).

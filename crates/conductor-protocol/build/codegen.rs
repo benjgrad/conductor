@@ -34,6 +34,7 @@ fn main() {
 
     let schemas: BTreeMap<String, schemars08::schema::Schema> =
         serde_json::from_value(Value::Object(defs)).expect("schemas parse as JSON Schema");
+    // TD-198: typify's string length checks count chars, zod's UTF-16 code units.
     let mut settings = typify::TypeSpaceSettings::default();
     settings
         .with_struct_builder(false)

@@ -22,6 +22,7 @@
 | UX-15 Web Push (server) | PR #67 | in_review; migration needs Ben |
 | MR-T00 Rust daemon plan | PR #69 | in_review (plan only) |
 | MR-T01 Rust spike | board ticket e4bbe7dd | ready (posted 2026-10-29); stops for `cargo` until B-005 |
+| MR-T03 protocol codegen | board ticket (this branch) | in_review: conductor opens the PR; waits for the `daemon-rust` 3-OS matrix |
 | M2-T18 `service install`, M2-T18b, MW-T09 | tickets / branches | in_progress; TD-195 (`install.sh --service` fails) until T18 |
 
 ## Health

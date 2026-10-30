@@ -122,6 +122,8 @@ node scripts/test-slot.js cargo nextest run --workspace    # every Rust test, in
 cargo nextest run -p conductor-daemon <filter>             # targeted while iterating (e.g. `seam`)
 cargo build --release -p conductor-daemon                  # target/release/conductor-daemon
 node scripts/test-parity.js [--files <glob>]… [--write]    # crates/conductor-daemon/PARITY.md vs the TS tests
+pnpm --filter @conductor/shared emit:protocol            # zod → packages/shared/protocol-json (MR-T03)
+cargo run -p conductor-protocol-codegen                    # protocol-json → crates/conductor-protocol/src/generated.rs
 ```
 
 GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `scripts/ci.sh` as the `gates` check on every PR; a PR runs only the slow test tiers its diff reaches (`CONDUCTOR_CI_TIERED=1` → `pnpm test`), and `main` runs `test:all`. `daemon-windows.yml` runs the daemon tests on Windows only when the diff reaches the daemon (`scripts/test-affected.js`). `daemon-rust.yml` runs the cargo gates and a release build on ubuntu, macos and windows only when the diff reaches `crates/**`, `Cargo.*`, `rust-toolchain.toml` or `packages/shared/**`. Every push to `main` that passes it is deployed to gradyserver by `deploy/gradyserver/deploy.sh` (runbook [§12](docs/setup/deploy-gradyserver.md#12-cicd-github-actions)), so merging to `main` ships.

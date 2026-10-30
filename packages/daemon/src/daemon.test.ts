@@ -305,6 +305,34 @@ describe('daemon core: link', () => {
     makeDaemon(new FakeClaudeDriver(complete({})));
     await orch.until(() => orch.ofType('request_work').length >= 2);
   });
+
+  it("logs no_work's reason only when it changes (M2-T36)", async () => {
+    const reasons = ['max_sessions', 'max_sessions', 'no_ready_ticket'];
+    let n = 0;
+    orch.workReply = () => {
+      const reason = reasons[n++];
+      return reason === undefined
+        ? null
+        : {
+            type: 'no_work',
+            msg_id: randomUUID(),
+            seq: null,
+            session_id: null,
+            fencing_token: null,
+            payload: { reason },
+          };
+    };
+    const logs: string[] = [];
+    makeDaemon(new FakeClaudeDriver(complete({})), {
+      env: { CONDUCTOR_WORK_POLL_MS: '20' },
+      log: (m) => logs.push(m),
+    });
+    await orch.until(() => orch.ofType('request_work').length >= 4);
+    expect(logs.filter((l) => l.startsWith('no work: '))).toEqual([
+      'no work: max_sessions',
+      'no work: no_ready_ticket',
+    ]);
+  });
 });
 
 describe('daemon core: start_session', () => {

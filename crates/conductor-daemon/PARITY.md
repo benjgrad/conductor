@@ -411,6 +411,7 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 | daemon.test.ts › daemon core: link › close 4001 (revoked) stops the link and calls onFatal; no re-register | todo |
 | daemon.test.ts › daemon core: link › reconnects with backoff after the socket drops and registers again | todo |
 | daemon.test.ts › daemon core: link › asks for work again after retry_after | todo |
+| daemon.test.ts › daemon core: link › logs no_work's reason only when it changes (M2-T36) | todo |
 | daemon.test.ts › daemon core: start_session › creates the worktree on the session branch, spawns the driver, and forwards events | todo |
 | daemon.test.ts › daemon core: start_session › persists the pre-assigned Claude session id before spawning | todo |
 | daemon.test.ts › daemon core: start_session › ADR-0009: a reviewer start is fresh, read-only, and never replaces the worker's stored id | todo |

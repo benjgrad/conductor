@@ -1,7 +1,9 @@
 import {
   API_PATHS,
   EnrollRequestSchema,
+  MACHINE_CANNOT_TAKE_MAX,
   RenameMachineRequestSchema,
+  type MachineCannotTake,
   type EnrollmentTokenCreated,
   type MachineAlertDto,
   type MachineCapabilityDto,
@@ -18,9 +20,16 @@ import type {
   MachineCapabilityRow,
   MachineRepoRow,
   MachineRow as MachineDbRow,
+  TicketRow,
 } from '../db/types.js';
 import { isOutdated } from '../distribution.js';
 import { createEnrollmentToken, enrollMachine } from '../gateway/enroll.js';
+import {
+  cannotTake,
+  EFFECTIVE_VERSION_SQL,
+  machineFacts,
+  requiredCaps,
+} from '../gateway/routing.js';
 import { revokeMachine, type MachineSockets } from '../gateway/revoke.js';
 import type { Db } from '../main.js';
 import { parseBody, sendError } from './errors.js';
@@ -151,6 +160,51 @@ function toAlertDto(a: MachineAlertRow): MachineAlertDto {
   };
 }
 
+/** Ready tickets scanned for `cannot_take`, highest priority first. */
+const CANNOT_TAKE_SCAN = 500;
+
+/**
+ * M2-T16a: the account's queued tickets this machine can't take (the claim's rules, 10-contracts
+ * "Matching"), at most MACHINE_CANNOT_TAKE_MAX.
+ * TD: only the first CANNOT_TAKE_SCAN ready tickets are checked.
+ */
+async function loadCannotTake(
+  db: Queryable,
+  m: MachineListRow,
+  repos: readonly MachineRepoRow[],
+  caps: readonly MachineCapabilityRow[],
+): Promise<MachineCannotTake[]> {
+  const facts = machineFacts(
+    m.id,
+    repos.flatMap((r) => (r.remote === null ? [] : [r.remote])),
+    caps.map((c) => c.key),
+  );
+  const tickets = await db.query<{
+    id: string;
+    title: string;
+    repo: string;
+    kind: TicketRow['kind'];
+    workflow_id: string;
+    v: number | null;
+  }>(
+    `SELECT t.id, t.title, t.repo, t.kind, t.workflow_id, ${EFFECTIVE_VERSION_SQL} AS v
+       FROM ticket t WHERE t.account_id = $1 AND t.status = 'ready'
+      ORDER BY t.priority DESC, t.created_at, t.id LIMIT ${CANNOT_TAKE_SCAN}`,
+    [m.account_id],
+  );
+  const out: MachineCannotTake[] = [];
+  for (const t of tickets.rows) {
+    if (t.v === null) continue;
+    const reqs = await requiredCaps.get(db, t.workflow_id, t.v, t.kind).catch(() => null);
+    if (reqs === null) continue;
+    const why = cannotTake(facts, t.repo, reqs);
+    if (why === null) continue;
+    out.push({ ticket_id: t.id, title: t.title, ...why });
+    if (out.length === MACHINE_CANNOT_TAKE_MAX) break;
+  }
+  return out;
+}
+
 async function loadMachineDetail(
   db: Queryable,
   m: MachineListRow,
@@ -197,6 +251,7 @@ async function loadMachineDetail(
     capabilities,
     alerts: alerts.rows.map(toAlertDto),
     live_sessions: live.rows,
+    cannot_take: await loadCannotTake(db, m, repos.rows, caps.rows),
   };
 }
 

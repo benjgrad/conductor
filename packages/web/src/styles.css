@@ -1,10 +1,41 @@
+/* 11-web-ui §Tokens. The rules this design touched use them; the rest of the CSS moves over later
+   (TD-### in the PR summary: migrate the remaining CSS files onto the tokens). */
 :root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 14px;
+  --text-md: 15px;
+  --text-lg: 18px;
+  --text-xl: 20px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-pill: 999px;
+  --shadow-1: 0 2px 10px rgb(0 0 0 / 0.18);
+  --shadow-2: 0 6px 24px rgb(0 0 0 / 0.16);
+  --z-sticky: 5;
+  --z-menu: 20;
+  --z-sheet: 40;
+  /* WCAG 2.5.5: the touch target on phones and coarse pointers. */
+  --tap: 44px;
+
   --bg: #f6f7f9;
   --panel: #ffffff;
   --text: #1d2330;
-  --muted: #6b7385;
+  /* UXR-04: 5.3:1 on --bg, 4.8:1 on --ask-bg (AA). */
+  --muted: #5f6779;
   --border: #dde1e8;
+  /* UXR-05: a control's edge, about 3:1 on --panel (WCAG 1.4.11). */
+  --border-strong: #8d95a5;
   --accent: #3a63d8;
+  /* UXR-03: text on an --accent fill. */
+  --on-accent: #fff;
   --warn-bg: #fff4d6;
   --warn: #8a5a00;
   --ask-bg: #fde8e8;
@@ -26,9 +57,14 @@
     -apple-system,
     'Segoe UI',
     sans-serif;
-  font-size: 14px;
+  font-size: var(--text-base);
   color: var(--text);
   background: var(--bg);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -38,7 +74,9 @@
     --text: #e3e7ef;
     --muted: #8e97a8;
     --border: #2c3340;
+    --border-strong: #6a7487;
     --accent: #7c9cf5;
+    --on-accent: #12151c;
     --warn-bg: #3a2f12;
     --warn: #f0c060;
     --ask-bg: #3d1c20;
@@ -80,29 +118,39 @@ button:disabled {
 button.danger {
   color: var(--ask);
 }
+a {
+  color: var(--accent);
+}
 input,
 select,
 textarea {
   font: inherit;
-  padding: 4px 6px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  padding: var(--space-1) 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
   background: var(--panel);
   color: var(--text);
 }
 
 .topbar {
+  /* Sticky at every width; App measures its height into --topbar-h for the sticky .detail. */
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 10px 16px;
+  gap: var(--space-4);
+  padding: 10px var(--space-4);
   border-bottom: 1px solid var(--border);
   background: var(--panel);
 }
 .topbar h1 {
-  font-size: 18px;
+  font-size: var(--text-lg);
   margin: 0;
   flex: 1;
+}
+.logo-mark {
+  display: block;
 }
 /* UX-11: every top-bar control is an icon before its label. */
 .topbar .nav-tabs a,
@@ -117,7 +165,7 @@ textarea {
 }
 /* UX-11: icon-only bar; UX-12 turns it on below its breakpoint. */
 .topbar.compact {
-  gap: 8px;
+  gap: var(--space-2);
 }
 .topbar.compact .nav-label {
   display: none;
@@ -244,8 +292,10 @@ main {
   border: 1px solid var(--border);
   border-radius: 10px;
   position: sticky;
-  top: 12px;
-  height: calc(100vh - 80px);
+  /* 12 px below the sticky top bar, and 12 px above the bottom of the window. */
+  top: calc(var(--topbar-h, 49px) + 12px);
+  height: calc(100vh - var(--topbar-h, 49px) - 24px);
+  height: calc(100dvh - var(--topbar-h, 49px) - 24px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -601,7 +651,7 @@ button.copy {
   padding: 4px 12px;
   font-size: 12px;
   font-weight: 600;
-  box-shadow: 0 2px 10px rgb(0 0 0 / 0.18);
+  box-shadow: var(--shadow-1);
   background: var(--panel);
   white-space: nowrap;
   z-index: 2;
@@ -672,7 +722,7 @@ button.copy {
   border: 0;
   border-radius: 8px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   display: grid;
   place-items: center;
 }
@@ -694,7 +744,7 @@ button.copy {
   border: 0;
   border-radius: 8px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 .composer-box .reopen:disabled {
@@ -759,7 +809,7 @@ button.copy {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 6px 24px rgb(0 0 0 / 0.16);
+  box-shadow: var(--shadow-2);
   z-index: 3;
   max-height: 260px;
   overflow-y: auto;
@@ -1096,6 +1146,248 @@ button.link {
   }
   .create-ticket {
     grid-template-columns: 1fr;
+  }
+}
+
+/* 11-web-ui §Touch: on a coarse pointer or a phone every control is at least --tap tall. The card's
+   title and preview are text inside a tappable card, so they keep their line height. */
+@media (pointer: coarse), (max-width: 699.98px) {
+  button:not(.card-open):not(.card-preview),
+  .nav-tabs a,
+  [role='tab'],
+  [role='menuitem'],
+  [role='menuitemcheckbox'] {
+    min-height: var(--tap);
+  }
+  .nav-tabs a,
+  .account-menu [role='menuitem'] {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .detail-head .close,
+  .detail-head .back,
+  .sheet-close {
+    min-width: var(--tap);
+  }
+  .kind-choice label {
+    min-height: var(--tap);
+  }
+  input:not([type='radio']):not([type='checkbox']),
+  select {
+    min-height: var(--tap);
+  }
+  .card .card-pr-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--tap);
+  }
+  .composer-box textarea {
+    min-height: calc(var(--tap) + var(--space-2));
+    padding-right: calc(var(--tap) + var(--space-3));
+  }
+  .composer-box .send {
+    width: var(--tap);
+    height: var(--tap);
+    right: var(--space-1);
+    bottom: var(--space-1);
+  }
+}
+
+/* 11-web-ui §Phone layout (MOBILE_QUERY in components/useMediaQuery.ts). Desktop is unchanged. */
+@media (max-width: 699.98px) {
+  /* UXR-02: iOS Safari zooms into any field under 16 px. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+  .topbar {
+    gap: var(--space-1);
+    padding: calc(var(--space-1) + env(safe-area-inset-top))
+      max(var(--space-2), env(safe-area-inset-right)) var(--space-1)
+      max(var(--space-3), env(safe-area-inset-left));
+  }
+  .topbar .nav-tabs a,
+  .topbar > button,
+  .topbar .account-button {
+    min-width: var(--tap);
+    justify-content: center;
+  }
+  .account-menu {
+    max-width: calc(100vw - 2 * var(--space-2));
+  }
+  main {
+    padding: var(--space-2) var(--space-3);
+  }
+  /* The panel covers the board, so the board isn't laid out (or scrolled) behind it. */
+  .with-detail main > .board {
+    display: none;
+  }
+  .detail.full-screen {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-sheet);
+    width: auto;
+    height: var(--vvh, 100dvh);
+    border: 0;
+    border-radius: 0;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+      env(safe-area-inset-left);
+  }
+  .detail.full-screen .detail-head {
+    padding: var(--space-1) var(--space-3) var(--space-1) var(--space-1);
+  }
+  .detail-head .back {
+    flex: none;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text);
+  }
+  .detail.full-screen .detail-head h2 {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+  .detail.full-screen .tabs [role='tab'] {
+    flex: 1;
+  }
+  .error.banner {
+    margin: var(--space-2) var(--space-3) 0;
+  }
+
+  /* Create ticket: a full-screen sheet with a sticky footer. */
+  .sheet {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-sheet);
+    height: var(--vvh, 100dvh);
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    outline: none;
+  }
+  .sheet-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: calc(var(--space-1) + env(safe-area-inset-top)) var(--space-1) var(--space-1)
+      var(--space-4);
+    border-bottom: 1px solid var(--border);
+  }
+  .sheet-head h2 {
+    margin: 0;
+    font-size: var(--text-lg);
+  }
+  .sheet-close {
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--muted);
+  }
+  .sheet .create-ticket {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-4) var(--space-4) 0;
+    border: 0;
+  }
+  .sheet .create-ticket label {
+    gap: var(--space-1);
+    font-size: var(--text-sm);
+  }
+  .sheet .create-ticket input:not([type='radio']) {
+    min-height: var(--tap);
+    padding: var(--space-2) var(--space-3);
+  }
+  .sheet .kind-choice {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2);
+  }
+  .sheet .kind-choice legend {
+    float: none;
+    padding: 0;
+    margin: 0 0 var(--space-1);
+    font-size: var(--text-sm);
+  }
+  /* Kind as two big segmented buttons; the radio stays (keyboard and screen readers). */
+  .sheet .create-ticket .kind-choice label {
+    justify-content: center;
+    gap: var(--space-2);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    font-size: var(--text-base);
+  }
+  .sheet .create-ticket .kind-choice label:has(input:checked) {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+    background: var(--user-bg);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .sheet .form-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: var(--z-sticky);
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-1);
+    margin: auto calc(-1 * var(--space-4)) 0;
+    padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+  }
+  .sheet .form-actions button[type='submit'] {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--on-accent);
+    font-weight: 600;
+  }
+  .form-hint {
+    font-size: var(--text-sm);
+    text-align: center;
+  }
+  .sheet .ticket-body-plain,
+  .sheet .ticket-body-rich {
+    min-height: 12em;
+    max-height: calc(var(--vvh, 100dvh) * 0.5);
+  }
+  /* UXR-15: BlockNote's drag-handle gutter is 13% of a phone; keep a narrow one. */
+  .sheet .ticket-body-rich .bn-editor {
+    padding-inline: 28px var(--space-2);
+  }
+
+  /* UXR-21: a wide block scrolls in its own box, never the page. */
+  .machines-table,
+  .admin-table {
+    display: block;
+    overflow-x: auto;
+    /* Contains the absolutely positioned .visually-hidden spans, which would widen the page. */
+    position: relative;
+  }
+  .mobile-note {
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-sm);
+  }
+}
+.mobile-note {
+  display: none;
+}
+@media (max-width: 699.98px) {
+  .mobile-note {
+    display: block;
   }
 }
 

@@ -1,0 +1,42 @@
+[
+  {
+    "authed": true,
+    "kind": "cli",
+    "name": "gh",
+    "version": "2.62.0"
+  },
+  {
+    "authed": false,
+    "kind": "cli",
+    "name": "az",
+    "version": "2.67.0"
+  },
+  {
+    "authed": false,
+    "kind": "cli",
+    "name": "git",
+    "version": "2.47.1"
+  },
+  {
+    "kind": "mcp",
+    "name": "slack"
+  },
+  {
+    "kind": "skill",
+    "name": "review"
+  },
+  {
+    "kind": "skill",
+    "name": "deploy",
+    "repo": "github.com/benjgrad/fixture-app"
+  },
+  {
+    "kind": "agent",
+    "name": "implementer",
+    "repo": "github.com/benjgrad/conductor"
+  },
+  {
+    "kind": "claude",
+    "version": "2.1.308"
+  }
+]

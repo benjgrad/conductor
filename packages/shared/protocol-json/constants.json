@@ -1,0 +1,59 @@
+{
+  "PROTOCOL_VERSION": 2,
+  "CLOSE_REPLACED": 4000,
+  "CLOSE_REVOKED": 4001,
+  "CLOSE_UNAUTHORIZED": 4003,
+  "CLOSE_PROTOCOL": 4005,
+  "CLOSE_REASONS": {
+    "4000": "replaced by a newer connection",
+    "4001": "machine revoked",
+    "4003": "unauthorized",
+    "4005": "protocol version not supported: update the daemon (re-run the install command)"
+  },
+  "DAEMON_AUTH_HEADER": "authorization",
+  "ALERT_FILES_MAX": 200,
+  "STDERR_TAIL_LINES": 20,
+  "STDERR_TAIL_CHARS": 4000,
+  "NO_OUTCOME_OUTPUT_CHARS": 4000,
+  "TRANSCRIPT_RESULT_CHARS": 16384,
+  "TRANSCRIPT_MAX_BYTES": 2097152,
+  "OUTPUT_TAIL_BYTES": 16384,
+  "TRANSITION_NAME_MAX": 100,
+  "TRANSITION_REASON_MAX": 4000,
+  "DEFAULT_PERMISSION_TIMEOUT_MS": 1800000,
+  "PERMISSION_INPUT_MAX_BYTES": 65536,
+  "PERMISSION_SUGGESTIONS_MAX": 10,
+  "PERMISSION_SUGGESTIONS_MAX_BYTES": 16384,
+  "PERMISSION_TOOL_MAX": 200,
+  "PERMISSION_MESSAGE_MAX": 2000,
+  "PERMISSION_RULE_MAX": 4096,
+  "NO_CONVERSATION_REASON": "no_conversation",
+  "COMMAND_REFUSAL_REASONS": [
+    "memory_pressure",
+    "max_sessions",
+    "no_live_process",
+    "unknown_session",
+    "agent_parked",
+    "checkout_failed",
+    "unknown_permission_request",
+    "no_conversation"
+  ],
+  "NO_PR_CHECKS_VALUE": "0/0 passed",
+  "AVAILABLE_CONDITION_TYPES": [
+    "pr_checks_green",
+    "pr_approvals",
+    "pr_merged",
+    "pr_screenshots"
+  ],
+  "GH_MIN_VERSION": "2.40.0",
+  "DEFAULT_CONDUCTOR_PORT": 7400,
+  "CONDUCTOR_PORT_ENV": "CONDUCTOR_PORT",
+  "API_PATHS": {
+    "daemonWs": "/ws/daemon",
+    "machinesEnroll": "/api/machines/enroll",
+    "daemonDownload": "/downloads/:file"
+  },
+  "GITHUB_PR_URL_RE": "^https:\\/\\/github\\.com\\/[\\w.-]+\\/[\\w.-]+\\/pull\\/\\d+$",
+  "CANONICAL_REMOTE_RE": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?:\\/[A-Za-z0-9_][A-Za-z0-9._-]*){2,}$",
+  "CAPABILITY_NAME_RE": "^[^\\s:@\\0]{1,200}$"
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "pr_url": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/PrUrl"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20000
+    }
+  },
+  "required": [
+    "pr_url",
+    "reason"
+  ],
+  "definitions": {
+    "PrUrl": {
+      "type": "string",
+      "pattern": "^https:\\/\\/github\\.com\\/[\\w.-]+\\/[\\w.-]+\\/pull\\/\\d+$"
+    }
+  }
+}

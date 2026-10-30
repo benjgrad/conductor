@@ -25,7 +25,7 @@ import type { InputRequestRow } from '../db/types.js';
 import type { Db } from '../main.js';
 import { expireOnApply, readCardPermission, withPermission } from '../permissions/store.js';
 import { enqueueNeedsInputPush } from '../push/enqueue.js';
-import { CardViews } from './board-view.js';
+import { CardViews, MachineCardFields } from './board-view.js';
 import {
   DefinitionCache,
   lockSession,
@@ -172,9 +172,14 @@ export class EngineServiceImpl implements EngineService {
       session.workflow_id,
       session.workflow_version,
     );
-    const cardBefore = withPermission(
-      toBoardCard(ticket, session, await readOpenInput(tx, sessionId), view),
-      await readCardPermission(tx, sessionId),
+    // M2-T16a: alerts and the Queued routing badge, read once for the before and after cards.
+    const machineFields = new MachineCardFields(tx);
+    const cardBefore = await machineFields.apply(
+      withPermission(
+        toBoardCard(ticket, session, await readOpenInput(tx, sessionId), view),
+        await readCardPermission(tx, sessionId),
+      ),
+      ticket,
     );
     const res = this.applyFn(def, before, event, now);
 
@@ -416,14 +421,18 @@ export class EngineServiceImpl implements EngineService {
     }
 
     // card.upserted last, if any card field changed.
-    const cardAfter = withPermission(
-      toBoardCard(
-        await readTicket(tx, ticket.id),
-        await readSession(tx, sessionId),
-        await readOpenInput(tx, sessionId),
-        view,
+    const ticketAfter = await readTicket(tx, ticket.id);
+    const cardAfter = await machineFields.apply(
+      withPermission(
+        toBoardCard(
+          ticketAfter,
+          await readSession(tx, sessionId),
+          await readOpenInput(tx, sessionId),
+          view,
+        ),
+        await readCardPermission(tx, sessionId),
       ),
-      await readCardPermission(tx, sessionId),
+      ticketAfter,
     );
     // ADR-0010: card.moved when the card's column (a state, or Queued / Done) changed.
     if (cardAfter.column !== cardBefore.column) {

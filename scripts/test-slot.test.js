@@ -120,6 +120,8 @@ describe('node scripts/test-slot.js <cmd> (the lint wrapper)', () => {
       env: {
         ...process.env,
         [HELD_ENV]: '',
+        // CI runs with CONDUCTOR_TEST_SLOTS=0 (no limit, nothing held); these tests need a limit.
+        CONDUCTOR_TEST_SLOTS: '2',
         CONDUCTOR_TEST_SLOT_PORT: String(freshBase()),
         ...env,
       },

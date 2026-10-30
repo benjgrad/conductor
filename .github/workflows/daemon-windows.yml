@@ -3,12 +3,17 @@
 # `skipIf(process.platform === 'win32')` with a `// MW-Tnn` marker; MW-T12 adds the e2e.
 #
 # Diff-aware: `changes` (cheap, on Linux) asks scripts/test-affected.js whether the diff reaches
-# what the daemon is built or tested from, and `test` (~15 min, TD-194) runs only then. That set
-# always includes packages/daemon and packages/shared, so no daemon change reaches main without
-# passing here too; platform/seam.test.ts keeps every OS branch inside src/platform/, where the
-# win32 twin is tested. The Windows installer (install.ps1 and the tarball's .cmd entry, MW-T11)
-# is tested here too. A pnpm-lock.yaml change counts only if it changed what the daemon resolves
-# (a web dependency doesn't). A skipped `test` reports SKIPPED, which the PR-CI gate passes.
+# what can behave differently on Windows, and `test` (TD-194) runs only then. A PR runs it for
+# packages/daemon, the installer and the toolchain, so no daemon change reaches main without
+# passing here; platform/seam.test.ts keeps every OS branch inside src/platform/, where the win32
+# twin is tested. packages/shared (pure TypeScript, already run through the daemon tests on
+# Linux) only runs it on a push to main, which nobody waits on. The Windows installer (install.ps1
+# and the tarball's .cmd entry, MW-T11) is tested here too. A pnpm-lock.yaml change counts only if
+# it changed what the daemon resolves (a web dependency doesn't). A skipped `test` reports
+# SKIPPED, which the PR-CI gate passes.
+#
+# Only what differs on Windows runs here: typecheck and the shared tests are OS-independent and
+# already run in the `ci` workflow's gates.
 name: daemon-windows
 
 on:
@@ -53,7 +58,7 @@ jobs:
         run: |
           case "$EVENT" in
             pull_request) daemon="$(node scripts/test-affected.js daemon --base "$(git rev-parse HEAD^1)")" ;;
-            push) daemon="$(node scripts/test-affected.js daemon --base "$BEFORE")" ;;
+            push) daemon="$(node scripts/test-affected.js daemon-main --base "$BEFORE")" ;;
             *) daemon=true ;;
           esac
           echo "daemon=$daemon" >>"$GITHUB_OUTPUT"
@@ -66,6 +71,9 @@ jobs:
     if: needs.changes.outputs.daemon == 'true'
     runs-on: windows-latest
     timeout-minutes: 40
+    # A dedicated runner: no machine-wide test slots, so vitest uses every CPU (M2-T31).
+    env:
+      CONDUCTOR_TEST_SLOTS: '0'
     steps:
       - run: git config --global core.longpaths true
       - uses: actions/checkout@v4
@@ -77,7 +85,6 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm vitest run --project daemon --project shared
+      - run: pnpm vitest run --project daemon
       # MW-T11: install.ps1 under Windows PowerShell 5.1 against a fake tarball server (no DB).
       - run: pnpm vitest run --project orchestrator test/install-ps1.test.ts

@@ -1,0 +1,6 @@
+{
+  "data": {
+    "question": "Which DB should I target?"
+  },
+  "kind": "ask_user"
+}

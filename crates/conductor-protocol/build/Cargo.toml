@@ -1,0 +1,21 @@
+[package]
+name = "conductor-protocol-codegen"
+description = "Generates conductor-protocol's src/generated.rs from packages/shared/protocol-json (MR-T03)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+# `cargo run -p conductor-protocol-codegen`. Its own package (not an example of
+# conductor-protocol), so it doesn't need the file it writes to compile.
+[[bin]]
+name = "conductor-protocol-codegen"
+path = "codegen.rs"
+
+[dependencies]
+prettyplease.workspace = true
+schemars08.workspace = true
+serde_json.workspace = true
+syn.workspace = true
+typify.workspace = true

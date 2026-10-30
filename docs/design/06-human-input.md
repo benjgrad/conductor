@@ -88,6 +88,8 @@ A state that is not a column (an older `conductor` version, or an old `m1_*` wor
 
 Sort, by the column's kind: Queued by priority then age; human (Needs input) oldest open input_request first, with the question badge; event (Waiting external) by age; agent columns and Done most recent activity first.
 
+**Collapsing columns (UX-9).** Each column heading is a toggle (`aria-expanded`, `aria-controls`). A collapsed column is a narrow strip with the rotated title and the card count; clicking it expands the column. The collapsed column ids are kept per browser and per workflow in `localStorage` (`conductor.board.collapsed.<workflow>`, `packages/web/src/components/board-layout.ts`). Ids that are no longer columns are ignored. "Expand all" shows while any column is collapsed. A collapsed human column (Needs input) shows an attention dot when its count rises above its count at collapse, so a new question isn't hidden. The dot isn't shown for counts already there on page load.
+
 [ADR-0011](../adr/0011-transition-rules.md) on the card (M1b-T07):
 - **Kind**: a small Work / Personal tag (`BoardCard.kind`; none on tickets from before M1b).
 - **Waiting for**: while a move's requirements run, `pending` replaces the `checking` badge with a checklist, e.g. "waiting for **Ready for testing**: ✓ Tests pass · ✓ PR opened · ◻ PR approved (0/1) · – Pipeline ci succeeded". Icons: ✓ met, ✗ failed, ◌ running, ◻ to do / not yet, – disabled, ? unsupported (the last two greyed). An item's `detail` (the evidence) is its hover text; `pending.note` (e.g. no machine to check conditions) shows under the list. The card stays in its source column.

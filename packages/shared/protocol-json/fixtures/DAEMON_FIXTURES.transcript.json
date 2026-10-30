@@ -1,0 +1,23 @@
+{
+  "type": "transcript",
+  "msg_id": "00000000-0000-4000-8000-000000000015",
+  "seq": null,
+  "session_id": null,
+  "fencing_token": null,
+  "payload": {
+    "request_id": "7a6b5c4d-3e2f-4a1b-8c9d-0e1f2a3b4c5d",
+    "chunks": [
+      {
+        "stream": "user",
+        "text": "Make the button blue",
+        "ts": "2026-10-22T12:00:00.000Z"
+      },
+      {
+        "stream": "assistant",
+        "text": "Done.",
+        "ts": "2026-10-22T12:00:00.000Z"
+      }
+    ],
+    "truncated": false
+  }
+}

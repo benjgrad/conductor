@@ -7,15 +7,23 @@ import {
   type InputRequestDto,
 } from '@conductor/shared';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client.js';
 import { mockChecking } from '../api/mock-data.js';
 import type { BoardState } from '../board/board.js';
+import { agentName } from './agent-identity.js';
 import { Board } from './Board.js';
+import { boardLayoutKey } from './board-layout.js';
 import { PLAN_APPROVED_TEXT, PREVIEW_MAX } from './request-preview.js';
 import { implementerReport, REPORT_PROSE_LINE } from './review-fixture.js';
 
 afterEach(cleanup);
+
+// UX-9 NFR-2: `agentName` runs once per card render, so it counts them.
+vi.mock('./agent-identity.js', async (importOriginal) => {
+  const m = await importOriginal<typeof import('./agent-identity.js')>();
+  return { ...m, agentName: vi.fn(m.agentName) };
+});
 
 const PR = 'https://github.com/benjgrad/conductor/pull/42';
 const BASE = BOARD_CARD_NEEDS_INPUT_FIXTURE;
@@ -395,5 +403,177 @@ describe('board card: needs permission (ADR-0023)', () => {
     delete c.permission;
     renderCards([c]);
     expect(article(c.title).queryByText(/needs permission:/)).toBeNull();
+  });
+});
+
+describe('collapsible columns (UX-9)', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  const KEY = boardLayoutKey('conductor');
+  const region = (name: string) => screen.getByRole('region', { name });
+  const toggle = (name: string) =>
+    region(name).querySelector<HTMLButtonElement>('h2 > button.column-toggle')!;
+  const expandAll = () => screen.queryByRole('button', { name: 'Expand all' });
+  const done = (n: number) => card(n, {}, { input_request: null, column: 'done' });
+  const planning = (n: number) =>
+    card(n, {}, { input_request: null, column: 'planning', status: 'running' });
+  const tracks = (container: HTMLElement) =>
+    (container.querySelector('.board') as HTMLElement).style.gridTemplateColumns;
+  const renderBoard = (cards: BoardCard[], workflow?: string) =>
+    render(
+      <Board
+        board={board(cards)}
+        selectedSessionId={null}
+        onSelect={vi.fn()}
+        {...(workflow ? { workflow } : {})}
+      />,
+    );
+
+  it('FR-1/FR-2: the toggle hides the cards and leaves a strip with the count', () => {
+    const { container } = renderBoard([done(1), done(2)]);
+    const button = toggle('Done');
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    const body = document.getElementById(button.getAttribute('aria-controls')!)!;
+    expect(region('Done').contains(body)).toBe(true);
+    expect(within(region('Done')).getAllByRole('article')).toHaveLength(2);
+    expect(tracks(container)).not.toContain('--column-strip-width');
+
+    fireEvent.click(button);
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(region('Done').className).toContain('collapsed');
+    expect(within(region('Done')).queryAllByRole('article')).toHaveLength(0);
+    expect(body.hidden).toBe(true);
+    expect(button.textContent).toContain('Done');
+    expect(button.querySelector('.count')!.textContent).toBe('2');
+    // The strip's track: the last column (Done) is narrow, the others keep their width.
+    expect(tracks(container).split(' ').at(-1)).toBe('var(--column-strip-width)');
+    expect(tracks(container).split('minmax(180px, 1fr)')).toHaveLength(6);
+
+    // FR-2: the strip is the button, so clicking it expands the column.
+    fireEvent.click(button);
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    expect(within(region('Done')).getAllByRole('article')).toHaveLength(2);
+  });
+
+  it('FR-3: collapsed columns survive a remount, per workflow', () => {
+    const { unmount } = renderBoard([done(1)]);
+    fireEvent.click(toggle('Done'));
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual(['done']);
+    unmount();
+    renderBoard([done(1)]);
+    expect(toggle('Done').getAttribute('aria-expanded')).toBe('false');
+    expect(within(region('Done')).queryAllByRole('article')).toHaveLength(0);
+    cleanup();
+    renderBoard([done(1)], 'other');
+    expect(toggle('Done').getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('FR-3: an id that is no longer a column is ignored, and bad storage is harmless', () => {
+    localStorage.setItem(KEY, JSON.stringify(['gone', 'done', 7]));
+    const { container, unmount } = renderBoard([done(1)]);
+    expect(toggle('Done').getAttribute('aria-expanded')).toBe('false');
+    expect(container.querySelectorAll('section.column')).toHaveLength(6);
+    expect(container.querySelector('[data-column="gone"]')).toBeNull();
+    expect(container.querySelectorAll('.column.collapsed')).toHaveLength(1);
+    // Saving keeps only the columns there are.
+    fireEvent.click(toggle('Planning'));
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual(['done', 'planning']);
+    unmount();
+
+    localStorage.setItem(KEY, '{not json');
+    const garbage = renderBoard([done(1)]);
+    expect(toggle('Done').getAttribute('aria-expanded')).toBe('true');
+    garbage.unmount();
+
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    renderBoard([done(1)]);
+    expect(toggle('Done').getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(toggle('Done'));
+    expect(toggle('Done').getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('FR-4: a collapsed human column shows a dot when its count rises', () => {
+    const r = renderBoard([card(1, {}), done(10)]);
+    fireEvent.click(toggle('Needs input'));
+    fireEvent.click(toggle('Done'));
+    expect(document.querySelector('.column-attention')).toBeNull();
+
+    const rerender = (cards: BoardCard[]) =>
+      r.rerender(<Board board={board(cards)} selectedSessionId={null} onSelect={vi.fn()} />);
+    rerender([card(1, {}), card(2, {}), done(10), done(11)]);
+    const dot = region('Needs input').querySelector('.column-attention');
+    expect(dot).not.toBeNull();
+    expect(toggle('Needs input').contains(dot)).toBe(true);
+    // Never on a column that isn't human.
+    expect(region('Done').querySelector('.column-attention')).toBeNull();
+
+    // Expanding takes it away; collapsed again, it waits for the next rise.
+    fireEvent.click(toggle('Needs input'));
+    fireEvent.click(toggle('Needs input'));
+    expect(document.querySelector('.column-attention')).toBeNull();
+    // A drop then a rise back shows it again.
+    rerender([card(1, {}), done(10), done(11)]);
+    expect(document.querySelector('.column-attention')).toBeNull();
+    rerender([card(1, {}), card(2, {}), done(10), done(11)]);
+    expect(region('Needs input').querySelector('.column-attention')).not.toBeNull();
+  });
+
+  it('FR-4: a column restored collapsed is not news on mount', () => {
+    localStorage.setItem(KEY, JSON.stringify(['needs_input']));
+    renderBoard([card(1, {}), card(2, {})]);
+    expect(document.querySelector('.column-attention')).toBeNull();
+  });
+
+  it('FR-5: Expand all appears when a column is collapsed and expands them all', () => {
+    renderBoard([done(1), planning(2)]);
+    expect(expandAll()).toBeNull();
+    fireEvent.click(toggle('Done'));
+    fireEvent.click(toggle('Planning'));
+    expect(document.querySelectorAll('.column.collapsed')).toHaveLength(2);
+    fireEvent.click(expandAll()!);
+    expect(document.querySelectorAll('.column.collapsed')).toHaveLength(0);
+    expect(expandAll()).toBeNull();
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it('NFR-1: each toggle is a native button that keeps focus when it toggles', () => {
+    renderBoard([done(1)]);
+    const buttons = [...document.querySelectorAll<HTMLButtonElement>('.column-toggle')];
+    expect(buttons).toHaveLength(6);
+    for (const b of buttons) {
+      // A <button type="button"> without tabindex: Tab reaches it, Enter/Space click it.
+      expect(b.type).toBe('button');
+      expect(b.hasAttribute('tabindex')).toBe(false);
+      expect(b.disabled).toBe(false);
+    }
+    const button = toggle('Done');
+    button.focus();
+    fireEvent.click(button);
+    expect(document.activeElement).toBe(button);
+    expect(toggle('Done')).toBe(button);
+    fireEvent.click(button);
+    expect(document.activeElement).toBe(button);
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('NFR-2: toggling a column does not re-render the cards of the others', () => {
+    const p = planning(1);
+    renderBoard([p, done(2)]);
+    const name = vi.mocked(agentName);
+    name.mockClear();
+    fireEvent.click(toggle('Done'));
+    fireEvent.click(toggle('Done'));
+    expect(name.mock.calls.some(([id]) => id === p.ticket_id)).toBe(false);
+    // The toggled column's own cards do render again when it expands.
+    expect(name.mock.calls.some(([id]) => id === done(2).ticket_id)).toBe(true);
   });
 });

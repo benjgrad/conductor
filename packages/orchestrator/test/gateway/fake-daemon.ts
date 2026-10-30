@@ -5,10 +5,33 @@ import {
   DAEMON_AUTH_HEADER,
   daemonAuthHeaderValue,
   parseOrchestratorMessage,
+  type AlertPayload,
+  type InventoryPayload,
   type OrchestratorToDaemon,
   type SessionEventPayload,
 } from '@conductor/shared';
 import { WebSocket } from 'ws';
+
+/**
+ * M2-T16a: what the gateway tests' machine reports by default: the tests' repo
+ * (`github.com/x/app`) and what `m1_basic` / `conductor` need (`claude`, an authed `gh`).
+ */
+export const DEFAULT_INVENTORY: InventoryPayload = {
+  repos: [
+    {
+      path: '/src/app',
+      remote: 'github.com/x/app',
+      default_branch: 'main',
+      head_commit: 'a'.repeat(40),
+      mode: 'reference',
+    },
+  ],
+  capabilities: [
+    { kind: 'claude', version: '2.1.0' },
+    { kind: 'cli', name: 'gh', version: '2.60.0', authed: true },
+  ],
+  hash: 'default',
+};
 
 type OrchMsg<T extends OrchestratorToDaemon['type']> = Extract<OrchestratorToDaemon, { type: T }>;
 
@@ -146,6 +169,23 @@ export class FakeDaemon {
     repos: { repo: string; path: string; head_commit: string; tree_clean: boolean }[],
   ): void {
     this.machine('repo_inventory', { repos });
+  }
+
+  /** M2-T16a: the v2 inventory (DEFAULT_INVENTORY unless overridden). */
+  inventory(over: Partial<InventoryPayload> = {}): void {
+    this.machine('inventory', { ...DEFAULT_INVENTORY, ...over });
+  }
+
+  /** M2-T16a: a durable `alert` (machine envelope with a seq). */
+  alert(seq: number, payload: AlertPayload): void {
+    this.sendRaw({
+      type: 'alert',
+      msg_id: randomUUID(),
+      seq,
+      session_id: null,
+      fencing_token: null,
+      payload,
+    });
   }
 
   requestWork(freeSlots = 1): void {

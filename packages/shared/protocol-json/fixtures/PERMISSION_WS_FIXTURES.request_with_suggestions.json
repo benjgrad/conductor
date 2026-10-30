@@ -1,0 +1,31 @@
+{
+  "type": "permission_request",
+  "msg_id": "00000000-0000-4000-8000-0000000a0003",
+  "seq": 22,
+  "session_id": "7d0c5b1e-3f4a-4b7e-9c2d-1a2b3c4d5e6f",
+  "fencing_token": 1,
+  "payload": {
+    "request_id": "4f3e2d1c-0b9a-4876-9543-210fedcba987",
+    "session_id": "7d0c5b1e-3f4a-4b7e-9c2d-1a2b3c4d5e6f",
+    "tool": "Write",
+    "input": {
+      "file_path": "/Users/ben/.config/app/settings.json",
+      "content": "{}\n"
+    },
+    "expires_at": "2026-10-22T12:30:00.000Z",
+    "suggestions": [
+      {
+        "type": "addRules",
+        "rules": [
+          {
+            "toolName": "Write",
+            "ruleContent": "//Users/ben/.config/app/**"
+          }
+        ],
+        "behavior": "allow",
+        "destination": "session"
+      }
+    ],
+    "tool_use_id": "toolu_01AbCdEf"
+  }
+}

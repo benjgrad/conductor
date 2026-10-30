@@ -1,6 +1,6 @@
 import type { MachineCapabilityDto, MachineDetail } from '@conductor/shared';
 import { ago } from '../components/format.js';
-import { ghTooOld, ghTooOldText, shortRepo } from './format.js';
+import { ghTooOld, ghTooOldText, routingNeeds, shortRepo } from './format.js';
 
 const KINDS: { key: keyof MachineDetail['capabilities']; title: string }[] = [
   { key: 'cli', title: 'CLIs' },
@@ -15,7 +15,10 @@ interface MachineDrawerProps {
   onClose: () => void;
 }
 
-/** One machine's inventory (ADR-0013 §Inventory): repos, capabilities by kind, open alerts. */
+/**
+ * One machine's inventory (ADR-0013 §Inventory): repos, capabilities by kind, open alerts, and the
+ * queued tickets it can't take (M2-T16a).
+ */
 export function MachineDrawer({ machine, onClose }: MachineDrawerProps) {
   const oldGh = ghTooOld(machine.capabilities);
   return (
@@ -100,6 +103,20 @@ export function MachineDrawer({ machine, onClose }: MachineDrawerProps) {
             )}
           </div>
         ))}
+        <div className="machine-caps">
+          <h5>Can't take</h5>
+          {machine.cannot_take.length === 0 ? (
+            <p className="muted">None: it can take every queued ticket.</p>
+          ) : (
+            <ul aria-label="Can't take" className="machine-cannot-take">
+              {machine.cannot_take.map((t) => (
+                <li key={t.ticket_id}>
+                  {t.title}: <span className="muted">needs {routingNeeds(t).join(', ')}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </section>
     </aside>
   );

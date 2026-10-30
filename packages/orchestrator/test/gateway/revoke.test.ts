@@ -32,6 +32,7 @@ import {
   type Harness,
 } from './auth-harness.js';
 import { FakeDaemon } from './fake-daemon.js';
+import { seedInventory } from './inventory-seed.js';
 import { RawPeer } from './raw-peer.js';
 import { RecordingEngine } from './recording-engine.js';
 
@@ -268,6 +269,7 @@ describe('M2-T09b: a revoked machine processes nothing more', () => {
     const peer = await rawPeer(machine_id, credential);
     peer.register({ tags: [tag] });
     await peer.next('registered');
+    await seedInventory(db.pool, machine_id, { remote: 'github.com/o/app' });
     const ticket = await claimable(scope.account_id, tag);
     peer.requestWork();
     await peer.next('work_assignment');
@@ -360,6 +362,7 @@ describe('M2-T09b: a revoked machine processes nothing more', () => {
 
     const d = await connectAndRegister(h, machineId, undefined, { tags: [tag] });
     await d.next('registered');
+    await seedInventory(db.pool, machineId, { remote: 'github.com/o/app' });
     expect((await old.closeFrame).code).toBe(CLOSE_REPLACED);
     const registeredAt = (await machineRow(machineId)).last_heartbeat_at;
     old.heartbeat();
@@ -383,6 +386,7 @@ describe('M2-T09b: a revoked machine processes nothing more', () => {
         `UPDATE machine SET status = 'online', tags = $2, max_sessions = 2 WHERE id = $1`,
         [machine_id, [tag]],
       );
+      await seedInventory(db.pool, machine_id, { remote: 'github.com/o/app' });
       return machine_id;
     }
     const noSockets = { disconnectMachine: () => {} };

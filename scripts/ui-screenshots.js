@@ -6,11 +6,13 @@
 //
 //   node scripts/ui-screenshots.js [--out before|after] [--url http://localhost:5173] [--only board,detail]
 //
+// `--only` re-takes those screens at every size and keeps the rest of metrics.json.
+//
 // Chrome: CHROME_PATH, else playwright's `chrome` channel (an installed Google Chrome).
 /// <reference lib="dom" />
 /* global document, window -- page.evaluate callbacks run in the browser */
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -253,6 +255,14 @@ async function main() {
   await mkdir(outDir, { recursive: true });
   /** @type {Record<string, Metric>} */
   const metrics = {};
+  // `--only` re-takes some shots: keep the other shots' metrics.
+  if (only.length > 0) {
+    try {
+      Object.assign(metrics, JSON.parse(await readFile(join(outDir, 'metrics.json'), 'utf8')));
+    } catch {
+      // No earlier run.
+    }
+  }
   try {
     for (const vp of VIEWPORTS) {
       for (const [theme, list] of Object.entries(vp.themes)) {
@@ -273,6 +283,8 @@ async function main() {
             // A hash-only change wouldn't reload, so every shot starts from a blank page.
             await page.goto('about:blank');
             await page.goto(`${server.url}${screen.path}`, { waitUntil: 'networkidle' });
+            // The first load of a cold Vite server can go idle before React has rendered.
+            await page.locator('#root > *').first().waitFor();
             await page.waitForTimeout(400);
             await screen.act?.(page);
             await page.waitForTimeout(300);

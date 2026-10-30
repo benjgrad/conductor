@@ -93,4 +93,57 @@ Every app page is wider than a phone, so the whole page pans sideways, the top b
 
 ## After
 
-*(Filled in after the implementation: one row per finding with the before and after shots and a status.)*
+Ben approved the phone proposals (items 1–8), and they are built. The design is in [11-web-ui](../../design/11-web-ui.md). None of the three desktop-only changes (UXR-08, UXR-13, the UXR-14 desktop form) had an explicit yes, so they stay as follow-ups. The [after set](after/) was made with `node scripts/ui-screenshots.js --out after`, and its metrics are in [`after/metrics.json`](after/metrics.json).
+
+### Measurements (after)
+
+| Shot | Page width / device, before → after | Page height, before → after |
+|---|---|---|
+| board 375 | 1146 → **375** / 375 | 2482 → 986 |
+| board 360 | 1146 → **360** / 360 | 2356 → 986 |
+| detail 375 (the panel) | 1146 → **375** / 375, under the board → full-screen | 2482 → 812 |
+| machines 375 | 763 → **375** / 375 | 1653 → 812 |
+| workflows 375 | 734 → **375** / 375 | 1590 → 812 |
+| setup 375 | 731 → **375** / 375 | 1583 → 1833 |
+| board 1440 | 1440 / 1440 (unchanged) | 941 → 941 |
+
+At 375 px, the controls under 44 px that are left in view are the card title and preview buttons (text inside a tappable card, on purpose), the radios inside their 44 px Kind buttons, and inline text links ("Guided setup", "Read the full guide"), which WCAG 2.5.8 exempts. The desktop counts are unchanged (30 on the 1440 board, as before).
+
+### Before and after
+
+| ID | Status | Before | After |
+|---|---|---|---|
+| UXR-01 | **fixed** for the rules this ticket touched; the rest of the CSS is deferred (follow-up) | — | `styles.css :root` |
+| UXR-02 | **fixed**: 16 px fields on phones, `text-size-adjust` | [composer](before/composer-focused-375x812-light.png) | [composer](after/composer-focused-375x812-light.png) |
+| UXR-03 | **fixed**: `--on-accent` (dark text on the dark-mode accent) | [detail dark](before/detail-1440x900-dark.png) | [detail dark](after/detail-1440x900-dark.png) |
+| UXR-04 | **fixed**: `--muted #5f6779` | — | — |
+| UXR-05 | **fixed**: `--border-strong` on inputs, selects and textareas | [new ticket](before/new-ticket-1440x900-light.png) | [new ticket](after/new-ticket-1440x900-light.png) |
+| UXR-06 | **fixed**: `a { color: var(--accent) }` | [machines](before/machines-375x812-light.png) | [machines](after/machines-375x812-light.png) |
+| UXR-07 | **fixed**: `--tap` on coarse pointers and phones | [board](before/board-375x812-light.png) | [board](after/board-375x812-light.png) |
+| UXR-08 | deferred (desktop; needs Ben's OK) | | |
+| UXR-09 | **fixed** on phones: "Still needed: …" under the disabled button | [form bottom](before/new-ticket-bottom-375x812-light.png) | [form](after/new-ticket-375x812-light.png) |
+| UXR-10 | **fixed**: icon-only bar, logo mark, Add a machine and Help in the account menu | [account menu](before/account-menu-375x812-light.png) | [account menu](after/account-menu-375x812-light.png) |
+| UXR-11 | **fixed**: one column, switcher, opens on Needs input, swipe | [board](before/board-375x812-light.png), [scrolled](before/board-scrolled-375x812-light.png) | [board](after/board-375x812-light.png), [360](after/board-360x740-light.png), [dark](after/board-375x812-dark.png) |
+| UXR-12 | **fixed**: full-screen panel with Back, composer pinned | [detail](before/detail-375x812-light.png), [scrolled](before/detail-scrolled-375x812-light.png) | [detail](after/detail-375x812-light.png), [Details tab](after/detail-details-375x812-light.png), [360](after/detail-360x740-light.png) |
+| UXR-13 | deferred (desktop; needs Ben's OK) | | |
+| UXR-14 | **fixed** on phones: full-screen sheet, segmented Kind, sticky Create ticket. The desktop form is deferred | [form](before/new-ticket-375x812-light.png), [bottom](before/new-ticket-bottom-375x812-light.png) | [form](after/new-ticket-375x812-light.png), [bottom](after/new-ticket-bottom-375x812-light.png), [dark](after/new-ticket-375x812-dark.png) |
+| UXR-15 | **fixed**: narrower gutter on phones, `interactive-widget=resizes-content` | [form](before/new-ticket-375x812-light.png) | [form](after/new-ticket-375x812-light.png) |
+| UXR-16 | deferred (out of scope, as proposed) | | |
+| UXR-17 | no change (as proposed) | | |
+| UXR-18 | **fixed**: `MOBILE_QUERY` (below 700 px) and `pointer: coarse` | — | — |
+| UXR-19 | **fixed**: `100dvh`, plus `--vvh` from `visualViewport` | — | — |
+| UXR-20 | **fixed**: viewport meta, safe-area insets, `theme-color` | — | `index.html` |
+| UXR-21 | **fixed**: tables scroll in their own box; Workflow note | [machines](before/machines-375x812-light.png), [workflows](before/workflows-375x812-light.png) | [machines](after/machines-375x812-light.png), [workflows](after/workflows-375x812-light.png) |
+
+### Flows on a 375 px phone (after)
+
+| Flow | After |
+|---|---|
+| (a) Triage | The board opens on Needs input → tap the card → the full-screen panel shows the question → answer in the pinned composer → Back. **3 taps**, and no sideways pan. |
+| (b) Create a ticket | Tap + → the "New ticket" sheet → fill it in (no zoom) → Create ticket is in the sticky footer, which says what's still missing. |
+| (c) Machines | The Machines icon is in the bar → the table scrolls inside its own box → Add a machine and Help are in the account menu. |
+
+### Still to check on a real phone
+- The iOS keyboard with `--vvh`, and standalone (Home Screen) mode: Chromium emulation can't show them.
+- BlockNote on touch. Plain markdown is the fallback.
+- Tablet (768 px) keeps the desktop board, which is 1,146 px wide, so it pans. That was not in the proposals; UX-9's collapsible columns are the planned fix.

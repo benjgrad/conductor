@@ -48,7 +48,7 @@
   padding: 2px 8px;
   border-radius: 4px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 12px;
   font-weight: 600;
   text-decoration: none;
@@ -96,6 +96,74 @@
 button.plan-approve {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
+}
+
+/* 11-web-ui §Board: on a phone one column shows, picked in the switcher (or by a swipe). */
+.board.board-mobile {
+  /* main lays its children out at their content width (align-items: flex-start). */
+  align-self: stretch;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow: visible;
+  touch-action: pan-y;
+}
+.column-switcher {
+  display: flex;
+  gap: var(--space-1);
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 0 calc(-1 * var(--space-3));
+  padding: 0 var(--space-3) var(--space-1);
+  touch-action: pan-x;
+}
+.column-switcher::-webkit-scrollbar {
+  display: none;
+}
+.column-tab {
+  flex: none;
+  min-height: var(--tap);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.column-tab .count {
+  margin-left: var(--space-1);
+}
+.column-tab.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+  color: var(--accent);
+}
+.column-tab-needs_input {
+  color: var(--ask);
+}
+.column-tab-needs_input.active {
+  border-color: var(--ask);
+  background: var(--ask-bg);
+  color: var(--ask);
+}
+.board-mobile .column {
+  min-height: 0;
+  padding: var(--space-2);
+}
+.board-mobile .column h2 {
+  display: none;
+}
+.board-mobile .card {
+  padding: var(--space-3);
+}
+.board-mobile .card-title {
+  font-size: var(--text-md);
+}
+.board-mobile .card-title,
+.board-mobile .ref,
+.board-mobile code {
+  overflow-wrap: anywhere;
 }

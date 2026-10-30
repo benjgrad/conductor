@@ -22,7 +22,7 @@ Ben wants to connect Claude Code, claude.ai and Claude Desktop to conductor over
 | Tokens | `POST /oauth/token` (form-encoded or JSON): `authorization_code` + PKCE, and `refresh_token`. Opaque `cnd_at_…` (1 h) and `cnd_rt_…` (30 d) tokens, stored as SHA-256. Refresh tokens rotate: a used one is refused |
 | One scope | `conductor`: read and write |
 | `/mcp` | `POST`, MCP Streamable HTTP, stateless with JSON responses, served by the official `@modelcontextprotocol/sdk` (1.32.1, the daemon's version). Bearer token only, never the cookie. No or bad token → 401 with `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource/mcp"`. `GET` / `DELETE` → 405 |
-| Tools | `list_tickets`, `get_ticket`, `create_ticket`, `answer_input`, `take_transition`. Every one is scoped to the token's account (another account's ticket is "not found"). Ticket refs take the id or its first 8+ hex characters. Results are JSON text capped at 8 KB. Writes call the same code as REST (`createTicket`, `engine.applyEvent`) |
+| Tools | `list_tickets`, `get_ticket`, `create_ticket`, `answer_input`, `take_transition`; since the MCP ticket (Ben approved the set, 2026-10-30) also `search_tickets`, `list_machines`, `reopen_ticket` and `cancel_ticket`. `take_transition` takes only the card's current buttons and refuses one with `requires.approvals` (`approval_required`). Never exposed: approvals, permission prompts, fresh conversations, messages to an agent, workflows, enrollment, admin, transcripts. Every one is scoped to the token's account (another account's ticket is "not found"). Ticket refs take the id or its first 8+ hex characters. Results are JSON text capped at 8 KB. Writes call the same code as REST (`createTicket`, `engine.applyEvent`) |
 | Revocation | Password reset, disabling the user and `conductor-admin revoke-sessions <email>` revoke the user's tokens. A plain password change doesn't |
 | Security hook | `POST /mcp`, `/oauth/register` and `/oauth/token` skip the Origin rule: they never read the session cookie, and conductor sends no CORS headers. `/oauth/token` and `POST /oauth/authorize` also take `application/x-www-form-urlencoded`. The Host check applies everywhere |
 | Limits | 30 / min per IP on each of register, authorize and token (`@fastify/rate-limit`) |
@@ -36,7 +36,7 @@ nginx needs no change: the site's catch-all location already proxies these paths
 - The refresh-reuse grace window and whole-grant revocation on refresh reuse.
 - `mcp_tool_call` audit, the `mcp` actor and "via <client> (MCP)" on the timeline: MCP writes are recorded as `ui`.
 - Per-grant and per-account rate limits; the 25-grants cap; pruning of unused clients and expired codes and tokens.
-- The rest of the tools (`search_tickets`, `get_ticket_summary`, paged `get_ticket`, `reopen`, `cancel`, `list_machines`, `get_workflow`), cursors and the per-field budgets.
+- The rest of the tools (`get_ticket_summary`, paged `get_ticket`, `get_workflow`; `search_tickets` ships without full-text search, TD-200), cursors and the per-field budgets.
 
 ## Alternatives considered
 | Option | Why not |

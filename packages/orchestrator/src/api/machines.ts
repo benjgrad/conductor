@@ -112,7 +112,7 @@ function toMachineRow(m: MachineListRow, servedVersion: string | null): MachineR
   };
 }
 
-async function listMachineRows(
+export async function listMachineRows(
   db: Queryable,
   accountId: string,
   servedVersion: string | null,

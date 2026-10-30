@@ -6,7 +6,12 @@ import type pg from 'pg';
 import { createApi, type ApiOptions } from '../../src/api/index.js';
 import { parseServerConfig, type AuthConfig } from '../../src/auth/config.js';
 import { argon2Hasher, type PasswordHasher } from '../../src/auth/password.js';
-import { FakeEngineService, InMemoryBoardBus, InMemoryOutputBus } from '../../src/contracts.js';
+import {
+  FakeEngineService,
+  InMemoryBoardBus,
+  InMemoryOutputBus,
+  type EngineService,
+} from '../../src/contracts.js';
 import type { ApiHandle } from '../../src/main.js';
 
 export const HTTPS_URL = 'https://conductor.test';
@@ -54,12 +59,14 @@ export async function startApi(opts: {
   trustedProxy?: string | null;
   now?: () => Date;
   hasher?: PasswordHasher;
+  /** Default: a fresh FakeEngineService. */
+  engine?: EngineService;
   /** Any other createApi option (M2-T17: sockets, installUrl, servedVersion). */
   api?: Partial<ApiOptions>;
 }): Promise<TestApi> {
   const api = createApi({
     db: opts.db,
-    engine: new FakeEngineService(),
+    engine: opts.engine ?? new FakeEngineService(),
     boardBus: new InMemoryBoardBus(),
     outputBus: new InMemoryOutputBus(),
     auth: opts.auth,

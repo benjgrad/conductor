@@ -58,9 +58,9 @@
 |---|---|---|---|---|---|
 | MR-T00 | ADR-0026, this file, ROADMAP, `→ MR` marks in M2/MW, ADR amendment notes, tracking (U-112..116, B-005), freeze tag | — | A | — | done (PR #69, a9a04c8) |
 | MR-T01 | Spike `spikes/rust-daemon`: WS register + heartbeat; `rmcp` outcome tool called by real `claude -p`; Job Object tree kill on Windows | T00, B-005 | A | — | done (PR #74, 9bf630e; GO on WS, rmcp vs fake-claude, Job Objects; real-claude run owed, U-113) |
-| MR-T02 | Cargo workspace, toolchain pin, cargo CI gates + 3-OS matrix, `scripts/test-parity.js`, `PARITY.md` skeleton | T01 | B | — | in_progress (board ticket 0a3cc07e, posted 2026-10-29) |
-| MR-T03 | Protocol codegen (zod → JSON Schema → typify), JSON fixtures, two-sided round-trip + drift check; ports `resolveToolPolicy`, `canonicalRepo`, `cliVersionAtLeast` with shared vectors | T02 | B | — | todo |
-| MR-T04 | `platform/`: spawn, kill-tree (+ Job Objects), procinfo, acl, shell, sysres, hook, git, fs; seam test | T02 | C | — | todo |
+| MR-T02 | Cargo workspace, toolchain pin, cargo CI gates + 3-OS matrix, `scripts/test-parity.js`, `PARITY.md` skeleton | T01 | B | — | done (PR #78, 2026-10-29; 3-OS matrix green, PARITY.md 455 rows) |
+| MR-T03 | Protocol codegen (zod → JSON Schema → typify), JSON fixtures, two-sided round-trip + drift check; ports `resolveToolPolicy`, `canonicalRepo`, `cliVersionAtLeast` with shared vectors | T02 | B | — | in_progress (board ticket 98887bf4, posted 2026-10-30) |
+| MR-T04 | `platform/`: spawn, kill-tree (+ Job Objects), procinfo, acl, shell, sysres, hook, git, fs; seam test | T02 | C | — | in_progress (board ticket b2b21bd6, posted 2026-10-30) |
 | MR-T05 | Core: store, config, credential, ports, system-prompt, semaphore, tail, version, orphan, sysinfo | T03, T04 | C | — | todo |
 | MR-T06 | Test support: fake orchestrator, fake-bin, remove-tree, fake driver, fake runner | T03 | C | — | todo |
 | MR-T07 | `ws_client` + process runner | T05, T06 | D | — | todo |
@@ -99,7 +99,7 @@ MR is built by conductor on itself:
 |---|---|---|
 | 1 | MR-T01 | T00 merged, B-005 cleared. **Posted 2026-10-29** (ticket e4bbe7dd), merged as PR #74 |
 | 2 | MR-T02 | T01 merged with a go on `rmcp` (U-113), or the axum fallback chosen. **Posted 2026-10-29** (ticket 0a3cc07e) |
-| 3 | MR-T03, MR-T04 | T02 merged |
+| 3 | MR-T03, MR-T04 | T02 merged. **Posted 2026-10-30** (tickets 98887bf4, b2b21bd6) |
 | 4 | MR-T05, MR-T06 | T03 and T04 merged (T06 only needs T03) |
 | 5 | MR-T07, MR-T08 | T05 and T06 merged, and the U-113 real-claude run passed (or the axum fallback chosen) |
 | 6 | MR-T09, MR-T10 | T07 and T08 merged (T10 only needs T07) |

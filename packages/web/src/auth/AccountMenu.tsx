@@ -1,7 +1,7 @@
 import type { MeResponse } from '@conductor/shared';
 import { CircleUser } from 'lucide-react';
 import { useState, type MouseEvent, type ReactNode } from 'react';
-import type { ApiClient } from '../api/client.js';
+import { errorMessage, type ApiClient } from '../api/client.js';
 import { NavIcon } from '../components/NavIcon.js';
 import {
   disableNotifications,
@@ -9,6 +9,7 @@ import {
   notifyState,
   type NotifyState,
 } from '../notify/settings.js';
+import { disablePush, enablePush, pushState, type PushState } from '../notify/push.js';
 import { ChangePasswordDialog } from './ChangePasswordDialog.js';
 import { authErrorMessage } from './errors.js';
 import './auth.css';
@@ -39,7 +40,9 @@ export interface AccountMenuLink {
 /**
  * The header's account menu: the user's name; "Admin" for admins; "Change password" and "Sign
  * out" in `password` mode (in `local` mode there is nothing to sign out of). UX-14: the
- * Notifications toggle (hidden when the browser has no `Notification`).
+ * Notifications toggle (hidden when the browser has no `Notification`). UX-16: where Web Push
+ * works and the server has it on, that toggle becomes "This device: on/off" plus "Send test"; in
+ * an iOS Safari tab it says to add Conductor to the Home Screen.
  */
 export function AccountMenu({
   api,
@@ -55,6 +58,10 @@ export function AccountMenu({
   const [error, setError] = useState<string | null>(null);
   const [notify, setNotify] = useState<NotifyState>(notifyState);
   const passwordMode = me.auth_mode === 'password';
+  // UX-16: null until the menu has asked (on open); until then, and when `unavailable`, UX-14's
+  // in-tab toggle shows.
+  const [push, setPush] = useState<PushState | null>(null);
+  const [pushNote, setPushNote] = useState<string | null>(null);
 
   async function signOut() {
     setBusy(true);
@@ -80,6 +87,36 @@ export function AccountMenu({
     }
   }
 
+  function refreshPush() {
+    setPushNote(null);
+    pushState(api).then(setPush, () => setPush('unavailable'));
+  }
+
+  // UX-16 FR-2: the permission prompt comes only from this click.
+  async function togglePush() {
+    setBusy(true);
+    setPushNote(null);
+    try {
+      setPush(push === 'on' ? await disablePush(api) : await enablePush(api));
+    } catch (err) {
+      setPushNote(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendTestPush() {
+    setBusy(true);
+    try {
+      const { sent } = await api.pushTest();
+      setPushNote(sent === 1 ? 'Sent to 1 device' : `Sent to ${sent} devices`);
+    } catch (err) {
+      setPushNote(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="account">
       <button
@@ -89,7 +126,10 @@ export function AccountMenu({
         aria-expanded={open}
         onClick={() => {
           // The permission can change in the browser's site settings while the page is open.
-          if (!open) setNotify(notifyState());
+          if (!open) {
+            setNotify(notifyState());
+            refreshPush();
+          }
           setOpen((v) => !v);
         }}
         {...(compact ? { 'aria-label': me.user.display_name, title: me.user.email } : {})}
@@ -127,7 +167,36 @@ export function AccountMenu({
               Admin
             </button>
           )}
-          {notify !== 'unsupported' && (
+          {(push === 'on' || push === 'off') && (
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={push === 'on'}
+              disabled={busy}
+              onClick={() => void togglePush()}
+            >
+              {`This device: ${push}`}
+            </button>
+          )}
+          {push === 'on' && (
+            <button
+              type="button"
+              role="menuitem"
+              disabled={busy}
+              onClick={() => void sendTestPush()}
+            >
+              Send test
+            </button>
+          )}
+          {push === 'needs-install' && (
+            <p className="account-hint">Add Conductor to your Home Screen to get notifications</p>
+          )}
+          {pushNote && (
+            <p role="status" className="account-hint">
+              {pushNote}
+            </p>
+          )}
+          {(push === null || push === 'unavailable') && notify !== 'unsupported' && (
             <button
               type="button"
               role="menuitemcheckbox"

@@ -42,6 +42,10 @@ import {
   type TransitionSessionRequest,
   type FreshConversationRequest,
   type WorkflowDefinition,
+  PushTestResponseSchema,
+  PushVapidPublicKeyResponseSchema,
+  type PushSubscribeRequest,
+  type PushUnsubscribeRequest,
 } from '@conductor/shared';
 import {
   ApiRequestError,
@@ -419,6 +423,18 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
 
     createEnrollmentToken: () =>
       request(EnrollmentTokenCreatedSchema, 'POST', API_PATHS.machineEnrollmentTokens, {}),
+
+    // UX-16: Web Push.
+    pushVapidPublicKey: () =>
+      request(PushVapidPublicKeyResponseSchema, 'GET', API_PATHS.pushVapidPublicKey),
+
+    pushSubscribe: (req: PushSubscribeRequest) =>
+      request(OkResponseSchema, 'POST', API_PATHS.pushSubscriptions, req),
+
+    pushUnsubscribe: (req: PushUnsubscribeRequest) =>
+      request(OkResponseSchema, 'DELETE', API_PATHS.pushSubscriptions, req),
+
+    pushTest: () => request(PushTestResponseSchema, 'POST', API_PATHS.pushTest, {}),
   };
 }
 

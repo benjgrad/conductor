@@ -10,6 +10,13 @@
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1b2029" />
     <title>Conductor</title>
+    <!-- UX-16: installable (Home Screen / standalone), which iOS needs for Web Push. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Conductor" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <!-- UX-14: notify/favicon.ts swaps this for the same mark with a dot (FAVICON_PLAIN). -->
     <link
       id="favicon"

@@ -46,5 +46,14 @@ export default tseslint.config(
     files: ['*.js', '*.ts', 'packages/*/test/fixtures/**/*.mjs'],
     ...tseslint.configs.disableTypeChecked,
   },
+  {
+    // UX-16: the service worker is served as-is from public/ (no build, no tsconfig project).
+    files: ['packages/web/public/**/*.js'],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      ...tseslint.configs.disableTypeChecked.languageOptions,
+      globals: { ...globals.serviceworker },
+    },
+  },
   prettier,
 );

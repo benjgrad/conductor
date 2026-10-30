@@ -13,11 +13,11 @@
 | UX-10 | Card cleanup: no state or status that repeats the column | — | 1 | — | done (PR #68, 0b3b8bb) |
 | UX-11 | Top-nav icons (lucide-react) | — | 1 | — | done (PR #60, 926f7a9) |
 | UX-13a | Agent team (server): team and hiring pools, the assignment, `agent_name` on the DTOs | — | 1 | **yes** | todo |
-| UX-14 | Notifications (in-tab): browser notification, title count, favicon dot | — | 1 | — | todo |
-| UX-15 | Notifications (Web Push, server): subscriptions, VAPID, the send on needs-input | — | 1 | **yes** | in_review (PR #67) |
+| UX-14 | Notifications (in-tab): browser notification, title count, favicon dot | — | 1 | — | done |
+| UX-15 | Notifications (Web Push, server): subscriptions, VAPID, the send on needs-input | — | 1 | **yes** | done (PR #67) |
 | UX-9 | Collapsible board columns (desktop only now; rebase onto the phone `Board.tsx`) | UX-10 | 2 | — | todo |
 | UX-13b | Agent team (web): show the stored name and face, the Team list | UX-13a | 2 | — | todo |
-| UX-16 | Notifications (Web Push, web): service worker, manifest, subscribe toggle | UX-14, UX-15 | 2 | — | todo |
+| UX-16 | Notifications (Web Push, web): service worker, manifest, subscribe toggle | UX-14, UX-15 | 2 | — | done (branch `ux-16-web-push`) |
 | UX-12 | Mobile-friendly view | UX-11 | — | — | replaced by the "Mobile-friendly UX" ticket ([11-web-ui](../design/11-web-ui.md), [UI review](../qa/ux-review/README.md)) |
 
 **Ticket waves**: post a wave only when everything it depends on is merged (TD-172: no `depends_on` until M2b). The reasons for the order:

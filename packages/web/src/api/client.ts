@@ -36,6 +36,10 @@ import type {
   TranscriptResponse,
   TransitionSessionRequest,
   WorkflowSummary,
+  PushSubscribeRequest,
+  PushTestResponse,
+  PushUnsubscribeRequest,
+  PushVapidPublicKeyResponse,
 } from '@conductor/shared';
 
 // The UI's view of the orchestrator API (03 §REST, §SSE). Two implementations: the in-memory
@@ -188,6 +192,16 @@ export interface ApiClient {
   revokeMachine(machineId: string): Promise<OkResponse>;
   /** POST /api/machines/enrollment-tokens → 201; `command` is shown once (30 min, single use). */
   createEnrollmentToken(): Promise<EnrollmentTokenCreated>;
+
+  // UX-16: Web Push (10-contracts §Web Push). Every call is 404 `push_disabled` without VAPID.
+  /** GET /api/push/vapid-public-key: the `applicationServerKey` for `pushManager.subscribe`. */
+  pushVapidPublicKey(): Promise<PushVapidPublicKeyResponse>;
+  /** POST /api/push/subscriptions → 201 (an upsert by endpoint). */
+  pushSubscribe(req: PushSubscribeRequest): Promise<OkResponse>;
+  /** DELETE /api/push/subscriptions: this device's subscription, by endpoint. */
+  pushUnsubscribe(req: PushUnsubscribeRequest): Promise<OkResponse>;
+  /** POST /api/push/test: "Notifications are on" to the caller's subscriptions. */
+  pushTest(): Promise<PushTestResponse>;
 }
 
 /** A non-2xx API response (ApiError body), thrown by every ApiClient method. */

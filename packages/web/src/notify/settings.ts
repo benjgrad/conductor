@@ -35,7 +35,7 @@ export function notifyState(): NotifyState {
 }
 
 /** Supports both the promise form and Safari's older callback form of requestPermission. */
-function requestPermission(): Promise<NotificationPermission> {
+export function requestPermission(): Promise<NotificationPermission> {
   return new Promise((resolve) => {
     const p = Notification.requestPermission(resolve) as
       Promise<NotificationPermission> | undefined;

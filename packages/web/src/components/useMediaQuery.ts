@@ -28,22 +28,39 @@ export function useIsMobile(): boolean {
 }
 
 /**
- * While `active` (the phone layout), `--vvh` on <html> follows `visualViewport.height`, so a
- * full-screen panel or sheet ends above the on-screen keyboard. The CSS falls back to `100dvh`.
+ * While `active` (the phone layout), `--vvh` and `--vvt` on <html> follow `visualViewport.height`
+ * and `offsetTop`, so a full-screen panel or sheet ends above the on-screen keyboard and stays in
+ * view when iOS pans the layout viewport under it. The CSS falls back to `100dvh` and `0`.
  */
 export function useVisualViewportHeight(active: boolean): void {
   useEffect(() => {
     const vv = window.visualViewport;
     if (!active || !vv) return;
     const root = document.documentElement;
-    const update = () => root.style.setProperty('--vvh', `${vv.height}px`);
+    const update = () => {
+      root.style.setProperty('--vvh', `${vv.height}px`);
+      root.style.setProperty('--vvt', `${vv.offsetTop}px`);
+    };
     update();
     vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
     return () => {
       vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
       root.style.removeProperty('--vvh');
+      root.style.removeProperty('--vvt');
     };
   }, [active]);
+}
+
+/** While `active`, <html> has `className` (e.g. `app-shell`, the phone's no-document-scroll lock). */
+export function useDocumentClass(className: string, active: boolean): void {
+  useEffect(() => {
+    if (!active) return;
+    const root = document.documentElement;
+    root.classList.add(className);
+    return () => root.classList.remove(className);
+  }, [className, active]);
 }
 
 /**

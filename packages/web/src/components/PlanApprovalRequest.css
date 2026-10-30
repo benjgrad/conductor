@@ -1,6 +1,8 @@
 /* 06 §Plan approval: the session panel's "Plan to approve" card (accent, like a review request,
    not the red question box). `.badge-plan-approval` is Board.css's, shared with the board card. */
 .plan-approval {
+  min-width: 0;
+  max-width: 100%;
   border-color: var(--user-border);
   background: var(--user-bg);
 }
@@ -10,6 +12,9 @@
   border: 1px solid var(--user-border);
   border-radius: 6px;
   background: var(--panel);
+  /* A wide plan table scrolls in its own box (.md-table-wrap), never the card. */
+  min-width: 0;
+  overflow-x: hidden;
 }
 .plan-approval .plan-text.clamped {
   max-height: 24em;

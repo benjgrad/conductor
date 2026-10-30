@@ -24,6 +24,7 @@ import { CreateTicketForm } from './components/CreateTicketForm.js';
 import { DetailPanel } from './components/DetailPanel.js';
 import { NavIcon } from './components/NavIcon.js';
 import {
+  useDocumentClass,
   useElementHeightVar,
   useIsMobile,
   useVisualViewportHeight,
@@ -174,6 +175,8 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
   const [creating, setCreating] = useState(false);
   const topbarRef = useRef<HTMLElement>(null);
   useElementHeightVar(topbarRef, '--topbar-h');
+  // 11-web-ui §Breakpoint: on a phone the document never scrolls; `.app.mobile` does.
+  useDocumentClass('app-shell', mobile);
   const draft = useDraftGuard();
   const [route, navigate] = useHashRoute(draft.guard, draft.onBlocked);
   // UX-14: title count, favicon dot and a browser notification per new question.
@@ -245,12 +248,15 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
       ]
     : [];
 
+  const showForm = route.view === 'board' && !guide && creating;
   const selectedCard = selected
     ? [...board.cards.values()].find((c) => c.session_id === selected)
     : undefined;
 
   return (
-    <div className={`app${selected ? ' with-detail' : ''}${mobile ? ' mobile' : ''}`}>
+    <div
+      className={`app${selected ? ' with-detail' : ''}${mobile ? ' mobile' : ''}${showForm ? ' creating' : ''}`}
+    >
       <header ref={topbarRef} className={`topbar${compact ? ' compact' : ''}`}>
         {mobile ? (
           <h1>
@@ -341,7 +347,7 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
           onFinish={() => setFirstRun(false)}
         />
       )}
-      {route.view === 'board' && !guide && creating && (
+      {showForm && (
         <CreateTicketForm
           api={api}
           onCreated={() => setCreating(false)}

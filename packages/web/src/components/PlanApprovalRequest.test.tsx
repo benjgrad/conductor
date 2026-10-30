@@ -64,6 +64,16 @@ describe('PlanApprovalRequest (06 §Plan approval)', () => {
     expect(panel.queryByText(PLAN_MISSING_TEXT)).toBeNull();
   });
 
+  it('a plan with a markdown table renders the table inside the plan', async () => {
+    const plan = '| File | Change |\n|---|---|\n| `a.ts` | add **x** |';
+    const { panel } = await setup({ planning: { plan } });
+    const region = panel.getByRole('region', { name: 'The plan' });
+    const table = region.querySelector('.md-table-wrap table')!;
+    expect(table).toBeTruthy();
+    expect(within(table as HTMLElement).getAllByRole('columnheader')).toHaveLength(2);
+    expect(within(table as HTMLElement).getByText('x', { selector: 'strong' })).toBeTruthy();
+  });
+
   it('a long plan is clamped behind "Show full plan"', async () => {
     const long = Array.from({ length: 40 }, (_, i) => `${i + 1}. step ${i + 1}`).join('\n');
     const { panel } = await setup({ planning: { plan: long } });

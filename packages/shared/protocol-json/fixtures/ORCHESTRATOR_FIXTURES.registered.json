@@ -1,0 +1,12 @@
+{
+  "type": "registered",
+  "msg_id": "00000000-0000-4000-8000-000000000016",
+  "seq": null,
+  "session_id": null,
+  "fencing_token": null,
+  "payload": {
+    "machine_id": "mbp-ben",
+    "last_seq": null,
+    "heartbeat_interval_ms": 10000
+  }
+}

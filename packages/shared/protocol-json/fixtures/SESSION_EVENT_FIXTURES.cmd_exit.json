@@ -1,0 +1,12 @@
+{
+  "kind": "cmd_exit",
+  "data": {
+    "command_id": "5e4d3c2b-1a09-4f8e-b7d6-c5b4a3928170",
+    "exit_code": 1,
+    "signal": null,
+    "timed_out": false,
+    "duration_ms": 4200,
+    "output_tail": "FAIL src/a.test.ts\n  expected 1 to be 2\n",
+    "head_sha": "3b18e512dba79e4c8300dd08aeb37f8e728b8dad"
+  }
+}

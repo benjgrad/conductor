@@ -194,6 +194,8 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
   return (
     <div className={`wf-view${panelOpen ? ' with-editor' : ''}`}>
       <section className="wf-main" aria-label="Workflow">
+        {/* 11-web-ui: the editor needs room; shown only below the phone breakpoint (CSS). */}
+        <p className="mobile-note muted">The workflow editor is best on a larger screen.</p>
         <div className="wf-toolbar">
           <h2>Workflow</h2>
           {latest > 0 && (

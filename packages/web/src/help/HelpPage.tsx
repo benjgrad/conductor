@@ -60,7 +60,8 @@ export function HelpLink({
   );
 }
 
-function followInApp(e: MouseEvent<HTMLAnchorElement>, url: string) {
+/** A plain click opens `url` in the app (no reload); a modified click keeps the browser's default. */
+export function followInApp(e: MouseEvent<HTMLAnchorElement>, url: string) {
   if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
   e.preventDefault();
   goTo(url);

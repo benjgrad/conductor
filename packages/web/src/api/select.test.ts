@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { apiKind, createApiFromEnv } from './select.js';
 
 describe('API selection (VITE_API)', () => {
@@ -26,5 +26,17 @@ describe('API selection (VITE_API)', () => {
     expect(kind).toBe('mock');
     const board = await api.getBoard();
     expect(board.columns.find((c) => c.id === 'needs_input')!.cards.length).toBeGreaterThan(0);
+  });
+
+  it('VITE_MOCK_STATIC=1 holds the mock board still (no simulated output)', async () => {
+    vi.useFakeTimers();
+    try {
+      const { api } = createApiFromEnv({ VITE_API: 'mock', VITE_MOCK_STATIC: '1' });
+      const before = JSON.stringify(await api.getBoard());
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(JSON.stringify(await api.getBoard())).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

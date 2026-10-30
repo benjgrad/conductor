@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/definitions/WorkingCopy",
+  "definitions": {
+    "WorkingCopy": {
+      "type": "object",
+      "properties": {
+        "repo_path": {
+          "$ref": "#/definitions/AbsolutePath"
+        },
+        "mode": {
+          "$ref": "#/definitions/WorkingCopyMode"
+        }
+      },
+      "required": [
+        "repo_path",
+        "mode"
+      ]
+    },
+    "AbsolutePath": {
+      "type": "string",
+      "minLength": 2
+    },
+    "WorkingCopyMode": {
+      "type": "string",
+      "enum": [
+        "reference",
+        "checkout"
+      ]
+    }
+  }
+}

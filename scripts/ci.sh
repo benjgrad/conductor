@@ -10,6 +10,18 @@ step "typecheck"; pnpm typecheck
 step "lint";      pnpm lint
 # Rust (ADR-0026 §6). rustup installs cargo in ~/.cargo/bin, which a non-login shell may not have.
 command -v cargo >/dev/null || PATH="$HOME/.cargo/bin:$PATH"
+# MR-T03 (ADR-0026 §2): regenerate the protocol JSON and the Rust types from the zod schemas; any
+# diff (or new untracked file) means someone changed a schema without regenerating.
+step "protocol drift"
+pnpm --filter @conductor/shared emit:protocol
+cargo run --locked -q -p conductor-protocol-codegen
+drift=(packages/shared/protocol-json crates/conductor-protocol/src/generated.rs)
+git diff --exit-code -- "${drift[@]}"
+if [[ -n "$(git status --porcelain -- "${drift[@]}")" ]]; then
+  git status --short -- "${drift[@]}"
+  echo "protocol drift: run the two commands above and commit the result" >&2
+  exit 1
+fi
 step "cargo fmt";    cargo fmt --all --check
 step "cargo clippy"; cargo clippy --workspace --all-targets --locked -- -D warnings
 step "cargo nextest"

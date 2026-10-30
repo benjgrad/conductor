@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "head_sha": {
+      "$ref": "#/definitions/GitSha"
+    },
+    "files": {
+      "maxItems": 300,
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PrFilePath"
+      }
+    },
+    "files_truncated": {
+      "type": "boolean"
+    },
+    "mergeable": {
+      "type": "string",
+      "enum": [
+        "MERGEABLE",
+        "CONFLICTING",
+        "UNKNOWN"
+      ]
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "OPEN",
+        "CLOSED",
+        "MERGED"
+      ]
+    },
+    "matched": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/definitions/ApprovalId"
+      },
+      "additionalProperties": {
+        "maxItems": 300,
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/PrFilePath"
+        }
+      }
+    }
+  },
+  "required": [
+    "head_sha",
+    "files",
+    "files_truncated",
+    "mergeable",
+    "state",
+    "matched"
+  ],
+  "definitions": {
+    "GitSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "PrFilePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "ApprovalId": {
+      "type": "string",
+      "maxLength": 40,
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    }
+  }
+}

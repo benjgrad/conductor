@@ -15,6 +15,7 @@
 .wf-scroll {
   overflow: auto;
   max-height: calc(100vh - 170px);
+  max-height: calc(100dvh - 170px);
   padding: 4px;
 }
 .wf-zoom {
@@ -279,6 +280,7 @@
   flex-direction: column;
   gap: 10px;
   max-height: calc(100vh - 90px);
+  max-height: calc(100dvh - 90px);
   overflow: auto;
 }
 .wf-editor h3 {

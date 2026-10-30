@@ -1,0 +1,8 @@
+{
+  "approval_paths": {
+    "migration": [
+      "packages/orchestrator/migrations/**"
+    ]
+  },
+  "pr_url": "https://github.com/benjgrad/fixture-app/pull/7"
+}

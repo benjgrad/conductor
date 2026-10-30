@@ -1,0 +1,117 @@
+{
+  "function": "capabilityKey",
+  "description": "capabilityKey(capability) → key (machines/capabilities.ts)",
+  "cases": [
+    {
+      "input": {
+        "kind": "cli",
+        "name": "gh",
+        "version": "2.62.0",
+        "authed": true
+      },
+      "expected": "cli:gh:authed"
+    },
+    {
+      "input": {
+        "kind": "cli",
+        "name": "az",
+        "version": "2.67.0",
+        "authed": false
+      },
+      "expected": "cli:az"
+    },
+    {
+      "input": {
+        "kind": "cli",
+        "name": "git",
+        "version": "2.47.1",
+        "authed": false
+      },
+      "expected": "cli:git"
+    },
+    {
+      "input": {
+        "kind": "mcp",
+        "name": "slack"
+      },
+      "expected": "mcp:slack"
+    },
+    {
+      "input": {
+        "kind": "skill",
+        "name": "review"
+      },
+      "expected": "skill:review"
+    },
+    {
+      "input": {
+        "kind": "skill",
+        "name": "deploy",
+        "repo": "github.com/benjgrad/fixture-app"
+      },
+      "expected": "skill:deploy@github.com/benjgrad/fixture-app"
+    },
+    {
+      "input": {
+        "kind": "agent",
+        "name": "implementer",
+        "repo": "github.com/benjgrad/conductor"
+      },
+      "expected": "agent:implementer@github.com/benjgrad/conductor"
+    },
+    {
+      "input": {
+        "kind": "claude",
+        "version": "2.1.308"
+      },
+      "expected": "claude"
+    },
+    {
+      "input": {
+        "kind": "cli",
+        "name": "jira",
+        "version": null,
+        "authed": true
+      },
+      "expected": "cli:jira:authed"
+    },
+    {
+      "input": {
+        "kind": "cli",
+        "name": "az",
+        "version": null,
+        "authed": false
+      },
+      "expected": "cli:az"
+    },
+    {
+      "input": {
+        "kind": "mcp",
+        "name": "github"
+      },
+      "expected": "mcp:github"
+    },
+    {
+      "input": {
+        "kind": "agent",
+        "name": "reviewer"
+      },
+      "expected": "agent:reviewer"
+    },
+    {
+      "input": {
+        "kind": "skill",
+        "name": "x",
+        "repo": "gitlab.com/g/s/app"
+      },
+      "expected": "skill:x@gitlab.com/g/s/app"
+    },
+    {
+      "input": {
+        "kind": "claude",
+        "version": ""
+      },
+      "expected": "claude"
+    }
+  ]
+}

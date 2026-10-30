@@ -54,7 +54,11 @@ const skip = (name: string) => [...EXCLUDE, ...(tiers.exclude[name] ?? [])];
 // M2-T33: `isolate: false` reuses each worker's module graph across files (shared went 61 s → 21 s:
 // every file re-imported the engine). A file that mocks modules (`vi.mock`) needs a fresh graph, so
 // those run in a sibling `<name>-isolated` project; `--project '<name>*'` selects both.
-const pkg = (name: string, include: string[], extra: { testTimeout?: number } = {}) => {
+const pkg = (
+  name: string,
+  include: string[],
+  extra: { testTimeout?: number; hookTimeout?: number } = {},
+) => {
   const root = `packages/${name}`;
   const mocking = moduleMockingTests(fileURLToPath(new URL(root, import.meta.url)));
   const base = { root, include, environment: 'node', ...extra };
@@ -88,8 +92,10 @@ export default defineConfig({
       // test/** holds DB integration tests and the per-run test database helper (test/db.ts).
       ...pkg('orchestrator', ['src/**/*.test.ts', 'test/**/*.test.ts']),
       // Daemon tests spawn node children (fake claude, edit guard) that can stall for seconds on a
-      // loaded macOS: a longer per-test timeout (U-046-style flake).
-      ...pkg('daemon', ['src/**/*.test.ts'], { testTimeout: 30_000 }),
+      // loaded macOS: a longer per-test timeout (U-046-style flake). Hooks get the same: a
+      // beforeEach that builds a git repo and private dirs (PowerShell ACLs, TD-194) takes ~10 s on
+      // a busy Windows runner. Prefer building such fixtures once per file (TEST_STRATEGY).
+      ...pkg('daemon', ['src/**/*.test.ts'], { testTimeout: 30_000, hookTimeout: 30_000 }),
       ...pkg('web', ['src/**/*.test.{ts,tsx}']),
       {
         extends: true,

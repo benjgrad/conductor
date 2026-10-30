@@ -33,6 +33,10 @@ interface BoardProps {
   board: BoardState;
   selectedSessionId: string | null;
   onSelect: (sessionId: string) => void;
+  /** Opens a card with no session yet (Queued) by its ticket; without it such cards are inert. */
+  onSelectTicket?: (ticketId: string) => void;
+  /** The open sessionless card's ticket. */
+  selectedTicketId?: string | null;
   /** ADR-0011: with it, Needs-input cards get their human transition buttons. */
   api?: ApiClient;
   /** ADR-0010: the board's workflow; it keys the remembered layout (UX-9). */
@@ -47,6 +51,8 @@ export function Board({
   board,
   selectedSessionId,
   onSelect,
+  onSelectTicket,
+  selectedTicketId = null,
   api,
   workflow = DEFAULT_BOARD_WORKFLOW,
 }: BoardProps) {
@@ -123,7 +129,9 @@ export function Board({
               attention={false}
               onToggle={toggle}
               selectedSessionId={selectedSessionId}
+              selectedTicketId={selectedTicketId}
               onSelect={onSelect}
+              {...(onSelectTicket ? { onSelectTicket } : {})}
               agentStates={agentStates}
               {...(api ? { api } : {})}
             />
@@ -164,7 +172,9 @@ export function Board({
               }
               onToggle={toggle}
               selectedSessionId={selectedSessionId}
+              selectedTicketId={selectedTicketId}
               onSelect={onSelect}
+              {...(onSelectTicket ? { onSelectTicket } : {})}
               agentStates={agentStates}
               {...(api ? { api } : {})}
             />
@@ -273,7 +283,9 @@ interface ColumnProps {
   attention: boolean;
   onToggle: (id: string) => void;
   selectedSessionId: string | null;
+  selectedTicketId: string | null;
   onSelect: (sessionId: string) => void;
+  onSelectTicket?: (ticketId: string) => void;
   agentStates: ReadonlySet<string>;
   api?: ApiClient;
 }
@@ -288,7 +300,9 @@ const Column = memo(function Column({
   attention,
   onToggle,
   selectedSessionId,
+  selectedTicketId,
   onSelect,
+  onSelectTicket,
   agentStates,
   api,
 }: ColumnProps) {
@@ -327,8 +341,13 @@ const Column = memo(function Column({
               <Card
                 card={card}
                 column={col}
-                selected={card.session_id !== null && card.session_id === selectedSessionId}
+                selected={
+                  card.session_id !== null
+                    ? card.session_id === selectedSessionId
+                    : card.ticket_id === selectedTicketId
+                }
                 onSelect={onSelect}
+                {...(onSelectTicket ? { onSelectTicket } : {})}
                 agentStates={agentStates}
                 {...(api ? { api } : {})}
               />
@@ -345,12 +364,14 @@ interface CardProps {
   column: Pick<BoardColumnView, 'id' | 'title' | 'kind'>;
   selected: boolean;
   onSelect: (sessionId: string) => void;
+  /** A card with no session opens its ticket (TicketPanel). */
+  onSelectTicket?: (ticketId: string) => void;
   /** The board's agent-state columns, for the plan approval's answer option. */
   agentStates: ReadonlySet<string>;
   api?: ApiClient;
 }
 
-function Card({ card, column, selected, onSelect, agentStates, api }: CardProps) {
+function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, api }: CardProps) {
   const sessionId = card.session_id;
   const q = card.input_request;
   const cls = q ? classifyRequest(q) : null;
@@ -366,9 +387,11 @@ function Card({ card, column, selected, onSelect, agentStates, api }: CardProps)
       <button
         type="button"
         className="card-open"
-        disabled={sessionId === null}
+        disabled={sessionId === null && !onSelectTicket}
         aria-pressed={selected}
-        onClick={() => sessionId && onSelect(sessionId)}
+        onClick={() =>
+          sessionId !== null ? onSelect(sessionId) : onSelectTicket?.(card.ticket_id)
+        }
       >
         <span className="card-title">{card.title}</span>
       </button>

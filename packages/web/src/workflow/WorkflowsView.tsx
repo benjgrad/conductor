@@ -18,6 +18,10 @@ import {
   columnStates,
   columnTitle,
   issueAt,
+  QUEUED_LANE,
+  QUEUED_TITLE,
+  setQueuedTicketEditable,
+  ticketEditableOf,
   validateColumns,
   type ColumnIssue,
   type LaneEdge,
@@ -291,6 +295,16 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
               </li>
             ))}
           </ul>
+        )}
+        {shown && asColumns && (
+          <label className="wf-check">
+            <input
+              type="checkbox"
+              checked={ticketEditableOf(shown, QUEUED_LANE)}
+              onChange={(e) => edit(setQueuedTicketEditable(shown, e.target.checked))}
+            />
+            People can edit tickets in the {QUEUED_TITLE} column
+          </label>
         )}
         {shown && asColumns && (
           <ColumnsDiagram

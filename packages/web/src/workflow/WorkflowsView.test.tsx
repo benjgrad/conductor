@@ -148,6 +148,25 @@ describe('Workflow view', () => {
     });
   });
 
+  it('sets who may edit tickets per column, Queued included', async () => {
+    const { saved } = await setup();
+    fireEvent.click(lane('Implementing'));
+    const box = editor().getByRole<HTMLInputElement>('checkbox', {
+      name: 'People can edit the ticket in this column',
+    });
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    const queued = screen.getByRole<HTMLInputElement>('checkbox', {
+      name: 'People can edit tickets in the Queued column',
+    });
+    expect(queued.checked).toBe(true);
+    fireEvent.click(queued);
+    fireEvent.click(saveButton());
+    await screen.findByRole('group', { name: 'conductor v4 columns' });
+    expect(saved[0]!.states.implementing).toMatchObject({ ticket_editable: true });
+    expect(saved[0]!.queued_ticket_editable).toBe(false);
+  });
+
   it('discards the draft', async () => {
     await setup();
     fireEvent.click(lane('Planning'));

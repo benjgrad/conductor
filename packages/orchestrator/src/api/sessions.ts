@@ -2,6 +2,7 @@ import {
   SESSION_INPUT_REQUESTS_LIMIT,
   SESSION_MOVES_LIMIT,
   WorkflowDefinitionSchema,
+  ticketEditable,
   toBoardCard,
   toInputRequestDto,
   toMoveDto,
@@ -143,5 +144,6 @@ export async function loadSessionDetail(
     ticket_body: ticket.body,
     input_requests: inputRequests,
     agent_name: ticket.agent_name,
+    ticket_editable: ticketEditable(workflow, session.workflow_state),
   };
 }

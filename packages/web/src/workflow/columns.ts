@@ -1,5 +1,6 @@
 import {
   CONDUCTOR_WORKFLOW_ID,
+  ticketEditable,
   type EntryRequirements,
   type WorkflowDefinition,
   type WorkflowState,
@@ -326,6 +327,34 @@ export function setAgentWork(
     }
     return next;
   });
+}
+
+/** May people edit the ticket in this lane (a state, or QUEUED_LANE)? The shared rule. */
+export function ticketEditableOf(def: WorkflowDefinition, lane: string): boolean {
+  return ticketEditable(def, lane === QUEUED_LANE ? null : lane);
+}
+
+/** Set a column's `ticket_editable`; undefined removes it (the default by state type). */
+export function setTicketEditable(
+  def: WorkflowDefinition,
+  name: string,
+  value: boolean | undefined,
+): WorkflowDefinition {
+  return updateState(def, name, (s) => {
+    const next = { ...s };
+    delete next.ticket_editable;
+    return value === undefined ? next : { ...next, ticket_editable: value };
+  });
+}
+
+/** Set the Queued column's `queued_ticket_editable`; undefined removes it (default: editable). */
+export function setQueuedTicketEditable(
+  def: WorkflowDefinition,
+  value: boolean | undefined,
+): WorkflowDefinition {
+  const next = { ...def };
+  delete next.queued_ticket_editable;
+  return value === undefined ? next : { ...next, queued_ticket_editable: value };
 }
 
 // ------------------------------------------------------------------ validation

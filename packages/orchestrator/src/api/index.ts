@@ -9,6 +9,7 @@ import {
   SaveWorkflowRequestSchema,
   SendMessageRequestSchema,
   TransitionSessionRequestSchema,
+  UpdateTicketRequestSchema,
   UuidSchema,
   httpForApplyResult,
   validateWorkflow,
@@ -44,8 +45,8 @@ import { listWorkflows, loadBoard, loadWorkflowDetail } from './queries.js';
 import { registerRepoRoutes } from './repos.js';
 import { httpSecurityFromEnv, securityHookFor, type HttpSecurityOptions } from './security.js';
 import { loadSessionDetail, sessionExists } from './sessions.js';
+import { createTicket, loadTicketDetail, updateTicket } from './tickets.js';
 import { registerTeamRoutes } from './team.js';
-import { createTicket } from './tickets.js';
 
 // M1-T08: REST + SSE for the UI (03 §UI ↔ orchestrator), as the `CreateApi` factory (main.ts).
 
@@ -411,6 +412,52 @@ export const createApi = (({
     const res = await createTicket({ db, boardBus, auth }, req.auth!.scope, body);
     if (!res.ok) return sendError(reply, res.status, res.code, res.message, res.details);
     return reply.code(201).send(res.dto);
+  });
+
+  /** A valid uuid or a 404 sent. */
+  const ticketId = (id: string, reply: FastifyReply): string | undefined => {
+    if (UuidSchema.safeParse(id).success) return id;
+    void sendError(reply, 404, 'not_found', `ticket ${id} not found`);
+    return undefined;
+  };
+
+  // Read a ticket in any column (a queued one has no session to open).
+  app.get<IdParams>(API_PATHS.ticket(':id'), async (req, reply) => {
+    const id = ticketId(req.params.id, reply);
+    if (id === undefined) return reply;
+    const detail = await loadTicketDetail(db, id, req.auth!.scope.account_id);
+    if (!detail) return sendError(reply, 404, 'not_found', `ticket ${id} not found`);
+    return detail;
+  });
+
+  // Edit title / body / priority / kind where the card's column allows it (`ticketEditable`).
+  app.patch<IdParams>(API_PATHS.ticket(':id'), async (req, reply) => {
+    const id = ticketId(req.params.id, reply);
+    if (id === undefined) return reply;
+    const body = parseBody(UpdateTicketRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const res = await updateTicket(db, id, req.auth!.scope.account_id, body);
+    switch (res.status) {
+      case 'not_found':
+        return sendError(reply, 404, 'not_found', `ticket ${id} not found`);
+      case 'not_editable':
+        return sendError(
+          reply,
+          403,
+          'ticket_not_editable',
+          `the ${res.detail.column_title} column does not allow editing the ticket`,
+        );
+      case 'conflict':
+        return sendError(
+          reply,
+          409,
+          'conflict',
+          'the ticket changed since it was loaded; reload it and edit again',
+        );
+      case 'updated':
+        for (const ev of res.events) boardBus.publish(ev);
+        return res.detail;
+    }
   });
 
   // ---------------------------------------------------------------- workflows

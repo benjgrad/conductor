@@ -2,7 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- 11-web-ui: safe-area insets (viewport-fit) and the layout resizing above the keyboard. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1b2029" />
     <title>Conductor</title>
     <!-- UX-14: notify/favicon.ts swaps this for the same mark with a dot (FAVICON_PLAIN). -->
     <link

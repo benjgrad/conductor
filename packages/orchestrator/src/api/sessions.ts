@@ -11,7 +11,7 @@ import {
   type SessionInputRequest,
 } from '@conductor/shared';
 import type { OutputBus, Queryable } from '../contracts.js';
-import { cardView } from '../engine/board-view.js';
+import { cardView, withMachineFields } from '../engine/board-view.js';
 import {
   OPEN_INPUT_SELECT,
   splitStep,
@@ -109,14 +109,18 @@ export async function loadSessionDetail(
   // A cancel leaves the request unanswered; only a needs_input session is waiting on it (TD-079).
   const openInput = session.status === 'needs_input' ? (ir.rows[0] ?? null) : null;
   return {
-    card: withPermission(
-      toBoardCard(
-        ticket,
-        session,
-        openInput,
-        await cardView(db, session.workflow_id, session.workflow_version),
+    card: await withMachineFields(
+      db,
+      withPermission(
+        toBoardCard(
+          ticket,
+          session,
+          openInput,
+          await cardView(db, session.workflow_id, session.workflow_version),
+        ),
+        permission,
       ),
-      permission,
+      ticket,
     ),
     workflow,
     workflow_version: session.workflow_version,

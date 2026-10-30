@@ -1,0 +1,16 @@
+{
+  "fencing_token": 1,
+  "msg_id": "00000000-0000-4000-8000-000000000033",
+  "payload": {
+    "data": {
+      "action": "inspect_pr",
+      "command_id": "5e4d3c2b-1a09-4f8e-b7d6-c5b4a3928170",
+      "error": "gh not available: gh: command not found",
+      "result": null
+    },
+    "kind": "action_result"
+  },
+  "seq": 44,
+  "session_id": "7d0c5b1e-3f4a-4b7e-9c2d-1a2b3c4d5e6f",
+  "type": "session_event"
+}

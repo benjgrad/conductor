@@ -11,6 +11,7 @@ import { InMemoryBoardBus } from '../../src/contracts.js';
 import type { AgentRow } from '../../src/db/types.js';
 import { reopenSession } from '../../src/engine/reopen.js';
 import { claimWork } from '../../src/gateway/claim.js';
+import { seedInventory } from '../gateway/inventory-seed.js';
 import { useTestDatabase } from '../db.js';
 import { enrolled, newAccount } from '../gateway/auth-harness.js';
 import { RecordingEngine } from '../gateway/recording-engine.js';
@@ -42,7 +43,19 @@ async function onlineMachine(tag: string): Promise<string> {
     `UPDATE machine SET status = 'online', tags = $2, max_sessions = 1000 WHERE id = $1`,
     [machine_id, [tag]],
   );
+  await seedInventory(db.pool, machine_id, { remote: 'github.com/o/app' });
   return machine_id;
+}
+
+/** M2-T16a: the claim takes only its own account's tickets; move a machine to `accountId`. */
+async function moveTo(machineId: string, accountId: string): Promise<void> {
+  for (const table of ['machine_repo', 'machine_capability']) {
+    await db.pool.query(`UPDATE ${table} SET account_id = $2 WHERE machine_id = $1`, [
+      machineId,
+      accountId,
+    ]);
+  }
+  await db.pool.query('UPDATE machine SET account_id = $2 WHERE id = $1', [machineId, accountId]);
 }
 
 async function claimable(accountId: string, tag: string): Promise<string> {
@@ -118,7 +131,10 @@ interface Setup {
 
 async function setup(): Promise<Setup> {
   const tag = `t-${randomUUID().slice(0, 8)}`;
-  return { scope: await newAccount(db.pool), tag, machine: await onlineMachine(tag) };
+  const scope = await newAccount(db.pool);
+  const machine = await onlineMachine(tag);
+  await moveTo(machine, scope.account_id);
+  return { scope, tag, machine };
 }
 
 describe('agent assignment in the claim (UX-13a)', () => {
@@ -221,6 +237,7 @@ describe('agent assignment in the claim (UX-13a)', () => {
     const [m1, m2] = [await onlineMachine(tag), await onlineMachine(tag)];
     for (let round = 0; round < 20; round++) {
       const scope = await newAccount(db.pool);
+      for (const m of [m1, m2]) await moveTo(m, scope.account_id);
       const tickets = [
         await claimable(scope.account_id, tag),
         await claimable(scope.account_id, tag),
@@ -238,6 +255,7 @@ describe('agent assignment in the claim (UX-13a)', () => {
     const [m1, m2] = [await onlineMachine(tag), await onlineMachine(tag)];
     for (let round = 0; round < 20; round++) {
       const scope = await newAccount(db.pool);
+      for (const m of [m1, m2]) await moveTo(m, scope.account_id);
       const free = await hire(scope.account_id, 'Ada', '2024-01-01T00:00:00Z', null);
       const tickets = [
         await claimable(scope.account_id, tag),
@@ -286,12 +304,14 @@ describe('agent assignment in the claim (UX-13a)', () => {
     const [scopeA, scopeB] = [await newAccount(db.pool), await newAccount(db.pool)];
 
     const ticketA = await claimable(scopeA.account_id, tag);
+    await moveTo(machine, scopeA.account_id);
     await claim(machine);
     const agentA = (await agentOf(ticketA))!;
     await finish(ticketA);
 
     // A's teammate is free, but B's ticket never gets it: B hires its own.
     const ticketB = await claimable(scopeB.account_id, tag);
+    await moveTo(machine, scopeB.account_id);
     await claim(machine);
     const agentB = (await agentOf(ticketB))!;
     expect(agentB.id).not.toBe(agentA.id);

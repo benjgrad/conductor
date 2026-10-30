@@ -1,0 +1,6 @@
+{
+  "ok": false,
+  "unmet": "head_moved",
+  "observed_sha": "b2c3d4e5f60718293a4b5c6d7e8f901234567890",
+  "detail": "The PR head moved after QA."
+}

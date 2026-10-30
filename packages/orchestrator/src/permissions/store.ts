@@ -22,7 +22,7 @@ import {
 import { withTransaction } from '../db/index.js';
 import type { PermissionRequestRow } from '../db/types.js';
 import type { Db } from '../main.js';
-import { cardView } from '../engine/board-view.js';
+import { cardView, withMachineFields } from '../engine/board-view.js';
 import { lockSession, readOpenInput } from '../engine/rows.js';
 
 // M2-T29c: permission requests as stored (ADR-0023; 10-contracts §Permission prompts). The
@@ -114,9 +114,13 @@ export async function currentCard(tx: Queryable, sessionId: string): Promise<Boa
   if (!locked) throw new Error(`session ${sessionId} not found`);
   const { session, ticket } = locked;
   const view = await cardView(tx, session.workflow_id, session.workflow_version);
-  return withPermission(
-    toBoardCard(ticket, session, await readOpenInput(tx, sessionId), view),
-    await readCardPermission(tx, sessionId),
+  return withMachineFields(
+    tx,
+    withPermission(
+      toBoardCard(ticket, session, await readOpenInput(tx, sessionId), view),
+      await readCardPermission(tx, sessionId),
+    ),
+    ticket,
   );
 }
 

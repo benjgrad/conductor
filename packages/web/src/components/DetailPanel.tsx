@@ -3,6 +3,7 @@
 // Details tells the ticket's story in STAR order (UX-7, StarDetails.tsx), with who runs it and
 // where, the workflow, spend and the context under Technical details.
 import type { HumanTransitionOption, InputRequestDto, SessionDetail } from '@conductor/shared';
+import { ArrowLeft } from 'lucide-react';
 import { useCallback, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { useInitialPrompt, useSession } from '../board/hooks.js';
@@ -38,6 +39,8 @@ interface DetailPanelProps {
   /** The card's updated_at on the board: a change refetches the detail. */
   version: string;
   onClose: () => void;
+  /** 11-web-ui §Detail panel: the phone's full-screen panel, with Back to board instead of ×. */
+  fullScreen?: boolean;
   /** ADR-0008: show another session (the new one after a reopen). */
   onSelectSession?: (sessionId: string) => void;
 }
@@ -56,6 +59,7 @@ export function DetailPanel({
   ticketId,
   version,
   onClose,
+  fullScreen = false,
   onSelectSession,
 }: DetailPanelProps) {
   const view = useSession(api, sessionId, version);
@@ -109,8 +113,13 @@ export function DetailPanel({
   }
 
   return (
-    <aside className="detail" aria-label="Session detail">
+    <aside className={`detail${fullScreen ? ' full-screen' : ''}`} aria-label="Session detail">
       <header className="detail-head">
+        {fullScreen && (
+          <button type="button" className="back" onClick={onClose} aria-label="Back to board">
+            <ArrowLeft size={20} aria-hidden="true" />
+          </button>
+        )}
         {agentKey ? (
           <AgentAvatar
             ticketId={agentKey}
@@ -140,9 +149,11 @@ export function DetailPanel({
             )}
           </div>
         </div>
-        <button type="button" className="close" onClick={onClose} aria-label="Close detail">
-          ×
-        </button>
+        {!fullScreen && (
+          <button type="button" className="close" onClick={onClose} aria-label="Close detail">
+            ×
+          </button>
+        )}
       </header>
       <div className="tabs" role="tablist" aria-label="Session views">
         {TABS.map((t) => (

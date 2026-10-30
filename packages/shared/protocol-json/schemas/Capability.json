@@ -1,0 +1,111 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/definitions/Capability",
+  "definitions": {
+    "Capability": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "cli"
+            },
+            "name": {
+              "$ref": "#/definitions/CapabilityName"
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "authed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "version",
+            "authed"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "mcp"
+            },
+            "name": {
+              "$ref": "#/definitions/CapabilityName"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "skill"
+            },
+            "name": {
+              "$ref": "#/definitions/CapabilityName"
+            },
+            "repo": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "agent"
+            },
+            "name": {
+              "$ref": "#/definitions/CapabilityName"
+            },
+            "repo": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "claude"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "version"
+          ]
+        }
+      ]
+    },
+    "CapabilityName": {
+      "type": "string",
+      "pattern": "^[^\\s:@\\0]{1,200}$"
+    }
+  }
+}

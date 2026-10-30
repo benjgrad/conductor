@@ -76,6 +76,7 @@ async function parked() {
   daemons.push(d);
   d.register({ tags: ['mac', tag] });
   await d.next('registered');
+  d.inventory(); // M2-T16a: the repo and capabilities the claim routes on
   d.requestWork();
   const wa = await d.next('work_assignment');
   const sid = wa.payload.session_id;

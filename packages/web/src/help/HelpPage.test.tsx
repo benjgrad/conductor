@@ -95,8 +95,9 @@ describe('help page: add a machine', () => {
 
     window.history.replaceState(null, '', '/');
     render(<App api={createMockApi({ machines: 'none' })} />);
+    // The board renders the guide after the mock's machines load; a loaded full run is slow.
     const guideSection = within(
-      await screen.findByRole('region', { name: 'Set up your first machine' }),
+      await screen.findByRole('region', { name: 'Set up your first machine' }, { timeout: 10_000 }),
     );
     expect(
       guideSection.getByRole('link', { name: /Read the full guide/ }).getAttribute('href'),

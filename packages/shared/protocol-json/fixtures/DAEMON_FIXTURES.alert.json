@@ -1,0 +1,16 @@
+{
+  "type": "alert",
+  "msg_id": "00000000-0000-4000-8000-00000000000f",
+  "seq": 7,
+  "session_id": null,
+  "fencing_token": null,
+  "payload": {
+    "kind": "git_tamper",
+    "repo": "/Users/ben/code/scratch",
+    "files": [
+      "hooks/pre-commit",
+      "config"
+    ],
+    "at": "2026-10-22T12:00:00.000Z"
+  }
+}

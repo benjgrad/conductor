@@ -1,0 +1,16 @@
+{
+  // Typechecks (and type-aware lints) packages/shared/scripts (MR-T03: emit-protocol.ts). The
+  // scripts run with Node's type stripping on the built package, so only erasable syntax.
+  // composite needs some emit, so declarations go to a throwaway dir.
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "erasableSyntaxOnly": true,
+    "emitDeclarationOnly": true,
+    "declarationMap": false,
+    "outDir": "../../../node_modules/.tmp/shared-scripts",
+    "tsBuildInfoFile": "../../../node_modules/.tmp/shared-scripts/tsconfig.tsbuildinfo"
+  },
+  "references": [{ "path": ".." }],
+  "include": ["*.ts"]
+}

@@ -1,0 +1,250 @@
+{
+  "function": "isCanonicalRemote",
+  "description": "isCanonicalRemote(s) → boolean (machines/inventory.ts)",
+  "cases": [
+    {
+      "input": "github.com/org/app",
+      "expected": true
+    },
+    {
+      "input": "github.com/Org/App",
+      "expected": true
+    },
+    {
+      "input": "github.com/group/sub/App_1",
+      "expected": true
+    },
+    {
+      "input": "github.com/o-r/a.b",
+      "expected": true
+    },
+    {
+      "input": "gitlab.example.org/org/app",
+      "expected": true
+    },
+    {
+      "input": "gitlab.example.org/Org/App",
+      "expected": true
+    },
+    {
+      "input": "gitlab.example.org/group/sub/App_1",
+      "expected": true
+    },
+    {
+      "input": "gitlab.example.org/o-r/a.b",
+      "expected": true
+    },
+    {
+      "input": "gitlab.com/Group/Sub/App",
+      "expected": true
+    },
+    {
+      "input": "github.com/org/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": true
+    },
+    {
+      "input": "github.com/_org/app",
+      "expected": true
+    },
+    {
+      "input": "github.com/org/app.gitx",
+      "expected": true
+    },
+    {
+      "input": "ext::sh",
+      "expected": false
+    },
+    {
+      "input": "../x",
+      "expected": false
+    },
+    {
+      "input": "./x",
+      "expected": false
+    },
+    {
+      "input": "/tmp/x",
+      "expected": false
+    },
+    {
+      "input": "file:///x",
+      "expected": false
+    },
+    {
+      "input": "http://github.com/org/app",
+      "expected": false
+    },
+    {
+      "input": "git://github.com/org/app",
+      "expected": false
+    },
+    {
+      "input": "https://tok@github.com/org/app",
+      "expected": false
+    },
+    {
+      "input": "https://github.com:8443/org/app",
+      "expected": false
+    },
+    {
+      "input": "https://github.com/org/app?x=1",
+      "expected": false
+    },
+    {
+      "input": "https://github.com/org/app#x",
+      "expected": false
+    },
+    {
+      "input": "github.com/app",
+      "expected": false
+    },
+    {
+      "input": "github.com/org/../app",
+      "expected": false
+    },
+    {
+      "input": "github.com/org/./app",
+      "expected": false
+    },
+    {
+      "input": "github.com//org/app",
+      "expected": false
+    },
+    {
+      "input": "github.com/org/app//",
+      "expected": false
+    },
+    {
+      "input": "github.com:org/app",
+      "expected": false
+    },
+    {
+      "input": "-x/y/z",
+      "expected": false
+    },
+    {
+      "input": "",
+      "expected": false
+    },
+    {
+      "input": "github.com/org/app\n",
+      "expected": false
+    },
+    {
+      "input": "github.com/org/app\t",
+      "expected": false
+    },
+    {
+      "input": "github.com/org/a pp",
+      "expected": false
+    },
+    {
+      "input": "github.com/org/a﻿pp",
+      "expected": false
+    },
+    {
+      "input": "github.com/org/app",
+      "expected": false
+    },
+    {
+      "input": "github.com/org/a pp",
+      "expected": false
+    },
+    {
+      "input": "github.com/org/a\u0000pp",
+      "expected": false
+    },
+    {
+      "input": "git@github.com:org/app/",
+      "expected": false
+    },
+    {
+      "input": "x@github.com:org/app",
+      "expected": false
+    },
+    {
+      "input": "git@-github.com:org/app",
+      "expected": false
+    },
+    {
+      "input": "github-.com/org/app",
+      "expected": false
+    },
+    {
+      "input": "git+ssh://github.com/org/app",
+      "expected": false
+    },
+    {
+      "input": "github.com/org/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": true
+    },
+    {
+      "input": "github.com/org/é",
+      "expected": false
+    },
+    {
+      "input": "github.com/.org/app",
+      "expected": false
+    },
+    {
+      "input": "C:/org/app",
+      "expected": false
+    },
+    {
+      "input": "c:org/app",
+      "expected": false
+    },
+    {
+      "input": "github.com/org/app.git/",
+      "expected": false
+    },
+    {
+      "input": "GitHub.com/org/app",
+      "expected": false
+    },
+    {
+      "input": "github.com/org/app.git",
+      "expected": false
+    },
+    {
+      "input": "github.com/org/app.GIT",
+      "expected": false
+    },
+    {
+      "input": "github.com/org/..",
+      "expected": false
+    },
+    {
+      "input": "github.com/org/.",
+      "expected": false
+    },
+    {
+      "input": "github.com/org",
+      "expected": false
+    },
+    {
+      "input": "github.com/org/app/",
+      "expected": false
+    },
+    {
+      "input": "a/b/c",
+      "expected": true
+    },
+    {
+      "input": "a.b/c/d/e/f",
+      "expected": true
+    },
+    {
+      "input": "-a.com/b/c",
+      "expected": false
+    },
+    {
+      "input": "a-.com/b/c",
+      "expected": false
+    },
+    {
+      "input": "git@github.com:org/app",
+      "expected": false
+    }
+  ]
+}

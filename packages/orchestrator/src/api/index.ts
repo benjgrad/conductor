@@ -31,7 +31,7 @@ import { registerRateLimit } from '../auth/throttle.js';
 import { insertBoardEvents, type ApplyEventOptions } from '../contracts.js';
 import { withTransaction } from '../db/index.js';
 import type { TicketRow } from '../db/types.js';
-import { cardView } from '../engine/board-view.js';
+import { cardView, withMachineFields } from '../engine/board-view.js';
 import { reopenSession } from '../engine/reopen.js';
 import type { MachineSockets } from '../gateway/revoke.js';
 import type { PushConfig } from '../push/config.js';
@@ -446,11 +446,15 @@ export const createApi = (({
           session_id: null,
           ticket_id: row.id,
           // UX-13a: a new ticket holds no agent until a claim starts it.
-          card: toBoardCard(
-            { ...row, agent_name: null },
-            null,
-            null,
-            await cardView(tx, row.workflow_id, null),
+          card: await withMachineFields(
+            tx,
+            toBoardCard(
+              { ...row, agent_name: null },
+              null,
+              null,
+              await cardView(tx, row.workflow_id, null),
+            ),
+            row,
           ),
         },
       ]);

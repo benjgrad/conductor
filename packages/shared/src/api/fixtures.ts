@@ -471,6 +471,13 @@ export const MACHINE_DETAIL_FIXTURE: MachineDetail = {
   live_sessions: [
     { session_id, ticket_id: '0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2', title: 'Add /health' },
   ],
+  cannot_take: [
+    {
+      ticket_id: '1c7a3b8d-9e2f-4a4b-b6c7-d8e9f0a1b2c3',
+      title: 'Deploy to Azure',
+      missing_capabilities: ['cli:az:authed'],
+    },
+  ],
 };
 
 export const RENAME_MACHINE_REQUEST_FIXTURE: RenameMachineRequest = { name: 'Work laptop' };

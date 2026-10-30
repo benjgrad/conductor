@@ -61,6 +61,7 @@ Parallel branches touch the same files, so:
 1. One task, one branch: `m<N>-t<NN>-<slug>`. Work on it directly; parallelize only when tasks are independent and big enough to be worth it.
 2. Record new unknowns, blockers, tech debt and unfinished items in the tracking files **on your branch** as you go ([§Every agent updates the tracking docs](#every-agent-updates-the-tracking-docs)). A blocked task gets a B-### row and status `blocked`; tell Ben if the unblock action is his.
 3. **Run only targeted tests while you work**: the files and package you touched, e.g. `pnpm vitest run --project daemon src/actions/open-pr.test.ts`, plus `pnpm typecheck`. Never run the full `pnpm test` or `pnpm lint` to check progress: the full gate runs **once per branch**, in step 3, or as conductor's own checks when a conductor ticket leaves `implementing` (they run in a fresh checkout under the daemon's build slots, so running them yourself first only doubles the load). If a targeted run reports `test slot: waiting…`, it is queued behind other runs on the machine: wait, don't retry or kill it (M2-T32).
+4. **Write small, fast tests.** Test cases through pure functions. Spawn a process (node, git, gh, PowerShell) or use a real repo, DB or browser only when that boundary is what's under test, and say why in a comment. Every slow test is paid for on every branch, by every agent, and ~10× over on the Windows CI job ([TEST_STRATEGY §Write small, fast tests](docs/qa/TEST_STRATEGY.md#write-small-fast-tests)).
 
 ### 3 · Check and merge
 1. Before merging, check the branch against the task's acceptance criteria and [docs/qa/QA_CHECKLIST.md](docs/qa/QA_CHECKLIST.md): read the diff, run the gates once (`pnpm typecheck && pnpm lint && pnpm test && pnpm build`, Bash `timeout: 600000`: it may queue for a test slot). When a QA subagent runs them, the lead doesn't run them again.
@@ -122,6 +123,8 @@ node scripts/test-slot.js cargo nextest run --workspace    # every Rust test, in
 cargo nextest run -p conductor-daemon <filter>             # targeted while iterating (e.g. `seam`)
 cargo build --release -p conductor-daemon                  # target/release/conductor-daemon
 node scripts/test-parity.js [--files <glob>]… [--write]    # crates/conductor-daemon/PARITY.md vs the TS tests
+pnpm --filter @conductor/shared emit:protocol            # zod → packages/shared/protocol-json (MR-T03)
+cargo run -p conductor-protocol-codegen                    # protocol-json → crates/conductor-protocol/src/generated.rs
 ```
 
 GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `scripts/ci.sh` as the `gates` check on every PR; a PR runs only the slow test tiers its diff reaches (`CONDUCTOR_CI_TIERED=1` → `pnpm test`), and `main` runs `test:all`. `daemon-windows.yml` runs the daemon tests on Windows only when the diff reaches the daemon (`scripts/test-affected.js`). `daemon-rust.yml` runs the cargo gates and a release build on ubuntu, macos and windows only when the diff reaches `crates/**`, `Cargo.*`, `rust-toolchain.toml` or `packages/shared/**`. Every push to `main` that passes it is deployed to gradyserver by `deploy/gradyserver/deploy.sh` (runbook [§12](docs/setup/deploy-gradyserver.md#12-cicd-github-actions)), so merging to `main` ships.

@@ -127,6 +127,9 @@ function startDaemon(
     claudeCodeVersion: '2.1.308',
     log: () => {},
     hasConversation,
+    // M2-T16a: the claim routes on capabilities; the fake driver is this machine's `claude`.
+    scanInventory: () =>
+      Promise.resolve({ repos: [], capabilities: [{ kind: 'claude', version: '2.1.308' }] }),
   });
   daemons.push(d);
   d.start();

@@ -1,0 +1,15 @@
+{
+  "fencing_token": 1,
+  "msg_id": "00000000-0000-4000-8000-000000000003",
+  "payload": {
+    "data": {
+      "result": {
+        "summary": "added endpoint"
+      }
+    },
+    "kind": "complete_state"
+  },
+  "seq": 12,
+  "session_id": "7d0c5b1e-3f4a-4b7e-9c2d-1a2b3c4d5e6f",
+  "type": "session_event"
+}

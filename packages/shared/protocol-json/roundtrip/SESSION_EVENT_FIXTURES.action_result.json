@@ -1,0 +1,11 @@
+{
+  "data": {
+    "action": "open_pr",
+    "command_id": "5e4d3c2b-1a09-4f8e-b7d6-c5b4a3928170",
+    "error": null,
+    "result": {
+      "pr_url": "https://github.com/benjgrad/fixture-app/pull/7"
+    }
+  },
+  "kind": "action_result"
+}

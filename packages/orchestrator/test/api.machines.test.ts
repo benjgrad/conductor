@@ -11,7 +11,11 @@ import {
   MachineListResponseSchema,
   MachineRowSchema,
 } from '@conductor/shared';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ingestInventory } from '../src/gateway/inventory.js';
 import type { MachineSockets } from '../src/gateway/revoke.js';
 import {
   HTTPS_URL,
@@ -24,6 +28,10 @@ import {
 import { useTestDatabase } from './db.js';
 
 const db = useTestDatabase();
+const M1_BASIC = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../../docs/design/workflows/m1_basic.v1.json',
+);
 const PASSWORD = 'correct horse battery staple';
 const SERVED = '0.2.0';
 
@@ -208,6 +216,72 @@ describe('list, detail, rename, revoke', () => {
       { kind: 'git_tamper', repo: 'github.com/org/app', session_id: null, files: ['.git/config'] },
     ]);
     expect(detail.live_sessions).toEqual([]);
+  });
+
+  it('detail lists the queued tickets it can’t take, and why (M2-T16a), at most 50', async () => {
+    await db.pool.query(
+      `INSERT INTO workflow_definition (id, version, definition) VALUES ('m1_basic', 1, $1)
+       ON CONFLICT DO NOTHING`,
+      [readFileSync(M1_BASIC, 'utf8')],
+    );
+    const id = await enrollFor(a);
+    await ingestInventory(
+      db.pool,
+      { machineId: id, accountId: a.accountId },
+      {
+        repos: [
+          {
+            path: '/Users/me/app',
+            remote: 'github.com/org/app',
+            default_branch: 'main',
+            head_commit: 'a'.repeat(40),
+            mode: 'reference',
+          },
+        ],
+        capabilities: [{ kind: 'cli', name: 'gh', version: '2.60.0', authed: true }],
+        hash: 'h',
+      },
+    );
+    const ticket = async (who: { accountId: string }, repo: string, title: string, priority = 0) =>
+      (
+        await db.pool.query<{ id: string }>(
+          `INSERT INTO ticket (account_id, repo, title, workflow_id, priority)
+           VALUES ($1, $2, $3, 'm1_basic', $4) RETURNING id`,
+          [who.accountId, repo, title, priority],
+        )
+      ).rows[0]!.id;
+    const noRepo = await ticket(a, 'github.com/org/elsewhere', 'elsewhere', 2);
+    const noClaude = await ticket(a, 'github.com/Org/App', 'app', 1);
+    await ticket(b, 'github.com/org/elsewhere', 'other account', 3);
+
+    const detail = async () =>
+      MachineDetailSchema.parse((await api.send('GET', API_PATHS.machine(id), as(a))).json);
+    expect((await detail()).cannot_take).toEqual([
+      {
+        ticket_id: noRepo,
+        title: 'elsewhere',
+        missing_repo: 'github.com/org/elsewhere',
+        missing_capabilities: ['claude'],
+      },
+      { ticket_id: noClaude, title: 'app', missing_capabilities: ['claude'] },
+    ]);
+
+    // With claude it can take the app ticket; 60 more it can't are capped at 50.
+    await db.pool.query(
+      `INSERT INTO machine_capability (machine_id, account_id, key, kind, name)
+       VALUES ($1, $2, 'claude', 'claude', 'claude')`,
+      [id, a.accountId],
+    );
+    for (let i = 0; i < 60; i++) await ticket(a, 'github.com/org/elsewhere', `more ${i}`);
+    const capped = (await detail()).cannot_take;
+    expect(capped).toHaveLength(50);
+    expect(capped[0]).toEqual({
+      ticket_id: noRepo,
+      title: 'elsewhere',
+      missing_repo: 'github.com/org/elsewhere',
+      missing_capabilities: [],
+    });
+    expect(capped.map((c) => c.ticket_id)).not.toContain(noClaude);
   });
 
   it('rename returns the MachineRow and sticks; an empty name is 400', async () => {

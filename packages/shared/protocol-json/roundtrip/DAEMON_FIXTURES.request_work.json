@@ -1,0 +1,13 @@
+{
+  "fencing_token": null,
+  "msg_id": "00000000-0000-4000-8000-000000000011",
+  "payload": {
+    "cpu_free": 6.5,
+    "free_slots": 2,
+    "mem_free_mb": 12000,
+    "repos_digest": "sha256:1f2e"
+  },
+  "seq": 4,
+  "session_id": null,
+  "type": "request_work"
+}

@@ -15,10 +15,10 @@
 | UX-13a | Agent team (server): team and hiring pools, the assignment, `agent_name` on the DTOs | — | 1 | **yes** | todo |
 | UX-14 | Notifications (in-tab): browser notification, title count, favicon dot | — | 1 | — | todo |
 | UX-15 | Notifications (Web Push, server): subscriptions, VAPID, the send on needs-input | — | 1 | **yes** | in_review (PR #67) |
-| UX-9 | Collapsible board columns | UX-10 | 2 | — | todo |
+| UX-9 | Collapsible board columns (desktop only now; rebase onto the phone `Board.tsx`) | UX-10 | 2 | — | todo |
 | UX-13b | Agent team (web): show the stored name and face, the Team list | UX-13a | 2 | — | todo |
 | UX-16 | Notifications (Web Push, web): service worker, manifest, subscribe toggle | UX-14, UX-15 | 2 | — | todo |
-| UX-12 | Mobile-friendly view | UX-9, UX-11 | 3 | — | todo |
+| UX-12 | Mobile-friendly view | UX-11 | — | — | replaced by the "Mobile-friendly UX" ticket ([11-web-ui](../design/11-web-ui.md), [UI review](../qa/ux-review/README.md)) |
 
 **Ticket waves**: post a wave only when everything it depends on is merged (TD-172: no `depends_on` until M2b). The reasons for the order:
 - UX-9, UX-10 and UX-12 all edit `components/Board.tsx` / `Board.css`, so they run in sequence.
@@ -317,7 +317,7 @@ Ben can collapse the columns he doesn't need right now (for example Done), so th
 - **NFR-2** It doesn't re-render cards in other columns when a column toggles.
 
 ## Out of scope
-Reordering or hiding columns permanently; mobile (UX-12, which builds on this).
+Reordering or hiding columns permanently; mobile: the phone board shows one column at a time ([11-web-ui](../design/11-web-ui.md)), so collapsing is desktop only, above the breakpoint.
 
 ## Verification
 - FR-1..FR-5: `Board.test.tsx`:
@@ -333,6 +333,9 @@ Reordering or hiding columns permanently; mobile (UX-12, which builds on this).
 - **Acceptance**: [ ] tests; [ ] gates green.
 
 ### UX-12 · Mobile-friendly view
+
+> **Replaced** by the "Mobile-friendly UX" ticket, which went ahead of UX-9 and also covers a full UI review: see [11-web-ui](../design/11-web-ui.md) and [docs/qa/ux-review](../qa/ux-review/README.md). Kept for the record.
+
 ## Goal
 Ben can triage conductor from his phone: see what needs him, read the question, answer, and move the ticket on.
 

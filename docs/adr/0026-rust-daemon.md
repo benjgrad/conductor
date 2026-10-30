@@ -46,6 +46,14 @@ The edit-guard hook becomes `conductor-daemon hook edit-guard`, pointing at the 
 - The `daemon-windows` workflow becomes a native build and test matrix on ubuntu, macos and windows runners.
 - The seam rule carries over: `cfg(...)` OS branches only under `platform/`, enforced by a source-scanning test.
 
+### 7 · The platform layer on Windows (MR-T04)
+These intended differences from the TS daemon's Windows behaviour (ADR-0024 §1–§3) come from §Consequences: Job Objects and native DACLs. POSIX behaviour is unchanged.
+- **Tree kill.** `spawn_cli` starts every child `CREATE_SUSPENDED`, puts it in its own kill-on-close Job Object, then resumes its thread, so nothing runs outside the job (MR-T01 finding 6). `kill_tree` terminates the job, which also kills grandchildren whose parent already exited (U-116). It does that even after the root has exited, because no pid is involved. When the job can't be made or assigned, the child still runs (logged), and `kill_tree` falls back to `taskkill /T /F`. The orphan sweep's `signal_tree` stays on taskkill (TD-189), but a dead daemon's job has already taken its tree with it.
+- **Job lifetime.** The job handle lives in the child's `TreeHandle`. Dropping the last clone kills the tree, and so does the daemon dying. A daemon restart therefore ends its agents on Windows, which the startup orphan sweep would have done anyway.
+- **Private files and dirs.** New files and dirs are created with an owner-only security descriptor already on them: the user as owner, plus a protected DACL granting the user, SYSTEM and Administrators full access (`(OI)(CI)` on dirs). So the inherited-permission window is gone, not just avoided. Existing dirs are restricted with `SetSecurityInfo`. Verification reads the owner, the DACL and the SDDL from a handle opened on the path itself (`FILE_FLAG_OPEN_REPARSE_POINT`; links and junctions are refused). It applies the same rules, messages and cross-checks as `acl.ts`. The ancestor refusals stay. There is no verified-dir cache, because a native read is cheap. There is no icacls, whoami or PowerShell.
+- **Process info.** Native calls on one process handle: `GetProcessTimes`, `NtQueryInformationProcess(ProcessCommandLineInformation)` and `QueryFullProcessImageNameW`. A process that has exited but is still held open reads as gone.
+- **Windows hiding.** `CREATE_NO_WINDOW` replaces Node's `windowsHide`. POSIX `detached` is `setsid` (what Node does), not plain `setpgid`.
+
 ## Alternatives considered
 | Option | Why not |
 |---|---|

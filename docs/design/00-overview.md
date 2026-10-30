@@ -46,6 +46,7 @@ From these numbers, one Postgres instance is enough as the system of record. A l
 | [07-multi-session-isolation](07-multi-session-isolation.md) | Many agents on one machine |
 | [08-failure-modes](08-failure-modes.md) | Laptop sleep, crashes, side effects |
 | [09-security-and-budgets](09-security-and-budgets.md) | Permissions, sandboxing, secrets, spend |
+| [11-web-ui](11-web-ui.md) | Web UI tokens, the phone breakpoint and layouts, touch targets |
 | [workflows/conductor.v2.json](workflows/conductor.v2.json) | The one workflow, v2 (ADR-0011): rules on named transitions |
 | [workflows/conductor.v3.json](workflows/conductor.v3.json) | The one workflow, current default (ADR-0025): v2 with green PR CI required before review and longer state timeouts; seeded on startup, and an unedited v1 or v2 is upgraded to it |
 | [workflows/conductor.v1.json](workflows/conductor.v1.json) | The one workflow's first version (ADR-0010); its states are the board columns. Old tickets still pin it |

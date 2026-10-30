@@ -82,6 +82,7 @@ async function registered(id = machineId): Promise<FakeDaemon> {
   const d = await daemon(id);
   d.register({ tags: ['mac', tag] });
   await d.next('registered');
+  d.inventory(); // M2-T16a: the repo and capabilities the claim routes on
   return d;
 }
 

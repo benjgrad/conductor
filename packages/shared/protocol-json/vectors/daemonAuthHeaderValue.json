@@ -1,0 +1,26 @@
+{
+  "function": "daemonAuthHeaderValue",
+  "description": "daemonAuthHeaderValue(credential) → header value (protocol/ws.ts)",
+  "cases": [
+    {
+      "input": "abc",
+      "expected": "Bearer abc"
+    },
+    {
+      "input": "cmc_0123456789abcdef",
+      "expected": "Bearer cmc_0123456789abcdef"
+    },
+    {
+      "input": "",
+      "expected": "Bearer "
+    },
+    {
+      "input": "a b",
+      "expected": "Bearer a b"
+    },
+    {
+      "input": "é",
+      "expected": "Bearer é"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "type": "protocol_error",
+  "msg_id": "00000000-0000-4000-8000-000000000020",
+  "seq": null,
+  "session_id": null,
+  "fencing_token": null,
+  "payload": {
+    "code": "invalid_message",
+    "message": "payload.free_slots: expected number",
+    "ref_msg_id": null
+  }
+}

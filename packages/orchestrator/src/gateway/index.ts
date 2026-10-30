@@ -49,6 +49,7 @@ import {
 import { claimWork, LEASE_INTERVAL } from './claim.js';
 import { hashSecret } from './enroll.js';
 import { engineEventForSessionEvent } from './events.js';
+import { ingestAlert, ingestInventory } from './inventory.js';
 import type { MachineSockets } from './revoke.js';
 import { sendFrame, SocketTransport } from './transport.js';
 
@@ -56,7 +57,8 @@ import { sendFrame, SocketTransport } from './transport.js';
 // API_PATHS.daemonWs. Frames from one socket are handled strictly in order (session_event seq
 // dedupe depends on it).
 
-export { claimWork, type ClaimResult } from './claim.js';
+export { claimWork, type ClaimOptions, type ClaimResult } from './claim.js';
+export { ingestAlert, ingestInventory } from './inventory.js';
 export {
   createEnrollmentToken,
   enrollMachine,
@@ -132,6 +134,8 @@ interface Conn {
   authMachineId: string | null;
   /** Set on a successful `register` (ADR-0012 §Tenancy; the handlers use it from M2-T16). */
   scope: AccountScope | null;
+  /** `register.protocol_version` (1 until registered): a v2 daemon's `inventory` owns its repos. */
+  protocolVersion: number;
   queue: Promise<void>;
   /** Set before the gateway closes the socket: from then on no frame of it is processed. */
   closing: boolean;
@@ -326,6 +330,7 @@ class Gateway implements DaemonGateway {
       accountId: auth.accountId,
       authMachineId: auth.machineId,
       scope: null,
+      protocolVersion: 1,
       queue: Promise.resolve(),
       closing: false,
       owned: new Map(),
@@ -439,7 +444,22 @@ class Gateway implements DaemonGateway {
       case 'heartbeat':
         return this.onHeartbeat(conn, machineId, msg);
       case 'repo_inventory':
-        return this.onRepoInventory(machineId, msg);
+        // TD-110: a v2 daemon sends `inventory` too, which owns machine_repo (the legacy list
+        // would delete its rows); only v1 daemons are heard here, until M2-T21 removes it.
+        if (conn.protocolVersion >= 2) return;
+        return this.onRepoInventory(conn, machineId, msg);
+      case 'inventory':
+        return ingestInventory(this.db, { machineId, accountId: conn.accountId }, msg.payload);
+      case 'alert':
+        this.publish(
+          await ingestAlert(
+            this.db,
+            { machineId, accountId: conn.accountId },
+            msg.seq,
+            msg.payload,
+          ),
+        );
+        return;
       case 'request_work':
         return this.onRequestWork(conn, machineId, msg);
       case 'command_ack':
@@ -628,6 +648,7 @@ class Gateway implements DaemonGateway {
       conn.owned.clear();
     }
     conn.machineId = p.machine_id;
+    conn.protocolVersion = protocolVersion;
     conn.scope = {
       account_id: conn.accountId,
       actor: { kind: 'machine', machine_id: p.machine_id },
@@ -696,7 +717,11 @@ class Gateway implements DaemonGateway {
     }
   }
 
-  private async onRepoInventory(machineId: string, msg: Msg<'repo_inventory'>): Promise<void> {
+  private async onRepoInventory(
+    conn: Conn,
+    machineId: string,
+    msg: Msg<'repo_inventory'>,
+  ): Promise<void> {
     // Last entry wins for a repo listed twice (ON CONFLICT can't touch a row twice).
     const byRepo = new Map(msg.payload.repos.map((r) => [r.repo, r]));
     const repos = [...byRepo.values()];
@@ -707,8 +732,8 @@ class Gateway implements DaemonGateway {
       );
       if (repos.length === 0) return;
       await tx.query(
-        `INSERT INTO machine_repo (machine_id, repo, path, head_commit, tree_clean)
-         SELECT $1, * FROM unnest($2::text[], $3::text[], $4::text[], $5::bool[])
+        `INSERT INTO machine_repo (machine_id, account_id, repo, path, head_commit, tree_clean)
+         SELECT $1, $6, * FROM unnest($2::text[], $3::text[], $4::text[], $5::bool[])
          ON CONFLICT (machine_id, repo) DO UPDATE SET
            path = EXCLUDED.path, head_commit = EXCLUDED.head_commit,
            tree_clean = EXCLUDED.tree_clean, updated_at = now()`,
@@ -718,6 +743,7 @@ class Gateway implements DaemonGateway {
           repos.map((r) => r.path),
           repos.map((r) => r.head_commit),
           repos.map((r) => r.tree_clean),
+          conn.accountId,
         ],
       );
     });

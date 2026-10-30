@@ -1,0 +1,19 @@
+{
+  "type": "session_event",
+  "msg_id": "00000000-0000-4000-8000-000000000001",
+  "seq": 10,
+  "session_id": "7d0c5b1e-3f4a-4b7e-9c2d-1a2b3c4d5e6f",
+  "fencing_token": 1,
+  "payload": {
+    "kind": "started",
+    "data": {
+      "command_id": "5e4d3c2b-1a09-4f8e-b7d6-c5b4a3928170",
+      "worktree_path": "/Users/ben/.conductor/wt/7d0c5b1e",
+      "branch": "conductor/0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2/7d0c5b1e",
+      "port_range": {
+        "base": 41000,
+        "count": 10
+      }
+    }
+  }
+}

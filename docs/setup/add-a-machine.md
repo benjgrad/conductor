@@ -39,6 +39,10 @@ You need five things on the computer. Install what's missing, then run each chec
 - **GitHub CLI 2.40 or newer**, signed in. Install it with `winget install --id GitHub.cli -e`, then run `gh auth login`. Check: `gh --version` and `gh auth status`.
 - **A folder with your repos**, for example `~/code` (in your user folder). Check: `ls ~/code`.
 
+### Optional
+
+Agents use the tools you have signed in to on this computer. If your tickets need them, also set up the Azure CLI (`az login`) and a Jira CLI or a Jira MCP server in Claude Code. The daemon reports which of these it found (step 5).
+
 ## 2. Install and enroll
 
 In conductor, open **Machines** and press **Add a machine** (or follow the guided setup from **Add a machine** in the top bar). You get a one-time install command like this:
@@ -56,6 +60,12 @@ What the installer does:
 - enrolls the computer: it connects it to your conductor account.
 
 It installs none of the prerequisites. If something is missing, it lists what and stops.
+
+On macOS and Linux, add `--service` to the end of the command to also start the daemon at login (step 3):
+
+```
+curl -fsSL https://conductor.example.com/install.sh | sh -s -- --token <one-time token> --service
+```
 
 At the end it suggests adding `~/.conductor/bin` to your PATH, for example in `~/.zshrc` or `~/.profile`:
 
@@ -83,7 +93,21 @@ Start it in a terminal and keep that terminal open:
 
 On Windows, run `conductor-daemon` in PowerShell.
 
-It prints what it does in that terminal. Stop it with Ctrl-C. Starting it automatically at login is coming soon.
+It prints what it does in that terminal. Stop it with Ctrl-C.
+
+### Start it at login (macOS and Linux)
+
+Instead of a terminal, let your computer run the daemon in the background. It starts at login and restarts if it crashes. No sudo is needed:
+
+```
+~/.conductor/bin/conductor-daemon service install
+```
+
+On macOS this adds a launch agent (`~/Library/LaunchAgents/com.conductor.daemon.plist`), and the daemon writes to `~/.conductor/logs/daemon.log`. On Linux it adds a systemd user service (`~/.config/systemd/user/conductor-daemon.service`), and the log is in `journalctl --user -u conductor-daemon`. On Linux, to keep it running while you are logged out, also run `loginctl enable-linger "$USER"`.
+
+The service remembers the Node.js you installed it with and your PATH at that moment (so it finds `claude`, `git` and `gh`). If `node -v` in your terminal is older than 22, choose Node 22 yourself: with nvm, `CONDUCTOR_NODE="$(nvm which 22)" ~/.conductor/bin/conductor-daemon service install`. After you change Node.js or move a tool, run `service install` again.
+
+Other commands: `service status` (is it running, and where is the log), `service restart`, and `service uninstall` (stops it and removes the service). Windows has no service yet: keep the PowerShell window open.
 
 ## 4. Tell it where your repos are
 
@@ -101,7 +125,19 @@ Or, without restarting, send it a hang-up signal. This signals only the conducto
 pkill -HUP -f "$HOME/.conductor/daemon/current/dist/main.js"
 ```
 
+If the daemon runs as a service, restart it with `~/.conductor/bin/conductor-daemon service restart`.
+
 To see the current settings, run `~/.conductor/bin/conductor-daemon config show`.
+
+### Per-repo mode
+
+Agents always work in their own git worktrees, never in your folder itself. By default (mode `reference`) those worktrees come from a separate clone the daemon keeps, which borrows objects from your repo, so your repo's `.git` folder is never touched. For a repo where you'd rather have worktrees of your own checkout (for example a personal project, so the branches show up in it), turn that on per repo:
+
+```
+~/.conductor/bin/conductor-daemon config repo ~/code/my-app --mode checkout
+```
+
+The risk: in `checkout` mode the worktrees share your repo's `.git/config` and hooks, so an agent could change them, and a planted hook would later run when you use the repo yourself. The daemon watches both and raises an alert when they change. Use it only for repos you are happy to share that way. Set it back with `--mode reference`.
 
 On Windows, set the roots with `conductor-daemon config roots $HOME/code`. Windows has no hang-up signal, so restart the daemon to apply the change now.
 
@@ -112,11 +148,19 @@ Open **Machines** in conductor. Your computer shows as **online** within a few s
 - **Repos**: the repos it found under your repo roots. A repo without a remote can't take tickets.
 - **Capabilities**: claude, and gh with its version and whether it's signed in. Pull requests need gh 2.40 or newer, signed in.
 
-It reports repo paths and remotes, and the names and versions of the tools it found. It never reports secrets, tokens or account names.
+It reports repo paths and remotes, and the names and versions of the tools it found. It never reports secrets, tokens, account names or the contents of your files.
+
+## Upgrade
+
+Run the install command from **Add a machine** again, without a token: `curl -fsSL https://conductor.example.com/install.sh | sh`. It installs the new version next to the old one and keeps the enrollment. If the daemon runs as a service, it restarts on the new version by itself. Otherwise restart it yourself.
 
 ## Troubleshooting
 
-- **The machine never shows up.** Is the daemon running? Look at the terminal from step 3. If you closed it, start the daemon again.
+- **The machine never shows up.** Is the daemon running? Look at the terminal from step 3. If you closed it, start the daemon again. As a service, run `~/.conductor/bin/conductor-daemon service status` and read the log it names.
+- **"enrollment token is expired, already used or unknown" (HTTP 401).** The token is valid once, for 30 minutes. Generate a new one on the Machines page and run the command again.
+- **"ws closed 4001" or "machine revoked".** Someone revoked this machine. The daemon stops, and the service doesn't restart it (it exits with code 78). To use the computer again, add it as a new machine: generate a token, run `CONDUCTOR_ENROLL_TOKEN=<token> ~/.conductor/bin/conductor-daemon enroll --url https://conductor.example.com --force`, then `~/.conductor/bin/conductor-daemon service restart`.
+- **"ws closed 4005" or "protocol version not supported".** The daemon is too old for this server. Upgrade it (see Upgrade); the service starts again on the new version.
+- **The service starts and stops at once.** Read the log (`service status` names it). Exit code 78 means the machine's credential was refused or revoked: enroll again as above.
 - **Node.js is too old or missing.** Run `node -v` in the same terminal as the daemon. It must be 22 or newer and on that terminal's PATH (with nvm, run `nvm use 22` first).
 - **The install command failed with "enrollment failed".** The command expired or was already used. Generate a new one on the Machines page and run it again; the daemon is already installed, so this is quick.
 - **"missing prerequisites".** The installer lists what's missing. Install it (step 1) and run the command again.
@@ -139,7 +183,7 @@ If the question says a machine stopped responding or is offline, open **Machines
 
 ## Remove a machine
 
-1. Stop the daemon (Ctrl-C in its terminal).
+1. Stop the daemon (Ctrl-C in its terminal, or `~/.conductor/bin/conductor-daemon service uninstall` if it runs as a service).
 2. Delete its files: `rm -rf ~/.conductor`. On Windows: `Remove-Item -Recurse -Force ~/.conductor`, then remove its `bin` folder from your PATH (Settings, "Edit environment variables for your account").
 3. In conductor, open **Machines** and press **Revoke** on the machine. It disconnects at once and can't reconnect. Any session running on it goes to you as Needs input.
 

@@ -46,6 +46,8 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 - [ ] `commands/process-runner.test.ts`
 
+- [ ] `commands/service.test.ts`
+
 - [ ] `credential.test.ts`
 
 - [ ] `daemon.kill.test.ts`
@@ -375,6 +377,21 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 | commands/process-runner.test.ts › TailBuffer › drops a multi-byte character cut at the front | todo |
 | commands/process-runner.test.ts › TailBuffer › keeps everything under the limit across chunks | todo |
 
+### commands/service.test.ts
+
+| TS case | Rust |
+|---|---|
+| commands/service.test.ts › unit files › launchd on macOS, systemd on Linux, none on Windows | todo |
+| commands/service.test.ts › unit files › the launchd plist runs the launcher, supervised, with pinned node, logs and a throttle | todo |
+| commands/service.test.ts › unit files › the systemd unit runs the launcher, supervised, and never restarts on 78 | todo |
+| commands/service.test.ts › unit files › escapes XML and systemd specifiers, and refuses what systemd cannot quote | todo |
+| commands/service.test.ts › unit files › restart policy: 75 and crashes restart, 0 and 78 do not (TD-119, ADR-0021) | todo |
+| commands/service.test.ts › unit files › stopSupervisedJob does nothing when unsupervised or under systemd | todo |
+| commands/service.test.ts › service install / uninstall / restart › `${manager}: install writes the unit and the launcher; a second install changes nothing` | todo |
+| commands/service.test.ts › service install / uninstall / restart › `${manager}: restart, status and uninstall; sudo is never used` | todo |
+| commands/service.test.ts › service install / uninstall / restart › `${manager}: refuses without an installed daemon, and with Node 20` | todo |
+| commands/service.test.ts › service install / uninstall / restart › usage errors and an OS without a service manager exit 2 | todo |
+
 ### credential.test.ts
 
 | TS case | Rust |
@@ -385,6 +402,10 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 | credential.test.ts › loadCredential › refuses a root other users can read (win32: any non-owner-only DACL) | todo |
 | credential.test.ts › loadCredential › refuses a symlinked file and a symlinked root | todo |
 | credential.test.ts › loadCredential › refuses invalid content without echoing it | todo |
+| credential.test.ts › credential.ts on POSIX (TD-118) › a symlinked machine.json is refused by the O_NOFOLLOW open, even when the target is private | todo |
+| credential.test.ts › credential.ts on POSIX (TD-118) › a write fsyncs the file and then the root | todo |
+| credential.test.ts › credential.ts on POSIX (TD-118) › a symlinked root is refused and its target is never chmodded | todo |
+| credential.test.ts › credential.ts on POSIX (TD-118) › a loose existing root is tightened to 0700 by a write | todo |
 | credential.test.ts › machine.json url › rejects plain http to a non-loopback host, on load and on write | todo |
 | credential.test.ts › daemonWsUrl › maps https → wss and http → ws on the daemon WS path | todo |
 | credential.test.ts › loadConfig with machine.json › uses the enrolled machine id, the stored url and the credential | todo |
@@ -746,5 +767,8 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 | ws-client.test.ts › ReconnectingWs (M2-T04) › sends the bearer header when enrolled and none in local mode | todo |
 | ws-client.test.ts › ReconnectingWs (M2-T04) › close 4001 stops reconnecting and reports it once | todo |
 | ws-client.test.ts › ReconnectingWs (M2-T04) › close 4003 is fatal too; 4005 says to re-run the install command | todo |
-| ws-client.test.ts › ReconnectingWs (M2-T04) › HTTP 401 at the upgrade is treated as unauthorized: no retries | todo |
+| ws-client.test.ts › ReconnectingWs (M2-T04) › HTTP 401 and 403 at the upgrade are treated as unauthorized: no retries, exit 78 | todo |
+| ws-client.test.ts › ReconnectingWs (M2-T04) › any other code exits 1 | todo |
 | ws-client.test.ts › ReconnectingWs (M2-T04) › another refused upgrade, and an ordinary close, still reconnect | todo |
+| ws-client.test.ts › wake tick (M2-T18, ADR-0021 §5) › a 60 s jump during a 30 s backoff reconnects within one tick and resets the attempts | todo |
+| ws-client.test.ts › wake tick (M2-T18, ADR-0021 §5) › a jump while connected drops the socket and opens a new one | todo |

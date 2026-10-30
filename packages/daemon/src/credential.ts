@@ -1,14 +1,23 @@
-import { lstatSync, readFileSync, type Stats } from 'node:fs';
+import { lstatSync, type Stats } from 'node:fs';
 import { join } from 'node:path';
 import { API_PATHS } from '@conductor/shared';
 import { z } from 'zod';
-import { assertOwnerOnly, mkdirPrivate, writePrivateFile } from './platform/index.js';
+import {
+  assertOwnerOnly,
+  assertPrivateDir,
+  readPrivateFile,
+  writePrivateFileDurable,
+  type DurableIo,
+} from './platform/index.js';
 
 // The machine credential (M2-T04; ADR-0013 §Enrollment, ADR-0017 §Daemon distribution):
 // `<root>/machine.json` = {url, machine_id, credential}, file 0600 in a 0700 directory, both
 // lstat- and owner-checked like ADR-0010's private repos. On win32 the same checks are an owner-only
 // DACL (ADR-0024 §3, platform/acl.ts). No file = local mode (M1 behaviour).
 // Error messages name paths, never the credential.
+// TD-118 (M2-T18, platform/private-file.ts): POSIX opens the file with O_NOFOLLOW and checks it
+// with fstat on that fd (no lstat-then-read window); a loaded root must be 0700 and ours; a write
+// fsyncs the file and the root, and chmods the root through an O_NOFOLLOW fd, never by path.
 
 export const CREDENTIAL_FILE = 'machine.json';
 
@@ -47,12 +56,16 @@ function lstatOrNull(path: string): Stats | null {
   }
 }
 
+/** Test hook for `writeCredential`: the fsync calls (file, then root) are observable. */
+export type CredentialIo = DurableIo;
+
 /**
  * Refuse a root that is a symlink, not a directory, or owned by another user (win32: also any DACL
- * that isn't owner-only).
+ * that isn't owner-only). With `checkMode` (loading): POSIX also requires 0700-style privacy.
  */
-export function checkPrivateDir(dir: string): void {
-  assertOwnerOnly(dir, { kind: 'dir' });
+export function checkPrivateDir(dir: string, opts: { checkMode?: boolean } = {}): void {
+  if (opts.checkMode === true) assertPrivateDir(dir);
+  else assertOwnerOnly(dir, { kind: 'dir' });
 }
 
 /**
@@ -79,14 +92,14 @@ export function loadCredential(rootDir: string): MachineCredential | null {
   const path = credentialPath(rootDir);
   if (lstatOrNull(rootDir) === null) return null;
   if (lstatOrNull(path) === null) return null;
-  checkPrivateDir(rootDir);
-  // Type, owner, and nobody else can read it (POSIX `mode & 0o077`, win32 the DACL).
-  assertOwnerOnly(path, { kind: 'file' });
+  checkPrivateDir(rootDir, { checkMode: true });
+  // Type, owner, and nobody else can read it (POSIX `mode & 0o077` on the open fd, win32 the DACL).
+  const text = readPrivateFile(path);
   let raw: unknown;
   try {
-    raw = JSON.parse(readFileSync(path, 'utf8'));
-  } catch {
-    throw new Error(`${path} is not valid JSON; enroll again with --force`);
+    raw = JSON.parse(text);
+  } catch (e) {
+    throw new Error(`${path} is not valid JSON; enroll again with --force`, { cause: e });
   }
   const parsed = MachineCredentialSchema.safeParse(raw);
   if (!parsed.success) {
@@ -96,18 +109,21 @@ export function loadCredential(rootDir: string): MachineCredential | null {
   return parsed.data;
 }
 
-/** Write the credential atomically (private temp file + rename) into a private root. */
+/**
+ * Write the credential atomically (private temp file + rename) into a private root. POSIX: the
+ * root is made 0700 through an O_NOFOLLOW fd, and the file and the root are fsynced.
+ */
 export function writeCredential(
   rootDir: string,
   cred: MachineCredential,
   opts: { force: boolean },
+  io?: CredentialIo,
 ): string {
   const data = MachineCredentialSchema.parse(cred);
-  mkdirPrivate(rootDir);
-  checkWritable(rootDir, opts);
-  const path = credentialPath(rootDir);
-  writePrivateFile(path, `${JSON.stringify(data, null, 2)}\n`);
-  return path;
+  return writePrivateFileDurable(rootDir, CREDENTIAL_FILE, `${JSON.stringify(data, null, 2)}\n`, {
+    beforeWrite: () => checkWritable(rootDir, opts),
+    ...(io ? { io } : {}),
+  });
 }
 
 /** The daemon WS URL for a stored orchestrator URL: https → wss, http → ws, path daemonWs. */

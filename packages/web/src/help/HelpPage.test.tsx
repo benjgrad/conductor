@@ -8,7 +8,8 @@ import { createMockApi } from '../api/mock.js';
 import { App } from '../App.js';
 import { SETUP_GUIDE_URL } from '../machines/format.js';
 import guide from './add-a-machine.md?raw';
-import { EXAMPLE_ORIGIN, guideText } from './HelpPage.js';
+import connectGuide from './connect-claude.md?raw';
+import { CONNECT_CLAUDE_URL, EXAMPLE_ORIGIN, guideText, isHelpPath } from './HelpPage.js';
 
 // UX-8 FR-7: the add-a-machine guide is a page of the app; docs/setup/ has a copy.
 
@@ -127,5 +128,98 @@ describe('the repo copy (docs/setup/add-a-machine.md)', () => {
     // The deploy runbook's link to it resolves too.
     const runbook = readFileSync(resolve(ROOT, 'docs/setup/deploy-gradyserver.md'), 'utf8');
     expect(runbook).toContain('(add-a-machine.md)');
+  });
+});
+
+// The MCP setup guide (ADR-0028): a second help page, opened from the account menu.
+describe('help page: connect Claude', () => {
+  it('renders at /help/connect-claude signed out, with no API calls', () => {
+    window.history.replaceState(null, '', CONNECT_CLAUDE_URL);
+    const api = createMockApi({ auth: 'password', signedIn: false });
+    const me = vi.spyOn(api, 'me');
+    const list = vi.spyOn(api, 'listMachines');
+    render(<App api={api} />);
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Connect Claude to conductor (MCP)' }),
+    ).toBeTruthy();
+    for (const section of [
+      'Claude Code',
+      'claude.ai and Claude Desktop',
+      'What Claude can do',
+      'Disconnect',
+      'Troubleshooting',
+    ]) {
+      expect(screen.getByRole('heading', { level: 2, name: section })).toBeTruthy();
+    }
+    expect(me).not.toHaveBeenCalled();
+    expect(list).not.toHaveBeenCalled();
+  });
+
+  it("uses the page's own origin in the command and the connector URL", () => {
+    window.history.replaceState(null, '', CONNECT_CLAUDE_URL);
+    render(<App api={createMockApi()} />);
+    const page = document.body.textContent;
+    const origin = window.location.origin;
+    expect(page).toContain(`claude mcp add --transport http --scope user conductor ${origin}/mcp`);
+    expect(page).toContain(`URL ${origin}/mcp`);
+    expect(page).not.toContain(EXAMPLE_ORIGIN);
+    expect(guideText('https://c.example', CONNECT_CLAUDE_URL)).not.toContain(EXAMPLE_ORIGIN);
+  });
+
+  it('renders the tool table, and no stray backslashes or markdown markers', () => {
+    window.history.replaceState(null, '', CONNECT_CLAUDE_URL);
+    render(<App api={createMockApi()} />);
+    expect(
+      within(screen.getByRole('table')).getByRole('cell', { name: 'list_tickets' }),
+    ).toBeTruthy();
+    const text = document.querySelector('.help-body')!.textContent;
+    expect(text).not.toContain('\\');
+    expect(text).not.toMatch(/\*\*|^#|\]\(/m);
+    expect(connectGuide).not.toContain('\\');
+  });
+
+  it('only the two guides are help pages', () => {
+    expect(isHelpPath(SETUP_GUIDE_URL)).toBe(true);
+    expect(isHelpPath(CONNECT_CLAUDE_URL)).toBe(true);
+    expect(isHelpPath('/help/other')).toBe(false);
+    expect(isHelpPath('/help/toString')).toBe(false);
+  });
+
+  it('the account menu links there, and "Back to conductor" comes back', async () => {
+    render(<App api={createMockApi()} />);
+    await screen.findByText('Add pagination to /orders');
+    fireEvent.click(document.querySelector<HTMLButtonElement>('.account-button')!);
+    const link = within(screen.getByRole('menu', { name: 'Account' })).getByRole('menuitem', {
+      name: 'Connect Claude',
+    });
+    expect(link.getAttribute('href')).toBe(CONNECT_CLAUDE_URL);
+    fireEvent.click(link);
+    expect(window.location.pathname).toBe(CONNECT_CLAUDE_URL);
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Connect Claude to conductor (MCP)' }),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('link', { name: 'Back to conductor' }));
+    expect(await screen.findByText('Add pagination to /orders')).toBeTruthy();
+  });
+});
+
+describe('the repo copy (docs/setup/connect-claude.md)', () => {
+  const doc = readFileSync(resolve(ROOT, 'docs/setup/connect-claude.md'), 'utf8');
+
+  it('is the help page markdown after its header comment', () => {
+    expect(doc.replace(/^<!--[\s\S]*?-->\n\n/, '')).toBe(connectGuide);
+  });
+
+  it('is linked from the README', () => {
+    expect(readFileSync(resolve(ROOT, 'README.md'), 'utf8')).toContain(
+      '(docs/setup/connect-claude.md)',
+    );
+  });
+
+  it('has no relative links (they would break under /help/)', () => {
+    for (const [, target] of doc.matchAll(/\]\(([^)\s]+)\)/g)) {
+      expect(target, target).toMatch(/^https?:/);
+    }
   });
 });

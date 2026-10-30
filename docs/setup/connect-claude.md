@@ -1,16 +1,23 @@
+<!--
+  A copy of packages/web/src/help/connect-claude.md, which the web app shows at /help/connect-claude.
+  Edit that file and copy it here; a test keeps the two identical. In the examples,
+  https://conductor.example.com stands for your conductor server (e.g. https://conductor.gradyserver.com);
+  the web page shows its own address instead. The design is ADR-0028 (docs/adr/0028-simple-oauth-for-mcp.md).
+-->
+
 # Connect Claude to conductor (MCP)
 
-conductor serves an MCP server at `<your conductor URL>/mcp`, e.g. `https://conductor.gradyserver.com/mcp` ([ADR-0028](../adr/0028-simple-oauth-for-mcp.md)). Claude signs in with OAuth: the first time, a browser opens on conductor's sign-in, then a page asks you to **Allow** the app.
+conductor serves an MCP server at `<your conductor URL>/mcp`, e.g. `https://conductor.example.com/mcp`. Claude signs in with OAuth: the first time, a browser opens on conductor's sign-in (your conductor account; a local server has no sign-in step), then a page asks you to **Allow** the app.
 
 ## Claude Code
 ```bash
-claude mcp add --transport http --scope user conductor https://conductor.gradyserver.com/mcp
+claude mcp add --transport http --scope user conductor https://conductor.example.com/mcp
 ```
 `--scope user` makes it available in every project. Then, in Claude Code, run `/mcp`, choose **conductor** and **Authenticate**.
 
 ## claude.ai and Claude Desktop
 1. On claude.ai: **Settings → Connectors → Add custom connector**.
-2. Name `conductor`, URL `https://conductor.gradyserver.com/mcp`. Leave the advanced OAuth fields empty: conductor registers the client itself.
+2. Name `conductor`, URL `https://conductor.example.com/mcp`. Leave the advanced OAuth fields empty: conductor registers the client itself.
 3. **Connect**, sign in to conductor, then **Allow**.
 
 Connectors added on claude.ai also show up in Claude Desktop for the same Claude account.

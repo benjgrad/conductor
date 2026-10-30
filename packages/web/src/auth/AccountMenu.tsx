@@ -24,8 +24,8 @@ interface AccountMenuProps {
   /** UX-11: icon-only button; the name moves to `aria-label`, the email to the tooltip. */
   compact?: boolean | undefined;
   /**
-   * 11-web-ui §Top bar: links that leave the bar on a phone (Add a machine, Help) and show at the
-   * top of the menu instead.
+   * Links at the top of the menu: Connect Claude (the MCP guide) at every width and, on a phone,
+   * the links that leave the bar (Add a machine, Help; 11-web-ui §Top bar).
    */
   extraItems?: readonly AccountMenuLink[] | undefined;
 }

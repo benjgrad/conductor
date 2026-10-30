@@ -2,6 +2,7 @@ import type { MeResponse } from '@conductor/shared';
 import {
   CircleHelp,
   LayoutDashboard,
+  Plug,
   Plus,
   Server,
   ServerCog,
@@ -30,7 +31,13 @@ import {
   useIsMobile,
   useVisualViewportHeight,
 } from './components/useMediaQuery.js';
-import { followInApp, HelpLink, HelpPage } from './help/HelpPage.js';
+import {
+  CONNECT_CLAUDE_URL,
+  followInApp,
+  HelpLink,
+  HelpPage,
+  isHelpPath,
+} from './help/HelpPage.js';
 import { SETUP_GUIDE_URL } from './machines/format.js';
 import { MachinesPage } from './machines/Machines.js';
 import {
@@ -80,8 +87,8 @@ export function App({ api, compact: compactProp }: AppProps) {
 
   const authPage = pathname === '/signin' || pathname === '/signup' || pathname === '/reset';
   const adminAlias = pathname === '/admin';
-  // UX-8: the help page needs no account and no API; `#/help/…` is its alias.
-  const helpPage = pathname === SETUP_GUIDE_URL;
+  // UX-8: the help pages need no account and no API; `#/help/…` is the first one's alias.
+  const helpPage = isHelpPath(pathname);
   const helpAlias = pathname === '/' && parseHash(window.location.hash).view === 'help';
 
   useEffect(() => {
@@ -116,7 +123,7 @@ export function App({ api, compact: compactProp }: AppProps) {
     return <SignUp api={api} invite={params.get('invite')} onSignedIn={setMe} />;
   }
   if (pathname === '/reset') return <Reset api={api} token={params.get('token')} />;
-  if (helpPage) return <HelpPage />;
+  if (helpPage) return <HelpPage path={pathname} />;
   if (adminAlias || helpAlias) return null;
   if (probeError !== null) {
     return (
@@ -242,22 +249,31 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
     </>
   );
 
-  // 11-web-ui §Top bar: on a phone, Add a machine and Help move into the account menu.
-  const menuLinks = mobile
-    ? [
-        {
-          label: 'Add a machine',
-          href: routeHash({ view: 'setup' }),
-          icon: <NavIcon icon={ServerCog} />,
-        },
-        {
-          label: 'Help',
-          href: SETUP_GUIDE_URL,
-          icon: <NavIcon icon={CircleHelp} />,
-          onClick: (e: MouseEvent<HTMLAnchorElement>) => followInApp(e, SETUP_GUIDE_URL),
-        },
-      ]
-    : [];
+  // 11-web-ui §Top bar: on a phone, Add a machine and Help move into the account menu. Connect
+  // Claude (the MCP setup guide) is in the menu at every width.
+  const menuLinks = [
+    ...(mobile
+      ? [
+          {
+            label: 'Add a machine',
+            href: routeHash({ view: 'setup' }),
+            icon: <NavIcon icon={ServerCog} />,
+          },
+          {
+            label: 'Help',
+            href: SETUP_GUIDE_URL,
+            icon: <NavIcon icon={CircleHelp} />,
+            onClick: (e: MouseEvent<HTMLAnchorElement>) => followInApp(e, SETUP_GUIDE_URL),
+          },
+        ]
+      : []),
+    {
+      label: 'Connect Claude',
+      href: CONNECT_CLAUDE_URL,
+      icon: <NavIcon icon={Plug} />,
+      onClick: (e: MouseEvent<HTMLAnchorElement>) => followInApp(e, CONNECT_CLAUDE_URL),
+    },
+  ];
 
   const showForm = route.view === 'board' && !guide && creating;
   const selectedCard = selected

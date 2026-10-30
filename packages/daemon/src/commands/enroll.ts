@@ -15,7 +15,8 @@ import {
 // refused run doesn't spend the token. Never prints the credential or the token.
 // TD-117 (M2-T14): the token can stay off argv: `--token -` reads it from stdin, and without
 // `--token` it comes from CONDUCTOR_ENROLL_TOKEN (what install.sh uses). The variable is removed
-// from the environment first thing, so no child process ever inherits it.
+// from the environment first thing, so no child process ever inherits it. M2-T18: `--token <value>`
+// still works, with a warning that argv is visible to other users.
 
 export const ENROLL_TOKEN_ENV = 'CONDUCTOR_ENROLL_TOKEN';
 
@@ -125,7 +126,12 @@ export async function enroll(argv: string[], deps: Partial<EnrollDeps> = {}): Pr
     }
     // The first line, without its line ending.
     token = input.split(/\r?\n/, 1)[0] ?? '';
-  } else if (token === undefined && envToken !== undefined && envToken !== '') {
+  } else if (token !== undefined) {
+    d.err(
+      'warning: --token <value> is visible to other users (ps) and in your shell history; ' +
+        `prefer ${ENROLL_TOKEN_ENV}=<token> or --token - (stdin)`,
+    );
+  } else if (envToken !== undefined && envToken !== '') {
     token = envToken;
   }
   if (token === undefined) {

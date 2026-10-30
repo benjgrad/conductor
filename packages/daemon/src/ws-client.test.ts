@@ -9,9 +9,15 @@ import {
   daemonAuthHeaderValue,
 } from '@conductor/shared';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { ReconnectingWs } from './ws-client.js';
+import {
+  EXIT_FATAL_AUTH,
+  fatalExitCode,
+  ReconnectingWs,
+  type WsClientOptions,
+} from './ws-client.js';
 
-// M2-T04: the upgrade header and the fatal close codes.
+// M2-T04: the upgrade header and the fatal close codes. M2-T18: their exit code (TD-119) and the
+// wake tick (ADR-0021 §5). Real sockets on 127.0.0.1: the reconnect path is what's under test.
 
 const BACKOFF = { initialMs: 10, maxMs: 20, factor: 2 };
 
@@ -55,18 +61,23 @@ async function server(rejectStatus: number | null = null): Promise<Server> {
   return s;
 }
 
-function client(url: string, headers?: Record<string, string>) {
+function client(
+  url: string,
+  headers?: Record<string, string>,
+  opts: { backoff?: typeof BACKOFF } & Omit<WsClientOptions, 'headers' | 'log'> = {},
+) {
   const ev = { opens: 0, closes: 0, fatal: [] as number[], logs: [] as string[] };
+  const { backoff = BACKOFF, ...wsOpts } = opts;
   const c = new ReconnectingWs(
     url,
-    BACKOFF,
+    backoff,
     {
       onOpen: () => ev.opens++,
       onMessage: () => {},
       onClose: () => ev.closes++,
       onFatal: (code) => ev.fatal.push(code),
     },
-    { log: (m) => ev.logs.push(m), ...(headers ? { headers } : {}) },
+    { log: (m) => ev.logs.push(m), ...(headers ? { headers } : {}), ...wsOpts },
   );
   clients.push(c);
   c.start();
@@ -101,6 +112,7 @@ describe('ReconnectingWs (M2-T04)', () => {
     await until(() => ev.fatal.length === 1);
     await settle();
     expect(ev.fatal).toEqual([CLOSE_REVOKED]);
+    expect(fatalExitCode(ev.fatal[0]!)).toBe(EXIT_FATAL_AUTH);
     expect(s.sockets).toHaveLength(1);
     expect(c.failed).toBe(true);
     expect(ev.logs.join('\n')).toMatch(/machine revoked.*not reconnecting/);
@@ -118,19 +130,28 @@ describe('ReconnectingWs (M2-T04)', () => {
       await until(() => ev.fatal.length === 1);
       await settle();
       expect(s.sockets).toHaveLength(1);
+      expect(fatalExitCode(ev.fatal[0]!)).toBe(EXIT_FATAL_AUTH);
       if (code === CLOSE_PROTOCOL) {
         expect(ev.logs.join('\n')).toContain('update the daemon: re-run the install command');
       }
     }
   });
 
-  it('HTTP 401 at the upgrade is treated as unauthorized: no retries', async () => {
-    const s = await server(401);
-    const { ev } = client(s.url, { [DAEMON_AUTH_HEADER]: daemonAuthHeaderValue('revoked') });
-    await until(() => ev.fatal.length === 1);
-    await settle();
-    expect(ev.fatal).toEqual([CLOSE_UNAUTHORIZED]);
-    expect(s.rejected).toBe(1);
+  it('HTTP 401 and 403 at the upgrade are treated as unauthorized: no retries, exit 78', async () => {
+    for (const status of [401, 403]) {
+      const s = await server(status);
+      const { ev } = client(s.url, { [DAEMON_AUTH_HEADER]: daemonAuthHeaderValue('revoked') });
+      await until(() => ev.fatal.length === 1);
+      await settle();
+      expect(ev.fatal).toEqual([CLOSE_UNAUTHORIZED]);
+      expect(fatalExitCode(ev.fatal[0]!)).toBe(78);
+      expect(s.rejected).toBe(1);
+    }
+  });
+
+  it('any other code exits 1', () => {
+    expect(fatalExitCode(1000)).toBe(1);
+    expect(fatalExitCode(1006)).toBe(1);
   });
 
   it('another refused upgrade, and an ordinary close, still reconnect', async () => {
@@ -144,6 +165,50 @@ describe('ReconnectingWs (M2-T04)', () => {
     const { ev } = client(s.url);
     await until(() => ev.opens === 1);
     s.sockets[0]!.close(1000);
+    await until(() => ev.opens === 2);
+    expect(ev.fatal).toEqual([]);
+  });
+});
+
+describe('wake tick (M2-T18, ADR-0021 §5)', () => {
+  // A fake wall clock (`now`), a short tick, and a 30 s backoff: a reconnect inside the test's
+  // window can only come from the wake check.
+  const SLOW = { initialMs: 30_000, maxMs: 30_000, factor: 2 };
+  const fakeClock = () => {
+    let offset = 0;
+    return { now: () => Date.now() + offset, jump: (ms: number) => (offset += ms) };
+  };
+
+  it('a 60 s jump during a 30 s backoff reconnects within one tick and resets the attempts', async () => {
+    const s = await server(503);
+    const clock = fakeClock();
+    const { c, ev } = client(s.url, undefined, {
+      backoff: SLOW,
+      now: clock.now,
+      wakeTickMs: 20,
+      wakeJumpMs: 100,
+    });
+    await until(() => s.rejected === 1 && c.attempts === 1);
+    await settle(); // several normal ticks: no early retry, no reset
+    expect(s.rejected).toBe(1);
+    expect(c.attempts).toBe(1);
+
+    clock.jump(60_000);
+    await until(() => s.rejected === 2, 500);
+    // Reset to 0, then the new try failed: 1 again (2 without the reset).
+    await until(() => c.attempts === 1 && ev.logs.some((l) => l.includes('reconnecting in')));
+    expect(c.attempts).toBe(1);
+    expect(ev.logs.join('\n')).toMatch(/wall clock jumped \d+ ms \(wake\)/);
+  });
+
+  it('a jump while connected drops the socket and opens a new one', async () => {
+    const s = await server();
+    const clock = fakeClock();
+    const { ev } = client(s.url, undefined, { now: clock.now, wakeTickMs: 20, wakeJumpMs: 100 });
+    await until(() => ev.opens === 1);
+    await settle();
+    expect(ev.opens).toBe(1);
+    clock.jump(60_000);
     await until(() => ev.opens === 2);
     expect(ev.fatal).toEqual([]);
   });

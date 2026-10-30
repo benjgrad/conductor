@@ -1,7 +1,8 @@
 // M2-T14: the rendered /install.sh, run with `sh` the way `curl … | sh -s -- …` runs it, against a
 // local orchestrator serving a small fake daemon tarball. HOME and --root are temp dirs; node,
 // git and claude are fakes on PATH; the fake conductor-daemon records each call (TD-117: the
-// token must arrive in CONDUCTOR_ENROLL_TOKEN, never in argv).
+// token must arrive in CONDUCTOR_ENROLL_TOKEN, never in argv). M2-T18: the tarball's
+// assets/conductor-launch.sh lands byte-identical in <root>/bin/conductor-launch.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -13,6 +14,7 @@ import {
   readlinkSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -32,6 +34,7 @@ const runnable =
 const TOKEN = 'enroll-tok-3f9a1c2b';
 const V1 = '0.0.0+aaaaaaa';
 const V2 = '0.0.0+bbbbbbb';
+const V3 = '0.0.0+ccccccc';
 
 /** The fake daemon: records `argv|token|root` per call; `enroll` writes machine.json. */
 const FAKE_DAEMON = `#!/bin/sh
@@ -43,12 +46,22 @@ fi
 
 let work: string;
 
+/** The launcher every install writes (the daemon package's asset; `service install` writes it too). */
+const LAUNCHER = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../daemon/assets/conductor-launch.sh',
+);
+
 /** Build a downloads dir with a fake tarball for `version`. */
-function buildDownloads(version: string): string {
+function buildDownloads(version: string, opts: { launcher?: boolean } = {}): string {
   const pkg = join(work, `pkg-${version}`);
   mkdirSync(join(pkg, 'bin'), { recursive: true });
   writeFileSync(join(pkg, 'bin', 'conductor-daemon'), FAKE_DAEMON);
   chmodSync(join(pkg, 'bin', 'conductor-daemon'), 0o755);
+  if (opts.launcher ?? true) {
+    mkdirSync(join(pkg, 'assets'), { recursive: true });
+    writeFileSync(join(pkg, 'assets', 'conductor-launch.sh'), readFileSync(LAUNCHER));
+  }
   writeFileSync(join(pkg, 'VERSION'), version);
   const dir = join(work, `downloads-${version}`);
   mkdirSync(dir, { recursive: true });
@@ -68,8 +81,8 @@ interface Served {
   script: string;
 }
 
-async function serve(version: string): Promise<Served> {
-  const build = findDaemonBuild(buildDownloads(version));
+async function serve(version: string, opts: { launcher?: boolean } = {}): Promise<Served> {
+  const build = findDaemonBuild(buildDownloads(version, opts));
   expect(build).not.toBeNull();
   const server = createServer((_req, res) => {
     res.writeHead(404);
@@ -165,8 +178,15 @@ const calls = (h: Home) =>
         })
     : [];
 
+function expectLauncher(root: string) {
+  const path = join(root, 'bin', 'conductor-launch');
+  expect(readFileSync(path)).toEqual(readFileSync(LAUNCHER));
+  expect(statSync(path).mode & 0o777).toBe(0o755);
+}
+
 function expectInstalled(h: Home, version: string) {
   expect(existsSync(join(h.root, 'daemon', version, 'bin', 'conductor-daemon'))).toBe(true);
+  expectLauncher(h.root);
   expect(readlinkSync(join(h.root, 'daemon', 'current'))).toBe(version);
   expect(realpathSync(join(h.root, 'bin', 'conductor-daemon'))).toBe(
     realpathSync(join(h.root, 'daemon', version, 'bin', 'conductor-daemon')),
@@ -296,6 +316,34 @@ describe.skipIf(!runnable)('install.sh', () => {
     ]);
   });
 
+  it('the installed launcher execs the current daemon with run', async () => {
+    expect((await run(h, v1.script, ['--root', h.root])).status).toBe(0);
+    const launched = await sh(
+      [join(h.root, 'bin', 'conductor-launch'), '--x'],
+      {
+        PATH: '/usr/bin:/bin',
+        CALLS_LOG: h.calls,
+      },
+      '',
+    );
+    expect(launched.status, launched.stderr).toBe(0);
+    expect(calls(h).map((x) => x.argv)).toEqual(['run --x']);
+  });
+
+  it('a tarball without the launcher aborts and leaves the old version current', async () => {
+    expect((await run(h, v1.script, ['--root', h.root])).status).toBe(0);
+    const bad = await serve(V3, { launcher: false });
+    try {
+      const r = await run(h, bad.script, ['--root', h.root]);
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain('has no assets/conductor-launch.sh');
+      expectInstalled(h, V1);
+      expect(existsSync(join(h.root, 'daemon', V3))).toBe(false);
+    } finally {
+      await close(bad);
+    }
+  });
+
   it('rejects an unknown option', async () => {
     const r = await run(h, v1.script, ['--bogus']);
     expect(r.status).toBe(2);
@@ -364,6 +412,7 @@ describe.skipIf(!runnable || !hasPnpm)('install.sh with the real daemon tarball'
     const r = await run(h, script, ['--token', TOKEN, '--root', h.root]);
     expect(r.status, r.stderr + r.stdout).toBe(0);
     expect(readlinkSync(join(h.root, 'daemon', 'current'))).toBe(`${daemonPkgVersion()}+feed123`);
+    expectLauncher(h.root);
 
     expect(enrolls).toHaveLength(1);
     const sent = EnrollRequestSchema.parse(JSON.parse(enrolls[0]!.body));

@@ -377,6 +377,11 @@ const columnFields = {
   title: z.string().trim().min(1).max(60).optional(),
   /** Requirements to enter this state. */
   entry: EntryRequirementsSchema.optional(),
+  /**
+   * May a person edit the ticket (title, body, priority, kind) while its card is in this column?
+   * Absent: only `human` states allow it (`ticketEditable`). Reading is always allowed.
+   */
+  ticket_editable: z.boolean().optional(),
 };
 
 const common = {
@@ -508,6 +513,8 @@ export const WorkflowDefinitionSchema = z.strictObject({
    * claimed). Required for `CONDUCTOR_WORKFLOW_ID`; older workflows omit it.
    */
   columns: z.array(StateNameSchema).min(1).optional(),
+  /** `ticket_editable` for the implicit Queued column (no state); absent ≡ true. */
+  queued_ticket_editable: z.boolean().optional(),
 });
 /** A parsed definition (defaults applied). */
 export type WorkflowDefinition = z.infer<typeof WorkflowDefinitionSchema>;

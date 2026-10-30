@@ -411,6 +411,8 @@ T08 maps a non-applied `applyEvent` result with `httpForApplyResult(route, resul
 
 ADR-0008 routes that don't go through `applyEvent`: `GET /api/sessions/:id/transcript` → 200 `TranscriptResponse`; 404 `not_found` (unknown session), 404 `no_transcript` (daemon error `no_transcript` / `unknown_session`), 502 `internal` (`read_failed`), 503 `machine_offline` (session has no machine, machine not connected, or its socket closed while waiting), 504 `timeout`. `POST /api/sessions/:id/reopen` → 202 `ReopenSessionResponse {session_id}`; 409 `conflict` (not done/failed, or not the latest); 404 `not_found`; 400 `bad_request`.
 
+Ticket routes (no `applyEvent`): `GET /api/tickets/:id` → 200 `TicketDetail`; 404 `not_found`. `PATCH /api/tickets/:id` → 200 `TicketDetail`; 403 `ticket_not_editable` (the card's column doesn't allow edits: `ticket_editable` / `queued_ticket_editable`, `ticketEditable`); 409 `conflict` (stale `expected_updated_at`, or a newer session); 404 `not_found`; 400 `bad_request`.
+
 `POST /api/sessions/:id/approve` body `ApproveSessionRequest {comment?}` → `external.event {name: 'ui.approve', data: {comment}}` (no `data` without a comment). `/cancel` body `{reason?}` → `operator.cancel {reason}`. `/messages` body `SendMessageRequest {text}` (trimmed, 1–20 000 chars) → `operator.message {text}`; on `applied`, after the commit, T08 appends the text to the `OutputBus` as a `user` chunk ([ADR-0007](../adr/0007-live-messages-to-agents.md)). Request-body validation failures are 400 `bad_request` with `details`.
 
 ## Composition root
@@ -652,13 +654,17 @@ Nothing left to send → `acked` (and `payload.notification` nulled). Otherwise 
 
 | Tool | Input | Output |
 |---|---|---|
-| `list_tickets` (read-only) | `{needs_input?: bool, column?: string, limit?: 1..50 = 20}` | `{tickets: [{id, short_id, title ≤ 120, column, state, status, kind, repo, needs_input, question? ≤ 160, pr_url?, updated_at}], total}`, newest first |
-| `get_ticket` (read-only) | `{ticket}` | `{id, title, repo, kind, column, state, status, session_id, open_question: {input_request_id, question} \| null, transitions: [{name, title, needs_text}], pr_url, spend_usd, recent_moves (≤ 5), body ≤ 4 000}`; a queued ticket: `{id, title, repo, kind, column: 'queued', status, body}` |
+| `list_tickets` (read-only) | `{needs_input?: bool, column?: string, kind?: 'work' \| 'personal', repo?: string, status?: 'open' \| 'done' \| 'cancelled' \| 'all' = 'open', limit?: 1..50 = 20}`; `open` is ticket status ready, claimed, in_progress or failed; `repo` matches case-insensitively | `{tickets: [{id, short_id, title ≤ 120, column, state, status, kind, repo, needs_input, question? ≤ 160, pr_url?, updated_at}], total}`, newest first |
+| `search_tickets` (read-only) | `{query: 1..200, limit?: 1..20 = 10}` | `{tickets: [{id, short_id, title ≤ 120, status (the ticket's), kind, repo, snippet ≤ 200, updated_at}]}`, newest first, every status: a literal case-insensitive substring of the title, external ref or body, or (4..32 hex) the start of the id (TD-200: `ILIKE`, no index) |
+| `list_machines` (read-only) | `{}` | `{machines: [{id, name, status, last_seen_at, running_sessions, max_sessions, repo_count, repos: remote[≤ 10]}]}`; revoked machines are left out |
+| `get_ticket` (read-only) | `{ticket}` | `{id, title, repo, kind, column, state, status, session_id, open_question: {input_request_id, question} \| null, transitions: [{name, title, needs_text, requires_approval?: true}], pr_url, spend_usd, recent_moves (≤ 5), body ≤ 4 000}`; a queued ticket: `{id, title, repo, kind, column: 'queued', status, body}` |
 | `create_ticket` | `{title: 1..200, repo ≤ 200, body ≤ 20 000, kind: 'work' \| 'personal', workflow_id?}` | `{id, short_id, title, url: ISSUER/#/?ticket=<id>, warnings}`; the same rules and errors as `POST /api/tickets` |
 | `answer_input` | `{ticket, answer: 1..10 000, input_request_id?}` (default: the open request) | `{ok: true}`; errors `wrong_state` (no session yet), `input_not_pending`, and `httpForApplyResult`'s codes |
-| `take_transition` (destructive) | `{ticket, name, text? ≤ 10 000}` | `{ok: true}`; as `POST /api/sessions/:id/transition` |
+| `take_transition` (destructive) | `{ticket, name, text? ≤ 10 000}` | `{ok: true}`; as `POST /api/sessions/:id/transition`. Only a name in the card's `human_transitions` (else `wrong_state` with `allowed: string[]`); a transition with `requires.approvals` (ADR-0020 §5, whether or not the PR activates them) is `approval_required` with `url`, never applied (U-093) |
+| `reopen_ticket` | `{ticket, text: 1..10 000}` | `{ok: true, session_id}`; as `POST /api/sessions/:id/reopen` on the ticket's latest session (`conflict` unless it is done or failed) |
+| `cancel_ticket` (destructive) | `{ticket, reason? ≤ 500}` | `{ok: true}`; as `POST /api/sessions/:id/cancel` |
 
-Writes apply the same engine events as the board, with `actor: 'ui'` (no MCP attribution yet).
+Writes apply the same engine events as the board, with `actor: 'ui'` (no MCP attribution yet). Never exposed (Ben, 2026-10-30): approvals (`ui.approve`, `requires.approvals`), permission prompts (ADR-0023), fresh conversations, messages to a running agent, workflow reads and edits, machine enrollment, team and admin, transcripts and output.
 
 ## Defaults recorded here (workshop reconciliation)
 

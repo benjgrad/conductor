@@ -22,6 +22,7 @@ import { useBoard } from './board/hooks.js';
 import { Board } from './components/Board.js';
 import { CreateTicketForm } from './components/CreateTicketForm.js';
 import { DetailPanel } from './components/DetailPanel.js';
+import { TicketPanel } from './components/TicketPanel.js';
 import { NavIcon } from './components/NavIcon.js';
 import {
   useDocumentClass,
@@ -171,7 +172,17 @@ function LogoMark() {
 
 function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
   const { board, error } = useBoard(api);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelectedSession] = useState<string | null>(null);
+  // A card with no session (Queued) opens by its ticket; at most one of the two is set.
+  const [selectedTicket, setSelectedTicket] = useState<string | null>(null);
+  const setSelected = useCallback((sessionId: string | null) => {
+    setSelectedSession(sessionId);
+    setSelectedTicket(null);
+  }, []);
+  const selectTicket = useCallback((ticketId: string) => {
+    setSelectedSession(null);
+    setSelectedTicket(ticketId);
+  }, []);
   const [creating, setCreating] = useState(false);
   const topbarRef = useRef<HTMLElement>(null);
   useElementHeightVar(topbarRef, '--topbar-h');
@@ -252,10 +263,17 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
   const selectedCard = selected
     ? [...board.cards.values()].find((c) => c.session_id === selected)
     : undefined;
+  const ticketCard = selectedTicket ? board.cards.get(selectedTicket) : undefined;
+  // The open queued ticket was claimed: its card has a session now, so show that.
+  const claimed = ticketCard?.session_id ?? null;
+  if (claimed !== null) {
+    setSelectedSession(claimed);
+    setSelectedTicket(null);
+  }
 
   return (
     <div
-      className={`app${selected ? ' with-detail' : ''}${mobile ? ' mobile' : ''}${showForm ? ' creating' : ''}`}
+      className={`app${selected || selectedTicket ? ' with-detail' : ''}${mobile ? ' mobile' : ''}${showForm ? ' creating' : ''}`}
     >
       <header ref={topbarRef} className={`topbar${compact ? ' compact' : ''}`}>
         {mobile ? (
@@ -356,7 +374,24 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
         />
       )}
       <main hidden={route.view !== 'board' || guide}>
-        <Board board={board} selectedSessionId={selected} onSelect={setSelected} api={api} />
+        <Board
+          board={board}
+          selectedSessionId={selected}
+          onSelect={setSelected}
+          selectedTicketId={selectedTicket}
+          onSelectTicket={selectTicket}
+          api={api}
+        />
+        {selectedTicket && !selected && (
+          <TicketPanel
+            key={selectedTicket}
+            api={api}
+            ticketId={selectedTicket}
+            version={ticketCard?.updated_at ?? ''}
+            onClose={() => setSelectedTicket(null)}
+            fullScreen={mobile}
+          />
+        )}
         {selected && (
           <DetailPanel
             key={selected}

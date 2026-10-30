@@ -18,11 +18,17 @@ Connectors added on claude.ai also show up in Claude Desktop for the same Claude
 ## What Claude can do
 | Tool | What |
 |---|---|
-| `list_tickets` | Your tickets, newest first; `needs_input: true` shows what waits on you |
+| `list_tickets` | Your open tickets, newest first; filter by `needs_input`, column, kind, repo or status (`done`, `cancelled`, `all`) |
+| `search_tickets` | Find tickets of any status by a word in the title or body, or by the start of the id |
 | `get_ticket` | One ticket: body, column, open question, the transitions you can take, PR |
+| `list_machines` | Your machines: online or not, running sessions, some of their repos |
 | `create_ticket` | Queue a new ticket (`repo` is `github.com/org/repo`, `kind` is `work` or `personal`) |
 | `answer_input` | Answer an agent's question |
-| `take_transition` | Press one of the ticket's board buttons (approve, send back…) |
+| `take_transition` | Press one of the ticket's board buttons (send back, mark done…) |
+| `reopen_ticket` | Send a done or failed ticket back to its agent with new instructions |
+| `cancel_ticket` | Stop the agent and cancel the ticket |
+
+A move that needs an approval checkbox (such as a migration approval), and an agent's permission prompts, are answered on the board only: Claude gets the card's link instead.
 
 A ticket can be referred to by its id or its first 8 characters. Every connection can read and write your tickets; your Claude client asks before it runs a tool unless you allow it.
 

@@ -16,6 +16,7 @@ const GUARDED = [
   'getSession',
   'answer',
   'createTicket',
+  'listRepos',
   'listWorkflows',
   'getWorkflow',
   'saveWorkflow',

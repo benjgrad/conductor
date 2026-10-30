@@ -40,7 +40,7 @@ While the phone layout is on, `useVisualViewportHeight` sets `--vvh` on `<html>`
 | Top bar | UX-11's compact mode: `App`'s `compact` prop defaults to `useIsMobile()`, and the prop still overrides it. The title becomes the logo mark; the text "Conductor" stays as the heading's accessible name. Add a machine and Help move into the account menu (`AccountMenu extraItems`). The bar is sticky (as it is at every width) and padded by `env(safe-area-inset-top)`. |
 | Board | One column at a time, chosen in a `role=tablist` switcher that scrolls sideways (title and count per column; the active tab is scrolled into view). It opens on Needs input when that column has cards, else the first non-empty column, until the user picks one. A horizontal swipe (more than 50 px, and 1.5× more sideways than vertical) moves to the next or previous column. The board is `touch-action: pan-y`, so vertical scrolling is never blocked. |
 | Detail panel | `DetailPanel fullScreen`: fixed over the whole screen with safe-area padding. The board isn't laid out behind it. A 44 px Back button ("Back to board") replaces `×`, the tabs share the width, and the composer is pinned at the bottom of `--vvh`. |
-| Create ticket | `CreateTicketForm sheet`: a full-screen modal dialog ("New ticket", with Close, and Escape also closes it). The fields are stacked, Kind is two segmented buttons (the radios stay for keyboard and screen readers), Priority has a numeric keypad, and the footer is sticky. The footer holds Create ticket and, while it is disabled, what's still needed. The editor's max height is half of `--vvh`, with a narrower BlockNote gutter. |
+| Create ticket | `CreateTicketForm sheet`: a full-screen modal dialog ("New ticket", with Close, and Escape also closes it). The fields are stacked, Kind is two segmented buttons (the radios stay for keyboard and screen readers), Priority has a numeric keypad, Repo's list of suggestions sits under its field with tap-tall rows, and the footer is sticky. The footer holds Create ticket and, while it is disabled, what's still needed. The editor's max height is half of `--vvh`, with a narrower BlockNote gutter. |
 | Machines, Admin | Tables scroll inside their own box (`display: block; overflow-x: auto; position: relative`), never the page. |
 | Workflow | A "best on a larger screen" note; the diagram already scrolls in its own box. |
 
@@ -56,6 +56,13 @@ In `@media (pointer: coarse), (max-width: 699.98px)`:
 On a phone, every `input`, `select` and `textarea` is 16 px, because iOS Safari zooms into any field smaller than that.
 
 There must be no horizontal page scroll at 360 px. `scripts/ui-screenshots.js` checks it in `metrics.json` (`horizontalOverflow`).
+
+## Create ticket: Repo field
+
+At every width, Repo is a free-text ARIA combobox (`components/RepoCombobox.tsx`, the composer's slash-menu idiom). Its list is `GET /api/repos` ([10-contracts §Repo suggestions](10-contracts.md#repo-suggestions)): most used first, with a recency bias. Each option shows its ticket count.
+- The field starts on the top repo, unless the user typed first. If the list fails to load, it stays a plain text field.
+- Focusing the field lists every repo, and typing filters them (a case-insensitive substring match, ranked order kept). Arrow keys move through the list, and Enter or a click picks a repo without submitting the form. Escape closes the list without closing the sheet.
+- After a create, the repo stays chosen and the list is fetched again.
 
 ## Install (UX-16)
 

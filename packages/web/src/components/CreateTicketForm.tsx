@@ -1,8 +1,14 @@
-import { CONDUCTOR_WORKFLOW_ID, TICKET_KINDS, type TicketKind } from '@conductor/shared';
+import {
+  CONDUCTOR_WORKFLOW_ID,
+  TICKET_KINDS,
+  type RepoSuggestion,
+  type TicketKind,
+} from '@conductor/shared';
 import { X } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { TICKET_KIND_LABELS } from './format.js';
+import { RepoCombobox } from './RepoCombobox.js';
 import type { RichEditorHandle } from './ticket-editor/RichTicketEditor.js';
 import { TicketBodyField } from './ticket-editor/TicketBodyField.js';
 import { stripPlaceholders, TICKET_TEMPLATE } from './ticket-editor/template.js';
@@ -18,8 +24,6 @@ interface CreateTicketFormProps {
   /** Closes the sheet (its Close button and Escape). */
   onClose?: () => void;
 }
-
-const DEFAULT_REPO = 'github.com/benjgrad/fixture-app';
 
 /**
  * POST /api/tickets, always on the one `conductor` workflow (ADR-0010). Work or Personal is
@@ -37,7 +41,11 @@ export function CreateTicketForm({
   const [body, setBody] = useState(TICKET_TEMPLATE);
   const [bodyKey, setBodyKey] = useState(0);
   const bodyEditor = useRef<RichEditorHandle | null>(null);
-  const [repo, setRepo] = useState(DEFAULT_REPO);
+  // Starts on the account's top repo (GET /api/repos) unless the user typed one first.
+  const [repo, setRepo] = useState('');
+  const repoTouched = useRef(false);
+  const [repos, setRepos] = useState<RepoSuggestion[]>([]);
+  const [reposKey, setReposKey] = useState(0);
   const [priority, setPriority] = useState('0');
   const [kind, setKind] = useState<TicketKind | null>(null);
   const [busy, setBusy] = useState(false);
@@ -45,6 +53,22 @@ export function CreateTicketForm({
   const headingId = useId();
   const hintId = useId();
   const sheetRef = useRef<HTMLDivElement | null>(null);
+
+  // Best effort: without the list the field is plain free text.
+  useEffect(() => {
+    let cancelled = false;
+    api.listRepos().then(
+      (list) => {
+        if (cancelled) return;
+        setRepos(list);
+        if (!repoTouched.current) setRepo(list[0]?.repo ?? '');
+      },
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [api, reposKey]);
 
   // The dialog takes focus when it opens (not the title field: that would pop the keyboard up).
   useEffect(() => {
@@ -54,7 +78,8 @@ export function CreateTicketForm({
   useEffect(() => {
     if (!sheet || !onClose) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      // The repo list's Escape closes the list only.
+      if (e.key === 'Escape' && !e.defaultPrevented) onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -84,6 +109,9 @@ export function CreateTicketForm({
       setBody(TICKET_TEMPLATE);
       setBodyKey((k) => k + 1);
       setKind(null);
+      // The repo stays chosen; its ranking changed.
+      repoTouched.current = true;
+      setReposKey((k) => k + 1);
       onCreated?.();
     } catch (err) {
       setError(errorMessage(err));
@@ -104,10 +132,14 @@ export function CreateTicketForm({
         Title
         <input value={title} onChange={(e) => setTitle(e.target.value)} required />
       </label>
-      <label>
-        Repo
-        <input value={repo} onChange={(e) => setRepo(e.target.value)} required />
-      </label>
+      <RepoCombobox
+        value={repo}
+        onChange={(r) => {
+          repoTouched.current = true;
+          setRepo(r);
+        }}
+        suggestions={repos}
+      />
       <label>
         Priority
         <input

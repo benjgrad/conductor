@@ -41,6 +41,7 @@ import { registerMachineRoutes } from './machines.js';
 import { registerPermissionRoutes } from './permissions.js';
 import { registerPushRoutes } from './push.js';
 import { listWorkflows, loadBoard, loadWorkflowDetail } from './queries.js';
+import { registerRepoRoutes } from './repos.js';
 import { httpSecurityFromEnv, securityHookFor, type HttpSecurityOptions } from './security.js';
 import { loadSessionDetail, sessionExists } from './sessions.js';
 import { registerTeamRoutes } from './team.js';
@@ -148,6 +149,8 @@ export const createApi = (({
   });
   // UX-13a: the account's agent team.
   void app.register(registerTeamRoutes, { db });
+  // The create-ticket form's repo suggestions.
+  void app.register(registerRepoRoutes, { db });
   // ADR-0028: the OAuth authorization server and the MCP endpoint it protects.
   void app.register(registerOAuthRoutes, { db, auth, now });
   void app.register(registerMcpRoutes, { db, engine, boardBus, outputBus, auth, now });

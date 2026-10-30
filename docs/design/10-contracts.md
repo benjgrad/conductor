@@ -133,6 +133,14 @@ Every path sets `last_assigned_at = now()`. Lock order: machine, ticket, agent.
 
 **`GET /api/team`** (`API_PATHS.team`, `orchestrator/src/api/team.ts`; signed in, 401 otherwise) → `TeamResponse`: the signed-in account's agents, oldest hire first, `[{name, hired_at, last_assigned_at | null, active_ticket_id | null}]`. `active_ticket_id` is the ticket of the agent's newest session that is not done, failed or lost. Another account's agents are never listed.
 
+## Repo suggestions
+
+**`GET /api/repos`** (`API_PATHS.repos`, `orchestrator/src/api/repos.ts`; signed in, 401 otherwise) → `RepoListResponse`, `[{repo, ticket_count, last_used_at | null}]`: the repos the create-ticket form offers, best first. It is ranked by `rankRepos` (`shared/src/api/repo-rank.ts`), the same function the web mock uses:
+- **Ticket repos.** The account's newest 1000 tickets (older ones would add almost nothing). A repo scores Σ 0.5^(age_days / `REPO_HALF_LIFE_DAYS`) over its tickets, with a half-life of 14 days: frequency with a recency bias. Ties go to the more recently used repo, then by name.
+- **Machine repos.** Then the `machine_repo.remote`s of the account's unrevoked machines that no ticket used, by name, with `ticket_count` 0 and `last_used_at` null. A repo with no remote is never routed to, so it is not offered.
+- Spellings of one repo merge on `canonicalRepo(…)` lower-cased (the `no_machine_has_repo` comparison), else the exact string (`local` mode's paths). The newest ticket's spelling is shown, else the machine's.
+- Another account's tickets and machines never count.
+
 ## Reopen
 
 [ADR-0008](../adr/0008-transcript-history-and-reopen.md). `POST /api/sessions/:id/reopen {text}` → `reopenSession` (`orchestrator/src/engine/reopen.ts`), one transaction, no engine event and no outbox row:

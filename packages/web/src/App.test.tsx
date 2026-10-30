@@ -169,6 +169,10 @@ describe('create ticket', () => {
     await renderApp();
     fireEvent.click(screen.getByRole('button', { name: 'New ticket' }));
     const form = within(screen.getByRole('form', { name: 'Create ticket' }));
+    // The Repo field fills in with the account's top repo (GET /api/repos).
+    await waitFor(() =>
+      expect(form.getByRole<HTMLInputElement>('combobox', { name: 'Repo' }).value).not.toBe(''),
+    );
     fireEvent.change(form.getByLabelText('Title'), { target: { value: 'Add dark mode' } });
     fireEvent.change(form.getByLabelText('Priority'), { target: { value: '9' } });
     fireEvent.click(form.getByRole('radio', { name: 'Work' }));

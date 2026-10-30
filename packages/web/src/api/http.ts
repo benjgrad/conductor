@@ -18,6 +18,7 @@ import {
   PermissionRequestDtoSchema,
   PermissionRequestListResponseSchema,
   ReopenSessionResponseSchema,
+  RepoListResponseSchema,
   ResetLinkCreatedSchema,
   SessionDetailSchema,
   TranscriptResponseSchema,
@@ -283,6 +284,8 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
 
     createTicket: (req: CreateTicketRequest) =>
       request(TicketDtoSchema, 'POST', API_PATHS.tickets, req),
+
+    listRepos: () => request(RepoListResponseSchema, 'GET', API_PATHS.repos),
 
     listWorkflows: () => request(WorkflowListResponseSchema, 'GET', API_PATHS.workflows),
 

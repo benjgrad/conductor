@@ -81,11 +81,19 @@ describe('phone detail panel (11-web-ui §Detail panel)', () => {
   });
 });
 
+/** The Repo field fills in with the account's top repo (GET /api/repos). */
+async function repoLoaded() {
+  await waitFor(() =>
+    expect(screen.getByRole<HTMLInputElement>('combobox', { name: 'Repo' }).value).not.toBe(''),
+  );
+}
+
 describe('phone create ticket (11-web-ui §Create ticket)', () => {
   it('is a "New ticket" dialog with Close and a reason while Create ticket is disabled', async () => {
     await renderAt(375);
     fireEvent.click(screen.getByRole('button', { name: 'New ticket' }));
     const dialog = within(screen.getByRole('dialog', { name: 'New ticket' }));
+    await repoLoaded();
     const submit = dialog.getByRole<HTMLButtonElement>('button', { name: 'Create ticket' });
     expect(submit.disabled).toBe(true);
     expect(submit.getAttribute('aria-describedby')).toBeTruthy();
@@ -106,6 +114,7 @@ describe('phone create ticket (11-web-ui §Create ticket)', () => {
     await renderAt(375);
     fireEvent.click(screen.getByRole('button', { name: 'New ticket' }));
     const dialog = within(screen.getByRole('dialog', { name: 'New ticket' }));
+    await repoLoaded();
     fireEvent.change(dialog.getByLabelText('Title'), { target: { value: 'Phone ticket' } });
     fireEvent.click(dialog.getByRole('radio', { name: 'Work' }));
     expect(dialog.queryByText(/Still needed/)).toBeNull();

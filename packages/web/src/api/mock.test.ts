@@ -5,6 +5,7 @@ import {
   EnrollmentTokenCreatedSchema,
   MachineDetailSchema,
   MachineListResponseSchema,
+  RepoListResponseSchema,
   type CreateTicketRequest,
   SessionDetailSchema,
   validateWorkflow,
@@ -270,6 +271,30 @@ describe('UX-4 seeds', () => {
     });
     const failed = SessionDetailSchema.parse(await api.getSession(SEED_IDS.stepFailed.session));
     expect(failed.pending_input).toMatchObject({ kind: 'retries_exhausted', step_failed: true });
+  });
+});
+
+describe('mock repos', () => {
+  it('ranks the seeded tickets’ repos, then the machines’; a new ticket’s repo goes first', async () => {
+    const api = createMockApi({ now });
+    const before = RepoListResponseSchema.parse(await api.listRepos());
+    expect(before.length).toBeGreaterThan(0);
+    // The machines' repos no ticket used come last, unused.
+    expect(before.map((r) => r.repo)).toContain('github.com/acme/shop');
+    const req: CreateTicketRequest = {
+      title: 'T',
+      body: '',
+      repo: 'github.com/o/fresh',
+      workflow_id: CONDUCTOR_WORKFLOW_ID,
+      priority: 0,
+      kind: 'work',
+      required_tags: [],
+      repo_allow_machines: null,
+      external_ref: null,
+    };
+    for (let i = 0; i < 20; i++) await api.createTicket(req);
+    const after = await api.listRepos();
+    expect(after[0]).toMatchObject({ repo: 'github.com/o/fresh', ticket_count: 20 });
   });
 });
 

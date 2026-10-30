@@ -1,0 +1,12 @@
+{
+  "type": "inventory",
+  "msg_id": "00000000-0000-4000-8000-000000000029",
+  "seq": null,
+  "session_id": null,
+  "fencing_token": null,
+  "payload": {
+    "repos": [],
+    "capabilities": [],
+    "hash": "sha256:e3b0c442"
+  }
+}

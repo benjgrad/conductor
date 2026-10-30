@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        },
+        "merged": {
+          "type": "boolean",
+          "const": true
+        },
+        "already": {
+          "type": "boolean"
+        },
+        "merge_commit_sha": {
+          "$ref": "#/definitions/GitSha"
+        },
+        "head_sha": {
+          "$ref": "#/definitions/GitSha"
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      },
+      "required": [
+        "ok",
+        "merged",
+        "already",
+        "merge_commit_sha",
+        "head_sha"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": false
+        },
+        "unmet": {
+          "type": "string",
+          "enum": [
+            "head_moved",
+            "conflict"
+          ]
+        },
+        "observed_sha": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/GitSha"
+            }
+          ]
+        },
+        "detail": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      },
+      "required": [
+        "ok",
+        "unmet",
+        "detail"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "enum": [
+            "closed",
+            "blocked",
+            "approval_missing",
+            "error"
+          ]
+        },
+        "detail": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      },
+      "required": [
+        "ok",
+        "error",
+        "detail"
+      ],
+      "additionalProperties": false
+    }
+  ],
+  "definitions": {
+    "GitSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    }
+  }
+}

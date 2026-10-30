@@ -1,0 +1,155 @@
+{
+  "base": {
+    "builtin": [
+      "Read",
+      "Glob",
+      "Grep"
+    ],
+    "allow": [
+      "Read(./**)",
+      "Glob(./**)",
+      "Grep(./**)"
+    ],
+    "deny": [
+      "Bash(git push:*)"
+    ]
+  },
+  "aliases": {
+    "read": {
+      "builtin": [],
+      "allow": [],
+      "deny": []
+    },
+    "edit": {
+      "builtin": [
+        "Edit",
+        "Write"
+      ],
+      "allow": [
+        "Edit(./**)",
+        "Write(./**)"
+      ],
+      "deny": []
+    },
+    "bash": {
+      "builtin": [
+        "Bash"
+      ],
+      "allow": [
+        "Bash(npm run:*)",
+        "Bash(npm test:*)",
+        "Bash(npm install)",
+        "Bash(npm ci)",
+        "Bash(pnpm run:*)",
+        "Bash(pnpm test:*)",
+        "Bash(pnpm install)",
+        "Bash(pnpm i)",
+        "Bash(pnpm install --frozen-lockfile)",
+        "Bash(pnpm i --frozen-lockfile)",
+        "Bash(pnpm typecheck)",
+        "Bash(pnpm lint)",
+        "Bash(pnpm build)",
+        "Bash(pnpm format)",
+        "Bash(pnpm vitest:*)",
+        "Bash(pnpm exec vitest:*)",
+        "Bash(pnpm exec prettier:*)",
+        "Bash(pnpm exec eslint:*)",
+        "Bash(pnpm exec tsc -b)",
+        "Bash(chmod +x:*)"
+      ],
+      "deny": []
+    },
+    "git": {
+      "builtin": [
+        "Bash"
+      ],
+      "allow": [
+        "Bash(git status)",
+        "Bash(git status --short)",
+        "Bash(git diff)",
+        "Bash(git diff --cached)",
+        "Bash(git diff --stat)",
+        "Bash(git log --oneline -n 20)",
+        "Bash(git rev-parse HEAD)",
+        "Bash(git branch --show-current)",
+        "Bash(git add:*)",
+        "Bash(git commit:*)",
+        "Bash(git restore:*)"
+      ],
+      "deny": []
+    },
+    "review": {
+      "builtin": [
+        "Bash"
+      ],
+      "allow": [
+        "Bash(git status)",
+        "Bash(git status --short)",
+        "Bash(git diff)",
+        "Bash(git diff --cached)",
+        "Bash(git diff --stat)",
+        "Bash(git diff HEAD~1)",
+        "Bash(git diff --stat HEAD~1)",
+        "Bash(git log --oneline -n 20)",
+        "Bash(git log --stat -n 10)",
+        "Bash(git log -p -n 5)",
+        "Bash(git show)",
+        "Bash(git show --stat)",
+        "Bash(git rev-parse HEAD)",
+        "Bash(git branch --show-current)"
+      ],
+      "deny": []
+    },
+    "qa": {
+      "builtin": [
+        "Bash"
+      ],
+      "allow": [
+        "Bash(git status)",
+        "Bash(git status --short)",
+        "Bash(git diff)",
+        "Bash(git diff --cached)",
+        "Bash(git diff --stat)",
+        "Bash(git diff HEAD~1)",
+        "Bash(git diff --stat HEAD~1)",
+        "Bash(git log --oneline -n 20)",
+        "Bash(git log --stat -n 10)",
+        "Bash(git log -p -n 5)",
+        "Bash(git show)",
+        "Bash(git show --stat)",
+        "Bash(git rev-parse HEAD)",
+        "Bash(git branch --show-current)",
+        "Bash(git diff --stat qa-base...HEAD)",
+        "Bash(git diff qa-base...HEAD)",
+        "Bash(git log --oneline qa-base..HEAD)",
+        "Bash(pnpm test:*)",
+        "Bash(pnpm vitest:*)",
+        "Bash(pnpm exec vitest:*)",
+        "Bash(npm test:*)",
+        "Bash(npm run:*)",
+        "Bash(pnpm typecheck)",
+        "Bash(pnpm lint)"
+      ],
+      "deny": [
+        "Edit",
+        "Write",
+        "Bash(git add:*)",
+        "Bash(git commit:*)",
+        "Bash(gh:*)"
+      ]
+    },
+    "pr_skill": {
+      "builtin": [
+        "Skill",
+        "Bash"
+      ],
+      "allow": [
+        "Skill",
+        "Bash(gh pr view:*)"
+      ],
+      "deny": [
+        "Bash(gh pr create:*)"
+      ]
+    }
+  }
+}

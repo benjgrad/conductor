@@ -72,6 +72,8 @@ jobs:
           # A PR runs only the slow test tiers its diff reaches (e.g. no daemon process tests for
           # a web change). main runs every tier, so a deploy is still gated by all of them.
           CONDUCTOR_CI_TIERED: ${{ github.event_name == 'pull_request' && '1' || '' }}
+          # A dedicated runner: no machine-wide test slots, so vitest uses every CPU (M2-T31).
+          CONDUCTOR_TEST_SLOTS: '0'
 
   deploy:
     name: deploy

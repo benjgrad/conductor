@@ -1,5 +1,6 @@
 import { CONDUCTOR_WORKFLOW_ID, TICKET_KINDS, type TicketKind } from '@conductor/shared';
-import { useRef, useState, type FormEvent } from 'react';
+import { X } from 'lucide-react';
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { TICKET_KIND_LABELS } from './format.js';
 import type { RichEditorHandle } from './ticket-editor/RichTicketEditor.js';
@@ -9,6 +10,13 @@ import { stripPlaceholders, TICKET_TEMPLATE } from './ticket-editor/template.js'
 interface CreateTicketFormProps {
   api: ApiClient;
   onCreated?: () => void;
+  /**
+   * 11-web-ui §Create ticket: the phone's full-screen sheet (a modal dialog with a heading, Close
+   * and a sticky Create ticket footer that says what's missing).
+   */
+  sheet?: boolean;
+  /** Closes the sheet (its Close button and Escape). */
+  onClose?: () => void;
 }
 
 const DEFAULT_REPO = 'github.com/benjgrad/fixture-app';
@@ -18,7 +26,12 @@ const DEFAULT_REPO = 'github.com/benjgrad/fixture-app';
  * required (ADR-0011: transitions filter on it; no triage until M4). The new card arrives on the
  * board stream (card.upserted), not from here.
  */
-export function CreateTicketForm({ api, onCreated }: CreateTicketFormProps) {
+export function CreateTicketForm({
+  api,
+  onCreated,
+  sheet = false,
+  onClose,
+}: CreateTicketFormProps) {
   const [title, setTitle] = useState('');
   // UX-3: markdown from the requirements template; untouched placeholders are dropped on submit.
   const [body, setBody] = useState(TICKET_TEMPLATE);
@@ -29,6 +42,23 @@ export function CreateTicketForm({ api, onCreated }: CreateTicketFormProps) {
   const [kind, setKind] = useState<TicketKind | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const headingId = useId();
+  const hintId = useId();
+  const sheetRef = useRef<HTMLDivElement | null>(null);
+
+  // The dialog takes focus when it opens (not the title field: that would pop the keyboard up).
+  useEffect(() => {
+    if (sheet) sheetRef.current?.focus();
+  }, [sheet]);
+
+  useEffect(() => {
+    if (!sheet || !onClose) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sheet, onClose]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -63,9 +93,14 @@ export function CreateTicketForm({ api, onCreated }: CreateTicketFormProps) {
   }
 
   const valid = title.trim() !== '' && repo.trim() !== '' && kind !== null;
-  return (
+  const missing = [
+    title.trim() === '' && 'a title',
+    repo.trim() === '' && 'a repo',
+    kind === null && 'Work or Personal',
+  ].filter((m): m is string => m !== false);
+  const form = (
     <form className="create-ticket" aria-label="Create ticket" onSubmit={(e) => void onSubmit(e)}>
-      <label>
+      <label className="field-title">
         Title
         <input value={title} onChange={(e) => setTitle(e.target.value)} required />
       </label>
@@ -77,6 +112,7 @@ export function CreateTicketForm({ api, onCreated }: CreateTicketFormProps) {
         Priority
         <input
           type="number"
+          inputMode="numeric"
           step={1}
           value={priority}
           onChange={(e) => setPriority(e.target.value)}
@@ -107,9 +143,18 @@ export function CreateTicketForm({ api, onCreated }: CreateTicketFormProps) {
         />
       </div>
       <div className="form-actions">
-        <button type="submit" disabled={busy || !valid}>
+        <button
+          type="submit"
+          disabled={busy || !valid}
+          {...(sheet && !valid ? { 'aria-describedby': hintId } : {})}
+        >
           Create ticket
         </button>
+        {sheet && !valid && (
+          <span id={hintId} className="form-hint muted">
+            Still needed: {missing.join(', ')}
+          </span>
+        )}
         {error && (
           <p role="alert" className="error">
             {error}
@@ -117,5 +162,24 @@ export function CreateTicketForm({ api, onCreated }: CreateTicketFormProps) {
         )}
       </div>
     </form>
+  );
+  if (!sheet) return form;
+  return (
+    <div
+      ref={sheetRef}
+      className="sheet"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={headingId}
+      tabIndex={-1}
+    >
+      <header className="sheet-head">
+        <h2 id={headingId}>New ticket</h2>
+        <button type="button" className="sheet-close" onClick={onClose} aria-label="Close">
+          <X size={20} aria-hidden="true" />
+        </button>
+      </header>
+      {form}
+    </div>
   );
 }

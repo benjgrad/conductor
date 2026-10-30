@@ -82,8 +82,8 @@ describe('per-email lockout', () => {
     // a fresh count: 9 failures don't lock
     for (let i = 0; i < 9; i++) await login('a wrong password!!');
     expect(await isLocked(db.pool, u.email, clock.now())).toBe(false);
-    // ~22 logins, each a password hash: past the 5 s default when the full suite loads the CPUs.
-  }, 30_000);
+    // About 22 password checks (scrypt): past the 5 s default under a loaded full run.
+  }, 20_000);
 
   it('an unknown email locks the same way', async () => {
     const clock = fakeClock();

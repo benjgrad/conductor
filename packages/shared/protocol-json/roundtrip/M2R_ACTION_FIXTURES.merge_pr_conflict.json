@@ -1,0 +1,5 @@
+{
+  "detail": "The PR conflicts with main.",
+  "ok": false,
+  "unmet": "conflict"
+}

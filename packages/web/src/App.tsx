@@ -9,7 +9,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
 import type { ApiClient } from './api/client.js';
 import { AdminPage } from './admin/Admin.js';
 import { AccountMenu } from './auth/AccountMenu.js';
@@ -23,7 +23,8 @@ import { Board } from './components/Board.js';
 import { CreateTicketForm } from './components/CreateTicketForm.js';
 import { DetailPanel } from './components/DetailPanel.js';
 import { NavIcon } from './components/NavIcon.js';
-import { HelpLink, HelpPage } from './help/HelpPage.js';
+import { useIsMobile, useVisualViewportHeight } from './components/useMediaQuery.js';
+import { followInApp, HelpLink, HelpPage } from './help/HelpPage.js';
 import { SETUP_GUIDE_URL } from './machines/format.js';
 import { MachinesPage } from './machines/Machines.js';
 import {
@@ -43,7 +44,7 @@ import { WorkflowsView } from './workflow/WorkflowsView.js';
 
 export interface AppProps {
   api: ApiClient;
-  /** UX-11: icon-only top bar. Test-only until UX-12 drives it from its breakpoint. */
+  /** UX-11: icon-only top bar. Defaults to on below the phone breakpoint (11-web-ui). */
   compact?: boolean | undefined;
 }
 
@@ -53,8 +54,11 @@ export interface AppProps {
  * unchanged); the account menu waits for the answer. The app's ApiClient sends any 401, REST or
  * SSE, to `/signin?next=<where they were>` (auth/session.ts), as does a 401 from /api/me.
  */
-export function App({ api, compact = false }: AppProps) {
+export function App({ api, compact: compactProp }: AppProps) {
   const { pathname, search } = usePath();
+  const mobile = useIsMobile();
+  useVisualViewportHeight(mobile);
+  const compact = compactProp ?? mobile;
   const [me, setMe] = useState<MeResponse | null>(null);
   const [probeError, setProbeError] = useState<string | null>(null);
   const [probeNonce, setProbeNonce] = useState(0);
@@ -130,6 +134,7 @@ export function App({ api, compact = false }: AppProps) {
       api={guarded}
       me={me}
       compact={compact}
+      mobile={mobile}
       onSignedOut={() => {
         setMe(null);
         goTo('/signin', { replace: true });
@@ -144,9 +149,21 @@ interface ShellProps {
   me: MeResponse | null;
   onSignedOut: () => void;
   compact: boolean;
+  /** 11-web-ui: the phone layout (one board column, full-screen panel and form). */
+  mobile: boolean;
 }
 
-function Shell({ api, me, onSignedOut, compact }: ShellProps) {
+/** The favicon's mark (index.html), the bar's title on a phone. */
+function LogoMark() {
+  return (
+    <svg className="logo-mark" viewBox="0 0 64 64" width="28" height="28" aria-hidden="true">
+      <rect x="4" y="4" width="56" height="56" rx="14" fill="#3b4cca" />
+      <path d="M18 22h28M18 32h20M18 42h24" stroke="#fff" strokeWidth="5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
   const { board, error } = useBoard(api);
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -201,14 +218,38 @@ function Shell({ api, me, onSignedOut, compact }: ShellProps) {
     </>
   );
 
+  // 11-web-ui §Top bar: on a phone, Add a machine and Help move into the account menu.
+  const menuLinks = mobile
+    ? [
+        {
+          label: 'Add a machine',
+          href: routeHash({ view: 'setup' }),
+          icon: <NavIcon icon={ServerCog} />,
+        },
+        {
+          label: 'Help',
+          href: SETUP_GUIDE_URL,
+          icon: <NavIcon icon={CircleHelp} />,
+          onClick: (e: MouseEvent<HTMLAnchorElement>) => followInApp(e, SETUP_GUIDE_URL),
+        },
+      ]
+    : [];
+
   const selectedCard = selected
     ? [...board.cards.values()].find((c) => c.session_id === selected)
     : undefined;
 
   return (
-    <div className={`app${selected ? ' with-detail' : ''}`}>
+    <div className={`app${selected ? ' with-detail' : ''}${mobile ? ' mobile' : ''}`}>
       <header className={`topbar${compact ? ' compact' : ''}`}>
-        <h1>Conductor</h1>
+        {mobile ? (
+          <h1>
+            <LogoMark />
+            <span className="visually-hidden">Conductor</span>
+          </h1>
+        ) : (
+          <h1>Conductor</h1>
+        )}
         <nav className="nav-tabs" aria-label="Main">
           <a
             href={routeHash({ view: 'board' })}
@@ -232,16 +273,18 @@ function Shell({ api, me, onSignedOut, compact }: ShellProps) {
             {labelled(Server, 'Machines')}
           </a>
         </nav>
-        <nav className="nav-tabs help-entry" aria-label="Help">
-          <a
-            href={routeHash({ view: 'setup' })}
-            aria-current={guide ? 'page' : undefined}
-            {...iconOnly('Add a machine')}
-          >
-            {labelled(ServerCog, 'Add a machine')}
-          </a>
-          <HelpLink {...iconOnly('Help')}>{labelled(CircleHelp, 'Help')}</HelpLink>
-        </nav>
+        {!mobile && (
+          <nav className="nav-tabs help-entry" aria-label="Help">
+            <a
+              href={routeHash({ view: 'setup' })}
+              aria-current={guide ? 'page' : undefined}
+              {...iconOnly('Add a machine')}
+            >
+              {labelled(ServerCog, 'Add a machine')}
+            </a>
+            <HelpLink {...iconOnly('Help')}>{labelled(CircleHelp, 'Help')}</HelpLink>
+          </nav>
+        )}
         {route.view === 'board' && !guide && (
           <button
             type="button"
@@ -259,6 +302,7 @@ function Shell({ api, me, onSignedOut, compact }: ShellProps) {
             onAdmin={() => navigate({ view: 'admin' })}
             onSignedOut={onSignedOut}
             compact={compact}
+            extraItems={menuLinks}
           />
         )}
       </header>
@@ -288,7 +332,12 @@ function Shell({ api, me, onSignedOut, compact }: ShellProps) {
         />
       )}
       {route.view === 'board' && !guide && creating && (
-        <CreateTicketForm api={api} onCreated={() => setCreating(false)} />
+        <CreateTicketForm
+          api={api}
+          onCreated={() => setCreating(false)}
+          sheet={mobile}
+          onClose={() => setCreating(false)}
+        />
       )}
       <main hidden={route.view !== 'board' || guide}>
         <Board board={board} selectedSessionId={selected} onSelect={setSelected} api={api} />
@@ -303,6 +352,7 @@ function Shell({ api, me, onSignedOut, compact }: ShellProps) {
               selectedCard ? `${selectedCard.updated_at}|${selectedCard.badges.join(',')}` : ''
             }
             onClose={() => setSelected(null)}
+            fullScreen={mobile}
             onSelectSession={setSelected}
           />
         )}

@@ -1,0 +1,5 @@
+{
+  "detail": "Required status check \"ci\" is expected.",
+  "error": "blocked",
+  "ok": false
+}

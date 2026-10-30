@@ -1,6 +1,6 @@
 import type { BoardCard, HumanTransitionOption } from '@conductor/shared';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import type { ApiClient } from '../api/client.js';
-import { memo, useCallback, useMemo, useState } from 'react';
 import {
   boardColumns,
   EMPTY_BOARD,
@@ -26,6 +26,7 @@ import {
   waitingForBuildSlot,
 } from './ConductorChecks.js';
 import { routingNeeds, routingRule } from '../machines/format.js';
+import { useIsMobile } from './useMediaQuery.js';
 import './Board.css';
 
 interface BoardProps {
@@ -98,6 +99,40 @@ export function Board({
     save(new Set());
   };
 
+  // 11-web-ui §Board: on a phone one column shows at a time, picked in the switcher or by a swipe.
+  // Collapsing (UX-9) is desktop only: the phone column is never collapsed.
+  const mobile = useIsMobile();
+  const [picked, setPicked] = useState<string | null>(null);
+  const active =
+    columns.find((c) => c.id === picked) ?? defaultColumn(columns) ?? columns[0] ?? null;
+  const swipe = useSwipe((step) => {
+    if (!active) return;
+    const next = columns[columns.indexOf(active) + step];
+    if (next) setPicked(next.id);
+  });
+
+  if (mobile) {
+    return (
+      <div className="board board-mobile" {...swipe}>
+        {active && (
+          <>
+            <ColumnSwitcher columns={columns} active={active.id} onPick={setPicked} />
+            <Column
+              col={active}
+              collapsed={false}
+              attention={false}
+              onToggle={toggle}
+              selectedSessionId={selectedSessionId}
+              onSelect={onSelect}
+              agentStates={agentStates}
+              {...(api ? { api } : {})}
+            />
+          </>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="board-area">
       {anyCollapsed && (
@@ -138,6 +173,81 @@ export function Board({
       </div>
     </div>
   );
+}
+
+/** The phone board opens on Needs input when it has cards, else the first column with any. */
+export function defaultColumn(columns: readonly BoardColumnView[]): BoardColumnView | undefined {
+  return (
+    columns.find((c) => c.id === 'needs_input' && c.cards.length > 0) ??
+    columns.find((c) => c.cards.length > 0)
+  );
+}
+
+function ColumnSwitcher({
+  columns,
+  active,
+  onPick,
+}: {
+  columns: readonly BoardColumnView[];
+  active: string;
+  onPick: (id: string) => void;
+}) {
+  const refs = useRef(new Map<string, HTMLButtonElement>());
+  useEffect(() => {
+    refs.current.get(active)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [active]);
+  return (
+    <div className="column-switcher" role="tablist" aria-label="Columns">
+      {columns.map((col) => (
+        <button
+          key={col.id}
+          ref={(el) => {
+            if (el) refs.current.set(col.id, el);
+            else refs.current.delete(col.id);
+          }}
+          type="button"
+          role="tab"
+          aria-selected={col.id === active}
+          aria-controls={col.id === active ? `board-column-${col.id}` : undefined}
+          className={`column-tab column-tab-${col.id}${col.id === active ? ' active' : ''}`}
+          onClick={() => onPick(col.id)}
+        >
+          {col.title} <span className="count">{col.cards.length}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const SWIPE_MIN_PX = 50;
+
+/**
+ * A horizontal swipe: more than 50 px sideways and 1.5× more sideways than down. `step` is +1 for
+ * a swipe to the left (the next column), -1 to the right. Vertical scrolling is never blocked
+ * (the board is `touch-action: pan-y`).
+ */
+function useSwipe(onSwipe: (step: 1 | -1) => void) {
+  const start = useRef<{ x: number; y: number } | null>(null);
+  return {
+    onPointerDown: (e: PointerEvent) => {
+      // The switcher scrolls sideways on its own; a drag there isn't a column swipe.
+      const inSwitcher = (e.target as Element).closest?.('.column-switcher');
+      start.current = e.isPrimary === false || inSwitcher ? null : { x: e.clientX, y: e.clientY };
+    },
+    onPointerUp: (e: PointerEvent) => {
+      const from = start.current;
+      start.current = null;
+      if (!from) return;
+      const dx = e.clientX - from.x;
+      const dy = e.clientY - from.y;
+      if (Math.abs(dx) > SWIPE_MIN_PX && Math.abs(dx) > 1.5 * Math.abs(dy)) {
+        onSwipe(dx < 0 ? 1 : -1);
+      }
+    },
+    onPointerCancel: () => {
+      start.current = null;
+    },
+  };
 }
 
 /** FR-4: the baselines for `collapsed`; the same map when nothing changed. */

@@ -21,7 +21,8 @@ export interface SelectedApi {
 
 /**
  * Build the client for `env` (import.meta.env). The mock gets demo latency and simulated output
- * so the board looks alive without an orchestrator.
+ * so the board looks alive without an orchestrator; `VITE_MOCK_STATIC=1` turns both off, so the
+ * board holds still for scripts/ui-screenshots.js.
  */
 export function createApiFromEnv(
   env: Record<string, unknown>,
@@ -29,8 +30,9 @@ export function createApiFromEnv(
 ): SelectedApi {
   const kind = apiKind(env);
   if (kind === 'mock') {
-    const api = createMockApi({ latencyMs: 150 });
-    api.simulate(2000);
+    const still = env.VITE_MOCK_STATIC === '1';
+    const api = createMockApi({ latencyMs: still ? 0 : 150 });
+    if (!still) api.simulate(2000);
     return { kind, api };
   }
   const baseUrl = typeof env.VITE_API_BASE === 'string' ? env.VITE_API_BASE : undefined;

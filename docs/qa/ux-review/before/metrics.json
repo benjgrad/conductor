@@ -1,0 +1,513 @@
+{
+  "board-375x812-light": {
+    "pageScrollWidth": 1146,
+    "deviceWidth": 375,
+    "horizontalOverflow": true,
+    "pageHeight": 2482,
+    "smallTapTargets": 5,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "button \"Hotfix: crash on empty cart\" 144×32",
+      "button \"Add /health\" 144×16"
+    ]
+  },
+  "board-scrolled-375x812-light": {
+    "pageScrollWidth": 1146,
+    "deviceWidth": 375,
+    "horizontalOverflow": true,
+    "pageHeight": 2482,
+    "smallTapTargets": 5,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "button \"Hotfix: crash on empty cart\" 144×32",
+      "button \"Add /health\" 144×16"
+    ]
+  },
+  "detail-375x812-light": {
+    "pageScrollWidth": 1146,
+    "deviceWidth": 375,
+    "horizontalOverflow": true,
+    "pageHeight": 2482,
+    "smallTapTargets": 13,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "button \"Hotfix: crash on empty cart\" 144×32",
+      "button \"Add /health\" 144×16",
+      "button \"Close detail\" 29×24",
+      "button \"Messages\" 97×30",
+      "button \"Details\" 75×30"
+    ]
+  },
+  "detail-scrolled-375x812-light": {
+    "pageScrollWidth": 1146,
+    "deviceWidth": 375,
+    "horizontalOverflow": true,
+    "pageHeight": 2482,
+    "smallTapTargets": 13,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "button \"Hotfix: crash on empty cart\" 144×32",
+      "button \"Add /health\" 144×16",
+      "button \"Close detail\" 29×24",
+      "button \"Messages\" 97×30",
+      "button \"Details\" 75×30"
+    ]
+  },
+  "detail-details-375x812-light": {
+    "pageScrollWidth": 1146,
+    "deviceWidth": 375,
+    "horizontalOverflow": true,
+    "pageHeight": 2482,
+    "smallTapTargets": 13,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "button \"Hotfix: crash on empty cart\" 144×32",
+      "button \"Add /health\" 144×16",
+      "button \"Close detail\" 29×24",
+      "button \"Messages\" 97×30",
+      "button \"Details\" 75×30"
+    ]
+  },
+  "composer-focused-375x812-light": {
+    "pageScrollWidth": 1146,
+    "deviceWidth": 375,
+    "horizontalOverflow": true,
+    "pageHeight": 2482,
+    "smallTapTargets": 13,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "button \"Hotfix: crash on empty cart\" 144×32",
+      "button \"Add /health\" 144×16",
+      "button \"Close detail\" 29×24",
+      "button \"Messages\" 97×30",
+      "button \"Details\" 75×30"
+    ]
+  },
+  "new-ticket-375x812-light": {
+    "pageScrollWidth": 1146,
+    "deviceWidth": 375,
+    "horizontalOverflow": true,
+    "pageHeight": 2482,
+    "smallTapTargets": 13,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "input \"\" 343×24",
+      "input \"\" 343×24",
+      "input \"\" 343×24",
+      "input \"\" 13×13",
+      "input \"\" 13×13"
+    ]
+  },
+  "new-ticket-bottom-375x812-light": {
+    "pageScrollWidth": 1146,
+    "deviceWidth": 375,
+    "horizontalOverflow": true,
+    "pageHeight": 2482,
+    "smallTapTargets": 13,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "input \"\" 343×24",
+      "input \"\" 343×24",
+      "input \"\" 343×24",
+      "input \"\" 13×13",
+      "input \"\" 13×13"
+    ]
+  },
+  "account-menu-375x812-light": {
+    "pageScrollWidth": 1146,
+    "deviceWidth": 375,
+    "horizontalOverflow": true,
+    "pageHeight": 2482,
+    "smallTapTargets": 5,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "button \"Hotfix: crash on empty cart\" 144×32",
+      "button \"Add /health\" 144×16"
+    ]
+  },
+  "machines-375x812-light": {
+    "pageScrollWidth": 763,
+    "deviceWidth": 375,
+    "horizontalOverflow": true,
+    "pageHeight": 1653,
+    "smallTapTargets": 6,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 116×24",
+      "button \"Add a machine\" 82×42",
+      "a \"Guided setup\" 51×32",
+      "a \"Help: add a machine\" 79×32"
+    ]
+  },
+  "workflows-375x812-light": {
+    "pageScrollWidth": 734,
+    "deviceWidth": 375,
+    "horizontalOverflow": true,
+    "pageHeight": 1590,
+    "smallTapTargets": 4,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 116×24",
+      "a \"Machines\" 108×24",
+      "select \"v3 (latest)v2v1\" 106×28"
+    ]
+  },
+  "setup-375x812-light": {
+    "pageScrollWidth": 731,
+    "deviceWidth": 375,
+    "horizontalOverflow": true,
+    "pageHeight": 1583,
+    "smallTapTargets": 41,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "button \"I'll do this later\" 126×26",
+      "a \"Read the full guide ↗\" 148×16",
+      "button \"1 Check the prerequisites\" 232×26",
+      "button \"2 Install and enroll\" 160×26",
+      "button \"3 Connect\" 101×26"
+    ]
+  },
+  "help-375x812-light": {
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 6270,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Back to conductor\" 127×16"
+    ]
+  },
+  "signin-375x812-light": {
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 4,
+    "smallTapTargetSample": [
+      "input \"\" 293×26",
+      "input \"\" 293×26",
+      "button \"Sign in\" 70×26",
+      "a \"Help: add a machine\" 135×15"
+    ]
+  },
+  "board-375x812-dark": {
+    "pageScrollWidth": 1146,
+    "deviceWidth": 375,
+    "horizontalOverflow": true,
+    "pageHeight": 2482,
+    "smallTapTargets": 5,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "button \"Hotfix: crash on empty cart\" 144×32",
+      "button \"Add /health\" 144×16"
+    ]
+  },
+  "detail-375x812-dark": {
+    "pageScrollWidth": 1146,
+    "deviceWidth": 375,
+    "horizontalOverflow": true,
+    "pageHeight": 2482,
+    "smallTapTargets": 13,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "button \"Hotfix: crash on empty cart\" 144×32",
+      "button \"Add /health\" 144×16",
+      "button \"Close detail\" 29×24",
+      "button \"Messages\" 97×30",
+      "button \"Details\" 75×30"
+    ]
+  },
+  "new-ticket-375x812-dark": {
+    "pageScrollWidth": 1146,
+    "deviceWidth": 375,
+    "horizontalOverflow": true,
+    "pageHeight": 2482,
+    "smallTapTargets": 13,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "input \"\" 343×24",
+      "input \"\" 343×24",
+      "input \"\" 343×24",
+      "input \"\" 13×13",
+      "input \"\" 13×13"
+    ]
+  },
+  "board-360x740-light": {
+    "pageScrollWidth": 1146,
+    "deviceWidth": 360,
+    "horizontalOverflow": true,
+    "pageHeight": 2356,
+    "smallTapTargets": 5,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "button \"Hotfix: crash on empty cart\" 144×32",
+      "button \"Add /health\" 144×16"
+    ]
+  },
+  "detail-360x740-light": {
+    "pageScrollWidth": 1146,
+    "deviceWidth": 360,
+    "horizontalOverflow": true,
+    "pageHeight": 2356,
+    "smallTapTargets": 13,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "button \"Hotfix: crash on empty cart\" 144×32",
+      "button \"Add /health\" 144×16",
+      "button \"Close detail\" 29×24",
+      "button \"Messages\" 97×30",
+      "button \"Details\" 75×30"
+    ]
+  },
+  "detail-scrolled-360x740-light": {
+    "pageScrollWidth": 1146,
+    "deviceWidth": 360,
+    "horizontalOverflow": true,
+    "pageHeight": 2356,
+    "smallTapTargets": 13,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "button \"Hotfix: crash on empty cart\" 144×32",
+      "button \"Add /health\" 144×16",
+      "button \"Close detail\" 29×24",
+      "button \"Messages\" 97×30",
+      "button \"Details\" 75×30"
+    ]
+  },
+  "new-ticket-360x740-light": {
+    "pageScrollWidth": 1146,
+    "deviceWidth": 360,
+    "horizontalOverflow": true,
+    "pageHeight": 2356,
+    "smallTapTargets": 13,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "input \"\" 330×24",
+      "input \"\" 330×24",
+      "input \"\" 330×24",
+      "input \"\" 13×13",
+      "input \"\" 13×13"
+    ]
+  },
+  "new-ticket-bottom-360x740-light": {
+    "pageScrollWidth": 1146,
+    "deviceWidth": 360,
+    "horizontalOverflow": true,
+    "pageHeight": 2356,
+    "smallTapTargets": 13,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "input \"\" 330×24",
+      "input \"\" 330×24",
+      "input \"\" 330×24",
+      "input \"\" 13×13",
+      "input \"\" 13×13"
+    ]
+  },
+  "board-768x1024-light": {
+    "pageScrollWidth": 1146,
+    "deviceWidth": 768,
+    "horizontalOverflow": true,
+    "pageHeight": 1528,
+    "smallTapTargets": 25,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 102×40",
+      "a \"Help\" 74×40",
+      "button \"New ticket\" 83×42",
+      "button \"local\" 77×26",
+      "button \"Hotfix: crash on empty cart\" 144×32"
+    ]
+  },
+  "detail-768x1024-light": {
+    "pageScrollWidth": 1146,
+    "deviceWidth": 768,
+    "horizontalOverflow": true,
+    "pageHeight": 1910,
+    "smallTapTargets": 32,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 102×40",
+      "a \"Help\" 74×40",
+      "button \"New ticket\" 83×42",
+      "button \"local\" 77×26",
+      "button \"Hotfix: crash on empty cart\" 144×32"
+    ]
+  },
+  "new-ticket-768x1024-light": {
+    "pageScrollWidth": 1146,
+    "deviceWidth": 768,
+    "horizontalOverflow": true,
+    "pageHeight": 1980,
+    "smallTapTargets": 24,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 102×40",
+      "a \"Help\" 74×40",
+      "button \"Close form\" 82×42",
+      "button \"local\" 77×26",
+      "input \"\" 736×24"
+    ]
+  },
+  "board-1440x900-light": {
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 941,
+    "smallTapTargets": 30,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"Hotfix: crash on empty cart\" 190×32"
+    ]
+  },
+  "detail-1440x900-light": {
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1122,
+    "smallTapTargets": 33,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"Hotfix: crash on empty cart\" 144×32"
+    ]
+  },
+  "new-ticket-1440x900-light": {
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1650,
+    "smallTapTargets": 22,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"Close form\" 119×26",
+      "button \"local\" 77×26",
+      "input \"\" 343×24"
+    ]
+  },
+  "machines-1440x900-light": {
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 15,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 116×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "button \"Add a machine\" 127×26",
+      "a \"Guided setup\" 94×16"
+    ]
+  },
+  "workflows-1440x900-light": {
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 7,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 116×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "select \"v3 (latest)v2v1\" 106×28"
+    ]
+  },
+  "board-1440x900-dark": {
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 941,
+    "smallTapTargets": 30,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"Hotfix: crash on empty cart\" 190×32"
+    ]
+  },
+  "detail-1440x900-dark": {
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1122,
+    "smallTapTargets": 33,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"Hotfix: crash on empty cart\" 144×32"
+    ]
+  }
+}

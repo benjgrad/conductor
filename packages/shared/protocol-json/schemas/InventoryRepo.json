@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/definitions/InventoryRepo",
+  "definitions": {
+    "InventoryRepo": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "$ref": "#/definitions/AbsolutePath"
+        },
+        "remote": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "default_branch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "head_commit": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "mode": {
+          "$ref": "#/definitions/WorkingCopyMode"
+        }
+      },
+      "required": [
+        "path",
+        "remote",
+        "default_branch",
+        "head_commit",
+        "mode"
+      ]
+    },
+    "AbsolutePath": {
+      "type": "string",
+      "minLength": 2
+    },
+    "WorkingCopyMode": {
+      "type": "string",
+      "enum": [
+        "reference",
+        "checkout"
+      ]
+    }
+  }
+}

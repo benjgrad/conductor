@@ -117,6 +117,9 @@ While any conductor tab is open, the page tells Ben when an agent needs input (`
 - Details › Workflow: the `pending` checklist while a move's requirements run.
 - Details › **Moves** (`SessionDetail.moves`, oldest first): "<time> <from> → <to> · <transition title> — <reason> (<actor>)". The title comes from the transition in the state it left, else the name humanised; a gate step's synthetic label is shown as is.
 - Context values (`pr_url`, …), spend and time against the budget.
+- **Edit ticket**, above the Brief, when `SessionDetail.ticket_editable` (the column allows it, [05 §Editing the ticket per column](05-workflow-engine.md#definition-schema)): a form for title, body, priority and kind (`PATCH /api/tickets/:id`). On an agent column it notes that a running agent sees the change only at its next step.
+
+A card with no session yet (Queued) opens the **ticket panel** instead (`TicketPanel.tsx`, `GET /api/tickets/:id`): the repo, kind, priority, reference, age and the description, read-only, with **Edit ticket** when the Queued column allows it. A 409 (the ticket changed since it was opened) offers Reload; a 403 shows the server's message. When the ticket is claimed while its panel is open, the panel switches to the new session's.
 
 ## Plan approval
 Conductor v2's planning agent can finish with the question transition `plan_needs_approval` → Needs input, its `result` holding `{plan, summary}` and its `reason` the question. The engine keeps a question's non-empty result as `context[<asking state>]` ([05 §Transitions](05-workflow-engine.md#transitions-adr-0011-m1b-t03), [10-contracts](10-contracts.md), "Agent outcome"), so the plan is `context[return_to].plan`.

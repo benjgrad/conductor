@@ -88,6 +88,8 @@ export const API_PATHS = {
   /** ADR-0023: POST PermissionDecisionRequest → PermissionRequestDto. `:id` is the request_id. */
   permissionDecision: (id: string) => `/api/permission-requests/${id}/decision`,
   tickets: '/api/tickets',
+  /** GET → TicketDetail; PATCH UpdateTicketRequest → TicketDetail (ticket_editable per column). */
+  ticket: (id: string) => `/api/tickets/${id}`,
   workflows: '/api/workflows',
   workflow: (id: string) => `/api/workflows/${id}`,
   machines: '/api/machines',
@@ -697,6 +699,11 @@ export const SessionDetailSchema = z.object({
   qa: z.object({ result: QaResultSchema, head_sha: GitShaSchema }).nullable().optional(),
   /** UX-13a: the ticket's teammate, as `card.agent_name`; null / absent ≡ not assigned yet. */
   agent_name: z.string().nullable().optional(),
+  /**
+   * May a person edit the ticket in the session's column now (`ticketEditable`)? Absent ≡ false
+   * (older servers have no ticket edit route).
+   */
+  ticket_editable: z.boolean().optional(),
 });
 export type SessionDetail = z.infer<typeof SessionDetailSchema>;
 
@@ -954,6 +961,8 @@ export const ApiErrorSchema = z.object({
       'permission_not_pending',
       /** UX-15: Web Push is not configured (CONDUCTOR_VAPID_* unset) (404). */
       'push_disabled',
+      /** PATCH /api/tickets/:id while the card's column doesn't allow it (`ticket_editable`) (403). */
+      'ticket_not_editable',
     ]),
     message: z.string(),
     /** Validation details (zod issues / validator rule failures). */
@@ -1028,6 +1037,48 @@ export const TicketDtoSchema = z.object({
   agent_name: z.string().nullable().optional(),
 });
 export type TicketDto = z.infer<typeof TicketDtoSchema>;
+
+/**
+ * GET /api/tickets/:id (and the PATCH response): the ticket with where its card is. The session
+ * is the ticket's latest (the board card's); null while queued with none. `editable` =
+ * `ticketEditable` for that column; `updated_at` is PATCH's `expected_updated_at`.
+ */
+export const TicketDetailSchema = TicketDtoSchema.extend({
+  updated_at: IsoDateTimeSchema,
+  session_id: UuidSchema.nullable(),
+  workflow_state: z.string().nullable(),
+  column: BoardColumnSchema,
+  /** The column's title, for messages ("the Implementing column…"). */
+  column_title: z.string(),
+  editable: z.boolean(),
+});
+export type TicketDetail = z.infer<typeof TicketDetailSchema>;
+
+/** The longest ticket body PATCH accepts. */
+export const TICKET_BODY_MAX = 100_000;
+
+/**
+ * PATCH /api/tickets/:id. At least one field; `expected_updated_at` is the `updated_at` the edit
+ * started from (409 `conflict` when the ticket changed since). 403 `ticket_not_editable` when the
+ * card's column doesn't allow edits.
+ */
+export const UpdateTicketRequestSchema = z
+  .object({
+    expected_updated_at: IsoDateTimeSchema,
+    title: z.string().trim().min(1).max(500).optional(),
+    body: z.string().max(TICKET_BODY_MAX).optional(),
+    priority: z.number().int().optional(),
+    kind: TicketKindSchema.optional(),
+  })
+  .refine(
+    (r) =>
+      r.title !== undefined ||
+      r.body !== undefined ||
+      r.priority !== undefined ||
+      r.kind !== undefined,
+    { message: 'change at least one of title, body, priority, kind' },
+  );
+export type UpdateTicketRequest = z.input<typeof UpdateTicketRequestSchema>;
 
 /**
  * UX-13a: GET /api/team. One agent of the signed-in account's team, oldest hire first.

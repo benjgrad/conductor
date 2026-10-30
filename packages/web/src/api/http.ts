@@ -21,6 +21,7 @@ import {
   ResetLinkCreatedSchema,
   SessionDetailSchema,
   TranscriptResponseSchema,
+  TicketDetailSchema,
   TicketDtoSchema,
   SaveWorkflowResponseSchema,
   WorkflowDetailSchema,
@@ -30,6 +31,7 @@ import {
   type BoardSseEvent,
   type CreateInviteRequest,
   type CreateTicketRequest,
+  type UpdateTicketRequest,
   type LoginRequest,
   type OutputChunk,
   type PasswordChangeRequest,
@@ -279,6 +281,12 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
 
     createTicket: (req: CreateTicketRequest) =>
       request(TicketDtoSchema, 'POST', API_PATHS.tickets, req),
+
+    getTicket: (ticketId: string) =>
+      request(TicketDetailSchema, 'GET', API_PATHS.ticket(encodeURIComponent(ticketId))),
+
+    updateTicket: (ticketId: string, req: UpdateTicketRequest) =>
+      request(TicketDetailSchema, 'PATCH', API_PATHS.ticket(encodeURIComponent(ticketId)), req),
 
     listWorkflows: () => request(WorkflowListResponseSchema, 'GET', API_PATHS.workflows),
 

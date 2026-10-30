@@ -10,10 +10,10 @@ import {
   SaveWorkflowRequestSchema,
   SendMessageRequestSchema,
   TransitionSessionRequestSchema,
+  UpdateTicketRequestSchema,
   UuidSchema,
   canonicalRepo,
   httpForApplyResult,
-  toBoardCard,
   validateWorkflow,
   type EngineEvent,
   type EngineRoute,
@@ -28,10 +28,9 @@ import { authHook } from '../auth/middleware.js';
 import { argon2Hasher, type PasswordHasher } from '../auth/password.js';
 import { registerAuthRoutes } from '../auth/routes.js';
 import { registerRateLimit } from '../auth/throttle.js';
-import { insertBoardEvents, type ApplyEventOptions } from '../contracts.js';
+import type { ApplyEventOptions } from '../contracts.js';
 import { withTransaction } from '../db/index.js';
 import type { TicketRow } from '../db/types.js';
-import { cardView, withMachineFields } from '../engine/board-view.js';
 import { reopenSession } from '../engine/reopen.js';
 import type { MachineSockets } from '../gateway/revoke.js';
 import type { PushConfig } from '../push/config.js';
@@ -48,6 +47,7 @@ import { registerPushRoutes } from './push.js';
 import { listWorkflows, loadBoard, loadWorkflowDetail, toTicketDto } from './queries.js';
 import { httpSecurityFromEnv, securityHookFor, type HttpSecurityOptions } from './security.js';
 import { loadSessionDetail, sessionExists } from './sessions.js';
+import { loadTicketDetail, sessionlessCardUpserted, updateTicket } from './tickets.js';
 import { registerTeamRoutes } from './team.js';
 
 // M1-T08: REST + SSE for the UI (03 §UI ↔ orchestrator), as the `CreateApi` factory (main.ts).
@@ -440,24 +440,8 @@ export const createApi = (({
       );
       const row = res.rows[0]!;
       // Last write of the transaction (insertBoardEvents holds the board lock to COMMIT).
-      const evs = await insertBoardEvents(tx, [
-        {
-          type: 'card.upserted',
-          session_id: null,
-          ticket_id: row.id,
-          // UX-13a: a new ticket holds no agent until a claim starts it.
-          card: await withMachineFields(
-            tx,
-            toBoardCard(
-              { ...row, agent_name: null },
-              null,
-              null,
-              await cardView(tx, row.workflow_id, null),
-            ),
-            row,
-          ),
-        },
-      ]);
+      // UX-13a: a new ticket holds no agent until a claim starts it.
+      const evs = await sessionlessCardUpserted(tx, { ...row, agent_name: null });
       return { ticket: row, events: evs };
     });
     for (const ev of events) boardBus.publish(ev);
@@ -473,6 +457,52 @@ export const createApi = (({
     const dto: TicketDto = toTicketDto(ticket);
     if (has.rowCount === 0) dto.warnings = ['no_machine_has_repo'];
     return reply.code(201).send(dto);
+  });
+
+  /** A valid uuid or a 404 sent. */
+  const ticketId = (id: string, reply: FastifyReply): string | undefined => {
+    if (UuidSchema.safeParse(id).success) return id;
+    void sendError(reply, 404, 'not_found', `ticket ${id} not found`);
+    return undefined;
+  };
+
+  // Read a ticket in any column (a queued one has no session to open).
+  app.get<IdParams>(API_PATHS.ticket(':id'), async (req, reply) => {
+    const id = ticketId(req.params.id, reply);
+    if (id === undefined) return reply;
+    const detail = await loadTicketDetail(db, id, req.auth!.scope.account_id);
+    if (!detail) return sendError(reply, 404, 'not_found', `ticket ${id} not found`);
+    return detail;
+  });
+
+  // Edit title / body / priority / kind where the card's column allows it (`ticketEditable`).
+  app.patch<IdParams>(API_PATHS.ticket(':id'), async (req, reply) => {
+    const id = ticketId(req.params.id, reply);
+    if (id === undefined) return reply;
+    const body = parseBody(UpdateTicketRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const res = await updateTicket(db, id, req.auth!.scope.account_id, body);
+    switch (res.status) {
+      case 'not_found':
+        return sendError(reply, 404, 'not_found', `ticket ${id} not found`);
+      case 'not_editable':
+        return sendError(
+          reply,
+          403,
+          'ticket_not_editable',
+          `the ${res.detail.column_title} column does not allow editing the ticket`,
+        );
+      case 'conflict':
+        return sendError(
+          reply,
+          409,
+          'conflict',
+          'the ticket changed since it was loaded; reload it and edit again',
+        );
+      case 'updated':
+        for (const ev of res.events) boardBus.publish(ev);
+        return res.detail;
+    }
   });
 
   // ---------------------------------------------------------------- workflows

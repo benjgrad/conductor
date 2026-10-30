@@ -403,6 +403,8 @@ T08 maps a non-applied `applyEvent` result with `httpForApplyResult(route, resul
 
 ADR-0008 routes that don't go through `applyEvent`: `GET /api/sessions/:id/transcript` → 200 `TranscriptResponse`; 404 `not_found` (unknown session), 404 `no_transcript` (daemon error `no_transcript` / `unknown_session`), 502 `internal` (`read_failed`), 503 `machine_offline` (session has no machine, machine not connected, or its socket closed while waiting), 504 `timeout`. `POST /api/sessions/:id/reopen` → 202 `ReopenSessionResponse {session_id}`; 409 `conflict` (not done/failed, or not the latest); 404 `not_found`; 400 `bad_request`.
 
+Ticket routes (no `applyEvent`): `GET /api/tickets/:id` → 200 `TicketDetail`; 404 `not_found`. `PATCH /api/tickets/:id` → 200 `TicketDetail`; 403 `ticket_not_editable` (the card's column doesn't allow edits: `ticket_editable` / `queued_ticket_editable`, `ticketEditable`); 409 `conflict` (stale `expected_updated_at`, or a newer session); 404 `not_found`; 400 `bad_request`.
+
 `POST /api/sessions/:id/approve` body `ApproveSessionRequest {comment?}` → `external.event {name: 'ui.approve', data: {comment}}` (no `data` without a comment). `/cancel` body `{reason?}` → `operator.cancel {reason}`. `/messages` body `SendMessageRequest {text}` (trimmed, 1–20 000 chars) → `operator.message {text}`; on `applied`, after the commit, T08 appends the text to the `OutputBus` as a `user` chunk ([ADR-0007](../adr/0007-live-messages-to-agents.md)). Request-body validation failures are 400 `bad_request` with `details`.
 
 ## Composition root

@@ -28,6 +28,7 @@ import { PlanApprovalRequest } from './PlanApprovalRequest.js';
 import { classifyRequest, lastMoveTransition, planAnswerOption } from './request-preview.js';
 import { ReviewRequest } from './ReviewRequest.js';
 import { StarDetails } from './StarDetails.js';
+import { EditTicket } from './TicketPanel.js';
 import { TransitionButtons } from './transitions.js';
 import { displayState } from '../workflow/review.js';
 
@@ -198,6 +199,14 @@ export function DetailPanel({
             {isConductorStep(detail.card) && (
               <ConductorCheckBanner card={detail.card} agent={name} />
             )}
+            {detail.ticket_editable && (
+              <EditTicket
+                api={api}
+                ticketId={detail.card.ticket_id}
+                agentRunning={agentStateRunning(detail)}
+                onSaved={reload}
+              />
+            )}
             <BriefCard
               key={sessionId}
               sessionId={sessionId}
@@ -331,6 +340,13 @@ function stepFailedItem(detail: SessionDetail): string | null {
   const request = detail.pending_input;
   if (!request || classifyRequest(request) !== 'step_failed') return null;
   return failedItemOfQuestion(request.question)?.item ?? null;
+}
+
+/** The session is running an agent state (its live process won't see a ticket edit). */
+function agentStateRunning(detail: SessionDetail): boolean {
+  const { card, workflow } = detail;
+  const state = card.workflow_state ? workflow.states[card.workflow_state] : undefined;
+  return card.status === 'running' && state?.type === 'agent';
 }
 
 /** UX-6: conductor is running a command for the session (a gate step, or a command state). */

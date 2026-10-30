@@ -12,7 +12,9 @@ import {
   entryLines,
   PROMPT_TEMPLATES,
   setAgentWork,
+  setTicketEditable,
   setTitle,
+  ticketEditableOf,
   type ColumnIssue,
 } from './columns.js';
 import { transitionNames } from './transitions.js';
@@ -107,6 +109,20 @@ export function ColumnEditor({
         />
       </label>
       {at('.title')}
+      <label className="wf-field wf-check">
+        <input
+          type="checkbox"
+          checked={ticketEditableOf(definition, state)}
+          onChange={(e) => onChange(setTicketEditable(definition, state, e.target.checked))}
+        />
+        People can edit the ticket in this column
+      </label>
+      {s.ticket_editable === undefined && (
+        <p className="muted wf-note">
+          Default for a {s.type} column ({s.type === 'human' ? 'editable' : 'read-only'}). An edit
+          reaches the agent's next prompt, not a running one.
+        </p>
+      )}
 
       <h4>Work</h4>
       {s.type === 'agent' && (

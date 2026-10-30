@@ -31,7 +31,9 @@ import type {
   SendMessageRequest,
   SessionDetail,
   SignupRequest,
+  TicketDetail,
   TicketDto,
+  UpdateTicketRequest,
   WorkflowDefinition,
   WorkflowDetail,
   TranscriptResponse,
@@ -87,6 +89,13 @@ export interface ApiClient {
   answer(sessionId: string, req: AnswerInputRequest): Promise<OkResponse>;
   /** POST /api/tickets → the new ticket; its card arrives on the board stream (card.upserted). */
   createTicket(req: CreateTicketRequest): Promise<TicketDto>;
+  /** GET /api/tickets/:id: the ticket in any column, with whether its column allows edits. */
+  getTicket(ticketId: string): Promise<TicketDetail>;
+  /**
+   * PATCH /api/tickets/:id. 403 ticket_not_editable when the card's column doesn't allow edits;
+   * 409 conflict when the ticket changed since `expected_updated_at`.
+   */
+  updateTicket(ticketId: string, req: UpdateTicketRequest): Promise<TicketDetail>;
   /** GET /api/workflows (create-ticket form, Workflows view): the latest version of each. */
   listWorkflows(): Promise<WorkflowSummary[]>;
   /**

@@ -379,6 +379,23 @@ main {
 .detail-error {
   margin: 6px 12px 0;
 }
+/* The ticket (TicketPanel.tsx) and a session panel's Edit ticket. */
+.ticket-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+.ticket-meta dt {
+  color: var(--muted);
+}
+.ticket-meta dd {
+  margin: 0;
+}
+.edit-ticket {
+  padding: 6px 12px;
+}
 .tab-body {
   flex: 1;
   min-height: 0;

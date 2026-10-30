@@ -4,6 +4,8 @@ import {
   boardColumns as defaultBoardColumns,
   CreateInviteRequestSchema,
   CreateTicketRequestSchema,
+  UpdateTicketRequestSchema,
+  ticketEditable,
   ENROLLMENT_TOKEN_TTL_MS,
   humanTransitionOptions,
   INVITE_DEFAULT_DAYS,
@@ -49,6 +51,7 @@ import {
   type SessionDetail,
   type SessionInputRequest,
   type SessionStatus,
+  type TicketDetail,
   type TicketDto,
   validateWorkflow,
   type WorkflowDefinition,
@@ -158,6 +161,8 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
   const boardSubs = new Set<StreamHandlers<BoardSseEvent>>();
   const outputSubs = new Map<string, Set<StreamHandlers<OutputChunk>>>();
   let nextEventId = 1;
+  /** Ticket fields the cards don't carry (body, repo rules), by ticket id; seeded on first read. */
+  const tickets = new Map<string, TicketDto & { updated_at: string }>();
   /** Workflow versions per id, oldest first (version N at index N-1). */
   const workflows = new Map<string, { definition: WorkflowDefinition; created_at: string }[]>(
     Object.entries(MOCK_WORKFLOW_HISTORY).map(([id, defs]) => [
@@ -447,6 +452,53 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     return 'running';
   }
 
+  /** The ticket behind a card (seeded from the card and its session on first read). */
+  function ticketOf(ticketId: string): TicketDto & { updated_at: string } {
+    const card = cards.get(ticketId);
+    if (!card) throw new ApiRequestError(404, 'not_found', `ticket ${ticketId} not found`);
+    let t = tickets.get(ticketId);
+    if (!t) {
+      const s = card.session_id ? sessions.get(card.session_id) : undefined;
+      t = {
+        id: ticketId,
+        external_ref: card.external_ref,
+        repo: card.repo,
+        title: card.title,
+        body: s?.ticket_body ?? '',
+        workflow_id: card.workflow_id,
+        workflow_version: s?.workflow.version ?? null,
+        required_tags: [],
+        repo_allow_machines: null,
+        status: card.session_id ? 'in_progress' : 'ready',
+        priority: card.priority,
+        created_at: card.created_at,
+        kind: card.kind,
+        updated_at: card.created_at,
+      };
+      tickets.set(ticketId, t);
+    }
+    return t;
+  }
+
+  /** GET /api/tickets/:id as the orchestrator builds it (`ticketEditable` for the card's column). */
+  function ticketDetail(ticketId: string): TicketDetail {
+    const t = ticketOf(ticketId);
+    const card = cards.get(ticketId)!;
+    const s = card.session_id ? sessions.get(card.session_id) : undefined;
+    const def = s?.workflow ?? workflows.get(CONDUCTOR.id)?.at(-1)?.definition ?? null;
+    return clone({
+      ...t,
+      title: card.title,
+      priority: card.priority,
+      kind: card.kind,
+      session_id: card.session_id,
+      workflow_state: card.workflow_state,
+      column: card.column,
+      column_title: COLUMNS.find((c) => c.id === card.column)?.title ?? card.column,
+      editable: ticketEditable(def, card.workflow_state),
+    });
+  }
+
   const api: MockApi = {
     getBoard: () =>
       reply((): BoardResponse => {
@@ -495,6 +547,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           moves: s.moves,
           ...(s.ticket_body !== undefined ? { ticket_body: s.ticket_body } : {}),
           input_requests: inputRequestsOf(s, card),
+          ticket_editable: ticketEditable(s.workflow, card.workflow_state),
         });
       }),
 
@@ -607,8 +660,51 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           updated_at: created_at,
         };
         cards.set(card.ticket_id, card);
+        tickets.set(ticket.id, { ...ticket, kind: req.kind ?? null, updated_at: created_at });
         emit([{ type: 'card.upserted', session_id: null, ticket_id: card.ticket_id, card }]);
         return clone(ticket);
+      }),
+
+    getTicket: (ticketId) => reply(() => ticketDetail(ticketId)),
+
+    updateTicket: (ticketId, raw) =>
+      reply((): TicketDetail => {
+        const parsed = UpdateTicketRequestSchema.safeParse(raw);
+        if (!parsed.success) throw new ApiRequestError(400, 'bad_request', parsed.error.message);
+        const req = parsed.data;
+        const before = ticketDetail(ticketId);
+        if (!before.editable) {
+          throw new ApiRequestError(
+            403,
+            'ticket_not_editable',
+            `the ${before.column_title} column does not allow editing the ticket`,
+          );
+        }
+        const t = ticketOf(ticketId);
+        if (Date.parse(req.expected_updated_at) !== Date.parse(t.updated_at)) {
+          throw new ApiRequestError(409, 'conflict', 'the ticket changed since it was loaded');
+        }
+        // Strictly later than before, so a second edit from the old version is a conflict.
+        const at = new Date(Math.max(now().getTime(), Date.parse(t.updated_at) + 1)).toISOString();
+        Object.assign(t, {
+          ...(req.title !== undefined ? { title: req.title } : {}),
+          ...(req.body !== undefined ? { body: req.body } : {}),
+          ...(req.priority !== undefined ? { priority: req.priority } : {}),
+          ...(req.kind !== undefined ? { kind: req.kind } : {}),
+          updated_at: at,
+        });
+        const s = before.session_id ? sessions.get(before.session_id) : undefined;
+        if (s && req.body !== undefined) s.ticket_body = req.body;
+        const card = cards.get(ticketId)!;
+        const next = { title: t.title, priority: t.priority, kind: t.kind ?? null };
+        if (card.session_id !== null) {
+          update(card, next);
+        } else {
+          const updated: BoardCard = { ...card, ...next, updated_at: at };
+          cards.set(ticketId, updated);
+          emit([{ type: 'card.upserted', session_id: null, ticket_id: ticketId, card: updated }]);
+        }
+        return ticketDetail(ticketId);
       }),
 
     listWorkflows: () =>

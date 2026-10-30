@@ -1,5 +1,6 @@
 import {
   CONDUCTOR_V2_DRAFT_DEF,
+  WorkflowDefinitionSchema,
   validateWorkflow,
   type EntryRequirements,
   type WorkflowDefinition,
@@ -17,7 +18,10 @@ import {
   QUEUED_LANE,
   readSetup,
   readChecking,
+  setQueuedTicketEditable,
+  setTicketEditable,
   setupLabel,
+  ticketEditableOf,
   stateForPath,
   validateColumns,
   workSummary,
@@ -343,5 +347,27 @@ describe('paths and sessions', () => {
     expect(readChecking({ checking: { to: 'x' } })).toEqual({ to: 'x', phase: null });
     expect(readChecking({})).toBeNull();
     expect(readChecking({ checking: 'nope' })).toBeNull();
+  });
+});
+
+describe('ticket editability per column', () => {
+  it('reads the defaults and sets or clears the flags', () => {
+    const def = CONDUCTOR_V2_DRAFT_DEF;
+    expect(ticketEditableOf(def, QUEUED_LANE)).toBe(true);
+    expect(ticketEditableOf(def, 'needs_input')).toBe(true);
+    expect(ticketEditableOf(def, 'implementing')).toBe(false);
+    const on = setTicketEditable(def, 'implementing', true);
+    expect(on.states.implementing!.ticket_editable).toBe(true);
+    expect(ticketEditableOf(on, 'implementing')).toBe(true);
+    expect(
+      'ticket_editable' in setTicketEditable(on, 'implementing', undefined).states.implementing!,
+    ).toBe(false);
+    const closed = setQueuedTicketEditable(def, false);
+    expect(ticketEditableOf(closed, QUEUED_LANE)).toBe(false);
+    expect('queued_ticket_editable' in setQueuedTicketEditable(closed, undefined)).toBe(false);
+    // The strict schema accepts the flags.
+    expect(WorkflowDefinitionSchema.safeParse(setQueuedTicketEditable(on, false)).success).toBe(
+      true,
+    );
   });
 });

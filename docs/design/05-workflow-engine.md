@@ -17,11 +17,15 @@ Users design an FSM, stored as **versioned JSON** in `workflow_definition`. The 
       // type-specific config (below)
       "guard": "<guard name>",           // optional, checked before leaving on success
       "timeout": "30m",                   // optional; fires the "timeout" outcome
-      "on": { "<transition name>": "<state>" | { "goto": "<state>", "attach": "output", "retries": 3, "else": "<state>", /* ADR-0011 fields below */ } }
+      "on": { "<transition name>": "<state>" | { "goto": "<state>", "attach": "output", "retries": 3, "else": "<state>", /* ADR-0011 fields below */ } },
+      "ticket_editable": true             // optional; may people edit the ticket in this column (below)
     }
-  }
+  },
+  "queued_ticket_editable": true          // optional; the same for the implicit Queued column
 }
 ```
+
+**Editing the ticket per column.** `ticket_editable` (every state) and `queued_ticket_editable` (the workflow, for Queued) say whether a person may edit the ticket's title, body, priority and kind while its card is in that column (`PATCH /api/tickets/:id`, [03](03-protocols.md#rest-indicative)). When absent: Queued and `human` states are editable, every other type (agent, command, connector, event, terminal) is read-only; an unknown state is read-only (`ticketEditable`, `shared/src/workflow/editable.ts`). Reading the ticket is always allowed. The engine reads the ticket row on every apply (`toSnapshot`), so an edit reaches the **next** prompt it renders (the next agent state, a reviewer, a fresh conversation), never an agent process already running; the UI says so on an agent column and suggests a live message.
 
 ### Transition object ([ADR-0011](../adr/0011-transition-rules.md))
 Each key of `on` is a **transition name**; the value is a state name (shorthand for `{goto}`) or an object. Old definitions parse unchanged. Schema: `TransitionObjectSchema` in `shared/src/workflow/schema.ts`; contract index: [10 §Transitions](10-contracts.md#transitions-adr-0011).

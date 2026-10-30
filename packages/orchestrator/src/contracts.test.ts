@@ -122,6 +122,37 @@ describe('InMemoryOutputBus', () => {
     expect(bus.snapshot(sid)).toEqual([]);
   });
 
+  it('evicts command output before the conversation, which stays complete', () => {
+    // 40 bytes: command output may keep 10 of them while the conversation needs room.
+    const bus = new InMemoryOutputBus(40);
+    bus.append(sid, 'assistant', 'a'.repeat(10));
+    bus.append(sid, 'user', 'u'.repeat(10));
+    // A noisy check: far more than the ring.
+    for (let i = 0; i < 20; i++) bus.append(sid, i % 2 ? 'stderr' : 'stdout', `${i}`.padEnd(5));
+    expect(bus.complete(sid)).toBe(true);
+    expect(bus.size(sid)).toBe(40);
+    const snap = bus.snapshot(sid);
+    expect(snap.map((c) => c.stream).slice(0, 2)).toEqual(['assistant', 'user']);
+    // The newest command output is kept, in seq order after the conversation.
+    expect(snap.slice(2).map((c) => c.text.trim())).toEqual(['16', '17', '18', '19']);
+    expect(snap.map((c) => c.seq)).toEqual([...snap.map((c) => c.seq)].sort((x, y) => x - y));
+
+    // The agent resumes: the conversation grows, command output shrinks to its share, then the
+    // oldest conversation chunk goes and the ring is no longer complete.
+    bus.append(sid, 'tool_use', 't'.repeat(10));
+    expect(
+      bus.snapshot(sid).filter((c) => c.stream === 'stdout' || c.stream === 'stderr'),
+    ).toHaveLength(2);
+    expect(bus.complete(sid)).toBe(true);
+    bus.append(sid, 'assistant', 'b'.repeat(10));
+    expect(bus.complete(sid)).toBe(false);
+    expect(bus.snapshot(sid)[0]!.text).toBe('u'.repeat(10));
+  });
+
+  it('is complete for a session with no output yet', () => {
+    expect(new InMemoryOutputBus().complete('nobody')).toBe(true);
+  });
+
   it('keeps sessions separate', () => {
     const bus = new InMemoryOutputBus();
     bus.append('a', 'stdout', 'one');

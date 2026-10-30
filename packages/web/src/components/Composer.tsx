@@ -19,7 +19,11 @@ import {
 } from './slash-commands.js';
 
 export type ComposerMode =
-  { mode: 'answer' } | { mode: 'message' } | { mode: 'reopen' } | { mode: 'off'; reason: string };
+  | { mode: 'answer' }
+  /** `resumes`: no agent runs; the message ends the wait on the PR's checks and resumes it. */
+  | { mode: 'message'; resumes?: true }
+  | { mode: 'reopen' }
+  | { mode: 'off'; reason: string };
 
 /** What the composer can do for this session right now. */
 export function composerMode(detail: SessionDetail): ComposerMode {
@@ -39,6 +43,15 @@ export function composerMode(detail: SessionDetail): ComposerMode {
   // ADR-0008: a done or failed session reopens the ticket (lost ones can't: their machine is gone).
   if (status === 'done' || status === 'failed') return { mode: 'reopen' };
   if (TERMINAL_STATUSES.has(status)) return { mode: 'off', reason: 'Session finished' };
+  // A move step waiting on its conditions (the PR's checks) out of an agent state: a message
+  // ends the wait and the agent resumes with it (the card stays in the source column).
+  if (
+    status === 'waiting_external' &&
+    card.checking?.phase === 'conditions' &&
+    detail.workflow.states[card.column]?.type === 'agent'
+  ) {
+    return { mode: 'message', resumes: true };
+  }
   if (status === 'waiting_external') {
     return { mode: 'off', reason: 'Waiting on an external event — no agent running' };
   }
@@ -372,6 +385,12 @@ export function Composer({
         )}
       </div>
       {m.mode === 'off' && <p className="composer-reason muted">{m.reason}</p>}
+      {m.mode === 'message' && m.resumes && (
+        <p className="composer-reason muted">
+          Conductor is waiting on the PR’s checks. A message stops the wait: {agentName} picks the
+          ticket back up with it, then finishes the step again.
+        </p>
+      )}
       {error && (
         <p role="alert" className="error composer-error">
           {error}

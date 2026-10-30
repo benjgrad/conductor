@@ -8,10 +8,12 @@
 # packages/orchestrator/dist/downloads) and removes any older build there, so exactly one is
 # served. <version> is the daemon package version plus `+<sha>`, the same form as the daemon's
 # `daemonVersion()`: the sha is CONDUCTOR_BUILD_SHA, else `git rev-parse --short=7 HEAD`, cut to
-# 7 characters; empty or `unknown` means none. The tarball is flat (./bin, ./dist,
+# 7 characters; empty or `unknown` means none. The tarball is flat (./assets, ./bin, ./dist,
 # ./node_modules, ./package.json); its entries are bin/conductor-daemon (sh) and
 # bin/conductor-daemon.cmd (Windows, MW-T11), which run `node dist/main.js` with
-# CONDUCTOR_BUILD_SHA set. node_modules is hoisted and holds no symlinks: Windows tar.exe can't
+# CONDUCTOR_BUILD_SHA set (the sh one runs $CONDUCTOR_NODE when set: the service units pin an
+# absolute Node 22 there, M2-T18). install.sh copies assets/conductor-launch.sh to
+# <root>/bin/conductor-launch (ADR-0021 §3). node_modules is hoisted and holds no symlinks: Windows tar.exe can't
 # create them without Developer Mode, so one tarball serves every OS. Needs node, pnpm and the installed
 # workspace; no Docker. Unless --no-verify, the result is unpacked into an empty directory and
 # `bin/conductor-daemon --help` must run with only Node on PATH.
@@ -58,7 +60,8 @@ rm -rf "$pkg/src" "$pkg/test" "$pkg/node_modules/.bin" "$pkg/node_modules/.modul
   "$pkg/node_modules/.pnpm"
 find "$pkg" \( -name '*.test.*' -o -name '*.tsbuildinfo' -o -name 'tsconfig*.json' \) \
   -not -path '*/node_modules/*' -exec rm -rf {} +
-for f in dist/main.js package.json node_modules/@conductor/shared/dist/index.js; do
+for f in dist/main.js package.json assets/conductor-launch.sh \
+  node_modules/@conductor/shared/dist/index.js; do
   if [[ ! -f "$pkg/$f" ]]; then
     echo "build-daemon-tarball: $f is missing from the deployed daemon" >&2
     exit 1
@@ -84,7 +87,7 @@ EOF
   if [[ -n "$sha" ]]; then
     printf ': "${CONDUCTOR_BUILD_SHA:=%s}"\nexport CONDUCTOR_BUILD_SHA\n' "$sha"
   fi
-  echo 'exec node "$here/dist/main.js" "$@"'
+  echo 'exec "${CONDUCTOR_NODE:-node}" "$here/dist/main.js" "$@"'
 } >"$pkg/bin/conductor-daemon"
 chmod 755 "$pkg/bin/conductor-daemon"
 # The Windows entry: the same, as a batch file with CRLF line ends (cmd.exe misreads bare LF).

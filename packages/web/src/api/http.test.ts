@@ -252,6 +252,16 @@ describe('createHttpApi REST', () => {
     expect(calls[0]!.url).toBe('/api/workflows');
   });
 
+  it('listRepos: GET /api/repos, parsed', async () => {
+    const list = [
+      { repo: 'github.com/o/app', ticket_count: 2, last_used_at: '2026-10-22T12:00:00.000Z' },
+      { repo: 'github.com/o/lib', ticket_count: 0, last_used_at: null },
+    ];
+    const { calls, fetch } = recordingFetch(() => json(200, list));
+    expect(await createHttpApi({ fetch }).listRepos()).toEqual(list);
+    expect(calls.map((c) => [c.method, c.url])).toEqual([['GET', API_PATHS.repos]]);
+  });
+
   it('throws ApiRequestError with the ApiError code and message', async () => {
     const { fetch } = recordingFetch(() =>
       json(409, { error: { code: 'input_already_answered', message: 'already answered' } }),

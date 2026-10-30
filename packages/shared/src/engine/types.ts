@@ -516,6 +516,12 @@ export type ConversationResetReason = z.infer<typeof ConversationResetReasonSche
 export const FRESH_CONVERSATION_MOVE = 'fresh_conversation';
 
 /**
+ * The `state_entered.transition` of an `operator.message` that ends a pending conditions phase
+ * and resumes the source agent (not a workflow transition).
+ */
+export const MESSAGE_MOVE = 'message';
+
+/**
  * Effects. The first six map 1:1 to an outbox kind (02) and, except connector_call, to the
  * same-named WS message (03). The rest are orchestrator-internal. Mapping: 10-contracts.
  * Ids (command_id, input_request_id) are assigned by the wrapper, never by apply.

@@ -2402,27 +2402,59 @@ impl<'de> ::serde::Deserialize<'de> for NoOutcomeEventDataLastOutput {
     }
 }
 ///`NoWorkPayload`
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default, PartialEq)]
+pub struct NoWorkPayload {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub reason: ::std::option::Option<NoWorkPayloadReason>,
+}
+///`NoWorkPayloadReason`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[serde(transparent)]
-pub struct NoWorkPayload(pub ::serde_json::Map<::std::string::String, ::serde_json::Value>);
-impl ::std::ops::Deref for NoWorkPayload {
-    type Target = ::serde_json::Map<::std::string::String, ::serde_json::Value>;
-    fn deref(&self) -> &::serde_json::Map<::std::string::String, ::serde_json::Value> {
+pub struct NoWorkPayloadReason(::std::string::String);
+impl ::std::ops::Deref for NoWorkPayloadReason {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
         &self.0
     }
 }
-impl ::std::convert::From<NoWorkPayload>
-    for ::serde_json::Map<::std::string::String, ::serde_json::Value>
-{
-    fn from(value: NoWorkPayload) -> Self {
+impl ::std::convert::From<NoWorkPayloadReason> for ::std::string::String {
+    fn from(value: NoWorkPayloadReason) -> Self {
         value.0
     }
 }
-impl ::std::convert::From<::serde_json::Map<::std::string::String, ::serde_json::Value>>
-    for NoWorkPayload
-{
-    fn from(value: ::serde_json::Map<::std::string::String, ::serde_json::Value>) -> Self {
-        Self(value)
+impl ::std::str::FromStr for NoWorkPayloadReason {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 500usize {
+            return Err("longer than 500 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for NoWorkPayloadReason {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for NoWorkPayloadReason {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for NoWorkPayloadReason {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
     }
 }
 ///`OpenPrArgs`

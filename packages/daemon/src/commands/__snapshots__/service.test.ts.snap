@@ -1,0 +1,71 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`unit files > the launchd plist runs the launcher, supervised, with pinned node, logs and a throttle 1`] = `
+"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Written by conductor-daemon service install; re-run it rather than editing this file. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.conductor.daemon</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/ann/.conductor/bin/conductor-launch</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>WorkingDirectory</key>
+  <string>/Users/ann</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>CONDUCTOR_SUPERVISED</key>
+    <string>launchd</string>
+    <key>CONDUCTOR_ROOT</key>
+    <string>/Users/ann/.conductor</string>
+    <key>CONDUCTOR_NODE</key>
+    <string>/opt/homebrew/bin/node</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/ann/.conductor/logs/daemon.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/ann/.conductor/logs/daemon.log</string>
+</dict>
+</plist>
+"
+`;
+
+exports[`unit files > the systemd unit runs the launcher, supervised, and never restarts on 78 1`] = `
+"# Written by conductor-daemon service install; re-run it rather than editing this file.
+[Unit]
+Description=conductor daemon
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart="/Users/ann/.conductor/bin/conductor-launch"
+Environment="CONDUCTOR_SUPERVISED=systemd"
+Environment="CONDUCTOR_ROOT=/Users/ann/.conductor"
+Environment="CONDUCTOR_NODE=/opt/homebrew/bin/node"
+Environment="PATH=/opt/homebrew/bin:/usr/bin:/bin"
+WorkingDirectory=%h
+Restart=on-failure
+RestartSec=5
+RestartPreventExitStatus=78
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
+"
+`;

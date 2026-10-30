@@ -561,7 +561,16 @@ export const WorkAssignmentMessageSchema = msg(
   orchSessionEnv,
 );
 
-export const NoWorkMessageSchema = msg('no_work', z.object({}), orchMachineEnv);
+/**
+ * Reply to request_work when the claim found nothing (M2-T36). `reason` names the gate that
+ * failed (`max_sessions`, `no_ready_ticket`, `machine_not_online`, …); free text, and absent
+ * from an older orchestrator.
+ */
+export const NoWorkMessageSchema = msg(
+  'no_work',
+  z.object({ reason: z.string().max(500).optional() }),
+  orchMachineEnv,
+);
 
 export const RetryAfterMessageSchema = msg(
   'retry_after',

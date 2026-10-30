@@ -9,6 +9,9 @@ import type { BackoffConfig } from './config.js';
 // M2-T04 (10-contracts §Machines protocol v2): optional upgrade headers (the machine credential).
 // Close 4001 (revoked), 4003 (unauthorized) or 4005 (protocol too old), or HTTP 401/403 at the
 // upgrade (treated as 4003), is fatal: no reconnect, the log says why, `onFatal` runs once.
+// M2-T18 (TD-119): `main` exits with `fatalExitCode(code)` = EXIT_FATAL_AUTH (78), which the service
+// units don't restart. Wake (ADR-0021 §5): a 5 s tick that sees the wall clock jump by more than
+// 30 s (the machine slept) resets the backoff and reconnects at once.
 
 export interface WsClientHandlers {
   onOpen(): void;
@@ -22,7 +25,16 @@ export interface WsClientOptions {
   /** Sent on every upgrade request (e.g. `authorization: Bearer <credential>`). */
   headers?: Record<string, string>;
   log?: (msg: string) => void;
+  /** Wall clock (default Date.now). */
+  now?: () => number;
+  /** Wake check period (default 5000 ms). */
+  wakeTickMs?: number;
+  /** A tick later than expected by more than this is a wake (default 30000 ms). */
+  wakeJumpMs?: number;
 }
+
+/** `EX_CONFIG`: the link can't recover by restarting; systemd `RestartPreventExitStatus` (TD-119). */
+export const EXIT_FATAL_AUTH = 78;
 
 const FATAL_WHY: Record<number, string> = {
   [CLOSE_REVOKED]: 'machine revoked: enroll it again with a new token (conductor-daemon enroll)',
@@ -30,6 +42,11 @@ const FATAL_WHY: Record<number, string> = {
     'unauthorized: the machine credential was refused; enroll again (conductor-daemon enroll --force)',
   [CLOSE_PROTOCOL]: 'protocol version not supported: update the daemon: re-run the install command',
 };
+
+/** The process exit code for a fatal close (4001, 4003 incl. HTTP 401/403, 4005). */
+export function fatalExitCode(closeCode: number): number {
+  return closeCode in FATAL_WHY ? EXIT_FATAL_AUTH : 1;
+}
 
 export function backoffDelay(cfg: BackoffConfig, attempt: number, rand = Math.random): number {
   const base = Math.min(cfg.maxMs, cfg.initialMs * cfg.factor ** attempt);
@@ -44,6 +61,11 @@ export class ReconnectingWs {
   private fatal = false;
   private readonly headers: Record<string, string> | undefined;
   private readonly log: (msg: string) => void;
+  private readonly now: () => number;
+  private readonly wakeTickMs: number;
+  private readonly wakeJumpMs: number;
+  private wakeTimer: NodeJS.Timeout | null = null;
+  private lastTick = 0;
 
   constructor(
     private readonly url: string,
@@ -53,6 +75,14 @@ export class ReconnectingWs {
   ) {
     this.headers = opts.headers;
     this.log = opts.log ?? (() => {});
+    this.now = opts.now ?? Date.now;
+    this.wakeTickMs = opts.wakeTickMs ?? 5_000;
+    this.wakeJumpMs = opts.wakeJumpMs ?? 30_000;
+  }
+
+  /** Reconnect attempts since the last healthy link (the backoff exponent). */
+  get attempts(): number {
+    return this.attempt;
   }
 
   get connected(): boolean {
@@ -67,6 +97,9 @@ export class ReconnectingWs {
   start(): void {
     if (!this.stopped || this.fatal) return;
     this.stopped = false;
+    this.lastTick = this.now();
+    this.wakeTimer = setInterval(() => this.wakeTick(), this.wakeTickMs);
+    this.wakeTimer.unref();
     this.connect();
   }
 
@@ -74,6 +107,7 @@ export class ReconnectingWs {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    this.stopWakeTick();
     const ws = this.ws;
     this.ws = null;
     if (ws) {
@@ -156,6 +190,7 @@ export class ReconnectingWs {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    this.stopWakeTick();
     ws.removeAllListeners();
     ws.on('error', () => {});
     ws.terminate();
@@ -164,6 +199,29 @@ export class ReconnectingWs {
     );
     this.handlers.onClose();
     this.handlers.onFatal?.(code, reason);
+  }
+
+  private stopWakeTick(): void {
+    if (this.wakeTimer) clearInterval(this.wakeTimer);
+    this.wakeTimer = null;
+  }
+
+  /** Timers stall while the machine sleeps: a late tick means it woke, so don't wait out a backoff. */
+  private wakeTick(): void {
+    const now = this.now();
+    const gap = now - this.lastTick;
+    this.lastTick = now;
+    if (this.stopped || gap - this.wakeTickMs <= this.wakeJumpMs) return;
+    this.log(`wall clock jumped ${gap} ms (wake); reconnecting now`);
+    this.attempt = 0;
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+      this.connect();
+      return;
+    }
+    // After a long sleep the server has usually dropped the socket; `close` reconnects at attempt 0.
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.terminate();
   }
 
   private schedule(): void {

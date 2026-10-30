@@ -131,10 +131,13 @@ export function useSession(api: ApiClient, sessionId: string, version: string): 
   // Live chunks overlap the snapshot after a refetch; seq is monotonic per session.
   const liveChunks = live.sessionId === sessionId ? live.chunks : [];
 
-  // ADR-0008: the output ring is in memory, so after an orchestrator restart it is empty. When
-  // the panel opens on a session whose ring and live stream have nothing, load the history once
-  // from Claude's transcript on its machine. Live chunks that arrive later are appended after it
-  // TD-090: a chunk streamed between the transcript read and the stream's first chunk may show twice.
+  // ADR-0008: the output ring is in memory, so after an orchestrator restart it is empty or holds
+  // only what came since, and a long session can outgrow it. When the panel opens on a session
+  // whose ring and live stream have nothing, or whose ring doesn't reach the start of the
+  // conversation (`output_complete` false), load the history once from Claude's transcript on its
+  // machine; only its part older than the ring's oldest conversation chunk is shown, before the
+  // ring. TD-090: a chunk streamed between the transcript read and the stream's first chunk may
+  // show twice.
   const [history, setHistory] = useState<{
     sessionId: string;
     chunks: OutputChunk[];
@@ -144,8 +147,9 @@ export function useSession(api: ApiClient, sessionId: string, version: string): 
   const tried = useRef<string | null>(null);
   const machine = current?.card.machine_id ?? null;
   const emptyRing = current !== null && snapshot.length === 0 && liveChunks.length === 0;
+  const needHistory = emptyRing || current?.output_complete === false;
   useEffect(() => {
-    if (!emptyRing || machine === null || tried.current === sessionId) return;
+    if (!needHistory || machine === null || tried.current === sessionId) return;
     tried.current = sessionId;
     // Not cancelled when live chunks start arriving: the history still goes before them. A
     // result for another session is ignored below (`past`).
@@ -168,14 +172,11 @@ export function useSession(api: ApiClient, sessionId: string, version: string): 
           prompt: { text: null, reason: promptUnavailable(machine, err) },
         }),
     );
-  }, [api, sessionId, emptyRing, machine]);
+  }, [api, sessionId, needHistory, machine]);
 
   const past = history?.sessionId === sessionId ? history : null;
-  const output = [
-    ...(past?.chunks ?? []),
-    ...snapshot,
-    ...liveChunks.filter((c) => c.seq > lastSeq),
-  ];
+  const recent = [...snapshot, ...liveChunks.filter((c) => c.seq > lastSeq)];
+  const output = [...historyBefore(past?.chunks ?? [], recent), ...recent];
   return {
     detail: current,
     output,
@@ -183,8 +184,27 @@ export function useSession(api: ApiClient, sessionId: string, version: string): 
     reload,
     history: past?.notice ?? null,
     historyPrompt: past?.prompt ?? null,
-    historyPending: emptyRing && machine !== null && past === null,
+    historyPending: needHistory && machine !== null && past === null,
   };
+}
+
+/** Streams the transcript has too; command output (stdout, stderr) is only in the ring. */
+const CONVERSATION_STREAMS: ReadonlySet<OutputChunk['stream']> = new Set([
+  'assistant',
+  'tool_use',
+  'tool_result',
+  'user',
+]);
+
+/**
+ * The transcript chunks older than the ring's oldest conversation chunk (the ring has the rest),
+ * or all of them when the ring has no conversation yet.
+ */
+export function historyBefore(transcript: OutputChunk[], ring: OutputChunk[]): OutputChunk[] {
+  const first = ring.find((c) => CONVERSATION_STREAMS.has(c.stream));
+  if (first === undefined) return transcript;
+  const cutoff = Date.parse(first.ts);
+  return transcript.filter((c) => Date.parse(c.ts) < cutoff);
 }
 
 /** UX-2: the agent's initial prompt (View prompt), or why it isn't available. */

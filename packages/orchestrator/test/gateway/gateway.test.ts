@@ -43,6 +43,7 @@ let outputBus: InMemoryOutputBus;
 let daemons: FakeDaemon[];
 let machineId: string;
 let tag: string;
+let logs: string[];
 
 beforeAll(async () => {
   await db.pool.query(
@@ -55,7 +56,17 @@ beforeEach(async () => {
   boardBus = new InMemoryBoardBus();
   engine = new RecordingEngine(db.pool, boardBus);
   outputBus = new InMemoryOutputBus();
-  gateway = createGateway({ db: db.pool, engine, boardBus, outputBus });
+  logs = [];
+  gateway = createGateway({
+    db: db.pool,
+    engine,
+    boardBus,
+    outputBus,
+    log: (m) => {
+      logs.push(m);
+      console.warn(`[gateway] ${m}`);
+    },
+  });
   server = createServer((_req, res) => res.writeHead(404).end());
   gateway.attach(server);
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
@@ -311,6 +322,27 @@ describe('request_work → claim', () => {
     d.requestWork(1);
     await d.next('no_work');
     expect(engine.calls).toEqual([]);
+  });
+
+  it('no_work names the gate that failed, logged once per change (M2-T36)', async () => {
+    const d = await daemon();
+    d.register({ tags: ['mac', tag], max_sessions: 1 });
+    await d.next('registered');
+    d.inventory();
+    d.requestWork(1);
+    expect((await d.next('no_work')).payload).toEqual({ reason: 'no_ready_ticket' });
+    d.requestWork(1);
+    expect((await d.next('no_work')).payload).toEqual({ reason: 'no_ready_ticket' });
+    await ticket();
+    d.requestWork(1);
+    await d.next('work_assignment');
+    await ticket();
+    d.requestWork(1);
+    expect((await d.next('no_work')).payload).toEqual({ reason: 'max_sessions' });
+    expect(logs.filter((l) => l.startsWith('no work for '))).toEqual([
+      `no work for ${machineId}: no_ready_ticket`,
+      `no work for ${machineId}: max_sessions`,
+    ]);
   });
 });
 

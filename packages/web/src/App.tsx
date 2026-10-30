@@ -41,6 +41,7 @@ import {
   useHashRoute,
   usePath,
 } from './nav.js';
+import { useOpenFromNotification } from './notify/open-ticket.js';
 import { useNeedsInputNotifications } from './notify/useNeedsInputNotifications.js';
 import { dismiss, isDismissed } from './onboarding/dismissal.js';
 import { SetupGuide } from './onboarding/SetupGuide.js';
@@ -187,10 +188,13 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
   const draft = useDraftGuard();
   const [route, navigate] = useHashRoute(draft.guard, draft.onBlocked);
   // UX-14: title count, favicon dot and a browser notification per new question.
-  useNeedsInputNotifications(board, (sessionId) => {
+  const openSession = (sessionId: string) => {
     navigate({ view: 'board' });
     setSelected(sessionId);
-  });
+  };
+  useNeedsInputNotifications(board, openSession);
+  // UX-16: a push notification's tap opens its ticket (#/?ticket=…).
+  useOpenFromNotification(board, openSession);
   // UX-8 FR-1: the account's machine count, asked once per load. With none (and the guide not
   // dismissed this visit), the board area shows the setup guide. Not re-polled, so the guide stays
   // while the new machine connects in its step 3.

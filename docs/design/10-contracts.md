@@ -28,7 +28,7 @@ M1-T12 froze every cross-agent seam as exported zod schemas / TS interfaces, eac
 | `insertBoardEvents(tx, drafts)`, `BOARD_EVENT_LOCK_KEY` ([Board events](#board-events-and-the-event-table)) | `orchestrator/src/contracts.ts` | T12 → T04, T08, T11 (the only board-row writer) | tested with a recording `Queryable` |
 | Composition root: `CreateDb`, `CreateEngineService`, `CreateGateway`, `CreateApi`, `composeOrchestrator` ([Composition root](#composition-root)) | `orchestrator/src/main.ts` | T04 / T11 / T08 each implement one factory → T07 wires `main()` | wiring test with fake factories |
 | `BoardBus` | `orchestrator/src/contracts.ts` | T04 (after COMMIT), T08 (ticket create), T11 (badges; claim's `boardEvents`) → T08 SSE | `InMemoryBoardBus` |
-| `OutputBus` (256 KB ring per session, U-005) | `orchestrator/src/contracts.ts` | T11 (WS `output`) → T08 (detail + output SSE) | `InMemoryOutputBus` (also the M1 implementation) |
+| `OutputBus` (256 KB ring per session, U-005; command output evicted first, `complete()`) | `orchestrator/src/contracts.ts` | T11 (WS `output`) → T08 (detail + output SSE) | `InMemoryOutputBus` (also the M1 implementation) |
 | `TranscriptSource`, `TranscriptFetchResult`, `TRANSCRIPT_TIMEOUT_MS` 10 s ([ADR-0008](../adr/0008-transcript-history-and-reopen.md)) | `orchestrator/src/contracts.ts` | gateway (`GatewayHandle.transcripts`) → T08 `GET /transcript` (`CreateApi` deps `transcripts?`) | `FakeTranscriptSource` |
 | `reopenSession(db, sessionId, text, actor)`, `REOPENABLE_STATUSES` ([Reopen](#reopen)) | `orchestrator/src/engine/reopen.ts` | → T08 `POST /reopen` | tested on real Postgres |
 | Transcript reading: `findTranscript`, `transcriptChunks`, `claudeProjectSlug` ([ADR-0008](../adr/0008-transcript-history-and-reopen.md)) | `daemon/src/claude/transcript.ts` | → daemon `fetch_transcript` handler | fixture `daemon/test/fixtures/transcript.jsonl` |
@@ -52,7 +52,7 @@ M1-T12 froze every cross-agent seam as exported zod schemas / TS interfaces, eac
 | `external.event {name}` | T08 `/approve` (`ui.approve`); connectors later. Its `data` is merged into `context.<state>` (keeping an entry action's `pr_url`) |
 | `action.completed {command_id, action, result, error}` | T11 from `session_event action_result` ([ADR-0010](../adr/0010-one-workflow-columns-are-states.md)): an entry step's action finished. Accepted only in the step's `actions` phase for that action; otherwise `unexpected_event` |
 | `operator.cancel` | T08 `/cancel` |
-| `operator.message {text}` | T08 `POST /sessions/:id/messages` ([ADR-0007](../adr/0007-live-messages-to-agents.md)). Accepted only while `status = running` in an **agent** state with `agent_process_live`; otherwise ignored `wrong_status` (a `needs_input` session is answered through `/input`). Accepted → exactly one `send_message` effect: no transition, no status, deadline or snapshot change (transitions only on outcomes). The event row keeps `text`: it is the record of what the human said |
+| `operator.message {text}` | T08 `POST /sessions/:id/messages` ([ADR-0007](../adr/0007-live-messages-to-agents.md)). Accepted only while `status = running` in an **agent** state with `agent_process_live`, or ([ADR-0027](../adr/0027-messages-while-waiting-on-pr-checks.md)) in a move step's conditions phase out of an agent state, where it ends the step and resumes that agent with the text (05 §Conditions); otherwise ignored `wrong_status` (a `needs_input` session is answered through `/input`). Accepted → exactly one `send_message` effect: no transition, no status, deadline or snapshot change (transitions only on outcomes). The event row keeps `text`: it is the record of what the human said |
 | `timer.fired {state, deadline}` | T04 timeout sweep over `session.state_deadline` |
 | `budget.exceeded` | nothing in M1 (see defaults) |
 
@@ -132,6 +132,14 @@ Every path sets `last_assigned_at = now()`. Lock order: machine, ticket, agent.
 **Reads.** Every ticket read that feeds `toBoardCard` uses `TICKET_SELECT` (`engine/rows.ts`: `ticket t LEFT JOIN agent a`), so every card, including each `card.upserted`, has `agent_name` (null = not assigned yet). `SessionDetail.agent_name` and `TicketDto.agent_name` are the same name; all three are optional on the wire (absent from older servers ≡ null). A new ticket's `POST /api/tickets` reply and card carry `agent_name: null`.
 
 **`GET /api/team`** (`API_PATHS.team`, `orchestrator/src/api/team.ts`; signed in, 401 otherwise) → `TeamResponse`: the signed-in account's agents, oldest hire first, `[{name, hired_at, last_assigned_at | null, active_ticket_id | null}]`. `active_ticket_id` is the ticket of the agent's newest session that is not done, failed or lost. Another account's agents are never listed.
+
+## Repo suggestions
+
+**`GET /api/repos`** (`API_PATHS.repos`, `orchestrator/src/api/repos.ts`; signed in, 401 otherwise) → `RepoListResponse`, `[{repo, ticket_count, last_used_at | null}]`: the repos the create-ticket form offers, best first. It is ranked by `rankRepos` (`shared/src/api/repo-rank.ts`), the same function the web mock uses:
+- **Ticket repos.** The account's newest 1000 tickets (older ones would add almost nothing). A repo scores Σ 0.5^(age_days / `REPO_HALF_LIFE_DAYS`) over its tickets, with a half-life of 14 days: frequency with a recency bias. Ties go to the more recently used repo, then by name.
+- **Machine repos.** Then the `machine_repo.remote`s of the account's unrevoked machines that no ticket used, by name, with `ticket_count` 0 and `last_used_at` null. A repo with no remote is never routed to, so it is not offered.
+- Spellings of one repo merge on `canonicalRepo(…)` lower-cased (the `no_machine_has_repo` comparison), else the exact string (`local` mode's paths). The newest ticket's spelling is shown, else the machine's.
+- Another account's tickets and machines never count.
 
 ## Reopen
 
@@ -537,6 +545,11 @@ Absent (or invalid) `__working_copy`: no `working_copy` in the payload, the M1 c
 
 **Exit codes**: 75 `EXIT_RESTART_FOR_UPDATE` (restart me; both units restart on it), 78 `EXIT_FATAL_AUTH` (don't restart, M2-T18).
 
+**Service units** (M2-T18, `daemon/src/commands/service.ts`): `conductor-daemon service install|uninstall|restart|status`, as the user, never sudo. macOS: launch agent `~/Library/LaunchAgents/com.conductor.daemon.plist` in `gui/<uid>` (`RunAtLoad`, `KeepAlive {SuccessfulExit: false}`, `ThrottleInterval` 30, stdout and stderr to `<root>/logs/daemon.log`). Linux: `~/.config/systemd/user/conductor-daemon.service` (`Restart=on-failure`, `RestartPreventExitStatus=78`; logs in the journal). Both run `<root>/bin/conductor-launch` and set `CONDUCTOR_SUPERVISED=launchd|systemd`, `CONDUCTOR_ROOT`, `CONDUCTOR_NODE` and `PATH`. `install` rewrites a file only when its bytes differ, so a second run changes nothing.
+- **Launcher, one source**: `packages/daemon/assets/conductor-launch.sh` ships in the tarball as `./assets/conductor-launch.sh`. `service install` copies it from the running package, and `install.sh` copies it from the unpacked version, so both write the same bytes (asserted by `service.test.ts` and `install-script.test.ts`). It finds `<root>` from its own path, so the bytes don't depend on the root.
+- **Node is pinned at `service install`** (the tarball's `bin/conductor-daemon` runs `${CONDUCTOR_NODE:-node}`). `service install` resolves an absolute node: `CONDUCTOR_NODE` if set, else the `node` on PATH when it is the node running the command (a stable path such as `/opt/homebrew/bin/node`, not the Cellar one), else `process.execPath`. It refuses anything below Node 22 with the `CONDUCTOR_NODE=$(nvm which 22)` hint. The unit's `PATH` is that node's directory followed by the installing shell's PATH (launchd's own PATH has no Homebrew, `claude` or `gh`). Changing Node or moving tools means re-running `service install`. `run` on Node < 22 only warns.
+- **78 doesn't restart**: systemd through `RestartPreventExitStatus`. launchd can't exclude one exit status, so on a fatal close under `CONDUCTOR_SUPERVISED=launchd` the daemon runs `launchctl bootout gui/<uid>/com.conductor.daemon` before exiting 78. The agent loads again at the next login (one attempt per login), and `ThrottleInterval` is the floor if the bootout fails. Close 4005 (protocol too old) also exits 78: restarting can't fix it, and the `install.sh` upgrade runs `service restart`.
+
 **Limits**: drain ≤ 6 h, then resume work, alert `drain_timeout`, 1 h cooldown, at most 3 drains per version; trial = 2 starts, and a start fails if the new version crashes or reaches the server without `registered` in 120 s (no network doesn't count).
 
 ## Permission prompts
@@ -621,6 +634,33 @@ No response ever carries an endpoint (NFR-2).
 - anything else: `failures + 1`; the 5th consecutive failure deletes it.
 
 Nothing left to send → `acked` (and `payload.notification` nulled). Otherwise the row stays `pending`, `attempts + 1`, `next_attempt_at` after the dispatcher's backoff (5, 10, 20, 40, then 60 s), `last_error` = the last failure. A row older than the TTL (1 h) becomes `failed`, `last_error = 'expired'`, unsent. `delivered` makes a retry send only to the subscriptions that failed; a crash between a send and its COMMIT can resend that one once, and the browser replaces the duplicate by its `tag`.
+
+**Web** (UX-16, `packages/web`): conductor is an installable PWA (`public/manifest.webmanifest`, `display: standalone`, PNG icons in `public/icons/`, linked from `index.html` with an `apple-touch-icon`); iOS delivers Web Push only to a Home Screen app. `public/sw.js` (served by `web-static.ts` with `no-cache`, scope `/`) shows the notification above (`tag` = the input request id, icon, `data.url`) and, on a click, focuses an open conductor window and posts it `{type: 'conductor:open', url}`, else opens `url`. It has no fetch handler and caches nothing. `notify/push.ts` drives the account menu's **This device: on/off**: on = permission (from the click only), register `sw.js`, `pushManager.subscribe` with the VAPID key, `POST /api/push/subscriptions`; off = `unsubscribe()`, then `DELETE`; **Send test** = `POST /api/push/test`. A `push_disabled` server or a browser without push keeps UX-14's in-tab toggle; an iOS Safari tab shows "Add Conductor to your Home Screen to get notifications". A device with a subscription (`localStorage conductor.push`) skips UX-14's in-tab notification, since the push replaces it by `tag`. `notify/open-ticket.ts` selects the ticket's session from `#/?ticket=<id>` (page load, `hashchange`, or the worker's message) once its card is on the board, then resets the hash to `#/`.
+## MCP and OAuth (ADR-0028)
+
+[ADR-0028](../adr/0028-simple-oauth-for-mcp.md), a simple subset of [ADR-0014](../adr/0014-tool-layer-and-oauth-mcp-server.md). `ISSUER` is `CONDUCTOR_PUBLIC_URL`'s origin (in `local` mode, the request's own origin). Code: `orchestrator/src/oauth/` and `orchestrator/src/mcp/`; paths in `API_PATHS`. All of them are public (no session), and `/oauth/*` responses carry `Cache-Control: no-store`.
+
+| Route | Request → reply | Errors |
+|---|---|---|
+| `GET /.well-known/oauth-protected-resource` (`.wellKnownProtectedResource`, and `…/mcp`) | → `{resource: ISSUER/mcp, authorization_servers: [ISSUER], scopes_supported: ['conductor'], bearer_methods_supported: ['header'], resource_name}` (RFC 9728) | |
+| `GET /.well-known/oauth-authorization-server` (`.wellKnownAuthServer`, and `…/mcp`) | → RFC 8414 metadata: the three endpoints below, `response_types_supported: ['code']`, `grant_types_supported: ['authorization_code', 'refresh_token']`, `code_challenge_methods_supported: ['S256']`, `token_endpoint_auth_methods_supported: ['none']`, `authorization_response_iss_parameter_supported: true` | |
+| `POST /oauth/register` (`.oauthRegister`, JSON) | `{redirect_uris: string[1..5], client_name?: ≤ 60}` → 201 `{client_id, client_name, redirect_uris, token_endpoint_auth_method: 'none', grant_types, response_types}` | 400 `invalid_redirect_uri` / `invalid_client_metadata`, 429 |
+| `GET /oauth/authorize` (`.oauthAuthorize`) | `client_id, redirect_uri, response_type=code, code_challenge, code_challenge_method=S256, state?, resource?` → 302 `/signin?next=<this URL>` without a session; else 200 the consent page (HTML) | 400 HTML page (unknown client, unregistered redirect URI: never redirected); 302 to the client with `error` (`unsupported_response_type`, `invalid_request` for missing or `plain` PKCE, `invalid_target` for a foreign `resource`), `state`, `iss` |
+| `POST /oauth/authorize` (form; Origin required) | the same fields + `decision=allow\|deny` → 302 to the client with `code`, `state`, `iss`, or `error=access_denied` | as GET; 401 HTML without a session; 403 without Origin |
+| `POST /oauth/token` (`.oauthToken`, form or JSON) | `grant_type=authorization_code, client_id, code, code_verifier, redirect_uri?` or `grant_type=refresh_token, client_id, refresh_token` → `{access_token, token_type: 'Bearer', expires_in: 3600, refresh_token, scope: 'conductor'}` | 400 `invalid_grant` (unknown, used, expired or foreign code; bad verifier; redirect mismatch; spent refresh token), `invalid_request`, `unsupported_grant_type`, `invalid_target`; 401 `invalid_client` (no `client_id`); 429 |
+| `POST /mcp` (`.mcp`) | MCP Streamable HTTP, stateless (no `Mcp-Session-Id`), JSON responses; `Authorization: Bearer cnd_at_…` | 401 `{error: {code: 'unauthorized'}}` + `WWW-Authenticate: Bearer resource_metadata="ISSUER/.well-known/oauth-protected-resource/mcp", scope="conductor"` (+ `error="invalid_token"` when a token was sent). `GET` / `DELETE` → 405 |
+
+**Tools** (`mcp/tools.ts`). Each result is one text block of JSON, at most 8 KB (`capJson`: longest strings halved first, then trailing array items dropped; `truncated: true` when cut). An error is `isError: true` with `{error: {code, message, candidates?}}`. A `ticket` argument is the full id or ≥ 8 hex characters of it; another account's ticket is `not_found`, several matches are `ambiguous_ref` with ≤ 5 candidates.
+
+| Tool | Input | Output |
+|---|---|---|
+| `list_tickets` (read-only) | `{needs_input?: bool, column?: string, limit?: 1..50 = 20}` | `{tickets: [{id, short_id, title ≤ 120, column, state, status, kind, repo, needs_input, question? ≤ 160, pr_url?, updated_at}], total}`, newest first |
+| `get_ticket` (read-only) | `{ticket}` | `{id, title, repo, kind, column, state, status, session_id, open_question: {input_request_id, question} \| null, transitions: [{name, title, needs_text}], pr_url, spend_usd, recent_moves (≤ 5), body ≤ 4 000}`; a queued ticket: `{id, title, repo, kind, column: 'queued', status, body}` |
+| `create_ticket` | `{title: 1..200, repo ≤ 200, body ≤ 20 000, kind: 'work' \| 'personal', workflow_id?}` | `{id, short_id, title, url: ISSUER/#/?ticket=<id>, warnings}`; the same rules and errors as `POST /api/tickets` |
+| `answer_input` | `{ticket, answer: 1..10 000, input_request_id?}` (default: the open request) | `{ok: true}`; errors `wrong_state` (no session yet), `input_not_pending`, and `httpForApplyResult`'s codes |
+| `take_transition` (destructive) | `{ticket, name, text? ≤ 10 000}` | `{ok: true}`; as `POST /api/sessions/:id/transition` |
+
+Writes apply the same engine events as the board, with `actor: 'ui'` (no MCP attribution yet).
 
 ## Defaults recorded here (workshop reconciliation)
 

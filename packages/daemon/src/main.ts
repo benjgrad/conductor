@@ -3,20 +3,29 @@ import { createCliDriver, probePermissionPrompts } from './claude/cli-driver.js'
 import { startOutcomeServer } from './claude/outcome-server.js';
 import { configCommand, CONFIG_USAGE } from './commands/config.js';
 import { enroll, ENROLL_USAGE } from './commands/enroll.js';
+import {
+  MIN_NODE_MAJOR,
+  SERVICE_USAGE,
+  serviceCommand,
+  stopSupervisedJob,
+} from './commands/service.js';
 import { loadConfig } from './config.js';
 import { Daemon } from './daemon.js';
 import { watchSighup } from './inventory/report.js';
 import { execFileCli, nativeExeProblem } from './platform/index.js';
+import { fatalExitCode } from './ws-client.js';
 
 // `conductor-daemon` entry: env → config, the real ADR-0005 CLI driver (its MCP outcome server on
 // 127.0.0.1), signals. TD-021 resolved: a static import of the T05b driver, so tsc checks the
 // `createCliDriver` signature (claudeBin ← CONDUCTOR_CLAUDE_BIN ← 'claude' inside the driver).
 // M2-T04: subcommands `run` (default) and `enroll`. M2-T10: `config`; SIGHUP rescans the inventory.
+// M2-T18: `service`; a fatal close exits 78 (EXIT_FATAL_AUTH), which the service units don't restart.
 
 const USAGE = [
   'usage: conductor-daemon [run]',
   `       ${ENROLL_USAGE.replace(/^usage: /, '')}`,
   ...CONFIG_USAGE.split('\n').map((l) => `       ${l.replace(/^usage: |^ +/, '')}`),
+  `       ${SERVICE_USAGE.replace(/^usage: /, '')}`,
 ].join('\n');
 
 /** `claude --version` → "2.1.308", or null when the CLI is missing (U-015). */
@@ -36,6 +45,14 @@ async function claudeCodeVersion(
 }
 
 async function run(): Promise<void> {
+  const nodeMajor = Number(process.versions.node.split('.')[0]);
+  if (nodeMajor < MIN_NODE_MAJOR) {
+    process.stderr.write(
+      `[conductor-daemon] WARNING: ${process.execPath} is Node.js ${process.versions.node}; ` +
+        `conductor needs ${MIN_NODE_MAJOR}+. Put Node ${MIN_NODE_MAJOR} first on PATH, or set ` +
+        `CONDUCTOR_NODE to it (the service pins it: re-run conductor-daemon service install).\n`,
+    );
+  }
   const config = loadConfig(process.env);
   const outcomeServer = await startOutcomeServer();
   // ADR-0023: auto mode + prompts to the board need a CLI that has them; probed once per start.
@@ -57,8 +74,12 @@ async function run(): Promise<void> {
     config,
     driver,
     claudeCodeVersion: await claudeCodeVersion(),
-    // Revoked, unauthorized or protocol too old: the daemon already logged why; exit non-zero.
-    onFatal: () => shutdown(1),
+    // Revoked, unauthorized or protocol too old: the daemon already logged why. Exit 78 so the
+    // service doesn't restart-loop (TD-119); under launchd also boot the job out.
+    onFatal: (code) => {
+      stopSupervisedJob();
+      shutdown(fatalExitCode(code));
+    },
   });
   // TD-077: Claude Code treats any `.claude` directory as protected config, so a Write/Edit inside a
   // worktree under such a path is denied (dontAsk/manual) or left to auto mode's classifier.
@@ -74,7 +95,11 @@ async function run(): Promise<void> {
     `[conductor-daemon] ${config.machineId} → ${config.orchestratorUrl} (root ${config.rootDir}, ` +
       `${config.credential !== null ? 'enrolled' : 'local mode'})\n`,
   );
+  let exiting = false;
   function shutdown(code = 0): void {
+    // Once: the launchd bootout after a fatal close sends SIGTERM, which must not turn 78 into 0.
+    if (exiting) return;
+    exiting = true;
     unwatchSighup();
     daemon.stop();
     void outcomeServer.close().catch(() => {});
@@ -96,6 +121,9 @@ async function main(argv: string[]): Promise<void> {
       return;
     case 'config':
       process.exitCode = configCommand(rest);
+      return;
+    case 'service':
+      process.exitCode = serviceCommand(rest);
       return;
     case 'help':
     case '-h':

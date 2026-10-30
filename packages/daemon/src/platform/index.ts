@@ -29,3 +29,10 @@ export { execFileCli, isOnPath, nativeExeProblem, type CliExecOptions } from './
 export { gitHooksOffArgs, gitSystemConfigEnv, nullDevice } from './git.js';
 export { hookCommand, WIN_HOOK_UNSAFE } from './hook.js';
 export { samePath } from './fs.js';
+export {
+  assertPrivateDir,
+  readPrivateFile,
+  writePrivateFileDurable,
+  type DurableIo,
+} from './private-file.js';
+export { serviceManager, type ServiceManager } from './service-manager.js';

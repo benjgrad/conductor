@@ -261,6 +261,7 @@ describe('conductor-daemon enroll', () => {
 
 describe('enroll token sources (TD-117)', () => {
   const sentToken = () => (JSON.parse(requests[0]?.body ?? '{}') as { token?: string }).token;
+  const psWarning = () => err.filter((l) => l.includes('visible to other users (ps)'));
 
   it('takes the token from CONDUCTOR_ENROLL_TOKEN and removes it from the environment', async () => {
     const env: Record<string, string | undefined> = {
@@ -276,6 +277,7 @@ describe('enroll token sources (TD-117)', () => {
     expect(code, err.join('\n')).toBe(0);
     expect(sentToken()).toBe(TOKEN);
     expect('CONDUCTOR_ENROLL_TOKEN' in env).toBe(false);
+    expect(psWarning()).toEqual([]);
     expect(loadCredential(join(tmp, 'root'))?.machine_id).toBe('m-123');
     noSecrets();
   });
@@ -294,11 +296,16 @@ describe('enroll token sources (TD-117)', () => {
     expect(code).toBe(0);
     expect(sentToken()).toBe(TOKEN);
     expect('CONDUCTOR_ENROLL_TOKEN' in env).toBe(false);
+    // Still works, with a warning that never repeats the token.
+    expect(psWarning()).toHaveLength(1);
+    expect(psWarning()[0]).toContain('CONDUCTOR_ENROLL_TOKEN=<token>');
+    noSecrets();
   });
 
   it('--token - reads the first line of stdin', async () => {
     expect(await run(['--url', base, '--token', '-'], undefined, {}, `${TOKEN}\r\nrest\n`)).toBe(0);
     expect(sentToken()).toBe(TOKEN);
+    expect(psWarning()).toEqual([]);
     noSecrets();
   });
 

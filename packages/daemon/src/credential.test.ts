@@ -1,5 +1,14 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  fsyncSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -52,9 +61,16 @@ describe('loadCredential', () => {
     const root = join(tmp, 'root');
     writeCredential(root, CRED, { force: false });
     widen(root, 'dir');
-    // POSIX checks only a root's type and owner (ADR-0010); win32 checks its DACL (ADR-0024 §3).
-    if (onWin32) expect(() => loadCredential(root)).toThrow(/accessible to other users/);
-    else expect(loadCredential(root)).toEqual(CRED);
+    // TD-118: POSIX now requires a 0700 root too; win32 checks its DACL (ADR-0024 §3).
+    expect(() => loadCredential(root)).toThrow(
+      onWin32 ? /accessible to other users/ : `accessible to other users; run: chmod 700 ${root}`,
+    );
+    // POSIX: enrolling again makes it private again (the write fchmods the root to 0700). win32's
+    // icacls `/grant:r` keeps another SID's explicit ACE, so there the refusal stands (acl.ts).
+    if (!onWin32) {
+      writeCredential(root, CRED, { force: true });
+      expect(loadCredential(root)).toEqual(CRED);
+    }
   });
 
   it('refuses a symlinked file and a symlinked root', () => {
@@ -84,6 +100,57 @@ describe('loadCredential', () => {
     }
     expect(msg).toMatch(/invalid \(url\)/);
     expect(msg).not.toContain(CRED.credential);
+  });
+});
+
+describe.skipIf(onWin32)('credential.ts on POSIX (TD-118)', () => {
+  it('a symlinked machine.json is refused by the O_NOFOLLOW open, even when the target is private', () => {
+    const root = join(tmp, 'root');
+    mkdirPrivate(root);
+    const target = join(root, 'target.json');
+    writeFileSync(target, JSON.stringify(CRED), { mode: 0o600 });
+    symlinkSync(target, join(root, 'machine.json'));
+    expect(() => loadCredential(root)).toThrow(`${join(root, 'machine.json')} is a symlink`);
+  });
+
+  it('a write fsyncs the file and then the root', () => {
+    const synced: number[] = [];
+    const root = join(tmp, 'root');
+    writeCredential(
+      root,
+      CRED,
+      { force: false },
+      {
+        fsync: (fd) => {
+          synced.push(fd);
+          fsyncSync(fd);
+        },
+      },
+    );
+    expect(synced).toHaveLength(2);
+    expect(synced[0]).not.toBe(synced[1]);
+    expect(statSync(root).mode & 0o777).toBe(0o700);
+    expect(statSync(join(root, 'machine.json')).mode & 0o777).toBe(0o600);
+  });
+
+  it('a symlinked root is refused and its target is never chmodded', () => {
+    const real = join(tmp, 'shared');
+    mkdirSync(real);
+    chmodSync(real, 0o755);
+    const link = join(tmp, 'link');
+    symlinkSync(real, link);
+    for (const force of [false, true]) {
+      expect(() => writeCredential(link, CRED, { force })).toThrow(/symlink/);
+    }
+    expect(statSync(real).mode & 0o777).toBe(0o755);
+  });
+
+  it('a loose existing root is tightened to 0700 by a write', () => {
+    const root = join(tmp, 'root');
+    mkdirSync(root);
+    chmodSync(root, 0o755);
+    writeCredential(root, CRED, { force: false });
+    expect(statSync(root).mode & 0o777).toBe(0o700);
   });
 });
 

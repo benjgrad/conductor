@@ -18,6 +18,7 @@ import {
   PermissionRequestDtoSchema,
   PermissionRequestListResponseSchema,
   ReopenSessionResponseSchema,
+  RepoListResponseSchema,
   ResetLinkCreatedSchema,
   SessionDetailSchema,
   TranscriptResponseSchema,
@@ -45,6 +46,10 @@ import {
   type TransitionSessionRequest,
   type FreshConversationRequest,
   type WorkflowDefinition,
+  PushTestResponseSchema,
+  PushVapidPublicKeyResponseSchema,
+  type PushSubscribeRequest,
+  type PushUnsubscribeRequest,
 } from '@conductor/shared';
 import {
   ApiRequestError,
@@ -288,6 +293,8 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
     updateTicket: (ticketId: string, req: UpdateTicketRequest) =>
       request(TicketDetailSchema, 'PATCH', API_PATHS.ticket(encodeURIComponent(ticketId)), req),
 
+    listRepos: () => request(RepoListResponseSchema, 'GET', API_PATHS.repos),
+
     listWorkflows: () => request(WorkflowListResponseSchema, 'GET', API_PATHS.workflows),
 
     getWorkflow: (id: string, version?: number) =>
@@ -430,6 +437,18 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
 
     createEnrollmentToken: () =>
       request(EnrollmentTokenCreatedSchema, 'POST', API_PATHS.machineEnrollmentTokens, {}),
+
+    // UX-16: Web Push.
+    pushVapidPublicKey: () =>
+      request(PushVapidPublicKeyResponseSchema, 'GET', API_PATHS.pushVapidPublicKey),
+
+    pushSubscribe: (req: PushSubscribeRequest) =>
+      request(OkResponseSchema, 'POST', API_PATHS.pushSubscriptions, req),
+
+    pushUnsubscribe: (req: PushUnsubscribeRequest) =>
+      request(OkResponseSchema, 'DELETE', API_PATHS.pushSubscriptions, req),
+
+    pushTest: () => request(PushTestResponseSchema, 'POST', API_PATHS.pushTest, {}),
   };
 }
 

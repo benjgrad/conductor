@@ -105,6 +105,7 @@ import {
   conditionsIdempotencyKey,
   FRESH_CONVERSATION_MOVE,
   MACHINE_LOST_KILL_REASON,
+  MESSAGE_MOVE,
   MACHINE_LOST_KIND,
   machineLostQuestion,
   moveStateLabel,
@@ -1593,8 +1594,10 @@ function handleStep(
       failSession(st, 'cancelled', e.reason ?? 'operator_cancel');
       return null;
     case 'operator.message':
-      // The step judges independently: a human's live message is refused (ADR-0009, ADR-0010).
-      return 'wrong_status';
+      // While the conditions are pending (the worker has ended, the PR's checks run), a human's
+      // message hands the ticket back to the worker. Earlier phases judge independently: refused
+      // (ADR-0009, ADR-0010).
+      return messageDuringConditions(st, r, e.text);
     case 'input.provided':
     case 'human.transition':
     case 'human.fresh_conversation':
@@ -1775,6 +1778,29 @@ function conditionsTimedOut(st: Step, spec: GateSpec, r: GateStep): void {
   if (r.conditions_note !== null) lines.push('', `Note: ${r.conditions_note}.`);
   lines.push('', 'Retry, skip, or abort?');
   stepFail(st, spec, 'timeout', lines.join('\n'), false);
+}
+
+/**
+ * ADR-0007: a human's message while the conditions are pending, out of an agent state. The step
+ * ends (nothing runs: the worker has exited and an evaluation in flight comes back stale) and the
+ * source agent resumes its own conversation with the message as its prompt. Uncounted: each
+ * pass back needs a human. The agent finishes the move again, which re-runs the step.
+ */
+function messageDuringConditions(st: Step, r: GateStep, text: string): ApplyIgnoreReason | null {
+  const source = st.def.states[r.from];
+  if (r.phase !== 'conditions' || source?.type !== 'agent') return 'wrong_status';
+  if (st.s.status !== 'waiting_external') return 'wrong_status';
+  const label = st.s.workflow_state!;
+  leaveStep(st, false);
+  enter(st, r.from, {
+    ...NO_ROUTE,
+    answer: { input_request_id: null, answer: text },
+    continuation: true,
+    auditFrom: label,
+    skipEntry: true,
+    move: { transition: MESSAGE_MOVE, reason: text, actor: 'human' },
+  });
+  return null;
 }
 
 /** U-063: a condition is false → `on_unmet.goto` with the evidence (counted), then `else`. */

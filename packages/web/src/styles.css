@@ -1134,6 +1134,53 @@ button.link {
 .create-ticket .wide {
   grid-column: 1 / -1;
 }
+/* The Repo combobox: label and input like the other fields, its list under the input. */
+.repo-field {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.repo-options {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 4px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: var(--text-base);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-2);
+  z-index: var(--z-menu);
+  max-height: 260px;
+  overflow-y: auto;
+}
+.repo-options li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.repo-options li.active {
+  background: var(--inline-code-bg);
+}
+.repo-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-wrap: anywhere;
+}
+.repo-count {
+  flex: none;
+  font-size: var(--text-sm);
+}
 .form-actions {
   grid-column: 1 / -1;
   display: flex;
@@ -1320,9 +1367,14 @@ button.link {
     padding: var(--space-4) var(--space-4) 0;
     border: 0;
   }
-  .sheet .create-ticket label {
+  .sheet .create-ticket label,
+  .sheet .repo-field {
     gap: var(--space-1);
     font-size: var(--text-sm);
+  }
+  .sheet .repo-options li {
+    min-height: var(--tap);
+    align-items: center;
   }
   .sheet .create-ticket input:not([type='radio']) {
     min-height: var(--tap);

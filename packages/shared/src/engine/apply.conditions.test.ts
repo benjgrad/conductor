@@ -9,6 +9,7 @@ import { PR_CONTEXT_KEY } from './review.js';
 import {
   CONDITIONS_NO_MACHINE_NOTE,
   moveCounterKey,
+  MESSAGE_MOVE,
   moveStateLabel,
   type ApplyResult,
   type Effect,
@@ -558,6 +559,53 @@ describe('the conditions phase', () => {
     // a cancel still ends it
     const r = h.run({ type: 'operator.cancel' });
     expect(r.snapshot).toMatchObject({ status: 'failed', step: null });
+  });
+
+  it("a human's message ends the wait and resumes the agent's conversation with it, uncounted", () => {
+    const CLAUDE = 'c1a0de00-0000-4000-8000-000000000001';
+    const TEXT = 'While the checks run: also add a test for the 404 path.';
+    const h = implementing();
+    h.run({ type: 'agent.claude_session_id', claude_session_id: CLAUDE });
+    toConditions(h);
+    const visits = h.snap.state_visits.implementing!;
+    const r = h.run({ type: 'operator.message', text: TEXT });
+    expect(r.ignored).toBeNull();
+    expect(r.snapshot).toMatchObject({
+      workflow_state: 'implementing',
+      status: 'running',
+      step: null,
+      retry_counters: {},
+      pending_answer: { input_request_id: null, answer: TEXT },
+    });
+    expect(r.snapshot.state_visits.implementing).toBe(visits + 1);
+    expect(find(r.effects, 'start_session')).toMatchObject({
+      state: 'implementing',
+      prompt: TEXT, // the resumed conversation gets the bare message
+      resume_claude_session_id: CLAUDE,
+    });
+    expect(find(r.effects, 'state_entered')).toMatchObject({
+      from: LABEL,
+      to: 'implementing',
+      transition: MESSAGE_MOVE,
+      reason: TEXT,
+      actor: 'human',
+    });
+    expect(find(r.effects, 'kill')).toBeUndefined();
+    // The poll that was armed is stale; a late evaluation is not taken.
+    expect(evaluate(h, GREEN, APPROVED).ignored).not.toBeNull();
+    expect(h.snap.workflow_state).toBe('implementing');
+  });
+
+  it('a message is refused before the conditions phase, while conductor checks', () => {
+    const h = implementing();
+    h.run({
+      type: 'agent.complete_state',
+      result: { summary: 'added /health' },
+      transition: 'ready_for_testing',
+      reason: 'Ready.',
+    });
+    expect(h.snap.step?.phase).toBe('checks');
+    expect(h.run({ type: 'operator.message', text: 'hi' }).ignored).toBe('wrong_status');
   });
 });
 

@@ -95,6 +95,8 @@ export const API_PATHS = {
   machines: '/api/machines',
   /** UX-13a: GET → TeamResponse (the signed-in account's agent team). */
   team: '/api/team',
+  /** GET → RepoListResponse (the create-ticket form's repo suggestions, most used first). */
+  repos: '/api/repos',
   boardStream: '/api/stream/board',
   sessionOutputStream: (id: string) => `/api/stream/sessions/${id}/output`,
   /** Daemon ↔ orchestrator WebSocket (03), served on the same HTTP server as the API. */
@@ -157,6 +159,22 @@ export const API_PATHS = {
   pushSubscriptions: '/api/push/subscriptions',
   /** POST `{}` → PushTestResponse ("Notifications are on" to the caller's subscriptions). */
   pushTest: '/api/push/test',
+
+  // ADR-0028: OAuth 2.1 for the MCP endpoint. Called by MCP clients, not the SPA: public.
+  /** POST JSON-RPC (MCP Streamable HTTP, stateless) with `Authorization: Bearer`; GET/DELETE → 405. */
+  mcp: '/mcp',
+  /** POST RFC 7591 client metadata → 201 the registered public client. */
+  oauthRegister: '/oauth/register',
+  /** GET → sign-in redirect or the consent page; POST (the consent form) → 302 to the client. */
+  oauthAuthorize: '/oauth/authorize',
+  /** POST (form-encoded) `authorization_code` + PKCE or `refresh_token` → the token response. */
+  oauthToken: '/oauth/token',
+  /** GET → RFC 8414 authorization server metadata. */
+  wellKnownAuthServer: '/.well-known/oauth-authorization-server',
+  /** GET → RFC 9728 protected resource metadata. */
+  wellKnownProtectedResource: '/.well-known/oauth-protected-resource',
+  /** GET → the same, at the path-suffixed form for `/mcp`. */
+  wellKnownProtectedResourceMcp: '/.well-known/oauth-protected-resource/mcp',
 } as const;
 
 /**
@@ -676,6 +694,12 @@ export const SessionDetailSchema = z.object({
   /** Ring-buffer snapshot at request time; live chunks via the output stream. */
   recent_output: z.array(OutputChunkSchema),
   /**
+   * ADR-0008: false when `recent_output` may not reach the start of the conversation (a
+   * conversation chunk was evicted, or the session is older than the orchestrator process), so
+   * the web loads the earlier part from Claude's transcript. Absent (older servers) ≡ true.
+   */
+  output_complete: z.boolean().optional(),
+  /**
    * ADR-0011: the last SESSION_MOVES_LIMIT `state.entered` rows, oldest first (`toMoveDto`).
    * Optional so older servers and fixtures still parse; the orchestrator always sends it
    * (absent ≡ []).
@@ -1094,6 +1118,21 @@ export type TeamMember = z.infer<typeof TeamMemberSchema>;
 
 export const TeamResponseSchema = z.array(TeamMemberSchema);
 export type TeamResponse = z.infer<typeof TeamResponseSchema>;
+
+/**
+ * GET /api/repos. One repo the create-ticket form suggests: the account's ticket repos by
+ * frecency (`rankRepos`, ./repo-rank.ts), then its machines' repos no ticket has used yet
+ * (`ticket_count` 0, `last_used_at` null).
+ */
+export const RepoSuggestionSchema = z.object({
+  repo: z.string(),
+  ticket_count: z.number().int().nonnegative(),
+  last_used_at: IsoDateTimeSchema.nullable(),
+});
+export type RepoSuggestion = z.infer<typeof RepoSuggestionSchema>;
+
+export const RepoListResponseSchema = z.array(RepoSuggestionSchema);
+export type RepoListResponse = z.infer<typeof RepoListResponseSchema>;
 
 // ---------------------------------------------------------------- repo grammar (U-048)
 // The M1-T14 grammar (daemon `cloneSource`). TD-107: duplicated in the daemon's `cloneSource`

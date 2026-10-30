@@ -16,6 +16,7 @@ import {
   PasswordChangeRequestSchema,
   passwordProblems,
   placeCard,
+  rankRepos,
   MachineRowSchema,
   RenameMachineRequestSchema,
   UpdateMachineRequestSchema,
@@ -306,6 +307,14 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       problems.map((message) => ({ path: 'password', message })),
     );
   }
+
+  const pushDisabled = (): never => {
+    throw new ApiRequestError(
+      404,
+      'push_disabled',
+      'push notifications are not configured on this server',
+    );
+  };
 
   const reply = <T>(fn: () => T): Promise<T> =>
     new Promise((resolve, reject) => {
@@ -706,6 +715,19 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         }
         return ticketDetail(ticketId);
       }),
+
+    listRepos: () =>
+      reply(() =>
+        rankRepos(
+          [...cards.values()],
+          [...machines.values()].flatMap((mc) =>
+            mc.revoked_at === null
+              ? mc.repos.flatMap((r) => (r.remote === null ? [] : [r.remote]))
+              : [],
+          ),
+          now(),
+        ),
+      ),
 
     listWorkflows: () =>
       reply((): WorkflowSummary[] =>
@@ -1257,6 +1279,12 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           expires_at: isoIn(ENROLLMENT_TOKEN_TTL_MS),
         };
       }),
+
+    // UX-16: the mock is a server without VAPID, so the push toggle stays hidden.
+    pushVapidPublicKey: () => reply(pushDisabled),
+    pushSubscribe: () => reply(pushDisabled),
+    pushUnsubscribe: () => reply(pushDisabled),
+    pushTest: () => reply(pushDisabled),
 
     connectMachine(patch = {}) {
       const id = `mock-machine-${++connected}`;

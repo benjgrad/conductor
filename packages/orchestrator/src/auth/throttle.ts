@@ -59,7 +59,8 @@ export async function clearThrottle(db: Queryable, emailNorm: string): Promise<v
 
 /**
  * Per-IP limits (ADR-0017): login 10/min, sign-up and reset 5/10 min, enroll 10/10 min; the
- * admin's reset-link creation 10/10 min (M2-T15b1); the test push 10/10 min (UX-15).
+ * admin's reset-link creation 10/10 min (M2-T15b1); the test push 10/10 min (UX-15); each OAuth
+ * route (register, authorize, token) 30/min (ADR-0028).
  */
 export const RATE_LIMITS = {
   login: { max: 10, timeWindow: 60_000 },
@@ -68,6 +69,7 @@ export const RATE_LIMITS = {
   enroll: { max: 10, timeWindow: 600_000 },
   adminResetLink: { max: 10, timeWindow: 600_000 },
   pushTest: { max: 10, timeWindow: 600_000 },
+  oauth: { max: 30, timeWindow: 60_000 },
 } as const;
 export type RateLimitKind = keyof typeof RATE_LIMITS;
 

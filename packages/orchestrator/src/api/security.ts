@@ -15,6 +15,11 @@ import { sendError } from './errors.js';
 // must carry Origin = the public origin (no Origin only with `Sec-Fetch-Site: same-origin`, or on
 // the token-authenticated POST API_PATHS.machinesEnroll); JSON only. No dev origins in either
 // mode: the Vite dev proxy rewrites Vite's own Origin to the orchestrator's (vite.config.ts).
+// ADR-0028 (both modes): POST /mcp, /oauth/register and /oauth/token are called by MCP clients,
+// not the SPA. They skip the Origin rule: they never read the session cookie (a bearer token,
+// PKCE or a refresh token authenticates them) and no CORS headers are sent, so there is no
+// ambient credential to forge a request with. /oauth/token and the consent form (POST
+// /oauth/authorize, which keeps the Origin rule as its CSRF guard) also take form-encoded bodies.
 
 export interface HttpSecurityOptions {
   /** Extra Host names (hostname, or hostname:port) accepted besides loopback. */
@@ -118,9 +123,35 @@ export class HttpGuard {
   }
 }
 
+const mediaType = (contentType: string | undefined): string | undefined =>
+  contentType?.split(';')[0]!.trim().toLowerCase();
+
 const isJson = (contentType: string | undefined): boolean =>
-  contentType !== undefined &&
-  contentType.split(';')[0]!.trim().toLowerCase() === 'application/json';
+  mediaType(contentType) === 'application/json';
+
+/** ADR-0028: POSTs from MCP clients, exempt from the Origin rule. */
+const CLIENT_PATHS: ReadonlySet<string> = new Set([
+  API_PATHS.mcp,
+  API_PATHS.oauthRegister,
+  API_PATHS.oauthToken,
+]);
+/** ADR-0028: POSTs that also accept `application/x-www-form-urlencoded`. */
+const FORM_PATHS: ReadonlySet<string> = new Set([API_PATHS.oauthToken, API_PATHS.oauthAuthorize]);
+
+/** Whether an unsafe request is an MCP client's call (no Origin rule; ADR-0028). */
+export function isOAuthClientRequest(req: FastifyRequest): boolean {
+  return req.method === 'POST' && CLIENT_PATHS.has(policyPath(req));
+}
+
+/** JSON, or a form body on the paths that take one (ADR-0028). */
+function bodyTypeAllowed(req: FastifyRequest): boolean {
+  if (isJson(req.headers['content-type'])) return true;
+  return (
+    req.method === 'POST' &&
+    FORM_PATHS.has(policyPath(req)) &&
+    mediaType(req.headers['content-type']) === 'application/x-www-form-urlencoded'
+  );
+}
 
 /** Set on the raw response, so hijacked replies (SSE) carry them too. */
 function setSecurityHeaders(reply: FastifyReply): void {
@@ -165,10 +196,10 @@ export function securityHook(guard: HttpGuard) {
     }
     if (!STATE_CHANGING.has(req.method)) return undefined;
     const origin = req.headers.origin;
-    if (origin !== undefined && !guard.originAllowed(origin, host)) {
+    if (origin !== undefined && !isOAuthClientRequest(req) && !guard.originAllowed(origin, host)) {
       return sendError(reply, 403, 'forbidden', `origin ${origin} is not allowed`);
     }
-    if (!isJson(req.headers['content-type'])) return refuseNonJson(reply, req.method);
+    if (!bodyTypeAllowed(req)) return refuseNonJson(reply, req.method);
     return undefined;
   };
 }
@@ -193,6 +224,9 @@ export function hostedSecurityHook(opts: { publicOrigin: string; publicHost: str
     }
     if (!STATE_CHANGING.has(req.method)) return undefined;
     const origin = req.headers.origin;
+    // ADR-0028: an MCP client's call is authenticated by a bearer token, PKCE or a refresh token.
+    if (isOAuthClientRequest(req))
+      return bodyTypeAllowed(req) ? undefined : refuseNonJson(reply, req.method);
     if (origin !== undefined) {
       if (normalizeOrigin(origin) !== opts.publicOrigin) {
         return sendError(reply, 403, 'forbidden', `origin ${origin} is not allowed`);
@@ -205,7 +239,7 @@ export function hostedSecurityHook(opts: { publicOrigin: string; publicHost: str
         return sendError(reply, 403, 'forbidden', 'a request without Origin is not allowed');
       }
     }
-    if (!isJson(req.headers['content-type'])) return refuseNonJson(reply, req.method);
+    if (!bodyTypeAllowed(req)) return refuseNonJson(reply, req.method);
     return undefined;
   };
 }

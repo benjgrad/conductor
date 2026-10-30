@@ -618,6 +618,32 @@ No response ever carries an endpoint (NFR-2).
 
 Nothing left to send → `acked` (and `payload.notification` nulled). Otherwise the row stays `pending`, `attempts + 1`, `next_attempt_at` after the dispatcher's backoff (5, 10, 20, 40, then 60 s), `last_error` = the last failure. A row older than the TTL (1 h) becomes `failed`, `last_error = 'expired'`, unsent. `delivered` makes a retry send only to the subscriptions that failed; a crash between a send and its COMMIT can resend that one once, and the browser replaces the duplicate by its `tag`.
 
+## MCP and OAuth (ADR-0028)
+
+[ADR-0028](../adr/0028-simple-oauth-for-mcp.md), a simple subset of [ADR-0014](../adr/0014-tool-layer-and-oauth-mcp-server.md). `ISSUER` is `CONDUCTOR_PUBLIC_URL`'s origin (in `local` mode, the request's own origin). Code: `orchestrator/src/oauth/` and `orchestrator/src/mcp/`; paths in `API_PATHS`. All of them are public (no session), and `/oauth/*` responses carry `Cache-Control: no-store`.
+
+| Route | Request → reply | Errors |
+|---|---|---|
+| `GET /.well-known/oauth-protected-resource` (`.wellKnownProtectedResource`, and `…/mcp`) | → `{resource: ISSUER/mcp, authorization_servers: [ISSUER], scopes_supported: ['conductor'], bearer_methods_supported: ['header'], resource_name}` (RFC 9728) | |
+| `GET /.well-known/oauth-authorization-server` (`.wellKnownAuthServer`, and `…/mcp`) | → RFC 8414 metadata: the three endpoints below, `response_types_supported: ['code']`, `grant_types_supported: ['authorization_code', 'refresh_token']`, `code_challenge_methods_supported: ['S256']`, `token_endpoint_auth_methods_supported: ['none']`, `authorization_response_iss_parameter_supported: true` | |
+| `POST /oauth/register` (`.oauthRegister`, JSON) | `{redirect_uris: string[1..5], client_name?: ≤ 60}` → 201 `{client_id, client_name, redirect_uris, token_endpoint_auth_method: 'none', grant_types, response_types}` | 400 `invalid_redirect_uri` / `invalid_client_metadata`, 429 |
+| `GET /oauth/authorize` (`.oauthAuthorize`) | `client_id, redirect_uri, response_type=code, code_challenge, code_challenge_method=S256, state?, resource?` → 302 `/signin?next=<this URL>` without a session; else 200 the consent page (HTML) | 400 HTML page (unknown client, unregistered redirect URI: never redirected); 302 to the client with `error` (`unsupported_response_type`, `invalid_request` for missing or `plain` PKCE, `invalid_target` for a foreign `resource`), `state`, `iss` |
+| `POST /oauth/authorize` (form; Origin required) | the same fields + `decision=allow\|deny` → 302 to the client with `code`, `state`, `iss`, or `error=access_denied` | as GET; 401 HTML without a session; 403 without Origin |
+| `POST /oauth/token` (`.oauthToken`, form or JSON) | `grant_type=authorization_code, client_id, code, code_verifier, redirect_uri?` or `grant_type=refresh_token, client_id, refresh_token` → `{access_token, token_type: 'Bearer', expires_in: 3600, refresh_token, scope: 'conductor'}` | 400 `invalid_grant` (unknown, used, expired or foreign code; bad verifier; redirect mismatch; spent refresh token), `invalid_request`, `unsupported_grant_type`, `invalid_target`; 401 `invalid_client` (no `client_id`); 429 |
+| `POST /mcp` (`.mcp`) | MCP Streamable HTTP, stateless (no `Mcp-Session-Id`), JSON responses; `Authorization: Bearer cnd_at_…` | 401 `{error: {code: 'unauthorized'}}` + `WWW-Authenticate: Bearer resource_metadata="ISSUER/.well-known/oauth-protected-resource/mcp", scope="conductor"` (+ `error="invalid_token"` when a token was sent). `GET` / `DELETE` → 405 |
+
+**Tools** (`mcp/tools.ts`). Each result is one text block of JSON, at most 8 KB (`capJson`: longest strings halved first, then trailing array items dropped; `truncated: true` when cut). An error is `isError: true` with `{error: {code, message, candidates?}}`. A `ticket` argument is the full id or ≥ 8 hex characters of it; another account's ticket is `not_found`, several matches are `ambiguous_ref` with ≤ 5 candidates.
+
+| Tool | Input | Output |
+|---|---|---|
+| `list_tickets` (read-only) | `{needs_input?: bool, column?: string, limit?: 1..50 = 20}` | `{tickets: [{id, short_id, title ≤ 120, column, state, status, kind, repo, needs_input, question? ≤ 160, pr_url?, updated_at}], total}`, newest first |
+| `get_ticket` (read-only) | `{ticket}` | `{id, title, repo, kind, column, state, status, session_id, open_question: {input_request_id, question} \| null, transitions: [{name, title, needs_text}], pr_url, spend_usd, recent_moves (≤ 5), body ≤ 4 000}`; a queued ticket: `{id, title, repo, kind, column: 'queued', status, body}` |
+| `create_ticket` | `{title: 1..200, repo ≤ 200, body ≤ 20 000, kind: 'work' \| 'personal', workflow_id?}` | `{id, short_id, title, url: ISSUER/#/?ticket=<id>, warnings}`; the same rules and errors as `POST /api/tickets` |
+| `answer_input` | `{ticket, answer: 1..10 000, input_request_id?}` (default: the open request) | `{ok: true}`; errors `wrong_state` (no session yet), `input_not_pending`, and `httpForApplyResult`'s codes |
+| `take_transition` (destructive) | `{ticket, name, text? ≤ 10 000}` | `{ok: true}`; as `POST /api/sessions/:id/transition` |
+
+Writes apply the same engine events as the board, with `actor: 'ui'` (no MCP attribution yet).
+
 ## Defaults recorded here (workshop reconciliation)
 
 - The engine event is **`input.provided`**; the SSE board event is **`input.answered`**. They are distinct on purpose.

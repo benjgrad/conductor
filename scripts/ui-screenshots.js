@@ -172,6 +172,7 @@ const SCREENS = [
   { id: 'workflows', path: '/#/workflows' },
   { id: 'setup', path: '/#/setup' },
   { id: 'help', path: '/help/add-a-machine' },
+  { id: 'help-connect-claude', path: '/help/connect-claude' },
   { id: 'signin', path: '/signin' },
 ];
 

@@ -127,10 +127,10 @@ describe('admin page', () => {
 });
 
 describe('account menu', () => {
-  it('local mode: the name only, no sign-out, password change or admin', async () => {
+  it('local mode: no sign-out, password change or admin; only the Connect Claude link', async () => {
     render(<App api={createMockApi()} />);
     const menu = await openAccountMenu(localMeResponse().user.display_name);
-    expect(menu.queryAllByRole('menuitem')).toHaveLength(0);
+    expect(menu.queryAllByRole('menuitem').map((el) => el.textContent)).toEqual(['Connect Claude']);
   });
 
   it('signs out and lands on /signin', async () => {

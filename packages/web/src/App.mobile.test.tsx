@@ -43,6 +43,7 @@ describe('phone top bar (11-web-ui §Top bar)', () => {
       '#/setup',
     );
     expect(menu.getByRole('menuitem', { name: 'Help' })).toBeTruthy();
+    expect(menu.getByRole('menuitem', { name: 'Connect Claude' })).toBeTruthy();
   });
 
   it('at 1440 the bar is unchanged', async () => {
@@ -54,6 +55,7 @@ describe('phone top bar (11-web-ui §Top bar)', () => {
     fireEvent.click(screen.getByRole('button', { name: me.display_name }));
     const menu = within(screen.getByRole('menu', { name: 'Account' }));
     expect(menu.queryByRole('menuitem', { name: 'Help' })).toBeNull();
+    expect(menu.getByRole('menuitem', { name: 'Connect Claude' })).toBeTruthy();
   });
 });
 

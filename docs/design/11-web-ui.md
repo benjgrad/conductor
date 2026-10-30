@@ -57,6 +57,10 @@ On a phone, every `input`, `select` and `textarea` is 16 px, because iOS Safari 
 
 There must be no horizontal page scroll at 360 px. `scripts/ui-screenshots.js` checks it in `metrics.json` (`horizontalOverflow`).
 
+## Install (UX-16)
+
+Conductor installs to a phone's Home Screen and opens standalone (`manifest.webmanifest`; iOS Safari: Share → Add to Home Screen). The status bar is `black-translucent`, so the top bar's `env(safe-area-inset-top)` padding keeps it clear of the clock. On iOS, push notifications work only from the installed app: in a Safari tab the account menu says so. Web Push details: [10 §Web Push](10-contracts.md#web-push).
+
 ## Not covered
 
 - Browser Back doesn't close the panel or the sheet.

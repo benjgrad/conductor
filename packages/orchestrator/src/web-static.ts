@@ -18,6 +18,8 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = {
   '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  // UX-16: the PWA manifest.
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.map': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',

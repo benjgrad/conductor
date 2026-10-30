@@ -20,6 +20,7 @@
 | M2r-T03 QA state | PR #56 | in_review |
 | M2-T35b screenshots attached to the PR | PR #65 | in_review (v5 already asks for them, T35c merged first) |
 | UX-15 Web Push (server) | PR #67 | in_review; migration needs Ben |
+| UX-16 PWA + Web Push (web) | branch `ux-16-web-push` | in_review; prod push needs the VAPID keys in `~/deploy/conductor/.env` (runbook §13) |
 | MR-T00 Rust daemon plan | PR #69 | in_review (plan only) |
 | MR-T01 Rust spike | board ticket e4bbe7dd | ready (posted 2026-10-29); stops for `cargo` until B-005 |
 | MR-T04 Rust `platform/` (spawn, Job Objects, procinfo, ACLs, shell, …) | branch `mr-t04-platform` | in_review; Windows code proven only by the `daemon-rust` matrix |

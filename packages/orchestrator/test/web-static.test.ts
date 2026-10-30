@@ -15,6 +15,8 @@ let port: number;
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), 'conductor-web-'));
   writeFileSync(join(dir, 'index.html'), '<!doctype html><title>app</title>');
+  writeFileSync(join(dir, 'sw.js'), '// sw');
+  writeFileSync(join(dir, 'manifest.webmanifest'), '{}');
   // The "API": anything the web app leaves alone.
   server = createServer((_req, res) => {
     res.writeHead(418, { 'content-type': 'text/plain' });
@@ -79,5 +81,16 @@ describe('serveWebApp', () => {
       for (const [k, v] of Object.entries(SECURITY_HEADERS))
         expect(r.headers[k], `${path} ${k}`).toBe(v);
     }
+  });
+
+  // UX-16: the PWA files. sw.js must revalidate (NFR-2) so a deploy's new worker is picked up.
+  it('serves sw.js uncached and the manifest with its content type', async () => {
+    const sw = await get('/sw.js');
+    expect(sw.status).toBe(200);
+    expect(sw.headers['content-type']).toBe('text/javascript; charset=utf-8');
+    expect(sw.headers['cache-control']).toBe('no-cache');
+    const manifest = await get('/manifest.webmanifest');
+    expect(manifest.status).toBe(200);
+    expect(manifest.headers['content-type']).toBe('application/manifest+json; charset=utf-8');
   });
 });

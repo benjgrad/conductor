@@ -93,7 +93,7 @@ Every app page is wider than a phone, so the whole page pans sideways, the top b
 
 ## After
 
-Ben approved the phone proposals (items 1–8), and they are built. The design is in [11-web-ui](../../design/11-web-ui.md). None of the three desktop-only changes (UXR-08, UXR-13, the UXR-14 desktop form) had an explicit yes, so they stay as follow-ups. The [after set](after/) was made with `node scripts/ui-screenshots.js --out after`, and its metrics are in [`after/metrics.json`](after/metrics.json).
+Ben approved the phone proposals (items 1–8), and they are built. The design is in [11-web-ui](../../design/11-web-ui.md). None of the three desktop-only changes (UXR-08, UXR-13, the UXR-14 desktop form) had an explicit yes, so they stay as follow-ups. The [after set](after/) was made with `node scripts/ui-screenshots.js --out after`, after merging UX-9 (so the desktop board shows its collapse toggles), and its metrics are in [`after/metrics.json`](after/metrics.json).
 
 ### Measurements (after)
 
@@ -146,4 +146,4 @@ At 375 px, the controls under 44 px that are left in view are the card title and
 ### Still to check on a real phone
 - The iOS keyboard with `--vvh`, and standalone (Home Screen) mode: Chromium emulation can't show them.
 - BlockNote on touch. Plain markdown is the fallback.
-- Tablet (768 px) keeps the desktop board, which is 1,146 px wide, so it pans. That was not in the proposals; UX-9's collapsible columns are the planned fix.
+- Tablet (768 px) keeps the desktop board, which is 1,146 px wide with every column open, so it pans. That was not in the proposals. UX-9's collapsible columns (now on `main`, desktop only) let you narrow it by collapsing columns; a tablet layout is a follow-up.

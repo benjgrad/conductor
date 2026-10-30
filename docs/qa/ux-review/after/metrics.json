@@ -285,7 +285,7 @@
     "pageScrollWidth": 1146,
     "deviceWidth": 768,
     "horizontalOverflow": true,
-    "pageHeight": 1956,
+    "pageHeight": 1985,
     "smallTapTargets": 14,
     "smallTapTargetSample": [
       "button \"Hotfix: crash on empty cart\" 144×32",
@@ -302,7 +302,7 @@
     "pageScrollWidth": 1146,
     "deviceWidth": 768,
     "horizontalOverflow": true,
-    "pageHeight": 2184,
+    "pageHeight": 2213,
     "smallTapTargets": 9,
     "smallTapTargetSample": [
       "input \"\" 13×13",
@@ -320,7 +320,7 @@
     "deviceWidth": 1440,
     "horizontalOverflow": false,
     "pageHeight": 941,
-    "smallTapTargets": 30,
+    "smallTapTargets": 36,
     "smallTapTargetSample": [
       "a \"Board\" 89×24",
       "a \"Workflow\" 106×24",
@@ -329,7 +329,7 @@
       "a \"Help\" 74×24",
       "button \"New ticket\" 118×26",
       "button \"local\" 77×26",
-      "button \"Hotfix: crash on empty cart\" 190×32"
+      "button \"▾Queued 2\" 94×15"
     ]
   },
   "detail-1440x900-light": {
@@ -337,7 +337,7 @@
     "deviceWidth": 1440,
     "horizontalOverflow": false,
     "pageHeight": 1122,
-    "smallTapTargets": 33,
+    "smallTapTargets": 39,
     "smallTapTargetSample": [
       "a \"Board\" 89×24",
       "a \"Workflow\" 106×24",
@@ -346,7 +346,7 @@
       "a \"Help\" 74×24",
       "button \"New ticket\" 118×26",
       "button \"local\" 77×26",
-      "button \"Hotfix: crash on empty cart\" 144×32"
+      "button \"▾Queued 2\" 94×15"
     ]
   },
   "new-ticket-1440x900-light": {
@@ -354,7 +354,7 @@
     "deviceWidth": 1440,
     "horizontalOverflow": false,
     "pageHeight": 1650,
-    "smallTapTargets": 22,
+    "smallTapTargets": 28,
     "smallTapTargetSample": [
       "a \"Board\" 89×24",
       "a \"Workflow\" 106×24",
@@ -404,7 +404,7 @@
     "deviceWidth": 1440,
     "horizontalOverflow": false,
     "pageHeight": 941,
-    "smallTapTargets": 30,
+    "smallTapTargets": 36,
     "smallTapTargetSample": [
       "a \"Board\" 89×24",
       "a \"Workflow\" 106×24",
@@ -413,7 +413,7 @@
       "a \"Help\" 74×24",
       "button \"New ticket\" 118×26",
       "button \"local\" 77×26",
-      "button \"Hotfix: crash on empty cart\" 190×32"
+      "button \"▾Queued 2\" 94×15"
     ]
   },
   "detail-1440x900-dark": {
@@ -421,7 +421,7 @@
     "deviceWidth": 1440,
     "horizontalOverflow": false,
     "pageHeight": 1122,
-    "smallTapTargets": 33,
+    "smallTapTargets": 39,
     "smallTapTargetSample": [
       "a \"Board\" 89×24",
       "a \"Workflow\" 106×24",
@@ -430,7 +430,7 @@
       "a \"Help\" 74×24",
       "button \"New ticket\" 118×26",
       "button \"local\" 77×26",
-      "button \"Hotfix: crash on empty cart\" 144×32"
+      "button \"▾Queued 2\" 94×15"
     ]
   }
 }

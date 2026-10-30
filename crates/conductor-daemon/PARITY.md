@@ -64,27 +64,27 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 - [ ] `orphan.test.ts`
 
-- [ ] `platform/acl.test.ts`
+- [x] `platform/acl.test.ts`
 
-- [ ] `platform/index.test.ts`
+- [x] `platform/index.test.ts`
 
-- [ ] `platform/kill-tree.test.ts`
+- [x] `platform/kill-tree.test.ts`
 
-- [ ] `platform/procinfo.test.ts`
+- [x] `platform/procinfo.test.ts`
 
 - [x] `platform/seam.test.ts`
 
-- [ ] `platform/shell.test.ts`
+- [x] `platform/shell.test.ts`
 
-- [ ] `platform/spawn.test.ts`
+- [x] `platform/spawn.test.ts`
 
-- [ ] `platform/sysres.test.ts`
+- [x] `platform/sysres.test.ts`
 
 - [ ] `reopen-transcript.test.ts`
 
 - [ ] `sysinfo.test.ts`
 
-- [ ] `test-support/fake-bin.test.ts`
+- [x] `test-support/fake-bin.test.ts`
 
 - [ ] `units.test.ts`
 
@@ -538,85 +538,85 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| platform/acl.test.ts › parseWhoamiCsv › reads the SID with and without the header row, CRLF and a BOM | todo |
-| platform/acl.test.ts › parseWhoamiCsv › refuses %s | todo |
-| platform/acl.test.ts › parseGetAclJson › reads owner, protection, rules, SDDL and ACE count | todo |
-| platform/acl.test.ts › parseGetAclJson › accepts ConvertTo-Json flattening a single rule to an object, and null for none | todo |
-| platform/acl.test.ts › parseGetAclJson › throws on %s (callers fail closed) | todo |
-| platform/acl.test.ts › parseSddl / resolveSddlSid › reads owner, DACL flags and ACEs, skipping over conditional expressions | todo |
-| platform/acl.test.ts › parseSddl / resolveSddlSid › finds the DACL after alias owners and groups that contain a D | todo |
-| platform/acl.test.ts › parseSddl / resolveSddlSid › throws on %s | todo |
-| platform/acl.test.ts › parseSddl / resolveSddlSid › resolves SIDs, fixed aliases and domain-relative aliases; refuses unknown aliases | todo |
-| platform/acl.test.ts › evaluateWinAcl › passes an owner-only ACL (SIDs compared case-insensitively, aliases resolved) | todo |
-| platform/acl.test.ts › evaluateWinAcl › refuses a file owned by another SID, naming it | todo |
-| platform/acl.test.ts › evaluateWinAcl › refuses an allow-ACE for any other SID, and says how to fix it | todo |
-| platform/acl.test.ts › evaluateWinAcl › ignores deny-ACEs for other SIDs | todo |
-| platform/acl.test.ts › evaluateWinAcl › refuses inheritance, whether flagged on the ACL, on a rule or on an SDDL ACE | todo |
-| platform/acl.test.ts › evaluateWinAcl › checkAccess: false checks only the owner | todo |
-| platform/acl.test.ts › evaluateWinAcl › refuses a %s ACE the rules do not show | todo |
-| platform/acl.test.ts › evaluateWinAcl › refuses a NULL DACL, from the SDDL or the raw count | todo |
-| platform/acl.test.ts › evaluateWinAcl › treats SDDL / raw count / rules disagreement as unreadable | todo |
-| platform/acl.test.ts › icaclsRestrictArgs / GET_ACL_SCRIPT › grants only user, SYSTEM and Administrators, removing inheritance; dirs propagate | todo |
-| platform/acl.test.ts › icaclsRestrictArgs / GET_ACL_SCRIPT › reads the path from the environment, never from the script text | todo |
-| platform/acl.test.ts › POSIX › writePrivateFile writes 0600 atomically, leaving no temp file | todo |
-| platform/acl.test.ts › POSIX › writePrivateFile leaves no temp file when the rename fails | todo |
-| platform/acl.test.ts › POSIX › mkdirPrivate creates parents and chmods 0700, also an existing 0755 dir | todo |
-| platform/acl.test.ts › POSIX › mkdirPrivate refuses a symlink without chmodding its target | todo |
-| platform/acl.test.ts › POSIX › refuses a group/other-readable file with the chmod hint | todo |
-| platform/acl.test.ts › POSIX › never mode-checks a dir (ADR-0010 checks only its owner) | todo |
-| platform/acl.test.ts › POSIX › refuses symlinks and the wrong kind with the credential.ts messages | todo |
-| platform/acl.test.ts › POSIX › refuses a path owned by another uid | todo |
-| platform/acl.test.ts › POSIX › throws ENOENT for a missing path, as checkPrivateDir does | todo |
-| platform/acl.test.ts › POSIX › currentUserSid is win32-only | todo |
-| platform/acl.test.ts › win32 › currentUserSid is a user SID | todo |
-| platform/acl.test.ts › win32 › a file written by writePrivateFile passes and holds the data | todo |
-| platform/acl.test.ts › win32 › refuses a plain (inheriting) file | todo |
-| platform/acl.test.ts › win32 › refuses after Everyone is granted read, with a clear message | todo |
-| platform/acl.test.ts › win32 › refuses after inheritance is re-enabled | todo |
-| platform/acl.test.ts › win32 › refuses a file owned by another SID (when the runner may set one) | todo |
-| platform/acl.test.ts › win32 › mkdirPrivate refuses an existing dir owned by another SID (when the runner may set one) | todo |
-| platform/acl.test.ts › win32 › mkdirPrivate makes an owner-only dir whose new children inherit only those grants | todo |
-| platform/acl.test.ts › win32 › refuses a junction and a missing path fails closed | todo |
-| platform/acl.test.ts › win32 › handles paths with spaces, quotes-free metacharacters and brackets | todo |
-| platform/acl.test.ts › win32 › no inherited-permission window › writePrivateFile refuses a folder that is not private, creating nothing | todo |
-| platform/acl.test.ts › win32 › no inherited-permission window › mkdirPrivate refuses to create under a non-private ancestor, creating nothing | todo |
-| platform/acl.test.ts › win32 › no inherited-permission window › mkdirPrivate creates directly under %LOCALAPPDATA%, every new level owner-only | todo |
-| platform/acl.test.ts › win32 › no inherited-permission window › mkdirPrivate creates directly under the profile dir | todo |
-| platform/acl.test.ts › win32 › no inherited-permission window › a real owner-only ACL has matching SDDL, raw ACE count and rules | todo |
+| platform/acl.test.ts › parseWhoamiCsv › reads the SID with and without the header row, CRLF and a BOM | dropped: the Rust daemon reads ACLs natively, with no PowerShell, icacls or whoami (FR-4, ADR-0026); current_user_sid comes from the process token, covered by crates/conductor-daemon/src/platform/acl.rs::tests::win32::current_user_sid_is_a_user_sid |
+| platform/acl.test.ts › parseWhoamiCsv › refuses %s | dropped: the Rust daemon reads ACLs natively, with no PowerShell, icacls or whoami (FR-4, ADR-0026); no whoami output to parse |
+| platform/acl.test.ts › parseGetAclJson › reads owner, protection, rules, SDDL and ACE count | dropped: the Rust daemon reads ACLs natively, with no PowerShell, icacls or whoami (FR-4, ADR-0026); no Get-Acl JSON; the native read is covered by crates/conductor-daemon/src/platform/acl.rs::tests::win32::a_real_owner_only_acl_has_matching_sddl_ace_count_and_rules |
+| platform/acl.test.ts › parseGetAclJson › accepts ConvertTo-Json flattening a single rule to an object, and null for none | dropped: the Rust daemon reads ACLs natively, with no PowerShell, icacls or whoami (FR-4, ADR-0026); no ConvertTo-Json output to parse |
+| platform/acl.test.ts › parseGetAclJson › throws on %s (callers fail closed) | dropped: the Rust daemon reads ACLs natively, with no PowerShell, icacls or whoami (FR-4, ADR-0026); no Get-Acl JSON; a failed native read is Unreadable (fail closed) |
+| platform/acl.test.ts › parseSddl / resolveSddlSid › reads owner, DACL flags and ACEs, skipping over conditional expressions | crates/conductor-daemon/src/platform/acl.rs::tests::parse_sddl_reads_owner_flags_and_aces_skipping_conditional_expressions |
+| platform/acl.test.ts › parseSddl / resolveSddlSid › finds the DACL after alias owners and groups that contain a D | crates/conductor-daemon/src/platform/acl.rs::tests::parse_sddl_finds_the_dacl_after_alias_owners_and_groups_containing_a_d |
+| platform/acl.test.ts › parseSddl / resolveSddlSid › throws on %s | crates/conductor-daemon/src/platform/acl.rs::tests::parse_sddl_errs_on_malformed_input |
+| platform/acl.test.ts › parseSddl / resolveSddlSid › resolves SIDs, fixed aliases and domain-relative aliases; refuses unknown aliases | crates/conductor-daemon/src/platform/acl.rs::tests::resolve_sddl_sid_resolves_sids_and_aliases_refusing_unknown_ones |
+| platform/acl.test.ts › evaluateWinAcl › passes an owner-only ACL (SIDs compared case-insensitively, aliases resolved) | crates/conductor-daemon/src/platform/acl.rs::tests::evaluate_passes_an_owner_only_acl |
+| platform/acl.test.ts › evaluateWinAcl › refuses a file owned by another SID, naming it | crates/conductor-daemon/src/platform/acl.rs::tests::evaluate_refuses_a_foreign_owner_naming_it |
+| platform/acl.test.ts › evaluateWinAcl › refuses an allow-ACE for any other SID, and says how to fix it | crates/conductor-daemon/src/platform/acl.rs::tests::evaluate_refuses_an_allow_ace_for_another_sid_with_the_fix |
+| platform/acl.test.ts › evaluateWinAcl › ignores deny-ACEs for other SIDs | crates/conductor-daemon/src/platform/acl.rs::tests::evaluate_ignores_deny_aces_for_other_sids |
+| platform/acl.test.ts › evaluateWinAcl › refuses inheritance, whether flagged on the ACL, on a rule or on an SDDL ACE | crates/conductor-daemon/src/platform/acl.rs::tests::evaluate_refuses_inheritance_on_the_acl_a_rule_or_an_sddl_ace |
+| platform/acl.test.ts › evaluateWinAcl › checkAccess: false checks only the owner | crates/conductor-daemon/src/platform/acl.rs::tests::evaluate_check_access_false_checks_only_the_owner |
+| platform/acl.test.ts › evaluateWinAcl › refuses a %s ACE the rules do not show | crates/conductor-daemon/src/platform/acl.rs::tests::evaluate_refuses_an_ace_the_rules_do_not_show |
+| platform/acl.test.ts › evaluateWinAcl › refuses a NULL DACL, from the SDDL or the raw count | crates/conductor-daemon/src/platform/acl.rs::tests::evaluate_refuses_a_null_dacl |
+| platform/acl.test.ts › evaluateWinAcl › treats SDDL / raw count / rules disagreement as unreadable | crates/conductor-daemon/src/platform/acl.rs::tests::evaluate_treats_any_disagreement_as_unreadable |
+| platform/acl.test.ts › icaclsRestrictArgs / GET_ACL_SCRIPT › grants only user, SYSTEM and Administrators, removing inheritance; dirs propagate | crates/conductor-daemon/src/platform/acl.rs::tests::owner_only_aces_grant_only_user_system_and_administrators_dirs_propagate |
+| platform/acl.test.ts › icaclsRestrictArgs / GET_ACL_SCRIPT › reads the path from the environment, never from the script text | dropped: the Rust daemon reads ACLs natively, with no PowerShell, icacls or whoami (FR-4, ADR-0026); no script, so no path can be spliced into one |
+| platform/acl.test.ts › POSIX › writePrivateFile writes 0600 atomically, leaving no temp file | crates/conductor-daemon/src/platform/acl.rs::tests::posix::write_private_file_writes_0600_atomically_leaving_no_temp_file |
+| platform/acl.test.ts › POSIX › writePrivateFile leaves no temp file when the rename fails | crates/conductor-daemon/src/platform/acl.rs::tests::posix::write_private_file_leaves_no_temp_file_when_the_rename_fails |
+| platform/acl.test.ts › POSIX › mkdirPrivate creates parents and chmods 0700, also an existing 0755 dir | crates/conductor-daemon/src/platform/acl.rs::tests::posix::mkdir_private_creates_parents_and_chmods_0700_also_an_existing_0755_dir |
+| platform/acl.test.ts › POSIX › mkdirPrivate refuses a symlink without chmodding its target | crates/conductor-daemon/src/platform/acl.rs::tests::posix::mkdir_private_refuses_a_symlink_without_chmodding_its_target |
+| platform/acl.test.ts › POSIX › refuses a group/other-readable file with the chmod hint | crates/conductor-daemon/src/platform/acl.rs::tests::posix::refuses_a_group_other_readable_file_with_the_chmod_hint |
+| platform/acl.test.ts › POSIX › never mode-checks a dir (ADR-0010 checks only its owner) | crates/conductor-daemon/src/platform/acl.rs::tests::posix::never_mode_checks_a_dir |
+| platform/acl.test.ts › POSIX › refuses symlinks and the wrong kind with the credential.ts messages | crates/conductor-daemon/src/platform/acl.rs::tests::posix::refuses_symlinks_and_the_wrong_kind_with_the_credential_messages |
+| platform/acl.test.ts › POSIX › refuses a path owned by another uid | crates/conductor-daemon/src/platform/acl.rs::tests::posix::refuses_a_path_owned_by_another_uid |
+| platform/acl.test.ts › POSIX › throws ENOENT for a missing path, as checkPrivateDir does | crates/conductor-daemon/src/platform/acl.rs::tests::posix::a_missing_path_is_not_found |
+| platform/acl.test.ts › POSIX › currentUserSid is win32-only | crates/conductor-daemon/src/platform/acl.rs::tests::posix::current_user_sid_is_win32_only |
+| platform/acl.test.ts › win32 › currentUserSid is a user SID | crates/conductor-daemon/src/platform/acl.rs::tests::win32::current_user_sid_is_a_user_sid |
+| platform/acl.test.ts › win32 › a file written by writePrivateFile passes and holds the data | crates/conductor-daemon/src/platform/acl.rs::tests::win32::a_file_written_by_write_private_file_passes_and_holds_the_data |
+| platform/acl.test.ts › win32 › refuses a plain (inheriting) file | crates/conductor-daemon/src/platform/acl.rs::tests::win32::refuses_a_plain_inheriting_file |
+| platform/acl.test.ts › win32 › refuses after Everyone is granted read, with a clear message | crates/conductor-daemon/src/platform/acl.rs::tests::win32::refuses_after_everyone_is_granted_read |
+| platform/acl.test.ts › win32 › refuses after inheritance is re-enabled | crates/conductor-daemon/src/platform/acl.rs::tests::win32::refuses_after_inheritance_is_re_enabled |
+| platform/acl.test.ts › win32 › refuses a file owned by another SID (when the runner may set one) | crates/conductor-daemon/src/platform/acl.rs::tests::win32::refuses_a_file_owned_by_another_sid_when_the_runner_may_set_one |
+| platform/acl.test.ts › win32 › mkdirPrivate refuses an existing dir owned by another SID (when the runner may set one) | crates/conductor-daemon/src/platform/acl.rs::tests::win32::mkdir_private_refuses_an_existing_dir_owned_by_another_sid |
+| platform/acl.test.ts › win32 › mkdirPrivate makes an owner-only dir whose new children inherit only those grants | crates/conductor-daemon/src/platform/acl.rs::tests::win32::mkdir_private_makes_an_owner_only_dir_whose_children_inherit_only_those_grants |
+| platform/acl.test.ts › win32 › refuses a junction and a missing path fails closed | crates/conductor-daemon/src/platform/acl.rs::tests::win32::refuses_a_junction_and_a_missing_path_fails_closed |
+| platform/acl.test.ts › win32 › handles paths with spaces, quotes-free metacharacters and brackets | crates/conductor-daemon/src/platform/acl.rs::tests::win32::handles_paths_with_spaces_metacharacters_and_brackets |
+| platform/acl.test.ts › win32 › no inherited-permission window › writePrivateFile refuses a folder that is not private, creating nothing | crates/conductor-daemon/src/platform/acl.rs::tests::win32::write_private_file_refuses_a_folder_that_is_not_private_creating_nothing |
+| platform/acl.test.ts › win32 › no inherited-permission window › mkdirPrivate refuses to create under a non-private ancestor, creating nothing | crates/conductor-daemon/src/platform/acl.rs::tests::win32::mkdir_private_refuses_to_create_under_a_non_private_ancestor_creating_nothing |
+| platform/acl.test.ts › win32 › no inherited-permission window › mkdirPrivate creates directly under %LOCALAPPDATA%, every new level owner-only | crates/conductor-daemon/src/platform/acl.rs::tests::win32::mkdir_private_creates_directly_under_localappdata_every_level_owner_only |
+| platform/acl.test.ts › win32 › no inherited-permission window › mkdirPrivate creates directly under the profile dir | crates/conductor-daemon/src/platform/acl.rs::tests::win32::mkdir_private_creates_directly_under_the_profile_dir |
+| platform/acl.test.ts › win32 › no inherited-permission window › a real owner-only ACL has matching SDDL, raw ACE count and rules | crates/conductor-daemon/src/platform/acl.rs::tests::win32::a_real_owner_only_acl_has_matching_sddl_ace_count_and_rules |
 
 ### platform/index.test.ts
 
 | TS case | Rust |
 |---|---|
-| platform/index.test.ts › platform seam › exports the MW-T03 modules | todo |
-| platform/index.test.ts › platform seam › U-107: lstat on a junction | todo |
+| platform/index.test.ts › platform seam › exports the MW-T03 modules | crates/conductor-daemon/src/platform/mod.rs::tests::exports_the_platform_modules |
+| platform/index.test.ts › platform seam › U-107: lstat on a junction | crates/conductor-daemon/src/platform/mod.rs::tests::u107_lstat_on_a_junction |
 
 ### platform/kill-tree.test.ts
 
 | TS case | Rust |
 |---|---|
-| platform/kill-tree.test.ts › killTree › taskkillArgs: tree, force, by pid | todo |
-| platform/kill-tree.test.ts › killTree › rejects a bad pid and ignores a never-spawned child | todo |
-| platform/kill-tree.test.ts › killTree › kills a node child and its grandchild (both pids gone) | todo |
-| platform/kill-tree.test.ts › killTree › accepts a bare pid as well | todo |
-| platform/kill-tree.test.ts › killTree › POSIX: escalates to SIGKILL after the grace period | todo |
-| platform/kill-tree.test.ts › killTree › POSIX: cancel() stops the escalation | todo |
-| platform/kill-tree.test.ts › killTree › win32: an exited child is skipped (its pid may be reused) | todo |
+| platform/kill-tree.test.ts › killTree › taskkillArgs: tree, force, by pid | crates/conductor-daemon/src/platform/kill_tree.rs::tests::taskkill_args_tree_force_by_pid |
+| platform/kill-tree.test.ts › killTree › rejects a bad pid and ignores a never-spawned child | crates/conductor-daemon/src/platform/kill_tree.rs::tests::rejects_a_bad_pid_and_ignores_a_never_spawned_child |
+| platform/kill-tree.test.ts › killTree › kills a node child and its grandchild (both pids gone) | crates/conductor-daemon/src/platform/kill_tree.rs::tests::kills_a_child_and_its_grandchild, crates/conductor-daemon/src/platform/kill_tree.rs::tests::win32_job_kills_a_detached_reparented_grandchild |
+| platform/kill-tree.test.ts › killTree › accepts a bare pid as well | crates/conductor-daemon/src/platform/kill_tree.rs::tests::accepts_a_bare_pid_as_well |
+| platform/kill-tree.test.ts › killTree › POSIX: escalates to SIGKILL after the grace period | crates/conductor-daemon/src/platform/kill_tree.rs::tests::posix_escalates_to_sigkill_after_the_grace_period |
+| platform/kill-tree.test.ts › killTree › POSIX: cancel() stops the escalation | crates/conductor-daemon/src/platform/kill_tree.rs::tests::posix_cancel_stops_the_escalation |
+| platform/kill-tree.test.ts › killTree › win32: an exited child is skipped (its pid may be reused) | crates/conductor-daemon/src/platform/kill_tree.rs::tests::win32_an_exited_child_without_a_job_is_skipped |
 
 ### platform/procinfo.test.ts
 
 | TS case | Rust |
 |---|---|
-| platform/procinfo.test.ts › parsePsLine (POSIX, as orphan.ts) › parses lstart (UTC) and the command | todo |
-| platform/procinfo.test.ts › parsePsLine (POSIX, as orphan.ts) › returns null for anything else | todo |
-| platform/procinfo.test.ts › parseWindowsCommandLine (CommandLineToArgvW) › %j | todo |
-| platform/procinfo.test.ts › parseCimDate › accepts every shape PowerShell may print | todo |
-| platform/procinfo.test.ts › parseCimDate › null for zone-less or garbage values | todo |
-| platform/procinfo.test.ts › parseCimProcessJson › reads start time, command, argv and image path | todo |
-| platform/procinfo.test.ts › parseCimProcessJson › null when gone, unreadable (CommandLine null) or malformed | todo |
-| platform/procinfo.test.ts › parseCimProcessJson › cimScript embeds an integer pid only | todo |
-| platform/procinfo.test.ts › readProcInfo (real processes) › returns the start time and argv of a spawned child, then null once it is dead | todo |
-| platform/procinfo.test.ts › readProcInfo (real processes) › null for a pid that does not exist or is invalid | todo |
+| platform/procinfo.test.ts › parsePsLine (POSIX, as orphan.ts) › parses lstart (UTC) and the command | crates/conductor-daemon/src/platform/procinfo.rs::tests::parse_ps_line_parses_lstart_utc_and_the_command |
+| platform/procinfo.test.ts › parsePsLine (POSIX, as orphan.ts) › returns null for anything else | crates/conductor-daemon/src/platform/procinfo.rs::tests::parse_ps_line_returns_none_for_anything_else |
+| platform/procinfo.test.ts › parseWindowsCommandLine (CommandLineToArgvW) › %j | crates/conductor-daemon/src/platform/procinfo.rs::tests::parse_windows_command_line_cases |
+| platform/procinfo.test.ts › parseCimDate › accepts every shape PowerShell may print | dropped: the Rust daemon reads procinfo natively, with no PowerShell/CIM (FR-3, ADR-0026); the start time is a FILETIME from GetProcessTimes, covered by crates/conductor-daemon/src/platform/procinfo.rs::tests::read_proc_info_reads_a_spawned_child_then_none_once_dead |
+| platform/procinfo.test.ts › parseCimDate › null for zone-less or garbage values | dropped: the Rust daemon reads procinfo natively, with no PowerShell/CIM (FR-3, ADR-0026); no date text to parse |
+| platform/procinfo.test.ts › parseCimProcessJson › reads start time, command, argv and image path | dropped: the Rust daemon reads procinfo natively, with no PowerShell/CIM (FR-3, ADR-0026); covered natively by crates/conductor-daemon/src/platform/procinfo.rs::tests::read_proc_info_reads_a_spawned_child_then_none_once_dead |
+| platform/procinfo.test.ts › parseCimProcessJson › null when gone, unreadable (CommandLine null) or malformed | dropped: the Rust daemon reads procinfo natively, with no PowerShell/CIM (FR-3, ADR-0026); gone or unreadable is covered by crates/conductor-daemon/src/platform/procinfo.rs::tests::read_proc_info_none_for_a_missing_or_invalid_pid |
+| platform/procinfo.test.ts › parseCimProcessJson › cimScript embeds an integer pid only | crates/conductor-daemon/src/platform/procinfo.rs::tests::read_proc_info_none_for_a_missing_or_invalid_pid |
+| platform/procinfo.test.ts › readProcInfo (real processes) › returns the start time and argv of a spawned child, then null once it is dead | crates/conductor-daemon/src/platform/procinfo.rs::tests::read_proc_info_reads_a_spawned_child_then_none_once_dead |
+| platform/procinfo.test.ts › readProcInfo (real processes) › null for a pid that does not exist or is invalid | crates/conductor-daemon/src/platform/procinfo.rs::tests::read_proc_info_none_for_a_missing_or_invalid_pid |
 
 ### platform/seam.test.ts
 
@@ -628,48 +628,48 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| platform/shell.test.ts › workflowShell › POSIX: /bin/sh -c | todo |
-| platform/shell.test.ts › workflowShell › runs a POSIX command line with quotes, $ and && on this OS | todo |
-| platform/shell.test.ts › workflowShell › win32: finds Git Bash on the runner (not WSL bash) | todo |
-| platform/shell.test.ts › findGitBash › CONDUCTOR_SHELL wins, and must exist | todo |
-| platform/shell.test.ts › findGitBash › then CLAUDE_CODE_GIT_BASH_PATH | todo |
-| platform/shell.test.ts › findGitBash › then relative to git --exec-path (forward slashes, any MSYS prefix) | todo |
-| platform/shell.test.ts › findGitBash › then the default install dirs, in order | todo |
-| platform/shell.test.ts › findGitBash › throws with the places it looked when there is no Git Bash | todo |
+| platform/shell.test.ts › workflowShell › POSIX: /bin/sh -c | crates/conductor-daemon/src/platform/shell.rs::tests::workflow_shell_posix_is_bin_sh_c |
+| platform/shell.test.ts › workflowShell › runs a POSIX command line with quotes, $ and && on this OS | crates/conductor-daemon/src/platform/shell.rs::tests::workflow_shell_runs_a_posix_command_line_on_this_os |
+| platform/shell.test.ts › workflowShell › win32: finds Git Bash on the runner (not WSL bash) | crates/conductor-daemon/src/platform/shell.rs::tests::win32_finds_git_bash_on_the_runner_not_wsl_bash |
+| platform/shell.test.ts › findGitBash › CONDUCTOR_SHELL wins, and must exist | crates/conductor-daemon/src/platform/shell.rs::tests::find_git_bash_conductor_shell_wins_and_must_exist |
+| platform/shell.test.ts › findGitBash › then CLAUDE_CODE_GIT_BASH_PATH | crates/conductor-daemon/src/platform/shell.rs::tests::find_git_bash_then_claude_code_git_bash_path |
+| platform/shell.test.ts › findGitBash › then relative to git --exec-path (forward slashes, any MSYS prefix) | crates/conductor-daemon/src/platform/shell.rs::tests::find_git_bash_then_relative_to_git_exec_path |
+| platform/shell.test.ts › findGitBash › then the default install dirs, in order | crates/conductor-daemon/src/platform/shell.rs::tests::find_git_bash_then_the_default_install_dirs_in_order |
+| platform/shell.test.ts › findGitBash › throws with the places it looked when there is no Git Bash | crates/conductor-daemon/src/platform/shell.rs::tests::find_git_bash_errs_with_the_places_it_looked |
 
 ### platform/spawn.test.ts
 
 | TS case | Rust |
 |---|---|
-| platform/spawn.test.ts › resolveWindowsBin › searches absolute PATH entries in order with PATHEXT order | todo |
-| platform/spawn.test.ts › resolveWindowsBin › honours PATHEXT order and an explicit extension | todo |
-| platform/spawn.test.ts › resolveWindowsBin › never looks in the cwd for a bare name, and skips relative PATH entries | todo |
-| platform/spawn.test.ts › resolveWindowsBin › resolves a name with a directory part against cwd only | todo |
-| platform/spawn.test.ts › resolveWindowsBin › returns null when nothing matches | todo |
-| platform/spawn.test.ts › escapeCmdArg › quotes for MSVCRT and caret-escapes metacharacters twice | todo |
-| platform/spawn.test.ts › escapeCmdArg › refuses CR, LF and NUL (cmd.exe ends the command at a newline) | todo |
-| platform/spawn.test.ts › buildCmdLine length guard (TD-192) › refuses a cmd.exe line over 8191 characters with ERR_CMD_UNSAFE_ARG | todo |
-| platform/spawn.test.ts › buildCmdLine round trip (cmd model + CommandLineToArgvW) › delivers every nasty arg intact through cmd /c and a %* batch shim | todo |
-| platform/spawn.test.ts › buildCmdLine round trip (cmd model + CommandLineToArgvW) › caret-escapes spaces, parens and the colon in the program path | todo |
-| platform/spawn.test.ts › buildCmdLine round trip (cmd model + CommandLineToArgvW) › leaves no %NAME% / %NAME:…% span whose name is a real variable | todo |
-| platform/spawn.test.ts › prepareCli › POSIX: spawn as given, keeps detached, drops shell | todo |
-| platform/spawn.test.ts › prepareCli › win32: an .exe is spawned directly by absolute path, hidden, never detached | todo |
-| platform/spawn.test.ts › prepareCli › win32: a .cmd/.bat runs via System32 cmd.exe /d /s /c with verbatim arguments | todo |
-| platform/spawn.test.ts › prepareCli › win32: an unresolvable bin is null (the caller reports ENOENT) | todo |
-| platform/spawn.test.ts › prepareCli › win32: a multi-line argument for a .cmd throws instead of being truncated | todo |
-| platform/spawn.test.ts › spawnCli (real processes) › a bare name resolves through PATH (PATHEXT on win32) and gets metachar args intact | todo |
-| platform/spawn.test.ts › spawnCli (real processes) › execFileCliSync does the same synchronously | todo |
-| platform/spawn.test.ts › spawnCli (real processes) › runs an absolute .exe/binary directly | todo |
-| platform/spawn.test.ts › spawnCli (real processes) › a missing bin fails with an ENOENT error event and no pid | todo |
-| platform/spawn.test.ts › spawnCli (real processes) › win32: a node.cmd/node.bat planted in the cwd is not run by the shim | todo |
-| platform/spawn.test.ts › spawnCli (real processes) › win32: a program planted in the cwd is not run for a bare name | todo |
+| platform/spawn.test.ts › resolveWindowsBin › searches absolute PATH entries in order with PATHEXT order | crates/conductor-daemon/src/platform/spawn.rs::tests::resolve_searches_absolute_path_entries_in_order_with_pathext_order |
+| platform/spawn.test.ts › resolveWindowsBin › honours PATHEXT order and an explicit extension | crates/conductor-daemon/src/platform/spawn.rs::tests::resolve_honours_pathext_order_and_an_explicit_extension |
+| platform/spawn.test.ts › resolveWindowsBin › never looks in the cwd for a bare name, and skips relative PATH entries | crates/conductor-daemon/src/platform/spawn.rs::tests::resolve_never_looks_in_the_cwd_for_a_bare_name_and_skips_relative_path_entries |
+| platform/spawn.test.ts › resolveWindowsBin › resolves a name with a directory part against cwd only | crates/conductor-daemon/src/platform/spawn.rs::tests::resolve_a_name_with_a_directory_part_against_cwd_only |
+| platform/spawn.test.ts › resolveWindowsBin › returns null when nothing matches | crates/conductor-daemon/src/platform/spawn.rs::tests::resolve_returns_none_when_nothing_matches |
+| platform/spawn.test.ts › escapeCmdArg › quotes for MSVCRT and caret-escapes metacharacters twice | crates/conductor-daemon/src/platform/spawn.rs::tests::escape_cmd_arg_quotes_for_msvcrt_and_caret_escapes_twice |
+| platform/spawn.test.ts › escapeCmdArg › refuses CR, LF and NUL (cmd.exe ends the command at a newline) | crates/conductor-daemon/src/platform/spawn.rs::tests::escape_cmd_arg_refuses_cr_lf_and_nul |
+| platform/spawn.test.ts › buildCmdLine length guard (TD-192) › refuses a cmd.exe line over 8191 characters with ERR_CMD_UNSAFE_ARG | crates/conductor-daemon/src/platform/spawn.rs::tests::build_cmd_line_refuses_a_line_over_8191_characters |
+| platform/spawn.test.ts › buildCmdLine round trip (cmd model + CommandLineToArgvW) › delivers every nasty arg intact through cmd /c and a %* batch shim | crates/conductor-daemon/src/platform/spawn.rs::tests::build_cmd_line_delivers_every_nasty_arg_through_cmd_and_a_batch_shim |
+| platform/spawn.test.ts › buildCmdLine round trip (cmd model + CommandLineToArgvW) › caret-escapes spaces, parens and the colon in the program path | crates/conductor-daemon/src/platform/spawn.rs::tests::build_cmd_line_caret_escapes_the_program_path |
+| platform/spawn.test.ts › buildCmdLine round trip (cmd model + CommandLineToArgvW) › leaves no %NAME% / %NAME:…% span whose name is a real variable | crates/conductor-daemon/src/platform/spawn.rs::tests::escape_leaves_no_percent_span_naming_a_real_variable |
+| platform/spawn.test.ts › prepareCli › POSIX: spawn as given, keeps detached, drops shell | crates/conductor-daemon/src/platform/spawn.rs::tests::prepare_posix_spawns_as_given_and_keeps_detached |
+| platform/spawn.test.ts › prepareCli › win32: an .exe is spawned directly by absolute path, hidden, never detached | crates/conductor-daemon/src/platform/spawn.rs::tests::prepare_win32_exe_directly_by_absolute_path_hidden_never_detached |
+| platform/spawn.test.ts › prepareCli › win32: a .cmd/.bat runs via System32 cmd.exe /d /s /c with verbatim arguments | crates/conductor-daemon/src/platform/spawn.rs::tests::prepare_win32_cmd_runs_via_system32_cmd_with_verbatim_arguments |
+| platform/spawn.test.ts › prepareCli › win32: an unresolvable bin is null (the caller reports ENOENT) | crates/conductor-daemon/src/platform/spawn.rs::tests::prepare_win32_unresolvable_bin_is_none |
+| platform/spawn.test.ts › prepareCli › win32: a multi-line argument for a .cmd throws instead of being truncated | crates/conductor-daemon/src/platform/spawn.rs::tests::prepare_win32_multi_line_argument_for_a_cmd_errs |
+| platform/spawn.test.ts › spawnCli (real processes) › a bare name resolves through PATH (PATHEXT on win32) and gets metachar args intact | crates/conductor-daemon/src/platform/spawn.rs::tests::spawn_bare_name_resolves_through_path_with_metachar_args_intact |
+| platform/spawn.test.ts › spawnCli (real processes) › execFileCliSync does the same synchronously | crates/conductor-daemon/src/platform/spawn.rs::tests::exec_file_cli_sync_does_the_same_synchronously |
+| platform/spawn.test.ts › spawnCli (real processes) › runs an absolute .exe/binary directly | crates/conductor-daemon/src/platform/spawn.rs::tests::spawn_runs_an_absolute_binary_directly |
+| platform/spawn.test.ts › spawnCli (real processes) › a missing bin fails with an ENOENT error event and no pid | crates/conductor-daemon/src/platform/spawn.rs::tests::spawn_a_missing_bin_fails_with_enoent_and_no_pid |
+| platform/spawn.test.ts › spawnCli (real processes) › win32: a node.cmd/node.bat planted in the cwd is not run by the shim | crates/conductor-daemon/src/platform/spawn.rs::tests::win32_a_node_cmd_planted_in_the_cwd_is_not_run_by_the_shim |
+| platform/spawn.test.ts › spawnCli (real processes) › win32: a program planted in the cwd is not run for a bare name | crates/conductor-daemon/src/platform/spawn.rs::tests::win32_a_program_planted_in_the_cwd_is_not_run_for_a_bare_name |
 
 ### platform/sysres.test.ts
 
 | TS case | Rust |
 |---|---|
-| platform/sysres.test.ts › busyCoresBetween (win32 CPU, ADR-0024 §8) › is the busy share of the elapsed time times the cores | todo |
-| platform/sysres.test.ts › busyCoresBetween (win32 CPU, ADR-0024 §8) › busyCores is a number between 0 and the core count on every OS | todo |
+| platform/sysres.test.ts › busyCoresBetween (win32 CPU, ADR-0024 §8) › is the busy share of the elapsed time times the cores | crates/conductor-daemon/src/platform/sysres.rs::tests::busy_cores_between_is_the_busy_share_times_the_cores |
+| platform/sysres.test.ts › busyCoresBetween (win32 CPU, ADR-0024 §8) › busyCores is a number between 0 and the core count on every OS | crates/conductor-daemon/src/platform/sysres.rs::tests::busy_cores_is_a_finite_non_negative_number_on_every_os |
 
 ### reopen-transcript.test.ts
 
@@ -692,10 +692,10 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| test-support/fake-bin.test.ts › writeFakeBin › echoes args with spaces and cmd metacharacters back exactly | todo |
-| test-support/fake-bin.test.ts › writeFakeBin › writes a #!/usr/bin/env node script, mode 755, on POSIX | todo |
-| test-support/fake-bin.test.ts › writeFakeBin › writes name.mjs plus a name.cmd shim on win32 | todo |
-| test-support/fake-bin.test.ts › pathWith › joins dirs with the platform delimiter, dropping empties | todo |
+| test-support/fake-bin.test.ts › writeFakeBin › echoes args with spaces and cmd metacharacters back exactly | crates/conductor-daemon/src/test_support/fake_bin.rs::tests::echoes_args_with_spaces_and_cmd_metacharacters_back_exactly |
+| test-support/fake-bin.test.ts › writeFakeBin › writes a #!/usr/bin/env node script, mode 755, on POSIX | crates/conductor-daemon/src/test_support/fake_bin.rs::tests::writes_a_node_script_mode_755_on_posix |
+| test-support/fake-bin.test.ts › writeFakeBin › writes name.mjs plus a name.cmd shim on win32 | crates/conductor-daemon/src/test_support/fake_bin.rs::tests::writes_name_mjs_plus_a_name_cmd_shim_on_windows |
+| test-support/fake-bin.test.ts › pathWith › joins dirs with the platform delimiter, dropping empties | crates/conductor-daemon/src/test_support/fake_bin.rs::tests::path_with_joins_with_the_platform_delimiter_dropping_empties |
 
 ### units.test.ts
 

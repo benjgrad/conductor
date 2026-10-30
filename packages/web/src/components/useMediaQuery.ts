@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type RefObject } from 'react';
 
 /** 11-web-ui §Breakpoint: the phone layout below 700 px; the desktop layout above it is unchanged. */
 export const MOBILE_QUERY = '(max-width: 699.98px)';
@@ -44,4 +44,24 @@ export function useVisualViewportHeight(active: boolean): void {
       root.style.removeProperty('--vvh');
     };
   }, [active]);
+}
+
+/**
+ * `name` on <html> follows the element's height (e.g. `--topbar-h`, which offsets the sticky
+ * session panel below the sticky top bar). Without `ResizeObserver` (jsdom) the CSS fallback applies.
+ */
+export function useElementHeightVar(ref: RefObject<HTMLElement | null>, name: string): void {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const root = document.documentElement;
+    const update = () => root.style.setProperty(name, `${el.offsetHeight}px`);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty(name);
+    };
+  }, [ref, name]);
 }

@@ -5,6 +5,7 @@ import {
   MachineRepoModeSchema,
   UuidSchema,
 } from '../domain.js';
+import { RepoRuleListSchema } from '../machines/repo-rules.js';
 import { MachineDtoSchema } from './rest.js';
 
 // Machines REST DTOs (M2-T01, ADR-0013 §Enrollment, ADR-0017 §Daemon distribution). The daemon
@@ -59,6 +60,12 @@ export const MachineRowSchema = MachineDtoSchema.extend({
   outdated: z.boolean(),
   repo_count: z.number().int().nonnegative(),
   revoked_at: IsoDateTimeSchema.nullable(),
+  /**
+   * Repo rules (ADR-0013 §Routing, amendment 2026-10-30): the repo patterns this machine may take
+   * (null = any), and those only it may take. Absent from older servers ≡ null / [].
+   */
+  repo_allow: z.array(z.string()).nullable().default(null),
+  repo_exclusive: z.array(z.string()).default([]),
 });
 export type MachineRow = z.infer<typeof MachineRowSchema>;
 export const MachineListResponseSchema = z.array(MachineRowSchema);
@@ -100,13 +107,17 @@ export const MACHINE_CANNOT_TAKE_MAX = 50;
 
 /**
  * M2-T16a (ADR-0013 §Routing): a queued ticket this machine is excluded from, and why: the repo
- * (`missing_repo`, absent when it has it) and the capability keys it lacks.
+ * (`missing_repo`, absent when it has it), the capability keys it lacks, its own `repo_allow`
+ * (`excluded_by_rule`) and the names of the other machines whose `repo_exclusive` claims the repo
+ * (`exclusive_to`).
  */
 export const MachineCannotTakeSchema = z.object({
   ticket_id: UuidSchema,
   title: z.string(),
   missing_repo: z.string().optional(),
   missing_capabilities: z.array(z.string()),
+  excluded_by_rule: z.literal(true).optional(),
+  exclusive_to: z.array(z.string()).optional(),
 });
 export type MachineCannotTake = z.infer<typeof MachineCannotTakeSchema>;
 
@@ -135,6 +146,24 @@ export const MachineDetailSchema = MachineRowSchema.extend({
 });
 export type MachineDetail = z.infer<typeof MachineDetailSchema>;
 
-/** PATCH /api/machines/:id → 200 MachineRow. */
+/**
+ * PATCH /api/machines/:id → 200 MachineRow. Every field optional, at least one: `name`, and the repo
+ * rules (`RepoPatternSchema` each, at most REPO_RULE_MAX; `repo_allow: null` = any repo). 400 for
+ * a bad pattern; 409 `conflict` when a `repo_exclusive` pattern equals (case-insensitively) one on
+ * another unrevoked machine of the account.
+ */
+export const UpdateMachineRequestSchema = z
+  .object({
+    name: z.string().trim().min(1).max(64).optional(),
+    repo_allow: RepoRuleListSchema.nullable().optional(),
+    repo_exclusive: RepoRuleListSchema.optional(),
+  })
+  .refine(
+    (r) => r.name !== undefined || r.repo_allow !== undefined || r.repo_exclusive !== undefined,
+    'expected name, repo_allow or repo_exclusive',
+  );
+export type UpdateMachineRequest = z.input<typeof UpdateMachineRequestSchema>;
+
+/** The rename-only form (M2-T17); an UpdateMachineRequest. */
 export const RenameMachineRequestSchema = z.object({ name: z.string().trim().min(1).max(64) });
 export type RenameMachineRequest = z.infer<typeof RenameMachineRequestSchema>;

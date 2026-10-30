@@ -16,6 +16,7 @@ import {
   placeCard,
   MachineRowSchema,
   RenameMachineRequestSchema,
+  UpdateMachineRequestSchema,
   ReopenSessionRequestSchema,
   RESET_LINK_TTL_MS,
   ResetRequestSchema,
@@ -1119,6 +1120,33 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         const parsed = RenameMachineRequestSchema.safeParse(raw);
         if (!parsed.success) throw badRequest(parsed.error.message);
         m.name = parsed.data.name;
+        return machineRow(machineId);
+      }),
+
+    updateMachineRules: (machineId, raw) =>
+      reply((): MachineRow => {
+        const m = machines.get(machineId);
+        if (!m) throw new ApiRequestError(404, 'not_found', `machine ${machineId} not found`);
+        const parsed = UpdateMachineRequestSchema.safeParse(raw);
+        if (!parsed.success) throw badRequest(parsed.error.message);
+        const { name, repo_allow, repo_exclusive } = parsed.data;
+        if (repo_exclusive !== undefined) {
+          for (const o of machines.values()) {
+            if (o.id === machineId || o.revoked_at !== null) continue;
+            const theirs = new Set(o.repo_exclusive.map((p) => p.toLowerCase()));
+            const clash = repo_exclusive.find((p) => theirs.has(p.toLowerCase()));
+            if (clash !== undefined) {
+              throw new ApiRequestError(
+                409,
+                'conflict',
+                `${clash} is already exclusive to ${o.name}`,
+              );
+            }
+          }
+          m.repo_exclusive = repo_exclusive;
+        }
+        if (name !== undefined) m.name = name;
+        if (repo_allow !== undefined) m.repo_allow = repo_allow;
         return machineRow(machineId);
       }),
 

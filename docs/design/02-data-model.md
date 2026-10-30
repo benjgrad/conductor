@@ -49,6 +49,8 @@ The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.
 | daemon_version | text null | `register.daemon_version` (enrollment's first), written on every register |
 | protocol_version | int null | `register.protocol_version` (absent = 1); null = never registered |
 | revoked_at | timestamptz null | `revokeMachine` (M2-T09): its credentials stop upgrading (401) and `register` is closed 4003 in both modes |
+| repo_allow | text[] null | repo rules ([ADR-0013](../adr/0013-machine-enrollment-inventory-routing.md) amendment 2026-10-30, migration 1762100000000): the repo patterns (`host/org/repo` or `host/org/*`, `RepoPatternSchema`) this machine may take; null = any. Edited from the Machines drawer (`PATCH /api/machines/:id`) |
+| repo_exclusive | text[] default '{}' | repo patterns only this machine takes: every other unrevoked machine of the account skips matching tickets, even while this one is offline. Ignored once revoked |
 | created_at, updated_at | timestamptz | |
 
 ### machine_repo
@@ -339,6 +341,44 @@ UX-13a, migration `1762000000000_agent-team` ([10 §Claim, Agent assignment](10-
 | last_assigned_at | timestamptz null | set by every claim that assigns the agent (the hire included) |
 
 A teammate is **busy** while another ticket assigned to it has a session that is not `done`, `failed` or `lost` (`session_status` has no `cancelled`: a cancel ends the session `failed`). A queued session counts, so a reopened ticket waiting in Queued still holds its agent. The migration's down drops `ticket.agent_id` and the table.
+
+### oauth_client, oauth_code, oauth_token
+[ADR-0028](../adr/0028-simple-oauth-for-mcp.md), migration `1762200000000_oauth`: conductor as the OAuth 2.1 authorization server for `/mcp` ([10 §MCP and OAuth](10-contracts.md#mcp-and-oauth-adr-0028)). Secrets are 32 random bytes; only their SHA-256 is stored (`CHECK octet_length = 32`). `user_id` has no FK on the two account-scoped tables: in `local` mode it is the virtual local user.
+
+`oauth_client` (instance-level: a client registers before anyone signs in; on the isolation allow-list):
+| column | type | notes |
+|---|---|---|
+| id | text pk | random, base64url (22 chars): the `client_id` |
+| name | text | self-declared by the client, ≤ 60 chars, default "Unnamed client" |
+| redirect_uris | text[] | 1..5 (`CHECK`); `https://`, or `http://` on a loopback host |
+| created_at | timestamptz | |
+
+`oauth_code`:
+| column | type | notes |
+|---|---|---|
+| code_hash | bytea pk | SHA-256 of the code |
+| client_id | text fk oauth_client | cascade on client delete |
+| account_id | uuid fk account | the consenting user's account |
+| user_id | uuid | the consenting user |
+| grant_id | uuid | carried by the tokens issued from it |
+| redirect_uri | text | the token request must repeat it |
+| code_challenge | text | PKCE S256 |
+| created_at, expires_at | timestamptz | 60 s |
+| used_at | timestamptz null | single use; a second exchange revokes the grant's tokens |
+
+`oauth_token`:
+| column | type | notes |
+|---|---|---|
+| token_hash | bytea pk | SHA-256 of `cnd_at_…` / `cnd_rt_…` |
+| kind | text | `access` (1 h) or `refresh` (30 d), `CHECK` |
+| grant_id | uuid | one per consent; a refresh keeps it. Indexed `oauth_token_grant_idx` |
+| client_id | text fk oauth_client | cascade on client delete |
+| account_id | uuid fk account | the scope of every `/mcp` call |
+| user_id | uuid | indexed `oauth_token_user_idx WHERE revoked_at IS NULL` (password reset, disable, `revoke-sessions`) |
+| created_at, expires_at | timestamptz | |
+| revoked_at | timestamptz null | set on rotation (refresh), code replay and the user cascades |
+
+The migration's down drops the three tables.
 
 ### login_throttle
 Instance-level. ADR-0017 §Rate limiting, layer 3: keyed by the normalised email **string**, whether or not a user has it, so a lockout reveals nothing.

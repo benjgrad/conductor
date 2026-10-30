@@ -35,6 +35,7 @@ import {
   type PasswordChangeRequest,
   type PermissionDecisionRequest,
   type RenameMachineRequest,
+  type UpdateMachineRequest,
   type ReopenSessionRequest,
   type ResetRequest,
   type SendMessageRequest,
@@ -416,6 +417,8 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
       request(MachineDetailSchema, 'GET', API_PATHS.machine(encodeURIComponent(machineId))),
 
     renameMachine: (machineId: string, req: RenameMachineRequest) =>
+      request(MachineRowSchema, 'PATCH', API_PATHS.machine(encodeURIComponent(machineId)), req),
+    updateMachineRules: (machineId: string, req: UpdateMachineRequest) =>
       request(MachineRowSchema, 'PATCH', API_PATHS.machine(encodeURIComponent(machineId)), req),
 
     revokeMachine: (machineId: string) =>

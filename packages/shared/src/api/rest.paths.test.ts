@@ -51,6 +51,19 @@ describe('API_PATHS', () => {
       session: '/api/sessions/:id',
     });
   });
+
+  it('has the OAuth and MCP paths (ADR-0028)', () => {
+    const byKey = Object.fromEntries(templates.map((t) => [t.key, t.path]));
+    expect(byKey).toMatchObject({
+      mcp: '/mcp',
+      oauthRegister: '/oauth/register',
+      oauthAuthorize: '/oauth/authorize',
+      oauthToken: '/oauth/token',
+      wellKnownAuthServer: '/.well-known/oauth-authorization-server',
+      wellKnownProtectedResource: '/.well-known/oauth-protected-resource',
+      wellKnownProtectedResourceMcp: '/.well-known/oauth-protected-resource/mcp',
+    });
+  });
 });
 
 describe('ApiErrorSchema', () => {

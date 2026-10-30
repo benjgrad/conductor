@@ -58,6 +58,31 @@ describe('board routing and alert badges (M2-T11)', () => {
     expect(article('Empty').getByText('no online machine can take it')).toBeTruthy();
   });
 
+  it('a repo rule says which machine alone takes it, before anything it lacks', () => {
+    renderCards([
+      {
+        ...ROUTED,
+        routing: { missing_capabilities: [], exclusive_to: ['Work laptop'] },
+      },
+      {
+        ...PLAIN,
+        title: 'Two',
+        routing: { missing_capabilities: [], exclusive_to: ['Work laptop', 'Mac'] },
+      },
+      {
+        ...PLAIN,
+        ticket_id: 'a1000000-0000-4000-8000-0000000000a3',
+        title: 'Allow',
+        routing: { missing_capabilities: ['cli:az'], excluded_by_rule: true },
+      },
+    ]);
+    expect(article('Routed').getByText('only Work laptop takes this repo')).toBeTruthy();
+    expect(article('Two').getByText('only Work laptop and Mac take this repo')).toBeTruthy();
+    expect(article('Allow').getByText(/needs a machine with/).textContent).toBe(
+      "left out by the machines' repo rules; needs a machine with az",
+    );
+  });
+
   it('shows routing only on Queued cards', () => {
     renderCards([{ ...ROUTED, column: 'implementing', status: 'running' }]);
     expect(screen.queryByText(/needs a machine/)).toBeNull();

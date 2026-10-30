@@ -14,6 +14,8 @@ const ALLOW = [
   'invite',
   'password_reset',
   'login_throttle',
+  // ADR-0028: a client registers before anyone signs in.
+  'oauth_client',
   'pgmigrations',
 ];
 

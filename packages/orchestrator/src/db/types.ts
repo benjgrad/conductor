@@ -65,6 +65,13 @@ export interface MachineRow {
   protocol_version: number | null;
   /** Set by `revokeMachine`: the credentials stop upgrading and register is refused. */
   revoked_at: Date | null;
+  /**
+   * Repo patterns (`RepoPatternSchema`) this machine may take; null = any (migration 1762100000000,
+   * edited from the Machines drawer).
+   */
+  repo_allow: string[] | null;
+  /** Repo patterns only this machine may take; DEFAULT '{}'. Ignored once revoked. */
+  repo_exclusive: string[];
   created_at: Date;
   updated_at: Date;
 }
@@ -462,6 +469,52 @@ export interface AgentRow {
   last_assigned_at: Date | null;
 }
 
+/** ADR-0028: an MCP client registered by RFC 7591 dynamic registration (instance-level). */
+export interface OAuthClientRow {
+  /** Random, base64url. */
+  id: string;
+  /** Self-declared by the client; conductor can't verify it. */
+  name: string;
+  redirect_uris: string[];
+  created_at: Date;
+}
+
+/** ADR-0028: an authorization code (single use, 60 s). */
+export interface OAuthCodeRow {
+  /** SHA-256 of the code. */
+  code_hash: Buffer;
+  client_id: string;
+  /** uuid, FK account. */
+  account_id: string;
+  /** uuid, no FK: may be the virtual LOCAL_USER_ID. */
+  user_id: string;
+  /** The grant the tokens issued from it will carry. */
+  grant_id: string;
+  redirect_uri: string;
+  /** PKCE S256 challenge (base64url). */
+  code_challenge: string;
+  created_at: Date;
+  expires_at: Date;
+  used_at: Date | null;
+}
+
+/** ADR-0028: an access or refresh token. */
+export interface OAuthTokenRow {
+  /** SHA-256 of the token. */
+  token_hash: Buffer;
+  kind: 'access' | 'refresh';
+  /** One per consent; a refresh keeps it. */
+  grant_id: string;
+  client_id: string;
+  /** uuid, FK account. */
+  account_id: string;
+  /** uuid, no FK: may be the virtual LOCAL_USER_ID. */
+  user_id: string;
+  created_at: Date;
+  expires_at: Date;
+  revoked_at: Date | null;
+}
+
 /** Table name → row type, for generic repository helpers. */
 export interface Tables {
   machine: MachineRow;
@@ -486,4 +539,7 @@ export interface Tables {
   login_throttle: LoginThrottleRow;
   push_subscription: PushSubscriptionRow;
   agent: AgentRow;
+  oauth_client: OAuthClientRow;
+  oauth_code: OAuthCodeRow;
+  oauth_token: OAuthTokenRow;
 }

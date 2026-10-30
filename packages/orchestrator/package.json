@@ -17,6 +17,7 @@
   "dependencies": {
     "@conductor/shared": "workspace:*",
     "@fastify/rate-limit": "^11.2.1",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@node-rs/argon2": "^2.2.2",
     "fastify": "^5.12.7",
     "node-pg-migrate": "^9.0.0",

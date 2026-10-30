@@ -4,6 +4,8 @@
 >
 > **The hosted instance stays single-account until M2-T21** (confirmed by Ben 2026-10-27; TD-149). No second account is created on https://conductor.gradyserver.com until T21's route matrix (with `/mcp` and `/api/oauth/*`) is merged. M3's own two-account tests run only in test databases.
 
+> **2026-10-30, [ADR-0028](../../adr/0028-simple-oauth-for-mcp.md)**: a simplified M3 shipped ahead of this plan: OAuth discovery, registration, PKCE, a server-rendered consent page, tokens and a stateless `/mcp` with five tools (`list_tickets`, `get_ticket`, `create_ticket`, `answer_input`, `take_transition`). The tasks below stay as the path to the full ADR-0014 design; when one is picked up, start from the code in `orchestrator/src/{oauth,mcp}/` rather than from scratch.
+
 **Goal** ([ADR-0014](../../adr/0014-tool-layer-and-oauth-mcp-server.md)):
 - one internal tool layer exposes conductor's operations, with compact, size-capped, paginated results (ADR-0014 §1–§3);
 - an MCP client (Claude Code, claude.ai, Claude Desktop) reaches it at `https://conductor.gradyserver.com/mcp` over stateless Streamable HTTP. It first completes OAuth 2.1 with conductor as the authorization server: discovery, dynamic registration, PKCE S256, conductor's own sign-in, then a consent page;

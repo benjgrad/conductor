@@ -133,3 +133,14 @@
   margin: 0;
   padding-left: 18px;
 }
+
+.machine-rules label {
+  display: block;
+  margin-bottom: 8px;
+}
+.machine-rules textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}

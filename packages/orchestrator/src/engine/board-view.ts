@@ -10,11 +10,11 @@ import {
 } from '@conductor/shared';
 import type { Queryable } from '../contracts.js';
 import {
-  loadOnlineMachines,
+  loadRoutingFleet,
   requiredCaps,
   routingFor,
-  type MachineFacts,
   type RequiredCaps,
+  type RoutingFleet,
 } from '../gateway/routing.js';
 import { DefinitionCache } from './rows.js';
 
@@ -124,7 +124,7 @@ export async function readCardAlerts(
  * its own card events and on board load only.
  */
 export class MachineCardFields {
-  private readonly machines = new Map<string, Promise<MachineFacts[]>>();
+  private readonly machines = new Map<string, Promise<RoutingFleet>>();
   private alerts: Map<string, BoardCardAlert[]> | null = null;
 
   constructor(
@@ -169,12 +169,13 @@ export class MachineCardFields {
       .get(this.q, ticket.workflow_id, version, ticket.kind)
       .catch(() => null);
     if (reqs === null) return undefined;
-    let machines = this.machines.get(ticket.account_id);
-    if (!machines) {
-      machines = loadOnlineMachines(this.q, ticket.account_id);
-      this.machines.set(ticket.account_id, machines);
+    let fleet = this.machines.get(ticket.account_id);
+    if (!fleet) {
+      fleet = loadRoutingFleet(this.q, ticket.account_id);
+      this.machines.set(ticket.account_id, fleet);
     }
-    return routingFor(await machines, ticket.repo, reqs);
+    const { online, exclusive } = await fleet;
+    return routingFor(online, ticket.repo, reqs, exclusive);
   }
 }
 

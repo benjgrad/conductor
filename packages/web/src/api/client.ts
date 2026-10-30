@@ -25,6 +25,7 @@ import type {
   ReopenSessionRequest,
   ReopenSessionResponse,
   RenameMachineRequest,
+  UpdateMachineRequest,
   ResetLinkCreated,
   ResetRequest,
   SendMessageRequest,
@@ -188,6 +189,11 @@ export interface ApiClient {
   getMachine(machineId: string): Promise<MachineDetail>;
   /** PATCH /api/machines/:id → the renamed row. 400 bad name; 404 not_found. */
   renameMachine(machineId: string, req: RenameMachineRequest): Promise<MachineRow>;
+  /**
+   * PATCH /api/machines/:id with the repo rules (and/or name) → the updated row. 400 bad pattern;
+   * 409 conflict (a repo_exclusive pattern another machine already holds); 404 not_found.
+   */
+  updateMachineRules(machineId: string, req: UpdateMachineRequest): Promise<MachineRow>;
   /** POST /api/machines/:id/revoke: disconnects it; its live sessions go to a human. 404. */
   revokeMachine(machineId: string): Promise<OkResponse>;
   /** POST /api/machines/enrollment-tokens → 201; `command` is shown once (30 min, single use). */

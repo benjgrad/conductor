@@ -96,7 +96,10 @@ export default defineConfig({
       // beforeEach that builds a git repo and private dirs (PowerShell ACLs, TD-194) takes ~10 s on
       // a busy Windows runner. Prefer building such fixtures once per file (TEST_STRATEGY).
       ...pkg('daemon', ['src/**/*.test.ts'], { testTimeout: 30_000, hookTimeout: 30_000 }),
-      ...pkg('web', ['src/**/*.test.{ts,tsx}']),
+      // jsdom renders of the whole App take 2–5 s each when a full run loads the CPUs, so the 5 s
+      // default fails whichever one lands last (quick-actions, HelpPage, App.mobile): a longer
+      // per-test timeout, as for the daemon.
+      ...pkg('web', ['src/**/*.test.{ts,tsx}'], { testTimeout: 15_000 }),
       {
         extends: true,
         test: { name: 'scripts', root: '.', include: ['scripts/*.test.js'], environment: 'node' },

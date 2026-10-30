@@ -1,9 +1,10 @@
-import { safeNextPath, type MeResponse } from '@conductor/shared';
+import type { MeResponse } from '@conductor/shared';
 import { useState, type FormEvent } from 'react';
 import type { ApiClient } from '../api/client.js';
 import { goTo } from '../nav.js';
 import { AuthPage } from './AuthPage.js';
 import { authErrorMessage } from './errors.js';
+import { afterSignIn } from './next.js';
 
 interface SignInProps {
   api: ApiClient;
@@ -26,7 +27,9 @@ export function SignIn({ api, next, onSignedIn }: SignInProps) {
     try {
       const me = await api.login({ email: email.trim(), password });
       onSignedIn(me);
-      goTo(safeNextPath(next), { replace: true });
+      const dest = afterSignIn(next);
+      if (dest.reload) window.location.assign(dest.path);
+      else goTo(dest.path, { replace: true });
     } catch (err) {
       setError(authErrorMessage(err));
       setBusy(false);

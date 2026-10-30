@@ -2,6 +2,7 @@ import { EmailSchema, LOCAL_ACCOUNT_ID, UuidSchema, type AdminUserRow } from '@c
 import { withTransaction } from '../db/index.js';
 import { revokeMachine, type MachineSockets } from '../gateway/revoke.js';
 import type { Db } from '../main.js';
+import { revokeUserOAuthTokens } from '../oauth/tokens.js';
 import { VAPID_PRIVATE_KEY_ENV, VAPID_PUBLIC_KEY_ENV, VAPID_SUBJECT_ENV } from '../push/config.js';
 import { generateVapidKeys } from '../push/sender.js';
 import { PUBLIC_URL_ENV } from './config.js';
@@ -123,7 +124,7 @@ export async function findVisibleUser(
 }
 
 /**
- * Disable a user: set `disabled_at`, delete their sessions, and revoke the machines of the
+ * Disable a user: set `disabled_at`, delete their sessions and MCP tokens, and revoke the machines of the
  * accounts they own (machines have no per-user owner). `sockets` closes live daemon sockets:
  * the API passes the gateway's, the CLI has none.
  */
@@ -139,6 +140,7 @@ export async function disableUser(
       now,
     ]);
     const res = await tx.query('DELETE FROM web_session WHERE user_id = $1', [userId]);
+    await revokeUserOAuthTokens(tx, userId, now);
     return res.rowCount ?? 0;
   });
   const machines = await db.query<{ id: string; account_id: string }>(
@@ -280,7 +282,9 @@ export async function runAdminCli(argv: string[], io: AdminCliIo): Promise<numbe
       const user = await findUser(email);
       if (user === null) return 1;
       const res = await db.query('DELETE FROM web_session WHERE user_id = $1', [user.id]);
-      out(`revoked ${res.rowCount ?? 0} session(s) for ${user.email}`);
+      // ADR-0028: MCP clients' tokens go too (the only way to disconnect one for now).
+      const tokens = await revokeUserOAuthTokens(db, user.id, now());
+      out(`revoked ${res.rowCount ?? 0} session(s) and ${tokens} MCP token(s) for ${user.email}`);
       return 0;
     }
 

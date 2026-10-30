@@ -130,7 +130,7 @@ export const API_PATHS = {
   machinesEnroll: '/api/machines/enroll',
   /** POST `{}` → 201 EnrollmentTokenCreated. */
   machineEnrollmentTokens: '/api/machines/enrollment-tokens',
-  /** GET → MachineDetail; PATCH RenameMachineRequest → MachineRow. */
+  /** GET → MachineDetail; PATCH UpdateMachineRequest → MachineRow. */
   machine: (id: string) => `/api/machines/${id}`,
   /** POST `{}` → OkResponse; revokes the machine (socket closed with 4001). */
   machineRevoke: (id: string) => `/api/machines/${id}/revoke`,
@@ -155,6 +155,22 @@ export const API_PATHS = {
   pushSubscriptions: '/api/push/subscriptions',
   /** POST `{}` → PushTestResponse ("Notifications are on" to the caller's subscriptions). */
   pushTest: '/api/push/test',
+
+  // ADR-0028: OAuth 2.1 for the MCP endpoint. Called by MCP clients, not the SPA: public.
+  /** POST JSON-RPC (MCP Streamable HTTP, stateless) with `Authorization: Bearer`; GET/DELETE → 405. */
+  mcp: '/mcp',
+  /** POST RFC 7591 client metadata → 201 the registered public client. */
+  oauthRegister: '/oauth/register',
+  /** GET → sign-in redirect or the consent page; POST (the consent form) → 302 to the client. */
+  oauthAuthorize: '/oauth/authorize',
+  /** POST (form-encoded) `authorization_code` + PKCE or `refresh_token` → the token response. */
+  oauthToken: '/oauth/token',
+  /** GET → RFC 8414 authorization server metadata. */
+  wellKnownAuthServer: '/.well-known/oauth-authorization-server',
+  /** GET → RFC 9728 protected resource metadata. */
+  wellKnownProtectedResource: '/.well-known/oauth-protected-resource',
+  /** GET → the same, at the path-suffixed form for `/mcp`. */
+  wellKnownProtectedResourceMcp: '/.well-known/oauth-protected-resource/mcp',
 } as const;
 
 /**
@@ -396,11 +412,15 @@ export type BoardPending = z.infer<typeof BoardPendingSchema>;
 
 /**
  * M2 (ADR-0013 §Routing): why a Queued card waits. What no online machine of the account has:
- * the repo (`missing_repo`), then the capability keys (e.g. `cli:az:authed`).
+ * the repo (`missing_repo`), then the capability keys (e.g. `cli:az:authed`). `exclusive_to`: the
+ * names of the machines whose `repo_exclusive` claims the repo, when none of them is online;
+ * `excluded_by_rule`: every online machine with the repo is excluded by its own `repo_allow`.
  */
 export const BoardCardRoutingSchema = z.object({
   missing_repo: z.string().optional(),
   missing_capabilities: z.array(z.string()),
+  excluded_by_rule: z.literal(true).optional(),
+  exclusive_to: z.array(z.string()).optional(),
 });
 export type BoardCardRouting = z.infer<typeof BoardCardRoutingSchema>;
 

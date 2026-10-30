@@ -1,7 +1,6 @@
 import {
   API_PATHS,
   AnswerInputRequestSchema,
-  CONDUCTOR_WORKFLOW_ID,
   ApproveSessionRequestSchema,
   CancelSessionRequestSchema,
   CreateTicketRequestSchema,
@@ -11,15 +10,12 @@ import {
   SendMessageRequestSchema,
   TransitionSessionRequestSchema,
   UuidSchema,
-  canonicalRepo,
   httpForApplyResult,
-  toBoardCard,
   validateWorkflow,
   type EngineEvent,
   type EngineRoute,
   type OkResponse,
   type ReopenSessionResponse,
-  type TicketDto,
   type TranscriptResponse,
 } from '@conductor/shared';
 import Fastify, { type FastifyReply } from 'fastify';
@@ -27,16 +23,15 @@ import { DEFAULT_AUTH, type AuthConfig } from '../auth/config.js';
 import { authHook } from '../auth/middleware.js';
 import { argon2Hasher, type PasswordHasher } from '../auth/password.js';
 import { registerAuthRoutes } from '../auth/routes.js';
+import { registerMcpRoutes } from '../mcp/endpoint.js';
+import { registerOAuthRoutes } from '../oauth/routes.js';
 import { registerRateLimit } from '../auth/throttle.js';
-import { insertBoardEvents, type ApplyEventOptions } from '../contracts.js';
-import { withTransaction } from '../db/index.js';
-import type { TicketRow } from '../db/types.js';
-import { cardView, withMachineFields } from '../engine/board-view.js';
+import type { ApplyEventOptions } from '../contracts.js';
 import { reopenSession } from '../engine/reopen.js';
 import type { MachineSockets } from '../gateway/revoke.js';
 import type { PushConfig } from '../push/config.js';
 import type { PushSender } from '../push/sender.js';
-import { conductorDefaultAvailable, seedConductorWorkflow } from '../engine/seed.js';
+import { conductorDefaultAvailable } from '../engine/seed.js';
 import type { CreateApi } from '../main.js';
 import { parseLastEventId, serveBoardStream } from '../stream/board.js';
 import { serveOutputStream } from '../stream/output.js';
@@ -45,10 +40,11 @@ import { parseBody, pathString, sendError } from './errors.js';
 import { registerMachineRoutes } from './machines.js';
 import { registerPermissionRoutes } from './permissions.js';
 import { registerPushRoutes } from './push.js';
-import { listWorkflows, loadBoard, loadWorkflowDetail, toTicketDto } from './queries.js';
+import { listWorkflows, loadBoard, loadWorkflowDetail } from './queries.js';
 import { httpSecurityFromEnv, securityHookFor, type HttpSecurityOptions } from './security.js';
 import { loadSessionDetail, sessionExists } from './sessions.js';
 import { registerTeamRoutes } from './team.js';
+import { createTicket } from './tickets.js';
 
 // M1-T08: REST + SSE for the UI (03 §UI ↔ orchestrator), as the `CreateApi` factory (main.ts).
 
@@ -152,6 +148,9 @@ export const createApi = (({
   });
   // UX-13a: the account's agent team.
   void app.register(registerTeamRoutes, { db });
+  // ADR-0028: the OAuth authorization server and the MCP endpoint it protects.
+  void app.register(registerOAuthRoutes, { db, auth, now });
+  void app.register(registerMcpRoutes, { db, engine, boardBus, outputBus, auth, now });
 
   // JSON bodies; an empty body (POST /cancel with no payload) is `{}`.
   app.removeContentTypeParser('application/json');
@@ -166,6 +165,17 @@ export const createApi = (({
       done(err, undefined);
     }
   });
+
+  // ADR-0028: the OAuth token endpoint (RFC 6749) and the consent form post form-encoded bodies;
+  // the security hook lets them through on those paths only.
+  app.addContentTypeParser(
+    'application/x-www-form-urlencoded',
+    { parseAs: 'string' },
+    (_req, body, done) => {
+      const text = typeof body === 'string' ? body : body.toString('utf8');
+      done(null, Object.fromEntries(new URLSearchParams(text)));
+    },
+  );
 
   app.setNotFoundHandler((req, reply) =>
     sendError(reply, 404, 'not_found', `no route ${req.method} ${req.url}`),
@@ -395,84 +405,9 @@ export const createApi = (({
   app.post(API_PATHS.tickets, async (req, reply) => {
     const body = parseBody(CreateTicketRequestSchema, req.body, reply);
     if (!body) return reply;
-    const scope = req.auth!.scope;
-    // M2-T17 (U-048, ADR-0013 §Routing): in `password` mode the repo must be host/org/repo and is
-    // stored canonical; `local` mode keeps M1's rule (the e2e's local fixture repos).
-    let repo = body.repo;
-    if (auth.mode === 'password') {
-      const canonical = canonicalRepo(body.repo);
-      if (canonical === null) {
-        return sendError(reply, 400, 'bad_request', 'repo must be host/org/repo', [
-          { path: 'repo', message: 'expected host/org/repo (or an https / ssh git URL of one)' },
-        ]);
-      }
-      repo = canonical;
-    }
-    // ADR-0010: `conductor` is seeded on startup; seeding here too keeps a bare database (tests,
-    // a start that raced a migration) working. Idempotent.
-    // Silent: the "newer default" notice is the start's (M1b-T09).
-    if (body.workflow_id === CONDUCTOR_WORKFLOW_ID) await seedConductorWorkflow(db, { log: null });
-    const known = await db.query('SELECT 1 FROM workflow_definition WHERE id = $1 LIMIT 1', [
-      body.workflow_id,
-    ]);
-    if (known.rowCount === 0) {
-      return sendError(reply, 400, 'bad_request', `unknown workflow ${body.workflow_id}`, [
-        { path: 'workflow_id', message: 'no workflow with this id' },
-      ]);
-    }
-    const { ticket, events } = await withTransaction(db, async (tx) => {
-      const res = await tx.query<TicketRow>(
-        'INSERT INTO ticket (external_ref, repo, title, body, workflow_id, required_tags, ' +
-          'repo_allow_machines, priority, kind, account_id) ' +
-          'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *',
-        [
-          body.external_ref,
-          repo,
-          body.title,
-          body.body,
-          body.workflow_id,
-          body.required_tags,
-          body.repo_allow_machines,
-          body.priority,
-          body.kind,
-          scope.account_id,
-        ],
-      );
-      const row = res.rows[0]!;
-      // Last write of the transaction (insertBoardEvents holds the board lock to COMMIT).
-      const evs = await insertBoardEvents(tx, [
-        {
-          type: 'card.upserted',
-          session_id: null,
-          ticket_id: row.id,
-          // UX-13a: a new ticket holds no agent until a claim starts it.
-          card: await withMachineFields(
-            tx,
-            toBoardCard(
-              { ...row, agent_name: null },
-              null,
-              null,
-              await cardView(tx, row.workflow_id, null),
-            ),
-            row,
-          ),
-        },
-      ]);
-      return { ticket: row, events: evs };
-    });
-    for (const ev of events) boardBus.publish(ev);
-    // U-048: a ticket for a repo no machine of the account has is created, and flagged. Offline
-    // machines count (routing per online machine is the card's, M2-T16); revoked ones don't.
-    // github.com org/repo compares case-insensitively; `r.repo` keeps M1 local-mode rows matching.
-    const has = await db.query(
-      'SELECT 1 FROM machine_repo r JOIN machine m ON m.id = r.machine_id ' +
-        'WHERE r.account_id = $1 AND m.revoked_at IS NULL ' +
-        'AND (lower(r.remote) = lower($2) OR r.repo = $3) LIMIT 1',
-      [scope.account_id, canonicalRepo(ticket.repo) ?? ticket.repo, ticket.repo],
-    );
-    const dto: TicketDto = toTicketDto(ticket);
-    if (has.rowCount === 0) dto.warnings = ['no_machine_has_repo'];
-    return reply.code(201).send(dto);
+    const res = await createTicket({ db, boardBus, auth }, req.auth!.scope, body);
+    if (!res.ok) return sendError(reply, res.status, res.code, res.message, res.details);
+    return reply.code(201).send(res.dto);
   });
 
   // ---------------------------------------------------------------- workflows

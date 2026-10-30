@@ -293,4 +293,41 @@ describe('machines page (M2-T11)', () => {
     expect(other.queryByRole('list', { name: "Can't take" })).toBeNull();
     expect(other.getByText(/it can take every queued ticket/)).toBeTruthy();
   });
+
+  it('the drawer edits the repo rules: saves, validates, and shows a 409 inline', async () => {
+    const api = await renderPage();
+    const open = (name: string) => {
+      fireEvent.click(screen.getByRole('button', { name: `Details of ${name}` }));
+      return within(screen.getByRole('region', { name: 'Repo rules' }));
+    };
+    let rules = open("Ben's MacBook");
+    fireEvent.change(rules.getByLabelText(/Only this machine takes/), {
+      target: { value: 'github.com/Work/*\n' },
+    });
+    fireEvent.click(rules.getByRole('button', { name: 'Save rules' }));
+    await waitFor(async () =>
+      expect((await api.getMachine('mbp-ben')).repo_exclusive).toEqual(['github.com/Work/*']),
+    );
+    expect((await api.getMachine('mbp-ben')).repo_allow).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    rules = open('old-linux-box');
+    fireEvent.change(rules.getByLabelText(/Only take these repos/), {
+      target: { value: 'not a repo' },
+    });
+    fireEvent.click(rules.getByRole('button', { name: 'Save rules' }));
+    expect(rules.getByRole('alert').textContent).toBe(
+      'Only take these repos: not a repo is not host/org/repo or host/org/*',
+    );
+
+    fireEvent.change(rules.getByLabelText(/Only take these repos/), { target: { value: '' } });
+    fireEvent.change(rules.getByLabelText(/Only this machine takes/), {
+      target: { value: 'github.com/work/*' },
+    });
+    fireEvent.click(rules.getByRole('button', { name: 'Save rules' }));
+    expect((await rules.findByRole('alert')).textContent).toMatch(
+      /already exclusive to Ben's MacBook/,
+    );
+    expect((await api.getMachine('linux-box')).repo_exclusive).toEqual([]);
+  });
 });

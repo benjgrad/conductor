@@ -25,7 +25,7 @@ import {
   isConductorStep,
   waitingForBuildSlot,
 } from './ConductorChecks.js';
-import { routingNeeds } from '../machines/format.js';
+import { routingNeeds, routingRule } from '../machines/format.js';
 import { useIsMobile } from './useMediaQuery.js';
 import './Board.css';
 
@@ -414,7 +414,7 @@ function Card({ card, column, selected, onSelect, agentStates, api }: CardProps)
         <span className="badge badge-slot">waiting for build slot</span>
       )}
       {card.column === 'queued' && card.routing && (
-        <RoutingBadge needs={routingNeeds(card.routing)} />
+        <RoutingBadge needs={routingNeeds(card.routing)} rule={routingRule(card.routing)} />
       )}
       {card.alerts && card.alerts.length > 0 && (
         <AlertBadge files={[...new Set(card.alerts.flatMap((a) => a.files))]} />
@@ -527,12 +527,14 @@ function PlanApprovalActions({
 }
 
 /** M2 (ADR-0013 §Routing): what no online machine has, e.g. "needs a machine with org/app and az". */
-function RoutingBadge({ needs }: { needs: string[] }) {
+function RoutingBadge({ needs, rule }: { needs: string[]; rule: string | null }) {
+  // ADR-0013 amendment 2026-10-30: a repo rule first, then what the allowed machines lack.
   if (needs.length === 0) {
-    return <span className="badge badge-routing">no online machine can take it</span>;
+    return <span className="badge badge-routing">{rule ?? 'no online machine can take it'}</span>;
   }
   return (
     <span className="badge badge-routing">
+      {rule !== null && `${rule}; `}
       needs a machine with{' '}
       {needs.map((n, i) => (
         <span key={n}>

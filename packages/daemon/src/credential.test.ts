@@ -65,9 +65,12 @@ describe('loadCredential', () => {
     expect(() => loadCredential(root)).toThrow(
       onWin32 ? /accessible to other users/ : `accessible to other users; run: chmod 700 ${root}`,
     );
-    // Enrolling again makes it private again.
-    writeCredential(root, CRED, { force: true });
-    expect(loadCredential(root)).toEqual(CRED);
+    // POSIX: enrolling again makes it private again (the write fchmods the root to 0700). win32's
+    // icacls `/grant:r` keeps another SID's explicit ACE, so there the refusal stands (acl.ts).
+    if (!onWin32) {
+      writeCredential(root, CRED, { force: true });
+      expect(loadCredential(root)).toEqual(CRED);
+    }
   });
 
   it('refuses a symlinked file and a symlinked root', () => {

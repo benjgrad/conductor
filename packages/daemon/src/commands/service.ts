@@ -14,10 +14,17 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, dirname, isAbsolute, join } from 'node:path';
+import { posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rootDirFrom } from '../config.js';
 import { serviceManager, type ServiceManager } from '../platform/index.js';
+
+// launchd and systemd are POSIX-only, so unit paths and PATH are always `/` and `:` (also when the
+// pure renderers run in the Windows test job).
+const { delimiter } = posix;
+const join = (...parts: string[]): string => posix.join(...parts);
+const dirname = (p: string): string => posix.dirname(p);
+const isAbsolute = (p: string): boolean => posix.isAbsolute(p);
 
 // `conductor-daemon service install | uninstall | restart | status` (M2-T18; ADR-0017 §Daemon
 // distribution, ADR-0021 §3/§5). Starts the daemon at login, as the user, never with sudo:

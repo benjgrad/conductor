@@ -31,7 +31,7 @@ export const BASE_TOOL_POLICY: ToolPolicyFragment = {
  * ADR-0027: deny rules that become `ask` rules when a human can answer the session's permission
  * prompts (a worker with `--permission-prompts host`). Ask outranks every allow rule and auto
  * mode's classifier, so the call always reaches the board. Reviewers and the no-prompt fallback
- * keep them as denies.
+ * keep them as denies. TD-196: any push is promptable, not only to the session's branch.
  */
 export const PROMPTABLE_DENY_RULES: readonly string[] = ['Bash(git push:*)'];
 

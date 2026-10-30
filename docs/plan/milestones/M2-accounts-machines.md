@@ -121,7 +121,7 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 | M2-T29b | Daemon: auto mode default, `--permission-prompts host` + `permission` MCP tool held until decision / timeout | T29 | E | — | done (PR #53, 4d07791; TD-187, U-104, U-105) |
 | M2-T29c | Orchestrator: store requests, `needs_permission` on the board, decision route → daemon | T29 | E | **yes** | done (PR #53, 4d07791; TD-188) |
 | M2-T29d | Web: Needs-permission card state with Allow once / Allow always / Deny | T29c | F | — | done (PR #53, 4d07791) |
-| M2-T29e | Daemon + shared + orchestrator: a worker's `git push` is an `ask` rule, so it reaches the board (Allow once / Deny) ([ADR-0027](../../adr/0027-promptable-git-push.md)) | T29b | F | — | in_progress |
+| M2-T29e | Daemon + shared + orchestrator: a worker's `git push` is an `ask` rule, so it reaches the board (Allow once / Deny) ([ADR-0027](../../adr/0027-promptable-git-push.md)) | T29b | F | — | done (ADR-0027; TD-196, TD-197, U-118) |
 | M2-T30 | Daemon + shared: package-manager-aware build checks (pnpm / yarn lockfiles) and pnpm rules in the `bash` alias | — | D | — | done (PR #46, d38c573) |
 | M2-T30b | Shared: pre-approve the pnpm shorthand commands agents actually run | T30 | D | — | done (PR #52, acaa852) |
 | M2-T31 | Tests: per-run test slots (throttled suite) | — | D | — | done (PR #54, afa210a) |
@@ -1042,7 +1042,7 @@ The lead fast-forwarded the daemon clone and Hazel's branch by hand (the interim
   - [x] Reviewers and the `none` fallback keep the deny.
   - [x] A push has no `always_rule`.
   - [x] Real-CLI probe (`E2E_REAL_CLAUDE=permission`, auto mode): the push reaches the prompt tool, Allow once pushes.
-  - [ ] Gates.
+  - [x] Gates (one timing flake in an untouched web test, passes alone: TD-197).
 
 ### M2-T30 · Package-manager-aware checks
 - `actions/checkout.ts` picks the install step from the lockfile:

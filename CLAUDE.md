@@ -7,7 +7,7 @@ This file is the **operating manual for every Claude session in this repo**. The
 ### Running as a conductor agent
 If you were started by conductor on a ticket (your system prompt says "running unattended as a conductor session"), the workflow replaces the lifecycle:
 - **Skip steps 0 and 4.** Don't brief Ben or wait for a go-ahead: the ticket is the go-ahead. Don't edit `docs/tracking/*` on the ticket branch. Put new unknowns, tech debt and follow-ups in your `complete_state` summary, and a human copies them onto `main`.
-- **Skip the merge and push in step 3.** Conductor runs the gates, pushes and opens the PR. Commit your work and finish the step.
+- **Skip the merge and push in step 3.** Conductor runs the gates, pushes and opens the PR. Commit your work and finish the step. If the ticket needs a push sooner (e.g. a draft PR to show work), run `git push`: it waits for Ben's approval on the board ([ADR-0027](docs/adr/0027-promptable-git-push.md)). Never force-push.
 - **"Ask Ben" means `ask_user`**, never AskUserQuestion. **Commands that need approval** (installing a toolchain or package, curl, a new tool): just run them. The permission prompt reaches Ben on the board ([ADR-0023](docs/adr/0023-permission-prompts-through-conductor.md)). A rule here is a reason to ask, never a reason to give up on the ticket.
 
 ---

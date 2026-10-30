@@ -20,8 +20,7 @@
 | M2r-T03 QA state | PR #56 | in_review |
 | M2-T35b screenshots attached to the PR | PR #65 | in_review (v5 already asks for them, T35c merged first) |
 | UX-15 Web Push (server) | PR #67 | in_review; migration needs Ben |
-| MR-T00 Rust daemon plan | PR #69 | in_review (plan only) |
-| MR-T01 Rust spike | board ticket e4bbe7dd | ready (posted 2026-10-29); stops for `cargo` until B-005 |
+| MR-T03 protocol codegen, MR-T04 platform/ (Rust daemon, wave 3) | board tickets 98887bf4, b2b21bd6 | ready (posted 2026-10-30); T00–T02 merged (#69, #74, #78) |
 | M2-T18 `service install`, M2-T18b, MW-T09 | tickets / branches | in_progress; TD-195 (`install.sh --service` fails) until T18 |
 
 ## Health

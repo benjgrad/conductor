@@ -2,6 +2,7 @@ import {
   cliVersionAtLeast,
   GH_MIN_VERSION,
   type BoardCardRouting,
+  type MachineCannotTake,
   type MachineDetail,
 } from '@conductor/shared';
 
@@ -86,5 +87,33 @@ export function routingNeeds(routing: BoardCardRouting): string[] {
   return [
     ...(routing.missing_repo ? [shortRepo(routing.missing_repo)] : []),
     ...routing.missing_capabilities.map(formatRequirement),
+  ];
+}
+
+/** `only A takes this repo`, `only A and B take this repo`, `only A, B and C take this repo`. */
+function onlyTakes(names: readonly string[]): string {
+  if (names.length <= 1) return `only ${names[0] ?? ''} takes this repo`;
+  return `only ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} take this repo`;
+}
+
+/**
+ * The repo-rule part of a Queued card's routing (ADR-0013 amendment 2026-10-30), or null: the
+ * machines that alone take the repo (none online), else that the online machines' own repo rules
+ * leave it out.
+ */
+export function routingRule(routing: BoardCardRouting): string | null {
+  if (routing.exclusive_to && routing.exclusive_to.length > 0) {
+    return onlyTakes(routing.exclusive_to);
+  }
+  return routing.excluded_by_rule ? "left out by the machines' repo rules" : null;
+}
+
+/** Why one machine can't take a queued ticket: its repo rules first, then what it lacks. */
+export function cannotTakeReasons(t: MachineCannotTake): string[] {
+  const needs = routingNeeds(t);
+  return [
+    ...(t.exclusive_to && t.exclusive_to.length > 0 ? [onlyTakes(t.exclusive_to)] : []),
+    ...(t.excluded_by_rule ? ["not in this machine's repo rules"] : []),
+    ...(needs.length > 0 ? [`needs ${needs.join(', ')}`] : []),
   ];
 }

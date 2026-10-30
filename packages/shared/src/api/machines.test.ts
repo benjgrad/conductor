@@ -6,6 +6,7 @@ import {
   MACHINE_DETAIL_FIXTURE,
   MACHINE_ROW_FIXTURES,
   RENAME_MACHINE_REQUEST_FIXTURE,
+  UPDATE_MACHINE_REQUEST_FIXTURE,
 } from './fixtures.js';
 import {
   EnrollmentTokenCreatedSchema,
@@ -15,6 +16,7 @@ import {
   MACHINE_CANNOT_TAKE_MAX,
   MachineRowSchema,
   RenameMachineRequestSchema,
+  UpdateMachineRequestSchema,
 } from './machines.js';
 import { MachineDtoSchema } from './rest.js';
 
@@ -34,6 +36,28 @@ describe('machines DTOs', () => {
     expect(RenameMachineRequestSchema.parse(RENAME_MACHINE_REQUEST_FIXTURE)).toEqual(
       RENAME_MACHINE_REQUEST_FIXTURE,
     );
+  });
+
+  it('UpdateMachineRequest: rules and/or name, at least one; patterns validated', () => {
+    expect(UpdateMachineRequestSchema.parse(UPDATE_MACHINE_REQUEST_FIXTURE)).toEqual(
+      UPDATE_MACHINE_REQUEST_FIXTURE,
+    );
+    expect(UpdateMachineRequestSchema.parse(RENAME_MACHINE_REQUEST_FIXTURE)).toEqual(
+      RENAME_MACHINE_REQUEST_FIXTURE,
+    );
+    expect(UpdateMachineRequestSchema.safeParse({}).success).toBe(false);
+    expect(UpdateMachineRequestSchema.safeParse({ repo_allow: ['*'] }).success).toBe(false);
+    expect(UpdateMachineRequestSchema.safeParse({ repo_exclusive: null }).success).toBe(false);
+    expect(UpdateMachineRequestSchema.parse({ repo_exclusive: ['GitHub.com/a/*'] })).toEqual({
+      repo_exclusive: ['github.com/a/*'],
+    });
+  });
+
+  it('a MachineRow from an older server (no repo rules) parses as null / []', () => {
+    const { repo_allow: _a, repo_exclusive: _x, ...older } = MACHINE_ROW_FIXTURES.online;
+    void _a;
+    void _x;
+    expect(MachineRowSchema.parse(older)).toMatchObject({ repo_allow: null, repo_exclusive: [] });
   });
 
   it('token-bearing DTOs round-trip through JSON', () => {

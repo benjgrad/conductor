@@ -49,6 +49,8 @@ The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.
 | daemon_version | text null | `register.daemon_version` (enrollment's first), written on every register |
 | protocol_version | int null | `register.protocol_version` (absent = 1); null = never registered |
 | revoked_at | timestamptz null | `revokeMachine` (M2-T09): its credentials stop upgrading (401) and `register` is closed 4003 in both modes |
+| repo_allow | text[] null | repo rules ([ADR-0013](../adr/0013-machine-enrollment-inventory-routing.md) amendment 2026-10-30, migration 1762100000000): the repo patterns (`host/org/repo` or `host/org/*`, `RepoPatternSchema`) this machine may take; null = any. Edited from the Machines drawer (`PATCH /api/machines/:id`) |
+| repo_exclusive | text[] default '{}' | repo patterns only this machine takes: every other unrevoked machine of the account skips matching tickets, even while this one is offline. Ignored once revoked |
 | created_at, updated_at | timestamptz | |
 
 ### machine_repo

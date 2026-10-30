@@ -1,11 +1,13 @@
 import { MACHINE_DETAIL_FIXTURE, type MachineDetail } from '@conductor/shared';
 import { describe, expect, it } from 'vitest';
 import {
+  cannotTakeReasons,
   countdown,
   formatRequirement,
   ghTooOld,
   ghTooOldText,
   routingNeeds,
+  routingRule,
   serviceCommand,
   shortRepo,
 } from './format.js';
@@ -57,6 +59,30 @@ describe('machines format (M2-T11)', () => {
     expect(
       routingNeeds({ missing_repo: 'github.com/org/app', missing_capabilities: ['cli:az'] }),
     ).toEqual(['org/app', 'az']);
+  });
+
+  it('repo-rule reasons (ADR-0013 amendment 2026-10-30)', () => {
+    expect(routingRule({ missing_capabilities: [] })).toBeNull();
+    expect(routingRule({ missing_capabilities: [], exclusive_to: ['A', 'B', 'C'] })).toBe(
+      'only A, B and C take this repo',
+    );
+    expect(routingRule({ missing_capabilities: [], excluded_by_rule: true })).toBe(
+      "left out by the machines' repo rules",
+    );
+    expect(
+      cannotTakeReasons({
+        ticket_id: 'a1000000-0000-4000-8000-0000000000a1',
+        title: 't',
+        missing_repo: 'github.com/work/app',
+        missing_capabilities: [],
+        excluded_by_rule: true,
+        exclusive_to: ['Work laptop'],
+      }),
+    ).toEqual([
+      'only Work laptop takes this repo',
+      "not in this machine's repo rules",
+      'needs work/app',
+    ]);
   });
 
   it('counts down in mm:ss, never below zero', () => {

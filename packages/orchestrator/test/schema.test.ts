@@ -122,6 +122,8 @@ const machine: ColumnSpec<MachineRow> = {
   daemon_version: col(t, NULL),
   protocol_version: col('int4', NULL),
   revoked_at: col('timestamptz', NULL),
+  repo_allow: col('_text', NULL),
+  repo_exclusive: col('_text', NN),
   created_at: col('timestamptz', NN),
   updated_at: col('timestamptz', NN),
 };

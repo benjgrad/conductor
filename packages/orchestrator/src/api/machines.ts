@@ -2,7 +2,7 @@ import {
   API_PATHS,
   EnrollRequestSchema,
   MACHINE_CANNOT_TAKE_MAX,
-  RenameMachineRequestSchema,
+  UpdateMachineRequestSchema,
   type MachineCannotTake,
   type EnrollmentTokenCreated,
   type MachineAlertDto,
@@ -15,6 +15,7 @@ import {
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { rateLimitRouteConfig } from '../auth/throttle.js';
 import type { Queryable } from '../contracts.js';
+import { withTransaction } from '../db/index.js';
 import type {
   MachineAlertRow,
   MachineCapabilityRow,
@@ -27,6 +28,7 @@ import { createEnrollmentToken, enrollMachine } from '../gateway/enroll.js';
 import {
   cannotTake,
   EFFECTIVE_VERSION_SQL,
+  loadExclusiveRules,
   machineFacts,
   requiredCaps,
 } from '../gateway/routing.js';
@@ -105,6 +107,8 @@ function toMachineRow(m: MachineListRow, servedVersion: string | null): MachineR
     outdated: isOutdated(m.daemon_version, servedVersion),
     repo_count: m.repo_count,
     revoked_at: iso(m.revoked_at),
+    repo_allow: m.repo_allow,
+    repo_exclusive: m.repo_exclusive,
   };
 }
 
@@ -178,7 +182,9 @@ async function loadCannotTake(
     m.id,
     repos.flatMap((r) => (r.remote === null ? [] : [r.remote])),
     caps.map((c) => c.key),
+    m.repo_allow,
   );
+  const exclusive = await loadExclusiveRules(db, m.account_id);
   const tickets = await db.query<{
     id: string;
     title: string;
@@ -197,7 +203,7 @@ async function loadCannotTake(
     if (t.v === null) continue;
     const reqs = await requiredCaps.get(db, t.workflow_id, t.v, t.kind).catch(() => null);
     if (reqs === null) continue;
-    const why = cannotTake(facts, t.repo, reqs);
+    const why = cannotTake(facts, t.repo, reqs, exclusive);
     if (why === null) continue;
     out.push({ ticket_id: t.id, title: t.title, ...why });
     if (out.length === MACHINE_CANNOT_TAKE_MAX) break;
@@ -300,16 +306,54 @@ export const registerMachineRoutes: FastifyPluginAsync<MachineRoutesOptions> = (
     return loadMachineDetail(db, m, servedVersion);
   });
 
+  // Rename and repo rules (ADR-0013 amendment 2026-10-30). The machines of the account are locked
+  // for the exclusive-conflict check, so two PATCHes can't both claim the same pattern.
+  // TD-199: only identical exclusive patterns conflict; overlapping ones (`org/*` and `org/app` on
+  // two machines) are accepted and leave those tickets to nobody.
+  // TD: no routing fan-out on a rule change (see MachineCardFields): Queued cards show the new
+  // routing on their next card event or board load.
   app.patch<IdParams>(API_PATHS.machine(':id'), async (req, reply) => {
-    const body = parseBody(RenameMachineRequestSchema, req.body, reply);
+    const body = parseBody(UpdateMachineRequestSchema, req.body, reply);
     if (!body) return reply;
     const accountId = req.auth!.scope.account_id;
-    const res = await db.query(
-      'UPDATE machine SET name = $3, updated_at = now() WHERE id = $1 AND account_id = $2',
-      [req.params.id, accountId, body.name],
-    );
-    const m = res.rowCount === 0 ? null : await loadMachine(db, accountId, req.params.id);
-    if (!m) return sendError(reply, 404, 'not_found', notFound(req.params.id));
+    const id = req.params.id;
+    const outcome = await withTransaction(db, async (tx) => {
+      const others = await tx.query<{ id: string; name: string; repo_exclusive: string[] }>(
+        `SELECT id, COALESCE(name, hostname) AS name, repo_exclusive FROM machine
+          WHERE account_id = $1 AND revoked_at IS NULL ORDER BY id FOR UPDATE`,
+        [accountId],
+      );
+      if (body.repo_exclusive !== undefined) {
+        for (const o of others.rows) {
+          if (o.id === id) continue;
+          const theirs = new Set(o.repo_exclusive.map((p) => p.toLowerCase()));
+          const clash = body.repo_exclusive.find((p) => theirs.has(p.toLowerCase()));
+          if (clash !== undefined)
+            return { conflict: `${clash} is already exclusive to ${o.name}` };
+        }
+      }
+      const res = await tx.query(
+        `UPDATE machine SET name = CASE WHEN $3 THEN $4 ELSE name END,
+                repo_allow = CASE WHEN $5 THEN $6::text[] ELSE repo_allow END,
+                repo_exclusive = CASE WHEN $7 THEN $8::text[] ELSE repo_exclusive END,
+                updated_at = now()
+          WHERE id = $1 AND account_id = $2`,
+        [
+          id,
+          accountId,
+          body.name !== undefined,
+          body.name ?? null,
+          body.repo_allow !== undefined,
+          body.repo_allow ?? null,
+          body.repo_exclusive !== undefined,
+          body.repo_exclusive ?? [],
+        ],
+      );
+      return { updated: res.rowCount !== 0 };
+    });
+    if ('conflict' in outcome) return sendError(reply, 409, 'conflict', outcome.conflict);
+    const m = outcome.updated ? await loadMachine(db, accountId, id) : null;
+    if (!m) return sendError(reply, 404, 'not_found', notFound(id));
     return toMachineRow(m, servedVersion);
   });
 

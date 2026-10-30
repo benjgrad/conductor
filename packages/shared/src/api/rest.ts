@@ -130,7 +130,7 @@ export const API_PATHS = {
   machinesEnroll: '/api/machines/enroll',
   /** POST `{}` → 201 EnrollmentTokenCreated. */
   machineEnrollmentTokens: '/api/machines/enrollment-tokens',
-  /** GET → MachineDetail; PATCH RenameMachineRequest → MachineRow. */
+  /** GET → MachineDetail; PATCH UpdateMachineRequest → MachineRow. */
   machine: (id: string) => `/api/machines/${id}`,
   /** POST `{}` → OkResponse; revokes the machine (socket closed with 4001). */
   machineRevoke: (id: string) => `/api/machines/${id}/revoke`,
@@ -396,11 +396,15 @@ export type BoardPending = z.infer<typeof BoardPendingSchema>;
 
 /**
  * M2 (ADR-0013 §Routing): why a Queued card waits. What no online machine of the account has:
- * the repo (`missing_repo`), then the capability keys (e.g. `cli:az:authed`).
+ * the repo (`missing_repo`), then the capability keys (e.g. `cli:az:authed`). `exclusive_to`: the
+ * names of the machines whose `repo_exclusive` claims the repo, when none of them is online;
+ * `excluded_by_rule`: every online machine with the repo is excluded by its own `repo_allow`.
  */
 export const BoardCardRoutingSchema = z.object({
   missing_repo: z.string().optional(),
   missing_capabilities: z.array(z.string()),
+  excluded_by_rule: z.literal(true).optional(),
+  exclusive_to: z.array(z.string()).optional(),
 });
 export type BoardCardRouting = z.infer<typeof BoardCardRoutingSchema>;
 

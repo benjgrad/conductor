@@ -231,7 +231,20 @@ export function MachinesPage({ api }: MachinesPageProps) {
           </tbody>
         </table>
       )}
-      {opened && <MachineDrawer machine={opened} onClose={() => setOpen(null)} />}
+      {opened && (
+        <MachineDrawer
+          machine={opened}
+          onClose={() => setOpen(null)}
+          onSaveRules={async (req) => {
+            // The drawer shows the error inline (e.g. a 409 exclusive conflict); reload either way.
+            try {
+              return await api.updateMachineRules(opened.id, req);
+            } finally {
+              load();
+            }
+          }}
+        />
+      )}
     </section>
   );
 }

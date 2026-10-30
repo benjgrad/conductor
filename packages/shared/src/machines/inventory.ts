@@ -26,6 +26,9 @@ const SEGMENT = '[A-Za-z0-9_][A-Za-z0-9._-]*';
  */
 export const CANONICAL_REMOTE_RE = new RegExp(`^${HOST}(?:/${SEGMENT}){2,}$`);
 
+/** A host and one or more segments: the prefix of a `host/org/*` repo pattern (repo-rules.ts). */
+export const REPO_PREFIX_RE = new RegExp(`^${HOST}(?:/${SEGMENT}){1,}$`);
+
 export function isCanonicalRemote(s: string): boolean {
   return (
     CANONICAL_REMOTE_RE.test(s) &&

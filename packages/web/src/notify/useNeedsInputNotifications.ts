@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import { EMPTY_BOARD, type BoardState } from '../board/board.js';
 import { agentName } from '../components/agent-identity.js';
 import { setFaviconDot } from './favicon.js';
+import { pushSubscribedHere } from './push.js';
 import { notifyState } from './settings.js';
 
 const TITLE = 'Conductor';
@@ -75,6 +76,8 @@ function notify(card: BoardCard, select: (sessionId: string) => void): Notificat
   const request = card.input_request;
   const sessionId = card.session_id;
   if (!request || sessionId === null || notifyState() !== 'on') return null;
+  // UX-16 FR-4: this device gets the push (same `tag`) from the service worker instead.
+  if (pushSubscribedHere()) return null;
   if (document.visibilityState !== 'hidden' && document.hasFocus()) return null;
   try {
     const n = new Notification(`${agentName(card.ticket_id)} needs input`, {

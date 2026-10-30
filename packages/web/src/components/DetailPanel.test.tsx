@@ -114,6 +114,49 @@ describe('history from the transcript (ADR-0008)', () => {
     });
     expect(fetched).toEqual([]);
   });
+
+  it('fills in the start of the conversation when the ring no longer reaches it', async () => {
+    const fetched: string[] = [];
+    let first = '';
+    const { panel } = await setup('Add pagination to /orders', (api) => {
+      const getSession = api.getSession.bind(api);
+      api.getSession = async (sid) => {
+        const d = await getSession(sid);
+        const recent = d.recent_output.map((c) => ({ ...c, stream: 'assistant' as const }));
+        first = recent[0]!.ts;
+        return { ...d, recent_output: recent, output_complete: false };
+      };
+      api.getTranscript = (sid) => {
+        fetched.push(sid);
+        const at = (ms: number) => new Date(Date.parse(first) + ms).toISOString();
+        const chunk = (stream: OutputChunk['stream'], text: string, ts: string) => ({
+          session_id: sid,
+          seq: 0,
+          stream,
+          text,
+          ts,
+        });
+        return Promise.resolve({
+          machine_id: 'mbp-ben',
+          truncated: false,
+          chunks: [
+            chunk(
+              'assistant',
+              'Earlier: read the orders handler before the checks ran.',
+              at(-60_000),
+            ),
+            // Also in the ring: not shown twice.
+            chunk('assistant', 'Only in the ring window.', at(0)),
+          ],
+        });
+      };
+    });
+    expect(
+      await panel.findByText('Earlier: read the orders handler before the checks ran.'),
+    ).toBeTruthy();
+    expect(panel.queryByText('Only in the ring window.')).toBeNull();
+    expect(fetched).toHaveLength(1);
+  });
 });
 
 describe('Brief card (UX-2)', () => {

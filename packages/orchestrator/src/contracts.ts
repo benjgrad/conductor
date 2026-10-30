@@ -358,18 +358,45 @@ export interface OutputBus {
   append(sessionId: string, stream: OutputStream, text: string, ts?: Date): OutputChunk;
   /** Ring contents, oldest first. */
   snapshot(sessionId: string): OutputChunk[];
+  /**
+   * Does the ring still hold every conversation chunk this process received for the session
+   * (none evicted)? It can't know about output from before an orchestrator restart.
+   */
+  complete(sessionId: string): boolean;
   subscribe(sessionId: string, listener: (chunk: OutputChunk) => void): () => void;
   /** Drop a session's ring (session done/failed). */
   clear(sessionId: string): void;
 }
 
-interface Ring {
+/**
+ * Command output: a check's or command state's stdout, and stderr (shared with the agent's CLI
+ * noise). A build or test log can be far larger than the conversation, so it is evicted first.
+ */
+const COMMAND_STREAMS: ReadonlySet<OutputStream> = new Set(['stdout', 'stderr']);
+/** Command output keeps at most this share of a full ring while the conversation needs room. */
+export const OUTPUT_RING_COMMAND_SHARE = 0.25;
+
+interface RingQueue {
   chunks: { chunk: OutputChunk; bytes: number }[];
   bytes: number;
-  nextSeq: number;
 }
 
-/** The M1 OutputBus: in-memory ring per session. Good enough to be the real one (U-005). */
+interface Ring {
+  /** The conversation (assistant, tool_use, tool_result, user, debug), oldest first. */
+  conversation: RingQueue;
+  /** Command output (COMMAND_STREAMS), oldest first. */
+  command: RingQueue;
+  nextSeq: number;
+  /** A conversation chunk was evicted: the ring no longer reaches the start of the chat. */
+  dropped: boolean;
+}
+
+/**
+ * The M1 OutputBus: in-memory ring per session. Good enough to be the real one (U-005). Over
+ * capacity it evicts the oldest command output while that holds more than
+ * OUTPUT_RING_COMMAND_SHARE of the ring (so a noisy check can't push the conversation out), then
+ * the oldest conversation chunk.
+ */
 export class InMemoryOutputBus implements OutputBus {
   private readonly rings = new Map<string, Ring>();
   private readonly listeners = new Map<string, Set<(chunk: OutputChunk) => void>>();
@@ -384,7 +411,12 @@ export class InMemoryOutputBus implements OutputBus {
   ): OutputChunk {
     let ring = this.rings.get(sessionId);
     if (!ring) {
-      ring = { chunks: [], bytes: 0, nextSeq: 0 };
+      ring = {
+        conversation: { chunks: [], bytes: 0 },
+        command: { chunks: [], bytes: 0 },
+        nextSeq: 0,
+        dropped: false,
+      };
       this.rings.set(sessionId, ring);
     }
     let body = text;
@@ -403,22 +435,50 @@ export class InMemoryOutputBus implements OutputBus {
       text: body,
       ts: ts.toISOString(),
     };
-    ring.chunks.push({ chunk, bytes });
-    ring.bytes += bytes;
-    while (ring.bytes > this.capacityBytes && ring.chunks.length > 0) {
-      ring.bytes -= ring.chunks.shift()!.bytes;
+    const queue = COMMAND_STREAMS.has(stream) ? ring.command : ring.conversation;
+    queue.chunks.push({ chunk, bytes });
+    queue.bytes += bytes;
+    const commandCap = this.capacityBytes * OUTPUT_RING_COMMAND_SHARE;
+    const { command, conversation } = ring;
+    while (command.bytes + conversation.bytes > this.capacityBytes) {
+      const evictCommand =
+        command.chunks.length > 0 &&
+        (command.bytes > commandCap || conversation.chunks.length === 0);
+      const from = evictCommand ? command : conversation;
+      from.bytes -= from.chunks.shift()!.bytes;
+      if (!evictCommand) ring.dropped = true;
     }
     for (const l of [...(this.listeners.get(sessionId) ?? [])]) l(chunk);
     return chunk;
   }
 
   snapshot(sessionId: string): OutputChunk[] {
-    return (this.rings.get(sessionId)?.chunks ?? []).map((c) => c.chunk);
+    const ring = this.rings.get(sessionId);
+    if (!ring) return [];
+    // The two queues merged back into seq order.
+    const a = ring.conversation.chunks;
+    const b = ring.command.chunks;
+    const out: OutputChunk[] = [];
+    let i = 0;
+    let j = 0;
+    while (i < a.length || j < b.length) {
+      if (j >= b.length || (i < a.length && a[i]!.chunk.seq < b[j]!.chunk.seq)) {
+        out.push(a[i++]!.chunk);
+      } else {
+        out.push(b[j++]!.chunk);
+      }
+    }
+    return out;
+  }
+
+  complete(sessionId: string): boolean {
+    return this.rings.get(sessionId)?.dropped !== true;
   }
 
   /** Bytes currently held for a session (tests / metrics). */
   size(sessionId: string): number {
-    return this.rings.get(sessionId)?.bytes ?? 0;
+    const ring = this.rings.get(sessionId);
+    return ring ? ring.conversation.bytes + ring.command.bytes : 0;
   }
 
   subscribe(sessionId: string, listener: (chunk: OutputChunk) => void): () => void {

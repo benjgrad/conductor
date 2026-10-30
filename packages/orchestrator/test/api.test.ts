@@ -433,6 +433,8 @@ describe('session detail', () => {
     expect(detail.budget).toEqual({ usd: 2, minutes: 60 });
     expect(detail.pending_input?.id).toBe(inputId);
     expect(detail.recent_output.map((c) => c.text)).toEqual(['hello ', 'world']);
+    // Created after this orchestrator started, nothing evicted: the ring has the whole chat.
+    expect(detail.output_complete).toBe(true);
     expect(detail.branch).toBe('conductor/x');
   });
 

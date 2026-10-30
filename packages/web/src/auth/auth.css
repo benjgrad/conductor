@@ -102,6 +102,12 @@ p.password-problems {
   color: var(--muted);
   font-size: 12px;
 }
+.account-hint {
+  margin: 0;
+  padding: var(--space-1) 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
 .auth-dialog {
   position: fixed;
   top: 64px;

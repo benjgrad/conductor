@@ -64,6 +64,10 @@ At every width, Repo is a free-text ARIA combobox (`components/RepoCombobox.tsx`
 - Focusing the field lists every repo, and typing filters them (a case-insensitive substring match, ranked order kept). Arrow keys move through the list, and Enter or a click picks a repo without submitting the form. Escape closes the list without closing the sheet.
 - After a create, the repo stays chosen and the list is fetched again.
 
+## Install (UX-16)
+
+Conductor installs to a phone's Home Screen and opens standalone (`manifest.webmanifest`; iOS Safari: Share → Add to Home Screen). The status bar is `black-translucent`, so the top bar's `env(safe-area-inset-top)` padding keeps it clear of the clock. On iOS, push notifications work only from the installed app: in a Safari tab the account menu says so. Web Push details: [10 §Web Push](10-contracts.md#web-push).
+
 ## Not covered
 
 - Browser Back doesn't close the panel or the sheet.

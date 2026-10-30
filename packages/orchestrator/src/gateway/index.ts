@@ -145,6 +145,8 @@ interface Conn {
    * session (or token) not in here is dropped.
    */
   owned: Map<string, number>;
+  /** The last `no_work` reason logged for this connection (M2-T36: log only on a change). */
+  lastNoWork: string | null;
 }
 
 interface TranscriptWaiter {
@@ -334,6 +336,7 @@ class Gateway implements DaemonGateway {
       queue: Promise.resolve(),
       closing: false,
       owned: new Map(),
+      lastNoWork: null,
     };
     this.conns.add(conn);
     ws.on('message', (data: RawData, isBinary: boolean) => {
@@ -758,16 +761,22 @@ class Gateway implements DaemonGateway {
   ): Promise<void> {
     const res = await claimWork(this.db, this.engine, machineId, msg.payload.free_slots);
     if (res.status === 'no_work') {
+      // M2-T36: the daemon polls every few seconds, so log a reason only when it changes.
+      if (res.reason !== conn.lastNoWork) {
+        conn.lastNoWork = res.reason;
+        this.log(`no work for ${machineId}: ${res.reason}`);
+      }
       this.reply(conn, {
         type: 'no_work',
         msg_id: randomUUID(),
         seq: null,
         session_id: null,
         fencing_token: null,
-        payload: {},
+        payload: { reason: res.reason },
       });
       return;
     }
+    conn.lastNoWork = null;
     this.publish(res.boardEvents);
     conn.owned.set(res.sessionId, res.fencingToken);
     this.reply(conn, {

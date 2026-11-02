@@ -11,6 +11,8 @@ import {
   type EngineRoute,
   type SessionDetail,
   type TicketStatus,
+  validateWorkflow,
+  type WorkflowDefinition,
 } from '@conductor/shared';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
@@ -27,9 +29,12 @@ import {
   setRepoChecks,
 } from '../api/repo-checks.js';
 import { loadSessionDetail } from '../api/sessions.js';
+import { insertWorkflowVersion, weakenedApprovals } from '../api/workflows.js';
+import { pathString } from '../api/errors.js';
 import { createTicket } from '../api/tickets.js';
 import { reopenSession } from '../engine/reopen.js';
-import { capJson } from './cap.js';
+import { conductorDefaultAvailable, newestShippedConductor } from '../engine/seed.js';
+import { capJson, TRUNCATED } from './cap.js';
 
 // ADR-0028: the MCP tools, one McpServer per request bound to the caller (stateless). Each tool
 // is scoped to the token's account: another account's ticket is "not found", like an unknown
@@ -37,10 +42,11 @@ import { capJson } from './cap.js';
 //
 // The tool set is deliberately small (Ben approved it, 2026-10-30). ADR-0030: conductor is
 // MCP-first for managing workflows, so every way to change what a workflow runs has a tool: the
-// per-repo checks (list/get/set/clear_repo_checks) and reading the workflow (get_workflow).
+// per-repo checks (list/get/set/clear_repo_checks), reading the workflow (get_workflow), and
+// saving it (save_workflow, adopt_default_workflow; ADR-0030 §Amendment: instance admins or local
+// mode only, because workflows are instance-wide, and never weakening `requires.approvals`).
 // Never exposed: approvals (`ui.approve`, a transition's `requires.approvals`), permission prompts
 // (ADR-0023), fresh conversations, machine enrollment, team and admin, transcripts and output.
-// Saving a whole workflow definition over MCP is a follow-up (ADR-0030 §Follow-ups).
 
 export interface ToolDeps {
   db: Db;
@@ -59,7 +65,8 @@ export const MCP_INSTRUCTIONS =
   'take_transition: it shows the open question and the allowed transition names. Approvals and ' +
   'agent permission prompts are answered on the board, not here. A repo whose build or tests ' +
   "don't fit the workflow's default checks gets its own with set_repo_checks (get_repo_checks " +
-  'shows what runs now); get_workflow shows the workflow itself.';
+  'shows what runs now); get_workflow shows the workflow itself, and admins change it with ' +
+  'save_workflow.';
 
 /** ADR-0030: how a repo check runs, for the tools' descriptions. */
 const REPO_CHECKS_HOW =
@@ -76,6 +83,10 @@ const QUESTION_MAX = 160;
 const BODY_MAX = 4000;
 const SNIPPET_MAX = 200;
 const MACHINE_REPOS_MAX = 10;
+/** save_workflow: the largest definition accepted, as JSON. */
+const WORKFLOW_MAX_BYTES = 256 * 1024;
+/** save_workflow: at most this many validator errors in the result. */
+const WORKFLOW_ERRORS_MAX = 50;
 
 const clip = (s: string, n: number): string => (s.length <= n ? s : s.slice(0, n - 1) + '…');
 
@@ -694,7 +705,9 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         'The workflow tickets run (`conductor` by default, latest version unless `version`). ' +
         'Without `state`: an outline (each state’s type, title and transition names) and every ' +
         'gate that runs checks. With `state`: that state’s full definition (prompt, transitions, ' +
-        'requirements, timeouts).',
+        'requirements, timeouts). `default_available`: a newer shipped default not yet adopted ' +
+        '(adopt_default_workflow). To edit, read each state, then send the whole definition to ' +
+        'save_workflow.',
       inputSchema: {
         workflow_id: z.string().min(1).max(100).optional().describe('Default conductor'),
         version: z.number().int().min(1).optional().describe('Default the latest'),
@@ -709,7 +722,12 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         return fail('not_found', `No workflow ${id}${version ? ` version ${version}` : ''}.`);
       }
       const def = detail.definition;
-      const head = { id: detail.id, version: detail.version, versions: detail.versions };
+      const head = {
+        id: detail.id,
+        version: detail.version,
+        versions: detail.versions,
+        default_available: await conductorDefaultAvailable(db, detail.id),
+      };
       if (state !== undefined) {
         const s = def.states[state];
         if (s === undefined) {
@@ -737,6 +755,126 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         ),
         check_gates: checksGatesOf(def),
       });
+    },
+  );
+
+  /**
+   * ADR-0030 §Amendment: workflows are instance-wide (until M2-T12), so a save changes every
+   * account's tickets. Only an instance admin, or the single user of local mode, may save.
+   */
+  const mayEditWorkflows = who.mode === 'local' || who.user.is_admin;
+  const notAdmin = () =>
+    fail(
+      'forbidden',
+      'Workflows are shared by every account on this instance: only an instance admin can save ' +
+        'them. Ask an admin, or use set_repo_checks for one repo’s checks.',
+    );
+  const baseVersionArg = z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe('Save only while this is still the latest version (get_workflow’s `version`)');
+  const writeWorkflow = {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: false,
+    openWorldHint: false,
+  } as const;
+
+  /** The approval guard, then the insert; the tool result either way. */
+  const saveChecked = async (def: WorkflowDefinition, baseVersion: number | undefined) => {
+    const weakened = await weakenedApprovals(db, def);
+    if (weakened.length > 0) {
+      return fail(
+        'approval_weakened',
+        `This would remove or bypass a human approval (${weakened.join(', ')}); change ` +
+          'approvals on the board, not over MCP.',
+        { transitions: weakened },
+      );
+    }
+    const res = await insertWorkflowVersion(db, def, {
+      createdBy: by,
+      ...(baseVersion !== undefined ? { baseVersion } : {}),
+    });
+    if (!res.ok && res.code === 'conflict') {
+      return fail(
+        'conflict',
+        `${def.id} changed since version ${baseVersion}: the latest is ${res.latest}. Read it ` +
+          'again with get_workflow.',
+        { latest: res.latest },
+      );
+    }
+    if (!res.ok) return fail(res.code, 'workflow definition is invalid');
+    return ok({
+      id: res.id,
+      version: res.version,
+      default_available: await conductorDefaultAvailable(db, res.id),
+    });
+  };
+
+  server.registerTool(
+    'save_workflow',
+    {
+      title: 'Save a workflow',
+      description:
+        'Save a whole workflow definition as its next version (instance admins only: it changes ' +
+        'the workflow for every account). New tickets, reopens and parked tickets follow it. An ' +
+        'invalid one returns invalid_workflow with each rule and path. It may not remove a human ' +
+        'approval. After a save of `conductor`, newer shipped defaults no longer install ' +
+        'themselves (get_workflow shows default_available). Ask the user first.',
+      inputSchema: {
+        definition: z
+          .record(z.string(), z.unknown())
+          .describe('The full definition: {id, version, start, states, …}, as get_workflow shows'),
+        base_version: baseVersionArg,
+      },
+      annotations: writeWorkflow,
+    },
+    async ({ definition, base_version }) => {
+      if (!mayEditWorkflows) return notAdmin();
+      const json = JSON.stringify(definition);
+      if (Buffer.byteLength(json, 'utf8') > WORKFLOW_MAX_BYTES) {
+        return fail('invalid_input', `The definition is over ${WORKFLOW_MAX_BYTES} bytes.`);
+      }
+      if (json.includes(TRUNCATED)) {
+        return fail(
+          'invalid_input',
+          `The definition contains "${TRUNCATED}": a tool result was cut short. Read that part ` +
+            'again (get_workflow with `state`) before saving.',
+        );
+      }
+      const checked = validateWorkflow(definition);
+      if (!checked.ok) {
+        return fail('invalid_workflow', 'workflow definition is invalid', {
+          errors: checked.errors.slice(0, WORKFLOW_ERRORS_MAX).map((e) => ({
+            rule: e.rule,
+            path: pathString(e.path),
+            message: e.message,
+          })),
+          ...(checked.errors.length > WORKFLOW_ERRORS_MAX
+            ? { more_errors: checked.errors.length - WORKFLOW_ERRORS_MAX }
+            : {}),
+        });
+      }
+      return saveChecked(checked.def, base_version);
+    },
+  );
+
+  server.registerTool(
+    'adopt_default_workflow',
+    {
+      title: 'Adopt the newest default workflow',
+      description:
+        'Save the newest shipped `conductor` workflow as its next version, replacing local edits ' +
+        '(instance admins only): after an edit, or when get_workflow shows default_available. ' +
+        'Later defaults still need adopting by hand. Ask the user first.',
+      inputSchema: { base_version: baseVersionArg },
+      annotations: writeWorkflow,
+    },
+    async ({ base_version }) => {
+      if (!mayEditWorkflows) return notAdmin();
+      return saveChecked(newestShippedConductor(), base_version);
     },
   );
 

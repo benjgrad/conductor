@@ -32,6 +32,8 @@ Connectors added on claude.ai also show up in Claude Desktop for the same Claude
 | `set_repo_checks` | Give a repo its own checks (e.g. `cd m-one && npm ci && npm run build`); they replace the workflow's build and test for that repo |
 | `clear_repo_checks` | Go back to the workflow's checks for a repo |
 | `get_workflow` | The workflow: its states and transitions, or one state in full |
+| `save_workflow` | Save a new version of a workflow (instance admins only: it changes the workflow for every account). It can't remove an approval |
+| `adopt_default_workflow` | Replace your edits with the newest shipped `conductor` workflow (instance admins only) |
 
 A move that needs an approval checkbox (such as a migration approval), and an agent's permission prompts, are answered on the board only: Claude gets the card's link instead.
 

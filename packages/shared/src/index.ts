@@ -15,6 +15,7 @@ export * from './workflow/capabilities.js';
 export * from './workflow/screenshots.js';
 export * from './workflow/editable.js';
 export * from './workflow/repo-checks.js';
+export * from './workflow/approvals-guard.js';
 export * from './engine/types.js';
 export {
   apply,

@@ -12,7 +12,6 @@ import {
   UpdateTicketRequestSchema,
   UuidSchema,
   httpForApplyResult,
-  validateWorkflow,
   type EngineEvent,
   type EngineRoute,
   type OkResponse,
@@ -38,6 +37,7 @@ import { parseLastEventId, serveBoardStream } from '../stream/board.js';
 import { serveOutputStream } from '../stream/output.js';
 import { SseHub } from '../stream/sse.js';
 import { parseBody, pathString, sendError } from './errors.js';
+import { saveWorkflowDefinition } from './workflows.js';
 import { registerMachineRoutes } from './machines.js';
 import { registerPermissionRoutes } from './permissions.js';
 import { registerPushRoutes } from './push.js';
@@ -55,7 +55,6 @@ import { registerTeamRoutes } from './team.js';
 export const UI_ACTOR = 'ui';
 
 const OK: OkResponse = { ok: true };
-const PG_UNIQUE_VIOLATION = '23505';
 
 type IdParams = { Params: { id: string } };
 
@@ -497,8 +496,8 @@ export const createApi = (({
   app.post(API_PATHS.workflows, async (req, reply) => {
     const body = parseBody(SaveWorkflowRequestSchema, req.body, reply);
     if (!body) return reply;
-    const result = validateWorkflow(body.definition);
-    if (!result.ok) {
+    const result = await saveWorkflowDefinition(db, body.definition);
+    if (!result.ok && result.code === 'invalid_workflow') {
       return sendError(
         reply,
         400,
@@ -510,24 +509,9 @@ export const createApi = (({
         })),
       );
     }
-    const def = result.def;
-    // The server assigns the version (max + 1); a concurrent save of the same id loses the
-    // primary-key race and retries.
-    for (let attempt = 0; ; attempt++) {
-      try {
-        const res = await db.query<{ version: number }>(
-          'INSERT INTO workflow_definition (id, version, definition) ' +
-            'SELECT $1::text, coalesce(max(version), 0) + 1, ' +
-            "jsonb_set($2::jsonb, '{version}', to_jsonb(coalesce(max(version), 0) + 1)) " +
-            'FROM workflow_definition WHERE id = $1::text RETURNING version',
-          [def.id, JSON.stringify(def)],
-        );
-        return await reply.code(201).send({ id: def.id, version: res.rows[0]!.version });
-      } catch (err) {
-        const code = (err as { code?: string }).code;
-        if (code !== PG_UNIQUE_VIOLATION || attempt >= 4) throw err;
-      }
-    }
+    // No base_version over REST, so no conflict either.
+    if (!result.ok) throw new Error(`unexpected workflow save result ${result.code}`);
+    return await reply.code(201).send({ id: result.id, version: result.version });
   });
 
   // ---------------------------------------------------------------- SSE

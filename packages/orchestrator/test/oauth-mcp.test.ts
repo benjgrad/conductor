@@ -3,7 +3,13 @@
 // subject). Needs `pnpm db:up`.
 import { createHash, randomBytes } from 'node:crypto';
 import { request } from 'node:http';
-import { API_PATHS } from '@conductor/shared';
+import {
+  API_PATHS,
+  CONDUCTOR_V4,
+  CONDUCTOR_V4_DEF,
+  transitionsOf,
+  type WorkflowDefinitionInput,
+} from '@conductor/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { disableUser } from '../src/auth/admin-commands.js';
 import { createSession } from '../src/auth/sessions.js';
@@ -76,8 +82,12 @@ const form = (body: Record<string, string>, headers: Record<string, string> = {}
   body: new URLSearchParams(body).toString(),
 });
 
-async function signedInUser() {
-  const u = await createUser(db.pool, { password: '', passwordHash: PASSWORD_HASH });
+async function signedInUser(opts: { admin?: boolean } = {}) {
+  const u = await createUser(db.pool, {
+    password: '',
+    passwordHash: PASSWORD_HASH,
+    ...(opts.admin ? { admin: true } : {}),
+  });
   const s = await createSession(db.pool, {
     userId: u.userId,
     accountId: u.accountId,
@@ -413,6 +423,7 @@ describe('/mcp', () => {
     const names = (list.json.result as { tools: { name: string }[] }).tools.map((t) => t.name);
     // The tool set Ben approved (2026-10-30), plus ADR-0030's workflow tools: nothing else.
     expect(names.sort()).toEqual([
+      'adopt_default_workflow',
       'answer_input',
       'cancel_ticket',
       'clear_repo_checks',
@@ -424,6 +435,7 @@ describe('/mcp', () => {
       'list_repo_checks',
       'list_tickets',
       'reopen_ticket',
+      'save_workflow',
       'search_tickets',
       'set_repo_checks',
       'take_transition',
@@ -778,5 +790,125 @@ describe('/mcp workflow tools', () => {
     expect(one.body).toMatchObject({ state: 'implementing', definition: { type: 'agent' } });
     const missing = await call(a.access, 'get_workflow', { state: 'nope' });
     expect([missing.isError, errorOf(missing).code]).toEqual([true, 'not_found']);
+  });
+
+  // ADR-0030 §Amendment: saving a workflow over MCP.
+  const def = (over: Partial<WorkflowDefinitionInput> = {}) =>
+    ({ ...structuredClone(CONDUCTOR_V4), ...over }) as Record<string, unknown>;
+  const versionsOf = async (id: string) =>
+    (
+      await db.pool.query<{ version: number; created_by: string | null }>(
+        'SELECT version, created_by FROM workflow_definition WHERE id = $1 ORDER BY version',
+        [id],
+      )
+    ).rows;
+
+  it('save_workflow refuses a non-admin, a truncated read and an invalid definition', async () => {
+    const user = await connect();
+    const denied = await call(user.access, 'save_workflow', { definition: def({ id: 'mcp_a' }) });
+    expect([denied.isError, errorOf(denied).code]).toEqual([true, 'forbidden']);
+    const denyAdopt = await call(user.access, 'adopt_default_workflow', {});
+    expect([denyAdopt.isError, errorOf(denyAdopt).code]).toEqual([true, 'forbidden']);
+
+    const admin = await connect(await signedInUser({ admin: true }));
+    const cut = def({ id: 'mcp_a' }) as { states: Record<string, { prompt?: string }> };
+    cut.states.planning!.prompt = 'Plan the work…[truncated]';
+    const truncated = await call(admin.access, 'save_workflow', { definition: cut });
+    expect([truncated.isError, errorOf(truncated).code]).toEqual([true, 'invalid_input']);
+
+    const invalid = await call(admin.access, 'save_workflow', {
+      definition: def({ id: 'mcp_a', start: 'nope' }),
+    });
+    expect([invalid.isError, errorOf(invalid).code]).toEqual([true, 'invalid_workflow']);
+    const errors = errorOf(invalid).errors as { rule: number; path: string; message: string }[];
+    const atStart = errors.filter((e) => e.path === 'start');
+    expect(atStart.length).toBeGreaterThan(0);
+    expect(atStart.every((e) => Number.isInteger(e.rule) && e.message.length > 0)).toBe(true);
+    expect(await versionsOf('mcp_a')).toEqual([]);
+  });
+
+  it('save_workflow saves the next version, checks base_version, and keeps approvals', async () => {
+    const admin = await connect(await signedInUser({ admin: true }));
+    const first = await call(admin.access, 'save_workflow', { definition: def({ id: 'mcp_b' }) });
+    expect(first.isError).toBe(false);
+    expect(first.body).toEqual({ id: 'mcp_b', version: 1, default_available: null });
+    const stale = await call(admin.access, 'save_workflow', {
+      definition: def({ id: 'mcp_b' }),
+      base_version: 7,
+    });
+    expect([stale.isError, errorOf(stale).code, errorOf(stale).latest]).toEqual([
+      true,
+      'conflict',
+      1,
+    ]);
+    const second = await call(admin.access, 'save_workflow', {
+      definition: def({ id: 'mcp_b' }),
+      base_version: 1,
+    });
+    expect(second.body).toMatchObject({ id: 'mcp_b', version: 2 });
+    expect(await versionsOf('mcp_b')).toEqual([
+      { version: 1, created_by: `mcp:${admin.user.email}` },
+      { version: 2, created_by: `mcp:${admin.user.email}` },
+    ]);
+
+    // A stored version with a human approval (written on the board): an MCP save without it is
+    // refused.
+    const gated = structuredClone(CONDUCTOR_V4_DEF) as unknown as {
+      id: string;
+      version: number;
+      states: Record<string, { on: Record<string, string | object> }>;
+    };
+    const name = transitionsOf(CONDUCTOR_V4_DEF, 'needs_input', { actor: 'human' })[0]!.name;
+    const t = gated.states.needs_input!.on[name];
+    gated.states.needs_input!.on[name] = {
+      ...(typeof t === 'string' ? { goto: t } : t),
+      requires: { approvals: [{ id: 'migration', label: 'Approve', paths: ['**/migrations/**'] }] },
+    };
+    gated.id = 'mcp_c';
+    await db.pool.query(
+      "INSERT INTO workflow_definition (id, version, definition) VALUES ('mcp_c', 1, $1)",
+      [JSON.stringify(gated)],
+    );
+    const weakened = await call(admin.access, 'save_workflow', {
+      definition: def({ id: 'mcp_c' }),
+    });
+    expect([weakened.isError, errorOf(weakened).code]).toEqual([true, 'approval_weakened']);
+    expect(errorOf(weakened).transitions).toEqual([`needs_input.${name}`]);
+    expect((await versionsOf('mcp_c')).length).toBe(1);
+  });
+
+  it('an edit of conductor stops the seed; adopt_default_workflow restores the default', async () => {
+    await seedConductorWorkflow(db.pool, { log: null });
+    const admin = await connect(await signedInUser({ admin: true }));
+    const before = await call(admin.access, 'get_workflow', {});
+    expect(before.body.default_available).toBeNull();
+    const latest = before.body.version as number;
+
+    const edited = def() as { states: Record<string, { title?: string }> };
+    edited.states.planning!.title = 'Plan it';
+    const saved = await call(admin.access, 'save_workflow', {
+      definition: edited,
+      base_version: latest,
+    });
+    // The shipped v4 is still stored, so nothing newer is available yet; a later shipped version
+    // would be (seed.test.ts), because the seed no longer follows an edited latest.
+    expect(saved.body).toEqual({ id: 'conductor', version: latest + 1, default_available: null });
+    expect(await seedConductorWorkflow(db.pool, { log: null })).toBe(false);
+    const after = await call(admin.access, 'get_workflow', { state: 'planning' });
+    expect(after.body).toMatchObject({
+      version: latest + 1,
+      default_available: null,
+      definition: { title: 'Plan it' },
+    });
+
+    const adopted = await call(admin.access, 'adopt_default_workflow', {
+      base_version: latest + 1,
+    });
+    expect(adopted.body).toEqual({ id: 'conductor', version: latest + 2, default_available: null });
+    const back = await call(admin.access, 'get_workflow', { state: 'planning' });
+    expect(back.body).toMatchObject({
+      version: latest + 2,
+      definition: { title: CONDUCTOR_V4_DEF.states.planning!.title },
+    });
   });
 });

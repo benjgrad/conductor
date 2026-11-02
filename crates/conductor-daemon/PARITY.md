@@ -28,15 +28,15 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 - [ ] `claude/cli-driver.test.ts`
 
-- [ ] `claude/edit-guard.test.ts`
+- [x] `claude/edit-guard.test.ts`
 
 - [x] `claude/fake-driver.test.ts`
 
-- [ ] `claude/outcome-server.test.ts`
+- [x] `claude/outcome-server.test.ts`
 
-- [ ] `claude/stream-parser.test.ts`
+- [x] `claude/stream-parser.test.ts`
 
-- [ ] `claude/transcript.test.ts`
+- [x] `claude/transcript.test.ts`
 
 - [ ] `commands/config.test.ts`
 
@@ -237,17 +237,17 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| claude/edit-guard.test.ts › edit guard settings › matches the file tools and pins the hook kill switches off (disableAllHooks, safe mode) | todo |
-| claude/edit-guard.test.ts › edit guard settings › writes the script and settings 0600 (win32: owner-only DACL) | todo |
-| claude/edit-guard.test.ts › edit guard settings › a path cmd.exe or Git Bash would reinterpret is refused at setup | todo |
-| claude/edit-guard.test.ts › edit guard › allows absolute paths inside the worktree, including new files in new directories | todo |
-| claude/edit-guard.test.ts › edit guard › blocks paths outside the worktree with exit 2 and a reason | todo |
-| claude/edit-guard.test.ts › edit guard › expands ~ like Claude Code and blocks home paths; refuses relative paths | todo |
-| claude/edit-guard.test.ts › edit guard › follows symlinks: to an existing dir, to a missing target, and `..` after a link | todo |
-| claude/edit-guard.test.ts › edit guard › checks every path field, not just the first | todo |
-| claude/edit-guard.test.ts › edit guard › fails closed: bad input, odd types, a guard crash, a missing script | todo |
-| claude/edit-guard.test.ts › edit guard › fails closed when node itself is missing (only exit 2 blocks) | todo |
-| claude/edit-guard.test.ts › edit guard path forms (win32) › allows and blocks the right path forms | todo |
+| claude/edit-guard.test.ts › edit guard settings › matches the file tools and pins the hook kill switches off (disableAllHooks, safe mode) | crates/conductor-daemon/tests/edit_guard.rs::settings_match_the_file_tools_and_pin_the_kill_switches_off, crates/conductor-daemon/src/claude/edit_guard.rs::tests::settings_match_the_file_tools_and_pin_the_kill_switches_off |
+| claude/edit-guard.test.ts › edit guard settings › writes the script and settings 0600 (win32: owner-only DACL) | crates/conductor-daemon/tests/edit_guard.rs::writes_the_settings_0600_or_owner_only |
+| claude/edit-guard.test.ts › edit guard settings › a path cmd.exe or Git Bash would reinterpret is refused at setup | crates/conductor-daemon/tests/edit_guard.rs::a_path_cmd_or_git_bash_would_reinterpret_is_refused_at_setup |
+| claude/edit-guard.test.ts › edit guard › allows absolute paths inside the worktree, including new files in new directories | crates/conductor-daemon/tests/edit_guard.rs::allows_absolute_paths_inside_the_worktree_including_new_dirs |
+| claude/edit-guard.test.ts › edit guard › blocks paths outside the worktree with exit 2 and a reason | crates/conductor-daemon/tests/edit_guard.rs::blocks_paths_outside_the_worktree_with_exit_2_and_a_reason |
+| claude/edit-guard.test.ts › edit guard › expands ~ like Claude Code and blocks home paths; refuses relative paths | crates/conductor-daemon/tests/edit_guard.rs::expands_tilde_and_blocks_home_paths_refuses_relative_paths |
+| claude/edit-guard.test.ts › edit guard › follows symlinks: to an existing dir, to a missing target, and `..` after a link | crates/conductor-daemon/tests/edit_guard.rs::follows_symlinks_existing_missing_and_dotdot_after_a_link, crates/conductor-daemon/src/claude/edit_guard.rs::tests::posix_rules_through_a_fake_fs |
+| claude/edit-guard.test.ts › edit guard › checks every path field, not just the first | crates/conductor-daemon/tests/edit_guard.rs::checks_every_path_field_not_just_the_first |
+| claude/edit-guard.test.ts › edit guard › fails closed: bad input, odd types, a guard crash, a missing script | crates/conductor-daemon/tests/edit_guard.rs::fails_closed_on_bad_input_and_odd_types, crates/conductor-daemon/src/claude/edit_guard.rs::tests::input_shapes_fail_closed, crates/conductor-daemon/src/claude/edit_guard.rs::tests::the_hook_writes_the_reason_and_exits_2 |
+| claude/edit-guard.test.ts › edit guard › fails closed when node itself is missing (only exit 2 blocks) | crates/conductor-daemon/tests/edit_guard.rs::fails_closed_when_the_daemon_executable_is_missing |
+| claude/edit-guard.test.ts › edit guard path forms (win32) › allows and blocks the right path forms | crates/conductor-daemon/tests/edit_guard.rs::windows_allows_and_blocks_the_right_path_forms, crates/conductor-daemon/src/claude/edit_guard.rs::tests::windows_path_forms_through_a_fake_fs |
 
 ### claude/fake-driver.test.ts
 
@@ -262,56 +262,56 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| claude/outcome-server.test.ts › outcome server › binds 127.0.0.1 and issues a 128-bit path token per session | todo |
-| claude/outcome-server.test.ts › outcome server › lists exactly complete_state, ask_user and (ADR-0023) permission | todo |
-| claude/outcome-server.test.ts › outcome server › ask_user returns at once with the ADR text; complete_state after the answer records | todo |
-| claude/outcome-server.test.ts › outcome server › attributes calls to the session that owns the token | todo |
-| claude/outcome-server.test.ts › outcome server › rejects invalid arguments without emitting | todo |
-| claude/outcome-server.test.ts › outcome server › 404s unknown and unregistered tokens, 405s non-POST, 403s foreign Host headers | todo |
-| claude/outcome-server.test.ts › outcome server › ADR-0011 transitions › emits a valid name with its reason | todo |
-| claude/outcome-server.test.ts › outcome server › ADR-0011 transitions › refuses an unknown name once with the allowed list, then emits the next one as is | todo |
-| claude/outcome-server.test.ts › outcome server › ADR-0011 transitions › a missing transition means done: nudged when done is not allowed | todo |
-| claude/outcome-server.test.ts › outcome server › ADR-0011 transitions › no list (old workflows, reviewers): any name passes | todo |
-| claude/outcome-server.test.ts › outcome server › ADR-0011 transitions › the tool description lists the transitions | todo |
-| claude/outcome-server.test.ts › outcome server › ADR-0011 transitions › caps transition and reason at the tool call | todo |
-| claude/outcome-server.test.ts › ADR-0023 permission tool › holds the call until allow once: Claude gets the input back | todo |
-| claude/outcome-server.test.ts › ADR-0023 permission tool › allow always with a rule adds a session rule so this process does not ask again | todo |
-| claude/outcome-server.test.ts › ADR-0023 permission tool › deny: the human note, or the default text | todo |
-| claude/outcome-server.test.ts › ADR-0023 permission tool › denies itself at the timeout; a later decision is unknown | todo |
-| claude/outcome-server.test.ts › ADR-0023 permission tool › U-101: input over 64 KiB is denied at once and never sent | todo |
-| claude/outcome-server.test.ts › ADR-0023 permission tool › passes suggestions within bounds, drops them over the bounds | todo |
-| claude/outcome-server.test.ts › ADR-0023 permission tool › denyPermission (an old server) denies the held call at once | todo |
-| claude/outcome-server.test.ts › ADR-0023 permission tool › unregister (process gone) denies every held call; later prompts too | todo |
-| claude/outcome-server.test.ts › ADR-0023 permission tool › close (daemon shutdown) denies every held call | todo |
-| claude/outcome-server.test.ts › ADR-0023 permission tool › no handler: denied at once | todo |
+| claude/outcome-server.test.ts › outcome server › binds 127.0.0.1 and issues a 128-bit path token per session | crates/conductor-daemon/src/claude/outcome_server.rs::tests::binds_127_0_0_1_and_issues_a_128_bit_path_token_per_session |
+| claude/outcome-server.test.ts › outcome server › lists exactly complete_state, ask_user and (ADR-0023) permission | crates/conductor-daemon/src/claude/outcome_server.rs::tests::lists_exactly_complete_state_ask_user_and_permission |
+| claude/outcome-server.test.ts › outcome server › ask_user returns at once with the ADR text; complete_state after the answer records | crates/conductor-daemon/src/claude/outcome_server.rs::tests::ask_user_returns_at_once_and_complete_state_after_the_answer_records |
+| claude/outcome-server.test.ts › outcome server › attributes calls to the session that owns the token | crates/conductor-daemon/src/claude/outcome_server.rs::tests::attributes_calls_to_the_session_that_owns_the_token |
+| claude/outcome-server.test.ts › outcome server › rejects invalid arguments without emitting | crates/conductor-daemon/src/claude/outcome_server.rs::tests::rejects_invalid_arguments_without_emitting |
+| claude/outcome-server.test.ts › outcome server › 404s unknown and unregistered tokens, 405s non-POST, 403s foreign Host headers | crates/conductor-daemon/src/claude/outcome_server.rs::tests::status_404_405_403_and_unregister |
+| claude/outcome-server.test.ts › outcome server › ADR-0011 transitions › emits a valid name with its reason | crates/conductor-daemon/src/claude/outcome_server.rs::tests::adr_0011_emits_a_valid_name_with_its_reason |
+| claude/outcome-server.test.ts › outcome server › ADR-0011 transitions › refuses an unknown name once with the allowed list, then emits the next one as is | crates/conductor-daemon/src/claude/outcome_server.rs::tests::adr_0011_refuses_an_unknown_name_once_then_emits_the_next_as_is |
+| claude/outcome-server.test.ts › outcome server › ADR-0011 transitions › a missing transition means done: nudged when done is not allowed | crates/conductor-daemon/src/claude/outcome_server.rs::tests::adr_0011_a_missing_transition_means_done |
+| claude/outcome-server.test.ts › outcome server › ADR-0011 transitions › no list (old workflows, reviewers): any name passes | crates/conductor-daemon/src/claude/outcome_server.rs::tests::adr_0011_no_list_any_name_passes |
+| claude/outcome-server.test.ts › outcome server › ADR-0011 transitions › the tool description lists the transitions | crates/conductor-daemon/src/claude/outcome_server.rs::tests::adr_0011_the_tool_description_lists_the_transitions |
+| claude/outcome-server.test.ts › outcome server › ADR-0011 transitions › caps transition and reason at the tool call | crates/conductor-daemon/src/claude/outcome_server.rs::tests::adr_0011_caps_transition_and_reason_at_the_tool_call |
+| claude/outcome-server.test.ts › ADR-0023 permission tool › holds the call until allow once: Claude gets the input back | crates/conductor-daemon/src/claude/outcome_server.rs::tests::holds_the_call_until_allow_once_and_claude_gets_the_input_back |
+| claude/outcome-server.test.ts › ADR-0023 permission tool › allow always with a rule adds a session rule so this process does not ask again | crates/conductor-daemon/src/claude/outcome_server.rs::tests::allow_always_with_a_rule_adds_a_session_rule |
+| claude/outcome-server.test.ts › ADR-0023 permission tool › deny: the human note, or the default text | crates/conductor-daemon/src/claude/outcome_server.rs::tests::deny_the_human_note_or_the_default_text |
+| claude/outcome-server.test.ts › ADR-0023 permission tool › denies itself at the timeout; a later decision is unknown | crates/conductor-daemon/src/claude/outcome_server.rs::tests::denies_itself_at_the_timeout_and_a_later_decision_is_unknown |
+| claude/outcome-server.test.ts › ADR-0023 permission tool › U-101: input over 64 KiB is denied at once and never sent | crates/conductor-daemon/src/claude/outcome_server.rs::tests::u101_input_over_64_kib_is_denied_at_once_and_never_sent |
+| claude/outcome-server.test.ts › ADR-0023 permission tool › passes suggestions within bounds, drops them over the bounds | crates/conductor-daemon/src/claude/outcome_server.rs::tests::passes_suggestions_within_bounds_and_drops_them_over_the_bounds |
+| claude/outcome-server.test.ts › ADR-0023 permission tool › denyPermission (an old server) denies the held call at once | crates/conductor-daemon/src/claude/outcome_server.rs::tests::deny_permission_from_an_old_server_denies_the_held_call_at_once |
+| claude/outcome-server.test.ts › ADR-0023 permission tool › unregister (process gone) denies every held call; later prompts too | crates/conductor-daemon/src/claude/outcome_server.rs::tests::unregister_denies_every_held_call_and_later_prompts |
+| claude/outcome-server.test.ts › ADR-0023 permission tool › close (daemon shutdown) denies every held call | crates/conductor-daemon/src/claude/outcome_server.rs::tests::close_denies_every_held_call |
+| claude/outcome-server.test.ts › ADR-0023 permission tool › no handler: denied at once | crates/conductor-daemon/src/claude/outcome_server.rs::tests::no_handler_denied_at_once |
 | claude/outcome-server.test.ts › ADR-0023 permission tool › parses exact rules into toolName / ruleContent | crates/conductor-daemon/src/claude/outcome_server.rs::tests::parses_exact_rules_into_tool_name_rule_content |
 
 ### claude/stream-parser.test.ts
 
 | TS case | Rust |
 |---|---|
-| claude/stream-parser.test.ts › parseStreamLine › reads session id and CLI version from system/init | todo |
-| claude/stream-parser.test.ts › parseStreamLine › maps result to spend (cumulative total, per-turn usage) then turn_end | todo |
-| claude/stream-parser.test.ts › parseStreamLine › result without a cost still ends the turn; error results are flagged | todo |
-| claude/stream-parser.test.ts › parseStreamLine › maps assistant text and tool_use blocks, drops thinking | todo |
-| claude/stream-parser.test.ts › parseStreamLine › maps user tool_result content (string or blocks) | todo |
-| claude/stream-parser.test.ts › parseStreamLine › is lenient: garbage, non-objects and unknown types become debug output | todo |
-| claude/stream-parser.test.ts › parseStreamLine › drops system/thinking_tokens progress estimates | todo |
+| claude/stream-parser.test.ts › parseStreamLine › reads session id and CLI version from system/init | crates/conductor-daemon/src/claude/stream_parser.rs::tests::reads_session_id_and_cli_version_from_system_init |
+| claude/stream-parser.test.ts › parseStreamLine › maps result to spend (cumulative total, per-turn usage) then turn_end | crates/conductor-daemon/src/claude/stream_parser.rs::tests::maps_result_to_spend_then_turn_end |
+| claude/stream-parser.test.ts › parseStreamLine › result without a cost still ends the turn; error results are flagged | crates/conductor-daemon/src/claude/stream_parser.rs::tests::result_without_a_cost_still_ends_the_turn_and_flags_errors |
+| claude/stream-parser.test.ts › parseStreamLine › maps assistant text and tool_use blocks, drops thinking | crates/conductor-daemon/src/claude/stream_parser.rs::tests::maps_assistant_text_and_tool_use_blocks_drops_thinking |
+| claude/stream-parser.test.ts › parseStreamLine › maps user tool_result content (string or blocks) | crates/conductor-daemon/src/claude/stream_parser.rs::tests::maps_user_tool_result_content_string_or_blocks |
+| claude/stream-parser.test.ts › parseStreamLine › is lenient: garbage, non-objects and unknown types become debug output | crates/conductor-daemon/src/claude/stream_parser.rs::tests::is_lenient_garbage_non_objects_and_unknown_types_become_debug |
+| claude/stream-parser.test.ts › parseStreamLine › drops system/thinking_tokens progress estimates | crates/conductor-daemon/src/claude/stream_parser.rs::tests::drops_system_thinking_tokens_progress_estimates |
 
 ### claude/transcript.test.ts
 
 | TS case | Rust |
 |---|---|
-| claude/transcript.test.ts › transcriptChunks (ADR-0008) › maps a real-shaped transcript to the live parser streams, skipping everything else | todo |
-| claude/transcript.test.ts › transcriptChunks (ADR-0008) › renders assistant and tool lines exactly like the live stream parser | todo |
-| claude/transcript.test.ts › transcriptChunks (ADR-0008) › cuts each tool result at TRANSCRIPT_RESULT_CHARS with a marker | todo |
-| claude/transcript.test.ts › transcriptChunks (ADR-0008) › keeps the most recent chunks within TRANSCRIPT_MAX_BYTES | todo |
-| claude/transcript.test.ts › findTranscript › uses the realpath slug of the cwd, even when the worktree is gone | todo |
-| claude/transcript.test.ts › findTranscript › falls back to the newest project dir holding the id (a resume from another cwd) | todo |
-| claude/transcript.test.ts › findTranscript › refuses an id that is not a uuid (never a path) | todo |
-| claude/transcript.test.ts › findTranscript › readTranscriptTail reads a small file whole | todo |
-| claude/transcript.test.ts › hasTranscriptInCwd (the resume check) › only the cwd's own project dir counts (claude --resume looks nowhere else) | todo |
-| claude/transcript.test.ts › hasTranscriptInCwd (the resume check) › refuses an id that is not a uuid | todo |
+| claude/transcript.test.ts › transcriptChunks (ADR-0008) › maps a real-shaped transcript to the live parser streams, skipping everything else | crates/conductor-daemon/src/claude/transcript.rs::tests::maps_a_real_shaped_transcript_to_the_live_parser_streams, crates/conductor-daemon/src/claude/transcript.rs::tests::skips_meta_sidechain_and_other_lines_and_inherits_timestamps |
+| claude/transcript.test.ts › transcriptChunks (ADR-0008) › renders assistant and tool lines exactly like the live stream parser | crates/conductor-daemon/src/claude/transcript.rs::tests::renders_assistant_and_tool_lines_exactly_like_the_live_parser |
+| claude/transcript.test.ts › transcriptChunks (ADR-0008) › cuts each tool result at TRANSCRIPT_RESULT_CHARS with a marker | crates/conductor-daemon/src/claude/transcript.rs::tests::cuts_each_tool_result_at_transcript_result_chars_with_a_marker |
+| claude/transcript.test.ts › transcriptChunks (ADR-0008) › keeps the most recent chunks within TRANSCRIPT_MAX_BYTES | crates/conductor-daemon/src/claude/transcript.rs::tests::keeps_the_most_recent_chunks_within_transcript_max_bytes |
+| claude/transcript.test.ts › findTranscript › uses the realpath slug of the cwd, even when the worktree is gone | crates/conductor-daemon/src/claude/transcript.rs::tests::uses_the_realpath_slug_of_the_cwd_even_when_the_worktree_is_gone, crates/conductor-daemon/src/claude/transcript.rs::tests::slug_and_verbatim_paths |
+| claude/transcript.test.ts › findTranscript › falls back to the newest project dir holding the id (a resume from another cwd) | crates/conductor-daemon/src/claude/transcript.rs::tests::falls_back_to_the_newest_project_dir_holding_the_id |
+| claude/transcript.test.ts › findTranscript › refuses an id that is not a uuid (never a path) | crates/conductor-daemon/src/claude/transcript.rs::tests::find_transcript_refuses_an_id_that_is_not_a_uuid |
+| claude/transcript.test.ts › findTranscript › readTranscriptTail reads a small file whole | crates/conductor-daemon/src/claude/transcript.rs::tests::read_transcript_tail_reads_a_small_file_whole |
+| claude/transcript.test.ts › hasTranscriptInCwd (the resume check) › only the cwd's own project dir counts (claude --resume looks nowhere else) | crates/conductor-daemon/src/claude/transcript.rs::tests::only_the_cwds_own_project_dir_counts_for_resume |
+| claude/transcript.test.ts › hasTranscriptInCwd (the resume check) › refuses an id that is not a uuid | crates/conductor-daemon/src/claude/transcript.rs::tests::has_transcript_in_cwd_refuses_an_id_that_is_not_a_uuid |
 
 ### commands/config.test.ts
 

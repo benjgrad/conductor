@@ -27,6 +27,7 @@ hex.workspace = true
 http.workspace = true
 rand.workspace = true
 reqwest.workspace = true
+ryu-js.workspace = true
 rmcp.workspace = true
 schemars.workspace = true
 serde.workspace = true

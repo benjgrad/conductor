@@ -10,6 +10,7 @@ import {
   type Capability,
 } from '../machines/capabilities.js';
 import { InventoryRepoSchema, isCanonicalRemote } from '../machines/inventory.js';
+import { matchingPaths } from '../workflow/screenshots.js';
 import { resolveToolPolicy, UnknownToolAliasError } from '../workflow/tools.js';
 import {
   ClosePrArgsSchema,
@@ -59,6 +60,7 @@ describe('shared vectors (also run by conductor-protocol)', () => {
         'daemonAuthHeaderValue',
         'isCanonicalRemote',
         'jsonByteLength',
+        'matchingPaths',
         'resolveToolPolicy',
       ].map((n) => `${n}.json`),
     );
@@ -102,6 +104,14 @@ describe('shared vectors (also run by conductor-protocol)', () => {
   it('jsonByteLength', () => {
     for (const c of vector<unknown, number>('jsonByteLength')) {
       expect(jsonByteLength(c.input), JSON.stringify(c.input)).toBe(c.expected);
+    }
+  });
+
+  it('matchingPaths', () => {
+    for (const c of vector<{ paths: string[]; globs: string[] }, string[]>('matchingPaths')) {
+      expect(matchingPaths(c.input.paths, c.input.globs), JSON.stringify(c.input)).toEqual(
+        c.expected,
+      );
     }
   });
 

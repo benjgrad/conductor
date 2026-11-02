@@ -1,0 +1,457 @@
+{
+  "function": "matchingPaths",
+  "description": "matchingPaths(paths, globs) → string[] (workflow/screenshots.ts; globToRegExp)",
+  "cases": [
+    {
+      "input": {
+        "paths": [
+          "App.tsx"
+        ],
+        "globs": [
+          "**/*.tsx"
+        ]
+      },
+      "expected": [
+        "App.tsx"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "packages/web/src/App.tsx"
+        ],
+        "globs": [
+          "**/*.tsx"
+        ]
+      },
+      "expected": [
+        "packages/web/src/App.tsx"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "packages/web/src/App.ts"
+        ],
+        "globs": [
+          "**/*.tsx"
+        ]
+      },
+      "expected": []
+    },
+    {
+      "input": {
+        "paths": [
+          "App.tsx"
+        ],
+        "globs": [
+          "*.tsx"
+        ]
+      },
+      "expected": [
+        "App.tsx"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "src/App.tsx"
+        ],
+        "globs": [
+          "*.tsx"
+        ]
+      },
+      "expected": []
+    },
+    {
+      "input": {
+        "paths": [
+          "packages/web/src/a/b.css"
+        ],
+        "globs": [
+          "packages/web/**"
+        ]
+      },
+      "expected": [
+        "packages/web/src/a/b.css"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "packages/webx/a.css"
+        ],
+        "globs": [
+          "packages/web/**"
+        ]
+      },
+      "expected": []
+    },
+    {
+      "input": {
+        "paths": [
+          "src/test/a.ts"
+        ],
+        "globs": [
+          "src/**/test/*.ts"
+        ]
+      },
+      "expected": [
+        "src/test/a.ts"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "src/x/y/test/a.ts"
+        ],
+        "globs": [
+          "src/**/test/*.ts"
+        ]
+      },
+      "expected": [
+        "src/x/y/test/a.ts"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "a/b.css"
+        ],
+        "globs": [
+          "**/*.{tsx,css}"
+        ]
+      },
+      "expected": [
+        "a/b.css"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "a/b.scss"
+        ],
+        "globs": [
+          "**/*.{tsx,css}"
+        ]
+      },
+      "expected": []
+    },
+    {
+      "input": {
+        "paths": [
+          "abc.md"
+        ],
+        "globs": [
+          "a?c.md"
+        ]
+      },
+      "expected": [
+        "abc.md"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "a/c.md"
+        ],
+        "globs": [
+          "a?c.md"
+        ]
+      },
+      "expected": []
+    },
+    {
+      "input": {
+        "paths": [
+          "docs/(x).md"
+        ],
+        "globs": [
+          "docs/(x).md"
+        ]
+      },
+      "expected": [
+        "docs/(x).md"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          ".github/x.css"
+        ],
+        "globs": [
+          "**/*.css"
+        ]
+      },
+      "expected": [
+        ".github/x.css"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "a{b"
+        ],
+        "globs": [
+          "a{b"
+        ]
+      },
+      "expected": [
+        "a{b"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "a{b,c"
+        ],
+        "globs": [
+          "a{b,c"
+        ]
+      },
+      "expected": [
+        "a{b,c"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "ab"
+        ],
+        "globs": [
+          "a{b,c"
+        ]
+      },
+      "expected": []
+    },
+    {
+      "input": {
+        "paths": [
+          "xay"
+        ],
+        "globs": [
+          "x**y"
+        ]
+      },
+      "expected": [
+        "xay"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "xa/y"
+        ],
+        "globs": [
+          "x**y"
+        ]
+      },
+      "expected": []
+    },
+    {
+      "input": {
+        "paths": [
+          "a/b/c"
+        ],
+        "globs": [
+          "**"
+        ]
+      },
+      "expected": [
+        "a/b/c"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "a/b"
+        ],
+        "globs": [
+          "a/**/b"
+        ]
+      },
+      "expected": [
+        "a/b"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "a/x/y/b"
+        ],
+        "globs": [
+          "a/**/b"
+        ]
+      },
+      "expected": [
+        "a/x/y/b"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "a.b+c$^"
+        ],
+        "globs": [
+          "a.b+c$^"
+        ]
+      },
+      "expected": [
+        "a.b+c$^"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "axb"
+        ],
+        "globs": [
+          "a.b"
+        ]
+      },
+      "expected": []
+    },
+    {
+      "input": {
+        "paths": [
+          "[ab]"
+        ],
+        "globs": [
+          "[ab]"
+        ]
+      },
+      "expected": [
+        "[ab]"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "a"
+        ],
+        "globs": [
+          "[ab]"
+        ]
+      },
+      "expected": []
+    },
+    {
+      "input": {
+        "paths": [
+          "a|b"
+        ],
+        "globs": [
+          "a|b"
+        ]
+      },
+      "expected": [
+        "a|b"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "a"
+        ],
+        "globs": [
+          "a|b"
+        ]
+      },
+      "expected": []
+    },
+    {
+      "input": {
+        "paths": [
+          "\\d"
+        ],
+        "globs": [
+          "\\d"
+        ]
+      },
+      "expected": [
+        "\\d"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "b/c"
+        ],
+        "globs": [
+          "{a,b}/c"
+        ]
+      },
+      "expected": [
+        "b/c"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "ab/c"
+        ],
+        "globs": [
+          "{a,b}/c"
+        ]
+      },
+      "expected": []
+    },
+    {
+      "input": {
+        "paths": [
+          "README.md",
+          "packages/web/src/App.tsx",
+          "src/x.ts",
+          "web/styles.css"
+        ],
+        "globs": [
+          "**/*.{tsx,jsx,vue,svelte,css,scss,html}"
+        ]
+      },
+      "expected": [
+        "packages/web/src/App.tsx",
+        "web/styles.css"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "README.md",
+          "packages/web/src/App.tsx",
+          "src/x.ts",
+          "web/styles.css"
+        ],
+        "globs": [
+          "**/*.go"
+        ]
+      },
+      "expected": []
+    },
+    {
+      "input": {
+        "paths": [
+          "a.md",
+          "b.ts",
+          "c.css"
+        ],
+        "globs": [
+          "*.css",
+          "*.md"
+        ]
+      },
+      "expected": [
+        "a.md",
+        "c.css"
+      ]
+    },
+    {
+      "input": {
+        "paths": [
+          "a.md"
+        ],
+        "globs": []
+      },
+      "expected": []
+    }
+  ]
+}

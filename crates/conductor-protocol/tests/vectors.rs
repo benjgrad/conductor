@@ -8,6 +8,7 @@ use conductor_protocol::auth::daemon_auth_header_value;
 use conductor_protocol::capabilities::{capability_key, capability_keys, cli_version_at_least};
 use conductor_protocol::json::json_byte_length;
 use conductor_protocol::repo::{canonical_repo, is_canonical_remote};
+use conductor_protocol::screenshots::matching_paths;
 use conductor_protocol::tool_policy::{ToolPolicy, resolve_tool_policy};
 use serde_json::Value;
 
@@ -120,5 +121,26 @@ fn resolve_tool_policy_vectors() {
                 assert_eq!(e.names, expected, "{tools:?}");
             }
         }
+    }
+}
+
+#[test]
+fn matching_paths_vectors() {
+    let strings = |v: &Value| -> Vec<String> {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|s| str_of(s).to_string())
+            .collect()
+    };
+    for c in cases("matchingPaths") {
+        let paths = strings(&c["input"]["paths"]);
+        let globs = strings(&c["input"]["globs"]);
+        assert_eq!(
+            matching_paths(&paths, &globs),
+            strings(&c["expected"]),
+            "{:?}",
+            c["input"]
+        );
     }
 }

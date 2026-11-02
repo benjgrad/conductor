@@ -33,7 +33,7 @@ crate, so it still runs when the checked-in `generated.rs` no longer compiles.
 |---|---|---|
 | Every fixture of `protocol/fixtures.ts` parses, re-serialises and equals the original (sorted keys, `2.0` = `2`) | `tests/roundtrip.rs` | — |
 | The Rust output (`protocol-json/roundtrip/*.json`, golden files) parses with the zod schemas and equals the fixture | the goldens must match | `src/protocol/protocol-json.test.ts` |
-| Shared vectors (`protocol-json/vectors/*.json`) for `resolveToolPolicy`, `canonicalRepo`, `isCanonicalRemote`, `cliVersionAtLeast`, `capabilityKey(s)`, `daemonAuthHeaderValue`, `jsonByteLength` | `tests/vectors.rs` | `src/protocol/protocol-json.test.ts` |
+| Shared vectors (`protocol-json/vectors/*.json`) for `resolveToolPolicy`, `canonicalRepo`, `isCanonicalRemote`, `cliVersionAtLeast`, `capabilityKey(s)`, `daemonAuthHeaderValue`, `jsonByteLength`, `matchingPaths` (MR-T10) | `tests/vectors.rs` | `src/protocol/protocol-json.test.ts` |
 
 The vectors are hand-maintained data: add a case when you find a difference, and both sides
 must pass it.
@@ -44,7 +44,7 @@ must pass it.
   constants of `constants.json` (`PROTOCOL_VERSION`, `CLOSE_*`, `close_reason()`, the limits,
   `api_paths`, the RegExp sources) and the tool-policy table (`BASE_TOOL_POLICY`, `TOOL_ALIASES`).
 - `parse_daemon_message` / `parse_orchestrator_message`: the TS parsers' counterparts.
-- Hand-written ports: `tool_policy`, `repo`, `capabilities`, `auth`, `json`.
+- Hand-written ports: `tool_policy`, `repo`, `capabilities`, `auth`, `json`, `screenshots` (MR-T10: `globToRegExp`, `matchingPaths`).
 - `wire::double_option`: see below.
 
 ## Hand-written parts and normalisations (and why)

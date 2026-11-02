@@ -49,7 +49,8 @@ pub(crate) fn ps(p: &Path) -> String {
 /// A canonical temp dir, made private as the daemon makes its root.
 pub(crate) fn private_tmp() -> (tempfile::TempDir, PathBuf) {
     let t = tempfile::tempdir().unwrap();
-    let p = std::fs::canonicalize(t.path()).unwrap();
+    // fs.realpathSync: without Windows' `\\?\` verbatim prefix, which git can't use.
+    let p = crate::claude::transcript::realpath(t.path()).unwrap();
     acl::mkdir_private(&p).unwrap();
     (t, p)
 }

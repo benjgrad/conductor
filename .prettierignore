@@ -8,3 +8,5 @@ docs/
 pnpm-lock.yaml
 *.md
 packages/shared/protocol-json/
+# MR-T05: files the TS and Rust daemons wrote, byte for byte
+crates/conductor-daemon/tests/fixtures/

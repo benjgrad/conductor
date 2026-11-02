@@ -61,7 +61,7 @@
 | MR-T02 | Cargo workspace, toolchain pin, cargo CI gates + 3-OS matrix, `scripts/test-parity.js`, `PARITY.md` skeleton | T01 | B | — | in_progress (board ticket 0a3cc07e, posted 2026-10-29) |
 | MR-T03 | Protocol codegen (zod → JSON Schema → typify), JSON fixtures, two-sided round-trip + drift check; ports `resolveToolPolicy`, `canonicalRepo`, `cliVersionAtLeast` with shared vectors | T02 | B | — | done (board ticket, branch of this PR; TD-196..198) |
 | MR-T04 | `platform/`: spawn, kill-tree (+ Job Objects), procinfo, acl, shell, sysres, hook, git, fs; seam test | T02 | C | — | done (branch `mr-t04-platform`; Windows proven by the `daemon-rust` matrix on its PR; 10 PowerShell/CIM parser rows dropped, for Ben to OK) |
-| MR-T05 | Core: store, config, credential, ports, system-prompt, semaphore, tail, version, orphan, sysinfo | T03, T04 | C | — | todo |
+| MR-T05 | Core: store, config, credential, ports, system-prompt, semaphore, tail, version, orphan, sysinfo | T03, T04 | C | — | done (board ticket c079cbaf; adds `platform/{private_file,machine}`; TS↔Rust file fixtures both ways) |
 | MR-T06 | Test support: fake orchestrator, fake-bin, remove-tree, fake driver, fake runner | T03 | C | — | todo |
 | MR-T07 | `ws_client` + process runner | T05, T06 | D | — | todo |
 | MR-T08 | `claude/`: stream-parser, transcript, edit-guard (`hook edit-guard`), outcome + permission MCP server | T05, T06 | D | — | todo |

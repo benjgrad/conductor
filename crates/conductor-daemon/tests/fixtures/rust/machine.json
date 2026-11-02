@@ -1,0 +1,5 @@
+{
+  "url": "https://conductor.example.com",
+  "machine_id": "m-1",
+  "credential": "secret-xyz"
+}

@@ -169,6 +169,8 @@ const SCREENS = [
     },
   },
   { id: 'machines', path: '/#/machines' },
+  // ADR-0030: the mock's seeded override, open.
+  { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
   { id: 'workflows', path: '/#/workflows' },
   { id: 'setup', path: '/#/setup' },
   { id: 'help', path: '/help/add-a-machine' },

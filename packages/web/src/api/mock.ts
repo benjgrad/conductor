@@ -2,6 +2,7 @@ import {
   ADMIN_USER_ROW_FIXTURES,
   AnswerInputRequestSchema,
   boardColumns as defaultBoardColumns,
+  checksGatesOf,
   CreateInviteRequestSchema,
   CreateTicketRequestSchema,
   UpdateTicketRequestSchema,
@@ -16,6 +17,9 @@ import {
   PasswordChangeRequestSchema,
   passwordProblems,
   placeCard,
+  PutRepoChecksRequestSchema,
+  RepoChecksSchema,
+  repoChecksKey,
   rankRepos,
   MachineRowSchema,
   RenameMachineRequestSchema,
@@ -48,6 +52,8 @@ import {
   type OutputChunk,
   type OutputStream,
   type PermissionRequestDto,
+  type RepoChecksDetail,
+  type RepoChecksDto,
   type ReopenSessionResponse,
   type SessionDetail,
   type SessionInputRequest,
@@ -71,6 +77,7 @@ import {
   CONDUCTOR,
   MOCK_WORKFLOW_HISTORY,
   mockMachines,
+  mockRepoChecks,
   mockSeeds,
   type MockSession,
 } from './mock-data.js';
@@ -173,6 +180,11 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         created_at: new Date(Date.UTC(2026, 9, 1 + i)).toISOString(),
       })),
     ]),
+  );
+
+  /** ADR-0030: per-repo check overrides, by `repoChecksKey`. */
+  const repoChecks = new Map<string, RepoChecksDto>(
+    mockRepoChecks(now()).map((dto) => [dto.repo, dto]),
   );
 
   /** The card's column per the shared rule (placeCard), by its session's workflow. */
@@ -714,6 +726,66 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           emit([{ type: 'card.upserted', session_id: null, ticket_id: ticketId, card: updated }]);
         }
         return ticketDetail(ticketId);
+      }),
+
+    listRepoChecks: () =>
+      reply(() => ({
+        repos: clone([...repoChecks.values()].sort((a, b) => a.repo.localeCompare(b.repo))),
+      })),
+
+    getRepoChecks: (repo) =>
+      reply((): RepoChecksDetail => {
+        const key = repoChecksKey(repo);
+        if (key === '' || key.length > 200) {
+          throw new ApiRequestError(400, 'bad_request', 'repo must be 1..200 chars');
+        }
+        const override = repoChecks.get(key) ?? null;
+        const def = workflows.get(CONDUCTOR.id)?.at(-1)?.definition ?? CONDUCTOR;
+        return clone({
+          repo: key,
+          override,
+          effective: checksGatesOf(def).map((g) =>
+            override !== null
+              ? { at: g.at, source: 'override', setup: override.setup, checks: override.checks }
+              : { at: g.at, source: 'workflow', setup: g.setup, checks: [...g.checks] },
+          ),
+        });
+      }),
+
+    setRepoChecks: (raw) =>
+      reply((): RepoChecksDto => {
+        const fail = (issues: { path: PropertyKey[]; message: string }[]) =>
+          new ApiRequestError(
+            400,
+            'bad_request',
+            'invalid repo checks',
+            issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message })),
+          );
+        const req = PutRepoChecksRequestSchema.safeParse(raw);
+        if (!req.success) throw fail(req.error.issues);
+        const checked = RepoChecksSchema.safeParse({
+          ...(req.data.setup !== undefined ? { setup: req.data.setup } : {}),
+          checks: req.data.checks,
+        });
+        if (!checked.success) throw fail(checked.error.issues);
+        const dto: RepoChecksDto = {
+          repo: repoChecksKey(req.data.repo),
+          setup: checked.data.setup ?? null,
+          checks: checked.data.checks,
+          updated_at: now().toISOString(),
+          updated_by: MOCK_ADMIN.email,
+        };
+        repoChecks.set(dto.repo, dto);
+        return clone(dto);
+      }),
+
+    clearRepoChecks: (repo) =>
+      reply((): OkResponse => {
+        const key = repoChecksKey(repo);
+        if (!repoChecks.delete(key)) {
+          throw new ApiRequestError(404, 'not_found', `no repo checks for ${key}`);
+        }
+        return { ok: true };
       }),
 
     listRepos: () =>

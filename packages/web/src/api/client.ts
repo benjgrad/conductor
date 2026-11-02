@@ -23,6 +23,10 @@ import type {
   PermissionRequestListResponse,
   PasswordChangeRequest,
   ReopenSessionRequest,
+  PutRepoChecksRequest,
+  RepoChecksDetail,
+  RepoChecksDto,
+  RepoChecksListResponse,
   RepoSuggestion,
   ReopenSessionResponse,
   RenameMachineRequest,
@@ -106,6 +110,20 @@ export interface ApiClient {
    * recency bias (`rankRepos`), then its machines' repos no ticket has used yet.
    */
   listRepos(): Promise<RepoSuggestion[]>;
+  /** ADR-0030: GET /api/repo-checks → every per-repo check override of the account, by repo. */
+  listRepoChecks(): Promise<RepoChecksListResponse>;
+  /**
+   * ADR-0030: GET /api/repo-checks?repo= → the repo's override (null = none) and what runs at each
+   * checking gate of the latest `conductor` workflow. 400 bad_request for a blank repo.
+   */
+  getRepoChecks(repo: string): Promise<RepoChecksDetail>;
+  /**
+   * ADR-0030: PUT /api/repo-checks → the stored override (`repo` is the canonical key). 400
+   * bad_request with `details` (paths like `checks.0.name`) when validation fails.
+   */
+  setRepoChecks(req: PutRepoChecksRequest): Promise<RepoChecksDto>;
+  /** ADR-0030: DELETE /api/repo-checks `{repo}`. 404 not_found when the repo has no override. */
+  clearRepoChecks(repo: string): Promise<OkResponse>;
   /** GET /api/workflows (create-ticket form, Workflows view): the latest version of each. */
   listWorkflows(): Promise<WorkflowSummary[]>;
   /**

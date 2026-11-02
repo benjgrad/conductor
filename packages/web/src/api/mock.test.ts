@@ -1,10 +1,14 @@
 import {
   BoardResponseSchema,
   BoardSseEventSchema,
+  checksGatesOf,
   CONDUCTOR_WORKFLOW_ID,
   EnrollmentTokenCreatedSchema,
   MachineDetailSchema,
   MachineListResponseSchema,
+  RepoChecksDetailSchema,
+  RepoChecksDtoSchema,
+  RepoChecksListResponseSchema,
   RepoListResponseSchema,
   type CreateTicketRequest,
   SessionDetailSchema,
@@ -340,5 +344,82 @@ describe('mock machines (M2-T11)', () => {
     expect(a.token).not.toBe(b.token);
     expect(a.command).toContain(a.token);
     expect(Date.parse(a.expires_at) - now().getTime()).toBe(30 * 60_000);
+  });
+});
+
+describe('mock repo checks (ADR-0030)', () => {
+  const checks = [
+    { name: 'Build', cmd: 'make' },
+    { name: 'Tests', cmd: 'make test', timeout: '10m' },
+  ];
+
+  it('seeds one override; set → list → get is the override at every gate', async () => {
+    const api = createMockApi({ now });
+    const seeded = RepoChecksListResponseSchema.parse(await api.listRepoChecks());
+    expect(seeded.repos.map((r) => r.repo)).toEqual(['github.com/acme/shop']);
+
+    const dto = RepoChecksDtoSchema.parse(
+      await api.setRepoChecks({ repo: 'GitHub.com/Acme/App', setup: '', checks }),
+    );
+    expect(dto).toMatchObject({ repo: 'github.com/acme/app', setup: '', checks });
+    // Case-insensitive: one key.
+    await api.setRepoChecks({ repo: 'github.com/acme/app', checks });
+    const list = await api.listRepoChecks();
+    expect(list.repos.map((r) => [r.repo, r.setup])).toEqual([
+      ['github.com/acme/app', null],
+      ['github.com/acme/shop', 'pnpm install --frozen-lockfile'],
+    ]);
+
+    const detail = RepoChecksDetailSchema.parse(await api.getRepoChecks('github.com/ACME/app'));
+    const gates = checksGatesOf((await api.getWorkflow(CONDUCTOR_WORKFLOW_ID)).definition);
+    expect(gates.length).toBeGreaterThan(0);
+    expect(detail.repo).toBe('github.com/acme/app');
+    expect(detail.effective.map((g) => [g.at, g.source, g.setup])).toEqual(
+      gates.map((g) => [g.at, 'override', null]),
+    );
+    expect(detail.effective[0]!.checks).toEqual(checks);
+  });
+
+  it('400 with field paths: a name listed twice, a blank command', async () => {
+    const api = createMockApi({ now });
+    const err = await api
+      .setRepoChecks({
+        repo: 'github.com/o/app',
+        checks: [
+          { name: 'a', cmd: 'x' },
+          { name: 'a', cmd: ' ' },
+        ],
+      })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiRequestError);
+    expect(err).toMatchObject({
+      status: 400,
+      code: 'bad_request',
+      details: [
+        { path: 'checks.1.name', message: 'check "a" is listed twice' },
+        { path: 'checks.1.cmd', message: 'empty command' },
+      ],
+    });
+    expect((await api.getRepoChecks('github.com/o/app')).override).toBeNull();
+  });
+
+  it('clear → the workflow’s own checks; a second clear is 404', async () => {
+    const api = createMockApi({ now });
+    expect(await api.clearRepoChecks('github.com/Acme/Shop')).toEqual({ ok: true });
+    const detail = await api.getRepoChecks('github.com/acme/shop');
+    expect(detail.override).toBeNull();
+    expect(detail.effective).toEqual(
+      checksGatesOf((await api.getWorkflow(CONDUCTOR_WORKFLOW_ID)).definition).map((g) => ({
+        at: g.at,
+        source: 'workflow',
+        setup: g.setup,
+        checks: g.checks,
+      })),
+    );
+    await expect(api.clearRepoChecks('github.com/acme/shop')).rejects.toMatchObject({
+      status: 404,
+      code: 'not_found',
+    });
+    expect((await api.listRepoChecks()).repos).toEqual([]);
   });
 });

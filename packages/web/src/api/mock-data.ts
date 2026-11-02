@@ -16,6 +16,7 @@ import {
   type MachineDetail,
   type MoveDto,
   type OutputChunk,
+  type RepoChecksDto,
   type SessionDetail,
   type SessionInputRequest,
   type SessionStatus,
@@ -836,6 +837,25 @@ export function mockSeeds(now: Date): MockSeed[] {
       activeMinAgo: 650,
       spend: 1.9,
     }),
+  ];
+}
+
+/**
+ * ADR-0030: one repo with its own checks (a pnpm repo the workflow's `npm` defaults don't fit),
+ * so the Repo checks page has a row in dev.
+ */
+export function mockRepoChecks(now: Date): RepoChecksDto[] {
+  return [
+    {
+      repo: 'github.com/acme/shop',
+      setup: 'pnpm install --frozen-lockfile',
+      checks: [
+        { name: 'Build', cmd: 'pnpm build' },
+        { name: 'Tests', cmd: 'pnpm test', timeout: '10m' },
+      ],
+      updated_at: new Date(now.getTime() - 2 * 86_400_000).toISOString(),
+      updated_by: 'ben@example.com',
+    },
   ];
 }
 

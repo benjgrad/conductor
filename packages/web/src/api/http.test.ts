@@ -262,6 +262,34 @@ describe('createHttpApi REST', () => {
     expect(calls.map((c) => [c.method, c.url])).toEqual([['GET', API_PATHS.repos]]);
   });
 
+  it('repo checks (ADR-0030): GET list and ?repo=, PUT, DELETE with a JSON body', async () => {
+    const dto = {
+      repo: 'github.com/o/app',
+      setup: null,
+      checks: [{ name: 'Tests', cmd: 'make test' }],
+      updated_at: '2026-10-22T12:00:00.000Z',
+      updated_by: 'ben@example.com',
+    };
+    const detail = { repo: dto.repo, override: dto, effective: [] };
+    const { calls, fetch } = recordingFetch(({ method, url }) => {
+      if (method === 'GET') return json(200, url.includes('?repo=') ? detail : { repos: [dto] });
+      if (method === 'PUT') return json(200, dto);
+      return json(200, { ok: true });
+    });
+    const api = createHttpApi({ fetch });
+    expect(await api.listRepoChecks()).toEqual({ repos: [dto] });
+    expect(await api.getRepoChecks('github.com/o/app')).toEqual(detail);
+    const put = { repo: 'github.com/o/app', checks: dto.checks };
+    expect(await api.setRepoChecks(put)).toEqual(dto);
+    expect(await api.clearRepoChecks('github.com/o/app')).toEqual({ ok: true });
+    expect(calls.map((c) => [c.method, c.url, c.body, c.contentType])).toEqual([
+      ['GET', API_PATHS.repoChecks, undefined, undefined],
+      ['GET', `${API_PATHS.repoChecks}?repo=github.com%2Fo%2Fapp`, undefined, undefined],
+      ['PUT', API_PATHS.repoChecks, put, 'application/json'],
+      ['DELETE', API_PATHS.repoChecks, { repo: 'github.com/o/app' }, 'application/json'],
+    ]);
+  });
+
   it('throws ApiRequestError with the ApiError code and message', async () => {
     const { fetch } = recordingFetch(() =>
       json(409, { error: { code: 'input_already_answered', message: 'already answered' } }),

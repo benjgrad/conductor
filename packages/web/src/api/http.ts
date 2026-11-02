@@ -18,6 +18,9 @@ import {
   PermissionRequestDtoSchema,
   PermissionRequestListResponseSchema,
   ReopenSessionResponseSchema,
+  RepoChecksDetailSchema,
+  RepoChecksDtoSchema,
+  RepoChecksListResponseSchema,
   RepoListResponseSchema,
   ResetLinkCreatedSchema,
   SessionDetailSchema,
@@ -50,6 +53,7 @@ import {
   PushVapidPublicKeyResponseSchema,
   type PushSubscribeRequest,
   type PushUnsubscribeRequest,
+  type PutRepoChecksRequest,
 } from '@conductor/shared';
 import {
   ApiRequestError,
@@ -132,7 +136,7 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
 
   async function request<T>(
     schema: ResponseSchema<T>,
-    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
   ): Promise<T> {
@@ -294,6 +298,21 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
       request(TicketDetailSchema, 'PATCH', API_PATHS.ticket(encodeURIComponent(ticketId)), req),
 
     listRepos: () => request(RepoListResponseSchema, 'GET', API_PATHS.repos),
+
+    listRepoChecks: () => request(RepoChecksListResponseSchema, 'GET', API_PATHS.repoChecks),
+
+    getRepoChecks: (repo: string) =>
+      request(
+        RepoChecksDetailSchema,
+        'GET',
+        `${API_PATHS.repoChecks}?repo=${encodeURIComponent(repo)}`,
+      ),
+
+    setRepoChecks: (req: PutRepoChecksRequest) =>
+      request(RepoChecksDtoSchema, 'PUT', API_PATHS.repoChecks, req),
+
+    clearRepoChecks: (repo: string) =>
+      request(OkResponseSchema, 'DELETE', API_PATHS.repoChecks, { repo }),
 
     listWorkflows: () => request(WorkflowListResponseSchema, 'GET', API_PATHS.workflows),
 

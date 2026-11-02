@@ -67,6 +67,14 @@ At every width, Repo is a free-text ARIA combobox (`components/RepoCombobox.tsx`
 - Focusing the field lists every repo, and typing filters them (a case-insensitive substring match, ranked order kept). Arrow keys move through the list, and Enter or a click picks a repo without submitting the form. Escape closes the list without closing the sheet.
 - After a create, the repo stays chosen and the list is fetched again.
 
+## Repo checks (ADR-0030)
+
+`#/repo-checks[/<repo>]` (`repo-checks/RepoChecksPage.tsx`), opened from the account menu at every width. It manages per-repo check overrides ([ADR-0030](../adr/0030-per-repo-checks-and-mcp-workflow-tools.md)) over `GET/PUT/DELETE /api/repo-checks`, the same functions as the MCP tools:
+- The account's overrides in a table (repo, check names, setup, updated). A repo is opened from the table or from a Repo combobox (`GET /api/repos`), so one without an override can be opened too.
+- For one repo, the checks that run at each gate of the latest `conductor` workflow that runs checks (`RepoChecksDetail.effective`), marked *Repo override* or *Workflow default*.
+- The override editor is the transition editor's check list (`workflow/ChecksFields.tsx`), with the same rules (`checkListIssues`: unique names, non-blank commands, durations like `10m`) plus at least one check. Setup is auto-detect, none, or a command. Without an override, the draft starts from the workflow's first gate. The server's 400 details show at their fields. *Clear override* asks for a confirmation.
+- A note says that commands run with `sh -c` at the repo root of a fresh checkout (Git Bash on Windows), with a link to ADR-0030.
+
 ## Install (UX-16)
 
 Conductor installs to a phone's Home Screen and opens standalone (`manifest.webmanifest`; iOS Safari: Share → Add to Home Screen). The status bar is `black-translucent`, so the top bar's `env(safe-area-inset-top)` padding keeps it clear of the clock. iOS blurs whatever scrolls under a translucent status bar; since the document never scrolls on a phone ([§Breakpoint](#breakpoint)), nothing does, and `html` is painted `--panel` so the band matches the top bar. On iOS, push notifications work only from the installed app: in a Safari tab the account menu says so. Web Push details: [10 §Web Push](10-contracts.md#web-push).

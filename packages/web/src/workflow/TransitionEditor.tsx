@@ -10,7 +10,6 @@ import {
   transitionTitle,
   type Condition,
   type ConditionType,
-  type EntryCheck,
   type TicketKind,
   type TransitionActor,
   type TransitionObject,
@@ -18,6 +17,7 @@ import {
   type WorkflowDefinition,
 } from '@conductor/shared';
 import { useId, useState, type ReactNode } from 'react';
+import { ChecksFields, checksFieldSuffixes, ItemActions, swap } from './ChecksFields.js';
 import { columnStates, columnTitle, humanStates, type ColumnIssue } from './columns.js';
 import {
   ACTION_TEXT,
@@ -37,7 +37,6 @@ import {
 // setup, review items, conductor's actions, external conditions with their timeout); and what
 // happens when they are not met. Every change goes straight into the caller's draft.
 
-const MAX_CHECKS = 20;
 const MAX_ITEMS = 30;
 const MAX_CONDITIONS = 10;
 
@@ -119,8 +118,6 @@ function TransitionForm({
 }: TransitionEditorProps & { transition: TransitionObject }) {
   const uid = useId();
   const [nameText, setNameText] = useState(name);
-  /** The user picked "Custom command" (its text may still be empty, which reads as none). */
-  const [customSetup, setCustomSetup] = useState(false);
   const state = definition.states[from]!;
   const base = `states.${from}.on.${name}`;
   const shownPaths = new Set<string>();
@@ -141,7 +138,14 @@ function TransitionForm({
   const setR = (p: Partial<TransitionRequires>) =>
     onChange(setRequires(definition, from, name, { ...r, ...p }));
   const checks = r.checks ?? [];
-  const setChecks = (next: EntryCheck[]) => setR({ checks: next });
+  // The check list shows its own problems (relative to `requires`).
+  const requiresBase = `${base}.requires.`;
+  const checkSuffixes = checksFieldSuffixes(checks);
+  for (const suffix of checkSuffixes) shownPaths.add(`${requiresBase}${suffix}`);
+  const checkIssues = issues.flatMap((i) => {
+    const suffix = i.path.startsWith(requiresBase) ? i.path.slice(requiresBase.length) : null;
+    return suffix !== null && checkSuffixes.has(suffix) ? [{ suffix, message: i.message }] : [];
+  });
   const items = r.review?.items ?? [];
   const setItems = (next: string[]) =>
     setR({ review: r.review ? { ...r.review, items: next } : { items: next } });
@@ -164,8 +168,6 @@ function TransitionForm({
     n === RETURN_TO ? 'Back to the column that asked' : columnTitle(definition, n);
   const backTo = columnStates(definition).filter((n) => definition.states[n]?.type !== 'terminal');
   const humans = humanStates(definition);
-  const setupMode: 'auto' | 'none' | 'custom' =
-    r.setup === undefined ? 'auto' : r.setup === '' && !customSetup ? 'none' : 'custom';
   const legacyEntry =
     t.goto !== RETURN_TO && !FALLBACK_TRANSITION_NAMES.includes(name)
       ? definition.states[t.goto]?.entry
@@ -288,99 +290,12 @@ function TransitionForm({
       )}
 
       <h5>Checks</h5>
-      <ol className="wf-items" aria-label="Checks">
-        {checks.map((c, i) => (
-          <li key={i} className="wf-item">
-            <div className="wf-check">
-              <input
-                aria-label={`Check ${i + 1} name`}
-                value={c.name}
-                placeholder="e.g. Tests pass"
-                onChange={(e) =>
-                  setChecks(checks.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))
-                }
-              />
-              <input
-                aria-label={`Check ${i + 1} command`}
-                className="mono"
-                value={c.cmd}
-                placeholder="e.g. npm test"
-                onChange={(e) =>
-                  setChecks(checks.map((x, j) => (j === i ? { ...x, cmd: e.target.value } : x)))
-                }
-              />
-              <input
-                aria-label={`Check ${i + 1} timeout`}
-                className="mono"
-                value={c.timeout ?? ''}
-                placeholder="timeout (default)"
-                onChange={(e) =>
-                  setChecks(
-                    checks.map((x, j) => {
-                      if (j !== i) return x;
-                      const next = { ...x };
-                      delete next.timeout;
-                      return e.target.value === '' ? next : { ...next, timeout: e.target.value };
-                    }),
-                  )
-                }
-              />
-              {at(`.requires.checks.${i}.name`)}
-              {at(`.requires.checks.${i}.cmd`)}
-              {at(`.requires.checks.${i}.timeout`)}
-            </div>
-            <ItemActions
-              what="check"
-              i={i}
-              n={checks.length}
-              onMove={(j) => setChecks(swap(checks, i, j))}
-              onRemove={() => setChecks(checks.filter((_, j) => j !== i))}
-            />
-          </li>
-        ))}
-      </ol>
-      {at('.requires.checks')}
-      <div>
-        <button
-          type="button"
-          disabled={checks.length >= MAX_CHECKS}
-          onClick={() => setChecks([...checks, { name: '', cmd: '' }])}
-        >
-          Add check
-        </button>
-      </div>
-      {checks.length > 0 && (
-        <div className="wf-setup">
-          <label htmlFor={`${uid}-setup`}>
-            Before the checks (in a fresh checkout of the commit)
-          </label>
-          <select
-            id={`${uid}-setup`}
-            value={setupMode}
-            onChange={(e) => {
-              const mode = e.target.value;
-              setCustomSetup(mode === 'custom');
-              if (mode === 'auto') setR({ setup: undefined });
-              else if (mode === 'none') setR({ setup: '' });
-              else setR({ setup: r.setup ?? '' });
-            }}
-          >
-            <option value="auto">Auto-detect (npm ci / npm install)</option>
-            <option value="none">None</option>
-            <option value="custom">Custom command</option>
-          </select>
-          {setupMode === 'custom' && (
-            <input
-              aria-label="Setup command"
-              className="mono"
-              value={r.setup ?? ''}
-              placeholder="e.g. pnpm install --frozen-lockfile"
-              onChange={(e) => setR({ setup: e.target.value })}
-            />
-          )}
-          {at('.requires.setup')}
-        </div>
-      )}
+      <ChecksFields
+        checks={checks}
+        setup={r.setup}
+        onChange={(next) => setR({ checks: next.checks, setup: next.setup })}
+        issues={checkIssues}
+      />
 
       <h5>Review</h5>
       <ol className="wf-items" aria-label="Review items">
@@ -749,55 +664,6 @@ function ListInput({
       }}
     />
   );
-}
-
-function ItemActions({
-  what,
-  i,
-  n,
-  onMove,
-  onRemove,
-}: {
-  what: string;
-  i: number;
-  n: number;
-  onMove: (to: number) => void;
-  onRemove: () => void;
-}) {
-  return (
-    <div className="wf-item-actions">
-      <button
-        type="button"
-        aria-label={`Move ${what} ${i + 1} up`}
-        disabled={i === 0}
-        onClick={() => onMove(i - 1)}
-      >
-        ↑
-      </button>
-      <button
-        type="button"
-        aria-label={`Move ${what} ${i + 1} down`}
-        disabled={i === n - 1}
-        onClick={() => onMove(i + 1)}
-      >
-        ↓
-      </button>
-      <button
-        type="button"
-        aria-label={`Remove ${what} ${i + 1}`}
-        className="danger"
-        onClick={onRemove}
-      >
-        ×
-      </button>
-    </div>
-  );
-}
-
-function swap<T>(list: T[], i: number, j: number): T[] {
-  const next = [...list];
-  [next[i], next[j]] = [next[j]!, next[i]!];
-  return next;
 }
 
 /** Options plus the current value, so a select never silently shows a different state. */

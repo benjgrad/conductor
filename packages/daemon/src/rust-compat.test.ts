@@ -112,6 +112,8 @@ function privateCopy(src: string, dir: string, name: string): string {
 let tmp: string;
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 'conductor-compat-'));
+  // win32: %TEMP% is not owner-only, and mkdirPrivate refuses to create under it.
+  mkdirPrivate(tmp);
 });
 afterEach(() => rmSync(tmp, { recursive: true, force: true }));
 

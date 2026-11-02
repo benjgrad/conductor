@@ -201,6 +201,14 @@ fn read_json(path: &Path) -> Value {
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
+/// A temp dir made private first (%TEMP% is not owner-only on Windows, and `mkdir_private`
+/// refuses to create under a non-private parent).
+fn private_tmp() -> tempfile::TempDir {
+    let tmp = tempfile::tempdir().unwrap();
+    mkdir_private(tmp.path()).unwrap();
+    tmp
+}
+
 /// A private copy of a fixture (git checks files out world-readable).
 fn private_copy(src: &Path, dir: &Path, name: &str) {
     mkdir_private(dir).unwrap();
@@ -210,7 +218,7 @@ fn private_copy(src: &Path, dir: &Path, name: &str) {
 #[test]
 fn reads_the_files_the_ts_daemon_wrote() {
     let ts = fixtures("ts");
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = private_tmp();
     let root = tmp.path().join("root");
     private_copy(&ts.join("machine.json"), &root, "machine.json");
     private_copy(&ts.join("config.json"), &root, "config.json");
@@ -226,7 +234,7 @@ fn reads_the_files_the_ts_daemon_wrote() {
 
 #[test]
 fn the_rust_fixtures_are_what_the_rust_daemon_writes() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = private_tmp();
     let root = tmp.path().join("root");
     write_credential(&root, &sample_cred(), false).unwrap();
     write_file_config(&root, &sample_config()).unwrap();

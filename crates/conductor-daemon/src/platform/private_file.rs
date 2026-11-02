@@ -246,9 +246,16 @@ mod tests {
     use super::*;
     use crate::platform::acl::{AclError, AclRefusal};
 
+    /// A temp dir made private first (%TEMP% is not owner-only on Windows).
+    fn private_tmp() -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().unwrap();
+        crate::platform::mkdir_private(tmp.path()).unwrap();
+        tmp
+    }
+
     #[test]
     fn writes_then_reads_back_a_private_file() {
-        let tmp = tempfile::tempdir().unwrap();
+        let tmp = private_tmp();
         let dir = tmp.path().join("root");
         let path = write_private_file_durable::<PrivateError>(
             &dir,
@@ -265,7 +272,7 @@ mod tests {
 
     #[test]
     fn before_write_can_refuse_and_nothing_is_written() {
-        let tmp = tempfile::tempdir().unwrap();
+        let tmp = private_tmp();
         let dir = tmp.path().join("root");
         let r = write_private_file_durable::<PrivateError>(
             &dir,

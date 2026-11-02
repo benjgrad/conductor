@@ -755,6 +755,8 @@ mod tests {
     #[test]
     fn file_config_round_trip_defaults_and_errors() {
         let t = tempfile::tempdir().unwrap();
+        // %TEMP% is not owner-only on Windows: make the temp dir private before creating in it.
+        platform::mkdir_private(t.path()).unwrap();
         let root = t.path().join("root");
         assert_eq!(
             read_file_config(&root).unwrap(),

@@ -38,6 +38,7 @@ import type {
   PasswordResetRow,
   PermissionRequestRow,
   PushSubscriptionRow,
+  RepoChecksRow,
   SessionRow,
   Tables,
   TicketRow,
@@ -414,6 +415,14 @@ const oauth_token: ColumnSpec<OAuthTokenRow> = {
   expires_at: col('timestamptz', NN),
   revoked_at: col('timestamptz', NULL),
 };
+// ADR-0030: per-repo check overrides.
+const repo_checks: ColumnSpec<RepoChecksRow> = {
+  account_id: col('uuid', NN),
+  repo: col(t, NN),
+  config: col('jsonb', NN),
+  updated_at: col('timestamptz', NN),
+  updated_by: col(t, NULL),
+};
 const SCHEMA: Schema = {
   machine,
   machine_repo,
@@ -440,6 +449,7 @@ const SCHEMA: Schema = {
   oauth_client,
   oauth_code,
   oauth_token,
+  repo_checks,
 };
 /** The tables M1/M1b created: every one carries `account_id` since M2-T03. */
 const M1_TABLES = [
@@ -733,6 +743,7 @@ describe('migrations', () => {
           'agent',
           'oauth_code',
           'oauth_token',
+          'repo_checks',
         ].sort(),
       );
     } finally {
@@ -1160,6 +1171,20 @@ describe('schema (migrated test database)', () => {
            expires_at) VALUES ($1, 'id', gen_random_uuid(), 'c1', $2, gen_random_uuid(), now())`,
         [randomBytes(32), LOCAL_ACCOUNT_ID],
       ),
+      '23514',
+    );
+
+    // ADR-0030: a repo's check override; the repo key can't be empty.
+    const rc = await pool.query<RepoChecksRow>(
+      `INSERT INTO repo_checks (account_id, repo, config)
+       VALUES ($1, 'github.com/acme/app', '{"checks":[{"name":"B","cmd":"make"}]}') RETURNING *`,
+      [LOCAL_ACCOUNT_ID],
+    );
+    expect(rc.rows[0]).toMatchObject({ updated_by: null, config: { checks: [{ cmd: 'make' }] } });
+    await expectPgError(
+      pool.query("INSERT INTO repo_checks (account_id, repo, config) VALUES ($1, '', '{}')", [
+        LOCAL_ACCOUNT_ID,
+      ]),
       '23514',
     );
 

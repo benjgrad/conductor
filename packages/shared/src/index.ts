@@ -14,6 +14,7 @@ export * from './workflow/fixtures.js';
 export * from './workflow/capabilities.js';
 export * from './workflow/screenshots.js';
 export * from './workflow/editable.js';
+export * from './workflow/repo-checks.js';
 export * from './engine/types.js';
 export {
   apply,
@@ -29,6 +30,7 @@ export {
   type RenderPromptInput,
 } from './engine/apply.js';
 export * from './engine/review.js';
+export { applyRepoChecks, PIN_CHECK, type GateSpec } from './engine/move-step.js';
 export * from './engine/spend.js';
 export * from './engine/qa.types.js';
 export * from './engine/fixtures.js';

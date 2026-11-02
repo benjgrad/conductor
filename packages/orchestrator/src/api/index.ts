@@ -42,6 +42,7 @@ import { registerMachineRoutes } from './machines.js';
 import { registerPermissionRoutes } from './permissions.js';
 import { registerPushRoutes } from './push.js';
 import { listWorkflows, loadBoard, loadWorkflowDetail } from './queries.js';
+import { registerRepoChecksRoutes } from './repo-checks.js';
 import { registerRepoRoutes } from './repos.js';
 import { httpSecurityFromEnv, securityHookFor, type HttpSecurityOptions } from './security.js';
 import { loadSessionDetail, sessionExists } from './sessions.js';
@@ -152,6 +153,8 @@ export const createApi = (({
   void app.register(registerTeamRoutes, { db });
   // The create-ticket form's repo suggestions.
   void app.register(registerRepoRoutes, { db });
+  // ADR-0030: per-repo check overrides (also MCP's list/get/set/clear_repo_checks).
+  void app.register(registerRepoChecksRoutes, { db });
   // ADR-0028: the OAuth authorization server and the MCP endpoint it protects.
   void app.register(registerOAuthRoutes, { db, auth, now });
   void app.register(registerMcpRoutes, { db, engine, boardBus, outputBus, auth, now });

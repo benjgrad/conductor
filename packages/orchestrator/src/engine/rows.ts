@@ -1,14 +1,17 @@
 import {
   GateStepSchema,
+  RepoChecksSchema,
+  repoChecksKey,
   REVIEW_CONTEXT_KEY,
   STEP_CONTEXT_KEY,
   WorkflowDefinitionSchema,
   type JsonObject,
+  type RepoChecks,
   type SessionSnapshot,
   type WorkflowDefinition,
 } from '@conductor/shared';
 import type { Queryable } from '../contracts.js';
-import type { InputRequestRow, SessionRow, TicketRow } from '../db/types.js';
+import type { InputRequestRow, RepoChecksRow, SessionRow, TicketRow } from '../db/types.js';
 
 // Row ⇄ engine-shape conversions and the reads the EngineService needs (M1-T04b).
 
@@ -102,7 +105,36 @@ export class DefinitionCache {
 
 const iso = (d: Date): string => d.toISOString();
 
-export function toSnapshot(session: SessionRow, ticket: TicketRow): SessionSnapshot {
+/**
+ * ADR-0030: the repo's check override for the ticket's account, or null. A stored config that no
+ * longer parses is treated as none (and reported through `onInvalid`), so a bad row can't wedge
+ * the session: its checks fall back to the workflow's.
+ */
+export async function readRepoChecks(
+  tx: Queryable,
+  accountId: string,
+  repo: string,
+  onInvalid: (msg: string) => void = (m) => void process.stderr.write(`[conductor] ${m}\n`),
+): Promise<RepoChecks | null> {
+  const r = await tx.query<Pick<RepoChecksRow, 'config'>>(
+    'SELECT config FROM repo_checks WHERE account_id = $1 AND repo = $2',
+    [accountId, repoChecksKey(repo)],
+  );
+  const row = r.rows[0];
+  if (row === undefined) return null;
+  const parsed = RepoChecksSchema.safeParse(row.config);
+  if (parsed.success) return parsed.data;
+  onInvalid(
+    `repo_checks for ${repoChecksKey(repo)} is invalid and ignored: ${parsed.error.message}`,
+  );
+  return null;
+}
+
+export function toSnapshot(
+  session: SessionRow,
+  ticket: TicketRow,
+  repoChecks: RepoChecks | null = null,
+): SessionSnapshot {
   return {
     id: session.id,
     ticket: {
@@ -134,6 +166,7 @@ export function toSnapshot(session: SessionRow, ticket: TicketRow): SessionSnaps
     claude_spend_totals: session.claude_spend_totals,
     wall_seconds: Number(session.wall_seconds),
     ...splitStep(session.context),
+    repo_checks: repoChecks,
   };
 }
 
@@ -158,7 +191,9 @@ export function joinStep(s: Pick<SessionSnapshot, 'context' | 'step'>): JsonObje
   const { [STEP_CONTEXT_KEY]: _a, [REVIEW_CONTEXT_KEY]: _b, ...context } = s.context;
   void _a;
   void _b;
-  return s.step === null ? context : { ...context, [STEP_CONTEXT_KEY]: s.step };
+  // The step is JSON except optional keys (`repo_checks.setup`), which JSON.stringify drops.
+  const step = s.step as unknown as JsonObject;
+  return s.step === null ? context : { ...context, [STEP_CONTEXT_KEY]: step };
 }
 
 /** Write every apply-owned session column from the snapshot (plus updated_at). */

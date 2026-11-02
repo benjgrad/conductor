@@ -5,6 +5,7 @@ import {
   type TransitionAction,
   type WorkflowDefinition,
 } from '../workflow/schema.js';
+import type { RepoChecks } from '../workflow/repo-checks.js';
 import { transitionObject, transitionTitle } from '../workflow/transition-rules.js';
 import { fallbackHumanState } from './transitions.js';
 import { moveCounterKey, type GateStep } from './types.js';
@@ -37,6 +38,18 @@ export interface GateSpec {
 
 /** ADR-0010: the implicit check of a step without checks: a clean tree, and its HEAD. */
 export const PIN_CHECK: EntryCheck = { name: 'Committed work', cmd: 'true' };
+
+/**
+ * ADR-0030: a step's spec with the repo's check override applied. A step that runs at least one
+ * real check (anything but PIN_CHECK) gets the override's checks and setup instead of the
+ * definition's; a step with only the pin check, only conditions or only a review is unchanged.
+ * `setup` absent in the override = auto-detect (null), as `requires.setup`.
+ */
+export function applyRepoChecks(spec: GateSpec, override: RepoChecks | null | undefined): GateSpec {
+  if (override === null || override === undefined) return spec;
+  if (!spec.checks.some((c) => c !== PIN_CHECK)) return spec;
+  return { ...spec, checks: override.checks, setup: override.setup ?? null };
+}
 
 /** The transition a move step takes (`transition`, else the `outcome` it was started with). */
 export function moveName(r: GateStep): string {

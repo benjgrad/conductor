@@ -34,9 +34,11 @@ import {
 import { QaResultSchema, QaVerdictSchema } from '../engine/qa.types.js';
 import { GitShaSchema, PR_FILES_MAX, PrFilePathSchema, PrUrlSchema } from '../protocol/actions.js';
 import { QUEUED_COLUMN_ID, stateTitle, type BoardColumnInfo } from '../workflow/conductor.js';
+import { REPO_CHECKS_MAX } from '../workflow/repo-checks.js';
 import {
   ApprovalIdSchema,
   CONDUCTOR_WORKFLOW_ID,
+  EntryCheckSchema,
   RETURN_TO,
   StateNameSchema,
   TicketKindSchema,
@@ -97,6 +99,11 @@ export const API_PATHS = {
   team: '/api/team',
   /** GET → RepoListResponse (the create-ticket form's repo suggestions, most used first). */
   repos: '/api/repos',
+  /**
+   * ADR-0030: GET → RepoChecksListResponse, or with `?repo=` RepoChecksDetail; PUT
+   * PutRepoChecksRequest → RepoChecksDto; DELETE DeleteRepoChecksRequest → OkResponse.
+   */
+  repoChecks: '/api/repo-checks',
   boardStream: '/api/stream/board',
   sessionOutputStream: (id: string) => `/api/stream/sessions/${id}/output`,
   /** Daemon ↔ orchestrator WebSocket (03), served on the same HTTP server as the API. */
@@ -1189,6 +1196,62 @@ export function canonicalRepo(repo: string): string | null {
 }
 
 /**
+ * ADR-0030: the `repo_checks` key of a repo: canonical `host/org/repo` (or the repo as given when
+ * it isn't one, e.g. a local-mode path), trimmed and lower-cased. GitHub repo names are
+ * case-insensitive, so `Acme/App` and `acme/app` share one override.
+ */
+export function repoChecksKey(repo: string): string {
+  const trimmed = repo.trim();
+  return (canonicalRepo(trimmed) ?? trimmed).toLowerCase();
+}
+
+/** ADR-0030: PUT /api/repo-checks → RepoChecksDto. The repo is in the body (it has slashes). */
+export const PutRepoChecksRequestSchema = z.object({
+  repo: z.string().trim().min(1).max(200),
+  setup: z.string().max(2_000).optional(),
+  checks: z.array(EntryCheckSchema).min(1).max(REPO_CHECKS_MAX),
+});
+export type PutRepoChecksRequest = z.infer<typeof PutRepoChecksRequestSchema>;
+
+/** ADR-0030: DELETE /api/repo-checks `{repo}` → OkResponse; 404 when the repo has none. */
+export const DeleteRepoChecksRequestSchema = z.object({ repo: z.string().trim().min(1).max(200) });
+
+/** ADR-0030: one repo's override. `setup` null = auto-detect, '' = none. */
+export const RepoChecksDtoSchema = z.object({
+  repo: z.string(),
+  setup: z.string().nullable(),
+  checks: z.array(EntryCheckSchema),
+  updated_at: z.string(),
+  updated_by: z.string().nullable(),
+});
+export type RepoChecksDto = z.infer<typeof RepoChecksDtoSchema>;
+
+/** ADR-0030: GET /api/repo-checks → every override of the account, by repo. */
+export const RepoChecksListResponseSchema = z.object({ repos: z.array(RepoChecksDtoSchema) });
+export type RepoChecksListResponse = z.infer<typeof RepoChecksListResponseSchema>;
+
+/**
+ * ADR-0030: GET /api/repo-checks?repo=… → the repo's override (null = none) and what runs at each
+ * gate of the latest `conductor` workflow that runs real checks (`checksGatesOf`): the override's
+ * checks and setup there, else the workflow's own.
+ */
+export const RepoChecksDetailSchema = z.object({
+  repo: z.string(),
+  override: RepoChecksDtoSchema.nullable(),
+  effective: z.array(
+    z.object({
+      /** `state.transition` (a transition's `requires`) or `state` (an entry). */
+      at: z.string(),
+      source: z.enum(['override', 'workflow']),
+      /** null = auto-detect from the lockfile, '' = none. */
+      setup: z.string().nullable(),
+      checks: z.array(EntryCheckSchema),
+    }),
+  ),
+});
+export type RepoChecksDetail = z.infer<typeof RepoChecksDetailSchema>;
+
+/**
  * POST /api/tickets → 201 TicketDto. ADR-0010: `workflow_id` defaults to `conductor` (the one
  * workflow); another id is still accepted (older tickets' workflows stay in the database).
  */
@@ -1478,7 +1541,10 @@ function stepItems(def: Pick<WorkflowDefinition, 'states'> | null, step: GateSte
     if (phase > cur) return 'todo';
     return i < step.index ? 'met' : i === step.index ? 'running' : 'todo';
   };
-  (req.checks ?? []).forEach((c, i) =>
+  // ADR-0030: a step with real checks runs the repo's override instead, when one was pinned.
+  const declared = req.checks ?? [];
+  const checks = declared.length > 0 && step.repo_checks ? step.repo_checks.checks : declared;
+  checks.forEach((c, i) =>
     items.push({ kind: 'check', label: c.name, status: indexed(0, i), detail: null }),
   );
   if (req.review !== undefined) {

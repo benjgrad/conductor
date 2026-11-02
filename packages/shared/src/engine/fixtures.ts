@@ -101,6 +101,7 @@ export const MOVE_STEP_FIXTURE: GateStep = {
   conditions_started_at: '2026-10-26T12:01:00.000Z',
   conditions_note: null,
   approvals: null,
+  repo_checks: null,
 };
 
 /** A work ticket's session on `conductor` v2 (draft) in `implementing`, running. */

@@ -29,6 +29,7 @@ import { CardViews, MachineCardFields } from './board-view.js';
 import {
   DefinitionCache,
   lockSession,
+  readRepoChecks,
   readOpenInput,
   readSession,
   readTicket,
@@ -166,7 +167,12 @@ export class EngineServiceImpl implements EngineService {
     }
 
     const now = this.deps.now();
-    const before = toSnapshot(session, ticket);
+    // ADR-0030: the repo's check override; a gate step starting now pins it.
+    const before = toSnapshot(
+      session,
+      ticket,
+      await readRepoChecks(tx, ticket.account_id, ticket.repo),
+    );
     // ADR-0010: the card's column comes from the board's columns and the pinned definition.
     const view = await new CardViews(tx, this.defs).view(
       session.workflow_id,

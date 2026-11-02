@@ -141,6 +141,17 @@ Every path sets `last_assigned_at = now()`. Lock order: machine, ticket, agent.
 - Spellings of one repo merge on `canonicalRepo(…)` lower-cased (the `no_machine_has_repo` comparison), else the exact string (`local` mode's paths). The newest ticket's spelling is shown, else the machine's.
 - Another account's tickets and machines never count.
 
+## Repo checks (ADR-0030)
+
+[ADR-0030](../adr/0030-per-repo-checks-and-mcp-workflow-tools.md). `orchestrator/src/api/repo-checks.ts`; signed in (401 otherwise), always the caller's account. The repo is in the query or body, never the path (it has slashes), and is stored as `repoChecksKey(repo)`. The engine side is in [05 §Repo check overrides](05-workflow-engine.md#repo-check-overrides-adr-0030).
+
+| Route | Body → reply | Errors |
+|---|---|---|
+| `GET /api/repo-checks` (`API_PATHS.repoChecks`) | → `RepoChecksListResponse {repos: RepoChecksDto[]}` by repo; `RepoChecksDto {repo, setup: string \| null, checks, updated_at, updated_by}` | 401 |
+| `GET /api/repo-checks?repo=…` | → `RepoChecksDetail {repo, override: RepoChecksDto \| null, effective: [{at, source: 'override' \| 'workflow', setup, checks}]}`, one entry per gate of the latest `conductor` that declares checks (`checksGatesOf`; `at` = `state.transition` or `state`) | 400 (repo not 1..200), 401 |
+| `PUT /api/repo-checks` | `PutRepoChecksRequest {repo ≤ 200, setup? ≤ 2000, checks: EntryCheck[1..20]}` → `RepoChecksDto`; upsert, `updated_by` = the user's email. Unique check names, non-blank commands (`RepoChecksSchema`) | 400 `bad_request` with details, 401 |
+| `DELETE /api/repo-checks` | `DeleteRepoChecksRequest {repo}` (JSON, like every unsafe request) → `OkResponse` | 400, 401, 404 `not_found` (none for the repo) |
+
 ## Reopen
 
 [ADR-0008](../adr/0008-transcript-history-and-reopen.md). `POST /api/sessions/:id/reopen {text}` → `reopenSession` (`orchestrator/src/engine/reopen.ts`), one transaction, no engine event and no outbox row:
@@ -663,8 +674,13 @@ Nothing left to send → `acked` (and `payload.notification` nulled). Otherwise 
 | `take_transition` (destructive) | `{ticket, name, text? ≤ 10 000}` | `{ok: true}`; as `POST /api/sessions/:id/transition`. Only a name in the card's `human_transitions` (else `wrong_state` with `allowed: string[]`); a transition with `requires.approvals` (ADR-0020 §5, whether or not the PR activates them) is `approval_required` with `url`, never applied (U-093) |
 | `reopen_ticket` | `{ticket, text: 1..10 000}` | `{ok: true, session_id}`; as `POST /api/sessions/:id/reopen` on the ticket's latest session (`conflict` unless it is done or failed) |
 | `cancel_ticket` (destructive) | `{ticket, reason? ≤ 500}` | `{ok: true}`; as `POST /api/sessions/:id/cancel` |
+| `list_repo_checks` (read-only) | `{}` | `RepoChecksListResponse` (ADR-0030) |
+| `get_repo_checks` (read-only) | `{repo ≤ 200}` | `RepoChecksDetail`: the override (null when none) and the effective checks per gate |
+| `set_repo_checks` (idempotent) | `{repo, setup? ≤ 2000, checks: [{name, cmd, timeout?}] 1..20}` | `{ok: true, …RepoChecksDto}`, `updated_by` = `mcp:<email>`; `invalid_input` with `details` (duplicate names, blank commands). The description tells the agent commands run with `sh -c` at the root of a fresh checkout (Git Bash on Windows) |
+| `clear_repo_checks` (destructive) | `{repo}` | `{ok: true}`; `not_found` when the repo has none |
+| `get_workflow` (read-only) | `{workflow_id? = 'conductor', version?, state?}` | without `state`: `{id, version, versions, start, columns, budget, states: {<name>: {type, title, transitions: name[]}}, check_gates: [{at, setup, checks}]}`; with `state`: `{id, version, versions, state, definition}` (that state in full); `not_found` for an unknown workflow, version or state |
 
-Writes apply the same engine events as the board, with `actor: 'ui'` (no MCP attribution yet). Never exposed (Ben, 2026-10-30): approvals (`ui.approve`, `requires.approvals`), permission prompts (ADR-0023), fresh conversations, messages to a running agent, workflow reads and edits, machine enrollment, team and admin, transcripts and output.
+Writes apply the same engine events as the board, with `actor: 'ui'` (no MCP attribution yet). Never exposed (Ben, 2026-10-30): approvals (`ui.approve`, `requires.approvals`), permission prompts (ADR-0023), fresh conversations, messages to a running agent, machine enrollment, team and admin, transcripts and output. ADR-0030 (Ben, 2026-11-02) supersedes the "workflow reads and edits" item: conductor is MCP-first for managing workflows, so every way to change what a workflow runs gets a tool (the repo-check tools and `get_workflow` above; saving a whole definition is a follow-up).
 
 ## Defaults recorded here (workshop reconciliation)
 

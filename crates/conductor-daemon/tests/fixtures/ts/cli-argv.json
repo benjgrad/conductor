@@ -1,0 +1,769 @@
+{
+  "generated_by": "a throwaway vitest file in packages/daemon/src/claude running buildClaudeArgs / userMessageLine (MR-T09)",
+  "argv": [
+    {
+      "name": "new session, every optional",
+      "opts": {
+        "cwd": "/w",
+        "prompt": "p",
+        "tools": {
+          "builtin": [
+            "Read",
+            "Edit",
+            "Write",
+            "Glob",
+            "Grep",
+            "Bash"
+          ],
+          "allow": [
+            "Read(./**)",
+            "Edit(./**)",
+            "Bash(git commit -m:*)"
+          ],
+          "deny": [
+            "Bash(git push:*)",
+            "WebFetch"
+          ]
+        },
+        "claudeSessionId": "sid-1",
+        "resume": false,
+        "env": {},
+        "model": "sonnet",
+        "maxTurns": 40,
+        "maxBudgetUsd": 2.5,
+        "appendSystemPrompt": "line one\nline \"two\" é"
+      },
+      "argv": [
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--session-id",
+        "sid-1",
+        "--model",
+        "sonnet",
+        "--max-turns",
+        "40",
+        "--max-budget-usd",
+        "2.5",
+        "--setting-sources",
+        "user",
+        "--settings",
+        "<SETTINGS>",
+        "--strict-mcp-config",
+        "--permission-mode",
+        "auto",
+        "--permission-prompts",
+        "host",
+        "--permission-prompt-tool",
+        "mcp__conductor__permission",
+        "--mcp-config",
+        "<MCP>",
+        "--tools",
+        "Read,Edit,Write,Glob,Grep,Bash",
+        "--allowedTools",
+        "Read(./**),Edit(./**),Bash(git commit -m:*),mcp__conductor__complete_state,mcp__conductor__ask_user",
+        "--disallowedTools",
+        "Bash(git push:*),WebFetch",
+        "--append-system-prompt",
+        "line one\nline \"two\" é"
+      ]
+    },
+    {
+      "name": "resume, empty tools",
+      "opts": {
+        "cwd": "/w",
+        "prompt": "p",
+        "tools": {
+          "builtin": [],
+          "allow": [],
+          "deny": []
+        },
+        "claudeSessionId": "sid-2",
+        "resume": true,
+        "env": {}
+      },
+      "argv": [
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--resume",
+        "sid-2",
+        "--setting-sources",
+        "user",
+        "--settings",
+        "<SETTINGS>",
+        "--strict-mcp-config",
+        "--permission-mode",
+        "auto",
+        "--permission-prompts",
+        "host",
+        "--permission-prompt-tool",
+        "mcp__conductor__permission",
+        "--mcp-config",
+        "<MCP>",
+        "--tools",
+        "",
+        "--allowedTools",
+        "mcp__conductor__complete_state,mcp__conductor__ask_user"
+      ]
+    },
+    {
+      "name": "budget formatting 1",
+      "opts": {
+        "cwd": "/w",
+        "prompt": "p",
+        "tools": {
+          "builtin": [
+            "Read",
+            "Edit",
+            "Write",
+            "Glob",
+            "Grep",
+            "Bash"
+          ],
+          "allow": [
+            "Read(./**)",
+            "Edit(./**)",
+            "Bash(git commit -m:*)"
+          ],
+          "deny": [
+            "Bash(git push:*)",
+            "WebFetch"
+          ]
+        },
+        "claudeSessionId": "sid-1",
+        "resume": false,
+        "env": {},
+        "maxBudgetUsd": 1
+      },
+      "argv": [
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--session-id",
+        "sid-1",
+        "--max-budget-usd",
+        "1",
+        "--setting-sources",
+        "user",
+        "--settings",
+        "<SETTINGS>",
+        "--strict-mcp-config",
+        "--permission-mode",
+        "auto",
+        "--permission-prompts",
+        "host",
+        "--permission-prompt-tool",
+        "mcp__conductor__permission",
+        "--mcp-config",
+        "<MCP>",
+        "--tools",
+        "Read,Edit,Write,Glob,Grep,Bash",
+        "--allowedTools",
+        "Read(./**),Edit(./**),Bash(git commit -m:*),mcp__conductor__complete_state,mcp__conductor__ask_user",
+        "--disallowedTools",
+        "Bash(git push:*),WebFetch"
+      ]
+    },
+    {
+      "name": "budget formatting 0.1+0.2",
+      "opts": {
+        "cwd": "/w",
+        "prompt": "p",
+        "tools": {
+          "builtin": [
+            "Read",
+            "Edit",
+            "Write",
+            "Glob",
+            "Grep",
+            "Bash"
+          ],
+          "allow": [
+            "Read(./**)",
+            "Edit(./**)",
+            "Bash(git commit -m:*)"
+          ],
+          "deny": [
+            "Bash(git push:*)",
+            "WebFetch"
+          ]
+        },
+        "claudeSessionId": "sid-1",
+        "resume": false,
+        "env": {},
+        "maxBudgetUsd": 0.30000000000000004
+      },
+      "argv": [
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--session-id",
+        "sid-1",
+        "--max-budget-usd",
+        "0.30000000000000004",
+        "--setting-sources",
+        "user",
+        "--settings",
+        "<SETTINGS>",
+        "--strict-mcp-config",
+        "--permission-mode",
+        "auto",
+        "--permission-prompts",
+        "host",
+        "--permission-prompt-tool",
+        "mcp__conductor__permission",
+        "--mcp-config",
+        "<MCP>",
+        "--tools",
+        "Read,Edit,Write,Glob,Grep,Bash",
+        "--allowedTools",
+        "Read(./**),Edit(./**),Bash(git commit -m:*),mcp__conductor__complete_state,mcp__conductor__ask_user",
+        "--disallowedTools",
+        "Bash(git push:*),WebFetch"
+      ]
+    },
+    {
+      "name": "budget formatting 1e21",
+      "opts": {
+        "cwd": "/w",
+        "prompt": "p",
+        "tools": {
+          "builtin": [
+            "Read",
+            "Edit",
+            "Write",
+            "Glob",
+            "Grep",
+            "Bash"
+          ],
+          "allow": [
+            "Read(./**)",
+            "Edit(./**)",
+            "Bash(git commit -m:*)"
+          ],
+          "deny": [
+            "Bash(git push:*)",
+            "WebFetch"
+          ]
+        },
+        "claudeSessionId": "sid-1",
+        "resume": false,
+        "env": {},
+        "maxBudgetUsd": 1e+21
+      },
+      "argv": [
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--session-id",
+        "sid-1",
+        "--max-budget-usd",
+        "1e+21",
+        "--setting-sources",
+        "user",
+        "--settings",
+        "<SETTINGS>",
+        "--strict-mcp-config",
+        "--permission-mode",
+        "auto",
+        "--permission-prompts",
+        "host",
+        "--permission-prompt-tool",
+        "mcp__conductor__permission",
+        "--mcp-config",
+        "<MCP>",
+        "--tools",
+        "Read,Edit,Write,Glob,Grep,Bash",
+        "--allowedTools",
+        "Read(./**),Edit(./**),Bash(git commit -m:*),mcp__conductor__complete_state,mcp__conductor__ask_user",
+        "--disallowedTools",
+        "Bash(git push:*),WebFetch"
+      ]
+    },
+    {
+      "name": "reviewer with inherit",
+      "opts": {
+        "cwd": "/w",
+        "prompt": "p",
+        "tools": {
+          "builtin": [
+            "Read",
+            "Edit",
+            "Write",
+            "Glob",
+            "Grep",
+            "Bash"
+          ],
+          "allow": [
+            "Read(./**)",
+            "Edit(./**)",
+            "Bash(git commit -m:*)"
+          ],
+          "deny": [
+            "Bash(git push:*)",
+            "WebFetch"
+          ]
+        },
+        "claudeSessionId": "sid-1",
+        "resume": false,
+        "env": {},
+        "review": true,
+        "mcp": {
+          "mode": "inherit"
+        }
+      },
+      "argv": [
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--session-id",
+        "sid-1",
+        "--setting-sources",
+        "user",
+        "--settings",
+        "<SETTINGS>",
+        "--strict-mcp-config",
+        "--permission-mode",
+        "dontAsk",
+        "--permission-prompts",
+        "none",
+        "--mcp-config",
+        "<MCP>",
+        "--tools",
+        "Read,Edit,Write,Glob,Grep,Bash",
+        "--allowedTools",
+        "Read(./**),Edit(./**),Bash(git commit -m:*),mcp__conductor__complete_state,mcp__conductor__ask_user",
+        "--disallowedTools",
+        "Bash(git push:*),WebFetch"
+      ]
+    },
+    {
+      "name": "reviewer, old CLI",
+      "opts": {
+        "cwd": "/w",
+        "prompt": "p",
+        "tools": {
+          "builtin": [
+            "Read",
+            "Edit",
+            "Write",
+            "Glob",
+            "Grep",
+            "Bash"
+          ],
+          "allow": [
+            "Read(./**)",
+            "Edit(./**)",
+            "Bash(git commit -m:*)"
+          ],
+          "deny": [
+            "Bash(git push:*)",
+            "WebFetch"
+          ]
+        },
+        "claudeSessionId": "sid-1",
+        "resume": false,
+        "env": {},
+        "review": true
+      },
+      "permission": {
+        "prompts": "none",
+        "legacyMode": "auto"
+      },
+      "argv": [
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--session-id",
+        "sid-1",
+        "--setting-sources",
+        "user",
+        "--settings",
+        "<SETTINGS>",
+        "--strict-mcp-config",
+        "--permission-mode",
+        "dontAsk",
+        "--permission-prompts",
+        "none",
+        "--mcp-config",
+        "<MCP>",
+        "--tools",
+        "Read,Edit,Write,Glob,Grep,Bash",
+        "--allowedTools",
+        "Read(./**),Edit(./**),Bash(git commit -m:*),mcp__conductor__complete_state,mcp__conductor__ask_user",
+        "--disallowedTools",
+        "Bash(git push:*),WebFetch"
+      ]
+    },
+    {
+      "name": "inherit with deny",
+      "opts": {
+        "cwd": "/w",
+        "prompt": "p",
+        "tools": {
+          "builtin": [
+            "Read",
+            "Edit",
+            "Write",
+            "Glob",
+            "Grep",
+            "Bash"
+          ],
+          "allow": [
+            "Read(./**)",
+            "Edit(./**)",
+            "Bash(git commit -m:*)"
+          ],
+          "deny": [
+            "Bash(git push:*)",
+            "WebFetch"
+          ]
+        },
+        "claudeSessionId": "sid-1",
+        "resume": false,
+        "env": {},
+        "mcp": {
+          "mode": "inherit",
+          "deny": [
+            "claude.ai Gmail",
+            "plugin:azure:azure",
+            "claude.ai Gmail",
+            " vibe_kanban ",
+            "naïve 😀"
+          ]
+        }
+      },
+      "argv": [
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--session-id",
+        "sid-1",
+        "--setting-sources",
+        "user",
+        "--settings",
+        "<SETTINGS>",
+        "--permission-mode",
+        "auto",
+        "--permission-prompts",
+        "host",
+        "--permission-prompt-tool",
+        "mcp__conductor__permission",
+        "--mcp-config",
+        "<MCP>",
+        "--tools",
+        "Read,Edit,Write,Glob,Grep,Bash",
+        "--allowedTools",
+        "Read(./**),Edit(./**),Bash(git commit -m:*),mcp__conductor__complete_state,mcp__conductor__ask_user",
+        "--disallowedTools",
+        "Bash(git push:*),WebFetch,mcp__claude_ai_Gmail,mcp__plugin_azure_azure,mcp__vibe_kanban,mcp__na_ve___"
+      ]
+    },
+    {
+      "name": "none with deny",
+      "opts": {
+        "cwd": "/w",
+        "prompt": "p",
+        "tools": {
+          "builtin": [
+            "Read",
+            "Edit",
+            "Write",
+            "Glob",
+            "Grep",
+            "Bash"
+          ],
+          "allow": [
+            "Read(./**)",
+            "Edit(./**)",
+            "Bash(git commit -m:*)"
+          ],
+          "deny": [
+            "Bash(git push:*)",
+            "WebFetch"
+          ]
+        },
+        "claudeSessionId": "sid-1",
+        "resume": false,
+        "env": {},
+        "mcp": {
+          "mode": "none",
+          "deny": [
+            "claude.ai Gmail"
+          ]
+        }
+      },
+      "argv": [
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--session-id",
+        "sid-1",
+        "--setting-sources",
+        "user",
+        "--settings",
+        "<SETTINGS>",
+        "--strict-mcp-config",
+        "--permission-mode",
+        "auto",
+        "--permission-prompts",
+        "host",
+        "--permission-prompt-tool",
+        "mcp__conductor__permission",
+        "--mcp-config",
+        "<MCP>",
+        "--tools",
+        "Read,Edit,Write,Glob,Grep,Bash",
+        "--allowedTools",
+        "Read(./**),Edit(./**),Bash(git commit -m:*),mcp__conductor__complete_state,mcp__conductor__ask_user",
+        "--disallowedTools",
+        "Bash(git push:*),WebFetch"
+      ]
+    },
+    {
+      "name": "old CLI, no legacy mode",
+      "opts": {
+        "cwd": "/w",
+        "prompt": "p",
+        "tools": {
+          "builtin": [
+            "Read",
+            "Edit",
+            "Write",
+            "Glob",
+            "Grep",
+            "Bash"
+          ],
+          "allow": [
+            "Read(./**)",
+            "Edit(./**)",
+            "Bash(git commit -m:*)"
+          ],
+          "deny": [
+            "Bash(git push:*)",
+            "WebFetch"
+          ]
+        },
+        "claudeSessionId": "sid-1",
+        "resume": false,
+        "env": {}
+      },
+      "permission": {
+        "prompts": "none"
+      },
+      "argv": [
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--session-id",
+        "sid-1",
+        "--setting-sources",
+        "user",
+        "--settings",
+        "<SETTINGS>",
+        "--strict-mcp-config",
+        "--permission-prompts",
+        "none",
+        "--mcp-config",
+        "<MCP>",
+        "--tools",
+        "Read,Edit,Write,Glob,Grep,Bash",
+        "--allowedTools",
+        "Read(./**),Edit(./**),Bash(git commit -m:*),mcp__conductor__complete_state,mcp__conductor__ask_user",
+        "--disallowedTools",
+        "Bash(git push:*),WebFetch"
+      ]
+    },
+    {
+      "name": "old CLI, bypass cap",
+      "opts": {
+        "cwd": "/w",
+        "prompt": "p",
+        "tools": {
+          "builtin": [
+            "Read",
+            "Edit",
+            "Write",
+            "Glob",
+            "Grep",
+            "Bash"
+          ],
+          "allow": [
+            "Read(./**)",
+            "Edit(./**)",
+            "Bash(git commit -m:*)"
+          ],
+          "deny": [
+            "Bash(git push:*)",
+            "WebFetch"
+          ]
+        },
+        "claudeSessionId": "sid-1",
+        "resume": false,
+        "env": {}
+      },
+      "permission": {
+        "prompts": "none",
+        "legacyMode": "auto"
+      },
+      "argv": [
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--session-id",
+        "sid-1",
+        "--setting-sources",
+        "user",
+        "--settings",
+        "<SETTINGS>",
+        "--strict-mcp-config",
+        "--permission-mode",
+        "auto",
+        "--permission-prompts",
+        "none",
+        "--mcp-config",
+        "<MCP>",
+        "--tools",
+        "Read,Edit,Write,Glob,Grep,Bash",
+        "--allowedTools",
+        "Read(./**),Edit(./**),Bash(git commit -m:*),mcp__conductor__complete_state,mcp__conductor__ask_user",
+        "--disallowedTools",
+        "Bash(git push:*),WebFetch"
+      ]
+    },
+    {
+      "name": "workflow aliases",
+      "opts": {
+        "cwd": "/w",
+        "prompt": "p",
+        "tools": {
+          "builtin": [
+            "Read",
+            "Glob",
+            "Grep",
+            "Edit",
+            "Write",
+            "Bash"
+          ],
+          "allow": [
+            "Read(./**)",
+            "Glob(./**)",
+            "Grep(./**)",
+            "Edit(./**)",
+            "Write(./**)",
+            "Bash(npm run:*)",
+            "Bash(npm test:*)",
+            "Bash(npm install)",
+            "Bash(npm ci)",
+            "Bash(pnpm run:*)",
+            "Bash(pnpm test:*)",
+            "Bash(pnpm install)",
+            "Bash(pnpm i)",
+            "Bash(pnpm install --frozen-lockfile)",
+            "Bash(pnpm i --frozen-lockfile)",
+            "Bash(pnpm typecheck)",
+            "Bash(pnpm lint)",
+            "Bash(pnpm build)",
+            "Bash(pnpm format)",
+            "Bash(pnpm vitest:*)",
+            "Bash(pnpm exec vitest:*)",
+            "Bash(pnpm exec prettier:*)",
+            "Bash(pnpm exec eslint:*)",
+            "Bash(pnpm exec tsc -b)",
+            "Bash(chmod +x:*)",
+            "Bash(git status)",
+            "Bash(git status --short)",
+            "Bash(git diff)",
+            "Bash(git diff --cached)",
+            "Bash(git diff --stat)",
+            "Bash(git log --oneline -n 20)",
+            "Bash(git rev-parse HEAD)",
+            "Bash(git branch --show-current)",
+            "Bash(git add:*)",
+            "Bash(git commit:*)",
+            "Bash(git restore:*)"
+          ],
+          "deny": [
+            "Bash(git push:*)"
+          ]
+        },
+        "claudeSessionId": "sid-1",
+        "resume": false,
+        "env": {}
+      },
+      "argv": [
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--session-id",
+        "sid-1",
+        "--setting-sources",
+        "user",
+        "--settings",
+        "<SETTINGS>",
+        "--strict-mcp-config",
+        "--permission-mode",
+        "auto",
+        "--permission-prompts",
+        "host",
+        "--permission-prompt-tool",
+        "mcp__conductor__permission",
+        "--mcp-config",
+        "<MCP>",
+        "--tools",
+        "Read,Glob,Grep,Edit,Write,Bash",
+        "--allowedTools",
+        "Read(./**),Glob(./**),Grep(./**),Edit(./**),Write(./**),Bash(npm run:*),Bash(npm test:*),Bash(npm install),Bash(npm ci),Bash(pnpm run:*),Bash(pnpm test:*),Bash(pnpm install),Bash(pnpm i),Bash(pnpm install --frozen-lockfile),Bash(pnpm i --frozen-lockfile),Bash(pnpm typecheck),Bash(pnpm lint),Bash(pnpm build),Bash(pnpm format),Bash(pnpm vitest:*),Bash(pnpm exec vitest:*),Bash(pnpm exec prettier:*),Bash(pnpm exec eslint:*),Bash(pnpm exec tsc -b),Bash(chmod +x:*),Bash(git status),Bash(git status --short),Bash(git diff),Bash(git diff --cached),Bash(git diff --stat),Bash(git log --oneline -n 20),Bash(git rev-parse HEAD),Bash(git branch --show-current),Bash(git add:*),Bash(git commit:*),Bash(git restore:*),mcp__conductor__complete_state,mcp__conductor__ask_user",
+        "--disallowedTools",
+        "Bash(git push:*)"
+      ]
+    }
+  ],
+  "user_message_lines": [
+    {
+      "text": "hi",
+      "line": "{\"type\":\"user\",\"session_id\":\"\",\"parent_tool_use_id\":null,\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\"}]}}\n"
+    },
+    {
+      "text": "quote \" backslash \\ newline \n tab \t ctrl \u0001 é 😀  ",
+      "line": "{\"type\":\"user\",\"session_id\":\"\",\"parent_tool_use_id\":null,\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"quote \\\" backslash \\\\ newline \\n tab \\t ctrl \\u0001 é 😀  \"}]}}\n"
+    }
+  ]
+}

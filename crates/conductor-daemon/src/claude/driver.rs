@@ -6,7 +6,9 @@
 //! object-safe (`Arc<dyn DriverSession>`) and `Send + Sync`.
 //!
 //! Events: a session pushes [`DriverEvent`]s to listeners registered with
-//! [`DriverSession::on`]. As in TS, `start` is synchronous and every event is emitted
+//! [`DriverSession::on`]. As in TS, `start` is synchronous (it fails only where the TS `start`
+//! throws: a claude that isn't a native .exe on Windows, U-110, or the session's private files
+//! can't be written) and every event is emitted
 //! asynchronously (on a spawned task), so a listener attached right after `start` sees every
 //! event, the first `claude_session_id` included. A listener is called from the session's task
 //! with no session lock held, so it may call back into the session (`send_input` …). It must not
@@ -217,7 +219,9 @@ pub struct ListenerId(u64);
 
 /// `DriverSession`.
 pub trait DriverSession: Send + Sync {
-    fn claude_session_id(&self) -> &str;
+    /// The requested id, or the one the CLI's system/init reported if it differs (an owned
+    /// `String`, because the CLI driver may update it while the session runs).
+    fn claude_session_id(&self) -> String;
     /// BUG-1: the OS pid of the Claude process (its own group / job leader), when there is one.
     fn pid(&self) -> Option<u32>;
     fn on(&self, listener: DriverListener) -> ListenerId;
@@ -245,9 +249,10 @@ pub trait DriverSession: Send + Sync {
     fn kill(&self, grace: Option<Duration>);
 }
 
-/// `ClaudeDriver`. `start` needs a tokio runtime (events are emitted on spawned tasks).
+/// `ClaudeDriver`. `start` needs a tokio runtime (events are emitted on spawned tasks). An `Err`
+/// is the TS `start()` throwing: nothing was registered or spawned.
 pub trait ClaudeDriver: Send + Sync {
-    fn start(&self, opts: DriverStartOptions) -> Arc<dyn DriverSession>;
+    fn start(&self, opts: DriverStartOptions) -> Result<Arc<dyn DriverSession>, DriverError>;
 }
 
 /// The listener registry of a session, in registration order.

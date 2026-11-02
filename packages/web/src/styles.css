@@ -1329,14 +1329,15 @@ button.link {
     padding: var(--space-2) var(--space-3);
   }
   /* The document never scrolls on a phone; the shell does. So the panel and the sheet can't be
-     scrolled away, and iOS draws no blurred scroll edge under the translucent status bar. */
+     scrolled away. (The iOS status bar is opaque, `default` in index.html: iOS blurred the top bar
+     under `black-translucent` even with this lock.) */
   html.app-shell,
   html.app-shell body {
     height: 100%;
     overflow: hidden;
     overscroll-behavior: none;
   }
-  /* The status-bar band matches the top bar. */
+  /* Any safe-area band above the top bar (Safari tab, landscape) matches it. */
   html.app-shell {
     background: var(--panel);
   }

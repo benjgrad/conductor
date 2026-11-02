@@ -38,8 +38,9 @@ export function useVisualViewportHeight(active: boolean): void {
     if (!active || !vv) return;
     const root = document.documentElement;
     const update = () => {
-      root.style.setProperty('--vvh', `${vv.height}px`);
-      root.style.setProperty('--vvt', `${vv.offsetTop}px`);
+      // Whole pixels: iOS reports fractions, and a fixed layer at a sub-pixel offset blurs its text.
+      root.style.setProperty('--vvh', `${Math.floor(vv.height)}px`);
+      root.style.setProperty('--vvt', `${Math.round(vv.offsetTop)}px`);
     };
     update();
     vv.addEventListener('resize', update);

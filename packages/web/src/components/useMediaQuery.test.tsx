@@ -122,6 +122,15 @@ describe('useVisualViewportHeight', () => {
     expect([prop('--vvh'), prop('--vvt')]).toEqual(['', '']);
   });
 
+  it('rounds to whole pixels so the fixed shell is never at a sub-pixel offset', () => {
+    vi.stubGlobal(
+      'visualViewport',
+      Object.assign(new EventTarget(), { height: 600.67, offsetTop: 0.33 }),
+    );
+    render(<Shell active />);
+    expect([prop('--vvh'), prop('--vvt')]).toEqual(['600px', '0px']);
+  });
+
   it('does nothing while inactive', () => {
     vi.stubGlobal('visualViewport', Object.assign(new EventTarget(), { height: 1, offsetTop: 1 }));
     render(<Shell active={false} />);

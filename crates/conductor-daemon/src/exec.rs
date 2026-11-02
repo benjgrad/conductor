@@ -331,6 +331,8 @@ mod tests {
     #[test]
     fn private_dir_is_a_fresh_private_dir_under_root_private() {
         let tmp = tempfile::tempdir().unwrap();
+        // As the daemon does: Windows refuses a private dir under a parent that inherits ACLs.
+        acl::mkdir_private(tmp.path()).unwrap();
         let root = tmp.path().join("root");
         acl::mkdir_private(&root).unwrap();
         let a = private_dir(&root, "push-").unwrap();

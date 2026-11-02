@@ -22,6 +22,9 @@
 .rc-note {
   margin: 0;
 }
+.repo-checks code {
+  white-space: nowrap;
+}
 /* 11-web-ui: tables scroll inside their own box, never the page. */
 .rc-scroll {
   display: block;
@@ -30,6 +33,8 @@
 }
 .rc-table {
   width: 100%;
+  /* On a phone the box scrolls sideways instead of squeezing every cell into a tall column. */
+  min-width: 720px;
   border-collapse: collapse;
   background: var(--panel);
   border: 1px solid var(--border);

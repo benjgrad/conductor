@@ -7,13 +7,16 @@
 //! never behind a `cfg`: it takes a [`Platform`] or injected OS facts, so the Windows rules are
 //! tested on every OS. Only the syscalls are.
 //!
-//! Declared up front (MR-T02); `win_path` was added by MR-T04, which owns `platform/`.
+//! Declared up front (MR-T02); `win_path` was added by MR-T04, which owns `platform/`; `machine`
+//! and `private_file` by MR-T05 (the core modules need them).
 
 pub mod acl;
 pub mod fs;
 pub mod git;
 pub mod hook;
 pub mod kill_tree;
+pub mod machine;
+pub mod private_file;
 pub mod procinfo;
 pub mod shell;
 pub mod spawn;
@@ -24,11 +27,15 @@ pub use acl::{
     AclError, AclKind, AclRefusal, AssertOwnerOnlyOptions, PrivateError, assert_owner_only,
     current_user_sid, mkdir_private, write_private_file,
 };
+pub use fs::resolve;
 pub use fs::same_path;
 pub use git::{git_hooks_off_args, git_system_config_env, null_device};
 pub use hook::{WIN_HOOK_UNSAFE, hook_command};
 pub use kill_tree::{
     KillTarget, KillTreeHandle, KillTreeOptions, Signal, kill_tree, killed_exit, signal_tree,
+};
+pub use private_file::{
+    DurableIo, SyncAll, assert_private_dir, read_private_file, write_private_file_durable,
 };
 pub use procinfo::{ProcInfo, exe_name, read_proc_info, same_executable};
 pub use shell::{WorkflowShell, workflow_shell};

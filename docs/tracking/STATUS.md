@@ -22,6 +22,7 @@
 | UX-15 Web Push (server) | PR #67 | in_review; migration needs Ben |
 | UX-16 PWA + Web Push (web) | branch `ux-16-web-push` | in_review; prod push needs the VAPID keys in `~/deploy/conductor/.env` (runbook §13) |
 | MR-T00 Rust daemon plan | PR #69 | in_review (plan only) |
+| M2-T37 agents inherit MCP servers (ADR-0029) | branch `m2-t37-agent-mcp-inherit` | in_review; works once the orchestrator is deployed and the machine's daemon upgraded |
 | MR-T01 Rust spike | board ticket e4bbe7dd | ready (posted 2026-10-29); stops for `cargo` until B-005 |
 | MR-T04 Rust `platform/` (spawn, Job Objects, procinfo, ACLs, shell, …) | branch `mr-t04-platform` | in_review; Windows code proven only by the `daemon-rust` matrix |
 | MR-T03 protocol codegen | board ticket (this branch) | in_review: conductor opens the PR; waits for the `daemon-rust` 3-OS matrix |

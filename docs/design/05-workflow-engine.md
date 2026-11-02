@@ -21,9 +21,12 @@ Users design an FSM, stored as **versioned JSON** in `workflow_definition`. The 
       "ticket_editable": true             // optional; may people edit the ticket in this column (below)
     }
   },
-  "queued_ticket_editable": true          // optional; the same for the implicit Queued column
+  "queued_ticket_editable": true,         // optional; the same for the implicit Queued column
+  "mcp": { "mode": "inherit", "deny": ["claude.ai Gmail"] }  // optional; agents' MCP servers (below)
 }
 ```
+
+**MCP servers per workflow ([ADR-0029](../adr/0029-agents-inherit-mcp-servers.md)).** `mcp` (the workflow, and any agent state, whose own `mcp` replaces the workflow's) says which of the machine owner's MCP servers and claude.ai connectors a worker agent gets besides conductor's: `{ "mode": "inherit" }` (the default when absent everywhere) gives it all of them, `deny` removes named servers (as Claude Code lists them: `claude.ai Atlassian`, `plugin:azure:azure`), and `{ "mode": "none" }` gives it only conductor's. Requirements reviewers and QA states always get `none` (`resolveMcpPolicy`, `shared/src/workflow/mcp.ts`).
 
 **Editing the ticket per column.** `ticket_editable` (every state) and `queued_ticket_editable` (the workflow, for Queued) say whether a person may edit the ticket's title, body, priority and kind while its card is in that column (`PATCH /api/tickets/:id`, [03](03-protocols.md#rest-indicative)). When absent: Queued and `human` states are editable, every other type (agent, command, connector, event, terminal) is read-only; an unknown state is read-only (`ticketEditable`, `shared/src/workflow/editable.ts`). Reading the ticket is always allowed. The engine reads the ticket row on every apply (`toSnapshot`), so an edit reaches the **next** prompt it renders (the next agent state, a reviewer, a fresh conversation), never an agent process already running; the UI says so on an agent column and suggests a live message.
 
@@ -67,7 +70,7 @@ Each key of `on` is a **transition name**; the value is a state name (shorthand 
 ### State types
 | type | Executed by | Config | Outcomes |
 |---|---|---|---|
-| `agent` | daemon → Claude Code | `prompt` template **or** `skill`, `tools` allow-list, `input` (refs like `$open_pr.pr_url`), `result` keys expected | ADR-0011: any agent-actor transition, named in `complete_state {transition, reason, result}` (no name = `done`); `ask_user`, `timeout` |
+| `agent` | daemon → Claude Code | `prompt` template **or** `skill`, `tools` allow-list, `mcp` ([ADR-0029](../adr/0029-agents-inherit-mcp-servers.md)), `input` (refs like `$open_pr.pr_url`), `result` keys expected | ADR-0011: any agent-actor transition, named in `complete_state {transition, reason, result}` (no name = `done`); `ask_user`, `timeout` |
 | `command` | daemon, no model | `cmd`, optional `cwd`, `timeout`. Runs through the build semaphore ([07](07-multi-session-isolation.md)) | `exit_0`, `fail` |
 | `event` | orchestrator, waits | `wait_for: [event names]`, `park`, `release_machine`, `timeout` | each event name, `timeout` |
 | `connector` | orchestrator | `action` / `actions[]`, `args`, `idempotency` | `ok`, `error` |

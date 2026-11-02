@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { McpPolicySchema } from './mcp.js';
 
 // WorkflowDefinition per docs/design/05-workflow-engine.md#definition-schema.
 // This is the *shape* only. The six graph rules of "Validation on save" are M1-T03
@@ -398,6 +399,8 @@ export const AgentStateSchema = z
     prompt: z.string().min(1).optional(),
     skill: z.string().min(1).optional(),
     tools: z.array(z.string().min(1)).optional(),
+    /** ADR-0029: the MCP servers this state's agent gets; replaces the workflow's `mcp`. */
+    mcp: McpPolicySchema.optional(),
     /** Literal values or `$state.key` refs (05 rule 5). */
     input: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
     /** Keys the agent's `complete_state` result must carry. */
@@ -507,6 +510,11 @@ export const WorkflowDefinitionSchema = z.strictObject({
   /** State to route to on `budget.exceeded`. Default `needs_input` (05, 09). */
   on_budget_exceeded: StateNameSchema.default('needs_input'),
   states: z.record(StateNameSchema, StateSchema),
+  /**
+   * ADR-0029: the machine owner's MCP servers the workflow's agents get. Absent = `inherit` (all of
+   * them); a state's own `mcp` replaces this. Requirements reviewers and QA states never get them.
+   */
+  mcp: McpPolicySchema.optional(),
   /**
    * ADR-0010: the board's columns, left to right, as state names. Every state is a column in the
    * one workflow; the board also shows an implicit "Queued" column first (sessions no machine has

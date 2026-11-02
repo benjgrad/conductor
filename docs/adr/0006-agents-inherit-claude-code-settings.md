@@ -1,6 +1,6 @@
 # ADR-0006 · Agents inherit the user's Claude Code settings, with conductor's hard guards
 
-- **Status**: accepted (Ben, 2026-10-23). The permission mode choice and `--permission-prompts none` are superseded by [ADR-0023](0023-permission-prompts-through-conductor.md) (2026-10-28)
+- **Status**: accepted (Ben, 2026-10-23). The permission mode choice and `--permission-prompts none` are superseded by [ADR-0023](0023-permission-prompts-through-conductor.md) (2026-10-28). The "only conductor's MCP server" guard (`--strict-mcp-config`, `ENABLE_CLAUDEAI_MCP_SERVERS=false`) is superseded by [ADR-0029](0029-agents-inherit-mcp-servers.md) (2026-11-01): agents inherit the owner's MCP servers unless the workflow says `none`
 - **Date**: 2026-10-23
 - **Deciders**: Ben (+ Claude session 2026-10-23-agent-inherit-settings)
 - **Supersedes**: the permission parts of [ADR-0005](0005-claude-code-driver.md): §Spawn `--setting-sources ""` and `--permission-mode dontAsk`, and §Tool allow-list mapping "everything else is denied by dontAsk". The rest of ADR-0005 stands, including the daemon passing the repo's CLAUDE.md via `--append-system-prompt` (U-013).

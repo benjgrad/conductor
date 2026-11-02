@@ -6,6 +6,7 @@ export * from './workflow/schema.js';
 export * from './workflow/conductor.js';
 export * from './workflow/guards.js';
 export * from './workflow/tools.js';
+export * from './workflow/mcp.js';
 export * from './workflow/validate.js';
 export * from './workflow/transition-rules.js';
 export * from './workflow/fold.js';

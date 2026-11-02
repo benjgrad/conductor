@@ -16,6 +16,7 @@ import {
   type WorkflowDefinition,
 } from '../workflow/schema.js';
 import { AgentTransitionOptionSchema } from '../workflow/transition-rules.js';
+import { McpPolicySchema } from '../workflow/mcp.js';
 import { GitShaSchema, PR_FILES_MAX, PrFilePathSchema, PrUrlSchema } from '../protocol/actions.js';
 
 // FSM engine contract (05). `apply()` is pure: no clock (pass `now`), no ids, no I/O.
@@ -534,6 +535,8 @@ export const EffectSchema = z.discriminatedUnion('type', [
     prompt: z.string(),
     /** The state's workflow `tools` list; the daemon maps it to an ADR-0005 ToolPolicy. */
     tools: z.array(z.string()),
+    /** ADR-0029: `resolveMcpPolicy(def, state)` for a worker; absent (reviewer, QA) = `none`. */
+    mcp: McpPolicySchema.optional(),
     /** Set → `--resume`; null → the daemon pre-assigns a new Claude session id. */
     resume_claude_session_id: z.string().nullable(),
     model: z.string().optional(),

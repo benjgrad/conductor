@@ -297,7 +297,7 @@ Semantics: [ADR-0020](../adr/0020-review-and-merge-flow.md). Frozen by M2r-T01; 
 | `start_session.ticket_id`, `repo` | `snapshot.ticket.id`, `snapshot.ticket.repo` |
 | `start_session.base_ref` | `M1_BASE_REF` = `HEAD` of the shared clone |
 | `start_session.branch` | `session.branch` (set by the claim) |
-| `start_session.workflow_state`, `prompt`, `tools`, `resume_claude_session_id`, `model`, `max_turns`, `max_budget_usd`, `review`, `transitions` | the effect (`state` → `workflow_state`; optional fields omitted when absent; `transitions` also omitted when empty). `review: true` only on a requirements reviewer's start ([ADR-0009](../adr/0009-transition-requirements-review.md)) |
+| `start_session.workflow_state`, `prompt`, `tools`, `mcp`, `resume_claude_session_id`, `model`, `max_turns`, `max_budget_usd`, `review`, `transitions` | the effect (`state` → `workflow_state`; optional fields omitted when absent; `transitions` also omitted when empty). `review: true` only on a requirements reviewer's start ([ADR-0009](../adr/0009-transition-requirements-review.md)). `mcp` = `resolveMcpPolicy(def, state)` on a worker's start only; the daemon reads its absence as `{ mode: 'none' }` ([ADR-0029](../adr/0029-agents-inherit-mcp-servers.md)) |
 | `start_session.env` | `{CONDUCTOR_SESSION_ID, CONDUCTOR_TICKET_ID}`. The workflow schema has no per-state env in M1; ports and git identity are added by the daemon (ADR-0005 §Spawn) |
 | `send_input.input_request_id`, `text` | the effect |
 | `send_message.target_command_id` | `snapshot.agent_command_id` after apply (the live process the message is for; the daemon refuses it for any other process) |

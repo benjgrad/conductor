@@ -708,6 +708,7 @@ export class Daemon {
     let range: PortRange;
     try {
       // TD-181: working_copy has no default_branch yet, so the base is the clone's origin/HEAD.
+      // TD-200: the ack waits for this (a first clone can outlast the orchestrator's ack window).
       worktree = await this.workspace.ensureWorktree({
         repo: p.repo,
         sessionId: sid,
@@ -776,6 +777,8 @@ export class Daemon {
         ...(p.max_turns !== undefined ? { maxTurns: p.max_turns } : {}),
         // ADR-0009: a reviewer runs in dontAsk (the driver forces the mode).
         ...(p.review === true ? { review: true } : {}),
+        // ADR-0029: the user's MCP servers the agent gets (absent = only conductor's).
+        ...(p.mcp !== undefined ? { mcp: p.mcp } : {}),
         // ADR-0011: the names complete_state accepts (one corrective nudge for another).
         ...(p.transitions !== undefined ? { transitions: p.transitions } : {}),
       });

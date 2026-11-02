@@ -82,6 +82,8 @@ export function commandPayloadForEffect(
       if (effect.max_turns !== undefined) payload.max_turns = effect.max_turns;
       if (effect.max_budget_usd !== undefined) payload.max_budget_usd = effect.max_budget_usd;
       if (effect.review === true) payload.review = true;
+      // ADR-0029: omitted for reviewer / QA starts, which the daemon reads as `none`.
+      if (effect.mcp !== undefined) payload.mcp = effect.mcp;
       // ADR-0011: omitted when the effect has none (old versions), so old payloads are unchanged.
       if (effect.transitions !== undefined && effect.transitions.length > 0) {
         payload.transitions = effect.transitions;

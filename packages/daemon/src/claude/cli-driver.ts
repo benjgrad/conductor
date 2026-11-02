@@ -22,7 +22,7 @@ import {
   writePrivateFile,
 } from '../platform/index.js';
 import type { ClaudeDriver, DriverEvent, DriverSession, DriverStartOptions } from './driver.js';
-import { DEFAULT_PERMISSION_TIMEOUT_MS } from '@conductor/shared';
+import { DEFAULT_PERMISSION_TIMEOUT_MS, mcpServerRule, NO_MCP_POLICY } from '@conductor/shared';
 import { writeEditGuard } from './edit-guard.js';
 import {
   OUTCOME_TOOL_NAMES,
@@ -98,22 +98,43 @@ export function removeMcpConfigFile(path: string): void {
 }
 
 /**
- * Env the agent always gets, over the daemon env and `opts.env` (ADR-0006): the user's claude.ai
- * connectors (Gmail, Slack, …) stay out of agent sessions (`--strict-mcp-config` doesn't cover
- * them), safe mode, which would drop the edit-guard hook, stays off, and (ADR-0023) the MCP tool
- * timeout outlasts a held permission prompt.
+ * Env the agent always gets, over the daemon env and `opts.env` (ADR-0006): safe mode, which would
+ * drop the edit-guard hook, stays off, and (ADR-0023) the MCP tool timeout outlasts a held
+ * permission prompt. With an MCP policy of `none` (ADR-0029) the agent also gets
+ * NO_CLAUDEAI_MCP_ENV.
  */
 export const AGENT_ENV = {
-  ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
   CLAUDE_CODE_SAFE_MODE: '0',
   // ADR-0023: a held `permission` call lasts up to DEFAULT_PERMISSION_TIMEOUT_MS (30 min); the
-  // CLI's MCP tool timeout must not cut it first. Conductor's server is the only MCP server.
+  // CLI's MCP tool timeout must not cut it first. It applies to the user's inherited MCP servers
+  // too (ADR-0029): a slow one of theirs gets the same long timeout.
   MCP_TOOL_TIMEOUT: String(DEFAULT_PERMISSION_TIMEOUT_MS + 5 * 60_000),
   // The CLI's Bash tool kills a command after 2 min by default (10 max), so an agent's own test
   // run died and was retried until the state timed out. 10 min by default, 30 at most.
   BASH_DEFAULT_TIMEOUT_MS: String(10 * 60_000),
   BASH_MAX_TIMEOUT_MS: String(30 * 60_000),
 } as const;
+
+/**
+ * ADR-0006 / ADR-0029 `none`: the user's claude.ai connectors (Gmail, Slack, …) stay out of the
+ * session; `--strict-mcp-config` doesn't cover them.
+ */
+export const NO_CLAUDEAI_MCP_ENV = { ENABLE_CLAUDEAI_MCP_SERVERS: 'false' } as const;
+
+/**
+ * ADR-0029: how a start's MCP policy maps to the CLI. `strict` (policy `none`, absent, or a
+ * reviewer): only conductor's server (`--strict-mcp-config` + NO_CLAUDEAI_MCP_ENV). Otherwise the
+ * user's servers and connectors load, and `deny` holds the `--disallowedTools` rules for the
+ * denied ones.
+ */
+export function agentMcp(opts: Pick<DriverStartOptions, 'mcp' | 'review'>): {
+  strict: boolean;
+  deny: string[];
+} {
+  const p = opts.mcp ?? NO_MCP_POLICY;
+  if (opts.review === true || p.mode === 'none') return { strict: true, deny: [] };
+  return { strict: false, deny: [...new Set((p.deny ?? []).map(mcpServerRule))] };
+}
 
 /**
  * State-env keys the agent may receive: what the orchestrator and daemon set today (session and
@@ -126,12 +147,13 @@ export const STATE_ENV_ALLOWED =
   /^(CONDUCTOR_[A-Z0-9_]+|PORT|GIT_(AUTHOR|COMMITTER)_(NAME|EMAIL))$/;
 
 /**
- * The child's env: the daemon env, then the allowed state-env keys, then AGENT_ENV. `dropped`
- * names the state-env keys that were refused.
+ * The child's env: the daemon env, then the allowed state-env keys, then AGENT_ENV (and
+ * NO_CLAUDEAI_MCP_ENV when `strictMcp`). `dropped` names the state-env keys that were refused.
  */
 export function agentEnv(
   stateEnv: Record<string, string>,
   extraAllowed?: RegExp,
+  strictMcp = true,
 ): {
   env: NodeJS.ProcessEnv;
   dropped: string[];
@@ -142,7 +164,13 @@ export function agentEnv(
     if (STATE_ENV_ALLOWED.test(k) || extraAllowed?.test(k)) allowed[k] = v;
     else dropped.push(k);
   }
-  return { env: { ...process.env, ...allowed, ...AGENT_ENV }, dropped };
+  const env = {
+    ...process.env,
+    ...allowed,
+    ...AGENT_ENV,
+    ...(strictMcp ? NO_CLAUDEAI_MCP_ENV : {}),
+  };
+  return { env, dropped };
 }
 
 /**
@@ -266,7 +294,10 @@ export function buildClaudeArgs(
   if (opts.model !== undefined) args.push('--model', opts.model);
   if (opts.maxTurns !== undefined) args.push('--max-turns', String(opts.maxTurns));
   if (opts.maxBudgetUsd !== undefined) args.push('--max-budget-usd', String(opts.maxBudgetUsd));
-  args.push('--setting-sources', 'user', '--settings', settings, '--strict-mcp-config');
+  args.push('--setting-sources', 'user', '--settings', settings);
+  // ADR-0029: the user's MCP servers load unless the policy is `none` (or this is a reviewer).
+  const mcp = agentMcp(opts);
+  if (mcp.strict) args.push('--strict-mcp-config');
   // ADR-0009: a reviewer is forced into dontAsk (only its pre-approved read-only rules run) and
   // never prompts. ADR-0023: a worker runs in auto mode and its prompts go to conductor; on an
   // old CLI it keeps the user's mode, capped by `agentPermissionMode`, and prompts are denied.
@@ -288,7 +319,8 @@ export function buildClaudeArgs(
     '--allowedTools',
     [...t.allow, ...OUTCOME_TOOL_NAMES].join(','),
   );
-  if (t.deny.length > 0) args.push('--disallowedTools', t.deny.join(','));
+  const deny = [...t.deny, ...mcp.deny];
+  if (deny.length > 0) args.push('--disallowedTools', deny.join(','));
   if (opts.appendSystemPrompt !== undefined) {
     args.push('--append-system-prompt', opts.appendSystemPrompt);
   }
@@ -368,7 +400,8 @@ class Session implements CliDriverSession {
     const permission: PermissionArgs = permissionPrompts
       ? { prompts: 'host' }
       : { prompts: 'none', ...(legacyMode !== undefined ? { legacyMode } : {}) };
-    const { env, dropped } = agentEnv(opts.env, extraStateEnv);
+    const mcp = agentMcp(opts);
+    const { env, dropped } = agentEnv(opts.env, extraStateEnv, mcp.strict);
     const notes: string[] = [];
     if (opts.review === true) {
       notes.push(`requirements reviewer: running in ${REVIEWER_PERMISSION_MODE} mode`);
@@ -385,6 +418,11 @@ class Session implements CliDriverSession {
         notes.push('user defaultMode is bypassPermissions; running this agent in auto mode');
       }
     }
+    notes.push(
+      mcp.strict
+        ? "MCP: only conductor's server"
+        : `MCP: the user's servers and claude.ai connectors${mcp.deny.length > 0 ? `, except ${mcp.deny.join(', ')}` : ''}`,
+    );
     if (dropped.length > 0) notes.push(`dropped state env keys not allowed: ${dropped.join(', ')}`);
     // After start() returns, so the caller's listener sees them (never emit inside start()).
     for (const note of notes) {

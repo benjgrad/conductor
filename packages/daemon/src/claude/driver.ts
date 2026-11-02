@@ -11,6 +11,7 @@
 import type {
   AgentTransitionOption,
   JsonObject,
+  McpPolicy,
   PermissionBehavior,
   PermissionScope,
 } from '@conductor/shared';
@@ -38,6 +39,12 @@ export interface DriverStartOptions {
    * run, everything else is denied without prompting.
    */
   review?: boolean;
+  /**
+   * ADR-0029: `start_session.mcp`, which of the user's MCP servers and claude.ai connectors the
+   * agent gets besides conductor's. Absent = `none` (only conductor's); a reviewer always gets
+   * `none`, whatever this says.
+   */
+  mcp?: McpPolicy;
   /**
    * ADR-0011: `start_session.transitions`, the names the outcome server accepts in
    * `complete_state` (one corrective nudge for another name). Absent or empty = any name.

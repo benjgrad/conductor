@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { IsoDateTimeSchema, JsonObjectSchema, OutputStreamSchema, UuidSchema } from '../domain.js';
 import { ConditionSchema, ConditionTypeSchema } from '../workflow/schema.js';
 import { AgentTransitionOptionSchema } from '../workflow/transition-rules.js';
+import { McpPolicySchema } from '../workflow/mcp.js';
 import { CapabilitySchema } from '../machines/capabilities.js';
 import { GitShaSchema, PrUrlSchema } from './actions.js';
 import {
@@ -591,6 +592,11 @@ export const StartSessionPayloadSchema = z.object({
   prompt: z.string(),
   /** The state's workflow `tools` list; the daemon maps it to a ToolPolicy (ADR-0005). */
   tools: z.array(z.string()),
+  /**
+   * ADR-0029: which of the machine owner's MCP servers the agent gets, besides conductor's.
+   * Absent = `none` (only conductor's): old orchestrators, requirements reviewers, QA sessions.
+   */
+  mcp: McpPolicySchema.optional(),
   /**
    * null → the daemon pre-assigns a new Claude session id (`--session-id`), persists it before
    * spawning, and reports it via session_event `claude_session_id`. Set → `--resume <id>`.

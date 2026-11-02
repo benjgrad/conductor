@@ -134,6 +134,7 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 | M2-T35c | `conductor` v5: `pr_screenshots` on every shipping transition, the capture instruction (also in `implement_template`), seed v4 → v5, e2e | T35b | G | — | done (PR #66, 49c39ae; merged ahead of T35b, so v5 asks for screenshots that only T35b attaches) |
 | M2-T35d | (folded into T35a–c when the gate became a condition, 2026-10-29) | — | — | — | cancelled |
 | M2-T36 | `no_work.reason`: the claim's failed gate goes back to the daemon and both sides log it once per change | — | E | — | in_review |
+| M2-T37 | Agents inherit the machine owner's MCP servers and claude.ai connectors; a workflow or agent state can deny servers or set `none` ([ADR-0029](../../adr/0029-agents-inherit-mcp-servers.md)) | — | E | — | in_review |
 
 **Follow-ups and splits (2026-10-27).** T08b, T09b and T10b came from post-merge QA of T08 (PR #16), T09 (PR #13) and T10 (PR #14) and merged as PR #21 (merge 32e6bb8), PR #17 (merge 881708e) and PR #19 (merge 74abf5f). T07b pays TD-144 and must land before T25's first deploy. Ben chose an early you-only deploy, so T15 is split: **T15a** (bootstrap, CLI, resets; critical path) and **T15b** (invites, sign-up, admin routes; after T12). Critical path for the you-only deploy: T09b, T08b, T14, T15a, T17, T07b. No second account until T16, T19 and T21 (TD-149). Deploy T09 and T17 together: after T09, password-mode gateways refuse every uncredentialed daemon and only T17 adds enrollment. Post-merge QA ran for T06 (OK, every item verified on main), T10 (follow-ups done as T10b) and T09b (security QA passed, 6 attack probes). T20 must settle U-084 (lease renewal for sessions parked in event states) before it starts.
 
@@ -1096,6 +1097,13 @@ The lead fast-forwarded the daemon clone and Hazel's branch by hand (the interim
 - `no_work.payload.reason?` (free text, ≤ 500; additive: older daemons strip it, an older orchestrator omits it). The gateway logs `no work for <machine>: <reason>` and the daemon `no work: <reason>`, each only when the reason changes (the daemon polls every `workPollMs`); a claim resets it.
 - Not in this task: the routing badge on Queued cards, the soft score and short hold (04 §2–3).
 - Acceptance: gateway test for `no_ready_ticket` → `max_sessions` (payload and one log line each); daemon test for log-on-change.
+
+### M2-T37 · Agents inherit the owner's MCP servers
+- Why (Ben, 2026-11-01): NCNG-2630 on PC115 was told to update its Jira ticket as it went, and had no Jira access: `--strict-mcp-config` and `ENABLE_CLAUDEAI_MCP_SERVERS=false` dropped the Atlassian connector its skills call. Ben: per workflow, defaulting to "everything the local claude session has".
+- `mcp: { mode: 'inherit' | 'none', deny?: string[] }` on the workflow and on agent states (`shared/src/workflow/mcp.ts`, `resolveMcpPolicy`: state replaces workflow, default `inherit`). A worker's `start_session` effect and payload carry it; absent on the wire = `none` (old orchestrators, reviewers, QA). The daemon drops `--strict-mcp-config` and `ENABLE_CLAUDEAI_MCP_SERVERS` unless strict, and turns `deny` into `--disallowedTools mcp__<server>` (`agentMcp`, `mcpServerRule`).
+- Protocol: `StartSessionPayload.mcp` regenerated into `conductor-protocol`; the two new cli-driver cases have `todo` PARITY rows for MR-T09.
+- Not in this task: an allow-list (`only`) and a per-repo setting (TD-199).
+- Acceptance: shared test (resolution, rule names, schema, effect → payload); daemon tests (args for inherit / deny / none / absent / reviewer; env). Takes effect on a machine once its daemon is upgraded **and** the orchestrator is deployed.
 
 ## Risks
 - **No Docker on Ben's Mac**: the Dockerfile and compose file are first built on gradyserver. Mitigation: T07 and T14 have a lead QA step that runs `docker build` there before merge, and T25 starts with a dry build.

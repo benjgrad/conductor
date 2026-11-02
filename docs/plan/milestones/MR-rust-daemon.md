@@ -65,7 +65,7 @@
 | MR-T06 | Test support: fake orchestrator, fake-bin, remove-tree, fake driver, fake runner | T03 | C | — | done (board ticket 753ade9e; driver/runner contracts; also the pure `outcome_server` helpers the fake driver shares, for T08 to build on) |
 | MR-T07 | `ws_client` + process runner | T05, T06 | D | — | todo |
 | MR-T08 | `claude/`: stream-parser, transcript, edit-guard (`hook edit-guard`), outcome + permission MCP server | T05, T06 | D | — | todo |
-| MR-T09 | `claude/cli_driver` | T07, T08 | E | — | todo |
+| MR-T09 | `claude/cli_driver` | T07, T08 | E | — | done (this branch; U-113 real-claude gate passed first; `ClaudeDriver::start` now returns `Result`, `claude_session_id` a `String`; TD-203, TD-204) |
 | MR-T10 | workspace + hardened exec/git module + actions (open-pr, checkout, conditions) | T07 | E | — | todo |
 | MR-T11 | inventory (capabilities, repos, git, report, rescan) | T10 | E | — | todo |
 | MR-T12 | Daemon core | T09, T10, T11 | F | — | todo |

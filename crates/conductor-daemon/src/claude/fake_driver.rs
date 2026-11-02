@@ -209,8 +209,8 @@ impl FakeClaudeDriver {
 }
 
 impl ClaudeDriver for FakeClaudeDriver {
-    fn start(&self, opts: DriverStartOptions) -> Arc<dyn DriverSession> {
-        self.start_fake(opts)
+    fn start(&self, opts: DriverStartOptions) -> Result<Arc<dyn DriverSession>, DriverError> {
+        Ok(self.start_fake(opts))
     }
 }
 
@@ -599,8 +599,8 @@ fn debug(text: &str) -> DriverEvent {
 }
 
 impl DriverSession for FakeDriverSession {
-    fn claude_session_id(&self) -> &str {
-        &self.claude_session_id
+    fn claude_session_id(&self) -> String {
+        self.claude_session_id.clone()
     }
 
     fn pid(&self) -> Option<u32> {
@@ -766,7 +766,7 @@ mod tests {
             .into(),
             FakeTurn::dynamic(|answer| vec![FakeTurnAction::complete(json!({ "db": answer }))]),
         ]));
-        let s = driver.start(opts());
+        let s = driver.start(opts()).unwrap();
         let fake = driver.last().unwrap();
         let seen = collect(&fake);
         fake.idle().await;

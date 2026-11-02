@@ -24,9 +24,9 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 - [ ] `actions/open-pr.test.ts`
 
-- [ ] `claude/cli-driver.real.test.ts`
+- [x] `claude/cli-driver.real.test.ts`
 
-- [ ] `claude/cli-driver.test.ts`
+- [x] `claude/cli-driver.test.ts`
 
 - [x] `claude/edit-guard.test.ts`
 
@@ -191,47 +191,47 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| claude/cli-driver.real.test.ts › real claude CLI: flags › accepts the exact ADR-0005 argv and exits 0 on stdin EOF | todo |
-| claude/cli-driver.real.test.ts › real claude CLI: ask_user round trip (spends money) › asks, takes the live answer, completes | todo |
-| claude/cli-driver.real.test.ts › real claude CLI: permission prompt round trip (spends money) › git push never reaches the prompt tool; touch does, is allowed, and runs | todo |
+| claude/cli-driver.real.test.ts › real claude CLI: flags › accepts the exact ADR-0005 argv and exits 0 on stdin EOF | crates/conductor-daemon/src/claude/cli_driver/tests.rs::real_claude_accepts_the_exact_adr_0005_argv_and_exits_0_on_stdin_eof |
+| claude/cli-driver.real.test.ts › real claude CLI: ask_user round trip (spends money) › asks, takes the live answer, completes | crates/conductor-daemon/src/claude/cli_driver/tests.rs::real_claude_asks_takes_the_live_answer_completes |
+| claude/cli-driver.real.test.ts › real claude CLI: permission prompt round trip (spends money) › git push never reaches the prompt tool; touch does, is allowed, and runs | crates/conductor-daemon/src/claude/cli_driver/tests.rs::real_claude_git_push_never_reaches_the_prompt_tool_touch_does_and_runs |
 
 ### claude/cli-driver.test.ts
 
 | TS case | Rust |
 |---|---|
-| claude/cli-driver.test.ts › buildClaudeArgs › emits exactly the ADR-0005/ADR-0006 flags for a new session | todo |
-| claude/cli-driver.test.ts › buildClaudeArgs › ADR-0009: a reviewer always runs in dontAsk and never prompts; ADR-0023: a worker runs in auto | todo |
-| claude/cli-driver.test.ts › buildClaudeArgs › ADR-0029: inherit drops --strict-mcp-config and denies the listed servers; none, absent and reviewers stay strict | todo |
-| claude/cli-driver.test.ts › buildClaudeArgs › ADR-0029: agentMcp, and agentEnv leaves the claude.ai connectors on only when not strict | todo |
-| claude/cli-driver.test.ts › buildClaudeArgs › ADR-0023 fallback (old CLI): the pre-ADR-0023 flags, the user mode or the bypass cap, prompts denied | todo |
-| claude/cli-driver.test.ts › buildClaudeArgs › ADR-0023 §4: git push stays a deny rule beside the prompt tool, so it never reaches a human | todo |
-| claude/cli-driver.test.ts › buildClaudeArgs › ADR-0023: detects auto mode and --permission-prompts in claude --help | todo |
-| claude/cli-driver.test.ts › buildClaudeArgs › uses --resume for resume, omits unset optionals and an empty deny list | todo |
-| claude/cli-driver.test.ts › buildClaudeArgs › writes stream-json user messages | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0011: an unknown transition is nudged once, then the named one is forwarded with its reason | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › ask_user → park → sendInput → complete_state → end() → exit 0 | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0007: sendMessage is folded into the running turn (a slash command passes through) | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0007: sendMessage is not an answer: a pending ask_user question stays pending | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0006: --settings is the edit-guard hook for the worktree, beside mcp.json, removed on exit | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0006: agentEnv passes only allowlisted state keys and pins connectors and safe mode off | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0006: logs the state env keys it dropped | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0006: caps the user defaultMode bypassPermissions to auto; leaves others alone | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › M1-T14: the MCP URL token never appears in argv; it is in a 0600 file, removed on exit | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › resume continues the script and the cumulative spend (TD-001) | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › resume of an unknown session exits non-zero, like the real CLI | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › kill(): SIGTERM first; SIGKILL after the grace period when SIGTERM is ignored (TD-003) | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › kill() of a cooperative process exits on SIGTERM and never escalates | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › end() escalates to kill when the process ignores stdin EOF | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › parses leniently: raw lines and stderr pass through, a crash still reports exit | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › reports error turns and permission denials; refuses a guarded complete_state | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › a missing binary yields stderr output and an exit event | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › U-110: a claude.cmd is refused with the install hint, before anything is registered | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0023 permission prompts › a held call resolves on allow: Claude gets the input back | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0023 permission prompts › a held call resolves on deny with the default text | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0023 permission prompts › a held call is denied at the timeout | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0023 permission prompts › kill while held: the call is denied and the process exits | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0023 permission prompts › a worker announces auto mode; an old CLI falls back to the old flags with a warning | todo |
-| claude/cli-driver.test.ts › createCliDriver against fake-claude › defaults claudeBin to $CONDUCTOR_CLAUDE_BIN | todo |
+| claude/cli-driver.test.ts › buildClaudeArgs › emits exactly the ADR-0005/ADR-0006 flags for a new session | crates/conductor-daemon/src/claude/cli_driver/tests.rs::emits_exactly_the_adr_0005_0006_flags_for_a_new_session, crates/conductor-daemon/src/claude/cli_driver/tests.rs::argv_and_user_lines_match_the_recorded_ts_output |
+| claude/cli-driver.test.ts › buildClaudeArgs › ADR-0009: a reviewer always runs in dontAsk and never prompts; ADR-0023: a worker runs in auto | crates/conductor-daemon/src/claude/cli_driver/tests.rs::a_reviewer_runs_in_dont_ask_and_never_prompts_a_worker_runs_in_auto |
+| claude/cli-driver.test.ts › buildClaudeArgs › ADR-0029: inherit drops --strict-mcp-config and denies the listed servers; none, absent and reviewers stay strict | crates/conductor-daemon/src/claude/cli_driver/tests.rs::inherit_drops_strict_mcp_config_and_denies_the_listed_servers |
+| claude/cli-driver.test.ts › buildClaudeArgs › ADR-0029: agentMcp, and agentEnv leaves the claude.ai connectors on only when not strict | crates/conductor-daemon/src/claude/cli_driver/tests.rs::agent_mcp_and_agent_env_leave_connectors_on_only_when_not_strict, crates/conductor-daemon/src/claude/cli_driver/tests.rs::mcp_server_rule_gives_claude_code_tool_prefixes |
+| claude/cli-driver.test.ts › buildClaudeArgs › ADR-0023 fallback (old CLI): the pre-ADR-0023 flags, the user mode or the bypass cap, prompts denied | crates/conductor-daemon/src/claude/cli_driver/tests.rs::old_cli_fallback_uses_the_pre_adr_0023_flags |
+| claude/cli-driver.test.ts › buildClaudeArgs › ADR-0023 §4: git push stays a deny rule beside the prompt tool, so it never reaches a human | crates/conductor-daemon/src/claude/cli_driver/tests.rs::git_push_stays_a_deny_rule_beside_the_prompt_tool |
+| claude/cli-driver.test.ts › buildClaudeArgs › ADR-0023: detects auto mode and --permission-prompts in claude --help | crates/conductor-daemon/src/claude/cli_driver/tests.rs::detects_auto_mode_and_permission_prompts_in_claude_help |
+| claude/cli-driver.test.ts › buildClaudeArgs › uses --resume for resume, omits unset optionals and an empty deny list | crates/conductor-daemon/src/claude/cli_driver/tests.rs::uses_resume_for_resume_and_omits_unset_optionals_and_an_empty_deny_list, crates/conductor-daemon/src/claude/cli_driver/tests.rs::js_number_prints_as_js_string |
+| claude/cli-driver.test.ts › buildClaudeArgs › writes stream-json user messages | crates/conductor-daemon/src/claude/cli_driver/tests.rs::writes_stream_json_user_messages, crates/conductor-daemon/src/claude/cli_driver/tests.rs::argv_and_user_lines_match_the_recorded_ts_output |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0011: an unknown transition is nudged once, then the named one is forwarded with its reason | crates/conductor-daemon/src/claude/cli_driver/tests.rs::an_unknown_transition_is_nudged_once_then_the_named_one_is_forwarded |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › ask_user → park → sendInput → complete_state → end() → exit 0 | crates/conductor-daemon/src/claude/cli_driver/tests.rs::ask_user_park_send_input_complete_state_end_exit_0 |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0007: sendMessage is folded into the running turn (a slash command passes through) | crates/conductor-daemon/src/claude/cli_driver/tests.rs::send_message_is_folded_into_the_running_turn |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0007: sendMessage is not an answer: a pending ask_user question stays pending | crates/conductor-daemon/src/claude/cli_driver/tests.rs::send_message_is_not_an_answer_a_pending_question_stays_pending |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0006: --settings is the edit-guard hook for the worktree, beside mcp.json, removed on exit | crates/conductor-daemon/src/claude/cli_driver/tests.rs::settings_is_the_edit_guard_hook_beside_mcp_json_removed_on_exit |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0006: agentEnv passes only allowlisted state keys and pins connectors and safe mode off | crates/conductor-daemon/src/claude/cli_driver/tests.rs::agent_env_passes_only_allowlisted_state_keys_and_pins_connectors_and_safe_mode_off, crates/conductor-daemon/src/claude/cli_driver/tests.rs::state_env_allowed_matches_the_ts_regex |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0006: logs the state env keys it dropped | crates/conductor-daemon/src/claude/cli_driver/tests.rs::logs_the_state_env_keys_it_dropped, crates/conductor-daemon/src/claude/cli_driver/tests.rs::start_notes_say_the_mode_the_mcp_policy_and_dropped_keys |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0006: caps the user defaultMode bypassPermissions to auto; leaves others alone | crates/conductor-daemon/src/claude/cli_driver/tests.rs::caps_the_user_default_mode_bypass_permissions_to_auto |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › M1-T14: the MCP URL token never appears in argv; it is in a 0600 file, removed on exit | crates/conductor-daemon/src/claude/cli_driver/tests.rs::the_mcp_url_token_never_appears_in_argv_it_is_in_a_private_file_removed_on_exit |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › resume continues the script and the cumulative spend (TD-001) | crates/conductor-daemon/src/claude/cli_driver/tests.rs::resume_continues_the_script_and_the_cumulative_spend |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › resume of an unknown session exits non-zero, like the real CLI | crates/conductor-daemon/src/claude/cli_driver/tests.rs::resume_of_an_unknown_session_exits_non_zero_like_the_real_cli |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › kill(): SIGTERM first; SIGKILL after the grace period when SIGTERM is ignored (TD-003) | crates/conductor-daemon/src/claude/cli_driver/tests.rs::kill_sends_sigterm_first_then_sigkill_after_the_grace_when_ignored |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › kill() of a cooperative process exits on SIGTERM and never escalates | crates/conductor-daemon/src/claude/cli_driver/tests.rs::kill_of_a_cooperative_process_exits_on_sigterm_and_never_escalates |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › end() escalates to kill when the process ignores stdin EOF | crates/conductor-daemon/src/claude/cli_driver/tests.rs::end_escalates_to_kill_when_the_process_ignores_stdin_eof |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › parses leniently: raw lines and stderr pass through, a crash still reports exit | crates/conductor-daemon/src/claude/cli_driver/tests.rs::parses_leniently_raw_lines_and_stderr_pass_through_a_crash_still_reports_exit, crates/conductor-daemon/src/claude/cli_driver/tests.rs::take_utf8_keeps_a_split_character_for_the_next_read |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › reports error turns and permission denials; refuses a guarded complete_state | crates/conductor-daemon/src/claude/cli_driver/tests.rs::reports_error_turns_and_permission_denials_refuses_a_guarded_complete_state |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › a missing binary yields stderr output and an exit event | crates/conductor-daemon/src/claude/cli_driver/tests.rs::a_missing_binary_yields_stderr_output_and_an_exit_event, crates/conductor-daemon/src/claude/cli_driver/tests.rs::events_before_the_first_listener_are_delivered_to_it_in_order |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › U-110: a claude.cmd is refused with the install hint, before anything is registered | crates/conductor-daemon/src/claude/cli_driver/tests.rs::a_claude_cmd_is_refused_with_the_install_hint_before_anything_is_registered |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0023 permission prompts › a held call resolves on allow: Claude gets the input back | crates/conductor-daemon/src/claude/cli_driver/tests.rs::a_held_call_resolves_on_allow_claude_gets_the_input_back |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0023 permission prompts › a held call resolves on deny with the default text | crates/conductor-daemon/src/claude/cli_driver/tests.rs::a_held_call_resolves_on_deny_with_the_default_text |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0023 permission prompts › a held call is denied at the timeout | crates/conductor-daemon/src/claude/cli_driver/tests.rs::a_held_call_is_denied_at_the_timeout |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0023 permission prompts › kill while held: the call is denied and the process exits | crates/conductor-daemon/src/claude/cli_driver/tests.rs::kill_while_held_the_call_is_denied_and_the_process_exits |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › ADR-0023 permission prompts › a worker announces auto mode; an old CLI falls back to the old flags with a warning | crates/conductor-daemon/src/claude/cli_driver/tests.rs::a_worker_announces_auto_mode_an_old_cli_falls_back_with_a_warning |
+| claude/cli-driver.test.ts › createCliDriver against fake-claude › defaults claudeBin to $CONDUCTOR_CLAUDE_BIN | crates/conductor-daemon/src/claude/cli_driver/tests.rs::defaults_claude_bin_to_conductor_claude_bin |
 
 ### claude/edit-guard.test.ts
 

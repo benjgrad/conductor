@@ -1,5 +1,9 @@
 import {
+  CONDUCTOR_WORKFLOW_ID,
   CreateTicketRequestSchema,
+  EntryCheckSchema,
+  REPO_CHECKS_MAX,
+  checksGatesOf,
   TicketKindSchema,
   httpForApplyResult,
   transitionsOf,
@@ -15,7 +19,13 @@ import type { RequestAuth } from '../auth/middleware.js';
 import type { BoardBus, EngineService, OutputBus } from '../contracts.js';
 import type { Db } from '../main.js';
 import { listMachineRows } from '../api/machines.js';
-import { loadBoard } from '../api/queries.js';
+import { loadBoard, loadWorkflowDetail } from '../api/queries.js';
+import {
+  clearRepoChecks,
+  getRepoChecks,
+  listRepoChecks,
+  setRepoChecks,
+} from '../api/repo-checks.js';
 import { loadSessionDetail } from '../api/sessions.js';
 import { createTicket } from '../api/tickets.js';
 import { reopenSession } from '../engine/reopen.js';
@@ -25,9 +35,12 @@ import { capJson } from './cap.js';
 // is scoped to the token's account: another account's ticket is "not found", like an unknown
 // one. Writes go through the same code as the board's buttons (TD: recorded as the `ui` actor).
 //
-// The tool set is deliberately small (Ben approved it, 2026-10-30). Never exposed: approvals
-// (`ui.approve`, a transition's `requires.approvals`), permission prompts (ADR-0023), fresh
-// conversations, workflow edits, machine enrollment, team and admin, transcripts and output.
+// The tool set is deliberately small (Ben approved it, 2026-10-30). ADR-0030: conductor is
+// MCP-first for managing workflows, so every way to change what a workflow runs has a tool: the
+// per-repo checks (list/get/set/clear_repo_checks) and reading the workflow (get_workflow).
+// Never exposed: approvals (`ui.approve`, a transition's `requires.approvals`), permission prompts
+// (ADR-0023), fresh conversations, machine enrollment, team and admin, transcripts and output.
+// Saving a whole workflow definition over MCP is a follow-up (ADR-0030 §Follow-ups).
 
 export interface ToolDeps {
   db: Db;
@@ -44,7 +57,17 @@ export const MCP_INSTRUCTIONS =
   'list_tickets (needs_input=true shows what waits on the user) or search_tickets. Ticket refs ' +
   'accept the full id or its first 8 characters. Call get_ticket before answer_input or ' +
   'take_transition: it shows the open question and the allowed transition names. Approvals and ' +
-  'agent permission prompts are answered on the board, not here.';
+  'agent permission prompts are answered on the board, not here. A repo whose build or tests ' +
+  "don't fit the workflow's default checks gets its own with set_repo_checks (get_repo_checks " +
+  'shows what runs now); get_workflow shows the workflow itself.';
+
+/** ADR-0030: how a repo check runs, for the tools' descriptions. */
+const REPO_CHECKS_HOW =
+  'Every command runs with `sh -c` at the root of a fresh checkout of the commit being shipped ' +
+  '(Git Bash on Windows machines, so write bash: `cd m-one && npm ci && npm run build`, ' +
+  'forward slashes, quoted Windows paths). `setup` runs once before the checks: omit it to ' +
+  "auto-detect from the root lockfile, '' for none. The checks replace the workflow's on every " +
+  'transition that runs checks, for tickets on this repo only.';
 
 /** api/index.ts UI_ACTOR (not imported: index.ts registers this module). TD: an `mcp` actor. */
 const UI_ACTOR = 'ui';
@@ -573,6 +596,146 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       return apply('cancel', s.sessionId, {
         type: 'operator.cancel',
         ...(reason !== undefined ? { reason } : {}),
+      });
+    },
+  );
+
+  // ---------------------------------------------------------------- ADR-0030: workflows
+
+  /** Who an MCP write is recorded as (`repo_checks.updated_by`). */
+  const by = `mcp:${who.user.email}`;
+  const repoArg = z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .describe('host/org/repo, e.g. github.com/acme/app');
+
+  server.registerTool(
+    'list_repo_checks',
+    {
+      title: 'List repo checks',
+      description:
+        'The repos of the account that have their own pre-PR checks (overriding the workflow’s ' +
+        'default build and test checks), with their setup and checks.',
+      inputSchema: {},
+      annotations: readOnly,
+    },
+    async () => ok(await listRepoChecks(db, accountId)),
+  );
+
+  server.registerTool(
+    'get_repo_checks',
+    {
+      title: 'Get a repo’s checks',
+      description:
+        'What conductor runs before a ticket on this repo opens or updates its PR: the repo’s own ' +
+        'override (null when it has none) and, per workflow transition that runs checks, the ' +
+        'effective setup and checks.',
+      inputSchema: { repo: repoArg },
+      annotations: readOnly,
+    },
+    async ({ repo }) => ok(await getRepoChecks(db, accountId, repo)),
+  );
+
+  server.registerTool(
+    'set_repo_checks',
+    {
+      title: 'Set a repo’s checks',
+      description:
+        'Replace the pre-PR checks for one repo (e.g. a repo without a root package.json). ' +
+        REPO_CHECKS_HOW +
+        ' Tickets pick it up the next time they run their checks.',
+      inputSchema: {
+        repo: repoArg,
+        setup: z.string().max(2_000).optional().describe("Omit = auto-detect, '' = none"),
+        checks: z
+          .array(EntryCheckSchema)
+          .min(1)
+          .max(REPO_CHECKS_MAX)
+          .describe('[{name, cmd, timeout?: "10m"}], run in order; each must exit 0'),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const res = await setRepoChecks(db, accountId, input, by);
+      if (!res.ok) return fail('invalid_input', res.message, { details: res.details });
+      return ok({ ok: true, ...res.dto });
+    },
+  );
+
+  server.registerTool(
+    'clear_repo_checks',
+    {
+      title: 'Clear a repo’s checks',
+      description:
+        'Remove the repo’s own checks: its tickets run the workflow’s default checks again.',
+      inputSchema: { repo: repoArg },
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    },
+    async ({ repo }) => {
+      if (!(await clearRepoChecks(db, accountId, repo))) {
+        return fail('not_found', `${repo} has no checks of its own.`);
+      }
+      return ok({ ok: true });
+    },
+  );
+
+  server.registerTool(
+    'get_workflow',
+    {
+      title: 'Get the workflow',
+      description:
+        'The workflow tickets run (`conductor` by default, latest version unless `version`). ' +
+        'Without `state`: an outline (each state’s type, title and transition names) and every ' +
+        'gate that runs checks. With `state`: that state’s full definition (prompt, transitions, ' +
+        'requirements, timeouts).',
+      inputSchema: {
+        workflow_id: z.string().min(1).max(100).optional().describe('Default conductor'),
+        version: z.number().int().min(1).optional().describe('Default the latest'),
+        state: z.string().min(1).max(100).optional().describe('One state in full'),
+      },
+      annotations: readOnly,
+    },
+    async ({ workflow_id, version, state }) => {
+      const id = workflow_id ?? CONDUCTOR_WORKFLOW_ID;
+      const detail = await loadWorkflowDetail(db, id, version ?? null);
+      if (!detail) {
+        return fail('not_found', `No workflow ${id}${version ? ` version ${version}` : ''}.`);
+      }
+      const def = detail.definition;
+      const head = { id: detail.id, version: detail.version, versions: detail.versions };
+      if (state !== undefined) {
+        const s = def.states[state];
+        if (s === undefined) {
+          return fail(
+            'not_found',
+            `No state ${state}. States: ${Object.keys(def.states).join(', ')}.`,
+          );
+        }
+        return ok({ ...head, state, definition: s });
+      }
+      return ok({
+        ...head,
+        start: def.start,
+        columns: def.columns ?? null,
+        budget: def.budget,
+        states: Object.fromEntries(
+          Object.entries(def.states).map(([name, s]) => [
+            name,
+            {
+              type: s.type,
+              title: s.title ?? null,
+              transitions: 'on' in s && s.on !== undefined ? Object.keys(s.on) : [],
+            },
+          ]),
+        ),
+        check_gates: checksGatesOf(def),
       });
     },
   );

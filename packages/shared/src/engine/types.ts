@@ -17,6 +17,7 @@ import {
 } from '../workflow/schema.js';
 import { AgentTransitionOptionSchema } from '../workflow/transition-rules.js';
 import { McpPolicySchema } from '../workflow/mcp.js';
+import { RepoChecksSchema } from '../workflow/repo-checks.js';
 import { GitShaSchema, PR_FILES_MAX, PrFilePathSchema, PrUrlSchema } from '../protocol/actions.js';
 
 // FSM engine contract (05). `apply()` is pure: no clock (pass `now`), no ids, no I/O.
@@ -165,6 +166,12 @@ export const GateStepSchema = z.object({
     })
     .nullable()
     .default(null),
+  /**
+   * ADR-0030: the repo's check override, pinned when the step started (the session's
+   * `repo_checks` then), so an edit while the step runs can't shift `index` against another list.
+   * null = the definition's checks. Defaults to null, so older rows parse.
+   */
+  repo_checks: RepoChecksSchema.nullable().default(null),
 });
 export type GateStep = z.infer<typeof GateStepSchema>;
 /** ADR-0009 name of GateStepSchema. */
@@ -243,6 +250,11 @@ export const SessionSnapshotSchema = z.object({
   context: z.record(z.string(), JsonObjectSchema),
   /** The gate step in progress (ADR-0009 review / ADR-0010 entry), or null. See GateStepSchema. */
   step: GateStepSchema.nullable(),
+  /**
+   * ADR-0030: the ticket repo's check override (`repo_checks` row), read by the EngineService
+   * wrapper with the session. A new gate step pins it (`step.repo_checks`). Absent ≡ null (none).
+   */
+  repo_checks: RepoChecksSchema.nullable().optional(),
 });
 export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;
 

@@ -380,6 +380,18 @@ A teammate is **busy** while another ticket assigned to it has a session that is
 
 The migration's down drops the three tables.
 
+### repo_checks
+[ADR-0030](../adr/0030-per-repo-checks-and-mcp-workflow-tools.md), migration `1762300000000_repo-checks`. A repo's own pre-PR checks, replacing the workflow's at every gate that runs real checks ([05 §Repo check overrides](05-workflow-engine.md#repo-check-overrides-adr-0030)). Edited with `/api/repo-checks` and the MCP tools `set_repo_checks` / `clear_repo_checks` ([10](10-contracts.md)).
+| column | type | notes |
+|---|---|---|
+| account_id | uuid fk account | part of the pk |
+| repo | text | `repoChecksKey(repo)`: canonical `host/org/repo`, lower-cased (else the repo as given, trimmed, lower-cased); `CHECK repo <> ''`; part of the pk |
+| config | jsonb | `RepoChecksSchema`: `{setup?, checks: [{name, cmd, timeout?}]}` (1..20, unique names), validated on write; a row that no longer parses reads as none |
+| updated_at | timestamptz | default `now()` |
+| updated_by | text null | the user's email; `mcp:<email>` over MCP |
+
+The migration's down drops the table.
+
 ### login_throttle
 Instance-level. ADR-0017 §Rate limiting, layer 3: keyed by the normalised email **string**, whether or not a user has it, so a lockout reveals nothing.
 | column | type | notes |

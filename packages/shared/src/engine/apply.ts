@@ -52,7 +52,14 @@ import {
   withoutMachineLost,
   type MachineLostEvent,
 } from './machine-lost.js';
-import { moveCounter, moveName, moveSpecOf, PIN_CHECK, type GateSpec } from './move-step.js';
+import {
+  applyRepoChecks,
+  moveCounter,
+  moveName,
+  moveSpecOf,
+  PIN_CHECK,
+  type GateSpec,
+} from './move-step.js';
 import { renderPrompt, type PromptAttachment } from './render.js';
 import {
   DEFAULT_CHECK_TIMEOUT,
@@ -1089,7 +1096,13 @@ function gateOf(def: WorkflowDefinition, from: string, outcome: string): Require
   return typeof t === 'object' ? (t.requirements ?? null) : null;
 }
 
+/** The step's spec, with the repo's check override pinned on the step applied (ADR-0030). */
 function gateSpecOf(def: WorkflowDefinition, r: GateStep): GateSpec | null {
+  const spec = definitionSpecOf(def, r);
+  return spec === null ? null : applyRepoChecks(spec, r.repo_checks);
+}
+
+function definitionSpecOf(def: WorkflowDefinition, r: GateStep): GateSpec | null {
   if (r.kind === 'move') return moveSpecOf(def, r);
   if (r.kind === 'transition') {
     const gate = gateOf(def, r.from, r.outcome);
@@ -1198,6 +1211,8 @@ function enterStep(
     conditions_started_at: null,
     conditions_note: null,
     approvals: null,
+    // ADR-0030: pinned for this step; the next attempt reads the session's again.
+    repo_checks: s.repo_checks ?? null,
   };
   st.emit({ type: 'state_entered', from: p.from, to: label, visit, ...moveFields(p.move) });
   if (s.machine_id === null) {

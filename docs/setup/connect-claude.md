@@ -34,6 +34,11 @@ Connectors added on claude.ai also show up in Claude Desktop for the same Claude
 | `take_transition` | Press one of the ticket's board buttons (send back, mark done…) |
 | `reopen_ticket` | Send a done or failed ticket back to its agent with new instructions |
 | `cancel_ticket` | Stop the agent and cancel the ticket |
+| `list_repo_checks` | The repos that have their own pre-PR checks |
+| `get_repo_checks` | What runs before a repo's PR opens: its own checks, or the workflow's |
+| `set_repo_checks` | Give a repo its own checks (e.g. `cd m-one && npm ci && npm run build`); they replace the workflow's build and test for that repo |
+| `clear_repo_checks` | Go back to the workflow's checks for a repo |
+| `get_workflow` | The workflow: its states and transitions, or one state in full |
 
 A move that needs an approval checkbox (such as a migration approval), and an agent's permission prompts, are answered on the board only: Claude gets the card's link instead.
 

@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { disableUser } from '../src/auth/admin-commands.js';
 import { createSession } from '../src/auth/sessions.js';
 import { FakeEngineService } from '../src/contracts.js';
+import { seedConductorWorkflow } from '../src/engine/seed.js';
 import { HTTPS_URL, createUser, passwordAuth, startApi, type TestApi } from './auth/helpers.js';
 import { useTestDatabase } from './db.js';
 
@@ -410,16 +411,21 @@ describe('/mcp', () => {
     );
     const list = await mcp(a.access, 'tools/list');
     const names = (list.json.result as { tools: { name: string }[] }).tools.map((t) => t.name);
-    // The tool set Ben approved (2026-10-30): nothing else is exposed.
+    // The tool set Ben approved (2026-10-30), plus ADR-0030's workflow tools: nothing else.
     expect(names.sort()).toEqual([
       'answer_input',
       'cancel_ticket',
+      'clear_repo_checks',
       'create_ticket',
+      'get_repo_checks',
       'get_ticket',
+      'get_workflow',
       'list_machines',
+      'list_repo_checks',
       'list_tickets',
       'reopen_ticket',
       'search_tickets',
+      'set_repo_checks',
       'take_transition',
     ]);
     const tools = (list.json.result as { tools: { description: string }[] }).tools;
@@ -678,5 +684,99 @@ describe('/mcp tools (approved set)', () => {
       expect(errorOf(r).code, tool).toBe('not_found');
     }
     expect(engine.calls.length).toBe(before);
+  });
+});
+
+// ADR-0030: per-repo checks and the workflow, over MCP.
+describe('/mcp workflow tools', () => {
+  const M1_CHECKS = [
+    { name: 'Web build', cmd: 'cd m-one && npm ci && npm run build', timeout: '15m' },
+    { name: '.NET tests', cmd: 'vstest.console.exe Com.Method.Tests.dll' },
+  ];
+
+  it('set, get, list and clear a repo’s checks, inside the account', async () => {
+    await seedConductorWorkflow(db.pool, { log: null });
+    const a = await connect();
+    const b = await connect();
+    const none = await call(a.access, 'get_repo_checks', { repo: 'github.com/Acme/MethodUI' });
+    expect(none.body.override).toBeNull();
+    const gates = none.body.effective as { at: string; source: string; checks: unknown[] }[];
+    expect(gates.length).toBeGreaterThan(0);
+    expect(gates.every((g) => g.source === 'workflow')).toBe(true);
+    expect(gates.map((g) => g.at)).toContain('implementing.pr_ready_for_review');
+
+    const set = await call(a.access, 'set_repo_checks', {
+      repo: 'https://github.com/Acme/MethodUI.git',
+      setup: '',
+      checks: M1_CHECKS,
+    });
+    expect(set.isError).toBe(false);
+    expect(set.body).toMatchObject({
+      ok: true,
+      repo: 'github.com/acme/methodui',
+      setup: '',
+      checks: M1_CHECKS,
+      updated_by: `mcp:${a.user.email}`,
+    });
+
+    const got = await call(a.access, 'get_repo_checks', { repo: 'github.com/acme/methodui' });
+    expect(got.body.override).toMatchObject({ setup: '', checks: M1_CHECKS });
+    expect(
+      (got.body.effective as { source: string; checks: unknown[] }[]).every(
+        (g) => g.source === 'override' && JSON.stringify(g.checks) === JSON.stringify(M1_CHECKS),
+      ),
+    ).toBe(true);
+    const listed = await call(a.access, 'list_repo_checks', {});
+    expect((listed.body.repos as { repo: string }[]).map((r) => r.repo)).toEqual([
+      'github.com/acme/methodui',
+    ]);
+
+    // B sees none of it, and can't clear it.
+    expect((await call(b.access, 'list_repo_checks', {})).body.repos).toEqual([]);
+    const fromB = await call(b.access, 'get_repo_checks', { repo: 'github.com/acme/methodui' });
+    expect(fromB.body.override).toBeNull();
+    const clearB = await call(b.access, 'clear_repo_checks', { repo: 'github.com/acme/methodui' });
+    expect([clearB.isError, errorOf(clearB).code]).toEqual([true, 'not_found']);
+
+    const cleared = await call(a.access, 'clear_repo_checks', { repo: 'github.com/acme/methodui' });
+    expect(cleared.body).toEqual({ ok: true });
+    expect((await call(a.access, 'list_repo_checks', {})).body.repos).toEqual([]);
+  });
+
+  it('set_repo_checks refuses duplicate names and empty commands', async () => {
+    const a = await connect();
+    const dup = await call(a.access, 'set_repo_checks', {
+      repo: 'github.com/acme/app',
+      checks: [
+        { name: 'Build', cmd: 'make' },
+        { name: 'Build', cmd: 'make test' },
+      ],
+    });
+    expect([dup.isError, errorOf(dup).code]).toEqual([true, 'invalid_input']);
+    const blank = await call(a.access, 'set_repo_checks', {
+      repo: 'github.com/acme/app',
+      checks: [{ name: 'Build', cmd: '   ' }],
+    });
+    expect([blank.isError, errorOf(blank).code]).toEqual([true, 'invalid_input']);
+    expect((await call(a.access, 'list_repo_checks', {})).body.repos).toEqual([]);
+  });
+
+  it('get_workflow outlines the workflow, or returns one state in full', async () => {
+    await seedConductorWorkflow(db.pool, { log: null });
+    const a = await connect();
+    const outline = await call(a.access, 'get_workflow', {});
+    expect(outline.isError).toBe(false);
+    expect(outline.body).toMatchObject({ id: 'conductor', start: 'planning' });
+    expect(outline.body.truncated).toBeUndefined();
+    const states = outline.body.states as Record<string, { type: string; transitions: string[] }>;
+    expect(states.implementing).toMatchObject({ type: 'agent' });
+    expect(states.implementing!.transitions).toContain('pr_ready_for_review');
+    expect(outline.body.check_gates).toEqual(
+      expect.arrayContaining([expect.objectContaining({ at: 'implementing.pr_ready_for_review' })]),
+    );
+    const one = await call(a.access, 'get_workflow', { state: 'implementing' });
+    expect(one.body).toMatchObject({ state: 'implementing', definition: { type: 'agent' } });
+    const missing = await call(a.access, 'get_workflow', { state: 'nope' });
+    expect([missing.isError, errorOf(missing).code]).toEqual([true, 'not_found']);
   });
 });

@@ -515,6 +515,18 @@ export interface OAuthTokenRow {
   revoked_at: Date | null;
 }
 
+/** ADR-0030: a repo's check override (RepoChecksSchema in `config`). */
+export interface RepoChecksRow {
+  /** uuid, FK account. */
+  account_id: string;
+  /** `repoChecksKey(ticket.repo)`. */
+  repo: string;
+  config: JsonObject;
+  updated_at: Date;
+  /** Who saved it (the user's email or id, `mcp:` prefixed over MCP); null when unknown. */
+  updated_by: string | null;
+}
+
 /** Table name → row type, for generic repository helpers. */
 export interface Tables {
   machine: MachineRow;
@@ -542,4 +554,5 @@ export interface Tables {
   oauth_client: OAuthClientRow;
   oauth_code: OAuthCodeRow;
   oauth_token: OAuthTokenRow;
+  repo_checks: RepoChecksRow;
 }

@@ -361,6 +361,7 @@ dependencies = [
  "nix",
  "predicates",
  "rand",
+ "regress",
  "reqwest",
  "rmcp",
  "ryu-js",

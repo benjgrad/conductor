@@ -19,6 +19,7 @@ pub mod auth;
 pub mod capabilities;
 pub mod json;
 pub mod repo;
+pub mod screenshots;
 pub mod tool_policy;
 pub mod wire;
 

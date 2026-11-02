@@ -48,13 +48,13 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 - [ ] `commands/service.test.ts`
 
-- [ ] `credential.test.ts`
+- [x] `credential.test.ts`
 
 - [ ] `daemon.kill.test.ts`
 
 - [ ] `daemon.test.ts`
 
-- [ ] `index.test.ts`
+- [x] `index.test.ts`
 
 - [ ] `inventory/capabilities.test.ts`
 
@@ -62,9 +62,9 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 - [ ] `inventory/repos.test.ts`
 
-- [ ] `inventory/version.test.ts`
+- [x] `inventory/version.test.ts`
 
-- [ ] `orphan.test.ts`
+- [x] `orphan.test.ts`
 
 - [x] `platform/acl.test.ts`
 
@@ -84,7 +84,9 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 - [ ] `reopen-transcript.test.ts`
 
-- [ ] `sysinfo.test.ts`
+- [x] `rust-compat.test.ts`
+
+- [x] `sysinfo.test.ts`
 
 - [x] `test-support/fake-bin.test.ts`
 
@@ -372,10 +374,10 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 | commands/process-runner.test.ts › ProcessCommandRunner › keeps only the last tailBytes of combined output | todo |
 | commands/process-runner.test.ts › ProcessCommandRunner › defaults the tail to OUTPUT_TAIL_BYTES | todo |
 | commands/process-runner.test.ts › ProcessCommandRunner › rejects when the process cannot be spawned, and frees the slot | todo |
-| commands/process-runner.test.ts › Semaphore › is FIFO and hands a released slot to the oldest waiter | todo |
-| commands/process-runner.test.ts › Semaphore › rejects a non-positive size | todo |
-| commands/process-runner.test.ts › TailBuffer › drops a multi-byte character cut at the front | todo |
-| commands/process-runner.test.ts › TailBuffer › keeps everything under the limit across chunks | todo |
+| commands/process-runner.test.ts › Semaphore › is FIFO and hands a released slot to the oldest waiter | crates/conductor-daemon/src/commands/semaphore.rs::tests::is_fifo_and_hands_a_released_slot_to_the_oldest_waiter |
+| commands/process-runner.test.ts › Semaphore › rejects a non-positive size | crates/conductor-daemon/src/commands/semaphore.rs::tests::rejects_a_non_positive_size |
+| commands/process-runner.test.ts › TailBuffer › drops a multi-byte character cut at the front | crates/conductor-daemon/src/commands/tail.rs::tests::drops_a_multi_byte_character_cut_at_the_front |
+| commands/process-runner.test.ts › TailBuffer › keeps everything under the limit across chunks | crates/conductor-daemon/src/commands/tail.rs::tests::keeps_everything_under_the_limit_across_chunks |
 
 ### commands/service.test.ts
 
@@ -396,23 +398,23 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| credential.test.ts › loadCredential › is null (local mode) without a root or a file | todo |
-| credential.test.ts › loadCredential › round-trips what writeCredential wrote | todo |
-| credential.test.ts › loadCredential › refuses a group/other-readable file and says how to fix it | todo |
-| credential.test.ts › loadCredential › refuses a root other users can read (win32: any non-owner-only DACL) | todo |
-| credential.test.ts › loadCredential › refuses a symlinked file and a symlinked root | todo |
-| credential.test.ts › loadCredential › refuses invalid content without echoing it | todo |
-| credential.test.ts › credential.ts on POSIX (TD-118) › a symlinked machine.json is refused by the O_NOFOLLOW open, even when the target is private | todo |
-| credential.test.ts › credential.ts on POSIX (TD-118) › a write fsyncs the file and then the root | todo |
-| credential.test.ts › credential.ts on POSIX (TD-118) › a symlinked root is refused and its target is never chmodded | todo |
-| credential.test.ts › credential.ts on POSIX (TD-118) › a loose existing root is tightened to 0700 by a write | todo |
-| credential.test.ts › machine.json url › rejects plain http to a non-loopback host, on load and on write | todo |
-| credential.test.ts › daemonWsUrl › maps https → wss and http → ws on the daemon WS path | todo |
-| credential.test.ts › loadConfig with machine.json › uses the enrolled machine id, the stored url and the credential | todo |
-| credential.test.ts › loadConfig with machine.json › refuses a cleartext URL to a non-loopback host when enrolled | todo |
-| credential.test.ts › loadConfig with machine.json › CONDUCTOR_ORCHESTRATOR_URL still wins | todo |
-| credential.test.ts › loadConfig with machine.json › local mode is unchanged | todo |
-| credential.test.ts › loadConfig with machine.json › daemonVersion appends CONDUCTOR_BUILD_SHA | todo |
+| credential.test.ts › loadCredential › is null (local mode) without a root or a file | crates/conductor-daemon/src/credential.rs::tests::is_none_local_mode_without_a_root_or_a_file |
+| credential.test.ts › loadCredential › round-trips what writeCredential wrote | crates/conductor-daemon/src/credential.rs::tests::round_trips_what_write_credential_wrote |
+| credential.test.ts › loadCredential › refuses a group/other-readable file and says how to fix it | crates/conductor-daemon/src/credential.rs::tests::refuses_a_group_other_readable_file_and_says_how_to_fix_it |
+| credential.test.ts › loadCredential › refuses a root other users can read (win32: any non-owner-only DACL) | crates/conductor-daemon/src/credential.rs::tests::refuses_a_root_other_users_can_read |
+| credential.test.ts › loadCredential › refuses a symlinked file and a symlinked root | crates/conductor-daemon/src/credential.rs::tests::refuses_a_symlinked_file_and_a_symlinked_root |
+| credential.test.ts › loadCredential › refuses invalid content without echoing it | crates/conductor-daemon/src/credential.rs::tests::refuses_invalid_content_without_echoing_it |
+| credential.test.ts › credential.ts on POSIX (TD-118) › a symlinked machine.json is refused by the O_NOFOLLOW open, even when the target is private | crates/conductor-daemon/src/credential.rs::tests::a_symlinked_machine_json_is_refused_by_the_o_nofollow_open |
+| credential.test.ts › credential.ts on POSIX (TD-118) › a write fsyncs the file and then the root | crates/conductor-daemon/src/credential.rs::tests::a_write_fsyncs_the_file_and_then_the_root |
+| credential.test.ts › credential.ts on POSIX (TD-118) › a symlinked root is refused and its target is never chmodded | crates/conductor-daemon/src/credential.rs::tests::a_symlinked_root_is_refused_and_its_target_is_never_chmodded |
+| credential.test.ts › credential.ts on POSIX (TD-118) › a loose existing root is tightened to 0700 by a write | crates/conductor-daemon/src/credential.rs::tests::a_loose_existing_root_is_tightened_to_0700_by_a_write |
+| credential.test.ts › machine.json url › rejects plain http to a non-loopback host, on load and on write | crates/conductor-daemon/src/credential.rs::tests::rejects_plain_http_to_a_non_loopback_host_on_load_and_on_write |
+| credential.test.ts › daemonWsUrl › maps https → wss and http → ws on the daemon WS path | crates/conductor-daemon/src/credential.rs::tests::maps_https_to_wss_and_http_to_ws_on_the_daemon_ws_path |
+| credential.test.ts › loadConfig with machine.json › uses the enrolled machine id, the stored url and the credential | crates/conductor-daemon/src/config.rs::tests::uses_the_enrolled_machine_id_the_stored_url_and_the_credential |
+| credential.test.ts › loadConfig with machine.json › refuses a cleartext URL to a non-loopback host when enrolled | crates/conductor-daemon/src/config.rs::tests::refuses_a_cleartext_url_to_a_non_loopback_host_when_enrolled |
+| credential.test.ts › loadConfig with machine.json › CONDUCTOR_ORCHESTRATOR_URL still wins | crates/conductor-daemon/src/config.rs::tests::conductor_orchestrator_url_still_wins |
+| credential.test.ts › loadConfig with machine.json › local mode is unchanged | crates/conductor-daemon/src/config.rs::tests::local_mode_is_unchanged |
+| credential.test.ts › loadConfig with machine.json › daemonVersion appends CONDUCTOR_BUILD_SHA | crates/conductor-daemon/src/config.rs::tests::daemon_version_appends_conductor_build_sha |
 
 ### daemon.kill.test.ts
 
@@ -495,7 +497,7 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| index.test.ts › @conductor/daemon scaffold › resolves @conductor/shared across the workspace | todo |
+| index.test.ts › @conductor/daemon scaffold › resolves @conductor/shared across the workspace | crates/conductor-daemon/tests/scaffold.rs::resolves_the_protocol_crate |
 
 ### inventory/capabilities.test.ts
 
@@ -541,20 +543,20 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| inventory/version.test.ts › cliVersionFrom › %j → %s | todo |
-| inventory/version.test.ts › cliVersionFrom › garbage → null | todo |
+| inventory/version.test.ts › cliVersionFrom › %j → %s | crates/conductor-daemon/src/inventory/version.rs::tests::extracts_the_version_token |
+| inventory/version.test.ts › cliVersionFrom › garbage → null | crates/conductor-daemon/src/inventory/version.rs::tests::garbage_is_none |
 
 ### orphan.test.ts
 
 | TS case | Rust |
 |---|---|
-| orphan.test.ts › parseLstart › parses ps lstart (UTC) to ms epoch | todo |
-| orphan.test.ts › parseLstart › returns null for anything else | todo |
-| orphan.test.ts › parseLstart › readProcInfo reads this process (read-only) and null for no such pid | todo |
-| orphan.test.ts › checkOurs › %s | todo |
-| orphan.test.ts › checkOurs › matches the configured binary by exact path, even with spaces | todo |
-| orphan.test.ts › checkOurs › (d) an empty or non-UUID stored id is never ours | todo |
-| orphan.test.ts › checkOurs › FR-4: no recorded start time is never ours | todo |
+| orphan.test.ts › parseLstart › parses ps lstart (UTC) to ms epoch | crates/conductor-daemon/src/orphan.rs::tests::parses_ps_lstart_utc_to_ms_epoch |
+| orphan.test.ts › parseLstart › returns null for anything else | crates/conductor-daemon/src/orphan.rs::tests::returns_none_for_anything_else |
+| orphan.test.ts › parseLstart › readProcInfo reads this process (read-only) and null for no such pid | crates/conductor-daemon/src/orphan.rs::tests::read_proc_info_reads_this_process_and_none_for_no_such_pid |
+| orphan.test.ts › checkOurs › %s | crates/conductor-daemon/src/orphan.rs::tests::check_ours_cases |
+| orphan.test.ts › checkOurs › matches the configured binary by exact path, even with spaces | crates/conductor-daemon/src/orphan.rs::tests::matches_the_configured_binary_by_exact_path_even_with_spaces |
+| orphan.test.ts › checkOurs › (d) an empty or non-UUID stored id is never ours | crates/conductor-daemon/src/orphan.rs::tests::an_empty_or_non_uuid_stored_id_is_never_ours |
+| orphan.test.ts › checkOurs › FR-4: no recorded start time is never ours | crates/conductor-daemon/src/orphan.rs::tests::no_recorded_start_time_is_never_ours |
 
 ### platform/acl.test.ts
 
@@ -702,13 +704,20 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 | reopen-transcript.test.ts › reopen: a new session on the earlier session’s branch (ADR-0008) › reuses the old worktree, resumes the Claude session, and both transcripts resolve | todo |
 | reopen-transcript.test.ts › reopen: a new session on the earlier session’s branch (ADR-0008) › refuses the start while the earlier session still has a live process in that worktree | todo |
 
+### rust-compat.test.ts
+
+| TS case | Rust |
+|---|---|
+| rust-compat.test.ts › Rust daemon file compatibility (MR-T05) › the TS fixtures are what the TS daemon writes | crates/conductor-daemon/tests/compat_ts_files.rs::reads_the_files_the_ts_daemon_wrote |
+| rust-compat.test.ts › Rust daemon file compatibility (MR-T05) › reads the machine.json, config.json and store the Rust daemon wrote | crates/conductor-daemon/tests/compat_ts_files.rs::the_rust_fixtures_are_what_the_rust_daemon_writes |
+
 ### sysinfo.test.ts
 
 | TS case | Rust |
 |---|---|
-| sysinfo.test.ts › parseVmStatAvailableBytes › counts free + inactive + speculative + purgeable pages | todo |
-| sysinfo.test.ts › parseVmStatAvailableBytes › returns null on unparseable output | todo |
-| sysinfo.test.ts › liveResources › reports more than the raw free pages on macOS | todo |
+| sysinfo.test.ts › parseVmStatAvailableBytes › counts free + inactive + speculative + purgeable pages | crates/conductor-daemon/src/sysinfo.rs::tests::counts_free_inactive_speculative_and_purgeable_pages |
+| sysinfo.test.ts › parseVmStatAvailableBytes › returns null on unparseable output | crates/conductor-daemon/src/sysinfo.rs::tests::returns_none_on_unparseable_output |
+| sysinfo.test.ts › liveResources › reports more than the raw free pages on macOS | crates/conductor-daemon/src/sysinfo.rs::tests::reports_more_than_the_raw_free_pages_on_macos |
 
 ### test-support/fake-bin.test.ts
 
@@ -723,16 +732,16 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| units.test.ts › loadConfig › defaults: localhost orchestrator on CONDUCTOR_PORT, 25 % owner reserve, port pool | todo |
-| units.test.ts › loadConfig › reads env overrides and rejects bad values | todo |
-| units.test.ts › loadConfig › M1-T14: local repos are off by default; repo hosts are unrestricted unless listed | todo |
-| units.test.ts › PortPool › allocates aligned ranges, reuses a session’s range, and reports exhaustion | todo |
-| units.test.ts › DaemonStore › persists seq, buffered events, acks and sessions across instances | todo |
-| units.test.ts › DaemonStore › onRegistered: drops confirmed events, sequences the rest from max(local+1, last_seq+1) | todo |
+| units.test.ts › loadConfig › defaults: localhost orchestrator on CONDUCTOR_PORT, 25 % owner reserve, port pool | crates/conductor-daemon/src/config.rs::tests::defaults_localhost_orchestrator_owner_reserve_and_port_pool |
+| units.test.ts › loadConfig › reads env overrides and rejects bad values | crates/conductor-daemon/src/config.rs::tests::reads_env_overrides_and_rejects_bad_values |
+| units.test.ts › loadConfig › M1-T14: local repos are off by default; repo hosts are unrestricted unless listed | crates/conductor-daemon/src/config.rs::tests::local_repos_are_off_by_default_and_repo_hosts_unrestricted_unless_listed |
+| units.test.ts › PortPool › allocates aligned ranges, reuses a session’s range, and reports exhaustion | crates/conductor-daemon/src/ports.rs::tests::allocates_aligned_ranges_reuses_a_sessions_range_and_reports_exhaustion |
+| units.test.ts › DaemonStore › persists seq, buffered events, acks and sessions across instances | crates/conductor-daemon/src/store.rs::tests::persists_seq_buffered_events_acks_and_sessions_across_instances |
+| units.test.ts › DaemonStore › onRegistered: drops confirmed events, sequences the rest from max(local+1, last_seq+1) | crates/conductor-daemon/src/store.rs::tests::on_registered_drops_confirmed_events_and_sequences_the_rest |
 | units.test.ts › helpers › cloneSource / repoSlug | todo |
 | units.test.ts › helpers › backoff grows exponentially with jitter and is capped | todo |
-| units.test.ts › helpers › appendSystemPrompt carries CLAUDE.md after the conductor instructions | todo |
-| units.test.ts › helpers › tells the agent to attempt commands and ask on a denial, not refuse (ADR-0023) | todo |
+| units.test.ts › helpers › appendSystemPrompt carries CLAUDE.md after the conductor instructions | crates/conductor-daemon/src/system_prompt.rs::tests::append_system_prompt_carries_claude_md_after_the_conductor_instructions |
+| units.test.ts › helpers › tells the agent to attempt commands and ask on a denial, not refuse (ADR-0023) | crates/conductor-daemon/src/system_prompt.rs::tests::tells_the_agent_to_attempt_commands_and_ask_on_a_denial_not_refuse |
 
 ### workspace.fresh-base.test.ts
 

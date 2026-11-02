@@ -28,10 +28,62 @@ pub fn is_held_open(err: &io::Error) -> bool {
     imp::is_held_open(err)
 }
 
+/// POSIX: the permission bits of `path` (lstat, `mode & 0o7777`). Windows has none: None.
+pub fn posix_mode(path: &Path) -> Option<u32> {
+    imp::posix_mode(path)
+}
+
+/// POSIX: chmod `path` (follows symlinks, as chmod(2)). Windows: a no-op.
+pub fn set_posix_mode(path: &Path, mode: u32) -> io::Result<()> {
+    imp::set_posix_mode(path, mode)
+}
+
+/// A symbolic link at `link` pointing to `target` (a file or a dir symlink, by what `target` is).
+/// Windows needs Developer Mode or admin for this; tests that need it skip there.
+pub fn symlink(target: &Path, link: &Path) -> io::Result<()> {
+    imp::symlink(target, link)
+}
+
 /// Is this (lstat) metadata a reparse point: a symlink, a junction or another name surrogate?
 /// POSIX: a symlink.
 pub fn is_reparse_point(meta: &Metadata) -> bool {
     imp::is_reparse_point(meta)
+}
+
+/// Node's `path.resolve(p)` for this OS: absolute against the cwd, `.` and `..` resolved lexically
+/// (never through the file system), no trailing separator except at the root. `std::path::absolute`
+/// keeps `..` on POSIX, which `config.ts` never did.
+pub fn resolve(p: impl AsRef<Path>) -> std::path::PathBuf {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    resolve_for(
+        super::Platform::current(),
+        &cwd.to_string_lossy(),
+        &p.as_ref().to_string_lossy(),
+    )
+    .into()
+}
+
+/// `path.posix.resolve(cwd, p)` or `path.win32.resolve(cwd, p)`: pure, for tests on every OS.
+pub fn resolve_for(platform: super::Platform, cwd: &str, p: &str) -> String {
+    if platform.is_windows() {
+        return super::win_path::resolve(cwd, p);
+    }
+    let joined = if p.starts_with('/') {
+        p.to_string()
+    } else {
+        format!("{cwd}/{p}")
+    };
+    let mut parts: Vec<&str> = Vec::new();
+    for seg in joined.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            s => parts.push(s),
+        }
+    }
+    format!("/{}", parts.join("/"))
 }
 
 #[cfg(unix)]
@@ -55,6 +107,21 @@ mod imp {
 
     pub fn is_reparse_point(meta: &Metadata) -> bool {
         meta.file_type().is_symlink()
+    }
+
+    pub fn posix_mode(path: &Path) -> Option<u32> {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::symlink_metadata(path)
+            .ok()
+            .map(|m| m.mode() & 0o7777)
+    }
+
+    pub fn set_posix_mode(path: &Path, mode: u32) -> io::Result<()> {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+    }
+
+    pub fn symlink(target: &Path, link: &Path) -> io::Result<()> {
+        std::os::unix::fs::symlink(target, link)
     }
 }
 
@@ -84,6 +151,22 @@ mod imp {
 
     pub fn is_reparse_point(meta: &Metadata) -> bool {
         meta.file_type().is_symlink() || meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+
+    pub fn posix_mode(_path: &Path) -> Option<u32> {
+        None
+    }
+
+    pub fn set_posix_mode(_path: &Path, _mode: u32) -> io::Result<()> {
+        Ok(())
+    }
+
+    pub fn symlink(target: &Path, link: &Path) -> io::Result<()> {
+        if target.is_dir() {
+            std::os::windows::fs::symlink_dir(target, link)
+        } else {
+            std::os::windows::fs::symlink_file(target, link)
+        }
     }
 }
 
@@ -126,6 +209,38 @@ mod tests {
         let a = dir.path().join("Abc");
         std::fs::create_dir(&a).unwrap();
         assert!(same_path(&a, dir.path().join("aBC")));
+    }
+
+    #[test]
+    fn resolve_is_lexical_like_path_resolve() {
+        use super::super::Platform::{Posix, Windows};
+        assert_eq!(resolve_for(Posix, "/home/me", "a/../b"), "/home/me/b");
+        assert_eq!(resolve_for(Posix, "/home/me", "./x/"), "/home/me/x");
+        assert_eq!(resolve_for(Posix, "/home/me", "/abs//p/."), "/abs/p");
+        assert_eq!(resolve_for(Posix, "/", "../.."), "/");
+        assert_eq!(
+            resolve_for(Windows, "C:\\Users\\me", "a\\..\\b"),
+            "C:\\Users\\me\\b"
+        );
+        assert_eq!(resolve_for(Windows, "C:\\Users\\me", "D:\\x"), "D:\\x");
+        assert!(resolve("x").is_absolute());
+    }
+
+    #[test]
+    fn posix_modes_and_symlinks() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("f");
+        std::fs::write(&f, "x").unwrap();
+        set_posix_mode(&f, 0o640).unwrap();
+        if !super::super::Platform::current().is_windows() {
+            assert_eq!(posix_mode(&f), Some(0o640));
+            symlink(&f, &dir.path().join("l")).unwrap();
+            assert!(is_reparse_point(
+                &std::fs::symlink_metadata(dir.path().join("l")).unwrap()
+            ));
+        } else {
+            assert_eq!(posix_mode(&f), None);
+        }
     }
 
     #[test]

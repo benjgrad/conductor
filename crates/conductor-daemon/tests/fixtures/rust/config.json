@@ -1,0 +1,14 @@
+{
+  "roots": [
+    "/src/a",
+    "/src/b"
+  ],
+  "repos": {
+    "github.com/org/app": {
+      "mode": "checkout"
+    },
+    "github.com/org/lib": {
+      "mode": "reference"
+    }
+  }
+}

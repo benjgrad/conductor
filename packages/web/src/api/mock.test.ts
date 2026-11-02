@@ -21,6 +21,7 @@ import { ApiRequestError } from './client.js';
 import { SEED_IDS } from './mock-data.js';
 import { createMockApi } from './mock.js';
 import { detailVersions } from '../workflow/review.js';
+import { planAnswerOption } from '../components/request-preview.js';
 
 const now = () => new Date('2026-10-22T12:00:00.000Z');
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -36,7 +37,7 @@ describe('mock ApiClient', () => {
     const api = createMockApi({ now });
     const board = BoardResponseSchema.parse(await api.getBoard());
     const col = (id: string) => board.columns.find((c) => c.id === id)!.cards;
-    expect(col('needs_input')).toHaveLength(5);
+    expect(col('needs_input')).toHaveLength(6);
     // ADR-0010: old m1_* states map by type (build, implement → Implementing).
     expect(col('implementing').some((c) => c.badges.includes('waiting_for_build_slot'))).toBe(true);
     for (const column of board.columns) {
@@ -275,6 +276,16 @@ describe('UX-4 seeds', () => {
     });
     const failed = SessionDetailSchema.parse(await api.getSession(SEED_IDS.stepFailed.session));
     expect(failed.pending_input).toMatchObject({ kind: 'retries_exhausted', step_failed: true });
+  });
+
+  it('a plan to approve, with its plan, its brief and the $return_to answer', async () => {
+    const api = createMockApi({ now });
+    const plan = SessionDetailSchema.parse(await api.getSession(SEED_IDS.planApproval.session));
+    expect(plan.pending_input).toMatchObject({ origin_transition: 'plan_needs_approval' });
+    expect(plan.return_to).toBe('planning');
+    expect(plan.context.planning?.plan).toEqual(expect.stringContaining('rate limiting'));
+    expect(plan.ticket_body).toBeTruthy();
+    expect(planAnswerOption(plan.card.human_transitions, plan.return_to)).not.toBeNull();
   });
 });
 

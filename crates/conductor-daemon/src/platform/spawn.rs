@@ -468,6 +468,13 @@ pub fn spawn_cli(bin: &str, args: &[String], opts: CliOptions) -> Result<CliChil
     })
 }
 
+/// An exit status as Node reports it: `(code, signal name)`. POSIX gives exactly one of them (a
+/// signal as its name, e.g. `SIGTERM`); Windows has no signals, so always `(code, None)`.
+/// Callers that killed the child map it through `kill_tree::killed_exit` (MR-T07).
+pub fn exit_parts(status: &ExitStatus) -> (Option<i32>, Option<String>) {
+    (status.code(), imp::exit_signal(status))
+}
+
 /// Run `cmd` to completion with stdin null and stdout/stderr captured; kill it after `timeout`
 /// (an `ErrorKind::TimedOut` error).
 pub(crate) fn output_with_timeout(
@@ -689,6 +696,15 @@ pub(crate) mod imp {
         std::fs::metadata(p).is_ok_and(|m| m.is_file())
             && nix::unistd::access(p, nix::unistd::AccessFlags::X_OK).is_ok()
     }
+
+    pub fn exit_signal(status: &std::process::ExitStatus) -> Option<String> {
+        use std::os::unix::process::ExitStatusExt;
+        status.signal().map(|n| {
+            nix::sys::signal::Signal::try_from(n)
+                .map(|s| s.as_str().to_string())
+                .unwrap_or_else(|_| format!("SIG{n}"))
+        })
+    }
 }
 
 #[cfg(windows)]
@@ -862,6 +878,10 @@ pub(crate) mod imp {
 
     pub fn is_executable_file(p: &std::path::Path) -> bool {
         std::fs::metadata(p).is_ok_and(|m| m.is_file())
+    }
+
+    pub fn exit_signal(_status: &std::process::ExitStatus) -> Option<String> {
+        None
     }
 }
 
@@ -1473,6 +1493,32 @@ mod tests {
         .unwrap();
         assert!(out.timed_out);
         assert!(!out.output.status.success());
+    }
+
+    #[tokio::test]
+    async fn exit_parts_reports_a_code_or_on_posix_the_signal_name() {
+        let out = exec_file_cli(
+            &node_bin(),
+            &strings(&["-e", "process.exit(3)"]),
+            CliOptions::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(exit_parts(&out.output.status), (Some(3), None));
+        let mut child = spawn_cli(
+            &node_bin(),
+            &strings(&["-e", "setInterval(()=>{},1000)"]),
+            CliOptions::default(),
+        )
+        .unwrap();
+        child.child.start_kill().unwrap();
+        let status = child.wait().await.unwrap();
+        let (code, signal) = exit_parts(&status);
+        if Platform::current().is_windows() {
+            assert_eq!((code.is_some(), signal), (true, None));
+        } else {
+            assert_eq!((code, signal.as_deref()), (None, Some("SIGKILL")));
+        }
     }
 
     #[test]

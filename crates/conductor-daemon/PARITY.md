@@ -44,7 +44,7 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 - [x] `commands/fake-runner.test.ts`
 
-- [ ] `commands/process-runner.test.ts`
+- [x] `commands/process-runner.test.ts`
 
 - [ ] `commands/service.test.ts`
 
@@ -96,7 +96,7 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 - [ ] `workspace.test.ts`
 
-- [ ] `ws-client.test.ts`
+- [x] `ws-client.test.ts`
 <!-- parity:ported:end -->
 
 ## Cases
@@ -365,17 +365,17 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| commands/process-runner.test.ts › createCommandRunner › returns the real runner with the given semaphore size | todo |
-| commands/process-runner.test.ts › ProcessCommandRunner › exit 0: runs in cwd with merged env and streams output | todo |
-| commands/process-runner.test.ts › ProcessCommandRunner › non-zero exit is a result, not a rejection | todo |
-| commands/process-runner.test.ts › ProcessCommandRunner › timeout: kills the whole process group and reports timedOut | todo |
-| commands/process-runner.test.ts › ProcessCommandRunner › timeout escalates to SIGKILL when SIGTERM is ignored | todo |
-| commands/process-runner.test.ts › ProcessCommandRunner › abort (WS kill) terminates a running command | todo |
-| commands/process-runner.test.ts › ProcessCommandRunner › semaphore: 3 concurrent requests with limit 2 queue the third | todo |
-| commands/process-runner.test.ts › ProcessCommandRunner › aborting a queued command resolves SIGTERM without spawning or taking a slot | todo |
-| commands/process-runner.test.ts › ProcessCommandRunner › keeps only the last tailBytes of combined output | todo |
-| commands/process-runner.test.ts › ProcessCommandRunner › defaults the tail to OUTPUT_TAIL_BYTES | todo |
-| commands/process-runner.test.ts › ProcessCommandRunner › rejects when the process cannot be spawned, and frees the slot | todo |
+| commands/process-runner.test.ts › createCommandRunner › returns the real runner with the given semaphore size | crates/conductor-daemon/src/commands/process_runner.rs::tests::create_command_runner_returns_the_real_runner_with_the_given_semaphore_size |
+| commands/process-runner.test.ts › ProcessCommandRunner › exit 0: runs in cwd with merged env and streams output | crates/conductor-daemon/src/commands/process_runner.rs::tests::exit_0_runs_in_cwd_with_merged_env_and_streams_output |
+| commands/process-runner.test.ts › ProcessCommandRunner › non-zero exit is a result, not a rejection | crates/conductor-daemon/src/commands/process_runner.rs::tests::non_zero_exit_is_a_result_not_an_error |
+| commands/process-runner.test.ts › ProcessCommandRunner › timeout: kills the whole process group and reports timedOut | crates/conductor-daemon/src/commands/process_runner.rs::tests::timeout_kills_the_whole_process_group_and_reports_timed_out |
+| commands/process-runner.test.ts › ProcessCommandRunner › timeout escalates to SIGKILL when SIGTERM is ignored | crates/conductor-daemon/src/commands/process_runner.rs::tests::timeout_escalates_to_sigkill_when_sigterm_is_ignored |
+| commands/process-runner.test.ts › ProcessCommandRunner › abort (WS kill) terminates a running command | crates/conductor-daemon/src/commands/process_runner.rs::tests::abort_ws_kill_terminates_a_running_command |
+| commands/process-runner.test.ts › ProcessCommandRunner › semaphore: 3 concurrent requests with limit 2 queue the third | crates/conductor-daemon/src/commands/process_runner.rs::tests::semaphore_3_concurrent_requests_with_limit_2_queue_the_third |
+| commands/process-runner.test.ts › ProcessCommandRunner › aborting a queued command resolves SIGTERM without spawning or taking a slot | crates/conductor-daemon/src/commands/process_runner.rs::tests::aborting_a_queued_command_resolves_sigterm_without_spawning_or_taking_a_slot |
+| commands/process-runner.test.ts › ProcessCommandRunner › keeps only the last tailBytes of combined output | crates/conductor-daemon/src/commands/process_runner.rs::tests::keeps_only_the_last_tail_bytes_of_combined_output |
+| commands/process-runner.test.ts › ProcessCommandRunner › defaults the tail to OUTPUT_TAIL_BYTES | crates/conductor-daemon/src/commands/process_runner.rs::tests::defaults_the_tail_to_output_tail_bytes |
+| commands/process-runner.test.ts › ProcessCommandRunner › rejects when the process cannot be spawned, and frees the slot | crates/conductor-daemon/src/commands/process_runner.rs::tests::fails_when_the_process_cannot_be_spawned_and_frees_the_slot |
 | commands/process-runner.test.ts › Semaphore › is FIFO and hands a released slot to the oldest waiter | crates/conductor-daemon/src/commands/semaphore.rs::tests::is_fifo_and_hands_a_released_slot_to_the_oldest_waiter |
 | commands/process-runner.test.ts › Semaphore › rejects a non-positive size | crates/conductor-daemon/src/commands/semaphore.rs::tests::rejects_a_non_positive_size |
 | commands/process-runner.test.ts › TailBuffer › drops a multi-byte character cut at the front | crates/conductor-daemon/src/commands/tail.rs::tests::drops_a_multi_byte_character_cut_at_the_front |
@@ -741,7 +741,7 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 | units.test.ts › DaemonStore › persists seq, buffered events, acks and sessions across instances | crates/conductor-daemon/src/store.rs::tests::persists_seq_buffered_events_acks_and_sessions_across_instances |
 | units.test.ts › DaemonStore › onRegistered: drops confirmed events, sequences the rest from max(local+1, last_seq+1) | crates/conductor-daemon/src/store.rs::tests::on_registered_drops_confirmed_events_and_sequences_the_rest |
 | units.test.ts › helpers › cloneSource / repoSlug | todo |
-| units.test.ts › helpers › backoff grows exponentially with jitter and is capped | todo |
+| units.test.ts › helpers › backoff grows exponentially with jitter and is capped | crates/conductor-daemon/src/ws_client.rs::tests::backoff_grows_exponentially_with_jitter_and_is_capped |
 | units.test.ts › helpers › appendSystemPrompt carries CLAUDE.md after the conductor instructions | crates/conductor-daemon/src/system_prompt.rs::tests::append_system_prompt_carries_claude_md_after_the_conductor_instructions |
 | units.test.ts › helpers › tells the agent to attempt commands and ask on a denial, not refuse (ADR-0023) | crates/conductor-daemon/src/system_prompt.rs::tests::tells_the_agent_to_attempt_commands_and_ask_on_a_denial_not_refuse |
 
@@ -775,11 +775,11 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| ws-client.test.ts › ReconnectingWs (M2-T04) › sends the bearer header when enrolled and none in local mode | todo |
-| ws-client.test.ts › ReconnectingWs (M2-T04) › close 4001 stops reconnecting and reports it once | todo |
-| ws-client.test.ts › ReconnectingWs (M2-T04) › close 4003 is fatal too; 4005 says to re-run the install command | todo |
-| ws-client.test.ts › ReconnectingWs (M2-T04) › HTTP 401 and 403 at the upgrade are treated as unauthorized: no retries, exit 78 | todo |
-| ws-client.test.ts › ReconnectingWs (M2-T04) › any other code exits 1 | todo |
-| ws-client.test.ts › ReconnectingWs (M2-T04) › another refused upgrade, and an ordinary close, still reconnect | todo |
-| ws-client.test.ts › wake tick (M2-T18, ADR-0021 §5) › a 60 s jump during a 30 s backoff reconnects within one tick and resets the attempts | todo |
-| ws-client.test.ts › wake tick (M2-T18, ADR-0021 §5) › a jump while connected drops the socket and opens a new one | todo |
+| ws-client.test.ts › ReconnectingWs (M2-T04) › sends the bearer header when enrolled and none in local mode | crates/conductor-daemon/src/ws_client.rs::tests::sends_the_bearer_header_when_enrolled_and_none_in_local_mode |
+| ws-client.test.ts › ReconnectingWs (M2-T04) › close 4001 stops reconnecting and reports it once | crates/conductor-daemon/src/ws_client.rs::tests::close_4001_stops_reconnecting_and_reports_it_once |
+| ws-client.test.ts › ReconnectingWs (M2-T04) › close 4003 is fatal too; 4005 says to re-run the install command | crates/conductor-daemon/src/ws_client.rs::tests::close_4003_is_fatal_too_4005_says_to_rerun_the_install_command |
+| ws-client.test.ts › ReconnectingWs (M2-T04) › HTTP 401 and 403 at the upgrade are treated as unauthorized: no retries, exit 78 | crates/conductor-daemon/src/ws_client.rs::tests::http_401_and_403_at_the_upgrade_are_unauthorized_no_retries_exit_78 |
+| ws-client.test.ts › ReconnectingWs (M2-T04) › any other code exits 1 | crates/conductor-daemon/src/ws_client.rs::tests::any_other_code_exits_1 |
+| ws-client.test.ts › ReconnectingWs (M2-T04) › another refused upgrade, and an ordinary close, still reconnect | crates/conductor-daemon/src/ws_client.rs::tests::another_refused_upgrade_and_an_ordinary_close_still_reconnect |
+| ws-client.test.ts › wake tick (M2-T18, ADR-0021 §5) › a 60 s jump during a 30 s backoff reconnects within one tick and resets the attempts | crates/conductor-daemon/src/ws_client.rs::tests::wake_a_60s_jump_during_a_30s_backoff_reconnects_within_one_tick_and_resets_attempts |
+| ws-client.test.ts › wake tick (M2-T18, ADR-0021 §5) › a jump while connected drops the socket and opens a new one | crates/conductor-daemon/src/ws_client.rs::tests::wake_a_jump_while_connected_drops_the_socket_and_opens_a_new_one |

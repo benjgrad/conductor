@@ -16,13 +16,13 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 ## Ported
 
 <!-- parity:ported:start -->
-- [ ] `actions/checkout.test.ts`
+- [x] `actions/checkout.test.ts`
 
-- [ ] `actions/conditions.test.ts`
+- [x] `actions/conditions.test.ts`
 
-- [ ] `actions/open-pr.gh-version.test.ts`
+- [x] `actions/open-pr.gh-version.test.ts`
 
-- [ ] `actions/open-pr.test.ts`
+- [x] `actions/open-pr.test.ts`
 
 - [x] `claude/cli-driver.real.test.ts`
 
@@ -92,9 +92,9 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 - [ ] `units.test.ts`
 
-- [ ] `workspace.fresh-base.test.ts`
+- [x] `workspace.fresh-base.test.ts`
 
-- [ ] `workspace.test.ts`
+- [x] `workspace.test.ts`
 
 - [x] `ws-client.test.ts`
 <!-- parity:ported:end -->
@@ -105,87 +105,87 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| actions/checkout.test.ts › freshCheckout › checks out exactly the commit in a 0700 dir under <root>/private, not the worktree | todo |
-| actions/checkout.test.ts › freshCheckout › a filter driver / hooks planted in the shared clone do not execute | todo |
-| actions/checkout.test.ts › freshCheckout › refuses when the branch tip is not the commit to check (reports the tip), leaving nothing | todo |
-| actions/checkout.test.ts › freshCheckout › setup: configured, "" = none, else auto-detect (lockfile → npm ci, package.json → npm install) | todo |
-| actions/checkout.test.ts › freshCheckout › sweepPrivate does not follow a symlinked <root>/private | todo |
-| actions/checkout.test.ts › freshCheckout › sweepPrivate removes leftovers of a previous daemon | todo |
-| actions/checkout.test.ts › package manager from the lockfile › %s → %s, setup `%s` | todo |
-| actions/checkout.test.ts › package manager from the lockfile › no lockfile: package.json → npm install; neither → no setup | todo |
-| actions/checkout.test.ts › package manager from the lockfile › pnpm wins over the other lockfiles, yarn over package-lock.json | todo |
-| actions/checkout.test.ts › package manager from the lockfile › runs npm-style checks with the repo’s manager; npm and non-Node repos unchanged | todo |
-| actions/checkout.test.ts › package manager from the lockfile › names a package manager missing from PATH; present ones and other commands pass | todo |
+| actions/checkout.test.ts › freshCheckout › checks out exactly the commit in a 0700 dir under <root>/private, not the worktree | crates/conductor-daemon/src/actions/checkout/tests.rs::checks_out_exactly_the_commit_in_a_private_dir |
+| actions/checkout.test.ts › freshCheckout › a filter driver / hooks planted in the shared clone do not execute | crates/conductor-daemon/src/actions/checkout/tests.rs::a_planted_filter_driver_or_hooks_do_not_execute |
+| actions/checkout.test.ts › freshCheckout › refuses when the branch tip is not the commit to check (reports the tip), leaving nothing | crates/conductor-daemon/src/actions/checkout/tests.rs::refuses_when_the_tip_is_not_the_commit_reporting_the_tip |
+| actions/checkout.test.ts › freshCheckout › setup: configured, "" = none, else auto-detect (lockfile → npm ci, package.json → npm install) | crates/conductor-daemon/src/actions/checkout/tests.rs::setup_configured_none_or_auto_detected |
+| actions/checkout.test.ts › freshCheckout › sweepPrivate does not follow a symlinked <root>/private | crates/conductor-daemon/src/actions/checkout/tests.rs::sweep_private_does_not_follow_a_symlinked_private |
+| actions/checkout.test.ts › freshCheckout › sweepPrivate removes leftovers of a previous daemon | crates/conductor-daemon/src/actions/checkout/tests.rs::sweep_private_removes_leftovers |
+| actions/checkout.test.ts › package manager from the lockfile › %s → %s, setup `%s` | crates/conductor-daemon/src/actions/checkout/tests.rs::each_lockfile_names_its_manager_and_setup |
+| actions/checkout.test.ts › package manager from the lockfile › no lockfile: package.json → npm install; neither → no setup | crates/conductor-daemon/src/actions/checkout/tests.rs::no_lockfile_package_json_is_npm_install_neither_is_none |
+| actions/checkout.test.ts › package manager from the lockfile › pnpm wins over the other lockfiles, yarn over package-lock.json | crates/conductor-daemon/src/actions/checkout/tests.rs::pnpm_wins_then_yarn |
+| actions/checkout.test.ts › package manager from the lockfile › runs npm-style checks with the repo’s manager; npm and non-Node repos unchanged | crates/conductor-daemon/src/actions/checkout/tests.rs::npm_style_checks_run_with_the_repos_manager |
+| actions/checkout.test.ts › package manager from the lockfile › names a package manager missing from PATH; present ones and other commands pass | crates/conductor-daemon/src/actions/checkout/tests.rs::names_a_package_manager_missing_from_path |
 
 ### actions/conditions.test.ts
 
 | TS case | Rust |
 |---|---|
-| actions/conditions.test.ts › evaluate_conditions with a fake gh › runs one gh pr view with the --json fields, outside any repo, with the hardened env | todo |
-| actions/conditions.test.ts › evaluate_conditions with a fake gh › checks: all success → met; a failure → failed; in progress → pending | todo |
-| actions/conditions.test.ts › evaluate_conditions with a fake gh › approvals: 0/1 → pending, 1/1 → met, changes requested → failed | todo |
-| actions/conditions.test.ts › evaluate_conditions with a fake gh › only owners, members and collaborators count; never the PR author (security review) | todo |
-| actions/conditions.test.ts › evaluate_conditions with a fake gh › reviewDecision: REVIEW_REQUIRED → pending, CHANGES_REQUESTED → failed, empty → the count | todo |
-| actions/conditions.test.ts › evaluate_conditions with a fake gh › an approval on an older commit is stale; changes requested blocks on any commit | todo |
-| actions/conditions.test.ts › evaluate_conditions with a fake gh › head_sha: a moved PR head fails every PR condition; absent = no head check | todo |
-| actions/conditions.test.ts › evaluate_conditions with a fake gh › approvals count the latest verdict per reviewer | todo |
-| actions/conditions.test.ts › evaluate_conditions with a fake gh › merged → met, open → pending, closed → failed | todo |
-| actions/conditions.test.ts › evaluate_conditions with a fake gh › results follow the conditions by position; M5 types are unsupported | todo |
-| actions/conditions.test.ts › evaluate_conditions with a fake gh › only unsupported conditions: gh is not run | todo |
-| actions/conditions.test.ts › evaluate_conditions with a fake gh › gh missing → every gh condition pending with "gh not available" | todo |
-| actions/conditions.test.ts › evaluate_conditions with a fake gh › gh not logged in → pending with "gh not available" | todo |
-| actions/conditions.test.ts › evaluate_conditions with a fake gh › another gh failure → pending with its stderr | todo |
-| actions/conditions.test.ts › evaluate_conditions with a fake gh › output over 16 KB is truncated and the conditions stay pending | todo |
-| actions/conditions.test.ts › evaluate_conditions with a fake gh › a gh that hangs is killed at the timeout → pending | todo |
-| actions/conditions.test.ts › evaluate_conditions with a fake gh › no PR yet, or a URL that is not a GitHub PR → pending without running gh | todo |
-| actions/conditions.test.ts › evaluate_conditions with a fake gh › unparseable output → pending | todo |
-| actions/conditions.test.ts › condition mapping (pure) › parsePrView reads the unprojected gh shape too | todo |
-| actions/conditions.test.ts › condition mapping (pure) › a failing check names its https link so the agent can read the log; others are dropped | todo |
-| actions/conditions.test.ts › condition mapping (pure) › no checks at all reports NO_PR_CHECKS_VALUE, which the engine keys no_checks_after on | todo |
-| actions/conditions.test.ts › pr_screenshots (M2-T35a) › asks gh for the files and the pair count only when a pr_screenshots condition is there | todo |
-| actions/conditions.test.ts › pr_screenshots (M2-T35a) › no UI file changed → met, whatever the body | todo |
-| actions/conditions.test.ts › pr_screenshots (M2-T35a) › a UI file changed: enough pairs in the body → met; fewer → failed, telling the agent what to do | todo |
-| actions/conditions.test.ts › pr_screenshots (M2-T35a) › more files than gh lists counts as touching the UI; many UI files are summarised | todo |
-| actions/conditions.test.ts › pr_screenshots (M2-T35a) › a moved head fails it like every PR condition; no file list keeps it pending | todo |
+| actions/conditions.test.ts › evaluate_conditions with a fake gh › runs one gh pr view with the --json fields, outside any repo, with the hardened env | crates/conductor-daemon/src/actions/conditions/tests.rs::runs_one_gh_pr_view_outside_any_repo_with_the_hardened_env |
+| actions/conditions.test.ts › evaluate_conditions with a fake gh › checks: all success → met; a failure → failed; in progress → pending | crates/conductor-daemon/src/actions/conditions/tests.rs::checks_success_met_failure_failed_running_pending |
+| actions/conditions.test.ts › evaluate_conditions with a fake gh › approvals: 0/1 → pending, 1/1 → met, changes requested → failed | crates/conductor-daemon/src/actions/conditions/tests.rs::approvals_pending_met_and_changes_requested |
+| actions/conditions.test.ts › evaluate_conditions with a fake gh › only owners, members and collaborators count; never the PR author (security review) | crates/conductor-daemon/src/actions/conditions/tests.rs::only_owners_members_collaborators_count_never_the_author |
+| actions/conditions.test.ts › evaluate_conditions with a fake gh › reviewDecision: REVIEW_REQUIRED → pending, CHANGES_REQUESTED → failed, empty → the count | crates/conductor-daemon/src/actions/conditions/tests.rs::review_decision_required_pending_changes_failed_empty_counts |
+| actions/conditions.test.ts › evaluate_conditions with a fake gh › an approval on an older commit is stale; changes requested blocks on any commit | crates/conductor-daemon/src/actions/conditions/tests.rs::a_stale_approval_doesnt_count_changes_requested_blocks_on_any_commit |
+| actions/conditions.test.ts › evaluate_conditions with a fake gh › head_sha: a moved PR head fails every PR condition; absent = no head check | crates/conductor-daemon/src/actions/conditions/tests.rs::head_sha_a_moved_head_fails_every_pr_condition |
+| actions/conditions.test.ts › evaluate_conditions with a fake gh › approvals count the latest verdict per reviewer | crates/conductor-daemon/src/actions/conditions/tests.rs::approvals_count_the_latest_verdict_per_reviewer |
+| actions/conditions.test.ts › evaluate_conditions with a fake gh › merged → met, open → pending, closed → failed | crates/conductor-daemon/src/actions/conditions/tests.rs::merged_met_open_pending_closed_failed |
+| actions/conditions.test.ts › evaluate_conditions with a fake gh › results follow the conditions by position; M5 types are unsupported | crates/conductor-daemon/src/actions/conditions/tests.rs::results_follow_the_conditions_by_position_m5_unsupported |
+| actions/conditions.test.ts › evaluate_conditions with a fake gh › only unsupported conditions: gh is not run | crates/conductor-daemon/src/actions/conditions/tests.rs::only_unsupported_conditions_gh_is_not_run |
+| actions/conditions.test.ts › evaluate_conditions with a fake gh › gh missing → every gh condition pending with "gh not available" | crates/conductor-daemon/src/actions/conditions/tests.rs::gh_missing_every_gh_condition_pending_gh_not_available |
+| actions/conditions.test.ts › evaluate_conditions with a fake gh › gh not logged in → pending with "gh not available" | crates/conductor-daemon/src/actions/conditions/tests.rs::gh_not_logged_in_pending_gh_not_available |
+| actions/conditions.test.ts › evaluate_conditions with a fake gh › another gh failure → pending with its stderr | crates/conductor-daemon/src/actions/conditions/tests.rs::another_gh_failure_pending_with_its_stderr |
+| actions/conditions.test.ts › evaluate_conditions with a fake gh › output over 16 KB is truncated and the conditions stay pending | crates/conductor-daemon/src/actions/conditions/tests.rs::output_over_16_kb_is_truncated_and_stays_pending |
+| actions/conditions.test.ts › evaluate_conditions with a fake gh › a gh that hangs is killed at the timeout → pending | crates/conductor-daemon/src/actions/conditions/tests.rs::a_gh_that_hangs_is_killed_at_the_timeout |
+| actions/conditions.test.ts › evaluate_conditions with a fake gh › no PR yet, or a URL that is not a GitHub PR → pending without running gh | crates/conductor-daemon/src/actions/conditions/tests.rs::no_pr_or_a_non_github_url_pending_without_running_gh |
+| actions/conditions.test.ts › evaluate_conditions with a fake gh › unparseable output → pending | crates/conductor-daemon/src/actions/conditions/tests.rs::unparseable_output_pending |
+| actions/conditions.test.ts › condition mapping (pure) › parsePrView reads the unprojected gh shape too | crates/conductor-daemon/src/actions/conditions/tests.rs::parse_pr_view_reads_the_unprojected_shape_too |
+| actions/conditions.test.ts › condition mapping (pure) › a failing check names its https link so the agent can read the log; others are dropped | crates/conductor-daemon/src/actions/conditions/tests.rs::a_failing_check_names_its_https_link_others_dropped |
+| actions/conditions.test.ts › condition mapping (pure) › no checks at all reports NO_PR_CHECKS_VALUE, which the engine keys no_checks_after on | crates/conductor-daemon/src/actions/conditions/tests.rs::no_checks_reports_no_pr_checks_value |
+| actions/conditions.test.ts › pr_screenshots (M2-T35a) › asks gh for the files and the pair count only when a pr_screenshots condition is there | crates/conductor-daemon/src/actions/conditions/tests.rs::asks_gh_for_files_and_pairs_only_with_a_screenshots_condition |
+| actions/conditions.test.ts › pr_screenshots (M2-T35a) › no UI file changed → met, whatever the body | crates/conductor-daemon/src/actions/conditions/tests.rs::no_ui_file_changed_met |
+| actions/conditions.test.ts › pr_screenshots (M2-T35a) › a UI file changed: enough pairs in the body → met; fewer → failed, telling the agent what to do | crates/conductor-daemon/src/actions/conditions/tests.rs::a_ui_file_changed_enough_pairs_met_fewer_failed |
+| actions/conditions.test.ts › pr_screenshots (M2-T35a) › more files than gh lists counts as touching the UI; many UI files are summarised | crates/conductor-daemon/src/actions/conditions/tests.rs::more_files_than_listed_counts_as_ui_many_are_summarised |
+| actions/conditions.test.ts › pr_screenshots (M2-T35a) › a moved head fails it like every PR condition; no file list keeps it pending | crates/conductor-daemon/src/actions/conditions/tests.rs::a_moved_head_fails_it_no_file_list_keeps_it_pending |
 
 ### actions/open-pr.gh-version.test.ts
 
 | TS case | Rust |
 |---|---|
-| actions/open-pr.gh-version.test.ts › open_pr gh version floor (M2-T10) › gh 2.14.0 → refused with the upgrade message; nothing is pushed | todo |
-| actions/open-pr.gh-version.test.ts › open_pr gh version floor (M2-T10) › an unparsable version is refused too; nothing is pushed | todo |
-| actions/open-pr.gh-version.test.ts › open_pr gh version floor (M2-T10) › gh %s proceeds: pushed and the PR opened | todo |
+| actions/open-pr.gh-version.test.ts › open_pr gh version floor (M2-T10) › gh 2.14.0 → refused with the upgrade message; nothing is pushed | crates/conductor-daemon/src/actions/open_pr/tests.rs::gh_2_14_is_refused_with_the_upgrade_message |
+| actions/open-pr.gh-version.test.ts › open_pr gh version floor (M2-T10) › an unparsable version is refused too; nothing is pushed | crates/conductor-daemon/src/actions/open_pr/tests.rs::an_unparsable_gh_version_is_refused_too |
+| actions/open-pr.gh-version.test.ts › open_pr gh version floor (M2-T10) › gh %s proceeds: pushed and the PR opened | crates/conductor-daemon/src/actions/open_pr/tests.rs::gh_at_or_above_the_floor_proceeds |
 
 ### actions/open-pr.test.ts
 
 | TS case | Rust |
 |---|---|
-| actions/open-pr.test.ts › open_pr (ADR-0010) › pushes the branch to the ticket repo and opens the PR with gh --repo/--head/--base | todo |
-| actions/open-pr.test.ts › open_pr (ADR-0010) › reuses the existing PR for the branch (idempotent repeat) | todo |
-| actions/open-pr.test.ts › open_pr (ADR-0010) › a missing gh is a clear error | todo |
-| actions/open-pr.test.ts › open_pr (ADR-0010) › a failed gh pr create reports the error | todo |
-| actions/open-pr.test.ts › open_pr hardening (security review 2026-10-23) › an agent-planted pre-push hook in the shared clone does not run | todo |
-| actions/open-pr.test.ts › open_pr hardening (security review 2026-10-23) › a rewritten remote.origin.url does not redirect the push (explicit trusted URL) | todo |
-| actions/open-pr.test.ts › open_pr hardening (security review 2026-10-23) › the push never reads the shared clone's config: planted redirects and hooks are ignored | todo |
-| actions/open-pr.test.ts › open_pr hardening (security review 2026-10-23) › a config change racing between the fetch and the push can't matter | todo |
-| actions/open-pr.test.ts › open_pr hardening (security review 2026-10-23) › the push repo is a fresh 0700 dir under <root>/private with git's minimal config, deleted after | todo |
-| actions/open-pr.test.ts › open_pr hardening (security review 2026-10-23) › a symlinked <root>/private is refused (nothing followed, nothing pushed) | todo |
-| actions/open-pr.test.ts › open_pr hardening (security review 2026-10-23) › a commit made after the checks makes the action refuse; nothing is pushed | todo |
-| actions/open-pr.test.ts › open_pr hardening (security review 2026-10-23) › a gh URL that is not a GitHub PR URL is not reported | todo |
-| actions/open-pr.test.ts › open_pr hardening (security review 2026-10-23) › resolveHead reports the worktree HEAD | todo |
-| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › a clean tree reports its HEAD | todo |
-| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › modified, staged and untracked files are dirty (the status lines); no HEAD | todo |
-| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › .gitignore'd files (build outputs) do not count | todo |
-| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › assume-unchanged hides nothing: dirty | todo |
-| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › skip-worktree hides nothing: dirty | todo |
-| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › an untracked file listed in .git/info/exclude (shared clone) is dirty | todo |
-| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › QA 1a: an uncommitted .gitignore that ignores itself (and a file) is dirty | todo |
-| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › QA 1a: a nested self-ignoring .gitignore is dirty too | todo |
-| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › QA 1b: submodule changes hidden by submodule.<name>.ignore=all are dirty | todo |
-| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › an untracked file matched by a repo-config core.excludesFile is dirty | todo |
-| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › a planted core.fsmonitor / hooks in the shared clone do not run | todo |
-| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › a non-allowlisted repo (local path, another host) is a clear error, nothing pushed | todo |
-| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › pushTarget: GitHub over https / ssh only, owner/name for gh | todo |
+| actions/open-pr.test.ts › open_pr (ADR-0010) › pushes the branch to the ticket repo and opens the PR with gh --repo/--head/--base | crates/conductor-daemon/src/actions/open_pr/tests.rs::pushes_the_branch_and_opens_the_pr_with_repo_head_base |
+| actions/open-pr.test.ts › open_pr (ADR-0010) › reuses the existing PR for the branch (idempotent repeat) | crates/conductor-daemon/src/actions/open_pr/tests.rs::reuses_the_existing_pr_for_the_branch |
+| actions/open-pr.test.ts › open_pr (ADR-0010) › a missing gh is a clear error | crates/conductor-daemon/src/actions/open_pr/tests.rs::a_missing_gh_is_a_clear_error |
+| actions/open-pr.test.ts › open_pr (ADR-0010) › a failed gh pr create reports the error | crates/conductor-daemon/src/actions/open_pr/tests.rs::a_failed_gh_pr_create_reports_the_error |
+| actions/open-pr.test.ts › open_pr hardening (security review 2026-10-23) › an agent-planted pre-push hook in the shared clone does not run | crates/conductor-daemon/src/actions/open_pr/tests.rs::a_planted_pre_push_hook_in_the_shared_clone_does_not_run |
+| actions/open-pr.test.ts › open_pr hardening (security review 2026-10-23) › a rewritten remote.origin.url does not redirect the push (explicit trusted URL) | crates/conductor-daemon/src/actions/open_pr/tests.rs::a_rewritten_remote_origin_url_does_not_redirect_the_push |
+| actions/open-pr.test.ts › open_pr hardening (security review 2026-10-23) › the push never reads the shared clone's config: planted redirects and hooks are ignored | crates/conductor-daemon/src/actions/open_pr/tests.rs::the_push_never_reads_the_shared_clones_config |
+| actions/open-pr.test.ts › open_pr hardening (security review 2026-10-23) › a config change racing between the fetch and the push can't matter | crates/conductor-daemon/src/actions/open_pr/tests.rs::a_config_change_racing_between_fetch_and_push_cant_matter |
+| actions/open-pr.test.ts › open_pr hardening (security review 2026-10-23) › the push repo is a fresh 0700 dir under <root>/private with git's minimal config, deleted after | crates/conductor-daemon/src/actions/open_pr/tests.rs::the_push_repo_is_a_fresh_private_dir_with_minimal_config_deleted_after |
+| actions/open-pr.test.ts › open_pr hardening (security review 2026-10-23) › a symlinked <root>/private is refused (nothing followed, nothing pushed) | crates/conductor-daemon/src/actions/open_pr/tests.rs::a_symlinked_root_private_is_refused |
+| actions/open-pr.test.ts › open_pr hardening (security review 2026-10-23) › a commit made after the checks makes the action refuse; nothing is pushed | crates/conductor-daemon/src/actions/open_pr/tests.rs::a_commit_after_the_checks_makes_the_action_refuse |
+| actions/open-pr.test.ts › open_pr hardening (security review 2026-10-23) › a gh URL that is not a GitHub PR URL is not reported | crates/conductor-daemon/src/actions/open_pr/tests.rs::a_gh_url_that_is_not_a_github_pr_url_is_not_reported |
+| actions/open-pr.test.ts › open_pr hardening (security review 2026-10-23) › resolveHead reports the worktree HEAD | crates/conductor-daemon/src/actions/open_pr/tests.rs::resolve_head_reports_the_worktree_head |
+| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › a clean tree reports its HEAD | crates/conductor-daemon/src/actions/open_pr/tests.rs::check_clean_a_clean_tree_reports_its_head |
+| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › modified, staged and untracked files are dirty (the status lines); no HEAD | crates/conductor-daemon/src/actions/open_pr/tests.rs::check_clean_modified_staged_untracked_are_dirty |
+| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › .gitignore'd files (build outputs) do not count | crates/conductor-daemon/src/actions/open_pr/tests.rs::check_clean_gitignored_files_do_not_count |
+| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › assume-unchanged hides nothing: dirty | crates/conductor-daemon/src/actions/open_pr/tests.rs::check_clean_assume_unchanged_hides_nothing |
+| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › skip-worktree hides nothing: dirty | crates/conductor-daemon/src/actions/open_pr/tests.rs::check_clean_skip_worktree_hides_nothing |
+| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › an untracked file listed in .git/info/exclude (shared clone) is dirty | crates/conductor-daemon/src/actions/open_pr/tests.rs::check_clean_info_exclude_in_the_shared_clone_hides_nothing |
+| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › QA 1a: an uncommitted .gitignore that ignores itself (and a file) is dirty | crates/conductor-daemon/src/actions/open_pr/tests.rs::check_clean_a_self_ignoring_gitignore_is_dirty |
+| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › QA 1a: a nested self-ignoring .gitignore is dirty too | crates/conductor-daemon/src/actions/open_pr/tests.rs::check_clean_a_nested_self_ignoring_gitignore_is_dirty |
+| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › QA 1b: submodule changes hidden by submodule.<name>.ignore=all are dirty | crates/conductor-daemon/src/actions/open_pr/tests.rs::check_clean_submodule_changes_hidden_by_ignore_all_are_dirty |
+| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › an untracked file matched by a repo-config core.excludesFile is dirty | crates/conductor-daemon/src/actions/open_pr/tests.rs::check_clean_a_repo_config_excludes_file_hides_nothing |
+| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › a planted core.fsmonitor / hooks in the shared clone do not run | crates/conductor-daemon/src/actions/open_pr/tests.rs::check_clean_a_planted_fsmonitor_or_hooks_do_not_run |
+| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › a non-allowlisted repo (local path, another host) is a clear error, nothing pushed | crates/conductor-daemon/src/actions/open_pr/tests.rs::a_non_allowlisted_repo_is_a_clear_error_nothing_pushed |
+| actions/open-pr.test.ts › checkClean (ADR-0010: only committed changes are checked) › pushTarget: GitHub over https / ssh only, owner/name for gh | crates/conductor-daemon/src/actions/open_pr/tests.rs::push_target_github_over_https_or_ssh_only |
 
 ### claude/cli-driver.real.test.ts
 
@@ -749,27 +749,27 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| workspace.fresh-base.test.ts › Workspace fresh base (M2-T13a) › bases each new session on the fetched default branch; a resume is not rebased | todo |
-| workspace.fresh-base.test.ts › Workspace fresh base (M2-T13a) › uses an explicit default branch when one is given | todo |
-| workspace.fresh-base.test.ts › Workspace fresh base (M2-T13a) › isSafeBranchName accepts usual names and refuses refspec tricks | todo |
-| workspace.fresh-base.test.ts › Workspace fresh base (M2-T13a) › sets origin/HEAD once when the clone lacks it | todo |
-| workspace.fresh-base.test.ts › Workspace fresh base (M2-T13a) › fails the start with an error naming the repo when origin is unreachable | todo |
-| workspace.fresh-base.test.ts › Workspace fresh base (M2-T13a) › concurrent starts › runs one fetch at a time per repo and both sessions get the fresh base | todo |
+| workspace.fresh-base.test.ts › Workspace fresh base (M2-T13a) › bases each new session on the fetched default branch; a resume is not rebased | crates/conductor-daemon/src/workspace/tests.rs::bases_each_new_session_on_the_fetched_default_branch |
+| workspace.fresh-base.test.ts › Workspace fresh base (M2-T13a) › uses an explicit default branch when one is given | crates/conductor-daemon/src/workspace/tests.rs::uses_an_explicit_default_branch |
+| workspace.fresh-base.test.ts › Workspace fresh base (M2-T13a) › isSafeBranchName accepts usual names and refuses refspec tricks | crates/conductor-daemon/src/workspace/tests.rs::is_safe_branch_name_refuses_refspec_tricks |
+| workspace.fresh-base.test.ts › Workspace fresh base (M2-T13a) › sets origin/HEAD once when the clone lacks it | crates/conductor-daemon/src/workspace/tests.rs::sets_origin_head_once_when_the_clone_lacks_it |
+| workspace.fresh-base.test.ts › Workspace fresh base (M2-T13a) › fails the start with an error naming the repo when origin is unreachable | crates/conductor-daemon/src/workspace/tests.rs::fails_the_start_naming_the_repo_when_origin_is_unreachable |
+| workspace.fresh-base.test.ts › Workspace fresh base (M2-T13a) › concurrent starts › runs one fetch at a time per repo and both sessions get the fresh base | crates/conductor-daemon/src/workspace/tests.rs::runs_one_fetch_at_a_time_per_repo |
 
 ### workspace.test.ts
 
 | TS case | Rust |
 |---|---|
-| workspace.test.ts › cloneSource policy › accepts canonical host/org/repo, https URLs and scp-style ssh | todo |
-| workspace.test.ts › cloneSource policy › rejects absolute paths and file:// unless allowLocalRepos | todo |
-| workspace.test.ts › cloneSource policy › rejects other schemes, transports, relative paths and traversal | todo |
-| workspace.test.ts › cloneSource policy › checks the host against allowedRepoHosts when it is set | todo |
-| workspace.test.ts › Workspace › ensureWorktree refuses a local repo before cloning when allowLocalRepos is off | todo |
-| workspace.test.ts › Workspace › reads a regular CLAUDE.md inside the worktree | todo |
-| workspace.test.ts › Workspace › returns null without a log line when CLAUDE.md is absent | todo |
-| workspace.test.ts › Workspace › skips a CLAUDE.md symlink (outside or inside the worktree) and logs it | todo |
-| workspace.test.ts › Workspace › resolves the worktree path itself through symlinks (macOS /var → /private/var) | todo |
-| workspace.test.ts › Workspace › skips a directory named CLAUDE.md and a file over 64 KB | todo |
+| workspace.test.ts › cloneSource policy › accepts canonical host/org/repo, https URLs and scp-style ssh | crates/conductor-daemon/src/workspace/tests.rs::accepts_canonical_https_and_scp |
+| workspace.test.ts › cloneSource policy › rejects absolute paths and file:// unless allowLocalRepos | crates/conductor-daemon/src/workspace/tests.rs::rejects_local_unless_allowed |
+| workspace.test.ts › cloneSource policy › rejects other schemes, transports, relative paths and traversal | crates/conductor-daemon/src/workspace/tests.rs::rejects_other_schemes_and_traversal |
+| workspace.test.ts › cloneSource policy › checks the host against allowedRepoHosts when it is set | crates/conductor-daemon/src/workspace/tests.rs::checks_allowed_repo_hosts |
+| workspace.test.ts › Workspace › ensureWorktree refuses a local repo before cloning when allowLocalRepos is off | crates/conductor-daemon/src/workspace/tests.rs::ensure_worktree_refuses_a_local_repo_before_cloning |
+| workspace.test.ts › Workspace › reads a regular CLAUDE.md inside the worktree | crates/conductor-daemon/src/workspace/tests.rs::reads_a_regular_claude_md |
+| workspace.test.ts › Workspace › returns null without a log line when CLAUDE.md is absent | crates/conductor-daemon/src/workspace/tests.rs::absent_claude_md_is_none_without_a_log_line |
+| workspace.test.ts › Workspace › skips a CLAUDE.md symlink (outside or inside the worktree) and logs it | crates/conductor-daemon/src/workspace/tests.rs::skips_a_claude_md_symlink_and_logs_it |
+| workspace.test.ts › Workspace › resolves the worktree path itself through symlinks (macOS /var → /private/var) | crates/conductor-daemon/src/workspace/tests.rs::resolves_the_worktree_path_through_symlinks |
+| workspace.test.ts › Workspace › skips a directory named CLAUDE.md and a file over 64 KB | crates/conductor-daemon/src/workspace/tests.rs::skips_a_dir_named_claude_md_and_a_file_over_64_kb |
 
 ### ws-client.test.ts
 

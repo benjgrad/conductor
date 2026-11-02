@@ -16,6 +16,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { resolveToolPolicy } from '@conductor/shared';
 import {
   agentEnv,
+  agentMcp,
   agentPermissionMode,
   buildClaudeArgs,
   createCliDriver,
@@ -207,6 +208,54 @@ describe('buildClaudeArgs', () => {
       // The prompt tool is Claude's, not the model's: never pre-approved.
       expect(flagOf(args, '--allowedTools')).not.toContain(PERMISSION_TOOL);
     }
+  });
+
+  it('ADR-0029: inherit drops --strict-mcp-config and denies the listed servers; none, absent and reviewers stay strict', () => {
+    const inherit = buildClaudeArgs(opts([], { mcp: { mode: 'inherit' } }), '{}', 's.json');
+    expect(inherit).not.toContain('--strict-mcp-config');
+    expect(flagOf(inherit, '--mcp-config')).toBe('{}'); // conductor's server is still added
+    expect(flagOf(inherit, '--disallowedTools')).toBe('Bash(git push:*),WebFetch');
+
+    const denied = buildClaudeArgs(
+      opts([], {
+        mcp: {
+          mode: 'inherit',
+          deny: ['claude.ai Gmail', 'plugin:azure:azure', 'claude.ai Gmail'],
+        },
+      }),
+      '{}',
+      's.json',
+    );
+    expect(denied).not.toContain('--strict-mcp-config');
+    expect(flagOf(denied, '--disallowedTools')).toBe(
+      'Bash(git push:*),WebFetch,mcp__claude_ai_Gmail,mcp__plugin_azure_azure',
+    );
+
+    for (const o of [
+      opts([]),
+      opts([], { mcp: { mode: 'none', deny: ['claude.ai Gmail'] } }),
+      opts([], { review: true, mcp: { mode: 'inherit' } }),
+    ]) {
+      const args = buildClaudeArgs(o, '{}', 's.json');
+      expect(args, JSON.stringify(o.mcp)).toContain('--strict-mcp-config');
+      expect(flagOf(args, '--disallowedTools')).not.toContain('mcp__');
+    }
+  });
+
+  it('ADR-0029: agentMcp, and agentEnv leaves the claude.ai connectors on only when not strict', () => {
+    expect(agentMcp({})).toEqual({ strict: true, deny: [] });
+    expect(agentMcp({ mcp: { mode: 'inherit' } })).toEqual({ strict: false, deny: [] });
+    expect(agentMcp({ mcp: { mode: 'inherit', deny: ['chrome-devtools'] } })).toEqual({
+      strict: false,
+      deny: ['mcp__chrome-devtools'],
+    });
+    expect(agentMcp({ review: true, mcp: { mode: 'inherit' } }).strict).toBe(true);
+    expect(agentEnv({}, undefined, true).env.ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false');
+    // A state env still can't set it: the key isn't allowlisted.
+    const loose = agentEnv({ ENABLE_CLAUDEAI_MCP_SERVERS: 'false' }, undefined, false);
+    expect(loose.env.ENABLE_CLAUDEAI_MCP_SERVERS).toBe(process.env.ENABLE_CLAUDEAI_MCP_SERVERS);
+    expect(loose.dropped).toEqual(['ENABLE_CLAUDEAI_MCP_SERVERS']);
+    expect(loose.env.CLAUDE_CODE_SAFE_MODE).toBe('0');
   });
 
   it('ADR-0023 fallback (old CLI): the pre-ADR-0023 flags, the user mode or the bypass cap, prompts denied', () => {

@@ -199,6 +199,8 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 |---|---|
 | claude/cli-driver.test.ts › buildClaudeArgs › emits exactly the ADR-0005/ADR-0006 flags for a new session | todo |
 | claude/cli-driver.test.ts › buildClaudeArgs › ADR-0009: a reviewer always runs in dontAsk and never prompts; ADR-0023: a worker runs in auto | todo |
+| claude/cli-driver.test.ts › buildClaudeArgs › ADR-0029: inherit drops --strict-mcp-config and denies the listed servers; none, absent and reviewers stay strict | todo |
+| claude/cli-driver.test.ts › buildClaudeArgs › ADR-0029: agentMcp, and agentEnv leaves the claude.ai connectors on only when not strict | todo |
 | claude/cli-driver.test.ts › buildClaudeArgs › ADR-0023 fallback (old CLI): the pre-ADR-0023 flags, the user mode or the bypass cap, prompts denied | todo |
 | claude/cli-driver.test.ts › buildClaudeArgs › ADR-0023 §4: git push stays a deny rule beside the prompt tool, so it never reaches a human | todo |
 | claude/cli-driver.test.ts › buildClaudeArgs › ADR-0023: detects auto mode and --permission-prompts in claude --help | todo |

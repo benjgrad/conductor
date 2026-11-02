@@ -6,6 +6,7 @@ import {
   type TicketStatus,
 } from '../domain.js';
 import { evaluateGuard } from '../workflow/guards.js';
+import { resolveMcpPolicy } from '../workflow/mcp.js';
 import { stateTitle } from '../workflow/conductor.js';
 import {
   AVAILABLE_TRANSITION_ACTIONS,
@@ -2535,6 +2536,7 @@ function startSession(
     state: name,
     prompt,
     tools: [...(state.tools ?? [])],
+    mcp: resolveMcpPolicy(st.def, state),
     resume_claude_session_id: resume,
     ...(state.model !== undefined ? { model: state.model } : {}),
     ...(state.max_turns !== undefined ? { max_turns: state.max_turns } : {}),

@@ -3762,6 +3762,8 @@ pub struct StartSessionPayload {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub max_turns: ::std::option::Option<::std::num::NonZeroU64>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub mcp: ::std::option::Option<StartSessionPayloadMcp>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub model: ::std::option::Option<::std::string::String>,
     pub prompt: ::std::string::String,
     pub repo: ::std::string::String,
@@ -3833,6 +3835,118 @@ impl<'de> ::serde::Deserialize<'de> for StartSessionPayloadCheckoutSetup {
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
+    }
+}
+///`StartSessionPayloadMcp`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct StartSessionPayloadMcp {
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub deny: ::std::vec::Vec<StartSessionPayloadMcpDenyItem>,
+    pub mode: StartSessionPayloadMcpMode,
+}
+///`StartSessionPayloadMcpDenyItem`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct StartSessionPayloadMcpDenyItem(::std::string::String);
+impl ::std::ops::Deref for StartSessionPayloadMcpDenyItem {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<StartSessionPayloadMcpDenyItem> for ::std::string::String {
+    fn from(value: StartSessionPayloadMcpDenyItem) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for StartSessionPayloadMcpDenyItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 200usize {
+            return Err("longer than 200 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for StartSessionPayloadMcpDenyItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for StartSessionPayloadMcpDenyItem {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for StartSessionPayloadMcpDenyItem {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`StartSessionPayloadMcpMode`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum StartSessionPayloadMcpMode {
+    #[serde(rename = "inherit")]
+    Inherit,
+    #[serde(rename = "none")]
+    None,
+}
+impl ::std::fmt::Display for StartSessionPayloadMcpMode {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Inherit => f.write_str("inherit"),
+            Self::None => f.write_str("none"),
+        }
+    }
+}
+impl ::std::str::FromStr for StartSessionPayloadMcpMode {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "inherit" => Ok(Self::Inherit),
+            "none" => Ok(Self::None),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for StartSessionPayloadMcpMode {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for StartSessionPayloadMcpMode {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 ///`StartedEventData`

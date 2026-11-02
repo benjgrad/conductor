@@ -30,7 +30,7 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 - [ ] `claude/edit-guard.test.ts`
 
-- [ ] `claude/fake-driver.test.ts`
+- [x] `claude/fake-driver.test.ts`
 
 - [ ] `claude/outcome-server.test.ts`
 
@@ -42,7 +42,7 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 - [ ] `commands/enroll.test.ts`
 
-- [ ] `commands/fake-runner.test.ts`
+- [x] `commands/fake-runner.test.ts`
 
 - [ ] `commands/process-runner.test.ts`
 
@@ -253,10 +253,10 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| claude/fake-driver.test.ts › FakeClaudeDriver › runs ask_user → live answer → complete_state, then exits 0 on end() | todo |
-| claude/fake-driver.test.ts › FakeClaudeDriver › continues the script and cumulative spend on resume | todo |
-| claude/fake-driver.test.ts › FakeClaudeDriver › refuses complete_state while a question is pending, and a second one | todo |
-| claude/fake-driver.test.ts › FakeClaudeDriver › models a crash mid-turn | todo |
+| claude/fake-driver.test.ts › FakeClaudeDriver › runs ask_user → live answer → complete_state, then exits 0 on end() | crates/conductor-daemon/src/claude/fake_driver.rs::tests::runs_ask_user_live_answer_complete_state_then_exits_0_on_end |
+| claude/fake-driver.test.ts › FakeClaudeDriver › continues the script and cumulative spend on resume | crates/conductor-daemon/src/claude/fake_driver.rs::tests::continues_the_script_and_cumulative_spend_on_resume |
+| claude/fake-driver.test.ts › FakeClaudeDriver › refuses complete_state while a question is pending, and a second one | crates/conductor-daemon/src/claude/fake_driver.rs::tests::refuses_complete_state_while_a_question_is_pending_and_a_second_one |
+| claude/fake-driver.test.ts › FakeClaudeDriver › models a crash mid-turn | crates/conductor-daemon/src/claude/fake_driver.rs::tests::models_a_crash_mid_turn |
 
 ### claude/outcome-server.test.ts
 
@@ -284,7 +284,7 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 | claude/outcome-server.test.ts › ADR-0023 permission tool › unregister (process gone) denies every held call; later prompts too | todo |
 | claude/outcome-server.test.ts › ADR-0023 permission tool › close (daemon shutdown) denies every held call | todo |
 | claude/outcome-server.test.ts › ADR-0023 permission tool › no handler: denied at once | todo |
-| claude/outcome-server.test.ts › ADR-0023 permission tool › parses exact rules into toolName / ruleContent | todo |
+| claude/outcome-server.test.ts › ADR-0023 permission tool › parses exact rules into toolName / ruleContent | crates/conductor-daemon/src/claude/outcome_server.rs::tests::parses_exact_rules_into_tool_name_rule_content |
 
 ### claude/stream-parser.test.ts
 
@@ -356,10 +356,10 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| commands/fake-runner.test.ts › FakeCommandRunner › scripts exit codes, output and timeouts | todo |
-| commands/fake-runner.test.ts › FakeCommandRunner › queues the third of three commands with limit 2 and reports build_slot | todo |
-| commands/fake-runner.test.ts › FakeCommandRunner › resolves with SIGTERM on abort | todo |
-| commands/fake-runner.test.ts › FakeCommandRunner › aborting a queued run keeps the next waiter queued until a slot frees | todo |
+| commands/fake-runner.test.ts › FakeCommandRunner › scripts exit codes, output and timeouts | crates/conductor-daemon/src/commands/fake_runner.rs::tests::scripts_exit_codes_output_and_timeouts |
+| commands/fake-runner.test.ts › FakeCommandRunner › queues the third of three commands with limit 2 and reports build_slot | crates/conductor-daemon/src/commands/fake_runner.rs::tests::queues_the_third_of_three_commands_with_limit_2_and_reports_build_slot |
+| commands/fake-runner.test.ts › FakeCommandRunner › resolves with SIGTERM on abort | crates/conductor-daemon/src/commands/fake_runner.rs::tests::resolves_with_sigterm_on_abort |
+| commands/fake-runner.test.ts › FakeCommandRunner › aborting a queued run keeps the next waiter queued until a slot frees | crates/conductor-daemon/src/commands/fake_runner.rs::tests::aborting_a_queued_run_keeps_the_next_waiter_queued_until_a_slot_frees |
 
 ### commands/process-runner.test.ts
 

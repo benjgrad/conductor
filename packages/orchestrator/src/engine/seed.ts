@@ -66,6 +66,14 @@ function shipped(): WorkflowDefinition[] {
 }
 
 /**
+ * The newest shipped `conductor` definition (ADR-0030 amendment: `adopt_default_workflow` saves it
+ * as the next version).
+ */
+export function newestShippedConductor(): WorkflowDefinition {
+  return shipped().at(-1)!;
+}
+
+/**
  * Whether a stored definition is `shipped` unedited: parsed (defaults applied, as for every read)
  * and compared as JSON, ignoring `version` (the row's version is the key, not the content). A row
  * that no longer parses is an edit.

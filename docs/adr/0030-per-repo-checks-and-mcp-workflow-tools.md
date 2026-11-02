@@ -1,6 +1,6 @@
 # ADR-0030 · Per-repo pre-PR checks, and MCP-first workflow management
 
-- **Status**: accepted (Ben, 2026-11-02, on the plan of ticket "Improved repo-specific pre-PR checks and workflows"; supersedes the "workflow reads and edits" item of the 2026-10-30 MCP tool-set decision, ADR-0028 / [10-contracts §OAuth and MCP](../design/10-contracts.md))
+- **Status**: accepted, amended 2026-11-02 for `save_workflow` (Ben, 2026-11-02, on the plan of ticket "Improved repo-specific pre-PR checks and workflows"; supersedes the "workflow reads and edits" item of the 2026-10-30 MCP tool-set decision, ADR-0028 / [10-contracts §OAuth and MCP](../design/10-contracts.md))
 - **Date**: 2026-11-02
 - **Deciders**: Ben (+ conductor planning and implementing sessions)
 - **Resolves**: —
@@ -28,10 +28,36 @@ Ben also asked that conductor be **MCP-first**: every way to change how workflow
 - The override is account-wide per repo, while workflows are instance-wide. Two accounts working on the same repo can have different checks.
 - MCP writes are still recorded under the `ui` engine actor (no MCP attribution yet); `repo_checks.updated_by` does record `mcp:<email>`.
 - The settings UI is the web app's Repo checks page ([11-web-ui §Repo checks](../design/11-web-ui.md#repo-checks-adr-0030)), over the same REST routes.
-- Saving a whole workflow over MCP (`save_workflow`) is a follow-up ticket: it is a larger write surface and interacts with the seed's `default_available`.
+- Saving a whole workflow over MCP (`save_workflow`) came in a follow-up: see [§Amendment (2026-11-02): save_workflow](#amendment-2026-11-02-save_workflow).
 - The Rust daemon is unaffected: overrides resolve in the orchestrator's `apply`, and the daemon only sees `run_cmd`.
 
 ## Alternatives considered
 - **Overrides inside the workflow definition** (`repos: {<repo>: {checks, setup}}`): versioned with the workflow, but any edit stops future default versions from seeding, and it mixes per-account repo settings into an instance-wide definition.
 - **A config file in the repo** (`.conductor/checks.json`): forbidden on work repos (conductor-specific commits).
 - **Marking the check "not applicable" per ticket:** loses the gate entirely and has to be repeated on every ticket.
+
+## Amendment (2026-11-02): save_workflow
+Approved by Ben on the plan of ticket "MCP save workflow tool".
+
+### Security review
+`workflow_definition` is instance-wide: its key is `(id, version)`, its `account_id` is always the `local` default (TD-109), and per-account workflows are M2-T12. The latest version of a workflow is what every account's new tickets, reopens and re-pinned parked tickets run. Letting an OAuth-connected agent save one risks:
+1. **Cross-account effect.** One account's token would change every other account's prompts, checks and tools.
+2. **Code execution.** `requires.checks`, `entry.checks` and `setup` are shell commands, and agent states carry prompts and tool permissions, so a save is command execution on every account's machines. (`set_repo_checks` already allows this, but only inside the caller's account.)
+3. **Approval bypass.** Removing a transition's `requires.approvals`, then `take_transition`, gets around ADR-0014 §5 (MCP never takes a move a human must approve).
+4. **Prompt injection.** An agent reading untrusted ticket bodies or PR text can be steered into calling the tool.
+5. **Seed lock-out.** Any save stops newer shipped defaults from installing themselves, for every account.
+6. **Corrupted reads.** MCP results are capped at 8 KB (ADR-0028), so an agent that rebuilds a definition from a cut result would save a cut prompt.
+
+### Decision
+- **`save_workflow {definition, base_version?}`** validates (`validateWorkflow`) and saves the next version (max + 1), `created_by` = `mcp:<email>`. An invalid definition returns `invalid_workflow` with each error's `rule`, `path` and `message`; a valid one returns `{id, version, default_available}`.
+- **Instance admins only, or local mode.** Both write tools return `forbidden` unless the token's user `is_admin`, or the instance is in local mode (one loopback user, so instance-wide is account-wide). The tools stay listed for everyone; the descriptions say so. When M2-T12 makes workflows per-account, this can relax to the caller's account.
+- **No weakening of approvals over MCP** (`approvalsWeakened`, shared). For every human transition of the latest stored version with `requires.approvals`, the new definition must keep that transition with every one of those approvals, and every other transition out of the same state to the same target must carry them too. Otherwise `approval_weakened`, listing the transitions: approvals are changed on the board or REST. It does not catch a detour through another state; the admin gate is the main control.
+- **Truncation guard.** A definition whose JSON contains the cap marker `…[truncated]` is refused (`invalid_input`). The whole shipped `conductor` v4 is under 5 KB, so `get_workflow` keeps the 8 KB cap.
+- **Optimistic concurrency.** With `base_version`, the save happens only while that is still the latest version, else `conflict` with `latest`.
+- Both tools are annotated destructive, so clients confirm with the user.
+
+### The seed
+Unchanged: a stored latest version that isn't a shipped one at its own version number stops auto-seeding, whether it came from REST or `save_workflow`. `get_workflow` now carries `default_available` (as `GET /api/workflows/:id`): the newest shipped version when no stored version is it, else null. Right after an edit it is still null, because the shipped version is in the history; it turns non-null when a newer default ships and the seed holds it back. `adopt_default_workflow {base_version?}` (same gate and approval check) saves the newest shipped definition as the next version: the edits are replaced and `default_available` is null again, but auto-seeding stays off, because that version number is not the shipped one. Version-agnostic seed matching is a follow-up.
+
+### Not changed
+`POST /api/workflows` keeps its behaviour (no admin gate, no approval guard). Any signed-in user can save there today; that is pre-existing and M2-T12's to fix. MCP saves are still applied as the `ui` engine actor; only `created_by` records `mcp:<email>`.

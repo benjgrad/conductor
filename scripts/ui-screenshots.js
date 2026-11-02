@@ -31,6 +31,12 @@ const outDir = join(root, 'docs/qa/ux-review', out);
 
 /** The needs-input card the panel shots open (api/mock-data.ts). */
 const CARD = 'Add audit log table';
+/** A running card with a ticket body, so the Brief shows (api/mock-data.ts). */
+const BRIEF_CARD = 'Add pagination to /orders';
+/** The plan-approval card (06 §Plan approval; api/mock-data.ts planApprovalSeed). */
+const PLAN_CARD = 'Add rate limiting to /login';
+/** The ticket-panel shots (11-web-ui §Phone layout, Detail panel). */
+const TICKET_SHOTS = ['ticket-messages', 'ticket-plan', 'ticket-plan-sheet', 'ticket-brief-sheet'];
 
 /**
  * @typedef {import('playwright-core').Page} Page
@@ -48,13 +54,22 @@ const VIEWPORTS = [
     w: 375,
     h: 812,
     ...PHONE,
-    themes: { light: 'all', dark: ['board', 'detail', 'new-ticket'] },
+    themes: { light: 'all', dark: ['board', 'detail', 'new-ticket', 'ticket-plan'] },
   },
   {
     w: 360,
     h: 740,
     ...PHONE,
-    themes: { light: ['board', 'detail', 'detail-scrolled', 'new-ticket', 'new-ticket-bottom'] },
+    themes: {
+      light: [
+        'board',
+        'detail',
+        'detail-scrolled',
+        'new-ticket',
+        'new-ticket-bottom',
+        ...TICKET_SHOTS,
+      ],
+    },
   },
   {
     w: 768,
@@ -69,7 +84,15 @@ const VIEWPORTS = [
     h: 900,
     deviceScaleFactor: 1,
     themes: {
-      light: ['board', 'detail', 'new-ticket', 'machines', 'workflows'],
+      light: [
+        'board',
+        'detail',
+        'new-ticket',
+        'machines',
+        'workflows',
+        'ticket-messages',
+        'ticket-plan',
+      ],
       dark: ['board', 'detail'],
     },
   },
@@ -90,11 +113,33 @@ async function clickNamed(page, role, name) {
   await tap(page.getByRole(role, { name, exact: true }).first());
 }
 
-/** @param {Page} page */
-async function openCard(page) {
-  await tap(page.locator('.card-open', { hasText: CARD }).first());
+/** @param {Page} page @param {string} [title] */
+async function openCard(page, title = CARD) {
+  // On a phone the board shows one column: pick the card's column first if it isn't shown.
+  const card = page.locator('.card-open', { hasText: title }).first();
+  if ((await card.count()) === 0) {
+    for (const tab of await page.locator('.column-switcher [role="tab"]').all()) {
+      await tap(tab);
+      await page.waitForTimeout(150);
+      if ((await card.count()) > 0) break;
+    }
+  }
+  await tap(card);
   await page.locator('aside.detail').waitFor();
   await page.waitForTimeout(300);
+}
+
+/**
+ * A ticket-strip button (TicketStrip.tsx) when the panel has one (the phone, after this ticket);
+ * false when it doesn't (desktop, or the "before" build).
+ * @param {Page} page @param {string} cls
+ */
+async function tapStrip(page, cls) {
+  const button = page.locator(`.ticket-strip .${cls}`);
+  if ((await button.count()) === 0) return false;
+  await tap(button.first());
+  await page.waitForTimeout(300);
+  return true;
 }
 
 /** Each screen starts from a fresh load of `path`, then `act`s. @type {Screen[]} */
@@ -168,6 +213,29 @@ const SCREENS = [
       await tap(page.locator('.account-button'));
     },
   },
+  // The ticket panel's Messages tab: the brief above the chat (BRIEF_CARD has a ticket body).
+  { id: 'ticket-messages', path: '/#/', act: (page) => openCard(page, BRIEF_CARD) },
+  { id: 'ticket-plan', path: '/#/', act: (page) => openCard(page, PLAN_CARD) },
+  {
+    id: 'ticket-plan-sheet',
+    path: '/#/',
+    act: async (page) => {
+      await openCard(page, PLAN_CARD);
+      // Before the strip, the plan is only in the chat: scroll it into view.
+      if (!(await tapStrip(page, 'ticket-strip-plan'))) {
+        await page.locator('.plan-approval .plan-body').scrollIntoViewIfNeeded();
+      }
+    },
+  },
+  {
+    id: 'ticket-brief-sheet',
+    path: '/#/',
+    act: async (page) => {
+      await openCard(page, BRIEF_CARD);
+      // Before the strip, the brief is open inline already.
+      await tapStrip(page, 'ticket-strip-brief');
+    },
+  },
   { id: 'machines', path: '/#/machines' },
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
@@ -200,7 +268,10 @@ function measure(deviceWidth) {
       );
     }
   }
+  // The chat's visible height (the session panel's Messages log), when a panel is open.
+  const chat = document.querySelector('aside.detail .output-chat .output');
   return {
+    chatHeight: chat ? Math.round(chat.getBoundingClientRect().height) : null,
     pageScrollWidth: document.documentElement.scrollWidth,
     deviceWidth: vw,
     horizontalOverflow: document.documentElement.scrollWidth > vw,

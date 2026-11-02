@@ -1,0 +1,125 @@
+{
+  "ticket-messages-375x812-light": {
+    "chatHeight": 588,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "ticket-plan-375x812-light": {
+    "chatHeight": 582,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "ticket-plan-sheet-375x812-light": {
+    "chatHeight": 582,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "ticket-brief-sheet-375x812-light": {
+    "chatHeight": 588,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 2,
+    "smallTapTargetSample": [
+      "input \"\" 13×13",
+      "input \"\" 13×13"
+    ]
+  },
+  "ticket-plan-375x812-dark": {
+    "chatHeight": 582,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "ticket-messages-360x740-light": {
+    "chatHeight": 510,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "ticket-plan-360x740-light": {
+    "chatHeight": 510,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "ticket-plan-sheet-360x740-light": {
+    "chatHeight": 510,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "ticket-brief-sheet-360x740-light": {
+    "chatHeight": 510,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 2,
+    "smallTapTargetSample": [
+      "input \"\" 13×13",
+      "input \"\" 13×13"
+    ]
+  },
+  "ticket-messages-1440x900-light": {
+    "chatHeight": 278,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1342,
+    "smallTapTargets": 44,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"▾Queued 2\" 94×15"
+    ]
+  },
+  "ticket-plan-1440x900-light": {
+    "chatHeight": 240,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1342,
+    "smallTapTargets": 49,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"▾Queued 2\" 94×15"
+    ]
+  }
+}

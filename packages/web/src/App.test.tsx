@@ -58,6 +58,7 @@ describe('kanban board', () => {
       'Add CSV export',
       'Plan the garden',
       'Add audit log table',
+      'Add rate limiting to /login',
     ]);
     const col = within(column('Needs input'));
     expect(col.getByText(/Retries exhausted/)).toBeTruthy();
@@ -84,6 +85,7 @@ describe('kanban board', () => {
         'Add CSV export',
         'Plan the garden',
         'Add audit log table',
+        'Add rate limiting to /login',
         'Add pagination to /orders',
       ]),
     );
@@ -109,6 +111,7 @@ describe('detail panel', () => {
         'Board cards: review requests vs questions',
         'Add CSV export',
         'Plan the garden',
+        'Add rate limiting to /login',
       ]),
     );
     expect(cardTitles('Implementing')).toContain('Add audit log table');

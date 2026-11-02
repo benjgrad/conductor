@@ -161,11 +161,22 @@ interface EditTicketProps {
   /** The session's state runs an agent: say that a live agent won't see the edit yet. */
   agentRunning: boolean;
   onSaved: () => void;
+  /** The phone's Edit sheet (TicketStrip.tsx): the editor from the start, no button. */
+  startOpen?: boolean;
+  /** Called after Save or Cancel closes the editor (the sheet closes too). */
+  onClose?: () => void;
 }
 
 /** A session panel's "Edit ticket" (shown when `SessionDetail.ticket_editable`). */
-export function EditTicket({ api, ticketId, agentRunning, onSaved }: EditTicketProps) {
-  const [open, setOpen] = useState(false);
+export function EditTicket({
+  api,
+  ticketId,
+  agentRunning,
+  onSaved,
+  startOpen = false,
+  onClose,
+}: EditTicketProps) {
+  const [open, setOpen] = useState(startOpen);
   const { ticket, error, reload } = useTicket(api, ticketId, '', open);
   if (!open) {
     return (
@@ -197,8 +208,12 @@ export function EditTicket({ api, ticketId, agentRunning, onSaved }: EditTicketP
           onSaved={() => {
             setOpen(false);
             onSaved();
+            onClose?.();
           }}
-          onCancel={() => setOpen(false)}
+          onCancel={() => {
+            setOpen(false);
+            onClose?.();
+          }}
           onReload={reload}
         />
       ) : (

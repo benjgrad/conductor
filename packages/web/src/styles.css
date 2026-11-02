@@ -1384,12 +1384,12 @@ button.link {
     background: none;
     color: var(--text);
   }
+  /* One line: every pixel of height goes to the chat; the full title is in Details. */
+  .detail.full-screen .detail-head {
+    gap: var(--space-2);
+  }
   .detail.full-screen .detail-head h2 {
-    white-space: normal;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
+    white-space: nowrap;
   }
   .detail.full-screen .tabs [role='tab'] {
     flex: 1;

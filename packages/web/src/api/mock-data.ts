@@ -21,6 +21,7 @@ import {
   type SessionInputRequest,
   type SessionStatus,
   type WorkflowDefinition,
+  humanTransitionOptions,
 } from '@conductor/shared';
 import { UX2_TICKET_BODY } from '../brief/ux2-ticket.js';
 import { implementerReport } from '../components/review-fixture.js';
@@ -384,6 +385,12 @@ export const SEED_IDS = {
     ticket: 'a1000000-0000-4000-8000-00000000000d',
     session: 'b2000000-0000-4000-8000-00000000000d',
   },
+  /** 06 §Plan approval: a planner asking to approve its plan (`plan_needs_approval`). */
+  planApproval: {
+    ticket: 'a1000000-0000-4000-8000-00000000000e',
+    session: 'b2000000-0000-4000-8000-00000000000e',
+    input: 'c3000000-0000-4000-8000-00000000000e',
+  },
 } as const;
 
 interface SeedSpec {
@@ -572,6 +579,78 @@ function reviewSeed(now: Date): MockSeed {
     session: {
       ...base.session!,
       context: { __pr: { pr_url: 'https://github.com/benjgrad/conductor/pull/42' } },
+    },
+  };
+}
+
+/** A planner's plan, long enough to clamp: a table, steps and risks (06 §Plan approval). */
+export const MOCK_PLAN = `# Plan: rate limiting on /login
+
+## Approach
+Add a fixed-window limiter in front of the login route, keyed by client IP and by account.
+
+| File | Change |
+|---|---|
+| \`src/middleware/rate-limit.ts\` | New: a fixed-window limiter backed by Redis |
+| \`src/routes/login.ts\` | Mount the limiter before the handler |
+| \`src/config.ts\` | \`LOGIN_LIMIT_PER_MIN\` (default 10) |
+
+## Steps
+1. Write the limiter as a pure function over a store interface, plus the Redis store.
+2. Mount it on \`POST /login\` only; other routes keep their current behaviour.
+3. Return 429 with a \`Retry-After\` header when the window is full.
+4. Log each block at \`warn\` with the key, never the password.
+
+## Tests
+- Unit: the window resets, the per-account and per-IP keys are independent.
+- Route: the 11th attempt in a minute gets 429 and \`Retry-After\`.
+
+## Risks
+- Behind the load balancer the client IP is in \`X-Forwarded-For\`; trust it only from the proxy.
+- Redis down: fail open (log an error), so logins keep working.
+`;
+
+/** 06 §Plan approval: the planner asks to approve its plan (`plan_needs_approval`). */
+function planApprovalSeed(now: Date): MockSeed {
+  const id = SEED_IDS.planApproval;
+  const base = seed(now, {
+    ...id,
+    title: 'Add rate limiting to /login',
+    status: 'needs_input',
+    state: 'needs_input',
+    workflow: CONDUCTOR_V2_DRAFT_DEF,
+    ageMin: 35,
+    activeMinAgo: 3,
+    spend: 0.58,
+    returnTo: 'planning',
+    context: { planning: { plan: MOCK_PLAN } },
+    ticketBody: UX2_TICKET_BODY,
+    input: {
+      id: id.input,
+      kind: 'agent_question',
+      question: 'The plan is ready. Approve it, or tell me what to change.',
+      created_at: ago(now, 3),
+      origin_transition: 'plan_needs_approval',
+      step_failed: false,
+    },
+    output: [
+      'Reading src/routes/login.ts\n',
+      'Reading src/middleware/index.ts\n',
+      'The login route has no limiter today; I will add one in front of it.\n',
+    ],
+  });
+  // The seeds keep the fixture's buttons; this one needs the workflow's, for the $return_to answer.
+  const card = { ...base.card, kind: 'personal' as const };
+  return {
+    ...base,
+    card: {
+      ...card,
+      human_transitions: humanTransitionOptions(
+        CONDUCTOR_V2_DRAFT_DEF,
+        'needs_input',
+        card.kind,
+        'planning',
+      ),
     },
   };
 }
@@ -769,6 +848,7 @@ export function mockSeeds(now: Date): MockSeed[] {
       output: ['> npm test\n', 'FAIL checkout.spec.ts › applies coupon\n', 'Tests: 1 failed\n'],
     }),
     reviewSeed(now),
+    planApprovalSeed(now),
     seed(now, {
       ...id.stepFailed,
       title: 'Add CSV export',

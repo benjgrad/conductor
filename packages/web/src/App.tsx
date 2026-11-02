@@ -2,6 +2,7 @@ import type { MeResponse } from '@conductor/shared';
 import {
   CircleHelp,
   LayoutDashboard,
+  ListChecks,
   Plug,
   Plus,
   Server,
@@ -53,6 +54,7 @@ import { useOpenFromNotification } from './notify/open-ticket.js';
 import { useNeedsInputNotifications } from './notify/useNeedsInputNotifications.js';
 import { dismiss, isDismissed } from './onboarding/dismissal.js';
 import { SetupGuide } from './onboarding/SetupGuide.js';
+import { RepoChecksPage } from './repo-checks/RepoChecksPage.js';
 import { DiscardDraftConfirm, useDraftGuard } from './workflow/draft-guard.js';
 import { WorkflowsView } from './workflow/WorkflowsView.js';
 
@@ -273,6 +275,12 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
       icon: <NavIcon icon={Plug} />,
       onClick: (e: MouseEvent<HTMLAnchorElement>) => followInApp(e, CONNECT_CLAUDE_URL),
     },
+    // ADR-0030: per-repo check overrides, a settings page (not a top-bar tab).
+    {
+      label: 'Repo checks',
+      href: routeHash({ view: 'repo-checks', repo: null }),
+      icon: <NavIcon icon={ListChecks} />,
+    },
   ];
 
   const showForm = route.view === 'board' && !guide && creating;
@@ -364,6 +372,13 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
       <DiscardDraftConfirm draft={draft} navigate={navigate} />
       {route.view === 'workflows' && <WorkflowsView api={api} onDirtyChange={draft.setDirty} />}
       {route.view === 'machines' && <MachinesPage api={api} />}
+      {route.view === 'repo-checks' && (
+        <RepoChecksPage
+          api={api}
+          repo={route.repo}
+          onSelect={(repo) => navigate({ view: 'repo-checks', repo })}
+        />
+      )}
       {route.view === 'admin' &&
         (me ? <AdminPage api={api} me={me} /> : <p className="loading">Loading…</p>)}
       {guide && (

@@ -27,7 +27,7 @@ Ben also asked that conductor be **MCP-first**: every way to change how workflow
 - Checks run with `sh -c` in a fresh checkout at the repo root (Git Bash on Windows), so .NET steps must be written in bash and their tools must be on PATH or called by full path. The tool description says so.
 - The override is account-wide per repo, while workflows are instance-wide. Two accounts working on the same repo can have different checks.
 - MCP writes are still recorded under the `ui` engine actor (no MCP attribution yet); `repo_checks.updated_by` does record `mcp:<email>`.
-- There is no settings UI yet: REST and MCP only. A follow-up ticket adds one.
+- The settings UI is the web app's Repo checks page ([11-web-ui §Repo checks](../design/11-web-ui.md#repo-checks-adr-0030)), over the same REST routes.
 - Saving a whole workflow over MCP (`save_workflow`) is a follow-up ticket: it is a larger write surface and interacts with the seed's `default_available`.
 - The Rust daemon is unaffected: overrides resolve in the orchestrator's `apply`, and the daemon only sees `run_cmd`.
 

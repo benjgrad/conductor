@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 // Top-level navigation kept in the URL hash: `#/` (board), `#/workflows`, `#/workflows/<id>`,
-// `#/admin`, `#/machines` (M2-T11), `#/setup` (UX-8: the guided machine setup). `#/help/…` is an
+// `#/admin`, `#/machines` (M2-T11), `#/setup` (UX-8: the guided machine setup), `#/repo-checks`
+// and `#/repo-checks/<repo>` (ADR-0030: per-repo check overrides). `#/help/…` is an
 // alias of the `/help/…` page, which renders outside the app shell. Every route change, from an in-app link or from the hash itself (typed URL,
 // back/forward), goes through an optional guard, so a view with unsaved work can hold the user back.
 //
@@ -14,6 +15,7 @@ export type Route =
   | { view: 'workflows'; workflowId: string | null }
   | { view: 'admin' }
   | { view: 'machines' }
+  | { view: 'repo-checks'; repo: string | null }
   | { view: 'setup' }
   | { view: 'help' };
 
@@ -24,6 +26,10 @@ export function parseHash(hash: string): Route {
   }
   if (parts[0] === 'admin') return { view: 'admin' };
   if (parts[0] === 'machines') return { view: 'machines' };
+  if (parts[0] === 'repo-checks') {
+    // A repo has slashes: everything after `repo-checks/` is one encoded segment.
+    return { view: 'repo-checks', repo: parts[1] ? decodeURIComponent(parts[1]) : null };
+  }
   if (parts[0] === 'setup') return { view: 'setup' };
   if (parts[0] === 'help') return { view: 'help' };
   return { view: 'board' };
@@ -35,6 +41,9 @@ export function routeHash(route: Route): string {
   if (route.view === 'machines') return '#/machines';
   if (route.view === 'setup') return '#/setup';
   if (route.view === 'help') return '#/help/add-a-machine';
+  if (route.view === 'repo-checks') {
+    return route.repo ? `#/repo-checks/${encodeURIComponent(route.repo)}` : '#/repo-checks';
+  }
   return route.workflowId ? `#/workflows/${encodeURIComponent(route.workflowId)}` : '#/workflows';
 }
 

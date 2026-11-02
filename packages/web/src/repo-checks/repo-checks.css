@@ -1,0 +1,91 @@
+/* ADR-0030: the Repo checks page (same look as the Machines page). */
+
+.repo-checks {
+  padding: 16px;
+  max-width: 1100px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.repo-checks h2 {
+  font-size: 18px;
+  margin: 0;
+}
+.repo-checks h3,
+.repo-checks h4 {
+  margin: 8px 0 0;
+}
+.repo-checks .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.rc-note {
+  margin: 0;
+}
+.repo-checks code {
+  white-space: nowrap;
+}
+/* 11-web-ui: tables scroll inside their own box, never the page. */
+.rc-scroll {
+  display: block;
+  overflow-x: auto;
+  position: relative;
+}
+.rc-table {
+  width: 100%;
+  /* On a phone the box scrolls sideways instead of squeezing every cell into a tall column. */
+  min-width: 720px;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+.rc-table th,
+.rc-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.rc-table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+.rc-table tr[aria-current] {
+  background: var(--warn-bg);
+}
+.rc-checks {
+  margin: 0;
+  padding-left: 16px;
+}
+.rc-source-override {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.rc-pick {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: 560px;
+}
+.rc-pick .repo-field {
+  flex: 1;
+}
+.rc-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.rc-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 640px;
+}
+.rc-actions,
+.rc-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

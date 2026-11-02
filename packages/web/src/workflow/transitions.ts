@@ -9,6 +9,7 @@ import {
   transitionObject,
   type Condition,
   type ConditionType,
+  type EntryCheck,
   type OnUnmet,
   type Transition,
   type TransitionObject,
@@ -271,6 +272,44 @@ export interface TransitionIssue {
 const durationProblem = (text: string) =>
   DurationSchema.safeParse(text).success ? null : 'use a duration like "30m", "2h" or "3d"';
 
+/** A problem in a check list, at `suffix` (relative: `checks.0.name`, `checks`, `setup`). */
+export interface CheckListIssue {
+  suffix: string;
+  message: string;
+}
+
+/**
+ * The field rules of a check list and its setup, shared by a transition's `requires` (below) and
+ * a repo's check override (ADR-0030, the Repo checks page): at most 20 checks, each with a name
+ * that is not blank or repeated, a command that is not blank, and a duration timeout; setup only
+ * with checks, at most 2000 characters.
+ */
+export function checkListIssues(
+  checks: readonly EntryCheck[],
+  setup: string | undefined,
+): CheckListIssue[] {
+  const issues: CheckListIssue[] = [];
+  const add = (suffix: string, message: string) => issues.push({ suffix, message });
+  if (checks.length > 20) add('checks', 'at most 20 checks');
+  const seen = new Set<string>();
+  checks.forEach((c, i) => {
+    if (c.name.trim() === '') add(`checks.${i}.name`, `check ${i + 1} needs a name`);
+    else if (seen.has(c.name.trim())) add(`checks.${i}.name`, `check "${c.name}" is listed twice`);
+    seen.add(c.name.trim());
+    if (c.cmd.trim() === '') add(`checks.${i}.cmd`, `check ${i + 1} needs a command`);
+    if (c.timeout !== undefined) {
+      const p = durationProblem(c.timeout);
+      if (p !== null) add(`checks.${i}.timeout`, p);
+    }
+  });
+  if (setup !== undefined && checks.length === 0) {
+    add('setup', 'setup runs before the checks: add a check, or remove the setup');
+  } else if (setup !== undefined && setup.length > 2_000) {
+    add('setup', 'the setup command is too long');
+  }
+  return issues;
+}
+
 /**
  * The client side of ADR-0011's validator rules (M1b-T02: 10 actor fits the state, 11 questions,
  * 12 every agent state can ask, 13 bounded requirements, 14 actions and conditions available),
@@ -351,23 +390,8 @@ export function validateTransitions(def: WorkflowDefinition): TransitionIssue[] 
         if (t.goto === def.start) {
           addR('', 'a move into the first column cannot have requirements');
         }
-        const checks = r.checks ?? [];
-        if (checks.length > 20) addR('.checks', 'at most 20 checks');
-        const seen = new Set<string>();
-        checks.forEach((c, i) => {
-          if (c.name.trim() === '') addR(`.checks.${i}.name`, `check ${i + 1} needs a name`);
-          else if (seen.has(c.name.trim())) {
-            addR(`.checks.${i}.name`, `check "${c.name}" is listed twice`);
-          }
-          seen.add(c.name.trim());
-          if (c.cmd.trim() === '') addR(`.checks.${i}.cmd`, `check ${i + 1} needs a command`);
-          if (c.timeout !== undefined) {
-            const p = durationProblem(c.timeout);
-            if (p !== null) addR(`.checks.${i}.timeout`, p);
-          }
-        });
-        if (r.setup !== undefined && checks.length === 0) {
-          addR('.setup', 'setup runs before the checks: add a check, or remove the setup');
+        for (const issue of checkListIssues(r.checks ?? [], r.setup)) {
+          addR(`.${issue.suffix}`, issue.message);
         }
         if (r.review !== undefined) {
           if (r.review.items.length === 0) addR('.review.items', 'add at least one review item');

@@ -10,6 +10,7 @@ import { columnStates, validateColumns } from './columns.js';
 import {
   addTransition,
   arrowTransitions,
+  checkListIssues,
   conditionOfType,
   getTransitionObject,
   normalizeRequires,
@@ -263,5 +264,48 @@ describe('client validation (ADR-0011 rules 10–14)', () => {
         transition: { from: 'planning', name: 'plan_ready' },
       },
     ]);
+  });
+});
+
+describe('checkListIssues (shared with the Repo checks page, ADR-0030)', () => {
+  it('names unique (trimmed), commands not blank, timeouts as durations', () => {
+    expect(
+      checkListIssues(
+        [
+          { name: 'Build', cmd: 'npm run build', timeout: '10m' },
+          { name: ' Build ', cmd: ' ' },
+          { name: '', cmd: 'npm test', timeout: '10 min' },
+        ],
+        undefined,
+      ),
+    ).toEqual([
+      { suffix: 'checks.1.name', message: 'check " Build " is listed twice' },
+      { suffix: 'checks.1.cmd', message: 'check 2 needs a command' },
+      { suffix: 'checks.2.name', message: 'check 3 needs a name' },
+      { suffix: 'checks.2.timeout', message: 'use a duration like "30m", "2h" or "3d"' },
+    ]);
+  });
+
+  it('setup only with checks, at most 2000 characters; none and auto are fine', () => {
+    const one = [{ name: 'Tests', cmd: 'npm test' }];
+    expect(checkListIssues([], 'npm ci')).toEqual([
+      {
+        suffix: 'setup',
+        message: 'setup runs before the checks: add a check, or remove the setup',
+      },
+    ]);
+    expect(checkListIssues(one, 'x'.repeat(2_001))).toEqual([
+      { suffix: 'setup', message: 'the setup command is too long' },
+    ]);
+    expect(checkListIssues(one, '')).toEqual([]);
+    expect(checkListIssues(one, undefined)).toEqual([]);
+    expect(
+      checkListIssues(
+        Array(21)
+          .fill(null)
+          .map((_, i) => ({ name: `c${i}`, cmd: 'x' })),
+        undefined,
+      ),
+    ).toEqual([{ suffix: 'checks', message: 'at most 20 checks' }]);
   });
 });

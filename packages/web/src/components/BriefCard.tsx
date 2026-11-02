@@ -1,6 +1,7 @@
 // UX-2: the session's brief, pinned above the Messages thread: what the agent was asked to do
 // (goal, FR/NFR checklists with each requirement's verification inline, out of scope), a tally
-// of requirements with a verification, the raw ticket, and the exact initial prompt.
+// of requirements with a verification, the raw ticket, and the exact initial prompt. On a phone
+// the card isn't shown; the ticket strip (TicketStrip.tsx) opens BriefContent in a sheet.
 import { memo, useEffect, useId, useState } from 'react';
 import { tally, verificationFor, type Brief, type Requirement } from '../brief/parse.js';
 import { Markdown, renderInline } from './markdown.js';
@@ -129,6 +130,88 @@ function BriefBody({ brief }: { brief: Brief }) {
   );
 }
 
+export interface BriefContentProps {
+  brief: Brief | null;
+  body: string | null;
+  unavailable: string | null;
+  promptText: string | null;
+  promptReason: string | null;
+  promptLoading: boolean;
+  onWantPrompt: () => void;
+}
+
+/**
+ * The brief itself (goal, requirements, out of scope) with Full ticket and View prompt: the
+ * desktop card's body, and the phone's Brief sheet (TicketStrip.tsx).
+ */
+export function BriefContent({
+  brief,
+  body,
+  unavailable,
+  promptText,
+  promptReason,
+  promptLoading,
+  onWantPrompt,
+}: BriefContentProps) {
+  const ids = useId();
+  const [fullTicket, setFullTicket] = useState(false);
+  const [showPrompt, setShowPrompt] = useState(false);
+  return (
+    <>
+      {brief ? (
+        <BriefBody brief={brief} />
+      ) : (
+        <p className="muted brief-unavailable">
+          {unavailable === null ? 'Loading the brief…' : `brief unavailable: ${unavailable}`}
+        </p>
+      )}
+      <div className="brief-actions">
+        {body !== null && (
+          <button
+            type="button"
+            className="link"
+            aria-expanded={fullTicket}
+            aria-controls={`${ids}-ticket`}
+            onClick={() => setFullTicket((v) => !v)}
+          >
+            Full ticket {fullTicket ? '▾' : '▸'}
+          </button>
+        )}
+        <button
+          type="button"
+          className="link"
+          aria-expanded={showPrompt}
+          aria-controls={`${ids}-prompt`}
+          onClick={() => {
+            if (!showPrompt) onWantPrompt();
+            setShowPrompt((v) => !v);
+          }}
+        >
+          View prompt {showPrompt ? '▾' : '▸'}
+        </button>
+      </div>
+      {fullTicket && body !== null && (
+        <div id={`${ids}-ticket`} className="brief-ticket" aria-label="Full ticket">
+          <Markdown text={body} />
+        </div>
+      )}
+      {showPrompt && (
+        <div id={`${ids}-prompt`} aria-label="Initial prompt">
+          {promptText !== null ? (
+            <pre className="brief-prompt">{promptText}</pre>
+          ) : (
+            <p className="muted">
+              {promptLoading || promptReason === null
+                ? 'Loading the prompt…'
+                : `prompt unavailable: ${promptReason}`}
+            </p>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 export const BriefCard = memo(function BriefCard({
   sessionId,
   brief,
@@ -141,8 +224,6 @@ export const BriefCard = memo(function BriefCard({
 }: BriefCardProps) {
   const ids = useId();
   const [open, setOpen] = useState(() => readOpen(sessionId));
-  const [fullTicket, setFullTicket] = useState(false);
-  const [showPrompt, setShowPrompt] = useState(false);
 
   // An older server sends no ticket_body: the body then comes from the prompt.
   const waiting = open && body === null && unavailable === null;
@@ -172,56 +253,15 @@ export const BriefCard = memo(function BriefCard({
         {brief && <Tally brief={brief} />}
       </button>
       <div id={`${ids}-body`} className="brief-body" hidden={!open}>
-        {brief ? (
-          <BriefBody brief={brief} />
-        ) : (
-          <p className="muted brief-unavailable">
-            {unavailable === null ? 'Loading the brief…' : `brief unavailable: ${unavailable}`}
-          </p>
-        )}
-        <div className="brief-actions">
-          {body !== null && (
-            <button
-              type="button"
-              className="link"
-              aria-expanded={fullTicket}
-              aria-controls={`${ids}-ticket`}
-              onClick={() => setFullTicket((v) => !v)}
-            >
-              Full ticket {fullTicket ? '▾' : '▸'}
-            </button>
-          )}
-          <button
-            type="button"
-            className="link"
-            aria-expanded={showPrompt}
-            aria-controls={`${ids}-prompt`}
-            onClick={() => {
-              if (!showPrompt) onWantPrompt();
-              setShowPrompt((v) => !v);
-            }}
-          >
-            View prompt {showPrompt ? '▾' : '▸'}
-          </button>
-        </div>
-        {fullTicket && body !== null && (
-          <div id={`${ids}-ticket`} className="brief-ticket" aria-label="Full ticket">
-            <Markdown text={body} />
-          </div>
-        )}
-        {showPrompt && (
-          <div id={`${ids}-prompt`} aria-label="Initial prompt">
-            {promptText !== null ? (
-              <pre className="brief-prompt">{promptText}</pre>
-            ) : (
-              <p className="muted">
-                {promptLoading || promptReason === null
-                  ? 'Loading the prompt…'
-                  : `prompt unavailable: ${promptReason}`}
-              </p>
-            )}
-          </div>
-        )}
+        <BriefContent
+          brief={brief}
+          body={body}
+          unavailable={unavailable}
+          promptText={promptText}
+          promptReason={promptReason}
+          promptLoading={promptLoading}
+          onWantPrompt={onWantPrompt}
+        />
       </div>
     </section>
   );

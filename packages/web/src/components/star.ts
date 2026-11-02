@@ -12,6 +12,7 @@ import {
   summarizeReport,
 } from './request-preview.js';
 import { moveTitle } from './transitions.js';
+import { planText } from './plan.js';
 
 /** The engine's ask_user transition (shared engine/transitions.ts ASK_USER, not exported). */
 const ASK_USER = 'ask_user';
@@ -94,14 +95,7 @@ const isReview = (transition: string | null) =>
   transition !== null && transition.endsWith('ready_for_review');
 
 /** The plan the session wrote leaving `from` (`context[from].plan`), else any state's plan. */
-function planOf(detail: SessionDetail, from: string | null): string | null {
-  const own = from === null ? undefined : detail.context[from]?.plan;
-  if (typeof own === 'string' && own.trim() !== '') return own;
-  for (const values of Object.values(detail.context)) {
-    if (typeof values.plan === 'string' && values.plan.trim() !== '') return values.plan;
-  }
-  return null;
-}
+const planOf = (detail: SessionDetail, from: string | null) => planText(detail.context, from);
 
 /** The engine writes the move in the answer's transaction; allow for the clocks of the two writes. */
 const SAME_WRITE_MS = 5_000;

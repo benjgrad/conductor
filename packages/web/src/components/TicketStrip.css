@@ -1,0 +1,121 @@
+/* 11-web-ui §Phone layout (Detail panel): the ticket strip and its sheets (TicketStrip.tsx). Only
+   rendered in the phone's full-screen panel, so none of this applies on desktop. */
+.ticket-strip {
+  flex: none;
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--border);
+}
+.ticket-strip-button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--tap);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--panel);
+  color: var(--text);
+  white-space: nowrap;
+}
+.ticket-strip-button[aria-expanded='true'] {
+  border-color: var(--accent);
+}
+.ticket-strip-label {
+  font-weight: 600;
+}
+.ticket-strip-tally {
+  color: var(--muted);
+  font-size: 12px;
+}
+.ticket-strip-tally.brief-tally-warn {
+  color: var(--warn);
+}
+.ticket-strip-plan.to-approve {
+  background: var(--user-bg);
+  border-color: var(--user-border);
+  color: var(--accent);
+}
+.ticket-strip-edit {
+  margin-left: auto;
+  min-width: var(--tap);
+  justify-content: center;
+  padding: 0;
+  color: var(--muted);
+}
+.ticket-strip-button:focus-visible,
+.ticket-sheet-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The sheet covers the Messages tab (the chat and the composer), under the header and tabs. */
+.messages-tab:has(> .ticket-sheet) {
+  position: relative;
+}
+.ticket-sheet {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+}
+.ticket-sheet-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-1) 0 var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+.detail .ticket-sheet-head h3 {
+  flex: 1;
+  margin: 0;
+  font-size: 15px;
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: normal;
+}
+.ticket-sheet-close {
+  display: grid;
+  place-items: center;
+  min-width: var(--tap);
+  min-height: var(--tap);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+}
+.ticket-sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-2) var(--space-3) var(--space-4);
+}
+.ticket-sheet-body.brief-sheet {
+  font-size: 14px;
+}
+/* The plan reads like a document here: no card around it. */
+.ticket-sheet .plan-body {
+  min-width: 0;
+}
+.ticket-sheet-foot {
+  flex: none;
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border);
+  background: var(--user-bg);
+}
+.ticket-sheet-foot .plan-approval-actions {
+  margin: 0;
+}
+.ticket-sheet-foot .plan-approval-actions button {
+  flex: 1;
+}
+.ticket-sheet .edit-ticket {
+  padding: 0;
+}

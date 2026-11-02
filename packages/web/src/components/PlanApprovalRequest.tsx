@@ -29,6 +29,8 @@ interface PlanApprovalRequestProps {
   /** The `$return_to` answer option (`planAnswerOption`); what both answers post. */
   option: HumanTransitionOption;
   onDone: () => void;
+  /** Phone: the plan is clamped short in the chat, and "Open plan" opens the Plan sheet. */
+  onOpenPlan?: () => void;
 }
 
 /** The plan the asking state stored, if it is there. */
@@ -45,8 +47,59 @@ export function PlanApprovalRequest({
   request,
   option,
   onDone,
+  onOpenPlan,
 }: PlanApprovalRequestProps) {
   const sessionId = request.session_id;
+  const others = detail.card.human_transitions.filter((o) => o.name !== option.name);
+  const offer = freshConversationOffer(detail, request);
+  return (
+    <section aria-label={PLAN_APPROVAL_LABEL} className="pending plan-approval">
+      <div className="pending-head">
+        <span className="badge badge-plan-approval">{PLAN_APPROVAL_LABEL}</span>
+        <span className="muted">{agent} asks</span>
+      </div>
+      <div className="question-text">
+        <Markdown text={request.question} />
+      </div>
+      <PlanView plan={planOf(detail)} {...(onOpenPlan ? { onOpenPlan } : {})} />
+      <PlanAnswerActions api={api} sessionId={sessionId} option={option} onDone={onDone} />
+      {others.length > 0 && (
+        <details className="plan-other-actions">
+          <summary>Other actions</summary>
+          <TransitionButtons
+            api={api}
+            sessionId={sessionId}
+            options={others}
+            workflow={detail.workflow}
+            onDone={onDone}
+          />
+        </details>
+      )}
+      {offer !== 'none' && (
+        <FreshConversation
+          api={api}
+          sessionId={sessionId}
+          prominent={offer === 'prominent'}
+          onDone={onDone}
+        />
+      )}
+    </section>
+  );
+}
+
+interface PlanAnswerActionsProps {
+  api: ApiClient;
+  sessionId: string;
+  /** The `$return_to` answer option (`planAnswerOption`); what both answers post. */
+  option: HumanTransitionOption;
+  onDone: () => void;
+}
+
+/**
+ * Approve plan and Request changes… (with its feedback form): the plan card's answers, and the
+ * phone's Plan sheet footer (TicketStrip.tsx).
+ */
+export function PlanAnswerActions({ api, sessionId, option, onDone }: PlanAnswerActionsProps) {
   const [changing, setChanging] = useState(false);
   const [feedback, setFeedback] = useState('');
   const answer = usePlanAnswer(api, sessionId, option, onDone);
@@ -66,18 +119,8 @@ export function PlanApprovalRequest({
     void post(planChangesText(feedback));
   }
 
-  const others = detail.card.human_transitions.filter((o) => o.name !== option.name);
-  const offer = freshConversationOffer(detail, request);
   return (
-    <section aria-label={PLAN_APPROVAL_LABEL} className="pending plan-approval">
-      <div className="pending-head">
-        <span className="badge badge-plan-approval">{PLAN_APPROVAL_LABEL}</span>
-        <span className="muted">{agent} asks</span>
-      </div>
-      <div className="question-text">
-        <Markdown text={request.question} />
-      </div>
-      <PlanView plan={planOf(detail)} />
+    <>
       {!changing && (
         <div className="plan-approval-actions" role="group" aria-label="Answer the plan">
           <button
@@ -111,7 +154,11 @@ export function PlanApprovalRequest({
             autoFocus
             onChange={(e) => setFeedback(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Escape') setChanging(false);
+              if (e.key === 'Escape') {
+                // Escape leaves the form, not the sheet around it.
+                e.stopPropagation();
+                setChanging(false);
+              }
             }}
           />
           <span className="transition-text-actions">
@@ -134,56 +181,63 @@ export function PlanApprovalRequest({
           {error}
         </p>
       )}
-      {others.length > 0 && (
-        <details className="plan-other-actions">
-          <summary>Other actions</summary>
-          <TransitionButtons
-            api={api}
-            sessionId={sessionId}
-            options={others}
-            workflow={detail.workflow}
-            onDone={onDone}
-          />
-        </details>
-      )}
-      {offer !== 'none' && (
-        <FreshConversation
-          api={api}
-          sessionId={sessionId}
-          prominent={offer === 'prominent'}
-          onDone={onDone}
-        />
-      )}
-    </section>
+    </>
   );
 }
 
-function PlanView({ plan }: { plan: unknown }) {
+/** On a phone the chat shows about 8 lines of the plan; the Plan sheet shows it all. */
+const phoneLong = (text: string | null) =>
+  text === null || text.length > 600 || text.split('\n').length > 8;
+
+/**
+ * The plan as Markdown (JSON when it isn't text). In the chat a long plan is clamped behind
+ * "Show full plan"; on a phone `onOpenPlan` adds "Open plan", which opens the Plan sheet. The
+ * sheet passes `clamp={false}`.
+ */
+export function PlanView({
+  plan,
+  clamp = true,
+  onOpenPlan,
+}: {
+  plan: unknown;
+  clamp?: boolean;
+  onOpenPlan?: () => void;
+}) {
   const [all, setAll] = useState(false);
   if (plan === undefined || plan === null || plan === '') {
     return <p className="plan-missing muted">{PLAN_MISSING_TEXT}</p>;
   }
   const text = typeof plan === 'string' ? plan : null;
   const long =
-    text !== null && (text.length > LONG_PLAN_CHARS || text.split('\n').length > LONG_PLAN_LINES);
+    clamp &&
+    text !== null &&
+    (text.length > LONG_PLAN_CHARS || text.split('\n').length > LONG_PLAN_LINES);
   return (
     <div className="plan-body" aria-label="The plan" role="region">
-      <div className={`plan-text${long && !all ? ' clamped' : ''}`}>
+      <div
+        className={`plan-text${long && !all ? ' clamped' : ''}${onOpenPlan && phoneLong(text) ? ' clamped-phone' : ''}`}
+      >
         {text !== null ? (
           <Markdown text={text} />
         ) : (
           <pre className="plan-json">{JSON.stringify(plan, null, 2)}</pre>
         )}
       </div>
-      {long && (
-        <button
-          type="button"
-          className="link"
-          aria-expanded={all}
-          onClick={() => setAll((v) => !v)}
-        >
-          {all ? 'Show less' : 'Show full plan'}
+      {onOpenPlan ? (
+        <button type="button" className="link plan-open" onClick={onOpenPlan}>
+          Open plan
         </button>
+      ) : (
+        long && (
+          <button
+            type="button"
+            className="link"
+            aria-expanded={all}
+            onClick={() => setAll((v) => !v)}
+          >
+            {all ? 'Show less' : 'Show full plan'}
+          </button>
+        )
       )}
     </div>
   );

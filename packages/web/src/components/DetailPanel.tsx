@@ -1,5 +1,7 @@
 // The session panel: a compact header (agent, title, status), then two tabs. Messages is a chat
 // with the agent (the live log, the open question inline, a composer pinned at the bottom);
+// above it the Brief card and Edit ticket on desktop, and on a phone one ticket strip (Brief,
+// Plan, Edit) whose buttons open sheets over the chat (TicketStrip.tsx, 11-web-ui §Phone layout);
 // Details tells the ticket's story in STAR order (UX-7, StarDetails.tsx), with who runs it and
 // where, the workflow, spend and the context under Technical details.
 import type { HumanTransitionOption, InputRequestDto, SessionDetail } from '@conductor/shared';
@@ -28,6 +30,7 @@ import { PlanApprovalRequest } from './PlanApprovalRequest.js';
 import { classifyRequest, lastMoveTransition, planAnswerOption } from './request-preview.js';
 import { ReviewRequest } from './ReviewRequest.js';
 import { StarDetails } from './StarDetails.js';
+import { TicketStrip, type StripSheet } from './TicketStrip.js';
 import { EditTicket } from './TicketPanel.js';
 import { TransitionButtons } from './transitions.js';
 import { displayState } from '../workflow/review.js';
@@ -66,6 +69,14 @@ export function DetailPanel({
   const view = useSession(api, sessionId, version);
   const { detail, output, error, reload, history } = view;
   const [tab, setTab] = useState<PanelTab>('messages');
+  // The phone's ticket-strip sheet (Brief, Plan, Edit), per session.
+  const [sheetOf, setSheetOf] = useState<{ id: string; sheet: StripSheet } | null>(null);
+  const sheet = sheetOf?.id === sessionId ? sheetOf.sheet : null;
+  const onSheet = useCallback(
+    (next: StripSheet | null) => setSheetOf(next === null ? null : { id: sessionId, sheet: next }),
+    [sessionId],
+  );
+  const openPlan = useCallback(() => onSheet('plan'), [onSheet]);
   // Identity is per ticket (Ben): the same agent across a ticket's retries and resumes.
   const agentKey = detail?.card.ticket_id ?? ticketId ?? null;
   const name = agentKey ? agentName(agentKey) : '';
@@ -124,7 +135,7 @@ export function DetailPanel({
         {agentKey ? (
           <AgentAvatar
             ticketId={agentKey}
-            size={36}
+            size={fullScreen ? 28 : 36}
             {...(detail && agentIdle(detail.card) ? { className: 'avatar-idle' } : {})}
           />
         ) : (
@@ -199,25 +210,47 @@ export function DetailPanel({
             {isConductorStep(detail.card) && (
               <ConductorCheckBanner card={detail.card} agent={name} />
             )}
-            {detail.ticket_editable && (
-              <EditTicket
+            {fullScreen ? (
+              <TicketStrip
+                key={sessionId}
                 api={api}
-                ticketId={detail.card.ticket_id}
+                detail={detail}
+                planOption={planOption}
                 agentRunning={agentStateRunning(detail)}
-                onSaved={reload}
+                sheet={sheet}
+                onSheet={onSheet}
+                onReload={reload}
+                brief={brief}
+                body={body}
+                unavailable={unavailable}
+                promptText={prompt.text}
+                promptReason={prompt.reason}
+                promptLoading={prompt.loading}
+                onWantPrompt={onWantPrompt}
               />
+            ) : (
+              <>
+                {detail.ticket_editable && (
+                  <EditTicket
+                    api={api}
+                    ticketId={detail.card.ticket_id}
+                    agentRunning={agentStateRunning(detail)}
+                    onSaved={reload}
+                  />
+                )}
+                <BriefCard
+                  key={sessionId}
+                  sessionId={sessionId}
+                  brief={brief}
+                  body={body}
+                  unavailable={unavailable}
+                  promptText={prompt.text}
+                  promptReason={prompt.reason}
+                  promptLoading={prompt.loading}
+                  onWantPrompt={onWantPrompt}
+                />
+              </>
             )}
-            <BriefCard
-              key={sessionId}
-              sessionId={sessionId}
-              brief={brief}
-              body={body}
-              unavailable={unavailable}
-              promptText={prompt.text}
-              promptReason={prompt.reason}
-              promptLoading={prompt.loading}
-              onWantPrompt={onWantPrompt}
-            />
             <OutputLog
               output={output}
               moves={detail.moves ?? []}
@@ -247,6 +280,7 @@ export function DetailPanel({
                     request={detail.pending_input}
                     option={planOption}
                     onDone={reload}
+                    {...(fullScreen ? { onOpenPlan: openPlan } : {})}
                   />
                 ) : (
                   <PendingInput

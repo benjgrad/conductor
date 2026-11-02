@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseBrief } from '../brief/parse.js';
 import { UX2_TICKET_BODY } from '../brief/ux2-ticket.js';
-import { BriefCard, type BriefCardProps } from './BriefCard.js';
+import { BriefCard, BriefContent, type BriefCardProps } from './BriefCard.js';
 
 afterEach(() => {
   cleanup();
@@ -153,5 +153,18 @@ describe('BriefCard (UX-2)', () => {
     expect(screen.getByText('brief unavailable: no transcript found')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Full ticket/ })).toBeNull();
     expect(screen.getByRole('button', { name: /View prompt/ })).toBeTruthy();
+  });
+});
+
+describe('BriefContent (the phone Brief sheet)', () => {
+  it('renders the brief with Full ticket and View prompt, without the card head', () => {
+    const onWantPrompt = vi.fn();
+    render(<BriefContent {...props({ onWantPrompt })} />);
+    expect(screen.queryByRole('button', { name: /^Brief/ })).toBeNull();
+    expect(screen.getByText(/^Anyone opening a session sees/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Full ticket/ }));
+    expect(screen.getByLabelText('Full ticket')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /View prompt/ }));
+    expect(onWantPrompt).toHaveBeenCalled();
   });
 });

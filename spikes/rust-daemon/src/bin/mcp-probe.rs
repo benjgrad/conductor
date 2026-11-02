@@ -576,15 +576,29 @@ async fn probe_held(
     Ok(())
 }
 
+/// `s` cut to at most `max` bytes, on a char boundary.
+fn trunc(s: &str, max: usize) -> &str {
+    let mut end = s.len().min(max);
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 /// Opt-in (`E2E_REAL_CLAUDE=1`): it spends cents. Flags as `cli-driver.ts` passes them.
 async fn probe_real_claude(r: &mut Report, url: &str, session: &Session) -> Result<()> {
     let cfg = mcp_config(url)?;
     let started = Instant::now();
-    let out = tokio::process::Command::new("claude")
+    // The prompt goes in on stdin as a stream-json user message, as cli-driver.ts sends it. (A
+    // positional prompt after `--allowedTools` is swallowed as one more tool name, because the
+    // flag is variadic: the first real run failed on exactly that.)
+    let mut child = tokio::process::Command::new("claude")
         .args([
             "-p",
             "--model",
             "haiku",
+            "--input-format",
+            "stream-json",
             "--output-format",
             "stream-json",
             "--verbose",
@@ -596,20 +610,39 @@ async fn probe_real_claude(r: &mut Report, url: &str, session: &Session) -> Resu
             "--allowedTools",
             "mcp__conductor__complete_state",
         ])
-        .arg(
-            "Call the mcp__conductor__complete_state tool with result {\"probe\":\"real\"}, \
-             transition \"done\" and reason \"probe\". Then stop.",
-        )
-        .stdin(Stdio::null())
-        .output()
-        .await
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .context("spawn claude")?;
+    let prompt = "Call the mcp__conductor__complete_state tool with result {\"probe\":\"real\"}, \
+                  transition \"done\" and reason \"probe\". Then stop.";
+    let line = json!({
+        "type": "user",
+        "session_id": "",
+        "parent_tool_use_id": null,
+        "message": {"role": "user", "content": [{"type": "text", "text": prompt}]},
+    });
+    {
+        let mut stdin = child.stdin.take().context("claude stdin")?;
+        stdin.write_all(format!("{line}\n").as_bytes()).await?;
+        // Closing stdin ends the session after this turn.
+    }
+    let out = child.wait_with_output().await.context("wait for claude")?;
     let stdout = String::from_utf8_lossy(&out.stdout);
+    let verbose = std::env::var_os("PROBE_VERBOSE").is_some();
     for line in stdout.lines() {
-        if line.contains("tool_use") || line.contains("tool_result") || line.contains("\"result\"")
+        if verbose
+            || line.contains("tool_use")
+            || line.contains("tool_result")
+            || line.contains("\"result\"")
+            || line.contains("mcp_servers")
         {
-            println!("  claude> {}", &line[..line.len().min(600)]);
+            println!("  claude> {}", trunc(line, 600));
         }
+    }
+    for line in String::from_utf8_lossy(&out.stderr).lines() {
+        println!("  claude stderr> {}", trunc(line, 600));
     }
     let calls = session.calls.lock().unwrap().clone();
     let cs = calls.iter().find(|c| c.tool == "complete_state");

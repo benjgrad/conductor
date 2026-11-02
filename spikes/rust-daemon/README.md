@@ -12,14 +12,14 @@ lint and typecheck, and it is never shipped. It tests the three risky parts of a
 ## Verdicts
 
 - **WS / tokio-tungstenite: GO.** Hand-written serde frames were accepted by the real gateway in password mode. A wrong credential is refused with 401 at the upgrade.
-- **U-113 (rmcp maturity): GO, with one condition: the real-claude run.** `rmcp` 3.8.0 covers everything the TS outcome server does:
+- **U-113 (rmcp maturity): GO** (real-claude run passed 2026-11-02, Claude Code 2.1.316, haiku). `rmcp` 3.8.0 covers everything the TS outcome server does:
   - stateless JSON replies;
   - a per-session path, with a 404 for an unknown token;
   - Host-header DNS-rebinding protection (403), built in;
   - `_meta` on tools (`anthropic/alwaysLoad`);
   - a call held for 65 s while other calls on the same token answer in 2 ms.
 
-  fake-claude, which uses the official TS MCP SDK client, completes `complete_state` against it. ADR-0026 asks for real `claude -p` too, and that run spends money, so it is opt-in. **It has not been run yet.** Run `E2E_REAL_CLAUDE=1 ./target/release/mcp-probe --skip-hold`. If it fails, ADR-0026 §5's axum fallback applies.
+  fake-claude, which uses the official TS MCP SDK client, completes `complete_state` against it, and so does real `claude -p` (see §FR-2). ADR-0026 §5's axum fallback is not needed.
 - **U-116 (Job Objects): GO if the `spike-rust-daemon` workflow is green on `windows-latest`.** Variants a, b and c must leave no survivor. Variant d records the `taskkill /T` gap (TD-189) for comparison. The Windows code was written against `windows-sys` 0.61.2 and has only been compiled by that workflow; no Windows machine was used. See [the workflow run](../../.github/workflows/spike-rust-daemon.yml) on the MR-T01 PR for the log.
 
 ## How to run
@@ -30,7 +30,7 @@ Requirements: Rust stable (B-005), Node 22 and `pnpm i` at the repo root, becaus
 cd spikes/rust-daemon
 cargo build --release
 ./target/release/mcp-probe                     # --hold-secs 65 by default; --skip-hold to iterate
-E2E_REAL_CLAUDE=1 ./target/release/mcp-probe   # + real `claude -p --model haiku` (spends cents)
+E2E_REAL_CLAUDE=1 ./target/release/mcp-probe   # + real `claude -p --model haiku` (spends cents; PROBE_VERBOSE=1 for all of stdout)
 ./target/release/job-probe                     # Windows: asserted; Linux/macOS: the process-group contrast
 scripts/run-ws-probe.sh                        # needs the dev Postgres (pnpm db:up), see below
 ```
@@ -107,12 +107,23 @@ PASS fake-claude exit 0: exit status: 0
 [1793299814.313] permission: holding Bash (Some("toolu_probe")) for 65s
 PASS call during a held call answers at once: 2 ms
 PASS permission held >= 65s: HTTP 200 application/json after 65.0 s: {"behavior":"allow","updatedInput":{"command":"echo hi"}}
-SKIP real claude (set E2E_REAL_CLAUDE=1; spends cents)
 ```
 
-Real claude: **not run** (opt-in; Ben hasn't enabled it). The probe passes the flags `cli-driver.ts` uses: `-p --model haiku --output-format stream-json --verbose --mcp-config <file> --strict-mcp-config --allowedTools mcp__conductor__complete_state`. It asserts the server recorded `{"probe":"real"}`.
+Real claude (run 2026-11-02 for MR-T09, Linux x64, Claude Code 2.1.316, `--model haiku`, cost $0.006). Output trimmed:
 
-**Go for fake-claude and the held call. The real-claude run is still to do** (see Verdicts).
+```
+  claude> {"type":"system","subtype":"init",…,"tools":[…,"mcp__conductor__ask_user","mcp__conductor__complete_state","mcp__conductor__permission",…],…}
+  claude> {"type":"assistant","message":{"model":"claude-haiku-5-5",…,"content":[{"type":"tool_use","id":"toolu_016F…","name":"mcp__conductor__complete_state","input":{"result":{"probe":"real"},"transition":"done","reason":"probe"},…}]},…}
+  claude> {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_016F…","type":"tool_result","content":[{"type":"text","text":"Recorded. Stop now: do not call any other tool and end your turn."}]}]},…}
+  claude> {"duration_api_ms":3149,"stop_reason":"end_turn",…,"total_cost_usd":0.0063…}
+PASS real claude complete_state recorded: Some(Object {"reason": String("probe"), "result": Object {"probe": String("real")}, "transition": String("done")}) after 5.9 s, exit exit status: 0
+```
+
+The probe passes the flags `cli-driver.ts` uses: `-p --model haiku --input-format stream-json --output-format stream-json --verbose --mcp-config <file> --strict-mcp-config --allowedTools mcp__conductor__complete_state`, with the prompt sent as one stream-json user message on stdin, as the driver sends it.
+
+The first attempt failed in 2 s with `Error: Input must be provided either through stdin or as a prompt argument when using --print`. That was a probe bug, not an rmcp one: `--allowedTools` is variadic, so the positional prompt after it was read as one more tool name. The driver never passes a positional prompt. The probe now prints claude's stderr (and all of stdout with `PROBE_VERBOSE=1`). The init line arrived at once with stdio piped and no TTY (U-119 did not reproduce here, on Linux).
+
+**Go for fake-claude, the held call and real claude.**
 
 ## FR-3 · job-probe
 

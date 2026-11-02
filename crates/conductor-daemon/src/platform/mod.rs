@@ -41,7 +41,7 @@ pub use procinfo::{ProcInfo, exe_name, read_proc_info, same_executable};
 pub use shell::{WorkflowShell, workflow_shell};
 pub use spawn::{
     CliChild, CliOptions, CliOutput, SpawnError, StdioKind, TreeHandle, exec_file_cli,
-    exec_file_cli_sync, is_on_path, native_exe_problem, spawn_cli,
+    exec_file_cli_sync, exit_parts, is_on_path, native_exe_problem, spawn_cli,
 };
 
 /// The OS family a rule is evaluated for. Production code uses [`Platform::current`]; tests pass

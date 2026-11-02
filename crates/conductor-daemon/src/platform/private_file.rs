@@ -7,7 +7,7 @@
 //! never through a symlink), and fsyncs the file and then the dir. Windows: `acl`'s owner-only DACL
 //! checks and writes (ADR-0024 §3); NTFS has no `O_NOFOLLOW`, and lstat already refuses junctions.
 
-use super::acl::{AclError, AclKind, AclRefusal, AssertOwnerOnlyOptions, PrivateError};
+use super::acl::{AclKind, AssertOwnerOnlyOptions, PrivateError};
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -52,17 +52,9 @@ pub fn write_private_file_durable<E: From<PrivateError>>(
     imp::write_private_file_durable(dir, name, data, before_write, io)
 }
 
-fn symlink_refusal(path: &Path) -> PrivateError {
-    AclError::new(
-        AclRefusal::WrongType,
-        format!("{} is a symlink; refusing to use it", path.display()),
-    )
-    .into()
-}
-
 #[cfg(unix)]
 mod imp {
-    use super::{DurableIo, symlink_refusal};
+    use super::DurableIo;
     use crate::platform::acl::{AclError, AclRefusal, PrivateError};
     use std::fs::{self, File, OpenOptions, Permissions};
     use std::io::{self, Read, Write};
@@ -71,6 +63,14 @@ mod imp {
 
     fn uid() -> u32 {
         nix::unistd::getuid().as_raw()
+    }
+
+    fn symlink_refusal(path: &Path) -> PrivateError {
+        AclError::new(
+            AclRefusal::WrongType,
+            format!("{} is a symlink; refusing to use it", path.display()),
+        )
+        .into()
     }
 
     pub fn assert_dir_mode(dir: &Path) -> Result<(), PrivateError> {
@@ -244,6 +244,7 @@ mod imp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::platform::acl::{AclError, AclRefusal};
 
     #[test]
     fn writes_then_reads_back_a_private_file() {

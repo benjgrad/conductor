@@ -60,6 +60,7 @@ fn round_trip_as(schema: &str, fixture: &Value, what: &str) -> Value {
         "MergePrResult" => round_trip::<MergePrResult>(fixture, what),
         "ClosePrArgs" => round_trip::<ClosePrArgs>(fixture, what),
         "ClosePrResult" => round_trip::<ClosePrResult>(fixture, what),
+        "LatestDaemon" => round_trip::<LatestDaemon>(fixture, what),
         other => panic!("{what}: no Rust type mapped for schema {other} (add it here)"),
     }
 }
@@ -212,4 +213,6 @@ fn constants_match_constants_json() {
         "/downloads/latest.json"
     );
     assert_eq!(c["GH_MIN_VERSION"], GH_MIN_VERSION);
+    assert_eq!(c["EXIT_RESTART_FOR_UPDATE"], EXIT_RESTART_FOR_UPDATE);
+    assert_eq!(EXIT_RESTART_FOR_UPDATE, 75);
 }

@@ -568,10 +568,15 @@ Absent (or invalid) `__working_copy`: no `working_copy` in the payload, the M1 c
 
 | Seam | File | Producer → consumers |
 |---|---|---|
-| `update_available {version, file, sha256, size}` (`UpdateAvailableSchema`, `DAEMON_TARBALL_RE`, `DAEMON_TARBALL_MAX_BYTES`) | `shared/src/protocol/ws.ts` | T18d gateway → T18c daemon |
-| `heartbeat.draining?: {reason: 'update', version}` | `shared/src/protocol/ws.ts` | T18c → T18d (`machine.status`) |
-| `alert {kind: 'update_failed', version, stage, error, at}` | `shared/src/protocol/ws.ts` | T18c → T18d ingest → T18e |
-| `LatestDaemonSchema` (`GET /downloads/latest.json`), `EXIT_RESTART_FOR_UPDATE` 75, `UPDATE_*` limits | `shared/src/machines/update.ts` | T18d route → T18c (4005 path); T18 units |
+| `update_available {version, file, sha256, size}` (`UpdateAvailablePayloadSchema`, direct frame, not an `OrchestratorCommand`) | `shared/src/protocol/ws.ts` | T18d gateway → MR-T14 daemon |
+| `heartbeat.draining?: {reason: 'update', version}` | `shared/src/protocol/ws.ts` | MR-T14 → T18d (`machine.status`) |
+| `alert {kind: 'update_failed', version, stage, error, at}` (`UpdateFailedAlertPayloadSchema`; `AlertPayloadSchema` is now a union on `kind` with `git_tamper`) | `shared/src/protocol/ws.ts` | MR-T14 → T18d ingest → T18e |
+| `LatestDaemonSchema` (`GET API_PATHS.daemonDownload(LATEST_DAEMON_FILE)`), `DAEMON_TARBALL_RE`, `DAEMON_TARGET_RE`, `DAEMON_VERSION_RE`, `DAEMON_TARBALL_MAX_BYTES` (100 MB), `daemonTarballMatches`, `UpdateFailedStageSchema`, `UPDATE_FAILED_ERROR_MAX` 500, `EXIT_RESTART_FOR_UPDATE` 75, `UPDATE_*` limits | `shared/src/machines/update.ts` | T18d route → MR-T14 (4005 path); T18 units |
+| `MachineRow.update_alerts?: MachineUpdateAlertDto[]` (≤ 20; absent ≡ none; not `alerts`, which MachineDetail uses for git_tamper rows) | `shared/src/api/machines.ts` | T18d → T18e |
+
+**Build names** (ADR-0021 §1 as amended for ADR-0026): `file` matches `^conductor-daemon-[0-9A-Za-z._+-]{1,128}\.tgz$` and is either `conductor-daemon-<version>.tgz` or `conductor-daemon-<version>-<target>.tgz`, where `<target>` is a lower-case Rust triple (`^[0-9a-z_]+(-[0-9a-z_]+){1,3}$`). The check is a zod `.refine`, so the generated Rust types don't carry it (TD-196): the Rust updater calls its own port of `daemonTarballMatches`. `latest.json` keeps the one-build body; the daemon adds `?os=<register.os>&arch=<register.arch>`, and with no query the server returns its only build (T18d / MR-T15).
+
+**Not yet stored**: `machine_alert.kind` (and `MachineAlertKindSchema`) is still only `git_tamper`, so the gateway drops an `update_failed` alert (its seq not consumed) until T18d adds the kind (a migration) and removes that check in `ingestAlert`. The TS daemon logs and ignores `update_available` (it never self-updates; ADR-0026 freeze).
 
 **On disk** (`<root>` = `~/.conductor`): `daemon/<version>/`, `daemon/current` → one of them (always swapped by renaming a temp symlink), `daemon/trial` (`from=`, `to=`, `attempts=`: an update not yet committed), `daemon/bad-versions` (one version per line; never offered again), `bin/conductor-launch` (the version-independent launcher the units run).
 

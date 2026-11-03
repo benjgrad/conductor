@@ -273,6 +273,7 @@ fn int_type(name: &str) -> &'static str {
         "PROTOCOL_VERSION" => "u32",
         "DEFAULT_CONDUCTOR_PORT" => "u16",
         n if n.starts_with("CLOSE_") => "u16",
+        n if n.starts_with("EXIT_") => "i32",
         n if n.ends_with("_MS") => "u64",
         _ => "usize",
     }

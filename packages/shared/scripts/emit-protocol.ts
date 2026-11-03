@@ -63,6 +63,7 @@ name(shared.AssistantJobKindSchema, 'AssistantJobKind');
 name(shared.AssistantJobErrorSchema, 'AssistantJobError');
 name(shared.AssistantResultOkSchema, 'AssistantResultOk');
 name(shared.AssistantResultErrorSchema, 'AssistantResultError');
+name(shared.UpdateFailedStageSchema, 'UpdateFailedStage');
 name(shared.SessionEventPayloadSchema, 'SessionEventPayload');
 for (const o of shared.SessionEventPayloadSchema.options) {
   name(o.shape.data, `${pascal(o.shape.kind.value)}EventData`);
@@ -99,6 +100,7 @@ const ROOTS: Record<string, z.ZodType> = {
   ClosePrResult: shared.ClosePrResultSchema,
   TranscriptChunk: shared.TranscriptChunkSchema,
   AgentTransitionOption: shared.AgentTransitionOptionSchema,
+  LatestDaemon: shared.LatestDaemonSchema,
 };
 
 /** `z.json()` is a recursive lazy union; any JSON value is `{}` (serde_json::Value in Rust). */
@@ -166,6 +168,15 @@ const CONSTANTS = {
   ASSISTANT_JOB_QUEUE_MAX: shared.ASSISTANT_JOB_QUEUE_MAX,
   ASSISTANT_RESULT_DETAIL_MAX: shared.ASSISTANT_RESULT_DETAIL_MAX,
   COMMAND_REFUSAL_REASONS: shared.COMMAND_REFUSAL_REASONS,
+  EXIT_RESTART_FOR_UPDATE: shared.EXIT_RESTART_FOR_UPDATE,
+  UPDATE_MAX_DRAIN_MS: shared.UPDATE_MAX_DRAIN_MS,
+  UPDATE_TRIAL_REGISTER_MS: shared.UPDATE_TRIAL_REGISTER_MS,
+  UPDATE_MAX_DRAIN_ATTEMPTS: shared.UPDATE_MAX_DRAIN_ATTEMPTS,
+  UPDATE_DRAIN_COOLDOWN_MS: shared.UPDATE_DRAIN_COOLDOWN_MS,
+  UPDATE_MAX_TRIAL_ATTEMPTS: shared.UPDATE_MAX_TRIAL_ATTEMPTS,
+  UPDATE_FAILED_ERROR_MAX: shared.UPDATE_FAILED_ERROR_MAX,
+  DAEMON_TARBALL_MAX_BYTES: shared.DAEMON_TARBALL_MAX_BYTES,
+  LATEST_DAEMON_FILE: shared.LATEST_DAEMON_FILE,
   NO_PR_CHECKS_VALUE: shared.NO_PR_CHECKS_VALUE,
   AVAILABLE_CONDITION_TYPES: shared.AVAILABLE_CONDITION_TYPES,
   GH_MIN_VERSION: shared.GH_MIN_VERSION,
@@ -181,6 +192,9 @@ const CONSTANTS = {
   GITHUB_PR_URL_RE: shared.GITHUB_PR_URL_RE.source,
   CANONICAL_REMOTE_RE: shared.CANONICAL_REMOTE_RE.source,
   CAPABILITY_NAME_RE: shared.CAPABILITY_NAME_RE.source,
+  DAEMON_TARBALL_RE: shared.DAEMON_TARBALL_RE.source,
+  DAEMON_TARGET_RE: shared.DAEMON_TARGET_RE.source,
+  DAEMON_VERSION_RE: shared.DAEMON_VERSION_RE.source,
 };
 
 const TOOL_POLICY = {
@@ -222,6 +236,8 @@ const FIXTURE_EXPORTS: Record<string, Kind> = {
   FIXTURE_IDS: { kind: 'data' },
   PERMISSION_FIXTURE_IDS: { kind: 'data' },
   ASSISTANT_FIXTURE_IDS: { kind: 'data' },
+  UPDATE_FIXTURE_IDS: { kind: 'data' },
+  LATEST_DAEMON_FIXTURE: { kind: 'single', schema: 'LatestDaemon' },
   M1B_PR_URL: { kind: 'data' },
   M2R_HEAD_SHA: { kind: 'data' },
   M2R_MOVED_SHA: { kind: 'data' },

@@ -122,13 +122,76 @@ impl<'de> ::serde::Deserialize<'de> for AgentTransitionOptionName {
 }
 ///`AlertPayload`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
-pub struct AlertPayload {
-    pub at: IsoDateTime,
-    pub files: ::std::vec::Vec<AlertPayloadFilesItem>,
-    pub kind: ::std::string::String,
-    pub repo: AbsolutePath,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub session_id: ::std::option::Option<::uuid::Uuid>,
+#[serde(tag = "kind")]
+pub enum AlertPayload {
+    #[serde(rename = "git_tamper")]
+    GitTamper {
+        at: IsoDateTime,
+        files: ::std::vec::Vec<AlertPayloadFilesItem>,
+        repo: AbsolutePath,
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        session_id: ::std::option::Option<::uuid::Uuid>,
+    },
+    #[serde(rename = "update_failed")]
+    UpdateFailed {
+        at: IsoDateTime,
+        error: AlertPayloadError,
+        stage: UpdateFailedStage,
+        version: AlertPayloadVersion,
+    },
+}
+///`AlertPayloadError`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AlertPayloadError(::std::string::String);
+impl ::std::ops::Deref for AlertPayloadError {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AlertPayloadError> for ::std::string::String {
+    fn from(value: AlertPayloadError) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AlertPayloadError {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 500usize {
+            return Err("longer than 500 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AlertPayloadError {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AlertPayloadError {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AlertPayloadError {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
 }
 ///`AlertPayloadFilesItem`
 #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -169,6 +232,58 @@ impl ::std::convert::TryFrom<::std::string::String> for AlertPayloadFilesItem {
     }
 }
 impl<'de> ::serde::Deserialize<'de> for AlertPayloadFilesItem {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AlertPayloadVersion`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AlertPayloadVersion(::std::string::String);
+impl ::std::ops::Deref for AlertPayloadVersion {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AlertPayloadVersion> for ::std::string::String {
+    fn from(value: AlertPayloadVersion) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AlertPayloadVersion {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9A-Za-z.+-]{1,64}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[0-9A-Za-z.+-]{1,64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AlertPayloadVersion {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AlertPayloadVersion {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AlertPayloadVersion {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -1997,8 +2112,68 @@ impl ::std::convert::From<::serde_json::Map<::std::string::String, ::serde_json:
 pub struct HeartbeatPayload {
     pub cpu_free: f64,
     pub disk_free_mb: i64,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub draining: ::std::option::Option<HeartbeatPayloadDraining>,
     pub mem_free_mb: i64,
     pub sessions: ::std::vec::Vec<HeartbeatPayloadSessionsItem>,
+}
+///`HeartbeatPayloadDraining`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+pub struct HeartbeatPayloadDraining {
+    pub reason: ::std::string::String,
+    pub version: HeartbeatPayloadDrainingVersion,
+}
+///`HeartbeatPayloadDrainingVersion`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct HeartbeatPayloadDrainingVersion(::std::string::String);
+impl ::std::ops::Deref for HeartbeatPayloadDrainingVersion {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<HeartbeatPayloadDrainingVersion> for ::std::string::String {
+    fn from(value: HeartbeatPayloadDrainingVersion) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for HeartbeatPayloadDrainingVersion {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9A-Za-z.+-]{1,64}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[0-9A-Za-z.+-]{1,64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for HeartbeatPayloadDrainingVersion {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for HeartbeatPayloadDrainingVersion {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for HeartbeatPayloadDrainingVersion {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
 }
 ///`HeartbeatPayloadSessionsItem`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
@@ -2399,6 +2574,174 @@ pub struct KillPayload {
     pub reason: ::std::string::String,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub target_command_id: ::std::option::Option<::uuid::Uuid>,
+}
+///`LatestDaemon`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+pub struct LatestDaemon {
+    pub file: LatestDaemonFile,
+    pub sha256: LatestDaemonSha256,
+    pub size: ::std::num::NonZeroU64,
+    pub version: LatestDaemonVersion,
+}
+///`LatestDaemonFile`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct LatestDaemonFile(::std::string::String);
+impl ::std::ops::Deref for LatestDaemonFile {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<LatestDaemonFile> for ::std::string::String {
+    fn from(value: LatestDaemonFile) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for LatestDaemonFile {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::new("^conductor-daemon-[0-9A-Za-z._+-]{1,128}\\.tgz$").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err(
+                "doesn't match pattern \"^conductor-daemon-[0-9A-Za-z._+-]{1,128}\\.tgz$\"".into(),
+            );
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for LatestDaemonFile {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for LatestDaemonFile {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for LatestDaemonFile {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`LatestDaemonSha256`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct LatestDaemonSha256(::std::string::String);
+impl ::std::ops::Deref for LatestDaemonSha256 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<LatestDaemonSha256> for ::std::string::String {
+    fn from(value: LatestDaemonSha256) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for LatestDaemonSha256 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9a-f]{64}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for LatestDaemonSha256 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for LatestDaemonSha256 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for LatestDaemonSha256 {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`LatestDaemonVersion`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct LatestDaemonVersion(::std::string::String);
+impl ::std::ops::Deref for LatestDaemonVersion {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<LatestDaemonVersion> for ::std::string::String {
+    fn from(value: LatestDaemonVersion) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for LatestDaemonVersion {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9A-Za-z.+-]{1,64}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[0-9A-Za-z.+-]{1,64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for LatestDaemonVersion {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for LatestDaemonVersion {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for LatestDaemonVersion {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
 }
 ///`MergePrArgs`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
@@ -3031,6 +3374,14 @@ pub enum OrchestratorToDaemon {
         fencing_token: (),
         msg_id: ::uuid::Uuid,
         payload: AssistantJobPayload,
+        seq: (),
+        session_id: (),
+    },
+    #[serde(rename = "update_available")]
+    UpdateAvailable {
+        fencing_token: (),
+        msg_id: ::uuid::Uuid,
+        payload: UpdateAvailablePayload,
         seq: (),
         session_id: (),
     },
@@ -4450,6 +4801,237 @@ pub enum TranscriptPayload {
         request_id: ::uuid::Uuid,
     },
 }
+///`UpdateAvailablePayload`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+pub struct UpdateAvailablePayload {
+    pub file: UpdateAvailablePayloadFile,
+    pub sha256: UpdateAvailablePayloadSha256,
+    pub size: ::std::num::NonZeroU64,
+    pub version: UpdateAvailablePayloadVersion,
+}
+///`UpdateAvailablePayloadFile`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct UpdateAvailablePayloadFile(::std::string::String);
+impl ::std::ops::Deref for UpdateAvailablePayloadFile {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<UpdateAvailablePayloadFile> for ::std::string::String {
+    fn from(value: UpdateAvailablePayloadFile) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for UpdateAvailablePayloadFile {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::new("^conductor-daemon-[0-9A-Za-z._+-]{1,128}\\.tgz$").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err(
+                "doesn't match pattern \"^conductor-daemon-[0-9A-Za-z._+-]{1,128}\\.tgz$\"".into(),
+            );
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for UpdateAvailablePayloadFile {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for UpdateAvailablePayloadFile {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for UpdateAvailablePayloadFile {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`UpdateAvailablePayloadSha256`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct UpdateAvailablePayloadSha256(::std::string::String);
+impl ::std::ops::Deref for UpdateAvailablePayloadSha256 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<UpdateAvailablePayloadSha256> for ::std::string::String {
+    fn from(value: UpdateAvailablePayloadSha256) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for UpdateAvailablePayloadSha256 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9a-f]{64}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for UpdateAvailablePayloadSha256 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for UpdateAvailablePayloadSha256 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for UpdateAvailablePayloadSha256 {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`UpdateAvailablePayloadVersion`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct UpdateAvailablePayloadVersion(::std::string::String);
+impl ::std::ops::Deref for UpdateAvailablePayloadVersion {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<UpdateAvailablePayloadVersion> for ::std::string::String {
+    fn from(value: UpdateAvailablePayloadVersion) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for UpdateAvailablePayloadVersion {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9A-Za-z.+-]{1,64}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[0-9A-Za-z.+-]{1,64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for UpdateAvailablePayloadVersion {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for UpdateAvailablePayloadVersion {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for UpdateAvailablePayloadVersion {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`UpdateFailedStage`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum UpdateFailedStage {
+    #[serde(rename = "download")]
+    Download,
+    #[serde(rename = "verify")]
+    Verify,
+    #[serde(rename = "unpack")]
+    Unpack,
+    #[serde(rename = "drain_timeout")]
+    DrainTimeout,
+    #[serde(rename = "trial")]
+    Trial,
+}
+impl ::std::fmt::Display for UpdateFailedStage {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Download => f.write_str("download"),
+            Self::Verify => f.write_str("verify"),
+            Self::Unpack => f.write_str("unpack"),
+            Self::DrainTimeout => f.write_str("drain_timeout"),
+            Self::Trial => f.write_str("trial"),
+        }
+    }
+}
+impl ::std::str::FromStr for UpdateFailedStage {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "download" => Ok(Self::Download),
+            "verify" => Ok(Self::Verify),
+            "unpack" => Ok(Self::Unpack),
+            "drain_timeout" => Ok(Self::DrainTimeout),
+            "trial" => Ok(Self::Trial),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for UpdateFailedStage {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for UpdateFailedStage {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
 ///`WorkAssignmentPayload`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
 pub struct WorkAssignmentPayload {
@@ -4593,10 +5175,16 @@ pub const COMMAND_REFUSAL_REASONS: &[&str] = &[
 pub const CONDUCTOR_PORT_ENV: &str = "CONDUCTOR_PORT";
 pub const DAEMON_AUTH_HEADER: &str = "authorization";
 pub const DAEMON_FEATURE_ASSISTANT_JOB: &str = "assistant_job";
+pub const DAEMON_TARBALL_MAX_BYTES: usize = 104857600;
+pub const DAEMON_TARBALL_RE: &str = "^conductor-daemon-[0-9A-Za-z._+-]{1,128}\\.tgz$";
+pub const DAEMON_TARGET_RE: &str = "^[0-9a-z_]+(-[0-9a-z_]+){1,3}$";
+pub const DAEMON_VERSION_RE: &str = "^[0-9A-Za-z.+-]{1,64}$";
 pub const DEFAULT_CONDUCTOR_PORT: u16 = 7400;
 pub const DEFAULT_PERMISSION_TIMEOUT_MS: u64 = 1800000;
+pub const EXIT_RESTART_FOR_UPDATE: i32 = 75;
 pub const GH_MIN_VERSION: &str = "2.40.0";
 pub const GITHUB_PR_URL_RE: &str = "^https:\\/\\/github\\.com\\/[\\w.-]+\\/[\\w.-]+\\/pull\\/\\d+$";
+pub const LATEST_DAEMON_FILE: &str = "latest.json";
 pub const NO_CONVERSATION_REASON: &str = "no_conversation";
 pub const NO_OUTCOME_OUTPUT_CHARS: usize = 4000;
 pub const NO_PR_CHECKS_VALUE: &str = "0/0 passed";
@@ -4614,6 +5202,12 @@ pub const TRANSCRIPT_MAX_BYTES: usize = 2097152;
 pub const TRANSCRIPT_RESULT_CHARS: usize = 16384;
 pub const TRANSITION_NAME_MAX: usize = 100;
 pub const TRANSITION_REASON_MAX: usize = 4000;
+pub const UPDATE_DRAIN_COOLDOWN_MS: u64 = 3600000;
+pub const UPDATE_FAILED_ERROR_MAX: usize = 500;
+pub const UPDATE_MAX_DRAIN_ATTEMPTS: usize = 3;
+pub const UPDATE_MAX_DRAIN_MS: u64 = 21600000;
+pub const UPDATE_MAX_TRIAL_ATTEMPTS: usize = 2;
+pub const UPDATE_TRIAL_REGISTER_MS: u64 = 120000;
 
 // ---------------------------------------------------- tool-policy.json
 /// One `tools` alias's ToolPolicy fragment (`workflow/tools.ts`).

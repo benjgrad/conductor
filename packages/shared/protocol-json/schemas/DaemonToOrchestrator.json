@@ -663,6 +663,23 @@
               "fencing_token"
             ]
           }
+        },
+        "draining": {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "update"
+            },
+            "version": {
+              "type": "string",
+              "pattern": "^[0-9A-Za-z.+-]{1,64}$"
+            }
+          },
+          "required": [
+            "reason",
+            "version"
+          ]
         }
       },
       "required": [
@@ -915,44 +932,89 @@
       "pattern": "^[^\\s:@\\0]{1,200}$"
     },
     "AlertPayload": {
-      "type": "object",
-      "properties": {
-        "kind": {
-          "type": "string",
-          "const": "git_tamper"
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "git_tamper"
+            },
+            "repo": {
+              "$ref": "#/definitions/AbsolutePath"
+            },
+            "session_id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "files": {
+              "minItems": 1,
+              "maxItems": 200,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "at": {
+              "$ref": "#/definitions/IsoDateTime"
+            }
+          },
+          "required": [
+            "kind",
+            "repo",
+            "files",
+            "at"
+          ]
         },
-        "repo": {
-          "$ref": "#/definitions/AbsolutePath"
-        },
-        "session_id": {
-          "type": "string",
-          "format": "uuid",
-          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-        },
-        "files": {
-          "minItems": 1,
-          "maxItems": 200,
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "at": {
-          "$ref": "#/definitions/IsoDateTime"
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "update_failed"
+            },
+            "version": {
+              "type": "string",
+              "pattern": "^[0-9A-Za-z.+-]{1,64}$"
+            },
+            "stage": {
+              "$ref": "#/definitions/UpdateFailedStage"
+            },
+            "error": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "at": {
+              "$ref": "#/definitions/IsoDateTime"
+            }
+          },
+          "required": [
+            "kind",
+            "version",
+            "stage",
+            "error",
+            "at"
+          ]
         }
-      },
-      "required": [
-        "kind",
-        "repo",
-        "files",
-        "at"
       ]
     },
     "IsoDateTime": {
       "type": "string",
       "format": "date-time",
       "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "UpdateFailedStage": {
+      "type": "string",
+      "enum": [
+        "download",
+        "verify",
+        "unpack",
+        "drain_timeout",
+        "trial"
+      ]
     },
     "CommandAckPayload": {
       "type": "object",

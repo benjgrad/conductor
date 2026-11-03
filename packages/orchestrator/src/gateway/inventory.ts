@@ -120,6 +120,8 @@ export async function ingestAlert(
   seq: number,
   payload: AlertPayload,
 ): Promise<BoardSseEvent[]> {
+  // M2-T18d stores update_failed (ADR-0021 §3); until then it is dropped, its seq not consumed.
+  if (payload.kind !== 'git_tamper') return [];
   return withTransaction(db, async (tx) => {
     const fresh = await tx.query(
       `UPDATE machine SET last_seq = $2

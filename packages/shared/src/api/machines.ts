@@ -6,6 +6,7 @@ import {
   UuidSchema,
 } from '../domain.js';
 import { RepoRuleListSchema } from '../machines/repo-rules.js';
+import { MachineUpdateAlertDtoSchema } from '../machines/update.js';
 import { MachineDtoSchema } from './rest.js';
 
 // Machines REST DTOs (M2-T01, ADR-0013 §Enrollment, ADR-0017 §Daemon distribution). The daemon
@@ -48,6 +49,9 @@ export const EnrollmentTokenCreatedSchema = z.object({
 });
 export type EnrollmentTokenCreated = z.infer<typeof EnrollmentTokenCreatedSchema>;
 
+/** Cap on `MachineRow.update_alerts`. */
+export const MACHINE_UPDATE_ALERTS_MAX = 20;
+
 /**
  * GET /api/machines → MachineRow[] (the caller's account only). A superset of the M1 MachineDto,
  * so M1 clients still parse it. "Last seen" is `last_heartbeat_at`; `outdated`: the daemon is older
@@ -74,6 +78,11 @@ export const MachineRowSchema = MachineDtoSchema.extend({
    */
   upgrade_command: z.string().nullable().default(null),
   upgrade_command_windows: z.string().nullable().default(null),
+  /**
+   * ADR-0021 §3 (M2-T18b): the machine's open `update_failed` alerts (M2-T18d fills it, M2-T18e
+   * shows it). Not `alerts`: MachineDetail's `alerts` are the git_tamper rows. Absent ≡ none.
+   */
+  update_alerts: z.array(MachineUpdateAlertDtoSchema).max(MACHINE_UPDATE_ALERTS_MAX).optional(),
 });
 export type MachineRow = z.infer<typeof MachineRowSchema>;
 export const MachineListResponseSchema = z.array(MachineRowSchema);

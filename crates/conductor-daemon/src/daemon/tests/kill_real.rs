@@ -159,11 +159,15 @@ async fn fr_2_b_a_recorded_pid_whose_start_time_differs_reused_is_left_alone() {
     let sid = Uuid::new_v4();
     c.send(&parked_start(&c, sid).msg);
     c.first_event("ask_user").await;
+    // The parked turn ends with `spend`: wait for it, so the stopped daemon writes nothing
+    // after the rewrite below.
+    c.first_event("spend").await;
     let pid = agent_of(&d1, sid).unwrap().pid.unwrap();
     d1.stop(false);
-    // As if the pid now belonged to another process: same pid, another start time.
+    // As if the pid now belonged to another process: same pid, another start time. Written
+    // through d1's own store, so a late save of d1's (it is stopped, not gone) keeps it.
     {
-        let mut store = DaemonStore::for_root(&c.root()).unwrap();
+        let mut store = d1.store();
         let s = store.session(&sid.to_string()).unwrap().clone();
         let mut a = s.agent.clone().flatten().unwrap();
         a.started_at = a.started_at.map(|t| t - 60_000);
@@ -180,8 +184,14 @@ async fn fr_2_b_a_recorded_pid_whose_start_time_differs_reused_is_left_alone() {
     let logs = Logs::default();
     make(&c, Some(fake_claude()), Some(logs.clone())).await;
     let want = format!("pid {pid} alive but not ours (start time differs");
-    c.until_true(|| logs.lines().iter().any(|l| l.contains(&want)))
+    let seen = c
+        .orch
+        .until(
+            || logs.lines().iter().any(|l| l.contains(&want)).then_some(()),
+            None,
+        )
         .await;
+    assert!(seen.is_ok(), "no {want:?} in the log: {:?}", logs.lines());
     assert!(alive(pid));
     platform::signal_tree(pid, Signal::Kill);
     c.done().await;

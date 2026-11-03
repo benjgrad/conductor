@@ -255,6 +255,11 @@ export const SessionSnapshotSchema = z.object({
    * wrapper with the session. A new gate step pins it (`step.repo_checks`). Absent ≡ null (none).
    */
   repo_checks: RepoChecksSchema.nullable().optional(),
+  /**
+   * `session.branch`, fixed at claim (sessionBranch). Read-only for apply: it never recomputes the
+   * name from the ticket, whose title may have been edited since. Absent ≡ null (older snapshots).
+   */
+  branch: z.string().nullable().optional(),
 });
 export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;
 

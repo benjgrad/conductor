@@ -12,7 +12,6 @@ import {
   OutputChunkSchema,
   type BoardSseEvent,
 } from './sse.js';
-import { sessionBranch } from '../domain.js';
 
 describe('SSE fixtures', () => {
   it('has one fixture per board event type', () => {
@@ -89,14 +88,6 @@ describe('board event ⇄ event row (one row per SSE event)', () => {
     expect(
       BoardSseEventSchema.safeParse({ ...BOARD_SSE_FIXTURES['card.moved'], from: null }).success,
     ).toBe(false);
-  });
-});
-
-describe('sessionBranch', () => {
-  it('is conductor/<ticket>/<first 8 of session>', () => {
-    expect(
-      sessionBranch('0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2', '7d0c5b1e-3f4a-4b7e-9c2d-1a2b3c4d5e6f'),
-    ).toBe('conductor/0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2/7d0c5b1e');
   });
 });
 

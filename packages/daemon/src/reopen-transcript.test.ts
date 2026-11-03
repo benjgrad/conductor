@@ -20,6 +20,8 @@ import { FakeOrchestrator } from './test-support/fake-orchestrator.js';
 // session's worktree (that worktree is reused).
 
 const TICKET = '0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2';
+/** The ticket facts sessionBranch() names the branch from. */
+const TICKET_REF = { title: 'test ticket', external_ref: null };
 const FIXTURE = resolve(
   fileURLToPath(new URL('.', import.meta.url)),
   '../test/fixtures/transcript.jsonl',
@@ -97,7 +99,7 @@ function startSession(
       ticket_id: TICKET,
       repo,
       base_ref: 'HEAD',
-      branch: sessionBranch(TICKET, sessionId),
+      branch: sessionBranch(TICKET_REF, sessionId),
       workflow_state: 'implement',
       prompt: 'Implement the ticket',
       tools: ['read', 'edit'],
@@ -198,7 +200,7 @@ describe('reopen: a new session on the earlier session’s branch (ADR-0008)', (
 
     const newSid = randomUUID();
     const start = startSession(newSid, {
-      branch: sessionBranch(TICKET, oldSid), // carried by the reopen
+      branch: sessionBranch(TICKET_REF, oldSid), // carried by the reopen
       resume_claude_session_id: first.claudeSessionId,
       prompt: 'Make it blue',
     });
@@ -215,7 +217,7 @@ describe('reopen: a new session on the earlier session’s branch (ADR-0008)', (
     // Same files, uncommitted ones too, on the same branch.
     expect(
       execFileSync('git', ['branch', '--show-current'], { cwd: second.worktree }).toString().trim(),
-    ).toBe(sessionBranch(TICKET, oldSid));
+    ).toBe(sessionBranch(TICKET_REF, oldSid));
     expect(execFileSync('cat', ['uncommitted.txt'], { cwd: second.worktree }).toString()).toBe(
       'keep me\n',
     );
@@ -234,7 +236,7 @@ describe('reopen: a new session on the earlier session’s branch (ADR-0008)', (
     orch.send(startSession(oldSid));
     await orch.until(() => orch.events('ask_user')[0]); // parked: alive and idle
 
-    const start = startSession(randomUUID(), { branch: sessionBranch(TICKET, oldSid) });
+    const start = startSession(randomUUID(), { branch: sessionBranch(TICKET_REF, oldSid) });
     orch.send(start);
     const ack = await orch.until(() => orch.ack(start.payload.command_id)[0]);
     expect(ack.payload.accepted).toBe(false);

@@ -11,9 +11,12 @@ import {
   realpathSync,
 } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
-import type { RepoInventoryEntry } from '@conductor/shared';
+import { isSafeBranchName, type RepoInventoryEntry } from '@conductor/shared';
 import { execFileCli, samePath } from './platform/index.js';
 import type { DaemonStore } from './store.js';
+
+/** Re-exported: the rule lives in shared, next to sessionBranch() that must satisfy it. */
+export { isSafeBranchName };
 
 // Shared clones and per-session worktrees (07 §Code). One shared clone per repo under
 // <root>/repos/; agents never edit it. Each session gets `git worktree add <root>/wt/<session_id>`
@@ -415,18 +418,6 @@ export class Workspace {
     }
     return out.sort((a, b) => a.repo.localeCompare(b.repo));
   }
-}
-
-/**
- * A conservative subset of `git check-ref-format --branch` (checked in JS to save a spawn): ASCII
- * letters, digits, `._/-`; no leading `-` / `/` / `.`, no `..`, `//`, `/.`, trailing `/` or `.lock`.
- */
-export function isSafeBranchName(name: string): boolean {
-  return (
-    /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/.test(name) &&
-    !/\.\.|\/\/|\/\.|\/$|\.lock$|\.$/.test(name) &&
-    !name.split('/').some((seg) => seg.endsWith('.lock'))
-  );
 }
 
 /** An exec error's stderr (git's own message), else its message. */

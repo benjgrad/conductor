@@ -167,6 +167,7 @@ export function toSnapshot(
     wall_seconds: Number(session.wall_seconds),
     ...splitStep(session.context),
     repo_checks: repoChecks,
+    branch: session.branch,
   };
 }
 

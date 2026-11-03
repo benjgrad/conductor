@@ -137,13 +137,110 @@ export const OUTPUT_TAIL_BYTES = 16 * 1024;
 /** Per-session terminal output ring buffer in the orchestrator (U-005, 10-contracts). */
 export const OUTPUT_RING_BYTES = 256 * 1024;
 
+/** The ticket facts a session branch name is built from. */
+export interface BranchTicket {
+  title: string;
+  external_ref: string | null;
+  body?: string;
+}
+
+/** A Jira issue key: project key (2–10 chars, upper case) + `-` + issue number. */
+const JIRA_KEY_RE = /\b([A-Z][A-Z0-9]{1,9}-[1-9]\d*)\b/;
+/** A Jira issue link: `…/browse/KEY-1` or `…selectedIssue=KEY-1`. */
+const JIRA_URL_RE = /(?:\/browse\/|selectedIssue=)([A-Z][A-Z0-9]{1,9}-[1-9]\d*)\b/;
+const JIRA_KEY_RE_G = new RegExp(JIRA_KEY_RE.source, 'g');
+
+/**
+ * Prefixes that look like a Jira key in a title but are not one (`UTF-8`, `ADR-0031`, `TD-026`…).
+ * Only the title scan skips them; an `external_ref` or a Jira URL is always trusted.
+ */
+export const NON_JIRA_KEY_PREFIXES: readonly string[] = [
+  'UTF',
+  'ISO',
+  'SHA',
+  'RFC',
+  'CVE',
+  'ADR',
+  'TD',
+  'MR',
+  'HTTP',
+  'TLS',
+];
+
+const SLUG_MAX = 40;
+const SESSION_SHORT = 6;
+
+/**
+ * The Jira issue key a ticket refers to, or null. In order: a key in `external_ref` (a bare key
+ * or a Jira URL), a Jira URL in the title or body, a key in the title (minus
+ * NON_JIRA_KEY_PREFIXES). A bare key in the body never counts: bodies cite ADRs, TD rows, specs.
+ */
+export function jiraKey(ticket: BranchTicket): string | null {
+  const ref = ticket.external_ref?.match(JIRA_KEY_RE)?.[1];
+  if (ref !== undefined) return ref;
+  const url = (ticket.title.match(JIRA_URL_RE) ?? (ticket.body ?? '').match(JIRA_URL_RE))?.[1];
+  if (url !== undefined) return url;
+  for (const m of ticket.title.matchAll(JIRA_KEY_RE_G)) {
+    const key = m[1]!;
+    if (!NON_JIRA_KEY_PREFIXES.includes(key.slice(0, key.indexOf('-')))) return key;
+  }
+  return null;
+}
+
+/**
+ * A branch-safe slug of a title: ASCII-folded, lower case, runs of anything else → `-`, at most
+ * SLUG_MAX chars (cut at a word boundary when there is one). `ticket` when nothing is left.
+ */
+export function branchSlug(title: string): string {
+  let s = title
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if (s.length > SLUG_MAX) {
+    const cut = s.slice(0, SLUG_MAX + 1);
+    const at = cut.lastIndexOf('-');
+    s = (at > 0 ? cut.slice(0, at) : s.slice(0, SLUG_MAX)).replace(/-+$/, '');
+  }
+  return s === '' ? 'ticket' : s;
+}
+
+/** Escapes a string for use inside a RegExp. */
+function reEscape(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * The per-session git branch, set by the claim (T11) when it INSERTs the session row and sent to
- * the daemon in WS `start_session.branch` (04, 10-contracts). `<session-short>` is the first 8
- * characters of the session uuid.
+ * the daemon in WS `start_session.branch` (04, 10-contracts). Readable, from the ticket:
+ * - `<JIRA-KEY>-<title-slug>-<short>` when the ticket refers to a Jira issue (jiraKey), e.g.
+ *   `PROJ-123-fix-login-redirect-7d0c5b`;
+ * - `conductor/<title-slug>-<short>` otherwise.
+ *
+ * `<short>` is the first 6 characters of the session uuid, so every session's branch is unique.
+ * The name is fixed at claim (`session.branch`): a later title edit never renames it, and a reopen
+ * carries the earlier session's branch.
  */
-export function sessionBranch(ticketId: string, sessionId: string): string {
-  return `conductor/${ticketId}/${sessionId.slice(0, 8)}`;
+export function sessionBranch(ticket: BranchTicket, sessionId: string): string {
+  const short = sessionId.replace(/[^A-Za-z0-9]/g, '').slice(0, SESSION_SHORT) || 'x';
+  const key = jiraKey(ticket);
+  if (key === null) return `conductor/${branchSlug(ticket.title)}-${short}`;
+  // Don't repeat the key: drop it (and a `[KEY]` / `KEY:` around it) from the title.
+  const title = ticket.title.replace(new RegExp(`\\[?\\b${reEscape(key)}\\b\\]?:?`, 'g'), ' ');
+  return `${key}-${branchSlug(title)}-${short}`;
+}
+
+/**
+ * A conservative subset of `git check-ref-format --branch` (checked in JS to save a spawn): ASCII
+ * letters, digits, `._/-`; no leading `-` / `/` / `.`, no `..`, `//`, `/.`, trailing `/` or `.lock`.
+ */
+export function isSafeBranchName(name: string): boolean {
+  return (
+    /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/.test(name) &&
+    !/\.\.|\/\/|\/\.|\/$|\.lock$|\.$/.test(name) &&
+    !name.split('/').some((seg) => seg.endsWith('.lock'))
+  );
 }
 
 // ---------------------------------------------------------------- accounts (M2, ADR-0012, ADR-0017)

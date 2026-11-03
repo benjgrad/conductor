@@ -55,7 +55,7 @@ export async function seedSession(
   await seedBase(pool);
   const ticketId = randomUUID();
   const sessionId = randomUUID();
-  const branch = sessionBranch(ticketId, sessionId);
+  const branch = sessionBranch({ title: 'Add /health', external_ref: null }, sessionId);
   await pool.query(
     'INSERT INTO ticket (id, repo, title, body, workflow_id, workflow_version, status) ' +
       "VALUES ($1, 'github.com/x/app', 'Add /health', 'Return 200', 'm1_basic', 1, 'claimed')",

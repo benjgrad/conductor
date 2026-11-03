@@ -23,6 +23,8 @@ import { removeTreeOrLeave } from './test-support/remove-tree.js';
 
 const FAKE = fileURLToPath(new URL('../test/fixtures/fake-claude.mjs', import.meta.url));
 const TICKET = '0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2';
+/** The ticket facts sessionBranch() names the branch from. */
+const TICKET_REF = { title: 'test ticket', external_ref: null };
 
 let server: OutcomeServer;
 let tmp: string;
@@ -103,7 +105,7 @@ function parkedStart(sessionId: string): Extract<OrchestratorToDaemon, { type: '
       ticket_id: TICKET,
       repo,
       base_ref: 'HEAD',
-      branch: sessionBranch(TICKET, sessionId),
+      branch: sessionBranch(TICKET_REF, sessionId),
       workflow_state: 'implement',
       prompt: 'Implement the ticket',
       tools: ['read'],

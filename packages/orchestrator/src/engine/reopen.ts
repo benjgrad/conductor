@@ -86,7 +86,7 @@ export async function reopenSession(
         ticket.id,
         old.workflow_id,
         version,
-        old.branch ?? sessionBranch(ticket.id, old.id),
+        old.branch ?? sessionBranch(ticket, old.id),
         old.claude_session_id,
         JSON.stringify(pending),
         // ADR-0009: never carry a review step (a session that ended mid-review); the reopened

@@ -408,7 +408,7 @@ export class EngineServiceImpl implements EngineService {
     const branch =
       event.type === 'session.started'
         ? event.branch
-        : (session.branch ?? sessionBranch(ticket.id, sessionId));
+        : (session.branch ?? sessionBranch(ticket, sessionId));
     // The start_session prompt is apply's, rendered by shared `renderPrompt` (U-040: the one
     // renderer); the wrapper never re-renders it.
     for (const { effect, commandId } of commands) {

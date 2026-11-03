@@ -639,6 +639,21 @@ Absent (or invalid) `__working_copy`: no `working_copy` in the payload, the M1 c
 - **T29c** (orchestrator): storage keyed by `request_id` (plus `ticket.session_allow`; not yet fed into the next `start_session`, which would need daemon changes); the gateway's `permission_request` handler (dedupe, running check, card); the two routes; `always_rule`; the direct send on the live socket (no outbox, U-099); the expiry paths; `unknown_permission_request` acks.
 - **T29d** (web): the card badge from `sub_status` / `permission`; the drawer list from the GET route; the three buttons (Allow always hidden when `always_rule` is null), the deny note box.
 
+## Assistant jobs (ADR-0033 P2)
+
+[ADR-0033](../adr/0033-workflow-advisor.md) §Amendment (P2); tasks MA-T02 (these contracts), MA-T03 (Rust runner), MA-T04 (orchestrator). Additive: an older daemon sends no `features`, so it is never sent an `assistant_job`. Wire shapes are in [03](03-protocols.md#daemon--orchestrator-websocket).
+
+| Seam | File | Producer → consumers | Fixtures |
+|---|---|---|---|
+| `register.features?` (`DAEMON_FEATURES`, `DAEMON_FEATURE_ASSISTANT_JOB`), ≤ 20 names of ≤ 50 chars | `shared/src/protocol/ws.ts` | Rust daemon (MR-T12) → gateway `machine.features` | `ASSISTANT_WS_FIXTURES.register_with_features` |
+| `assistant_job {command_id, job_id, kind, model, prompt, json_schema, transcript?, timeout_ms}` (`AssistantJobPayloadSchema`, `AssistantJobKindSchema`), `ASSISTANT_JOB_PROMPT_MAX` 64 KiB, `ASSISTANT_JOB_TRANSCRIPT_MAX_CHARS` 60 000, `ASSISTANT_JOB_TIMEOUT_MAX_MS` 120 s, `ASSISTANT_JOB_QUEUE_MAX` 4; outbox kind `assistant_job` (`NON_EFFECT_OUTBOX_KINDS`: never an engine Effect); `command_ack.reason` `light_slot_busy` | `shared/src/protocol/ws.ts`, `shared/src/domain.ts` | advisor scheduler (`orchestrator/src/advisor/insights.ts`) → Rust `claude/oneshot.rs` | `ORCHESTRATOR_FIXTURES.assistant_job`, `ASSISTANT_WS_FIXTURES.job_without_transcript` |
+| `assistant_result` (`AssistantResultPayloadSchema` = `AssistantResultOkSchema` \| `AssistantResultErrorSchema`, `AssistantJobErrorSchema`), `ASSISTANT_RESULT_DETAIL_MAX` 500; durable machine-level `seq` | `shared/src/protocol/ws.ts` | Rust daemon → gateway → `handleAssistantResult` | `DAEMON_FIXTURES.assistant_result`, `ASSISTANT_WS_FIXTURES.result_timeout` / `.result_malformed` |
+| `SessionInsightSchema` (v`SESSION_INSIGHT_SCHEMA_VERSION` 1, ≤ `SESSION_INSIGHT_MAX_BYTES` 4 KiB), `sessionInsightJsonSchema()`, `buildInsightPrompt(digest)` (≤ `INSIGHT_PROMPT_MAX_CHARS` 16 KiB), `insightFindings(insights)` (`INSIGHT_FINDING_RULES`; category `recurring_friction`) | `shared/src/advisor/insight.ts` | scheduler → job payload; gateway re-validation; MCP `list_findings` / `get_process_report` | unit-tested |
+
+**The job.** The orchestrator owns the prompt and the schema; the daemon knows neither shape and passes `json_schema` to `claude --json-schema` verbatim. The ticket text, digest and transcript are data: the prompt says so before quoting them, and the daemon fences the transcript tail. A job's `outbox.payload.prompt` is nulled once the row is terminal (`SCRUBBED_PAYLOAD_SQL`).
+
+**Acks and results.** A refused ack (`light_slot_busy`, `unsupported`, …) or an ack timeout fails the job. An `assistant_result` is accepted only from the machine the job was sent to and only while the job is `queued` / `sent`; a duplicate is ignored. A `result` that fails `SessionInsightSchema` sets the job `dropped`. Nothing is retried: `assistant_job.idempotency_key` (`insight:<session_id>:<schema_version>`) is unique.
+
 ## Web Push
 
 UX-15 (server); UX-16 builds the service worker and the subscribe toggle on it. Web Push (VAPID, RFC 8292; message encryption, RFC 8291) through each browser's own push service: no new vendor or account (Ben, 2026-10-28).

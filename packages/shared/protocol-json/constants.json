@@ -28,6 +28,12 @@
   "PERMISSION_MESSAGE_MAX": 2000,
   "PERMISSION_RULE_MAX": 4096,
   "NO_CONVERSATION_REASON": "no_conversation",
+  "DAEMON_FEATURE_ASSISTANT_JOB": "assistant_job",
+  "ASSISTANT_JOB_TIMEOUT_MAX_MS": 120000,
+  "ASSISTANT_JOB_PROMPT_MAX": 65536,
+  "ASSISTANT_JOB_TRANSCRIPT_MAX_CHARS": 60000,
+  "ASSISTANT_JOB_QUEUE_MAX": 4,
+  "ASSISTANT_RESULT_DETAIL_MAX": 500,
   "COMMAND_REFUSAL_REASONS": [
     "memory_pressure",
     "max_sessions",
@@ -36,7 +42,8 @@
     "agent_parked",
     "checkout_failed",
     "unknown_permission_request",
-    "no_conversation"
+    "no_conversation",
+    "light_slot_busy"
   ],
   "NO_PR_CHECKS_VALUE": "0/0 passed",
   "AVAILABLE_CONDITION_TYPES": [

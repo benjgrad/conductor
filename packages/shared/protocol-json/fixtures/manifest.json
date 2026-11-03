@@ -1,5 +1,40 @@
 [
   {
+    "file": "ASSISTANT_FIXTURE_IDS.json",
+    "export": "ASSISTANT_FIXTURE_IDS",
+    "key": null,
+    "schema": null,
+    "array": false
+  },
+  {
+    "file": "ASSISTANT_WS_FIXTURES.job_without_transcript.json",
+    "export": "ASSISTANT_WS_FIXTURES",
+    "key": "job_without_transcript",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "ASSISTANT_WS_FIXTURES.register_with_features.json",
+    "export": "ASSISTANT_WS_FIXTURES",
+    "key": "register_with_features",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "ASSISTANT_WS_FIXTURES.result_malformed.json",
+    "export": "ASSISTANT_WS_FIXTURES",
+    "key": "result_malformed",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "ASSISTANT_WS_FIXTURES.result_timeout.json",
+    "export": "ASSISTANT_WS_FIXTURES",
+    "key": "result_timeout",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
     "file": "CAPABILITY_FIXTURES.json",
     "export": "CAPABILITY_FIXTURES",
     "key": null,
@@ -10,6 +45,13 @@
     "file": "DAEMON_FIXTURES.alert.json",
     "export": "DAEMON_FIXTURES",
     "key": "alert",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "DAEMON_FIXTURES.assistant_result.json",
+    "export": "DAEMON_FIXTURES",
+    "key": "assistant_result",
     "schema": "DaemonToOrchestrator",
     "array": false
   },
@@ -360,6 +402,13 @@
     "file": "M2_WS_FIXTURES.start_session_working_copy.json",
     "export": "M2_WS_FIXTURES",
     "key": "start_session_working_copy",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "ORCHESTRATOR_FIXTURES.assistant_job.json",
+    "export": "ORCHESTRATOR_FIXTURES",
+    "key": "assistant_job",
     "schema": "OrchestratorToDaemon",
     "array": false
   },

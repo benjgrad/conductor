@@ -1,0 +1,34 @@
+{
+  "type": "assistant_result",
+  "msg_id": "00000000-0000-4000-8000-0000000b0002",
+  "seq": 30,
+  "session_id": null,
+  "fencing_token": null,
+  "payload": {
+    "job_id": "2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+    "command_id": "8e9f0a1b-2c3d-4e5f-8a6b-7c8d9e0f1a2b",
+    "duration_ms": 8400,
+    "cost_usd": 0.0031,
+    "usage": {
+      "input_tokens": 5200,
+      "output_tokens": 180,
+      "cache_read_tokens": 0,
+      "cache_creation_tokens": 0
+    },
+    "result": {
+      "schema_version": 1,
+      "summary": "Made the button blue; the build check failed twice on a missing env var.",
+      "outcome": "completed",
+      "frictions": [
+        {
+          "category": "failing_check",
+          "state": "implementing",
+          "evidence": "pnpm build failed: VITE_API_URL is not set",
+          "severity": 2,
+          "suggestion": "Set VITE_API_URL in the repo checks setup."
+        }
+      ],
+      "wasted_minutes": 12
+    }
+  }
+}

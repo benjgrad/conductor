@@ -3,7 +3,7 @@ import { z } from 'zod';
 // ADR-0033 (workflow advisor, P1): deterministic process metrics over past sessions, and the
 // findings ranked from them. All pure: the orchestrator loads the windowed rows
 // (orchestrator/src/advisor/queries.ts) and the MCP tools `get_process_metrics` / `list_findings`
-// call these. No model is involved; the analyst sub-agents of P2 add their findings beside these.
+// call these. No model is involved; the analyst sub-agents of P2 add their findings beside these (advisor/insight.ts).
 
 // ---------------------------------------------------------------- input rows
 
@@ -545,6 +545,8 @@ export const FindingCategorySchema = z.enum([
   'permission_denials',
   'frequent_question',
   'rework_loop',
+  /** P2: a friction the analyst sub-agents reported in many sessions (advisor/insight.ts). */
+  'recurring_friction',
 ]);
 export type FindingCategory = z.infer<typeof FindingCategorySchema>;
 
@@ -556,6 +558,7 @@ export const SuggestedToolSchema = z.enum([
   'get_ticket_artifacts',
   'board',
 ]);
+export type SuggestedTool = z.infer<typeof SuggestedToolSchema>;
 
 export const FindingSchema = z.object({
   /** Stable for the same data: `<category>:<key>`. */
@@ -595,11 +598,12 @@ const CATEGORY_ORDER: FindingCategory[] = FindingCategorySchema.options;
 
 /**
  * The deterministic findings, most severe first: what costs the account time, with the evidence,
- * example tickets to drill into, and the tool that would change it.
+ * example tickets to drill into, and the tool that would change it. `extra`: findings from
+ * elsewhere (P2: `insightFindings`), ranked with them.
  */
-export function rankFindings(rows: AdvisorRows): Finding[] {
+export function rankFindings(rows: AdvisorRows, extra: readonly Finding[] = []): Finding[] {
   const R = FINDING_RULES;
-  const out: Finding[] = [];
+  const out: Finding[] = [...extra];
 
   // Slow states: median stay well above the median of every stay.
   const spans = stateDurations(rows.moves);

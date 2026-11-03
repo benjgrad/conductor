@@ -58,13 +58,21 @@ export const OutboxKindSchema = z.enum([
    * input_request is created; not an Effect, no WS message; target `user:<id>`.
    */
   'push_needs_input',
+  /**
+   * ADR-0033 P2: a one-shot analyst job (WS `assistant_job`, machine-level: `session_id` null).
+   * Not an engine Effect: written by the advisor scheduler (orchestrator/src/advisor/insights.ts).
+   */
+  'assistant_job',
 ]);
 export type OutboxKind = z.infer<typeof OutboxKindSchema>;
 
-/** Outbox kinds that are not engine Effects (no apply effect, no WS command). */
-export const NON_EFFECT_OUTBOX_KINDS = ['push_needs_input'] as const;
+/**
+ * Outbox kinds that are not engine Effects: no apply effect. `push_needs_input` has no WS
+ * command; `assistant_job` is a WS command the engine never sees (its ack goes to the advisor).
+ */
+export const NON_EFFECT_OUTBOX_KINDS = ['push_needs_input', 'assistant_job'] as const;
 
-/** The outbox kinds that are machine (or connector) commands: every kind but the push ones. */
+/** The outbox kinds that are engine (machine or connector) commands: every kind but the above. */
 export const CommandKindSchema = OutboxKindSchema.exclude(NON_EFFECT_OUTBOX_KINDS);
 export type CommandKind = z.infer<typeof CommandKindSchema>;
 

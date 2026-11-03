@@ -45,6 +45,11 @@ export function parseDaemonAuthHeader(value: string | undefined): string | null 
   return m ? m[1]! : null;
 }
 
+/** ADR-0033 P2: the daemon runs one-shot `assistant_job`s and replies with `assistant_result`. */
+export const DAEMON_FEATURE_ASSISTANT_JOB = 'assistant_job';
+/** The `register.features` names conductor knows. */
+export const DAEMON_FEATURES = [DAEMON_FEATURE_ASSISTANT_JOB] as const;
+
 /** M1-T11: a newer connection for the same machine id replaced this one. */
 export const CLOSE_REPLACED = 4000;
 /** The machine was revoked while connected; the daemon stops reconnecting and exits non-zero. */
@@ -144,6 +149,11 @@ export const RegisterPayloadSchema = z.object({
   /** The daemon package version (+ `CONDUCTOR_BUILD_SHA` when set). */
   daemon_version: z.string(),
   claude_code_version: z.string().nullable(),
+  /**
+   * ADR-0033 P2: optional protocol features this daemon handles beyond PROTOCOL_VERSION
+   * (DAEMON_FEATURES). Absent = none: the orchestrator sends such a daemon no `assistant_job`.
+   */
+  features: z.array(z.string().min(1).max(50)).max(20).optional(),
 });
 export const RegisterMessageSchema = msg('register', RegisterPayloadSchema, machineEnv);
 
@@ -245,6 +255,11 @@ export const COMMAND_REFUSAL_REASONS = [
    */
   'unknown_permission_request',
   NO_CONVERSATION_REASON,
+  /**
+   * ADR-0033 P2: an `assistant_job` the daemon can't queue (its light slot is busy and
+   * ASSISTANT_JOB_QUEUE_MAX jobs already wait). The orchestrator marks the job failed; never retried.
+   */
+  'light_slot_busy',
 ] as const;
 
 export const CommandAckPayloadSchema = z.object({
@@ -522,6 +537,71 @@ export const PermissionRequestMessageSchema = msg(
   durableSessionEnv,
 );
 
+// ------------------------------------------------------------ assistant jobs (ADR-0033 P2)
+// One-shot `claude -p --json-schema` runs on the user's machine (ADR-0015): no tools, an empty
+// strict MCP config, an empty private cwd, in the daemon's light slot (outside max_sessions).
+// Sent only to a daemon whose `register.features` has DAEMON_FEATURE_ASSISTANT_JOB.
+
+/** Cap on `assistant_job.timeout_ms` (and the daemon's default). */
+export const ASSISTANT_JOB_TIMEOUT_MAX_MS = 120_000;
+/** Cap on `assistant_job.prompt` (UTF-16 code units). */
+export const ASSISTANT_JOB_PROMPT_MAX = 64 * 1024;
+/** Cap on `assistant_job.transcript.max_chars`. */
+export const ASSISTANT_JOB_TRANSCRIPT_MAX_CHARS = 60_000;
+/** Jobs a daemon queues behind its busy light slot before refusing `light_slot_busy`. */
+export const ASSISTANT_JOB_QUEUE_MAX = 4;
+/** Cap on `assistant_result.detail`. */
+export const ASSISTANT_RESULT_DETAIL_MAX = 500;
+
+export const AssistantJobKindSchema = z.enum(['session_insight']);
+export type AssistantJobKind = z.infer<typeof AssistantJobKindSchema>;
+
+/** Why an assistant job produced no result. */
+export const AssistantJobErrorSchema = z.enum([
+  /** Killed at `timeout_ms`. */
+  'timeout',
+  /** claude exited 0 but its output had no result matching the schema. */
+  'malformed',
+  /** claude failed (non-zero exit, `is_error`, could not spawn). */
+  'claude_failed',
+  /** `transcript` was asked for and the daemon holds none for the session. */
+  'no_transcript',
+]);
+export type AssistantJobError = z.infer<typeof AssistantJobErrorSchema>;
+
+/**
+ * ADR-0033 P2: the result of one `assistant_job`. Machine-level but **durable** (`seq`
+ * required, buffered and replayed like `alert`, deduped on `(machine_id, seq)`). Exactly one of
+ * `result` (the structured output, re-validated by the orchestrator) and `error` is set.
+ */
+const assistantResultBase = {
+  job_id: UuidSchema,
+  command_id: UuidSchema,
+  duration_ms: z.number().int().nonnegative(),
+  cost_usd: z.number().nonnegative().optional(),
+  usage: usage.optional(),
+};
+/** An `assistant_result` with the job's structured output. */
+export const AssistantResultOkSchema = z.object({
+  ...assistantResultBase,
+  result: JsonObjectSchema,
+});
+/** An `assistant_result` for a job that produced nothing usable. */
+export const AssistantResultErrorSchema = z.object({
+  ...assistantResultBase,
+  error: AssistantJobErrorSchema,
+  detail: z.string().max(ASSISTANT_RESULT_DETAIL_MAX).optional(),
+});
+export const AssistantResultPayloadSchema = z.union([
+  AssistantResultOkSchema,
+  AssistantResultErrorSchema,
+]);
+export type AssistantResultPayload = z.infer<typeof AssistantResultPayloadSchema>;
+export const AssistantResultMessageSchema = msg('assistant_result', AssistantResultPayloadSchema, {
+  ...machineEnv,
+  seq: SeqSchema,
+});
+
 export const DaemonToOrchestratorSchema = z.discriminatedUnion('type', [
   RegisterMessageSchema,
   HeartbeatMessageSchema,
@@ -534,6 +614,7 @@ export const DaemonToOrchestratorSchema = z.discriminatedUnion('type', [
   OutputMessageSchema,
   TranscriptMessageSchema,
   PermissionRequestMessageSchema,
+  AssistantResultMessageSchema,
 ]);
 export type DaemonToOrchestrator = z.infer<typeof DaemonToOrchestratorSchema>;
 export type DaemonMessageType = DaemonToOrchestrator['type'];
@@ -877,6 +958,36 @@ export const PermissionDecisionMessageSchema = msg(
   orchSessionEnv,
 );
 
+/**
+ * ADR-0033 P2: run one one-shot analyst job (an outbox command, acked; machine envelope). The
+ * daemon runs `claude -p --output-format json --json-schema <json_schema>` with no tools, an empty
+ * strict MCP config and an empty private cwd, `prompt` on stdin, in its light slot; it kills the
+ * process tree at `timeout_ms`. With `transcript`, it appends the tail of the transcript it holds
+ * for that session (found from its own store, never a path from the message; ADR-0008), fenced
+ * as data. It replies with one `assistant_result` per job_id (deduped on command_id).
+ */
+export const AssistantJobPayloadSchema = z.object({
+  command_id: UuidSchema,
+  job_id: UuidSchema,
+  kind: AssistantJobKindSchema,
+  model: z.string().min(1).max(100),
+  prompt: z.string().min(1).max(ASSISTANT_JOB_PROMPT_MAX),
+  json_schema: JsonObjectSchema,
+  transcript: z
+    .object({
+      session_id: UuidSchema,
+      max_chars: z.number().int().positive().max(ASSISTANT_JOB_TRANSCRIPT_MAX_CHARS),
+    })
+    .optional(),
+  timeout_ms: z.number().int().positive().max(ASSISTANT_JOB_TIMEOUT_MAX_MS),
+});
+export type AssistantJobPayload = z.infer<typeof AssistantJobPayloadSchema>;
+export const AssistantJobMessageSchema = msg(
+  'assistant_job',
+  AssistantJobPayloadSchema,
+  orchMachineEnv,
+);
+
 export const OrchestratorToDaemonSchema = z.discriminatedUnion('type', [
   RegisteredMessageSchema,
   WorkAssignmentMessageSchema,
@@ -891,6 +1002,7 @@ export const OrchestratorToDaemonSchema = z.discriminatedUnion('type', [
   ProtocolErrorMessageSchema,
   FetchTranscriptMessageSchema,
   PermissionDecisionMessageSchema,
+  AssistantJobMessageSchema,
 ]);
 export type OrchestratorToDaemon = z.infer<typeof OrchestratorToDaemonSchema>;
 export type OrchestratorMessageType = OrchestratorToDaemon['type'];
@@ -906,7 +1018,8 @@ export type OrchestratorCommand = Extract<
       | 'send_input'
       | 'send_message'
       | 'kill'
-      | 'permission_decision';
+      | 'permission_decision'
+      | 'assistant_job';
   }
 >;
 

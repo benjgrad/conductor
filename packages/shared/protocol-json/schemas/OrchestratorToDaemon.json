@@ -474,6 +474,40 @@
         "fencing_token",
         "payload"
       ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "assistant_job"
+        },
+        "msg_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "seq": {
+          "type": "null"
+        },
+        "session_id": {
+          "type": "null"
+        },
+        "fencing_token": {
+          "type": "null"
+        },
+        "payload": {
+          "$ref": "#/definitions/AssistantJobPayload"
+        }
+      },
+      "required": [
+        "type",
+        "msg_id",
+        "seq",
+        "session_id",
+        "fencing_token",
+        "payload"
+      ]
     }
   ],
   "definitions": {
@@ -1064,6 +1098,76 @@
       "enum": [
         "once",
         "always"
+      ]
+    },
+    "AssistantJobPayload": {
+      "type": "object",
+      "properties": {
+        "command_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "job_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "kind": {
+          "$ref": "#/definitions/AssistantJobKind"
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "json_schema": {
+          "$ref": "#/definitions/JsonObject"
+        },
+        "transcript": {
+          "type": "object",
+          "properties": {
+            "session_id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "max_chars": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 60000
+            }
+          },
+          "required": [
+            "session_id",
+            "max_chars"
+          ]
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 120000
+        }
+      },
+      "required": [
+        "command_id",
+        "job_id",
+        "kind",
+        "model",
+        "prompt",
+        "json_schema",
+        "timeout_ms"
+      ]
+    },
+    "AssistantJobKind": {
+      "type": "string",
+      "enum": [
+        "session_insight"
       ]
     }
   }

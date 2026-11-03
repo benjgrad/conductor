@@ -52,6 +52,7 @@ export * from './api/plan.js';
 export * from './api/fixtures.js';
 export * from './agents/names.js';
 export * from './advisor/metrics.js';
+export * from './advisor/insight.js';
 
 export const PACKAGE_NAME = '@conductor/shared';
 

@@ -413,6 +413,8 @@ export const MACHINE_ROW_FIXTURES: Record<'online' | 'revoked', MachineRow> = {
     revoked_at: null,
     repo_allow: null,
     repo_exclusive: ['github.com/benjgrad/*'],
+    upgrade_command: null,
+    upgrade_command_windows: null,
   },
   revoked: {
     id: 'b1c2d3e4-f5a6-4b7c-9d8e-0f1a2b3c4d5e',
@@ -432,6 +434,9 @@ export const MACHINE_ROW_FIXTURES: Record<'online' | 'revoked', MachineRow> = {
     revoked_at: '2026-10-21T10:00:00.000Z',
     repo_allow: ['github.com/benjgrad/conductor'],
     repo_exclusive: [],
+    // Revoked: no upgrade command even though it is outdated.
+    upgrade_command: null,
+    upgrade_command_windows: null,
   },
 };
 

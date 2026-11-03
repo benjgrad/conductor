@@ -7,6 +7,7 @@ import { routeHash } from '../nav.js';
 import { AddMachine } from './AddMachine.js';
 import { ghTooOld, ghTooOldText } from './format.js';
 import { MachineDrawer } from './MachineDrawer.js';
+import { UpgradeBanner } from './UpgradeNotice.js';
 import './machines.css';
 
 /** RenameMachineRequest's limit (10-contracts). */
@@ -130,6 +131,7 @@ export function MachinesPage({ api }: MachinesPageProps) {
           <a href={routeHash({ view: 'setup' })}>follow the guided setup</a>.
         </p>
       )}
+      {list.kind === 'loaded' && <UpgradeBanner rows={list.rows} details={list.details} />}
       {list.kind === 'loaded' && list.rows.length > 0 && (
         <table className="machines-table">
           <thead>
@@ -187,7 +189,7 @@ export function MachinesPage({ api }: MachinesPageProps) {
                     {m.outdated && (
                       <span
                         className="badge badge-update"
-                        title="A newer daemon is available: run the install command again"
+                        title="A newer daemon is available: see the upgrade command above"
                       >
                         update
                       </span>

@@ -96,7 +96,17 @@ Instead of a terminal, let your computer run the daemon in the background. It st
 ~/.conductor/bin/conductor-daemon service install
 ```
 
-On macOS this adds a launch agent (`~/Library/LaunchAgents/com.conductor.daemon.plist`), and the daemon writes to `~/.conductor/logs/daemon.log`. On Linux it adds a systemd user service (`~/.config/systemd/user/conductor-daemon.service`), and the log is in `journalctl --user -u conductor-daemon`. On Linux, to keep it running while you are logged out, also run `loginctl enable-linger "$USER"`.
+On macOS this adds a launch agent (`~/Library/LaunchAgents/com.conductor.daemon.plist`), and the daemon writes to `~/.conductor/logs/daemon.log`. On Linux it adds a systemd user service (`~/.config/systemd/user/conductor-daemon.service`), and the log is in `journalctl --user -u conductor-daemon`.
+
+On a Linux server, or any Linux computer you don't stay logged in to, also run this. Without it, the service stops when you log out and doesn't start after a reboot until you log in. On a server you reach over ssh, run it before `service install`:
+
+```
+loginctl enable-linger "$USER"
+```
+
+Run `service install` as yourself, not through `su` or `sudo -u`. Then check it: `~/.conductor/bin/conductor-daemon service status` says it is running and names its log.
+
+If you set up the service with an older version of conductor, run `service install` again once, so the service uses the current launcher.
 
 The service remembers the Node.js you installed it with and your PATH at that moment (so it finds `claude`, `git` and `gh`). If `node -v` in your terminal is older than 22, choose Node 22 yourself: with nvm, `CONDUCTOR_NODE="$(nvm which 22)" ~/.conductor/bin/conductor-daemon service install`. After you change Node.js or move a tool, run `service install` again.
 
@@ -145,13 +155,29 @@ It reports repo paths and remotes, and the names and versions of the tools it fo
 
 ## Upgrade
 
-Run the install command from **Add a machine** again, without a token: `curl -fsSL https://conductor.example.com/install.sh | sh`. It installs the new version next to the old one and keeps the enrollment. If the daemon runs as a service, it restarts on the new version by itself. Otherwise restart it yourself.
+Daemons don't update themselves yet (automatic updates are planned). When conductor has a newer daemon, the **Machines** page marks each machine that runs an older one with **update**, and shows the command to run. The command is also in the machine's **Details**.
+
+On macOS and Linux, run this on the machine:
+
+```
+curl -fsSL https://conductor.example.com/install.sh | sh
+```
+
+On Windows, in PowerShell:
+
+```
+irm https://conductor.example.com/install.ps1 | iex
+```
+
+It needs no token. It installs the new version next to the old one and keeps the enrollment. If the daemon runs as a service, it restarts on the new version by itself. Otherwise, and on Windows, restart it yourself. Repeat this on every machine marked **update**.
 
 ## Troubleshooting
 
 - **The machine never shows up.** Is the daemon running? Look at the terminal from step 3. If you closed it, start the daemon again. As a service, run `~/.conductor/bin/conductor-daemon service status` and read the log it names.
 - **"enrollment token is expired, already used or unknown" (HTTP 401).** The token is valid once, for 30 minutes. Generate a new one on the Machines page and run the command again.
 - **"ws closed 4001" or "machine revoked".** Someone revoked this machine. The daemon stops, and the service doesn't restart it (it exits with code 78). To use the computer again, add it as a new machine: generate a token, run `CONDUCTOR_ENROLL_TOKEN=<token> ~/.conductor/bin/conductor-daemon enroll --url https://conductor.example.com --force`, then `~/.conductor/bin/conductor-daemon service restart`.
+- **The Machines page shows "update" next to a machine.** Its daemon is older than the one conductor serves. Run the upgrade command on that machine (see Upgrade).
+- **On Linux the daemon stops when I log out, or doesn't start after a reboot.** Run `loginctl enable-linger "$USER"` (step 3), then check with `~/.conductor/bin/conductor-daemon service status`.
 - **"ws closed 4005" or "protocol version not supported".** The daemon is too old for this server. Upgrade it (see Upgrade); the service starts again on the new version.
 - **The service starts and stops at once.** Read the log (`service status` names it). Exit code 78 means the machine's credential was refused or revoked: enroll again as above.
 - **Node.js is too old or missing.** Run `node -v` in the same terminal as the daemon. It must be 22 or newer and on that terminal's PATH (with nvm, run `nvm use 22` first).

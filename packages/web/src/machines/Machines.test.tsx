@@ -208,6 +208,40 @@ describe('machines page (M2-T11)', () => {
     expect(row("Ben's MacBook").queryByText('update')).toBeNull();
   });
 
+  // Stopgap until ADR-0021 auto-update (MR-T14); removed with UpgradeNotice in MR-T18a.
+  it('names the outdated machine and shows its upgrade command (Linux: no PowerShell line)', async () => {
+    await renderPage();
+    const banner = within(screen.getByRole('region', { name: 'Daemon update available' }));
+    expect(banner.getByText(/1 machine runs an older daemon: old-linux-box\./)).toBeTruthy();
+    expect(banner.getByLabelText<HTMLInputElement>('Upgrade command').value).toBe(
+      'curl -fsSL http://localhost/install.sh | sh',
+    );
+    expect(banner.queryByLabelText('Upgrade command (Windows PowerShell)')).toBeNull();
+    expect(banner.getByText('~/.conductor/bin/conductor-daemon service install')).toBeTruthy();
+  });
+
+  it('shows no upgrade banner once the outdated machine is revoked', async () => {
+    const api = createMockApi();
+    await api.revokeMachine('linux-box');
+    await renderPage(api);
+    expect(screen.queryByRole('region', { name: 'Daemon update available' })).toBeNull();
+  });
+
+  it("the outdated machine's drawer shows its upgrade command; a current one's does not", async () => {
+    await renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Details of old-linux-box' }));
+    const drawer = within(await screen.findByRole('dialog', { name: 'Machine old-linux-box' }));
+    const update = within(drawer.getByRole('region', { name: 'Update available' }));
+    expect(update.getByLabelText<HTMLInputElement>('Upgrade command').value).toBe(
+      'curl -fsSL http://localhost/install.sh | sh',
+    );
+    fireEvent.click(drawer.getByRole('button', { name: 'Close' }));
+
+    fireEvent.click(screen.getByRole('button', { name: "Details of Ben's MacBook" }));
+    const mbp = within(await screen.findByRole('dialog', { name: "Machine Ben's MacBook" }));
+    expect(mbp.queryByRole('region', { name: 'Update available' })).toBeNull();
+  });
+
   it('flags gh 2.14.0 as too old for pull requests, not gh 2.103.3', async () => {
     await renderPage();
     const flag = 'gh 2.14.0 is too old for pull requests (needs ≥ 2.40.0)';

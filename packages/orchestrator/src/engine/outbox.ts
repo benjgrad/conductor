@@ -7,6 +7,9 @@
 // ADR-0007: a send_message row's `payload.text` (a human's message, up to 20 000 chars) is
 // scrubbed the same way. The message is kept once, in its `operator.message` event row (the
 // audit record); the outbox copy is only transport.
+//
+// ADR-0033 P2: an assistant_job row's `payload.prompt` (the ticket title and the session digest)
+// is scrubbed the same way; the job's result is kept in `session_insight`.
 
 /**
  * SQL expression for `SET payload = …` in the guarded UPDATE that makes an outbox row terminal
@@ -17,4 +20,5 @@
 export const SCRUBBED_PAYLOAD_SQL =
   "CASE WHEN kind = 'start_session' THEN jsonb_set(payload, '{prompt}', 'null'::jsonb) " +
   "WHEN kind = 'send_message' THEN jsonb_set(payload, '{text}', 'null'::jsonb) " +
+  "WHEN kind = 'assistant_job' THEN jsonb_set(payload, '{prompt}', 'null'::jsonb) " +
   'ELSE payload END';

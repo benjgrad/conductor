@@ -1,0 +1,14 @@
+{
+  "fencing_token": null,
+  "msg_id": "00000000-0000-4000-8000-0000000b0006",
+  "payload": {
+    "command_id": "8e9f0a1b-2c3d-4e5f-8a6b-7c8d9e0f1a2b",
+    "detail": "no structured_output in the result",
+    "duration_ms": 9100,
+    "error": "malformed",
+    "job_id": "2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f"
+  },
+  "seq": 32,
+  "session_id": null,
+  "type": "assistant_result"
+}

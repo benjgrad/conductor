@@ -433,7 +433,7 @@ describe('/mcp', () => {
     const list = await mcp(a.access, 'tools/list');
     const names = (list.json.result as { tools: { name: string }[] }).tools.map((t) => t.name);
     // The tool set Ben approved (2026-10-30), plus ADR-0030's workflow tools, ADR-0032's
-    // schedules and ADR-0033's advisor tools: nothing else.
+    // schedules and ADR-0033's advisor tools (P2: get_process_report, get_insight): nothing else.
     expect(names.sort()).toEqual([
       'adopt_default_workflow',
       'answer_input',
@@ -442,7 +442,9 @@ describe('/mcp', () => {
       'create_ticket',
       'decide_proposed_ticket',
       'delete_schedule',
+      'get_insight',
       'get_process_metrics',
+      'get_process_report',
       'get_repo_checks',
       'get_ticket',
       'get_ticket_artifacts',
@@ -464,10 +466,10 @@ describe('/mcp', () => {
     ]);
     const tools = (list.json.result as { tools: { description: string }[] }).tools;
     for (const t of tools) expect(t.description.length).toBeLessThanOrEqual(700);
-    // ADR-0031 / ADR-0032 / ADR-0033 / ADR-0034: 26 tools; the list is what every client loads
-    // first, so it stays small. ADR-0033 raised the budget from 18 KB to 20 KB for the two advisor
-    // tools (~19 KB); ADR-0034's decide_proposed_ticket fits under it.
-    expect(Buffer.byteLength(list.text, 'utf8')).toBeLessThanOrEqual(20 * 1024);
+    // ADR-0031 / ADR-0032 / ADR-0033 / ADR-0034: 28 tools; the list is what every client loads
+    // first, so it stays small. ADR-0033 raised the budget from 18 KB to 20 KB for the advisor
+    // tools; ADR-0034's decide_proposed_ticket (with its uuid() schema) raises it to 22 KB.
+    expect(Buffer.byteLength(list.text, 'utf8')).toBeLessThanOrEqual(22 * 1024);
 
     const created = await call(a.access, 'create_ticket', {
       title: 'From MCP',

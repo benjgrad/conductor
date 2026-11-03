@@ -1,0 +1,13 @@
+{
+  "type": "assistant_result",
+  "msg_id": "00000000-0000-4000-8000-0000000b0005",
+  "seq": 31,
+  "session_id": null,
+  "fencing_token": null,
+  "payload": {
+    "job_id": "2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+    "command_id": "8e9f0a1b-2c3d-4e5f-8a6b-7c8d9e0f1a2b",
+    "duration_ms": 120000,
+    "error": "timeout"
+  }
+}

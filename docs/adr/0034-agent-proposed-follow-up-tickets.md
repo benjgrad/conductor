@@ -39,7 +39,7 @@ Agents often find separate work while they do a ticket: missing docs, a flaky te
 - **Bad / accepted cost:**
   - v5 changes the Implementing prompt for every account (workflows are instance-wide until M2-T12);
   - one more table;
-  - the MCP tool list grows to 26 (still under the 20 KB budget);
+  - the MCP tool list grows to 28 once merged with ADR-0033 P2 (the budget rises from 20 KB to 22 KB);
   - there is no badge on the board card yet (the card is a seam): the box shows in the session panel.
 - **Follow-ups:**
   - a "N proposed" chip on the card;

@@ -46,6 +46,31 @@ export const PERMISSION_FIXTURE_IDS = {
   decisionCommand: '6b5a4938-2716-4504-9f3e-2d1c0b9a8765',
 } as const;
 
+/** ADR-0033 P2: fixed ids, so adding these fixtures shifts no other fixture's msg_id. */
+export const ASSISTANT_FIXTURE_IDS = {
+  job: '2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f',
+  command: '8e9f0a1b-2c3d-4e5f-8a6b-7c8d9e0f1a2b',
+  jobMsg: '00000000-0000-4000-8000-0000000b0001',
+  resultMsg: '00000000-0000-4000-8000-0000000b0002',
+} as const;
+
+/** A valid SessionInsight (advisor/insight.ts), as an analyst returns it. */
+const INSIGHT_RESULT = {
+  schema_version: 1,
+  summary: 'Made the button blue; the build check failed twice on a missing env var.',
+  outcome: 'completed',
+  frictions: [
+    {
+      category: 'failing_check',
+      state: 'implementing',
+      evidence: 'pnpm build failed: VITE_API_URL is not set',
+      severity: 2,
+      suggestion: 'Set VITE_API_URL in the repo checks setup.',
+    },
+  ],
+  wasted_minutes: 12,
+};
+
 const daemonSession = (seq: number) => ({
   msg_id: id(),
   seq,
@@ -304,6 +329,26 @@ export const DAEMON_FIXTURES: {
       expires_at: '2026-10-22T12:30:00.000Z',
     },
   },
+  assistant_result: {
+    type: 'assistant_result',
+    msg_id: ASSISTANT_FIXTURE_IDS.resultMsg,
+    seq: 30,
+    session_id: null,
+    fencing_token: null,
+    payload: {
+      job_id: ASSISTANT_FIXTURE_IDS.job,
+      command_id: ASSISTANT_FIXTURE_IDS.command,
+      duration_ms: 8400,
+      cost_usd: 0.0031,
+      usage: {
+        input_tokens: 5200,
+        output_tokens: 180,
+        cache_read_tokens: 0,
+        cache_creation_tokens: 0,
+      },
+      result: INSIGHT_RESULT,
+    },
+  },
 };
 
 export const ORCHESTRATOR_FIXTURES: {
@@ -456,6 +501,27 @@ export const ORCHESTRATOR_FIXTURES: {
       behavior: 'deny',
       scope: 'once',
       message: 'Not on this machine; ask me first.',
+    },
+  },
+  assistant_job: {
+    type: 'assistant_job',
+    msg_id: ASSISTANT_FIXTURE_IDS.jobMsg,
+    seq: null,
+    session_id: null,
+    fencing_token: null,
+    payload: {
+      command_id: ASSISTANT_FIXTURE_IDS.command,
+      job_id: ASSISTANT_FIXTURE_IDS.job,
+      kind: 'session_insight',
+      model: 'haiku',
+      prompt: 'You analyse one finished session of conductor…\nPath: implementing → done',
+      json_schema: {
+        type: 'object',
+        properties: { summary: { type: 'string' } },
+        required: ['summary'],
+      },
+      transcript: { session_id: S, max_chars: 40000 },
+      timeout_ms: 120000,
     },
   },
 };
@@ -897,4 +963,64 @@ export const PERMISSION_WS_FIXTURES: {
     behavior: 'deny',
     scope: 'once',
   }),
+};
+
+// ---------------------------------------------------------------- ADR-0033 P2 (assistant jobs)
+
+type AssistantResultMessage = Extract<DaemonToOrchestrator, { type: 'assistant_result' }>;
+type AssistantJobMessage = Extract<OrchestratorToDaemon, { type: 'assistant_job' }>;
+type RegisterMessage = Extract<DaemonToOrchestrator, { type: 'register' }>;
+
+/** Assistant-job frames beyond the one-per-type fixtures (10-contracts §Assistant jobs). */
+export const ASSISTANT_WS_FIXTURES: {
+  register_with_features: RegisterMessage;
+  job_without_transcript: AssistantJobMessage;
+  result_timeout: AssistantResultMessage;
+  result_malformed: AssistantResultMessage;
+} = {
+  register_with_features: {
+    ...DAEMON_FIXTURES.register,
+    msg_id: '00000000-0000-4000-8000-0000000b0003',
+    payload: {
+      ...DAEMON_FIXTURES.register.payload,
+      protocol_version: PROTOCOL_VERSION,
+      features: ['assistant_job'],
+    },
+  },
+  job_without_transcript: {
+    ...ORCHESTRATOR_FIXTURES.assistant_job,
+    msg_id: '00000000-0000-4000-8000-0000000b0004',
+    payload: {
+      command_id: '9f0a1b2c-3d4e-4f5a-8b6c-7d8e9f0a1b2c',
+      job_id: '3d4e5f6a-7b8c-4d9e-8f0a-1b2c3d4e5f6a',
+      kind: 'session_insight',
+      model: 'haiku',
+      prompt: 'Digest only.',
+      json_schema: { type: 'object' },
+      timeout_ms: 60000,
+    },
+  },
+  result_timeout: {
+    ...DAEMON_FIXTURES.assistant_result,
+    msg_id: '00000000-0000-4000-8000-0000000b0005',
+    seq: 31,
+    payload: {
+      job_id: ASSISTANT_FIXTURE_IDS.job,
+      command_id: ASSISTANT_FIXTURE_IDS.command,
+      duration_ms: 120000,
+      error: 'timeout',
+    },
+  },
+  result_malformed: {
+    ...DAEMON_FIXTURES.assistant_result,
+    msg_id: '00000000-0000-4000-8000-0000000b0006',
+    seq: 32,
+    payload: {
+      job_id: ASSISTANT_FIXTURE_IDS.job,
+      command_id: ASSISTANT_FIXTURE_IDS.command,
+      duration_ms: 9100,
+      error: 'malformed',
+      detail: 'no structured_output in the result',
+    },
+  },
 };

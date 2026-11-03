@@ -66,6 +66,14 @@ export const MachineRowSchema = MachineDtoSchema.extend({
    */
   repo_allow: z.array(z.string()).nullable().default(null),
   repo_exclusive: z.array(z.string()).default([]),
+  /**
+   * The command that upgrades this machine's daemon in place (install.sh / install.ps1 without a
+   * token; it keeps the enrollment and restarts an installed service). Set only when `outdated`
+   * and not revoked, else null; absent from older servers ≡ null. Stopgap until daemons update
+   * themselves (ADR-0021, MR-T14); removed in MR-T18a.
+   */
+  upgrade_command: z.string().nullable().default(null),
+  upgrade_command_windows: z.string().nullable().default(null),
 });
 export type MachineRow = z.infer<typeof MachineRowSchema>;
 export const MachineListResponseSchema = z.array(MachineRowSchema);

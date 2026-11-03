@@ -21,6 +21,7 @@ import type {
   AgentRow,
   AccountRow,
   AppUserRow,
+  AssistantJobRow,
   EnrollmentTokenRow,
   EventRow,
   InputRequestRow,
@@ -40,6 +41,7 @@ import type {
   PushSubscriptionRow,
   RepoChecksRow,
   TicketScheduleRow,
+  SessionInsightRow,
   TicketProposalRow,
   SessionRow,
   Tables,
@@ -130,6 +132,7 @@ const machine: ColumnSpec<MachineRow> = {
   revoked_at: col('timestamptz', NULL),
   repo_allow: col('_text', NULL),
   repo_exclusive: col('_text', NN),
+  features: col('_text', NN),
   created_at: col('timestamptz', NN),
   updated_at: col('timestamptz', NN),
 };
@@ -452,6 +455,33 @@ const ticket_schedule: ColumnSpec<TicketScheduleRow> = {
   created_at: col('timestamptz', NN),
   updated_at: col('timestamptz', NN),
 };
+// ADR-0033 P2: analyst jobs and their insights.
+const assistant_job: ColumnSpec<AssistantJobRow> = {
+  id: col('uuid', NN),
+  account_id: col('uuid', NN),
+  kind: col(t, NN),
+  session_id: col('uuid', NN),
+  ticket_id: col('uuid', NN),
+  schema_version: col('int4', NN),
+  machine_id: col(t, NN),
+  command_id: col('uuid', NN),
+  status: col(t, NN),
+  error: col(t, NULL),
+  idempotency_key: col(t, NN),
+  created_at: col('timestamptz', NN),
+  finished_at: col('timestamptz', NULL),
+};
+const session_insight: ColumnSpec<SessionInsightRow> = {
+  id: col('uuid', NN),
+  account_id: col('uuid', NN),
+  session_id: col('uuid', NN),
+  ticket_id: col('uuid', NN),
+  schema_version: col('int4', NN),
+  machine_id: col(t, NULL),
+  model: col(t, NN),
+  insight: col('jsonb', NN),
+  created_at: col('timestamptz', NN),
+};
 // ADR-0034: follow-up ticket proposals.
 const ticket_proposal: ColumnSpec<TicketProposalRow> = {
   id: col('uuid', NN),
@@ -497,6 +527,8 @@ const SCHEMA: Schema = {
   oauth_token,
   repo_checks,
   ticket_schedule,
+  assistant_job,
+  session_insight,
   ticket_proposal,
 };
 /** The tables M1/M1b created: every one carries `account_id` since M2-T03. */
@@ -793,6 +825,8 @@ describe('migrations', () => {
           'oauth_token',
           'repo_checks',
           'ticket_schedule',
+          'assistant_job',
+          'session_insight',
           'ticket_proposal',
         ].sort(),
       );
@@ -1275,11 +1309,48 @@ describe('schema (migrated test database)', () => {
       '23505',
     );
 
+    // ADR-0033 P2: an analyst job and its insight; one job per idempotency key, one insight per
+    // session and schema version, and the status CHECK.
+    const job = await pool.query<AssistantJobRow>(
+      `INSERT INTO assistant_job (account_id, kind, session_id, ticket_id, schema_version,
+         machine_id, command_id, idempotency_key)
+       VALUES ($1, 'session_insight', $2, $3, 1, 'm-rows', gen_random_uuid(), $4) RETURNING *`,
+      [LOCAL_ACCOUNT_ID, ses.id, tkt.id, `insight:${ses.id}:1`],
+    );
+    expect(job.rows[0]).toMatchObject({ status: 'queued', error: null, finished_at: null });
+    await expectPgError(
+      pool.query(
+        `INSERT INTO assistant_job (account_id, kind, session_id, ticket_id, schema_version,
+           machine_id, command_id, idempotency_key)
+         VALUES ($1, 'session_insight', $2, $3, 1, 'm-rows', gen_random_uuid(), $4)`,
+        [LOCAL_ACCOUNT_ID, ses.id, tkt.id, `insight:${ses.id}:1`],
+      ),
+      '23505',
+    );
+    await expectPgError(
+      pool.query("UPDATE assistant_job SET status = 'lost' WHERE id = $1", [job.rows[0]!.id]),
+      '23514',
+    );
+    const ins = await pool.query<SessionInsightRow>(
+      `INSERT INTO session_insight (account_id, session_id, ticket_id, schema_version, model, insight)
+       VALUES ($1, $2, $3, 1, 'haiku', '{"summary":"s"}') RETURNING *`,
+      [LOCAL_ACCOUNT_ID, ses.id, tkt.id],
+    );
+    expect(ins.rows[0]).toMatchObject({ machine_id: null, insight: { summary: 's' } });
+    await expectPgError(
+      pool.query(
+        `INSERT INTO session_insight (account_id, session_id, ticket_id, schema_version, model, insight)
+         VALUES ($1, $2, $3, 1, 'haiku', '{}')`,
+        [LOCAL_ACCOUNT_ID, ses.id, tkt.id],
+      ),
+      '23505',
+    );
+
     // ADR-0034: a follow-up proposal of the session; one per (session, title) case-insensitively.
     const tp = await pool.query<TicketProposalRow>(
       `INSERT INTO ticket_proposal (account_id, ticket_id, session_id, state, title)
        VALUES ($1, $2, $3, 'implementing', 'Add docs') RETURNING *`,
-      [LOCAL_ACCOUNT_ID, tkt.id, s.rows[0]!.id],
+      [LOCAL_ACCOUNT_ID, tkt.id, ses.id],
     );
     expect(tp.rows[0]).toMatchObject({
       status: 'pending',
@@ -1291,7 +1362,7 @@ describe('schema (migrated test database)', () => {
       pool.query(
         `INSERT INTO ticket_proposal (account_id, ticket_id, session_id, state, title)
          VALUES ($1, $2, $3, 'implementing', 'ADD DOCS')`,
-        [LOCAL_ACCOUNT_ID, tkt.id, s.rows[0]!.id],
+        [LOCAL_ACCOUNT_ID, tkt.id, ses.id],
       ),
       '23505',
     );
@@ -1299,7 +1370,7 @@ describe('schema (migrated test database)', () => {
       pool.query(
         `INSERT INTO ticket_proposal (account_id, ticket_id, session_id, state, title, status)
          VALUES ($1, $2, $3, 'implementing', 'Other', 'maybe')`,
-        [LOCAL_ACCOUNT_ID, tkt.id, s.rows[0]!.id],
+        [LOCAL_ACCOUNT_ID, tkt.id, ses.id],
       ),
       '23514',
     );

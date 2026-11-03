@@ -140,6 +140,8 @@ The orchestrator deliberately has no `depends_on` on `migrate` in `compose.yml`.
 
 Which sha is live: `ssh -p 1024 bengrady4@gradyserver.com 'cat ~/deploy/conductor/current.env'`.
 
+A deploy doesn't update the daemons yet (ADR-0021 is not built). Machines on an older daemon show **update** on the Machines page, with the command to run on each one ([add-a-machine.md §Upgrade](add-a-machine.md#upgrade)).
+
 ## 7. Rollback
 
 A failed CI deploy has already rolled itself back (§12). Otherwise, deploy the previous sha: Actions → ci → *Run workflow* with `sha: <previous sha>`, or `deploy/gradyserver/deploy.sh <previous sha>` from a Mac. Old releases are in `~/deploy/conductor/releases/` (newest first: `ls -1t`).

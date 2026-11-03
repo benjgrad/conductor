@@ -1402,6 +1402,9 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         if (!m) throw new ApiRequestError(404, 'not_found', `machine ${machineId} not found`);
         m.revoked_at ??= now().toISOString();
         m.status = 'offline';
+        // As the server: a revoked machine gets no upgrade command (stopgap until ADR-0021).
+        m.upgrade_command = null;
+        m.upgrade_command_windows = null;
         return { ok: true };
       }),
 

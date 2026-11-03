@@ -1,6 +1,6 @@
 # ADR-0033 · Workflow advisor: process analysis over MCP, analyst sub-agents on the user's machines
 
-- **Status**: accepted (Ben approved the plan, 2026-11-03, on ticket "AI workflow agent")
+- **Status**: accepted (Ben approved the plan, 2026-11-03, on ticket "AI workflow agent"); amended for P2 the same day (§Amendment)
 - **Date**: 2026-11-03
 - **Deciders**: Ben (+ the conductor planning and implementing sessions on that ticket)
 - **Extends**: [ADR-0015](0015-triage-and-assistant-on-the-users-machine.md) (assistant and one-shot jobs on the user's machine), [ADR-0030](0030-per-repo-checks-and-mcp-workflow-tools.md) (MCP-first)
@@ -74,15 +74,27 @@ The data for cross-session analysis is already in Postgres:
   - permission prompts and machine rules stay on the board;
   - ticket and transcript text is data, not instructions.
 - **`MCP_INSTRUCTIONS`** names `list_findings` and the prompt. It stays ≤ 600 characters.
-- **The tool-list budget** rises from 18 KB to 20 KB; the 25 tools are about 19 KB (ADR-0034 adds `decide_proposed_ticket`, 26 in all, under the same budget).
+- **The tool-list budget** rises from 18 KB to 20 KB; the 25 tools are about 19 KB (ADR-0034 adds `decide_proposed_ticket`, 28 with P2, under the same budget).
 
 Still never exposed over MCP: approvals, permission prompts, "Allow always", and `bypassPermissions`. When machine settings arrive (P3), `bypassPermissions` stays a board-only opt-in.
 
 ## Phases (milestone [MA](../plan/milestones/MA-workflow-advisor.md))
 - **P1** (MA-T01): metrics, findings, the prompt. No migration and no daemon change.
-- **P2** (MA-T02..T04): `assistant_job` / `assistant_result` frames, shared with M4-T01/T04; the Rust one-shot runner and light slot; `session_insight`, the scheduler (idempotency key `insight:<session_id>:<schema_version>`), `get_process_report` and `get_insight`.
+- **P2** (MA-T02..T04, built 2026-11-03, dormant until MR-T12): `assistant_job` / `assistant_result` frames, shared with M4-T01/T04; the Rust one-shot runner and light slot; `session_insight`, the scheduler (idempotency key `insight:<session_id>:<schema_version>`), `get_process_report` and `get_insight`.
 - **P3** (MA-T05..T07): `change_proposal`, the diff, propose / apply / review, the web Proposals list, and machine-settings tools (after M2-T28c and MR-T17b).
 - **P4**: the M4 chat panel, with `workflow_advisor` as a chat mode.
+
+## Amendment: P2 as built (MA-T02..T04, 2026-11-03)
+Ben approved shipping P2 dormant until the Rust daemon cutover. ADR-0026 froze the TS daemon, and the Rust daemon core (MR-T12) isn't built yet. These decisions were made while building it:
+
+- **Feature gate.** `register.features` (`DAEMON_FEATURES`, so far only `assistant_job`) is stored in `machine.features`. The scheduler sends jobs only to a machine that advertises it. The TS daemon never does: it refuses an `assistant_job` (`unsupported`) if it ever receives one. MR-T12 FR-4 wires the Rust runner (`claude/oneshot.rs`) in and turns the feature on. Until then `get_process_report` says `insights_enabled: false`.
+- **Job table.** `assistant_job` is the job record and its idempotency guard (`insight:<session_id>:<schema_version>`, unique). Its `outbox` row has kind `assistant_job` with `session_id` null, so neither the fencing check nor the engine sees it (`NON_EFFECT_OUTBOX_KINDS`). Its ack, ack timeout and expiry (30 min) fail the job and nothing reschedules it. Its `prompt` is scrubbed from the outbox once the row is terminal.
+- **Own machine only.** A job goes only to the machine that ran the session, because that is where the transcript lives (ADR-0008). If that machine stays offline for the 7-day backfill window, the session is never analysed. A session with no Claude session id gets the digest without a transcript.
+- **Insight schema v1** (`SessionInsightSchema`): `{schema_version: 1, summary ≤ 500, outcome, frictions ≤ 8 [{category, state, evidence ≤ 300, severity 1..3, suggestion ≤ 300}], wasted_minutes}`, at most 4 KiB. The daemon passes its JSON Schema to `--json-schema` without reading it. The orchestrator re-validates the result and drops a malformed one.
+- **CLI contract** (checked against claude 2.1.316): `-p --output-format json --json-schema <json> --tools "" --strict-mcp-config --mcp-config <{"mcpServers":{}}> --no-session-persistence --model haiku`, with the prompt on stdin. The result object has `is_error`, `structured_output` (the schema-shaped object), `total_cost_usd` and `usage {input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens}`.
+- **Light slot.** `CONDUCTOR_LIGHT_SLOTS` (default 1) runs outside `max_sessions`. Four more jobs may wait; a fifth is refused `light_slot_busy`.
+- **Recurring frictions as findings.** `insightFindings` makes `recurring_friction:<category>:<state>` findings from a category and state reported in ≥ 3 sessions (severity at most 2 below 5 sessions). `list_findings` ranks them with the deterministic ones.
+- **Tool budget.** There are now 27 tools and the list still fits the 20 KB budget. To make room, the four advisor descriptions were cut to one line each, and `get_insight` takes a plain `session_id` string (a `uuid()` schema adds a long regex to the list).
 
 ## Alternatives considered
 | Option | Why not |

@@ -213,7 +213,7 @@ beforeAll(async () => {
   api = new Api(stack.baseUrl);
   board = new BoardWatcher(stack.baseUrl);
   fastVersion = (await api.saveWorkflow(CONDUCTOR_V2_FAST)).version;
-  expect(fastVersion).toBe(5); // the seed's v1 … v4, then this
+  expect(fastVersion).toBe(6); // the seed's v1 … v5, then this
   await waitFor('the daemon to register', async () =>
     (await api.machines()).find((m) => m.id === stack.machineId && m.status === 'online'),
   );

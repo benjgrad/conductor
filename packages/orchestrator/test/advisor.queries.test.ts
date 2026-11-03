@@ -85,7 +85,7 @@ async function history(accountId: string, machineId: string, repo: string, ago: 
   );
   await db.pool.query(
     'INSERT INTO permission_request (id, account_id, session_id, machine_id, fencing_token, tool, ' +
-      "input, always_rule, status, behavior, scope, created_at, resolved_at, expires_at) VALUES " +
+      'input, always_rule, status, behavior, scope, created_at, resolved_at, expires_at) VALUES ' +
       "($1, $2, $3, $4, 1, 'Bash', '{}', 'Bash(pnpm i)', 'denied', 'deny', 'once', $5, $6, $6)",
     [randomUUID(), accountId, sessionId, machineId, daysAgo(ago, 40), daysAgo(ago, 70)],
   );
@@ -117,7 +117,8 @@ describe('loadAdvisorRows (ADR-0033)', () => {
 
   it('reads only the account’s rows, inside the window', async () => {
     const rows = await loadAdvisorRows(db.pool, { accountId: a, windowDays: 30, now: NOW });
-    const tickets = (list: { ticket_id: string }[]) => [...new Set(list.map((r) => r.ticket_id))].sort();
+    const tickets = (list: { ticket_id: string }[]) =>
+      [...new Set(list.map((r) => r.ticket_id))].sort();
     const expected = [recent, otherRepo].sort();
     expect(tickets(rows.moves)).toEqual(expected);
     expect(tickets(rows.checks)).toEqual(expected);

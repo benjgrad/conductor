@@ -189,7 +189,12 @@ export function loopCounts(moves: readonly MoveRow[]): LoopCounts {
   }
   return {
     reentries: [...re.entries()]
-      .map(([state, r]) => ({ state, count: r.count, tickets: r.tickets.size, examples: r.examples }))
+      .map(([state, r]) => ({
+        state,
+        count: r.count,
+        tickets: r.tickets.size,
+        examples: r.examples,
+      }))
       .sort((a, b) => b.count - a.count || a.state.localeCompare(b.state)),
     transitions: [...tr.entries()]
       .map(([name, count]) => ({ name, count }))
@@ -277,7 +282,13 @@ export interface InputStat {
 export function inputStats(inputs: readonly InputRow[]): InputStat[] {
   const by = new Map<
     string,
-    { asked: number; tickets: Set<string>; waits: number[]; kinds: Record<string, number>; ex: string[] }
+    {
+      asked: number;
+      tickets: Set<string>;
+      waits: number[];
+      kinds: Record<string, number>;
+      ex: string[];
+    }
   >();
   for (const r of inputs) {
     const s = bucket(by, r.state ?? 'unknown', () => ({
@@ -601,7 +612,8 @@ export function rankFindings(rows: AdvisorRows): Finding[] {
     const factor = m / overall;
     if (factor <= R.slowStateFactor) continue;
     const examples: string[] = [];
-    for (const s of [...list].sort((a, b) => b.minutes - a.minutes)) addExample(examples, s.ticket_id);
+    for (const s of [...list].sort((a, b) => b.minutes - a.minutes))
+      addExample(examples, s.ticket_id);
     out.push({
       id: `slow_state:${state}`,
       category: 'slow_state',

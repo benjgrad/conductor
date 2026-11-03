@@ -2,7 +2,12 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { describe, expect, it } from 'vitest';
 import type { RequestAuth } from '../auth/middleware.js';
-import { clampWindow, ROW_LIMIT, WINDOW_DEFAULT_DAYS, WINDOW_MAX_DAYS } from '../advisor/queries.js';
+import {
+  clampWindow,
+  ROW_LIMIT,
+  WINDOW_DEFAULT_DAYS,
+  WINDOW_MAX_DAYS,
+} from '../advisor/queries.js';
 import {
   buildMcpServer,
   FINDINGS_PAGE,
@@ -135,13 +140,7 @@ describe('advisor tools (ADR-0033)', () => {
     expect(queries).toHaveLength(4);
     for (const q of queries) {
       expect(q.sql).toContain('s.account_id = $1');
-      expect(q.args).toEqual([
-        'acc-1',
-        expect.any(Date),
-        'github.com/acme/app',
-        null,
-        ROW_LIMIT,
-      ]);
+      expect(q.args).toEqual(['acc-1', expect.any(Date), 'github.com/acme/app', null, ROW_LIMIT]);
     }
   });
 
@@ -163,11 +162,17 @@ describe('advisor tools (ADR-0033)', () => {
         ts: at,
       })),
     ).flat();
-    const { client } = await connectAdvisor((sql) => (sql.includes('command.exited') ? checks : []));
+    const { client } = await connectAdvisor((sql) =>
+      sql.includes('command.exited') ? checks : [],
+    );
     const first = await client.callTool({ name: 'list_findings', arguments: {} });
     const text = textOf(first);
     expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(8 * 1024);
-    const page = JSON.parse(text) as { findings: { id: string }[]; next_cursor: number; total: number };
+    const page = JSON.parse(text) as {
+      findings: { id: string }[];
+      next_cursor: number;
+      total: number;
+    };
     expect(page.total).toBe(20);
     expect(page.findings).toHaveLength(FINDINGS_PAGE);
     expect(page.next_cursor).toBe(FINDINGS_PAGE);

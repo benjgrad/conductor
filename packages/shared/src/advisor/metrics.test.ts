@@ -166,7 +166,14 @@ describe('loopCounts', () => {
   });
 
   it('lists no ticket that went straight through', () => {
-    expect(loopCounts(walk('a', [['planning', 0], ['done', 1]])).tickets).toEqual([]);
+    expect(
+      loopCounts(
+        walk('a', [
+          ['planning', 0],
+          ['done', 1],
+        ]),
+      ).tickets,
+    ).toEqual([]);
   });
 });
 
@@ -338,10 +345,12 @@ describe('rankFindings', () => {
   });
 
   it('flags a check failing on more than 30 % of at least 3 runs', () => {
-    const checks = [check('a', 'npm test', 1), check('b', 'npm test', 0), check('c', 'npm test', 0)];
-    expect(rankFindings({ ...EMPTY, checks }).map((x) => x.id)).toEqual([
-      'failing_check:npm test',
-    ]);
+    const checks = [
+      check('a', 'npm test', 1),
+      check('b', 'npm test', 0),
+      check('c', 'npm test', 0),
+    ];
+    expect(rankFindings({ ...EMPTY, checks }).map((x) => x.id)).toEqual(['failing_check:npm test']);
     const fine = [...checks, check('d', 'npm test', 0)];
     expect(rankFindings({ ...EMPTY, checks: fine })).toEqual([]);
   });

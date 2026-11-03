@@ -1,10 +1,4 @@
-import type {
-  AdvisorRows,
-  CheckRunRow,
-  InputRow,
-  MoveRow,
-  PermissionRow,
-} from '@conductor/shared';
+import type { AdvisorRows, CheckRunRow, InputRow, MoveRow, PermissionRow } from '@conductor/shared';
 import type { Queryable } from '../contracts.js';
 
 // ADR-0033 (workflow advisor, P1): the rows the process metrics read, for one account and a
@@ -147,59 +141,51 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
   return {
     since: since.toISOString(),
     truncated,
-    moves: moves.rows.map(
-      (r): MoveRow => ({
-        session_id: r.session_id,
-        ticket_id: r.ticket_id,
-        repo: r.repo,
-        workflow_id: r.workflow_id,
-        machine_id: r.machine_id,
-        from: r.from,
-        to: r.to,
-        transition: r.transition,
-        visit: r.visit,
-        at: r.ts.toISOString(),
-      }),
-    ),
-    checks: checks.rows.map(
-      (r): CheckRunRow => ({
-        session_id: r.session_id,
-        ticket_id: r.ticket_id,
-        repo: r.repo,
-        machine_id: r.machine_id,
-        state: r.state ?? 'unknown',
-        cmd: r.cmd ?? '(unknown)',
-        exit_code: r.exit_code,
-        timed_out: r.timed_out,
-        setup_failed: r.setup_failed,
-        started_at: r.started_at.toISOString(),
-        at: r.ts.toISOString(),
-      }),
-    ),
-    inputs: inputs.rows.map(
-      (r): InputRow => ({
-        session_id: r.session_id,
-        ticket_id: r.ticket_id,
-        repo: r.repo,
-        machine_id: r.machine_id,
-        state: r.state,
-        kind: r.kind,
-        created_at: r.created_at.toISOString(),
-        answered_at: iso(r.answered_at),
-      }),
-    ),
-    permissions: perms.rows.map(
-      (r): PermissionRow => ({
-        session_id: r.session_id,
-        ticket_id: r.ticket_id,
-        repo: r.repo,
-        machine_id: r.machine_id,
-        tool: r.tool,
-        always_rule: r.always_rule,
-        status: r.status,
-        scope: r.scope,
-        created_at: r.created_at.toISOString(),
-      }),
-    ),
+    moves: moves.rows.map((r): MoveRow => ({
+      session_id: r.session_id,
+      ticket_id: r.ticket_id,
+      repo: r.repo,
+      workflow_id: r.workflow_id,
+      machine_id: r.machine_id,
+      from: r.from,
+      to: r.to,
+      transition: r.transition,
+      visit: r.visit,
+      at: r.ts.toISOString(),
+    })),
+    checks: checks.rows.map((r): CheckRunRow => ({
+      session_id: r.session_id,
+      ticket_id: r.ticket_id,
+      repo: r.repo,
+      machine_id: r.machine_id,
+      state: r.state ?? 'unknown',
+      cmd: r.cmd ?? '(unknown)',
+      exit_code: r.exit_code,
+      timed_out: r.timed_out,
+      setup_failed: r.setup_failed,
+      started_at: r.started_at.toISOString(),
+      at: r.ts.toISOString(),
+    })),
+    inputs: inputs.rows.map((r): InputRow => ({
+      session_id: r.session_id,
+      ticket_id: r.ticket_id,
+      repo: r.repo,
+      machine_id: r.machine_id,
+      state: r.state,
+      kind: r.kind,
+      created_at: r.created_at.toISOString(),
+      answered_at: iso(r.answered_at),
+    })),
+    permissions: perms.rows.map((r): PermissionRow => ({
+      session_id: r.session_id,
+      ticket_id: r.ticket_id,
+      repo: r.repo,
+      machine_id: r.machine_id,
+      tool: r.tool,
+      always_rule: r.always_rule,
+      status: r.status,
+      scope: r.scope,
+      created_at: r.created_at.toISOString(),
+    })),
   };
 }

@@ -7,13 +7,20 @@ import {
   API_PATHS,
   CONDUCTOR_V4,
   CONDUCTOR_V4_DEF,
+  SNAPSHOT_FIXTURE,
   transitionsOf,
   type WorkflowDefinitionInput,
 } from '@conductor/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { disableUser } from '../src/auth/admin-commands.js';
 import { createSession } from '../src/auth/sessions.js';
-import { FakeEngineService } from '../src/contracts.js';
+import {
+  FakeEngineService,
+  FakeTranscriptSource,
+  InMemoryBoardBus,
+  InMemoryOutputBus,
+  type TranscriptFetchResult,
+} from '../src/contracts.js';
 import { seedConductorWorkflow } from '../src/engine/seed.js';
 import { HTTPS_URL, createUser, passwordAuth, startApi, type TestApi } from './auth/helpers.js';
 import { useTestDatabase } from './db.js';
@@ -29,9 +36,13 @@ const PASSWORD_HASH = '$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQ$aGFzaGhhc2hoYX
 
 let api: TestApi;
 const engine = new FakeEngineService();
+const boardBus = new InMemoryBoardBus();
+const outputBus = new InMemoryOutputBus();
+let transcriptAnswer: TranscriptFetchResult = { status: 'offline' };
+const transcripts = new FakeTranscriptSource(() => transcriptAnswer);
 
 beforeAll(async () => {
-  api = await startApi({ db: db.pool, auth: AUTH, engine });
+  api = await startApi({ db: db.pool, auth: AUTH, engine, boardBus, outputBus, transcripts });
 });
 afterAll(async () => {
   await api.close();
@@ -430,19 +441,23 @@ describe('/mcp', () => {
       'create_ticket',
       'get_repo_checks',
       'get_ticket',
+      'get_ticket_artifacts',
       'get_workflow',
       'list_machines',
       'list_repo_checks',
       'list_tickets',
+      'message_agent',
       'reopen_ticket',
       'save_workflow',
       'search_tickets',
       'set_repo_checks',
       'take_transition',
+      'wait_for_updates',
     ]);
     const tools = (list.json.result as { tools: { description: string }[] }).tools;
     for (const t of tools) expect(t.description.length).toBeLessThanOrEqual(700);
-    expect(Buffer.byteLength(list.text, 'utf8')).toBeLessThanOrEqual(12 * 1024);
+    // ADR-0031: 19 tools; the list is what every client loads first, so it stays small.
+    expect(Buffer.byteLength(list.text, 'utf8')).toBeLessThanOrEqual(15 * 1024);
 
     const created = await call(a.access, 'create_ticket', {
       title: 'From MCP',
@@ -462,6 +477,8 @@ describe('/mcp', () => {
       id,
       title: 'From MCP',
       column: 'queued',
+      waiting_on: 'machine',
+      cursor: expect.any(Number) as number,
       body: '## Goal\nTest.',
     });
 
@@ -686,6 +703,9 @@ describe('/mcp tools (approved set)', () => {
     const before = engine.calls.length;
     for (const [tool, args] of [
       ['get_ticket', {}],
+      ['get_ticket_artifacts', {}],
+      ['message_agent', { text: 'x' }],
+      ['wait_for_updates', { since: 0, timeout_seconds: 0 }],
       ['answer_input', { answer: 'x' }],
       ['take_transition', { name: 'send_back' }],
       ['reopen_ticket', { text: 'x' }],
@@ -696,6 +716,276 @@ describe('/mcp tools (approved set)', () => {
       expect(errorOf(r).code, tool).toBe('not_found');
     }
     expect(engine.calls.length).toBe(before);
+  });
+});
+
+// ADR-0031: conversational clients (waiting_on, artifacts, messages, long poll).
+describe('/mcp for conversational clients', () => {
+  // /oauth/register, authorize and token allow 30 / min per IP, and the blocks above use all of
+  // it: this block runs on its own API instance (its own in-memory limits; the same database,
+  // engine and buses), swapped in for the file's helpers and restored after.
+  let a: Awaited<ReturnType<typeof connect>>;
+  let b: Awaited<ReturnType<typeof connect>>;
+  let main: TestApi;
+  beforeAll(async () => {
+    main = api;
+    api = await startApi({ db: db.pool, auth: AUTH, engine, boardBus, outputBus, transcripts });
+    a = await connect(await signedInUser({ admin: true }));
+    b = await connect();
+  });
+  afterAll(async () => {
+    await api.close();
+    api = main;
+  });
+  /** A session of `accountId` in `implement` (an agent state), as given. */
+  async function seedAgentSession(
+    accountId: string,
+    opts: {
+      status?: 'running' | 'needs_input' | 'done';
+      context?: Record<string, unknown>;
+      machine?: boolean;
+      question?: string;
+    } = {},
+  ) {
+    const { ticketId, sessionId } = await seedTicketSession(accountId, 'needs_input');
+    let machineId: string | null = null;
+    if (opts.machine) {
+      machineId = `mcp-m-${randomBytes(4).toString('hex')}`;
+      await db.pool.query(
+        'INSERT INTO machine (id, account_id, name, hostname, os, arch, cpu_total, mem_total_mb, ' +
+          'disk_free_mb, budget_cpu, budget_mem_mb, max_sessions, max_concurrent_builds) ' +
+          "VALUES ($1, $2, 'Laptop', 'h', 'darwin', 'arm64', 8, 16000, 100000, 4, 8000, 2, 1)",
+        [machineId, accountId],
+      );
+    }
+    await db.pool.query(
+      "UPDATE session SET status = $2, workflow_state = 'implement', context = $3, " +
+        'machine_id = $4 WHERE id = $1',
+      [sessionId, opts.status ?? 'running', JSON.stringify(opts.context ?? {}), machineId],
+    );
+    let inputId: string | null = null;
+    if (opts.question !== undefined) {
+      const ir = await db.pool.query<{ id: string }>(
+        "INSERT INTO input_request (session_id, kind, question) VALUES ($1, 'agent_question', $2) " +
+          'RETURNING id',
+        [sessionId, opts.question],
+      );
+      inputId = ir.rows[0]!.id;
+    }
+    engine.seed({ ...SNAPSHOT_FIXTURE, id: sessionId, fencing_token: 1 });
+    return { ticketId, sessionId, inputId, machineId };
+  }
+
+  it('get_ticket says who it waits on, in one field, with a status report', async () => {
+    const working = await seedAgentSession(a.user.accountId, {
+      context: { plan: { plan: '1. Draft\n2. Send', summary: 'Draft then send.' } },
+    });
+    const got = await call(a.access, 'get_ticket', { ticket: working.ticketId });
+    expect(got.body).toMatchObject({
+      state: 'implement',
+      status: 'running',
+      waiting_on: 'agent',
+      status_line: expect.stringContaining('The agent is working in implement') as string,
+      cursor: expect.any(Number) as number,
+    });
+    expect(got.body.status_report).toContain('Plan summary: Draft then send.');
+
+    const asked = await seedAgentSession(a.user.accountId, {
+      status: 'needs_input',
+      question: 'Blue or red?',
+    });
+    const q = await call(a.access, 'get_ticket', { ticket: asked.ticketId });
+    expect(q.body).toMatchObject({
+      waiting_on: 'you',
+      status_line: 'Waiting on you: the agent asks: "Blue or red?"',
+    });
+    // list_tickets agrees, and needs_input=true means "waits on the user".
+    const listed = await call(a.access, 'list_tickets', { needs_input: true, limit: 50 });
+    const ids = (listed.body.tickets as { id: string }[]).map((t) => t.id);
+    expect(ids).toContain(asked.ticketId);
+    expect(ids).not.toContain(working.ticketId);
+    expect(listed.body.tickets).toContainEqual(
+      expect.objectContaining({ id: asked.ticketId, waiting_on: 'you' }),
+    );
+  });
+
+  it('get_ticket_artifacts reads the plan in pages, results, output and the transcript', async () => {
+    const long = 'p'.repeat(7000);
+    const { ticketId, sessionId } = await seedAgentSession(a.user.accountId, {
+      context: { plan: { plan: long, summary: 'Big plan.' }, implement: { pr: 'x' } },
+      machine: true,
+    });
+    const first = await call(a.access, 'get_ticket_artifacts', { ticket: ticketId });
+    expect(first.body).toMatchObject({
+      from_state: 'plan',
+      summary: 'Big plan.',
+      cursor: 0,
+      next_cursor: 6000,
+      total_chars: 7000,
+    });
+    expect((first.body.plan as string).length).toBe(6000);
+    const second = await call(a.access, 'get_ticket_artifacts', { ticket: ticketId, cursor: 6000 });
+    expect(second.body).toMatchObject({ next_cursor: null });
+    expect((second.body.plan as string).length).toBe(1000);
+
+    const results = await call(a.access, 'get_ticket_artifacts', {
+      ticket: ticketId,
+      what: 'results',
+    });
+    expect(Object.keys(results.body.results as object).sort()).toEqual(['implement', 'plan']);
+    const one = await call(a.access, 'get_ticket_artifacts', {
+      ticket: ticketId,
+      what: 'results',
+      state: 'implement',
+    });
+    expect(JSON.parse(one.body.result as string)).toEqual({ pr: 'x' });
+    const missing = await call(a.access, 'get_ticket_artifacts', {
+      ticket: ticketId,
+      what: 'results',
+      state: 'nope',
+    });
+    expect(errorOf(missing).code).toBe('not_found');
+
+    outputBus.append(sessionId, 'assistant', 'Drafting the memo.');
+    outputBus.append(sessionId, 'tool_use', 'Edit memo.md');
+    const out = await call(a.access, 'get_ticket_artifacts', { ticket: ticketId, what: 'output' });
+    expect(out.body.output).toBe('Drafting the memo.');
+
+    transcriptAnswer = { status: 'offline' };
+    const offline = await call(a.access, 'get_ticket_artifacts', {
+      ticket: ticketId,
+      what: 'transcript',
+    });
+    expect(errorOf(offline).code).toBe('machine_offline');
+    transcriptAnswer = {
+      status: 'ok',
+      truncated: false,
+      chunks: [
+        { stream: 'user', text: 'Start', ts: '2026-11-03T10:00:00.000Z' },
+        { stream: 'tool_use', text: 'Read', ts: '2026-11-03T10:00:01.000Z' },
+        { stream: 'assistant', text: 'Done.', ts: '2026-11-03T10:00:02.000Z' },
+      ],
+    };
+    const tr = await call(a.access, 'get_ticket_artifacts', {
+      ticket: ticketId,
+      what: 'transcript',
+    });
+    expect(tr.body).toMatchObject({
+      messages: [
+        { from: 'user', text: 'Start' },
+        { from: 'agent', text: 'Done.' },
+      ],
+      next_cursor: null,
+    });
+  });
+
+  it('message_agent talks to a working agent, and never answers its question by accident', async () => {
+    const working = await seedAgentSession(a.user.accountId);
+    const sent = await call(a.access, 'message_agent', {
+      ticket: working.ticketId,
+      text: 'Also add a test',
+    });
+    expect(sent.body).toEqual({ ok: true, delivered: 'live', waiting_on: 'agent' });
+    expect(engine.calls.at(-1)).toMatchObject({
+      sessionId: working.sessionId,
+      event: { type: 'operator.message', text: 'Also add a test' },
+    });
+    expect(outputBus.snapshot(working.sessionId).at(-1)).toMatchObject({
+      stream: 'user',
+      text: 'Also add a test',
+    });
+
+    const asked = await seedAgentSession(a.user.accountId, {
+      status: 'needs_input',
+      question: 'Ship it?',
+    });
+    const before = engine.calls.length;
+    const refused = await call(a.access, 'message_agent', {
+      ticket: asked.ticketId,
+      text: 'Summarize',
+    });
+    expect(errorOf(refused)).toMatchObject({
+      code: 'question_open',
+      input_request_id: asked.inputId,
+    });
+    expect(engine.calls.length).toBe(before);
+    const answered = await call(a.access, 'message_agent', {
+      ticket: asked.ticketId,
+      text: 'Yes',
+      as_answer: true,
+    });
+    expect(answered.body).toMatchObject({ ok: true, delivered: 'answer' });
+    expect(engine.calls.at(-1)).toMatchObject({
+      event: { type: 'input.provided', input_request_id: asked.inputId, answer: 'Yes' },
+    });
+
+    const done = await seedTicketSession(a.user.accountId, 'done');
+    const late = await call(a.access, 'message_agent', { ticket: done.ticketId, text: 'More' });
+    expect(errorOf(late).code).toBe('wrong_state');
+    expect(errorOf(late).message).toContain('reopen_ticket');
+  });
+
+  it('wait_for_updates returns the account’s changed tickets after a cursor, or times out', async () => {
+    const mine = await seedAgentSession(a.user.accountId, {
+      status: 'needs_input',
+      question: 'Which one?',
+    });
+    const theirs = await seedAgentSession(b.user.accountId);
+    const start = await call(a.access, 'wait_for_updates', {});
+    const cursor = start.body.cursor as number;
+    expect(start.body).toMatchObject({ changes: [], timed_out: false });
+
+    const statusEvent = (sessionId: string) =>
+      db.pool.query(
+        "INSERT INTO event (session_id, type, payload) VALUES ($1, 'session.status', $2)",
+        [
+          sessionId,
+          JSON.stringify({ from: 'running', to: 'needs_input', workflow_state: 'implement' }),
+        ],
+      );
+    // Another account's change only moves the cursor; the wait times out.
+    await statusEvent(theirs.sessionId);
+    const quiet = await call(a.access, 'wait_for_updates', { since: cursor, timeout_seconds: 1 });
+    expect(quiet.body).toMatchObject({ changes: [], timed_out: true });
+    expect(quiet.body.cursor as number).toBeGreaterThan(cursor);
+
+    // Two events for one ticket collapse to one change, as the ticket is now; a publish wakes it.
+    const waiting = call(a.access, 'wait_for_updates', {
+      since: quiet.body.cursor,
+      needs_you_only: true,
+      timeout_seconds: 20,
+    });
+    await new Promise((r) => setTimeout(r, 200));
+    await statusEvent(mine.sessionId);
+    await statusEvent(mine.sessionId);
+    boardBus.publish({
+      type: 'session.status',
+      id: 1,
+      ts: new Date().toISOString(),
+      session_id: mine.sessionId,
+      from: 'running',
+      to: 'needs_input',
+      workflow_state: 'implement',
+    });
+    const woke = await waiting;
+    expect(woke.body).toMatchObject({
+      timed_out: false,
+      changes: [
+        {
+          id: mine.ticketId,
+          waiting_on: 'you',
+          question: 'Which one?',
+        },
+      ],
+    });
+  });
+
+  it('lists the same tools, in the same order, for every caller', async () => {
+    const names = async (token: string) =>
+      ((await mcp(token, 'tools/list')).json.result as { tools: { name: string }[] }).tools.map(
+        (t) => t.name,
+      );
+    expect(await names(a.access)).toEqual(await names(b.access));
   });
 });
 

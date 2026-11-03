@@ -45,6 +45,7 @@ export * from './api/rest.js';
 export * from './api/repo-rank.js';
 export * from './api/accounts.js';
 export * from './api/sse.js';
+export * from './api/plan.js';
 export * from './api/fixtures.js';
 export * from './agents/names.js';
 

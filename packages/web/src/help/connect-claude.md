@@ -20,11 +20,14 @@ Connectors added on claude.ai also show up in Claude Desktop for the same Claude
 |---|---|
 | `list_tickets` | Your open tickets, newest first; filter by `needs_input`, column, kind, repo or status (`done`, `cancelled`, `all`) |
 | `search_tickets` | Find tickets of any status by a word in the title or body, or by the start of the id |
-| `get_ticket` | One ticket: body, column, open question, the transitions you can take, PR |
+| `get_ticket` | One ticket: who it's waiting on (`waiting_on`: you, the board, the agent, checks, a machine, nobody), a status report to read out, the open question, the transitions you can take, PR |
+| `get_ticket_artifacts` | What the agent wrote: its plan, each step's result, its recent output, or the whole conversation (long text comes in pages) |
 | `list_machines` | Your machines: online or not, running sessions, some of their repos |
 | `create_ticket` | Queue a new ticket (`repo` is `github.com/org/repo`, `kind` is `work` or `personal`) |
 | `answer_input` | Answer an agent's question |
 | `take_transition` | Press one of the ticket's board buttons (send back, mark done…) |
+| `message_agent` | Send instructions or a correction to the agent while it works, or ask it for a report in its own words. If it's waiting on a question, answer that instead |
+| `wait_for_updates` | Wait (up to 50 s) until a ticket changes or asks something, then say what changed; call it again to keep listening |
 | `reopen_ticket` | Send a done or failed ticket back to its agent with new instructions |
 | `cancel_ticket` | Stop the agent and cancel the ticket |
 | `list_repo_checks` | The repos that have their own pre-PR checks |
@@ -36,6 +39,8 @@ Connectors added on claude.ai also show up in Claude Desktop for the same Claude
 | `adopt_default_workflow` | Replace your edits with the newest shipped `conductor` workflow (instance admins only) |
 
 A move that needs an approval checkbox (such as a migration approval), and an agent's permission prompts, are answered on the board only: Claude gets the card's link instead.
+
+Things to try: "What's waiting on me in conductor?", "What's the plan on c63433c0?", "Tell the agent on c63433c0 to also update the README", "Give me a status report on c63433c0", "Wait until something needs me".
 
 A ticket can be referred to by its id or its first 8 characters. Every connection can read and write your tickets; your Claude client asks before it runs a tool unless you allow it.
 

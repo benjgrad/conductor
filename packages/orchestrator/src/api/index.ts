@@ -39,6 +39,7 @@ import { SseHub } from '../stream/sse.js';
 import { parseBody, pathString, sendError } from './errors.js';
 import { saveWorkflowDefinition } from './workflows.js';
 import { registerMachineRoutes } from './machines.js';
+import { sendOperatorMessage } from './messages.js';
 import { registerPermissionRoutes } from './permissions.js';
 import { registerPushRoutes } from './push.js';
 import { listWorkflows, loadBoard, loadWorkflowDetail } from './queries.js';
@@ -156,7 +157,15 @@ export const createApi = (({
   void app.register(registerRepoChecksRoutes, { db });
   // ADR-0028: the OAuth authorization server and the MCP endpoint it protects.
   void app.register(registerOAuthRoutes, { db, auth, now });
-  void app.register(registerMcpRoutes, { db, engine, boardBus, outputBus, auth, now });
+  void app.register(registerMcpRoutes, {
+    db,
+    engine,
+    boardBus,
+    outputBus,
+    auth,
+    now,
+    ...(transcripts ? { transcripts } : {}),
+  });
 
   // JSON bodies; an empty body (POST /cancel with no payload) is `{}`.
   app.removeContentTypeParser('application/json');
@@ -325,22 +334,17 @@ export const createApi = (({
     return applyFromRoute(reply, 'cancel', id, event);
   });
 
-  /**
-   * ADR-0007: a message to the running agent. `operator.message` → one send_message command; the
-   * text is appended to the output ring as a `user` chunk once the apply has committed (Claude
-   * does not echo user messages, so this is how the board shows what the human said).
-   */
+  /** ADR-0007: a message to the running agent (`sendOperatorMessage`, shared with MCP). */
   app.post<IdParams>('/api/sessions/:id/messages', async (req, reply) => {
     const id = sessionId(req.params.id, reply);
     if (id === undefined) return reply;
     const body = parseBody(SendMessageRequestSchema, req.body, reply);
     if (!body) return reply;
-    const result = await engine.applyEvent(id, { type: 'operator.message', text: body.text });
+    const result = await sendOperatorMessage({ engine, outputBus }, id, body.text);
     if (result.status !== 'applied') {
       const { status, code } = httpForApplyResult('message', result);
       return sendError(reply, status, code, `operator.message: ${result.reason}`);
     }
-    outputBus.append(id, 'user', body.text);
     return reply.code(202).send(OK);
   });
 

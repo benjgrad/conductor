@@ -37,10 +37,12 @@ Connectors added on claude.ai also show up in Claude Desktop for the same Claude
 | `get_workflow` | The workflow: its states and transitions, or one state in full |
 | `save_workflow` | Save a new version of a workflow (instance admins only: it changes the workflow for every account). It can't remove an approval |
 | `adopt_default_workflow` | Replace your edits with the newest shipped `conductor` workflow (instance admins only) |
+| `get_process_metrics` | How your tickets moved over the last days: time in each state, repo or machine, checks that fail, questions, permission denials |
+| `list_findings` | What slows your work down (slow states, failing checks, repeated denials, frequent questions, rework), with example tickets and the tool that would fix it |
 
 A move that needs an approval checkbox (such as a migration approval), and an agent's permission prompts, are answered on the board only: Claude gets the card's link instead.
 
-Things to try: "What's waiting on me in conductor?", "What's the plan on c63433c0?", "Tell the agent on c63433c0 to also update the README", "Give me a status report on c63433c0", "Wait until something needs me".
+Things to try: "What's waiting on me in conductor?", "What's the plan on c63433c0?", "Tell the agent on c63433c0 to also update the README", "Give me a status report on c63433c0", "Wait until something needs me", "Where is my workflow wasting time?" (or use the `workflow_advisor` prompt, which walks Claude through finding a problem and proposing one small change for you to confirm).
 
 A ticket can be referred to by its id or its first 8 characters. Every connection can read and write your tickets; your Claude client asks before it runs a tool unless you allow it.
 

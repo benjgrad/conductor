@@ -52,6 +52,7 @@ The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.
 | revoked_at | timestamptz null | `revokeMachine` (M2-T09): its credentials stop upgrading (401) and `register` is closed 4003 in both modes |
 | repo_allow | text[] null | repo rules ([ADR-0013](../adr/0013-machine-enrollment-inventory-routing.md) amendment 2026-10-30, migration 1762100000000): the repo patterns (`host/org/repo` or `host/org/*`, `RepoPatternSchema`) this machine may take; null = any. Edited from the Machines drawer (`PATCH /api/machines/:id`) |
 | repo_exclusive | text[] default '{}' | repo patterns only this machine takes: every other unrevoked machine of the account skips matching tickets, even while this one is offline. Ignored once revoked |
+| features | text[] default '{}' | [ADR-0033](../adr/0033-workflow-advisor.md) P2: the known `register.features` of the last register (`DAEMON_FEATURES`; e.g. `assistant_job`). Analyst jobs go only to a machine with `assistant_job`. Migration `1762500000000_session-insight` |
 | created_at, updated_at | timestamptz | |
 
 ### machine_repo
@@ -420,6 +421,43 @@ The migration's down drops the table.
 | created_at, updated_at | timestamptz | `updated_at` changes on every edit (the PATCH guard `expected_updated_at`), not on runs |
 
 The migration's down drops `ticket_schedule_run_key`, the two `ticket` columns and the table.
+
+### assistant_job
+
+[ADR-0033](../adr/0033-workflow-advisor.md) P2 (MA-T04): one analyst sub-agent job. Migration `1762500000000_session-insight`, which also adds outbox kind `assistant_job` and `machine.features`.
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | the WS `job_id` |
+| account_id | uuid fk account | the analysed session's account; `(account_id, created_at)` indexed for the daily cap (20 per 24 h) |
+| kind | text | `session_insight` (CHECK) |
+| session_id | uuid fk session | `ON DELETE CASCADE` |
+| ticket_id | uuid fk ticket | `ON DELETE CASCADE` |
+| schema_version | int | `SESSION_INSIGHT_SCHEMA_VERSION` when written |
+| machine_id | text fk machine | the machine that ran the session (it holds the transcript); `ON DELETE CASCADE` |
+| command_id | uuid unique | its `outbox` row (kind `assistant_job`, `session_id` null) |
+| status | text | `queued` → `sent` (accepted ack) → `done` / `failed` / `dropped` (malformed result) (CHECK); `(created_at) WHERE status IN ('queued','sent')` indexed for the expiry sweep (30 min) |
+| error | text null | why it failed or was dropped, ≤ 500 chars |
+| idempotency_key | text unique | `insight:<session_id>:<schema_version>`: at most one job per session and version, so nothing is retried |
+| created_at, finished_at | timestamptz | finished rows are deleted after 180 days |
+
+### session_insight
+
+ADR-0033 P2: an analyst's result, re-validated against `SessionInsightSchema` before it is stored. Kept 180 days (U-066), deleted with its ticket.
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| account_id | uuid fk account | `(account_id, created_at)` indexed |
+| session_id | uuid fk session | `ON DELETE CASCADE`; unique with `schema_version` |
+| ticket_id | uuid fk ticket | `ON DELETE CASCADE` |
+| schema_version | int | |
+| machine_id | text null | the machine that ran the job |
+| model | text | e.g. `haiku` |
+| insight | jsonb | a `SessionInsight` (≤ 4 KiB) |
+| created_at | timestamptz | |
+
+The migration's down drops both tables and `machine.features`, deletes `assistant_job` outbox rows and rebuilds `outbox_kind` without the value.
 
 ### login_throttle
 Instance-level. ADR-0017 §Rate limiting, layer 3: keyed by the normalised email **string**, whether or not a user has it, so a lockout reveals nothing.

@@ -21,6 +21,8 @@ import {
   type DaemonToOrchestrator,
   type OrchestratorToDaemon,
   type CommandKind,
+  type OutboxKind,
+  DAEMON_FEATURES,
 } from '@conductor/shared';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import {
@@ -47,6 +49,7 @@ import {
   sendDecision,
 } from '../permissions/store.js';
 import { claimWork, LEASE_INTERVAL } from './claim.js';
+import { handleAssistantResult, onAssistantJobAck } from '../advisor/insights.js';
 import { hashSecret } from './enroll.js';
 import { engineEventForSessionEvent } from './events.js';
 import { ingestAlert, ingestInventory } from './inventory.js';
@@ -474,6 +477,14 @@ class Gateway implements DaemonGateway {
         return;
       case 'permission_request':
         return this.onPermissionRequest(conn, machineId, msg);
+      case 'assistant_result':
+        await handleAssistantResult(
+          this.db,
+          { machineId, accountId: conn.accountId },
+          msg.seq,
+          msg.payload,
+        );
+        return;
       case 'output':
         // M1-T14: only for a session this connection owns, under its current token (no DB read
         // per chunk: `owned` is kept from claims, heartbeats and session_events).
@@ -589,6 +600,8 @@ class Gateway implements DaemonGateway {
       p.daemon_version,
       protocolVersion,
       conn.accountId,
+      // ADR-0033 P2: only the features conductor knows (an absent list = none).
+      (p.features ?? []).filter((f) => (DAEMON_FEATURES as readonly string[]).includes(f)),
     ];
     const lastSeq = await withTransaction(this.db, async (tx) => {
       // Password mode: the row exists since enrollment (its `name` is the user's). Local mode:
@@ -600,7 +613,7 @@ class Gateway implements DaemonGateway {
                last_heartbeat_at = now(), cpu_total = $6, mem_total_mb = $7, disk_free_mb = $8,
                budget_cpu = $9, budget_mem_mb = $10, max_sessions = $11,
                max_concurrent_builds = $12, claude_code_version = $13, daemon_version = $14,
-               protocol_version = $15, updated_at = now()
+               protocol_version = $15, features = $17, updated_at = now()
              WHERE id = $1 AND account_id = $16 AND revoked_at IS NULL
              RETURNING last_seq`,
             facts,
@@ -609,9 +622,9 @@ class Gateway implements DaemonGateway {
             `INSERT INTO machine (id, hostname, os, arch, tags, status, last_heartbeat_at,
                                   cpu_total, mem_total_mb, disk_free_mb, budget_cpu, budget_mem_mb,
                                   max_sessions, max_concurrent_builds, claude_code_version,
-                                  daemon_version, protocol_version, account_id, name)
+                                  daemon_version, protocol_version, account_id, name, features)
              VALUES ($1, $2, $3, $4, $5, 'online', now(), $6, $7, $8, $9, $10, $11, $12, $13,
-                     $14, $15, $16, $2)
+                     $14, $15, $16, $2, $17)
              ON CONFLICT (id) DO UPDATE SET
                hostname = EXCLUDED.hostname, os = EXCLUDED.os, arch = EXCLUDED.arch,
                tags = EXCLUDED.tags, status = 'online', last_heartbeat_at = now(),
@@ -621,7 +634,8 @@ class Gateway implements DaemonGateway {
                max_concurrent_builds = EXCLUDED.max_concurrent_builds,
                claude_code_version = EXCLUDED.claude_code_version,
                daemon_version = EXCLUDED.daemon_version,
-               protocol_version = EXCLUDED.protocol_version, updated_at = now()
+               protocol_version = EXCLUDED.protocol_version, features = EXCLUDED.features,
+               updated_at = now()
              WHERE machine.revoked_at IS NULL AND machine.account_id = EXCLUDED.account_id
              RETURNING last_seq`,
             facts,
@@ -812,8 +826,8 @@ class Gateway implements DaemonGateway {
       decisionRefused?: { sessionId: string };
     };
     const out = await withTransaction(this.db, async (tx): Promise<AckOutcome> => {
-      // A `machine:` target (the acking daemon), so never a push row: a CommandKind.
-      const r = await tx.query<{ kind: CommandKind; session_id: string | null }>(
+      // A `machine:` target (the acking daemon), so never a push row.
+      const r = await tx.query<{ kind: OutboxKind; session_id: string | null }>(
         `UPDATE outbox
             SET status = CASE WHEN $2 THEN 'acked'::outbox_status ELSE 'failed'::outbox_status END,
                 last_error = $3,
@@ -824,6 +838,11 @@ class Gateway implements DaemonGateway {
       );
       const row = r.rows[0];
       if (row) {
+        // ADR-0033 P2: an analyst job's ack goes to the advisor, never the engine.
+        if (row.kind === 'assistant_job') {
+          await onAssistantJobAck(tx, commandId, accepted, reason);
+          return { kill: null, events: [] };
+        }
         if (accepted || row.session_id === null) return { kill: null, events: [] };
         // M1-T14: a refusal only moves a session this machine is assigned to.
         const owner = await tx.query<{ machine_id: string | null }>(
@@ -838,7 +857,8 @@ class Gateway implements DaemonGateway {
           {
             type: 'command.refused',
             command_id: commandId,
-            command_kind: row.kind,
+            // A machine target that isn't an assistant_job: an engine command kind.
+            command_kind: row.kind as CommandKind,
             reason: reason ?? 'refused',
           },
           { tx },

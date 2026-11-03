@@ -142,9 +142,13 @@ export async function claimWork(
         workflow_id: string;
         workflow_version: number;
         repo: string;
+        title: string;
+        body: string;
+        external_ref: string | null;
         canonical: boolean;
       }>(
         `SELECT t.id, t.account_id, t.agent_id, t.workflow_id, wv.v AS workflow_version, t.repo,
+                t.title, t.body, t.external_ref,
                 (t.repo ~ $4 AND t.repo !~* '\\.git$') AS canonical
            FROM ticket t
            CROSS JOIN LATERAL (SELECT ${EFFECTIVE_VERSION_SQL} AS v) wv
@@ -285,7 +289,7 @@ export async function claimWork(
             ticket.id,
             ticket.workflow_id,
             ticket.workflow_version,
-            sessionBranch(ticket.id, sessionId),
+            sessionBranch(ticket, sessionId),
             WORKING_COPY_CONTEXT_KEY,
             wcJson,
           ],

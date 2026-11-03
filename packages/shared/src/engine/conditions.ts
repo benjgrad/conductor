@@ -121,7 +121,7 @@ export function evaluateConditionsArgs(
   const args: EvaluateConditionsArgs = {
     conditions: conditions.filter(conditionEnabled).map(forDaemon),
     pr_url: conductorPrUrl(s),
-    branch: sessionBranch(s.ticket.id, s.id),
+    branch: s.branch ?? sessionBranch(s.ticket, s.id),
     ...(step.head_sha !== null && SHA_RE.test(step.head_sha) ? { head_sha: step.head_sha } : {}),
   };
   return args as unknown as JsonObject;

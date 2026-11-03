@@ -37,6 +37,8 @@ const onWin32 = process.platform === 'win32';
 // FakeCommandRunner and real git in temp dirs.
 
 const TICKET = '0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2';
+/** The ticket facts sessionBranch() names the branch from. */
+const TICKET_REF = { title: 'test ticket', external_ref: null };
 
 let tmp: string;
 let repo: string;
@@ -163,7 +165,7 @@ function startSession(
       ticket_id: TICKET,
       repo,
       base_ref: 'HEAD',
-      branch: sessionBranch(TICKET, sessionId),
+      branch: sessionBranch(TICKET_REF, sessionId),
       workflow_state: 'implement',
       prompt: 'Implement the ticket',
       tools: ['read', 'edit', 'bash', 'git'],
@@ -356,11 +358,11 @@ describe('daemon core: start_session', () => {
 
     const started = orch.eventData('started')[0]!;
     expect(started.command_id).toBe(start.payload.command_id);
-    expect(started.branch).toBe(sessionBranch(TICKET, sid));
+    expect(started.branch).toBe(sessionBranch(TICKET_REF, sid));
     expect(started.port_range).toEqual({ base: 42000, count: 10 });
     const wt = started.worktree_path;
     expect(execFileSync('git', ['branch', '--show-current'], { cwd: wt }).toString().trim()).toBe(
-      sessionBranch(TICKET, sid),
+      sessionBranch(TICKET_REF, sid),
     );
 
     const opts = driver.starts[0]!;
@@ -1712,7 +1714,7 @@ describe('daemon core: run_action (ADR-0010 open_pr)', () => {
         error: null,
       });
       // The session branch (the daemon's own record) is now on the origin repo.
-      const branch = sessionBranch(TICKET, sid);
+      const branch = sessionBranch(TICKET_REF, sid);
       expect(() =>
         execFileSync('git', ['rev-parse', '--verify', `refs/heads/${branch}`], {
           cwd: repo,

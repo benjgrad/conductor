@@ -7,7 +7,12 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { API_PATHS, NO_CONVERSATION_REASON, NO_OUTCOME_QUESTION } from '@conductor/shared';
+import {
+  API_PATHS,
+  NO_CONVERSATION_REASON,
+  NO_OUTCOME_QUESTION,
+  sessionBranch,
+} from '@conductor/shared';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import {
@@ -97,11 +102,14 @@ async function registered(id = machineId): Promise<FakeDaemon> {
   return d;
 }
 
-async function ticket(over: { priority?: number; tags?: string[]; allow?: string[] | null } = {}) {
+async function ticket(
+  over: { priority?: number; tags?: string[]; allow?: string[] | null; externalRef?: string } = {},
+) {
   const r = await db.pool.query<TicketRow>(
-    `INSERT INTO ticket (repo, title, workflow_id, required_tags, repo_allow_machines, priority)
-     VALUES ('github.com/x/app', 'Add /health', 'm1_basic', $1, $2, $3) RETURNING *`,
-    [over.tags ?? [tag], over.allow ?? null, over.priority ?? 0],
+    `INSERT INTO ticket (repo, title, workflow_id, required_tags, repo_allow_machines, priority,
+                         external_ref)
+     VALUES ('github.com/x/app', 'Add /health', 'm1_basic', $1, $2, $3, $4) RETURNING *`,
+    [over.tags ?? [tag], over.allow ?? null, over.priority ?? 0, over.externalRef ?? null],
   );
   return r.rows[0]!;
 }
@@ -242,6 +250,14 @@ describe('register / heartbeat / repo_inventory', () => {
 });
 
 describe('request_work → claim', () => {
+  it('names the branch after the Jira ticket the ticket refers to', async () => {
+    await ticket({ externalRef: 'PROJ-7' });
+    const d = await registered();
+    const { wa } = await claimAndDeliver(d);
+    const s = await sessionRow(wa.payload.session_id);
+    expect(s.branch).toBe(`PROJ-7-add-health-${s.id.slice(0, 6)}`);
+  });
+
   it('register → request_work → work_assignment and start_session delivered', async () => {
     const t = await ticket();
     const d = await registered();
@@ -254,7 +270,8 @@ describe('request_work → claim', () => {
       machine_id: machineId,
       workflow_state: 'implement',
     });
-    expect(s.branch).toBe(`conductor/${t.id}/${s.id.slice(0, 8)}`);
+    expect(s.branch).toBe(`conductor/add-health-${s.id.slice(0, 6)}`);
+    expect(s.branch).toBe(sessionBranch(t, s.id));
     expect(s.lease_expires_at!.getTime()).toBeGreaterThan(Date.now() + 60_000);
     expect(wa.fencing_token).toBe(Number(s.fencing_token));
     expect(await ticketRow(t.id)).toMatchObject({ status: 'claimed', workflow_version: 1 });

@@ -5,6 +5,8 @@ import { sessionBranch } from '../domain.js';
 import { CONDUCTOR_V2_DRAFT, CONDUCTOR_V2_DRAFT_DEF } from '../workflow/fixtures.js';
 import { WorkflowDefinitionSchema, type WorkflowDefinition } from '../workflow/schema.js';
 import { freshSnapshot, Harness, HEAD_SHA, T0 } from './apply.testkit.js';
+import { evaluateConditionsArgs } from './conditions.js';
+import { MOVE_STEP_FIXTURE, SNAPSHOT_FIXTURE } from './fixtures.js';
 import { PR_CONTEXT_KEY } from './review.js';
 import {
   CONDITIONS_NO_MACHINE_NOTE,
@@ -137,7 +139,7 @@ describe('the conditions phase', () => {
     expect(run.args).toEqual({
       conditions: [{ type: 'pr_checks_green' }, { type: 'pr_approvals', min: 1 }],
       pr_url: PR,
-      branch: sessionBranch(h.snap.ticket.id, h.snap.id),
+      branch: sessionBranch(h.snap.ticket, h.snap.id),
       head_sha: HEAD_SHA,
     });
     expect(find(r.effects, 'session_status')).toEqual({
@@ -698,4 +700,22 @@ describe('apply property: the conditions phase is bounded', () => {
     );
     // CPU-bound: 150 runs took 10 s at load 30, past vitest's 5 s default.
   }, 60_000);
+});
+
+describe('evaluateConditionsArgs branch', () => {
+  const conds = [{ type: 'pr_checks_green' as const }];
+  it('is the session’s stored branch, not one recomputed from an edited title', () => {
+    const s = { ...SNAPSHOT_FIXTURE, branch: 'PROJ-1-old-title-7d0c5b' };
+    s.ticket = { ...s.ticket, title: 'A renamed ticket' };
+    expect(evaluateConditionsArgs(s, MOVE_STEP_FIXTURE, conds).branch).toBe(
+      'PROJ-1-old-title-7d0c5b',
+    );
+  });
+
+  it('falls back to sessionBranch() for a snapshot without one', () => {
+    const s = { ...SNAPSHOT_FIXTURE, branch: null };
+    expect(evaluateConditionsArgs(s, MOVE_STEP_FIXTURE, conds).branch).toBe(
+      sessionBranch(s.ticket, s.id),
+    );
+  });
 });

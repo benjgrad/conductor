@@ -585,7 +585,7 @@ export const StartSessionPayloadSchema = z.object({
   repo: z.string(),
   /** Ref to branch from when the worktree doesn't exist yet. M1 default `HEAD` of the shared clone. */
   base_ref: z.string(),
-  /** `session.branch` = `sessionBranch(ticket_id, session_id)` (domain.ts, 04). */
+  /** `session.branch`, set at claim by `sessionBranch(ticket, session_id)` (domain.ts, 04). */
   branch: z.string(),
   workflow_state: z.string(),
   /** First user message (the answer, when resuming after ask_user). */
@@ -713,7 +713,7 @@ export const RunActionMessageSchema = msg('run_action', RunActionPayloadSchema, 
 /**
  * ADR-0011 `run_action {action: 'evaluate_conditions'}` args: the move step's enabled conditions
  * (declaration order), the PR conductor opened (`context.__pr.pr_url`, null if none) and the
- * session branch (apply: `sessionBranch(ticket.id, session.id)`; informational, the daemon uses
+ * session branch (apply: the session's stored `branch`, else `sessionBranch(ticket, session.id)`; informational, the daemon uses
  * its own record of the branch, like open_pr). The daemon evaluates them with the machine's own
  * CLIs (`gh` in M1b). `idempotency_key`: `conditionsIdempotencyKey`.
  */

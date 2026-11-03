@@ -6,7 +6,7 @@ import { commandPayloadForEffect, M1_BASE_REF } from './commands.js';
 import { OrchestratorToDaemonSchema } from './ws.js';
 
 const command_id = 'c0ffee00-1111-4222-8333-444455556666';
-const branch = sessionBranch(SNAPSHOT_FIXTURE.ticket.id, SNAPSHOT_FIXTURE.id);
+const branch = sessionBranch(SNAPSHOT_FIXTURE.ticket, SNAPSHOT_FIXTURE.id);
 const ctx = { command_id, snapshot: SNAPSHOT_FIXTURE, branch };
 
 /** Every built payload must be a valid WS command once wrapped in an envelope. */

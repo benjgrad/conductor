@@ -22,6 +22,7 @@ import {
   type SessionStatus,
   type WorkflowDefinition,
   humanTransitionOptions,
+  sessionBranch,
 } from '@conductor/shared';
 import { UX2_TICKET_BODY } from '../brief/ux2-ticket.js';
 import { implementerReport } from '../components/review-fixture.js';
@@ -449,7 +450,7 @@ function seed(now: Date, s: SeedSpec): MockSeed {
       return_to: s.returnTo ?? null,
       state_entered_at: ago(now, s.activeMinAgo),
       wall_seconds: (s.ageMin - s.activeMinAgo) * 60 + 30,
-      branch: `conductor/${s.session.slice(0, 8)}`,
+      branch: sessionBranch({ title: s.title, external_ref: null }, s.session),
       output,
       moves: [],
       ...(s.ticketBody !== undefined ? { ticket_body: s.ticketBody } : {}),
@@ -497,7 +498,10 @@ function transitionSeeds(now: Date): MockSeed[] {
         updated_at: ago(now, 6),
       },
       session: session({
-        branch: `conductor/${pending.session_id.slice(0, 8)}`,
+        branch: sessionBranch(
+          { title: 'Ship the /health endpoint', external_ref: null },
+          pending.session_id,
+        ),
         state_entered_at: ago(now, 140),
         output: [{ ...OUTPUT_CHUNK_FIXTURE, session_id: pending.session_id, ts: ago(now, 141) }],
         moves: SESSION_MOVES_FIXTURE.slice(0, 3).map((m, i) => ({

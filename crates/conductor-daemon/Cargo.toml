@@ -53,5 +53,7 @@ windows-sys.workspace = true
 
 [dev-dependencies]
 assert_cmd.workspace = true
+# Paused-clock tests (`#[tokio::test(start_paused = true)]`, MR-T11's inventory rescan timer).
+tokio = { workspace = true, features = ["test-util"] }
 predicates.workspace = true
 tempfile.workspace = true

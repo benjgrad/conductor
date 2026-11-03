@@ -56,11 +56,11 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 - [x] `index.test.ts`
 
-- [ ] `inventory/capabilities.test.ts`
+- [x] `inventory/capabilities.test.ts`
 
 - [ ] `inventory/report.test.ts`
 
-- [ ] `inventory/repos.test.ts`
+- [x] `inventory/repos.test.ts`
 
 - [x] `inventory/version.test.ts`
 
@@ -505,24 +505,24 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| inventory/capabilities.test.ts › inventory capabilities: cli probes (M2-T10) › gh / az authed → {authed: true}, and no account name anywhere in the output | todo |
-| inventory/capabilities.test.ts › inventory capabilities: cli probes (M2-T10) › a failed auth probe → authed false; a missing CLI is omitted | todo |
-| inventory/capabilities.test.ts › inventory capabilities: cli probes (M2-T10) › jira and git report their versions, never authed | todo |
-| inventory/capabilities.test.ts › inventory capabilities: cli probes (M2-T10) › a hanging probe is killed at 5 s | todo |
-| inventory/capabilities.test.ts › inventory capabilities: names from Claude Code config (M2-T10) › MCP names from user scope and enabled plugins; no command, args, env or URL | todo |
-| inventory/capabilities.test.ts › inventory capabilities: names from Claude Code config (M2-T10) › malformed config files contribute nothing (never throw) | todo |
-| inventory/capabilities.test.ts › inventory capabilities: names from Claude Code config (M2-T10) › skills and agents: user scope, and repo scope only for repos with a remote | todo |
-| inventory/capabilities.test.ts › inventory capabilities: names from Claude Code config (M2-T10) › normalizeMcpName: plugin:<plugin>:<server> → <server> (M2-T10b) | todo |
-| inventory/capabilities.test.ts › inventory capabilities: names from Claude Code config (M2-T10) › a plugin MCP name is reported as mcp:<server> (M2-T10b) | todo |
-| inventory/capabilities.test.ts › inventory capabilities: names from Claude Code config (M2-T10) › an invalid name is logged once per scan and not reported; the rest is (M2-T10b) | todo |
+| inventory/capabilities.test.ts › inventory capabilities: cli probes (M2-T10) › gh / az authed → {authed: true}, and no account name anywhere in the output | crates/conductor-daemon/src/inventory/capabilities/tests.rs::gh_az_authed_and_no_account_name_in_the_output |
+| inventory/capabilities.test.ts › inventory capabilities: cli probes (M2-T10) › a failed auth probe → authed false; a missing CLI is omitted | crates/conductor-daemon/src/inventory/capabilities/tests.rs::a_failed_auth_probe_is_not_authed_and_a_missing_cli_is_omitted |
+| inventory/capabilities.test.ts › inventory capabilities: cli probes (M2-T10) › jira and git report their versions, never authed | crates/conductor-daemon/src/inventory/capabilities/tests.rs::jira_and_git_report_their_versions_never_authed |
+| inventory/capabilities.test.ts › inventory capabilities: cli probes (M2-T10) › a hanging probe is killed at 5 s | crates/conductor-daemon/src/inventory/capabilities/tests.rs::a_hanging_probe_is_killed_at_the_timeout |
+| inventory/capabilities.test.ts › inventory capabilities: names from Claude Code config (M2-T10) › MCP names from user scope and enabled plugins; no command, args, env or URL | crates/conductor-daemon/src/inventory/capabilities/tests.rs::mcp_names_from_user_scope_and_enabled_plugins_never_their_config, crates/conductor-daemon/src/inventory/capabilities/tests.rs::a_manifest_path_outside_the_plugin_is_ignored |
+| inventory/capabilities.test.ts › inventory capabilities: names from Claude Code config (M2-T10) › malformed config files contribute nothing (never throw) | crates/conductor-daemon/src/inventory/capabilities/tests.rs::malformed_config_files_contribute_nothing |
+| inventory/capabilities.test.ts › inventory capabilities: names from Claude Code config (M2-T10) › skills and agents: user scope, and repo scope only for repos with a remote | crates/conductor-daemon/src/inventory/capabilities/tests.rs::skills_and_agents_user_scope_and_repo_scope_only_with_a_remote |
+| inventory/capabilities.test.ts › inventory capabilities: names from Claude Code config (M2-T10) › normalizeMcpName: plugin:<plugin>:<server> → <server> (M2-T10b) | crates/conductor-daemon/src/inventory/capabilities/tests.rs::normalize_mcp_name_plugin_server_to_server |
+| inventory/capabilities.test.ts › inventory capabilities: names from Claude Code config (M2-T10) › a plugin MCP name is reported as mcp:<server> (M2-T10b) | crates/conductor-daemon/src/inventory/capabilities/tests.rs::a_plugin_mcp_name_is_reported_as_mcp_server |
+| inventory/capabilities.test.ts › inventory capabilities: names from Claude Code config (M2-T10) › an invalid name is logged once per scan and not reported; the rest is (M2-T10b) | crates/conductor-daemon/src/inventory/capabilities/tests.rs::an_invalid_name_is_logged_once_per_scan_and_not_reported, crates/conductor-daemon/src/inventory/capabilities/tests.rs::log_names_are_json_quoted_and_cut_at_200 |
 
 ### inventory/report.test.ts
 
 | TS case | Rust |
 |---|---|
-| inventory/report.test.ts › inventoryHash › is stable under reordering and changes with a version or a repo | todo |
-| inventory/report.test.ts › InventoryReporter › sends on registered; the 10-minute rescan sends only when the hash changed | todo |
-| inventory/report.test.ts › InventoryReporter › a failed scan keeps the previous inventory | todo |
+| inventory/report.test.ts › inventoryHash › is stable under reordering and changes with a version or a repo | crates/conductor-daemon/src/inventory/report/tests.rs::inventory_hash_is_stable_under_reordering_and_changes_with_a_version_or_a_repo, crates/conductor-daemon/src/inventory/report/tests.rs::the_payload_and_hash_match_the_ts_vector |
+| inventory/report.test.ts › InventoryReporter › sends on registered; the 10-minute rescan sends only when the hash changed | crates/conductor-daemon/src/inventory/report/tests.rs::sends_on_registered_and_the_10_minute_rescan_sends_only_on_change |
+| inventory/report.test.ts › InventoryReporter › a failed scan keeps the previous inventory | crates/conductor-daemon/src/inventory/report/tests.rs::a_failed_scan_keeps_the_previous_inventory |
 | inventory/report.test.ts › daemon inventory over the link (M2-T10) › sent after registered (before request_work), with the legacy repo_inventory too | todo |
 | inventory/report.test.ts › daemon inventory over the link (M2-T10) › not re-sent when unchanged; re-sent on SIGHUP after a change | todo |
 
@@ -530,16 +530,16 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| inventory/repos.test.ts › inventory repos (M2-T10) › finds repos at depth 1–4, not 5 | todo |
-| inventory/repos.test.ts › inventory repos (M2-T10) › skips node_modules, dot-directories and symlinks | todo |
-| inventory/repos.test.ts › inventory repos (M2-T10) › canonicalises origin to host/org/repo; no origin → remote null | todo |
-| inventory/repos.test.ts › inventory repos (M2-T10) › a remote that is not canonical is null for that repo only | todo |
-| inventory/repos.test.ts › inventory repos (M2-T10) › allowedRepoHosts: another host is reported with remote null | todo |
-| inventory/repos.test.ts › inventory repos (M2-T10) › a repo without commits is not reported | todo |
-| inventory/repos.test.ts › inventory repos (M2-T10) › default_branch from origin/HEAD, else main / master; head_commit; mode from config | todo |
-| inventory/repos.test.ts › inventory repos (M2-T10) › a planted hook / hooksPath / fsmonitor in a scanned repo never runs | todo |
-| inventory/repos.test.ts › inventory repos (M2-T10) › test remote aliases give a local repo a canonical remote | todo |
-| inventory/repos.test.ts › inventory repos (M2-T10) › a missing root is skipped, the others still scanned | todo |
+| inventory/repos.test.ts › inventory repos (M2-T10) › finds repos at depth 1–4, not 5 | crates/conductor-daemon/src/inventory/repos/tests.rs::finds_repos_at_depth_1_to_4_not_5 |
+| inventory/repos.test.ts › inventory repos (M2-T10) › skips node_modules, dot-directories and symlinks | crates/conductor-daemon/src/inventory/repos/tests.rs::skips_node_modules_dot_directories_and_symlinks |
+| inventory/repos.test.ts › inventory repos (M2-T10) › canonicalises origin to host/org/repo; no origin → remote null | crates/conductor-daemon/src/inventory/repos/tests.rs::canonicalises_origin_and_no_origin_is_null |
+| inventory/repos.test.ts › inventory repos (M2-T10) › a remote that is not canonical is null for that repo only | crates/conductor-daemon/src/inventory/repos/tests.rs::a_remote_that_is_not_canonical_is_null_for_that_repo_only |
+| inventory/repos.test.ts › inventory repos (M2-T10) › allowedRepoHosts: another host is reported with remote null | crates/conductor-daemon/src/inventory/repos/tests.rs::allowed_repo_hosts_another_host_is_reported_with_remote_null |
+| inventory/repos.test.ts › inventory repos (M2-T10) › a repo without commits is not reported | crates/conductor-daemon/src/inventory/repos/tests.rs::a_repo_without_commits_is_not_reported |
+| inventory/repos.test.ts › inventory repos (M2-T10) › default_branch from origin/HEAD, else main / master; head_commit; mode from config | crates/conductor-daemon/src/inventory/repos/tests.rs::default_branch_head_commit_and_mode |
+| inventory/repos.test.ts › inventory repos (M2-T10) › a planted hook / hooksPath / fsmonitor in a scanned repo never runs | crates/conductor-daemon/src/inventory/repos/tests.rs::a_planted_hook_hooks_path_or_fsmonitor_never_runs |
+| inventory/repos.test.ts › inventory repos (M2-T10) › test remote aliases give a local repo a canonical remote | crates/conductor-daemon/src/inventory/repos/tests.rs::test_remote_aliases_give_a_local_repo_a_canonical_remote |
+| inventory/repos.test.ts › inventory repos (M2-T10) › a missing root is skipped, the others still scanned | crates/conductor-daemon/src/inventory/repos/tests.rs::a_missing_root_is_skipped_the_others_still_scanned |
 
 ### inventory/version.test.ts
 
@@ -712,6 +712,7 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 |---|---|
 | rust-compat.test.ts › Rust daemon file compatibility (MR-T05) › the TS fixtures are what the TS daemon writes | crates/conductor-daemon/tests/compat_ts_files.rs::reads_the_files_the_ts_daemon_wrote |
 | rust-compat.test.ts › Rust daemon file compatibility (MR-T05) › reads the machine.json, config.json and store the Rust daemon wrote | crates/conductor-daemon/tests/compat_ts_files.rs::the_rust_fixtures_are_what_the_rust_daemon_writes |
+| rust-compat.test.ts › Rust inventory payload compatibility (MR-T11) › the TS inventory vector is what the TS daemon computes | crates/conductor-daemon/src/inventory/report/tests.rs::the_payload_and_hash_match_the_ts_vector |
 
 ### sysinfo.test.ts
 

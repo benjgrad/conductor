@@ -491,12 +491,13 @@ ADR-0026. Docs that describe the daemon: `docs/design/10-contracts.md`, `03-prot
 - **FR-1**: those docs say "Rust binary" where they say Node/TS daemon, drop "Node 22" from machine prerequisites, and point at `crates/conductor-daemon`.
 - **FR-2**: `scripts/test-parity.js` runs with **no** `--files` limit and passes. Every `dropped:` row is listed in the PR for Ben.
 - **FR-3**: the cutover steps for Ben (re-run the installer on each machine, how to roll back to the TS version directory) go in `docs/setup/add-a-machine.md` §Upgrading.
+- **FR-4**: remove the manual upgrade notice, the stopgap that stands in for ADR-0021 auto-update until MR-T14 and M2-T18d ship. Delete `packages/web/src/machines/UpgradeNotice.tsx` and its test, its call sites in `Machines.tsx` and `MachineDrawer.tsx`, `upgradeCommand` / `upgradeCommandWindows` and `MachineRow.upgrade_command*` (orchestrator `api/machines.ts`, shared schema, fixtures, web mock, 10-contracts). Rewrite the guide's "Daemons don't update themselves yet" in §Upgrade. Only when automatic updates work end to end.
 
 ## Verification
 - Parity at 100%; `scripts/ci.sh` green; web help tests green.
 
-- **Depends on**: MR-T14, MR-T15, MR-T16. **Files owned**: the docs listed. **Do not touch**: code.
-- **Acceptance**: [ ] parity 100%; [ ] docs; [ ] gates.
+- **Depends on**: MR-T14, MR-T15, MR-T16. **Files owned**: the docs listed, and the FR-4 files. **Do not touch**: other code.
+- **Acceptance**: [ ] parity 100%; [ ] docs; [ ] manual upgrade notice removed (FR-4); [ ] gates.
 
 ### MR-T18b · Delete the TypeScript daemon
 ## Goal

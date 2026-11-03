@@ -968,6 +968,8 @@ export function mockMachines(now: Date): MachineDetail[] {
       revoked_at: null,
       repo_allow: null,
       repo_exclusive: [],
+      upgrade_command: null,
+      upgrade_command_windows: null,
       os: 'darwin',
       arch: 'arm64',
       repos: [
@@ -1033,6 +1035,9 @@ export function mockMachines(now: Date): MachineDetail[] {
       revoked_at: null,
       repo_allow: null,
       repo_exclusive: [],
+      // Stopgap until ADR-0021 auto-update: the server sends these for an outdated machine.
+      upgrade_command: 'curl -fsSL http://localhost/install.sh | sh',
+      upgrade_command_windows: 'irm http://localhost/install.ps1 | iex',
       os: 'linux',
       arch: 'x64',
       repos: [{ remote: null, path: '/home/ben/scratch', mode: 'reference', default_branch: null }],

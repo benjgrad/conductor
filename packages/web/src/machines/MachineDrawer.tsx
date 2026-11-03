@@ -8,6 +8,7 @@ import { useState, type FormEvent } from 'react';
 import { errorMessage } from '../api/client.js';
 import { ago } from '../components/format.js';
 import { cannotTakeReasons, ghTooOld, ghTooOldText, shortRepo } from './format.js';
+import { UpgradeSection } from './UpgradeNotice.js';
 
 const KINDS: { key: keyof MachineDetail['capabilities']; title: string }[] = [
   { key: 'cli', title: 'CLIs' },
@@ -44,6 +45,7 @@ export function MachineDrawer({ machine, onClose, onSaveRules }: MachineDrawerPr
         {machine.arch && `/${machine.arch}`}
       </p>
       {oldGh !== null && <p className="machine-warning">⚠ {ghTooOldText(oldGh)}</p>}
+      <UpgradeSection machine={machine} />
 
       <section aria-label="Open alerts">
         <h4>Open alerts</h4>

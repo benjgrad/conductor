@@ -154,13 +154,24 @@ describe('list, detail, rename, revoke', () => {
       running_sessions: 0,
       revoked_at: null,
       status: 'offline',
+      // Stopgap until ADR-0021 auto-update (MR-T14): the tokenless upgrade commands.
+      upgrade_command: `curl -fsSL ${HTTPS_URL}/install.sh | sh`,
+      upgrade_command_windows: `irm ${HTTPS_URL}/install.ps1 | iex`,
     });
+    const detail = MachineDetailSchema.parse(
+      (await api.send('GET', API_PATHS.machine(id), as(a))).json,
+    );
+    expect(detail.upgrade_command).toBe(rows[0]?.upgrade_command);
 
     await db.pool.query("UPDATE machine SET daemon_version = '0.2.0' WHERE id = $1", [id]);
     const again = MachineListResponseSchema.parse(
       (await api.send('GET', API_PATHS.machines, as(a))).json,
     );
-    expect(again[0]?.outdated).toBe(false);
+    expect(again[0]).toMatchObject({
+      outdated: false,
+      upgrade_command: null,
+      upgrade_command_windows: null,
+    });
 
     // the other account sees none of it
     const other = await api.send('GET', API_PATHS.machines, as(b));
@@ -435,6 +446,8 @@ describe('list, detail, rename, revoke', () => {
       (await api.send('GET', API_PATHS.machines, as(a))).json,
     );
     expect(rows[0]?.revoked_at).toBe(detail.revoked_at);
+    // still outdated, but a revoked machine gets no upgrade command
+    expect(rows[0]).toMatchObject({ outdated: true, upgrade_command: null });
   });
 
   it("another account's machine (and an unknown id) is 404 on every machine route", async () => {

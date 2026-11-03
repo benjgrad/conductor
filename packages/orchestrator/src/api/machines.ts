@@ -78,6 +78,19 @@ export function installCommandWindows(installUrl: string, token: string): string
   return `$env:CONDUCTOR_ENROLL_TOKEN='${token}'; irm ${installUrl}${API_PATHS.installScriptWindows} | iex`;
 }
 
+/**
+ * The tokenless re-run of install.sh that upgrades a daemon in place, keeping its enrollment and
+ * restarting an installed service. Stopgap until ADR-0021 auto-update (MR-T14); remove in MR-T18a.
+ */
+export function upgradeCommand(installUrl: string): string {
+  return `curl -fsSL ${installUrl}${API_PATHS.installScript} | sh`;
+}
+
+/** The same for Windows PowerShell. Stopgap until ADR-0021 auto-update; remove in MR-T18a. */
+export function upgradeCommandWindows(installUrl: string): string {
+  return `irm ${installUrl}${API_PATHS.installScriptWindows} | iex`;
+}
+
 type MachineListRow = MachineDbRow & { running_sessions: number; repo_count: number };
 
 const MACHINE_SELECT =
@@ -89,7 +102,18 @@ const MACHINE_SELECT =
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 
-function toMachineRow(m: MachineListRow, servedVersion: string | null): MachineRow {
+/**
+ * `installUrl`: the origin the upgrade commands use; null (callers without a request, e.g. the MCP
+ * tools) leaves them null.
+ */
+function toMachineRow(
+  m: MachineListRow,
+  servedVersion: string | null,
+  installUrl: string | null,
+): MachineRow {
+  const outdated = isOutdated(m.daemon_version, servedVersion);
+  // Stopgap until ADR-0021 auto-update (MR-T14); remove in MR-T18a.
+  const upgradable = outdated && m.revoked_at === null && installUrl !== null;
   return {
     id: m.id,
     hostname: m.hostname,
@@ -104,11 +128,13 @@ function toMachineRow(m: MachineListRow, servedVersion: string | null): MachineR
     daemon_version: m.daemon_version,
     claude_version: m.claude_code_version,
     // Computed at read time, never stored (DECISIONS_LOG 2026-10-27).
-    outdated: isOutdated(m.daemon_version, servedVersion),
+    outdated,
     repo_count: m.repo_count,
     revoked_at: iso(m.revoked_at),
     repo_allow: m.repo_allow,
     repo_exclusive: m.repo_exclusive,
+    upgrade_command: upgradable ? upgradeCommand(installUrl) : null,
+    upgrade_command_windows: upgradable ? upgradeCommandWindows(installUrl) : null,
   };
 }
 
@@ -116,12 +142,13 @@ export async function listMachineRows(
   db: Queryable,
   accountId: string,
   servedVersion: string | null,
+  installUrl: string | null = null,
 ): Promise<MachineRow[]> {
   const res = await db.query<MachineListRow>(`${MACHINE_SELECT} ORDER BY m.created_at, m.id`, [
     accountId,
     SLOT_STATUSES,
   ]);
-  return res.rows.map((m) => toMachineRow(m, servedVersion));
+  return res.rows.map((m) => toMachineRow(m, servedVersion, installUrl));
 }
 
 async function loadMachine(
@@ -215,6 +242,7 @@ async function loadMachineDetail(
   db: Queryable,
   m: MachineListRow,
   servedVersion: string | null,
+  installUrl: string,
 ): Promise<MachineDetail> {
   const repos = await db.query<MachineRepoRow>(
     'SELECT * FROM machine_repo WHERE machine_id = $1 ORDER BY path',
@@ -245,7 +273,7 @@ async function loadMachineDetail(
   };
   for (const c of caps.rows) capabilities[c.kind].push(toCapabilityDto(c));
   return {
-    ...toMachineRow(m, servedVersion),
+    ...toMachineRow(m, servedVersion, installUrl),
     os: m.os,
     arch: m.arch,
     repos: repos.rows.map((r): MachineRepoDto => ({
@@ -297,13 +325,13 @@ export const registerMachineRoutes: FastifyPluginAsync<MachineRoutesOptions> = (
   });
 
   app.get(API_PATHS.machines, (req) =>
-    listMachineRows(db, req.auth!.scope.account_id, servedVersion),
+    listMachineRows(db, req.auth!.scope.account_id, servedVersion, installUrl(req)),
   );
 
   app.get<IdParams>(API_PATHS.machine(':id'), async (req, reply) => {
     const m = await loadMachine(db, req.auth!.scope.account_id, req.params.id);
     if (!m) return sendError(reply, 404, 'not_found', notFound(req.params.id));
-    return loadMachineDetail(db, m, servedVersion);
+    return loadMachineDetail(db, m, servedVersion, installUrl(req));
   });
 
   // Rename and repo rules (ADR-0013 amendment 2026-10-30). The machines of the account are locked
@@ -354,7 +382,7 @@ export const registerMachineRoutes: FastifyPluginAsync<MachineRoutesOptions> = (
     if ('conflict' in outcome) return sendError(reply, 409, 'conflict', outcome.conflict);
     const m = outcome.updated ? await loadMachine(db, accountId, id) : null;
     if (!m) return sendError(reply, 404, 'not_found', notFound(id));
-    return toMachineRow(m, servedVersion);
+    return toMachineRow(m, servedVersion, installUrl(req));
   });
 
   app.post<IdParams>(API_PATHS.machineRevoke(':id'), async (req, reply) => {

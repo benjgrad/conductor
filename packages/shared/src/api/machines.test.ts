@@ -60,6 +60,20 @@ describe('machines DTOs', () => {
     expect(MachineRowSchema.parse(older)).toMatchObject({ repo_allow: null, repo_exclusive: [] });
   });
 
+  it('a MachineRow from an older server (no upgrade commands) parses them as null', () => {
+    const {
+      upgrade_command: _c,
+      upgrade_command_windows: _w,
+      ...older
+    } = MACHINE_ROW_FIXTURES.online;
+    void _c;
+    void _w;
+    expect(MachineRowSchema.parse(older)).toMatchObject({
+      upgrade_command: null,
+      upgrade_command_windows: null,
+    });
+  });
+
   it('token-bearing DTOs round-trip through JSON', () => {
     expect(EnrollResponseSchema.parse(roundTrip(ENROLL_RESPONSE_FIXTURE))).toEqual(
       ENROLL_RESPONSE_FIXTURE,

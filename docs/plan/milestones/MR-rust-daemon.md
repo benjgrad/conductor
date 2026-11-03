@@ -68,7 +68,7 @@
 | MR-T09 | `claude/cli_driver` | T07, T08 | E | — | done (this branch; U-113 real-claude gate passed first; `ClaudeDriver::start` now returns `Result`, `claude_session_id` a `String`; TD-203, TD-204) |
 | MR-T10 | workspace + hardened exec/git module + actions (open-pr, checkout, conditions) | T07 | E | — | done (this branch; also ports `matchingPaths` to `conductor-protocol` with shared vectors; TD-205..208) |
 | MR-T11 | inventory (capabilities, repos, git, report, rescan) | T10 | E | — | done (this branch; 2 `report.test.ts` rows, the daemon-over-the-link cases, are left `todo` for MR-T12; the `<root>/state/rescan` trigger on every OS; TS↔Rust payload vector `tests/fixtures/ts/inventory-payload.json`) |
-| MR-T12 | Daemon core | T09, T10, T11 | F | — | todo |
+| MR-T12 | Daemon core | T09, T10, T11 | F | — | done (this branch; FR-4 wired: `register.features: ["assistant_job"]`, durable `assistant_result` via a new store `DurableMessage` variant; also fixes found here: `FakeDriverSession` holds events until its first listener, as `CliDriverSession` does, and `inventory::repos::scan_repos` is `Send`; new `platform::pid_liveness`; TD-209, TD-210) |
 | MR-T13 | `main` + subcommands: run, enroll, config, help, `service install/restart/uninstall` (launchd, systemd user, Windows Scheduled Task); absorbs MW-T09/T10/T11b | T12, U-112 | F | — | todo |
 | MR-T14 | ADR-0021 updater in Rust (stage, verify, drain, switch, exit 75, trial commit, `bad-versions`, `config auto-update`, 4005 → latest.json); absorbs M2-T18c | T13, M2-T18b, U-114 | G | — | todo |
 | MR-T15 | Distribution on the existing path: per-target tarballs from CI, image stage, `distribution.ts` target selection, install scripts without Node checks | T13, U-115 | G | — | todo |
@@ -492,12 +492,13 @@ ADR-0026. Docs that describe the daemon: `docs/design/10-contracts.md`, `03-prot
 - **FR-1**: those docs say "Rust binary" where they say Node/TS daemon, drop "Node 22" from machine prerequisites, and point at `crates/conductor-daemon`.
 - **FR-2**: `scripts/test-parity.js` runs with **no** `--files` limit and passes. Every `dropped:` row is listed in the PR for Ben.
 - **FR-3**: the cutover steps for Ben (re-run the installer on each machine, how to roll back to the TS version directory) go in `docs/setup/add-a-machine.md` §Upgrading.
+- **FR-4**: remove the manual upgrade notice, the stopgap that stands in for ADR-0021 auto-update until MR-T14 and M2-T18d ship. Delete `packages/web/src/machines/UpgradeNotice.tsx` and its test, its call sites in `Machines.tsx` and `MachineDrawer.tsx`, `upgradeCommand` / `upgradeCommandWindows` and `MachineRow.upgrade_command*` (orchestrator `api/machines.ts`, shared schema, fixtures, web mock, 10-contracts). Rewrite the guide's "Daemons don't update themselves yet" in §Upgrade. Only when automatic updates work end to end.
 
 ## Verification
 - Parity at 100%; `scripts/ci.sh` green; web help tests green.
 
-- **Depends on**: MR-T14, MR-T15, MR-T16. **Files owned**: the docs listed. **Do not touch**: code.
-- **Acceptance**: [ ] parity 100%; [ ] docs; [ ] gates.
+- **Depends on**: MR-T14, MR-T15, MR-T16. **Files owned**: the docs listed, and the FR-4 files. **Do not touch**: other code.
+- **Acceptance**: [ ] parity 100%; [ ] docs; [ ] manual upgrade notice removed (FR-4); [ ] gates.
 
 ### MR-T18b · Delete the TypeScript daemon
 ## Goal

@@ -240,6 +240,346 @@ impl<'de> ::serde::Deserialize<'de> for ApprovalId {
 pub struct AskUserEventData {
     pub question: ::std::string::String,
 }
+///`AssistantJobError`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AssistantJobError {
+    #[serde(rename = "timeout")]
+    Timeout,
+    #[serde(rename = "malformed")]
+    Malformed,
+    #[serde(rename = "claude_failed")]
+    ClaudeFailed,
+    #[serde(rename = "no_transcript")]
+    NoTranscript,
+}
+impl ::std::fmt::Display for AssistantJobError {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Timeout => f.write_str("timeout"),
+            Self::Malformed => f.write_str("malformed"),
+            Self::ClaudeFailed => f.write_str("claude_failed"),
+            Self::NoTranscript => f.write_str("no_transcript"),
+        }
+    }
+}
+impl ::std::str::FromStr for AssistantJobError {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "timeout" => Ok(Self::Timeout),
+            "malformed" => Ok(Self::Malformed),
+            "claude_failed" => Ok(Self::ClaudeFailed),
+            "no_transcript" => Ok(Self::NoTranscript),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantJobError {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AssistantJobError {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AssistantJobKind`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AssistantJobKind {
+    #[serde(rename = "session_insight")]
+    SessionInsight,
+}
+impl ::std::fmt::Display for AssistantJobKind {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::SessionInsight => f.write_str("session_insight"),
+        }
+    }
+}
+impl ::std::str::FromStr for AssistantJobKind {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "session_insight" => Ok(Self::SessionInsight),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantJobKind {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AssistantJobKind {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AssistantJobPayload`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+pub struct AssistantJobPayload {
+    pub command_id: ::uuid::Uuid,
+    pub job_id: ::uuid::Uuid,
+    pub json_schema: JsonObject,
+    pub kind: AssistantJobKind,
+    pub model: AssistantJobPayloadModel,
+    pub prompt: AssistantJobPayloadPrompt,
+    pub timeout_ms: ::std::num::NonZeroU64,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub transcript: ::std::option::Option<AssistantJobPayloadTranscript>,
+}
+///`AssistantJobPayloadModel`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantJobPayloadModel(::std::string::String);
+impl ::std::ops::Deref for AssistantJobPayloadModel {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantJobPayloadModel> for ::std::string::String {
+    fn from(value: AssistantJobPayloadModel) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantJobPayloadModel {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 100usize {
+            return Err("longer than 100 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantJobPayloadModel {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AssistantJobPayloadModel {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantJobPayloadModel {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AssistantJobPayloadPrompt`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantJobPayloadPrompt(::std::string::String);
+impl ::std::ops::Deref for AssistantJobPayloadPrompt {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantJobPayloadPrompt> for ::std::string::String {
+    fn from(value: AssistantJobPayloadPrompt) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantJobPayloadPrompt {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 65536usize {
+            return Err("longer than 65536 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantJobPayloadPrompt {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AssistantJobPayloadPrompt {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantJobPayloadPrompt {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AssistantJobPayloadTranscript`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+pub struct AssistantJobPayloadTranscript {
+    pub max_chars: ::std::num::NonZeroU64,
+    pub session_id: ::uuid::Uuid,
+}
+///`AssistantResultError`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+pub struct AssistantResultError {
+    pub command_id: ::uuid::Uuid,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub cost_usd: ::std::option::Option<f64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub detail: ::std::option::Option<AssistantResultErrorDetail>,
+    pub duration_ms: i64,
+    pub error: AssistantJobError,
+    pub job_id: ::uuid::Uuid,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub usage: ::std::option::Option<AssistantResultErrorUsage>,
+}
+///`AssistantResultErrorDetail`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantResultErrorDetail(::std::string::String);
+impl ::std::ops::Deref for AssistantResultErrorDetail {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantResultErrorDetail> for ::std::string::String {
+    fn from(value: AssistantResultErrorDetail) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantResultErrorDetail {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 500usize {
+            return Err("longer than 500 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantResultErrorDetail {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AssistantResultErrorDetail {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantResultErrorDetail {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AssistantResultErrorUsage`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+pub struct AssistantResultErrorUsage {
+    pub cache_creation_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+}
+///`AssistantResultOk`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+pub struct AssistantResultOk {
+    pub command_id: ::uuid::Uuid,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub cost_usd: ::std::option::Option<f64>,
+    pub duration_ms: i64,
+    pub job_id: ::uuid::Uuid,
+    pub result: JsonObject,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub usage: ::std::option::Option<AssistantResultOkUsage>,
+}
+///`AssistantResultOkUsage`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+pub struct AssistantResultOkUsage {
+    pub cache_creation_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+}
+///`AssistantResultPayload`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(untagged)]
+pub enum AssistantResultPayload {
+    Ok(AssistantResultOk),
+    Error(AssistantResultError),
+}
+impl ::std::convert::From<AssistantResultOk> for AssistantResultPayload {
+    fn from(value: AssistantResultOk) -> Self {
+        Self::Ok(value)
+    }
+}
+impl ::std::convert::From<AssistantResultError> for AssistantResultPayload {
+    fn from(value: AssistantResultError) -> Self {
+        Self::Error(value)
+    }
+}
 ///`BuildSlotEventData`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
 pub struct BuildSlotEventData {
@@ -1052,6 +1392,14 @@ pub enum DaemonToOrchestrator {
         payload: PermissionRequestPayload,
         seq: i64,
         session_id: ::uuid::Uuid,
+    },
+    #[serde(rename = "assistant_result")]
+    AssistantResult {
+        fencing_token: (),
+        msg_id: ::uuid::Uuid,
+        payload: AssistantResultPayload,
+        seq: i64,
+        session_id: (),
     },
 }
 ///`EnrollRequest`
@@ -2678,6 +3026,14 @@ pub enum OrchestratorToDaemon {
         seq: (),
         session_id: ::uuid::Uuid,
     },
+    #[serde(rename = "assistant_job")]
+    AssistantJob {
+        fencing_token: (),
+        msg_id: ::uuid::Uuid,
+        payload: AssistantJobPayload,
+        seq: (),
+        session_id: (),
+    },
 }
 ///`OutputPayload`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
@@ -3343,6 +3699,8 @@ pub struct RegisterPayload {
         with = "crate::wire::double_option"
     )]
     pub enrollment_token: ::std::option::Option<::std::option::Option<::std::string::String>>,
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub features: ::std::vec::Vec<RegisterPayloadFeaturesItem>,
     pub hostname: ::std::string::String,
     pub machine_id: RegisterPayloadMachineId,
     pub max_concurrent_builds: ::std::num::NonZeroU64,
@@ -3352,6 +3710,59 @@ pub struct RegisterPayload {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub protocol_version: ::std::option::Option<::std::num::NonZeroU64>,
     pub tags: ::std::vec::Vec<::std::string::String>,
+}
+///`RegisterPayloadFeaturesItem`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RegisterPayloadFeaturesItem(::std::string::String);
+impl ::std::ops::Deref for RegisterPayloadFeaturesItem {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RegisterPayloadFeaturesItem> for ::std::string::String {
+    fn from(value: RegisterPayloadFeaturesItem) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RegisterPayloadFeaturesItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 50usize {
+            return Err("longer than 50 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for RegisterPayloadFeaturesItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for RegisterPayloadFeaturesItem {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RegisterPayloadFeaturesItem {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
 }
 ///`RegisterPayloadMachineId`
 #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -4139,6 +4550,11 @@ pub mod api_paths {
     pub const DAEMON_WS: &str = "/ws/daemon";
     pub const MACHINES_ENROLL: &str = "/api/machines/enroll";
 }
+pub const ASSISTANT_JOB_PROMPT_MAX: usize = 65536;
+pub const ASSISTANT_JOB_QUEUE_MAX: usize = 4;
+pub const ASSISTANT_JOB_TIMEOUT_MAX_MS: u64 = 120000;
+pub const ASSISTANT_JOB_TRANSCRIPT_MAX_CHARS: usize = 60000;
+pub const ASSISTANT_RESULT_DETAIL_MAX: usize = 500;
 pub const AVAILABLE_CONDITION_TYPES: &[&str] = &[
     "pr_checks_green",
     "pr_approvals",
@@ -4172,9 +4588,11 @@ pub const COMMAND_REFUSAL_REASONS: &[&str] = &[
     "checkout_failed",
     "unknown_permission_request",
     "no_conversation",
+    "light_slot_busy",
 ];
 pub const CONDUCTOR_PORT_ENV: &str = "CONDUCTOR_PORT";
 pub const DAEMON_AUTH_HEADER: &str = "authorization";
+pub const DAEMON_FEATURE_ASSISTANT_JOB: &str = "assistant_job";
 pub const DEFAULT_CONDUCTOR_PORT: u16 = 7400;
 pub const DEFAULT_PERMISSION_TIMEOUT_MS: u64 = 1800000;
 pub const GH_MIN_VERSION: &str = "2.40.0";

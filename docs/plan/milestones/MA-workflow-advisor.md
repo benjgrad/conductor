@@ -33,10 +33,10 @@ Analysis is layered:
 
 | ID | Task | Depends on | Parallel group | Status |
 |---|---|---|---|---|
-| MA-T01 | **P1**: `advisor/metrics.ts` (shared, pure), `advisor/queries.ts` (orchestrator), MCP `get_process_metrics` / `list_findings`, the `workflow_advisor` prompt, ADR-0033, docs | — | A | done (this branch) |
-| MA-T02 | Contracts: WS `assistant_job` / `assistant_result` (zod → `emit:protocol` → codegen, fixture parity pair), `SessionInsightSchema`; shared with M4-T01/T04 | T01 | B | todo |
-| MA-T03 | Rust daemon one-shot runner: `claude -p --output-format json --json-schema`, `--tools ""`, empty `--strict-mcp-config`, ADR-0006 env guards, empty private cwd, kill_tree on a 120 s timeout; light-slot semaphore (default 1, outside `max_sessions`); transcript tail read locally; PARITY rows | T02 | C | todo |
-| MA-T04 | Orchestrator: `session_insight` migration; a scheduler on session end (outbox, idempotency key `insight:<session_id>:<schema_version>`, 20 a day per account, backfill limit, prefers the machine that ran the session); zod re-validation; 180-day retention; MCP `get_process_report` and `get_insight`; findings merged into `list_findings` | T02, T03 | D | todo |
+| MA-T01 | **P1**: `advisor/metrics.ts` (shared, pure), `advisor/queries.ts` (orchestrator), MCP `get_process_metrics` / `list_findings`, the `workflow_advisor` prompt, ADR-0033, docs | — | A | done (PR #115) |
+| MA-T02 | Contracts: WS `assistant_job` / `assistant_result` (zod → `emit:protocol` → codegen, fixture parity pair), `SessionInsightSchema`; shared with M4-T01/T04 | T01 | B | done (P2 branch) |
+| MA-T03 | Rust daemon one-shot runner: `claude -p --output-format json --json-schema`, `--tools ""`, empty `--strict-mcp-config`, ADR-0006 env guards, empty private cwd, kill_tree on a 120 s timeout; light-slot semaphore (default 1, outside `max_sessions`); transcript tail read locally; PARITY rows | T02 | C | done (P2 branch; not wired in until MR-T12 FR-4) |
+| MA-T04 | Orchestrator: `session_insight` migration; a scheduler on session end (outbox, idempotency key `insight:<session_id>:<schema_version>`, 20 a day per account, backfill limit, prefers the machine that ran the session); zod re-validation; 180-day retention; MCP `get_process_report` and `get_insight`; findings merged into `list_findings` | T02, T03 | D | done (P2 branch; dormant until a daemon advertises `assistant_job`) |
 | MA-T05 | `change_proposal` migration; `advisor/diff.ts` (shared: structural diff of workflow, repo checks and machine settings); MCP `propose_change`, `list_change_proposals`, `apply_change` (destructive, through the existing guards), `review_change`; REST `/api/change-proposals` | T01 | B | todo |
 | MA-T06 | Machine settings over MCP: `get_machine_settings` and machine-settings proposals, owner/admin only, `resolveEffectivePolicy` invariants, never `bypassPermissions`; suggested allow rules from `alwaysRuleFor` | T05, M2-T28c, MR-T17b | E | todo |
 | MA-T07 | Web: Proposals list on the Workflows page (diff, evidence, Apply / Reject, review result) | T05 | C | todo |
@@ -52,3 +52,11 @@ Analysis is layered:
   - [x] Queries see only the caller's account, inside the window, filtered by repo case-insensitively (`packages/orchestrator/test/advisor.queries.test.ts`).
   - [x] The tools are listed last, are read-only, clamp `window_days`, page findings, and stay under the 8 KB cap; the prompt is served (`packages/orchestrator/src/mcp/tools.unit.test.ts`).
   - [x] The tool list stays ≤ 20 KB and `MCP_INSTRUCTIONS` ≤ 600 characters (`oauth-mcp.test.ts`, `tools.unit.test.ts`).
+
+### MA-T02..T04 · P2: analyst sub-agents (one branch, three commits)
+- **Scope**: ADR-0033 §Amendment. Ben approved shipping it dormant until the Rust daemon cutover: MR-T12 FR-4 wires `claude/oneshot.rs` in and advertises `features: ["assistant_job"]`.
+- **Acceptance**:
+  - [x] T02: the WS frames, `register.features`, outbox kind `assistant_job`, `SessionInsightSchema` and its JSON Schema; fixtures, `protocol-json`, generated Rust types and round-trip goldens (`ws.assistant.test.ts`, `advisor/insight.test.ts`, `protocol-json.test.ts`, `crates/conductor-protocol/tests/roundtrip.rs`).
+  - [x] T03: the runner's args, output parsing, transcript fence, light slot and queue, and the timeout tree kill against a fake `claude` (`crates/conductor-daemon/src/claude/oneshot/tests.rs`).
+  - [x] T04: one job per session and version, the cap of 20 a day, account isolation, the feature and online gates, stored / dropped / failed results never retried, expiry, 180-day retention, ticket cascade (`test/advisor.insights.test.ts`); the gateway path from register to insight (`test/gateway/assistant-jobs.test.ts`); the MCP tools (`tools.unit.test.ts`, `oauth-mcp.test.ts`).
+  - [ ] Live: insights appear once a Rust daemon runs MR-T12 FR-4 (MA-T08's e2e needs MR-T16).

@@ -8,6 +8,11 @@ import { dispatchOnce, type DispatchStats } from './dispatcher.js';
 import { EngineServiceImpl } from './service.js';
 import { sweepOnce, type SweepStats } from './sweep.js';
 import {
+  INSIGHT_SWEEP_INTERVAL_MS,
+  scheduleInsightJobs,
+  sweepInsights,
+} from '../advisor/insights.js';
+import {
   SCHEDULE_SWEEP_INTERVAL_MS,
   sweepSchedulesOnce,
   type ScheduleSweepStats,
@@ -35,6 +40,8 @@ export type EngineServiceDeps = Parameters<CreateEngineService>[0] & {
   pushIntervalMs?: number;
   /** ADR-0032: schedule sweep interval (default SCHEDULE_SWEEP_INTERVAL_MS, 30 s). */
   scheduleIntervalMs?: number;
+  /** ADR-0033 P2: analyst job scheduler + sweep interval (default 60 s). */
+  insightIntervalMs?: number;
 };
 
 export interface EngineServiceHandle extends EngineHandle {
@@ -49,6 +56,8 @@ export interface EngineServiceHandle extends EngineHandle {
   dispatchPushOnce(): Promise<PushDispatchStats | null>;
   /** ADR-0032: one schedule-sweep pass (each due schedule fires once). */
   sweepSchedulesOnce(): Promise<ScheduleSweepStats>;
+  /** ADR-0033 P2: one analyst pass: schedule jobs, then expire and prune. */
+  insightsOnce(): Promise<void>;
 }
 
 /** A self-rescheduling loop that never overlaps itself; `wake()` runs it again soon. */
@@ -113,6 +122,12 @@ export function createEngineService(deps: EngineServiceDeps): EngineServiceHandl
     onPushWritten: () => wakePush?.(),
   });
   const workerDeps = { db: deps.db, engine, boardBus: deps.boardBus, now };
+  const insightsOnce = async (): Promise<void> => {
+    const at = now();
+    const s = await scheduleInsightJobs(deps.db, at);
+    if (s.scheduled > 0) wake?.();
+    await sweepInsights(deps.db, at);
+  };
   const pushOnce = () =>
     pushSender ? dispatchPushOnce({ db: deps.db, sender: pushSender, now }) : Promise.resolve(null);
   return {
@@ -122,6 +137,7 @@ export function createEngineService(deps: EngineServiceDeps): EngineServiceHandl
     sweepPermissionsOnce: () => sweepPermissionTimeouts(workerDeps),
     dispatchPushOnce: pushOnce,
     sweepSchedulesOnce: () => sweepSchedulesOnce(workerDeps),
+    insightsOnce,
     startWorkers({ transport }): Stoppable {
       const dispatcher = loop(deps.dispatchIntervalMs ?? 500, () =>
         dispatchOnce(workerDeps, transport),
@@ -136,13 +152,21 @@ export function createEngineService(deps: EngineServiceDeps): EngineServiceHandl
       const scheduler = loop(deps.scheduleIntervalMs ?? SCHEDULE_SWEEP_INTERVAL_MS, () =>
         sweepSchedulesOnce(workerDeps),
       );
+      // ADR-0033 P2: dormant until a daemon advertises `assistant_job` (no query finds work).
+      const analyst = loop(deps.insightIntervalMs ?? INSIGHT_SWEEP_INTERVAL_MS, insightsOnce);
       wake = () => dispatcher.wake();
       wakePush = pusher ? () => pusher.wake() : undefined;
       return {
         async stop() {
           wake = undefined;
           wakePush = undefined;
-          await Promise.all([dispatcher.stop(), sweeper.stop(), scheduler.stop(), pusher?.stop()]);
+          await Promise.all([
+            dispatcher.stop(),
+            sweeper.stop(),
+            scheduler.stop(),
+            analyst.stop(),
+            pusher?.stop(),
+          ]);
         },
       };
     },

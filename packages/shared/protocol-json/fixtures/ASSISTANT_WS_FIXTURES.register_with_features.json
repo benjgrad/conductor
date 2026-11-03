@@ -1,0 +1,30 @@
+{
+  "type": "register",
+  "msg_id": "00000000-0000-4000-8000-0000000b0003",
+  "seq": 1,
+  "session_id": null,
+  "fencing_token": null,
+  "payload": {
+    "machine_id": "mbp-ben",
+    "enrollment_token": null,
+    "hostname": "bens-mbp.local",
+    "os": "darwin",
+    "arch": "arm64",
+    "tags": [
+      "macos"
+    ],
+    "cpu_total": 10,
+    "mem_total_mb": 32768,
+    "disk_free_mb": 200000,
+    "budget_cpu": 7,
+    "budget_mem_mb": 24576,
+    "max_sessions": 3,
+    "max_concurrent_builds": 2,
+    "daemon_version": "0.0.0",
+    "claude_code_version": "2.1.308",
+    "protocol_version": 2,
+    "features": [
+      "assistant_job"
+    ]
+  }
+}

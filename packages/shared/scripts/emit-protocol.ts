@@ -59,6 +59,10 @@ name(shared.TranscriptErrorSchema, 'TranscriptError');
 name(shared.PermissionBehaviorSchema, 'PermissionBehavior');
 name(shared.PermissionScopeSchema, 'PermissionScope');
 name(shared.PermissionToolSchema, 'PermissionTool');
+name(shared.AssistantJobKindSchema, 'AssistantJobKind');
+name(shared.AssistantJobErrorSchema, 'AssistantJobError');
+name(shared.AssistantResultOkSchema, 'AssistantResultOk');
+name(shared.AssistantResultErrorSchema, 'AssistantResultError');
 name(shared.SessionEventPayloadSchema, 'SessionEventPayload');
 for (const o of shared.SessionEventPayloadSchema.options) {
   name(o.shape.data, `${pascal(o.shape.kind.value)}EventData`);
@@ -155,6 +159,12 @@ const CONSTANTS = {
   PERMISSION_MESSAGE_MAX: shared.PERMISSION_MESSAGE_MAX,
   PERMISSION_RULE_MAX: shared.PERMISSION_RULE_MAX,
   NO_CONVERSATION_REASON: shared.NO_CONVERSATION_REASON,
+  DAEMON_FEATURE_ASSISTANT_JOB: shared.DAEMON_FEATURE_ASSISTANT_JOB,
+  ASSISTANT_JOB_TIMEOUT_MAX_MS: shared.ASSISTANT_JOB_TIMEOUT_MAX_MS,
+  ASSISTANT_JOB_PROMPT_MAX: shared.ASSISTANT_JOB_PROMPT_MAX,
+  ASSISTANT_JOB_TRANSCRIPT_MAX_CHARS: shared.ASSISTANT_JOB_TRANSCRIPT_MAX_CHARS,
+  ASSISTANT_JOB_QUEUE_MAX: shared.ASSISTANT_JOB_QUEUE_MAX,
+  ASSISTANT_RESULT_DETAIL_MAX: shared.ASSISTANT_RESULT_DETAIL_MAX,
   COMMAND_REFUSAL_REASONS: shared.COMMAND_REFUSAL_REASONS,
   NO_PR_CHECKS_VALUE: shared.NO_PR_CHECKS_VALUE,
   AVAILABLE_CONDITION_TYPES: shared.AVAILABLE_CONDITION_TYPES,
@@ -211,6 +221,7 @@ type Kind =
 const FIXTURE_EXPORTS: Record<string, Kind> = {
   FIXTURE_IDS: { kind: 'data' },
   PERMISSION_FIXTURE_IDS: { kind: 'data' },
+  ASSISTANT_FIXTURE_IDS: { kind: 'data' },
   M1B_PR_URL: { kind: 'data' },
   M2R_HEAD_SHA: { kind: 'data' },
   M2R_MOVED_SHA: { kind: 'data' },
@@ -225,6 +236,7 @@ const FIXTURE_EXPORTS: Record<string, Kind> = {
   M2_WS_FIXTURES: { kind: 'record', schema: (_k, v) => bySide(v) },
   M2R_WS_FIXTURES: { kind: 'record', schema: (_k, v) => bySide(v) },
   PERMISSION_WS_FIXTURES: { kind: 'record', schema: (_k, v) => bySide(v) },
+  ASSISTANT_WS_FIXTURES: { kind: 'record', schema: (_k, v) => bySide(v) },
   M2R_ACTION_FIXTURES: {
     kind: 'record',
     schema: (key) => {

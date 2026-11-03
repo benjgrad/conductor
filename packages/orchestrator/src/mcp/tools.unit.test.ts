@@ -11,6 +11,9 @@ import {
 import {
   buildMcpServer,
   FINDINGS_PAGE,
+  frictionReport,
+  REPORT_FRICTIONS_MAX,
+  REPORT_IDS_MAX,
   MCP_INSTRUCTIONS,
   WORKFLOW_ADVISOR_PROMPT,
   guard,
@@ -113,12 +116,17 @@ const textOf = (res: Awaited<ReturnType<Client['callTool']>>) =>
   (res.content as { type: string; text: string }[])[0]!.text;
 
 describe('advisor tools (ADR-0033)', () => {
-  it('lists get_process_metrics and list_findings last, after every earlier tool', async () => {
+  it('lists the advisor tools last, after every earlier tool', async () => {
     const { client } = await connectAdvisor();
     const names = (await client.listTools()).tools.map((t) => t.name);
-    expect(names.slice(-2)).toEqual(['get_process_metrics', 'list_findings']);
-    expect(names.slice(-3, -2)).toEqual(['adopt_default_workflow']);
-    for (const t of (await client.listTools()).tools.slice(-2)) {
+    expect(names.slice(-4)).toEqual([
+      'get_process_metrics',
+      'list_findings',
+      'get_process_report',
+      'get_insight',
+    ]);
+    expect(names.slice(-5, -4)).toEqual(['adopt_default_workflow']);
+    for (const t of (await client.listTools()).tools.slice(-4)) {
       expect(t.annotations?.readOnlyHint).toBe(true);
       expect(t.description!.length).toBeLessThanOrEqual(700);
     }
@@ -140,7 +148,14 @@ describe('advisor tools (ADR-0033)', () => {
     expect(queries).toHaveLength(4);
     for (const q of queries) {
       expect(q.sql).toContain('s.account_id = $1');
-      expect(q.args).toEqual(['acc-1', expect.any(Date), 'github.com/acme/app', null, ROW_LIMIT]);
+      expect(q.args).toEqual([
+        'acc-1',
+        expect.any(Date),
+        'github.com/acme/app',
+        null,
+        ROW_LIMIT,
+        null,
+      ]);
     }
   });
 
@@ -190,9 +205,138 @@ describe('advisor tools (ADR-0033)', () => {
     const got = await client.getPrompt({ name: 'workflow_advisor' });
     const text = (got.messages[0]!.content as { text: string }).text;
     expect(text).toBe(WORKFLOW_ADVISOR_PROMPT);
-    for (const must of ['get_process_metrics', 'list_findings', 'base_version', 'approval']) {
+    for (const must of [
+      'get_process_metrics',
+      'list_findings',
+      'get_process_report',
+      'get_insight',
+      'base_version',
+      'approval',
+    ]) {
       expect(text).toContain(must);
     }
     expect(MCP_INSTRUCTIONS).toContain('workflow_advisor');
+  });
+});
+
+// ADR-0033 P2: the analysts' insights over MCP.
+
+const insightOf = (i: number, frictions: { category: string; state: string | null }[]) => ({
+  session_id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+  ticket_id: `t${i}`,
+  insight: {
+    schema_version: 1,
+    summary: `Session ${i} ${'x'.repeat(300)}`,
+    outcome: 'completed',
+    frictions: frictions.map((f) => ({
+      ...f,
+      evidence: 'e'.repeat(120),
+      severity: 2,
+      suggestion: 's'.repeat(120),
+    })),
+    wasted_minutes: 5,
+  },
+});
+
+describe('frictionReport', () => {
+  it('groups by category and state, most sessions first, with capped ids', () => {
+    const insights = [
+      ...Array.from({ length: 5 }, (_, i) =>
+        insightOf(i, [{ category: 'flaky_check', state: 'qa' }]),
+      ),
+      insightOf(9, [{ category: 'environment', state: null }]),
+    ] as Parameters<typeof frictionReport>[0];
+    const r = frictionReport(insights);
+    expect(r.analysed).toBe(6);
+    expect(r.outcomes).toEqual({ completed: 6 });
+    expect(r.wasted_minutes_reported).toBe(30);
+    expect(r.frictions.map((f) => [f.category, f.state, f.sessions])).toEqual([
+      ['flaky_check', 'qa', 5],
+      ['environment', null, 1],
+    ]);
+    expect(r.frictions[0]!.session_ids).toHaveLength(REPORT_IDS_MAX);
+    expect(r.frictions[0]!.top_suggestion.length).toBeLessThanOrEqual(200);
+  });
+});
+
+describe('analyst tools (ADR-0033 P2)', () => {
+  const many = Array.from({ length: 300 }, (_, i) =>
+    insightOf(
+      i,
+      Array.from({ length: 8 }, (_, k) => ({ category: 'other', state: `state_${(i + k) % 40}` })),
+    ),
+  );
+  const rows = (enabled: boolean) => (sql: string) => {
+    if (sql.includes('SELECT i.session_id, i.ticket_id, i.insight')) return many;
+    if (sql.includes('count(*) AS finished')) return [{ finished: '400', analysed: '300' }];
+    if (sql.includes('ANY (features)')) return enabled ? [{}] : [];
+    return [];
+  };
+
+  it('get_process_report stays under 8 KB, scoped, and says when insights are off', async () => {
+    const { client, queries } = await connectAdvisor(rows(false));
+    const res = await client.callTool({
+      name: 'get_process_report',
+      arguments: { window_days: 0 },
+    });
+    const text = textOf(res);
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(8 * 1024);
+    const body = JSON.parse(text) as {
+      window_days: number;
+      insights_enabled: boolean;
+      note?: string;
+      finished_sessions: number;
+      analysed_sessions: number;
+      frictions: unknown[];
+      more_frictions: number;
+    };
+    expect(body.window_days).toBe(1);
+    expect(body.insights_enabled).toBe(false);
+    expect(body.note).toContain('Rust daemon');
+    expect(body).toMatchObject({ finished_sessions: 400, analysed_sessions: 300 });
+    expect(body.frictions).toHaveLength(REPORT_FRICTIONS_MAX);
+    expect(body.more_frictions).toBe(30);
+    for (const q of queries) expect(q.args[0]).toBe('acc-1');
+  });
+
+  it('get_process_report has no note once a machine runs analyst jobs', async () => {
+    const { client } = await connectAdvisor(rows(true));
+    const body = JSON.parse(
+      textOf(await client.callTool({ name: 'get_process_report', arguments: {} })),
+    ) as { insights_enabled: boolean; note?: string };
+    expect(body.insights_enabled).toBe(true);
+    expect(body.note).toBeUndefined();
+  });
+
+  it('list_findings merges recurring frictions from the insights', async () => {
+    const { client } = await connectAdvisor(rows(true));
+    const page = JSON.parse(
+      textOf(await client.callTool({ name: 'list_findings', arguments: {} })),
+    ) as { findings: { id: string; category: string }[]; total: number };
+    expect(page.total).toBe(40);
+    expect(page.findings.every((f) => f.category === 'recurring_friction')).toBe(true);
+    expect(page.findings[0]!.id).toMatch(/^recurring_friction:other:state_\d+$/);
+  });
+
+  it('get_insight returns one account-scoped insight, labelled model-written', async () => {
+    const one = insightOf(1, [{ category: 'rework', state: 'implementing' }]);
+    const { client, queries } = await connectAdvisor((sql) =>
+      sql.includes('WHERE i.session_id = $1')
+        ? [{ ...one, created_at: new Date('2026-11-01T00:00:00Z'), model: 'haiku' }]
+        : [],
+    );
+    const res = await client.callTool({
+      name: 'get_insight',
+      arguments: { session_id: one.session_id },
+    });
+    const body = JSON.parse(textOf(res)) as { model_written: boolean; outcome: string };
+    expect(body).toMatchObject({ model_written: true, outcome: 'completed', model: 'haiku' });
+    expect(queries[0]!.args).toEqual([one.session_id, 'acc-1', 1]);
+    const missing = await connectAdvisor();
+    const nf = await missing.client.callTool({
+      name: 'get_insight',
+      arguments: { session_id: one.session_id },
+    });
+    expect(nf.isError).toBe(true);
   });
 });

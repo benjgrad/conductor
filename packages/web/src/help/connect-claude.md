@@ -43,6 +43,8 @@ Connectors added on claude.ai also show up in Claude Desktop for the same Claude
 | `adopt_default_workflow` | Replace your edits with the newest shipped `conductor` workflow (instance admins only) |
 | `get_process_metrics` | How your tickets moved over the last days: time in each state, repo or machine, checks that fail, questions, permission denials |
 | `list_findings` | What slows your work down (slow states, failing checks, repeated denials, frequent questions, rework), with example tickets and the tool that would fix it |
+| `get_process_report` | What the analyst agents found across your finished sessions (recurring frictions by state, with session ids). Empty until a machine runs the new Rust daemon |
+| `get_insight` | The analyst's summary and frictions for one finished session |
 
 A move that needs an approval checkbox (such as a migration approval), and an agent's permission prompts, are answered on the board only: Claude gets the card's link instead.
 

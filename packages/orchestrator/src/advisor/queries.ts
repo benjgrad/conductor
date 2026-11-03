@@ -23,6 +23,8 @@ export interface AdvisorFilter {
   /** host/org/repo; matched case-insensitively. */
   repo?: string | undefined;
   workflowId?: string | undefined;
+  /** P2: one session only (the analyst job's digest). */
+  sessionId?: string | undefined;
   now?: Date;
 }
 
@@ -34,16 +36,26 @@ export interface LoadedRows extends AdvisorRows {
 
 const iso = (d: Date | null): string | null => (d === null ? null : d.toISOString());
 
-/** The session and ticket filter every query shares: $1 account, $2 since, $3 repo, $4 workflow. */
+/**
+ * The session and ticket filter every query shares: $1 account, $2 since, $3 repo, $4 workflow,
+ * $6 session ($5 is the row limit).
+ */
 const SCOPE =
   'FROM session s JOIN ticket t ON t.id = s.ticket_id ' +
   'WHERE s.account_id = $1 AND ($3::text IS NULL OR lower(t.repo) = lower($3)) ' +
-  'AND ($4::text IS NULL OR s.workflow_id = $4)';
+  'AND ($4::text IS NULL OR s.workflow_id = $4) AND ($6::uuid IS NULL OR s.id = $6)';
 
 export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<LoadedRows> {
   const now = f.now ?? new Date();
   const since = new Date(now.getTime() - clampWindow(f.windowDays) * 86_400_000);
-  const args = [f.accountId, since, f.repo ?? null, f.workflowId ?? null, ROW_LIMIT];
+  const args = [
+    f.accountId,
+    since,
+    f.repo ?? null,
+    f.workflowId ?? null,
+    ROW_LIMIT,
+    f.sessionId ?? null,
+  ];
 
   const moves = await db.query<{
     session_id: string;

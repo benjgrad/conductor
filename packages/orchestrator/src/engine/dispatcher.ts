@@ -9,6 +9,7 @@ import {
 import { withTransaction, type Tx } from '../db/index.js';
 import type { OutboxRow } from '../db/types.js';
 import type { Db } from '../main.js';
+import { onAssistantJobAckTimeout } from '../advisor/insights.js';
 import { SCRUBBED_PAYLOAD_SQL } from './outbox.js';
 
 // Outbox dispatcher (M1-T04b; 10-contracts §Outbox state machine). Each due row is handled in
@@ -110,7 +111,7 @@ async function dispatchRow(
   }
 
   if (
-    row.kind === 'start_session' &&
+    (row.kind === 'start_session' || row.kind === 'assistant_job') &&
     row.status === 'sent' &&
     row.attempts >= START_SESSION_ACK_ATTEMPTS
   ) {
@@ -121,6 +122,11 @@ async function dispatchRow(
       [id],
     );
     stats.ackTimeouts++;
+    // ADR-0033 P2: an analyst job is not the engine's; it just fails (never retried).
+    if (u.rowCount === 1 && row.kind === 'assistant_job') {
+      await onAssistantJobAckTimeout(tx, row.command_id);
+      return [];
+    }
     if (u.rowCount !== 1 || row.session_id === null) return [];
     const res = await deps.engine.applyEvent(
       row.session_id,

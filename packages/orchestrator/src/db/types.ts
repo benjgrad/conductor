@@ -72,6 +72,8 @@ export interface MachineRow {
   repo_allow: string[] | null;
   /** Repo patterns only this machine may take; DEFAULT '{}'. Ignored once revoked. */
   repo_exclusive: string[];
+  /** ADR-0033 P2: the known `register.features` (DAEMON_FEATURES) of the last register. */
+  features: string[];
   created_at: Date;
   updated_at: Date;
 }
@@ -566,6 +568,48 @@ export interface TicketScheduleRow {
   updated_at: Date;
 }
 
+/** ADR-0033 P2: one analyst job (migration 1762500000000). */
+export interface AssistantJobRow {
+  id: string;
+  /** uuid, FK account: the analysed session's account. */
+  account_id: string;
+  /** `session_insight` (CHECK). */
+  kind: string;
+  /** FK session (CASCADE): the session analysed. */
+  session_id: string;
+  /** FK ticket (CASCADE). */
+  ticket_id: string;
+  schema_version: number;
+  /** FK machine (CASCADE): where it runs (the machine that ran the session). */
+  machine_id: string;
+  /** The outbox row's command_id (unique). */
+  command_id: string;
+  /** `queued` · `sent` · `done` · `failed` · `dropped` (CHECK). */
+  status: string;
+  /** Why it failed or was dropped (≤ 500 chars). */
+  error: string | null;
+  /** `insight:<session_id>:<schema_version>` (unique): never two jobs for one. */
+  idempotency_key: string;
+  created_at: Date;
+  finished_at: Date | null;
+}
+
+/** ADR-0033 P2: a validated analyst result (migration 1762500000000). Kept 180 days. */
+export interface SessionInsightRow {
+  id: string;
+  account_id: string;
+  /** FK session (CASCADE). Unique with schema_version. */
+  session_id: string;
+  /** FK ticket (CASCADE). */
+  ticket_id: string;
+  schema_version: number;
+  machine_id: string | null;
+  model: string;
+  /** A SessionInsight (`@conductor/shared`), re-validated before it was stored. */
+  insight: Record<string, unknown>;
+  created_at: Date;
+}
+
 /** Table name → row type, for generic repository helpers. */
 export interface Tables {
   machine: MachineRow;
@@ -595,4 +639,6 @@ export interface Tables {
   oauth_token: OAuthTokenRow;
   repo_checks: RepoChecksRow;
   ticket_schedule: TicketScheduleRow;
+  assistant_job: AssistantJobRow;
+  session_insight: SessionInsightRow;
 }

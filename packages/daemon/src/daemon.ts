@@ -426,6 +426,18 @@ export class Daemon {
         }
         return;
       }
+      case 'assistant_job':
+        // ADR-0033 P2 is Rust-only (ADR-0026 freeze): this daemon never advertises the
+        // `assistant_job` feature, so it is never sent one; refuse it if it ever is.
+        this.sendRaw({
+          type: 'command_ack',
+          msg_id: randomUUID(),
+          seq: null,
+          session_id: null,
+          fencing_token: null,
+          payload: { command_id: msg.payload.command_id, accepted: false, reason: 'unsupported' },
+        });
+        return;
       case 'fetch_transcript':
         this.sendMachine(
           'transcript',

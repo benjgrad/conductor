@@ -10,7 +10,10 @@ import {
   FakeEngineService,
   InMemoryBoardBus,
   InMemoryOutputBus,
+  type BoardBus,
   type EngineService,
+  type OutputBus,
+  type TranscriptSource,
 } from '../../src/contracts.js';
 import type { ApiHandle } from '../../src/main.js';
 
@@ -63,12 +66,17 @@ export async function startApi(opts: {
   engine?: EngineService;
   /** Any other createApi option (M2-T17: sockets, installUrl, servedVersion). */
   api?: Partial<ApiOptions>;
+  /** Default: fresh in-memory buses (ADR-0031's MCP tests publish and read them). */
+  boardBus?: BoardBus;
+  outputBus?: OutputBus;
+  transcripts?: TranscriptSource;
 }): Promise<TestApi> {
   const api = createApi({
     db: opts.db,
     engine: opts.engine ?? new FakeEngineService(),
-    boardBus: new InMemoryBoardBus(),
-    outputBus: new InMemoryOutputBus(),
+    boardBus: opts.boardBus ?? new InMemoryBoardBus(),
+    outputBus: opts.outputBus ?? new InMemoryOutputBus(),
+    ...(opts.transcripts ? { transcripts: opts.transcripts } : {}),
     auth: opts.auth,
     security: {},
     ...(opts.trustedProxy !== undefined ? { trustedProxy: opts.trustedProxy } : {}),

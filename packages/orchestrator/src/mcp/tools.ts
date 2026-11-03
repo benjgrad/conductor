@@ -6,7 +6,9 @@ import {
   checksGatesOf,
   TicketKindSchema,
   httpForApplyResult,
+  latestPlanEntry,
   transitionsOf,
+  type BoardCard,
   type EngineEvent,
   type EngineRoute,
   type SessionDetail,
@@ -18,9 +20,10 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { AuthConfig } from '../auth/config.js';
 import type { RequestAuth } from '../auth/middleware.js';
-import type { BoardBus, EngineService, OutputBus } from '../contracts.js';
+import type { BoardBus, EngineService, OutputBus, TranscriptSource } from '../contracts.js';
 import type { Db } from '../main.js';
 import { listMachineRows } from '../api/machines.js';
+import { sendOperatorMessage } from '../api/messages.js';
 import { loadBoard, loadWorkflowDetail } from '../api/queries.js';
 import {
   clearRepoChecks,
@@ -34,7 +37,10 @@ import { pathString } from '../api/errors.js';
 import { createTicket } from '../api/tickets.js';
 import { reopenSession } from '../engine/reopen.js';
 import { conductorDefaultAvailable, newestShippedConductor } from '../engine/seed.js';
+import { maxBoardEventId } from '../stream/board.js';
 import { capJson, TRUNCATED } from './cap.js';
+import { WAITING_ON_USER, statusLine, statusReport, waitingOn, type WaitingOn } from './status.js';
+import { waitForUpdates, type ChangeRow } from './updates.js';
 
 // ADR-0028: the MCP tools, one McpServer per request bound to the caller (stateless). Each tool
 // is scoped to the token's account: another account's ticket is "not found", like an unknown
@@ -45,8 +51,11 @@ import { capJson, TRUNCATED } from './cap.js';
 // per-repo checks (list/get/set/clear_repo_checks), reading the workflow (get_workflow), and
 // saving it (save_workflow, adopt_default_workflow; ADR-0030 §Amendment: instance admins or local
 // mode only, because workflows are instance-wide, and never weakening `requires.approvals`).
+// ADR-0031 (conversational clients): `waiting_on` and a status report in get_ticket, the agent's
+// plan, results, output and transcript (get_ticket_artifacts), messages to a working agent
+// (message_agent) and a long poll for changes (wait_for_updates).
 // Never exposed: approvals (`ui.approve`, a transition's `requires.approvals`), permission prompts
-// (ADR-0023), fresh conversations, machine enrollment, team and admin, transcripts and output.
+// (ADR-0023), fresh conversations, machine enrollment, team and admin.
 
 export interface ToolDeps {
   db: Db;
@@ -56,17 +65,18 @@ export interface ToolDeps {
   auth: AuthConfig;
   /** The public origin, for links. */
   issuer: string;
+  /** ADR-0008: the daemons' transcripts (get_ticket_artifacts `transcript`); absent → offline. */
+  transcripts?: TranscriptSource;
 }
 
 export const MCP_INSTRUCTIONS =
-  'conductor runs Claude Code agents on tickets that move across a board. Start with ' +
-  'list_tickets (needs_input=true shows what waits on the user) or search_tickets. Ticket refs ' +
-  'accept the full id or its first 8 characters. Call get_ticket before answer_input or ' +
-  'take_transition: it shows the open question and the allowed transition names. Approvals and ' +
-  'agent permission prompts are answered on the board, not here. A repo whose build or tests ' +
-  "don't fit the workflow's default checks gets its own with set_repo_checks (get_repo_checks " +
-  'shows what runs now); get_workflow shows the workflow itself, and admins change it with ' +
-  'save_workflow.';
+  'conductor runs Claude Code agents on tickets across a board. Start with list_tickets ' +
+  '(needs_input=true: what waits on the user) or search_tickets; refs take the id or its first ' +
+  '8 characters. get_ticket gives waiting_on (read it, not status), a status_report, the open ' +
+  'question and the allowed transitions. Then answer_input, take_transition, or message_agent ' +
+  'to talk to a working agent. get_ticket_artifacts reads the plan, results and output; ' +
+  'wait_for_updates waits for the next change. Approvals and permission prompts stay on the ' +
+  'board. Repo checks: set_repo_checks; workflows: get_workflow.';
 
 /** ADR-0030: how a repo check runs, for the tools' descriptions. */
 const REPO_CHECKS_HOW =
@@ -213,6 +223,71 @@ async function openInputRequestId(db: Db, sessionId: string): Promise<string | n
 
 const readOnly = { readOnlyHint: true, openWorldHint: false } as const;
 
+/**
+ * get_ticket_artifacts `transcript`: the conversation (assistant and user text), newest page
+ * first. `cursor` = how many of the newest chunks earlier pages returned; each page holds the
+ * chunks before them that fit in ARTIFACT_PAGE characters, oldest first.
+ */
+export function transcriptPage(
+  chunks: { stream: string; text: string; ts: string }[],
+  cursor: number,
+) {
+  const said = chunks.filter((c) => c.stream === 'assistant' || c.stream === 'user');
+  let end = said.length - Math.min(cursor, said.length);
+  const page: { from: string; text: string; at: string }[] = [];
+  let used = 0;
+  while (end > 0) {
+    const c = said[end - 1]!;
+    const text = c.text.length > ARTIFACT_PAGE ? '…' + c.text.slice(-(ARTIFACT_PAGE - 1)) : c.text;
+    if (page.length > 0 && used + text.length > ARTIFACT_PAGE) break;
+    page.unshift({ from: c.stream === 'user' ? 'user' : 'agent', text, at: c.ts });
+    used += text.length;
+    end--;
+  }
+  return { messages: page, next_cursor: end > 0 ? said.length - end : null, total: said.length };
+}
+
+/** get_ticket_artifacts: characters per page of a plan, a result or the transcript. */
+export const ARTIFACT_PAGE = 6000;
+/** get_ticket_artifacts `results`: each state's result, as JSON, in the overview. */
+const RESULT_CLIP = 1500;
+/** wait_for_updates: the longest wait, under nginx's and the clients' timeouts. */
+export const WAIT_MAX_SECONDS = 50;
+
+/** One page of `text` from character `cursor`: `next_cursor` null at the end. */
+export function pageOf(text: string, cursor: number, size = ARTIFACT_PAGE) {
+  const start = Math.min(Math.max(0, cursor), text.length);
+  const end = Math.min(text.length, start + size);
+  return {
+    text: text.slice(start, end),
+    cursor: start,
+    next_cursor: end < text.length ? end : null,
+    total_chars: text.length,
+  };
+}
+
+/** The approval-gated buttons by the card's own active approvals (lists: no workflow at hand). */
+const gatedOfCard = (c: Pick<BoardCard, 'human_transitions'>): Set<string> =>
+  new Set(c.human_transitions.filter((h) => (h.approvals?.length ?? 0) > 0).map((h) => h.name));
+
+/**
+ * ADR-0031 (FR6): a handler that throws still answers with conductor's JSON tool error, never a
+ * bare message, so a client sees `{error: {code: 'internal'}}` like any other refusal.
+ */
+export function guard<A extends unknown[]>(
+  name: string,
+  fn: (...args: A) => Promise<ToolResult>,
+): (...args: A) => Promise<ToolResult> {
+  return async (...args: A) => {
+    try {
+      return await fn(...args);
+    } catch (err) {
+      console.error(`[mcp] ${name}:`, err);
+      return fail('internal', `${name} failed on the server; try again, or open the board.`);
+    }
+  };
+}
+
 export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
   const { db, engine, outputBus } = deps;
   const accountId = who.scope.account_id;
@@ -220,6 +295,10 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     { name: 'conductor', version: '1.0.0' },
     { instructions: MCP_INSTRUCTIONS },
   );
+  // Every tool is registered for every caller, in the same order (ADR-0031 FR6: a stable list);
+  // a tool a caller may not use refuses at call time instead.
+  const register = ((name: string, config: never, cb: (...a: unknown[]) => Promise<ToolResult>) =>
+    server.registerTool(name, config, guard(name, cb))) as typeof server.registerTool;
 
   /** Apply one engine event and turn the outcome into a tool result. */
   const apply = async (route: EngineRoute, sessionId: string, event: EngineEvent) => {
@@ -240,15 +319,19 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     return { ticket: t, sessionId: sid };
   };
 
-  server.registerTool(
+  register(
     'list_tickets',
     {
       title: 'List tickets',
       description:
-        'The account’s tickets, most recently updated first: id, title, board column, state, ' +
-        'status, and the open question when one waits on the user. Open tickets by default.',
+        'The account’s tickets, most recently updated first: id, title, column, state, ' +
+        'waiting_on (you, you_on_board, agent, checks, machine, nobody) and any open question. ' +
+        'Open tickets by default.',
       inputSchema: {
-        needs_input: z.boolean().optional().describe('Only tickets waiting on the user'),
+        needs_input: z
+          .boolean()
+          .optional()
+          .describe('Only tickets waiting on the user (waiting_on you or you_on_board)'),
         column: z.string().max(60).optional().describe('Only this board column id'),
         kind: TicketKindSchema.optional().describe('Only work or personal tickets'),
         repo: z.string().max(200).optional().describe('Only this repo (host/org/repo)'),
@@ -269,13 +352,16 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         ),
       ]);
       const wanted = status === 'all' ? null : STATUS_FILTER[status ?? 'open'];
+      const statusOf = new Map(own.rows.map((r) => [r.id, r.status]));
       const mine = new Set(
         own.rows.filter((r) => wanted === null || wanted.has(r.status)).map((r) => r.id),
       );
+      const waiting = (c: BoardCard): WaitingOn =>
+        waitingOn(c, { gated: gatedOfCard(c), ticketStatus: statusOf.get(c.ticket_id)! });
       const rows = board.columns
         .flatMap((c) => c.cards)
         .filter((c) => mine.has(c.ticket_id))
-        .filter((c) => needs_input === undefined || (c.input_request !== null) === needs_input)
+        .filter((c) => needs_input === undefined || WAITING_ON_USER.has(waiting(c)) === needs_input)
         .filter((c) => column === undefined || c.column === column)
         .filter((c) => kind === undefined || c.kind === kind)
         .filter((c) => repo === undefined || c.repo.toLowerCase() === repo.trim().toLowerCase())
@@ -287,9 +373,10 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         column: c.column,
         state: c.workflow_state,
         status: c.status,
+        waiting_on: waiting(c),
         kind: c.kind,
         repo: c.repo,
-        needs_input: c.input_request !== null,
+        needs_input: WAITING_ON_USER.has(waiting(c)),
         ...(c.input_request ? { question: clip(c.input_request.question, QUESTION_MAX) } : {}),
         ...(c.pr_url ? { pr_url: c.pr_url } : {}),
         updated_at: c.updated_at,
@@ -298,7 +385,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     },
   );
 
-  server.registerTool(
+  register(
     'search_tickets',
     {
       title: 'Search tickets',
@@ -351,7 +438,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     },
   );
 
-  server.registerTool(
+  register(
     'list_machines',
     {
       title: 'List machines',
@@ -393,13 +480,14 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     },
   );
 
-  server.registerTool(
+  register(
     'get_ticket',
     {
       title: 'Get a ticket',
       description:
-        'One ticket: its body, column and state, the open question (with input_request_id), the ' +
-        'transitions the user can take now, recent moves and the PR.',
+        'One ticket: waiting_on (read it, not status), status_line, status_report, the open ' +
+        'question (input_request_id), the transitions the user can take, recent moves, the PR, ' +
+        'the body, and a cursor for wait_for_updates.',
       inputSchema: { ticket: z.string().max(64).describe('Ticket id or its first 8 characters') },
       annotations: readOnly,
     },
@@ -415,6 +503,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
           status: string;
         }>('SELECT repo, body, kind, status FROM ticket WHERE id = $1', [t.id]);
         const row = r.rows[0]!;
+        const waiting: WaitingOn =
+          row.status === 'done' || row.status === 'cancelled' ? 'nobody' : 'machine';
         return ok({
           id: t.id,
           title: t.title,
@@ -422,19 +512,36 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
           kind: row.kind,
           column: 'queued',
           status: row.status,
+          waiting_on: waiting,
+          status_line:
+            waiting === 'nobody'
+              ? 'Finished: nothing runs.'
+              : 'Queued: waiting for a machine to start it.',
+          cursor: await maxBoardEventId(db),
           body: clip(row.body, BODY_MAX),
         });
       }
       const d = (await loadSessionDetail(db, outputBus, sid))!;
       const gated = approvalGated(d);
+      const waiting = waitingOn(d.card, { gated });
+      const state = d.card.workflow_state;
+      const line = statusLine({
+        card: d.card,
+        waiting,
+        stateTitle: state === null ? null : (d.workflow.states[state]?.title ?? state),
+        minutesInState: (Date.now() - Date.parse(d.state_entered_at)) / 60_000,
+      });
       return ok({
         id: t.id,
         title: d.card.title,
         repo: d.card.repo,
         kind: d.card.kind,
         column: d.card.column,
-        state: d.card.workflow_state,
+        state,
         status: d.card.status,
+        waiting_on: waiting,
+        status_line: line,
+        status_report: statusReport(d, line),
         session_id: sid,
         open_question: d.pending_input
           ? { input_request_id: d.pending_input.id, question: d.pending_input.question }
@@ -448,12 +555,117 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         pr_url: d.card.pr_url,
         spend_usd: d.spend_usd,
         recent_moves: (d.moves ?? []).slice(-5),
+        ...(waiting === 'you_on_board' ? { url: `${deps.issuer}/#/?ticket=${t.id}` } : {}),
+        cursor: await maxBoardEventId(db),
         body: clip(d.ticket_body ?? '', BODY_MAX),
       });
     },
   );
 
-  server.registerTool(
+  register(
+    'get_ticket_artifacts',
+    {
+      title: 'Read what the agent produced',
+      description:
+        'What the agent wrote. what=plan (default): the plan and its summary; results: each ' +
+        'step’s result (`state`: one in full); output: the live tail; transcript: the whole ' +
+        'conversation. Long text is paged: pass next_cursor as `cursor`. PR diff: open pr_url.',
+      inputSchema: {
+        ticket: z.string().max(64),
+        what: z.enum(['plan', 'results', 'output', 'transcript']).optional(),
+        state: z.string().min(1).max(100).optional().describe('results: one step in full'),
+        cursor: z.number().int().min(0).optional().describe('From next_cursor'),
+      },
+      annotations: readOnly,
+    },
+    async ({ ticket, what, state, cursor }) => {
+      const s = await sessionOf(ticket);
+      if ('error' in s) return s.error;
+      const d = (await loadSessionDetail(db, outputBus, s.sessionId))!;
+      const head = { id: s.ticket.id, what: what ?? 'plan', state: d.card.workflow_state };
+      switch (what ?? 'plan') {
+        case 'plan': {
+          const entry = latestPlanEntry(d);
+          if (entry === null) {
+            return ok({ ...head, plan: null, message: 'No plan yet: no step has written one.' });
+          }
+          const values = d.context[entry.from_state] as Record<string, unknown>;
+          const text =
+            typeof entry.plan === 'string' ? entry.plan : JSON.stringify(entry.plan, null, 1);
+          const page = pageOf(text, cursor ?? 0);
+          return ok({
+            ...head,
+            from_state: entry.from_state,
+            summary: typeof values.summary === 'string' ? clip(values.summary, 600) : null,
+            plan: page.text,
+            cursor: page.cursor,
+            next_cursor: page.next_cursor,
+            total_chars: page.total_chars,
+          });
+        }
+        case 'results': {
+          // `__`-prefixed keys are conductor's own bookkeeping (e.g. `__qa`), not step results.
+          const steps = Object.entries(d.context).filter(([k]) => !k.startsWith('__'));
+          if (state !== undefined) {
+            const found = steps.find(([k]) => k === state);
+            if (found === undefined) {
+              return fail(
+                'not_found',
+                `No result from ${state}. Steps with results: ${steps.map(([k]) => k).join(', ') || 'none'}.`,
+              );
+            }
+            const page = pageOf(JSON.stringify(found[1], null, 1), cursor ?? 0);
+            const { text, ...paging } = page;
+            return ok({ ...head, step: state, result: text, ...paging });
+          }
+          return ok({
+            ...head,
+            results: Object.fromEntries(
+              steps.map(([k, v]) => [k, clip(JSON.stringify(v), RESULT_CLIP)]),
+            ),
+          });
+        }
+        case 'output': {
+          const text = d.recent_output
+            .filter((c) => c.stream === 'assistant' || c.stream === 'user')
+            .map((c) => (c.stream === 'user' ? `\n[user] ${c.text}\n` : c.text))
+            .join('');
+          const tail = text.length <= ARTIFACT_PAGE ? text : '…' + text.slice(-ARTIFACT_PAGE);
+          return ok({
+            ...head,
+            output: tail,
+            output_complete: d.output_complete,
+            ...(d.output_complete
+              ? {}
+              : { hint: 'Older output is not in memory: what=transcript reads all of it.' }),
+          });
+        }
+        case 'transcript': {
+          const machine = d.card.machine_id;
+          if (machine === null || deps.transcripts === undefined) {
+            return fail('machine_offline', 'The ticket is not on a machine; try what=output.');
+          }
+          const res = await deps.transcripts.fetchTranscript(machine, s.sessionId);
+          if (res.status === 'offline') {
+            return fail('machine_offline', `Machine ${machine} is offline; try what=output.`);
+          }
+          if (res.status === 'timeout') {
+            return fail('timeout', `Machine ${machine} did not answer in time; try again.`);
+          }
+          if (res.status === 'error') {
+            return fail('not_found', `Machine ${machine} has no transcript (${res.error}).`);
+          }
+          return ok({
+            ...head,
+            ...transcriptPage(res.chunks, cursor ?? 0),
+            truncated: res.truncated,
+          });
+        }
+      }
+    },
+  );
+
+  register(
     'create_ticket',
     {
       title: 'Create a ticket',
@@ -484,7 +696,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     },
   );
 
-  server.registerTool(
+  register(
     'answer_input',
     {
       title: 'Answer a ticket’s question',
@@ -515,7 +727,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     },
   );
 
-  server.registerTool(
+  register(
     'take_transition',
     {
       title: 'Move a ticket',
@@ -562,7 +774,136 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     },
   );
 
-  server.registerTool(
+  register(
+    'message_agent',
+    {
+      title: 'Message the agent',
+      description:
+        'Send instructions or a correction to the ticket’s working agent (or ask it for a ' +
+        'report in its own words). Refused (question_open) while it waits on its question, ' +
+        'unless as_answer. A finished ticket needs reopen_ticket.',
+      inputSchema: {
+        ticket: z.string().max(64),
+        text: z.string().min(1).max(10_000),
+        as_answer: z
+          .boolean()
+          .optional()
+          .describe('Deliver as the answer to the agent’s open question'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    async ({ ticket, text, as_answer }) => {
+      const s = await sessionOf(ticket);
+      if ('error' in s) return s.error;
+      const d = (await loadSessionDetail(db, outputBus, s.sessionId))!;
+      const status = d.card.status;
+      if (status === 'done' || status === 'failed') {
+        return fail(
+          'wrong_state',
+          'The agent has finished; reopen_ticket sends it new instructions.',
+        );
+      }
+      if (d.pending_input !== null) {
+        if (as_answer !== true) {
+          return fail(
+            'question_open',
+            `The agent is waiting on its question: "${clip(d.pending_input.question, QUESTION_MAX)}". ` +
+              'Answer it with answer_input, or send this with as_answer: true.',
+            { input_request_id: d.pending_input.id },
+          );
+        }
+        const res = await apply('input', s.sessionId, {
+          type: 'input.provided',
+          input_request_id: d.pending_input.id,
+          answer: text,
+        });
+        return res.isError ? res : ok({ ok: true, delivered: 'answer', waiting_on: 'agent' });
+      }
+      const result = await sendOperatorMessage({ engine, outputBus }, s.sessionId, text);
+      if (result.status !== 'applied') {
+        const { code } = httpForApplyResult('message', result);
+        return fail(
+          code,
+          `No agent is working on it now (${status ?? 'queued'}, ${result.reason}); ` +
+            'get_ticket shows what it waits on.',
+        );
+      }
+      return ok({ ok: true, delivered: 'live', waiting_on: 'agent' });
+    },
+  );
+
+  register(
+    'wait_for_updates',
+    {
+      title: 'Wait for changes',
+      description:
+        'Wait until the account’s tickets (or `ticket`) change, then return each changed one as ' +
+        'it is now. Without `since`: the cursor at once. Call again with the returned cursor; ' +
+        'timed_out: no change (timeout_seconds, default 25).',
+      inputSchema: {
+        since: z.number().int().min(0).optional().describe('The cursor from the last call'),
+        ticket: z.string().max(64).optional(),
+        needs_you_only: z.boolean().optional().describe('Only changes that wait on the user'),
+        timeout_seconds: z.number().int().min(0).max(WAIT_MAX_SECONDS).optional(),
+      },
+      annotations: readOnly,
+    },
+    async ({ since, ticket, needs_you_only, timeout_seconds }, extra) => {
+      let ticketId: string | null = null;
+      if (ticket !== undefined) {
+        const t = await resolveTicket(db, accountId, ticket);
+        if ('error' in t) return t.error;
+        ticketId = t.id;
+      }
+      if (since === undefined) {
+        return ok({ cursor: await maxBoardEventId(db), changes: [], timed_out: false });
+      }
+      const res = await waitForUpdates(deps, {
+        accountId,
+        since,
+        ticketId,
+        timeoutMs: (timeout_seconds ?? 25) * 1000,
+        signal: extra.signal,
+        present: async (changed) => {
+          const board = await loadBoard(db);
+          const cards = new Map(board.columns.flatMap((c) => c.cards).map((c) => [c.ticket_id, c]));
+          const statuses = await db.query<{ id: string; status: TicketStatus }>(
+            'SELECT id, status FROM ticket WHERE id = ANY($1)',
+            [changed.map((c) => c.ticket_id)],
+          );
+          const statusOf = new Map(statuses.rows.map((r) => [r.id, r.status]));
+          const rows: ChangeRow[] = [];
+          for (const ch of changed) {
+            const c = cards.get(ch.ticket_id);
+            if (c === undefined) continue;
+            const waiting = waitingOn(c, {
+              gated: gatedOfCard(c),
+              ticketStatus: statusOf.get(c.ticket_id)!,
+            });
+            if (needs_you_only === true && !WAITING_ON_USER.has(waiting)) continue;
+            rows.push({
+              id: c.ticket_id,
+              short_id: c.ticket_id.slice(0, 8),
+              title: clip(c.title, TITLE_MAX),
+              column: c.column,
+              state: c.workflow_state,
+              waiting_on: waiting,
+              status_line: statusLine({ card: c, waiting }),
+              ...(c.input_request
+                ? { question: clip(c.input_request.question, QUESTION_MAX) }
+                : {}),
+              ...(c.pr_url ? { pr_url: c.pr_url } : {}),
+              changed_at: ch.changed_at,
+            });
+          }
+          return rows;
+        },
+      });
+      return ok(res);
+    },
+  );
+
+  register(
     'reopen_ticket',
     {
       title: 'Reopen a ticket',
@@ -588,7 +929,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     },
   );
 
-  server.registerTool(
+  register(
     'cancel_ticket',
     {
       title: 'Cancel a ticket',
@@ -622,7 +963,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     .max(200)
     .describe('host/org/repo, e.g. github.com/acme/app');
 
-  server.registerTool(
+  register(
     'list_repo_checks',
     {
       title: 'List repo checks',
@@ -635,7 +976,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     async () => ok(await listRepoChecks(db, accountId)),
   );
 
-  server.registerTool(
+  register(
     'get_repo_checks',
     {
       title: 'Get a repo’s checks',
@@ -649,7 +990,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     async ({ repo }) => ok(await getRepoChecks(db, accountId, repo)),
   );
 
-  server.registerTool(
+  register(
     'set_repo_checks',
     {
       title: 'Set a repo’s checks',
@@ -680,7 +1021,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     },
   );
 
-  server.registerTool(
+  register(
     'clear_repo_checks',
     {
       title: 'Clear a repo’s checks',
@@ -697,7 +1038,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     },
   );
 
-  server.registerTool(
+  register(
     'get_workflow',
     {
       title: 'Get the workflow',
@@ -813,7 +1154,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     });
   };
 
-  server.registerTool(
+  register(
     'save_workflow',
     {
       title: 'Save a workflow',
@@ -861,7 +1202,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     },
   );
 
-  server.registerTool(
+  register(
     'adopt_default_workflow',
     {
       title: 'Adopt the newest default workflow',

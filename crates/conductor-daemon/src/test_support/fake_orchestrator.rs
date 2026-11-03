@@ -238,9 +238,10 @@ impl FakeOrchestrator {
                     f(&msg)
                 }
                 DaemonToOrchestrator::SessionEvent { seq, .. }
-                | DaemonToOrchestrator::PermissionRequest { seq, .. } => {
+                | DaemonToOrchestrator::PermissionRequest { seq, .. }
+                | DaemonToOrchestrator::AssistantResult { seq, .. } => {
                     // Mirror machine.last_seq: the highest processed seq (ADR-0023:
-                    // permission_request too).
+                    // permission_request too; ADR-0033: assistant_result).
                     if inner.last_seq.is_none_or(|l| *seq > l) {
                         inner.last_seq = Some(*seq);
                     }

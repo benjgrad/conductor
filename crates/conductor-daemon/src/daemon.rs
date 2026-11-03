@@ -66,7 +66,8 @@ use crate::commands::runner::{
 };
 use crate::config::{DaemonConfig, machine_facts};
 use crate::inventory::report::{
-    InventoryReporter, InventoryScan, RESCAN_POLL, ScanFn, scan_inventory, watch_rescan_trigger,
+    InventoryReporter, InventoryScan, ONCE_LOG_CAP, RESCAN_POLL, ScanFn, once_log, scan_inventory,
+    watch_rescan_trigger,
 };
 use crate::orphan::{ProcFacts, ProcInfo, StoredAgent, check_ours, read_proc_info};
 use crate::platform::{self, Liveness, Platform, Signal, machine, mkdir_private, pid_liveness};
@@ -2700,7 +2701,8 @@ impl Daemon {
             None => {
                 let config = config.clone();
                 let env = env.clone();
-                let log = log.clone();
+                // Scan warnings repeat on every rescan: print each one once per process.
+                let log = once_log(log.clone(), ONCE_LOG_CAP);
                 Arc::new(move || {
                     let (config, env, log) = (config.clone(), env.clone(), log.clone());
                     async move { Ok::<InventoryScan, String>(scan_inventory(&config, &env, log).await) }

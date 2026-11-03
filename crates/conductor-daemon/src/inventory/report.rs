@@ -15,13 +15,14 @@
 
 use crate::config::{DaemonConfig, read_file_config};
 use crate::inventory::capabilities::{ScanCapabilitiesOptions, scan_capabilities};
-use crate::inventory::repos::{Log, ScanReposOptions, js_str_cmp, scan_repos};
+use crate::inventory::repos::{Log, MAX_DEPTH, ScanReposOptions, js_str_cmp, scan_repos};
 use crate::platform::{self, machine};
 use conductor_protocol::{Capability, InventoryPayload, InventoryRepo, WorkingCopyMode};
 use futures_util::FutureExt;
 use futures_util::future::{BoxFuture, Shared};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -123,12 +124,11 @@ pub async fn scan_inventory(
             Default::default()
         }
     };
-    let mut repos_opts = ScanReposOptions::new(
-        config
-            .roots_override
-            .clone()
-            .unwrap_or_else(|| file.roots.iter().map(PathBuf::from).collect()),
-    );
+    let roots: Vec<PathBuf> = config
+        .roots_override
+        .clone()
+        .unwrap_or_else(|| file.roots.iter().map(PathBuf::from).collect());
+    let mut repos_opts = ScanReposOptions::new(roots.clone());
     repos_opts.modes = file
         .repos
         .iter()
@@ -139,6 +139,9 @@ pub async fn scan_inventory(
     repos_opts.env = Some(env.to_vec());
     repos_opts.log = log.clone();
     let repos = scan_repos(&repos_opts).await;
+    for w in repo_warnings(&roots, &repos) {
+        log(&w);
+    }
 
     let get = |k: &str| platform::spawn::env_get(env, k).filter(|v| !v.is_empty());
     // Claude Code keeps its user config (with user-scope MCP servers) next to the config dir when
@@ -163,6 +166,87 @@ pub async fn scan_inventory(
     }
 }
 
+/// Why tickets may not reach this machine, from the repo half of a scan: no roots, no repos under
+/// them, or a repo whose origin can't be routed. The daemon logs these through [`once_log`].
+pub fn repo_warnings(roots: &[PathBuf], repos: &[InventoryRepo]) -> Vec<String> {
+    if roots.is_empty() {
+        return vec![
+            "inventory: no repo roots configured, so no tickets can be routed here; run: conductor-daemon config roots <dir>"
+                .to_string(),
+        ];
+    }
+    if repos.is_empty() {
+        let list: Vec<String> = roots.iter().map(|r| r.display().to_string()).collect();
+        return vec![format!(
+            "inventory: no git repos found under {} (searched {MAX_DEPTH} levels deep)",
+            list.join(", ")
+        )];
+    }
+    repos
+        .iter()
+        .filter(|r| r.remote.is_none())
+        .map(|r| {
+            format!(
+                "inventory: {} has no usable origin remote; tickets can't be routed to it",
+                r.path.as_str()
+            )
+        })
+        .collect()
+}
+
+/// How many routable remotes the summary line names before `…`.
+pub const SUMMARY_REMOTES: usize = 10;
+
+/// The line logged when an inventory with a new hash is sent: which repos tickets can reach.
+pub fn inventory_summary(p: &InventoryPayload) -> String {
+    let mut remotes: Vec<&str> = Vec::new();
+    for r in &p.repos {
+        if let Some(remote) = r.remote.as_deref()
+            && !remotes.contains(&remote)
+        {
+            remotes.push(remote);
+        }
+    }
+    let routable = if remotes.is_empty() {
+        "0 routable".to_string()
+    } else {
+        let shown = remotes[..remotes.len().min(SUMMARY_REMOTES)].join(", ");
+        let more = if remotes.len() > SUMMARY_REMOTES {
+            ", …"
+        } else {
+            ""
+        };
+        format!("{} routable: {shown}{more}", remotes.len())
+    };
+    format!(
+        "inventory: sent {} repos ({routable}) and {} capabilities",
+        p.repos.len(),
+        p.capabilities.len()
+    )
+}
+
+/// Messages remembered by [`once_log`] before it forgets them all (memory stays bounded).
+pub const ONCE_LOG_CAP: usize = 1000;
+
+/// `log` that prints each distinct message once per process. Scans repeat every 10 minutes; their
+/// warnings (an invalid capability name, no roots, …) would otherwise repeat with them.
+pub fn once_log(log: Log, cap: usize) -> Log {
+    let seen: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
+    Arc::new(move |msg: &str| {
+        {
+            let mut s = seen.lock().unwrap_or_else(|e| e.into_inner());
+            if s.contains(msg) {
+                return;
+            }
+            if s.len() >= cap {
+                s.clear();
+            }
+            s.insert(msg.to_string());
+        }
+        log(msg);
+    })
+}
+
 /// What a reporter scans with. An error keeps the previous inventory.
 pub type ScanFn = Arc<dyn Fn() -> BoxFuture<'static, Result<InventoryScan, String>> + Send + Sync>;
 /// Where a reporter sends an `inventory` payload.
@@ -174,6 +258,7 @@ type Scanning = Shared<BoxFuture<'static, ()>>;
 struct State {
     latest: Option<InventoryPayload>,
     last_sent_hash: String,
+    last_logged_hash: String,
     connected: bool,
     scanning: Option<Scanning>,
     again: bool,
@@ -297,9 +382,19 @@ impl InventoryReporter {
                 return;
             };
             st.last_sent_hash = p.hash.to_string();
-            p
+            // Once per distinct inventory, not on every reconnect's resend.
+            let fresh = st.last_logged_hash != p.hash.as_str();
+            if fresh {
+                st.last_logged_hash = p.hash.to_string();
+            }
+            (p, fresh)
         };
+        let (payload, fresh) = payload;
+        let summary = fresh.then(|| inventory_summary(&payload));
         (self.inner.send)(payload);
+        if let Some(line) = summary {
+            (self.inner.log)(&line);
+        }
     }
 
     /// The running scan, or a new one (spawned, so it completes even if nobody awaits it).

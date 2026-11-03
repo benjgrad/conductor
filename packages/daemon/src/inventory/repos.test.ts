@@ -43,15 +43,18 @@ beforeEach(() => {
 afterEach(() => rmSync(tmp, { recursive: true, force: true }));
 
 describe('inventory repos (M2-T10)', () => {
-  it('finds repos at depth 1–4, not 5', async () => {
+  it('finds repos at depth 1–6, not 7', async () => {
     const d1 = repo(join(root, 'a'));
     const d2 = repo(join(root, 'b', 'r2'));
-    const d3 = repo(join(root, 'c', 'x', 'r3'));
     const d4 = repo(join(root, 'd', 'x', 'y', 'r4'));
-    repo(join(root, 'e', 'x', 'y', 'z', 'r5'));
-    expect(findWorkTrees([root]).sort()).toEqual([d1, d2, d3, d4].sort());
+    // e.g. ~/Documents/code/github.com/org/repo under a home-dir root
+    const d5 = repo(join(root, 'e', 'x', 'y', 'z', 'r5'));
+    const d6 = repo(join(root, 'f', 'x', 'y', 'z', 'w', 'r6'));
+    repo(join(root, 'g', 'x', 'y', 'z', 'w', 'v', 'r7'));
+    const want = [d1, d2, d4, d5, d6].sort();
+    expect(findWorkTrees([root]).sort()).toEqual(want);
     const repos = await scanRepos({ roots: [root] });
-    expect(repos.map((r) => r.path)).toEqual([d1, d2, d3, d4].sort());
+    expect(repos.map((r) => r.path)).toEqual(want);
   });
 
   it('skips node_modules, dot-directories and symlinks', async () => {

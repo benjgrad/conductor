@@ -10,13 +10,13 @@ import {
 import { gitRead } from './git.js';
 
 // The repo half of the inventory (M2-T10; ADR-0013 §Inventory, 10-contracts §Machines protocol
-// v2). Walks the configured roots for git work trees: depth ≤ 4, never through a symlink, skipping
+// v2). Walks the configured roots for git work trees: depth ≤ 6, never through a symlink, skipping
 // `node_modules` and dot-directories. Per repo it reads only refs and `remote.origin.url`, with
 // hooks off and no system config (gitRead); it runs no repo code. Remotes are canonicalised with
 // the shared `canonicalRepo` (TD-107: no copy of the grammar here).
 
 /** The deepest directory level a repo is found at (the root is 0). */
-export const MAX_DEPTH = 4;
+export const MAX_DEPTH = 6;
 /** Walk bounds: a huge home dir must not stall the daemon. */
 export const MAX_DIRS = 50_000;
 export const MAX_REPOS = 1_000;

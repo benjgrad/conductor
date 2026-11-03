@@ -444,7 +444,10 @@ impl AssistantJobRunner {
             .map_err(|e| OneshotError::ClaudeFailed(format!("temp dir: {e}")))?;
         let cwd = dir.path().join("cwd");
         let mcp = dir.path().join("mcp.json");
-        mkdir_private(&cwd)
+        // The job dir first (Windows refuses a private child of a dir that inherits its ACL, as
+        // a fresh temp dir does), then the empty cwd inside it.
+        mkdir_private(dir.path())
+            .and_then(|()| mkdir_private(&cwd))
             .and_then(|()| write_private_file(&mcp, EMPTY_MCP_CONFIG.as_bytes()))
             .map_err(|e| OneshotError::ClaudeFailed(format!("temp dir: {e}")))?;
         let args = build_oneshot_args(&job.model, &job.json_schema, &mcp);

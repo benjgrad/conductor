@@ -82,11 +82,10 @@ export const MCP_INSTRUCTIONS =
   'conductor runs Claude Code agents on tickets across a board. Start with list_tickets ' +
   '(needs_input=true: what waits on the user) or search_tickets; refs take the id or its first ' +
   '8 characters. get_ticket gives waiting_on (read it, not status), a status_report, the open ' +
-  'question and the allowed transitions. Then answer_input, take_transition, or message_agent ' +
-  'to talk to a working agent. get_ticket_artifacts reads the plan, results and output; ' +
-  'wait_for_updates waits for the next change. Approvals and permission prompts stay on the ' +
-  'board. Repo checks: set_repo_checks; workflows: get_workflow. Recurring jobs: ' +
-  'list_schedules / save_schedule.';
+  'question and the transitions. Then answer_input, take_transition, or message_agent to talk ' +
+  'to a working agent. get_ticket_artifacts reads the plan, results and output; ' +
+  'wait_for_updates waits for a change. Approvals and permission prompts stay on the board. ' +
+  'Also: set_repo_checks, get_workflow, save_schedule (recurring jobs).';
 
 /** ADR-0030: how a repo check runs, for the tools' descriptions. */
 const REPO_CHECKS_HOW =

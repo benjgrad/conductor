@@ -11,10 +11,10 @@
 //!   [`ASSISTANT_JOB_QUEUE_MAX`] jobs wait behind it, a further one is refused `light_slot_busy`;
 //! - its process tree killed at `timeout_ms` (at most 120 s).
 //!
-//! New in Rust (no TS counterpart: ADR-0026 froze the TS daemon). MR-T12 wires it in: dispatch an
-//! `assistant_job` to [`AssistantJobRunner::admit`] (ack it accepted, or refused
-//! `light_slot_busy`) then [`AssistantJobRunner::run`], and send the result as a durable
-//! `assistant_result`; register with `features: ["assistant_job"]`.
+//! New in Rust (no TS counterpart: ADR-0026 froze the TS daemon). The daemon core (`daemon.rs`,
+//! MR-T12) dispatches an `assistant_job` to [`AssistantJobRunner::admit`] (ack it accepted, or
+//! refused `light_slot_busy`) then [`AssistantJobRunner::run`], sends the result as a durable
+//! `assistant_result`, and registers with `features: ["assistant_job"]`.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -235,7 +235,7 @@ pub fn transcript_tail(chunks: &[TranscriptChunk], max_chars: usize) -> String {
 }
 
 /// The transcript of a Claude session that ran in `cwd` (ADR-0008), as chunks; None when the file
-/// is gone or unreadable. MR-T12 resolves `cwd` and the Claude session id from the daemon's store.
+/// is gone or unreadable. The daemon core resolves `cwd` and the Claude session id from its store.
 pub fn read_session_transcript(
     config_dir: &Path,
     cwd: &Path,

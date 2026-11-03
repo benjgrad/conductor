@@ -346,8 +346,10 @@ pub async fn scan_repos(opts: &ScanReposOptions) -> Vec<InventoryRepo> {
         .map(|(p, r)| (real_or_self(p), r.clone()))
         .collect();
     let aliases = &aliases;
-    let mut out: Vec<InventoryRepo> = futures_util::stream::iter(dirs.iter())
-        .map(|dir| async move { scan_repo(dir, opts, aliases).await })
+    // Owned items: a stream of `&PathBuf` makes the future fail rustc's higher-ranked `Send`
+    // check (rust-lang/rust#102211), and the daemon core spawns the scan (MR-T12).
+    let mut out: Vec<InventoryRepo> = futures_util::stream::iter(dirs.iter().cloned())
+        .map(|dir: PathBuf| async move { scan_repo(&dir, opts, aliases).await })
         .buffer_unordered(CONCURRENCY)
         .filter_map(|r| async move { r })
         .collect()

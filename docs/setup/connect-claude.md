@@ -41,13 +41,17 @@ Connectors added on claude.ai also show up in Claude Desktop for the same Claude
 | `get_repo_checks` | What runs before a repo's PR opens: its own checks, or the workflow's |
 | `set_repo_checks` | Give a repo its own checks (e.g. `cd m-one && npm ci && npm run build`); they replace the workflow's build and test for that repo |
 | `clear_repo_checks` | Go back to the workflow's checks for a repo |
+| `list_schedules` | Your recurring jobs: when each runs next, its last run's ticket, and why a run was skipped |
+| `save_schedule` | Create or edit a recurring job: a cron (`0 9 * * 1-5` = weekdays at 09:00) and timezone, the ticket's title, instructions and repo, and the machines it runs on (e.g. your work laptop, for its skills and plugins). `enabled: false` pauses it |
+| `delete_schedule` | Remove a recurring job (its past tickets stay) |
+| `run_schedule_now` | Run a recurring job now, without moving its next run |
 | `get_workflow` | The workflow: its states and transitions, or one state in full |
 | `save_workflow` | Save a new version of a workflow (instance admins only: it changes the workflow for every account). It can't remove an approval |
 | `adopt_default_workflow` | Replace your edits with the newest shipped `conductor` workflow (instance admins only) |
 
 A move that needs an approval checkbox (such as a migration approval), and an agent's permission prompts, are answered on the board only: Claude gets the card's link instead.
 
-Things to try: "What's waiting on me in conductor?", "What's the plan on c63433c0?", "Tell the agent on c63433c0 to also update the README", "Give me a status report on c63433c0", "Wait until something needs me".
+Things to try: "What's waiting on me in conductor?", "What's the plan on c63433c0?", "Tell the agent on c63433c0 to also update the README", "Give me a status report on c63433c0", "Wait until something needs me", "Every weekday at 9, have my work laptop bring my PRs and Jira tickets up to date".
 
 A ticket can be referred to by its id or its first 8 characters. Every connection can read and write your tickets; your Claude client asks before it runs a tool unless you allow it.
 

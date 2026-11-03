@@ -104,6 +104,12 @@ export const API_PATHS = {
    * PutRepoChecksRequest → RepoChecksDto; DELETE DeleteRepoChecksRequest → OkResponse.
    */
   repoChecks: '/api/repo-checks',
+  /** ADR-0032: GET → ScheduleListResponse; POST CreateScheduleRequest → 201 ScheduleDto. */
+  schedules: '/api/schedules',
+  /** ADR-0032: GET → ScheduleDto; PATCH UpdateScheduleRequest → ScheduleDto; DELETE `{}` → OkResponse. */
+  schedule: (id: string) => `/api/schedules/${id}`,
+  /** ADR-0032: POST RunScheduleRequest → 201 RunScheduleResponse (a run now). */
+  scheduleRun: (id: string) => `/api/schedules/${id}/run`,
   boardStream: '/api/stream/board',
   sessionOutputStream: (id: string) => `/api/stream/sessions/${id}/output`,
   /** Daemon ↔ orchestrator WebSocket (03), served on the same HTTP server as the API. */
@@ -524,6 +530,10 @@ export const BoardCardPermissionSchema = z.object({
 });
 export type BoardCardPermission = z.infer<typeof BoardCardPermissionSchema>;
 
+/** ADR-0032: a ticket's schedule (TicketDto / BoardCard `schedule`); null = not from a schedule. */
+export const TicketScheduleRefSchema = z.object({ id: UuidSchema, name: z.string() });
+export type TicketScheduleRef = z.infer<typeof TicketScheduleRefSchema>;
+
 /** One card. A ticket with no session yet has `session_id: null` and `status: null`. */
 export const BoardCardSchema = z.object({
   ticket_id: UuidSchema,
@@ -583,6 +593,8 @@ export const BoardCardSchema = z.object({
    * null / absent ≡ not assigned yet (queued, or a ticket from before UX-13a).
    */
   agent_name: z.string().nullable().optional(),
+  /** ADR-0032: the schedule that created the ticket; null / absent ≡ none. */
+  schedule: TicketScheduleRefSchema.nullable().optional(),
 });
 export type BoardCard = z.infer<typeof BoardCardSchema>;
 
@@ -994,6 +1006,8 @@ export const ApiErrorSchema = z.object({
       'push_disabled',
       /** PATCH /api/tickets/:id while the card's column doesn't allow it (`ticket_editable`) (403). */
       'ticket_not_editable',
+      /** ADR-0032: a run now while the schedule's last run is still open, without `force` (409). */
+      'previous_run_open',
     ]),
     message: z.string(),
     /** Validation details (zod issues / validator rule failures). */
@@ -1066,6 +1080,10 @@ export const TicketDtoSchema = z.object({
   warnings: z.array(TicketWarningSchema).optional(),
   /** UX-13a: the ticket's teammate; null / absent ≡ not assigned yet. */
   agent_name: z.string().nullable().optional(),
+  /** ADR-0032: the schedule that created the ticket; null / absent ≡ none. */
+  schedule: TicketScheduleRefSchema.nullable().optional(),
+  /** ADR-0032: the run time it was created for; null / absent ≡ not from a schedule. */
+  scheduled_for: IsoDateTimeSchema.nullable().optional(),
 });
 export type TicketDto = z.infer<typeof TicketDtoSchema>;
 
@@ -1347,6 +1365,9 @@ export interface CardTicketLike {
   kind?: TicketKind | null;
   /** UX-13a: the agent's name (joined from `agent`); absent ≡ the card omits `agent_name`. */
   agent_name?: string | null;
+  /** ADR-0032: `ticket.schedule_id` and the schedule's name (joined); absent ≡ omitted. */
+  schedule_id?: string | null;
+  schedule_name?: string | null;
   title: string;
   external_ref: string | null;
   repo: string;
@@ -1468,6 +1489,9 @@ export function toBoardCard(
     created_at: iso(ticket.created_at),
     updated_at: sUpd > tUpd ? sUpd : tUpd,
     ...(ticket.agent_name !== undefined ? { agent_name: ticket.agent_name } : {}),
+    ...(ticket.schedule_id != null
+      ? { schedule: { id: ticket.schedule_id, name: ticket.schedule_name ?? '' } }
+      : {}),
   };
 }
 

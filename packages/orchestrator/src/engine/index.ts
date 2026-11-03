@@ -7,9 +7,15 @@ import { webPushSender, type PushSender } from '../push/sender.js';
 import { dispatchOnce, type DispatchStats } from './dispatcher.js';
 import { EngineServiceImpl } from './service.js';
 import { sweepOnce, type SweepStats } from './sweep.js';
+import {
+  SCHEDULE_SWEEP_INTERVAL_MS,
+  sweepSchedulesOnce,
+  type ScheduleSweepStats,
+} from '../schedules/sweep.js';
 
 // createEngineService (M1-T04b; 10-contracts §Composition root). The EngineService itself, and
-// `startWorkers`, which runs the outbox dispatcher and the timeout sweep until stopped.
+// `startWorkers`, which runs the outbox dispatcher, the timeout sweep and (ADR-0032) the schedule
+// sweep until stopped.
 
 export { backoffSeconds, START_SESSION_ACK_ATTEMPTS, type DispatchStats } from './dispatcher.js';
 export { SCRUBBED_PAYLOAD_SQL } from './outbox.js';
@@ -27,6 +33,8 @@ export type EngineServiceDeps = Parameters<CreateEngineService>[0] & {
   pushSender?: PushSender;
   /** UX-15: push dispatcher poll interval (default 1000 ms); also woken after a push enqueue. */
   pushIntervalMs?: number;
+  /** ADR-0032: schedule sweep interval (default SCHEDULE_SWEEP_INTERVAL_MS, 30 s). */
+  scheduleIntervalMs?: number;
 };
 
 export interface EngineServiceHandle extends EngineHandle {
@@ -39,6 +47,8 @@ export interface EngineServiceHandle extends EngineHandle {
   sweepPermissionsOnce(): Promise<number>;
   /** UX-15: one push dispatcher pass; null when push is disabled (nothing is ever sent). */
   dispatchPushOnce(): Promise<PushDispatchStats | null>;
+  /** ADR-0032: one schedule-sweep pass (each due schedule fires once). */
+  sweepSchedulesOnce(): Promise<ScheduleSweepStats>;
 }
 
 /** A self-rescheduling loop that never overlaps itself; `wake()` runs it again soon. */
@@ -111,6 +121,7 @@ export function createEngineService(deps: EngineServiceDeps): EngineServiceHandl
     sweepOnce: () => sweepOnce(workerDeps),
     sweepPermissionsOnce: () => sweepPermissionTimeouts(workerDeps),
     dispatchPushOnce: pushOnce,
+    sweepSchedulesOnce: () => sweepSchedulesOnce(workerDeps),
     startWorkers({ transport }): Stoppable {
       const dispatcher = loop(deps.dispatchIntervalMs ?? 500, () =>
         dispatchOnce(workerDeps, transport),
@@ -121,13 +132,17 @@ export function createEngineService(deps: EngineServiceDeps): EngineServiceHandl
       });
       // UX-15: its own loop, so a slow push service never delays machine commands (NFR-1).
       const pusher = pushSender ? loop(deps.pushIntervalMs ?? 1000, pushOnce) : null;
+      // ADR-0032: its own loop; cron has minute precision, so every 30 s is enough.
+      const scheduler = loop(deps.scheduleIntervalMs ?? SCHEDULE_SWEEP_INTERVAL_MS, () =>
+        sweepSchedulesOnce(workerDeps),
+      );
       wake = () => dispatcher.wake();
       wakePush = pusher ? () => pusher.wake() : undefined;
       return {
         async stop() {
           wake = undefined;
           wakePush = undefined;
-          await Promise.all([dispatcher.stop(), sweeper.stop(), pusher?.stop()]);
+          await Promise.all([dispatcher.stop(), sweeper.stop(), scheduler.stop(), pusher?.stop()]);
         },
       };
     },

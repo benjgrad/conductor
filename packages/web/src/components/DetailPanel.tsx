@@ -27,6 +27,7 @@ import { Markdown } from './markdown.js';
 import { OutputLog } from './OutputLog.js';
 import { PermissionRequests } from './PermissionRequests.js';
 import { PlanApprovalRequest } from './PlanApprovalRequest.js';
+import { ProposedTickets } from './ProposedTickets.js';
 import { classifyRequest, lastMoveTransition, planAnswerOption } from './request-preview.js';
 import { ReviewRequest } from './ReviewRequest.js';
 import { StarDetails } from './StarDetails.js';
@@ -292,6 +293,15 @@ export function DetailPanel({
                     onDone={reload}
                   />
                 ))}
+              {/* ADR-0034: the agent's follow-up tickets, decided one by one. */}
+              {(detail.proposed_tickets ?? []).length > 0 && (
+                <ProposedTickets
+                  api={api}
+                  proposals={detail.proposed_tickets ?? []}
+                  agent={name}
+                  onDone={reload}
+                />
+              )}
               {detail.card.sub_status === 'needs_permission' &&
                 detail.card.permission &&
                 detail.card.session_id !== null && (

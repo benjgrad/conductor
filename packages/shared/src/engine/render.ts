@@ -3,6 +3,7 @@ import type { SentBack } from './qa.js';
 import type { AgentTransitionOption } from '../workflow/transition-rules.js';
 import { renderReviewFeedback, type ReviewFeedback } from './review.js';
 import type { SessionSnapshot } from './types.js';
+import { followUpsOf, renderFollowUps } from './proposals.js';
 
 // Prompt rendering for agent states (05 §State types, 10-contracts §Engine). Pure: apply()
 // calls it to build `start_session.prompt`. An agent state's `prompt` is either the name of a
@@ -114,6 +115,10 @@ export function renderPrompt(input: RenderPromptInput): string {
 
   // Ben, 2026-10-26 (M1b): a work repository is shared with developers who don't use conductor.
   if (snapshot.ticket.kind === 'work') parts.push(WORK_REPOSITORY);
+
+  // ADR-0034: optional follow-up tickets, encouraged, never required.
+  const followUps = followUpsOf(state);
+  if (followUps !== null) parts.push(renderFollowUps(followUps));
 
   parts.push(
     input.transitions != null ? howToFinish(state, input.transitions) : finishSection(state),

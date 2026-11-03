@@ -421,6 +421,27 @@ The migration's down drops the table.
 
 The migration's down drops `ticket_schedule_run_key`, the two `ticket` columns and the table.
 
+### ticket_proposal
+[ADR-0034](../adr/0034-agent-proposed-follow-up-tickets.md), migration `1762500000000_ticket-proposals`. A follow-up ticket an agent proposed (the `ticket_proposals` effect of an agent state with `follow_ups` on, [05 §Follow-up tickets](05-workflow-engine.md#follow-up-tickets-adr-0034)), written in the apply transaction; a human accepts or dismisses it ([10 §Proposed tickets](10-contracts.md#proposed-tickets-adr-0034)).
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| account_id | uuid fk account | the source ticket's; indexed `ticket_proposal_account_id_idx` |
+| ticket_id | uuid fk ticket | the source ticket (`ON DELETE CASCADE`); indexed `ticket_proposal_ticket_idx` |
+| session_id | uuid fk session | `ON DELETE CASCADE`. Unique index `ticket_proposal_session_title_key (session_id, lower(title))`: the idempotency key (a replayed or later `complete_state` doesn't add a title twice) |
+| state | text | the agent state that proposed it |
+| title | text | `CHECK title <> ''` (≤ 200 from the parser) |
+| body | text | default `''`; Markdown |
+| kind | `ticket_kind` null | null = the source ticket's kind |
+| why | text null | one sentence from the agent |
+| status | text | `pending` (default) · `accepted` · `dismissed` (CHECK) |
+| created_ticket_id | uuid fk ticket null | the ticket an accept created (`ON DELETE SET NULL`) |
+| decided_by | text null | the user's email (`mcp:` prefixed over MCP) |
+| decided_at | timestamptz null | |
+| created_at | timestamptz | |
+
+The migration's down drops the table.
+
 ### login_throttle
 Instance-level. ADR-0017 §Rate limiting, layer 3: keyed by the normalised email **string**, whether or not a user has it, so a lockout reveals nothing.
 | column | type | notes |

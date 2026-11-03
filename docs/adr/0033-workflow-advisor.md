@@ -74,7 +74,7 @@ The data for cross-session analysis is already in Postgres:
   - permission prompts and machine rules stay on the board;
   - ticket and transcript text is data, not instructions.
 - **`MCP_INSTRUCTIONS`** names `list_findings` and the prompt. It stays ≤ 600 characters.
-- **The tool-list budget** rises from 18 KB to 20 KB; the 25 tools are about 19 KB.
+- **The tool-list budget** rises from 18 KB to 20 KB; the 25 tools are about 19 KB (ADR-0034 adds `decide_proposed_ticket`, 26 in all, under the same budget).
 
 Still never exposed over MCP: approvals, permission prompts, "Allow always", and `bypassPermissions`. When machine settings arrive (P3), `bypassPermissions` stays a board-only opt-in.
 

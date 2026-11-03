@@ -35,6 +35,7 @@ export {
 export * from './engine/review.js';
 export { applyRepoChecks, PIN_CHECK, type GateSpec } from './engine/move-step.js';
 export * from './engine/spend.js';
+export * from './engine/proposals.js';
 export * from './engine/qa.types.js';
 export * from './engine/fixtures.js';
 export * from './protocol/ws.js';
@@ -45,6 +46,7 @@ export * from './protocol/fixtures.js';
 export * from './machines/index.js';
 export * from './api/rest.js';
 export * from './api/schedules.js';
+export * from './api/proposals.js';
 export * from './api/repo-rank.js';
 export * from './api/accounts.js';
 export * from './api/sse.js';

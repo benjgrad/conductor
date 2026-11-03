@@ -13,11 +13,13 @@ import {
   currentLane,
   entryLines,
   entrySummary,
+  followUpsOf,
   issueAt,
   laneIds,
   QUEUED_LANE,
   readSetup,
   readChecking,
+  setFollowUps,
   setQueuedTicketEditable,
   setTicketEditable,
   setupLabel,
@@ -369,5 +371,32 @@ describe('ticket editability per column', () => {
     expect(WorkflowDefinitionSchema.safeParse(setQueuedTicketEditable(on, false)).success).toBe(
       true,
     );
+  });
+});
+
+describe('follow-up proposals per agent column (ADR-0034)', () => {
+  it('turns them on with defaults, edits max and guidance, and off removes the key', () => {
+    const def = CONDUCTOR_V2_DRAFT_DEF;
+    expect(followUpsOf(def, 'implementing')).toBeNull();
+    const on = setFollowUps(def, 'implementing', {});
+    expect(on.states.implementing).toMatchObject({ follow_ups: { enabled: true, max: 3 } });
+    const tuned = setFollowUps(setFollowUps(on, 'implementing', { max: 5 }), 'implementing', {
+      guidance: 'Only test debt',
+    });
+    expect(followUpsOf(tuned, 'implementing')).toEqual({
+      enabled: true,
+      max: 5,
+      guidance: 'Only test debt',
+    });
+    // A blank guidance removes it; max is kept.
+    expect(
+      followUpsOf(setFollowUps(tuned, 'implementing', { guidance: ' ' }), 'implementing'),
+    ).toEqual({ enabled: true, max: 5 });
+    expect('follow_ups' in setFollowUps(tuned, 'implementing', null).states.implementing!).toBe(
+      false,
+    );
+    // Non-agent columns are left alone, and the strict schema accepts the field.
+    expect(setFollowUps(def, 'needs_input', {})).toEqual(def);
+    expect(WorkflowDefinitionSchema.safeParse(tuned).success).toBe(true);
   });
 });

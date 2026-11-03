@@ -392,6 +392,22 @@ const common = {
   ...columnFields,
 };
 
+/**
+ * ADR-0034: may this agent state's agent propose follow-up tickets? On: its prompt gets an
+ * optional "Follow-up tickets" section, and a `proposed_tickets` list in its `complete_state`
+ * result (at most `max`, `PROPOSED_TICKETS_KEY`) is stored for a human to accept or dismiss one by
+ * one. Never required: nothing fails when the agent proposes nothing. Absent ≡ off.
+ */
+export const FollowUpsSchema = z.strictObject({
+  enabled: z.boolean(),
+  max: z.number().int().min(1).max(10).default(3),
+  /** Extra prompt text, e.g. "Only propose test or documentation debt". */
+  guidance: z.string().trim().min(1).max(1_000).optional(),
+});
+export type FollowUps = z.infer<typeof FollowUpsSchema>;
+/** The longest follow-up list an agent state may allow. */
+export const FOLLOW_UPS_MAX = 10;
+
 export const AgentStateSchema = z
   .strictObject({
     type: z.literal('agent'),
@@ -418,6 +434,8 @@ export const AgentStateSchema = z
      * Only on `role: 'qa'` states (T02).
      */
     checkout: z.strictObject({ setup: z.string().max(2_000).nullable().optional() }).optional(),
+    /** ADR-0034: follow-up ticket proposals; absent ≡ off. */
+    follow_ups: FollowUpsSchema.optional(),
   })
   .refine((s) => (s.prompt === undefined) !== (s.skill === undefined), {
     message: 'agent state needs exactly one of "prompt" or "skill"',

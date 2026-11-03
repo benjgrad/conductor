@@ -75,6 +75,11 @@ At every width, Repo is a free-text ARIA combobox (`components/RepoCombobox.tsx`
 - The override editor is the transition editor's check list (`workflow/ChecksFields.tsx`), with the same rules (`checkListIssues`: unique names, non-blank commands, durations like `10m`) plus at least one check. Setup is auto-detect, none, or a command. Without an override, the draft starts from the workflow's first gate. The server's 400 details show at their fields. *Clear override* asks for a confirmation.
 - A note says that commands run with `sh -c` at the repo root of a fresh checkout (Git Bash on Windows), with a link to ADR-0030.
 
+## Proposed tickets (ADR-0034)
+
+- **Session panel.** The "Proposed tickets" box (`components/ProposedTickets.tsx`, [06 §Proposed tickets](06-human-input.md#proposed-tickets)) sits in Messages after the pending request, in neutral tones (nothing is blocked on it). Each proposal is a group with three buttons: Queue ticket, Edit first, Dismiss. The decided ones are in a collapsed `details`.
+- **Workflow editor.** An agent column's panel has the checkbox "Agents may propose follow-up tickets". Ticking it shows At most (1–10) and Guidance. Unticking it removes `follow_ups` from the draft (`setFollowUps(…, null)`).
+
 ## Install (UX-16)
 
 Conductor installs to a phone's Home Screen and opens standalone (`manifest.webmanifest`; iOS Safari: Share → Add to Home Screen). The status bar is `default` (opaque), so the web view starts below it: under `black-translucent` iOS blurred the top bar even though the document never scrolls on a phone ([§Breakpoint](#breakpoint)). The top bar keeps its `env(safe-area-inset-top)` padding (0 under an opaque bar) for Safari tabs and landscape, and `html` is painted `--panel` so any inset band matches the top bar. iOS reads the status-bar style when the app is added, so an installed copy must be removed and re-added to pick up a change. On iOS, push notifications work only from the installed app: in a Safari tab the account menu says so. Web Push details: [10 §Web Push](10-contracts.md#web-push).

@@ -132,3 +132,14 @@ Conductor v2's planning agent can finish with the question transition `plan_need
   - **Other actions** (collapsed `details`): the remaining human transitions (e.g. Waiting on someone else, Done), working as on the card.
   - **Start fresh conversation…** as a secondary action, as on any request.
 - **Card**: "Plan to approve" label; **Approve plan** (the same post) and **Review plan** (selects the session) instead of the human transition buttons.
+
+## Proposed tickets
+[ADR-0034](../adr/0034-agent-proposed-follow-up-tickets.md). An agent state with `follow_ups` on (conductor v5: Implementing) may propose follow-up tickets with its result ([05 §Follow-up tickets](05-workflow-engine.md#follow-up-tickets-adr-0034)). They wait for the user, who decides each one; nothing is queued without a click.
+
+- **Panel** (`ProposedTickets.tsx`, Messages, after the pending request; shown whenever the ticket has proposals, so in Needs input for v5): the badge "Proposed tickets" and "<agent> suggests N follow-ups that could run in parallel". Each pending proposal shows its title, its `why` and its body (Markdown), with:
+  - **Queue ticket** posts `POST /api/proposals/:id/accept {}`: a new `ready` ticket on the source ticket's repo and workflow, with its tags, allowed machines, priority and kind (the proposal's kind if it has one). It has no link to the source, so it runs in parallel.
+  - **Edit first** opens the title and description; **Queue ticket** there posts only the changed fields.
+  - **Dismiss** posts `POST /api/proposals/:id/dismiss`.
+  - The decided ones are collapsed below ("N decided"), each one Queued (with a link to its ticket) or Dismissed.
+- **MCP**: `get_ticket` lists the pending proposals (`proposed_tickets`, at most 5); `decide_proposed_ticket {proposal_id, decision, title?, body?}` accepts or dismisses one.
+- **Configure** in the workflow editor's column panel (agent columns: "Agents may propose follow-up tickets", At most, Guidance), with `save_workflow`, or through the workflow advisor.

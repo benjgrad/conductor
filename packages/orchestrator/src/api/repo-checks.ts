@@ -1,6 +1,6 @@
 import {
   API_PATHS,
-  CONDUCTOR_V4_DEF,
+  CONDUCTOR_V5_DEF,
   CONDUCTOR_WORKFLOW_ID,
   DeleteRepoChecksRequestSchema,
   PutRepoChecksRequestSchema,
@@ -54,7 +54,7 @@ async function latestConductor(q: Queryable): Promise<WorkflowDefinition> {
     [CONDUCTOR_WORKFLOW_ID],
   );
   const parsed = WorkflowDefinitionSchema.safeParse(r.rows[0]?.definition);
-  return parsed.success ? parsed.data : CONDUCTOR_V4_DEF;
+  return parsed.success ? parsed.data : CONDUCTOR_V5_DEF;
 }
 
 /** The repo's override (null = none) and what runs at each checking gate of `conductor`. */

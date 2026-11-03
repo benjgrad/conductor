@@ -65,6 +65,9 @@ import {
   type WorkflowDetail,
   type TranscriptResponse,
   type WorkflowSummary,
+  AcceptProposalRequestSchema,
+  type AcceptProposalResponse,
+  type TicketProposalDto,
 } from '@conductor/shared';
 import {
   ApiRequestError,
@@ -134,6 +137,11 @@ export interface MockApi extends ApiClient {
   connectMachine(patch?: Partial<MachineDetail>): string;
   /** UX-8: a machine's new inventory report (repos, capabilities). */
   updateMachine(id: string, patch: Partial<MachineDetail>): void;
+  /** ADR-0034: the session's agent proposes follow-up tickets (pending). Returns their ids. */
+  proposeTickets(
+    sessionId: string,
+    items: { title: string; body?: string; why?: string }[],
+  ): string[];
   /**
    * ADR-0023: the agent asks for a tool (a pending permission request), as the gateway stores a
    * daemon's `permission_request`; the card shows `needs_permission`. Returns the request id.
@@ -502,6 +510,80 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
   }
 
   /** GET /api/tickets/:id as the orchestrator builds it (`ticketEditable` for the card's column). */
+  /** POST /api/tickets, synchronously (createTicket, and an accepted proposal, ADR-0034). */
+  function insertTicket(raw: unknown): TicketDto {
+    // ADR-0010: the server defaults `workflow_id` to the one workflow (also before the shared
+    // contract does).
+    const parsed = CreateTicketRequestSchema.safeParse(
+      Object.assign({ workflow_id: CONDUCTOR.id }, raw),
+    );
+    if (!parsed.success) throw new ApiRequestError(400, 'bad_request', parsed.error.message);
+    const req = parsed.data;
+    if (!workflows.has(req.workflow_id)) {
+      throw new ApiRequestError(400, 'bad_request', `unknown workflow "${req.workflow_id}"`);
+    }
+    const created_at = now().toISOString();
+    const ticket: TicketDto = {
+      id: crypto.randomUUID(),
+      external_ref: req.external_ref,
+      repo: req.repo,
+      title: req.title,
+      body: req.body,
+      workflow_id: req.workflow_id,
+      workflow_version: null,
+      required_tags: req.required_tags,
+      repo_allow_machines: req.repo_allow_machines,
+      status: 'ready',
+      priority: req.priority,
+      created_at,
+    };
+    const card: BoardCard = {
+      ticket_id: ticket.id,
+      session_id: null,
+      title: ticket.title,
+      external_ref: ticket.external_ref,
+      repo: ticket.repo,
+      priority: ticket.priority,
+      workflow_id: ticket.workflow_id,
+      workflow_state: null,
+      status: null,
+      column: 'queued',
+      badges: [],
+      checking: null,
+      // ADR-0011 card fields (M1b-T01 contract; M1b-T07 owns the mock).
+      kind: req.kind ?? null,
+      pending: null,
+      human_transitions: [],
+      pr_url: null,
+      machine_id: null,
+      spend_usd: 0,
+      input_request: null,
+      created_at,
+      updated_at: created_at,
+    };
+    cards.set(card.ticket_id, card);
+    tickets.set(ticket.id, { ...ticket, kind: req.kind ?? null, updated_at: created_at });
+    emit([{ type: 'card.upserted', session_id: null, ticket_id: card.ticket_id, card }]);
+    return clone(ticket);
+  }
+
+  /** ADR-0034: proposed follow-up tickets by ticket id, oldest first. */
+  const proposals = new Map<string, TicketProposalDto[]>();
+  function proposalOf(id: string): TicketProposalDto {
+    for (const list of proposals.values()) {
+      const p = list.find((x) => x.id === id);
+      if (p) return p;
+    }
+    throw new ApiRequestError(404, 'not_found', `no proposed ticket ${id}`);
+  }
+  function pendingProposal(id: string): TicketProposalDto {
+    const p = proposalOf(id);
+    if (p.status !== 'pending') {
+      throw new ApiRequestError(409, 'conflict', `this proposed ticket was already ${p.status}`);
+    }
+    return p;
+  }
+
   function ticketDetail(ticketId: string): TicketDetail {
     const t = ticketOf(ticketId);
     const card = cards.get(ticketId)!;
@@ -569,6 +651,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           ...(s.ticket_body !== undefined ? { ticket_body: s.ticket_body } : {}),
           input_requests: inputRequestsOf(s, card),
           ticket_editable: ticketEditable(s.workflow, card.workflow_state),
+          proposed_tickets: proposals.get(card.ticket_id) ?? [],
         });
       }),
 
@@ -629,62 +712,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         return { ok: true };
       }),
 
-    createTicket: (raw) =>
-      reply((): TicketDto => {
-        // ADR-0010: the server defaults `workflow_id` to the one workflow (also before the shared
-        // contract does).
-        const parsed = CreateTicketRequestSchema.safeParse(
-          Object.assign({ workflow_id: CONDUCTOR.id }, raw),
-        );
-        if (!parsed.success) throw new ApiRequestError(400, 'bad_request', parsed.error.message);
-        const req = parsed.data;
-        if (!workflows.has(req.workflow_id)) {
-          throw new ApiRequestError(400, 'bad_request', `unknown workflow "${req.workflow_id}"`);
-        }
-        const created_at = now().toISOString();
-        const ticket: TicketDto = {
-          id: crypto.randomUUID(),
-          external_ref: req.external_ref,
-          repo: req.repo,
-          title: req.title,
-          body: req.body,
-          workflow_id: req.workflow_id,
-          workflow_version: null,
-          required_tags: req.required_tags,
-          repo_allow_machines: req.repo_allow_machines,
-          status: 'ready',
-          priority: req.priority,
-          created_at,
-        };
-        const card: BoardCard = {
-          ticket_id: ticket.id,
-          session_id: null,
-          title: ticket.title,
-          external_ref: ticket.external_ref,
-          repo: ticket.repo,
-          priority: ticket.priority,
-          workflow_id: ticket.workflow_id,
-          workflow_state: null,
-          status: null,
-          column: 'queued',
-          badges: [],
-          checking: null,
-          // ADR-0011 card fields (M1b-T01 contract; M1b-T07 owns the mock).
-          kind: req.kind ?? null,
-          pending: null,
-          human_transitions: [],
-          pr_url: null,
-          machine_id: null,
-          spend_usd: 0,
-          input_request: null,
-          created_at,
-          updated_at: created_at,
-        };
-        cards.set(card.ticket_id, card);
-        tickets.set(ticket.id, { ...ticket, kind: req.kind ?? null, updated_at: created_at });
-        emit([{ type: 'card.upserted', session_id: null, ticket_id: card.ticket_id, card }]);
-        return clone(ticket);
-      }),
+    createTicket: (raw) => reply(() => insertTicket(raw)),
 
     getTicket: (ticketId) => reply(() => ticketDetail(ticketId)),
 
@@ -970,6 +998,42 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         s.return_to = null;
         update(card, { status, workflow_state: target, input_request: null }, extra);
         return { ok: true };
+      }),
+
+    acceptProposal: (proposalId, raw) =>
+      reply((): AcceptProposalResponse => {
+        const parsed = AcceptProposalRequestSchema.safeParse(raw ?? {});
+        if (!parsed.success) throw new ApiRequestError(400, 'bad_request', parsed.error.message);
+        const p = pendingProposal(proposalId);
+        const src = ticketOf(p.ticket_id);
+        const ticket = insertTicket({
+          title: parsed.data.title ?? p.title,
+          body: parsed.data.body ?? p.body,
+          repo: src.repo,
+          workflow_id: src.workflow_id,
+          required_tags: src.required_tags,
+          repo_allow_machines: src.repo_allow_machines,
+          priority: parsed.data.priority ?? src.priority,
+          kind: parsed.data.kind ?? p.kind ?? cards.get(p.ticket_id)?.kind ?? 'work',
+        });
+        Object.assign(p, {
+          status: 'accepted',
+          created_ticket_id: ticket.id,
+          decided_by: 'ben',
+          decided_at: now().toISOString(),
+        });
+        return clone({ proposal: p, ticket });
+      }),
+
+    dismissProposal: (proposalId) =>
+      reply((): TicketProposalDto => {
+        const p = pendingProposal(proposalId);
+        Object.assign(p, {
+          status: 'dismissed',
+          decided_by: 'ben',
+          decided_at: now().toISOString(),
+        });
+        return clone(p);
       }),
 
     listPermissionRequests: (sessionId) =>
@@ -1442,6 +1506,32 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
 
     updateCard(sessionId, next) {
       update(cardForSession(sessionId), next);
+    },
+
+    proposeTickets(sessionId, items) {
+      const card = cardForSession(sessionId);
+      const list = proposals.get(card.ticket_id) ?? [];
+      const ids = items.map((item) => {
+        const id = crypto.randomUUID();
+        list.push({
+          id,
+          ticket_id: card.ticket_id,
+          session_id: sessionId,
+          state: card.workflow_state ?? 'implementing',
+          title: item.title,
+          body: item.body ?? '',
+          kind: null,
+          why: item.why ?? null,
+          status: 'pending',
+          created_ticket_id: null,
+          decided_by: null,
+          decided_at: null,
+          created_at: now().toISOString(),
+        });
+        return id;
+      });
+      proposals.set(card.ticket_id, list);
+      return ids;
     },
 
     requestPermission(sessionId, tool, input, alwaysRule = null) {

@@ -440,6 +440,7 @@ describe('/mcp', () => {
       'cancel_ticket',
       'clear_repo_checks',
       'create_ticket',
+      'decide_proposed_ticket',
       'delete_schedule',
       'get_process_metrics',
       'get_repo_checks',
@@ -463,8 +464,9 @@ describe('/mcp', () => {
     ]);
     const tools = (list.json.result as { tools: { description: string }[] }).tools;
     for (const t of tools) expect(t.description.length).toBeLessThanOrEqual(700);
-    // ADR-0031 / ADR-0032 / ADR-0033: 25 tools; the list is what every client loads first, so it
-    // stays small. ADR-0033 raised the budget from 18 KB to 20 KB for the two advisor tools (~19 KB).
+    // ADR-0031 / ADR-0032 / ADR-0033 / ADR-0034: 26 tools; the list is what every client loads
+    // first, so it stays small. ADR-0033 raised the budget from 18 KB to 20 KB for the two advisor
+    // tools (~19 KB); ADR-0034's decide_proposed_ticket fits under it.
     expect(Buffer.byteLength(list.text, 'utf8')).toBeLessThanOrEqual(20 * 1024);
 
     const created = await call(a.access, 'create_ticket', {
@@ -994,6 +996,74 @@ describe('/mcp for conversational clients', () => {
         (t) => t.name,
       );
     expect(await names(a.access)).toEqual(await names(b.access));
+  });
+});
+
+// ADR-0034: follow-up ticket proposals, over MCP.
+describe('/mcp proposed tickets', () => {
+  // Its own API instance for its own OAuth rate limits (as '/mcp schedule tools').
+  let main: TestApi;
+  beforeAll(async () => {
+    main = api;
+    api = await startApi({ db: db.pool, auth: AUTH, engine, boardBus, outputBus, transcripts });
+  });
+  afterAll(async () => {
+    await api.close();
+    api = main;
+  });
+
+  it('get_ticket lists pending proposals; decide_proposed_ticket accepts or dismisses one (ADR-0034)', async () => {
+    const a = await connect();
+    const b = await connect();
+    const { ticketId, sessionId } = await seedTicketSession(a.user.accountId, 'needs_input');
+    const propose = async (title: string) =>
+      (
+        await db.pool.query<{ id: string }>(
+          'INSERT INTO ticket_proposal (account_id, ticket_id, session_id, state, title, body, why) ' +
+            "VALUES ($1, $2, $3, 'review', $4, 'Do it', 'Found it') RETURNING id",
+          [a.user.accountId, ticketId, sessionId, title],
+        )
+      ).rows[0]!.id;
+    const docs = await propose('Add docs');
+    const lint = await propose('Fix lint');
+    const shown = await call(a.access, 'get_ticket', { ticket: ticketId });
+    expect(shown.body.proposed_tickets).toEqual([
+      { proposal_id: docs, title: 'Add docs', body: 'Do it', why: 'Found it' },
+      { proposal_id: lint, title: 'Fix lint', body: 'Do it', why: 'Found it' },
+    ]);
+
+    const fromB = await call(b.access, 'decide_proposed_ticket', {
+      proposal_id: docs,
+      decision: 'accept',
+    });
+    expect(errorOf(fromB).code).toBe('not_found');
+    const accepted = await call(a.access, 'decide_proposed_ticket', {
+      proposal_id: docs,
+      decision: 'accept',
+      title: 'Add API docs',
+    });
+    expect(accepted.body).toMatchObject({ status: 'accepted' });
+    const created = await db.pool.query<{ title: string; repo: string; status: string }>(
+      'SELECT title, repo, status FROM ticket WHERE id = $1',
+      [accepted.body.ticket_id],
+    );
+    expect(created.rows[0]).toEqual({
+      title: 'Add API docs',
+      repo: 'github.com/acme/app',
+      status: 'ready',
+    });
+    const dismissed = await call(a.access, 'decide_proposed_ticket', {
+      proposal_id: lint,
+      decision: 'dismiss',
+    });
+    expect(dismissed.body).toEqual({ status: 'dismissed' });
+    const again = await call(a.access, 'decide_proposed_ticket', {
+      proposal_id: lint,
+      decision: 'accept',
+    });
+    expect(errorOf(again).code).toBe('conflict');
+    const after = await call(a.access, 'get_ticket', { ticket: ticketId });
+    expect(after.body.proposed_tickets).toBeUndefined();
   });
 });
 

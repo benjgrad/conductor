@@ -4,6 +4,7 @@ import {
   CONDUCTOR_V2,
   CONDUCTOR_V3,
   CONDUCTOR_V4,
+  CONDUCTOR_V5,
   CONDUCTOR_WORKFLOW_ID,
   ROUTINE_V1,
   ROUTINE_WORKFLOW_ID,
@@ -15,14 +16,14 @@ import {
 import type { Queryable } from '../contracts.js';
 
 // ADR-0010 / ADR-0011 (M1b-T09) / ADR-0025 / M2-T34: the orchestrator seeds the shipped
-// `conductor` workflow, v1 → v2 → v3 → v4 (`shipped()`, oldest first).
+// `conductor` workflow, v1 → v2 → v3 → v4 → v5 (ADR-0034) (`shipped()`, oldest first).
 // - v1 when no `conductor` version exists: one INSERT that only fires while no version exists,
 //   and `ON CONFLICT DO NOTHING` on the (id, version) primary key for the race where two starts
 //   both saw none.
 // - The next shipped version while the latest is an **unedited** shipped one (its parsed
 //   definition deep-equals that version's): one INSERT that only fires while no version at or
 //   above it exists, with the same ON CONFLICT, so concurrent starts insert exactly one. Repeated
-//   until the latest is the newest shipped version: an empty database gets v1 … v4 (v4 latest).
+//   until the latest is the newest shipped version: an empty database gets v1 … v5 (v5 latest).
 // - Anything else (the user saved a version of their own) is never touched: the start logs that a
 //   newer default is available, and `GET /api/workflows/conductor` carries `default_available`.
 // ADR-0032: `routine` (recurring tickets) is seeded by the same rules (`seedShippedWorkflow`).
@@ -64,7 +65,7 @@ function checkedDef(input: WorkflowDefinitionInput, superseded: boolean): Workfl
 
 /** The shipped `conductor` versions, oldest first, each validated. */
 function shipped(): WorkflowDefinition[] {
-  const all = [CONDUCTOR_V1, CONDUCTOR_V2, CONDUCTOR_V3, CONDUCTOR_V4];
+  const all = [CONDUCTOR_V1, CONDUCTOR_V2, CONDUCTOR_V3, CONDUCTOR_V4, CONDUCTOR_V5];
   return all.map((v, i) => checkedDef(v, i < all.length - 1));
 }
 

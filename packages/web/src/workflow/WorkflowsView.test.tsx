@@ -167,6 +167,24 @@ describe('Workflow view', () => {
     expect(saved[0]!.queued_ticket_editable).toBe(false);
   });
 
+  it('turns on follow-up proposals for an agent column (ADR-0034)', async () => {
+    const { saved } = await setup();
+    fireEvent.click(lane('Implementing'));
+    const box = editor().getByRole<HTMLInputElement>('checkbox', {
+      name: 'Agents may propose follow-up tickets',
+    });
+    expect(box.checked).toBe(false);
+    expect(editor().queryByLabelText('At most')).toBeNull();
+    fireEvent.click(box);
+    type(editor().getByLabelText('At most'), '2');
+    type(editor().getByLabelText('Guidance'), 'Only test debt');
+    fireEvent.click(saveButton());
+    await screen.findByRole('group', { name: 'conductor v4 columns' });
+    expect(saved[0]!.states.implementing).toMatchObject({
+      follow_ups: { enabled: true, max: 2, guidance: 'Only test debt' },
+    });
+  });
+
   it('discards the draft', async () => {
     await setup();
     fireEvent.click(lane('Planning'));

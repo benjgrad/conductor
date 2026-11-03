@@ -40,6 +40,7 @@ import type {
   PushSubscriptionRow,
   RepoChecksRow,
   TicketScheduleRow,
+  TicketProposalRow,
   SessionRow,
   Tables,
   TicketRow,
@@ -451,6 +452,23 @@ const ticket_schedule: ColumnSpec<TicketScheduleRow> = {
   created_at: col('timestamptz', NN),
   updated_at: col('timestamptz', NN),
 };
+// ADR-0034: follow-up ticket proposals.
+const ticket_proposal: ColumnSpec<TicketProposalRow> = {
+  id: col('uuid', NN),
+  account_id: col('uuid', NN),
+  ticket_id: col('uuid', NN),
+  session_id: col('uuid', NN),
+  state: col(t, NN),
+  title: col(t, NN),
+  body: col(t, NN),
+  kind: col('ticket_kind', NULL),
+  why: col(t, NULL),
+  status: col(t, NN),
+  created_ticket_id: col('uuid', NULL),
+  decided_by: col(t, NULL),
+  decided_at: col('timestamptz', NULL),
+  created_at: col('timestamptz', NN),
+};
 const SCHEMA: Schema = {
   machine,
   machine_repo,
@@ -479,6 +497,7 @@ const SCHEMA: Schema = {
   oauth_token,
   repo_checks,
   ticket_schedule,
+  ticket_proposal,
 };
 /** The tables M1/M1b created: every one carries `account_id` since M2-T03. */
 const M1_TABLES = [
@@ -774,6 +793,7 @@ describe('migrations', () => {
           'oauth_token',
           'repo_checks',
           'ticket_schedule',
+          'ticket_proposal',
         ].sort(),
       );
     } finally {
@@ -1253,6 +1273,35 @@ describe('schema (migrated test database)', () => {
         [sch.rows[0]!.id, run],
       ),
       '23505',
+    );
+
+    // ADR-0034: a follow-up proposal of the session; one per (session, title) case-insensitively.
+    const tp = await pool.query<TicketProposalRow>(
+      `INSERT INTO ticket_proposal (account_id, ticket_id, session_id, state, title)
+       VALUES ($1, $2, $3, 'implementing', 'Add docs') RETURNING *`,
+      [LOCAL_ACCOUNT_ID, tkt.id, s.rows[0]!.id],
+    );
+    expect(tp.rows[0]).toMatchObject({
+      status: 'pending',
+      body: '',
+      kind: null,
+      created_ticket_id: null,
+    });
+    await expectPgError(
+      pool.query(
+        `INSERT INTO ticket_proposal (account_id, ticket_id, session_id, state, title)
+         VALUES ($1, $2, $3, 'implementing', 'ADD DOCS')`,
+        [LOCAL_ACCOUNT_ID, tkt.id, s.rows[0]!.id],
+      ),
+      '23505',
+    );
+    await expectPgError(
+      pool.query(
+        `INSERT INTO ticket_proposal (account_id, ticket_id, session_id, state, title, status)
+         VALUES ($1, $2, $3, 'implementing', 'Other', 'maybe')`,
+        [LOCAL_ACCOUNT_ID, tkt.id, s.rows[0]!.id],
+      ),
+      '23514',
     );
 
     // Every table has exactly the row just written.

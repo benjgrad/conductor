@@ -96,6 +96,7 @@ import {
   type QaState,
 } from './qa.js';
 import { applySpend } from './spend.js';
+import { followUpsOf, parseProposedTickets, withoutProposals } from './proposals.js';
 import { NO_CONVERSATION_REASON } from '../protocol/ws.js';
 import {
   ASK_USER,
@@ -461,7 +462,15 @@ function onComplete(
   if (state?.type !== 'agent' || name === null) return 'unexpected_event';
   if (!AGENT_ACTIVE.has(st.s.status)) return 'wrong_status';
   st.s.pending_answer = null;
-  const result = e.result;
+  // ADR-0034: follow-up proposals are recorded whatever the outcome (a question or a failed
+  // result check included), and never reach `context.<state>`. Off: the result is untouched.
+  let result = e.result;
+  const followUps = followUpsOf(state);
+  if (followUps !== null) {
+    const { proposals } = parseProposedTickets(result, followUps);
+    if (proposals.length > 0) st.emit({ type: 'ticket_proposals', state: name, proposals });
+    result = withoutProposals(result);
+  }
   const reason = e.reason ?? null;
   const plan = planAgentTransition(st.def, name, ticketKind(st.s), e.transition, reason);
   if (plan.type === 'ask_user') {

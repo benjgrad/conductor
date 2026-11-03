@@ -48,6 +48,9 @@ import type {
   PushTestResponse,
   PushUnsubscribeRequest,
   PushVapidPublicKeyResponse,
+  AcceptProposalRequest,
+  AcceptProposalResponse,
+  TicketProposalDto,
 } from '@conductor/shared';
 
 // The UI's view of the orchestrator API (03 §REST, §SSE). Two implementations: the in-memory
@@ -186,6 +189,13 @@ export interface ApiClient {
     requestId: string,
     req: PermissionDecisionRequest,
   ): Promise<PermissionRequestDto>;
+  /**
+   * POST /api/proposals/:id/accept (ADR-0034): queue a proposed follow-up ticket as a new ticket
+   * (optionally edited). 409 `conflict` once it was decided; 404 another account's.
+   */
+  acceptProposal(proposalId: string, req?: AcceptProposalRequest): Promise<AcceptProposalResponse>;
+  /** POST /api/proposals/:id/dismiss (ADR-0034). 409 `conflict` once it was decided. */
+  dismissProposal(proposalId: string): Promise<TicketProposalDto>;
 
   // M2-T05: accounts and web auth (10-contracts §Accounts and web auth).
   /** GET /api/me: the signed-in user and account. 401 without a session; `local` mode → local user. */

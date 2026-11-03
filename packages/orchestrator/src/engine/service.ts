@@ -346,6 +346,28 @@ export class EngineServiceImpl implements EngineService {
             workflow_state: s1.workflow_state,
           });
           break;
+        case 'ticket_proposals':
+          // ADR-0034: the agent's follow-up tickets, for a human to accept or dismiss. The
+          // (session, lower(title)) index makes a replayed complete_state insert nothing.
+          for (const p of effect.proposals) {
+            await tx.query(
+              'INSERT INTO ticket_proposal ' +
+                '(account_id, ticket_id, session_id, state, title, body, kind, why, created_at) ' +
+                'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT DO NOTHING',
+              [
+                ticket.account_id,
+                ticket.id,
+                sessionId,
+                effect.state,
+                p.title,
+                p.body,
+                p.kind ?? null,
+                p.why ?? null,
+                now,
+              ],
+            );
+          }
+          break;
         case 'ticket_status':
           await tx.query('UPDATE ticket SET status = $2, updated_at = $3 WHERE id = $1', [
             ticket.id,

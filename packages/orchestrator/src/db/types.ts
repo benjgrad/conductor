@@ -566,6 +566,34 @@ export interface TicketScheduleRow {
   updated_at: Date;
 }
 
+/** ADR-0034: `ticket_proposal.status` (CHECK). */
+export type TicketProposalStatus = 'pending' | 'accepted' | 'dismissed';
+
+/** ADR-0034: a follow-up ticket an agent proposed (migration 1762500000000). */
+export interface TicketProposalRow {
+  id: string;
+  /** uuid, FK account: the source ticket's. */
+  account_id: string;
+  /** FK ticket (CASCADE): the ticket whose agent proposed it. */
+  ticket_id: string;
+  /** FK session (CASCADE). */
+  session_id: string;
+  /** The agent state that proposed it. */
+  state: string;
+  title: string;
+  body: string;
+  /** null = the source ticket's kind. */
+  kind: TicketKind | null;
+  why: string | null;
+  status: TicketProposalStatus;
+  /** FK ticket (SET NULL): the ticket an accept created. */
+  created_ticket_id: string | null;
+  /** Who accepted or dismissed it (email, `mcp:` prefixed over MCP, or `ui`). */
+  decided_by: string | null;
+  decided_at: Date | null;
+  created_at: Date;
+}
+
 /** Table name → row type, for generic repository helpers. */
 export interface Tables {
   machine: MachineRow;
@@ -595,4 +623,5 @@ export interface Tables {
   oauth_token: OAuthTokenRow;
   repo_checks: RepoChecksRow;
   ticket_schedule: TicketScheduleRow;
+  ticket_proposal: TicketProposalRow;
 }

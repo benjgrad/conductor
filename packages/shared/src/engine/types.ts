@@ -18,6 +18,7 @@ import {
 import { AgentTransitionOptionSchema } from '../workflow/transition-rules.js';
 import { McpPolicySchema } from '../workflow/mcp.js';
 import { RepoChecksSchema } from '../workflow/repo-checks.js';
+import { ProposedTicketSchema } from './proposals.js';
 import { GitShaSchema, PR_FILES_MAX, PrFilePathSchema, PrUrlSchema } from '../protocol/actions.js';
 
 // FSM engine contract (05). `apply()` is pure: no clock (pass `now`), no ids, no I/O.
@@ -701,6 +702,15 @@ export const EffectSchema = z.discriminatedUnion('type', [
     type: z.literal('session_status'),
     from: SessionStatusSchema,
     to: SessionStatusSchema,
+  }),
+  /**
+   * ADR-0034, internal: INSERT `ticket_proposal` rows (the agent's follow-up tickets from a
+   * `complete_state` of `state`, whose `follow_ups` is on), for a human to accept or dismiss.
+   */
+  z.object({
+    type: z.literal('ticket_proposals'),
+    state: z.string(),
+    proposals: z.array(ProposedTicketSchema).min(1),
   }),
   /** Internal: UPDATE ticket.status (e.g. done/failed on terminal, ready on a refused start_session). */
   z.object({ type: z.literal('ticket_status'), to: TicketStatusSchema }),

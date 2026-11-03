@@ -19,6 +19,7 @@ import {
   type TicketStatus,
 } from '../domain.js';
 import { machineLostMarkOf } from '../engine/machine-lost.js';
+import { TicketProposalDtoSchema } from './proposals.js';
 import { PR_CONTEXT_KEY, REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
 import {
   ConditionStatusValueSchema,
@@ -110,6 +111,10 @@ export const API_PATHS = {
   schedule: (id: string) => `/api/schedules/${id}`,
   /** ADR-0032: POST RunScheduleRequest → 201 RunScheduleResponse (a run now). */
   scheduleRun: (id: string) => `/api/schedules/${id}/run`,
+  /** ADR-0034: POST AcceptProposalRequest → 201 AcceptProposalResponse (queue a proposed ticket). */
+  proposalAccept: (id: string) => `/api/proposals/${id}/accept`,
+  /** ADR-0034: POST DismissProposalRequest → TicketProposalDto. */
+  proposalDismiss: (id: string) => `/api/proposals/${id}/dismiss`,
   boardStream: '/api/stream/board',
   sessionOutputStream: (id: string) => `/api/stream/sessions/${id}/output`,
   /** Daemon ↔ orchestrator WebSocket (03), served on the same HTTP server as the API. */
@@ -747,6 +752,11 @@ export const SessionDetailSchema = z.object({
    * (older servers have no ticket edit route).
    */
   ticket_editable: z.boolean().optional(),
+  /**
+   * ADR-0034: the follow-up tickets the ticket's agents proposed (any status, oldest first, the
+   * newest SESSION_PROPOSALS_LIMIT). Absent (older servers) ≡ [].
+   */
+  proposed_tickets: z.array(TicketProposalDtoSchema).optional(),
 });
 export type SessionDetail = z.infer<typeof SessionDetailSchema>;
 
@@ -1086,6 +1096,13 @@ export const TicketDtoSchema = z.object({
   scheduled_for: IsoDateTimeSchema.nullable().optional(),
 });
 export type TicketDto = z.infer<typeof TicketDtoSchema>;
+
+/** ADR-0034: POST /api/proposals/:id/accept → 201: the accepted proposal and the new ticket. */
+export const AcceptProposalResponseSchema = z.object({
+  proposal: TicketProposalDtoSchema,
+  ticket: TicketDtoSchema,
+});
+export type AcceptProposalResponse = z.infer<typeof AcceptProposalResponseSchema>;
 
 /**
  * GET /api/tickets/:id (and the PATCH response): the ticket with where its card is. The session

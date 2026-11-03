@@ -54,6 +54,9 @@ import {
   type PushSubscribeRequest,
   type PushUnsubscribeRequest,
   type PutRepoChecksRequest,
+  AcceptProposalResponseSchema,
+  TicketProposalDtoSchema,
+  type AcceptProposalRequest,
 } from '@conductor/shared';
 import {
   ApiRequestError,
@@ -397,6 +400,22 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
         'POST',
         API_PATHS.permissionDecision(encodeURIComponent(requestId)),
         req,
+      ),
+
+    acceptProposal: (proposalId: string, req: AcceptProposalRequest = {}) =>
+      request(
+        AcceptProposalResponseSchema,
+        'POST',
+        API_PATHS.proposalAccept(encodeURIComponent(proposalId)),
+        req,
+      ),
+
+    dismissProposal: (proposalId: string) =>
+      request(
+        TicketProposalDtoSchema,
+        'POST',
+        API_PATHS.proposalDismiss(encodeURIComponent(proposalId)),
+        {},
       ),
 
     // M2-T05. Every unsafe request is JSON (10-contracts §Accounts and web auth: the CSRF rule),

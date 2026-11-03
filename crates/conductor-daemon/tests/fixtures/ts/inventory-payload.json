@@ -1,0 +1,242 @@
+[
+  {
+    "name": "empty",
+    "scan": {
+      "repos": [],
+      "capabilities": []
+    },
+    "payload": {
+      "repos": [],
+      "capabilities": [],
+      "hash": "6358aa235674d1d2acd281f124528e9b20f07620c0682f6108b850da2eefbfee"
+    }
+  },
+  {
+    "name": "every kind, out of order",
+    "scan": {
+      "repos": [
+        {
+          "path": "/Users/ben/code/zeta",
+          "remote": null,
+          "default_branch": "master",
+          "head_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "mode": "checkout"
+        },
+        {
+          "path": "/Users/ben/code/app",
+          "remote": "github.com/org/app",
+          "default_branch": "main",
+          "head_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mode": "reference"
+        }
+      ],
+      "capabilities": [
+        {
+          "kind": "skill",
+          "name": "review",
+          "repo": "github.com/org/app"
+        },
+        {
+          "kind": "claude",
+          "version": "2.1.308"
+        },
+        {
+          "kind": "cli",
+          "name": "gh",
+          "version": "2.50.0",
+          "authed": true
+        },
+        {
+          "kind": "cli",
+          "name": "az",
+          "version": null,
+          "authed": false
+        },
+        {
+          "kind": "agent",
+          "name": "planner"
+        },
+        {
+          "kind": "mcp",
+          "name": "slack"
+        },
+        {
+          "kind": "skill",
+          "name": "review"
+        },
+        {
+          "kind": "agent",
+          "name": "planner",
+          "repo": "github.com/org/app"
+        }
+      ]
+    },
+    "payload": {
+      "repos": [
+        {
+          "path": "/Users/ben/code/app",
+          "remote": "github.com/org/app",
+          "default_branch": "main",
+          "head_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mode": "reference"
+        },
+        {
+          "path": "/Users/ben/code/zeta",
+          "remote": null,
+          "default_branch": "master",
+          "head_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "mode": "checkout"
+        }
+      ],
+      "capabilities": [
+        {
+          "kind": "agent",
+          "name": "planner",
+          "repo": "github.com/org/app"
+        },
+        {
+          "kind": "agent",
+          "name": "planner"
+        },
+        {
+          "kind": "claude",
+          "version": "2.1.308"
+        },
+        {
+          "kind": "cli",
+          "name": "az",
+          "version": null,
+          "authed": false
+        },
+        {
+          "kind": "cli",
+          "name": "gh",
+          "version": "2.50.0",
+          "authed": true
+        },
+        {
+          "kind": "mcp",
+          "name": "slack"
+        },
+        {
+          "kind": "skill",
+          "name": "review",
+          "repo": "github.com/org/app"
+        },
+        {
+          "kind": "skill",
+          "name": "review"
+        }
+      ],
+      "hash": "fe70af53fe9c8ffe459942a407b8bead18cbc781a58841884764df5c057f4062"
+    }
+  },
+  {
+    "name": "awkward strings",
+    "scan": {
+      "repos": [
+        {
+          "path": "/tmp/！-full-width",
+          "remote": "gitlab.example.com/Group/Sub/Repo",
+          "default_branch": "release/2.0",
+          "head_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mode": "reference"
+        },
+        {
+          "path": "/tmp/😀-emoji",
+          "remote": null,
+          "default_branch": "main",
+          "head_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mode": "reference"
+        },
+        {
+          "path": "/tmp/quote\"back\\slash/café",
+          "remote": null,
+          "default_branch": "main",
+          "head_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mode": "reference"
+        },
+        {
+          "path": "C:\\Users\\ben\\code\\app",
+          "remote": "github.com/org/app",
+          "default_branch": "main",
+          "head_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mode": "checkout"
+        }
+      ],
+      "capabilities": [
+        {
+          "kind": "mcp",
+          "name": "！x"
+        },
+        {
+          "kind": "mcp",
+          "name": "😀x"
+        },
+        {
+          "kind": "skill",
+          "name": "café"
+        },
+        {
+          "kind": "cli",
+          "name": "jira",
+          "version": "1.5.1-rc.1",
+          "authed": false
+        }
+      ]
+    },
+    "payload": {
+      "repos": [
+        {
+          "path": "/tmp/quote\"back\\slash/café",
+          "remote": null,
+          "default_branch": "main",
+          "head_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mode": "reference"
+        },
+        {
+          "path": "/tmp/😀-emoji",
+          "remote": null,
+          "default_branch": "main",
+          "head_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mode": "reference"
+        },
+        {
+          "path": "/tmp/！-full-width",
+          "remote": "gitlab.example.com/Group/Sub/Repo",
+          "default_branch": "release/2.0",
+          "head_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mode": "reference"
+        },
+        {
+          "path": "C:\\Users\\ben\\code\\app",
+          "remote": "github.com/org/app",
+          "default_branch": "main",
+          "head_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mode": "checkout"
+        }
+      ],
+      "capabilities": [
+        {
+          "kind": "cli",
+          "name": "jira",
+          "version": "1.5.1-rc.1",
+          "authed": false
+        },
+        {
+          "kind": "mcp",
+          "name": "😀x"
+        },
+        {
+          "kind": "mcp",
+          "name": "！x"
+        },
+        {
+          "kind": "skill",
+          "name": "café"
+        }
+      ],
+      "hash": "e04f5d205a42663018239af68bc25c546abf8648b79152ed3f0ce46f26ea6e54"
+    }
+  }
+]

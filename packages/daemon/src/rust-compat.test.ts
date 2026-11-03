@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readFileConfig, writeFileConfig, type DaemonFileConfig } from './config.js';
 import { loadCredential, writeCredential, type MachineCredential } from './credential.js';
+import { inventoryPayload, type InventoryScan } from './inventory/report.js';
 import { mkdirPrivate, writePrivateFile } from './platform/index.js';
 import { DaemonStore, type DurableMessage, type PersistedSession } from './store.js';
 
@@ -154,5 +155,103 @@ describe('Rust daemon file compatibility (MR-T05)', () => {
     expect(store.repos).toEqual({
       'github.com/org/app': '/home/me/.conductor/repos/github.com_org_app-0a1b2c3d',
     });
+  });
+});
+
+// MR-T11 FR-3: the Rust inventory payload and hash are identical to TS's for the same scan, so a
+// machine moving from TS to Rust doesn't look changed. `tests/fixtures/ts/inventory-payload.json`
+// is written here (`UPDATE_TS_FIXTURES=1`, as above) and read by `inventory/report/tests.rs`.
+// The cases cover the string-order and escaping edges: a `"` and `\\` in a path, non-ASCII, a
+// non-BMP emoji against U+FF01 (UTF-16 order differs from UTF-8 byte order there), and a Windows
+// path.
+const SHA_A = 'a'.repeat(40);
+const SHA_B = 'b'.repeat(64);
+const INVENTORY_CASES: { name: string; scan: InventoryScan }[] = [
+  { name: 'empty', scan: { repos: [], capabilities: [] } },
+  {
+    name: 'every kind, out of order',
+    scan: {
+      repos: [
+        {
+          path: '/Users/ben/code/zeta',
+          remote: null,
+          default_branch: 'master',
+          head_commit: SHA_B,
+          mode: 'checkout',
+        },
+        {
+          path: '/Users/ben/code/app',
+          remote: 'github.com/org/app',
+          default_branch: 'main',
+          head_commit: SHA_A,
+          mode: 'reference',
+        },
+      ],
+      capabilities: [
+        { kind: 'skill', name: 'review', repo: 'github.com/org/app' },
+        { kind: 'claude', version: '2.1.308' },
+        { kind: 'cli', name: 'gh', version: '2.50.0', authed: true },
+        { kind: 'cli', name: 'az', version: null, authed: false },
+        { kind: 'agent', name: 'planner' },
+        { kind: 'mcp', name: 'slack' },
+        { kind: 'skill', name: 'review' },
+        { kind: 'agent', name: 'planner', repo: 'github.com/org/app' },
+      ],
+    },
+  },
+  {
+    name: 'awkward strings',
+    scan: {
+      repos: [
+        {
+          path: '/tmp/\uff01-full-width',
+          remote: 'gitlab.example.com/Group/Sub/Repo',
+          default_branch: 'release/2.0',
+          head_commit: SHA_A,
+          mode: 'reference',
+        },
+        {
+          path: '/tmp/\u{1f600}-emoji',
+          remote: null,
+          default_branch: 'main',
+          head_commit: SHA_A,
+          mode: 'reference',
+        },
+        {
+          path: '/tmp/quote"back\\slash/caf\u00e9',
+          remote: null,
+          default_branch: 'main',
+          head_commit: SHA_A,
+          mode: 'reference',
+        },
+        {
+          path: 'C:\\Users\\ben\\code\\app',
+          remote: 'github.com/org/app',
+          default_branch: 'main',
+          head_commit: SHA_A,
+          mode: 'checkout',
+        },
+      ],
+      capabilities: [
+        { kind: 'mcp', name: '\uff01x' },
+        { kind: 'mcp', name: '\u{1f600}x' },
+        { kind: 'skill', name: 'caf\u00e9' },
+        { kind: 'cli', name: 'jira', version: '1.5.1-rc.1', authed: false },
+      ],
+    },
+  },
+];
+
+describe('Rust inventory payload compatibility (MR-T11)', () => {
+  it('the TS inventory vector is what the TS daemon computes', () => {
+    const cases = INVENTORY_CASES.map(({ name, scan }) => ({
+      name,
+      scan,
+      payload: inventoryPayload(scan),
+    }));
+    const text = `${JSON.stringify(cases, null, 2)}\n`;
+    const file = join(TS_DIR, 'inventory-payload.json');
+    if (process.env.UPDATE_TS_FIXTURES === '1') writeFileSync(file, text);
+    expect(readFileSync(file, 'utf8').replace(/\r\n/g, '\n')).toBe(text);
   });
 });

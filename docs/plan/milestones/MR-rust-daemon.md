@@ -58,16 +58,16 @@
 |---|---|---|---|---|---|
 | MR-T00 | ADR-0026, this file, ROADMAP, `→ MR` marks in M2/MW, ADR amendment notes, tracking (U-112..116, B-005), freeze tag | — | A | — | done (PR #69, a9a04c8) |
 | MR-T01 | Spike `spikes/rust-daemon`: WS register + heartbeat; `rmcp` outcome tool called by real `claude -p`; Job Object tree kill on Windows | T00, B-005 | A | — | done (PR #74, 9bf630e; GO on WS, rmcp vs fake-claude, Job Objects; real-claude run passed 2026-11-02, U-113 resolved) |
-| MR-T02 | Cargo workspace, toolchain pin, cargo CI gates + 3-OS matrix, `scripts/test-parity.js`, `PARITY.md` skeleton | T01 | B | — | in_progress (board ticket 0a3cc07e, posted 2026-10-29) |
+| MR-T02 | Cargo workspace, toolchain pin, cargo CI gates + 3-OS matrix, `scripts/test-parity.js`, `PARITY.md` skeleton | T01 | B | — | done (board ticket 0a3cc07e; row corrected by MR-T11: the workspace, gates and PARITY.md are on main) |
 | MR-T03 | Protocol codegen (zod → JSON Schema → typify), JSON fixtures, two-sided round-trip + drift check; ports `resolveToolPolicy`, `canonicalRepo`, `cliVersionAtLeast` with shared vectors | T02 | B | — | done (board ticket, branch of this PR; TD-196..198) |
 | MR-T04 | `platform/`: spawn, kill-tree (+ Job Objects), procinfo, acl, shell, sysres, hook, git, fs; seam test | T02 | C | — | done (branch `mr-t04-platform`; Windows proven by the `daemon-rust` matrix on its PR; 10 PowerShell/CIM parser rows dropped, for Ben to OK) |
 | MR-T05 | Core: store, config, credential, ports, system-prompt, semaphore, tail, version, orphan, sysinfo | T03, T04 | C | — | done (board ticket c079cbaf; adds `platform/{private_file,machine}`; TS↔Rust file fixtures both ways) |
 | MR-T06 | Test support: fake orchestrator, fake-bin, remove-tree, fake driver, fake runner | T03 | C | — | done (board ticket 753ade9e; driver/runner contracts; also the pure `outcome_server` helpers the fake driver shares, for T08 to build on) |
-| MR-T07 | `ws_client` + process runner | T05, T06 | D | — | todo |
-| MR-T08 | `claude/`: stream-parser, transcript, edit-guard (`hook edit-guard`), outcome + permission MCP server | T05, T06 | D | — | todo |
+| MR-T07 | `ws_client` + process runner | T05, T06 | D | — | done (row corrected by MR-T11: `ws_client`, `process_runner` and their PARITY rows are on main) |
+| MR-T08 | `claude/`: stream-parser, transcript, edit-guard (`hook edit-guard`), outcome + permission MCP server | T05, T06 | D | — | done (row corrected by MR-T11: `claude/{stream_parser,transcript,edit_guard,outcome_server}` and their PARITY rows are on main) |
 | MR-T09 | `claude/cli_driver` | T07, T08 | E | — | done (this branch; U-113 real-claude gate passed first; `ClaudeDriver::start` now returns `Result`, `claude_session_id` a `String`; TD-203, TD-204) |
 | MR-T10 | workspace + hardened exec/git module + actions (open-pr, checkout, conditions) | T07 | E | — | done (this branch; also ports `matchingPaths` to `conductor-protocol` with shared vectors; TD-205..208) |
-| MR-T11 | inventory (capabilities, repos, git, report, rescan) | T10 | E | — | todo |
+| MR-T11 | inventory (capabilities, repos, git, report, rescan) | T10 | E | — | done (this branch; 2 `report.test.ts` rows, the daemon-over-the-link cases, are left `todo` for MR-T12; the `<root>/state/rescan` trigger on every OS; TS↔Rust payload vector `tests/fixtures/ts/inventory-payload.json`) |
 | MR-T12 | Daemon core | T09, T10, T11 | F | — | todo |
 | MR-T13 | `main` + subcommands: run, enroll, config, help, `service install/restart/uninstall` (launchd, systemd user, Windows Scheduled Task); absorbs MW-T09/T10/T11b | T12, U-112 | F | — | todo |
 | MR-T14 | ADR-0021 updater in Rust (stage, verify, drain, switch, exit 75, trial commit, `bad-versions`, `config auto-update`, 4005 → latest.json); absorbs M2-T18c | T13, M2-T18b, U-114 | G | — | todo |
@@ -390,7 +390,7 @@ Reference: `packages/daemon/src/daemon.ts` (1,588 lines), `daemon.test.ts` (63 c
 - **FR-3**: startup orphan sweep (BUG-1b rules), transcript reopen, `no_live_process` and resume paths.
 
 ## Verification
-- PARITY rows for `daemon.test.ts`, `daemon.kill.test.ts`, `reopen-transcript.test.ts`, the rest of `units.test.ts`. They run against `fake_orchestrator`, the fakes, real git and `fake-claude.mjs`, as in TS.
+- PARITY rows for `daemon.test.ts`, `daemon.kill.test.ts`, `reopen-transcript.test.ts`, the rest of `units.test.ts`. Also the two `inventory/report.test.ts › daemon inventory over the link` rows MR-T11 left `todo` (wire `inventory::report::InventoryReporter` in: `on_registered` before `request_work`, `hash()` as `repos_digest`, `watch_rescan_trigger`), then tick `inventory/report.test.ts`. They run against `fake_orchestrator`, the fakes, real git and `fake-claude.mjs`, as in TS.
 - Three-OS green.
 
 - **Depends on**: MR-T09, MR-T10, MR-T11. **Files owned**: `src/daemon.rs`, its PARITY rows. **Do not touch**: other modules except to fix a bug found here (say so in the PR).

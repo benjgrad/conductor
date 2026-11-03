@@ -4,6 +4,7 @@ import {
   CONDUCTOR_V2_DEF,
   CONDUCTOR_V3_DEF,
   CONDUCTOR_V4_DEF,
+  ROUTINE_V1_DEF,
   WorkflowDefinitionSchema,
 } from '@conductor/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,6 +13,7 @@ import {
   conductorDefaultAvailable,
   isShippedDefinition,
   seedConductorWorkflow,
+  seedRoutineWorkflow,
 } from '../../src/engine/seed.js';
 import { useTestDatabase } from '../db.js';
 
@@ -184,5 +186,44 @@ describe('seedConductorWorkflow (ADR-0010, M1b-T09 / ADR-0025 upgrades)', () => 
   it('default_available is null for other workflow ids and unknown ones', async () => {
     expect(await conductorDefaultAvailable(db.pool, 'm1_basic')).toBeNull();
     expect(await conductorDefaultAvailable(db.pool, 'conductor')).toBeNull(); // none stored
+  });
+});
+
+// ADR-0032: the shipped `routine` workflow (recurring tickets), by the same rules.
+describe('seedRoutineWorkflow (ADR-0032)', () => {
+  const routineRows = async () =>
+    (
+      await db.pool.query<Row>(
+        "SELECT version, definition, created_by FROM workflow_definition WHERE id = 'routine' " +
+          'ORDER BY version',
+      )
+    ).rows;
+
+  beforeEach(async () => {
+    await db.pool.query("DELETE FROM workflow_definition WHERE id = 'routine'");
+  });
+
+  it('inserts the shipped v1 once, also under concurrent starts', async () => {
+    const results = await Promise.all([
+      seedRoutineWorkflow(db.pool),
+      seedRoutineWorkflow(db.pool),
+      seedRoutineWorkflow(db.pool),
+    ]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    const r = await routineRows();
+    expect(r.map((x) => [x.version, x.created_by])).toEqual([[1, 'conductor']]);
+    expect(WorkflowDefinitionSchema.parse(r[0]!.definition)).toEqual(ROUTINE_V1_DEF);
+    expect(await seedRoutineWorkflow(db.pool)).toBe(false);
+  });
+
+  it('an edited routine is kept, and conductor is untouched', async () => {
+    await seedRoutineWorkflow(db.pool);
+    await db.pool.query(
+      "INSERT INTO workflow_definition (id, version, definition) VALUES ('routine', 2, $1)",
+      [JSON.stringify({ ...ROUTINE_V1_DEF, version: 2, budget: { usd: 1, minutes: 30 } })],
+    );
+    expect(await seedRoutineWorkflow(db.pool)).toBe(false);
+    expect((await routineRows()).map((x) => x.version)).toEqual([1, 2]);
+    expect(await rows()).toEqual([]);
   });
 });

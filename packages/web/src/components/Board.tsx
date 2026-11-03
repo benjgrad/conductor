@@ -412,6 +412,11 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
           {idle && <span className="visually-hidden"> (idle)</span>}
         </span>
         {card.external_ref && <span className="ref">{card.external_ref}</span>}
+        {card.schedule && (
+          <span className="ref card-schedule" title={`Recurring: ${card.schedule.name}`}>
+            ↻ {card.schedule.name}
+          </span>
+        )}
         {conductor ? (
           <span className="status status-conductor">{checkingSummary(card)}</span>
         ) : (

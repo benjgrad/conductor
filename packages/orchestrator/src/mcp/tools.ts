@@ -35,6 +35,14 @@ import { loadSessionDetail } from '../api/sessions.js';
 import { insertWorkflowVersion, weakenedApprovals } from '../api/workflows.js';
 import { pathString } from '../api/errors.js';
 import { createTicket } from '../api/tickets.js';
+import {
+  createSchedule,
+  deleteSchedule,
+  listSchedules,
+  runScheduleNow,
+  updateSchedule,
+  type ScheduleFailure,
+} from '../schedules/store.js';
 import { reopenSession } from '../engine/reopen.js';
 import { conductorDefaultAvailable, newestShippedConductor } from '../engine/seed.js';
 import { maxBoardEventId } from '../stream/board.js';
@@ -54,6 +62,7 @@ import { waitForUpdates, type ChangeRow } from './updates.js';
 // ADR-0031 (conversational clients): `waiting_on` and a status report in get_ticket, the agent's
 // plan, results, output and transcript (get_ticket_artifacts), messages to a working agent
 // (message_agent) and a long poll for changes (wait_for_updates).
+// ADR-0032: recurring tickets (list_schedules, save_schedule, delete_schedule, run_schedule_now).
 // Never exposed: approvals (`ui.approve`, a transition's `requires.approvals`), permission prompts
 // (ADR-0023), fresh conversations, machine enrollment, team and admin.
 
@@ -73,10 +82,10 @@ export const MCP_INSTRUCTIONS =
   'conductor runs Claude Code agents on tickets across a board. Start with list_tickets ' +
   '(needs_input=true: what waits on the user) or search_tickets; refs take the id or its first ' +
   '8 characters. get_ticket gives waiting_on (read it, not status), a status_report, the open ' +
-  'question and the allowed transitions. Then answer_input, take_transition, or message_agent ' +
-  'to talk to a working agent. get_ticket_artifacts reads the plan, results and output; ' +
-  'wait_for_updates waits for the next change. Approvals and permission prompts stay on the ' +
-  'board. Repo checks: set_repo_checks; workflows: get_workflow.';
+  'question and the transitions. Then answer_input, take_transition, or message_agent to talk ' +
+  'to a working agent. get_ticket_artifacts reads the plan, results and output; ' +
+  'wait_for_updates waits for a change. Approvals and permission prompts stay on the board. ' +
+  'Also: set_repo_checks, get_workflow, save_schedule (recurring jobs).';
 
 /** ADR-0030: how a repo check runs, for the tools' descriptions. */
 const REPO_CHECKS_HOW =
@@ -97,6 +106,9 @@ const MACHINE_REPOS_MAX = 10;
 const WORKFLOW_MAX_BYTES = 256 * 1024;
 /** save_workflow: at most this many validator errors in the result. */
 const WORKFLOW_ERRORS_MAX = 50;
+
+/** list_schedules: each schedule's body, clipped. */
+const SCHEDULE_BODY_CLIP = 300;
 
 const clip = (s: string, n: number): string => (s.length <= n ? s : s.slice(0, n - 1) + '…');
 
@@ -1035,6 +1047,127 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         return fail('not_found', `${repo} has no checks of its own.`);
       }
       return ok({ ok: true });
+    },
+  );
+
+  // ---------------------------------------------------------------- ADR-0032 schedules
+
+  /** A store refusal as a tool error. */
+  const scheduleFail = (f: ScheduleFailure) =>
+    fail(
+      f.status === 404 ? 'not_found' : f.status === 400 ? 'invalid_input' : f.code,
+      f.message,
+      f.details ? { details: f.details } : {},
+    );
+  const scheduleDeps = { db, boardBus: deps.boardBus, auth: deps.auth };
+  const ticketUrl = (id: string) => `${deps.issuer}/#/?ticket=${id}`;
+
+  register(
+    'list_schedules',
+    {
+      title: 'List recurring schedules',
+      description:
+        'The account’s recurring jobs: each one’s cron and timezone, whether it is enabled, the ' +
+        'next run times, the last run’s ticket (get_ticket it to see whether it waits on the ' +
+        'user) and why the last due run was skipped, if it was. Bodies are clipped.',
+      inputSchema: {},
+      annotations: readOnly,
+    },
+    async () => {
+      const { schedules } = await listSchedules(db, accountId);
+      return ok({
+        schedules: schedules.map((sch) => ({
+          ...sch,
+          body: clip(sch.body, SCHEDULE_BODY_CLIP),
+          ...(sch.body.length > SCHEDULE_BODY_CLIP ? { body_truncated: true } : {}),
+          last_ticket: sch.last_ticket
+            ? { ...sch.last_ticket, short_id: sch.last_ticket.id.slice(0, 8) }
+            : null,
+        })),
+      });
+    },
+  );
+
+  register(
+    'save_schedule',
+    {
+      title: 'Create or edit a recurring schedule',
+      description:
+        'Create (no `id`; name, cron, title, repo, kind required) or edit (`id`; only the given ' +
+        'fields; `enabled` pauses/resumes) a recurring job. Each run makes a ticket from the ' +
+        'template on the `routine` workflow: an agent does the body’s instructions, then finishes ' +
+        'or asks the user. `cron`: 5 fields in `timezone` (IANA, default UTC), e.g. `0 9 * * 1-5` ' +
+        '= weekdays 09:00; runs ≥ 15 min apart. A run is skipped while the last one is open; ' +
+        'missed runs are not caught up. `machines` (ids or names) pins runs to e.g. a work laptop, ' +
+        'so the agent has its skills, plugins and CLIs; `repo` must be checked out there.',
+      inputSchema: {
+        id: z.string().max(64).optional().describe('Omit to create'),
+        name: z.string().min(1).max(100).optional().describe('Unique in the account'),
+        cron: z.string().min(1).max(100).optional().describe('e.g. "0 9 * * 1-5"'),
+        timezone: z.string().min(1).max(100).optional().describe('IANA, default UTC'),
+        enabled: z.boolean().optional(),
+        title: z.string().min(1).max(200).optional().describe('Each ticket’s title (+ run time)'),
+        body: z.string().max(20_000).optional().describe('The job’s instructions, in Markdown'),
+        repo: z.string().min(1).max(200).optional().describe('host/org/repo'),
+        kind: TicketKindSchema.optional().describe('work or personal'),
+        workflow_id: z.string().min(1).max(100).optional().describe('Default routine'),
+        priority: z.number().int().optional(),
+        machines: z.array(z.string().min(1).max(200)).max(10).nullable().optional(),
+        required_tags: z.array(z.string().min(1).max(100)).max(20).optional(),
+        expected_updated_at: z
+          .string()
+          .optional()
+          .describe('The `updated_at` you read; refuses with conflict if it changed'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    async ({ id, ...fields }) => {
+      const res =
+        id === undefined
+          ? await createSchedule(scheduleDeps, who.scope, fields, by)
+          : await updateSchedule(scheduleDeps, who.scope, id, fields);
+      if (!res.ok) return scheduleFail(res);
+      return ok({ ok: true, ...res.dto });
+    },
+  );
+
+  register(
+    'delete_schedule',
+    {
+      title: 'Delete a recurring schedule',
+      description:
+        'Stop and remove a schedule. Tickets it already created stay. To stop it for a while, ' +
+        'save_schedule with `enabled: false` instead.',
+      inputSchema: { id: z.string().max(64) },
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    },
+    async ({ id }) => {
+      if (!(await deleteSchedule(db, accountId, id))) {
+        return fail('not_found', `No schedule ${id} in this account. Try list_schedules.`);
+      }
+      return ok({ ok: true });
+    },
+  );
+
+  register(
+    'run_schedule_now',
+    {
+      title: 'Run a schedule now',
+      description:
+        'Create the schedule’s ticket now, without changing its next run. Refused with ' +
+        '`previous_run_open` while its last ticket is still open, unless `force`.',
+      inputSchema: { id: z.string().max(64), force: z.boolean().optional() },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    async ({ id, force }) => {
+      const res = await runScheduleNow(scheduleDeps, who.scope, id, { force: force === true });
+      if (!res.ok) return scheduleFail(res);
+      return ok({
+        id: res.ticket_id,
+        short_id: res.ticket_id.slice(0, 8),
+        url: ticketUrl(res.ticket_id),
+        schedule: { id: res.dto.id, name: res.dto.name, next_run_at: res.dto.next_run_at },
+      });
     },
   );
 

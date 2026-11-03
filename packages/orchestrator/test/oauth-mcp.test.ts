@@ -432,22 +432,27 @@ describe('/mcp', () => {
     );
     const list = await mcp(a.access, 'tools/list');
     const names = (list.json.result as { tools: { name: string }[] }).tools.map((t) => t.name);
-    // The tool set Ben approved (2026-10-30), plus ADR-0030's workflow tools: nothing else.
+    // The tool set Ben approved (2026-10-30), plus ADR-0030's workflow tools and ADR-0032's
+    // schedules: nothing else.
     expect(names.sort()).toEqual([
       'adopt_default_workflow',
       'answer_input',
       'cancel_ticket',
       'clear_repo_checks',
       'create_ticket',
+      'delete_schedule',
       'get_repo_checks',
       'get_ticket',
       'get_ticket_artifacts',
       'get_workflow',
       'list_machines',
       'list_repo_checks',
+      'list_schedules',
       'list_tickets',
       'message_agent',
       'reopen_ticket',
+      'run_schedule_now',
+      'save_schedule',
       'save_workflow',
       'search_tickets',
       'set_repo_checks',
@@ -456,8 +461,8 @@ describe('/mcp', () => {
     ]);
     const tools = (list.json.result as { tools: { description: string }[] }).tools;
     for (const t of tools) expect(t.description.length).toBeLessThanOrEqual(700);
-    // ADR-0031: 19 tools; the list is what every client loads first, so it stays small.
-    expect(Buffer.byteLength(list.text, 'utf8')).toBeLessThanOrEqual(15 * 1024);
+    // ADR-0031 / ADR-0032: 23 tools; the list is what every client loads first, so it stays small.
+    expect(Buffer.byteLength(list.text, 'utf8')).toBeLessThanOrEqual(18 * 1024);
 
     const created = await call(a.access, 'create_ticket', {
       title: 'From MCP',
@@ -986,6 +991,95 @@ describe('/mcp for conversational clients', () => {
         (t) => t.name,
       );
     expect(await names(a.access)).toEqual(await names(b.access));
+  });
+});
+
+// ADR-0032: recurring schedules, over MCP.
+describe('/mcp schedule tools', () => {
+  // Its own API instance for its own OAuth rate limits (as '/mcp for conversational clients').
+  let main: TestApi;
+  beforeAll(async () => {
+    main = api;
+    api = await startApi({ db: db.pool, auth: AUTH, engine, boardBus, outputBus, transcripts });
+  });
+  afterAll(async () => {
+    await api.close();
+    api = main;
+  });
+
+  it('save, list, run now, pause and delete a schedule, inside the account', async () => {
+    const a = await connect();
+    const b = await connect();
+    const machineId = `mcp-sch-${randomBytes(4).toString('hex')}`;
+    await db.pool.query(
+      'INSERT INTO machine (id, account_id, name, hostname, os, arch, cpu_total, mem_total_mb, ' +
+        'disk_free_mb, budget_cpu, budget_mem_mb, max_sessions, max_concurrent_builds) ' +
+        "VALUES ($1, $2, 'Work laptop', 'wl', 'win32', 'x64', 8, 16000, 100000, 4, 8000, 2, 1)",
+      [machineId, a.user.accountId],
+    );
+    await db.pool.query(
+      'INSERT INTO machine_repo (machine_id, account_id, repo, path, head_commit, tree_clean, remote) ' +
+        "VALUES ($1, $2, 'github.com/acme/app', '/src/app', 'abc', true, 'github.com/acme/app')",
+      [machineId, a.user.accountId],
+    );
+
+    const missing = await call(a.access, 'save_schedule', { name: 'No cron' });
+    expect([missing.isError, errorOf(missing).code]).toEqual([true, 'invalid_input']);
+    const tooOften = await call(a.access, 'save_schedule', {
+      name: 'Too often',
+      cron: '*/5 * * * *',
+      title: 'x',
+      repo: 'github.com/acme/app',
+      kind: 'work',
+    });
+    expect([tooOften.isError, errorOf(tooOften).code]).toEqual([true, 'invalid_input']);
+
+    const saved = await call(a.access, 'save_schedule', {
+      name: 'PRs and Jira',
+      cron: '0 9 * * 1-5',
+      timezone: 'America/Toronto',
+      title: 'Keep my PRs and Jira up to date',
+      body: 'Use the mtd skills on every open PR and its Jira ticket. '.repeat(10),
+      repo: 'https://github.com/Acme/App.git',
+      kind: 'work',
+      machines: ['work laptop'],
+    });
+    expect(saved.isError).toBe(false);
+    const id = saved.body.id as string;
+    expect(saved.body).toMatchObject({
+      ok: true,
+      repo: 'github.com/Acme/App',
+      workflow_id: 'routine',
+      machine_ids: [machineId],
+      enabled: true,
+    });
+
+    const listed = await call(a.access, 'list_schedules', {});
+    const [only] = listed.body.schedules as Record<string, unknown>[];
+    expect(only).toMatchObject({ id, name: 'PRs and Jira', body_truncated: true });
+    expect((only!.body as string).length).toBeLessThanOrEqual(300);
+    expect((await call(b.access, 'list_schedules', {})).body.schedules).toEqual([]);
+
+    const run = await call(a.access, 'run_schedule_now', { id });
+    expect(run.isError).toBe(false);
+    const ticketId = run.body.id as string;
+    const ticket = await call(a.access, 'get_ticket', { ticket: ticketId });
+    expect(ticket.isError).toBe(false);
+    expect(String(ticket.body.title)).toMatch(/^Keep my PRs and Jira up to date · /);
+    const again = await call(a.access, 'run_schedule_now', { id });
+    expect([again.isError, errorOf(again).code]).toEqual([true, 'previous_run_open']);
+    const fromB = await call(b.access, 'run_schedule_now', { id });
+    expect([fromB.isError, errorOf(fromB).code]).toEqual([true, 'not_found']);
+
+    const paused = await call(a.access, 'save_schedule', { id, enabled: false });
+    expect(paused.body).toMatchObject({ enabled: false, next_run_at: null });
+    const editB = await call(b.access, 'save_schedule', { id, enabled: true });
+    expect([editB.isError, errorOf(editB).code]).toEqual([true, 'not_found']);
+
+    const delB = await call(b.access, 'delete_schedule', { id });
+    expect([delB.isError, errorOf(delB).code]).toEqual([true, 'not_found']);
+    expect((await call(a.access, 'delete_schedule', { id })).body).toEqual({ ok: true });
+    expect((await call(a.access, 'list_schedules', {})).body.schedules).toEqual([]);
   });
 });
 

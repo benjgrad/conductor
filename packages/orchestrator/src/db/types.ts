@@ -183,6 +183,10 @@ export interface TicketRow {
    * cleared; null = not assigned yet (queued, or a ticket from before UX-13a).
    */
   agent_id: string | null;
+  /** ADR-0032: uuid, FK ticket_schedule (SET NULL): the schedule whose run created it; null = none. */
+  schedule_id: string | null;
+  /** ADR-0032: the run time it was created for; unique per schedule (the run's idempotency key). */
+  scheduled_for: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -527,6 +531,41 @@ export interface RepoChecksRow {
   updated_by: string | null;
 }
 
+/** ADR-0032: a recurring ticket template (migration 1762400000000). */
+export interface TicketScheduleRow {
+  id: string;
+  /** uuid, FK account. */
+  account_id: string;
+  /** Unique per account. */
+  name: string;
+  /** 5-field cron, read in `timezone` (`validateSchedule`). */
+  cron: string;
+  /** IANA timezone, default `UTC`. */
+  timezone: string;
+  enabled: boolean;
+  title: string;
+  body: string;
+  repo: string;
+  workflow_id: string;
+  kind: TicketKind;
+  priority: number;
+  required_tags: string[];
+  /** Each run's `ticket.repo_allow_machines`; null = any machine. */
+  machine_ids: string[] | null;
+  /** When the sweep fires it next; null while disabled. */
+  next_run_at: Date | null;
+  last_run_at: Date | null;
+  /** FK ticket (SET NULL): the last run's ticket. */
+  last_ticket_id: string | null;
+  last_skipped_at: Date | null;
+  /** `previous_run_open` · `invalid_schedule` (CHECK). */
+  last_skip_reason: string | null;
+  /** The creating user's email (`mcp:` prefixed over MCP); null when unknown. */
+  created_by: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
 /** Table name → row type, for generic repository helpers. */
 export interface Tables {
   machine: MachineRow;
@@ -555,4 +594,5 @@ export interface Tables {
   oauth_code: OAuthCodeRow;
   oauth_token: OAuthTokenRow;
   repo_checks: RepoChecksRow;
+  ticket_schedule: TicketScheduleRow;
 }

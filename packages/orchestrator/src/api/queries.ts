@@ -128,7 +128,10 @@ export function loadBoard(db: Db): Promise<BoardResponse> {
 }
 
 /** `agentName`: UX-13a, the ticket's teammate (null = not assigned yet). */
-export function toTicketDto(row: TicketRow, agentName: string | null = null): TicketDto {
+export function toTicketDto(
+  row: TicketRow & { schedule_name?: string | null },
+  agentName: string | null = null,
+): TicketDto {
   return {
     id: row.id,
     external_ref: row.external_ref,
@@ -144,6 +147,10 @@ export function toTicketDto(row: TicketRow, agentName: string | null = null): Ti
     created_at: row.created_at.toISOString(),
     kind: row.kind,
     agent_name: agentName,
+    // ADR-0032: the schedule's name is joined by TICKET_SELECT; a bare row only knows the id.
+    schedule:
+      row.schedule_id != null ? { id: row.schedule_id, name: row.schedule_name ?? '' } : null,
+    scheduled_for: row.scheduled_for?.toISOString() ?? null,
   };
 }
 

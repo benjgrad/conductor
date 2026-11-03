@@ -1,5 +1,6 @@
 import {
   CONDUCTOR_WORKFLOW_ID,
+  ROUTINE_WORKFLOW_ID,
   canonicalRepo,
   ticketEditable,
   toBoardCard,
@@ -9,6 +10,7 @@ import {
   type CreateTicketRequestSchema,
   type TicketDetail,
   type TicketDto,
+  type TicketKind,
   type UpdateTicketRequest,
   type WorkflowDefinition,
 } from '@conductor/shared';
@@ -18,7 +20,7 @@ import { insertBoardEvents, type BoardBus, type Queryable } from '../contracts.j
 import { withTransaction } from '../db/index.js';
 import type { SessionRow, TicketRow } from '../db/types.js';
 import { cardView, withMachineFields } from '../engine/board-view.js';
-import { seedConductorWorkflow } from '../engine/seed.js';
+import { seedConductorWorkflow, seedRoutineWorkflow } from '../engine/seed.js';
 import { DefinitionCache, TICKET_SELECT, type TicketCardRow } from '../engine/rows.js';
 import type { Db } from '../main.js';
 import { cardUpserted } from '../permissions/store.js';
@@ -216,6 +218,7 @@ export async function createTicket(
   // a start that raced a migration) working. Idempotent.
   // Silent: the "newer default" notice is the start's (M1b-T09).
   if (body.workflow_id === CONDUCTOR_WORKFLOW_ID) await seedConductorWorkflow(db, { log: null });
+  if (body.workflow_id === ROUTINE_WORKFLOW_ID) await seedRoutineWorkflow(db);
   const known = await db.query('SELECT 1 FROM workflow_definition WHERE id = $1 LIMIT 1', [
     body.workflow_id,
   ]);
@@ -229,39 +232,90 @@ export async function createTicket(
     };
   }
   const { ticket, events } = await withTransaction(db, async (tx) => {
-    const res = await tx.query<TicketRow>(
-      'INSERT INTO ticket (external_ref, repo, title, body, workflow_id, required_tags, ' +
-        'repo_allow_machines, priority, kind, account_id) ' +
-        'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *',
-      [
-        body.external_ref,
-        repo,
-        body.title,
-        body.body,
-        body.workflow_id,
-        body.required_tags,
-        body.repo_allow_machines,
-        body.priority,
-        body.kind,
-        scope.account_id,
-      ],
-    );
-    const row = res.rows[0]!;
+    const row = (await insertTicketRow(tx, {
+      account_id: scope.account_id,
+      external_ref: body.external_ref,
+      repo,
+      title: body.title,
+      body: body.body,
+      workflow_id: body.workflow_id,
+      required_tags: body.required_tags,
+      repo_allow_machines: body.repo_allow_machines,
+      priority: body.priority,
+      kind: body.kind,
+    }))!;
     // Last write of the transaction (insertBoardEvents holds the board lock to COMMIT).
     const evs = await sessionlessCardUpserted(tx, { ...row, agent_name: null });
     return { ticket: row, events: evs };
   });
   for (const ev of events) boardBus.publish(ev);
-  // U-048: a ticket for a repo no machine of the account has is created, and flagged. Offline
-  // machines count (routing per online machine is the card's, M2-T16); revoked ones don't.
-  // github.com org/repo compares case-insensitively; `r.repo` keeps M1 local-mode rows matching.
-  const has = await db.query(
+  const dto: TicketDto = toTicketDto(ticket);
+  if (!(await accountHasRepo(db, scope.account_id, ticket.repo))) {
+    dto.warnings = ['no_machine_has_repo'];
+  }
+  return { ok: true, dto };
+}
+
+/**
+ * U-048: whether some unrevoked machine of the account (online or not) has the repo. github.com
+ * org/repo compares case-insensitively; `r.repo` keeps M1 local-mode rows matching.
+ */
+export async function accountHasRepo(
+  q: Queryable,
+  accountId: string,
+  repo: string,
+): Promise<boolean> {
+  const has = await q.query(
     'SELECT 1 FROM machine_repo r JOIN machine m ON m.id = r.machine_id ' +
       'WHERE r.account_id = $1 AND m.revoked_at IS NULL ' +
       'AND (lower(r.remote) = lower($2) OR r.repo = $3) LIMIT 1',
-    [scope.account_id, canonicalRepo(ticket.repo) ?? ticket.repo, ticket.repo],
+    [accountId, canonicalRepo(repo) ?? repo, repo],
   );
-  const dto: TicketDto = toTicketDto(ticket);
-  if (has.rowCount === 0) dto.warnings = ['no_machine_has_repo'];
-  return { ok: true, dto };
+  return (has.rowCount ?? 0) > 0;
+}
+
+/** The columns a new ticket is inserted with (the rest take their defaults). */
+export interface NewTicket {
+  account_id: string;
+  external_ref: string | null;
+  repo: string;
+  title: string;
+  body: string;
+  workflow_id: string;
+  required_tags: string[];
+  repo_allow_machines: string[] | null;
+  priority: number;
+  kind: TicketKind;
+  /** ADR-0032: the schedule run it comes from; both or neither. */
+  schedule_id?: string | null;
+  scheduled_for?: Date | null;
+}
+
+/**
+ * Insert one ticket (POST /api/tickets and a schedule's run, ADR-0032). null = a schedule run that
+ * already has its ticket (`ticket_schedule_run_key`: the run's idempotency key).
+ */
+export async function insertTicketRow(tx: Queryable, t: NewTicket): Promise<TicketRow | null> {
+  const res = await tx.query<TicketRow>(
+    'INSERT INTO ticket (external_ref, repo, title, body, workflow_id, required_tags, ' +
+      'repo_allow_machines, priority, kind, account_id, schedule_id, scheduled_for) ' +
+      'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ' +
+      'ON CONFLICT (schedule_id, scheduled_for) WHERE schedule_id IS NOT NULL DO NOTHING ' +
+      'RETURNING *',
+    [
+      t.external_ref,
+      t.repo,
+      t.title,
+      t.body,
+      t.workflow_id,
+      t.required_tags,
+      t.repo_allow_machines,
+      t.priority,
+      t.kind,
+      t.account_id,
+      t.schedule_id ?? null,
+      t.scheduled_for ?? null,
+    ],
+  );
+  return res.rows[0] ?? null;
 }

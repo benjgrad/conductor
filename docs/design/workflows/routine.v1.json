@@ -1,0 +1,68 @@
+{
+  "id": "routine",
+  "version": 1,
+  "start": "running",
+  "budget": {
+    "usd": 3,
+    "minutes": 90,
+    "max_loop_retries": 3
+  },
+  "on_budget_exceeded": "needs_input",
+  "columns": [
+    "running",
+    "needs_input",
+    "done"
+  ],
+  "states": {
+    "running": {
+      "type": "agent",
+      "title": "Running",
+      "prompt": "# Recurring job: {{ticket.title}}\n\n{{ticket.body}}\n\nRepository (working directory only): {{ticket.repo}}\n\n## Your step: a recurring run\n\nThis ticket was created by a schedule: it runs again later, so do what is due now and nothing else.\nFollow the instructions above using the skills, plugins, MCP servers and CLIs available on this machine.\nThe repository checkout is only a working directory: do not commit, push or open a pull request in it unless the instructions above say to.\nIf anything needs a person (a decision, an outward-facing action you are unsure about, missing access, or ambiguous instructions), take `needs_decision` with one clear question instead of guessing.\nWhen you finish, give a short `report`: what you checked, what you changed (with links), and anything left for a person.",
+      "tools": [
+        "read",
+        "edit",
+        "bash",
+        "git"
+      ],
+      "result": [
+        "report"
+      ],
+      "timeout": "60m",
+      "on": {
+        "done": {
+          "goto": "done",
+          "title": "Done",
+          "when": "Everything the job asks for is done, or nothing needed doing this time."
+        },
+        "needs_decision": {
+          "goto": "needs_input",
+          "title": "Needs a decision",
+          "when": "Something needs the user's judgement or an action only they can take.",
+          "question": true
+        },
+        "ask_user": "needs_input",
+        "timeout": "needs_input"
+      }
+    },
+    "needs_input": {
+      "type": "human",
+      "title": "Needs input",
+      "on": {
+        "answer": {
+          "goto": "$return_to",
+          "title": "Back with this answer",
+          "actor": "human"
+        },
+        "done": {
+          "goto": "done",
+          "title": "Done",
+          "actor": "human"
+        }
+      }
+    },
+    "done": {
+      "type": "terminal",
+      "title": "Done"
+    }
+  }
+}

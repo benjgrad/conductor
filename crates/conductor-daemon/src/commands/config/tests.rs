@@ -48,13 +48,20 @@ impl Fx {
         read_file_config(&self.root).unwrap()
     }
 
+    /// `rel` (`/`-separated) under the temp dir, with this OS's separators: on Windows a `/`
+    /// would survive into the path and differ from the realpath `config` stores.
+    fn path(&self, rel: &str) -> PathBuf {
+        rel.split('/')
+            .fold(self.tmp.clone(), |p, part| p.join(part))
+    }
+
     fn p(&self, rel: &str) -> String {
-        self.tmp.join(rel).to_string_lossy().into_owned()
+        self.path(rel).to_string_lossy().into_owned()
     }
 
     /// A work tree as `config repo` sees one: a `.git` entry (no git process needed).
     fn repo(&self, rel: &str) -> String {
-        let dir = self.tmp.join(rel);
+        let dir = self.path(rel);
         std::fs::create_dir_all(dir.join(".git")).unwrap();
         dir.to_string_lossy().into_owned()
     }

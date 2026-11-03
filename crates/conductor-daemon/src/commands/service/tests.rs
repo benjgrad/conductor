@@ -1,7 +1,7 @@
 //! Port of `commands/service.test.ts` (M2-T18). The unit files are pure renderers; the install /
 //! uninstall / restart flow runs against an in-process fake of launchctl / systemctl (the TS test
-//! spawned fake tools on PATH; here the `run` seam is the boundary, so nothing is spawned and the
-//! flow runs on every OS, Windows included).
+//! spawned fake tools on PATH; here the `run` seam is the boundary, so nothing is spawned). The
+//! install and restart flows are POSIX-only, as in TS.
 
 use super::*;
 use crate::commands::CapturedOutput;
@@ -318,6 +318,11 @@ const MANAGERS: [ServiceManager; 2] = [ServiceManager::Launchd, ServiceManager::
 
 #[test]
 fn install_writes_the_unit_and_the_launcher_a_second_install_changes_nothing() {
+    // POSIX only, as the TS suite (`describe.skipIf(win32)`): no launchd or systemd on Windows,
+    // and a Windows root (`C:\…`) has a `\`, which a systemd unit can't quote.
+    if Platform::current().is_windows() {
+        return;
+    }
     for m in MANAGERS {
         let mut f = Fixture::new();
         assert_eq!(f.service(Some(m), &["install"]), 0, "{}", f.io.all());
@@ -383,6 +388,11 @@ fn install_writes_the_unit_and_the_launcher_a_second_install_changes_nothing() {
 
 #[test]
 fn restart_status_and_uninstall_sudo_is_never_used() {
+    // POSIX only, as the TS suite (`describe.skipIf(win32)`): no launchd or systemd on Windows,
+    // and a Windows root (`C:\…`) has a `\`, which a systemd unit can't quote.
+    if Platform::current().is_windows() {
+        return;
+    }
     for m in MANAGERS {
         let mut f = Fixture::new();
         assert_eq!(f.service(Some(m), &["restart"]), 1);

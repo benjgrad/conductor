@@ -124,6 +124,25 @@ pub fn signal_tree(pid: u32, sig: Signal) -> bool {
     imp::signal_tree(pid, sig)
 }
 
+/// What Node's `process.kill(pid, 0)` says about a pid (the orphan sweep's liveness check).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Liveness {
+    /// ESRCH: no such process (or it has exited).
+    Gone,
+    /// EPERM: it exists but belongs to someone else, so it is never ours.
+    NotSignalable,
+    Alive,
+}
+
+/// `process.kill(pid, 0)`: POSIX `kill(pid, 0)`; Windows `OpenProcess` + `GetExitCodeProcess`
+/// (as libuv does). A POSIX zombie counts as alive, as in Node.
+pub fn pid_liveness(pid: u32) -> Liveness {
+    if pid == 0 || pid > i32::MAX as u32 {
+        return Liveness::Gone;
+    }
+    imp::pid_liveness(pid)
+}
+
 /// How a child the daemon killed exited, reported the same on every OS.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KilledExit {
@@ -221,6 +240,14 @@ mod imp {
     pub fn signal_tree(pid: u32, sig: Signal) -> bool {
         signal_group(pid, sig, None)
     }
+
+    pub fn pid_liveness(pid: u32) -> super::Liveness {
+        match signal::kill(Pid::from_raw(pid as i32), None) {
+            Ok(()) => super::Liveness::Alive,
+            Err(nix::errno::Errno::EPERM) => super::Liveness::NotSignalable,
+            Err(_) => super::Liveness::Gone,
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -284,6 +311,75 @@ mod imp {
             .creation_flags(CREATE_NO_WINDOW)
             .status()
             .is_ok_and(|s| s.success())
+    }
+
+    pub fn pid_liveness(pid: u32) -> super::Liveness {
+        use windows_sys::Win32::Foundation::{
+            CloseHandle, ERROR_ACCESS_DENIED, ERROR_INVALID_PARAMETER, GetLastError,
+        };
+        use windows_sys::Win32::System::Threading::{
+            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        const STILL_ACTIVE: u32 = 259;
+        // SAFETY: plain Win32 calls; the handle is closed.
+        unsafe {
+            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if h.is_null() {
+                return match GetLastError() {
+                    ERROR_INVALID_PARAMETER => super::Liveness::Gone,
+                    ERROR_ACCESS_DENIED => super::Liveness::NotSignalable,
+                    _ => super::Liveness::Gone,
+                };
+            }
+            let mut code: u32 = 0;
+            let ok = GetExitCodeProcess(h, &mut code) != 0;
+            CloseHandle(h);
+            if ok && code != STILL_ACTIVE {
+                super::Liveness::Gone
+            } else {
+                super::Liveness::Alive
+            }
+        }
+    }
+}
+
+/// Test helpers that need the OS (the daemon's BUG-1b orphan-sweep tests).
+#[cfg(test)]
+pub(crate) mod tests_support {
+    /// BUG-1b stand-in: a detached `/bin/sh -c '<sleep 300 & echo $!; wait>' x <extra…>` whose ps
+    /// command line starts with `argv0`, leader of its own process group, plus its `sleep` child.
+    /// Returns `(leader, child)`; reaped in the background when it dies (as Node does). None on
+    /// Windows (argv0 spoofing and `$!` pids are POSIX).
+    #[cfg(unix)]
+    pub fn stand_in(argv0: &str, extra: &[String], ignore_term: bool) -> Option<(u32, u32)> {
+        use std::io::BufRead;
+        use std::os::unix::process::CommandExt;
+        let script = format!(
+            "{}sleep 300 & echo $!; wait",
+            if ignore_term { "trap '' TERM; " } else { "" }
+        );
+        let mut child = std::process::Command::new("/bin/sh")
+            .arg0(argv0)
+            .args(["-c", &script, "x"])
+            .args(extra)
+            .process_group(0)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .ok()?;
+        let mut line = String::new();
+        std::io::BufReader::new(child.stdout.take()?)
+            .read_line(&mut line)
+            .ok()?;
+        let leader = child.id();
+        std::thread::spawn(move || child.wait());
+        Some((leader, line.trim().parse().ok()?))
+    }
+
+    #[cfg(windows)]
+    pub fn stand_in(_argv0: &str, _extra: &[String], _ignore_term: bool) -> Option<(u32, u32)> {
+        None
     }
 }
 
@@ -598,5 +694,12 @@ mod tests {
     fn signal_tree_of_a_missing_pid_is_false() {
         assert!(!signal_tree(0, Signal::Term));
         assert!(!signal_tree(i32::MAX as u32 - 7, Signal::Term));
+    }
+
+    #[test]
+    fn pid_liveness_is_node_s_signal_zero() {
+        assert_eq!(pid_liveness(std::process::id()), Liveness::Alive);
+        assert_eq!(pid_liveness(0), Liveness::Gone);
+        assert_eq!(pid_liveness(i32::MAX as u32), Liveness::Gone);
     }
 }

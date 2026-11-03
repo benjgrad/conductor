@@ -1,5 +1,5 @@
 //! Port of `inventory/report.test.ts` (the `inventoryHash` and `InventoryReporter` cases; the two
-//! `daemon inventory over the link` cases need the daemon core and belong to MR-T12), plus the
+//! `daemon inventory over the link` cases need the daemon core: `daemon/tests/inventory_link.rs`), plus the
 //! TS ↔ Rust payload vector and the rescan trigger file.
 
 use super::*;

@@ -161,6 +161,10 @@ async fn the_request_is_replayed_after_a_socket_drop_durable_seq_same_msg_id() {
     let drv = driver(held());
     let (_, _, req) = started(&c, drv.clone()).await;
     let seq = req["seq"].as_i64().unwrap();
+    // The script goes on past the held call (ask_user, spend: higher seqs). Let those land
+    // first, or the fake would raise last_seq past the request after we rewind it.
+    c.until_true(|| !c.orch.events(Some("spend")).is_empty())
+        .await;
     c.orch.set_last_seq(Some(seq - 1)); // the orchestrator never processed it
     c.orch.drop_socket();
     c.until_true(|| c.of_type("register").len() == 2).await;

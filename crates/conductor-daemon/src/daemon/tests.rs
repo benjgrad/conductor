@@ -147,7 +147,9 @@ impl Ctx {
             .prefix("conductor-daemon-")
             .tempdir()
             .unwrap();
-        let tmp = std::fs::canonicalize(dir.path()).unwrap();
+        // fs.realpathSync: without Windows' `\\?\` verbatim prefix, which git and the root
+        // path resolution can't use.
+        let tmp = crate::claude::transcript::realpath(dir.path()).unwrap();
         // win32: the daemon makes its root private, which needs a private parent.
         mkdir_private(&tmp).unwrap();
         let repo = tmp.join("origin");

@@ -726,6 +726,13 @@ impl Core {
             OrchestratorToDaemon::AssistantJob { payload, .. } => {
                 self.assistant_job(&mut st, payload);
             }
+            OrchestratorToDaemon::UpdateAvailable { payload, .. } => {
+                // ADR-0021 (M2-T18b contracts): the updater is MR-T14; until then, log and ignore.
+                self.log(&format!(
+                    "update_available {}: self-update not implemented yet (MR-T14)",
+                    *payload.version
+                ));
+            }
             OrchestratorToDaemon::FetchTranscript { payload, .. } => {
                 drop(st);
                 let t = self.transcript(payload.request_id, payload.session_id);

@@ -5,6 +5,8 @@ import {
   CONDUCTOR_V3,
   CONDUCTOR_V4,
   CONDUCTOR_WORKFLOW_ID,
+  ROUTINE_V1,
+  ROUTINE_WORKFLOW_ID,
   WorkflowDefinitionSchema,
   validateWorkflow,
   type WorkflowDefinition,
@@ -23,6 +25,7 @@ import type { Queryable } from '../contracts.js';
 //   until the latest is the newest shipped version: an empty database gets v1 … v4 (v4 latest).
 // - Anything else (the user saved a version of their own) is never touched: the start logs that a
 //   newer default is available, and `GET /api/workflows/conductor` carries `default_available`.
+// ADR-0032: `routine` (recurring tickets) is seeded by the same rules (`seedShippedWorkflow`).
 
 /** The message logged on start when the user's edits kept the seed from inserting a newer default. */
 export const NEWER_DEFAULT_MESSAGE = 'A newer default conductor workflow is available';
@@ -51,7 +54,7 @@ function checkedDef(input: WorkflowDefinitionInput, superseded: boolean): Workfl
   if (!checked.ok) {
     // A shipped definition that fails its own validator is a build bug: fail loudly.
     throw new Error(
-      `the shipped ${CONDUCTOR_WORKFLOW_ID} v${input.version} workflow is invalid: ${checked.errors
+      `the shipped ${input.id} v${input.version} workflow is invalid: ${checked.errors
         .map((e) => `${e.path.join('.')}: ${e.message}`)
         .join('; ')}`,
     );
@@ -106,13 +109,49 @@ export async function seedConductorWorkflow(
   db: Queryable,
   opts: SeedOptions = {},
 ): Promise<boolean> {
-  const versions = shipped();
+  return seedShippedWorkflow(db, CONDUCTOR_WORKFLOW_ID, shipped(), async (latestVersion) => {
+    if (opts.log === null) return;
+    const available = await conductorDefaultAvailable(db, CONDUCTOR_WORKFLOW_ID);
+    if (available === null) return;
+    const log =
+      opts.log ?? ((m: string) => void process.stderr.write(`[conductor-orchestrator] ${m}\n`));
+    log(
+      `${NEWER_DEFAULT_MESSAGE} (v${available}); ` +
+        `your edited version ${latestVersion} was kept as the latest.`,
+    );
+  });
+}
+
+/** ADR-0032: the shipped `routine` versions, oldest first, each validated. */
+function shippedRoutine(): WorkflowDefinition[] {
+  return [ROUTINE_V1].map((v) => checkedDef(v, false));
+}
+
+/**
+ * ADR-0032: seed the shipped `routine` workflow (recurring tickets), by the same rules as
+ * `conductor`; an edited latest version is kept silently. true = it inserted a version.
+ */
+export function seedRoutineWorkflow(db: Queryable): Promise<boolean> {
+  return seedShippedWorkflow(db, ROUTINE_WORKFLOW_ID, shippedRoutine(), null);
+}
+
+/**
+ * Seed a shipped workflow `id` (`versions` oldest first): v1 when none is stored, then each next
+ * shipped version while the latest stored one is an unedited shipped one. `onEdited` runs when the
+ * latest stored version is the user's own (the "newer default" notice).
+ */
+export async function seedShippedWorkflow(
+  db: Queryable,
+  id: string,
+  versions: readonly WorkflowDefinition[],
+  onEdited: ((latestVersion: number) => Promise<void>) | null,
+): Promise<boolean> {
   const insertedV1 = await db.query(
     'INSERT INTO workflow_definition (id, version, definition, created_by) ' +
       "SELECT $1::text, 1, $2::jsonb, 'conductor' " +
       'WHERE NOT EXISTS (SELECT 1 FROM workflow_definition WHERE id = $1::text) ' +
       'ON CONFLICT (id, version) DO NOTHING',
-    [CONDUCTOR_WORKFLOW_ID, JSON.stringify(versions[0])],
+    [id, JSON.stringify(versions[0])],
   );
   let inserted = insertedV1.rowCount === 1;
 
@@ -120,7 +159,7 @@ export async function seedConductorWorkflow(
     const latest = await db.query<{ version: number; definition: unknown }>(
       'SELECT version, definition FROM workflow_definition WHERE id = $1 ' +
         'ORDER BY version DESC LIMIT 1',
-      [CONDUCTOR_WORKFLOW_ID],
+      [id],
     );
     const row = latest.rows[0];
     if (row === undefined) return inserted;
@@ -129,18 +168,7 @@ export async function seedConductorWorkflow(
     );
     const next = at >= 0 ? versions[at + 1] : undefined;
     if (next === undefined) {
-      if (at < 0 && opts.log !== null) {
-        const available = await conductorDefaultAvailable(db, CONDUCTOR_WORKFLOW_ID);
-        if (available !== null) {
-          const log =
-            opts.log ??
-            ((m: string) => void process.stderr.write(`[conductor-orchestrator] ${m}\n`));
-          log(
-            `${NEWER_DEFAULT_MESSAGE} (v${available}); ` +
-              `your edited version ${row.version} was kept as the latest.`,
-          );
-        }
-      }
+      if (at < 0 && onEdited !== null) await onEdited(row.version);
       return inserted;
     }
     // Only fires while no version at or above `next` exists; a concurrent start that won the race
@@ -151,7 +179,7 @@ export async function seedConductorWorkflow(
         'WHERE NOT EXISTS (SELECT 1 FROM workflow_definition ' +
         'WHERE id = $1::text AND version >= $2::int) ' +
         'ON CONFLICT (id, version) DO NOTHING',
-      [CONDUCTOR_WORKFLOW_ID, next.version, JSON.stringify(next)],
+      [id, next.version, JSON.stringify(next)],
     );
     if (res.rowCount === 1) inserted = true;
   }

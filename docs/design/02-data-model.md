@@ -18,6 +18,7 @@ erDiagram
   account ||--o{ ticket : "owns (and every table above)"
   agent |o--o{ ticket : "works"
   account ||--o{ agent : "team"
+  ticket_schedule |o--o{ ticket : "runs as"
   account ||--o{ account_member : "has"
   app_user ||--o{ account_member : "belongs via"
   app_user ||--o{ web_session : "signed in as"
@@ -25,7 +26,7 @@ erDiagram
 
 ## Tables
 
-The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.sql` (M1-T02, plain node-pg-migrate SQL) plus the later migrations in that directory (`1761200000000_machine-claude-code-version.sql`, M1-T07; `1761500000000_ticket-kind.sql`, M1b-T04; `1761600000000_accounts-and-auth.sql`, M2-T03; `1761700000000_machine-credentials.sql`, M2-T09; `1762000000000_agent-team.sql`, UX-13a), and this doc is updated when it diverges. `packages/orchestrator/test/schema.test.ts` checks every column's name, pg type and nullability against the row types, and every enum against `shared/src/domain.ts`. Enums are Postgres enum types named `<table>_<column>` (`machine_status`, `ticket_status`, `ticket_kind`, `session_status`, `input_request_kind`, `outbox_kind`, `outbox_status`). Nullability follows the row types exactly (a `| null` field is a nullable column, everything else is `NOT NULL`), including columns this table doesn't mark null (e.g. `lease_expires_at`, `worktree_path`, `port_range`); `jsonb` maps default to `'{}'`, `text[]` to `'{}'`, counters and money to 0, timestamps to `now()`, uuid keys to `gen_random_uuid()`. The TypeScript row types are pinned in `packages/orchestrator/src/db/types.ts` (M1-T12, [10](10-contracts.md)); they use node-postgres' default parsing (`bigint`/`numeric` → string, `timestamptz` → Date, `bytea` → Buffer).
+The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.sql` (M1-T02, plain node-pg-migrate SQL) plus the later migrations in that directory (`1761200000000_machine-claude-code-version.sql`, M1-T07; `1761500000000_ticket-kind.sql`, M1b-T04; `1761600000000_accounts-and-auth.sql`, M2-T03; `1761700000000_machine-credentials.sql`, M2-T09; `1762000000000_agent-team.sql`, UX-13a; `1762400000000_ticket-schedules.sql`, ADR-0032), and this doc is updated when it diverges. `packages/orchestrator/test/schema.test.ts` checks every column's name, pg type and nullability against the row types, and every enum against `shared/src/domain.ts`. Enums are Postgres enum types named `<table>_<column>` (`machine_status`, `ticket_status`, `ticket_kind`, `session_status`, `input_request_kind`, `outbox_kind`, `outbox_status`). Nullability follows the row types exactly (a `| null` field is a nullable column, everything else is `NOT NULL`), including columns this table doesn't mark null (e.g. `lease_expires_at`, `worktree_path`, `port_range`); `jsonb` maps default to `'{}'`, `text[]` to `'{}'`, counters and money to 0, timestamps to `now()`, uuid keys to `gen_random_uuid()`. The TypeScript row types are pinned in `packages/orchestrator/src/db/types.ts` (M1-T12, [10](10-contracts.md)); they use node-postgres' default parsing (`bigint`/`numeric` → string, `timestamptz` → Date, `bytea` → Buffer).
 
 **Tenancy (M2-T03).** Every table carries `account_id uuid NOT NULL REFERENCES account (id)`, except the instance-level tables (`account`, `app_user`, `account_member`, `web_session`, `invite`, `password_reset`, `login_throttle`) and `pgmigrations`. `packages/orchestrator/test/schema-isolation.test.ts` enforces it (ADR-0012 §Proving isolation 1), so a new table either carries the column or joins that allow-list in review. Migration `1761600000000_accounts-and-auth` inserts the `local` account (`LOCAL_ACCOUNT_ID` = `00000000-0000-4000-8000-000000000001`, `packages/shared/src/domain.ts`) and adds `account_id` to the eight M1 tables with a constant `DEFAULT` of that id, which backfills every existing row into `local`. **The default is temporary** (TD-109): it lets M1 code keep inserting without naming an account, and M2-T21 drops it once every write is scoped. The down migration drops the column, the seven tables and the `machine_lost` kind (deleting any such requests), restoring the M1b schema. In the account_id rows below, "account_id (M2-T03)" means: uuid FK `account`, NOT NULL, backfilled to `local`, temporary default TD-109 until M2-T21, indexed (`<table>_account_id_idx`).
 
@@ -137,6 +138,8 @@ The migration's down drops these four tables and the new `machine` / `machine_re
 | kind | enum `ticket_kind` null | `work` · `personal` ([ADR-0011](../adr/0011-transition-rules.md)): filters transitions (`kinds`). NULL for tickets created before M1b, matching both kinds ([U-062](../tracking/UNKNOWNS.md)); new tickets must set it (create form until triage, M4). Added by migration `1761500000000_ticket-kind` (M1b-T04; existing rows keep NULL, the down migration drops the column and the type). `POST /api/tickets` returns it in `TicketDto.kind` and every card carries it (`BoardCard.kind`) |
 | session_allow | text[] | default `{}`. M2-T29c ([ADR-0023](../adr/0023-permission-prompts-through-conductor.md) §2): the exact allow rules "Allow always" recorded for this ticket's sessions, each once, until the machine override exists (M2-T28c). Not yet passed to `start_session` (that needs daemon changes); the live process gets the rule through the decision itself |
 | account_id | uuid fk account | M2-T03 (see Tenancy above) |
+| schedule_id | uuid fk ticket_schedule null | [ADR-0032](../adr/0032-recurring-tickets.md): the schedule whose run created the ticket; `ON DELETE SET NULL` (deleting a schedule keeps its tickets). NULL = not from a schedule. Migration `1762400000000_ticket-schedules` |
+| scheduled_for | timestamptz null | ADR-0032: the run time it was created for (a manual run: now, to the second). `(schedule_id, scheduled_for)` is unique where `schedule_id IS NOT NULL` (`ticket_schedule_run_key`): a run's idempotency key, so a retried or concurrent sweep never inserts a second ticket |
 | agent_id | uuid fk agent null | UX-13a: the teammate working the ticket ([agent](#agent)). Set by the claim that starts work and never cleared, so retries, requeues and reopens keep the same agent. NULL = not assigned yet (queued, or a ticket from before UX-13a; existing rows keep NULL). Indexed `ticket_agent_id_idx` (`WHERE agent_id IS NOT NULL`) |
 | created_at, updated_at | timestamptz | the claim orders by `created_at` |
 
@@ -392,6 +395,32 @@ The migration's down drops the three tables.
 
 The migration's down drops the table.
 
+### ticket_schedule
+[ADR-0032](../adr/0032-recurring-tickets.md), migration `1762400000000_ticket-schedules`. A recurring ticket: a template plus a cron rule. The orchestrator's schedule sweep (every 30 s) inserts one ticket per due run ([10 §Schedules](10-contracts.md#schedules-adr-0032)). Edited with `/api/schedules` and the MCP tools `list_schedules` / `save_schedule` / `delete_schedule` / `run_schedule_now`.
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| account_id | uuid fk account | indexed `ticket_schedule_account_id_idx` |
+| name | text | `CHECK name <> ''`; `UNIQUE (account_id, name)` |
+| cron | text | 5 fields, read in `timezone` (`validateSchedule` in shared: runs at least 15 min apart) |
+| timezone | text | IANA, default `UTC` |
+| enabled | bool | default true; false = paused (`next_run_at` null) |
+| title, body, repo | text | the ticket template; `repo` canonical in `password` mode, as `POST /api/tickets`. Each ticket's title is `<title> · <YYYY-MM-DD HH:mm in timezone>` |
+| workflow_id | text | default `routine` (the shipped workflow of recurring tickets) |
+| kind | `ticket_kind` | NOT NULL |
+| priority | int | default 0 |
+| required_tags | text[] | default `{}`; copied to each ticket |
+| machine_ids | text[] null | copied to each ticket's `repo_allow_machines` (the claim's hard allow-list); null = any machine. Given as ids or names, stored as ids |
+| next_run_at | timestamptz null | when the sweep fires it next; null while disabled (or a cron that never runs again). Partial index `ticket_schedule_due_idx (next_run_at) WHERE enabled` |
+| last_run_at | timestamptz null | when the last ticket was created |
+| last_ticket_id | uuid fk ticket null | the last run's ticket (`ON DELETE SET NULL`); a due run is skipped while it is `ready` / `claimed` / `in_progress` |
+| last_skipped_at | timestamptz null | the last due run that made no ticket |
+| last_skip_reason | text null | `CHECK IN ('previous_run_open', 'invalid_schedule')` |
+| created_by | text null | the user's email (`mcp:` prefixed over MCP) |
+| created_at, updated_at | timestamptz | `updated_at` changes on every edit (the PATCH guard `expected_updated_at`), not on runs |
+
+The migration's down drops `ticket_schedule_run_key`, the two `ticket` columns and the table.
+
 ### login_throttle
 Instance-level. ADR-0017 §Rate limiting, layer 3: keyed by the normalised email **string**, whether or not a user has it, so a lockout reveals nothing.
 | column | type | notes |
@@ -404,4 +433,4 @@ Instance-level. ADR-0017 §Rate limiting, layer 3: keyed by the normalised email
 
 ## Indexes
 
-Besides primary keys and `outbox.command_id UNIQUE`: `ticket (status, priority)`, `session (status)`, `session_one_live_per_ticket` ([session](#session)), `session (ticket_id, created_at DESC)` (the claim's affinity lookup, [04](04-scheduler.md)), `input_request (session_id) WHERE answer IS NULL`, `event (session_id, id)`, and `outbox (next_attempt_at) WHERE status = 'pending'` (the dispatcher's scan). M2-T03: `<table>_account_id_idx` on `account_id` for each of the eight M1 tables, except `event (account_id, id)` (the per-account SSE replay); `app_user (lower(email))` unique; `web_session (user_id)` and `(expires_at)`; `account_member (user_id)`; `invite.token_hash` and `password_reset.token_hash` unique. M2-T09: `<table>_account_id_idx` on each of its four tables; `enrollment_token.token_hash` and `machine_credential.secret_hash` unique; `machine_credential (machine_id)`; `machine_alert (machine_id) WHERE cleared_at IS NULL` (`machine_alert_open_idx`). M2-T29c: `permission_request (account_id)`, `(session_id, created_at)` and `(expires_at) WHERE status = 'pending'` (the timeout sweep). UX-15: `push_subscription.endpoint` unique, `push_subscription (account_id, user_id)`, and `outbox_push_idem_idx` unique on `outbox (target, idempotency_key) WHERE target LIKE 'user:%'` (on `target`, not `kind`: an enum value can't be used in the migration that adds it). UX-13a: `agent (account_id)`, `agent (account_id, name)` unique, and `ticket (agent_id) WHERE agent_id IS NOT NULL`. `machine_repo.machine_id`, `machine_capability.machine_id` and `machine_alert.machine_id` cascade on machine delete; every other FK is plain (no cascade).
+Besides primary keys and `outbox.command_id UNIQUE`: `ticket (status, priority)`, `session (status)`, `session_one_live_per_ticket` ([session](#session)), `session (ticket_id, created_at DESC)` (the claim's affinity lookup, [04](04-scheduler.md)), `input_request (session_id) WHERE answer IS NULL`, `event (session_id, id)`, and `outbox (next_attempt_at) WHERE status = 'pending'` (the dispatcher's scan). M2-T03: `<table>_account_id_idx` on `account_id` for each of the eight M1 tables, except `event (account_id, id)` (the per-account SSE replay); `app_user (lower(email))` unique; `web_session (user_id)` and `(expires_at)`; `account_member (user_id)`; `invite.token_hash` and `password_reset.token_hash` unique. M2-T09: `<table>_account_id_idx` on each of its four tables; `enrollment_token.token_hash` and `machine_credential.secret_hash` unique; `machine_credential (machine_id)`; `machine_alert (machine_id) WHERE cleared_at IS NULL` (`machine_alert_open_idx`). M2-T29c: `permission_request (account_id)`, `(session_id, created_at)` and `(expires_at) WHERE status = 'pending'` (the timeout sweep). UX-15: `push_subscription.endpoint` unique, `push_subscription (account_id, user_id)`, and `outbox_push_idem_idx` unique on `outbox (target, idempotency_key) WHERE target LIKE 'user:%'` (on `target`, not `kind`: an enum value can't be used in the migration that adds it). UX-13a: `agent (account_id)`, `agent (account_id, name)` unique, and `ticket (agent_id) WHERE agent_id IS NOT NULL`. ADR-0032: `ticket_schedule (account_id)`, `(account_id, name)` unique, `(next_run_at) WHERE enabled`, and `ticket (schedule_id, scheduled_for)` unique `WHERE schedule_id IS NOT NULL`. `machine_repo.machine_id`, `machine_capability.machine_id` and `machine_alert.machine_id` cascade on machine delete; every other FK is plain (no cascade).

@@ -577,3 +577,16 @@ describe('collapsible columns (UX-9)', () => {
     expect(name.mock.calls.some(([id]) => id === done(2).ticket_id)).toBe(true);
   });
 });
+
+// ADR-0032: a ticket a schedule created names its schedule on the card.
+describe('board card schedule chip (ADR-0032)', () => {
+  it('shows ↻ and the schedule name, only on scheduled cards', () => {
+    renderCards([
+      card(1, {}, { schedule: { id: 'd4000000-0000-4000-8000-000000000001', name: 'PR sweep' } }),
+      card(2, {}),
+    ]);
+    const chip = article('Card 1').getByText('↻ PR sweep');
+    expect(chip.getAttribute('title')).toBe('Recurring: PR sweep');
+    expect(article('Card 2').queryByText(/↻/)).toBeNull();
+  });
+});

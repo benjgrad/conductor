@@ -19,11 +19,16 @@ import type { InputRequestRow, RepoChecksRow, SessionRow, TicketRow } from '../d
  * UX-13a: a ticket row plus its agent's name (null = not assigned yet), for cards. Every ticket
  * read that feeds `toBoardCard` uses TICKET_SELECT, so no card event drops the name.
  */
-export type TicketCardRow = TicketRow & { agent_name: string | null };
+export type TicketCardRow = TicketRow & {
+  agent_name: string | null;
+  /** ADR-0032: the name of `t.schedule_id`'s schedule (joined); absent on hand-built rows. */
+  schedule_name?: string | null;
+};
 
 /** `SELECT` a TicketCardRow from `ticket t`; append `WHERE` (and `FOR UPDATE OF t`). */
 export const TICKET_SELECT =
-  'SELECT t.*, a.name AS agent_name FROM ticket t LEFT JOIN agent a ON a.id = t.agent_id ';
+  'SELECT t.*, a.name AS agent_name, sch.name AS schedule_name FROM ticket t ' +
+  'LEFT JOIN agent a ON a.id = t.agent_id LEFT JOIN ticket_schedule sch ON sch.id = t.schedule_id ';
 
 export interface LockedSession {
   session: SessionRow;

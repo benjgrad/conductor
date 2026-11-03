@@ -18,7 +18,7 @@ import {
   serveDistribution,
   servedVersion,
 } from './distribution.js';
-import { seedConductorWorkflow } from './engine/seed.js';
+import { seedConductorWorkflow, seedRoutineWorkflow } from './engine/seed.js';
 import { parsePushConfig, type PushConfig } from './push/config.js';
 import { createDb as createPoolDb } from './db/index.js';
 import { createEngineService as createRealEngineService } from './engine/index.js';
@@ -189,6 +189,8 @@ export function composeOrchestrator(
     async start() {
       // ADR-0010: the one workflow exists before anything can reference it.
       await seedConductorWorkflow(db);
+      // ADR-0032: the recurring tickets' workflow, before the schedule sweep can fire one.
+      await seedRoutineWorkflow(db);
       workers = engineHandle.startWorkers({ transport: gateway.transport });
       await api.listen(config.port ?? conductorPort(process.env), config.host ?? '127.0.0.1');
     },

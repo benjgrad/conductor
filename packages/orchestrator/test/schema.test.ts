@@ -39,6 +39,7 @@ import type {
   PermissionRequestRow,
   PushSubscriptionRow,
   RepoChecksRow,
+  TicketScheduleRow,
   SessionRow,
   Tables,
   TicketRow,
@@ -200,6 +201,8 @@ const ticket: ColumnSpec<TicketRow> = {
   kind: col('ticket_kind', NULL),
   session_allow: col('_text', NN),
   agent_id: col('uuid', NULL),
+  schedule_id: col('uuid', NULL),
+  scheduled_for: col('timestamptz', NULL),
   created_at: col('timestamptz', NN),
   updated_at: col('timestamptz', NN),
 };
@@ -423,6 +426,31 @@ const repo_checks: ColumnSpec<RepoChecksRow> = {
   updated_at: col('timestamptz', NN),
   updated_by: col(t, NULL),
 };
+// ADR-0032: recurring ticket templates.
+const ticket_schedule: ColumnSpec<TicketScheduleRow> = {
+  id: col('uuid', NN),
+  account_id: col('uuid', NN),
+  name: col(t, NN),
+  cron: col(t, NN),
+  timezone: col(t, NN),
+  enabled: col('bool', NN),
+  title: col(t, NN),
+  body: col(t, NN),
+  repo: col(t, NN),
+  workflow_id: col(t, NN),
+  kind: col('ticket_kind', NN),
+  priority: col('int4', NN),
+  required_tags: col('_text', NN),
+  machine_ids: col('_text', NULL),
+  next_run_at: col('timestamptz', NULL),
+  last_run_at: col('timestamptz', NULL),
+  last_ticket_id: col('uuid', NULL),
+  last_skipped_at: col('timestamptz', NULL),
+  last_skip_reason: col(t, NULL),
+  created_by: col(t, NULL),
+  created_at: col('timestamptz', NN),
+  updated_at: col('timestamptz', NN),
+};
 const SCHEMA: Schema = {
   machine,
   machine_repo,
@@ -450,6 +478,7 @@ const SCHEMA: Schema = {
   oauth_code,
   oauth_token,
   repo_checks,
+  ticket_schedule,
 };
 /** The tables M1/M1b created: every one carries `account_id` since M2-T03. */
 const M1_TABLES = [
@@ -744,6 +773,7 @@ describe('migrations', () => {
           'oauth_code',
           'oauth_token',
           'repo_checks',
+          'ticket_schedule',
         ].sort(),
       );
     } finally {
@@ -1186,6 +1216,43 @@ describe('schema (migrated test database)', () => {
         LOCAL_ACCOUNT_ID,
       ]),
       '23514',
+    );
+
+    // ADR-0032: a schedule, linked to the ticket as its last run; the run key is unique.
+    const sch = await pool.query<TicketScheduleRow>(
+      `INSERT INTO ticket_schedule (account_id, name, cron, title, repo, kind, last_ticket_id)
+       VALUES ($1, 'Daily', '0 9 * * *', 'Sweep', 'github.com/org/app', 'work', $2) RETURNING *`,
+      [LOCAL_ACCOUNT_ID, tkt.id],
+    );
+    expect(sch.rows[0]).toMatchObject({
+      timezone: 'UTC',
+      enabled: true,
+      workflow_id: 'routine',
+      body: '',
+      priority: 0,
+      required_tags: [],
+      machine_ids: null,
+      next_run_at: null,
+    });
+    await expectPgError(
+      pool.query(
+        "INSERT INTO ticket_schedule (account_id, name, cron, title, repo, kind) VALUES ($1, '', 'x', 't', 'r', 'work')",
+        [LOCAL_ACCOUNT_ID],
+      ),
+      '23514',
+    );
+    const run = '2026-11-03T09:00:00Z';
+    await pool.query('UPDATE ticket SET schedule_id = $1, scheduled_for = $2 WHERE id = $3', [
+      sch.rows[0]!.id,
+      run,
+      tkt.id,
+    ]);
+    await expectPgError(
+      pool.query(
+        "INSERT INTO ticket (repo, title, workflow_id, schedule_id, scheduled_for) VALUES ('r', 'again', 'pr_flow', $1, $2)",
+        [sch.rows[0]!.id, run],
+      ),
+      '23505',
     );
 
     // Every table has exactly the row just written.

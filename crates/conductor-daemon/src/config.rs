@@ -87,6 +87,9 @@ pub struct DaemonConfig {
     pub budget_mem_mb: u64,
     pub max_sessions: u64,
     pub max_concurrent_builds: u64,
+    /// ADR-0033 P2: one-shot `assistant_job` slots, outside `max_sessions` (CONDUCTOR_LIGHT_SLOTS,
+    /// default 1). Env only, so `config.json` and `machine.json` are unchanged.
+    pub light_slots: u64,
     pub port_pool: PortPoolConfig,
     /// Refuse start_session / run_cmd with `memory_pressure` below this much free memory.
     pub min_free_mem_mb: u64,
@@ -447,6 +450,7 @@ pub fn load_config_with(
         budget_mem_mb,
         max_sessions,
         max_concurrent_builds: int(env, "CONDUCTOR_MAX_CONCURRENT_BUILDS", 2, 1)?,
+        light_slots: int(env, "CONDUCTOR_LIGHT_SLOTS", 1, 1)?,
         port_pool,
         min_free_mem_mb: int(env, "CONDUCTOR_MIN_FREE_MEM_MB", 512, 0)?,
         work_poll_ms: int(env, "CONDUCTOR_WORK_POLL_MS", 5000, 1)?,
@@ -542,6 +546,7 @@ mod tests {
         assert_eq!(c.budget_mem_mb, 12288);
         assert_eq!(c.max_sessions, 6); // min(6 cores / 1, 12288 MB / 2048)
         assert_eq!(c.max_concurrent_builds, 2);
+        assert_eq!(c.light_slots, 1);
         assert_eq!(
             c.port_pool,
             PortPoolConfig {

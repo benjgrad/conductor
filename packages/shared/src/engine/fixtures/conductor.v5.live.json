@@ -1,0 +1,301 @@
+{
+  "id": "conductor",
+  "version": 5,
+  "start": "planning",
+  "budget": {
+    "usd": 5,
+    "minutes": 240,
+    "max_loop_retries": 3
+  },
+  "on_budget_exceeded": "needs_input",
+  "columns": [
+    "planning",
+    "plan_review",
+    "implementing",
+    "in_review",
+    "needs_input",
+    "waiting_external",
+    "done"
+  ],
+  "states": {
+    "planning": {
+      "type": "agent",
+      "title": "Planning",
+      "prompt": "plan_template",
+      "tools": ["read"],
+      "result": ["plan", "summary"],
+      "timeout": "60m",
+      "on": {
+        "timeout": "needs_input",
+        "ask_user": {
+          "goto": "needs_input",
+          "when": "You are blocked and need a human decision. Ask one question, give your recommended answer and what you will do if it's accepted, and point to the evidence (a log line, a file, a PR check). Don't ask for anything you can do yourself or record in proposed_tickets."
+        },
+        "impossible": {
+          "goto": "needs_input",
+          "title": "Impossible",
+          "when": "The work cannot be done as asked.",
+          "question": true
+        },
+        "plan_ready": {
+          "goto": "implementing",
+          "title": "Plan ready",
+          "when": "The plan is complete and needs no decision from a human. Additive schema changes (new tables, columns or MCP tools) are routine: list them under a 'Schema changes' heading in the plan and take this transition."
+        },
+        "scope_changed": {
+          "goto": "needs_input",
+          "title": "Scope changed",
+          "when": "A finding changes what the ticket can deliver and the milestone spec doesn't settle it. If the ticket only bundles several tasks ('finish the remaining work'), don't ask: plan the first task and put the rest in proposed_tickets.",
+          "question": true
+        },
+        "plan_needs_approval": {
+          "goto": "plan_review",
+          "title": "Plan needs approval",
+          "when": "Only when the plan reverses an accepted ADR, drops or rewrites existing data, adds an external service or spends money. Finish with the full plan in your result; your reason names the one decision and your recommendation.",
+          "question": true
+        },
+        "needs_product_context": {
+          "goto": "needs_input",
+          "title": "Needs product context",
+          "when": "You need more product context to plan the work.",
+          "question": true
+        }
+      }
+    },
+    "plan_review": {
+      "type": "human",
+      "title": "Plan review",
+      "on": {
+        "revise_plan": {
+          "goto": "$return_to",
+          "title": "Revise plan",
+          "actor": "human",
+          "text": "required"
+        },
+        "approve_plan": {
+          "goto": "implementing",
+          "title": "Approve plan",
+          "actor": "human",
+          "text": "optional"
+        }
+      }
+    },
+    "implementing": {
+      "type": "agent",
+      "title": "Implementing",
+      "prompt": "implement_template",
+      "tools": ["edit", "bash", "git"],
+      "input": {
+        "plan": "$planning.plan"
+      },
+      "timeout": "2h",
+      "on": {
+        "timeout": "needs_input",
+        "ask_user": {
+          "goto": "needs_input",
+          "when": "You are blocked and need a human decision. Ask one question, give your recommended answer and what you will do if it's accepted, and point to the evidence (a log line, a file, a PR check). Don't ask for anything you can do yourself or record in proposed_tickets."
+        },
+        "ready_for_testing": {
+          "goto": "waiting_external",
+          "title": "Ready for testing",
+          "when": "The work is complete and should go to testing.",
+          "kinds": ["work"],
+          "requires": {
+            "checks": [
+              {
+                "name": "Build passes",
+                "cmd": "npm run build",
+                "timeout": "10m"
+              },
+              {
+                "name": "Tests pass",
+                "cmd": "npm test",
+                "timeout": "10m"
+              }
+            ],
+            "review": {
+              "items": [
+                "The change contains nothing conductor-specific (no workflow or agent configuration, no notes for conductor); everything committed is useful to the other developers on this repository."
+              ]
+            },
+            "actions": ["open_pr"],
+            "conditions": [
+              {
+                "type": "pr_checks_green",
+                "no_checks_after": "5m"
+              },
+              {
+                "type": "pr_approvals",
+                "min": 1
+              },
+              {
+                "type": "jira_fields_set",
+                "fields": ["resolution"],
+                "enabled": false
+              },
+              {
+                "type": "azure_pipeline_succeeded",
+                "pipeline": "ci",
+                "enabled": false
+              }
+            ],
+            "condition_timeout": "3d",
+            "condition_poll": "2m"
+          },
+          "on_unmet": {
+            "goto": "implementing",
+            "instruction": "First merge the latest default branch into your branch. Then fix what is listed above, commit, and finish the step again. If a PR check failed, read its log first (`gh pr checks <pr>`, then `gh run view <run-id> --log-failed`). If the failing test is one this branch didn't touch: when it is listed in docs/tracking/FLAKY.md, rerun only the failed job once (`gh run rerun <run-id> --failed`); otherwise fix it in its own commit ('test: fix pre-existing failure in <test>') and say so in your summary.",
+            "retries": 3,
+            "else": "needs_input"
+          }
+        },
+        "pr_ready_for_review": {
+          "goto": "in_review",
+          "title": "PR ready for review",
+          "when": "The work is done and you want Ben to review the PR before it goes further. Start your summary (the PR description) with what changed in at most three bullets, what to look at first, and anything you couldn't verify, such as the Windows leg.",
+          "kinds": ["work"],
+          "question": true,
+          "requires": {
+            "checks": [
+              {
+                "name": "Build passes",
+                "cmd": "npm run build",
+                "timeout": "10m"
+              },
+              {
+                "name": "Tests pass",
+                "cmd": "npm test",
+                "timeout": "10m"
+              }
+            ],
+            "review": {
+              "items": [
+                "The change contains nothing conductor-specific (no workflow or agent configuration, no notes for conductor); everything committed is useful to the other developers on this repository."
+              ]
+            },
+            "actions": ["open_pr"],
+            "conditions": [
+              {
+                "type": "pr_checks_green",
+                "no_checks_after": "5m"
+              }
+            ],
+            "condition_timeout": "2h",
+            "condition_poll": "1m"
+          },
+          "on_unmet": {
+            "goto": "implementing",
+            "instruction": "First merge the latest default branch into your branch. Then fix what is listed above, commit, and finish the step again. If a PR check failed, read its log first (`gh pr checks <pr>`, then `gh run view <run-id> --log-failed`). If the failing test is one this branch didn't touch: when it is listed in docs/tracking/FLAKY.md, rerun only the failed job once (`gh run rerun <run-id> --failed`); otherwise fix it in its own commit ('test: fix pre-existing failure in <test>') and say so in your summary.",
+            "retries": 3,
+            "else": "needs_input"
+          }
+        },
+        "needs_approval_to_message": {
+          "goto": "needs_input",
+          "title": "Approve a message",
+          "when": "You are about to message a person and need approval of the text first.",
+          "question": true
+        },
+        "personal_pr_ready_for_review": {
+          "goto": "in_review",
+          "title": "PR ready for review",
+          "when": "The work is done and committed. Conductor opens the PR, waits for CI, and moves the ticket to In review for Ben. Start your summary (the PR description) with what changed in at most three bullets, what to look at first, and anything you couldn't verify, such as the Windows leg.",
+          "kinds": ["personal"],
+          "question": true,
+          "requires": {
+            "checks": [
+              {
+                "name": "Build passes",
+                "cmd": "npm run build",
+                "timeout": "10m"
+              },
+              {
+                "name": "Tests pass",
+                "cmd": "npm test",
+                "timeout": "10m"
+              }
+            ],
+            "actions": ["open_pr"],
+            "conditions": [
+              {
+                "type": "pr_checks_green",
+                "no_checks_after": "5m"
+              }
+            ],
+            "condition_timeout": "2h",
+            "condition_poll": "1m"
+          },
+          "on_unmet": {
+            "goto": "implementing",
+            "instruction": "First merge the latest default branch into your branch. Then fix what is listed above, commit, and finish the step again. If a PR check failed, read its log first (`gh pr checks <pr>`, then `gh run view <run-id> --log-failed`). If the failing test is one this branch didn't touch: when it is listed in docs/tracking/FLAKY.md, rerun only the failed job once (`gh run rerun <run-id> --failed`); otherwise fix it in its own commit ('test: fix pre-existing failure in <test>') and say so in your summary.",
+            "retries": 3,
+            "else": "needs_input"
+          }
+        }
+      }
+    },
+    "in_review": {
+      "type": "human",
+      "title": "In review",
+      "on": {
+        "done": {
+          "goto": "done",
+          "title": "Merged, done",
+          "actor": "human"
+        },
+        "request_changes": {
+          "goto": "$return_to",
+          "title": "Request changes",
+          "actor": "human",
+          "text": "required"
+        },
+        "waiting_on_someone": {
+          "goto": "waiting_external",
+          "title": "Waiting on someone else",
+          "actor": "human"
+        }
+      }
+    },
+    "needs_input": {
+      "type": "human",
+      "title": "Needs input",
+      "on": {
+        "done": {
+          "goto": "done",
+          "title": "Done",
+          "actor": "human"
+        },
+        "answer": {
+          "goto": "$return_to",
+          "title": "Back with this answer",
+          "actor": "human"
+        },
+        "waiting_on_someone": {
+          "goto": "waiting_external",
+          "title": "Waiting on someone else",
+          "actor": "human"
+        }
+      }
+    },
+    "waiting_external": {
+      "type": "event",
+      "title": "Waiting external",
+      "wait_for": ["ui.approve"],
+      "on": {
+        "ui.approve": {
+          "goto": "done",
+          "title": "Approved"
+        },
+        "back_to_implementing": {
+          "goto": "implementing",
+          "title": "Back to Implementing",
+          "actor": "human"
+        }
+      }
+    },
+    "done": {
+      "type": "terminal",
+      "title": "Done"
+    }
+  }
+}

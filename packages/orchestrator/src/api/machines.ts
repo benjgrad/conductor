@@ -32,6 +32,7 @@ import {
   machineFacts,
   requiredCaps,
 } from '../gateway/routing.js';
+import { SLOT_STATUSES } from '../gateway/claim.js';
 import { revokeMachine, type MachineSockets } from '../gateway/revoke.js';
 import type { Db } from '../main.js';
 import { parseBody, sendError } from './errors.js';
@@ -53,8 +54,6 @@ export interface MachineRoutesOptions {
 
 type IdParams = { Params: { id: string } };
 
-/** Statuses that hold a machine slot (the fleet view's `running_sessions`, as in M1). */
-const SLOT_STATUSES = ['assigned', 'running', 'needs_input', 'waiting_external'];
 /** Statuses a revoke hands to a human (`revokeMachine`'s `live_session_ids`). */
 const ENDED_STATUSES = ['done', 'failed', 'lost'];
 

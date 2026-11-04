@@ -1,7 +1,7 @@
 // The Messages composer: answers an open input request, else messages the running agent
 // (ADR-0007), else reopens a finished ticket with the same agent (ADR-0008), else is disabled
 // with the reason. A `/` at the start opens the slash menu.
-import type { SessionDetail } from '@conductor/shared';
+import { gateStepSource, type SessionDetail } from '@conductor/shared';
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { displayState } from '../workflow/review.js';
@@ -43,12 +43,15 @@ export function composerMode(detail: SessionDetail): ComposerMode {
   // ADR-0008: a done or failed session reopens the ticket (lost ones can't: their machine is gone).
   if (status === 'done' || status === 'failed') return { mode: 'reopen' };
   if (TERMINAL_STATUSES.has(status)) return { mode: 'off', reason: 'Session finished' };
-  // A move step waiting on its conditions (the PR's checks) out of an agent state: a message
-  // ends the wait and the agent resumes with it (the card stays in the source column).
+  // A move step waiting on its conditions (the PR's checks or approvals) out of an agent state: a
+  // message ends the wait and the agent resumes with it. The source state comes from the step's
+  // label: a card waiting only on approvals shows in Waiting external, not its source column.
+  const source =
+    (card.workflow_state !== null ? gateStepSource(card.workflow_state) : null) ?? card.column;
   if (
     status === 'waiting_external' &&
     card.checking?.phase === 'conditions' &&
-    detail.workflow.states[card.column]?.type === 'agent'
+    detail.workflow.states[source]?.type === 'agent'
   ) {
     return { mode: 'message', resumes: true };
   }

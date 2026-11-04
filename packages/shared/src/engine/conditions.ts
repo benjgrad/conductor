@@ -259,6 +259,7 @@ export function mergeResults(
       value: res.value,
       detail: res.detail,
       checked_at: now.toISOString(),
+      answer: res.status,
     };
   }
   const answered = idx.map((i) => next[i]!.status);

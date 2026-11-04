@@ -27,7 +27,7 @@ sequenceDiagram
 
 The daemon is eligible to receive work only if all of these hold:
 - `status = 'online'` and the heartbeat is fresh (< 30 s).
-- `running_sessions < max_sessions`.
+- `running_sessions < max_sessions`. A session counts while it is `assigned`, `running` or `needs_input`. A `waiting_external` session doesn't count: an event state, or a move step waiting on its conditions (a PR waiting days for approval), runs no process on the machine, so it doesn't keep Queued work from being claimed. Its worktree stays, and a resume goes back through `start_session`, which the daemon admits against its own live processes.
 - Reserved resources leave room: `budget_cpu - Σ reserved_cpu ≥ 1` and `budget_mem_mb - Σ reserved_mem ≥ 2048`. The per-session reservation defaults to **1 core, 2 GB**. The sum comes from the machine's own active sessions, so there are no central counters ([07](07-multi-session-isolation.md)).
 - Live memory pressure is not critical. The daemon reports it and may also refuse a `start_session`.
 

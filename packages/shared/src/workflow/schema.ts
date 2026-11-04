@@ -362,6 +362,12 @@ export const TransitionObjectSchema = z.strictObject({
    */
   text: z.enum(['required', 'optional']).optional(),
   requires: TransitionRequiresSchema.optional(),
+  /**
+   * Taking this transition notifies the account's users (in-tab and Web Push), once the session
+   * lands in a real state through it (its `goto`, or `else` when retries run out; after any gate
+   * step passes). Absent = no notification. Needs-input notifications don't depend on it.
+   */
+  notify: z.boolean().optional(),
   /** What happens when `requires` is not met (ADR-0010 semantics, U-063 for conditions). */
   on_unmet: OnUnmetSchema.optional(),
 });

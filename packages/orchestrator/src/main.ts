@@ -13,7 +13,7 @@ import {
 } from './auth/config.js';
 import {
   defaultDownloadsDir,
-  findDaemonBuild,
+  findDaemonDist,
   orchestratorVersion,
   serveDistribution,
   servedVersion,
@@ -268,7 +268,7 @@ export async function main(opts: MainOptions = {}): Promise<Orchestrator> {
   // M2-T14: /install.sh, /downloads/*, /healthz (ADR-0017 §Daemon distribution).
   const version = orchestratorVersion(env);
   const downloadsDir = defaultDownloadsDir(env);
-  const build = findDaemonBuild(downloadsDir, log);
+  const dist = findDaemonDist(downloadsDir, log);
   const publicUrl = installPublicUrl(env, server, port);
   const orchestrator = composeOrchestrator(
     {
@@ -277,10 +277,10 @@ export async function main(opts: MainOptions = {}): Promise<Orchestrator> {
         const api = factories.createApi({
           ...deps,
           installUrl: publicUrl,
-          servedVersion: servedVersion(build),
+          servedVersion: servedVersion(dist),
         });
         if (serveWeb) serveWebApp(api.server, webDir);
-        serveDistribution(api.server, { db: deps.db, publicUrl, build, version });
+        serveDistribution(api.server, { db: deps.db, publicUrl, dist, version });
         return api;
       },
     },
@@ -298,10 +298,11 @@ export async function main(opts: MainOptions = {}): Promise<Orchestrator> {
   log(push ? 'push: on (Web Push, VAPID)' : 'push: off (CONDUCTOR_VAPID_* unset)');
   log(serveWeb ? `web app from ${webDir}` : `no web app at ${webDir} (run pnpm build)`);
   log(
-    build
-      ? `daemon ${build.version} served from ${downloadsDir} (version ${version})`
+    dist
+      ? `daemon ${dist.version} served from ${downloadsDir} for ` +
+          `${Object.keys(dist.builds).join(', ')} (version ${version})`
       : `no daemon tarball in ${downloadsDir}: /install.sh answers 503 ` +
-          '(run packages/orchestrator/scripts/build-daemon-tarball.sh)',
+          '(run scripts/build-daemon-dist.sh)',
   );
 
   if (opts.signals ?? true) {

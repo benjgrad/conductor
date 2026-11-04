@@ -3,19 +3,28 @@ import { createReadStream, readdirSync, readFileSync, statSync } from 'node:fs';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { API_PATHS } from '@conductor/shared';
+import {
+  API_PATHS,
+  DAEMON_TARBALL_MAX_BYTES,
+  DAEMON_TARBALL_RE,
+  DAEMON_VERSION_RE,
+  daemonTarballMatches,
+} from '@conductor/shared';
 import { SECURITY_HEADERS } from './api/security.js';
 
-// M2-T14 (ADR-0017 §Daemon distribution): the orchestrator serves the daemon it was built with.
-// `scripts/build-daemon-tarball.sh` writes conductor-daemon-<version>.tgz + .sha256 into the
-// downloads dir; this module finds that build and serves, in front of the API's listeners (like
-// web-static), four public read-only routes:
-//   GET /install.sh        assets/install.sh.tmpl filled with the public URL, version, SHA-256
+// M2-T14 (ADR-0017 §Daemon distribution), per target since MR-T15 (ADR-0026 §4): the orchestrator
+// serves the Rust daemon builds it was built with. CI (.github/workflows/daemon-dist.yml, through
+// scripts/package-daemon.sh) writes conductor-daemon-<version>-<target>.tgz + .sha256 for each
+// DAEMON_TARGETS entry into the downloads dir; this module finds them and serves, in front of the
+// API's listeners (like web-static), four public read-only routes:
+//   GET /install.sh        assets/install.sh.tmpl filled with the public URL, the version and every
+//                          target's file and SHA-256; it picks one by `uname`
 //   GET /install.ps1       the same for Windows PowerShell, assets/install.ps1.tmpl (MW-T11)
-//   GET /downloads/:file   exactly the built tarball and its .sha256, nothing else
+//   GET /downloads/:file   exactly the served tarballs and their .sha256 files, nothing else
 //   GET /healthz           {ok, db, version}; 503 when the DB ping fails
 // They skip Fastify's hooks (rate limit, Host check): they are public by design, and nginx's
-// general limit_req still applies. `isOutdated` is the pure version check T16/T17 use.
+// general limit_req still applies. `isOutdated` is the pure version check T16/T17 use;
+// `targetFor` maps a machine's `register.os`/`arch` to its build (ADR-0021 `update_available`).
 
 const PACKAGE_DIR = fileURLToPath(new URL('..', import.meta.url));
 const TEMPLATE_PATH = fileURLToPath(new URL('../assets/install.sh.tmpl', import.meta.url));
@@ -24,11 +33,42 @@ const WINDOWS_TEMPLATE_PATH = fileURLToPath(new URL('../assets/install.ps1.tmpl'
 export const DOWNLOADS_DIR_ENV = 'CONDUCTOR_DOWNLOADS_DIR';
 const DB_PING_TIMEOUT_MS = 2_000;
 
-const VERSION_RE = /^[0-9A-Za-z.+-]{1,64}$/;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 /** WHATWG URL accepts `'` and `$` in a host; the script quotes it, so allow only these. */
 const ORIGIN_RE = /^https?:\/\/[A-Za-z0-9.\-[\]:]+$/;
-const TARBALL_RE = /^conductor-daemon-([0-9A-Za-z.+-]{1,64})\.tgz$/;
+
+/** The Rust targets the daemon ships for (ADR-0026: macOS arm64/x64, Linux x64/arm64, Windows x64). */
+export const DAEMON_TARGETS = [
+  'aarch64-apple-darwin',
+  'x86_64-apple-darwin',
+  'x86_64-unknown-linux-gnu',
+  'aarch64-unknown-linux-gnu',
+  'x86_64-pc-windows-msvc',
+] as const;
+export type DaemonTarget = (typeof DAEMON_TARGETS)[number];
+/** The build install.ps1 installs. */
+export const WINDOWS_TARGET: DaemonTarget = 'x86_64-pc-windows-msvc';
+
+const TARGET_BY_PLATFORM: Record<string, DaemonTarget> = {
+  'darwin/arm64': 'aarch64-apple-darwin',
+  'darwin/x64': 'x86_64-apple-darwin',
+  'linux/x64': 'x86_64-unknown-linux-gnu',
+  'linux/arm64': 'aarch64-unknown-linux-gnu',
+  'win32/x64': 'x86_64-pc-windows-msvc',
+};
+
+/**
+ * The build for a machine's `register.os` / `register.arch` (Node names, which both daemons
+ * send: `darwin`/`linux`/`win32`, `x64`/`arm64`); null for a platform no build is made for.
+ */
+export function targetFor(os: string, arch: string): DaemonTarget | null {
+  return TARGET_BY_PLATFORM[`${os}/${arch}`] ?? null;
+}
+
+/** `@@FILE_<T>@@` / `@@SHA256_<T>@@`: the target upper-cased, `-` → `_`. */
+export function targetPlaceholderKey(target: DaemonTarget): string {
+  return target.toUpperCase().replaceAll('-', '_');
+}
 
 /** The usable build sha: CONDUCTOR_BUILD_SHA, else CONDUCTOR_GIT_SHA, first 7 chars; or null. */
 function buildSha(env: NodeJS.ProcessEnv): string | null {
@@ -47,18 +87,27 @@ export function orchestratorVersion(env: NodeJS.ProcessEnv = process.env): strin
 }
 
 export interface DaemonBuild {
-  /** `<package version>[+<sha>]`, the daemon's own `daemonVersion()` form. */
+  /** `<workspace version>[+<sha>]`, the daemon's own `--version`. */
   version: string;
-  /** `conductor-daemon-<version>.tgz` */
+  target: DaemonTarget;
+  /** `conductor-daemon-<version>-<target>.tgz` */
   file: string;
   sha256: string;
+  /** Bytes (`update_available.size`). */
+  size: number;
   /** Absolute path of the tarball. */
   path: string;
 }
 
+/** Every build of one version, by target; a target may be missing. */
+export interface DaemonDist {
+  version: string;
+  builds: Partial<Record<DaemonTarget, DaemonBuild>>;
+}
+
 /**
  * CONDUCTOR_DOWNLOADS_DIR, else the first that exists of `<package>/downloads` (the image:
- * /app/downloads) and `<package>/dist/downloads` (the build script's default output).
+ * /app/downloads) and `<package>/dist/downloads` (scripts/build-daemon-dist.sh's default output).
  */
 export function defaultDownloadsDir(env: NodeJS.ProcessEnv = process.env): string {
   const fromEnv = env[DOWNLOADS_DIR_ENV]?.trim();
@@ -80,13 +129,30 @@ function sha256File(path: string): string {
 }
 
 /**
- * The daemon build in `dir`: a `conductor-daemon-<version>.tgz` whose `.sha256` file matches its
- * content. Null when there is none (dev without a build). With several, the newest by mtime.
+ * `{version, target}` of a served tarball name, or null. Parsed by the target suffix, because a
+ * version may contain `-` (`0.1.0-rc.1+abc1234`).
  */
-export function findDaemonBuild(
+export function parseTarballName(file: string): { version: string; target: DaemonTarget } | null {
+  if (!DAEMON_TARBALL_RE.test(file)) return null;
+  for (const target of DAEMON_TARGETS) {
+    const suffix = `-${target}.tgz`;
+    if (!file.endsWith(suffix)) continue;
+    const version = file.slice('conductor-daemon-'.length, -suffix.length);
+    if (!DAEMON_VERSION_RE.test(version) || !daemonTarballMatches(file, version)) return null;
+    return { version, target };
+  }
+  return null;
+}
+
+/**
+ * The daemon builds in `dir`: every `conductor-daemon-<version>-<target>.tgz` whose `.sha256`
+ * file matches its content, of one version, the newest tarball's (by mtime). Null when there is
+ * none (dev without a build). Logs what it skips and the targets it has no build for.
+ */
+export function findDaemonDist(
   dir: string,
   log: (msg: string) => void = () => {},
-): DaemonBuild | null {
+): DaemonDist | null {
   let names: string[];
   try {
     names = readdirSync(dir);
@@ -94,9 +160,13 @@ export function findDaemonBuild(
     return null;
   }
   const builds: { build: DaemonBuild; mtime: number }[] = [];
-  for (const file of names) {
-    const m = TARBALL_RE.exec(file);
-    if (!m) continue;
+  for (const file of names.sort()) {
+    if (!file.startsWith('conductor-daemon-') || !file.endsWith('.tgz')) continue;
+    const parsed = parseTarballName(file);
+    if (parsed === null) {
+      log(`${file}: not conductor-daemon-<version>-<target>.tgz for a known target; not served`);
+      continue;
+    }
     const path = join(dir, file);
     let expected: string;
     try {
@@ -105,27 +175,49 @@ export function findDaemonBuild(
       log(`${file}: no .sha256 next to it; not served`);
       continue;
     }
+    const st = statSync(path);
+    if (st.size > DAEMON_TARBALL_MAX_BYTES) {
+      log(`${file}: ${st.size} bytes, over the ${DAEMON_TARBALL_MAX_BYTES}-byte cap; not served`);
+      continue;
+    }
     const actual = sha256File(path);
     if (!SHA256_RE.test(expected) || actual !== expected) {
       log(`${file}: SHA-256 does not match ${file}.sha256; not served`);
       continue;
     }
     builds.push({
-      build: { version: m[1]!, file, sha256: actual, path },
-      mtime: statSync(path).mtimeMs,
+      build: { ...parsed, file, sha256: actual, size: st.size, path },
+      mtime: st.mtimeMs,
     });
   }
+  if (builds.length === 0) return null;
   builds.sort((a, b) => b.mtime - a.mtime);
-  if (builds.length > 1)
-    log(`${builds.length} daemon builds in ${dir}; serving ${builds[0]!.build.file}`);
-  const newest = builds[0];
-  if (!newest) return null;
-  return newest.build;
+  const version = builds[0]!.build.version;
+  const dist: DaemonDist = { version, builds: {} };
+  for (const { build } of builds) {
+    if (build.version !== version) {
+      log(`${build.file}: not the newest version (${version}); not served`);
+      continue;
+    }
+    if (dist.builds[build.target] === undefined) dist.builds[build.target] = build;
+  }
+  const missing = DAEMON_TARGETS.filter((t) => dist.builds[t] === undefined);
+  if (missing.length > 0) log(`daemon ${version}: no build for ${missing.join(', ')}`);
+  return dist;
+}
+
+/** One target's build in `dir` (see `findDaemonDist`), or null. */
+export function findDaemonBuild(
+  dir: string,
+  target: DaemonTarget,
+  log: (msg: string) => void = () => {},
+): DaemonBuild | null {
+  return findDaemonDist(dir, log)?.builds[target] ?? null;
 }
 
 /** The daemon version this orchestrator serves (what `isOutdated` compares against). */
-export function servedVersion(build: DaemonBuild | null): string | null {
-  return build?.version ?? null;
+export function servedVersion(dist: DaemonDist | null): string | null {
+  return dist?.version ?? null;
 }
 
 const SEMVER_RE = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?(?:\+([0-9A-Za-z.-]+))?$/;
@@ -162,12 +254,16 @@ export function isOutdated(daemon: string | null | undefined, served: string | n
   return daemonSha !== servedSha;
 }
 
-/** Fill the install script template; throws on a value that could break out of its quotes. */
+/**
+ * Fill an install script template: `@@PUBLIC_URL@@`, `@@VERSION@@`, and per target
+ * `@@FILE_<T>@@` / `@@SHA256_<T>@@` (`targetPlaceholderKey`), empty for a target with no build.
+ * Throws on a value that could break out of its quotes, and on an unknown placeholder.
+ */
 export function renderInstallScript(
   template: string,
-  opts: { publicUrl: string; build: DaemonBuild },
+  opts: { publicUrl: string; dist: DaemonDist },
 ): string {
-  const { publicUrl, build } = opts;
+  const { publicUrl, dist } = opts;
   if (
     !ORIGIN_RE.test(publicUrl) ||
     !URL.canParse(publicUrl) ||
@@ -175,14 +271,24 @@ export function renderInstallScript(
   ) {
     throw new Error(`public URL ${publicUrl} must be an origin (scheme://host[:port])`);
   }
-  if (!VERSION_RE.test(build.version)) throw new Error(`bad daemon version ${build.version}`);
-  if (!TARBALL_RE.test(build.file)) throw new Error(`bad daemon tarball name ${build.file}`);
-  if (!SHA256_RE.test(build.sha256)) throw new Error(`bad SHA-256 ${build.sha256}`);
-  const out = template
+  if (!DAEMON_VERSION_RE.test(dist.version)) throw new Error(`bad daemon version ${dist.version}`);
+  let out = template
     .replaceAll('@@PUBLIC_URL@@', publicUrl)
-    .replaceAll('@@VERSION@@', build.version)
-    .replaceAll('@@FILE@@', build.file)
-    .replaceAll('@@SHA256@@', build.sha256);
+    .replaceAll('@@VERSION@@', dist.version);
+  for (const target of DAEMON_TARGETS) {
+    const build = dist.builds[target];
+    if (build !== undefined) {
+      const parsed = parseTarballName(build.file);
+      if (parsed === null || parsed.target !== target || parsed.version !== dist.version) {
+        throw new Error(`bad daemon tarball name ${build.file}`);
+      }
+      if (!SHA256_RE.test(build.sha256)) throw new Error(`bad SHA-256 ${build.sha256}`);
+    }
+    const key = targetPlaceholderKey(target);
+    out = out
+      .replaceAll(`@@FILE_${key}@@`, build?.file ?? '')
+      .replaceAll(`@@SHA256_${key}@@`, build?.sha256 ?? '');
+  }
   const left = /@@[A-Z0-9_]+@@/.exec(out);
   if (left) throw new Error(`install script template: unknown placeholder ${left[0]}`);
   return out;
@@ -193,7 +299,7 @@ export interface DistributionOptions {
   db: { query(sql: string): Promise<unknown> };
   /** The public origin daemons enroll against (no trailing slash). */
   publicUrl: string;
-  build: DaemonBuild | null;
+  dist: DaemonDist | null;
   /** `/healthz`'s version (`orchestratorVersion()`). */
   version: string;
   /** Default `assets/install.sh.tmpl`. */
@@ -207,8 +313,9 @@ type RequestListener = (req: IncomingMessage, res: ServerResponse) => void;
 const DOWNLOADS_PREFIX = API_PATHS.daemonDownload('');
 
 const NO_BUILD_HINT =
-  'no daemon tarball is built: run packages/orchestrator/scripts/build-daemon-tarball.sh ' +
-  '(the Docker image builds it)\n';
+  'no daemon tarball is built: run scripts/build-daemon-dist.sh ' +
+  '(the Docker image gets every target from CI)\n';
+const NO_WINDOWS_BUILD_HINT = `this orchestrator serves no Windows daemon build (${WINDOWS_TARGET})\n`;
 
 async function pingDb(db: DistributionOptions['db']): Promise<boolean> {
   let timer: NodeJS.Timeout | undefined;
@@ -232,24 +339,32 @@ async function pingDb(db: DistributionOptions['db']): Promise<boolean> {
  * request listeners (Fastify's). Call once, after the API server is created and before it listens.
  */
 export function serveDistribution(server: Server, opts: DistributionOptions): void {
-  const { build } = opts;
-  const render = (path: string) =>
-    build === null
+  const { dist } = opts;
+  const render = (path: string, required?: DaemonTarget) =>
+    dist === null || (required !== undefined && dist.builds[required] === undefined)
       ? null
-      : renderInstallScript(readFileSync(path, 'utf8'), { publicUrl: opts.publicUrl, build });
+      : renderInstallScript(readFileSync(path, 'utf8'), { publicUrl: opts.publicUrl, dist });
   // `irm` returns a string for text/plain; PowerShell has no script media type of its own.
-  const scripts = new Map<string, { body: string | null; type: string }>([
+  const scripts = new Map<string, { body: string | null; hint: string; type: string }>([
     [
       API_PATHS.installScript,
-      { body: render(opts.templatePath ?? TEMPLATE_PATH), type: 'text/x-shellscript' },
+      {
+        body: render(opts.templatePath ?? TEMPLATE_PATH),
+        hint: NO_BUILD_HINT,
+        type: 'text/x-shellscript',
+      },
     ],
     [
       API_PATHS.installScriptWindows,
-      { body: render(opts.windowsTemplatePath ?? WINDOWS_TEMPLATE_PATH), type: 'text/plain' },
+      {
+        body: render(opts.windowsTemplatePath ?? WINDOWS_TEMPLATE_PATH, WINDOWS_TARGET),
+        hint: dist === null ? NO_BUILD_HINT : NO_WINDOWS_BUILD_HINT,
+        type: 'text/plain',
+      },
     ],
   ]);
   const files = new Map<string, { path: string; type: string }>();
-  if (build !== null) {
+  for (const build of Object.values(dist?.builds ?? {})) {
     files.set(build.file, { path: build.path, type: 'application/gzip' });
     files.set(`${build.file}.sha256`, {
       path: `${build.path}.sha256`,
@@ -313,7 +428,7 @@ export function serveDistribution(server: Server, opts: DistributionOptions): vo
           res,
           503,
           { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },
-          NO_BUILD_HINT,
+          script.hint,
         );
       } else {
         send(
@@ -327,7 +442,7 @@ export function serveDistribution(server: Server, opts: DistributionOptions): vo
       return;
     }
     if (rawPath.startsWith(DOWNLOADS_PREFIX) || rawPath.startsWith('/downloads%2')) {
-      // Never joined into a path: the decoded name must be one of the two built files.
+      // Never joined into a path: the decoded name must be one of the served files.
       let name: string | null;
       try {
         name = decodeURIComponent(rawPath.slice(DOWNLOADS_PREFIX.length));

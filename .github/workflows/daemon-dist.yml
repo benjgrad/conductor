@@ -1,0 +1,134 @@
+# The Rust daemon tarballs the orchestrator serves (MR-T15; ADR-0026 §4): one release build per
+# target, packaged by packages/orchestrator/scripts/package-daemon.sh as
+# conductor-daemon-<version>-<target>.tgz + .sha256 and uploaded as the artifact daemon-<target>.
+# Reusable only: ci.yml calls it before a deploy (the deploy job downloads every daemon-* artifact
+# into the image's build context), and daemon-rust.yml on PRs that reach the daemon or this
+# packaging, so a broken target fails before main.
+#
+# Unsigned on purpose (U-115, Ben 2026-11-04): curl + tar sets no quarantine attribute and
+# Invoke-WebRequest + tar.exe no Mark of the Web, so Gatekeeper and SmartScreen don't get a say.
+name: daemon-dist
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: The commit to build (its short sha is baked into the binaries).
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: daemon-dist (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            verify: true
+          # Cross-linked on the arm64 runner with Apple's SDK; it can't be run there.
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            verify: false
+          # cargo-zigbuild with a glibc 2.28 floor, so the binary runs on older distributions too.
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            zig: x86_64-unknown-linux-gnu.2.28
+            verify: true
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            zig: aarch64-unknown-linux-gnu.2.28
+            verify: false
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            verify: true
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: build sha
+        id: sha
+        run: echo "sha=$(git rev-parse HEAD | cut -c1-7)" >>"$GITHUB_OUTPUT"
+      - name: rust toolchain from rust-toolchain.toml
+        id: rust
+        run: echo "channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" >>"$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.rust.outputs.channel }}
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: dist-${{ matrix.target }}
+      - if: matrix.zig
+        uses: mlugg/setup-zig@v2
+      - if: matrix.zig
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+      - name: cargo build --release
+        env:
+          # Baked into the binary (config.rs `daemon_version`): its --version names the served build.
+          CONDUCTOR_BUILD_SHA: ${{ steps.sha.outputs.sha }}
+          ZIG_TARGET: ${{ matrix.zig }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          if [[ -n "$ZIG_TARGET" ]]; then
+            cargo zigbuild --release --locked -p conductor-daemon --target "$ZIG_TARGET"
+          else
+            cargo build --release --locked -p conductor-daemon --target "$TARGET"
+          fi
+      - name: package
+        env:
+          CONDUCTOR_BUILD_SHA: ${{ steps.sha.outputs.sha }}
+          TARGET: ${{ matrix.target }}
+          VERIFY: ${{ matrix.verify }}
+        run: |
+          bin="target/$TARGET/release/conductor-daemon"
+          [[ "$TARGET" == *-windows-* ]] && bin="$bin.exe"
+          verify=()
+          [[ "$VERIFY" == true ]] && verify=(--verify)
+          packages/orchestrator/scripts/package-daemon.sh "${verify[@]}" "$TARGET" "$bin" daemon-dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: daemon-${{ matrix.target }}
+          path: daemon-dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  check:
+    name: daemon-dist (check)
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: daemon-*
+          merge-multiple: true
+          path: daemon-dist
+      - name: five targets, one version, every SHA-256 matching
+        run: |
+          cd daemon-dist
+          ls -l
+          versions=()
+          for t in aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu \
+            aarch64-unknown-linux-gnu x86_64-pc-windows-msvc; do
+            f=(conductor-daemon-*-"$t".tgz)
+            [[ ${#f[@]} -eq 1 && -f "${f[0]}" ]] || { echo "::error::no single build for $t"; exit 1; }
+            sha256sum -c "${f[0]}.sha256"
+            v="${f[0]#conductor-daemon-}"
+            versions+=("${v%-"$t".tgz}")
+          done
+          n="$(printf '%s\n' "${versions[@]}" | sort -u | wc -l)"
+          [[ "$n" -eq 1 ]] || { echo "::error::the builds are not all one version: ${versions[*]}"; exit 1; }

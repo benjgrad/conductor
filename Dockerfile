@@ -1,8 +1,13 @@
 # syntax=docker/dockerfile:1
 #
 # Conductor orchestrator image (M2-T07; ADR-0017 §Hosting topology). One image serves the API,
-# SSE, the daemon WebSocket, the web app, /install.sh and the daemon tarball. The `migrate`
+# SSE, the daemon WebSocket, the web app, /install.sh and the daemon tarballs. The `migrate`
 # service in deploy/gradyserver/compose.yml runs the same image with node-pg-migrate.
+#
+# The daemon tarballs (one per target, MR-T15) are not built here: CI builds them
+# (.github/workflows/daemon-dist.yml) and the deploy puts them in the build context as daemon-dist/
+# (deploy/gradyserver/ci-deploy.sh, deploy.sh). For a local image: `scripts/build-daemon-dist.sh
+# daemon-dist && docker build --build-arg DAEMON_DIST_PARTIAL=1 .` (this machine's target only).
 #
 # Node is pinned to the version in .npmrc (`use-node-version`). .npmrc itself is dockerignored:
 # inside the image pnpm would otherwise download a second copy of Node for scripts.
@@ -33,20 +38,34 @@ RUN pnpm --filter @conductor/orchestrator --prod deploy --legacy /out/app \
  && test -f /out/app/node_modules/@conductor/shared/dist/index.js \
  && test -f /out/app/node_modules/node-pg-migrate/bin/node-pg-migrate.js \
  && test ! -e /out/app/node_modules/@conductor/daemon \
+ && test -f /out/app/assets/install.sh.tmpl \
+ && test -f /out/app/assets/install.ps1.tmpl \
  && cp -r packages/web/dist /out/app/web \
  && test -f /out/app/web/index.html
 
-# ==== daemon-tarball (M2-T14) ===================================================================
-# conductor-daemon-<version>.tgz and its .sha256 into /out/downloads (ADR-0017 §Daemon
-# distribution): a `pnpm deploy --legacy` of the daemon, <version> = package version + the short
-# GIT_SHA. The script also unpacks the result and runs `bin/conductor-daemon --help` with only
-# Node on PATH. .git is dockerignored, so the sha comes only from the build arg.
-FROM build AS daemon-tarball
-ARG GIT_SHA=unknown
-RUN sha="$(printf %.7s "$GIT_SHA")"; if [ "$GIT_SHA" = unknown ]; then sha=; fi; \
-    CONDUCTOR_BUILD_SHA="$sha" packages/orchestrator/scripts/build-daemon-tarball.sh /out/downloads \
- && ls /out/downloads/conductor-daemon-*.tgz /out/downloads/conductor-daemon-*.tgz.sha256 \
- && test -f /out/app/assets/install.sh.tmpl
+# ==== daemon-dist (MR-T15) =====================================================================
+# conductor-daemon-<version>-<target>.tgz and .sha256 for every target (ADR-0026 §4), from the
+# build context's daemon-dist/. Every target must be there with a matching SHA-256, and all of one
+# version; DAEMON_DIST_PARTIAL=1 (local builds only) accepts any non-empty subset.
+FROM base AS daemon-dist
+ARG DAEMON_DIST_PARTIAL=0
+COPY daemon-dist/ /out/downloads/
+RUN set -eu; cd /out/downloads; found=0; versions=""; \
+    for t in aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu \
+             aarch64-unknown-linux-gnu x86_64-pc-windows-msvc; do \
+      set -- conductor-daemon-*-"$t".tgz; \
+      if [ ! -e "$1" ]; then \
+        [ "$DAEMON_DIST_PARTIAL" = 1 ] && continue; \
+        echo "daemon-dist: no build for $t" >&2; exit 1; \
+      fi; \
+      [ $# -eq 1 ] || { echo "daemon-dist: $# builds for $t" >&2; exit 1; }; \
+      sha256sum -c "$1.sha256"; \
+      v="${1#conductor-daemon-}"; versions="$versions ${v%-"$t".tgz}"; found=$((found + 1)); \
+    done; \
+    [ "$found" -gt 0 ] || { echo "daemon-dist: no daemon builds in daemon-dist/" >&2; exit 1; }; \
+    [ "$(printf '%s\n' $versions | sort -u | wc -l)" -eq 1 ] || \
+      { echo "daemon-dist: more than one version:$versions" >&2; exit 1; }; \
+    ls -l /out/downloads
 
 # ---- runtime: production deps, built output, web app, migrations; non-root ----
 FROM node:${NODE_VERSION}-bookworm-slim AS runtime
@@ -57,7 +76,7 @@ ENV NODE_ENV=production \
     CONDUCTOR_GIT_SHA=${GIT_SHA}
 WORKDIR /app
 COPY --from=build --chown=node:node /out/app /app
-COPY --from=daemon-tarball --chown=node:node /out/downloads /app/downloads
+COPY --from=daemon-dist --chown=node:node /out/downloads /app/downloads
 USER node
 EXPOSE 7400
 HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=3 \

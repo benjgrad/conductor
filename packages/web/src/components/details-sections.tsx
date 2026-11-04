@@ -3,7 +3,7 @@
 import type { MachineDto, SessionDetail } from '@conductor/shared';
 import { useEffect, useState } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
-import { AgentAvatar } from './agent-identity.js';
+import { AgentAvatar, cardAgent } from './agent-identity.js';
 import { duration, TERMINAL_STATUSES, usd } from './format.js';
 import { PendingChecklist } from './transitions.js';
 import { SessionWorkflowDiagram } from '../workflow/SessionWorkflowDiagram.js';
@@ -74,7 +74,11 @@ export function AgentCard({
   return (
     <section aria-label="Agent" className="agent-card">
       <div className="agent-who">
-        <AgentAvatar ticketId={card.ticket_id} size={64} title={`${name}'s avatar`} />
+        <AgentAvatar
+          seed={cardAgent(card, detail.agent_name).seed}
+          size={64}
+          title={`${name}'s avatar`}
+        />
         <div>
           <div className="agent-card-name">{name}</div>
           <div className="muted">Claude Code agent</div>

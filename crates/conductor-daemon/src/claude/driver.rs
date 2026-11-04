@@ -29,6 +29,10 @@ use conductor_protocol::{
     AgentTransitionOption, JsonObject, PermissionBehavior, PermissionScope, StartSessionPayloadMcp,
 };
 
+/// Questions UX: an `ask_user` question's options, `{multi_select, items: [{label, description?}]}`
+/// (the TS `QuestionOptions`; the generated wire type validates the label/description bounds).
+pub type QuestionOptions = conductor_protocol::AskUserEventDataOptions;
+
 /// `--tools` / `--allowedTools` / `--disallowedTools` (the TS `ToolPolicy`).
 pub use conductor_protocol::tool_policy::ToolPolicy;
 
@@ -131,8 +135,10 @@ pub enum DriverEvent {
         stream: OutputStream,
         text: String,
     },
+    /// `options` (Questions UX): the agent's bounded choices; None when absent or invalid.
     AskUser {
         question: String,
+        options: Option<QuestionOptions>,
     },
     /// ADR-0023: Claude called the `permission` prompt tool; the call is held until
     /// `resolve_permission` / `deny_permission`, its timeout at `expires_at`, or the exit.
@@ -311,6 +317,7 @@ mod tests {
         }));
         let ev = DriverEvent::AskUser {
             question: "q?".into(),
+            options: None,
         };
         ls.emit(&ev);
         ls.remove(ia);

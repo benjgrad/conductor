@@ -11,6 +11,7 @@ import type {
   PermissionExpiryReason,
   PermissionRequestStatus,
   PermissionScope,
+  QuestionOptions,
   SessionStatus,
   TicketKind,
   TicketStatus,
@@ -270,6 +271,8 @@ export interface InputRequestRow {
   answered_by: string | null;
   created_at: Date;
   answered_at: Date | null;
+  /** Questions UX: an agent question's options (QuestionOptions JSON); null otherwise. */
+  options: QuestionOptions | null;
 }
 
 export interface EventRow {

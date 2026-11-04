@@ -22,10 +22,14 @@ import {
   type OutcomeServer,
   type PermissionPrompt,
 } from './outcome-server.js';
-import { PERMISSION_INPUT_MAX_BYTES, PERMISSION_SUGGESTIONS_MAX } from '@conductor/shared';
+import {
+  PERMISSION_INPUT_MAX_BYTES,
+  PERMISSION_SUGGESTIONS_MAX,
+  type QuestionOptions,
+} from '@conductor/shared';
 
 type Call =
-  | { kind: 'ask'; question: string }
+  | { kind: 'ask'; question: string; options?: QuestionOptions }
   | { kind: 'done'; result: Record<string, unknown>; transition?: string; reason?: string };
 
 let server: OutcomeServer;
@@ -41,7 +45,8 @@ function register(opts?: OutcomeRegisterOptions) {
   const calls: Call[] = [];
   const reg = server.register(
     {
-      onAskUser: (question) => calls.push({ kind: 'ask', question }),
+      onAskUser: (question, options) =>
+        calls.push({ kind: 'ask', question, ...(options !== undefined ? { options } : {}) }),
       onCompleteState: (result, meta) => calls.push({ kind: 'done', result, ...meta }),
     },
     opts,
@@ -168,6 +173,36 @@ describe('outcome server', () => {
     );
     expect(await callText(c, 'ask_user', { question: 'Late?' })).toBe(ASK_USER_AFTER_COMPLETE);
     expect(calls).toHaveLength(2);
+  });
+
+  it('Questions UX: ask_user forwards valid options; an invalid list is dropped, the question sent', async () => {
+    const one = register();
+    const c1 = await connect(one.reg.url);
+    expect(
+      await callText(c1, 'ask_user', {
+        question: 'Which DB?',
+        options: [{ label: ' Postgres ', description: 'recommended' }, { label: 'SQLite' }],
+        multi_select: false,
+      }),
+    ).toBe(ASK_USER_RETURN);
+    expect(one.calls).toEqual([
+      {
+        kind: 'ask',
+        question: 'Which DB?',
+        options: {
+          multi_select: false,
+          items: [{ label: 'Postgres', description: 'recommended' }, { label: 'SQLite' }],
+        },
+      },
+    ]);
+
+    // One option is not a choice: dropped, the question still goes out.
+    const two = register();
+    const c2 = await connect(two.reg.url);
+    expect(await callText(c2, 'ask_user', { question: 'Sure?', options: [{ label: 'Yes' }] })).toBe(
+      ASK_USER_RETURN,
+    );
+    expect(two.calls).toEqual([{ kind: 'ask', question: 'Sure?' }]);
   });
 
   it('attributes calls to the session that owns the token', async () => {

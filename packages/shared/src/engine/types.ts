@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { QuestionOptionsSchema } from '../protocol/question-options.js';
 import {
   CommandKindSchema,
   InputRequestKindSchema,
@@ -349,8 +350,15 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
     /** ADR-0011: why; the question for a `question: true` transition. Absent ≡ null. */
     reason: z.string().nullable().optional(),
   }),
-  /** D `ask_user`: outcome `ask_user`, input_request kind `agent_question`. */
-  z.object({ type: z.literal('agent.ask_user'), question: z.string() }),
+  /**
+   * D `ask_user`: outcome `ask_user`, input_request kind `agent_question`. `options` (Questions
+   * UX): the agent's choices, copied onto that input_request.
+   */
+  z.object({
+    type: z.literal('agent.ask_user'),
+    question: z.string(),
+    options: QuestionOptionsSchema.optional(),
+  }),
   /**
    * D `no_outcome` (U-028, ADR-0005 addendum): two turns in a row ended without complete_state or
    * ask_user (the second one after the daemon's nudge). Routed like `agent.ask_user` (outcome
@@ -668,6 +676,8 @@ export const EffectSchema = z.discriminatedUnion('type', [
     kind: InputRequestKindSchema,
     question: z.string(),
     return_to: z.string().nullable(),
+    /** Questions UX: an agent question's clickable options (absent: none). */
+    options: QuestionOptionsSchema.optional(),
   }),
   /** Internal: (re)arm or clear the timeout sweep for the current state. */
   z.object({
@@ -689,6 +699,11 @@ export const EffectSchema = z.discriminatedUnion('type', [
     /** ADR-0011: the agent's or human's reason, or the system's (e.g. "timed out"). */
     reason: z.string().nullable().optional(),
     actor: TransitionActorSchema.nullable().optional(),
+    /**
+     * The transition that led here has `notify: true` (its name): the wrapper writes a
+     * `transition.notified` board event and `push_transition` rows. Absent = no notification.
+     */
+    notify: z.string().optional(),
   }),
   /**
    * Internal: event row `conversation.reset` (audit). The Claude conversation `claude_session_id`

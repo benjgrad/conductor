@@ -56,6 +56,26 @@ yaml_service() {
   ' "$1"
 }
 
+# make_dist <dir> <version> [target...]: fake daemon tarballs (one per target, default all five)
+# with matching .sha256 files, as ci.yml's daemon-dist job hands them to the deploy (MR-T15).
+DIST_TARGETS="aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-pc-windows-msvc"
+make_dist() {
+  local dir="$1" version="$2" t f
+  shift 2
+  mkdir -p "$dir"
+  # shellcheck disable=SC2086 # the default list splits on purpose
+  [[ $# -gt 0 ]] || set -- $DIST_TARGETS
+  for t in "$@"; do
+    f="conductor-daemon-$version-$t.tgz"
+    printf 'fake %s\n' "$f" >"$dir/$f"
+    if command -v sha256sum >/dev/null 2>&1; then
+      (cd "$dir" && sha256sum "$f" >"$f.sha256")
+    else
+      (cd "$dir" && shasum -a 256 "$f" >"$f.sha256")
+    fi
+  done
+}
+
 finish() {
   echo "  -- $PASSES passed, $FAILURES failed"
   [[ "$FAILURES" -eq 0 ]]

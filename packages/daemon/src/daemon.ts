@@ -920,7 +920,13 @@ export class Daemon {
         return;
       case 'ask_user':
         a.askPending = true;
-        this.emit(sid, a.fencingToken, { kind: 'ask_user', data: { question: ev.question } });
+        this.emit(sid, a.fencingToken, {
+          kind: 'ask_user',
+          data: {
+            question: ev.question,
+            ...(ev.options !== undefined ? { options: ev.options } : {}),
+          },
+        });
         return;
       case 'permission_request': {
         // ADR-0023: durable like a session_event (buffered, replayed, deduped on seq); the

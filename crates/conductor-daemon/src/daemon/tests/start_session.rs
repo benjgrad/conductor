@@ -321,8 +321,15 @@ async fn sends_the_last_stderr_lines_on_exit_stderr_tail() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn parks_after_ask_user_process_alive_and_feeds_send_input_into_the_live_process() {
     let c = Ctx::new().await;
+    let options = json!({
+        "multi_select": false,
+        "items": [{ "label": "postgres", "description": "recommended" }, { "label": "sqlite" }],
+    });
     let drv = Arc::new(FakeClaudeDriver::new(FakeClaudeScript::new(vec![
-        FakeTurn::from(vec![ask("Which DB?")]),
+        FakeTurn::from(vec![FakeTurnAction::ask_user_with_options(
+            "Which DB?",
+            serde_json::from_value(options.clone()).unwrap(),
+        )]),
         FakeTurn::dynamic(|answer| vec![complete_with(json!({ "db": answer }))]),
     ])));
     c.orch
@@ -332,6 +339,11 @@ async fn parks_after_ask_user_process_alive_and_feeds_send_input_into_the_live_p
     let sid = Uuid::new_v4();
     c.send(&c.start(sid, json!({}), 1).msg);
     c.first_event("ask_user").await;
+    // Questions UX: the options travel in the session_event as given.
+    assert_eq!(
+        c.data("ask_user")[0],
+        json!({ "question": "Which DB?", "options": options })
+    );
     // Parked: the process is still alive after its turn ended.
     wait_ms(50).await;
     assert!(!drv.last().unwrap().exited());

@@ -2,10 +2,12 @@
 
 `pnpm test:e2e` runs `e2e/run.sh`: `scripts/db.sh up` (idempotent), `tsc -b` (builds the orchestrator
 bin), `cargo build --release -p conductor-daemon` (the Rust daemon, MR-T16), then
-`vitest run --config e2e/vitest.config.ts`. Three files, one stack (database, bins, fixture repo)
+`vitest run --config e2e/vitest.config.ts`. Four files, one stack (database, bins, fixture repo)
 each, run one after the other: `m1.e2e.test.ts` (M1, ADR-0007..0010), `m1b.e2e.test.ts` (ADR-0011
-transition rules) and `advisor.e2e.test.ts` (ADR-0033 P3: the workflow advisor over MCP, findings →
-proposal → apply; its history is written to the database, its token minted there). A full run takes about 50 s with the fake Claude. The limit is 3 minutes.
+transition rules), `advisor.e2e.test.ts` (ADR-0033 P3: the workflow advisor over MCP, findings →
+proposal → apply; its history is written to the database, its token minted there) and
+`upgrade.e2e.test.ts` (MR-T16c: the TS → Rust daemon upgrade, [below](#ts--rust-upgrade-mr-t16c)).
+A full run takes about 50 s with the fake Claude, plus about 30 s for the upgrade file. The limit is 3 minutes.
 
 ## What runs
 
@@ -74,6 +76,42 @@ which its tickets pin), so the conditions poll fast with no test-only knob.
 Teardown stops the daemon (SIGTERM, which kills its Claude processes) and then the orchestrator.
 After that it kills anything still running from the temp dir, drops the database and removes the
 temp dir. When a test fails, the tail of each process log is printed.
+
+## TS → Rust upgrade (MR-T16c)
+
+`upgrade.e2e.test.ts` moves an enrolled machine from the TS daemon to the Rust one, the way a user
+does it. Linux and macOS only: it skips on Windows (MR-T16b) and when the release binary is missing
+(`CONDUCTOR_E2E_DAEMON_BIN` skips the cargo build).
+
+- **Password mode.** The orchestrator runs with `CONDUCTOR_AUTH=password` and its loopback URL as
+  `CONDUCTOR_PUBLIC_URL` (`StackOptions.auth`). In local mode the gateway ignores the machine
+  credential, so "no re-enroll" would prove nothing. The first user comes from
+  `conductor-admin bootstrap` and `POST /auth/signup` (`signUp` in `harness/api.ts`); every API
+  call carries the session cookie and `Origin`.
+- **Repos.** Password mode takes only a canonical `host/org/repo` (U-048), which the claim routes
+  only to a machine that has a clone of it. The claim still runs a local-path repo as local mode
+  does, so each ticket is created as `github.com/benjgrad/fixture-app` and its stored repo is then
+  pointed at the fixture repo in the database.
+- **The served build** is the release binary e2e/run.sh built, packed by
+  `packages/orchestrator/scripts/package-daemon.sh --verify` for the host target, with the binary's
+  own `--version` as the served version. The tarball goes in the run's temp dir, set as the
+  orchestrator's `CONDUCTOR_DOWNLOADS_DIR` (`stack.orchestratorEnv`).
+- **The TS install** is laid out where the M2-T14 TS `install.sh` put it (`<root>/daemon/<version>`,
+  `current`, `bin/conductor-daemon`, `bin/conductor-launch`). Its `bin/conductor-daemon` is a
+  wrapper that runs the repo's `packages/daemon/dist/main.js`, because MR-T15 removed the TS
+  tarball builder. It reports `0.0.0+ts00e2e`.
+
+Steps:
+1. The TS daemon enrolls (`enroll --url`, with an enrollment token from the API), starts with only
+   `machine.json` to find the orchestrator and its id, and runs a ticket.
+2. With it still running, `curl -fsSL <url>/install.sh | sh -s -- --root <root>` (no token, a
+   private `HOME`, so no real service unit is restarted). `current` moves to the Rust version; the
+   TS version dir, `machine.json` (bytes and mode) and the launcher are checked.
+3. The TS daemon stops and `<root>/bin/conductor-daemon run` starts the Rust binary. It registers as
+   the same machine with the Rust version, not outdated. There is still one machine, one credential
+   (whose `last_used_at` moved: the Rust daemon authenticated with the TS-written credential) and
+   one enrollment token.
+4. The next ticket runs on it, reusing the TS daemon's clone under the root.
 
 ## Real Claude
 

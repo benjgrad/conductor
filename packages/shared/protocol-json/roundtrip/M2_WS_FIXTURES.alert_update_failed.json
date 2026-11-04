@@ -1,0 +1,14 @@
+{
+  "fencing_token": null,
+  "msg_id": "00000000-0000-4000-8000-0000000c0004",
+  "payload": {
+    "at": "2026-10-22T12:00:00.000Z",
+    "error": "conductor-daemon 0.3.0+abc1234 exited 1 twice during its trial start",
+    "kind": "update_failed",
+    "stage": "trial",
+    "version": "0.3.0+abc1234"
+  },
+  "seq": 41,
+  "session_id": null,
+  "type": "alert"
+}

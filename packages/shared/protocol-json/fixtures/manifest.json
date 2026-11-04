@@ -147,6 +147,13 @@
     "array": false
   },
   {
+    "file": "LATEST_DAEMON_FIXTURE.json",
+    "export": "LATEST_DAEMON_FIXTURE",
+    "key": null,
+    "schema": "LatestDaemon",
+    "array": false
+  },
+  {
     "file": "M1B_PR_URL.json",
     "export": "M1B_PR_URL",
     "key": null,
@@ -371,9 +378,23 @@
     "array": false
   },
   {
+    "file": "M2_WS_FIXTURES.alert_update_failed.json",
+    "export": "M2_WS_FIXTURES",
+    "key": "alert_update_failed",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
     "file": "M2_WS_FIXTURES.alert_with_session.json",
     "export": "M2_WS_FIXTURES",
     "key": "alert_with_session",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "M2_WS_FIXTURES.heartbeat_draining.json",
+    "export": "M2_WS_FIXTURES",
+    "key": "heartbeat_draining",
     "schema": "DaemonToOrchestrator",
     "array": false
   },
@@ -402,6 +423,13 @@
     "file": "M2_WS_FIXTURES.start_session_working_copy.json",
     "export": "M2_WS_FIXTURES",
     "key": "start_session_working_copy",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "M2_WS_FIXTURES.update_available.json",
+    "export": "M2_WS_FIXTURES",
+    "key": "update_available",
     "schema": "OrchestratorToDaemon",
     "array": false
   },
@@ -493,6 +521,13 @@
     "file": "ORCHESTRATOR_FIXTURES.start_session.json",
     "export": "ORCHESTRATOR_FIXTURES",
     "key": "start_session",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "ORCHESTRATOR_FIXTURES.update_available.json",
+    "export": "ORCHESTRATOR_FIXTURES",
+    "key": "update_available",
     "schema": "OrchestratorToDaemon",
     "array": false
   },
@@ -690,6 +725,13 @@
     "export": "SESSION_EVENT_MESSAGE_FIXTURES",
     "key": "started",
     "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
+    "file": "UPDATE_FIXTURE_IDS.json",
+    "export": "UPDATE_FIXTURE_IDS",
+    "key": null,
+    "schema": null,
     "array": false
   }
 ]

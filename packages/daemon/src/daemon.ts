@@ -445,6 +445,10 @@ export class Daemon {
           payload: { command_id: msg.payload.command_id, accepted: false, reason: 'unsupported' },
         });
         return;
+      case 'update_available':
+        // ADR-0021: self-update is Rust-only (MR-T14, ADR-0026 freeze); upgrade with install.sh.
+        this.log(`update_available ${msg.payload.version}: this daemon does not self-update`);
+        return;
       case 'fetch_transcript':
         this.sendMachine(
           'transcript',

@@ -508,6 +508,40 @@
         "fencing_token",
         "payload"
       ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "update_available"
+        },
+        "msg_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "seq": {
+          "type": "null"
+        },
+        "session_id": {
+          "type": "null"
+        },
+        "fencing_token": {
+          "type": "null"
+        },
+        "payload": {
+          "$ref": "#/definitions/UpdateAvailablePayload"
+        }
+      },
+      "required": [
+        "type",
+        "msg_id",
+        "seq",
+        "session_id",
+        "fencing_token",
+        "payload"
+      ]
     }
   ],
   "definitions": {
@@ -1168,6 +1202,34 @@
       "type": "string",
       "enum": [
         "session_insight"
+      ]
+    },
+    "UpdateAvailablePayload": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9A-Za-z.+-]{1,64}$"
+        },
+        "file": {
+          "type": "string",
+          "pattern": "^conductor-daemon-[0-9A-Za-z._+-]{1,128}\\.tgz$"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "size": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 104857600
+        }
+      },
+      "required": [
+        "version",
+        "file",
+        "sha256",
+        "size"
       ]
     }
   }

@@ -30,7 +30,7 @@ From the freeze commit (tagged `daemon-ts-freeze` in MR-T00), `packages/daemon` 
 `test/fixtures/fake-claude.mjs` stays: it fakes an external binary at the process boundary, and the e2e suite uses it too. That makes Node a test-host-only dependency.
 
 ### 4 · Same upgrade path
-- **The artifact** is `conductor-daemon-<version>-<target>.tgz` plus `.sha256`, with `bin/conductor-daemon` at the same path inside. On Windows that is `bin/conductor-daemon.exe` plus the existing `bin/conductor-daemon.cmd`, now one line that calls the `.exe`. ADR-0021's `file` rule (`^conductor-daemon-[0-9A-Za-z.+-]+\.tgz$`) still holds.
+- **The artifact** is `conductor-daemon-<version>-<target>.tgz` plus `.sha256`, with `bin/conductor-daemon` at the same path inside. On Windows that is `bin/conductor-daemon.exe` plus the existing `bin/conductor-daemon.cmd`, now one line that calls the `.exe`. ADR-0021's `file` rule (`^conductor-daemon-[0-9A-Za-z.+-]+\.tgz$`) still holds. *Correction 2026-11-03 (M2-T18b):* it didn't (`x86_64` has a `_`); ADR-0021 §1 now has the widened rule and the `<version>-<target>` match.
 - **The layout doesn't change:** `<root>/daemon/<version>`, `<root>/daemon/current` (a symlink, or a junction on Windows), `<root>/bin/conductor-daemon`, `machine.json`, `config.json`, the store file and the worktree layout. Re-running `install.sh`/`install.ps1` without a token upgrades in place and keeps enrollment.
 - **Choosing the target:**
   - `install.sh` is rendered with one `FILE`/`SHA256` pair per served target and picks one by `uname -s`/`-m`. `install.ps1` gets the Windows pair.

@@ -10,6 +10,7 @@ import {
   type Capability,
 } from '../machines/capabilities.js';
 import { InventoryRepoSchema, isCanonicalRemote } from '../machines/inventory.js';
+import { LatestDaemonSchema } from '../machines/update.js';
 import { matchingPaths } from '../workflow/screenshots.js';
 import { resolveToolPolicy, UnknownToolAliasError } from '../workflow/tools.js';
 import {
@@ -147,6 +148,7 @@ const SCHEMAS: Record<string, z.ZodType> = {
   MergePrResult: MergePrResultSchema,
   ClosePrArgs: ClosePrArgsSchema,
   ClosePrResult: ClosePrResultSchema,
+  LatestDaemon: LatestDaemonSchema,
 };
 
 interface ManifestEntry {

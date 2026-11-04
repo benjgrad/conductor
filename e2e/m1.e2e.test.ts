@@ -15,7 +15,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { NO_OUTCOME_QUESTION } from '../packages/shared/src/index.js';
+import { BACKGROUND_TOOLS, NO_OUTCOME_QUESTION } from '../packages/shared/src/index.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Api, BoardWatcher, OutputWatcher } from './harness/api.js';
 import { createFixtureRepo, failCounter, FAILURE_MARKER } from './harness/fixture-repo.js';
@@ -643,7 +643,7 @@ describe.skipIf(REAL)('fake Claude', () => {
       // Forced dontAsk: only the pre-approved read-only rules run, whatever the user's mode.
       expect(starts[0]![starts[0]!.indexOf('--permission-mode') + 1]).toBe('dontAsk');
       const tools = starts[0]![starts[0]!.indexOf('--tools') + 1]!.split(',');
-      expect(tools).toEqual(['Read', 'Glob', 'Grep', 'Bash']);
+      expect(tools).toEqual(['Read', 'Glob', 'Grep', 'Bash', ...BACKGROUND_TOOLS]);
       const allowed = starts[0]![starts[0]!.indexOf('--allowedTools') + 1]!;
       expect(allowed).toContain('Bash(git diff)');
       expect(allowed).not.toContain('Edit(');

@@ -1853,3 +1853,26 @@ fn add_dirs_become_add_dir_flags() {
         Some("/root/artifacts/s/attachments")
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn background_tasks_changed_from_the_cli_becomes_a_background_tasks_event() {
+    // ADR-0035: the shape claude 2.1.318 prints when a run_in_background job starts and ends.
+    let ctx = Ctx::new().await;
+    let (s, t) = ctx.start(ctx.opts(json!([[
+        {"raw": "{\"type\":\"system\",\"subtype\":\"background_tasks_changed\",\"tasks\":[{\"task_id\":\"b1\",\"task_type\":\"local_bash\"}]}"},
+        {"say": "running in the background"},
+        {"raw": "{\"type\":\"system\",\"subtype\":\"background_tasks_changed\",\"tasks\":[]}"},
+    ]])));
+    t.turn_ends(1).await;
+    let counts: Vec<u32> = t
+        .events()
+        .iter()
+        .filter_map(|e| match e {
+            DriverEvent::BackgroundTasks { running } => Some(*running),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(counts, [1, 0]);
+    s.end();
+    t.exit().await;
+}

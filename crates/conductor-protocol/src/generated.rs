@@ -5524,8 +5524,11 @@ pub const TOOL_ALIASES: &[(&str, ToolPolicyFragment)] = &[
     (
         "bash",
         ToolPolicyFragment {
-            builtin: &["Bash"],
+            builtin: &["Bash", "TaskStop", "BashOutput", "KillShell"],
             allow: &[
+                "TaskStop",
+                "BashOutput",
+                "KillShell",
                 "Bash(npm run:*)",
                 "Bash(npm test:*)",
                 "Bash(npm install)",
@@ -5561,8 +5564,11 @@ pub const TOOL_ALIASES: &[(&str, ToolPolicyFragment)] = &[
     (
         "git",
         ToolPolicyFragment {
-            builtin: &["Bash"],
+            builtin: &["Bash", "TaskStop", "BashOutput", "KillShell"],
             allow: &[
+                "TaskStop",
+                "BashOutput",
+                "KillShell",
                 "Bash(git status)",
                 "Bash(git status --short)",
                 "Bash(git diff)",
@@ -5581,16 +5587,25 @@ pub const TOOL_ALIASES: &[(&str, ToolPolicyFragment)] = &[
     (
         "pr_skill",
         ToolPolicyFragment {
-            builtin: &["Skill", "Bash"],
-            allow: &["Skill", "Bash(gh pr view:*)"],
+            builtin: &["Skill", "Bash", "TaskStop", "BashOutput", "KillShell"],
+            allow: &[
+                "Skill",
+                "TaskStop",
+                "BashOutput",
+                "KillShell",
+                "Bash(gh pr view:*)",
+            ],
             deny: &["Bash(gh pr create:*)"],
         },
     ),
     (
         "qa",
         ToolPolicyFragment {
-            builtin: &["Bash"],
+            builtin: &["Bash", "TaskStop", "BashOutput", "KillShell"],
             allow: &[
+                "TaskStop",
+                "BashOutput",
+                "KillShell",
                 "Bash(git status)",
                 "Bash(git status --short)",
                 "Bash(git diff)",
@@ -5636,8 +5651,11 @@ pub const TOOL_ALIASES: &[(&str, ToolPolicyFragment)] = &[
     (
         "review",
         ToolPolicyFragment {
-            builtin: &["Bash"],
+            builtin: &["Bash", "TaskStop", "BashOutput", "KillShell"],
             allow: &[
+                "TaskStop",
+                "BashOutput",
+                "KillShell",
                 "Bash(git status)",
                 "Bash(git status --short)",
                 "Bash(git diff)",

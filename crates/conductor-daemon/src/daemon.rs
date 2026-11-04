@@ -191,6 +191,8 @@ struct AgentProc {
     ask_pending: bool,
     /// U-028: the nudge was sent for the current outcome-less streak. Cleared by send_input.
     nudged: bool,
+    /// ADR-0035: background jobs the CLI last reported running (`background_tasks_changed`).
+    background_tasks: u32,
     /// Tail of the assistant text (NO_OUTCOME_OUTPUT_CHARS), attached to `no_outcome`.
     last_output: String,
     /// Last STDERR_TAIL_LINES lines of stderr (STDERR_TAIL_CHARS), sent on `exit`.
@@ -1475,6 +1477,7 @@ impl Core {
                 completed: false,
                 ask_pending: false,
                 nudged: false,
+                background_tasks: 0,
                 last_output: String::new(),
                 stderr_tail: String::new(),
                 exited: false,
@@ -1739,11 +1742,24 @@ impl Core {
                             a.end_timer = Some(t);
                         }
                     }
-                } else if !a.ask_pending {
+                } else if a.ask_pending {
+                    // Parked: nothing to do.
+                } else if a.background_tasks > 0 {
+                    // ADR-0035: the agent left jobs running and ended its turn to wait for them.
+                    // Not an outcome-less turn: the CLI starts a turn of its own when a job
+                    // finishes, and a message written now runs as a turn at once. The nudge
+                    // state is left as it is; the state's timeout bounds a job that never ends.
+                    let text = format!(
+                        "conductor: turn ended with {} background job(s) running; waiting for them (messages reach the agent now)",
+                        a.background_tasks
+                    );
+                    self.send_output(st, sid, token, "debug", &text);
+                } else {
                     let subtype = subtype.clone();
                     self.no_outcome(st, sid, aid, &subtype);
                 }
             }
+            DriverEvent::BackgroundTasks { running } => a.background_tasks = *running,
             DriverEvent::Exit { code, signal } => {
                 a.exited = true;
                 if let Some(t) = a.end_timer.take() {

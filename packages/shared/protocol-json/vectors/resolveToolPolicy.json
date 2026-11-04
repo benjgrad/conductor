@@ -73,12 +73,18 @@
           "Read",
           "Glob",
           "Grep",
-          "Bash"
+          "Bash",
+          "TaskStop",
+          "BashOutput",
+          "KillShell"
         ],
         "allow": [
           "Read(./**)",
           "Glob(./**)",
           "Grep(./**)",
+          "TaskStop",
+          "BashOutput",
+          "KillShell",
           "Bash(npm run:*)",
           "Bash(npm test:*)",
           "Bash(npm install)",
@@ -114,12 +120,18 @@
           "Read",
           "Glob",
           "Grep",
-          "Bash"
+          "Bash",
+          "TaskStop",
+          "BashOutput",
+          "KillShell"
         ],
         "allow": [
           "Read(./**)",
           "Glob(./**)",
           "Grep(./**)",
+          "TaskStop",
+          "BashOutput",
+          "KillShell",
           "Bash(git status)",
           "Bash(git status --short)",
           "Bash(git diff)",
@@ -146,12 +158,18 @@
           "Read",
           "Glob",
           "Grep",
-          "Bash"
+          "Bash",
+          "TaskStop",
+          "BashOutput",
+          "KillShell"
         ],
         "allow": [
           "Read(./**)",
           "Glob(./**)",
           "Grep(./**)",
+          "TaskStop",
+          "BashOutput",
+          "KillShell",
           "Bash(git status)",
           "Bash(git status --short)",
           "Bash(git diff)",
@@ -181,12 +199,18 @@
           "Read",
           "Glob",
           "Grep",
-          "Bash"
+          "Bash",
+          "TaskStop",
+          "BashOutput",
+          "KillShell"
         ],
         "allow": [
           "Read(./**)",
           "Glob(./**)",
           "Grep(./**)",
+          "TaskStop",
+          "BashOutput",
+          "KillShell",
           "Bash(git status)",
           "Bash(git status --short)",
           "Bash(git diff)",
@@ -232,13 +256,19 @@
           "Glob",
           "Grep",
           "Skill",
-          "Bash"
+          "Bash",
+          "TaskStop",
+          "BashOutput",
+          "KillShell"
         ],
         "allow": [
           "Read(./**)",
           "Glob(./**)",
           "Grep(./**)",
           "Skill",
+          "TaskStop",
+          "BashOutput",
+          "KillShell",
           "Bash(gh pr view:*)"
         ],
         "deny": [
@@ -310,7 +340,10 @@
           "Grep",
           "Edit",
           "Write",
-          "Bash"
+          "Bash",
+          "TaskStop",
+          "BashOutput",
+          "KillShell"
         ],
         "allow": [
           "Read(./**)",
@@ -318,6 +351,9 @@
           "Grep(./**)",
           "Edit(./**)",
           "Write(./**)",
+          "TaskStop",
+          "BashOutput",
+          "KillShell",
           "Bash(npm run:*)",
           "Bash(npm test:*)",
           "Bash(npm install)",
@@ -365,12 +401,18 @@
           "Read",
           "Glob",
           "Grep",
-          "Bash"
+          "Bash",
+          "TaskStop",
+          "BashOutput",
+          "KillShell"
         ],
         "allow": [
           "Read(./**)",
           "Glob(./**)",
           "Grep(./**)",
+          "TaskStop",
+          "BashOutput",
+          "KillShell",
           "Bash(git status)",
           "Bash(git status --short)",
           "Bash(git diff)",
@@ -398,12 +440,18 @@
           "Read",
           "Glob",
           "Grep",
-          "Bash"
+          "Bash",
+          "TaskStop",
+          "BashOutput",
+          "KillShell"
         ],
         "allow": [
           "Read(./**)",
           "Glob(./**)",
           "Grep(./**)",
+          "TaskStop",
+          "BashOutput",
+          "KillShell",
           "Bash(git status)",
           "Bash(git status --short)",
           "Bash(git diff)",
@@ -450,6 +498,9 @@
           "Glob",
           "Grep",
           "Bash",
+          "TaskStop",
+          "BashOutput",
+          "KillShell",
           "Edit",
           "Write"
         ],
@@ -457,6 +508,9 @@
           "Read(./**)",
           "Glob(./**)",
           "Grep(./**)",
+          "TaskStop",
+          "BashOutput",
+          "KillShell",
           "Bash(git status)",
           "Bash(git status --short)",
           "Bash(git diff)",
@@ -507,6 +561,9 @@
           "Grep",
           "Skill",
           "Bash",
+          "TaskStop",
+          "BashOutput",
+          "KillShell",
           "Edit",
           "Write"
         ],
@@ -515,6 +572,9 @@
           "Glob(./**)",
           "Grep(./**)",
           "Skill",
+          "TaskStop",
+          "BashOutput",
+          "KillShell",
           "Bash(gh pr view:*)",
           "Bash(npm run:*)",
           "Bash(npm test:*)",
@@ -563,6 +623,9 @@
           "Edit",
           "Write",
           "Bash",
+          "TaskStop",
+          "BashOutput",
+          "KillShell",
           "Skill"
         ],
         "allow": [
@@ -571,6 +634,9 @@
           "Grep(./**)",
           "Edit(./**)",
           "Write(./**)",
+          "TaskStop",
+          "BashOutput",
+          "KillShell",
           "Bash(npm run:*)",
           "Bash(npm test:*)",
           "Bash(npm install)",

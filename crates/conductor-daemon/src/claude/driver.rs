@@ -176,6 +176,12 @@ pub enum DriverEvent {
         total_usd: f64,
         usage: Usage,
     },
+    /// ADR-0035: how many background jobs (Bash `run_in_background`) the CLI reports running, from
+    /// each `system/background_tasks_changed`. Stays in the daemon: a turn that ends while jobs
+    /// run is not nudged, because the CLI starts a turn of its own when one finishes.
+    BackgroundTasks {
+        running: u32,
+    },
     Exit {
         code: Option<i32>,
         signal: Option<String>,
@@ -193,6 +199,7 @@ impl DriverEvent {
             DriverEvent::CompleteState { .. } => "complete_state",
             DriverEvent::TurnEnd { .. } => "turn_end",
             DriverEvent::Spend { .. } => "spend",
+            DriverEvent::BackgroundTasks { .. } => "background_tasks",
             DriverEvent::Exit { .. } => "exit",
         }
     }

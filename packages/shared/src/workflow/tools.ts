@@ -82,6 +82,14 @@ export const QA_GIT_COMMANDS: readonly string[] = [
 const QA_TEST_PREFIXES = ['pnpm test', 'pnpm vitest', 'pnpm exec vitest', 'npm test', 'npm run'];
 const QA_TEST_EXACT = ['pnpm typecheck', 'pnpm lint'];
 
+/**
+ * ADR-0035: the built-ins that go with Bash's `run_in_background`, so an agent can start a long
+ * command, stay free to answer messages, and stop the job again. Claude Code 2.1.318 has only
+ * `TaskStop` (a job's output is a file the agent reads with Read, which the CLI allows); the older
+ * names `BashOutput` / `KillShell` are listed for older CLIs. The CLI ignores names it doesn't have.
+ */
+export const BACKGROUND_TOOLS: readonly string[] = ['TaskStop', 'BashOutput', 'KillShell'];
+
 export const TOOL_ALIASES = {
   /** Read only (the base policy). */
   read: { builtin: [], allow: [], deny: [] },
@@ -104,8 +112,9 @@ export const TOOL_ALIASES = {
    * (TD-175), so this is not a security boundary; that needs the sandbox (U-004).
    */
   bash: {
-    builtin: ['Bash'],
+    builtin: ['Bash', ...BACKGROUND_TOOLS],
     allow: [
+      ...BACKGROUND_TOOLS,
       'Bash(npm run:*)',
       'Bash(npm test:*)',
       'Bash(npm install)',
@@ -132,8 +141,9 @@ export const TOOL_ALIASES = {
   },
   /** Local git: inspect, stage, commit. Never push. */
   git: {
-    builtin: ['Bash'],
+    builtin: ['Bash', ...BACKGROUND_TOOLS],
     allow: [
+      ...BACKGROUND_TOOLS,
       ...GIT_EXACT.map((c) => `Bash(git ${c})`),
       ...GIT_PREFIX.map((c) => `Bash(git ${c}:*)`),
     ],
@@ -144,8 +154,8 @@ export const TOOL_ALIASES = {
    * edit tools, no staging or committing. The engine gives a reviewer only this alias.
    */
   review: {
-    builtin: ['Bash'],
-    allow: REVIEW_GIT_COMMANDS.map((c) => `Bash(${c})`),
+    builtin: ['Bash', ...BACKGROUND_TOOLS],
+    allow: [...BACKGROUND_TOOLS, ...REVIEW_GIT_COMMANDS.map((c) => `Bash(${c})`)],
     deny: [],
   },
   /**
@@ -155,8 +165,9 @@ export const TOOL_ALIASES = {
    * this is not a security boundary (TD-019, U-004).
    */
   qa: {
-    builtin: ['Bash'],
+    builtin: ['Bash', ...BACKGROUND_TOOLS],
     allow: [
+      ...BACKGROUND_TOOLS,
       ...[...REVIEW_GIT_COMMANDS, ...QA_GIT_COMMANDS].map((c) => `Bash(${c})`),
       ...QA_TEST_PREFIXES.map((c) => `Bash(${c}:*)`),
       ...QA_TEST_EXACT.map((c) => `Bash(${c})`),
@@ -169,8 +180,8 @@ export const TOOL_ALIASES = {
    * connector state (TD-020).
    */
   pr_skill: {
-    builtin: ['Skill', 'Bash'],
-    allow: ['Skill', 'Bash(gh pr view:*)'],
+    builtin: ['Skill', 'Bash', ...BACKGROUND_TOOLS],
+    allow: ['Skill', ...BACKGROUND_TOOLS, 'Bash(gh pr view:*)'],
     deny: ['Bash(gh pr create:*)'],
   },
 } as const satisfies Record<string, ToolPolicyFragment>;

@@ -95,3 +95,59 @@ async fn refuses_with_no_live_process_once_the_process_completed() {
     );
     c.done().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_that_ends_with_background_jobs_running_is_not_nudged_and_takes_messages() {
+    // ADR-0035: the agent starts a job in the background and ends its turn. The daemon waits (no
+    // nudge, not parked), a message is delivered, and the CLI's own turn when the job finishes
+    // carries on. Once no job runs, an outcome-less turn is nudged as before (U-028).
+    let c = Ctx::new().await;
+    let bg = |n| FakeTurnAction::Emit(DriverEvent::BackgroundTasks { running: n });
+    let drv = driver(script(vec![
+        vec![bg(1), say("tests running in the background")],
+        vec![say("2+2=4")],
+        vec![bg(0), say("tests passed")],
+        vec![complete_with(json!({ "ok": true }))],
+    ]));
+    c.make(drv.clone(), Make::default());
+    c.registered_and_asked().await;
+    let sid = Uuid::new_v4();
+    let start = c.start(sid, json!({}), 1);
+    c.send(&start.msg);
+    let waiting = |c: &Ctx| {
+        c.of_type("output").iter().any(|o| {
+            o["payload"]["text"]
+                .as_str()
+                .is_some_and(|t| t.contains("with 1 background job(s) running"))
+        })
+    };
+    c.until_true(|| waiting(&c)).await;
+    assert!(drv.last().unwrap().inputs().is_empty()); // no nudge
+
+    // Not parked: a message is accepted and written; the idle CLI runs it as a turn.
+    let (m, cid) = message(sid, start.cid, "what is 2+2?", 1);
+    c.send(&m);
+    assert_eq!(
+        c.ack(cid).await,
+        json!({ "command_id": cid, "accepted": true })
+    );
+    assert_eq!(drv.last().unwrap().messages(), ["what is 2+2?"]);
+    drv.last().unwrap().cli_turn("what is 2+2?");
+    c.until_true(|| {
+        c.of_type("output")
+            .iter()
+            .any(|o| o["payload"]["text"] == "2+2=4")
+    })
+    .await;
+    drv.last().unwrap().idle().await;
+    assert!(drv.last().unwrap().inputs().is_empty()); // the job still runs: still no nudge
+
+    // The job finishes: the CLI's own turn ends with no job left and no outcome → nudged.
+    drv.last().unwrap().cli_turn("<task-notification>");
+    c.until_true(|| drv.last().unwrap().inputs() == [NO_OUTCOME_NUDGE])
+        .await;
+    c.first_event("complete_state").await;
+    c.first_event("exit").await;
+    assert!(c.events(Some("no_outcome")).is_empty());
+    c.done().await;
+}

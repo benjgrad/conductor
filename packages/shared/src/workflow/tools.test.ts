@@ -4,6 +4,7 @@ import type { SessionSnapshot } from '../engine/types.js';
 import { evaluateGuard, GUARD_REGISTRY, isRegisteredGuard, type GuardInput } from './guards.js';
 import { WorkflowDefinitionSchema } from './schema.js';
 import {
+  BACKGROUND_TOOLS,
   isToolAlias,
   resolveToolPolicy,
   TOOL_ALIAS_NAMES,
@@ -36,7 +37,9 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
     expect(p.allow).not.toContain('Edit');
     expect(p.allow).not.toContain('Write');
     expect(p.builtin).toEqual(expect.arrayContaining(['Read', 'Edit', 'Write', 'Bash']));
-    expect(p.allow.filter((r) => r.startsWith('Bash')).every((r) => /^Bash\(.+\)$/.test(r))).toBe(
+    // A bare `Bash` rule would pre-approve every command (`BashOutput` is a different tool).
+    expect(p.allow).not.toContain('Bash');
+    expect(p.allow.filter((r) => r.startsWith('Bash(')).every((r) => /^Bash\(.+\)$/.test(r))).toBe(
       true,
     );
   });
@@ -109,7 +112,7 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
 
   it('qa alias has no edit tools and denies commit/push/gh', () => {
     const p = resolveToolPolicy(['qa']);
-    expect(p.builtin).toEqual(['Read', 'Glob', 'Grep', 'Bash']);
+    expect(p.builtin).toEqual(['Read', 'Glob', 'Grep', 'Bash', ...BACKGROUND_TOOLS]);
     expect(p.deny).toEqual(
       expect.arrayContaining([
         'Edit',
@@ -147,6 +150,16 @@ describe('TOOL_ALIASES (ADR-0005 ToolPolicy)', () => {
       'Bash(git push',
     ])
       expect(p.allow.some((r) => r.startsWith(bad))).toBe(false);
+  });
+
+  it('gives every Bash alias the background-job tools, and the read base none (ADR-0035)', () => {
+    for (const alias of ['bash', 'git', 'review', 'qa', 'pr_skill']) {
+      const p = resolveToolPolicy([alias]);
+      expect(p.builtin).toEqual(expect.arrayContaining(['Bash', ...BACKGROUND_TOOLS]));
+      expect(p.allow).toEqual(expect.arrayContaining([...BACKGROUND_TOOLS]));
+    }
+    expect(BACKGROUND_TOOLS).toContain('TaskStop');
+    expect(resolveToolPolicy(['edit']).builtin).not.toContain('TaskStop');
   });
 
   it('de-duplicates and rejects unknown names', () => {

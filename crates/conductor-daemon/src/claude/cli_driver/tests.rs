@@ -1778,3 +1778,18 @@ async fn events_before_the_first_listener_are_delivered_to_it_in_order() {
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert!(late.events().is_empty());
 }
+
+/// 06 §Attachments: each extra dir is one `--add-dir`; none by default.
+#[test]
+fn add_dirs_become_add_dir_flags() {
+    let plain = build_claude_args(&base_opts(), "{}", "s.json", &PermissionArgs::Host);
+    assert_eq!(count(&plain, "--add-dir"), 0);
+    let mut o = base_opts();
+    o.add_dirs = vec![PathBuf::from("/root/artifacts/s/attachments")];
+    let args = build_claude_args(&o, "{}", "s.json", &PermissionArgs::Host);
+    assert_eq!(count(&args, "--add-dir"), 1);
+    assert_eq!(
+        flag_of(&args, "--add-dir"),
+        Some("/root/artifacts/s/attachments")
+    );
+}

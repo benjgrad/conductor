@@ -20,7 +20,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Api, BoardWatcher, OutputWatcher } from './harness/api.js';
 import { createFixtureRepo, failCounter, FAILURE_MARKER } from './harness/fixture-repo.js';
 import { findProcesses, killTree } from './harness/procs.js';
-import { FAKE_GH_URL_RE, REPO_ROOT, Stack, waitFor } from './harness/stack.js';
+import { FAKE_GH_URL_RE, REPO_ROOT, SETUP_TIMEOUT_MS, Stack, waitFor } from './harness/stack.js';
 
 const REAL = process.env.E2E_REAL_CLAUDE === '1';
 const M1_BASIC = JSON.parse(
@@ -305,10 +305,10 @@ beforeAll(async () => {
   workflowId = (await api.saveWorkflow(def)).id;
   if (!REAL) await api.saveWorkflow(M1_REVIEWED);
 
-  await waitFor('the daemon to register', async () =>
+  await stack.waitForDaemon(async () =>
     (await api.machines()).find((m) => m.id === stack.machineId && m.status === 'online'),
   );
-}, 60_000);
+}, SETUP_TIMEOUT_MS);
 
 afterAll(async () => {
   board?.close();

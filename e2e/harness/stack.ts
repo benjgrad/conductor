@@ -69,6 +69,15 @@ const WIN = process.platform === 'win32';
 /** Windows only: the native launcher the fakes run through (`pnpm test:e2e` builds it, MR-T16b). */
 export const E2E_LAUNCHER_BIN = join(REPO_ROOT, 'target/release/conductor-e2e-launcher.exe');
 
+/**
+ * How long the daemon gets to register. Before it connects, it probes claude twice (`--help`,
+ * `--version`, up to 10 s each); on Windows each probe is the launcher plus a cold node + MCP SDK
+ * start, on a runner whose Defender scans the freshly copied exe, so it gets longer there.
+ */
+export const REGISTER_TIMEOUT_MS = WIN ? 90_000 : 20_000;
+/** A suite's beforeAll budget: the stack start plus REGISTER_TIMEOUT_MS. */
+export const SETUP_TIMEOUT_MS = WIN ? 180_000 : 60_000;
+
 /** `name`'s value in `env`, matched case-insensitively (Windows has `Path`). */
 export function envGet(env: NodeJS.ProcessEnv, name: string): string | undefined {
   const key = Object.keys(env).find((k) => k.toUpperCase() === name.toUpperCase());
@@ -343,6 +352,19 @@ export class Stack {
     closeSync(fd);
     const exited = new Promise<void>((r) => child.once('exit', () => r()));
     this.procs.push({ name, child, log, exited });
+  }
+
+  /**
+   * Wait (REGISTER_TIMEOUT_MS) until `online` says the daemon registered; on a timeout print every
+   * process log first, so CI shows why.
+   */
+  async waitForDaemon(online: () => Promise<unknown>): Promise<void> {
+    try {
+      await waitFor('the daemon to register', online, REGISTER_TIMEOUT_MS);
+    } catch (err) {
+      console.error(`daemon alive: ${this.alive('daemon')}\n${this.logs()}`);
+      throw err;
+    }
   }
 
   /** Whether a child has exited (e.g. a startup crash). */

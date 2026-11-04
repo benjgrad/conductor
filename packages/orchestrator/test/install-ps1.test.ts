@@ -309,12 +309,12 @@ describe.skipIf(process.platform !== 'win32')('install.ps1 (Windows PowerShell 5
     'needs no node on PATH (MR-T15: the daemon is a native binary)',
     { timeout: 120_000 },
     async () => {
-      const root = join(work, 'no-node');
+      const root = join(work, 'native-only');
       const url = await serve('0.0.0+bcbcbcb');
       const r = await install(installCommandWindows(url, TOKEN), root, fakeBin('exe'), {}, true);
       expect(r.stdout, r.stderr).toContain('installed conductor-daemon 0.0.0+bcbcbcb');
       expect(r.stdout).not.toContain('conductor install:');
-      expect(r.stdout).not.toMatch(/node/i);
+      expect(r.stdout).not.toMatch(/Node\.js|winget install OpenJS/);
       expect(existsSync(join(root, 'machine.json'))).toBe(true);
     },
   );

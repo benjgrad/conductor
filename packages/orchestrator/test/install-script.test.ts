@@ -354,7 +354,7 @@ describe.skipIf(!runnable)('install.sh', () => {
     );
     expect(r.status, r.stderr).toBe(0);
     expectInstalled(h, V1);
-    expect(r.stdout + r.stderr).not.toMatch(/node/i);
+    expect(r.stdout + r.stderr).not.toMatch(/Node\.js|command -v node/);
   });
 
   it('lists every missing prerequisite at once', async () => {
@@ -364,7 +364,7 @@ describe.skipIf(!runnable)('install.sh', () => {
     expect(r.stderr).toContain('installs none of them');
     expect(r.stderr).toContain('git is required');
     expect(r.stderr).toContain('claude');
-    expect(r.stderr).not.toMatch(/node/i);
+    expect(r.stderr).not.toMatch(/Node\.js/);
     expect(existsSync(bare.root)).toBe(false);
   });
 

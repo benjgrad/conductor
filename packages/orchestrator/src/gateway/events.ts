@@ -25,7 +25,11 @@ export function engineEventForSessionEvent(p: SessionEventPayload): EngineEvent 
         ...(p.data.reason !== undefined ? { reason: p.data.reason } : {}),
       };
     case 'ask_user':
-      return { type: 'agent.ask_user', question: p.data.question };
+      return {
+        type: 'agent.ask_user',
+        question: p.data.question,
+        ...(p.data.options !== undefined ? { options: p.data.options } : {}),
+      };
     case 'no_outcome':
       return { type: 'agent.no_outcome', last_output: p.data.last_output };
     case 'exit':

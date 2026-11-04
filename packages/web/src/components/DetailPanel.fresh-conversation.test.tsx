@@ -31,7 +31,8 @@ describe('Start fresh conversation…', () => {
     const button = pending.getByRole('button', { name: BUTTON });
     expect(button.className).not.toContain('prominent');
     // After the reply hint, not first.
-    const hint = pending.getByText('Reply in the box below to answer.');
+    // (This mock question has options: Questions UX.)
+    const hint = pending.getByText('Choose an option, or reply in the box below.');
     expect(hint.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 

@@ -353,7 +353,127 @@ impl<'de> ::serde::Deserialize<'de> for ApprovalId {
 ///`AskUserEventData`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
 pub struct AskUserEventData {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub options: ::std::option::Option<AskUserEventDataOptions>,
     pub question: ::std::string::String,
+}
+///`AskUserEventDataOptions`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+pub struct AskUserEventDataOptions {
+    pub items: ::std::vec::Vec<AskUserEventDataOptionsItemsItem>,
+    pub multi_select: bool,
+}
+///`AskUserEventDataOptionsItemsItem`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+pub struct AskUserEventDataOptionsItemsItem {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub description: ::std::option::Option<AskUserEventDataOptionsItemsItemDescription>,
+    pub label: AskUserEventDataOptionsItemsItemLabel,
+}
+///`AskUserEventDataOptionsItemsItemDescription`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AskUserEventDataOptionsItemsItemDescription(::std::string::String);
+impl ::std::ops::Deref for AskUserEventDataOptionsItemsItemDescription {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AskUserEventDataOptionsItemsItemDescription> for ::std::string::String {
+    fn from(value: AskUserEventDataOptionsItemsItemDescription) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AskUserEventDataOptionsItemsItemDescription {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 300usize {
+            return Err("longer than 300 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AskUserEventDataOptionsItemsItemDescription {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String>
+    for AskUserEventDataOptionsItemsItemDescription
+{
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AskUserEventDataOptionsItemsItemDescription {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AskUserEventDataOptionsItemsItemLabel`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AskUserEventDataOptionsItemsItemLabel(::std::string::String);
+impl ::std::ops::Deref for AskUserEventDataOptionsItemsItemLabel {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AskUserEventDataOptionsItemsItemLabel> for ::std::string::String {
+    fn from(value: AskUserEventDataOptionsItemsItemLabel) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AskUserEventDataOptionsItemsItemLabel {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 80usize {
+            return Err("longer than 80 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AskUserEventDataOptionsItemsItemLabel {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AskUserEventDataOptionsItemsItemLabel {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AskUserEventDataOptionsItemsItemLabel {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
 }
 ///`AssistantJobError`
 #[derive(
@@ -5132,6 +5252,10 @@ pub mod api_paths {
     pub const DAEMON_WS: &str = "/ws/daemon";
     pub const MACHINES_ENROLL: &str = "/api/machines/enroll";
 }
+pub const ASK_USER_OPTIONS_MAX: usize = 6;
+pub const ASK_USER_OPTIONS_MIN: usize = 2;
+pub const ASK_USER_OPTION_DESCRIPTION_MAX: usize = 300;
+pub const ASK_USER_OPTION_LABEL_MAX: usize = 80;
 pub const ASSISTANT_JOB_PROMPT_MAX: usize = 65536;
 pub const ASSISTANT_JOB_QUEUE_MAX: usize = 4;
 pub const ASSISTANT_JOB_TIMEOUT_MAX_MS: u64 = 120000;

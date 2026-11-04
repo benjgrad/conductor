@@ -97,6 +97,7 @@ import {
 } from './qa.js';
 import { applySpend } from './spend.js';
 import { NO_CONVERSATION_REASON } from '../protocol/ws.js';
+import type { QuestionOptions } from '../protocol/question-options.js';
 import {
   ASK_USER,
   fallbackHumanState,
@@ -246,7 +247,7 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
     case 'agent.complete_state':
       return onComplete(st, e);
     case 'agent.ask_user':
-      return onAskUser(st, e.question);
+      return onAskUser(st, e.question, e.options);
     case 'agent.no_outcome':
       return onAskUser(st, withOutput(NO_OUTCOME_QUESTION, e.last_output));
     case 'agent.exited':
@@ -741,11 +742,15 @@ function withReason(text: string, reason: string | null): string {
 export const NO_OUTCOME_QUESTION =
   'Agent stopped without reporting an outcome; last output attached';
 
-function onAskUser(st: Step, question: string): ApplyIgnoreReason | null {
+function onAskUser(
+  st: Step,
+  question: string,
+  options?: QuestionOptions,
+): ApplyIgnoreReason | null {
   if (st.state?.type !== 'agent') return 'unexpected_event';
   if (!AGENT_ACTIVE.has(st.s.status)) return 'wrong_status';
   st.s.pending_answer = null;
-  takeOutcome(st, 'ask_user', { question });
+  takeOutcome(st, 'ask_user', { question, ...(options !== undefined ? { options } : {}) });
   return null;
 }
 
@@ -931,6 +936,8 @@ interface OutcomeInfo {
   output?: string;
   /** The agent's question (`ask_user`). */
   question?: string;
+  /** Questions UX: the choices the agent attached to its `ask_user` question. */
+  options?: QuestionOptions;
   /** The agent's `complete_state` result (`done`), for a requirements reviewer's prompt. */
   result?: JsonObject;
 }
@@ -958,13 +965,25 @@ function takeOutcome(
   const kind = opts.kind ?? kindForOutcome(outcome);
   const question = questionFor(from, outcome, kind, info);
   const move = opts.move !== undefined ? { move: opts.move } : {};
+  // Questions UX: only the agent's own question carries its options.
+  const options =
+    kind === 'agent_question' && info.options !== undefined ? { options: info.options } : {};
 
   if (t === undefined) {
-    toFallbackHuman(st, kind, question);
+    toFallbackHuman(st, kind, question, info.options);
     return;
   }
   if (typeof t === 'string') {
-    enter(st, t, { ...NO_ROUTE, kind, question, attachment: null, outcome, info, ...move });
+    enter(st, t, {
+      ...NO_ROUTE,
+      kind,
+      question,
+      ...options,
+      attachment: null,
+      outcome,
+      info,
+      ...move,
+    });
     return;
   }
   const gate = t.requirements;
@@ -996,7 +1015,16 @@ function takeOutcome(
       step(null);
       return;
     }
-    enter(st, t.goto, { ...NO_ROUTE, kind, question, attachment: null, outcome, info, ...move });
+    enter(st, t.goto, {
+      ...NO_ROUTE,
+      kind,
+      question,
+      ...options,
+      attachment: null,
+      outcome,
+      info,
+      ...move,
+    });
     return;
   }
   const key = `${from}->${t.goto}`;
@@ -1012,7 +1040,16 @@ function takeOutcome(
       step(attachment);
       return;
     }
-    enter(st, t.goto, { ...NO_ROUTE, kind, question, attachment, outcome, info, ...move });
+    enter(st, t.goto, {
+      ...NO_ROUTE,
+      kind,
+      question,
+      ...options,
+      attachment,
+      outcome,
+      info,
+      ...move,
+    });
     return;
   }
   const fixes = t.attach === 'result' ? fixesLines(info.result) : [];
@@ -1063,13 +1100,24 @@ function withOutput(text: string, output: string | undefined): string {
   return output ? `${text}\n\nLast output:\n${output}` : text;
 }
 
-function toFallbackHuman(st: Step, kind: InputRequestKind, question: string): void {
+function toFallbackHuman(
+  st: Step,
+  kind: InputRequestKind,
+  question: string,
+  options?: QuestionOptions,
+): void {
   const target = fallbackHumanState(st.def);
   if (target === null) {
     failSession(st, 'failed', `no human state to route to: ${question}`);
     return;
   }
-  enter(st, target, { ...NO_ROUTE, kind, question, skipEntry: true });
+  enter(st, target, {
+    ...NO_ROUTE,
+    kind,
+    question,
+    ...(kind === 'agent_question' && options !== undefined ? { options } : {}),
+    skipEntry: true,
+  });
 }
 
 // ---------------------------------------------------------------- gate steps (ADR-0009, ADR-0010)
@@ -2209,6 +2257,8 @@ interface EnterOpts {
   /** input_request kind/question if the target is a human state. */
   kind: InputRequestKind;
   question: string;
+  /** Questions UX: the agent question's options (only with kind `agent_question`). */
+  options?: QuestionOptions;
   /** `attach: output` for an agent target. */
   attachment: PromptAttachment | null;
   /** input.provided: the answer to deliver (send_input or the start_session prompt). */
@@ -2366,6 +2416,7 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
         kind: opts.kind,
         question: opts.question || `Waiting in "${target}".`,
         return_to: from,
+        ...(opts.options !== undefined ? { options: opts.options } : {}),
       });
       st.setStatus('needs_input');
       return;

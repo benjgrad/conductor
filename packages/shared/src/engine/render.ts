@@ -238,7 +238,7 @@ function finishSection(state: AgentState): string {
     '## When you are done',
     '',
     `When the work for this step is finished, ${result}, then stop.`,
-    'If you are blocked and need a human decision, call `ask_user` with one clear question and end your turn.',
+    'If you are blocked and need a human decision, call `ask_user` with one clear question (and `options` when the answer is one of a few choices) and end your turn.',
   ].join('\n');
 }
 

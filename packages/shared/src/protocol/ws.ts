@@ -5,6 +5,7 @@ import { AgentTransitionOptionSchema } from '../workflow/transition-rules.js';
 import { McpPolicySchema } from '../workflow/mcp.js';
 import { CapabilitySchema } from '../machines/capabilities.js';
 import { GitShaSchema, PrUrlSchema } from './actions.js';
+import { QuestionOptionsSchema } from './question-options.js';
 import {
   AbsolutePathSchema,
   InventoryRepoSchema,
@@ -356,7 +357,14 @@ export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
       reason: z.string().optional(),
     }),
   }),
-  z.object({ kind: z.literal('ask_user'), data: z.object({ question: z.string() }) }),
+  /**
+   * `options` (Questions UX, 06 §Agent question options): the choices the agent listed, already
+   * bounded by the daemon (an invalid list is dropped, never sent). Absent: none.
+   */
+  z.object({
+    kind: z.literal('ask_user'),
+    data: z.object({ question: z.string(), options: QuestionOptionsSchema.optional() }),
+  }),
   /**
    * U-028 (ADR-0005 addendum): a turn ended without complete_state / ask_user, the daemon sent
    * its one nudge, and the next turn also ended without an outcome. The process stays alive and

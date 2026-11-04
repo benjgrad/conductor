@@ -2,6 +2,7 @@
    human). `.badge-permission` is Board.css's, shared with the board card. */
 .permission-requests {
   border-color: var(--warn);
+  border-left-color: var(--warn);
   background: var(--warn-bg);
 }
 .permission-request {

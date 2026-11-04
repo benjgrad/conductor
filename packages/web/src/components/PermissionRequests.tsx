@@ -55,6 +55,7 @@ export function PermissionRequests({
   return (
     <section aria-label={NEEDS_PERMISSION_LABEL} className="pending permission-requests">
       <div className="pending-head">
+        <span className="action-needed">Action needed</span>
         <span className="badge badge-permission">{NEEDS_PERMISSION_LABEL}</span>
         <span className="muted">
           {agent} wants to use {permission.tool}

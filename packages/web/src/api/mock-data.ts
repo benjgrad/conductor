@@ -854,6 +854,15 @@ export function mockSeeds(now: Date): MockSeed[] {
         kind: BOARD_SSE_FIXTURES['input.requested'].kind,
         question: BOARD_SSE_FIXTURES['input.requested'].question,
         created_at: ago(now, 4),
+        // Questions UX: the agent's choices, clickable on the card and in the panel.
+        options: {
+          multi_select: false,
+          items: [
+            { label: 'Postgres', description: 'Recommended: the app already uses it' },
+            { label: 'SQLite', description: 'A local file; no server' },
+            { label: 'MySQL' },
+          ],
+        },
       },
     }),
     seed(now, {

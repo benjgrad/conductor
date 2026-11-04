@@ -1246,7 +1246,9 @@ impl ClaudeDriver for CliDriver {
 fn handlers(shared: &Arc<Shared>) -> OutcomeHandlers {
     let (a, c, p) = (shared.clone(), shared.clone(), shared.clone());
     OutcomeHandlers {
-        on_ask_user: Arc::new(move |question| a.emit(&DriverEvent::AskUser { question })),
+        on_ask_user: Arc::new(move |question, options| {
+            a.emit(&DriverEvent::AskUser { question, options })
+        }),
         // ADR-0011: the named transition and reason are forwarded as given.
         on_complete_state: Arc::new(move |result, meta| {
             c.emit(&DriverEvent::CompleteState {

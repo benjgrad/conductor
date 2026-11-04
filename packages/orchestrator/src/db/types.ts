@@ -610,6 +610,23 @@ export interface SessionInsightRow {
   created_at: Date;
 }
 
+/**
+ * 06 §Proposed tickets: a person's decision on a follow-up ticket an agent proposed (migration
+ * 1762600000000). Primary key (ticket_id, proposal_id); no row ≡ pending.
+ */
+export interface TicketProposalDecisionRow {
+  /** The parent ticket (FK, CASCADE). */
+  ticket_id: string;
+  /** `proposalId()` (@conductor/shared). */
+  proposal_id: string;
+  account_id: string;
+  /** CHECK approved | dismissed. */
+  status: 'approved' | 'dismissed';
+  /** The ticket an approval created (FK, SET NULL); null for a dismissal. */
+  created_ticket_id: string | null;
+  decided_at: Date;
+}
+
 /** ADR-0033 P3 (MA-T05): a workflow advisor change proposal. */
 export interface ChangeProposalRow {
   id: string;
@@ -672,5 +689,6 @@ export interface Tables {
   ticket_schedule: TicketScheduleRow;
   assistant_job: AssistantJobRow;
   session_insight: SessionInsightRow;
+  ticket_proposal_decision: TicketProposalDecisionRow;
   change_proposal: ChangeProposalRow;
 }

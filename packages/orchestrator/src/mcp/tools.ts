@@ -717,10 +717,11 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       description:
         'What the agent wrote. what=plan (default): the plan and its summary; results: each ' +
         'step’s result (`state`: one in full); output: the live tail; transcript: the whole ' +
-        'conversation. Long text is paged: pass next_cursor as `cursor`. PR diff: open pr_url.',
+        'conversation; proposals: follow-up tickets the agent proposed (approve or dismiss them ' +
+        'on the board). Long text is paged: pass next_cursor as `cursor`. PR diff: open pr_url.',
       inputSchema: {
         ticket: z.string().max(64),
-        what: z.enum(['plan', 'results', 'output', 'transcript']).optional(),
+        what: z.enum(['plan', 'results', 'output', 'transcript', 'proposals']).optional(),
         state: z.string().min(1).max(100).optional().describe('results: one step in full'),
         cursor: z.number().int().min(0).optional().describe('From next_cursor'),
       },
@@ -766,12 +767,26 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
             const { text, ...paging } = page;
             return ok({ ...head, step: state, result: text, ...paging });
           }
+          const pending = (d.proposals ?? []).filter((p) => p.status === 'pending');
           return ok({
             ...head,
             results: Object.fromEntries(
               steps.map(([k, v]) => [k, clip(JSON.stringify(v), RESULT_CLIP)]),
             ),
+            ...(pending.length > 0
+              ? {
+                  pending_proposals: pending.map((p) => ({
+                    id: p.id,
+                    title: p.title,
+                    repo: p.repo,
+                  })),
+                }
+              : {}),
           });
+        }
+        case 'proposals': {
+          // 06 §Proposed tickets: every status; a person decides on the board (Needs input).
+          return ok({ ...head, proposals: d.proposals ?? [] });
         }
         case 'output': {
           const text = d.recent_output

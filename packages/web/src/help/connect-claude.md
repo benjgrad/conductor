@@ -21,7 +21,7 @@ Connectors added on claude.ai also show up in Claude Desktop for the same Claude
 | `list_tickets` | Your open tickets, newest first; filter by `needs_input`, column, kind, repo or status (`done`, `cancelled`, `all`) |
 | `search_tickets` | Find tickets of any status by a word in the title or body, or by the start of the id |
 | `get_ticket` | One ticket: who it's waiting on (`waiting_on`: you, the board, the agent, checks, a machine, nobody), a status report to read out, the open question, the transitions you can take, PR |
-| `get_ticket_artifacts` | What the agent wrote: its plan, each step's result, its recent output, or the whole conversation (long text comes in pages) |
+| `get_ticket_artifacts` | What the agent wrote: its plan, each step's result, its recent output, the whole conversation (long text comes in pages), or the follow-up tickets it proposed |
 | `list_machines` | Your machines: online or not, running sessions, some of their repos |
 | `create_ticket` | Queue a new ticket (`repo` is `github.com/org/repo`, `kind` is `work` or `personal`) |
 | `answer_input` | Answer an agent's question |

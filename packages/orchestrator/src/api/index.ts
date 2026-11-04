@@ -1,9 +1,11 @@
 import {
   API_PATHS,
   AnswerInputRequestSchema,
+  ApproveProposalRequestSchema,
   ApproveSessionRequestSchema,
   CancelSessionRequestSchema,
   CreateTicketRequestSchema,
+  DismissProposalRequestSchema,
   FreshConversationRequestSchema,
   ReopenSessionRequestSchema,
   SaveWorkflowRequestSchema,
@@ -49,6 +51,7 @@ import { registerScheduleRoutes } from './schedules.js';
 import { registerRepoRoutes } from './repos.js';
 import { httpSecurityFromEnv, securityHookFor, type HttpSecurityOptions } from './security.js';
 import { loadSessionDetail, sessionExists } from './sessions.js';
+import { approveProposal, dismissProposal } from './proposals.js';
 import { createTicket, loadTicketDetail, updateTicket } from './tickets.js';
 import { registerTeamRoutes } from './team.js';
 
@@ -470,6 +473,33 @@ export const createApi = (({
         for (const ev of res.events) boardBus.publish(ev);
         return res.detail;
     }
+  });
+
+  // 06 §Proposed tickets: approve (creates the ticket) or dismiss an agent's proposed follow-up.
+  // The parent ticket doesn't move. Both are idempotent on `proposal_id`.
+  app.post<IdParams>(API_PATHS.ticketProposalApprove(':id'), async (req, reply) => {
+    const id = ticketId(req.params.id, reply);
+    if (id === undefined) return reply;
+    const body = parseBody(ApproveProposalRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const res = await approveProposal({ db, boardBus, auth }, req.auth!.scope, id, body);
+    if (!res.ok) return sendError(reply, res.status, res.code, res.message, res.details);
+    return reply.code(res.status).send(res.response);
+  });
+
+  app.post<IdParams>(API_PATHS.ticketProposalDismiss(':id'), async (req, reply) => {
+    const id = ticketId(req.params.id, reply);
+    if (id === undefined) return reply;
+    const body = parseBody(DismissProposalRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const res = await dismissProposal(
+      { db, boardBus, auth },
+      req.auth!.scope,
+      id,
+      body.proposal_id,
+    );
+    if (!res.ok) return sendError(reply, res.status, res.code, res.message, res.details);
+    return res.proposal;
   });
 
   // ---------------------------------------------------------------- workflows

@@ -444,6 +444,14 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
       {card.column === 'queued' && card.routing && (
         <RoutingBadge needs={routingNeeds(card.routing)} rule={routingRule(card.routing)} />
       )}
+      {card.column === 'needs_input' && (card.proposals_pending ?? 0) > 0 && (
+        <span
+          className="badge badge-proposals"
+          title="The agent proposed follow-up tickets: approve or dismiss them in the ticket"
+        >
+          {card.proposals_pending} proposed
+        </span>
+      )}
       {card.alerts && card.alerts.length > 0 && (
         <AlertBadge files={[...new Set(card.alerts.flatMap((a) => a.files))]} />
       )}

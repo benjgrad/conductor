@@ -459,6 +459,21 @@ ADR-0033 P2: an analyst's result, re-validated against `SessionInsightSchema` be
 
 The migration's down drops both tables and `machine.features`, deletes `assistant_job` outbox rows and rebuilds `outbox_kind` without the value.
 
+### ticket_proposal_decision
+
+[06 §Proposed tickets](06-human-input.md#proposed-tickets): a person's decision on a follow-up ticket an agent proposed. The proposals themselves stay in `session.context` (each agent state's result, `proposed_tickets`); no row ≡ pending. Deleted with the parent ticket.
+
+| column | type | notes |
+|---|---|---|
+| ticket_id | uuid fk ticket | the parent; `ON DELETE CASCADE`; pk with `proposal_id` |
+| proposal_id | text | `proposalId()` (@conductor/shared): FNV-1a 64 of the state, title and repo, 16 hex |
+| account_id | uuid fk account | |
+| status | text | `approved` \| `dismissed` (CHECK) |
+| created_ticket_id | uuid fk ticket null | the ticket an approval created; `ON DELETE SET NULL` |
+| decided_at | timestamptz | |
+
+The primary key makes approve and dismiss idempotent: both decide under the parent's latest session row lock, and an approval inserts the new ticket and this row in one transaction.
+
 ### change_proposal
 
 ADR-0033 P3 (MA-T05): a workflow advisor's proposed change. Migration `1762600000000_change-proposal`. Model-written: a human applies or rejects it ([10 §Change proposals](10-contracts.md#change-proposals-adr-0033-p3)). At most 20 `proposed` rows per account (the store refuses `too_many_open`). Not swept: the cap bounds open rows, decided ones stay as the history of what changed and why.

@@ -126,6 +126,25 @@ describe('m1_basic: claim and implement (agent)', () => {
     ]);
   });
 
+  it.each([
+    ['valid', [{ title: 'T', repo: 'github.com/a/b', why: 'w' }]],
+    ['malformed', [{ title: 42 }, 'nope']],
+    ['not an array', 'nope'],
+  ])('optional proposed_tickets (%s) is stored and changes nothing else', (_, proposed) => {
+    const plain = runningImplement().complete({ summary: 'added route' });
+    const r = runningImplement().run({
+      type: 'agent.complete_state',
+      result: { summary: 'added route', proposed_tickets: proposed },
+    });
+    expect(r.snapshot.workflow_state).toBe('build');
+    expect(r.snapshot.status).toBe(plain.snapshot.status);
+    expect(r.snapshot.context.implement).toEqual({
+      summary: 'added route',
+      proposed_tickets: proposed,
+    });
+    expect(r.effects).toEqual(plain.effects);
+  });
+
   it('ask_user → needs_input with an agent_question input request and return_to', () => {
     const r = parkedOnQuestion().last;
     expect(r.snapshot).toMatchObject({

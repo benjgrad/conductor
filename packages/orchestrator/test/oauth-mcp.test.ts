@@ -915,6 +915,27 @@ describe('/mcp for conversational clients', () => {
     });
   });
 
+  it('get_ticket_artifacts lists the proposed follow-up tickets (06 §Proposed tickets)', async () => {
+    const proposed = { title: 'Speed up CI', repo: 'github.com/acme/app', why: 'Slow.' };
+    const { ticketId } = await seedAgentSession(a.user.accountId, {
+      context: { implement: { summary: 's', proposed_tickets: [proposed, { title: 1 }] } },
+    });
+    const res = await call(a.access, 'get_ticket_artifacts', {
+      ticket: ticketId,
+      what: 'proposals',
+    });
+    expect(res.body.proposals).toEqual([
+      expect.objectContaining({ ...proposed, state: 'implement', status: 'pending' }),
+    ]);
+    const results = await call(a.access, 'get_ticket_artifacts', {
+      ticket: ticketId,
+      what: 'results',
+    });
+    expect(results.body.pending_proposals).toEqual([
+      expect.objectContaining({ title: proposed.title, repo: proposed.repo }),
+    ]);
+  });
+
   it('message_agent talks to a working agent, and never answers its question by accident', async () => {
     const working = await seedAgentSession(a.user.accountId);
     const sent = await call(a.access, 'message_agent', {

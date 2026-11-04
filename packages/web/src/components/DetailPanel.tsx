@@ -27,6 +27,7 @@ import { Markdown } from './markdown.js';
 import { OutputLog } from './OutputLog.js';
 import { PermissionRequests } from './PermissionRequests.js';
 import { PlanApprovalRequest } from './PlanApprovalRequest.js';
+import { ProposedTickets, visibleProposals } from './ProposedTickets.js';
 import { classifyRequest, lastMoveTransition, planAnswerOption } from './request-preview.js';
 import { ReviewRequest } from './ReviewRequest.js';
 import { StarDetails } from './StarDetails.js';
@@ -314,6 +315,15 @@ export function DetailPanel({
                 onDone={reload}
               />
             )}
+            {/* 06 §Proposed tickets: only while the ticket waits in Needs input. */}
+            <ProposedTickets
+              api={api}
+              ticketId={detail.card.ticket_id}
+              ticketTitle={detail.card.title}
+              proposals={visibleProposals(detail.card.column, detail.proposals)}
+              workflow={detail.workflow}
+              onDone={reload}
+            />
             <Composer
               api={api}
               detail={detail}

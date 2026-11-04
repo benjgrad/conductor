@@ -58,6 +58,7 @@ import {
   type HumanTransitionOption,
 } from '../workflow/transition-rules.js';
 import { OutputChunkSchema } from './output.js';
+import { TicketProposalSchema } from './proposals.js';
 import {
   PERMISSION_MESSAGE_MAX,
   PERMISSION_RULE_MAX,
@@ -92,6 +93,10 @@ export const API_PATHS = {
   tickets: '/api/tickets',
   /** GET → TicketDetail; PATCH UpdateTicketRequest → TicketDetail (ticket_editable per column). */
   ticket: (id: string) => `/api/tickets/${id}`,
+  /** POST ApproveProposalRequest → ApproveProposalResponse (201 created, 200 already approved). */
+  ticketProposalApprove: (id: string) => `/api/tickets/${id}/proposals/approve`,
+  /** POST DismissProposalRequest → TicketProposal. */
+  ticketProposalDismiss: (id: string) => `/api/tickets/${id}/proposals/dismiss`,
   workflows: '/api/workflows',
   workflow: (id: string) => `/api/workflows/${id}`,
   machines: '/api/machines',
@@ -605,6 +610,11 @@ export const BoardCardSchema = z.object({
   agent_name: z.string().nullable().optional(),
   /** ADR-0032: the schedule that created the ticket; null / absent ≡ none. */
   schedule: TicketScheduleRefSchema.nullable().optional(),
+  /**
+   * 06 §Proposed tickets: on a `needs_input` card, how many follow-up tickets the agent proposed
+   * that nobody approved or dismissed yet; absent ≡ none (and in every other column).
+   */
+  proposals_pending: z.number().int().positive().optional(),
 });
 export type BoardCard = z.infer<typeof BoardCardSchema>;
 
@@ -757,6 +767,11 @@ export const SessionDetailSchema = z.object({
    * (older servers have no ticket edit route).
    */
   ticket_editable: z.boolean().optional(),
+  /**
+   * 06 §Proposed tickets: the follow-up tickets the session's agent states proposed, with their
+   * decision (pending, approved, dismissed). Absent (older servers) ≡ [].
+   */
+  proposals: z.array(TicketProposalSchema).optional(),
 });
 export type SessionDetail = z.infer<typeof SessionDetailSchema>;
 
@@ -1122,8 +1137,17 @@ export const TicketDetailSchema = TicketDtoSchema.extend({
   /** The column's title, for messages ("the Implementing column…"). */
   column_title: z.string(),
   editable: z.boolean(),
+  /** 06 §Proposed tickets: as `SessionDetail.proposals` (the latest session's); absent ≡ []. */
+  proposals: z.array(TicketProposalSchema).optional(),
 });
 export type TicketDetail = z.infer<typeof TicketDetailSchema>;
+
+/** POST /api/tickets/:id/proposals/approve: the decided proposal and the ticket it created. */
+export const ApproveProposalResponseSchema = z.object({
+  proposal: TicketProposalSchema,
+  ticket: TicketDtoSchema,
+});
+export type ApproveProposalResponse = z.infer<typeof ApproveProposalResponseSchema>;
 
 /** The longest ticket body PATCH accepts. */
 export const TICKET_BODY_MAX = 100_000;

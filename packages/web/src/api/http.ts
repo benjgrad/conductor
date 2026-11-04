@@ -1,5 +1,7 @@
 import {
   AdminUserListResponseSchema,
+  ApproveProposalResponseSchema,
+  TicketProposalSchema,
   API_PATHS,
   ApiErrorSchema,
   BOARD_SSE_EVENT_TYPES,
@@ -33,7 +35,9 @@ import {
   WorkflowDetailSchema,
   WorkflowListResponseSchema,
   type AnswerInputRequest,
+  type ApproveProposalRequest,
   type ApproveSessionRequest,
+  type DismissProposalRequest,
   type BoardSseEvent,
   type CreateInviteRequest,
   type CreateTicketRequest,
@@ -298,6 +302,22 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
 
     updateTicket: (ticketId: string, req: UpdateTicketRequest) =>
       request(TicketDetailSchema, 'PATCH', API_PATHS.ticket(encodeURIComponent(ticketId)), req),
+
+    approveProposal: (ticketId: string, req: ApproveProposalRequest) =>
+      request(
+        ApproveProposalResponseSchema,
+        'POST',
+        API_PATHS.ticketProposalApprove(encodeURIComponent(ticketId)),
+        req,
+      ),
+
+    dismissProposal: (ticketId: string, req: DismissProposalRequest) =>
+      request(
+        TicketProposalSchema,
+        'POST',
+        API_PATHS.ticketProposalDismiss(encodeURIComponent(ticketId)),
+        req,
+      ),
 
     listRepos: () => request(RepoListResponseSchema, 'GET', API_PATHS.repos),
 

@@ -12,6 +12,7 @@ import {
 } from '@conductor/shared';
 import type { Queryable } from '../contracts.js';
 import { CardViews, MachineCardFields } from '../engine/board-view.js';
+import { PROPOSALS_COLUMN } from '../engine/proposals.js';
 import {
   OPEN_INPUT_SELECT,
   TICKET_SELECT,
@@ -94,6 +95,12 @@ export function loadBoard(db: Db): Promise<BoardResponse> {
     const views = new CardViews(q);
     const machineFields = new MachineCardFields(q);
     await machineFields.preloadAlerts();
+    // Only a Needs input card shows a proposal count: preload the sessions that can be there.
+    await machineFields.preloadProposals(
+      sessions.rows.filter(
+        (s) => s.workflow_state === PROPOSALS_COLUMN || s.status === 'needs_input',
+      ),
+    );
     const layout = await views.boardColumns();
     const cards = new Map<string, BoardCard[]>(layout.map((c) => [c.id, []]));
     for (const ticket of tickets.rows) {

@@ -68,6 +68,8 @@ fn an_unknown_command_is_usage_2() {
 /// process boundary under test (the logic is tested in-process in `src/commands/run/tests.rs`).
 /// Each takes the daemon's 5 s kill grace before it exits, as TS.
 fn run_daemon_cmd(home: &Path, url: &str) -> std::process::Command {
+    // win32: the daemon makes its root private, which needs a private parent (ADR-0024).
+    conductor_daemon::platform::mkdir_private(home).unwrap();
     let mut c = std::process::Command::new(assert_cmd::cargo::cargo_bin("conductor-daemon"));
     c.env_clear()
         .env("HOME", home)

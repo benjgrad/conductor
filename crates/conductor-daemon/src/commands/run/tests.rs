@@ -90,6 +90,8 @@ impl Run {
     async fn start(extra: &[(&str, &str)], bin: Option<String>, uid: Option<u32>) -> Run {
         let orch = FakeOrchestrator::start().await.unwrap();
         let root = tempfile::tempdir().unwrap();
+        // win32: the daemon makes its root private, which needs a private parent (ADR-0024).
+        crate::platform::mkdir_private(root.path()).unwrap();
         let mut env = Env::new();
         env.insert(
             "CONDUCTOR_ROOT".into(),

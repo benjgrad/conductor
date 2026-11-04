@@ -33,7 +33,10 @@ async function account(name: string): Promise<string> {
   return r.rows[0]!.id;
 }
 
-type Def = { id: string; states: Record<string, { title?: string; on?: Record<string, unknown> }> };
+type Def = {
+  id: string;
+  states: Record<string, { title?: string; on?: Record<string, string | object> }>;
+};
 const def = (id: string, edit: (d: Def) => void = () => {}): Record<string, unknown> => {
   const d = structuredClone(CONDUCTOR_V4_DEF) as unknown as Def;
   d.id = id;
@@ -48,7 +51,7 @@ const HUMAN_T = transitionsOf(CONDUCTOR_V4_DEF, 'needs_input', { actor: 'human' 
 const gate = (d: Def) => {
   const t = d.states.needs_input!.on![HUMAN_T];
   d.states.needs_input!.on![HUMAN_T] = {
-    ...(typeof t === 'string' ? { goto: t } : (t)),
+    ...(typeof t === 'string' ? { goto: t } : t),
     requires: { approvals: [{ id: 'migration', label: 'Approve', paths: ['**/migrations/**'] }] },
   };
 };

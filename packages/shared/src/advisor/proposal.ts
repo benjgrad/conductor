@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { RepoChecksSchema } from '../workflow/repo-checks.js';
-import type { StructuralChange } from './diff.js';
 import { checkFailed, median, percentile, stateDurations, type AdvisorRows } from './metrics.js';
 
 // ADR-0033 P3 (MA-T05): change proposals. The workflow advisor never writes directly: it stores a
@@ -228,46 +227,61 @@ export function reviewWindowDays(appliedAt: Date, now: Date): number | null {
 
 // ---------------------------------------------------------------- DTOs (REST and MCP)
 
-export interface ChangeProposalSummary {
-  id: string;
-  kind: ChangeKind;
-  status: ChangeStatus;
-  title: string;
+export const StructuralChangeSchema = z.object({
+  op: z.enum(['add', 'remove', 'change']),
+  path: z.string(),
+  before: z.unknown().optional(),
+  after: z.unknown().optional(),
+});
+
+export const ChangeProposalSummarySchema = z.object({
+  id: z.string(),
+  kind: ChangeKindSchema,
+  status: ChangeStatusSchema,
+  title: z.string(),
   /** The repo (repo_checks) or the workflow id. */
-  target: string;
+  target: z.string(),
   /** A workflow change needs an instance admin to apply, and changes every account. */
-  requires_admin: boolean;
-  changes: number;
-  expected_effect: string;
-  created_at: string;
-  applied_at: string | null;
-}
+  requires_admin: z.boolean(),
+  /** How many structural changes it makes. */
+  changes: z.number().int().nonnegative(),
+  /** The expected effect, in words. */
+  expected_effect: z.string(),
+  created_at: z.string(),
+  applied_at: z.string().nullable(),
+});
+export type ChangeProposalSummary = z.infer<typeof ChangeProposalSummarySchema>;
 
-export interface ChangeProposalDetail extends ChangeProposalSummary {
-  rationale: string;
-  evidence: EvidenceItem[];
-  effect: ExpectedEffect;
-  rollback: string;
-  diff: { changes: StructuralChange[]; more_changes: number };
+export const ChangeProposalDetailSchema = ChangeProposalSummarySchema.extend({
+  rationale: z.string(),
+  evidence: z.array(EvidenceItemSchema),
+  effect: ExpectedEffectSchema,
+  rollback: z.string(),
+  diff: z.object({
+    changes: z.array(StructuralChangeSchema),
+    more_changes: z.number().int().nonnegative(),
+  }),
   /** Workflow: the version it was based on. */
-  base_version: number | null;
-  created_by: string | null;
-  decided_by: string | null;
-  decided_at: string | null;
+  base_version: z.number().int().nullable(),
+  created_by: z.string().nullable(),
+  decided_by: z.string().nullable(),
+  decided_at: z.string().nullable(),
   /** Workflow: the version applying it saved. */
-  applied_version: number | null;
+  applied_version: z.number().int().nullable(),
   /** Why it is `conflict` or `failed`. */
-  error: string | null;
-  review: ProposalReview | null;
+  error: z.string().nullable(),
+  review: ProposalReviewSchema.nullable(),
   /** The warning to show before applying a workflow change. */
-  warning: string | null;
-}
+  warning: z.string().nullable(),
+});
+export type ChangeProposalDetail = z.infer<typeof ChangeProposalDetailSchema>;
 
-export interface ChangeProposalListResponse {
-  proposals: ChangeProposalSummary[];
-  next_cursor: number | null;
-  total: number;
-}
+export const ChangeProposalListResponseSchema = z.object({
+  proposals: z.array(ChangeProposalSummarySchema),
+  next_cursor: z.number().int().nullable(),
+  total: z.number().int().nonnegative(),
+});
+export type ChangeProposalListResponse = z.infer<typeof ChangeProposalListResponseSchema>;
 
 export const ListChangeProposalsQuerySchema = z.object({
   status: z.union([ChangeStatusSchema, z.literal('all')]).optional(),

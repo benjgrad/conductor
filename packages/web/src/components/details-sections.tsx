@@ -76,7 +76,7 @@ export function AgentCard({
       <div className="agent-who">
         <AgentAvatar
           seed={cardAgent(card, detail.agent_name).seed}
-          size={64}
+          size={80}
           title={`${name}'s avatar`}
         />
         <div>

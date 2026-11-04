@@ -148,7 +148,7 @@ export function DetailPanel({
         {agent ? (
           <AgentAvatar
             seed={agent.seed}
-            size={fullScreen ? 28 : 36}
+            size={fullScreen ? 32 : 40}
             {...(detail && agentIdle(detail.card) ? { className: 'avatar-idle' } : {})}
           />
         ) : (

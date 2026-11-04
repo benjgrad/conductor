@@ -13,3 +13,4 @@ target/
 
 # Rust daemon tarballs for the image (MR-T15): scripts/build-daemon-dist.sh daemon-dist, or CI.
 /daemon-dist/
+/tmp/

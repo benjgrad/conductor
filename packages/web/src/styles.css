@@ -363,6 +363,26 @@ main {
   padding: 0 12px;
   border-bottom: 1px solid var(--border);
 }
+/* The session panel's row: the tabs, then the ticket buttons (TicketStrip.tsx) on the right. */
+.detail-tabbar {
+  flex: none;
+  align-items: stretch;
+  gap: var(--space-2);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.detail-tablist {
+  display: flex;
+  gap: 2px;
+}
+/* The tab bodies, and the ticket sheet over them. */
+.detail-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .tabs [role='tab'] {
   border: 0;
   border-bottom: 2px solid transparent;
@@ -1407,6 +1427,9 @@ button.link {
   .detail.full-screen .detail-head h2 {
     white-space: nowrap;
   }
+  .detail.full-screen .detail-tablist {
+    flex: 1;
+  }
   .detail.full-screen .tabs [role='tab'] {
     flex: 1;
   }
@@ -1643,6 +1666,45 @@ button.link {
   margin: 0;
   font-size: var(--text-base);
 }
+.proposals-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-1) 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+}
+.proposals-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.proposals-chevron {
+  color: var(--muted);
+  font-size: 11px;
+}
+.proposals-toggle[aria-expanded='true'] .proposals-chevron {
+  transform: rotate(90deg);
+}
+.proposals-count {
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--user-bg);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+.proposals-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.proposals-body[hidden] {
+  display: none;
+}
 .proposals-note {
   margin: 0;
   font-size: var(--text-sm);
@@ -1651,6 +1713,10 @@ button.link {
   list-style: none;
   margin: 0;
   padding: 0;
+  /* A long list scrolls in its own box, so it never pushes the chat away. */
+  max-height: 40vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);

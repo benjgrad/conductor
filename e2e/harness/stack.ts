@@ -250,7 +250,9 @@ export class Stack {
         ? 'run `pnpm exec tsc -b` first'
         : bin === E2E_LAUNCHER_BIN
           ? 'run `pnpm test:e2e` (it builds the launcher) first'
-          : 'run `cargo build --release -p conductor-daemon` (or `pnpm test:e2e`) first';
+          : bin === RUST_DAEMON_BIN
+            ? 'run `cargo build --release -p conductor-daemon` (or `pnpm test:e2e`) first'
+            : 'build it first (target/debug/conductor-daemon: `cargo nextest run --workspace --no-run`)';
       throw new Error(`${bin} is missing: ${hint}`);
     }
     console.log(`e2e: ${this.daemonKind} daemon ${DAEMON_BIN}`);

@@ -161,7 +161,7 @@ interface EditTicketProps {
   /** The session's state runs an agent: say that a live agent won't see the edit yet. */
   agentRunning: boolean;
   onSaved: () => void;
-  /** The phone's Edit sheet (TicketStrip.tsx): the editor from the start, no button. */
+  /** The Edit sheet (TicketStrip.tsx): the editor from the start, no button. */
   startOpen?: boolean;
   /** Called after Save or Cancel closes the editor (the sheet closes too). */
   onClose?: () => void;

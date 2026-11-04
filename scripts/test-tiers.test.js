@@ -1,6 +1,13 @@
 // @ts-check
 import { describe, expect, it } from 'vitest';
-import { SLOW_TIERS, asksForAll, matchGlob, namesTestFiles, planTiers } from './test-tiers.js';
+import {
+  SLOW_TIERS,
+  asksForAll,
+  matchGlob,
+  namesTestFiles,
+  newestBase,
+  planTiers,
+} from './test-tiers.js';
 
 const plan = (/** @type {string[] | null} */ changed, over = {}) =>
   planTiers({ all: false, filtered: false, changed, ...over });
@@ -100,5 +107,20 @@ describe('command line', () => {
     expect(asksForAll(vitest('run', '--mode', 'all'))).toBe(true);
     expect(asksForAll(vitest('run', '--mode=all'))).toBe(true);
     expect(asksForAll(vitest('run', '--mode', 'test'))).toBe(false);
+  });
+});
+
+describe('newestBase', () => {
+  // History: old ← new. A stale local main merges at `old`, origin/main at `new`.
+  const isAncestor = (/** @type {string} */ a, /** @type {string} */ b) => a === b || a === 'old';
+
+  it('takes the newer merge-base, in either order', () => {
+    expect(newestBase(['old', 'new'], isAncestor)).toBe('new');
+    expect(newestBase(['new', 'old'], isAncestor)).toBe('new');
+  });
+
+  it('one base, or none', () => {
+    expect(newestBase(['old'], isAncestor)).toBe('old');
+    expect(newestBase([], isAncestor)).toBe('');
   });
 });

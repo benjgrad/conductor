@@ -34,6 +34,12 @@ describe('composerMode while a move step waits on its conditions', () => {
       mode: 'message',
       resumes: true,
     });
+    // The fixture waits only on approvals, so it shows in Waiting external; the source state
+    // comes from the step's label, and a card still in its source column resumes too.
+    expect(BOARD_CARD_PENDING_FIXTURE.column).toBe('waiting_external');
+    expect(composerMode(detail({ ...BOARD_CARD_PENDING_FIXTURE, column: 'implementing' }))).toEqual(
+      { mode: 'message', resumes: true },
+    );
   });
 
   it('stays off while conductor runs the checks themselves', () => {

@@ -44,8 +44,14 @@ export type ClaimResult =
 
 class ClaimAborted extends Error {}
 
-/** Statuses in which a session keeps its machine slot (for the max_sessions filter). */
-const LIVE_STATUSES = ['assigned', 'running', 'needs_input', 'waiting_external'];
+/**
+ * Statuses in which a session keeps its machine slot: the max_sessions filter here, and the fleet
+ * view's `running_sessions`. Not `waiting_external`: an event state or a move step's conditions
+ * phase runs no process on the machine (U-059, ADR-0027), and a PR waiting days for approval must
+ * not stop the machine from claiming Queued work. The worktree stays; a resume goes back through
+ * `start_session`, which the daemon admits against its own live processes.
+ */
+export const SLOT_STATUSES = ['assigned', 'running', 'needs_input'];
 
 export interface ClaimOptions {
   /** The required-capabilities cache (tests inject their own requirement function). */
@@ -82,7 +88,7 @@ export async function claimWork(
                   WHERE s.machine_id = m.id AND s.status = ANY($2::session_status[])) AS live
            FROM machine m WHERE m.id = $1 AND m.status = 'online' AND m.revoked_at IS NULL
             FOR SHARE OF m`,
-        [machineId, LIVE_STATUSES],
+        [machineId, SLOT_STATUSES],
       );
       const machine = m.rows[0];
       if (!machine) return { status: 'no_work', reason: 'machine_not_online' } as const;

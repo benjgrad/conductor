@@ -5,6 +5,7 @@ import { BOARD_CARD_NEEDS_INPUT_FIXTURE, BOARD_SSE_FIXTURES } from './fixtures.j
 import {
   BoardCardSchema,
   BoardResponseSchema,
+  gateStepSource,
   InputRequestDtoSchema,
   isGateStepLabel,
   toInputRequestDto,
@@ -75,6 +76,15 @@ describe('toInputRequestDto origin (UX-4)', () => {
     expect(isGateStepLabel(moveStateLabel('a', 'b', 'pr_ready_for_review'))).toBe(true);
     expect(isGateStepLabel('needs_input')).toBe(false);
     expect(isGateStepLabel('implementing')).toBe(false);
+  });
+
+  it('gateStepSource reads the source state out of the engine labels', () => {
+    expect(gateStepSource(moveStateLabel('implementing', 'waiting_external', 'x'))).toBe(
+      'implementing',
+    );
+    expect(gateStepSource(entryStateLabel('a', 'b'))).toBe('a');
+    expect(gateStepSource(reviewStateLabel('a', 'b'))).toBe('a');
+    expect(gateStepSource('implementing')).toBeNull();
   });
 });
 

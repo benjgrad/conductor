@@ -301,12 +301,30 @@ export function stepOfContext(context: Record<string, unknown>): GateStep | null
 }
 
 /**
+ * A move step in its conditions phase whose only unmet conditions are `pr_approvals`: the PR's
+ * checks are green and it waits on reviewers, often for days. The board shows it in Waiting
+ * external, not in its source column (display only; the FSM is unchanged).
+ */
+export function awaitingApprovalOnly(step: GateStep): boolean {
+  if (step.kind !== 'move' || step.phase !== 'conditions') return false;
+  // Each poll marks every condition `running`; judge it by its last answer so the card doesn't
+  // jump back to its source column while an evaluation is in flight.
+  const open = step.conditions.filter((c) => {
+    const status = c.status === 'running' ? (c.answer ?? 'todo') : c.status;
+    return status !== 'met' && status !== 'disabled';
+  });
+  return open.length > 0 && open.every((c) => c.type === 'pr_approvals');
+}
+
+/**
  * A card's column, badges and `checking` (ADR-0010 §Board, the one rule; 10-contracts):
  * - ticket `cancelled`, or session `failed` / `lost` → the terminal column (Done), badged
  *   `cancelled` / `failed` / `lost`;
  * - no session yet, or no state yet (status `queued` / `assigned` before the first state) → Queued;
  * - in a gate step (entry requirements, or an ADR-0009 review) → its source column, badged
  *   `checking`, with `checking` = `checkingOfStep` (UX-5: label and items, not just the phase);
+ *   a move whose PR waits only on approvals (`awaitingApprovalOnly`) → the first event column
+ *   (Waiting external) instead, same badge;
  * - otherwise its `workflow_state` (`columnForState`).
  * `waiting_for_build_slot` is added whenever the session has it.
  */
@@ -329,8 +347,11 @@ export function placeCard(
   }
   const step = stepOfContext(session.context);
   if (step !== null) {
+    const waiting = awaitingApprovalOnly(step)
+      ? columns.find((c) => c.kind === 'event')?.id
+      : undefined;
     return {
-      column: columnForState(columns, def, step.from),
+      column: waiting ?? columnForState(columns, def, step.from),
       badges: [...badges, 'checking'],
       checking: checkingOfStep(def, step),
     };
@@ -1462,6 +1483,17 @@ export interface InputRequestLike {
  */
 export function isGateStepLabel(label: string): boolean {
   return / \((entry|review|move: .+)\)$/.test(label);
+}
+
+/**
+ * The source state (`from`) named by a gate step's synthetic label, e.g. `implementing` for
+ * `implementing → waiting_external (move: ready_for_testing)`; null for any other label. The card's
+ * column is not always the source (`awaitingApprovalOnly`).
+ */
+export function gateStepSource(label: string): string | null {
+  if (!isGateStepLabel(label)) return null;
+  const i = label.indexOf(' → ');
+  return i > 0 ? label.slice(0, i) : null;
 }
 
 export function toInputRequestDto(row: InputRequestLike): InputRequestDto {

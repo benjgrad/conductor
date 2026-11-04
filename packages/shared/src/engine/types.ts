@@ -79,6 +79,11 @@ export const ConditionStatusSchema = z.object({
   /** Evidence for the human (a failing check's name, "gh not available: …"); null if none. */
   detail: z.string().nullable(),
   checked_at: IsoDateTimeSchema.nullable(),
+  /**
+   * The daemon's last answer (`met` / `pending` / `failed` / `unsupported`), kept while `status` is
+   * `running` (which otherwise hides it). Absent before the first answer and on older rows.
+   */
+  answer: z.enum(['met', 'pending', 'failed', 'unsupported']).optional(),
 });
 export type ConditionStatus = z.infer<typeof ConditionStatusSchema>;
 
@@ -94,7 +99,8 @@ export type ConditionStatus = z.infer<typeof ConditionStatusSchema>;
  * While it is set, `workflow_state` is a synthetic label (`reviewStateLabel` / `entryStateLabel` /
  * `moveStateLabel`) that names no workflow state: the timeout sweep keys on it, and events meant
  * for a real state are ignored. The board shows the card in its source column (`from`) with a
- * `checking` badge and `pending` checklist.
+ * `checking` badge and `pending` checklist, except a move waiting only on PR approvals, which shows
+ * in the first event column (`awaitingApprovalOnly`).
  * Persisted inside the `session.context` jsonb under STEP_CONTEXT_KEY (no migration; the legacy
  * ADR-0009 key REVIEW_CONTEXT_KEY is still read); `toSnapshot` lifts it out. Every field added
  * after M1 has a default, so older rows parse.

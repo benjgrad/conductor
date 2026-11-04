@@ -840,7 +840,9 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         title: z.string().min(1).max(200),
         repo: z.string().min(1).max(200),
         body: z.string().max(20_000),
-        kind: TicketKindSchema.describe('work or personal'),
+        kind: TicketKindSchema.optional().describe(
+          'Default: the kind of your last ticket on this repo',
+        ),
         workflow_id: z.string().min(1).max(100).optional(),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },

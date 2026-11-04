@@ -1356,10 +1356,11 @@ export const CreateTicketRequestSchema = z.object({
   repo_allow_machines: z.array(z.string()).nullable().default(null),
   external_ref: z.string().nullable().default(null),
   /**
-   * ADR-0011: work or personal. Required (400 `bad_request`, path `kind`, when absent) until
-   * triage (M4) can set it.
+   * ADR-0011: work or personal. WF-T03: when absent, the server takes the kind of the account's
+   * most recent ticket on the same repo; with no earlier ticket there, 400 `bad_request` with
+   * path `kind`. A ticket is still never stored without a kind.
    */
-  kind: TicketKindSchema,
+  kind: TicketKindSchema.optional(),
 });
 export type CreateTicketRequest = z.input<typeof CreateTicketRequestSchema>;
 

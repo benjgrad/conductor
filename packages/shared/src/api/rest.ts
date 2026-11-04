@@ -830,8 +830,16 @@ export type PushSubscribeRequest = z.infer<typeof PushSubscribeRequestSchema>;
 export const PushUnsubscribeRequestSchema = z.object({ endpoint: PushEndpointSchema });
 export type PushUnsubscribeRequest = z.infer<typeof PushUnsubscribeRequestSchema>;
 
-/** POST API_PATHS.pushTest → how many of the caller's subscriptions took the test push. */
-export const PushTestResponseSchema = z.object({ sent: z.number().int().nonnegative() });
+/**
+ * POST API_PATHS.pushTest → how many of the caller's subscriptions took the test push, how many
+ * failed, and why (`http_403 BadJwtToken`: the push service's reason, deduplicated; never an
+ * endpoint). `failed`/`errors` are optional so an older server's `{ sent }` still parses.
+ */
+export const PushTestResponseSchema = z.object({
+  sent: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative().optional(),
+  errors: z.array(z.string()).optional(),
+});
 export type PushTestResponse = z.infer<typeof PushTestResponseSchema>;
 
 /**

@@ -241,7 +241,7 @@ describe('Web Push routes (UX-15)', () => {
     sender.results.set(b, { ok: false, gone: true, status: 410, error: 'http_410' });
 
     const res = await send('POST', API_PATHS.pushTest, { cookie: me.cookie });
-    expect([res.status, res.json]).toEqual([200, { sent: 1 }]);
+    expect([res.status, res.json]).toEqual([200, { sent: 1, failed: 1, errors: ['http_410'] }]);
     expect(sender.calls.map((c2) => c2.target.endpoint).sort()).toEqual([a, b].sort());
     expect(sender.calls[0]!.payload).toEqual({
       title: 'Conductor',
@@ -252,6 +252,29 @@ describe('Web Push routes (UX-15)', () => {
     expect((await rows()).map((r) => r.endpoint).sort()).toEqual([a, c].sort());
     const ok = (await rows()).find((r) => r.endpoint === a)!;
     expect(ok.last_ok_at).not.toBeNull();
+  });
+
+  it("POST test says why a push service refused (Apple's reason), deduplicated", async () => {
+    await start();
+    const me = await user();
+    const a = endpoint();
+    const b = endpoint();
+    for (const ep of [a, b]) {
+      await send('POST', API_PATHS.pushSubscriptions, { cookie: me.cookie, body: subBody(ep) });
+    }
+    const refused: PushResult = {
+      ok: false,
+      gone: false,
+      status: 403,
+      error: 'http_403 BadJwtToken',
+    };
+    sender.results.set(a, refused);
+    sender.results.set(b, refused);
+    const res = await send('POST', API_PATHS.pushTest, { cookie: me.cookie });
+    expect([res.status, res.json]).toEqual([
+      200,
+      { sent: 0, failed: 2, errors: ['http_403 BadJwtToken'] },
+    ]);
   });
 
   it('never sends an endpoint back', async () => {

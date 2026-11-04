@@ -42,6 +42,7 @@ import type {
   RepoChecksRow,
   TicketScheduleRow,
   SessionInsightRow,
+  ChangeProposalRow,
   SessionRow,
   Tables,
   TicketRow,
@@ -481,6 +482,30 @@ const session_insight: ColumnSpec<SessionInsightRow> = {
   insight: col('jsonb', NN),
   created_at: col('timestamptz', NN),
 };
+// ADR-0033 P3: change proposals.
+const change_proposal: ColumnSpec<ChangeProposalRow> = {
+  id: col('uuid', NN),
+  account_id: col('uuid', NN),
+  kind: col(t, NN),
+  status: col(t, NN),
+  title: col(t, NN),
+  payload: col('jsonb', NN),
+  base: col('jsonb', NN),
+  diff: col('jsonb', NN),
+  rationale: col(t, NN),
+  evidence: col('jsonb', NN),
+  expected_effect: col('jsonb', NN),
+  rollback: col(t, NN),
+  created_by: col(t, NULL),
+  created_at: col('timestamptz', NN),
+  decided_by: col(t, NULL),
+  decided_at: col('timestamptz', NULL),
+  applied_at: col('timestamptz', NULL),
+  applied_version: col('int4', NULL),
+  error: col(t, NULL),
+  review: col('jsonb', NULL),
+  reviewed_at: col('timestamptz', NULL),
+};
 const SCHEMA: Schema = {
   machine,
   machine_repo,
@@ -511,6 +536,7 @@ const SCHEMA: Schema = {
   ticket_schedule,
   assistant_job,
   session_insight,
+  change_proposal,
 };
 /** The tables M1/M1b created: every one carries `account_id` since M2-T03. */
 const M1_TABLES = [
@@ -808,6 +834,7 @@ describe('migrations', () => {
           'ticket_schedule',
           'assistant_job',
           'session_insight',
+          'change_proposal',
         ].sort(),
       );
     } finally {
@@ -1324,6 +1351,25 @@ describe('schema (migrated test database)', () => {
         [LOCAL_ACCOUNT_ID, ses.id, tkt.id],
       ),
       '23505',
+    );
+
+    // ADR-0033 P3: a change proposal; the kind and status CHECKs.
+    const cp = await pool.query<ChangeProposalRow>(
+      `INSERT INTO change_proposal (account_id, kind, title, payload, base, diff, rationale,
+         evidence, expected_effect, rollback)
+       VALUES ($1, 'repo_checks', 't', '{}', '{}', '[]', 'r', '[]', '{}', 'rb') RETURNING *`,
+      [LOCAL_ACCOUNT_ID],
+    );
+    expect(cp.rows[0]).toMatchObject({ status: 'proposed', review: null, applied_at: null });
+    await expectPgError(
+      pool.query("UPDATE change_proposal SET status = 'done' WHERE id = $1", [cp.rows[0]!.id]),
+      '23514',
+    );
+    await expectPgError(
+      pool.query("UPDATE change_proposal SET kind = 'machine_settings' WHERE id = $1", [
+        cp.rows[0]!.id,
+      ]),
+      '23514',
     );
 
     // Every table has exactly the row just written.

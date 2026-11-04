@@ -26,6 +26,11 @@ export interface AdvisorFilter {
   /** P2: one session only (the analyst job's digest). */
   sessionId?: string | undefined;
   now?: Date;
+  /**
+   * P3 (review_change): the window ends here instead of now: `[until - windowDays, until)`. A
+   * window into the past (the time before a change was applied).
+   */
+  until?: Date | undefined;
 }
 
 export interface LoadedRows extends AdvisorRows {
@@ -38,7 +43,7 @@ const iso = (d: Date | null): string | null => (d === null ? null : d.toISOStrin
 
 /**
  * The session and ticket filter every query shares: $1 account, $2 since, $3 repo, $4 workflow,
- * $6 session ($5 is the row limit).
+ * $6 session ($5 is the row limit); $7 the window's end (null = now), checked by each query.
  */
 const SCOPE =
   'FROM session s JOIN ticket t ON t.id = s.ticket_id ' +
@@ -46,7 +51,8 @@ const SCOPE =
   'AND ($4::text IS NULL OR s.workflow_id = $4) AND ($6::uuid IS NULL OR s.id = $6)';
 
 export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<LoadedRows> {
-  const now = f.now ?? new Date();
+  const now = f.until ?? f.now ?? new Date();
+  const until = f.until ?? null;
   const since = new Date(now.getTime() - clampWindow(f.windowDays) * 86_400_000);
   const args = [
     f.accountId,
@@ -55,6 +61,7 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
     f.workflowId ?? null,
     ROW_LIMIT,
     f.sessionId ?? null,
+    until,
   ];
 
   const moves = await db.query<{
@@ -75,6 +82,7 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
       "COALESCE((e.payload->>'visit')::int, 1) AS visit, e.ts " +
       `${SCOPE.replace('FROM session s', 'FROM event e JOIN session s ON s.id = e.session_id')} ` +
       "AND e.type = 'state.entered' AND e.ts >= $2 AND e.payload ? 'to' " +
+      'AND ($7::timestamptz IS NULL OR e.ts < $7) ' +
       'ORDER BY e.id DESC LIMIT $5',
     args,
   );
@@ -105,6 +113,7 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
           'JOIN session s ON s.id = e.session_id',
       )} ` +
       "AND e.type = 'command.exited' AND e.ts >= $2 " +
+      'AND ($7::timestamptz IS NULL OR e.ts < $7) ' +
       'ORDER BY e.id DESC LIMIT $5',
     args,
   );
@@ -122,7 +131,7 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
     'SELECT i.session_id, s.ticket_id, t.repo, s.machine_id, i.return_to AS state, ' +
       'i.kind::text AS kind, i.created_at, i.answered_at ' +
       `${SCOPE.replace('FROM session s', 'FROM input_request i JOIN session s ON s.id = i.session_id')} ` +
-      'AND i.created_at >= $2 ORDER BY i.created_at DESC LIMIT $5',
+      'AND i.created_at >= $2 AND ($7::timestamptz IS NULL OR i.created_at < $7) ORDER BY i.created_at DESC LIMIT $5',
     args,
   );
 
@@ -140,7 +149,7 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
     'SELECT p.session_id, s.ticket_id, t.repo, p.machine_id, p.tool, p.always_rule, p.status, ' +
       'p.scope, p.created_at ' +
       `${SCOPE.replace('FROM session s', 'FROM permission_request p JOIN session s ON s.id = p.session_id')} ` +
-      'AND p.created_at >= $2 ORDER BY p.created_at DESC LIMIT $5',
+      'AND p.created_at >= $2 AND ($7::timestamptz IS NULL OR p.created_at < $7) ORDER BY p.created_at DESC LIMIT $5',
     args,
   );
 

@@ -147,6 +147,19 @@ describe('loadAdvisorRows (ADR-0033)', () => {
     expect(new Set(one.moves.map((m) => m.ticket_id))).toEqual(new Set([otherRepo]));
   });
 
+  it('`until` ends the window in the past (review_change’s before-window)', async () => {
+    const rows = await loadAdvisorRows(db.pool, {
+      accountId: a,
+      windowDays: 40,
+      until: daysAgo(3),
+    });
+    expect(new Set(rows.moves.map((m) => m.ticket_id))).toEqual(new Set([recent]));
+    expect(new Set(rows.checks.map((m) => m.ticket_id))).toEqual(new Set([recent]));
+    expect(new Set(rows.inputs.map((m) => m.ticket_id))).toEqual(new Set([recent]));
+    expect(new Set(rows.permissions.map((m) => m.ticket_id))).toEqual(new Set([recent]));
+    expect(rows.since).toBe(daysAgo(43).toISOString());
+  });
+
   it('feeds the metrics end to end', async () => {
     const rows = await loadAdvisorRows(db.pool, { accountId: b, windowDays: 30, now: NOW });
     const m = processMetrics(rows, 'state');

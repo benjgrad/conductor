@@ -610,6 +610,37 @@ export interface SessionInsightRow {
   created_at: Date;
 }
 
+/** ADR-0033 P3 (MA-T05): a workflow advisor change proposal. */
+export interface ChangeProposalRow {
+  id: string;
+  account_id: string;
+  /** `workflow` · `repo_checks` (CHECK). */
+  kind: string;
+  /** `proposed` · `applied` · `rejected` · `conflict` · `failed` (CHECK). */
+  status: string;
+  title: string;
+  /** The ProposalChange (`@conductor/shared`). */
+  payload: Record<string, unknown>;
+  /** What it was based on: `{version}` (workflow) or `{config, updated_at}` (repo_checks). */
+  base: Record<string, unknown>;
+  /** StructuralChange[] against `base`. */
+  diff: unknown[];
+  rationale: string;
+  evidence: unknown[];
+  expected_effect: Record<string, unknown>;
+  rollback: string;
+  created_by: string | null;
+  created_at: Date;
+  decided_by: string | null;
+  decided_at: Date | null;
+  applied_at: Date | null;
+  applied_version: number | null;
+  error: string | null;
+  /** The last ProposalReview. */
+  review: Record<string, unknown> | null;
+  reviewed_at: Date | null;
+}
+
 /** Table name → row type, for generic repository helpers. */
 export interface Tables {
   machine: MachineRow;
@@ -641,4 +672,5 @@ export interface Tables {
   ticket_schedule: TicketScheduleRow;
   assistant_job: AssistantJobRow;
   session_insight: SessionInsightRow;
+  change_proposal: ChangeProposalRow;
 }

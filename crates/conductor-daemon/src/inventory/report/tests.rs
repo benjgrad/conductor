@@ -34,12 +34,29 @@ fn slack() -> Capability {
 const REPO: &str = "/Users/ben/code/app";
 
 #[test]
+fn the_payload_carries_git_identity_missing_which_the_hash_ignores() {
+    let scan = InventoryScan {
+        repos: vec![repo(REPO, 'a')],
+        capabilities: vec![gh("2.50.0")],
+        git_identity_missing: false,
+    };
+    let missing = inventory_payload(&InventoryScan {
+        git_identity_missing: true,
+        ..scan.clone()
+    });
+    assert_eq!(missing.git_identity_missing, Some(true));
+    assert_eq!(inventory_payload(&scan).git_identity_missing, Some(false));
+    assert_eq!(missing.hash.to_string(), inventory_hash(&scan));
+}
+
+#[test]
 fn inventory_hash_is_stable_under_reordering_and_changes_with_a_version_or_a_repo() {
     let a = repo(REPO, 'a');
     let b = repo("/Users/ben/code/b", 'a');
     let scan = |repos: Vec<InventoryRepo>, capabilities: Vec<Capability>| InventoryScan {
         repos,
         capabilities,
+        git_identity_missing: false,
     };
     let h = inventory_hash(&scan(
         vec![a.clone(), b.clone()],
@@ -108,6 +125,7 @@ fn the_payload_and_hash_match_the_ts_vector() {
         let scan = InventoryScan {
             repos: serde_json::from_value(case["scan"]["repos"].clone()).unwrap(),
             capabilities: serde_json::from_value(case["scan"]["capabilities"].clone()).unwrap(),
+            git_identity_missing: false,
         };
         let payload = serde_json::to_value(inventory_payload(&scan)).unwrap();
         assert_eq!(payload, case["payload"], "{name}");
@@ -133,6 +151,7 @@ fn rig(interval: Duration) -> Rig {
     let scan = Arc::new(Mutex::new(InventoryScan {
         repos: vec![repo(REPO, 'a')],
         capabilities: vec![gh("2.50.0")],
+        git_identity_missing: false,
     }));
     let fail = Arc::new(AtomicBool::new(false));
     let scans = Arc::new(AtomicUsize::new(0));
@@ -351,6 +370,7 @@ fn inventory_summary_names_the_routable_remotes_deduplicated_and_cut_at_10() {
     let p = inventory_payload(&InventoryScan {
         repos: vec![repo(REPO, 'a'), repo("/twin", 'a'), local],
         capabilities: vec![gh("2.50.0")],
+        git_identity_missing: false,
     });
     assert_eq!(
         inventory_summary(&p),
@@ -370,6 +390,7 @@ fn inventory_summary_names_the_routable_remotes_deduplicated_and_cut_at_10() {
     let line = inventory_summary(&inventory_payload(&InventoryScan {
         repos: many,
         capabilities: vec![],
+        git_identity_missing: false,
     }));
     assert!(
         line.starts_with("inventory: sent 12 repos (12 routable: github.com/org/r00, "),
@@ -401,6 +422,7 @@ async fn the_reporter_logs_the_summary_once_per_distinct_inventory_not_on_every_
     let scan = Arc::new(Mutex::new(InventoryScan {
         repos: vec![repo(REPO, 'a')],
         capabilities: vec![gh("2.50.0")],
+        git_identity_missing: false,
     }));
     let s = scan.clone();
     let scan_fn: ScanFn = Arc::new(move || {

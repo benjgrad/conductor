@@ -266,6 +266,17 @@ describe('machines page (M2-T11)', () => {
     expect(screen.queryByText(/too old for pull requests/)).toBeNull();
   });
 
+  it('WF-T02: warns when a machine has no git identity, in its row and its drawer', async () => {
+    await renderPage();
+    const flag = /No git identity: agent commits are authored conductor <conductor@localhost>/;
+    expect(row('old-linux-box').getByText(flag)).toBeTruthy();
+    expect(row("Ben's MacBook").queryByText(flag)).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Details of old-linux-box' }));
+    const drawer = within(screen.getByRole('dialog', { name: 'Machine old-linux-box' }));
+    expect(drawer.getByText(flag)).toBeTruthy();
+  });
+
   it('renames inline; an empty name cannot be saved', async () => {
     await renderPage();
     fireEvent.click(row('old-linux-box').getByRole('button', { name: 'Rename old-linux-box' }));

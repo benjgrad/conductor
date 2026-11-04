@@ -126,6 +126,16 @@ describe('machines DTOs', () => {
     expect(MachineDetailSchema.safeParse(bad).success).toBe(false);
   });
 
+  it('git_identity_missing (WF-T02) is additive: absent reads as null', () => {
+    const { git_identity_missing: _g, ...older } = MACHINE_ROW_FIXTURES.online;
+    void _g;
+    expect(MachineRowSchema.parse(older).git_identity_missing).toBeNull();
+    expect(
+      MachineRowSchema.parse({ ...MACHINE_ROW_FIXTURES.online, git_identity_missing: true })
+        .git_identity_missing,
+    ).toBe(true);
+  });
+
   it('cannot_take (M2-T16a) is additive: absent reads as [], capped at 50', () => {
     const { cannot_take: _c, ...older } = MACHINE_DETAIL_FIXTURE;
     void _c;

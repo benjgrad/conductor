@@ -1110,6 +1110,7 @@ export function mockMachines(now: Date): MachineDetail[] {
       repo_exclusive: [],
       upgrade_command: null,
       upgrade_command_windows: null,
+      git_identity_missing: false,
       os: 'darwin',
       arch: 'arm64',
       repos: [
@@ -1178,6 +1179,8 @@ export function mockMachines(now: Date): MachineDetail[] {
       // Stopgap until ADR-0021 auto-update: the server sends these for an outdated machine.
       upgrade_command: 'curl -fsSL http://localhost/install.sh | sh',
       upgrade_command_windows: 'irm http://localhost/install.ps1 | iex',
+      // WF-T02: shows the Machines page's git identity warning.
+      git_identity_missing: true,
       os: 'linux',
       arch: 'x64',
       repos: [{ remote: null, path: '/home/ben/scratch', mode: 'reference', default_branch: null }],

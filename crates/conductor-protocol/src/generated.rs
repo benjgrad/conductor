@@ -2431,6 +2431,8 @@ impl ::std::convert::TryFrom<::std::string::String> for InspectPrResultState {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
 pub struct InventoryPayload {
     pub capabilities: ::std::vec::Vec<Capability>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub git_identity_missing: ::std::option::Option<bool>,
     pub hash: InventoryPayloadHash,
     pub repos: ::std::vec::Vec<InventoryRepo>,
 }

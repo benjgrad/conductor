@@ -179,6 +179,26 @@ describe('list, detail, rename, revoke', () => {
     expect(other.json).toEqual([]);
   });
 
+  it('WF-T02: git_identity_missing comes from the last inventory; null until one says', async () => {
+    const id = await enrollFor(a);
+    const row = async () =>
+      MachineListResponseSchema.parse((await api.send('GET', API_PATHS.machines, as(a))).json)[0];
+    expect((await row())?.git_identity_missing).toBeNull();
+    const scope = { machineId: id, accountId: a.accountId };
+    const inv = { repos: [], capabilities: [], hash: 'h' };
+    await ingestInventory(db.pool, scope, { ...inv, git_identity_missing: true });
+    expect((await row())?.git_identity_missing).toBe(true);
+    const detail = MachineDetailSchema.parse(
+      (await api.send('GET', API_PATHS.machine(id), as(a))).json,
+    );
+    expect(detail.git_identity_missing).toBe(true);
+    await ingestInventory(db.pool, scope, { ...inv, git_identity_missing: false });
+    expect((await row())?.git_identity_missing).toBe(false);
+    // An older daemon doesn't send it: unknown again.
+    await ingestInventory(db.pool, scope, inv);
+    expect((await row())?.git_identity_missing).toBeNull();
+  });
+
   it('detail carries repos, capabilities by kind, open alerts and live sessions', async () => {
     const id = await enrollFor(a);
     await db.pool.query(

@@ -60,6 +60,11 @@ export interface MachineRow {
   claude_code_version: string | null;
   /** Display name (M2-T09); null = show the hostname. Enrollment and register set it. */
   name: string | null;
+  /**
+   * WF-T02 (migration 1762800000000): the last `inventory.git_identity_missing`; true = agents
+   * commit as conductor@localhost. null = not reported (an older daemon, or no inventory yet).
+   */
+  git_identity_missing: boolean | null;
   /** `register.daemon_version`, written on every register (M2-T09). */
   daemon_version: string | null;
   /** `register.protocol_version` (absent = 1, an M1 daemon); null = never registered. */

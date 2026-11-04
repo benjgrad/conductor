@@ -134,6 +134,7 @@ function toMachineRow(
     repo_exclusive: m.repo_exclusive,
     upgrade_command: upgradable ? upgradeCommand(installUrl) : null,
     upgrade_command_windows: upgradable ? upgradeCommandWindows(installUrl) : null,
+    git_identity_missing: m.git_identity_missing,
   };
 }
 

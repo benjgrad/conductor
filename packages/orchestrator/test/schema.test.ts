@@ -43,6 +43,7 @@ import type {
   TicketScheduleRow,
   SessionInsightRow,
   SessionRow,
+  TicketProposalDecisionRow,
   Tables,
   TicketRow,
   WebSessionRow,
@@ -481,6 +482,15 @@ const session_insight: ColumnSpec<SessionInsightRow> = {
   insight: col('jsonb', NN),
   created_at: col('timestamptz', NN),
 };
+// 06 §Proposed tickets: a person's decision on an agent-proposed follow-up ticket.
+const ticket_proposal_decision: ColumnSpec<TicketProposalDecisionRow> = {
+  ticket_id: col('uuid', NN),
+  proposal_id: col(t, NN),
+  account_id: col('uuid', NN),
+  status: col(t, NN),
+  created_ticket_id: col('uuid', NULL),
+  decided_at: col('timestamptz', NN),
+};
 const SCHEMA: Schema = {
   machine,
   machine_repo,
@@ -511,6 +521,7 @@ const SCHEMA: Schema = {
   ticket_schedule,
   assistant_job,
   session_insight,
+  ticket_proposal_decision,
 };
 /** The tables M1/M1b created: every one carries `account_id` since M2-T03. */
 const M1_TABLES = [
@@ -808,6 +819,7 @@ describe('migrations', () => {
           'ticket_schedule',
           'assistant_job',
           'session_insight',
+          'ticket_proposal_decision',
         ].sort(),
       );
     } finally {
@@ -1324,6 +1336,30 @@ describe('schema (migrated test database)', () => {
         [LOCAL_ACCOUNT_ID, ses.id, tkt.id],
       ),
       '23505',
+    );
+
+    // 06 §Proposed tickets: one decision per (ticket, proposal), and the status CHECK.
+    const pd = await pool.query<TicketProposalDecisionRow>(
+      `INSERT INTO ticket_proposal_decision (ticket_id, proposal_id, account_id, status)
+       VALUES ($1, '0123456789abcdef', $2, 'dismissed') RETURNING *`,
+      [tkt.id, LOCAL_ACCOUNT_ID],
+    );
+    expect(pd.rows[0]).toMatchObject({ status: 'dismissed', created_ticket_id: null });
+    await expectPgError(
+      pool.query(
+        `INSERT INTO ticket_proposal_decision (ticket_id, proposal_id, account_id, status)
+         VALUES ($1, '0123456789abcdef', $2, 'approved')`,
+        [tkt.id, LOCAL_ACCOUNT_ID],
+      ),
+      '23505',
+    );
+    await expectPgError(
+      pool.query(
+        `INSERT INTO ticket_proposal_decision (ticket_id, proposal_id, account_id, status)
+         VALUES ($1, 'fedcba9876543210', $2, 'pending')`,
+        [tkt.id, LOCAL_ACCOUNT_ID],
+      ),
+      '23514',
     );
 
     // Every table has exactly the row just written.

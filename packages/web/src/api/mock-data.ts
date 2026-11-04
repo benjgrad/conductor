@@ -582,10 +582,32 @@ function reviewSeed(now: Date): MockSeed {
     },
     session: {
       ...base.session!,
-      context: { __pr: { pr_url: 'https://github.com/benjgrad/conductor/pull/42' } },
+      context: {
+        __pr: { pr_url: 'https://github.com/benjgrad/conductor/pull/42' },
+        // 06 §Proposed tickets: follow-ups the implementer noticed (and one malformed, dropped).
+        implementing: {
+          summary: 'Review requests and questions now look different on the board.',
+          proposed_tickets: MOCK_PROPOSED_TICKETS,
+        },
+      },
     },
   };
 }
+
+/** The review seed's proposed follow-up tickets (the third is malformed: dropped). */
+export const MOCK_PROPOSED_TICKETS = [
+  {
+    title: 'Group review requests by repo',
+    repo: 'github.com/benjgrad/conductor',
+    why: 'With several PRs waiting, the Needs input column gets long; grouping would help.',
+  },
+  {
+    title: 'Show the PR check status on review cards',
+    repo: 'github.com/benjgrad/conductor',
+    why: 'Reviewers open the PR just to see whether CI passed.',
+  },
+  { title: 'no why or repo' },
+];
 
 /** A planner's plan, long enough to clamp: a table, steps and risks (06 §Plan approval). */
 export const MOCK_PLAN = `# Plan: rate limiting on /login

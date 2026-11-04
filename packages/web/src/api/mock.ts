@@ -1,6 +1,14 @@
 import {
   ADMIN_USER_ROW_FIXTURES,
+  agentStatesOf,
   AnswerInputRequestSchema,
+  ApproveProposalRequestSchema,
+  DismissProposalRequestSchema,
+  proposalsOfContext,
+  proposalTicketBody,
+  withDecisions,
+  type ProposalDecision,
+  type TicketProposal,
   boardColumns as defaultBoardColumns,
   checksGatesOf,
   CreateInviteRequestSchema,
@@ -345,7 +353,11 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
 
   function emit(drafts: BoardSseEventDraft[]) {
     const ts = now().toISOString();
-    const events = drafts.map((d) => ({ ...d, id: nextEventId++, ts }));
+    const events = drafts.map((d) => ({
+      ...(d.type === 'card.upserted' ? { ...d, card: withProposalCount(d.card) } : d),
+      id: nextEventId++,
+      ts,
+    }));
     log.push(...events);
     // Snapshot the subscribers: one that subscribes later gets these from its replay backlog.
     const subs = [...boardSubs];
@@ -353,6 +365,44 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       for (const ev of events)
         for (const sub of subs) if (boardSubs.has(sub)) sub.onEvent(clone(ev));
     });
+  }
+
+  /** 06 §Proposed tickets: decisions by ticket, then proposal id. */
+  const proposalDecisions = new Map<string, Map<string, ProposalDecision>>();
+
+  /** The card's proposals (its session's context) with their decisions, as the server reads them. */
+  function proposalsOf(card: BoardCard): TicketProposal[] {
+    const s = card.session_id ? sessions.get(card.session_id) : undefined;
+    if (!s) return [];
+    return withDecisions(
+      proposalsOfContext(s.context, agentStatesOf(s.workflow)),
+      proposalDecisions.get(card.ticket_id) ?? new Map(),
+    );
+  }
+
+  /** The card with `proposals_pending` as the server sets it (Needs input cards only). */
+  function withProposalCount(card: BoardCard): BoardCard {
+    const { proposals_pending: _p, ...rest } = card;
+    void _p;
+    if (card.column !== 'needs_input') return rest;
+    const n = proposalsOf(card).filter((p) => p.status === 'pending').length;
+    return n > 0 ? { ...rest, proposals_pending: n } : rest;
+  }
+
+  /** The proposal, or the 404 the server sends. */
+  function proposalOf(ticketId: string, proposalId: string): TicketProposal {
+    const card = cards.get(ticketId);
+    const p = card ? proposalsOf(card).find((x) => x.id === proposalId) : undefined;
+    if (!p) throw new ApiRequestError(404, 'not_found', 'no such proposal on this ticket');
+    return p;
+  }
+
+  function decide(ticketId: string, proposalId: string, d: ProposalDecision) {
+    const m = proposalDecisions.get(ticketId) ?? new Map<string, ProposalDecision>();
+    m.set(proposalId, d);
+    proposalDecisions.set(ticketId, m);
+    const card = cards.get(ticketId)!;
+    emit([{ type: 'card.upserted', session_id: card.session_id, ticket_id: ticketId, card }]);
   }
 
   function cardForSession(sessionId: string): BoardCard {
@@ -517,6 +567,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       column: card.column,
       column_title: COLUMNS.find((c) => c.id === card.column)?.title ?? card.column,
       editable: ticketEditable(def, card.workflow_state),
+      proposals: proposalsOf(card),
     });
   }
 
@@ -525,7 +576,9 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       reply((): BoardResponse => {
         const columns = COLUMNS.map((c) => ({ ...c, cards: [] as BoardCard[] }));
         for (const card of cards.values()) {
-          (columns.find((c) => c.id === card.column) ?? columns[0]!).cards.push(clone(card));
+          (columns.find((c) => c.id === card.column) ?? columns[0]!).cards.push(
+            clone(withProposalCount(card)),
+          );
         }
         // The client re-sorts; the server pre-sorts (06). Order here is insertion order.
         return { columns, last_event_id: nextEventId - 1 };
@@ -549,7 +602,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         const card = cardForSession(sessionId);
         const s = sessionOf(sessionId);
         return clone({
-          card,
+          card: withProposalCount(card),
           workflow: s.workflow,
           workflow_version: s.workflow.version,
           context: s.context,
@@ -569,6 +622,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           ...(s.ticket_body !== undefined ? { ticket_body: s.ticket_body } : {}),
           input_requests: inputRequestsOf(s, card),
           ticket_editable: ticketEditable(s.workflow, card.workflow_state),
+          proposals: proposalsOf(card),
         });
       }),
 
@@ -687,6 +741,43 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       }),
 
     getTicket: (ticketId) => reply(() => ticketDetail(ticketId)),
+
+    async approveProposal(ticketId, raw) {
+      const parsed = ApproveProposalRequestSchema.safeParse(raw);
+      if (!parsed.success) throw new ApiRequestError(400, 'bad_request', parsed.error.message);
+      const req = parsed.data;
+      const p = await reply(() => proposalOf(ticketId, req.proposal_id));
+      if (p.status === 'dismissed') {
+        throw new ApiRequestError(409, 'conflict', 'the proposal was dismissed');
+      }
+      if (p.status === 'approved' && p.created_ticket_id !== null) {
+        return { proposal: p, ticket: clone(ticketOf(p.created_ticket_id)) };
+      }
+      const parent = ticketOf(ticketId);
+      const ticket = await api.createTicket({
+        title: req.title ?? p.title,
+        body: req.body ?? proposalTicketBody(p, parent),
+        repo: p.repo,
+        workflow_id: parent.workflow_id,
+        kind: parent.kind ?? 'work',
+      });
+      decide(ticketId, p.id, { status: 'approved', created_ticket_id: ticket.id });
+      return { proposal: { ...p, status: 'approved', created_ticket_id: ticket.id }, ticket };
+    },
+
+    dismissProposal: (ticketId, raw) =>
+      reply((): TicketProposal => {
+        const parsed = DismissProposalRequestSchema.safeParse(raw);
+        if (!parsed.success) throw new ApiRequestError(400, 'bad_request', parsed.error.message);
+        const p = proposalOf(ticketId, parsed.data.proposal_id);
+        if (p.status === 'approved') {
+          throw new ApiRequestError(409, 'conflict', 'the proposal was approved');
+        }
+        if (p.status === 'pending') {
+          decide(ticketId, p.id, { status: 'dismissed', created_ticket_id: null });
+        }
+        return { ...p, status: 'dismissed' };
+      }),
 
     updateTicket: (ticketId, raw) =>
       reply((): TicketDetail => {

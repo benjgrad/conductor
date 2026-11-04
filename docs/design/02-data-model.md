@@ -459,6 +459,21 @@ ADR-0033 P2: an analyst's result, re-validated against `SessionInsightSchema` be
 
 The migration's down drops both tables and `machine.features`, deletes `assistant_job` outbox rows and rebuilds `outbox_kind` without the value.
 
+### ticket_proposal_decision
+
+[06 §Proposed tickets](06-human-input.md#proposed-tickets): a person's decision on a follow-up ticket an agent proposed. The proposals themselves stay in `session.context` (each agent state's result, `proposed_tickets`); no row ≡ pending. Deleted with the parent ticket.
+
+| column | type | notes |
+|---|---|---|
+| ticket_id | uuid fk ticket | the parent; `ON DELETE CASCADE`; pk with `proposal_id` |
+| proposal_id | text | `proposalId()` (@conductor/shared): FNV-1a 64 of the state, title and repo, 16 hex |
+| account_id | uuid fk account | |
+| status | text | `approved` \| `dismissed` (CHECK) |
+| created_ticket_id | uuid fk ticket null | the ticket an approval created; `ON DELETE SET NULL` |
+| decided_at | timestamptz | |
+
+The primary key makes approve and dismiss idempotent: both decide under the parent's latest session row lock, and an approval inserts the new ticket and this row in one transaction.
+
 ### login_throttle
 Instance-level. ADR-0017 §Rate limiting, layer 3: keyed by the normalised email **string**, whether or not a user has it, so a lockout reveals nothing.
 | column | type | notes |

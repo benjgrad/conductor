@@ -20,6 +20,7 @@ import { insertBoardEvents, type BoardBus, type Queryable } from '../contracts.j
 import { withTransaction } from '../db/index.js';
 import type { SessionRow, TicketRow } from '../db/types.js';
 import { cardView, withMachineFields } from '../engine/board-view.js';
+import { loadProposals } from '../engine/proposals.js';
 import { seedConductorWorkflow, seedRoutineWorkflow } from '../engine/seed.js';
 import { DefinitionCache, TICKET_SELECT, type TicketCardRow } from '../engine/rows.js';
 import type { Db } from '../main.js';
@@ -80,6 +81,7 @@ async function toDetail(
     column,
     column_title: view.columns.find((c) => c.id === column)?.title ?? column,
     editable: ticketEditable(def, state),
+    proposals: await loadProposals(q, ticket.id, session),
   };
 }
 
@@ -190,12 +192,19 @@ export type CreateTicketResult =
       details?: ErrorDetail[];
     };
 
-export async function createTicket(
-  deps: { db: Db; boardBus: BoardBus; auth: AuthConfig },
-  scope: AccountScope,
-  body: z.output<typeof CreateTicketRequestSchema>,
-): Promise<CreateTicketResult> {
-  const { db, boardBus, auth } = deps;
+/** The checks every new ticket passes before its insert (POST /api/tickets, an approved proposal). */
+export type PreparedTicket =
+  { ok: true; repo: string } | Extract<CreateTicketResult, { ok: false }>;
+
+/**
+ * The repo as stored (M2-T17, U-048: canonical host/org/repo in `password` mode) and a known
+ * workflow (seeding the built-in ones), or the 400 to return. Nothing is inserted.
+ */
+export async function prepareNewTicket(
+  deps: { db: Db; auth: AuthConfig },
+  body: { repo: string; workflow_id: string },
+): Promise<PreparedTicket> {
+  const { db, auth } = deps;
   // M2-T17 (U-048, ADR-0013 §Routing): in `password` mode the repo must be host/org/repo and is
   // stored canonical; `local` mode keeps M1's rule (the e2e's local fixture repos).
   let repo = body.repo;
@@ -231,6 +240,18 @@ export async function createTicket(
       details: [{ path: 'workflow_id', message: 'no workflow with this id' }],
     };
   }
+  return { ok: true, repo };
+}
+
+export async function createTicket(
+  deps: { db: Db; boardBus: BoardBus; auth: AuthConfig },
+  scope: AccountScope,
+  body: z.output<typeof CreateTicketRequestSchema>,
+): Promise<CreateTicketResult> {
+  const { db, boardBus } = deps;
+  const prepared = await prepareNewTicket(deps, body);
+  if (!prepared.ok) return prepared;
+  const { repo } = prepared;
   const { ticket, events } = await withTransaction(db, async (tx) => {
     const row = (await insertTicketRow(tx, {
       account_id: scope.account_id,

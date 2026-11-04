@@ -262,6 +262,11 @@ main {
   background: var(--warn-bg);
   color: var(--warn);
 }
+.badge-proposals {
+  background: var(--inline-code-bg);
+  color: var(--accent);
+  font-weight: 600;
+}
 .badge-question {
   background: var(--ask-bg);
   color: var(--ask);
@@ -1615,6 +1620,61 @@ button.link {
 .transition-text-actions {
   display: flex;
   gap: 8px;
+  align-items: center;
+}
+/* 06 §Proposed tickets: the agent's follow-up proposals in the Needs input panel. */
+.proposals {
+  margin: var(--space-2) var(--space-3) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.proposals h3 {
+  margin: 0;
+  font-size: var(--text-base);
+}
+.proposals-note {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+.proposals ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.proposal {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.proposal-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+.proposal-why,
+.proposal-from {
+  margin: 0;
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+}
+.proposal-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+.proposal-actions {
+  display: flex;
+  gap: var(--space-2);
   align-items: center;
 }
 .kind-choice {

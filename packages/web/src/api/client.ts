@@ -1,5 +1,9 @@
 import type {
   AdminUserRow,
+  ApproveProposalRequest,
+  ApproveProposalResponse,
+  DismissProposalRequest,
+  TicketProposal,
   AnswerInputRequest,
   ApiErrorCode,
   ApproveSessionRequest,
@@ -105,6 +109,13 @@ export interface ApiClient {
    * 409 conflict when the ticket changed since `expected_updated_at`.
    */
   updateTicket(ticketId: string, req: UpdateTicketRequest): Promise<TicketDetail>;
+  /**
+   * POST /api/tickets/:id/proposals/approve (06 §Proposed tickets): creates the proposed ticket,
+   * once (approving again returns the same one). 409 conflict when it was dismissed.
+   */
+  approveProposal(ticketId: string, req: ApproveProposalRequest): Promise<ApproveProposalResponse>;
+  /** POST /api/tickets/:id/proposals/dismiss. 409 conflict when it was approved. */
+  dismissProposal(ticketId: string, req: DismissProposalRequest): Promise<TicketProposal>;
   /**
    * GET /api/repos (create-ticket form): the account's ticket repos, most used first with a
    * recency bias (`rankRepos`), then its machines' repos no ticket has used yet.

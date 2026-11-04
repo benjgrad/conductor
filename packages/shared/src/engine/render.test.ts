@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentState } from '../workflow/schema.js';
 import {
+  CONDUCTOR_V1_DEF,
+  CONDUCTOR_V2_DEF,
+  CONDUCTOR_V3_DEF,
+  CONDUCTOR_V4_DEF,
+} from '../workflow/conductor.js';
+import { ROUTINE_V1_DEF } from '../workflow/routine.js';
+import {
   HOW_TO_FINISH_HEADING,
+  IMPLEMENT_TEMPLATE,
+  PLAN_TEMPLATE,
+  PROPOSALS_HINT,
   renderPrompt,
   TICKET_TEMPLATE,
   WORK_REPOSITORY_HEADING,
@@ -124,5 +134,38 @@ describe('renderPrompt (ADR-0011)', () => {
       `${HOW_TO_FINISH_HEADING}\n\nWhen you finish this step, take exactly one of these transitions:\n\n- ship: It is done.\n- ask: Your \`reason\` is the question for the human.\n- other\n`,
     );
     expect(p).toContain('a `result` object containing `summary`');
+  });
+});
+
+describe('proposed_tickets hint (optional follow-up tickets)', () => {
+  it.each([
+    ['planning', PLAN_TEMPLATE],
+    ['implementing', IMPLEMENT_TEMPLATE],
+  ])('the %s template offers proposed_tickets as optional', (stateName, prompt) => {
+    const state: AgentState = { type: 'agent', prompt, tools: ['edit'] };
+    const p = renderPrompt({ stateName, state, snapshot: SNAPSHOT_FIXTURE });
+    expect(p).toContain(PROPOSALS_HINT);
+    expect(p).toContain('`"proposed_tickets"`');
+    expect(p).toContain("It's optional");
+  });
+
+  it('the plain ticket template does not mention it', () => {
+    const p = renderPrompt({ stateName: 'implement', state: template, snapshot: SNAPSHOT_FIXTURE });
+    expect(p).not.toContain('proposed_tickets');
+  });
+
+  it('no built-in workflow requires proposed_tickets in a result list', () => {
+    for (const def of [
+      CONDUCTOR_V1_DEF,
+      CONDUCTOR_V2_DEF,
+      CONDUCTOR_V3_DEF,
+      CONDUCTOR_V4_DEF,
+      ROUTINE_V1_DEF,
+    ]) {
+      for (const state of Object.values(def.states)) {
+        if (state.type !== 'agent') continue;
+        expect(state.result ?? []).not.toContain('proposed_tickets');
+      }
+    }
   });
 });

@@ -121,11 +121,19 @@ export function renderPrompt(input: RenderPromptInput): string {
   return parts.join('\n\n');
 }
 
+/**
+ * Optional follow-up tickets (06 §Proposed tickets): never in a state's `result` list, so a result
+ * without `proposed_tickets` behaves as before. Read by `proposalsOfContext` (api/proposals.ts).
+ */
+export const PROPOSALS_HINT =
+  'If you notice worthwhile work outside this ticket\'s scope, you may add `"proposed_tickets"` to your result: up to three `{"title", "repo", "why"}` entries. It\'s optional. Leave it out if nothing stands out, and don\'t do that work here.';
+
 const PLAN_INSTRUCTIONS = [
   '## Your step: planning',
   '',
   'Read the repository and work out how to do this ticket. Do not change any files, run builds or commit: this step only plans.',
   'Write a plan another agent can follow: the files to change, the approach, the tests to add or update, and anything risky or unclear.',
+  PROPOSALS_HINT,
   'Finish with `complete_state` and a result `{"plan": "<the plan, in Markdown>", "summary": "<one or two sentences>"}`.',
 ].join('\n');
 
@@ -134,6 +142,7 @@ const IMPLEMENT_INSTRUCTIONS = [
   '',
   'Make the change, following the plan under Inputs (written in the planning step; adapt it where the code tells you otherwise).',
   'Add or update tests. Before you finish, commit everything on the current branch (`git add` and `git commit`) so that `git status` is clean: only committed changes are checked and pushed, and a worktree with uncommitted changes is sent back to you. Do not push. Conductor then checks that the build and the tests pass on your last commit, pushes it and opens the pull request itself.',
+  PROPOSALS_HINT,
   'Finish with `complete_state` and a result that includes `"summary"`: a short description of the change, used as the pull request description.',
 ].join('\n');
 

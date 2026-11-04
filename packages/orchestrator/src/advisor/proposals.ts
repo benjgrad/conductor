@@ -38,11 +38,11 @@ import { TRUNCATED } from '../mcp/cap.js';
 import { loadAdvisorRows } from './queries.js';
 
 // ADR-0033 P3 (MA-T05): the change-proposal store. One set of functions behind the MCP tools
-// (propose_change, list_change_proposals, apply_change, review_change) and the REST routes
-// (/api/change-proposals), always scoped to the caller's account. Applying runs the same guarded
-// save paths as save_workflow / set_repo_checks, in one transaction with the proposal row locked,
-// so a proposal is applied at most once. Nothing here retries: every refusal goes back to the
-// human (the status and `error` show on the board).
+// (propose_change; list_change_proposals, which reviews an applied one; apply_change) and the REST
+// routes (/api/change-proposals), always scoped to the caller's account. Applying runs the same
+// guarded save paths as save_workflow / set_repo_checks, in one transaction with the proposal row
+// locked, so a proposal is applied at most once. Nothing here retries: every refusal goes back to
+// the human (the status and `error` show on the board).
 
 /** save_workflow / propose_change: the largest definition accepted, as JSON. */
 export const WORKFLOW_MAX_BYTES = 256 * 1024;

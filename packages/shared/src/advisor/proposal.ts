@@ -5,7 +5,8 @@ import { checkFailed, median, percentile, stateDurations, type AdvisorRows } fro
 // ADR-0033 P3 (MA-T05): change proposals. The workflow advisor never writes directly: it stores a
 // proposal (what would change, why, the evidence, the expected effect and the rollback), a human
 // confirms it, and `apply_change` (or Apply on the board) runs the existing guarded save path.
-// `review_change` later compares the expected metric before and after. Pure: no I/O here.
+// The review (list_change_proposals with an id, or the board) later compares the expected metric
+// before and after. Pure: no I/O here.
 
 /**
  * What a proposal may change. Machine settings come with MA-T06 (ADR-0022): until then no other

@@ -27,7 +27,7 @@ export interface AdvisorFilter {
   sessionId?: string | undefined;
   now?: Date;
   /**
-   * P3 (review_change): the window ends here instead of now: `[until - windowDays, until)`. A
+   * P3 (the change-proposal review): the window ends here instead of now: `[until - windowDays, until)`. A
    * window into the past (the time before a change was applied).
    */
   until?: Date | undefined;

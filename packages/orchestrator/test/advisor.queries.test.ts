@@ -147,7 +147,7 @@ describe('loadAdvisorRows (ADR-0033)', () => {
     expect(new Set(one.moves.map((m) => m.ticket_id))).toEqual(new Set([otherRepo]));
   });
 
-  it('`until` ends the window in the past (review_change’s before-window)', async () => {
+  it('`until` ends the window in the past (the review’s before-window)', async () => {
     const rows = await loadAdvisorRows(db.pool, {
       accountId: a,
       windowDays: 40,

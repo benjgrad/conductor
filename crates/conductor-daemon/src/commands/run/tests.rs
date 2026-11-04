@@ -3,9 +3,12 @@
 //! fast) or a fake one (the version probe).
 
 use super::*;
+use crate::inventory::report::InventoryScan;
 use crate::platform::Platform;
+use crate::sysinfo::LiveResources;
 use crate::test_support::fake_bin::write_fake_bin;
 use crate::test_support::fake_orchestrator::FakeOrchestrator;
+use futures_util::FutureExt;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -123,6 +126,22 @@ impl Run {
                 Arc::new(move |m: &str| l.lock().unwrap().push(m.to_string()))
             },
             exit_grace: Some(Duration::from_millis(10)),
+            // Hermetic, as the daemon-core tests: no real gh / az / claude probes, no live
+            // sysinfo (they are slow on the Windows runner).
+            scan_inventory: Some(Arc::new(|| {
+                async {
+                    Ok(InventoryScan {
+                        repos: vec![],
+                        capabilities: vec![],
+                    })
+                }
+                .boxed()
+            })),
+            sysinfo: Some(Arc::new(|_: &Path| LiveResources {
+                cpu_free: 4.0,
+                mem_free_mb: 8192,
+                disk_free_mb: 50_000,
+            })),
         };
         let env2 = env.clone();
         let handle = tokio::spawn(async move { run_daemon(&env2, deps).await });
@@ -137,13 +156,33 @@ impl Run {
         }
     }
 
+    /// The `register` frame. On a timeout, or if `run_daemon` returned first, fail with its log.
     async fn registered(&self) -> serde_json::Value {
         let reg = self
             .orch
-            .until(|| self.orch.of_type("register").into_iter().next(), None)
-            .await
-            .unwrap();
-        serde_json::to_value(reg).unwrap()
+            .until(
+                || {
+                    if self.handle.is_finished() {
+                        return Some(None);
+                    }
+                    self.orch.of_type("register").into_iter().next().map(Some)
+                },
+                Some(Duration::from_secs(30)),
+            )
+            .await;
+        match reg {
+            Ok(Some(reg)) => serde_json::to_value(reg).unwrap(),
+            other => panic!(
+                "no register ({}; run_daemon finished: {}); run's log:\n{}",
+                if other.is_ok() {
+                    "run_daemon returned"
+                } else {
+                    "timed out"
+                },
+                self.handle.is_finished(),
+                self.logs.lock().unwrap().join("\n")
+            ),
+        }
     }
 
     async fn exit_code(self) -> i32 {

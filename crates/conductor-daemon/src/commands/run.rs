@@ -16,8 +16,10 @@ use crate::claude::outcome_server::{OutcomeServerOptions, start_outcome_server};
 use crate::commands::service::stop_supervised_job;
 use crate::config::{DaemonConfig, Env, load_config, machine_facts};
 use crate::daemon::{Daemon, DaemonOptions};
+use crate::inventory::report::ScanFn;
 use crate::platform::signals::DaemonSignal;
 use crate::platform::{CliOptions, exec_file_cli, native_exe_problem};
+use crate::sysinfo::SysInfo;
 use crate::ws_client::fatal_exit_code;
 use std::path::{Component, Path};
 use std::sync::Arc;
@@ -40,6 +42,10 @@ pub struct RunDeps {
     /// How long killed children get before `run` returns. Default: the config's kill grace (TS
     /// `setTimeout(process.exit, killGraceMs)`). Tests shorten it.
     pub exit_grace: Option<Duration>,
+    /// Tests only: the inventory scan (default: the real one, which probes gh, az and claude).
+    pub scan_inventory: Option<ScanFn>,
+    /// Tests only: the machine's live resources (default: the real ones).
+    pub sysinfo: Option<SysInfo>,
 }
 
 impl RunDeps {
@@ -56,6 +62,8 @@ impl RunDeps {
             uid,
             log: Arc::new(|m: &str| eprintln!("[conductor-daemon] {m}")),
             exit_grace: None,
+            scan_inventory: None,
+            sysinfo: None,
         }
     }
 }
@@ -177,6 +185,10 @@ pub async fn run_daemon(env: &Env, mut deps: RunDeps) -> i32 {
     let daemon = match Daemon::new(DaemonOptions {
         claude_code_version: version,
         claude_bin: Some(claude_bin),
+        // The daemon's own lines go where `run`'s do (stderr, `[conductor-daemon] `, as TS).
+        log: Some(log.clone()),
+        scan_inventory: deps.scan_inventory.take(),
+        sysinfo: deps.sysinfo.take(),
         on_fatal: Some(Arc::new(move |code: u16, _: &str| {
             let _ = fatal_tx.send(code);
         })),

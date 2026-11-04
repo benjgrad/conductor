@@ -134,12 +134,13 @@ async fn run_registers_and_exits_0_on_sigterm() {
         )
         .await
         .unwrap();
-    // ADR-0033 P2: the binary advertises the assistant job (the workflow advisor's insights).
+    // ADR-0033 P2: the binary advertises the assistant job (the workflow advisor's insights);
+    // 06 §Attachments: and that it downloads ticket attachments.
     let register = serde_json::to_value(&register).unwrap();
     let payload = register.get("payload").unwrap_or(&register);
     assert_eq!(
         payload["features"],
-        serde_json::json!(["assistant_job"]),
+        serde_json::json!(["assistant_job", "ticket_attachments"]),
         "{register}"
     );
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM).unwrap();

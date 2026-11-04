@@ -143,13 +143,22 @@ export function isOAuthClientRequest(req: FastifyRequest): boolean {
   return req.method === 'POST' && CLIENT_PATHS.has(policyPath(req));
 }
 
-/** JSON, or a form body on the paths that take one (ADR-0028). */
+/**
+ * 06 §Attachments: POSTs that take a file's raw bytes (`application/octet-stream`). Only the
+ * media-type rule is relaxed: the Origin rule still applies (a cross-site form can't send this
+ * content type without a CORS preflight, which is never granted, and Origin is checked anyway).
+ */
+const UPLOAD_PATHS: ReadonlySet<string> = new Set([API_PATHS.attachments]);
+
+/** JSON, or a form body / raw upload on the paths that take one (ADR-0028, 06 §Attachments). */
 function bodyTypeAllowed(req: FastifyRequest): boolean {
   if (isJson(req.headers['content-type'])) return true;
+  if (req.method !== 'POST') return false;
+  const type = mediaType(req.headers['content-type']);
+  const path = policyPath(req);
   return (
-    req.method === 'POST' &&
-    FORM_PATHS.has(policyPath(req)) &&
-    mediaType(req.headers['content-type']) === 'application/x-www-form-urlencoded'
+    (FORM_PATHS.has(path) && type === 'application/x-www-form-urlencoded') ||
+    (UPLOAD_PATHS.has(path) && type === 'application/octet-stream')
   );
 }
 

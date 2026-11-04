@@ -69,6 +69,10 @@ export async function ingestInventory(
       [scope.machineId, scope.accountId],
     );
     if (m.rowCount === 0) return;
+    await tx.query('UPDATE machine SET git_identity_missing = $2 WHERE id = $1', [
+      scope.machineId,
+      payload.git_identity_missing ?? null,
+    ]);
     await tx.query('DELETE FROM machine_repo WHERE machine_id = $1', [scope.machineId]);
     if (repos.length > 0) {
       await tx.query(

@@ -1,4 +1,9 @@
-import type { HumanTransitionOption, InputRequestDto, SessionDetail } from '@conductor/shared';
+import type {
+  HumanTransitionOption,
+  InputRequestDto,
+  SessionDetail,
+  TransitionSessionRequest,
+} from '@conductor/shared';
 
 // UX-4: what an open input request is (a review request, a plan to approve, a failed step, or a
 // real question) and the short preview the board card shows. Pure, so the card and the panel agree.
@@ -12,7 +17,8 @@ const isReviewTransition = (name: string | null | undefined) =>
   typeof name === 'string' && name.endsWith('ready_for_review');
 
 /** 06 §Plan approval: conductor v2's planning question "Plan needs approval". */
-// TD-185: hardcodes conductor v2's plan_needs_approval / plan_ready names.
+// TD-185: a plan request is still recognised by this name; the approve and answer targets are
+// derived from the state's human transitions (planOptions, WF-T04).
 export const PLAN_APPROVAL_TRANSITION = 'plan_needs_approval';
 
 /** Older servers send no `step_failed`: the engine's failed-step questions start like this. */
@@ -57,7 +63,8 @@ export function lastMoveTransition(detail: Pick<SessionDetail, 'moves' | 'card'>
  * its agent columns and gets the one `needs_text` option into an agent state. null when there is
  * none (or the board can't tell which): the caller falls back to the generic buttons.
  */
-// TD-184: the board has no return_to, so this guesses the answer option (fails safe).
+// TD-184: the board has no return_to, so this guesses the answer (and, in planOptions, the
+// approve) option from its agent columns (fails safe).
 export function planAnswerOption<T extends HumanTransitionOption>(
   options: readonly T[],
   returnTo: string | ReadonlySet<string> | null | undefined,
@@ -70,9 +77,78 @@ export function planAnswerOption<T extends HumanTransitionOption>(
   return matches.length === 1 ? matches[0]! : null;
 }
 
-/** The text of the Approve plan button's transition. */
+/** 06 §Plan approval: what Approve plan and Request changes post. */
+export interface PlanOptions<T extends HumanTransitionOption = HumanTransitionOption> {
+  /** The text-required option back to the asking state (`revise_plan` in v5, `answer` in v4). */
+  answer: T;
+  /**
+   * The current state's own approval: no text, into an agent state that isn't the asking one
+   * (`approve_plan` in v5). null: Approve plan posts `answer` with PLAN_APPROVED_TEXT (v4).
+   */
+  approve: T | null;
+}
+
+/**
+ * 06 §Plan approval: the approve option, derived from the transitions rather than a name. Not
+ * the answer option, needs no text, and goes into an agent state other than the asking one (so a
+ * v4 `needs_input`'s `done` or `waiting_on_someone` never qualifies). Only when exactly one does:
+ * an ambiguous workflow falls back to the canned answer.
+ */
+export function planApproveOption<T extends HumanTransitionOption>(
+  options: readonly T[],
+  answer: T,
+  agentStates: ReadonlySet<string>,
+): T | null {
+  const candidates = options.filter(
+    (o) =>
+      o.name !== answer.name && !o.needs_text && o.goto !== answer.goto && agentStates.has(o.goto),
+  );
+  return candidates.length === 1 ? candidates[0]! : null;
+}
+
+/**
+ * The plan answer (`planAnswerOption`) and approve (`planApproveOption`) options; null when there
+ * is no answer option. `agentStates`: the workflow's agent states (the panel) or the board's agent
+ * columns (the card).
+ */
+// TD-184: on the board both are guessed from the agent columns (fails safe).
+export function planOptions<T extends HumanTransitionOption>(
+  options: readonly T[],
+  returnTo: string | ReadonlySet<string> | null | undefined,
+  agentStates: ReadonlySet<string>,
+): PlanOptions<T> | null {
+  const answer = planAnswerOption(options, returnTo);
+  return answer ? { answer, approve: planApproveOption(options, answer, agentStates) } : null;
+}
+
+/** The agent states of a workflow, for `planOptions` in the panel. */
+export function agentStatesOf(workflow: Pick<SessionDetail['workflow'], 'states'>): Set<string> {
+  return new Set(
+    Object.entries(workflow.states)
+      .filter(([, s]) => s.type === 'agent')
+      .map(([name]) => name),
+  );
+}
+
+/** The text of the Approve plan button's transition when there is no approve option (v4). */
+// TD-185: only for workflows without an approve transition.
 export const PLAN_APPROVED_TEXT =
   'Plan approved. Proceed: call complete_state with plan_ready and this plan.';
+
+/**
+ * Approve plan's request: the approve option (with the note, if any), else the answer option
+ * with PLAN_APPROVED_TEXT. A blank note is left out (the API rejects an empty `text`).
+ */
+export function planApproveRequest(p: PlanOptions, note?: string): TransitionSessionRequest {
+  if (!p.approve) return { name: p.answer.name, text: PLAN_APPROVED_TEXT };
+  const text = note?.trim();
+  return text ? { name: p.approve.name, text } : { name: p.approve.name };
+}
+
+/** Request changes' request: always the answer option with the feedback. */
+export function planChangesRequest(p: PlanOptions, feedback: string): TransitionSessionRequest {
+  return { name: p.answer.name, text: planChangesText(feedback) };
+}
 
 /** The text of Request changes: the human's feedback after a fixed lead line. */
 export function planChangesText(feedback: string): string {

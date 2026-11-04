@@ -56,6 +56,7 @@ async fn sent_after_registered_before_request_work_with_the_legacy_repo_inventor
     let scan = InventoryScan {
         repos: vec![repo()],
         capabilities: vec![gh()],
+        git_identity_missing: false,
     };
     start(&c, Arc::new(Mutex::new(scan.clone())));
     c.registered_and_asked().await;
@@ -71,6 +72,7 @@ async fn sent_after_registered_before_request_work_with_the_legacy_repo_inventor
             "repos": [serde_json::to_value(repo()).unwrap()],
             "capabilities": [serde_json::to_value(gh()).unwrap()],
             "hash": inventory_hash(&scan),
+            "git_identity_missing": false,
         })
     );
     assert_eq!(
@@ -86,6 +88,7 @@ async fn not_re_sent_when_unchanged_re_sent_on_sighup_after_a_change() {
     let cell = Arc::new(Mutex::new(InventoryScan {
         repos: vec![repo()],
         capabilities: vec![gh()],
+        git_identity_missing: false,
     }));
     let d = start(&c, cell.clone());
     c.until(|| c.of_type("inventory").into_iter().next()).await;
@@ -102,6 +105,7 @@ async fn not_re_sent_when_unchanged_re_sent_on_sighup_after_a_change() {
     *cell.lock().unwrap() = InventoryScan {
         repos: vec![repo()],
         capabilities: vec![gh(), slack()],
+        git_identity_missing: false,
     };
     request_rescan(d.config().root_dir.as_path()).unwrap();
     let second = c.until(|| c.of_type("inventory").get(1).cloned()).await;

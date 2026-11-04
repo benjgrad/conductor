@@ -8,6 +8,7 @@ import {
   type WorkflowState,
 } from './schema.js';
 import { PR_CONTEXT_KEY, REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
+import { PROPOSED_TICKETS_KEY } from '../api/proposals.js';
 import { isToolAlias, TOOL_ALIAS_NAMES } from './tools.js';
 import {
   FALLBACK_TRANSITION_NAMES,
@@ -523,7 +524,7 @@ function stronglyConnected(names: string[], adj: Map<string, string[]>): string[
   return out;
 }
 
-// Rule 5: an input `$state.key` names an agent state that lists `key` in `result`, and that state
+// Rule 5 (and ADR-0034: `result` never lists `proposed_tickets`): an input `$state.key` names an agent state that lists `key` in `result`, and that state
 // has completed (`done`, or another completing agent transition, ADR-0011) on every path from
 // start to the referencing state. Checked as: with the producer's completing edges and every
 // human-actor edge removed, the referencing state is unreachable from start.
@@ -532,6 +533,15 @@ function checkRefs(def: WorkflowDefinition, edges: Edge[]): WorkflowValidationEr
   const names = Object.keys(def.states);
   for (const [name, state] of Object.entries(def.states)) {
     if (state.type !== 'agent') continue;
+    // ADR-0034: follow-up proposals are optional by design; a state may not require them.
+    const proposalsAt = (state.result ?? []).indexOf(PROPOSED_TICKETS_KEY);
+    if (proposalsAt >= 0) {
+      errors.push({
+        rule: 5,
+        path: ['states', name, 'result', proposalsAt],
+        message: `"${PROPOSED_TICKETS_KEY}" is optional (follow_ups) and can't be a required result key`,
+      });
+    }
     for (const [key, value] of Object.entries(state.input ?? {})) {
       if (typeof value !== 'string' || !value.startsWith('$')) continue;
       const path = ['states', name, 'input', key];

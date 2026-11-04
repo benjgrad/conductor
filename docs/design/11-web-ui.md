@@ -67,6 +67,10 @@ At every width, Repo is a free-text ARIA combobox (`components/RepoCombobox.tsx`
 - Focusing the field lists every repo, and typing filters them (a case-insensitive substring match, ranked order kept). Arrow keys move through the list, and Enter or a click picks a repo without submitting the form. Escape closes the list without closing the sheet.
 - After a create, the repo stays chosen and the list is fetched again.
 
+## Attachments
+
+The create form and the ticket editor have an attachment picker under the body (`components/AttachmentPicker.tsx`). It has an *Attach images or videos* button (the hidden file input accepts `ATTACHMENT_ACCEPT`), a drop zone (the whole picker), and paste: an image pasted into the body field is uploaded instead of pasted. Each file shows a thumbnail, its name, *uploading…* or the reason it was refused, and a Remove button. Create ticket / Save wait for uploads to finish (the sheet's hint says so). In the editor, existing attachments have Remove / Keep toggles, applied on Save. The gallery (`components/AttachmentGallery.tsx`) is a grid of 110 px tiles. A tile opens a full-screen lightbox, closed by Close, Escape or a click outside. Buttons keep the 44 px touch target, and names are ellipsized so nothing widens a 360 px page. Details: [06 §Attachments](06-human-input.md#attachments).
+
 ## Repo checks (ADR-0030)
 
 `#/repo-checks[/<repo>]` (`repo-checks/RepoChecksPage.tsx`), opened from the account menu at every width. It manages per-repo check overrides ([ADR-0030](../adr/0030-per-repo-checks-and-mcp-workflow-tools.md)) over `GET/PUT/DELETE /api/repo-checks`, the same functions as the MCP tools:
@@ -74,6 +78,10 @@ At every width, Repo is a free-text ARIA combobox (`components/RepoCombobox.tsx`
 - For one repo, the checks that run at each gate of the latest `conductor` workflow that runs checks (`RepoChecksDetail.effective`), marked *Repo override* or *Workflow default*.
 - The override editor is the transition editor's check list (`workflow/ChecksFields.tsx`), with the same rules (`checkListIssues`: unique names, non-blank commands, durations like `10m`) plus at least one check. Setup is auto-detect, none, or a command. Without an override, the draft starts from the workflow's first gate. The server's 400 details show at their fields. *Clear override* asks for a confirmation.
 - A note says that commands run with `sh -c` at the repo root of a fresh checkout (Git Bash on Windows), with a link to ADR-0030.
+
+## Follow-up tickets in the workflow editor (ADR-0034)
+
+An agent column's panel has the checkbox "Agents may propose follow-up tickets" (`FollowUpsFields`, `workflow/ColumnEditor.tsx`). It shows the effective setting (`followUpsOf`): ticked for `plan_template` / `implement_template` while `follow_ups` is unset ([05 §Follow-up tickets](05-workflow-engine.md#follow-up-tickets-adr-0034)). Ticked, it shows At most (1–10) and Guidance, and editing either stores `follow_ups {enabled: true, …}`. Unticking it stores `enabled: false` where unset means on, and removes the key elsewhere (`setFollowUps(…, null)`). The proposals themselves are decided in Needs input ([06 §Proposed tickets](06-human-input.md#proposed-tickets)).
 
 ## Install (UX-16)
 

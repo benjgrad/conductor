@@ -592,3 +592,68 @@ async fn reports_start_failed_when_the_repo_cannot_be_cloned() {
     );
     c.done().await;
 }
+
+/// 06 §Attachments (Rust only): a start with attachments downloads them before the spawn. Here
+/// the orchestrator (the fake, WS only) can't serve them: the start still spawns, the prompt says
+/// what couldn't be downloaded, and Claude gets the attachments dir as `--add-dir`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_attachment_download_never_refuses_the_start() {
+    let c = Ctx::new().await;
+    let drv = driver(complete(json!({ "summary": "done" })));
+    c.make(drv.clone(), Make::default());
+    c.registered_and_asked().await;
+    let register = &c.of_type("register")[0];
+    assert!(
+        register["payload"]["features"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("ticket_attachments"))
+    );
+    let sid = Uuid::new_v4();
+    let start = c.start(
+        sid,
+        json!({ "attachments": [{
+            "id": "00000000-0000-4000-8000-0000000a7002",
+            "name": "../mockup.png",
+            "mime": "image/png",
+            "size": 4,
+            "sha256": "a".repeat(64),
+        }] }),
+        1,
+    );
+    c.send(&start.msg);
+    c.first_event("exit").await;
+    assert!(c.acks(start.cid)[0].accepted);
+    let opts = drv.starts()[0].clone();
+    assert!(
+        opts.prompt
+            .starts_with("Implement the ticket\n\n## Attachments\n")
+    );
+    assert!(
+        opts.prompt
+            .contains("- mockup.png (image) could not be downloaded:"),
+        "{}",
+        opts.prompt
+    );
+    let dir = c
+        .root()
+        .join("artifacts")
+        .join(sid.to_string())
+        .join("attachments");
+    assert_eq!(opts.add_dirs, vec![dir.clone()]);
+    assert!(dir.is_dir());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_start_without_attachments_adds_no_dir() {
+    let c = Ctx::new().await;
+    let drv = driver(complete(json!({ "summary": "done" })));
+    c.make(drv.clone(), Make::default());
+    c.registered_and_asked().await;
+    let start = c.start(Uuid::new_v4(), json!({}), 1);
+    c.send(&start.msg);
+    c.first_event("exit").await;
+    let opts = drv.starts()[0].clone();
+    assert_eq!(opts.prompt, "Implement the ticket");
+    assert!(opts.add_dirs.is_empty());
+}

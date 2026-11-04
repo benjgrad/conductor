@@ -154,6 +154,7 @@ impl Fx {
                 mem_total_mb: 8192,
                 hostname: "test-host".into(),
                 home: self.tmp.clone(),
+                git_config: Default::default(),
             },
             os: "linux".into(),
             arch: "x64".into(),

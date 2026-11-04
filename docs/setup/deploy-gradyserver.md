@@ -89,7 +89,7 @@ ssh -p 1024 bengrady4@gradyserver.com 'cat ~/deploy/conductor/.env | grep -v PAS
 sudo ~bengrady4/deploy/conductor/current/deploy/gradyserver/install-nginx-site.sh --email <your email>
 ```
 
-`--email` is only needed the first time, for certbot. Rerunning the script is safe; rerun it whenever the nginx files change in a deployed release. Renewal is certbot's existing timer, through the `:80` ACME location.
+`--email` is only needed the first time, for certbot. Rerunning the script is safe; rerun it whenever the nginx files change in a deployed release. The site keeps request bodies to 4m except `location = /api/attachments` (ticket attachment uploads, up to the 50 MB video limit: 55m). Until the script is rerun after the release that added it, uploads over 4 MB get nginx's 413. Renewal is certbot's existing timer, through the `:80` ACME location.
 
 Then, from the lead's machine:
 

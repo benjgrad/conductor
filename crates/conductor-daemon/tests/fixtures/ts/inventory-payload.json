@@ -8,7 +8,8 @@
     "payload": {
       "repos": [],
       "capabilities": [],
-      "hash": "6358aa235674d1d2acd281f124528e9b20f07620c0682f6108b850da2eefbfee"
+      "hash": "6358aa235674d1d2acd281f124528e9b20f07620c0682f6108b850da2eefbfee",
+      "git_identity_missing": false
     }
   },
   {
@@ -128,7 +129,8 @@
           "name": "review"
         }
       ],
-      "hash": "fe70af53fe9c8ffe459942a407b8bead18cbc781a58841884764df5c057f4062"
+      "hash": "fe70af53fe9c8ffe459942a407b8bead18cbc781a58841884764df5c057f4062",
+      "git_identity_missing": false
     }
   },
   {
@@ -236,7 +238,8 @@
           "name": "café"
         }
       ],
-      "hash": "e04f5d205a42663018239af68bc25c546abf8648b79152ed3f0ce46f26ea6e54"
+      "hash": "e04f5d205a42663018239af68bc25c546abf8648b79152ed3f0ce46f26ea6e54",
+      "git_identity_missing": false
     }
   }
 ]

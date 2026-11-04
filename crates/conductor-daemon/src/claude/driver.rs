@@ -66,6 +66,9 @@ pub struct DriverStartOptions {
     pub mcp: Option<StartSessionPayloadMcp>,
     /// ADR-0011: the names the outcome server accepts in `complete_state`. `None` or empty = any.
     pub transitions: Option<Vec<AgentTransitionOption>>,
+    /// 06 §Attachments: extra directories Claude may read (`--add-dir`), e.g. the session's
+    /// downloaded attachments. Empty = none.
+    pub add_dirs: Vec<PathBuf>,
 }
 
 impl DriverStartOptions {
@@ -92,6 +95,7 @@ impl DriverStartOptions {
             review: false,
             mcp: None,
             transitions: None,
+            add_dirs: Vec::new(),
         }
     }
 }

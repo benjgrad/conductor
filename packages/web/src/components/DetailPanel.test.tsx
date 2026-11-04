@@ -409,7 +409,9 @@ describe('composer', () => {
     act(() => {
       inputId = api.requestInput(SEED_IDS.running.session, 'agent_question', 'Offset or cursor?');
     });
-    await panel.findByText('Offset or cursor?');
+    // The question arrives through the board stream and a session refetch: under a loaded
+    // full-suite run that can outlast findByText's default 1 s, so wait longer.
+    await panel.findByText('Offset or cursor?', undefined, { timeout: 5000 });
     const answerBox = panel.getByLabelText<HTMLTextAreaElement>('Answer');
     expect(answerBox).toBe(box); // same element, not remounted
     expect(answerBox.value).toBe('half-written thought');

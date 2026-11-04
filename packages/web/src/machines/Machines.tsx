@@ -5,7 +5,7 @@ import { ago } from '../components/format.js';
 import { HelpLink } from '../help/HelpPage.js';
 import { routeHash } from '../nav.js';
 import { AddMachine } from './AddMachine.js';
-import { ghTooOld, ghTooOldText } from './format.js';
+import { ghTooOld, ghTooOldText, GIT_IDENTITY_MISSING_TEXT } from './format.js';
 import { MachineDrawer } from './MachineDrawer.js';
 import { UpgradeBanner } from './UpgradeNotice.js';
 import './machines.css';
@@ -175,6 +175,9 @@ export function MachinesPage({ api }: MachinesPageProps) {
                       </span>
                     )}
                     {oldGh !== null && <p className="machine-warning">⚠ {ghTooOldText(oldGh)}</p>}
+                    {m.git_identity_missing === true && (
+                      <p className="machine-warning">⚠ {GIT_IDENTITY_MISSING_TEXT}</p>
+                    )}
                   </td>
                   <td>
                     {m.revoked_at ? (

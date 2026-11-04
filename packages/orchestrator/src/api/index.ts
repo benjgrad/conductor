@@ -54,6 +54,7 @@ import { loadSessionDetail, sessionExists } from './sessions.js';
 import { approveProposal, dismissProposal } from './proposals.js';
 import { createTicket, loadTicketDetail, updateTicket } from './tickets.js';
 import { registerTeamRoutes } from './team.js';
+import { registerAttachmentRoutes } from './attachments.js';
 
 // M1-T08: REST + SSE for the UI (03 §UI ↔ orchestrator), as the `CreateApi` factory (main.ts).
 
@@ -156,6 +157,8 @@ export const createApi = (({
   });
   // UX-13a: the account's agent team.
   void app.register(registerTeamRoutes, { db });
+  // 06 §Attachments: uploads, their bytes, and the daemon's download.
+  void app.register(registerAttachmentRoutes, { db, auth });
   // The create-ticket form's repo suggestions.
   void app.register(registerRepoRoutes, { db });
   // ADR-0030: per-repo check overrides (also MCP's list/get/set/clear_repo_checks).
@@ -469,6 +472,8 @@ export const createApi = (({
           'conflict',
           'the ticket changed since it was loaded; reload it and edit again',
         );
+      case 'attachment_error':
+        return sendError(reply, res.error.status, res.error.code, res.error.message);
       case 'updated':
         for (const ev of res.events) boardBus.publish(ev);
         return res.detail;

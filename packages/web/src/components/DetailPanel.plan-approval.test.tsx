@@ -51,6 +51,32 @@ describe('DetailPanel: plan approval (06 §Plan approval)', () => {
     );
   });
 
+  it('v5 Plan review: Approve plan posts approve_plan, with no generic buttons', async () => {
+    const { el, panel, transition, sid } = await open((d) => {
+      const p = asPlan(d);
+      return {
+        ...p,
+        card: {
+          ...p.card,
+          human_transitions: [
+            { name: 'revise_plan', title: 'Revise plan', goto: 'planning', needs_text: true },
+            {
+              name: 'approve_plan',
+              title: 'Approve plan',
+              goto: 'implementing',
+              needs_text: false,
+            },
+          ],
+        },
+      };
+    });
+    const plan = await panel.findByRole('region', { name: 'Plan to approve' });
+    expect(panel.queryAllByRole('group', { name: 'Move to', hidden: true })).toHaveLength(0);
+    expect(el.querySelector('.detail .transitions:not(.plan-approval .transitions)')).toBeNull();
+    fireEvent.click(within(plan).getByRole('button', { name: 'Approve plan' }));
+    await waitFor(() => expect(transition).toHaveBeenCalledWith(sid, { name: 'approve_plan' }));
+  });
+
   it('without the $return_to answer option it falls back to the generic request', async () => {
     const { panel } = await open((d) => {
       const p = asPlan(d);

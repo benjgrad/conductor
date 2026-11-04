@@ -24,7 +24,8 @@ use tokio::sync::Notify;
 
 use crate::claude::driver::{
     ClaudeDriver, DriverError, DriverEvent, DriverListener, DriverSession, DriverStartOptions,
-    ListenerId, Listeners, OutputStream, PermissionDecision, PermissionResolution, Usage,
+    ListenerId, Listeners, OutputStream, PermissionDecision, PermissionResolution, QuestionOptions,
+    Usage,
 };
 use crate::claude::outcome_server::{
     PERMISSION_SESSION_ENDED, PermissionReply, iso_string, permission_reply, refuse_transition,
@@ -34,7 +35,8 @@ use crate::claude::outcome_server::{
 #[derive(Clone, Debug, PartialEq)]
 pub enum FakeTurnAction {
     Say(String),
-    AskUser(String),
+    /// Questions UX: the question and the options the outcome server would forward.
+    AskUser(String, Option<QuestionOptions>),
     /// ADR-0011: `transition` / `reason` as the agent names them. With `opts.transitions`, the
     /// first unknown name is refused like the outcome server does (a debug line, not emitted).
     CompleteState {
@@ -78,7 +80,12 @@ impl FakeTurnAction {
     }
 
     pub fn ask_user(question: impl Into<String>) -> Self {
-        FakeTurnAction::AskUser(question.into())
+        FakeTurnAction::AskUser(question.into(), None)
+    }
+
+    /// Questions UX: `ask_user` with (already bounded) options.
+    pub fn ask_user_with_options(question: impl Into<String>, options: QuestionOptions) -> Self {
+        FakeTurnAction::AskUser(question.into(), Some(options))
     }
 
     pub fn crash(code: Option<i32>) -> Self {
@@ -563,9 +570,9 @@ impl FakeDriverSession {
                 );
             }
             FakeTurnAction::Emit(ev) => Self::emit(s, out, ev),
-            FakeTurnAction::AskUser(question) => {
+            FakeTurnAction::AskUser(question, options) => {
                 s.ask_pending = true;
-                Self::emit(s, out, DriverEvent::AskUser { question });
+                Self::emit(s, out, DriverEvent::AskUser { question, options });
             }
             FakeTurnAction::CompleteState {
                 result,

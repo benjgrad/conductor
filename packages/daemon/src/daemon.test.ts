@@ -543,8 +543,15 @@ describe('daemon core: start_session', () => {
   });
 
   it('parks after ask_user (process alive) and feeds send_input into the live process', async () => {
+    const options = {
+      multi_select: false,
+      items: [{ label: 'postgres', description: 'recommended' }, { label: 'sqlite' }],
+    };
     const driver = new FakeClaudeDriver({
-      turns: [[{ askUser: 'Which DB?' }], (answer) => [{ completeState: { db: answer } }]],
+      turns: [
+        [{ askUser: 'Which DB?', options }],
+        (answer) => [{ completeState: { db: answer } }],
+      ],
     });
     orch.heartbeatIntervalMs = 30;
     makeDaemon(driver);
@@ -552,6 +559,8 @@ describe('daemon core: start_session', () => {
     const sid = randomUUID();
     orch.send(startSession(sid));
     await orch.until(() => orch.events('ask_user')[0]);
+    // Questions UX: the options travel in the session_event as given.
+    expect(orch.eventData('ask_user')[0]).toEqual({ question: 'Which DB?', options });
     // Parked: the process is still alive after its turn ended.
     await new Promise((r) => setTimeout(r, 50));
     expect(driver.last!.exited).toBe(false);

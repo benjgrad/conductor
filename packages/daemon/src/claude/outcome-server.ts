@@ -5,7 +5,8 @@
 // session; the token is dropped when the session's process exits. The server is stateless: a
 // fresh McpServer + transport per POST (the spike's proven shape; no GET SSE stream).
 //
-// Tools: `complete_state({transition?, reason?, result})` and `ask_user({question})`. Both return
+// Tools: `complete_state({transition?, reason?, result})` and `ask_user({question, options?,
+// multi_select?})`. Both return
 // immediately with the ADR's texts. Guards live here, per registration, so a refused call never
 // reaches the driver:
 //   - complete_state while a question is pending → corrective text, not emitted
@@ -16,6 +17,8 @@
 //   - ask_user after complete_state, or while a question is already pending → corrective text,
 //     not emitted (one open question per session; not in the ADR, see the T05b report)
 // The driver clears the pending question when it delivers the answer (`answered()`).
+// Questions UX: ask_user's `options` are bounded (`boundedQuestionOptions`); an invalid list is
+// dropped and the question is still sent.
 //
 // ADR-0023 (M2-T29b): a third tool, `permission`, is Claude's `--permission-prompt-tool`
 // (`mcp__conductor__permission`). Claude calls it only when its permission mode would still ask
@@ -43,11 +46,17 @@ import {
   PERMISSION_SUGGESTIONS_MAX,
   PERMISSION_SUGGESTIONS_MAX_BYTES,
   PERMISSION_TOOL_MAX,
+  ASK_USER_OPTIONS_MAX,
+  ASK_USER_OPTIONS_MIN,
+  ASK_USER_OPTION_DESCRIPTION_MAX,
+  ASK_USER_OPTION_LABEL_MAX,
+  boundedQuestionOptions,
   jsonByteLength,
   type AgentTransitionOption,
   type JsonObject,
   type PermissionBehavior,
   type PermissionScope,
+  type QuestionOptions,
 } from '@conductor/shared';
 
 export const OUTCOME_SERVER_NAME = 'conductor';
@@ -148,6 +157,32 @@ export function completeStateDescription(
   return `${base}\nSet \`transition\` to the move you take and \`reason\` to why. Allowed transitions:\n${list}`;
 }
 
+/** The ask_user tool description (Questions UX: when to list options). */
+export const ASK_USER_DESCRIPTION =
+  'Ask the human operator one clear question when you cannot proceed without a decision. The call returns at once; then end your turn. The answer arrives as the next user message. ' +
+  `If the answer is one of a few choices, list them in \`options\` (${ASK_USER_OPTIONS_MIN}-${ASK_USER_OPTIONS_MAX}, short labels, the recommended one first): the human clicks one and its label is the answer. Set \`multi_select\` when several may be chosen (the answer is the labels joined with ", "). The human can still type a different answer.`;
+
+const ASK_USER_INPUT_SHAPE = {
+  question: z.string().min(1).describe('One clear question for the human'),
+  options: z
+    .array(
+      z.object({
+        label: z
+          .string()
+          .describe(`The choice, at most ${ASK_USER_OPTION_LABEL_MAX} characters; the answer you get`),
+        description: z
+          .string()
+          .optional()
+          .describe(`What it means, at most ${ASK_USER_OPTION_DESCRIPTION_MAX} characters`),
+      }),
+    )
+    .optional()
+    .describe(
+      `Optional: ${ASK_USER_OPTIONS_MIN}-${ASK_USER_OPTIONS_MAX} choices shown as buttons, the recommended one first`,
+    ),
+  multi_select: z.boolean().optional().describe('The human may choose several options'),
+};
+
 const TOKEN_PATH = /^\/mcp\/([a-f0-9]{32})$/;
 // Keep the tools out of the CLI's tool-search deferral, so the model always sees them (spike c).
 const ALWAYS_LOAD = { 'anthropic/alwaysLoad': true };
@@ -245,7 +280,8 @@ export function boundedSuggestions(v: unknown): JsonObject[] | undefined {
 
 export interface OutcomeHandlers {
   onCompleteState(result: Record<string, unknown>, meta: CompleteStateMeta): void;
-  onAskUser(question: string): void;
+  /** `options`: the agent's bounded choices; absent when none were given or they were invalid. */
+  onAskUser(question: string, options?: QuestionOptions): void;
   /**
    * ADR-0023: a permission prompt is now held. Absent → every prompt is denied at once
    * (PERMISSION_NO_HANDLER).
@@ -422,16 +458,17 @@ function buildServer(entry: Entry): McpServer {
   s.registerTool(
     'ask_user',
     {
-      description:
-        'Ask the human operator one clear question when you cannot proceed without a decision. The call returns at once; then end your turn. The answer arrives as the next user message.',
-      inputSchema: { question: z.string().min(1).describe('One clear question for the human') },
+      description: ASK_USER_DESCRIPTION,
+      inputSchema: ASK_USER_INPUT_SHAPE,
       _meta: ALWAYS_LOAD,
     },
-    ({ question }) => {
+    ({ question, options, multi_select }) => {
       if (entry.completed) return text(ASK_USER_AFTER_COMPLETE);
       if (entry.questionPending) return text(ASK_USER_PENDING_QUESTION);
       entry.questionPending = true;
-      entry.handlers.onAskUser(question);
+      const bounded = boundedQuestionOptions(options, multi_select);
+      if (bounded !== undefined) entry.handlers.onAskUser(question, bounded);
+      else entry.handlers.onAskUser(question);
       return text(ASK_USER_RETURN);
     },
   );

@@ -369,7 +369,12 @@ class Session implements CliDriverSession {
     this.id = opts.claudeSessionId;
     this.reg = server.register(
       {
-        onAskUser: (question) => this.emit({ kind: 'ask_user', question }),
+        onAskUser: (question, options) =>
+          this.emit({
+            kind: 'ask_user',
+            question,
+            ...(options !== undefined ? { options } : {}),
+          }),
         // ADR-0011: the named transition and reason are forwarded as given.
         onCompleteState: (result, meta) => this.emit({ kind: 'complete_state', result, ...meta }),
         // ADR-0023: a held prompt. Nobody listening (exited) → deny now, never hold for nothing.

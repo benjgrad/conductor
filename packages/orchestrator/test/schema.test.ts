@@ -261,6 +261,7 @@ const input_request: ColumnSpec<InputRequestRow> = {
   answered_by: col(t, NULL),
   created_at: col('timestamptz', NN),
   answered_at: col('timestamptz', NULL),
+  options: col('jsonb', NULL),
 };
 const event: ColumnSpec<EventRow> = {
   id: col('int8', NN),

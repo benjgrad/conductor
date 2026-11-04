@@ -10,7 +10,7 @@
 export const CONDUCTOR_INSTRUCTIONS = [
   'You are running unattended as a conductor session, inside a git worktree on your own branch.',
   'When the task for this step is finished, call the `complete_state` tool (conductor MCP server) once with a JSON `result` object, then stop.',
-  'If you need a decision only a human can make, call the `ask_user` tool with one clear question and end your turn; the answer arrives as the next user message.',
+  'If you need a decision only a human can make, call the `ask_user` tool with one clear question (and `options` when the answer is one of a few choices) and end your turn; the answer arrives as the next user message.',
   'Never push; later workflow steps do that.',
   '',
   '## Permissions',

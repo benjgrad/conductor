@@ -873,6 +873,8 @@ describe('migrations', () => {
           'session_insight',
           'ticket_proposal_decision',
           'change_proposal',
+          'attachment',
+          'attachment_content',
         ].sort(),
       );
     } finally {
@@ -1430,6 +1432,30 @@ describe('schema (migrated test database)', () => {
     await expectPgError(
       pool.query("UPDATE change_proposal SET kind = 'machine_settings' WHERE id = $1", [
         cp.rows[0]!.id,
+      ]),
+      '23514',
+    );
+
+    // 06 §Attachments: an upload and its bytes; the source and sha256 CHECKs.
+    const att = await pool.query<AttachmentRow>(
+      `INSERT INTO attachment (account_id, ticket_id, source, name, mime, size_bytes, sha256)
+       VALUES ($1, $2, 'human', 'a.png', 'image/png', 3, $3) RETURNING *`,
+      [LOCAL_ACCOUNT_ID, tkt.id, Buffer.alloc(32)],
+    );
+    expect(att.rows[0]).toMatchObject({ session_id: null, caption: null });
+    expect(att.rows[0]?.sha256).toBeInstanceOf(Buffer);
+    await pool.query(
+      'INSERT INTO attachment_content (attachment_id, account_id, data) VALUES ($1, $2, $3)',
+      [att.rows[0]!.id, LOCAL_ACCOUNT_ID, Buffer.from([1, 2, 3])],
+    );
+    await expectPgError(
+      pool.query("UPDATE attachment SET source = 'robot' WHERE id = $1", [att.rows[0]!.id]),
+      '23514',
+    );
+    await expectPgError(
+      pool.query('UPDATE attachment SET sha256 = $2 WHERE id = $1', [
+        att.rows[0]!.id,
+        Buffer.alloc(3),
       ]),
       '23514',
     );

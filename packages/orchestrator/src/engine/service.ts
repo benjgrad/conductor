@@ -37,6 +37,7 @@ import {
   writeSession,
 } from './rows.js';
 import { repinParked } from './repin.js';
+import { withStartAttachments } from './attachments.js';
 
 /** Session statuses after which apply ignores every event. */
 const TERMINAL: ReadonlySet<string> = new Set(['done', 'failed', 'lost']);
@@ -428,10 +429,15 @@ export class EngineServiceImpl implements EngineService {
       });
       // ADR-0010: an entry action carries its idempotency key (session + state + visit).
       const idem = effect.type === 'run_action' ? effect.idempotency_key : null;
+      // 06 §Attachments: the ticket's files (or a note, for a daemon that can't fetch them).
+      const payload =
+        cmd.kind === 'start_session'
+          ? await withStartAttachments(tx, cmd.payload as JsonObject, ticket.id, cmd.target)
+          : cmd.payload;
       await tx.query(
         'INSERT INTO outbox (command_id, target, kind, session_id, payload, fencing_token, ' +
           'next_attempt_at, created_at, idempotency_key) VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8)',
-        [commandId, cmd.target, cmd.kind, sessionId, JSON.stringify(cmd.payload), token, now, idem],
+        [commandId, cmd.target, cmd.kind, sessionId, JSON.stringify(payload), token, now, idem],
       );
     }
 

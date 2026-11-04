@@ -317,6 +317,47 @@ describe('tickets and board', () => {
     }
   });
 
+  it('WF-T03: kind defaults to the repo’s last ticket; an explicit kind wins', async () => {
+    const repo = 'acme/wf-t03';
+    const noKind = (r = repo) =>
+      post('/api/tickets', { title: 'no kind', body: '', repo: r, workflow_id: 'm1_basic' });
+    // created_at is the transaction's now(): age the earlier rows so "most recent" is certain.
+    const age = (id: string, minutes: number) =>
+      db.pool.query(
+        "UPDATE ticket SET created_at = now() - $2 * interval '1 minute' WHERE id = $1",
+        [id, minutes],
+      );
+
+    const personal = await createTicket('personal first', { repo, kind: 'personal' });
+    await age(personal.id, 10);
+    const a = await noKind();
+    expect(a.status).toBe(201);
+    const aDto = TicketDtoSchema.parse(a.body);
+    expect(aDto.kind).toBe('personal');
+    const row = await db.pool.query<{ kind: string }>('SELECT kind FROM ticket WHERE id = $1', [
+      aDto.id,
+    ]);
+    expect(row.rows[0]!.kind).toBe('personal');
+    await age(aDto.id, 9);
+
+    const work = await createTicket('then work', { repo, kind: 'work' });
+    await age(work.id, 8);
+    const b = await noKind();
+    expect(b.status).toBe(201);
+    expect(TicketDtoSchema.parse(b.body).kind).toBe('work');
+
+    // Explicit wins over the repo's last (work).
+    expect((await createTicket('explicit', { repo, kind: 'personal' })).kind).toBe('personal');
+
+    // Another repo's tickets don't leak.
+    const other = await noKind('acme/wf-t03-other');
+    expect(other.status).toBe(400);
+    expect(other.body.error).toMatchObject({
+      code: 'bad_request',
+      details: [expect.objectContaining({ path: 'kind' })],
+    });
+  });
+
   it('ADR-0011: stores kind, returns it and puts it on the card; 400 without it', async () => {
     const before = boardBus.published.length;
     const ticket = await createTicket('Personal errand', { kind: 'personal' });
@@ -332,10 +373,11 @@ describe('tickets and board', () => {
     const card = board.columns.flatMap((c) => c.cards).find((c) => c.ticket_id === ticket.id)!;
     expect(card.kind).toBe('personal');
 
+    // WF-T03: no kind is a 400 only on a repo with no earlier ticket.
     const missing = await post('/api/tickets', {
       title: 't',
       body: '',
-      repo: 'r',
+      repo: 'acme/fresh-repo',
       workflow_id: 'm1_basic',
     });
     expect(missing.status).toBe(400);

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadConfig, type MachineFacts } from './config.js';
+import { gitIdentityWarning, loadConfig, type MachineFacts } from './config.js';
 import { PortPool, PortPoolExhaustedError, portEnv } from './ports.js';
 import { DaemonStore } from './store.js';
 import { buildAppendSystemPrompt, CONDUCTOR_INSTRUCTIONS } from './system-prompt.js';
@@ -58,6 +58,59 @@ describe('loadConfig', () => {
     expect(c.allowedRepoHosts).toEqual(['github.com', 'gitlab.example.org']);
     expect(loadConfig({ CONDUCTOR_ALLOW_LOCAL_REPOS: '0' }, facts).allowLocalRepos).toBe(false);
     expect(() => loadConfig({ CONDUCTOR_ALLOW_LOCAL_REPOS: 'maybe' }, facts)).toThrow();
+  });
+
+  // WF-T02: commit as the machine owner, never silently as conductor@localhost.
+  const withGit = (name: string | null, email: string | null): MachineFacts => ({
+    ...facts,
+    gitConfig: { name, email },
+  });
+
+  it('git identity: env wins', () => {
+    const c = loadConfig(
+      { CONDUCTOR_GIT_NAME: 'Env Name', CONDUCTOR_GIT_EMAIL: 'env@example.com' },
+      withGit('Git Name', 'git@example.com'),
+    );
+    expect([c.gitName, c.gitEmail, c.gitIdentityMissing]).toEqual([
+      'Env Name',
+      'env@example.com',
+      false,
+    ]);
+    expect(gitIdentityWarning(c)).toBeNull();
+  });
+
+  it('git identity: git config when env is unset', () => {
+    const c = loadConfig({}, withGit('Ben', 'ben@example.com'));
+    expect([c.gitName, c.gitEmail, c.gitIdentityMissing]).toEqual([
+      'Ben',
+      'ben@example.com',
+      false,
+    ]);
+    // Each field on its own: env name + git-config email.
+    const m = loadConfig(
+      { CONDUCTOR_GIT_NAME: 'Env Name', CONDUCTOR_GIT_EMAIL: '' },
+      withGit(null, 'ben@example.com'),
+    );
+    expect([m.gitName, m.gitEmail, m.gitIdentityMissing]).toEqual([
+      'Env Name',
+      'ben@example.com',
+      false,
+    ]);
+  });
+
+  it('git identity: falls back, flags it missing and warns', () => {
+    const c = loadConfig({}, facts);
+    expect([c.gitName, c.gitEmail, c.gitIdentityMissing]).toEqual([
+      'conductor',
+      'conductor@localhost',
+      true,
+    ]);
+    const w = gitIdentityWarning(c);
+    expect(w).toMatch(/^WARNING: no git identity/);
+    expect(w).toContain('conductor <conductor@localhost>');
+    // A half identity still commits as conductor@localhost.
+    const half = loadConfig({}, withGit('Ben', null));
+    expect([half.gitEmail, half.gitIdentityMissing]).toEqual(['conductor@localhost', true]);
   });
 });
 

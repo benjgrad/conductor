@@ -1,5 +1,5 @@
 import {
-  agentStatesOf,
+  proposalLimitsOf,
   proposalsOfContext,
   withDecisions,
   type JsonObject,
@@ -35,7 +35,7 @@ export async function sessionProposals(
   session: ProposalSession,
 ): Promise<ParsedProposal[]> {
   const def = await defs.get(q, session.workflow_id, session.workflow_version).catch(() => null);
-  return proposalsOfContext(session.context, def ? agentStatesOf(def) : undefined);
+  return proposalsOfContext(session.context, def ? proposalLimitsOf(def) : undefined);
 }
 
 /** Every decision of the tickets, by ticket then proposal id. */

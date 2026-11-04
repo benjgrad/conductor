@@ -10,7 +10,7 @@ import { tally, type Brief } from '../brief/parse.js';
 import { BriefContent, type BriefContentProps } from './BriefCard.js';
 import { latestPlan } from './plan.js';
 import { PLAN_APPROVAL_LABEL, PlanAnswerActions, PlanView } from './PlanApprovalRequest.js';
-import { EditTicket } from './TicketPanel.js';
+import { EditTicket, TicketAttachments } from './TicketPanel.js';
 import './TicketStrip.css';
 
 export type StripSheet = 'brief' | 'plan' | 'edit';
@@ -208,6 +208,12 @@ function SheetBody({
     return (
       <div className="ticket-sheet-body brief-sheet">
         <BriefContent {...brief} />
+        {/* 06 §Attachments: the ticket's images and videos, under the brief. */}
+        <TicketAttachments
+          api={api}
+          ticketId={detail.card.ticket_id}
+          version={detail.card.updated_at}
+        />
       </div>
     );
   }

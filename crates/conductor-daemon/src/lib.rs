@@ -5,6 +5,7 @@
 //! edit this list. OS-specific code lives only under `platform/` (tests/seam.rs).
 
 pub mod actions;
+pub mod attachments;
 pub mod claude;
 pub mod commands;
 pub mod config;

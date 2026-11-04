@@ -1,6 +1,10 @@
 import {
+  API_PATHS,
+  attachmentProblem,
+  sanitizeAttachmentName,
+  type AttachmentDto,
   ADMIN_USER_ROW_FIXTURES,
-  agentStatesOf,
+  proposalLimitsOf,
   AnswerInputRequestSchema,
   ApproveProposalRequestSchema,
   DismissProposalRequestSchema,
@@ -183,6 +187,23 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
   let nextEventId = 1;
   /** Ticket fields the cards don't carry (body, repo rules), by ticket id; seeded on first read. */
   const tickets = new Map<string, TicketDto & { updated_at: string }>();
+  /** 06 §Attachments: uploads, linked (`ticket_id`) or not; `src` is what an <img> loads. */
+  const attachments = new Map<
+    string,
+    { dto: AttachmentDto; ticketId: string | null; src: string }
+  >();
+  const attachmentsOf = (ticketId: string): AttachmentDto[] =>
+    [...attachments.values()].filter((a) => a.ticketId === ticketId).map((a) => clone(a.dto));
+  /** Link uploads to a ticket, as the server does (400 for unknown or already linked ones). */
+  const linkUploads = (ticketId: string, ids: readonly string[]) => {
+    for (const id of ids) {
+      const a = attachments.get(id);
+      if (!a || a.ticketId !== null) {
+        throw new ApiRequestError(400, 'bad_request', 'unknown or already linked attachment');
+      }
+    }
+    for (const id of ids) attachments.get(id)!.ticketId = ticketId;
+  };
   /** Workflow versions per id, oldest first (version N at index N-1). */
   const workflows = new Map<string, { definition: WorkflowDefinition; created_at: string }[]>(
     Object.entries(MOCK_WORKFLOW_HISTORY).map(([id, defs]) => [
@@ -404,7 +425,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     const s = card.session_id ? sessions.get(card.session_id) : undefined;
     if (!s) return [];
     return withDecisions(
-      proposalsOfContext(s.context, agentStatesOf(s.workflow)),
+      proposalsOfContext(s.context, proposalLimitsOf(s.workflow)),
       proposalDecisions.get(card.ticket_id) ?? new Map(),
     );
   }
@@ -597,6 +618,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       column_title: COLUMNS.find((c) => c.id === card.column)?.title ?? card.column,
       editable: ticketEditable(def, card.workflow_state),
       proposals: proposalsOf(card),
+      attachments: attachmentsOf(ticketId),
     });
   }
 
@@ -763,6 +785,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           created_at,
           updated_at: created_at,
         };
+        linkUploads(ticket.id, req.attachment_ids ?? []);
         cards.set(card.ticket_id, card);
         tickets.set(ticket.id, { ...ticket, kind: req.kind ?? null, updated_at: created_at });
         emit([{ type: 'card.upserted', session_id: null, ticket_id: card.ticket_id, card }]);
@@ -770,6 +793,49 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       }),
 
     getTicket: (ticketId) => reply(() => ticketDetail(ticketId)),
+
+    uploadAttachment: (file) =>
+      reply((): AttachmentDto => {
+        const problem = attachmentProblem(file);
+        if (problem !== null) {
+          throw new ApiRequestError(
+            /too large/.test(problem) ? 413 : 415,
+            /too large/.test(problem) ? 'attachment_too_large' : 'attachment_type',
+            problem,
+          );
+        }
+        const mime = file.type as AttachmentDto['mime'];
+        const id = crypto.randomUUID();
+        const dto: AttachmentDto = {
+          id,
+          name: sanitizeAttachmentName(file.name, mime),
+          mime,
+          size_bytes: file.size,
+          source: 'human',
+          caption: null,
+          session_id: null,
+          workflow_state: null,
+          created_at: now().toISOString(),
+          url: API_PATHS.attachmentContent(id),
+        };
+        // jsdom has no createObjectURL; the dev mock (a browser) does.
+        const src = typeof URL.createObjectURL === 'function' ? URL.createObjectURL(file) : dto.url;
+        attachments.set(id, { dto, ticketId: null, src });
+        return clone(dto);
+      }),
+
+    deleteAttachment: (attachmentId) =>
+      reply(() => {
+        const a = attachments.get(attachmentId);
+        if (!a) throw new ApiRequestError(404, 'not_found', `attachment ${attachmentId} not found`);
+        if (a.ticketId !== null) {
+          throw new ApiRequestError(409, 'conflict', 'the attachment is on a ticket');
+        }
+        attachments.delete(attachmentId);
+        return { ok: true as const };
+      }),
+
+    attachmentUrl: (a) => attachments.get(a.id)?.src ?? a.url,
 
     async approveProposal(ticketId, raw) {
       const parsed = ApproveProposalRequestSchema.safeParse(raw);
@@ -825,6 +891,10 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         if (Date.parse(req.expected_updated_at) !== Date.parse(t.updated_at)) {
           throw new ApiRequestError(409, 'conflict', 'the ticket changed since it was loaded');
         }
+        for (const id of req.remove_attachment_ids ?? []) {
+          if (attachments.get(id)?.ticketId === ticketId) attachments.delete(id);
+        }
+        linkUploads(ticketId, req.add_attachment_ids ?? []);
         // Strictly later than before, so a second edit from the old version is a conflict.
         const at = new Date(Math.max(now().getTime(), Date.parse(t.updated_at) + 1)).toISOString();
         Object.assign(t, {

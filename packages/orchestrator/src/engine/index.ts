@@ -7,6 +7,7 @@ import { webPushSender, type PushSender } from '../push/sender.js';
 import { dispatchOnce, type DispatchStats } from './dispatcher.js';
 import { EngineServiceImpl } from './service.js';
 import { sweepOnce, type SweepStats } from './sweep.js';
+import { sweepUnlinkedAttachments } from './attachments.js';
 import {
   INSIGHT_SWEEP_INTERVAL_MS,
   scheduleInsightJobs,
@@ -149,9 +150,11 @@ export function createEngineService(deps: EngineServiceDeps): EngineServiceHandl
       // UX-15: its own loop, so a slow push service never delays machine commands (NFR-1).
       const pusher = pushSender ? loop(deps.pushIntervalMs ?? 1000, pushOnce) : null;
       // ADR-0032: its own loop; cron has minute precision, so every 30 s is enough.
-      const scheduler = loop(deps.scheduleIntervalMs ?? SCHEDULE_SWEEP_INTERVAL_MS, () =>
-        sweepSchedulesOnce(workerDeps),
-      );
+      // 06 §Attachments: unlinked uploads older than a day go with the same slow tick.
+      const scheduler = loop(deps.scheduleIntervalMs ?? SCHEDULE_SWEEP_INTERVAL_MS, async () => {
+        await sweepSchedulesOnce(workerDeps);
+        await sweepUnlinkedAttachments(deps.db, now());
+      });
       // ADR-0033 P2: dormant until a daemon advertises `assistant_job` (no query finds work).
       const analyst = loop(deps.insightIntervalMs ?? INSIGHT_SWEEP_INTERVAL_MS, insightsOnce);
       wake = () => dispatcher.wake();

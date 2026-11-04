@@ -43,6 +43,8 @@ import type {
   TicketScheduleRow,
   SessionInsightRow,
   ChangeProposalRow,
+  AttachmentRow,
+  AttachmentContentRow,
   SessionRow,
   TicketProposalDecisionRow,
   Tables,
@@ -134,6 +136,7 @@ const machine: ColumnSpec<MachineRow> = {
   repo_allow: col('_text', NULL),
   repo_exclusive: col('_text', NN),
   features: col('_text', NN),
+  git_identity_missing: col('bool', NULL),
   created_at: col('timestamptz', NN),
   updated_at: col('timestamptz', NN),
 };
@@ -518,6 +521,26 @@ const change_proposal: ColumnSpec<ChangeProposalRow> = {
   review: col('jsonb', NULL),
   reviewed_at: col('timestamptz', NULL),
 };
+const attachment: ColumnSpec<AttachmentRow> = {
+  id: col('uuid', NN),
+  account_id: col('uuid', NN),
+  ticket_id: col('uuid', NULL),
+  session_id: col('uuid', NULL),
+  workflow_state: col(t, NULL),
+  source: col(t, NN),
+  name: col(t, NN),
+  mime: col(t, NN),
+  size_bytes: col('int4', NN),
+  sha256: col('bytea', NN),
+  caption: col(t, NULL),
+  created_by: col(t, NULL),
+  created_at: col('timestamptz', NN),
+};
+const attachment_content: ColumnSpec<AttachmentContentRow> = {
+  attachment_id: col('uuid', NN),
+  account_id: col('uuid', NN),
+  data: col('bytea', NN),
+};
 const SCHEMA: Schema = {
   machine,
   machine_repo,
@@ -550,6 +573,8 @@ const SCHEMA: Schema = {
   session_insight,
   ticket_proposal_decision,
   change_proposal,
+  attachment,
+  attachment_content,
 };
 /** The tables M1/M1b created: every one carries `account_id` since M2-T03. */
 const M1_TABLES = [
@@ -849,6 +874,8 @@ describe('migrations', () => {
           'session_insight',
           'ticket_proposal_decision',
           'change_proposal',
+          'attachment',
+          'attachment_content',
         ].sort(),
       );
     } finally {
@@ -1406,6 +1433,30 @@ describe('schema (migrated test database)', () => {
     await expectPgError(
       pool.query("UPDATE change_proposal SET kind = 'machine_settings' WHERE id = $1", [
         cp.rows[0]!.id,
+      ]),
+      '23514',
+    );
+
+    // 06 §Attachments: an upload and its bytes; the source and sha256 CHECKs.
+    const att = await pool.query<AttachmentRow>(
+      `INSERT INTO attachment (account_id, ticket_id, source, name, mime, size_bytes, sha256)
+       VALUES ($1, $2, 'human', 'a.png', 'image/png', 3, $3) RETURNING *`,
+      [LOCAL_ACCOUNT_ID, tkt.id, Buffer.alloc(32)],
+    );
+    expect(att.rows[0]).toMatchObject({ session_id: null, caption: null });
+    expect(att.rows[0]?.sha256).toBeInstanceOf(Buffer);
+    await pool.query(
+      'INSERT INTO attachment_content (attachment_id, account_id, data) VALUES ($1, $2, $3)',
+      [att.rows[0]!.id, LOCAL_ACCOUNT_ID, Buffer.from([1, 2, 3])],
+    );
+    await expectPgError(
+      pool.query("UPDATE attachment SET source = 'robot' WHERE id = $1", [att.rows[0]!.id]),
+      '23514',
+    );
+    await expectPgError(
+      pool.query('UPDATE attachment SET sha256 = $2 WHERE id = $1', [
+        att.rows[0]!.id,
+        Buffer.alloc(3),
       ]),
       '23514',
     );

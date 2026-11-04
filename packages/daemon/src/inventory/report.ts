@@ -14,6 +14,12 @@ import { MAX_DEPTH, scanRepos } from './repos.js';
 export interface InventoryScan {
   repos: InventoryRepo[];
   capabilities: Capability[];
+  /**
+   * WF-T02: `config.gitIdentityMissing`, sent as `inventory.git_identity_missing`. Not part of the
+   * hash: it is fixed for the process, a fresh inventory is always sent after `registered`, and the
+   * hash stays byte-identical to the Rust daemon's. Absent ≡ false.
+   */
+  gitIdentityMissing?: boolean;
 }
 
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -38,6 +44,7 @@ export function normalizeScan(scan: InventoryScan): InventoryScan {
   return {
     repos: [...scan.repos].sort((a, b) => cmp(a.path, b.path)),
     capabilities: [...scan.capabilities].sort((a, b) => cmp(capString(a), capString(b))),
+    gitIdentityMissing: scan.gitIdentityMissing ?? false,
   };
 }
 
@@ -52,7 +59,12 @@ export function inventoryHash(scan: InventoryScan): string {
 
 export function inventoryPayload(scan: InventoryScan): InventoryPayload {
   const n = normalizeScan(scan);
-  return { ...n, hash: inventoryHash(n) };
+  return {
+    repos: n.repos,
+    capabilities: n.capabilities,
+    hash: inventoryHash(n),
+    git_identity_missing: n.gitIdentityMissing ?? false,
+  };
 }
 
 /** The real scan: roots from CONDUCTOR_ROOTS, else `<root>/config.json` (re-read every scan). */
@@ -93,7 +105,7 @@ export async function scanInventory(
     env,
     log,
   });
-  return { repos, capabilities };
+  return { repos, capabilities, gitIdentityMissing: config.gitIdentityMissing };
 }
 
 /**

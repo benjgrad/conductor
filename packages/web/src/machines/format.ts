@@ -35,6 +35,12 @@ export function ghTooOldText(version: string): string {
   return `gh ${version} is too old for pull requests (needs ≥ ${GH_MIN_VERSION})`;
 }
 
+/** WF-T02: the daemon has no git identity, so agent commits are authored conductor@localhost. */
+export const GIT_IDENTITY_MISSING_TEXT =
+  'No git identity: agent commits are authored conductor <conductor@localhost>. Set ' +
+  'git config --global user.name and user.email (or CONDUCTOR_GIT_NAME/CONDUCTOR_GIT_EMAIL) ' +
+  'for the user the daemon runs as, then restart the daemon.';
+
 /**
  * The install command with `--service` (start the daemon at login), or null when `command` isn't
  * one of the two shapes we know; the page then hides the variant rather than guess. 10-contracts

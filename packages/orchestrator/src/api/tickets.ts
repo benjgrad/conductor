@@ -25,6 +25,13 @@ import { seedConductorWorkflow, seedRoutineWorkflow } from '../engine/seed.js';
 import { DefinitionCache, TICKET_SELECT, type TicketCardRow } from '../engine/rows.js';
 import type { Db } from '../main.js';
 import { cardUpserted } from '../permissions/store.js';
+import {
+  AttachmentLinkError,
+  linkAttachments,
+  loadTicketAttachments,
+  removeAttachments,
+  toAttachmentDto,
+} from './attachments.js';
 import type { ErrorDetail } from './errors.js';
 import { toTicketDto } from './queries.js';
 
@@ -82,6 +89,7 @@ async function toDetail(
     column_title: view.columns.find((c) => c.id === column)?.title ?? column,
     editable: ticketEditable(def, state),
     proposals: await loadProposals(q, ticket.id, session),
+    attachments: (await loadTicketAttachments(q, ticket.id)).map(toAttachmentDto),
   };
 }
 
@@ -104,7 +112,8 @@ export type UpdateTicketResult =
   | { status: 'updated'; detail: TicketDetail; events: BoardSseEvent[] }
   | { status: 'not_found' }
   | { status: 'not_editable'; detail: TicketDetail }
-  | { status: 'conflict' };
+  | { status: 'conflict' }
+  | { status: 'attachment_error'; error: AttachmentLinkError };
 
 /** Columns a session holds before any state runs: a claim, not the engine, locks them. */
 const PRE_CLAIM = new Set(['queued', 'assigned']);
@@ -115,6 +124,21 @@ const PRE_CLAIM = new Set(['queued', 'assigned']);
  * editability is decided under the locks, so a claim or move between GET and PATCH is seen.
  */
 export async function updateTicket(
+  db: Db,
+  id: string,
+  accountId: string,
+  patch: UpdateTicketRequest,
+): Promise<UpdateTicketResult> {
+  try {
+    return await updateTicketTx(db, id, accountId, patch);
+  } catch (err) {
+    // Thrown inside the transaction, so nothing was written.
+    if (err instanceof AttachmentLinkError) return { status: 'attachment_error', error: err };
+    throw err;
+  }
+}
+
+async function updateTicketTx(
   db: Db,
   id: string,
   accountId: string,
@@ -154,6 +178,9 @@ export async function updateTicket(
         'WHERE id = $1 RETURNING *',
       [id, patch.title ?? null, patch.body ?? null, patch.priority ?? null, patch.kind ?? null],
     );
+    // 06 §Attachments: removals first, so a swap within the limits passes.
+    await removeAttachments(tx, id, patch.remove_attachment_ids ?? []);
+    await linkAttachments(tx, accountId, id, patch.add_attachment_ids ?? []);
     const row: TicketCardRow = { ...res.rows[0]!, agent_name: ticket.agent_name };
     // Last write of the transaction (insertBoardEvents holds the board lock to COMMIT).
     const events = session
@@ -252,7 +279,42 @@ export async function createTicket(
   const prepared = await prepareNewTicket(deps, body);
   if (!prepared.ok) return prepared;
   const { repo } = prepared;
-  const { ticket, events } = await withTransaction(db, async (tx) => {
+  // WF-T03: an explicit kind wins; else the repo's last ticket's; else the caller must say.
+  const kind = body.kind ?? (await lastTicketKind(db, scope.account_id, repo));
+  if (kind === null) {
+    return {
+      ok: false,
+      status: 400,
+      code: 'bad_request',
+      message: 'kind is required: no earlier ticket on this repo to take it from',
+      details: [{ path: 'kind', message: 'work or personal (no earlier ticket on this repo)' }],
+    };
+  }
+  let created: { ticket: TicketRow; events: BoardSseEvent[] };
+  try {
+    created = await insertNewTicket(db, scope, body, repo, kind);
+  } catch (err) {
+    if (!(err instanceof AttachmentLinkError)) throw err;
+    return { ok: false, status: err.status, code: err.code, message: err.message };
+  }
+  const { ticket, events } = created;
+  for (const ev of events) boardBus.publish(ev);
+  const dto: TicketDto = toTicketDto(ticket);
+  if (!(await accountHasRepo(db, scope.account_id, ticket.repo))) {
+    dto.warnings = ['no_machine_has_repo'];
+  }
+  return { ok: true, dto };
+}
+
+/** The insert, its attachments and its card event, in one transaction. */
+async function insertNewTicket(
+  db: Db,
+  scope: AccountScope,
+  body: z.output<typeof CreateTicketRequestSchema>,
+  repo: string,
+  kind: TicketKind,
+): Promise<{ ticket: TicketRow; events: BoardSseEvent[] }> {
+  return withTransaction(db, async (tx) => {
     const row = (await insertTicketRow(tx, {
       account_id: scope.account_id,
       external_ref: body.external_ref,
@@ -263,18 +325,31 @@ export async function createTicket(
       required_tags: body.required_tags,
       repo_allow_machines: body.repo_allow_machines,
       priority: body.priority,
-      kind: body.kind,
+      kind,
     }))!;
+    // 06 §Attachments: linked before the commit, so no claim sees the ticket without its files.
+    await linkAttachments(tx, scope.account_id, row.id, body.attachment_ids ?? []);
     // Last write of the transaction (insertBoardEvents holds the board lock to COMMIT).
     const evs = await sessionlessCardUpserted(tx, { ...row, agent_name: null });
     return { ticket: row, events: evs };
   });
-  for (const ev of events) boardBus.publish(ev);
-  const dto: TicketDto = toTicketDto(ticket);
-  if (!(await accountHasRepo(db, scope.account_id, ticket.repo))) {
-    dto.warnings = ['no_machine_has_repo'];
-  }
-  return { ok: true, dto };
+}
+
+/**
+ * WF-T03: the kind of the account's most recent ticket on `repo` (as stored: canonical in
+ * `password` mode), or null when it has none. Tickets from before M1b have no kind and are skipped.
+ */
+export async function lastTicketKind(
+  q: Queryable,
+  accountId: string,
+  repo: string,
+): Promise<TicketKind | null> {
+  const res = await q.query<{ kind: TicketKind }>(
+    'SELECT kind FROM ticket WHERE account_id = $1 AND repo = $2 AND kind IS NOT NULL ' +
+      'ORDER BY created_at DESC, id DESC LIMIT 1',
+    [accountId, repo],
+  );
+  return res.rows[0]?.kind ?? null;
 }
 
 /**

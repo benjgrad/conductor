@@ -2,6 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { describe, expect, it } from 'vitest';
 import type { RequestAuth } from '../auth/middleware.js';
+import { lastTicketKind } from '../api/tickets.js';
 import {
   clampWindow,
   ROW_LIMIT,
@@ -90,7 +91,10 @@ describe('clampWindow (ADR-0033)', () => {
  * The advisor tools over a real MCP client and server joined in memory (no HTTP, no Postgres):
  * the database is a stub that records each query and answers with canned rows.
  */
-async function connectAdvisor(rows: (sql: string) => Record<string, unknown>[] = () => []) {
+async function connectAdvisor(
+  rows: (sql: string) => Record<string, unknown>[] = () => [],
+  extraDeps: Record<string, unknown> = {},
+) {
   const queries: { sql: string; args: unknown[] }[] = [];
   const db = {
     query: (sql: string, args: unknown[] = []) => {
@@ -105,7 +109,7 @@ async function connectAdvisor(rows: (sql: string) => Record<string, unknown>[] =
     mode: 'password',
     sessionIdHash: null,
   } as unknown as RequestAuth;
-  const server = buildMcpServer({ db } as unknown as ToolDeps, who);
+  const server = buildMcpServer({ db, ...extraDeps } as unknown as ToolDeps, who);
   const client = new Client({ name: 'unit', version: '1' });
   const [a, b] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(a), client.connect(b)]);
@@ -405,5 +409,43 @@ describe('analyst tools (ADR-0033 P2)', () => {
       arguments: { session_id: one.session_id },
     });
     expect(nf.isError).toBe(true);
+  });
+});
+
+describe('create_ticket kind default (WF-T03)', () => {
+  const stub = (kind: string | null) => {
+    const queries: { sql: string; args: unknown[] }[] = [];
+    const q = {
+      query: (sql: string, args: unknown[] = []) => {
+        queries.push({ sql, args });
+        return Promise.resolve({ rows: kind === null ? [] : [{ kind }] });
+      },
+    };
+    return { q, queries };
+  };
+
+  it('lastTicketKind takes the account’s most recent ticket on the repo', async () => {
+    for (const kind of ['personal', 'work', null]) {
+      const { q, queries } = stub(kind);
+      expect(await lastTicketKind(q as never, 'acc-1', 'github.com/me/app')).toBe(kind);
+      expect(queries).toHaveLength(1);
+      expect(queries[0]!.sql).toContain('account_id = $1 AND repo = $2');
+      expect(queries[0]!.sql).toContain('ORDER BY created_at DESC');
+      expect(queries[0]!.args).toEqual(['acc-1', 'github.com/me/app']);
+    }
+  });
+
+  it('makes kind optional and asks for it when the repo has no earlier ticket', async () => {
+    const { client } = await connectAdvisor(() => [], { auth: { mode: 'local' } });
+    const tool = (await client.listTools()).tools.find((t) => t.name === 'create_ticket')!;
+    expect(tool.inputSchema.required ?? []).not.toContain('kind');
+    const res = await client.callTool({
+      name: 'create_ticket',
+      arguments: { title: 't', repo: 'acme/app', body: 'b', workflow_id: 'm1_basic' },
+    });
+    expect(res.isError).toBe(true);
+    expect(JSON.parse(textOf(res))).toMatchObject({
+      error: { code: 'bad_request', message: expect.stringContaining('kind') as string },
+    });
   });
 });

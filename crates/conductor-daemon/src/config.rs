@@ -105,8 +105,13 @@ pub struct DaemonConfig {
     pub end_grace_ms: u64,
     /// Grace passed to DriverSession.kill (SIGTERM → SIGKILL).
     pub kill_grace_ms: u64,
+    /// The commit identity agents use (`GIT_AUTHOR_*` / `GIT_COMMITTER_*`): see
+    /// [`resolve_git_identity`].
     pub git_name: String,
     pub git_email: String,
+    /// WF-T02: the identity fell back to `conductor <conductor@localhost>` (no env var and no
+    /// global git config for a field). Logged at startup and reported in the inventory.
+    pub git_identity_missing: bool,
     /// Clone absolute paths / `file://` repos (M1-T14). Default false; the E2E sets it.
     pub allow_local_repos: bool,
     /// When non-empty, only these remote repo hosts are cloned (M1-T14). Default: any host.
@@ -328,6 +333,9 @@ pub struct MachineFacts {
     pub mem_total_mb: u64,
     pub hostname: String,
     pub home: PathBuf,
+    /// `git config --global user.name` / `user.email` (WF-T02); only
+    /// [`machine_facts_with_git_identity`] reads it, [`machine_facts`] leaves it empty.
+    pub git_config: GitIdentity,
 }
 
 pub fn machine_facts() -> MachineFacts {
@@ -336,7 +344,81 @@ pub fn machine_facts() -> MachineFacts {
         mem_total_mb: machine::total_mem_bytes() / (1024 * 1024),
         hostname: machine::hostname(),
         home: machine::home_dir(),
+        git_config: GitIdentity::default(),
     }
+}
+
+/// [`machine_facts`] plus the global git identity: what `run` loads its config with. Kept out of
+/// [`machine_facts`], which also runs on every WS (re)connect, so a register never waits on two
+/// blocking git spawns.
+pub fn machine_facts_with_git_identity() -> MachineFacts {
+    MachineFacts {
+        git_config: read_global_git_identity(),
+        ..machine_facts()
+    }
+}
+
+/// A git identity as read from git config; a field is None when unset or empty.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GitIdentity {
+    pub name: Option<String>,
+    pub email: Option<String>,
+}
+
+/// The defaults used when neither the env nor git config gives a field.
+pub const FALLBACK_GIT_NAME: &str = "conductor";
+pub const FALLBACK_GIT_EMAIL: &str = "conductor@localhost";
+
+/// `git config --global --get <key>`, trimmed; None when git is missing, the key is unset or empty,
+/// or it takes longer than 5 s. Reads `$HOME/.gitconfig` (or `GIT_CONFIG_GLOBAL`, XDG) of this
+/// process, so a service with another HOME sees none.
+fn global_git_config(key: &str) -> Option<String> {
+    let opts = platform::spawn::CliOptions {
+        timeout: Some(std::time::Duration::from_secs(5)),
+        ..Default::default()
+    };
+    let args = ["config", "--global", "--get", key].map(String::from);
+    let out = platform::spawn::exec_file_cli_sync("git", &args, &opts).ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!v.is_empty()).then_some(v)
+}
+
+/// The machine owner's global git identity (WF-T02).
+pub fn read_global_git_identity() -> GitIdentity {
+    GitIdentity {
+        name: global_git_config("user.name"),
+        email: global_git_config("user.email"),
+    }
+}
+
+/// The commit identity, each field on its own: CONDUCTOR_GIT_NAME / CONDUCTOR_GIT_EMAIL when set,
+/// else the global git config, else `conductor` / `conductor@localhost`. The bool is true when
+/// either field fell back (a half identity still commits as conductor@localhost).
+pub fn resolve_git_identity(env: &Env, git: &GitIdentity) -> (String, String, bool) {
+    let pick = |var: &str, from_git: &Option<String>, fallback: &str| -> (String, bool) {
+        match raw(env, var).or(from_git.as_deref().filter(|s| !s.is_empty())) {
+            Some(v) => (v.to_string(), false),
+            None => (fallback.to_string(), true),
+        }
+    };
+    let (name, name_missing) = pick("CONDUCTOR_GIT_NAME", &git.name, FALLBACK_GIT_NAME);
+    let (email, email_missing) = pick("CONDUCTOR_GIT_EMAIL", &git.email, FALLBACK_GIT_EMAIL);
+    (name, email, name_missing || email_missing)
+}
+
+/// The startup warning when the identity fell back, else None.
+pub fn git_identity_warning(config: &DaemonConfig) -> Option<String> {
+    config.git_identity_missing.then(|| {
+        format!(
+            "WARNING: no git identity: set CONDUCTOR_GIT_NAME/CONDUCTOR_GIT_EMAIL or git config \
+             --global user.name/user.email, then restart the daemon; agent commits will be \
+             authored {} <{}>",
+            config.git_name, config.git_email
+        )
+    })
 }
 
 /// `<root>`: CONDUCTOR_ROOT, default `~/.conductor`.
@@ -451,6 +533,7 @@ pub fn load_config_with(
         range_size: u32::try_from(range_size).unwrap_or(u32::MAX),
     };
     let allow_local_repos = bool_or(env, "CONDUCTOR_ALLOW_LOCAL_REPOS", false)?;
+    let (git_name, git_email, git_identity_missing) = resolve_git_identity(env, &facts.git_config);
     let claude_config_dir = match raw(env, "CLAUDE_CONFIG_DIR") {
         Some(d) => platform::resolve(d),
         None => platform::resolve(facts.home.join(".claude")),
@@ -481,8 +564,9 @@ pub fn load_config_with(
         },
         end_grace_ms: 10_000,
         kill_grace_ms: 5_000,
-        git_name: str_or(env, "CONDUCTOR_GIT_NAME", "conductor"),
-        git_email: str_or(env, "CONDUCTOR_GIT_EMAIL", "conductor@localhost"),
+        git_name,
+        git_email,
+        git_identity_missing,
         allow_local_repos,
         allowed_repo_hosts: list(env, "CONDUCTOR_ALLOWED_REPO_HOSTS")
             .into_iter()
@@ -527,6 +611,7 @@ mod tests {
             mem_total_mb: 16384,
             hostname: "box".into(),
             home: PathBuf::from("/home/me"),
+            git_config: GitIdentity::default(),
         }
     }
 
@@ -637,6 +722,75 @@ mod tests {
                 .allow_local_repos
         );
         assert!(load(&[("CONDUCTOR_ALLOW_LOCAL_REPOS", "maybe")]).is_err());
+    }
+
+    // ------------------------------------------------------------------- WF-T02 git identity
+
+    fn with_git(name: Option<&str>, email: Option<&str>) -> MachineFacts {
+        MachineFacts {
+            git_config: GitIdentity {
+                name: name.map(String::from),
+                email: email.map(String::from),
+            },
+            ..facts()
+        }
+    }
+
+    fn load_git(pairs: &[(&str, &str)], f: &MachineFacts) -> DaemonConfig {
+        load_config_with(&env(pairs), f, local).unwrap()
+    }
+
+    #[test]
+    fn git_identity_env_wins() {
+        let c = load_git(
+            &[
+                ("CONDUCTOR_GIT_NAME", "Env Name"),
+                ("CONDUCTOR_GIT_EMAIL", "env@example.com"),
+            ],
+            &with_git(Some("Git Name"), Some("git@example.com")),
+        );
+        assert_eq!(c.git_name, "Env Name");
+        assert_eq!(c.git_email, "env@example.com");
+        assert!(!c.git_identity_missing);
+        assert_eq!(git_identity_warning(&c), None);
+    }
+
+    #[test]
+    fn git_identity_from_git_config_when_env_unset() {
+        let c = load_git(&[], &with_git(Some("Ben"), Some("ben@example.com")));
+        assert_eq!(
+            (c.git_name.as_str(), c.git_email.as_str()),
+            ("Ben", "ben@example.com")
+        );
+        assert!(!c.git_identity_missing);
+        // Each field on its own: env name + git-config email.
+        let m = load_git(
+            &[
+                ("CONDUCTOR_GIT_NAME", "Env Name"),
+                ("CONDUCTOR_GIT_EMAIL", ""),
+            ],
+            &with_git(None, Some("ben@example.com")),
+        );
+        assert_eq!(
+            (m.git_name.as_str(), m.git_email.as_str()),
+            ("Env Name", "ben@example.com")
+        );
+        assert!(!m.git_identity_missing);
+    }
+
+    #[test]
+    fn git_identity_falls_back_and_flags_missing() {
+        let c = load_git(&[], &facts());
+        assert_eq!(c.git_name, "conductor");
+        assert_eq!(c.git_email, "conductor@localhost");
+        assert!(c.git_identity_missing);
+        let w = git_identity_warning(&c).unwrap();
+        assert!(w.starts_with("WARNING: no git identity"), "{w}");
+        assert!(w.contains("conductor <conductor@localhost>"), "{w}");
+        // A half identity still commits as conductor@localhost.
+        let half = load_git(&[], &with_git(Some("Ben"), None));
+        assert_eq!(half.git_email, "conductor@localhost");
+        assert!(half.git_identity_missing);
     }
 
     // ------------------------------------------------------- credential.test.ts loadConfig + cred

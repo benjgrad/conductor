@@ -50,7 +50,7 @@ import {
 } from '../permissions/store.js';
 import { claimWork, LEASE_INTERVAL } from './claim.js';
 import { handleAssistantResult, onAssistantJobAck } from '../advisor/insights.js';
-import { hashSecret } from './enroll.js';
+import { authenticateMachine } from './auth.js';
 import { engineEventForSessionEvent } from './events.js';
 import { ingestAlert, ingestInventory } from './inventory.js';
 import type { MachineSockets } from './revoke.js';
@@ -255,16 +255,7 @@ class Gateway implements DaemonGateway {
 
   /** The live credential's machine and account, or null (unknown, revoked, revoked machine). */
   private async authenticate(credential: string): Promise<UpgradeAuth | null> {
-    const r = await this.db.query<{ machine_id: string; account_id: string }>(
-      `UPDATE machine_credential c SET last_used_at = now()
-         FROM machine m
-        WHERE c.secret_hash = $1 AND c.revoked_at IS NULL
-          AND m.id = c.machine_id AND m.revoked_at IS NULL
-        RETURNING c.machine_id, c.account_id`,
-      [hashSecret(credential)],
-    );
-    const row = r.rows[0];
-    return row ? { accountId: row.account_id, machineId: row.machine_id } : null;
+    return authenticateMachine(this.db, credential);
   }
 
   /** `revokeMachine`: close every connection of the machine, registered or not yet. */

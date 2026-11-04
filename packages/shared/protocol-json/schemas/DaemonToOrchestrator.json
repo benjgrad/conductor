@@ -774,6 +774,9 @@
         "hash": {
           "type": "string",
           "minLength": 1
+        },
+        "git_identity_missing": {
+          "type": "boolean"
         }
       },
       "required": [

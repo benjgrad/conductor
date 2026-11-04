@@ -48,6 +48,15 @@ describe('inventoryHash', () => {
       }),
     ).not.toBe(h);
   });
+
+  it('WF-T02: the payload carries git_identity_missing, which the hash ignores', () => {
+    const scan = { repos: [REPO], capabilities: [GH] };
+    const missing = inventoryPayload({ ...scan, gitIdentityMissing: true });
+    expect(missing.git_identity_missing).toBe(true);
+    expect(inventoryPayload(scan).git_identity_missing).toBe(false);
+    expect(missing.hash).toBe(inventoryHash(scan));
+    expect(InventoryPayloadSchema.parse(missing)).toEqual(missing);
+  });
 });
 
 describe('inventory log lines (why no tickets reach a machine)', () => {
@@ -228,6 +237,7 @@ describe('daemon inventory over the link (M2-T10)', () => {
       repos: [REPO],
       capabilities: [GH],
       hash: inventoryHash(scan),
+      git_identity_missing: false,
     });
     expect(orch.ofType('request_work')[0]!.payload.repos_digest).toBe(inv.payload.hash);
   });

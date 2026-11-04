@@ -157,6 +157,19 @@ export function matchGlob(glob, path) {
 }
 
 /**
+ * The newest of the merge-bases with `main` and `origin/main`: a stale local `main` (a worktree
+ * that never pulls it) would otherwise diff against an old base and run every tier.
+ * @param {string[]} bases
+ * @param {(a: string, b: string) => boolean} isAncestor  is `a` an ancestor of (or equal to) `b`?
+ * @returns {string} '' when there is none
+ */
+export function newestBase(bases, isAncestor) {
+  let newest = '';
+  for (const b of bases) if (!newest || isAncestor(newest, b)) newest = b;
+  return newest;
+}
+
+/**
  * Repo-relative paths that differ from the merge-base with main (or from `since`, when given), or
  * null when that can't be known. A lockfile change is translated (scripts/test-lockfile.js).
  * @param {string} cwd repo root
@@ -169,13 +182,25 @@ export function changedFiles(cwd, since) {
     execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   try {
     let base = since ? git(['rev-parse', '--verify', `${since}^{commit}`]).trim() : '';
-    for (const ref of since ? [] : ['main', 'origin/main']) {
-      try {
-        base = git(['merge-base', 'HEAD', ref]).trim();
-        if (base) break;
-      } catch {
-        // no such ref here: try the next
+    if (!since) {
+      /** @type {string[]} */
+      const bases = [];
+      for (const ref of ['main', 'origin/main']) {
+        try {
+          const b = git(['merge-base', 'HEAD', ref]).trim();
+          if (b) bases.push(b);
+        } catch {
+          // no such ref here: try the next
+        }
       }
+      base = newestBase(bases, (a, b) => {
+        try {
+          git(['merge-base', '--is-ancestor', a, b]);
+          return true;
+        } catch {
+          return false;
+        }
+      });
     }
     if (!base) return null;
     const out = [

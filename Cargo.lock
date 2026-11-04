@@ -381,6 +381,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "conductor-e2e-launcher"
+version = "0.0.0"
+dependencies = [
+ "tempfile",
+]
+
+[[package]]
 name = "conductor-protocol"
 version = "0.0.0"
 dependencies = [

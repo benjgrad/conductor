@@ -19,6 +19,7 @@ import { NO_OUTCOME_QUESTION } from '../packages/shared/src/index.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Api, BoardWatcher, OutputWatcher } from './harness/api.js';
 import { createFixtureRepo, failCounter, FAILURE_MARKER } from './harness/fixture-repo.js';
+import { findProcesses, killTree } from './harness/procs.js';
 import { FAKE_GH_URL_RE, REPO_ROOT, Stack, waitFor } from './harness/stack.js';
 
 const REAL = process.env.E2E_REAL_CLAUDE === '1';
@@ -792,13 +793,7 @@ describe.skipIf(REAL)('fake Claude', () => {
     // and the session stays in Needs input.
     const pids = pidsOf(claudeSessionId);
     expect(pids.length).toBeGreaterThan(0);
-    for (const pid of pids) {
-      try {
-        process.kill(pid, 'SIGKILL');
-      } catch {
-        // already gone
-      }
-    }
+    for (const pid of pids) killTree(pid);
     await waitFor(
       'the orchestrator to see the parked agent exit',
       async () =>
@@ -904,24 +899,12 @@ describe.runIf(REAL)('real Claude (haiku, E2E_REAL_CLAUDE=1; spends money)', () 
 
 /** Whether a process whose command line mentions `text` (e.g. a Claude session id) runs. */
 function running(text: string): boolean {
-  try {
-    execFileSync('pgrep', ['-f', text], { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false; // pgrep exits 1 when nothing matches
-  }
+  return pidsOf(text).length > 0;
 }
 
-/** The pids of the processes whose command line mentions `text`; [] when none. */
+/** The pids of the processes whose command line mentions `text`; [] when none (harness/procs). */
 function pidsOf(text: string): number[] {
-  try {
-    return execFileSync('pgrep', ['-f', text], { encoding: 'utf8' })
-      .split('\n')
-      .map((l) => Number(l.trim()))
-      .filter((n) => n > 0 && n !== process.pid);
-  } catch {
-    return []; // pgrep exits 1 when nothing matches
-  }
+  return findProcesses(text);
 }
 
 /** The fake's persisted state for every Claude session that ran the named scenario. */

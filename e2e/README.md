@@ -1,8 +1,9 @@
 # E2E suite (M1-T10)
 
-`pnpm test:e2e` runs `e2e/run.sh`: `scripts/db.sh up` (idempotent), `tsc -b` (builds the orchestrator
-bin), `cargo build --release -p conductor-daemon` (the Rust daemon, MR-T16), then
-`vitest run --config e2e/vitest.config.ts`. Four files, one stack (database, bins, fixture repo)
+`pnpm test:e2e` runs `scripts/e2e.js` (a node entry, MR-T16b): `scripts/db.sh up` (idempotent; not on
+Windows), `tsc -b` (builds the orchestrator bin), `cargo build --release -p conductor-daemon` (the
+Rust daemon, MR-T16; on Windows also `-p conductor-e2e-launcher`), then
+`vitest run --config e2e/vitest.config.ts` (extra args go to vitest). Four files, one stack (database, bins, fixture repo)
 each, run one after the other: `m1.e2e.test.ts` (M1, ADR-0007..0010), `m1b.e2e.test.ts` (ADR-0011
 transition rules), `advisor.e2e.test.ts` (ADR-0033 P3: the workflow advisor over MCP, findings →
 proposal → apply; its history is written to the database, its token minted there) and
@@ -18,11 +19,12 @@ A full run takes about 50 s with the fake Claude, plus about 30 s for the upgrad
 - **Daemon**: one real `conductor-daemon`, by default the Rust release binary
   (`target/release/conductor-daemon`, ADR-0026), started directly, with
   `CONDUCTOR_ALLOW_LOCAL_REPOS=1` and its root in the run's temp dir.
-  `CONDUCTOR_E2E_DAEMON_BIN=<path>` runs another daemon instead (relative to the repo root; run.sh
-  then skips the cargo build): a `.js`/`.mjs` path runs under Node, so
+  `CONDUCTOR_E2E_DAEMON_BIN=<path>` runs another daemon instead (relative to the repo root;
+  `scripts/e2e.js` then skips the daemon's cargo build): a `.js`/`.mjs` path runs under Node, so
   `CONDUCTOR_E2E_DAEMON_BIN=packages/daemon/dist/main.js pnpm test:e2e` runs the TS daemon (until
   MR-T18b). The stack prints which one it started (`e2e: rust daemon …`). `CONDUCTOR_CLAUDE_BIN` points
-  at a symlink to `packages/daemon/test/fixtures/fake-claude.mjs` inside that temp dir.
+  at a symlink to `packages/daemon/test/fixtures/fake-claude.mjs` inside that temp dir (on Windows,
+  a native launcher copy: see [Windows](#windows-mr-t16b)).
   CI (`scripts/ci.sh`) runs the debug `target/debug/conductor-daemon` that `cargo nextest` already
   built, not a release build (~10 min cold, shares nothing with the test build). On a PR it runs
   the suite only when the diff reaches the stack (`node scripts/ci-affected.js e2e`); `main`
@@ -73,6 +75,30 @@ which its tickets pin), so the conditions poll fast with no test-only knob.
 | 4. personal | a `kind: personal` ticket: Planning → Implementing → `done` (checks, `open_pr`, no review, no conditions) → Done, never Waiting external; its implementing prompt lists `personal_pr_ready_for_review`, not the work transitions |
 | 5. v1 regression | conductor v1's definition saved as the latest version, a ticket pins it, v2 is saved back; the pinned ticket runs the ADR-0010 path (unnamed `done`s, the `(entry)` step, `open_pr`, Waiting external, Approve, Done) with M1 move records |
 
+## Windows (MR-T16b)
+
+`daemon-rust.yml`'s `e2e-windows` job runs the same suite on `windows-latest` against the Rust
+daemon. What differs there:
+
+- **Postgres**: `scripts/db.sh` isn't used. The job starts the image's PostgreSQL service and sets
+  `DATABASE_URL`; locally, run any Postgres and set it.
+- **Native fakes**: the daemon runs only a native `claude.exe` (U-110), and a `.cmd` can't carry
+  `gh pr create`'s multi-line `--body`. So the stack copies the test-only launcher
+  (`target/release/conductor-e2e-launcher.exe`, `crates/conductor-e2e-launcher`) into the temp dir
+  as `bin/claude.exe` and `gh-bin/gh.exe`, each with a `<name>.launch` sidecar (node, then the
+  script: `fake-claude.mjs`, or the fake gh written as `gh.cjs`). The launcher passes its args,
+  stdio and exit code through. It is never shipped.
+- **The temp dir is made owner-only** (`harness/acl.ts`: `icacls /inheritance:r`, the user, SYSTEM and
+  Administrators). The daemon refuses to create its root under a folder that isn't private, and
+  only the home dir and `%LOCALAPPDATA%` are exempt; `%TEMP%\conductor-e2e-*` inherits its parent's.
+- **PATH** is joined with `path.delimiter`, and the parent's `Path` is replaced, not duplicated.
+- **Processes**: `harness/procs.ts` lists `Win32_Process` through PowerShell instead of `pgrep`,
+  matching the command line and every descendant of a match (the launcher's node child), and kills
+  with `taskkill /T /F`.
+- **Stopping the daemon** is TerminateProcess (Windows has no SIGTERM), so it gets no graceful
+  shutdown. Its Job Objects (KILL_ON_JOB_CLOSE) still take its Claude processes down, which is what
+  the shutdown scenario checks.
+
 Teardown stops the daemon (SIGTERM, which kills its Claude processes) and then the orchestrator.
 After that it kills anything still running from the temp dir, drops the database and removes the
 temp dir. When a test fails, the tail of each process log is printed.
@@ -92,7 +118,7 @@ does it. Linux and macOS only: it skips on Windows (MR-T16b) and when the releas
   only to a machine that has a clone of it. The claim still runs a local-path repo as local mode
   does, so each ticket is created as `github.com/benjgrad/fixture-app` and its stored repo is then
   pointed at the fixture repo in the database.
-- **The served build** is the release binary e2e/run.sh built, packed by
+- **The served build** is the release binary scripts/e2e.js built, packed by
   `packages/orchestrator/scripts/package-daemon.sh --verify` for the host target, with the binary's
   own `--version` as the served version. The tarball goes in the run's temp dir, set as the
   orchestrator's `CONDUCTOR_DOWNLOADS_DIR` (`stack.orchestratorEnv`).

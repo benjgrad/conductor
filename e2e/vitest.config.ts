@@ -4,7 +4,7 @@ import { parseEnv } from 'node:util';
 import { defineConfig } from 'vitest/config';
 
 // `pnpm test:e2e` (M1-T10). Separate from the unit/integration projects in the root
-// vitest.config.ts: it needs the built bins (e2e/run.sh runs `tsc -b` first) and a running
+// vitest.config.ts: it needs the built bins (scripts/e2e.js runs `tsc -b` first) and a running
 // Postgres (`pnpm db:up`). DATABASE_URL resolves like the root config: env > .env > .env.example.
 const root = new URL('..', import.meta.url);
 

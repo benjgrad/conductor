@@ -26,7 +26,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { BoardCard, TicketKind } from '../packages/shared/src/index.js';
 import { Api, ApiError, BoardWatcher } from './harness/api.js';
 import { createFixtureRepo, createPnpmFixtureRepo } from './harness/fixture-repo.js';
-import { FAKE_GH_URL_RE, REPO_ROOT, Stack, waitFor } from './harness/stack.js';
+import { FAKE_GH_URL_RE, REPO_ROOT, SETUP_TIMEOUT_MS, Stack, waitFor } from './harness/stack.js';
 
 const REAL = process.env.E2E_REAL_CLAUDE === '1';
 
@@ -214,10 +214,10 @@ beforeAll(async () => {
   board = new BoardWatcher(stack.baseUrl);
   fastVersion = (await api.saveWorkflow(CONDUCTOR_V2_FAST)).version;
   expect(fastVersion).toBe(5); // the seed's v1 … v4, then this
-  await waitFor('the daemon to register', async () =>
+  await stack.waitForDaemon(async () =>
     (await api.machines()).find((m) => m.id === stack.machineId && m.status === 'online'),
   );
-}, 60_000);
+}, SETUP_TIMEOUT_MS);
 
 afterAll(async () => {
   board?.close();

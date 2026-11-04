@@ -67,6 +67,10 @@ At every width, Repo is a free-text ARIA combobox (`components/RepoCombobox.tsx`
 - Focusing the field lists every repo, and typing filters them (a case-insensitive substring match, ranked order kept). Arrow keys move through the list, and Enter or a click picks a repo without submitting the form. Escape closes the list without closing the sheet.
 - After a create, the repo stays chosen and the list is fetched again.
 
+## Attachments
+
+The create form and the ticket editor have an attachment picker under the body (`components/AttachmentPicker.tsx`). It has an *Attach images or videos* button (the hidden file input accepts `ATTACHMENT_ACCEPT`), a drop zone (the whole picker), and paste: an image pasted into the body field is uploaded instead of pasted. Each file shows a thumbnail, its name, *uploading…* or the reason it was refused, and a Remove button. Create ticket / Save wait for uploads to finish (the sheet's hint says so). In the editor, existing attachments have Remove / Keep toggles, applied on Save. The gallery (`components/AttachmentGallery.tsx`) is a grid of 110 px tiles. A tile opens a full-screen lightbox, closed by Close, Escape or a click outside. Buttons keep the 44 px touch target, and names are ellipsized so nothing widens a 360 px page. Details: [06 §Attachments](06-human-input.md#attachments).
+
 ## Repo checks (ADR-0030)
 
 `#/repo-checks[/<repo>]` (`repo-checks/RepoChecksPage.tsx`), opened from the account menu at every width. It manages per-repo check overrides ([ADR-0030](../adr/0030-per-repo-checks-and-mcp-workflow-tools.md)) over `GET/PUT/DELETE /api/repo-checks`, the same functions as the MCP tools:

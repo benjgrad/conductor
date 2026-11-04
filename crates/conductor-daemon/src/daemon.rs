@@ -1149,6 +1149,7 @@ impl Core {
         m: &Meta,
         p: &StartSessionPayload,
     ) -> (PathBuf, Option<String>) {
+        // TD-214: nothing removes `<root>/artifacts/<session>/` yet.
         let dir = attachments::attachments_dir(&self.config.root_dir, &m.sid.to_string());
         let delivered = match attachments::http_base(&self.config.orchestrator_url) {
             None => p

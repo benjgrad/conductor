@@ -670,7 +670,7 @@ Absent (or invalid) `__working_copy`: no `working_copy` in the payload, the M1 c
 
 | Seam | File | Producer → consumers | Fixtures |
 |---|---|---|---|
-| `register.features?` (`DAEMON_FEATURES`, `DAEMON_FEATURE_ASSISTANT_JOB`), ≤ 20 names of ≤ 50 chars | `shared/src/protocol/ws.ts` | Rust daemon (MR-T12) → gateway `machine.features` | `ASSISTANT_WS_FIXTURES.register_with_features` |
+| `register.features?` (`DAEMON_FEATURES`, `DAEMON_FEATURE_ASSISTANT_JOB`; also `DAEMON_FEATURE_TICKET_ATTACHMENTS`, [§Attachments](#attachments)), ≤ 20 names of ≤ 50 chars | `shared/src/protocol/ws.ts` | Rust daemon (MR-T12) → gateway `machine.features` | `ASSISTANT_WS_FIXTURES.register_with_features` |
 | `assistant_job {command_id, job_id, kind, model, prompt, json_schema, transcript?, timeout_ms}` (`AssistantJobPayloadSchema`, `AssistantJobKindSchema`), `ASSISTANT_JOB_PROMPT_MAX` 64 KiB, `ASSISTANT_JOB_TRANSCRIPT_MAX_CHARS` 60 000, `ASSISTANT_JOB_TIMEOUT_MAX_MS` 120 s, `ASSISTANT_JOB_QUEUE_MAX` 4; outbox kind `assistant_job` (`NON_EFFECT_OUTBOX_KINDS`: never an engine Effect); `command_ack.reason` `light_slot_busy` | `shared/src/protocol/ws.ts`, `shared/src/domain.ts` | advisor scheduler (`orchestrator/src/advisor/insights.ts`) → Rust `claude/oneshot.rs` | `ORCHESTRATOR_FIXTURES.assistant_job`, `ASSISTANT_WS_FIXTURES.job_without_transcript` |
 | `assistant_result` (`AssistantResultPayloadSchema` = `AssistantResultOkSchema` \| `AssistantResultErrorSchema`, `AssistantJobErrorSchema`), `ASSISTANT_RESULT_DETAIL_MAX` 500; durable machine-level `seq` | `shared/src/protocol/ws.ts` | Rust daemon → gateway → `handleAssistantResult` | `DAEMON_FIXTURES.assistant_result`, `ASSISTANT_WS_FIXTURES.result_timeout` / `.result_malformed` |
 | `SessionInsightSchema` (v`SESSION_INSIGHT_SCHEMA_VERSION` 1, ≤ `SESSION_INSIGHT_MAX_BYTES` 4 KiB), `sessionInsightJsonSchema()`, `buildInsightPrompt(digest)` (≤ `INSIGHT_PROMPT_MAX_CHARS` 16 KiB), `insightFindings(insights)` (`INSIGHT_FINDING_RULES`; category `recurring_friction`) | `shared/src/advisor/insight.ts` | scheduler → job payload; gateway re-validation; MCP `list_findings` / `get_process_report` | unit-tested |
@@ -678,6 +678,25 @@ Absent (or invalid) `__working_copy`: no `working_copy` in the payload, the M1 c
 **The job.** The orchestrator owns the prompt and the schema; the daemon knows neither shape and passes `json_schema` to `claude --json-schema` verbatim. The ticket text, digest and transcript are data: the prompt says so before quoting them, and the daemon fences the transcript tail. A job's `outbox.payload.prompt` is nulled once the row is terminal (`SCRUBBED_PAYLOAD_SQL`).
 
 **Acks and results.** A refused ack (`light_slot_busy`, `unsupported`, …) or an ack timeout fails the job. An `assistant_result` is accepted only from the machine the job was sent to and only while the job is `queued` / `sent`; a duplicate is ignored. A `result` that fails `SessionInsightSchema` sets the job `dropped`. Nothing is retried: `assistant_job.idempotency_key` (`insight:<session_id>:<schema_version>`) is unique.
+
+## Attachments
+
+06 §[Attachments](06-human-input.md#attachments); tables [02 §attachment](02-data-model.md#attachment). Additive: no `PROTOCOL_VERSION` bump.
+
+| Seam | File | Producer → consumers |
+|---|---|---|
+| `ATTACHMENT_MIMES`, limits, `sniffMime`, `sanitizeAttachmentName`, `attachmentProblem`, `AttachmentDtoSchema` | `shared/src/api/attachments.ts` | orchestrator routes, web picker, mock |
+| `POST /api/attachments` (raw bytes, `content-type: application/octet-stream`, name in `x-conductor-filename`, URL-encoded) → 201 `AttachmentDto` (unlinked). 415 `attachment_type`, 413 `attachment_too_large` (also above the route's 50 MB body limit) | `orchestrator/src/api/attachments.ts` | web `uploadAttachment` |
+| `GET /api/attachments/:id/content` → the bytes, account-scoped (404 otherwise), with `content-type` = the sniffed type, `x-content-type-options: nosniff`, `content-security-policy: sandbox; default-src 'none'`, `content-disposition: inline`, `cache-control: private, max-age=31536000, immutable`. No Range support (TD-213) | same | web `<img>` / `<video>` |
+| `DELETE /api/attachments/:id` → OkResponse while unlinked; 409 `conflict` once linked (remove it with PATCH) | same | web picker (Remove) |
+| `CreateTicketRequest.attachment_ids?`, `UpdateTicketRequest.add_attachment_ids?` / `remove_attachment_ids?` (≤ 20 each; either counts as a change), `TicketDetail.attachments?`. Linking: 400 `bad_request` for an unknown, another account's or already linked id; 400 `attachment_limit` past 20 files or 200 MB per ticket; nothing is written | `shared/src/api/rest.ts`, `orchestrator/src/api/tickets.ts` | web create form, editor, panels |
+| `GET /api/daemon/attachments/:id/content`: no session cookie (`authHook` lets it through); password mode needs the machine credential (`authorization: Bearer`, `authenticateMachine`, `gateway/auth.ts`, shared with the WS upgrade; 401 otherwise) and the machine must hold a non-terminal session of the attachment's ticket (404 otherwise, so ids aren't confirmed). Local mode (loopback only): any non-terminal session of the ticket | `orchestrator/src/api/attachments.ts` | Rust `attachments::fetch_all` |
+| `start_session.attachments?: [{id, name, mime, size, sha256}]` (`AttachmentRefSchema`, ≤ 20; `mime` a plain string so a new type can't break an older daemon) | `shared/src/protocol/ws.ts` | `withStartAttachments` (`orchestrator/src/engine/attachments.ts`, when the start's outbox row is written) → Rust daemon. Fixture `M2_WS_FIXTURES.start_session_attachments` |
+| `register.features` `ticket_attachments` (`DAEMON_FEATURE_TICKET_ATTACHMENTS`) | `shared/src/protocol/ws.ts` | Rust daemon → `machine.features`. Without it the start carries no `attachments`; `attachmentsFallbackNote` is appended to `prompt` instead |
+
+**The daemon** (`crates/conductor-daemon/src/attachments.rs`): after the worktree and before the spawn (never under the state lock), within 60 s in total, each file is downloaded to `<root>/artifacts/<session>/attachments/<safe name>` (re-sanitized, de-duplicated with `-2`, `-3`…). The size must equal `size` (the read stops past it) and the sha256 must match; anything else leaves no file. A file already there with the right sha256 isn't fetched again. The prompt gets `attachments::prompt_block` (all files on a fresh conversation, `## New attachments` with only the newly fetched ones on a resume) and Claude gets `--add-dir <dir>` (`DriverStartOptions.add_dirs`). Failures are listed, never fatal. The directory isn't cleaned up yet (TD-214).
+
+**nginx** (`deploy/gradyserver`): `location = /api/attachments` takes `client_max_body_size 55m`; every other route keeps 4m.
 
 ## Web Push
 

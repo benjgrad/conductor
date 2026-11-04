@@ -68,7 +68,7 @@ describe('AttachmentPicker', () => {
       clipboardData: { files: [png('pasted.png')] },
     });
     await waitFor(() => expect(screen.getByLabelText('ids').textContent).not.toBe(''));
-    const id = screen.getByLabelText('ids').textContent!;
+    const id = screen.getByLabelText('ids').textContent;
     fireEvent.click(screen.getByRole('button', { name: 'Remove pasted.png' }));
     expect(screen.getByLabelText('ids').textContent).toBe('');
     await waitFor(() => expect(deleted).toEqual([id]));

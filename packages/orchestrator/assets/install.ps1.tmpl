@@ -1,5 +1,6 @@
 # conductor daemon installer for Windows (MW-T11; ADR-0024 section 7), served by the orchestrator
-# at /install.ps1 with its public URL, the daemon version and the tarball's SHA-256 filled in.
+# at /install.ps1 with its public URL, the daemon version and the Windows x64 tarball's name and
+# SHA-256 filled in (MR-T15: the native Rust daemon, x86_64-pc-windows-msvc).
 #
 #   $env:CONDUCTOR_ENROLL_TOKEN='<token>'; irm @@PUBLIC_URL@@/install.ps1 | iex
 #
@@ -7,8 +8,9 @@
 # it, writes <root>\bin\conductor-daemon.cmd and adds <root>\bin to the user PATH. With an
 # enrollment token (CONDUCTOR_ENROLL_TOKEN, removed as soon as it is read) it then enrolls this
 # machine; without one it upgrades in place and keeps <root>\machine.json. <root> is
-# $env:CONDUCTOR_ROOT, else ~\.conductor. It installs none of its prerequisites (Node.js 22+, Git
-# for Windows, the native claude.exe); it says what is missing. Starting at logon is MW-T10.
+# $env:CONDUCTOR_ROOT, else ~\.conductor. The daemon is a native binary: it needs no Node. It
+# installs none of its prerequisites (Git for Windows, the native claude.exe); it says what is
+# missing. Starting at logon is MR-T13b.
 #
 # It runs inside the caller's PowerShell (irm | iex), so everything is in one script block (its
 # variables and preferences stay local) and it never calls exit, which would close that window.
@@ -17,8 +19,8 @@
 & {
   $PublicUrl = '@@PUBLIC_URL@@'
   $Version = '@@VERSION@@'
-  $File = '@@FILE@@'
-  $Sha256 = '@@SHA256@@'
+  $File = '@@FILE_X86_64_PC_WINDOWS_MSVC@@'
+  $Sha256 = '@@SHA256_X86_64_PC_WINDOWS_MSVC@@'
 
   # Read the token first and take it out of the session, whatever happens next (TD-117).
   $token = $env:CONDUCTOR_ENROLL_TOKEN
@@ -85,19 +87,12 @@
     # The edit-guard hook can't carry these through cmd.exe or Git Bash (platform/hook.ts).
     if ($root -match '["%!^$`]') { Fail "the install root $root contains one of `"%!^`$``; set CONDUCTOR_ROOT to another folder" }
 
+    if (-not $File -or -not $Sha256) { Fail 'this orchestrator has no Windows conductor-daemon build' }
+    # Windows on ARM runs the x64 build under emulation (there is no ARM64 build).
+    if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { Write-Host 'Windows on ARM: installing the x64 build (it runs under emulation)' }
+
     # ---- prerequisites: list everything missing, then stop ----
     $missing = @()
-    $node = FindApp 'node'
-    if ($null -eq $node) {
-      $missing += 'Node.js 22 or newer is required (node is not on PATH): winget install OpenJS.NodeJS.LTS'
-    } else {
-      $nodeVersion = FirstLine $node.Source @('--version')
-      if ("$nodeVersion" -match '^v(\d+)\.') {
-        if ([int]$Matches[1] -lt 22) { $missing += "Node.js 22 or newer is required (found $nodeVersion)" }
-      } else {
-        $missing += "Node.js 22 or newer is required (node --version printed '$nodeVersion')"
-      }
-    }
     $git = FindApp 'git'
     if ($null -eq $git) {
       $missing += 'Git for Windows is required: winget install --id Git.Git -e'
@@ -169,9 +164,16 @@
         Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
         Fail "could not unpack $File"
       }
-      if (-not (Test-Path -LiteralPath (Join-Path $stage 'bin\conductor-daemon.cmd') -PathType Leaf)) {
+      foreach ($entry in @('bin\conductor-daemon.exe', 'bin\conductor-daemon.cmd')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $stage $entry) -PathType Leaf)) {
+          Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+          Fail "$File has no $entry"
+        }
+      }
+      # Before `current` moves: a binary this machine can't run stops here, the old version current.
+      if ($null -eq (FirstLine (Join-Path $stage 'bin\conductor-daemon.exe') @('--version'))) {
         Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
-        Fail "$File has no bin\conductor-daemon.cmd"
+        Fail "$File does not run on this machine; nothing changed"
       }
       $target = Join-Path $daemonDir $Version
       if (Test-Path -LiteralPath $target) {

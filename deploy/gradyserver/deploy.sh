@@ -5,7 +5,10 @@
 #   deploy/gradyserver/deploy.sh <git-ref> [--no-smoke]
 #
 # 1. resolves <git-ref> to a sha and streams `git archive` over ssh into
-#    ~/deploy/conductor/releases/<sha> (skipped if that release already exists);
+#    ~/deploy/conductor/releases/<sha> (skipped if that release already exists), then the Rust
+#    daemon tarballs from $CONDUCTOR_DAEMON_DIST into its daemon-dist/ (MR-T15). CI builds them:
+#    `gh run download <ci run of that sha> -p 'daemon-*' -D <dir>`, then
+#    CONDUCTOR_DAEMON_DIST=<dir> deploy/gradyserver/deploy.sh <sha>;
 # 2. creates ~/deploy/conductor/.env from env.example with a random POSTGRES_PASSWORD if it does
 #    not exist (mode 0600; never overwrites; a failed generation leaves no .env, and an existing
 #    .env without a non-empty POSTGRES_PASSWORD is refused before anything is touched);
@@ -22,7 +25,7 @@
 #    before nginx is installed).
 # Every step that fails prints its logs and what state the server is left in, and exits 1.
 #
-# Env: DEPLOY_SSH (bengrady4@gradyserver.com), DEPLOY_SSH_PORT (1024),
+# Env: CONDUCTOR_DAEMON_DIST (required), DEPLOY_SSH (bengrady4@gradyserver.com), DEPLOY_SSH_PORT (1024),
 #      DEPLOY_DIR (deploy/conductor, relative to the remote home), SMOKE_URL
 #      (https://conductor.gradyserver.com), DEPLOY_HEALTH_TIMEOUT (180 seconds, per wait).
 # SC2029: the ssh wrappers pass a command string built here for the server; that is the point.
@@ -71,6 +74,12 @@ remote_n() { ssh -n -p "$DEPLOY_SSH_PORT" "$DEPLOY_SSH" "$@"; }
 [[ "$DEPLOY_DIR" =~ ^[A-Za-z0-9._/-]+$ ]] || die "DEPLOY_DIR may only contain letters, digits, . _ / -"
 [[ "$DEPLOY_HEALTH_TIMEOUT" =~ ^[0-9]+$ ]] || die "DEPLOY_HEALTH_TIMEOUT must be a whole number of seconds"
 SHA="$(git rev-parse --verify "$REF^{commit}")" || die "cannot resolve git ref '$REF'"
+DIST="${CONDUCTOR_DAEMON_DIST:-}"
+[[ -n "$DIST" ]] || die "CONDUCTOR_DAEMON_DIST is not set: download the daemon tarballs CI built for ${SHA:0:7} \
+(gh run download <run-id> -p 'daemon-*' -D <dir>) and pass that dir"
+DIST_VERSION="$("$HERE/daemon-dist-check.sh" "$DIST")" || die "the daemon tarballs in $DIST are not usable"
+[[ "$DIST_VERSION" == *"+${SHA:0:7}" ]] ||
+  die "the daemon tarballs in $DIST are $DIST_VERSION, not built from ${SHA:0:7}"
 step "deploying $REF = $SHA to $DEPLOY_SSH:~/$DEPLOY_DIR"
 
 # Extract into <sha>.tmp and rename, so a half-copied release is never reused.
@@ -87,6 +96,16 @@ git archive --format=tar "$SHA" | remote "set -eu
     mv \"\$d.tmp\" \"\$d\"
     echo \"==> unpacked \$d\"
   fi" || die "upload of $SHA failed; nothing on the server was changed"
+
+step "uploading the daemon $DIST_VERSION tarballs"
+(cd "$DIST" && tar -cf - conductor-daemon-*.tgz conductor-daemon-*.tgz.sha256) | remote "set -eu
+  d=\"\$HOME/$DEPLOY_DIR/releases/$SHA\"
+  rm -rf \"\$d/daemon-dist.tmp\"
+  mkdir -p \"\$d/daemon-dist.tmp\"
+  tar -x -C \"\$d/daemon-dist.tmp\"
+  rm -rf \"\$d/daemon-dist\"
+  mv \"\$d/daemon-dist.tmp\" \"\$d/daemon-dist\"" ||
+  die "upload of the daemon tarballs failed; the running orchestrator was not touched"
 
 # The server half is a file in the uploaded release, run with remote_n (ssh -n): stdin is
 # /dev/null, so no command on the server (e.g. `docker compose run`) can read the script itself.

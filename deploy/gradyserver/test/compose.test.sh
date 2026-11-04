@@ -100,7 +100,12 @@ check "Dockerfile: frozen lockfile" has "$dockerfile" 'pnpm install --frozen-loc
 check "Dockerfile: pnpm build" has "$dockerfile" '^RUN pnpm build$'
 check "Dockerfile: prod deploy of the orchestrator" \
   has "$dockerfile" 'pnpm --filter @conductor/orchestrator --prod deploy'
-check "Dockerfile: daemon-tarball stage" has "$dockerfile" '^FROM [^ ]+ AS daemon-tarball$'
+check "Dockerfile: daemon-dist stage (MR-T15)" has "$dockerfile" '^FROM [^ ]+ AS daemon-dist$'
+check "Dockerfile: the daemon tarballs come from the build context's daemon-dist/" \
+  has "$dockerfile" '^COPY daemon-dist/ /out/downloads/$'
+check "Dockerfile: the runtime serves them from /app/downloads" \
+  has "$dockerfile" '^COPY --from=daemon-dist --chown=node:node /out/downloads /app/downloads$'
+check "Dockerfile: daemon-dist/ is not dockerignored" lacks "$(cat "$REPO/.dockerignore")" '^/?daemon-dist'
 check "Dockerfile: USER node" has "$dockerfile" '^USER node$'
 check "Dockerfile: EXPOSE 7400" has "$dockerfile" '^EXPOSE 7400$'
 check "Dockerfile: HEALTHCHECK on /healthz" has "$dockerfile" "fetch\('http://127\.0\.0\.1:7400/healthz'\)"

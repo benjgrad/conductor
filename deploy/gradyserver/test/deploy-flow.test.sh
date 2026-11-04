@@ -106,9 +106,15 @@ commit() {
 }
 
 # deploy [ENV=VALUE...]: runs deploy.sh HEAD --no-smoke; sets OUT and CODE.
+# The daemon tarballs default to a fake set built from HEAD (MR-T15); pass CONDUCTOR_DAEMON_DIST=…
+# to override.
 deploy() {
+  local head
+  head="$(g rev-parse HEAD)"
+  [[ -d "$T/dist/$head" ]] || make_dist "$T/dist/$head" "0.0.0+${head:0:7}"
   OUT="$(cd "$T/repo" && env PATH="$T/bin:$PATH" FAKE_HOME="$T/home" FAKE_STATE="$T/state" \
-    DEPLOY_HEALTH_TIMEOUT=5 "$@" deploy/gradyserver/deploy.sh HEAD --no-smoke 2>&1)"
+    DEPLOY_HEALTH_TIMEOUT=5 CONDUCTOR_DAEMON_DIST="$T/dist/$head" "$@" \
+    deploy/gradyserver/deploy.sh HEAD --no-smoke 2>&1)"
   CODE=$?
 }
 ROOT="$T/home/deploy/conductor"
@@ -183,6 +189,25 @@ c_orch="$(calls_line 'compose .* up -d --no-deps orchestrator$')"
 check "calls: build < postgres < migrate < orchestrator" \
   bash -c "[[ -n '$c_build' && '$c_build' -lt '$c_pg' && '$c_pg' -lt '$c_migrate' && '$c_migrate' -lt '$c_orch' ]]"
 password="$(grep '^POSTGRES_PASSWORD=' "$ROOT/.env")"
+check "good deploy: the daemon tarballs are in the release's daemon-dist" \
+  test "$(find "$ROOT/releases/$sha1/daemon-dist" -name 'conductor-daemon-*' | wc -l | tr -d ' ')" = 10
+check "good deploy: the daemon tarballs pass the check there" \
+  "$KIT/daemon-dist-check.sh" "$ROOT/releases/$sha1/daemon-dist"
+
+# 1b. No daemon tarballs, a missing target, or tarballs of another sha: refused before any upload.
+: >"$T/state/calls"
+sha_dist="$(commit dist)"
+make_dist "$T/dist-partial" "0.0.0+${sha_dist:0:7}" x86_64-unknown-linux-gnu
+make_dist "$T/dist-other" "0.0.0+0000000"
+for case in "unset:" "partial:$T/dist-partial" "other:$T/dist-other"; do
+  deploy CONDUCTOR_DAEMON_DIST="${case#*:}"
+  check "${case%%:*} dist: deploy exits 1 (got $CODE)" test "$CODE" -eq 1
+  check "${case%%:*} dist: nothing uploaded" test ! -e "$ROOT/releases/$sha_dist"
+  check "${case%%:*} dist: no docker call" test ! -s "$T/state/calls"
+  check "${case%%:*} dist: still on $sha1" test "$(readlink "$ROOT/current")" = "releases/$sha1"
+done
+deploy CONDUCTOR_DAEMON_DIST=
+check "unset dist: the hint names gh run download" has "$OUT" "gh run download"
 
 # 2. A failed migration leaves the old orchestrator and current untouched.
 : >"$T/state/calls"

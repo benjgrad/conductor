@@ -29,6 +29,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       rust: ${{ steps.affected.outputs.rust }}
+      dist: ${{ steps.affected.outputs.dist }}
     steps:
       # Full history: the base commit has to be here to diff against.
       - uses: actions/checkout@v4
@@ -47,16 +48,22 @@ jobs:
             *) base="" ;;
           esac
           rust=true
+          dist=true
           if [[ -n "$base" && ! "$base" =~ ^0+$ ]] && changed="$(git diff --name-only "$base" HEAD)"; then
             rust=false
+            dist=false
             while IFS= read -r f; do
               case "$f" in
                 crates/* | Cargo.toml | Cargo.lock | rust-toolchain.toml | packages/shared/* | \
-                  .github/workflows/daemon-rust.yml) rust=true ;;
+                  .github/workflows/daemon-rust.yml) rust=true dist=true ;;
+                # The release packaging (MR-T15): proven on the PR, before main deploys it.
+                .github/workflows/daemon-dist.yml | packages/orchestrator/scripts/package-daemon.sh | \
+                  packages/orchestrator/assets/conductor-daemon.cmd) dist=true ;;
               esac
             done <<<"$changed"
           fi
           echo "rust=$rust" >>"$GITHUB_OUTPUT"
+          echo "dist=$dist" >>"$GITHUB_OUTPUT"
           if [[ "$rust" != true ]]; then
             echo "::notice::nothing the Rust daemon is built or tested from changed; skipping"
           fi
@@ -102,3 +109,12 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo nextest run --workspace --locked
       - run: cargo build --workspace --release --locked
+
+  # The release tarballs for every target (MR-T15), on PRs only: on main, ci.yml builds them for
+  # the deploy. Proves each target still builds and packages before it ships.
+  dist:
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.dist == 'true'
+    uses: ./.github/workflows/daemon-dist.yml
+    with:
+      ref: ${{ github.event.pull_request.head.sha }}

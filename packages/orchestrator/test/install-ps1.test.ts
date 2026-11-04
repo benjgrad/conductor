@@ -176,7 +176,9 @@ describe.skipIf(process.platform !== 'win32')('install.ps1 (Windows PowerShell 5
   const fakeMainOptions = () => {
     const main = join(work, 'fake-main.cjs');
     if (!existsSync(main)) writeFileSync(main, FAKE_MAIN);
-    return `--require "${main}"`;
+    // Forward slashes: NODE_OPTIONS reads `\` inside double quotes as an escape, which would
+    // mangle a Windows path (node itself takes either separator).
+    return `--require "${main.replaceAll('\\', '/')}"`;
   };
 
   /** Run `command`, then print what the session looks like afterwards. */

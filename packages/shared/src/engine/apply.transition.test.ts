@@ -744,3 +744,66 @@ describe('prompts (conductor v2)', () => {
     ]);
   });
 });
+
+describe('notify: true on a transition (configurable notifications)', () => {
+  it('a named agent transition with notify records it on state_entered; without, nothing', () => {
+    const def = v2With((raw) => {
+      raw.states.planning.on.plan_ready.notify = true;
+    });
+    const r = take(planning('work', def), 'plan_ready', 'Done.', { plan: 'P', summary: 's' });
+    expect(find(r.effects, 'state_entered')).toMatchObject({
+      to: 'implementing',
+      transition: 'plan_ready',
+      notify: 'plan_ready',
+    });
+    const quiet = take(planning('work'), 'plan_ready', 'Done.', { plan: 'P', summary: 's' });
+    expect(find(quiet.effects, 'state_entered')).not.toHaveProperty('notify');
+  });
+
+  it('a human move with notify notifies; a fallback route never does', () => {
+    const def = v2With((raw) => {
+      raw.states.needs_input.on.waiting_on_someone.notify = true;
+    });
+    const snap = freshSnapshot(def);
+    snap.ticket = { ...snap.ticket, kind: 'work' };
+    const h = new Harness(def, snap).claimAndStart();
+    h.run({ type: 'agent.claude_session_id', claude_session_id: WORKER });
+    const asked = take(h, 'scope_changed', 'Split it?');
+    expect(find(asked.effects, 'state_entered')).not.toHaveProperty('notify');
+    const r = human(h, 'waiting_on_someone', 'Dana');
+    expect(find(r.effects, 'state_entered')).toMatchObject({
+      from: 'needs_input',
+      to: 'waiting_external',
+      actor: 'human',
+      notify: 'waiting_on_someone',
+    });
+  });
+
+  it('a move step: only the final entry notifies, never the step label or on_unmet', () => {
+    const def = v2With((raw) => {
+      const t: Record<string, any> = raw.states.implementing.on.ready_for_testing;
+      delete t.requires.conditions;
+      delete t.requires.condition_timeout;
+      delete t.requires.condition_poll;
+      t.notify = true;
+    });
+    const h = implementing('work', def);
+    let r = take(h, 'ready_for_testing', 'Ready.', { summary: 's' });
+    expect(find(r.effects, 'state_entered')).not.toHaveProperty('notify');
+    h.cmdExit(0);
+    r = h.cmdExit(1, 'FAIL');
+    // on_unmet back to implementing: not the transition the user flagged
+    expect(find(r.effects, 'state_entered')).toMatchObject({ to: 'implementing' });
+    expect(find(r.effects, 'state_entered')).not.toHaveProperty('notify');
+    h.started();
+    take(h, 'ready_for_testing', 'Fixed.', { summary: 's' });
+    h.cmdExit(0);
+    h.cmdExit(0);
+    r = action(h, { pr_url: PR });
+    expect(find(r.effects, 'state_entered')).toMatchObject({
+      to: 'waiting_external',
+      transition: 'ready_for_testing',
+      notify: 'ready_for_testing',
+    });
+  });
+});

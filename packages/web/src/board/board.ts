@@ -17,7 +17,26 @@ export interface BoardState {
   cards: ReadonlyMap<string, BoardCard>;
   /** Highest board event id applied; replayed events at or below it are dropped. */
   lastEventId: number;
+  /**
+   * The latest `transition.notified` events (a transition with `notify: true` was taken), oldest
+   * first, at most NOTICES_MAX. Absent ≡ none. The in-tab hook shows the new ones.
+   */
+  notices?: readonly TransitionNotice[] | undefined;
 }
+
+/** One `transition.notified` event, for the in-tab notification. `id`: the board event id. */
+export interface TransitionNotice {
+  id: number;
+  session_id: string;
+  ticket_id: string;
+  title: string;
+  body: string;
+  /** The same as the push's, so a pushed device's notification replaces it. */
+  tag: string;
+}
+
+/** How many notices BoardState keeps. */
+export const NOTICES_MAX = 20;
 
 /** Before the first GET /api/board: conductor v1's columns, no cards. */
 export const EMPTY_BOARD: BoardState = {
@@ -49,7 +68,7 @@ function patch(
 ): BoardState {
   const cards = new Map(state.cards);
   if (card) cards.set(card.ticket_id, { ...card, ...next });
-  return { columns: state.columns, cards, lastEventId: id };
+  return { ...state, cards, lastEventId: id };
 }
 
 /** Apply one board SSE event. Pure; returns `state` unchanged for an already-seen id. */
@@ -59,7 +78,7 @@ export function applyBoardEvent(state: BoardState, ev: BoardSseEvent): BoardStat
     case 'card.upserted': {
       const cards = new Map(state.cards);
       cards.set(ev.ticket_id, ev.card);
-      return { columns: state.columns, cards, lastEventId: ev.id };
+      return { ...state, cards, lastEventId: ev.id };
     }
     case 'card.moved':
       return patch(
@@ -104,6 +123,18 @@ export function applyBoardEvent(state: BoardState, ev: BoardSseEvent): BoardStat
       if (!card) return { ...state, lastEventId: ev.id };
       const others = card.badges.filter((b) => b !== ev.badge);
       return patch(state, card, { badges: ev.on ? [...others, ev.badge] : others }, ev.id);
+    }
+    case 'transition.notified': {
+      const notice: TransitionNotice = {
+        id: ev.id,
+        session_id: ev.session_id,
+        ticket_id: ev.ticket_id,
+        title: ev.title,
+        body: ev.body,
+        tag: ev.tag,
+      };
+      const notices = [...(state.notices ?? []), notice].slice(-NOTICES_MAX);
+      return { ...state, notices, lastEventId: ev.id };
     }
   }
 }

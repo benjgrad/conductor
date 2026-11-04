@@ -4,7 +4,8 @@
 # suite. Extra args go to vitest.
 #   CONDUCTOR_E2E_DAEMON_BIN=<path>    run another daemon instead of target/release/conductor-daemon
 #                                     (no cargo build), e.g. the TS one, packages/daemon/dist/main.js
-#                                     (built by tsc -b), until MR-T18b
+#                                     (built by tsc -b), until MR-T18b; scripts/ci.sh passes the
+#                                     debug target/debug/conductor-daemon nextest already built
 #   E2E_REAL_CLAUDE=1 pnpm test:e2e   the ask/answer scenario against the installed `claude` on
 #                                     haiku (spends money; never in CI)
 set -euo pipefail

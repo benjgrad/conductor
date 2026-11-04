@@ -19,9 +19,19 @@
 //! boots its own job out, [`stop_supervised_job`], with `ThrottleInterval` as a floor); 75 and any
 //! other failure restart under both.
 //!
-//! Windows has no service manager here yet (the Scheduled Task is MR-T13b, U-114): `service`
-//! refuses there with exit 2, as TS. Unit paths and PATH are always `/` and `:` (POSIX-only
-//! units), also when the pure renderers run on Windows.
+//! Unit paths and PATH are always `/` and `:` in the POSIX units, also when the pure renderers run
+//! on Windows.
+//!
+//! - Windows (MR-T13c): a per-user Scheduled Task, `conductor-daemon`, at this user's logon
+//!   (InteractiveToken, LeastPrivilege: no admin), defined by `<root>\service\conductor-daemon.task.xml`
+//!   (UTF-16, what `schtasks /XML` reads). It runs `<root>\bin\conductor-launch.ps1`
+//!   (`assets/conductor-launch.ps1`, U-114's stopgap) in a hidden PowerShell. Task Scheduler can't
+//!   exclude an exit code, so the restart policy lives in that launcher: 0 and 78 stop, 75 and
+//!   crashes restart. It sets `CONDUCTOR_SUPERVISED=schtasks` and `CONDUCTOR_ROOT`; PATH is the
+//!   user's own (a logon task gets it). Logs: `<root>\logs\daemon.log` (stderr; the previous run
+//!   in `daemon.log.1`), `daemon.out.log`, `launcher.log`. Stopping the task (`schtasks /End`,
+//!   restart, uninstall, logoff) is TerminateProcess: no console event reaches the daemon (U-108),
+//!   so a stop is never graceful (TD-190).
 
 use super::Output;
 use crate::config::{Env, root_dir_from};
@@ -36,6 +46,12 @@ pub const SYSTEMD_UNIT: &str = "conductor-daemon.service";
 /// The launcher (ADR-0021 §3), version-independent: it lives in `<root>/bin`.
 pub const LAUNCHER: &str = include_str!("../../assets/conductor-launch.sh");
 
+/// The Windows launcher (U-114 stopgap, MR-T13c): `<root>\bin\conductor-launch.ps1`.
+pub const LAUNCHER_PS1: &str = include_str!("../../assets/conductor-launch.ps1");
+
+/// The Scheduled Task's name (in the root folder of this user's tasks).
+pub const TASK_NAME: &str = "conductor-daemon";
+
 pub const SERVICE_USAGE: &str = "usage: conductor-daemon service install|uninstall|restart|status";
 
 /// The per-user service manager `service` drives.
@@ -43,14 +59,17 @@ pub const SERVICE_USAGE: &str = "usage: conductor-daemon service install|uninsta
 pub enum ServiceManager {
     Launchd,
     Systemd,
+    /// Windows Task Scheduler (`schtasks`).
+    ScheduledTask,
 }
 
-/// launchd on macOS, systemd --user on Linux, None elsewhere (win32 included), by Node platform
-/// name (`platform/service-manager.ts`).
+/// launchd on macOS, systemd --user on Linux, a Scheduled Task on Windows, None elsewhere, by
+/// Node platform name (`platform/service-manager.ts`).
 pub fn service_manager_for(node_platform: &str) -> Option<ServiceManager> {
     match node_platform {
         "darwin" => Some(ServiceManager::Launchd),
         "linux" => Some(ServiceManager::Systemd),
+        "win32" => Some(ServiceManager::ScheduledTask),
         _ => None,
     }
 }
@@ -92,11 +111,13 @@ pub fn run_tool(env: &Env, file: &str, args: &[String]) -> RunResult {
 
 /// What `service` needs from the machine; tests pass fakes (no launchctl or systemctl in CI).
 pub struct ServiceDeps<'a> {
-    /// launchd, systemd, or None where `service` isn't supported (win32).
+    /// launchd, systemd, a Scheduled Task, or None where `service` isn't supported.
     pub manager: Option<ServiceManager>,
     pub home: PathBuf,
     /// The user id (`gui/<uid>`); None on Windows (TS: -1).
     pub uid: Option<u32>,
+    /// The user's SID (the Scheduled Task's principal and logon trigger); None off Windows.
+    pub user_sid: Option<String>,
     pub env: &'a Env,
     /// Run a tool (argv, no shell).
     pub run: &'a mut dyn FnMut(&str, &[String]) -> RunResult,
@@ -237,6 +258,110 @@ WantedBy=default.target
     ))
 }
 
+/// What the Scheduled Task is rendered from (Windows paths, as strings).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskInputs {
+    pub root: String,
+    pub home: String,
+    /// The user's SID: the task runs as this user, at this user's logon only.
+    pub user_sid: String,
+}
+
+/// `<root>\bin\conductor-launch.ps1`.
+pub fn launcher_ps1_path(root: &str) -> String {
+    format!(
+        "{}\\bin\\conductor-launch.ps1",
+        root.trim_end_matches(['\\', '/'])
+    )
+}
+
+/// The Scheduled Task definition (Task Scheduler schema 1.2), for `schtasks /Create /XML`.
+///
+/// - A LogonTrigger and an InteractiveToken principal for this user's SID, `LeastPrivilege`: a
+///   standard user can register it, and it runs only while they are logged on.
+/// - `ExecutionTimeLimit PT0S`: the default (72 h) would kill the daemon after three days.
+/// - `IgnoreNew`: `/Run` on a running task does nothing.
+/// - `RestartOnFailure` is only a backstop for PowerShell failing to start: the launcher restarts
+///   the daemon itself (Task Scheduler can't tell 78 from a crash).
+/// - The host is `powershell.exe -WindowStyle Hidden`, not `conhost.exe --headless`: it is
+///   documented and on every supported Windows, at the cost of a brief console flash at logon.
+///   The daemon keeps a (hidden) console, so Ctrl-Break rescan still works.
+pub fn render_task_xml(t: &TaskInputs) -> Result<String, String> {
+    if t.root.contains('"') {
+        return Err(format!(
+            "cannot pass {} to powershell -File (it has a \")",
+            serde_json::to_string(&t.root).unwrap_or_default()
+        ));
+    }
+    let sid = xml(&t.user_sid);
+    let args = xml(&format!(
+        "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{}\"",
+        launcher_ps1_path(&t.root)
+    ));
+    let home = xml(&t.home);
+    Ok(format!(
+        r#"<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>conductor daemon. Written by conductor-daemon service install; re-run it rather than editing this task.</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>{sid}</UserId>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>{sid}</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>true</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>5</Priority>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>999</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>powershell.exe</Command>
+      <Arguments>{args}</Arguments>
+      <WorkingDirectory>{home}</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>
+"#
+    ))
+}
+
+/// UTF-16LE with a BOM: the encoding `schtasks /XML` reliably reads.
+pub fn utf16le_bom(s: &str) -> Vec<u8> {
+    let mut b = vec![0xFF, 0xFE];
+    for u in s.encode_utf16() {
+        b.extend_from_slice(&u.to_le_bytes());
+    }
+    b
+}
+
 /// The daemon's fatal-auth path (TD-119): under launchd, boot our own job out so KeepAlive doesn't
 /// restart a revoked machine. It loads again at the next login. systemd needs nothing. `start`
 /// launches the tool without waiting (MR-T13b passes a detached spawn).
@@ -257,8 +382,13 @@ fn exists(p: &str) -> bool {
 
 /// Write `content` (atomically, `mode`) unless the file already holds exactly it. True if written.
 fn write_if_changed(path: &str, content: &str, mode: u32) -> io::Result<bool> {
+    write_bytes_if_changed(path, content.as_bytes(), mode)
+}
+
+/// [`write_if_changed`] for bytes (the UTF-16 task XML).
+fn write_bytes_if_changed(path: &str, content: &[u8], mode: u32) -> io::Result<bool> {
     let p = Path::new(path);
-    if std::fs::read_to_string(p).is_ok_and(|c| c == content)
+    if std::fs::read(p).is_ok_and(|c| c == content)
         && posix_mode(p).is_none_or(|m| m & 0o777 == mode)
     {
         return Ok(false);
@@ -273,7 +403,7 @@ fn write_if_changed(path: &str, content: &str, mode: u32) -> io::Result<bool> {
             .write(true)
             .create_new(true)
             .open(&tmp)?;
-        f.write_all(content.as_bytes())?;
+        f.write_all(content)?;
         drop(f);
         set_posix_mode(Path::new(&tmp), mode)?;
         std::fs::rename(&tmp, p)
@@ -344,6 +474,16 @@ struct Ctx<'d, 'a> {
     d: &'d mut ServiceDeps<'a>,
     manager: ServiceManager,
     unit: String,
+    root: String,
+}
+
+/// `tasklist /FO CSV /NH` output → true if it lists `conductor-daemon.exe`.
+fn tasklist_has_daemon(stdout: &str) -> bool {
+    stdout.lines().any(|l| {
+        l.trim_start()
+            .to_ascii_lowercase()
+            .starts_with("\"conductor-daemon.exe\"")
+    })
 }
 
 impl Ctx<'_, '_> {
@@ -418,6 +558,7 @@ impl Ctx<'_, '_> {
         match self.manager {
             ServiceManager::Launchd => Ok(render_plist(u)),
             ServiceManager::Systemd => render_systemd_unit(u),
+            ServiceManager::ScheduledTask => unreachable!("install_task renders the task"),
         }
     }
 
@@ -425,6 +566,7 @@ impl Ctx<'_, '_> {
         match self.manager {
             ServiceManager::Launchd => log_path(root),
             ServiceManager::Systemd => "journalctl --user -u conductor-daemon".to_string(),
+            ServiceManager::ScheduledTask => task_log_path(root),
         }
     }
 
@@ -470,6 +612,7 @@ impl Ctx<'_, '_> {
                 ));
                 0
             }
+            ServiceManager::ScheduledTask => unreachable!("install_task activates the task"),
         }
     }
 
@@ -488,6 +631,18 @@ impl Ctx<'_, '_> {
                 }
                 remove_force(&unit)?;
                 self.ctl(&["daemon-reload"]);
+            }
+            ServiceManager::ScheduledTask => {
+                if self.task_registered() {
+                    self.schtasks(&["/End"]);
+                    self.stop_leftover();
+                    let r = self.schtasks(&["/Delete", "/F"]);
+                    if r.status != Some(0) {
+                        self.err(&format!("schtasks /Delete failed: {}", failed(&r)));
+                        return Ok(1);
+                    }
+                }
+                remove_force(&unit)?;
             }
         }
         self.out(&format!("conductor-daemon service removed ({unit})"));
@@ -515,6 +670,11 @@ impl Ctx<'_, '_> {
                 } else {
                     self.no_bus(&r)
                 }
+            }
+            ServiceManager::ScheduledTask => {
+                self.schtasks(&["/End"]);
+                self.stop_leftover();
+                self.task_run()
             }
         }
     }
@@ -557,10 +717,34 @@ impl Ctx<'_, '_> {
                 self.out(&format!("logs: {logs}"));
                 if state == "active" { 0 } else { 3 }
             }
+            ServiceManager::ScheduledTask => {
+                let r = self.run(
+                    "powershell.exe",
+                    &[
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-Command",
+                        &format!(
+                            "(Get-ScheduledTask -TaskName '{TASK_NAME}' -ErrorAction Stop).State"
+                        ),
+                    ],
+                );
+                let state = match (r.status, r.stdout.trim()) {
+                    (Some(0), s) if !s.is_empty() => s.to_string(),
+                    _ => "not registered".to_string(),
+                };
+                self.out(&format!("unit: {unit} ({installed})"));
+                self.out(&format!("state: {state}"));
+                self.out(&format!("logs: {}", task_log_path(root)));
+                if state == "Running" { 0 } else { 3 }
+            }
         }
     }
 
     fn install(&mut self, root: &str) -> Result<i32, String> {
+        if self.manager == ServiceManager::ScheduledTask {
+            return self.install_task(root);
+        }
         let daemon = join(&[root, "daemon", "current", "bin", "conductor-daemon"]);
         if !exists(&daemon) {
             self.err(&format!(
@@ -598,6 +782,126 @@ impl Ctx<'_, '_> {
     }
 }
 
+impl Ctx<'_, '_> {
+    // ---------------------------------------------------------------------------- Scheduled Task
+
+    /// `schtasks <verb> /TN conductor-daemon [rest…]`.
+    fn schtasks(&mut self, args: &[&str]) -> RunResult {
+        let mut a = vec![args[0], "/TN", TASK_NAME];
+        a.extend_from_slice(&args[1..]);
+        self.run("schtasks", &a)
+    }
+
+    fn task_registered(&mut self) -> bool {
+        self.schtasks(&["/Query"]).status == Some(0)
+    }
+
+    fn task_run(&mut self) -> i32 {
+        let r = self.schtasks(&["/Run"]);
+        if r.status != Some(0) {
+            self.err(&format!("schtasks /Run failed: {}", failed(&r)));
+            return 1;
+        }
+        0
+    }
+
+    /// After `/End`: kill the daemon the launcher started if it outlived the launcher, by the pid
+    /// the launcher wrote, only if that pid is still a `conductor-daemon.exe` (pids are reused).
+    /// Ungraceful, as `/End` itself (U-108, TD-190). Failures are ignored.
+    fn stop_leftover(&mut self) {
+        let pid_file = Path::new(&self.root).join("logs").join("daemon.pid");
+        let Some(pid) = std::fs::read_to_string(&pid_file)
+            .ok()
+            .and_then(|s| s.trim().parse::<u32>().ok())
+        else {
+            return;
+        };
+        let pid = pid.to_string();
+        let filter = format!("PID eq {pid}");
+        let r = self.run("tasklist", &["/FI", &filter, "/FO", "CSV", "/NH"]);
+        if r.status == Some(0) && tasklist_has_daemon(&r.stdout) {
+            self.run("taskkill", &["/PID", &pid, "/T", "/F"]);
+        }
+        let _ = std::fs::remove_file(&pid_file);
+    }
+
+    fn install_task(&mut self, root: &str) -> Result<i32, String> {
+        let r = Path::new(root);
+        let daemon = r
+            .join("daemon")
+            .join("current")
+            .join("bin")
+            .join("conductor-daemon.exe");
+        if !daemon.exists() {
+            self.err(&format!(
+                "{} is missing: install conductor with install.ps1 first (Machines → Add a machine)",
+                daemon.display()
+            ));
+            return Ok(1);
+        }
+        let Some(user_sid) = self.d.user_sid.clone() else {
+            self.err("cannot read your user SID, which the Scheduled Task runs as");
+            return Ok(1);
+        };
+        if !r.join(CREDENTIAL_FILE).exists() {
+            self.err(&format!(
+                "warning: {root} is not enrolled; the daemon will run in local mode until you enroll it"
+            ));
+        }
+        std::fs::create_dir_all(r.join("logs")).map_err(|e| e.to_string())?;
+        let launcher = r.join("bin").join("conductor-launch.ps1");
+        write_if_changed(&launcher.to_string_lossy(), LAUNCHER_PS1, 0o644)
+            .map_err(|e| e.to_string())?;
+        let content = render_task_xml(&TaskInputs {
+            root: root.to_string(),
+            home: self.d.home.to_string_lossy().into_owned(),
+            user_sid,
+        })?;
+        let unit = self.unit.clone();
+        let changed = write_bytes_if_changed(&unit, &utf16le_bom(&content), 0o644)
+            .map_err(|e| e.to_string())?;
+        let registered = self.task_registered();
+        if changed || !registered {
+            if registered {
+                // A running launcher keeps the old definition: stop it, so /Run starts the new one.
+                self.schtasks(&["/End"]);
+                self.stop_leftover();
+            }
+            let c = self.schtasks(&["/Create", "/XML", &unit, "/F"]);
+            if c.status != Some(0) {
+                self.err(&format!("schtasks /Create failed: {}", failed(&c)));
+                return Ok(1);
+            }
+            self.stop_leftover();
+        }
+        let code = self.task_run();
+        if code != 0 {
+            return Ok(code);
+        }
+        self.out(&format!("conductor-daemon service installed: {unit}"));
+        self.out(&format!("logs: {}", task_log_path(root)));
+        Ok(0)
+    }
+}
+
+/// `<root>/logs/daemon.log`, with the OS's separator (the Scheduled Task's daemon log).
+fn task_log_path(root: &str) -> String {
+    Path::new(root)
+        .join("logs")
+        .join("daemon.log")
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// `<root>/service/conductor-daemon.task.xml`, the Scheduled Task's definition.
+fn task_xml_path(root: &str) -> String {
+    Path::new(root)
+        .join("service")
+        .join("conductor-daemon.task.xml")
+        .to_string_lossy()
+        .into_owned()
+}
+
 fn remove_force(path: &str) -> io::Result<()> {
     match std::fs::remove_file(path) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
@@ -623,8 +927,14 @@ pub fn service_command(argv: &[String], d: &mut ServiceDeps<'_>) -> i32 {
     let unit = match manager {
         ServiceManager::Launchd => plist_path(&home),
         ServiceManager::Systemd => systemd_unit_path(&home),
+        ServiceManager::ScheduledTask => task_xml_path(&root),
     };
-    let mut ctx = Ctx { d, manager, unit };
+    let mut ctx = Ctx {
+        d,
+        manager,
+        unit,
+        root: root.clone(),
+    };
     let result = match sub {
         "install" => ctx.install(&root),
         "uninstall" => ctx.uninstall().map_err(|e| e.to_string()),
@@ -654,6 +964,7 @@ pub fn run_service_command(argv: &[String], env: &Env, io: &mut dyn Output) -> i
         manager: service_manager(),
         home: machine::home_dir(),
         uid: machine::current_uid(),
+        user_sid: crate::platform::acl::current_user_sid().ok(),
         env,
         run: &mut run,
         io,

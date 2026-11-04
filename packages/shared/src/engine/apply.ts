@@ -15,6 +15,7 @@ import {
   type AgentState,
   type EntryCheck,
   type RequirementsGate,
+  type Transition,
   type TransitionAction,
   type WorkflowDefinition,
   type WorkflowState,
@@ -589,6 +590,7 @@ function onHumanTransition(
     outcome: plan.name,
     info: { detail },
     move,
+    ...notifyFor(plan.name, plan.transition),
   });
   return null;
 }
@@ -965,6 +967,7 @@ function takeOutcome(
   const kind = opts.kind ?? kindForOutcome(outcome);
   const question = questionFor(from, outcome, kind, info);
   const move = opts.move !== undefined ? { move: opts.move } : {};
+  const notify = notifyFor(outcome, t);
   // Questions UX: only the agent's own question carries its options.
   const options =
     kind === 'agent_question' && info.options !== undefined ? { options: info.options } : {};
@@ -1024,6 +1027,7 @@ function takeOutcome(
       outcome,
       info,
       ...move,
+      ...notify,
     });
     return;
   }
@@ -1049,6 +1053,7 @@ function takeOutcome(
       outcome,
       info,
       ...move,
+      ...notify,
     });
     return;
   }
@@ -1065,6 +1070,7 @@ function takeOutcome(
       question: exhausted,
       outcome,
       info,
+      ...notify,
     });
   } else {
     toFallbackHuman(st, 'retries_exhausted', exhausted);
@@ -1398,6 +1404,8 @@ function passStep(st: Step): void {
     auditFrom: label,
     skipEntry: r.kind === 'entry',
     outcome: r.outcome,
+    // An entry step (or ADR-0009 review) ran for the transition `r.outcome` out of `r.from`.
+    ...notifyFor(r.outcome, onOf(st.def, r.from)?.[r.outcome]),
   });
 }
 
@@ -1430,6 +1438,7 @@ function passMove(st: Step, r: GateStep, label: string): void {
     auditFrom: label,
     outcome: name,
     move,
+    ...notifyFor(name, raw),
   });
 }
 
@@ -2289,6 +2298,17 @@ interface EnterOpts {
   move?: MoveRecord;
   /** U-068: no deadline in the target (a lost-machine park: parked time doesn't count). */
   noDeadline?: boolean;
+  /**
+   * The name of the transition that led here when it has `notify: true` (`notifyFor`): recorded
+   * as `state_entered.notify`. Lost when `enter` runs an entry step instead; `passStep` finds it
+   * again from the step's source state and outcome.
+   */
+  notify?: string;
+}
+
+/** `{notify: name}` when the transition `name` has `notify: true`, else `{}` (an EnterOpts part). */
+function notifyFor(name: string, t: Transition | undefined): { notify?: string } {
+  return t !== undefined && typeof t === 'object' && t.notify === true ? { notify: name } : {};
 }
 
 /** The ADR-0011 fields of a `state_entered` effect: only for a named transition (else legacy shape). */
@@ -2345,6 +2365,7 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
     to: target,
     visit,
     ...moveFields(opts.move),
+    ...(opts.notify !== undefined ? { notify: opts.notify } : {}),
   });
 
   // 10-contracts §Pending answer: cleared when apply enters a different state, unless this apply

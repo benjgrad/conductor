@@ -256,6 +256,36 @@ describe('transition arrows (ADR-0011)', () => {
     });
   });
 
+  it('"Notify me when this is taken" sets `notify: true`; unticking drops it', async () => {
+    const { saved } = await setup();
+    fireEvent.click(arrow('Planning', 'Implementing'));
+    const box = () =>
+      panel().getByRole<HTMLInputElement>('checkbox', { name: 'Notify me when this is taken' });
+    expect(box().checked).toBe(false);
+    fireEvent.click(box());
+    expect(box().checked).toBe(true);
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(onOf(saved[0]!, 'planning').plan_ready).toMatchObject({
+      goto: 'implementing',
+      notify: true,
+    });
+  });
+
+  it('ticking and unticking "Notify me" leaves no `notify` key', async () => {
+    const { saved } = await setup();
+    fireEvent.click(arrow('Planning', 'Implementing'));
+    const box = () =>
+      panel().getByRole<HTMLInputElement>('checkbox', { name: 'Notify me when this is taken' });
+    fireEvent.click(box());
+    fireEvent.click(box());
+    expect(box().checked).toBe(false);
+    type(panel().getByLabelText('Title'), 'Ready to build');
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect('notify' in (onOf(saved[0]!, 'planning').plan_ready as object)).toBe(false);
+  });
+
   it('ticking both kinds again drops `kinds`; none is a problem', async () => {
     const { saved } = await setup();
     fireEvent.click(arrow('Implementing', 'Waiting external'));

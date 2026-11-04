@@ -120,6 +120,19 @@ export const BOARD_SSE_FIXTURES: { [K in BoardSseEventType]: Extract<BoardSseEve
       badge: 'waiting_for_build_slot',
       on: true,
     },
+    'transition.notified': {
+      type: 'transition.notified',
+      id: 106,
+      ts,
+      session_id,
+      ticket_id: '0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2',
+      from: 'implementing',
+      to: 'in_review',
+      transition: 'pr_ready_for_review',
+      title: 'Add login page',
+      body: 'Pr ready for review: Implementing → In review',
+      tag: 'transition:4242',
+    },
   };
 
 // ---------------------------------------------------------------- ADR-0011 (M1b-T01)

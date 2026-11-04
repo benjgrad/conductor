@@ -162,6 +162,20 @@ describe('m1_basic: claim and implement (agent)', () => {
     });
   });
 
+  it('Questions UX: ask_user options go onto the input request; a no_outcome question has none', () => {
+    const options = { multi_select: false, items: [{ label: '8080' }, { label: '3000' }] };
+    const r = runningImplement().run({ type: 'agent.ask_user', question: 'Which port?', options });
+    expect(find(r.effects, 'create_input_request')).toEqual({
+      type: 'create_input_request',
+      kind: 'agent_question',
+      question: 'Which port?',
+      return_to: 'implement',
+      options,
+    });
+    const n = runningImplement().run({ type: 'agent.no_outcome', last_output: 'hm' });
+    expect(find(n.effects, 'create_input_request')).not.toHaveProperty('options');
+  });
+
   it('timer.fired at the deadline → needs_input (kind timeout)', () => {
     const h = runningImplement();
     const deadline = h.snap.state_deadline ?? '';

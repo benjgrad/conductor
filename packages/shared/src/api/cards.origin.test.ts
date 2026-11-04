@@ -105,3 +105,25 @@ describe('old payloads without the origin fields still parse (UX-4)', () => {
     );
   });
 });
+
+describe('toInputRequestDto options (Questions UX)', () => {
+  const options = {
+    multi_select: false,
+    items: [{ label: 'Postgres', description: 'recommended' }, { label: 'SQLite' }],
+  };
+
+  it('passes valid options through', () => {
+    const dto = toInputRequestDto({ ...row, options });
+    expect(dto.options).toEqual(options);
+    expect(InputRequestDtoSchema.parse(dto)).toEqual(dto);
+  });
+
+  it('leaves out absent, null and malformed options', () => {
+    expect(toInputRequestDto(row)).not.toHaveProperty('options');
+    expect(toInputRequestDto({ ...row, options: null })).not.toHaveProperty('options');
+    expect(
+      toInputRequestDto({ ...row, options: { multi_select: false, items: [{ label: 'a' }] } }),
+    ).not.toHaveProperty('options');
+    expect(toInputRequestDto({ ...row, options: 'nope' })).not.toHaveProperty('options');
+  });
+});

@@ -33,6 +33,7 @@ import {
 } from '../engine/types.js';
 import { QaResultSchema, QaVerdictSchema } from '../engine/qa.types.js';
 import { GitShaSchema, PR_FILES_MAX, PrFilePathSchema, PrUrlSchema } from '../protocol/actions.js';
+import { QuestionOptionsSchema } from '../protocol/question-options.js';
 import { QUEUED_COLUMN_ID, stateTitle, type BoardColumnInfo } from '../workflow/conductor.js';
 import { REPO_CHECKS_MAX } from '../workflow/repo-checks.js';
 import {
@@ -394,6 +395,11 @@ export const InputRequestDtoSchema = z.object({
    * failed. Absent ≡ false.
    */
   step_failed: z.boolean().optional(),
+  /**
+   * Questions UX (06 §Agent question options): the clickable choices the agent attached to its
+   * `ask_user` question. Absent or null ≡ none (type an answer).
+   */
+  options: QuestionOptionsSchema.nullable().optional(),
 });
 export type InputRequestDto = z.infer<typeof InputRequestDtoSchema>;
 
@@ -1475,6 +1481,8 @@ export interface InputRequestLike {
    */
   origin_transition?: string | null | undefined;
   origin_from?: string | null | undefined;
+  /** Questions UX: the `options` jsonb. Absent or null ≡ none; malformed ≡ none. */
+  options?: unknown;
 }
 
 /**
@@ -1507,6 +1515,10 @@ export function toInputRequestDto(row: InputRequestLike): InputRequestDto {
     answered_by: row.answered_by,
     answered_at: row.answered_at === null ? null : iso(row.answered_at),
   };
+  if (row.options !== undefined && row.options !== null) {
+    const parsed = QuestionOptionsSchema.safeParse(row.options);
+    if (parsed.success) dto.options = parsed.data;
+  }
   if (row.origin_transition === undefined && row.origin_from === undefined) return dto;
   const transition = row.origin_transition ?? null;
   const from = row.origin_from ?? null;

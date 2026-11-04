@@ -1300,6 +1300,40 @@
       "properties": {
         "question": {
           "type": "string"
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "multi_select": {
+              "type": "boolean"
+            },
+            "items": {
+              "minItems": 2,
+              "maxItems": 6,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 300
+                  }
+                },
+                "required": [
+                  "label"
+                ]
+              }
+            }
+          },
+          "required": [
+            "multi_select",
+            "items"
+          ]
         }
       },
       "required": [

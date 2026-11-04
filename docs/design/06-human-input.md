@@ -10,7 +10,7 @@ sequenceDiagram
   participant D as Daemon
   participant O as Orchestrator
   participant UI as Web UI
-  CC->>D: ask_user {question}          (structured tool, U-002)
+  CC->>D: ask_user {question, options?} (structured tool, U-002)
   D->>O: session_event ask_user (seq, token)
   O->>O: apply → state needs_input, status needs_input, INSERT input_request
   O-->>UI: SSE input.requested → card jumps to "Needs input"
@@ -31,6 +31,18 @@ sequenceDiagram
 - **Unmet requirements** ([ADR-0009](../adr/0009-transition-requirements-review.md), [05](05-workflow-engine.md#requirements-gates-adr-0009)). A gate's `on_unmet.else` is always a human state. It is entered with kind `retries_exhausted` and the question "Requirements for "implement" → "build" were not met after 3 reviews (retry limit 2):", one `- <item>: <reason>` line per unmet item, then "Retry, skip, or abort?". A review that produced no verdict uses `retries_exhausted` ("…produced no verdict (…)"), a review that timed out uses `timeout` ("…timed out (review timed out after 10m)"). No new kind: `input_request_kind` is a Postgres enum. `return_to` is the gate's source state, so an answer resumes the **worker's** Claude conversation with the answer (never the reviewer's); finishing that state goes through the gate again, and since the counter is already at its limit an unmet verdict comes straight back here. "Skip to <state>" bypasses the gate.
 - Answering is idempotent per `input_request_id`. A second answer to the same request is rejected.
 - `answered_by` records a UI user, or `slack:<id>` once Slack answering exists ([U-007](../tracking/UNKNOWNS.md)).
+
+## Agent question options
+
+An agent's `ask_user` may list the answers it expects, the way Claude Code's own question prompt does, so a human answers with one click instead of typing (Questions UX).
+
+- **Tool**: `ask_user({question, options?: [{label, description?}], multi_select?})`. The description tells the agent to list 2–6 short choices when the answer is one of a few, the recommended one first. Both daemons' outcome servers bound them (`boundedQuestionOptions` / `bounded_question_options`): 2–6 items, labels trimmed, 1–80 characters and unique, descriptions ≤ 300 (blank ones left out). An invalid list is **dropped** and the question still goes out: a bad option list never costs the agent its question.
+- **Path**: `session_event ask_user {question, options?}` → `agent.ask_user {question, options?}` → `create_input_request.options` (only on an `agent_question`; every generated question has none) → `input_request.options` jsonb ([02](02-data-model.md#input_request)) → `InputRequestDto.options` (malformed stored JSON is left out). Older daemons send none, older orchestrators strip them: the request is then a plain question.
+- **Answer**: the label, or for `multi_select` the labels in the agent's order joined with ", ". It is posted to `POST /sessions/:id/input` like a typed answer, so the live and the resume paths are unchanged. The human can always type something else instead.
+- **Panel** (`QuestionOptions.tsx`, inside the pending request): a numbered list, label in bold and description under it. A click answers at once; digits 1–6 pick while focus is in the list and ↑/↓ move between options. Multi-select shows checkboxes and **Submit (n)**. **Type a different answer** focuses the composer. The hint reads "Choose an option, or reply in the box below."
+- **Card** (`CardActions.tsx`): single select with at most 4 options shows one button per option (its description is the tooltip) in place of the human transition buttons; otherwise **Answer…** opens the panel.
+- **Permission prompts on the card**: a card whose agent waits on a permission prompt (`sub_status: needs_permission`) shows **Allow once**, **Deny** (no note) and **Review** (opens the panel, which has Allow always and the deny note) for the oldest pending request.
+- **Action needed**: every request that waits on a human in the panel (question, plan to approve, review, permission) leads with an "Action needed" label and a heavy left border, so it stands out from the chat.
 
 ## Live messages to a running agent
 
@@ -65,7 +77,7 @@ sequenceDiagram
 On a `done` or `failed` session the composer switches to **reopen** mode ([ADR-0008](../adr/0008-transcript-history-and-reopen.md)): the human types what to change ("Ask {agent} to change something…") and presses **Reopen**. `POST /api/sessions/:id/reopen {text}`:
 
 - creates a **new session** of the same ticket (the old one stays as it was: it is terminal, so the one-live-session-per-ticket index allows it). Allowed only for the ticket's **latest** session, and only `done` / `failed`; otherwise 409. A `lost` session can't be reopened: its machine went away, which is what the reaper's requeue is for, and its conversation and worktree live on that machine;
-- the new session is `queued` with the old session's **branch**, **context** and **Claude session id**, and the human's text as its pending answer (`pending_answer {input_request_id: null, answer: text}`). Retry counters, visits, spend, wall time and deadlines start fresh; the agent's name and avatar are per ticket, so the same agent comes back;
+- the new session is `queued` with the old session's **branch**, **context** and **Claude session id**, and the human's text as its pending answer (`pending_answer {input_request_id: null, answer: text}`). Retry counters, visits, spend, wall time and deadlines start fresh; the agent is stored on the ticket (`ticket.agent_id`, UX-13a) and the board shows that name, with an avatar seeded by it (UX-13b), so the same agent comes back;
 - the ticket goes back to `ready`; the claim runs it **only on the machine that ran that branch** (the worktree and Claude's transcript are there, [04](04-scheduler.md#2--claim-query-ticket-side)). Its `session.assigned` enters the workflow's start state and `start_session` **resumes the same Claude conversation** (`--resume <id>`) with the text as the prompt, as an answer's resume does ([10](10-contracts.md#pending-answer)); then build → test → done as usual;
 - the daemon reuses the old session's worktree (the branch is still checked out there), so the files, uncommitted ones included, are the same;
 - the panel switches to the new session. The text shows in its Messages as a `user` chunk.
@@ -111,7 +123,7 @@ While any conductor tab is open, the page tells Ben when an agent needs input (`
 - While the agent runs: a message box for [live messages](#live-messages-to-a-running-agent) (`/...` slash commands included); sent messages show in the output as `user` chunks.
 - On a done / failed session: the same box [reopens](#reopening-a-finished-ticket) the ticket with the same agent; `/help` says so.
 - An empty ring loads the [history from Claude's transcript](#message-history-after-a-restart).
-- The pending input request with an answer box. The answer box stays on every version: it answers the question and returns to the asking state (`$return_to`).
+- The pending input request with an answer box, and the agent's clickable options when it gave any ([§Agent question options](#agent-question-options)). The answer box stays on every version: it answers the question and returns to the asking state (`$return_to`).
 - **Start fresh conversation…** (`POST /api/sessions/:id/fresh-conversation`, [10 §Fresh conversation](10-contracts.md#fresh-conversation)), on the pending request while the session is `needs_input` in a human state whose `return_to` is an agent state. It opens a required text box (nothing pre-filled) with the help text "The agent starts over with its instructions and your message, without its earlier chat. Use this when it can't resume (e.g. it moved to another machine or keeps failing on start)." On a failure (kind `retries_exhausted`, or a `step_failed` request) it is the first action, highlighted: those are the stuck cases; on any other request it is a secondary action at the end. Not on review requests. The in-app help (`/help/add-a-machine`, "Stuck agent?") explains Retry vs a fresh conversation.
 - A **Plan to approve** request gets its own panel ([§Plan approval](#plan-approval)); while it shows, the generic transition buttons are hidden.
 - ADR-0011: the card's human transition buttons (as on the card) sit above the message box. On an **old version** (`human_transitions` is empty) non-agent kinds keep the M1 quick actions (retry, skip to…, abort) and `/retry`; a version with human transitions doesn't show them.

@@ -1,7 +1,7 @@
 import type { BoardCard } from '@conductor/shared';
 import { useEffect, useRef } from 'react';
 import { EMPTY_BOARD, type BoardState } from '../board/board.js';
-import { agentName } from '../components/agent-identity.js';
+import { cardAgent } from '../components/agent-identity.js';
 import { setFaviconDot } from './favicon.js';
 import { mayNotifyInTab, showInTab, type Close } from './show.js';
 
@@ -81,7 +81,7 @@ function notify(card: BoardCard, select: (sessionId: string) => void): Close | n
   const sessionId = card.session_id;
   if (!request || sessionId === null || !mayNotifyInTab()) return null;
   return showInTab({
-    title: `${agentName(card.ticket_id)} needs input`,
+    title: `${cardAgent(card).name} needs input`,
     body: clip(`${card.title}: ${request.question}`),
     tag: request.id,
     ticketId: card.ticket_id,

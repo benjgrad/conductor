@@ -4,14 +4,19 @@
 // Plan, Edit) whose buttons open sheets over the chat (TicketStrip.tsx, 11-web-ui §Phone layout);
 // Details tells the ticket's story in STAR order (UX-7, StarDetails.tsx), with who runs it and
 // where, the workflow, spend and the context under Technical details.
-import type { HumanTransitionOption, InputRequestDto, SessionDetail } from '@conductor/shared';
+import type {
+  BoardCard,
+  HumanTransitionOption,
+  InputRequestDto,
+  SessionDetail,
+} from '@conductor/shared';
 import { ArrowLeft } from 'lucide-react';
 import { useCallback, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { useInitialPrompt, useSession } from '../board/hooks.js';
 import { parseBrief } from '../brief/parse.js';
 import { ticketBodyFromPrompt } from '../brief/prompt.js';
-import { AgentAvatar, agentName } from './agent-identity.js';
+import { AgentAvatar, cardAgent } from './agent-identity.js';
 import { BriefCard } from './BriefCard.js';
 import { Composer } from './Composer.js';
 import {
@@ -26,6 +31,7 @@ import { FreshConversation, freshConversationOffer } from './FreshConversation.j
 import { Markdown } from './markdown.js';
 import { OutputLog } from './OutputLog.js';
 import { PermissionRequests } from './PermissionRequests.js';
+import { QuestionOptions } from './QuestionOptions.js';
 import { PlanApprovalRequest } from './PlanApprovalRequest.js';
 import { ProposedTickets, visibleProposals } from './ProposedTickets.js';
 import { classifyRequest, lastMoveTransition, planAnswerOption } from './request-preview.js';
@@ -39,8 +45,8 @@ import { displayState } from '../workflow/review.js';
 interface DetailPanelProps {
   api: ApiClient;
   sessionId: string;
-  /** The card's ticket, for the agent identity before the detail loads (else card.ticket_id). */
-  ticketId?: string;
+  /** The board card, for the agent identity before the detail loads (else `detail.card`). */
+  card?: BoardCard;
   /** The card's updated_at on the board: a change refetches the detail. */
   version: string;
   onClose: () => void;
@@ -61,7 +67,7 @@ const TABS: readonly { id: PanelTab; label: string }[] = [
 export function DetailPanel({
   api,
   sessionId,
-  ticketId,
+  card,
   version,
   onClose,
   fullScreen = false,
@@ -78,9 +84,12 @@ export function DetailPanel({
     [sessionId],
   );
   const openPlan = useCallback(() => onSheet('plan'), [onSheet]);
-  // Identity is per ticket (Ben): the same agent across a ticket's retries and resumes.
-  const agentKey = detail?.card.ticket_id ?? ticketId ?? null;
-  const name = agentKey ? agentName(agentKey) : '';
+  // UX-13b: the ticket's stored teammate (kept across retries and resumes); the board card's
+  // until the detail loads.
+  const agent = detail ? cardAgent(detail.card, detail.agent_name) : card ? cardAgent(card) : null;
+  const name = agent?.name ?? '';
+  // In prose ("Message …"), an unassigned ticket's agent is just "the agent".
+  const proseName = agent && agent.seed !== null ? agent.name : 'the agent';
   const ids = useId();
   const tabRefs = useRef<Partial<Record<PanelTab, HTMLButtonElement | null>>>({});
   const status = detail?.card.status ?? null;
@@ -133,9 +142,9 @@ export function DetailPanel({
             <ArrowLeft size={20} aria-hidden="true" />
           </button>
         )}
-        {agentKey ? (
+        {agent ? (
           <AgentAvatar
-            ticketId={agentKey}
+            seed={agent.seed}
             size={fullScreen ? 28 : 36}
             {...(detail && agentIdle(detail.card) ? { className: 'avatar-idle' } : {})}
           />
@@ -327,7 +336,7 @@ export function DetailPanel({
             <Composer
               api={api}
               detail={detail}
-              agentName={name}
+              agentName={proseName}
               onDone={reload}
               {...(onSelectSession ? { onReopened: onSelectSession } : {})}
               onShowDetails={() => {
@@ -409,6 +418,11 @@ interface PendingInputProps {
   onDone: () => void;
 }
 
+/** Questions UX: "Type a different answer" puts the cursor in this panel's composer. */
+function focusComposer(): void {
+  document.querySelector<HTMLTextAreaElement>('aside.detail .composer textarea')?.focus();
+}
+
 /**
  * The open input request, inline at the end of the chat. The composer answers it; on old
  * versions, non-agent kinds also get the quick actions (06): retry, skip to…, abort.
@@ -464,6 +478,7 @@ function PendingInput({ api, detail, agent, request, onDone }: PendingInputProps
   return (
     <section aria-label="Pending input" className="pending">
       <div className="pending-head">
+        <span className="action-needed">Action needed</span>
         {stepFailed ? (
           <span className="badge badge-step-failed">Step failed</span>
         ) : (
@@ -484,7 +499,24 @@ function PendingInput({ api, detail, agent, request, onDone }: PendingInputProps
         <Markdown text={request.question} />
       </div>
       {offer === 'prominent' && fresh}
-      <p className="pending-hint muted">Reply in the box below to answer.</p>
+      {/* Questions UX: the agent's choices, clickable; typing an answer still works. */}
+      {request.options && (
+        <QuestionOptions
+          options={request.options}
+          disabled={busy}
+          onAnswer={(text) =>
+            api
+              .answer(sessionId, { input_request_id: request.id, answer: text })
+              .then(() => onDone())
+          }
+          onTypeInstead={focusComposer}
+        />
+      )}
+      <p className="pending-hint muted">
+        {request.options
+          ? 'Choose an option, or reply in the box below.'
+          : 'Reply in the box below to answer.'}
+      </p>
       {!fromAgent && isOldVersion(detail) && (
         <div className="quick-actions" role="group" aria-label="Quick actions">
           <button type="button" disabled={busy} onClick={() => void send('retry')}>

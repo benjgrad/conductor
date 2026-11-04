@@ -127,12 +127,21 @@ async fn run_registers_and_exits_0_on_sigterm() {
     let t = tempfile::tempdir().unwrap();
     let child = run_daemon_cmd(t.path(), &orch.url()).spawn().unwrap();
     let pid = nix::unistd::Pid::from_raw(child.id() as i32);
-    orch.until(
-        || orch.of_type("register").into_iter().next(),
-        Some(std::time::Duration::from_secs(20)),
-    )
-    .await
-    .unwrap();
+    let register = orch
+        .until(
+            || orch.of_type("register").into_iter().next(),
+            Some(std::time::Duration::from_secs(20)),
+        )
+        .await
+        .unwrap();
+    // ADR-0033 P2: the binary advertises the assistant job (the workflow advisor's insights).
+    let register = serde_json::to_value(&register).unwrap();
+    let payload = register.get("payload").unwrap_or(&register);
+    assert_eq!(
+        payload["features"],
+        serde_json::json!(["assistant_job"]),
+        "{register}"
+    );
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM).unwrap();
     let (code, stderr) = exit_of(child).await;
     assert_eq!(code, Some(0), "{stderr}");

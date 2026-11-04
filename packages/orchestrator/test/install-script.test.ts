@@ -1,13 +1,16 @@
 // M2-T14: the rendered /install.sh, run with `sh` the way `curl … | sh -s -- …` runs it, against a
-// local orchestrator serving a small fake daemon tarball. HOME and --root are temp dirs; node,
-// git and claude are fakes on PATH; the fake conductor-daemon records each call (TD-117: the
-// token must arrive in CONDUCTOR_ENROLL_TOKEN, never in argv). M2-T18: the tarball's
-// assets/conductor-launch.sh lands byte-identical in <root>/bin/conductor-launch.
+// local orchestrator serving small fake daemon tarballs, one per target (MR-T15). HOME and --root
+// are temp dirs; git, claude, uname and sysctl are fakes on PATH, next to a toolbox of the real
+// tools the script needs and no node (the native daemon needs none); the fake conductor-daemon
+// records each call (TD-117: the token must arrive in CONDUCTOR_ENROLL_TOKEN, never in argv).
+// M2-T18: the tarball's assets/conductor-launch.sh lands byte-identical in
+// <root>/bin/conductor-launch.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -15,6 +18,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -24,54 +28,101 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { API_PATHS, EnrollRequestSchema } from '@conductor/shared';
-import { findDaemonBuild, serveDistribution } from '../src/distribution.js';
+import {
+  DAEMON_TARGETS,
+  findDaemonDist,
+  serveDistribution,
+  type DaemonTarget,
+} from '../src/distribution.js';
 
-const hasCmd = (c: string) =>
-  spawnSync('sh', ['-c', `command -v ${c}`], { env: { PATH: '/usr/bin:/bin' } }).status === 0;
+const SYSTEM_PATH = '/usr/bin:/bin:/usr/sbin:/sbin';
+const whichCmd = (c: string) => {
+  const r = spawnSync('sh', ['-c', `command -v ${c}`], {
+    env: { PATH: SYSTEM_PATH },
+    encoding: 'utf8',
+  });
+  return r.status === 0 ? r.stdout.trim() : null;
+};
+const hasCmd = (c: string) => whichCmd(c) !== null;
 const runnable =
-  ['curl', 'tar', 'mktemp'].every(hasCmd) && (hasCmd('shasum') || hasCmd('sha256sum'));
+  ['sh', 'curl', 'tar', 'mktemp', 'cut'].every(hasCmd) && (hasCmd('shasum') || hasCmd('sha256sum'));
+/** The real tools install.sh (and the fake daemon) use; no node among them. */
+const TOOLS = [
+  'sh',
+  'curl',
+  'tar',
+  'gzip',
+  'mktemp',
+  'shasum',
+  'sha256sum',
+  'cut',
+  'rm',
+  'mkdir',
+  'chmod',
+  'mv',
+  'ln',
+  'cp',
+  'cat',
+  'env',
+  'dirname',
+  'perl',
+];
+const HOST = 'x86_64-unknown-linux-gnu';
 
 const TOKEN = 'enroll-tok-3f9a1c2b';
 const V1 = '0.0.0+aaaaaaa';
 const V2 = '0.0.0+bbbbbbb';
 const V3 = '0.0.0+ccccccc';
 
-/** The fake daemon: records `argv|token|root` per call; `enroll` writes machine.json. */
+/**
+ * The fake daemon: `--version` answers (install.sh runs it before switching `current`) and is not
+ * recorded; every other call records `argv|token|root`; `enroll` writes machine.json.
+ */
 const FAKE_DAEMON = `#!/bin/sh
+[ "$1" = --version ] && { echo fake; exit 0; }
 printf '%s|%s|%s\\n' "$*" "\${CONDUCTOR_ENROLL_TOKEN-<unset>}" "\${CONDUCTOR_ROOT-<unset>}" >>"$CALLS_LOG"
 if [ "$1" = enroll ]; then
   printf '{"machine_id":"m-1","credential":"secret"}\\n' >"$CONDUCTOR_ROOT/machine.json"
 fi
 `;
+/** A daemon this machine can't run: its `--version` fails. */
+const BROKEN_DAEMON = '#!/bin/sh\nexit 126\n';
 
 let work: string;
 
-/** The launcher every install writes (the daemon package's asset; `service install` writes it too). */
-const LAUNCHER = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  '../../daemon/assets/conductor-launch.sh',
-);
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+/** The launcher every install writes (the daemon's asset; `service install` writes it too). */
+const LAUNCHER = join(REPO, 'crates', 'conductor-daemon', 'assets', 'conductor-launch.sh');
 
-/** Build a downloads dir with a fake tarball for `version`. */
-function buildDownloads(version: string, opts: { launcher?: boolean } = {}): string {
-  const pkg = join(work, `pkg-${version}`);
-  mkdirSync(join(pkg, 'bin'), { recursive: true });
-  writeFileSync(join(pkg, 'bin', 'conductor-daemon'), FAKE_DAEMON);
-  chmodSync(join(pkg, 'bin', 'conductor-daemon'), 0o755);
-  if (opts.launcher ?? true) {
-    mkdirSync(join(pkg, 'assets'), { recursive: true });
-    writeFileSync(join(pkg, 'assets', 'conductor-launch.sh'), readFileSync(LAUNCHER));
+interface BuildOpts {
+  launcher?: boolean;
+  /** The targets to build (default all); each tarball's TARGET file names its own. */
+  targets?: readonly DaemonTarget[];
+  broken?: boolean;
+}
+
+/** Build a downloads dir with a fake tarball per target for `version`. */
+function buildDownloads(version: string, opts: BuildOpts = {}): string {
+  const dir = mkdtempSync(join(work, `downloads-${version}-`));
+  for (const target of opts.targets ?? DAEMON_TARGETS) {
+    const pkg = mkdtempSync(join(work, `pkg-${version}-${target}-`));
+    mkdirSync(join(pkg, 'bin'), { recursive: true });
+    writeFileSync(join(pkg, 'bin', 'conductor-daemon'), opts.broken ? BROKEN_DAEMON : FAKE_DAEMON);
+    chmodSync(join(pkg, 'bin', 'conductor-daemon'), 0o755);
+    if (opts.launcher ?? true) {
+      mkdirSync(join(pkg, 'assets'), { recursive: true });
+      writeFileSync(join(pkg, 'assets', 'conductor-launch.sh'), readFileSync(LAUNCHER));
+    }
+    writeFileSync(join(pkg, 'VERSION'), version);
+    writeFileSync(join(pkg, 'TARGET'), target);
+    const file = `conductor-daemon-${version}-${target}.tgz`;
+    const tar = spawnSync('tar', ['-C', pkg, '-czf', join(dir, file), '.']);
+    expect(tar.status, tar.stderr.toString()).toBe(0);
+    const hex = createHash('sha256')
+      .update(readFileSync(join(dir, file)))
+      .digest('hex');
+    writeFileSync(join(dir, `${file}.sha256`), `${hex}  ${file}\n`);
   }
-  writeFileSync(join(pkg, 'VERSION'), version);
-  const dir = join(work, `downloads-${version}`);
-  mkdirSync(dir, { recursive: true });
-  const file = `conductor-daemon-${version}.tgz`;
-  const tar = spawnSync('tar', ['-C', pkg, '-czf', join(dir, file), '.']);
-  expect(tar.status, tar.stderr.toString()).toBe(0);
-  const hex = createHash('sha256')
-    .update(readFileSync(join(dir, file)))
-    .digest('hex');
-  writeFileSync(join(dir, `${file}.sha256`), `${hex}  ${file}\n`);
   return dir;
 }
 
@@ -81,9 +132,13 @@ interface Served {
   script: string;
 }
 
-async function serve(version: string, opts: { launcher?: boolean } = {}): Promise<Served> {
-  const build = findDaemonBuild(buildDownloads(version, opts));
-  expect(build).not.toBeNull();
+async function serve(version: string, opts: BuildOpts = {}): Promise<Served> {
+  return serveDir(buildDownloads(version, opts), version);
+}
+
+async function serveDir(downloads: string, version: string): Promise<Served> {
+  const dist = findDaemonDist(downloads);
+  expect(dist).not.toBeNull();
   const server = createServer((_req, res) => {
     res.writeHead(404);
     res.end();
@@ -93,7 +148,7 @@ async function serve(version: string, opts: { launcher?: boolean } = {}): Promis
   serveDistribution(server, {
     db: { query: () => Promise.resolve() },
     publicUrl: url,
-    build,
+    dist,
     version,
   });
   const res = await fetch(`${url}/install.sh`);
@@ -103,25 +158,42 @@ async function serve(version: string, opts: { launcher?: boolean } = {}): Promis
 
 const close = (s: Served) => new Promise<void>((r) => s.server.close(() => r()));
 
-/** A temp HOME with fake node/git/claude; `node` prints `nodeVersion`. */
-function makeHome(opts: { nodeVersion?: string; without?: string[]; realNode?: boolean } = {}) {
+/**
+ * A temp HOME whose PATH is a dir of fakes (git, claude; uname and sysctl answer from
+ * FAKE_UNAME_S / FAKE_UNAME_M / FAKE_ROSETTA, default Linux x86_64) plus a toolbox of real tools,
+ * and no node. `realUname`: the real uname and sysctl instead (the real daemon is this host's).
+ */
+function makeHome(opts: { without?: string[]; realUname?: boolean } = {}) {
   const home = mkdtempSync(join(work, 'home-'));
   const bin = join(home, 'fakebin');
+  const tools = join(home, 'toolbox');
   mkdirSync(bin);
+  mkdirSync(tools);
   const fakes: Record<string, string> = {
-    // realNode: the real daemon tarball runs `node dist/main.js`.
-    node: opts.realNode
-      ? `#!/bin/sh\nexec '${process.execPath}' "$@"\n`
-      : `#!/bin/sh\necho ${opts.nodeVersion ?? 'v22.4.0'}\n`,
     git: '#!/bin/sh\necho git version 2.45.0\n',
     claude: '#!/bin/sh\necho 2.1.308\n',
   };
+  if (!opts.realUname) {
+    fakes.uname =
+      '#!/bin/sh\ncase "$1" in -s) echo "${FAKE_UNAME_S:-Linux}" ;; -m) echo "${FAKE_UNAME_M:-x86_64}" ;; esac\n';
+    fakes.sysctl = '#!/bin/sh\necho "${FAKE_ROSETTA:-0}"\n';
+  }
   for (const [name, body] of Object.entries(fakes)) {
     if (opts.without?.includes(name)) continue;
     writeFileSync(join(bin, name), body);
     chmodSync(join(bin, name), 0o755);
   }
-  return { home, bin, root: join(home, 'croot'), calls: join(home, 'calls.log') };
+  for (const tool of [...TOOLS, ...(opts.realUname ? ['uname', 'sysctl'] : [])]) {
+    const real = whichCmd(tool);
+    if (real !== null) symlinkSync(real, join(tools, tool));
+  }
+  return {
+    home,
+    bin,
+    path: `${bin}:${tools}`,
+    root: join(home, 'croot'),
+    calls: join(home, 'calls.log'),
+  };
 }
 
 type Home = ReturnType<typeof makeHome>;
@@ -155,7 +227,7 @@ function run(
 ) {
   const env = {
     HOME: h.home,
-    PATH: `${h.bin}:/usr/bin:/bin`,
+    PATH: h.path,
     CALLS_LOG: h.calls,
     ...opts.env,
   };
@@ -184,8 +256,9 @@ function expectLauncher(root: string) {
   expect(statSync(path).mode & 0o777).toBe(0o755);
 }
 
-function expectInstalled(h: Home, version: string) {
+function expectInstalled(h: Home, version: string, target: DaemonTarget = HOST) {
   expect(existsSync(join(h.root, 'daemon', version, 'bin', 'conductor-daemon'))).toBe(true);
+  expect(readFileSync(join(h.root, 'daemon', version, 'TARGET'), 'utf8')).toBe(target);
   expectLauncher(h.root);
   expect(readlinkSync(join(h.root, 'daemon', 'current'))).toBe(version);
   expect(realpathSync(join(h.root, 'bin', 'conductor-daemon'))).toBe(
@@ -260,7 +333,10 @@ describe.skipIf(!runnable)('install.sh', () => {
   });
 
   it('a wrong SHA-256 aborts with nothing installed', async () => {
-    const bad = v1.script.replace(/^SHA256='[0-9a-f]{64}'$/m, `SHA256='${'0'.repeat(64)}'`);
+    const bad = v1.script.replace(
+      /^SHA256_X86_64_UNKNOWN_LINUX_GNU='[0-9a-f]{64}'$/m,
+      `SHA256_X86_64_UNKNOWN_LINUX_GNU='${'0'.repeat(64)}'`,
+    );
     expect(bad).not.toBe(v1.script);
     const r = await run(h, bad, ['--token', TOKEN, '--root', h.root]);
     expect(r.status).not.toBe(0);
@@ -269,22 +345,88 @@ describe.skipIf(!runnable)('install.sh', () => {
     expect(calls(h)).toEqual([]);
   });
 
-  it('node 20 aborts with the message, nothing installed', async () => {
-    const old = makeHome({ nodeVersion: 'v20.11.1' });
-    const r = await run(old, v1.script, ['--token', TOKEN, '--root', old.root]);
-    expect(r.status).not.toBe(0);
-    expect(r.stderr).toContain('Node.js 22 or newer is required (found v20.11.1)');
-    expect(existsSync(old.root)).toBe(false);
+  it('needs no node (MR-T15: the daemon is a native binary)', async () => {
+    const r = await run(h, v1.script, ['--token', TOKEN, '--root', h.root], {
+      env: { PATH: h.path },
+    });
+    expect(spawnSync('sh', ['-c', 'command -v node'], { env: { PATH: h.path } }).status).not.toBe(
+      0,
+    );
+    expect(r.status, r.stderr).toBe(0);
+    expectInstalled(h, V1);
+    expect(r.stdout + r.stderr).not.toMatch(/Node\.js|command -v node/);
   });
 
   it('lists every missing prerequisite at once', async () => {
-    const bare = makeHome({ without: ['node', 'claude'] });
+    const bare = makeHome({ without: ['git', 'claude'] });
     const r = await run(bare, v1.script, ['--root', bare.root]);
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('installs none of them');
-    expect(r.stderr).toContain('Node.js 22 or newer is required (node is not on PATH)');
+    expect(r.stderr).toContain('git is required');
     expect(r.stderr).toContain('claude');
+    expect(r.stderr).not.toMatch(/Node\.js/);
     expect(existsSync(bare.root)).toBe(false);
+  });
+
+  it.each([
+    ['Darwin', 'arm64', '0', 'aarch64-apple-darwin'],
+    ['Darwin', 'x86_64', '0', 'x86_64-apple-darwin'],
+    // A Rosetta shell on Apple silicon: the native build.
+    ['Darwin', 'x86_64', '1', 'aarch64-apple-darwin'],
+    ['Linux', 'x86_64', '0', 'x86_64-unknown-linux-gnu'],
+    ['Linux', 'aarch64', '0', 'aarch64-unknown-linux-gnu'],
+    ['Linux', 'arm64', '0', 'aarch64-unknown-linux-gnu'],
+  ] as const)('%s %s (rosetta %s) installs %s', async (os, arch, rosetta, target) => {
+    const r = await run(h, v1.script, ['--root', h.root], {
+      env: { FAKE_UNAME_S: os, FAKE_UNAME_M: arch, FAKE_ROSETTA: rosetta },
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expectInstalled(h, V1, target);
+  });
+
+  it('an unsupported platform stops with a message, nothing installed', async () => {
+    for (const [os, arch] of [
+      ['FreeBSD', 'amd64'],
+      ['Linux', 'riscv64'],
+      ['MINGW64_NT-10.0', 'x86_64'],
+    ]) {
+      const r = await run(h, v1.script, ['--token', TOKEN, '--root', h.root], {
+        env: { FAKE_UNAME_S: os!, FAKE_UNAME_M: arch! },
+      });
+      expect(r.status, `${os}/${arch}`).toBe(1);
+      expect(r.stderr).toContain(`unsupported platform ${os}/${arch}`);
+      expect(r.stderr).toContain('install.ps1');
+    }
+    expect(existsSync(h.root)).toBe(false);
+    expect(calls(h)).toEqual([]);
+  });
+
+  it('stops when the orchestrator has no build for this machine', async () => {
+    const linuxOnly = await serve(V2, { targets: [HOST] });
+    try {
+      const r = await run(h, linuxOnly.script, ['--root', h.root], {
+        env: { FAKE_UNAME_S: 'Darwin', FAKE_UNAME_M: 'arm64' },
+      });
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain('no conductor-daemon build for aarch64-apple-darwin');
+      expect(existsSync(h.root)).toBe(false);
+    } finally {
+      await close(linuxOnly);
+    }
+  });
+
+  it('a build that does not run here aborts and leaves the old version current', async () => {
+    expect((await run(h, v1.script, ['--root', h.root])).status).toBe(0);
+    const broken = await serve(V3, { broken: true });
+    try {
+      const r = await run(h, broken.script, ['--root', h.root]);
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain('does not run on this machine (Linux/x86_64)');
+      expectInstalled(h, V1);
+      expect(existsSync(join(h.root, 'daemon', V3))).toBe(false);
+    } finally {
+      await close(broken);
+    }
   });
 
   it('a second run without --token upgrades in place and keeps machine.json', async () => {
@@ -313,6 +455,72 @@ describe.skipIf(!runnable)('install.sh', () => {
     expect(calls(h).map((x) => [x.argv, x.token])).toEqual([
       ['service restart', '<unset>'],
       ['service install', '<unset>'],
+    ]);
+  });
+
+  it('upgrades a TS daemon install in place: current moves, the TS version and the state stay (FR-4)', async () => {
+    // <root> as the TS install.sh left it (M2-T14/T18): a Node package version dir, `current`,
+    // the bin links, the launcher, machine.json, config.json and the store.
+    const TS = '0.0.0+7500ade'; // not V1: a different version dir
+    const ts = join(h.root, 'daemon', TS);
+    mkdirSync(join(ts, 'bin'), { recursive: true });
+    mkdirSync(join(ts, 'dist'));
+    mkdirSync(join(ts, 'node_modules', 'ws'), { recursive: true });
+    mkdirSync(join(ts, 'assets'));
+    writeFileSync(
+      join(ts, 'bin', 'conductor-daemon'),
+      '#!/bin/sh\nexec "${CONDUCTOR_NODE:-node}" "$here/dist/main.js" "$@"\n',
+    );
+    chmodSync(join(ts, 'bin', 'conductor-daemon'), 0o755);
+    writeFileSync(join(ts, 'dist', 'main.js'), '// the TS daemon\n');
+    writeFileSync(join(ts, 'node_modules', 'ws', 'index.js'), '// ws\n');
+    writeFileSync(join(ts, 'package.json'), '{"name":"@conductor/daemon"}\n');
+    writeFileSync(join(ts, 'assets', 'conductor-launch.sh'), readFileSync(LAUNCHER));
+    symlinkSync(TS, join(h.root, 'daemon', 'current'));
+    mkdirSync(join(h.root, 'bin'));
+    symlinkSync('../daemon/current/bin/conductor-daemon', join(h.root, 'bin', 'conductor-daemon'));
+    writeFileSync(join(h.root, 'bin', 'conductor-launch'), readFileSync(LAUNCHER));
+    chmodSync(join(h.root, 'bin', 'conductor-launch'), 0o755);
+    const state: Record<string, { bytes: string; mode: number }> = {
+      'machine.json': {
+        bytes: '{"url":"https://c.test","machine_id":"m-ts","credential":"s"}\n',
+        mode: 0o600,
+      },
+      'config.json': { bytes: '{"roots":["/code"]}\n', mode: 0o600 },
+      'state/daemon.json': { bytes: '{"version":1,"sessions":{}}\n', mode: 0o600 },
+    };
+    mkdirSync(join(h.root, 'state'));
+    for (const [f, { bytes, mode }] of Object.entries(state)) {
+      writeFileSync(join(h.root, f), bytes, { mode });
+    }
+    const tsFiles = [
+      'bin/conductor-daemon',
+      'dist/main.js',
+      'node_modules/ws/index.js',
+      'package.json',
+    ];
+    const tsBefore = tsFiles.map((f) => readFileSync(join(ts, f), 'utf8'));
+    const unit = join(h.home, '.config', 'systemd', 'user');
+    mkdirSync(unit, { recursive: true });
+    writeFileSync(
+      join(unit, 'conductor-daemon.service'),
+      '[Service]\nEnvironment=CONDUCTOR_NODE=/usr/bin/node\n',
+    );
+
+    const r = await run(h, v1.script, ['--root', h.root]);
+    expect(r.status, r.stderr).toBe(0);
+    expectInstalled(h, V1);
+    expect(r.stdout).toContain('upgraded in place; enrollment kept');
+    // The TS version stays on disk, untouched: rolling back is pointing `current` at it.
+    expect(tsFiles.map((f) => readFileSync(join(ts, f), 'utf8'))).toEqual(tsBefore);
+    for (const [f, { bytes, mode }] of Object.entries(state)) {
+      expect(readFileSync(join(h.root, f), 'utf8'), f).toBe(bytes);
+      expect(statSync(join(h.root, f)).mode & 0o777, f).toBe(mode);
+    }
+    expect(lstatSync(join(h.root, 'bin', 'conductor-daemon')).isSymbolicLink()).toBe(true);
+    // The installed service is restarted on the new binary; no enroll.
+    expect(calls(h).map((x) => [x.argv, x.token, x.root])).toEqual([
+      ['service restart', '<unset>', h.root],
     ]);
   });
 
@@ -351,12 +559,14 @@ describe.skipIf(!runnable)('install.sh', () => {
   });
 });
 
-// The real path, no fake daemon: the built tarball (scripts/build-daemon-tarball.sh), installed by
-// the served script, whose real `conductor-daemon enroll` posts to a stub enroll endpoint. The
-// token reaches the daemon only through CONDUCTOR_ENROLL_TOKEN (TD-117).
-const hasPnpm = spawnSync('pnpm', ['--version']).status === 0;
+// The real path, no fake daemon: the Rust daemon built and packaged for this machine
+// (scripts/build-daemon-dist.sh), installed by the served script, whose real `conductor-daemon
+// enroll` posts to a stub enroll endpoint. The token reaches the daemon only through
+// CONDUCTOR_ENROLL_TOKEN (TD-117). It costs a cargo build (the dev profile, which `cargo nextest`
+// has usually just built), so it runs only where cargo is on PATH.
+const hasCargo = spawnSync('cargo', ['--version']).status === 0;
 
-describe.skipIf(!runnable || !hasPnpm)('install.sh with the real daemon tarball', () => {
+describe.skipIf(!runnable || !hasCargo)('install.sh with the real daemon tarball', () => {
   const realWork = mkdtempSync(join(tmpdir(), 'conductor-install-real-'));
   const enrolls: { body: string; contentType: string | undefined }[] = [];
   let server: Server;
@@ -365,15 +575,13 @@ describe.skipIf(!runnable || !hasPnpm)('install.sh with the real daemon tarball'
 
   beforeAll(async () => {
     const downloads = join(realWork, 'downloads');
-    const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-    const built = spawnSync(
-      'bash',
-      [join(pkgDir, 'scripts', 'build-daemon-tarball.sh'), '--no-verify', downloads],
-      { env: { ...process.env, CONDUCTOR_BUILD_SHA: 'feed123' }, encoding: 'utf8' },
-    );
+    const built = spawnSync('bash', [join(REPO, 'scripts', 'build-daemon-dist.sh'), downloads], {
+      env: { ...process.env, CONDUCTOR_BUILD_SHA: 'feed123', CARGO_PROFILE: 'dev' },
+      encoding: 'utf8',
+    });
     expect(built.status, built.stderr).toBe(0);
-    const build = findDaemonBuild(downloads);
-    expect(build).not.toBeNull();
+    const dist = findDaemonDist(downloads);
+    expect(dist).not.toBeNull();
 
     // The "API": only the enroll endpoint.
     server = createServer((req, res) => {
@@ -395,11 +603,11 @@ describe.skipIf(!runnable || !hasPnpm)('install.sh with the real daemon tarball'
     serveDistribution(server, {
       db: { query: () => Promise.resolve() },
       publicUrl: url,
-      build,
-      version: build!.version,
+      dist,
+      version: dist!.version,
     });
     script = await (await fetch(`${url}/install.sh`)).text();
-  }, 300_000);
+  }, 600_000);
 
   afterAll(async () => {
     await new Promise<void>((r) => server.close(() => r()));
@@ -408,16 +616,18 @@ describe.skipIf(!runnable || !hasPnpm)('install.sh with the real daemon tarball'
 
   it('curl | sh -s -- --token installs and the real enroll saves the credential', async () => {
     work = realWork;
-    const h = makeHome({ realNode: true });
+    const h = makeHome({ realUname: true });
     const r = await run(h, script, ['--token', TOKEN, '--root', h.root]);
     expect(r.status, r.stderr + r.stdout).toBe(0);
-    expect(readlinkSync(join(h.root, 'daemon', 'current'))).toBe(`${daemonPkgVersion()}+feed123`);
+    const version = `${workspaceVersion()}+feed123`;
+    expect(readlinkSync(join(h.root, 'daemon', 'current'))).toBe(version);
     expectLauncher(h.root);
 
     expect(enrolls).toHaveLength(1);
     const sent = EnrollRequestSchema.parse(JSON.parse(enrolls[0]!.body));
     expect(sent.token).toBe(TOKEN);
-    expect(sent.daemon_version).toBe(`${daemonPkgVersion()}+feed123`);
+    // The sha is baked into the binary: nothing in the environment sets it.
+    expect(sent.daemon_version).toBe(version);
 
     const machine = JSON.parse(readFileSync(join(h.root, 'machine.json'), 'utf8')) as {
       url: string;
@@ -425,13 +635,14 @@ describe.skipIf(!runnable || !hasPnpm)('install.sh with the real daemon tarball'
       credential: string;
     };
     expect(machine).toMatchObject({ url, machine_id: 'm-real', credential: 'cred-real-secret' });
-    expect(r.stdout).toContain('enrolled as m-real');
+    expect(r.stdout + r.stderr).toContain('enrolled as m-real');
     expect(r.stdout + r.stderr).not.toContain(TOKEN);
     expect(r.stdout + r.stderr).not.toContain('cred-real-secret');
   }, 60_000);
 });
 
-function daemonPkgVersion(): string {
-  const pkg = resolve(dirname(fileURLToPath(import.meta.url)), '../../daemon/package.json');
-  return (JSON.parse(readFileSync(pkg, 'utf8')) as { version: string }).version;
+/** The Cargo workspace version, the daemon's own (`[workspace.package] version`). */
+function workspaceVersion(): string {
+  const toml = readFileSync(join(REPO, 'Cargo.toml'), 'utf8');
+  return /\[workspace\.package\][^[]*?\nversion = "([^"]+)"/.exec(toml)![1]!;
 }

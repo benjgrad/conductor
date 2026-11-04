@@ -1,9 +1,12 @@
 // MW-T11: the rendered /install.ps1, run the way Add a machine says (`$env:…='<token>'; irm … |
-// iex`) in Windows PowerShell 5.1, against a local orchestrator serving a small fake daemon
-// tarball: the real bin\conductor-daemon.cmd entry (assets/conductor-daemon.cmd.tmpl) in front of
-// a dist/main.js that records each call. Windows only (the daemon-windows workflow runs it). The
-// root is a temp dir; the real node and git are used, claude.exe is a copy of node.exe. The script
-// adds <root>\bin to the user PATH in HKCU, so the suite restores that value afterwards.
+// iex`) in Windows PowerShell 5.1, against a local orchestrator serving a small fake Windows
+// daemon tarball (MR-T15): the real bin\conductor-daemon.cmd entry (assets/conductor-daemon.cmd) in
+// front of a bin\conductor-daemon.exe that is a copy of node.exe. NODE_OPTIONS preloads FAKE_MAIN,
+// which records each call and exits before node would look for a script named `enroll`; node
+// answers `--version` itself, before any preload, as the real binary does. Windows only (the
+// daemon-windows workflow runs it). The root is a temp dir; the real git is used, claude.exe is a
+// copy of node.exe. The script adds <root>\bin to the user PATH in HKCU, so the suite restores
+// that value afterwards.
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -24,34 +27,40 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { installCommandWindows } from '../src/api/machines.js';
-import { findDaemonBuild, serveDistribution } from '../src/distribution.js';
+import { findDaemonDist, serveDistribution } from '../src/distribution.js';
 
 const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const TOKEN = 'enroll-tok-3f9a1c2b';
 const V1 = '0.0.0+aaaaaaa';
 const V2 = '0.0.0+bbbbbbb';
 
-/** Records `{argv, token, root, sha}` per call; `enroll` writes machine.json (or fails). */
+/**
+ * Preloaded into the fake conductor-daemon.exe: records `{argv, token, root}` per call (argv is
+ * everything after the exe: node takes the first as its script, which never loads), and exits;
+ * `enroll` writes machine.json (or fails).
+ */
 const FAKE_MAIN = `const fs = require('node:fs');
 const path = require('node:path');
 const e = process.env;
+// Node has already resolved argv[1] (its "script") to an absolute path: take its name back.
+const argv = [path.basename(process.argv[1] ?? ''), ...process.argv.slice(2)];
 fs.appendFileSync(e.CALLS_LOG, JSON.stringify({
-  argv: process.argv.slice(2),
+  argv,
   token: e.CONDUCTOR_ENROLL_TOKEN ?? null,
   root: e.CONDUCTOR_ROOT ?? null,
-  sha: e.CONDUCTOR_BUILD_SHA ?? null,
 }) + '\\n');
-if (process.argv[2] === 'enroll') {
+if (argv[0] === 'enroll') {
   if (e.FAKE_ENROLL_FAIL) process.exit(3);
   fs.writeFileSync(path.join(e.CONDUCTOR_ROOT, 'machine.json'), '{}');
 }
+process.exit(0);
 `;
+const WINDOWS_TARGET = 'x86_64-pc-windows-msvc';
 
 interface Call {
   argv: string[];
   token: string | null;
   root: string | null;
-  sha: string | null;
 }
 
 interface Result {
@@ -105,21 +114,23 @@ describe.skipIf(process.platform !== 'win32')('install.ps1 (Windows PowerShell 5
     rmSync(work, { recursive: true, force: true });
   });
 
-  /** A downloads dir with a fake tarball for `version`, served on a fresh local port. */
+  /** A downloads dir with a fake Windows tarball for `version`, served on a fresh local port. */
   async function serve(version: string): Promise<string> {
     const pkg = join(work, `pkg-${version}`);
     mkdirSync(join(pkg, 'bin'), { recursive: true });
-    mkdirSync(join(pkg, 'dist'));
-    const sha = version.split('+')[1]!;
-    const cmd = readFileSync(join(pkgDir, 'assets', 'conductor-daemon.cmd.tmpl'), 'utf8')
-      .replaceAll('@@BUILD_SHA@@', sha)
-      .replace(/\r?\n/g, '\r\n');
+    mkdirSync(join(pkg, 'assets'));
+    // As scripts/package-daemon.sh lays it out: the .exe, the CRLF .cmd, the launcher, VERSION.
+    const cmd = readFileSync(join(pkgDir, 'assets', 'conductor-daemon.cmd'), 'utf8').replace(
+      /\r?\n/g,
+      '\r\n',
+    );
     writeFileSync(join(pkg, 'bin', 'conductor-daemon.cmd'), cmd);
-    writeFileSync(join(pkg, 'dist', 'main.js'), FAKE_MAIN);
-    writeFileSync(join(pkg, 'package.json'), '{"name":"fake-daemon","private":true}\n');
+    copyFileSync(process.execPath, join(pkg, 'bin', 'conductor-daemon.exe'));
+    writeFileSync(join(pkg, 'assets', 'conductor-launch.sh'), '#!/bin/sh\n');
+    writeFileSync(join(pkg, 'VERSION'), `${version}\n`);
     const dir = join(work, `downloads-${version}`);
     mkdirSync(dir);
-    const file = `conductor-daemon-${version}.tgz`;
+    const file = `conductor-daemon-${version}-${WINDOWS_TARGET}.tgz`;
     const tar = await run('tar', ['-C', pkg, '-czf', join(dir, file), '.'], process.env);
     expect(tar.status, tar.stderr).toBe(0);
     const hex = createHash('sha256')
@@ -127,8 +138,8 @@ describe.skipIf(process.platform !== 'win32')('install.ps1 (Windows PowerShell 5
       .digest('hex');
     writeFileSync(join(dir, `${file}.sha256`), `${hex}  ${file}\n`);
 
-    const build = findDaemonBuild(dir);
-    expect(build).not.toBeNull();
+    const dist = findDaemonDist(dir);
+    expect(dist?.builds[WINDOWS_TARGET]).toBeDefined();
     const server = createServer((_req, res) => {
       res.writeHead(404);
       res.end();
@@ -139,7 +150,7 @@ describe.skipIf(process.platform !== 'win32')('install.ps1 (Windows PowerShell 5
     serveDistribution(server, {
       db: { query: () => Promise.resolve() },
       publicUrl: url,
-      build,
+      dist,
       version,
     });
     return url;
@@ -153,25 +164,41 @@ describe.skipIf(process.platform !== 'win32')('install.ps1 (Windows PowerShell 5
     return bin;
   }
 
-  /** The PATH without any directory that already holds a claude. */
-  function basePath(): string {
+  /** The PATH without any directory that already holds a claude (or, with `noNode`, a node). */
+  function basePath(noNode = false): string {
+    const hidden = ['claude.exe', 'claude.cmd', ...(noNode ? ['node.exe'] : [])];
     return (process.env.Path ?? process.env.PATH ?? '')
       .split(';')
-      .filter((d) => d !== '' && !['claude.exe', 'claude.cmd'].some((c) => existsSync(join(d, c))))
+      .filter((d) => d !== '' && !hidden.some((c) => existsSync(join(d, c))))
       .join(';');
   }
+  /** NODE_OPTIONS for the fake conductor-daemon.exe (see the header). */
+  const fakeMainOptions = () => {
+    const main = join(work, 'fake-main.cjs');
+    if (!existsSync(main)) writeFileSync(main, FAKE_MAIN);
+    // Forward slashes: NODE_OPTIONS reads `\` inside double quotes as an escape, which would
+    // mangle a Windows path (node itself takes either separator).
+    return `--require "${main.replaceAll('\\', '/')}"`;
+  };
 
   /** Run `command`, then print what the session looks like afterwards. */
-  function install(command: string, root: string, bin: string, extra: NodeJS.ProcessEnv = {}) {
+  function install(
+    command: string,
+    root: string,
+    bin: string,
+    extra: NodeJS.ProcessEnv = {},
+    noNode = false,
+  ) {
     const after =
       "; Write-Output ('TOKEN_AFTER=[' + $env:CONDUCTOR_ENROLL_TOKEN + ']')" +
       "; Write-Output ('ROOT_AFTER=[' + $env:CONDUCTOR_ROOT + ']')" +
       `; Write-Output ('ON_PATH=' + [bool](($env:Path -split ';') -contains '${join(root, 'bin')}'))`;
     const env: NodeJS.ProcessEnv = {
       ...process.env,
-      Path: `${bin};${basePath()}`,
+      Path: `${bin};${basePath(noNode)}`,
       CONDUCTOR_ROOT: root,
       CALLS_LOG: join(work, 'calls.log'),
+      NODE_OPTIONS: fakeMainOptions(),
       ...extra,
     };
     delete env.PATH;
@@ -219,7 +246,6 @@ describe.skipIf(process.platform !== 'win32')('install.ps1 (Windows PowerShell 5
       expect(enrolls[0]!.argv).toEqual(['enroll', '--url', url1]);
       expect(enrolls[0]!.token).toBe(TOKEN);
       expect(enrolls[0]!.root).toBe(root);
-      expect(enrolls[0]!.sha).toBe('aaaaaaa');
       expect(existsSync(join(root, 'machine.json'))).toBe(true);
 
       // `current` is a junction (U-107: lstat reports it as a link) to the version dir.
@@ -246,7 +272,7 @@ describe.skipIf(process.platform !== 'win32')('install.ps1 (Windows PowerShell 5
       const help = await run(
         'cmd.exe',
         ['/d', '/c', join(root, 'bin', 'conductor-daemon.cmd'), 'config', 'show'],
-        { ...process.env, CALLS_LOG: join(work, 'calls.log') },
+        { ...process.env, CALLS_LOG: join(work, 'calls.log'), NODE_OPTIONS: fakeMainOptions() },
       );
       expect(help.status, help.stderr).toBe(0);
       expect(calls().at(-1)!.argv).toEqual(['config', 'show']);
@@ -268,11 +294,28 @@ describe.skipIf(process.platform !== 'win32')('install.ps1 (Windows PowerShell 5
       // A tarball that doesn't match the script's SHA-256: aborts, nothing switched.
       const v3 = '0.0.0+fffffff';
       const url3 = await serve(v3);
-      writeFileSync(join(work, `downloads-${v3}`, `conductor-daemon-${v3}.tgz`), 'tampered');
+      writeFileSync(
+        join(work, `downloads-${v3}`, `conductor-daemon-${v3}-${WINDOWS_TARGET}.tgz`),
+        'tampered',
+      );
       const third = await install(`irm ${url3}/install.ps1 | iex`, root, bin);
       expect(third.stdout).toContain(`conductor install: SHA-256 mismatch`);
       expect(existsSync(join(root, 'daemon', v3))).toBe(false);
       expect(realpathSync.native(current)).toBe(realpathSync.native(join(root, 'daemon', V2)));
+    },
+  );
+
+  it(
+    'needs no node on PATH (MR-T15: the daemon is a native binary)',
+    { timeout: 120_000 },
+    async () => {
+      const root = join(work, 'native-only');
+      const url = await serve('0.0.0+bcbcbcb');
+      const r = await install(installCommandWindows(url, TOKEN), root, fakeBin('exe'), {}, true);
+      expect(r.stdout, r.stderr).toContain('installed conductor-daemon 0.0.0+bcbcbcb');
+      expect(r.stdout).not.toContain('conductor install:');
+      expect(r.stdout).not.toMatch(/Node\.js|winget install OpenJS/);
+      expect(existsSync(join(root, 'machine.json'))).toBe(true);
     },
   );
 

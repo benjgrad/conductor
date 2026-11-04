@@ -1561,14 +1561,14 @@ impl Core {
                 }
                 self.send_output(st, sid, token, stream.as_str(), text);
             }
-            DriverEvent::AskUser { question } => {
+            DriverEvent::AskUser { question, options } => {
                 a.ask_pending = true;
-                self.emit(
-                    st,
-                    sid,
-                    token,
-                    json!({ "kind": "ask_user", "data": { "question": question } }),
-                );
+                // Questions UX: the options travel as given (absent when none).
+                let mut data = json!({ "question": question });
+                if let Some(o) = options {
+                    data["options"] = json!(o);
+                }
+                self.emit(st, sid, token, json!({ "kind": "ask_user", "data": data }));
             }
             DriverEvent::PermissionRequest {
                 request_id,

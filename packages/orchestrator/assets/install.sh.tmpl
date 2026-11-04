@@ -1,6 +1,7 @@
 #!/bin/sh
 # conductor daemon installer (M2-T14; ADR-0017 §Daemon distribution), served by the orchestrator
-# at /install.sh with its public URL, the daemon version and the tarball's SHA-256 filled in.
+# at /install.sh with its public URL, the daemon version and, for every target it serves, the
+# tarball's name and SHA-256 filled in (MR-T15; ADR-0026 §4). It picks this machine's by `uname`.
 #
 #   curl -fsSL @@PUBLIC_URL@@/install.sh | sh -s -- --token <token> [--service] [--root <dir>]
 #
@@ -8,14 +9,20 @@
 # <root>/bin/conductor-daemon, and installs <root>/bin/conductor-launch (what the service units run;
 # the tarball's assets/conductor-launch.sh, the same bytes `service install` writes; ADR-0021 §3).
 # With an enrollment token it then enrolls this machine; without
-# one it upgrades in place and keeps <root>/machine.json. It installs none of its prerequisites
-# (Node.js 22+, git, claude); it says what is missing.
+# one it upgrades in place and keeps <root>/machine.json. The daemon is a native binary: it needs
+# no Node. It installs none of its prerequisites (git, claude); it says what is missing.
 set -eu
 
 PUBLIC_URL='@@PUBLIC_URL@@'
 VERSION='@@VERSION@@'
-FILE='@@FILE@@'
-SHA256='@@SHA256@@'
+FILE_AARCH64_APPLE_DARWIN='@@FILE_AARCH64_APPLE_DARWIN@@'
+SHA256_AARCH64_APPLE_DARWIN='@@SHA256_AARCH64_APPLE_DARWIN@@'
+FILE_X86_64_APPLE_DARWIN='@@FILE_X86_64_APPLE_DARWIN@@'
+SHA256_X86_64_APPLE_DARWIN='@@SHA256_X86_64_APPLE_DARWIN@@'
+FILE_X86_64_UNKNOWN_LINUX_GNU='@@FILE_X86_64_UNKNOWN_LINUX_GNU@@'
+SHA256_X86_64_UNKNOWN_LINUX_GNU='@@SHA256_X86_64_UNKNOWN_LINUX_GNU@@'
+FILE_AARCH64_UNKNOWN_LINUX_GNU='@@FILE_AARCH64_UNKNOWN_LINUX_GNU@@'
+SHA256_AARCH64_UNKNOWN_LINUX_GNU='@@SHA256_AARCH64_UNKNOWN_LINUX_GNU@@'
 
 usage() {
   cat <<EOF
@@ -79,21 +86,27 @@ fi
 [ -n "$root" ] || die "no install root: set HOME or pass --root"
 case "$root" in /*) ;; *) root="$(pwd)/$root" ;; esac
 
+# ---- this machine's build ----
+os="$(uname -s 2>/dev/null || echo unknown)"
+arch="$(uname -m 2>/dev/null || echo unknown)"
+# A shell under Rosetta reports x86_64 on Apple silicon: install the native build.
+if [ "$os" = Darwin ] && [ "$arch" = x86_64 ] &&
+  [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)" = 1 ]; then
+  arch=arm64
+fi
+case "$os/$arch" in
+  Darwin/arm64 | Darwin/aarch64) target=aarch64-apple-darwin FILE="$FILE_AARCH64_APPLE_DARWIN" SHA256="$SHA256_AARCH64_APPLE_DARWIN" ;;
+  Darwin/x86_64) target=x86_64-apple-darwin FILE="$FILE_X86_64_APPLE_DARWIN" SHA256="$SHA256_X86_64_APPLE_DARWIN" ;;
+  Linux/x86_64 | Linux/amd64) target=x86_64-unknown-linux-gnu FILE="$FILE_X86_64_UNKNOWN_LINUX_GNU" SHA256="$SHA256_X86_64_UNKNOWN_LINUX_GNU" ;;
+  Linux/aarch64 | Linux/arm64) target=aarch64-unknown-linux-gnu FILE="$FILE_AARCH64_UNKNOWN_LINUX_GNU" SHA256="$SHA256_AARCH64_UNKNOWN_LINUX_GNU" ;;
+  *) die "unsupported platform $os/$arch: conductor-daemon is built for macOS (arm64, x86_64) and Linux (x86_64, arm64); on Windows use install.ps1" ;;
+esac
+[ -n "$FILE" ] && [ -n "$SHA256" ] || die "this orchestrator has no conductor-daemon build for $target"
+
 # ---- prerequisites: list everything missing, then stop ----
 missing=""
 need() { missing="$missing
   - $*"; }
-if command -v node >/dev/null 2>&1; then
-  node_version="$(node --version 2>/dev/null || true)"
-  node_major="${node_version#v}"
-  node_major="${node_major%%.*}"
-  case "$node_major" in
-    '' | *[!0-9]*) need "Node.js 22 or newer is required (node --version printed '$node_version')" ;;
-    *) [ "$node_major" -ge 22 ] || need "Node.js 22 or newer is required (found $node_version)" ;;
-  esac
-else
-  need "Node.js 22 or newer is required (node is not on PATH)"
-fi
 command -v git >/dev/null 2>&1 || need "git is required"
 command -v claude >/dev/null 2>&1 || need "Claude Code (claude) is required: https://claude.com/claude-code"
 if command -v curl >/dev/null 2>&1; then fetch=curl
@@ -139,6 +152,10 @@ mkdir "$stage"
 tar -xzf "$tmp/$FILE" -C "$stage" || { rm -rf "$stage"; die "could not unpack $FILE"; }
 [ -x "$stage/bin/conductor-daemon" ] || { rm -rf "$stage"; die "$FILE has no bin/conductor-daemon"; }
 [ -f "$stage/assets/conductor-launch.sh" ] || { rm -rf "$stage"; die "$FILE has no assets/conductor-launch.sh"; }
+# Before `current` moves: a binary this machine can't run (wrong build, or blocked by the OS) stops
+# here, with the old version still current.
+"$stage/bin/conductor-daemon" --version </dev/null >/dev/null 2>&1 ||
+  { rm -rf "$stage"; die "$FILE does not run on this machine ($os/$arch); nothing changed"; }
 rm -rf "$root/daemon/$VERSION"
 mv "$stage" "$root/daemon/$VERSION"
 # Swap `current` atomically: rename a fresh link over it (plain mv would move into the old dir).

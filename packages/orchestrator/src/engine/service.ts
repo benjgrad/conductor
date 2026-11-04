@@ -276,9 +276,18 @@ export class EngineServiceImpl implements EngineService {
           break;
         case 'create_input_request': {
           const r = await tx.query<InputRequestRow>(
-            'INSERT INTO input_request (id, session_id, kind, question, return_to, created_at) ' +
-              'VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-            [randomUUID(), sessionId, effect.kind, effect.question, effect.return_to, now],
+            'INSERT INTO input_request (id, session_id, kind, question, return_to, created_at, options) ' +
+              'VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+            [
+              randomUUID(),
+              sessionId,
+              effect.kind,
+              effect.question,
+              effect.return_to,
+              now,
+              // Questions UX: an agent question's clickable options (jsonb), else NULL.
+              effect.options === undefined ? null : JSON.stringify(effect.options),
+            ],
           );
           const row = r.rows[0]!;
           // UX-15: "needs input" pushes to the account's subscribed users, in this transaction.

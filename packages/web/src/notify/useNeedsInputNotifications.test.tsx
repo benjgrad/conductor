@@ -13,7 +13,7 @@ import {
   EMPTY_BOARD,
   type BoardState,
 } from '../board/board.js';
-import { agentName } from '../components/agent-identity.js';
+import { cardAgent } from '../components/agent-identity.js';
 import { FAVICON_DOT, FAVICON_PLAIN } from './favicon.js';
 import { stubNotification } from './notification-stub.js';
 import { clip, useNeedsInputNotifications } from './useNeedsInputNotifications.js';
@@ -96,7 +96,7 @@ describe('useNeedsInputNotifications', () => {
     rerender({ b: next });
     expect(N.instances).toHaveLength(1);
     const n = N.instances[0]!;
-    expect(n.title).toBe(`${agentName(RUNNING.ticket_id)} needs input`);
+    expect(n.title).toBe(`${cardAgent(RUNNING).name} needs input`);
     expect(n.options.body).toBe('Add pagination: Which DB should I target?');
     expect(n.options.tag).toBe(REQ);
 
@@ -105,6 +105,13 @@ describe('useNeedsInputNotifications', () => {
     rerender({ b: applyBoardEvent(next, asked(11)) });
     rerender({ b: loaded([next.cards.get(RUNNING.ticket_id)!], 11) });
     expect(N.instances).toHaveLength(1);
+  });
+
+  it("names the ticket's stored teammate (UX-13b)", () => {
+    const start = loaded([{ ...RUNNING, agent_name: 'Morgan' }]);
+    const { rerender } = mount(start);
+    rerender({ b: applyBoardEvent(start, asked(11)) });
+    expect(N.instances[0]!.title).toBe('Morgan needs input');
   });
 
   it('clips the body to 120 characters', () => {
@@ -213,15 +220,12 @@ describe('useNeedsInputNotifications', () => {
       await flush();
       expect(sw.getRegistration).toHaveBeenCalledWith('/');
       expect(reg.showNotification).toHaveBeenCalledTimes(1);
-      expect(reg.showNotification).toHaveBeenCalledWith(
-        `${agentName(RUNNING.ticket_id)} needs input`,
-        {
-          body: 'Add pagination: Which DB should I target?',
-          tag: REQ,
-          icon: '/icons/icon-192.png',
-          data: { url: `/#/?ticket=${RUNNING.ticket_id}` },
-        },
-      );
+      expect(reg.showNotification).toHaveBeenCalledWith(`${cardAgent(RUNNING).name} needs input`, {
+        body: 'Add pagination: Which DB should I target?',
+        tag: REQ,
+        icon: '/icons/icon-192.png',
+        data: { url: `/#/?ticket=${RUNNING.ticket_id}` },
+      });
       expect(N.instances).toHaveLength(0);
 
       // A re-render doesn't show it again.

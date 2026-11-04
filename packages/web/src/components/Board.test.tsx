@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client.js';
 import { mockChecking } from '../api/mock-data.js';
 import type { BoardState } from '../board/board.js';
-import { agentName } from './agent-identity.js';
+import { cardAgent } from './agent-identity.js';
 import { Board } from './Board.js';
 import { boardLayoutKey } from './board-layout.js';
 import { PLAN_APPROVED_TEXT, PREVIEW_MAX } from './request-preview.js';
@@ -19,10 +19,10 @@ import { implementerReport, REPORT_PROSE_LINE } from './review-fixture.js';
 
 afterEach(cleanup);
 
-// UX-9 NFR-2: `agentName` runs once per card render, so it counts them.
+// UX-9 NFR-2: `cardAgent` runs once per card render, so it counts them.
 vi.mock('./agent-identity.js', async (importOriginal) => {
   const m = await importOriginal<typeof import('./agent-identity.js')>();
-  return { ...m, agentName: vi.fn(m.agentName) };
+  return { ...m, cardAgent: vi.fn(m.cardAgent) };
 });
 
 const PR = 'https://github.com/benjgrad/conductor/pull/42';
@@ -406,6 +406,85 @@ describe('board card: needs permission (ADR-0023)', () => {
   });
 });
 
+describe('board card: question options and permission actions (Questions UX)', () => {
+  const OPTIONS = {
+    multi_select: false,
+    items: [{ label: 'Postgres', description: 'recommended' }, { label: 'SQLite' }],
+  };
+
+  function renderApi(cards: BoardCard[]) {
+    const onSelect = vi.fn();
+    const answer = vi.fn<ApiClient['answer']>(() => Promise.resolve({ ok: true as const }));
+    const decidePermission = vi.fn<ApiClient['decidePermission']>(() =>
+      Promise.resolve({} as Awaited<ReturnType<ApiClient['decidePermission']>>),
+    );
+    const api = { answer, decidePermission } as unknown as ApiClient;
+    render(<Board board={board(cards)} selectedSessionId={null} onSelect={onSelect} api={api} />);
+    return { onSelect, answer, decidePermission };
+  }
+
+  it('an option button answers with its label; the generic buttons give way', async () => {
+    const c = card(1, { options: OPTIONS }, { human_transitions: BASE.human_transitions });
+    const { answer } = renderApi([c]);
+    const a = article('Card 1');
+    expect(a.queryByRole('button', { name: /Back with this answer/ })).toBeNull();
+    const pg = a.getByRole('button', { name: 'Postgres' });
+    expect(pg.getAttribute('title')).toBe('recommended');
+    fireEvent.click(pg);
+    fireEvent.click(pg); // in flight: posts once
+    await waitFor(() =>
+      expect(answer).toHaveBeenCalledWith(c.session_id, {
+        input_request_id: c.input_request!.id,
+        answer: 'Postgres',
+      }),
+    );
+    expect(answer).toHaveBeenCalledTimes(1);
+  });
+
+  it('multi-select or many options: "Answer…" opens the panel instead', () => {
+    const many = {
+      multi_select: false,
+      items: ['a', 'b', 'c', 'd', 'e'].map((label) => ({ label })),
+    };
+    const { onSelect, answer } = renderApi([
+      card(1, { options: { ...OPTIONS, multi_select: true } }),
+      card(2, { options: many }),
+    ]);
+    fireEvent.click(article('Card 1').getByRole('button', { name: 'Answer…' }));
+    expect(article('Card 2').getByRole('button', { name: 'Answer…' })).toBeTruthy();
+    expect(article('Card 2').queryByRole('button', { name: 'a' })).toBeNull();
+    expect(onSelect).toHaveBeenCalledWith(card(1, {}).session_id);
+    expect(answer).not.toHaveBeenCalled();
+  });
+
+  it('a question without options keeps the generic buttons', () => {
+    renderApi([card(1, {}, { human_transitions: BASE.human_transitions })]);
+    expect(article('Card 1').queryByRole('group', { name: 'Answer options' })).toBeNull();
+  });
+
+  it('a held permission: Allow once and Deny decide it, Review opens the panel', async () => {
+    const c = BOARD_CARD_NEEDS_PERMISSION_FIXTURE;
+    const { decidePermission, onSelect } = renderApi([c]);
+    const a = article(c.title);
+    fireEvent.click(a.getByRole('button', { name: 'Allow once' }));
+    await waitFor(() =>
+      expect(decidePermission).toHaveBeenCalledWith(c.permission!.request_id, {
+        behavior: 'allow',
+        scope: 'once',
+      }),
+    );
+    fireEvent.click(a.getByRole('button', { name: 'Deny' }));
+    await waitFor(() =>
+      expect(decidePermission).toHaveBeenLastCalledWith(c.permission!.request_id, {
+        behavior: 'deny',
+        scope: 'once',
+      }),
+    );
+    fireEvent.click(a.getByRole('button', { name: 'Review' }));
+    expect(onSelect).toHaveBeenCalledWith(c.session_id);
+  });
+});
+
 describe('collapsible columns (UX-9)', () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => {
@@ -568,13 +647,13 @@ describe('collapsible columns (UX-9)', () => {
   it('NFR-2: toggling a column does not re-render the cards of the others', () => {
     const p = planning(1);
     renderBoard([p, done(2)]);
-    const name = vi.mocked(agentName);
-    name.mockClear();
+    const agent = vi.mocked(cardAgent);
+    agent.mockClear();
     fireEvent.click(toggle('Done'));
     fireEvent.click(toggle('Done'));
-    expect(name.mock.calls.some(([id]) => id === p.ticket_id)).toBe(false);
+    expect(agent.mock.calls.some(([c]) => c.ticket_id === p.ticket_id)).toBe(false);
     // The toggled column's own cards do render again when it expands.
-    expect(name.mock.calls.some(([id]) => id === done(2).ticket_id)).toBe(true);
+    expect(agent.mock.calls.some(([c]) => c.ticket_id === done(2).ticket_id)).toBe(true);
   });
 });
 

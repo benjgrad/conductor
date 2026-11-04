@@ -35,6 +35,7 @@ From the freeze commit (tagged `daemon-ts-freeze` in MR-T00), `packages/daemon` 
 - **Choosing the target:**
   - `install.sh` is rendered with one `FILE`/`SHA256` pair per served target and picks one by `uname -s`/`-m`. `install.ps1` gets the Windows pair.
   - `update_available` (ADR-0021 §1) picks the file from `register.os`/`arch`, which daemons already send, so there is no protocol change.
+- **Built by CI, unsigned** *(MR-T15)*: `.github/workflows/daemon-dist.yml` builds the five targets for the sha being deployed and the deploy puts them in the image's build context (`daemon-dist/`). The binaries are not code-signed or notarized (U-115, Ben 2026-11-04): curl + tar sets no quarantine attribute and `Invoke-WebRequest` + tar.exe no Mark of the Web, and launchd, systemd or a terminal start the daemon, never Finder or Explorer. Revisit if Gatekeeper or SmartScreen ever blocks it. The build sha is baked into the binary (`option_env!("CONDUCTOR_BUILD_SHA")`; the runtime variable still wins), so its `--version` is the served version with no wrapper script.
 - **The move from TS to Rust** is one `install.sh`/`install.ps1` re-run per machine. The frozen TS daemon never gets the updater. Rolling back to TS means pointing `current` at the TS version directory, which stays on disk. After cutover, ADR-0021's updater (built in Rust, MR-T14) moves Rust to Rust automatically, with the same launcher, trial and rollback.
 
 ### 5 · No Node at runtime

@@ -8,9 +8,10 @@ import {
   type BoardState,
 } from '../board/board.js';
 import { DEFAULT_BOARD_WORKFLOW, readCollapsed, writeCollapsed } from './board-layout.js';
-import { AgentAvatar, agentName } from './agent-identity.js';
+import { AgentAvatar, cardAgent } from './agent-identity.js';
 import { ago, cardMeta, KIND_LABELS, TICKET_KIND_LABELS, usd } from './format.js';
 import { usePlanAnswer } from './plan-answer.js';
+import { CardPermissionActions, CardQuestionOptions } from './CardActions.js';
 import { PendingChecklist, TransitionButtons } from './transitions.js';
 import {
   classifyRequest,
@@ -380,7 +381,8 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
   // UX-5: in a gate step the agent has exited and conductor runs the step, so no "running" agent.
   const conductor = isConductorStep(card);
   const idle = agentIdle(card);
-  const name = agentName(card.ticket_id);
+  const agent = cardAgent(card);
+  const name = agent.name;
   const meta = cardMeta(card, column);
   return (
     <article className={`card${selected ? ' selected' : ''}`} data-ticket={card.ticket_id}>
@@ -401,10 +403,16 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
         )}
         <span
           className="card-agent"
-          title={idle ? `Agent ${name} is idle: conductor is checking` : `Agent ${name}`}
+          title={
+            agent.seed === null
+              ? 'Not assigned yet'
+              : idle
+                ? `Agent ${name} is idle: conductor is checking`
+                : `Agent ${name}`
+          }
         >
           <AgentAvatar
-            ticketId={card.ticket_id}
+            seed={agent.seed}
             size={20}
             {...(idle ? { className: 'avatar-idle' } : {})}
           />
@@ -437,6 +445,15 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
           needs permission: {card.permission.tool}
           {card.permission.pending_count > 1 ? ` (+${card.permission.pending_count - 1})` : ''}
         </span>
+      )}
+      {/* Questions UX: allow or deny right here; Review opens the panel (Allow always, the input). */}
+      {api && sessionId !== null && card.sub_status === 'needs_permission' && card.permission && (
+        <CardPermissionActions
+          key={card.permission.request_id}
+          api={api}
+          permission={card.permission}
+          onReview={() => onSelect(sessionId)}
+        />
       )}
       {card.badges.includes('waiting_for_build_slot') && !waitingForBuildSlot(card) && (
         <span className="badge badge-slot">waiting for build slot</span>
@@ -502,7 +519,16 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
           )}
         </div>
       )}
-      {api && sessionId !== null && planOption ? (
+      {/* Questions UX: the agent's options replace the generic buttons on the card. */}
+      {api && sessionId !== null && q?.options && !planOption ? (
+        <CardQuestionOptions
+          key={q.id}
+          api={api}
+          sessionId={sessionId}
+          request={q}
+          onOpen={() => onSelect(sessionId)}
+        />
+      ) : api && sessionId !== null && planOption ? (
         <PlanApprovalActions
           api={api}
           sessionId={sessionId}

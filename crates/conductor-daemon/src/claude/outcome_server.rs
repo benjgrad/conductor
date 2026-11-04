@@ -6,7 +6,8 @@
 //! attributes every tool call to exactly one session; the token is dropped when the session's
 //! process exits. The server is stateless: no session id, JSON replies, no GET SSE stream.
 //!
-//! Tools: `complete_state({transition?, reason?, result})` and `ask_user({question})`. Both return
+//! Tools: `complete_state({transition?, reason?, result})` and `ask_user({question, options?,
+//! multi_select?})`. Both return
 //! immediately with the ADR's texts. Guards live here, per registration, so a refused call never
 //! reaches the driver:
 //!   - complete_state while a question is pending → corrective text, not emitted
@@ -17,6 +18,8 @@
 //!   - ask_user after complete_state, or while a question is already pending → corrective text
 //!
 //! The driver clears the pending question when it delivers the answer (`answered()`).
+//! Questions UX: ask_user's `options` are bounded (`bounded_question_options`); an invalid list is
+//! dropped and the question is still sent.
 //!
 //! ADR-0023: a third tool, `permission`, is Claude's `--permission-prompt-tool`
 //! (`mcp__conductor__permission`). The call is HELD: the registration hands the request to the
@@ -38,9 +41,11 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::any;
 use conductor_protocol::json::json_byte_length;
 use conductor_protocol::{
-    AgentTransitionOption, DEFAULT_PERMISSION_TIMEOUT_MS, JsonObject, PERMISSION_INPUT_MAX_BYTES,
-    PERMISSION_MESSAGE_MAX, PERMISSION_SUGGESTIONS_MAX, PERMISSION_SUGGESTIONS_MAX_BYTES,
-    PERMISSION_TOOL_MAX, TRANSITION_NAME_MAX, TRANSITION_REASON_MAX,
+    ASK_USER_OPTION_DESCRIPTION_MAX, ASK_USER_OPTION_LABEL_MAX, ASK_USER_OPTIONS_MAX,
+    ASK_USER_OPTIONS_MIN, AgentTransitionOption, DEFAULT_PERMISSION_TIMEOUT_MS, JsonObject,
+    PERMISSION_INPUT_MAX_BYTES, PERMISSION_MESSAGE_MAX, PERMISSION_SUGGESTIONS_MAX,
+    PERMISSION_SUGGESTIONS_MAX_BYTES, PERMISSION_TOOL_MAX, TRANSITION_NAME_MAX,
+    TRANSITION_REASON_MAX,
 };
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
@@ -55,7 +60,7 @@ use serde_json::{Map, Value, json};
 use tokio::sync::oneshot;
 use tower::ServiceExt;
 
-use crate::claude::driver::{PermissionDecision, PermissionResolution};
+use crate::claude::driver::{PermissionDecision, PermissionResolution, QuestionOptions};
 use conductor_protocol::{PermissionBehavior, PermissionScope};
 
 // ---- Pure helpers (MR-T06; MR-T08 adds the server below) ----
@@ -118,7 +123,12 @@ pub const ASK_USER_AFTER_COMPLETE: &str =
     "Not sent: complete_state was already recorded for this state. End your turn now.";
 
 const COMPLETE_STATE_BASE: &str = "Call exactly once when the current workflow state's work is finished. `result` holds the keys the state asked for. After calling it, stop: do not call any other tool and end your turn.";
-const ASK_USER_DESCRIPTION: &str = "Ask the human operator one clear question when you cannot proceed without a decision. The call returns at once; then end your turn. The answer arrives as the next user message.";
+/// The ask_user tool description (Questions UX: when to list options).
+pub fn ask_user_description() -> String {
+    format!(
+        "Ask the human operator one clear question when you cannot proceed without a decision. The call returns at once; then end your turn. The answer arrives as the next user message. If the answer is one of a few choices, list them in `options` ({ASK_USER_OPTIONS_MIN}-{ASK_USER_OPTIONS_MAX}, short labels, the recommended one first): the human clicks one and its label is the answer. Set `multi_select` when several may be chosen (the answer is the labels joined with \", \"). The human can still type a different answer."
+    )
+}
 const PERMISSION_DESCRIPTION: &str = "Conductor's permission prompt tool: Claude Code calls it when a tool call needs a human's approval. Do not call it yourself.";
 
 fn when_suffix(t: &AgentTransitionOption) -> String {
@@ -188,6 +198,42 @@ pub fn bounded_suggestions(v: Option<&Value>) -> Option<Vec<JsonObject>> {
         .iter()
         .map(|x| x.as_object().map(|o| JsonObject(o.clone())))
         .collect()
+}
+
+/// Questions UX: what `ask_user` received as `options` / `multi_select`, bounded: the options when
+/// they are valid (labels trimmed, empty descriptions left out), else None. Never fails: a bad
+/// option list is dropped and the question is still sent (like `bounded_suggestions`).
+pub fn bounded_question_options(
+    options: Option<&Value>,
+    multi_select: Option<&Value>,
+) -> Option<QuestionOptions> {
+    let raw = options?.as_array()?;
+    if raw.len() < ASK_USER_OPTIONS_MIN || raw.len() > ASK_USER_OPTIONS_MAX {
+        return None;
+    }
+    let mut items = Vec::with_capacity(raw.len());
+    let mut seen = HashSet::new();
+    for o in raw {
+        let o = o.as_object()?;
+        let label = o.get("label")?.as_str()?.trim().to_string();
+        let n = label.chars().count();
+        if n == 0 || n > ASK_USER_OPTION_LABEL_MAX || !seen.insert(label.clone()) {
+            return None;
+        }
+        let mut item = json!({ "label": label });
+        if let Some(Value::String(d)) = o.get("description") {
+            let d = d.trim();
+            if d.chars().count() > ASK_USER_OPTION_DESCRIPTION_MAX {
+                return None;
+            }
+            if !d.is_empty() {
+                item["description"] = json!(d);
+            }
+        }
+        items.push(item);
+    }
+    let multi = matches!(multi_select, Some(Value::Bool(true)));
+    serde_json::from_value(json!({ "multi_select": multi, "items": items })).ok()
 }
 
 /// ADR-0011: whether `complete_state` naming `name` is refused with the corrective text. Only the
@@ -362,7 +408,8 @@ pub struct PermissionPrompt {
 }
 
 pub type CompleteStateHandler = Arc<dyn Fn(Map<String, Value>, CompleteStateMeta) + Send + Sync>;
-pub type AskUserHandler = Arc<dyn Fn(String) + Send + Sync>;
+/// The question and its bounded options (None when absent or invalid).
+pub type AskUserHandler = Arc<dyn Fn(String, Option<QuestionOptions>) + Send + Sync>;
 /// Err = the prompt could not be forwarded (the TS handler threw): the call is denied at once.
 pub type PermissionHandler = Arc<dyn Fn(PermissionPrompt) -> Result<(), String> + Send + Sync>;
 
@@ -557,6 +604,7 @@ impl Outcome {
             Some(Value::String(q)) if !q.is_empty() => q.clone(),
             _ => return invalid("question: expected a non-empty string"),
         };
+        let options = bounded_question_options(args.get("options"), args.get("multi_select"));
         let handler = {
             let mut e = lock(&self.entry);
             if e.completed {
@@ -568,7 +616,7 @@ impl Outcome {
             e.question_pending = true;
             e.handlers.on_ask_user.clone()
         };
-        handler(question);
+        handler(question, options);
         text(ASK_USER_RETURN)
     }
 
@@ -674,13 +722,28 @@ impl ServerHandler for Outcome {
                 .with_meta(always_load()),
             Tool::new(
                 "ask_user",
-                ASK_USER_DESCRIPTION,
+                ask_user_description(),
                 schema(json!({
                     "type": "object",
-                    "properties": {"question": {
-                        "type": "string", "minLength": 1,
-                        "description": "One clear question for the human"
-                    }},
+                    "properties": {
+                        "question": {
+                            "type": "string", "minLength": 1,
+                            "description": "One clear question for the human"
+                        },
+                        "options": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "label": {"type": "string", "description": format!("The choice, at most {ASK_USER_OPTION_LABEL_MAX} characters; the answer you get")},
+                                    "description": {"type": "string", "description": format!("What it means, at most {ASK_USER_OPTION_DESCRIPTION_MAX} characters")},
+                                },
+                                "required": ["label"],
+                            },
+                            "description": format!("Optional: {ASK_USER_OPTIONS_MIN}-{ASK_USER_OPTIONS_MAX} choices shown as buttons, the recommended one first"),
+                        },
+                        "multi_select": {"type": "boolean", "description": "The human may choose several options"},
+                    },
                     "required": ["question"],
                 })),
             )
@@ -1100,6 +1163,7 @@ mod tests {
     #[derive(Clone, Debug, PartialEq)]
     enum Call {
         Ask(String),
+        AskWith(String, QuestionOptions),
         Done(Value, Option<String>, Option<String>),
     }
 
@@ -1109,7 +1173,12 @@ mod tests {
     fn handlers(calls: &Calls, prompts: Option<&Prompts>) -> OutcomeHandlers {
         let (a, d) = (calls.clone(), calls.clone());
         OutcomeHandlers {
-            on_ask_user: Arc::new(move |q| a.lock().unwrap().push(Call::Ask(q))),
+            on_ask_user: Arc::new(move |q, o| {
+                a.lock().unwrap().push(match o {
+                    Some(o) => Call::AskWith(q, o),
+                    None => Call::Ask(q),
+                })
+            }),
             on_complete_state: Arc::new(move |r, m| {
                 d.lock()
                     .unwrap()
@@ -1290,6 +1359,41 @@ mod tests {
             json!(["result"])
         );
         s.close().await;
+    }
+
+    #[tokio::test]
+    async fn ask_user_forwards_valid_options_and_drops_an_invalid_list() {
+        let s = server().await;
+        let (reg, calls) = register(&s, None);
+        let c = connect(reg.url()).await;
+        assert_eq!(
+            c.text(
+                "ask_user",
+                json!({"question": "Which DB?", "options": [{"label": "Postgres"}, {"label": "SQLite"}]})
+            )
+            .await,
+            ASK_USER_RETURN
+        );
+        let opts: QuestionOptions = serde_json::from_value(
+            json!({"multi_select": false, "items": [{"label": "Postgres"}, {"label": "SQLite"}]}),
+        )
+        .unwrap();
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec![Call::AskWith("Which DB?".into(), opts)]
+        );
+
+        let (reg2, calls2) = register(&s, None);
+        let c2 = connect(reg2.url()).await;
+        assert_eq!(
+            c2.text(
+                "ask_user",
+                json!({"question": "Sure?", "options": [{"label": "Yes"}]})
+            )
+            .await,
+            ASK_USER_RETURN
+        );
+        assert_eq!(*calls2.lock().unwrap(), vec![Call::Ask("Sure?".into())]);
     }
 
     #[tokio::test]
@@ -1939,6 +2043,47 @@ mod tests {
         );
         held.await.unwrap();
         t.server.close().await;
+    }
+
+    #[test]
+    fn bounded_question_options_keeps_valid_lists_and_drops_the_rest() {
+        let ok = bounded_question_options(
+            Some(&json!([{"label": " Postgres ", "description": "recommended"}, {"label": "SQLite", "description": " "}])),
+            Some(&json!(true)),
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&ok).unwrap(),
+            json!({"multi_select": true, "items": [{"label": "Postgres", "description": "recommended"}, {"label": "SQLite"}]})
+        );
+        // multi_select absent or not true → false
+        let one = bounded_question_options(Some(&json!([{"label": "a"}, {"label": "b"}])), None);
+        assert!(!one.unwrap().multi_select);
+        // dropped: absent, one option, seven, a duplicate, an empty or long label, a non-object
+        assert_eq!(bounded_question_options(None, None), None);
+        assert_eq!(
+            bounded_question_options(Some(&json!([{"label": "a"}])), None),
+            None
+        );
+        let seven: Vec<Value> = (0..7).map(|i| json!({"label": format!("o{i}")})).collect();
+        assert_eq!(bounded_question_options(Some(&json!(seven)), None), None);
+        assert_eq!(
+            bounded_question_options(Some(&json!([{"label": "a"}, {"label": " a"}])), None),
+            None
+        );
+        assert_eq!(
+            bounded_question_options(Some(&json!([{"label": "a"}, {"label": "  "}])), None),
+            None
+        );
+        let long = "x".repeat(ASK_USER_OPTION_LABEL_MAX + 1);
+        assert_eq!(
+            bounded_question_options(Some(&json!([{"label": "a"}, {"label": long}])), None),
+            None
+        );
+        assert_eq!(
+            bounded_question_options(Some(&json!(["a", "b"])), None),
+            None
+        );
     }
 
     #[test]

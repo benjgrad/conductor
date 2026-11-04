@@ -16,7 +16,7 @@
 | UX-14 | Notifications (in-tab): browser notification, title count, favicon dot | — | 1 | — | done |
 | UX-15 | Notifications (Web Push, server): subscriptions, VAPID, the send on needs-input | — | 1 | **yes** | done (PR #67) |
 | UX-9 | Collapsible board columns (desktop only now; rebase onto the phone `Board.tsx`) | UX-10 | 2 | — | todo |
-| UX-13b | Agent team (web): show the stored name and face, the Team list | UX-13a | 2 | — | todo |
+| UX-13b | Agent team (web): show the stored name and face, the Team list | UX-13a | 2 | — | in_progress: FR-1/FR-2 (stored `agent_name`, "Unassigned" when queued, the hash name for older tickets, the avatar seeded by the name) done on `conductor/agent-team-names-134495`; FR-3 (the Team list) todo |
 | UX-16 | Notifications (Web Push, web): service worker, manifest, subscribe toggle | UX-14, UX-15 | 2 | — | done (branch `ux-16-web-push`) |
 | UX-12 | Mobile-friendly view | UX-11 | — | — | replaced by the "Mobile-friendly UX" ticket ([11-web-ui](../design/11-web-ui.md), [UI review](../qa/ux-review/README.md)) |
 

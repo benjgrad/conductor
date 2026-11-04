@@ -58,6 +58,7 @@ import {
   transitionTitle,
   type HumanTransitionOption,
 } from '../workflow/transition-rules.js';
+import { ATTACHMENTS_PER_TICKET_MAX, AttachmentDtoSchema } from './attachments.js';
 import { OutputChunkSchema } from './output.js';
 import { TicketProposalSchema } from './proposals.js';
 import {
@@ -98,6 +99,17 @@ export const API_PATHS = {
   ticketProposalApprove: (id: string) => `/api/tickets/${id}/proposals/approve`,
   /** POST DismissProposalRequest → TicketProposal. */
   ticketProposalDismiss: (id: string) => `/api/tickets/${id}/proposals/dismiss`,
+  /**
+   * POST the file's raw bytes (`application/octet-stream`, name in `x-conductor-filename`) →
+   * 201 AttachmentDto, not linked to a ticket yet (06 §Attachments).
+   */
+  attachments: '/api/attachments',
+  /** DELETE `{}` → OkResponse (while unlinked, or while its ticket is editable). */
+  attachment: (id: string) => `/api/attachments/${id}`,
+  /** GET → the attachment's bytes (its sniffed content-type). */
+  attachmentContent: (id: string) => `/api/attachments/${id}/content`,
+  /** GET → the bytes, for the daemon of a machine working the ticket (machine credential). */
+  daemonAttachmentContent: (id: string) => `/api/daemon/attachments/${id}/content`,
   workflows: '/api/workflows',
   workflow: (id: string) => `/api/workflows/${id}`,
   machines: '/api/machines',
@@ -1072,6 +1084,12 @@ export const ApiErrorSchema = z.object({
       'approval_weakened',
       /** ADR-0033 P3: applying or rejecting a proposal that is no longer `proposed` (409). */
       'wrong_state',
+      /** POST /api/attachments: not one of ATTACHMENT_MIMES, by its bytes (415). */
+      'attachment_type',
+      /** POST /api/attachments: over the size limit of its type (413). */
+      'attachment_too_large',
+      /** A ticket would have more than ATTACHMENTS_PER_TICKET_MAX files or bytes (400). */
+      'attachment_limit',
     ]),
     message: z.string(),
     /** Validation details (zod issues / validator rule failures). */
@@ -1166,6 +1184,8 @@ export const TicketDetailSchema = TicketDtoSchema.extend({
   editable: z.boolean(),
   /** 06 §Proposed tickets: as `SessionDetail.proposals` (the latest session's); absent ≡ []. */
   proposals: z.array(TicketProposalSchema).optional(),
+  /** 06 §Attachments: the ticket's files, oldest first; absent ≡ [] (older servers). */
+  attachments: z.array(AttachmentDtoSchema).optional(),
 });
 export type TicketDetail = z.infer<typeof TicketDetailSchema>;
 
@@ -1191,14 +1211,20 @@ export const UpdateTicketRequestSchema = z
     body: z.string().max(TICKET_BODY_MAX).optional(),
     priority: z.number().int().optional(),
     kind: TicketKindSchema.optional(),
+    /** 06 §Attachments: link these uploaded (unlinked) attachments to the ticket. */
+    add_attachment_ids: z.array(UuidSchema).max(ATTACHMENTS_PER_TICKET_MAX).optional(),
+    /** Delete these attachments of the ticket. */
+    remove_attachment_ids: z.array(UuidSchema).max(ATTACHMENTS_PER_TICKET_MAX).optional(),
   })
   .refine(
     (r) =>
       r.title !== undefined ||
       r.body !== undefined ||
       r.priority !== undefined ||
-      r.kind !== undefined,
-    { message: 'change at least one of title, body, priority, kind' },
+      r.kind !== undefined ||
+      (r.add_attachment_ids?.length ?? 0) > 0 ||
+      (r.remove_attachment_ids?.length ?? 0) > 0,
+    { message: 'change at least one of title, body, priority, kind, attachments' },
   );
 export type UpdateTicketRequest = z.input<typeof UpdateTicketRequestSchema>;
 
@@ -1360,6 +1386,11 @@ export const CreateTicketRequestSchema = z.object({
    * triage (M4) can set it.
    */
   kind: TicketKindSchema,
+  /**
+   * 06 §Attachments: uploaded attachments (POST /api/attachments) to link to the new ticket, in
+   * the same transaction (400 when one is unknown or already linked).
+   */
+  attachment_ids: z.array(UuidSchema).max(ATTACHMENTS_PER_TICKET_MAX).optional(),
 });
 export type CreateTicketRequest = z.input<typeof CreateTicketRequestSchema>;
 

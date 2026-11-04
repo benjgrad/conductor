@@ -661,6 +661,37 @@ export interface ChangeProposalRow {
   reviewed_at: Date | null;
 }
 
+/** 06 §Attachments: one file attached to a ticket (metadata; the bytes are in attachment_content). */
+export interface AttachmentRow {
+  id: string;
+  account_id: string;
+  /** null = uploaded, not linked to a ticket yet (swept after a day). FK CASCADE. */
+  ticket_id: string | null;
+  /** The agent's session for an agent attachment (FK, SET NULL). */
+  session_id: string | null;
+  workflow_state: string | null;
+  /** `human` · `agent` (CHECK; AttachmentSource). */
+  source: 'human' | 'agent';
+  /** sanitizeAttachmentName's output. */
+  name: string;
+  /** One of ATTACHMENT_MIMES, sniffed from the bytes. */
+  mime: string;
+  size_bytes: number;
+  /** 32 bytes. */
+  sha256: Buffer;
+  caption: string | null;
+  /** The uploading user's id (no FK: local mode's user has no row). */
+  created_by: string | null;
+  created_at: Date;
+}
+
+/** 06 §Attachments: an attachment's bytes (TD-212). */
+export interface AttachmentContentRow {
+  attachment_id: string;
+  account_id: string;
+  data: Buffer;
+}
+
 /** Table name → row type, for generic repository helpers. */
 export interface Tables {
   machine: MachineRow;
@@ -694,4 +725,6 @@ export interface Tables {
   session_insight: SessionInsightRow;
   ticket_proposal_decision: TicketProposalDecisionRow;
   change_proposal: ChangeProposalRow;
+  attachment: AttachmentRow;
+  attachment_content: AttachmentContentRow;
 }

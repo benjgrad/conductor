@@ -43,6 +43,8 @@ import type {
   TicketScheduleRow,
   SessionInsightRow,
   ChangeProposalRow,
+  AttachmentRow,
+  AttachmentContentRow,
   SessionRow,
   TicketProposalDecisionRow,
   Tables,
@@ -518,6 +520,26 @@ const change_proposal: ColumnSpec<ChangeProposalRow> = {
   review: col('jsonb', NULL),
   reviewed_at: col('timestamptz', NULL),
 };
+const attachment: ColumnSpec<AttachmentRow> = {
+  id: col('uuid', NN),
+  account_id: col('uuid', NN),
+  ticket_id: col('uuid', NULL),
+  session_id: col('uuid', NULL),
+  workflow_state: col(t, NULL),
+  source: col(t, NN),
+  name: col(t, NN),
+  mime: col(t, NN),
+  size_bytes: col('int4', NN),
+  sha256: col('bytea', NN),
+  caption: col(t, NULL),
+  created_by: col(t, NULL),
+  created_at: col('timestamptz', NN),
+};
+const attachment_content: ColumnSpec<AttachmentContentRow> = {
+  attachment_id: col('uuid', NN),
+  account_id: col('uuid', NN),
+  data: col('bytea', NN),
+};
 const SCHEMA: Schema = {
   machine,
   machine_repo,
@@ -550,6 +572,8 @@ const SCHEMA: Schema = {
   session_insight,
   ticket_proposal_decision,
   change_proposal,
+  attachment,
+  attachment_content,
 };
 /** The tables M1/M1b created: every one carries `account_id` since M2-T03. */
 const M1_TABLES = [

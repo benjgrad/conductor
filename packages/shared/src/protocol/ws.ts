@@ -55,8 +55,17 @@ export function parseDaemonAuthHeader(value: string | undefined): string | null 
 
 /** ADR-0033 P2: the daemon runs one-shot `assistant_job`s and replies with `assistant_result`. */
 export const DAEMON_FEATURE_ASSISTANT_JOB = 'assistant_job';
+/**
+ * 06 §Attachments: the daemon downloads `start_session.attachments` (GET
+ * `API_PATHS.daemonAttachmentContent` with its credential) and lists them in the prompt. A machine
+ * without it gets a note in the prompt instead.
+ */
+export const DAEMON_FEATURE_TICKET_ATTACHMENTS = 'ticket_attachments';
 /** The `register.features` names conductor knows. */
-export const DAEMON_FEATURES = [DAEMON_FEATURE_ASSISTANT_JOB] as const;
+export const DAEMON_FEATURES = [
+  DAEMON_FEATURE_ASSISTANT_JOB,
+  DAEMON_FEATURE_TICKET_ATTACHMENTS,
+] as const;
 
 /** M1-T11: a newer connection for the same machine id replaced this one. */
 export const CLOSE_REPLACED = 4000;
@@ -701,6 +710,23 @@ export const RetryAfterMessageSchema = msg(
   orchMachineEnv,
 );
 
+/**
+ * 06 §Attachments: one of the ticket's files, for the daemon to download into the session's
+ * attachments directory. `mime` is a plain string (not the enum) so a type added later doesn't
+ * make an older daemon refuse the whole start. `name` is re-sanitized by the daemon.
+ */
+export const AttachmentRefSchema = z.object({
+  id: UuidSchema,
+  name: z.string().min(1).max(100),
+  mime: z.string().min(1).max(100),
+  size: z.number().int().positive(),
+  /** Lowercase hex SHA-256 of the bytes. */
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+});
+export type AttachmentRef = z.infer<typeof AttachmentRefSchema>;
+/** The most attachments one start carries (ATTACHMENTS_PER_TICKET_MAX). */
+export const START_SESSION_ATTACHMENTS_MAX = 20;
+
 export const StartSessionPayloadSchema = z.object({
   command_id: UuidSchema,
   ticket_id: UuidSchema,
@@ -763,6 +789,11 @@ export const StartSessionPayloadSchema = z.object({
   checkout: z
     .object({ sha: GitShaSchema, pr_url: PrUrlSchema, setup: z.string().max(2_000).nullable() })
     .optional(),
+  /**
+   * 06 §Attachments: the ticket's attachments, oldest first; only to a daemon with
+   * DAEMON_FEATURE_TICKET_ATTACHMENTS. Absent = none (or an older orchestrator).
+   */
+  attachments: z.array(AttachmentRefSchema).max(START_SESSION_ATTACHMENTS_MAX).optional(),
 });
 export const StartSessionMessageSchema = msg(
   'start_session',

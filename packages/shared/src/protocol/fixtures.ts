@@ -664,6 +664,7 @@ export const M2_WS_FIXTURES: {
   update_available: Extract<OrchestratorToDaemon, { type: 'update_available' }>;
   heartbeat_draining: Extract<DaemonToOrchestrator, { type: 'heartbeat' }>;
   alert_update_failed: Extract<DaemonToOrchestrator, { type: 'alert' }>;
+  start_session_attachments: Extract<OrchestratorToDaemon, { type: 'start_session' }>;
 } = {
   register_v2: {
     ...DAEMON_FIXTURES.register,
@@ -741,6 +742,30 @@ export const M2_WS_FIXTURES: {
       stage: 'trial',
       error: `conductor-daemon ${UPDATE_VERSION} exited 1 twice during its trial start`,
       at: TS,
+    },
+  },
+  /** 06 §Attachments: a start carrying the ticket's attachments (fixed ids: no `id()` shift). */
+  start_session_attachments: {
+    ...ORCHESTRATOR_FIXTURES.start_session,
+    msg_id: '00000000-0000-4000-8000-0000000a7001',
+    payload: {
+      ...ORCHESTRATOR_FIXTURES.start_session.payload,
+      attachments: [
+        {
+          id: '00000000-0000-4000-8000-0000000a7002',
+          name: 'mockup.png',
+          mime: 'image/png',
+          size: 2048,
+          sha256: 'a'.repeat(64),
+        },
+        {
+          id: '00000000-0000-4000-8000-0000000a7003',
+          name: 'repro.mp4',
+          mime: 'video/mp4',
+          size: 1_048_576,
+          sha256: '0123456789abcdef'.repeat(4),
+        },
+      ],
     },
   },
 };

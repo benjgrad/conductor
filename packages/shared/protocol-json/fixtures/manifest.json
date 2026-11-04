@@ -420,6 +420,13 @@
     "array": false
   },
   {
+    "file": "M2_WS_FIXTURES.start_session_attachments.json",
+    "export": "M2_WS_FIXTURES",
+    "key": "start_session_attachments",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
     "file": "M2_WS_FIXTURES.start_session_working_copy.json",
     "export": "M2_WS_FIXTURES",
     "key": "start_session_working_copy",

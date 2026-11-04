@@ -1,6 +1,7 @@
 import { TICKET_KINDS, type TicketDetail, type TicketKind } from '@conductor/shared';
 import { useId, useRef, useState, type FormEvent } from 'react';
 import { ApiRequestError, errorMessage, type ApiClient } from '../api/client.js';
+import { AttachmentPicker, AttachmentThumb, useAttachmentUploads } from './AttachmentPicker.js';
 import { TICKET_KIND_LABELS } from './format.js';
 import type { RichEditorHandle } from './ticket-editor/RichTicketEditor.js';
 import { TicketBodyField } from './ticket-editor/TicketBodyField.js';
@@ -29,6 +30,10 @@ export function TicketEditor({ api, ticket, onSaved, onCancel, onReload }: Ticke
   const [error, setError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
   const kindName = useId();
+  // 06 §Attachments: new uploads are linked on Save; existing ones can be marked for removal.
+  const uploads = useAttachmentUploads(api);
+  const [removed, setRemoved] = useState<ReadonlySet<string>>(new Set());
+  const existing = ticket.attachments ?? [];
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -40,6 +45,8 @@ export function TicketEditor({ api, ticket, onSaved, onCancel, onReload }: Ticke
       ...(markdown !== ticket.body ? { body: markdown } : {}),
       ...(prio !== ticket.priority ? { priority: prio } : {}),
       ...(kind !== null && kind !== (ticket.kind ?? null) ? { kind } : {}),
+      ...(uploads.ids.length > 0 ? { add_attachment_ids: uploads.ids } : {}),
+      ...(removed.size > 0 ? { remove_attachment_ids: [...removed] } : {}),
     };
     if (Object.keys(patch).length === 0) {
       onCancel();
@@ -48,9 +55,12 @@ export function TicketEditor({ api, ticket, onSaved, onCancel, onReload }: Ticke
     setBusy(true);
     setError(null);
     try {
-      onSaved(
-        await api.updateTicket(ticket.id, { expected_updated_at: ticket.updated_at, ...patch }),
-      );
+      const saved = await api.updateTicket(ticket.id, {
+        expected_updated_at: ticket.updated_at,
+        ...patch,
+      });
+      uploads.reset();
+      onSaved(saved);
     } catch (err) {
       if (err instanceof ApiRequestError && err.status === 409) setStale(true);
       else if (err instanceof ApiRequestError && err.code === 'ticket_not_editable') {
@@ -96,11 +106,41 @@ export function TicketEditor({ api, ticket, onSaved, onCancel, onReload }: Ticke
           </label>
         ))}
       </fieldset>
-      <div className="wide">
+      <div className="wide" onPasteCapture={uploads.onPaste}>
         <TicketBodyField value={body} onChange={setBody} editorHandle={bodyEditor} />
       </div>
+      <div className="wide">
+        {existing.length > 0 && (
+          <ul className="attachment-uploads" aria-label="Attachments">
+            {existing.map((a) => {
+              const gone = removed.has(a.id);
+              return (
+                <li key={a.id} className={`attachment-upload${gone ? ' removed' : ''}`}>
+                  <AttachmentThumb api={api} attachment={a} />
+                  <span className="attachment-name">{gone ? <s>{a.name}</s> : a.name}</span>
+                  <button
+                    type="button"
+                    aria-label={`${gone ? 'Keep' : 'Remove'} ${a.name}`}
+                    onClick={() =>
+                      setRemoved((prev) => {
+                        const next = new Set(prev);
+                        if (gone) next.delete(a.id);
+                        else next.add(a.id);
+                        return next;
+                      })
+                    }
+                  >
+                    {gone ? 'Keep' : 'Remove'}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <AttachmentPicker api={api} uploads={uploads} />
+      </div>
       <div className="form-actions">
-        <button type="submit" disabled={busy || title.trim() === ''}>
+        <button type="submit" disabled={busy || title.trim() === '' || uploads.uploading}>
           Save
         </button>
         <button type="button" onClick={onCancel} disabled={busy}>

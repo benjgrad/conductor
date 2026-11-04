@@ -1,5 +1,6 @@
 import type {
   AdminUserRow,
+  AttachmentDto,
   ApproveProposalRequest,
   ApproveProposalResponse,
   DismissProposalRequest,
@@ -119,6 +120,16 @@ export interface ApiClient {
   approveProposal(ticketId: string, req: ApproveProposalRequest): Promise<ApproveProposalResponse>;
   /** POST /api/tickets/:id/proposals/dismiss. 409 conflict when it was approved. */
   dismissProposal(ticketId: string, req: DismissProposalRequest): Promise<TicketProposal>;
+  /**
+   * 06 §Attachments: POST /api/attachments with the file's bytes → the stored, unlinked upload.
+   * Link it with `attachment_ids` (createTicket) or `add_attachment_ids` (updateTicket). 415
+   * attachment_type / 413 attachment_too_large from the server's own checks.
+   */
+  uploadAttachment(file: File): Promise<AttachmentDto>;
+  /** DELETE /api/attachments/:id: an upload not linked to a ticket yet (409 once linked). */
+  deleteAttachment(attachmentId: string): Promise<OkResponse>;
+  /** Where an `<img>` / `<video>` loads the attachment's bytes from. */
+  attachmentUrl(attachment: AttachmentDto): string;
   /**
    * GET /api/repos (create-ticket form): the account's ticket repos, most used first with a
    * recency bias (`rankRepos`), then its machines' repos no ticket has used yet.

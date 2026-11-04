@@ -58,7 +58,11 @@ async fn register_advertises_the_assistant_job_feature() {
     let c = Ctx::new().await;
     c.make(driver(complete(json!({}))), Make::default());
     let reg = c.until(|| c.of_type("register").into_iter().next()).await;
-    assert_eq!(reg["payload"]["features"], json!(["assistant_job"]));
+    // 06 §Attachments: the daemon also downloads ticket attachments.
+    assert_eq!(
+        reg["payload"]["features"],
+        json!(["assistant_job", "ticket_attachments"])
+    );
     c.done().await;
 }
 

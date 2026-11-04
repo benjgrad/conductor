@@ -3,7 +3,7 @@ import { BlockNoteEditor } from '@blocknote/core';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parseBrief } from '../brief/parse.js';
-import { BriefCard } from './BriefCard.js';
+import { BriefContent } from './BriefCard.js';
 import { Markdown, renderInline, unescapeMarkdown } from './markdown.js';
 import { editorMarkdown } from './ticket-editor/markdown-io.js';
 
@@ -54,7 +54,7 @@ describe('markdown renderer: backslash escapes (UX-3 QA)', () => {
     expect(unescapeMarkdown('\\<x\\> \\a \\\\')).toBe('<x> \\a \\');
   });
 
-  it('a body exported by the UX-3 editor shows on the BriefCard without backslashes', () => {
+  it('a body exported by the UX-3 editor shows in the Brief without backslashes', () => {
     const typed = [
       'Continue on <machine> after *x* and [a] with a_b and <app>-ratelimit.',
       '# not a heading',
@@ -67,8 +67,7 @@ describe('markdown renderer: backslash escapes (UX-3 QA)', () => {
     const body = editorMarkdown(editor);
     expect(body).toContain('\\<machine>'); // escaped in storage...
     render(
-      <BriefCard
-        sessionId="b2000000-0000-4000-8000-0000000000ab"
+      <BriefContent
         brief={parseBrief(body)}
         body={body}
         unavailable={null}

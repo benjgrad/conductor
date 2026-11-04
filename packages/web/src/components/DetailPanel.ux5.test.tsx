@@ -26,7 +26,7 @@ describe('Conductor is running checks (UX-5)', () => {
   it('FR-3: the banner at the top of Messages, the agent not "running", live via SSE', async () => {
     const { api, panel, el } = await open('Conductor checks demo');
     const banner = await panel.findByRole('region', { name: 'Conductor is running checks' });
-    // At the top of Messages: before the Brief and the thread.
+    // At the top of Messages: before the thread.
     const messages = el.querySelector('.messages-tab')!;
     expect(messages.firstElementChild).toBe(banner);
     expect(within(banner).getByText(/Checks before PR ready for review/)).toBeTruthy();

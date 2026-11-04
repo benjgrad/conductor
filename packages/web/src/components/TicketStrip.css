@@ -1,28 +1,31 @@
-/* 11-web-ui §Phone layout (Detail panel): the ticket strip and its sheets (TicketStrip.tsx). Only
-   rendered in the phone's full-screen panel, so none of this applies on desktop. */
+/* 11-web-ui §Detail panel: the ticket buttons in the session panel's tab row and their sheets
+   (TicketStrip.tsx), at every width. */
 .ticket-strip {
   flex: none;
   display: flex;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
-  overflow-x: auto;
-  scrollbar-width: none;
-  border-bottom: 1px solid var(--border);
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
 }
 .ticket-strip-button {
   flex: none;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: var(--tap);
-  padding: 0 var(--space-3);
+  padding: 3px var(--space-2);
+  border-color: transparent;
   border-radius: var(--radius-pill);
-  background: var(--panel);
-  color: var(--text);
+  background: none;
+  color: var(--muted);
+  font-weight: 600;
   white-space: nowrap;
+}
+.ticket-strip-button:hover {
+  color: var(--text);
 }
 .ticket-strip-button[aria-expanded='true'] {
   border-color: var(--accent);
+  color: var(--text);
 }
 .ticket-strip-label {
   font-weight: 600;
@@ -39,12 +42,25 @@
   border-color: var(--user-border);
   color: var(--accent);
 }
+.ticket-strip-short {
+  display: none;
+}
+@media (max-width: 699.98px) {
+  .ticket-strip-long {
+    display: none;
+  }
+  .ticket-strip-short {
+    display: inline;
+  }
+}
+@media (pointer: coarse), (max-width: 699.98px) {
+  .ticket-strip-edit {
+    min-width: var(--tap);
+  }
+}
 .ticket-strip-edit {
-  margin-left: auto;
-  min-width: var(--tap);
   justify-content: center;
-  padding: 0;
-  color: var(--muted);
+  padding: 3px 6px;
 }
 .ticket-strip-button:focus-visible,
 .ticket-sheet-close:focus-visible {
@@ -52,10 +68,7 @@
   outline-offset: 2px;
 }
 
-/* The sheet covers the Messages tab (the chat and the composer), under the header and tabs. */
-.messages-tab:has(> .ticket-sheet) {
-  position: relative;
-}
+/* The sheet covers the tab bodies (.detail-body: the chat and the composer), under the tabs. */
 .ticket-sheet {
   position: absolute;
   inset: 0;

@@ -1,12 +1,14 @@
 //! Port of `packages/daemon/src/commands/index.ts` (MR-T07): the command modules and the
 //! `create_command_runner` factory.
 //!
-//! Declared up front (MR-T02): fill the files in, don't edit this list.
+//! Declared up front (MR-T02): fill the files in, don't edit this list. `run` was added by
+//! MR-T13b (the `run` subcommand's body, kept out of `main.rs` so it can be tested).
 
 pub mod config;
 pub mod enroll;
 pub mod fake_runner;
 pub mod process_runner;
+pub mod run;
 pub mod runner;
 pub mod semaphore;
 pub mod service;

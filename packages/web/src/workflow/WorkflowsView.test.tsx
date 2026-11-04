@@ -167,6 +167,35 @@ describe('Workflow view', () => {
     expect(saved[0]!.queued_ticket_editable).toBe(false);
   });
 
+  it('tunes follow-up proposals for an agent column (ADR-0034)', async () => {
+    const { saved } = await setup();
+    fireEvent.click(lane('Implementing'));
+    const box = editor().getByRole<HTMLInputElement>('checkbox', {
+      name: 'Agents may propose follow-up tickets',
+    });
+    // Implementing uses the built-in template, whose hint makes proposals on by default.
+    expect(box.checked).toBe(true);
+    type(editor().getByLabelText('At most'), '2');
+    type(editor().getByLabelText('Guidance'), 'Only test debt');
+    fireEvent.click(saveButton());
+    await screen.findByRole('group', { name: 'conductor v4 columns' });
+    expect(saved[0]!.states.implementing).toMatchObject({
+      follow_ups: { enabled: true, max: 2, guidance: 'Only test debt' },
+    });
+  });
+
+  it('turns follow-up proposals off for an agent column (ADR-0034)', async () => {
+    const { saved } = await setup();
+    fireEvent.click(lane('Implementing'));
+    fireEvent.click(
+      editor().getByRole('checkbox', { name: 'Agents may propose follow-up tickets' }),
+    );
+    expect(editor().queryByLabelText('At most')).toBeNull();
+    fireEvent.click(saveButton());
+    await screen.findByRole('group', { name: 'conductor v4 columns' });
+    expect(saved[0]!.states.implementing).toMatchObject({ follow_ups: { enabled: false } });
+  });
+
   it('discards the draft', async () => {
     await setup();
     fireEvent.click(lane('Planning'));

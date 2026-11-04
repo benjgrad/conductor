@@ -463,6 +463,7 @@ describe('/mcp', () => {
       'cancel_ticket',
       'clear_repo_checks',
       'create_ticket',
+      'decide_proposed_ticket',
       'delete_schedule',
       'get_insight',
       'get_process_metrics',
@@ -490,10 +491,11 @@ describe('/mcp', () => {
     ]);
     const tools = (list.json.result as { tools: { description: string }[] }).tools;
     for (const t of tools) expect(t.description.length).toBeLessThanOrEqual(700);
-    // ADR-0031 / ADR-0032 / ADR-0033: 30 tools; the list is what every client loads first, so it
+    // ADR-0031 / ADR-0032 / ADR-0033 / ADR-0034: 31 tools; the list is what every client loads first, so it
     // stays small. ADR-0033 raised the budget from 18 KB to 20 KB for the advisor tools, and its
-    // P3 amendment to 22 KB for the change-proposal tools.
-    expect(Buffer.byteLength(list.text, 'utf8')).toBeLessThanOrEqual(22 * 1024);
+    // P3 amendment to 22 KB for the change-proposal tools, and ADR-0034 to 23 KB for
+    // decide_proposed_ticket.
+    expect(Buffer.byteLength(list.text, 'utf8')).toBeLessThanOrEqual(23 * 1024);
 
     const created = await call(a.access, 'create_ticket', {
       title: 'From MCP',
@@ -612,6 +614,31 @@ describe('/mcp tools (approved set)', () => {
     // B never sees A's tickets.
     const fromB = await call(b.access, 'search_tickets', { query: 'Users sign in' });
     expect(fromB.body.tickets).toEqual([]);
+  });
+
+  it('create_ticket without kind takes the account’s last kind on the repo (WF-T03)', async () => {
+    const a = await minted();
+    const b = await minted();
+    const mk = (token: string, extra: Record<string, unknown> = {}) =>
+      call(token, 'create_ticket', {
+        title: 'Follow-up',
+        repo: 'https://github.com/me/notes.git',
+        body: '## Goal\nX.',
+        ...extra,
+      });
+    expect((await mk(a.access, { kind: 'personal', repo: 'github.com/me/notes' })).isError).toBe(
+      false,
+    );
+    const followUp = await mk(a.access);
+    expect(followUp.isError).toBe(false);
+    const listed = await call(a.access, 'list_tickets', { kind: 'personal' });
+    expect((listed.body.tickets as { id: string }[]).map((t) => t.id)).toContain(
+      followUp.body.id as string,
+    );
+    // B has no ticket on the repo: A's kind does not leak across accounts.
+    const fromB = await mk(b.access);
+    expect(fromB.isError).toBe(true);
+    expect(errorOf(fromB).message).toContain('kind');
   });
 
   it('list_tickets filters by status, kind and repo', async () => {
@@ -934,6 +961,59 @@ describe('/mcp for conversational clients', () => {
     expect(results.body.pending_proposals).toEqual([
       expect.objectContaining({ title: proposed.title, repo: proposed.repo }),
     ]);
+  });
+
+  it('decide_proposed_ticket approves (once) or dismisses a proposal (ADR-0034)', async () => {
+    const one = { title: 'Speed up CI', repo: 'github.com/acme/app', why: 'Slow.' };
+    const two = { title: 'Fix docs', repo: 'github.com/acme/app', why: 'Stale.' };
+    const { ticketId } = await seedAgentSession(a.user.accountId, {
+      context: { implement: { summary: 's', proposed_tickets: [one, two] } },
+    });
+    const listed = await call(a.access, 'get_ticket_artifacts', {
+      ticket: ticketId,
+      what: 'proposals',
+    });
+    const [p1, p2] = listed.body.proposals as { id: string }[];
+
+    const approved = await call(a.access, 'decide_proposed_ticket', {
+      ticket: ticketId.slice(0, 8),
+      proposal_id: p1!.id,
+      decision: 'approve',
+      title: 'Speed up CI (edited)',
+    });
+    expect(approved.isError).toBe(false);
+    expect(approved.body).toMatchObject({ proposal_id: p1!.id, status: 'approved' });
+    const created = approved.body.ticket_id as string;
+    const got = await call(a.access, 'get_ticket', { ticket: created });
+    expect(got.body).toMatchObject({ id: created, title: 'Speed up CI (edited)' });
+    // Idempotent: the same ticket again.
+    const again = await call(a.access, 'decide_proposed_ticket', {
+      ticket: ticketId,
+      proposal_id: p1!.id,
+      decision: 'approve',
+    });
+    expect(again.body).toMatchObject({ ticket_id: created });
+    // An approved one can't be dismissed.
+    const late = await call(a.access, 'decide_proposed_ticket', {
+      ticket: ticketId,
+      proposal_id: p1!.id,
+      decision: 'dismiss',
+    });
+    expect(errorOf(late).code).toBe('conflict');
+
+    const dismissed = await call(a.access, 'decide_proposed_ticket', {
+      ticket: ticketId,
+      proposal_id: p2!.id,
+      decision: 'dismiss',
+    });
+    expect(dismissed.body).toEqual({ proposal_id: p2!.id, status: 'dismissed' });
+    // Another account sees neither the ticket nor its proposals.
+    const other = await call(b.access, 'decide_proposed_ticket', {
+      ticket: ticketId,
+      proposal_id: p2!.id,
+      decision: 'dismiss',
+    });
+    expect(errorOf(other).code).toBe('not_found');
   });
 
   it('message_agent talks to a working agent, and never answers its question by accident', async () => {

@@ -16,6 +16,7 @@ import {
   type MachineCredential,
 } from './credential.js';
 import { mkdirPrivate, writePrivateFile } from './platform/index.js';
+import { execFileCliSync } from './platform/spawn.js';
 
 // Daemon configuration (M1-T05; 07 §Compute, §Ports). Everything comes from env vars with
 // defaults that work for a single laptop talking to an orchestrator on localhost.
@@ -70,8 +71,14 @@ export interface DaemonConfig {
   endGraceMs: number;
   /** Grace passed to DriverSession.kill (SIGTERM → SIGKILL). */
   killGraceMs: number;
+  /** The commit identity agents use (`GIT_AUTHOR_*` / `GIT_COMMITTER_*`): see resolveGitIdentity. */
   gitName: string;
   gitEmail: string;
+  /**
+   * WF-T02: the identity fell back to `conductor <conductor@localhost>` (no env var and no global
+   * git config for a field). Logged at startup and reported in the inventory.
+   */
+  gitIdentityMissing: boolean;
   /** Clone absolute paths / `file://` repos (M1-T14). Default false; the E2E sets it. */
   allowLocalRepos: boolean;
   /** When non-empty, only these remote repo hosts are cloned (M1-T14). Default: any host. */
@@ -214,6 +221,73 @@ export interface MachineFacts {
   memTotalMb: number;
   hostname: string;
   home: string;
+  /** `git config --global user.name` / `user.email` (WF-T02); absent ≡ none. */
+  gitConfig?: GitIdentity;
+}
+
+/** A git identity as read from git config; a field is null when unset or empty. */
+export interface GitIdentity {
+  name: string | null;
+  email: string | null;
+}
+
+export const FALLBACK_GIT_NAME = 'conductor';
+export const FALLBACK_GIT_EMAIL = 'conductor@localhost';
+
+/**
+ * `git config --global --get <key>`, trimmed; null when git is missing, the key is unset or empty,
+ * or it takes longer than 5 s. Reads this process's `$HOME/.gitconfig` (or GIT_CONFIG_GLOBAL, XDG),
+ * so a service with another HOME sees none.
+ */
+function globalGitConfig(key: string): string | null {
+  try {
+    const out = execFileCliSync('git', ['config', '--global', '--get', key], {
+      encoding: 'utf8',
+      timeout: 5_000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    return out === '' ? null : out;
+  } catch {
+    return null;
+  }
+}
+
+/** The machine owner's global git identity (WF-T02). */
+export function readGlobalGitIdentity(): GitIdentity {
+  return { name: globalGitConfig('user.name'), email: globalGitConfig('user.email') };
+}
+
+/**
+ * The commit identity, each field on its own: CONDUCTOR_GIT_NAME / CONDUCTOR_GIT_EMAIL when set,
+ * else the global git config, else `conductor` / `conductor@localhost`. `missing` is true when
+ * either field fell back (a half identity still commits as conductor@localhost).
+ */
+export function resolveGitIdentity(
+  env: Env,
+  git: GitIdentity | undefined,
+): { name: string; email: string; missing: boolean } {
+  const pick = (v: string, fromGit: string | null | undefined, fallback: string) => {
+    const e = env[v];
+    if (e !== undefined && e !== '') return { value: e, missing: false };
+    if (fromGit !== null && fromGit !== undefined && fromGit !== '')
+      return { value: fromGit, missing: false };
+    return { value: fallback, missing: true };
+  };
+  const name = pick('CONDUCTOR_GIT_NAME', git?.name, FALLBACK_GIT_NAME);
+  const email = pick('CONDUCTOR_GIT_EMAIL', git?.email, FALLBACK_GIT_EMAIL);
+  return { name: name.value, email: email.value, missing: name.missing || email.missing };
+}
+
+/** The startup warning when the identity fell back, else null. */
+export function gitIdentityWarning(
+  config: Pick<DaemonConfig, 'gitIdentityMissing' | 'gitName' | 'gitEmail'>,
+): string | null {
+  if (!config.gitIdentityMissing) return null;
+  return (
+    'WARNING: no git identity: set CONDUCTOR_GIT_NAME/CONDUCTOR_GIT_EMAIL or git config ' +
+    '--global user.name/user.email, then restart the daemon; agent commits will be authored ' +
+    `${config.gitName} <${config.gitEmail}>`
+  );
 }
 
 export function machineFacts(): MachineFacts {
@@ -223,6 +297,15 @@ export function machineFacts(): MachineFacts {
     hostname: hostname(),
     home: homedir(),
   };
+}
+
+/**
+ * machineFacts plus the global git identity: what loadConfig reads at startup. Kept out of
+ * machineFacts, which also runs on every WS (re)connect, so a register never waits on two git
+ * spawns.
+ */
+export function machineFactsWithGitIdentity(): MachineFacts {
+  return { ...machineFacts(), gitConfig: readGlobalGitIdentity() };
 }
 
 /** `<root>`: CONDUCTOR_ROOT, default `~/.conductor`. */
@@ -253,7 +336,8 @@ export function daemonVersion(env: Env = process.env): string {
  * CONDUCTOR_BUDGET_CPU, CONDUCTOR_BUDGET_MEM_MB, CONDUCTOR_MAX_SESSIONS,
  * CONDUCTOR_MAX_CONCURRENT_BUILDS (2), CONDUCTOR_PORT_POOL ("41000-48999"),
  * CONDUCTOR_PORT_RANGE_SIZE (10), CONDUCTOR_MIN_FREE_MEM_MB (512), CONDUCTOR_WORK_POLL_MS (5000),
- * CONDUCTOR_GIT_NAME, CONDUCTOR_GIT_EMAIL, CONDUCTOR_ALLOW_LOCAL_REPOS (1/true; default off),
+ * CONDUCTOR_GIT_NAME, CONDUCTOR_GIT_EMAIL (each else `git config --global user.name/email`, else
+ * conductor <conductor@localhost> with gitIdentityMissing), CONDUCTOR_ALLOW_LOCAL_REPOS (1/true; default off),
  * CONDUCTOR_ALLOWED_REPO_HOSTS (comma list; default any host), CLAUDE_CONFIG_DIR (~/.claude;
  * where Claude Code writes transcripts, ADR-0008), CONDUCTOR_BUILD_SHA (appended to daemon_version),
  * CONDUCTOR_ROOTS (`:`-separated repo roots for the inventory; overrides `<root>/config.json`),
@@ -264,7 +348,7 @@ export function daemonVersion(env: Env = process.env): string {
  */
 export function loadConfig(
   env: Env = process.env,
-  facts: MachineFacts = machineFacts(),
+  facts: MachineFacts = machineFactsWithGitIdentity(),
   readCredential: (rootDir: string) => MachineCredential | null = loadCredential,
 ): DaemonConfig {
   const rootDir = rootDirFrom(env, facts);
@@ -323,6 +407,7 @@ export function loadConfig(
   }
   const tags = list(env, 'CONDUCTOR_TAGS');
   const allowLocalRepos = bool(env, 'CONDUCTOR_ALLOW_LOCAL_REPOS', false);
+  const git = resolveGitIdentity(env, facts.gitConfig);
   return {
     orchestratorUrl,
     rootDir,
@@ -342,8 +427,9 @@ export function loadConfig(
     reconnect: { initialMs: 500, maxMs: 30_000, factor: 2 },
     endGraceMs: 10_000,
     killGraceMs: 5_000,
-    gitName: str(env, 'CONDUCTOR_GIT_NAME', 'conductor'),
-    gitEmail: str(env, 'CONDUCTOR_GIT_EMAIL', 'conductor@localhost'),
+    gitName: git.name,
+    gitEmail: git.email,
+    gitIdentityMissing: git.missing,
     allowLocalRepos,
     allowedRepoHosts: list(env, 'CONDUCTOR_ALLOWED_REPO_HOSTS').map((h) => h.toLowerCase()),
     claudeConfigDir: resolve(str(env, 'CLAUDE_CONFIG_DIR', join(facts.home, '.claude'))),

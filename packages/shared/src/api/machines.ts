@@ -83,6 +83,12 @@ export const MachineRowSchema = MachineDtoSchema.extend({
    * shows it). Not `alerts`: MachineDetail's `alerts` are the git_tamper rows. Absent ≡ none.
    */
   update_alerts: z.array(MachineUpdateAlertDtoSchema).max(MACHINE_UPDATE_ALERTS_MAX).optional(),
+  /**
+   * WF-T02: the daemon's last `inventory` said it has no git identity, so agent commits are
+   * authored `conductor <conductor@localhost>`. null = not reported (an older daemon, or no
+   * inventory yet); absent from older servers ≡ null.
+   */
+  git_identity_missing: z.boolean().nullable().default(null),
 });
 export type MachineRow = z.infer<typeof MachineRowSchema>;
 export const MachineListResponseSchema = z.array(MachineRowSchema);

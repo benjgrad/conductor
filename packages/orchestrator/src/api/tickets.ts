@@ -279,9 +279,20 @@ export async function createTicket(
   const prepared = await prepareNewTicket(deps, body);
   if (!prepared.ok) return prepared;
   const { repo } = prepared;
+  // WF-T03: an explicit kind wins; else the repo's last ticket's; else the caller must say.
+  const kind = body.kind ?? (await lastTicketKind(db, scope.account_id, repo));
+  if (kind === null) {
+    return {
+      ok: false,
+      status: 400,
+      code: 'bad_request',
+      message: 'kind is required: no earlier ticket on this repo to take it from',
+      details: [{ path: 'kind', message: 'work or personal (no earlier ticket on this repo)' }],
+    };
+  }
   let created: { ticket: TicketRow; events: BoardSseEvent[] };
   try {
-    created = await insertNewTicket(db, scope, body, repo);
+    created = await insertNewTicket(db, scope, body, repo, kind);
   } catch (err) {
     if (!(err instanceof AttachmentLinkError)) throw err;
     return { ok: false, status: err.status, code: err.code, message: err.message };
@@ -301,6 +312,7 @@ async function insertNewTicket(
   scope: AccountScope,
   body: z.output<typeof CreateTicketRequestSchema>,
   repo: string,
+  kind: TicketKind,
 ): Promise<{ ticket: TicketRow; events: BoardSseEvent[] }> {
   return withTransaction(db, async (tx) => {
     const row = (await insertTicketRow(tx, {
@@ -313,7 +325,7 @@ async function insertNewTicket(
       required_tags: body.required_tags,
       repo_allow_machines: body.repo_allow_machines,
       priority: body.priority,
-      kind: body.kind,
+      kind,
     }))!;
     // 06 §Attachments: linked before the commit, so no claim sees the ticket without its files.
     await linkAttachments(tx, scope.account_id, row.id, body.attachment_ids ?? []);
@@ -321,6 +333,23 @@ async function insertNewTicket(
     const evs = await sessionlessCardUpserted(tx, { ...row, agent_name: null });
     return { ticket: row, events: evs };
   });
+}
+
+/**
+ * WF-T03: the kind of the account's most recent ticket on `repo` (as stored: canonical in
+ * `password` mode), or null when it has none. Tickets from before M1b have no kind and are skipped.
+ */
+export async function lastTicketKind(
+  q: Queryable,
+  accountId: string,
+  repo: string,
+): Promise<TicketKind | null> {
+  const res = await q.query<{ kind: TicketKind }>(
+    'SELECT kind FROM ticket WHERE account_id = $1 AND repo = $2 AND kind IS NOT NULL ' +
+      'ORDER BY created_at DESC, id DESC LIMIT 1',
+    [accountId, repo],
+  );
+  return res.rows[0]?.kind ?? null;
 }
 
 /**

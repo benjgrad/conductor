@@ -251,6 +251,7 @@ export const DAEMON_FIXTURES: {
       repos: [INVENTORY_REPO_FIXTURE, INVENTORY_REPO_CHECKOUT_FIXTURE],
       capabilities: CAPABILITY_FIXTURES,
       hash: 'sha256:9c1d0e7a',
+      git_identity_missing: false,
     },
   },
   alert: {

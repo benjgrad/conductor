@@ -219,6 +219,13 @@ export const InventoryPayloadSchema = z.object({
   repos: z.array(InventoryRepoSchema),
   capabilities: z.array(CapabilitySchema),
   hash: z.string().min(1),
+  /**
+   * WF-T02: true = the daemon found no commit identity (neither CONDUCTOR_GIT_NAME/EMAIL nor
+   * `git config --global user.name/user.email` for a field), so agents commit as
+   * `conductor <conductor@localhost>`. Fixed for the daemon's lifetime and never part of `hash`.
+   * Absent = an older daemon (unknown).
+   */
+  git_identity_missing: z.boolean().optional(),
 });
 export type InventoryPayload = z.infer<typeof InventoryPayloadSchema>;
 export const InventoryMessageSchema = msg('inventory', InventoryPayloadSchema, machineEnv);

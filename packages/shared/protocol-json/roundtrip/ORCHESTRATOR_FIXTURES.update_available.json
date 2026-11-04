@@ -1,0 +1,13 @@
+{
+  "fencing_token": null,
+  "msg_id": "00000000-0000-4000-8000-0000000c0001",
+  "payload": {
+    "file": "conductor-daemon-0.3.0+abc1234.tgz",
+    "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    "size": 12345678,
+    "version": "0.3.0+abc1234"
+  },
+  "seq": null,
+  "session_id": null,
+  "type": "update_available"
+}

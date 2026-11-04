@@ -7,7 +7,8 @@ import { FakeOutboxTransport, InMemoryBoardBus } from '../../src/contracts.js';
 import type { OutboxRow, PushSubscriptionRow } from '../../src/db/types.js';
 import { createEngineService } from '../../src/engine/index.js';
 import type { PushConfig } from '../../src/push/config.js';
-import { enqueueNeedsInputPush } from '../../src/push/enqueue.js';
+import { enqueueNeedsInputPush, enqueueTransitionPush } from '../../src/push/enqueue.js';
+import { transitionPayload } from '../../src/push/payload.js';
 import type { PushResult, PushSender, PushTarget } from '../../src/push/sender.js';
 import { useTestDatabase } from '../db.js';
 import { MACHINE, ScriptedApply, seedSession } from '../engine/fixtures.js';
@@ -66,7 +67,7 @@ beforeEach(async () => {
     ],
   }));
   sender = new FakeSender();
-  await db.pool.query("DELETE FROM outbox WHERE kind = 'push_needs_input'");
+  await db.pool.query("DELETE FROM outbox WHERE kind IN ('push_needs_input', 'push_transition')");
   await db.pool.query('DELETE FROM push_subscription');
 });
 
@@ -275,5 +276,154 @@ describe('push_needs_input (UX-15)', () => {
       [],
     );
     expect((await pushRows())[0]!.status).toBe('pending');
+  });
+});
+
+// Configurable notifications: a transition with `notify: true` (the state_entered effect's
+// `notify`) writes push_transition rows and a transition.notified board event.
+describe('push_transition (notify: true on a transition)', () => {
+  /** implement → build through `done`, flagged (or not) on the effect. */
+  const moveScript = (notify: boolean) =>
+    script.on('agent.complete_state', () => ({
+      snapshot: { workflow_state: 'build', status: 'running' },
+      effects: [
+        {
+          type: 'state_entered',
+          from: 'implement',
+          to: 'build',
+          visit: 1,
+          ...(notify ? { notify: 'done' } : {}),
+        },
+      ],
+    }));
+
+  async function move(engine: ReturnType<typeof make>['engine']) {
+    const seeded = await seedSession(db.pool, {
+      status: 'running',
+      machine_id: MACHINE,
+      workflow_state: 'implement',
+      agent_process_live: true,
+    });
+    const res = await engine.applyEvent(seeded.sessionId, {
+      type: 'agent.complete_state',
+      result: {},
+    });
+    expect(res.status).toBe('applied');
+    return { ...seeded, res };
+  }
+
+  const transitionRows = async () =>
+    (
+      await db.pool.query<OutboxRow>(
+        "SELECT * FROM outbox WHERE kind = 'push_transition' ORDER BY id",
+      )
+    ).rows;
+  const enteredId = async (sessionId: string) =>
+    Number(
+      (
+        await db.pool.query<{ id: string }>(
+          "SELECT id FROM event WHERE session_id = $1 AND type = 'state.entered'",
+          [sessionId],
+        )
+      ).rows[0]!.id,
+    );
+
+  it('a flagged transition: one row per subscribed user, a board event, then the push', async () => {
+    moveScript(true);
+    const user = randomUUID();
+    await subscribe(LOCAL_ACCOUNT_ID, user, 'https://push.test/t1');
+    const handle = make();
+    const { ticketId, sessionId, res } = await move(handle.engine);
+    const eventId = await enteredId(sessionId);
+
+    const rows = await transitionRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      target: `user:${user}`,
+      session_id: sessionId,
+      idempotency_key: `transition:${eventId}`,
+      status: 'pending',
+    });
+    const notified = res.status === 'applied' ? res.boardEvents : [];
+    expect(notified.find((e) => e.type === 'transition.notified')).toMatchObject({
+      session_id: sessionId,
+      ticket_id: ticketId,
+      from: 'implement',
+      to: 'build',
+      transition: 'done',
+      title: 'Add /health',
+      body: 'Done: Implement → Build',
+      tag: `transition:${eventId}`,
+    });
+    // After card.upserted, so the card it points at is current.
+    expect(notified.at(-1)?.type).toBe('transition.notified');
+
+    expect(await handle.dispatchPushOnce()).toMatchObject({ sent: 1, acked: 1 });
+    expect(sender.calls[0]!.payload).toEqual({
+      title: 'Add /health',
+      body: 'Done: Implement → Build',
+      url: `/#/?ticket=${ticketId}`,
+      tag: `transition:${eventId}`,
+    });
+    expect((await transitionRows())[0]!.status).toBe('acked');
+  });
+
+  it('an unflagged transition writes neither', async () => {
+    moveScript(false);
+    await subscribe(LOCAL_ACCOUNT_ID, randomUUID(), 'https://push.test/t1');
+    const handle = make();
+    const { res } = await move(handle.engine);
+    expect(await transitionRows()).toEqual([]);
+    const events = res.status === 'applied' ? res.boardEvents : [];
+    expect(events.some((e) => e.type === 'transition.notified')).toBe(false);
+  });
+
+  it('without VAPID: the board event is still written, no push row', async () => {
+    moveScript(true);
+    await subscribe(LOCAL_ACCOUNT_ID, randomUUID(), 'https://push.test/t1');
+    const handle = make(null);
+    const { res } = await move(handle.engine);
+    expect(await transitionRows()).toEqual([]);
+    const events = res.status === 'applied' ? res.boardEvents : [];
+    expect(events.some((e) => e.type === 'transition.notified')).toBe(true);
+  });
+
+  it('enqueue is idempotent per event and skips the excluded user', async () => {
+    const me = randomUUID();
+    const other = randomUUID();
+    await subscribe(LOCAL_ACCOUNT_ID, me, 'https://push.test/me');
+    await subscribe(LOCAL_ACCOUNT_ID, other, 'https://push.test/other');
+    const { ticketId, sessionId } = await seedSession(db.pool);
+    const notification = transitionPayload({
+      ticketId,
+      ticketTitle: 'T',
+      transitionTitle: 'Done',
+      fromTitle: 'A',
+      toTitle: 'B',
+      eventId: 77,
+    });
+    const p = {
+      accountId: LOCAL_ACCOUNT_ID,
+      sessionId,
+      ticketId,
+      eventId: 77,
+      notification,
+      now: clock.now(),
+      excludeUserId: me,
+    };
+    expect(await enqueueTransitionPush(db.pool, p)).toBe(1);
+    expect(await enqueueTransitionPush(db.pool, p)).toBe(0);
+    expect((await transitionRows()).map((r) => r.target)).toEqual([`user:${other}`]);
+  });
+
+  it('the machine dispatcher never sends a push_transition row', async () => {
+    moveScript(true);
+    await subscribe(LOCAL_ACCOUNT_ID, randomUUID(), 'https://push.test/a');
+    const handle = make();
+    await move(handle.engine);
+    const transport = new FakeOutboxTransport().connect(MACHINE);
+    await handle.dispatchOnce(transport);
+    expect(transport.sent).toEqual([]);
+    expect((await transitionRows())[0]!.status).toBe('pending');
   });
 });

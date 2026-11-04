@@ -52,6 +52,7 @@ import {
 } from './nav.js';
 import { useOpenFromNotification } from './notify/open-ticket.js';
 import { useNeedsInputNotifications } from './notify/useNeedsInputNotifications.js';
+import { useTransitionNotifications } from './notify/useTransitionNotifications.js';
 import { dismiss, isDismissed } from './onboarding/dismissal.js';
 import { SetupGuide } from './onboarding/SetupGuide.js';
 import { RepoChecksPage } from './repo-checks/RepoChecksPage.js';
@@ -205,6 +206,7 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
     setSelected(sessionId);
   };
   useNeedsInputNotifications(board, openSession);
+  useTransitionNotifications(board, openSession);
   // UX-16: a push notification's tap opens its ticket (#/?ticket=…).
   useOpenFromNotification(board, openSession);
   // UX-8 FR-1: the account's machine count, asked once per load. With none (and the guide not
@@ -428,7 +430,7 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
             key={selected}
             api={api}
             sessionId={selected}
-            {...(selectedCard ? { ticketId: selectedCard.ticket_id } : {})}
+            {...(selectedCard ? { card: selectedCard } : {})}
             // UX-5: a `card.badge` (e.g. the build-slot wait) doesn't touch updated_at; refetch on it too.
             version={
               selectedCard ? `${selectedCard.updated_at}|${selectedCard.badges.join(',')}` : ''

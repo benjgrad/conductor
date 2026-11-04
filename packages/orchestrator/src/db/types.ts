@@ -11,6 +11,7 @@ import type {
   PermissionExpiryReason,
   PermissionRequestStatus,
   PermissionScope,
+  QuestionOptions,
   SessionStatus,
   TicketKind,
   TicketStatus,
@@ -270,6 +271,8 @@ export interface InputRequestRow {
   answered_by: string | null;
   created_at: Date;
   answered_at: Date | null;
+  /** Questions UX: an agent question's options (QuestionOptions JSON); null otherwise. */
+  options: QuestionOptions | null;
 }
 
 export interface EventRow {
@@ -610,32 +613,52 @@ export interface SessionInsightRow {
   created_at: Date;
 }
 
-/** ADR-0034: `ticket_proposal.status` (CHECK). */
-export type TicketProposalStatus = 'pending' | 'accepted' | 'dismissed';
-
-/** ADR-0034: a follow-up ticket an agent proposed (migration 1762600000000). */
-export interface TicketProposalRow {
-  id: string;
-  /** uuid, FK account: the source ticket's. */
-  account_id: string;
-  /** FK ticket (CASCADE): the ticket whose agent proposed it. */
+/**
+ * 06 §Proposed tickets: a person's decision on a follow-up ticket an agent proposed (migration
+ * 1762600000000). Primary key (ticket_id, proposal_id); no row ≡ pending.
+ */
+export interface TicketProposalDecisionRow {
+  /** The parent ticket (FK, CASCADE). */
   ticket_id: string;
-  /** FK session (CASCADE). */
-  session_id: string;
-  /** The agent state that proposed it. */
-  state: string;
-  title: string;
-  body: string;
-  /** null = the source ticket's kind. */
-  kind: TicketKind | null;
-  why: string | null;
-  status: TicketProposalStatus;
-  /** FK ticket (SET NULL): the ticket an accept created. */
+  /** `proposalId()` (@conductor/shared). */
+  proposal_id: string;
+  account_id: string;
+  /** CHECK approved | dismissed. */
+  status: 'approved' | 'dismissed';
+  /** The ticket an approval created (FK, SET NULL); null for a dismissal. */
   created_ticket_id: string | null;
-  /** Who accepted or dismissed it (email, `mcp:` prefixed over MCP, or `ui`). */
+  decided_at: Date;
+}
+
+/** ADR-0033 P3 (MA-T05): a workflow advisor change proposal. */
+export interface ChangeProposalRow {
+  id: string;
+  account_id: string;
+  /** `workflow` · `repo_checks` (CHECK). */
+  kind: string;
+  /** `proposed` · `applied` · `rejected` · `conflict` · `failed` (CHECK). */
+  status: string;
+  title: string;
+  /** The ProposalChange (`@conductor/shared`). */
+  payload: Record<string, unknown>;
+  /** What it was based on: `{version}` (workflow) or `{config, updated_at}` (repo_checks). */
+  base: Record<string, unknown>;
+  /** StructuralChange[] against `base`. */
+  diff: unknown[];
+  rationale: string;
+  evidence: unknown[];
+  expected_effect: Record<string, unknown>;
+  rollback: string;
+  created_by: string | null;
+  created_at: Date;
   decided_by: string | null;
   decided_at: Date | null;
-  created_at: Date;
+  applied_at: Date | null;
+  applied_version: number | null;
+  error: string | null;
+  /** The last ProposalReview. */
+  review: Record<string, unknown> | null;
+  reviewed_at: Date | null;
 }
 
 /** Table name → row type, for generic repository helpers. */
@@ -669,5 +692,6 @@ export interface Tables {
   ticket_schedule: TicketScheduleRow;
   assistant_job: AssistantJobRow;
   session_insight: SessionInsightRow;
-  ticket_proposal: TicketProposalRow;
+  ticket_proposal_decision: TicketProposalDecisionRow;
+  change_proposal: ChangeProposalRow;
 }

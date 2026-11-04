@@ -7,6 +7,19 @@ export type NotifyState = 'unsupported' | 'blocked' | 'on' | 'off';
 
 const KEY = 'conductor.notifications';
 
+/** conductor's service worker (public/sw.js): Web Push (UX-16) and in-tab notifications on iOS. */
+export const SW_URL = '/sw.js';
+
+/**
+ * Register sw.js (idempotent; a new copy is picked up). In-tab notifications go through it too:
+ * iOS Home Screen apps have no `new Notification()`, only `registration.showNotification`.
+ * Never asks for anything; failures are ignored (the constructor fallback stays).
+ */
+export function registerServiceWorker(): void {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register(SW_URL, { scope: '/' }).catch(() => {});
+}
+
 export function notificationsSupported(): boolean {
   return typeof window !== 'undefined' && typeof window.Notification === 'function';
 }
@@ -48,7 +61,10 @@ export async function enableNotifications(): Promise<NotifyState> {
   if (!notificationsSupported()) return 'unsupported';
   let permission = Notification.permission;
   if (permission === 'default') permission = await requestPermission();
-  if (permission === 'granted') setStored('on');
+  if (permission === 'granted') {
+    setStored('on');
+    registerServiceWorker();
+  }
   return notifyState();
 }
 

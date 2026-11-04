@@ -64,7 +64,7 @@ must pass it.
 - **TD-196**: zod `.refine()` checks don't survive JSON Schema, so the generated types don't enforce them:
   `isAbsolutePath` (`AbsolutePath`, `WorkingCopy.repo_path`), `isCanonicalRemote` (`InventoryRepo.remote`, `Capability.repo`),
   the branch-name rule (`InventoryRepo.default_branch`), the permission input and suggestion byte caps,
-  `PermissionDecision`'s scope/rule rules, the 5-approval cap, and `DurationSchema > 0`. Literal `const`s
+  `PermissionDecision`'s scope/rule rules, `daemonTarballMatches` (`UpdateAvailablePayload` / `LatestDaemon` `file` must name `version`; MR-T14 ports it), the 5-approval cap, and `DurationSchema > 0`. Literal `const`s
   that are not a tag (`ok: true`, `merged: true`, `review: true`, `require_clean: true`, `method: 'merge'`)
   become plain `bool`/`String`. The daemon has to check these itself where it relies on them (the
   `repo` ports here; `is_absolute_path` is still to be ported, for MR-T11).

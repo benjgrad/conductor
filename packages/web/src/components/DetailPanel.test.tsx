@@ -15,13 +15,7 @@ import { ApiRequestError, type CancelSessionRequest } from '../api/client.js';
 import { SEED_IDS } from '../api/mock-data.js';
 import { createMockApi } from '../api/mock.js';
 import { App } from '../App.js';
-import {
-  AgentAvatar,
-  agentIdentity,
-  agentName,
-  AGENT_NAMES,
-  avatarTraits,
-} from './agent-identity.js';
+import { AgentAvatar, agentName, AGENT_NAMES, avatarTraits, cardAgent } from './agent-identity.js';
 import { Board } from './Board.js';
 import { ContextView } from './ContextView.js';
 import { OutputLog } from './OutputLog.js';
@@ -159,11 +153,17 @@ describe('history from the transcript (ADR-0008)', () => {
   });
 });
 
-describe('Brief card (UX-2)', () => {
-  const briefOf = (panel: Awaited<ReturnType<typeof setup>>['panel']) =>
-    panel.getByRole('region', { name: 'Brief' });
+describe('Brief (UX-2)', () => {
+  type Panel = Awaited<ReturnType<typeof setup>>['panel'];
+  const briefButton = (panel: Panel) =>
+    within(panel.getByRole('group', { name: 'Ticket' })).getByRole('button', { name: /^Brief/ });
+  /** The Brief button in the tab row opens the brief in a sheet. */
+  const briefOf = (panel: Panel) => {
+    fireEvent.click(briefButton(panel));
+    return panel.getByRole('dialog', { name: 'Brief' });
+  };
 
-  it('sits above the thread, open, with the goal and FR list from ticket_body', async () => {
+  it('the Brief button opens the goal and FR list from ticket_body; nothing above the chat', async () => {
     const fetched: string[] = [];
     const { panel } = await setup('Add pagination to /orders', (api) => {
       api.getTranscript = (sid) => {
@@ -171,32 +171,14 @@ describe('Brief card (UX-2)', () => {
         return Promise.reject(new Error('unexpected'));
       };
     });
+    expect(panel.queryByRole('region', { name: 'Brief' })).toBeNull();
     const brief = briefOf(panel);
-    const log = panel.getByRole('log');
-    expect(brief.compareDocumentPosition(log) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(
-      within(brief)
-        .getByRole('button', { name: /^Brief/ })
-        .getAttribute('aria-expanded'),
-    ).toBe('true');
+    expect(briefButton(panel).getAttribute('aria-expanded')).toBe('true');
     expect(within(brief).getByText(/^Anyone opening a session sees/)).toBeTruthy();
     expect(
       within(within(brief).getByRole('list', { name: 'Functional' })).getAllByRole('listitem'),
     ).toHaveLength(5);
     expect(fetched).toEqual([]); // ticket_body is there: no transcript fetch
-  });
-
-  it('collapse persists across reopening the panel', async () => {
-    const { panel } = await setup('Add pagination to /orders');
-    fireEvent.click(within(briefOf(panel)).getByRole('button', { name: /^Brief/ }));
-    cleanup();
-    const again = await setup('Add pagination to /orders');
-    expect(
-      within(briefOf(again.panel))
-        .getByRole('button', { name: /^Brief/ })
-        .getAttribute('aria-expanded'),
-    ).toBe('false');
-    localStorage.clear();
   });
 
   it('an older server (no ticket_body): the brief comes from the transcript prompt, one fetch', async () => {
@@ -271,7 +253,7 @@ describe('Brief card (UX-2)', () => {
     // UX-6: command output is one collapsed "Check output" row; expand it.
     fireEvent.click(panel.getAllByRole('button', { name: /Check output · Command/ }).at(-1)!);
     expect(panel.getByText(/line 1999/)).toBeTruthy();
-    expect(briefOf(panel)).toBeTruthy();
+    expect(briefButton(panel)).toBeTruthy();
     // Generous for jsdom (a browser is far faster); catches an accidental quadratic render.
     expect(ms).toBeLessThan(5000);
   });
@@ -298,6 +280,26 @@ describe('session panel tabs', () => {
     expect(document.activeElement).toBe(messages);
     fireEvent.keyDown(messages, { key: 'ArrowRight' });
     expect(details.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('header and Details show the stored agent_name (UX-13b)', async () => {
+    const { panel } = await setup('Add pagination to /orders', (api) => {
+      const getSession = api.getSession.bind(api);
+      api.getSession = async (sid) => {
+        const d = await getSession(sid);
+        return { ...d, card: { ...d.card, agent_name: 'Morgan' }, agent_name: 'Morgan' };
+      };
+    });
+    await waitFor(() =>
+      expect(panel.getByRole('heading', { level: 2 }).parentElement?.textContent).toContain(
+        'Morgan',
+      ),
+    );
+    fireEvent.click(panel.getByRole('tab', { name: 'Details' }));
+    fireEvent.click(panel.getByRole('button', { name: /^Technical details/ }));
+    const agent = within(panel.getByRole('region', { name: 'Agent' }));
+    expect(agent.getByRole('img', { name: "Morgan's avatar" })).toBeTruthy();
+    expect(agent.getByText('Morgan')).toBeTruthy();
   });
 
   it('header shows the agent name; Details shows avatar, machine and session', async () => {
@@ -628,7 +630,40 @@ describe('agent identity', () => {
   );
 
   it('is deterministic per ticket id', () => {
-    for (const id of ids) expect(agentIdentity(id)).toEqual(agentIdentity(id));
+    for (const id of ids) {
+      expect(agentName(id)).toBe(agentName(id));
+      expect(avatarTraits(id)).toEqual(avatarTraits(id));
+    }
+  });
+
+  describe('cardAgent (UX-13b FR-1)', () => {
+    const base = { ticket_id: SEED_IDS.running.ticket, column: 'implement' };
+
+    it('shows the stored teammate, seeded by name', () => {
+      expect(cardAgent({ ...base, agent_name: 'Morgan' })).toEqual({
+        name: 'Morgan',
+        seed: 'Morgan',
+      });
+      // A queued (requeued) ticket that already has its agent keeps it.
+      expect(cardAgent({ ...base, column: 'queued', agent_name: 'Morgan' }).name).toBe('Morgan');
+    });
+
+    it("falls back to the session detail's agent_name", () => {
+      expect(cardAgent(base, 'Morgan')).toEqual({ name: 'Morgan', seed: 'Morgan' });
+    });
+
+    it('a queued ticket with no agent is Unassigned, with no seed', () => {
+      expect(cardAgent({ ...base, column: 'queued', agent_name: null })).toEqual({
+        name: 'Unassigned',
+        seed: null,
+      });
+    });
+
+    it('a ticket from before UX-13a (null or absent) keeps the old hash name and face', () => {
+      const legacy = { name: agentName(base.ticket_id), seed: base.ticket_id };
+      expect(cardAgent({ ...base, agent_name: null })).toEqual(legacy);
+      expect(cardAgent(base)).toEqual(legacy);
+    });
   });
 
   const cardHtml = (card: BoardCard) => {
@@ -650,8 +685,48 @@ describe('agent identity', () => {
     return out;
   };
 
+  it('shows the stored name, not the hash of the ticket id (NCNG-2630: Morgan, not Siti)', () => {
+    const hashed = agentName(SEED_IDS.running.ticket);
+    const stored = AGENT_NAMES.find((n) => n !== hashed)!;
+    const out = cardHtml({
+      ...BOARD_CARD_FIXTURE,
+      ticket_id: SEED_IDS.running.ticket,
+      column: 'implement',
+      agent_name: stored,
+    });
+    expect(out.name).toBe(stored);
+    expect(out.name).not.toContain(hashed);
+  });
+
+  it('FR-2: a teammate has the same face on every ticket', () => {
+    const morgan = { ...BOARD_CARD_FIXTURE, column: 'implement', agent_name: 'Morgan' };
+    const a = cardHtml({ ...morgan, ticket_id: SEED_IDS.running.ticket });
+    const b = cardHtml({ ...morgan, ticket_id: SEED_IDS.askOlder.ticket });
+    expect(a.name).toBe('Morgan');
+    expect(b.name).toBe('Morgan');
+    expect(b.svg).toBe(a.svg);
+    const siti = cardHtml({ ...morgan, ticket_id: SEED_IDS.askOlder.ticket, agent_name: 'Siti' });
+    expect(siti.svg).not.toBe(a.svg);
+  });
+
+  it('a queued card with no agent shows Unassigned and the neutral avatar', () => {
+    const queued = { ...BOARD_CARD_FIXTURE, column: 'queued', agent_name: null };
+    const { container } = render(
+      <Board
+        board={{ cards: new Map([[queued.ticket_id, queued]]), lastEventId: 0 }}
+        selectedSessionId={null}
+        onSelect={() => undefined}
+      />,
+    );
+    const agent = container.querySelector('.card-agent')!;
+    expect(agent.textContent).toBe('Unassigned');
+    expect(agent.getAttribute('title')).toBe('Not assigned yet');
+    expect(agent.querySelector('svg.avatar-unassigned')).toBeTruthy();
+  });
+
   it('is per ticket: the same ticket keeps its agent across sessions (retry, resume)', () => {
-    const base = { ...BOARD_CARD_FIXTURE, ticket_id: SEED_IDS.running.ticket };
+    // A started ticket from before UX-13a: no agent_name, so the hash name and face.
+    const base = { ...BOARD_CARD_FIXTURE, column: 'implement', ticket_id: SEED_IDS.running.ticket };
     const first = cardHtml({ ...base, session_id: 'b2000000-0000-4000-8000-0000000000a1' });
     const second = cardHtml({ ...base, session_id: 'b2000000-0000-4000-8000-0000000000a2' });
     expect(first.name).toBe(agentName(SEED_IDS.running.ticket));
@@ -674,7 +749,7 @@ describe('agent identity', () => {
   });
 
   it('renders the avatar as an svg at the requested size', () => {
-    const { container } = render(<AgentAvatar ticketId={ids[0]!} size={20} />);
+    const { container } = render(<AgentAvatar seed={ids[0]!} size={20} />);
     const svg = container.querySelector('svg');
     expect(svg).toBeTruthy();
     expect(svg?.getAttribute('width')).toBe('20');
@@ -685,9 +760,9 @@ describe('agent identity', () => {
   it('gives each avatar on a page its own clipPath id', () => {
     const { container } = render(
       <>
-        <AgentAvatar ticketId={ids[0]!} />
-        <AgentAvatar ticketId={ids[0]!} />
-        <AgentAvatar ticketId={ids[1]!} />
+        <AgentAvatar seed={ids[0]!} />
+        <AgentAvatar seed={ids[0]!} />
+        <AgentAvatar seed="Morgan" />
       </>,
     );
     const clipIds = [...container.querySelectorAll('clipPath')].map((c) => c.id);
@@ -706,10 +781,10 @@ describe('agent identity', () => {
     const card = title.closest('article') as HTMLElement;
     expect(card.querySelector('svg.avatar')).toBeTruthy();
     expect(card.textContent).toContain(agentName(SEED_IDS.running.ticket));
-    // No session yet: the ticket already has its agent.
+    // UX-13b: no session yet, so nobody holds the ticket: Unassigned, with the neutral avatar.
     const queued = screen.getByText('Add /health').closest('article') as HTMLElement;
-    expect(queued.querySelector('svg.avatar')).toBeTruthy();
-    expect(queued.textContent).toContain(agentName(SEED_IDS.queuedFixture));
+    expect(queued.querySelector('svg.avatar-unassigned')).toBeTruthy();
+    expect(queued.textContent).toContain('Unassigned');
   });
 });
 

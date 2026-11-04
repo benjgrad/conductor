@@ -12,21 +12,20 @@ import {
 } from '@conductor/shared';
 import type { Queryable } from '../contracts.js';
 import { CardViews, MachineCardFields } from '../engine/board-view.js';
+import { PROPOSALS_COLUMN } from '../engine/proposals.js';
 import {
   OPEN_INPUT_SELECT,
   TICKET_SELECT,
   type OpenInputRow,
   type TicketCardRow,
 } from '../engine/rows.js';
+import { SLOT_STATUSES } from '../gateway/claim.js';
 import type { Db } from '../main.js';
 import { readCardPermissions, withPermission } from '../permissions/store.js';
 import type { MachineRow, SessionRow, TicketRow, WorkflowDefinitionRow } from '../db/types.js';
 import { maxBoardEventId } from '../stream/board.js';
 
 // Read models for the REST API (M1-T08). Cards always come from `toBoardCard` (10-contracts).
-
-/** Statuses that hold a machine slot, for the fleet view's `running_sessions`. */
-const SLOT_STATUSES = ['assigned', 'running', 'needs_input', 'waiting_external'];
 
 /** Run `fn` in a read-only REPEATABLE READ transaction (one consistent snapshot). */
 async function withSnapshot<T>(db: Db, fn: (q: Queryable) => Promise<T>): Promise<T> {
@@ -94,6 +93,12 @@ export function loadBoard(db: Db): Promise<BoardResponse> {
     const views = new CardViews(q);
     const machineFields = new MachineCardFields(q);
     await machineFields.preloadAlerts();
+    // Only a Needs input card shows a proposal count: preload the sessions that can be there.
+    await machineFields.preloadProposals(
+      sessions.rows.filter(
+        (s) => s.workflow_state === PROPOSALS_COLUMN || s.status === 'needs_input',
+      ),
+    );
     const layout = await views.boardColumns();
     const cards = new Map<string, BoardCard[]>(layout.map((c) => [c.id, []]));
     for (const ticket of tickets.rows) {

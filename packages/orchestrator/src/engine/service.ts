@@ -3,7 +3,9 @@ import {
   apply as sharedApply,
   commandPayloadForEffect,
   sessionBranch,
+  stateTitle,
   toBoardCard,
+  transitionTitle,
   type ApplyFn,
   type BoardCard,
   type BoardSseEventDraft,
@@ -24,7 +26,8 @@ import { withTransaction } from '../db/index.js';
 import type { InputRequestRow } from '../db/types.js';
 import type { Db } from '../main.js';
 import { expireOnApply, readCardPermission, withPermission } from '../permissions/store.js';
-import { enqueueNeedsInputPush } from '../push/enqueue.js';
+import { enqueueNeedsInputPush, enqueueTransitionPush } from '../push/enqueue.js';
+import { transitionPayload } from '../push/payload.js';
 import { CardViews, MachineCardFields } from './board-view.js';
 import {
   DefinitionCache,
@@ -236,6 +239,8 @@ export class EngineServiceImpl implements EngineService {
     s1.fencing_token = Number(token);
 
     const drafts: BoardSseEventDraft[] = [];
+    /** `transition.notified` drafts: written after card.upserted, so the card is current. */
+    const notices: BoardSseEventDraft[] = [];
     let wrotePush = false;
     const commands: { effect: MachineCommandEffect; commandId: string }[] = [];
     for (const effect of res.effects) {
@@ -271,9 +276,18 @@ export class EngineServiceImpl implements EngineService {
           break;
         case 'create_input_request': {
           const r = await tx.query<InputRequestRow>(
-            'INSERT INTO input_request (id, session_id, kind, question, return_to, created_at) ' +
-              'VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-            [randomUUID(), sessionId, effect.kind, effect.question, effect.return_to, now],
+            'INSERT INTO input_request (id, session_id, kind, question, return_to, created_at, options) ' +
+              'VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+            [
+              randomUUID(),
+              sessionId,
+              effect.kind,
+              effect.question,
+              effect.return_to,
+              now,
+              // Questions UX: an agent question's clickable options (jsonb), else NULL.
+              effect.options === undefined ? null : JSON.stringify(effect.options),
+            ],
           );
           const row = r.rows[0]!;
           // UX-15: "needs input" pushes to the account's subscribed users, in this transaction.
@@ -304,9 +318,10 @@ export class EngineServiceImpl implements EngineService {
         case 'set_deadline':
           if (effect.state === s1.workflow_state) s1.state_deadline = effect.deadline;
           break;
-        case 'state_entered':
-          await tx.query(
-            "INSERT INTO event (session_id, type, payload) VALUES ($1, 'state.entered', $2)",
+        case 'state_entered': {
+          const entered = await tx.query<{ id: string }>(
+            "INSERT INTO event (session_id, type, payload) VALUES ($1, 'state.entered', $2) " +
+              'RETURNING id',
             [
               sessionId,
               // ADR-0011: the move's transition, reason and actor when apply set them
@@ -321,7 +336,54 @@ export class EngineServiceImpl implements EngineService {
               }),
             ],
           );
+          // A transition with `notify: true` (05 §Transitions): in-tab and Web Push.
+          if (effect.notify !== undefined && effect.from !== null) {
+            const enteredId = Number(entered.rows[0]!.id);
+            // A gate step's label isn't a state: name the column the transition left.
+            const fromName =
+              def.states[effect.from] !== undefined
+                ? effect.from
+                : (before.step?.from ?? effect.from);
+            const notification = transitionPayload({
+              ticketId: ticket.id,
+              ticketTitle: ticket.title,
+              transitionTitle: transitionTitle(
+                effect.notify,
+                def.states[fromName] !== undefined && def.states[fromName].type !== 'terminal'
+                  ? def.states[fromName].on?.[effect.notify]
+                  : undefined,
+              ),
+              fromTitle: stateTitle(def, fromName),
+              toTitle: stateTitle(def, effect.to),
+              eventId: enteredId,
+            });
+            if (this.deps.pushEnabled) {
+              // The human.transition event names no user (actor 'ui'), so the person who took a
+              // move is notified too; their focused tab skips the in-tab one.
+              const n = await enqueueTransitionPush(tx, {
+                accountId: ticket.account_id,
+                sessionId,
+                ticketId: ticket.id,
+                eventId: enteredId,
+                notification,
+                now,
+              });
+              if (n > 0) wrotePush = true;
+            }
+            notices.push({
+              type: 'transition.notified',
+              session_id: sessionId,
+              ticket_id: ticket.id,
+              from: fromName,
+              to: effect.to,
+              transition: effect.notify,
+              title: notification.title,
+              body: notification.body,
+              tag: notification.tag,
+            });
+          }
           break;
+        }
         case 'conversation_reset':
           // Audit only (ConversationResetPayload): a start refused `no_conversation`, or a human's
           // "Start fresh conversation…", made apply forget the Claude conversation; the next start
@@ -345,28 +407,6 @@ export class EngineServiceImpl implements EngineService {
             to: effect.to,
             workflow_state: s1.workflow_state,
           });
-          break;
-        case 'ticket_proposals':
-          // ADR-0034: the agent's follow-up tickets, for a human to accept or dismiss. The
-          // (session, lower(title)) index makes a replayed complete_state insert nothing.
-          for (const p of effect.proposals) {
-            await tx.query(
-              'INSERT INTO ticket_proposal ' +
-                '(account_id, ticket_id, session_id, state, title, body, kind, why, created_at) ' +
-                'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT DO NOTHING',
-              [
-                ticket.account_id,
-                ticket.id,
-                sessionId,
-                effect.state,
-                p.title,
-                p.body,
-                p.kind ?? null,
-                p.why ?? null,
-                now,
-              ],
-            );
-          }
           break;
         case 'ticket_status':
           await tx.query('UPDATE ticket SET status = $2, updated_at = $3 WHERE id = $1', [
@@ -480,6 +520,7 @@ export class EngineServiceImpl implements EngineService {
         card: cardAfter,
       });
     }
+    drafts.push(...notices);
     const boardEvents = await insertBoardEvents(tx, drafts);
 
     return {

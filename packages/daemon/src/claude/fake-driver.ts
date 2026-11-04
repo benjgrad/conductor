@@ -1,4 +1,4 @@
-import type { JsonObject } from '@conductor/shared';
+import type { JsonObject, QuestionOptions } from '@conductor/shared';
 import type { ClaudeDriver, DriverEvent, DriverSession, DriverStartOptions } from './driver.js';
 import {
   PERMISSION_SESSION_ENDED,
@@ -19,7 +19,8 @@ import {
 
 export type FakeTurnAction =
   | { say: string }
-  | { askUser: string }
+  /** Questions UX: `options` as the outcome server would forward them (already bounded). */
+  | { askUser: string; options?: QuestionOptions }
   /**
    * ADR-0011: `transition` / `reason` as the agent names them. With `opts.transitions`, the first
    * unknown name is refused like the outcome server does (a debug line, not emitted).
@@ -249,7 +250,11 @@ export class FakeDriverSession implements DriverSession {
       this.emit(a.emit);
     } else if ('askUser' in a) {
       this.askPending = true;
-      this.emit({ kind: 'ask_user', question: a.askUser });
+      this.emit({
+        kind: 'ask_user',
+        question: a.askUser,
+        ...(a.options !== undefined ? { options: a.options } : {}),
+      });
     } else if (this.completed || this.askPending) {
       // ADR-0005 outcome-server guard: a second complete_state, or one while a question is
       // pending, gets a corrective tool result and is not emitted.

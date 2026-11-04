@@ -1,0 +1,80 @@
+/* Questions UX: an agent question's options (QuestionOptions.tsx), a numbered list of full-width
+   choices like Claude Code's own question prompt. Also the compact row on the board card. */
+.question-options {
+  margin: 8px 0 4px;
+}
+.question-options-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.question-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.question-option:hover:not(:disabled),
+.question-option:focus-visible,
+.question-option.chosen {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.question-option:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.question-option input[type='checkbox'] {
+  margin: 3px 0 0;
+}
+.question-option-key {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 1.5em;
+}
+.question-option-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.question-option-label {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.question-option-description {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.question-options-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+/* Board card: the first few options as compact buttons. */
+.card-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.card-options button {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

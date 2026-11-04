@@ -1,6 +1,6 @@
 # ADR-0033 · Workflow advisor: process analysis over MCP, analyst sub-agents on the user's machines
 
-- **Status**: accepted (Ben approved the plan, 2026-11-03, on ticket "AI workflow agent"); amended for P2 the same day (§Amendment)
+- **Status**: accepted (Ben approved the plan, 2026-11-03, on ticket "AI workflow agent"); amended for P2 the same day (§Amendment), and for P3 (§Amendment: P3 as built)
 - **Date**: 2026-11-03
 - **Deciders**: Ben (+ the conductor planning and implementing sessions on that ticket)
 - **Extends**: [ADR-0015](0015-triage-and-assistant-on-the-users-machine.md) (assistant and one-shot jobs on the user's machine), [ADR-0030](0030-per-repo-checks-and-mcp-workflow-tools.md) (MCP-first)
@@ -49,7 +49,7 @@ The data for cross-session analysis is already in Postgres:
 5. **Change management**, P3:
    - `propose_change` stores a `change_proposal`: the kind, the payload, a structural diff, the rationale, the evidence, the expected effect and the rollback.
    - `apply_change` runs the existing guarded save paths after a human confirms: `save_workflow` (admin gate, `approvalsWeakened`, `base_version`), `set_repo_checks`, and machine settings once ADR-0022 is built.
-   - `review_change` compares the metrics before and after.
+   - `review_change` compares the metrics before and after (as built: `list_change_proposals` with an id, §Amendment: P3 as built).
 
 ### P1 tools and prompt
 - **`get_process_metrics`** (read-only) `{window_days?, repo?, workflow_id?, group_by?: state | repo | machine | check}`:
@@ -74,20 +74,20 @@ The data for cross-session analysis is already in Postgres:
   - permission prompts and machine rules stay on the board;
   - ticket and transcript text is data, not instructions.
 - **`MCP_INSTRUCTIONS`** names `list_findings` and the prompt. It stays ≤ 600 characters.
-- **The tool-list budget** rises from 18 KB to 20 KB; the 25 tools are about 19 KB (ADR-0034 adds `decide_proposed_ticket`, 28 with P2, under the same budget).
+- **The tool-list budget** rises from 18 KB to 20 KB; the 25 tools are about 19 KB.
 
 Still never exposed over MCP: approvals, permission prompts, "Allow always", and `bypassPermissions`. When machine settings arrive (P3), `bypassPermissions` stays a board-only opt-in.
 
 ## Phases (milestone [MA](../plan/milestones/MA-workflow-advisor.md))
 - **P1** (MA-T01): metrics, findings, the prompt. No migration and no daemon change.
 - **P2** (MA-T02..T04, built 2026-11-03, dormant until MR-T12): `assistant_job` / `assistant_result` frames, shared with M4-T01/T04; the Rust one-shot runner and light slot; `session_insight`, the scheduler (idempotency key `insight:<session_id>:<schema_version>`), `get_process_report` and `get_insight`.
-- **P3** (MA-T05..T07): `change_proposal`, the diff, propose / apply / review, the web Proposals list, and machine-settings tools (after M2-T28c and MR-T17b).
+- **P3** (MA-T05..T07): `change_proposal`, the diff, propose / apply / review, the web Proposals list (built 2026-11-03, §Amendment: P3 as built), and machine-settings tools (MA-T06, after M2-T28c and MR-T17b).
 - **P4**: the M4 chat panel, with `workflow_advisor` as a chat mode.
 
 ## Amendment: P2 as built (MA-T02..T04, 2026-11-03)
 Ben approved shipping P2 dormant until the Rust daemon cutover. ADR-0026 froze the TS daemon, and the Rust daemon core (MR-T12) isn't built yet. These decisions were made while building it:
 
-- **Feature gate.** `register.features` (`DAEMON_FEATURES`, so far only `assistant_job`) is stored in `machine.features`. The scheduler sends jobs only to a machine that advertises it. The TS daemon never does: it refuses an `assistant_job` (`unsupported`) if it ever receives one. MR-T12 FR-4 wires the Rust runner (`claude/oneshot.rs`) in and turns the feature on. Until then `get_process_report` says `insights_enabled: false`.
+- **Feature gate.** `register.features` (`DAEMON_FEATURES`, so far only `assistant_job`) is stored in `machine.features`. The scheduler sends jobs only to a machine that advertises it. The TS daemon never does: it refuses an `assistant_job` (`unsupported`) if it ever receives one. MR-T12 FR-4 wires the Rust runner (`claude/oneshot.rs`) in and turns the feature on (done 2026-11-03: the Rust daemon registers with `features: ["assistant_job"]` and sends `assistant_result` as a durable machine-level message). Until a machine runs the Rust daemon (MR-T15/T16) `get_process_report` says `insights_enabled: false`.
 - **Job table.** `assistant_job` is the job record and its idempotency guard (`insight:<session_id>:<schema_version>`, unique). Its `outbox` row has kind `assistant_job` with `session_id` null, so neither the fencing check nor the engine sees it (`NON_EFFECT_OUTBOX_KINDS`). Its ack, ack timeout and expiry (30 min) fail the job and nothing reschedules it. Its `prompt` is scrubbed from the outbox once the row is terminal.
 - **Own machine only.** A job goes only to the machine that ran the session, because that is where the transcript lives (ADR-0008). If that machine stays offline for the 7-day backfill window, the session is never analysed. A session with no Claude session id gets the digest without a transcript.
 - **Insight schema v1** (`SessionInsightSchema`): `{schema_version: 1, summary ≤ 500, outcome, frictions ≤ 8 [{category, state, evidence ≤ 300, severity 1..3, suggestion ≤ 300}], wasted_minutes}`, at most 4 KiB. The daemon passes its JSON Schema to `--json-schema` without reading it. The orchestrator re-validates the result and drops a malformed one.
@@ -95,6 +95,18 @@ Ben approved shipping P2 dormant until the Rust daemon cutover. ADR-0026 froze t
 - **Light slot.** `CONDUCTOR_LIGHT_SLOTS` (default 1) runs outside `max_sessions`. Four more jobs may wait; a fifth is refused `light_slot_busy`.
 - **Recurring frictions as findings.** `insightFindings` makes `recurring_friction:<category>:<state>` findings from a category and state reported in ≥ 3 sessions (severity at most 2 below 5 sessions). `list_findings` ranks them with the deterministic ones.
 - **Tool budget.** There are now 27 tools and the list still fits the 20 KB budget. To make room, the four advisor descriptions were cut to one line each, and `get_insight` takes a plain `session_id` string (a `uuid()` schema adds a long regex to the list).
+
+## Amendment: P3 as built (MA-T05, MA-T07, MA-T08a, 2026-11-03)
+Ben approved finishing P3 without machine settings: MA-T06 waits on M2-T28c (the `machine_settings` table and routes) and MR-T17b (the Rust daemon applying them), and the insight-job half of the e2e (MA-T08b) on MR-T16. These decisions were made while building it:
+
+- **Tools.** `propose_change`, `list_change_proposals` and `apply_change`: **30 tools**. There is no separate `review_change`: `list_change_proposals` with an `id` reviews an applied proposal on read (the result is cached on the row). Four tools did not fit the budget even with one-line descriptions; folding review into the read was the approved fallback.
+- **Tool-list budget** raised from 20 KB to **22 KB** (Ben, 2026-11-03); the 30 tools are about 21.7 KB. `propose_change` takes loose object arguments (`change`, `evidence`, `expected_effect` as untyped JSON with a one-line shape hint) and validates them server-side with zod (`ProposeChangeInputSchema`), because a typed union would add about 1 KB to the list. [ADR-0034](0034-agent-proposed-follow-up-tickets.md) adds `decide_proposed_ticket` and raises the budget to **23 KB** (31 tools, about 22.6 KB).
+- **Kinds.** `workflow` and `repo_checks` only. Any other kind (machine settings, permissions) fails validation, so `bypassPermissions` can't be set over MCP.
+- **Propose** validates as the save would (validator, size and truncation checks, `base_version` = the latest, approvals not weakened), diffs against what is there now (`diffWorkflow` / `diffRepoChecks`, ≤ 40 changes shown), refuses an empty diff (`no_change`), and caps open proposals at **20 per account** (`too_many_open`). Anyone in the account may propose; a workflow proposal says it changes every account and needs an admin (`requires_admin`, `warning`).
+- **Apply** (MCP `apply_change {id, confirm: true}`, or Apply on the board) runs in one transaction with the proposal row locked: applied at most once (`already_applied`). Workflow: the admin gate, the approvals guard against the latest version, `base_version`. Repo checks: the repo's row must still match the snapshot taken at propose time (`repo_checks` has no version column). What changed since (`conflict`, `approval_weakened`) moves the proposal to `conflict`; an error to `failed`. Nothing retries. **Weakening is refused on both paths**: a proposal is model-written, so even an admin on the board can't use one to drop an approval (they edit the workflow instead).
+- **Review** compares the expected effect's metric (`compareMetrics`, pure) over equal windows before and after `applied_at`: whole days since, 1..30 (`too_early` under a day), scoped to the proposal's repo or workflow (`loadAdvisorRows` gained `until`). `direction_met` is null with fewer than 3 samples on a side.
+- **Web.** The Workflow page lists proposals under the editor (open / all), with the diff, evidence, effect, rollback, Apply behind a confirm, Reject, the stored conflict or failure, and the review. Applying a workflow change reloads the editor unless it has unsaved edits (it warns instead).
+- **E2E** (MA-T08a, `e2e/advisor.e2e.test.ts`): the real bins over `/mcp`, from a finding to an applied repo-checks change and its review; the history is written to the database and the token minted there, to keep it at a few seconds.
 
 ## Alternatives considered
 | Option | Why not |

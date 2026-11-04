@@ -87,14 +87,22 @@ export const registerPushRoutes: FastifyPluginAsync<PushRoutesOptions> = (
     const owner = ownerOf(req);
     const payload = JSON.stringify(testPayload());
     let sent = 0;
+    let failed = 0;
+    // The push services' reasons (no endpoints, NFR-2): why an iPhone got nothing.
+    const errors = new Set<string>();
     for (const sub of owner ? await subscriptionsOf(db, owner) : []) {
       const result = await send.send(
         { endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth },
         payload,
       );
-      if ((await recordResult(db, sub.id, result, now())) === 'ok') sent++;
+      if ((await recordResult(db, sub.id, result, now())) === 'ok') {
+        sent++;
+      } else if (!result.ok) {
+        failed++;
+        errors.add(result.error);
+      }
     }
-    const body: PushTestResponse = { sent };
+    const body: PushTestResponse = { sent, failed, errors: [...errors] };
     return reply.send(body);
   });
   return Promise.resolve();

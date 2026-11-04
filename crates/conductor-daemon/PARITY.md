@@ -38,27 +38,27 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 - [x] `claude/transcript.test.ts`
 
-- [ ] `commands/config.test.ts`
+- [x] `commands/config.test.ts`
 
-- [ ] `commands/enroll.test.ts`
+- [x] `commands/enroll.test.ts`
 
 - [x] `commands/fake-runner.test.ts`
 
 - [x] `commands/process-runner.test.ts`
 
-- [ ] `commands/service.test.ts`
+- [x] `commands/service.test.ts`
 
 - [x] `credential.test.ts`
 
-- [ ] `daemon.kill.test.ts`
+- [x] `daemon.kill.test.ts`
 
-- [ ] `daemon.test.ts`
+- [x] `daemon.test.ts`
 
 - [x] `index.test.ts`
 
 - [x] `inventory/capabilities.test.ts`
 
-- [ ] `inventory/report.test.ts`
+- [x] `inventory/report.test.ts`
 
 - [x] `inventory/repos.test.ts`
 
@@ -82,7 +82,7 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 - [x] `platform/sysres.test.ts`
 
-- [ ] `reopen-transcript.test.ts`
+- [x] `reopen-transcript.test.ts`
 
 - [x] `rust-compat.test.ts`
 
@@ -90,7 +90,7 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 - [x] `test-support/fake-bin.test.ts`
 
-- [ ] `units.test.ts`
+- [x] `units.test.ts`
 
 - [x] `workspace.fresh-base.test.ts`
 
@@ -265,6 +265,7 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 | claude/outcome-server.test.ts › outcome server › binds 127.0.0.1 and issues a 128-bit path token per session | crates/conductor-daemon/src/claude/outcome_server.rs::tests::binds_127_0_0_1_and_issues_a_128_bit_path_token_per_session |
 | claude/outcome-server.test.ts › outcome server › lists exactly complete_state, ask_user and (ADR-0023) permission | crates/conductor-daemon/src/claude/outcome_server.rs::tests::lists_exactly_complete_state_ask_user_and_permission |
 | claude/outcome-server.test.ts › outcome server › ask_user returns at once with the ADR text; complete_state after the answer records | crates/conductor-daemon/src/claude/outcome_server.rs::tests::ask_user_returns_at_once_and_complete_state_after_the_answer_records |
+| claude/outcome-server.test.ts › outcome server › Questions UX: ask_user forwards valid options; an invalid list is dropped, the question sent | crates/conductor-daemon/src/claude/outcome_server.rs::tests::ask_user_forwards_valid_options_and_drops_an_invalid_list, crates/conductor-daemon/src/claude/outcome_server.rs::tests::bounded_question_options_keeps_valid_lists_and_drops_the_rest |
 | claude/outcome-server.test.ts › outcome server › attributes calls to the session that owns the token | crates/conductor-daemon/src/claude/outcome_server.rs::tests::attributes_calls_to_the_session_that_owns_the_token |
 | claude/outcome-server.test.ts › outcome server › rejects invalid arguments without emitting | crates/conductor-daemon/src/claude/outcome_server.rs::tests::rejects_invalid_arguments_without_emitting |
 | claude/outcome-server.test.ts › outcome server › 404s unknown and unregistered tokens, 405s non-POST, 403s foreign Host headers | crates/conductor-daemon/src/claude/outcome_server.rs::tests::status_404_405_403_and_unregister |
@@ -317,40 +318,40 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| commands/config.test.ts › config.json › missing → defaults; round-trips at 0600 | todo |
-| commands/config.test.ts › config.json › invalid JSON or shape → an error naming the file | todo |
-| commands/config.test.ts › loadConfig inventory env › CONDUCTOR_ROOTS (`path.delimiter`-separated) overrides the file; unset → null | todo |
-| commands/config.test.ts › loadConfig inventory env › CONDUCTOR_ROOTS with drive letters: `C:\a;D:\b` is two roots | todo |
-| commands/config.test.ts › loadConfig inventory env › CONDUCTOR_TEST_REMOTE_ALIASES is ignored without CONDUCTOR_ALLOW_LOCAL_REPOS | todo |
-| commands/config.test.ts › loadConfig inventory env › a bad alias throws (with the flag) | todo |
-| commands/config.test.ts › conductor-daemon config › roots: saves realpaths (deduped) at 0600 | todo |
-| commands/config.test.ts › conductor-daemon config › roots: a missing directory or none → 2, nothing written | todo |
-| commands/config.test.ts › conductor-daemon config › repo --mode checkout: stored by path; warns when not under a root | todo |
-| commands/config.test.ts › conductor-daemon config › repo: a bad mode, a non-repo or extra args → 2 | todo |
-| commands/config.test.ts › conductor-daemon config › show: the file, effective roots and repos; CONDUCTOR_ROOTS wins | todo |
-| commands/config.test.ts › conductor-daemon config › no or an unknown subcommand → usage, 2 | todo |
+| commands/config.test.ts › config.json › missing → defaults; round-trips at 0600 | crates/conductor-daemon/src/config.rs::tests::file_config_round_trip_defaults_and_errors |
+| commands/config.test.ts › config.json › invalid JSON or shape → an error naming the file | crates/conductor-daemon/src/config.rs::tests::file_config_round_trip_defaults_and_errors, crates/conductor-daemon/src/commands/config/tests.rs::an_invalid_config_json_is_exit_1_naming_the_file |
+| commands/config.test.ts › loadConfig inventory env › CONDUCTOR_ROOTS (`path.delimiter`-separated) overrides the file; unset → null | crates/conductor-daemon/src/config.rs::tests::roots_and_remote_aliases |
+| commands/config.test.ts › loadConfig inventory env › CONDUCTOR_ROOTS with drive letters: `C:\a;D:\b` is two roots | crates/conductor-daemon/src/commands/config/tests.rs::conductor_roots_with_drive_letters_is_two_roots_on_windows |
+| commands/config.test.ts › loadConfig inventory env › CONDUCTOR_TEST_REMOTE_ALIASES is ignored without CONDUCTOR_ALLOW_LOCAL_REPOS | crates/conductor-daemon/src/config.rs::tests::roots_and_remote_aliases |
+| commands/config.test.ts › loadConfig inventory env › a bad alias throws (with the flag) | crates/conductor-daemon/src/config.rs::tests::roots_and_remote_aliases |
+| commands/config.test.ts › conductor-daemon config › roots: saves realpaths (deduped) at 0600 | crates/conductor-daemon/src/commands/config/tests.rs::roots_saves_realpaths_deduped_at_0600 |
+| commands/config.test.ts › conductor-daemon config › roots: a missing directory or none → 2, nothing written | crates/conductor-daemon/src/commands/config/tests.rs::roots_a_missing_directory_or_none_is_2_nothing_written |
+| commands/config.test.ts › conductor-daemon config › repo --mode checkout: stored by path; warns when not under a root | crates/conductor-daemon/src/commands/config/tests.rs::repo_mode_checkout_stored_by_path_warns_when_not_under_a_root |
+| commands/config.test.ts › conductor-daemon config › repo: a bad mode, a non-repo or extra args → 2 | crates/conductor-daemon/src/commands/config/tests.rs::repo_a_bad_mode_a_non_repo_or_extra_args_is_2 |
+| commands/config.test.ts › conductor-daemon config › show: the file, effective roots and repos; CONDUCTOR_ROOTS wins | crates/conductor-daemon/src/commands/config/tests.rs::show_the_file_effective_roots_and_repos_conductor_roots_wins |
+| commands/config.test.ts › conductor-daemon config › no or an unknown subcommand → usage, 2 | crates/conductor-daemon/src/commands/config/tests.rs::no_or_an_unknown_subcommand_is_usage_2 |
 
 ### commands/enroll.test.ts
 
 | TS case | Rust |
 |---|---|
-| commands/enroll.test.ts › conductor-daemon enroll › posts the token and writes machine.json 0600 in a 0700 root | todo |
-| commands/enroll.test.ts › conductor-daemon enroll › a 401 leaves no file and says the token is expired or used | todo |
-| commands/enroll.test.ts › conductor-daemon enroll › refuses an existing file without --force (no request sent) and replaces it with --force | todo |
-| commands/enroll.test.ts › conductor-daemon enroll › refuses a symlinked root without sending a request | todo |
-| commands/enroll.test.ts › conductor-daemon enroll › refuses a symlinked machine.json even with --force | todo |
-| commands/enroll.test.ts › conductor-daemon enroll › a 429 says to retry later | todo |
-| commands/enroll.test.ts › conductor-daemon enroll › a network failure says the server cannot be reached | todo |
-| commands/enroll.test.ts › conductor-daemon enroll › another status names it and its error code | todo |
-| commands/enroll.test.ts › conductor-daemon enroll › never follows a redirect: the target gets no request and no file is written | todo |
-| commands/enroll.test.ts › conductor-daemon enroll › an empty or over-long --token is a usage error naming the flag | todo |
-| commands/enroll.test.ts › conductor-daemon enroll › refuses plain http to a non-loopback host and missing options | todo |
-| commands/enroll.test.ts › enroll token sources (TD-117) › takes the token from CONDUCTOR_ENROLL_TOKEN and removes it from the environment | todo |
-| commands/enroll.test.ts › enroll token sources (TD-117) › --token wins over the environment, which is still removed | todo |
-| commands/enroll.test.ts › enroll token sources (TD-117) › --token - reads the first line of stdin | todo |
-| commands/enroll.test.ts › enroll token sources (TD-117) › an empty or over-long token from stdin or the environment is the same usage error | todo |
-| commands/enroll.test.ts › enroll token sources (TD-117) › no token anywhere is a usage error naming both sources | todo |
-| commands/enroll.test.ts › enrollUrl › keeps https and loopback http, without a trailing slash | todo |
+| commands/enroll.test.ts › conductor-daemon enroll › posts the token and writes machine.json 0600 in a 0700 root | crates/conductor-daemon/src/commands/enroll/tests.rs::posts_the_token_and_writes_machine_json_0600_in_a_0700_root |
+| commands/enroll.test.ts › conductor-daemon enroll › a 401 leaves no file and says the token is expired or used | crates/conductor-daemon/src/commands/enroll/tests.rs::a_401_leaves_no_file_and_says_the_token_is_expired_or_used |
+| commands/enroll.test.ts › conductor-daemon enroll › refuses an existing file without --force (no request sent) and replaces it with --force | crates/conductor-daemon/src/commands/enroll/tests.rs::refuses_an_existing_file_without_force_and_replaces_it_with_force |
+| commands/enroll.test.ts › conductor-daemon enroll › refuses a symlinked root without sending a request | crates/conductor-daemon/src/commands/enroll/tests.rs::refuses_a_symlinked_root_without_sending_a_request |
+| commands/enroll.test.ts › conductor-daemon enroll › refuses a symlinked machine.json even with --force | crates/conductor-daemon/src/commands/enroll/tests.rs::refuses_a_symlinked_machine_json_even_with_force |
+| commands/enroll.test.ts › conductor-daemon enroll › a 429 says to retry later | crates/conductor-daemon/src/commands/enroll/tests.rs::a_429_says_to_retry_later |
+| commands/enroll.test.ts › conductor-daemon enroll › a network failure says the server cannot be reached | crates/conductor-daemon/src/commands/enroll/tests.rs::a_network_failure_says_the_server_cannot_be_reached |
+| commands/enroll.test.ts › conductor-daemon enroll › another status names it and its error code | crates/conductor-daemon/src/commands/enroll/tests.rs::another_status_names_it_and_its_error_code |
+| commands/enroll.test.ts › conductor-daemon enroll › never follows a redirect: the target gets no request and no file is written | crates/conductor-daemon/src/commands/enroll/tests.rs::never_follows_a_redirect_the_target_gets_no_request_and_no_file_is_written |
+| commands/enroll.test.ts › conductor-daemon enroll › an empty or over-long --token is a usage error naming the flag | crates/conductor-daemon/src/commands/enroll/tests.rs::an_empty_or_over_long_token_is_a_usage_error_naming_the_flag |
+| commands/enroll.test.ts › conductor-daemon enroll › refuses plain http to a non-loopback host and missing options | crates/conductor-daemon/src/commands/enroll/tests.rs::refuses_plain_http_to_a_non_loopback_host_and_missing_options |
+| commands/enroll.test.ts › enroll token sources (TD-117) › takes the token from CONDUCTOR_ENROLL_TOKEN and removes it from the environment | crates/conductor-daemon/src/commands/enroll/tests.rs::takes_the_token_from_conductor_enroll_token_and_removes_it_from_the_environment, crates/conductor-daemon/tests/cli.rs::the_enroll_token_env_var_is_read_and_never_echoed |
+| commands/enroll.test.ts › enroll token sources (TD-117) › --token wins over the environment, which is still removed | crates/conductor-daemon/src/commands/enroll/tests.rs::token_flag_wins_over_the_environment_which_is_still_removed |
+| commands/enroll.test.ts › enroll token sources (TD-117) › --token - reads the first line of stdin | crates/conductor-daemon/src/commands/enroll/tests.rs::token_dash_reads_the_first_line_of_stdin |
+| commands/enroll.test.ts › enroll token sources (TD-117) › an empty or over-long token from stdin or the environment is the same usage error | crates/conductor-daemon/src/commands/enroll/tests.rs::an_empty_or_over_long_token_from_stdin_or_the_environment_is_the_same_usage_error |
+| commands/enroll.test.ts › enroll token sources (TD-117) › no token anywhere is a usage error naming both sources | crates/conductor-daemon/src/commands/enroll/tests.rs::no_token_anywhere_is_a_usage_error_naming_both_sources |
+| commands/enroll.test.ts › enrollUrl › keeps https and loopback http, without a trailing slash | crates/conductor-daemon/src/commands/enroll/tests.rs::enroll_url_keeps_https_and_loopback_http_without_a_trailing_slash |
 
 ### commands/fake-runner.test.ts
 
@@ -385,16 +386,16 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| commands/service.test.ts › unit files › launchd on macOS, systemd on Linux, none on Windows | todo |
-| commands/service.test.ts › unit files › the launchd plist runs the launcher, supervised, with pinned node, logs and a throttle | todo |
-| commands/service.test.ts › unit files › the systemd unit runs the launcher, supervised, and never restarts on 78 | todo |
-| commands/service.test.ts › unit files › escapes XML and systemd specifiers, and refuses what systemd cannot quote | todo |
-| commands/service.test.ts › unit files › restart policy: 75 and crashes restart, 0 and 78 do not (TD-119, ADR-0021) | todo |
-| commands/service.test.ts › unit files › stopSupervisedJob does nothing when unsupervised or under systemd | todo |
-| commands/service.test.ts › service install / uninstall / restart › `${manager}: install writes the unit and the launcher; a second install changes nothing` | todo |
-| commands/service.test.ts › service install / uninstall / restart › `${manager}: restart, status and uninstall; sudo is never used` | todo |
-| commands/service.test.ts › service install / uninstall / restart › `${manager}: refuses without an installed daemon, and with Node 20` | todo |
-| commands/service.test.ts › service install / uninstall / restart › usage errors and an OS without a service manager exit 2 | todo |
+| commands/service.test.ts › unit files › launchd on macOS, systemd on Linux, none on Windows | crates/conductor-daemon/src/commands/service/tests.rs::launchd_on_macos_systemd_on_linux_scheduled_task_on_windows |
+| commands/service.test.ts › unit files › the launchd plist runs the launcher, supervised, with pinned node, logs and a throttle | crates/conductor-daemon/src/commands/service/tests.rs::the_launchd_plist_runs_the_launcher_supervised_with_logs_and_a_throttle |
+| commands/service.test.ts › unit files › the systemd unit runs the launcher, supervised, and never restarts on 78 | crates/conductor-daemon/src/commands/service/tests.rs::the_systemd_unit_runs_the_launcher_supervised_and_never_restarts_on_78 |
+| commands/service.test.ts › unit files › escapes XML and systemd specifiers, and refuses what systemd cannot quote | crates/conductor-daemon/src/commands/service/tests.rs::escapes_xml_and_systemd_specifiers_and_refuses_what_systemd_cannot_quote |
+| commands/service.test.ts › unit files › restart policy: 75 and crashes restart, 0 and 78 do not (TD-119, ADR-0021) | crates/conductor-daemon/src/commands/service/tests.rs::restart_policy_75_and_crashes_restart_0_and_78_do_not |
+| commands/service.test.ts › unit files › stopSupervisedJob does nothing when unsupervised or under systemd | crates/conductor-daemon/src/commands/service/tests.rs::stop_supervised_job_does_nothing_when_unsupervised_or_under_systemd |
+| commands/service.test.ts › service install / uninstall / restart › `${manager}: install writes the unit and the launcher; a second install changes nothing` | crates/conductor-daemon/src/commands/service/tests.rs::install_writes_the_unit_and_the_launcher_a_second_install_changes_nothing, crates/conductor-daemon/src/commands/service/tests.rs::the_launcher_is_the_ts_daemon_asset_byte_for_byte |
+| commands/service.test.ts › service install / uninstall / restart › `${manager}: restart, status and uninstall; sudo is never used` | crates/conductor-daemon/src/commands/service/tests.rs::restart_status_and_uninstall_sudo_is_never_used |
+| commands/service.test.ts › service install / uninstall / restart › `${manager}: refuses without an installed daemon, and with Node 20` | crates/conductor-daemon/src/commands/service/tests.rs::refuses_without_an_installed_daemon |
+| commands/service.test.ts › service install / uninstall / restart › usage errors and an OS without a service manager exit 2 | crates/conductor-daemon/src/commands/service/tests.rs::usage_errors_and_an_os_without_a_service_manager_exit_2, crates/conductor-daemon/tests/cli.rs::subcommand_usage_errors_exit_2 |
 
 ### credential.test.ts
 
@@ -422,78 +423,78 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| daemon.kill.test.ts › BUG-1 FR-2: kill of a parked process (real process group) › a kill %s ends it within 5 s and is acked | todo |
-| daemon.kill.test.ts › BUG-1b: the startup sweep against a real (fake-claude) process group › FR-1: the start time is persisted at spawn; a restarted daemon kills its orphan | todo |
-| daemon.kill.test.ts › BUG-1b: the startup sweep against a real (fake-claude) process group › FR-2 (b): a recorded pid whose start time differs (reused) is left alone | todo |
+| daemon.kill.test.ts › BUG-1 FR-2: kill of a parked process (real process group) › a kill %s ends it within 5 s and is acked | crates/conductor-daemon/src/daemon/tests/kill_real.rs::a_kill_aimed_at_its_start_session_ends_it_within_5_s_and_is_acked, crates/conductor-daemon/src/daemon/tests/kill_real.rs::a_kill_with_a_null_target_at_its_fencing_token_ends_it_within_5_s_and_is_acked |
+| daemon.kill.test.ts › BUG-1b: the startup sweep against a real (fake-claude) process group › FR-1: the start time is persisted at spawn; a restarted daemon kills its orphan | crates/conductor-daemon/src/daemon/tests/kill_real.rs::fr_1_the_start_time_is_persisted_at_spawn_a_restarted_daemon_kills_its_orphan |
+| daemon.kill.test.ts › BUG-1b: the startup sweep against a real (fake-claude) process group › FR-2 (b): a recorded pid whose start time differs (reused) is left alone | crates/conductor-daemon/src/daemon/tests/kill_real.rs::fr_2_b_a_recorded_pid_whose_start_time_differs_reused_is_left_alone |
 
 ### daemon.test.ts
 
 | TS case | Rust |
 |---|---|
-| daemon.test.ts › daemon core: link › registers, then sends heartbeat, inventory, repo_inventory and request_work | todo |
-| daemon.test.ts › daemon core: link › register.daemon_version carries CONDUCTOR_BUILD_SHA | todo |
-| daemon.test.ts › daemon core: link › enrolled: the enrolled machine id, the bearer header, no enrollment_token | todo |
-| daemon.test.ts › daemon core: link › close 4001 (revoked) stops the link and calls onFatal; no re-register | todo |
-| daemon.test.ts › daemon core: link › reconnects with backoff after the socket drops and registers again | todo |
-| daemon.test.ts › daemon core: link › asks for work again after retry_after | todo |
-| daemon.test.ts › daemon core: link › logs no_work's reason only when it changes (M2-T36) | todo |
-| daemon.test.ts › daemon core: start_session › creates the worktree on the session branch, spawns the driver, and forwards events | todo |
-| daemon.test.ts › daemon core: start_session › persists the pre-assigned Claude session id before spawning | todo |
-| daemon.test.ts › daemon core: start_session › ADR-0009: a reviewer start is fresh, read-only, and never replaces the worker's stored id | todo |
-| daemon.test.ts › daemon core: start_session › resumes with --resume semantics when resume_claude_session_id is set | todo |
-| daemon.test.ts › daemon core: start_session › refuses no_conversation (never spawns) when the resumed conversation is not on this machine | todo |
-| daemon.test.ts › daemon core: start_session › the hasConversation seam decides the resume check | todo |
-| daemon.test.ts › daemon core: start_session › sends the last stderr lines on exit (stderr_tail) | todo |
-| daemon.test.ts › daemon core: start_session › parks after ask_user (process alive) and feeds send_input into the live process | todo |
-| daemon.test.ts › daemon core: start_session › U-028: an outcome-less turn gets ONE nudge; the agent then completes | todo |
-| daemon.test.ts › daemon core: start_session › U-028: a second outcome-less turn emits no_outcome (parked); an answer re-arms the nudge | todo |
-| daemon.test.ts › daemon core: start_session › U-028: no_outcome carries only the tail of the assistant output | todo |
-| daemon.test.ts › daemon core: start_session › refuses send_input with no_live_process when the process is gone | todo |
-| daemon.test.ts › daemon core: start_session › refuses start_session with max_sessions and memory_pressure | todo |
-| daemon.test.ts › daemon core: start_session › re-arms request_work after a memory_pressure refusal of an assigned session (max_sessions=1) | todo |
-| daemon.test.ts › daemon core: start_session › re-arms request_work right after a max_sessions refusal and when a hold expires | todo |
-| daemon.test.ts › daemon core: start_session › reports start_failed when the repo cannot be cloned | todo |
-| daemon.test.ts › daemon core: send_message (ADR-0007) › writes into the working process (not as an answer) and leaves the U-028 nudge state alone | todo |
-| daemon.test.ts › daemon core: send_message (ADR-0007) › refuses: parked (agent_parked), another process, a newer process token, or none (no_live_process) | todo |
-| daemon.test.ts › daemon core: send_message (ADR-0007) › refuses with no_live_process once the process completed | todo |
-| daemon.test.ts › daemon core: command_id dedupe and seq › re-acks a re-sent command without re-running it, also after a daemon restart | todo |
-| daemon.test.ts › daemon core: command_id dedupe and seq › next seq = max(local + 1, registered.last_seq + 1) | todo |
-| daemon.test.ts › daemon core: command_id dedupe and seq › buffers session_events while disconnected and replays those after registered.last_seq | todo |
-| daemon.test.ts › daemon core: run_cmd and kill › runs a command through the injected CommandRunner and reports build_slot + cmd_exit | todo |
-| daemon.test.ts › daemon core: run_cmd and kill › ADR-0010 (Ben 2026-10-26): entry checks run in a fresh checkout of the commit, setup once, then it is removed | todo |
-| daemon.test.ts › daemon core: run_cmd and kill › ADR-0010: a session kill between checks removes the kept checkout | todo |
-| daemon.test.ts › daemon core: run_cmd and kill › ADR-0010: an older run cleanup never removes a newer checkout of the same session | todo |
-| daemon.test.ts › daemon core: run_cmd and kill › ADR-0010: a failed setup is reported (setup_failed), the check does not run, the checkout goes | todo |
-| daemon.test.ts › daemon core: run_cmd and kill › ADR-0010: a require_clean check on a dirty worktree is not run; cmd_exit reports dirty | todo |
-| daemon.test.ts › daemon core: run_cmd and kill › refuses run_cmd for an unknown session and a cwd outside the worktree | todo |
-| daemon.test.ts › daemon core: run_cmd and kill › kill rule: target_command_id kills only that process; null kills at or below the envelope token | todo |
-| daemon.test.ts › daemon core: run_cmd and kill › kill with target_command_id kills the process that start spawned | todo |
-| daemon.test.ts › daemon core: BUG-1 no process outlives its session › FR-3: a start superseding a parked process kills it before the new one runs | todo |
-| daemon.test.ts › daemon core: BUG-1 no process outlives its session › FR-3: two starts racing through worktree preparation leave exactly one process | todo |
-| daemon.test.ts › daemon core: BUG-1 no process outlives its session › FR-4: repeated heartbeat-backstop kills stop a parked process once, logged once | todo |
-| daemon.test.ts › daemon core: BUG-1 no process outlives its session › FR-4: the pid and start time of a started process are persisted for the startup sweep | todo |
-| daemon.test.ts › daemon core: BUG-1 no process outlives its session › BUG-1b FR-1: a process whose start time cannot be read is not tracked for the sweep | todo |
-| daemon.test.ts › daemon core: BUG-1b orphan sweep only kills provably-ours processes › FR-2 (c): our argv, start time and UUID: killed with its whole group | todo |
-| daemon.test.ts › daemon core: BUG-1b orphan sweep only kills provably-ours processes › FR-2 (a)(b)(d)(e): anything not provably ours is untouched and logged | todo |
-| daemon.test.ts › daemon core: BUG-1b orphan sweep only kills provably-ours processes › FR-4: an old entry without startedAt is untouched, logged and cleared | todo |
-| daemon.test.ts › daemon core: BUG-1b orphan sweep only kills provably-ours processes › FR-3: a process replaced between SIGTERM and SIGKILL gets no SIGKILL | todo |
-| daemon.test.ts › daemon core: BUG-1b orphan sweep only kills provably-ours processes › FR-3 control: a process still ours after the grace period is SIGKILLed | todo |
-| daemon.test.ts › daemon core: misc › reports exit (daemon_restart) for a process that died with the previous daemon | todo |
-| daemon.test.ts › daemon core: misc › omits the CLAUDE.md section when the worktree has none | todo |
-| daemon.test.ts › daemon core: run_action (ADR-0010 open_pr) › acks, pushes the session branch to origin, opens the PR with gh, reports action_result | todo |
-| daemon.test.ts › daemon core: run_action (ADR-0010 open_pr) › refuses run_action for an unknown session | todo |
-| daemon.test.ts › daemon core: ADR-0011 transitions › passes start_session.transitions to the driver and forwards transition + reason | todo |
-| daemon.test.ts › daemon core: ADR-0011 transitions › an old start_session (no transitions) forwards complete_state without the fields | todo |
-| daemon.test.ts › daemon core: run_action evaluate_conditions (ADR-0011) › acks accepted and reports one action_result with a result per condition | todo |
-| daemon.test.ts › daemon core: run_action evaluate_conditions (ADR-0011) › invalid args → accepted, then an action_result error | todo |
-| daemon.test.ts › appendTail (exit stderr_tail) › keeps the last STDERR_TAIL_LINES lines across chunk boundaries | todo |
-| daemon.test.ts › appendTail (exit stderr_tail) › caps the characters | todo |
-| daemon.test.ts › daemon core: ADR-0023 permission prompts › sends a durable permission_request on the session envelope | todo |
-| daemon.test.ts › daemon core: ADR-0023 permission prompts › a decision resolves the held call once; a second decision is accepted and ignored; unknown is refused | todo |
-| daemon.test.ts › daemon core: ADR-0023 permission prompts › a deny carries the human note to Claude | todo |
-| daemon.test.ts › daemon core: ADR-0023 permission prompts › an old server's protocol_error naming the request denies the held call at once | todo |
-| daemon.test.ts › daemon core: ADR-0023 permission prompts › the request is replayed after a socket drop (durable seq), same msg_id | todo |
-| daemon.test.ts › daemon core: ADR-0023 permission prompts › daemon shutdown denies every held call | todo |
+| daemon.test.ts › daemon core: link › registers, then sends heartbeat, inventory, repo_inventory and request_work | crates/conductor-daemon/src/daemon/tests/link.rs::registers_then_sends_heartbeat_inventory_repo_inventory_and_request_work |
+| daemon.test.ts › daemon core: link › register.daemon_version carries CONDUCTOR_BUILD_SHA | crates/conductor-daemon/src/daemon/tests/link.rs::register_daemon_version_carries_conductor_build_sha |
+| daemon.test.ts › daemon core: link › enrolled: the enrolled machine id, the bearer header, no enrollment_token | crates/conductor-daemon/src/daemon/tests/link.rs::enrolled_the_enrolled_machine_id_the_bearer_header_no_enrollment_token |
+| daemon.test.ts › daemon core: link › close 4001 (revoked) stops the link and calls onFatal; no re-register | crates/conductor-daemon/src/daemon/tests/link.rs::close_4001_revoked_stops_the_link_and_calls_on_fatal_no_re_register |
+| daemon.test.ts › daemon core: link › reconnects with backoff after the socket drops and registers again | crates/conductor-daemon/src/daemon/tests/link.rs::reconnects_with_backoff_after_the_socket_drops_and_registers_again |
+| daemon.test.ts › daemon core: link › asks for work again after retry_after | crates/conductor-daemon/src/daemon/tests/link.rs::asks_for_work_again_after_retry_after |
+| daemon.test.ts › daemon core: link › logs no_work's reason only when it changes (M2-T36) | crates/conductor-daemon/src/daemon/tests/link.rs::logs_no_work_s_reason_only_when_it_changes_m2_t36 |
+| daemon.test.ts › daemon core: start_session › creates the worktree on the session branch, spawns the driver, and forwards events | crates/conductor-daemon/src/daemon/tests/start_session.rs::creates_the_worktree_on_the_session_branch_spawns_the_driver_and_forwards_events |
+| daemon.test.ts › daemon core: start_session › persists the pre-assigned Claude session id before spawning | crates/conductor-daemon/src/daemon/tests/start_session.rs::persists_the_pre_assigned_claude_session_id_before_spawning |
+| daemon.test.ts › daemon core: start_session › ADR-0009: a reviewer start is fresh, read-only, and never replaces the worker's stored id | crates/conductor-daemon/src/daemon/tests/start_session.rs::adr_0009_a_reviewer_start_is_fresh_read_only_and_never_replaces_the_worker_s_stored_id |
+| daemon.test.ts › daemon core: start_session › resumes with --resume semantics when resume_claude_session_id is set | crates/conductor-daemon/src/daemon/tests/start_session.rs::resumes_with_resume_semantics_when_resume_claude_session_id_is_set |
+| daemon.test.ts › daemon core: start_session › refuses no_conversation (never spawns) when the resumed conversation is not on this machine | crates/conductor-daemon/src/daemon/tests/start_session.rs::refuses_no_conversation_never_spawns_when_the_resumed_conversation_is_not_on_this_machine |
+| daemon.test.ts › daemon core: start_session › the hasConversation seam decides the resume check | crates/conductor-daemon/src/daemon/tests/start_session.rs::the_has_conversation_seam_decides_the_resume_check |
+| daemon.test.ts › daemon core: start_session › sends the last stderr lines on exit (stderr_tail) | crates/conductor-daemon/src/daemon/tests/start_session.rs::sends_the_last_stderr_lines_on_exit_stderr_tail |
+| daemon.test.ts › daemon core: start_session › parks after ask_user (process alive) and feeds send_input into the live process | crates/conductor-daemon/src/daemon/tests/start_session.rs::parks_after_ask_user_process_alive_and_feeds_send_input_into_the_live_process |
+| daemon.test.ts › daemon core: start_session › U-028: an outcome-less turn gets ONE nudge; the agent then completes | crates/conductor-daemon/src/daemon/tests/start_session.rs::u_028_an_outcome_less_turn_gets_one_nudge_the_agent_then_completes |
+| daemon.test.ts › daemon core: start_session › U-028: a second outcome-less turn emits no_outcome (parked); an answer re-arms the nudge | crates/conductor-daemon/src/daemon/tests/start_session.rs::u_028_a_second_outcome_less_turn_emits_no_outcome_parked_an_answer_re_arms_the_nudge |
+| daemon.test.ts › daemon core: start_session › U-028: no_outcome carries only the tail of the assistant output | crates/conductor-daemon/src/daemon/tests/start_session.rs::u_028_no_outcome_carries_only_the_tail_of_the_assistant_output |
+| daemon.test.ts › daemon core: start_session › refuses send_input with no_live_process when the process is gone | crates/conductor-daemon/src/daemon/tests/start_session.rs::refuses_send_input_with_no_live_process_when_the_process_is_gone |
+| daemon.test.ts › daemon core: start_session › refuses start_session with max_sessions and memory_pressure | crates/conductor-daemon/src/daemon/tests/start_session.rs::refuses_start_session_with_max_sessions_and_memory_pressure |
+| daemon.test.ts › daemon core: start_session › re-arms request_work after a memory_pressure refusal of an assigned session (max_sessions=1) | crates/conductor-daemon/src/daemon/tests/start_session.rs::re_arms_request_work_after_a_memory_pressure_refusal_of_an_assigned_session_max_sessions_1 |
+| daemon.test.ts › daemon core: start_session › re-arms request_work right after a max_sessions refusal and when a hold expires | crates/conductor-daemon/src/daemon/tests/start_session.rs::re_arms_request_work_right_after_a_max_sessions_refusal_and_when_a_hold_expires |
+| daemon.test.ts › daemon core: start_session › reports start_failed when the repo cannot be cloned | crates/conductor-daemon/src/daemon/tests/start_session.rs::reports_start_failed_when_the_repo_cannot_be_cloned |
+| daemon.test.ts › daemon core: send_message (ADR-0007) › writes into the working process (not as an answer) and leaves the U-028 nudge state alone | crates/conductor-daemon/src/daemon/tests/send_message.rs::writes_into_the_working_process_not_as_an_answer_and_leaves_the_u_028_nudge_state_alone |
+| daemon.test.ts › daemon core: send_message (ADR-0007) › refuses: parked (agent_parked), another process, a newer process token, or none (no_live_process) | crates/conductor-daemon/src/daemon/tests/send_message.rs::refuses_parked_agent_parked_another_process_a_newer_process_token_or_none_no_live_process |
+| daemon.test.ts › daemon core: send_message (ADR-0007) › refuses with no_live_process once the process completed | crates/conductor-daemon/src/daemon/tests/send_message.rs::refuses_with_no_live_process_once_the_process_completed |
+| daemon.test.ts › daemon core: command_id dedupe and seq › re-acks a re-sent command without re-running it, also after a daemon restart | crates/conductor-daemon/src/daemon/tests/dedupe_seq.rs::re_acks_a_re_sent_command_without_re_running_it_also_after_a_daemon_restart |
+| daemon.test.ts › daemon core: command_id dedupe and seq › next seq = max(local + 1, registered.last_seq + 1) | crates/conductor-daemon/src/daemon/tests/dedupe_seq.rs::next_seq_max_local_1_registered_last_seq_1 |
+| daemon.test.ts › daemon core: command_id dedupe and seq › buffers session_events while disconnected and replays those after registered.last_seq | crates/conductor-daemon/src/daemon/tests/dedupe_seq.rs::buffers_session_events_while_disconnected_and_replays_those_after_registered_last_seq |
+| daemon.test.ts › daemon core: run_cmd and kill › runs a command through the injected CommandRunner and reports build_slot + cmd_exit | crates/conductor-daemon/src/daemon/tests/run_cmd_kill.rs::runs_a_command_through_the_injected_command_runner_and_reports_build_slot_cmd_exit |
+| daemon.test.ts › daemon core: run_cmd and kill › ADR-0010 (Ben 2026-10-26): entry checks run in a fresh checkout of the commit, setup once, then it is removed | crates/conductor-daemon/src/daemon/tests/run_cmd_kill.rs::adr_0010_ben_2026_10_26_entry_checks_run_in_a_fresh_checkout_of_the_commit_setup_once_then_it_is_removed |
+| daemon.test.ts › daemon core: run_cmd and kill › ADR-0010: a session kill between checks removes the kept checkout | crates/conductor-daemon/src/daemon/tests/run_cmd_kill.rs::adr_0010_a_session_kill_between_checks_removes_the_kept_checkout |
+| daemon.test.ts › daemon core: run_cmd and kill › ADR-0010: an older run cleanup never removes a newer checkout of the same session | crates/conductor-daemon/src/daemon/tests/run_cmd_kill.rs::adr_0010_an_older_run_cleanup_never_removes_a_newer_checkout_of_the_same_session |
+| daemon.test.ts › daemon core: run_cmd and kill › ADR-0010: a failed setup is reported (setup_failed), the check does not run, the checkout goes | crates/conductor-daemon/src/daemon/tests/run_cmd_kill.rs::adr_0010_a_failed_setup_is_reported_setup_failed_the_check_does_not_run_the_checkout_goes |
+| daemon.test.ts › daemon core: run_cmd and kill › ADR-0010: a require_clean check on a dirty worktree is not run; cmd_exit reports dirty | crates/conductor-daemon/src/daemon/tests/run_cmd_kill.rs::adr_0010_a_require_clean_check_on_a_dirty_worktree_is_not_run_cmd_exit_reports_dirty |
+| daemon.test.ts › daemon core: run_cmd and kill › refuses run_cmd for an unknown session and a cwd outside the worktree | crates/conductor-daemon/src/daemon/tests/run_cmd_kill.rs::refuses_run_cmd_for_an_unknown_session_and_a_cwd_outside_the_worktree |
+| daemon.test.ts › daemon core: run_cmd and kill › kill rule: target_command_id kills only that process; null kills at or below the envelope token | crates/conductor-daemon/src/daemon/tests/run_cmd_kill.rs::kill_rule_target_command_id_kills_only_that_process_null_kills_at_or_below_the_envelope_token |
+| daemon.test.ts › daemon core: run_cmd and kill › kill with target_command_id kills the process that start spawned | crates/conductor-daemon/src/daemon/tests/run_cmd_kill.rs::kill_with_target_command_id_kills_the_process_that_start_spawned |
+| daemon.test.ts › daemon core: BUG-1 no process outlives its session › FR-3: a start superseding a parked process kills it before the new one runs | crates/conductor-daemon/src/daemon/tests/bug1.rs::fr_3_a_start_superseding_a_parked_process_kills_it_before_the_new_one_runs |
+| daemon.test.ts › daemon core: BUG-1 no process outlives its session › FR-3: two starts racing through worktree preparation leave exactly one process | crates/conductor-daemon/src/daemon/tests/bug1.rs::fr_3_two_starts_racing_through_worktree_preparation_leave_exactly_one_process |
+| daemon.test.ts › daemon core: BUG-1 no process outlives its session › FR-4: repeated heartbeat-backstop kills stop a parked process once, logged once | crates/conductor-daemon/src/daemon/tests/bug1.rs::fr_4_repeated_heartbeat_backstop_kills_stop_a_parked_process_once_logged_once |
+| daemon.test.ts › daemon core: BUG-1 no process outlives its session › FR-4: the pid and start time of a started process are persisted for the startup sweep | crates/conductor-daemon/src/daemon/tests/bug1.rs::fr_4_the_pid_and_start_time_of_a_started_process_are_persisted_for_the_startup_sweep |
+| daemon.test.ts › daemon core: BUG-1 no process outlives its session › BUG-1b FR-1: a process whose start time cannot be read is not tracked for the sweep | crates/conductor-daemon/src/daemon/tests/bug1.rs::bug_1b_fr_1_a_process_whose_start_time_cannot_be_read_is_not_tracked_for_the_sweep |
+| daemon.test.ts › daemon core: BUG-1b orphan sweep only kills provably-ours processes › FR-2 (c): our argv, start time and UUID: killed with its whole group | crates/conductor-daemon/src/daemon/tests/orphan_sweep.rs::fr_2_c_our_argv_start_time_and_uuid_killed_with_its_whole_group |
+| daemon.test.ts › daemon core: BUG-1b orphan sweep only kills provably-ours processes › FR-2 (a)(b)(d)(e): anything not provably ours is untouched and logged | crates/conductor-daemon/src/daemon/tests/orphan_sweep.rs::fr_2_a_b_d_e_anything_not_provably_ours_is_untouched_and_logged |
+| daemon.test.ts › daemon core: BUG-1b orphan sweep only kills provably-ours processes › FR-4: an old entry without startedAt is untouched, logged and cleared | crates/conductor-daemon/src/daemon/tests/orphan_sweep.rs::fr_4_an_old_entry_without_started_at_is_untouched_logged_and_cleared |
+| daemon.test.ts › daemon core: BUG-1b orphan sweep only kills provably-ours processes › FR-3: a process replaced between SIGTERM and SIGKILL gets no SIGKILL | crates/conductor-daemon/src/daemon/tests/orphan_sweep.rs::fr_3_a_process_replaced_between_sigterm_and_sigkill_gets_no_sigkill |
+| daemon.test.ts › daemon core: BUG-1b orphan sweep only kills provably-ours processes › FR-3 control: a process still ours after the grace period is SIGKILLed | crates/conductor-daemon/src/daemon/tests/orphan_sweep.rs::fr_3_control_a_process_still_ours_after_the_grace_period_is_sigkilled |
+| daemon.test.ts › daemon core: misc › reports exit (daemon_restart) for a process that died with the previous daemon | crates/conductor-daemon/src/daemon/tests/misc.rs::reports_exit_daemon_restart_for_a_process_that_died_with_the_previous_daemon |
+| daemon.test.ts › daemon core: misc › omits the CLAUDE.md section when the worktree has none | crates/conductor-daemon/src/daemon/tests/misc.rs::omits_the_claude_md_section_when_the_worktree_has_none |
+| daemon.test.ts › daemon core: run_action (ADR-0010 open_pr) › acks, pushes the session branch to origin, opens the PR with gh, reports action_result | crates/conductor-daemon/src/daemon/tests/run_action.rs::acks_pushes_the_session_branch_to_origin_opens_the_pr_with_gh_reports_action_result |
+| daemon.test.ts › daemon core: run_action (ADR-0010 open_pr) › refuses run_action for an unknown session | crates/conductor-daemon/src/daemon/tests/run_action.rs::refuses_run_action_for_an_unknown_session |
+| daemon.test.ts › daemon core: ADR-0011 transitions › passes start_session.transitions to the driver and forwards transition + reason | crates/conductor-daemon/src/daemon/tests/transitions.rs::passes_start_session_transitions_to_the_driver_and_forwards_transition_reason |
+| daemon.test.ts › daemon core: ADR-0011 transitions › an old start_session (no transitions) forwards complete_state without the fields | crates/conductor-daemon/src/daemon/tests/transitions.rs::an_old_start_session_no_transitions_forwards_complete_state_without_the_fields |
+| daemon.test.ts › daemon core: run_action evaluate_conditions (ADR-0011) › acks accepted and reports one action_result with a result per condition | crates/conductor-daemon/src/daemon/tests/conditions.rs::acks_accepted_and_reports_one_action_result_with_a_result_per_condition |
+| daemon.test.ts › daemon core: run_action evaluate_conditions (ADR-0011) › invalid args → accepted, then an action_result error | crates/conductor-daemon/src/daemon/tests/conditions.rs::invalid_args_accepted_then_an_action_result_error |
+| daemon.test.ts › appendTail (exit stderr_tail) › keeps the last STDERR_TAIL_LINES lines across chunk boundaries | crates/conductor-daemon/src/daemon/tests/append_tail.rs::keeps_the_last_stderr_tail_lines_lines_across_chunk_boundaries |
+| daemon.test.ts › appendTail (exit stderr_tail) › caps the characters | crates/conductor-daemon/src/daemon/tests/append_tail.rs::caps_the_characters |
+| daemon.test.ts › daemon core: ADR-0023 permission prompts › sends a durable permission_request on the session envelope | crates/conductor-daemon/src/daemon/tests/permissions.rs::sends_a_durable_permission_request_on_the_session_envelope |
+| daemon.test.ts › daemon core: ADR-0023 permission prompts › a decision resolves the held call once; a second decision is accepted and ignored; unknown is refused | crates/conductor-daemon/src/daemon/tests/permissions.rs::a_decision_resolves_the_held_call_once_a_second_decision_is_accepted_and_ignored_unknown_is_refused |
+| daemon.test.ts › daemon core: ADR-0023 permission prompts › a deny carries the human note to Claude | crates/conductor-daemon/src/daemon/tests/permissions.rs::a_deny_carries_the_human_note_to_claude |
+| daemon.test.ts › daemon core: ADR-0023 permission prompts › an old server's protocol_error naming the request denies the held call at once | crates/conductor-daemon/src/daemon/tests/permissions.rs::an_old_server_s_protocol_error_naming_the_request_denies_the_held_call_at_once |
+| daemon.test.ts › daemon core: ADR-0023 permission prompts › the request is replayed after a socket drop (durable seq), same msg_id | crates/conductor-daemon/src/daemon/tests/permissions.rs::the_request_is_replayed_after_a_socket_drop_durable_seq_same_msg_id |
+| daemon.test.ts › daemon core: ADR-0023 permission prompts › daemon shutdown denies every held call | crates/conductor-daemon/src/daemon/tests/permissions.rs::daemon_shutdown_denies_every_held_call |
 
 ### index.test.ts
 
@@ -521,16 +522,20 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 | TS case | Rust |
 |---|---|
 | inventory/report.test.ts › inventoryHash › is stable under reordering and changes with a version or a repo | crates/conductor-daemon/src/inventory/report/tests.rs::inventory_hash_is_stable_under_reordering_and_changes_with_a_version_or_a_repo, crates/conductor-daemon/src/inventory/report/tests.rs::the_payload_and_hash_match_the_ts_vector |
+| inventory/report.test.ts › inventory log lines (why no tickets reach a machine) › repoWarnings: no roots, no repos, or a repo without a routable remote | crates/conductor-daemon/src/inventory/report/tests.rs::repo_warnings_no_roots_no_repos_or_a_repo_without_a_routable_remote |
+| inventory/report.test.ts › inventory log lines (why no tickets reach a machine) › inventorySummary names the routable remotes, de-duplicated and cut at 10 | crates/conductor-daemon/src/inventory/report/tests.rs::inventory_summary_names_the_routable_remotes_deduplicated_and_cut_at_10 |
+| inventory/report.test.ts › inventory log lines (why no tickets reach a machine) › onceLog prints each message once, and forgets everything at its cap | crates/conductor-daemon/src/inventory/report/tests.rs::once_log_prints_each_message_once_and_forgets_everything_at_its_cap |
+| inventory/report.test.ts › inventory log lines (why no tickets reach a machine) › the reporter logs the summary once per distinct inventory, not on every resend | crates/conductor-daemon/src/inventory/report/tests.rs::the_reporter_logs_the_summary_once_per_distinct_inventory_not_on_every_resend |
 | inventory/report.test.ts › InventoryReporter › sends on registered; the 10-minute rescan sends only when the hash changed | crates/conductor-daemon/src/inventory/report/tests.rs::sends_on_registered_and_the_10_minute_rescan_sends_only_on_change |
 | inventory/report.test.ts › InventoryReporter › a failed scan keeps the previous inventory | crates/conductor-daemon/src/inventory/report/tests.rs::a_failed_scan_keeps_the_previous_inventory |
-| inventory/report.test.ts › daemon inventory over the link (M2-T10) › sent after registered (before request_work), with the legacy repo_inventory too | todo |
-| inventory/report.test.ts › daemon inventory over the link (M2-T10) › not re-sent when unchanged; re-sent on SIGHUP after a change | todo |
+| inventory/report.test.ts › daemon inventory over the link (M2-T10) › sent after registered (before request_work), with the legacy repo_inventory too | crates/conductor-daemon/src/daemon/tests/inventory_link.rs::sent_after_registered_before_request_work_with_the_legacy_repo_inventory_too |
+| inventory/report.test.ts › daemon inventory over the link (M2-T10) › not re-sent when unchanged; re-sent on SIGHUP after a change | crates/conductor-daemon/src/daemon/tests/inventory_link.rs::not_re_sent_when_unchanged_re_sent_on_sighup_after_a_change |
 
 ### inventory/repos.test.ts
 
 | TS case | Rust |
 |---|---|
-| inventory/repos.test.ts › inventory repos (M2-T10) › finds repos at depth 1–4, not 5 | crates/conductor-daemon/src/inventory/repos/tests.rs::finds_repos_at_depth_1_to_4_not_5 |
+| inventory/repos.test.ts › inventory repos (M2-T10) › finds repos at depth 1–6, not 7 | crates/conductor-daemon/src/inventory/repos/tests.rs::finds_repos_at_depth_1_to_6_not_7 |
 | inventory/repos.test.ts › inventory repos (M2-T10) › skips node_modules, dot-directories and symlinks | crates/conductor-daemon/src/inventory/repos/tests.rs::skips_node_modules_dot_directories_and_symlinks |
 | inventory/repos.test.ts › inventory repos (M2-T10) › canonicalises origin to host/org/repo; no origin → remote null | crates/conductor-daemon/src/inventory/repos/tests.rs::canonicalises_origin_and_no_origin_is_null |
 | inventory/repos.test.ts › inventory repos (M2-T10) › a remote that is not canonical is null for that repo only | crates/conductor-daemon/src/inventory/repos/tests.rs::a_remote_that_is_not_canonical_is_null_for_that_repo_only |
@@ -701,10 +706,10 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| reopen-transcript.test.ts › fetch_transcript (ADR-0008) › answers with the session transcript located from the store | todo |
-| reopen-transcript.test.ts › fetch_transcript (ADR-0008) › unknown_session for a session this daemon never ran | todo |
-| reopen-transcript.test.ts › reopen: a new session on the earlier session’s branch (ADR-0008) › reuses the old worktree, resumes the Claude session, and both transcripts resolve | todo |
-| reopen-transcript.test.ts › reopen: a new session on the earlier session’s branch (ADR-0008) › refuses the start while the earlier session still has a live process in that worktree | todo |
+| reopen-transcript.test.ts › fetch_transcript (ADR-0008) › answers with the session transcript located from the store | crates/conductor-daemon/src/daemon/tests/reopen_transcript.rs::answers_with_the_session_transcript_located_from_the_store |
+| reopen-transcript.test.ts › fetch_transcript (ADR-0008) › unknown_session for a session this daemon never ran | crates/conductor-daemon/src/daemon/tests/reopen_transcript.rs::unknown_session_for_a_session_this_daemon_never_ran |
+| reopen-transcript.test.ts › reopen: a new session on the earlier session’s branch (ADR-0008) › reuses the old worktree, resumes the Claude session, and both transcripts resolve | crates/conductor-daemon/src/daemon/tests/reopen_transcript.rs::reuses_the_old_worktree_resumes_the_claude_session_and_both_transcripts_resolve |
+| reopen-transcript.test.ts › reopen: a new session on the earlier session’s branch (ADR-0008) › refuses the start while the earlier session still has a live process in that worktree | crates/conductor-daemon/src/daemon/tests/reopen_transcript.rs::refuses_the_start_while_the_earlier_session_still_has_a_live_process_in_that_worktree |
 
 ### rust-compat.test.ts
 
@@ -741,7 +746,7 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 | units.test.ts › PortPool › allocates aligned ranges, reuses a session’s range, and reports exhaustion | crates/conductor-daemon/src/ports.rs::tests::allocates_aligned_ranges_reuses_a_sessions_range_and_reports_exhaustion |
 | units.test.ts › DaemonStore › persists seq, buffered events, acks and sessions across instances | crates/conductor-daemon/src/store.rs::tests::persists_seq_buffered_events_acks_and_sessions_across_instances |
 | units.test.ts › DaemonStore › onRegistered: drops confirmed events, sequences the rest from max(local+1, last_seq+1) | crates/conductor-daemon/src/store.rs::tests::on_registered_drops_confirmed_events_and_sequences_the_rest |
-| units.test.ts › helpers › cloneSource / repoSlug | todo |
+| units.test.ts › helpers › cloneSource / repoSlug | crates/conductor-daemon/src/daemon/tests/units.rs::clone_source_and_repo_slug |
 | units.test.ts › helpers › backoff grows exponentially with jitter and is capped | crates/conductor-daemon/src/ws_client.rs::tests::backoff_grows_exponentially_with_jitter_and_is_capped |
 | units.test.ts › helpers › appendSystemPrompt carries CLAUDE.md after the conductor instructions | crates/conductor-daemon/src/system_prompt.rs::tests::append_system_prompt_carries_claude_md_after_the_conductor_instructions |
 | units.test.ts › helpers › tells the agent to attempt commands and ask on a denial, not refuse (ADR-0023) | crates/conductor-daemon/src/system_prompt.rs::tests::tells_the_agent_to_attempt_commands_and_ask_on_a_denial_not_refuse |
@@ -782,5 +787,6 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 | ws-client.test.ts › ReconnectingWs (M2-T04) › HTTP 401 and 403 at the upgrade are treated as unauthorized: no retries, exit 78 | crates/conductor-daemon/src/ws_client.rs::tests::http_401_and_403_at_the_upgrade_are_unauthorized_no_retries_exit_78 |
 | ws-client.test.ts › ReconnectingWs (M2-T04) › any other code exits 1 | crates/conductor-daemon/src/ws_client.rs::tests::any_other_code_exits_1 |
 | ws-client.test.ts › ReconnectingWs (M2-T04) › another refused upgrade, and an ordinary close, still reconnect | crates/conductor-daemon/src/ws_client.rs::tests::another_refused_upgrade_and_an_ordinary_close_still_reconnect |
+| ws-client.test.ts › ReconnectingWs (M2-T04) › reconnectLine names the close code when there is one | crates/conductor-daemon/src/ws_client.rs::tests::reconnect_line_names_the_close_code_when_there_is_one |
 | ws-client.test.ts › wake tick (M2-T18, ADR-0021 §5) › a 60 s jump during a 30 s backoff reconnects within one tick and resets the attempts | crates/conductor-daemon/src/ws_client.rs::tests::wake_a_60s_jump_during_a_30s_backoff_reconnects_within_one_tick_and_resets_attempts |
 | ws-client.test.ts › wake tick (M2-T18, ADR-0021 §5) › a jump while connected drops the socket and opens a new one | crates/conductor-daemon/src/ws_client.rs::tests::wake_a_jump_while_connected_drops_the_socket_and_opens_a_new_one |

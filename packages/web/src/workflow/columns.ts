@@ -1,5 +1,8 @@
 import {
   CONDUCTOR_WORKFLOW_ID,
+  IMPLEMENT_TEMPLATE,
+  PLAN_TEMPLATE,
+  PROPOSALS_PER_STATE_MAX,
   ticketEditable,
   type EntryRequirements,
   type FollowUps,
@@ -330,15 +333,25 @@ export function setAgentWork(
   });
 }
 
-/** ADR-0034: an agent column's follow-up proposal settings; null = off (or not an agent). */
+/**
+ * ADR-0034: while an agent column leaves `follow_ups` unset, proposals are on only when its prompt
+ * is a built-in template that carries the one-line hint (planning, implementing).
+ */
+function followUpsDefaultOn(s: WorkflowState): boolean {
+  return s.type === 'agent' && (s.prompt === PLAN_TEMPLATE || s.prompt === IMPLEMENT_TEMPLATE);
+}
+
+/** ADR-0034: an agent column's effective follow-up proposal settings; null = off (or not an agent). */
 export function followUpsOf(def: WorkflowDefinition, name: string): FollowUps | null {
   const s = def.states[name];
-  return s?.type === 'agent' && s.follow_ups?.enabled === true ? s.follow_ups : null;
+  if (s?.type !== 'agent') return null;
+  if (s.follow_ups !== undefined) return s.follow_ups.enabled ? s.follow_ups : null;
+  return followUpsDefaultOn(s) ? { enabled: true, max: PROPOSALS_PER_STATE_MAX } : null;
 }
 
 /**
- * ADR-0034: turn an agent column's follow-up proposals on (with `max` / `guidance`) or off
- * (`null` removes the key, so an unused setting leaves no trace in the definition). A blank
+ * ADR-0034: turn an agent column's follow-up proposals on (with `max` / `guidance`) or off. Off
+ * removes the key where proposals are off by default, else stores `enabled: false`. A blank
  * guidance removes it.
  */
 export function setFollowUps(
@@ -346,12 +359,16 @@ export function setFollowUps(
   name: string,
   value: { max?: number; guidance?: string } | null,
 ): WorkflowDefinition {
+  const cur = followUpsOf(def, name) ?? { enabled: true, max: PROPOSALS_PER_STATE_MAX };
   return updateState(def, name, (s) => {
     if (s.type !== 'agent') return s;
     const next = { ...s };
     delete next.follow_ups;
-    if (value === null) return next;
-    const cur = s.follow_ups ?? { enabled: true, max: 3 };
+    if (value === null) {
+      return followUpsDefaultOn(s)
+        ? { ...next, follow_ups: { enabled: false, max: PROPOSALS_PER_STATE_MAX } }
+        : next;
+    }
     const guidance = value.guidance !== undefined ? value.guidance : cur.guidance;
     const f: FollowUps = { enabled: true, max: value.max ?? cur.max };
     if (guidance !== undefined && guidance.trim() !== '') f.guidance = guidance;

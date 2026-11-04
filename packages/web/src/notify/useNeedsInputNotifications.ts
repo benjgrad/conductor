@@ -1,10 +1,9 @@
 import type { BoardCard } from '@conductor/shared';
 import { useEffect, useRef } from 'react';
 import { EMPTY_BOARD, type BoardState } from '../board/board.js';
-import { agentName } from '../components/agent-identity.js';
+import { cardAgent } from '../components/agent-identity.js';
 import { setFaviconDot } from './favicon.js';
-import { pushSubscribedHere } from './push.js';
-import { notifyState } from './settings.js';
+import { mayNotifyInTab, showInTab, type Close } from './show.js';
 
 const TITLE = 'Conductor';
 const BODY_MAX = 120;
@@ -21,14 +20,15 @@ export function clip(text: string, max: number = BODY_MAX): string {
  *   notifications are on and the page is hidden or unfocused (FR-1, FR-2). Requests already open
  *   when the board loads are only counted, and an id seen once never fires again, so reconnects,
  *   re-renders and the user's own answer (it only clears the request) don't re-fire (NFR-1).
- * Clicking a notification focuses the tab and calls `onSelect` with the card's session id.
+ * The notification is shown by `showInTab` (show.ts: the service worker, else the constructor,
+ * whose click focuses the tab and calls `onSelect` with the card's session id).
  */
 export function useNeedsInputNotifications(
   board: BoardState,
   onSelect: (sessionId: string) => void,
 ): void {
   const seen = useRef<Set<string> | null>(null);
-  const shown = useRef(new Map<string, Notification>());
+  const shown = useRef(new Map<string, Close>());
   const onSelectRef = useRef(onSelect);
   useEffect(() => {
     onSelectRef.current = onSelect;
@@ -43,9 +43,9 @@ export function useNeedsInputNotifications(
 
     const openIds = new Set(open.map((c) => c.input_request!.id));
     // A request answered (here or elsewhere) takes its notification with it.
-    for (const [id, n] of shown.current) {
+    for (const [id, close] of shown.current) {
       if (!openIds.has(id)) {
-        n.close();
+        close();
         shown.current.delete(id);
       }
     }
@@ -58,8 +58,8 @@ export function useNeedsInputNotifications(
       const id = card.input_request!.id;
       if (seen.current.has(id)) continue;
       seen.current.add(id);
-      const n = notify(card, (sessionId) => onSelectRef.current(sessionId));
-      if (n) shown.current.set(id, n);
+      const close = notify(card, (sessionId) => onSelectRef.current(sessionId));
+      if (close) shown.current.set(id, close);
     }
   }, [board]);
 
@@ -72,26 +72,19 @@ export function useNeedsInputNotifications(
   );
 }
 
-function notify(card: BoardCard, select: (sessionId: string) => void): Notification | null {
+/**
+ * Show one "needs input" notification, or nothing (off, pushed instead, page in front). Returns
+ * how to close it. `seen` is already updated, so the async service worker path can't fire twice.
+ */
+function notify(card: BoardCard, select: (sessionId: string) => void): Close | null {
   const request = card.input_request;
   const sessionId = card.session_id;
-  if (!request || sessionId === null || notifyState() !== 'on') return null;
-  // UX-16 FR-4: this device gets the push (same `tag`) from the service worker instead.
-  if (pushSubscribedHere()) return null;
-  if (document.visibilityState !== 'hidden' && document.hasFocus()) return null;
-  try {
-    const n = new Notification(`${agentName(card.ticket_id)} needs input`, {
-      body: clip(`${card.title}: ${request.question}`),
-      tag: request.id,
-    });
-    n.onclick = () => {
-      window.focus();
-      select(sessionId);
-      n.close();
-    };
-    return n;
-  } catch {
-    // Some mobile browsers only allow notifications from a service worker (UX-16).
-    return null;
-  }
+  if (!request || sessionId === null || !mayNotifyInTab()) return null;
+  return showInTab({
+    title: `${cardAgent(card).name} needs input`,
+    body: clip(`${card.title}: ${request.question}`),
+    tag: request.id,
+    ticketId: card.ticket_id,
+    onClick: () => select(sessionId),
+  });
 }

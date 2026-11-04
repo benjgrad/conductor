@@ -1,9 +1,8 @@
-import type { AgentState } from '../workflow/schema.js';
+import type { AgentState, FollowUps } from '../workflow/schema.js';
 import type { SentBack } from './qa.js';
 import type { AgentTransitionOption } from '../workflow/transition-rules.js';
 import { renderReviewFeedback, type ReviewFeedback } from './review.js';
 import type { SessionSnapshot } from './types.js';
-import { followUpsOf, renderFollowUps } from './proposals.js';
 
 // Prompt rendering for agent states (05 §State types, 10-contracts §Engine). Pure: apply()
 // calls it to build `start_session.prompt`. An agent state's `prompt` is either the name of a
@@ -73,9 +72,9 @@ export function renderPrompt(input: RenderPromptInput): string {
   if (state.prompt === TICKET_TEMPLATE) {
     parts.push(ticketSection(snapshot.ticket));
   } else if (state.prompt === PLAN_TEMPLATE) {
-    parts.push(ticketSection(snapshot.ticket), PLAN_INSTRUCTIONS);
+    parts.push(ticketSection(snapshot.ticket), withHint(PLAN_INSTRUCTIONS, state));
   } else if (state.prompt === IMPLEMENT_TEMPLATE) {
-    parts.push(ticketSection(snapshot.ticket), IMPLEMENT_INSTRUCTIONS);
+    parts.push(ticketSection(snapshot.ticket), withHint(IMPLEMENT_INSTRUCTIONS, state));
   } else if (state.prompt !== undefined) {
     parts.push(
       state.prompt.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (m, key: string) => {
@@ -116,9 +115,10 @@ export function renderPrompt(input: RenderPromptInput): string {
   // Ben, 2026-10-26 (M1b): a work repository is shared with developers who don't use conductor.
   if (snapshot.ticket.kind === 'work') parts.push(WORK_REPOSITORY);
 
-  // ADR-0034: optional follow-up tickets, encouraged, never required.
-  const followUps = followUpsOf(state);
-  if (followUps !== null) parts.push(renderFollowUps(followUps));
+  // ADR-0034: a state's own follow-up settings replace the built-in templates' one-line hint.
+  if (state.follow_ups?.enabled === true) {
+    parts.push(renderFollowUps(state.follow_ups, snapshot.ticket.repo));
+  }
 
   parts.push(
     input.transitions != null ? howToFinish(state, input.transitions) : finishSection(state),
@@ -126,11 +126,46 @@ export function renderPrompt(input: RenderPromptInput): string {
   return parts.join('\n\n');
 }
 
+/**
+ * Optional follow-up tickets (06 §Proposed tickets): never in a state's `result` list, so a result
+ * without `proposed_tickets` behaves as before. Read by `proposalsOfContext` (api/proposals.ts).
+ */
+export const PROPOSALS_HINT =
+  'If you notice worthwhile work outside this ticket\'s scope, you may add `"proposed_tickets"` to your result: up to three `{"title", "repo", "why"}` entries. It\'s optional. Leave it out if nothing stands out, and don\'t do that work here.';
+
+/**
+ * The built-in instructions with PROPOSALS_HINT only while the state leaves `follow_ups` unset
+ * (ADR-0034): set, it says itself whether (and how) the agent may propose follow-ups.
+ */
+function withHint(instructions: string, state: Pick<AgentState, 'follow_ups'>): string {
+  return state.follow_ups === undefined
+    ? instructions
+    : instructions.replace(`\n${PROPOSALS_HINT}`, '');
+}
+
+/** The heading of the follow-up section of a state with `follow_ups` on (ADR-0034). */
+export const FOLLOW_UPS_HEADING = '## Follow-up tickets (optional)';
+
+/** The prompt section of a state with `follow_ups` on: at most `max`, then its `guidance`. */
+export function renderFollowUps(cfg: FollowUps, repo: string): string {
+  const entry = `{"title": "…", "repo": ${JSON.stringify(repo)}, "why": "<one or two sentences>"}`;
+  const lines = [
+    FOLLOW_UPS_HEADING,
+    '',
+    "If you notice separate, worthwhile work outside this ticket's scope, you may propose it as its own ticket.",
+    `Add \`"proposed_tickets": [${entry}]\` to your result, at most ${cfg.max} (\`repo\` is the repository the work belongs in).`,
+    "A human approves or dismisses each one. It's optional: leave it out if nothing stands out, and don't do that work here.",
+  ];
+  if (cfg.guidance !== undefined) lines.push('', cfg.guidance);
+  return lines.join('\n');
+}
+
 const PLAN_INSTRUCTIONS = [
   '## Your step: planning',
   '',
   'Read the repository and work out how to do this ticket. Do not change any files, run builds or commit: this step only plans.',
   'Write a plan another agent can follow: the files to change, the approach, the tests to add or update, and anything risky or unclear.',
+  PROPOSALS_HINT,
   'Finish with `complete_state` and a result `{"plan": "<the plan, in Markdown>", "summary": "<one or two sentences>"}`.',
 ].join('\n');
 
@@ -139,6 +174,7 @@ const IMPLEMENT_INSTRUCTIONS = [
   '',
   'Make the change, following the plan under Inputs (written in the planning step; adapt it where the code tells you otherwise).',
   'Add or update tests. Before you finish, commit everything on the current branch (`git add` and `git commit`) so that `git status` is clean: only committed changes are checked and pushed, and a worktree with uncommitted changes is sent back to you. Do not push. Conductor then checks that the build and the tests pass on your last commit, pushes it and opens the pull request itself.',
+  PROPOSALS_HINT,
   'Finish with `complete_state` and a result that includes `"summary"`: a short description of the change, used as the pull request description.',
 ].join('\n');
 
@@ -234,7 +270,7 @@ function finishSection(state: AgentState): string {
     '## When you are done',
     '',
     `When the work for this step is finished, ${result}, then stop.`,
-    'If you are blocked and need a human decision, call `ask_user` with one clear question and end your turn.',
+    'If you are blocked and need a human decision, call `ask_user` with one clear question (and `options` when the answer is one of a few choices) and end your turn.',
   ].join('\n');
 }
 

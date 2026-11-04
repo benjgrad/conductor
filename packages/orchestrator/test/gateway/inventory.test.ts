@@ -146,6 +146,20 @@ describe('inventory ingest', () => {
 });
 
 describe('alert ingest', () => {
+  it('drops an update_failed alert until M2-T18d, without consuming its seq', async () => {
+    const { d } = await daemon();
+    d.alert(1, {
+      kind: 'update_failed',
+      version: '0.3.0',
+      stage: 'trial',
+      error: 'exited 1 twice',
+      at: ALERT.at,
+    });
+    d.alert(1, ALERT);
+    await d.settle();
+    expect((await alerts(d.machineId)).map((a) => a.kind)).toEqual(['git_tamper']);
+  });
+
   it('stores one row per seq; a replayed seq adds none; no session = no card event', async () => {
     const { d } = await daemon();
     d.alert(1, { ...ALERT, session_id: randomUUID() }); // not this machine's: kept without it

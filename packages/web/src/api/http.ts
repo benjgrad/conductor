@@ -1,5 +1,7 @@
 import {
   AdminUserListResponseSchema,
+  ApproveProposalResponseSchema,
+  TicketProposalSchema,
   API_PATHS,
   ApiErrorSchema,
   BOARD_SSE_EVENT_TYPES,
@@ -19,6 +21,8 @@ import {
   PermissionRequestListResponseSchema,
   ReopenSessionResponseSchema,
   RepoChecksDetailSchema,
+  ChangeProposalDetailSchema,
+  ChangeProposalListResponseSchema,
   RepoChecksDtoSchema,
   RepoChecksListResponseSchema,
   RepoListResponseSchema,
@@ -31,7 +35,9 @@ import {
   WorkflowDetailSchema,
   WorkflowListResponseSchema,
   type AnswerInputRequest,
+  type ApproveProposalRequest,
   type ApproveSessionRequest,
+  type DismissProposalRequest,
   type BoardSseEvent,
   type CreateInviteRequest,
   type CreateTicketRequest,
@@ -54,9 +60,6 @@ import {
   type PushSubscribeRequest,
   type PushUnsubscribeRequest,
   type PutRepoChecksRequest,
-  AcceptProposalResponseSchema,
-  TicketProposalDtoSchema,
-  type AcceptProposalRequest,
 } from '@conductor/shared';
 import {
   ApiRequestError,
@@ -300,6 +303,22 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
     updateTicket: (ticketId: string, req: UpdateTicketRequest) =>
       request(TicketDetailSchema, 'PATCH', API_PATHS.ticket(encodeURIComponent(ticketId)), req),
 
+    approveProposal: (ticketId: string, req: ApproveProposalRequest) =>
+      request(
+        ApproveProposalResponseSchema,
+        'POST',
+        API_PATHS.ticketProposalApprove(encodeURIComponent(ticketId)),
+        req,
+      ),
+
+    dismissProposal: (ticketId: string, req: DismissProposalRequest) =>
+      request(
+        TicketProposalSchema,
+        'POST',
+        API_PATHS.ticketProposalDismiss(encodeURIComponent(ticketId)),
+        req,
+      ),
+
     listRepos: () => request(RepoListResponseSchema, 'GET', API_PATHS.repos),
 
     listRepoChecks: () => request(RepoChecksListResponseSchema, 'GET', API_PATHS.repoChecks),
@@ -316,6 +335,45 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
 
     clearRepoChecks: (repo: string) =>
       request(OkResponseSchema, 'DELETE', API_PATHS.repoChecks, { repo }),
+
+    listChangeProposals: (opts = {}) => {
+      const q = new URLSearchParams();
+      if (opts.status !== undefined) q.set('status', opts.status);
+      if (opts.cursor !== undefined) q.set('cursor', String(opts.cursor));
+      const qs = q.toString();
+      return request(
+        ChangeProposalListResponseSchema,
+        'GET',
+        API_PATHS.changeProposals + (qs ? `?${qs}` : ''),
+      );
+    },
+
+    getChangeProposal: (id: string) =>
+      request(ChangeProposalDetailSchema, 'GET', API_PATHS.changeProposal(encodeURIComponent(id))),
+
+    applyChangeProposal: (id: string) =>
+      request(
+        ChangeProposalDetailSchema,
+        'POST',
+        API_PATHS.changeProposalApply(encodeURIComponent(id)),
+        {},
+      ),
+
+    rejectChangeProposal: (id: string) =>
+      request(
+        ChangeProposalDetailSchema,
+        'POST',
+        API_PATHS.changeProposalReject(encodeURIComponent(id)),
+        {},
+      ),
+
+    reviewChangeProposal: (id: string) =>
+      request(
+        ChangeProposalDetailSchema,
+        'POST',
+        API_PATHS.changeProposalReview(encodeURIComponent(id)),
+        {},
+      ),
 
     listWorkflows: () => request(WorkflowListResponseSchema, 'GET', API_PATHS.workflows),
 
@@ -400,22 +458,6 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
         'POST',
         API_PATHS.permissionDecision(encodeURIComponent(requestId)),
         req,
-      ),
-
-    acceptProposal: (proposalId: string, req: AcceptProposalRequest = {}) =>
-      request(
-        AcceptProposalResponseSchema,
-        'POST',
-        API_PATHS.proposalAccept(encodeURIComponent(proposalId)),
-        req,
-      ),
-
-    dismissProposal: (proposalId: string) =>
-      request(
-        TicketProposalDtoSchema,
-        'POST',
-        API_PATHS.proposalDismiss(encodeURIComponent(proposalId)),
-        {},
       ),
 
     // M2-T05. Every unsafe request is JSON (10-contracts §Accounts and web auth: the CSRF rule),

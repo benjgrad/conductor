@@ -8,7 +8,7 @@ import {
   type WorkflowState,
 } from './schema.js';
 import { PR_CONTEXT_KEY, REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
-import { PROPOSED_TICKETS_KEY } from '../engine/proposals.js';
+import { PROPOSED_TICKETS_KEY } from '../api/proposals.js';
 import { isToolAlias, TOOL_ALIAS_NAMES } from './tools.js';
 import {
   FALLBACK_TRANSITION_NAMES,

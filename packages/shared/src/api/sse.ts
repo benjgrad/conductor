@@ -83,6 +83,23 @@ export const BoardSseEventSchema = z.discriminatedUnion('type', [
     badge: CardBadgeSchema,
     on: z.boolean(),
   }),
+  /**
+   * A transition with `notify: true` was taken (05 §Transitions): the web shows an in-tab
+   * notification. `title` / `body` / `tag` are the same as the Web Push's (push/payload.ts); `from` /
+   * `to` are state names, `transition` the transition's name.
+   */
+  z.object({
+    type: z.literal('transition.notified'),
+    ...sessionBase,
+    ticket_id: UuidSchema,
+    from: z.string(),
+    to: z.string(),
+    transition: z.string(),
+    title: z.string(),
+    body: z.string(),
+    /** The notification's tag, the same as the push's (`transition:<state.entered event id>`). */
+    tag: z.string(),
+  }),
 ]);
 export type BoardSseEvent = z.infer<typeof BoardSseEventSchema>;
 export type BoardSseEventType = BoardSseEvent['type'];

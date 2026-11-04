@@ -121,7 +121,7 @@ Other commands: `service status` (is it running, and where is the log), `service
 
 ## 4. Tell it where your repos are
 
-The daemon looks for git repos under its repo roots. Set yours (one or more folders):
+The daemon looks for git repos under its repo roots, up to 6 folders deep. It skips hidden folders (names starting with `.`) and `node_modules`. Until you set a root, no tickets reach the machine. Set yours (one or more folders):
 
 ```
 ~/.conductor/bin/conductor-daemon config roots ~/code
@@ -180,6 +180,8 @@ It needs no token. It installs the new version next to the old one and keeps the
 
 ## Troubleshooting
 
+- **The machine is online but takes no tickets.** A ticket goes only to a machine that has its repo. Run `~/.conductor/bin/conductor-daemon config show` to check the roots. In the daemon's output, the `inventory: sent … repos (… routable: …)` line lists the repos it can take tickets for, and lines such as `inventory: no repo roots configured` say what's missing. On the board, a Queued card's routing badge says when no machine has the repo.
+- **"ws upgrade refused: HTTP 502".** The server is restarting, for example during a deploy. The daemon reconnects by itself.
 - **The machine never shows up.** Is the daemon running? Look at the terminal from step 3. If you closed it, start the daemon again. As a service, run `~/.conductor/bin/conductor-daemon service status` and read the log it names.
 - **"enrollment token is expired, already used or unknown" (HTTP 401).** The token is valid once, for 30 minutes. Generate a new one on the Machines page and run the command again.
 - **"ws closed 4001" or "machine revoked".** Someone revoked this machine. The daemon stops, and the service doesn't restart it (it exits with code 78). To use the computer again, add it as a new machine: generate a token, run `CONDUCTOR_ENROLL_TOKEN=<token> ~/.conductor/bin/conductor-daemon enroll --url https://conductor.example.com --force`, then `~/.conductor/bin/conductor-daemon service restart`.

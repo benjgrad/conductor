@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-// 11-web-ui §Phone layout (Detail panel): the phone's ticket strip (Brief, Plan, Edit) and its
-// sheets, through DetailPanel on the mock API, against the desktop panel that keeps BriefCard.
+// 11-web-ui §Phone layout (Detail panel): the ticket buttons (Brief, Plan, Edit) in the panel's
+// tab row and their sheets, through DetailPanel on the mock API, on a phone and on desktop.
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MOCK_PLAN, SEED_IDS } from '../api/mock-data.js';
@@ -34,12 +34,17 @@ async function open(sessionId: string, fullScreen = true) {
 
 const strip = () => within(screen.getByRole('group', { name: 'Ticket' }));
 
-describe('ticket strip (phone)', () => {
-  it('replaces the Brief card and the Edit ticket row; Brief shows its short tally', async () => {
+describe('ticket buttons (phone)', () => {
+  it('sit in the tab row, beside the two tabs; Brief shows its short tally', async () => {
     const { panel } = await open(SEED_IDS.running.session);
     expect(panel.queryByRole('region', { name: 'Brief' })).toBeNull();
-    expect(document.querySelector('section.brief')).toBeNull();
     expect(document.querySelector('.edit-ticket')).toBeNull();
+    // The tablist holds only the tabs; the buttons are its sibling in the same row.
+    const tablist = panel.getByRole('tablist', { name: 'Session views' });
+    expect(within(tablist).getAllByRole('tab')).toHaveLength(2);
+    expect(tablist.parentElement!.contains(screen.getByRole('group', { name: 'Ticket' }))).toBe(
+      true,
+    );
     const brief = strip().getByRole('button', { name: /^Brief/ });
     // The UX-2 ticket: 4 requirements have no verification.
     expect(brief.textContent).toContain('⚠ 4');
@@ -90,13 +95,36 @@ describe('ticket strip (phone)', () => {
   });
 });
 
-describe('desktop panel (unchanged)', () => {
-  it('keeps the Brief card and has no strip', async () => {
+describe('ticket buttons (desktop)', () => {
+  it('the same buttons in the tab row; nothing above the chat', async () => {
     const { panel } = await open(SEED_IDS.planApproval.session, false);
-    expect(document.querySelector('section.brief')).toBeTruthy();
-    expect(screen.queryByRole('group', { name: 'Ticket' })).toBeNull();
+    expect(panel.queryByRole('region', { name: 'Brief' })).toBeNull();
+    expect(document.querySelector('.edit-ticket')).toBeNull();
+    expect(strip().getByRole('button', { name: /^Brief/ })).toBeTruthy();
+    expect(strip().getByRole('button', { name: PLAN_APPROVAL_LABEL })).toBeTruthy();
+    expect(strip().getByRole('button', { name: 'Edit ticket' })).toBeTruthy();
+    // The chat keeps its own "Show full plan" clamp on desktop.
     expect(panel.queryByRole('button', { name: 'Open plan' })).toBeNull();
     expect(document.querySelector('.plan-text.clamped-phone')).toBeNull();
+  });
+
+  it('a sheet covers either tab; picking a tab closes it', async () => {
+    const { panel } = await open(SEED_IDS.running.session, false);
+    const details = panel.getByRole('tab', { name: 'Details' });
+    fireEvent.click(details);
+    fireEvent.click(strip().getByRole('button', { name: /^Brief/ }));
+    const sheet = screen.getByRole('dialog', { name: 'Brief' });
+    expect(within(sheet).getByText(/^Anyone opening a session sees/)).toBeTruthy();
+    // The full tally heads the sheet.
+    expect(within(sheet).getByText('4 without verification')).toBeTruthy();
+    expect(details.getAttribute('aria-selected')).toBe('true');
+    const messages = panel.getByRole('tab', { name: 'Messages' });
+    messages.focus();
+    fireEvent.click(messages);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(messages.getAttribute('aria-selected')).toBe('true');
+    // Focus stays on the tab that was picked, not back on Brief.
+    expect(document.activeElement).toBe(messages);
   });
 });
 

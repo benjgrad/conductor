@@ -280,8 +280,8 @@ export function ColumnEditor({
 }
 
 /**
- * ADR-0034: may this agent column's agent propose follow-up tickets? Encouraged in its prompt,
- * never required; the user accepts or dismisses each one in Needs input.
+ * ADR-0034: may this agent column's agent propose follow-up tickets? Offered in its prompt,
+ * never required; the user approves or dismisses each one in Needs input.
  */
 function FollowUpsFields({
   uid,
@@ -309,8 +309,8 @@ function FollowUpsFields({
       </label>
       {f === null ? (
         <p className="muted wf-note">
-          Off. When on, the agent may suggest separate work to queue in parallel; you accept or
-          dismiss each suggestion.
+          Off. When on, the agent may suggest separate work as new tickets; you approve or dismiss
+          each one in Needs input.
         </p>
       ) : (
         <div className="wf-unmet">

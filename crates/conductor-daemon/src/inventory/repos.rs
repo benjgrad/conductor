@@ -1,7 +1,7 @@
 //! Port of `packages/daemon/src/inventory/repos.ts` (MR-T11): the repo half of the inventory
 //! (M2-T10; ADR-0013 §Inventory, 10-contracts §Machines protocol v2).
 //!
-//! Walks the configured roots for git work trees: depth ≤ 4, never through a symlink (or a
+//! Walks the configured roots for git work trees: depth ≤ 6, never through a symlink (or a
 //! junction), skipping `node_modules` and dot-directories. Per repo it reads only refs and
 //! `remote.origin.url`, with hooks off and no system config ([`git_read`]); it runs no repo code.
 //! Remotes are canonicalised with the shared `canonical_repo` (TD-107: no copy of the grammar).
@@ -28,7 +28,7 @@ pub fn no_log() -> Log {
 }
 
 /// The deepest directory level a repo is found at (the root is 0).
-pub const MAX_DEPTH: usize = 4;
+pub const MAX_DEPTH: usize = 6;
 /// Walk bounds: a huge home dir must not stall the daemon.
 pub const MAX_DIRS: usize = 50_000;
 pub const MAX_REPOS: usize = 1_000;
@@ -346,8 +346,10 @@ pub async fn scan_repos(opts: &ScanReposOptions) -> Vec<InventoryRepo> {
         .map(|(p, r)| (real_or_self(p), r.clone()))
         .collect();
     let aliases = &aliases;
-    let mut out: Vec<InventoryRepo> = futures_util::stream::iter(dirs.iter())
-        .map(|dir| async move { scan_repo(dir, opts, aliases).await })
+    // Owned items: a stream of `&PathBuf` makes the future fail rustc's higher-ranked `Send`
+    // check (rust-lang/rust#102211), and the daemon core spawns the scan (MR-T12).
+    let mut out: Vec<InventoryRepo> = futures_util::stream::iter(dirs.iter().cloned())
+        .map(|dir: PathBuf| async move { scan_repo(&dir, opts, aliases).await })
         .buffer_unordered(CONCURRENCY)
         .filter_map(|r| async move { r })
         .collect()

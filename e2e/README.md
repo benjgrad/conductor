@@ -1,9 +1,13 @@
 # E2E suite (M1-T10)
 
-`pnpm test:e2e` runs `e2e/run.sh`: `scripts/db.sh up` (idempotent), `tsc -b` (builds the bins), then
-`vitest run --config e2e/vitest.config.ts`. Two files, one stack (database, bins, fixture repo) each,
-run one after the other: `m1.e2e.test.ts` (M1, ADR-0007..0010) and `m1b.e2e.test.ts` (ADR-0011
-transition rules). A full run takes about 50 s with the fake Claude. The limit is 3 minutes.
+`pnpm test:e2e` runs `e2e/run.sh`: `scripts/db.sh up` (idempotent), `tsc -b` (builds the orchestrator
+bin), `cargo build --release -p conductor-daemon` (the Rust daemon, MR-T16), then
+`vitest run --config e2e/vitest.config.ts`. Four files, one stack (database, bins, fixture repo)
+each, run one after the other: `m1.e2e.test.ts` (M1, ADR-0007..0010), `m1b.e2e.test.ts` (ADR-0011
+transition rules), `advisor.e2e.test.ts` (ADR-0033 P3: the workflow advisor over MCP, findings →
+proposal → apply; its history is written to the database, its token minted there) and
+`upgrade.e2e.test.ts` (MR-T16c: the TS → Rust daemon upgrade, [below](#ts--rust-upgrade-mr-t16c)).
+A full run takes about 50 s with the fake Claude, plus about 30 s for the upgrade file. The limit is 3 minutes.
 
 ## What runs
 
@@ -11,9 +15,18 @@ transition rules). A full run takes about 50 s with the fake Claude. The limit i
   created and migrated by `packages/orchestrator/test/db.ts`, and dropped at the end.
 - **Orchestrator**: the real `conductor-orchestrator` bin (`packages/orchestrator/dist/bin.js`) on an
   ephemeral port. It serves the API only, with no web app.
-- **Daemon**: one real `conductor-daemon` bin (`packages/daemon/dist/main.js`) with
-  `CONDUCTOR_ALLOW_LOCAL_REPOS=1` and its root in the run's temp dir. `CONDUCTOR_CLAUDE_BIN` points
+- **Daemon**: one real `conductor-daemon`, by default the Rust release binary
+  (`target/release/conductor-daemon`, ADR-0026), started directly, with
+  `CONDUCTOR_ALLOW_LOCAL_REPOS=1` and its root in the run's temp dir.
+  `CONDUCTOR_E2E_DAEMON_BIN=<path>` runs another daemon instead (relative to the repo root; run.sh
+  then skips the cargo build): a `.js`/`.mjs` path runs under Node, so
+  `CONDUCTOR_E2E_DAEMON_BIN=packages/daemon/dist/main.js pnpm test:e2e` runs the TS daemon (until
+  MR-T18b). The stack prints which one it started (`e2e: rust daemon …`). `CONDUCTOR_CLAUDE_BIN` points
   at a symlink to `packages/daemon/test/fixtures/fake-claude.mjs` inside that temp dir.
+  CI (`scripts/ci.sh`) runs the debug `target/debug/conductor-daemon` that `cargo nextest` already
+  built, not a release build (~10 min cold, shares nothing with the test build). On a PR it runs
+  the suite only when the diff reaches the stack (`node scripts/ci-affected.js e2e`); `main`
+  always runs it.
 - **Fixture repo**: a local git repo (`harness/fixture-repo.ts`) where `npm run build` and `npm test`
   pass, unless the counter `.e2e/<step>-fail` in the session's worktree holds N > 0. In that case the
   step fails and decrements N. The fake Claude writes the counter in its first turn (`write_file`).
@@ -45,6 +58,8 @@ answered with `POST /api/sessions/:id/input`, a live message is sent with `POST 
 | history and reopen (ADR-0008) | a done ticket's `GET /api/sessions/:id/transcript` comes from the transcript the fake wrote under the run's `CLAUDE_CONFIG_DIR` (thinking skipped, synthetic seq); `POST /reopen` → a new session on the same branch and the same (reused) worktree, the fake started with `--resume <same id>` and the human's text as prompt, implement → build → test → done again; 409 for a session that is no longer the latest; the new session's transcript holds both passes |
 | requirements gate (ADR-0009) | `m1_reviewed`: the fake reviewer (scenario `gated_review`, picked because its prompt starts with `# Requirements review`) checks the worktree with `if_exists`: no test file → unmet → implement resumes with "Requirements for implement → build were not met" and the reason in its prompt → the second (fresh) reviewer finds the test → build → test → done. Asserts the board labels, the counter, two fresh never-resumed reviewer sessions with read-only `--tools`, and that the transcript stays the worker's |
 | the one workflow (ADR-0010, on v2) | a ticket with no `workflow_id` runs `conductor` v2 (seeded as latest): Planning → `plan_ready` → Implementing (its first pass leaves its work uncommitted and `npm test` red once) → `ready_for_testing` → the dirty-tree check sends it back → it commits (fake action `git_commit`) → `npm test` fails → back to Implementing with the output → checks pass → the reviewer (`conductor_review`) passes → `open_pr` (conductor pushes the branch to the fixture repo and calls the **fake `gh`** the stack always puts first on the daemon's PATH: no GitHub, ever) → the conditions, which the fake gh reports green and approved at the first poll → Waiting external → Approve → Done. Asserts the columns, the `checking` badge and checklist in every phase, the `move:` counter, the PR URL on the card, gh's `--repo/--head/--base`, and the `pr view <url> --json` conditions call |
+| process gone | the parked fake is SIGKILLed → `session.agent_process_live` false, still Needs input → REST answer → the same Claude session started again with `--resume <id>` and the bare answer as its prompt → done (moved from the orchestrator's in-process `ask-answer.test.ts`, MR-T16) |
+| no_conversation | the parked process exits and its transcript is deleted → the answer starts a fresh conversation (never `--resume`) whose prompt is the full state prompt with the answer |
 | shutdown | stopping the daemon kills a parked Claude process; no process is left running from the temp dir |
 
 `m1b.e2e.test.ts` (M1b-T10) saves `conductor` v2 again with `condition_poll: "1s"` (version 3,
@@ -61,6 +76,42 @@ which its tickets pin), so the conditions poll fast with no test-only knob.
 Teardown stops the daemon (SIGTERM, which kills its Claude processes) and then the orchestrator.
 After that it kills anything still running from the temp dir, drops the database and removes the
 temp dir. When a test fails, the tail of each process log is printed.
+
+## TS → Rust upgrade (MR-T16c)
+
+`upgrade.e2e.test.ts` moves an enrolled machine from the TS daemon to the Rust one, the way a user
+does it. Linux and macOS only: it skips on Windows (MR-T16b) and when the release binary is missing
+(`CONDUCTOR_E2E_DAEMON_BIN` skips the cargo build).
+
+- **Password mode.** The orchestrator runs with `CONDUCTOR_AUTH=password` and its loopback URL as
+  `CONDUCTOR_PUBLIC_URL` (`StackOptions.auth`). In local mode the gateway ignores the machine
+  credential, so "no re-enroll" would prove nothing. The first user comes from
+  `conductor-admin bootstrap` and `POST /auth/signup` (`signUp` in `harness/api.ts`); every API
+  call carries the session cookie and `Origin`.
+- **Repos.** Password mode takes only a canonical `host/org/repo` (U-048), which the claim routes
+  only to a machine that has a clone of it. The claim still runs a local-path repo as local mode
+  does, so each ticket is created as `github.com/benjgrad/fixture-app` and its stored repo is then
+  pointed at the fixture repo in the database.
+- **The served build** is the release binary e2e/run.sh built, packed by
+  `packages/orchestrator/scripts/package-daemon.sh --verify` for the host target, with the binary's
+  own `--version` as the served version. The tarball goes in the run's temp dir, set as the
+  orchestrator's `CONDUCTOR_DOWNLOADS_DIR` (`stack.orchestratorEnv`).
+- **The TS install** is laid out where the M2-T14 TS `install.sh` put it (`<root>/daemon/<version>`,
+  `current`, `bin/conductor-daemon`, `bin/conductor-launch`). Its `bin/conductor-daemon` is a
+  wrapper that runs the repo's `packages/daemon/dist/main.js`, because MR-T15 removed the TS
+  tarball builder. It reports `0.0.0+ts00e2e`.
+
+Steps:
+1. The TS daemon enrolls (`enroll --url`, with an enrollment token from the API), starts with only
+   `machine.json` to find the orchestrator and its id, and runs a ticket.
+2. With it still running, `curl -fsSL <url>/install.sh | sh -s -- --root <root>` (no token, a
+   private `HOME`, so no real service unit is restarted). `current` moves to the Rust version; the
+   TS version dir, `machine.json` (bytes and mode) and the launcher are checked.
+3. The TS daemon stops and `<root>/bin/conductor-daemon run` starts the Rust binary. It registers as
+   the same machine with the Rust version, not outdated. There is still one machine, one credential
+   (whose `last_used_at` moved: the Rust daemon authenticated with the TS-written credential) and
+   one enrollment token.
+4. The next ticket runs on it, reusing the TS daemon's clone under the root.
 
 ## Real Claude
 

@@ -119,14 +119,17 @@ describe('advisor tools (ADR-0033)', () => {
   it('lists the advisor tools last, after every earlier tool', async () => {
     const { client } = await connectAdvisor();
     const names = (await client.listTools()).tools.map((t) => t.name);
-    expect(names.slice(-4)).toEqual([
+    expect(names.slice(-7)).toEqual([
       'get_process_metrics',
       'list_findings',
       'get_process_report',
       'get_insight',
+      'propose_change',
+      'list_change_proposals',
+      'apply_change',
     ]);
-    expect(names.slice(-5, -4)).toEqual(['adopt_default_workflow']);
-    for (const t of (await client.listTools()).tools.slice(-4)) {
+    expect(names.slice(-8, -7)).toEqual(['adopt_default_workflow']);
+    for (const t of (await client.listTools()).tools.slice(-7, -3)) {
       expect(t.annotations?.readOnlyHint).toBe(true);
       expect(t.description!.length).toBeLessThanOrEqual(700);
     }
@@ -154,6 +157,7 @@ describe('advisor tools (ADR-0033)', () => {
         'github.com/acme/app',
         null,
         ROW_LIMIT,
+        null,
         null,
       ]);
     }
@@ -210,12 +214,75 @@ describe('advisor tools (ADR-0033)', () => {
       'list_findings',
       'get_process_report',
       'get_insight',
+      'propose_change',
+      'apply_change',
+      'list_change_proposals',
       'base_version',
       'approval',
     ]) {
       expect(text).toContain(must);
     }
     expect(MCP_INSTRUCTIONS).toContain('workflow_advisor');
+  });
+});
+
+describe('change-proposal tools (ADR-0033 P3)', () => {
+  it('only apply_change is destructive, and it needs confirm: true', async () => {
+    const { client, queries } = await connectAdvisor();
+    const tools = (await client.listTools()).tools.slice(-3);
+    expect(
+      tools.map((t) => [t.name, t.annotations?.readOnlyHint, t.annotations?.destructiveHint]),
+    ).toEqual([
+      ['propose_change', false, false],
+      ['list_change_proposals', true, undefined],
+      ['apply_change', false, true],
+    ]);
+    for (const t of tools) expect(t.description!.length).toBeLessThanOrEqual(200);
+    const id = '00000000-0000-4000-8000-000000000001';
+    const res = await client.callTool({ name: 'apply_change', arguments: { id } });
+    expect(res.isError).toBe(true);
+    const no = await client.callTool({ name: 'apply_change', arguments: { id, confirm: false } });
+    expect(no.isError).toBe(true);
+    expect(queries).toEqual([]);
+  });
+
+  it('propose_change validates before touching the database', async () => {
+    const { client, queries } = await connectAdvisor();
+    const res = await client.callTool({
+      name: 'propose_change',
+      arguments: {
+        title: 't',
+        change: { kind: 'machine_settings', permission_mode: 'bypassPermissions' },
+        rationale: 'r',
+        evidence: [{ text: 'e' }],
+        expected_effect: { metric: 'questions', direction: 'down', text: 'x' },
+        rollback: 'r',
+      },
+    });
+    expect(res.isError).toBe(true);
+    const body = JSON.parse(textOf(res)) as {
+      error: { code: string; details: { path: string }[] };
+    };
+    expect(body.error.code).toBe('invalid_input');
+    expect(body.error.details.some((d) => d.path.startsWith('change'))).toBe(true);
+    expect(queries).toEqual([]);
+  });
+
+  it('list_change_proposals pages the account’s proposals', async () => {
+    const { client, queries } = await connectAdvisor((sql) =>
+      sql.includes('count(*)') ? [{ n: 0 }] : [],
+    );
+    const res = await client.callTool({
+      name: 'list_change_proposals',
+      arguments: { status: 'proposed' },
+    });
+    expect(JSON.parse(textOf(res))).toEqual({ proposals: [], next_cursor: null, total: 0 });
+    for (const q of queries) expect(q.args.slice(0, 2)).toEqual(['acc-1', 'proposed']);
+    const missing = await client.callTool({
+      name: 'list_change_proposals',
+      arguments: { id: 'nope' },
+    });
+    expect(JSON.parse(textOf(missing))).toMatchObject({ error: { code: 'not_found' } });
   });
 });
 

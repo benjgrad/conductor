@@ -43,7 +43,12 @@ import {
 import { liveResources, type SysInfo } from './sysinfo.js';
 import { buildAppendSystemPrompt } from './system-prompt.js';
 import { inventoryDigest, Workspace } from './workspace.js';
-import { InventoryReporter, scanInventory, type InventoryScan } from './inventory/report.js';
+import {
+  InventoryReporter,
+  onceLog,
+  scanInventory,
+  type InventoryScan,
+} from './inventory/report.js';
 import {
   detectSetup,
   freshCheckout,
@@ -266,7 +271,9 @@ export class Daemon {
       log: this.log,
     });
     this.ports = new PortPool(this.config.portPool);
-    const scan = opts.scanInventory ?? (() => scanInventory(this.config, process.env, this.log));
+    // Scan warnings repeat on every rescan: print each one once per process.
+    const scanLog = onceLog(this.log);
+    const scan = opts.scanInventory ?? (() => scanInventory(this.config, process.env, scanLog));
     this.inventory = new InventoryReporter({
       scan,
       send: (payload) => this.sendMachine('inventory', payload),
@@ -437,6 +444,10 @@ export class Daemon {
           fencing_token: null,
           payload: { command_id: msg.payload.command_id, accepted: false, reason: 'unsupported' },
         });
+        return;
+      case 'update_available':
+        // ADR-0021: self-update is Rust-only (MR-T14, ADR-0026 freeze); upgrade with install.sh.
+        this.log(`update_available ${msg.payload.version}: this daemon does not self-update`);
         return;
       case 'fetch_transcript':
         this.sendMachine(
@@ -909,7 +920,13 @@ export class Daemon {
         return;
       case 'ask_user':
         a.askPending = true;
-        this.emit(sid, a.fencingToken, { kind: 'ask_user', data: { question: ev.question } });
+        this.emit(sid, a.fencingToken, {
+          kind: 'ask_user',
+          data: {
+            question: ev.question,
+            ...(ev.options !== undefined ? { options: ev.options } : {}),
+          },
+        });
         return;
       case 'permission_request': {
         // ADR-0023: durable like a session_event (buffered, replayed, deduped on seq); the

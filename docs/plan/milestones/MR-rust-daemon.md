@@ -17,7 +17,7 @@
   - M2-T27 daemon part → MR-T17a
   - M2-T28d → MR-T17b
   - MW-T09, T10, T11b → MR-T13
-  - MW-T12 → MR-T16
+  - MW-T12 → MR-T16b (the Windows e2e; MR-T16 is the Linux/macOS part)
   - MW-T13 → MR-T18b
 - M2-T18 (in flight) is the recommended exception: it finishes in TS (U-112).
 
@@ -68,13 +68,15 @@
 | MR-T09 | `claude/cli_driver` | T07, T08 | E | — | done (this branch; U-113 real-claude gate passed first; `ClaudeDriver::start` now returns `Result`, `claude_session_id` a `String`; TD-203, TD-204) |
 | MR-T10 | workspace + hardened exec/git module + actions (open-pr, checkout, conditions) | T07 | E | — | done (this branch; also ports `matchingPaths` to `conductor-protocol` with shared vectors; TD-205..208) |
 | MR-T11 | inventory (capabilities, repos, git, report, rescan) | T10 | E | — | done (this branch; 2 `report.test.ts` rows, the daemon-over-the-link cases, are left `todo` for MR-T12; the `<root>/state/rescan` trigger on every OS; TS↔Rust payload vector `tests/fixtures/ts/inventory-payload.json`) |
-| MR-T12 | Daemon core | T09, T10, T11 | F | — | todo |
-| MR-T13 | `main` + subcommands: run, enroll, config, help, `service install/restart/uninstall` (launchd, systemd user, Windows Scheduled Task); absorbs MW-T09/T10/T11b | T12, U-112 | F | — | todo |
+| MR-T12 | Daemon core | T09, T10, T11 | F | — | done (this branch; FR-4 wired: `register.features: ["assistant_job"]`, durable `assistant_result` via a new store `DurableMessage` variant; also fixes found here: `FakeDriverSession` holds events until its first listener, as `CliDriverSession` does, and `inventory::repos::scan_repos` is `Send`; new `platform::pid_liveness`; TD-209, TD-210) |
+| MR-T13 | `main` + subcommands: run, enroll, config, help, `service install/restart/uninstall` (launchd, systemd user, Windows Scheduled Task); absorbs MW-T09/T10/T11b | T12, U-112 | F | — | in_progress (13a on main: CLI, enroll, config, POSIX service units; 13b on main: `run` and signals; left: 13c, the Windows Scheduled Task, U-114) |
 | MR-T14 | ADR-0021 updater in Rust (stage, verify, drain, switch, exit 75, trial commit, `bad-versions`, `config auto-update`, 4005 → latest.json); absorbs M2-T18c | T13, M2-T18b, U-114 | G | — | todo |
-| MR-T15 | Distribution on the existing path: per-target tarballs from CI, image stage, `distribution.ts` target selection, install scripts without Node checks | T13, U-115 | G | — | todo |
-| MR-T16 | e2e on the binary (`CONDUCTOR_E2E_DAEMON_BIN`), `ask-answer.test.ts` driven through the binary, TS→Rust upgrade e2e, Windows e2e job; absorbs MW-T12 | T13, T15 | G | — | todo |
-| MR-T17 | Moved daemon features in Rust: T17a = M2-T27 daemon part, T17b = M2-T28d; ticket blocks written when their M2 contract tasks merge | T12 + each M2 contract task | G | — | todo |
-| MR-T18a | Cutover docs, PARITY at 100% | T14, T15, T16 | H | — | todo |
+| MR-T15 | Distribution on the existing path: per-target tarballs from CI, image stage, `distribution.ts` target selection, install scripts without Node checks | T13, U-115 | G | — | done (this branch; U-115 answered: unsigned; also bakes the build sha into the binary) |
+| MR-T16 | e2e on the binary (`CONDUCTOR_E2E_DAEMON_BIN`, default the Rust release build), `ask-answer.test.ts` daemon cases moved into `e2e/`, orchestrator drops `@conductor/daemon` (FR-1, FR-2; split 2026-11-04 with Ben's OK) | T13 | G | — | done (this branch) |
+| MR-T16b | Windows e2e job on the Rust binary: native fake-claude launcher, Postgres service, node e2e entry, `path.delimiter`, taskkill teardown; absorbs MW-T12 (old FR-3) | T16 | G | — | todo |
+| MR-T16c | TS → Rust upgrade e2e through the rendered `install.sh` (old FR-4) | T16, T15 | G | — | done (this branch: `e2e/upgrade.e2e.test.ts`, password mode) |
+| MR-T17 | Moved daemon features in Rust: T17a = M2-T27 daemon part, T17b = M2-T28d; ticket blocks written when their M2 contract tasks merge (T17b block written 2026-11-04; posted after M2-T28b merges) | T12 + each M2 contract task | G | — | todo |
+| MR-T18a | Cutover docs, PARITY at 100% | T14, T15, T16, T16b, T16c | H | — | todo |
 | MR-T18b | Delete `packages/daemon` after Ben's dogfood day on each OS (absorbs MW-T13) and his OK | T18a | H | — | todo |
 
 Groups run in order A → H, and tasks within a group own disjoint files. In C, T04, T05 and T06 run in parallel once their deps are done; in D, T07 and T08; in E, T09 and T10, then T11. Branches are `mr-tNN-<slug>`. Tickets are posted in the waves below. Every task must be green on the cargo matrix **and** `scripts/ci.sh` before merge.
@@ -107,11 +109,16 @@ MR is built by conductor on itself:
 | 8 | MR-T12 | T09, T10, T11 merged |
 | 9 | MR-T13 | T12 merged, U-112 answered |
 | 10 | MR-T14, MR-T15 | T13 merged; T14 also needs M2-T18b merged and U-114 answered; T15 needs U-115 answered |
-| 11 | MR-T16 | T13 and T15 merged |
-| 12 | MR-T18a | T14, T15, T16 merged, PARITY at 100% |
+| 11 | MR-T16 | T13 merged (posted before T15, as approved 2026-11-04) |
+| 11b | MR-T16b, MR-T16c | T16 merged; T16c also needs T15 merged |
+| 12 | MR-T18a | T14, T15, T16, T16b, T16c merged, PARITY at 100% |
 | 13 | MR-T18b | Ben's dogfood day on each OS passed and Ben OKs the deletion |
 
-MR-T17a/T17b (moved M2 daemon features) get their blocks when their M2 contract tasks merge (M2-T27 shared part; M2-T28b).
+MR-T17a (moved M2-T27 daemon part) gets its block when the M2-T27 shared part merges. MR-T17b's block is written below; it is posted once its dependencies are merged:
+
+| Wave | Tickets | Posted when |
+|---|---|---|
+| — | MR-T17b | T12 and M2-T28b merged (M2-T28c too for its e2e case) |
 
 ## Tickets
 
@@ -464,6 +471,8 @@ ADR-0026 §4, ADR-0017, ADR-0021 §1 (`file` rule), ADR-0024 (install.ps1). Toda
 ## Goal
 The end-to-end suites prove the Rust daemon works against the real orchestrator on Linux and Windows, including the move from the TS daemon.
 
+> **Split 2026-11-04 (Ben's OK):** MR-T16 is FR-1 and FR-2 (Linux/macOS). FR-3 is **MR-T16b**: the Rust daemon refuses a non-native `claude` on Windows (U-110, `platform::native_exe_problem`), so the Windows e2e first needs a native fake-claude launcher, plus the Postgres service, a node e2e entry instead of `run.sh`, `path.delimiter` and taskkill instead of `pgrep`. FR-4 is **MR-T16c**, after MR-T15 (no per-target Rust tarball is served before it).
+
 ## Context
 `e2e/harness/stack.ts` hard-codes `packages/daemon/dist/main.js` and spawns it with Node (`:30`, `:250`). `e2e/run.sh` builds it. `packages/orchestrator/test/e2e/ask-answer.test.ts` imports `Daemon` and the fakes from `@conductor/daemon` in-process, and `packages/orchestrator/package.json` depends on `@conductor/daemon`. MW-T12 (Windows e2e) moves here.
 
@@ -478,8 +487,74 @@ The end-to-end suites prove the Rust daemon works against the real orchestrator 
 - The Windows e2e job green.
 - FR-4 green.
 
-- **Depends on**: MR-T13, MR-T15. **Files owned**: `e2e/**`, `packages/orchestrator/test/e2e/ask-answer.test.ts`, `packages/orchestrator/package.json` (that dependency), the Windows e2e job. **Do not touch**: daemon crate code (report bugs in the PR).
-- **Acceptance**: [ ] e2e green on Linux and Windows; [ ] upgrade e2e.
+- **Depends on**: MR-T13 (T16), +T16 (T16b), +T16 and MR-T15 (T16c). **Files owned**: `e2e/**`, `packages/orchestrator/test/e2e/ask-answer.test.ts` (now `main-wiring.test.ts`), `packages/orchestrator/package.json` (that dependency), the Windows e2e job (T16b), a fake-claude launcher crate (T16b). **Do not touch**: daemon crate code (report bugs in the PR).
+- **Acceptance**: T16 [ ] e2e green on Linux against Rust (and TS via the env var); T16b [ ] e2e green on Windows; T16c [x] upgrade e2e.
+
+### MR-T17b · Apply machine settings in Rust
+## Goal
+A machine runs each new agent session with the settings its owner set on the Machines page, and the page shows what the machine actually has. This is the daemon half of ADR-0022 (formerly M2-T28d). It unblocks MA-T06.
+
+## Context
+- [ADR-0022](../../adr/0022-layered-agent-settings.md) and its 2026-11-04 amendment (D1: no `roots` / `allowed_repo_hosts` in the override; D2: reviewer and QA sessions only get the override's denies; D3: `settings_update` is a feature-gated outbox command acked with `command_ack`).
+- The contracts are M2-T28 (`shared/src/machines/settings.ts`, `ws.ts` `settings_update`, inventory `reported_settings`, 10-contracts §Machine settings) and are already in `crates/conductor-protocol/src/generated.rs`.
+- The policy rules are M2-T28b: `resolveEffectivePolicy` and `validateMachineSettings` (`shared/src/workflow/effective-policy.ts`), with the shared vectors `packages/shared/protocol-json/vectors/{resolveEffectivePolicy,validateMachineSettings}.json`.
+- The orchestrator side is M2-T28c (it stores, audits and pushes on register and on change).
+- Today's daemon:
+  - `daemon.rs` start_session resolves `p.tools` with `conductor_protocol::tool_policy::resolve_tool_policy`;
+  - `claude/cli_driver.rs` picks the mode: `WORKER_PERMISSION_MODE` (`auto`), `REVIEWER_PERMISSION_MODE` (`dontAsk`), and `agent_permission_mode` caps bypass to auto on a legacy CLI;
+  - `register.features` already advertises `assistant_job` (MR-T12 FR-4);
+  - the permission tool timeout is `DEFAULT_PERMISSION_TIMEOUT_MS` (`claude/outcome_server.rs`);
+  - `config.rs` holds `max_sessions` and `tags` from env and `config.json`;
+  - `inventory/report.rs` builds the inventory and its `hash`.
+- There is no TS counterpart (the TS daemon is frozen at `daemon-ts-freeze`), so this task adds no PARITY rows. Say so in the PR.
+- TD-081 ("conductor neither records nor checks `~/.claude/settings.json`") is paid by FR-6.
+
+## Functional requirements
+- **FR-1**: `register.features` also lists `machine_settings` (`DAEMON_FEATURE_MACHINE_SETTINGS`).
+- **FR-2** `settings_update {command_id, version, override}`:
+  - dedupe on `command_id`, like other commands;
+  - a `version` older than the stored one → `command_ack` refused `settings_stale`;
+  - re-run `validate_machine_settings`; any error → refused `settings_invalid: <first path>`;
+  - otherwise write `<root>/state/settings.json` (`{version, override}`, atomic temp + rename, owner-only via `platform::acl`), then ack accepted;
+  - load the file at startup. A missing file = no override (version none). An unreadable or invalid file is logged and treated as no override.
+- **FR-3**: port `resolve_effective_policy` and `validate_machine_settings` to `crates/conductor-protocol/src/effective_policy.rs`, next to `tool_policy.rs`. `tests/vectors.rs` runs both shared vector files.
+- **FR-4** start_session:
+  - Take a snapshot of the override **when the session starts**. A running session never changes; a new override applies from the next start.
+  - Role: `review: true` → reviewer, `checkout` present → qa, else worker.
+  - The driver gets `resolve_effective_policy(p.tools, role, p.workflow_state, override)`'s `builtin` / `allow` / `deny`.
+  - Mode: the policy's mode. `bypassPermissions` only for a worker whose override sets it. Reviewers and QA stay `dontAsk`. The legacy-CLI path keeps its cap to `auto`.
+  - The permission tool's timeout is `permission_timeout_min` when set, else `DEFAULT_PERMISSION_TIMEOUT_MS`.
+- **FR-5**: `max_sessions` and `tags` from the override take precedence over env and `config.json`, from the next `request_work` (free slots) and the next `register` (tags). Without an override, today's behaviour is unchanged.
+- **FR-6** `reported_settings` in the inventory, included in `hash`:
+  - `config`: `config.json` with no credential (no `machine.json` field, no token, nothing matching `token|secret|password|credential`);
+  - `limits {max_sessions, light_slots, permission_timeout_min}`;
+  - `claude {default_mode, user_settings_exists, version}`, read from `~/.claude/settings.json` `permissions.defaultMode`;
+  - `override_version`.
+  - A new inventory is sent after an applied `settings_update`. Update the MR-T11 golden payload (`tests/fixtures/ts/inventory-payload.json` stays the TS reference; add a Rust golden with the field).
+
+## Non-functional requirements
+- **NFR-1**: OS-specific code only under `src/platform/` (seam test).
+- **NFR-2**: no wire change beyond M2-T28's generated types; frames go through `conductor-protocol` only.
+
+## Out of scope
+A daemon-side limit on remote settings (U-098), `roots` / `allowed_repo_hosts` (D1), the TS daemon, the orchestrator and web, MA-T06.
+
+## Verification
+- Unit tests:
+  - stale and invalid pushes are refused with the right reasons, and the stored file is unchanged;
+  - an applied push writes the file owner-only, and a restart reloads it;
+  - an override changes the **next** session's argv (fake-claude's argv log), not a running one;
+  - a reviewer and a QA start ignore the override's allows and stay `dontAsk`, but get its denies;
+  - `bypassPermissions` reaches the argv only for a worker;
+  - `permission_timeout_min` reaches the permission tool;
+  - the `max_sessions` override changes `request_work.free_slots`;
+  - `reported_settings` has no credential.
+- Both vector files pass in Rust and in vitest.
+- An e2e case in `e2e/` (needs M2-T28c merged): PUT settings with an extra exact allow rule → the machine acks applied → the next session's argv carries the rule.
+- `daemon-rust` green on all three OSes, and `scripts/ci.sh` green.
+
+- **Depends on**: MR-T12, M2-T28b (M2-T28c for the e2e case). **Files owned**: `crates/conductor-protocol/src/effective_policy.rs` (+ its `lib.rs` line and vectors test), a new `crates/conductor-daemon/src/settings.rs`, the settings parts of `daemon.rs`, the permission-args part of `claude/cli_driver.rs`, `inventory/report.rs` (`reported_settings`), the `config.rs` precedence, their tests and goldens, the e2e case. **Do not touch**: `packages/**`.
+- **Acceptance**: [ ] vectors on both sides; [ ] next-session-only argv test; [ ] reviewer/QA and bypass tests; [ ] no credential in the report; [ ] e2e case; [ ] three-OS green.
 
 ### MR-T18a · Cutover docs and parity at 100%
 ## Goal

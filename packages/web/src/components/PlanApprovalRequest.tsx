@@ -55,6 +55,7 @@ export function PlanApprovalRequest({
   return (
     <section aria-label={PLAN_APPROVAL_LABEL} className="pending plan-approval">
       <div className="pending-head">
+        <span className="action-needed">Action needed</span>
         <span className="badge badge-plan-approval">{PLAN_APPROVAL_LABEL}</span>
         <span className="muted">{agent} asks</span>
       </div>
@@ -97,7 +98,7 @@ interface PlanAnswerActionsProps {
 
 /**
  * Approve plan and Request changes… (with its feedback form): the plan card's answers, and the
- * phone's Plan sheet footer (TicketStrip.tsx).
+ * Plan sheet footer (TicketStrip.tsx).
  */
 export function PlanAnswerActions({ api, sessionId, option, onDone }: PlanAnswerActionsProps) {
   const [changing, setChanging] = useState(false);

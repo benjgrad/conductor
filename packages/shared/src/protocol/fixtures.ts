@@ -1,6 +1,7 @@
 import type { JsonObject } from '../domain.js';
 import type { Capability } from '../machines/capabilities.js';
 import type { InventoryRepo } from '../machines/inventory.js';
+import type { LatestDaemon } from '../machines/update.js';
 import {
   PROTOCOL_VERSION,
   type DaemonMessageType,
@@ -53,6 +54,17 @@ export const ASSISTANT_FIXTURE_IDS = {
   jobMsg: '00000000-0000-4000-8000-0000000b0001',
   resultMsg: '00000000-0000-4000-8000-0000000b0002',
 } as const;
+
+/** M2-T18b (ADR-0021): fixed ids, so adding these fixtures shifts no other fixture's msg_id. */
+export const UPDATE_FIXTURE_IDS = {
+  updateMsg: '00000000-0000-4000-8000-0000000c0001',
+  updateTargetMsg: '00000000-0000-4000-8000-0000000c0002',
+  drainingMsg: '00000000-0000-4000-8000-0000000c0003',
+  alertMsg: '00000000-0000-4000-8000-0000000c0004',
+} as const;
+
+const UPDATE_VERSION = '0.3.0+abc1234';
+const UPDATE_SHA256 = '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08';
 
 /** A valid SessionInsight (advisor/insight.ts), as an analyst returns it. */
 const INSIGHT_RESULT = {
@@ -524,6 +536,19 @@ export const ORCHESTRATOR_FIXTURES: {
       timeout_ms: 120000,
     },
   },
+  update_available: {
+    type: 'update_available',
+    msg_id: UPDATE_FIXTURE_IDS.updateMsg,
+    seq: null,
+    session_id: null,
+    fencing_token: null,
+    payload: {
+      version: UPDATE_VERSION,
+      file: `conductor-daemon-${UPDATE_VERSION}.tgz`,
+      sha256: UPDATE_SHA256,
+      size: 12_345_678,
+    },
+  },
 };
 
 // ---------------------------------------------------------------- ADR-0011 (M1b-T01)
@@ -636,6 +661,9 @@ export const M2_WS_FIXTURES: {
   start_session_working_copy: Extract<OrchestratorToDaemon, { type: 'start_session' }>;
   inventory_empty: Extract<DaemonToOrchestrator, { type: 'inventory' }>;
   alert_with_session: Extract<DaemonToOrchestrator, { type: 'alert' }>;
+  update_available: Extract<OrchestratorToDaemon, { type: 'update_available' }>;
+  heartbeat_draining: Extract<DaemonToOrchestrator, { type: 'heartbeat' }>;
+  alert_update_failed: Extract<DaemonToOrchestrator, { type: 'alert' }>;
 } = {
   register_v2: {
     ...DAEMON_FIXTURES.register,
@@ -679,6 +707,50 @@ export const M2_WS_FIXTURES: {
       at: TS,
     },
   },
+  /** M2-T18b: a per-target build name (ADR-0026: Rust targets contain `_`). */
+  update_available: {
+    type: 'update_available',
+    msg_id: UPDATE_FIXTURE_IDS.updateTargetMsg,
+    seq: null,
+    session_id: null,
+    fencing_token: null,
+    payload: {
+      version: UPDATE_VERSION,
+      file: `conductor-daemon-${UPDATE_VERSION}-x86_64-unknown-linux-gnu.tgz`,
+      sha256: UPDATE_SHA256,
+      size: 12_345_678,
+    },
+  },
+  heartbeat_draining: {
+    ...DAEMON_FIXTURES.heartbeat,
+    msg_id: UPDATE_FIXTURE_IDS.drainingMsg,
+    payload: {
+      ...DAEMON_FIXTURES.heartbeat.payload,
+      draining: { reason: 'update', version: UPDATE_VERSION },
+    },
+  },
+  alert_update_failed: {
+    type: 'alert',
+    msg_id: UPDATE_FIXTURE_IDS.alertMsg,
+    seq: 41,
+    session_id: null,
+    fencing_token: null,
+    payload: {
+      kind: 'update_failed',
+      version: UPDATE_VERSION,
+      stage: 'trial',
+      error: `conductor-daemon ${UPDATE_VERSION} exited 1 twice during its trial start`,
+      at: TS,
+    },
+  },
+};
+
+/** M2-T18b: the `GET /downloads/latest.json` body (ADR-0021 §1, the 4005 path). */
+export const LATEST_DAEMON_FIXTURE: LatestDaemon = {
+  version: UPDATE_VERSION,
+  file: `conductor-daemon-${UPDATE_VERSION}-aarch64-apple-darwin.tgz`,
+  sha256: UPDATE_SHA256,
+  size: 12_345_678,
 };
 
 // ---------------------------------------------------------------- review and merge (M2r-T01)

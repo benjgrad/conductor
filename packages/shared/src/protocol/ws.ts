@@ -5,11 +5,19 @@ import { AgentTransitionOptionSchema } from '../workflow/transition-rules.js';
 import { McpPolicySchema } from '../workflow/mcp.js';
 import { CapabilitySchema } from '../machines/capabilities.js';
 import { GitShaSchema, PrUrlSchema } from './actions.js';
+import { QuestionOptionsSchema } from './question-options.js';
 import {
   AbsolutePathSchema,
   InventoryRepoSchema,
   WorkingCopySchema,
 } from '../machines/inventory.js';
+import {
+  daemonBuildRefinement,
+  daemonBuildShape,
+  DaemonVersionSchema,
+  UPDATE_FAILED_ERROR_MAX,
+  UpdateFailedStageSchema,
+} from '../machines/update.js';
 
 // Daemon ↔ orchestrator WebSocket protocol (03 §Daemon ↔ orchestrator). One JSON envelope per
 // WS text frame. Field names are snake_case on the wire.
@@ -163,6 +171,11 @@ export const HeartbeatPayloadSchema = z.object({
   disk_free_mb: z.number().int().nonnegative(),
   /** Renews each session's lease when its token matches (04 §Leases). */
   sessions: z.array(z.object({ session_id: UuidSchema, fencing_token: TokenSchema })),
+  /**
+   * ADR-0021 §2 (M2-T18b): present while the daemon drains for an update (it has stopped sending
+   * `request_work`) → `machine.status = 'draining'`; absent → `online`.
+   */
+  draining: z.object({ reason: z.literal('update'), version: DaemonVersionSchema }).optional(),
 });
 export const HeartbeatMessageSchema = msg('heartbeat', HeartbeatPayloadSchema, machineEnv);
 
@@ -212,13 +225,34 @@ export const ALERT_FILES_MAX = 200;
  * Machine-level envelope, but durable: `seq` is required, the daemon buffers and replays it like
  * a session_event, and the orchestrator dedupes it on `(machine_id, seq)`.
  */
-export const AlertPayloadSchema = z.object({
+export const GitTamperAlertPayloadSchema = z.object({
   kind: z.literal('git_tamper'),
   repo: AbsolutePathSchema,
   session_id: UuidSchema.optional(),
   files: z.array(z.string().min(1)).min(1).max(ALERT_FILES_MAX),
   at: IsoDateTimeSchema,
 });
+export type GitTamperAlertPayload = z.infer<typeof GitTamperAlertPayloadSchema>;
+
+/**
+ * ADR-0021 §3 (M2-T18b): an update of this daemon failed at `stage` (machine-level, no repo).
+ * Sent by the daemon that ends up running (after a rollback, the old version). Durable like
+ * `git_tamper`. M2-T18d stores it; until then the orchestrator drops it.
+ */
+export const UpdateFailedAlertPayloadSchema = z.object({
+  kind: z.literal('update_failed'),
+  version: DaemonVersionSchema,
+  stage: UpdateFailedStageSchema,
+  error: z.string().min(1).max(UPDATE_FAILED_ERROR_MAX),
+  at: IsoDateTimeSchema,
+});
+export type UpdateFailedAlertPayload = z.infer<typeof UpdateFailedAlertPayloadSchema>;
+
+/** `alert.payload`, by `kind`. */
+export const AlertPayloadSchema = z.discriminatedUnion('kind', [
+  GitTamperAlertPayloadSchema,
+  UpdateFailedAlertPayloadSchema,
+]);
 export type AlertPayload = z.infer<typeof AlertPayloadSchema>;
 export const AlertMessageSchema = msg('alert', AlertPayloadSchema, {
   ...machineEnv,
@@ -323,7 +357,14 @@ export const SessionEventPayloadSchema = z.discriminatedUnion('kind', [
       reason: z.string().optional(),
     }),
   }),
-  z.object({ kind: z.literal('ask_user'), data: z.object({ question: z.string() }) }),
+  /**
+   * `options` (Questions UX, 06 §Agent question options): the choices the agent listed, already
+   * bounded by the daemon (an invalid list is dropped, never sent). Absent: none.
+   */
+  z.object({
+    kind: z.literal('ask_user'),
+    data: z.object({ question: z.string(), options: QuestionOptionsSchema.optional() }),
+  }),
   /**
    * U-028 (ADR-0005 addendum): a turn ended without complete_state / ask_user, the daemon sent
    * its one nudge, and the next turn also ended without an outcome. The process stays alive and
@@ -988,6 +1029,22 @@ export const AssistantJobMessageSchema = msg(
   orchMachineEnv,
 );
 
+/**
+ * ADR-0021 §1 (M2-T18b): the orchestrator serves a newer daemon build than this machine runs.
+ * A direct machine-level frame sent after `registered` (no command_id, no ack, not in the outbox;
+ * re-sent on every register). `file` must name `version` (daemonTarballMatches); the daemon
+ * downloads `API_PATHS.daemonDownload(file)` from its enrolled URL and checks `size` and `sha256`.
+ */
+export const UpdateAvailablePayloadSchema = z
+  .object(daemonBuildShape)
+  .refine(daemonBuildRefinement.check, daemonBuildRefinement.params);
+export type UpdateAvailablePayload = z.infer<typeof UpdateAvailablePayloadSchema>;
+export const UpdateAvailableMessageSchema = msg(
+  'update_available',
+  UpdateAvailablePayloadSchema,
+  orchMachineEnv,
+);
+
 export const OrchestratorToDaemonSchema = z.discriminatedUnion('type', [
   RegisteredMessageSchema,
   WorkAssignmentMessageSchema,
@@ -1003,6 +1060,7 @@ export const OrchestratorToDaemonSchema = z.discriminatedUnion('type', [
   FetchTranscriptMessageSchema,
   PermissionDecisionMessageSchema,
   AssistantJobMessageSchema,
+  UpdateAvailableMessageSchema,
 ]);
 export type OrchestratorToDaemon = z.infer<typeof OrchestratorToDaemonSchema>;
 export type OrchestratorMessageType = OrchestratorToDaemon['type'];

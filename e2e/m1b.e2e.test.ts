@@ -213,7 +213,7 @@ beforeAll(async () => {
   api = new Api(stack.baseUrl);
   board = new BoardWatcher(stack.baseUrl);
   fastVersion = (await api.saveWorkflow(CONDUCTOR_V2_FAST)).version;
-  expect(fastVersion).toBe(6); // the seed's v1 … v5, then this
+  expect(fastVersion).toBe(5); // the seed's v1 … v4, then this
   await waitFor('the daemon to register', async () =>
     (await api.machines()).find((m) => m.id === stack.machineId && m.status === 'online'),
   );
@@ -324,7 +324,7 @@ describe.skipIf(REAL)('ADR-0011 transition rules (fake Claude, fake gh)', () => 
     );
   });
 
-  it('2. work: ready_for_testing → checks → review → open_pr → held in Implementing (approvals 0/1) → the flip to 1/1 → Waiting external', async () => {
+  it('2. work: ready_for_testing → checks → review → open_pr → held in Waiting external (approvals 0/1) → the flip to 1/1 → Waiting external', async () => {
     const title = 'Ready for testing';
     stack.setFakePr(title, { approvals: 0, checks: 'green' });
     const id = await ticket(title, 'testing');
@@ -339,7 +339,9 @@ describe.skipIf(REAL)('ADR-0011 transition rules (fake Claude, fake gh)', () => 
       (c) => c.workflow_state === step && approvals(c)?.status === 'pending',
       45_000,
     );
-    expect(held.column).toBe('implementing');
+    // Only approvals left: the card shows in Waiting external while the step waits.
+    expect(held.column).toBe('waiting_external');
+    expect(held.badges).toContain('checking');
     expect(held.status).toBe('waiting_external');
     expect(held.pr_url).toMatch(FAKE_GH_URL_RE);
     expect(held.pending).toMatchObject({
@@ -362,7 +364,6 @@ describe.skipIf(REAL)('ADR-0011 transition rules (fake Claude, fake gh)', () => 
 
     // Let a few more polls answer 0/1, then flip.
     await new Promise((r) => setTimeout(r, 1500));
-    const beforeFlip = board.cards(id).length;
     stack.setFakePr(title, { approvals: 1, checks: 'green' });
     const waiting = await board.card(
       id,
@@ -374,12 +375,17 @@ describe.skipIf(REAL)('ADR-0011 transition rules (fake Claude, fake gh)', () => 
     expect(waiting.status).toBe('waiting_external');
     expect(names(waiting)).toEqual(['back_to_implementing']);
 
-    // The column stayed Implementing until the flip; the SSE history shows the checklist moving.
+    // In the step the card is in Implementing until only approvals are left (checks, review,
+    // open_pr, PR checks), then in Waiting external; the SSE history shows the checklist moving.
     const cards = board.cards(id);
-    expect(cards.slice(0, beforeFlip).some((c) => c.column === 'waiting_external')).toBe(false);
+    const inStep = cards.filter((c) => c.workflow_state === step);
+    expect(inStep.some((c) => c.column === 'implementing')).toBe(true);
     expect(
-      cards.filter((c) => c.workflow_state === step).every((c) => c.column === 'implementing'),
+      inStep.every((c) => c.column === 'implementing' || c.column === 'waiting_external'),
     ).toBe(true);
+    // Once only approvals were pending, every later card of the step stays in Waiting external.
+    const first = inStep.findIndex((c) => approvals(c)?.status === 'pending');
+    expect(inStep.slice(first).every((c) => c.column === 'waiting_external')).toBe(true);
     expect(board.states(id)).toEqual(['planning', 'implementing', step, 'waiting_external']);
     const statuses: string[] = [];
     for (const c of cards) {

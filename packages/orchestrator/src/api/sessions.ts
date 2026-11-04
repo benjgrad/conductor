@@ -13,6 +13,7 @@ import {
 } from '@conductor/shared';
 import type { OutputBus, Queryable } from '../contracts.js';
 import { cardView, withMachineFields } from '../engine/board-view.js';
+import { loadProposals } from '../engine/proposals.js';
 import {
   OPEN_INPUT_SELECT,
   splitStep,
@@ -21,7 +22,6 @@ import {
   type TicketCardRow,
 } from '../engine/rows.js';
 import { readCardPermission, withPermission } from '../permissions/store.js';
-import { listProposals } from '../proposals/store.js';
 import type { EventRow, InputRequestRow, SessionRow, WorkflowDefinitionRow } from '../db/types.js';
 
 // GET /api/sessions/:id (M1-T08).
@@ -87,7 +87,7 @@ export async function loadSessionDetail(
   );
   const session = s.rows[0];
   if (!session) return null;
-  const [t, wd, ir, moves, inputRequests, permission] = await Promise.all([
+  const [t, wd, ir, moves, inputRequests, permission, proposals] = await Promise.all([
     db.query<TicketCardRow>(TICKET_SELECT + 'WHERE t.id = $1', [session.ticket_id]),
     db.query<WorkflowDefinitionRow>(
       'SELECT * FROM workflow_definition WHERE id = $1 AND version = $2',
@@ -101,6 +101,7 @@ export async function loadSessionDetail(
     loadMoves(db, id),
     loadInputRequests(db, id),
     readCardPermission(db, id),
+    loadProposals(db, session.ticket_id, session),
   ]);
   const ticket = t.rows[0];
   const defRow = wd.rows[0];
@@ -108,8 +109,6 @@ export async function loadSessionDetail(
     throw new Error(`session ${id}: ticket or workflow ${session.workflow_id} missing`);
   }
   const workflow = WorkflowDefinitionSchema.parse(defRow.definition);
-  // ADR-0034: the ticket's follow-up proposals (every session's: a reopen keeps them).
-  const proposals = await listProposals(db, ticket.account_id, ticket.id);
   // A cancel leaves the request unanswered; only a needs_input session is waiting on it (TD-079).
   const openInput = session.status === 'needs_input' ? (ir.rows[0] ?? null) : null;
   return {
@@ -148,6 +147,6 @@ export async function loadSessionDetail(
     input_requests: inputRequests,
     agent_name: ticket.agent_name,
     ticket_editable: ticketEditable(workflow, session.workflow_state),
-    proposed_tickets: proposals,
+    proposals,
   };
 }

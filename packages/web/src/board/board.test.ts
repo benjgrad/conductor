@@ -10,6 +10,7 @@ import {
   boardColumns,
   boardFromResponse,
   EMPTY_BOARD,
+  NOTICES_MAX,
   type BoardState,
 } from './board.js';
 
@@ -165,6 +166,33 @@ describe('applyBoardEvent', () => {
     expect(s.cards.get(running.ticket_id)?.badges).toEqual(['waiting_for_build_slot']);
     s = applyBoardEvent(s, { ...BOARD_SSE_FIXTURES['card.badge'], id: 200, on: false });
     expect(s.cards.get(running.ticket_id)?.badges).toEqual([]);
+  });
+
+  it('transition.notified keeps the last NOTICES_MAX notices, not touching cards', () => {
+    const ev = BOARD_SSE_FIXTURES['transition.notified'];
+    let s = applyBoardEvent(boardOf(running), ev);
+    expect(s.notices).toEqual([
+      {
+        id: ev.id,
+        session_id: ev.session_id,
+        ticket_id: ev.ticket_id,
+        title: ev.title,
+        body: ev.body,
+        tag: ev.tag,
+      },
+    ]);
+    expect(s.cards).toEqual(boardOf(running).cards);
+    expect(s.lastEventId).toBe(ev.id);
+    for (let i = 1; i <= NOTICES_MAX + 5; i++) {
+      s = applyBoardEvent(s, { ...ev, id: ev.id + i });
+    }
+    expect(s.notices).toHaveLength(NOTICES_MAX);
+    expect(s.notices!.at(-1)!.id).toBe(ev.id + NOTICES_MAX + 5);
+    // A later card event keeps the notices.
+    s = applyBoardEvent(s, { ...BOARD_SSE_FIXTURES['card.badge'], id: 1000 });
+    expect(s.notices).toHaveLength(NOTICES_MAX);
+    // A replay is dropped.
+    expect(applyBoardEvent(s, ev)).toBe(s);
   });
 
   it('drops replayed events at or below lastEventId', () => {

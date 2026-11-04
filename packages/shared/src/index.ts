@@ -35,18 +35,18 @@ export {
 export * from './engine/review.js';
 export { applyRepoChecks, PIN_CHECK, type GateSpec } from './engine/move-step.js';
 export * from './engine/spend.js';
-export * from './engine/proposals.js';
 export * from './engine/qa.types.js';
 export * from './engine/fixtures.js';
 export * from './protocol/ws.js';
+export * from './protocol/question-options.js';
 export * from './protocol/actions.js';
 export * from './protocol/commands.js';
 export * from './protocol/outcome.js';
 export * from './protocol/fixtures.js';
 export * from './machines/index.js';
 export * from './api/rest.js';
-export * from './api/schedules.js';
 export * from './api/proposals.js';
+export * from './api/schedules.js';
 export * from './api/repo-rank.js';
 export * from './api/accounts.js';
 export * from './api/sse.js';
@@ -55,6 +55,8 @@ export * from './api/fixtures.js';
 export * from './agents/names.js';
 export * from './advisor/metrics.js';
 export * from './advisor/insight.js';
+export * from './advisor/diff.js';
+export * from './advisor/proposal.js';
 
 export const PACKAGE_NAME = '@conductor/shared';
 

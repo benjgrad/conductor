@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { QuestionOptionsSchema } from '../protocol/question-options.js';
 import {
   CommandKindSchema,
   InputRequestKindSchema,
@@ -18,7 +19,6 @@ import {
 import { AgentTransitionOptionSchema } from '../workflow/transition-rules.js';
 import { McpPolicySchema } from '../workflow/mcp.js';
 import { RepoChecksSchema } from '../workflow/repo-checks.js';
-import { ProposedTicketSchema } from './proposals.js';
 import { GitShaSchema, PR_FILES_MAX, PrFilePathSchema, PrUrlSchema } from '../protocol/actions.js';
 
 // FSM engine contract (05). `apply()` is pure: no clock (pass `now`), no ids, no I/O.
@@ -80,6 +80,11 @@ export const ConditionStatusSchema = z.object({
   /** Evidence for the human (a failing check's name, "gh not available: …"); null if none. */
   detail: z.string().nullable(),
   checked_at: IsoDateTimeSchema.nullable(),
+  /**
+   * The daemon's last answer (`met` / `pending` / `failed` / `unsupported`), kept while `status` is
+   * `running` (which otherwise hides it). Absent before the first answer and on older rows.
+   */
+  answer: z.enum(['met', 'pending', 'failed', 'unsupported']).optional(),
 });
 export type ConditionStatus = z.infer<typeof ConditionStatusSchema>;
 
@@ -95,7 +100,8 @@ export type ConditionStatus = z.infer<typeof ConditionStatusSchema>;
  * While it is set, `workflow_state` is a synthetic label (`reviewStateLabel` / `entryStateLabel` /
  * `moveStateLabel`) that names no workflow state: the timeout sweep keys on it, and events meant
  * for a real state are ignored. The board shows the card in its source column (`from`) with a
- * `checking` badge and `pending` checklist.
+ * `checking` badge and `pending` checklist, except a move waiting only on PR approvals, which shows
+ * in the first event column (`awaitingApprovalOnly`).
  * Persisted inside the `session.context` jsonb under STEP_CONTEXT_KEY (no migration; the legacy
  * ADR-0009 key REVIEW_CONTEXT_KEY is still read); `toSnapshot` lifts it out. Every field added
  * after M1 has a default, so older rows parse.
@@ -344,8 +350,15 @@ export const EngineEventSchema = z.discriminatedUnion('type', [
     /** ADR-0011: why; the question for a `question: true` transition. Absent ≡ null. */
     reason: z.string().nullable().optional(),
   }),
-  /** D `ask_user`: outcome `ask_user`, input_request kind `agent_question`. */
-  z.object({ type: z.literal('agent.ask_user'), question: z.string() }),
+  /**
+   * D `ask_user`: outcome `ask_user`, input_request kind `agent_question`. `options` (Questions
+   * UX): the agent's choices, copied onto that input_request.
+   */
+  z.object({
+    type: z.literal('agent.ask_user'),
+    question: z.string(),
+    options: QuestionOptionsSchema.optional(),
+  }),
   /**
    * D `no_outcome` (U-028, ADR-0005 addendum): two turns in a row ended without complete_state or
    * ask_user (the second one after the daemon's nudge). Routed like `agent.ask_user` (outcome
@@ -663,6 +676,8 @@ export const EffectSchema = z.discriminatedUnion('type', [
     kind: InputRequestKindSchema,
     question: z.string(),
     return_to: z.string().nullable(),
+    /** Questions UX: an agent question's clickable options (absent: none). */
+    options: QuestionOptionsSchema.optional(),
   }),
   /** Internal: (re)arm or clear the timeout sweep for the current state. */
   z.object({
@@ -684,6 +699,11 @@ export const EffectSchema = z.discriminatedUnion('type', [
     /** ADR-0011: the agent's or human's reason, or the system's (e.g. "timed out"). */
     reason: z.string().nullable().optional(),
     actor: TransitionActorSchema.nullable().optional(),
+    /**
+     * The transition that led here has `notify: true` (its name): the wrapper writes a
+     * `transition.notified` board event and `push_transition` rows. Absent = no notification.
+     */
+    notify: z.string().optional(),
   }),
   /**
    * Internal: event row `conversation.reset` (audit). The Claude conversation `claude_session_id`
@@ -702,15 +722,6 @@ export const EffectSchema = z.discriminatedUnion('type', [
     type: z.literal('session_status'),
     from: SessionStatusSchema,
     to: SessionStatusSchema,
-  }),
-  /**
-   * ADR-0034, internal: INSERT `ticket_proposal` rows (the agent's follow-up tickets from a
-   * `complete_state` of `state`, whose `follow_ups` is on), for a human to accept or dismiss.
-   */
-  z.object({
-    type: z.literal('ticket_proposals'),
-    state: z.string(),
-    proposals: z.array(ProposedTicketSchema).min(1),
   }),
   /** Internal: UPDATE ticket.status (e.g. done/failed on terminal, ready on a refused start_session). */
   z.object({ type: z.literal('ticket_status'), to: TicketStatusSchema }),

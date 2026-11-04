@@ -22,6 +22,30 @@ import { MachineDtoSchema } from './rest.js';
 
 const roundTrip = (v: unknown): unknown => JSON.parse(JSON.stringify(v));
 
+describe('MachineRow.update_alerts (M2-T18b)', () => {
+  const row = Object.values(MACHINE_ROW_FIXTURES)[0]!;
+  const alert = {
+    kind: 'update_failed',
+    version: '0.3.0+abc1234',
+    stage: 'trial',
+    error: 'exited 1 twice',
+    at: '2026-11-03T12:00:00.000Z',
+  };
+
+  it('is optional, and parses when set', () => {
+    expect(MachineRowSchema.parse(row).update_alerts).toBeUndefined();
+    expect(MachineRowSchema.parse({ ...row, update_alerts: [alert] }).update_alerts).toEqual([
+      alert,
+    ]);
+  });
+
+  it('refuses a bad stage', () => {
+    expect(
+      MachineRowSchema.safeParse({ ...row, update_alerts: [{ ...alert, stage: 'x' }] }).success,
+    ).toBe(false);
+  });
+});
+
 describe('machines DTOs', () => {
   it('every machines fixture parses', () => {
     expect(EnrollRequestSchema.parse(ENROLL_REQUEST_FIXTURE)).toEqual(ENROLL_REQUEST_FIXTURE);

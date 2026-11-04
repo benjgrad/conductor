@@ -10,8 +10,10 @@
 //!
 //! TS defers each step to a microtask. Here each session has a FIFO step queue drained by one
 //! spawned tokio task, so steps run in the order they were queued whatever the runtime, and
-//! [`FakeDriverSession::idle`] waits until the queue is empty (the TS tests' `flush()`). Attach
-//! listeners right after `start()`. Needs a tokio runtime.
+//! [`FakeDriverSession::idle`] waits until the queue is empty (the TS tests' `flush()`). The task
+//! may run on another thread before the caller attaches a listener, so, as `CliDriverSession`
+//! does, events emitted before the first listener are held and handed to it when it is attached
+//! (MR-T12: the daemon core runs on the multi-threaded runtime). Needs a tokio runtime.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
@@ -22,7 +24,8 @@ use tokio::sync::Notify;
 
 use crate::claude::driver::{
     ClaudeDriver, DriverError, DriverEvent, DriverListener, DriverSession, DriverStartOptions,
-    ListenerId, Listeners, OutputStream, PermissionDecision, PermissionResolution, Usage,
+    ListenerId, Listeners, OutputStream, PermissionDecision, PermissionResolution, QuestionOptions,
+    Usage,
 };
 use crate::claude::outcome_server::{
     PERMISSION_SESSION_ENDED, PermissionReply, iso_string, permission_reply, refuse_transition,
@@ -32,7 +35,8 @@ use crate::claude::outcome_server::{
 #[derive(Clone, Debug, PartialEq)]
 pub enum FakeTurnAction {
     Say(String),
-    AskUser(String),
+    /// Questions UX: the question and the options the outcome server would forward.
+    AskUser(String, Option<QuestionOptions>),
     /// ADR-0011: `transition` / `reason` as the agent names them. With `opts.transitions`, the
     /// first unknown name is refused like the outcome server does (a debug line, not emitted).
     CompleteState {
@@ -76,7 +80,12 @@ impl FakeTurnAction {
     }
 
     pub fn ask_user(question: impl Into<String>) -> Self {
-        FakeTurnAction::AskUser(question.into())
+        FakeTurnAction::AskUser(question.into(), None)
+    }
+
+    /// Questions UX: `ask_user` with (already bounded) options.
+    pub fn ask_user_with_options(question: impl Into<String>, options: QuestionOptions) -> Self {
+        FakeTurnAction::AskUser(question.into(), Some(options))
     }
 
     pub fn crash(code: Option<i32>) -> Self {
@@ -244,6 +253,8 @@ struct State {
     nudged: bool,
     steps: VecDeque<Step>,
     pumping: bool,
+    /// Events emitted before the first listener; None once one is attached.
+    pending: Option<Vec<DriverEvent>>,
 }
 
 /// `FakeDriverSession`.
@@ -254,6 +265,9 @@ pub struct FakeDriverSession {
     track: Arc<Mutex<Track>>,
     state: Mutex<State>,
     listeners: Listeners,
+    /// Serialises deliveries (the pump's and the first listener's backlog), so listeners see
+    /// events in order. Taken before `state`, never the other way round.
+    delivery: Mutex<()>,
     idle: Notify,
     /// The `Arc` this session lives in (`start` returns it), for the queue's spawned task.
     this: Weak<FakeDriverSession>,
@@ -269,8 +283,12 @@ impl FakeDriverSession {
             claude_session_id: opts.claude_session_id.clone(),
             script,
             track,
-            state: Mutex::new(State::default()),
+            state: Mutex::new(State {
+                pending: Some(Vec::new()),
+                ..State::default()
+            }),
             listeners: Listeners::default(),
+            delivery: Mutex::new(()),
             idle: Notify::new(),
             this: this.clone(),
             opts,
@@ -380,11 +398,18 @@ impl FakeDriverSession {
                     }
                 }
             };
+            let _order = lock(&self.delivery);
             let out = {
                 let mut s = self.st();
                 let mut out = Vec::new();
                 self.run_step(&mut s, step, &mut out);
-                out
+                match s.pending.as_mut() {
+                    Some(held) => {
+                        held.extend(out);
+                        continue;
+                    }
+                    None => out,
+                }
             };
             for ev in &out {
                 self.listeners.emit(ev);
@@ -545,9 +570,9 @@ impl FakeDriverSession {
                 );
             }
             FakeTurnAction::Emit(ev) => Self::emit(s, out, ev),
-            FakeTurnAction::AskUser(question) => {
+            FakeTurnAction::AskUser(question, options) => {
                 s.ask_pending = true;
-                Self::emit(s, out, DriverEvent::AskUser { question });
+                Self::emit(s, out, DriverEvent::AskUser { question, options });
             }
             FakeTurnAction::CompleteState {
                 result,
@@ -608,7 +633,21 @@ impl DriverSession for FakeDriverSession {
     }
 
     fn on(&self, listener: DriverListener) -> ListenerId {
-        self.listeners.add(listener)
+        // Only the first attach has a backlog; later ones (maybe from inside a listener, which
+        // runs under `delivery`) must not take the delivery lock.
+        if self.st().pending.is_none() {
+            return self.listeners.add(listener);
+        }
+        let _order = lock(&self.delivery);
+        let (id, backlog) = {
+            let mut s = self.st();
+            let backlog = s.pending.take().unwrap_or_default();
+            (self.listeners.add(listener.clone()), backlog)
+        };
+        for ev in &backlog {
+            listener(ev);
+        }
+        id
     }
 
     fn off(&self, id: ListenerId) {

@@ -5,6 +5,7 @@ import { BOARD_CARD_NEEDS_INPUT_FIXTURE, BOARD_SSE_FIXTURES } from './fixtures.j
 import {
   BoardCardSchema,
   BoardResponseSchema,
+  gateStepSource,
   InputRequestDtoSchema,
   isGateStepLabel,
   toInputRequestDto,
@@ -76,6 +77,15 @@ describe('toInputRequestDto origin (UX-4)', () => {
     expect(isGateStepLabel('needs_input')).toBe(false);
     expect(isGateStepLabel('implementing')).toBe(false);
   });
+
+  it('gateStepSource reads the source state out of the engine labels', () => {
+    expect(gateStepSource(moveStateLabel('implementing', 'waiting_external', 'x'))).toBe(
+      'implementing',
+    );
+    expect(gateStepSource(entryStateLabel('a', 'b'))).toBe('a');
+    expect(gateStepSource(reviewStateLabel('a', 'b'))).toBe('a');
+    expect(gateStepSource('implementing')).toBeNull();
+  });
 });
 
 describe('old payloads without the origin fields still parse (UX-4)', () => {
@@ -93,5 +103,27 @@ describe('old payloads without the origin fields still parse (UX-4)', () => {
     expect(BoardSseEventSchema.parse(BOARD_SSE_FIXTURES['input.requested'])).toEqual(
       BOARD_SSE_FIXTURES['input.requested'],
     );
+  });
+});
+
+describe('toInputRequestDto options (Questions UX)', () => {
+  const options = {
+    multi_select: false,
+    items: [{ label: 'Postgres', description: 'recommended' }, { label: 'SQLite' }],
+  };
+
+  it('passes valid options through', () => {
+    const dto = toInputRequestDto({ ...row, options });
+    expect(dto.options).toEqual(options);
+    expect(InputRequestDtoSchema.parse(dto)).toEqual(dto);
+  });
+
+  it('leaves out absent, null and malformed options', () => {
+    expect(toInputRequestDto(row)).not.toHaveProperty('options');
+    expect(toInputRequestDto({ ...row, options: null })).not.toHaveProperty('options');
+    expect(
+      toInputRequestDto({ ...row, options: { multi_select: false, items: [{ label: 'a' }] } }),
+    ).not.toHaveProperty('options');
+    expect(toInputRequestDto({ ...row, options: 'nope' })).not.toHaveProperty('options');
   });
 });

@@ -375,12 +375,10 @@ describe('ticket editability per column', () => {
 });
 
 describe('follow-up proposals per agent column (ADR-0034)', () => {
-  it('turns them on with defaults, edits max and guidance, and off removes the key', () => {
+  it('on by default for the built-in templates; tunes max and guidance; off is stored', () => {
     const def = CONDUCTOR_V2_DRAFT_DEF;
-    expect(followUpsOf(def, 'implementing')).toBeNull();
-    const on = setFollowUps(def, 'implementing', {});
-    expect(on.states.implementing).toMatchObject({ follow_ups: { enabled: true, max: 3 } });
-    const tuned = setFollowUps(setFollowUps(on, 'implementing', { max: 5 }), 'implementing', {
+    expect(followUpsOf(def, 'implementing')).toEqual({ enabled: true, max: 3 });
+    const tuned = setFollowUps(setFollowUps(def, 'implementing', { max: 5 }), 'implementing', {
       guidance: 'Only test debt',
     });
     expect(followUpsOf(tuned, 'implementing')).toEqual({
@@ -392,11 +390,23 @@ describe('follow-up proposals per agent column (ADR-0034)', () => {
     expect(
       followUpsOf(setFollowUps(tuned, 'implementing', { guidance: ' ' }), 'implementing'),
     ).toEqual({ enabled: true, max: 5 });
-    expect('follow_ups' in setFollowUps(tuned, 'implementing', null).states.implementing!).toBe(
-      false,
-    );
+    // Off on a built-in template is stored, since unset means on there.
+    const off = setFollowUps(tuned, 'implementing', null);
+    expect(off.states.implementing).toMatchObject({ follow_ups: { enabled: false } });
+    expect(followUpsOf(off, 'implementing')).toBeNull();
     // Non-agent columns are left alone, and the strict schema accepts the field.
     expect(setFollowUps(def, 'needs_input', {})).toEqual(def);
     expect(WorkflowDefinitionSchema.safeParse(tuned).success).toBe(true);
+  });
+
+  it('off by default for a custom prompt, and off removes the key there', () => {
+    const def = structuredClone(CONDUCTOR_V2_DRAFT_DEF);
+    const impl = def.states.implementing!;
+    if (impl.type !== 'agent') throw new Error('implementing');
+    impl.prompt = 'Do the thing.';
+    expect(followUpsOf(def, 'implementing')).toBeNull();
+    const on = setFollowUps(def, 'implementing', {});
+    expect(on.states.implementing).toMatchObject({ follow_ups: { enabled: true, max: 3 } });
+    expect('follow_ups' in setFollowUps(on, 'implementing', null).states.implementing!).toBe(false);
   });
 });

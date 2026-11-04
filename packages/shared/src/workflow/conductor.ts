@@ -350,31 +350,6 @@ function v4From(v3: WorkflowDefinitionInput): WorkflowDefinitionInput {
 /** CONDUCTOR_V4 parsed (defaults applied). */
 export const CONDUCTOR_V4_DEF: WorkflowDefinition = WorkflowDefinitionSchema.parse(CONDUCTOR_V4);
 
-// ---------------------------------------------------------------- conductor v5 (ADR-0034)
-
-/** v5: how many follow-up tickets Implementing's agent may propose. */
-export const V5_FOLLOW_UPS_MAX = 3;
-
-/**
- * ADR-0034 (Ben, 2026-11-03): v4 with follow-up proposals on in Implementing: its agent may add
- * up to 3 `proposed_tickets` to its result, which the user accepts or dismisses one by one in
- * Needs input. Encouraged, never required. A copy of docs/design/workflows/conductor.v5.json (a
- * test checks they are equal); seeded after an unedited shipped v4.
- */
-export const CONDUCTOR_V5: WorkflowDefinitionInput = v5From(CONDUCTOR_V4);
-
-function v5From(v4: WorkflowDefinitionInput): WorkflowDefinitionInput {
-  const def = structuredClone(v4) as WorkflowDefinitionInput & {
-    states: Record<string, { follow_ups?: { enabled: boolean; max: number } }>;
-  };
-  def.version = 5;
-  def.states.implementing!.follow_ups = { enabled: true, max: V5_FOLLOW_UPS_MAX };
-  return def;
-}
-
-/** CONDUCTOR_V5 parsed (defaults applied). */
-export const CONDUCTOR_V5_DEF: WorkflowDefinition = WorkflowDefinitionSchema.parse(CONDUCTOR_V5);
-
 // ---------------------------------------------------------------- board columns (ADR-0010)
 
 /** The implicit first column: sessions no machine has claimed yet. */

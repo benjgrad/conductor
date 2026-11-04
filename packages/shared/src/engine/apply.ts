@@ -15,6 +15,7 @@ import {
   type AgentState,
   type EntryCheck,
   type RequirementsGate,
+  type Transition,
   type TransitionAction,
   type WorkflowDefinition,
   type WorkflowState,
@@ -96,8 +97,8 @@ import {
   type QaState,
 } from './qa.js';
 import { applySpend } from './spend.js';
-import { followUpsOf, parseProposedTickets, withoutProposals } from './proposals.js';
 import { NO_CONVERSATION_REASON } from '../protocol/ws.js';
+import type { QuestionOptions } from '../protocol/question-options.js';
 import {
   ASK_USER,
   fallbackHumanState,
@@ -247,7 +248,7 @@ function handle(st: Step, e: EngineEvent): ApplyIgnoreReason | null {
     case 'agent.complete_state':
       return onComplete(st, e);
     case 'agent.ask_user':
-      return onAskUser(st, e.question);
+      return onAskUser(st, e.question, e.options);
     case 'agent.no_outcome':
       return onAskUser(st, withOutput(NO_OUTCOME_QUESTION, e.last_output));
     case 'agent.exited':
@@ -462,15 +463,7 @@ function onComplete(
   if (state?.type !== 'agent' || name === null) return 'unexpected_event';
   if (!AGENT_ACTIVE.has(st.s.status)) return 'wrong_status';
   st.s.pending_answer = null;
-  // ADR-0034: follow-up proposals are recorded whatever the outcome (a question or a failed
-  // result check included), and never reach `context.<state>`. Off: the result is untouched.
-  let result = e.result;
-  const followUps = followUpsOf(state);
-  if (followUps !== null) {
-    const { proposals } = parseProposedTickets(result, followUps);
-    if (proposals.length > 0) st.emit({ type: 'ticket_proposals', state: name, proposals });
-    result = withoutProposals(result);
-  }
+  const result = e.result;
   const reason = e.reason ?? null;
   const plan = planAgentTransition(st.def, name, ticketKind(st.s), e.transition, reason);
   if (plan.type === 'ask_user') {
@@ -597,6 +590,7 @@ function onHumanTransition(
     outcome: plan.name,
     info: { detail },
     move,
+    ...notifyFor(plan.name, plan.transition),
   });
   return null;
 }
@@ -750,11 +744,15 @@ function withReason(text: string, reason: string | null): string {
 export const NO_OUTCOME_QUESTION =
   'Agent stopped without reporting an outcome; last output attached';
 
-function onAskUser(st: Step, question: string): ApplyIgnoreReason | null {
+function onAskUser(
+  st: Step,
+  question: string,
+  options?: QuestionOptions,
+): ApplyIgnoreReason | null {
   if (st.state?.type !== 'agent') return 'unexpected_event';
   if (!AGENT_ACTIVE.has(st.s.status)) return 'wrong_status';
   st.s.pending_answer = null;
-  takeOutcome(st, 'ask_user', { question });
+  takeOutcome(st, 'ask_user', { question, ...(options !== undefined ? { options } : {}) });
   return null;
 }
 
@@ -940,6 +938,8 @@ interface OutcomeInfo {
   output?: string;
   /** The agent's question (`ask_user`). */
   question?: string;
+  /** Questions UX: the choices the agent attached to its `ask_user` question. */
+  options?: QuestionOptions;
   /** The agent's `complete_state` result (`done`), for a requirements reviewer's prompt. */
   result?: JsonObject;
 }
@@ -967,13 +967,26 @@ function takeOutcome(
   const kind = opts.kind ?? kindForOutcome(outcome);
   const question = questionFor(from, outcome, kind, info);
   const move = opts.move !== undefined ? { move: opts.move } : {};
+  const notify = notifyFor(outcome, t);
+  // Questions UX: only the agent's own question carries its options.
+  const options =
+    kind === 'agent_question' && info.options !== undefined ? { options: info.options } : {};
 
   if (t === undefined) {
-    toFallbackHuman(st, kind, question);
+    toFallbackHuman(st, kind, question, info.options);
     return;
   }
   if (typeof t === 'string') {
-    enter(st, t, { ...NO_ROUTE, kind, question, attachment: null, outcome, info, ...move });
+    enter(st, t, {
+      ...NO_ROUTE,
+      kind,
+      question,
+      ...options,
+      attachment: null,
+      outcome,
+      info,
+      ...move,
+    });
     return;
   }
   const gate = t.requirements;
@@ -1005,7 +1018,17 @@ function takeOutcome(
       step(null);
       return;
     }
-    enter(st, t.goto, { ...NO_ROUTE, kind, question, attachment: null, outcome, info, ...move });
+    enter(st, t.goto, {
+      ...NO_ROUTE,
+      kind,
+      question,
+      ...options,
+      attachment: null,
+      outcome,
+      info,
+      ...move,
+      ...notify,
+    });
     return;
   }
   const key = `${from}->${t.goto}`;
@@ -1021,7 +1044,17 @@ function takeOutcome(
       step(attachment);
       return;
     }
-    enter(st, t.goto, { ...NO_ROUTE, kind, question, attachment, outcome, info, ...move });
+    enter(st, t.goto, {
+      ...NO_ROUTE,
+      kind,
+      question,
+      ...options,
+      attachment,
+      outcome,
+      info,
+      ...move,
+      ...notify,
+    });
     return;
   }
   const fixes = t.attach === 'result' ? fixesLines(info.result) : [];
@@ -1037,6 +1070,7 @@ function takeOutcome(
       question: exhausted,
       outcome,
       info,
+      ...notify,
     });
   } else {
     toFallbackHuman(st, 'retries_exhausted', exhausted);
@@ -1072,13 +1106,24 @@ function withOutput(text: string, output: string | undefined): string {
   return output ? `${text}\n\nLast output:\n${output}` : text;
 }
 
-function toFallbackHuman(st: Step, kind: InputRequestKind, question: string): void {
+function toFallbackHuman(
+  st: Step,
+  kind: InputRequestKind,
+  question: string,
+  options?: QuestionOptions,
+): void {
   const target = fallbackHumanState(st.def);
   if (target === null) {
     failSession(st, 'failed', `no human state to route to: ${question}`);
     return;
   }
-  enter(st, target, { ...NO_ROUTE, kind, question, skipEntry: true });
+  enter(st, target, {
+    ...NO_ROUTE,
+    kind,
+    question,
+    ...(kind === 'agent_question' && options !== undefined ? { options } : {}),
+    skipEntry: true,
+  });
 }
 
 // ---------------------------------------------------------------- gate steps (ADR-0009, ADR-0010)
@@ -1359,6 +1404,8 @@ function passStep(st: Step): void {
     auditFrom: label,
     skipEntry: r.kind === 'entry',
     outcome: r.outcome,
+    // An entry step (or ADR-0009 review) ran for the transition `r.outcome` out of `r.from`.
+    ...notifyFor(r.outcome, onOf(st.def, r.from)?.[r.outcome]),
   });
 }
 
@@ -1391,6 +1438,7 @@ function passMove(st: Step, r: GateStep, label: string): void {
     auditFrom: label,
     outcome: name,
     move,
+    ...notifyFor(name, raw),
   });
 }
 
@@ -2218,6 +2266,8 @@ interface EnterOpts {
   /** input_request kind/question if the target is a human state. */
   kind: InputRequestKind;
   question: string;
+  /** Questions UX: the agent question's options (only with kind `agent_question`). */
+  options?: QuestionOptions;
   /** `attach: output` for an agent target. */
   attachment: PromptAttachment | null;
   /** input.provided: the answer to deliver (send_input or the start_session prompt). */
@@ -2248,6 +2298,17 @@ interface EnterOpts {
   move?: MoveRecord;
   /** U-068: no deadline in the target (a lost-machine park: parked time doesn't count). */
   noDeadline?: boolean;
+  /**
+   * The name of the transition that led here when it has `notify: true` (`notifyFor`): recorded
+   * as `state_entered.notify`. Lost when `enter` runs an entry step instead; `passStep` finds it
+   * again from the step's source state and outcome.
+   */
+  notify?: string;
+}
+
+/** `{notify: name}` when the transition `name` has `notify: true`, else `{}` (an EnterOpts part). */
+function notifyFor(name: string, t: Transition | undefined): { notify?: string } {
+  return t !== undefined && typeof t === 'object' && t.notify === true ? { notify: name } : {};
 }
 
 /** The ADR-0011 fields of a `state_entered` effect: only for a named transition (else legacy shape). */
@@ -2304,6 +2365,7 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
     to: target,
     visit,
     ...moveFields(opts.move),
+    ...(opts.notify !== undefined ? { notify: opts.notify } : {}),
   });
 
   // 10-contracts §Pending answer: cleared when apply enters a different state, unless this apply
@@ -2375,6 +2437,7 @@ function enter(st: Step, target: string, opts: EnterOpts): void {
         kind: opts.kind,
         question: opts.question || `Waiting in "${target}".`,
         return_to: from,
+        ...(opts.options !== undefined ? { options: opts.options } : {}),
       });
       st.setStatus('needs_input');
       return;

@@ -19,7 +19,6 @@ import {
   type TicketStatus,
 } from '../domain.js';
 import { machineLostMarkOf } from '../engine/machine-lost.js';
-import { TicketProposalDtoSchema } from './proposals.js';
 import { PR_CONTEXT_KEY, REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
 import {
   ConditionStatusValueSchema,
@@ -34,6 +33,7 @@ import {
 } from '../engine/types.js';
 import { QaResultSchema, QaVerdictSchema } from '../engine/qa.types.js';
 import { GitShaSchema, PR_FILES_MAX, PrFilePathSchema, PrUrlSchema } from '../protocol/actions.js';
+import { QuestionOptionsSchema } from '../protocol/question-options.js';
 import { QUEUED_COLUMN_ID, stateTitle, type BoardColumnInfo } from '../workflow/conductor.js';
 import { REPO_CHECKS_MAX } from '../workflow/repo-checks.js';
 import {
@@ -59,6 +59,7 @@ import {
   type HumanTransitionOption,
 } from '../workflow/transition-rules.js';
 import { OutputChunkSchema } from './output.js';
+import { TicketProposalSchema } from './proposals.js';
 import {
   PERMISSION_MESSAGE_MAX,
   PERMISSION_RULE_MAX,
@@ -93,6 +94,10 @@ export const API_PATHS = {
   tickets: '/api/tickets',
   /** GET → TicketDetail; PATCH UpdateTicketRequest → TicketDetail (ticket_editable per column). */
   ticket: (id: string) => `/api/tickets/${id}`,
+  /** POST ApproveProposalRequest → ApproveProposalResponse (201 created, 200 already approved). */
+  ticketProposalApprove: (id: string) => `/api/tickets/${id}/proposals/approve`,
+  /** POST DismissProposalRequest → TicketProposal. */
+  ticketProposalDismiss: (id: string) => `/api/tickets/${id}/proposals/dismiss`,
   workflows: '/api/workflows',
   workflow: (id: string) => `/api/workflows/${id}`,
   machines: '/api/machines',
@@ -111,10 +116,16 @@ export const API_PATHS = {
   schedule: (id: string) => `/api/schedules/${id}`,
   /** ADR-0032: POST RunScheduleRequest → 201 RunScheduleResponse (a run now). */
   scheduleRun: (id: string) => `/api/schedules/${id}/run`,
-  /** ADR-0034: POST AcceptProposalRequest → 201 AcceptProposalResponse (queue a proposed ticket). */
-  proposalAccept: (id: string) => `/api/proposals/${id}/accept`,
-  /** ADR-0034: POST DismissProposalRequest → TicketProposalDto. */
-  proposalDismiss: (id: string) => `/api/proposals/${id}/dismiss`,
+  /** ADR-0033 P3: GET `?status=&cursor=` → ChangeProposalListResponse. */
+  changeProposals: '/api/change-proposals',
+  /** ADR-0033 P3: GET → ChangeProposalDetail. */
+  changeProposal: (id: string) => `/api/change-proposals/${id}`,
+  /** ADR-0033 P3: POST `{}` → ChangeProposalDetail (applied), or 403/409. */
+  changeProposalApply: (id: string) => `/api/change-proposals/${id}/apply`,
+  /** ADR-0033 P3: POST `{}` → ChangeProposalDetail (rejected). */
+  changeProposalReject: (id: string) => `/api/change-proposals/${id}/reject`,
+  /** ADR-0033 P3: POST `{}` → ChangeProposalDetail (with `review`). */
+  changeProposalReview: (id: string) => `/api/change-proposals/${id}/review`,
   boardStream: '/api/stream/board',
   sessionOutputStream: (id: string) => `/api/stream/sessions/${id}/output`,
   /** Daemon ↔ orchestrator WebSocket (03), served on the same HTTP server as the API. */
@@ -291,12 +302,30 @@ export function stepOfContext(context: Record<string, unknown>): GateStep | null
 }
 
 /**
+ * A move step in its conditions phase whose only unmet conditions are `pr_approvals`: the PR's
+ * checks are green and it waits on reviewers, often for days. The board shows it in Waiting
+ * external, not in its source column (display only; the FSM is unchanged).
+ */
+export function awaitingApprovalOnly(step: GateStep): boolean {
+  if (step.kind !== 'move' || step.phase !== 'conditions') return false;
+  // Each poll marks every condition `running`; judge it by its last answer so the card doesn't
+  // jump back to its source column while an evaluation is in flight.
+  const open = step.conditions.filter((c) => {
+    const status = c.status === 'running' ? (c.answer ?? 'todo') : c.status;
+    return status !== 'met' && status !== 'disabled';
+  });
+  return open.length > 0 && open.every((c) => c.type === 'pr_approvals');
+}
+
+/**
  * A card's column, badges and `checking` (ADR-0010 §Board, the one rule; 10-contracts):
  * - ticket `cancelled`, or session `failed` / `lost` → the terminal column (Done), badged
  *   `cancelled` / `failed` / `lost`;
  * - no session yet, or no state yet (status `queued` / `assigned` before the first state) → Queued;
  * - in a gate step (entry requirements, or an ADR-0009 review) → its source column, badged
  *   `checking`, with `checking` = `checkingOfStep` (UX-5: label and items, not just the phase);
+ *   a move whose PR waits only on approvals (`awaitingApprovalOnly`) → the first event column
+ *   (Waiting external) instead, same badge;
  * - otherwise its `workflow_state` (`columnForState`).
  * `waiting_for_build_slot` is added whenever the session has it.
  */
@@ -319,8 +348,11 @@ export function placeCard(
   }
   const step = stepOfContext(session.context);
   if (step !== null) {
+    const waiting = awaitingApprovalOnly(step)
+      ? columns.find((c) => c.kind === 'event')?.id
+      : undefined;
     return {
-      column: columnForState(columns, def, step.from),
+      column: waiting ?? columnForState(columns, def, step.from),
       badges: [...badges, 'checking'],
       checking: checkingOfStep(def, step),
     };
@@ -363,6 +395,11 @@ export const InputRequestDtoSchema = z.object({
    * failed. Absent ≡ false.
    */
   step_failed: z.boolean().optional(),
+  /**
+   * Questions UX (06 §Agent question options): the clickable choices the agent attached to its
+   * `ask_user` question. Absent or null ≡ none (type an answer).
+   */
+  options: QuestionOptionsSchema.nullable().optional(),
 });
 export type InputRequestDto = z.infer<typeof InputRequestDtoSchema>;
 
@@ -600,6 +637,11 @@ export const BoardCardSchema = z.object({
   agent_name: z.string().nullable().optional(),
   /** ADR-0032: the schedule that created the ticket; null / absent ≡ none. */
   schedule: TicketScheduleRefSchema.nullable().optional(),
+  /**
+   * 06 §Proposed tickets: on a `needs_input` card, how many follow-up tickets the agent proposed
+   * that nobody approved or dismissed yet; absent ≡ none (and in every other column).
+   */
+  proposals_pending: z.number().int().positive().optional(),
 });
 export type BoardCard = z.infer<typeof BoardCardSchema>;
 
@@ -753,10 +795,10 @@ export const SessionDetailSchema = z.object({
    */
   ticket_editable: z.boolean().optional(),
   /**
-   * ADR-0034: the follow-up tickets the ticket's agents proposed (any status, oldest first, the
-   * newest SESSION_PROPOSALS_LIMIT). Absent (older servers) ≡ [].
+   * 06 §Proposed tickets: the follow-up tickets the session's agent states proposed, with their
+   * decision (pending, approved, dismissed). Absent (older servers) ≡ [].
    */
-  proposed_tickets: z.array(TicketProposalDtoSchema).optional(),
+  proposals: z.array(TicketProposalSchema).optional(),
 });
 export type SessionDetail = z.infer<typeof SessionDetailSchema>;
 
@@ -830,8 +872,16 @@ export type PushSubscribeRequest = z.infer<typeof PushSubscribeRequestSchema>;
 export const PushUnsubscribeRequestSchema = z.object({ endpoint: PushEndpointSchema });
 export type PushUnsubscribeRequest = z.infer<typeof PushUnsubscribeRequestSchema>;
 
-/** POST API_PATHS.pushTest → how many of the caller's subscriptions took the test push. */
-export const PushTestResponseSchema = z.object({ sent: z.number().int().nonnegative() });
+/**
+ * POST API_PATHS.pushTest → how many of the caller's subscriptions took the test push, how many
+ * failed, and why (`http_403 BadJwtToken`: the push service's reason, deduplicated; never an
+ * endpoint). `failed`/`errors` are optional so an older server's `{ sent }` still parses.
+ */
+export const PushTestResponseSchema = z.object({
+  sent: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative().optional(),
+  errors: z.array(z.string()).optional(),
+});
 export type PushTestResponse = z.infer<typeof PushTestResponseSchema>;
 
 /**
@@ -1018,6 +1068,10 @@ export const ApiErrorSchema = z.object({
       'ticket_not_editable',
       /** ADR-0032: a run now while the schedule's last run is still open, without `force` (409). */
       'previous_run_open',
+      /** ADR-0033 P3: applying a proposal that would remove or bypass a human approval (409). */
+      'approval_weakened',
+      /** ADR-0033 P3: applying or rejecting a proposal that is no longer `proposed` (409). */
+      'wrong_state',
     ]),
     message: z.string(),
     /** Validation details (zod issues / validator rule failures). */
@@ -1097,13 +1151,6 @@ export const TicketDtoSchema = z.object({
 });
 export type TicketDto = z.infer<typeof TicketDtoSchema>;
 
-/** ADR-0034: POST /api/proposals/:id/accept → 201: the accepted proposal and the new ticket. */
-export const AcceptProposalResponseSchema = z.object({
-  proposal: TicketProposalDtoSchema,
-  ticket: TicketDtoSchema,
-});
-export type AcceptProposalResponse = z.infer<typeof AcceptProposalResponseSchema>;
-
 /**
  * GET /api/tickets/:id (and the PATCH response): the ticket with where its card is. The session
  * is the ticket's latest (the board card's); null while queued with none. `editable` =
@@ -1117,8 +1164,17 @@ export const TicketDetailSchema = TicketDtoSchema.extend({
   /** The column's title, for messages ("the Implementing column…"). */
   column_title: z.string(),
   editable: z.boolean(),
+  /** 06 §Proposed tickets: as `SessionDetail.proposals` (the latest session's); absent ≡ []. */
+  proposals: z.array(TicketProposalSchema).optional(),
 });
 export type TicketDetail = z.infer<typeof TicketDetailSchema>;
+
+/** POST /api/tickets/:id/proposals/approve: the decided proposal and the ticket it created. */
+export const ApproveProposalResponseSchema = z.object({
+  proposal: TicketProposalSchema,
+  ticket: TicketDtoSchema,
+});
+export type ApproveProposalResponse = z.infer<typeof ApproveProposalResponseSchema>;
 
 /** The longest ticket body PATCH accepts. */
 export const TICKET_BODY_MAX = 100_000;
@@ -1425,6 +1481,8 @@ export interface InputRequestLike {
    */
   origin_transition?: string | null | undefined;
   origin_from?: string | null | undefined;
+  /** Questions UX: the `options` jsonb. Absent or null ≡ none; malformed ≡ none. */
+  options?: unknown;
 }
 
 /**
@@ -1433,6 +1491,17 @@ export interface InputRequestLike {
  */
 export function isGateStepLabel(label: string): boolean {
   return / \((entry|review|move: .+)\)$/.test(label);
+}
+
+/**
+ * The source state (`from`) named by a gate step's synthetic label, e.g. `implementing` for
+ * `implementing → waiting_external (move: ready_for_testing)`; null for any other label. The card's
+ * column is not always the source (`awaitingApprovalOnly`).
+ */
+export function gateStepSource(label: string): string | null {
+  if (!isGateStepLabel(label)) return null;
+  const i = label.indexOf(' → ');
+  return i > 0 ? label.slice(0, i) : null;
 }
 
 export function toInputRequestDto(row: InputRequestLike): InputRequestDto {
@@ -1446,6 +1515,10 @@ export function toInputRequestDto(row: InputRequestLike): InputRequestDto {
     answered_by: row.answered_by,
     answered_at: row.answered_at === null ? null : iso(row.answered_at),
   };
+  if (row.options !== undefined && row.options !== null) {
+    const parsed = QuestionOptionsSchema.safeParse(row.options);
+    if (parsed.success) dto.options = parsed.data;
+  }
   if (row.origin_transition === undefined && row.origin_from === undefined) return dto;
   const transition = row.origin_transition ?? null;
   const from = row.origin_from ?? null;

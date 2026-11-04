@@ -9,7 +9,16 @@ import { loadConfig } from '../config.js';
 import { Daemon } from '../daemon.js';
 import { mkdirPrivate } from '../platform/index.js';
 import { FakeOrchestrator } from '../test-support/fake-orchestrator.js';
-import { inventoryHash, InventoryReporter, watchSighup, type InventoryScan } from './report.js';
+import {
+  inventoryHash,
+  inventoryPayload,
+  InventoryReporter,
+  inventorySummary,
+  onceLog,
+  repoWarnings,
+  watchSighup,
+  type InventoryScan,
+} from './report.js';
 
 // M2-T10 acceptance: `inventory` is sent after `registered`, not re-sent when unchanged, and
 // re-sent on SIGHUP after a change.
@@ -38,6 +47,75 @@ describe('inventoryHash', () => {
         capabilities: [GH, SLACK],
       }),
     ).not.toBe(h);
+  });
+});
+
+describe('inventory log lines (why no tickets reach a machine)', () => {
+  it('repoWarnings: no roots, no repos, or a repo without a routable remote', () => {
+    expect(repoWarnings([], [])).toEqual([
+      'inventory: no repo roots configured, so no tickets can be routed here; run: conductor-daemon config roots <dir>',
+    ]);
+    expect(repoWarnings(['/a', '/b'], [])).toEqual([
+      'inventory: no git repos found under /a, /b (searched 6 levels deep)',
+    ]);
+    const local = { ...REPO, path: '/Users/ben/code/local', remote: null };
+    expect(repoWarnings(['/Users/ben/code'], [REPO, local])).toEqual([
+      "inventory: /Users/ben/code/local has no usable origin remote; tickets can't be routed to it",
+    ]);
+  });
+
+  it('inventorySummary names the routable remotes, de-duplicated and cut at 10', () => {
+    const local = { ...REPO, path: '/l', remote: null };
+    const twin = { ...REPO, path: '/twin' };
+    expect(
+      inventorySummary(inventoryPayload({ repos: [REPO, twin, local], capabilities: [GH] })),
+    ).toBe('inventory: sent 3 repos (1 routable: github.com/org/app) and 1 capabilities');
+    expect(inventorySummary(inventoryPayload({ repos: [], capabilities: [] }))).toBe(
+      'inventory: sent 0 repos (0 routable) and 0 capabilities',
+    );
+    const many = Array.from({ length: 12 }, (_, i) => ({
+      ...REPO,
+      path: `/r${String(i).padStart(2, '0')}`,
+      remote: `github.com/org/r${String(i).padStart(2, '0')}`,
+    }));
+    const line = inventorySummary(inventoryPayload({ repos: many, capabilities: [] }));
+    expect(line).toMatch(/^inventory: sent 12 repos \(12 routable: github\.com\/org\/r00, .*, …\)/);
+    expect(line).toContain('github.com/org/r09');
+    expect(line).not.toContain('github.com/org/r10');
+  });
+
+  it('onceLog prints each message once, and forgets everything at its cap', () => {
+    const lines: string[] = [];
+    const log = onceLog((m) => lines.push(m), 2);
+    log('a');
+    log('a');
+    log('b');
+    expect(lines).toEqual(['a', 'b']);
+    log('c'); // cap reached: forgets a and b
+    log('a');
+    expect(lines).toEqual(['a', 'b', 'c', 'a']);
+  });
+
+  it('the reporter logs the summary once per distinct inventory, not on every resend', async () => {
+    let scan: InventoryScan = { repos: [REPO], capabilities: [GH] };
+    const lines: string[] = [];
+    const r = new InventoryReporter({
+      scan: () => Promise.resolve(scan),
+      send: () => {},
+      intervalMs: 600_000,
+      log: (m) => lines.push(m),
+    });
+    await r.onRegistered();
+    r.onDisconnected();
+    await r.onRegistered(); // a reconnect re-sends the same inventory
+    expect(lines).toEqual([
+      'inventory: sent 1 repos (1 routable: github.com/org/app) and 1 capabilities',
+    ]);
+    scan = { repos: [REPO], capabilities: [GH, SLACK] };
+    await r.rescan();
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toContain('and 2 capabilities');
+    r.stop();
   });
 });
 

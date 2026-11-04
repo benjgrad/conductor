@@ -564,3 +564,23 @@ describe('checks run in a fresh checkout of one commit (Ben, 2026-10-26)', () =>
     expect(find(r.effects, 'run_cmd')!.checkout).toBeUndefined();
   });
 });
+
+describe('notify: true into a state with entry requirements', () => {
+  it('the entry step label never notifies; entering after it passes does', () => {
+    const def = conductorWith((raw) => {
+      raw.states.implementing.on.done = { goto: 'waiting_external', notify: true };
+    });
+    const h = implementing(def);
+    let r = h.advance(60).complete({ summary: 'added /health' });
+    expect(find(r.effects, 'state_entered')).toMatchObject({ to: LABEL });
+    expect(find(r.effects, 'state_entered')).not.toHaveProperty('notify');
+    h.cmdExit(0);
+    h.cmdExit(0);
+    r = action(h, { pr_url: PR });
+    expect(find(r.effects, 'state_entered')).toMatchObject({
+      from: LABEL,
+      to: 'waiting_external',
+      notify: 'done',
+    });
+  });
+});

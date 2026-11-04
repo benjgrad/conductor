@@ -42,8 +42,9 @@ import type {
   RepoChecksRow,
   TicketScheduleRow,
   SessionInsightRow,
-  TicketProposalRow,
+  ChangeProposalRow,
   SessionRow,
+  TicketProposalDecisionRow,
   Tables,
   TicketRow,
   WebSessionRow,
@@ -260,6 +261,7 @@ const input_request: ColumnSpec<InputRequestRow> = {
   answered_by: col(t, NULL),
   created_at: col('timestamptz', NN),
   answered_at: col('timestamptz', NULL),
+  options: col('jsonb', NULL),
 };
 const event: ColumnSpec<EventRow> = {
   id: col('int8', NN),
@@ -482,22 +484,39 @@ const session_insight: ColumnSpec<SessionInsightRow> = {
   insight: col('jsonb', NN),
   created_at: col('timestamptz', NN),
 };
-// ADR-0034: follow-up ticket proposals.
-const ticket_proposal: ColumnSpec<TicketProposalRow> = {
-  id: col('uuid', NN),
-  account_id: col('uuid', NN),
+// 06 §Proposed tickets: a person's decision on an agent-proposed follow-up ticket.
+const ticket_proposal_decision: ColumnSpec<TicketProposalDecisionRow> = {
   ticket_id: col('uuid', NN),
-  session_id: col('uuid', NN),
-  state: col(t, NN),
-  title: col(t, NN),
-  body: col(t, NN),
-  kind: col('ticket_kind', NULL),
-  why: col(t, NULL),
+  proposal_id: col(t, NN),
+  account_id: col('uuid', NN),
   status: col(t, NN),
   created_ticket_id: col('uuid', NULL),
+  decided_at: col('timestamptz', NN),
+};
+
+// ADR-0033 P3: change proposals.
+const change_proposal: ColumnSpec<ChangeProposalRow> = {
+  id: col('uuid', NN),
+  account_id: col('uuid', NN),
+  kind: col(t, NN),
+  status: col(t, NN),
+  title: col(t, NN),
+  payload: col('jsonb', NN),
+  base: col('jsonb', NN),
+  diff: col('jsonb', NN),
+  rationale: col(t, NN),
+  evidence: col('jsonb', NN),
+  expected_effect: col('jsonb', NN),
+  rollback: col(t, NN),
+  created_by: col(t, NULL),
+  created_at: col('timestamptz', NN),
   decided_by: col(t, NULL),
   decided_at: col('timestamptz', NULL),
-  created_at: col('timestamptz', NN),
+  applied_at: col('timestamptz', NULL),
+  applied_version: col('int4', NULL),
+  error: col(t, NULL),
+  review: col('jsonb', NULL),
+  reviewed_at: col('timestamptz', NULL),
 };
 const SCHEMA: Schema = {
   machine,
@@ -529,7 +548,8 @@ const SCHEMA: Schema = {
   ticket_schedule,
   assistant_job,
   session_insight,
-  ticket_proposal,
+  ticket_proposal_decision,
+  change_proposal,
 };
 /** The tables M1/M1b created: every one carries `account_id` since M2-T03. */
 const M1_TABLES = [
@@ -827,7 +847,8 @@ describe('migrations', () => {
           'ticket_schedule',
           'assistant_job',
           'session_insight',
-          'ticket_proposal',
+          'ticket_proposal_decision',
+          'change_proposal',
         ].sort(),
       );
     } finally {
@@ -1346,32 +1367,46 @@ describe('schema (migrated test database)', () => {
       '23505',
     );
 
-    // ADR-0034: a follow-up proposal of the session; one per (session, title) case-insensitively.
-    const tp = await pool.query<TicketProposalRow>(
-      `INSERT INTO ticket_proposal (account_id, ticket_id, session_id, state, title)
-       VALUES ($1, $2, $3, 'implementing', 'Add docs') RETURNING *`,
-      [LOCAL_ACCOUNT_ID, tkt.id, ses.id],
+    // 06 §Proposed tickets: one decision per (ticket, proposal), and the status CHECK.
+    const pd = await pool.query<TicketProposalDecisionRow>(
+      `INSERT INTO ticket_proposal_decision (ticket_id, proposal_id, account_id, status)
+       VALUES ($1, '0123456789abcdef', $2, 'dismissed') RETURNING *`,
+      [tkt.id, LOCAL_ACCOUNT_ID],
     );
-    expect(tp.rows[0]).toMatchObject({
-      status: 'pending',
-      body: '',
-      kind: null,
-      created_ticket_id: null,
-    });
+    expect(pd.rows[0]).toMatchObject({ status: 'dismissed', created_ticket_id: null });
     await expectPgError(
       pool.query(
-        `INSERT INTO ticket_proposal (account_id, ticket_id, session_id, state, title)
-         VALUES ($1, $2, $3, 'implementing', 'ADD DOCS')`,
-        [LOCAL_ACCOUNT_ID, tkt.id, ses.id],
+        `INSERT INTO ticket_proposal_decision (ticket_id, proposal_id, account_id, status)
+         VALUES ($1, '0123456789abcdef', $2, 'approved')`,
+        [tkt.id, LOCAL_ACCOUNT_ID],
       ),
       '23505',
     );
     await expectPgError(
       pool.query(
-        `INSERT INTO ticket_proposal (account_id, ticket_id, session_id, state, title, status)
-         VALUES ($1, $2, $3, 'implementing', 'Other', 'maybe')`,
-        [LOCAL_ACCOUNT_ID, tkt.id, ses.id],
+        `INSERT INTO ticket_proposal_decision (ticket_id, proposal_id, account_id, status)
+         VALUES ($1, 'fedcba9876543210', $2, 'pending')`,
+        [tkt.id, LOCAL_ACCOUNT_ID],
       ),
+      '23514',
+    );
+
+    // ADR-0033 P3: a change proposal; the kind and status CHECKs.
+    const cp = await pool.query<ChangeProposalRow>(
+      `INSERT INTO change_proposal (account_id, kind, title, payload, base, diff, rationale,
+         evidence, expected_effect, rollback)
+       VALUES ($1, 'repo_checks', 't', '{}', '{}', '[]', 'r', '[]', '{}', 'rb') RETURNING *`,
+      [LOCAL_ACCOUNT_ID],
+    );
+    expect(cp.rows[0]).toMatchObject({ status: 'proposed', review: null, applied_at: null });
+    await expectPgError(
+      pool.query("UPDATE change_proposal SET status = 'done' WHERE id = $1", [cp.rows[0]!.id]),
+      '23514',
+    );
+    await expectPgError(
+      pool.query("UPDATE change_proposal SET kind = 'machine_settings' WHERE id = $1", [
+        cp.rows[0]!.id,
+      ]),
       '23514',
     );
 

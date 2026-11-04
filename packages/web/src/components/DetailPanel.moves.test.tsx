@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // UX-2: what DetailPanel hands OutputLog (FR-5, `moves`) and that new output doesn't re-render
-// the Brief (NFR-4). OutputLog is stubbed here, so the other panel tests keep the real one.
+// the Brief button's tally (NFR-4). OutputLog is stubbed here, so the other panel tests keep the real one.
 import type { MoveDto } from '@conductor/shared';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -18,7 +18,7 @@ vi.mock('./OutputLog.js', () => ({
   },
 }));
 
-// `tally` runs once per BriefCard render: a counter for re-renders.
+// `tally` runs once per render of the Brief button (TicketButtons): a counter for re-renders.
 vi.mock('../brief/parse.js', async (importOriginal) => {
   const mod = await importOriginal<typeof import('../brief/parse.js')>();
   return {
@@ -61,7 +61,7 @@ async function open() {
   api.getSession = async (sid) => ({ ...(await get(sid)), moves: MOVES });
   const sid = SEED_IDS.running.session;
   render(<DetailPanel api={api} sessionId={sid} version="1" onClose={() => undefined} />);
-  await screen.findByRole('region', { name: 'Brief' });
+  await screen.findByRole('button', { name: /^Brief/ });
   return { api, sid };
 }
 

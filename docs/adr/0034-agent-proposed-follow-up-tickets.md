@@ -1,49 +1,48 @@
 # ADR-0034 · Agents propose follow-up tickets; a human confirms each one
 
-- **Status**: accepted (Ben approved the plan, 2026-11-03, on ticket "Next Step")
-- **Date**: 2026-11-03
+- **Status**: accepted (Ben approved the plan, 2026-11-03, on ticket "Next Step"; reconciled with PR #125, 2026-11-04)
+- **Date**: 2026-11-03, amended 2026-11-04
 - **Deciders**: Ben (+ the conductor planning and implementing sessions on that ticket)
 - **Extends**: [ADR-0011](0011-transition-rules.md) (`complete_state` result), [ADR-0030](0030-per-repo-checks-and-mcp-workflow-tools.md) / [ADR-0033](0033-workflow-advisor.md) (configuring the workflow over MCP)
 
 ## Context
-Agents often find separate work while they do a ticket: missing docs, a flaky test, a refactor that would help. That work should be offered as new tickets that can run **in parallel** once the user agrees. Ben wants:
+Agents often find separate work while they do a ticket: missing docs, a flaky test, a refactor that would help. That work should be offered as new tickets once the user agrees. Ben wants:
 - the workflow to **encourage** agents to propose them, never to require it;
-- the user to confirm each one, one by one, in the web UI while the ticket is in Needs input;
+- the user to confirm each one, one by one, while the ticket is in Needs input;
 - the feature to be configurable from the workflow screen, over MCP and by the workflow advisor.
 
+Two branches built this at the same time. PR #125 landed first: proposals read from `session.context`, decisions in `ticket_proposal_decision`, routes under `/api/tickets/:id/proposals/*`, the Needs input panel and the card badge, with the hint always on in the built-in planning and implementing prompts. PR #119 (this ADR's first version) had its own table, engine effect and routes, plus a per-state setting and an MCP tool. Ben chose (2026-11-04) to keep #125's storage and UI and to port only #119's configuration and MCP pieces onto it.
+
 ## Decision
-1. **The proposals ride on the `complete_state` result.** The agent adds the optional key `proposed_tickets: [{title, body, kind?, why?}]` to the `result` it already sends (`PROPOSED_TICKETS_KEY`, `shared/src/engine/proposals.ts`). The daemon forwards `result` verbatim, so neither the TypeScript nor the Rust daemon, nor the WS protocol, nor the outcome MCP tool changes.
-2. **Per agent state, opt-in.** `follow_ups: {enabled, max (1..10, default 3), guidance?}` on an agent state (`FollowUpsSchema`); absent ≡ off. There is no workflow-level default. When it is on:
-   - `renderPrompt` adds an optional `## Follow-up tickets (optional)` section before How to finish;
-   - `apply()` parses the list (malformed items, repeated titles and anything over `max` are dropped; it never fails the step) and emits `ticket_proposals {state, proposals}`, whatever the outcome (a question or ask_user included);
-   - the key is stripped from `context.<state>`.
-   When it is off, the result is untouched. Validator rule 5 refuses `proposed_tickets` among a state's required `result` keys.
-3. **Stored, then decided by a human.** The EngineService wrapper inserts `ticket_proposal` rows in the apply transaction. The unique `(session_id, lower(title))` index is the idempotency key. The session detail carries them (`SessionDetail.proposed_tickets`). The web's "Proposed tickets" box offers **Queue ticket** (optionally after editing the title and body) and **Dismiss** on each one. Accepting inserts an ordinary, independent ticket: the source ticket's repo, workflow, required tags and allowed machines, with no dependency link. It queues like any other and can run in parallel. `POST /api/proposals/:id/accept | dismiss`, and over MCP `get_ticket` (the pending proposals) and `decide_proposed_ticket`.
-4. **Configured like the rest of the workflow.** The column editor gets a checkbox with At most and Guidance. MCP `get_workflow` / `save_workflow` carry the field, and the advisor prompt names it as a lever.
-5. **Shipped default: conductor v5** = v4 with `follow_ups {enabled: true, max: 3}` on Implementing only (`CONDUCTOR_V5`). It is seeded after an unedited v4, like every shipped version.
+1. **The proposals ride on the `complete_state` result.** The optional key `proposed_tickets: [{title, repo, why}]` (`PROPOSED_TICKETS_KEY`) is stored in `context.<state>` like any extra key. The daemon forwards `result` verbatim, so neither daemon, nor the WS protocol, nor the outcome MCP tool changes. Validator rule 5 refuses `proposed_tickets` among a state's required `result` keys.
+2. **Per agent state, with a default.** `follow_ups: {enabled, max (1..10, default 3), guidance?}` on an agent state (`FollowUpsSchema`):
+   - **unset**: today's behaviour. The built-in `plan_template` / `implement_template` carry a one-line hint, and up to 3 are read per state;
+   - **on**: `renderPrompt` adds a `## Follow-up tickets (optional)` section before How to finish, with `max` and `guidance`, in place of the hint; up to `max` are read;
+   - **off**: no hint, and that state's proposals are not read.
+   `proposalLimitsOf(def)` gives the read limit of each agent state.
+3. **Decided by a human** (06 §Proposed tickets, from #125): `ticket_proposal_decision`, approve or dismiss in Needs input, the "N proposed" card badge, `POST /api/tickets/:id/proposals/{approve,dismiss}`. Over MCP, `get_ticket_artifacts what=proposals` lists them, and **`decide_proposed_ticket`** approves (optionally with an edited title and body) or dismisses one through the same code as the routes.
+4. **Configured like the rest of the workflow.** The column editor has a checkbox with At most and Guidance, showing the effective setting. MCP `get_workflow` / `save_workflow` carry the field, and the advisor prompt names it as a lever.
+5. **No new shipped workflow version.** Conductor v4 already uses the built-in templates, so it already has proposals on; the v5 of this ADR's first version (v4 with `follow_ups` on in Implementing) would have changed nothing that matters, and is dropped.
 
 ## Alternatives considered
 | Option | Why not |
 |---|---|
-| A `propose_ticket` tool on the agent's outcome MCP server | A daemon change in TypeScript and Rust (MR in progress), and a new WS event; the result already reaches the engine |
+| Keep #119's `ticket_proposal` table, `ticket_proposals` effect and `/api/proposals/:id` routes | Duplicates #125, already on `main`; two stores for one feature |
+| A `propose_ticket` tool on the agent's outcome MCP server | A daemon change in TypeScript and Rust, and a new WS event; the result already reaches the engine |
 | Create the tickets directly | Agents would fill the queue with work nobody asked for; Ben wants each one confirmed |
 | A child-ticket dependency (ADR-0018, U-010) | The proposals are parallel work, not sub-tasks the source waits on |
-| A workflow-level default | Not needed yet; one more inheritance rule to explain. Per state is enough for Ben's flows |
+| Off unless configured | Would turn off what #125 shipped for every existing workflow |
 
 ## Consequences
 - **Good:**
-  - no protocol or daemon change;
-  - the engine stays pure (an effect, written by the wrapper in the same transaction);
-  - proposals are idempotent per session and title;
-  - every ticket is still created by a person's click.
+  - no protocol, daemon or schema change beyond #125's table;
+  - existing workflows behave exactly as with #125 until someone sets `follow_ups`;
+  - every ticket is still created by a person's decision.
 - **Bad / accepted cost:**
-  - v5 changes the Implementing prompt for every account (workflows are instance-wide until M2-T12);
-  - one more table;
-  - the MCP tool list grows to 28 once merged with ADR-0033 P2 (the budget rises from 20 KB to 22 KB);
-  - there is no badge on the board card yet (the card is a seam): the box shows in the session panel.
+  - unset means on for two built-in templates and off-but-readable elsewhere, which the editor has to explain by showing the effective setting;
+  - the MCP tool list grows to 31 tools, and its budget rises from 22 KB to 23 KB.
 - **Follow-ups:**
-  - a "N proposed" chip on the card;
-  - proposal counts (proposed / accepted / dismissed per state) in `get_process_metrics`, so the advisor can tune `max` and `guidance` from evidence.
+  - proposal counts (proposed / approved / dismissed per state) in `get_process_metrics`, so the advisor can tune `max` and `guidance` from evidence.
 
 ## Revisit when
 - Per-account workflows (M2-T12) land: the default can differ per account.

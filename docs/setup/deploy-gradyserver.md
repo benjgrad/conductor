@@ -123,10 +123,11 @@ crontab -l | grep conductor-backup
 Every merge to `main` deploys itself once CI is green, with an automatic rollback and a Discord alert on failure (§12). By hand from a Mac, for a specific ref:
 
 ```bash
-deploy/gradyserver/deploy.sh <git-ref>      # e.g. main, a tag, a sha
+gh run download <ci run of that sha> -p 'daemon-*' -D /tmp/daemon-dist   # the daemon tarballs CI built
+CONDUCTOR_DAEMON_DIST=/tmp/daemon-dist deploy/gradyserver/deploy.sh <git-ref>      # e.g. main, a tag, a sha
 ```
 
-`deploy.sh` uploads the release, then runs its server half, [`remote-deploy.sh`](../../deploy/gradyserver/remote-deploy.sh) from that release, with `ssh -n`. Stdin is `/dev/null`, so no command on the server can read the script (`docker compose run` would otherwise swallow the rest of it, and the deploy would stop silently after the migration). These steps run in order, from the new release's compose file:
+The image serves the Rust daemon for every target (MR-T15), and those binaries are built by CI, not in the image: the `daemon-dist` job of the `ci` run for that sha uploads them as `daemon-<target>` artifacts (kept 7 days). `deploy.sh` refuses to start without `CONDUCTOR_DAEMON_DIST`, or when the directory doesn't hold exactly one build per target of one version built from that sha ([`daemon-dist-check.sh`](../../deploy/gradyserver/daemon-dist-check.sh)). It uploads the release, then the tarballs into the release's `daemon-dist/` (the image's build context), then runs its server half, [`remote-deploy.sh`](../../deploy/gradyserver/remote-deploy.sh) from that release, with `ssh -n`. Stdin is `/dev/null`, so no command on the server can read the script (`docker compose run` would otherwise swallow the rest of it, and the deploy would stop silently after the migration). These steps run in order, from the new release's compose file:
 
 1. `compose build`: the image `conductor-orchestrator:<sha>`. A failed build changes nothing.
 2. `compose up -d postgres`, then wait until it's healthy. Postgres is only recreated if its own config changed.
@@ -223,26 +224,27 @@ unset new
 
 ## 12. CI/CD (GitHub Actions)
 
-[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) has two jobs:
+[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) has three jobs:
 
 | Job | Runs on | What it does |
 |---|---|---|
 | `gates` | GitHub's machines (`ubuntu-latest`): every PR (a newer push cancels the older run), every push to `main`, every dispatch | [`scripts/ci.sh`](../../scripts/ci.sh): install, typecheck, lint (eslint + prettier), deploy kit tests (with shellcheck), Postgres via docker compose, unit/DB tests, build, E2E with the fake Claude. The same script you run locally. |
-| `deploy` | **gradyserver itself**, on the self-hosted runner `gradyserver-conductor`: a push to `main` or a dispatch on `main`, after `gates` passed | [`ci-deploy.sh`](../../deploy/gradyserver/ci-deploy.sh) `<sha>`. One deploy at a time (`concurrency: deploy-gradyserver`, never cancelled half-way). A push deploys only if its sha is still the head of `main`: a run that finishes after a newer merge leaves the deploy to the newer run. |
+| `daemon-dist` | GitHub's machines (macOS, Ubuntu, Windows): whenever `deploy` runs | [`daemon-dist.yml`](../../.github/workflows/daemon-dist.yml) for the sha being deployed: one release build of the Rust daemon per target (macOS arm64/x64, Linux x64/arm64 through cargo-zigbuild with a glibc 2.28 floor, Windows x64), packaged by [`package-daemon.sh`](../../packages/orchestrator/scripts/package-daemon.sh) and uploaded as the artifacts `daemon-<target>`, then checked together (five targets, one version). Unsigned (U-115). `daemon-rust.yml` runs the same on PRs that reach the daemon or the packaging. |
+| `deploy` | **gradyserver itself**, on the self-hosted runner `gradyserver-conductor`: a push to `main` or a dispatch on `main`, after `gates` and `daemon-dist` passed | downloads the `daemon-*` artifacts, then [`ci-deploy.sh`](../../deploy/gradyserver/ci-deploy.sh) `<sha>` with `CONDUCTOR_DAEMON_DIST` pointing at them. One deploy at a time (`concurrency: deploy-gradyserver`, never cancelled half-way). A push deploys only if its sha is still the head of `main`: a run that finishes after a newer merge leaves the deploy to the newer run. |
 
 **Nothing connects in and there is no deploy credential.** The runner calls out to GitHub for work, the job checks out with its read-only token, and `ci-deploy.sh` runs locally as `bengrady4`. No ssh, no key in GitHub secrets, no port opened for CI. `deploy.sh` over ssh (§6) is still the by-hand door from a Mac, and shares the server half with CI.
 
 `ci-deploy.sh` is §6 without the ssh, plus what nobody is watching a CI deploy for:
 
 1. It takes `~/deploy/conductor/.deploy.lock`, so two CI deploys (or CI and a by-hand `ci-deploy.sh`) never interleave. `deploy.sh` from a Mac doesn't take it: don't run one while a `deploy` job is running.
-2. `git archive <sha>` into `releases/<sha>`, as `deploy.sh` does.
+2. It checks `CONDUCTOR_DAEMON_DIST` (one build per target, one version, built from `<sha>`; anything else stops the deploy before anything is touched, with *Deploy did not run*), then `git archive <sha>` into `releases/<sha>`, as `deploy.sh` does, and copies the tarballs into `releases/<sha>/daemon-dist/`. Each release keeps its own, so a rollback that must rebuild an image still can.
 3. **If `packages/orchestrator/migrations/` changed** since the live sha, it runs `backup.sh` first (the dump lands with the nightlies, §8). A rollback restores code, not schema, so this dump is the only undo for a bad migration. A failed dump stops the deploy before anything is touched.
 4. `remote-deploy.sh` from the release (§6 steps 1–5), then the same check as §6 step 6 (one orchestrator, healthy, `conductor-orchestrator:<sha>`, `current` names it), then the smoke test with `SMOKE_EXPECT_SHA=<sha>`.
 5. **On any failure in 4, it rolls back on its own**: `up -d --no-deps orchestrator` from the previous release (no migrate; no rebuild while `conductor-orchestrator:<prev>` exists), waits for it to be healthy, points `current` and `current.env` back at it, and smokes it. Then it posts to Discord: amber *Deploy failed: rolled back*, or red *Deploy failed and rollback failed* if the old sha didn't come back either. A deploy that stopped before step 4 posts amber *Deploy did not run*. **Success is silent.**
 
 Alerts go to `DISCORD_WEBHOOK_URL` in `~/deploy/conductor/.env` (the maintenance channel personal-os uses). Unset, they only reach the job log.
 
-**Rollback by hand:** Actions → ci → *Run workflow* on `main` with `sha: <good sha>`. It waits for `gates` on main's head (about 6 minutes), then deploys that sha. Faster, on the box: `deploy/gradyserver/ci-deploy.sh <good sha>` from any checkout with that sha.
+**Rollback by hand:** Actions → ci → *Run workflow* on `main` with `sha: <good sha>`. It waits for `gates` on main's head (about 6 minutes), then deploys that sha. Faster, on the box: `CONDUCTOR_DAEMON_DIST=~/deploy/conductor/releases/<good sha>/daemon-dist deploy/gradyserver/ci-deploy.sh <good sha>` from any checkout with that sha (a release deployed since MR-T15 keeps its tarballs there).
 
 **Drill** (after any change to `ci-deploy.sh` or the runner): *Run workflow* with `drill: true` and no sha. The first smoke test is failed on purpose, production is re-released, and an amber alert marked *TEST* arrives. Production ends where it started.
 
@@ -291,3 +293,9 @@ cdc up -d --no-deps orchestrator && cdc logs orchestrator | grep 'push: on'
 ```
 
 The private key is a secret. Never rotate the pair casually: a new one invalidates every browser's subscription (each has to subscribe again). The orchestrator sends to the browsers' push services over HTTPS (fcm.googleapis.com, updates.push.services.mozilla.com, web.push.apple.com …), so the container needs outbound HTTPS.
+
+**iPhone gets nothing?** Check each of these:
+- `cdc logs orchestrator | grep 'push:'` must say `push: on`. With push off, the account menu says "Push notifications aren't set up on this server".
+- `CONDUCTOR_VAPID_SUBJECT` must be a real `mailto:` address (or an https URL you own). Apple refuses a `localhost` or placeholder subject with `403 BadJwtToken`.
+- In the Home Screen app: account menu → **Send test**. A refused send shows the push service's reason, e.g. `Not delivered (http_403 BadJwtToken)`, and the orchestrator logs `[push] send to web.push.apple.com failed: …`.
+- After rotating the keys, opening the account menu drops the old subscription. Turn **This device** on again.

@@ -167,15 +167,14 @@ describe('Workflow view', () => {
     expect(saved[0]!.queued_ticket_editable).toBe(false);
   });
 
-  it('turns on follow-up proposals for an agent column (ADR-0034)', async () => {
+  it('tunes follow-up proposals for an agent column (ADR-0034)', async () => {
     const { saved } = await setup();
     fireEvent.click(lane('Implementing'));
     const box = editor().getByRole<HTMLInputElement>('checkbox', {
       name: 'Agents may propose follow-up tickets',
     });
-    expect(box.checked).toBe(false);
-    expect(editor().queryByLabelText('At most')).toBeNull();
-    fireEvent.click(box);
+    // Implementing uses the built-in template, whose hint makes proposals on by default.
+    expect(box.checked).toBe(true);
     type(editor().getByLabelText('At most'), '2');
     type(editor().getByLabelText('Guidance'), 'Only test debt');
     fireEvent.click(saveButton());
@@ -183,6 +182,18 @@ describe('Workflow view', () => {
     expect(saved[0]!.states.implementing).toMatchObject({
       follow_ups: { enabled: true, max: 2, guidance: 'Only test debt' },
     });
+  });
+
+  it('turns follow-up proposals off for an agent column (ADR-0034)', async () => {
+    const { saved } = await setup();
+    fireEvent.click(lane('Implementing'));
+    fireEvent.click(
+      editor().getByRole('checkbox', { name: 'Agents may propose follow-up tickets' }),
+    );
+    expect(editor().queryByLabelText('At most')).toBeNull();
+    fireEvent.click(saveButton());
+    await screen.findByRole('group', { name: 'conductor v4 columns' });
+    expect(saved[0]!.states.implementing).toMatchObject({ follow_ups: { enabled: false } });
   });
 
   it('discards the draft', async () => {
@@ -272,6 +283,36 @@ describe('transition arrows (ADR-0011)', () => {
       kinds: ['work'],
       actor: 'agent',
     });
+  });
+
+  it('"Notify me when this is taken" sets `notify: true`; unticking drops it', async () => {
+    const { saved } = await setup();
+    fireEvent.click(arrow('Planning', 'Implementing'));
+    const box = () =>
+      panel().getByRole<HTMLInputElement>('checkbox', { name: 'Notify me when this is taken' });
+    expect(box().checked).toBe(false);
+    fireEvent.click(box());
+    expect(box().checked).toBe(true);
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(onOf(saved[0]!, 'planning').plan_ready).toMatchObject({
+      goto: 'implementing',
+      notify: true,
+    });
+  });
+
+  it('ticking and unticking "Notify me" leaves no `notify` key', async () => {
+    const { saved } = await setup();
+    fireEvent.click(arrow('Planning', 'Implementing'));
+    const box = () =>
+      panel().getByRole<HTMLInputElement>('checkbox', { name: 'Notify me when this is taken' });
+    fireEvent.click(box());
+    fireEvent.click(box());
+    expect(box().checked).toBe(false);
+    type(panel().getByLabelText('Title'), 'Ready to build');
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect('notify' in (onOf(saved[0]!, 'planning').plan_ready as object)).toBe(false);
   });
 
   it('ticking both kinds again drops `kinds`; none is a problem', async () => {
@@ -579,5 +620,36 @@ describe('session Details diagram', () => {
     await waitFor(() =>
       expect(panel.getByRole('group', { name: /m1_basic v2 diagram, current state/ })).toBeTruthy(),
     );
+  });
+});
+
+describe('Workflow view: change proposals (ADR-0033 P3)', () => {
+  it('lists the advisor’s open proposals under the editor', async () => {
+    await setup();
+    const region = await screen.findByRole('region', { name: 'Change proposals' });
+    await within(region).findByRole('button', { name: /Build the web app inside m-one/ });
+  });
+
+  it('reloads the latest version after a workflow proposal is applied', async () => {
+    const api = createMockApi();
+    const calls: (number | undefined)[] = [];
+    const get = api.getWorkflow.bind(api);
+    api.getWorkflow = (id, version) => {
+      calls.push(version);
+      return get(id, version);
+    };
+    const [, wf] = (await api.listChangeProposals({ status: 'all' })).proposals;
+    const detail = { ...(await api.getChangeProposal(wf!.id)), status: 'proposed' as const };
+    api.listChangeProposals = () =>
+      Promise.resolve({ proposals: [{ ...wf!, status: 'proposed' }], next_cursor: null, total: 1 });
+    api.getChangeProposal = () => Promise.resolve(detail);
+    api.applyChangeProposal = () => Promise.resolve({ ...detail, status: 'applied' });
+    await setup(api);
+    const n = calls.length;
+    const region = within(screen.getByRole('region', { name: 'Change proposals' }));
+    fireEvent.click(await region.findByRole('button', { name: new RegExp(wf!.title) }));
+    fireEvent.click(await region.findByRole('button', { name: 'Apply…' }));
+    fireEvent.click(region.getByRole('button', { name: 'Confirm apply' }));
+    await waitFor(() => expect(calls.length).toBeGreaterThan(n));
   });
 });

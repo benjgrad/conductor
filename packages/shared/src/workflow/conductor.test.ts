@@ -10,9 +10,6 @@ import {
   CONDUCTOR_V3_DEF,
   CONDUCTOR_V4,
   CONDUCTOR_V4_DEF,
-  CONDUCTOR_V5,
-  CONDUCTOR_V5_DEF,
-  V5_FOLLOW_UPS_MAX,
   V3_NO_CHECKS_AFTER,
   V3_UNMET_INSTRUCTION,
   V4_PERSONAL_SHIP_WHEN,
@@ -440,27 +437,5 @@ describe('conductor v4 (M2-T34)', () => {
       'system timeout → needs_input',
     ]);
     expect(seen4('needs_input', 'personal')).toContain('human done → done');
-  });
-});
-
-describe('conductor v5 (ADR-0034)', () => {
-  it('the code copy equals docs/design/workflows/conductor.v5.json', () => {
-    expect(CONDUCTOR_V5).toEqual(readDoc('conductor.v5.json'));
-  });
-
-  it('validates', () => {
-    expect(errorsOf(CONDUCTOR_V5)).toEqual([]);
-  });
-
-  it('is v4 with follow-up proposals on in Implementing only; v4 left as it was', () => {
-    expect(CONDUCTOR_V5_DEF.version).toBe(CONDUCTOR_V4_DEF.version + 1);
-    const v4 = structuredClone(CONDUCTOR_V4) as unknown as Raw;
-    expect(v4.states.implementing!.follow_ups).toBeUndefined();
-    v4.states.implementing!.follow_ups = { enabled: true, max: V5_FOLLOW_UPS_MAX };
-    expect(CONDUCTOR_V5).toEqual({ ...v4, version: 5 });
-    const on = Object.entries(CONDUCTOR_V5_DEF.states)
-      .filter(([, s]) => s.type === 'agent' && s.follow_ups?.enabled === true)
-      .map(([n]) => n);
-    expect(on).toEqual(['implementing']);
   });
 });

@@ -634,6 +634,28 @@ describe('session_event', () => {
     expect((await machineRow(machineId)).last_seq).toBe('2');
   });
 
+  it('Questions UX: ask_user options reach the engine and the input_request row', async () => {
+    const d = await registered();
+    const { sid, token, row } = await running(d);
+    const options = {
+      multi_select: false,
+      items: [{ label: 'Postgres', description: 'recommended' }, { label: 'SQLite' }],
+    };
+    d.sessionEvent(1, sid, token, started(row.command_id));
+    d.sessionEvent(2, sid, token, { kind: 'ask_user', data: { question: 'Which DB?', options } });
+    await d.settle();
+    expect(engine.calls.at(-1)!.event).toEqual({
+      type: 'agent.ask_user',
+      question: 'Which DB?',
+      options,
+    });
+    const req = await one<{ kind: string; question: string; options: unknown }>(
+      'SELECT kind, question, options FROM input_request WHERE session_id = $1',
+      [sid],
+    );
+    expect(req).toEqual({ kind: 'agent_question', question: 'Which DB?', options });
+  });
+
   it('no_outcome (U-028) maps to agent.no_outcome: an agent_question input_request', async () => {
     const d = await registered();
     const { sid, token, row } = await running(d);

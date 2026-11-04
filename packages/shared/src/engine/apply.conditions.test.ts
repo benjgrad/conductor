@@ -164,6 +164,11 @@ describe('the conditions phase', () => {
     // the poll re-evaluates; the same answer → the interval doubles to 4 min
     r = fire(h);
     expect(find(r.effects, 'run_action')?.action).toBe('evaluate_conditions');
+    // In flight: `running` keeps the last answer (the board places the card by it).
+    expect(r.snapshot.step!.conditions.slice(0, 2)).toEqual([
+      expect.objectContaining({ status: 'running', answer: 'met' }),
+      expect.objectContaining({ status: 'running', answer: 'pending' }),
+    ]);
     r = evaluate(h, GREEN, NO_APPROVAL);
     expect(r.snapshot.step!.conditions_poll_ms).toBe(4 * MIN);
     expect(r.snapshot.state_deadline).toBe(deadlineIn(h, 4 * MIN));

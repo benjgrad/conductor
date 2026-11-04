@@ -1,7 +1,7 @@
 // ADR-0028: the OAuth authorization server and the /mcp endpoint, password mode, end to end over
 // HTTP against a test database (the routes, the security hook and the SDK transport are the
 // subject). Needs `pnpm db:up`.
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { request } from 'node:http';
 import {
   API_PATHS,
@@ -22,6 +22,7 @@ import {
   type TranscriptFetchResult,
 } from '../src/contracts.js';
 import { seedConductorWorkflow } from '../src/engine/seed.js';
+import { issueTokens } from '../src/oauth/tokens.js';
 import { HTTPS_URL, createUser, passwordAuth, startApi, type TestApi } from './auth/helpers.js';
 import { useTestDatabase } from './db.js';
 
@@ -168,6 +169,26 @@ function exchange(clientId: string, code: string, verifier: string) {
       redirect_uri: REDIRECT,
     }),
   );
+}
+
+/**
+ * A user's access token without the OAuth flow (that flow is tested above; its endpoints are
+ * rate-limited per IP, which a long file runs into).
+ */
+async function minted() {
+  const u = await signedInUser();
+  const clientId = randomUUID();
+  await db.pool.query('INSERT INTO oauth_client (id, name, redirect_uris) VALUES ($1, $2, $3)', [
+    clientId,
+    'Minted',
+    [REDIRECT],
+  ]);
+  const t = await issueTokens(
+    db.pool,
+    { grant_id: randomUUID(), client_id: clientId, account_id: u.accountId, user_id: u.userId },
+    new Date(),
+  );
+  return { user: u, access: t.access_token };
 }
 
 /** A user connected through the whole flow: its access and refresh tokens. */
@@ -433,10 +454,12 @@ describe('/mcp', () => {
     const list = await mcp(a.access, 'tools/list');
     const names = (list.json.result as { tools: { name: string }[] }).tools.map((t) => t.name);
     // The tool set Ben approved (2026-10-30), plus ADR-0030's workflow tools, ADR-0032's
-    // schedules and ADR-0033's advisor tools (P2: get_process_report, get_insight): nothing else.
+    // schedules and ADR-0033's advisor tools (P2: get_process_report, get_insight; P3:
+    // propose_change, list_change_proposals, apply_change): nothing else.
     expect(names.sort()).toEqual([
       'adopt_default_workflow',
       'answer_input',
+      'apply_change',
       'cancel_ticket',
       'clear_repo_checks',
       'create_ticket',
@@ -449,12 +472,14 @@ describe('/mcp', () => {
       'get_ticket',
       'get_ticket_artifacts',
       'get_workflow',
+      'list_change_proposals',
       'list_findings',
       'list_machines',
       'list_repo_checks',
       'list_schedules',
       'list_tickets',
       'message_agent',
+      'propose_change',
       'reopen_ticket',
       'run_schedule_now',
       'save_schedule',
@@ -466,10 +491,11 @@ describe('/mcp', () => {
     ]);
     const tools = (list.json.result as { tools: { description: string }[] }).tools;
     for (const t of tools) expect(t.description.length).toBeLessThanOrEqual(700);
-    // ADR-0031 / ADR-0032 / ADR-0033 / ADR-0034: 28 tools; the list is what every client loads
-    // first, so it stays small. ADR-0033 raised the budget from 18 KB to 20 KB for the advisor
-    // tools; ADR-0034's decide_proposed_ticket (with its uuid() schema) raises it to 22 KB.
-    expect(Buffer.byteLength(list.text, 'utf8')).toBeLessThanOrEqual(22 * 1024);
+    // ADR-0031 / ADR-0032 / ADR-0033 / ADR-0034: 31 tools; the list is what every client loads first, so it
+    // stays small. ADR-0033 raised the budget from 18 KB to 20 KB for the advisor tools, and its
+    // P3 amendment to 22 KB for the change-proposal tools, and ADR-0034 to 23 KB for
+    // decide_proposed_ticket.
+    expect(Buffer.byteLength(list.text, 'utf8')).toBeLessThanOrEqual(23 * 1024);
 
     const created = await call(a.access, 'create_ticket', {
       title: 'From MCP',
@@ -891,6 +917,80 @@ describe('/mcp for conversational clients', () => {
     });
   });
 
+  it('get_ticket_artifacts lists the proposed follow-up tickets (06 §Proposed tickets)', async () => {
+    const proposed = { title: 'Speed up CI', repo: 'github.com/acme/app', why: 'Slow.' };
+    const { ticketId } = await seedAgentSession(a.user.accountId, {
+      context: { implement: { summary: 's', proposed_tickets: [proposed, { title: 1 }] } },
+    });
+    const res = await call(a.access, 'get_ticket_artifacts', {
+      ticket: ticketId,
+      what: 'proposals',
+    });
+    expect(res.body.proposals).toEqual([
+      expect.objectContaining({ ...proposed, state: 'implement', status: 'pending' }),
+    ]);
+    const results = await call(a.access, 'get_ticket_artifacts', {
+      ticket: ticketId,
+      what: 'results',
+    });
+    expect(results.body.pending_proposals).toEqual([
+      expect.objectContaining({ title: proposed.title, repo: proposed.repo }),
+    ]);
+  });
+
+  it('decide_proposed_ticket approves (once) or dismisses a proposal (ADR-0034)', async () => {
+    const one = { title: 'Speed up CI', repo: 'github.com/acme/app', why: 'Slow.' };
+    const two = { title: 'Fix docs', repo: 'github.com/acme/app', why: 'Stale.' };
+    const { ticketId } = await seedAgentSession(a.user.accountId, {
+      context: { implement: { summary: 's', proposed_tickets: [one, two] } },
+    });
+    const listed = await call(a.access, 'get_ticket_artifacts', {
+      ticket: ticketId,
+      what: 'proposals',
+    });
+    const [p1, p2] = listed.body.proposals as { id: string }[];
+
+    const approved = await call(a.access, 'decide_proposed_ticket', {
+      ticket: ticketId.slice(0, 8),
+      proposal_id: p1!.id,
+      decision: 'approve',
+      title: 'Speed up CI (edited)',
+    });
+    expect(approved.isError).toBe(false);
+    expect(approved.body).toMatchObject({ proposal_id: p1!.id, status: 'approved' });
+    const created = approved.body.ticket_id as string;
+    const got = await call(a.access, 'get_ticket', { ticket: created });
+    expect(got.body).toMatchObject({ id: created, title: 'Speed up CI (edited)' });
+    // Idempotent: the same ticket again.
+    const again = await call(a.access, 'decide_proposed_ticket', {
+      ticket: ticketId,
+      proposal_id: p1!.id,
+      decision: 'approve',
+    });
+    expect(again.body).toMatchObject({ ticket_id: created });
+    // An approved one can't be dismissed.
+    const late = await call(a.access, 'decide_proposed_ticket', {
+      ticket: ticketId,
+      proposal_id: p1!.id,
+      decision: 'dismiss',
+    });
+    expect(errorOf(late).code).toBe('conflict');
+
+    const dismissed = await call(a.access, 'decide_proposed_ticket', {
+      ticket: ticketId,
+      proposal_id: p2!.id,
+      decision: 'dismiss',
+    });
+    expect(dismissed.body).toEqual({ proposal_id: p2!.id, status: 'dismissed' });
+    // Another account sees neither the ticket nor its proposals.
+    const other = await call(b.access, 'decide_proposed_ticket', {
+      ticket: ticketId,
+      proposal_id: p2!.id,
+      decision: 'dismiss',
+    });
+    expect(errorOf(other).code).toBe('not_found');
+  });
+
   it('message_agent talks to a working agent, and never answers its question by accident', async () => {
     const working = await seedAgentSession(a.user.accountId);
     const sent = await call(a.access, 'message_agent', {
@@ -998,74 +1098,6 @@ describe('/mcp for conversational clients', () => {
         (t) => t.name,
       );
     expect(await names(a.access)).toEqual(await names(b.access));
-  });
-});
-
-// ADR-0034: follow-up ticket proposals, over MCP.
-describe('/mcp proposed tickets', () => {
-  // Its own API instance for its own OAuth rate limits (as '/mcp schedule tools').
-  let main: TestApi;
-  beforeAll(async () => {
-    main = api;
-    api = await startApi({ db: db.pool, auth: AUTH, engine, boardBus, outputBus, transcripts });
-  });
-  afterAll(async () => {
-    await api.close();
-    api = main;
-  });
-
-  it('get_ticket lists pending proposals; decide_proposed_ticket accepts or dismisses one (ADR-0034)', async () => {
-    const a = await connect();
-    const b = await connect();
-    const { ticketId, sessionId } = await seedTicketSession(a.user.accountId, 'needs_input');
-    const propose = async (title: string) =>
-      (
-        await db.pool.query<{ id: string }>(
-          'INSERT INTO ticket_proposal (account_id, ticket_id, session_id, state, title, body, why) ' +
-            "VALUES ($1, $2, $3, 'review', $4, 'Do it', 'Found it') RETURNING id",
-          [a.user.accountId, ticketId, sessionId, title],
-        )
-      ).rows[0]!.id;
-    const docs = await propose('Add docs');
-    const lint = await propose('Fix lint');
-    const shown = await call(a.access, 'get_ticket', { ticket: ticketId });
-    expect(shown.body.proposed_tickets).toEqual([
-      { proposal_id: docs, title: 'Add docs', body: 'Do it', why: 'Found it' },
-      { proposal_id: lint, title: 'Fix lint', body: 'Do it', why: 'Found it' },
-    ]);
-
-    const fromB = await call(b.access, 'decide_proposed_ticket', {
-      proposal_id: docs,
-      decision: 'accept',
-    });
-    expect(errorOf(fromB).code).toBe('not_found');
-    const accepted = await call(a.access, 'decide_proposed_ticket', {
-      proposal_id: docs,
-      decision: 'accept',
-      title: 'Add API docs',
-    });
-    expect(accepted.body).toMatchObject({ status: 'accepted' });
-    const created = await db.pool.query<{ title: string; repo: string; status: string }>(
-      'SELECT title, repo, status FROM ticket WHERE id = $1',
-      [accepted.body.ticket_id],
-    );
-    expect(created.rows[0]).toEqual({
-      title: 'Add API docs',
-      repo: 'github.com/acme/app',
-      status: 'ready',
-    });
-    const dismissed = await call(a.access, 'decide_proposed_ticket', {
-      proposal_id: lint,
-      decision: 'dismiss',
-    });
-    expect(dismissed.body).toEqual({ status: 'dismissed' });
-    const again = await call(a.access, 'decide_proposed_ticket', {
-      proposal_id: lint,
-      decision: 'accept',
-    });
-    expect(errorOf(again).code).toBe('conflict');
-    const after = await call(a.access, 'get_ticket', { ticket: ticketId });
-    expect(after.body.proposed_tickets).toBeUndefined();
   });
 });
 
@@ -1369,5 +1401,56 @@ describe('/mcp workflow tools', () => {
       version: latest + 2,
       definition: { title: CONDUCTOR_V4_DEF.states.planning!.title },
     });
+  });
+
+  it('propose_change → apply_change → list_change_proposals, inside the account', async () => {
+    const a = await minted();
+    const b = await minted();
+    const repo = 'github.com/acme/proposals';
+    const proposal = {
+      title: 'Build in m-one',
+      change: { kind: 'repo_checks', repo, checks: { checks: M1_CHECKS } },
+      rationale: 'The root has no package.json.',
+      evidence: [{ finding_id: 'failing_check:npm run build', text: '3 of 3 runs failed' }],
+      expected_effect: {
+        metric: 'check_failure_rate',
+        direction: 'down',
+        text: 'The build stops failing.',
+      },
+      rollback: 'clear_repo_checks',
+    };
+    const bad = await call(a.access, 'propose_change', {
+      ...proposal,
+      change: { kind: 'machine_settings', permission_mode: 'bypassPermissions' },
+    });
+    expect([bad.isError, errorOf(bad).code]).toEqual([true, 'invalid_input']);
+
+    const made = await call(a.access, 'propose_change', proposal);
+    expect(made.body).toMatchObject({ status: 'proposed', target: repo, requires_admin: false });
+    const id = made.body.id as string;
+    // Nothing changed yet; another account can't see or apply it.
+    expect((await call(a.access, 'get_repo_checks', { repo })).body.override).toBeNull();
+    expect(errorOf(await call(b.access, 'list_change_proposals', { id })).code).toBe('not_found');
+    expect(errorOf(await call(b.access, 'apply_change', { id, confirm: true })).code).toBe(
+      'not_found',
+    );
+    // apply_change needs confirm: true.
+    const noConfirm = await mcp(a.access, 'tools/call', {
+      name: 'apply_change',
+      arguments: { id },
+    });
+    expect((noConfirm.json.result as { isError?: boolean }).isError).toBe(true);
+
+    const applied = await call(a.access, 'apply_change', { id, confirm: true });
+    expect(applied.body).toMatchObject({ status: 'applied' });
+    const now = await call(a.access, 'get_repo_checks', { repo });
+    expect((now.body.override as { checks: unknown[] }).checks).toEqual(M1_CHECKS);
+    const again = await call(a.access, 'apply_change', { id, confirm: true });
+    expect(errorOf(again).code).toBe('already_applied');
+
+    const one = await call(a.access, 'list_change_proposals', { id });
+    expect(one.body).toMatchObject({ status: 'applied', review: { too_early: true } });
+    const list = await call(a.access, 'list_change_proposals', {});
+    expect(list.body).toMatchObject({ total: 1, next_cursor: null });
   });
 });

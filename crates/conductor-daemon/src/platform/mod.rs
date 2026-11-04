@@ -8,7 +8,7 @@
 //! tested on every OS. Only the syscalls are.
 //!
 //! Declared up front (MR-T02); `win_path` was added by MR-T04, which owns `platform/`; `machine`
-//! and `private_file` by MR-T05 (the core modules need them).
+//! and `private_file` by MR-T05 (the core modules need them); `signals` by MR-T13b (`run`).
 
 pub mod acl;
 pub mod fs;
@@ -19,6 +19,7 @@ pub mod machine;
 pub mod private_file;
 pub mod procinfo;
 pub mod shell;
+pub mod signals;
 pub mod spawn;
 pub mod sysres;
 pub mod win_path;
@@ -32,7 +33,8 @@ pub use fs::same_path;
 pub use git::{git_hooks_off_args, git_system_config_env, null_device};
 pub use hook::{WIN_HOOK_UNSAFE, hook_command};
 pub use kill_tree::{
-    KillTarget, KillTreeHandle, KillTreeOptions, Signal, kill_tree, killed_exit, signal_tree,
+    KillTarget, KillTreeHandle, KillTreeOptions, Liveness, Signal, kill_tree, killed_exit,
+    pid_liveness, signal_tree,
 };
 pub use private_file::{
     DurableIo, SyncAll, assert_private_dir, read_private_file, write_private_file_durable,

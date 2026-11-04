@@ -26,8 +26,10 @@ import {
   MoveDtoSchema,
   SessionDetailSchema,
   TransitionSessionRequestSchema,
+  awaitingApprovalOnly,
   httpForApplyResult,
   pendingOfStep,
+  placeCard,
   toBoardCard,
   type CardTicketLike,
   type CardView,
@@ -82,7 +84,7 @@ describe('BoardCard.pending (ADR-0011 checklist)', () => {
       V2,
     );
     expect(BoardCardSchema.parse(card)).toEqual(BOARD_CARD_PENDING_FIXTURE);
-    expect(card.column).toBe('implementing'); // stays in its source column
+    expect(card.column).toBe('waiting_external'); // only approvals left: Waiting external
     expect(card.human_transitions).toEqual([]);
   });
 
@@ -334,5 +336,86 @@ describe('engine contract (ADR-0011)', () => {
     expect(moveStateLabel('implementing', 'waiting_external', 'ready_for_testing')).toBe(
       'implementing → waiting_external (move: ready_for_testing)',
     );
+  });
+});
+
+describe('a PR waiting on approvals shows in Waiting external (awaitingApprovalOnly)', () => {
+  const withStatuses = (over: Partial<GateStep>, ...statuses: string[]): GateStep => ({
+    ...MOVE_STEP_FIXTURE,
+    ...over,
+    conditions: MOVE_STEP_FIXTURE.conditions.map((c, i) => ({
+      ...c,
+      status: (statuses[i] ?? c.status) as GateStep['conditions'][number]['status'],
+    })),
+  });
+  const columnOf = (step: GateStep, view: CardView = V2) =>
+    placeCard('in_progress', inStep(step), view).column;
+
+  it('checks green, approvals pending → Waiting external, still badged checking', () => {
+    expect(awaitingApprovalOnly(MOVE_STEP_FIXTURE)).toBe(true);
+    const place = placeCard('in_progress', inStep(MOVE_STEP_FIXTURE), V2);
+    expect(place.column).toBe('waiting_external');
+    expect(place.badges).toEqual(['checking']);
+    expect(place.checking?.phase).toBe('conditions');
+  });
+
+  it('PR checks not green yet → stays in its source column', () => {
+    for (const s of ['pending', 'running', 'todo', 'failed', 'unsupported']) {
+      const step = withStatuses({}, s);
+      expect(awaitingApprovalOnly(step)).toBe(false);
+      expect(columnOf(step)).toBe('implementing');
+    }
+  });
+
+  it('every condition met (about to enter) or none pending → source column', () => {
+    expect(columnOf(withStatuses({}, 'met', 'met'))).toBe('implementing');
+  });
+
+  it('earlier phases of the same move → source column', () => {
+    for (const phase of ['checks', 'review', 'actions'] as const) {
+      expect(columnOf(withStatuses({ phase }))).toBe('implementing');
+    }
+  });
+
+  it('a move without an approvals condition (pr_ready_for_review) → source column', () => {
+    const step: GateStep = {
+      ...MOVE_STEP_FIXTURE,
+      outcome: 'pr_ready_for_review',
+      transition: 'pr_ready_for_review',
+      to: 'needs_input',
+      conditions: [{ ...MOVE_STEP_FIXTURE.conditions[0]!, status: 'pending' }],
+    };
+    expect(awaitingApprovalOnly(step)).toBe(false);
+    expect(columnOf(step)).toBe('implementing');
+  });
+
+  it('a poll in flight (every condition `running`) is judged by the last answers', () => {
+    const polling = (answers: (string | undefined)[]): GateStep => ({
+      ...MOVE_STEP_FIXTURE,
+      conditions: MOVE_STEP_FIXTURE.conditions.map((c, i) =>
+        c.status === 'disabled'
+          ? c
+          : {
+              ...c,
+              status: 'running',
+              ...(answers[i] !== undefined
+                ? { answer: answers[i] as 'met' | 'pending' | 'failed' | 'unsupported' }
+                : {}),
+            },
+      ),
+    });
+    expect(columnOf(polling(['met', 'pending']))).toBe('waiting_external');
+    expect(columnOf(polling(['pending', 'pending']))).toBe('implementing');
+    // The first evaluation (or a row from before `answer`): nothing known yet.
+    expect(columnOf(polling([undefined, undefined]))).toBe('implementing');
+  });
+
+  it('an entry step is never moved', () => {
+    expect(awaitingApprovalOnly({ ...MOVE_STEP_FIXTURE, kind: 'entry' })).toBe(false);
+  });
+
+  it('no event column on the board → source column', () => {
+    const view: CardView = { ...V2, columns: V2.columns.filter((c) => c.kind !== 'event') };
+    expect(columnOf(MOVE_STEP_FIXTURE, view)).toBe('implementing');
   });
 });

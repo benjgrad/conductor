@@ -1,6 +1,8 @@
 // The E2E stack (M1-T10): a fresh Postgres database (packages/orchestrator/test/db.ts), the real
 // `conductor-orchestrator` bin on an ephemeral port, and one real `conductor-daemon` bin, each a
-// child process with its log in the run's temp dir. The daemon drives the fake `claude`
+// child process with its log in the run's temp dir. The daemon is the Rust release binary
+// (MR-T16, ADR-0026) unless CONDUCTOR_E2E_DAEMON_BIN names another one (the TS build,
+// packages/daemon/dist/main.js, until MR-T18b). The daemon drives the fake `claude`
 // (packages/daemon/test/fixtures/fake-claude.mjs, via a symlink inside the temp dir so leftover
 // processes can be found by path) unless the run uses the real CLI.
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
@@ -21,13 +23,38 @@ import {
 } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTestDatabase, type TestDatabase } from '../../packages/orchestrator/test/db.js';
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 export const ORCHESTRATOR_BIN = join(REPO_ROOT, 'packages/orchestrator/dist/bin.js');
-export const DAEMON_BIN = join(REPO_ROOT, 'packages/daemon/dist/main.js');
+/** The Rust daemon `e2e/run.sh` builds (`cargo build --release -p conductor-daemon`). */
+export const RUST_DAEMON_BIN = join(
+  REPO_ROOT,
+  'target/release',
+  process.platform === 'win32' ? 'conductor-daemon.exe' : 'conductor-daemon',
+);
+/**
+ * The daemon the stack runs: CONDUCTOR_E2E_DAEMON_BIN (relative to the repo root unless absolute)
+ * or the Rust release binary. Read here, at load: `spawn` strips every CONDUCTOR_* from the
+ * children's env, so the daemon never sees it.
+ */
+export const DAEMON_BIN = daemonBin(process.env.CONDUCTOR_E2E_DAEMON_BIN);
+
+/** CONDUCTOR_E2E_DAEMON_BIN → the daemon path; unset or empty → the Rust release binary. */
+export function daemonBin(override: string | undefined): string {
+  if (!override) return RUST_DAEMON_BIN;
+  return isAbsolute(override) ? override : resolve(REPO_ROOT, override);
+}
+
+/** A `.js`/`.mjs` bin runs under this Node; anything else (the Rust daemon) is started directly. */
+export function isNodeScript(bin: string): boolean {
+  return /\.m?js$/.test(bin);
+}
+
+/** Which daemon the stack runs: 'ts' for a Node script, 'rust' for a native binary. */
+export const DAEMON_KIND: 'rust' | 'ts' = isNodeScript(DAEMON_BIN) ? 'ts' : 'rust';
 export const FAKE_CLAUDE = join(REPO_ROOT, 'packages/daemon/test/fixtures/fake-claude.mjs');
 
 /** The first PR the E2E fake `gh` opens in a run (ADR-0010 open_pr); later ones count up. */
@@ -117,6 +144,13 @@ export interface StackOptions {
   realClaude?: boolean;
   /** Extra daemon env. */
   daemonEnv?: Record<string, string>;
+  /**
+   * `password` (MR-T16c): the orchestrator runs with CONDUCTOR_AUTH=password and its public URL
+   * on the loopback port, so the daemon WS upgrade needs a machine credential. Default `local`.
+   */
+  auth?: 'local' | 'password';
+  /** Start the daemon in `start()` (default true); false leaves it to `startDaemon()`. */
+  startDaemon?: boolean;
 }
 
 interface Proc {
@@ -131,6 +165,8 @@ export class Stack {
   readonly machineId = `e2e-${randomBytes(4).toString('hex')}`;
   db!: TestDatabase;
   port = 0;
+  /** Extra orchestrator env, set before `start()` (e.g. CONDUCTOR_DOWNLOADS_DIR in `tmp`). */
+  readonly orchestratorEnv: Record<string, string> = {};
   private readonly procs: Proc[] = [];
 
   constructor(private readonly opts: StackOptions = {}) {
@@ -175,6 +211,11 @@ export class Stack {
     return join(this.tmp, 'claude-config');
   }
 
+  /** Which daemon this stack runs (DAEMON_BIN): the Rust binary or the TS build. */
+  get daemonKind(): 'rust' | 'ts' {
+    return DAEMON_KIND;
+  }
+
   get baseUrl(): string {
     return `http://127.0.0.1:${this.port}`;
   }
@@ -182,20 +223,40 @@ export class Stack {
   /** Database, then orchestrator (ready when GET /api/board answers), then the daemon. */
   async start(): Promise<void> {
     for (const bin of [ORCHESTRATOR_BIN, DAEMON_BIN]) {
-      if (!existsSync(bin)) throw new Error(`${bin} is missing: run \`pnpm exec tsc -b\` first`);
+      if (existsSync(bin)) continue;
+      const hint = isNodeScript(bin)
+        ? 'run `pnpm exec tsc -b` first'
+        : bin === RUST_DAEMON_BIN
+          ? 'run `cargo build --release -p conductor-daemon` (or `pnpm test:e2e`) first'
+          : 'build it first (target/debug/conductor-daemon: `cargo nextest run --workspace --no-run`)';
+      throw new Error(`${bin} is missing: ${hint}`);
     }
+    console.log(`e2e: ${this.daemonKind} daemon ${DAEMON_BIN}`);
     this.db = await createTestDatabase();
     this.port = await freePort();
+    const password = this.opts.auth === 'password';
     this.spawn('orchestrator', ORCHESTRATOR_BIN, {
       DATABASE_URL: this.db.url,
       CONDUCTOR_PORT: String(this.port),
       CONDUCTOR_WEB_DIR: join(this.tmp, 'no-web'), // API only
+      ...(password ? { CONDUCTOR_AUTH: 'password', CONDUCTOR_PUBLIC_URL: this.baseUrl } : {}),
+      ...this.orchestratorEnv,
     });
-    await waitFor('orchestrator /api/board', async () => {
-      const res = await fetch(`${this.baseUrl}/api/board`).catch(() => null);
+    // /api/board is 401 without a session in password mode; /healthz answers in both.
+    const probe = password ? '/healthz' : '/api/board';
+    await waitFor(`orchestrator ${probe}`, async () => {
+      const res = await fetch(`${this.baseUrl}${probe}`).catch(() => null);
       return res?.ok === true;
     });
+    if (this.opts.startDaemon ?? true) this.startDaemon();
+  }
 
+  /**
+   * The daemon env the stack uses: the orchestrator URL, root, machine id and tags, the fake `gh`
+   * (always) and the fake `claude` (unless realClaude), plus StackOptions.daemonEnv. Creates the
+   * fakes' dirs once; safe to call again (MR-T16c starts two daemons).
+   */
+  daemonEnv(): Record<string, string> {
     const env: Record<string, string> = {
       CONDUCTOR_ORCHESTRATOR_URL: `ws://127.0.0.1:${this.port}/ws/daemon`,
       CONDUCTOR_ROOT: join(this.tmp, 'daemon-root'),
@@ -211,10 +272,12 @@ export class Stack {
     };
     // ADR-0010 / ADR-0011: the fake `gh` (FAKE_GH above, no network). Every call is logged to
     // fakeGhLog.
-    const ghBin = join(this.tmp, 'gh-bin');
-    mkdirSync(ghBin);
-    writeFileSync(join(ghBin, 'gh'), FAKE_GH);
-    chmodSync(join(ghBin, 'gh'), 0o755);
+    const ghBin = this.ghBinDir;
+    if (!existsSync(ghBin)) {
+      mkdirSync(ghBin);
+      writeFileSync(join(ghBin, 'gh'), FAKE_GH);
+      chmodSync(join(ghBin, 'gh'), 0o755);
+    }
     env.PATH = `${ghBin}:${process.env.PATH ?? ''}`;
     env.FAKE_GH_LOG = this.fakeGhLog;
     // ADR-0010 fresh checkouts auto-detect `npm install` as their setup: never touch the network.
@@ -225,9 +288,11 @@ export class Stack {
     env.FAKE_GH_STATE = join(this.tmp, 'fake-gh-prs');
     env.FAKE_GH_REPO = this.fixtureRepo;
     if (!this.opts.realClaude) {
-      const bin = join(this.tmp, 'bin');
-      mkdirSync(bin);
-      symlinkSync(FAKE_CLAUDE, join(bin, 'claude'));
+      const bin = this.claudeBinDir;
+      if (!existsSync(bin)) {
+        mkdirSync(bin);
+        symlinkSync(FAKE_CLAUDE, join(bin, 'claude'));
+      }
       env.CONDUCTOR_CLAUDE_BIN = join(bin, 'claude');
       env.FAKE_CLAUDE_SCENARIO_DIR = this.scenarioDir;
       env.FAKE_CLAUDE_STATE_DIR = join(this.tmp, 'fake-claude-state');
@@ -236,10 +301,30 @@ export class Stack {
       // ADR-0008: the fake writes transcripts here, and the daemon reads them from here.
       env.CLAUDE_CONFIG_DIR = this.claudeConfigDir;
     }
-    this.spawn('daemon', DAEMON_BIN, env);
+    return env;
   }
 
-  private spawn(name: string, bin: string, env: Record<string, string>) {
+  /** The fake `gh` dir (first on the daemon's PATH). */
+  get ghBinDir(): string {
+    return join(this.tmp, 'gh-bin');
+  }
+
+  /** The dir holding the fake `claude` symlink (fake mode). */
+  get claudeBinDir(): string {
+    return join(this.tmp, 'bin');
+  }
+
+  /** Start a daemon process named `name` (default: DAEMON_BIN with the stack's env). */
+  startDaemon(
+    bin: string = DAEMON_BIN,
+    args: string[] = [],
+    env: Record<string, string> = this.daemonEnv(),
+    name = 'daemon',
+  ): void {
+    this.spawn(name, bin, env, args);
+  }
+
+  private spawn(name: string, bin: string, env: Record<string, string>, args: string[] = []) {
     const log = join(this.tmp, `${name}.log`);
     const fd = openSync(log, 'a');
     const base: NodeJS.ProcessEnv = { ...process.env };
@@ -247,7 +332,10 @@ export class Stack {
     for (const k of Object.keys(base)) {
       if (k.startsWith('FAKE_CLAUDE_') || k.startsWith('CONDUCTOR_')) delete base[k];
     }
-    const child = spawn(process.execPath, [bin], {
+    const [file, argv]: [string, string[]] = isNodeScript(bin)
+      ? [process.execPath, [bin, ...args]]
+      : [bin, args];
+    const child = spawn(file, argv, {
       cwd: this.tmp,
       env: { ...base, ...env },
       stdio: ['ignore', fd, fd],
@@ -300,7 +388,7 @@ export class Stack {
    * the temp dir, the database and the temp dir. Idempotent.
    */
   async stop(): Promise<void> {
-    await this.stopProc('daemon');
+    for (const p of this.procs) if (p.name.startsWith('daemon')) await this.stopProc(p.name);
     await this.stopProc('orchestrator');
     for (const pid of this.leftovers()) {
       try {

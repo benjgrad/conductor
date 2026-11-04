@@ -5,7 +5,7 @@ import {
   type BoardCard,
   type BoardSseEvent,
 } from '@conductor/shared';
-import { renderHook } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   applyBoardEvent,
@@ -13,7 +13,7 @@ import {
   EMPTY_BOARD,
   type BoardState,
 } from '../board/board.js';
-import { agentName } from '../components/agent-identity.js';
+import { cardAgent } from '../components/agent-identity.js';
 import { FAVICON_DOT, FAVICON_PLAIN } from './favicon.js';
 import { stubNotification } from './notification-stub.js';
 import { clip, useNeedsInputNotifications } from './useNeedsInputNotifications.js';
@@ -96,7 +96,7 @@ describe('useNeedsInputNotifications', () => {
     rerender({ b: next });
     expect(N.instances).toHaveLength(1);
     const n = N.instances[0]!;
-    expect(n.title).toBe(`${agentName(RUNNING.ticket_id)} needs input`);
+    expect(n.title).toBe(`${cardAgent(RUNNING).name} needs input`);
     expect(n.options.body).toBe('Add pagination: Which DB should I target?');
     expect(n.options.tag).toBe(REQ);
 
@@ -105,6 +105,13 @@ describe('useNeedsInputNotifications', () => {
     rerender({ b: applyBoardEvent(next, asked(11)) });
     rerender({ b: loaded([next.cards.get(RUNNING.ticket_id)!], 11) });
     expect(N.instances).toHaveLength(1);
+  });
+
+  it("names the ticket's stored teammate (UX-13b)", () => {
+    const start = loaded([{ ...RUNNING, agent_name: 'Morgan' }]);
+    const { rerender } = mount(start);
+    rerender({ b: applyBoardEvent(start, asked(11)) });
+    expect(N.instances[0]!.title).toBe('Morgan needs input');
   });
 
   it('clips the body to 120 characters', () => {
@@ -189,6 +196,58 @@ describe('useNeedsInputNotifications', () => {
       b: applyBoardEvent(next, asked(12, 'Other?', '55555555-5555-4555-8555-555555555555')),
     });
     expect(N.instances).toHaveLength(0);
+  });
+
+  describe('through the service worker (iOS Home Screen apps have no `new Notification`)', () => {
+    function fakeRegistration(reg: unknown) {
+      const serviceWorker = { getRegistration: vi.fn(() => Promise.resolve(reg)) };
+      vi.stubGlobal('navigator', { ...navigator, serviceWorker });
+      return serviceWorker;
+    }
+    const flush = () => act(() => new Promise((r) => setTimeout(r, 0)));
+
+    it('shows it with the tag and the ticket url, not the constructor; answering closes it', async () => {
+      const shown = { close: vi.fn() };
+      const reg = {
+        showNotification: vi.fn(() => Promise.resolve()),
+        getNotifications: vi.fn(() => Promise.resolve([shown])),
+      };
+      const sw = fakeRegistration(reg);
+      const start = loaded([RUNNING]);
+      const { rerender } = mount(start);
+      const next = applyBoardEvent(start, asked(11));
+      rerender({ b: next });
+      await flush();
+      expect(sw.getRegistration).toHaveBeenCalledWith('/');
+      expect(reg.showNotification).toHaveBeenCalledTimes(1);
+      expect(reg.showNotification).toHaveBeenCalledWith(`${cardAgent(RUNNING).name} needs input`, {
+        body: 'Add pagination: Which DB should I target?',
+        tag: REQ,
+        icon: '/icons/icon-192.png',
+        data: { url: `/#/?ticket=${RUNNING.ticket_id}` },
+      });
+      expect(N.instances).toHaveLength(0);
+
+      // A re-render doesn't show it again.
+      rerender({ b: next });
+      await flush();
+      expect(reg.showNotification).toHaveBeenCalledTimes(1);
+
+      rerender({ b: applyBoardEvent(next, answered(12)) });
+      await flush();
+      expect(reg.getNotifications).toHaveBeenCalledWith({ tag: REQ });
+      expect(shown.close).toHaveBeenCalled();
+    });
+
+    it('falls back to the constructor without a registration', async () => {
+      fakeRegistration(undefined);
+      const start = loaded([RUNNING]);
+      const { rerender } = mount(start);
+      rerender({ b: applyBoardEvent(start, asked(11)) });
+      await flush();
+      expect(N.instances).toHaveLength(1);
+      expect(N.instances[0]!.options.tag).toBe(REQ);
+    });
   });
 
   it('without Notification, nothing throws and the title count still works', () => {

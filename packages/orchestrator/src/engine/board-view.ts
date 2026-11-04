@@ -16,6 +16,14 @@ import {
   type RequiredCaps,
   type RoutingFleet,
 } from '../gateway/routing.js';
+import {
+  loadProposals,
+  pendingCount,
+  PROPOSALS_COLUMN,
+  readDecisions,
+  sessionProposals,
+  type ProposalSession,
+} from './proposals.js';
 import { DefinitionCache } from './rows.js';
 
 // ADR-0010: what `toBoardCard` needs besides the rows. The board's columns come from the latest
@@ -126,6 +134,8 @@ export async function readCardAlerts(
 export class MachineCardFields {
   private readonly machines = new Map<string, Promise<RoutingFleet>>();
   private alerts: Map<string, BoardCardAlert[]> | null = null;
+  /** Session id → pending proposals, when preloaded (the board load). */
+  private proposals: Map<string, number> | null = null;
 
   constructor(
     private readonly q: Queryable,
@@ -137,11 +147,43 @@ export class MachineCardFields {
     this.alerts = await readCardAlerts(this.q);
   }
 
+  /**
+   * 06 §Proposed tickets: count the pending proposals of the board's Needs input sessions at once
+   * (one decision query); other cards have no badge.
+   */
+  async preloadProposals(
+    sessions: readonly (ProposalSession & { id: string; ticket_id: string })[],
+  ): Promise<void> {
+    const parsed = new Map<string, Awaited<ReturnType<typeof sessionProposals>>>();
+    for (const s of sessions) {
+      const ps = await sessionProposals(this.q, s);
+      if (ps.length > 0) parsed.set(s.id, ps);
+    }
+    const withAny = sessions.filter((s) => parsed.has(s.id));
+    const decisions = await readDecisions(
+      this.q,
+      withAny.map((s) => s.ticket_id),
+    );
+    this.proposals = new Map(
+      withAny.map((s) => {
+        const d = decisions.get(s.ticket_id);
+        return [s.id, parsed.get(s.id)!.filter((p) => !d?.has(p.id)).length];
+      }),
+    );
+  }
+
   async apply(card: BoardCard, ticket: RoutingTicket): Promise<BoardCard> {
-    const { alerts: _a, routing: _r, ...rest } = card;
+    const { alerts: _a, routing: _r, proposals_pending: _p, ...rest } = card;
     void _a;
     void _r;
+    void _p;
     const out: BoardCard = rest;
+    if (card.column === PROPOSALS_COLUMN && card.session_id !== null) {
+      const n = this.proposals
+        ? (this.proposals.get(card.session_id) ?? 0)
+        : await this.pendingProposals(card.ticket_id, card.session_id);
+      if (n > 0) out.proposals_pending = n;
+    }
     if (card.session_id !== null) {
       const alerts = this.alerts
         ? this.alerts.get(card.session_id)
@@ -153,6 +195,15 @@ export class MachineCardFields {
       if (routing) out.routing = routing;
     }
     return out;
+  }
+
+  private async pendingProposals(ticketId: string, sessionId: string): Promise<number> {
+    const r = await this.q.query<ProposalSession>(
+      'SELECT context, workflow_id, workflow_version FROM session WHERE id = $1',
+      [sessionId],
+    );
+    const session = r.rows[0];
+    return session ? pendingCount(await loadProposals(this.q, ticketId, session)) : 0;
   }
 
   private async routing(ticket: RoutingTicket) {

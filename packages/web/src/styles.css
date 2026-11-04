@@ -262,6 +262,11 @@ main {
   background: var(--warn-bg);
   color: var(--warn);
 }
+.badge-proposals {
+  background: var(--inline-code-bg);
+  color: var(--accent);
+  font-weight: 600;
+}
 .badge-question {
   background: var(--ask-bg);
   color: var(--ask);
@@ -357,6 +362,26 @@ main {
   gap: 2px;
   padding: 0 12px;
   border-bottom: 1px solid var(--border);
+}
+/* The session panel's row: the tabs, then the ticket buttons (TicketStrip.tsx) on the right. */
+.detail-tabbar {
+  flex: none;
+  align-items: stretch;
+  gap: var(--space-2);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.detail-tablist {
+  display: flex;
+  gap: 2px;
+}
+/* The tab bodies, and the ticket sheet over them. */
+.detail-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .tabs [role='tab'] {
   border: 0;
@@ -683,8 +708,18 @@ button.copy {
   max-width: 100%;
   background: var(--ask-bg);
   border: 1px solid color-mix(in srgb, var(--ask) 35%, transparent);
+  /* Questions UX: a request waiting on a human stands out from the chat around it. */
+  border-left: 4px solid var(--ask);
   border-radius: 10px;
   padding: 10px 12px;
+}
+/* Every request waiting on a human (question, plan, permission): one "Action needed" look. */
+.action-needed {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ask);
 }
 .pending-head {
   display: flex;
@@ -1392,6 +1427,9 @@ button.link {
   .detail.full-screen .detail-head h2 {
     white-space: nowrap;
   }
+  .detail.full-screen .detail-tablist {
+    flex: 1;
+  }
   .detail.full-screen .tabs [role='tab'] {
     flex: 1;
   }
@@ -1615,6 +1653,104 @@ button.link {
 .transition-text-actions {
   display: flex;
   gap: 8px;
+  align-items: center;
+}
+/* 06 §Proposed tickets: the agent's follow-up proposals in the Needs input panel. */
+.proposals {
+  margin: var(--space-2) var(--space-3) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.proposals h3 {
+  margin: 0;
+  font-size: var(--text-base);
+}
+.proposals-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-1) 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+}
+.proposals-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.proposals-chevron {
+  color: var(--muted);
+  font-size: 11px;
+}
+.proposals-toggle[aria-expanded='true'] .proposals-chevron {
+  transform: rotate(90deg);
+}
+.proposals-count {
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--user-bg);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+.proposals-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.proposals-body[hidden] {
+  display: none;
+}
+.proposals-note {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+.proposals ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  /* A long list scrolls in its own box, so it never pushes the chat away. */
+  max-height: 40vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.proposal {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.proposal-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+.proposal-why,
+.proposal-from {
+  margin: 0;
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+}
+.proposal-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+.proposal-actions {
+  display: flex;
+  gap: var(--space-2);
   align-items: center;
 }
 .kind-choice {

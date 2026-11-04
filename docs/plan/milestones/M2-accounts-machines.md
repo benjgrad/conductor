@@ -112,7 +112,7 @@ Status values: `todo` · `in_progress` · `in_review` (QA) · `done` · `blocked
 | M2-T13a | Daemon: **fetch per session** (split out of T13; pays TD-026's stale base) | T10 | D | — | done (PR #48, 14264a3; TD-181) |
 | M2-T27 | Daemon + shared: `update_branch` MCP tool (all states), planning `inspect` alias, denial counts on session events | T13a | E | — | todo (daemon part moved → MR-T17a, ADR-0026; shared part stays here) |
 | M2-T27b | Orchestrator + web: "Update from main" on an idle session (REST → daemon command → same action) | T27 | F | — | todo |
-| M2-T28 | **Contracts (agent settings)**: `machine_settings`, settings REST, `settings_update`, `reported_settings` ([ADR-0022](../../adr/0022-layered-agent-settings.md), proposed) | — | D | — | todo |
+| M2-T28 | **Contracts (agent settings)**: `machine_settings`, settings REST, `settings_update`, `reported_settings` ([ADR-0022](../../adr/0022-layered-agent-settings.md), accepted) | — | D | — | todo |
 | M2-T28b | Shared: `resolveEffectivePolicy` + invariants, settings schemas | T28 | E | — | todo |
 | M2-T28c | Orchestrator: `machine_settings` migration, settings routes, audit, push on connect / change | T28b | F | **yes** | todo |
 | M2-T28d | Daemon: apply pushed override, report `reported_settings` (pays TD-081) | T28b, T13a, T29b | F | — | moved → MR-T17b (Rust, ADR-0026) |
@@ -957,42 +957,163 @@ The lead fast-forwarded the daemon clone and Hazel's branch by hand (the interim
 - **Depends on**: T27. **Acceptance**: a route test (409 during a live turn; the result is stored); a web test; the e2e path; gates.
 
 ### M2-T28 · Contracts: layered agent settings
-- **Scope** ([ADR-0022](../../adr/0022-layered-agent-settings.md); Ben approves the ADR before T28b starts):
-  - Contract sections in 10-contracts and 03-protocols:
-    - `machine_settings` (machine_id PK, override jsonb, version, updated_by, updated_at) plus a `machine_settings_audit` table;
-    - `GET/PUT /api/machines/:id/settings`;
-    - WS `settings_update {version, override}` and an ack `{version, applied | refused, reason?}`;
-    - inventory `reported_settings`.
-  - The zod schemas in `shared/src/protocol` and `shared/src/api`, additive, so M1/M2 daemons still parse.
-- **Files owned**: those schema files, the doc sections. **Acceptance**: schema round-trip tests; an old daemon's inventory still parses; gates.
+- **Scope** ([ADR-0022](../../adr/0022-layered-agent-settings.md), accepted, with its 2026-11-04 amendment). Contracts only: schemas, fixtures, codegen and doc sections. No migration, no behaviour.
+  - **Shared types**: a new `packages/shared/src/machines/settings.ts`, exported from `index.ts`.
+    - `StateOverrideSchema` (strict): `{add_aliases?: ToolAlias[], allow?: string[], deny?: string[]}`.
+    - `MachineSettingsOverrideSchema` (strict, every field optional, `{}` = no override):
+      - `all_states?: StateOverride` and `states?: Record<state name, StateOverride>`;
+      - `permission_mode?: 'auto' | 'default' | 'bypassPermissions'`;
+      - `permission_timeout_min?: int 1..1440`;
+      - `max_sessions?: int 1..32`;
+      - `tags?: string[]` (≤ 20, each 1..50 chars);
+      - limits: ≤ 100 states, ≤ 200 rules per list, each rule ≤ 500 chars.
+      - No `roots` or `allowed_repo_hosts` (ADR-0022 amendment, D1). They can be added later without a contract break.
+    - `ReportedSettingsSchema`:
+      - `config`: the daemon's `config.json` with any credential-like key removed;
+      - `limits: {max_sessions, light_slots, permission_timeout_min}` (env-derived);
+      - `claude: {default_mode: string | null, user_settings_exists: boolean, version: string | null}`;
+      - `override_version: int | null` (the version the daemon has applied).
+    - The schema validates shape only. The rule invariants are T28b's `validateMachineSettings`.
+  - **WS** (`shared/src/protocol/ws.ts`, additive; `PROTOCOL_VERSION` stays 2, so M1/M2 daemons still parse every frame they receive):
+    - `DAEMON_FEATURE_MACHINE_SETTINGS = 'machine_settings'`, added to `DAEMON_FEATURES`.
+    - A new orchestrator → daemon machine-level command `settings_update {command_id, version: int ≥ 0, override}`. It is sent only to a daemon whose `register.features` has that name (D3), so an old daemon never sees it.
+    - It is acked with the existing `command_ack`:
+      - `accepted: true` = applied;
+      - `accepted: false` with `reason` `settings_invalid: <path>` (it fails the invariants on the daemon) or `settings_stale` (older than the version the daemon holds).
+      - Both reasons are added to the refusal-reason list.
+    - `InventoryPayloadSchema` gains optional `reported_settings` (absent from old daemons). It is part of the daemon's `hash`, so a settings change resends the inventory.
+    - Fixtures in `protocol/fixtures.ts`: `settings_update` (with and without states), an inventory with `reported_settings`, and the existing inventory fixture unchanged (the old shape).
+  - **REST** (`shared/src/api/machines.ts`, and `API_PATHS.machineSettings(id)` = `/api/machines/:id/settings` in `api/rest.ts`):
+    - `GET` → `MachineSettingsResponse`:
+      - `{version, override, updated_by, updated_at}`;
+      - `ack: {version, status: 'pending' | 'applied' | 'refused', reason?, at} | null`;
+      - `reported: ReportedSettings | null`, plus `reported_at`;
+      - `effective_by_state: [{workflow, state, role: 'worker' | 'reviewer' | 'qa', builtin, allow, deny, permission_mode}]`.
+    - `PUT` body `{base_version, override}` → 200 with the same response. 409 when `base_version` isn't the current version, 422 `{errors: [{path, message}]}` from T28b's validator, 403 for a member who isn't the owner or an admin.
+  - **Codegen** (the MR-T03 drift check runs in `scripts/ci.sh`):
+    - register `settings_update`, `StateOverride`, `MachineSettingsOverride` and `ReportedSettings` in `packages/shared/scripts/emit-protocol.ts`;
+    - run `pnpm --filter @conductor/shared emit:protocol` and `cargo run -p conductor-protocol-codegen`;
+    - commit `packages/shared/protocol-json/**` and `crates/conductor-protocol/src/generated.rs`. The diff reaches `crates/**`, so `daemon-rust.yml` runs; that is expected.
+  - **Docs**:
+    - 10-contracts: a new §Machine settings section (the two tables as T28c defines them, the routes, the message, ack semantics, feature gating, "a session uses the policy computed when it starts; changes apply to the next session"). §Machines protocol v2 notes that `reported_settings` is part of `hash`, so `repos_digest` changes when it does.
+    - 03-protocols: `settings_update` and the inventory field.
+    - 02-data-model: `machine_settings` and `machine_settings_audit`, marked "M2-T28c".
+- **Design refs**: ADR-0022 (+ amendment); ADR-0023 (permission modes); ADR-0026 §2 (codegen); 10-contracts §Machines protocol v2, §Refusals, §Assistant jobs (the feature-gating precedent).
+- **Depends on**: —.
+- **Files owned**: `shared/src/machines/settings.ts` (+ `settings.test.ts`), the `ws.ts` additions, `shared/src/api/machines.ts`, `shared/src/api/rest.ts` (the path only), `shared/src/index.ts` (exports), `protocol/fixtures.ts`, `scripts/emit-protocol.ts`, `protocol-json/**`, `crates/conductor-protocol/src/generated.rs`, the doc sections above.
+- **Do not touch**: the orchestrator, `crates/conductor-daemon`, `packages/daemon` (frozen), web.
+- **Migration**: no.
+- **Acceptance**:
+  - [ ] `settings.test.ts`: every schema round-trips; unknown keys, over-limit lists, an over-long rule and an unknown `permission_mode` are rejected; `roots` is rejected (strict).
+  - [ ] `protocol-json.test.ts` and `cargo nextest run -p conductor-protocol` round-trip the new fixtures.
+  - [ ] The existing inventory fixture (no `reported_settings`) and a `register` without `features` still parse.
+  - [ ] The CI drift check is clean.
+  - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`, and the cargo gates.
 
 ### M2-T28b · Shared: effective policy
-- `resolveEffectivePolicy(stateTools, override)` returns `{builtin, allow, deny, permissionMode}`, with the ADR-0022 invariants. A save-time validator returns field errors.
+- **Scope**: one pure module, `packages/shared/src/workflow/effective-policy.ts`, used by the orchestrator (save, `effective_by_state`) and ported to Rust by MR-T17b (apply).
+  - `resolveEffectivePolicy({tools, role, state}, override | null)` → `{builtin, allow, deny, permissionMode}`. `role` is `'worker' | 'reviewer' | 'qa'`.
+  - `validateMachineSettings(override)` → `{path, message}[]` (empty = valid). The orchestrator rejects a save with these errors (422). The daemon re-runs it and refuses the push (`settings_invalid`).
+- **Merge order**:
+  1. Aliases: the state's `tools` plus `add_aliases` from `all_states` and from `states[state]`.
+  2. `resolveToolPolicy` of those aliases (unchanged; `tools.ts` is not edited).
+  3. Add `allow` and `deny` from `all_states`, then from `states[state]`.
+  4. Deny wins. Stable order, de-duplicated (same as `resolveToolPolicy`).
+- **Roles** (ADR-0022 amendment, D2):
+  - `reviewer` and `qa`: only the extra `deny` rules apply. `add_aliases`, `allow` and `permission_mode` are ignored. Mode stays `dontAsk` (ADR-0009, ADR-0020 §2).
+  - `worker`: mode = `override.permission_mode ?? 'auto'` (ADR-0023).
+- **Invariants** (each one has a test; ADR-0022 §Invariants):
+  - Every base and alias deny is kept, including `Bash(git push:*)`. The override has no field that removes a deny.
+  - An allow rule equal to a deny in the resulting policy is a validation error, not silently dropped.
+  - Allow rules are exact: no `*` anywhere, so no `:*` prefix rules.
+  - `Bash`, `Bash(*)`, `Bash()` and bare `Edit`, `Write`, `Read`, `Glob`, `Grep` are rejected.
+  - A `git diff|log|show` prefix rule (TD-082) and any `git push` allow are rejected.
+  - Path rules (`Read|Edit|Write|Glob|Grep(…)`) must be worktree-relative `./…`. A leading `/` or `//`, `~`, a `..` segment or a drive letter is rejected (the `Read(//**)` case).
+  - `add_aliases` must be known aliases (`isToolAlias`), never `review` or `qa`.
+  - `bypassPermissions` is valid here. MA-T06 forbids setting it over MCP, at its own layer.
+- **Vectors**: `packages/shared/protocol-json/vectors/resolveEffectivePolicy.json` and `validateMachineSettings.json` (hand-written inputs → outputs or errors), with a vitest runner like the `resolveToolPolicy` one. MR-T17b runs the same files in Rust.
+- **Design refs**: ADR-0022 (+ amendment), ADR-0005, ADR-0009, ADR-0020 §2, ADR-0023; 10-contracts §Tools; `shared/src/workflow/tools.ts`.
+- **Depends on**: T28.
+- **Files owned**: `effective-policy.ts` (+ `effective-policy.test.ts`), the two vector files and their runner, the `index.ts` export, one paragraph in 10-contracts §Tools.
+- **Do not touch**: `tools.ts` aliases, the orchestrator, the daemons, `crates/**`.
+- **Migration**: no.
 - **Acceptance**:
-  - [ ] `git push` can't be un-denied.
-  - [ ] `Bash`, `Bash(*)`, `Bash(git diff:*)` and `Read(//**)` are rejected.
+  - [ ] `effective-policy.test.ts`:
+    - `git push` can't be un-denied;
+    - `Bash`, `Bash(*)`, `Bash(git diff:*)`, `Read(//**)`, `Edit` and `Read(../x)` are rejected with their paths;
+    - a reviewer and a QA session ignore the override's allows and aliases and keep `dontAsk`, but get its denies;
+    - a worker's mode defaults to `auto`;
+    - `states[state]` applies only to that state, `all_states` to every state.
+  - [ ] A property test: for any override that passes `validateMachineSettings`, `deny ⊇ resolveToolPolicy(tools).deny` and `allow ∩ deny = ∅`.
+  - [ ] Both vector files pass.
   - [ ] Gates.
 
 ### M2-T28c · Orchestrator: machine settings
-- Migration; routes (owner/admin only, account-scoped); audit rows; push `settings_update` on register and on PUT; store the daemon's ack and `reported_settings`.
+- **Scope**:
+  - **Migration** `packages/orchestrator/migrations/<ts>_machine-settings.sql`, up and down. Take a timestamp strictly later than every file on `origin/main` (`1762600000000` is already used twice).
+    - `machine_settings`:
+      - `machine_id text PRIMARY KEY REFERENCES machine (id) ON DELETE CASCADE`, `account_id uuid NOT NULL REFERENCES account (id)`;
+      - `override jsonb NOT NULL DEFAULT '{}'`, `version int NOT NULL DEFAULT 0`;
+      - `updated_by uuid` (an audit id: no FK, it may be the virtual local user, U-042), `updated_at timestamptz`;
+      - `ack_version int`, `ack_status text CHECK (ack_status IN ('pending','applied','refused'))`, `ack_reason text`, `ack_at timestamptz`;
+      - `reported jsonb`, `reported_at timestamptz`.
+    - `machine_settings_audit`:
+      - `id uuid PK`, `account_id`, `machine_id`, `version`, `actor_user_id uuid` (no FK);
+      - `source text CHECK (source IN ('web','permission_always','advisor'))`;
+      - `before jsonb`, `after jsonb`, `created_at`;
+      - index `(machine_id, created_at DESC)` and an `account_id` index.
+    - `machine_alert.kind` CHECK gains `settings_refused`.
+    - Both tables carry `account_id`, so the schema-isolation test and the unscoped-query lint cover them.
+  - **Routes** (`packages/orchestrator/src/api/machine-settings.ts`, registered beside `api/machines.ts`):
+    - Account-scoped: another account's machine → 404.
+    - `GET`: any member of the account.
+    - `PUT`: the account owner (`account_member.role = 'owner'`) or an admin (`app_user.is_admin`), else 403.
+    - `PUT` runs `validateMachineSettings` (422) and checks `base_version` (409). Then, in **one transaction**, it:
+      - bumps `version` and writes the override;
+      - writes the audit row (`before`, `after`, `source = 'web'`);
+      - sets `ack_status = 'pending'`;
+      - enqueues an outbox `settings_update` when the machine is online and registered with the feature.
+    - `effective_by_state` is computed with `resolveEffectivePolicy` for every state of every workflow the account uses, with the role taken from the state (requirements reviewer, `role: 'qa'`, otherwise worker).
+    - One save function is used by the route, by "Allow always" and later by MA-T06's `apply_change` (`source = 'advisor'`).
+  - **Push** (gateway):
+    - On `registered` with the feature, if `ack_version IS DISTINCT FROM version`, enqueue `settings_update`. A version the daemon already refused is not re-sent; the next PUT makes a new one. With no row, send version 0 with `{}`, so the daemon clears anything stale.
+    - Idempotency key `settings:<machine_id>:<version>`. A newer version supersedes an undelivered older one.
+    - The `command_ack` handler for this kind records `ack_version`, `ack_status` and `ack_reason`. A refusal also opens a `machine_alert {kind: 'settings_refused', detail: {version, reason}}`, so a human sees it on the Machines page; the next applied ack clears it.
+    - An `inventory` carrying `reported_settings` updates `reported` and `reported_at`.
+  - **"Allow always"** (ADR-0023 §2; pays TD-188):
+    - `api/permissions.ts` stops appending to `ticket.session_allow`. It appends the exact rule to the session machine's `override.states[<state>].allow` through the save function (`source = 'permission_always'`, actor = the deciding user). The push follows, and the rule applies from that machine's next session.
+    - If the validator rejects the rule, the decision falls back to "once", and the reason is kept on the permission request.
+    - The `session_allow` column stays (dropping it is a later migration). Update its comment in 02-data-model and the `// TD-188` site.
+- **Design refs**: ADR-0022 (+ amendment), ADR-0023 §2, ADR-0012 (isolation); 10-contracts §Machine settings (T28), §Outbox state machine, §Permission prompts; 02-data-model.
+- **Depends on**: T28b.
+- **Files owned**: the migration, `api/machine-settings.ts`, the settings parts of `gateway/index.ts` (registered, ack, inventory), the "always" branch of `api/permissions.ts`, `db/types.ts`, their tests, the 02-data-model and 10-contracts touch-ups.
+- **Do not touch**: shared schemas (T28, T28b), web (T28e), `crates/**`, `packages/daemon`.
+- **Migration**: **yes**. Ben approves it before merge.
 - **Acceptance**:
-  - [ ] Route tests, including cross-account 404.
-  - [ ] A migration up/down test.
-  - [ ] The push happens on reconnect.
-  - [ ] Gates.
+  - [ ] `test/api.machine-settings.test.ts`:
+    - a member can GET;
+    - the owner and an admin can PUT, a member gets 403;
+    - another account's machine is 404;
+    - a stale `base_version` is 409;
+    - an invariant violation is 422 with paths;
+    - each PUT writes one audit row with `before` and `after`;
+    - `effective_by_state` lists a reviewer state with `dontAsk`.
+  - [ ] `test/schema.test.ts`: the migration goes up and down.
+  - [ ] `test/gateway/machine-settings.test.ts` (with `fake-daemon.ts`):
+    - push on register only with the feature and only when un-acked;
+    - push after a PUT while online;
+    - a reconnect re-pushes an un-acked version;
+    - a refused ack is stored and raises the alert, and an applied one clears it;
+    - `reported_settings` is stored.
+  - [ ] `test/gateway/permissions.test.ts`: "Allow always" lands in the machine override, bumps the version and audits; `ticket.session_allow` is not written.
+  - [ ] The route-matrix isolation test covers the new path.
+  - [ ] Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e`.
 
 ### M2-T28d · Daemon: apply settings
-- Persist the override in `<root>/state/settings.json` (0600).
-- Apply it in `resolveToolPolicy` and in the permission-mode choice (no local ceiling: U-098 resolved "no" for now).
-- Report `reported_settings`; remove the credential.
-- Pays TD-081.
-- **Acceptance**:
-  - [ ] The override changes the next session's argv, not a running one.
-  - [ ] `off` ignores it and acks `refused`.
-  - [ ] Gates.
+Moved → MR-T17b ([MR-rust-daemon.md](MR-rust-daemon.md)), ADR-0026: the TS daemon is frozen.
 
 ### M2-T28e · Web: Settings tab
-- `MachineDrawer` Settings tab with three parts:
+- `MachineDrawer` Settings tab, reading and writing `GET/PUT /api/machines/:id/settings` (T28c), with three parts:
   - **Reported**: read-only `reported_settings`.
   - **Effective per state**: a table of tools, allow, deny and mode.
   - **Override editor**: states, aliases, exact rules, mode (bypass behind a confirm), timeout, limits.

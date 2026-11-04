@@ -26,7 +26,7 @@ erDiagram
 
 ## Tables
 
-The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.sql` (M1-T02, plain node-pg-migrate SQL) plus the later migrations in that directory (`1761200000000_machine-claude-code-version.sql`, M1-T07; `1761500000000_ticket-kind.sql`, M1b-T04; `1761600000000_accounts-and-auth.sql`, M2-T03; `1761700000000_machine-credentials.sql`, M2-T09; `1762000000000_agent-team.sql`, UX-13a; `1762400000000_ticket-schedules.sql`, ADR-0032), and this doc is updated when it diverges. `packages/orchestrator/test/schema.test.ts` checks every column's name, pg type and nullability against the row types, and every enum against `shared/src/domain.ts`. Enums are Postgres enum types named `<table>_<column>` (`machine_status`, `ticket_status`, `ticket_kind`, `session_status`, `input_request_kind`, `outbox_kind`, `outbox_status`). Nullability follows the row types exactly (a `| null` field is a nullable column, everything else is `NOT NULL`), including columns this table doesn't mark null (e.g. `lease_expires_at`, `worktree_path`, `port_range`); `jsonb` maps default to `'{}'`, `text[]` to `'{}'`, counters and money to 0, timestamps to `now()`, uuid keys to `gen_random_uuid()`. The TypeScript row types are pinned in `packages/orchestrator/src/db/types.ts` (M1-T12, [10](10-contracts.md)); they use node-postgres' default parsing (`bigint`/`numeric` → string, `timestamptz` → Date, `bytea` → Buffer).
+The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.sql` (M1-T02, plain node-pg-migrate SQL) plus the later migrations in that directory (`1761200000000_machine-claude-code-version.sql`, M1-T07; `1761500000000_ticket-kind.sql`, M1b-T04; `1761600000000_accounts-and-auth.sql`, M2-T03; `1761700000000_machine-credentials.sql`, M2-T09; `1762000000000_agent-team.sql`, UX-13a; `1762400000000_ticket-schedules.sql`, ADR-0032; `1762700000000_input-request-options.sql`, Questions UX), and this doc is updated when it diverges. `packages/orchestrator/test/schema.test.ts` checks every column's name, pg type and nullability against the row types, and every enum against `shared/src/domain.ts`. Enums are Postgres enum types named `<table>_<column>` (`machine_status`, `ticket_status`, `ticket_kind`, `session_status`, `input_request_kind`, `outbox_kind`, `outbox_status`). Nullability follows the row types exactly (a `| null` field is a nullable column, everything else is `NOT NULL`), including columns this table doesn't mark null (e.g. `lease_expires_at`, `worktree_path`, `port_range`); `jsonb` maps default to `'{}'`, `text[]` to `'{}'`, counters and money to 0, timestamps to `now()`, uuid keys to `gen_random_uuid()`. The TypeScript row types are pinned in `packages/orchestrator/src/db/types.ts` (M1-T12, [10](10-contracts.md)); they use node-postgres' default parsing (`bigint`/`numeric` → string, `timestamptz` → Date, `bytea` → Buffer).
 
 **Tenancy (M2-T03).** Every table carries `account_id uuid NOT NULL REFERENCES account (id)`, except the instance-level tables (`account`, `app_user`, `account_member`, `web_session`, `invite`, `password_reset`, `login_throttle`) and `pgmigrations`. `packages/orchestrator/test/schema-isolation.test.ts` enforces it (ADR-0012 §Proving isolation 1), so a new table either carries the column or joins that allow-list in review. Migration `1761600000000_accounts-and-auth` inserts the `local` account (`LOCAL_ACCOUNT_ID` = `00000000-0000-4000-8000-000000000001`, `packages/shared/src/domain.ts`) and adds `account_id` to the eight M1 tables with a constant `DEFAULT` of that id, which backfills every existing row into `local`. **The default is temporary** (TD-109): it lets M1 code keep inserting without naming an account, and M2-T21 drops it once every write is scoped. The down migration drops the column, the seven tables and the `machine_lost` kind (deleting any such requests), restoring the M1b schema. In the account_id rows below, "account_id (M2-T03)" means: uuid FK `account`, NOT NULL, backfilled to `local`, temporary default TD-109 until M2-T21, indexed (`<table>_account_id_idx`).
 
@@ -202,6 +202,7 @@ Constraints: `CREATE SEQUENCE fencing_seq` (bigint) is the only source of fencin
 | answered_by | text null | user id or `slack:<user>` |
 | account_id | uuid fk account | M2-T03 (see Tenancy above) |
 | created_at, answered_at | | needs-input column sorts by created_at |
+| options | jsonb null | Questions UX (`1762700000000_input-request-options`): the clickable choices of an agent's `ask_user` question, `{multi_select, items: [{label, description?}]}` (`QuestionOptionsSchema`, [06 §Agent question options](06-human-input.md#agent-question-options)); null for every other request |
 
 ### event (append-only)
 | column | type | notes |
@@ -459,26 +460,48 @@ ADR-0033 P2: an analyst's result, re-validated against `SessionInsightSchema` be
 
 The migration's down drops both tables and `machine.features`, deletes `assistant_job` outbox rows and rebuilds `outbox_kind` without the value.
 
-### ticket_proposal
-[ADR-0034](../adr/0034-agent-proposed-follow-up-tickets.md), migration `1762600000000_ticket-proposals`. A follow-up ticket an agent proposed (the `ticket_proposals` effect of an agent state with `follow_ups` on, [05 §Follow-up tickets](05-workflow-engine.md#follow-up-tickets-adr-0034)), written in the apply transaction; a human accepts or dismisses it ([10 §Proposed tickets](10-contracts.md#proposed-tickets-adr-0034)).
+### ticket_proposal_decision
+
+[06 §Proposed tickets](06-human-input.md#proposed-tickets): a person's decision on a follow-up ticket an agent proposed. The proposals themselves stay in `session.context` (each agent state's result, `proposed_tickets`); no row ≡ pending. Deleted with the parent ticket.
+
+| column | type | notes |
+|---|---|---|
+| ticket_id | uuid fk ticket | the parent; `ON DELETE CASCADE`; pk with `proposal_id` |
+| proposal_id | text | `proposalId()` (@conductor/shared): FNV-1a 64 of the state, title and repo, 16 hex |
+| account_id | uuid fk account | |
+| status | text | `approved` \| `dismissed` (CHECK) |
+| created_ticket_id | uuid fk ticket null | the ticket an approval created; `ON DELETE SET NULL` |
+| decided_at | timestamptz | |
+
+The primary key makes approve and dismiss idempotent: both decide under the parent's latest session row lock, and an approval inserts the new ticket and this row in one transaction.
+
+### change_proposal
+
+ADR-0033 P3 (MA-T05): a workflow advisor's proposed change. Migration `1762600000000_change-proposal`. Model-written: a human applies or rejects it ([10 §Change proposals](10-contracts.md#change-proposals-adr-0033-p3)). At most 20 `proposed` rows per account (the store refuses `too_many_open`). Not swept: the cap bounds open rows, decided ones stay as the history of what changed and why.
+
 | column | type | notes |
 |---|---|---|
 | id | uuid pk | |
-| account_id | uuid fk account | the source ticket's; indexed `ticket_proposal_account_id_idx` |
-| ticket_id | uuid fk ticket | the source ticket (`ON DELETE CASCADE`); indexed `ticket_proposal_ticket_idx` |
-| session_id | uuid fk session | `ON DELETE CASCADE`. Unique index `ticket_proposal_session_title_key (session_id, lower(title))`: the idempotency key (a replayed or later `complete_state` doesn't add a title twice) |
-| state | text | the agent state that proposed it |
-| title | text | `CHECK title <> ''` (≤ 200 from the parser) |
-| body | text | default `''`; Markdown |
-| kind | `ticket_kind` null | null = the source ticket's kind |
-| why | text null | one sentence from the agent |
-| status | text | `pending` (default) · `accepted` · `dismissed` (CHECK) |
-| created_ticket_id | uuid fk ticket null | the ticket an accept created (`ON DELETE SET NULL`) |
-| decided_by | text null | the user's email (`mcp:` prefixed over MCP) |
-| decided_at | timestamptz null | |
+| account_id | uuid fk account | `(account_id, created_at desc)` indexed; partial index on `(account_id) WHERE status = 'proposed'` |
+| kind | text | `workflow` · `repo_checks` (CHECK); machine settings come with MA-T06 |
+| status | text | `proposed` · `applied` · `rejected` · `conflict` · `failed` (CHECK); only `proposed` moves, once (applied with the row locked) |
+| title | text | ≤ 120 |
+| payload | jsonb | the `ProposalChange` (a workflow's whole validated definition, or a repo's checks / null to clear) |
+| base | jsonb | what it was made from: `{version}` (workflow) or `{config, updated_at}` of the repo's `repo_checks` row, both null when it had none |
+| diff | jsonb | `StructuralChange[]` against `base` |
+| rationale | text | ≤ 1000 |
+| evidence | jsonb | `[{finding_id?, text}]`, 1..8 |
+| expected_effect | jsonb | `ExpectedEffect {metric, scope, direction, text}` |
+| rollback | text | ≤ 500 |
+| created_by | text null | `mcp:<email>` |
 | created_at | timestamptz | |
+| decided_by, decided_at | text null, timestamptz null | who applied or rejected it (or hit the conflict) |
+| applied_at | timestamptz null | the start of the review's after-window |
+| applied_version | int null | workflow: the version applying it saved |
+| error | text null | why it is `conflict` or `failed` |
+| review, reviewed_at | jsonb null, timestamptz null | the last `ProposalReview` |
 
-The migration's down drops the table.
+Down drops the table.
 
 ### login_throttle
 Instance-level. ADR-0017 §Rate limiting, layer 3: keyed by the normalised email **string**, whether or not a user has it, so a lockout reveals nothing.

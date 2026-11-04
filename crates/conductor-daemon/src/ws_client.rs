@@ -131,6 +131,9 @@ struct State {
     terminate: Option<Arc<Notify>>,
     /// Ends the current backoff sleep early (wake).
     backoff_wake: Option<Arc<Notify>>,
+    /// The open socket's close code, for the reconnect log (TS's `close` event code: 1005 for a
+    /// close frame without one, 1006 for an abnormal end); `None` after a refused upgrade.
+    last_close: Option<u16>,
     last_tick: i64,
     tasks: Vec<AbortHandle>,
 }
@@ -156,6 +159,15 @@ fn system_now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as i64)
+}
+
+/// The backoff log line: with the close code when the socket was open (none after a refused
+/// upgrade, which logs its HTTP status itself).
+pub fn reconnect_line(code: Option<u16>, delay: u64) -> String {
+    match code {
+        Some(c) => format!("ws closed ({c}); reconnecting in {delay} ms"),
+        None => format!("ws closed; reconnecting in {delay} ms"),
+    }
 }
 
 /// How a connection ended.
@@ -189,6 +201,7 @@ impl ReconnectingWs {
                 writer: None,
                 terminate: None,
                 backoff_wake: None,
+                last_close: None,
                 last_tick: 0,
                 tasks: Vec::new(),
             }),
@@ -350,7 +363,7 @@ impl ReconnectingWs {
         }
         self.0.handlers.on_open();
         let mut ws = ws;
-        loop {
+        let code = loop {
             tokio::select! {
                 m = ws.next() => match m {
                     Some(Ok(Message::Text(t))) => self.0.handlers.on_message(t.to_string()),
@@ -359,23 +372,26 @@ impl ReconnectingWs {
                         if fatal_why(code).is_some() {
                             return End::Fatal(code, f.reason.to_string());
                         }
-                        return End::Dropped;
+                        break code;
                     }
-                    Some(Ok(Message::Close(None))) | None | Some(Err(_)) => return End::Dropped,
+                    Some(Ok(Message::Close(None))) => break 1005,
+                    None | Some(Err(_)) => break 1006,
                     // Binary frames are ignored, as in TS; pings are answered by tungstenite.
                     Some(Ok(_)) => {}
                 },
                 out = rx.recv() => match out {
                     Some(m) => {
                         if ws.send(m).await.is_err() {
-                            return End::Dropped;
+                            break 1006;
                         }
                     }
-                    None => return End::Dropped,
+                    None => break 1006,
                 },
-                () = terminate.notified() => return End::Dropped,
+                () = terminate.notified() => break 1006,
             }
-        }
+        };
+        self.st().last_close = Some(code);
+        End::Dropped
     }
 
     /// The socket went away (not fatally). False if the client was stopped meanwhile.
@@ -394,7 +410,7 @@ impl ReconnectingWs {
     }
 
     async fn backoff(&self) {
-        let (delay, wake) = {
+        let (delay, wake, code) = {
             let mut s = self.st();
             if s.stopped {
                 return;
@@ -404,9 +420,9 @@ impl ReconnectingWs {
             s.phase = Phase::Backoff;
             let wake = Arc::new(Notify::new());
             s.backoff_wake = Some(wake.clone());
-            (delay, wake)
+            (delay, wake, s.last_close.take())
         };
-        self.log(&format!("ws closed; reconnecting in {delay} ms"));
+        self.log(&reconnect_line(code, delay));
         tokio::select! {
             () = tokio::time::sleep(Duration::from_millis(delay)) => {}
             () = wake.notified() => {}
@@ -705,6 +721,10 @@ mod tests {
         let r = client(&bad.url(), vec![], None);
         until(|| bad.rejected() >= 2, 3000).await;
         assert!(r.ev.ev().fatal.is_empty());
+        // A refused upgrade logs its status; the backoff line then has no close code.
+        let logs = r.ev.logs();
+        assert!(logs.contains("ws upgrade refused: HTTP 503"), "{logs}");
+        assert!(logs.contains("ws closed; reconnecting in "), "{logs}");
         r.c.stop();
 
         let o = FakeOrchestrator::start().await.unwrap();
@@ -714,6 +734,24 @@ mod tests {
         until(|| cl.ev.ev().opens == 2, 3000).await;
         assert!(cl.ev.ev().fatal.is_empty());
         assert!(cl.c.connected());
+        // An open socket's close names its code.
+        let logs = cl.ev.logs();
+        assert!(
+            logs.contains("ws closed (1000); reconnecting in "),
+            "{logs}"
+        );
+    }
+
+    #[test]
+    fn reconnect_line_names_the_close_code_when_there_is_one() {
+        assert_eq!(
+            reconnect_line(Some(1006), 558),
+            "ws closed (1006); reconnecting in 558 ms"
+        );
+        assert_eq!(
+            reconnect_line(None, 845),
+            "ws closed; reconnecting in 845 ms"
+        );
     }
 
     // Wake tick (M2-T18, ADR-0021 §5). A fake wall clock, a short tick, and a 30 s backoff: a

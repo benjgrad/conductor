@@ -10,15 +10,19 @@
 //! the other (tests/compat_ts_files.rs and `packages/daemon/src/rust-compat.test.ts`). Key order
 //! inside `sessions` and `repos` is sorted here, insertion order in TS; neither reader cares.
 
-use conductor_protocol::{DaemonToOrchestrator, PermissionRequestPayload, SessionEventPayload};
+use conductor_protocol::{
+    AssistantResultPayload, DaemonToOrchestrator, PermissionRequestPayload, SessionEventPayload,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
 use std::io;
 use std::path::{Path, PathBuf};
 
 /// A durable daemon message without its `seq`: what TS's `DurableMessage` is (`session_event`,
-/// and ADR-0023's `permission_request`, buffered and replayed the same way). Built from the
-/// protocol's payload types; [`DurableMessage::with_seq`] makes the wire frame.
+/// and ADR-0023's `permission_request`, buffered and replayed the same way), plus the Rust-only
+/// machine-level `assistant_result` (ADR-0033 P2, MR-T12; its `session_id` / `fencing_token` are
+/// `null`, as on the wire, so a TS daemon rolled back onto this file replays it verbatim). Built
+/// from the protocol's payload types; [`DurableMessage::with_seq`] makes the wire frame.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum DurableMessage {
@@ -35,6 +39,13 @@ pub enum DurableMessage {
         session_id: uuid::Uuid,
         fencing_token: i64,
         payload: PermissionRequestPayload,
+    },
+    #[serde(rename = "assistant_result")]
+    AssistantResult {
+        msg_id: uuid::Uuid,
+        session_id: (),
+        fencing_token: (),
+        payload: AssistantResultPayload,
     },
 }
 
@@ -65,6 +76,15 @@ impl DurableMessage {
                 payload,
                 seq,
                 session_id,
+            },
+            DurableMessage::AssistantResult {
+                msg_id, payload, ..
+            } => DaemonToOrchestrator::AssistantResult {
+                fencing_token: (),
+                msg_id,
+                payload,
+                seq,
+                session_id: (),
             },
         }
     }
@@ -520,5 +540,38 @@ mod tests {
         assert_eq!(v["type"], "session_event");
         assert_eq!(v["seq"], 4);
         assert_eq!(v["session_id"], SID);
+    }
+
+    /// MR-T12 (ADR-0033 P2): a machine-level `assistant_result` is buffered, sequenced and
+    /// replayed like a session_event, and its frame has null session_id / fencing_token.
+    #[test]
+    fn an_assistant_result_is_durable_and_replays_as_its_wire_frame() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = DaemonStore::for_root(dir.path()).unwrap();
+        let msg: DurableMessage = serde_json::from_value(serde_json::json!({
+            "type": "assistant_result",
+            "msg_id": "00000000-0000-4000-8000-0000000b0005",
+            "session_id": null,
+            "fencing_token": null,
+            "payload": {
+                "job_id": "2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+                "command_id": "8e9f0a1b-2c3d-4e5f-8a6b-7c8d9e0f1a2b",
+                "duration_ms": 120000,
+                "error": "timeout"
+            }
+        }))
+        .unwrap();
+        assert_eq!(s.push_event(msg, false).unwrap().seq, None);
+        let replay = DaemonStore::for_root(dir.path())
+            .unwrap()
+            .on_registered(Some(30))
+            .unwrap();
+        assert_eq!(replay.len(), 1);
+        let v = serde_json::to_value(replay[0].msg.with_seq(replay[0].seq.unwrap())).unwrap();
+        assert_eq!(v["type"], "assistant_result");
+        assert_eq!(v["seq"], 31);
+        assert_eq!(v["session_id"], serde_json::Value::Null);
+        assert_eq!(v["fencing_token"], serde_json::Value::Null);
+        assert!(conductor_protocol::parse_daemon_message(&v.to_string()).is_ok());
     }
 }

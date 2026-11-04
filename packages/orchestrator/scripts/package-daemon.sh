@@ -55,7 +55,7 @@ file="conductor-daemon-$version-$target.tgz"
 [[ "$file" =~ ^conductor-daemon-[0-9A-Za-z._+-]{1,128}\.tgz$ ]] || die "bad tarball name '$file'"
 
 stage="$(mktemp -d)"
-trap 'rm -rf "$stage"' EXIT
+trap 'rm -rf "$stage"; [[ -z "${tmp_out:-}" ]] || rm -f "$tmp_out"' EXIT
 pkg="$stage/pkg"
 mkdir -p "$pkg/bin" "$pkg/assets"
 if [[ "$target" == *-windows-* ]]; then
@@ -89,22 +89,27 @@ if command -v shasum >/dev/null 2>&1; then
 else
   hex="$(sha256sum "$tmp_out" | cut -d' ' -f1)"
 fi
+# Verified before it replaces anything, so a bad build never lands in <out-dir>.
+if [[ "$verify" == 1 ]]; then
+  check="$stage/check"
+  mkdir -p "$check/x" "$check/cwd"
+  tar -C "$check/x" -xzf "$tmp_out"
+  got="$(cd "$check/cwd" && env -i HOME="$check" PATH=/usr/bin:/bin "$check/x/bin/$exe" --version)" || {
+    rm -f "$tmp_out"
+    die "bin/$exe --version failed from the unpacked tarball"
+  }
+  got="${got%$'\r'}"
+  [[ "$got" == "$version" ]] || {
+    rm -f "$tmp_out"
+    die "bin/$exe --version printed '$got', not '$version' (was it built with CONDUCTOR_BUILD_SHA=$sha?)"
+  }
+fi
+
 for old in "$out"/conductor-daemon-*-"$target".tgz; do
   [[ -e "$old" && "$old" != "$out/$file" ]] && rm -f "$old" "$old.sha256"
 done
 mv -f "$tmp_out" "$out/$file"
 printf '%s  %s\n' "$hex" "$file" >"$out/$file.sha256"
-
-if [[ "$verify" == 1 ]]; then
-  check="$stage/check"
-  mkdir -p "$check/x" "$check/cwd"
-  tar -C "$check/x" -xzf "$out/$file"
-  got="$(cd "$check/cwd" && env -i HOME="$check" PATH=/usr/bin:/bin "$check/x/bin/$exe" --version)" ||
-    die "bin/$exe --version failed from the unpacked tarball"
-  got="${got%$'\r'}"
-  [[ "$got" == "$version" ]] ||
-    die "bin/$exe --version printed '$got', not '$version' (was it built with CONDUCTOR_BUILD_SHA=$sha?)"
-fi
 
 echo "built $out/$file"
 echo "version $version"

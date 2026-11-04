@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import type { JsonObject } from '../domain.js';
@@ -8,6 +9,7 @@ import {
   type WorkflowDefinition,
 } from '../workflow/schema.js';
 import { transitionObject, transitionsOf } from '../workflow/transition-rules.js';
+import { validateWorkflow } from '../workflow/validate.js';
 import { apply } from './apply.js';
 import {
   freshSnapshot,
@@ -439,8 +441,185 @@ function agentChain(): WorkflowDefinition {
   });
 }
 
-/** The most batches the "reached" coverage check runs before it fails (TD-163). */
-const COVERAGE_BATCHES = 10;
+/**
+ * The live `conductor` v5 definition (plan_review, in_review), a snapshot of what the orchestrator
+ * stores, fetched 2026-11-04 with the conductor MCP `get_workflow` (WF-T06). Not a shipped
+ * default, so it lives here rather than in docs/design/workflows. Refresh it when v5 is edited.
+ */
+function conductorV5Live(): WorkflowDefinition {
+  const url = new URL('./fixtures/conductor.v5.live.json', import.meta.url);
+  const result = validateWorkflow(JSON.parse(readFileSync(url, 'utf8')));
+  if (!result.ok) throw new Error(`conductor.v5.live.json: ${JSON.stringify(result.errors)}`);
+  return result.def;
+}
+
+// ---------------------------------------------------------------- seed (WF-T06, TD-163)
+
+/**
+ * Every run draws a fresh seed (so runs keep exploring new sequences) and prints it; set
+ * APPLY_PROPERTY_SEED to replay one exactly. APPLY_PROPERTY_PATH (fast-check's `path` from a
+ * failure report) jumps straight to the shrunk counterexample.
+ */
+function resolveSeed(raw: string | undefined): number {
+  if (raw === undefined || raw === '') return Math.floor(Math.random() * 2 ** 31);
+  const n = Number(raw);
+  if (!Number.isInteger(n)) throw new Error(`APPLY_PROPERTY_SEED must be an integer, got ${raw}`);
+  return n;
+}
+const SEED = resolveSeed(process.env.APPLY_PROPERTY_SEED);
+const PATH = process.env.APPLY_PROPERTY_PATH;
+const REPLAY = `APPLY_PROPERTY_SEED=${SEED} pnpm vitest run --project shared src/engine/apply.property.test.ts`;
+// Straight to stderr: vitest's default reporter hides console output of passing tests.
+process.stderr.write(`apply.property seed=${SEED}  replay: ${REPLAY}\n`);
+
+/** fast-check parameters for every property here: seeded, replayable. */
+const fcParams = (numRuns?: number): fc.Parameters<unknown> => ({
+  seed: SEED,
+  ...(numRuns === undefined ? {} : { numRuns }),
+  ...(PATH === undefined || PATH === '' ? {} : { path: PATH, endOnFailure: true }),
+});
+
+/** fc.assert, with the replay command in the failure message. */
+function assertProperty<T>(name: string, property: fc.IProperty<T>, numRuns?: number): void {
+  try {
+    fc.assert(property, fcParams(numRuns));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`[${name}] replay: ${REPLAY}\n${message}`, { cause: err });
+  }
+}
+
+// ---------------------------------------------------------------- one step, every check
+
+/** Where a snapshot is, for coverage: a state name, or `(gate step)` while a step runs. */
+function placeOf(def: WorkflowDefinition, s: SessionSnapshot): string | null {
+  const at = s.workflow_state;
+  if (at !== null && def.states[at] !== undefined) return at;
+  if (at !== null && s.step !== null) return GATE_STEP;
+  return null;
+}
+const GATE_STEP = '(gate step)';
+
+/**
+ * Apply one event and check everything the property asserts: the snapshot invariants, BUG-1's
+ * kill on a human move off a live agent, and the lost-machines oracle.
+ */
+function runStep(def: WorkflowDefinition, h: Harness, event: EngineEvent): void {
+  const prev = h.snap;
+  h.run(event);
+  checkInvariants(def, prev, h);
+  // BUG-1: a human move off a parked agent into a state that runs no agent kills it.
+  const landed = h.snap.workflow_state;
+  const landedType = landed === null ? undefined : def.states[landed]?.type;
+  if (
+    (event.type === 'human.transition' || event.type === 'input.provided') &&
+    h.last.ignored === null &&
+    prev.machine_id !== null &&
+    prev.agent_process_live &&
+    landedType !== undefined &&
+    landedType !== 'agent'
+  ) {
+    expect(h.last.effects.some((e) => e.type === 'kill')).toBe(true);
+    expect(h.snap.agent_process_live).toBe(false);
+  }
+  if (event.type === 'machine.lost') {
+    const [row, ignored] = lostRow(prev, event);
+    expect(h.last.ignored, row).toBe(ignored);
+    if (ignored === null) {
+      // A park keeps the answer the agent never ran on (it is delivered on Continue).
+      expect(h.snap.status).toBe('needs_input');
+      if (prev.pending_answer !== null) {
+        expect(lostAnswerOf(h.snap.context)).toEqual(prev.pending_answer);
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------- targeted coverage (WF-T06)
+
+/**
+ * Does a session of `kind` meet a gate step in `def`: a state with `entry` requirements, or a
+ * transition it can take with `requires` / `requirements`?
+ */
+function hasGate(def: WorkflowDefinition, kind: TicketKind | null): boolean {
+  return Object.keys(def.states).some((name) => {
+    const st = def.states[name]!;
+    if (st.entry !== undefined) return true;
+    return transitionsOf(def, name, { kind }).some(
+      (t) => t.transition.requires !== undefined || t.transition.requirements !== undefined,
+    );
+  });
+}
+
+/** Every place a session of `kind` must be shown to reach. */
+function expectedTargets(def: WorkflowDefinition, kind: TicketKind | null): string[] {
+  return [...Object.keys(def.states), ...(hasGate(def, kind) ? [GATE_STEP] : [])].sort();
+}
+
+/** `progress` picks 0..23 cover every modulus it branches on (2, 3, 4, 5, 7, 11). */
+const NATURAL_PICKS = Array.from({ length: 24 }, (_, p) => p);
+const BFS_MAX_DEPTH = 30;
+const BFS_MAX_NODES = 5000;
+
+/** The deterministic moves the search tries from `h`: `progress`, plus (phase 2) gotos. */
+function moves(h: Harness, withGoto: boolean): EngineEvent[] {
+  const out = NATURAL_PICKS.map((p) => progress(h, p));
+  if (withGoto && h.snap.status === 'needs_input') {
+    for (const goto of Object.keys(h.def.states)) {
+      out.push({ type: 'input.provided', input_request_id: REQ, answer: 'a', goto });
+    }
+  }
+  return out;
+}
+
+const nodeKey = (s: SessionSnapshot): string =>
+  [
+    s.workflow_state,
+    s.status,
+    s.step === null ? '-' : `${s.step.kind}:${s.step.phase}`,
+    s.agent_command_id !== null,
+    s.agent_process_live,
+    s.machine_id !== null,
+  ].join('|');
+
+/**
+ * A shortest event path from a fresh session to each target place, by breadth-first search over
+ * `moves`. Phase 1 uses only `progress` (the routes real sessions take); phase 2, only for the
+ * places phase 1 missed, also lets a human route an answer anywhere (pr_flow's connectors have no
+ * result event, so `jira_docs` is reached no other way). Bounded by depth and node count.
+ */
+function pathsTo(
+  def: WorkflowDefinition,
+  start: () => Harness,
+  targets: readonly string[],
+): Map<string, EngineEvent[]> {
+  const found = new Map<string, EngineEvent[]>();
+  for (const withGoto of [false, true]) {
+    if (targets.every((t) => found.has(t))) break;
+    const root = start();
+    const seen = new Set([nodeKey(root.snap)]);
+    let frontier: [Harness, EngineEvent[]][] = [[root, []]];
+    for (let depth = 0; depth < BFS_MAX_DEPTH && frontier.length > 0; depth++) {
+      const next: [Harness, EngineEvent[]][] = [];
+      for (const [h, path] of frontier) {
+        for (const event of moves(h, withGoto)) {
+          const child = h.clone();
+          child.run(event);
+          if (child.last.ignored !== null) continue;
+          const key = nodeKey(child.snap);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const childPath = [...path, event];
+          const place = placeOf(def, child.snap);
+          if (place !== null && !found.has(place)) found.set(place, childPath);
+          if (seen.size < BFS_MAX_NODES) next.push([child, childPath]);
+        }
+      }
+      frontier = next;
+    }
+  }
+  return found;
+}
 
 const WORKFLOWS: [string, () => WorkflowDefinition, TicketKind | null][] = [
   ['m1_basic', () => referenceWorkflow('m1_basic'), null],
@@ -452,9 +631,13 @@ const WORKFLOWS: [string, () => WorkflowDefinition, TicketKind | null][] = [
   ['conductor v2 (no kind)', () => CONDUCTOR_V2_DRAFT_DEF, null],
   // ADR-0020 §2 (M2r-T03): a `role: 'qa'` state behind a move step.
   ['qa flow', qaDefinition, null],
+  // WF-T06: the definition tickets actually run on (plan_review, in_review).
+  ['conductor v5 live (work)', conductorV5Live, 'work'],
+  ['conductor v5 live (personal)', conductorV5Live, 'personal'],
+  ['conductor v5 live (no kind)', conductorV5Live, null],
 ];
 
-describe.each(WORKFLOWS)('apply property: %s', (_name, load, kind) => {
+describe.each(WORKFLOWS)('apply property: %s', (name, load, kind) => {
   const def = load();
   const fresh = (): SessionSnapshot => {
     const snap = freshSnapshot(def);
@@ -462,66 +645,43 @@ describe.each(WORKFLOWS)('apply property: %s', (_name, load, kind) => {
   };
 
   it('no event sequence leaves the session undefined', () => {
-    const reached = new Set<string>();
-    // BUG-2: deliberately unseeded, so every run explores fresh sequences. It asserts invariants
-    // (and the lost-row oracle per event), never lost-row coverage: that comes from the
-    // deterministic test below. On failure fast-check's reporter prints `seed` and `path`; pass
-    // `{ seed, path, endOnFailure: true }` to this fc.assert to replay the counterexample.
+    // Invariants only (and the lost-row oracle per event). Coverage is not asserted here: it is
+    // probabilistic (TD-163) and comes from the targeted test below.
     const property = fc.property(fc.array(stepArb, { minLength: 1, maxLength: 60 }), (steps) => {
       const h = new Harness(def, fresh());
       for (const { gen, pick, seconds } of steps) {
-        const prev = h.snap;
         h.advance(seconds);
-        const event = eventFor(gen, h, pick);
-        h.run(event);
-        checkInvariants(def, prev, h);
-        // BUG-1: a human move off a parked agent into a state that runs no agent kills it.
-        const landed = h.snap.workflow_state;
-        const landedType = landed === null ? undefined : def.states[landed]?.type;
-        if (
-          (event.type === 'human.transition' || event.type === 'input.provided') &&
-          h.last.ignored === null &&
-          prev.machine_id !== null &&
-          prev.agent_process_live &&
-          landedType !== undefined &&
-          landedType !== 'agent'
-        ) {
-          expect(h.last.effects.some((e) => e.type === 'kill')).toBe(true);
-          expect(h.snap.agent_process_live).toBe(false);
-        }
-        if (event.type === 'machine.lost') {
-          const [row, ignored] = lostRow(prev, event);
-          expect(h.last.ignored, row).toBe(ignored);
-          if (ignored === null) {
-            // A park keeps the answer the agent never ran on (it is delivered on Continue).
-            expect(h.snap.status).toBe('needs_input');
-            if (prev.pending_answer !== null) {
-              expect(lostAnswerOf(h.snap.context)).toEqual(prev.pending_answer);
-            }
-          }
-        }
-        const at = h.snap.workflow_state;
-        if (at !== null && def.states[at] !== undefined) reached.add(at);
-        else if (at !== null && h.snap.step !== null) reached.add('(gate step)');
+        runStep(def, h, eventFor(gen, h, pick));
       }
     });
-    // the sequences actually exercise the whole workflow, not just the first state
-    // (and a workflow with `requires` gets into its move steps)
-    const gated =
-      (def.id === CONDUCTOR_V2_DRAFT_DEF.id && def.version === 2) || def.id === qaDefinition().id;
-    const expected = [...Object.keys(def.states), ...(gated ? ['(gate step)'] : [])].sort();
-    // TD-163: reaching every state is probabilistic, and one batch of 200 runs missed a rare
-    // state (qa flow `done`, pr_flow `jira_docs`) about 1 run in 5. Another batch (fresh
-    // sequences, every invariant still checked) runs only while some state is unreached, at
-    // most COVERAGE_BATCHES in all, so a spurious miss needs every batch to miss.
-    for (let batch = 0; batch < COVERAGE_BATCHES; batch++) {
-      // M2-T33: unseeded, so every run explores new sequences; `pnpm test:all` runs the full 1000.
-      fc.assert(property, { numRuns: process.env.CONDUCTOR_TEST_ALL === '1' ? 1000 : 200 });
-      if (expected.every((state) => reached.has(state))) break;
-    }
-    expect([...reached].sort()).toEqual(expected);
+    // M2-T33: `pnpm test:all` runs the full 1000.
+    assertProperty(name, property, process.env.CONDUCTOR_TEST_ALL === '1' ? 1000 : 200);
     // 1000 runs take ~5 s on their own; more when every package's tests run in parallel.
   }, 60_000);
+
+  it('every state is reached by a targeted case (deterministic)', () => {
+    // WF-T06 (TD-163): random sequences reached rare states (pr_flow `jira_docs`, qa flow `done`)
+    // only by chance. Each place gets its own shortest path instead, replayed through every check.
+    const expected = expectedTargets(def, kind);
+    const paths = pathsTo(def, () => new Harness(def, fresh()), expected);
+    const missing = expected.filter((t) => !paths.has(t));
+    expect(
+      missing,
+      `no path within depth ${BFS_MAX_DEPTH}: unreachable, or extend moves()`,
+    ).toEqual([]);
+    const reached = new Set<string>();
+    for (const target of expected) {
+      const h = new Harness(def, fresh());
+      for (const event of paths.get(target)!) {
+        runStep(def, h, event);
+        expect(h.last.ignored).toBeNull();
+        const place = placeOf(def, h.snap);
+        if (place !== null) reached.add(place);
+      }
+      expect(placeOf(def, h.snap), `path to ${target}`).toBe(target);
+    }
+    expect([...reached].sort()).toEqual(expected);
+  });
 
   it('every lost-machines row is hit (deterministic)', () => {
     const lost = (machine_id: string, reason: LostEvent['reason']): LostEvent => ({
@@ -574,7 +734,8 @@ describe.each(WORKFLOWS)('apply property: %s', (_name, load, kind) => {
   });
 
   it('terminal sessions ignore every event', () => {
-    fc.assert(
+    assertProperty(
+      name,
       fc.property(fc.integer({ min: 0, max: GENS.length - 1 }), fc.nat(1000), (gen, pick) => {
         const h = new Harness(def, fresh()).claimAndStart();
         h.run({ type: 'operator.cancel' });
@@ -583,5 +744,15 @@ describe.each(WORKFLOWS)('apply property: %s', (_name, load, kind) => {
         expect(r).toEqual({ snapshot: snap, effects: [], ignored: 'session_terminal' });
       }),
     );
+  });
+});
+
+describe('apply property: replay', () => {
+  it('a seed replays the same cases', () => {
+    const arb = fc.array(stepArb, { minLength: 1, maxLength: 60 });
+    const a = fc.sample(arb, { seed: SEED, numRuns: 5 });
+    const b = fc.sample(arb, { seed: SEED, numRuns: 5 });
+    expect(a).toEqual(b);
+    expect(fc.sample(arb, { seed: SEED + 1, numRuns: 5 })).not.toEqual(a);
   });
 });

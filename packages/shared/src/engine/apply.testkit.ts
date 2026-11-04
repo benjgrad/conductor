@@ -85,6 +85,15 @@ export class Harness {
     this.now = now;
   }
 
+  /** An independent copy (snapshots are immutable, so they are shared): for searching paths. */
+  clone(): Harness {
+    const h = new Harness(this.def, this.snap, new Date(this.now.getTime()));
+    h.nextId = this.nextId;
+    h.starts.push(...this.starts);
+    h.last = this.last;
+    return h;
+  }
+
   advance(seconds: number): this {
     this.now = new Date(this.now.getTime() + seconds * 1000);
     return this;

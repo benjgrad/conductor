@@ -6,7 +6,10 @@
 #   deploy/gradyserver/ci-deploy.sh <git-ref>
 #
 # 1. takes ~/deploy/conductor/.deploy.lock (CI and a by-hand ci-deploy.sh never interleave);
-# 2. unpacks `git archive <sha>` into ~/deploy/conductor/releases/<sha> (skipped if it exists);
+# 2. unpacks `git archive <sha>` into ~/deploy/conductor/releases/<sha> (skipped if it exists),
+#    and copies the Rust daemon tarballs from $CONDUCTOR_DAEMON_DIST (the ci.yml daemon-dist job's
+#    artifacts, checked by daemon-dist-check.sh first) into its daemon-dist/, the image's build
+#    context (MR-T15). Each release keeps its own, so a rollback that has to rebuild still can;
 # 3. if packages/orchestrator/migrations changed since the live sha, runs backup.sh first: a
 #    rollback restores code, not schema, so this dump is the only undo for a bad migration;
 # 4. runs remote-deploy.sh from the release (build → postgres → migrate gate → orchestrator →
@@ -18,7 +21,8 @@
 # DEPLOY_DRILL=1 fails the first smoke on purpose, so the rollback and the alert run end to end and
 # the alert says it is a drill. Do one after any change to this file.
 #
-# Env: DEPLOY_DIR (deploy/conductor, relative to $HOME), SMOKE_URL
+# Env: CONDUCTOR_DAEMON_DIST (required: the daemon tarballs for <git-ref>),
+#      DEPLOY_DIR (deploy/conductor, relative to $HOME), SMOKE_URL
 #      (https://conductor.gradyserver.com), DEPLOY_HEALTH_TIMEOUT (180 seconds, per wait),
 #      DEPLOY_DRILL. DISCORD_WEBHOOK_URL is read from ~/deploy/conductor/.env; unset, alerts go
 #      to the job log only.
@@ -47,6 +51,7 @@ die() {
 [[ "$DEPLOY_HEALTH_TIMEOUT" =~ ^[0-9]+$ ]] || die "DEPLOY_HEALTH_TIMEOUT must be a whole number of seconds"
 [[ -d "$ROOT" ]] || die "$ROOT does not exist; the first deploy is deploy.sh by hand (runbook §3)"
 SHA="$(git -C "$REPO" rev-parse --verify "$REF^{commit}")" || die "cannot resolve git ref '$REF'"
+DIST="${CONDUCTOR_DAEMON_DIST:-}"
 
 exec 9>"$ROOT/.deploy.lock"
 flock -w 600 9 || die "another deploy held $ROOT/.deploy.lock for 10 minutes"
@@ -196,6 +201,12 @@ PREV="$(sed -n 's/^CONDUCTOR_GIT_SHA=//p' "$ROOT/current.env" 2>/dev/null || tru
 SUBJECT="$(git -C "$REPO" log -1 --format=%s "$SHA")"
 step "deploying ${SHA:0:7} ($SUBJECT); live now: ${PREV:0:7}"
 
+# Before anything is unpacked: the image can't be built without every daemon tarball.
+[[ -n "$DIST" ]] || die "CONDUCTOR_DAEMON_DIST is not set: the daemon tarballs for ${SHA:0:7} (ci.yml daemon-dist)"
+DIST_VERSION="$("$HERE/daemon-dist-check.sh" "$DIST")" || die "the daemon tarballs in $DIST are not usable"
+[[ "$DIST_VERSION" == *"+${SHA:0:7}" ]] ||
+  die "the daemon tarballs in $DIST are $DIST_VERSION, not built from ${SHA:0:7}"
+
 if [[ -d "$ROOT/releases/$SHA" ]]; then
   step "release $SHA already unpacked"
 else
@@ -205,6 +216,12 @@ else
   mv "$ROOT/releases/$SHA.tmp" "$ROOT/releases/$SHA"
   step "unpacked releases/$SHA"
 fi
+rm -rf "$ROOT/releases/$SHA/daemon-dist.tmp"
+mkdir -p "$ROOT/releases/$SHA/daemon-dist.tmp"
+cp "$DIST"/conductor-daemon-*.tgz "$DIST"/conductor-daemon-*.tgz.sha256 "$ROOT/releases/$SHA/daemon-dist.tmp/"
+rm -rf "$ROOT/releases/$SHA/daemon-dist"
+mv "$ROOT/releases/$SHA/daemon-dist.tmp" "$ROOT/releases/$SHA/daemon-dist"
+step "daemon $DIST_VERSION tarballs in releases/$SHA/daemon-dist"
 
 # An unknown previous sha (a by-hand deploy of a ref CI never fetched) counts as changed.
 if [[ -n "$PREV" ]] && git -C "$REPO" cat-file -e "$PREV^{commit}" 2>/dev/null &&

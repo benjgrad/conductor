@@ -55,13 +55,42 @@ print("target_env=" + str(d["steps"][i_deploy].get("env", {}).get("TARGET")))
 print("head_before_deploy=" + str(i_head < i_deploy))
 print("deploy_gated_on_head=" + str("steps.head.outputs.deploy" in d["steps"][i_deploy].get("if", "")))
 print("gates_secrets=" + str("secrets." in yaml.safe_dump(jobs["gates"])))
+dd = jobs["daemon-dist"]
+print("dist_uses=" + str(dd.get("uses")))
+print("dist_ref=" + str(dd.get("with", {}).get("ref")))
+print("dist_if_same_as_deploy=" + str(dd.get("if") == d.get("if")))
+i_dl = next(i for i, s in enumerate(d["steps"]) if "download-artifact" in s.get("uses", ""))
+dl = d["steps"][i_dl]
+print("dl_before_deploy=" + str(i_dl < i_deploy))
+print("dl_pattern=" + str(dl.get("with", {}).get("pattern")))
+print("dl_path=" + str(dl.get("with", {}).get("path")))
+print("dl_gated_on_head=" + str("steps.head.outputs.deploy" in dl.get("if", "")))
+print("dist_env=" + str(d["steps"][i_deploy].get("env", {}).get("CONDUCTOR_DAEMON_DIST")))
+dist = yaml.safe_load(open(sys.argv[1].replace("ci.yml", "daemon-dist.yml")))
+don = dist.get(True, dist.get("on"))
+print("dist_triggers=" + ",".join(sorted(don)))
+print("dist_targets=" + ",".join(sorted(m["target"] for m in dist["jobs"]["build"]["strategy"]["matrix"]["include"])))
+print("dist_self_hosted=" + str("self-hosted" in yaml.safe_dump(dist)))
 PY
 )"
   fact() { sed -n "s/^$1=//p" <<<"$facts"; }
   check "triggers: pull_request, push, workflow_dispatch" test "$(fact on)" = 'pull_request,push,workflow_dispatch'
   check "push runs only on main" test "$(fact push_branches)" = 'main'
-  check "two jobs: gates and deploy" test "$(fact jobs)" = 'deploy,gates'
-  check "deploy needs gates" test "$(fact deploy_needs)" = 'gates'
+  check "three jobs: gates, daemon-dist and deploy" test "$(fact jobs)" = 'daemon-dist,deploy,gates'
+  check "deploy needs gates and daemon-dist" test "$(fact deploy_needs)" = "['gates', 'daemon-dist']"
+  check "daemon-dist calls the reusable daemon-dist workflow" \
+    test "$(fact dist_uses)" = './.github/workflows/daemon-dist.yml'
+  check "daemon-dist builds the sha being deployed" test "$(fact dist_ref)" = '${{ inputs.sha || github.sha }}'
+  check "daemon-dist runs exactly when deploy does" test "$(fact dist_if_same_as_deploy)" = 'True'
+  check "the daemon tarballs are downloaded before ci-deploy.sh" test "$(fact dl_before_deploy)" = 'True'
+  check "the download takes every daemon-* artifact" test "$(fact dl_pattern)" = 'daemon-*'
+  check "the download runs only when the sha is still main's head" test "$(fact dl_gated_on_head)" = 'True'
+  check "ci-deploy.sh gets the downloaded dir as CONDUCTOR_DAEMON_DIST" \
+    test "$(fact dist_env)" = "$(fact dl_path)"
+  check "daemon-dist.yml is reusable only" test "$(fact dist_triggers)" = 'workflow_call'
+  check "daemon-dist.yml builds the five targets" test "$(fact dist_targets)" = \
+    'aarch64-apple-darwin,aarch64-unknown-linux-gnu,x86_64-apple-darwin,x86_64-pc-windows-msvc,x86_64-unknown-linux-gnu'
+  check "daemon-dist.yml never runs on a self-hosted runner" test "$(fact dist_self_hosted)" = 'False'
   check "deploy on a push" has "$(fact deploy_if)" "github\.event_name == 'push'"
   check "deploy on a dispatch (rollback, drill)" has "$(fact deploy_if)" "github\.event_name == 'workflow_dispatch'"
   check "never deploys a pull_request" lacks "$(fact deploy_if)" 'pull_request'

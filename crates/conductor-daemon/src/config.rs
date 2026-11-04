@@ -347,13 +347,31 @@ pub fn root_dir_from(env: &Env, home: &Path) -> PathBuf {
     }
 }
 
-/// The daemon version: the crate version, plus `+<CONDUCTOR_BUILD_SHA>` when set.
+/// The daemon version: the crate version, plus `+<sha>` from [`pick_build_sha`].
 pub fn daemon_version(env: &Env) -> String {
     let v = env!("CARGO_PKG_VERSION");
-    match raw(env, "CONDUCTOR_BUILD_SHA") {
+    match pick_build_sha(
+        raw(env, "CONDUCTOR_BUILD_SHA"),
+        option_env!("CONDUCTOR_BUILD_SHA"),
+    ) {
         Some(sha) => format!("{v}+{sha}"),
         None => v.to_string(),
     }
+}
+
+/// The build sha: `CONDUCTOR_BUILD_SHA` at runtime, as the TS daemon read it, else the one baked in
+/// at compile time (MR-T15: the served tarball's binary has no wrapper to set it, and its
+/// `--version` must equal the version the orchestrator serves). A baked value counts only when it
+/// is alphanumeric and not `unknown`, cut to 7 characters, as `package-daemon.sh` names it.
+pub fn pick_build_sha<'a>(runtime: Option<&'a str>, baked: Option<&'a str>) -> Option<&'a str> {
+    if let Some(sha) = runtime.filter(|s| !s.is_empty()) {
+        return Some(sha);
+    }
+    let baked = baked?.trim();
+    if baked.is_empty() || baked == "unknown" || !baked.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return None;
+    }
+    Some(&baked[..baked.len().min(7)])
 }
 
 /// [`load_config_with`] reading the real `machine.json`.
@@ -689,7 +707,7 @@ mod tests {
 
     #[test]
     fn daemon_version_appends_conductor_build_sha() {
-        let plain = load(&[]).unwrap().daemon_version;
+        let plain = env!("CARGO_PKG_VERSION");
         assert_eq!(plain.split('.').count(), 3, "{plain}");
         assert_eq!(
             load(&[("CONDUCTOR_BUILD_SHA", "3b18e51")])
@@ -697,6 +715,24 @@ mod tests {
                 .daemon_version,
             format!("{plain}+3b18e51")
         );
+    }
+
+    #[test]
+    fn build_sha_runtime_wins_else_the_baked_one() {
+        assert_eq!(
+            pick_build_sha(Some("abc1234"), Some("fff0000")),
+            Some("abc1234")
+        );
+        assert_eq!(pick_build_sha(None, Some("fff0000")), Some("fff0000"));
+        assert_eq!(pick_build_sha(Some(""), Some("fff0000")), Some("fff0000"));
+        assert_eq!(
+            pick_build_sha(None, Some("0123456789abcdef")),
+            Some("0123456")
+        );
+        assert_eq!(pick_build_sha(None, Some("unknown")), None);
+        assert_eq!(pick_build_sha(None, Some("")), None);
+        assert_eq!(pick_build_sha(None, Some("ab$cd")), None);
+        assert_eq!(pick_build_sha(None, None), None);
     }
 
     // ------------------------------------------------------------------------- extra cases

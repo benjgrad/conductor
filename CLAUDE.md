@@ -123,6 +123,7 @@ cargo clippy --workspace --all-targets -- -D warnings      # lint; warnings fail
 node scripts/test-slot.js cargo nextest run --workspace    # every Rust test, in a test slot
 cargo nextest run -p conductor-daemon <filter>             # targeted while iterating (e.g. `seam`)
 cargo build --release -p conductor-daemon                  # target/release/conductor-daemon
+scripts/build-daemon-dist.sh [out-dir]                     # this machine's served tarball (CI builds all five targets)
 node scripts/test-parity.js [--files <glob>]… [--write]    # crates/conductor-daemon/PARITY.md vs the TS tests
 pnpm --filter @conductor/shared emit:protocol            # zod → packages/shared/protocol-json (MR-T03)
 cargo run -p conductor-protocol-codegen                    # protocol-json → crates/conductor-protocol/src/generated.rs

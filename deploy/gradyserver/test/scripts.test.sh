@@ -143,10 +143,12 @@ check "deploy.sh has no heredoc" lacks "$(sed 's/#.*//' "$DEPLOY")" '<<'
 check "deploy.sh runs remote-deploy.sh from the release with ssh -n" grep -qE \
   '^remote_n "bash \\"\\\$HOME/\$DEPLOY_DIR/releases/\$SHA/deploy/gradyserver/remote-deploy\.sh\\"' "$DEPLOY"
 check "deploy.sh: remote_n is ssh -n" grep -qF 'remote_n() { ssh -n -p ' "$DEPLOY"
-check "deploy.sh: the upload is the only call of remote (stdin forwarded)" \
-  test "$(grep -cE '^[^#]*\| remote "|^[^#]*[^_]remote ' "$DEPLOY")" -eq 1
-check "deploy.sh: the upload is the only ssh call reading stdin (git archive)" \
+check "deploy.sh: the two uploads are the only calls of remote (stdin forwarded)" \
+  test "$(grep -cE '^[^#]*\| remote "|^[^#]*[^_]remote ' "$DEPLOY")" -eq 2
+check "deploy.sh: the release upload reads stdin (git archive)" \
   grep -qE '^git archive --format=tar "\$SHA" \| remote "' "$DEPLOY"
+check "deploy.sh: the daemon tarball upload reads stdin (tar of the dist dir, MR-T15)" \
+  grep -qE '^\(cd "\$DIST" && tar -cf - conductor-daemon-\*\.tgz conductor-daemon-\*\.tgz\.sha256\) \| remote "' "$DEPLOY"
 # Every docker / compose invocation in remote-deploy.sh (not the compose() definition) reads
 # /dev/null; run / exec also get -T.
 calls="$(sed 's/#.*//' "$REMOTE_SH" | grep -E '(^|[^_[:alnum:]-])(compose|docker) ' |

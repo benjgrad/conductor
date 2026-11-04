@@ -103,13 +103,17 @@ printf 'POSTGRES_PASSWORD=%s\nDISCORD_WEBHOOK_URL=https://discord.invalid/hook\n
 chmod 600 "$ROOT/.env"
 
 # deploy <sha> [ENV=VALUE...]: runs ci-deploy.sh; sets OUT and CODE, and resets calls / alerts.
+# The daemon tarballs default to a fake set built from <sha> (the daemon-dist job's artifacts,
+# MR-T15); pass CONDUCTOR_DAEMON_DIST=… to override.
 deploy() {
   local sha="$1"
   shift
   : >"$T/state/calls"
   : >"$T/state/alerts"
+  [[ -d "$T/dist/$sha" ]] || make_dist "$T/dist/$sha" "0.0.0+${sha:0:7}"
   OUT="$(cd "$T/repo" && env PATH="$T/bin:$PATH" HOME="$T/home" FAKE_STATE="$T/state" \
-    DEPLOY_HEALTH_TIMEOUT=2 GITHUB_RUN_ID= "$@" deploy/gradyserver/ci-deploy.sh "$sha" 2>&1)"
+    DEPLOY_HEALTH_TIMEOUT=2 GITHUB_RUN_ID= CONDUCTOR_DAEMON_DIST="$T/dist/$sha" "$@" \
+    deploy/gradyserver/ci-deploy.sh "$sha" 2>&1)"
   CODE=$?
 }
 live() { test "$(cat "$T/state/orch_image")" = "conductor-orchestrator:$1" &&
@@ -131,6 +135,8 @@ check "first deploy: $sha1 live, current and current.env switched" live "$sha1"
 check "first deploy: says deployed" has "$OUT" "^==> deployed $sha1\$"
 check "first deploy: smoke expects the sha" grep -qF "smoke https://conductor.gradyserver.com $sha1" "$T/state/calls"
 check "first deploy: no alert" test ! -s "$T/state/alerts"
+check "first deploy: the daemon tarballs are in the release's daemon-dist" \
+  "$KIT/daemon-dist-check.sh" "$ROOT/releases/$sha1/daemon-dist"
 
 # 2. A deploy without migration changes takes no dump.
 sha2="$(commit two)"
@@ -201,6 +207,21 @@ deploy "$sha4" FAKE_SMOKE_FAIL="$sha4"
 check "no webhook: exits 1 (got $CODE)" test "$CODE" -eq 1
 check "no webhook: nothing sent" test ! -s "$T/state/alerts"
 check "no webhook: the alert is in the log" has "$OUT" 'discord not configured\] Deploy failed: rolled back'
+
+# 9b. Missing or wrong daemon tarballs: nothing unpacked or built, and 'did not run' alerted.
+sed -i.bak 's|^DISCORD_WEBHOOK_URL=.*||' "$ROOT/.env"
+echo 'DISCORD_WEBHOOK_URL=https://discord.invalid/hook' >>"$ROOT/.env"
+sha7="$(commit seven)"
+make_dist "$T/dist-partial" "0.0.0+${sha7:0:7}" x86_64-unknown-linux-gnu
+make_dist "$T/dist-other" "0.0.0+0000000"
+for case in "unset:" "partial:$T/dist-partial" "other:$T/dist-other"; do
+  deploy "$sha7" CONDUCTOR_DAEMON_DIST="${case#*:}"
+  check "${case%%:*} dist: exits non-zero (got $CODE)" test "$CODE" -ne 0
+  check "${case%%:*} dist: release not unpacked" test ! -e "$ROOT/releases/$sha7"
+  check "${case%%:*} dist: nothing built" test -z "$(calls_line ' build$')"
+  check "${case%%:*} dist: $sha3 still live" live "$sha3"
+  check "${case%%:*} dist: alert 'did not run'" grep -q 'Deploy did not run' "$T/state/alerts"
+done
 
 # 10. And the sha deploys once it is fixed.
 deploy "$sha6"

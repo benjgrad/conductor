@@ -44,6 +44,7 @@ import { registerPermissionRoutes } from './permissions.js';
 import { registerPushRoutes } from './push.js';
 import { listWorkflows, loadBoard, loadWorkflowDetail } from './queries.js';
 import { registerRepoChecksRoutes } from './repo-checks.js';
+import { registerChangeProposalRoutes } from './change-proposals.js';
 import { registerScheduleRoutes } from './schedules.js';
 import { registerRepoRoutes } from './repos.js';
 import { httpSecurityFromEnv, securityHookFor, type HttpSecurityOptions } from './security.js';
@@ -156,6 +157,8 @@ export const createApi = (({
   void app.register(registerRepoRoutes, { db });
   // ADR-0030: per-repo check overrides (also MCP's list/get/set/clear_repo_checks).
   void app.register(registerRepoChecksRoutes, { db });
+  // ADR-0033 P3: the workflow advisor's change proposals (also MCP's propose_change, list_change_proposals, apply_change).
+  void app.register(registerChangeProposalRoutes, { db });
   // ADR-0032: recurring tickets (also MCP's list/save/delete_schedule, run_schedule_now).
   void app.register(registerScheduleRoutes, { db, boardBus, auth, now });
   // ADR-0028: the OAuth authorization server and the MCP endpoint it protects.

@@ -459,6 +459,34 @@ ADR-0033 P2: an analyst's result, re-validated against `SessionInsightSchema` be
 
 The migration's down drops both tables and `machine.features`, deletes `assistant_job` outbox rows and rebuilds `outbox_kind` without the value.
 
+### change_proposal
+
+ADR-0033 P3 (MA-T05): a workflow advisor's proposed change. Migration `1762600000000_change-proposal`. Model-written: a human applies or rejects it ([10 §Change proposals](10-contracts.md#change-proposals-adr-0033-p3)). At most 20 `proposed` rows per account (the store refuses `too_many_open`). Not swept: the cap bounds open rows, decided ones stay as the history of what changed and why.
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| account_id | uuid fk account | `(account_id, created_at desc)` indexed; partial index on `(account_id) WHERE status = 'proposed'` |
+| kind | text | `workflow` · `repo_checks` (CHECK); machine settings come with MA-T06 |
+| status | text | `proposed` · `applied` · `rejected` · `conflict` · `failed` (CHECK); only `proposed` moves, once (applied with the row locked) |
+| title | text | ≤ 120 |
+| payload | jsonb | the `ProposalChange` (a workflow's whole validated definition, or a repo's checks / null to clear) |
+| base | jsonb | what it was made from: `{version}` (workflow) or `{config, updated_at}` of the repo's `repo_checks` row, both null when it had none |
+| diff | jsonb | `StructuralChange[]` against `base` |
+| rationale | text | ≤ 1000 |
+| evidence | jsonb | `[{finding_id?, text}]`, 1..8 |
+| expected_effect | jsonb | `ExpectedEffect {metric, scope, direction, text}` |
+| rollback | text | ≤ 500 |
+| created_by | text null | `mcp:<email>` |
+| created_at | timestamptz | |
+| decided_by, decided_at | text null, timestamptz null | who applied or rejected it (or hit the conflict) |
+| applied_at | timestamptz null | the start of the review's after-window |
+| applied_version | int null | workflow: the version applying it saved |
+| error | text null | why it is `conflict` or `failed` |
+| review, reviewed_at | jsonb null, timestamptz null | the last `ProposalReview` |
+
+Down drops the table.
+
 ### login_throttle
 Instance-level. ADR-0017 §Rate limiting, layer 3: keyed by the normalised email **string**, whether or not a user has it, so a lockout reveals nothing.
 | column | type | notes |

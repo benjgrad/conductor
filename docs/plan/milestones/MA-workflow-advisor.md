@@ -17,7 +17,7 @@ Analysis is layered:
 **Exit criteria**:
 - P1: `get_process_metrics` and `list_findings` return deterministic, account-scoped results under 8 KB; the `workflow_advisor` prompt is served; the tool list is ≤ 20 KB.
 - P2: a finished session produces at most one `session_insight` per schema version. The result is zod-validated (malformed results are dropped, never retried in a loop). Jobs run in a light slot and are capped at 20 a day per account. Insights are kept 180 days.
-- P3: a proposal shows its diff, evidence, expected effect and rollback. Applying it re-checks the base version, the admin gate and `approvalsWeakened`. `review_change` compares metrics before and after. `bypassPermissions` can't be set over MCP.
+- P3: a proposal shows its diff, evidence, expected effect and rollback. Applying it re-checks the base version, the admin gate and `approvalsWeakened`. The review (`list_change_proposals` with an id, ADR-0033 §Amendment: P3 as built) compares metrics before and after. `bypassPermissions` can't be set over MCP.
 - E2E: fake claude returns a canned insight; the coordinator lists findings, proposes a repo-checks change, and it is applied after a confirm.
 
 **Not in MA**:
@@ -37,10 +37,11 @@ Analysis is layered:
 | MA-T02 | Contracts: WS `assistant_job` / `assistant_result` (zod → `emit:protocol` → codegen, fixture parity pair), `SessionInsightSchema`; shared with M4-T01/T04 | T01 | B | done (P2 branch) |
 | MA-T03 | Rust daemon one-shot runner: `claude -p --output-format json --json-schema`, `--tools ""`, empty `--strict-mcp-config`, ADR-0006 env guards, empty private cwd, kill_tree on a 120 s timeout; light-slot semaphore (default 1, outside `max_sessions`); transcript tail read locally; PARITY rows | T02 | C | done (P2 branch; wired in by MR-T12 FR-4, live once machines run the Rust daemon, MR-T15/T16) |
 | MA-T04 | Orchestrator: `session_insight` migration; a scheduler on session end (outbox, idempotency key `insight:<session_id>:<schema_version>`, 20 a day per account, backfill limit, prefers the machine that ran the session); zod re-validation; 180-day retention; MCP `get_process_report` and `get_insight`; findings merged into `list_findings` | T02, T03 | D | done (P2 branch; dormant until a daemon advertises `assistant_job`) |
-| MA-T05 | `change_proposal` migration; `advisor/diff.ts` (shared: structural diff of workflow, repo checks and machine settings); MCP `propose_change`, `list_change_proposals`, `apply_change` (destructive, through the existing guards), `review_change`; REST `/api/change-proposals` | T01 | B | todo |
-| MA-T06 | Machine settings over MCP: `get_machine_settings` and machine-settings proposals, owner/admin only, `resolveEffectivePolicy` invariants, never `bypassPermissions`; suggested allow rules from `alwaysRuleFor` | T05, M2-T28c, MR-T17b | E | todo |
-| MA-T07 | Web: Proposals list on the Workflows page (diff, evidence, Apply / Reject, review result) | T05 | C | todo |
-| MA-T08 | E2E: fake-claude insight job; findings → proposal → confirm → apply → review | T04, T05 | F | todo |
+| MA-T05 | `change_proposal` migration; `advisor/diff.ts` (shared: structural diff of workflow and repo checks; machine settings with T06); MCP `propose_change`, `list_change_proposals` (with `id`: reviews an applied one), `apply_change` (destructive, through the existing guards); REST `/api/change-proposals` | T01 | B | done (ticket "AI workflow agent") |
+| MA-T06 | Machine settings over MCP: `get_machine_settings` and machine-settings proposals, owner/admin only, `resolveEffectivePolicy` invariants, never `bypassPermissions`; suggested allow rules from `alwaysRuleFor` | T05, M2-T28c, MR-T17b | E | blocked (M2-T28c, MR-T17b) |
+| MA-T07 | Web: Proposals list on the Workflows page (diff, evidence, Apply / Reject, review result) | T05 | C | done (ticket "AI workflow agent") |
+| MA-T08a | E2E: findings → proposal → confirm → apply → review, over `/mcp` on the real bins | T05 | F | done (ticket "AI workflow agent") |
+| MA-T08b | E2E: fake-claude insight job through the Rust daemon; `recurring_friction` in `list_findings` | T04, MR-T16 | F | blocked (MR-T16) |
 
 ## Task details
 
@@ -60,3 +61,10 @@ Analysis is layered:
   - [x] T03: the runner's args, output parsing, transcript fence, light slot and queue, and the timeout tree kill against a fake `claude` (`crates/conductor-daemon/src/claude/oneshot/tests.rs`).
   - [x] T04: one job per session and version, the cap of 20 a day, account isolation, the feature and online gates, stored / dropped / failed results never retried, expiry, 180-day retention, ticket cascade (`test/advisor.insights.test.ts`); the gateway path from register to insight (`test/gateway/assistant-jobs.test.ts`); the MCP tools (`tools.unit.test.ts`, `oauth-mcp.test.ts`).
   - [ ] Live: insights appear once a Rust daemon runs MR-T12 FR-4 (MA-T08's e2e needs MR-T16).
+
+### MA-T05, MA-T07, MA-T08a · P3: change proposals
+- **Scope**: ADR-0033 §Amendment: P3 as built. Machine settings (T06) and the insight-job e2e (T08b) are blocked.
+- **Acceptance**:
+  - [x] T05: the structural diff and the metric comparison (`shared/src/advisor/diff.test.ts`, `proposal.test.ts`); propose validation, the cap of 20, account isolation, apply once under concurrency, the admin gate, base and snapshot conflicts, weakening refused at propose and apply, reject, review windows (`test/advisor.proposals.test.ts`, `advisor.queries.test.ts`); the REST routes (`test/api.change-proposals.test.ts`); the tools, their order, annotations and `confirm` (`tools.unit.test.ts`), the flow over `/mcp` and the 22 KB tool list (`oauth-mcp.test.ts`); the table (`schema.test.ts`).
+  - [x] T07: the list, the detail, Apply behind a confirm, Reject, the review, refusals, the workflow warning and the editor reload (`web/src/workflow/ProposalsPanel.test.tsx`, `WorkflowsView.test.tsx`).
+  - [x] T08a: `e2e/advisor.e2e.test.ts`.

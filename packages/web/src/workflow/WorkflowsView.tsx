@@ -26,6 +26,7 @@ import {
   type ColumnIssue,
   type LaneEdge,
 } from './columns.js';
+import { ProposalsPanel } from './ProposalsPanel.js';
 import { detailVersions } from './review.js';
 import { TransitionEditor } from './TransitionEditor.js';
 import { addTransition, getTransitionObject } from './transitions.js';
@@ -61,6 +62,8 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  /** Bumped when an applied change proposal saved a new version: the latest is fetched again. */
+  const [reloads, setReloads] = useState(0);
 
   useEffect(() => {
     onDirtyChange?.(draft !== null ? ID : null);
@@ -87,7 +90,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
     return () => {
       cancelled = true;
     };
-  }, [api, version]);
+  }, [api, version, reloads]);
 
   const shown = draft ?? detail?.definition ?? null;
   const dirty = draft !== null;
@@ -325,6 +328,17 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
             <span>✓ requires checks, review, actions or conditions</span>
           </p>
         )}
+        <ProposalsPanel
+          api={api}
+          dirty={dirty}
+          onWorkflowApplied={() => {
+            // Unsaved edits stay; the panel warned that saving them stores the draft (made from
+            // the older version) on top of the applied change.
+            if (dirty) return;
+            setVersion(null);
+            setReloads((n) => n + 1);
+          }}
+        />
       </section>
 
       {selectedState && shown && asColumns && (

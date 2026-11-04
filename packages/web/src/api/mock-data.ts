@@ -11,6 +11,7 @@ import {
   moveStateLabel,
   WorkflowDefinitionSchema,
   type BoardCard,
+  type ChangeProposalDetail,
   type BoardChecking,
   type InputRequestDto,
   type MachineDetail,
@@ -939,6 +940,114 @@ export function mockRepoChecks(now: Date): RepoChecksDto[] {
       ],
       updated_at: new Date(now.getTime() - 2 * 86_400_000).toISOString(),
       updated_by: 'ben@example.com',
+    },
+  ];
+}
+
+/**
+ * ADR-0033 P3: the workflow advisor's proposals in the mock: one open repo-checks change, and one
+ * applied workflow change with its review.
+ */
+export function mockChangeProposals(now: Date): ChangeProposalDetail[] {
+  const ago = (days: number) => new Date(now.getTime() - days * 86_400_000).toISOString();
+  return [
+    {
+      id: '7a1c0e52-5f3b-4c1e-9d2a-0b6f1e2a3c01',
+      kind: 'repo_checks',
+      status: 'proposed',
+      title: 'Build the web app inside m-one',
+      target: 'github.com/acme/api',
+      requires_admin: false,
+      changes: 2,
+      expected_effect: 'The build check stops failing on every ticket.',
+      created_at: ago(0.2),
+      applied_at: null,
+      rationale:
+        'The repo has no package.json at its root, so the default `npm run build` fails before ' +
+        'any work is checked.',
+      evidence: [
+        { finding_id: 'failing_check:npm run build', text: '6 of 6 runs failed in 30 days' },
+      ],
+      effect: {
+        metric: 'check_failure_rate',
+        scope: { check: 'npm run build' },
+        direction: 'down',
+        text: 'The build check stops failing on every ticket.',
+      },
+      rollback: 'Clear the repo’s checks: tickets run the workflow’s default checks again.',
+      diff: {
+        changes: [
+          {
+            op: 'add',
+            path: 'checks.Web build',
+            after: { name: 'Web build', cmd: 'cd m-one && npm ci && npm run build' },
+          },
+          {
+            op: 'add',
+            path: 'override',
+            after: { checks: [{ name: 'Web build', cmd: 'cd m-one && npm ci && npm run build' }] },
+          },
+        ],
+        more_changes: 0,
+      },
+      base_version: null,
+      created_by: 'mcp:ben@example.com',
+      decided_by: null,
+      decided_at: null,
+      applied_version: null,
+      error: null,
+      review: null,
+      warning: null,
+    },
+    {
+      id: '7a1c0e52-5f3b-4c1e-9d2a-0b6f1e2a3c02',
+      kind: 'workflow',
+      status: 'applied',
+      title: 'Give planning a clearer title',
+      target: CONDUCTOR_WORKFLOW_ID,
+      requires_admin: true,
+      changes: 1,
+      expected_effect: 'Fewer questions while planning.',
+      created_at: ago(9),
+      applied_at: ago(8),
+      rationale: 'Agents asked what “plan” meant in 4 of 10 tickets.',
+      evidence: [
+        { finding_id: 'frequent_question:planning', text: 'Questions in 40 % of tickets' },
+      ],
+      effect: {
+        metric: 'questions',
+        scope: { state: 'planning' },
+        direction: 'down',
+        text: 'Fewer questions while planning.',
+      },
+      rollback: 'Save the previous version again (get_workflow version 4).',
+      diff: {
+        changes: [
+          { op: 'change', path: 'states.planning.title', before: 'Planning', after: 'Plan it' },
+        ],
+        more_changes: 0,
+      },
+      base_version: 4,
+      created_by: 'mcp:ben@example.com',
+      decided_by: 'ben@example.com',
+      decided_at: ago(8),
+      applied_version: 5,
+      error: null,
+      review: {
+        metric: 'questions',
+        scope: { state: 'planning' },
+        direction: 'down',
+        window_days: 8,
+        before: { value: 0.4, sample: 10 },
+        after: { value: 0.1, sample: 10 },
+        delta: -0.3,
+        direction_met: true,
+        too_early: false,
+        reviewed_at: ago(0.5),
+      },
+      warning:
+        'Workflows are shared by every account on this instance: applying this changes the ' +
+        'workflow for all of them, and only an instance admin can apply it.',
     },
   ];
 }

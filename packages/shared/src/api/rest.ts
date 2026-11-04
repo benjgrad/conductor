@@ -110,6 +110,16 @@ export const API_PATHS = {
   schedule: (id: string) => `/api/schedules/${id}`,
   /** ADR-0032: POST RunScheduleRequest → 201 RunScheduleResponse (a run now). */
   scheduleRun: (id: string) => `/api/schedules/${id}/run`,
+  /** ADR-0033 P3: GET `?status=&cursor=` → ChangeProposalListResponse. */
+  changeProposals: '/api/change-proposals',
+  /** ADR-0033 P3: GET → ChangeProposalDetail. */
+  changeProposal: (id: string) => `/api/change-proposals/${id}`,
+  /** ADR-0033 P3: POST `{}` → ChangeProposalDetail (applied), or 403/409. */
+  changeProposalApply: (id: string) => `/api/change-proposals/${id}/apply`,
+  /** ADR-0033 P3: POST `{}` → ChangeProposalDetail (rejected). */
+  changeProposalReject: (id: string) => `/api/change-proposals/${id}/reject`,
+  /** ADR-0033 P3: POST `{}` → ChangeProposalDetail (with `review`). */
+  changeProposalReview: (id: string) => `/api/change-proposals/${id}/review`,
   boardStream: '/api/stream/board',
   sessionOutputStream: (id: string) => `/api/stream/sessions/${id}/output`,
   /** Daemon ↔ orchestrator WebSocket (03), served on the same HTTP server as the API. */
@@ -1008,6 +1018,10 @@ export const ApiErrorSchema = z.object({
       'ticket_not_editable',
       /** ADR-0032: a run now while the schedule's last run is still open, without `force` (409). */
       'previous_run_open',
+      /** ADR-0033 P3: applying a proposal that would remove or bypass a human approval (409). */
+      'approval_weakened',
+      /** ADR-0033 P3: applying or rejecting a proposal that is no longer `proposed` (409). */
+      'wrong_state',
     ]),
     message: z.string(),
     /** Validation details (zod issues / validator rule failures). */

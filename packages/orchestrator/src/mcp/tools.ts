@@ -1,5 +1,6 @@
 import {
   AdvisorGroupBySchema,
+  ChangeStatusSchema,
   CONDUCTOR_WORKFLOW_ID,
   CreateTicketRequestSchema,
   EntryCheckSchema,
@@ -28,6 +29,16 @@ import type { RequestAuth } from '../auth/middleware.js';
 import type { BoardBus, EngineService, OutputBus, TranscriptSource } from '../contracts.js';
 import type { Db } from '../main.js';
 import { getInsight, insightCoverage, insightsEnabled, loadInsights } from '../advisor/insights.js';
+import {
+  applyProposal,
+  createProposal,
+  getProposal,
+  listProposals,
+  reviewProposal,
+  workflowJsonProblem,
+  type ProposalActor,
+  type ProposalFailure,
+} from '../advisor/proposals.js';
 import {
   clampWindow,
   loadAdvisorRows,
@@ -58,7 +69,7 @@ import {
 import { reopenSession } from '../engine/reopen.js';
 import { conductorDefaultAvailable, newestShippedConductor } from '../engine/seed.js';
 import { maxBoardEventId } from '../stream/board.js';
-import { capJson, TRUNCATED } from './cap.js';
+import { capJson } from './cap.js';
 import { WAITING_ON_USER, statusLine, statusReport, waitingOn, type WaitingOn } from './status.js';
 import { waitForUpdates, type ChangeRow } from './updates.js';
 
@@ -197,11 +208,16 @@ export const WORKFLOW_ADVISOR_PROMPT = [
     '(one session) before reading transcripts; then one or two example tickets with ' +
     'get_ticket and get_ticket_artifacts (results, plan; transcript only when needed, one page ' +
     'at a time). Keep a short summary, not the raw text.',
-  '4. Propose ONE small, reversible change: what changes, why (the evidence), the expected ' +
-    'effect on the metric, and how to roll it back. Prefer the narrowest scope: one repo’s ' +
-    'checks (set_repo_checks) before the workflow (save_workflow), one state before many.',
-  '5. Ask me to confirm. Only then apply it with the existing tool.',
-  '6. Later: re-run get_process_metrics over a window after the change and compare.',
+  '4. Propose ONE small, reversible change with propose_change: what changes, why (the ' +
+    'evidence, with finding ids), the expected effect on one metric (median_stay, p90_stay, ' +
+    'reentries, check_failure_rate, questions or permission_denials; direction down or up), ' +
+    'and how to roll it back. ' +
+    'Prefer the narrowest scope: one repo’s checks before the workflow, one state before many. ' +
+    'Show me its diff.',
+  '5. Ask me to confirm. Only then apply_change it (confirm: true). On conflict, read again and ' +
+    'propose anew; never retry blindly.',
+  '6. Later: list_change_proposals with its id shows the metric before vs after the change; ' +
+    'say whether it worked.',
   '',
   'Rules:',
   '- Never remove or bypass a human approval (`requires.approvals`); save_workflow refuses it, ' +
@@ -224,8 +240,6 @@ const QUESTION_MAX = 160;
 const BODY_MAX = 4000;
 const SNIPPET_MAX = 200;
 const MACHINE_REPOS_MAX = 10;
-/** save_workflow: the largest definition accepted, as JSON. */
-const WORKFLOW_MAX_BYTES = 256 * 1024;
 /** save_workflow: at most this many validator errors in the result. */
 const WORKFLOW_ERRORS_MAX = 50;
 
@@ -1429,17 +1443,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     },
     async ({ definition, base_version }) => {
       if (!mayEditWorkflows) return notAdmin();
-      const json = JSON.stringify(definition);
-      if (Buffer.byteLength(json, 'utf8') > WORKFLOW_MAX_BYTES) {
-        return fail('invalid_input', `The definition is over ${WORKFLOW_MAX_BYTES} bytes.`);
-      }
-      if (json.includes(TRUNCATED)) {
-        return fail(
-          'invalid_input',
-          `The definition contains "${TRUNCATED}": a tool result was cut short. Read that part ` +
-            'again (get_workflow with `state`) before saving.',
-        );
-      }
+      const problem = workflowJsonProblem(definition);
+      if (problem !== null) return fail('invalid_input', problem);
       const checked = validateWorkflow(definition);
       if (!checked.ok) {
         return fail('invalid_workflow', 'workflow definition is invalid', {
@@ -1610,6 +1615,91 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         model_written: true,
         ...found.insight,
       });
+    },
+  );
+
+  // ADR-0033 P3 (MA-T05): change proposals. The advisor proposes; the user confirms; apply_change
+  // runs the same guarded save paths; list_change_proposals with an id reviews an applied one. Machine settings are not a kind (MA-T06), so nothing here
+  // can touch permissions or bypassPermissions.
+  const actor: ProposalActor = { accountId, by, mayEditWorkflows };
+  const proposalFail = (f: ProposalFailure) =>
+    fail(f.code, f.message, {
+      ...(f.details ? { details: f.details } : {}),
+      ...(f.latest !== undefined ? { latest: f.latest } : {}),
+      ...(f.transitions ? { transitions: f.transitions } : {}),
+    });
+  const proposalId = z.string().max(36);
+
+  register(
+    'propose_change',
+    {
+      title: 'Propose change',
+      description:
+        'Store ONE change for the user to confirm; returns its diff. Nothing changes until ' +
+        'apply_change.',
+      // Loose shapes keep the tool list small: createProposal validates everything (zod).
+      inputSchema: {
+        title: z.string(),
+        change: z
+          .unknown()
+          .describe(
+            '{kind:"repo_checks",repo,checks|null}|' +
+              '{kind:"workflow",workflow_id,base_version,definition}',
+          ),
+        rationale: z.string(),
+        evidence: z.unknown().describe('[{finding_id?,text}]'),
+        expected_effect: z.unknown().describe('{metric,scope?,direction,text}'),
+        rollback: z.string(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    async (input) => {
+      const res = await createProposal(db, actor, input);
+      if (!res.ok) return proposalFail(res);
+      return ok(res.value);
+    },
+  );
+
+  register(
+    'list_change_proposals',
+    {
+      title: 'List proposals',
+      description:
+        'Newest first, paged; with `id`, one in full: its diff and, once applied, the expected ' +
+        'metric before vs after.',
+      inputSchema: {
+        id: proposalId.optional(),
+        status: z.enum([...ChangeStatusSchema.options, 'all']).optional(),
+        cursor: z.number().int().min(0).max(1_000).optional(),
+      },
+      annotations: readOnly,
+    },
+    async ({ id, status, cursor }) => {
+      if (id !== undefined) {
+        const found = await getProposal(db, accountId, id);
+        if (found === null) return fail('not_found', `No change proposal ${id}.`);
+        if (found.status !== 'applied') return ok(found);
+        // ADR-0033 P3: an applied one is reviewed on read (the before/after metrics; the result
+        // is cached on the row, nothing else is written), so there is no separate review tool.
+        const reviewed = await reviewProposal(db, accountId, id);
+        return ok(reviewed.ok ? reviewed.value : found);
+      }
+      return ok(await listProposals(db, accountId, { status, cursor }));
+    },
+  );
+
+  register(
+    'apply_change',
+    {
+      title: 'Apply change',
+      description: 'Apply a proposal once the user confirms it, through the usual save guards.',
+      inputSchema: { id: proposalId, confirm: z.literal(true) },
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    },
+    async ({ id }) => {
+      const res = await applyProposal(db, actor, id);
+      if (!res.ok) return proposalFail(res);
+      return ok(res.value);
     },
   );
 

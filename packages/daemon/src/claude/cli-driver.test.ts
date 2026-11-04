@@ -20,8 +20,10 @@ import {
   agentPermissionMode,
   buildClaudeArgs,
   createCliDriver,
+  MAX_ARGV_SYSTEM_PROMPT_CHARS,
   permissionPromptSupport,
   probePermissionPrompts,
+  spillSystemPrompt,
   userMessageLine,
   type CliDriverSession,
 } from './cli-driver.js';
@@ -334,6 +336,16 @@ describe('buildClaudeArgs', () => {
     ]);
   });
 
+  it('passes a spilled system prompt as --append-system-prompt-file, never the text', () => {
+    const o = opts([], {
+      appendSystemPrompt: 'x',
+      appendSystemPromptFile: '/tmp/s/system-prompt.md',
+    });
+    const args = buildClaudeArgs(o, '{"mcp":1}', '/tmp/s/settings.json');
+    expect(args.slice(-2)).toEqual(['--append-system-prompt-file', '/tmp/s/system-prompt.md']);
+    expect(args).not.toContain('--append-system-prompt');
+  });
+
   it('writes stream-json user messages', () => {
     expect(JSON.parse(userMessageLine('hi'))).toEqual({
       type: 'user',
@@ -341,6 +353,35 @@ describe('buildClaudeArgs', () => {
       parent_tool_use_id: null,
       message: { role: 'user', content: [{ type: 'text', text: 'hi' }] },
     });
+  });
+});
+
+describe('spillSystemPrompt', () => {
+  let spill: string;
+  beforeEach(() => {
+    spill = mkdtempSync(join(tmpdir(), 'conductor-spill-'));
+  });
+  afterEach(() => {
+    rmSync(spill, { recursive: true, force: true });
+  });
+
+  it('keeps a short prompt on the command line and writes nothing', () => {
+    const o = opts([], { appendSystemPrompt: 'a'.repeat(MAX_ARGV_SYSTEM_PROMPT_CHARS) });
+    expect(spillSystemPrompt(o, spill)).toBe(o);
+    expect(existsSync(join(spill, 'system-prompt.md'))).toBe(false);
+  });
+
+  it('moves a long prompt (a big CLAUDE.md) into a private file, so Windows argv stays short', () => {
+    const text = `# CLAUDE.md\n${'b'.repeat(40 * 1024)}`;
+    const out = spillSystemPrompt(opts([], { appendSystemPrompt: text }), spill);
+    const path = join(spill, 'system-prompt.md');
+    expect(out.appendSystemPrompt).toBeUndefined();
+    expect(out.appendSystemPromptFile).toBe(path);
+    expect(readFileSync(path, 'utf8')).toBe(text);
+    if (onWin32) assertOwnerOnly(path, { kind: 'file' });
+    else expect(statSync(path).mode & 0o777).toBe(0o600);
+    const args = buildClaudeArgs(out, '/tmp/s/mcp.json', '/tmp/s/settings.json');
+    expect(args.join(' ').length).toBeLessThan(MAX_ARGV_SYSTEM_PROMPT_CHARS);
   });
 });
 

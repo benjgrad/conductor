@@ -89,6 +89,28 @@ export function writeMcpConfigFile(mcpConfig: string, parent = tmpdir()): string
   return path;
 }
 
+/**
+ * The longest `--append-system-prompt` passed on the command line. Windows refuses a command line
+ * over 32,767 characters (`spawn ENAMETOOLONG`), and the prompt carries the repo's CLAUDE.md (up
+ * to MAX_CLAUDE_MD_BYTES = 64 KiB). Anything longer goes in a file instead.
+ */
+export const MAX_ARGV_SYSTEM_PROMPT_CHARS = 8 * 1024;
+
+/**
+ * A long `appendSystemPrompt` moved into `system-prompt.md` in the session's private directory
+ * (`dir`, the one holding mcp.json, removed with it), passed as `--append-system-prompt-file`.
+ * A short one stays on the command line, so most starts are unchanged.
+ */
+export function spillSystemPrompt(opts: DriverStartOptions, dir: string): DriverStartOptions {
+  const text = opts.appendSystemPrompt;
+  if (text === undefined || text.length <= MAX_ARGV_SYSTEM_PROMPT_CHARS) return opts;
+  const path = join(dir, 'system-prompt.md');
+  writePrivateFile(path, text);
+  const out: DriverStartOptions = { ...opts, appendSystemPromptFile: path };
+  delete out.appendSystemPrompt;
+  return out;
+}
+
 export function removeMcpConfigFile(path: string): void {
   try {
     rmSync(dirname(path), { recursive: true, force: true });
@@ -321,7 +343,9 @@ export function buildClaudeArgs(
   );
   const deny = [...t.deny, ...mcp.deny];
   if (deny.length > 0) args.push('--disallowedTools', deny.join(','));
-  if (opts.appendSystemPrompt !== undefined) {
+  if (opts.appendSystemPromptFile !== undefined) {
+    args.push('--append-system-prompt-file', opts.appendSystemPromptFile);
+  } else if (opts.appendSystemPrompt !== undefined) {
     args.push('--append-system-prompt', opts.appendSystemPrompt);
   }
   return args;
@@ -393,8 +417,10 @@ class Session implements CliDriverSession {
       this.reg.unregister();
       throw err;
     }
+    let argOpts: DriverStartOptions;
     try {
       settings = writeEditGuard(dirname(this.mcpConfigPath), opts.cwd);
+      argOpts = spillSystemPrompt(opts, dirname(this.mcpConfigPath));
     } catch (err) {
       this.reg.unregister();
       removeMcpConfigFile(this.mcpConfigPath);
@@ -437,7 +463,7 @@ class Session implements CliDriverSession {
     }
     const args = [
       ...this.prefixArgs,
-      ...buildClaudeArgs(opts, this.mcpConfigPath, settings, permission),
+      ...buildClaudeArgs(argOpts, this.mcpConfigPath, settings, permission),
     ];
     this.child = spawnCli(bin, args, {
       cwd: opts.cwd,

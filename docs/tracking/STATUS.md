@@ -17,6 +17,7 @@
 ## In flight
 | Task | Where | State |
 |---|---|---|
+| FIX-2 Windows `spawn ENAMETOOLONG` on long system prompts + bounded `start_failed` requeue | branch `fix-windows-system-prompt-argv` | in_review; unblocks NCNG-2630 once deployed and PC115's daemon is upgraded |
 | M2r-T03 QA state | PR #56 | in_review |
 | M2-T35b screenshots attached to the PR | PR #65 | in_review (v5 already asks for them, T35c merged first) |
 | UX-15 Web Push (server) | PR #67 | in_review; migration needs Ben |

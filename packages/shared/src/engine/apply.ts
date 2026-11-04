@@ -394,6 +394,10 @@ function onRefused(
         return null;
       }
       st.s.machine_id = null;
+      if (startFailedTooOften(st, e.reason)) {
+        toFallbackHuman(st, 'retries_exhausted', startFailedQuestion(`"${name}"`, e.reason));
+        return null;
+      }
       // pending_answer is kept so the re-claim re-answers (U-026).
       requeue(st);
       return null;
@@ -438,6 +442,7 @@ function onStarted(st: Step, commandId: string): ApplyIgnoreReason | null {
     return 'command_id_mismatch';
   }
   st.s.agent_process_live = true;
+  if (START_FAILED_COUNTER in st.s.retry_counters) clearStartFailed(st);
   st.s.pending_answer = null; // the agent is running on it (§Pending answer)
   st.s.context = withoutMachineLost(st.s.context); // running again (§Lost machines)
   if (st.s.status === 'assigned') st.setStatus('running');
@@ -1519,6 +1524,16 @@ function handleStep(
             r.claude_session_id = null;
             conversationReset(st, old);
           }
+          if (startFailedTooOften(st, e.reason)) {
+            stepFail(
+              st,
+              spec,
+              'retries_exhausted',
+              startFailedQuestion(`the reviewer to ${spec.goal}`, e.reason),
+              false,
+            );
+            return null;
+          }
           requeue(st);
           return null;
         case 'run_cmd': {
@@ -2493,6 +2508,39 @@ export function deadlineFor(state: WorkflowState, now: Date): string | null {
   }
   if (state.type === 'human' && state.on?.timeout === undefined) return null;
   return new Date(now.getTime() + parseDuration(state.timeout)).toISOString();
+}
+
+/** `retry_counters` key of the consecutive `start_failed` refusals of the current start. */
+export const START_FAILED_COUNTER = 'start_failed';
+/** A start the daemon fails this many times in a row goes to a human instead of the queue. */
+export const MAX_START_FAILURES = 3;
+
+/**
+ * A daemon refusal that the same machine will repeat (`start_failed: …`, e.g. `spawn
+ * ENAMETOOLONG`) is counted; `MAX_START_FAILURES` in a row → true, the counter reset, and the
+ * caller routes to a human instead of requeueing (05 §Invariants: every loop bounded, every
+ * failure path ends at a human). Other reasons (`ack_timeout`, `no_conversation`) stay a plain
+ * requeue: they clear on their own or are handled by the caller.
+ */
+function startFailedTooOften(st: Step, reason: string): boolean {
+  if (!reason.startsWith('start_failed')) return false;
+  const n = (st.s.retry_counters[START_FAILED_COUNTER] ?? 0) + 1;
+  if (n < MAX_START_FAILURES) {
+    st.s.retry_counters = { ...st.s.retry_counters, [START_FAILED_COUNTER]: n };
+    return false;
+  }
+  clearStartFailed(st);
+  return true;
+}
+
+function clearStartFailed(st: Step): void {
+  const counters = { ...st.s.retry_counters };
+  delete counters[START_FAILED_COUNTER];
+  st.s.retry_counters = counters;
+}
+
+function startFailedQuestion(what: string, reason: string): string {
+  return `Could not start ${what}: the machine refused it ${MAX_START_FAILURES} times in a row (${reason}). Retry, skip, or abort?`;
 }
 
 /** Back to the queue: the ticket is re-claimable and no timer runs while queued. */

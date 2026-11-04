@@ -46,4 +46,9 @@ The Machines page shows repos, capabilities and alerts. It shows none of the abo
 | Edit `~/.claude/settings.json` remotely | Writes into the user's own config, which affects their interactive Claude Code too |
 
 ## Implementation
-M2-T28 (this ADR + contracts), M2-T28b (shared), M2-T28c (orchestrator), M2-T28d (daemon), M2-T28e (web).
+M2-T28 (this ADR + contracts), M2-T28b (shared), M2-T28c (orchestrator), M2-T28d (daemon, moved to MR-T17b by ADR-0026), M2-T28e (web).
+
+## Amendment (2026-11-04, Ben, approving the M2-T28..T28c plan)
+- **D1 · Narrower override.** `roots` and `allowed_repo_hosts` are left out of the machine override for now. A remote edit could point a machine at any directory or repo host, and no invariant bounds that. They can be added later without a contract break. The override holds the per-state rules, `permission_mode`, `permission_timeout_min`, `max_sessions` and `tags`.
+- **D2 · Reviewers and QA stay read-only.** For a requirements reviewer (ADR-0009) or a QA session (ADR-0020 §2), `resolveEffectivePolicy` applies only the override's extra `deny` rules. Its `add_aliases`, `allow` and `permission_mode` apply to working agents only, and reviewers and QA keep `dontAsk`.
+- **D3 · Push and ack.** `settings_update {command_id, version, override}` is an outbox command, sent only to a daemon whose `register.features` has `machine_settings`, and acked with the existing `command_ack`: accepted = applied, refused with `settings_invalid: <path>` or `settings_stale`. This replaces the separate `{version, applied | refused}` ack described above; the version travels in the command.

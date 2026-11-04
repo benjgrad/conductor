@@ -26,6 +26,15 @@ check "no secrets: the deploy needs no credential" lacks "$text" 'secrets\.'
 check "nothing touches ~/.ssh" lacks "$text" '\.ssh'
 check "no ssh in the workflow" lacks "$text" '(^|[^-])ssh '
 
+# The nightly quarantine run (WF-T05) is GitHub-hosted only and never writes.
+QWF="$REPO/.github/workflows/quarantine.yml"
+check "quarantine.yml exists" test -f "$QWF"
+qtext="$(sed 's/#.*//' "$QWF" 2>/dev/null)"
+check "quarantine.yml never runs on a self-hosted runner" lacks "$qtext" 'self-hosted'
+check "quarantine.yml has no write permission" lacks "$qtext" ': *write'
+check "quarantine.yml dispatch inputs never reach a shell" \
+  test -z "$(grep -E '^ +run: .*\$\{\{ *(inputs|github\.event)\.' "$QWF")"
+
 if python3 -c 'import yaml' 2>/dev/null; then
   # Prints one "name=value" line per fact; the checks below compare them.
   facts="$(python3 -I - "$WF" <<'PY'

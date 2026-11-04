@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
 import { defaultClientConditions, defaultServerConditions } from 'vite';
 import { defineConfig } from 'vitest/config';
+import { asksForQuarantine, forPackage, quarantinedTs, readFlaky } from './scripts/test-flaky.js';
 import { workersPerSlot } from './scripts/test-slot.js';
 import {
   asksForAll,
@@ -47,7 +48,38 @@ if (process.env.CONDUCTOR_TEST_TIERS_REPORTED !== '1') {
   );
 }
 const EXCLUDE = ['**/node_modules/**', '**/dist/**'];
-const skip = (name: string) => [...EXCLUDE, ...(tiers.exclude[name] ?? [])];
+// WF-T05: the known-flaky test files listed in docs/tracking/FLAKY.md leave the gate (every
+// package project excludes them) and run only in the opt-in `quarantine` project below.
+const flaky = readFlaky(fileURLToPath(new URL('.', import.meta.url)));
+const skip = (name: string) => [
+  ...EXCLUDE,
+  ...(tiers.exclude[name] ?? []),
+  ...forPackage(flaky, name),
+];
+
+// `pnpm vitest --project quarantine` (or CONDUCTOR_TEST_QUARANTINE=1): the quarantined files, with
+// retries (CONDUCTOR_QUARANTINE_RETRY, default 2; the nightly sets 0 to see the real failures).
+// Registered only when asked for, so `pnpm test` / `pnpm test:all` never run it. Each file picks its
+// own environment by docblock (`@vitest-environment jsdom`); timeouts as the slowest package.
+const quarantineFiles = quarantinedTs(flaky);
+const quarantine = asksForQuarantine(process.argv, process.env)
+  ? [
+      {
+        extends: true as const,
+        test: {
+          name: 'quarantine',
+          root: '.',
+          include: quarantineFiles,
+          exclude: EXCLUDE,
+          environment: 'node',
+          testTimeout: 30_000,
+          hookTimeout: 30_000,
+          retry: Number(process.env.CONDUCTOR_QUARANTINE_RETRY ?? 2),
+          passWithNoTests: true,
+        },
+      },
+    ]
+  : [];
 
 // One vitest project per workspace package. Workspace packages are resolved from source
 // via the "source" export condition, so `pnpm test` works on a clean clone without a build.
@@ -60,7 +92,10 @@ const pkg = (
   extra: { testTimeout?: number; hookTimeout?: number } = {},
 ) => {
   const root = `packages/${name}`;
-  const mocking = moduleMockingTests(fileURLToPath(new URL(root, import.meta.url)));
+  const quarantined = new Set(forPackage(flaky, name));
+  const mocking = moduleMockingTests(fileURLToPath(new URL(root, import.meta.url))).filter(
+    (f) => !quarantined.has(f),
+  );
   const base = { root, include, environment: 'node', ...extra };
   const isolated = {
     extends: true as const,
@@ -104,6 +139,7 @@ export default defineConfig({
         extends: true,
         test: { name: 'scripts', root: '.', include: ['scripts/*.test.js'], environment: 'node' },
       },
+      ...quarantine,
     ],
   },
 });

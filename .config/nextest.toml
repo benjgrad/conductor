@@ -1,0 +1,11 @@
+# cargo-nextest configuration. The default profile is unchanged (the gate: ci.sh, daemon-rust.yml).
+#
+# WF-T05: the nightly .github/workflows/quarantine.yml runs the quarantined (`#[ignore = "flaky:
+# see FLAKY.md"]`) tests with this profile: no retries, no fail-fast, and a JUnit report for
+# scripts/quarantine-report.js at target/nextest/quarantine/junit.xml.
+[profile.quarantine]
+retries = 0
+fail-fast = false
+
+[profile.quarantine.junit]
+path = "junit.xml"

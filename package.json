@@ -13,6 +13,7 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:all": "vitest run --mode all",
+    "test:quarantine": "vitest run --mode all --project quarantine",
     "test:watch": "vitest",
     "test:e2e": "node scripts/e2e.js",
     "db:up": "scripts/db.sh up",

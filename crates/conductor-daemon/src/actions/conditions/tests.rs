@@ -10,9 +10,11 @@ use serde_json::json;
 
 const PR: &str = "https://github.com/benjgrad/fixture-app/pull/9";
 
-// Logs argv, cwd and the git env it got; prints $FAKE_GH_DIR/out; exits $FAKE_GH_EXIT.
+// Logs argv, cwd and the git env it got; prints $FAKE_GH_DIR/out (`gh api …`: $FAKE_GH_DIR/api);
+// exits $FAKE_GH_EXIT.
 const FAKE_GH: &str = r#"
 echo "$*" >> "$FAKE_GH_DIR/argv"
+if [ "$1" = api ]; then cat "$FAKE_GH_DIR/api"; exit 0; fi
 (pwd -W 2>/dev/null || pwd) >> "$FAKE_GH_DIR/cwd"
 echo "GIT_DIR=$GIT_DIR GIT_CONFIG_NOSYSTEM=$GIT_CONFIG_NOSYSTEM GH_REPO=$GH_REPO" >> "$FAKE_GH_DIR/env"
 if [ -n "$FAKE_GH_ERR" ]; then echo "$FAKE_GH_ERR" >&2; fi
@@ -929,4 +931,154 @@ fn a_moved_head_fails_it_no_file_list_keeps_it_pending() {
 fn js_seconds_formats_like_js() {
     assert_eq!(js_seconds(60_000), "60");
     assert_eq!(js_seconds(200), "0.2");
+}
+
+// ---------------------------------------------------------------- WF-T05: no runner = infrastructure
+
+const JOB: &str = "https://github.com/o/r/actions/runs/11/job/22";
+
+fn cancelled(name: &str, url: &str) -> Value {
+    json!({"__typename": "CheckRun", "name": name, "status": "COMPLETED", "conclusion": "CANCELLED",
+           "detailsUrl": url})
+}
+
+#[test]
+fn job_ref_reads_an_actions_job_link_only() {
+    assert_eq!(job_ref(JOB), Some(("o".into(), "r".into(), 22)));
+    assert_eq!(
+        job_ref("https://github.com/o/r.x/actions/runs/1/job/2?pr=9"),
+        Some(("o".into(), "r.x".into(), 2))
+    );
+    assert_eq!(job_ref("https://github.com/o/r/actions/runs/11"), None);
+    assert_eq!(job_ref("https://github.com/o/r/actions/runs/x/job/2"), None);
+    assert_eq!(
+        job_ref("https://github.com/o/r/actions/runs/1/job/2/x"),
+        None
+    );
+    assert_eq!(
+        job_ref("https://ci.example.com/o/r/actions/runs/1/job/2"),
+        None
+    );
+    assert_eq!(
+        job_ref("https://github.com/o;rm/r/actions/runs/1/job/2"),
+        None
+    );
+}
+
+#[test]
+fn parse_job_runner_no_runner_and_no_steps_only() {
+    assert_eq!(
+        parse_job_runner(&json!({"runner_name": null, "steps": []})),
+        Some(true)
+    );
+    assert_eq!(parse_job_runner(&json!({"runner_name": ""})), Some(true));
+    assert_eq!(
+        parse_job_runner(&json!({"runner_name": "GitHub Actions 2", "steps": [{"name": "x"}]})),
+        Some(false)
+    );
+    assert_eq!(
+        parse_job_runner(&json!({"runner_name": null, "steps": [{}]})),
+        Some(false)
+    );
+    assert_eq!(parse_job_runner(&json!({"runner_name": 3})), None);
+    assert_eq!(parse_job_runner(&json!([])), None);
+}
+
+fn with_no_runner(pr: &mut PrView, name: &str) {
+    for c in &mut pr.checks {
+        if c.name == name {
+            c.no_runner = Some(true);
+        }
+    }
+}
+
+#[test]
+fn a_check_that_never_got_a_runner_is_infrastructure_still_failed() {
+    let mut pr = pr_with(json!({"statusCheckRollup": [
+        check_run("gates", "COMPLETED", Some("SUCCESS")),
+        cancelled("daemon-rust (macos-latest)", JOB),
+    ]}));
+    // Not asked (or unknown): the plain message, as before.
+    let res = map_condition(&checks(), &pr, None);
+    assert_eq!(
+        res.detail.as_deref(),
+        Some(&*format!("failing: daemon-rust (macos-latest) ({JOB})"))
+    );
+
+    with_no_runner(&mut pr, "daemon-rust (macos-latest)");
+    let res = map_condition(&checks(), &pr, None);
+    assert_eq!(
+        (res.status, res.value.as_deref()),
+        (Failed, Some("1/2 passed"))
+    );
+    assert_eq!(
+        res.detail.as_deref(),
+        Some(&*format!(
+            "infrastructure, not a test failure: no runner was assigned to daemon-rust (macos-latest) ({JOB}); rerun the job (gh run rerun <run-id> --failed)"
+        ))
+    );
+}
+
+#[test]
+fn a_real_failure_and_an_infrastructure_one_are_named_apart() {
+    let mut pr = pr_with(json!({"statusCheckRollup": [
+        check_run("gates", "COMPLETED", Some("FAILURE")),
+        cancelled("daemon-rust (macos-latest)", JOB),
+    ]}));
+    with_no_runner(&mut pr, "daemon-rust (macos-latest)");
+    let res = map_condition(&checks(), &pr, None);
+    assert_eq!(res.status, Failed);
+    assert_eq!(
+        res.detail.as_deref(),
+        Some(&*format!(
+            "failing: gates; infrastructure, not a test failure (no runner was assigned; rerun the job): daemon-rust (macos-latest) ({JOB})"
+        ))
+    );
+}
+
+#[tokio::test]
+async fn a_cancelled_job_is_looked_up_with_gh_api() {
+    let f = Fx::new();
+    let v = view(json!({"statusCheckRollup": [
+        cancelled("daemon-rust (macos-latest)", JOB),
+        check_run("lint", "COMPLETED", Some("FAILURE")),
+    ]}));
+    std::fs::write(
+        f.tmp.path().join("api"),
+        r#"{"runner_name":null,"steps":[]}"#,
+    )
+    .unwrap();
+    let res = f.ev(vec![checks()], &v).await;
+    let argv = f.file("argv").unwrap();
+    let argv: Vec<&str> = argv.trim().lines().collect();
+    assert_eq!(argv.len(), 2, "{argv:?}");
+    assert!(
+        argv[1].ends_with("api repos/o/r/actions/jobs/22"),
+        "{}",
+        argv[1]
+    );
+    assert_eq!(
+        detail(&res, 0),
+        format!(
+            "failing: lint; infrastructure, not a test failure (no runner was assigned; rerun the job): daemon-rust (macos-latest) ({JOB})"
+        )
+    );
+
+    // A job that ran (and was cancelled, e.g. by its timeout) stays a plain failure.
+    let f = Fx::new();
+    std::fs::write(
+        f.tmp.path().join("api"),
+        r#"{"runner_name":"GitHub Actions 7","steps":[{"name":"x"}]}"#,
+    )
+    .unwrap();
+    let res = f.ev(vec![checks()], &v).await;
+    assert_eq!(
+        detail(&res, 0),
+        format!("failing: daemon-rust (macos-latest) ({JOB}), lint")
+    );
+
+    // No pr_checks_green asked: no lookup.
+    let f = Fx::new();
+    f.ev(vec![merged()], &v).await;
+    assert_eq!(f.file("argv").unwrap().trim().lines().count(), 1);
 }

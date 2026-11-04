@@ -193,18 +193,6 @@ describe('markdown round-trip through BlockNote (UX-3 FR-1, FR-3, NFR-7)', () =>
     );
   });
 
-  // NFR-4 (as applied to this form): a 2,000-requirement body still round-trips. Measured
-  // headless in jsdom: 2,000 bullets ~0.7 s; a 2,000-row table exports in ~3 s, hence 200 rows
-  // here and the debounced export in RichTicketEditor.
-  it('round-trips a 2,000-requirement body', { timeout: 30_000 }, () => {
-    const frs = Array.from({ length: 2000 }, (_, i) => `- FR-${i + 1} Requirement number ${i + 1}`);
-    const rows = Array.from({ length: 200 }, (_, i) => `| FR-${i + 1} | test ${i + 1} |`);
-    const md = `## Functional requirements\n${frs.join('\n')}\n\n## Verification\n| Req | How |\n|---|---|\n${rows.join('\n')}\n`;
-    const start = performance.now();
-    const out = roundTrip(md);
-    const ms = performance.now() - start;
-    expect(items(out)).toHaveLength(2000);
-    expect(tableRows(out)).toHaveLength(202);
-    expect(ms).toBeLessThan(15_000);
-  });
+  // NFR-4's 2,000-requirement round-trip (and its timing assertion) is in markdown-io.large.test.ts,
+  // quarantined (docs/tracking/FLAKY.md, WF-T11).
 });

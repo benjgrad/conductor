@@ -21,6 +21,10 @@ proposal → apply; its history is written to the database, its token minted the
   `CONDUCTOR_E2E_DAEMON_BIN=packages/daemon/dist/main.js pnpm test:e2e` runs the TS daemon (until
   MR-T18b). The stack prints which one it started (`e2e: rust daemon …`). `CONDUCTOR_CLAUDE_BIN` points
   at a symlink to `packages/daemon/test/fixtures/fake-claude.mjs` inside that temp dir.
+  CI (`scripts/ci.sh`) runs the debug `target/debug/conductor-daemon` that `cargo nextest` already
+  built, not a release build (~10 min cold, shares nothing with the test build). On a PR it runs
+  the suite only when the diff reaches the stack (`node scripts/ci-affected.js e2e`); `main`
+  always runs it.
 - **Fixture repo**: a local git repo (`harness/fixture-repo.ts`) where `npm run build` and `npm test`
   pass, unless the counter `.e2e/<step>-fail` in the session's worktree holds N > 0. In that case the
   step fails and decrements N. The fake Claude writes the counter in its first turn (`write_file`).

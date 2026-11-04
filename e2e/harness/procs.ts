@@ -4,6 +4,8 @@
 // the run's temp dir (crates/conductor-e2e-launcher) whose node child's command line may not
 // mention the temp dir.
 import { execFileSync } from 'node:child_process';
+import { win32 } from 'node:path';
+import { system32 } from './acl.js';
 
 /** One row of `Get-CimInstance Win32_Process` (ConvertTo-Json). */
 export interface ProcessRow {
@@ -52,7 +54,7 @@ const LIST_WIN32 =
 export function findProcesses(text: string): number[] {
   if (process.platform === 'win32') {
     const out = execFileSync(
-      'powershell.exe',
+      win32.join(system32('WindowsPowerShell'), 'v1.0', 'powershell.exe'),
       ['-NoProfile', '-NonInteractive', '-Command', LIST_WIN32],
       {
         encoding: 'utf8',
@@ -80,7 +82,7 @@ export function findProcesses(text: string): number[] {
 export function killTree(pid: number): void {
   try {
     if (process.platform === 'win32') {
-      execFileSync('taskkill', ['/T', '/F', '/PID', String(pid)], {
+      execFileSync(system32('taskkill.exe'), ['/T', '/F', '/PID', String(pid)], {
         stdio: 'ignore',
         windowsHide: true,
       });

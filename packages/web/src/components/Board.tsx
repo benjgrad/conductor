@@ -1,4 +1,4 @@
-import type { BoardCard, HumanTransitionOption } from '@conductor/shared';
+import type { BoardCard } from '@conductor/shared';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import type { ApiClient } from '../api/client.js';
 import {
@@ -15,9 +15,10 @@ import { CardPermissionActions, CardQuestionOptions } from './CardActions.js';
 import { PendingChecklist, TransitionButtons } from './transitions.js';
 import {
   classifyRequest,
-  PLAN_APPROVED_TEXT,
-  planAnswerOption,
+  planApproveRequest,
+  planOptions,
   previewText,
+  type PlanOptions,
   type RequestClass,
 } from './request-preview.js';
 import {
@@ -376,8 +377,9 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
   const sessionId = card.session_id;
   const q = card.input_request;
   const cls = q ? classifyRequest(q) : null;
-  const planOption =
-    cls === 'plan_approval' ? planAnswerOption(card.human_transitions, agentStates) : null;
+  // 06 §Plan approval: a card has no return_to, so its agent columns stand in for it (TD-184).
+  const plan =
+    cls === 'plan_approval' ? planOptions(card.human_transitions, agentStates, agentStates) : null;
   // UX-5: in a gate step the agent has exited and conductor runs the step, so no "running" agent.
   const conductor = isConductorStep(card);
   const idle = agentIdle(card);
@@ -520,7 +522,7 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
         </div>
       )}
       {/* Questions UX: the agent's options replace the generic buttons on the card. */}
-      {api && sessionId !== null && q?.options && !planOption ? (
+      {api && sessionId !== null && q?.options && !plan ? (
         <CardQuestionOptions
           key={q.id}
           api={api}
@@ -528,11 +530,11 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
           request={q}
           onOpen={() => onSelect(sessionId)}
         />
-      ) : api && sessionId !== null && planOption ? (
+      ) : api && sessionId !== null && plan ? (
         <PlanApprovalActions
           api={api}
           sessionId={sessionId}
-          option={planOption}
+          plan={plan}
           onReview={() => onSelect(sessionId)}
         />
       ) : (
@@ -547,22 +549,23 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
 }
 
 /**
- * 06 §Plan approval on the card: Approve plan posts the answer option with the approval text;
- * Review plan opens the session panel (the plan, Request changes…, the other actions).
+ * 06 §Plan approval on the card: Approve plan posts the approve option (`approve_plan` in v5),
+ * else the answer option with the approval text; Review plan opens the session panel (the plan,
+ * Request changes…, the other actions).
  */
 function PlanApprovalActions({
   api,
   sessionId,
-  option,
+  plan,
   onReview,
 }: {
   api: ApiClient;
   sessionId: string;
-  option: HumanTransitionOption;
+  plan: PlanOptions;
   onReview: () => void;
 }) {
   // The board stream carries the card change; no reload needed.
-  const { busy, error, post } = usePlanAnswer(api, sessionId, option);
+  const { busy, error, post } = usePlanAnswer(api, sessionId);
 
   return (
     <div className="transitions">
@@ -571,7 +574,7 @@ function PlanApprovalActions({
           type="button"
           className="plan-approve"
           disabled={busy}
-          onClick={() => void post(PLAN_APPROVED_TEXT)}
+          onClick={() => void post(planApproveRequest(plan))}
         >
           Approve plan
         </button>

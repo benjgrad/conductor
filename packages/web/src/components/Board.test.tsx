@@ -349,6 +349,21 @@ describe('board card: plan approval (06 §Plan approval)', () => {
     expect(article('Card 1').queryByRole('alert')).toBeNull();
   });
 
+  it('v5 Plan review: Approve plan posts approve_plan with no text', async () => {
+    const { transition } = renderWithApi([
+      planCard({
+        workflow_state: 'plan_review',
+        human_transitions: [
+          { name: 'revise_plan', title: 'Revise plan', goto: 'planning', needs_text: true },
+          { name: 'approve_plan', title: 'Approve plan', goto: 'implementing', needs_text: false },
+        ],
+      }),
+    ]);
+    fireEvent.click(article('Card 1').getByRole('button', { name: 'Approve plan' }));
+    await waitFor(() => expect(transition).toHaveBeenCalledTimes(1));
+    expect(transition).toHaveBeenCalledWith(SID, { name: 'approve_plan' });
+  });
+
   it('a rejected Approve plan shows the error', async () => {
     const transition = vi.fn<Post>(() => Promise.reject(new Error('session moved on')));
     renderWithApi([planCard()], transition);

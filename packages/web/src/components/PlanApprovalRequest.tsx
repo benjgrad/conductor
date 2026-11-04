@@ -1,15 +1,17 @@
 // 06 §Plan approval: an open `plan_needs_approval` request in the session panel. The agent's
 // question, the plan it stored (`context[return_to].plan`, 05 §Context), and two answers:
-// Approve plan, or Request changes… with feedback. Both post the `$return_to` transition (the
-// answer option, `planAnswerOption`). The workflow's other human transitions stay one click away
-// under "Other actions"; "Start fresh conversation…" is the secondary escape hatch.
-import type { HumanTransitionOption, InputRequestDto, SessionDetail } from '@conductor/shared';
+// Approve plan, or Request changes… with feedback. Approve posts the state's approve option
+// (`approve_plan` in v5) when there is one, else the `$return_to` answer option with the canned
+// text; Request changes posts the answer option (`planOptions`). The workflow's other human
+// transitions stay one click away under "Other actions"; "Start fresh conversation…" is the
+// secondary escape hatch.
+import type { InputRequestDto, SessionDetail } from '@conductor/shared';
 import { useId, useState, type FormEvent } from 'react';
 import type { ApiClient } from '../api/client.js';
 import { FreshConversation, freshConversationOffer } from './FreshConversation.js';
 import { Markdown } from './markdown.js';
 import { usePlanAnswer } from './plan-answer.js';
-import { PLAN_APPROVED_TEXT, planChangesText } from './request-preview.js';
+import { planApproveRequest, planChangesRequest, type PlanOptions } from './request-preview.js';
 import { TransitionButtons } from './transitions.js';
 import './PlanApprovalRequest.css';
 
@@ -26,8 +28,8 @@ interface PlanApprovalRequestProps {
   detail: SessionDetail;
   agent: string;
   request: InputRequestDto;
-  /** The `$return_to` answer option (`planAnswerOption`); what both answers post. */
-  option: HumanTransitionOption;
+  /** The answer and approve options (`planOptions`): what the two answers post. */
+  plan: PlanOptions;
   onDone: () => void;
   /** Phone: the plan is clamped short in the chat, and "Open plan" opens the Plan sheet. */
   onOpenPlan?: () => void;
@@ -45,12 +47,14 @@ export function PlanApprovalRequest({
   detail,
   agent,
   request,
-  option,
+  plan,
   onDone,
   onOpenPlan,
 }: PlanApprovalRequestProps) {
   const sessionId = request.session_id;
-  const others = detail.card.human_transitions.filter((o) => o.name !== option.name);
+  const others = detail.card.human_transitions.filter(
+    (o) => o.name !== plan.answer.name && o.name !== plan.approve?.name,
+  );
   const offer = freshConversationOffer(detail, request);
   return (
     <section aria-label={PLAN_APPROVAL_LABEL} className="pending plan-approval">
@@ -63,7 +67,7 @@ export function PlanApprovalRequest({
         <Markdown text={request.question} />
       </div>
       <PlanView plan={planOf(detail)} {...(onOpenPlan ? { onOpenPlan } : {})} />
-      <PlanAnswerActions api={api} sessionId={sessionId} option={option} onDone={onDone} />
+      <PlanAnswerActions api={api} sessionId={sessionId} plan={plan} onDone={onDone} />
       {others.length > 0 && (
         <details className="plan-other-actions">
           <summary>Other actions</summary>
@@ -91,8 +95,8 @@ export function PlanApprovalRequest({
 interface PlanAnswerActionsProps {
   api: ApiClient;
   sessionId: string;
-  /** The `$return_to` answer option (`planAnswerOption`); what both answers post. */
-  option: HumanTransitionOption;
+  /** The answer and approve options (`planOptions`): what the two answers post. */
+  plan: PlanOptions;
   onDone: () => void;
 }
 
@@ -100,15 +104,15 @@ interface PlanAnswerActionsProps {
  * Approve plan and Request changes… (with its feedback form): the plan card's answers, and the
  * Plan sheet footer (TicketStrip.tsx).
  */
-export function PlanAnswerActions({ api, sessionId, option, onDone }: PlanAnswerActionsProps) {
+export function PlanAnswerActions({ api, sessionId, plan, onDone }: PlanAnswerActionsProps) {
   const [changing, setChanging] = useState(false);
   const [feedback, setFeedback] = useState('');
-  const answer = usePlanAnswer(api, sessionId, option, onDone);
+  const answer = usePlanAnswer(api, sessionId, onDone);
   const { busy, error } = answer;
   const ids = useId();
 
-  async function post(text: string) {
-    if (await answer.post(text)) {
+  async function post(req: Parameters<typeof answer.post>[0]) {
+    if (await answer.post(req)) {
       setChanging(false);
       setFeedback('');
     }
@@ -117,7 +121,7 @@ export function PlanAnswerActions({ api, sessionId, option, onDone }: PlanAnswer
   function submitChanges(e: FormEvent) {
     e.preventDefault();
     if (feedback.trim() === '') return;
-    void post(planChangesText(feedback));
+    void post(planChangesRequest(plan, feedback));
   }
 
   return (
@@ -128,7 +132,7 @@ export function PlanAnswerActions({ api, sessionId, option, onDone }: PlanAnswer
             type="button"
             className="primary plan-approve"
             disabled={busy}
-            onClick={() => void post(PLAN_APPROVED_TEXT)}
+            onClick={() => void post(planApproveRequest(plan))}
           >
             Approve plan
           </button>

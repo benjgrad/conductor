@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // 11-web-ui §Phone layout (Detail panel): the ticket buttons (Brief, Plan, Edit) in the panel's
 // tab row and their sheets, through DetailPanel on the mock API, on a phone and on desktop.
+import type { SessionDetail } from '@conductor/shared';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MOCK_PLAN, SEED_IDS } from '../api/mock-data.js';
@@ -15,9 +16,22 @@ afterEach(() => {
   localStorage.clear();
 });
 
-async function open(sessionId: string, fullScreen = true) {
+async function open(
+  sessionId: string,
+  fullScreen = true,
+  humanTransitions?: SessionDetail['card']['human_transitions'],
+) {
   const api = createMockApi({ replyDelayMs: 0 });
   const transition = vi.spyOn(api, 'transition');
+  if (humanTransitions) {
+    // conductor v5's Plan review buttons on the mock's plan seed; the posts don't move it.
+    const getSession = api.getSession.bind(api);
+    vi.spyOn(api, 'getSession').mockImplementation(async (id) => {
+      const d = await getSession(id);
+      return { ...d, card: { ...d.card, human_transitions: humanTransitions } };
+    });
+    transition.mockResolvedValue({ ok: true });
+  }
   render(
     <DetailPanel
       api={api}
@@ -83,6 +97,35 @@ describe('ticket buttons (phone)', () => {
     expect(transition).toHaveBeenCalledWith(SEED_IDS.planApproval.session, {
       name: 'answer',
       text: PLAN_APPROVED_TEXT,
+    });
+  });
+
+  it('v5 Plan review: Approve plan in the sheet posts approve_plan, Request changes revise_plan', async () => {
+    const { transition } = await open(SEED_IDS.planApproval.session, true, [
+      { name: 'revise_plan', title: 'Revise plan', goto: 'planning', needs_text: true },
+      { name: 'approve_plan', title: 'Approve plan', goto: 'implementing', needs_text: false },
+    ]);
+    const openSheet = () => {
+      fireEvent.click(strip().getByRole('button', { name: PLAN_APPROVAL_LABEL }));
+      return within(screen.getByRole('dialog', { name: 'Plan' }));
+    };
+    let sheet = openSheet();
+    fireEvent.click(sheet.getByRole('button', { name: 'Request changes…' }));
+    fireEvent.change(sheet.getByLabelText('What should change in the plan?'), {
+      target: { value: 'Drop step 3.' },
+    });
+    fireEvent.click(sheet.getByRole('button', { name: 'Request changes' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(transition).toHaveBeenLastCalledWith(SEED_IDS.planApproval.session, {
+      name: 'revise_plan',
+      text: 'Changes requested to the plan:\n\nDrop step 3.',
+    });
+
+    sheet = openSheet();
+    fireEvent.click(sheet.getByRole('button', { name: 'Approve plan' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(transition).toHaveBeenLastCalledWith(SEED_IDS.planApproval.session, {
+      name: 'approve_plan',
     });
   });
 

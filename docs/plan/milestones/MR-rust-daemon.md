@@ -17,7 +17,7 @@
   - M2-T27 daemon part → MR-T17a
   - M2-T28d → MR-T17b
   - MW-T09, T10, T11b → MR-T13
-  - MW-T12 → MR-T16
+  - MW-T12 → MR-T16b (the Windows e2e; MR-T16 is the Linux/macOS part)
   - MW-T13 → MR-T18b
 - M2-T18 (in flight) is the recommended exception: it finishes in TS (U-112).
 
@@ -72,9 +72,11 @@
 | MR-T13 | `main` + subcommands: run, enroll, config, help, `service install/restart/uninstall` (launchd, systemd user, Windows Scheduled Task); absorbs MW-T09/T10/T11b | T12, U-112 | F | — | in_progress (13a on main: CLI, enroll, config, POSIX service units; 13b on main: `run` and signals; left: 13c, the Windows Scheduled Task, U-114) |
 | MR-T14 | ADR-0021 updater in Rust (stage, verify, drain, switch, exit 75, trial commit, `bad-versions`, `config auto-update`, 4005 → latest.json); absorbs M2-T18c | T13, M2-T18b, U-114 | G | — | todo |
 | MR-T15 | Distribution on the existing path: per-target tarballs from CI, image stage, `distribution.ts` target selection, install scripts without Node checks | T13, U-115 | G | — | done (this branch; U-115 answered: unsigned; also bakes the build sha into the binary) |
-| MR-T16 | e2e on the binary (`CONDUCTOR_E2E_DAEMON_BIN`), `ask-answer.test.ts` driven through the binary, TS→Rust upgrade e2e, Windows e2e job; absorbs MW-T12 | T13, T15 | G | — | todo |
+| MR-T16 | e2e on the binary (`CONDUCTOR_E2E_DAEMON_BIN`, default the Rust release build), `ask-answer.test.ts` daemon cases moved into `e2e/`, orchestrator drops `@conductor/daemon` (FR-1, FR-2; split 2026-11-04 with Ben's OK) | T13 | G | — | done (this branch) |
+| MR-T16b | Windows e2e job on the Rust binary: native fake-claude launcher, Postgres service, node e2e entry, `path.delimiter`, taskkill teardown; absorbs MW-T12 (old FR-3) | T16 | G | — | todo |
+| MR-T16c | TS → Rust upgrade e2e through the rendered `install.sh` (old FR-4) | T16, T15 | G | — | todo |
 | MR-T17 | Moved daemon features in Rust: T17a = M2-T27 daemon part, T17b = M2-T28d; ticket blocks written when their M2 contract tasks merge (T17b block written 2026-11-04; posted after M2-T28b merges) | T12 + each M2 contract task | G | — | todo |
-| MR-T18a | Cutover docs, PARITY at 100% | T14, T15, T16 | H | — | todo |
+| MR-T18a | Cutover docs, PARITY at 100% | T14, T15, T16, T16b, T16c | H | — | todo |
 | MR-T18b | Delete `packages/daemon` after Ben's dogfood day on each OS (absorbs MW-T13) and his OK | T18a | H | — | todo |
 
 Groups run in order A → H, and tasks within a group own disjoint files. In C, T04, T05 and T06 run in parallel once their deps are done; in D, T07 and T08; in E, T09 and T10, then T11. Branches are `mr-tNN-<slug>`. Tickets are posted in the waves below. Every task must be green on the cargo matrix **and** `scripts/ci.sh` before merge.
@@ -107,8 +109,9 @@ MR is built by conductor on itself:
 | 8 | MR-T12 | T09, T10, T11 merged |
 | 9 | MR-T13 | T12 merged, U-112 answered |
 | 10 | MR-T14, MR-T15 | T13 merged; T14 also needs M2-T18b merged and U-114 answered; T15 needs U-115 answered |
-| 11 | MR-T16 | T13 and T15 merged |
-| 12 | MR-T18a | T14, T15, T16 merged, PARITY at 100% |
+| 11 | MR-T16 | T13 merged (posted before T15, as approved 2026-11-04) |
+| 11b | MR-T16b, MR-T16c | T16 merged; T16c also needs T15 merged |
+| 12 | MR-T18a | T14, T15, T16, T16b, T16c merged, PARITY at 100% |
 | 13 | MR-T18b | Ben's dogfood day on each OS passed and Ben OKs the deletion |
 
 MR-T17a (moved M2-T27 daemon part) gets its block when the M2-T27 shared part merges. MR-T17b's block is written below; it is posted once its dependencies are merged:
@@ -468,6 +471,8 @@ ADR-0026 §4, ADR-0017, ADR-0021 §1 (`file` rule), ADR-0024 (install.ps1). Toda
 ## Goal
 The end-to-end suites prove the Rust daemon works against the real orchestrator on Linux and Windows, including the move from the TS daemon.
 
+> **Split 2026-11-04 (Ben's OK):** MR-T16 is FR-1 and FR-2 (Linux/macOS). FR-3 is **MR-T16b**: the Rust daemon refuses a non-native `claude` on Windows (U-110, `platform::native_exe_problem`), so the Windows e2e first needs a native fake-claude launcher, plus the Postgres service, a node e2e entry instead of `run.sh`, `path.delimiter` and taskkill instead of `pgrep`. FR-4 is **MR-T16c**, after MR-T15 (no per-target Rust tarball is served before it).
+
 ## Context
 `e2e/harness/stack.ts` hard-codes `packages/daemon/dist/main.js` and spawns it with Node (`:30`, `:250`). `e2e/run.sh` builds it. `packages/orchestrator/test/e2e/ask-answer.test.ts` imports `Daemon` and the fakes from `@conductor/daemon` in-process, and `packages/orchestrator/package.json` depends on `@conductor/daemon`. MW-T12 (Windows e2e) moves here.
 
@@ -482,8 +487,8 @@ The end-to-end suites prove the Rust daemon works against the real orchestrator 
 - The Windows e2e job green.
 - FR-4 green.
 
-- **Depends on**: MR-T13, MR-T15. **Files owned**: `e2e/**`, `packages/orchestrator/test/e2e/ask-answer.test.ts`, `packages/orchestrator/package.json` (that dependency), the Windows e2e job. **Do not touch**: daemon crate code (report bugs in the PR).
-- **Acceptance**: [ ] e2e green on Linux and Windows; [ ] upgrade e2e.
+- **Depends on**: MR-T13 (T16), +T16 (T16b), +T16 and MR-T15 (T16c). **Files owned**: `e2e/**`, `packages/orchestrator/test/e2e/ask-answer.test.ts` (now `main-wiring.test.ts`), `packages/orchestrator/package.json` (that dependency), the Windows e2e job (T16b), a fake-claude launcher crate (T16b). **Do not touch**: daemon crate code (report bugs in the PR).
+- **Acceptance**: T16 [ ] e2e green on Linux against Rust (and TS via the env var); T16b [ ] e2e green on Windows; T16c [ ] upgrade e2e.
 
 ### MR-T17b · Apply machine settings in Rust
 ## Goal

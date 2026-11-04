@@ -1,6 +1,8 @@
 // The E2E stack (M1-T10): a fresh Postgres database (packages/orchestrator/test/db.ts), the real
 // `conductor-orchestrator` bin on an ephemeral port, and one real `conductor-daemon` bin, each a
-// child process with its log in the run's temp dir. The daemon drives the fake `claude`
+// child process with its log in the run's temp dir. The daemon is the Rust release binary
+// (MR-T16, ADR-0026) unless CONDUCTOR_E2E_DAEMON_BIN names another one (the TS build,
+// packages/daemon/dist/main.js, until MR-T18b). The daemon drives the fake `claude`
 // (packages/daemon/test/fixtures/fake-claude.mjs, via a symlink inside the temp dir so leftover
 // processes can be found by path) unless the run uses the real CLI.
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
@@ -21,13 +23,38 @@ import {
 } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTestDatabase, type TestDatabase } from '../../packages/orchestrator/test/db.js';
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 export const ORCHESTRATOR_BIN = join(REPO_ROOT, 'packages/orchestrator/dist/bin.js');
-export const DAEMON_BIN = join(REPO_ROOT, 'packages/daemon/dist/main.js');
+/** The Rust daemon `e2e/run.sh` builds (`cargo build --release -p conductor-daemon`). */
+export const RUST_DAEMON_BIN = join(
+  REPO_ROOT,
+  'target/release',
+  process.platform === 'win32' ? 'conductor-daemon.exe' : 'conductor-daemon',
+);
+/**
+ * The daemon the stack runs: CONDUCTOR_E2E_DAEMON_BIN (relative to the repo root unless absolute)
+ * or the Rust release binary. Read here, at load: `spawn` strips every CONDUCTOR_* from the
+ * children's env, so the daemon never sees it.
+ */
+export const DAEMON_BIN = daemonBin(process.env.CONDUCTOR_E2E_DAEMON_BIN);
+
+/** CONDUCTOR_E2E_DAEMON_BIN → the daemon path; unset or empty → the Rust release binary. */
+export function daemonBin(override: string | undefined): string {
+  if (!override) return RUST_DAEMON_BIN;
+  return isAbsolute(override) ? override : resolve(REPO_ROOT, override);
+}
+
+/** A `.js`/`.mjs` bin runs under this Node; anything else (the Rust daemon) is started directly. */
+export function isNodeScript(bin: string): boolean {
+  return /\.m?js$/.test(bin);
+}
+
+/** Which daemon the stack runs: 'ts' for a Node script, 'rust' for a native binary. */
+export const DAEMON_KIND: 'rust' | 'ts' = isNodeScript(DAEMON_BIN) ? 'ts' : 'rust';
 export const FAKE_CLAUDE = join(REPO_ROOT, 'packages/daemon/test/fixtures/fake-claude.mjs');
 
 /** The first PR the E2E fake `gh` opens in a run (ADR-0010 open_pr); later ones count up. */
@@ -175,6 +202,11 @@ export class Stack {
     return join(this.tmp, 'claude-config');
   }
 
+  /** Which daemon this stack runs (DAEMON_BIN): the Rust binary or the TS build. */
+  get daemonKind(): 'rust' | 'ts' {
+    return DAEMON_KIND;
+  }
+
   get baseUrl(): string {
     return `http://127.0.0.1:${this.port}`;
   }
@@ -182,8 +214,13 @@ export class Stack {
   /** Database, then orchestrator (ready when GET /api/board answers), then the daemon. */
   async start(): Promise<void> {
     for (const bin of [ORCHESTRATOR_BIN, DAEMON_BIN]) {
-      if (!existsSync(bin)) throw new Error(`${bin} is missing: run \`pnpm exec tsc -b\` first`);
+      if (existsSync(bin)) continue;
+      const hint = isNodeScript(bin)
+        ? 'run `pnpm exec tsc -b` first'
+        : 'run `cargo build --release -p conductor-daemon` (or `pnpm test:e2e`) first';
+      throw new Error(`${bin} is missing: ${hint}`);
     }
+    console.log(`e2e: ${this.daemonKind} daemon ${DAEMON_BIN}`);
     this.db = await createTestDatabase();
     this.port = await freePort();
     this.spawn('orchestrator', ORCHESTRATOR_BIN, {
@@ -247,7 +284,10 @@ export class Stack {
     for (const k of Object.keys(base)) {
       if (k.startsWith('FAKE_CLAUDE_') || k.startsWith('CONDUCTOR_')) delete base[k];
     }
-    const child = spawn(process.execPath, [bin], {
+    const [file, args]: [string, string[]] = isNodeScript(bin)
+      ? [process.execPath, [bin]]
+      : [bin, []];
+    const child = spawn(file, args, {
       cwd: this.tmp,
       env: { ...base, ...env },
       stdio: ['ignore', fd, fd],

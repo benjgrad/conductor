@@ -74,7 +74,7 @@
 | MR-T15 | Distribution on the existing path: per-target tarballs from CI, image stage, `distribution.ts` target selection, install scripts without Node checks | T13, U-115 | G | — | done (this branch; U-115 answered: unsigned; also bakes the build sha into the binary) |
 | MR-T16 | e2e on the binary (`CONDUCTOR_E2E_DAEMON_BIN`, default the Rust release build), `ask-answer.test.ts` daemon cases moved into `e2e/`, orchestrator drops `@conductor/daemon` (FR-1, FR-2; split 2026-11-04 with Ben's OK) | T13 | G | — | done (this branch) |
 | MR-T16b | Windows e2e job on the Rust binary: native fake-claude launcher, Postgres service, node e2e entry, `path.delimiter`, taskkill teardown; absorbs MW-T12 (old FR-3) | T16 | G | — | done (this branch) |
-| MR-T16c | TS → Rust upgrade e2e through the rendered `install.sh` (old FR-4) | T16, T15 | G | — | todo |
+| MR-T16c | TS → Rust upgrade e2e through the rendered `install.sh` (old FR-4) | T16, T15 | G | — | done (this branch: `e2e/upgrade.e2e.test.ts`, password mode) |
 | MR-T17 | Moved daemon features in Rust: T17a = M2-T27 daemon part, T17b = M2-T28d; ticket blocks written when their M2 contract tasks merge (T17b block written 2026-11-04; posted after M2-T28b merges) | T12 + each M2 contract task | G | — | todo |
 | MR-T18a | Cutover docs, PARITY at 100% | T14, T15, T16, T16b, T16c | H | — | todo |
 | MR-T18b | Delete `packages/daemon` after Ben's dogfood day on each OS (absorbs MW-T13) and his OK | T18a | H | — | todo |
@@ -488,7 +488,7 @@ The end-to-end suites prove the Rust daemon works against the real orchestrator 
 - FR-4 green.
 
 - **Depends on**: MR-T13 (T16), +T16 (T16b), +T16 and MR-T15 (T16c). **Files owned**: `e2e/**`, `packages/orchestrator/test/e2e/ask-answer.test.ts` (now `main-wiring.test.ts`), `packages/orchestrator/package.json` (that dependency), the Windows e2e job (T16b), a fake-claude launcher crate (T16b). **Do not touch**: daemon crate code (report bugs in the PR).
-- **Acceptance**: T16 [ ] e2e green on Linux against Rust (and TS via the env var); T16b [ ] e2e green on Windows (`daemon-rust.yml` `e2e-windows`, proven on the PR); T16c [ ] upgrade e2e.
+- **Acceptance**: T16 [ ] e2e green on Linux against Rust (and TS via the env var); T16b [ ] e2e green on Windows (`daemon-rust.yml` `e2e-windows`, proven on the PR); T16c [x] upgrade e2e.
 
 ### MR-T17b · Apply machine settings in Rust
 ## Goal

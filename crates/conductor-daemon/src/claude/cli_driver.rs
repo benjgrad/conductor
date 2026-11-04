@@ -116,6 +116,32 @@ pub fn write_mcp_config_file(mcp_config: &str, parent: &Path) -> Result<PathBuf,
     Ok(dir.join("mcp.json"))
 }
 
+/// The longest `--append-system-prompt` passed on the command line. Windows refuses a command
+/// line over 32,767 characters (`ENAMETOOLONG` / error 206), and the prompt carries the repo's
+/// CLAUDE.md (up to `MAX_CLAUDE_MD_BYTES` = 64 KiB). Anything longer goes in a file instead.
+pub const MAX_ARGV_SYSTEM_PROMPT_CHARS: usize = 8 * 1024;
+
+/// A long `append_system_prompt` moved into `system-prompt.md` in the session's private directory
+/// (`dir`, the one holding mcp.json, removed with it), passed as `--append-system-prompt-file`. A
+/// short one stays on the command line, so most starts are unchanged.
+pub fn spill_system_prompt(
+    mut opts: DriverStartOptions,
+    dir: &Path,
+) -> Result<DriverStartOptions, String> {
+    let long = opts
+        .append_system_prompt
+        .as_ref()
+        .is_some_and(|t| t.chars().count() > MAX_ARGV_SYSTEM_PROMPT_CHARS);
+    if !long {
+        return Ok(opts);
+    }
+    let text = opts.append_system_prompt.take().unwrap_or_default();
+    let path = dir.join("system-prompt.md");
+    write_private_file(&path, text.as_bytes()).map_err(|e| format!("system prompt: {e}"))?;
+    opts.append_system_prompt_file = Some(path);
+    Ok(opts)
+}
+
 /// Best effort: a tmp dir left behind holds a token that is already unregistered.
 pub fn remove_mcp_config_file(path: &Path) {
     if let Some(dir) = path.parent() {
@@ -531,7 +557,12 @@ pub fn build_claude_args(
     if !deny.is_empty() {
         args.extend(["--disallowedTools".into(), deny.join(",")]);
     }
-    if let Some(p) = &opts.append_system_prompt {
+    if let Some(f) = &opts.append_system_prompt_file {
+        args.extend([
+            "--append-system-prompt-file".into(),
+            f.to_string_lossy().into_owned(),
+        ]);
+    } else if let Some(p) = &opts.append_system_prompt {
         args.extend(["--append-system-prompt".into(), p.clone()]);
     }
     args
@@ -1129,6 +1160,15 @@ impl CliDriver {
             .unwrap_or_default();
         let settings = match write_edit_guard(&session_dir, &opts.cwd, None) {
             Ok(p) => p,
+            Err(e) => {
+                reg.unregister();
+                remove_mcp_config_file(&mcp_config_path);
+                return Err(DriverError::Other(e));
+            }
+        };
+
+        let opts = match spill_system_prompt(opts, &session_dir) {
+            Ok(o) => o,
             Err(e) => {
                 reg.unregister();
                 remove_mcp_config_file(&mcp_config_path);

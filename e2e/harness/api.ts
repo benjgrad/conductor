@@ -4,8 +4,9 @@
 // GET /api/machines, and the board / output SSE streams.
 import type {
   BoardCard,
+  EnrollmentTokenCreated,
   BoardSseEvent,
-  MachineDto,
+  MachineRow,
   OutputChunk,
   SessionDetail,
   TicketDto,
@@ -24,14 +25,23 @@ export class ApiError extends Error {
 }
 
 export class Api {
-  constructor(readonly baseUrl: string) {}
+  /**
+   * `headers` go on every call: in password mode (MR-T16c) the session cookie and `origin` (the
+   * public origin, which unsafe requests must carry).
+   */
+  constructor(
+    readonly baseUrl: string,
+    private readonly headers: Record<string, string> = {},
+  ) {}
 
   private async call<T>(method: string, path: string, body?: unknown, expect = 200): Promise<T> {
     const res = await fetch(`${this.baseUrl}${path}`, {
       method,
-      ...(body !== undefined
-        ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }
-        : {}),
+      headers: {
+        ...this.headers,
+        ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
     const text = await res.text();
     if (res.status !== expect) throw new ApiError(res.status, text, `${method} ${path}`);
@@ -105,7 +115,12 @@ export class Api {
   }
 
   machines() {
-    return this.call<MachineDto[]>('GET', '/api/machines');
+    return this.call<MachineRow[]>('GET', '/api/machines');
+  }
+
+  /** M2-T17: a one-time enrollment token (Add a machine). */
+  enrollmentToken() {
+    return this.call<EnrollmentTokenCreated>('POST', '/api/machines/enrollment-tokens', {}, 201);
   }
 
   /** ADR-0008: history from Claude's transcript on the session's machine. */
@@ -143,14 +158,17 @@ class SseStream {
   closed = false;
   error: unknown = null;
 
-  constructor(url: string) {
+  constructor(
+    url: string,
+    private readonly headers: Record<string, string> = {},
+  ) {
     void this.run(url);
   }
 
   private async run(url: string) {
     try {
       const res = await fetch(url, {
-        headers: { accept: 'text/event-stream' },
+        headers: { ...this.headers, accept: 'text/event-stream' },
         signal: this.abort.signal,
       });
       if (!res.ok || !res.body) throw new Error(`SSE ${url} → HTTP ${res.status}`);
@@ -229,8 +247,8 @@ function parseFrame(block: string): SseFrame | null {
 export class BoardWatcher {
   private readonly sse: SseStream;
 
-  constructor(baseUrl: string) {
-    this.sse = new SseStream(`${baseUrl}/api/stream/board?last_event_id=0`);
+  constructor(baseUrl: string, headers: Record<string, string> = {}) {
+    this.sse = new SseStream(`${baseUrl}/api/stream/board?last_event_id=0`, headers);
   }
 
   get events(): BoardSseEvent[] {
@@ -302,4 +320,26 @@ export class OutputWatcher {
   close() {
     this.sse.close();
   }
+}
+
+/**
+ * Password mode (MR-T16c): sign up with an invite (from `conductor-admin bootstrap`) and return the
+ * session cookie (`name=value`) the API calls then carry.
+ */
+export async function signUp(baseUrl: string, invite: string): Promise<string> {
+  const res = await fetch(`${baseUrl}/auth/signup`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: baseUrl },
+    body: JSON.stringify({
+      invite,
+      email: 'e2e@example.com',
+      display_name: 'E2E',
+      password: 'correct horse battery staple',
+    }),
+  });
+  const text = await res.text();
+  if (res.status !== 201) throw new ApiError(res.status, text, 'POST /auth/signup');
+  const cookie = res.headers.getSetCookie()[0];
+  if (cookie === undefined) throw new Error('POST /auth/signup set no cookie');
+  return cookie.split(';')[0]!;
 }

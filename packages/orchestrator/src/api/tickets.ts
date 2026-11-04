@@ -252,6 +252,17 @@ export async function createTicket(
   const prepared = await prepareNewTicket(deps, body);
   if (!prepared.ok) return prepared;
   const { repo } = prepared;
+  // WF-T03: an explicit kind wins; else the repo's last ticket's; else the caller must say.
+  const kind = body.kind ?? (await lastTicketKind(db, scope.account_id, repo));
+  if (kind === null) {
+    return {
+      ok: false,
+      status: 400,
+      code: 'bad_request',
+      message: 'kind is required: no earlier ticket on this repo to take it from',
+      details: [{ path: 'kind', message: 'work or personal (no earlier ticket on this repo)' }],
+    };
+  }
   const { ticket, events } = await withTransaction(db, async (tx) => {
     const row = (await insertTicketRow(tx, {
       account_id: scope.account_id,
@@ -263,7 +274,7 @@ export async function createTicket(
       required_tags: body.required_tags,
       repo_allow_machines: body.repo_allow_machines,
       priority: body.priority,
-      kind: body.kind,
+      kind,
     }))!;
     // Last write of the transaction (insertBoardEvents holds the board lock to COMMIT).
     const evs = await sessionlessCardUpserted(tx, { ...row, agent_name: null });
@@ -275,6 +286,23 @@ export async function createTicket(
     dto.warnings = ['no_machine_has_repo'];
   }
   return { ok: true, dto };
+}
+
+/**
+ * WF-T03: the kind of the account's most recent ticket on `repo` (as stored: canonical in
+ * `password` mode), or null when it has none. Tickets from before M1b have no kind and are skipped.
+ */
+export async function lastTicketKind(
+  q: Queryable,
+  accountId: string,
+  repo: string,
+): Promise<TicketKind | null> {
+  const res = await q.query<{ kind: TicketKind }>(
+    'SELECT kind FROM ticket WHERE account_id = $1 AND repo = $2 AND kind IS NOT NULL ' +
+      'ORDER BY created_at DESC, id DESC LIMIT 1',
+    [accountId, repo],
+  );
+  return res.rows[0]?.kind ?? null;
 }
 
 /**

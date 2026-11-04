@@ -4,14 +4,17 @@ import {
   RETURN_TO,
   transitionActor,
   transitionObject,
+  FOLLOW_UPS_MAX,
   type WorkflowDefinition,
 } from '@conductor/shared';
 import { useId, type ReactNode } from 'react';
 import {
   columnTitle,
   entryLines,
+  followUpsOf,
   PROMPT_TEMPLATES,
   setAgentWork,
+  setFollowUps,
   setTicketEditable,
   setTitle,
   ticketEditableOf,
@@ -165,6 +168,21 @@ export function ColumnEditor({
           )}
         </div>
       )}
+      {s.type === 'agent' && (
+        <FollowUpsFields
+          uid={uid}
+          definition={definition}
+          state={state}
+          onChange={onChange}
+          errors={
+            <>
+              {at('.follow_ups')}
+              {at('.follow_ups.max')}
+              {at('.follow_ups.guidance')}
+            </>
+          }
+        />
+      )}
       {s.type === 'event' && (
         <p className="wf-note">
           Waits for {s.wait_for.map((w) => `“${w}”`).join(' or ')} (event state).
@@ -258,5 +276,72 @@ export function ColumnEditor({
         </p>
       ))}
     </aside>
+  );
+}
+
+/**
+ * ADR-0034: may this agent column's agent propose follow-up tickets? Offered in its prompt,
+ * never required; the user approves or dismisses each one in Needs input.
+ */
+function FollowUpsFields({
+  uid,
+  definition,
+  state,
+  onChange,
+  errors,
+}: {
+  uid: string;
+  definition: WorkflowDefinition;
+  state: string;
+  onChange: (next: WorkflowDefinition) => void;
+  errors: ReactNode;
+}) {
+  const f = followUpsOf(definition, state);
+  return (
+    <>
+      <label className="wf-field wf-check">
+        <input
+          type="checkbox"
+          checked={f !== null}
+          onChange={(e) => onChange(setFollowUps(definition, state, e.target.checked ? {} : null))}
+        />
+        Agents may propose follow-up tickets
+      </label>
+      {f === null ? (
+        <p className="muted wf-note">
+          Off. When on, the agent may suggest separate work as new tickets; you approve or dismiss
+          each one in Needs input.
+        </p>
+      ) : (
+        <div className="wf-unmet">
+          <label htmlFor={`${uid}-fu-max`}>At most</label>
+          <input
+            id={`${uid}-fu-max`}
+            type="number"
+            min={1}
+            max={FOLLOW_UPS_MAX}
+            value={f.max}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              if (Number.isInteger(n) && n >= 1 && n <= FOLLOW_UPS_MAX) {
+                onChange(setFollowUps(definition, state, { max: n }));
+              }
+            }}
+          />
+          <label htmlFor={`${uid}-fu-guidance`}>Guidance</label>
+          <textarea
+            id={`${uid}-fu-guidance`}
+            rows={2}
+            maxLength={1000}
+            value={f.guidance ?? ''}
+            placeholder="e.g. Only propose test or documentation debt"
+            onChange={(e) =>
+              onChange(setFollowUps(definition, state, { guidance: e.target.value }))
+            }
+          />
+        </div>
+      )}
+      {errors}
+    </>
   );
 }

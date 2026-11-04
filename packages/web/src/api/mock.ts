@@ -1,6 +1,6 @@
 import {
   ADMIN_USER_ROW_FIXTURES,
-  agentStatesOf,
+  proposalLimitsOf,
   AnswerInputRequestSchema,
   ApproveProposalRequestSchema,
   DismissProposalRequestSchema,
@@ -404,7 +404,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     const s = card.session_id ? sessions.get(card.session_id) : undefined;
     if (!s) return [];
     return withDecisions(
-      proposalsOfContext(s.context, agentStatesOf(s.workflow)),
+      proposalsOfContext(s.context, proposalLimitsOf(s.workflow)),
       proposalDecisions.get(card.ticket_id) ?? new Map(),
     );
   }

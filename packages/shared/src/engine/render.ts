@@ -1,4 +1,4 @@
-import type { AgentState } from '../workflow/schema.js';
+import type { AgentState, FollowUps } from '../workflow/schema.js';
 import type { SentBack } from './qa.js';
 import type { AgentTransitionOption } from '../workflow/transition-rules.js';
 import { renderReviewFeedback, type ReviewFeedback } from './review.js';
@@ -72,9 +72,9 @@ export function renderPrompt(input: RenderPromptInput): string {
   if (state.prompt === TICKET_TEMPLATE) {
     parts.push(ticketSection(snapshot.ticket));
   } else if (state.prompt === PLAN_TEMPLATE) {
-    parts.push(ticketSection(snapshot.ticket), PLAN_INSTRUCTIONS);
+    parts.push(ticketSection(snapshot.ticket), withHint(PLAN_INSTRUCTIONS, state));
   } else if (state.prompt === IMPLEMENT_TEMPLATE) {
-    parts.push(ticketSection(snapshot.ticket), IMPLEMENT_INSTRUCTIONS);
+    parts.push(ticketSection(snapshot.ticket), withHint(IMPLEMENT_INSTRUCTIONS, state));
   } else if (state.prompt !== undefined) {
     parts.push(
       state.prompt.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (m, key: string) => {
@@ -115,6 +115,11 @@ export function renderPrompt(input: RenderPromptInput): string {
   // Ben, 2026-10-26 (M1b): a work repository is shared with developers who don't use conductor.
   if (snapshot.ticket.kind === 'work') parts.push(WORK_REPOSITORY);
 
+  // ADR-0034: a state's own follow-up settings replace the built-in templates' one-line hint.
+  if (state.follow_ups?.enabled === true) {
+    parts.push(renderFollowUps(state.follow_ups, snapshot.ticket.repo));
+  }
+
   parts.push(
     input.transitions != null ? howToFinish(state, input.transitions) : finishSection(state),
   );
@@ -127,6 +132,33 @@ export function renderPrompt(input: RenderPromptInput): string {
  */
 export const PROPOSALS_HINT =
   'If you notice worthwhile work outside this ticket\'s scope, you may add `"proposed_tickets"` to your result: up to three `{"title", "repo", "why"}` entries. It\'s optional. Leave it out if nothing stands out, and don\'t do that work here.';
+
+/**
+ * The built-in instructions with PROPOSALS_HINT only while the state leaves `follow_ups` unset
+ * (ADR-0034): set, it says itself whether (and how) the agent may propose follow-ups.
+ */
+function withHint(instructions: string, state: Pick<AgentState, 'follow_ups'>): string {
+  return state.follow_ups === undefined
+    ? instructions
+    : instructions.replace(`\n${PROPOSALS_HINT}`, '');
+}
+
+/** The heading of the follow-up section of a state with `follow_ups` on (ADR-0034). */
+export const FOLLOW_UPS_HEADING = '## Follow-up tickets (optional)';
+
+/** The prompt section of a state with `follow_ups` on: at most `max`, then its `guidance`. */
+export function renderFollowUps(cfg: FollowUps, repo: string): string {
+  const entry = `{"title": "…", "repo": ${JSON.stringify(repo)}, "why": "<one or two sentences>"}`;
+  const lines = [
+    FOLLOW_UPS_HEADING,
+    '',
+    "If you notice separate, worthwhile work outside this ticket's scope, you may propose it as its own ticket.",
+    `Add \`"proposed_tickets": [${entry}]\` to your result, at most ${cfg.max} (\`repo\` is the repository the work belongs in).`,
+    "A human approves or dismisses each one. It's optional: leave it out if nothing stands out, and don't do that work here.",
+  ];
+  if (cfg.guidance !== undefined) lines.push('', cfg.guidance);
+  return lines.join('\n');
+}
 
 const PLAN_INSTRUCTIONS = [
   '## Your step: planning',

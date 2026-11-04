@@ -188,6 +188,12 @@ The orchestrator sends `machine.lost {machine_id, reason}` when a session's mach
 
 **Routing needs ([ADR-0013](../adr/0013-machine-enrollment-inventory-routing.md) §Routing).** `requiredCapabilities(def, kind)` (`workflow/capabilities.ts`) is the sorted union of: `claude` for any agent state or reviewer; for every transition whose `kinds` match (null = both), each `requires.actions` entry and each **enabled** condition mapped through the registry (`open_pr` and the `pr_*` conditions → `cli:gh:authed`; `azure_pipeline_succeeded` → `cli:az:authed`; `jira_fields_set` / `update_jira` → `cli:jira:authed`, a placeholder until [U-065](../tracking/UNKNOWNS.md); `slack_message` → `mcp:slack`); and each state's ADR-0010 `entry` actions. There is no reachability analysis, and connector states add nothing until M5.
 
+### Follow-up tickets ([ADR-0034](../adr/0034-agent-proposed-follow-up-tickets.md))
+An agent may add optional `proposed_tickets: [{title, repo, why}]` to its `complete_state` result; a person approves or dismisses each one ([06 §Proposed tickets](06-human-input.md#proposed-tickets)). The engine does nothing special with the key: it is stored in `context.<state>` like any extra key and read back by `proposalsOfContext`. An agent state's optional `follow_ups: {enabled, max (1..10, default 3), guidance?}` (`FollowUpsSchema`, agent states only) sets how its agent is asked:
+- **unset**: the built-in `plan_template` / `implement_template` instructions carry a one-line hint (`PROPOSALS_HINT`), other prompts nothing; up to 3 are read per state;
+- **`enabled: true`**: the prompt gets a `## Follow-up tickets (optional)` section before How to finish (`renderFollowUps`: the key, the ticket's repo as the example `repo`, at most `max`, then `guidance`) in place of the hint; up to `max` are read;
+- **`enabled: false`**: no hint and no section; none are read from that state.
+
 ### Ticket breakdown (planning)
 A `triage` agent state returns `{size: "small"|"large"}`. A guard routes large tickets to a `plan` state. That state returns `child_tickets[]`, which the orchestrator creates (each `ready`, with `parent_ticket_id`), and then the parent waits on an `event` state `children.done`. Not in `pr_flow`; see [U-010](../tracking/UNKNOWNS.md).
 
@@ -223,7 +229,7 @@ dispatcher: SELECT pending outbox rows FOR UPDATE SKIP LOCKED → send → mark 
 2. Every state is reachable from `start`.
 3. Every state can reach a `terminal` or `human` state.
 4. Every cycle passes through a transition with `retries`, or is otherwise covered by `max_loop_retries` (no unbudgeted loops).
-5. `$ref` inputs (`$open_pr.pr_url`) point at a state that lists that key in `result` and comes earlier on every path.
+5. `$ref` inputs (`$open_pr.pr_url`) point at a state that lists that key in `result` and comes earlier on every path. No state lists `proposed_tickets` in `result` (`states.<s>.result.<i>`, ADR-0034): follow-ups are optional by design.
 6. `event` states with `release_machine` must have a `timeout`.
 7. Every name in an agent state's `tools` is a key of `TOOL_ALIASES` (`TOOL_ALIAS_NAMES`, [10](10-contracts.md#tools)); an unknown alias is an error.
 8. Requirements gates ([ADR-0009](../adr/0009-transition-requirements-review.md)): a gate only on transitions out of `agent` and `command` states (path `states.<from>.on.<outcome>.requirements`); `on_unmet.else` is a `human` state (`….requirements.on_unmet.else`); no state is named `__review` or `__entry`. The schema (rule 1) already bounds `items` (1–30, none blank: `….requirements.items[.<n>]`) and `on_unmet.retries` (integer 0–10), and rule 1 checks that `on_unmet.goto` / `else` exist. A transition into a `terminal` state may carry a gate.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CONDUCTOR_V4_DEF } from '../workflow/conductor.js';
 import {
-  agentStatesOf,
+  proposalLimitsOf,
   proposalId,
   proposalsOfContext,
   proposalTicketBody,
@@ -78,9 +78,21 @@ describe('proposalsOfContext', () => {
       gate: { proposed_tickets: [{ ...good, title: 'from a gate' }] },
     };
     expect(proposalsOfContext(ctx).map((p) => p.state)).toEqual(['planning', 'gate']);
-    expect(proposalsOfContext(ctx, new Set(['planning'])).map((p) => p.state)).toEqual([
+    expect(proposalsOfContext(ctx, new Map([['planning', 3]])).map((p) => p.state)).toEqual([
       'planning',
     ]);
+  });
+
+  it('reads each state up to its limit; a limit of 0 reads nothing (ADR-0034)', () => {
+    const many = [1, 2, 3, 4, 5].map((n) => ({ ...good, title: `T${n}` }));
+    const ctx = { planning: { proposed_tickets: many }, implementing: { proposed_tickets: many } };
+    const limits = new Map([
+      ['planning', 5],
+      ['implementing', 0],
+    ]);
+    expect(proposalsOfContext(ctx, limits).map((p) => `${p.state}:${p.title}`)).toEqual(
+      many.map((m) => `planning:${m.title}`),
+    );
   });
 
   it('keeps a duplicate once', () => {
@@ -109,12 +121,26 @@ describe('proposalId', () => {
   });
 });
 
-describe('agentStatesOf', () => {
-  it('lists the conductor workflow agent states only', () => {
-    const s = agentStatesOf(CONDUCTOR_V4_DEF);
-    expect(s.has('planning')).toBe(true);
-    expect(s.has('implementing')).toBe(true);
+describe('proposalLimitsOf', () => {
+  it('lists the conductor workflow agent states only, 3 each while follow_ups is unset', () => {
+    const s = proposalLimitsOf(CONDUCTOR_V4_DEF);
+    expect(s.get('planning')).toBe(3);
+    expect(s.get('implementing')).toBe(3);
     expect(s.has('needs_input')).toBe(false);
+  });
+
+  it('follow_ups sets the limit: max when on, 0 when off (ADR-0034)', () => {
+    const def = structuredClone(CONDUCTOR_V4_DEF);
+    const agent = (name: string) => {
+      const st = def.states[name]!;
+      if (st.type !== 'agent') throw new Error(name);
+      return st;
+    };
+    agent('planning').follow_ups = { enabled: false, max: 3 };
+    agent('implementing').follow_ups = { enabled: true, max: 7 };
+    const s = proposalLimitsOf(def);
+    expect(s.get('planning')).toBe(0);
+    expect(s.get('implementing')).toBe(7);
   });
 });
 

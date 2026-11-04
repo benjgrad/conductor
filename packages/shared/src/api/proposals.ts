@@ -9,7 +9,7 @@ import type { WorkflowDefinition } from '../workflow/schema.js';
 // approves (a real ticket is created) or dismisses each one; the decision is stored per ticket
 // in `ticket_proposal_decision`, keyed by the proposal's id.
 
-/** The most proposals read from one state's result. */
+/** The most proposals read from one state's result while its `follow_ups` is unset. */
 export const PROPOSALS_PER_STATE_MAX = 3;
 
 /** One entry of a result's `proposed_tickets`, as the agent writes it. */
@@ -63,36 +63,47 @@ export function proposalId(state: string, title: string, repo: string): string {
   return h.toString(16).padStart(16, '0');
 }
 
-/** The names of a definition's agent states (the only results proposals are read from). */
-export function agentStatesOf(def: Pick<WorkflowDefinition, 'states'>): Set<string> {
-  return new Set(
-    Object.entries(def.states)
-      .filter(([, s]) => s.type === 'agent')
-      .map(([name]) => name),
-  );
+/** The `complete_state` result key carrying the proposals (never a required `result` key). */
+export const PROPOSED_TICKETS_KEY = 'proposed_tickets';
+
+/**
+ * How many proposals are read from each agent state's result (the only results read): the
+ * state's `follow_ups.max` when it is on, 0 when it is off (ADR-0034), and
+ * PROPOSALS_PER_STATE_MAX while it is unset.
+ */
+export function proposalLimitsOf(def: Pick<WorkflowDefinition, 'states'>): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [name, s] of Object.entries(def.states)) {
+    if (s.type !== 'agent') continue;
+    const f = s.follow_ups;
+    out.set(name, f === undefined ? PROPOSALS_PER_STATE_MAX : f.enabled ? f.max : 0);
+  }
+  return out;
 }
 
 /**
  * Every well-formed proposal in the session's context, in context order. `__`-prefixed keys are
- * conductor's bookkeeping, not results; with `agentStates`, other non-agent keys are skipped too.
- * A `proposed_tickets` that isn't an array is ignored; entries that don't parse are dropped; at
- * most PROPOSALS_PER_STATE_MAX are read per state; duplicates (same id) are kept once. Never throws.
+ * conductor's bookkeeping, not results. With `limits` (`proposalLimitsOf`), only the states it
+ * names are read, each up to its limit; without, every state up to PROPOSALS_PER_STATE_MAX.
+ * A `proposed_tickets` that isn't an array is ignored; entries that don't parse are dropped;
+ * duplicates (same id) are kept once. Never throws.
  */
 export function proposalsOfContext(
   context: Record<string, JsonObject> | null | undefined,
-  agentStates?: ReadonlySet<string>,
+  limits?: ReadonlyMap<string, number>,
 ): ParsedProposal[] {
   const out: ParsedProposal[] = [];
   const seen = new Set<string>();
   for (const [state, result] of Object.entries(context ?? {})) {
     if (state.startsWith('__')) continue;
-    if (agentStates && !agentStates.has(state)) continue;
+    const limit = limits ? (limits.get(state) ?? 0) : PROPOSALS_PER_STATE_MAX;
+    if (limit === 0) continue;
     if (result === null || typeof result !== 'object' || Array.isArray(result)) continue;
-    const raw = (result as Record<string, unknown>).proposed_tickets;
+    const raw = (result as Record<string, unknown>)[PROPOSED_TICKETS_KEY];
     if (!Array.isArray(raw)) continue;
     let taken = 0;
     for (const entry of raw) {
-      if (taken >= PROPOSALS_PER_STATE_MAX) break;
+      if (taken >= limit) break;
       const parsed = ProposedTicketSchema.safeParse(entry);
       if (!parsed.success) continue;
       taken++;

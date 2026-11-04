@@ -357,6 +357,15 @@ impl FakeDriverSession {
             .collect()
     }
 
+    /// ADR-0035: a turn the CLI starts by itself, not from `send_input`: when a background job
+    /// finishes, or when a message reaches an idle process. Not recorded as an input.
+    pub fn cli_turn(&self, text: &str) {
+        if self.st().exited {
+            return;
+        }
+        self.queue(Step::RunTurn(text.to_string()));
+    }
+
     /// Resolve once every queued step has run (the TS tests' `flush()`).
     pub async fn idle(&self) {
         loop {

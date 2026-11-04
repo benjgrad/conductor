@@ -33,9 +33,15 @@
     },
     "bash": {
       "builtin": [
-        "Bash"
+        "Bash",
+        "TaskStop",
+        "BashOutput",
+        "KillShell"
       ],
       "allow": [
+        "TaskStop",
+        "BashOutput",
+        "KillShell",
         "Bash(npm run:*)",
         "Bash(npm test:*)",
         "Bash(npm install)",
@@ -61,9 +67,15 @@
     },
     "git": {
       "builtin": [
-        "Bash"
+        "Bash",
+        "TaskStop",
+        "BashOutput",
+        "KillShell"
       ],
       "allow": [
+        "TaskStop",
+        "BashOutput",
+        "KillShell",
         "Bash(git status)",
         "Bash(git status --short)",
         "Bash(git diff)",
@@ -80,9 +92,15 @@
     },
     "review": {
       "builtin": [
-        "Bash"
+        "Bash",
+        "TaskStop",
+        "BashOutput",
+        "KillShell"
       ],
       "allow": [
+        "TaskStop",
+        "BashOutput",
+        "KillShell",
         "Bash(git status)",
         "Bash(git status --short)",
         "Bash(git diff)",
@@ -102,9 +120,15 @@
     },
     "qa": {
       "builtin": [
-        "Bash"
+        "Bash",
+        "TaskStop",
+        "BashOutput",
+        "KillShell"
       ],
       "allow": [
+        "TaskStop",
+        "BashOutput",
+        "KillShell",
         "Bash(git status)",
         "Bash(git status --short)",
         "Bash(git diff)",
@@ -141,10 +165,16 @@
     "pr_skill": {
       "builtin": [
         "Skill",
-        "Bash"
+        "Bash",
+        "TaskStop",
+        "BashOutput",
+        "KillShell"
       ],
       "allow": [
         "Skill",
+        "TaskStop",
+        "BashOutput",
+        "KillShell",
         "Bash(gh pr view:*)"
       ],
       "deny": [

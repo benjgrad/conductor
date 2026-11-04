@@ -1,6 +1,6 @@
 # ADR-0005 · Claude Code driver: stream-json CLI, daemon-hosted MCP outcome tools
 
-- **Status**: accepted (Ben, 2026-10-22); permission and settings parts superseded by [ADR-0006](0006-agents-inherit-claude-code-settings.md) (2026-10-23)
+- **Status**: accepted (Ben, 2026-10-22); permission and settings parts superseded by [ADR-0006](0006-agents-inherit-claude-code-settings.md) (2026-10-23); the U-028 nudge skips turns that end with background jobs running ([ADR-0035](0035-background-work-and-live-messages.md))
 - **Date**: 2026-10-22
 - **Deciders**: Ben (+ M1-T00 spike session)
 - **Resolves**: U-001, U-002

@@ -157,6 +157,17 @@ pub fn parse_stream_line(line: &str) -> Vec<ParsedLine> {
             // A running estimate emitted many times per turn; in a real session it was two thirds
             // of the output ring and says nothing a reader needs.
             Some("thinking_tokens") => Vec::new(),
+            // ADR-0035: the jobs still running; kept as debug output too, like task_started.
+            Some("background_tasks_changed") => {
+                let running = match m.get("tasks") {
+                    Some(Value::Array(t)) => u32::try_from(t.len()).unwrap_or(u32::MAX),
+                    _ => 0,
+                };
+                vec![
+                    debug(line),
+                    ParsedLine::Event(DriverEvent::BackgroundTasks { running }),
+                ]
+            }
             _ => vec![debug(line)],
         },
 
@@ -386,6 +397,30 @@ mod tests {
         assert_eq!(
             js_stringify(&v),
             "{\"a\":1,\"b\":1e+21,\"c\":[0.5,0,true,null],\"d\":\"q\\\"\\n\u{2028}\"}"
+        );
+    }
+
+    #[test]
+    fn background_tasks_changed_reports_how_many_jobs_run_and_stays_debug_output() {
+        // Shape from claude 2.1.318 (spikes/claude-driver/out/g-background.ndjson).
+        let one = r#"{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"b1eelwpcm","task_type":"local_bash","description":"Sleep"}],"session_id":"s"}"#;
+        assert_eq!(
+            parse_stream_line(one),
+            vec![
+                debug(one),
+                ParsedLine::Event(DriverEvent::BackgroundTasks { running: 1 })
+            ]
+        );
+        let none = r#"{"type":"system","subtype":"background_tasks_changed","tasks":[]}"#;
+        assert_eq!(
+            parse_stream_line(none)[1],
+            ParsedLine::Event(DriverEvent::BackgroundTasks { running: 0 })
+        );
+        // A missing or odd `tasks` counts as none, never panics.
+        let odd = r#"{"type":"system","subtype":"background_tasks_changed","tasks":{}}"#;
+        assert_eq!(
+            parse_stream_line(odd)[1],
+            ParsedLine::Event(DriverEvent::BackgroundTasks { running: 0 })
         );
     }
 }

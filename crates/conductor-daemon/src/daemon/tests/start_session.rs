@@ -495,19 +495,10 @@ async fn re_arms_request_work_after_a_memory_pressure_refusal_of_an_assigned_ses
     const WORK_POLL_MS: u64 = 300;
     let c = Ctx::new().await;
     let sid = Uuid::new_v4();
-    let n = Arc::new(Mutex::new(0));
-    c.orch.set_work_reply(move |_| {
-        let mut n = n.lock().unwrap();
-        *n += 1;
-        (*n == 1).then(|| {
-            cmd(
-                "work_assignment",
-                sid,
-                json!({ "ticket_id": TICKET, "session_id": sid }),
-                1,
-            )
-        })
-    });
+    // The test sends the work_assignment itself, then the start_session, on the same socket: an
+    // auto-reply could reach the daemon after the start (seen on the Windows runner), and the
+    // assignment would then hold the only slot for the whole hold.
+    c.orch.set_work_reply(|_| None);
     c.make(
         driver(complete(json!({}))),
         Make {
@@ -517,6 +508,7 @@ async fn re_arms_request_work_after_a_memory_pressure_refusal_of_an_assigned_ses
         },
     );
     c.registered_and_asked().await;
+    c.send(&work_assignment(sid));
     c.set_mem_free(100);
     let s = c.start(sid, json!({}), 1);
     c.send(&s.msg);
@@ -538,19 +530,8 @@ async fn re_arms_request_work_after_a_memory_pressure_refusal_of_an_assigned_ses
 async fn re_arms_request_work_right_after_a_max_sessions_refusal_and_when_a_hold_expires() {
     let c = Ctx::new().await;
     let assigned = Uuid::new_v4();
-    let n = Arc::new(Mutex::new(0));
-    c.orch.set_work_reply(move |_| {
-        let mut n = n.lock().unwrap();
-        *n += 1;
-        (*n == 1).then(|| {
-            cmd(
-                "work_assignment",
-                assigned,
-                json!({ "ticket_id": TICKET, "session_id": assigned }),
-                1,
-            )
-        })
-    });
+    // Sent by the test before the other start, in order (see the memory_pressure case above).
+    c.orch.set_work_reply(|_| None);
     c.make(
         driver(complete(json!({}))),
         Make {
@@ -560,6 +541,7 @@ async fn re_arms_request_work_right_after_a_max_sessions_refusal_and_when_a_hold
         },
     );
     c.registered_and_asked().await;
+    c.send(&work_assignment(assigned));
     // A start for another session finds the only slot held: refused, the loop stays armed.
     let other = c.start(Uuid::new_v4(), json!({}), 1);
     c.send(&other.msg);
@@ -656,4 +638,14 @@ async fn a_start_without_attachments_adds_no_dir() {
     let opts = drv.starts()[0].clone();
     assert_eq!(opts.prompt, "Implement the ticket");
     assert!(opts.add_dirs.is_empty());
+}
+
+/// A `work_assignment` reply to the daemon's request_work, sent by the test itself.
+fn work_assignment(sid: Uuid) -> OrchestratorToDaemon {
+    cmd(
+        "work_assignment",
+        sid,
+        json!({ "ticket_id": TICKET, "session_id": sid }),
+        1,
+    )
 }

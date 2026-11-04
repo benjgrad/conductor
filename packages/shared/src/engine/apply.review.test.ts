@@ -5,7 +5,7 @@ import {
   type WorkflowDefinition,
   type WorkflowDefinitionInput,
 } from '../workflow/schema.js';
-import { resolveToolPolicy } from '../workflow/tools.js';
+import { BACKGROUND_TOOLS, resolveToolPolicy } from '../workflow/tools.js';
 import { apply } from './apply.js';
 import { Harness, referenceWorkflow } from './apply.testkit.js';
 import {
@@ -524,7 +524,7 @@ describe('parseVerdict', () => {
 describe('the review tool alias', () => {
   it('resolves read-only: no edit tools, exact git inspection only, never push', () => {
     const p = resolveToolPolicy(['review']);
-    expect(p.builtin).toEqual(['Read', 'Glob', 'Grep', 'Bash']);
+    expect(p.builtin).toEqual(['Read', 'Glob', 'Grep', 'Bash', ...BACKGROUND_TOOLS]);
     expect(p.builtin).not.toContain('Edit');
     expect(p.builtin).not.toContain('Write');
     expect(p.allow).toContain('Bash(git diff)');

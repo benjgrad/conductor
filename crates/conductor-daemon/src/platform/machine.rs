@@ -40,6 +40,48 @@ pub const fn is_macos() -> bool {
     cfg!(target_os = "macos")
 }
 
+/// This process's real user id (`process.getuid()`); None on Windows, which has none.
+pub fn current_uid() -> Option<u32> {
+    imp::current_uid()
+}
+
+/// Node's `os.platform()` name for a Rust `std::env::consts::OS` (`darwin`, `linux`, `win32`, …).
+/// The orchestrator receives these names (enroll, register), so they stay Node's.
+pub fn node_platform_of(os: &str) -> &str {
+    match os {
+        "macos" => "darwin",
+        "windows" => "win32",
+        other => other,
+    }
+}
+
+/// Node's `os.arch()` name for a Rust `std::env::consts::ARCH` (`x64`, `arm64`, …).
+pub fn node_arch_of(arch: &str) -> &str {
+    match arch {
+        "x86_64" => "x64",
+        "aarch64" => "arm64",
+        "x86" => "ia32",
+        "powerpc64" => "ppc64",
+        other => other,
+    }
+}
+
+/// `os.platform()` for this build.
+pub fn node_platform() -> &'static str {
+    node_platform_of(std::env::consts::OS)
+}
+
+/// `os.arch()` for this build.
+pub fn node_arch() -> &'static str {
+    node_arch_of(std::env::consts::ARCH)
+}
+
+/// Is this Linux running under WSL (`/proc/version` names Microsoft)? False elsewhere.
+pub fn is_wsl() -> bool {
+    std::fs::read_to_string("/proc/version")
+        .is_ok_and(|v| v.to_ascii_lowercase().contains("microsoft"))
+}
+
 #[cfg(unix)]
 mod imp {
     use std::ffi::CString;
@@ -94,6 +136,10 @@ mod imp {
         }
         let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
         String::from_utf8_lossy(&buf[..end]).into_owned()
+    }
+
+    pub fn current_uid() -> Option<u32> {
+        Some(nix::unistd::getuid().as_raw())
     }
 
     pub fn disk_free_bytes(path: &Path) -> Option<u64> {
@@ -152,6 +198,10 @@ mod imp {
         String::from_utf16_lossy(&buf[..len as usize])
     }
 
+    pub fn current_uid() -> Option<u32> {
+        None
+    }
+
     pub fn disk_free_bytes(path: &Path) -> Option<u64> {
         let w: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
         let mut free: u64 = 0;
@@ -178,6 +228,16 @@ mod tests {
         assert!(total_mem_bytes() > 0);
         assert!(!hostname().is_empty());
         assert!(home_dir().is_absolute());
+    }
+
+    #[test]
+    fn node_platform_and_arch_names() {
+        assert_eq!(node_platform_of("macos"), "darwin");
+        assert_eq!(node_platform_of("windows"), "win32");
+        assert_eq!(node_platform_of("linux"), "linux");
+        assert_eq!(node_arch_of("x86_64"), "x64");
+        assert_eq!(node_arch_of("aarch64"), "arm64");
+        assert_eq!(current_uid().is_none(), cfg!(windows));
     }
 
     #[test]

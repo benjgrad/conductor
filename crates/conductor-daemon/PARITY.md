@@ -38,15 +38,15 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 - [x] `claude/transcript.test.ts`
 
-- [ ] `commands/config.test.ts`
+- [x] `commands/config.test.ts`
 
-- [ ] `commands/enroll.test.ts`
+- [x] `commands/enroll.test.ts`
 
 - [x] `commands/fake-runner.test.ts`
 
 - [x] `commands/process-runner.test.ts`
 
-- [ ] `commands/service.test.ts`
+- [x] `commands/service.test.ts`
 
 - [x] `credential.test.ts`
 
@@ -317,40 +317,40 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| commands/config.test.ts › config.json › missing → defaults; round-trips at 0600 | todo |
-| commands/config.test.ts › config.json › invalid JSON or shape → an error naming the file | todo |
-| commands/config.test.ts › loadConfig inventory env › CONDUCTOR_ROOTS (`path.delimiter`-separated) overrides the file; unset → null | todo |
-| commands/config.test.ts › loadConfig inventory env › CONDUCTOR_ROOTS with drive letters: `C:\a;D:\b` is two roots | todo |
-| commands/config.test.ts › loadConfig inventory env › CONDUCTOR_TEST_REMOTE_ALIASES is ignored without CONDUCTOR_ALLOW_LOCAL_REPOS | todo |
-| commands/config.test.ts › loadConfig inventory env › a bad alias throws (with the flag) | todo |
-| commands/config.test.ts › conductor-daemon config › roots: saves realpaths (deduped) at 0600 | todo |
-| commands/config.test.ts › conductor-daemon config › roots: a missing directory or none → 2, nothing written | todo |
-| commands/config.test.ts › conductor-daemon config › repo --mode checkout: stored by path; warns when not under a root | todo |
-| commands/config.test.ts › conductor-daemon config › repo: a bad mode, a non-repo or extra args → 2 | todo |
-| commands/config.test.ts › conductor-daemon config › show: the file, effective roots and repos; CONDUCTOR_ROOTS wins | todo |
-| commands/config.test.ts › conductor-daemon config › no or an unknown subcommand → usage, 2 | todo |
+| commands/config.test.ts › config.json › missing → defaults; round-trips at 0600 | crates/conductor-daemon/src/config.rs::tests::file_config_round_trip_defaults_and_errors |
+| commands/config.test.ts › config.json › invalid JSON or shape → an error naming the file | crates/conductor-daemon/src/config.rs::tests::file_config_round_trip_defaults_and_errors, crates/conductor-daemon/src/commands/config/tests.rs::an_invalid_config_json_is_exit_1_naming_the_file |
+| commands/config.test.ts › loadConfig inventory env › CONDUCTOR_ROOTS (`path.delimiter`-separated) overrides the file; unset → null | crates/conductor-daemon/src/config.rs::tests::roots_and_remote_aliases |
+| commands/config.test.ts › loadConfig inventory env › CONDUCTOR_ROOTS with drive letters: `C:\a;D:\b` is two roots | crates/conductor-daemon/src/commands/config/tests.rs::conductor_roots_with_drive_letters_is_two_roots_on_windows |
+| commands/config.test.ts › loadConfig inventory env › CONDUCTOR_TEST_REMOTE_ALIASES is ignored without CONDUCTOR_ALLOW_LOCAL_REPOS | crates/conductor-daemon/src/config.rs::tests::roots_and_remote_aliases |
+| commands/config.test.ts › loadConfig inventory env › a bad alias throws (with the flag) | crates/conductor-daemon/src/config.rs::tests::roots_and_remote_aliases |
+| commands/config.test.ts › conductor-daemon config › roots: saves realpaths (deduped) at 0600 | crates/conductor-daemon/src/commands/config/tests.rs::roots_saves_realpaths_deduped_at_0600 |
+| commands/config.test.ts › conductor-daemon config › roots: a missing directory or none → 2, nothing written | crates/conductor-daemon/src/commands/config/tests.rs::roots_a_missing_directory_or_none_is_2_nothing_written |
+| commands/config.test.ts › conductor-daemon config › repo --mode checkout: stored by path; warns when not under a root | crates/conductor-daemon/src/commands/config/tests.rs::repo_mode_checkout_stored_by_path_warns_when_not_under_a_root |
+| commands/config.test.ts › conductor-daemon config › repo: a bad mode, a non-repo or extra args → 2 | crates/conductor-daemon/src/commands/config/tests.rs::repo_a_bad_mode_a_non_repo_or_extra_args_is_2 |
+| commands/config.test.ts › conductor-daemon config › show: the file, effective roots and repos; CONDUCTOR_ROOTS wins | crates/conductor-daemon/src/commands/config/tests.rs::show_the_file_effective_roots_and_repos_conductor_roots_wins |
+| commands/config.test.ts › conductor-daemon config › no or an unknown subcommand → usage, 2 | crates/conductor-daemon/src/commands/config/tests.rs::no_or_an_unknown_subcommand_is_usage_2 |
 
 ### commands/enroll.test.ts
 
 | TS case | Rust |
 |---|---|
-| commands/enroll.test.ts › conductor-daemon enroll › posts the token and writes machine.json 0600 in a 0700 root | todo |
-| commands/enroll.test.ts › conductor-daemon enroll › a 401 leaves no file and says the token is expired or used | todo |
-| commands/enroll.test.ts › conductor-daemon enroll › refuses an existing file without --force (no request sent) and replaces it with --force | todo |
-| commands/enroll.test.ts › conductor-daemon enroll › refuses a symlinked root without sending a request | todo |
-| commands/enroll.test.ts › conductor-daemon enroll › refuses a symlinked machine.json even with --force | todo |
-| commands/enroll.test.ts › conductor-daemon enroll › a 429 says to retry later | todo |
-| commands/enroll.test.ts › conductor-daemon enroll › a network failure says the server cannot be reached | todo |
-| commands/enroll.test.ts › conductor-daemon enroll › another status names it and its error code | todo |
-| commands/enroll.test.ts › conductor-daemon enroll › never follows a redirect: the target gets no request and no file is written | todo |
-| commands/enroll.test.ts › conductor-daemon enroll › an empty or over-long --token is a usage error naming the flag | todo |
-| commands/enroll.test.ts › conductor-daemon enroll › refuses plain http to a non-loopback host and missing options | todo |
-| commands/enroll.test.ts › enroll token sources (TD-117) › takes the token from CONDUCTOR_ENROLL_TOKEN and removes it from the environment | todo |
-| commands/enroll.test.ts › enroll token sources (TD-117) › --token wins over the environment, which is still removed | todo |
-| commands/enroll.test.ts › enroll token sources (TD-117) › --token - reads the first line of stdin | todo |
-| commands/enroll.test.ts › enroll token sources (TD-117) › an empty or over-long token from stdin or the environment is the same usage error | todo |
-| commands/enroll.test.ts › enroll token sources (TD-117) › no token anywhere is a usage error naming both sources | todo |
-| commands/enroll.test.ts › enrollUrl › keeps https and loopback http, without a trailing slash | todo |
+| commands/enroll.test.ts › conductor-daemon enroll › posts the token and writes machine.json 0600 in a 0700 root | crates/conductor-daemon/src/commands/enroll/tests.rs::posts_the_token_and_writes_machine_json_0600_in_a_0700_root |
+| commands/enroll.test.ts › conductor-daemon enroll › a 401 leaves no file and says the token is expired or used | crates/conductor-daemon/src/commands/enroll/tests.rs::a_401_leaves_no_file_and_says_the_token_is_expired_or_used |
+| commands/enroll.test.ts › conductor-daemon enroll › refuses an existing file without --force (no request sent) and replaces it with --force | crates/conductor-daemon/src/commands/enroll/tests.rs::refuses_an_existing_file_without_force_and_replaces_it_with_force |
+| commands/enroll.test.ts › conductor-daemon enroll › refuses a symlinked root without sending a request | crates/conductor-daemon/src/commands/enroll/tests.rs::refuses_a_symlinked_root_without_sending_a_request |
+| commands/enroll.test.ts › conductor-daemon enroll › refuses a symlinked machine.json even with --force | crates/conductor-daemon/src/commands/enroll/tests.rs::refuses_a_symlinked_machine_json_even_with_force |
+| commands/enroll.test.ts › conductor-daemon enroll › a 429 says to retry later | crates/conductor-daemon/src/commands/enroll/tests.rs::a_429_says_to_retry_later |
+| commands/enroll.test.ts › conductor-daemon enroll › a network failure says the server cannot be reached | crates/conductor-daemon/src/commands/enroll/tests.rs::a_network_failure_says_the_server_cannot_be_reached |
+| commands/enroll.test.ts › conductor-daemon enroll › another status names it and its error code | crates/conductor-daemon/src/commands/enroll/tests.rs::another_status_names_it_and_its_error_code |
+| commands/enroll.test.ts › conductor-daemon enroll › never follows a redirect: the target gets no request and no file is written | crates/conductor-daemon/src/commands/enroll/tests.rs::never_follows_a_redirect_the_target_gets_no_request_and_no_file_is_written |
+| commands/enroll.test.ts › conductor-daemon enroll › an empty or over-long --token is a usage error naming the flag | crates/conductor-daemon/src/commands/enroll/tests.rs::an_empty_or_over_long_token_is_a_usage_error_naming_the_flag |
+| commands/enroll.test.ts › conductor-daemon enroll › refuses plain http to a non-loopback host and missing options | crates/conductor-daemon/src/commands/enroll/tests.rs::refuses_plain_http_to_a_non_loopback_host_and_missing_options |
+| commands/enroll.test.ts › enroll token sources (TD-117) › takes the token from CONDUCTOR_ENROLL_TOKEN and removes it from the environment | crates/conductor-daemon/src/commands/enroll/tests.rs::takes_the_token_from_conductor_enroll_token_and_removes_it_from_the_environment, crates/conductor-daemon/tests/cli.rs::the_enroll_token_env_var_is_read_and_never_echoed |
+| commands/enroll.test.ts › enroll token sources (TD-117) › --token wins over the environment, which is still removed | crates/conductor-daemon/src/commands/enroll/tests.rs::token_flag_wins_over_the_environment_which_is_still_removed |
+| commands/enroll.test.ts › enroll token sources (TD-117) › --token - reads the first line of stdin | crates/conductor-daemon/src/commands/enroll/tests.rs::token_dash_reads_the_first_line_of_stdin |
+| commands/enroll.test.ts › enroll token sources (TD-117) › an empty or over-long token from stdin or the environment is the same usage error | crates/conductor-daemon/src/commands/enroll/tests.rs::an_empty_or_over_long_token_from_stdin_or_the_environment_is_the_same_usage_error |
+| commands/enroll.test.ts › enroll token sources (TD-117) › no token anywhere is a usage error naming both sources | crates/conductor-daemon/src/commands/enroll/tests.rs::no_token_anywhere_is_a_usage_error_naming_both_sources |
+| commands/enroll.test.ts › enrollUrl › keeps https and loopback http, without a trailing slash | crates/conductor-daemon/src/commands/enroll/tests.rs::enroll_url_keeps_https_and_loopback_http_without_a_trailing_slash |
 
 ### commands/fake-runner.test.ts
 
@@ -385,16 +385,16 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| commands/service.test.ts › unit files › launchd on macOS, systemd on Linux, none on Windows | todo |
-| commands/service.test.ts › unit files › the launchd plist runs the launcher, supervised, with pinned node, logs and a throttle | todo |
-| commands/service.test.ts › unit files › the systemd unit runs the launcher, supervised, and never restarts on 78 | todo |
-| commands/service.test.ts › unit files › escapes XML and systemd specifiers, and refuses what systemd cannot quote | todo |
-| commands/service.test.ts › unit files › restart policy: 75 and crashes restart, 0 and 78 do not (TD-119, ADR-0021) | todo |
-| commands/service.test.ts › unit files › stopSupervisedJob does nothing when unsupervised or under systemd | todo |
-| commands/service.test.ts › service install / uninstall / restart › `${manager}: install writes the unit and the launcher; a second install changes nothing` | todo |
-| commands/service.test.ts › service install / uninstall / restart › `${manager}: restart, status and uninstall; sudo is never used` | todo |
-| commands/service.test.ts › service install / uninstall / restart › `${manager}: refuses without an installed daemon, and with Node 20` | todo |
-| commands/service.test.ts › service install / uninstall / restart › usage errors and an OS without a service manager exit 2 | todo |
+| commands/service.test.ts › unit files › launchd on macOS, systemd on Linux, none on Windows | crates/conductor-daemon/src/commands/service/tests.rs::launchd_on_macos_systemd_on_linux_none_on_windows |
+| commands/service.test.ts › unit files › the launchd plist runs the launcher, supervised, with pinned node, logs and a throttle | crates/conductor-daemon/src/commands/service/tests.rs::the_launchd_plist_runs_the_launcher_supervised_with_logs_and_a_throttle |
+| commands/service.test.ts › unit files › the systemd unit runs the launcher, supervised, and never restarts on 78 | crates/conductor-daemon/src/commands/service/tests.rs::the_systemd_unit_runs_the_launcher_supervised_and_never_restarts_on_78 |
+| commands/service.test.ts › unit files › escapes XML and systemd specifiers, and refuses what systemd cannot quote | crates/conductor-daemon/src/commands/service/tests.rs::escapes_xml_and_systemd_specifiers_and_refuses_what_systemd_cannot_quote |
+| commands/service.test.ts › unit files › restart policy: 75 and crashes restart, 0 and 78 do not (TD-119, ADR-0021) | crates/conductor-daemon/src/commands/service/tests.rs::restart_policy_75_and_crashes_restart_0_and_78_do_not |
+| commands/service.test.ts › unit files › stopSupervisedJob does nothing when unsupervised or under systemd | crates/conductor-daemon/src/commands/service/tests.rs::stop_supervised_job_does_nothing_when_unsupervised_or_under_systemd |
+| commands/service.test.ts › service install / uninstall / restart › `${manager}: install writes the unit and the launcher; a second install changes nothing` | crates/conductor-daemon/src/commands/service/tests.rs::install_writes_the_unit_and_the_launcher_a_second_install_changes_nothing, crates/conductor-daemon/src/commands/service/tests.rs::the_launcher_is_the_ts_daemon_asset_byte_for_byte |
+| commands/service.test.ts › service install / uninstall / restart › `${manager}: restart, status and uninstall; sudo is never used` | crates/conductor-daemon/src/commands/service/tests.rs::restart_status_and_uninstall_sudo_is_never_used |
+| commands/service.test.ts › service install / uninstall / restart › `${manager}: refuses without an installed daemon, and with Node 20` | crates/conductor-daemon/src/commands/service/tests.rs::refuses_without_an_installed_daemon |
+| commands/service.test.ts › service install / uninstall / restart › usage errors and an OS without a service manager exit 2 | crates/conductor-daemon/src/commands/service/tests.rs::usage_errors_and_an_os_without_a_service_manager_exit_2, crates/conductor-daemon/tests/cli.rs::subcommand_usage_errors_exit_2 |
 
 ### credential.test.ts
 

@@ -110,7 +110,8 @@ pnpm typecheck         # tsc -b across the workspace (project references; emits 
 pnpm lint              # eslint (type-aware, in a test slot) + prettier --check
 pnpm format            # prettier --write
 pnpm test              # vitest, one project per package (DB tests need db:up), in a test slot
-pnpm test:e2e          # db up + tsc -b + e2e/ suite: real orchestrator + daemon bins, fake Claude (~15 s)
+pnpm test:e2e          # db up + tsc -b + cargo build --release daemon + e2e/ suite: real orchestrator +
+                       #   Rust daemon bin, fake Claude (CONDUCTOR_E2E_DAEMON_BIN=packages/daemon/dist/main.js: TS)
 E2E_REAL_CLAUDE=1 pnpm test:e2e   # ask/answer only, real `claude` on haiku (spends money; not in CI)
 scripts/ci.sh          # all gates, in order: install, typecheck, lint, cargo fmt/clippy/nextest, parity, deploy kit (deploy/gradyserver/test/run.sh), db:up, test, build, test:e2e
 ```

@@ -108,6 +108,14 @@ const SCENARIOS: Record<string, unknown> = {
       [{ say: 'Using the answer.' }, { complete_state: { port: '$answer' } }],
     ],
   },
+  // MR-T16 (from ask-answer.test.ts): ask_answer under its own name, for the case whose parked
+  // process is killed, so its state is the only one with this scenario.
+  ask_resume: {
+    turns: [
+      [{ say: 'Looking at the server.' }, { ask_user: 'Which port should /health listen on?' }],
+      [{ say: 'Using the answer.' }, { complete_state: { port: '$answer' } }],
+    ],
+  },
   // U-028: two say-only turns (the first, then the one after the nudge), so the daemon parks the
   // session and the card goes to Needs input. Turn 3 (after a human answer) finishes; anything
   // later is say-only again.
@@ -770,6 +778,63 @@ describe.skipIf(REAL)('fake Claude', () => {
     expect(done).toMatchObject({ status: 'done', pr_url: waiting.pr_url, badges: [] });
   });
 
+  it('process gone: the answer resumes the Claude session with prompt = the answer', async () => {
+    const id = await ticket('Process gone', fakeBody('ask_resume'));
+    const parked = await board.card(
+      id,
+      'needs_input',
+      (c) => c.column === 'needs_input' && c.input_request !== null,
+    );
+    const sid = parked.session_id!;
+    const { claudeSessionId } = fakeState('ask_resume');
+
+    // The parked process dies (crash, reboot): agent.exited while parked clears the live flag,
+    // and the session stays in Needs input.
+    const pids = pidsOf(claudeSessionId);
+    expect(pids.length).toBeGreaterThan(0);
+    for (const pid of pids) {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        // already gone
+      }
+    }
+    await waitFor(
+      'the orchestrator to see the parked agent exit',
+      async () =>
+        (
+          await stack.db.pool.query<{ agent_process_live: boolean }>(
+            'SELECT agent_process_live FROM session WHERE id = $1',
+            [sid],
+          )
+        ).rows[0]?.agent_process_live === false,
+      10_000,
+    );
+    expect((await api.session(sid)).card.column).toBe('needs_input');
+
+    await api.answer(sid, parked.input_request!.id, '9090');
+    await board.card(id, 'done', (c) => c.column === 'done', 30_000);
+    expect(board.states(id)).toEqual([
+      'implement',
+      'needs_input',
+      'implement',
+      'build',
+      'test',
+      'done',
+    ]);
+    // Two starts of the same Claude session: the second resumes it, with the bare answer as its
+    // prompt (the resumed conversation already has the question), which the fake completes with.
+    const starts = readFileSync(stack.fakeArgvLog, 'utf8')
+      .split('\n')
+      .filter((l) => l.trim() !== '')
+      .map((l) => (JSON.parse(l) as { argv: string[] }).argv)
+      .filter((argv) => argv.includes(claudeSessionId));
+    expect(starts).toHaveLength(2);
+    expect(starts[0]).toContain('--session-id');
+    expect(starts[1]![starts[1]!.indexOf('--resume') + 1]).toBe(claudeSessionId);
+    expect((await api.session(sid)).context).toMatchObject({ implement: { port: '9090' } });
+  });
+
   it('no_conversation: an answer whose conversation is not on the machine continues in a fresh one', async () => {
     const id = await ticket('No conversation here', fakeBody('no_conversation'));
     const parked = await board.card(
@@ -844,6 +909,18 @@ function running(text: string): boolean {
     return true;
   } catch {
     return false; // pgrep exits 1 when nothing matches
+  }
+}
+
+/** The pids of the processes whose command line mentions `text`; [] when none. */
+function pidsOf(text: string): number[] {
+  try {
+    return execFileSync('pgrep', ['-f', text], { encoding: 'utf8' })
+      .split('\n')
+      .map((l) => Number(l.trim()))
+      .filter((n) => n > 0 && n !== process.pid);
+  } catch {
+    return []; // pgrep exits 1 when nothing matches
   }
 }
 

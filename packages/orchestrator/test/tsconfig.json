@@ -11,6 +11,5 @@
     "tsBuildInfoFile": "../node_modules/.tmp/test/tsconfig.tsbuildinfo"
   },
   "include": ["."],
-  // The ask/answer integration test (M1-T07) drives a real Daemon (devDependency).
-  "references": [{ "path": ".." }, { "path": "../../daemon" }]
+  "references": [{ "path": ".." }]
 }

@@ -7,15 +7,15 @@ step() { printf '\n==> %s\n' "$*"; }
 
 step "install";   pnpm install --frozen-lockfile
 # PRs (ci.yml sets CONDUCTOR_CI_TIERED) run the expensive gates only when their diff reaches them:
-# the Rust tests (clippy, nextest) and the e2e suite (scripts/test-affected.js; after install, as it
+# the Rust tests (clippy, nextest) and the e2e suite (scripts/ci-affected.js; after install, as it
 # parses the lockfile with `yaml`). main, a dispatch and a laptop run everything. daemon-rust.yml
 # also runs the cargo gates on a PR that reaches Rust.
 rust=true
 e2e=true
 if [[ "${CONDUCTOR_CI_TIERED:-}" == 1 ]]; then
   step "affected"
-  rust="$(node scripts/test-affected.js rust)"
-  e2e="$(node scripts/test-affected.js e2e)"
+  rust="$(node scripts/ci-affected.js rust)"
+  e2e="$(node scripts/ci-affected.js e2e)"
   echo "rust tests: $rust, e2e: $e2e"
 fi
 

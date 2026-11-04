@@ -61,6 +61,9 @@ import {
   type OutputStream,
   type PermissionRequestDto,
   type RepoChecksDetail,
+  type ChangeProposalDetail,
+  type ChangeProposalListResponse,
+  type ChangeProposalSummary,
   type RepoChecksDto,
   type ReopenSessionResponse,
   type SessionDetail,
@@ -86,6 +89,7 @@ import {
   MOCK_WORKFLOW_HISTORY,
   mockMachines,
   mockRepoChecks,
+  mockChangeProposals,
   mockSeeds,
   type MockSession,
 } from './mock-data.js';
@@ -194,6 +198,31 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
   const repoChecks = new Map<string, RepoChecksDto>(
     mockRepoChecks(now()).map((dto) => [dto.repo, dto]),
   );
+
+  /** ADR-0033 P3: the advisor's change proposals, newest first. */
+  const proposals: ChangeProposalDetail[] = mockChangeProposals(now());
+  const proposal = (id: string): ChangeProposalDetail => {
+    const p = proposals.find((x) => x.id === id);
+    if (!p) throw new ApiRequestError(404, 'not_found', 'no such change proposal');
+    return p;
+  };
+  const summaryOf = (p: ChangeProposalDetail): ChangeProposalSummary => ({
+    id: p.id,
+    kind: p.kind,
+    status: p.status,
+    title: p.title,
+    target: p.target,
+    requires_admin: p.requires_admin,
+    changes: p.changes,
+    expected_effect: p.expected_effect,
+    created_at: p.created_at,
+    applied_at: p.applied_at,
+  });
+  const mustBeProposed = (p: ChangeProposalDetail) => {
+    if (p.status !== 'proposed') {
+      throw new ApiRequestError(409, 'wrong_state', `The proposal is ${p.status}, not proposed.`);
+    }
+  };
 
   /** The card's column per the shared rule (placeCard), by its session's workflow. */
   function columnOf(card: BoardCard): string {
@@ -877,6 +906,56 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           throw new ApiRequestError(404, 'not_found', `no repo checks for ${key}`);
         }
         return { ok: true };
+      }),
+
+    listChangeProposals: (o = {}) =>
+      reply((): ChangeProposalListResponse => {
+        const wanted = o.status === undefined || o.status === 'all' ? null : o.status;
+        const all = proposals.filter((p) => wanted === null || p.status === wanted);
+        const cursor = o.cursor ?? 0;
+        const page = all.slice(cursor, cursor + 10);
+        const end = cursor + page.length;
+        return clone({
+          proposals: page.map(summaryOf),
+          next_cursor: end < all.length ? end : null,
+          total: all.length,
+        });
+      }),
+
+    getChangeProposal: (id) => reply(() => clone(proposal(id))),
+
+    applyChangeProposal: (id) =>
+      reply((): ChangeProposalDetail => {
+        const p = proposal(id);
+        mustBeProposed(p);
+        if (p.requires_admin && authMode !== 'local' && !signedInUser().row.is_admin) {
+          throw new ApiRequestError(403, 'forbidden', 'Only an instance admin can apply this.');
+        }
+        const at = now().toISOString();
+        Object.assign(p, {
+          status: 'applied',
+          applied_at: at,
+          decided_at: at,
+          decided_by: MOCK_ADMIN.email,
+        });
+        return clone(p);
+      }),
+
+    rejectChangeProposal: (id) =>
+      reply((): ChangeProposalDetail => {
+        const p = proposal(id);
+        mustBeProposed(p);
+        Object.assign(p, { status: 'rejected', decided_at: now().toISOString() });
+        return clone(p);
+      }),
+
+    reviewChangeProposal: (id) =>
+      reply((): ChangeProposalDetail => {
+        const p = proposal(id);
+        if (p.status !== 'applied') {
+          throw new ApiRequestError(409, 'wrong_state', 'Only an applied proposal is reviewed.');
+        }
+        return clone(p);
       }),
 
     listRepos: () =>

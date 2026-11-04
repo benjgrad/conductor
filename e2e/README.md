@@ -1,9 +1,10 @@
 # E2E suite (M1-T10)
 
 `pnpm test:e2e` runs `e2e/run.sh`: `scripts/db.sh up` (idempotent), `tsc -b` (builds the bins), then
-`vitest run --config e2e/vitest.config.ts`. Two files, one stack (database, bins, fixture repo) each,
-run one after the other: `m1.e2e.test.ts` (M1, ADR-0007..0010) and `m1b.e2e.test.ts` (ADR-0011
-transition rules). A full run takes about 50 s with the fake Claude. The limit is 3 minutes.
+`vitest run --config e2e/vitest.config.ts`. Three files, one stack (database, bins, fixture repo)
+each, run one after the other: `m1.e2e.test.ts` (M1, ADR-0007..0010), `m1b.e2e.test.ts` (ADR-0011
+transition rules) and `advisor.e2e.test.ts` (ADR-0033 P3: the workflow advisor over MCP, findings →
+proposal → apply; its history is written to the database, its token minted there). A full run takes about 50 s with the fake Claude. The limit is 3 minutes.
 
 ## What runs
 

@@ -21,6 +21,8 @@ import {
   PermissionRequestListResponseSchema,
   ReopenSessionResponseSchema,
   RepoChecksDetailSchema,
+  ChangeProposalDetailSchema,
+  ChangeProposalListResponseSchema,
   RepoChecksDtoSchema,
   RepoChecksListResponseSchema,
   RepoListResponseSchema,
@@ -333,6 +335,45 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
 
     clearRepoChecks: (repo: string) =>
       request(OkResponseSchema, 'DELETE', API_PATHS.repoChecks, { repo }),
+
+    listChangeProposals: (opts = {}) => {
+      const q = new URLSearchParams();
+      if (opts.status !== undefined) q.set('status', opts.status);
+      if (opts.cursor !== undefined) q.set('cursor', String(opts.cursor));
+      const qs = q.toString();
+      return request(
+        ChangeProposalListResponseSchema,
+        'GET',
+        API_PATHS.changeProposals + (qs ? `?${qs}` : ''),
+      );
+    },
+
+    getChangeProposal: (id: string) =>
+      request(ChangeProposalDetailSchema, 'GET', API_PATHS.changeProposal(encodeURIComponent(id))),
+
+    applyChangeProposal: (id: string) =>
+      request(
+        ChangeProposalDetailSchema,
+        'POST',
+        API_PATHS.changeProposalApply(encodeURIComponent(id)),
+        {},
+      ),
+
+    rejectChangeProposal: (id: string) =>
+      request(
+        ChangeProposalDetailSchema,
+        'POST',
+        API_PATHS.changeProposalReject(encodeURIComponent(id)),
+        {},
+      ),
+
+    reviewChangeProposal: (id: string) =>
+      request(
+        ChangeProposalDetailSchema,
+        'POST',
+        API_PATHS.changeProposalReview(encodeURIComponent(id)),
+        {},
+      ),
 
     listWorkflows: () => request(WorkflowListResponseSchema, 'GET', API_PATHS.workflows),
 

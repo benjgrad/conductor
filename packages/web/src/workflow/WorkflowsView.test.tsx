@@ -563,3 +563,34 @@ describe('session Details diagram', () => {
     );
   });
 });
+
+describe('Workflow view: change proposals (ADR-0033 P3)', () => {
+  it('lists the advisor’s open proposals under the editor', async () => {
+    await setup();
+    const region = await screen.findByRole('region', { name: 'Change proposals' });
+    await within(region).findByRole('button', { name: /Build the web app inside m-one/ });
+  });
+
+  it('reloads the latest version after a workflow proposal is applied', async () => {
+    const api = createMockApi();
+    const calls: (number | undefined)[] = [];
+    const get = api.getWorkflow.bind(api);
+    api.getWorkflow = (id, version) => {
+      calls.push(version);
+      return get(id, version);
+    };
+    const [, wf] = (await api.listChangeProposals({ status: 'all' })).proposals;
+    const detail = { ...(await api.getChangeProposal(wf!.id)), status: 'proposed' as const };
+    api.listChangeProposals = () =>
+      Promise.resolve({ proposals: [{ ...wf!, status: 'proposed' }], next_cursor: null, total: 1 });
+    api.getChangeProposal = () => Promise.resolve(detail);
+    api.applyChangeProposal = () => Promise.resolve({ ...detail, status: 'applied' });
+    await setup(api);
+    const n = calls.length;
+    const region = within(screen.getByRole('region', { name: 'Change proposals' }));
+    fireEvent.click(await region.findByRole('button', { name: new RegExp(wf!.title) }));
+    fireEvent.click(await region.findByRole('button', { name: 'Apply…' }));
+    fireEvent.click(region.getByRole('button', { name: 'Confirm apply' }));
+    await waitFor(() => expect(calls.length).toBeGreaterThan(n));
+  });
+});

@@ -9,6 +9,9 @@ import type {
   ApproveSessionRequest,
   BoardResponse,
   BoardSseEvent,
+  ChangeProposalDetail,
+  ChangeProposalListResponse,
+  ChangeStatus,
   CreateInviteRequest,
   CreateTicketRequest,
   FreshConversationRequest,
@@ -135,6 +138,26 @@ export interface ApiClient {
   setRepoChecks(req: PutRepoChecksRequest): Promise<RepoChecksDto>;
   /** ADR-0030: DELETE /api/repo-checks `{repo}`. 404 not_found when the repo has no override. */
   clearRepoChecks(repo: string): Promise<OkResponse>;
+  /**
+   * ADR-0033 P3: GET /api/change-proposals[?status=&cursor=] → the workflow advisor's change
+   * proposals, newest first (10 a page).
+   */
+  listChangeProposals(opts?: {
+    status?: ChangeStatus | 'all';
+    cursor?: number;
+  }): Promise<ChangeProposalListResponse>;
+  /** ADR-0033 P3: GET /api/change-proposals/:id → one proposal with its diff. 404 not_found. */
+  getChangeProposal(id: string): Promise<ChangeProposalDetail>;
+  /**
+   * ADR-0033 P3: POST /api/change-proposals/:id/apply → the applied proposal. 403 forbidden (a
+   * workflow change, not an instance admin); 409 conflict (what it was based on changed),
+   * approval_weakened or wrong_state (no longer proposed).
+   */
+  applyChangeProposal(id: string): Promise<ChangeProposalDetail>;
+  /** ADR-0033 P3: POST /api/change-proposals/:id/reject. 409 wrong_state unless proposed. */
+  rejectChangeProposal(id: string): Promise<ChangeProposalDetail>;
+  /** ADR-0033 P3: POST /api/change-proposals/:id/review → with `review`. 409 unless applied. */
+  reviewChangeProposal(id: string): Promise<ChangeProposalDetail>;
   /** GET /api/workflows (create-ticket form, Workflows view): the latest version of each. */
   listWorkflows(): Promise<WorkflowSummary[]>;
   /**

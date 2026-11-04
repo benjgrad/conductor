@@ -333,7 +333,8 @@ pub struct MachineFacts {
     pub mem_total_mb: u64,
     pub hostname: String,
     pub home: PathBuf,
-    /// `git config --global user.name` / `user.email` (WF-T02).
+    /// `git config --global user.name` / `user.email` (WF-T02); only
+    /// [`machine_facts_with_git_identity`] reads it, [`machine_facts`] leaves it empty.
     pub git_config: GitIdentity,
 }
 
@@ -343,7 +344,17 @@ pub fn machine_facts() -> MachineFacts {
         mem_total_mb: machine::total_mem_bytes() / (1024 * 1024),
         hostname: machine::hostname(),
         home: machine::home_dir(),
+        git_config: GitIdentity::default(),
+    }
+}
+
+/// [`machine_facts`] plus the global git identity: what `run` loads its config with. Kept out of
+/// [`machine_facts`], which also runs on every WS (re)connect, so a register never waits on two
+/// blocking git spawns.
+pub fn machine_facts_with_git_identity() -> MachineFacts {
+    MachineFacts {
         git_config: read_global_git_identity(),
+        ..machine_facts()
     }
 }
 

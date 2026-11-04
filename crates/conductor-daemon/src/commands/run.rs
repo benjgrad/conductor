@@ -14,7 +14,7 @@
 use crate::claude::cli_driver::{CliDriverOptions, create_cli_driver, probe_permission_prompts};
 use crate::claude::outcome_server::{OutcomeServerOptions, start_outcome_server};
 use crate::commands::service::stop_supervised_job;
-use crate::config::{DaemonConfig, Env, load_config, machine_facts};
+use crate::config::{DaemonConfig, Env, load_config, machine_facts_with_git_identity};
 use crate::daemon::{Daemon, DaemonOptions};
 use crate::inventory::report::ScanFn;
 use crate::platform::signals::DaemonSignal;
@@ -143,7 +143,7 @@ pub async fn claude_code_version(bin: &str, log: &(dyn Fn(&str) + Send + Sync)) 
 /// Needs a tokio runtime.
 pub async fn run_daemon(env: &Env, mut deps: RunDeps) -> i32 {
     let log = deps.log.clone();
-    let config = match load_config(env, &machine_facts()) {
+    let config = match load_config(env, &machine_facts_with_git_identity()) {
         Ok(c) => c,
         Err(e) => {
             log(&e.to_string());

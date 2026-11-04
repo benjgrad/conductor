@@ -296,8 +296,16 @@ export function machineFacts(): MachineFacts {
     memTotalMb: Math.floor(totalmem() / (1024 * 1024)),
     hostname: hostname(),
     home: homedir(),
-    gitConfig: readGlobalGitIdentity(),
   };
+}
+
+/**
+ * machineFacts plus the global git identity: what loadConfig reads at startup. Kept out of
+ * machineFacts, which also runs on every WS (re)connect, so a register never waits on two git
+ * spawns.
+ */
+export function machineFactsWithGitIdentity(): MachineFacts {
+  return { ...machineFacts(), gitConfig: readGlobalGitIdentity() };
 }
 
 /** `<root>`: CONDUCTOR_ROOT, default `~/.conductor`. */
@@ -340,7 +348,7 @@ export function daemonVersion(env: Env = process.env): string {
  */
 export function loadConfig(
   env: Env = process.env,
-  facts: MachineFacts = machineFacts(),
+  facts: MachineFacts = machineFactsWithGitIdentity(),
   readCredential: (rootDir: string) => MachineCredential | null = loadCredential,
 ): DaemonConfig {
   const rootDir = rootDirFrom(env, facts);

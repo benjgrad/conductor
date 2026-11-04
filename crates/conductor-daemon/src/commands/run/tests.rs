@@ -3,6 +3,7 @@
 //! fast) or a fake one (the version probe).
 
 use super::*;
+use crate::config::machine_facts;
 use crate::inventory::report::InventoryScan;
 use crate::platform::Platform;
 use crate::sysinfo::LiveResources;

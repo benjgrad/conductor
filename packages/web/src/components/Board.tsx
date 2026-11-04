@@ -415,7 +415,7 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
         >
           <AgentAvatar
             seed={agent.seed}
-            size={20}
+            size={24}
             {...(idle ? { className: 'avatar-idle' } : {})}
           />
           {name}

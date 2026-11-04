@@ -916,8 +916,8 @@ button.copy {
   border-radius: 50%;
 }
 .avatar-placeholder {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
   background: var(--border);
 }

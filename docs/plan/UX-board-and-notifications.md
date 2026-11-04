@@ -160,6 +160,7 @@ UX-13a adds `agent_name` to `BoardCard`, `SessionDetail` and `TicketDto`, plus `
   - a queued card shows "Unassigned", with a neutral avatar;
   - a ticket from before UX-13a falls back to the old hash name.
 - **FR-2** The avatar is derived from the **name**, not the ticket id, so a teammate has the same face on every ticket. `AgentAvatar` takes `seed`; existing call sites pass the name.
+  - *Later (avatar redraw):* the avatar is now a Duolingo-style character generator in `components/avatar/` (people and nine animal species; expressions, eyes, noses, hair, outfits, builds and heights vary per seed), drawn a little larger: 24 px on the card, 40/32 px in the panel header, 80 px in Details. Still seeded by the name, so every teammate's face changed once with the redraw.
 - **FR-3** A **Team** section on the Machines page (or `#/team` if that reads better; say which in the PR) lists each teammate with their avatar, when they were hired, and what they're working on now, linking to the card.
 
 ## Non-functional requirements

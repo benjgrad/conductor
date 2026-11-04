@@ -4,7 +4,12 @@ import {
   formatSummary,
   lastMoveTransition,
   PLAN_APPROVED_TEXT,
+  agentStatesOf,
   planAnswerOption,
+  planApproveOption,
+  planApproveRequest,
+  planChangesRequest,
+  planOptions,
   planChangesText,
   PREVIEW_MAX,
   previewText,
@@ -200,5 +205,81 @@ describe('planAnswerOption (06 §Plan approval)', () => {
     expect(planChangesText('  Split step 2.  ')).toBe(
       'Changes requested to the plan:\n\nSplit step 2.',
     );
+  });
+});
+
+describe('planOptions / planApproveOption (06 §Plan approval, WF-T04)', () => {
+  const revise = { name: 'revise_plan', title: 'Revise plan', goto: 'planning', needs_text: true };
+  const approve = {
+    name: 'approve_plan',
+    title: 'Approve plan',
+    goto: 'implementing',
+    needs_text: false,
+    text: 'optional' as const,
+  };
+  const v5 = [approve, revise];
+  const agents = new Set(['planning', 'implementing']);
+
+  it('v5: Approve picks approve_plan (no text), Request changes picks revise_plan', () => {
+    const p = planOptions(v5, 'planning', agents)!;
+    expect(p.answer).toBe(revise);
+    expect(p.approve).toBe(approve);
+    expect(planApproveRequest(p)).toEqual({ name: 'approve_plan' });
+    expect(planApproveRequest(p, '  ')).toEqual({ name: 'approve_plan' });
+    expect(planApproveRequest(p, ' Go. ')).toEqual({ name: 'approve_plan', text: 'Go.' });
+    expect(planChangesRequest(p, ' Split step 2. ')).toEqual({
+      name: 'revise_plan',
+      text: 'Changes requested to the plan:\n\nSplit step 2.',
+    });
+  });
+
+  it('the board (agent columns for return_to) finds the same pair', () => {
+    expect(planOptions(v5, agents, agents)).toEqual({ answer: revise, approve });
+  });
+
+  it('v4: no approve option, so Approve posts the answer with the canned text', () => {
+    const answer = {
+      name: 'answer',
+      title: 'Back with this answer',
+      goto: 'planning',
+      needs_text: true,
+    };
+    const wait = {
+      name: 'waiting_on_someone',
+      title: 'Wait',
+      goto: 'waiting_external',
+      needs_text: true,
+    };
+    const done = { name: 'done', title: 'Done', goto: 'done', needs_text: false };
+    const p = planOptions([answer, wait, done], 'planning', agents)!;
+    expect(p).toEqual({ answer, approve: null });
+    expect(planApproveRequest(p)).toEqual({ name: 'answer', text: PLAN_APPROVED_TEXT });
+    expect(planChangesRequest(p, 'x')).toEqual({
+      name: 'answer',
+      text: 'Changes requested to the plan:\n\nx',
+    });
+  });
+
+  it('fails safe: ambiguous, back to the asking state, or no answer option', () => {
+    const other = { ...approve, name: 'approve_other', goto: 'testing' };
+    const states = new Set([...agents, 'testing']);
+    expect(planApproveOption([...v5, other], revise, states)).toBeNull();
+    const back = { ...approve, goto: 'planning' };
+    expect(planApproveOption([back, revise], revise, agents)).toBeNull();
+    expect(planApproveOption(v5, revise, new Set(['planning']))).toBeNull();
+    expect(planOptions([approve], 'planning', agents)).toBeNull();
+  });
+
+  it('agentStatesOf: the workflow states of type agent', () => {
+    expect(
+      agentStatesOf({
+        states: {
+          planning: { type: 'agent' },
+          plan_review: { type: 'human' },
+          implementing: { type: 'agent' },
+          done: { type: 'terminal' },
+        },
+      } as unknown as Parameters<typeof agentStatesOf>[0]),
+    ).toEqual(new Set(['planning', 'implementing']));
   });
 });

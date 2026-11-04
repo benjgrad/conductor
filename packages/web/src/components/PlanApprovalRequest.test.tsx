@@ -12,20 +12,32 @@ import {
   PLAN_MISSING_TEXT,
   PlanApprovalRequest,
 } from './PlanApprovalRequest.js';
+import { agentStatesOf, planOptions } from './request-preview.js';
 
 afterEach(cleanup);
 
 const PLAN = '## Steps\n\n1. Add **raised beds** on the south side\n2. Order soil';
 const QUESTION = 'Raised beds need a **budget** of $400. Approve?';
 
-/** The "Plan the garden" seed (conductor v2, return_to planning), asked by plan_needs_approval. */
+/** conductor v5's Plan review buttons (return_to planning). */
+const V5_PLAN_REVIEW = [
+  { name: 'revise_plan', title: 'Revise plan', goto: 'planning', needs_text: true },
+  { name: 'approve_plan', title: 'Approve plan', goto: 'implementing', needs_text: false },
+];
+
+/**
+ * The "Plan the garden" seed (conductor v2, return_to planning), asked by plan_needs_approval.
+ * `humanTransitions` replaces the card's buttons (v5: `V5_PLAN_REVIEW`).
+ */
 async function setup(
   context: SessionDetail['context'] = { planning: { plan: PLAN, summary: 's' } },
+  humanTransitions?: SessionDetail['card']['human_transitions'],
 ) {
   const api = createMockApi({ replyDelayMs: 0 });
   const base = await api.getSession(SEED_IDS.transitions.session);
   const detail: SessionDetail = {
     ...base,
+    card: { ...base.card, human_transitions: humanTransitions ?? base.card.human_transitions },
     context,
     pending_input: {
       ...base.pending_input!,
@@ -34,16 +46,22 @@ async function setup(
     },
   };
   const transition = vi.spyOn(api, 'transition');
+  // The mock seed doesn't offer v5's transitions; the post is what is under test.
+  if (humanTransitions) transition.mockResolvedValue({ ok: true });
   const fresh = vi.spyOn(api, 'freshConversation');
   const onDone = vi.fn();
-  const option = detail.card.human_transitions.find((o) => o.name === 'answer')!;
+  const plan = planOptions(
+    detail.card.human_transitions,
+    detail.return_to,
+    agentStatesOf(detail.workflow),
+  )!;
   render(
     <PlanApprovalRequest
       api={api as ApiClient}
       detail={detail}
       agent="Robin"
       request={detail.pending_input!}
-      option={option}
+      plan={plan}
       onDone={onDone}
     />,
   );
@@ -90,6 +108,27 @@ describe('PlanApprovalRequest (06 §Plan approval)', () => {
     expect(panel.queryByRole('region', { name: 'The plan' })).toBeNull();
     // Still answerable.
     expect(panel.getByRole('button', { name: 'Approve plan' })).toBeTruthy();
+  });
+
+  it('v5: Approve plan posts approve_plan with no text; Request changes posts revise_plan', async () => {
+    const { transition, onDone, panel, sessionId } = await setup(undefined, V5_PLAN_REVIEW);
+    // approve_plan is the Approve button, not an "Other action".
+    expect(panel.queryByText('Other actions')).toBeNull();
+    fireEvent.click(panel.getByRole('button', { name: 'Approve plan' }));
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(transition).toHaveBeenCalledWith(sessionId, { name: 'approve_plan' });
+
+    fireEvent.click(panel.getByRole('button', { name: 'Request changes…' }));
+    const form = within(panel.getByRole('form', { name: 'Request changes' }));
+    fireEvent.change(form.getByLabelText('What should change in the plan?'), {
+      target: { value: 'Split step 2.' },
+    });
+    fireEvent.click(form.getByRole('button', { name: 'Request changes' }));
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(2));
+    expect(transition).toHaveBeenLastCalledWith(sessionId, {
+      name: 'revise_plan',
+      text: 'Changes requested to the plan:\n\nSplit step 2.',
+    });
   });
 
   it('Approve plan posts the answer transition with the exact approval text', async () => {

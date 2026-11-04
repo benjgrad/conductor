@@ -3,12 +3,7 @@
 // 11-web-ui §Phone layout). Messages is a chat with the agent (the live log, the open question
 // inline, a composer pinned at the bottom); Details tells the ticket's story in STAR order (UX-7, StarDetails.tsx), with who runs it and
 // where, the workflow, spend and the context under Technical details.
-import type {
-  BoardCard,
-  HumanTransitionOption,
-  InputRequestDto,
-  SessionDetail,
-} from '@conductor/shared';
+import type { BoardCard, InputRequestDto, SessionDetail } from '@conductor/shared';
 import { ArrowLeft } from 'lucide-react';
 import { useCallback, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
@@ -32,7 +27,13 @@ import { PermissionRequests } from './PermissionRequests.js';
 import { QuestionOptions } from './QuestionOptions.js';
 import { PlanApprovalRequest } from './PlanApprovalRequest.js';
 import { ProposedTickets, visibleProposals } from './ProposedTickets.js';
-import { classifyRequest, lastMoveTransition, planAnswerOption } from './request-preview.js';
+import {
+  agentStatesOf,
+  classifyRequest,
+  lastMoveTransition,
+  planOptions,
+  type PlanOptions,
+} from './request-preview.js';
 import { ReviewRequest } from './ReviewRequest.js';
 import { StarDetails } from './StarDetails.js';
 import { TicketButtons, TicketSheet, type StripSheet } from './TicketStrip.js';
@@ -95,7 +96,7 @@ export function DetailPanel({
   const ids = useId();
   const tabRefs = useRef<Partial<Record<PanelTab, HTMLButtonElement | null>>>({});
   const status = detail?.card.status ?? null;
-  const planOption = detail ? planApprovalOption(detail) : null;
+  const plan = detail ? planApprovalOptions(detail) : null;
 
   // UX-2: the Brief. The body is `ticket_body`; an older server doesn't send it, so it falls back
   // to the ticket section of the initial prompt (Claude's transcript), fetched only when asked.
@@ -205,7 +206,7 @@ export function DetailPanel({
           <TicketButtons
             key={sessionId}
             detail={detail}
-            planOption={planOption}
+            planActions={plan}
             brief={brief}
             sheet={sheet}
             onSheet={onSheet}
@@ -257,14 +258,14 @@ export function DetailPanel({
                       agent={name}
                       request={detail.pending_input}
                     />
-                  ) : planOption ? (
+                  ) : plan ? (
                     <PlanApprovalRequest
                       key={detail.pending_input.id}
                       api={api}
                       detail={detail}
                       agent={name}
                       request={detail.pending_input}
-                      option={planOption}
+                      plan={plan}
                       onDone={reload}
                       {...(fullScreen ? { onOpenPlan: openPlan } : {})}
                     />
@@ -291,7 +292,7 @@ export function DetailPanel({
                   )}
               </OutputLog>
               {/* 06 §Plan approval: the plan panel carries the buttons (other actions inside). */}
-              {detail.card.session_id !== null && !planOption && (
+              {detail.card.session_id !== null && !plan && (
                 <TransitionButtons
                   api={api}
                   sessionId={detail.card.session_id}
@@ -351,7 +352,7 @@ export function DetailPanel({
             id={`${ids}-sheet`}
             api={api}
             detail={detail}
-            planOption={planOption}
+            planActions={plan}
             agentRunning={agentStateRunning(detail)}
             sheet={sheet}
             onSheet={onSheet}
@@ -373,16 +374,20 @@ export function DetailPanel({
 // ---------------------------------------------------------------- Messages
 
 /**
- * 06 §Plan approval: the answer option when the open request is a plan to approve and the card
- * offers the `$return_to` answer; null otherwise (the generic request and buttons).
+ * 06 §Plan approval: the answer and approve options when the open request is a plan to approve
+ * and the card offers the `$return_to` answer; null otherwise (the generic request and buttons).
  */
-function planApprovalOption(detail: SessionDetail): HumanTransitionOption | null {
+function planApprovalOptions(detail: SessionDetail): PlanOptions | null {
   const request = detail.pending_input;
   if (!request || classifyRequest(request, lastMoveTransition(detail)) !== 'plan_approval') {
     return null;
   }
   if (detail.card.session_id === null) return null;
-  return planAnswerOption(detail.card.human_transitions, detail.return_to);
+  return planOptions(
+    detail.card.human_transitions,
+    detail.return_to,
+    agentStatesOf(detail.workflow),
+  );
 }
 
 /** UX-6: the check an open "Step failed" question names, for its run's status. */

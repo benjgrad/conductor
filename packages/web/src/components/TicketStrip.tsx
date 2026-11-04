@@ -2,7 +2,7 @@
 // Brief, Plan and Edit next to the Messages and Details tabs (TicketButtons). Each opens a sheet
 // (TicketSheet) over the tab bodies, chat and composer included, so the chat keeps the panel and
 // the brief and plan are always one click away. DetailPanel places both and owns the open sheet.
-import type { HumanTransitionOption, SessionDetail } from '@conductor/shared';
+import type { SessionDetail } from '@conductor/shared';
 import { Pencil, X } from 'lucide-react';
 import { memo, useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react';
 import type { ApiClient } from '../api/client.js';
@@ -10,6 +10,7 @@ import { tally, type Brief } from '../brief/parse.js';
 import { BriefContent, type BriefContentProps } from './BriefCard.js';
 import { latestPlan } from './plan.js';
 import { PLAN_APPROVAL_LABEL, PlanAnswerActions, PlanView } from './PlanApprovalRequest.js';
+import type { PlanOptions } from './request-preview.js';
 import { EditTicket, TicketAttachments } from './TicketPanel.js';
 import './TicketStrip.css';
 
@@ -42,8 +43,8 @@ function ShortTally({ brief }: { brief: Brief }) {
 
 export interface TicketButtonsProps {
   detail: SessionDetail;
-  /** The `$return_to` answer while a plan approval is open (`planApprovalOption`), else null. */
-  planOption: HumanTransitionOption | null;
+  /** While a plan approval is open, its answer and approve options (`planOptions`); else null. */
+  planActions: PlanOptions | null;
   brief: Brief | null;
   /** The open sheet; DetailPanel owns it, so the chat's "Open plan" can open the Plan sheet. */
   sheet: StripSheet | null;
@@ -58,7 +59,7 @@ export interface TicketButtonsProps {
  */
 export const TicketButtons = memo(function TicketButtons({
   detail,
-  planOption,
+  planActions,
   brief,
   sheet,
   onSheet,
@@ -110,8 +111,8 @@ export const TicketButtons = memo(function TicketButtons({
       {hasPlan &&
         button(
           'plan',
-          `ticket-strip-plan${planOption ? ' to-approve' : ''}`,
-          planOption ? (
+          `ticket-strip-plan${planActions ? ' to-approve' : ''}`,
+          planActions ? (
             // A phone shows just "Plan" (highlighted) so the row fits; the name stays the same.
             <>
               <span className="ticket-strip-label ticket-strip-long">{PLAN_APPROVAL_LABEL}</span>
@@ -122,7 +123,7 @@ export const TicketButtons = memo(function TicketButtons({
           ) : (
             <span className="ticket-strip-label">Plan</span>
           ),
-          planOption ? PLAN_APPROVAL_LABEL : undefined,
+          planActions ? PLAN_APPROVAL_LABEL : undefined,
         )}
       {detail.ticket_editable &&
         button('edit', 'ticket-strip-edit', <Pencil size={16} aria-hidden="true" />, 'Edit ticket')}
@@ -133,7 +134,7 @@ export const TicketButtons = memo(function TicketButtons({
 export interface TicketSheetProps extends BriefContentProps {
   api: ApiClient;
   detail: SessionDetail;
-  planOption: HumanTransitionOption | null;
+  planActions: PlanOptions | null;
   /** The session's state runs an agent (EditTicket's note). */
   agentRunning: boolean;
   /** The open sheet. */
@@ -189,7 +190,7 @@ export function TicketSheet({ id, ...props }: TicketSheetProps) {
 function SheetBody({
   api,
   detail,
-  planOption,
+  planActions,
   agentRunning,
   sheet,
   onSheet,
@@ -241,12 +242,12 @@ function SheetBody({
           <PlanView plan={plan} clamp={false} />
         )}
       </div>
-      {planOption && sessionId !== null && (
+      {planActions && sessionId !== null && (
         <div className="ticket-sheet-foot">
           <PlanAnswerActions
             api={api}
             sessionId={sessionId}
-            option={planOption}
+            plan={planActions}
             onDone={() => {
               onSheet(null);
               onReload();

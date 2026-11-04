@@ -688,8 +688,18 @@ button.copy {
   max-width: 100%;
   background: var(--ask-bg);
   border: 1px solid color-mix(in srgb, var(--ask) 35%, transparent);
+  /* Questions UX: a request waiting on a human stands out from the chat around it. */
+  border-left: 4px solid var(--ask);
   border-radius: 10px;
   padding: 10px 12px;
+}
+/* Every request waiting on a human (question, plan, permission): one "Action needed" look. */
+.action-needed {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ask);
 }
 .pending-head {
   display: flex;

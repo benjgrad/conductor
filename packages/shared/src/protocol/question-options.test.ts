@@ -12,7 +12,10 @@ describe('boundedQuestionOptions (Questions UX)', () => {
   it('keeps a valid list: labels trimmed, blank descriptions left out', () => {
     expect(
       boundedQuestionOptions(
-        [{ label: ' Postgres ', description: 'recommended' }, { label: 'SQLite', description: ' ' }],
+        [
+          { label: ' Postgres ', description: 'recommended' },
+          { label: 'SQLite', description: ' ' },
+        ],
         true,
       ),
     ).toEqual({
@@ -38,7 +41,10 @@ describe('boundedQuestionOptions (Questions UX)', () => {
     ['a long label', [{ label: 'a' }, { label: 'x'.repeat(ASK_USER_OPTION_LABEL_MAX + 1) }]],
     [
       'a long description',
-      [{ label: 'a' }, { label: 'b', description: 'x'.repeat(ASK_USER_OPTION_DESCRIPTION_MAX + 1) }],
+      [
+        { label: 'a' },
+        { label: 'b', description: 'x'.repeat(ASK_USER_OPTION_DESCRIPTION_MAX + 1) },
+      ],
     ],
     ['duplicate labels', [{ label: 'a' }, { label: ' a' }]],
   ])('drops %s', (_name, options) => {

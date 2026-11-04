@@ -26,6 +26,7 @@ import { FreshConversation, freshConversationOffer } from './FreshConversation.j
 import { Markdown } from './markdown.js';
 import { OutputLog } from './OutputLog.js';
 import { PermissionRequests } from './PermissionRequests.js';
+import { QuestionOptions } from './QuestionOptions.js';
 import { PlanApprovalRequest } from './PlanApprovalRequest.js';
 import { ProposedTickets, visibleProposals } from './ProposedTickets.js';
 import { classifyRequest, lastMoveTransition, planAnswerOption } from './request-preview.js';
@@ -409,6 +410,11 @@ interface PendingInputProps {
   onDone: () => void;
 }
 
+/** Questions UX: "Type a different answer" puts the cursor in this panel's composer. */
+function focusComposer(): void {
+  document.querySelector<HTMLTextAreaElement>('aside.detail .composer textarea')?.focus();
+}
+
 /**
  * The open input request, inline at the end of the chat. The composer answers it; on old
  * versions, non-agent kinds also get the quick actions (06): retry, skip to…, abort.
@@ -464,6 +470,7 @@ function PendingInput({ api, detail, agent, request, onDone }: PendingInputProps
   return (
     <section aria-label="Pending input" className="pending">
       <div className="pending-head">
+        <span className="action-needed">Action needed</span>
         {stepFailed ? (
           <span className="badge badge-step-failed">Step failed</span>
         ) : (
@@ -484,7 +491,24 @@ function PendingInput({ api, detail, agent, request, onDone }: PendingInputProps
         <Markdown text={request.question} />
       </div>
       {offer === 'prominent' && fresh}
-      <p className="pending-hint muted">Reply in the box below to answer.</p>
+      {/* Questions UX: the agent's choices, clickable; typing an answer still works. */}
+      {request.options && (
+        <QuestionOptions
+          options={request.options}
+          disabled={busy}
+          onAnswer={(text) =>
+            api
+              .answer(sessionId, { input_request_id: request.id, answer: text })
+              .then(() => onDone())
+          }
+          onTypeInstead={focusComposer}
+        />
+      )}
+      <p className="pending-hint muted">
+        {request.options
+          ? 'Choose an option, or reply in the box below.'
+          : 'Reply in the box below to answer.'}
+      </p>
       {!fromAgent && isOldVersion(detail) && (
         <div className="quick-actions" role="group" aria-label="Quick actions">
           <button type="button" disabled={busy} onClick={() => void send('retry')}>

@@ -548,10 +548,7 @@ describe('daemon core: start_session', () => {
       items: [{ label: 'postgres', description: 'recommended' }, { label: 'sqlite' }],
     };
     const driver = new FakeClaudeDriver({
-      turns: [
-        [{ askUser: 'Which DB?', options }],
-        (answer) => [{ completeState: { db: answer } }],
-      ],
+      turns: [[{ askUser: 'Which DB?', options }], (answer) => [{ completeState: { db: answer } }]],
     });
     orch.heartbeatIntervalMs = 30;
     makeDaemon(driver);

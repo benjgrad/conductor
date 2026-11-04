@@ -11,6 +11,7 @@ import { DEFAULT_BOARD_WORKFLOW, readCollapsed, writeCollapsed } from './board-l
 import { AgentAvatar, agentName } from './agent-identity.js';
 import { ago, cardMeta, KIND_LABELS, TICKET_KIND_LABELS, usd } from './format.js';
 import { usePlanAnswer } from './plan-answer.js';
+import { CardPermissionActions, CardQuestionOptions } from './CardActions.js';
 import { PendingChecklist, TransitionButtons } from './transitions.js';
 import {
   classifyRequest,
@@ -438,6 +439,15 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
           {card.permission.pending_count > 1 ? ` (+${card.permission.pending_count - 1})` : ''}
         </span>
       )}
+      {/* Questions UX: allow or deny right here; Review opens the panel (Allow always, the input). */}
+      {api && sessionId !== null && card.sub_status === 'needs_permission' && card.permission && (
+        <CardPermissionActions
+          key={card.permission.request_id}
+          api={api}
+          permission={card.permission}
+          onReview={() => onSelect(sessionId)}
+        />
+      )}
       {card.badges.includes('waiting_for_build_slot') && !waitingForBuildSlot(card) && (
         <span className="badge badge-slot">waiting for build slot</span>
       )}
@@ -502,7 +512,16 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
           )}
         </div>
       )}
-      {api && sessionId !== null && planOption ? (
+      {/* Questions UX: the agent's options replace the generic buttons on the card. */}
+      {api && sessionId !== null && q?.options && !planOption ? (
+        <CardQuestionOptions
+          key={q.id}
+          api={api}
+          sessionId={sessionId}
+          request={q}
+          onOpen={() => onSelect(sessionId)}
+        />
+      ) : api && sessionId !== null && planOption ? (
         <PlanApprovalActions
           api={api}
           sessionId={sessionId}

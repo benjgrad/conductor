@@ -17,6 +17,7 @@ export function ReviewRequest({ detail, request, agent }: ReviewRequestProps) {
   return (
     <section aria-label="Ready for review" className="pending review-request">
       <div className="pending-head">
+        <span className="action-needed">Action needed</span>
         <span className="badge badge-review">Ready for review</span>
         <span className="muted">{agent} finished</span>
       </div>

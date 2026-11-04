@@ -1040,7 +1040,16 @@ function takeOutcome(
       step(attachment);
       return;
     }
-    enter(st, t.goto, { ...NO_ROUTE, kind, question, ...options, attachment, outcome, info, ...move });
+    enter(st, t.goto, {
+      ...NO_ROUTE,
+      kind,
+      question,
+      ...options,
+      attachment,
+      outcome,
+      info,
+      ...move,
+    });
     return;
   }
   const fixes = t.attach === 'result' ? fixesLines(info.result) : [];

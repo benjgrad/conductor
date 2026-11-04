@@ -169,7 +169,9 @@ const ASK_USER_INPUT_SHAPE = {
       z.object({
         label: z
           .string()
-          .describe(`The choice, at most ${ASK_USER_OPTION_LABEL_MAX} characters; the answer you get`),
+          .describe(
+            `The choice, at most ${ASK_USER_OPTION_LABEL_MAX} characters; the answer you get`,
+          ),
         description: z
           .string()
           .optional()

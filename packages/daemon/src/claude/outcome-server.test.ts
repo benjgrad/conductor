@@ -199,9 +199,9 @@ describe('outcome server', () => {
     // One option is not a choice: dropped, the question still goes out.
     const two = register();
     const c2 = await connect(two.reg.url);
-    expect(
-      await callText(c2, 'ask_user', { question: 'Sure?', options: [{ label: 'Yes' }] }),
-    ).toBe(ASK_USER_RETURN);
+    expect(await callText(c2, 'ask_user', { question: 'Sure?', options: [{ label: 'Yes' }] })).toBe(
+      ASK_USER_RETURN,
+    );
     expect(two.calls).toEqual([{ kind: 'ask', question: 'Sure?' }]);
   });
 

@@ -55,6 +55,7 @@ export function PlanApprovalRequest({
   return (
     <section aria-label={PLAN_APPROVAL_LABEL} className="pending plan-approval">
       <div className="pending-head">
+        <span className="action-needed">Action needed</span>
         <span className="badge badge-plan-approval">{PLAN_APPROVAL_LABEL}</span>
         <span className="muted">{agent} asks</span>
       </div>

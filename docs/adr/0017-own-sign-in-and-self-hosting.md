@@ -118,6 +118,7 @@ Internet ──TLS──▶ nginx (host, :443, cert for conductor.gradyserver.co
 - **One instance** (ADR-0012, ADR-0003's revisit trigger unchanged).
 
 ### Daemon distribution (supersedes U-067: no npm publish)
+- *Amended by [ADR-0026](0026-rust-daemon.md) §4 (MR-T15):* the daemon is a native Rust binary, one `conductor-daemon-<version>-<target>.tgz` per target, built by CI rather than in the image; `install.sh` picks its build by `uname` and no longer checks for Node. The layout, the upgrade by re-running the script, and enrollment below are unchanged.
 - The image's build stage produces `conductor-daemon-<version>.tgz` (`pnpm --filter @conductor/daemon deploy --prod` or an equivalent self-contained bundle: the daemon and its production `node_modules`, no workspace links), with its SHA-256. `<version>` is the package version plus the git sha.
 - The orchestrator serves:
   - `GET /install.sh`, a POSIX `sh` script templated with `CONDUCTOR_PUBLIC_URL`, the version and the SHA-256;

@@ -1,0 +1,136 @@
+# The quarantined tests (WF-T05): everything docs/tracking/FLAKY.md lists, which the gate (ci.yml,
+# daemon-rust.yml, daemon-windows.yml) leaves out. Run nightly and by hand, WITHOUT retries, so a
+# flake shows; scripts/quarantine-report.js writes one line per FLAKY.md row to the run summary
+# (passed / still failing / infrastructure / not run, and overdue fix-by dates). The run stays
+# green whatever the tests do: it reports, it does not page anyone.
+#
+# Cost: the repo is private on the free plan, so these minutes count against the quota (macOS 10x,
+# Windows 2x). The schedule runs Ubuntu only; a dispatch can pick the OS for the Rust tests.
+# GitHub-hosted runners only: the self-hosted gradyserver runner takes ci.yml's deploy job alone.
+name: quarantine
+
+on:
+  schedule:
+    - cron: '23 6 * * *' # ~01:23 in Toronto
+  workflow_dispatch:
+    inputs:
+      os:
+        description: 'Runner for the quarantined Rust tests'
+        type: choice
+        options: [ubuntu-latest, macos-latest, windows-latest]
+        default: ubuntu-latest
+
+permissions:
+  contents: read
+  actions: read # the report asks whether a cancelled job ever got a runner
+
+concurrency:
+  group: quarantine
+  cancel-in-progress: false
+
+jobs:
+  ts:
+    name: ts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CONDUCTOR_TEST_SLOTS: '0' # a dedicated runner (M2-T31)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Some quarantined files may be DB tests (test/db.ts); harmless when none are.
+      - run: pnpm db:up
+      # No retries: the nightly is where a flake is allowed to show. `--mode all`: full property runs.
+      - name: quarantined TypeScript tests
+        continue-on-error: true
+        env:
+          CONDUCTOR_QUARANTINE_RETRY: '0'
+        run: >-
+          pnpm vitest run --mode all --project quarantine
+          --reporter=default --reporter=json --outputFile.json=quarantine-ts.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quarantine-ts
+          path: quarantine-ts.json
+          if-no-files-found: ignore
+
+  rust:
+    name: rust (${{ inputs.os || 'ubuntu-latest' }})
+    runs-on: ${{ inputs.os || 'ubuntu-latest' }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v4
+      # kill_real runs the fake-claude fixture under node, as in daemon-rust.yml.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: the quarantined Rust tests (FLAKY.md)
+        id: filter
+        run: echo "filter=$(node scripts/test-flaky.js --nextest-filter)" >>"$GITHUB_OUTPUT"
+      - name: rust toolchain from rust-toolchain.toml
+        if: steps.filter.outputs.filter != ''
+        id: rust
+        run: echo "channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" >>"$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        if: steps.filter.outputs.filter != ''
+        with:
+          toolchain: ${{ steps.rust.outputs.channel }}
+      - uses: Swatinem/rust-cache@v2
+        if: steps.filter.outputs.filter != ''
+      - uses: taiki-e/install-action@v2
+        if: steps.filter.outputs.filter != ''
+        with:
+          tool: cargo-nextest
+      # .config/nextest.toml's `quarantine` profile: no retries, no fail-fast, a JUnit report.
+      - name: quarantined Rust tests
+        if: steps.filter.outputs.filter != ''
+        continue-on-error: true
+        env:
+          FILTER: ${{ steps.filter.outputs.filter }}
+        run: cargo nextest run --workspace --locked --profile quarantine --run-ignored only -E "$FILTER"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quarantine-rust
+          path: target/nextest/quarantine/junit.xml
+          if-no-files-found: ignore
+
+  report:
+    name: report
+    needs: [ts, rust]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/download-artifact@v4
+        continue-on-error: true # none at all when both jobs never ran
+        with:
+          path: ${{ runner.temp }}/quarantine
+      - name: scripts/quarantine-report.js
+        env:
+          QUARANTINE_TS_JSON: ${{ runner.temp }}/quarantine/quarantine-ts/quarantine-ts.json
+          QUARANTINE_RUST_JUNIT: ${{ runner.temp }}/quarantine/quarantine-rust/junit.xml
+          TS_RESULT: ${{ needs.ts.result }}
+          RUST_RESULT: ${{ needs.rust.result }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/quarantine-report.js

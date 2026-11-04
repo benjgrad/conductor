@@ -7,6 +7,7 @@ This file is the **operating manual for every Claude session in this repo**. The
 ### Running as a conductor agent
 If you were started by conductor on a ticket (your system prompt says "running unattended as a conductor session"), the workflow replaces the lifecycle:
 - **Skip steps 0 and 4.** Don't brief Ben or wait for a go-ahead: the ticket is the go-ahead. Don't edit `docs/tracking/*` on the ticket branch. Put tracking rows (new U-### unknowns, TD-### tech debt, follow-ups) under a `Tracking` heading in your `complete_state` summary; a daily tracking-sync schedule copies them onto `main`.
+- **FLAKY.md is the exception**: [`docs/tracking/FLAKY.md`](docs/tracking/FLAKY.md) is read by the gate, so add a row when you quarantine a test and delete it in the PR that fixes it, on the ticket branch. A failing check whose test is listed there: rerun only the failed job, once, and don't ask Ben.
 - **Skip the merge and push in step 3.** Conductor runs the gates, pushes and opens the PR. Commit your work and finish the step.
 - **"Ask Ben" means `ask_user`** (or `plan_needs_approval` while planning), never an interactive question prompt. **Commands that need approval** (installing a toolchain or package, curl, a new tool): just run them. The permission prompt reaches Ben on the board ([ADR-0023](docs/adr/0023-permission-prompts-through-conductor.md)). A rule here is a reason to ask, never a reason to give up on the ticket.
 
@@ -23,6 +24,7 @@ If you were started by conductor on a ticket (your system prompt says "running u
 | `docs/tracking/UNKNOWNS.md` | Open questions U-### |
 | `docs/tracking/BLOCKERS.md` | Walls needing action B-### |
 | `docs/tracking/TECH_DEBT.md` | Deliberate shortcuts TD-### |
+| `docs/tracking/FLAKY.md` | Known-flaky tests: quarantined from the gate, run nightly (`quarantine.yml`); read by `vitest.config.ts` |
 | `docs/tracking/UNFINISHED.md` | WIP handoffs between sessions |
 | `docs/tracking/DECISIONS_LOG.md` | One-line decisions, newest first |
 | `docs/tracking/sessions/` | One log per session |
@@ -110,6 +112,8 @@ pnpm typecheck         # tsc -b across the workspace (project references; emits 
 pnpm lint              # eslint (type-aware, in a test slot) + prettier --check
 pnpm format            # prettier --write
 pnpm test              # vitest, one project per package (DB tests need db:up), in a test slot
+pnpm test:quarantine   # the known-flaky tests (docs/tracking/FLAKY.md), outside the gate, retry 2
+                       #   (= `pnpm vitest --project quarantine`; CONDUCTOR_QUARANTINE_RETRY=0 for none)
 pnpm test:e2e          # db up + tsc -b + cargo build --release daemon + e2e/ suite: real orchestrator +
                        #   Rust daemon bin, fake Claude (CONDUCTOR_E2E_DAEMON_BIN=packages/daemon/dist/main.js: TS)
 E2E_REAL_CLAUDE=1 pnpm test:e2e   # ask/answer only, real `claude` on haiku (spends money; not in CI)
@@ -122,6 +126,7 @@ cargo fmt --all [--check]                                  # rustfmt
 cargo clippy --workspace --all-targets -- -D warnings      # lint; warnings fail
 node scripts/test-slot.js cargo nextest run --workspace    # every Rust test, in a test slot
 cargo nextest run -p conductor-daemon <filter>             # targeted while iterating (e.g. `seam`)
+cargo test -p conductor-daemon -- --ignored                # the quarantined (FLAKY.md) Rust tests
 cargo build --release -p conductor-daemon                  # target/release/conductor-daemon
 scripts/build-daemon-dist.sh [out-dir]                     # this machine's served tarball (CI builds all five targets)
 node scripts/test-parity.js [--files <glob>]… [--write]    # crates/conductor-daemon/PARITY.md vs the TS tests
@@ -129,7 +134,7 @@ pnpm --filter @conductor/shared emit:protocol            # zod → packages/shar
 cargo run -p conductor-protocol-codegen                    # protocol-json → crates/conductor-protocol/src/generated.rs
 ```
 
-GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `scripts/ci.sh` as the `gates` check on every PR; a PR runs only the slow test tiers its diff reaches (`CONDUCTOR_CI_TIERED=1` → `pnpm test`), and `main` runs `test:all`; a PR also skips clippy + nextest and the e2e suite when its diff doesn't reach them (`scripts/ci-affected.js rust|e2e`), and CI's e2e runs the debug daemon nextest built, not a release build. `daemon-windows.yml` runs the daemon tests on Windows only when the diff reaches the daemon (`scripts/ci-affected.js`). `daemon-rust.yml` runs the cargo gates and a release build on ubuntu, macos and windows only when the diff reaches `crates/**`, `Cargo.*`, `rust-toolchain.toml` or `packages/shared/**`. Every push to `main` that passes it is deployed to gradyserver by `deploy/gradyserver/deploy.sh` (runbook [§12](docs/setup/deploy-gradyserver.md#12-cicd-github-actions)), so merging to `main` ships.
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `scripts/ci.sh` as the `gates` check on every PR; a PR runs only the slow test tiers its diff reaches (`CONDUCTOR_CI_TIERED=1` → `pnpm test`), and `main` runs `test:all`; a PR also skips clippy + nextest and the e2e suite when its diff doesn't reach them (`scripts/ci-affected.js rust|e2e`), and CI's e2e runs the debug daemon nextest built, not a release build. `daemon-windows.yml` runs the daemon tests on Windows only when the diff reaches the daemon (`scripts/ci-affected.js`). `daemon-rust.yml` runs the cargo gates and a release build on ubuntu, macos and windows only when the diff reaches `crates/**`, `Cargo.*`, `rust-toolchain.toml` or `packages/shared/**`. `quarantine.yml` runs the tests listed in `docs/tracking/FLAKY.md` nightly (and by dispatch) without retries and reports each one in the run summary; the gates never run them. Every push to `main` that passes it is deployed to gradyserver by `deploy/gradyserver/deploy.sh` (runbook [§12](docs/setup/deploy-gradyserver.md#12-cicd-github-actions)), so merging to `main` ships.
 
 **Test slots (M2-T31).** Every vitest run (however it is started) and `pnpm lint` first takes one of `CONDUCTOR_TEST_SLOTS` (default 2) machine-wide slots, shared by every worktree and agent (`scripts/test-slot.js`: a localhost port from 54330, freed when the holder exits), and vitest uses only its share of the CPUs (`maxWorkers`). If both are taken it prints `test slot: waiting…` with the holders and starts by itself; that is a queue, not a hang, so give long test commands a long Bash timeout (`timeout: 600000`) rather than retrying. Watch mode takes no slot.
 

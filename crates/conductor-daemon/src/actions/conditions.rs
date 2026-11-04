@@ -14,6 +14,12 @@
 //! approves the head or is dismissed), `pr_merged`, `pr_screenshots {ui_paths, min_pairs}`, head
 //! pinning with `head_sha`; Azure / Jira → unsupported (M5). A missing or logged-out gh keeps every
 //! gh condition pending.
+//!
+//! WF-T05: a `pr_checks_green` whose failing checks include a CANCELLED Actions job asks
+//! `gh api repos/<o>/<r>/actions/jobs/<id>` (at most [`MAX_JOB_LOOKUPS`]) whether the job ever got
+//! a runner. One that never did is still failing (it can't merge) but is reported as
+//! infrastructure, not a test failure, so the agent reruns it instead of debugging (or asking
+//! Ben about) a failure its branch didn't cause. Any lookup error keeps the plain `failing:`.
 
 use super::open_pr::GhCommand;
 use crate::exec::{Env, clean_env, spawn_failure, tail};
@@ -30,6 +36,8 @@ use tokio::io::AsyncReadExt;
 pub const GH_CONDITION_TIMEOUT_MS: u64 = 60_000;
 /// Cap on gh's stdout (and, separately, stderr).
 pub const GH_OUTPUT_CAP_BYTES: usize = 16 * 1024;
+/// At most this many `gh api …/actions/jobs/<id>` lookups per evaluation (WF-T05).
+pub const MAX_JOB_LOOKUPS: usize = 5;
 
 const GH_FIELDS: &str = "statusCheckRollup,reviewDecision,reviews,state,mergedAt,author,headRefOid";
 /// Keeps only the fields the mapping reads (same names, so unprojected output parses too).
@@ -354,7 +362,7 @@ pub async fn evaluate_conditions(i: EvaluateConditionsInput) -> EvaluateConditio
     let pr = serde_json::from_str::<Value>(&r.stdout)
         .ok()
         .and_then(|v| parse_pr_view(&v));
-    let Some(pr) = pr else {
+    let Some(mut pr) = pr else {
         return all_pending(
             &i.conditions,
             &format!(
@@ -363,6 +371,44 @@ pub async fn evaluate_conditions(i: EvaluateConditionsInput) -> EvaluateConditio
             ),
         );
     };
+    if i.conditions
+        .iter()
+        .any(|c| matches!(c, Condition::PrChecksGreen { .. }))
+    {
+        // WF-T05: did each cancelled job ever get a runner?
+        let lookups: Vec<usize> = pr
+            .checks
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.conclusion.as_deref() == Some("CANCELLED"))
+            .filter(|(_, c)| c.url.as_deref().and_then(job_ref).is_some())
+            .map(|(n, _)| n)
+            .take(MAX_JOB_LOOKUPS)
+            .collect();
+        for n in lookups {
+            let Some((owner, repo, job)) = pr.checks[n].url.as_deref().and_then(job_ref) else {
+                continue;
+            };
+            let mut args = gh.args.clone();
+            args.extend([
+                "api".to_string(),
+                format!("repos/{owner}/{repo}/actions/jobs/{job}"),
+            ]);
+            let r = run_capped(
+                &gh.cmd,
+                &args,
+                i.root.clone(),
+                clean_env(&base),
+                Duration::from_millis(timeout_ms),
+            )
+            .await;
+            if r.code == Some(0) && !r.truncated && !r.timed_out {
+                pr.checks[n].no_runner = serde_json::from_str::<Value>(&r.stdout)
+                    .ok()
+                    .and_then(|v| parse_job_runner(&v));
+            }
+        }
+    }
     EvaluateConditionsResult {
         results: i
             .conditions
@@ -383,6 +429,46 @@ pub struct PrCheck {
     pub conclusion: Option<String>,
     /// CheckRun `detailsUrl` / StatusContext `targetUrl` when https; None otherwise.
     pub url: Option<String>,
+    /// WF-T05: a cancelled Actions job that never got a runner (Some(true)); None: not asked or
+    /// unknown.
+    pub no_runner: Option<bool>,
+}
+
+/// `(owner, repo, job id)` of a GitHub Actions job link
+/// (`https://github.com/<o>/<r>/actions/runs/<run>/job/<id>`, a CheckRun's `detailsUrl`).
+pub fn job_ref(url: &str) -> Option<(String, String, u64)> {
+    let rest = url.strip_prefix("https://github.com/")?;
+    let rest = rest.split(['?', '#']).next()?;
+    let parts: Vec<&str> = rest.split('/').collect();
+    let [owner, repo, "actions", "runs", run, "job", job] = parts.as_slice() else {
+        return None;
+    };
+    let name_ok = |s: &str| {
+        !s.is_empty()
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    };
+    if !name_ok(owner) || !name_ok(repo) || run.parse::<u64>().is_err() {
+        return None;
+    }
+    Some((owner.to_string(), repo.to_string(), job.parse().ok()?))
+}
+
+/// From `gh api repos/<o>/<r>/actions/jobs/<id>`: Some(true) when the job never got a runner (no
+/// runner name and no steps), Some(false) when it did, None for anything else.
+pub fn parse_job_runner(job: &Value) -> Option<bool> {
+    let o = job.as_object()?;
+    let runner = match o.get("runner_name") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(s)) => Some(s.as_str()),
+        Some(_) => return None,
+    };
+    let steps = match o.get("steps") {
+        None | Some(Value::Null) => 0,
+        Some(Value::Array(a)) => a.len(),
+        Some(_) => return None,
+    };
+    Some(runner.is_none_or(str::is_empty) && steps == 0)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -465,6 +551,7 @@ pub fn parse_pr_view(raw: &Value) -> Option<PrView> {
                     status: None,
                     conclusion: js_str(c.get("state")),
                     url: https_url(c.get("targetUrl")),
+                    no_runner: None,
                 }
             } else {
                 PrCheck {
@@ -474,6 +561,7 @@ pub fn parse_pr_view(raw: &Value) -> Option<PrView> {
                     status: js_str(c.get("status")),
                     conclusion: js_str(c.get("conclusion")),
                     url: https_url(c.get("detailsUrl")),
+                    no_runner: None,
                 }
             }
         })
@@ -515,6 +603,9 @@ pub fn parse_pr_view(raw: &Value) -> Option<PrView> {
         screenshot_pairs: count(o.get("screenshotPairs")),
     })
 }
+
+/// How a check cancelled before it got a runner is reported (WF-T05).
+pub const INFRA_FAILURE: &str = "infrastructure, not a test failure";
 
 const PASS: &[&str] = &["SUCCESS", "NEUTRAL", "SKIPPED"];
 const FAIL: &[&str] = &[
@@ -654,12 +745,22 @@ pub fn map_condition(c: &Condition, pr: &PrView, head_sha: Option<&str>) -> Cond
             let passed = total - failed.len() - pending.len();
             let value = Some(format!("{passed}/{total} passed"));
             if !failed.is_empty() {
-                return result(
-                    t,
-                    Failed,
-                    value,
-                    Some(format!("failing: {}", failing(&failed))),
-                );
+                // WF-T05: a job cancelled before any runner was assigned is infrastructure.
+                let (infra, real): (Vec<&PrCheck>, Vec<&PrCheck>) =
+                    failed.iter().partition(|k| k.no_runner == Some(true));
+                let detail = match (real.is_empty(), infra.is_empty()) {
+                    (_, true) => format!("failing: {}", failing(&real)),
+                    (true, false) => format!(
+                        "{INFRA_FAILURE}: no runner was assigned to {}; rerun the job (gh run rerun <run-id> --failed)",
+                        failing(&infra)
+                    ),
+                    (false, false) => format!(
+                        "failing: {}; {INFRA_FAILURE} (no runner was assigned; rerun the job): {}",
+                        failing(&real),
+                        failing(&infra)
+                    ),
+                };
+                return result(t, Failed, value, Some(detail));
             }
             if closed {
                 return result(t, Failed, value, some("the PR was closed without merging"));

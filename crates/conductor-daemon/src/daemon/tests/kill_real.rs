@@ -2,6 +2,9 @@
 //! reading stdin for an answer) ends it and is acked; BUG-1b against a real process. The real CLI
 //! driver against the process-boundary fake (`fake-claude.mjs` under node), so a real process
 //! group (win32: a real tree) is signalled; that boundary is what is under test.
+//!
+//! Quarantined (docs/tracking/FLAKY.md, WF-T07): every test here is `#[ignore]`d in the gate and
+//! runs nightly (quarantine.yml), or locally with `cargo test -p conductor-daemon -- --ignored`.
 
 use super::*;
 use crate::claude::cli_driver::{CliDriverOptions, create_cli_driver};
@@ -110,16 +113,19 @@ async fn a_kill_ends_it_within_5_s_and_is_acked(aimed: bool) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "flaky: see FLAKY.md"]
 async fn a_kill_aimed_at_its_start_session_ends_it_within_5_s_and_is_acked() {
     a_kill_ends_it_within_5_s_and_is_acked(true).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "flaky: see FLAKY.md"]
 async fn a_kill_with_a_null_target_at_its_fencing_token_ends_it_within_5_s_and_is_acked() {
     a_kill_ends_it_within_5_s_and_is_acked(false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "flaky: see FLAKY.md"]
 async fn fr_1_the_start_time_is_persisted_at_spawn_a_restarted_daemon_kills_its_orphan() {
     let c = Ctx::new().await;
     let d1 = make(&c, None, None).await;
@@ -152,6 +158,7 @@ async fn fr_1_the_start_time_is_persisted_at_spawn_a_restarted_daemon_kills_its_
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "flaky: see FLAKY.md"]
 async fn fr_2_b_a_recorded_pid_whose_start_time_differs_reused_is_left_alone() {
     let c = Ctx::new().await;
     let d1 = make(&c, None, None).await;

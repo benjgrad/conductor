@@ -26,6 +26,7 @@ export const GLOBAL_TRIGGERS = [
   'tsconfig*.json',
   'scripts/test-*.js',
   'scripts/db.sh',
+  'docs/tracking/FLAKY.md', // WF-T05: a row removed puts its test back in the gate
   'packages/*/tsconfig*.json',
   'packages/*/vitest*.ts',
 ];

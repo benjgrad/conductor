@@ -620,6 +620,66 @@ fn uses_resume_for_resume_and_omits_unset_optionals_and_an_empty_deny_list() {
 }
 
 #[test]
+fn passes_a_spilled_system_prompt_as_append_system_prompt_file_never_the_text() {
+    let mut o = base_opts();
+    o.append_system_prompt = Some("x".into());
+    o.append_system_prompt_file = Some(PathBuf::from("/tmp/s/system-prompt.md"));
+    let args = build_claude_args(
+        &o,
+        "{\"mcp\":1}",
+        "/tmp/s/settings.json",
+        &PermissionArgs::Host,
+    );
+    assert_eq!(
+        args[args.len() - 2..],
+        ["--append-system-prompt-file", "/tmp/s/system-prompt.md"]
+    );
+    assert!(!args.iter().any(|a| a == "--append-system-prompt"));
+}
+
+#[test]
+fn spill_keeps_a_short_prompt_on_the_command_line_and_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut o = base_opts();
+    o.append_system_prompt = Some("a".repeat(MAX_ARGV_SYSTEM_PROMPT_CHARS));
+    let out = spill_system_prompt(o.clone(), dir.path()).unwrap();
+    assert_eq!(out.append_system_prompt, o.append_system_prompt);
+    assert_eq!(out.append_system_prompt_file, None);
+    assert!(!dir.path().join("system-prompt.md").exists());
+}
+
+#[test]
+fn spill_moves_a_long_prompt_into_a_private_file_so_windows_argv_stays_short() {
+    // Production spills into the session's private dir (write_mcp_config_file makes it with
+    // mkdir_private); write_private_file refuses a plain temp dir on Windows (inherited ACL).
+    let dir = tempfile::tempdir().unwrap();
+    mkdir_private(dir.path()).unwrap();
+    let text = format!("# CLAUDE.md\n{}", "b".repeat(40 * 1024));
+    let mut o = base_opts();
+    o.append_system_prompt = Some(text.clone());
+    let out = spill_system_prompt(o, dir.path()).unwrap();
+    let path = dir.path().join("system-prompt.md");
+    assert_eq!(out.append_system_prompt, None);
+    assert_eq!(
+        out.append_system_prompt_file.as_deref(),
+        Some(path.as_path())
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+    if windows() {
+        assert_owner_only(&path, AssertOwnerOnlyOptions::new(AclKind::File)).unwrap();
+    } else {
+        assert_eq!(mode(&path) & 0o777, 0o600);
+    }
+    let args = build_claude_args(
+        &out,
+        "/tmp/s/mcp.json",
+        "/tmp/s/settings.json",
+        &PermissionArgs::Host,
+    );
+    assert!(args.join(" ").len() < MAX_ARGV_SYSTEM_PROMPT_CHARS);
+}
+
+#[test]
 fn writes_stream_json_user_messages() {
     let line = user_message_line("hi");
     assert!(line.ends_with('\n'));

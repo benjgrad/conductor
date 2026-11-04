@@ -305,3 +305,34 @@ describe('claimWork repo rules (ADR-0013 amendment 2026-10-30)', () => {
     expect(await claimed(m)).toBe(t);
   });
 });
+
+describe('claimWork max_sessions: which sessions hold a slot', () => {
+  const R = 'github.com/org/slots';
+
+  async function fullMachine(scope: AccountScope) {
+    const m = await machine(scope, [repo('/src/slots', R)]);
+    await db.pool.query(`UPDATE machine SET max_sessions = 1 WHERE id = $1`, [m]);
+    await ticket(scope, R);
+    const first = await claim(m);
+    expect(first.status).toBe('claimed');
+    await ticket(scope, R);
+    expect(await claim(m)).toEqual({ status: 'no_work', reason: 'max_sessions' });
+    return { m, sessionId: first.status === 'claimed' ? first.sessionId : '' };
+  }
+
+  it('a waiting_external session (PR waiting on approvals) frees its slot', async () => {
+    const scope = await newAccount(db.pool);
+    const { m, sessionId } = await fullMachine(scope);
+    await db.pool.query(`UPDATE session SET status = 'waiting_external' WHERE id = $1`, [
+      sessionId,
+    ]);
+    expect((await claim(m)).status).toBe('claimed');
+  });
+
+  it('a needs_input session still holds its slot', async () => {
+    const scope = await newAccount(db.pool);
+    const { m, sessionId } = await fullMachine(scope);
+    await db.pool.query(`UPDATE session SET status = 'needs_input' WHERE id = $1`, [sessionId]);
+    expect(await claim(m)).toEqual({ status: 'no_work', reason: 'max_sessions' });
+  });
+});

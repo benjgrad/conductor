@@ -19,15 +19,13 @@ import {
   type OpenInputRow,
   type TicketCardRow,
 } from '../engine/rows.js';
+import { SLOT_STATUSES } from '../gateway/claim.js';
 import type { Db } from '../main.js';
 import { readCardPermissions, withPermission } from '../permissions/store.js';
 import type { MachineRow, SessionRow, TicketRow, WorkflowDefinitionRow } from '../db/types.js';
 import { maxBoardEventId } from '../stream/board.js';
 
 // Read models for the REST API (M1-T08). Cards always come from `toBoardCard` (10-contracts).
-
-/** Statuses that hold a machine slot, for the fleet view's `running_sessions`. */
-const SLOT_STATUSES = ['assigned', 'running', 'needs_input', 'waiting_external'];
 
 /** Run `fn` in a read-only REPEATABLE READ transaction (one consistent snapshot). */
 async function withSnapshot<T>(db: Db, fn: (q: Queryable) => Promise<T>): Promise<T> {

@@ -64,15 +64,15 @@ fn an_unknown_command_is_usage_2() {
 }
 
 #[test]
-fn run_is_not_wired_yet() {
-    // TD-211: MR-T13b wires `run` to the daemon core.
+fn run_without_a_valid_config_exits_1() {
+    // `run` itself is in tests/run.rs; here only its config error path (no network needed).
     let t = tempfile::tempdir().unwrap();
     daemon(t.path())
         .arg("run")
+        .env("CONDUCTOR_PORT", "not-a-port")
         .assert()
         .code(1)
-        .stderr(predicate::str::contains("not wired yet"));
-    daemon(t.path()).assert().code(1);
+        .stderr(predicate::str::contains("[conductor-daemon] fatal:"));
 }
 
 #[test]

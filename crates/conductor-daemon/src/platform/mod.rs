@@ -19,6 +19,7 @@ pub mod machine;
 pub mod private_file;
 pub mod procinfo;
 pub mod shell;
+pub mod signals;
 pub mod spawn;
 pub mod sysres;
 pub mod win_path;

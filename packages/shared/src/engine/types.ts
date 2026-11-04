@@ -699,6 +699,11 @@ export const EffectSchema = z.discriminatedUnion('type', [
     /** ADR-0011: the agent's or human's reason, or the system's (e.g. "timed out"). */
     reason: z.string().nullable().optional(),
     actor: TransitionActorSchema.nullable().optional(),
+    /**
+     * The transition that led here has `notify: true` (its name): the wrapper writes a
+     * `transition.notified` board event and `push_transition` rows. Absent = no notification.
+     */
+    notify: z.string().optional(),
   }),
   /**
    * Internal: event row `conversation.reset` (audit). The Claude conversation `claude_session_id`

@@ -150,6 +150,9 @@ pub async fn run_daemon(env: &Env, mut deps: RunDeps) -> i32 {
             return 1;
         }
     };
+    if let Some(w) = crate::config::git_identity_warning(&config) {
+        log(&w);
+    }
     let claude_bin = env
         .get("CONDUCTOR_CLAUDE_BIN")
         .cloned()

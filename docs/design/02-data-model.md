@@ -45,6 +45,7 @@ The exact DDL is `packages/orchestrator/migrations/1761100000000_initial-schema.
 | max_concurrent_builds | int | daemon build semaphore size |
 | last_seq | bigint null | highest daemon `seq` processed; the `(machine_id, seq)` dedupe and `registered.last_seq` ([10](10-contracts.md#daemon-seq-dedupe)) |
 | claude_code_version | text null | `register.claude_code_version` (`claude --version`), stored on every register so stream-json drift can be tied to a CLI version ([U-015](../tracking/UNKNOWNS.md), [U-032](../tracking/UNKNOWNS.md)). null = the daemon couldn't run the CLI. M1-T07 migration |
+| git_identity_missing | bool null | the last `inventory.git_identity_missing` (WF-T02, migration `1762800000000`): true = the daemon found no commit identity, so agents commit as `conductor <conductor@localhost>`; the Machines page warns. null = not reported (an older daemon, or no inventory yet) |
 | account_id | uuid fk account | M2-T03 (see Tenancy above) |
 | name | text null | display name (M2-T09; rename is M2-T17's). Enrollment and the local-mode register set it to the hostname, the migration backfills it; null = show the hostname. Nullable because M1 inserts don't name it |
 | daemon_version | text null | `register.daemon_version` (enrollment's first), written on every register |

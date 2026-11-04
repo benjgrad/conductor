@@ -522,6 +522,7 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 | TS case | Rust |
 |---|---|
 | inventory/report.test.ts › inventoryHash › is stable under reordering and changes with a version or a repo | crates/conductor-daemon/src/inventory/report/tests.rs::inventory_hash_is_stable_under_reordering_and_changes_with_a_version_or_a_repo, crates/conductor-daemon/src/inventory/report/tests.rs::the_payload_and_hash_match_the_ts_vector |
+| inventory/report.test.ts › inventoryHash › WF-T02: the payload carries git_identity_missing, which the hash ignores | crates/conductor-daemon/src/inventory/report/tests.rs::the_payload_carries_git_identity_missing_which_the_hash_ignores |
 | inventory/report.test.ts › inventory log lines (why no tickets reach a machine) › repoWarnings: no roots, no repos, or a repo without a routable remote | crates/conductor-daemon/src/inventory/report/tests.rs::repo_warnings_no_roots_no_repos_or_a_repo_without_a_routable_remote |
 | inventory/report.test.ts › inventory log lines (why no tickets reach a machine) › inventorySummary names the routable remotes, de-duplicated and cut at 10 | crates/conductor-daemon/src/inventory/report/tests.rs::inventory_summary_names_the_routable_remotes_deduplicated_and_cut_at_10 |
 | inventory/report.test.ts › inventory log lines (why no tickets reach a machine) › onceLog prints each message once, and forgets everything at its cap | crates/conductor-daemon/src/inventory/report/tests.rs::once_log_prints_each_message_once_and_forgets_everything_at_its_cap |
@@ -743,6 +744,9 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 | units.test.ts › loadConfig › defaults: localhost orchestrator on CONDUCTOR_PORT, 25 % owner reserve, port pool | crates/conductor-daemon/src/config.rs::tests::defaults_localhost_orchestrator_owner_reserve_and_port_pool |
 | units.test.ts › loadConfig › reads env overrides and rejects bad values | crates/conductor-daemon/src/config.rs::tests::reads_env_overrides_and_rejects_bad_values |
 | units.test.ts › loadConfig › M1-T14: local repos are off by default; repo hosts are unrestricted unless listed | crates/conductor-daemon/src/config.rs::tests::local_repos_are_off_by_default_and_repo_hosts_unrestricted_unless_listed |
+| units.test.ts › loadConfig › git identity: env wins | crates/conductor-daemon/src/config.rs::tests::git_identity_env_wins |
+| units.test.ts › loadConfig › git identity: git config when env is unset | crates/conductor-daemon/src/config.rs::tests::git_identity_from_git_config_when_env_unset |
+| units.test.ts › loadConfig › git identity: falls back, flags it missing and warns | crates/conductor-daemon/src/config.rs::tests::git_identity_falls_back_and_flags_missing |
 | units.test.ts › PortPool › allocates aligned ranges, reuses a session’s range, and reports exhaustion | crates/conductor-daemon/src/ports.rs::tests::allocates_aligned_ranges_reuses_a_sessions_range_and_reports_exhaustion |
 | units.test.ts › DaemonStore › persists seq, buffered events, acks and sessions across instances | crates/conductor-daemon/src/store.rs::tests::persists_seq_buffered_events_acks_and_sessions_across_instances |
 | units.test.ts › DaemonStore › onRegistered: drops confirmed events, sequences the rest from max(local+1, last_seq+1) | crates/conductor-daemon/src/store.rs::tests::on_registered_drops_confirmed_events_and_sequences_the_rest |

@@ -134,6 +134,7 @@ const machine: ColumnSpec<MachineRow> = {
   repo_allow: col('_text', NULL),
   repo_exclusive: col('_text', NN),
   features: col('_text', NN),
+  git_identity_missing: col('bool', NULL),
   created_at: col('timestamptz', NN),
   updated_at: col('timestamptz', NN),
 };

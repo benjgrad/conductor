@@ -9,7 +9,7 @@ import {
   serviceCommand,
   stopSupervisedJob,
 } from './commands/service.js';
-import { loadConfig } from './config.js';
+import { gitIdentityWarning, loadConfig } from './config.js';
 import { Daemon } from './daemon.js';
 import { watchSighup } from './inventory/report.js';
 import { execFileCli, nativeExeProblem } from './platform/index.js';
@@ -54,6 +54,8 @@ async function run(): Promise<void> {
     );
   }
   const config = loadConfig(process.env);
+  const gitWarning = gitIdentityWarning(config);
+  if (gitWarning !== null) process.stderr.write(`[conductor-daemon] ${gitWarning}\n`);
   const outcomeServer = await startOutcomeServer();
   // ADR-0023: auto mode + prompts to the board need a CLI that has them; probed once per start.
   const prompts = await probePermissionPrompts();

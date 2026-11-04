@@ -650,7 +650,10 @@ fn spill_keeps_a_short_prompt_on_the_command_line_and_writes_nothing() {
 
 #[test]
 fn spill_moves_a_long_prompt_into_a_private_file_so_windows_argv_stays_short() {
+    // Production spills into the session's private dir (write_mcp_config_file makes it with
+    // mkdir_private); write_private_file refuses a plain temp dir on Windows (inherited ACL).
     let dir = tempfile::tempdir().unwrap();
+    mkdir_private(dir.path()).unwrap();
     let text = format!("# CLAUDE.md\n{}", "b".repeat(40 * 1024));
     let mut o = base_opts();
     o.append_system_prompt = Some(text.clone());

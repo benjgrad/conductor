@@ -27,7 +27,7 @@ import {
   userMessageLine,
   type CliDriverSession,
 } from './cli-driver.js';
-import { assertOwnerOnly } from '../platform/index.js';
+import { assertOwnerOnly, mkdirPrivate } from '../platform/index.js';
 import { writeFakeBin } from '../test-support/fake-bin.js';
 import { removeTreeOrLeave } from '../test-support/remove-tree.js';
 import type { DriverEvent, DriverStartOptions, ToolPolicy } from './driver.js';
@@ -360,6 +360,9 @@ describe('spillSystemPrompt', () => {
   let spill: string;
   beforeEach(() => {
     spill = mkdtempSync(join(tmpdir(), 'conductor-spill-'));
+    // Production spills into the session's private dir (writeMcpConfigFile makes it with
+    // mkdirPrivate); writePrivateFile refuses a plain temp dir on Windows (foreign owner / ACL).
+    mkdirPrivate(spill);
   });
   afterEach(() => {
     rmSync(spill, { recursive: true, force: true });

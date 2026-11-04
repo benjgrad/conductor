@@ -78,6 +78,10 @@ describe('AttachmentPicker', () => {
     const api = createMockApi({ replyDelayMs: 0 });
     render(<Picker api={api} />);
     fireEvent.paste(screen.getByLabelText('Body'), { clipboardData: { files: [] } });
+    // A clipboard with text only (no `files` at all) must not throw either.
+    fireEvent.paste(screen.getByLabelText('Body'), {
+      clipboardData: { getData: () => 'hello', types: ['text/plain'] },
+    });
     expect(screen.queryByRole('list', { name: 'Attachments to add' })).toBeNull();
   });
 });

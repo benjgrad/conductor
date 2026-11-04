@@ -100,7 +100,9 @@ export function useAttachmentUploads(api: ApiClient): AttachmentUploads {
 
   const onPaste = useCallback(
     (e: ClipboardEvent) => {
-      const files = [...e.clipboardData.files].filter((f) => f.type.startsWith('image/'));
+      // Text-only pastes (and some synthetic events) carry no `files`: leave those alone.
+      const list = (e.clipboardData as Partial<DataTransfer> | null)?.files;
+      const files = Array.from(list ?? []).filter((f) => f.type.startsWith('image/'));
       if (files.length === 0) return;
       e.preventDefault();
       e.stopPropagation();

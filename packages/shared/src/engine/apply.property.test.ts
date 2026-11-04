@@ -439,6 +439,9 @@ function agentChain(): WorkflowDefinition {
   });
 }
 
+/** The most batches the "reached" coverage check runs before it fails (TD-163). */
+const COVERAGE_BATCHES = 10;
+
 const WORKFLOWS: [string, () => WorkflowDefinition, TicketKind | null][] = [
   ['m1_basic', () => referenceWorkflow('m1_basic'), null],
   ['pr_flow', () => referenceWorkflow('pr_flow'), null],
@@ -464,55 +467,59 @@ describe.each(WORKFLOWS)('apply property: %s', (_name, load, kind) => {
     // (and the lost-row oracle per event), never lost-row coverage: that comes from the
     // deterministic test below. On failure fast-check's reporter prints `seed` and `path`; pass
     // `{ seed, path, endOnFailure: true }` to this fc.assert to replay the counterexample.
-    fc.assert(
-      fc.property(fc.array(stepArb, { minLength: 1, maxLength: 60 }), (steps) => {
-        const h = new Harness(def, fresh());
-        for (const { gen, pick, seconds } of steps) {
-          const prev = h.snap;
-          h.advance(seconds);
-          const event = eventFor(gen, h, pick);
-          h.run(event);
-          checkInvariants(def, prev, h);
-          // BUG-1: a human move off a parked agent into a state that runs no agent kills it.
-          const landed = h.snap.workflow_state;
-          const landedType = landed === null ? undefined : def.states[landed]?.type;
-          if (
-            (event.type === 'human.transition' || event.type === 'input.provided') &&
-            h.last.ignored === null &&
-            prev.machine_id !== null &&
-            prev.agent_process_live &&
-            landedType !== undefined &&
-            landedType !== 'agent'
-          ) {
-            expect(h.last.effects.some((e) => e.type === 'kill')).toBe(true);
-            expect(h.snap.agent_process_live).toBe(false);
-          }
-          if (event.type === 'machine.lost') {
-            const [row, ignored] = lostRow(prev, event);
-            expect(h.last.ignored, row).toBe(ignored);
-            if (ignored === null) {
-              // A park keeps the answer the agent never ran on (it is delivered on Continue).
-              expect(h.snap.status).toBe('needs_input');
-              if (prev.pending_answer !== null) {
-                expect(lostAnswerOf(h.snap.context)).toEqual(prev.pending_answer);
-              }
+    const property = fc.property(fc.array(stepArb, { minLength: 1, maxLength: 60 }), (steps) => {
+      const h = new Harness(def, fresh());
+      for (const { gen, pick, seconds } of steps) {
+        const prev = h.snap;
+        h.advance(seconds);
+        const event = eventFor(gen, h, pick);
+        h.run(event);
+        checkInvariants(def, prev, h);
+        // BUG-1: a human move off a parked agent into a state that runs no agent kills it.
+        const landed = h.snap.workflow_state;
+        const landedType = landed === null ? undefined : def.states[landed]?.type;
+        if (
+          (event.type === 'human.transition' || event.type === 'input.provided') &&
+          h.last.ignored === null &&
+          prev.machine_id !== null &&
+          prev.agent_process_live &&
+          landedType !== undefined &&
+          landedType !== 'agent'
+        ) {
+          expect(h.last.effects.some((e) => e.type === 'kill')).toBe(true);
+          expect(h.snap.agent_process_live).toBe(false);
+        }
+        if (event.type === 'machine.lost') {
+          const [row, ignored] = lostRow(prev, event);
+          expect(h.last.ignored, row).toBe(ignored);
+          if (ignored === null) {
+            // A park keeps the answer the agent never ran on (it is delivered on Continue).
+            expect(h.snap.status).toBe('needs_input');
+            if (prev.pending_answer !== null) {
+              expect(lostAnswerOf(h.snap.context)).toEqual(prev.pending_answer);
             }
           }
-          const at = h.snap.workflow_state;
-          if (at !== null && def.states[at] !== undefined) reached.add(at);
-          else if (at !== null && h.snap.step !== null) reached.add('(gate step)');
         }
-      }),
-      // M2-T33: unseeded, so every run explores new sequences; `pnpm test:all` runs the full 1000.
-      { numRuns: process.env.CONDUCTOR_TEST_ALL === '1' ? 1000 : 200 },
-    );
+        const at = h.snap.workflow_state;
+        if (at !== null && def.states[at] !== undefined) reached.add(at);
+        else if (at !== null && h.snap.step !== null) reached.add('(gate step)');
+      }
+    });
     // the sequences actually exercise the whole workflow, not just the first state
     // (and a workflow with `requires` gets into its move steps)
     const gated =
       (def.id === CONDUCTOR_V2_DRAFT_DEF.id && def.version === 2) || def.id === qaDefinition().id;
-    expect([...reached].sort()).toEqual(
-      [...Object.keys(def.states), ...(gated ? ['(gate step)'] : [])].sort(),
-    );
+    const expected = [...Object.keys(def.states), ...(gated ? ['(gate step)'] : [])].sort();
+    // TD-163: reaching every state is probabilistic, and one batch of 200 runs missed a rare
+    // state (qa flow `done`, pr_flow `jira_docs`) about 1 run in 5. Another batch (fresh
+    // sequences, every invariant still checked) runs only while some state is unreached, at
+    // most COVERAGE_BATCHES in all, so a spurious miss needs every batch to miss.
+    for (let batch = 0; batch < COVERAGE_BATCHES; batch++) {
+      // M2-T33: unseeded, so every run explores new sequences; `pnpm test:all` runs the full 1000.
+      fc.assert(property, { numRuns: process.env.CONDUCTOR_TEST_ALL === '1' ? 1000 : 200 });
+      if (expected.every((state) => reached.has(state))) break;
+    }
+    expect([...reached].sort()).toEqual(expected);
     // 1000 runs take ~5 s on their own; more when every package's tests run in parallel.
   }, 60_000);
 

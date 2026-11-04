@@ -1,4 +1,4 @@
-import type { MeResponse } from '@conductor/shared';
+import type { MeResponse, PushTestResponse } from '@conductor/shared';
 import { CircleUser } from 'lucide-react';
 import { useState, type MouseEvent, type ReactNode } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
@@ -44,6 +44,16 @@ export interface AccountMenuLink {
  * works and the server has it on, that toggle becomes "This device: on/off" plus "Send test"; in
  * an iOS Safari tab it says to add Conductor to the Home Screen.
  */
+/** What "Send test" says: the count, and the push service's reason when a device failed. */
+export function testPushNote({ sent, failed = 0, errors = [] }: PushTestResponse): string {
+  const reason = errors[0];
+  if (sent === 0 && failed === 0) return 'No device subscribed: turn This device off and on';
+  const count = sent === 1 ? 'Sent to 1 device' : `Sent to ${sent} devices`;
+  if (failed === 0) return count;
+  const why = reason ? ` (${reason})` : '';
+  return sent === 0 ? `Not delivered${why}` : `${count}; ${failed} failed${why}`;
+}
+
 export function AccountMenu({
   api,
   me,
@@ -108,8 +118,7 @@ export function AccountMenu({
   async function sendTestPush() {
     setBusy(true);
     try {
-      const { sent } = await api.pushTest();
-      setPushNote(sent === 1 ? 'Sent to 1 device' : `Sent to ${sent} devices`);
+      setPushNote(testPushNote(await api.pushTest()));
     } catch (err) {
       setPushNote(errorMessage(err));
     } finally {
@@ -191,29 +200,38 @@ export function AccountMenu({
           {push === 'needs-install' && (
             <p className="account-hint">Add Conductor to your Home Screen to get notifications</p>
           )}
+          {push === 'server-off' && (
+            <p className="account-hint">Push notifications aren&apos;t set up on this server</p>
+          )}
+          {push === 'blocked' && (
+            <p className="account-hint">
+              Notifications are blocked: allow them in Settings → Notifications → Conductor
+            </p>
+          )}
           {pushNote && (
             <p role="status" className="account-hint">
               {pushNote}
             </p>
           )}
-          {(push === null || push === 'unavailable') && notify !== 'unsupported' && (
-            <button
-              type="button"
-              role="menuitemcheckbox"
-              aria-checked={notify === 'on'}
-              disabled={notify === 'blocked'}
-              title={
-                notify === 'blocked'
-                  ? "Allow notifications for this site in the browser's settings"
-                  : undefined
-              }
-              onClick={() => void toggleNotifications()}
-            >
-              {notify === 'blocked'
-                ? 'Notifications: blocked by the browser'
-                : `Notifications: ${notify}`}
-            </button>
-          )}
+          {(push === null || push === 'unavailable' || push === 'server-off') &&
+            notify !== 'unsupported' && (
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={notify === 'on'}
+                disabled={notify === 'blocked'}
+                title={
+                  notify === 'blocked'
+                    ? "Allow notifications for this site in the browser's settings"
+                    : undefined
+                }
+                onClick={() => void toggleNotifications()}
+              >
+                {notify === 'blocked'
+                  ? 'Notifications: blocked by the browser'
+                  : `Notifications: ${notify}`}
+              </button>
+            )}
           {passwordMode && (
             <button
               type="button"

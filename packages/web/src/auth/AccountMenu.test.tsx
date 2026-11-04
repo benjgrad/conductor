@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client.js';
 import { createMockApi } from '../api/mock.js';
 import { stubNotification } from '../notify/notification-stub.js';
-import { AccountMenu } from './AccountMenu.js';
+import { AccountMenu, testPushNote } from './AccountMenu.js';
 
 afterEach(() => {
   cleanup();
@@ -156,12 +156,40 @@ describe('AccountMenu · This device (UX-16 Web Push)', () => {
     expect(await menu.findByRole('status')).toHaveProperty('textContent', 'Sent to 1 device');
   });
 
-  it('keeps the UX-14 toggle when the server has push off', async () => {
+  it('keeps the UX-14 toggle when the server has push off, and says so', async () => {
     pushBrowser();
     const menu = openWith({});
-    await act(() => new Promise((r) => setTimeout(r, 0)));
+    expect(await menu.findByText("Push notifications aren't set up on this server")).toBeTruthy();
     expect(menu.getByRole('menuitemcheckbox', { name: /^Notifications/ })).toBeTruthy();
     expect(menu.queryByRole('menuitemcheckbox', { name: /^This device/ })).toBeNull();
+  });
+
+  it('says where to allow notifications when the permission is denied', async () => {
+    const { N } = pushBrowser();
+    N.permission = 'denied';
+    const menu = openWith({ pushVapidPublicKey: () => Promise.resolve({ public_key: 'AQID' }) });
+    expect(
+      await menu.findByText(
+        'Notifications are blocked: allow them in Settings → Notifications → Conductor',
+      ),
+    ).toBeTruthy();
+    expect(menu.queryByRole('menuitemcheckbox')).toBeNull();
+  });
+
+  it("Send test shows the push service's reason when nothing was delivered", async () => {
+    pushBrowser();
+    const menu = openWith({
+      pushVapidPublicKey: () => Promise.resolve({ public_key: 'AQID' }),
+      pushSubscribe: () => Promise.resolve({ ok: true as const }),
+      pushTest: () => Promise.resolve({ sent: 0, failed: 1, errors: ['http_403 BadJwtToken'] }),
+    });
+    fireEvent.click(await menu.findByRole('menuitemcheckbox', { name: 'This device: off' }));
+    await menu.findByRole('menuitemcheckbox', { name: 'This device: on' });
+    fireEvent.click(menu.getByRole('menuitem', { name: 'Send test' }));
+    expect(await menu.findByRole('status')).toHaveProperty(
+      'textContent',
+      'Not delivered (http_403 BadJwtToken)',
+    );
   });
 
   it('says to add to the Home Screen in an iOS Safari tab', async () => {
@@ -174,5 +202,19 @@ describe('AccountMenu · This device (UX-16 Web Push)', () => {
     expect(
       await menu.findByText('Add Conductor to your Home Screen to get notifications'),
     ).toBeTruthy();
+  });
+});
+
+describe('testPushNote', () => {
+  it('counts deliveries, and says why a device failed', () => {
+    expect(testPushNote({ sent: 1 })).toBe('Sent to 1 device');
+    expect(testPushNote({ sent: 2, failed: 0, errors: [] })).toBe('Sent to 2 devices');
+    expect(testPushNote({ sent: 1, failed: 1, errors: ['http_410'] })).toBe(
+      'Sent to 1 device; 1 failed (http_410)',
+    );
+    expect(testPushNote({ sent: 0, failed: 2, errors: [] })).toBe('Not delivered');
+    expect(testPushNote({ sent: 0, failed: 0, errors: [] })).toBe(
+      'No device subscribed: turn This device off and on',
+    );
   });
 });

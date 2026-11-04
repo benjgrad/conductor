@@ -291,3 +291,9 @@ cdc up -d --no-deps orchestrator && cdc logs orchestrator | grep 'push: on'
 ```
 
 The private key is a secret. Never rotate the pair casually: a new one invalidates every browser's subscription (each has to subscribe again). The orchestrator sends to the browsers' push services over HTTPS (fcm.googleapis.com, updates.push.services.mozilla.com, web.push.apple.com …), so the container needs outbound HTTPS.
+
+**iPhone gets nothing?** Check each of these:
+- `cdc logs orchestrator | grep 'push:'` must say `push: on`. With push off, the account menu says "Push notifications aren't set up on this server".
+- `CONDUCTOR_VAPID_SUBJECT` must be a real `mailto:` address (or an https URL you own). Apple refuses a `localhost` or placeholder subject with `403 BadJwtToken`.
+- In the Home Screen app: account menu → **Send test**. A refused send shows the push service's reason, e.g. `Not delivered (http_403 BadJwtToken)`, and the orchestrator logs `[push] send to web.push.apple.com failed: …`.
+- After rotating the keys, opening the account menu drops the old subscription. Turn **This device** on again.

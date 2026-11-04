@@ -34,6 +34,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTestDatabase, type TestDatabase } from '../../packages/orchestrator/test/db.js';
+import { makeDirPrivate } from './acl.js';
 import { findProcesses, killTree } from './procs.js';
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -202,6 +203,8 @@ export class Stack {
     // Windows the native one expands 8.3 names (C:\Users\RUNNER~1), as the daemon sees them.
     const dir = mkdtempSync(join(tmpdir(), 'conductor-e2e-'));
     this.tmp = WIN ? realpathSync.native(dir) : realpathSync(dir);
+    // Windows: the daemon only creates its root under a private folder (harness/acl.ts).
+    if (WIN) makeDirPrivate(this.tmp);
   }
 
   /** Fake Claude scenarios, `<name>.json`, picked per ticket by `fake-scenario: <name>`. */

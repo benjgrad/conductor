@@ -86,6 +86,9 @@ daemon. What differs there:
   as `bin/claude.exe` and `gh-bin/gh.exe`, each with a `<name>.launch` sidecar (node, then the
   script: `fake-claude.mjs`, or the fake gh written as `gh.cjs`). The launcher passes its args,
   stdio and exit code through. It is never shipped.
+- **The temp dir is made owner-only** (`harness/acl.ts`: `icacls /inheritance:r`, the user, SYSTEM and
+  Administrators). The daemon refuses to create its root under a folder that isn't private, and
+  only the home dir and `%LOCALAPPDATA%` are exempt; `%TEMP%\conductor-e2e-*` inherits its parent's.
 - **PATH** is joined with `path.delimiter`, and the parent's `Path` is replaced, not duplicated.
 - **Processes**: `harness/procs.ts` lists `Win32_Process` through PowerShell instead of `pgrep`,
   matching the command line and every descendant of a match (the launcher's node child), and kills

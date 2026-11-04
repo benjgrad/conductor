@@ -8,7 +8,7 @@
 //! tested on every OS. Only the syscalls are.
 //!
 //! Declared up front (MR-T02); `win_path` was added by MR-T04, which owns `platform/`; `machine`
-//! and `private_file` by MR-T05 (the core modules need them).
+//! and `private_file` by MR-T05 (the core modules need them); `signals` by MR-T13b (`run`).
 
 pub mod acl;
 pub mod fs;

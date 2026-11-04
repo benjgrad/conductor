@@ -1,3 +1,4 @@
+import { PUSH_OUTBOX_KINDS } from '@conductor/shared';
 import { withTransaction, type Tx } from '../db/index.js';
 import type { OutboxRow, PushSubscriptionRow } from '../db/types.js';
 import { backoffSeconds, DISPATCH_BATCH } from '../engine/dispatcher.js';
@@ -7,7 +8,8 @@ import { PUSH_TTL_SECONDS, type PushSender } from './sender.js';
 import { recordResult } from './store.js';
 
 // UX-15: the push dispatcher, its own worker loop beside the machine dispatcher (NFR-1: a slow
-// push service only delays pushes). It handles only `push_needs_input` rows (target `user:<id>`);
+// push service only delays pushes). It handles only `push_needs_input` and `push_transition` rows
+// (PUSH_OUTBOX_KINDS, target `user:<id>`);
 // the machine dispatcher only `machine:` ones.
 //
 // Each row is handled in its own transaction holding its lock (FOR UPDATE SKIP LOCKED), so two
@@ -45,9 +47,10 @@ export async function dispatchPushOnce(deps: PushDispatcherDeps): Promise<PushDi
     errors: 0,
   };
   const due = await deps.db.query<{ id: string }>(
-    "SELECT id FROM outbox WHERE kind = 'push_needs_input' AND status IN ('pending', 'sent') " +
+    'SELECT id FROM outbox WHERE kind = ANY($3::outbox_kind[]) ' +
+      "AND status IN ('pending', 'sent') " +
       "AND next_attempt_at <= $1 AND target LIKE 'user:%' ORDER BY id LIMIT $2",
-    [deps.now(), DISPATCH_BATCH],
+    [deps.now(), DISPATCH_BATCH, PUSH_OUTBOX_KINDS],
   );
   for (const { id } of due.rows) {
     try {
@@ -75,7 +78,8 @@ async function dispatchPushRow(
   const row = r.rows[0];
   if (!row) return; // taken by another dispatcher, or done meanwhile
   const payload = row.payload as unknown as PushOutboxPayload;
-  // The terminal UPDATEs drop the notification text: the question is kept on its input_request.
+  // The terminal UPDATEs drop the notification text: the question is kept on its input_request
+  // (a transition's on its state.entered event).
   const terminal = (status: 'acked' | 'failed', lastError: string | null) =>
     tx.query(
       "UPDATE outbox SET status = $2, last_error = $3, payload = jsonb_set(payload, '{notification}', 'null'::jsonb) " +

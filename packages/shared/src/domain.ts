@@ -63,14 +63,26 @@ export const OutboxKindSchema = z.enum([
    * Not an engine Effect: written by the advisor scheduler (orchestrator/src/advisor/insights.ts).
    */
   'assistant_job',
+  /**
+   * A Web Push for a workflow transition with `notify: true`. Written by the engine wrapper on the
+   * `state_entered` effect that carries `notify`; not an Effect, no WS message; target `user:<id>`.
+   */
+  'push_transition',
 ]);
 export type OutboxKind = z.infer<typeof OutboxKindSchema>;
 
 /**
- * Outbox kinds that are not engine Effects: no apply effect. `push_needs_input` has no WS
- * command; `assistant_job` is a WS command the engine never sees (its ack goes to the advisor).
+ * Outbox kinds that are not engine Effects: no apply effect. `push_needs_input` and
+ * `push_transition` have no WS command; `assistant_job` is a WS command the engine never sees (its ack goes to the advisor).
  */
-export const NON_EFFECT_OUTBOX_KINDS = ['push_needs_input', 'assistant_job'] as const;
+export const NON_EFFECT_OUTBOX_KINDS = [
+  'push_needs_input',
+  'assistant_job',
+  'push_transition',
+] as const;
+
+/** The outbox kinds the push dispatcher sends (target `user:<id>`). */
+export const PUSH_OUTBOX_KINDS = ['push_needs_input', 'push_transition'] as const;
 
 /** The outbox kinds that are engine (machine or connector) commands: every kind but the above. */
 export const CommandKindSchema = OutboxKindSchema.exclude(NON_EFFECT_OUTBOX_KINDS);

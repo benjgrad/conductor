@@ -40,6 +40,33 @@ export function needsInputPayload(p: {
   };
 }
 
+/**
+ * A transition with `notify: true` was taken: the ticket title, then
+ * `<transition title>: <from column> → <to column>`. The same text is the in-tab notification
+ * (`transition.notified`). No reason text: an agent's or human's reason may carry anything.
+ */
+export function transitionPayload(p: {
+  ticketId: string;
+  ticketTitle: string;
+  transitionTitle: string;
+  fromTitle: string;
+  toTitle: string;
+  /** The `state.entered` event id: the notification's `tag`. */
+  eventId: number;
+}): PushNotification {
+  return {
+    title: clip(p.ticketTitle, PUSH_QUESTION_MAX),
+    body: clip(`${p.transitionTitle}: ${p.fromTitle} → ${p.toTitle}`, PUSH_QUESTION_MAX),
+    url: `/#/?ticket=${p.ticketId}`,
+    tag: transitionTag(p.eventId),
+  };
+}
+
+/** The `tag` (and outbox idempotency key) of a transition notification. */
+export function transitionTag(eventId: number): string {
+  return `transition:${eventId}`;
+}
+
 /** POST /api/push/test. */
 export function testPayload(): PushNotification {
   return { title: 'Conductor', body: 'Notifications are on', url: '/#/', tag: 'conductor-test' };

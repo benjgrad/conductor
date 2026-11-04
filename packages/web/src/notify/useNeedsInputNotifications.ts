@@ -3,15 +3,10 @@ import { useEffect, useRef } from 'react';
 import { EMPTY_BOARD, type BoardState } from '../board/board.js';
 import { agentName } from '../components/agent-identity.js';
 import { setFaviconDot } from './favicon.js';
-import { pushSubscribedHere } from './push.js';
-import { notifyState } from './settings.js';
+import { mayNotifyInTab, showInTab, type Close } from './show.js';
 
 const TITLE = 'Conductor';
 const BODY_MAX = 120;
-const ICON = '/icons/icon-192.png';
-
-/** Closes a notification this hook showed (the request was answered). */
-type Close = () => void;
 
 export function clip(text: string, max: number = BODY_MAX): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
@@ -25,10 +20,8 @@ export function clip(text: string, max: number = BODY_MAX): string {
  *   notifications are on and the page is hidden or unfocused (FR-1, FR-2). Requests already open
  *   when the board loads are only counted, and an id seen once never fires again, so reconnects,
  *   re-renders and the user's own answer (it only clears the request) don't re-fire (NFR-1).
- * The notification is shown through the service worker when there is one: iOS Home Screen apps
- * have no `new Notification()` (it throws), only `registration.showNotification`. sw.js opens the
- * ticket on a click (`notificationclick` → open-ticket.ts). Without a registration it falls back
- * to the constructor, whose click focuses the tab and calls `onSelect` with the card's session id.
+ * The notification is shown by `showInTab` (show.ts: the service worker, else the constructor,
+ * whose click focuses the tab and calls `onSelect` with the card's session id).
  */
 export function useNeedsInputNotifications(
   board: BoardState,
@@ -86,67 +79,12 @@ export function useNeedsInputNotifications(
 function notify(card: BoardCard, select: (sessionId: string) => void): Close | null {
   const request = card.input_request;
   const sessionId = card.session_id;
-  if (!request || sessionId === null || notifyState() !== 'on') return null;
-  // UX-16 FR-4: this device gets the push (same `tag`) from the service worker instead.
-  if (pushSubscribedHere()) return null;
-  if (document.visibilityState !== 'hidden' && document.hasFocus()) return null;
-  const title = `${agentName(card.ticket_id)} needs input`;
-  const body = clip(`${card.title}: ${request.question}`);
-  const tag = request.id;
-
-  const sw = typeof navigator !== 'undefined' ? navigator.serviceWorker : undefined;
-  if (!sw) return construct(title, body, tag, () => select(sessionId));
-
-  let closed = false;
-  let fallback: Close | null = null;
-  let registration: ServiceWorkerRegistration | null = null;
-  void (async () => {
-    try {
-      const reg = await sw.getRegistration('/');
-      if (reg) {
-        if (closed) return;
-        // The same shape as a push (sw.js): its click opens the ticket.
-        await reg.showNotification(title, {
-          body,
-          tag,
-          icon: ICON,
-          data: { url: `/#/?ticket=${card.ticket_id}` },
-        });
-        registration = reg;
-        if (closed) closeByTag(reg, tag);
-        return;
-      }
-    } catch {
-      // No usable registration: the constructor below.
-    }
-    if (!closed) fallback = construct(title, body, tag, () => select(sessionId));
-  })();
-  return () => {
-    closed = true;
-    if (registration) closeByTag(registration, tag);
-    fallback?.();
-  };
-}
-
-function closeByTag(reg: ServiceWorkerRegistration, tag: string): void {
-  reg.getNotifications({ tag }).then(
-    (ns) => ns.forEach((n) => n.close()),
-    () => {},
-  );
-}
-
-function construct(title: string, body: string, tag: string, onClick: () => void): Close | null {
-  if (typeof window.Notification !== 'function') return null;
-  try {
-    const n = new Notification(title, { body, tag });
-    n.onclick = () => {
-      window.focus();
-      onClick();
-      n.close();
-    };
-    return () => n.close();
-  } catch {
-    // Some mobile browsers only allow notifications from a service worker.
-    return null;
-  }
+  if (!request || sessionId === null || !mayNotifyInTab()) return null;
+  return showInTab({
+    title: `${agentName(card.ticket_id)} needs input`,
+    body: clip(`${card.title}: ${request.question}`),
+    tag: request.id,
+    ticketId: card.ticket_id,
+    onClick: () => select(sessionId),
+  });
 }

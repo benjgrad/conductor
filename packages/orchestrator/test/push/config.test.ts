@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { runVapidKeys } from '../../src/auth/admin-commands.js';
 import { ConfigError } from '../../src/auth/config.js';
 import { parsePushConfig } from '../../src/push/config.js';
-import { clip, needsInputPayload, PUSH_QUESTION_MAX } from '../../src/push/payload.js';
+import {
+  clip,
+  needsInputPayload,
+  PUSH_QUESTION_MAX,
+  transitionPayload,
+} from '../../src/push/payload.js';
 import { generateVapidKeys } from '../../src/push/sender.js';
 
 const keys = generateVapidKeys();
@@ -87,6 +92,33 @@ describe('payload (FR-5)', () => {
         inputRequestId: 'i',
       }).body,
     ).toBe('Q');
+  });
+
+  it('a transition: ticket title, "<transition>: <from> → <to>", clipped, tagged by event', () => {
+    const p = transitionPayload({
+      ticketId: 't-1',
+      ticketTitle: 'Fix login',
+      transitionTitle: 'PR ready for review',
+      fromTitle: 'Implementing',
+      toTitle: 'In review',
+      eventId: 42,
+    });
+    expect(p).toEqual({
+      title: 'Fix login',
+      body: 'PR ready for review: Implementing → In review',
+      url: '/#/?ticket=t-1',
+      tag: 'transition:42',
+    });
+    const long = transitionPayload({
+      ...p,
+      ticketId: 't',
+      ticketTitle: 'T',
+      transitionTitle: 'x'.repeat(200),
+      fromTitle: 'A',
+      toTitle: 'B',
+      eventId: 1,
+    });
+    expect([...long.body]).toHaveLength(PUSH_QUESTION_MAX);
   });
 });
 

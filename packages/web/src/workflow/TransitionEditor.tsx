@@ -33,7 +33,7 @@ import {
 } from './transitions.js';
 
 // The arrow's panel (ADR-0011 §Editor and board): every transition between two columns, and the
-// selected one's fields: name and title; when, actor, kinds and question; requires (checks with
+// selected one's fields: name and title; when, actor, kinds, question and notify; requires (checks with
 // setup, review items, conductor's actions, external conditions with their timeout); and what
 // happens when they are not met. Every change goes straight into the caller's draft.
 
@@ -268,6 +268,15 @@ function TransitionForm({
         Asks a question (the agent’s reason is the question)
       </label>
       {at('.question')}
+      <label className="wf-toggle">
+        <input
+          type="checkbox"
+          checked={t.notify === true}
+          onChange={(e) => patch({ notify: e.target.checked ? true : undefined })}
+        />
+        Notify me when this is taken
+      </label>
+      {at('.notify')}
 
       <h4>Requires</h4>
       <p className="muted wf-note">

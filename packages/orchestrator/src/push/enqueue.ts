@@ -1,18 +1,60 @@
 import type { Queryable } from '../contracts.js';
-import { needsInputPayload } from './payload.js';
+import { needsInputPayload, transitionTag, type PushNotification } from './payload.js';
 
 // UX-15 FR-4: in the transaction that creates an input_request, one `push_needs_input` outbox row
 // per user of the account with a subscription. target `user:<id>`, idempotency_key = the input
 // request id (outbox_push_idem_idx: enqueueing the same request twice adds nothing). The
 // notification is rendered here, from the same transaction's data, so the push dispatcher needs
 // no joins. No fencing token: a push isn't fenced.
+// A transition with `notify: true` enqueues `push_transition` rows the same way, keyed by its
+// `state.entered` event id (`transition:<id>`).
 
-/** The outbox payload of a push_needs_input row. `delivered`: subscription ids already sent. */
+/**
+ * The outbox payload of a push row (`push_needs_input`, `push_transition`). `delivered`:
+ * subscription ids already sent. `input_request_id` only on `push_needs_input`; `event_id` (the
+ * `state.entered` row) only on `push_transition`.
+ */
 export interface PushOutboxPayload {
   ticket_id: string;
-  input_request_id: string;
-  notification: ReturnType<typeof needsInputPayload> | null;
+  input_request_id?: string;
+  event_id?: number;
+  notification: PushNotification | null;
   delivered: string[];
+}
+
+type PushKind = 'push_needs_input' | 'push_transition';
+
+/** One row per subscribed user of the account (minus `excludeUserId`); returns how many. */
+async function enqueuePush(
+  tx: Queryable,
+  p: {
+    kind: PushKind;
+    accountId: string;
+    sessionId: string;
+    payload: PushOutboxPayload;
+    idempotencyKey: string;
+    now: Date;
+    excludeUserId?: string | null;
+  },
+): Promise<number> {
+  const r = await tx.query(
+    `INSERT INTO outbox (command_id, account_id, target, kind, session_id, payload,
+       idempotency_key, next_attempt_at, created_at)
+     SELECT gen_random_uuid(), $1, 'user:' || u.user_id, $7::outbox_kind, $2, $3::jsonb, $4, $5, $5
+       FROM (SELECT DISTINCT user_id FROM push_subscription
+              WHERE account_id = $1 AND ($6::text IS NULL OR user_id::text <> $6)) u
+     ON CONFLICT (target, idempotency_key) WHERE target LIKE 'user:%' DO NOTHING`,
+    [
+      p.accountId,
+      p.sessionId,
+      JSON.stringify(p.payload),
+      p.idempotencyKey,
+      p.now,
+      p.excludeUserId ?? null,
+      p.kind,
+    ],
+  );
+  return r.rowCount ?? 0;
 }
 
 /** Returns how many rows it wrote (0 when nobody in the account subscribed). */
@@ -29,25 +71,56 @@ export async function enqueueNeedsInputPush(
     now: Date;
   },
 ): Promise<number> {
-  const payload: PushOutboxPayload = {
-    ticket_id: p.ticketId,
-    input_request_id: p.inputRequestId,
-    notification: needsInputPayload({
-      ticketId: p.ticketId,
-      ticketTitle: p.ticketTitle,
-      agent: p.agent,
-      question: p.question,
-      inputRequestId: p.inputRequestId,
-    }),
-    delivered: [],
-  };
-  const r = await tx.query(
-    `INSERT INTO outbox (command_id, account_id, target, kind, session_id, payload,
-       idempotency_key, next_attempt_at, created_at)
-     SELECT gen_random_uuid(), $1, 'user:' || u.user_id, 'push_needs_input', $2, $3::jsonb, $4, $5, $5
-       FROM (SELECT DISTINCT user_id FROM push_subscription WHERE account_id = $1) u
-     ON CONFLICT (target, idempotency_key) WHERE target LIKE 'user:%' DO NOTHING`,
-    [p.accountId, p.sessionId, JSON.stringify(payload), p.inputRequestId, p.now],
-  );
-  return r.rowCount ?? 0;
+  return enqueuePush(tx, {
+    kind: 'push_needs_input',
+    accountId: p.accountId,
+    sessionId: p.sessionId,
+    payload: {
+      ticket_id: p.ticketId,
+      input_request_id: p.inputRequestId,
+      notification: needsInputPayload({
+        ticketId: p.ticketId,
+        ticketTitle: p.ticketTitle,
+        agent: p.agent,
+        question: p.question,
+        inputRequestId: p.inputRequestId,
+      }),
+      delivered: [],
+    },
+    idempotencyKey: p.inputRequestId,
+    now: p.now,
+  });
+}
+
+/**
+ * A transition with `notify: true` (`state_entered.notify`): one `push_transition` row per
+ * subscribed user of the account, except `excludeUserId` (the human who took it: their own move
+ * never notifies them). Returns how many rows it wrote.
+ */
+export async function enqueueTransitionPush(
+  tx: Queryable,
+  p: {
+    accountId: string;
+    sessionId: string;
+    ticketId: string;
+    eventId: number;
+    notification: PushNotification;
+    now: Date;
+    excludeUserId?: string | null;
+  },
+): Promise<number> {
+  return enqueuePush(tx, {
+    kind: 'push_transition',
+    accountId: p.accountId,
+    sessionId: p.sessionId,
+    payload: {
+      ticket_id: p.ticketId,
+      event_id: p.eventId,
+      notification: p.notification,
+      delivered: [],
+    },
+    idempotencyKey: transitionTag(p.eventId),
+    now: p.now,
+    excludeUserId: p.excludeUserId ?? null,
+  });
 }

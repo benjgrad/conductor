@@ -22,6 +22,12 @@ afterEach(() => {
 
 const FIRST = { name: 'Set up your first machine' } as const;
 
+/**
+ * A full `<App>` render loads the whole board, and its first render in a file can take longer
+ * than Testing Library's 1 s `findBy*` default on a busy machine (seen at ~1.8 s under load).
+ */
+const APP_WAIT = { timeout: 4_000 } as const; // under vitest's 5 s test timeout
+
 function renderGuide(api: MockApi = createMockApi({ machines: 'none' })) {
   const handlers = { onDismiss: vi.fn(), onCreateTicket: vi.fn(), onFinish: vi.fn() };
   render(<SetupGuide api={api} first {...handlers} />);
@@ -36,7 +42,7 @@ const goToStep = (name: string | RegExp) =>
 describe('first-run guide (FR-1)', () => {
   it('shows on the board when the account has no machines; dismissed → hidden this visit', async () => {
     render(<App api={createMockApi({ machines: 'none' })} />);
-    expect(await screen.findByRole('region', FIRST)).toBeTruthy();
+    expect(await screen.findByRole('region', FIRST, APP_WAIT)).toBeTruthy();
     expect(screen.queryByRole('region', { name: 'Queued' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'New ticket' })).toBeNull();
 
@@ -47,19 +53,19 @@ describe('first-run guide (FR-1)', () => {
     // Same visit (e.g. the app remounts): still hidden.
     cleanup();
     render(<App api={createMockApi({ machines: 'none' })} />);
-    expect(await screen.findByRole('region', { name: 'Queued' })).toBeTruthy();
+    expect(await screen.findByRole('region', { name: 'Queued' }, APP_WAIT)).toBeTruthy();
     await act(async () => {});
     expect(screen.queryByRole('region', FIRST)).toBeNull();
   });
 
   it('reappears on the next visit while the account still has no machines', async () => {
     render(<App api={createMockApi({ machines: 'none' })} />);
-    fireEvent.click(await screen.findByRole('button', { name: "I'll do this later" }));
+    fireEvent.click(await screen.findByRole('button', { name: "I'll do this later" }, APP_WAIT));
     cleanup();
 
     newVisitForTests();
     render(<App api={createMockApi({ machines: 'none' })} />);
-    expect(await screen.findByRole('region', FIRST)).toBeTruthy();
+    expect(await screen.findByRole('region', FIRST, APP_WAIT)).toBeTruthy();
   });
 
   it('a throwing localStorage still shows it, and dismissing still hides it', async () => {
@@ -70,13 +76,13 @@ describe('first-run guide (FR-1)', () => {
       throw new Error('denied');
     });
     render(<App api={createMockApi({ machines: 'none' })} />);
-    fireEvent.click(await screen.findByRole('button', { name: "I'll do this later" }));
+    fireEvent.click(await screen.findByRole('button', { name: "I'll do this later" }, APP_WAIT));
     expect(screen.queryByRole('region', FIRST)).toBeNull();
   });
 
   it('is not shown when the account has a machine', async () => {
     render(<App api={createMockApi()} />);
-    expect(await screen.findByText('Add pagination to /orders')).toBeTruthy();
+    expect(await screen.findByText('Add pagination to /orders', undefined, APP_WAIT)).toBeTruthy();
     await act(async () => {});
     expect(screen.queryByRole('region', FIRST)).toBeNull();
     expect(screen.queryByRole('region', { name: 'Add a machine' })).toBeNull();
@@ -84,7 +90,7 @@ describe('first-run guide (FR-1)', () => {
 
   it('the top bar "Add a machine" entry opens it, also with machines', async () => {
     render(<App api={createMockApi()} />);
-    await screen.findByText('Add pagination to /orders');
+    await screen.findByText('Add pagination to /orders', undefined, APP_WAIT);
     const entry = within(screen.getByRole('navigation', { name: 'Help' })).getByRole('link', {
       name: 'Add a machine',
     });
@@ -105,7 +111,7 @@ describe('first-run guide (FR-1)', () => {
   it('the Machines page links to the guided setup and the help page', async () => {
     window.history.replaceState(null, '', '/#/machines');
     render(<App api={createMockApi({ machines: 'none' })} />);
-    const page = within(await screen.findByRole('region', { name: 'Machines' }));
+    const page = within(await screen.findByRole('region', { name: 'Machines' }, APP_WAIT));
     expect(page.getByRole('link', { name: 'Guided setup' }).getAttribute('href')).toBe('#/setup');
     expect(
       (await page.findByRole('link', { name: 'follow the guided setup' })).getAttribute('href'),
@@ -462,7 +468,7 @@ describe('step 4, repos and capabilities (FR-5)', () => {
 describe('step 5, done (FR-6)', () => {
   it('links to Machines; "Create your first ticket" opens the ticket editor', async () => {
     render(<App api={createMockApi({ machines: 'none' })} />);
-    await screen.findByRole('region', FIRST);
+    await screen.findByRole('region', FIRST, APP_WAIT);
     goToStep('Done');
     expect(screen.getByText('Your machine is ready.')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Go to Machines' }).getAttribute('href')).toBe(

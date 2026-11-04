@@ -1,8 +1,7 @@
-// The session panel: a compact header (agent, title, status), then two tabs. Messages is a chat
-// with the agent (the live log, the open question inline, a composer pinned at the bottom);
-// above it the Brief card and Edit ticket on desktop, and on a phone one ticket strip (Brief,
-// Plan, Edit) whose buttons open sheets over the chat (TicketStrip.tsx, 11-web-ui §Phone layout);
-// Details tells the ticket's story in STAR order (UX-7, StarDetails.tsx), with who runs it and
+// The session panel: a compact header (agent, title, status), then one row with two tabs and the
+// ticket buttons (Brief, Plan, Edit), whose sheets open over the tab bodies (TicketStrip.tsx,
+// 11-web-ui §Phone layout). Messages is a chat with the agent (the live log, the open question
+// inline, a composer pinned at the bottom); Details tells the ticket's story in STAR order (UX-7, StarDetails.tsx), with who runs it and
 // where, the workflow, spend and the context under Technical details.
 import type {
   BoardCard,
@@ -17,7 +16,6 @@ import { useInitialPrompt, useSession } from '../board/hooks.js';
 import { parseBrief } from '../brief/parse.js';
 import { ticketBodyFromPrompt } from '../brief/prompt.js';
 import { AgentAvatar, cardAgent } from './agent-identity.js';
-import { BriefCard } from './BriefCard.js';
 import { Composer } from './Composer.js';
 import {
   agentIdle,
@@ -37,8 +35,7 @@ import { ProposedTickets, visibleProposals } from './ProposedTickets.js';
 import { classifyRequest, lastMoveTransition, planAnswerOption } from './request-preview.js';
 import { ReviewRequest } from './ReviewRequest.js';
 import { StarDetails } from './StarDetails.js';
-import { TicketStrip, type StripSheet } from './TicketStrip.js';
-import { EditTicket, TicketAttachments } from './TicketPanel.js';
+import { TicketButtons, TicketSheet, type StripSheet } from './TicketStrip.js';
 import { TransitionButtons } from './transitions.js';
 import { displayState } from '../workflow/review.js';
 
@@ -76,7 +73,7 @@ export function DetailPanel({
   const view = useSession(api, sessionId, version);
   const { detail, output, error, reload, history } = view;
   const [tab, setTab] = useState<PanelTab>('messages');
-  // The phone's ticket-strip sheet (Brief, Plan, Edit), per session.
+  // The ticket buttons' open sheet (Brief, Plan, Edit), per session.
   const [sheetOf, setSheetOf] = useState<{ id: string; sheet: StripSheet } | null>(null);
   const sheet = sheetOf?.id === sessionId ? sheetOf.sheet : null;
   const onSheet = useCallback(
@@ -84,6 +81,11 @@ export function DetailPanel({
     [sessionId],
   );
   const openPlan = useCallback(() => onSheet('plan'), [onSheet]);
+  // Picking a tab closes an open sheet: the sheet covers the tab bodies.
+  const selectTab = useCallback((next: PanelTab) => {
+    setTab(next);
+    setSheetOf(null);
+  }, []);
   // UX-13b: the ticket's stored teammate (kept across retries and resumes); the board card's
   // until the detail loads.
   const agent = detail ? cardAgent(detail.card, detail.agent_name) : card ? cardAgent(card) : null;
@@ -130,7 +132,7 @@ export function DetailPanel({
     if (next === null) return;
     e.preventDefault();
     const id = TABS[next]!.id;
-    setTab(id);
+    selectTab(id);
     tabRefs.current[id]?.focus();
   }
 
@@ -177,201 +179,191 @@ export function DetailPanel({
           </button>
         )}
       </header>
-      <div className="tabs" role="tablist" aria-label="Session views">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            ref={(el) => {
-              tabRefs.current[t.id] = el;
-            }}
-            type="button"
-            role="tab"
-            id={`${ids}-tab-${t.id}`}
-            aria-selected={tab === t.id}
-            aria-controls={`${ids}-panel-${t.id}`}
-            tabIndex={tab === t.id ? 0 : -1}
-            className={tab === t.id ? 'active' : undefined}
-            onClick={() => setTab(t.id)}
-            onKeyDown={onTabKey}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="tabs detail-tabbar">
+        <div role="tablist" aria-label="Session views" className="detail-tablist">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              ref={(el) => {
+                tabRefs.current[t.id] = el;
+              }}
+              type="button"
+              role="tab"
+              id={`${ids}-tab-${t.id}`}
+              aria-selected={tab === t.id}
+              aria-controls={`${ids}-panel-${t.id}`}
+              tabIndex={tab === t.id ? 0 : -1}
+              className={tab === t.id ? 'active' : undefined}
+              onClick={() => selectTab(t.id)}
+              onKeyDown={onTabKey}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        {detail && (
+          <TicketButtons
+            key={sessionId}
+            detail={detail}
+            planOption={planOption}
+            brief={brief}
+            sheet={sheet}
+            onSheet={onSheet}
+            sheetId={`${ids}-sheet`}
+          />
+        )}
       </div>
       {error && (
         <p role="alert" className="error detail-error">
           {error}
         </p>
       )}
-      <div
-        role="tabpanel"
-        id={`${ids}-panel-messages`}
-        aria-labelledby={`${ids}-tab-messages`}
-        className="tab-body messages-tab"
-        hidden={tab !== 'messages'}
-      >
-        {detail && (
-          <>
-            {history && (
-              <p role="status" className={`history-notice muted history-${history.kind}`}>
-                {history.text}
-              </p>
-            )}
-            {isConductorStep(detail.card) && (
-              <ConductorCheckBanner card={detail.card} agent={name} />
-            )}
-            {fullScreen ? (
-              <TicketStrip
-                key={sessionId}
-                api={api}
-                detail={detail}
-                planOption={planOption}
-                agentRunning={agentStateRunning(detail)}
-                sheet={sheet}
-                onSheet={onSheet}
-                onReload={reload}
-                brief={brief}
-                body={body}
-                unavailable={unavailable}
-                promptText={prompt.text}
-                promptReason={prompt.reason}
-                promptLoading={prompt.loading}
-                onWantPrompt={onWantPrompt}
-              />
-            ) : (
-              <>
-                {detail.ticket_editable && (
-                  <EditTicket
-                    api={api}
-                    ticketId={detail.card.ticket_id}
-                    agentRunning={agentStateRunning(detail)}
-                    onSaved={reload}
-                  />
-                )}
-                <BriefCard
-                  key={sessionId}
-                  sessionId={sessionId}
-                  brief={brief}
-                  body={body}
-                  unavailable={unavailable}
-                  promptText={prompt.text}
-                  promptReason={prompt.reason}
-                  promptLoading={prompt.loading}
-                  onWantPrompt={onWantPrompt}
-                />
-                <TicketAttachments
+      <div className="detail-body">
+        <div
+          role="tabpanel"
+          id={`${ids}-panel-messages`}
+          aria-labelledby={`${ids}-tab-messages`}
+          className="tab-body messages-tab"
+          hidden={tab !== 'messages'}
+        >
+          {detail && (
+            <>
+              {history && (
+                <p role="status" className={`history-notice muted history-${history.kind}`}>
+                  {history.text}
+                </p>
+              )}
+              {isConductorStep(detail.card) && (
+                <ConductorCheckBanner card={detail.card} agent={name} />
+              )}
+              <OutputLog
+                output={output}
+                moves={detail.moves ?? []}
+                workflow={detail.workflow}
+                checking={detail.card.checking}
+                failedItem={stepFailedItem(detail)}
+                active={commandActive(detail)}
+                worktree={detail.worktree_path}
+                variant="chat"
+                visible={tab === 'messages'}
+                tailKey={detail.pending_input?.id ?? detail.card.permission?.request_id ?? ''}
+              >
+                {detail.pending_input &&
+                  (classifyRequest(detail.pending_input, lastMoveTransition(detail)) ===
+                  'review' ? (
+                    <ReviewRequest
+                      key={detail.pending_input.id}
+                      detail={detail}
+                      agent={name}
+                      request={detail.pending_input}
+                    />
+                  ) : planOption ? (
+                    <PlanApprovalRequest
+                      key={detail.pending_input.id}
+                      api={api}
+                      detail={detail}
+                      agent={name}
+                      request={detail.pending_input}
+                      option={planOption}
+                      onDone={reload}
+                      {...(fullScreen ? { onOpenPlan: openPlan } : {})}
+                    />
+                  ) : (
+                    <PendingInput
+                      key={detail.pending_input.id}
+                      api={api}
+                      detail={detail}
+                      agent={name}
+                      request={detail.pending_input}
+                      onDone={reload}
+                    />
+                  ))}
+                {detail.card.sub_status === 'needs_permission' &&
+                  detail.card.permission &&
+                  detail.card.session_id !== null && (
+                    <PermissionRequests
+                      api={api}
+                      sessionId={detail.card.session_id}
+                      permission={detail.card.permission}
+                      agent={name}
+                      onDone={reload}
+                    />
+                  )}
+              </OutputLog>
+              {/* 06 §Plan approval: the plan panel carries the buttons (other actions inside). */}
+              {detail.card.session_id !== null && !planOption && (
+                <TransitionButtons
                   api={api}
-                  ticketId={detail.card.ticket_id}
-                  version={detail.card.updated_at}
+                  sessionId={detail.card.session_id}
+                  options={detail.card.human_transitions}
+                  workflow={detail.workflow}
+                  onDone={reload}
                 />
-              </>
-            )}
-            <OutputLog
-              output={output}
-              moves={detail.moves ?? []}
-              workflow={detail.workflow}
-              checking={detail.card.checking}
-              failedItem={stepFailedItem(detail)}
-              active={commandActive(detail)}
-              worktree={detail.worktree_path}
-              variant="chat"
-              visible={tab === 'messages'}
-              tailKey={detail.pending_input?.id ?? detail.card.permission?.request_id ?? ''}
-            >
-              {detail.pending_input &&
-                (classifyRequest(detail.pending_input, lastMoveTransition(detail)) === 'review' ? (
-                  <ReviewRequest
-                    key={detail.pending_input.id}
-                    detail={detail}
-                    agent={name}
-                    request={detail.pending_input}
-                  />
-                ) : planOption ? (
-                  <PlanApprovalRequest
-                    key={detail.pending_input.id}
-                    api={api}
-                    detail={detail}
-                    agent={name}
-                    request={detail.pending_input}
-                    option={planOption}
-                    onDone={reload}
-                    {...(fullScreen ? { onOpenPlan: openPlan } : {})}
-                  />
-                ) : (
-                  <PendingInput
-                    key={detail.pending_input.id}
-                    api={api}
-                    detail={detail}
-                    agent={name}
-                    request={detail.pending_input}
-                    onDone={reload}
-                  />
-                ))}
-              {detail.card.sub_status === 'needs_permission' &&
-                detail.card.permission &&
-                detail.card.session_id !== null && (
-                  <PermissionRequests
-                    api={api}
-                    sessionId={detail.card.session_id}
-                    permission={detail.card.permission}
-                    agent={name}
-                    onDone={reload}
-                  />
-                )}
-            </OutputLog>
-            {/* 06 §Plan approval: the plan panel carries the buttons (other actions inside). */}
-            {detail.card.session_id !== null && !planOption && (
-              <TransitionButtons
+              )}
+              {/* 06 §Proposed tickets: only while the ticket waits in Needs input. */}
+              <ProposedTickets
                 api={api}
-                sessionId={detail.card.session_id}
-                options={detail.card.human_transitions}
+                ticketId={detail.card.ticket_id}
+                ticketTitle={detail.card.title}
+                proposals={visibleProposals(detail.card.column, detail.proposals)}
                 workflow={detail.workflow}
                 onDone={reload}
               />
-            )}
-            {/* 06 §Proposed tickets: only while the ticket waits in Needs input. */}
-            <ProposedTickets
-              api={api}
-              ticketId={detail.card.ticket_id}
-              ticketTitle={detail.card.title}
-              proposals={visibleProposals(detail.card.column, detail.proposals)}
-              workflow={detail.workflow}
-              onDone={reload}
-            />
-            <Composer
-              api={api}
-              detail={detail}
-              agentName={proseName}
-              onDone={reload}
-              {...(onSelectSession ? { onReopened: onSelectSession } : {})}
-              onShowDetails={() => {
-                setTab('details');
-                tabRefs.current.details?.focus();
-              }}
-            />
-          </>
-        )}
-      </div>
-      <div
-        role="tabpanel"
-        id={`${ids}-panel-details`}
-        aria-labelledby={`${ids}-tab-details`}
-        className="tab-body details-tab"
-        hidden={tab !== 'details'}
-      >
-        {detail && (
-          <>
-            <StarDetails
-              key={sessionId}
-              api={api}
-              detail={detail}
-              sessionId={sessionId}
-              name={name}
-              brief={brief}
-              body={body}
-              onReload={reload}
-            />
-          </>
+              <Composer
+                api={api}
+                detail={detail}
+                agentName={proseName}
+                onDone={reload}
+                {...(onSelectSession ? { onReopened: onSelectSession } : {})}
+                onShowDetails={() => {
+                  selectTab('details');
+                  tabRefs.current.details?.focus();
+                }}
+              />
+            </>
+          )}
+        </div>
+        <div
+          role="tabpanel"
+          id={`${ids}-panel-details`}
+          aria-labelledby={`${ids}-tab-details`}
+          className="tab-body details-tab"
+          hidden={tab !== 'details'}
+        >
+          {detail && (
+            <>
+              <StarDetails
+                key={sessionId}
+                api={api}
+                detail={detail}
+                sessionId={sessionId}
+                name={name}
+                brief={brief}
+                body={body}
+                onReload={reload}
+              />
+            </>
+          )}
+        </div>
+        {detail && sheet !== null && (
+          <TicketSheet
+            key={sessionId}
+            id={`${ids}-sheet`}
+            api={api}
+            detail={detail}
+            planOption={planOption}
+            agentRunning={agentStateRunning(detail)}
+            sheet={sheet}
+            onSheet={onSheet}
+            onReload={reload}
+            brief={brief}
+            body={body}
+            unavailable={unavailable}
+            promptText={prompt.text}
+            promptReason={prompt.reason}
+            promptLoading={prompt.loading}
+            onWantPrompt={onWantPrompt}
+          />
         )}
       </div>
     </aside>

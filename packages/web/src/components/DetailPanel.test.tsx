@@ -153,11 +153,17 @@ describe('history from the transcript (ADR-0008)', () => {
   });
 });
 
-describe('Brief card (UX-2)', () => {
-  const briefOf = (panel: Awaited<ReturnType<typeof setup>>['panel']) =>
-    panel.getByRole('region', { name: 'Brief' });
+describe('Brief (UX-2)', () => {
+  type Panel = Awaited<ReturnType<typeof setup>>['panel'];
+  const briefButton = (panel: Panel) =>
+    within(panel.getByRole('group', { name: 'Ticket' })).getByRole('button', { name: /^Brief/ });
+  /** The Brief button in the tab row opens the brief in a sheet. */
+  const briefOf = (panel: Panel) => {
+    fireEvent.click(briefButton(panel));
+    return panel.getByRole('dialog', { name: 'Brief' });
+  };
 
-  it('sits above the thread, open, with the goal and FR list from ticket_body', async () => {
+  it('the Brief button opens the goal and FR list from ticket_body; nothing above the chat', async () => {
     const fetched: string[] = [];
     const { panel } = await setup('Add pagination to /orders', (api) => {
       api.getTranscript = (sid) => {
@@ -165,32 +171,14 @@ describe('Brief card (UX-2)', () => {
         return Promise.reject(new Error('unexpected'));
       };
     });
+    expect(panel.queryByRole('region', { name: 'Brief' })).toBeNull();
     const brief = briefOf(panel);
-    const log = panel.getByRole('log');
-    expect(brief.compareDocumentPosition(log) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(
-      within(brief)
-        .getByRole('button', { name: /^Brief/ })
-        .getAttribute('aria-expanded'),
-    ).toBe('true');
+    expect(briefButton(panel).getAttribute('aria-expanded')).toBe('true');
     expect(within(brief).getByText(/^Anyone opening a session sees/)).toBeTruthy();
     expect(
       within(within(brief).getByRole('list', { name: 'Functional' })).getAllByRole('listitem'),
     ).toHaveLength(5);
     expect(fetched).toEqual([]); // ticket_body is there: no transcript fetch
-  });
-
-  it('collapse persists across reopening the panel', async () => {
-    const { panel } = await setup('Add pagination to /orders');
-    fireEvent.click(within(briefOf(panel)).getByRole('button', { name: /^Brief/ }));
-    cleanup();
-    const again = await setup('Add pagination to /orders');
-    expect(
-      within(briefOf(again.panel))
-        .getByRole('button', { name: /^Brief/ })
-        .getAttribute('aria-expanded'),
-    ).toBe('false');
-    localStorage.clear();
   });
 
   it('an older server (no ticket_body): the brief comes from the transcript prompt, one fetch', async () => {
@@ -265,7 +253,7 @@ describe('Brief card (UX-2)', () => {
     // UX-6: command output is one collapsed "Check output" row; expand it.
     fireEvent.click(panel.getAllByRole('button', { name: /Check output · Command/ }).at(-1)!);
     expect(panel.getByText(/line 1999/)).toBeTruthy();
-    expect(briefOf(panel)).toBeTruthy();
+    expect(briefButton(panel)).toBeTruthy();
     // Generous for jsdom (a browser is far faster); catches an accidental quadratic render.
     expect(ms).toBeLessThan(5000);
   });

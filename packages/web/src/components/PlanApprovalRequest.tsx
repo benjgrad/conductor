@@ -98,7 +98,7 @@ interface PlanAnswerActionsProps {
 
 /**
  * Approve plan and Request changes… (with its feedback form): the plan card's answers, and the
- * phone's Plan sheet footer (TicketStrip.tsx).
+ * Plan sheet footer (TicketStrip.tsx).
  */
 export function PlanAnswerActions({ api, sessionId, option, onDone }: PlanAnswerActionsProps) {
   const [changing, setChanging] = useState(false);

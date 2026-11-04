@@ -1,46 +1,14 @@
-// UX-2: the session's brief, pinned above the Messages thread: what the agent was asked to do
-// (goal, FR/NFR checklists with each requirement's verification inline, out of scope), a tally
-// of requirements with a verification, the raw ticket, and the exact initial prompt. On a phone
-// the card isn't shown; the ticket strip (TicketStrip.tsx) opens BriefContent in a sheet.
-import { memo, useEffect, useId, useState } from 'react';
+// UX-2: the session's brief: what the agent was asked to do (goal, FR/NFR checklists with each
+// requirement's verification inline, out of scope), a tally of requirements with a verification,
+// the raw ticket, and the exact initial prompt. The Brief button in the panel's tab row opens it
+// in a sheet (TicketStrip.tsx), at every width.
+import { useId, useState } from 'react';
 import { tally, verificationFor, type Brief, type Requirement } from '../brief/parse.js';
 import { Markdown, renderInline } from './markdown.js';
 import './BriefCard.css';
 
-export interface BriefCardProps {
-  sessionId: string;
-  /** The parsed body; null while it isn't available. */
-  brief: Brief | null;
-  /** The raw ticket body (Full ticket); null while it isn't available. */
-  body: string | null;
-  /** Why `body` is null (shown as "brief unavailable: …"); null while loading. */
-  unavailable: string | null;
-  promptText: string | null;
-  promptReason: string | null;
-  promptLoading: boolean;
-  /** Asks for the initial prompt (fetched on demand: View prompt, or the body fallback). */
-  onWantPrompt: () => void;
-}
-
-const storageKey = (sessionId: string) => `conductor.brief.open.${sessionId}`;
-
-function readOpen(sessionId: string): boolean {
-  try {
-    return localStorage.getItem(storageKey(sessionId)) !== 'closed';
-  } catch {
-    return true;
-  }
-}
-
-function writeOpen(sessionId: string, open: boolean) {
-  try {
-    localStorage.setItem(storageKey(sessionId), open ? 'open' : 'closed');
-  } catch {
-    // Private mode or a full quota: the choice just isn't remembered.
-  }
-}
-
-function Tally({ brief }: { brief: Brief }) {
+/** "FR 5 · NFR 5 · 3/10 with a verification", or the count without one in the warning colour. */
+export function BriefTally({ brief }: { brief: Brief }) {
   const t = tally(brief);
   if (t.total === 0) return null;
   return (
@@ -141,8 +109,8 @@ export interface BriefContentProps {
 }
 
 /**
- * The brief itself (goal, requirements, out of scope) with Full ticket and View prompt: the
- * desktop card's body, and the phone's Brief sheet (TicketStrip.tsx).
+ * The brief itself (tally, goal, requirements, out of scope) with Full ticket and View prompt:
+ * the Brief sheet's body (TicketStrip.tsx).
  */
 export function BriefContent({
   brief,
@@ -158,6 +126,11 @@ export function BriefContent({
   const [showPrompt, setShowPrompt] = useState(false);
   return (
     <>
+      {brief && (
+        <p className="brief-tally-line">
+          <BriefTally brief={brief} />
+        </p>
+      )}
       {brief ? (
         <BriefBody brief={brief} />
       ) : (
@@ -211,58 +184,3 @@ export function BriefContent({
     </>
   );
 }
-
-export const BriefCard = memo(function BriefCard({
-  sessionId,
-  brief,
-  body,
-  unavailable,
-  promptText,
-  promptReason,
-  promptLoading,
-  onWantPrompt,
-}: BriefCardProps) {
-  const ids = useId();
-  const [open, setOpen] = useState(() => readOpen(sessionId));
-
-  // An older server sends no ticket_body: the body then comes from the prompt.
-  const waiting = open && body === null && unavailable === null;
-  useEffect(() => {
-    if (waiting) onWantPrompt();
-  }, [waiting, onWantPrompt]);
-
-  function toggle() {
-    const next = !open;
-    setOpen(next);
-    writeOpen(sessionId, next);
-  }
-
-  return (
-    <section className="brief" aria-label="Brief">
-      <button
-        type="button"
-        className="brief-head"
-        aria-expanded={open}
-        aria-controls={`${ids}-body`}
-        onClick={toggle}
-      >
-        <span className="brief-chevron" aria-hidden="true">
-          ▸
-        </span>
-        <span className="brief-title">Brief</span>
-        {brief && <Tally brief={brief} />}
-      </button>
-      <div id={`${ids}-body`} className="brief-body" hidden={!open}>
-        <BriefContent
-          brief={brief}
-          body={body}
-          unavailable={unavailable}
-          promptText={promptText}
-          promptReason={promptReason}
-          promptLoading={promptLoading}
-          onWantPrompt={onWantPrompt}
-        />
-      </div>
-    </section>
-  );
-});

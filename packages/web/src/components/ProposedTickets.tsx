@@ -1,6 +1,7 @@
 // 06 §Proposed tickets: follow-up tickets the agent proposed, shown while the ticket waits in
 // Needs input. Approve creates a real ticket (title and body editable first); Dismiss hides it.
-// Neither moves this ticket: it still waits for its own answer or transition.
+// Neither moves this ticket: it still waits for its own answer or transition. The section is a
+// disclosure, collapsed by default (the header carries the count), remembered per ticket.
 import {
   proposalTicketBody,
   type TicketProposal,
@@ -12,6 +13,24 @@ import { displayState } from '../workflow/review.js';
 
 /** The column whose cards show proposals (the board badge uses the same rule). */
 export const PROPOSALS_COLUMN = 'needs_input';
+
+const storageKey = (ticketId: string) => `conductor.proposals.open.${ticketId}`;
+
+function readOpen(ticketId: string): boolean {
+  try {
+    return localStorage.getItem(storageKey(ticketId)) === 'open';
+  } catch {
+    return false;
+  }
+}
+
+function writeOpen(ticketId: string, open: boolean) {
+  try {
+    localStorage.setItem(storageKey(ticketId), open ? 'open' : 'closed');
+  } catch {
+    // Private mode or a full quota: the choice just isn't remembered.
+  }
+}
 
 /** Pending proposals to show for a card in `column`; none outside Needs input. */
 export function visibleProposals(
@@ -43,6 +62,8 @@ export function ProposedTickets({
   onDone,
 }: ProposedTicketsProps) {
   const headingId = useId();
+  const bodyId = useId();
+  const [open, setOpen] = useState(() => readOpen(ticketId));
   // Decided here: hidden at once, before the reload brings the new status.
   const [decided, setDecided] = useState<ReadonlySet<string>>(new Set());
   const shown = proposals.filter((p) => !decided.has(p.id));
@@ -53,24 +74,43 @@ export function ProposedTickets({
   };
   return (
     <section className="proposals" aria-labelledby={headingId}>
-      <h3 id={headingId}>Proposed follow-up tickets</h3>
-      <p className="muted proposals-note">
-        The agent noticed these outside this ticket. Approving one queues it as a new ticket; this
-        ticket keeps waiting for you either way.
-      </p>
-      <ul>
-        {shown.map((p) => (
-          <ProposalCard
-            key={p.id}
-            api={api}
-            ticketId={ticketId}
-            ticketTitle={ticketTitle}
-            proposal={p}
-            stateLabel={workflow ? displayState(p.state, workflow) : p.state}
-            onDone={() => done(p.id)}
-          />
-        ))}
-      </ul>
+      <h3>
+        <button
+          type="button"
+          className="proposals-toggle"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          onClick={() => {
+            setOpen(!open);
+            writeOpen(ticketId, !open);
+          }}
+        >
+          <span className="proposals-chevron" aria-hidden="true">
+            ▸
+          </span>
+          <span id={headingId}>Proposed follow-up tickets</span>
+          <span className="proposals-count">{shown.length}</span>
+        </button>
+      </h3>
+      <div id={bodyId} className="proposals-body" hidden={!open}>
+        <p className="muted proposals-note">
+          The agent noticed these outside this ticket. Approving one queues it as a new ticket; this
+          ticket keeps waiting for you either way.
+        </p>
+        <ul>
+          {shown.map((p) => (
+            <ProposalCard
+              key={p.id}
+              api={api}
+              ticketId={ticketId}
+              ticketTitle={ticketTitle}
+              proposal={p}
+              stateLabel={workflow ? displayState(p.state, workflow) : p.state}
+              onDone={() => done(p.id)}
+            />
+          ))}
+        </ul>
+      </div>
     </section>
   );
 }

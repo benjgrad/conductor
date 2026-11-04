@@ -428,7 +428,7 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
             key={selected}
             api={api}
             sessionId={selected}
-            {...(selectedCard ? { ticketId: selectedCard.ticket_id } : {})}
+            {...(selectedCard ? { card: selectedCard } : {})}
             // UX-5: a `card.badge` (e.g. the build-slot wait) doesn't touch updated_at; refetch on it too.
             version={
               selectedCard ? `${selectedCard.updated_at}|${selectedCard.badges.join(',')}` : ''

@@ -1,9 +1,11 @@
-// The agent working a ticket gets a human first name and a flat 2D avatar, both derived from the
-// ticket id (Ben, 2026-10-23: per ticket, not per session, so the agent keeps its name and face
-// across retries and resumes). They are pure functions of the id, so a ticket's agent looks the
-// same everywhere (board card, panel header, Details) and on every machine. Nothing is stored. The
-// avatar is drawn procedurally as inline SVG: no image service, no library.
-import { AGENT_NAMES } from '@conductor/shared';
+// The agent working a ticket: a human first name and a flat 2D avatar. UX-13a stores the name on
+// the ticket (`ticket.agent_id` → `agent.name`, set by the claim) and the API sends it as
+// `agent_name`; UX-13b shows that name and seeds the avatar from it, so a teammate has the same
+// face on every ticket. A queued ticket holds no one ("Unassigned", neutral avatar). A ticket from
+// before UX-13a (or an older server) falls back to the old per-ticket hash name and face, which
+// are pure functions of the ticket id. The avatar is drawn procedurally as inline SVG: no image
+// service, no library.
+import { AGENT_NAMES, type BoardCard } from '@conductor/shared';
 import { useId } from 'react';
 
 /** FNV-1a, 32-bit. Stable across platforms (only Math.imul and unsigned shifts). */
@@ -93,17 +95,14 @@ export interface AvatarTraits {
   mouth: 0 | 1;
 }
 
-export interface AgentIdentity {
-  name: string;
-  traits: AvatarTraits;
-}
-
+/** Legacy (pre-UX-13a) name: a pure function of the ticket id. */
 export function agentName(ticketId: string): string {
   return AGENT_NAMES[hashString(`name:${ticketId}`) % AGENT_NAMES.length]!;
 }
 
-export function avatarTraits(ticketId: string): AvatarTraits {
-  const r = rng(hashString(`avatar:${ticketId}`));
+/** Avatar traits from a seed: the agent's name, or the ticket id for a legacy ticket. */
+export function avatarTraits(seed: string): AvatarTraits {
+  const r = rng(hashString(`avatar:${seed}`));
   const background = pick(BACKGROUNDS, r);
   const skin = pick(SKIN, r);
   const hair = pick(HAIR_STYLES, r);
@@ -116,8 +115,29 @@ export function avatarTraits(ticketId: string): AvatarTraits {
   return { background, skin, hair, hairColor, shirt, glasses, freckles, mouth };
 }
 
-export function agentIdentity(ticketId: string): AgentIdentity {
-  return { name: agentName(ticketId), traits: avatarTraits(ticketId) };
+export const UNASSIGNED = 'Unassigned';
+
+/** Who works a card: the name to show and the avatar seed (null ⇒ unassigned, neutral avatar). */
+export interface CardAgent {
+  name: string;
+  seed: string | null;
+}
+
+/**
+ * UX-13b FR-1: the one place that decides which agent a card shows.
+ * 1. The stored teammate (`card.agent_name`, else the session detail's `agent_name`), seeded by
+ *    name so the same teammate has the same face everywhere (FR-2).
+ * 2. A queued ticket with no agent: "Unassigned" (a queued ticket holds no one, UX-13a FR-3).
+ * 3. Otherwise a ticket from before UX-13a, or an older server: the old hash name and face.
+ */
+export function cardAgent(
+  card: Pick<BoardCard, 'ticket_id' | 'column' | 'agent_name'>,
+  detailName?: string | null,
+): CardAgent {
+  const stored = card.agent_name || detailName;
+  if (stored) return { name: stored, seed: stored };
+  if (card.column === 'queued') return { name: UNASSIGNED, seed: null };
+  return { name: agentName(card.ticket_id), seed: card.ticket_id };
 }
 
 /** Darken a #rrggbb colour by `f` (0..1), for shading (neck, ears, collar). */
@@ -183,7 +203,8 @@ function HairFront({ style, color }: { style: HairStyle; color: string }) {
 }
 
 export interface AgentAvatarProps {
-  ticketId: string;
+  /** `CardAgent.seed`: the agent's name (or a legacy ticket id); null ⇒ the neutral avatar. */
+  seed: string | null;
   /** Rendered size in px. Default 32. Designed to read at 20 and 64. */
   size?: number;
   /** An accessible name; omitted → decorative (aria-hidden). */
@@ -191,9 +212,39 @@ export interface AgentAvatarProps {
   className?: string;
 }
 
-/** A flat, friendly person on a coloured circle, deterministic per ticket id. */
-export function AgentAvatar({ ticketId, size = 32, title, className }: AgentAvatarProps) {
-  const t = avatarTraits(ticketId);
+/** A flat, friendly person on a coloured circle, deterministic per seed. */
+export function AgentAvatar({ seed, size = 32, title, className }: AgentAvatarProps) {
+  if (seed === null) return <UnassignedAvatar size={size} title={title} className={className} />;
+  return <SeededAvatar seed={seed} size={size} title={title} className={className} />;
+}
+
+interface DrawProps {
+  size: number;
+  title: string | undefined;
+  className: string | undefined;
+}
+
+/** Nobody assigned yet: a grey silhouette on a grey circle. */
+function UnassignedAvatar({ size, title, className }: DrawProps) {
+  return (
+    <svg
+      className={`avatar avatar-unassigned${className ? ` ${className}` : ''}`}
+      width={size}
+      height={size}
+      viewBox="0 0 64 64"
+      role={title ? 'img' : undefined}
+      aria-label={title}
+      aria-hidden={title ? undefined : true}
+    >
+      <circle cx="32" cy="32" r="32" fill="#d9dce3" />
+      <circle cx="32" cy="27" r="12" fill="#a9afbd" />
+      <path d="M12 60 C12 47 21 42 32 42 C43 42 52 47 52 60 Z" fill="#a9afbd" />
+    </svg>
+  );
+}
+
+function SeededAvatar({ seed, size, title, className }: DrawProps & { seed: string }) {
+  const t = avatarTraits(seed);
   const clip = useId();
   const ink = '#2b2335';
   const eyeY = 30;

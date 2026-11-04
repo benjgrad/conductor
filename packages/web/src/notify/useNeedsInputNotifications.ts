@@ -1,7 +1,7 @@
 import type { BoardCard } from '@conductor/shared';
 import { useEffect, useRef } from 'react';
 import { EMPTY_BOARD, type BoardState } from '../board/board.js';
-import { agentName } from '../components/agent-identity.js';
+import { cardAgent } from '../components/agent-identity.js';
 import { setFaviconDot } from './favicon.js';
 import { pushSubscribedHere } from './push.js';
 import { notifyState } from './settings.js';
@@ -90,7 +90,7 @@ function notify(card: BoardCard, select: (sessionId: string) => void): Close | n
   // UX-16 FR-4: this device gets the push (same `tag`) from the service worker instead.
   if (pushSubscribedHere()) return null;
   if (document.visibilityState !== 'hidden' && document.hasFocus()) return null;
-  const title = `${agentName(card.ticket_id)} needs input`;
+  const title = `${cardAgent(card).name} needs input`;
   const body = clip(`${card.title}: ${request.question}`);
   const tag = request.id;
 

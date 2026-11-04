@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client.js';
 import { mockChecking } from '../api/mock-data.js';
 import type { BoardState } from '../board/board.js';
-import { agentName } from './agent-identity.js';
+import { cardAgent } from './agent-identity.js';
 import { Board } from './Board.js';
 import { boardLayoutKey } from './board-layout.js';
 import { PLAN_APPROVED_TEXT, PREVIEW_MAX } from './request-preview.js';
@@ -19,10 +19,10 @@ import { implementerReport, REPORT_PROSE_LINE } from './review-fixture.js';
 
 afterEach(cleanup);
 
-// UX-9 NFR-2: `agentName` runs once per card render, so it counts them.
+// UX-9 NFR-2: `cardAgent` runs once per card render, so it counts them.
 vi.mock('./agent-identity.js', async (importOriginal) => {
   const m = await importOriginal<typeof import('./agent-identity.js')>();
-  return { ...m, agentName: vi.fn(m.agentName) };
+  return { ...m, cardAgent: vi.fn(m.cardAgent) };
 });
 
 const PR = 'https://github.com/benjgrad/conductor/pull/42';
@@ -647,13 +647,13 @@ describe('collapsible columns (UX-9)', () => {
   it('NFR-2: toggling a column does not re-render the cards of the others', () => {
     const p = planning(1);
     renderBoard([p, done(2)]);
-    const name = vi.mocked(agentName);
-    name.mockClear();
+    const agent = vi.mocked(cardAgent);
+    agent.mockClear();
     fireEvent.click(toggle('Done'));
     fireEvent.click(toggle('Done'));
-    expect(name.mock.calls.some(([id]) => id === p.ticket_id)).toBe(false);
+    expect(agent.mock.calls.some(([c]) => c.ticket_id === p.ticket_id)).toBe(false);
     // The toggled column's own cards do render again when it expands.
-    expect(name.mock.calls.some(([id]) => id === done(2).ticket_id)).toBe(true);
+    expect(agent.mock.calls.some(([c]) => c.ticket_id === done(2).ticket_id)).toBe(true);
   });
 });
 

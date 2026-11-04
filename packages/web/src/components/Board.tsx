@@ -8,7 +8,7 @@ import {
   type BoardState,
 } from '../board/board.js';
 import { DEFAULT_BOARD_WORKFLOW, readCollapsed, writeCollapsed } from './board-layout.js';
-import { AgentAvatar, agentName } from './agent-identity.js';
+import { AgentAvatar, cardAgent } from './agent-identity.js';
 import { ago, cardMeta, KIND_LABELS, TICKET_KIND_LABELS, usd } from './format.js';
 import { usePlanAnswer } from './plan-answer.js';
 import { CardPermissionActions, CardQuestionOptions } from './CardActions.js';
@@ -381,7 +381,8 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
   // UX-5: in a gate step the agent has exited and conductor runs the step, so no "running" agent.
   const conductor = isConductorStep(card);
   const idle = agentIdle(card);
-  const name = agentName(card.ticket_id);
+  const agent = cardAgent(card);
+  const name = agent.name;
   const meta = cardMeta(card, column);
   return (
     <article className={`card${selected ? ' selected' : ''}`} data-ticket={card.ticket_id}>
@@ -402,10 +403,16 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
         )}
         <span
           className="card-agent"
-          title={idle ? `Agent ${name} is idle: conductor is checking` : `Agent ${name}`}
+          title={
+            agent.seed === null
+              ? 'Not assigned yet'
+              : idle
+                ? `Agent ${name} is idle: conductor is checking`
+                : `Agent ${name}`
+          }
         >
           <AgentAvatar
-            ticketId={card.ticket_id}
+            seed={agent.seed}
             size={20}
             {...(idle ? { className: 'avatar-idle' } : {})}
           />

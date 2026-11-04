@@ -3,8 +3,9 @@
 //!
 //! - POSIX: SIGINT and SIGTERM stop the daemon; SIGHUP rescans the inventory (M2-T10).
 //! - Windows: Ctrl-C and the console closing stop it; Ctrl-Break rescans (MW-T09's twin of SIGHUP,
-//!   next to `conductor-daemon rescan`). A Scheduled Task stop sends no console event (U-108):
-//!   MR-T13c owns that.
+//!   next to `conductor-daemon rescan`). A Scheduled Task stop (`schtasks /End`, `service
+//!   restart|uninstall`, logoff) is TerminateProcess and sends no console event (U-108), so the
+//!   daemon gets no chance to drain there (TD-190; `commands/service.rs`).
 
 use tokio::sync::mpsc;
 

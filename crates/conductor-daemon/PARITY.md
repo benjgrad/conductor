@@ -385,7 +385,7 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| commands/service.test.ts › unit files › launchd on macOS, systemd on Linux, none on Windows | crates/conductor-daemon/src/commands/service/tests.rs::launchd_on_macos_systemd_on_linux_none_on_windows |
+| commands/service.test.ts › unit files › launchd on macOS, systemd on Linux, none on Windows | crates/conductor-daemon/src/commands/service/tests.rs::launchd_on_macos_systemd_on_linux_scheduled_task_on_windows |
 | commands/service.test.ts › unit files › the launchd plist runs the launcher, supervised, with pinned node, logs and a throttle | crates/conductor-daemon/src/commands/service/tests.rs::the_launchd_plist_runs_the_launcher_supervised_with_logs_and_a_throttle |
 | commands/service.test.ts › unit files › the systemd unit runs the launcher, supervised, and never restarts on 78 | crates/conductor-daemon/src/commands/service/tests.rs::the_systemd_unit_runs_the_launcher_supervised_and_never_restarts_on_78 |
 | commands/service.test.ts › unit files › escapes XML and systemd specifiers, and refuses what systemd cannot quote | crates/conductor-daemon/src/commands/service/tests.rs::escapes_xml_and_systemd_specifiers_and_refuses_what_systemd_cannot_quote |

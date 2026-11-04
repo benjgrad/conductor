@@ -11,7 +11,7 @@
 // The TS daemon runs from the repo build (packages/daemon/dist/main.js), through a wrapper laid
 // out where the M2-T14 TS install.sh put its version dir: MR-T15 removed the TS tarball builder,
 // so there is no TS tarball to install. The Rust tarball is packed (package-daemon.sh) from the
-// release binary e2e/run.sh built, so the test costs no extra cargo build. Linux/macOS only
+// release binary scripts/e2e.js built, so the test costs no extra cargo build. Linux/macOS only
 // (install.sh is POSIX; Windows is MR-T16b).
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import {

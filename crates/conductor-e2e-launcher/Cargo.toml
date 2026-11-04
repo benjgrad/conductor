@@ -1,0 +1,13 @@
+[package]
+name = "conductor-e2e-launcher"
+description = "Test-only native launcher for the Windows e2e fakes (MR-T16b); never shipped."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+tempfile.workspace = true

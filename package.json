@@ -14,7 +14,7 @@
     "test": "vitest run",
     "test:all": "vitest run --mode all",
     "test:watch": "vitest",
-    "test:e2e": "e2e/run.sh",
+    "test:e2e": "node scripts/e2e.js",
     "db:up": "scripts/db.sh up",
     "db:down": "scripts/db.sh down",
     "db:migrate": "scripts/db.sh migrate",

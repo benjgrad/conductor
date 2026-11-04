@@ -5,7 +5,14 @@
 // packages/daemon/dist/main.js, until MR-T18b). The daemon drives the fake `claude`
 // (packages/daemon/test/fixtures/fake-claude.mjs, via a symlink inside the temp dir so leftover
 // processes can be found by path) unless the run uses the real CLI.
-import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+//
+// Windows (MR-T16b): the daemon runs only a native claude.exe (U-110) and a `.cmd` can't carry
+// `gh pr create`'s multi-line --body, so both fakes are copies of the native launcher
+// (crates/conductor-e2e-launcher) in the temp dir, each with a `<name>.launch` sidecar naming
+// node and the fake's script. Teardown uses taskkill and a Win32_Process listing (harness/procs.ts)
+// instead of pgrep. Stopping a child there is TerminateProcess, so the daemon gets no graceful
+// shutdown: its Job Objects (KILL_ON_JOB_CLOSE) take its Claude processes down with it.
+import { spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import {
   existsSync,
@@ -20,16 +27,19 @@ import {
   symlinkSync,
   writeFileSync,
   chmodSync,
+  copyFileSync,
 } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTestDatabase, type TestDatabase } from '../../packages/orchestrator/test/db.js';
+import { makeDirPrivate } from './acl.js';
+import { findProcesses, killTree } from './procs.js';
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 export const ORCHESTRATOR_BIN = join(REPO_ROOT, 'packages/orchestrator/dist/bin.js');
-/** The Rust daemon `e2e/run.sh` builds (`cargo build --release -p conductor-daemon`). */
+/** The Rust daemon `scripts/e2e.js` builds (`cargo build --release -p conductor-daemon`). */
 export const RUST_DAEMON_BIN = join(
   REPO_ROOT,
   'target/release',
@@ -56,6 +66,34 @@ export function isNodeScript(bin: string): boolean {
 /** Which daemon the stack runs: 'ts' for a Node script, 'rust' for a native binary. */
 export const DAEMON_KIND: 'rust' | 'ts' = isNodeScript(DAEMON_BIN) ? 'ts' : 'rust';
 export const FAKE_CLAUDE = join(REPO_ROOT, 'packages/daemon/test/fixtures/fake-claude.mjs');
+const WIN = process.platform === 'win32';
+/** Windows only: the native launcher the fakes run through (`pnpm test:e2e` builds it, MR-T16b). */
+export const E2E_LAUNCHER_BIN = join(REPO_ROOT, 'target/release/conductor-e2e-launcher.exe');
+
+/**
+ * How long the daemon gets to register. Before it connects, it probes claude twice (`--help`,
+ * `--version`, up to 10 s each); on Windows each probe is the launcher plus a cold node + MCP SDK
+ * start, on a runner whose Defender scans the freshly copied exe, so it gets longer there.
+ */
+export const REGISTER_TIMEOUT_MS = WIN ? 90_000 : 20_000;
+/** A suite's beforeAll budget: the stack start plus REGISTER_TIMEOUT_MS. */
+export const SETUP_TIMEOUT_MS = WIN ? 180_000 : 60_000;
+
+/** `name`'s value in `env`, matched case-insensitively (Windows has `Path`). */
+export function envGet(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const key = Object.keys(env).find((k) => k.toUpperCase() === name.toUpperCase());
+  return key === undefined ? undefined : env[key];
+}
+
+/**
+ * Windows: `dir/<name>.exe`, a copy of the launcher that runs `node <script>`. Returns its path.
+ */
+function nativeFake(dir: string, name: string, script: string): string {
+  const exe = join(dir, `${name}.exe`);
+  copyFileSync(E2E_LAUNCHER_BIN, exe);
+  writeFileSync(join(dir, `${name}.launch`), `${process.execPath}\n${script}\n`);
+  return exe;
+}
 
 /** The first PR the E2E fake `gh` opens in a run (ADR-0010 open_pr); later ones count up. */
 export const FAKE_GH_URL = 'https://github.com/benjgrad/fixture-app/pull/42';
@@ -170,8 +208,12 @@ export class Stack {
   private readonly procs: Proc[] = [];
 
   constructor(private readonly opts: StackOptions = {}) {
-    // realpath: macOS tmpdir is a symlink (/var → /private/var); pgrep matches the real path.
-    this.tmp = realpathSync(mkdtempSync(join(tmpdir(), 'conductor-e2e-')));
+    // realpath: macOS tmpdir is a symlink (/var → /private/var); pgrep matches the real path. On
+    // Windows the native one expands 8.3 names (C:\Users\RUNNER~1), as the daemon sees them.
+    const dir = mkdtempSync(join(tmpdir(), 'conductor-e2e-'));
+    this.tmp = WIN ? realpathSync.native(dir) : realpathSync(dir);
+    // Windows: the daemon only creates its root under a private folder (harness/acl.ts).
+    if (WIN) makeDirPrivate(this.tmp);
   }
 
   /** Fake Claude scenarios, `<name>.json`, picked per ticket by `fake-scenario: <name>`. */
@@ -222,13 +264,16 @@ export class Stack {
 
   /** Database, then orchestrator (ready when GET /api/board answers), then the daemon. */
   async start(): Promise<void> {
-    for (const bin of [ORCHESTRATOR_BIN, DAEMON_BIN]) {
+    const bins = [ORCHESTRATOR_BIN, DAEMON_BIN, ...(WIN ? [E2E_LAUNCHER_BIN] : [])];
+    for (const bin of bins) {
       if (existsSync(bin)) continue;
       const hint = isNodeScript(bin)
         ? 'run `pnpm exec tsc -b` first'
-        : bin === RUST_DAEMON_BIN
-          ? 'run `cargo build --release -p conductor-daemon` (or `pnpm test:e2e`) first'
-          : 'build it first (target/debug/conductor-daemon: `cargo nextest run --workspace --no-run`)';
+        : bin === E2E_LAUNCHER_BIN
+          ? 'run `pnpm test:e2e` (it builds the launcher) first'
+          : bin === RUST_DAEMON_BIN
+            ? 'run `cargo build --release -p conductor-daemon` (or `pnpm test:e2e`) first'
+            : 'build it first (target/debug/conductor-daemon: `cargo nextest run --workspace --no-run`)';
       throw new Error(`${bin} is missing: ${hint}`);
     }
     console.log(`e2e: ${this.daemonKind} daemon ${DAEMON_BIN}`);
@@ -271,14 +316,21 @@ export class Stack {
       ...this.opts.daemonEnv,
     };
     // ADR-0010 / ADR-0011: the fake `gh` (FAKE_GH above, no network). Every call is logged to
-    // fakeGhLog.
+    // fakeGhLog. Windows: gh.exe (the launcher) runs node gh.cjs (the script uses require).
+    // Written once: a restarted daemon (startDaemon again) reuses it.
     const ghBin = this.ghBinDir;
     if (!existsSync(ghBin)) {
       mkdirSync(ghBin);
-      writeFileSync(join(ghBin, 'gh'), FAKE_GH);
-      chmodSync(join(ghBin, 'gh'), 0o755);
+      if (WIN) {
+        const script = join(ghBin, 'gh.cjs');
+        writeFileSync(script, FAKE_GH.replace(/^#!.*\n/, ''));
+        nativeFake(ghBin, 'gh', script);
+      } else {
+        writeFileSync(join(ghBin, 'gh'), FAKE_GH);
+        chmodSync(join(ghBin, 'gh'), 0o755);
+      }
     }
-    env.PATH = `${ghBin}:${process.env.PATH ?? ''}`;
+    env.PATH = `${ghBin}${delimiter}${envGet(process.env, 'PATH') ?? ''}`;
     env.FAKE_GH_LOG = this.fakeGhLog;
     // ADR-0010 fresh checkouts auto-detect `npm install` as their setup: never touch the network.
     env.npm_config_offline = 'true';
@@ -289,11 +341,13 @@ export class Stack {
     env.FAKE_GH_REPO = this.fixtureRepo;
     if (!this.opts.realClaude) {
       const bin = this.claudeBinDir;
+      const claude = join(bin, WIN ? 'claude.exe' : 'claude');
       if (!existsSync(bin)) {
         mkdirSync(bin);
-        symlinkSync(FAKE_CLAUDE, join(bin, 'claude'));
+        if (WIN) nativeFake(bin, 'claude', FAKE_CLAUDE);
+        else symlinkSync(FAKE_CLAUDE, claude);
       }
-      env.CONDUCTOR_CLAUDE_BIN = join(bin, 'claude');
+      env.CONDUCTOR_CLAUDE_BIN = claude;
       env.FAKE_CLAUDE_SCENARIO_DIR = this.scenarioDir;
       env.FAKE_CLAUDE_STATE_DIR = join(this.tmp, 'fake-claude-state');
       env.FAKE_CLAUDE_ARGV_LOG = this.fakeArgvLog; // one line per process start (live vs --resume)
@@ -331,6 +385,9 @@ export class Stack {
     // Never leak the caller's scenario, claude binary or conductor settings into the stack.
     for (const k of Object.keys(base)) {
       if (k.startsWith('FAKE_CLAUDE_') || k.startsWith('CONDUCTOR_')) delete base[k];
+      // Windows env names are case-insensitive: drop `Path` when `env` sets PATH, so the child
+      // gets one (Node would pick either).
+      if (WIN && Object.keys(env).some((e) => e.toUpperCase() === k.toUpperCase())) delete base[k];
     }
     const [file, argv]: [string, string[]] = isNodeScript(bin)
       ? [process.execPath, [bin, ...args]]
@@ -343,6 +400,19 @@ export class Stack {
     closeSync(fd);
     const exited = new Promise<void>((r) => child.once('exit', () => r()));
     this.procs.push({ name, child, log, exited });
+  }
+
+  /**
+   * Wait (REGISTER_TIMEOUT_MS) until `online` says the daemon registered; on a timeout print every
+   * process log first, so CI shows why.
+   */
+  async waitForDaemon(online: () => Promise<unknown>): Promise<void> {
+    try {
+      await waitFor('the daemon to register', online, REGISTER_TIMEOUT_MS);
+    } catch (err) {
+      console.error(`daemon alive: ${this.alive('daemon')}\n${this.logs()}`);
+      throw err;
+    }
   }
 
   /** Whether a child has exited (e.g. a startup crash). */
@@ -363,17 +433,10 @@ export class Stack {
 
   /** Processes still running from this run's temp dir (fake claude, fixture commands). */
   leftovers(): number[] {
-    try {
-      return execFileSync('pgrep', ['-f', this.tmp], { encoding: 'utf8' })
-        .split('\n')
-        .map((l) => Number(l.trim()))
-        .filter((n) => n > 0 && n !== process.pid);
-    } catch {
-      return []; // pgrep exits 1 when nothing matches
-    }
+    return findProcesses(this.tmp);
   }
 
-  /** SIGTERM one child, SIGKILL after `graceMs`. */
+  /** SIGTERM one child, SIGKILL after `graceMs` (Windows: both are TerminateProcess). */
   async stopProc(name: string, graceMs = 8000): Promise<void> {
     const p = this.procs.find((x) => x.name === name);
     if (!p || p.child.exitCode !== null || p.child.signalCode !== null) return;
@@ -390,15 +453,10 @@ export class Stack {
   async stop(): Promise<void> {
     for (const p of this.procs) if (p.name.startsWith('daemon')) await this.stopProc(p.name);
     await this.stopProc('orchestrator');
-    for (const pid of this.leftovers()) {
-      try {
-        process.kill(pid, 'SIGKILL');
-      } catch {
-        // already gone
-      }
-    }
+    for (const pid of this.leftovers()) killTree(pid);
     await this.db?.drop();
-    rmSync(this.tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    // Windows: a just-killed launcher can hold its exe for a moment (EBUSY): retry longer.
+    rmSync(this.tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: WIN ? 500 : 100 });
   }
 }
 

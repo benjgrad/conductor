@@ -316,3 +316,116 @@ async fn scan_inventory_reads_roots_from_config_json() {
         }]
     );
 }
+
+// Inventory log lines (why no tickets reach a machine).
+
+#[test]
+fn repo_warnings_no_roots_no_repos_or_a_repo_without_a_routable_remote() {
+    assert_eq!(
+        repo_warnings(&[], &[]),
+        [
+            "inventory: no repo roots configured, so no tickets can be routed here; run: conductor-daemon config roots <dir>"
+        ]
+    );
+    assert_eq!(
+        repo_warnings(&[PathBuf::from("/a"), PathBuf::from("/b")], &[]),
+        ["inventory: no git repos found under /a, /b (searched 6 levels deep)"]
+    );
+    let mut local = repo("/Users/ben/code/local", 'a');
+    local.remote = None;
+    assert_eq!(
+        repo_warnings(
+            &[PathBuf::from("/Users/ben/code")],
+            &[repo(REPO, 'a'), local]
+        ),
+        [
+            "inventory: /Users/ben/code/local has no usable origin remote; tickets can't be routed to it"
+        ]
+    );
+}
+
+#[test]
+fn inventory_summary_names_the_routable_remotes_deduplicated_and_cut_at_10() {
+    let mut local = repo("/l", 'a');
+    local.remote = None;
+    let p = inventory_payload(&InventoryScan {
+        repos: vec![repo(REPO, 'a'), repo("/twin", 'a'), local],
+        capabilities: vec![gh("2.50.0")],
+    });
+    assert_eq!(
+        inventory_summary(&p),
+        "inventory: sent 3 repos (1 routable: github.com/org/app) and 1 capabilities"
+    );
+    assert_eq!(
+        inventory_summary(&inventory_payload(&InventoryScan::default())),
+        "inventory: sent 0 repos (0 routable) and 0 capabilities"
+    );
+    let many: Vec<InventoryRepo> = (0..12)
+        .map(|i| {
+            let mut r = repo(&format!("/r{i:02}"), 'a');
+            r.remote = Some(format!("github.com/org/r{i:02}"));
+            r
+        })
+        .collect();
+    let line = inventory_summary(&inventory_payload(&InventoryScan {
+        repos: many,
+        capabilities: vec![],
+    }));
+    assert!(
+        line.starts_with("inventory: sent 12 repos (12 routable: github.com/org/r00, "),
+        "{line}"
+    );
+    assert!(line.contains("github.com/org/r09, …)"), "{line}");
+    assert!(!line.contains("github.com/org/r10"), "{line}");
+}
+
+#[test]
+fn once_log_prints_each_message_once_and_forgets_everything_at_its_cap() {
+    let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+    let out = lines.clone();
+    let log = once_log(
+        Arc::new(move |m: &str| out.lock().unwrap().push(m.to_string())),
+        2,
+    );
+    log("a");
+    log("a");
+    log("b");
+    assert_eq!(*lines.lock().unwrap(), ["a", "b"]);
+    log("c"); // cap reached: forgets a and b
+    log("a");
+    assert_eq!(*lines.lock().unwrap(), ["a", "b", "c", "a"]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_reporter_logs_the_summary_once_per_distinct_inventory_not_on_every_resend() {
+    let scan = Arc::new(Mutex::new(InventoryScan {
+        repos: vec![repo(REPO, 'a')],
+        capabilities: vec![gh("2.50.0")],
+    }));
+    let s = scan.clone();
+    let scan_fn: ScanFn = Arc::new(move || {
+        let s = s.clone();
+        Box::pin(async move { Ok(s.lock().unwrap().clone()) })
+    });
+    let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+    let out = lines.clone();
+    let r = InventoryReporter::new(
+        scan_fn,
+        Arc::new(|_| {}),
+        Duration::from_secs(600),
+        Arc::new(move |m: &str| out.lock().unwrap().push(m.to_string())),
+    );
+    r.on_registered().await;
+    r.on_disconnected();
+    r.on_registered().await; // a reconnect re-sends the same inventory
+    assert_eq!(
+        *lines.lock().unwrap(),
+        ["inventory: sent 1 repos (1 routable: github.com/org/app) and 1 capabilities"]
+    );
+    scan.lock().unwrap().capabilities.push(slack());
+    r.rescan().await;
+    let l = lines.lock().unwrap().clone();
+    assert_eq!(l.len(), 2);
+    assert!(l[1].contains("and 2 capabilities"), "{l:?}");
+    r.stop();
+}

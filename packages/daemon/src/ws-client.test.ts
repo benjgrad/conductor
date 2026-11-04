@@ -13,6 +13,7 @@ import {
   EXIT_FATAL_AUTH,
   fatalExitCode,
   ReconnectingWs,
+  reconnectLine,
   type WsClientOptions,
 } from './ws-client.js';
 
@@ -159,6 +160,9 @@ describe('ReconnectingWs (M2-T04)', () => {
     const r = client(bad.url);
     await until(() => bad.rejected >= 2);
     expect(r.ev.fatal).toEqual([]);
+    // A refused upgrade logs its status; the backoff line then has no close code.
+    expect(r.ev.logs).toContain('ws upgrade refused: HTTP 503');
+    expect(r.ev.logs.some((l) => /^ws closed; reconnecting in \d+ ms$/.test(l))).toBe(true);
     r.c.stop();
 
     const s = await server();
@@ -167,6 +171,13 @@ describe('ReconnectingWs (M2-T04)', () => {
     s.sockets[0]!.close(1000);
     await until(() => ev.opens === 2);
     expect(ev.fatal).toEqual([]);
+    // An open socket's close names its code.
+    expect(ev.logs.some((l) => /^ws closed \(1000\); reconnecting in \d+ ms$/.test(l))).toBe(true);
+  });
+
+  it('reconnectLine names the close code when there is one', () => {
+    expect(reconnectLine(1006, 558)).toBe('ws closed (1006); reconnecting in 558 ms');
+    expect(reconnectLine(undefined, 845)).toBe('ws closed; reconnecting in 845 ms');
   });
 });
 

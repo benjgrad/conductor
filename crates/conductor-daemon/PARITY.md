@@ -521,6 +521,10 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 | TS case | Rust |
 |---|---|
 | inventory/report.test.ts › inventoryHash › is stable under reordering and changes with a version or a repo | crates/conductor-daemon/src/inventory/report/tests.rs::inventory_hash_is_stable_under_reordering_and_changes_with_a_version_or_a_repo, crates/conductor-daemon/src/inventory/report/tests.rs::the_payload_and_hash_match_the_ts_vector |
+| inventory/report.test.ts › inventory log lines (why no tickets reach a machine) › repoWarnings: no roots, no repos, or a repo without a routable remote | crates/conductor-daemon/src/inventory/report/tests.rs::repo_warnings_no_roots_no_repos_or_a_repo_without_a_routable_remote |
+| inventory/report.test.ts › inventory log lines (why no tickets reach a machine) › inventorySummary names the routable remotes, de-duplicated and cut at 10 | crates/conductor-daemon/src/inventory/report/tests.rs::inventory_summary_names_the_routable_remotes_deduplicated_and_cut_at_10 |
+| inventory/report.test.ts › inventory log lines (why no tickets reach a machine) › onceLog prints each message once, and forgets everything at its cap | crates/conductor-daemon/src/inventory/report/tests.rs::once_log_prints_each_message_once_and_forgets_everything_at_its_cap |
+| inventory/report.test.ts › inventory log lines (why no tickets reach a machine) › the reporter logs the summary once per distinct inventory, not on every resend | crates/conductor-daemon/src/inventory/report/tests.rs::the_reporter_logs_the_summary_once_per_distinct_inventory_not_on_every_resend |
 | inventory/report.test.ts › InventoryReporter › sends on registered; the 10-minute rescan sends only when the hash changed | crates/conductor-daemon/src/inventory/report/tests.rs::sends_on_registered_and_the_10_minute_rescan_sends_only_on_change |
 | inventory/report.test.ts › InventoryReporter › a failed scan keeps the previous inventory | crates/conductor-daemon/src/inventory/report/tests.rs::a_failed_scan_keeps_the_previous_inventory |
 | inventory/report.test.ts › daemon inventory over the link (M2-T10) › sent after registered (before request_work), with the legacy repo_inventory too | crates/conductor-daemon/src/daemon/tests/inventory_link.rs::sent_after_registered_before_request_work_with_the_legacy_repo_inventory_too |
@@ -530,7 +534,7 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 
 | TS case | Rust |
 |---|---|
-| inventory/repos.test.ts › inventory repos (M2-T10) › finds repos at depth 1–4, not 5 | crates/conductor-daemon/src/inventory/repos/tests.rs::finds_repos_at_depth_1_to_4_not_5 |
+| inventory/repos.test.ts › inventory repos (M2-T10) › finds repos at depth 1–6, not 7 | crates/conductor-daemon/src/inventory/repos/tests.rs::finds_repos_at_depth_1_to_6_not_7 |
 | inventory/repos.test.ts › inventory repos (M2-T10) › skips node_modules, dot-directories and symlinks | crates/conductor-daemon/src/inventory/repos/tests.rs::skips_node_modules_dot_directories_and_symlinks |
 | inventory/repos.test.ts › inventory repos (M2-T10) › canonicalises origin to host/org/repo; no origin → remote null | crates/conductor-daemon/src/inventory/repos/tests.rs::canonicalises_origin_and_no_origin_is_null |
 | inventory/repos.test.ts › inventory repos (M2-T10) › a remote that is not canonical is null for that repo only | crates/conductor-daemon/src/inventory/repos/tests.rs::a_remote_that_is_not_canonical_is_null_for_that_repo_only |
@@ -782,5 +786,6 @@ The ledger of ADR-0026 §3. Every test case of the frozen TS daemon (`packages/d
 | ws-client.test.ts › ReconnectingWs (M2-T04) › HTTP 401 and 403 at the upgrade are treated as unauthorized: no retries, exit 78 | crates/conductor-daemon/src/ws_client.rs::tests::http_401_and_403_at_the_upgrade_are_unauthorized_no_retries_exit_78 |
 | ws-client.test.ts › ReconnectingWs (M2-T04) › any other code exits 1 | crates/conductor-daemon/src/ws_client.rs::tests::any_other_code_exits_1 |
 | ws-client.test.ts › ReconnectingWs (M2-T04) › another refused upgrade, and an ordinary close, still reconnect | crates/conductor-daemon/src/ws_client.rs::tests::another_refused_upgrade_and_an_ordinary_close_still_reconnect |
+| ws-client.test.ts › ReconnectingWs (M2-T04) › reconnectLine names the close code when there is one | crates/conductor-daemon/src/ws_client.rs::tests::reconnect_line_names_the_close_code_when_there_is_one |
 | ws-client.test.ts › wake tick (M2-T18, ADR-0021 §5) › a 60 s jump during a 30 s backoff reconnects within one tick and resets the attempts | crates/conductor-daemon/src/ws_client.rs::tests::wake_a_60s_jump_during_a_30s_backoff_reconnects_within_one_tick_and_resets_attempts |
 | ws-client.test.ts › wake tick (M2-T18, ADR-0021 §5) › a jump while connected drops the socket and opens a new one | crates/conductor-daemon/src/ws_client.rs::tests::wake_a_jump_while_connected_drops_the_socket_and_opens_a_new_one |

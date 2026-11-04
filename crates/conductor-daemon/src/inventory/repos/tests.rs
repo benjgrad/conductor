@@ -70,21 +70,30 @@ fn remote_of(repos: &[InventoryRepo], p: &Path) -> Option<Option<String>> {
 }
 
 #[tokio::test]
-async fn finds_repos_at_depth_1_to_4_not_5() {
+async fn finds_repos_at_depth_1_to_6_not_7() {
     let t = tree();
     let r = &t.root;
+    let deep = |top: &str, n: usize| {
+        let mut p = r.join(top);
+        for _ in 1..n {
+            p = p.join("x");
+        }
+        p
+    };
     let want = sorted(
         [
-            main_repo(&r.join("a")),
-            main_repo(&r.join("b").join("r2")),
-            main_repo(&r.join("c").join("x").join("r3")),
-            main_repo(&r.join("d").join("x").join("y").join("r4")),
+            main_repo(&deep("a", 1)),
+            main_repo(&deep("b", 2)),
+            main_repo(&deep("d", 4)),
+            // e.g. ~/Documents/code/github.com/org/repo under a home-dir root
+            main_repo(&deep("e", 5)),
+            main_repo(&deep("f", 6)),
         ]
         .iter()
         .map(|p| ps(p))
         .collect(),
     );
-    main_repo(&r.join("e").join("x").join("y").join("z").join("r5"));
+    main_repo(&deep("g", 7));
     let found: Vec<String> = find_work_trees(std::slice::from_ref(r), &no_log())
         .iter()
         .map(|p| ps(p))

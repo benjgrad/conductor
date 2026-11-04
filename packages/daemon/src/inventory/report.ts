@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { Capability, InventoryPayload, InventoryRepo } from '@conductor/shared';
 import { readFileConfig, type DaemonConfig } from '../config.js';
 import { scanCapabilities } from './capabilities.js';
-import { scanRepos } from './repos.js';
+import { MAX_DEPTH, scanRepos } from './repos.js';
 
 // The `inventory` message (M2-T10; ADR-0013 §Inventory, 10-contracts §Machines protocol v2): sent
 // after every `registered`, and after a rescan (every 10 minutes, and on SIGHUP) when its hash
@@ -69,14 +69,16 @@ export async function scanInventory(
     file = { roots: [], repos: {} };
   }
   const modes = Object.fromEntries(Object.entries(file.repos).map(([p, r]) => [p, r.mode]));
+  const roots = config.rootsOverride ?? file.roots;
   const repos = await scanRepos({
-    roots: config.rootsOverride ?? file.roots,
+    roots,
     modes,
     allowedRepoHosts: config.allowedRepoHosts,
     testRemoteAliases: config.testRemoteAliases ?? {},
     env,
     log,
   });
+  for (const w of repoWarnings(roots, repos)) log(w);
   const claudeConfigDir = config.claudeConfigDir ?? join(homedir(), '.claude');
   const capabilities = await scanCapabilities({
     claudeConfigDir,
@@ -92,6 +94,56 @@ export async function scanInventory(
     log,
   });
   return { repos, capabilities };
+}
+
+/**
+ * Why tickets may not reach this machine, from the repo half of a scan: no roots, no repos under
+ * them, or a repo whose origin can't be routed. The daemon logs these through `onceLog`.
+ */
+export function repoWarnings(roots: readonly string[], repos: readonly InventoryRepo[]): string[] {
+  if (roots.length === 0) {
+    return [
+      'inventory: no repo roots configured, so no tickets can be routed here; run: conductor-daemon config roots <dir>',
+    ];
+  }
+  if (repos.length === 0) {
+    return [
+      `inventory: no git repos found under ${roots.join(', ')} (searched ${MAX_DEPTH} levels deep)`,
+    ];
+  }
+  return repos
+    .filter((r) => r.remote === null)
+    .map((r) => `inventory: ${r.path} has no usable origin remote; tickets can't be routed to it`);
+}
+
+/** How many routable remotes the summary line names before `…`. */
+export const SUMMARY_REMOTES = 10;
+
+/** The line logged when an inventory with a new hash is sent: which repos tickets can reach. */
+export function inventorySummary(p: InventoryPayload): string {
+  const remotes = [...new Set(p.repos.flatMap((r) => (r.remote === null ? [] : [r.remote])))];
+  const shown = remotes.slice(0, SUMMARY_REMOTES).join(', ');
+  const more = remotes.length > SUMMARY_REMOTES ? ', …' : '';
+  const routable =
+    remotes.length === 0 ? '0 routable' : `${remotes.length} routable: ${shown}${more}`;
+  return `inventory: sent ${p.repos.length} repos (${routable}) and ${p.capabilities.length} capabilities`;
+}
+
+/** Messages remembered by `onceLog` before it forgets them all (memory stays bounded). */
+export const ONCE_LOG_CAP = 1000;
+
+/**
+ * `log` that prints each distinct message once per process. Scans repeat every 10 minutes; their
+ * warnings (an invalid capability name, no roots, …) would otherwise repeat with them.
+ */
+export function onceLog(log: (msg: string) => void, cap = ONCE_LOG_CAP): (msg: string) => void {
+  const seen = new Set<string>();
+  return (msg) => {
+    if (seen.has(msg)) return;
+    if (seen.size >= cap) seen.clear();
+    seen.add(msg);
+    log(msg);
+  };
 }
 
 export interface InventoryReporterOptions {
@@ -110,6 +162,7 @@ export interface InventoryReporterOptions {
 export class InventoryReporter {
   private latest: InventoryPayload | null = null;
   private lastSentHash = '';
+  private lastLoggedHash = '';
   private connected = false;
   private scanning: Promise<void> | null = null;
   private again = false;
@@ -164,6 +217,11 @@ export class InventoryReporter {
     const p = this.latest!;
     this.lastSentHash = p.hash;
     this.opts.send(p);
+    // Once per distinct inventory, not on every reconnect's resend.
+    if (p.hash !== this.lastLoggedHash) {
+      this.lastLoggedHash = p.hash;
+      this.log(inventorySummary(p));
+    }
   }
 
   private scanOnce(): Promise<void> {

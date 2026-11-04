@@ -53,6 +53,13 @@ export function backoffDelay(cfg: BackoffConfig, attempt: number, rand = Math.ra
   return Math.max(1, Math.round(base * (0.8 + 0.4 * rand())));
 }
 
+/** The backoff log line, with the close code when the socket was open (`ws closed (1006); …`). */
+export function reconnectLine(code: number | undefined, delay: number): string {
+  return code === undefined
+    ? `ws closed; reconnecting in ${delay} ms`
+    : `ws closed (${code}); reconnecting in ${delay} ms`;
+}
+
 export class ReconnectingWs {
   private ws: WebSocket | null = null;
   private attempt = 0;
@@ -172,15 +179,16 @@ export class ReconnectingWs {
         this.fail(ws, code, reason.toString('utf8'));
         return;
       }
-      this.dropped(ws);
+      this.dropped(ws, code);
     });
   }
 
-  private dropped(ws: WebSocket): void {
+  /** `code`: the socket's close code (none after a refused upgrade, logged on its own). */
+  private dropped(ws: WebSocket, code?: number): void {
     if (this.ws !== ws) return;
     this.ws = null;
     this.handlers.onClose();
-    this.schedule();
+    this.schedule(code);
   }
 
   private fail(ws: WebSocket, code: number, reason: string): void {
@@ -224,10 +232,10 @@ export class ReconnectingWs {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.terminate();
   }
 
-  private schedule(): void {
+  private schedule(code?: number): void {
     if (this.stopped) return;
     const delay = backoffDelay(this.backoff, this.attempt++);
-    this.log(`ws closed; reconnecting in ${delay} ms`);
+    this.log(reconnectLine(code, delay));
     this.timer = setTimeout(() => {
       this.timer = null;
       this.connect();

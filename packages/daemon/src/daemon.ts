@@ -43,7 +43,12 @@ import {
 import { liveResources, type SysInfo } from './sysinfo.js';
 import { buildAppendSystemPrompt } from './system-prompt.js';
 import { inventoryDigest, Workspace } from './workspace.js';
-import { InventoryReporter, scanInventory, type InventoryScan } from './inventory/report.js';
+import {
+  InventoryReporter,
+  onceLog,
+  scanInventory,
+  type InventoryScan,
+} from './inventory/report.js';
 import {
   detectSetup,
   freshCheckout,
@@ -266,7 +271,9 @@ export class Daemon {
       log: this.log,
     });
     this.ports = new PortPool(this.config.portPool);
-    const scan = opts.scanInventory ?? (() => scanInventory(this.config, process.env, this.log));
+    // Scan warnings repeat on every rescan: print each one once per process.
+    const scanLog = onceLog(this.log);
+    const scan = opts.scanInventory ?? (() => scanInventory(this.config, process.env, scanLog));
     this.inventory = new InventoryReporter({
       scan,
       send: (payload) => this.sendMachine('inventory', payload),

@@ -7,6 +7,11 @@
 # what the Rust daemon is built or tested from, and `test` runs only then. A PR is checked out as
 # its merge commit (first parent = base side); a push compares with the commit main was at before
 # it; a dispatch, a new branch or a failing diff runs. A skipped `test` reports SKIPPED.
+#
+# `e2e-windows` (MR-T16b, absorbing MW-T12) runs `pnpm test:e2e` (scripts/e2e.js) on windows-latest
+# against the Rust daemon: the runner's preinstalled Postgres, the fakes through the native
+# launcher (crates/conductor-e2e-launcher, U-110). Linux runs the same suite in scripts/ci.sh. It
+# runs when the diff reaches the daemon (`rust`) or what the e2e drives (`e2e`).
 name: daemon-rust
 
 on:
@@ -30,6 +35,7 @@ jobs:
     outputs:
       rust: ${{ steps.affected.outputs.rust }}
       dist: ${{ steps.affected.outputs.dist }}
+      e2e: ${{ steps.affected.outputs.e2e }}
     steps:
       # Full history: the base commit has to be here to diff against.
       - uses: actions/checkout@v4
@@ -49,13 +55,18 @@ jobs:
           esac
           rust=true
           dist=true
+          e2e=true
           if [[ -n "$base" && ! "$base" =~ ^0+$ ]] && changed="$(git diff --name-only "$base" HEAD)"; then
             rust=false
             dist=false
+            e2e=false
             while IFS= read -r f; do
               case "$f" in
                 crates/* | Cargo.toml | Cargo.lock | rust-toolchain.toml | packages/shared/* | \
-                  .github/workflows/daemon-rust.yml) rust=true dist=true ;;
+                  .github/workflows/daemon-rust.yml) rust=true dist=true e2e=true ;;
+                # What the e2e drives (MR-T16b): the suite, its entry, the orchestrator, the fake.
+                e2e/* | scripts/e2e.js | packages/orchestrator/* | \
+                  packages/daemon/test/fixtures/fake-claude.mjs | package.json | pnpm-lock.yaml) e2e=true ;;
                 # The release packaging (MR-T15): proven on the PR, before main deploys it.
                 .github/workflows/daemon-dist.yml | packages/orchestrator/scripts/package-daemon.sh | \
                   packages/orchestrator/assets/conductor-daemon.cmd) dist=true ;;
@@ -64,6 +75,7 @@ jobs:
           fi
           echo "rust=$rust" >>"$GITHUB_OUTPUT"
           echo "dist=$dist" >>"$GITHUB_OUTPUT"
+          echo "e2e=$e2e" >>"$GITHUB_OUTPUT"
           if [[ "$rust" != true ]]; then
             echo "::notice::nothing the Rust daemon is built or tested from changed; skipping"
           fi
@@ -109,6 +121,49 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo nextest run --workspace --locked
       - run: cargo build --workspace --release --locked
+
+  # The e2e suite on Windows against the Rust daemon (MR-T16b).
+  e2e-windows:
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    # A dedicated runner: no machine-wide test slots (M2-T31).
+    env:
+      CONDUCTOR_TEST_SLOTS: '0'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: git config --global core.longpaths true
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: rust toolchain from rust-toolchain.toml
+        id: rust
+        run: echo "channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" >>"$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.rust.outputs.channel }}
+      - uses: Swatinem/rust-cache@v2
+      # The image's PostgreSQL service (disabled by default; superuser postgres / root). The e2e
+      # creates and drops its own databases on it (packages/orchestrator/test/db.ts).
+      - name: start Postgres
+        shell: pwsh
+        run: |
+          $svc = Get-Service -Name 'postgresql*' | Select-Object -First 1
+          Set-Service -Name $svc.Name -StartupType Manual
+          Start-Service -Name $svc.Name
+          $user = if ($env:PGUSER) { $env:PGUSER } else { 'postgres' }
+          $pass = if ($env:PGPASSWORD) { $env:PGPASSWORD } else { 'root' }
+          "DATABASE_URL=postgres://${user}:${pass}@localhost:5432/postgres" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      # Fake Claude only: CI never spends. A failing test prints the tail of each process log
+      # (the stack removes its temp dir at teardown).
+      - run: env -u E2E_REAL_CLAUDE pnpm test:e2e
 
   # The release tarballs for every target (MR-T15), on PRs only: on main, ci.yml builds them for
   # the deploy. Proves each target still builds and packages before it ships.

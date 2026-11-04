@@ -7,7 +7,13 @@ import {
 import { useState, type FormEvent } from 'react';
 import { errorMessage } from '../api/client.js';
 import { ago } from '../components/format.js';
-import { cannotTakeReasons, ghTooOld, ghTooOldText, shortRepo } from './format.js';
+import {
+  cannotTakeReasons,
+  ghTooOld,
+  ghTooOldText,
+  GIT_IDENTITY_MISSING_TEXT,
+  shortRepo,
+} from './format.js';
 import { UpgradeSection } from './UpgradeNotice.js';
 
 const KINDS: { key: keyof MachineDetail['capabilities']; title: string }[] = [
@@ -45,6 +51,9 @@ export function MachineDrawer({ machine, onClose, onSaveRules }: MachineDrawerPr
         {machine.arch && `/${machine.arch}`}
       </p>
       {oldGh !== null && <p className="machine-warning">⚠ {ghTooOldText(oldGh)}</p>}
+      {machine.git_identity_missing === true && (
+        <p className="machine-warning">⚠ {GIT_IDENTITY_MISSING_TEXT}</p>
+      )}
       <UpgradeSection machine={machine} />
 
       <section aria-label="Open alerts">

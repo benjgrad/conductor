@@ -7,6 +7,7 @@ import {
 import { X } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
+import { AttachmentPicker, useAttachmentUploads } from './AttachmentPicker.js';
 import { TICKET_KIND_LABELS } from './format.js';
 import { RepoCombobox } from './RepoCombobox.js';
 import type { RichEditorHandle } from './ticket-editor/RichTicketEditor.js';
@@ -50,6 +51,8 @@ export function CreateTicketForm({
   const [kind, setKind] = useState<TicketKind | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 06 §Attachments: uploaded as they are picked, linked when the ticket is created.
+  const uploads = useAttachmentUploads(api);
   const headingId = useId();
   const hintId = useId();
   const sheetRef = useRef<HTMLDivElement | null>(null);
@@ -104,7 +107,9 @@ export function CreateTicketForm({
         priority: Number.parseInt(priority, 10) || 0,
         // Always sent: the shared contract makes it required once M1b-T04 merges.
         kind,
+        ...(uploads.ids.length > 0 ? { attachment_ids: uploads.ids } : {}),
       });
+      uploads.reset();
       setTitle('');
       setBody(TICKET_TEMPLATE);
       setBodyKey((k) => k + 1);
@@ -120,11 +125,12 @@ export function CreateTicketForm({
     }
   }
 
-  const valid = title.trim() !== '' && repo.trim() !== '' && kind !== null;
+  const valid = title.trim() !== '' && repo.trim() !== '' && kind !== null && !uploads.uploading;
   const missing = [
     title.trim() === '' && 'a title',
     repo.trim() === '' && 'a repo',
     kind === null && 'Work or Personal',
+    uploads.uploading && 'the uploads to finish',
   ].filter((m): m is string => m !== false);
   const form = (
     <form className="create-ticket" aria-label="Create ticket" onSubmit={(e) => void onSubmit(e)}>
@@ -166,13 +172,16 @@ export function CreateTicketForm({
           </label>
         ))}
       </fieldset>
-      <div className="wide">
+      <div className="wide" onPasteCapture={uploads.onPaste}>
         <TicketBodyField
           value={body}
           onChange={setBody}
           resetKey={bodyKey}
           editorHandle={bodyEditor}
         />
+      </div>
+      <div className="wide">
+        <AttachmentPicker api={api} uploads={uploads} />
       </div>
       <div className="form-actions">
         <button

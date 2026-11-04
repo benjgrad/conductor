@@ -28,14 +28,15 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use crate::attachments;
 use conductor_protocol::tool_policy::resolve_tool_policy;
 use conductor_protocol::{
-    AssistantJobPayload, DAEMON_AUTH_HEADER, DAEMON_FEATURE_ASSISTANT_JOB, DaemonToOrchestrator,
-    EvaluateConditionsArgs, KillPayload, NO_CONVERSATION_REASON, NO_OUTCOME_OUTPUT_CHARS,
-    OrchestratorToDaemon, PROTOCOL_VERSION, PermissionDecisionPayload, RunActionPayload,
-    RunActionPayloadAction, RunCmdPayload, STDERR_TAIL_CHARS, STDERR_TAIL_LINES, SendInputPayload,
-    SendMessagePayload, SessionEventPayload, StartSessionPayload, TranscriptPayload,
-    auth::daemon_auth_header_value,
+    AssistantJobPayload, DAEMON_AUTH_HEADER, DAEMON_FEATURE_ASSISTANT_JOB,
+    DAEMON_FEATURE_TICKET_ATTACHMENTS, DaemonToOrchestrator, EvaluateConditionsArgs, KillPayload,
+    NO_CONVERSATION_REASON, NO_OUTCOME_OUTPUT_CHARS, OrchestratorToDaemon, PROTOCOL_VERSION,
+    PermissionDecisionPayload, RunActionPayload, RunActionPayloadAction, RunCmdPayload,
+    STDERR_TAIL_CHARS, STDERR_TAIL_LINES, SendInputPayload, SendMessagePayload,
+    SessionEventPayload, StartSessionPayload, TranscriptPayload, auth::daemon_auth_header_value,
 };
 use futures_util::FutureExt;
 use serde_json::{Value, json};
@@ -633,8 +634,9 @@ impl Core {
             "max_concurrent_builds": c.max_concurrent_builds,
             "daemon_version": c.daemon_version,
             "claude_code_version": self.claude_code_version,
-            // ADR-0033 P2 (MR-T12 FR-4): this daemon runs assistant jobs.
-            "features": [DAEMON_FEATURE_ASSISTANT_JOB],
+            // ADR-0033 P2 (MR-T12 FR-4): this daemon runs assistant jobs. 06 §Attachments: it
+            // downloads `start_session.attachments`.
+            "features": [DAEMON_FEATURE_ASSISTANT_JOB, DAEMON_FEATURE_TICKET_ATTACHMENTS],
         });
         // Local mode keeps M1's `enrollment_token: null`; an enrolled daemon authenticates on the
         // upgrade instead (10-contracts §Machines protocol v2).
@@ -1099,7 +1101,7 @@ impl Core {
     }
 
     /// The rest of start_session after [`Core::start_prepare`]: the worktree, then the spawn.
-    async fn start_session(self: Arc<Self>, m: Meta, p: StartSessionPayload, starting: u64) {
+    async fn start_session(self: Arc<Self>, m: Meta, mut p: StartSessionPayload, starting: u64) {
         {
             // TD-181: working_copy has no default_branch yet, so the base is the clone's
             // origin/HEAD. TD-200: the ack waits for this (a first clone can outlast the
@@ -1115,9 +1117,19 @@ impl Core {
                 })
                 .await
                 .map_err(|e| e.to_string());
+            // 06 §Attachments: download the ticket's files before the spawn (never under the
+            // state lock); the prompt lists them and Claude may read their directory.
+            let mut add_dirs = Vec::new();
+            if wt.is_ok() && !p.attachments.is_empty() {
+                let (dir, block) = self.deliver_attachments(&m, &p).await;
+                if let Some(block) = block {
+                    p.prompt = format!("{}\n\n{block}", p.prompt);
+                }
+                add_dirs.push(dir);
+            }
             let started = {
                 let mut st = self.lock();
-                self.start_spawn(&mut st, m, &p, starting, wt)
+                self.start_spawn(&mut st, m, &p, starting, wt, add_dirs)
             };
             if started {
                 // TD-110: legacy repo_inventory refresh, removed in M2-T21.
@@ -1128,6 +1140,62 @@ impl Core {
         if let Some(cid) = m.cid {
             st.in_flight.remove(&cid);
         }
+    }
+
+    /// 06 §Attachments: fetch `p.attachments` into the session's attachments dir. The block for
+    /// the prompt: every file on a fresh conversation, only the newly fetched ones on a resume.
+    async fn deliver_attachments(
+        &self,
+        m: &Meta,
+        p: &StartSessionPayload,
+    ) -> (PathBuf, Option<String>) {
+        // TD-214: nothing removes `<root>/artifacts/<session>/` yet.
+        let dir = attachments::attachments_dir(&self.config.root_dir, &m.sid.to_string());
+        let delivered = match attachments::http_base(&self.config.orchestrator_url) {
+            None => p
+                .attachments
+                .iter()
+                .map(|a| attachments::Delivered {
+                    name: attachments::safe_name(a.name.as_str()),
+                    mime: a.mime.as_str().to_string(),
+                    size: a.size.get(),
+                    fetched: attachments::Fetched::Failed("no orchestrator URL".into()),
+                })
+                .collect(),
+            Some(base) => {
+                let client = reqwest::Client::builder()
+                    .redirect(reqwest::redirect::Policy::none())
+                    .build()
+                    .unwrap_or_default();
+                let fetch = attachments::fetch_all(
+                    &client,
+                    &base,
+                    self.config.credential.as_deref(),
+                    &p.attachments,
+                    &dir,
+                );
+                match tokio::time::timeout(attachments::FETCH_TIMEOUT, fetch).await {
+                    Ok(d) => d,
+                    Err(_) => p
+                        .attachments
+                        .iter()
+                        .map(|a| attachments::Delivered {
+                            name: attachments::safe_name(a.name.as_str()),
+                            mime: a.mime.as_str().to_string(),
+                            size: a.size.get(),
+                            fetched: attachments::Fetched::Failed("the download timed out".into()),
+                        })
+                        .collect(),
+                }
+            }
+        };
+        for d in &delivered {
+            if let attachments::Fetched::Failed(why) = &d.fetched {
+                self.log(&format!("session {}: attachment {}: {why}", m.sid, d.name));
+            }
+        }
+        let resume = p.resume_claude_session_id.is_some();
+        (dir, attachments::prompt_block(&delivered, resume))
     }
 
     /// The part of start_session before the worktree: refusals, supersede, `starting`.
@@ -1229,8 +1297,9 @@ impl Core {
         p: &StartSessionPayload,
         starting: u64,
         wt: Result<PathBuf, String>,
+        add_dirs: Vec<PathBuf>,
     ) -> bool {
-        match self.start_spawn_inner(st, m, p, starting, wt) {
+        match self.start_spawn_inner(st, m, p, starting, wt, add_dirs) {
             Ok(started) => started,
             Err(e) => {
                 self.end_starting(st, &m.sid, starting);
@@ -1248,6 +1317,7 @@ impl Core {
         p: &StartSessionPayload,
         starting_id: u64,
         wt: Result<PathBuf, String>,
+        add_dirs: Vec<PathBuf>,
     ) -> Result<bool, String> {
         let sid = m.sid;
         let token = m.token;
@@ -1368,6 +1438,8 @@ impl Core {
         opts.mcp = p.mcp.clone();
         // ADR-0011: the names complete_state accepts.
         opts.transitions = (!p.transitions.is_empty()).then(|| p.transitions.clone());
+        // 06 §Attachments: the dir the ticket's files were downloaded to.
+        opts.add_dirs = add_dirs;
         let session = self.driver.start(opts).map_err(|e| e.to_string())?;
         let aid = st.next();
         // The listener only queues: a driver may call it inside `on` (the CLI driver hands the

@@ -33,6 +33,10 @@ use tokio::task::AbortHandle;
 pub struct InventoryScan {
     pub repos: Vec<InventoryRepo>,
     pub capabilities: Vec<Capability>,
+    /// WF-T02: `config.git_identity_missing`, sent as `inventory.git_identity_missing`. Not part of
+    /// the hash: it is fixed for the process, a fresh inventory is always sent after `registered`,
+    /// and the hash stays byte-identical to the TS daemon's.
+    pub git_identity_missing: bool,
 }
 
 /// A capability as a string with a fixed key order (sorting and hashing): the TS `capString`.
@@ -68,6 +72,7 @@ pub fn normalize_scan(scan: &InventoryScan) -> InventoryScan {
     InventoryScan {
         repos,
         capabilities: caps.into_iter().map(|(_, c)| c).collect(),
+        git_identity_missing: scan.git_identity_missing,
     }
 }
 
@@ -107,6 +112,7 @@ pub fn inventory_payload(scan: &InventoryScan) -> InventoryPayload {
         repos: n.repos,
         capabilities: n.capabilities,
         hash: hash.as_str().try_into().expect("a sha256 is not empty"),
+        git_identity_missing: Some(n.git_identity_missing),
     }
 }
 
@@ -163,6 +169,7 @@ pub async fn scan_inventory(
     InventoryScan {
         repos,
         capabilities,
+        git_identity_missing: config.git_identity_missing,
     }
 }
 

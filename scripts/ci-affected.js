@@ -43,6 +43,7 @@ export const RUST_TRIGGERS = [
  */
 export const E2E_TRIGGERS = [
   'e2e/**',
+  'scripts/e2e.js', // pnpm test:e2e's entry (MR-T16b)
   'crates/**',
   'Cargo.toml',
   'Cargo.lock',

@@ -455,6 +455,7 @@ pub fn empty_scan() -> ScanFn {
             Ok(InventoryScan {
                 repos: vec![],
                 capabilities: vec![],
+                git_identity_missing: false,
             })
         }
         .boxed()

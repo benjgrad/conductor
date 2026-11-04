@@ -2431,6 +2431,8 @@ impl ::std::convert::TryFrom<::std::string::String> for InspectPrResultState {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
 pub struct InventoryPayload {
     pub capabilities: ::std::vec::Vec<Capability>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub git_identity_missing: ::std::option::Option<bool>,
     pub hash: InventoryPayloadHash,
     pub repos: ::std::vec::Vec<InventoryRepo>,
 }
@@ -4633,6 +4635,8 @@ pub struct SpendEventDataUsage {
 ///`StartSessionPayload`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
 pub struct StartSessionPayload {
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub attachments: ::std::vec::Vec<StartSessionPayloadAttachmentsItem>,
     pub base_ref: ::std::string::String,
     pub branch: ::std::string::String,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -4660,6 +4664,173 @@ pub struct StartSessionPayload {
     pub workflow_state: ::std::string::String,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub working_copy: ::std::option::Option<WorkingCopy>,
+}
+///`StartSessionPayloadAttachmentsItem`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+pub struct StartSessionPayloadAttachmentsItem {
+    pub id: ::uuid::Uuid,
+    pub mime: StartSessionPayloadAttachmentsItemMime,
+    pub name: StartSessionPayloadAttachmentsItemName,
+    pub sha256: StartSessionPayloadAttachmentsItemSha256,
+    pub size: ::std::num::NonZeroU64,
+}
+///`StartSessionPayloadAttachmentsItemMime`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct StartSessionPayloadAttachmentsItemMime(::std::string::String);
+impl ::std::ops::Deref for StartSessionPayloadAttachmentsItemMime {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<StartSessionPayloadAttachmentsItemMime> for ::std::string::String {
+    fn from(value: StartSessionPayloadAttachmentsItemMime) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for StartSessionPayloadAttachmentsItemMime {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 100usize {
+            return Err("longer than 100 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for StartSessionPayloadAttachmentsItemMime {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for StartSessionPayloadAttachmentsItemMime {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for StartSessionPayloadAttachmentsItemMime {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`StartSessionPayloadAttachmentsItemName`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct StartSessionPayloadAttachmentsItemName(::std::string::String);
+impl ::std::ops::Deref for StartSessionPayloadAttachmentsItemName {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<StartSessionPayloadAttachmentsItemName> for ::std::string::String {
+    fn from(value: StartSessionPayloadAttachmentsItemName) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for StartSessionPayloadAttachmentsItemName {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 100usize {
+            return Err("longer than 100 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for StartSessionPayloadAttachmentsItemName {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for StartSessionPayloadAttachmentsItemName {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for StartSessionPayloadAttachmentsItemName {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`StartSessionPayloadAttachmentsItemSha256`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct StartSessionPayloadAttachmentsItemSha256(::std::string::String);
+impl ::std::ops::Deref for StartSessionPayloadAttachmentsItemSha256 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<StartSessionPayloadAttachmentsItemSha256> for ::std::string::String {
+    fn from(value: StartSessionPayloadAttachmentsItemSha256) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for StartSessionPayloadAttachmentsItemSha256 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9a-f]{64}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for StartSessionPayloadAttachmentsItemSha256 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for StartSessionPayloadAttachmentsItemSha256 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for StartSessionPayloadAttachmentsItemSha256 {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
 }
 ///`StartSessionPayloadCheckout`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
@@ -5299,6 +5470,7 @@ pub const COMMAND_REFUSAL_REASONS: &[&str] = &[
 pub const CONDUCTOR_PORT_ENV: &str = "CONDUCTOR_PORT";
 pub const DAEMON_AUTH_HEADER: &str = "authorization";
 pub const DAEMON_FEATURE_ASSISTANT_JOB: &str = "assistant_job";
+pub const DAEMON_FEATURE_TICKET_ATTACHMENTS: &str = "ticket_attachments";
 pub const DAEMON_TARBALL_MAX_BYTES: usize = 104857600;
 pub const DAEMON_TARBALL_RE: &str = "^conductor-daemon-[0-9A-Za-z._+-]{1,128}\\.tgz$";
 pub const DAEMON_TARGET_RE: &str = "^[0-9a-z_]+(-[0-9a-z_]+){1,3}$";

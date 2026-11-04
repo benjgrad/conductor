@@ -1,6 +1,7 @@
 # Native Windows gate for the daemon (ADR-0024, milestone MW). Linux/macOS keep scripts/ci.sh
 # (the `ci` workflow). Tests that can't pass on win32 yet skip behind
-# `skipIf(process.platform === 'win32')` with a `// MW-Tnn` marker; MW-T12 adds the e2e.
+# `skipIf(process.platform === 'win32')` with a `// MW-Tnn` marker. The Windows e2e runs in daemon-rust.yml
+# (`e2e-windows`, MR-T16b).
 #
 # Diff-aware: `changes` (cheap, on Linux) asks scripts/test-affected.js whether the diff reaches
 # what can behave differently on Windows, and `test` (TD-194) runs only then. A PR runs it for

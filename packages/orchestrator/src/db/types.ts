@@ -60,6 +60,11 @@ export interface MachineRow {
   claude_code_version: string | null;
   /** Display name (M2-T09); null = show the hostname. Enrollment and register set it. */
   name: string | null;
+  /**
+   * WF-T02 (migration 1762800000000): the last `inventory.git_identity_missing`; true = agents
+   * commit as conductor@localhost. null = not reported (an older daemon, or no inventory yet).
+   */
+  git_identity_missing: boolean | null;
   /** `register.daemon_version`, written on every register (M2-T09). */
   daemon_version: string | null;
   /** `register.protocol_version` (absent = 1, an M1 daemon); null = never registered. */
@@ -661,6 +666,37 @@ export interface ChangeProposalRow {
   reviewed_at: Date | null;
 }
 
+/** 06 §Attachments: one file attached to a ticket (metadata; the bytes are in attachment_content). */
+export interface AttachmentRow {
+  id: string;
+  account_id: string;
+  /** null = uploaded, not linked to a ticket yet (swept after a day). FK CASCADE. */
+  ticket_id: string | null;
+  /** The agent's session for an agent attachment (FK, SET NULL). */
+  session_id: string | null;
+  workflow_state: string | null;
+  /** `human` · `agent` (CHECK; AttachmentSource). */
+  source: 'human' | 'agent';
+  /** sanitizeAttachmentName's output. */
+  name: string;
+  /** One of ATTACHMENT_MIMES, sniffed from the bytes. */
+  mime: string;
+  size_bytes: number;
+  /** 32 bytes. */
+  sha256: Buffer;
+  caption: string | null;
+  /** The uploading user's id (no FK: local mode's user has no row). */
+  created_by: string | null;
+  created_at: Date;
+}
+
+/** 06 §Attachments: an attachment's bytes (TD-212). */
+export interface AttachmentContentRow {
+  attachment_id: string;
+  account_id: string;
+  data: Buffer;
+}
+
 /** Table name → row type, for generic repository helpers. */
 export interface Tables {
   machine: MachineRow;
@@ -694,4 +730,6 @@ export interface Tables {
   session_insight: SessionInsightRow;
   ticket_proposal_decision: TicketProposalDecisionRow;
   change_proposal: ChangeProposalRow;
+  attachment: AttachmentRow;
+  attachment_content: AttachmentContentRow;
 }

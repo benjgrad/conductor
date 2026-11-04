@@ -505,6 +505,10 @@ pub fn build_claude_args(
         "--settings".into(),
         settings.to_string(),
     ]);
+    // 06 §Attachments: the session's downloaded attachments, readable without a prompt.
+    for dir in &opts.add_dirs {
+        args.extend(["--add-dir".into(), dir.to_string_lossy().into_owned()]);
+    }
     // ADR-0029: the user's MCP servers load unless the policy is `none` (or this is a reviewer).
     let mcp = agent_mcp(opts.mcp.as_ref(), opts.review);
     if mcp.strict {

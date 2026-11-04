@@ -140,7 +140,8 @@ describe('workflow advisor over MCP (ADR-0033 P3)', () => {
 
     // The coordinator asked the user; they said yes.
     const applied = await call('apply_change', { id, confirm: true });
-    expect(applied.body).toMatchObject({ status: 'applied', decided_by: expect.any(String) });
+    expect(applied.body).toMatchObject({ status: 'applied' });
+    expect(typeof applied.body.decided_by).toBe('string');
     const checks = await call('get_repo_checks', { repo: REPO });
     expect((checks.body.override as { checks: unknown }).checks).toEqual(CHECKS);
     const effective = checks.body.effective as { source: string }[];

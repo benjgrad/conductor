@@ -38,7 +38,7 @@ import { classifyRequest, lastMoveTransition, planAnswerOption } from './request
 import { ReviewRequest } from './ReviewRequest.js';
 import { StarDetails } from './StarDetails.js';
 import { TicketStrip, type StripSheet } from './TicketStrip.js';
-import { EditTicket } from './TicketPanel.js';
+import { EditTicket, TicketAttachments } from './TicketPanel.js';
 import { TransitionButtons } from './transitions.js';
 import { displayState } from '../workflow/review.js';
 
@@ -258,6 +258,11 @@ export function DetailPanel({
                   promptReason={prompt.reason}
                   promptLoading={prompt.loading}
                   onWantPrompt={onWantPrompt}
+                />
+                <TicketAttachments
+                  api={api}
+                  ticketId={detail.card.ticket_id}
+                  version={detail.card.updated_at}
                 />
               </>
             )}

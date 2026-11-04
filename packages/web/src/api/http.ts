@@ -1,4 +1,6 @@
 import {
+  ATTACHMENT_FILENAME_HEADER,
+  AttachmentDtoSchema,
   AdminUserListResponseSchema,
   ApproveProposalResponseSchema,
   TicketProposalSchema,
@@ -35,6 +37,7 @@ import {
   WorkflowDetailSchema,
   WorkflowListResponseSchema,
   type AnswerInputRequest,
+  type AttachmentDto,
   type ApproveProposalRequest,
   type ApproveSessionRequest,
   type DismissProposalRequest,
@@ -152,6 +155,16 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
       init.body = JSON.stringify(body);
     }
     const res = await doFetch(base + path, init);
+    return parseResponse(schema, method, path, res);
+  }
+
+  /** The body of `res` per `schema`, or the ApiRequestError it carries. */
+  async function parseResponse<T>(
+    schema: ResponseSchema<T>,
+    method: string,
+    path: string,
+    res: Response,
+  ): Promise<T> {
     const text = await res.text();
     let json: unknown = undefined;
     try {
@@ -302,6 +315,29 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
 
     updateTicket: (ticketId: string, req: UpdateTicketRequest) =>
       request(TicketDetailSchema, 'PATCH', API_PATHS.ticket(encodeURIComponent(ticketId)), req),
+
+    uploadAttachment: async (file: File) => {
+      const res = await doFetch(base + API_PATHS.attachments, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/octet-stream',
+          [ATTACHMENT_FILENAME_HEADER]: encodeURIComponent(file.name),
+        },
+        body: file,
+      });
+      return parseResponse(AttachmentDtoSchema, 'POST', API_PATHS.attachments, res);
+    },
+
+    deleteAttachment: (attachmentId: string) =>
+      request(
+        OkResponseSchema,
+        'DELETE',
+        API_PATHS.attachment(encodeURIComponent(attachmentId)),
+        {},
+      ),
+
+    attachmentUrl: (a: AttachmentDto) => base + a.url,
 
     approveProposal: (ticketId: string, req: ApproveProposalRequest) =>
       request(

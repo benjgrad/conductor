@@ -5,6 +5,7 @@ import type { TicketDetail } from '@conductor/shared';
 import { ArrowLeft } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
+import { AttachmentGallery } from './AttachmentGallery.js';
 import { ago, TICKET_KIND_LABELS } from './format.js';
 import { Markdown } from './markdown.js';
 import { TicketEditor } from './TicketEditor.js';
@@ -99,7 +100,7 @@ export function TicketPanel({
               }}
             />
           ) : (
-            <TicketView ticket={ticket} onEdit={() => setEditing(true)} />
+            <TicketView api={api} ticket={ticket} onEdit={() => setEditing(true)} />
           ))}
       </div>
     </aside>
@@ -107,7 +108,15 @@ export function TicketPanel({
 }
 
 /** The ticket, read-only, with Edit when its column allows it. */
-function TicketView({ ticket, onEdit }: { ticket: TicketDetail; onEdit: () => void }) {
+function TicketView({
+  api,
+  ticket,
+  onEdit,
+}: {
+  api: ApiClient;
+  ticket: TicketDetail;
+  onEdit: () => void;
+}) {
   return (
     <>
       <section aria-label="Ticket">
@@ -151,6 +160,12 @@ function TicketView({ ticket, onEdit }: { ticket: TicketDetail; onEdit: () => vo
           <p className="muted">(no description)</p>
         )}
       </section>
+      {(ticket.attachments?.length ?? 0) > 0 && (
+        <section aria-label="Attachments">
+          <h3>Attachments</h3>
+          <AttachmentGallery api={api} attachments={ticket.attachments ?? []} />
+        </section>
+      )}
     </>
   );
 }
@@ -219,6 +234,30 @@ export function EditTicket({
       ) : (
         !error && <p className="muted">Loading the ticket…</p>
       )}
+    </section>
+  );
+}
+
+/**
+ * 06 §Attachments: a session panel's view of the ticket's attachments (the session detail doesn't
+ * carry them; GET /api/tickets/:id does). Nothing while there are none.
+ */
+export function TicketAttachments({
+  api,
+  ticketId,
+  version,
+}: {
+  api: ApiClient;
+  ticketId: string;
+  version: string;
+}) {
+  const { ticket } = useTicket(api, ticketId, version);
+  const list = ticket?.attachments ?? [];
+  if (list.length === 0) return null;
+  return (
+    <section className="ticket-attachments" aria-label="Attachments">
+      <h3>Attachments</h3>
+      <AttachmentGallery api={api} attachments={list} />
     </section>
   );
 }

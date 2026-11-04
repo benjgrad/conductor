@@ -1,7 +1,8 @@
 //! Port of `commands/service.test.ts` (M2-T18). The unit files are pure renderers; the install /
 //! uninstall / restart flow runs against an in-process fake of launchctl / systemctl (the TS test
 //! spawned fake tools on PATH; here the `run` seam is the boundary, so nothing is spawned). The
-//! install and restart flows are POSIX-only, as in TS.
+//! launchd / systemd install and restart flows are POSIX-only, as in TS; the Scheduled Task ones
+//! (MR-T13c, no TS counterpart) run on every OS against a fake schtasks.
 
 use super::*;
 use crate::commands::CapturedOutput;
@@ -101,12 +102,17 @@ fn launchd_restarts(plist: &str, code: i32, booted_out: bool) -> bool {
 }
 
 #[test]
-fn launchd_on_macos_systemd_on_linux_none_on_windows() {
+fn launchd_on_macos_systemd_on_linux_scheduled_task_on_windows() {
     assert_eq!(service_manager_for("darwin"), Some(ServiceManager::Launchd));
     assert_eq!(service_manager_for("linux"), Some(ServiceManager::Systemd));
-    assert_eq!(service_manager_for("win32"), None);
     assert_eq!(
-        service_manager().is_none(),
+        service_manager_for("win32"),
+        Some(ServiceManager::ScheduledTask)
+    );
+    assert_eq!(service_manager_for("freebsd"), None);
+    assert!(service_manager().is_some());
+    assert_eq!(
+        service_manager() == Some(ServiceManager::ScheduledTask),
         Platform::current().is_windows()
     );
 }
@@ -203,6 +209,9 @@ fn stop_supervised_job_does_nothing_when_unsupervised_or_under_systemd() {
     stop_supervised_job(&systemd, Some(501), &mut rec);
     let launchd: Env = [("CONDUCTOR_SUPERVISED".to_string(), "launchd".to_string())].into();
     stop_supervised_job(&launchd, None, &mut rec);
+    // Under the Scheduled Task the launcher itself stops on 78.
+    let schtasks: Env = [("CONDUCTOR_SUPERVISED".to_string(), "schtasks".to_string())].into();
+    stop_supervised_job(&schtasks, None, &mut rec);
     assert_eq!(calls, 0);
 }
 
@@ -221,10 +230,16 @@ fn the_launcher_is_the_ts_daemon_asset_byte_for_byte() {
 
 /// launchctl / systemctl as the TS test's FAKE_CTL: logs `<tool> <args>`, `print` succeeds once
 /// bootstrapped, `bootout` unloads, `is-active` prints `active`.
+///
+/// It is also schtasks (`/Query` succeeds once `/Create`d, `/Delete` unregisters), the status
+/// PowerShell (prints `task_state`) and tasklist (prints `tasklist`).
 #[derive(Default)]
 struct FakeCtl {
     calls: Vec<String>,
     loaded: bool,
+    registered: bool,
+    task_state: String,
+    tasklist: String,
 }
 
 impl FakeCtl {
@@ -234,6 +249,31 @@ impl FakeCtl {
             status: Some(0),
             ..Default::default()
         };
+        match file {
+            "schtasks" => {
+                match args[0].as_str() {
+                    "/Query" => r.status = Some(if self.registered { 0 } else { 1 }),
+                    "/Create" => self.registered = true,
+                    "/Delete" => self.registered = false,
+                    _ => {}
+                }
+                return r;
+            }
+            "powershell.exe" => {
+                if self.registered {
+                    r.stdout = format!("{}\r\n", self.task_state);
+                } else {
+                    r.status = Some(1);
+                }
+                return r;
+            }
+            "tasklist" => {
+                r.stdout = self.tasklist.clone();
+                return r;
+            }
+            "taskkill" => return r,
+            _ => {}
+        }
         match args.first().map(String::as_str) {
             Some("print") => r.status = Some(if self.loaded { 0 } else { 113 }),
             Some("bootstrap") => self.loaded = true,
@@ -264,6 +304,7 @@ impl Fixture {
         let bin = root.join("daemon").join("current").join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::write(bin.join("conductor-daemon"), "#!/bin/sh\n").unwrap();
+        std::fs::write(bin.join("conductor-daemon.exe"), "MZ").unwrap();
         std::fs::write(root.join("machine.json"), "{}").unwrap();
         let env: Env = [
             ("HOME".to_string(), home.to_string_lossy().into_owned()),
@@ -291,6 +332,7 @@ impl Fixture {
             manager,
             home: self.home.clone(),
             uid: Some(501),
+            user_sid: Some(SID.to_string()),
             env: &self.env,
             run: &mut run,
             io: &mut self.io,
@@ -304,6 +346,7 @@ impl Fixture {
         match m {
             ServiceManager::Launchd => plist_path(&home),
             ServiceManager::Systemd => systemd_unit_path(&home),
+            ServiceManager::ScheduledTask => task_xml_path(&self.root()),
         }
     }
 
@@ -336,6 +379,7 @@ fn install_writes_the_unit_and_the_launcher_a_second_install_changes_nothing() {
         let expected = match m {
             ServiceManager::Launchd => render_plist(&inputs),
             ServiceManager::Systemd => render_systemd_unit(&inputs).unwrap(),
+            ServiceManager::ScheduledTask => unreachable!(),
         };
         assert_eq!(std::fs::read_to_string(&unit_file).unwrap(), expected);
         let launcher = f.root.join("bin").join("conductor-launch");
@@ -362,6 +406,7 @@ fn install_writes_the_unit_and_the_launcher_a_second_install_changes_nothing() {
                     "systemctl --user enable conductor-daemon.service".into(),
                     "systemctl --user restart conductor-daemon.service".into(),
                 ],
+                ServiceManager::ScheduledTask => unreachable!(),
             }
         );
 
@@ -381,6 +426,7 @@ fn install_writes_the_unit_and_the_launcher_a_second_install_changes_nothing() {
                 ServiceManager::Launchd => vec![format!("launchctl print {t}")],
                 ServiceManager::Systemd =>
                     vec!["systemctl --user enable --now conductor-daemon.service".to_string()],
+                ServiceManager::ScheduledTask => unreachable!(),
             }
         );
     }
@@ -406,6 +452,7 @@ fn restart_status_and_uninstall_sudo_is_never_used() {
                 ServiceManager::Launchd => format!("launchctl kickstart -k {t}"),
                 ServiceManager::Systemd =>
                     "systemctl --user restart conductor-daemon.service".into(),
+                ServiceManager::ScheduledTask => unreachable!(),
             }
         );
         let status = f.service(Some(m), &["status"]);
@@ -419,6 +466,7 @@ fn restart_status_and_uninstall_sudo_is_never_used() {
             ServiceManager::Launchd => format!("launchctl bootout {t}"),
             ServiceManager::Systemd =>
                 "systemctl --user disable --now conductor-daemon.service".into(),
+            ServiceManager::ScheduledTask => unreachable!(),
         }));
         assert_eq!(f.service(Some(m), &["uninstall"]), 0); // nothing left: still fine
         assert!(
@@ -432,15 +480,20 @@ fn restart_status_and_uninstall_sudo_is_never_used() {
 
 #[test]
 fn refuses_without_an_installed_daemon() {
-    for m in MANAGERS {
+    for m in [
+        ServiceManager::Launchd,
+        ServiceManager::Systemd,
+        ServiceManager::ScheduledTask,
+    ] {
         let mut f = Fixture::new();
         std::fs::remove_dir_all(f.root.join("daemon")).unwrap();
         assert_eq!(f.service(Some(m), &["install"]), 1);
-        assert!(
-            f.io.err
-                .join("\n")
-                .contains("install conductor with install.sh first")
-        );
+        let installer = if m == ServiceManager::ScheduledTask {
+            "conductor-daemon.exe is missing: install conductor with install.ps1 first"
+        } else {
+            "install conductor with install.sh first"
+        };
+        assert!(f.io.err.join("\n").contains(installer), "{:?}", f.io.err);
         assert!(!Path::new(&f.unit_file(m)).exists());
         assert!(f.ctl.calls.is_empty());
     }
@@ -485,4 +538,259 @@ fn launchd_status_reads_the_pid_and_failures_name_the_tool() {
         "exit error"
     );
     assert_eq!(unit_path_var(Some("/a::b:/a:/c")), "/a:/c");
+}
+
+// ------------------------------------------------------------------ Scheduled Task (MR-T13c)
+
+const SID: &str = "S-1-5-21-1-2-3-1001";
+
+fn task_inputs() -> TaskInputs {
+    TaskInputs {
+        root: r"C:\Users\ann\.conductor".into(),
+        home: r"C:\Users\ann".into(),
+        user_sid: SID.into(),
+    }
+}
+
+#[test]
+fn the_task_runs_the_ps1_launcher_hidden_at_this_users_logon_without_a_time_limit() {
+    let x = render_task_xml(&task_inputs()).unwrap();
+    assert!(x.starts_with("<?xml version=\"1.0\" encoding=\"UTF-16\"?>\n<Task version=\"1.2\""));
+    assert!(x.contains(&format!(
+        "<LogonTrigger>\n      <Enabled>true</Enabled>\n      <UserId>{SID}</UserId>\n    </LogonTrigger>"
+    )));
+    assert!(x.contains(&format!(
+        "<UserId>{SID}</UserId>\n      <LogonType>InteractiveToken</LogonType>\n      <RunLevel>LeastPrivilege</RunLevel>"
+    )));
+    for setting in [
+        "<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>",
+        "<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>",
+        "<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>",
+        "<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>",
+        "<Hidden>true</Hidden>",
+        "<Priority>5</Priority>",
+        "<RestartOnFailure>\n      <Interval>PT1M</Interval>\n      <Count>999</Count>",
+    ] {
+        assert!(x.contains(setting), "{setting}");
+    }
+    assert!(x.contains("<Command>powershell.exe</Command>"));
+    assert!(x.contains(
+        "<Arguments>-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File &quot;C:\\Users\\ann\\.conductor\\bin\\conductor-launch.ps1&quot;</Arguments>"
+    ));
+    assert!(x.contains(r"<WorkingDirectory>C:\Users\ann</WorkingDirectory>"));
+    // Nothing elevated, no other account.
+    assert!(!x.contains("HighestAvailable"));
+    assert!(!x.contains("SYSTEM"));
+}
+
+#[test]
+fn the_task_escapes_xml_and_refuses_a_root_powershell_cannot_be_given() {
+    let odd = TaskInputs {
+        root: r"C:\Users\a&b c\<x>\".into(),
+        ..task_inputs()
+    };
+    let x = render_task_xml(&odd).unwrap();
+    assert!(x.contains(r"-File &quot;C:\Users\a&amp;b c\&lt;x&gt;\bin\conductor-launch.ps1&quot;"));
+    let bad = TaskInputs {
+        root: "C:\\x\"y".into(),
+        ..task_inputs()
+    };
+    assert!(
+        render_task_xml(&bad)
+            .unwrap_err()
+            .contains("powershell -File")
+    );
+}
+
+#[test]
+fn the_task_file_is_utf16le_with_a_bom() {
+    let x = render_task_xml(&task_inputs()).unwrap();
+    let b = utf16le_bom(&x);
+    assert_eq!(&b[..2], &[0xFF, 0xFE]);
+    let units: Vec<u16> = b[2..]
+        .chunks(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .collect();
+    assert_eq!(String::from_utf16(&units).unwrap(), x);
+}
+
+#[test]
+fn the_ps1_launcher_supervises_by_exit_code_and_follows_current() {
+    assert!(LAUNCHER_PS1.is_ascii());
+    // PowerShell's own line handling is fine with LF; CRLF would only differ by checkout settings.
+    assert!(!LAUNCHER_PS1.contains("$env:PATH ="));
+    assert!(LAUNCHER_PS1.contains("$env:CONDUCTOR_SUPERVISED = 'schtasks'"));
+    assert!(LAUNCHER_PS1.contains("$env:CONDUCTOR_ROOT = $root"));
+    assert!(LAUNCHER_PS1.contains("$root = Split-Path -Parent $PSScriptRoot"));
+    assert!(LAUNCHER_PS1.contains("if ($code -eq 0 -or $code -eq 78) {"));
+    // daemon\current is resolved inside the loop, so a switched junction takes effect (MR-T14).
+    let lp = LAUNCHER_PS1.find("while ($true) {").unwrap();
+    let cur = LAUNCHER_PS1
+        .find("Join-Path $root 'daemon\\current\\bin\\conductor-daemon.exe'")
+        .unwrap();
+    assert!(cur > lp);
+}
+
+#[test]
+fn task_install_registers_and_runs_a_second_install_changes_nothing() {
+    let mut f = Fixture::new();
+    let m = Some(ServiceManager::ScheduledTask);
+    assert_eq!(f.service(m, &["install"]), 0, "{}", f.io.all());
+    let xml_file = f.unit_file(ServiceManager::ScheduledTask);
+    let expected = render_task_xml(&TaskInputs {
+        root: f.root(),
+        home: f.home.to_string_lossy().into_owned(),
+        user_sid: SID.into(),
+    })
+    .unwrap();
+    assert_eq!(std::fs::read(&xml_file).unwrap(), utf16le_bom(&expected));
+    let launcher = f.root.join("bin").join("conductor-launch.ps1");
+    assert_eq!(std::fs::read_to_string(&launcher).unwrap(), LAUNCHER_PS1);
+    assert!(f.root.join("logs").is_dir());
+    assert_eq!(
+        f.ctl.calls,
+        vec![
+            format!("schtasks /Query /TN {TASK_NAME}"),
+            format!("schtasks /Create /TN {TASK_NAME} /XML {xml_file} /F"),
+            format!("schtasks /Run /TN {TASK_NAME}"),
+        ]
+    );
+    assert!(f.io.out.join("\n").contains(&xml_file));
+
+    let snap = |p: &Path| {
+        (
+            std::fs::read(p).unwrap(),
+            std::fs::metadata(p).unwrap().modified().unwrap(),
+        )
+    };
+    let before = [snap(Path::new(&xml_file)), snap(&launcher)];
+    let n = f.ctl.calls.len();
+    assert_eq!(f.service(m, &["install"]), 0);
+    assert_eq!([snap(Path::new(&xml_file)), snap(&launcher)], before);
+    assert_eq!(
+        f.ctl.calls[n..].to_vec(),
+        vec![
+            format!("schtasks /Query /TN {TASK_NAME}"),
+            format!("schtasks /Run /TN {TASK_NAME}"),
+        ]
+    );
+
+    // A changed definition stops the running task first, then re-registers and starts it.
+    std::fs::write(&xml_file, "old").unwrap();
+    let n = f.ctl.calls.len();
+    assert_eq!(f.service(m, &["install"]), 0);
+    assert_eq!(
+        f.ctl.calls[n..].to_vec(),
+        vec![
+            format!("schtasks /Query /TN {TASK_NAME}"),
+            format!("schtasks /End /TN {TASK_NAME}"),
+            format!("schtasks /Create /TN {TASK_NAME} /XML {xml_file} /F"),
+            format!("schtasks /Run /TN {TASK_NAME}"),
+        ]
+    );
+}
+
+#[test]
+fn task_restart_status_and_uninstall_never_elevate() {
+    let mut f = Fixture::new();
+    let m = Some(ServiceManager::ScheduledTask);
+    assert_eq!(f.service(m, &["restart"]), 1);
+    assert!(f.io.err.join("\n").contains("not installed"));
+    assert_eq!(f.service(m, &["status"]), 3);
+    assert!(f.io.out.join("\n").contains("state: not registered"));
+    assert_eq!(f.service(m, &["install"]), 0);
+    let n = f.ctl.calls.len();
+    assert_eq!(f.service(m, &["restart"]), 0);
+    assert_eq!(
+        f.ctl.calls[n..].to_vec(),
+        vec![
+            format!("schtasks /End /TN {TASK_NAME}"),
+            format!("schtasks /Run /TN {TASK_NAME}"),
+        ]
+    );
+    f.ctl.task_state = "Running".into();
+    assert_eq!(f.service(m, &["status"]), 0);
+    let out = f.io.out.join("\n");
+    assert!(out.contains("state: Running"), "{out}");
+    assert!(out.contains(&f.unit_file(ServiceManager::ScheduledTask)));
+    assert!(f.ctl.calls.contains(&format!(
+        "powershell.exe -NoProfile -NonInteractive -Command (Get-ScheduledTask -TaskName '{TASK_NAME}' -ErrorAction Stop).State"
+    )));
+    f.ctl.task_state = "Ready".into();
+    assert_eq!(f.service(m, &["status"]), 3);
+
+    assert_eq!(f.service(m, &["uninstall"]), 0);
+    assert!(!Path::new(&f.unit_file(ServiceManager::ScheduledTask)).exists());
+    assert!(f.ctl.calls.ends_with(&[
+        format!("schtasks /Query /TN {TASK_NAME}"),
+        format!("schtasks /End /TN {TASK_NAME}"),
+        format!("schtasks /Delete /TN {TASK_NAME} /F"),
+    ]));
+    let n = f.ctl.calls.len();
+    assert_eq!(f.service(m, &["uninstall"]), 0); // nothing left: still fine
+    assert_eq!(
+        f.ctl.calls[n..].to_vec(),
+        vec![format!("schtasks /Query /TN {TASK_NAME}")]
+    );
+    for c in &f.ctl.calls {
+        assert!(
+            !c.contains("runas") && !c.contains("/RU") && !c.contains("SYSTEM"),
+            "{c}"
+        );
+    }
+}
+
+#[test]
+fn task_stop_kills_a_leftover_daemon_only_when_the_pid_is_still_ours() {
+    let mut f = Fixture::new();
+    let m = Some(ServiceManager::ScheduledTask);
+    assert_eq!(f.service(m, &["install"]), 0);
+    let pid_file = f.root.join("logs").join("daemon.pid");
+
+    std::fs::write(&pid_file, "4242").unwrap();
+    f.ctl.tasklist = "\"notepad.exe\",\"4242\",\"Console\",\"1\",\"9,000 K\"\r\n".into();
+    let n = f.ctl.calls.len();
+    assert_eq!(f.service(m, &["restart"]), 0);
+    assert!(f.ctl.calls[n..].contains(&"tasklist /FI PID eq 4242 /FO CSV /NH".to_string()));
+    assert!(!f.ctl.calls.iter().any(|c| c.starts_with("taskkill")));
+    assert!(!pid_file.exists());
+
+    std::fs::write(&pid_file, "4242\r\n").unwrap();
+    f.ctl.tasklist = "\"conductor-daemon.exe\",\"4242\",\"Console\",\"1\",\"20,000 K\"\r\n".into();
+    let n = f.ctl.calls.len();
+    assert_eq!(f.service(m, &["restart"]), 0);
+    assert_eq!(
+        f.ctl.calls[n..].to_vec(),
+        vec![
+            format!("schtasks /End /TN {TASK_NAME}"),
+            "tasklist /FI PID eq 4242 /FO CSV /NH".to_string(),
+            "taskkill /PID 4242 /T /F".to_string(),
+            format!("schtasks /Run /TN {TASK_NAME}"),
+        ]
+    );
+    assert!(tasklist_has_daemon("\"Conductor-Daemon.exe\",\"1\""));
+    assert!(!tasklist_has_daemon(
+        "INFO: No tasks are running which match the specified criteria."
+    ));
+}
+
+#[test]
+fn task_install_needs_the_users_sid() {
+    let mut f = Fixture::new();
+    let argv = vec!["install".to_string()];
+    let ctl = &mut f.ctl;
+    let mut run = |file: &str, a: &[String]| ctl.call(file, a);
+    let mut d = ServiceDeps {
+        manager: Some(ServiceManager::ScheduledTask),
+        home: f.home.clone(),
+        uid: None,
+        user_sid: None,
+        env: &f.env,
+        run: &mut run,
+        io: &mut f.io,
+        wsl: false,
+    };
+    assert_eq!(service_command(&argv, &mut d), 1);
+    assert!(f.io.err.join("\n").contains("user SID"));
+    assert!(f.ctl.calls.is_empty());
 }

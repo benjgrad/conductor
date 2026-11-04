@@ -35,6 +35,12 @@ export interface DriverStartOptions {
   maxBudgetUsd?: number; // remaining workflow budget, passed as a hard backstop
   appendSystemPrompt?: string; // conductor instructions (complete_state / ask_user / permission prompts)
   /**
+   * A file holding `appendSystemPrompt`, passed as `--append-system-prompt-file` instead of the
+   * text. The CLI driver sets it for a long prompt (`spillSystemPrompt`): Windows caps a whole
+   * command line at 32,767 characters, and a repo's CLAUDE.md alone may be up to 64 KiB.
+   */
+  appendSystemPromptFile?: string;
+  /**
    * ADR-0009: a requirements reviewer. Runs with `--permission-mode dontAsk` whatever the user's
    * mode (the one exception to ADR-0006's inherited mode): only its pre-approved read-only rules
    * run, everything else is denied without prompting.

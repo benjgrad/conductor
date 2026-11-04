@@ -56,6 +56,10 @@ pub struct DriverStartOptions {
     pub max_budget_usd: Option<f64>,
     /// Conductor instructions (complete_state / ask_user / permission prompts).
     pub append_system_prompt: Option<String>,
+    /// A file holding `append_system_prompt`, passed as `--append-system-prompt-file` instead of
+    /// the text. The CLI driver sets it for a long prompt (`spill_system_prompt`): Windows caps a
+    /// whole command line at 32,767 characters, and a repo's CLAUDE.md alone may be up to 64 KiB.
+    pub append_system_prompt_file: Option<PathBuf>,
     /// ADR-0009: a requirements reviewer (`--permission-mode dontAsk`).
     pub review: bool,
     /// ADR-0029: `start_session.mcp`. `None` = `none` (only conductor's servers).
@@ -84,6 +88,7 @@ impl DriverStartOptions {
             max_turns: None,
             max_budget_usd: None,
             append_system_prompt: None,
+            append_system_prompt_file: None,
             review: false,
             mcp: None,
             transitions: None,

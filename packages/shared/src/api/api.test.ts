@@ -140,9 +140,9 @@ describe('REST DTO defaults', () => {
     ).toBe('conductor');
   });
 
-  it('requires kind (ADR-0011)', () => {
+  it('kind is optional: the server defaults it from the repo (WF-T03)', () => {
     const res = CreateTicketRequestSchema.safeParse({ title: 't', body: '', repo: 'r' });
-    expect(res.success).toBe(false);
-    expect(res.error?.issues.map((i) => i.path)).toEqual([['kind']]);
+    expect(res.success).toBe(true);
+    expect(res.data?.kind).toBeUndefined();
   });
 });

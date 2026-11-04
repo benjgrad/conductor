@@ -616,6 +616,31 @@ describe('/mcp tools (approved set)', () => {
     expect(fromB.body.tickets).toEqual([]);
   });
 
+  it('create_ticket without kind takes the account’s last kind on the repo (WF-T03)', async () => {
+    const a = await minted();
+    const b = await minted();
+    const mk = (token: string, extra: Record<string, unknown> = {}) =>
+      call(token, 'create_ticket', {
+        title: 'Follow-up',
+        repo: 'https://github.com/me/notes.git',
+        body: '## Goal\nX.',
+        ...extra,
+      });
+    expect((await mk(a.access, { kind: 'personal', repo: 'github.com/me/notes' })).isError).toBe(
+      false,
+    );
+    const followUp = await mk(a.access);
+    expect(followUp.isError).toBe(false);
+    const listed = await call(a.access, 'list_tickets', { kind: 'personal' });
+    expect((listed.body.tickets as { id: string }[]).map((t) => t.id)).toContain(
+      followUp.body.id as string,
+    );
+    // B has no ticket on the repo: A's kind does not leak across accounts.
+    const fromB = await mk(b.access);
+    expect(fromB.isError).toBe(true);
+    expect(errorOf(fromB).message).toContain('kind');
+  });
+
   it('list_tickets filters by status, kind and repo', async () => {
     const a = await connect();
     const mk = async (title: string, repo: string, kind: string) =>

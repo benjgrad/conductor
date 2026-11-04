@@ -21,6 +21,8 @@ afterEach(() => {
 });
 
 const FIRST = { name: 'Set up your first machine' } as const;
+/** The whole <App> takes well over the 1 s default to show under a full parallel run. */
+const APP_LOAD = { timeout: 10_000 } as const;
 
 function renderGuide(api: MockApi = createMockApi({ machines: 'none' })) {
   const handlers = { onDismiss: vi.fn(), onCreateTicket: vi.fn(), onFinish: vi.fn() };
@@ -36,7 +38,7 @@ const goToStep = (name: string | RegExp) =>
 describe('first-run guide (FR-1)', () => {
   it('shows on the board when the account has no machines; dismissed → hidden this visit', async () => {
     render(<App api={createMockApi({ machines: 'none' })} />);
-    expect(await screen.findByRole('region', FIRST)).toBeTruthy();
+    expect(await screen.findByRole('region', FIRST, APP_LOAD)).toBeTruthy();
     expect(screen.queryByRole('region', { name: 'Queued' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'New ticket' })).toBeNull();
 
@@ -47,19 +49,19 @@ describe('first-run guide (FR-1)', () => {
     // Same visit (e.g. the app remounts): still hidden.
     cleanup();
     render(<App api={createMockApi({ machines: 'none' })} />);
-    expect(await screen.findByRole('region', { name: 'Queued' })).toBeTruthy();
+    expect(await screen.findByRole('region', { name: 'Queued' }, APP_LOAD)).toBeTruthy();
     await act(async () => {});
     expect(screen.queryByRole('region', FIRST)).toBeNull();
   });
 
   it('reappears on the next visit while the account still has no machines', async () => {
     render(<App api={createMockApi({ machines: 'none' })} />);
-    fireEvent.click(await screen.findByRole('button', { name: "I'll do this later" }));
+    fireEvent.click(await screen.findByRole('button', { name: "I'll do this later" }, APP_LOAD));
     cleanup();
 
     newVisitForTests();
     render(<App api={createMockApi({ machines: 'none' })} />);
-    expect(await screen.findByRole('region', FIRST)).toBeTruthy();
+    expect(await screen.findByRole('region', FIRST, APP_LOAD)).toBeTruthy();
   });
 
   it('a throwing localStorage still shows it, and dismissing still hides it', async () => {
@@ -70,7 +72,7 @@ describe('first-run guide (FR-1)', () => {
       throw new Error('denied');
     });
     render(<App api={createMockApi({ machines: 'none' })} />);
-    fireEvent.click(await screen.findByRole('button', { name: "I'll do this later" }));
+    fireEvent.click(await screen.findByRole('button', { name: "I'll do this later" }, APP_LOAD));
     expect(screen.queryByRole('region', FIRST)).toBeNull();
   });
 

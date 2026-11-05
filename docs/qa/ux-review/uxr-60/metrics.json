@@ -1,0 +1,130 @@
+{
+  "wf-rules-full-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 5,
+    "smallTapTargetSample": [
+      "button \"Close transition\" 34×44",
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "input \"\" 13×13"
+    ]
+  },
+  "wf-rules-new-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 5,
+    "smallTapTargetSample": [
+      "button \"Close transition\" 34×44",
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "input \"\" 13×13"
+    ]
+  },
+  "wf-arrow-group-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 5,
+    "smallTapTargetSample": [
+      "button \"Close transition\" 34×44",
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "input \"\" 13×13"
+    ]
+  },
+  "wf-rules-full-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 2179,
+    "smallTapTargets": 34,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 116×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "select \"v3 (latest)v2v1\" 106×28",
+      "input \"\" 13×13"
+    ]
+  },
+  "wf-rules-new-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 25,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 116×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "select \"v3 (latest)v2v1\" 106×28",
+      "input \"\" 13×13"
+    ]
+  },
+  "wf-arrow-group-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 31,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 116×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "select \"v3 (latest)v2v1\" 106×28",
+      "input \"\" 13×13"
+    ]
+  },
+  "workflows-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "input \"\" 13×13"
+    ]
+  },
+  "workflows-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 10,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 116×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "select \"v3 (latest)v2v1\" 106×28",
+      "input \"\" 13×13"
+    ]
+  }
+}

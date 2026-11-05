@@ -1,5 +1,5 @@
 import {
-  AVAILABLE_CONDITION_TYPES,
+  REQUIRES_CONDITION_TYPES,
   AVAILABLE_TRANSITION_ACTIONS,
   FALLBACK_TRANSITION_NAMES,
   RETURN_TO,
@@ -671,7 +671,8 @@ function TransitionForm({
             }}
           >
             <option value="">Add condition…</option>
-            {AVAILABLE_CONDITION_TYPES.map((type) => (
+            {/* ADR-0037 rule 24: `age_below` only in a watch, so it is not offered here. */}
+            {REQUIRES_CONDITION_TYPES.map((type) => (
               <option key={type} value={type}>
                 {CONDITION_TEXT[type]}
               </option>

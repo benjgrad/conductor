@@ -40,13 +40,10 @@ describe('conductor v6 draft (ADR-0037)', () => {
       [
         'notify',
         'states.in_review.watch',
-        'states.in_review.watch.conditions.0',
         'states.needs_input.watch',
-        'states.needs_input.watch.conditions.0',
         at('planning', 'plan_needs_approval', 'notify'),
         ...pr.map((t) => at('implementing', t, 'handoff')),
         ...pr.map((t) => at('implementing', t, 'requires', 'concurrency')),
-        ...gates.map((t) => at('implementing', t, 'requires', 'conditions', 0, 'no_checks')),
       ].sort(),
     );
   });

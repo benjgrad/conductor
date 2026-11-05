@@ -25,7 +25,8 @@
             "met",
             "pending",
             "failed",
-            "unsupported"
+            "unsupported",
+            "skipped"
           ]
         },
         "value": {
@@ -38,6 +39,14 @@
           "type": [
             "string",
             "null"
+          ]
+        },
+        "mergeable": {
+          "type": "string",
+          "enum": [
+            "MERGEABLE",
+            "CONFLICTING",
+            "UNKNOWN"
           ]
         }
       },

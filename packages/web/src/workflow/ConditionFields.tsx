@@ -2,7 +2,10 @@ import {
   AVAILABLE_CONDITION_TYPES,
   conditionEnabled,
   conditionLabel,
+  DEFAULT_CHECK_TIMEOUT,
+  noChecksPolicy,
   type Condition,
+  type NoChecksPolicy,
 } from '@conductor/shared';
 import { Fragment, useState, type FocusEvent, type ReactNode } from 'react';
 import { ItemActions } from './ChecksFields.js';
@@ -24,6 +27,12 @@ export interface ConditionRowProps {
   /** Focus left somewhere in the row (UXR-71: a new condition is validated once it is left). */
   onBlur?: (e: FocusEvent<HTMLLIElement>) => void;
 }
+
+const NO_CI_TEXT: Record<NoChecksPolicy['policy'], string> = {
+  pass: 'count as green',
+  fail: 'count as failed',
+  require_mergeable: 'green only if it merges cleanly',
+};
 
 const plural = (n: number, one: string, many = `${one}s`) => (n === 1 ? one : many);
 
@@ -47,31 +56,60 @@ export function ConditionRow({
 
   let sentence: ReactNode;
   switch (c.type) {
-    case 'pr_checks_green':
+    case 'pr_checks_green': {
+      // ADR-0037 P3: the no-CI rule, read through both spellings (`no_checks_after: X` is
+      // `{policy: pass, after: X}`); an edit always writes `no_checks` and drops the legacy key.
+      const policy = noChecksPolicy(c);
+      const setPolicy = (next: NoChecksPolicy | undefined) => {
+        const rest = { ...c };
+        delete rest.no_checks_after;
+        delete rest.no_checks;
+        onChange(next === undefined ? rest : { ...rest, no_checks: next });
+      };
       sentence = (
         <>
-          PR checks are green (count as green if no CI reports within{' '}
+          PR checks are green; if no CI reports within{' '}
           {available ? (
             <input
               aria-label={`${row} no CI after`}
               className="mono wf-short"
-              value={c.no_checks_after ?? ''}
+              value={policy?.after ?? ''}
               placeholder="5m"
-              onChange={(e) => {
-                const next = { ...c };
-                delete next.no_checks_after;
-                onChange(
-                  e.target.value === '' ? next : { ...next, no_checks_after: e.target.value },
-                );
-              }}
+              onChange={(e) =>
+                setPolicy(
+                  e.target.value === ''
+                    ? undefined
+                    : { policy: policy?.policy ?? 'pass', after: e.target.value },
+                )
+              }
             />
           ) : (
-            value(c.no_checks_after ?? '')
+            value(policy?.after ?? '')
           )}
-          )
+          ,{' '}
+          {available ? (
+            <select
+              aria-label={`${row} no CI policy`}
+              value={policy?.policy ?? 'pass'}
+              disabled={policy === undefined}
+              onChange={(e) =>
+                setPolicy({
+                  policy: e.target.value as NoChecksPolicy['policy'],
+                  after: policy?.after ?? '5m',
+                })
+              }
+            >
+              <option value="pass">count as green</option>
+              <option value="fail">count as failed</option>
+              <option value="require_mergeable">green only if it merges cleanly</option>
+            </select>
+          ) : (
+            value(NO_CI_TEXT[policy?.policy ?? 'pass'])
+          )}
         </>
       );
       break;
+    }
     case 'pr_approvals':
       sentence = (
         <>
@@ -98,11 +136,85 @@ export function ConditionRow({
     case 'pr_merged':
       sentence = 'PR merged';
       break;
-    // ADR-0037 P2: read-only until T5 adds their fields (the validator refuses them until then).
     case 'cmd':
+      sentence = (
+        <>
+          {available ? (
+            <input
+              aria-label={`${row} name`}
+              className="wf-long"
+              value={c.name}
+              placeholder="Merges cleanly"
+              onChange={(e) => onChange({ ...c, name: e.target.value })}
+            />
+          ) : (
+            value(c.name)
+          )}{' '}
+          passes:{' '}
+          {available ? (
+            <input
+              aria-label={`${row} command`}
+              className="mono wf-long"
+              value={c.cmd}
+              placeholder="git merge-tree --write-tree origin/main HEAD"
+              onChange={(e) => onChange({ ...c, cmd: e.target.value })}
+            />
+          ) : (
+            value(c.cmd)
+          )}{' '}
+          (at most{' '}
+          {available ? (
+            <input
+              aria-label={`${row} timeout`}
+              className="mono wf-short"
+              value={c.timeout ?? ''}
+              placeholder={DEFAULT_CHECK_TIMEOUT}
+              onChange={(e) => {
+                const next = { ...c };
+                delete next.timeout;
+                onChange(e.target.value === '' ? next : { ...next, timeout: e.target.value });
+              }}
+            />
+          ) : (
+            value(c.timeout ?? DEFAULT_CHECK_TIMEOUT)
+          )}
+          ,{' '}
+          {available ? (
+            <select
+              aria-label={`${row} needs`}
+              value={c.needs}
+              onChange={(e) => onChange({ ...c, needs: e.target.value as 'checkout' | 'setup' })}
+            >
+              <option value="setup">run the repo setup first</option>
+              <option value="checkout">checkout only</option>
+            </select>
+          ) : (
+            value(c.needs === 'checkout' ? 'checkout only' : 'run the repo setup first')
+          )}
+          )
+        </>
+      );
+      break;
     case 'pr_mergeable':
+      sentence = 'PR merges cleanly (GitHub)';
+      break;
     case 'age_below':
-      sentence = conditionLabel(c);
+      sentence = (
+        <>
+          Here less than{' '}
+          {available ? (
+            <input
+              aria-label={`${row} max`}
+              className="mono wf-short"
+              value={c.max}
+              placeholder="2h"
+              onChange={(e) => onChange({ ...c, max: e.target.value })}
+            />
+          ) : (
+            value(c.max)
+          )}
+        </>
+      );
       break;
     case 'pr_screenshots':
       sentence = (
@@ -185,14 +297,13 @@ export function ConditionRow({
   }
 
   const fieldOf: Record<Condition['type'], string[]> = {
-    pr_checks_green: ['no_checks_after'],
+    pr_checks_green: ['no_checks_after', 'no_checks'],
     pr_approvals: ['min'],
     pr_merged: [],
     pr_screenshots: ['ui_paths', 'min_pairs'],
     jira_fields_set: ['fields'],
     azure_pipeline_succeeded: ['pipeline'],
-    // ADR-0037 P2: no designer fields until T5.
-    cmd: ['name', 'cmd'],
+    cmd: ['name', 'cmd', 'timeout', 'needs'],
     pr_mergeable: [],
     age_below: ['max'],
   };

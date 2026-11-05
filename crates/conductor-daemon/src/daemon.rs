@@ -48,6 +48,7 @@ use crate::actions::checkout::{
     FreshCheckout, FreshCheckoutInput, detect_setup, fresh_checkout, managed_command,
     missing_manager, remove_checkout, sweep_private,
 };
+use crate::actions::condition_cmd::{CmdContext, CmdExec, CmdExecResult};
 use crate::actions::conditions::{EvaluateConditionsInput, evaluate_conditions};
 use crate::actions::open_pr::{
     GhCommand, OpenPrInput, OpenPrResult, check_clean, open_pr, resolve_head,
@@ -2394,6 +2395,43 @@ impl Core {
         let Some(core) = self.arc() else {
             return Ok(());
         };
+        // ADR-0037 P2: a `cmd` condition runs in a fresh checkout fetched from the session's
+        // worktree (this daemon's own record of it and its branch, never the message's), through
+        // the command runner; a session this daemon doesn't hold leaves it pending.
+        let session = self
+            .store()
+            .session(&sid.to_string())
+            .cloned()
+            .filter(|s| Path::new(&s.worktree_path).exists());
+        let runner = self.command_runner(st);
+        let ticket = session.as_ref().map(|s| s.ticket_id.clone());
+        let exec_cancel = cancel.clone();
+        let exec: CmdExec = Arc::new(move |cmd: String, cwd: PathBuf, limit: Duration| {
+            let mut o = RunCommandOptions::new(cmd_id, sid, cmd, cwd);
+            o.timeout = Some(limit);
+            let mut env = BTreeMap::new();
+            env.insert("CONDUCTOR_SESSION_ID".into(), sid.to_string());
+            if let Some(t) = &ticket {
+                env.insert("CONDUCTOR_TICKET_ID".into(), t.clone());
+            }
+            o.env = env;
+            o.cancel = Some(exec_cancel.clone());
+            let runner = runner.clone();
+            Box::pin(async move {
+                match runner.run(o).await {
+                    Ok(r) => CmdExecResult {
+                        exit_code: r.exit_code,
+                        timed_out: r.timed_out,
+                        output_tail: r.output_tail,
+                    },
+                    Err(e) => CmdExecResult {
+                        exit_code: None,
+                        timed_out: false,
+                        output_tail: format!("conductor: command could not be spawned: {e}"),
+                    },
+                }
+            })
+        });
         let input = EvaluateConditionsInput {
             conditions: args.conditions,
             pr_url: args.pr_url,
@@ -2402,6 +2440,17 @@ impl Core {
             gh: self.gh.clone(),
             env: None,
             timeout_ms: None,
+            short_circuit: args.short_circuit == Some(true),
+            cmd: Some(CmdContext {
+                root: self.config.root_dir.clone(),
+                worktree: session.map(|s| (PathBuf::from(&s.worktree_path), s.branch.clone())),
+                setup: args.setup.flatten().map(String::from),
+                exec,
+                env: None,
+                checkout: None,
+                resolve_head: None,
+                path: None,
+            }),
         };
         tokio::spawn(async move {
             // TD-205: a kill drops the future.

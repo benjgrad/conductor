@@ -74,7 +74,10 @@
     "pr_checks_green",
     "pr_approvals",
     "pr_merged",
-    "pr_screenshots"
+    "pr_screenshots",
+    "cmd",
+    "pr_mergeable",
+    "age_below"
   ],
   "GH_MIN_VERSION": "2.40.0",
   "DEFAULT_CONDUCTOR_PORT": 7400,

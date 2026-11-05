@@ -225,6 +225,9 @@ export const CONDITION_TEXT: Record<ConditionType, string> = {
   age_below: 'Time in this column is below',
 };
 
+/** ADR-0037 P3: a newly added `pr_checks_green`'s no-CI rule. */
+export const DEFAULT_NO_CHECKS = { policy: 'require_mergeable', after: '5m' } as const;
+
 /** A new condition of `type`, keeping `enabled` / `label` from the one it replaces. */
 export function conditionOfType(type: ConditionType, prev?: Condition): Condition {
   const common = {
@@ -247,9 +250,16 @@ export function conditionOfType(type: ConditionType, prev?: Condition): Conditio
         ? { ...prev, ...common }
         : { type, ui_paths: [...DEFAULT_UI_PATHS], ...common };
     case 'pr_checks_green':
-      return prev?.type === 'pr_checks_green' && prev.no_checks_after !== undefined
-        ? { type, no_checks_after: prev.no_checks_after, ...common }
-        : { type, ...common };
+      // ADR-0037 P3: re-picking PR checks keeps its no-CI rule (either spelling); a newly added
+      // one defaults to "green only if it merges cleanly" after 5 minutes without CI.
+      if (prev?.type === 'pr_checks_green') {
+        if (prev.no_checks !== undefined) return { type, no_checks: prev.no_checks, ...common };
+        if (prev.no_checks_after !== undefined) {
+          return { type, no_checks_after: prev.no_checks_after, ...common };
+        }
+        return { type, ...common };
+      }
+      return { type, no_checks: { ...DEFAULT_NO_CHECKS }, ...common };
     case 'cmd':
       return prev?.type === 'cmd'
         ? { ...prev, ...common }
@@ -509,6 +519,22 @@ export function validateTransitions(def: WorkflowDefinition): TransitionIssue[] 
           }
           if (c.type === 'jira_fields_set' && c.fields.length === 0) {
             addR(`${at}.fields`, `${row}: list at least one Jira field`);
+          }
+          if (c.type === 'pr_checks_green' && c.no_checks !== undefined) {
+            const p = durationProblem(c.no_checks.after);
+            if (p !== null) addR(`${at}.no_checks`, `${row}: ${p}`);
+          }
+          if (c.type === 'cmd') {
+            if (c.name.trim() === '') addR(`${at}.name`, `${row}: name the command`);
+            if (c.cmd.trim() === '') addR(`${at}.cmd`, `${row}: the command is empty`);
+            if (c.timeout !== undefined) {
+              const p = durationProblem(c.timeout);
+              if (p !== null) addR(`${at}.timeout`, `${row}: ${p}`);
+            }
+          }
+          if (c.type === 'age_below') {
+            const p = durationProblem(c.max);
+            if (p !== null) addR(`${at}.max`, `${row}: ${p}`);
           }
           if (c.label !== undefined && c.label.trim() === '') {
             addR(`${at}.label`, `${row}: the name on the card is empty`);

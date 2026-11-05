@@ -58,6 +58,7 @@ import {
   sweepPrivate,
 } from './actions/checkout.js';
 import { evaluateConditions } from './actions/conditions.js';
+import type { CmdExec } from './actions/condition-cmd.js';
 import { checkClean, openPr, resolveHead } from './actions/open-pr.js';
 import { ReconnectingWs } from './ws-client.js';
 
@@ -1355,6 +1356,9 @@ export class Daemon {
    * ADR-0011 `evaluate_conditions`: read-only, needs no worktree, so it is accepted for a session
    * this daemon doesn't hold (ADR-0016: any online machine of the account may evaluate). gh runs
    * in the daemon root with the open_pr hardening. A kill aborts it like a command.
+   * ADR-0037 P2: a `cmd` condition runs in a fresh checkout fetched from the session's worktree
+   * (this daemon's own record of it and its branch, never the message's), through the command
+   * runner; a session this daemon doesn't hold leaves it pending.
    */
   private evaluateConditions(msg: RunAction): void {
     const sid = msg.session_id;
@@ -1383,6 +1387,21 @@ export class Daemon {
       return;
     }
     this.sendOutput(sid, token, 'debug', `conductor: evaluating conditions for ${p.target_state}`);
+    const s = this.store.session(sid);
+    const worktree =
+      s && existsSync(s.worktreePath) ? { path: s.worktreePath, branch: s.branch } : null;
+    const exec: CmdExec = async (cmd, cwd, timeoutMs) => {
+      const r = await this.commandRunner().run({
+        commandId: p.command_id,
+        sessionId: sid,
+        cmd,
+        cwd,
+        timeoutMs,
+        env: { CONDUCTOR_SESSION_ID: sid, ...(s ? { CONDUCTOR_TICKET_ID: s.ticketId } : {}) },
+        signal: abort.signal,
+      });
+      return { exitCode: r.exitCode, timedOut: r.timedOut, outputTail: r.outputTail };
+    };
     evaluateConditions({
       conditions: args.data.conditions,
       prUrl: args.data.pr_url,
@@ -1390,6 +1409,10 @@ export class Daemon {
       root: this.config.rootDir,
       ...(this.ghCommand ? { gh: this.ghCommand } : {}),
       signal: abort.signal,
+      shortCircuit: args.data.short_circuit === true,
+      worktree,
+      setup: args.data.setup,
+      exec,
     })
       .then(
         (r) => report(r as unknown as JsonObject, null),

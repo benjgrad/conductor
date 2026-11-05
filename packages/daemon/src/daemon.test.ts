@@ -1865,6 +1865,29 @@ describe('daemon core: run_action evaluate_conditions (ADR-0011)', () => {
     expect(orch.eventData('action_result')).toHaveLength(1);
   });
 
+  it('a cmd condition for a session this daemon does not hold stays pending (ADR-0037)', async () => {
+    makeDaemon(new FakeClaudeDriver(complete({})), { ghCommand: FAKE_GH_VIEW });
+    await orch.until(() => orch.ofType('request_work')[0]);
+    // The worktree comes from the daemon's own records, never from the message's branch.
+    const action = evaluate(randomUUID(), {
+      conditions: [{ type: 'cmd', name: 'Merges cleanly', cmd: 'true', needs: 'checkout' }],
+      pr_url: null,
+      branch: 'b',
+    });
+    orch.send(action);
+    const res = await orch.until(() => orch.eventData('action_result')[0], 15_000);
+    expect(res.result).toEqual({
+      results: [
+        {
+          type: 'cmd',
+          status: 'pending',
+          value: null,
+          detail: "this machine doesn't hold the ticket's worktree, so the command can't run here",
+        },
+      ],
+    });
+  });
+
   it('invalid args → accepted, then an action_result error', async () => {
     makeDaemon(new FakeClaudeDriver(complete({})), { ghCommand: FAKE_GH_VIEW });
     await orch.until(() => orch.ofType('request_work')[0]);

@@ -25,6 +25,7 @@ const ITEM_ICONS: Record<ItemStatus, string> = {
   todo: '◻',
   disabled: '–',
   unsupported: '?',
+  skipped: '–',
 };
 
 const ITEM_STATUS_TEXT: Record<ItemStatus, string> = {
@@ -35,6 +36,7 @@ const ITEM_STATUS_TEXT: Record<ItemStatus, string> = {
   todo: 'to do',
   disabled: 'disabled',
   unsupported: 'not supported yet',
+  skipped: 'not checked (an earlier one is not met)',
 };
 
 const sameWords = (a: string, b: string) =>

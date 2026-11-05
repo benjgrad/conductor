@@ -21,6 +21,20 @@
     "head_sha": {
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"
+    },
+    "short_circuit": {
+      "type": "boolean"
+    },
+    "setup": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 2000
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [

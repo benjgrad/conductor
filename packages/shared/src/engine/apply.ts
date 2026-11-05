@@ -32,6 +32,8 @@ import {
   checklistLines,
   enabledIndexes,
   evaluateConditionsArgs,
+  daemonIndexes,
+  type ConditionsVerdict,
   evaluationInFlight,
   failedEvidence,
   failWithoutPr,
@@ -1785,6 +1787,19 @@ function startConditions(st: Step, spec: GateSpec): void {
 function evaluateConditions(st: Step, spec: GateSpec, r: GateStep): void {
   const s = st.s;
   const label = s.workflow_state!;
+  if (daemonIndexes(spec.conditions).length === 0) {
+    // ADR-0037: only engine-side conditions (`age_below`): nothing to send, answer now.
+    applyConditionsVerdict(
+      st,
+      spec,
+      r,
+      mergeResults(r.conditions, spec.conditions, null, st.now, {
+        startedAt: r.conditions_started_at,
+        stateEnteredAt: s.state_entered_at,
+      }),
+    );
+    return;
+  }
   if (s.machine_id === null) {
     r.conditions_note = CONDITIONS_NO_MACHINE_NOTE;
   } else {
@@ -1797,7 +1812,13 @@ function evaluateConditions(st: Step, spec: GateSpec, r: GateStep): void {
       target_state: r.to,
       action: EVALUATE_CONDITIONS,
       idempotency_key: conditionsIdempotencyKey(s.id, label, st.now),
-      args: evaluateConditionsArgs(s, r, spec.conditions),
+      // ADR-0037 P2: `cmd` conditions use the repo's setup when it has its own checks (ADR-0030).
+      args: evaluateConditionsArgs(s, r, spec.conditions, {
+        setup:
+          r.repo_checks !== null && r.repo_checks !== undefined
+            ? (r.repo_checks.setup ?? null)
+            : spec.setup,
+      }),
       expected_sha: r.head_sha,
     });
   }
@@ -1824,7 +1845,18 @@ function onConditionsResult(
     conditionsNoAnswer(st, spec, r, `the last check failed: ${e.error}`);
     return;
   }
-  const v = mergeResults(r.conditions, spec.conditions, e.result, st.now, r.conditions_started_at);
+  applyConditionsVerdict(
+    st,
+    spec,
+    r,
+    mergeResults(r.conditions, spec.conditions, e.result, st.now, {
+      startedAt: r.conditions_started_at,
+      stateEnteredAt: st.s.state_entered_at,
+    }),
+  );
+}
+
+function applyConditionsVerdict(st: Step, spec: GateSpec, r: GateStep, v: ConditionsVerdict): void {
   if (v.type === 'malformed') {
     conditionsNoAnswer(st, spec, r, `the last check returned an unusable result (${v.why})`);
     return;

@@ -34,6 +34,8 @@ struct More {
     pr_url: Option<Option<String>>,
     timeout_ms: Option<u64>,
     head_sha: Option<String>,
+    short_circuit: bool,
+    cmd: Option<CmdContext>,
 }
 
 impl Fx {
@@ -81,6 +83,8 @@ impl Fx {
             }),
             env: Some(env_plus(&pairs)),
             timeout_ms: more.timeout_ms,
+            short_circuit: more.short_circuit,
+            cmd: more.cmd,
         })
         .await
     }
@@ -152,7 +156,7 @@ fn r(
     result(t, s, value.map(str::to_string), detail.map(str::to_string))
 }
 
-use ConditionResultStatus::{Failed, Met, Pending, Unsupported};
+use ConditionResultStatus::{Failed, Met, Pending, Skipped, Unsupported};
 
 fn statuses(res: &EvaluateConditionsResult) -> Vec<ConditionResultStatus> {
     res.results.iter().map(|x| x.status).collect()
@@ -614,19 +618,15 @@ async fn only_unsupported_conditions_gh_is_not_run() {
 }
 
 #[tokio::test]
-async fn adr_0037_types_are_unsupported_until_t5_gh_is_not_run() {
+async fn age_below_is_the_engines_unsupported_here_gh_is_not_run() {
     let f = Fx::new();
     let res = f
         .ev(
-            vec![
-                cond(json!({"type": "cmd", "name": "Merges cleanly", "cmd": "true", "needs": "checkout"})),
-                cond(json!({"type": "pr_mergeable"})),
-                cond(json!({"type": "age_below", "max": "2h"})),
-            ],
+            vec![cond(json!({"type": "age_below", "max": "2h"}))],
             &view(json!({})),
         )
         .await;
-    assert_eq!(statuses(&res), vec![Unsupported, Unsupported, Unsupported]);
+    assert_eq!(statuses(&res), vec![Unsupported]);
     assert_eq!(f.file("argv"), None);
 }
 
@@ -644,6 +644,8 @@ async fn gh_missing_every_gh_condition_pending_gh_not_available() {
         }),
         env: None,
         timeout_ms: None,
+        short_circuit: false,
+        cmd: None,
     })
     .await;
     assert_eq!(statuses(&res), vec![Pending, Pending, Unsupported]);
@@ -1098,4 +1100,421 @@ async fn a_cancelled_job_is_looked_up_with_gh_api() {
     let f = Fx::new();
     f.ev(vec![merged()], &v).await;
     assert_eq!(f.file("argv").unwrap().trim().lines().count(), 1);
+}
+
+// ---- ADR-0037 T5: pr_mergeable, the require_mergeable policy, cmd, short_circuit -------------
+
+use crate::actions::checkout::{FreshCheckout, FreshCheckoutInput};
+use crate::actions::condition_cmd::{CheckoutFn, CmdExec, CmdExecResult, ResolveHeadFn};
+use std::sync::{Arc, Mutex};
+
+fn mergeable_c() -> Condition {
+    cond(json!({"type": "pr_mergeable"}))
+}
+fn require_mergeable() -> Condition {
+    cond(
+        json!({"type": "pr_checks_green", "no_checks": {"policy": "require_mergeable", "after": "5m"}}),
+    )
+}
+fn pr_of(over: Value) -> PrView {
+    parse_pr_view(&view(over)).unwrap()
+}
+
+#[tokio::test]
+async fn asks_gh_for_mergeable_only_when_a_condition_needs_it() {
+    let f = Fx::new();
+    f.ev(vec![checks()], &view(json!({}))).await;
+    f.ev(
+        vec![mergeable_c()],
+        &view(json!({"mergeable": "MERGEABLE"})),
+    )
+    .await;
+    f.ev(
+        vec![require_mergeable()],
+        &view(json!({"mergeable": "MERGEABLE"})),
+    )
+    .await;
+    let argv = f.file("argv").unwrap();
+    let argv: Vec<&str> = argv.trim().lines().collect();
+    assert!(!argv[0].contains("mergeable"), "{}", argv[0]);
+    assert!(
+        argv[1].contains("headRefOid,mergeable,mergeStateStatus --jq"),
+        "{}",
+        argv[1]
+    );
+    assert!(
+        argv[1].contains(", mergeable, mergeStateStatus}"),
+        "{}",
+        argv[1]
+    );
+    assert!(
+        argv[2].contains("mergeable,mergeStateStatus"),
+        "{}",
+        argv[2]
+    );
+}
+
+#[test]
+fn pr_mergeable_mergeable_met_conflicting_failed_unknown_pending() {
+    let m = map_condition(
+        &mergeable_c(),
+        &pr_of(json!({"mergeable": "MERGEABLE"})),
+        None,
+    );
+    assert_eq!((m.status, m.value.as_deref()), (Met, Some("mergeable")));
+    let c = map_condition(
+        &mergeable_c(),
+        &pr_of(json!({"mergeable": "CONFLICTING", "mergeStateStatus": "DIRTY"})),
+        None,
+    );
+    assert_eq!(
+        (c.status, c.value.as_deref()),
+        (Failed, Some("conflicting"))
+    );
+    assert!(
+        c.detail
+            .unwrap()
+            .contains("conflicts with its base branch (dirty)")
+    );
+    let u = map_condition(
+        &mergeable_c(),
+        &pr_of(json!({"mergeable": "UNKNOWN"})),
+        None,
+    );
+    assert_eq!(u.status, Pending);
+    assert_eq!(
+        map_condition(&mergeable_c(), &pr_of(json!({})), None).status,
+        Pending
+    );
+}
+
+#[test]
+fn pr_mergeable_merged_met_closed_failed_moved_head_failed() {
+    let merged = map_condition(&mergeable_c(), &pr_of(json!({"state": "MERGED"})), None);
+    assert_eq!(merged.status, Met);
+    let closed = map_condition(&mergeable_c(), &pr_of(json!({"state": "CLOSED"})), None);
+    assert_eq!(closed.status, Failed);
+    let moved = map_condition(
+        &mergeable_c(),
+        &pr_of(json!({"mergeable": "MERGEABLE"})),
+        Some(&old()),
+    );
+    assert_eq!(moved.status, Failed);
+}
+
+#[test]
+fn require_mergeable_adds_mergeable_to_the_checks_result_other_policies_dont() {
+    let r = map_condition(
+        &require_mergeable(),
+        &pr_of(json!({"mergeable": "CONFLICTING"})),
+        None,
+    );
+    assert_eq!(r.status, Pending);
+    assert_eq!(r.value.as_deref(), Some(NO_PR_CHECKS_VALUE));
+    assert_eq!(r.mergeable, Some(ConditionResultMergeable::Conflicting));
+    let unknown = map_condition(&require_mergeable(), &pr_of(json!({})), None);
+    assert_eq!(unknown.mergeable, Some(ConditionResultMergeable::Unknown));
+    let pass =
+        cond(json!({"type": "pr_checks_green", "no_checks": {"policy": "pass", "after": "5m"}}));
+    assert_eq!(
+        map_condition(&pass, &pr_of(json!({"mergeable": "CONFLICTING"})), None).mergeable,
+        None
+    );
+}
+
+/// A fake checkout (a plain dir) and an exec that answers by command; records what ran.
+struct Harness {
+    ran: Arc<Mutex<Vec<(String, PathBuf, Duration)>>>,
+    checkouts: Arc<Mutex<Vec<(String, String, PathBuf)>>>,
+    dirs: Arc<Mutex<Vec<PathBuf>>>,
+}
+
+fn harness(
+    f: &Fx,
+    answers: Vec<(&'static str, Option<i32>, bool, &'static str)>,
+) -> (Harness, CmdContext) {
+    let h = Harness {
+        ran: Arc::default(),
+        checkouts: Arc::default(),
+        dirs: Arc::default(),
+    };
+    let ran = h.ran.clone();
+    let exec: CmdExec = Arc::new(move |cmd: String, cwd: PathBuf, limit: Duration| {
+        ran.lock().unwrap().push((cmd.clone(), cwd, limit));
+        let a = answers.iter().find(|a| a.0 == cmd).cloned();
+        Box::pin(async move {
+            match a {
+                Some((_, code, timed_out, out)) => CmdExecResult {
+                    exit_code: code,
+                    timed_out,
+                    output_tail: out.to_string(),
+                },
+                None => CmdExecResult {
+                    exit_code: Some(0),
+                    timed_out: false,
+                    output_tail: String::new(),
+                },
+            }
+        })
+    });
+    let root = f.root.path().to_path_buf();
+    let (checkouts, dirs) = (h.checkouts.clone(), h.dirs.clone());
+    let checkout: CheckoutFn = Arc::new(move |i: FreshCheckoutInput| {
+        let mut c = checkouts.lock().unwrap();
+        c.push((i.sha.clone(), i.branch.clone(), i.worktree.clone()));
+        let dir = root.join(format!("check-{}", c.len()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dirs.lock().unwrap().push(dir.clone());
+        Box::pin(async move { FreshCheckout::Ok { dir, sha: i.sha } })
+    });
+    let resolve: ResolveHeadFn = Arc::new(|_| Box::pin(async { Some("b".repeat(40)) }));
+    let ctx = CmdContext {
+        root: f.root.path().to_path_buf(),
+        worktree: Some((f.tmp.path().join("wt"), "conductor/t-1".into())),
+        setup: Some("install-deps".into()),
+        exec,
+        env: None,
+        checkout: Some(checkout),
+        resolve_head: Some(resolve),
+        path: Some(String::new()),
+    };
+    (h, ctx)
+}
+
+fn merges() -> Condition {
+    cond(
+        json!({"type": "cmd", "name": "Merges cleanly", "cmd": "merge-check", "needs": "checkout"}),
+    )
+}
+fn tests_c() -> Condition {
+    cond(json!({"type": "cmd", "name": "Tests", "cmd": "run-tests", "needs": "setup"}))
+}
+fn lint() -> Condition {
+    cond(
+        json!({"type": "cmd", "name": "Lint", "cmd": "run-lint", "needs": "setup", "timeout": "30s"}),
+    )
+}
+
+async fn eval_cmd(
+    conditions: Vec<Condition>,
+    ctx: CmdContext,
+    head_sha: Option<String>,
+    pr_url: Option<String>,
+) -> EvaluateConditionsResult {
+    evaluate_conditions(EvaluateConditionsInput {
+        conditions,
+        pr_url,
+        head_sha,
+        root: ctx.root.clone(),
+        gh: None,
+        env: None,
+        timeout_ms: None,
+        short_circuit: false,
+        cmd: Some(ctx),
+    })
+    .await
+}
+
+#[tokio::test]
+async fn cmd_exit_0_met_non_zero_failed_with_the_tail_timeout_failed() {
+    let f = Fx::new();
+    let (h, ctx) = harness(
+        &f,
+        vec![
+            ("run-tests", Some(1), false, "1 test failed"),
+            ("run-lint", None, true, ""),
+        ],
+    );
+    let res = eval_cmd(
+        vec![merges(), tests_c(), lint()],
+        ctx,
+        None,
+        Some(PR.into()),
+    )
+    .await;
+    let t = ConditionType::Cmd;
+    assert_eq!(
+        res.results,
+        vec![
+            r(t, Met, Some("exit 0"), None),
+            r(t, Failed, Some("exit 1"), Some("exit 1: 1 test failed")),
+            r(t, Failed, Some("timed out"), Some("timed out after 30s")),
+        ]
+    );
+    let ran = h.ran.lock().unwrap();
+    assert_eq!(
+        ran.iter().find(|x| x.0 == "run-lint").unwrap().2,
+        Duration::from_secs(30)
+    );
+}
+
+#[tokio::test]
+async fn cmd_needs_checkout_skips_setup_needs_setup_runs_it_once() {
+    let f = Fx::new();
+    let (h, ctx) = harness(&f, vec![]);
+    eval_cmd(vec![merges()], ctx, None, None).await;
+    let names = |h: &Harness| -> Vec<String> {
+        h.ran.lock().unwrap().iter().map(|x| x.0.clone()).collect()
+    };
+    assert_eq!(names(&h), vec!["merge-check"]);
+    let (h2, ctx2) = harness(&f, vec![]);
+    eval_cmd(vec![tests_c(), merges(), lint()], ctx2, None, None).await;
+    assert_eq!(
+        names(&h2),
+        vec!["install-deps", "run-tests", "merge-check", "run-lint"]
+    );
+}
+
+#[tokio::test]
+async fn cmd_one_checkout_of_head_sha_in_its_dir_removed_afterwards() {
+    let f = Fx::new();
+    let (h, ctx) = harness(&f, vec![]);
+    eval_cmd(vec![merges(), lint()], ctx, Some(head()), Some(PR.into())).await;
+    let checkouts = h.checkouts.lock().unwrap().clone();
+    assert_eq!(checkouts.len(), 1);
+    assert_eq!(
+        checkouts[0],
+        (head(), "conductor/t-1".to_string(), f.tmp.path().join("wt"))
+    );
+    let dir = h.dirs.lock().unwrap()[0].clone();
+    assert!(h.ran.lock().unwrap().iter().all(|x| x.1 == dir));
+    assert!(!dir.exists());
+    let (h2, ctx2) = harness(&f, vec![]);
+    eval_cmd(vec![merges()], ctx2, None, None).await;
+    assert_eq!(h2.checkouts.lock().unwrap()[0].0, old());
+}
+
+#[tokio::test]
+async fn cmd_no_worktree_failed_checkout_or_setup_pending_never_failed() {
+    let f = Fx::new();
+    let (h, mut ctx) = harness(&f, vec![]);
+    ctx.worktree = None;
+    let none = eval_cmd(vec![merges()], ctx, None, Some(PR.into())).await;
+    assert_eq!(statuses(&none), vec![Pending]);
+    assert!(
+        none.results[0]
+            .detail
+            .as_deref()
+            .unwrap()
+            .contains("doesn't hold the ticket's worktree")
+    );
+    assert!(h.ran.lock().unwrap().is_empty());
+    let (_, mut ctx) = harness(&f, vec![]);
+    ctx.checkout = Some(Arc::new(|_| {
+        Box::pin(async {
+            FreshCheckout::Err {
+                error: "the branch moved".into(),
+                head: None,
+            }
+        })
+    }));
+    let bad = eval_cmd(vec![merges()], ctx, None, Some(PR.into())).await;
+    assert_eq!(
+        bad.results[0],
+        r(
+            ConditionType::Cmd,
+            Pending,
+            None,
+            Some("fresh checkout: the branch moved")
+        )
+    );
+    let (h3, ctx) = harness(&f, vec![("install-deps", Some(2), false, "")]);
+    let setup = eval_cmd(vec![tests_c(), lint()], ctx, None, Some(PR.into())).await;
+    assert_eq!(statuses(&setup), vec![Pending, Pending]);
+    assert!(
+        setup.results[0]
+            .detail
+            .as_deref()
+            .unwrap()
+            .contains("the setup `install-deps` failed")
+    );
+    assert_eq!(h3.ran.lock().unwrap().len(), 1);
+}
+
+async fn short(
+    f: &Fx,
+    conditions: Vec<Condition>,
+    v: Value,
+    exit: i32,
+    short_circuit: bool,
+) -> (EvaluateConditionsResult, Vec<String>) {
+    let (h, ctx) = harness(f, vec![("merge-check", Some(exit), false, "")]);
+    let res = f
+        .eval(
+            conditions,
+            &v,
+            &[],
+            More {
+                short_circuit,
+                cmd: Some(CmdContext {
+                    setup: Some(String::new()),
+                    ..ctx
+                }),
+                ..More::default()
+            },
+        )
+        .await;
+    let ran = h.ran.lock().unwrap().iter().map(|x| x.0.clone()).collect();
+    (res, ran)
+}
+
+#[tokio::test]
+async fn short_circuit_a_failing_pr_mergeable_stops_before_the_cmd() {
+    let f = Fx::new();
+    let (res, ran) = short(
+        &f,
+        vec![mergeable_c(), merges()],
+        view(json!({"mergeable": "CONFLICTING"})),
+        0,
+        true,
+    )
+    .await;
+    assert_eq!(statuses(&res), vec![Failed, Skipped]);
+    assert_eq!(
+        res.results[1],
+        r(ConditionType::Cmd, Skipped, None, Some(SKIPPED_DETAIL))
+    );
+    assert!(ran.is_empty());
+}
+
+#[tokio::test]
+async fn short_circuit_all_met_nothing_skipped_without_it_all_evaluated() {
+    let f = Fx::new();
+    let (met, _) = short(
+        &f,
+        vec![mergeable_c(), merges()],
+        view(json!({"mergeable": "MERGEABLE"})),
+        0,
+        true,
+    )
+    .await;
+    assert_eq!(statuses(&met), vec![Met, Met]);
+    let (all, ran) = short(
+        &f,
+        vec![mergeable_c(), merges()],
+        view(json!({"mergeable": "CONFLICTING"})),
+        0,
+        false,
+    )
+    .await;
+    assert_eq!(statuses(&all), vec![Failed, Met]);
+    assert_eq!(ran, vec!["merge-check"]);
+}
+
+#[tokio::test]
+async fn short_circuit_a_failing_cmd_first_gh_never_runs() {
+    let f = Fx::new();
+    let (res, _) = short(&f, vec![merges(), mergeable_c()], view(json!({})), 1, true).await;
+    assert_eq!(statuses(&res), vec![Failed, Skipped]);
+    assert_eq!(f.file("argv"), None);
+}
+
+#[test]
+fn parse_duration_reads_the_workflow_durations() {
+    use crate::actions::condition_cmd::parse_duration;
+    assert_eq!(parse_duration("30s"), Some(Duration::from_secs(30)));
+    assert_eq!(parse_duration("15m"), Some(Duration::from_secs(900)));
+    assert_eq!(parse_duration("250ms"), Some(Duration::from_millis(250)));
+    assert_eq!(parse_duration("0s"), None);
+    assert_eq!(parse_duration("soon"), None);
 }

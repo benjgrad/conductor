@@ -116,3 +116,41 @@ async fn invalid_args_accepted_then_an_action_result_error() {
     );
     c.done().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cmd_condition_for_a_session_this_daemon_does_not_hold_stays_pending() {
+    let c = Ctx::new().await;
+    c.make(
+        driver(complete(json!({}))),
+        Make {
+            gh: Some(fake_gh_view()),
+            ..Make::default()
+        },
+    );
+    c.registered_and_asked().await;
+    // The worktree comes from the daemon's own records, never from the message's branch.
+    let (action, _) = evaluate(
+        Uuid::new_v4(),
+        json!({
+            "conditions": [{ "type": "cmd", "name": "Merges cleanly", "cmd": "true", "needs": "checkout" }],
+            "pr_url": null,
+            "branch": "b",
+        }),
+    );
+    c.send(&action);
+    let res = c
+        .until_for(15_000, || c.data("action_result").into_iter().next())
+        .await;
+    assert_eq!(
+        res["result"],
+        json!({
+            "results": [{
+                "type": "cmd",
+                "status": "pending",
+                "value": null,
+                "detail": "this machine doesn't hold the ticket's worktree, so the command can't run here",
+            }],
+        })
+    );
+    c.done().await;
+}

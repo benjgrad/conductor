@@ -57,7 +57,16 @@ const PLAN_CARD = 'Add rate limiting to /login';
 /** The ticket-panel shots (11-web-ui §Phone layout, Detail panel). */
 const TICKET_SHOTS = ['ticket-messages', 'ticket-plan', 'ticket-plan-sheet', 'ticket-brief-sheet'];
 /** UXR-26: shots whose page must fit the window above the phone breakpoint (11-web-ui §Breakpoint). */
-const PAGE_FIT_SHOTS = ['board', 'detail', 'new-ticket'];
+const PAGE_FIT_SHOTS = ['board', 'detail', 'new-ticket', 'detail-focus'];
+/** UXR-37: the desktop detail layout, beside the board and in focus mode (11-web-ui). */
+const LAYOUT_SHOTS = [
+  'detail',
+  'detail-review',
+  'detail-checks',
+  'detail-focus',
+  'detail-review-focus',
+  'detail-checks-focus',
+];
 /** The phone breakpoint (MOBILE_QUERY in packages/web/src/components/useMediaQuery.ts). */
 const PHONE_MAX_WIDTH = 699.98;
 
@@ -142,6 +151,10 @@ const VIEWPORTS = [
         'ticket-messages',
         'ticket-plan',
         ...REQUEST_SHOTS,
+        'detail-checks',
+        'detail-focus',
+        'detail-review-focus',
+        'detail-checks-focus',
         'board-permission',
         'detail-permission',
         'detail-done',
@@ -149,6 +162,13 @@ const VIEWPORTS = [
       ],
       dark: ['board', 'detail', ...REQUEST_SHOTS],
     },
+  },
+  {
+    // UXR-37: a smaller laptop, where the panel beside the board is tightest.
+    w: 1280,
+    h: 800,
+    deviceScaleFactor: 1,
+    themes: { light: ['board', ...LAYOUT_SHOTS] },
   },
 ];
 
@@ -167,8 +187,12 @@ async function clickNamed(page, role, name) {
   await tap(page.getByRole(role, { name, exact: true }).first());
 }
 
-/** @param {Page} page @param {string} [title] */
-async function openCard(page, title = CARD) {
+/**
+ * Opens a card's panel. On desktop (UXR-37) the panel's focus toggle is set to `focus`: the choice
+ * is remembered across shots in one browser context. A build without the toggle ignores it.
+ * @param {Page} page @param {string} [title] @param {{ focus?: boolean }} [opts]
+ */
+async function openCard(page, title = CARD, { focus = false } = {}) {
   // On a phone the board shows one column: pick the card's column first if it isn't shown.
   const card = page.locator('.card-open', { hasText: title }).first();
   if ((await card.count()) === 0) {
@@ -180,6 +204,26 @@ async function openCard(page, title = CARD) {
   }
   await tap(card);
   await page.locator('aside.detail').waitFor();
+  await page.waitForTimeout(300);
+  const toggle = page.locator('aside.detail .focus-toggle');
+  if ((await toggle.count()) > 0) {
+    const on = (await toggle.first().getAttribute('aria-pressed')) === 'true';
+    if (on !== focus) {
+      await tap(toggle.first());
+      await page.waitForTimeout(300);
+    }
+  }
+}
+
+/**
+ * UXR-37: a session's check output opened: the panel's "Check output" disclosure, or (before it)
+ * the run's row in the chat.
+ * @param {Page} page
+ */
+async function openCheckOutput(page) {
+  const toggle = page.locator('aside.detail').getByRole('button', { name: /^Check output/ });
+  if ((await toggle.count()) === 0) return;
+  await tap(toggle.first());
   await page.waitForTimeout(300);
 }
 
@@ -228,6 +272,29 @@ const SCREENS = [
   { id: 'detail-review', path: '/#/', act: (page) => openCard(page, REVIEW_CARD) },
   { id: 'detail-failed', path: '/#/', act: (page) => openCard(page, FAILED_CARD) },
   { id: 'detail-step-failed', path: '/#/', act: (page) => openCard(page, STEP_FAILED_CARD) },
+  // UXR-37: a failure whose session ran a command, with its check output opened.
+  {
+    id: 'detail-checks',
+    path: '/#/',
+    act: async (page) => {
+      await openCard(page, FAILED_CARD);
+      await openCheckOutput(page);
+    },
+  },
+  { id: 'detail-focus', path: '/#/', act: (page) => openCard(page, CARD, { focus: true }) },
+  {
+    id: 'detail-review-focus',
+    path: '/#/',
+    act: (page) => openCard(page, REVIEW_CARD, { focus: true }),
+  },
+  {
+    id: 'detail-checks-focus',
+    path: '/#/',
+    act: async (page) => {
+      await openCard(page, FAILED_CARD, { focus: true });
+      await openCheckOutput(page);
+    },
+  },
   {
     id: 'detail-scrolled',
     path: '/#/',
@@ -471,8 +538,25 @@ function measure(deviceWidth) {
   }
   // The chat's visible height (the session panel's Messages log), when a panel is open.
   const chat = document.querySelector('aside.detail .output-chat .output');
+  // UXR-37: board columns wholly inside the board's box (the rest scroll sideways), the board's
+  // column width, the panel's width, and focus mode's ticket rows.
+  const board = document.querySelector('.board:not(.board-mobile)');
+  const area = board?.closest('[hidden]') ? null : board;
+  const box = area?.getBoundingClientRect();
+  const columns = area ? [...area.querySelectorAll(':scope > .column')] : [];
+  const panel = document.querySelector('aside.detail');
   return {
     chatHeight: chat ? Math.round(chat.getBoundingClientRect().height) : null,
+    columnsInView: box
+      ? columns.filter((c) => {
+          const r = c.getBoundingClientRect();
+          return r.left >= box.left - 1 && r.right <= box.right + 1;
+        }).length
+      : null,
+    columns: area ? columns.length : null,
+    columnWidth: columns[0] ? Math.round(columns[0].getBoundingClientRect().width) : null,
+    panelWidth: panel ? Math.round(panel.getBoundingClientRect().width) : null,
+    listRows: document.querySelectorAll('.ticket-list .ticket-row').length || null,
     pageScrollWidth: document.documentElement.scrollWidth,
     deviceWidth: vw,
     horizontalOverflow: document.documentElement.scrollWidth > vw,

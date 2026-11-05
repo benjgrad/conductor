@@ -13,6 +13,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { useInitialPrompt, useSession } from '../board/hooks.js';
@@ -29,9 +30,10 @@ import {
 } from './ConductorChecks.js';
 import { isOldVersion } from './details-sections.js';
 import { headStatus, KIND_LABELS } from './format.js';
+import { FocusToggle } from './FocusToggle.js';
 import { FreshConversation, freshConversationOffer } from './FreshConversation.js';
 import { Markdown } from './markdown.js';
-import { latestRunText, OutputLog } from './OutputLog.js';
+import { CheckRuns, latestRunText, OutputLog, runCount } from './OutputLog.js';
 import { PermissionRequests } from './PermissionRequests.js';
 import { QuestionOptions } from './QuestionOptions.js';
 import { PlanApprovalRequest } from './PlanApprovalRequest.js';
@@ -63,7 +65,19 @@ interface DetailPanelProps {
   fullScreen?: boolean;
   /** ADR-0008: show another session (the new one after a reopen). */
   onSelectSession?: (sessionId: string) => void;
+  /**
+   * UXR-37: `wide` (desktop, beside the board or in focus mode) puts the request first, then the
+   * conversation, then the follow-ups and the check output in their own disclosures. `default`
+   * (phone, tablet) keeps the request at the end of the chat.
+   */
+  layout?: PanelLayout;
+  /** UXR-37: focus mode is on (the board is a ticket list and the panel takes the rest). */
+  focus?: boolean;
+  /** UXR-37: with it, the header has the focus-mode toggle (desktop only). */
+  onToggleFocus?: () => void;
 }
+
+export type PanelLayout = 'default' | 'wide';
 
 export { isOldVersion };
 
@@ -81,7 +95,11 @@ export function DetailPanel({
   onClose,
   fullScreen = false,
   onSelectSession,
+  layout = 'default',
+  focus = false,
+  onToggleFocus,
 }: DetailPanelProps) {
+  const wide = layout === 'wide';
   const view = useSession(api, sessionId, version);
   const { detail, output, error, reload, history } = view;
   const [tab, setTab] = useState<PanelTab>('messages');
@@ -149,6 +167,64 @@ export function DetailPanel({
     tabRefs.current[id]?.focus();
   }
 
+  // The open request: in the wide layout above the conversation, else at the end of the chat.
+  const request = detail && (
+    <>
+      {detail.pending_input &&
+        (classifyRequest(detail.pending_input, lastMoveTransition(detail)) === 'review' ? (
+          <ReviewRequest
+            key={detail.pending_input.id}
+            api={api}
+            detail={detail}
+            agent={name}
+            request={detail.pending_input}
+            onDone={reload}
+            onRequestChanges={focusComposer}
+          />
+        ) : plan ? (
+          <PlanApprovalRequest
+            key={detail.pending_input.id}
+            api={api}
+            detail={detail}
+            agent={name}
+            request={detail.pending_input}
+            plan={plan}
+            onDone={reload}
+            {...(fullScreen ? { onOpenPlan: openPlan } : {})}
+          />
+        ) : (
+          <PendingInput
+            key={detail.pending_input.id}
+            api={api}
+            detail={detail}
+            agent={name}
+            request={detail.pending_input}
+            onDone={reload}
+            output={output}
+          />
+        ))}
+      {detail.card.sub_status === 'needs_permission' &&
+        detail.card.permission &&
+        detail.card.session_id !== null && (
+          <PermissionRequests
+            api={api}
+            sessionId={detail.card.session_id}
+            permission={detail.card.permission}
+            agent={name}
+            onDone={reload}
+          />
+        )}
+    </>
+  );
+  const hasRequest =
+    !!detail &&
+    (!!detail.pending_input ||
+      (detail.card.sub_status === 'needs_permission' &&
+        !!detail.card.permission &&
+        detail.card.session_id !== null));
+  const runOpts = detail ? { moves: detail.moves ?? [], workflow: detail.workflow } : null;
+  const runs = wide && runOpts ? runCount(output, runOpts) : 0;
+
   return (
     <aside className={`detail${fullScreen ? ' full-screen' : ''}`} aria-label="Session detail">
       <header className="detail-head">
@@ -183,6 +259,7 @@ export function DetailPanel({
             )}
           </div>
         </div>
+        {onToggleFocus && <FocusToggle focus={focus} onToggle={onToggleFocus} />}
         {!fullScreen && (
           <button type="button" className="close" onClick={onClose} aria-label="Close detail">
             ×
@@ -246,6 +323,12 @@ export function DetailPanel({
               {isConductorStep(detail.card) && (
                 <ConductorCheckBanner card={detail.card} agent={name} />
               )}
+              {/* UXR-37 (FR-2): on desktop the request and its evidence come first. */}
+              {wide && hasRequest && (
+                <section className="request-slot" aria-label="Request">
+                  {request}
+                </section>
+              )}
               <OutputLog
                 output={output}
                 moves={detail.moves ?? []}
@@ -257,52 +340,9 @@ export function DetailPanel({
                 variant="chat"
                 visible={tab === 'messages'}
                 tailKey={detail.pending_input?.id ?? detail.card.permission?.request_id ?? ''}
+                runs={wide ? 'separate' : 'inline'}
               >
-                {detail.pending_input &&
-                  (classifyRequest(detail.pending_input, lastMoveTransition(detail)) ===
-                  'review' ? (
-                    <ReviewRequest
-                      key={detail.pending_input.id}
-                      api={api}
-                      detail={detail}
-                      agent={name}
-                      request={detail.pending_input}
-                      onDone={reload}
-                      onRequestChanges={focusComposer}
-                    />
-                  ) : plan ? (
-                    <PlanApprovalRequest
-                      key={detail.pending_input.id}
-                      api={api}
-                      detail={detail}
-                      agent={name}
-                      request={detail.pending_input}
-                      plan={plan}
-                      onDone={reload}
-                      {...(fullScreen ? { onOpenPlan: openPlan } : {})}
-                    />
-                  ) : (
-                    <PendingInput
-                      key={detail.pending_input.id}
-                      api={api}
-                      detail={detail}
-                      agent={name}
-                      request={detail.pending_input}
-                      onDone={reload}
-                      output={output}
-                    />
-                  ))}
-                {detail.card.sub_status === 'needs_permission' &&
-                  detail.card.permission &&
-                  detail.card.session_id !== null && (
-                    <PermissionRequests
-                      api={api}
-                      sessionId={detail.card.session_id}
-                      permission={detail.card.permission}
-                      agent={name}
-                      onDone={reload}
-                    />
-                  )}
+                {!wide && request}
               </OutputLog>
               {/* 06 §Plan approval: the plan panel carries the buttons (other actions inside). */}
               {detail.card.session_id !== null && !plan && (
@@ -323,6 +363,18 @@ export function DetailPanel({
                 workflow={detail.workflow}
                 onDone={reload}
               />
+              {wide && runs > 0 && (
+                <CheckOutputDisclosure count={runs}>
+                  <CheckRuns
+                    output={output}
+                    moves={detail.moves ?? []}
+                    workflow={detail.workflow}
+                    checking={detail.card.checking}
+                    failedItem={stepFailedItem(detail)}
+                    active={commandActive(detail)}
+                  />
+                </CheckOutputDisclosure>
+              )}
               <Composer
                 api={api}
                 detail={detail}
@@ -385,6 +437,41 @@ export function DetailPanel({
 }
 
 // ---------------------------------------------------------------- Messages
+
+/**
+ * UXR-37 (FR-2): the session's "Check output" rows in their own disclosure under the chat,
+ * collapsed by default, styled like Proposed follow-up tickets.
+ */
+function CheckOutputDisclosure({ count, children }: { count: number; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const headingId = useId();
+  const bodyId = useId();
+  return (
+    <section
+      className="proposals panel-disclosure check-output-disclosure"
+      aria-labelledby={headingId}
+    >
+      <h3>
+        <button
+          type="button"
+          className="proposals-toggle"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <span className="proposals-chevron" aria-hidden="true">
+            ▸
+          </span>
+          <span id={headingId}>Check output</span>
+          <span className="proposals-count">{count}</span>
+        </button>
+      </h3>
+      <div id={bodyId} className="proposals-body panel-disclosure-body" hidden={!open}>
+        {children}
+      </div>
+    </section>
+  );
+}
 
 /**
  * 06 §Plan approval: the answer and approve options when the open request is a plan to approve

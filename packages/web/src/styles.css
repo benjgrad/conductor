@@ -411,6 +411,17 @@ main {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.detail-head .focus-toggle {
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  padding: 4px 6px;
+}
+.detail-head .focus-toggle[aria-pressed='true'] {
+  color: var(--accent);
+}
 .detail-head .close {
   border: 0;
   background: none;
@@ -1565,6 +1576,41 @@ button.link {
     align-self: stretch;
   }
 }
+/* UXR-37 (11-web-ui §Desktop detail layout): beside the board, above the stacked tablet layout. The
+   panel is narrower, so the board keeps readable columns (they scroll sideways, Board.css); focus
+   mode (.app.focus) swaps the board for the ticket list (TicketList.css) and the panel takes the
+   rest, its text capped at a readable width. */
+@media (min-width: 900.02px) {
+  .detail {
+    width: min(520px, 40vw);
+  }
+  .app.focus .detail {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+  }
+  .app.focus .messages-tab > :not(.output-chat),
+  .app.focus .output-chat .output > *,
+  .app.focus .details-tab > * {
+    max-width: 880px;
+  }
+}
+/* UXR-37 (FR-2): the wide panel's request, above the conversation; long evidence scrolls here. */
+.request-slot {
+  flex: none;
+  max-height: 55%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+/* The check output's own disclosure under the chat (like Proposed follow-up tickets). */
+.check-output-disclosure .panel-disclosure-body {
+  max-height: 40vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 /* The stacked layout (board above the panel): main is the scroller, columns keep their height. */
 @media (min-width: 700px) and (max-width: 900px) {
   .app.board-view > main {
@@ -1603,6 +1649,7 @@ button.link {
     gap: var(--space-2);
   }
   .detail-head .close,
+  .detail-head .focus-toggle,
   .detail-head .back,
   .sheet-close {
     min-width: var(--tap);

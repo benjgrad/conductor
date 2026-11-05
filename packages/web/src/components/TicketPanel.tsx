@@ -5,6 +5,7 @@ import type { TicketDetail } from '@conductor/shared';
 import { ArrowLeft } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
+import { FocusToggle } from './FocusToggle.js';
 import { AgentAttachments, AttachmentGallery } from './AttachmentGallery.js';
 import { splitAttachments } from './attachment-groups.js';
 import { ago, TICKET_KIND_LABELS } from './format.js';
@@ -45,6 +46,10 @@ interface TicketPanelProps {
   onClose: () => void;
   /** 11-web-ui §Detail panel: the phone's full-screen panel, with Back to board instead of ×. */
   fullScreen?: boolean;
+  /** UXR-37: focus mode is on. */
+  focus?: boolean;
+  /** UXR-37: with it, the header has the focus-mode toggle (desktop only). */
+  onToggleFocus?: () => void;
 }
 
 export function TicketPanel({
@@ -53,6 +58,8 @@ export function TicketPanel({
   version,
   onClose,
   fullScreen = false,
+  focus = false,
+  onToggleFocus,
 }: TicketPanelProps) {
   const { ticket, error, reload, setTicket } = useTicket(api, ticketId, version);
   const [editing, setEditing] = useState(false);
@@ -73,6 +80,7 @@ export function TicketPanel({
             </div>
           )}
         </div>
+        {onToggleFocus && <FocusToggle focus={focus} onToggle={onToggleFocus} />}
         {!fullScreen && (
           <button type="button" className="close" onClick={onClose} aria-label="Close detail">
             ×

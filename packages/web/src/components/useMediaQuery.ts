@@ -28,6 +28,17 @@ export function useIsMobile(): boolean {
 }
 
 /**
+ * UXR-37 (11-web-ui §Desktop detail layout): the board and the panel side by side, above the
+ * stacked tablet layout (700–900 px). The 520 px panel, the focus toggle and the request-first
+ * panel order apply only here.
+ */
+export const WIDE_QUERY = '(min-width: 900.02px)';
+
+export function useIsWide(): boolean {
+  return useMediaQuery(WIDE_QUERY);
+}
+
+/**
  * While `active` (the phone layout), `--vvh` and `--vvt` on <html> follow `visualViewport.height`
  * and `offsetTop`, so a full-screen panel or sheet ends above the on-screen keyboard and stays in
  * view when iOS pans the layout viewport under it. The CSS falls back to `100dvh` and `0`.

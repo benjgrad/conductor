@@ -13,17 +13,22 @@ import {
 } from '../api/client.js';
 import { useToast } from '../components/Toast.js';
 import { useIsMobile } from '../components/useMediaQuery.js';
+import { AddColumnDialog } from './AddColumnDialog.js';
 import { ColumnEditor } from './ColumnEditor.js';
 import { ColumnsDiagram } from './ColumnsDiagram.js';
 import { DefaultBanner } from './DefaultBanner.js';
 import {
+  addColumn,
   arrowId,
+  columnRemovalProblems,
   columnStates,
   issueAt,
   LANE_KIND_ICONS,
   LANE_KIND_LABELS,
   LANE_KINDS,
+  moveColumnBy,
   QUEUED_LANE,
+  removeColumn,
   QUEUED_TITLE,
   setQueuedTicketEditable,
   ticketEditableOf,
@@ -59,7 +64,10 @@ import type { DirtyDraft } from './draft-guard.js';
 // version (when, who, note) and compares any two in the editor's words; a comparison or an open
 // advisor proposal highlights what it changes on the diagram. While a draft exists the save bar
 // (UXR-69) sticks to the bottom: its problems, Discard and Save. A newly added item's problems
-// wait until it loses focus or Save is pressed (UXR-71, deferred.ts).
+// wait until it loses focus or Save is pressed (UXR-71, deferred.ts). UXR-67: the shape is
+// editable too: "+" between two columns adds one, a column's panel moves or removes it (refused
+// while something leads to it or tickets are in it, with the reasons), and a handle on a column's
+// edge draws a transition onto another column; a new transition opens with its Title focused.
 
 export interface WorkflowsViewProps {
   api: ApiClient;
@@ -79,7 +87,11 @@ const ID = CONDUCTOR_WORKFLOW_ID;
 type Selection =
   | { kind: 'column'; state: string }
   | { kind: 'arrow'; from: string; to: string }
-  | { kind: 'transition'; from: string; name: string };
+  /** `created`: just added (UXR-67: its Title gets the focus). */
+  | { kind: 'transition'; from: string; name: string; created?: boolean };
+
+/** Sessions that are finished: they don't hold a column (orchestrator rule 18). */
+const FINISHED = new Set(['done', 'failed', 'lost']);
 
 export function WorkflowsView({
   api,
@@ -125,6 +137,10 @@ export function WorkflowsView({
   /** Path prefixes of still-new items whose problems are held back (UXR-71). */
   const [deferred, setDeferred] = useState<ReadonlySet<string>>(() => new Set());
   const [problemsOpen, setProblemsOpen] = useState(false);
+  /** UXR-67: the Add a column dialog is open, for a column after this lane. */
+  const [addingAfter, setAddingAfter] = useState<string | null>(null);
+  /** UXR-67: unfinished tickets per state of this workflow (from the board; {} if unknown). */
+  const [ticketCounts, setTicketCounts] = useState<Record<string, number>>({});
   /** Definitions read for Compare and the review, by version (versions never change). */
   const defs = useRef(new Map<number, WorkflowDefinition>());
 
@@ -155,6 +171,27 @@ export function WorkflowsView({
       cancelled = true;
     };
   }, [api, version, reloads]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getBoard().then(
+      (board) => {
+        if (cancelled) return;
+        const counts: Record<string, number> = {};
+        for (const card of board.columns.flatMap((c) => c.cards)) {
+          if (card.workflow_id !== ID || card.workflow_state === null) continue;
+          if (card.status !== null && FINISHED.has(card.status)) continue;
+          counts[card.workflow_state] = (counts[card.workflow_state] ?? 0) + 1;
+        }
+        setTicketCounts(counts);
+      },
+      // The server checks again on Save (rule 18): without counts, Remove only shows the rest.
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [api, reloads]);
 
   useEffect(() => {
     let cancelled = false;
@@ -207,6 +244,11 @@ export function WorkflowsView({
   const edit = (next: WorkflowDefinition) => {
     setDraft(next);
   };
+  /** UXR-67: the draft adds, removes or moves a column (relative to the version it started from). */
+  const shapeChanged =
+    draft !== null &&
+    detail !== null &&
+    columnStates(draft).join('\u0000') !== columnStates(detail.definition).join('\u0000');
 
   const discard = () => {
     setDraft(null);
@@ -602,7 +644,16 @@ export function WorkflowsView({
           <p className="muted wf-note">
             Each column is a state on the board, and each arrow the transitions between two columns.
             Click a column to edit its title and work, or an arrow to edit who takes the move, for
-            which tickets and what it requires (or Tab to it and press Enter).
+            which tickets and what it requires (or Tab to it and press Enter). “+” between two
+            columns adds one; drag a column’s edge handle onto another column (or press it) to add a
+            transition.
+          </p>
+        )}
+        {shapeChanged && (
+          <p className="muted wf-note" role="note">
+            Shape changes apply to new and reopened tickets; a column with tickets in it can’t be
+            removed. Saving your own <code>{ID}</code> stops newer shipped defaults installing
+            themselves.
           </p>
         )}
         {shown && !asColumns && (
@@ -637,6 +688,12 @@ export function WorkflowsView({
             {...(highlight
               ? { changedStates: highlight.states, changedEdges: highlight.edges }
               : {})}
+            onAddColumn={setAddingAfter}
+            onDrawTransition={(from, to) => {
+              const { definition, name } = addTransition(shown, from, columnStates(shown), to);
+              edit(definition);
+              setSelected({ kind: 'transition', from, name, created: true });
+            }}
           />
         )}
         {shown && !asColumns && <WorkflowDiagram definition={shown} />}
@@ -681,6 +738,19 @@ export function WorkflowsView({
           onCancel={() => setReviewing(false)}
         />
       )}
+      {addingAfter !== null && shown && asColumns && (
+        <AddColumnDialog
+          definition={shown}
+          after={addingAfter}
+          onAdd={(col) => {
+            const { definition, name } = addColumn(shown, col);
+            edit(definition);
+            setAddingAfter(null);
+            setSelected({ kind: 'column', state: name });
+          }}
+          onCancel={() => setAddingAfter(null)}
+        />
+      )}
 
       {selectedState && shown && asColumns && (
         <ColumnEditor
@@ -695,9 +765,19 @@ export function WorkflowsView({
           onAddTransition={() => {
             const { definition, name } = addTransition(shown, selectedState, columnStates(shown));
             edit(definition);
-            setSelected({ kind: 'transition', from: selectedState, name });
+            setSelected({ kind: 'transition', from: selectedState, name, created: true });
           }}
           onClose={() => setSelected(null)}
+          onMove={(by) => edit(moveColumnBy(shown, selectedState, by))}
+          canMove={{
+            left: columnStates(shown).indexOf(selectedState) > 0,
+            right: columnStates(shown).indexOf(selectedState) < columnStates(shown).length - 1,
+          }}
+          removalProblems={columnRemovalProblems(shown, selectedState, ticketCounts)}
+          onRemove={() => {
+            edit(removeColumn(shown, selectedState));
+            setSelected(null);
+          }}
           fullScreen={fullScreen}
         />
       )}
@@ -720,6 +800,7 @@ export function WorkflowsView({
           definition={shown}
           from={selected.from}
           name={selected.name}
+          {...(selected.created ? { focusTitle: true } : {})}
           issues={allIssues.filter((i) => i.transition?.from === selected.from)}
           repoOverrides={repoOverrides}
           onChange={edit}

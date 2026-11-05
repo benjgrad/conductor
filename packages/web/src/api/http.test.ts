@@ -659,6 +659,22 @@ describe('createHttpApi machines (M2-T11)', () => {
     ]);
   });
 
+  it('UX-13b FR-3: listTeam GETs /api/team and checks the contract', async () => {
+    const team = [
+      {
+        name: 'Ada',
+        hired_at: '2026-10-01T09:00:00.000Z',
+        last_assigned_at: null,
+        active_ticket_id: null,
+      },
+    ];
+    const { fetch, calls } = recordingFetch(() => json(200, team));
+    expect(await createHttpApi({ fetch }).listTeam()).toEqual(team);
+    expect(calls.map((c) => [c.method, c.url])).toEqual([['GET', API_PATHS.team]]);
+    const bad = recordingFetch(() => json(200, [{ name: 'Ada' }]));
+    await expect(createHttpApi({ fetch: bad.fetch }).listTeam()).rejects.toThrow(/API contract/);
+  });
+
   it('rejects a machine detail that breaks the contract', async () => {
     const { fetch } = recordingFetch(() => json(200, { ...MACHINE_DETAIL_FIXTURE, repos: null }));
     await expect(createHttpApi({ fetch }).getMachine('x')).rejects.toThrow(/API contract/);

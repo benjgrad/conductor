@@ -64,12 +64,52 @@ export async function weakenedApprovals(q: Queryable, def: WorkflowDefinition): 
   return prev?.def ? approvalsWeakened(prev.def, def) : [];
 }
 
-/** Insert a validated definition as version max + 1. */
+/** Sessions that are not finished (done, failed, lost): parked and reopened ones follow a new version. */
+const OPEN_SESSION = "status NOT IN ('done', 'failed', 'lost')";
+
+/**
+ * Rule 18 (UXR-67): the states of the latest stored version of `def.id` that `def` drops, but
+ * that unfinished tickets are still in. Parked and reopened tickets follow the newest version, so
+ * dropping their column would strand them. One problem per such state, at `states.<name>`.
+ */
+export async function removedStatesInUse(
+  q: Queryable,
+  def: WorkflowDefinition,
+): Promise<WorkflowValidationError[]> {
+  const prev = await latestWorkflow(q, def.id);
+  if (prev === null) return [];
+  const prevStates = prev.def?.states ?? {};
+  const dropped = Object.keys(prevStates).filter(
+    (n) => !Object.prototype.hasOwnProperty.call(def.states, n),
+  );
+  if (dropped.length === 0) return [];
+  const r = await q.query<{ workflow_state: string; n: string }>(
+    'SELECT workflow_state, count(*)::text AS n FROM session ' +
+      `WHERE workflow_id = $1 AND workflow_state = ANY($2::text[]) AND ${OPEN_SESSION} ` +
+      'GROUP BY workflow_state ORDER BY workflow_state',
+    [def.id, dropped],
+  );
+  return r.rows.map((row) => {
+    const n = Number(row.n);
+    const title = prevStates[row.workflow_state]?.title ?? row.workflow_state;
+    return {
+      rule: 18 as const,
+      path: ['states', row.workflow_state],
+      message:
+        `${n} ticket${n === 1 ? ' is' : 's are'} in "${title}": move or finish ` +
+        `${n === 1 ? 'it' : 'them'} before removing the column`,
+    };
+  });
+}
+
+/** Insert a validated definition as version max + 1 (refused by rule 18, `removedStatesInUse`). */
 export async function insertWorkflowVersion(
   q: Queryable,
   def: WorkflowDefinition,
   opts: SaveWorkflowOptions = {},
 ): Promise<SaveWorkflowResult> {
+  const inUse = await removedStatesInUse(q, def);
+  if (inUse.length > 0) return { ok: false, code: 'invalid_workflow', errors: inUse };
   // A concurrent save of the same id loses the primary-key race and retries.
   for (let attempt = 0; ; attempt++) {
     try {
@@ -119,7 +159,8 @@ export type GuardedSaveResult =
   | { ok: true; id: string; version: number }
   | { ok: false; code: 'approval_weakened'; transitions: string[] }
   | { ok: false; code: 'conflict'; latest: number | null }
-  | { ok: false; code: 'invalid_workflow' };
+  /** Rule 18 (UXR-67): a column it drops still has tickets. */
+  | { ok: false; code: 'invalid_workflow'; errors: WorkflowValidationError[] };
 
 /**
  * ADR-0030 amendment: the approval guard (`weakenedApprovals`), then the insert. Behind MCP
@@ -134,9 +175,7 @@ export async function saveGuarded(
   const weakened = await weakenedApprovals(q, def);
   if (weakened.length > 0) return { ok: false, code: 'approval_weakened', transitions: weakened };
   const res = await insertWorkflowVersion(q, def, opts);
-  if (res.ok) return res;
-  if (res.code === 'conflict') return res;
-  return { ok: false, code: 'invalid_workflow' };
+  return res;
 }
 
 /** Save the newest shipped `conductor` default as its next version (replacing local edits). */

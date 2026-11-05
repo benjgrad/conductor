@@ -182,20 +182,22 @@ export function removeTransition(
 }
 
 /**
- * Add a transition out of `from`: named `new_transition` (`_2`, `_3`… when taken), going to the
- * next column to the right (else the first other column).
+ * Add a transition out of `from`: named `new_transition` (`_2`, `_3`… when taken), going to `to`
+ * (UXR-67: a transition drawn onto a column), else the next column to the right (else the first
+ * other column).
  */
 export function addTransition(
   def: WorkflowDefinition,
   from: string,
   columns: string[],
+  to?: string,
 ): { definition: WorkflowDefinition; name: string } {
   const names = transitionNames(def, from);
   let name = 'new_transition';
   for (let n = 2; names.includes(name); n++) name = `new_transition_${n}`;
   const i = columns.indexOf(from);
   const goto =
-    columns.slice(i + 1).find((c) => c !== from) ?? columns.find((c) => c !== from) ?? from;
+    to ?? columns.slice(i + 1).find((c) => c !== from) ?? columns.find((c) => c !== from) ?? from;
   return { definition: withOn(def, from, (on) => ({ ...on, [name]: { goto } })), name };
 }
 

@@ -284,12 +284,14 @@ function transitionLines(
   if (br.review?.model !== ar.review?.model) {
     lines.push(`Review model: ${br.review?.model ?? 'default'} → ${ar.review?.model ?? 'default'}`);
   }
+  // `listLines` compares plain strings; an unknown action name shows as itself.
+  const actionText: Partial<Record<string, string>> = ACTION_TEXT;
   lines.push(
     ...listLines(
       br.actions ?? [],
       ar.actions ?? [],
-      (v) => `Action added: ${ACTION_TEXT[v] ?? v}`,
-      (v) => `Action removed: ${ACTION_TEXT[v] ?? v}`,
+      (v) => `Action added: ${actionText[v] ?? v}`,
+      (v) => `Action removed: ${actionText[v] ?? v}`,
     ),
   );
   lines.push(...conditionLines(br.conditions ?? [], ar.conditions ?? []));

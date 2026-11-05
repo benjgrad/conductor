@@ -7,6 +7,8 @@ import { errorMessage, type ApiClient } from '../api/client.js';
 import { displayState } from '../workflow/review.js';
 import { isConductorStep } from './ConductorChecks.js';
 import { TERMINAL_STATUSES } from './format.js';
+import { detailRequestTone, type RequestTone } from './request-preview.js';
+import { useMediaQuery } from './useMediaQuery.js';
 import {
   availableCommands,
   CONDUCTOR_COMMANDS,
@@ -71,6 +73,32 @@ export function composerMode(detail: SessionDetail): ComposerMode {
   return { mode: 'off', reason: 'Waiting for input' };
 }
 
+/**
+ * UXR-36 (FR-3): the composer's placeholder for the open request's kind. Disabled: empty (the
+ * reason is shown once, under the box). The Enter / Shift+Enter hint is a line of its own.
+ */
+export function composerPlaceholder(
+  m: ComposerMode,
+  ctx: { tone: RequestTone | null; agent: string; fromAgent: boolean },
+): string {
+  switch (m.mode) {
+    case 'off':
+      return '';
+    case 'reopen':
+      return `Ask ${ctx.agent} to change something…`;
+    case 'message':
+      return `Message ${ctx.agent}… (/ for commands)`;
+    case 'answer':
+      if (ctx.tone === 'review') return `Ask ${ctx.agent} for changes…`;
+      if (ctx.tone === 'failure' && !ctx.fromAgent) return 'Tell Conductor what to do…';
+      return `Answer ${ctx.agent}…`;
+  }
+}
+
+/** FR-3: the keyboard hint, only where there is a keyboard and a mouse. */
+export const FINE_POINTER_QUERY = '(pointer: fine)';
+export const COMPOSER_HINT = 'Enter to send · Shift+Enter for a new line';
+
 /** Textarea grows to about this many lines, then scrolls. */
 const MAX_LINES = 6;
 
@@ -107,6 +135,8 @@ export function Composer({
   const ids = useId();
   const listId = `${ids}-slash`;
   const inputId = `${ids}-input`;
+  const reasonId = `${ids}-reason`;
+  const finePointer = useMediaQuery(FINE_POINTER_QUERY);
 
   const status = detail.card.status;
   const commands = availableCommands({
@@ -255,14 +285,12 @@ export function Composer({
   const answering = m.mode === 'answer';
   const reopening = m.mode === 'reopen';
   const label = answering ? 'Answer' : reopening ? 'Reopen with a message' : 'Message';
-  const placeholder =
-    m.mode === 'off'
-      ? m.reason
-      : answering
-        ? 'Answer the question… (Enter to send, Shift+Enter for a new line)'
-        : reopening
-          ? `Ask ${agentName} to change something…`
-          : `Message ${agentName}… (/ for commands)`;
+  const placeholder = composerPlaceholder(m, {
+    tone: detailRequestTone(detail),
+    agent: agentName,
+    fromAgent: request?.kind === 'agent_question',
+  });
+  const hint = finePointer && (answering || m.mode === 'message');
 
   return (
     <div className="composer">
@@ -348,6 +376,7 @@ export function Composer({
           value={text}
           placeholder={placeholder}
           disabled={m.mode === 'off'}
+          aria-describedby={m.mode === 'off' ? reasonId : undefined}
           onChange={(e) => change(e.target.value)}
           onKeyDown={onKeyDown}
           role="combobox"
@@ -387,7 +416,12 @@ export function Composer({
           </button>
         )}
       </div>
-      {m.mode === 'off' && <p className="composer-reason muted">{m.reason}</p>}
+      {m.mode === 'off' && (
+        <p id={reasonId} className="composer-reason muted">
+          {m.reason}
+        </p>
+      )}
+      {hint && <p className="composer-hint muted">{COMPOSER_HINT}</p>}
       {m.mode === 'message' && m.resumes && (
         <p className="composer-reason muted">
           Conductor is waiting on the PR’s checks. A message stops the wait: {agentName} picks the

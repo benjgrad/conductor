@@ -38,11 +38,14 @@ export function mockOptionsFromSearch(search: string): MockApiOptions {
  * so the board looks alive without an orchestrator; `VITE_MOCK_STATIC=1` turns both off, so the
  * board holds still for scripts/ui-screenshots.js. `VITE_MOCK_PERMISSION=1` adds a pending tool
  * permission (ADR-0023) on the running "Add pagination to /orders" card (UXR-32 screenshots).
+ * `?mock-auth=password` in the page's query starts the mock in password mode, signed in as its
+ * admin (the screenshots' admin page and admin account menu); `?mock-machines=none` starts it
+ * with no machines (the first-run guide). See `mockOptionsFromSearch`.
  */
 export function createApiFromEnv(
   env: Record<string, unknown>,
   http: HttpApiOptions = {},
-  search: string = globalThis.location?.search ?? '',
+  search: string = typeof location === 'undefined' ? '' : location.search,
 ): SelectedApi {
   const kind = apiKind(env);
   if (kind === 'mock') {

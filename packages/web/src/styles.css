@@ -181,6 +181,24 @@ textarea {
   display: none;
 }
 
+/* UXR-48: a table's action cell stays a table cell (display: flex on a <td> breaks the row's
+   border); its buttons sit in an inner flex box. */
+td.table-actions {
+  text-align: right;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.table-actions-inner {
+  display: inline-flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+/* UXR-47: a table that scrolls sideways in its own box. */
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
 main {
   display: flex;
   align-items: flex-start;

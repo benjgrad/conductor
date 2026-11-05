@@ -93,7 +93,17 @@ const VIEWPORTS = [
     isMobile: true,
     hasTouch: true,
     deviceScaleFactor: 1,
-    themes: { light: ['board', 'detail', 'new-ticket', 'new-ticket-bottom'] },
+    themes: {
+      light: [
+        'board',
+        'detail',
+        'new-ticket',
+        'new-ticket-bottom',
+        'machines',
+        'machine-drawer',
+        'admin',
+      ],
+    },
   },
   {
     w: 1440,
@@ -106,6 +116,8 @@ const VIEWPORTS = [
         'new-ticket',
         'new-ticket-bottom',
         'machines',
+        'machine-drawer',
+        'admin',
         'workflows',
         'wf-diagram-end',
         'wf-rules-full',
@@ -298,6 +310,18 @@ const SCREENS = [
   { id: 'board-permission', path: '/#/' },
   { id: 'detail-permission', path: '/#/', act: (page) => openCard(page, PERMISSION_CARD) },
   { id: 'machines', path: '/#/machines' },
+  // UXR-47: the machine drawer (a Sheet) on the machine with problems (api/mock-data.ts).
+  {
+    id: 'machine-drawer',
+    path: '/#/machines',
+    act: async (page) => {
+      await clickNamed(page, 'button', 'Details of old-linux-box');
+      await page.getByRole('dialog', { name: 'Machine old-linux-box' }).waitFor();
+      await page.waitForTimeout(200);
+    },
+  },
+  // The mock in password mode, signed in as its admin (api/select.ts), so the tables show.
+  { id: 'admin', path: '/?mock-auth=password#/admin' },
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
   // UXR-61: the override's setup and check table, at full height.

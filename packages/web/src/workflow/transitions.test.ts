@@ -3,12 +3,15 @@ import {
   CONDUCTOR_V2_DRAFT_DEF,
   CONDUCTOR_V4_DEF,
   foldLegacyRequirements,
+  TransitionActionSchema,
   type TransitionObject,
   type WorkflowDefinition,
 } from '@conductor/shared';
 import { describe, expect, it } from 'vitest';
 import { columnStates, validateColumns } from './columns.js';
 import {
+  ACTION_SHORT,
+  ACTION_TEXT,
   addTransition,
   arrowTransitions,
   checkListIssues,
@@ -222,7 +225,7 @@ describe('client validation (ADR-0011 rules 10–14)', () => {
       ],
       [
         'states.implementing.on.ready_for_testing.requires.conditions.0',
-        '"Jira fields set" is not available yet: disable it',
+        'Condition 1: "Jira fields are set" is not available yet: skip it or remove it',
       ],
       [
         'states.waiting_external.on.restart.requires',
@@ -283,10 +286,13 @@ describe('checkListIssues (shared with the Repo checks page, ADR-0030)', () => {
         undefined,
       ),
     ).toEqual([
-      { suffix: 'checks.1.name', message: 'check " Build " is listed twice' },
-      { suffix: 'checks.1.cmd', message: 'check 2 needs a command' },
-      { suffix: 'checks.2.name', message: 'check 3 needs a name' },
-      { suffix: 'checks.2.timeout', message: 'use a duration like "30m", "2h" or "3d"' },
+      { suffix: 'checks.1.name', message: 'Check 2: Name "Build" is used by another check' },
+      { suffix: 'checks.1.cmd', message: 'Check 2: Command is required' },
+      { suffix: 'checks.2.name', message: 'Check 3: Name is required' },
+      {
+        suffix: 'checks.2.timeout',
+        message: 'Check 3: Timeout: use a duration like "30m", "2h" or "3d"',
+      },
     ]);
   });
 
@@ -295,11 +301,11 @@ describe('checkListIssues (shared with the Repo checks page, ADR-0030)', () => {
     expect(checkListIssues([], 'npm ci')).toEqual([
       {
         suffix: 'setup',
-        message: 'setup runs before the checks: add a check, or remove the setup',
+        message: 'Setup runs before the checks: add a check, or remove the setup',
       },
     ]);
     expect(checkListIssues(one, 'x'.repeat(2_001))).toEqual([
-      { suffix: 'setup', message: 'the setup command is too long' },
+      { suffix: 'setup', message: 'Setup: the command is too long' },
     ]);
     expect(checkListIssues(one, '')).toEqual([]);
     expect(checkListIssues(one, undefined)).toEqual([]);
@@ -310,7 +316,7 @@ describe('checkListIssues (shared with the Repo checks page, ADR-0030)', () => {
           .map((_, i) => ({ name: `c${i}`, cmd: 'x' })),
         undefined,
       ),
-    ).toEqual([{ suffix: 'checks', message: 'at most 20 checks' }]);
+    ).toEqual([{ suffix: 'checks', message: 'At most 20 checks' }]);
   });
 });
 
@@ -371,6 +377,26 @@ describe('describeTransition (UXR-60)', () => {
         '`pnpm i --frozen-lockfile`, run Build passes and Tests pass, then wait up to 3x for ' +
         '? approvals and Merged by a person → **Waiting external**. If not met: straight to ' +
         '**Needs input**.',
+    );
+  });
+
+  it('names every action, PR actions included (UXR-61 FR-4)', () => {
+    for (const a of TransitionActionSchema.options) {
+      expect(ACTION_TEXT[a]).toBeTruthy();
+      expect(ACTION_SHORT[a]).toBeTruthy();
+    }
+    expect([ACTION_TEXT.inspect_pr, ACTION_TEXT.merge_pr, ACTION_TEXT.close_pr]).toEqual([
+      'Check the pull request',
+      'Merge the pull request',
+      'Close the pull request',
+    ]);
+    const def = withT(V4, 'planning', 'plan_ready', {
+      goto: 'implementing',
+      requires: { actions: ['inspect_pr', 'merge_pr'] },
+      on_unmet: { goto: 'planning', retries: 1, else: 'needs_input' },
+    });
+    expect(describeTransition(def, 'planning', 'plan_ready')).toContain(
+      ': check the PR, merge the PR → **Implementing**.',
     );
   });
 

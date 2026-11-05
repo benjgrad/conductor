@@ -1,5 +1,5 @@
 import type { EntryCheck } from '@conductor/shared';
-import { useId, useState, type ReactNode } from 'react';
+import { Fragment, useId, useState, type ReactNode } from 'react';
 
 // A check list and the setup before it: a transition's `requires.checks` (TransitionEditor) and a
 // repo's check override (ADR-0030, the Repo checks page). Every change goes to `onChange`; the
@@ -44,7 +44,7 @@ export function ChecksFields({
   setup,
   onChange,
   issues,
-  setupLabel = 'Before the checks (in a fresh checkout of the commit)',
+  setupLabel = 'Setup: runs first, in a fresh checkout of the commit',
 }: ChecksFieldsProps) {
   const uid = useId();
   /** The user picked "Custom command" (its text may still be empty, which reads as none). */
@@ -61,59 +61,127 @@ export function ChecksFields({
   const setSetup = (next: string | undefined) => onChange({ checks, setup: next });
   const setupMode: 'auto' | 'none' | 'custom' =
     setup === undefined ? 'auto' : setup === '' && !customSetup ? 'none' : 'custom';
+  const setupField = checks.length > 0 && (
+    <div className="wf-setup">
+      <label htmlFor={`${uid}-setup`}>{setupLabel}</label>
+      <select
+        id={`${uid}-setup`}
+        value={setupMode}
+        onChange={(e) => {
+          const mode = e.target.value;
+          setCustomSetup(mode === 'custom');
+          if (mode === 'auto') setSetup(undefined);
+          else if (mode === 'none') setSetup('');
+          else setSetup(setup ?? '');
+        }}
+      >
+        <option value="auto">Auto-detect (npm ci / npm install)</option>
+        <option value="none">None</option>
+        <option value="custom">Custom command</option>
+      </select>
+      {setupMode === 'custom' && (
+        <input
+          aria-label="Setup command"
+          className="mono"
+          value={setup ?? ''}
+          placeholder="e.g. pnpm install --frozen-lockfile"
+          onChange={(e) => setSetup(e.target.value)}
+        />
+      )}
+      {issueAt('setup')}
+    </div>
+  );
+  const setAt = (i: number, next: EntryCheck) =>
+    setChecks(checks.map((x, j) => (j === i ? next : x)));
   return (
     <>
-      <ol className="wf-items" aria-label="Checks">
-        {checks.map((c, i) => (
-          <li key={i} className="wf-item">
-            <div className="wf-check">
-              <input
-                aria-label={`Check ${i + 1} name`}
-                value={c.name}
-                placeholder="e.g. Tests pass"
-                onChange={(e) =>
-                  setChecks(checks.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))
-                }
-              />
-              <input
-                aria-label={`Check ${i + 1} command`}
-                className="mono"
-                value={c.cmd}
-                placeholder="e.g. npm test"
-                onChange={(e) =>
-                  setChecks(checks.map((x, j) => (j === i ? { ...x, cmd: e.target.value } : x)))
-                }
-              />
-              <input
-                aria-label={`Check ${i + 1} timeout`}
-                className="mono"
-                value={c.timeout ?? ''}
-                placeholder="timeout (default)"
-                onChange={(e) =>
-                  setChecks(
-                    checks.map((x, j) => {
-                      if (j !== i) return x;
-                      const next = { ...x };
-                      delete next.timeout;
-                      return e.target.value === '' ? next : { ...next, timeout: e.target.value };
-                    }),
-                  )
-                }
-              />
-              {issueAt(`checks.${i}.name`)}
-              {issueAt(`checks.${i}.cmd`)}
-              {issueAt(`checks.${i}.timeout`)}
-            </div>
-            <ItemActions
-              what="check"
-              i={i}
-              n={checks.length}
-              onMove={(j) => setChecks(swap(checks, i, j))}
-              onRemove={() => setChecks(checks.filter((_, j) => j !== i))}
-            />
-          </li>
-        ))}
-      </ol>
+      {/* UXR-61: the setup runs first, so it is listed first. */}
+      {setupField}
+      {checks.length > 0 && (
+        <div className="wf-checks-scroll">
+          <table className="wf-checks" aria-label="Checks">
+            <thead>
+              <tr>
+                <th scope="col" className="wf-checks-name">
+                  Name
+                </th>
+                <th scope="col">Command</th>
+                <th scope="col" className="wf-checks-timeout">
+                  Timeout
+                </th>
+                <th scope="col" className="wf-checks-order">
+                  <span className="visually-hidden">Order</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {checks.map((c, i) => {
+                // A row's problems span the row under it (each names its column, FR-5).
+                const problems = ['name', 'cmd', 'timeout'].flatMap((f) =>
+                  issues.some((x) => x.suffix === `checks.${i}.${f}`) ? [f] : [],
+                );
+                return (
+                  <Fragment key={i}>
+                    <tr>
+                      <td>
+                        <input
+                          aria-label={`Check ${i + 1} name`}
+                          value={c.name}
+                          placeholder="e.g. Tests pass"
+                          onChange={(e) => setAt(i, { ...c, name: e.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          aria-label={`Check ${i + 1} command`}
+                          className="mono"
+                          value={c.cmd}
+                          placeholder="e.g. npm test"
+                          onChange={(e) => setAt(i, { ...c, cmd: e.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          aria-label={`Check ${i + 1} timeout`}
+                          className="mono"
+                          value={c.timeout ?? ''}
+                          placeholder="default"
+                          onChange={(e) => {
+                            const next = { ...c };
+                            delete next.timeout;
+                            setAt(
+                              i,
+                              e.target.value === '' ? next : { ...next, timeout: e.target.value },
+                            );
+                          }}
+                        />
+                      </td>
+                      <td>
+                        <ItemActions
+                          what="check"
+                          i={i}
+                          n={checks.length}
+                          onMove={(j) => setChecks(swap(checks, i, j))}
+                          onRemove={() => setChecks(checks.filter((_, j) => j !== i))}
+                        />
+                      </td>
+                    </tr>
+                    {problems.length > 0 && (
+                      <tr className="wf-checks-problems">
+                        <td colSpan={4}>
+                          {problems.map((f) => (
+                            <Fragment key={f}>{issueAt(`checks.${i}.${f}`)}</Fragment>
+                          ))}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
       {issueAt('checks')}
       <div>
         <button
@@ -124,36 +192,6 @@ export function ChecksFields({
           Add check
         </button>
       </div>
-      {checks.length > 0 && (
-        <div className="wf-setup">
-          <label htmlFor={`${uid}-setup`}>{setupLabel}</label>
-          <select
-            id={`${uid}-setup`}
-            value={setupMode}
-            onChange={(e) => {
-              const mode = e.target.value;
-              setCustomSetup(mode === 'custom');
-              if (mode === 'auto') setSetup(undefined);
-              else if (mode === 'none') setSetup('');
-              else setSetup(setup ?? '');
-            }}
-          >
-            <option value="auto">Auto-detect (npm ci / npm install)</option>
-            <option value="none">None</option>
-            <option value="custom">Custom command</option>
-          </select>
-          {setupMode === 'custom' && (
-            <input
-              aria-label="Setup command"
-              className="mono"
-              value={setup ?? ''}
-              placeholder="e.g. pnpm install --frozen-lockfile"
-              onChange={(e) => setSetup(e.target.value)}
-            />
-          )}
-          {issueAt('setup')}
-        </div>
-      )}
     </>
   );
 }

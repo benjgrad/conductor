@@ -271,10 +271,25 @@ describe('transition arrows (ADR-0011)', () => {
         name: 'Open a pull request (by conductor)',
       }).checked,
     ).toBe(true);
-    expect(panel().getByLabelText<HTMLSelectElement>('Condition 2 type').value).toBe(
-      'pr_approvals',
+    // UXR-62: each condition reads as a sentence with its inputs inline.
+    const condition = (n: number) => within(panel().getByRole('group', { name: `Condition ${n}` }));
+    expect(condition(1).getByText(/PR checks are green/)).toBeTruthy();
+    expect(condition(1).getByLabelText<HTMLInputElement>('Condition 1 no CI after').value).toBe(
+      '5m',
     );
+    expect(condition(2).getByText(/At least/).textContent).toMatch(/^At least\s+PR approval$/);
     expect(panel().getByLabelText<HTMLInputElement>('Condition 2 approvals').value).toBe('1');
+    // UXR-78: Jira and Azure aren't available: shown read-only, skipped, no inputs.
+    expect(condition(3).getByText(/Jira fields/).textContent).toBe(
+      'Jira fields resolution are set',
+    );
+    expect(condition(3).getByText('Not available yet: skipped')).toBeTruthy();
+    expect(condition(3).queryByRole('textbox')).toBeNull();
+    expect(condition(4).getByText(/Azure pipeline/).textContent).toBe(
+      'Azure pipeline ci succeeded',
+    );
+    expect(condition(4).queryByRole('textbox')).toBeNull();
+    expect(condition(4).queryByRole('button', { name: 'Rename on the card' })).toBeNull();
     expect(panel().getByLabelText<HTMLInputElement>('Wait at most').value).toBe('3d');
     expect(panel().getByLabelText<HTMLSelectElement>('Back to').value).toBe('implementing');
     expect(panel().getByLabelText<HTMLInputElement>('Up to (times)').value).toBe('3');
@@ -351,7 +366,7 @@ describe('transition arrows (ADR-0011)', () => {
     const { saved } = await setup();
     fireEvent.click(arrow('Planning', 'Implementing'));
     fireEvent.click(sectionHead('Conditions (0)'));
-    fireEvent.click(panel().getByRole('button', { name: 'Add condition' }));
+    type(panel().getByLabelText('Add condition'), 'pr_approvals');
     // The first requirement brings a "when not met" (rule 13 needs one).
     expect(panel().getByLabelText<HTMLSelectElement>('Back to').value).toBe('planning');
     expect(panel().getByLabelText<HTMLSelectElement>('Then').value).toBe('needs_input');
@@ -362,7 +377,6 @@ describe('transition arrows (ADR-0011)', () => {
     expect(saveButton().disabled).toBe(true);
     type(panel().getByLabelText('Wait at most'), '1d');
     expect(screen.queryByRole('list', { name: 'Problems' })).toBeNull();
-    type(panel().getByLabelText('Condition 1 type'), 'pr_approvals');
     type(panel().getByLabelText('Condition 1 approvals'), '2');
     fireEvent.click(saveButton());
     await waitFor(() => expect(saved).toHaveLength(1));
@@ -370,6 +384,74 @@ describe('transition arrows (ADR-0011)', () => {
       requires: { conditions: [{ type: 'pr_approvals', min: 2 }], condition_timeout: '1d' },
       on_unmet: { goto: 'planning', retries: 3, else: 'needs_input' },
     });
+  });
+
+  it('offers only available condition types; the card label is behind a link (UXR-62, 78)', async () => {
+    const { saved } = await setup();
+    fireEvent.click(arrow('Planning', 'Implementing'));
+    fireEvent.click(sectionHead('Conditions (0)'));
+    const add = panel().getByLabelText<HTMLSelectElement>('Add condition');
+    expect([...add.options].map((o) => o.value)).toEqual([
+      '',
+      'pr_checks_green',
+      'pr_approvals',
+      'pr_merged',
+      'pr_screenshots',
+    ]);
+    type(add, 'pr_merged');
+    expect(add.value).toBe('');
+    const row = within(panel().getByRole('group', { name: 'Condition 1' }));
+    expect(row.getByText('PR merged')).toBeTruthy();
+    expect(row.queryByLabelText('Condition 1 card label')).toBeNull();
+    fireEvent.click(row.getByRole('button', { name: 'Rename on the card' }));
+    type(row.getByLabelText('Condition 1 card label'), 'Merged by a person');
+    type(panel().getByLabelText('Wait at most'), '1d');
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(onOf(saved[0]!, 'planning').plan_ready).toMatchObject({
+      requires: { conditions: [{ type: 'pr_merged', label: 'Merged by a person' }] },
+    });
+  });
+
+  it('labels the PR actions, and shows an unavailable action read-only (UXR-61, 78)', async () => {
+    const api = createMockApi();
+    const get = api.getWorkflow.bind(api);
+    api.getWorkflow = async (id, version) => {
+      const detail = await get(id, version);
+      if (detail.version !== 3) return detail;
+      const def = structuredClone(detail.definition);
+      const st = def.states.planning!;
+      if (st.type !== 'terminal') {
+        st.on = {
+          ...st.on,
+          plan_ready: {
+            goto: 'implementing',
+            requires: { actions: ['merge_pr', 'slack_message'] },
+            on_unmet: { goto: 'planning', retries: 1, else: 'needs_input' },
+          },
+        };
+      }
+      return { ...detail, definition: def };
+    };
+    await setup(api);
+    fireEvent.click(arrow('Planning', 'Implementing'));
+    for (const name of [
+      'Open a pull request (by conductor)',
+      'Check the pull request',
+      'Merge the pull request',
+      'Close the pull request',
+    ]) {
+      expect(panel().getByRole('checkbox', { name })).toBeTruthy();
+    }
+    expect(
+      panel().getByRole<HTMLInputElement>('checkbox', { name: 'Merge the pull request' }).checked,
+    ).toBe(true);
+    // Slack isn't available: no checkbox, just the line and a way to remove it.
+    expect(panel().queryByRole('checkbox', { name: /Slack/ })).toBeNull();
+    expect(panel().getByText('Not available yet: skipped')).toBeTruthy();
+    fireEvent.click(panel().getByRole('button', { name: 'Remove Send a Slack message' }));
+    expect(panel().queryByText('Not available yet: skipped')).toBeNull();
+    expect(panel().queryByText(/Send a Slack message/)).toBeNull();
   });
 
   it('maps a server error path (`states.<s>.on.<name>…`) to its arrow', async () => {
@@ -431,7 +513,7 @@ describe('transition arrows (ADR-0011)', () => {
     type(panel().getByLabelText('Check 2 command'), 'npm run lint');
     type(panel().getByLabelText('Check 2 timeout'), '5m');
     fireEvent.click(panel().getByRole('button', { name: 'Move check 2 up' }));
-    type(panel().getByLabelText(/Before the checks/), 'custom');
+    type(panel().getByLabelText(/^Setup:/), 'custom');
     type(panel().getByLabelText('Setup command'), 'pnpm i --frozen-lockfile');
     fireEvent.click(sectionHead('Review (0)'));
     fireEvent.click(panel().getByRole('button', { name: 'Add review item' }));
@@ -547,14 +629,14 @@ describe('transition editor: summary and sections (UXR-60, UXR-63)', () => {
     for (const n of ['Checks (0)', 'Review (0)', 'Actions (none)', 'Conditions (0)']) {
       expect(sectionHead(n).getAttribute('aria-expanded')).toBe('false');
     }
-    expect(panel().queryByRole('button', { name: 'Add condition' })).toBeNull();
+    expect(panel().queryByRole('combobox', { name: 'Add condition' })).toBeNull();
     expect(panel().getByText(/Nothing is required: the move happens as soon as/)).toBeTruthy();
     expect(panel().queryByRole('button', { name: /^If the requirements/ })).toBeNull();
 
     // The first requirement brings its not-met policy, open, right after the conditions; the
     // summary follows.
     fireEvent.click(sectionHead('Conditions (0)'));
-    fireEvent.click(panel().getByRole('button', { name: 'Add condition' }));
+    type(panel().getByLabelText('Add condition'), 'pr_checks_green');
     expect(panel().queryByText(/Nothing is required/)).toBeNull();
     const unmet = sectionHead('If the requirements aren’t met');
     expect(unmet.getAttribute('aria-expanded')).toBe('true');

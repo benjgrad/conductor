@@ -52,7 +52,7 @@
 }
 .ticket-group-chevron {
   width: 10px;
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 .ticket-group-toggle .count {
   font-weight: normal;
@@ -78,7 +78,7 @@
   flex-direction: column;
   gap: 2px;
   width: 100%;
-  padding: 6px var(--space-2);
+  padding: var(--space-1) var(--space-2);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   background: none;
@@ -94,7 +94,7 @@
   background: var(--accent-bg);
 }
 .ticket-row-title {
-  font-size: 13px;
+  font-size: var(--text-base);
   font-weight: 600;
   line-height: 1.3;
   /* Two lines at most; the row's title has the whole of it. */

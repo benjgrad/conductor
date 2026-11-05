@@ -487,7 +487,7 @@ a.card-schedule:hover {
   border: 0;
   background: none;
   color: var(--muted);
-  padding: 4px 6px;
+  padding: var(--space-1) var(--space-2);
 }
 .detail-head .focus-toggle[aria-pressed='true'] {
   color: var(--accent);
@@ -1712,7 +1712,7 @@ button.link {
   max-height: 55%;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 10px 14px;
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
 }
 /* The check output's own disclosure under the chat (like Proposed follow-up tickets). */

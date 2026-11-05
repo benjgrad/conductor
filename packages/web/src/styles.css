@@ -580,12 +580,12 @@ a.card-schedule:hover {
 }
 /* UXR-84: a finished session's analyst insight (Details tab). */
 .session-insight p {
-  margin: 0 0 6px;
+  margin: 0 0 var(--space-1);
   overflow-wrap: anywhere;
 }
 .si-frictions {
-  margin: 0 0 6px;
-  padding-left: 18px;
+  margin: 0 0 var(--space-1);
+  padding-left: var(--space-4);
   display: flex;
   flex-direction: column;
   gap: 6px;

@@ -28,18 +28,13 @@ export interface Prerequisite {
   verify: Command[];
 }
 
-const NVM: Command[] = [
-  {
-    label: 'Install nvm',
-    command: 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash',
-  },
-  // nvm is a shell function: a terminal opened before its install doesn't have it yet.
-  { label: 'Load nvm in this terminal (or open a new terminal)', command: '. ~/.nvm/nvm.sh' },
-  { label: 'Install Node.js 22 with nvm', command: 'nvm install 22' },
-];
-
+// UXR-49: the daemon is a native binary (ADR-0026) and install.sh checks for no Node, so Node.js
+// isn't a prerequisite. Claude Code therefore uses its native installer: npm needs Node.
 const CLAUDE: Command[] = [
-  { label: 'Install Claude Code', command: 'npm install -g @anthropic-ai/claude-code' },
+  {
+    label: 'Install Claude Code (native installer)',
+    command: 'curl -fsSL https://claude.ai/install.sh | bash',
+  },
   { label: 'Start Claude Code to sign in', command: 'claude' },
 ];
 
@@ -54,26 +49,6 @@ const CLAUDE_WINDOWS: Command[] = [
 ];
 
 export const PREREQUISITES: Prerequisite[] = [
-  {
-    id: 'node',
-    title: 'Node.js 22 or newer',
-    why: 'The daemon is a Node.js program.',
-    install: {
-      macos: [
-        // Not node@22: that formula is keg-only, so it isn't on the PATH after installing.
-        { label: 'Install Node.js with Homebrew', command: 'brew install node' },
-        ...NVM,
-      ],
-      linux: NVM,
-      windows: [
-        {
-          label: 'Install Node.js with winget, then open a new terminal',
-          command: 'winget install OpenJS.NodeJS.LTS',
-        },
-      ],
-    },
-    verify: [{ label: 'Check Node.js (v22 or higher)', command: 'node -v' }],
-  },
   {
     id: 'git',
     title: 'git',

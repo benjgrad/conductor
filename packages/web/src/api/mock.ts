@@ -110,6 +110,7 @@ import {
   type Unsubscribe,
 } from './client.js';
 import { validateColumns } from '../workflow/columns.js';
+import { mockInsights } from './mock-insights.js';
 import {
   CONDUCTOR,
   MOCK_WORKFLOW_AUTHORS,
@@ -282,6 +283,8 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
 
   /** ADR-0033 P3: the advisor's change proposals, newest first. */
   const proposals: ChangeProposalDetail[] = mockChangeProposals(now());
+  /** UXR-84: the advisor's metrics, findings, report and session insights. */
+  const insights = mockInsights(now(), () => proposals);
   const proposal = (id: string): ChangeProposalDetail => {
     const p = proposals.find((x) => x.id === id);
     if (!p) throw new ApiRequestError(404, 'not_found', 'no such change proposal');
@@ -1410,6 +1413,20 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       }),
 
     getChangeProposal: (id) => reply(() => clone(proposal(id))),
+
+    getProcessMetrics: (o) => reply(() => clone(insights.metrics(o.windowDays, o.groupBy))),
+
+    listFindings: (o) => reply(() => clone(insights.findings(o.windowDays, o.cursor ?? 0))),
+
+    getProcessReport: (o) => reply(() => clone(insights.report(o.windowDays))),
+
+    getSessionInsight: (sessionId) =>
+      reply(() => {
+        const found = insights.insight(sessionId);
+        if (found === null)
+          throw new ApiRequestError(404, 'not_found', 'no insight for that session');
+        return clone(found);
+      }),
 
     applyChangeProposal: (id) =>
       reply((): ChangeProposalDetail => {

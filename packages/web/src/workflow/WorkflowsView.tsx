@@ -70,6 +70,8 @@ export interface WorkflowsViewProps {
    * shipped default (`default_available`) is offered to compare and adopt. Default false.
    */
   canEditWorkflows?: boolean;
+  /** UXR-84: a change proposal to open (`#/workflows?proposal=<id>`). */
+  proposalId?: string | null | undefined;
 }
 
 const ID = CONDUCTOR_WORKFLOW_ID;
@@ -82,6 +84,7 @@ type Selection =
 export function WorkflowsView({
   api,
   onDirtyChange,
+  proposalId = null,
   canEditWorkflows = false,
 }: WorkflowsViewProps) {
   /** null = latest. */
@@ -657,6 +660,7 @@ export function WorkflowsView({
         <ProposalsPanel
           api={api}
           dirty={dirty}
+          initialOpenId={proposalId}
           onHighlight={setProposalHighlight}
           onWorkflowApplied={() => {
             // Unsaved edits stay; the panel warned that saving them stores the draft (made from

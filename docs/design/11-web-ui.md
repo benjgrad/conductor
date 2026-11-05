@@ -200,6 +200,20 @@ The Messages tab reads as a conversation (`OutputLog.tsx`). Protocol calls are n
 
 The Details tab has a **Steps** section between Action and Result (`steps.ts`): one row per state the ticket entered (from `SessionDetail.moves`), showing the state's title, its outcome (the title of the transition that left it; "In progress" while current; "Ended here" in a terminal state) and its duration. A row whose state recorded a result (`SessionDetail.context[state]`, the same data MCP `get_ticket_artifacts what=results` reads) has a **Result** disclosure that renders it as markdown: the summary, then the plan, then the other fields by name. Context keeps only a state's latest result, so an earlier visit of a revisited state says "Result replaced by a later visit". There is no separate route: `GET /api/sessions/:id` already carries both.
 
+## Insights (UXR-84)
+
+`#/insights` (`insights/InsightsPage.tsx`), a top-bar tab after Machines. It shows the workflow advisor's data over the routes in [10 §Insights](10-contracts.md#insights-adr-0033-uxr-84): the same numbers the MCP tools `get_process_metrics`, `list_findings` and `get_process_report` return.
+- **Controls**: a window (7 / 30 / 90 days, default 30) and a group-by (state / repo / machine / check). Machines show by name.
+- **Time per group**: a table, one row per group. It shows the median and p90 stay as bars scaled to the largest p90, with their values, then re-entries, check failures (`failures / runs`), questions, and permission denials for every grouping but state. The `check` grouping has no stays, so its time column is "—". The table scrolls inside its box on a phone.
+- **Findings**: cards, most severe first, 8 at a time (Show more). Each card has a severity pill, the title, evidence, suggestion and example tickets. A ticket shows its board title and opens on the board. The fix:
+  - **Open proposal** (`#/workflows?proposal=<id>`, which opens it in the Workflow page's proposals panel) when a change proposal cites the finding;
+  - for a permission finding, a note that the decision is on the board;
+  - otherwise **Propose a fix**, which explains how to run the `workflow_advisor` prompt in a connected Claude, with a copyable request naming the finding.
+- **Frictions**: the analysts' report, grouped by category, with each group's state, session count and top suggestion. The coverage line says how many finished sessions were analysed. Without a machine that runs analyst jobs, the report's note shows instead.
+- **Details tab**: a finished session (done, failed or lost) shows its **Session insight** when it has one: the outcome, summary, frictions, estimated lost minutes, and "Written by the analyst model (…)".
+
+Model-written text (summaries, frictions, suggestions) is always plain text, never markdown.
+
 ## Ticket search and Archive (UXR-85)
 
 - **Search** (`components/TicketSearch.tsx`): a field in the top bar, after the page tabs, on every page but the setup guide. `/` focuses it from anywhere except a text field, a select, editable content or an open sheet. Results come as you type (150 ms after the last key, `GET /api/tickets?q=&status=all&limit=20`; an older, slower answer never replaces a newer one), grouped **Open** (failed included, tagged), **Done** and **Cancelled**, each newest first, with the short id, the reference, the repo and the matched text. Arrow keys move, Enter or a click opens, Escape clears, then leaves the field. *More results* raises the limit (to 50); *Browse the archive* goes to `#/archive`. On a phone the field is an icon that opens it across the bar.

@@ -10,16 +10,12 @@ import {
   TicketPrioritySchema,
   httpForApplyResult,
   latestPlanEntry,
-  insightFindings,
-  processMetrics,
   ProposalIdSchema,
-  rankFindings,
   transitionsOf,
   type BoardCard,
   type EngineEvent,
   type EngineRoute,
   type SessionDetail,
-  type StoredInsight,
   type TicketStatus,
   validateWorkflow,
   type WorkflowDefinition,
@@ -30,7 +26,12 @@ import type { AuthConfig } from '../auth/config.js';
 import type { RequestAuth } from '../auth/middleware.js';
 import type { BoardBus, EngineService, OutputBus, TranscriptSource } from '../contracts.js';
 import type { Db } from '../main.js';
-import { getInsight, insightCoverage, insightsEnabled, loadInsights } from '../advisor/insights.js';
+import {
+  readFindings,
+  readInsight,
+  readProcessMetrics,
+  readProcessReport,
+} from '../advisor/read.js';
 import {
   applyProposal,
   createProposal,
@@ -41,12 +42,7 @@ import {
   type ProposalActor,
   type ProposalFailure,
 } from '../advisor/proposals.js';
-import {
-  clampWindow,
-  loadAdvisorRows,
-  WINDOW_DEFAULT_DAYS,
-  WINDOW_MAX_DAYS,
-} from '../advisor/queries.js';
+import { WINDOW_DEFAULT_DAYS, WINDOW_MAX_DAYS } from '../advisor/queries.js';
 import { listMachineRows } from '../api/machines.js';
 import { sendOperatorMessage } from '../api/messages.js';
 import { loadBoard, loadWorkflowDetail } from '../api/queries.js';
@@ -127,74 +123,9 @@ const REPO_CHECKS_HOW =
   "auto-detect from the root lockfile, '' for none. The checks replace the workflow's on every " +
   'transition that runs checks, for tickets on this repo only.';
 
-/** list_findings: findings per page (each ≤ ~700 bytes, well under the 8 KB cap). */
-export const FINDINGS_PAGE = 8;
-
-/** get_process_report: friction groups shown, and insight ids per group. */
-export const REPORT_FRICTIONS_MAX = 10;
-export const REPORT_IDS_MAX = 3;
-const REPORT_SUGGESTION_CLIP = 200;
-
-/**
- * ADR-0033 P2: the analysts' frictions grouped by category and state, most sessions first, each
- * with up to REPORT_IDS_MAX session ids (for get_insight) and its most frequent suggestion.
- */
-export function frictionReport(insights: readonly StoredInsight[]) {
-  type G = {
-    category: string;
-    state: string | null;
-    sessions: Set<string>;
-    severity: number;
-    suggestions: Map<string, number>;
-  };
-  const groups = new Map<string, G>();
-  const outcomes: Record<string, number> = {};
-  let wasted = 0;
-  for (const s of insights) {
-    outcomes[s.insight.outcome] = (outcomes[s.insight.outcome] ?? 0) + 1;
-    wasted += s.insight.wasted_minutes ?? 0;
-    for (const f of s.insight.frictions) {
-      const key = `${f.category}:${f.state ?? ''}`;
-      let g = groups.get(key);
-      if (!g) {
-        g = {
-          category: f.category,
-          state: f.state,
-          sessions: new Set(),
-          severity: 0,
-          suggestions: new Map(),
-        };
-        groups.set(key, g);
-      }
-      g.sessions.add(s.session_id);
-      g.severity = Math.max(g.severity, f.severity);
-      g.suggestions.set(f.suggestion, (g.suggestions.get(f.suggestion) ?? 0) + 1);
-    }
-  }
-  const all = [...groups.values()].sort(
-    (a, b) =>
-      b.sessions.size - a.sessions.size ||
-      b.severity - a.severity ||
-      `${a.category}:${a.state ?? ''}`.localeCompare(`${b.category}:${b.state ?? ''}`),
-  );
-  return {
-    analysed: insights.length,
-    outcomes,
-    wasted_minutes_reported: wasted,
-    frictions: all.slice(0, REPORT_FRICTIONS_MAX).map((g) => ({
-      category: g.category,
-      state: g.state,
-      sessions: g.sessions.size,
-      max_severity: g.severity,
-      top_suggestion: clip(
-        [...g.suggestions.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]![0],
-        REPORT_SUGGESTION_CLIP,
-      ),
-      session_ids: [...g.sessions].slice(0, REPORT_IDS_MAX),
-    })),
-    more_frictions: Math.max(0, all.length - REPORT_FRICTIONS_MAX),
-  };
-}
+// ADR-0033 / UXR-84: the advisor reads live in advisor/read.ts (shared with /api/insights).
+export { FINDINGS_PAGE } from '../advisor/read.js';
+export { frictionReport, REPORT_FRICTIONS_MAX, REPORT_IDS_MAX } from '@conductor/shared';
 
 /**
  * ADR-0033: the `workflow_advisor` MCP prompt. It turns any MCP client (claude.ai voice, Claude
@@ -1533,22 +1464,6 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     repo: z.string().trim().min(1).max(200).optional(),
     workflow_id: z.string().min(1).max(100).optional(),
   };
-  const loadRows = (a: {
-    window_days?: number | undefined;
-    repo?: string | undefined;
-    workflow_id?: string | undefined;
-  }) =>
-    loadAdvisorRows(db, {
-      accountId,
-      windowDays: clampWindow(a.window_days),
-      repo: a.repo,
-      workflowId: a.workflow_id,
-    });
-
-  const insightFilter = (
-    a: { repo?: string | undefined; workflow_id?: string | undefined },
-    since: string,
-  ) => ({ accountId, since: new Date(since), repo: a.repo, workflowId: a.workflow_id });
 
   register(
     'get_process_metrics',
@@ -1563,15 +1478,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       },
       annotations: readOnly,
     },
-    async (a) => {
-      const rows = await loadRows(a);
-      return ok({
-        window_days: clampWindow(a.window_days),
-        since: rows.since,
-        ...(rows.truncated.length > 0 ? { rows_truncated: rows.truncated } : {}),
-        ...processMetrics(rows, a.group_by ?? 'state'),
-      });
-    },
+    async (a) => ok(await readProcessMetrics(db, accountId, a)),
   );
 
   register(
@@ -1587,21 +1494,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       },
       annotations: readOnly,
     },
-    async (a) => {
-      const rows = await loadRows(a);
-      const insights = await loadInsights(db, insightFilter(a, rows.since));
-      const all = rankFindings(rows, insightFindings(insights));
-      const start = Math.min(a.cursor ?? 0, all.length);
-      const end = start + FINDINGS_PAGE;
-      return ok({
-        window_days: clampWindow(a.window_days),
-        since: rows.since,
-        ...(rows.truncated.length > 0 ? { rows_truncated: rows.truncated } : {}),
-        findings: all.slice(start, end),
-        next_cursor: end < all.length ? end : null,
-        total: all.length,
-      });
-    },
+    async (a) => ok(await readFindings(db, accountId, a)),
   );
 
   register(
@@ -1612,30 +1505,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       inputSchema: advisorArgs,
       annotations: readOnly,
     },
-    async (a) => {
-      const rows = await loadRows(a);
-      const f = insightFilter(a, rows.since);
-      const [insights, coverage, enabled] = await Promise.all([
-        loadInsights(db, f),
-        insightCoverage(db, f),
-        insightsEnabled(db, accountId),
-      ]);
-      return ok({
-        window_days: clampWindow(a.window_days),
-        since: rows.since,
-        insights_enabled: enabled,
-        ...(enabled
-          ? {}
-          : {
-              note:
-                'No machine runs analyst jobs yet (it needs the Rust daemon): only the ' +
-                'deterministic metrics are available.',
-            }),
-        ...coverage,
-        totals: processMetrics(rows, 'state').totals,
-        ...frictionReport(insights),
-      });
-    },
+    async (a) => ok(await readProcessReport(db, accountId, a)),
   );
 
   register(
@@ -1648,17 +1518,9 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       annotations: readOnly,
     },
     async ({ session_id }) => {
-      if (!UUID_RE.test(session_id)) return fail('not_found', 'No insight for that session.');
-      const found = await getInsight(db, accountId, session_id);
+      const found = await readInsight(db, accountId, session_id);
       if (found === null) return fail('not_found', 'No insight for that session.');
-      return ok({
-        session_id: found.session_id,
-        ticket_id: found.ticket_id,
-        created_at: found.created_at.toISOString(),
-        model: found.model,
-        model_written: true,
-        ...found.insight,
-      });
+      return ok(found);
     },
   );
 

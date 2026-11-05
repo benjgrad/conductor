@@ -134,6 +134,28 @@ describe('timeline (FR-3)', () => {
     expect(move).toMatchObject({ kind: 'move', label: 'Scope ok → Implementing' });
   });
 
+  it('a gate whose requirements were not met is a check that says so, with the reason', () => {
+    const detail: SessionDetail = {
+      ...review,
+      pending_input: null,
+      moves: [
+        {
+          at: at(1),
+          from: 'implementing → done (move: merged)',
+          to: 'implementing',
+          transition: 'requirements_unmet',
+          reason: 'Build passes',
+          actor: 'engine',
+        },
+      ],
+    };
+    expect(timeline(detail, AGENT)[0]).toMatchObject({
+      kind: 'check',
+      label: 'Checks before Done: Requirements not met',
+      reason: 'Build passes',
+    });
+  });
+
   it('ends with what is happening now: the running check, an open question', () => {
     const checking = {
       ...review,

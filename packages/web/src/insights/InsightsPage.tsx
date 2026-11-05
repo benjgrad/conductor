@@ -59,6 +59,32 @@ export function formatMinutes(m: number): string {
   return rest === 0 ? `${h}h` : `${h}h ${rest}m`;
 }
 
+/** A wait's ceiling: days from a day up (a 3-day approval timeout reads `3 d`). */
+export const formatCeiling = (m: number): string =>
+  m >= 1440 ? `${Math.round((m / 1440) * 10) / 10} d` : formatMinutes(m);
+
+const humanise = (s: string) => {
+  const w = s.replace(/_/g, ' ').replace(/\bpr\b/gi, 'PR');
+  return w.charAt(0).toUpperCase() + w.slice(1);
+};
+
+/**
+ * A state grouping's key in words. The advisor keys a gate step as `<state>.<transition>` (or
+ * `<state>.entry`, `<state>.review`) across workflow versions: "Implementing → PR ready for
+ * review (gate)". A plain state shows as is.
+ */
+export function groupKeyLabel(key: string): string {
+  const dot = key.lastIndexOf('.');
+  if (dot <= 0) return key;
+  const state = humanise(key.slice(0, dot));
+  const tail = key.slice(dot + 1);
+  if (tail === 'entry') return `Entering ${state} (gate)`;
+  if (tail === 'review') return `${state} → review (gate)`;
+  return `${state} → ${humanise(tail)
+    .toLowerCase()
+    .replace(/\bpr\b/g, 'PR')} (gate)`;
+}
+
 const shortId = (id: string) => id.slice(0, 8);
 
 type TicketLink = { open: (id: string) => void; title: (id: string) => string | null };
@@ -208,14 +234,18 @@ function MetricsSection({
   }
   const byCheck = data.group_by === 'check';
   const keyLabel = (g: ProcessGroup) =>
-    data.group_by === 'machine' ? (machineNames.get(g.key) ?? g.key) : g.key;
+    data.group_by === 'machine'
+      ? (machineNames.get(g.key) ?? g.key)
+      : data.group_by === 'state'
+        ? groupKeyLabel(g.key)
+        : g.key;
   const t = data.totals;
   return (
     <section aria-labelledby="ins-metrics">
       {heading}
       <p className="ins-totals muted">
         {t.tickets} tickets · {t.sessions} sessions · {t.check_runs} check runs · {t.questions}{' '}
-        questions in the last {data.window_days} days
+        questions · {t.handoffs} hand-offs in the last {data.window_days} days
       </p>
       {data.groups.length === 0 ? (
         <p className="muted">Nothing ran in this window.</p>
@@ -229,6 +259,7 @@ function MetricsSection({
                 <th scope="col">Re-entries</th>
                 <th scope="col">Check failures</th>
                 <th scope="col">Questions</th>
+                <th scope="col">Hand-offs</th>
                 {data.group_by !== 'state' && <th scope="col">Denials</th>}
               </tr>
             </thead>
@@ -237,6 +268,13 @@ function MetricsSection({
                 <tr key={g.key}>
                   <th scope="row" className={byCheck ? 'mono' : undefined}>
                     {keyLabel(g)}
+                    {g.waits_on_others && (
+                      <span className="ins-wait">
+                        Waiting on others
+                        {g.ceiling_minutes !== null &&
+                          ` · up to ${formatCeiling(g.ceiling_minutes)}`}
+                      </span>
+                    )}
                   </th>
                   <td>
                     {byCheck || g.stays === 0 ? (
@@ -253,6 +291,7 @@ function MetricsSection({
                     {g.check_runs === 0 ? '—' : `${g.check_failures} / ${g.check_runs}`}
                   </td>
                   <td>{g.questions}</td>
+                  <td>{g.handoffs}</td>
                   {data.group_by !== 'state' && <td>{g.permission_denials}</td>}
                 </tr>
               ))}
@@ -458,9 +497,10 @@ function FrictionsSection({
           <p className="muted">
             {data.analysed_sessions} of {data.finished_sessions} finished sessions analysed
             {data.wasted_minutes_reported > 0 &&
-              ` · about ${formatMinutes(data.wasted_minutes_reported)} lost, by their estimate`}
+              ` · about ${formatMinutes(data.wasted_minutes_reported)} lost in those ${data.analysed_sessions}, by their estimate`}
             . Written by a model: check them against the numbers above.
           </p>
+          {data.sample_note && <p className="ins-note">{data.sample_note}</p>}
           {data.note && <p className="ins-note">{data.note}</p>}
           {grouped.length === 0 && !data.note && (
             <p className="muted">No frictions reported in this window.</p>

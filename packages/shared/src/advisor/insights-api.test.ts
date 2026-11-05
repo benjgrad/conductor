@@ -8,6 +8,7 @@ import {
   REPORT_IDS_MAX,
   SessionInsightResponseSchema,
   frictionReport,
+  sampleNote,
 } from './insights-api.js';
 
 const roundTrip = <T>(schema: { parse: (v: unknown) => T }, v: unknown) =>
@@ -82,11 +83,20 @@ describe('DTOs', () => {
         moves: 6,
         check_runs: 1,
         questions: 0,
+        handoffs: 0,
+        stops: 0,
         permission_prompts: 0,
       },
       ...frictionReport([stored(1)]),
     };
     expect(roundTrip(ProcessReportResponseSchema, report)).toEqual(report);
+    // An older server's totals (no handoffs / stops) still parse, as zeros.
+    const oldTotals: Record<string, unknown> = { ...report.totals };
+    delete oldTotals.handoffs;
+    delete oldTotals.stops;
+    expect(ProcessReportResponseSchema.parse({ ...report, totals: oldTotals }).totals).toEqual(
+      report.totals,
+    );
     const old: Record<string, unknown> = { ...report.frictions[0]! };
     delete old.ticket_ids;
     const parsed = ProcessReportResponseSchema.parse({ ...report, frictions: [old] });
@@ -123,5 +133,22 @@ describe('DTOs', () => {
       ...stored(1).insight,
     };
     expect(roundTrip(SessionInsightResponseSchema, insight)).toEqual(insight);
+  });
+});
+
+describe('sampleNote', () => {
+  it('says how thin the sample is under a quarter of finished sessions', () => {
+    expect(sampleNote({ finished_sessions: 127, analysed_sessions: 8 })).toEqual({
+      sample_share: 0.06,
+      sample_note:
+        'Frictions come from 8 of 127 finished sessions (6 %); wasted minutes are summed over ' +
+        'those 8 only.',
+    });
+    expect(sampleNote({ finished_sessions: 10, analysed_sessions: 5 })).toEqual({
+      sample_share: 0.5,
+    });
+    expect(sampleNote({ finished_sessions: 0, analysed_sessions: 0 })).toEqual({
+      sample_share: 0,
+    });
   });
 });

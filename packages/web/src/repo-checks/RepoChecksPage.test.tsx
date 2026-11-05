@@ -53,7 +53,7 @@ async function compare(repo: string) {
 const chip = async (repo: string) => (await detail(repo)).getByText(/^(Own|Workflow) checks$/);
 
 describe('repo checks page (ADR-0030)', () => {
-  it('is #/repo-checks, from the account menu: the note, the Help link and both groups', async () => {
+  it('is #/repo-checks, from the top bar: the note, the Help link and both groups', async () => {
     window.history.replaceState(null, '', '/#/repo-checks');
     render(<App api={createMockApi({ now })} />);
     const page = within(await screen.findByRole('region', { name: 'Repo checks' }));
@@ -71,13 +71,13 @@ describe('repo checks page (ADR-0030)', () => {
     expect(wf.getByRole('button', { name: KNOWN })).toBeTruthy();
     expect(page.getByText('Pick a repo to see what runs for it.')).toBeTruthy();
 
-    fireEvent.click(
-      await screen.findByRole('button', { name: localMeResponse().user.display_name }),
-    );
-    const menu = within(screen.getByRole('menu', { name: 'Account' }));
-    expect(menu.getByRole('menuitem', { name: 'Repo checks' }).getAttribute('href')).toBe(
-      '#/repo-checks',
-    );
+    // UXR-27: a page in the top bar, current here.
+    await screen.findByRole('button', { name: localMeResponse().user.display_name });
+    const link = within(screen.getByRole('navigation', { name: 'Main' })).getByRole('link', {
+      name: 'Repo checks',
+    });
+    expect(link.getAttribute('href')).toBe('#/repo-checks');
+    expect(link.getAttribute('aria-current')).toBe('page');
   });
 
   it('a repo picked from the list opens by its route; the filter narrows it and opens a new one', async () => {

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { jsonByteLength } from '../protocol/ws.js';
 import {
   checkFailed,
+  classOf,
   EXAMPLES_MAX,
   type AdvisorRows,
   type Finding,
@@ -117,14 +118,18 @@ export function digestLines(d: SessionDigest): string[] {
         : checkFailed(c)
           ? `exit ${c.exit_code ?? 'none'}`
           : 'passed';
-    out.push(`Check in ${c.state}: \`${clip(c.cmd, 120)}\` ${res}`);
+    const name = c.name !== undefined && c.name !== c.cmd ? `${clip(c.name, 80)} ` : '';
+    const role = c.role === 'setup' ? 'Setup' : 'Check';
+    out.push(`${role} in ${c.state}: ${name}\`${clip(c.cmd, 120)}\` ${res}`);
   }
   for (const q of d.rows.inputs) {
     const waited =
       q.answered_at === null
         ? 'unanswered'
         : `answered after ${Math.round((Date.parse(q.answered_at) - Date.parse(q.created_at)) / 60_000)} min`;
-    out.push(`Question (${q.kind}) in ${q.state ?? 'unknown'}: ${waited}`);
+    const what =
+      classOf(q) === 'handoff' ? 'Hand-off' : classOf(q) === 'stop' ? 'Stop' : 'Question';
+    out.push(`${what} (${q.kind}) in ${q.state ?? 'unknown'}: ${waited}`);
   }
   for (const p of d.rows.permissions) {
     out.push(

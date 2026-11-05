@@ -152,8 +152,13 @@ describe('advisor tools (ADR-0033)', () => {
     expect(body.groups).toEqual([]);
     const sinceDays = (now - Date.parse(body.since)) / 86_400_000;
     expect(Math.round(sinceDays)).toBe(WINDOW_MAX_DAYS);
-    expect(queries).toHaveLength(4);
-    for (const q of queries) {
+    // The four row queries, then the account's repo check overrides (to name the check runs).
+    expect(queries).toHaveLength(5);
+    const named = queries.filter((q) => q.sql.includes('FROM repo_checks'));
+    expect(named).toHaveLength(1);
+    expect(named[0]!.sql).toContain('account_id = $1');
+    expect(named[0]!.args).toEqual(['acc-1']);
+    for (const q of queries.filter((x) => !x.sql.includes('FROM repo_checks'))) {
       expect(q.sql).toContain('s.account_id = $1');
       expect(q.args).toEqual([
         'acc-1',

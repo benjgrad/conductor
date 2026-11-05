@@ -934,6 +934,20 @@ describe('/mcp for conversational clients', () => {
     );
   });
 
+  it('get_ticket reports a cancelled ticket as cancelled, not as its failed session', async () => {
+    // operator.cancel ends the session `failed` and the ticket `cancelled` (failSession).
+    const gone = await seedAgentSession(a.user.accountId, { status: 'needs_input' });
+    await db.pool.query("UPDATE session SET status = 'failed' WHERE id = $1", [gone.sessionId]);
+    await db.pool.query("UPDATE ticket SET status = 'cancelled' WHERE id = $1", [gone.ticketId]);
+    const got = await call(a.access, 'get_ticket', { ticket: gone.ticketId });
+    expect(got.body).toMatchObject({
+      status: 'cancelled',
+      ticket_status: 'cancelled',
+      waiting_on: 'nobody',
+      status_line: 'Cancelled: nothing runs. reopen_ticket sends it back to the agent.',
+    });
+  });
+
   it('get_ticket_artifacts reads the plan in pages, results, output and the transcript', async () => {
     const long = 'p'.repeat(7000);
     const { ticketId, sessionId } = await seedAgentSession(a.user.accountId, {

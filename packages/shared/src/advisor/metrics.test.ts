@@ -19,6 +19,7 @@ import {
   type MoveRow,
   type PermissionRow,
 } from './metrics.js';
+import type { InputClass } from './gates.js';
 
 const T0 = Date.parse('2026-11-01T00:00:00.000Z');
 const at = (min: number) => new Date(T0 + min * 60_000).toISOString();
@@ -276,6 +277,8 @@ describe('processMetrics', () => {
       moves: 6,
       check_runs: 2,
       questions: 1,
+      handoffs: 0,
+      stops: 0,
       permission_prompts: 1,
     });
     expect(m.groups.map((g) => [g.key, g.stays, g.total_hours])).toEqual([
@@ -412,5 +415,159 @@ describe('rankFindings', () => {
     for (const x of f) expect(FindingSchema.parse(x)).toEqual(x);
     expect(f.map((x) => x.severity)).toEqual([3, 2]);
     expect(FINDING_RULES.permissionDenials).toBe(3);
+  });
+});
+
+describe('what is counted (the 2026-11 metric fixes)', () => {
+  const v4 = 'implementing → needs_input (move: personal_pr_ready_for_review)';
+  const v5 = 'implementing → in_review (move: personal_pr_ready_for_review)';
+  const testing = 'implementing → waiting_external (move: ready_for_testing)';
+  const input = (ticket: string, cls: InputClass, o: Partial<InputRow> = {}): InputRow => ({
+    ...question(ticket, 'implementing', 5),
+    class: cls,
+    ...o,
+  });
+
+  // Two tickets go round the same PR gate, one under each workflow version (v4 → needs_input, v5 →
+  // in_review). A third waits on an approval, then in waiting_external, for a long time.
+  const moves = [
+    ...walk('a', [
+      ['implementing', 0],
+      [v4, 10, 'personal_pr_ready_for_review'],
+      ['implementing', 12],
+      [v4, 20, 'personal_pr_ready_for_review'],
+      ['implementing', 22],
+      [v4, 30, 'personal_pr_ready_for_review'],
+      ['needs_input', 32, 'personal_pr_ready_for_review'],
+    ]),
+    ...walk('b', [
+      ['implementing', 0],
+      [v5, 10, 'personal_pr_ready_for_review'],
+      ['implementing', 12],
+      [v5, 20, 'personal_pr_ready_for_review'],
+      ['implementing', 22],
+      [v5, 30, 'personal_pr_ready_for_review'],
+      ['in_review', 32, 'personal_pr_ready_for_review'],
+    ]),
+    ...(['c', 'd', 'e'] as const).flatMap((t) =>
+      walk(t, [
+        ['implementing', 0],
+        [testing, 10, 'ready_for_testing'],
+        ['waiting_external', 2_000],
+        ['done', 4_000, 'ui.approve'],
+      ]),
+    ),
+  ];
+  const rows: AdvisorRows = {
+    moves,
+    checks: [
+      check('a', 'mtd build', 1, {
+        state: 'implementing.personal_pr_ready_for_review',
+        name: 'Backend builds',
+        source: 'repo',
+      }),
+      check('b', 'mtd build', 1, {
+        state: 'implementing.personal_pr_ready_for_review',
+        name: 'Backend builds',
+        source: 'repo',
+      }),
+      check('c', 'mtd build', 0, {
+        state: 'implementing.personal_pr_ready_for_review',
+        name: 'Backend builds',
+        source: 'repo',
+      }),
+      check('a', 'mtd build', null, {
+        state: 'implementing.personal_pr_ready_for_review',
+        name: 'Repo setup',
+        role: 'setup',
+        source: 'repo',
+        setup_failed: true,
+      }),
+      check('b', 'mtd build', null, {
+        state: 'implementing.personal_pr_ready_for_review',
+        name: 'Repo setup',
+        role: 'setup',
+        source: 'repo',
+        setup_failed: true,
+      }),
+      check('c', 'mtd build', null, {
+        state: 'implementing.personal_pr_ready_for_review',
+        name: 'Repo setup',
+        role: 'setup',
+        source: 'repo',
+        setup_failed: true,
+      }),
+    ],
+    inputs: [
+      input('a', 'handoff', { state: v4 }),
+      input('a', 'handoff', { state: v4 }),
+      input('b', 'handoff', { state: v5 }),
+      input('b', 'question'),
+      input('c', 'stop', { kind: 'timeout' }),
+    ],
+    permissions: [],
+    waits: {
+      waiting_external: { ceiling_minutes: null },
+      'implementing.ready_for_testing': { ceiling_minutes: 4320 },
+    },
+  };
+
+  it('counts only questions as questions; hand-offs and engine stops apart (FR-1)', () => {
+    const m = processMetrics(rows, 'state');
+    expect(m.totals).toMatchObject({ questions: 1, handoffs: 3, stops: 1 });
+    expect(inputStats(rows.inputs).map((q) => [q.state, q.asked])).toEqual([['implementing', 1]]);
+    expect(rankFindings(rows).filter((f) => f.category === 'frequent_question')).toEqual([]);
+  });
+
+  it('keys a gate on state.transition across workflow versions (FR-2)', () => {
+    const m = processMetrics(rows, 'state');
+    const keys = m.groups.map((g) => g.key);
+    expect(keys).toContain('implementing.personal_pr_ready_for_review');
+    expect(keys.some((k) => k.includes('→'))).toBe(false);
+    const gate = m.groups.find((g) => g.key === 'implementing.personal_pr_ready_for_review')!;
+    expect(gate).toMatchObject({ stays: 6, handoffs: 3, reentries: 4 });
+    const loops = rankFindings(rows).filter((f) => f.category === 'rework_loop');
+    expect(loops.map((f) => f.id)).toEqual(['rework_loop:implementing']);
+  });
+
+  it('attributes checks to the gate, by name, with the setup apart (FR-3)', () => {
+    const byCheck = processMetrics(rows, 'check');
+    expect(byCheck.groups.map((g) => [g.key, g.check_runs, g.check_failures])).toEqual([
+      ['setup: Repo setup', 3, 3],
+      ['Backend builds', 3, 2],
+    ]);
+    const byState = processMetrics(rows, 'state');
+    expect(byState.groups.map((g) => g.key)).not.toContain('unknown');
+    const failing = rankFindings(rows).filter((f) => f.category === 'failing_check');
+    expect(failing.map((f) => [f.id, f.title])).toEqual([
+      ['failing_check:Backend builds', 'Check fails often: Backend builds'],
+      ['failing_check:setup:Repo setup', 'Repo setup fails often'],
+    ]);
+    expect(failing[0]!.evidence).toContain(
+      'in implementing.personal_pr_ready_for_review (repo check)',
+    );
+    expect(failing[1]!.evidence).toContain('(repo setup)');
+  });
+
+  it('never calls a by-design wait slow; marks it with its ceiling (FR-4)', () => {
+    expect(rankFindings(rows).filter((f) => f.category === 'slow_state')).toEqual([]);
+    const m = processMetrics(rows, 'state');
+    expect(m.groups.find((g) => g.key === 'implementing.ready_for_testing')).toMatchObject({
+      waits_on_others: true,
+      ceiling_minutes: 4320,
+    });
+    expect(m.groups.find((g) => g.key === 'waiting_external')).toMatchObject({
+      waits_on_others: true,
+      ceiling_minutes: null,
+    });
+    // Without the definition's word for it, the same stays are slow.
+    const plain: AdvisorRows = { ...rows };
+    delete plain.waits;
+    expect(
+      rankFindings(plain)
+        .filter((f) => f.category === 'slow_state')
+        .map((f) => f.id)
+        .sort(),
+    ).toEqual(['slow_state:implementing.ready_for_testing', 'slow_state:waiting_external']);
   });
 });

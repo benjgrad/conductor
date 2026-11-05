@@ -85,6 +85,12 @@
 .ins-table td:nth-child(2) {
   width: 40%;
 }
+.ins-wait {
+  display: block;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 400;
+}
 .ins-bad {
   color: var(--warn);
   font-weight: 600;

@@ -67,6 +67,8 @@ The data for cross-session analysis is already in Postgres:
   | `permission_denials` | ≥ 3 denied or expired prompts for one tool on one machine; the finding names the exact "Allow always" rule and points to the board |
   | `frequent_question` | questions in > 25 % of the tickets that entered the state, and in ≥ 2 tickets |
   | `rework_loop` | ≥ 2 `qa_fail`, or ≥ 2 extra visits to one state |
+
+  Clarified 2026-11-05 (the Insights metric fixes; [10-contracts §MCP](../design/10-contracts.md)): states are keyed by `stateKey`, so one gate (`implementing.personal_pr_ready_for_review`) is one key across workflow versions whatever its target; `slow_state` skips states and gates that wait on someone outside by design (an `event` state, enabled `pr_approvals` / `jira_fields_set` conditions), which `get_process_metrics` marks `waits_on_others` with their ceiling; `failing_check` is keyed by the check's name (`checkIdentity`), counts a failed setup on its own and skips conductor's pin check; `frequent_question` counts only questions, not PR hand-offs (`question: true` transitions with `requires`) or engine stops.
 - **The `workflow_advisor` MCP prompt** (`WORKFLOW_ADVISOR_PROMPT`) is the coordinator's operating manual. Its loop is measure → find → drill in (one or two example tickets) → propose ONE small, reversible change (with the evidence, expected effect and rollback, in the narrowest scope) → the user confirms → apply with the existing tool → re-measure later. Its rules:
   - never weaken approvals;
   - `save_workflow` changes every account until M2-T12, so it must say so;

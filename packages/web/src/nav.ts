@@ -96,10 +96,11 @@ export interface NavigateOptions {
   replace?: boolean | undefined;
 }
 
+/** The navigate function returns false when the guard held the user back (UXR-27: New ticket). */
 export function useHashRoute(
   guard?: RouteGuard,
   onBlocked?: (next: Route) => void,
-): [Route, (route: Route, opts?: NavigateOptions) => void] {
+): [Route, (route: Route, opts?: NavigateOptions) => boolean] {
   const [route, setRoute] = useState<Route>(() => parseHash(window.location.hash));
   const current = useRef(route);
   const handlers = useRef({ guard, onBlocked });
@@ -119,7 +120,7 @@ export function useHashRoute(
         window.history.replaceState(null, '', routeHash(from));
       }
       if (verdict === 'block') handlers.current.onBlocked?.(next);
-      return;
+      return false;
     }
     current.current = next;
     setRoute(next);
@@ -128,6 +129,7 @@ export function useHashRoute(
       if (opts.replace) window.history.replaceState(null, '', hash);
       else window.location.hash = hash;
     }
+    return true;
   }, []);
 
   useEffect(() => {

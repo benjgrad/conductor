@@ -1487,20 +1487,6 @@ button.link {
   color: var(--muted);
 }
 
-@media (max-width: 900px) {
-  main {
-    flex-direction: column;
-  }
-  .detail {
-    width: 100%;
-    position: static;
-    height: min(85vh, 760px);
-  }
-  .create-ticket {
-    grid-template-columns: 1fr;
-  }
-}
-
 /* The New ticket sheet (CreateTicketForm), at every width: the phone lays it out full-screen
    (§Phone layout below), desktop as a centred modal (UXR-41, after it). */
 .sheet-head h2 {
@@ -1564,7 +1550,7 @@ button.link {
 /* UXR-26 (11-web-ui §Breakpoint): on the desktop board the document never scrolls. The shell is
    the window's height, so the top bar stays put, each column body scrolls on its own, and the
    session panel fills the height with its composer pinned at the bottom. */
-@media (min-width: 700px) {
+@media (min-width: 900px) {
   .app.board-view {
     /* Contains the absolutely positioned .visually-hidden spans, which would lengthen the page. */
     position: relative;
@@ -1614,30 +1600,9 @@ button.link {
     align-self: stretch;
   }
 }
-/* The stacked layout (board above the panel): main is the scroller, columns keep their height. */
-@media (min-width: 700px) and (max-width: 900px) {
-  .app.board-view > main {
-    overflow-y: auto;
-  }
-  .app.board-view .board-area,
-  .app.board-view .board {
-    flex: none;
-  }
-  .app.board-view .board {
-    grid-template-rows: auto;
-  }
-  .app.board-view .column > ul {
-    overflow-y: visible;
-  }
-  .app.board-view .detail {
-    flex: none;
-    height: min(85vh, 760px);
-  }
-}
-
 /* 11-web-ui §Touch: on a coarse pointer or a phone every control is at least --tap tall. The card's
    title and preview are text inside a tappable card, so they keep their line height. */
-@media (pointer: coarse), (max-width: 699.98px) {
+@media (pointer: coarse), (max-width: 899.98px) {
   button:not(.card-open):not(.card-preview),
   .nav-tabs a,
   [role='tab'],
@@ -1685,8 +1650,8 @@ button.link {
   }
 }
 
-/* UXR-41: on desktop (and tablets) the New ticket sheet is a centred modal over the board. */
-@media (min-width: 700px) {
+/* UXR-41: on desktop (900 px and up) the New ticket sheet is a centred modal over the board. */
+@media (min-width: 900px) {
   html.modal-open {
     overflow: hidden;
   }
@@ -1778,7 +1743,7 @@ button.link {
 }
 
 /* 11-web-ui §Phone layout (MOBILE_QUERY in components/useMediaQuery.ts). Desktop is unchanged. */
-@media (max-width: 699.98px) {
+@media (max-width: 899.98px) {
   /* UXR-02: iOS Safari zooms into any field under 16 px. */
   input,
   select,
@@ -1802,6 +1767,18 @@ button.link {
   }
   main {
     padding: var(--space-2) var(--space-3);
+  }
+  /* Was the 700–900 px stacked layout's (before UXR-59); the phone has always used it. */
+  main {
+    flex-direction: column;
+  }
+  .detail {
+    width: 100%;
+    position: static;
+    height: min(85vh, 760px);
+  }
+  .create-ticket {
+    grid-template-columns: 1fr;
   }
   /* The document never scrolls on a phone; the shell does. So the panel and the sheet can't be
      scrolled away. (The iOS status bar is opaque, `default` in index.html: iOS blurred the top bar
@@ -1967,7 +1944,7 @@ button.link {
 .mobile-note {
   display: none;
 }
-@media (max-width: 699.98px) {
+@media (max-width: 899.98px) {
   .mobile-note {
     display: block;
   }

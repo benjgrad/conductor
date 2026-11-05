@@ -137,7 +137,12 @@ export default defineConfig({
       ...pkg('web', ['src/**/*.test.{ts,tsx}'], { testTimeout: 15_000 }),
       {
         extends: true,
-        test: { name: 'scripts', root: '.', include: ['scripts/*.test.js'], environment: 'node' },
+        test: {
+          name: 'scripts',
+          root: '.',
+          include: ['scripts/*.test.js', 'scripts/analysis/*.test.js'],
+          environment: 'node',
+        },
       },
       ...quarantine,
     ],

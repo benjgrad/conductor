@@ -12,6 +12,6 @@
     "outDir": "../node_modules/.tmp/scripts",
     "tsBuildInfoFile": "../node_modules/.tmp/scripts/tsconfig.tsbuildinfo"
   },
-  "include": ["*.js"],
+  "include": ["*.js", "analysis/*.js"],
   "exclude": ["create-tickets.js"]
 }

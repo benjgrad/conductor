@@ -97,6 +97,10 @@ describe('Workflow view', () => {
     // Queued is implicit: not editable.
     expect(diagram.querySelector('[data-lane="__queued__"]')?.getAttribute('role')).toBeNull();
     expect(lane('Planning').getAttribute('tabindex')).toBe('0');
+    // UXR-58: a focusable lane carries a focus ring apart from its box; Queued has none.
+    expect(lane('Planning').querySelector('rect.wf-lane-box')).toBeTruthy();
+    expect(lane('Planning').querySelector('rect.wf-focus-ring')).toBeTruthy();
+    expect(diagram.querySelector('[data-lane="__queued__"] rect.wf-focus-ring')).toBeNull();
     // Arrows are buttons too; the claim arrow is not.
     expect(arrow('Planning', 'Implementing').getAttribute('tabindex')).toBe('0');
     expect(diagram.querySelector('[data-edge="start"]')?.getAttribute('role')).toBeNull();

@@ -21,6 +21,11 @@ Contrast rules:
 - Text on an `--accent` fill uses `--on-accent`: white in light mode, `--bg` in dark mode, where white on the lighter accent is only 2.65:1.
 - Field edges use `--border-strong` (about 3:1, WCAG 1.4.11). `--border` is for dividers and cards.
 
+Focus (UXR-56, UXR-58, UXR-72):
+- `styles.css` draws one global `:focus-visible` ring (`2px solid var(--accent)`, offset 2px). A component may restyle it but never remove it. Where a field turns its own outline off, its wrapper draws an equivalent edge instead (the composer box, the rich ticket editor). The phone create-ticket sheet is a focused container, not a control, so it draws no ring.
+- In the workflow diagram, SVG controls draw their own ring: a focused lane shows a dashed ring 4 px outside its box, and a focused arrow shows a dashed halo. Selection stays the solid accent border, so focus and selection can be told apart and can be shown together.
+- Every icon-only control has an `aria-label` and a matching `title`, for example the Edit pencil ("Edit ticket") and the Brief button's `⚠ n` ("n hints"). Disclosure rows with a text summary keep that text as their name and get a "Show output" / "Hide output" tooltip.
+
 Only the rules this design touched use the spacing, type and radius tokens so far. Moving the rest of the CSS onto them is a follow-up.
 
 ## Breakpoint

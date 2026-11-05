@@ -177,6 +177,7 @@ export function CheckRun({
       <button
         type="button"
         className="check-run-summary"
+        title={open ? 'Hide output' : 'Show output'}
         aria-expanded={open}
         aria-controls={open ? bodyId : undefined}
         onClick={onToggle}

@@ -14,12 +14,13 @@ The web app (`packages/web`) has one desktop layout and, below a phone breakpoin
 | Shadow | `--shadow-1` (floating pill), `--shadow-2` (menus) | |
 | Layers | `--z-sticky` 5, `--z-menu` 20, `--z-sheet` 40 | |
 | Touch | `--tap` | 44 px (WCAG 2.5.5) |
-| Colour | `--bg --panel --text --muted --border --border-strong --accent --on-accent` and the status pairs (`--warn`/`--warn-bg`, `--ask`/`--ask-bg`, `--ok`, `--diff-*`, `--user-*`, `--tool`, `--code-*`) | |
+| Colour | `--bg --panel --text --muted --border --border-strong --accent --on-accent` and the status pairs (`--warn`/`--warn-bg`, `--ask`/`--ask-bg`, `--ok`/`--ok-bg`, `--accent`/`--accent-bg`, `--perm`/`--perm-bg`, `--diff-*`, `--user-*`, `--tool`, `--code-*`) | |
 
 Contrast rules:
 - `--muted` text meets AA (4.5:1) on `--bg` and on `--ask-bg`.
 - Text on an `--accent` fill uses `--on-accent`: white in light mode, `--bg` in dark mode, where white on the lighter accent is only 2.65:1.
 - Field edges use `--border-strong` (about 3:1, WCAG 1.4.11). `--border` is for dividers and cards.
+- Each request kind's text on its own `-bg` meets AA (§Requests).
 
 Focus (UXR-56, UXR-58, UXR-72):
 - `styles.css` draws one global `:focus-visible` ring (`2px solid var(--accent)`, offset 2px). A component may restyle it but never remove it. Where a field turns its own outline off, its wrapper draws an equivalent edge instead (the composer box, the rich ticket editor). The phone create-ticket sheet is a focused container, not a control, so it draws no ring.
@@ -32,6 +33,23 @@ Workflow diagram (UXR-45, UXR-68):
 - Arrows are labelled with transition titles (an event with its title, e.g. "Approved"), or "N ways" when several transitions share an arrow. A ✓ marks an arrow where some transition has rules. Labels sit on a solid background and slide along their line to a spot no other line crosses.
 
 Only the rules this design touched use the spacing, type and radius tokens so far. Moving the rest of the CSS onto them is a follow-up.
+
+## Requests
+
+A request waiting on a human sits at the end of the chat in one frame, `RequestCard` (`components/RequestCard.tsx`, `.pending.request-<kind>` in `styles.css`). The kind sets the box colour (a `--tone-bg` box with a 4 px `--tone` bar) and a sentence-case chip that names it, so colour is never the only cue. There are no "Action needed" caps. **Red (`--ask`) is only for failures.** `requestTone` (`request-preview.ts`) picks the kind.
+
+| Kind | Tokens | Chip | When | Text on its bg (light / dark) |
+|---|---|---|---|---|
+| Question | `--accent` / `--accent-bg` | Question, Plan to approve, Budget exceeded… | an agent's question, a plan approval, any other decision | 4.7 / 5.4 |
+| Ready for review | `--ok` / `--ok-bg` | Ready for review | a `*ready_for_review` move | 4.7 / 7.3 |
+| Permission | `--perm` / `--perm-bg` (violet) | Needs permission | a held tool call (ADR-0023) | 5.8 / 7.5 |
+| Failure | `--ask` / `--ask-bg` | Step failed, Retries exhausted, Timed out, Machine lost | `step_failed`, or a retries-exhausted, timeout or machine-lost request | 6.3 / 6.9 |
+
+`--muted` (the "Avery asks" after the chip) is 4.9–5.2:1 on every `-bg`. The chip itself is `--tone` on `--panel` (5.3–8.4:1). The board card's request badges use the same pairs.
+
+- **Review**: **Approve** (`button.primary`) takes `reviewApproveOption`, the state's one no-text human transition into a terminal state (`done`, "Merged, done"), so the button under the chat drops it. With none, or several, there is no Approve. **Request changes…** focuses the composer, whose answer goes back to the agent. *Open PR ↗* and *Full report* (a toggle) follow.
+- **Failure**: its output sits under the question (`failureOutput`: the failed check's last run in the log, else the output the question quotes, else the last run), clamped to 12 lines behind "Show all". On old versions the quick actions are **Retry** (primary), **Skip to…** (a menu: choosing a state skips there) and **Abort…** (a separate danger button that asks first: *Abort session* or *Keep it*).
+- **Composer** (`composerPlaceholder`): "Answer Avery…" on a question, "Ask Olga for changes…" on a review, "Tell Conductor what to do…" on a failure conductor raised, "Message Femi… (/ for commands)" while an agent runs. "Enter to send · Shift+Enter for a new line" is a line under the box, only on `(pointer: fine)`. When the composer is disabled, the placeholder is empty and the reason is shown once, under the box, as the textarea's description.
 
 ## Breakpoint
 
@@ -53,7 +71,7 @@ While the phone layout is on, `useVisualViewportHeight` sets `--vvh` and `--vvt`
 | Board | One column at a time, chosen in a `role=tablist` switcher that scrolls sideways (title and count per column; the active tab is scrolled into view). It opens on Needs input when that column has cards or a permission prompt is waiting ([§Waiting on you](#waiting-on-you-uxr-32)), else the first non-empty column, until the user picks one. A horizontal swipe (more than 50 px, and 1.5× more sideways than vertical) moves to the next or previous column. The board is `touch-action: pan-y`, so vertical scrolling is never blocked. |
 | Detail panel | `DetailPanel fullScreen`: fixed over the whole screen with safe-area padding. The board isn't laid out behind it. A 44 px Back button ("Back to board") replaces `×`, the tabs share the width, and the composer is pinned at the bottom of `--vvh`. It can't be scrolled away: the document under it never scrolls, and it follows `--vvt`. The header is one line (the title is ellipsed; the full title is in Details) with a 32 px avatar. **Ticket buttons** (`TicketButtons`, `TicketStrip.tsx`, at every width): nothing sits above the chat. The tab row holds the Messages and Details tabs (the `role=tablist`) and, on its right, a `role=group` "Ticket" with **Brief** (with a short tally: `3/5 ✓`, or `⚠ n` requirements without a verification), **Plan** when the session has one (`latestPlan`: the asking state's plan, else any state's text plan; labelled **Plan to approve** while a plan approval is open) and an **Edit** icon when the ticket is editable. On a phone the tabs share the rest of the row, **Plan to approve** shows as a highlighted "Plan" (its name stays "Plan to approve"), and the row scrolls sideways if it still doesn't fit. Each opens a sheet (`TicketSheet`: `role=dialog`, a heading and a 44 px Close; Escape closes it and focus returns to its button) over the tab bodies, chat and composer included, so the content gets the whole height below the tabs. Picking a tab closes the sheet (focus stays on the tab). The Brief sheet starts with the full tally ("FR 5 · NFR 5 · 4 without verification"). The Plan sheet shows the whole plan, with Approve plan and Request changes… in its footer while an approval is open. In the chat, the plan-approval card clamps the plan to about 8 lines and adds **Open plan**. The desktop panel has the same buttons and sheets; its plan-approval card keeps the "Show full plan" clamp instead of **Open plan**. |
 | Create ticket | `CreateTicketForm` (the same dialog at every width; desktop below): a full-screen modal dialog ("New ticket", with Close, and Escape also closes it). The fields are stacked, Kind is two segmented buttons (the radios stay for keyboard and screen readers), Priority has a numeric keypad, Repo's list of suggestions sits under its field with tap-tall rows, and the footer is sticky. The footer holds Create ticket and, while it is disabled, what's still needed. The editor's max height is half of `--vvh`, with a narrower BlockNote gutter. Like the panel, it follows `--vvt` and the shell under it doesn't scroll. |
-| Machines, Admin | Tables scroll inside their own box (`display: block; overflow-x: auto; position: relative`), never the page. |
+| Machines, Admin | Tables scroll inside their own box (`display: block; overflow-x: auto; position: relative`), never the page. At every width (UXR-48), a machine row is one line: name, hostname, the alert badge and, when the machine has problems (`machineProblems`: gh too old, no git identity), a `⚠ N problems` chip that opens its drawer. The row's only action is Details; Rename and Revoke are in the drawer ([§Sheet](#sheet-side-panel)), whose Problems section has the full text and fixes. An action cell is a real table cell (`td.table-actions` with a flex `.table-actions-inner` inside), so row borders are continuous: `display: flex` on a `<td>` broke them. |
 | Workflow | A "best on a larger screen" note; the diagram already scrolls in its own box. |
 | Agent markdown (chat, plans, ticket) | At every width, GFM tables and code blocks scroll sideways in their own box (`.md-table-wrap`, `.md-code`), and long words and inline code wrap. The chat (`.output`) never scrolls sideways. |
 
@@ -65,6 +83,7 @@ In `@media (pointer: coarse), (max-width: 699.98px)`:
 - Buttons, nav links, tabs, menu items, inputs and selects are at least `--tap` tall. The card's title and preview buttons are excluded: they are text inside a tappable card.
 - The panel's Back and Close buttons, and the sheet's Close, are at least `--tap` wide.
 - The Kind labels are 44 px rows, and the composer's send button is 44 × 44.
+- The side sheet's Close ([§Sheet](#sheet-side-panel)) is at least 44 × 44.
 
 On a phone, every `input`, `select` and `textarea` is 16 px, because iOS Safari zooms into any field smaller than that.
 
@@ -75,6 +94,19 @@ There must be no horizontal page scroll at 360 px. `scripts/ui-screenshots.js` c
 At 700 px and up, the same `CreateTicketForm` dialog is a centred modal (at most 760 px wide and 90 vh tall) over a backdrop. The top bar's New ticket button only opens it (the sheet covers the bar). Close, Escape or a click on the backdrop closes it. Title is full width; Repo, Priority and Kind share one row, with Kind as the phone's two segmented buttons. The form scrolls inside the sheet, under a sticky footer that holds the primary Create ticket and, while it is disabled, "Still needed: …". While the sheet is open, `<html>` has `modal-open` and the page under it doesn't scroll.
 
 At every width, closing with unsaved input (a title, a description that differs from the untouched template, or attachments) asks first. "Discard this ticket?" replaces Create ticket in the footer, with **Discard** and **Keep editing**, and Escape there means Keep editing. It is inline, like the workflow editor's discard prompt: no browser dialogs. Repo, Priority and Kind alone don't count as unsaved input.
+
+## Sheet (side panel)
+
+UXR-47. `components/Sheet.tsx` is the shared side panel: `<Sheet title onClose ariaLabel? className?>{children}</Sheet>`. It renders through a portal into `document.body`, so no page container clips it.
+- **Desktop:** a right-hand panel, `min(560px, 100vw)` wide, from below the top bar (`top: var(--topbar-h)`) to the bottom, so Help and the account menu stay visible. A dimmed backdrop covers the page under the bar. Layer: `--z-sheet`.
+- **Phone:** full screen on `--vvt`/`--vvh`, like the create sheet, with no backdrop and safe-area padding in the head.
+- A `role=dialog aria-modal` named by its heading (an `h2`), or by `ariaLabel`. The head has the heading and an icon Close (accessible name "Close").
+- Focus moves to Close on open and goes back to the opener on close. Tab and Shift+Tab wrap inside the panel.
+- Escape closes it, unless an inner widget handled that Escape first and called `preventDefault()` (the machine rename field does, so Escape leaves the form, then the sheet). A `pointerdown` anywhere outside the panel closes it, the top bar included, so a click on Help or the account button closes the sheet and then works.
+- The body scrolls (`overscroll-behavior: contain`); the page under it is not scroll-locked on desktop, the backdrop only blocks clicks. Tables inside scroll sideways in their own box (`.table-scroll`, a shared utility in `styles.css`; a table not wrapped in one gets `display: block; overflow-x: auto`), so they never widen the panel.
+- Used by the machine drawer (`machines/MachineDrawer.tsx`): hostname, Rename and Revoke…, Problems, the update notice, alerts, repos, repo rules and capabilities. The workflow editors, the new-ticket form and the ticket panel's `TicketSheet` can adopt it later.
+
+`scripts/ui-screenshots.js` shoots `machine-drawer` (old-linux-box's drawer) and `admin` (the mock in password mode, through `?mock-auth=password`, read by `api/select.ts` in mock mode only) at 375, 768 and 1440.
 
 ## Create ticket: Repo field
 
@@ -96,6 +128,14 @@ The create form and the ticket editor have an attachment picker under the body (
 - A note says that commands run with `sh -c` at the repo root of a fresh checkout (Git Bash on Windows), with a link to ADR-0030.
 - UXR-80: the table's *Health* column is a hint from the repo's 5 newest check runs over 30 days (`GET /api/repo-checks/health`, `healthHint`): *Passing* (all passed), *Failing* (the newest 3 failed), *Flaky*, or *No runs*; its tooltip reads "6 of 6 runs failed in 30 days". It's missing when health fails to load.
 - UXR-80: *Last runs* (`repo-checks/CheckHistory.tsx`, `GET /api/repo-checks/runs`) shows each check's last 5 runs as ✓/✗ marks, oldest to newest, each linked to its ticket (`#/?ticket=<id>`, the notification deep link, which opens it only if it's on the board) and labelled with status, duration, age and ticket title, plus "N of M failed" over 30 days. It reloads after a save or clear. Runs are matched to a check by **command** (the `run_cmd` payload has no check name, TD-201): a renamed check keeps its history, and a check whose command changed starts empty. *Try these checks* (running a draft list on a machine) is a follow-up ticket.
+- The workflow advisor's open proposals for the repo's checks, with their readable diff, Apply and Reject (UXR-73; see [Version history](#version-history-compare-and-the-save-review-uxr-70-uxr-73)).
+
+## Version history, Compare and the Save review (UXR-70, UXR-73)
+
+The workflow editor's diffs are in the editor's words (`workflow/version-diff.ts`, rendered by `VersionDiff.tsx`): one item per column, transition or workflow setting, marked Added, Removed or Changed. A changed field is a line such as "Title: Planning → Plan", "Goes to **Done** instead of **Review**", "Check **test**: `npm test` → `pnpm test`", "Waits for **PR checks**" or "If not met: …", and a transition shows its `describeTransition` sentence before and after. Commands (setup, checks, a command column) are never clipped, since they run. A field without words still shows as "Other setting changed: `<key>`", so no change is hidden.
+- **Version picker and History**: each version reads `v3 · 3 Oct 2026 · ben@example.com · <note>`. *History* lists every version (saved, by, note) with *View* and *Compare with latest*, and a From / To form compares any two. A comparison shows above the diagram and highlights the columns and arrows it changes (purple, dashed; `ColumnsDiagram` `changedStates` / `changedEdges`). Viewing an old version shows who saved it and *Compare with latest*.
+- **Save review**: *Save as new version…* opens a dialog (`SaveReviewDialog.tsx`) with the changes from the **latest** version, which is what the save replaces even when the draft started from an older one, and an optional note (≤ 500 chars). A draft with no change from the latest cannot be saved. Cancel or Escape keeps the draft.
+- **Advisor proposals** (`ProposalsPanel.tsx`): the detail shows the same readable diff from the proposal's whole change (`base_definition` / `proposed_definition`, `checks_before` / `checks_after`); a server without them falls back to the raw path table. An open workflow proposal highlights the columns and arrows it changes on the diagram. The Repo checks page lists the open proposals for that repo's checks (`kind=repo_checks&target=<repo>`) under its editor, and applying one there reloads the repo.
 
 ## Follow-up tickets in the workflow editor (ADR-0034)
 

@@ -266,7 +266,9 @@ function expectInstalled(h: Home, version: string, target: DaemonTarget = HOST) 
   );
 }
 
-describe.skipIf(!runnable)('install.sh', () => {
+// Each test runs the real install.sh (bash, tar, a local HTTP server) once or twice: about 1 s
+// alone, but several times that on a loaded machine, so the 5 s default is too tight.
+describe.skipIf(!runnable)('install.sh', { timeout: 30_000 }, () => {
   let v1: Served;
 
   beforeAll(async () => {

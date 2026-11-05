@@ -155,7 +155,8 @@ The migration's down drops these four tables and the new `machine` / `machine_re
 | definition | jsonb | see [05](05-workflow-engine.md) |
 | | | [ADR-0010](../adr/0010-one-workflow-columns-are-states.md): the orchestrator seeds `conductor` v1 (`docs/design/workflows/conductor.v1.json`, a copy in `packages/shared/src/workflow/conductor.ts`) on startup when no `conductor` version exists (one guarded INSERT, `ON CONFLICT DO NOTHING`: idempotent, safe on concurrent starts). Older workflows (`m1_*`) stay so their tickets still render |
 | account_id | uuid fk account | M2-T03 (see Tenancy above). The primary key stays `(id, version)` here; M2-T12 makes it `(account_id, id, version)` |
-| created_at, created_by | | |
+| created_at, created_by | | `created_by`: the saver's email over REST (UXR-70), `mcp:<email>` over MCP, `conductor` for a seeded version; null when unknown |
+| note | text null | UXR-70 (migration `1763100000000_workflow-version-note`): an optional note (≤ 500 chars) written when it was saved (the Save review dialog), `Applied proposal: <title>` for an applied change proposal. `created_by` and `note` are shown only to the account that saved the version (`account_id`): workflows are shared by every account |
 | pk | (id, version) | |
 
 ### session

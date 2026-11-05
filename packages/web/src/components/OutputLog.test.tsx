@@ -16,6 +16,7 @@ import {
   describeTool,
   diffLines,
   isFailedResult,
+  latestRunText,
   isProtocolStepEnd,
   OutputLog,
   phaseLabel,
@@ -537,6 +538,15 @@ describe('check output rows (UX-6)', () => {
     chunk('stdout', '> eslint .\nlint-line-2'),
   ];
   const rows = () => screen.getAllByRole('button', { name: /^Check output/ });
+
+  it("latestRunText (UXR-39): the named run's text, else the last run; null for none", () => {
+    const output = twoRuns();
+    expect(latestRunText(output, 'Typecheck', { workflow })).toContain('tsc done');
+    expect(latestRunText(output, 'Lint', { workflow })).toBe('> eslint .\nlint-line-2');
+    expect(latestRunText(output, null, { workflow })).toBe('> eslint .\nlint-line-2');
+    expect(latestRunText(output, 'Build', { workflow })).toBeNull();
+    expect(latestRunText([chunk('assistant', 'hi')], null)).toBeNull();
+  });
 
   it('FR-1: one collapsed row per run, with name, status and live line count', () => {
     const output = twoRuns();

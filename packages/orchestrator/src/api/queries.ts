@@ -180,12 +180,15 @@ export async function listWorkflows(db: Queryable, all = false): Promise<Workflo
 
 /**
  * GET /api/workflows/:id[?version=N] (ADR-0009): that version (default the latest) and the list
- * of saved versions. null = unknown id or version.
+ * of saved versions. null = unknown id or version. Workflows are shared by every account
+ * (WORKFLOW_CHANGE_WARNING), so who saved a version and its note (UXR-70) are shown only to the
+ * account that saved it (`viewerAccountId`; null shows them to nobody).
  */
 export async function loadWorkflowDetail(
   db: Queryable,
   id: string,
   version: number | null,
+  viewerAccountId: string | null,
 ): Promise<WorkflowDetail | null> {
   const res = await db.query<WorkflowDefinitionRow>(
     'SELECT * FROM workflow_definition WHERE id = $1 AND ($2::int IS NULL OR version = $2::int) ' +
@@ -194,17 +197,31 @@ export async function loadWorkflowDetail(
   );
   const row = res.rows[0];
   if (!row) return null;
-  const versions = await db.query<{ version: number }>(
-    'SELECT version FROM workflow_definition WHERE id = $1 ORDER BY version',
+  const versions = await db.query<
+    Pick<WorkflowDefinitionRow, 'version' | 'created_at' | 'created_by' | 'note' | 'account_id'>
+  >(
+    'SELECT version, created_at, created_by, note, account_id FROM workflow_definition ' +
+      'WHERE id = $1 ORDER BY version',
     [id],
   );
+  const mine = (r: Pick<WorkflowDefinitionRow, 'account_id'>) =>
+    viewerAccountId !== null && r.account_id === viewerAccountId;
   return {
     id: row.id,
     version: row.version,
     created_at: row.created_at.toISOString(),
+    created_by: mine(row) ? row.created_by : null,
+    note: mine(row) ? row.note : null,
     // Stored definitions were parsed on save; parsing again applies defaults to older rows.
     definition: WorkflowDefinitionSchema.parse(row.definition),
     versions: versions.rows.map((r) => r.version),
+    // UXR-70: the version history (who, when, note).
+    history: versions.rows.map((r) => ({
+      version: r.version,
+      created_at: r.created_at.toISOString(),
+      created_by: mine(r) ? r.created_by : null,
+      note: mine(r) ? r.note : null,
+    })),
   };
 }
 

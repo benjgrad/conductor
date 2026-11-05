@@ -11,6 +11,7 @@ import type { ApiClient } from '../api/client.js';
 import { FreshConversation, freshConversationOffer } from './FreshConversation.js';
 import { Markdown } from './markdown.js';
 import { usePlanAnswer } from './plan-answer.js';
+import { RequestCard } from './RequestCard.js';
 import { planApproveRequest, planChangesRequest, type PlanOptions } from './request-preview.js';
 import { TransitionButtons } from './transitions.js';
 import './PlanApprovalRequest.css';
@@ -57,12 +58,13 @@ export function PlanApprovalRequest({
   );
   const offer = freshConversationOffer(detail, request);
   return (
-    <section aria-label={PLAN_APPROVAL_LABEL} className="pending plan-approval">
-      <div className="pending-head">
-        <span className="action-needed">Action needed</span>
-        <span className="badge badge-plan-approval">{PLAN_APPROVAL_LABEL}</span>
-        <span className="muted">{agent} asks</span>
-      </div>
+    <RequestCard
+      tone="question"
+      label={PLAN_APPROVAL_LABEL}
+      who={`${agent} asks`}
+      ariaLabel={PLAN_APPROVAL_LABEL}
+      className="plan-approval"
+    >
       <div className="question-text">
         <Markdown text={request.question} />
       </div>
@@ -88,7 +90,7 @@ export function PlanApprovalRequest({
           onDone={onDone}
         />
       )}
-    </section>
+    </RequestCard>
   );
 }
 

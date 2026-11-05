@@ -71,14 +71,27 @@ export const WatchSchema = z.strictObject({
 
 - **Engine.**
   - On entering a watched state, the engine arms a watch timer (`watch_deadline` on the snapshot) and sends `run_action evaluate_conditions` exactly as the conditions phase does. It sends nothing for engine-only conditions (`age_below`, P2).
-  - **Met** means nothing happens and the timer re-arms. **Pending, error or no machine** means the timer re-arms and a note is shown; the watch never fires on missing evidence.
+  - **In order, short-circuit.** A watch's conditions are evaluated in declared order, and each poll stops at the first condition that is not `met`:
+    - `failed` fires `on_broken`;
+    - `pending`, `error` or `unsupported` re-arms.
+
+    A later condition therefore runs only when every earlier one is met. List the cheap one first: `pr_mergeable` before a `cmd`, so the `cmd` runs only once GitHub says the PR is mergeable.
+    - The engine evaluates `age_below` itself. If it comes first and fails, nothing is sent to the daemon.
+    - `evaluate_conditions` gains `short_circuit: true`. The daemon stops at the first non-`met` result and reports the rest as `skipped`.
+    - `requires.conditions` keep today's evaluate-all behaviour, because the gate's checklist shows every item.
+  - **Met** (all of them) means nothing happens and the timer re-arms. **Pending, error or no machine** means the timer re-arms and a note is shown; the watch never fires on missing evidence.
   - **Failed** (a condition is definitely false) means `on_broken` runs:
     - **The move form** enters `goto` as a system move with `cause: 'watch_broken'` (P7) and the failed conditions as evidence. The move is counted under `watch:<state>`; when the count exceeds `retries` it goes to `else`.
     - The instruction goes to the agent the way `on_unmet.instruction` does.
     - `return_to: '$self'` sets `session.return_to` to the watched state, so the agent's next completion, through `$return_to` or a hand-off, comes back to it.
   - **The escalate form** emits one notification with `via: 'watch_escalate'` per stay. The counter resets on re-entry.
   - Leaving the state disarms the watch. A watch never kills a running process, because human and event states have none.
-- **Where a `cmd` condition runs.** In the fresh, conductor-owned checkout of the PR head that `requires.checks` uses (ADR-0030), after the repo `setup`. Never in the agent's worktree, which on a human state may belong to the next visit.
+- **Where a `cmd` condition runs.** In the fresh, conductor-owned checkout of the PR head that `requires.checks` uses (ADR-0030). Never in the agent's worktree, which on a human state may belong to the next visit. Its `needs` field (P2) decides how much is prepared:
+  - `checkout` gets the checkout only;
+  - `setup`, the default, also runs the repo `setup`.
+
+  A `git merge-tree` check needs no dependencies, so it uses `needs: checkout` and skips `pnpm install` on every poll.
+- **Cost.** A `cmd` in a watch still costs a checkout per poll on the session's machine. That is why the v6 draft's `in_review.watch` carries only `pr_mergeable` (one `gh` call), and "Merges cleanly with main" stays a pre-PR repo check (§Draft v6). The `cmd` form remains the escape hatch, for a repo without GitHub mergeability or for a check GitHub can't make.
 - **Builder.** A "While here, keep checking" panel on human and event columns: a condition list (the existing `ConditionFields` editor), a poll field, and an "if it breaks" choice between *send back to* (goto, instruction preset, come-back toggle, retries, else) and *notify me*.
 - **Insights.** Each firing is a `state_entered` with `cause: 'watch_broken'`, or a notify with `via: 'watch_escalate'`. Re-entries are counted per cause. A loop of `watch_broken` laps is reported as a re-sync loop, not as rework.
 - **v5 migration.** Absent means no watch, so nothing changes.
@@ -88,12 +101,13 @@ export const WatchSchema = z.strictObject({
 ```ts
 // added to ConditionSchema's discriminated union
 z.strictObject({ type: z.literal('cmd'), name: z.string().trim().min(1).max(200),
-                 cmd: z.string().trim().min(1), timeout: DurationSchema.optional(), ...conditionCommon }),
+                 cmd: z.string().trim().min(1), timeout: DurationSchema.optional(),
+                 needs: z.enum(['checkout', 'setup']).default('setup'), ...conditionCommon }),
 z.strictObject({ type: z.literal('pr_mergeable'), ...conditionCommon }),
 z.strictObject({ type: z.literal('age_below'), max: DurationSchema, ...conditionCommon }),
 ```
 
-- **`cmd`** is met when the command exits 0 and failed otherwise, run in the fresh checkout described under P1. The extensibility escape hatch is any later need (a label present, behind-by-N, a Jira field), which becomes a workflow edit.
+- **`cmd`** is met when the command exits 0 and failed otherwise, run in the fresh checkout described under P1. `needs: checkout` skips the repo `setup`; `needs: setup`, the default, matches `requires.checks`. The extensibility escape hatch is any later need (a label present, behind-by-N, a Jira field), which becomes a workflow edit.
 - **`pr_mergeable`** runs `gh pr view --json mergeable,mergeStateStatus`:
   - `MERGEABLE` means met;
   - `CONFLICTING` means failed;
@@ -143,7 +157,11 @@ export const ConcurrencySchema = z.strictObject({
   - Release happens on the P1 Q1 triggers (a holder leaving scope), plus a poll at `condition_poll`. Ties go oldest first by `step.started_at`.
   - Release continues the move with `cause: 'concurrency_released'` recorded on the eventual `state_entered`. `hold_timeout` goes to `on_unmet.else`, kind `timeout`.
   - The check is pure over a holders list the wrapper passes in as an event (`concurrency.checked {holders}`), so `apply()` stays pure.
-- **`overlap: planned_files`** needs a `files: string[]` key in the planning result. Planning prompts ask for it (T7). A session without `files` overlaps everything, which is safe because it just serialises.
+- **`overlap: planned_files`** reads a `files: string[]` key from the planning result. Planning prompts ask for it (T7).
+  - **It holds only when both sides have `files` and the lists intersect** (path globs, matched like `PathGlobSchema`).
+  - A session without `files`, or a holder without them, makes no overlap claim, so there is no hold. Until planning reliably emits `files`, the primitive does nothing rather than serialising the repo.
+  - Without `overlap`, the hold is by key alone, which is the explicit "one at a time" for a user who wants it.
+  - *Alternative (recorded, not chosen):* treat missing `files` as overlapping everything, and leave `requires.concurrency` out of v6 until T7 has seen `files` on 20 consecutive plans. Rejected because the safe default is "no evidence, no hold". A primitive that silently serialises five parallel tickets fails worse than one that occasionally lets a conflict through to the P1 watch.
 - **Builder.** A "One at a time" section on a transition: key, max, scope (column picker), "only when files overlap", hold timeout.
 - **Insights.** Held time is its own bucket, "queued", not counted as a slow state. Releases are counted by cause.
 - **v5 migration.** Absent means no hold, so nothing changes.
@@ -183,8 +201,16 @@ export const NotifyPolicySchema = z.strictObject({
   - **Without the top-level `notify` block**, the engine runs in **legacy mode**, which is exactly today's behaviour: every input_request pushes, and `notify: true` transitions also push.
   - **With the block,** each `state_entered` and input_request is evaluated once:
     - the mode is the transition's own setting if it has one (`true` means `always`, `false` means `never`), otherwise `default`;
-    - **engine moves** (any `cause` other than `transition`, P7) use `engine_moves`, where `never` means silent;
-    - `when_waiting_on_you` fires only when the card's `waiting_on` becomes `you` (or `you_on_board`) from something else, so a rework lap that lands back in In review notifies only if the ticket was not already waiting on you.
+    - `when_waiting_on_you` fires on a **new wait**: the card's `waiting_on` becomes `you` (or `you_on_board`) from something else, and the landing is not the end of an engine lap (below);
+    - `always` fires on every move. **Engine moves** (any `cause` other than `transition`, P7) that are not a new wait use `engine_moves`, where `never` means silent. A new wait is never silenced by `engine_moves`: an engine move that ends at a human, such as `retries_exhausted` or `condition_timeout` into Needs input, notifies under `when_waiting_on_you`.
+  - **Engine laps are not new waits.** The scenario this rule exists for: In review (waiting on you), then a watch fires `watch_broken`, the agent re-syncs and hands off again, and the ticket is back in In review. `waiting_on` went you → agent → you, but nobody started a new wait for Ben, and a lap is longer than `coalesce` can be relied on to cover. Precisely:
+    - **A lap opens** when a move with `cause ≠ 'transition'` leaves a state `S` while the card is waiting on you. `S` is a human state, or an event state waiting on you. The snapshot records `notify_lap = {origin: S, cause, opened_at}`. A move a human takes (cause `transition`, actor `human`, e.g. `request_changes`) opens no lap: Ben started that lap, so its return notifies him.
+    - **While a lap is open,** moves that don't make the card wait on you change nothing.
+    - **The lap closes** at the first landing where the card waits on you again, or at a terminal state.
+      - Landing in **`S` itself** (including through `return_to: $self` or a hand-off back into it) is silent: the same wait resumed.
+      - Landing **anywhere else** is a new wait and notifies by the normal rule. That covers the watch's `else` into Needs input, an `ask_user` or other `question: true` from the agent during the lap, and a timeout to a human.
+    - A lap is per session, and a second engine move out of `S` before it closes keeps the original `origin`. The rule is pure over the snapshot (`notifyDecision(def, snapshot, move)` in `apply.ts`), so it is unit-tested without the notifier.
+    - `coalesce` stays a second, time-based guard against bounces the lap rule doesn't cover, such as two different human states within the window.
   - The decision is recorded as `notify: {via: <transition name | cause>, mode}` on the effect. `watch_escalate` (P1) always notifies, because the user asked for it.
   - Permission prompts (UXR-32) are not moves and always notify.
 - **Notifier.** One outbox row per decision. With `coalesce`, the idempotency key is bucketed (Q5), so a ticket that bounces between states inside the window sends one push.
@@ -276,10 +302,10 @@ Rule numbers continue [05 §Validation on save](../design/05-workflow-engine.md#
 [`conductor.v6.draft.json`](../design/workflows/conductor.v6.draft.json) is the live v5 plus only the fields above:
 - `instructions` holds `resync_main` (the recipe Ben typed four times on 2026-11-05) and `fix_and_resubmit` (v5's `on_unmet` text, now referenced from all three PR gates).
 - Top-level `notify {default: when_waiting_on_you, engine_moves: never, coalesce: 15m}`, with `plan_needs_approval: notify: always`.
-- `pr_ready_for_review` and `personal_pr_ready_for_review` change from `question: true` to `handoff: true`. Each gains `requires.concurrency` (`$repo`, 1, scope `[in_review]`, `planned_files`, 1d).
+- `pr_ready_for_review` and `personal_pr_ready_for_review` change from `question: true` to `handoff: true`. Each gains `requires.concurrency` (`$repo`, 1, scope `[in_review]`, `planned_files`, 1d). Under P4's "both sides have `files`" rule this holds nothing until planning emits `files`, so it is safe to save before T7 has evidence that `files` are reliable.
 - All three PR gates move from `no_checks_after: 5m` to `no_checks: {policy: require_mergeable, after: 5m}`.
 - `in_review.watch`:
-  - conditions: `pr_mergeable`, plus `cmd` "Merges cleanly with main" (`git fetch -q origin && git merge-tree --write-tree origin/main HEAD`);
+  - its only condition is `pr_mergeable`, one `gh` call per poll with no checkout. "Merges cleanly with main" stays a pre-PR repo check (below) rather than a watch `cmd`: in review, GitHub's mergeability answers the same question for free. The `cmd` form (`needs: checkout`) remains available for a repo where it doesn't;
   - `on_broken` sends the ticket to `implementing` with `$instructions.resync_main`, `return_to: $self`, 3 retries, else `needs_input`.
 - `in_review.request_changes` gets `presets: [resync_main]`.
 - `needs_input.watch`: an `age_below 2h` condition with `on_broken: {notify: escalate}` (the question SLA).
@@ -295,17 +321,17 @@ Rule numbers continue [05 §Validation on save](../design/05-workflow-engine.md#
 T1's acceptance replaces that test with `validateWorkflow(draft, {allowUnavailable: true}).ok`.
 
 **Nothing in 2.1, 2.2 or 2.5 needed an engine special case.** One gap turned up and is closed by an existing primitive rather than a widened special case:
-- `cmd` on a human state needs a checkout, which the check runner already provides (P1, "where a `cmd` condition runs").
+- `cmd` on a human state needs a checkout, which the check runner already provides (P1, "where a `cmd` condition runs"). Its cost is bounded by `needs: checkout` and the in-order short-circuit, and the draft avoids it by using `pr_mergeable`.
 
 Two behaviours are deliberately *not* expressed:
 - **"Proceed with the recommended answer after 2h"** would also be expressible: `needs_input.watch.on_broken.goto: $return_to` with an instruction. The draft uses `escalate` instead, because auto-answering is a product decision for Ben, not a spike default. A watch `goto: "$return_to"` would need rule 19 to accept `$return_to` as a target; that small extension is recorded as an option, not added.
-- **Throttling repeated hand-off notifications** for a ticket that bounces is covered by `coalesce`. No per-ticket cap was needed.
+- **Throttling repeated hand-off notifications** for a ticket that bounces is covered by P6's engine-lap rule (a watch re-sync that lands back in In review is silent) and, for other bounces, by `coalesce`. No per-ticket cap was needed.
 
 ### Coverage table (every item in the review's §2)
 
 | Item | Covered by | Config line (v6 draft / repo checks / other) |
 |---|---|---|
-| 2.1 PR waits in In review while main moves | P1 + P2 | `in_review.watch` with `pr_mergeable` + `cmd` merge-tree |
+| 2.1 PR waits in In review while main moves | P1 + P2 | `in_review.watch` with `pr_mergeable` (the `cmd` merge-tree form stays available) |
 | 2.1 Ben retypes the re-sync recipe | P5 | `instructions.resync_main`, `on_broken.instruction`, `request_changes.presets` |
 | 2.1 Thrash: #174 re-synced, #177 merged, again | P4 (prevention) + P1 retries bound | `requires.concurrency` on both PR-ready transitions, `overlap: planned_files`; `on_broken.retries: 3 → needs_input` |
 | 2.1 No CI on a conflicting PR counted as a pass | P3 | `no_checks: {policy: require_mergeable}` on the three PR gates |
@@ -322,6 +348,7 @@ Two behaviours are deliberately *not* expressed:
 | 2.3 Checks named `npm test` on a Rust repo | config | per-repo checks (ADR-0030) with real names |
 | 2.4 Oversized tickets, unrelated fixes, late test updates | not a primitive | prompt and ticket-template edits (proposal §4); `proposed_tickets` already exists (ADR-0034) |
 | 2.5 Too many notifications | P6 | top-level `notify` block, `engine_moves: never`, `coalesce: 15m` |
+| 2.5 Each rework / re-sync lap re-notifies | P6 engine-lap rule | a watch re-sync back into `in_review` is silent; a human `request_changes` lap still notifies |
 | 2.5 PR summary notified as a question | P8 + P6 | `handoff: true`; one push when it starts waiting on you |
 | 2.5 No notify flags in `get_workflow` | FR-5 | explained above; P6 replaces the opt-in boolean with a policy |
 | 2.6.1 Hand-offs counted as questions | P8 | Insights counts `agent_question` only |
@@ -342,12 +369,12 @@ Order: T1 (schema) first; P7 and P8 next, because Insights and notifications rea
 | T1 | Schema + validator for P1–P8, all "not available yet" | `packages/shared/src/workflow/schema.ts`, `validate.ts`, `validate-transitions.ts`, `packages/shared/protocol-json/**`, `crates/conductor-protocol/src/generated.rs`, `docs/design/10-contracts.md` (drop "proposed") | Every schema above parses; rules 19–25 each have a failing and a passing case; rule 14 refuses each field; `validateWorkflow(v6 draft, {allowUnavailable: true}).ok`; the v6-draft test switches to that; v1–v5 still validate unchanged | none |
 | T2 | P7 move causes | `packages/shared/src/engine/apply.ts`, `engine/transitions.ts`, `api/rest.ts` (`StateEnteredPayloadSchema`, `MoveDto`), orchestrator insights grouping (`orchestrator/src/advisor/**`) | Every `enter()` call passes a cause (enumerating test); engine moves record `actor: system`; Insights loops keyed by `(from, transition, cause)`; old rows parse as `cause: null` | T1 |
 | T3 | P8 hand-off | `apply.ts`, `domain.ts` (`InputRequestKindSchema`), an additive orchestrator migration for `handoff`, `api/cards*.ts` (`status_line`), web request preview / designer toggle | A `handoff` transition opens a `handoff` input_request; status line "Ready for review: …"; Insights question count excludes it; `question: true` behaves as before | T1 |
-| T4 | P6 notify policy | `apply.ts` (decision), `orchestrator/src/push/*` (coalescing), `orchestrator/src/engine/service.ts`, `web/src/workflow/transitions.ts` (select) | Legacy mode byte-for-byte today's pushes (existing push tests unchanged); with the block, engine moves never push, `when_waiting_on_you` fires on the edge only, coalesce bucket dedupes | T2, T3 |
-| T5 | P2 conditions + P3 no-CI policy | `packages/shared/src/engine/conditions.ts`, `crates/conductor-daemon/src/actions/conditions.rs`, `packages/daemon/src/actions/conditions.ts`, `crates/conductor-daemon/PARITY.md`, `web/src/workflow/ConditionFields.tsx` | `cmd` runs in the fresh checkout; `pr_mergeable` maps MERGEABLE/CONFLICTING/UNKNOWN; `age_below` engine-side; `no_checks_after` folds to `{pass}`; `require_mergeable` fails a conflicting PR with no checks | T1 |
+| T4 | P6 notify policy | `apply.ts` (decision), `orchestrator/src/push/*` (coalescing), `orchestrator/src/engine/service.ts`, `web/src/workflow/transitions.ts` (select) | Legacy mode byte-for-byte today's pushes (existing push tests unchanged); with the block, engine moves never push, `when_waiting_on_you` fires on the edge only, coalesce bucket dedupes. `apply.notify.test.ts` covers the engine-lap rule: (a) `watch_broken` → re-sync → hand-off back into `in_review` sends 0 pushes; (b) the same lap exhausting retries into `needs_input` sends 1; (c) an `ask_user` during the lap sends 1; (d) a human `request_changes` lap back into `in_review` sends 1; (e) a second engine move inside an open lap keeps the original origin | T2, T3 |
+| T5 | P2 conditions + P3 no-CI policy | `packages/shared/src/engine/conditions.ts`, `crates/conductor-daemon/src/actions/conditions.rs`, `packages/daemon/src/actions/conditions.ts`, `crates/conductor-daemon/PARITY.md`, `web/src/workflow/ConditionFields.tsx` | `cmd` runs in the fresh checkout, with no repo setup for `needs: checkout`; watch evaluation short-circuits in order (a `cmd` after a failing `pr_mergeable` is never sent); `pr_mergeable` maps MERGEABLE/CONFLICTING/UNKNOWN; `age_below` engine-side; `no_checks_after` folds to `{pass}`; `require_mergeable` fails a conflicting PR with no checks | T1 |
 | T6 | P1 watch | `apply.ts` (watch timer, `watch_broken`), `orchestrator/src/engine/service.ts` + scheduler (same-repo merge trigger), web column panel | Watch fires only on `failed`; bounded by `retries` then `else`; disarmed on leave; same-repo merge re-evaluates within one tick; property test: every watch path ends at a human | T2, T4, T5 |
-| T7 | P4 concurrency holds | `engine/move-step.ts`, `apply.ts`, orchestrator holders query, planning prompt `files` key, `api/cards*.ts` ("Queued behind #N") | Held at max; released oldest-first on the shared trigger; `hold_timeout` → `else`; no overlap ⇒ no hold with `planned_files` | T2, T4, T6 |
+| T7 | P4 concurrency holds | `engine/move-step.ts`, `apply.ts`, orchestrator holders query, planning prompt `files` key, `api/cards*.ts` ("Queued behind #N") | Held at max; released oldest-first on the shared trigger; `hold_timeout` → `else`; with `planned_files`, no hold unless both sessions have `files` and they intersect (a session without `files` is never held, nor holds others) | T2, T4, T6 |
 | T8 | P5 instructions + presets | schema refs (from T1), `engine/render.ts` (resolve), web human-button presets and workflow settings | Refs resolve against the pinned version; presets fill the text box; unresolved refs refused (rule 21) | T1 |
-| T9 | Config: save v6, set repo checks | none (MCP `save_workflow`, `set_repo_checks`); ticket template line | v6 saved from the draft; `get_repo_checks` shows the five checks; a conflicting PR in review is sent back without Ben | T5, T6, T7, T8 |
+| T9 | Config: save v6, set repo checks | none (MCP `save_workflow`, `set_repo_checks`); ticket template line | v6 saved from the draft; `get_repo_checks` shows the five checks; Insights shows how often holds happen once `files` appear; a conflicting PR in review is sent back without Ben | T5, T6, T7, T8 |
 
 ## Alternatives considered
 
@@ -367,14 +394,15 @@ Order: T1 (schema) first; P7 and P8 next, because Insights and notifications rea
   - Engine moves are explainable (P7), which unblocks bb5e7d0d.
   - Notifications follow one written policy instead of two hidden paths.
 - **Bad / accepted cost.**
-  - A `cmd` watch on a human state costs a fresh checkout per poll on the session's machine. The draft lists `pr_mergeable` first, the cheap primary check, and polling backs off on unchanged answers.
-  - Concurrency serialises PRs on one repo, which is slower when file lists are missing.
+  - A `cmd` watch on a human state costs a fresh checkout per poll on the session's machine. That is bounded by `needs: checkout`, the in-order short-circuit and polling backoff, and the v6 draft uses only `pr_mergeable`.
+  - With `planned_files`, concurrency prevents nothing until planning emits `files`; until then the P1 watch is the only defence against conflicts.
   - The definition grows. The designer has to stay readable, so each primitive gets a collapsed panel.
 - **Follow-ups (Tracking, for the daily sync).**
   - U-row: webhooks for watch and concurrency-release latency (deferred by Q1).
   - U-row: does planning reliably emit `files` for `overlap: planned_files`?
   - U-row: should a watch be able to `goto: $return_to` (auto-proceed on a stale question)?
   - Tickets T1–T9 above.
+  - Recorded alternative to P4's "both sides have `files`" rule: missing `files` overlaps everything, with concurrency added to v6 only after `files` appear on 20 consecutive plans.
 
 ## Revisit when
 

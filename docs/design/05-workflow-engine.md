@@ -200,16 +200,19 @@ Not implemented yet. The schema and the "not available yet" refusals land in T1;
 - **`watch`** (P1) on `human` and `event` states: `{poll?, conditions, on_broken}`.
   - The conditions are re-checked while the ticket sits in the state: every `poll` (default 2m, backing off to 15m), and at once when a PR on the same repo merges or conductor pushes the branch.
   - A `failed` condition (never `pending`) takes `on_broken`. Either it moves the ticket to `goto` (counted under `watch:<state>`, then `else`, a human state; `return_to: $self` brings the next completion back), or it sends one `notify: escalate` per stay.
-  - `cmd` conditions run in the fresh checkout of the PR head, as `requires.checks` does.
-- **Conditions** (P2): `cmd {name, cmd, timeout?}`, `pr_mergeable` and `age_below {max}`. `age_below` is engine-side and allowed only in a watch.
+  - A watch's conditions are evaluated **in order, short-circuiting** at the first one that is not `met`, so a later (costlier) condition runs only when the earlier ones hold. `requires.conditions` still evaluate all of them.
+  - `cmd` conditions run in the fresh checkout of the PR head, as `requires.checks` does. `needs: checkout` skips the repo setup.
+- **Conditions** (P2): `cmd {name, cmd, timeout?, needs: checkout|setup = setup}`, `pr_mergeable` and `age_below {max}`. `age_below` is engine-side and allowed only in a watch.
   - **No-CI policy** (P3): `pr_checks_green.no_checks {policy: pass|fail|require_mergeable, after}`. A stored `no_checks_after: X` folds to `{policy: pass, after: X}`.
 - **`requires.concurrency`** (P4): `{key, max_in_flight, scope, order, overlap?, hold_timeout}`.
   - It is a `held` phase before `checks`. The card shows "Queued behind #N".
   - Release happens on the same triggers as a watch. `hold_timeout` goes to `on_unmet.else`.
+  - With `overlap: planned_files`, it holds only when both sessions have a planning `files` list and the lists intersect. A session without `files` neither holds nor is held.
 - **`instructions`** (P5): a workflow-level map. `$instructions.<slug>` refs are accepted in `on_unmet.instruction` and `on_broken.instruction`, and as `presets` on human buttons with `text`. Refs resolve against the pinned version.
 - **`notify`** (P6): a workflow-level `{default, engine_moves, coalesce?}`. Transition `notify` widens to `boolean | never | when_waiting_on_you | always | inherit`.
   - Without the block, legacy mode applies: every input_request pushes, plus `notify: true` transitions.
   - The engine decides whether a move notifies; the notifier coalesces.
+  - **Engine laps.** A move with `cause ≠ transition` out of a state `S` that waits on you opens a lap (`notify_lap.origin = S`). The lap's next wait-on-you landing is silent if it is `S` again, and a new wait (it notifies) anywhere else. A human-taken move opens no lap.
 - **`cause`** (P7) on every `state_entered`: `transition`, `check_failed`, `review_unmet`, `action_failed`, `condition_unmet`, `condition_timeout`, `watch_broken`, `concurrency_released`, `timeout`, `retry`, `retries_exhausted`, `budget_exceeded`, `machine_lost` or `answer_routed`. Engine moves are recorded with `actor: system`.
 - **`handoff: true`** (P8) on a transition into a human state: an input_request of kind `handoff`, with the reason as the summary. It is exclusive with `question`.
 

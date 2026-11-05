@@ -345,7 +345,8 @@ Semantics: [ADR-0011](../adr/0011-transition-rules.md) (accepted, with Ben's ans
 
 ```ts
 // P2 / P3: ConditionSchema gains
-{ type: 'cmd', name: string(1..200), cmd: string, timeout?: Duration, enabled?, label? }
+{ type: 'cmd', name: string(1..200), cmd: string, timeout?: Duration,
+  needs: 'checkout' | 'setup' = 'setup', enabled?, label? }
 { type: 'pr_mergeable', enabled?, label? }
 { type: 'age_below', max: Duration, enabled?, label? }            // engine-side, watch only (rule 24)
 pr_checks_green.no_checks?: { policy: 'pass' | 'fail' | 'require_mergeable', after: Duration }  // ⊕ no_checks_after (rule 25)
@@ -359,6 +360,7 @@ watch?: { poll?: Duration, conditions: Condition[1..10],
 // P4: TransitionRequiresSchema gains
 concurrency?: { key: '$repo' | '$repo+$kind', max_in_flight: 1..10, scope: State[1..10],
                 order: 'oldest_first' = 'oldest_first', overlap?: 'planned_files', hold_timeout: Duration }
+// overlap 'planned_files': hold only when both sessions have planning `files` and they intersect
 
 // P5: WorkflowDefinitionSchema gains
 instructions?: Record<slug /^[a-z][a-z0-9_]*$/ ≤40, string(1..4000)>
@@ -378,7 +380,9 @@ cause: 'transition' | 'check_failed' | 'review_unmet' | 'action_failed' | 'condi
 ```
 
 - **Notifier seam (P6).** With the definition's `notify` block, the engine records `notify: {via, mode}` on the `state_entered` effect and the input_request. `push/enqueue.ts` writes one row per decision, with idempotency key `notify:<ticket>:<state>:<floor(now / coalesce)>` when `coalesce` is set. Without the block, today's `push_needs_input` and `push_transition` rules apply unchanged.
-- **Watch and hold triggers (P1/P4).** The orchestrator feeds `watch.check` and `concurrency.checked {holders}` events to `apply()`. They are sent on the poll timer, and to every session on the same repo when a PR merges (`merge_pr` ok, or a human move to a terminal state with `context.__pr`) or conductor pushes a branch.
+- **Engine laps (P6).** The snapshot gains `notify_lap?: {origin: State, cause: MoveCause, opened_at}`, written and cleared by `apply()` (`notifyDecision`). See ADR-0037 P6.
+- **Short-circuit (P1).** `EvaluateConditionsArgs` gains `short_circuit?: boolean`. When it is set, the daemon stops at the first non-`met` result and reports the rest as `skipped`, a new `ConditionStatus` value.
+- **Watch and hold triggers (P1/P4). The orchestrator feeds `watch.check` and `concurrency.checked {holders}` events to `apply()`. They are sent on the poll timer, and to every session on the same repo when a PR merges (`merge_pr` ok, or a human move to a terminal state with `context.__pr`) or conductor pushes a branch.
 
 ## Review and merge (ADR-0020)
 

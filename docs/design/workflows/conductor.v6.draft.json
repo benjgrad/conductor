@@ -324,13 +324,8 @@
         "poll": "2m",
         "conditions": [
           {
-            "type": "pr_mergeable"
-          },
-          {
-            "type": "cmd",
-            "name": "Merges cleanly with main",
-            "cmd": "git fetch -q origin && git merge-tree --write-tree origin/main HEAD",
-            "timeout": "2m"
+            "type": "pr_mergeable",
+            "label": "Merges cleanly with main (GitHub)"
           }
         ],
         "on_broken": {

@@ -24,6 +24,8 @@ export interface SaveWorkflowOptions {
   createdBy?: string | null;
   /** Save only while this is still the latest version of the id (optimistic concurrency). */
   baseVersion?: number;
+  /** UXR-70: `workflow_definition.note` ('' or null = none). */
+  note?: string | null;
 }
 
 /** The latest stored version of `id` and its parsed definition (null when it no longer parses). */
@@ -61,12 +63,18 @@ export async function insertWorkflowVersion(
   for (let attempt = 0; ; attempt++) {
     try {
       const res = await q.query<{ version: number }>(
-        'INSERT INTO workflow_definition (id, version, definition, created_by) ' +
+        'INSERT INTO workflow_definition (id, version, definition, created_by, note) ' +
           'SELECT $1::text, coalesce(max(version), 0) + 1, ' +
-          "jsonb_set($2::jsonb, '{version}', to_jsonb(coalesce(max(version), 0) + 1)), $3::text " +
-          'FROM workflow_definition WHERE id = $1::text ' +
+          "jsonb_set($2::jsonb, '{version}', to_jsonb(coalesce(max(version), 0) + 1)), $3::text, " +
+          '$5::text FROM workflow_definition WHERE id = $1::text ' +
           'HAVING $4::int IS NULL OR coalesce(max(version), 0) = $4::int RETURNING version',
-        [def.id, JSON.stringify(def), opts.createdBy ?? null, opts.baseVersion ?? null],
+        [
+          def.id,
+          JSON.stringify(def),
+          opts.createdBy ?? null,
+          opts.baseVersion ?? null,
+          opts.note?.trim() ? opts.note.trim() : null,
+        ],
       );
       const row = res.rows[0];
       if (row === undefined) {

@@ -194,17 +194,29 @@ export async function loadWorkflowDetail(
   );
   const row = res.rows[0];
   if (!row) return null;
-  const versions = await db.query<{ version: number }>(
-    'SELECT version FROM workflow_definition WHERE id = $1 ORDER BY version',
+  const versions = await db.query<
+    Pick<WorkflowDefinitionRow, 'version' | 'created_at' | 'created_by' | 'note'>
+  >(
+    'SELECT version, created_at, created_by, note FROM workflow_definition WHERE id = $1 ' +
+      'ORDER BY version',
     [id],
   );
   return {
     id: row.id,
     version: row.version,
     created_at: row.created_at.toISOString(),
+    created_by: row.created_by,
+    note: row.note,
     // Stored definitions were parsed on save; parsing again applies defaults to older rows.
     definition: WorkflowDefinitionSchema.parse(row.definition),
     versions: versions.rows.map((r) => r.version),
+    // UXR-70: the version history (who, when, note).
+    history: versions.rows.map((r) => ({
+      version: r.version,
+      created_at: r.created_at.toISOString(),
+      created_by: r.created_by,
+      note: r.note,
+    })),
   };
 }
 

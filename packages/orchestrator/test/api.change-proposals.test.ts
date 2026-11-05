@@ -77,8 +77,24 @@ describe('/api/change-proposals', () => {
       400,
     );
 
+    // UXR-73: the Repo checks page lists one repo's proposals.
+    const forRepo = await api.send(
+      'GET',
+      `${API_PATHS.changeProposals}?kind=repo_checks&target=${encodeURIComponent('GitHub.com/Acme/rest-one')}`,
+      as(a),
+    );
+    expect(forRepo.json).toMatchObject({ total: 1, proposals: [{ id: one }] });
+    expect(
+      (await api.send('GET', `${API_PATHS.changeProposals}?kind=workflow`, as(a))).json,
+    ).toMatchObject({ total: 0 });
+
     const detail = await api.send('GET', API_PATHS.changeProposal(one), as(a));
     expect(detail.json).toMatchObject({ id: one, status: 'proposed', diff: { more_changes: 0 } });
+    // UXR-73: the whole change, for the readable diff.
+    expect(detail.json).toMatchObject({
+      checks_before: null,
+      checks_after: { checks: [{ name: 'b', cmd: 'make' }] },
+    });
     expect((await api.send('GET', API_PATHS.changeProposal(one), as(b))).status).toBe(404);
     expect((await post(b, API_PATHS.changeProposalApply(one))).status).toBe(404);
 
@@ -120,6 +136,17 @@ describe('/api/change-proposals', () => {
     );
     if (!res.ok) throw new Error(res.message);
     expect(res.value.warning).toMatch(/every account/);
+    // MCP results leave the bodies out; the board's detail has them (UXR-73).
+    expect(res.value).not.toHaveProperty('proposed_definition');
+    const shown = await api.send('GET', API_PATHS.changeProposal(res.value.id), {
+      headers: { cookie: member.cookie },
+    });
+    const bodies = shown.json as {
+      base_definition: { states: Record<string, { title?: string }> };
+      proposed_definition: { states: Record<string, { title?: string }> };
+    };
+    expect(bodies.proposed_definition.states[first]!.title).toBe('Renamed');
+    expect(bodies.base_definition.states[first]!.title).not.toBe('Renamed');
     const denied = await api.send('POST', API_PATHS.changeProposalApply(res.value.id), {
       headers: { cookie: member.cookie },
       body: {},

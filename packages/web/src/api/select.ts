@@ -1,5 +1,6 @@
 import type { ApiClient } from './client.js';
 import { createHttpApi, type HttpApiOptions } from './http.js';
+import { SEED_IDS } from './mock-data.js';
 import { createMockApi } from './mock.js';
 
 // Which ApiClient the app runs on (M1-T09b). VITE_API=mock|http, default http: the real
@@ -31,7 +32,26 @@ export function createApiFromEnv(
   const kind = apiKind(env);
   if (kind === 'mock') {
     const still = env.VITE_MOCK_STATIC === '1';
-    const api = createMockApi({ latencyMs: still ? 0 : 150 });
+    // Dev-only scene flags for scripts/ui-screenshots.js: states the default mock doesn't show.
+    // VITE_MOCK_AUTH=password (accounts + admin, signed in), =signed-out (accounts, signed out);
+    // VITE_MOCK_MACHINES=none (the first-run guide); VITE_MOCK_PERMISSION=1 (a pending tool
+    // permission request on the running "Add pagination to /orders" card).
+    const auth = env.VITE_MOCK_AUTH;
+    const api = createMockApi({
+      latencyMs: still ? 0 : 150,
+      ...(auth === 'password' || auth === 'signed-out'
+        ? { auth: 'password' as const, signedIn: auth === 'password' }
+        : {}),
+      ...(env.VITE_MOCK_MACHINES === 'none' ? { machines: 'none' as const } : {}),
+    });
+    if (env.VITE_MOCK_PERMISSION === '1') {
+      api.requestPermission(
+        SEED_IDS.running.session,
+        'Bash',
+        { command: 'pnpm vitest run', description: 'Run the tests' },
+        'Bash(pnpm vitest run)',
+      );
+    }
     if (!still) api.simulate(2000);
     return { kind, api };
   }

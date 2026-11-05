@@ -1,6 +1,6 @@
 # 11 · Web UI: tokens, breakpoint, phone layouts
 
-The web app (`packages/web`) has one desktop layout and, below a phone breakpoint, a phone layout. This doc covers the design tokens, the breakpoint, what changes on a phone, and the touch rules. The review behind it, with before and after screenshots, is [docs/qa/ux-review/README.md](../qa/ux-review/README.md) (the "Mobile-friendly UX" ticket, which replaced UX-12).
+The web app (`packages/web`) has one desktop layout and, below a phone breakpoint, a phone layout. This doc covers the design tokens, the breakpoint, what changes on a phone, and the touch rules. The review behind it, with before and after screenshots, is [docs/qa/ux-review/README.md](../qa/ux-review/README.md) (the "Mobile-friendly UX" ticket, which replaced UX-12). The full-platform review that followed it (every screen, desktop and phone, findings UXR-22 onward, with recommendations) is [docs/qa/ux-review/full-2026-11/README.md](../qa/ux-review/full-2026-11/README.md).
 
 ## Tokens
 

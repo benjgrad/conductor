@@ -1,0 +1,1380 @@
+{
+  "board-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 6,
+    "smallTapTargetSample": [
+      "button \"Fix flaky checkout test\" 307\u00d718",
+      "button \"Retries exhausted: Tests faile\" 307\u00d718",
+      "button \"Board cards: review requests v\" 307\u00d736",
+      "button \"Add CSV export\" 307\u00d718",
+      "button \"Plan the garden\" 307\u00d718",
+      "button \"Question: Raised beds or in-gr\" 307\u00d718"
+    ]
+  },
+  "board-scrolled-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 6,
+    "smallTapTargetSample": [
+      "button \"Fix flaky checkout test\" 307\u00d718",
+      "button \"Retries exhausted: Tests faile\" 307\u00d718",
+      "button \"Board cards: review requests v\" 307\u00d736",
+      "button \"Add CSV export\" 307\u00d718",
+      "button \"Plan the garden\" 307\u00d718",
+      "button \"Question: Raised beds or in-gr\" 307\u00d718"
+    ]
+  },
+  "detail-375x812-light": {
+    "chatHeight": 634,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-scrolled-375x812-light": {
+    "chatHeight": 634,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-details-375x812-light": {
+    "chatHeight": 0,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "composer-focused-375x812-light": {
+    "chatHeight": 634,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "new-ticket-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 8,
+    "smallTapTargetSample": [
+      "input \"\" 13\u00d713",
+      "input \"\" 13\u00d713",
+      "button \"Fix flaky checkout test\" 307\u00d718",
+      "button \"Retries exhausted: Tests faile\" 307\u00d718",
+      "button \"Board cards: review requests v\" 307\u00d736",
+      "button \"Add CSV export\" 307\u00d718",
+      "button \"Plan the garden\" 307\u00d718",
+      "button \"Question: Raised beds or in-gr\" 307\u00d718"
+    ]
+  },
+  "new-ticket-bottom-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 8,
+    "smallTapTargetSample": [
+      "input \"\" 13\u00d713",
+      "input \"\" 13\u00d713",
+      "button \"Fix flaky checkout test\" 307\u00d718",
+      "button \"Retries exhausted: Tests faile\" 307\u00d718",
+      "button \"Board cards: review requests v\" 307\u00d736",
+      "button \"Add CSV export\" 307\u00d718",
+      "button \"Plan the garden\" 307\u00d718",
+      "button \"Question: Raised beds or in-gr\" 307\u00d718"
+    ]
+  },
+  "account-menu-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 6,
+    "smallTapTargetSample": [
+      "button \"Fix flaky checkout test\" 307\u00d718",
+      "button \"Retries exhausted: Tests faile\" 307\u00d718",
+      "button \"Board cards: review requests v\" 307\u00d736",
+      "button \"Add CSV export\" 307\u00d718",
+      "button \"Plan the garden\" 307\u00d718",
+      "button \"Question: Raised beds or in-gr\" 307\u00d718"
+    ]
+  },
+  "ticket-messages-375x812-light": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "ticket-plan-375x812-light": {
+    "chatHeight": 634,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "ticket-plan-sheet-375x812-light": {
+    "chatHeight": 634,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "ticket-brief-sheet-375x812-light": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 2,
+    "smallTapTargetSample": [
+      "input \"\" 13\u00d713",
+      "input \"\" 13\u00d713"
+    ]
+  },
+  "machines-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 3,
+    "smallTapTargetSample": [
+      "a \"Guided setup\" 51\u00d732",
+      "a \"Help: add a machine\" 79\u00d732",
+      "a \"Help: upgrade a machine\" 177\u00d716"
+    ]
+  },
+  "detail-review-375x812-light": {
+    "chatHeight": 582,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Open pull request \u2197\" 167\u00d725"
+    ]
+  },
+  "detail-checks-375x812-light": {
+    "chatHeight": 338,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "input \"\" 13\u00d713"
+    ]
+  },
+  "detail-failed-375x812-light": {
+    "chatHeight": 634,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-done-375x812-light": {
+    "chatHeight": 614,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-lost-375x812-light": {
+    "chatHeight": 622,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "board-permission-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 6,
+    "smallTapTargetSample": [
+      "button \"Fix flaky checkout test\" 307\u00d718",
+      "button \"Retries exhausted: Tests faile\" 307\u00d718",
+      "button \"Board cards: review requests v\" 307\u00d736",
+      "button \"Add CSV export\" 307\u00d718",
+      "button \"Plan the garden\" 307\u00d718",
+      "button \"Question: Raised beds or in-gr\" 307\u00d718"
+    ]
+  },
+  "detail-permission-375x812-light": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "ticket-queued-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "workflow-column-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 3,
+    "smallTapTargetSample": [
+      "button \"Close column\" 34\u00d744",
+      "input \"\" 347\u00d713",
+      "input \"\" 347\u00d713"
+    ]
+  },
+  "workflow-transition-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 5,
+    "smallTapTargetSample": [
+      "button \"Close transition\" 34\u00d744",
+      "input \"\" 13\u00d713",
+      "input \"\" 13\u00d713",
+      "input \"\" 13\u00d713",
+      "input \"\" 13\u00d713"
+    ]
+  },
+  "machine-drawer-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 3,
+    "smallTapTargetSample": [
+      "a \"Guided setup\" 51\u00d732",
+      "a \"Help: add a machine\" 79\u00d732",
+      "a \"Help: upgrade a machine\" 177\u00d716"
+    ]
+  },
+  "add-machine-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 3,
+    "smallTapTargetSample": [
+      "a \"Guided setup\" 51\u00d732",
+      "a \"Help: add a machine\" 79\u00d732",
+      "a \"Setup guide: add a machine \u2197\" 214\u00d716"
+    ]
+  },
+  "repo-checks-list-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"ADR-0030\" 70\u00d716"
+    ]
+  },
+  "first-run-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Read the full guide \u2197\" 148\u00d716"
+    ]
+  },
+  "admin-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "input \"\" 13\u00d713"
+    ]
+  },
+  "account-menu-admin-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 6,
+    "smallTapTargetSample": [
+      "button \"Fix flaky checkout test\" 307\u00d718",
+      "button \"Retries exhausted: Tests faile\" 307\u00d718",
+      "button \"Board cards: review requests v\" 307\u00d736",
+      "button \"Add CSV export\" 307\u00d718",
+      "button \"Plan the garden\" 307\u00d718",
+      "button \"Question: Raised beds or in-gr\" 307\u00d718"
+    ]
+  },
+  "change-password-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 6,
+    "smallTapTargetSample": [
+      "button \"Fix flaky checkout test\" 307\u00d718",
+      "button \"Retries exhausted: Tests faile\" 307\u00d718",
+      "button \"Board cards: review requests v\" 307\u00d736",
+      "button \"Add CSV export\" 307\u00d718",
+      "button \"Plan the garden\" 307\u00d718",
+      "button \"Question: Raised beds or in-gr\" 307\u00d718"
+    ]
+  },
+  "signup-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Help: add a machine\" 135\u00d715"
+    ]
+  },
+  "reset-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Help: add a machine\" 135\u00d715"
+    ]
+  },
+  "repo-checks-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 2,
+    "smallTapTargetSample": [
+      "a \"ADR-0030\" 70\u00d716",
+      "button \"Move check 1 up\" 24\u00d744"
+    ]
+  },
+  "workflows-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "input \"\" 336\u00d713"
+    ]
+  },
+  "setup-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Read the full guide \u2197\" 148\u00d716"
+    ]
+  },
+  "help-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 9765,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Back to conductor\" 127\u00d716"
+    ]
+  },
+  "help-connect-claude-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 3725,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Back to conductor\" 127\u00d716"
+    ]
+  },
+  "signin-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Help: add a machine\" 135\u00d715"
+    ]
+  },
+  "board-375x812-dark": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 6,
+    "smallTapTargetSample": [
+      "button \"Fix flaky checkout test\" 307\u00d718",
+      "button \"Retries exhausted: Tests faile\" 307\u00d718",
+      "button \"Board cards: review requests v\" 307\u00d736",
+      "button \"Add CSV export\" 307\u00d718",
+      "button \"Plan the garden\" 307\u00d718",
+      "button \"Question: Raised beds or in-gr\" 307\u00d718"
+    ]
+  },
+  "detail-375x812-dark": {
+    "chatHeight": 634,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "new-ticket-375x812-dark": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 8,
+    "smallTapTargetSample": [
+      "input \"\" 13\u00d713",
+      "input \"\" 13\u00d713",
+      "button \"Fix flaky checkout test\" 307\u00d718",
+      "button \"Retries exhausted: Tests faile\" 307\u00d718",
+      "button \"Board cards: review requests v\" 307\u00d736",
+      "button \"Add CSV export\" 307\u00d718",
+      "button \"Plan the garden\" 307\u00d718",
+      "button \"Question: Raised beds or in-gr\" 307\u00d718"
+    ]
+  },
+  "ticket-plan-375x812-dark": {
+    "chatHeight": 634,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "machines-375x812-dark": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 3,
+    "smallTapTargetSample": [
+      "a \"Guided setup\" 51\u00d732",
+      "a \"Help: add a machine\" 79\u00d732",
+      "a \"Help: upgrade a machine\" 177\u00d716"
+    ]
+  },
+  "detail-review-375x812-dark": {
+    "chatHeight": 582,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Open pull request \u2197\" 167\u00d725"
+    ]
+  },
+  "board-360x740-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 5,
+    "smallTapTargetSample": [
+      "button \"Fix flaky checkout test\" 292\u00d718",
+      "button \"Retries exhausted: Tests faile\" 292\u00d718",
+      "button \"Board cards: review requests v\" 292\u00d736",
+      "button \"Add CSV export\" 292\u00d718",
+      "button \"Plan the garden\" 292\u00d718"
+    ]
+  },
+  "detail-360x740-light": {
+    "chatHeight": 562,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-scrolled-360x740-light": {
+    "chatHeight": 562,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "new-ticket-360x740-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 7,
+    "smallTapTargetSample": [
+      "input \"\" 13\u00d713",
+      "input \"\" 13\u00d713",
+      "button \"Fix flaky checkout test\" 292\u00d718",
+      "button \"Retries exhausted: Tests faile\" 292\u00d718",
+      "button \"Board cards: review requests v\" 292\u00d736",
+      "button \"Add CSV export\" 292\u00d718",
+      "button \"Plan the garden\" 292\u00d718"
+    ]
+  },
+  "new-ticket-bottom-360x740-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 7,
+    "smallTapTargetSample": [
+      "input \"\" 13\u00d713",
+      "input \"\" 13\u00d713",
+      "button \"Fix flaky checkout test\" 292\u00d718",
+      "button \"Retries exhausted: Tests faile\" 292\u00d718",
+      "button \"Board cards: review requests v\" 292\u00d736",
+      "button \"Add CSV export\" 292\u00d718",
+      "button \"Plan the garden\" 292\u00d718"
+    ]
+  },
+  "ticket-messages-360x740-light": {
+    "chatHeight": 562,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "ticket-plan-360x740-light": {
+    "chatHeight": 562,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "ticket-plan-sheet-360x740-light": {
+    "chatHeight": 562,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "ticket-brief-sheet-360x740-light": {
+    "chatHeight": 562,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 2,
+    "smallTapTargetSample": [
+      "input \"\" 13\u00d713",
+      "input \"\" 13\u00d713"
+    ]
+  },
+  "board-768x1024-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1146,
+    "deviceWidth": 768,
+    "horizontalOverflow": true,
+    "pageHeight": 1625,
+    "smallTapTargets": 16,
+    "smallTapTargetSample": [
+      "button \"Hotfix: crash on empty cart\" 144\u00d732",
+      "button \"Add /health\" 144\u00d716",
+      "button \"Conductor checks demo\" 144\u00d732",
+      "button \"Add pagination to /orders\" 144\u00d732",
+      "button \"Waiting for a build slot\" 144\u00d732",
+      "button \"Ship the /health endpoint\" 144\u00d732",
+      "a \"pull request\" 77\u00d715",
+      "button \"Fix flaky checkout test\" 144\u00d732"
+    ]
+  },
+  "detail-768x1024-light": {
+    "chatHeight": 576,
+    "pageScrollWidth": 1146,
+    "deviceWidth": 768,
+    "horizontalOverflow": true,
+    "pageHeight": 2397,
+    "smallTapTargets": 16,
+    "smallTapTargetSample": [
+      "button \"Hotfix: crash on empty cart\" 144\u00d732",
+      "button \"Add /health\" 144\u00d716",
+      "button \"Conductor checks demo\" 144\u00d732",
+      "button \"Add pagination to /orders\" 144\u00d732",
+      "button \"Waiting for a build slot\" 144\u00d732",
+      "button \"Ship the /health endpoint\" 144\u00d732",
+      "a \"pull request\" 77\u00d715",
+      "button \"Fix flaky checkout test\" 144\u00d732"
+    ]
+  },
+  "new-ticket-768x1024-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1146,
+    "deviceWidth": 768,
+    "horizontalOverflow": true,
+    "pageHeight": 2695,
+    "smallTapTargets": 9,
+    "smallTapTargetSample": [
+      "input \"\" 13\u00d713",
+      "input \"\" 13\u00d713",
+      "button \"Hotfix: crash on empty cart\" 144\u00d732",
+      "button \"Add /health\" 144\u00d716",
+      "button \"Conductor checks demo\" 144\u00d732",
+      "button \"Add pagination to /orders\" 144\u00d732",
+      "button \"Waiting for a build slot\" 144\u00d732",
+      "button \"Fix flaky checkout test\" 144\u00d732"
+    ]
+  },
+  "machines-768x1024-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1018,
+    "deviceWidth": 768,
+    "horizontalOverflow": true,
+    "pageHeight": 1358,
+    "smallTapTargets": 3,
+    "smallTapTargetSample": [
+      "a \"Guided setup\" 94\u00d716",
+      "a \"Help: add a machine\" 145\u00d716",
+      "a \"Help: upgrade a machine\" 177\u00d716"
+    ]
+  },
+  "detail-review-768x1024-light": {
+    "chatHeight": 524,
+    "pageScrollWidth": 1146,
+    "deviceWidth": 768,
+    "horizontalOverflow": true,
+    "pageHeight": 2397,
+    "smallTapTargets": 16,
+    "smallTapTargetSample": [
+      "button \"Hotfix: crash on empty cart\" 144\u00d732",
+      "button \"Add /health\" 144\u00d716",
+      "button \"Conductor checks demo\" 144\u00d732",
+      "button \"Add pagination to /orders\" 144\u00d732",
+      "button \"Waiting for a build slot\" 144\u00d732",
+      "button \"Ship the /health endpoint\" 144\u00d732",
+      "a \"pull request\" 77\u00d715",
+      "button \"Fix flaky checkout test\" 144\u00d732"
+    ]
+  },
+  "workflows-768x1024-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 768,
+    "deviceWidth": 768,
+    "horizontalOverflow": false,
+    "pageHeight": 1024,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "input \"\" 729\u00d713"
+    ]
+  },
+  "board-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1231,
+    "smallTapTargets": 34,
+    "smallTapTargetSample": [
+      "a \"Board\" 89\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"New ticket\" 118\u00d726",
+      "button \"local\" 77\u00d726",
+      "button \"\u25beQueued 2\" 94\u00d715"
+    ]
+  },
+  "detail-1440x900-light": {
+    "chatHeight": 678,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1458,
+    "smallTapTargets": 41,
+    "smallTapTargetSample": [
+      "a \"Board\" 89\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"New ticket\" 118\u00d726",
+      "button \"local\" 77\u00d726",
+      "button \"\u25beQueued 2\" 94\u00d715"
+    ]
+  },
+  "new-ticket-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 2010,
+    "smallTapTargets": 26,
+    "smallTapTargetSample": [
+      "a \"Board\" 89\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"Close form\" 119\u00d726",
+      "button \"local\" 77\u00d726",
+      "input \"\" 343\u00d724"
+    ]
+  },
+  "ticket-messages-1440x900-light": {
+    "chatHeight": 678,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1458,
+    "smallTapTargets": 37,
+    "smallTapTargetSample": [
+      "a \"Board\" 89\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"New ticket\" 118\u00d726",
+      "button \"local\" 77\u00d726",
+      "button \"\u25beQueued 2\" 94\u00d715"
+    ]
+  },
+  "ticket-plan-1440x900-light": {
+    "chatHeight": 678,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1458,
+    "smallTapTargets": 44,
+    "smallTapTargetSample": [
+      "a \"Board\" 89\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"New ticket\" 118\u00d726",
+      "button \"local\" 77\u00d726",
+      "button \"\u25beQueued 2\" 94\u00d715"
+    ]
+  },
+  "machines-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 18,
+    "smallTapTargetSample": [
+      "a \"Board\" 83\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 116\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"local\" 77\u00d726",
+      "button \"Add a machine\" 127\u00d726",
+      "a \"Guided setup\" 94\u00d716"
+    ]
+  },
+  "board-collapsed-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1101,
+    "smallTapTargets": 37,
+    "smallTapTargetSample": [
+      "a \"Board\" 89\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"New ticket\" 118\u00d726",
+      "button \"local\" 77\u00d726",
+      "button \"Expand all\" 95\u00d726"
+    ]
+  },
+  "detail-review-1440x900-light": {
+    "chatHeight": 646,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1458,
+    "smallTapTargets": 40,
+    "smallTapTargetSample": [
+      "a \"Board\" 89\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"New ticket\" 118\u00d726",
+      "button \"local\" 77\u00d726",
+      "button \"\u25beQueued 2\" 94\u00d715"
+    ]
+  },
+  "detail-checks-1440x900-light": {
+    "chatHeight": 426,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1458,
+    "smallTapTargets": 39,
+    "smallTapTargetSample": [
+      "a \"Board\" 89\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"New ticket\" 118\u00d726",
+      "button \"local\" 77\u00d726",
+      "button \"\u25beQueued 2\" 94\u00d715"
+    ]
+  },
+  "detail-failed-1440x900-light": {
+    "chatHeight": 678,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1458,
+    "smallTapTargets": 42,
+    "smallTapTargetSample": [
+      "a \"Board\" 89\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"New ticket\" 118\u00d726",
+      "button \"local\" 77\u00d726",
+      "button \"\u25beQueued 2\" 94\u00d715"
+    ]
+  },
+  "detail-done-1440x900-light": {
+    "chatHeight": 658,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1458,
+    "smallTapTargets": 36,
+    "smallTapTargetSample": [
+      "a \"Board\" 89\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"New ticket\" 118\u00d726",
+      "button \"local\" 77\u00d726",
+      "button \"\u25beQueued 2\" 94\u00d715"
+    ]
+  },
+  "detail-lost-1440x900-light": {
+    "chatHeight": 660,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1458,
+    "smallTapTargets": 37,
+    "smallTapTargetSample": [
+      "a \"Board\" 89\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"New ticket\" 118\u00d726",
+      "button \"local\" 77\u00d726",
+      "button \"\u25beQueued 2\" 94\u00d715"
+    ]
+  },
+  "board-permission-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1231,
+    "smallTapTargets": 37,
+    "smallTapTargetSample": [
+      "a \"Board\" 89\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"New ticket\" 118\u00d726",
+      "button \"local\" 77\u00d726",
+      "button \"\u25beQueued 2\" 94\u00d715"
+    ]
+  },
+  "detail-permission-1440x900-light": {
+    "chatHeight": 678,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1458,
+    "smallTapTargets": 43,
+    "smallTapTargetSample": [
+      "a \"Board\" 89\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"New ticket\" 118\u00d726",
+      "button \"local\" 77\u00d726",
+      "button \"\u25beQueued 2\" 94\u00d715"
+    ]
+  },
+  "ticket-queued-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1458,
+    "smallTapTargets": 32,
+    "smallTapTargetSample": [
+      "a \"Board\" 89\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"New ticket\" 118\u00d726",
+      "button \"local\" 77\u00d726",
+      "button \"\u25beQueued 2\" 94\u00d715"
+    ]
+  },
+  "workflow-column-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 25,
+    "smallTapTargetSample": [
+      "a \"Board\" 83\u00d724",
+      "a \"Workflow\" 116\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"local\" 77\u00d726",
+      "select \"v3 (latest)v2v1\" 106\u00d728",
+      "input \"\" 1009\u00d713"
+    ]
+  },
+  "workflow-transition-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 25,
+    "smallTapTargetSample": [
+      "a \"Board\" 83\u00d724",
+      "a \"Workflow\" 116\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"local\" 77\u00d726",
+      "select \"v3 (latest)v2v1\" 106\u00d728",
+      "input \"\" 1009\u00d713"
+    ]
+  },
+  "machine-drawer-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 20,
+    "smallTapTargetSample": [
+      "a \"Board\" 83\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 116\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"local\" 77\u00d726",
+      "button \"Add a machine\" 127\u00d726",
+      "a \"Guided setup\" 94\u00d716"
+    ]
+  },
+  "add-machine-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 26,
+    "smallTapTargetSample": [
+      "a \"Board\" 83\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 116\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"local\" 77\u00d726",
+      "button \"Add a machine\" 127\u00d726",
+      "a \"Guided setup\" 94\u00d716"
+    ]
+  },
+  "repo-checks-list-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 10,
+    "smallTapTargetSample": [
+      "a \"Board\" 83\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"local\" 77\u00d726",
+      "a \"ADR-0030\" 70\u00d716",
+      "button \"github.com/acme/shop\" 161\u00d718"
+    ]
+  },
+  "first-run-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1261,
+    "smallTapTargets": 34,
+    "smallTapTargetSample": [
+      "a \"Board\" 89\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 159\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"local\" 77\u00d726",
+      "button \"I'll do this later\" 126\u00d726",
+      "a \"Read the full guide \u2197\" 148\u00d716"
+    ]
+  },
+  "admin-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 13,
+    "smallTapTargetSample": [
+      "a \"Board\" 83\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"Ben\" 71\u00d726",
+      "button \"Reset link for ben@example.com\" 90\u00d726",
+      "input \"\" 188\u00d726"
+    ]
+  },
+  "account-menu-admin-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1231,
+    "smallTapTargets": 40,
+    "smallTapTargetSample": [
+      "a \"Board\" 89\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"New ticket\" 118\u00d726",
+      "button \"Ben\" 71\u00d726",
+      "a \"Connect Claude\" 182\u00d726"
+    ]
+  },
+  "change-password-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1231,
+    "smallTapTargets": 39,
+    "smallTapTargetSample": [
+      "a \"Board\" 89\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"New ticket\" 118\u00d726",
+      "button \"Ben\" 71\u00d726",
+      "input \"\" 338\u00d726"
+    ]
+  },
+  "signup-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 5,
+    "smallTapTargetSample": [
+      "input \"\" 330\u00d726",
+      "input \"\" 330\u00d726",
+      "input \"\" 330\u00d726",
+      "button \"Create account\" 129\u00d726",
+      "a \"Help: add a machine\" 135\u00d715"
+    ]
+  },
+  "reset-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 4,
+    "smallTapTargetSample": [
+      "input \"\" 330\u00d726",
+      "input \"\" 330\u00d726",
+      "button \"Set password\" 116\u00d726",
+      "a \"Help: add a machine\" 135\u00d715"
+    ]
+  },
+  "repo-checks-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 923,
+    "smallTapTargets": 27,
+    "smallTapTargetSample": [
+      "a \"Board\" 83\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"local\" 77\u00d726",
+      "a \"ADR-0030\" 70\u00d716",
+      "button \"github.com/acme/shop\" 161\u00d718"
+    ]
+  },
+  "workflows-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 10,
+    "smallTapTargetSample": [
+      "a \"Board\" 83\u00d724",
+      "a \"Workflow\" 116\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"local\" 77\u00d726",
+      "select \"v3 (latest)v2v1\" 106\u00d728",
+      "input \"\" 1401\u00d713"
+    ]
+  },
+  "setup-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1261,
+    "smallTapTargets": 34,
+    "smallTapTargetSample": [
+      "a \"Board\" 83\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 159\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"local\" 77\u00d726",
+      "button \"I'll do this later\" 126\u00d726",
+      "a \"Read the full guide \u2197\" 148\u00d716"
+    ]
+  },
+  "signin-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 4,
+    "smallTapTargetSample": [
+      "input \"\" 330\u00d726",
+      "input \"\" 330\u00d726",
+      "button \"Sign in\" 70\u00d726",
+      "a \"Help: add a machine\" 135\u00d715"
+    ]
+  },
+  "board-1440x900-dark": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1231,
+    "smallTapTargets": 34,
+    "smallTapTargetSample": [
+      "a \"Board\" 89\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"New ticket\" 118\u00d726",
+      "button \"local\" 77\u00d726",
+      "button \"\u25beQueued 2\" 94\u00d715"
+    ]
+  },
+  "detail-1440x900-dark": {
+    "chatHeight": 678,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1458,
+    "smallTapTargets": 41,
+    "smallTapTargetSample": [
+      "a \"Board\" 89\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"New ticket\" 118\u00d726",
+      "button \"local\" 77\u00d726",
+      "button \"\u25beQueued 2\" 94\u00d715"
+    ]
+  },
+  "new-ticket-1440x900-dark": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 2010,
+    "smallTapTargets": 26,
+    "smallTapTargetSample": [
+      "a \"Board\" 89\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"Close form\" 119\u00d726",
+      "button \"local\" 77\u00d726",
+      "input \"\" 343\u00d724"
+    ]
+  },
+  "machines-1440x900-dark": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 18,
+    "smallTapTargetSample": [
+      "a \"Board\" 83\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 116\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"local\" 77\u00d726",
+      "button \"Add a machine\" 127\u00d726",
+      "a \"Guided setup\" 94\u00d716"
+    ]
+  },
+  "detail-review-1440x900-dark": {
+    "chatHeight": 646,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1458,
+    "smallTapTargets": 40,
+    "smallTapTargetSample": [
+      "a \"Board\" 89\u00d724",
+      "a \"Workflow\" 106\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"New ticket\" 118\u00d726",
+      "button \"local\" 77\u00d726",
+      "button \"\u25beQueued 2\" 94\u00d715"
+    ]
+  },
+  "workflows-1440x900-dark": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 10,
+    "smallTapTargetSample": [
+      "a \"Board\" 83\u00d724",
+      "a \"Workflow\" 116\u00d724",
+      "a \"Machines\" 108\u00d724",
+      "a \"Add a machine\" 147\u00d724",
+      "a \"Help\" 74\u00d724",
+      "button \"local\" 77\u00d726",
+      "select \"v3 (latest)v2v1\" 106\u00d728",
+      "input \"\" 1401\u00d713"
+    ]
+  }
+}

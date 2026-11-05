@@ -10,7 +10,7 @@
 //
 // Chrome: CHROME_PATH, else playwright's `chrome` channel (an installed Google Chrome).
 /// <reference lib="dom" />
-/* global document, window -- page.evaluate callbacks run in the browser */
+/* global document, window, MouseEvent -- page.evaluate callbacks run in the browser */
 import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
@@ -43,9 +43,49 @@ const TICKET_SHOTS = ['ticket-messages', 'ticket-plan', 'ticket-plan-sheet', 'ti
  * @typedef {import('playwright-core').Locator} Locator
  * @typedef {{ w: number, h: number, deviceScaleFactor: number, isMobile?: boolean,
  *   hasTouch?: boolean, themes: Partial<Record<'light' | 'dark', 'all' | string[]>> }} Viewport
- * @typedef {{ id: string, path: string, act?: (page: Page) => Promise<void> }} Screen
+ * @typedef {{ id: string, path: string, act?: (page: Page) => Promise<void>,
+ *   scene?: keyof typeof SCENES, desktopOnly?: boolean }} Screen
  * @typedef {ReturnType<typeof measure> | { error: string }} Metric
  */
+
+/**
+ * Mock scenes (api/select.ts): Vite env for states the default mock doesn't show. A screen with a
+ * `scene` is shot on its own Vite server started with that env.
+ */
+const SCENES = {
+  /** Accounts mode, signed in as the admin. */
+  admin: { VITE_MOCK_AUTH: 'password' },
+  /** Accounts mode, signed out (sign up, reset). */
+  'signed-out': { VITE_MOCK_AUTH: 'signed-out' },
+  /** No machines: the first-run guide. */
+  'first-run': { VITE_MOCK_MACHINES: 'none' },
+  /** A pending tool permission request on the running BRIEF_CARD. */
+  permission: { VITE_MOCK_PERMISSION: '1' },
+};
+
+/** The full-platform review (docs/qa/ux-review/full-2026-11): every screen and state. */
+const FULL_REVIEW = [
+  'detail-review',
+  'detail-checks',
+  'detail-failed',
+  'detail-done',
+  'detail-lost',
+  'detail-permission',
+  'board-permission',
+  'ticket-queued',
+  'workflow-column',
+  'workflow-transition',
+  'machine-drawer',
+  'add-machine',
+  'repo-checks',
+  'repo-checks-list',
+  'first-run',
+  'admin',
+  'account-menu-admin',
+  'change-password',
+  'signup',
+  'reset',
+];
 
 const PHONE = { isMobile: true, hasTouch: true, deviceScaleFactor: 2 };
 /** @type {Viewport[]} */
@@ -54,7 +94,10 @@ const VIEWPORTS = [
     w: 375,
     h: 812,
     ...PHONE,
-    themes: { light: 'all', dark: ['board', 'detail', 'new-ticket', 'ticket-plan'] },
+    themes: {
+      light: 'all',
+      dark: ['board', 'detail', 'new-ticket', 'ticket-plan', 'detail-review', 'machines'],
+    },
   },
   {
     w: 360,
@@ -77,7 +120,7 @@ const VIEWPORTS = [
     isMobile: true,
     hasTouch: true,
     deviceScaleFactor: 1,
-    themes: { light: ['board', 'detail', 'new-ticket'] },
+    themes: { light: ['board', 'detail', 'new-ticket', 'workflows', 'machines', 'detail-review'] },
   },
   {
     w: 1440,
@@ -92,8 +135,12 @@ const VIEWPORTS = [
         'workflows',
         'ticket-messages',
         'ticket-plan',
+        'board-collapsed',
+        'setup',
+        'signin',
+        ...FULL_REVIEW,
       ],
-      dark: ['board', 'detail'],
+      dark: ['board', 'detail', 'detail-review', 'workflows', 'machines', 'new-ticket'],
     },
   },
 ];
@@ -105,7 +152,10 @@ const VIEWPORTS = [
 /** @param {Locator} locator */
 async function tap(locator) {
   await locator.waitFor({ state: 'attached' });
-  await locator.evaluate((el) => /** @type {HTMLElement} */ (el).click());
+  // SVG elements (the workflow diagram) have no click(): dispatch the event instead.
+  await locator.evaluate((el) =>
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })),
+  );
 }
 
 /** @param {Page} page @param {'button' | 'tab'} role @param {string} name */
@@ -122,6 +172,12 @@ async function openCard(page, title = CARD) {
       await tap(tab);
       await page.waitForTimeout(150);
       if ((await card.count()) > 0) break;
+    }
+  }
+  // On a desktop, a collapsed column (UX-9: Done starts collapsed) doesn't render its cards.
+  if ((await card.count()) === 0) {
+    for (const toggle of await page.locator('.column.collapsed .column-toggle').all()) {
+      await tap(toggle);
     }
   }
   await tap(card);
@@ -237,6 +293,95 @@ const SCREENS = [
     },
   },
   { id: 'machines', path: '/#/machines' },
+  // The full review (FULL_REVIEW): every other state the mock can show.
+  {
+    id: 'board-collapsed',
+    path: '/#/',
+    desktopOnly: true,
+    act: async (page) => {
+      await tap(page.locator('.column-done .column-toggle'));
+      await tap(
+        page
+          .locator('.column-waiting_external .column-toggle, .column-review .column-toggle')
+          .first(),
+      );
+    },
+  },
+  // UX-4: a finished agent's report with its PR and proposed follow-ups.
+  {
+    id: 'detail-review',
+    path: '/#/',
+    act: (page) => openCard(page, 'Board cards: review requests vs questions'),
+  },
+  { id: 'detail-checks', path: '/#/', act: (page) => openCard(page, 'Conductor checks demo') },
+  { id: 'detail-failed', path: '/#/', act: (page) => openCard(page, 'Fix flaky checkout test') },
+  { id: 'detail-done', path: '/#/', act: (page) => openCard(page, 'Rename user.fullname') },
+  { id: 'detail-lost', path: '/#/', act: (page) => openCard(page, 'Upgrade webpack') },
+  { id: 'board-permission', path: '/#/', scene: 'permission' },
+  {
+    id: 'detail-permission',
+    path: '/#/',
+    scene: 'permission',
+    act: (page) => openCard(page, BRIEF_CARD),
+  },
+  // A queued ticket (no session yet): the ticket panel, with M2-T11's routing note.
+  {
+    id: 'ticket-queued',
+    path: '/#/',
+    act: (page) => openCard(page, 'Hotfix: crash on empty cart'),
+  },
+  {
+    id: 'workflow-column',
+    path: '/#/workflows',
+    act: async (page) => {
+      await tap(page.locator('g.selectable[data-lane]').nth(1));
+    },
+  },
+  {
+    id: 'workflow-transition',
+    path: '/#/workflows',
+    act: async (page) => {
+      await tap(page.locator('.wf-edges .selectable').first());
+    },
+  },
+  {
+    id: 'machine-drawer',
+    path: '/#/machines',
+    act: async (page) => {
+      await tap(page.locator('[aria-label^="Details of"]').first());
+    },
+  },
+  {
+    id: 'add-machine',
+    path: '/#/machines',
+    act: async (page) => {
+      await tap(page.locator('section.machines button', { hasText: 'Add a machine' }).first());
+      await page.locator('[role="dialog"][aria-label="Add a machine"]').waitFor();
+    },
+  },
+  { id: 'repo-checks-list', path: '/#/repo-checks' },
+  { id: 'first-run', path: '/#/', scene: 'first-run' },
+  { id: 'admin', path: '/#/admin', scene: 'admin' },
+  {
+    id: 'account-menu-admin',
+    path: '/#/',
+    scene: 'admin',
+    act: async (page) => {
+      await tap(page.locator('.account-button'));
+    },
+  },
+  {
+    id: 'change-password',
+    path: '/#/',
+    scene: 'admin',
+    act: async (page) => {
+      await tap(page.locator('.account-button'));
+      await tap(page.getByRole('menuitem', { name: 'Change password' }));
+      await page.locator('[role="dialog"][aria-label="Change password"]').waitFor();
+    },
+  },
+  { id: 'signup', path: '/signup?invite=mock-invite-open', scene: 'signed-out' },
+  { id: 'reset', path: '/reset?token=mock-reset', scene: 'signed-out' },
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
   { id: 'workflows', path: '/#/workflows' },
@@ -293,14 +438,15 @@ async function freePort() {
   });
 }
 
-async function startVite() {
+/** @param {Record<string, string>} [extraEnv] */
+async function startVite(extraEnv = {}) {
   const port = await freePort();
   const child = spawn(
     'pnpm',
     ['--filter', '@conductor/web', 'exec', 'vite', '--port', String(port), '--strictPort'],
     {
       cwd: root,
-      env: { ...process.env, VITE_API: 'mock', VITE_MOCK_STATIC: '1' },
+      env: { ...process.env, VITE_API: 'mock', VITE_MOCK_STATIC: '1', ...extraEnv },
       stdio: ['ignore', 'pipe', 'inherit'],
     },
   );
@@ -322,7 +468,21 @@ async function startVite() {
 
 async function main() {
   const given = arg('url', '');
-  const server = given ? { url: given, stop: () => {} } : await startVite();
+  /** One Vite server per scene ('' = the default mock), started when a shot first needs it. */
+  /** @type {Map<string, { url: string, stop: () => void }>} */
+  const servers = new Map();
+  /** @param {string} scene */
+  const serverFor = async (scene) => {
+    let server = servers.get(scene);
+    if (!server) {
+      server =
+        given && !scene
+          ? { url: given, stop: () => {} }
+          : await startVite(scene ? SCENES[/** @type {keyof typeof SCENES} */ (scene)] : {});
+      servers.set(scene, server);
+    }
+    return server;
+  };
   const browser = await chromium.launch(
     process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' },
   );
@@ -352,11 +512,18 @@ async function main() {
         for (const screen of SCREENS) {
           if (list !== 'all' && !list.includes(screen.id)) continue;
           if (only.length > 0 && !only.includes(screen.id)) continue;
+          if (screen.desktopOnly && vp.isMobile) continue;
           const name = `${screen.id}-${vp.w}x${vp.h}-${theme}`;
           try {
             // A hash-only change wouldn't reload, so every shot starts from a blank page.
             await page.goto('about:blank');
+            const server = await serverFor(screen.scene ?? '');
             await page.goto(`${server.url}${screen.path}`, { waitUntil: 'networkidle' });
+            // A shot's state (collapsed columns, the open tab) is kept in localStorage: start clean.
+            if (await page.evaluate(() => window.localStorage.length > 0)) {
+              await page.evaluate(() => window.localStorage.clear());
+              await page.reload({ waitUntil: 'networkidle' });
+            }
             // The first load of a cold Vite server can go idle before React has rendered.
             await page.locator('#root > *').first().waitFor();
             await page.waitForTimeout(400);
@@ -376,7 +543,7 @@ async function main() {
     }
   } finally {
     await browser.close();
-    server.stop();
+    for (const server of servers.values()) server.stop();
   }
   await writeFile(join(outDir, 'metrics.json'), `${JSON.stringify(metrics, null, 2)}\n`);
 }

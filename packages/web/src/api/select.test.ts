@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { SEED_IDS } from './mock-data.js';
 import { apiKind, createApiFromEnv } from './select.js';
 
 describe('API selection (VITE_API)', () => {
@@ -38,5 +39,25 @@ describe('API selection (VITE_API)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('the screenshot scene flags reach the mock (auth, machines, a permission request)', async () => {
+    const base = { VITE_API: 'mock', VITE_MOCK_STATIC: '1' };
+    const local = createApiFromEnv(base).api;
+    expect((await local.me()).auth_mode).toBe('local');
+
+    const signedIn = createApiFromEnv({ ...base, VITE_MOCK_AUTH: 'password' }).api;
+    expect((await signedIn.me()).user.is_admin).toBe(true);
+    const signedOut = createApiFromEnv({ ...base, VITE_MOCK_AUTH: 'signed-out' }).api;
+    await expect(signedOut.me()).rejects.toThrow();
+
+    const noMachines = createApiFromEnv({ ...base, VITE_MOCK_MACHINES: 'none' }).api;
+    expect(await noMachines.listMachines()).toEqual([]);
+
+    const asking = createApiFromEnv({ ...base, VITE_MOCK_PERMISSION: '1' }).api;
+    const card = (await asking.getBoard()).columns
+      .flatMap((c) => c.cards)
+      .find((c) => c.session_id === SEED_IDS.running.session);
+    expect(card?.sub_status).toBe('needs_permission');
   });
 });

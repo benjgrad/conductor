@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parseBrief } from '../brief/parse.js';
 import { BriefContent } from './BriefCard.js';
-import { Markdown, renderInline, unescapeMarkdown } from './markdown.js';
+import { headingId, Markdown, renderInline, unescapeMarkdown } from './markdown.js';
 import { editorMarkdown } from './ticket-editor/markdown-io.js';
 
 afterEach(cleanup);
@@ -223,5 +223,30 @@ describe('markdown renderer: tables, rules and strikethrough', () => {
     expect(md('|'.repeat(20000)).querySelector('table')).toBeNull();
     cleanup();
     expect(md(`- ${' '.repeat(20000)}x`).querySelector('hr')).toBeNull();
+  });
+});
+
+describe('heading anchors (UXR-50)', () => {
+  it.each([
+    ['1. Prerequisites', '1-prerequisites'],
+    ["5. Check that it's online", '5-check-that-its-online'],
+    ['claude.ai and Claude Desktop', 'claude-ai-and-claude-desktop'],
+    ['Stuck agent?', 'stuck-agent'],
+    ['The `gh` **CLI**', 'the-gh-cli'],
+    ['[Docs](https://example.com) here', 'docs-here'],
+    ['snake\\_case', 'snakecase'],
+  ])('%s → %s', (text, id) => {
+    expect(headingId(text)).toBe(id);
+  });
+
+  it('a semantic h2 has its id; h3 and styled headings have none', () => {
+    const { container } = render(
+      <Markdown text={'## Two words\n\n### Three'} headings="semantic" />,
+    );
+    expect(container.querySelector('h2')!.id).toBe('two-words');
+    expect(container.querySelector('h3')!.id).toBe('');
+    cleanup();
+    const styled = render(<Markdown text="## Two words" />);
+    expect(styled.container.querySelector('[id]')).toBeNull();
   });
 });

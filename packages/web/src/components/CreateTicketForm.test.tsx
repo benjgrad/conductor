@@ -90,8 +90,15 @@ function renderWith(list: Promise<RepoSuggestion[]>, opts: { title?: string } = 
   return { sent, closed };
 }
 
-const optionNames = () =>
-  screen.queryAllByRole('option').map((o) => o.querySelector('.repo-name')?.textContent);
+// The Repo list's options only (the Priority select has options too).
+const optionNames = () => {
+  const list = screen.queryByRole('listbox', { name: 'Repos' });
+  return list === null
+    ? []
+    : within(list)
+        .queryAllByRole('option')
+        .map((o) => o.querySelector('.repo-name')?.textContent);
+};
 
 describe('Repo field (searchable, most used first)', () => {
   it('defaults to the top repo and lists every repo in ranked order', async () => {
@@ -109,7 +116,9 @@ describe('Repo field (searchable, most used first)', () => {
     fireEvent.change(repoBox(), { target: { value: 'O/SEC' } });
     expect(optionNames()).toEqual(['github.com/o/second']);
     fireEvent.keyDown(repoBox(), { key: 'ArrowDown' });
-    expect(repoBox().getAttribute('aria-activedescendant')).toBe(screen.getByRole('option').id);
+    expect(repoBox().getAttribute('aria-activedescendant')).toBe(
+      within(screen.getByRole('listbox', { name: 'Repos' })).getByRole('option').id,
+    );
     fireEvent.keyDown(repoBox(), { key: 'Enter' });
     expect(repoBox().value).toBe('github.com/o/second');
     expect(screen.queryByRole('listbox')).toBeNull();

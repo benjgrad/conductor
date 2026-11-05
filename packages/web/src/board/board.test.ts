@@ -99,7 +99,7 @@ describe('columns (ADR-0010: the conductor states, Queued first)', () => {
       ask('b', t(12), t(9)),
       ask('a', t(11), t(10)),
       card({ title: 'q-old', created_at: t(1) }),
-      card({ title: 'q-urgent', priority: 3, created_at: t(3) }),
+      card({ title: 'q-urgent', priority: 1, created_at: t(3) }),
       card({ status: 'running', column: 'implementing', title: 'r-stale', updated_at: t(1) }),
       card({ status: 'running', column: 'implementing', title: 'r-active', updated_at: t(5) }),
       card({

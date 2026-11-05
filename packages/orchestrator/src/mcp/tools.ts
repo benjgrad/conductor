@@ -7,6 +7,7 @@ import {
   REPO_CHECKS_MAX,
   checksGatesOf,
   TicketKindSchema,
+  TicketPrioritySchema,
   httpForApplyResult,
   latestPlanEntry,
   insightFindings,
@@ -1321,7 +1322,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         repo: z.string().min(1).max(200).optional().describe('host/org/repo'),
         kind: TicketKindSchema.optional().describe('work or personal'),
         workflow_id: z.string().min(1).max(100).optional().describe('Default routine'),
-        priority: z.number().int().optional(),
+        priority: TicketPrioritySchema.optional().describe('0–4, lower = more urgent; default 3'),
         machines: z.array(z.string().min(1).max(200)).max(10).nullable().optional(),
         required_tags: z.array(z.string().min(1).max(100)).max(20).optional(),
         expected_updated_at: z

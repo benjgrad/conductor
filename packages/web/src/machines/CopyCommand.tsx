@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useCopy } from '../components/use-copy.js';
 
 interface CopyCommandProps {
   /** The input's accessible name; the button is "Copy <label>". */
@@ -9,21 +10,14 @@ interface CopyCommandProps {
 
 /**
  * A read-only command with a Copy button (M2-T11's install command box, shared with the setup
- * guide, UX-8). The result is also announced through an aria-live region.
+ * guide, UX-8). Success is the shared "Copied" toast (UXR-55); a failure says so here.
  */
 export function CopyCommand({ label, command, disabled = false }: CopyCommandProps) {
-  const [copied, setCopied] = useState<'yes' | 'failed' | null>(null);
+  const [failed, setFailed] = useState(false);
+  const copyText = useCopy();
 
   function copy() {
-    const clipboard = typeof navigator === 'undefined' ? undefined : navigator.clipboard;
-    if (!clipboard) {
-      setCopied('failed');
-      return;
-    }
-    clipboard.writeText(command).then(
-      () => setCopied('yes'),
-      () => setCopied('failed'),
-    );
+    void copyText(command).then((ok) => setFailed(!ok));
   }
 
   return (
@@ -37,13 +31,10 @@ export function CopyCommand({ label, command, disabled = false }: CopyCommandPro
           onFocus={(e) => e.currentTarget.select()}
         />
         <button type="button" onClick={copy} disabled={disabled} aria-label={`Copy ${label}`}>
-          {copied === 'yes' ? 'Copied' : 'Copy'}
+          Copy
         </button>
-        <span className="visually-hidden" aria-live="polite">
-          {copied === 'yes' ? `${label} copied to the clipboard` : ''}
-        </span>
       </div>
-      {copied === 'failed' && (
+      {failed && (
         <p className="error" role="alert">
           Couldn't copy. Select the command and copy it.
         </p>

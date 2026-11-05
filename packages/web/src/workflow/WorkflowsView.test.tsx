@@ -14,6 +14,7 @@ import { App } from '../App.js';
 import { mockViewport, type MockViewport } from '../test/match-media.js';
 import { SessionWorkflowDiagram } from './SessionWorkflowDiagram.js';
 import { WorkflowsView } from './WorkflowsView.js';
+import { ToastProvider } from '../components/Toast.js';
 
 beforeEach(() => {
   window.location.hash = '#/workflows';
@@ -48,7 +49,15 @@ async function setup(api = createMockApi(), { app = false } = {}) {
     }
     return get(id, version);
   };
-  render(app ? <App api={api} /> : <WorkflowsView api={api} />);
+  render(
+    app ? (
+      <App api={api} />
+    ) : (
+      <ToastProvider>
+        <WorkflowsView api={api} />
+      </ToastProvider>
+    ),
+  );
   const diagram = await screen.findByRole('group', { name: 'conductor v3 columns' }, DIAGRAM_WAIT);
   return { api, saved, diagram };
 }
@@ -207,7 +216,8 @@ describe('Workflow view', () => {
     expect(screen.getByText('Unsaved changes')).toBeTruthy();
     await save();
     await screen.findByRole('group', { name: 'conductor v4 columns' });
-    expect(screen.getByRole('status').textContent).toBe('Saved as v4.');
+    // UXR-55: the save is confirmed in the shared toast.
+    expect(screen.getByRole('status', { name: 'Notifications' }).textContent).toBe('Saved as v4');
     expect(saved[0]!.states.implementing).toMatchObject({
       title: 'Building',
       prompt: 'ticket_template',

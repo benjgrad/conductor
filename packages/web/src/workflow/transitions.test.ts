@@ -16,7 +16,11 @@ import {
   describeTransition,
   getTransitionObject,
   humanDuration,
+  kindsText,
   normalizeRequires,
+  parentOf,
+  ruleCount,
+  rulesText,
   patchTransition,
   removeTransition,
   renameTransition,
@@ -410,5 +414,49 @@ describe('describeTransition (UXR-60)', () => {
     expect(sectionOfPath('.requires.condition_timeout')).toBe('conditions');
     expect(sectionOfPath('.on_unmet.retries')).toBe('unmet');
     expect(sectionOfPath('.requires')).toBeNull();
+  });
+});
+
+describe('transition lists (UXR-64, UXR-66)', () => {
+  it('counts rules: checks, review items, actions and enabled conditions', () => {
+    expect(ruleCount({ goto: 'x' })).toBe(0);
+    expect(
+      ruleCount({
+        goto: 'x',
+        requires: {
+          checks: [{ name: 'Build', cmd: 'make' }],
+          review: { items: ['a', 'b'] },
+          actions: ['open_pr'],
+          conditions: [{ type: 'pr_checks_green' }, { type: 'pr_merged', enabled: false }],
+          condition_timeout: '1d',
+        },
+      }),
+    ).toBe(5);
+    expect([0, 1, 3].map(rulesText)).toEqual(['No rules', '1 rule', '3 rules']);
+  });
+
+  it('says which tickets a transition is for', () => {
+    expect(kindsText({ goto: 'x' })).toBe('All tickets');
+    expect(kindsText({ goto: 'x', kinds: ['work', 'personal'] })).toBe('All tickets');
+    expect(kindsText({ goto: 'x', kinds: ['work'] })).toBe('Work only');
+    expect(kindsText({ goto: 'x', kinds: ['personal'] })).toBe('Personal only');
+    expect(kindsText({ goto: 'x', kinds: [] })).toBe('No tickets');
+  });
+
+  it('Back goes to the arrow when it stands for several, else to the column', () => {
+    expect(parentOf(V2, 'implementing', 'ask_user')).toEqual({
+      kind: 'arrow',
+      from: 'implementing',
+      to: 'needs_input',
+    });
+    const lone = arrowTransitions(V2, 'planning', 'implementing');
+    expect(lone).toHaveLength(1);
+    expect(parentOf(V2, 'planning', lone[0]!)).toEqual({ kind: 'column', state: 'planning' });
+    // `$return_to` has no arrow.
+    const back = withT(V2, 'needs_input', 'answer', { goto: '$return_to' });
+    expect(parentOf(back, 'needs_input', 'answer')).toEqual({
+      kind: 'column',
+      state: 'needs_input',
+    });
   });
 });

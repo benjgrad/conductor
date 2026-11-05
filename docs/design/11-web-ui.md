@@ -88,6 +88,14 @@ The create form and the ticket editor have an attachment picker under the body (
 
 An agent column's panel has the checkbox "Agents may propose follow-up tickets" (`FollowUpsFields`, `workflow/ColumnEditor.tsx`). It shows the effective setting (`followUpsOf`): ticked for `plan_template` / `implement_template` while `follow_ups` is unset ([05 §Follow-up tickets](05-workflow-engine.md#follow-up-tickets-adr-0034)). Ticked, it shows At most (1–10) and Guidance, and editing either stores `follow_ups {enabled: true, …}`. Unticking it stores `enabled: false` where unset means on, and removes the key elsewhere (`setFollowUps(…, null)`). The proposals themselves are decided in Needs input ([06 §Proposed tickets](06-human-input.md#proposed-tickets)).
 
+## Arrows, transitions and the breadcrumb (UXR-64, UXR-65, UXR-66)
+
+The workflow editor has three panels: a column, an arrow and a transition.
+- **Arrows**: clicking an arrow that stands for one transition opens it. One that stands for several opens the arrow panel (`ArrowEditor.tsx`). The panel lists them as rows (`TransitionList.tsx`): the title, who takes it, the ticket kinds ("Work only") and the rule count (checks, review items, actions and enabled conditions: `ruleCount`), so `pr_ready_for_review` and `personal_pr_ready_for_review` are told apart. The column panel lists its transitions with the same rows, plus where each goes.
+- **Breadcrumb**: the arrow and transition panels open on a back arrow and a breadcrumb, Column › arrow › Transition (`EditorHead.tsx`). The arrow crumb shows only when the arrow stands for several transitions. Back goes to that list, else to the column (`parentOf`).
+- **Name**: Title is the transition's first field. Its name is under **Advanced**, with "Agents report this name; prompts and history refer to it." A rename applies on blur or Enter, never per keystroke, and Escape puts the name back.
+- **Remove transition** asks for a confirmation.
+
 ## Session transcript and Steps (UXR-38, UXR-88)
 
 The Messages tab reads as a conversation (`OutputLog.tsx`). Protocol calls are not shown as steps: an accepted `complete_state` (its result is the daemon's "Recorded. Stop now: …") collapses to one muted line, "✓ Finished <state>", where the state is the one the session was in at that time (from `moves`). A refused or failed call stays a normal tool row, and **Debug lines** brings every raw call back. The conversation's opening user message (Claude's prompt, which carries the ticket) is labelled **Ticket** and rendered as markdown. Later messages from a person stay plain text. Phase dividers name the transition by its title (`moveTitle`), never its id. The "History loaded from Claude's transcript" notice is a bordered notice inset like the chat.

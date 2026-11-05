@@ -349,21 +349,21 @@ describe('claimWork queue order (06 §Queue order)', () => {
     return id;
   }
 
-  it('with nothing reordered, takes the highest priority, then the oldest', async () => {
+  it('with nothing reordered, takes the lowest P (ADR-0036), then the oldest', async () => {
     const scope = await newAccount(db.pool);
     const m = await machine(scope, [repo('/src/q', 'github.com/org/q')]);
-    const low = await queued(scope, 0);
-    const high = await queued(scope, 5);
-    const high2 = await queued(scope, 5);
+    const low = await queued(scope, 3);
+    const high = await queued(scope, 1);
+    const high2 = await queued(scope, 1);
     expect([await claimed(m), await claimed(m), await claimed(m)]).toEqual([high, high2, low]);
   });
 
   it('takes hand-ordered tickets first, then the unranked by priority; and clears the rank', async () => {
     const scope = await newAccount(db.pool);
     const m = await machine(scope, [repo('/src/q', 'github.com/org/q')]);
-    const unrankedHigh = await queued(scope, 9);
-    const second = await queued(scope, 0, 2);
-    const first = await queued(scope, -1, 1);
+    const unrankedHigh = await queued(scope, 0);
+    const second = await queued(scope, 3, 2);
+    const first = await queued(scope, 4, 1);
     expect(await claimed(m)).toBe(first);
     expect(await claimed(m)).toBe(second);
     expect(await claimed(m)).toBe(unrankedHigh);
@@ -379,7 +379,7 @@ describe('claimWork queue order (06 §Queue order)', () => {
     const m = await machine(scope, [repo('/src/q', 'github.com/org/q')]);
     const other = await ticket(scope, 'github.com/org/elsewhere');
     await db.pool.query('UPDATE ticket SET queue_position = 1 WHERE id = $1', [other]);
-    const mine = await queued(scope, 0, 2);
+    const mine = await queued(scope, 3, 2);
     expect(await claimed(m)).toBe(mine);
   });
 });

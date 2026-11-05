@@ -45,7 +45,7 @@ afterAll(async () => {
 });
 
 /** Through the API (the local account), with `priority`. */
-async function create(title: string, priority = 0) {
+async function create(title: string, priority = 3) {
   const res = await send('POST', API_PATHS.tickets, {
     title,
     body: '## Goal\nQueue me.',
@@ -81,8 +81,8 @@ describe('PUT / DELETE /api/queue/order', () => {
   it('puts the listed tickets first, ranks everything, and the board follows', async () => {
     // Clean slate for the local account: earlier tests' tickets stay unranked behind ours.
     await send('DELETE', API_PATHS.queueOrder, {});
-    const low = await create('low', 0);
-    const high = await create('high', 5);
+    const low = await create('low', 4);
+    const high = await create('high', 1);
     const mid = await create('mid', 2);
     expect(await queuedColumn([low, high, mid])).toEqual([high, mid, low]);
 
@@ -101,7 +101,7 @@ describe('PUT / DELETE /api/queue/order', () => {
     expect(lowCard?.type === 'card.upserted' && lowCard.card.queue_position).toBe(1);
 
     // A new ticket, even a high-priority one, queues after the hand-ordered ones.
-    const later = await create('later', 9);
+    const later = await create('later', 0);
     expect(await queuedColumn([low, high, mid, later])).toEqual([low, mid, high, later]);
 
     const reset = await send('DELETE', API_PATHS.queueOrder, {});
@@ -131,6 +131,16 @@ describe('PUT / DELETE /api/queue/order', () => {
     expect((await send('PUT', API_PATHS.queueOrder, { ticket_ids: [b] })).status).toBe(404);
   });
 
+  it('a cancelled and reopened ticket comes back unranked', async () => {
+    const a = await create('a');
+    await send('PUT', API_PATHS.queueOrder, { ticket_ids: [a] });
+    expect(await positions([a])).toEqual([1]);
+    expect((await send('POST', API_PATHS.ticketCancel(a), {})).status).toBe(202);
+    expect(await positions([a])).toEqual([null]);
+    expect((await send('POST', API_PATHS.ticketReopen(a), {})).status).toBe(202);
+    expect(await positions([a])).toEqual([null]);
+  });
+
   it('400 for an empty list, a repeated id or a non-uuid', async () => {
     const a = await create('a');
     for (const ticket_ids of [[], [a, a], ['nope']]) {
@@ -140,7 +150,7 @@ describe('PUT / DELETE /api/queue/order', () => {
 });
 
 describe('reorderQueue (store)', () => {
-  async function ticketOf(accountId: string, priority = 0) {
+  async function ticketOf(accountId: string, priority = 3) {
     const r = await db.pool.query<{ id: string }>(
       `INSERT INTO ticket (account_id, repo, title, workflow_id, priority)
        VALUES ($1, 'acme/app', 't', 'conductor', $2) RETURNING id`,
@@ -152,10 +162,10 @@ describe('reorderQueue (store)', () => {
   it('keeps the unlisted tickets in their order after the listed ones', async () => {
     const { account_id } = await newAccount(db.pool);
     const [a, b, c, d] = [
-      await ticketOf(account_id, 4),
-      await ticketOf(account_id, 3),
-      await ticketOf(account_id, 2),
+      await ticketOf(account_id, 0),
       await ticketOf(account_id, 1),
+      await ticketOf(account_id, 2),
+      await ticketOf(account_id, 3),
     ];
     expect((await reorderQueue(db.pool, account_id, [c])).ticket_ids).toEqual([c, a, b, d]);
     // A second partial reorder keeps the hand order of the rest.

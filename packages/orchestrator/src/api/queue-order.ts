@@ -14,7 +14,7 @@ import { currentCard } from '../permissions/store.js';
 
 // 06 §Queue order: PUT / DELETE /api/queue/order and the MCP `reorder_queue` tool (ADR-0014 §1:
 // the tool adds no rules of its own). The queue is the account's `ready` tickets; the claim takes
-// them by `queue_position ASC NULLS LAST, priority DESC, created_at, id` (gateway/claim.ts), the
+// them by `queue_position ASC NULLS LAST, priority ASC, created_at, id` (gateway/claim.ts), the
 // order `compareQueued` sorts by.
 
 export interface QueueOrderResult extends QueueOrderResponse {
@@ -108,7 +108,7 @@ async function rewrite(
 export async function readyOrder(tx: Queryable, accountId: string): Promise<string[]> {
   const r = await tx.query<{ id: string }>(
     `SELECT id FROM ticket WHERE account_id = $1 AND status = 'ready'
-      ORDER BY queue_position ASC NULLS LAST, priority DESC, created_at, id`,
+      ORDER BY queue_position ASC NULLS LAST, priority ASC, created_at, id`,
     [accountId],
   );
   return r.rows.map((x) => x.id);

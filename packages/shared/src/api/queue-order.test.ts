@@ -11,13 +11,13 @@ const t = (
 const order = (xs: QueuedLike[]) => [...xs].sort(compareQueued).map((x) => x.ticket_id);
 
 describe('compareQueued', () => {
-  it('with nothing ranked: priority, highest first, then oldest first', () => {
+  it('with nothing ranked: priority, the lower P first (ADR-0036), then oldest first', () => {
     expect(
       order([
-        t('a', 0, '2026-01-01T00:00:00Z'),
-        t('b', 5, '2026-01-03T00:00:00Z'),
-        t('c', 5, '2026-01-02T00:00:00Z'),
-        t('d', -1, '2025-01-01T00:00:00Z'),
+        t('a', 3, '2026-01-01T00:00:00Z'),
+        t('b', 1, '2026-01-03T00:00:00Z'),
+        t('c', 1, '2026-01-02T00:00:00Z'),
+        t('d', 4, '2025-01-01T00:00:00Z'),
       ]),
     ).toEqual(['c', 'b', 'a', 'd']);
   });
@@ -25,10 +25,10 @@ describe('compareQueued', () => {
   it('puts hand-ranked tickets first, by position, whatever their priority', () => {
     expect(
       order([
-        t('high', 9, '2026-01-01T00:00:00Z'),
-        t('r2', 0, '2026-01-01T00:00:00Z', 2),
-        t('r1', -3, '2026-01-05T00:00:00Z', 1),
-        t('low', 0, '2025-01-01T00:00:00Z'),
+        t('high', 0, '2026-01-01T00:00:00Z'),
+        t('r2', 3, '2026-01-01T00:00:00Z', 2),
+        t('r1', 4, '2026-01-05T00:00:00Z', 1),
+        t('low', 3, '2025-01-01T00:00:00Z'),
       ]),
     ).toEqual(['r1', 'r2', 'high', 'low']);
   });

@@ -179,7 +179,7 @@ describe('createHttpApi REST', () => {
       required_tags: [],
       repo_allow_machines: null,
       status: 'ready',
-      priority: 0,
+      priority: 3,
       created_at: '2026-10-22T12:00:00.000Z',
     };
     const { calls, fetch } = recordingFetch(({ url, method }) => {
@@ -202,6 +202,8 @@ describe('createHttpApi REST', () => {
     await api.approve(SESSION);
     await api.cancel(SESSION, { reason: 'aborted from UI' });
     await api.cancel(SESSION);
+    await api.cancelTicket(ticket.id, { reason: 'duplicate' });
+    await api.reopenTicket(ticket.id);
     expect(
       await api.createTicket({
         title: 't',
@@ -230,6 +232,8 @@ describe('createHttpApi REST', () => {
       ['POST', `http://orch:7400/api/sessions/${SESSION}/approve`, {}],
       ['POST', `http://orch:7400/api/sessions/${SESSION}/cancel`, { reason: 'aborted from UI' }],
       ['POST', `http://orch:7400/api/sessions/${SESSION}/cancel`, {}],
+      ['POST', `http://orch:7400/api/tickets/${ticket.id}/cancel`, { reason: 'duplicate' }],
+      ['POST', `http://orch:7400/api/tickets/${ticket.id}/reopen`, {}],
       [
         'POST',
         'http://orch:7400/api/tickets',
@@ -237,7 +241,7 @@ describe('createHttpApi REST', () => {
       ],
     ]);
     expect(calls.filter((c) => c.method === 'POST').map((c) => c.contentType)).toEqual(
-      Array(7).fill('application/json'),
+      Array(9).fill('application/json'),
     );
   });
 

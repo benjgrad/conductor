@@ -1,7 +1,7 @@
 /* ADR-0032 / UXR-83: the Schedules page (the Repo checks page's look) and its sheet. */
 
 .schedules {
-  padding: 16px;
+  padding: var(--space-4);
   max-width: 1100px;
   display: flex;
   flex-direction: column;
@@ -14,7 +14,7 @@
   justify-content: space-between;
 }
 .schedules h2 {
-  font-size: 18px;
+  font-size: var(--text-lg);
   margin: 0;
 }
 .sc-note {
@@ -37,7 +37,7 @@
 .sc-table td {
   text-align: left;
   vertical-align: top;
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
 }
 .sc-table th {
@@ -59,15 +59,15 @@ button.sc-name {
   align-items: center;
   gap: 6px;
   margin-top: 2px;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .sc-repo {
   color: var(--muted);
 }
 .sc-warning,
 .sc-skipped {
-  margin: 4px 0 0;
-  font-size: 12px;
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
 }
 .sc-skipped {
   color: var(--warn);
@@ -76,7 +76,7 @@ button.sc-name {
   white-space: nowrap;
 }
 .sc-actions > * + * {
-  margin-left: 6px;
+  margin-left: var(--space-1);
 }
 .sc-switch {
   display: inline-flex;
@@ -92,14 +92,14 @@ button.sc-name {
 
 .schedule-form .sc-hint {
   display: block;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: normal;
 }
 .sc-when,
 .sc-machines {
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-3);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -126,7 +126,7 @@ button.sc-name {
 }
 .sc-days button[aria-pressed='true'] {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   border-color: var(--accent);
 }
 .sc-preview {
@@ -150,7 +150,7 @@ button.sc-name {
 }
 
 /* 11-web-ui §Breakpoint: on a phone each schedule is a stacked card, labelled cell by cell. */
-@media (max-width: 699.98px) {
+@media (max-width: 899.98px) {
   .sc-table {
     min-width: 0;
   }
@@ -165,17 +165,17 @@ button.sc-name {
   }
   .sc-table tr {
     border-bottom: 1px solid var(--border);
-    padding: 6px 0;
+    padding: var(--space-2) 0;
   }
   .sc-table td {
     border-bottom: 0;
-    padding: 4px 12px;
+    padding: var(--space-1) var(--space-3);
   }
   .sc-table td[data-label]:not([data-label='Name'])::before {
     content: attr(data-label);
     display: block;
     color: var(--muted);
-    font-size: 12px;
+    font-size: var(--text-sm);
   }
   .sc-actions {
     white-space: normal;

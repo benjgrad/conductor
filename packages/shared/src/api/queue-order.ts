@@ -2,7 +2,7 @@ import { QUEUED_COLUMN_ID } from '../workflow/conductor.js';
 import type { BoardCard } from './rest.js';
 
 // 06 §Queue order: the order queued tickets are picked up in, shared by the board (server and
-// client) and MCP. The claim's SQL says the same: `queue_position ASC NULLS LAST, priority DESC,
+// client) and MCP. The claim's SQL says the same: `queue_position ASC NULLS LAST, priority ASC,
 // created_at, id` (gateway/claim.ts).
 
 /** What `compareQueued` reads; a BoardCard has it, and so does a ticket row mapped to it. */
@@ -16,7 +16,8 @@ export interface QueuedLike {
 }
 
 /**
- * Hand-ranked tickets first (lowest position first), then the rest by priority (highest first),
+ * Hand-ranked tickets first (lowest position first), then the rest by priority (the lower P first:
+ * P0 is the most urgent, ADR-0036),
  * then age (oldest first), then id, so the order is total.
  */
 export function compareQueued(a: QueuedLike, b: QueuedLike): number {
@@ -28,7 +29,7 @@ export function compareQueued(a: QueuedLike, b: QueuedLike): number {
     if (pa !== pb) return pa - pb;
   }
   return (
-    b.priority - a.priority ||
+    a.priority - b.priority ||
     Date.parse(a.created_at) - Date.parse(b.created_at) ||
     (a.ticket_id < b.ticket_id ? -1 : a.ticket_id > b.ticket_id ? 1 : 0)
   );

@@ -8,6 +8,8 @@ import {
   MachineAlertKindSchema,
   MachineStatusSchema,
   SessionStatusSchema,
+  DEFAULT_TICKET_PRIORITY,
+  TicketPrioritySchema,
   TicketStatusSchema,
   UuidSchema,
   GITHUB_PR_URL_RE,
@@ -104,6 +106,10 @@ export const API_PATHS = {
   ticketProposalApprove: (id: string) => `/api/tickets/${id}/proposals/approve`,
   /** POST DismissProposalRequest → TicketProposal. */
   ticketProposalDismiss: (id: string) => `/api/tickets/${id}/proposals/dismiss`,
+  /** POST CancelTicketRequest → 202 OkResponse (UXR-86: cancels a queued ticket too). */
+  ticketCancel: (id: string) => `/api/tickets/${id}/cancel`,
+  /** POST ReopenTicketRequest → 202 OkResponse (a cancelled queued ticket, or a finished one). */
+  ticketReopen: (id: string) => `/api/tickets/${id}/reopen`,
   /**
    * POST the file's raw bytes (`application/octet-stream`, name in `x-conductor-filename`) →
    * 201 AttachmentDto, not linked to a ticket yet (06 §Attachments).
@@ -965,6 +971,24 @@ export type ReopenSessionResponse = z.infer<typeof ReopenSessionResponseSchema>;
 export const CancelSessionRequestSchema = z.object({ reason: z.string().optional() });
 
 /**
+ * POST /api/tickets/:id/cancel → 202 OkResponse (UXR-86). A ticket with a session is cancelled
+ * as POST /api/sessions/:id/cancel; one still queued with none is set `cancelled` (claims skip it).
+ * 404 unknown (or another account's); 409 `conflict` when already done or cancelled.
+ */
+export const CancelTicketRequestSchema = z.object({ reason: z.string().max(500).optional() });
+export type CancelTicketRequest = z.infer<typeof CancelTicketRequestSchema>;
+
+/**
+ * POST /api/tickets/:id/reopen → 202 OkResponse. A ticket with a session is reopened as
+ * POST /api/sessions/:id/reopen (`text` is the prompt; a default when absent); a cancelled one
+ * with no session goes back to `ready` (Queued). 409 `conflict` when it can't be reopened.
+ */
+export const ReopenTicketRequestSchema = z.object({
+  text: z.string().trim().min(1).max(20_000).optional(),
+});
+export type ReopenTicketRequest = z.infer<typeof ReopenTicketRequestSchema>;
+
+/**
  * POST /api/sessions/:id/approve → 202 OkResponse. Becomes `external.event {name: 'ui.approve',
  * data: {comment}}` (data omitted when there is no comment). 409 `conflict` when the session is
  * not waiting for `ui.approve` (apply ignored it).
@@ -1232,7 +1256,7 @@ export const UpdateTicketRequestSchema = z
     expected_updated_at: IsoDateTimeSchema,
     title: z.string().trim().min(1).max(500).optional(),
     body: z.string().max(TICKET_BODY_MAX).optional(),
-    priority: z.number().int().optional(),
+    priority: TicketPrioritySchema.optional(),
     kind: TicketKindSchema.optional(),
     /** 06 §Attachments: link these uploaded (unlinked) attachments to the ticket. */
     add_attachment_ids: z.array(UuidSchema).max(ATTACHMENTS_PER_TICKET_MAX).optional(),
@@ -1426,7 +1450,8 @@ export const CreateTicketRequestSchema = z.object({
   body: z.string(),
   repo: z.string().min(1),
   workflow_id: z.string().min(1).default(CONDUCTOR_WORKFLOW_ID),
-  priority: z.number().int().default(0),
+  /** ADR-0036: P0–P4, lower is more urgent; P3 by default. */
+  priority: TicketPrioritySchema.default(DEFAULT_TICKET_PRIORITY),
   required_tags: z.array(z.string()).default([]),
   repo_allow_machines: z.array(z.string()).nullable().default(null),
   external_ref: z.string().nullable().default(null),

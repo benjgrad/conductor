@@ -9,6 +9,7 @@ import {
   REPO_CHECKS_MAX,
   checksGatesOf,
   TicketKindSchema,
+  TicketPrioritySchema,
   httpForApplyResult,
   latestPlanEntry,
   insightFindings,
@@ -71,7 +72,7 @@ import {
   type ScheduleFailure,
 } from '../schedules/store.js';
 import { approveProposal, dismissProposal } from '../api/proposals.js';
-import { reopenSession } from '../engine/reopen.js';
+import { cancelTicket, reopenTicket } from '../api/ticket-lifecycle.js';
 import { conductorDefaultAvailable, newestShippedConductor } from '../engine/seed.js';
 import { maxBoardEventId } from '../stream/board.js';
 import { capJson } from './cap.js';
@@ -1126,8 +1127,9 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'Reopen a ticket',
       description:
-        'Send a finished (done or failed) ticket back to its agent with new instructions. The ' +
-        'agent resumes the same conversation on the same branch.',
+        'Send a finished (done, failed or cancelled) ticket back to its agent with new ' +
+        'instructions. The agent resumes the same conversation on the same branch. A ticket ' +
+        'cancelled while still queued goes back to the queue.',
       inputSchema: {
         ticket: z.string().max(64),
         text: z.string().min(1).max(10_000).describe('What the agent should do now'),
@@ -1135,15 +1137,17 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     async ({ ticket, text }) => {
-      const s = await sessionOf(ticket);
-      if ('error' in s) return s.error;
-      // As POST /api/sessions/:id/reopen (api/index.ts).
-      const res = await reopenSession(db, s.sessionId, text, UI_ACTOR);
+      const t = await resolveTicket(db, accountId, ticket);
+      if ('error' in t) return t.error;
+      // As POST /api/tickets/:id/reopen (api/ticket-lifecycle.ts).
+      const res = await reopenTicket(db, accountId, t.id, text, UI_ACTOR);
       if (res.status === 'not_found') return fail('not_found', `No ticket ${ticket}.`);
       if (res.status === 'conflict') return fail('conflict', res.reason);
-      for (const ev of res.boardEvents) deps.boardBus.publish(ev);
-      outputBus.append(res.sessionId, 'user', text);
-      return ok({ ok: true, session_id: res.sessionId });
+      for (const ev of res.events) deps.boardBus.publish(ev);
+      if (res.sessionId !== null && res.text !== null) {
+        outputBus.append(res.sessionId, 'user', res.text);
+      }
+      return ok({ ok: true, ...(res.sessionId !== null ? { session_id: res.sessionId } : {}) });
     },
   );
 
@@ -1152,8 +1156,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'Cancel a ticket',
       description:
-        'Stop the ticket’s agent and cancel the ticket. Only reopen_ticket undoes it. Ask the ' +
-        'user first.',
+        'Stop the ticket’s agent and cancel the ticket, or take a queued ticket off the queue. ' +
+        'Only reopen_ticket undoes it. Ask the user first.',
       inputSchema: {
         ticket: z.string().max(64),
         reason: z.string().max(500).optional(),
@@ -1161,12 +1165,24 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     },
     async ({ ticket, reason }) => {
-      const s = await sessionOf(ticket);
-      if ('error' in s) return s.error;
-      return apply('cancel', s.sessionId, {
-        type: 'operator.cancel',
-        ...(reason !== undefined ? { reason } : {}),
-      });
+      const t = await resolveTicket(db, accountId, ticket);
+      if ('error' in t) return t.error;
+      // As POST /api/tickets/:id/cancel (api/ticket-lifecycle.ts).
+      const res = await cancelTicket({ db, engine }, accountId, t.id, reason, UI_ACTOR);
+      switch (res.status) {
+        case 'not_found':
+          return fail('not_found', `No ticket ${ticket}.`);
+        case 'conflict':
+          return fail('conflict', res.reason);
+        case 'engine':
+          return fail(
+            httpForApplyResult('cancel', res.result).code,
+            `operator.cancel: ${res.result.reason}`,
+          );
+        case 'applied':
+          for (const ev of res.events) deps.boardBus.publish(ev);
+          return ok({ ok: true });
+      }
     },
   );
 
@@ -1368,7 +1384,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         repo: z.string().min(1).max(200).optional().describe('host/org/repo'),
         kind: TicketKindSchema.optional().describe('work or personal'),
         workflow_id: z.string().min(1).max(100).optional().describe('Default routine'),
-        priority: z.number().int().optional(),
+        priority: TicketPrioritySchema.optional().describe('0–4, lower = more urgent; default 3'),
         machines: z.array(z.string().min(1).max(200)).max(10).nullable().optional(),
         required_tags: z.array(z.string().min(1).max(100)).max(20).optional(),
         expected_updated_at: z

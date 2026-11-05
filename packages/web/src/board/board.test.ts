@@ -99,7 +99,7 @@ describe('columns (ADR-0010: the conductor states, Queued first)', () => {
       ask('b', t(12), t(9)),
       ask('a', t(11), t(10)),
       card({ title: 'q-old', created_at: t(1) }),
-      card({ title: 'q-urgent', priority: 3, created_at: t(3) }),
+      card({ title: 'q-urgent', priority: 1, created_at: t(3) }),
       card({ status: 'running', column: 'implementing', title: 'r-stale', updated_at: t(1) }),
       card({ status: 'running', column: 'implementing', title: 'r-active', updated_at: t(5) }),
       card({
@@ -124,9 +124,9 @@ describe('columns (ADR-0010: the conductor states, Queued first)', () => {
   it('queued: hand-ordered cards first (06 §Queue order), then priority then age', () => {
     const t = (h: number) => `2026-10-22T${String(h).padStart(2, '0')}:00:00.000Z`;
     const s = boardOf(
-      card({ title: 'urgent', priority: 9, created_at: t(1) }),
+      card({ title: 'urgent', priority: 0, created_at: t(1) }),
       card({ title: 'second', queue_position: 2, created_at: t(2) }),
-      card({ title: 'first', queue_position: 1, priority: -1, created_at: t(3) }),
+      card({ title: 'first', queue_position: 1, priority: 4, created_at: t(3) }),
     );
     expect(titles(col(s, 'queued'))).toEqual(['first', 'second', 'urgent']);
   });

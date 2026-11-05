@@ -45,7 +45,7 @@ SELECT t.id,
        ( CASE WHEN inv.repo IS NOT NULL THEN 100 ELSE 0 END          -- repo locality (biggest weight)
        + CASE WHEN inv.tree_clean THEN 10 ELSE 0 END                 -- clean shared clone
        + CASE WHEN aff.machine_id = $1 THEN 50 ELSE 0 END            -- affinity: prior session of this ticket here
-       + t.priority * 5
+       + (4 - t.priority) * 5                                      -- ADR-0036: P0 most urgent
        - CASE WHEN inv.repo IS NULL THEN 40 ELSE 0 END               -- clone penalty
        ) AS score
 FROM ticket t
@@ -57,7 +57,7 @@ LEFT JOIN LATERAL (
 WHERE t.status = 'ready'
   AND t.required_tags <@ $2                                           -- hard: tags (gpu, os, …)
   AND (t.repo_allow_machines IS NULL OR $1 = ANY(t.repo_allow_machines)) -- hard: allow-list
-ORDER BY score DESC, t.priority DESC, t.created_at
+ORDER BY score DESC, t.priority ASC, t.created_at
 LIMIT 1
 FOR UPDATE OF t SKIP LOCKED;
 ```
@@ -79,7 +79,7 @@ AND NOT EXISTS (SELECT 1 FROM session q
 ```
 It holds across requeues (it reads the earlier session, not the queued one's `machine_id`). If that machine never comes back, the card waits in Queued until a human cancels it (TD: cross-machine reopen would need the branch pushed and the transcript shipped, ADR-0005 revisit).
 
-**Routing filters (M2-T16a, [ADR-0013](../adr/0013-machine-enrollment-inventory-routing.md) §Routing).** The claim as built has no soft score yet (the query above is the target); it orders by `queue_position ASC NULLS LAST, priority DESC, created_at, id` (the hand-set queue order first, [06 §Queue order](06-human-input.md#queue-order); the claim sets the claimed ticket's `queue_position` back to null) and adds these hard filters to the tag, allow-list and pin filters ([10 §Machines protocol v2](10-contracts.md#machines-protocol-v2) "Matching" is the authority):
+**Routing filters (M2-T16a, [ADR-0013](../adr/0013-machine-enrollment-inventory-routing.md) §Routing).** The claim as built has no soft score yet (the query above is the target); it orders by `queue_position ASC NULLS LAST, priority ASC, created_at, id` (the hand-set queue order first, [06 §Queue order](06-human-input.md#queue-order), then the lower P first, [ADR-0036](../adr/0036-ticket-priority-p-scale.md); the claim sets the claimed ticket's `queue_position` back to null) and adds these hard filters to the tag, allow-list and pin filters ([10 §Machines protocol v2](10-contracts.md#machines-protocol-v2) "Matching" is the authority):
 - **Account**: `t.account_id` = the machine's.
 - **Repo**: the machine has a `machine_repo` with `remote IS NOT NULL AND lower(remote) = lower(t.repo)` (github.com org/repo are case-insensitive). A ticket whose `repo` is not canonical (`CANONICAL_REMOTE_RE`, no `.git`; only `local` mode allows it) skips this filter, as in M1.
 - **Capabilities**: every requirement of the ticket's effective workflow version (pinned, else latest) for its `kind` is a stored `machine_capability.key` of the machine; a key with `@<repo>` compares case-insensitively, and a bare `skill:<n>` / `agent:<n>` is also met by `…@<t.repo>`. The requirements come from `requiredCapabilities(def, kind)`, cached in memory per (workflow, version, kind) until M2-T12 stores them on save. One pre-pass per claim reads the distinct (workflow, version, kind) of the account's ready tickets and passes the requirement rows as arrays; a ticket whose combination isn't in that set is not picked. The inner lookups use the `(machine_id, …)` primary keys, so no new index.
@@ -88,7 +88,7 @@ It holds across requeues (it reads the earlier session, not the queued one's `ma
 
 In the same transaction, before `session.assigned`, the claim writes the matched `machine_repo` (by `path`) as `{repo_path, mode}` into `session.context.__working_copy` (none, and any old one removed, for a non-canonical repo), so every `start_session` carries `working_copy`.
 
-The board's Queued card gets `routing` when no **online** machine of the account passes the repo, capability and repo-rule filters (`gateway/routing.ts`, the same rules in TypeScript): `missing_repo` when none has the repo, and the capabilities the closest machine (fewest missing, among those with the repo when any has it) lacks, both among the machines the repo rules allow; `exclusive_to` / `excluded_by_rule` when a rule is why. The machine drawer's "Can't take" list (`MachineDetail.cannot_take`) uses the same rules per machine. TD: routing is recomputed on the card's own events and on board load, not when a machine or inventory changes.
+The board's Queued card gets `routing` when no **online** machine of the account passes the repo, capability and repo-rule filters (`gateway/routing.ts`, the same rules in TypeScript): `missing_repo` when none has the repo, and the capabilities the closest machine (fewest missing, among those with the repo when any has it) lacks, both among the machines the repo rules allow; `exclusive_to` / `excluded_by_rule` when a rule is why. The card shows it as one line ("No machine can take this"); the queued ticket's panel spells it out (`routingSentence`, `web/src/machines/format.ts`) with a link to Machines (UXR-34). The machine drawer's "Can't take" list (`MachineDetail.cannot_take`) uses the same rules per machine. TD: routing is recomputed on the card's own events and on board load, not when a machine or inventory changes.
 
 ## 3 · Short-hold rule (softening greedy pull)
 

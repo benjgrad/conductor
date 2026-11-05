@@ -28,7 +28,7 @@ function card(n: number, over: Partial<BoardCard> = {}): BoardCard {
     status: null,
     column: 'queued',
     title: `Q${n}`,
-    priority: 0,
+    priority: 3,
     created_at: `2026-10-22T0${n}:00:00.000Z`,
     input_request: null,
     human_transitions: [],

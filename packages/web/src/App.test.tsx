@@ -177,10 +177,16 @@ describe('create ticket', () => {
       expect(form.getByRole<HTMLInputElement>('combobox', { name: 'Repo' }).value).not.toBe(''),
     );
     fireEvent.change(form.getByLabelText('Title'), { target: { value: 'Add dark mode' } });
-    fireEvent.change(form.getByLabelText('Priority'), { target: { value: '9' } });
+    fireEvent.change(form.getByLabelText('Priority'), { target: { value: '1' } });
     fireEvent.click(form.getByRole('radio', { name: 'Work' }));
     fireEvent.click(form.getByRole('button', { name: 'Create ticket' }));
-    await waitFor(() => expect(cardTitles('Queued')[0]).toBe('Add dark mode'));
+    // P1 sorts after the older P1 hotfix and ahead of every P3 card (ADR-0036).
+    await waitFor(() =>
+      expect(cardTitles('Queued').slice(0, 2)).toEqual([
+        'Hotfix: crash on empty cart',
+        'Add dark mode',
+      ]),
+    );
     expect(screen.queryByRole('form', { name: 'Create ticket' })).toBeNull();
   });
 });

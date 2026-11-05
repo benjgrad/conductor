@@ -27,7 +27,9 @@ import { ArchivePage } from './components/ArchivePage.js';
 import { Board } from './components/Board.js';
 import { CreateTicketForm } from './components/CreateTicketForm.js';
 import { DetailPanel } from './components/DetailPanel.js';
+import { TicketList } from './components/TicketList.js';
 import { TicketPanel } from './components/TicketPanel.js';
+import { readFocus, writeFocus } from './components/board-layout.js';
 import { TicketSearch } from './components/TicketSearch.js';
 import { ToastProvider } from './components/Toast.js';
 import { NavIcon } from './components/NavIcon.js';
@@ -35,6 +37,7 @@ import {
   useDocumentClass,
   useElementHeightVar,
   useIsMobile,
+  useIsWide,
   useVisualViewportHeight,
 } from './components/useMediaQuery.js';
 import {
@@ -210,6 +213,16 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
     setSelectedTicket(ticketId);
   }, []);
   const [creating, setCreating] = useState(false);
+  // UXR-37 (11-web-ui §Desktop detail layout): on desktop the panel beside the board is narrower,
+  // its request comes first, and the focus toggle swaps the board for a ticket list. The choice
+  // is remembered.
+  const wide = useIsWide() && !mobile;
+  const [focus, setFocusState] = useState(readFocus);
+  const setFocus = useCallback((on: boolean) => {
+    setFocusState(on);
+    writeFocus(on);
+  }, []);
+  const toggleFocus = useCallback(() => setFocus(!focus), [focus, setFocus]);
   const topbarRef = useRef<HTMLElement>(null);
   useElementHeightVar(topbarRef, '--topbar-h');
   // 11-web-ui §Breakpoint: on a phone the document never scrolls; `.app.mobile` does.
@@ -339,10 +352,17 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
     setSelectedSession(claimed);
     setSelectedTicket(null);
   }
+  const panelOpen = selected !== null || selectedTicket !== null;
+  const focused = wide && focus && panelOpen && boardView;
+  const exitFocus = useCallback(() => setFocus(false), [setFocus]);
+  useFocusEscape(focused, exitFocus);
+  // The focus toggle is the board's: on the Archive the panel is just narrower.
+  const focusToggle = wide && boardView ? { focus: focused, onToggleFocus: toggleFocus } : {};
+  const panelLayout = wide ? ({ layout: 'wide', ...focusToggle } as const) : {};
 
   return (
     <div
-      className={`app${selected || selectedTicket ? ' with-detail' : ''}${mobile ? ' mobile' : ''}${showForm ? ' creating' : ''}${boardView && !mobile ? ' board-view' : ''}`}
+      className={`app${selected || selectedTicket ? ' with-detail' : ''}${mobile ? ' mobile' : ''}${showForm ? ' creating' : ''}${boardView && !mobile ? ' board-view' : ''}${focused ? ' focus' : ''}`}
     >
       <header ref={topbarRef} className={`topbar${compact ? ' compact' : ''}`}>
         {mobile ? (
@@ -494,14 +514,29 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
         {route.view === 'archive' ? (
           <ArchivePage api={api} onOpen={openResult} />
         ) : (
-          <Board
-            board={board}
-            selectedSessionId={selected}
-            onSelect={setSelected}
-            selectedTicketId={selectedTicket}
-            onSelectTicket={selectTicket}
-            api={api}
-          />
+          <>
+            {focused && (
+              <TicketList
+                board={board}
+                selectedSessionId={selected}
+                selectedTicketId={selectedTicket}
+                onSelect={setSelected}
+                onSelectTicket={selectTicket}
+                onShowBoard={() => setSelected(null)}
+              />
+            )}
+            {/* UXR-37: hidden, not unmounted, in focus mode: its collapsed columns stay as they were. */}
+            <Board
+              board={board}
+              selectedSessionId={selected}
+              onSelect={setSelected}
+              selectedTicketId={selectedTicket}
+              onSelectTicket={selectTicket}
+              api={api}
+              narrow={wide && panelOpen}
+              hidden={focused}
+            />
+          </>
         )}
         {selectedTicket && !selected && (
           <TicketPanel
@@ -512,6 +547,7 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
             onClose={() => setSelectedTicket(null)}
             fullScreen={mobile}
             routing={ticketCard?.routing}
+            {...focusToggle}
           />
         )}
         {selected && (
@@ -527,9 +563,34 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
             onClose={() => setSelected(null)}
             fullScreen={mobile}
             onSelectSession={setSelected}
+            {...panelLayout}
           />
         )}
       </main>
     </div>
   );
+}
+
+/**
+ * UXR-37: Escape leaves focus mode (the panel stays open). Not while typing, nor when something
+ * else handles Escape first (a menu, a sheet, a dialog).
+ */
+function useFocusEscape(active: boolean, onEscape: () => void) {
+  useEffect(() => {
+    if (!active) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      const el = document.activeElement;
+      if (
+        el instanceof HTMLElement &&
+        (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))
+      ) {
+        return;
+      }
+      if (document.querySelector('[role="dialog"], [role="menu"], [aria-modal="true"]')) return;
+      onEscape();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [active, onEscape]);
 }

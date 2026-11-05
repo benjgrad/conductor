@@ -105,6 +105,17 @@ button.plan-approve {
   flex-direction: column;
   gap: 6px;
 }
+.board-area[hidden] {
+  display: none;
+}
+/* UXR-37: beside an open panel the columns keep 200 px and the board scrolls sideways; a scroll
+   lands on a column's edge. */
+.board.board-narrow {
+  scroll-snap-type: x proximity;
+}
+.board.board-narrow > .column {
+  scroll-snap-align: start;
+}
 .board-toolbar {
   display: flex;
   justify-content: flex-end;

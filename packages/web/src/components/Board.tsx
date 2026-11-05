@@ -64,11 +64,20 @@ interface BoardProps {
   api?: ApiClient;
   /** ADR-0010: the board's workflow; it keys the remembered layout (UX-9). */
   workflow?: string;
+  /**
+   * UXR-37: a panel is open beside the board (desktop). Columns keep 200 px and the board
+   * scrolls sideways, rather than squeezing titles onto three lines.
+   */
+  narrow?: boolean;
+  /** UXR-37: focus mode shows a ticket list instead; the board stays mounted (its layout state). */
+  hidden?: boolean;
 }
 
 /** UX-9: a collapsed column's grid track, the width of its strip. */
 const STRIP_TRACK = 'var(--column-strip-width)';
 const COLUMN_TRACK = 'minmax(180px, 1fr)';
+/** UXR-37: beside an open panel. */
+const NARROW_COLUMN_TRACK = 'minmax(200px, 1fr)';
 
 export function Board({
   board,
@@ -78,6 +87,8 @@ export function Board({
   selectedTicketId = null,
   api,
   workflow = DEFAULT_BOARD_WORKFLOW,
+  narrow = false,
+  hidden = false,
 }: BoardProps) {
   // NFR-2 (UX-9): stable columns and agent states, so toggling one column skips the others.
   const columns = useMemo(() => boardColumns(board), [board]);
@@ -193,7 +204,7 @@ export function Board({
   }
 
   return (
-    <div className="board-area">
+    <div className="board-area" hidden={hidden}>
       {anyCollapsed && (
         <div className="board-toolbar">
           <button type="button" className="board-expand-all" onClick={expandAll}>
@@ -202,11 +213,13 @@ export function Board({
         </div>
       )}
       <div
-        className="board"
+        className={`board${narrow ? ' board-narrow' : ''}`}
         // styles.css owns `.board`; the tracks depend on which columns are collapsed.
         style={{
           gridTemplateColumns: columns
-            .map((c) => (isCollapsed(c.id) ? STRIP_TRACK : COLUMN_TRACK))
+            .map((c) =>
+              isCollapsed(c.id) ? STRIP_TRACK : narrow ? NARROW_COLUMN_TRACK : COLUMN_TRACK,
+            )
             .join(' '),
         }}
       >
@@ -1028,7 +1041,7 @@ const BADGE_CLASS: Record<RequestClass, (kind: string) => string> = {
 };
 
 /** UXR-35: the request badge's class; an old server's failed run is red like a failed step. */
-function badgeClass(cls: RequestClass, kind: keyof typeof KIND_LABELS): string {
+export function badgeClass(cls: RequestClass, kind: keyof typeof KIND_LABELS): string {
   return requestTone(cls, kind) === 'failure' && cls === 'question'
     ? BADGE_CLASS.step_failed(kind)
     : BADGE_CLASS[cls](kind);

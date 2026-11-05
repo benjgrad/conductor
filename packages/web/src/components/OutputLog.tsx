@@ -729,6 +729,12 @@ export interface OutputLogProps {
   failedItem?: string | null | undefined;
   /** UX-6: conductor is running a command for the session now (the last run is "running"). */
   active?: boolean | undefined;
+  /**
+   * UXR-37: `inline` (default) shows each command run's "Check output" row in the thread;
+   * `separate` leaves them out (the wide panel shows them in its own disclosure, `CheckRuns`), so
+   * output that is only runs leaves the chat empty rather than "No output yet.".
+   */
+  runs?: 'inline' | 'separate';
 }
 
 export function OutputLog({
@@ -743,6 +749,7 @@ export function OutputLog({
   checking,
   failedItem,
   active,
+  runs = 'inline',
 }: OutputLogProps) {
   const entries = useMemo(() => buildEntries(output), [output]);
   const short = useMemo(() => shortener(worktree), [worktree]);
@@ -897,6 +904,7 @@ export function OutputLog({
                   </p>
                 );
               case 'run':
+                if (runs === 'separate') return null;
                 return (
                   <CheckRun
                     key={item.key}
@@ -927,5 +935,74 @@ export function OutputLog({
         )}
       </div>
     </section>
+  );
+}
+
+type CheckRunsProps = Pick<
+  OutputLogProps,
+  'output' | 'moves' | 'workflow' | 'checking' | 'failedItem' | 'active'
+>;
+
+/** UXR-37: the command runs of the output (the "Check output" rows), oldest first. */
+function runItems(
+  output: readonly OutputChunk[],
+  opts: { moves?: readonly MoveDto[] | undefined; workflow?: WorkflowDefinition | undefined },
+): { thread: ThreadItem[]; runs: RunItem[] } {
+  const thread = buildThread(buildEntries(output), { ...opts, group: true });
+  return { thread, runs: thread.filter((t): t is RunItem => t.kind === 'run') };
+}
+
+/** UXR-37: how many command runs the output has (the "Check output (n runs)" summary). */
+export function runCount(
+  output: readonly OutputChunk[],
+  opts: { moves?: readonly MoveDto[] | undefined; workflow?: WorkflowDefinition | undefined } = {},
+): number {
+  return runItems(output, opts).runs.length;
+}
+
+/**
+ * UXR-37: the session's "Check output" rows on their own, for the wide panel's disclosure. Each
+ * row's status is worked out against the whole thread, as `OutputLog` does inline.
+ */
+export function CheckRuns({
+  output,
+  moves,
+  workflow,
+  checking,
+  failedItem,
+  active,
+}: CheckRunsProps) {
+  const { thread, runs } = useMemo(
+    () => runItems(output, { moves, workflow }),
+    [output, moves, workflow],
+  );
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  const latest = new Map<string, string>();
+  for (const r of runs) latest.set(r.name, r.key);
+  const last = thread.at(-1);
+  return (
+    <div className="check-runs">
+      {runs.map((item) => (
+        <CheckRun
+          key={item.key}
+          name={item.name}
+          status={runStatus(
+            item,
+            { latest: latest.get(item.name) === item.key, last: last === item },
+            { checking, failedItem, active },
+          )}
+          segments={item.segments}
+          lines={item.lines}
+          open={expanded.has(item.key)}
+          onToggle={() =>
+            setExpanded((prev) => {
+              const next = new Set(prev);
+              if (!next.delete(item.key)) next.add(item.key);
+              return next;
+            })
+          }
+        />
+      ))}
+    </div>
   );
 }

@@ -1,0 +1,113 @@
+/* UXR-37 (11-web-ui §Desktop detail layout): focus mode's ticket list (TicketList.tsx), in place of
+   the board while a ticket is open. It scrolls on its own; the panel takes the rest of the row. */
+.ticket-list {
+  flex: none;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.ticket-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+.ticket-list-count {
+  font-size: var(--text-sm);
+}
+.ticket-list-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-1) var(--space-2) var(--space-3);
+}
+.ticket-group h3 {
+  margin: var(--space-2) 0 var(--space-1);
+}
+.ticket-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  padding: 2px var(--space-1);
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: left;
+}
+.ticket-group-needs_input .ticket-group-toggle {
+  color: var(--ask);
+}
+.ticket-group-chevron {
+  width: 10px;
+  font-size: var(--text-xs);
+}
+.ticket-group-toggle .count {
+  font-weight: normal;
+}
+.ticket-group-toggle:focus-visible,
+.ticket-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.ticket-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ticket-group ul[hidden] {
+  display: none;
+}
+.ticket-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+.ticket-row:hover {
+  background: color-mix(in srgb, var(--panel) 60%, var(--bg));
+}
+.ticket-row.selected {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+.ticket-row-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  line-height: 1.3;
+  /* Two lines at most; the row's title has the whole of it. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ticket-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}

@@ -14,6 +14,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ApiRequestError, errorMessage, type ApiClient } from '../api/client.js';
 import { routingSentence } from '../machines/format.js';
 import { routeHash } from '../nav.js';
+import { FocusToggle } from './FocusToggle.js';
 import { AgentAttachments, AttachmentGallery } from './AttachmentGallery.js';
 import { splitAttachments } from './attachment-groups.js';
 import { ago, TICKET_KIND_LABELS } from './format.js';
@@ -56,6 +57,10 @@ interface TicketPanelProps {
   fullScreen?: boolean;
   /** The card's routing (ADR-0013 §Routing): set while no online machine can take it. */
   routing?: BoardCardRouting | undefined;
+  /** UXR-37: focus mode is on. */
+  focus?: boolean;
+  /** UXR-37: with it, the header has the focus-mode toggle (desktop only). */
+  onToggleFocus?: () => void;
 }
 
 export function TicketPanel({
@@ -65,6 +70,8 @@ export function TicketPanel({
   onClose,
   fullScreen = false,
   routing,
+  focus = false,
+  onToggleFocus,
 }: TicketPanelProps) {
   const { ticket, error, reload, setTicket } = useTicket(api, ticketId, version);
   const [editing, setEditing] = useState(false);
@@ -85,6 +92,7 @@ export function TicketPanel({
             </div>
           )}
         </div>
+        {onToggleFocus && <FocusToggle focus={focus} onToggle={onToggleFocus} />}
         {!fullScreen && (
           <button type="button" className="close" onClick={onClose} aria-label="Close detail">
             ×

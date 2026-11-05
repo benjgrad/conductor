@@ -13,6 +13,7 @@ import { Markdown } from './markdown.js';
 import {
   buildEntries,
   buildThread,
+  CheckRuns,
   describeTool,
   diffLines,
   isFailedResult,
@@ -22,6 +23,7 @@ import {
   phaseLabel,
   parseToolUse,
   resultSummary,
+  runCount,
   shortener,
 } from './OutputLog.js';
 import { ToastProvider } from './Toast.js';
@@ -657,6 +659,23 @@ describe('check output rows (UX-6)', () => {
     );
     expect(rows()[0]!.textContent).toMatch(/Lint \(failed\)/);
     expect(screen.getByText('last words', { selector: '.check-run-error' })).toBeTruthy();
+  });
+
+  it('UXR-37: runs="separate" leaves the runs out of the chat; CheckRuns shows them', () => {
+    const output = twoRuns();
+    const { unmount } = render(
+      <OutputLog output={output} worktree={null} workflow={workflow} runs="separate" />,
+    );
+    expect(screen.queryAllByRole('button', { name: /^Check output/ })).toHaveLength(0);
+    expect(screen.getByText('Done; handing over.')).toBeTruthy();
+    unmount();
+
+    expect(runCount(output, { workflow })).toBe(2);
+    render(<CheckRuns output={output} workflow={workflow} failedItem="Lint" />);
+    expect(rows().map((r) => r.textContent)).toEqual([
+      'Check output · Typecheck (passed) · 3 lines▸',
+      '✗Check output · Lint (failed) · 2 lines▸',
+    ]);
   });
 
   it('FR-4: with Debug lines on, everything renders ungrouped as before', () => {

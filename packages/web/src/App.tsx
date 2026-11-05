@@ -1,5 +1,6 @@
-import type { MeResponse } from '@conductor/shared';
+import type { MeResponse, TicketSearchResult } from '@conductor/shared';
 import {
+  Archive,
   CircleHelp,
   LayoutDashboard,
   ListChecks,
@@ -20,10 +21,12 @@ import { isUnauthorized, withAuthRedirect } from './auth/session.js';
 import { SignIn } from './auth/SignIn.js';
 import { SignUp } from './auth/SignUp.js';
 import { useBoard } from './board/hooks.js';
+import { ArchivePage } from './components/ArchivePage.js';
 import { Board } from './components/Board.js';
 import { CreateTicketForm } from './components/CreateTicketForm.js';
 import { DetailPanel } from './components/DetailPanel.js';
 import { TicketPanel } from './components/TicketPanel.js';
+import { TicketSearch } from './components/TicketSearch.js';
 import { NavIcon } from './components/NavIcon.js';
 import {
   useDocumentClass,
@@ -204,6 +207,16 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
     navigate({ view: 'board' });
     setSelected(sessionId);
   };
+  // UXR-85: a search result or an Archive row opens its panel over the board (or the Archive).
+  const openResult = (t: TicketSearchResult) => {
+    if (route.view !== 'board' && route.view !== 'archive') {
+      navigate({ view: 'board' });
+      // The draft guard held the user back: stay, open nothing.
+      if (parseHash(window.location.hash).view !== 'board') return;
+    }
+    if (t.session_id !== null) setSelected(t.session_id);
+    else selectTicket(t.id);
+  };
   useNeedsInputNotifications(board, openSession);
   useTransitionNotifications(board, openSession);
   // UX-16: a push notification's tap opens its ticket (#/?ticket=…).
@@ -335,7 +348,15 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
           >
             {labelled(Server, 'Machines')}
           </a>
+          <a
+            href={routeHash({ view: 'archive' })}
+            aria-current={route.view === 'archive' ? 'page' : undefined}
+            {...iconOnly('Archive')}
+          >
+            {labelled(Archive, 'Archive')}
+          </a>
         </nav>
+        {!guide && <TicketSearch api={api} onOpen={openResult} mobile={mobile} />}
         {!mobile && (
           <nav className="nav-tabs help-entry" aria-label="Help">
             <a
@@ -409,15 +430,19 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
           onClose={() => setCreating(false)}
         />
       )}
-      <main hidden={route.view !== 'board' || guide}>
-        <Board
-          board={board}
-          selectedSessionId={selected}
-          onSelect={setSelected}
-          selectedTicketId={selectedTicket}
-          onSelectTicket={selectTicket}
-          api={api}
-        />
+      <main hidden={(route.view !== 'board' && route.view !== 'archive') || guide}>
+        {route.view === 'archive' ? (
+          <ArchivePage api={api} onOpen={openResult} />
+        ) : (
+          <Board
+            board={board}
+            selectedSessionId={selected}
+            onSelect={setSelected}
+            selectedTicketId={selectedTicket}
+            onSelectTicket={selectTicket}
+            api={api}
+          />
+        )}
         {selectedTicket && !selected && (
           <TicketPanel
             key={selectedTicket}

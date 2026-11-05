@@ -12,6 +12,8 @@ import {
   SendMessageRequestSchema,
   TransitionSessionRequestSchema,
   UpdateTicketRequestSchema,
+  TicketSearchQuerySchema,
+  type TicketSearchResponse,
   UuidSchema,
   httpForApplyResult,
   type EngineEvent,
@@ -53,6 +55,7 @@ import { httpSecurityFromEnv, securityHookFor, type HttpSecurityOptions } from '
 import { loadSessionDetail, sessionExists } from './sessions.js';
 import { approveProposal, dismissProposal } from './proposals.js';
 import { createTicket, loadTicketDetail, updateTicket } from './tickets.js';
+import { searchTickets, toSearchResult } from './ticket-search.js';
 import { registerTeamRoutes } from './team.js';
 import { registerAttachmentRoutes } from './attachments.js';
 
@@ -430,6 +433,25 @@ export const createApi = (({
     const res = await createTicket({ db, boardBus, auth }, req.auth!.scope, body);
     if (!res.ok) return sendError(reply, res.status, res.code, res.message, res.details);
     return reply.code(201).send(res.dto);
+  });
+
+  // UXR-85: the search box and the Archive. The same query as MCP `search_tickets`.
+  app.get(API_PATHS.tickets, async (req, reply) => {
+    const q = TicketSearchQuerySchema.safeParse(req.query ?? {});
+    if (!q.success) return sendError(reply, 400, 'bad_request', 'bad q, status, limit or cursor');
+    const { rows, total } = await searchTickets(db, req.auth!.scope.account_id, {
+      q: q.data.q,
+      statuses: q.data.status,
+      limit: q.data.limit,
+      cursor: q.data.cursor,
+    });
+    const end = q.data.cursor + rows.length;
+    const body: TicketSearchResponse = {
+      tickets: rows.map((r) => toSearchResult(r, q.data.q)),
+      next_cursor: end < total ? end : null,
+      total,
+    };
+    return body;
   });
 
   /** A valid uuid or a 404 sent. */

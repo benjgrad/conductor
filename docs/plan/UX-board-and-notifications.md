@@ -16,7 +16,7 @@
 | UX-14 | Notifications (in-tab): browser notification, title count, favicon dot | — | 1 | — | done |
 | UX-15 | Notifications (Web Push, server): subscriptions, VAPID, the send on needs-input | — | 1 | **yes** | done (PR #67) |
 | UX-9 | Collapsible board columns (desktop only now; rebase onto the phone `Board.tsx`) | UX-10 | 2 | — | todo |
-| UX-13b | Agent team (web): show the stored name and face, the Team list | UX-13a | 2 | — | in_progress: FR-1/FR-2 (stored `agent_name`, "Unassigned" when queued, the hash name for older tickets, the avatar seeded by the name) done on `conductor/agent-team-names-134495`; FR-3 (the Team list) todo |
+| UX-13b | Agent team (web): show the stored name and face, the Team list | UX-13a | 2 | — | done: FR-1/FR-2 (stored `agent_name`, "Unassigned" when queued, the hash name for older tickets, the avatar seeded by the name) on `conductor/agent-team-names-134495`; FR-3 (the Team list, a section of the Machines page) on the UXR-89 branch |
 | UX-16 | Notifications (Web Push, web): service worker, manifest, subscribe toggle | UX-14, UX-15 | 2 | — | done (branch `ux-16-web-push`) |
 | UX-12 | Mobile-friendly view | UX-11 | — | — | replaced by the "Mobile-friendly UX" ticket ([11-web-ui](../design/11-web-ui.md), [UI review](../qa/ux-review/README.md)) |
 
@@ -162,6 +162,7 @@ UX-13a adds `agent_name` to `BoardCard`, `SessionDetail` and `TicketDto`, plus `
 - **FR-2** The avatar is derived from the **name**, not the ticket id, so a teammate has the same face on every ticket. `AgentAvatar` takes `seed`; existing call sites pass the name.
   - *Later (avatar redraw):* the avatar is now a Duolingo-style character generator in `components/avatar/` (people and nine animal species; expressions, eyes, noses, hair, outfits, builds and heights vary per seed), drawn a little larger: 24 px on the card, 40/32 px in the panel header, 80 px in Details. Still seeded by the name, so every teammate's face changed once with the redraw.
 - **FR-3** A **Team** section on the Machines page (or `#/team` if that reads better; say which in the PR) lists each teammate with their avatar, when they were hired, and what they're working on now, linking to the card.
+  - *Built (UXR-89):* a section of the Machines page, below the machines table (`machines/TeamSection.tsx`), not a `#/team` route. A busy teammate links to the card (`#/?ticket=…`, titled from the board); a free one says "Free since …", or "Free: no tickets yet".
 
 ## Non-functional requirements
 - **NFR-1** No extra requests per card: the name comes on the board DTO. The Team list makes one request.

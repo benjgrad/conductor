@@ -99,6 +99,11 @@ describe('transition edits', () => {
     ).toEqual(transitionNames(V2, 'implementing'));
   });
 
+  it('add going to a given column (a transition drawn onto it, UXR-67)', () => {
+    const { definition, name } = addTransition(V2, 'planning', columnStates(V2), 'done');
+    expect(getTransitionObject(definition, 'planning', name)?.goto).toBe('done');
+  });
+
   it('requires: the first requirement brings a default on_unmet, none left drops it', () => {
     let def = setRequires(V2, 'planning', 'plan_ready', { checks: [{ name: 'Lint', cmd: 'x' }] });
     expect(getTransitionObject(def, 'planning', 'plan_ready')).toMatchObject({

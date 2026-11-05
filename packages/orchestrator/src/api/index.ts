@@ -686,7 +686,19 @@ export const createApi = (({
         res.transitions.map((t) => ({ path: t, message: 'approval removed' })),
       );
     }
-    if (!res.ok) throw new Error(`the shipped default failed to save: ${res.code}`);
+    // UXR-67 rule 18: the default drops a column tickets are still in.
+    if (!res.ok) {
+      return sendError(
+        reply,
+        400,
+        'invalid_workflow',
+        'workflow definition is invalid',
+        res.errors.map((e) => ({
+          path: pathString(e.path),
+          message: `rule ${e.rule}: ${e.message}`,
+        })),
+      );
+    }
     return await reply.code(201).send({ id: res.id, version: res.version });
   });
 

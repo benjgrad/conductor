@@ -1,8 +1,8 @@
 /* 06 §Plan approval: the session panel's "Plan to approve" card, a question (the request frame's
    `.request-question`, styles.css). `.badge-plan-approval` is Board.css's, shared with the card. */
 .plan-approval .plan-body {
-  margin: 6px 0 8px;
-  padding: 8px 10px;
+  margin: var(--space-1) 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--user-border);
   border-radius: 6px;
   background: var(--panel);
@@ -13,7 +13,7 @@
 .plan-approval .plan-text.clamped {
   max-height: 24em;
   overflow: hidden;
-  mask-image: linear-gradient(to bottom, #000 80%, transparent);
+  mask-image: linear-gradient(to bottom, black 80%, transparent);
 }
 .plan-approval .plan-json {
   margin: 0;
@@ -21,25 +21,25 @@
   overflow-wrap: anywhere;
 }
 .plan-approval .plan-missing {
-  margin: 6px 0 8px;
+  margin: var(--space-1) 0 var(--space-2);
   font-style: italic;
 }
 .plan-approval-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 4px 0;
+  margin: var(--space-1) 0;
 }
 .plan-approval .plan-other-actions {
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 .plan-approval .plan-other-actions > summary {
   cursor: pointer;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .plan-approval .plan-other-actions[open] > summary {
-  margin-bottom: 6px;
+  margin-bottom: var(--space-1);
 }
 .plan-approval .plan-other-actions > summary:focus-visible {
   outline: 2px solid var(--accent);
@@ -49,7 +49,7 @@
 .plan-approval .plan-text.clamped-phone {
   max-height: 12em;
   overflow: hidden;
-  mask-image: linear-gradient(to bottom, #000 70%, transparent);
+  mask-image: linear-gradient(to bottom, black 70%, transparent);
 }
 .plan-approval .plan-open {
   padding-left: 0;

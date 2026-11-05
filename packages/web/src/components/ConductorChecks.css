@@ -9,18 +9,18 @@
 }
 
 .conductor-checks {
-  margin: 8px 0;
-  padding: 8px 10px;
+  margin: var(--space-2) 0;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--panel);
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 .conductor-checks-slot {
-  margin: 6px 0 0;
+  margin: var(--space-1) 0 0;
 }
 .conductor-checks-items {
-  margin: 6px 0 0;
+  margin: var(--space-1) 0 0;
   padding: 0;
   list-style: none;
 }
@@ -50,11 +50,11 @@
   color: var(--muted);
 }
 .conductor-checks-note {
-  margin: 6px 0 0;
+  margin: var(--space-1) 0 0;
 }
 
 /* FR-4: the failed item under UX-4's "Step failed" badge. */
 .step-failed-item {
-  margin: 4px 0;
+  margin: var(--space-1) 0;
   overflow-wrap: anywhere;
 }

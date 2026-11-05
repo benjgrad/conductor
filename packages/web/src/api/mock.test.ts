@@ -304,7 +304,7 @@ describe('mock repos', () => {
       body: '',
       repo: 'github.com/o/fresh',
       workflow_id: CONDUCTOR_WORKFLOW_ID,
-      priority: 0,
+      priority: 3,
       kind: 'work',
       required_tags: [],
       repo_allow_machines: null,

@@ -8,6 +8,8 @@ import {
   MachineAlertKindSchema,
   MachineStatusSchema,
   SessionStatusSchema,
+  DEFAULT_TICKET_PRIORITY,
+  TicketPrioritySchema,
   TicketStatusSchema,
   UuidSchema,
   GITHUB_PR_URL_RE,
@@ -1320,7 +1322,7 @@ export const UpdateTicketRequestSchema = z
     expected_updated_at: IsoDateTimeSchema,
     title: z.string().trim().min(1).max(500).optional(),
     body: z.string().max(TICKET_BODY_MAX).optional(),
-    priority: z.number().int().optional(),
+    priority: TicketPrioritySchema.optional(),
     kind: TicketKindSchema.optional(),
     /** 06 §Attachments: link these uploaded (unlinked) attachments to the ticket. */
     add_attachment_ids: z.array(UuidSchema).max(ATTACHMENTS_PER_TICKET_MAX).optional(),
@@ -1488,7 +1490,8 @@ export const CreateTicketRequestSchema = z.object({
   body: z.string(),
   repo: z.string().min(1),
   workflow_id: z.string().min(1).default(CONDUCTOR_WORKFLOW_ID),
-  priority: z.number().int().default(0),
+  /** ADR-0036: P0–P4, lower is more urgent; P3 by default. */
+  priority: TicketPrioritySchema.default(DEFAULT_TICKET_PRIORITY),
   required_tags: z.array(z.string()).default([]),
   repo_allow_machines: z.array(z.string()).nullable().default(null),
   external_ref: z.string().nullable().default(null),

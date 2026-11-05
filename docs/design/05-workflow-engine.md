@@ -218,7 +218,7 @@ The schema and the validator are in `packages/shared` (T1): every field below pa
   - Without the block, legacy mode applies: every input_request pushes, plus `notify: true` transitions.
   - The engine decides whether a move notifies; the notifier coalesces.
   - **Engine laps.** A move with `cause ≠ transition` out of a state `S` that waits on you opens a lap (`notify_lap.origin = S`). The lap's next wait-on-you landing is silent if it is `S` again, and a new wait (it notifies) anywhere else. A human-taken move opens no lap.
-- **`cause`** (P7) on every `state_entered`: `transition`, `check_failed`, `review_unmet`, `action_failed`, `condition_unmet`, `condition_timeout`, `watch_broken`, `concurrency_released`, `timeout`, `retry`, `retries_exhausted`, `budget_exceeded`, `machine_lost` or `answer_routed`. Engine moves are recorded with `actor: system`.
+- **`cause`** (P7, in since T2) on every `state_entered`: `transition`, `start`, `check_failed`, `review_unmet`, `action_failed`, `condition_unmet`, `condition_timeout`, `watch_broken`, `concurrency_released`, `timeout`, `retry`, `retries_exhausted`, `budget_exceeded`, `machine_lost`, `answer_routed` or `fallback`. Engine moves (every cause but `transition`, `start` and `answer_routed`) are recorded with `actor: system` and the gate's (or outcome's) transition name; `EnterOpts.record` is required, so `apply()` can't enter a state without one. Rows before T2 have no cause; their engine routes read as actor `engine`.
 - **`handoff: true`** (P8) on a transition into a human state: an input_request of kind `handoff`, with the reason as the summary. It is exclusive with `question`.
 
 ### Ticket breakdown (planning)

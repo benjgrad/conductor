@@ -9,6 +9,7 @@ import {
   InputRequestDtoSchema,
   isGateStepLabel,
   toInputRequestDto,
+  toMoveDto,
 } from './rest.js';
 import { BoardSseEventSchema } from './sse.js';
 
@@ -67,6 +68,28 @@ describe('toInputRequestDto origin (UX-4)', () => {
       origin_actor: 'engine',
     });
     expect(dto).toMatchObject({ origin_transition: null, step_failed: true });
+  });
+
+  it('ADR-0037 P7: an engine cause (actor system, the gate name) is still a failed step', () => {
+    const dto = toInputRequestDto({
+      ...row,
+      kind: 'retries_exhausted',
+      origin_transition: 'personal_pr_ready_for_review',
+      origin_from: MOVE_LABEL,
+      origin_actor: 'system',
+      origin_cause: 'retries_exhausted',
+    });
+    expect(dto).toMatchObject({ origin_transition: null, step_failed: true });
+    // …while a transition (cause `transition`) passes through.
+    expect(
+      toInputRequestDto({
+        ...row,
+        origin_transition: 'personal_pr_ready_for_review',
+        origin_from: MOVE_LABEL,
+        origin_actor: 'agent',
+        origin_cause: 'transition',
+      }),
+    ).toMatchObject({ origin_transition: 'personal_pr_ready_for_review', step_failed: false });
   });
 
   it('no origin row (null, null): origin_transition null, step_failed false', () => {
@@ -136,5 +159,26 @@ describe('toInputRequestDto options (Questions UX)', () => {
       toInputRequestDto({ ...row, options: { multi_select: false, items: [{ label: 'a' }] } }),
     ).not.toHaveProperty('options');
     expect(toInputRequestDto({ ...row, options: 'nope' })).not.toHaveProperty('options');
+  });
+});
+
+describe('toMoveDto (ADR-0037 P7)', () => {
+  const ts = '2026-11-05T12:00:00.000Z';
+  it('a row before P7 has cause null; a P7 row keeps its cause', () => {
+    expect(toMoveDto({ ts, payload: { from: null, to: 'planning', visit: 1 } }).cause).toBeNull();
+    expect(
+      toMoveDto({
+        ts,
+        payload: {
+          from: MOVE_LABEL,
+          to: 'implementing',
+          visit: 2,
+          transition: 'personal_pr_ready_for_review',
+          reason: 'Build passes',
+          actor: 'system',
+          cause: 'check_failed',
+        },
+      }),
+    ).toMatchObject({ actor: 'system', cause: 'check_failed' });
   });
 });

@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { isNamedMove } from '../engine/types.js';
+import type { MoveCause } from '../workflow/schema.js';
 import { stateKey, type CheckRole, type CheckSource, type InputClass } from './gates.js';
 
 // ADR-0033 (workflow advisor, P1): deterministic process metrics over past sessions, and the
@@ -17,8 +19,15 @@ export interface MoveRow {
   machine_id: string | null;
   from: string | null;
   to: string;
-  /** The transition's name (ADR-0011), null for engine-internal entries. */
+  /**
+   * The transition's name (ADR-0011): for an engine move since ADR-0037 the gate's transition
+   * (`cause` says why), before it an ENGINE_MOVE name (actor `engine`); null for a start or answer.
+   */
   transition: string | null;
+  /** ADR-0037 P7: why the session moved; null (or absent) on rows written before it. */
+  cause?: MoveCause | null;
+  /** Who moved it (`agent`, `human`, `system`, or `engine` on older rows); absent = unknown. */
+  actor?: string | null;
   /** Times the session has entered `to`, this entry included (1 = first). */
   visit: number;
   at: string;
@@ -193,11 +202,31 @@ export function stateDurations(moves: readonly MoveRow[]): StateSpan[] {
   return spans;
 }
 
+/** `LoopKey.cause` of the bucket that holds every re-entry recorded before ADR-0037 P7. */
+export const UNRECORDED_CAUSE = 'unrecorded';
+
+export interface LoopKey {
+  /** The state left (a gate label resolved by `stateKey`), `(start)` for a first entry, `*` unrecorded. */
+  from: string;
+  /** The transition name, `-` for none, `*` unrecorded. */
+  transition: string;
+  /** The ADR-0037 cause, or UNRECORDED_CAUSE: "unrecorded (before ADR-0037)". */
+  cause: MoveCause | typeof UNRECORDED_CAUSE;
+}
+
 export interface LoopCounts {
   /** Per state: re-entries (visit ≥ 2) and the tickets that had them. */
   reentries: { state: string; count: number; tickets: number; examples: string[] }[];
-  /** Per transition name: how often it was taken. */
+  /** Per transition name: how often a named transition was taken (engine routes are not). */
   transitions: { name: string; count: number }[];
+  /** ADR-0037 P7: moves per cause (rows before it are not counted). */
+  causes: { cause: MoveCause; count: number }[];
+  /**
+   * ADR-0037 P7: re-entries (visit ≥ 2) keyed by `(from, transition, cause)`, never by the target,
+   * so the same gate before and after a version is one loop. Rows without a cause all go to one
+   * `{*, *, unrecorded}` bucket. Most first.
+   */
+  loops: (LoopKey & { count: number; tickets: number; examples: string[] })[];
   /**
    * Per ticket: its most re-entered state's extra visits (visit - 1) and its `qa_fail` count, for
    * tickets with any. Sorted by the larger of the two, most first.
@@ -210,8 +239,36 @@ export function loopCounts(moves: readonly MoveRow[]): LoopCounts {
   const re = new Map<string, { count: number; tickets: Set<string>; examples: string[] }>();
   const tr = new Map<string, number>();
   const tk = new Map<string, { state: string; extra_visits: number; qa_fail: number }>();
+  const causes = new Map<MoveCause, number>();
+  const lp = new Map<
+    string,
+    LoopKey & { count: number; tickets: Set<string>; examples: string[] }
+  >();
   for (const m of moves) {
-    if (m.transition !== null) tr.set(m.transition, (tr.get(m.transition) ?? 0) + 1);
+    const cause = m.cause ?? null;
+    if (isNamedMove({ transition: m.transition, actor: m.actor ?? null, cause })) {
+      tr.set(m.transition!, (tr.get(m.transition!) ?? 0) + 1);
+    }
+    if (cause !== null) causes.set(cause, (causes.get(cause) ?? 0) + 1);
+    if (m.visit >= 2) {
+      const key: LoopKey =
+        cause === null
+          ? { from: '*', transition: '*', cause: UNRECORDED_CAUSE }
+          : {
+              from: m.from === null ? '(start)' : stateKey(m.from),
+              transition: m.transition ?? '-',
+              cause,
+            };
+      const l = bucket(lp, `${key.from}\u0000${key.transition}\u0000${key.cause}`, () => ({
+        ...key,
+        count: 0,
+        tickets: new Set<string>(),
+        examples: [],
+      }));
+      l.count++;
+      l.tickets.add(m.ticket_id);
+      addExample(l.examples, m.ticket_id);
+    }
     const to = stateKey(m.to);
     const t = bucket(tk, m.ticket_id, () => ({ state: to, extra_visits: 0, qa_fail: 0 }));
     if (m.transition === 'qa_fail') t.qa_fail++;
@@ -238,6 +295,25 @@ export function loopCounts(moves: readonly MoveRow[]): LoopCounts {
     transitions: [...tr.entries()]
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+    causes: [...causes.entries()]
+      .map(([cause, count]) => ({ cause, count }))
+      .sort((a, b) => b.count - a.count || a.cause.localeCompare(b.cause)),
+    loops: [...lp.values()]
+      .map((l) => ({
+        from: l.from,
+        transition: l.transition,
+        cause: l.cause,
+        count: l.count,
+        tickets: l.tickets.size,
+        examples: l.examples,
+      }))
+      .sort(
+        (a, b) =>
+          b.count - a.count ||
+          a.from.localeCompare(b.from) ||
+          a.transition.localeCompare(b.transition) ||
+          a.cause.localeCompare(b.cause),
+      ),
     tickets: [...tk.entries()]
       .filter(([, t]) => t.extra_visits > 0 || t.qa_fail > 0)
       .map(([ticket_id, t]) => ({ ticket_id, ...t }))
@@ -506,8 +582,25 @@ export const ProcessMetricsSchema = z.object({
   groups: z.array(ProcessGroupSchema),
   /** Groups left out after the first GROUPS_MAX. */
   more_groups: z.number().int().nonnegative(),
-  /** The busiest transitions (ADR-0011 names). */
+  /** The busiest named transitions (ADR-0011 names; engine routes are under `causes`). */
   transitions: z.array(z.object({ name: z.string(), count: z.number().int() })),
+  /** ADR-0037 P7: moves per cause, most first (rows before it are not counted). */
+  causes: z.array(z.object({ cause: z.string(), count: z.number().int() })).default([]),
+  /**
+   * ADR-0037 P7: the biggest re-entry loops, keyed by `(from, transition, cause)`; cause
+   * `unrecorded` = every re-entry written before ADR-0037.
+   */
+  loops: z
+    .array(
+      z.object({
+        from: z.string(),
+        transition: z.string(),
+        cause: z.string(),
+        count: z.number().int(),
+        tickets: z.number().int(),
+      }),
+    )
+    .default([]),
   /**
    * ADR-0038: pages agents attached, per state and per ticket (the most first, at most
    * EXAMPLES_MAX tickets). Absent when no agent attached one in the window.
@@ -525,6 +618,7 @@ export type ProcessMetrics = z.infer<typeof ProcessMetricsSchema>;
 /** At most this many groups, so a result stays well under the MCP 8 KB cap. */
 export const GROUPS_MAX = 25;
 const TRANSITIONS_MAX = 10;
+const LOOPS_MAX = 10;
 
 /**
  * The account's process in one table, keyed by `group_by`: time spent, rework, check failures,
@@ -653,8 +747,45 @@ export function processMetrics(rows: AdvisorRows, groupBy: AdvisorGroupBy): Proc
     },
     groups: all.slice(0, GROUPS_MAX),
     more_groups: Math.max(0, all.length - GROUPS_MAX),
-    transitions: loopCounts(rows.moves).transitions.slice(0, TRANSITIONS_MAX),
+    ...loopSummary(loopCounts(rows.moves)),
     ...pageCounts(rows.pages ?? []),
+  };
+}
+
+/** How many `(from, transition, cause)` loops a rework finding names. */
+const LOOP_EVIDENCE_MAX = 3;
+
+/**
+ * ADR-0037 P7: the biggest `(from, transition, cause)` loops behind a rework finding: the
+ * `tickets`' re-entries into `state` (any state for `qa_fail`), e.g. " Loops: implementing.
+ * pr_ready_for_review → implementing (check_failed) ×4." Empty when there are none.
+ */
+function loopEvidence(moves: readonly MoveRow[], tickets: Set<string>, state: string): string {
+  const mine = moves.filter(
+    (m) => tickets.has(m.ticket_id) && (state === 'qa_fail' || stateKey(m.to) === state),
+  );
+  const loops = loopCounts(mine).loops.slice(0, LOOP_EVIDENCE_MAX);
+  if (loops.length === 0) return '';
+  const words = loops.map((l) =>
+    l.cause === UNRECORDED_CAUSE
+      ? `unrecorded (before ADR-0037) ×${l.count}`
+      : `${l.from} → ${l.transition} (${l.cause}) ×${l.count}`,
+  );
+  return ` Loops: ${words.join('; ')}.`;
+}
+
+/** ProcessMetrics' `transitions`, `causes` and `loops`, capped. */
+function loopSummary(c: LoopCounts): Pick<ProcessMetrics, 'transitions' | 'causes' | 'loops'> {
+  return {
+    transitions: c.transitions.slice(0, TRANSITIONS_MAX),
+    causes: c.causes,
+    loops: c.loops.slice(0, LOOPS_MAX).map(({ from, transition, cause, count, tickets }) => ({
+      from,
+      transition,
+      cause,
+      count,
+      tickets,
+    })),
   };
 }
 
@@ -881,9 +1012,10 @@ export function rankFindings(rows: AdvisorRows, extra: readonly Finding[] = []):
       title:
         key === 'qa_fail' ? 'Tickets fail QA repeatedly' : `Tickets keep coming back to ${key}`,
       evidence:
-        key === 'qa_fail'
+        (key === 'qa_fail'
           ? `${list.length} tickets took qa_fail ${R.reworkLoops}+ times.`
-          : `${list.length} tickets re-entered ${key} ${R.reworkLoops}+ extra times.`,
+          : `${list.length} tickets re-entered ${key} ${R.reworkLoops}+ extra times.`) +
+        loopEvidence(rows.moves, new Set(list.map((t) => t.ticket_id)), key),
       example_ticket_ids: examples,
       suggested_tool: 'get_ticket_artifacts',
       suggestion:

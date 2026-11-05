@@ -71,6 +71,19 @@ describe('isHandoffTransition / inputClass', () => {
     expect(inputClass(row('agent_question', 'pr_ready_for_review', gate), undefined)).toBe(
       'handoff',
     );
+    // ADR-0037 P7: an engine route carries the gate's name, but no one took it.
+    expect(
+      inputClass(
+        { ...row('agent_question', 'pr_ready_for_review', gate), cause: 'fallback' },
+        undefined,
+      ),
+    ).toBe('question');
+    expect(
+      inputClass(
+        { ...row('agent_question', 'personal_pr_ready_for_review', gate), cause: 'transition' },
+        def,
+      ),
+    ).toBe('handoff');
     expect(inputClass(row('agent_question', 'ask_user', 'implementing'), undefined)).toBe(
       'question',
     );

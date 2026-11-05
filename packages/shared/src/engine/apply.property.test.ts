@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { JsonObject } from '../domain.js';
 import { CONDUCTOR_V2_DRAFT_DEF } from '../workflow/fixtures.js';
 import {
+  MOVE_CAUSES,
   WorkflowDefinitionSchema,
   type TicketKind,
   type WorkflowDefinition,
@@ -25,6 +26,7 @@ import { QA_CONTEXT_KEY, QaContextSchema } from './qa.types.js';
 import { entryStateLabel, reviewStateLabel } from './review.js';
 import { lostAnswerOf, machineLostMarkOf } from './machine-lost.js';
 import {
+  isEngineMove,
   isOutboxEffect,
   moveStateLabel,
   type ApplyIgnoreReason,
@@ -508,6 +510,16 @@ function runStep(def: WorkflowDefinition, h: Harness, event: EngineEvent): void 
   const prev = h.snap;
   h.run(event);
   checkInvariants(def, prev, h);
+  // ADR-0037 P7: every entry says why; an engine move (and only one) is by `system`, else the
+  // start (system), an answer (human), or a transition by its own actor.
+  for (const e of h.last.effects) {
+    if (e.type !== 'state_entered') continue;
+    expect(MOVE_CAUSES, JSON.stringify(e)).toContain(e.cause);
+    if (isEngineMove({ cause: e.cause })) expect(e.actor, JSON.stringify(e)).toBe('system');
+    if (e.cause === 'start') expect(e.actor).toBe('system');
+    if (e.cause === 'answer_routed') expect(e.actor).toBe('human');
+    if (e.cause === 'transition') expect(e.transition, JSON.stringify(e)).not.toBeNull();
+  }
   // BUG-1: a human move off a parked agent into a state that runs no agent kills it.
   const landed = h.snap.workflow_state;
   const landedType = landed === null ? undefined : def.states[landed]?.type;

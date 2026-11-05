@@ -62,6 +62,11 @@ describe('m1_basic: claim and implement (agent)', () => {
       from: null,
       to: 'implement',
       visit: 1,
+      // ADR-0037 P7: a start says so.
+      cause: 'start',
+      transition: null,
+      reason: null,
+      actor: 'system',
     });
     const start = find(r.effects, 'start_session');
     expect(start).toMatchObject({
@@ -120,7 +125,17 @@ describe('m1_basic: claim and implement (agent)', () => {
       state_entered_at: h.now.toISOString(),
     });
     expect(r.effects).toEqual([
-      { type: 'state_entered', from: 'implement', to: 'build', visit: 1 },
+      {
+        type: 'state_entered',
+        from: 'implement',
+        to: 'build',
+        visit: 1,
+        // ADR-0037 P7: an unnamed `done` is recorded as the transition the agent's state took.
+        cause: 'transition',
+        transition: 'done',
+        reason: null,
+        actor: 'agent',
+      },
       { type: 'set_deadline', state: 'build', deadline: null },
       { type: 'run_cmd', state: 'build', cmd: 'npm run build', cwd: null, timeout_ms: 600_000 },
     ]);
@@ -250,7 +265,16 @@ describe('m1_basic: build/test (command) and retry loops', () => {
     r = h.cmdExit(0);
     expect(r.snapshot).toMatchObject({ workflow_state: 'done', status: 'done' });
     expect(r.effects).toEqual([
-      { type: 'state_entered', from: 'test', to: 'done', visit: 1 },
+      {
+        type: 'state_entered',
+        from: 'test',
+        to: 'done',
+        visit: 1,
+        cause: 'transition',
+        transition: 'exit_0',
+        reason: 'exit code 0',
+        actor: 'system',
+      },
       { type: 'set_deadline', state: 'done', deadline: null },
       { type: 'session_status', from: 'running', to: 'done' },
       { type: 'ticket_status', to: 'done' },

@@ -105,6 +105,7 @@ describe('agent transitions (conductor v2)', () => {
       transition: 'plan_ready',
       reason: 'The plan is complete.',
       actor: 'agent',
+      cause: 'transition',
     });
     const start = find(r.effects, 'start_session')!;
     expect(start.transitions).toEqual(
@@ -238,6 +239,7 @@ describe('agent transitions (conductor v2)', () => {
       transition: 'pr_ready_for_review',
       reason: 'Please review the PR.',
       actor: 'agent',
+      cause: 'transition',
     });
   });
 
@@ -268,7 +270,12 @@ describe('agent transitions (conductor v2)', () => {
       question: `${unknownTransitionQuestion('ready_for_testing')}\n\nIts reason: Ready.`,
       return_to: 'implementing',
     });
-    expect(find(r.effects, 'state_entered')).not.toHaveProperty('transition');
+    // ADR-0037 P7: conductor routed it to a human; no transition was taken.
+    expect(find(r.effects, 'state_entered')).toMatchObject({
+      transition: null,
+      actor: 'system',
+      cause: 'fallback',
+    });
   });
 
   it('a personal-only transition on a work ticket, an unknown name and a system name are routed too', () => {
@@ -328,11 +335,16 @@ describe('agent transitions (conductor v2)', () => {
     expect(s.prompt).toContain('## When you are done');
     expect(s.prompt).not.toContain(HOW_TO_FINISH_HEADING);
     const r = h.complete({ summary: 's' });
+    // ADR-0037 P7: the unnamed `done` is still recorded, as the transition the agent's state took.
     expect(find(r.effects, 'state_entered')).toEqual({
       type: 'state_entered',
       from: 'implement',
       to: 'build',
       visit: 1,
+      transition: 'done',
+      reason: null,
+      actor: 'agent',
+      cause: 'transition',
     });
     // a named `done` on an old version is a recorded transition
     const n = new Harness(def).claimAndStart();
@@ -372,6 +384,7 @@ describe('human transitions (conductor v2)', () => {
       transition: 'waiting_on_someone',
       reason: 'Dana is reviewing the API shape.',
       actor: 'human',
+      cause: 'transition',
     });
     expect(r.snapshot.wall_seconds).toBe(h.snap.wall_seconds); // parked time doesn't count
   });
@@ -577,6 +590,7 @@ describe('move steps (requires on the transition)', () => {
       transition: 'ready_for_testing',
       reason: 'Fixed.',
       actor: 'agent',
+      cause: 'transition',
     });
   });
 

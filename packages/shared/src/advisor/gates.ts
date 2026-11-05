@@ -1,7 +1,9 @@
 import { PIN_CHECK } from '../engine/move-step.js';
+import { isEngineMove } from '../engine/types.js';
 import type { RepoChecks } from '../workflow/repo-checks.js';
 import {
   parseDuration,
+  type MoveCause,
   type TransitionObject,
   type WorkflowDefinition,
 } from '../workflow/schema.js';
@@ -77,11 +79,17 @@ export type InputClass = 'question' | 'handoff' | 'stop';
  * definition, a transition named `…ready_for_review` is taken as a hand-off.
  */
 export function inputClass(
-  row: { kind: string; transition: string | null; from: string | null },
+  row: {
+    kind: string;
+    transition: string | null;
+    from: string | null;
+    /** ADR-0037 P7: the opening move's cause; an engine route names no transition someone took. */
+    cause?: MoveCause | null;
+  },
   def: Pick<WorkflowDefinition, 'states'> | undefined,
 ): InputClass {
   if (row.kind !== 'agent_question') return 'stop';
-  if (row.transition === null) return 'question';
+  if (row.transition === null || isEngineMove({ cause: row.cause ?? null })) return 'question';
   if (def === undefined)
     return row.transition.endsWith('ready_for_review') ? 'handoff' : 'question';
   if (row.from === null) return 'question';

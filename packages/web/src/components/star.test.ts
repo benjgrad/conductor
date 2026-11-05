@@ -156,6 +156,29 @@ describe('timeline (FR-3)', () => {
     });
   });
 
+  it('ADR-0037 P7: an engine move (actor system) is worded by its cause', () => {
+    const detail: SessionDetail = {
+      ...review,
+      pending_input: null,
+      moves: [
+        {
+          at: at(1),
+          from: 'implementing → done (move: merged)',
+          to: 'implementing',
+          transition: 'merged',
+          reason: 'Build passes',
+          actor: 'system',
+          cause: 'check_failed',
+        },
+      ],
+    };
+    expect(timeline(detail, AGENT)[0]).toMatchObject({
+      kind: 'check',
+      label: 'Checks before Done: Checks failed',
+      reason: 'Build passes',
+    });
+  });
+
   it('ends with what is happening now: the running check, an open question', () => {
     const checking = {
       ...review,

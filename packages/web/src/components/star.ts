@@ -1,7 +1,8 @@
 // UX-7: the Details tab as a story in STAR order. Pure: what each section shows, derived from the
 // SessionDetail (and the parsed brief); StarDetails.tsx renders it.
 import {
-  engineMoveTitle,
+  engineMoveLabel,
+  isEngineMove,
   type MoveDto,
   type SessionDetail,
   type SessionInputRequest,
@@ -200,8 +201,8 @@ export function timeline(detail: SessionDetail, agent: string): TimelineEntry[] 
     }
     if (isStepLabel(m.from, workflow)) {
       // Back from a gate whose requirements weren't met (an engine route), else it passed.
-      return m.actor === 'engine' && m.transition !== null
-        ? { ...base, kind: 'check', label: `${name(m.from)}: ${engineMoveTitle(m.transition)}` }
+      return isEngineMove(m)
+        ? { ...base, kind: 'check', label: `${name(m.from)}: ${engineMoveLabel(m)}` }
         : { ...base, kind: 'check', label: `${name(m.from)} passed` };
     }
     const title = moveTitle(workflow, m);

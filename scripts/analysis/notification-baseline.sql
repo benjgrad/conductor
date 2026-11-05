@@ -134,7 +134,10 @@ transitions AS (
     s.ticket_id,
     o.session_id,
     o.created_at AS at,
-    CASE WHEN e.payload->>'actor' IN ('engine', 'system') THEN 'transition_engine'
+    -- An engine move: an ADR-0037 cause other than a transition, a start or an answer; on a row
+    -- before P7 (no cause), actor engine or system.
+    CASE WHEN COALESCE(e.payload->>'cause' NOT IN ('transition', 'start', 'answer_routed'),
+                       e.payload->>'actor' IN ('engine', 'system')) THEN 'transition_engine'
          ELSE 'transition' END AS cause,
     COALESCE(
       regexp_replace(e.payload->>'to', '^.+ → (.+) \((entry|review|move: .+)\)$', '\1'),
@@ -184,10 +187,12 @@ p6 AS (
       AS not_new_wait,
     -- The engine-lap rule: an engine move left the previous wait, and the ticket landed back in
     -- that same state. The first move out of it decides the lap's origin.
-    (w.prev_wait = w.wait_state AND exit_move.actor IN ('engine', 'system')) AS engine_lap
+    (w.prev_wait = w.wait_state AND COALESCE(
+       exit_move.cause NOT IN ('transition', 'start', 'answer_routed'),
+       exit_move.actor IN ('engine', 'system'))) AS engine_lap
   FROM waits w
   LEFT JOIN LATERAL (
-    SELECT e.payload->>'actor' AS actor FROM event e
+    SELECT e.payload->>'actor' AS actor, e.payload->>'cause' AS cause FROM event e
      WHERE e.session_id = w.session_id AND e.type = 'state.entered'
        AND e.ts > w.prev_at AND e.ts < w.at AND e.payload->>'from' = w.prev_wait
      ORDER BY e.id LIMIT 1

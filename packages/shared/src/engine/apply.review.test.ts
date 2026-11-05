@@ -96,6 +96,11 @@ describe('gated outcome → review step', () => {
       from: 'implement',
       to: LABEL,
       visit: 1,
+      // ADR-0037 P7: the step's entry records the (unnamed) outcome that started it.
+      transition: 'done',
+      reason: null,
+      actor: 'agent',
+      cause: 'transition',
     });
     const start = find(r.effects, 'start_session')!;
     expect(start).toMatchObject({
@@ -173,6 +178,10 @@ describe('the reviewer verdict', () => {
       from: LABEL,
       to: 'build',
       visit: 1,
+      transition: 'done',
+      reason: null,
+      actor: 'agent',
+      cause: 'transition',
     });
     expect(find(r.effects, 'run_cmd')).toMatchObject({ state: 'build', cmd: 'npm run build' });
     expect(find(r.effects, 'kill')).toBeUndefined();

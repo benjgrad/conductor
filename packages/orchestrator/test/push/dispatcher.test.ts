@@ -292,6 +292,7 @@ describe('push_transition (notify: true on a transition)', () => {
           from: 'implement',
           to: 'build',
           visit: 1,
+          cause: 'transition' as const,
           ...(notify ? { notify: 'done' } : {}),
         },
       ],

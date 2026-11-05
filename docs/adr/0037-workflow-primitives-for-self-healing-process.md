@@ -223,9 +223,11 @@ export const NotifyPolicySchema = z.strictObject({
 ```ts
 export const MoveCauseSchema = z.enum([
   'transition',            // a named transition taken by an agent, a human or an event
+  'start',                 // T2: the first entry into the start state (actor system)
   'check_failed', 'review_unmet', 'action_failed', 'condition_unmet', 'condition_timeout',
   'watch_broken', 'concurrency_released', 'timeout', 'retry', 'retries_exhausted',
   'budget_exceeded', 'machine_lost', 'answer_routed',
+  'fallback',              // T2: no route for an outcome, sent to the fallback human state
 ]);
 // MoveRecord / state_entered gain `cause: MoveCause` (always set from T2 on) and keep
 // `{transition, reason, actor}`; engine moves set actor 'system' (TransitionActor has it already),
@@ -234,6 +236,17 @@ export const MoveCauseSchema = z.enum([
 ```
 
 - **Engine.** Every `enter()` call site passes a cause, and `moveFields` stops returning `{}` for unnamed entries. A unit test enumerates every `enter` call in `apply.ts` and fails on a missing cause.
+- **As built (T2).**
+  - The 2026-11 metric fixes (FR-5) had already recorded most engine routes, as actor `engine` with an `ENGINE_MOVE` transition name. T2 adds `cause` to every entry and writes new engine moves with actor `system` and the gate's (or engine outcome's) transition name. Rows written before T2 keep actor `engine` and have no cause. Readers go through `isEngineMove` / `isNamedMove`, which accept both. They never use `actor === 'system'` alone, because an event's transition is a named `system` move.
+  - Two causes were added to the list above:
+    - `start`, because a first entry is neither a transition nor an engine route;
+    - `fallback`, for an outcome with no route (today's `ENGINE_MOVE.fallback`) and for a name the agent may not take.
+  - The mapping:
+    - a failed agent, command or connector outcome (`fail`/`error`) taking the workflow's route is `retry`, and its counted loop's `else` is `retries_exhausted`;
+    - an unmet gate's cause comes from the phase that found it (checks, review, conditions);
+    - a gate that cannot finish is `action_failed`, `timeout`, `condition_timeout` or `review_unmet`;
+    - an unnamed legacy outcome (`done`, `exit_0`, an event's name) is `transition`, under its own name and the state's actor.
+  - `answer_routed` is a human's move (actor `human`). P6's engine-lap rule (T4) must not open a lap on it.
 - **Builder.** None. The card history shows "Sent back: checks failed (Tests pass)".
 - **Insights** (feeds bb5e7d0d):
   - Re-entry loops are keyed by `(from, transition name, cause)`, never by the versioned `goto`. This fixes 2.6.2, where the same gate before and after v5 was counted twice.

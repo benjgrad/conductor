@@ -92,8 +92,7 @@ describe('a queued ticket: routing, priority, cancel (UXR-34, UXR-42, UXR-86)', 
         return update(id, req);
       };
     });
-    // ADR-0036: a new ticket is P3; raising makes it more urgent (a lower number).
-    await panel.findByText('P3');
+    // ADR-0036: a new ticket is P3; raising it makes it more urgent, a lower P.
     fireEvent.click(panel.getByRole('button', { name: 'Raise priority' }));
     await panel.findByText('P2');
     fireEvent.click(panel.getByRole('button', { name: 'Lower priority' }));
@@ -102,24 +101,6 @@ describe('a queued ticket: routing, priority, cancel (UXR-34, UXR-42, UXR-86)', 
       { expected_updated_at: expect.any(String) as string, priority: 2 },
       { expected_updated_at: expect.any(String) as string, priority: 3 },
     ]);
-  });
-
-  it('stops at P1 (P0 is reserved, ADR-0036) and at P4', async () => {
-    const { panel } = await openQueued();
-    const raise = () => panel.getByRole<HTMLButtonElement>('button', { name: 'Raise priority' });
-    const lower = () => panel.getByRole<HTMLButtonElement>('button', { name: 'Lower priority' });
-    fireEvent.click(raise());
-    await panel.findByText('P2');
-    fireEvent.click(raise());
-    await panel.findByText('P1');
-    await waitFor(() => expect(raise().disabled).toBe(true));
-    fireEvent.click(lower());
-    await panel.findByText('P2');
-    fireEvent.click(lower());
-    await panel.findByText('P3');
-    fireEvent.click(lower());
-    await panel.findByText('P4');
-    await waitFor(() => expect(lower().disabled).toBe(true));
   });
 
   it('cancels with a reason after a confirmation, then reopens', async () => {

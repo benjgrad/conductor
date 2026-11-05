@@ -3,7 +3,12 @@
 // A session's panel (DetailPanel) offers the same edit through EditTicket. UXR-86 / UXR-42 /
 // UXR-34: a queued ticket can also be cancelled (and reopened), reprioritised, and says why no
 // machine has taken it.
-import type { BoardCardRouting, TicketDetail } from '@conductor/shared';
+import {
+  TICKET_PRIORITY_MAX,
+  TICKET_PRIORITY_MIN,
+  type BoardCardRouting,
+  type TicketDetail,
+} from '@conductor/shared';
 import { ArrowLeft, ChevronDown, ChevronUp } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { ApiRequestError, errorMessage, type ApiClient } from '../api/client.js';
@@ -212,8 +217,8 @@ function RoutingNote({ routing }: { routing: BoardCardRouting }) {
 }
 
 /**
- * UXR-42: raise or lower a queued ticket's priority via PATCH. ADR-0036: P0–P4, the lower number
- * is the more urgent (claimed first). Raise stops at P1 (P0 is reserved), Lower at P4.
+ * UXR-42: raise or lower a queued ticket's priority via PATCH. ADR-0036: the lower P is the more
+ * urgent, so Raise moves toward P0; both stop at the ends of P0–P4.
  */
 function PriorityStepper({
   api,
@@ -250,7 +255,7 @@ function PriorityStepper({
         className="icon"
         aria-label="Raise priority"
         title="Raise priority"
-        disabled={saving || ticket.priority <= 1}
+        disabled={saving || ticket.priority <= TICKET_PRIORITY_MIN}
         onClick={() => step(-1)}
       >
         <ChevronUp size={16} aria-hidden="true" />
@@ -260,7 +265,7 @@ function PriorityStepper({
         className="icon"
         aria-label="Lower priority"
         title="Lower priority"
-        disabled={saving || ticket.priority >= 4}
+        disabled={saving || ticket.priority >= TICKET_PRIORITY_MAX}
         onClick={() => step(1)}
       >
         <ChevronDown size={16} aria-hidden="true" />

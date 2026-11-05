@@ -1,6 +1,25 @@
 import type { BoardCard, BoardColumnKind, SessionStatus } from '@conductor/shared';
 import { describe, expect, it } from 'vitest';
-import { cardMeta, headStatus, humanize, panelStatusLabel, STATUS_LABELS, usd } from './format';
+import {
+  cardMeta,
+  headStatus,
+  humanize,
+  panelStatusLabel,
+  priorityChoices,
+  priorityLabel,
+  STATUS_LABELS,
+  usd,
+} from './format';
+
+describe('priority choices (ADR-0036)', () => {
+  it('offers P1–P4, and P0 only when the ticket already has it', () => {
+    expect(priorityChoices()).toEqual([1, 2, 3, 4]);
+    expect(priorityChoices(3)).toEqual([1, 2, 3, 4]);
+    expect(priorityChoices(0)).toEqual([0, 1, 2, 3, 4]);
+    expect(priorityLabel(3)).toBe('P3 · normal');
+    expect(priorityLabel(7)).toBe('P7');
+  });
+});
 
 describe('usd', () => {
   it('rounds to cents but never shows non-zero spend as $0.00 (TD-080)', () => {

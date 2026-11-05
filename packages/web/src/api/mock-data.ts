@@ -846,7 +846,7 @@ export function mockSeeds(now: Date): MockSeed[] {
         ...BOARD_CARD_FIXTURE,
         ticket_id: id.queuedUrgent.ticket,
         title: 'Hotfix: crash on empty cart',
-        priority: 5,
+        priority: 1,
         external_ref: 'GH-412',
         created_at: ago(now, 1),
         updated_at: ago(now, 1),
@@ -1389,7 +1389,7 @@ export function mockSchedules(now: Date): ScheduleDto[] {
     nextRuns(cron, tz, now, SCHEDULE_PREVIEW_RUNS).map((d) => d.toISOString());
   const base = {
     workflow_id: ROUTINE_WORKFLOW_ID,
-    priority: 0,
+    priority: 3,
     created_by: 'ben@example.com',
     created_at: at(-30 * day),
     updated_at: at(-2 * day),

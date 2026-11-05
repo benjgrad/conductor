@@ -43,6 +43,13 @@ const permissionScene =
 const CARD = 'Add audit log table';
 /** A running card with a ticket body, so the Brief shows (api/mock-data.ts). */
 const BRIEF_CARD = 'Add pagination to /orders';
+/** UXR-35: one card per request kind (api/mock-data.ts). The permission prompt is the
+ * `detail-permission` screen, in the VITE_MOCK_PERMISSION scene (UXR-32). */
+const REVIEW_CARD = 'Board cards: review requests vs questions';
+const FAILED_CARD = 'Fix flaky checkout test';
+const STEP_FAILED_CARD = 'Add CSV export';
+/** The request shots: every kind but permission, in light and dark. */
+const REQUEST_SHOTS = ['detail-review', 'detail-failed', 'detail-step-failed'];
 /** The card VITE_MOCK_PERMISSION=1 holds on a permission (api/select.ts). */
 const PERMISSION_CARD = BRIEF_CARD;
 /** The plan-approval card (06 §Plan approval; api/mock-data.ts planApprovalSeed). */
@@ -70,7 +77,10 @@ const VIEWPORTS = [
     w: 375,
     h: 812,
     ...PHONE,
-    themes: { light: 'all', dark: ['board', 'detail', 'new-ticket', 'ticket-plan'] },
+    themes: {
+      light: 'all',
+      dark: ['board', 'detail', 'new-ticket', 'ticket-plan', ...REQUEST_SHOTS],
+    },
   },
   {
     w: 360,
@@ -93,7 +103,17 @@ const VIEWPORTS = [
     isMobile: true,
     hasTouch: true,
     deviceScaleFactor: 1,
-    themes: { light: ['board', 'detail', 'new-ticket', 'new-ticket-bottom'] },
+    themes: {
+      light: [
+        'board',
+        'detail',
+        'new-ticket',
+        'new-ticket-bottom',
+        'machines',
+        'machine-drawer',
+        'admin',
+      ],
+    },
   },
   {
     w: 1440,
@@ -107,6 +127,8 @@ const VIEWPORTS = [
         'new-ticket-bottom',
         'machines',
         'machines-team',
+        'machine-drawer',
+        'admin',
         'workflows',
         'wf-diagram-end',
         'wf-rules-full',
@@ -120,12 +142,13 @@ const VIEWPORTS = [
         'workflow-column',
         'ticket-messages',
         'ticket-plan',
+        ...REQUEST_SHOTS,
         'board-permission',
         'detail-permission',
         'detail-done',
         'detail-done-steps',
       ],
-      dark: ['board', 'detail'],
+      dark: ['board', 'detail', ...REQUEST_SHOTS],
     },
   },
 ];
@@ -203,6 +226,9 @@ const SCREENS = [
     },
   },
   { id: 'detail', path: '/#/', act: openCard },
+  { id: 'detail-review', path: '/#/', act: (page) => openCard(page, REVIEW_CARD) },
+  { id: 'detail-failed', path: '/#/', act: (page) => openCard(page, FAILED_CARD) },
+  { id: 'detail-step-failed', path: '/#/', act: (page) => openCard(page, STEP_FAILED_CARD) },
   {
     id: 'detail-scrolled',
     path: '/#/',
@@ -308,6 +334,18 @@ const SCREENS = [
     },
     fullPage: true,
   },
+  // UXR-47: the machine drawer (a Sheet) on the machine with problems (api/mock-data.ts).
+  {
+    id: 'machine-drawer',
+    path: '/#/machines',
+    act: async (page) => {
+      await clickNamed(page, 'button', 'Details of old-linux-box');
+      await page.getByRole('dialog', { name: 'Machine old-linux-box' }).waitFor();
+      await page.waitForTimeout(200);
+    },
+  },
+  // The mock in password mode, signed in as its admin (api/select.ts), so the tables show.
+  { id: 'admin', path: '/?mock-auth=password#/admin' },
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
   // UXR-61: the override's setup and check table, at full height.

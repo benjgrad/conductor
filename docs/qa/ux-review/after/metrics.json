@@ -613,8 +613,9 @@
     "deviceWidth": 375,
     "horizontalOverflow": false,
     "pageHeight": 812,
-    "smallTapTargets": 6,
+    "smallTapTargets": 7,
     "smallTapTargetSample": [
+      "a \"Help\" 32×16",
       "button \"Move check 1 up\" 24×44",
       "button \"Move check 1 down\" 24×44",
       "button \"Remove check 1\" 24×44",
@@ -700,7 +701,7 @@
     "deviceWidth": 1440,
     "horizontalOverflow": false,
     "pageHeight": 900,
-    "smallTapTargets": 21,
+    "smallTapTargets": 22,
     "smallTapTargetSample": [
       "a \"Board\" 83×24",
       "a \"Workflow\" 106×24",

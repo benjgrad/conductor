@@ -141,10 +141,6 @@
   gap: 6px;
   max-width: 720px;
 }
-.rc-editor .wf-fields-heading {
-  font-size: 14px;
-  margin: 6px 0 0;
-}
 
 /* Compare with the workflow's checks (UXR-77): a disclosure previewing the draft. */
 .rc-compare summary {

@@ -117,7 +117,7 @@ describe('repo checks page (ADR-0030)', () => {
   it('setup comes before the checks (run order)', async () => {
     renderPage(FRESH);
     const d = await detail(FRESH);
-    const setup = d.getByLabelText('Before the checks (in a fresh checkout)');
+    const setup = d.getByLabelText('Setup: runs first, in a fresh checkout');
     const first = d.getByLabelText('Check 1 name');
     expect(setup.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
@@ -172,16 +172,16 @@ describe('repo checks page (ADR-0030)', () => {
     const save = () => button(d, 'Set override');
 
     fireEvent.change(d.getByLabelText('Check 2 name'), { target: { value: 'Build passes' } });
-    expect(d.getByText('check "Build passes" is listed twice')).toBeTruthy();
+    expect(d.getByText('Check 2: Name "Build passes" is used by another check')).toBeTruthy();
     expect(save().disabled).toBe(true);
     fireEvent.change(d.getByLabelText('Check 2 name'), { target: { value: 'Tests' } });
 
     fireEvent.change(d.getByLabelText('Check 1 command'), { target: { value: ' ' } });
-    expect(d.getByText('check 1 needs a command')).toBeTruthy();
+    expect(d.getByText('Check 1: Command is required')).toBeTruthy();
     fireEvent.change(d.getByLabelText('Check 1 command'), { target: { value: 'make' } });
 
     fireEvent.change(d.getByLabelText('Check 1 timeout'), { target: { value: 'soon' } });
-    expect(d.getByText('use a duration like "30m", "2h" or "3d"')).toBeTruthy();
+    expect(d.getByText('Check 1: Timeout: use a duration like "30m", "2h" or "3d"')).toBeTruthy();
     expect(save().disabled).toBe(true);
     fireEvent.change(d.getByLabelText('Check 1 timeout'), { target: { value: '10m' } });
     expect(d.queryAllByRole('alert')).toEqual([]);
@@ -198,7 +198,7 @@ describe('repo checks page (ADR-0030)', () => {
     const d = await detail(FRESH);
     fireEvent.change(d.getByLabelText('Check 1 command'), { target: { value: 'make' } });
     fireEvent.change(d.getByLabelText('Check 1 timeout'), { target: { value: '10m' } });
-    fireEvent.change(d.getByLabelText('Before the checks (in a fresh checkout)'), {
+    fireEvent.change(d.getByLabelText('Setup: runs first, in a fresh checkout'), {
       target: { value: 'none' },
     });
     fireEvent.click(button(d, 'Set override'));
@@ -257,7 +257,10 @@ describe('repo checks page (ADR-0030)', () => {
     fireEvent.change(d.getByLabelText('Check 1 command'), { target: { value: 'make' } });
     fireEvent.click(button(d, 'Set override'));
     const at = await d.findByText('server says no');
-    expect(at.closest('.wf-check')).toBe(d.getByLabelText('Check 1 command').closest('.wf-check'));
+    // Right under check 1's row.
+    expect(at.closest('tr')?.previousElementSibling).toBe(
+      d.getByLabelText('Check 1 command').closest('tr'),
+    );
     expect(d.getByText('repo: repo must be 1..200 chars')).toBeTruthy();
   });
 

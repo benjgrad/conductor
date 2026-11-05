@@ -304,7 +304,7 @@ function RepoDetailView({
   const gateCount = detail.effective.length;
 
   // Client and server problems at the check fields; anything else goes at the end.
-  const shown = checksFieldSuffixes(value.checks, true);
+  const shown = checksFieldSuffixes(value.checks);
   const fieldIssues: ChecksIssue[] = [
     ...issues,
     ...serverIssues.map((i) => ({ suffix: i.path, message: i.message })),
@@ -389,8 +389,7 @@ function RepoDetailView({
         <ChecksFields
           checks={value.checks}
           setup={value.setup}
-          setupFirst
-          setupLabel="Before the checks (in a fresh checkout)"
+          setupLabel="Setup: runs first, in a fresh checkout"
           onChange={(next) => {
             setDraft(next);
             setServerIssues([]);

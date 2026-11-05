@@ -97,6 +97,13 @@ export interface EngineService {
     event: EngineEvent,
     opts?: ApplyEventOptions,
   ): Promise<ApplyEventResult>;
+  /**
+   * UX-15: Web Push is configured, so writers outside the engine enqueue push rows too (UXR-32:
+   * the gateway's permission prompts). Absent ≡ off.
+   */
+  readonly pushEnabled?: boolean;
+  /** Wakes the push dispatcher after a COMMIT that wrote push rows (else its poll finds them). */
+  pushWritten?(): void;
 }
 
 /** A scripted EngineService answer; return undefined to fall through to the default behaviour. */

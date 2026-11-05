@@ -1,6 +1,7 @@
 import type { ApiClient } from './client.js';
 import { createHttpApi, type HttpApiOptions } from './http.js';
 import { createMockApi } from './mock.js';
+import { SEED_IDS } from './mock-data.js';
 
 // Which ApiClient the app runs on (M1-T09b). VITE_API=mock|http, default http: the real
 // orchestrator, reached through the Vite dev proxy (vite.config.ts) or the same origin.
@@ -24,6 +25,8 @@ export interface SelectedApi {
  * so the board looks alive without an orchestrator; `VITE_MOCK_STATIC=1` turns both off, so the
  * board holds still for scripts/ui-screenshots.js. `VITE_MOCK_AUTH=password` turns on the mock's
  * accounts (an admin, signed in).
+ * board holds still for scripts/ui-screenshots.js. `VITE_MOCK_PERMISSION=1` adds a pending tool
+ * permission (ADR-0023) on the running "Add pagination to /orders" card (UXR-32 screenshots).
  */
 export function createApiFromEnv(
   env: Record<string, unknown>,
@@ -40,6 +43,14 @@ export function createApiFromEnv(
       ...(password ? { auth: 'password' } : {}),
     });
     if (!still) api.simulate(2000);
+    if (env.VITE_MOCK_PERMISSION === '1') {
+      api.requestPermission(
+        SEED_IDS.running.session,
+        'Bash',
+        { command: 'pnpm vitest run' },
+        'Bash(pnpm vitest run)',
+      );
+    }
     return { kind, api };
   }
   const baseUrl = typeof env.VITE_API_BASE === 'string' ? env.VITE_API_BASE : undefined;

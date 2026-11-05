@@ -40,6 +40,33 @@ export function needsInputPayload(p: {
   };
 }
 
+/** The `tag` (and outbox idempotency key) of a permission prompt's notification (UXR-32). */
+export function permissionTag(requestId: string): string {
+  return `permission:${requestId}`;
+}
+
+/**
+ * UXR-32: an agent is held on a tool permission (ADR-0023). The ticket title, then
+ * `<agent>: wants to run <tool>: <summary>` clipped to 120. The summary is what the board card
+ * shows (`permissionSummary`: a command, a path, a URL); nothing else of the tool input.
+ */
+export function permissionPayload(p: {
+  ticketId: string;
+  ticketTitle: string;
+  agent: string | null;
+  tool: string;
+  summary: string;
+  requestId: string;
+}): PushNotification {
+  const what = `wants to run ${p.tool}: ${p.summary}`;
+  return {
+    title: clip(p.ticketTitle, PUSH_QUESTION_MAX),
+    body: clip(p.agent ? `${p.agent}: ${what}` : what, PUSH_QUESTION_MAX),
+    url: `/#/?ticket=${p.ticketId}`,
+    tag: permissionTag(p.requestId),
+  };
+}
+
 /**
  * A transition with `notify: true` was taken: the ticket title, then
  * `<transition title>: <from column> → <to column>`. The same text is the in-tab notification

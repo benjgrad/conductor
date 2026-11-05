@@ -10,6 +10,8 @@ import { CONDUCTOR, CONDUCTOR_V1, M1_BASIC } from '../api/mock-data.js';
 import {
   arrowLabel,
   buildLaneGraph,
+  laneKind,
+  transitionTitle,
   currentLane,
   entryLines,
   entrySummary,
@@ -74,20 +76,44 @@ describe('lanes', () => {
     expect(workSummary(null)).toBe('Waiting for a machine');
     expect(workSummary(s.planning!)).toBe('Agent · plan_template · default model');
     expect(workSummary(s.needs_input!)).toBe('A person answers or approves');
-    expect(workSummary(s.waiting_external!)).toBe('Waits for ui.approve');
+    // UXR-45: events in words, from the transition's title or the built-in label.
+    expect(workSummary(s.waiting_external!)).toBe('Waits for: Approved');
+    expect(workSummary(s.waiting_external!, CONDUCTOR_V1, 'waiting_external')).toBe(
+      'Waits for: Approved',
+    );
+  });
+
+  it('have a kind: agent, person, waiting, queue or end (UXR-68)', () => {
+    expect(buildLaneGraph(CONDUCTOR_V1).lanes.map((l) => l.kind)).toEqual([
+      'queue',
+      'agent',
+      'agent',
+      'person',
+      'waiting',
+      'end',
+    ]);
+    const s = M1_BASIC.states;
+    const command = Object.values(s).find((x) => x.type === 'command')!;
+    expect(laneKind(command)).toBe('agent');
+    expect(laneKind(null)).toBe('queue');
   });
 
   it('draw merged outcome arrows and the dashed unmet loop', () => {
     const edges = buildLaneGraph(CONDUCTOR_V1).edges;
     const byId = Object.fromEntries(edges.map((e) => [e.id, e]));
     expect(byId.start).toMatchObject({ from: QUEUED_LANE, to: 'planning', dashed: false });
-    expect(byId['planning/needs_input']?.label).toBe('ask_user · timeout');
-    expect(byId['implementing/waiting_external']?.label).toBe('done');
+    expect(byId['planning/needs_input']).toMatchObject({
+      label: '2 ways',
+      titles: ['Ask user', 'Timeout'],
+    });
+    expect(byId['implementing/waiting_external']?.label).toBe('Done');
+    expect(byId['waiting_external/done']?.label).toBe('Approved');
+    expect(byId.start?.label).toBe('Claimed');
     expect(byId['waiting_external/entry/unmet']).toMatchObject({
       kind: 'unmet',
       to: 'implementing',
       dashed: true,
-      label: 'not met ×3',
+      label: 'Not met ×3',
     });
   });
 
@@ -140,7 +166,7 @@ describe('arrows (ADR-0011)', () => {
   const graph = buildLaneGraph(CONDUCTOR_V2_DRAFT_DEF);
   const byId = Object.fromEntries(graph.edges.map((e) => [e.id, e]));
 
-  it('merge the transitions between two columns into one arrow with a count badge', () => {
+  it('merge the transitions between two columns into one arrow, "N ways"', () => {
     expect(byId['planning/needs_input']).toMatchObject({
       kind: 'outcome',
       transitions: [
@@ -151,11 +177,15 @@ describe('arrows (ADR-0011)', () => {
         'ask_user',
         'timeout',
       ],
-      label: 'scope_changed …',
-      badge: '×6',
+      label: '6 ways',
     });
+    expect(byId['planning/needs_input']?.badge).toBeUndefined();
+    expect(byId['planning/needs_input']?.title).toBe(
+      'Planning → Needs input: 6 transitions (Scope changed, Plan needs approval, ' +
+        'Needs product context, Impossible, Ask user, Timeout)',
+    );
     expect(byId['planning/implementing']).toMatchObject({
-      label: 'plan_ready',
+      label: 'Plan ready',
       transitions: ['plan_ready'],
     });
     expect(byId['planning/implementing']?.badge).toBeUndefined();
@@ -163,11 +193,15 @@ describe('arrows (ADR-0011)', () => {
 
   it('mark arrows with requirements, and skip targets that are not columns', () => {
     expect(byId['implementing/waiting_external']).toMatchObject({
-      label: 'ready_for_testing',
+      label: 'Ready for testing',
       gated: true,
       badge: '✓',
     });
-    expect(byId['implementing/needs_input']).toMatchObject({ gated: true, badge: '✓ ×4' });
+    expect(byId['implementing/needs_input']).toMatchObject({
+      gated: true,
+      badge: '✓',
+      label: `${byId['implementing/needs_input']!.transitions!.length} ways`,
+    });
     // `answer` goes to `$return_to`: no arrow (the column panel lists it).
     expect(graph.edges.some((e) => e.transitions?.includes('answer'))).toBe(false);
     // on_unmet back to Implementing from Implementing itself is not drawn either.
@@ -192,9 +226,17 @@ describe('arrows (ADR-0011)', () => {
     });
   });
 
-  it('label several names when they fit', () => {
-    expect(arrowLabel(['ask_user', 'timeout'])).toBe('ask_user · timeout');
-    expect(arrowLabel(['a_long_transition_name', 'another_one'])).toBe('a_long_transition_name …');
+  it('label an arrow with its one title, or "N ways" (UXR-45)', () => {
+    expect(arrowLabel(['Plan ready'])).toBe('Plan ready');
+    expect(arrowLabel(['Ask user', 'Timeout'])).toBe('2 ways');
+    // Twins with one title (work and personal) read as that title.
+    expect(arrowLabel(['PR ready for review', 'PR ready for review'])).toBe('PR ready for review');
+  });
+
+  it('title transitions: their own title, a built-in event, else the name in words', () => {
+    expect(transitionTitle(CONDUCTOR_V2_DRAFT_DEF, 'planning', 'plan_ready')).toBe('Plan ready');
+    expect(transitionTitle(CONDUCTOR_V1, 'waiting_external', 'ui.approve')).toBe('Approved');
+    expect(transitionTitle(CONDUCTOR_V1, 'planning', 'ask_user')).toBe('Ask user');
   });
 });
 

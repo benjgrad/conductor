@@ -1,0 +1,63 @@
+{
+  "board-permission-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 6,
+    "smallTapTargetSample": [
+      "button \"Fix flaky checkout test\" 307×18",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×18",
+      "button \"Add CSV export\" 307×18",
+      "button \"Plan the garden\" 307×18",
+      "button \"Question: Raised beds or in-gr\" 307×18"
+    ]
+  },
+  "detail-permission-375x812-light": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "board-permission-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 34,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 104×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"New ticket\" 112×27",
+      "button \"local\" 74×27",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "detail-permission-1440x900-light": {
+    "chatHeight": 676,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 42,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 104×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"New ticket\" 112×27",
+      "button \"local\" 74×27",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  }
+}

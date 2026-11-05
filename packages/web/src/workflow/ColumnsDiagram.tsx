@@ -246,7 +246,10 @@ function LaneBox({
   ]
     .filter(Boolean)
     .join(' ');
-  const name = `Column ${lane.title}: ${lane.work}${lane.entry ? ', has requirements to enter' : ''}${changed ? ' (changed)' : ''}`;
+  const name =
+    `Column ${lane.title}: ${lane.work}` +
+    `${lane.entry ? ', has requirements to enter' : ''} (${kindLabel} column)` +
+    `${changed ? ' (changed)' : ''}`;
   const tip = checking
     ? `${name}; checking requirements to enter${checkingPhase ? ` (${checkingPhase})` : ''}`
     : name;

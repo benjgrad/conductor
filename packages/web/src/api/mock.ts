@@ -34,6 +34,7 @@ import {
   repoChecksKey,
   rankRepos,
   MachineRowSchema,
+  TeamResponseSchema,
   RenameMachineRequestSchema,
   UpdateMachineRequestSchema,
   ReopenSessionRequestSchema,
@@ -91,6 +92,7 @@ import { validateColumns } from '../workflow/columns.js';
 import {
   CONDUCTOR,
   MOCK_WORKFLOW_AUTHORS,
+  MOCK_TEAM,
   MOCK_WORKFLOW_HISTORY,
   mockMachines,
   mockRepoChecks,
@@ -1341,6 +1343,21 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       }),
 
     listMachines: () => reply(() => [...machines.keys()].map(machineRow)),
+    listTeam: () =>
+      reply(() => {
+        const minAgo = (min: number) => new Date(now().getTime() - min * 60_000).toISOString();
+        const ended = new Set<string | null>(['done', 'failed', 'lost', 'cancelled']);
+        return TeamResponseSchema.parse(
+          MOCK_TEAM.map((m) => ({
+            name: m.name,
+            hired_at: minAgo(m.hiredDaysAgo * 1440),
+            last_assigned_at: m.lastAssignedMinAgo === null ? null : minAgo(m.lastAssignedMinAgo),
+            active_ticket_id:
+              [...cards.values()].find((c) => c.agent_name === m.name && !ended.has(c.status))
+                ?.ticket_id ?? null,
+          })),
+        );
+      }),
 
     getTranscript: (sessionId) =>
       reply((): TranscriptResponse => {

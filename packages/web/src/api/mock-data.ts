@@ -437,6 +437,8 @@ interface SeedSpec {
   ticketBody?: string;
   /** SessionDetail.moves as [minutes ago, from, to, transition]; absent → none (UXR-88). */
   moves?: [number, string | null, string, string | null][];
+  /** UX-13a: the stored teammate (`card.agent_name`); absent → a ticket from before UX-13a. */
+  agent?: string;
 }
 
 function seed(now: Date, s: SeedSpec): MockSeed {
@@ -458,6 +460,7 @@ function seed(now: Date, s: SeedSpec): MockSeed {
     input_request: input,
     created_at: ago(now, s.ageMin),
     updated_at: ago(now, s.activeMinAgo),
+    ...(s.agent !== undefined ? { agent_name: s.agent } : {}),
   };
   const output = (s.output ?? [OUTPUT_CHUNK_FIXTURE.text]).map((text, seq): OutputChunk => ({
     ...OUTPUT_CHUNK_FIXTURE,
@@ -820,6 +823,23 @@ function withAlert(now: Date, s: SeedSpec): MockSeed {
   };
 }
 
+/**
+ * UX-13b FR-3: the mock's agent team (GET /api/team), oldest hire first. A teammate's active
+ * ticket is not stored here: the mock finds it on the live board (a seed card with that
+ * `agent_name`), so a mock ticket that finishes frees its teammate. Elif is free after a finished
+ * ticket; Tunde was hired and has not worked a ticket yet.
+ */
+export const MOCK_TEAM: readonly {
+  name: string;
+  hiredDaysAgo: number;
+  lastAssignedMinAgo: number | null;
+}[] = [
+  { name: 'Amara', hiredDaysAgo: 41, lastAssignedMinAgo: 30 },
+  { name: 'Kenji', hiredDaysAgo: 41, lastAssignedMinAgo: 40 },
+  { name: 'Elif', hiredDaysAgo: 12, lastAssignedMinAgo: 190 },
+  { name: 'Tunde', hiredDaysAgo: 2, lastAssignedMinAgo: null },
+];
+
 export function mockSeeds(now: Date): MockSeed[] {
   const id = SEED_IDS;
   return [
@@ -857,6 +877,7 @@ export function mockSeeds(now: Date): MockSeed[] {
       spend: 0.61,
       slot: true,
       output: ['> npm run build\n', 'waiting for a build slot (2/2 in use)…\n'],
+      agent: 'Kenji',
     }),
     withAlert(now, {
       ...id.running,
@@ -873,6 +894,7 @@ export function mockSeeds(now: Date): MockSeed[] {
     seed(now, {
       ...id.askNewer,
       title: 'Add audit log table',
+      agent: 'Amara',
       status: 'needs_input',
       state: 'needs_input',
       workflow: M1_BASIC,

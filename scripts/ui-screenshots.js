@@ -106,6 +106,7 @@ const VIEWPORTS = [
         'new-ticket',
         'new-ticket-bottom',
         'machines',
+        'machines-team',
         'workflows',
         'wf-diagram-end',
         'wf-rules-full',
@@ -298,6 +299,15 @@ const SCREENS = [
   { id: 'board-permission', path: '/#/' },
   { id: 'detail-permission', path: '/#/', act: (page) => openCard(page, PERMISSION_CARD) },
   { id: 'machines', path: '/#/machines' },
+  // UXR-89 (UX-13b FR-3): the agent team below the machines, at full height.
+  {
+    id: 'machines-team',
+    path: '/#/machines',
+    act: async (page) => {
+      await page.getByRole('list', { name: 'Agent team' }).waitFor();
+    },
+    fullPage: true,
+  },
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
   // UXR-61: the override's setup and check table, at full height.

@@ -24,6 +24,7 @@ import type {
   LoginRequest,
   MachineDetail,
   MachineRow,
+  TeamResponse,
   MeResponse,
   OkResponse,
   OutputChunk,
@@ -203,6 +204,8 @@ export interface ApiClient {
    * hostname and status; M2-T11 the Machines page). MachineRow is a superset of the M1 MachineDto.
    */
   listMachines(): Promise<MachineRow[]>;
+  /** UX-13a/UX-13b FR-3: GET /api/team, the account's agent team, oldest hire first. */
+  listTeam(): Promise<TeamResponse>;
   /**
    * GET /api/sessions/:id/transcript (ADR-0008): history from Claude's transcript on the session's
    * machine. 503 machine_offline, 404 no_transcript, 504 timeout.

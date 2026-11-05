@@ -16,6 +16,7 @@ import {
   MachineDetailSchema,
   MachineListResponseSchema,
   MachineRowSchema,
+  TeamResponseSchema,
   MeResponseSchema,
   OkResponseSchema,
   OutputChunkSchema,
@@ -454,6 +455,7 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
       ),
 
     listMachines: () => request(MachineListResponseSchema, 'GET', API_PATHS.machines),
+    listTeam: () => request(TeamResponseSchema, 'GET', API_PATHS.team),
 
     getTranscript: (sessionId: string) =>
       request(

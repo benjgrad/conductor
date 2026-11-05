@@ -144,3 +144,38 @@
   box-sizing: border-box;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+
+/* UX-13b FR-3: the agent team, below the machines table. */
+.team {
+  margin-top: 24px;
+}
+.machines .team h2 {
+  margin-bottom: 8px;
+}
+.team-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+}
+.team-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.team-row:last-child {
+  border-bottom: none;
+}
+.team-name {
+  font-weight: 600;
+  min-width: 6em;
+}
+.team-status {
+  flex: 1 1 12em;
+}

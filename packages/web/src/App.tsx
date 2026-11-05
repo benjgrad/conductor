@@ -377,7 +377,12 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
       )}
       <DiscardDraftConfirm draft={draft} navigate={navigate} />
       {route.view === 'workflows' && <WorkflowsView api={api} onDirtyChange={draft.setDirty} />}
-      {route.view === 'machines' && <MachinesPage api={api} />}
+      {route.view === 'machines' && (
+        <MachinesPage
+          api={api}
+          ticketTitle={(id) => [...board.cards.values()].find((c) => c.ticket_id === id)?.title}
+        />
+      )}
       {route.view === 'repo-checks' && (
         <RepoChecksPage
           api={api}

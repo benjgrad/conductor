@@ -1215,7 +1215,7 @@ export function mockChangeProposals(now: Date): ChangeProposalDetail[] {
         'The repo has no package.json at its root, so the default `npm run build` fails before ' +
         'any work is checked.',
       evidence: [
-        { finding_id: 'failing_check:npm run build', text: '6 of 6 runs failed in 30 days' },
+        { finding_id: 'failing_check:Build passes', text: '6 of 6 runs failed in 30 days' },
       ],
       effect: {
         metric: 'check_failure_rate',

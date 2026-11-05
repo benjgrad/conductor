@@ -88,6 +88,30 @@ export function frictionReport(insights: readonly StoredInsight[]) {
   };
 }
 
+/** Below this share of finished sessions analysed, the report says how thin its sample is. */
+export const REPORT_THIN_SAMPLE = 0.25;
+
+/**
+ * The frictions' sample: how many of the window's finished sessions were analysed, and, when
+ * that is under REPORT_THIN_SAMPLE, a note that the frictions and the wasted minutes cover only
+ * those sessions.
+ */
+export function sampleNote(c: { finished_sessions: number; analysed_sessions: number }): {
+  sample_share: number;
+  sample_note?: string;
+} {
+  const share = c.finished_sessions === 0 ? 0 : c.analysed_sessions / c.finished_sessions;
+  const rounded = Math.round(share * 100) / 100;
+  if (c.finished_sessions === 0 || share >= REPORT_THIN_SAMPLE) return { sample_share: rounded };
+  return {
+    sample_share: rounded,
+    sample_note:
+      `Frictions come from ${c.analysed_sessions} of ${c.finished_sessions} finished sessions ` +
+      `(${Math.round(share * 100)} %); wasted minutes are summed over those ` +
+      `${c.analysed_sessions} only.`,
+  };
+}
+
 // ---------------------------------------------------------------- REST DTOs (UXR-84)
 
 /** The query of every /api/insights list route (unknown params are a 400). */
@@ -147,6 +171,10 @@ export const ProcessReportResponseSchema = z.object({
   note: z.string().optional(),
   finished_sessions: z.number().int().nonnegative(),
   analysed_sessions: z.number().int().nonnegative(),
+  /** analysed / finished (0..1). Absent from older servers. */
+  sample_share: z.number().min(0).max(1).optional(),
+  /** Set when the sample is thin (`sampleNote`). */
+  sample_note: z.string().optional(),
   totals: ProcessMetricsSchema.shape.totals,
   analysed: z.number().int().nonnegative(),
   outcomes: z.record(z.string(), z.number()),

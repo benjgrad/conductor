@@ -1,4 +1,21 @@
-import type { AdvisorRows, CheckRunRow, InputRow, MoveRow, PermissionRow } from '@conductor/shared';
+import {
+  checkIdentity,
+  defKey,
+  inputClass,
+  repoChecksKey,
+  RepoChecksSchema,
+  stateKey,
+  waitsOnOthers,
+  WorkflowDefinitionSchema,
+  type AdvisorDefs,
+  type AdvisorRows,
+  type CheckRunRow,
+  type InputRow,
+  type MoveRow,
+  type PermissionRow,
+  type RepoChecks,
+  type WorkflowDefinition,
+} from '@conductor/shared';
 import type { Queryable } from '../contracts.js';
 
 // ADR-0033 (workflow advisor, P1): the rows the process metrics read, for one account and a
@@ -32,6 +49,9 @@ export interface AdvisorFilter {
    */
   until?: Date | undefined;
 }
+
+/** A check run and the workflow version of the session that ran it (to name it). */
+export type LoadedCheckRun = CheckRunRow & { workflow_id: string; workflow_version: number | null };
 
 export interface LoadedRows extends AdvisorRows {
   since: string;
@@ -76,13 +96,15 @@ export async function loadCheckRuns(
   db: Queryable,
   f: AdvisorFilter,
   limit: number = ROW_LIMIT,
-): Promise<{ rows: CheckRunRow[]; since: string; truncated: boolean }> {
+): Promise<{ rows: LoadedCheckRun[]; since: string; truncated: boolean }> {
   const { since, args } = windowArgs(f, limit);
   const checks = await db.query<{
     session_id: string;
     ticket_id: string;
     repo: string;
     machine_id: string | null;
+    workflow_id: string;
+    workflow_version: number | null;
     state: string | null;
     cmd: string | null;
     exit_code: number | null;
@@ -91,8 +113,10 @@ export async function loadCheckRuns(
     started_at: Date;
     ts: Date;
   }>(
-    'SELECT e.session_id, s.ticket_id, t.repo, s.machine_id, ' +
-      "o.payload->>'state' AS state, o.payload->>'cmd' AS cmd, " +
+    'SELECT e.session_id, s.ticket_id, t.repo, s.machine_id, s.workflow_id, s.workflow_version, ' +
+      // The outbox holds the protocol payload (`workflow_state`); `state` is the effect's own key.
+      "COALESCE(o.payload->>'workflow_state', o.payload->>'state') AS state, " +
+      "o.payload->>'cmd' AS cmd, " +
       "(e.payload->>'exit_code')::int AS exit_code, " +
       "COALESCE((e.payload->>'timed_out')::boolean, false) AS timed_out, " +
       "COALESCE((e.payload->>'setup_failed')::boolean, false) AS setup_failed, " +
@@ -109,12 +133,14 @@ export async function loadCheckRuns(
     args,
   );
 
-  const rows = checks.rows.map((r): CheckRunRow => ({
+  const rows = checks.rows.map((r): LoadedCheckRun => ({
     session_id: r.session_id,
     ticket_id: r.ticket_id,
     repo: r.repo,
     machine_id: r.machine_id,
-    state: r.state ?? 'unknown',
+    workflow_id: r.workflow_id,
+    workflow_version: r.workflow_version,
+    state: r.state === null ? 'unknown' : stateKey(r.state),
     cmd: r.cmd ?? '(unknown)',
     exit_code: r.exit_code,
     timed_out: r.timed_out,
@@ -133,6 +159,7 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
     ticket_id: string;
     repo: string;
     workflow_id: string;
+    workflow_version: number | null;
     machine_id: string | null;
     from: string | null;
     to: string;
@@ -140,7 +167,7 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
     visit: number;
     ts: Date;
   }>(
-    'SELECT e.session_id, s.ticket_id, t.repo, s.workflow_id, s.machine_id, ' +
+    'SELECT e.session_id, s.ticket_id, t.repo, s.workflow_id, s.workflow_version, s.machine_id, ' +
       `e.payload->>'from' AS "from", e.payload->>'to' AS "to", ` +
       "e.payload->>'transition' AS transition, " +
       "COALESCE((e.payload->>'visit')::int, 1) AS visit, e.ts " +
@@ -158,14 +185,28 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
     ticket_id: string;
     repo: string;
     machine_id: string | null;
+    workflow_id: string;
+    workflow_version: number | null;
     state: string | null;
     kind: string;
     created_at: Date;
     answered_at: Date | null;
+    transition: string | null;
+    origin_from: string | null;
   }>(
-    'SELECT i.session_id, s.ticket_id, t.repo, s.machine_id, i.return_to AS state, ' +
-      'i.kind::text AS kind, i.created_at, i.answered_at ' +
-      `${SCOPE.replace('FROM session s', 'FROM input_request i JOIN session s ON s.id = i.session_id')} ` +
+    'SELECT i.session_id, s.ticket_id, t.repo, s.machine_id, s.workflow_id, s.workflow_version, ' +
+      'i.return_to AS state, i.kind::text AS kind, i.created_at, i.answered_at, ' +
+      "se.payload->>'transition' AS transition, se.payload->>'from' AS origin_from " +
+      `${SCOPE.replace(
+        'FROM session s',
+        'FROM input_request i JOIN session s ON s.id = i.session_id ' +
+          // The move that opened it: the session's newest state.entered up to its creation (the
+          // engine writes both in one transaction; the margin covers the two clocks), as
+          // engine/rows.ts OPEN_INPUT_SELECT does for an open request.
+          'LEFT JOIN LATERAL (SELECT e.payload FROM event e WHERE e.session_id = i.session_id ' +
+          "AND e.type = 'state.entered' AND e.ts <= i.created_at + interval '5 seconds' " +
+          'ORDER BY e.id DESC LIMIT 1) se ON true',
+      )} ` +
       'AND i.created_at >= $2 AND ($7::timestamptz IS NULL OR i.created_at < $7) ORDER BY i.created_at DESC LIMIT $5',
     args,
   );
@@ -194,22 +235,51 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
   if (inputs.rows.length >= ROW_LIMIT) truncated.push('inputs');
   if (perms.rows.length >= ROW_LIMIT) truncated.push('permissions');
 
+  const pairs = new Map<string, { id: string; version: number }>();
+  for (const r of [...moves.rows, ...checks.rows, ...inputs.rows]) {
+    if (r.workflow_version !== null) {
+      pairs.set(defKey(r.workflow_id, r.workflow_version), {
+        id: r.workflow_id,
+        version: r.workflow_version,
+      });
+    }
+  }
+  const [defs, repoChecks] = await Promise.all([
+    loadDefinitions(db, [...pairs.values()]),
+    loadRepoChecks(db, f.accountId),
+  ]);
+  const defOf = (id: string, version: number | null) =>
+    version === null ? undefined : defs.get(defKey(id, version));
+
+  const moveRows = moves.rows.map((r): MoveRow => ({
+    session_id: r.session_id,
+    ticket_id: r.ticket_id,
+    repo: r.repo,
+    workflow_id: r.workflow_id,
+    workflow_version: r.workflow_version,
+    machine_id: r.machine_id,
+    from: r.from,
+    to: r.to,
+    transition: r.transition,
+    visit: r.visit,
+    at: r.ts.toISOString(),
+  }));
+  const checkRows = checks.rows.map((r): CheckRunRow => ({
+    ...r,
+    ...checkIdentity({
+      cmd: r.cmd,
+      setup_failed: r.setup_failed,
+      gateKey: r.state,
+      def: defOf(r.workflow_id, r.workflow_version),
+      repoChecks: repoChecks.get(repoChecksKey(r.repo)),
+    }),
+  }));
+
   return {
     since: since.toISOString(),
     truncated,
-    moves: moves.rows.map((r): MoveRow => ({
-      session_id: r.session_id,
-      ticket_id: r.ticket_id,
-      repo: r.repo,
-      workflow_id: r.workflow_id,
-      machine_id: r.machine_id,
-      from: r.from,
-      to: r.to,
-      transition: r.transition,
-      visit: r.visit,
-      at: r.ts.toISOString(),
-    })),
-    checks: checks.rows,
+    moves: moveRows,
+    checks: checkRows,
     inputs: inputs.rows.map((r): InputRow => ({
       session_id: r.session_id,
       ticket_id: r.ticket_id,
@@ -219,7 +289,16 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
       kind: r.kind,
       created_at: r.created_at.toISOString(),
       answered_at: iso(r.answered_at),
+      transition: r.transition,
+      class: inputClass(
+        { kind: r.kind, transition: r.transition, from: r.origin_from ?? r.state },
+        defOf(r.workflow_id, r.workflow_version),
+      ),
     })),
+    waits: waitsOf(
+      [...defs.values()],
+      [...moveRows.map((m) => stateKey(m.to)), ...checkRows.map((c) => c.state)],
+    ),
     permissions: perms.rows.map((r): PermissionRow => ({
       session_id: r.session_id,
       ticket_id: r.ticket_id,
@@ -232,4 +311,57 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
       created_at: r.created_at.toISOString(),
     })),
   };
+}
+
+/** `waitsOnOthers` for every key seen (`AdvisorRows.waits`). */
+function waitsOf(
+  defs: readonly WorkflowDefinition[],
+  keys: readonly string[],
+): NonNullable<AdvisorRows['waits']> {
+  const out: NonNullable<AdvisorRows['waits']> = {};
+  for (const key of new Set(keys)) {
+    const w = waitsOnOthers(defs, key);
+    if (w !== null) out[key] = w;
+  }
+  return out;
+}
+
+/** The workflow definitions of these (id, version) pairs; one that no longer parses is left out. */
+export async function loadDefinitions(
+  db: Queryable,
+  pairs: readonly { id: string; version: number }[],
+): Promise<AdvisorDefs> {
+  const out = new Map<string, WorkflowDefinition>();
+  if (pairs.length === 0) return out;
+  const r = await db.query<{ id: string; version: number; definition: unknown }>(
+    'SELECT d.id, d.version, d.definition FROM workflow_definition d ' +
+      'JOIN unnest($1::text[], $2::int[]) AS p(id, version) ' +
+      'ON p.id = d.id AND p.version = d.version',
+    [pairs.map((p) => p.id), pairs.map((p) => p.version)],
+  );
+  for (const row of r.rows) {
+    const parsed = WorkflowDefinitionSchema.safeParse(row.definition);
+    if (parsed.success) out.set(defKey(row.id, row.version), parsed.data);
+  }
+  return out;
+}
+
+/**
+ * The account's repo check overrides by `repoChecksKey`, as they are now (TD-201: a run is named
+ * from the current config, so a check renamed since shows its new name).
+ */
+export async function loadRepoChecks(
+  db: Queryable,
+  accountId: string,
+): Promise<Map<string, RepoChecks>> {
+  const r = await db.query<{ repo: string; config: unknown }>(
+    'SELECT repo, config FROM repo_checks WHERE account_id = $1',
+    [accountId],
+  );
+  const out = new Map<string, RepoChecks>();
+  for (const row of r.rows) {
+    const parsed = RepoChecksSchema.safeParse(row.config);
+    if (parsed.success) out.set(repoChecksKey(row.repo), parsed.data);
+  }
+  return out;
 }

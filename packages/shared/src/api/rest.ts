@@ -26,6 +26,7 @@ import { PR_CONTEXT_KEY, REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/
 import {
   ConditionStatusValueSchema,
   GateStepSchema,
+  isNamedMove,
   MACHINE_LOST_KIND,
   machineLostCanContinue,
   machineLostContinueTitle,
@@ -46,7 +47,7 @@ import {
   RETURN_TO,
   StateNameSchema,
   TicketKindSchema,
-  TransitionActorSchema,
+  MoveActorSchema,
   WorkflowDefinitionSchema,
   conditionEnabled,
   conditionLabel,
@@ -744,7 +745,9 @@ export const SESSION_MOVES_LIMIT = 50;
  * ADR-0011: one move in the session's timeline, from a `state.entered` event row (`toMoveDto`).
  * `from` is null for the first entry; it can be a gate step's synthetic label (the step that
  * passed or failed). `transition`, `reason` and `actor` are null on rows written before M1b and on
- * routes that aren't transitions (start, requeue).
+ * a start or requeue. Since the 2026-11 metric fixes, a route conductor took on its own has actor
+ * `engine` and an ENGINE_MOVE transition with its reason, and an answer has actor `human` with a
+ * null transition (`isNamedMove`).
  */
 export const MoveDtoSchema = z.object({
   at: IsoDateTimeSchema,
@@ -752,7 +755,7 @@ export const MoveDtoSchema = z.object({
   to: z.string(),
   transition: z.string().nullable(),
   reason: z.string().nullable(),
-  actor: TransitionActorSchema.nullable(),
+  actor: MoveActorSchema.nullable(),
 });
 export type MoveDto = z.infer<typeof MoveDtoSchema>;
 
@@ -1804,6 +1807,8 @@ export interface InputRequestLike {
    */
   origin_transition?: string | null | undefined;
   origin_from?: string | null | undefined;
+  /** That row's `actor`: an `engine` route is not a named transition (`isNamedMove`). */
+  origin_actor?: string | null | undefined;
   /** Questions UX: the `options` jsonb. Absent or null ≡ none; malformed ≡ none. */
   options?: unknown;
 }
@@ -1843,7 +1848,13 @@ export function toInputRequestDto(row: InputRequestLike): InputRequestDto {
     if (parsed.success) dto.options = parsed.data;
   }
   if (row.origin_transition === undefined && row.origin_from === undefined) return dto;
-  const transition = row.origin_transition ?? null;
+  // An engine route (requirements unmet, a step that failed, a fallback) records why under its own
+  // name; to the board it is still "not a transition someone took".
+  const named = isNamedMove({
+    transition: row.origin_transition ?? null,
+    actor: row.origin_actor ?? null,
+  });
+  const transition = named ? (row.origin_transition ?? null) : null;
   const from = row.origin_from ?? null;
   dto.origin_transition = transition;
   dto.step_failed =

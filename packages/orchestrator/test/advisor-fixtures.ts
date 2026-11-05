@@ -85,7 +85,14 @@ export async function advisorHistory(
       commandId,
       `machine:${machineId}`,
       sessionId,
-      JSON.stringify({ state: 'implementing', cmd: 'npm test', cwd: null, timeout_ms: null }),
+      // The protocol payload, as the engine service writes it (`workflow_state`).
+      JSON.stringify({
+        command_id: commandId,
+        workflow_state: 'implementing',
+        cmd: 'npm test',
+        cwd: null,
+        timeout_ms: null,
+      }),
       daysAgo(ago, 80),
     ],
   );

@@ -11,6 +11,7 @@ import {
   TicketKindSchema,
   TicketPrioritySchema,
   httpForApplyResult,
+  inputClass,
   latestPlanEntry,
   ProposalIdSchema,
   transitionsOf,
@@ -588,11 +589,18 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       const gated = approvalGated(d);
       const waiting = waitingOn(d.card, { gated });
       const state = d.card.workflow_state;
+      const req = d.card.input_request;
       const line = statusLine({
         card: d.card,
         waiting,
         stateTitle: state === null ? null : (d.workflow.states[state]?.title ?? state),
         minutesInState: (Date.now() - Date.parse(d.state_entered_at)) / 60_000,
+        handoff:
+          req !== null &&
+          inputClass(
+            { kind: req.kind, transition: req.origin_transition ?? null, from: d.return_to },
+            d.workflow,
+          ) === 'handoff',
       });
       return ok({
         id: t.id,
@@ -1010,7 +1018,21 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
               column: c.column,
               state: c.workflow_state,
               waiting_on: waiting,
-              status_line: statusLine({ card: c, waiting }),
+              status_line: statusLine({
+                card: c,
+                waiting,
+                // No definition here: a `…ready_for_review` transition reads as a hand-off.
+                handoff:
+                  c.input_request !== null &&
+                  inputClass(
+                    {
+                      kind: c.input_request.kind,
+                      transition: c.input_request.origin_transition ?? null,
+                      from: null,
+                    },
+                    undefined,
+                  ) === 'handoff',
+              }),
               ...(c.input_request
                 ? { question: clip(c.input_request.question, QUESTION_MAX) }
                 : {}),

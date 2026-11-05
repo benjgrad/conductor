@@ -84,6 +84,18 @@ describe('statusLine', () => {
     expect(statusLine({ card: asked, waiting: 'you' })).toBe(
       'Waiting on you: the agent asks: "Which colour?"',
     );
+    // A PR-ready summary through a question: true gate is a hand-off, not a question.
+    const done = card({
+      status: 'needs_input',
+      input_request: question('agent_question', 'I fixed the only failing test.'),
+    });
+    expect(statusLine({ card: done, waiting: 'you', handoff: true })).toBe(
+      'Waiting on you: the agent reports: "I fixed the only failing test."',
+    );
+    const stop = card({ status: 'needs_input', input_request: question('timeout', 'Timed out') });
+    expect(statusLine({ card: stop, waiting: 'you', handoff: true })).toBe(
+      'Waiting on you: a step timed out: "Timed out"',
+    );
     const buttons = card({ status: 'needs_input', human_transitions: [button('approve')] });
     expect(statusLine({ card: buttons, waiting: 'you', stateTitle: 'Review' })).toContain(
       'Review: take one of approve',

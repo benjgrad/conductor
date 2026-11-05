@@ -1,6 +1,7 @@
 // ADR-0011 on the board: a pending move's "waiting for" checklist, the human transition buttons
 // (Needs-input card and session panel), and the session's moves timeline.
 import {
+  engineMoveTitle,
   transitionTitle,
   type BoardPending,
   type BoardPendingItem,
@@ -222,6 +223,8 @@ function stateName(workflow: WorkflowDefinition, state: string): string {
 // TD-183: a workflow's own transition named `fresh_conversation` would be mislabelled here.
 export function moveTitle(workflow: WorkflowDefinition, move: MoveDto): string | null {
   if (move.transition === null) return null;
+  // A route conductor took on its own (requirements not met, a failed step): in words.
+  if (move.actor === 'engine') return engineMoveTitle(move.transition);
   const from = move.from === null ? undefined : workflow.states[move.from];
   const t = from && 'on' in from ? from.on?.[move.transition] : undefined;
   return transitionTitle(move.transition, t);

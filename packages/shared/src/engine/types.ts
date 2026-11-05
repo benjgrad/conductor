@@ -13,6 +13,7 @@ import {
   ApprovalIdSchema,
   ConditionTypeSchema,
   TicketKindSchema,
+  MoveActorSchema,
   TransitionActorSchema,
   type WorkflowDefinition,
 } from '../workflow/schema.js';
@@ -554,6 +555,48 @@ export const FRESH_CONVERSATION_MOVE = 'fresh_conversation';
 export const MESSAGE_MOVE = 'message';
 
 /**
+ * The `transition` recorded (actor `engine`) when conductor routes a session on its own, so every
+ * re-entry says why (the advisor counts them; the timeline words them).
+ */
+export const ENGINE_MOVE = {
+  /** A gate's requirements were not met (a check failed, review items unmet): back to `on_unmet.goto`. */
+  unmet: 'requirements_unmet',
+  /** …and the retries ran out: `on_unmet.else`. */
+  unmetExhausted: 'requirements_unmet_exhausted',
+  /** A gate step could not finish (timeout, no verdict, a failed action): `on_unmet.else`. */
+  stepFailed: 'step_failed',
+  /** No route for what happened: the fallback human state. */
+  fallback: 'fallback',
+  /** A counted retry loop ran out: its `else`. */
+  loopExhausted: 'retries_exhausted',
+  budget: 'budget_exceeded',
+  machineLost: 'machine_lost',
+} as const;
+
+const ENGINE_MOVE_TITLES: Record<string, string> = {
+  [ENGINE_MOVE.unmet]: 'Requirements not met',
+  [ENGINE_MOVE.unmetExhausted]: 'Requirements not met, retries ran out',
+  [ENGINE_MOVE.stepFailed]: 'Step failed',
+  [ENGINE_MOVE.fallback]: 'Sent to a human',
+  [ENGINE_MOVE.loopExhausted]: 'Retries ran out',
+  [ENGINE_MOVE.budget]: 'Budget ran out',
+  [ENGINE_MOVE.machineLost]: 'Machine lost',
+  timeout: 'Timed out',
+  fail: 'Failed',
+  error: 'Failed',
+};
+
+/** An engine move's words for the timeline, e.g. `requirements_unmet` → "Requirements not met". */
+export function engineMoveTitle(transition: string): string {
+  return ENGINE_MOVE_TITLES[transition] ?? transition.replace(/_/g, ' ');
+}
+
+/** Is `m` a named transition someone took (not an engine route, a start or an answer)? */
+export function isNamedMove(m: { transition: string | null; actor?: string | null }): boolean {
+  return m.transition !== null && m.actor !== 'engine';
+}
+
+/**
  * Effects. The first six map 1:1 to an outbox kind (02) and, except connector_call, to the
  * same-named WS message (03). The rest are orchestrator-internal. Mapping: 10-contracts.
  * Ids (command_id, input_request_id) are assigned by the wrapper, never by apply.
@@ -698,7 +741,8 @@ export const EffectSchema = z.discriminatedUnion('type', [
     transition: z.string().nullable().optional(),
     /** ADR-0011: the agent's or human's reason, or the system's (e.g. "timed out"). */
     reason: z.string().nullable().optional(),
-    actor: TransitionActorSchema.nullable().optional(),
+    /** `engine`: a route conductor took on its own (ENGINE_MOVE), with its reason. */
+    actor: MoveActorSchema.nullable().optional(),
     /**
      * The transition that led here has `notify: true` (its name): the wrapper writes a
      * `transition.notified` board event and `push_transition` rows. Absent = no notification.
@@ -884,7 +928,7 @@ export const StateEnteredPayloadSchema = z.object({
   visit: z.number().int().positive(),
   transition: z.string().nullable().optional(),
   reason: z.string().nullable().optional(),
-  actor: TransitionActorSchema.nullable().optional(),
+  actor: MoveActorSchema.nullable().optional(),
 });
 export type StateEnteredPayload = z.infer<typeof StateEnteredPayloadSchema>;
 

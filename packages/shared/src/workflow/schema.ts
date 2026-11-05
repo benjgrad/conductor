@@ -147,6 +147,14 @@ export const TransitionActorSchema = z.enum(['agent', 'human', 'system']);
 export type TransitionActor = z.infer<typeof TransitionActorSchema>;
 
 /**
+ * Who made a recorded move (`state_entered`, MoveDto): a transition's actor, or `engine` for a
+ * route conductor took on its own (requirements not met, a step that failed, a fallback to a
+ * human, the budget, a lost machine). Never valid in a definition (`TransitionActorSchema`).
+ */
+export const MoveActorSchema = z.enum(['agent', 'human', 'system', 'engine']);
+export type MoveActor = z.infer<typeof MoveActorSchema>;
+
+/**
  * ADR-0011 (U-061): the `goto` of a human transition that returns to the state that routed into
  * the human state (`session.return_to`), e.g. `answer`. Only valid on a human-state transition
  * (validator rule 10).

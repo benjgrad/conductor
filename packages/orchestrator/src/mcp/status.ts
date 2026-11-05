@@ -75,16 +75,31 @@ export interface StatusLineInput {
   stateTitle?: string | null;
   /** How long the session has been in its state, in minutes, when known. */
   minutesInState?: number | null;
+  /**
+   * The open `agent_question` is a hand-off of finished work (a PR-ready summary through a
+   * `question: true` gate, `isHandoffTransition`), not a question: "the agent reports".
+   */
+  handoff?: boolean;
 }
 
 /** One sentence a voice assistant can read out as it is. */
-export function statusLine({ card, waiting, stateTitle, minutesInState }: StatusLineInput): string {
+export function statusLine({
+  card,
+  waiting,
+  stateTitle,
+  minutesInState,
+  handoff,
+}: StatusLineInput): string {
   const where = stateTitle ?? card.workflow_state ?? 'its current step';
   const names = card.human_transitions.map((t) => t.name).join(', ');
   switch (waiting) {
     case 'you':
       if (card.input_request) {
-        return `Waiting on you: ${KIND_TEXT[card.input_request.kind]}: "${clip(card.input_request.question, 200)}"`;
+        const what =
+          handoff === true && card.input_request.kind === 'agent_question'
+            ? 'the agent reports'
+            : KIND_TEXT[card.input_request.kind];
+        return `Waiting on you: ${what}: "${clip(card.input_request.question, 200)}"`;
       }
       return `Waiting on you in ${where}: take one of ${names} (take_transition).`;
     case 'you_on_board':

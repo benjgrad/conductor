@@ -1,3 +1,4 @@
+import { ArrowLeft } from 'lucide-react';
 import { Fragment } from 'react';
 
 // The head of the arrow and transition panels (UXR-66): a back arrow to the parent, a breadcrumb
@@ -15,18 +16,21 @@ export function EditorHead({
   back,
   closeLabel,
   onClose,
+  fullScreen = false,
 }: {
   crumbs: Crumb[];
   title: string;
   back: { label: string; onClick: () => void };
   closeLabel: string;
   onClose: () => void;
+  /** UXR-44: on a phone the panel is full-screen; its 44 px Back replaces the ×. */
+  fullScreen?: boolean;
 }) {
   return (
     <>
       <div className="wf-editor-head">
         <button type="button" className="wf-back" aria-label={back.label} onClick={back.onClick}>
-          ←
+          {fullScreen ? <ArrowLeft size={20} aria-hidden="true" /> : '←'}
         </button>
         <nav aria-label="Breadcrumb" className="wf-crumbs">
           <ol>
@@ -50,9 +54,11 @@ export function EditorHead({
             ))}
           </ol>
         </nav>
-        <button type="button" onClick={onClose} aria-label={closeLabel}>
-          ×
-        </button>
+        {!fullScreen && (
+          <button type="button" onClick={onClose} aria-label={closeLabel}>
+            ×
+          </button>
+        )}
       </div>
       <h3>{title}</h3>
     </>

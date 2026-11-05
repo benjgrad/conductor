@@ -11,6 +11,7 @@ import {
   type ApiClient,
   type ApiErrorDetail,
 } from '../api/client.js';
+import { useIsMobile } from '../components/useMediaQuery.js';
 import { ColumnEditor } from './ColumnEditor.js';
 import { ColumnsDiagram } from './ColumnsDiagram.js';
 import {
@@ -67,6 +68,8 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
   const [notice, setNotice] = useState<string | null>(null);
   /** Bumped when an applied change proposal saved a new version: the latest is fetched again. */
   const [reloads, setReloads] = useState(0);
+  /** UXR-44: below the phone breakpoint the editors open full-screen over the page. */
+  const fullScreen = useIsMobile();
 
   useEffect(() => {
     onDirtyChange?.(draft !== null ? ID : null);
@@ -221,7 +224,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
         panelOpen && selectedTransition !== null ? ' with-transition' : ''
       }`}
     >
-      <section className="wf-main" aria-label="Workflow">
+      <section className="wf-main" aria-label="Workflow" inert={panelOpen && fullScreen}>
         {/* 11-web-ui: the editor needs room; shown only below the phone breakpoint (CSS). */}
         <p className="mobile-note muted">The workflow editor is best on a larger screen.</p>
         <div className="wf-toolbar">
@@ -378,6 +381,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
             setSelected({ kind: 'transition', from: selectedState, name });
           }}
           onClose={() => setSelected(null)}
+          fullScreen={fullScreen}
         />
       )}
       {selectedArrow && shown && asColumns && (
@@ -391,6 +395,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
           }
           onSelectColumn={selectColumn}
           onClose={() => setSelected(null)}
+          fullScreen={fullScreen}
         />
       )}
       {selected?.kind === 'transition' && selectedTransition && shown && asColumns && (
@@ -414,6 +419,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
           onSelectArrow={selectArrow}
           onBack={() => setSelected(parentOf(shown, selected.from, selected.name))}
           onClose={() => setSelected(null)}
+          fullScreen={fullScreen}
         />
       )}
     </div>

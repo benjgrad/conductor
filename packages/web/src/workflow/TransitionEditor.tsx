@@ -68,12 +68,15 @@ export interface TransitionEditorProps {
   /** Back to the parent: the arrow's list, or the column. */
   onBack: () => void;
   onClose: () => void;
+  /** UXR-44: the phone's full-screen panel. */
+  fullScreen?: boolean;
 }
 
 const KIND_TEXT: Record<TicketKind, string> = { work: 'Work', personal: 'Personal' };
 
 export function TransitionEditor(props: TransitionEditorProps) {
   const { definition, from, name, onClose, onSelectColumn, onSelectArrow, onBack } = props;
+  const fullScreen = props.fullScreen ?? false;
   const t = getTransitionObject(definition, from, name);
   if (t === null) return null;
   const parent = parentOf(definition, from, name);
@@ -88,7 +91,7 @@ export function TransitionEditor(props: TransitionEditorProps) {
     { label: title },
   ];
   return (
-    <aside className="wf-editor" aria-label="Transition">
+    <aside className={`wf-editor${fullScreen ? ' full-screen' : ''}`} aria-label="Transition">
       <EditorHead
         crumbs={crumbs}
         title={title}
@@ -98,6 +101,7 @@ export function TransitionEditor(props: TransitionEditorProps) {
         }}
         closeLabel="Close transition"
         onClose={onClose}
+        fullScreen={fullScreen}
       />
       <p className="wf-summary" aria-label="Summary" aria-live="polite">
         {bold(describeTransition(definition, from, name))}

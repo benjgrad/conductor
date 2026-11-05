@@ -60,7 +60,9 @@ const editor = () => within(screen.getByRole('complementary', { name: 'Column' }
 const panel = () => within(screen.getByRole('complementary', { name: 'Transition' }));
 /** A transition editor section's header button (UXR-63), by the start of its name. */
 const sectionHead = (start: string) =>
-  panel().getByRole('button', { name: new RegExp(`^${start.replace(/[()]/g, '\\$&')}`) });
+  panel().getByRole('button', {
+    name: new RegExp(`^${start.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+  });
 const type = (el: HTMLElement, value: string) => fireEvent.change(el, { target: { value } });
 const lanesOf = (el: Element) =>
   [...el.querySelectorAll('[data-lane]')].map((n) => n.getAttribute('data-lane'));

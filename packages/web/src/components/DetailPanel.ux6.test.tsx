@@ -23,7 +23,7 @@ describe('session panel in a conductor step (UX-6)', () => {
     const { panel, el } = await open('Conductor checks demo');
     const head = el.querySelector('.detail-head') as HTMLElement;
     expect(within(head).getByText('Conductor is checking')).toBeTruthy();
-    expect(head.querySelector('.head-state')).toBeNull();
+    expect(head.querySelectorAll('.chip.status')).toHaveLength(1);
 
     expect(panel.getByLabelText<HTMLTextAreaElement>('Message').disabled).toBe(true);
     expect(
@@ -56,5 +56,16 @@ describe('session panel in a conductor step (UX-6)', () => {
     const { el } = await open('Ship the /health endpoint');
     expect(el.textContent).not.toContain('(move:');
     expect(el.innerHTML).not.toContain('(move:');
+  });
+});
+
+describe('session panel header (UXR-40)', () => {
+  it('one status chip, in titles: never the status beside the state', async () => {
+    const { el } = await open('Plan the garden');
+    const head = el.querySelector('.detail-head') as HTMLElement;
+    const chips = head.querySelectorAll('.chip.status');
+    expect(chips).toHaveLength(1);
+    expect(chips[0]!.textContent).toBe('Needs input');
+    expect(head.textContent.match(/needs[ _]input/gi)).toHaveLength(1);
   });
 });

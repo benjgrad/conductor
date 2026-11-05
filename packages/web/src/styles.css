@@ -267,6 +267,12 @@ main {
   padding: 1px 6px;
   border-radius: 10px;
   width: fit-content;
+  /* UXR-31: a pill is one line; a long one ends in an ellipsis (its title has the full text). */
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 .badge-slot {
   background: var(--warn-bg);
@@ -347,17 +353,16 @@ main {
 .agent-name {
   font-weight: 600;
 }
-.head-state {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .chip {
   font-size: 11px;
   padding: 0 7px;
   border-radius: 10px;
   border: 1px solid currentColor;
   line-height: 17px;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .detail-head .close {
   border: 0;

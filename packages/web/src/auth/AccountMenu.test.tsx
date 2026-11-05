@@ -218,3 +218,11 @@ describe('testPushNote', () => {
     );
   });
 });
+
+describe('AccountMenu · Admin (UXR-72)', () => {
+  it('has an icon like the other items, and keeps its name', () => {
+    const menu = openMenu();
+    const admin = menu.getByRole('menuitem', { name: 'Admin' });
+    expect(admin.querySelector('svg.nav-icon')?.getAttribute('aria-hidden')).toBe('true');
+  });
+});

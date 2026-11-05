@@ -1,6 +1,7 @@
 import {
   CONDUCTOR_V1_DEF,
   CONDUCTOR_V2_DRAFT_DEF,
+  CONDUCTOR_V4_DEF,
   foldLegacyRequirements,
   type TransitionObject,
   type WorkflowDefinition,
@@ -12,11 +13,18 @@ import {
   arrowTransitions,
   checkListIssues,
   conditionOfType,
+  describeTransition,
   getTransitionObject,
+  humanDuration,
+  kindsText,
   normalizeRequires,
+  parentOf,
+  ruleCount,
+  rulesText,
   patchTransition,
   removeTransition,
   renameTransition,
+  sectionOfPath,
   setRequires,
   transitionNameProblem,
   transitionNames,
@@ -307,5 +315,148 @@ describe('checkListIssues (shared with the Repo checks page, ADR-0030)', () => {
         undefined,
       ),
     ).toEqual([{ suffix: 'checks', message: 'at most 20 checks' }]);
+  });
+});
+
+describe('describeTransition (UXR-60)', () => {
+  const V4 = CONDUCTOR_V4_DEF;
+  const rft = () => getTransitionObject(V4, 'implementing', 'ready_for_testing')!;
+
+  it('says what ready_for_testing does, as in the UI review', () => {
+    expect(describeTransition(V4, 'implementing', 'ready_for_testing')).toBe(
+      'When the agent says **Ready for testing** (work tickets): set up with auto-detect, run ' +
+        'Build passes and Tests pass, have a reviewer check 1 item, open a PR, then wait up to ' +
+        '3 days for PR checks and 1 approval → **Waiting external**. If not met: back to ' +
+        'Implementing with your instruction, up to 3 times, then **Needs input**.',
+    );
+  });
+
+  it('a question with a non-default poll', () => {
+    expect(describeTransition(V4, 'implementing', 'personal_pr_ready_for_review')).toBe(
+      'When the agent says **PR ready for review** (personal tickets), asking a question: set up ' +
+        'with auto-detect, run Build passes and Tests pass, open a PR, then wait up to 2 hours ' +
+        'for PR checks (checked every 1 minute) → **Needs input**. If not met: back to ' +
+        'Implementing with your instruction, up to 3 times, then **Needs input**.',
+    );
+  });
+
+  it('no requirements: the move happens straight away', () => {
+    expect(describeTransition(V4, 'planning', 'plan_ready')).toBe(
+      'When the agent says **Plan ready**: move straight → **Implementing**.',
+    );
+    expect(describeTransition(V4, 'needs_input', 'answer')).toBe(
+      'When a person picks **Back with this answer**: move straight → **the column that asked**.',
+    );
+    expect(describeTransition(V4, 'waiting_external', 'ui.approve')).toBe(
+      'When **Approved** happens: move straight → **Done**.',
+    );
+    expect(describeTransition(V4, 'planning', 'nope')).toBe('');
+  });
+
+  it('custom setup, labels, no retries, and a half-typed draft', () => {
+    const t = rft();
+    const def = withT(V4, 'implementing', 'ready_for_testing', {
+      ...t,
+      requires: {
+        ...t.requires!,
+        setup: 'pnpm i --frozen-lockfile',
+        review: undefined,
+        actions: undefined,
+        conditions: [
+          { type: 'pr_approvals', min: NaN },
+          { type: 'pr_merged', label: 'Merged by a person' },
+        ],
+        condition_timeout: '3x',
+      },
+      on_unmet: { goto: 'implementing', retries: 0, else: 'needs_input' },
+    });
+    expect(describeTransition(def, 'implementing', 'ready_for_testing')).toBe(
+      'When the agent says **Ready for testing** (work tickets): set up with ' +
+        '`pnpm i --frozen-lockfile`, run Build passes and Tests pass, then wait up to 3x for ' +
+        '? approvals and Merged by a person → **Waiting external**. If not met: straight to ' +
+        '**Needs input**.',
+    );
+  });
+
+  it('conditions alone, without a timeout', () => {
+    const def = withT(V4, 'planning', 'plan_ready', {
+      goto: 'implementing',
+      requires: { conditions: [{ type: 'pr_checks_green' }] },
+      on_unmet: { goto: 'planning', retries: 1, else: 'needs_input' },
+    });
+    expect(describeTransition(def, 'planning', 'plan_ready')).toBe(
+      'When the agent says **Plan ready**: wait for PR checks → **Implementing**. If not met: ' +
+        'back to Planning, up to 1 time, then **Needs input**.',
+    );
+  });
+
+  it('humanDuration', () => {
+    expect(['3d', '1m', '2h', '30s', '1d', '500ms', '3x', ''].map(humanDuration)).toEqual([
+      '3 days',
+      '1 minute',
+      '2 hours',
+      '30 seconds',
+      '1 day',
+      '500 milliseconds',
+      '3x',
+      '',
+    ]);
+  });
+
+  it('sectionOfPath maps a problem to the section that shows it', () => {
+    expect(sectionOfPath('')).toBe('who');
+    expect(sectionOfPath('.kinds')).toBe('who');
+    expect(sectionOfPath('.requires.checks.0.name')).toBe('checks');
+    expect(sectionOfPath('.requires.setup')).toBe('checks');
+    expect(sectionOfPath('.requires.review.items')).toBe('review');
+    expect(sectionOfPath('.requires.actions.1')).toBe('actions');
+    expect(sectionOfPath('.requires.conditions.2.min')).toBe('conditions');
+    expect(sectionOfPath('.requires.condition_timeout')).toBe('conditions');
+    expect(sectionOfPath('.on_unmet.retries')).toBe('unmet');
+    expect(sectionOfPath('.requires')).toBeNull();
+  });
+});
+
+describe('transition lists (UXR-64, UXR-66)', () => {
+  it('counts rules: checks, review items, actions and enabled conditions', () => {
+    expect(ruleCount({ goto: 'x' })).toBe(0);
+    expect(
+      ruleCount({
+        goto: 'x',
+        requires: {
+          checks: [{ name: 'Build', cmd: 'make' }],
+          review: { items: ['a', 'b'] },
+          actions: ['open_pr'],
+          conditions: [{ type: 'pr_checks_green' }, { type: 'pr_merged', enabled: false }],
+          condition_timeout: '1d',
+        },
+      }),
+    ).toBe(5);
+    expect([0, 1, 3].map(rulesText)).toEqual(['No rules', '1 rule', '3 rules']);
+  });
+
+  it('says which tickets a transition is for', () => {
+    expect(kindsText({ goto: 'x' })).toBe('All tickets');
+    expect(kindsText({ goto: 'x', kinds: ['work', 'personal'] })).toBe('All tickets');
+    expect(kindsText({ goto: 'x', kinds: ['work'] })).toBe('Work only');
+    expect(kindsText({ goto: 'x', kinds: ['personal'] })).toBe('Personal only');
+    expect(kindsText({ goto: 'x', kinds: [] })).toBe('No tickets');
+  });
+
+  it('Back goes to the arrow when it stands for several, else to the column', () => {
+    expect(parentOf(V2, 'implementing', 'ask_user')).toEqual({
+      kind: 'arrow',
+      from: 'implementing',
+      to: 'needs_input',
+    });
+    const lone = arrowTransitions(V2, 'planning', 'implementing');
+    expect(lone).toHaveLength(1);
+    expect(parentOf(V2, 'planning', lone[0]!)).toEqual({ kind: 'column', state: 'planning' });
+    // `$return_to` has no arrow.
+    const back = withT(V2, 'needs_input', 'answer', { goto: '$return_to' });
+    expect(parentOf(back, 'needs_input', 'answer')).toEqual({
+      kind: 'column',
+      state: 'needs_input',
+    });
   });
 });

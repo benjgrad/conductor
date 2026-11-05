@@ -95,7 +95,7 @@ describe('CreateTicketForm with attachments', () => {
       sent.push(req);
       return create(req);
     };
-    render(<CreateTicketForm api={api} />);
+    render(<CreateTicketForm api={api} onClose={() => undefined} />);
     fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), {
       target: { value: 'Match the mockup' },
     });

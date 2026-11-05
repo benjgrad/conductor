@@ -4,6 +4,7 @@ import { SETUP_GUIDE_URL } from '../machines/format.js';
 import { goTo } from '../nav.js';
 import addMachine from './add-a-machine.md?raw';
 import connectClaude from './connect-claude.md?raw';
+import repoChecks from './repo-checks.md?raw';
 import './help.css';
 
 // UX-8: the add-a-machine guide as a page of the app. The text is written once, in
@@ -14,9 +15,13 @@ import './help.css';
 /** The MCP setup guide (ADR-0028), linked from the account menu. */
 export const CONNECT_CLAUDE_URL = '/help/connect-claude';
 
+/** What a repo's own checks are and how they run, linked from the Repo checks page. */
+export const REPO_CHECKS_HELP_URL = '/help/repo-checks';
+
 const GUIDES: Readonly<Record<string, string>> = {
   [SETUP_GUIDE_URL]: addMachine,
   [CONNECT_CLAUDE_URL]: connectClaude,
+  [REPO_CHECKS_HELP_URL]: repoChecks,
 };
 
 /** Whether `pathname` is one of the help pages. */
@@ -30,7 +35,7 @@ export function guideText(origin: string, path: string = SETUP_GUIDE_URL): strin
   return (GUIDES[path] ?? addMachine).replaceAll(EXAMPLE_ORIGIN, origin);
 }
 
-/** `/help/add-a-machine` or `/help/connect-claude`. */
+/** `/help/add-a-machine`, `/help/connect-claude` or `/help/repo-checks`. */
 export function HelpPage({ path = SETUP_GUIDE_URL }: { path?: string }) {
   return (
     <div className="help-page">
@@ -47,13 +52,16 @@ export function HelpPage({ path = SETUP_GUIDE_URL }: { path?: string }) {
   );
 }
 
-/** A link to the guide that moves in-app (no reload); modified clicks open as usual. */
+/** A link to a guide (default: add a machine) that moves in-app (no reload); modified clicks open as usual. */
 export function HelpLink({
+  href = SETUP_GUIDE_URL,
   children,
   className,
   title,
   'aria-label': ariaLabel,
 }: {
+  /** The help page; defaults to the add-a-machine guide. */
+  href?: string | undefined;
   children: ReactNode;
   className?: string | undefined;
   /** UX-11: the top bar's compact mode names the icon-only link with these. */
@@ -62,11 +70,11 @@ export function HelpLink({
 }) {
   return (
     <a
-      href={SETUP_GUIDE_URL}
+      href={href}
       className={className}
       title={title}
       aria-label={ariaLabel}
-      onClick={(e) => followInApp(e, SETUP_GUIDE_URL)}
+      onClick={(e) => followInApp(e, href)}
     >
       {children}
     </a>

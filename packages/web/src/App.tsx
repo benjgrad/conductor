@@ -8,7 +8,6 @@ import {
   Server,
   ServerCog,
   Workflow,
-  X,
   type LucideIcon,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
@@ -286,6 +285,10 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
   ];
 
   const showForm = route.view === 'board' && !guide && creating;
+  // UXR-41: the page under the desktop New ticket sheet doesn't scroll (the phone locks `.app`).
+  useDocumentClass('modal-open', showForm && !mobile);
+  // UXR-26: on the desktop board the document never scrolls; the shell is the window's height.
+  const boardView = route.view === 'board' && !guide;
   const selectedCard = selected
     ? [...board.cards.values()].find((c) => c.session_id === selected)
     : undefined;
@@ -299,7 +302,7 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
 
   return (
     <div
-      className={`app${selected || selectedTicket ? ' with-detail' : ''}${mobile ? ' mobile' : ''}${showForm ? ' creating' : ''}`}
+      className={`app${selected || selectedTicket ? ' with-detail' : ''}${mobile ? ' mobile' : ''}${showForm ? ' creating' : ''}${boardView && !mobile ? ' board-view' : ''}`}
     >
       <header ref={topbarRef} className={`topbar${compact ? ' compact' : ''}`}>
         {mobile ? (
@@ -348,11 +351,12 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
         {route.view === 'board' && !guide && (
           <button
             type="button"
-            onClick={() => setCreating((v) => !v)}
-            aria-expanded={creating}
-            {...iconOnly(creating ? 'Close form' : 'New ticket')}
+            // UXR-41: the sheet covers the bar at every width, so this only opens it.
+            onClick={() => setCreating(true)}
+            aria-haspopup="dialog"
+            {...iconOnly('New ticket')}
           >
-            {creating ? labelled(X, 'Close form') : labelled(Plus, 'New ticket')}
+            {labelled(Plus, 'New ticket')}
           </button>
         )}
         {me && (
@@ -402,7 +406,6 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
         <CreateTicketForm
           api={api}
           onCreated={() => setCreating(false)}
-          sheet={mobile}
           onClose={() => setCreating(false)}
         />
       )}

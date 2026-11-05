@@ -74,6 +74,10 @@
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+/* The wrapper above draws the ring; the editable inside would add a second one. */
+.ticket-body-rich [contenteditable]:focus-visible {
+  outline: none;
+}
 
 .ticket-hints ul {
   margin: 4px 0 0;

@@ -1,6 +1,6 @@
 import type { BoardCard, BoardColumnKind, SessionStatus } from '@conductor/shared';
 import { describe, expect, it } from 'vitest';
-import { cardMeta, STATUS_LABELS, usd } from './format';
+import { cardMeta, headStatus, STATUS_LABELS, usd } from './format';
 
 describe('usd', () => {
   it('rounds to cents but never shows non-zero spend as $0.00 (TD-080)', () => {
@@ -88,5 +88,26 @@ describe('cardMeta (UX card cleanup)', () => {
       'Reviewing: implementing → build',
     );
     expect(s(null, queued)).toBe('conductor');
+  });
+});
+
+describe('headStatus (UXR-32 FR-2)', () => {
+  const permission = {
+    request_id: '6f000000-0000-4000-8000-000000000001',
+    tool: 'Bash',
+    summary: 'pnpm vitest run',
+    expires_at: '2026-10-22T12:30:00.000Z',
+    pending_count: 1,
+  };
+  it('says "waiting for permission", not "running", while a request is held', () => {
+    expect(headStatus({ status: 'running', sub_status: 'needs_permission', permission })).toEqual({
+      key: 'needs_permission',
+      label: 'waiting for permission',
+    });
+    expect(headStatus({ status: 'running', sub_status: null })).toEqual({
+      key: 'running',
+      label: 'running',
+    });
+    expect(headStatus({ status: null })).toBeNull();
   });
 });

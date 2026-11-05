@@ -930,3 +930,18 @@ describe('review requests in the panel (UX-4 FR-4)', () => {
     expect(await panel.findByRole('region', { name: 'Ready for review' })).toBeTruthy();
   });
 });
+
+describe('panel header while a permission is held (UXR-32 FR-2)', () => {
+  it('says "waiting for permission", not "running", and back after the decision', async () => {
+    let requestId = '';
+    const { api, panel } = await setup('Add pagination to /orders', (a) => {
+      requestId = a.requestPermission(SEED_IDS.running.session, 'Bash', { command: 'ls' });
+    });
+    const head = within(document.querySelector('.detail-head') as HTMLElement);
+    expect(head.getByText('waiting for permission')).toBeTruthy();
+    expect(head.queryByText('running')).toBeNull();
+    await api.decidePermission(requestId, { behavior: 'allow', scope: 'once' });
+    expect(await head.findByText('running')).toBeTruthy();
+    expect(panel).toBeTruthy();
+  });
+});

@@ -19,7 +19,7 @@ import {
   isConductorStep,
 } from './ConductorChecks.js';
 import { isOldVersion } from './details-sections.js';
-import { KIND_LABELS, STATUS_LABELS } from './format.js';
+import { headStatus, KIND_LABELS } from './format.js';
 import { FreshConversation, freshConversationOffer } from './FreshConversation.js';
 import { Markdown } from './markdown.js';
 import { OutputLog } from './OutputLog.js';
@@ -95,7 +95,7 @@ export function DetailPanel({
   const proseName = agent && agent.seed !== null ? agent.name : 'the agent';
   const ids = useId();
   const tabRefs = useRef<Partial<Record<PanelTab, HTMLButtonElement | null>>>({});
-  const status = detail?.card.status ?? null;
+  const status = detail ? headStatus(detail.card) : null;
   const plan = detail ? planApprovalOptions(detail) : null;
 
   // UX-2: the Brief. The body is `ticket_body`; an older server doesn't send it, so it falls back
@@ -162,9 +162,7 @@ export function DetailPanel({
               // UX-5: conductor runs the step; the agent has exited, so it isn't "running".
               <span className="chip status status-conductor">Conductor is checking</span>
             ) : (
-              status && (
-                <span className={`chip status status-${status}`}>{STATUS_LABELS[status]}</span>
-              )
+              status && <span className={`chip status status-${status.key}`}>{status.label}</span>
             )}
             {/* UX-6: in a conductor step the chip says it all; never the synthetic label. */}
             {detail?.card.workflow_state && !isConductorStep(detail.card) && (

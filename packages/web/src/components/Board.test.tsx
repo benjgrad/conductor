@@ -9,8 +9,9 @@ import {
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client.js';
-import { mockChecking } from '../api/mock-data.js';
-import type { BoardState } from '../board/board.js';
+import { createMockApi } from '../api/mock.js';
+import { mockChecking, SEED_IDS } from '../api/mock-data.js';
+import { boardFromResponse, type BoardState } from '../board/board.js';
 import { cardAgent } from './agent-identity.js';
 import { Board } from './Board.js';
 import { boardLayoutKey } from './board-layout.js';
@@ -682,5 +683,50 @@ describe('board card schedule chip (ADR-0032)', () => {
     const chip = article('Card 1').getByText('↻ PR sweep');
     expect(chip.getAttribute('title')).toBe('Recurring: PR sweep');
     expect(article('Card 2').queryByText(/↻/)).toBeNull();
+  });
+});
+
+describe('permission prompts count as waiting on you (UXR-32)', () => {
+  const needsInput = () => screen.getByRole('region', { name: 'Needs input' });
+  const count = () => needsInput().querySelector('h2 .count')!.textContent;
+
+  it('FR-1: the Needs-input header notes the held card; the note opens it', async () => {
+    const api = createMockApi({ latencyMs: 0 });
+    const before = boardFromResponse(await api.getBoard());
+    render(<Board board={before} selectedSessionId={null} onSelect={vi.fn()} />);
+    const questions = count();
+    expect(within(needsInput()).queryByText(/waiting for permission/)).toBeNull();
+    cleanup();
+
+    const requestId = api.requestPermission(SEED_IDS.running.session, 'Bash', {
+      command: 'pnpm vitest run',
+    });
+    const onSelect = vi.fn();
+    const held = boardFromResponse(await api.getBoard());
+    const { rerender } = render(
+      <Board board={held} selectedSessionId={null} onSelect={onSelect} />,
+    );
+    // The column's own count is the cards in it; the held card stays in its agent's column.
+    expect(count()).toBe(questions);
+    const note = within(needsInput()).getByRole('button', { name: '+1 waiting for permission' });
+    fireEvent.click(note);
+    expect(onSelect).toHaveBeenCalledWith(SEED_IDS.running.session);
+
+    // Collapsed, the strip keeps the note.
+    const toggle = () => fireEvent.click(needsInput().querySelector('.column-toggle')!);
+    toggle();
+    expect(needsInput().querySelector('.count-waiting')?.textContent).toMatch(/^\+1/);
+    toggle();
+    localStorage.clear();
+
+    await api.decidePermission(requestId, { behavior: 'allow', scope: 'once' });
+    rerender(
+      <Board
+        board={boardFromResponse(await api.getBoard())}
+        selectedSessionId={null}
+        onSelect={onSelect}
+      />,
+    );
+    expect(within(needsInput()).queryByText(/waiting for permission/)).toBeNull();
   });
 });

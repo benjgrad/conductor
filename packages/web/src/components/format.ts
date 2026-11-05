@@ -28,6 +28,19 @@ export const STATUS_LABELS: Record<SessionStatus, string> = {
   lost: 'lost',
 };
 
+/**
+ * The session panel header's status chip (UXR-32 FR-2): "waiting for permission" while the agent
+ * is held on a permission request, never "running"; else the session status. null: no status yet.
+ */
+export function headStatus(
+  card: Pick<BoardCard, 'status' | 'sub_status' | 'permission'>,
+): { key: string; label: string } | null {
+  if (card.sub_status === 'needs_permission' && card.permission !== undefined) {
+    return { key: 'needs_permission', label: 'waiting for permission' };
+  }
+  return card.status === null ? null : { key: card.status, label: STATUS_LABELS[card.status] };
+}
+
 export const TERMINAL_STATUSES: ReadonlySet<SessionStatus> = new Set(['done', 'failed', 'lost']);
 
 /** "just now", "4m ago", "3h ago", "2d ago". */

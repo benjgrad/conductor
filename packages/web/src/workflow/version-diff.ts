@@ -288,6 +288,7 @@ function transitionLines(
     ...listLines(
       br.actions ?? [],
       ar.actions ?? [],
+      // ACTION_TEXT is keyed by TransitionAction; a stored action may be one this UI doesn't know.
       (v) => `Action added: ${(ACTION_TEXT as Record<string, string>)[v] ?? v}`,
       (v) => `Action removed: ${(ACTION_TEXT as Record<string, string>)[v] ?? v}`,
     ),

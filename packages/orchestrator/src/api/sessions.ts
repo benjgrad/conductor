@@ -14,6 +14,7 @@ import {
 import type { OutputBus, Queryable } from '../contracts.js';
 import { cardView, withMachineFields } from '../engine/board-view.js';
 import { loadProposals } from '../engine/proposals.js';
+import { sessionPages } from '../engine/pages.js';
 import {
   OPEN_INPUT_SELECT,
   splitStep,
@@ -87,7 +88,7 @@ export async function loadSessionDetail(
   );
   const session = s.rows[0];
   if (!session) return null;
-  const [t, wd, ir, moves, inputRequests, permission, proposals] = await Promise.all([
+  const [t, wd, ir, moves, inputRequests, permission, proposals, pages] = await Promise.all([
     db.query<TicketCardRow>(TICKET_SELECT + 'WHERE t.id = $1', [session.ticket_id]),
     db.query<WorkflowDefinitionRow>(
       'SELECT * FROM workflow_definition WHERE id = $1 AND version = $2',
@@ -102,6 +103,7 @@ export async function loadSessionDetail(
     loadInputRequests(db, id),
     readCardPermission(db, id),
     loadProposals(db, session.ticket_id, session),
+    sessionPages(db, session),
   ]);
   const ticket = t.rows[0];
   const defRow = wd.rows[0];
@@ -148,5 +150,7 @@ export async function loadSessionDetail(
     agent_name: ticket.agent_name,
     ticket_editable: ticketEditable(workflow, session.workflow_state),
     proposals,
+    // ADR-0038: absent when no agent state attached pages (older readers ≡ []).
+    ...(pages.length > 0 ? { pages } : {}),
   };
 }

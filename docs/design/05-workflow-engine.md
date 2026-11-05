@@ -194,6 +194,9 @@ An agent may add optional `proposed_tickets: [{title, repo, why}]` to its `compl
 - **`enabled: true`**: the prompt gets a `## Follow-up tickets (optional)` section before How to finish (`renderFollowUps`: the key, the ticket's repo as the example `repo`, at most `max`, then `guidance`) in place of the hint; up to `max` are read;
 - **`enabled: false`**: no hint and no section; none are read from that state.
 
+### Pages ([ADR-0038](../adr/0038-pages-planning-artifacts.md))
+An agent state's `result` may list, at most once, the result kind `{"pages": {"max": 1..5}}` (`PagesResultSchema`) next to its required keys. The agent may then add `"pages": [{"url", "title", "expires_at"?}]` (`PageRef`: https, or http on loopback; title ≤ 200) to its `complete_state` result. The kind is never required: the engine stores the key in `context.<state>` like `proposed_tickets`, and `pagesOfContext` reads it back up to `max`, dropping malformed entries. `resultKeys(state)` (the string entries) is what "missing keys", the prompts and rule 5 use. With the kind, the prompt gets `## Pages (optional)` before How to finish (`renderPages`). If the state also has the `pages` tool, the section says how to publish one with `publish_page` (conductor hosts it at `/p/:id` for 7 days; [06 §Pages](06-human-input.md#pages)). Without the kind, prompts are unchanged.
+
 ### Ticket breakdown (planning)
 A `triage` agent state returns `{size: "small"|"large"}`. A guard routes large tickets to a `plan` state. That state returns `child_tickets[]`, which the orchestrator creates (each `ready`, with `parent_ticket_id`), and then the parent waits on an `event` state `children.done`. Not in `pr_flow`; see [U-010](../tracking/UNKNOWNS.md).
 
@@ -229,7 +232,7 @@ dispatcher: SELECT pending outbox rows FOR UPDATE SKIP LOCKED → send → mark 
 2. Every state is reachable from `start`.
 3. Every state can reach a `terminal` or `human` state.
 4. Every cycle passes through a transition with `retries`, or is otherwise covered by `max_loop_retries` (no unbudgeted loops).
-5. `$ref` inputs (`$open_pr.pr_url`) point at a state that lists that key in `result` and comes earlier on every path. No state lists `proposed_tickets` in `result` (`states.<s>.result.<i>`, ADR-0034): follow-ups are optional by design.
+5. `$ref` inputs (`$open_pr.pr_url`) point at a state that lists that key in `result` and comes earlier on every path. No state lists `proposed_tickets` in `result` (`states.<s>.result.<i>`, ADR-0034): follow-ups are optional by design. Nor `pages` as a string key (ADR-0038): pages are asked for with the `{"pages": {"max": n}}` kind.
 6. `event` states with `release_machine` must have a `timeout`.
 7. Every name in an agent state's `tools` is a key of `TOOL_ALIASES` (`TOOL_ALIAS_NAMES`, [10](10-contracts.md#tools)); an unknown alias is an error.
 8. Requirements gates ([ADR-0009](../adr/0009-transition-requirements-review.md)): a gate only on transitions out of `agent` and `command` states (path `states.<from>.on.<outcome>.requirements`); `on_unmet.else` is a `human` state (`….requirements.on_unmet.else`); no state is named `__review` or `__entry`. The schema (rule 1) already bounds `items` (1–30, none blank: `….requirements.items[.<n>]`) and `on_unmet.retries` (integer 0–10), and rule 1 checks that `on_unmet.goto` / `else` exist. A transition into a `terminal` state may carry a gate.
@@ -254,6 +257,7 @@ Rules 10–14 are the transition rules of [ADR-0011](../adr/0011-transition-rule
     - The `update_jira` and `slack_message` actions are "not available yet" (M5) (`….requires.actions.<i>`).
     - So is an **enabled** condition whose type isn't in `AVAILABLE_CONDITION_TYPES` (`….requires.conditions.<i>`). It is an error, not a warning, because the editor has no warning channel. Declare it with `enabled: false` until M5.
     - A transition into the start state can't carry `requires` (`….requires`).
+    - An agent state's known tool alias outside `AVAILABLE_TOOL_ALIASES` (`states.<s>.tools.<i>`), or result kind outside `AVAILABLE_RESULT_KINDS` (`states.<s>.result.<i>`), is "not available yet" (`checkAvailability`, ADR-0038 under ADR-0037's pattern). `pages` (alias and kind) is available.
 
 Rules 15–16 are the review-and-merge rules of [ADR-0020](../adr/0020-review-and-merge-flow.md) (M2r-T02, the same file). The PR actions `inspect_pr`, `merge_pr` and `close_pr` are available (`AVAILABLE_TRANSITION_ACTIONS`), so rule 14 doesn't refuse them. Neither rule fires on a definition without the new fields or `merge_pr` (v1, v2):
 

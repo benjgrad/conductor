@@ -184,10 +184,19 @@ export const TOOL_ALIASES = {
     allow: ['Skill', ...BACKGROUND_TOOLS, 'Bash(gh pr view:*)'],
     deny: ['Bash(gh pr create:*)'],
   },
+  /**
+   * ADR-0038: the `publish_page` MCP tool (one self-contained HTML page hosted by conductor at
+   * `/p/:id`). No built-ins: the driver lists and pre-approves `mcp__conductor__publish_page`
+   * itself when a state has this alias (and the machine's daemon advertises DAEMON_FEATURE_PAGES).
+   */
+  pages: { builtin: [], allow: [], deny: [] },
 } as const satisfies Record<string, ToolPolicyFragment>;
 
 export type ToolAlias = keyof typeof TOOL_ALIASES;
 export const TOOL_ALIAS_NAMES = Object.keys(TOOL_ALIASES) as ToolAlias[];
+
+/** Tool aliases the validator accepts in a definition (rule 14, "not available yet" otherwise). */
+export const AVAILABLE_TOOL_ALIASES: readonly ToolAlias[] = TOOL_ALIAS_NAMES;
 
 export function isToolAlias(name: string): name is ToolAlias {
   return Object.prototype.hasOwnProperty.call(TOOL_ALIASES, name);

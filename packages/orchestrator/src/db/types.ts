@@ -698,6 +698,28 @@ export interface AttachmentRow {
   created_at: Date;
 }
 
+/** ADR-0038: one conductor-hosted page (an agent's `publish_page`; TD-215: the HTML in Postgres). */
+export interface PageRow {
+  id: string;
+  account_id: string;
+  /** FK CASCADE. */
+  ticket_id: string;
+  /** The publishing session (FK, SET NULL). */
+  session_id: string | null;
+  /** The state the session was in when it published. */
+  workflow_state: string;
+  title: string;
+  html: string;
+  size_bytes: number;
+  /** Set once the page is shared (`/p/:id?t=<token>` opens without a session). */
+  share_token: string | null;
+  shared_at: Date | null;
+  /** Who shared it: the agent (`publish_page {share: true}`) or a person (the card's Share). */
+  shared_by: 'agent' | 'user' | null;
+  created_at: Date;
+  expires_at: Date;
+}
+
 /** 06 §Attachments: an attachment's bytes (TD-212). */
 export interface AttachmentContentRow {
   attachment_id: string;
@@ -740,4 +762,5 @@ export interface Tables {
   change_proposal: ChangeProposalRow;
   attachment: AttachmentRow;
   attachment_content: AttachmentContentRow;
+  page: PageRow;
 }

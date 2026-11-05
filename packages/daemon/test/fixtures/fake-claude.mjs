@@ -29,7 +29,9 @@
 //                                       are passed to the tool as given ("$answer" substituted),
 //                                       e.g. {"complete_state": {}, "transition": "plan_ready",
 //                                       "reason": "The plan is complete."}
-//   {"tool": name, "args": object}      any other MCP tools/call on the conductor server
+//   {"tool": name, "args": object}      any other MCP tools/call on the conductor server; the
+//                                       first URL in its result is `$tool_url` in later actions
+//                                       (ADR-0038: publish_page, then complete_state with it)
 //   {"cost": usd}                       extra cost added to this turn
 //   {"denials": n}                      n entries in result.permission_denials
 //   {"stderr": text}                    write to stderr
@@ -260,6 +262,10 @@ async function callTool(name, args) {
     parent_tool_use_id: null,
   });
   const r = await mcp.callTool({ name, arguments: args });
+  const resultText = (Array.isArray(r.content) ? r.content : [])
+    .map((b) => (typeof b?.text === 'string' ? b.text : ''))
+    .join('');
+  lastToolUrl = /https?:\/\/[^\s"')]+/.exec(resultText)?.[0] ?? lastToolUrl;
   out({
     type: 'user',
     message: {
@@ -272,6 +278,8 @@ async function callTool(name, args) {
   });
 }
 
+/** ADR-0038: the first URL in the last `tool` call's result (`$tool_url`). */
+let lastToolUrl = '';
 /** ADR-0007: the last user message folded into a turn by `await_message`. */
 let lastMessage = '';
 /** Resolves the pending `await_message` with the next user message, if one is waiting. */
@@ -279,7 +287,10 @@ let messageWaiter = null;
 
 const subst = (v, answer) =>
   typeof v === 'string'
-    ? v.replaceAll('$answer', answer).replaceAll('$message', lastMessage)
+    ? v
+        .replaceAll('$answer', answer)
+        .replaceAll('$message', lastMessage)
+        .replaceAll('$tool_url', lastToolUrl)
     : Array.isArray(v)
       ? v.map((x) => subst(x, answer))
       : v && typeof v === 'object'

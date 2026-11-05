@@ -180,6 +180,11 @@
       "deny": [
         "Bash(gh pr create:*)"
       ]
+    },
+    "pages": {
+      "builtin": [],
+      "allow": [],
+      "deny": []
     }
   }
 }

@@ -715,6 +715,10 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
             ...head,
             from_state: entry.from_state,
             summary: typeof values.summary === 'string' ? clip(values.summary, 600) : null,
+            // ADR-0038: the pages the planning state attached (mockups, diagrams).
+            pages: (d.pages ?? [])
+              .filter((p) => p.state === entry.from_state)
+              .map(({ url, title, expires_at, expired }) => ({ url, title, expires_at, expired })),
             plan: page.text,
             cursor: page.cursor,
             next_cursor: page.next_cursor,

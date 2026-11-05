@@ -4,6 +4,7 @@ import {
   AdminUserListResponseSchema,
   ApproveProposalResponseSchema,
   TicketProposalSchema,
+  SharePageResponseSchema,
   API_PATHS,
   ApiErrorSchema,
   BOARD_SSE_EVENT_TYPES,
@@ -392,6 +393,9 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
         API_PATHS.ticketProposalDismiss(encodeURIComponent(ticketId)),
         req,
       ),
+
+    sharePage: (pageId: string) =>
+      request(SharePageResponseSchema, 'POST', API_PATHS.pageShare(encodeURIComponent(pageId)), {}),
 
     listRepos: () => request(RepoListResponseSchema, 'GET', API_PATHS.repos),
 

@@ -8,6 +8,7 @@ import { dispatchOnce, type DispatchStats } from './dispatcher.js';
 import { EngineServiceImpl } from './service.js';
 import { sweepOnce, type SweepStats } from './sweep.js';
 import { sweepUnlinkedAttachments } from './attachments.js';
+import { PAGE_SWEEP_INTERVAL_MS, sweepExpiredPages } from './pages.js';
 import {
   INSIGHT_SWEEP_INTERVAL_MS,
   scheduleInsightJobs,
@@ -151,9 +152,15 @@ export function createEngineService(deps: EngineServiceDeps): EngineServiceHandl
       const pusher = pushSender ? loop(deps.pushIntervalMs ?? 1000, pushOnce) : null;
       // ADR-0032: its own loop; cron has minute precision, so every 30 s is enough.
       // 06 §Attachments: unlinked uploads older than a day go with the same slow tick.
+      // ADR-0038: expired pages, once a day (the first tick after start runs it).
+      let pagesSweptAt = -Infinity;
       const scheduler = loop(deps.scheduleIntervalMs ?? SCHEDULE_SWEEP_INTERVAL_MS, async () => {
         await sweepSchedulesOnce(workerDeps);
         await sweepUnlinkedAttachments(deps.db, now());
+        if (now().getTime() - pagesSweptAt >= PAGE_SWEEP_INTERVAL_MS) {
+          pagesSweptAt = now().getTime();
+          await sweepExpiredPages(deps.db, now());
+        }
       });
       // ADR-0033 P2: dormant until a daemon advertises `assistant_job` (no query finds work).
       const analyst = loop(deps.insightIntervalMs ?? INSIGHT_SWEEP_INTERVAL_MS, insightsOnce);

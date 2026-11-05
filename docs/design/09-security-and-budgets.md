@@ -15,6 +15,10 @@ Agents run arbitrary code on developer machines with that developer's credential
 | UI auth | Own email + password sign-in, server-side sessions, invite-only ([ADR-0017](../adr/0017-own-sign-in-and-self-hosting.md)); `local` mode keeps M1's loopback-only, no-sign-in behaviour. See [§Hosted security](#hosted-security) | 2 |
 | Audit | Every transition and connector call is an `event` row | 1 |
 
+## Hosted pages
+
+[ADR-0038](../adr/0038-pages-planning-artifacts.md): `GET /p/:id` serves HTML an agent wrote, on the orchestrator's own origin. It is untrusted, so the route replaces the app's headers with `PAGE_CSP` (`orchestrator/src/api/pages.ts`). The CSP `sandbox allow-scripts` directive gives the document an opaque origin even when it is opened top-level from a link: its script can't read the app's storage, and its requests carry no same-origin authority. `default-src 'none'`, with no `connect-src`, leaves it no network at all: no external script, style, font, image (except `data:`) or `fetch`. `form-action 'none'` and `base-uri 'none'` close the remaining exits, and `frame-ancestors 'self'` with `X-Frame-Options: SAMEORIGIN` lets only the app frame it. The card frames it with `sandbox="allow-scripts"` (never `allow-same-origin`) as a second layer. The share token is 32 random bytes, compared in constant time; `Referrer-Policy: no-referrer` keeps it from leaking. The session cookie is HttpOnly, SameSite=Lax.
+
 ## Budgets
 - Workflow-level: `budget.usd`, `budget.minutes`, `budget.max_loop_retries`.
 - The daemon reports `spend` events from Claude Code's `result.total_cost_usd` ([ADR-0005](../adr/0005-claude-code-driver.md)). That total is **cumulative per Claude session and survives `--resume`**, so the orchestrator keeps the last total per `claude_session_id` (`session.claude_spend_totals`, [02](02-data-model.md#session)) and adds only the positive delta to `session.spend_usd`. It also accumulates `wall_seconds`: apply adds `now − state_entered_at` on each transition, skipping `human`/`event` states ([10](10-contracts.md#wall-time)).

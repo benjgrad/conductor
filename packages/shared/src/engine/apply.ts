@@ -12,6 +12,7 @@ import {
   AVAILABLE_TRANSITION_ACTIONS,
   parseDuration,
   RETURN_TO,
+  resultKeys,
   type AgentState,
   type EntryCheck,
   type MoveActor,
@@ -511,7 +512,7 @@ function onComplete(
     stored = checked.result as unknown as JsonObject;
     st.s.context = patchQa(st.s.context, { verdict: checked.result.verdict });
   }
-  const missing = (state.result ?? []).filter((k) => !(k in stored));
+  const missing = resultKeys(state).filter((k) => !(k in stored));
   if (missing.length > 0) {
     takeOutcome(st, 'fail', { detail: `complete_state result is missing ${missing.join(', ')}` });
     return null;

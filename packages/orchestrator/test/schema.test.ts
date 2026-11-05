@@ -45,6 +45,7 @@ import type {
   ChangeProposalRow,
   AttachmentRow,
   AttachmentContentRow,
+  PageRow,
   SessionRow,
   TicketProposalDecisionRow,
   Tables,
@@ -544,6 +545,21 @@ const attachment_content: ColumnSpec<AttachmentContentRow> = {
   account_id: col('uuid', NN),
   data: col('bytea', NN),
 };
+const page: ColumnSpec<PageRow> = {
+  id: col('uuid', NN),
+  account_id: col('uuid', NN),
+  ticket_id: col('uuid', NN),
+  session_id: col('uuid', NULL),
+  workflow_state: col(t, NN),
+  title: col(t, NN),
+  html: col(t, NN),
+  size_bytes: col('int4', NN),
+  share_token: col(t, NULL),
+  shared_at: col('timestamptz', NULL),
+  shared_by: col(t, NULL),
+  created_at: col('timestamptz', NN),
+  expires_at: col('timestamptz', NN),
+};
 const SCHEMA: Schema = {
   machine,
   machine_repo,
@@ -578,6 +594,7 @@ const SCHEMA: Schema = {
   change_proposal,
   attachment,
   attachment_content,
+  page,
 };
 /** The tables M1/M1b created: every one carries `account_id` since M2-T03. */
 const M1_TABLES = [
@@ -879,6 +896,7 @@ describe('migrations', () => {
           'change_proposal',
           'attachment',
           'attachment_content',
+          'page',
         ].sort(),
       );
     } finally {
@@ -1526,6 +1544,22 @@ describe('schema (migrated test database)', () => {
         att.rows[0]!.id,
         Buffer.alloc(3),
       ]),
+      '23514',
+    );
+
+    // ADR-0038: a hosted page; the share columns are all set or all null.
+    const pg = await pool.query<PageRow>(
+      `INSERT INTO page (account_id, ticket_id, workflow_state, title, html, size_bytes, expires_at)
+       VALUES ($1, $2, 'planning', 'Mockup', '<p>x</p>', 8, now() + interval '7 days') RETURNING *`,
+      [LOCAL_ACCOUNT_ID, tkt.id],
+    );
+    expect(pg.rows[0]).toMatchObject({ session_id: null, share_token: null, shared_by: null });
+    await expectPgError(
+      pool.query("UPDATE page SET share_token = 'x' WHERE id = $1", [pg.rows[0]!.id]),
+      '23514',
+    );
+    await expectPgError(
+      pool.query("UPDATE page SET title = '' WHERE id = $1", [pg.rows[0]!.id]),
       '23514',
     );
 

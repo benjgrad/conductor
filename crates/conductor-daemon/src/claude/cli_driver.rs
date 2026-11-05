@@ -32,6 +32,7 @@ use tokio::process::ChildStdin;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
+use crate::attachments::pages::{self, PublishPageRequest};
 use crate::attachments::upload::{self, AttachTarget};
 use crate::claude::driver::{
     ClaudeDriver, DriverError, DriverEvent, DriverListener, DriverSession, DriverStartOptions,
@@ -40,7 +41,8 @@ use crate::claude::driver::{
 use crate::claude::edit_guard::write_edit_guard;
 use crate::claude::outcome_server::{
     ATTACH_FILE_TOOL, AttachFileHandler, AttachFileRequest, OUTCOME_TOOL_NAMES, OutcomeHandlers,
-    OutcomeRegisterOptions, OutcomeRegistration, OutcomeServer, PERMISSION_TOOL,
+    OutcomeRegisterOptions, OutcomeRegistration, OutcomeServer, PERMISSION_TOOL, PUBLISH_PAGE_TOOL,
+    PublishPageHandler,
 };
 use crate::claude::stream_parser::{ParsedLine, parse_stream_line};
 use crate::platform::Platform;
@@ -546,6 +548,8 @@ pub fn build_claude_args(
         .chain(OUTCOME_TOOL_NAMES)
         // 06 §Attachments: the agent may attach captures without a prompt (Rust only).
         .chain(attach_tool(opts))
+        // ADR-0038: and publish pages, for a state with the `pages` tool.
+        .chain(publish_target(opts).map(|_| PUBLISH_PAGE_TOOL))
         .collect();
     args.extend([
         "--mcp-config".into(),
@@ -1149,7 +1153,7 @@ impl CliDriver {
             }),
         });
         let reg = self.server.register(
-            handlers(&shared, attach_target(&opts)),
+            handlers(&shared, attach_target(&opts), publish_target(&opts)),
             OutcomeRegisterOptions {
                 transitions: opts.transitions.clone(),
             },
@@ -1299,6 +1303,23 @@ fn attach_tool(opts: &DriverStartOptions) -> Option<&'static str> {
     attach_target(opts).map(|_| ATTACH_FILE_TOOL)
 }
 
+/// ADR-0038: where `publish_page` posts: the attach target, for a state with the `pages` tool.
+fn publish_target(opts: &DriverStartOptions) -> Option<AttachTarget> {
+    attach_target(opts).filter(|_| opts.publish_pages)
+}
+
+/// `publish_page`'s handler: posts to `target`'s orchestrator (ADR-0038).
+fn publish_handler(target: AttachTarget) -> PublishPageHandler {
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap_or_default();
+    Arc::new(move |req: PublishPageRequest| {
+        let (client, target) = (client.clone(), target.clone());
+        Box::pin(async move { pages::publish(&client, &target, &req).await })
+    })
+}
+
 /// `attach_file`'s handler: uploads to `target` (06 §Attachments).
 fn attach_handler(target: AttachTarget) -> AttachFileHandler {
     let client = reqwest::Client::builder()
@@ -1320,7 +1341,11 @@ fn attach_handler(target: AttachTarget) -> AttachFileHandler {
 }
 
 /// The registration's handlers: each emits on the session.
-fn handlers(shared: &Arc<Shared>, attach: Option<AttachTarget>) -> OutcomeHandlers {
+fn handlers(
+    shared: &Arc<Shared>,
+    attach: Option<AttachTarget>,
+    publish: Option<AttachTarget>,
+) -> OutcomeHandlers {
     let (a, c, p) = (shared.clone(), shared.clone(), shared.clone());
     OutcomeHandlers {
         on_ask_user: Arc::new(move |question, options| {
@@ -1353,6 +1378,7 @@ fn handlers(shared: &Arc<Shared>, attach: Option<AttachTarget>) -> OutcomeHandle
             Ok(())
         })),
         on_attach_file: attach.map(attach_handler),
+        on_publish_page: publish.map(publish_handler),
     }
 }
 

@@ -3,6 +3,7 @@ import {
   foldLegacyRequirements,
   transitionObject,
   FOLLOW_UPS_MAX,
+  PAGES_RESULT_MAX,
   type WorkflowDefinition,
 } from '@conductor/shared';
 import { ArrowLeft } from 'lucide-react';
@@ -14,6 +15,8 @@ import {
   PROMPT_TEMPLATES,
   setAgentWork,
   setFollowUps,
+  pagesOf,
+  setPages,
   setTicketEditable,
   setTitle,
   ticketEditableOf,
@@ -210,6 +213,20 @@ export function ColumnEditor({
           }
         />
       )}
+      {s.type === 'agent' && (
+        <PagesFields
+          uid={uid}
+          definition={definition}
+          state={state}
+          onChange={onChange}
+          errors={
+            <>
+              {at('.tools')}
+              {at('.result')}
+            </>
+          }
+        />
+      )}
       {s.type === 'event' && (
         <p className="wf-note">
           Waits for {s.wait_for.map((w) => `“${w}”`).join(' or ')} (event state).
@@ -357,6 +374,59 @@ export function ColumnEditor({
  * ADR-0034: may this agent column's agent propose follow-up tickets? Offered in its prompt,
  * never required; the user approves or dismisses each one in Needs input.
  */
+/** ADR-0038: "Pages": the agent may publish and attach rendered pages, at most `max`. */
+function PagesFields({
+  uid,
+  definition,
+  state,
+  onChange,
+  errors,
+}: {
+  uid: string;
+  definition: WorkflowDefinition;
+  state: string;
+  onChange: (next: WorkflowDefinition) => void;
+  errors: ReactNode;
+}) {
+  const p = pagesOf(definition, state);
+  return (
+    <>
+      <label className="wf-field wf-toggle">
+        <input
+          type="checkbox"
+          checked={p !== null}
+          onChange={(e) => onChange(setPages(definition, state, e.target.checked ? {} : null))}
+        />
+        Pages
+      </label>
+      {p === null ? (
+        <p className="muted wf-note">
+          Off. When on, the agent can publish a rendered HTML page (a mockup, a diagram) that you
+          open from the card; it expires after 7 days and is never committed.
+        </p>
+      ) : (
+        <div className="wf-unmet">
+          <label htmlFor={`${uid}-pages-max`}>At most</label>
+          <input
+            id={`${uid}-pages-max`}
+            type="number"
+            min={1}
+            max={PAGES_RESULT_MAX}
+            value={p.max}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              if (Number.isInteger(n) && n >= 1 && n <= PAGES_RESULT_MAX) {
+                onChange(setPages(definition, state, { max: n }));
+              }
+            }}
+          />
+        </div>
+      )}
+      {errors}
+    </>
+  );
+}
+
 function FollowUpsFields({
   uid,
   definition,

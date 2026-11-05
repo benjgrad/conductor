@@ -2,6 +2,8 @@ import {
   checkIdentity,
   defKey,
   inputClass,
+  pageLimitsOf,
+  pagesOfContext,
   repoChecksKey,
   RepoChecksSchema,
   stateKey,
@@ -11,7 +13,9 @@ import {
   type AdvisorRows,
   type CheckRunRow,
   type InputRow,
+  type JsonObject,
   type MoveRow,
+  type PageCountRow,
   type PermissionRow,
   type RepoChecks,
   type WorkflowDefinition,
@@ -275,9 +279,12 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
     }),
   }));
 
+  const pages = await loadPageCounts(db, moveRows, defOf);
+
   return {
     since: since.toISOString(),
     truncated,
+    ...(pages.length > 0 ? { pages } : {}),
     moves: moveRows,
     checks: checkRows,
     inputs: inputs.rows.map((r): InputRow => ({
@@ -311,6 +318,43 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
       created_at: r.created_at.toISOString(),
     })),
   };
+}
+
+/**
+ * ADR-0038 (Insights FR-6): the pages each agent state of the window's sessions attached, read
+ * from the session's context with its pinned definition's limits, as the card reads them.
+ */
+async function loadPageCounts(
+  db: Queryable,
+  moves: readonly MoveRow[],
+  defOf: (id: string, version: number | null) => WorkflowDefinition | undefined,
+): Promise<PageCountRow[]> {
+  const ids = [...new Set(moves.map((m) => m.session_id))];
+  if (ids.length === 0) return [];
+  const r = await db.query<{
+    id: string;
+    ticket_id: string;
+    workflow_id: string;
+    workflow_version: number | null;
+    context: Record<string, JsonObject>;
+  }>(
+    'SELECT id, ticket_id, workflow_id, workflow_version, context FROM session ' +
+      'WHERE id = ANY($1::uuid[])',
+    [ids],
+  );
+  const out: PageCountRow[] = [];
+  for (const s of r.rows) {
+    const def = defOf(s.workflow_id, s.workflow_version);
+    if (def === undefined) continue;
+    const perState = new Map<string, number>();
+    for (const p of pagesOfContext(s.context, pageLimitsOf(def))) {
+      perState.set(p.state, (perState.get(p.state) ?? 0) + 1);
+    }
+    for (const [state, count] of perState) {
+      out.push({ ticket_id: s.ticket_id, session_id: s.id, state, count });
+    }
+  }
+  return out;
 }
 
 /** `waitsOnOthers` for every key seen (`AdvisorRows.waits`). */

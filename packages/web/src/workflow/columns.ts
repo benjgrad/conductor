@@ -3,6 +3,8 @@ import {
   IMPLEMENT_TEMPLATE,
   PLAN_TEMPLATE,
   PROPOSALS_PER_STATE_MAX,
+  pagesSpec,
+  resultKeys,
   RETURN_TO,
   ticketEditable,
   transitionObject,
@@ -448,6 +450,44 @@ export function setFollowUps(
     const f: FollowUps = { enabled: true, max: value.max ?? cur.max };
     if (guidance !== undefined && guidance.trim() !== '') f.guidance = guidance;
     return { ...next, follow_ups: f };
+  });
+}
+
+/** ADR-0038: the default `max` when a column turns pages on. */
+export const PAGES_DEFAULT_MAX = 3;
+
+/** ADR-0038: an agent column's pages setting (`{pages: {max}}` in `result`); null = off. */
+export function pagesOf(def: WorkflowDefinition, name: string): { max: number } | null {
+  const s = def.states[name];
+  return s?.type === 'agent' ? pagesSpec(s) : null;
+}
+
+/**
+ * ADR-0038: turn an agent column's pages on (with `max`) or off. On adds both the `pages` tool
+ * (publish_page) and the `{pages: {max}}` result entry; off removes both, and an emptied `tools`
+ * or `result` is removed.
+ */
+export function setPages(
+  def: WorkflowDefinition,
+  name: string,
+  value: { max?: number } | null,
+): WorkflowDefinition {
+  const cur = pagesOf(def, name);
+  return updateState(def, name, (s) => {
+    if (s.type !== 'agent') return s;
+    const next = { ...s };
+    const tools = (s.tools ?? []).filter((t) => t !== 'pages');
+    const keys = resultKeys(s);
+    delete next.tools;
+    delete next.result;
+    if (value === null) {
+      if (tools.length > 0) next.tools = tools;
+      if (keys.length > 0) next.result = keys;
+      return next;
+    }
+    next.tools = [...tools, 'pages'];
+    next.result = [...keys, { pages: { max: value.max ?? cur?.max ?? PAGES_DEFAULT_MAX } }];
+    return next;
   });
 }
 

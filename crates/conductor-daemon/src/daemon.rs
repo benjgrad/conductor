@@ -32,12 +32,12 @@ use crate::attachments;
 use conductor_protocol::tool_policy::resolve_tool_policy;
 use conductor_protocol::{
     AssistantJobPayload, DAEMON_AUTH_HEADER, DAEMON_FEATURE_AGENT_ATTACHMENTS,
-    DAEMON_FEATURE_ASSISTANT_JOB, DAEMON_FEATURE_TICKET_ATTACHMENTS, DaemonToOrchestrator,
-    EvaluateConditionsArgs, KillPayload, NO_CONVERSATION_REASON, NO_OUTCOME_OUTPUT_CHARS,
-    OrchestratorToDaemon, PROTOCOL_VERSION, PermissionDecisionPayload, RunActionPayload,
-    RunActionPayloadAction, RunCmdPayload, STDERR_TAIL_CHARS, STDERR_TAIL_LINES, SendInputPayload,
-    SendMessagePayload, SessionEventPayload, StartSessionPayload, TranscriptPayload,
-    auth::daemon_auth_header_value,
+    DAEMON_FEATURE_ASSISTANT_JOB, DAEMON_FEATURE_PAGES, DAEMON_FEATURE_TICKET_ATTACHMENTS,
+    DaemonToOrchestrator, EvaluateConditionsArgs, KillPayload, NO_CONVERSATION_REASON,
+    NO_OUTCOME_OUTPUT_CHARS, OrchestratorToDaemon, PROTOCOL_VERSION, PermissionDecisionPayload,
+    RunActionPayload, RunActionPayloadAction, RunCmdPayload, STDERR_TAIL_CHARS, STDERR_TAIL_LINES,
+    SendInputPayload, SendMessagePayload, SessionEventPayload, StartSessionPayload,
+    TranscriptPayload, auth::daemon_auth_header_value,
 };
 use futures_util::FutureExt;
 use serde_json::{Value, json};
@@ -643,6 +643,8 @@ impl Core {
                 DAEMON_FEATURE_ASSISTANT_JOB,
                 DAEMON_FEATURE_TICKET_ATTACHMENTS,
                 DAEMON_FEATURE_AGENT_ATTACHMENTS,
+                // ADR-0038: its outcome server has `publish_page`.
+                DAEMON_FEATURE_PAGES,
             ],
         });
         // Local mode keeps M1's `enrollment_token: null`; an enrolled daemon authenticates on the
@@ -1458,6 +1460,8 @@ impl Core {
                 roots,
             }
         });
+        // ADR-0038: a state with the `pages` tool gets `publish_page` (posting to the same server).
+        opts.publish_pages = p.tools.iter().any(|t| t == "pages");
         let session = self.driver.start(opts).map_err(|e| e.to_string())?;
         let aid = st.next();
         // The listener only queues: a driver may call it inside `on` (the CLI driver hands the

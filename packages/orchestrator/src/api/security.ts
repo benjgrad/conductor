@@ -158,8 +158,13 @@ const UPLOAD_PATHS: ReadonlySet<string> = new Set([
  * cross-site page can't send), never by the session cookie, so the Origin rule (CSRF) doesn't
  * apply: the daemon sends no Origin.
  */
+const DAEMON_POSTS: ReadonlySet<string> = new Set([
+  API_PATHS.daemonSessionAttachments(':id'),
+  // ADR-0038: the daemon publishing its agent's page (JSON).
+  API_PATHS.daemonSessionPages(':id'),
+]);
 const isDaemonRequest = (req: FastifyRequest): boolean =>
-  req.method === 'POST' && policyPath(req) === API_PATHS.daemonSessionAttachments(':id');
+  req.method === 'POST' && DAEMON_POSTS.has(policyPath(req));
 
 /** JSON, or a form body / raw upload on the paths that take one (ADR-0028, 06 §Attachments). */
 function bodyTypeAllowed(req: FastifyRequest): boolean {

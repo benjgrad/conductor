@@ -65,6 +65,7 @@ import {
 import { ATTACHMENTS_PER_TICKET_MAX, AttachmentDtoSchema } from './attachments.js';
 import { OutputChunkSchema } from './output.js';
 import { TicketProposalSchema } from './proposals.js';
+import { TicketPageSchema } from './pages.js';
 import {
   PERMISSION_MESSAGE_MAX,
   PERMISSION_RULE_MAX,
@@ -133,6 +134,17 @@ export const API_PATHS = {
    * ticket, 200 when the session already attached the same bytes (06 §Attachments).
    */
   daemonSessionAttachments: (sessionId: string) => `/api/daemon/sessions/${sessionId}/attachments`,
+  /**
+   * ADR-0038: POST PublishPageRequest for the session's agent's `publish_page` (machine
+   * credential) → 201 PublishPageResponse.
+   */
+  daemonSessionPages: (sessionId: string) => `/api/daemon/sessions/${sessionId}/pages`,
+  /** ADR-0038: GET → HostedPage[] (the ticket's conductor-hosted pages, newest first). */
+  ticketPages: (id: string) => `/api/tickets/${id}/pages`,
+  /** ADR-0038: POST {} → SharePageResponse (mints the page's share link once; idempotent). */
+  pageShare: (id: string) => `/api/pages/${id}/share`,
+  /** ADR-0038: GET → the hosted page's HTML (a session, or `?t=<share token>`). Not under /api. */
+  page: (id: string) => `/p/${id}`,
   workflows: '/api/workflows',
   workflow: (id: string) => `/api/workflows/${id}`,
   /**
@@ -873,6 +885,8 @@ export const SessionDetailSchema = z.object({
    * decision (pending, approved, dismissed). Absent (older servers) ≡ [].
    */
   proposals: z.array(TicketProposalSchema).optional(),
+  /** ADR-0038: the pages the session's agent states attached to their results. Absent ≡ []. */
+  pages: z.array(TicketPageSchema).optional(),
 });
 export type SessionDetail = z.infer<typeof SessionDetailSchema>;
 
@@ -1170,6 +1184,12 @@ export const ApiErrorSchema = z.object({
       'attachment_too_large',
       /** A ticket would have more than ATTACHMENTS_PER_TICKET_MAX files or bytes (400). */
       'attachment_limit',
+      /** ADR-0038: a published page's HTML is over PAGE_HTML_MAX_BYTES (413). */
+      'page_too_large',
+      /** ADR-0038: the ticket already has PAGES_PER_TICKET_MAX hosted pages (409). */
+      'page_limit',
+      /** ADR-0038: the page has expired (410). */
+      'gone',
     ]),
     message: z.string(),
     /** Validation details (zod issues / validator rule failures). */
@@ -1264,6 +1284,8 @@ export const TicketDetailSchema = TicketDtoSchema.extend({
   editable: z.boolean(),
   /** 06 §Proposed tickets: as `SessionDetail.proposals` (the latest session's); absent ≡ []. */
   proposals: z.array(TicketProposalSchema).optional(),
+  /** ADR-0038: as `SessionDetail.pages` (the latest session's); absent ≡ []. */
+  pages: z.array(TicketPageSchema).optional(),
   /** 06 §Attachments: the ticket's files, oldest first; absent ≡ [] (older servers). */
   attachments: z.array(AttachmentDtoSchema).optional(),
 });

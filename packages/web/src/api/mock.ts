@@ -1132,6 +1132,9 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         return { ...p, status: 'dismissed' };
       }),
 
+    sharePage: (pageId) =>
+      reply(() => ({ share_url: `${location.origin}/p/${pageId}?t=mock-share-token` })),
+
     reorderQueue: (ticketIds) =>
       reply((): QueueOrderResponse => {
         const parsed = ReorderQueueRequestSchema.safeParse({ ticket_ids: ticketIds });

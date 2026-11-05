@@ -340,10 +340,13 @@ describe('OutputLog tool groups', () => {
 
     const button = screen.getByRole('button', { name: /Read 3 files/ });
     expect(button.getAttribute('aria-expanded')).toBe('false');
+    // UXR-72: the "▸" disclosure's tooltip; the summary text stays its name.
+    expect(button.getAttribute('title')).toBe('Show output');
     button.focus();
     expect(document.activeElement).toBe(button);
     fireEvent.click(button); // a native button: Enter and Space click it
     expect(button.getAttribute('aria-expanded')).toBe('true');
+    expect(button.getAttribute('title')).toBe('Hide output');
     expect(container.querySelectorAll('details.tool')).toHaveLength(6);
     fireEvent.click(button);
     expect(button.getAttribute('aria-expanded')).toBe('false');
@@ -543,6 +546,7 @@ describe('check output rows (UX-6)', () => {
       'Check output · Lint (running) · 2 lines▸',
     ]);
     for (const r of rows()) expect(r.getAttribute('aria-expanded')).toBe('false');
+    for (const r of rows()) expect(r.getAttribute('title')).toBe('Show output');
     expect(container.querySelector('.check-run-output')).toBeNull();
     expect(screen.queryByText(/tsc done/)).toBeNull();
     expect(screen.queryByText(/eslint/)).toBeNull();

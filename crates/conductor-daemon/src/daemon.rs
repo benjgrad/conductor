@@ -31,12 +31,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use crate::attachments;
 use conductor_protocol::tool_policy::resolve_tool_policy;
 use conductor_protocol::{
-    AssistantJobPayload, DAEMON_AUTH_HEADER, DAEMON_FEATURE_ASSISTANT_JOB,
-    DAEMON_FEATURE_TICKET_ATTACHMENTS, DaemonToOrchestrator, EvaluateConditionsArgs, KillPayload,
-    NO_CONVERSATION_REASON, NO_OUTCOME_OUTPUT_CHARS, OrchestratorToDaemon, PROTOCOL_VERSION,
-    PermissionDecisionPayload, RunActionPayload, RunActionPayloadAction, RunCmdPayload,
-    STDERR_TAIL_CHARS, STDERR_TAIL_LINES, SendInputPayload, SendMessagePayload,
-    SessionEventPayload, StartSessionPayload, TranscriptPayload, auth::daemon_auth_header_value,
+    AssistantJobPayload, DAEMON_AUTH_HEADER, DAEMON_FEATURE_AGENT_ATTACHMENTS,
+    DAEMON_FEATURE_ASSISTANT_JOB, DAEMON_FEATURE_TICKET_ATTACHMENTS, DaemonToOrchestrator,
+    EvaluateConditionsArgs, KillPayload, NO_CONVERSATION_REASON, NO_OUTCOME_OUTPUT_CHARS,
+    OrchestratorToDaemon, PROTOCOL_VERSION, PermissionDecisionPayload, RunActionPayload,
+    RunActionPayloadAction, RunCmdPayload, STDERR_TAIL_CHARS, STDERR_TAIL_LINES, SendInputPayload,
+    SendMessagePayload, SessionEventPayload, StartSessionPayload, TranscriptPayload,
+    auth::daemon_auth_header_value,
 };
 use futures_util::FutureExt;
 use serde_json::{Value, json};
@@ -637,8 +638,12 @@ impl Core {
             "daemon_version": c.daemon_version,
             "claude_code_version": self.claude_code_version,
             // ADR-0033 P2 (MR-T12 FR-4): this daemon runs assistant jobs. 06 §Attachments: it
-            // downloads `start_session.attachments`.
-            "features": [DAEMON_FEATURE_ASSISTANT_JOB, DAEMON_FEATURE_TICKET_ATTACHMENTS],
+            // downloads `start_session.attachments`, and its agents can `attach_file`.
+            "features": [
+                DAEMON_FEATURE_ASSISTANT_JOB,
+                DAEMON_FEATURE_TICKET_ATTACHMENTS,
+                DAEMON_FEATURE_AGENT_ATTACHMENTS,
+            ],
         });
         // Local mode keeps M1's `enrollment_token: null`; an enrolled daemon authenticates on the
         // upgrade instead (10-contracts §Machines protocol v2).
@@ -1440,8 +1445,19 @@ impl Core {
         opts.mcp = p.mcp.clone();
         // ADR-0011: the names complete_state accepts.
         opts.transitions = (!p.transitions.is_empty()).then(|| p.transitions.clone());
-        // 06 §Attachments: the dir the ticket's files were downloaded to.
+        // 06 §Attachments: the dir the ticket's files were downloaded to, and where the agent's
+        // `attach_file` uploads go (the driver gives a reviewer none).
+        let mut roots = vec![worktree.clone(), std::env::temp_dir()];
+        roots.extend(add_dirs.iter().cloned());
         opts.add_dirs = add_dirs;
+        opts.attach = attachments::http_base(&self.config.orchestrator_url).map(|base| {
+            attachments::upload::AttachTarget {
+                base,
+                credential: self.config.credential.clone(),
+                session_id: sid.to_string(),
+                roots,
+            }
+        });
         let session = self.driver.start(opts).map_err(|e| e.to_string())?;
         let aid = st.next();
         // The listener only queues: a driver may call it inside `on` (the CLI driver hands the

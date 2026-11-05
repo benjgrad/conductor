@@ -254,6 +254,7 @@ export function DetailPanel({
                   'review' ? (
                     <ReviewRequest
                       key={detail.pending_input.id}
+                      api={api}
                       detail={detail}
                       agent={name}
                       request={detail.pending_input}

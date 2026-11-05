@@ -9,7 +9,13 @@ import { App } from '../App.js';
 import { SETUP_GUIDE_URL } from '../machines/format.js';
 import guide from './add-a-machine.md?raw';
 import connectGuide from './connect-claude.md?raw';
-import { CONNECT_CLAUDE_URL, EXAMPLE_ORIGIN, guideText, isHelpPath } from './HelpPage.js';
+import {
+  CONNECT_CLAUDE_URL,
+  EXAMPLE_ORIGIN,
+  guideText,
+  isHelpPath,
+  REPO_CHECKS_HELP_URL,
+} from './HelpPage.js';
 
 // UX-8 FR-7: the add-a-machine guide is a page of the app; docs/setup/ has a copy.
 
@@ -178,9 +184,10 @@ describe('help page: connect Claude', () => {
     expect(connectGuide).not.toContain('\\');
   });
 
-  it('only the two guides are help pages', () => {
+  it('only the three guides are help pages', () => {
     expect(isHelpPath(SETUP_GUIDE_URL)).toBe(true);
     expect(isHelpPath(CONNECT_CLAUDE_URL)).toBe(true);
+    expect(isHelpPath(REPO_CHECKS_HELP_URL)).toBe(true);
     expect(isHelpPath('/help/other')).toBe(false);
     expect(isHelpPath('/help/toString')).toBe(false);
   });
@@ -221,5 +228,19 @@ describe('the repo copy (docs/setup/connect-claude.md)', () => {
     for (const [, target] of doc.matchAll(/\]\(([^)\s]+)\)/g)) {
       expect(target, target).toMatch(/^https?:/);
     }
+  });
+});
+
+describe('help page: repo checks', () => {
+  it("the Repo checks page's Help link opens it in the app", async () => {
+    window.history.replaceState(null, '', '/#/repo-checks');
+    render(<App api={createMockApi()} />);
+    const page = within(await screen.findByRole('region', { name: 'Repo checks' }));
+    const link = page.getByRole('link', { name: 'Help' });
+    expect(link.getAttribute('href')).toBe(REPO_CHECKS_HELP_URL);
+    fireEvent.click(link);
+    expect(window.location.pathname).toBe(REPO_CHECKS_HELP_URL);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Repo checks' })).toBeTruthy();
+    expect(screen.getByText(/Git Bash/)).toBeTruthy();
   });
 });

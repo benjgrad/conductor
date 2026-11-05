@@ -8,6 +8,7 @@ import {
 } from '../api/client.js';
 import { ago } from '../components/format.js';
 import { RepoCombobox } from '../components/RepoCombobox.js';
+import { HelpLink, REPO_CHECKS_HELP_URL } from '../help/HelpPage.js';
 import {
   ChecksFields,
   checksFieldSuffixes,
@@ -17,10 +18,6 @@ import {
 import { checkListIssues, type CheckListIssue } from '../workflow/transitions.js';
 import '../workflow/workflow.css';
 import './repo-checks.css';
-
-/** The decision record behind this page. */
-export const ADR_0030_URL =
-  'https://github.com/benjgrad/conductor/blob/main/docs/adr/0030-per-repo-checks-and-mcp-workflow-tools.md';
 
 /** How a gate's or override's `setup` reads (null = auto-detect, '' = none). */
 export function setupText(setup: string | null): string {
@@ -98,13 +95,8 @@ export function RepoChecksPage({ api, repo, onSelect }: RepoChecksPageProps) {
     <section className="repo-checks" aria-label="Repo checks">
       <h2>Repo checks</h2>
       <p className="muted rc-note">
-        A repo’s checks replace the workflow’s checks and setup at every gate that runs checks
-        (before a pull request). Commands run with <code>sh -c</code> at the repo root of a fresh
-        checkout (Git Bash on Windows). See{' '}
-        <a href={ADR_0030_URL} target="_blank" rel="noreferrer">
-          ADR-0030
-        </a>
-        .
+        Give a repo its own build and test commands, instead of the workflow’s.{' '}
+        <HelpLink href={REPO_CHECKS_HELP_URL}>Help</HelpLink>
       </p>
 
       <h3>Repos with their own checks</h3>

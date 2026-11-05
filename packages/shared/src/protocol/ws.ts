@@ -61,10 +61,16 @@ export const DAEMON_FEATURE_ASSISTANT_JOB = 'assistant_job';
  * without it gets a note in the prompt instead.
  */
 export const DAEMON_FEATURE_TICKET_ATTACHMENTS = 'ticket_attachments';
+/**
+ * 06 §Attachments: the daemon's outcome server has `attach_file`, which uploads what the agent
+ * captured (POST `API_PATHS.daemonSessionAttachments` with its credential). Informational.
+ */
+export const DAEMON_FEATURE_AGENT_ATTACHMENTS = 'agent_attachments';
 /** The `register.features` names conductor knows. */
 export const DAEMON_FEATURES = [
   DAEMON_FEATURE_ASSISTANT_JOB,
   DAEMON_FEATURE_TICKET_ATTACHMENTS,
+  DAEMON_FEATURE_AGENT_ATTACHMENTS,
 ] as const;
 
 /** M1-T11: a newer connection for the same machine id replaced this one. */

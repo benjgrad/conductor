@@ -267,8 +267,7 @@ export function ProposalsPanel({ api, dirty, onWorkflowApplied }: ProposalsPanel
         )}
       </div>
       <p className="muted wf-note">
-        The workflow advisor (an MCP client with the <code>workflow_advisor</code> prompt) proposes
-        one change at a time. Nothing changes until it is applied.
+        The workflow advisor proposes one change at a time. Nothing changes until it is applied.
       </p>
       {error && (
         <p role="alert" className="error">

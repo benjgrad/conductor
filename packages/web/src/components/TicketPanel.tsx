@@ -5,7 +5,8 @@ import type { TicketDetail } from '@conductor/shared';
 import { ArrowLeft } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
-import { AttachmentGallery } from './AttachmentGallery.js';
+import { AgentAttachments, AttachmentGallery } from './AttachmentGallery.js';
+import { splitAttachments } from './attachment-groups.js';
 import { ago, TICKET_KIND_LABELS } from './format.js';
 import { Markdown } from './markdown.js';
 import { TicketEditor } from './TicketEditor.js';
@@ -160,12 +161,7 @@ function TicketView({
           <p className="muted">(no description)</p>
         )}
       </section>
-      {(ticket.attachments?.length ?? 0) > 0 && (
-        <section aria-label="Attachments">
-          <h3>Attachments</h3>
-          <AttachmentGallery api={api} attachments={ticket.attachments ?? []} />
-        </section>
-      )}
+      <TicketAttachmentSections api={api} ticket={ticket} />
     </>
   );
 }
@@ -252,12 +248,35 @@ export function TicketAttachments({
   version: string;
 }) {
   const { ticket } = useTicket(api, ticketId, version);
-  const list = ticket?.attachments ?? [];
-  if (list.length === 0) return null;
+  if (ticket === null) return null;
   return (
-    <section className="ticket-attachments" aria-label="Attachments">
-      <h3>Attachments</h3>
-      <AttachmentGallery api={api} attachments={list} />
-    </section>
+    <div className="ticket-attachments">
+      <TicketAttachmentSections api={api} ticket={ticket} />
+    </div>
+  );
+}
+
+/**
+ * 06 §Attachments: the human's attachments ("Attachments") and what the agents attached ("From
+ * the agent", grouped by state). Each section only when it has files.
+ */
+export function TicketAttachmentSections({
+  api,
+  ticket,
+}: {
+  api: ApiClient;
+  ticket: Pick<TicketDetail, 'attachments'>;
+}) {
+  const { human, agent } = splitAttachments(ticket.attachments ?? []);
+  return (
+    <>
+      {human.length > 0 && (
+        <section aria-label="Attachments">
+          <h3>Attachments</h3>
+          <AttachmentGallery api={api} attachments={human} />
+        </section>
+      )}
+      <AgentAttachments api={api} attachments={agent} />
+    </>
   );
 }

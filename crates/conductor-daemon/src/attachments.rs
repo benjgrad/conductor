@@ -259,5 +259,7 @@ pub fn prompt_block(delivered: &[Delivered], only_new: bool) -> Option<String> {
     Some(format!("{head}\n{}", lines.join("\n")))
 }
 
+pub mod upload;
+
 #[cfg(test)]
 mod tests;

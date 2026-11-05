@@ -94,6 +94,10 @@ export const API_PATHS = {
   sessionPermissionRequests: (id: string) => `/api/sessions/${id}/permission-requests`,
   /** ADR-0023: POST PermissionDecisionRequest → PermissionRequestDto. `:id` is the request_id. */
   permissionDecision: (id: string) => `/api/permission-requests/${id}/decision`,
+  /**
+   * POST CreateTicketRequest → 201 TicketDto. UXR-85: GET `?q=&status=&limit=&cursor=`
+   * (TicketSearchQuery) → TicketSearchResponse, the account's tickets of any status.
+   */
   tickets: '/api/tickets',
   /** GET → TicketDetail; PATCH UpdateTicketRequest → TicketDetail (ticket_editable per column). */
   ticket: (id: string) => `/api/tickets/${id}`,
@@ -1232,6 +1236,79 @@ export const TicketDetailSchema = TicketDtoSchema.extend({
   attachments: z.array(AttachmentDtoSchema).optional(),
 });
 export type TicketDetail = z.infer<typeof TicketDetailSchema>;
+
+// ---------------------------------------------------------------- UXR-85: ticket search
+
+/** A status group of GET /api/tickets: `open` = ready, claimed, in_progress and failed. */
+export const TicketSearchStatusSchema = z.enum(['open', 'done', 'cancelled', 'all']);
+export type TicketSearchStatus = z.infer<typeof TicketSearchStatusSchema>;
+
+/** The ticket statuses of each search group (`all`: every status). */
+export const TICKET_SEARCH_STATUSES: Record<
+  Exclude<TicketSearchStatus, 'all'>,
+  readonly TicketStatus[]
+> = {
+  open: ['ready', 'claimed', 'in_progress', 'failed'],
+  done: ['done'],
+  cancelled: ['cancelled'],
+};
+
+/** The search group of a ticket status. */
+export function ticketSearchGroup(status: TicketStatus): Exclude<TicketSearchStatus, 'all'> {
+  return status === 'done' ? 'done' : status === 'cancelled' ? 'cancelled' : 'open';
+}
+
+export const TICKET_SEARCH_LIMIT_MAX = 50;
+export const TICKET_SEARCH_QUERY_MAX = 200;
+
+/**
+ * GET /api/tickets query. `q` (trimmed; empty = no text filter) matches the title, external ref
+ * or body (case-insensitive substring) or the start of the id (≥ 4 hex). `status`: comma-separated
+ * groups, default `all`. `cursor`: an offset (the previous page's `next_cursor`).
+ */
+export const TicketSearchQuerySchema = z.object({
+  q: z
+    .string()
+    .trim()
+    .max(TICKET_SEARCH_QUERY_MAX)
+    .optional()
+    .transform((v) => (v === undefined || v === '' ? undefined : v)),
+  status: z
+    .preprocess(
+      (v) => (typeof v === 'string' ? v.split(',').map((s) => s.trim()) : v),
+      z.array(TicketSearchStatusSchema).min(1),
+    )
+    .optional()
+    .transform((v) => (v === undefined ? (['all'] as TicketSearchStatus[]) : [...new Set(v)])),
+  limit: z.coerce.number().int().min(1).max(TICKET_SEARCH_LIMIT_MAX).default(20),
+  cursor: z.coerce.number().int().min(0).default(0),
+});
+export type TicketSearchQuery = z.infer<typeof TicketSearchQuerySchema>;
+
+/** One ticket found by GET /api/tickets. */
+export const TicketSearchResultSchema = z.object({
+  id: UuidSchema,
+  title: z.string(),
+  external_ref: z.string().nullable(),
+  status: TicketStatusSchema,
+  kind: TicketKindSchema.nullable(),
+  repo: z.string(),
+  /** Text of the body around the match; null without `q`. */
+  snippet: z.string().nullable(),
+  /** The ticket's latest session (open it in the session panel); null while queued. */
+  session_id: UuidSchema.nullable(),
+  created_at: IsoDateTimeSchema,
+  updated_at: IsoDateTimeSchema,
+});
+export type TicketSearchResult = z.infer<typeof TicketSearchResultSchema>;
+
+/** GET /api/tickets: most recently updated first; `next_cursor` null on the last page. */
+export const TicketSearchResponseSchema = z.object({
+  tickets: z.array(TicketSearchResultSchema),
+  next_cursor: z.number().int().nonnegative().nullable(),
+  total: z.number().int().nonnegative(),
+});
+export type TicketSearchResponse = z.infer<typeof TicketSearchResponseSchema>;
 
 /** POST /api/tickets/:id/proposals/approve: the decided proposal and the ticket it created. */
 export const ApproveProposalResponseSchema = z.object({

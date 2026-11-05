@@ -1858,7 +1858,8 @@ button.link {
     overflow: hidden;
   }
   /* The panel covers the board, so the board isn't laid out (or scrolled) behind it. */
-  .with-detail main > .board {
+  .with-detail main > .board,
+  .with-detail main > .archive-page {
     display: none;
   }
   .detail.full-screen {

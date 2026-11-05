@@ -629,3 +629,21 @@ describe('createHttpApi machines (M2-T11)', () => {
     await expect(createHttpApi({ fetch }).getMachine('x')).rejects.toThrow(/API contract/);
   });
 });
+
+describe('createHttpApi searchTickets (UXR-85)', () => {
+  it('sends q, status, limit and cursor as the query, parsed by contract', async () => {
+    const page = { tickets: [], next_cursor: null, total: 0 };
+    const { calls, fetch } = recordingFetch(() => json(200, page));
+    const api = createHttpApi({ baseUrl: 'http://orch:7400/', fetch });
+
+    expect(await api.searchTickets()).toEqual(page);
+    await api.searchTickets({ q: ' login ', status: ['done', 'cancelled'], limit: 5, cursor: 10 });
+    await api.searchTickets({ q: '   ' });
+
+    expect(calls.map((c) => c.url)).toEqual([
+      'http://orch:7400/api/tickets',
+      'http://orch:7400/api/tickets?q=login&status=done%2Ccancelled&limit=5&cursor=10',
+      'http://orch:7400/api/tickets',
+    ]);
+  });
+});

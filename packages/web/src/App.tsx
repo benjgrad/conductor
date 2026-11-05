@@ -1,5 +1,6 @@
 import type { MeResponse } from '@conductor/shared';
 import {
+  CalendarClock,
   CircleHelp,
   LayoutDashboard,
   ListChecks,
@@ -48,6 +49,7 @@ import { useTransitionNotifications } from './notify/useTransitionNotifications.
 import { dismiss, isDismissed } from './onboarding/dismissal.js';
 import { SetupGuide } from './onboarding/SetupGuide.js';
 import { RepoChecksPage } from './repo-checks/RepoChecksPage.js';
+import { SchedulesPage } from './schedules/SchedulesPage.js';
 import { DiscardDraftConfirm, useDraftGuard } from './workflow/draft-guard.js';
 import { WorkflowsView } from './workflow/WorkflowsView.js';
 
@@ -153,7 +155,7 @@ export function App({ api, compact: compactProp }: AppProps) {
 }
 
 /** A top-bar page; `currentNav` names the one that is the current page. */
-export type NavPage = 'board' | 'workflows' | 'machines' | 'repo-checks';
+export type NavPage = 'board' | 'workflows' | 'machines' | 'repo-checks' | 'schedules';
 
 /**
  * UXR-27 FR-5: which top-bar link carries `aria-current="page"` (at most one). The guided setup
@@ -171,6 +173,8 @@ export function currentNav(route: Route): NavPage | null {
       return 'workflows';
     case 'repo-checks':
       return 'repo-checks';
+    case 'schedules':
+      return 'schedules';
     case 'admin':
     case 'help':
       return null;
@@ -225,7 +229,11 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
   useNeedsInputNotifications(board, openSession);
   useTransitionNotifications(board, openSession);
   // UX-16: a push notification's tap opens its ticket (#/?ticket=…).
-  useOpenFromNotification(board, openSession);
+  // UXR-83: a queued ticket (a schedule's fresh run) has no session yet: open it by its ticket.
+  useOpenFromNotification(board, openSession, (ticketId) => {
+    navigate({ view: 'board' });
+    selectTicket(ticketId);
+  });
   // UX-8 FR-1: the account's machine count, asked once per load. With none (and the guide not
   // dismissed this visit), the board area shows the setup guide. Not re-polled, so the guide stays
   // while the new machine connects in its step 3.
@@ -284,6 +292,13 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
   const boardView = route.view === 'board' && !guide;
   const current = currentNav(route);
   const page = (p: NavPage) => (current === p ? ('page' as const) : undefined);
+  // On a phone the page tabs scroll sideways (styles.css): keep the current one in view.
+  useEffect(() => {
+    if (!mobile || current === null) return;
+    topbarRef.current
+      ?.querySelector<HTMLElement>('nav[aria-label="Main"] [aria-current="page"]')
+      ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [mobile, current]);
 
   // UXR-27 FR-4: New ticket works from every page. Off the board (or over the guide) it goes to the
   // board first, through the draft guard: a held-back navigation opens no form. UXR-41: the sheet
@@ -348,6 +363,14 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
           >
             {labelled(ListChecks, 'Repo checks')}
           </a>
+          {/* ADR-0032 / UXR-83: recurring jobs. */}
+          <a
+            href={routeHash({ view: 'schedules', scheduleId: null })}
+            aria-current={page('schedules')}
+            {...iconOnly('Schedules')}
+          >
+            {labelled(CalendarClock, 'Schedules')}
+          </a>
         </nav>
         <button
           type="button"
@@ -383,6 +406,13 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
       <DiscardDraftConfirm draft={draft} navigate={navigate} />
       {route.view === 'workflows' && <WorkflowsView api={api} onDirtyChange={draft.setDirty} />}
       {route.view === 'machines' && <MachinesPage api={api} />}
+      {route.view === 'schedules' && (
+        <SchedulesPage
+          api={api}
+          scheduleId={route.scheduleId}
+          onOpen={(scheduleId) => navigate({ view: 'schedules', scheduleId })}
+        />
+      )}
       {route.view === 'repo-checks' && (
         <RepoChecksPage
           api={api}

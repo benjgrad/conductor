@@ -192,6 +192,7 @@ describe('top nav icons (UX-11)', () => {
     ['link', 'Workflow'],
     ['link', 'Machines'],
     ['link', 'Repo checks'],
+    ['link', 'Schedules'],
     ['button', 'New ticket'],
     ['link', 'Help'],
     ['button', me.display_name],
@@ -269,6 +270,7 @@ describe('navigation (UXR-27)', () => {
     expect(currentNav({ view: 'machines' })).toBe('machines');
     expect(currentNav({ view: 'setup' })).toBe('machines');
     expect(currentNav({ view: 'repo-checks', repo: 'github.com/a/b' })).toBe('repo-checks');
+    expect(currentNav({ view: 'schedules', scheduleId: null })).toBe('schedules');
     expect(currentNav({ view: 'admin' })).toBeNull();
     expect(currentNav({ view: 'help' })).toBeNull();
   });
@@ -278,6 +280,7 @@ describe('navigation (UXR-27)', () => {
     ['/#/workflows', 'Workflow'],
     ['/#/machines', 'Machines'],
     ['/#/repo-checks', 'Repo checks'],
+    ['/#/schedules', 'Schedules'],
     ['/#/setup', 'Machines'],
   ])('%s marks exactly one current page: %s', async (path, name) => {
     window.history.replaceState(null, '', path);

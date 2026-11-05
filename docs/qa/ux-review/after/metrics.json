@@ -4,6 +4,7 @@
     "pageScrollWidth": 375,
     "deviceWidth": 375,
     "horizontalOverflow": false,
+    "clippedOverflow": [],
     "pageHeight": 812,
     "smallTapTargets": 6,
     "smallTapTargetSample": [
@@ -101,6 +102,7 @@
     "pageScrollWidth": 375,
     "deviceWidth": 375,
     "horizontalOverflow": false,
+    "clippedOverflow": [],
     "pageHeight": 812,
     "smallTapTargets": 6,
     "smallTapTargetSample": [
@@ -166,6 +168,7 @@
     "pageScrollWidth": 375,
     "deviceWidth": 375,
     "horizontalOverflow": false,
+    "clippedOverflow": [],
     "pageHeight": 812,
     "smallTapTargets": 6,
     "smallTapTargetSample": [
@@ -207,6 +210,7 @@
     "pageScrollWidth": 360,
     "deviceWidth": 360,
     "horizontalOverflow": false,
+    "clippedOverflow": [],
     "pageHeight": 740,
     "smallTapTargets": 5,
     "smallTapTargetSample": [
@@ -272,17 +276,18 @@
     "pageScrollWidth": 768,
     "deviceWidth": 768,
     "horizontalOverflow": false,
+    "clippedOverflow": [],
     "pageHeight": 1024,
-    "smallTapTargets": 12,
+    "smallTapTargets": 13,
     "smallTapTargetSample": [
       "button \"Hotfix: crash on empty cart\" 144×32",
       "button \"Add /health\" 144×16",
       "button \"Conductor checks demo\" 144×32",
       "button \"Add pagination to /orders\" 144×32",
+      "a \"↻ PR sweep\" 72×24",
       "button \"Waiting for a build slot\" 144×32",
       "button \"Ship the /health endpoint\" 144×32",
-      "button \"Fix flaky checkout test\" 144×32",
-      "button \"Retries exhausted: Tests faile\" 144×18"
+      "button \"Fix flaky checkout test\" 144×32"
     ]
   },
   "detail-768x1024-light": {
@@ -324,17 +329,18 @@
     "pageScrollWidth": 1440,
     "deviceWidth": 1440,
     "horizontalOverflow": false,
+    "clippedOverflow": [],
     "pageHeight": 900,
-    "smallTapTargets": 33,
+    "smallTapTargets": 36,
     "smallTapTargetSample": [
       "a \"Board\" 89×24",
       "a \"Workflow\" 106×24",
       "a \"Machines\" 108×24",
       "a \"Repo checks\" 130×24",
+      "a \"Schedules\" 114×24",
       "button \"New ticket\" 118×26",
       "a \"Help\" 36×24",
-      "button \"local\" 77×26",
-      "button \"▾Queued 2\" 94×15"
+      "button \"local\" 77×26"
     ]
   },
   "detail-1440x900-light": {
@@ -409,17 +415,18 @@
     "pageScrollWidth": 1440,
     "deviceWidth": 1440,
     "horizontalOverflow": false,
+    "clippedOverflow": [],
     "pageHeight": 900,
-    "smallTapTargets": 33,
+    "smallTapTargets": 36,
     "smallTapTargetSample": [
       "a \"Board\" 89×24",
       "a \"Workflow\" 106×24",
       "a \"Machines\" 108×24",
       "a \"Repo checks\" 130×24",
+      "a \"Schedules\" 114×24",
       "button \"New ticket\" 118×26",
       "a \"Help\" 36×24",
-      "button \"local\" 77×26",
-      "button \"▾Queued 2\" 94×15"
+      "button \"local\" 77×26"
     ]
   },
   "detail-1440x900-dark": {
@@ -539,6 +546,7 @@
     "pageScrollWidth": 375,
     "deviceWidth": 375,
     "horizontalOverflow": false,
+    "clippedOverflow": [],
     "pageHeight": 812,
     "smallTapTargets": 6,
     "smallTapTargetSample": [
@@ -555,6 +563,7 @@
     "pageScrollWidth": 375,
     "deviceWidth": 375,
     "horizontalOverflow": false,
+    "clippedOverflow": [],
     "pageHeight": 812,
     "smallTapTargets": 1,
     "smallTapTargetSample": [
@@ -566,24 +575,7 @@
     "pageScrollWidth": 1440,
     "deviceWidth": 1440,
     "horizontalOverflow": false,
-    "pageHeight": 900,
-    "smallTapTargets": 34,
-    "smallTapTargetSample": [
-      "a \"Board\" 89×24",
-      "a \"Workflow\" 106×24",
-      "a \"Machines\" 108×24",
-      "a \"Repo checks\" 130×24",
-      "button \"New ticket\" 118×26",
-      "a \"Help\" 36×24",
-      "button \"local\" 77×26",
-      "button \"Notifications: off\" 182×26"
-    ]
-  },
-  "account-menu-admin-1440x900-light": {
-    "chatHeight": null,
-    "pageScrollWidth": 1440,
-    "deviceWidth": 1440,
-    "horizontalOverflow": false,
+    "clippedOverflow": [],
     "pageHeight": 900,
     "smallTapTargets": 37,
     "smallTapTargetSample": [
@@ -591,10 +583,29 @@
       "a \"Workflow\" 106×24",
       "a \"Machines\" 108×24",
       "a \"Repo checks\" 130×24",
+      "a \"Schedules\" 114×24",
       "button \"New ticket\" 118×26",
       "a \"Help\" 36×24",
-      "button \"Ben\" 71×26",
-      "button \"Notifications: off\" 182×26"
+      "button \"local\" 77×26"
+    ]
+  },
+  "account-menu-admin-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "clippedOverflow": [],
+    "pageHeight": 900,
+    "smallTapTargets": 40,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Repo checks\" 130×24",
+      "a \"Schedules\" 114×24",
+      "button \"New ticket\" 118×26",
+      "a \"Help\" 36×24",
+      "button \"Ben\" 71×26"
     ]
   },
   "first-run-1440x900-light": {
@@ -602,17 +613,18 @@
     "pageScrollWidth": 1440,
     "deviceWidth": 1440,
     "horizontalOverflow": false,
+    "clippedOverflow": [],
     "pageHeight": 1261,
-    "smallTapTargets": 35,
+    "smallTapTargets": 36,
     "smallTapTargetSample": [
       "a \"Board\" 89×24",
       "a \"Workflow\" 106×24",
       "a \"Machines\" 108×24",
       "a \"Repo checks\" 130×24",
+      "a \"Schedules\" 114×24",
       "button \"New ticket\" 118×26",
       "a \"Help\" 36×24",
-      "button \"local\" 77×26",
-      "button \"I'll do this later\" 126×26"
+      "button \"local\" 77×26"
     ]
   }
 }

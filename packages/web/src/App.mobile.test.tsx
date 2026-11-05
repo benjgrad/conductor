@@ -25,7 +25,7 @@ async function renderAt(width: number) {
 }
 
 describe('phone top bar (11-web-ui §Top bar)', () => {
-  const pages = ['Board', 'Workflow', 'Machines', 'Repo checks'];
+  const pages = ['Board', 'Workflow', 'Machines', 'Repo checks', 'Schedules'];
   const notInMenu = ['Add a machine', 'Help', 'Connect Claude', 'Repo checks', 'Workflow'];
 
   it('at 375 the bar is compact and holds every page, New ticket and Help (UXR-27)', async () => {

@@ -41,14 +41,14 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
+  gap: var(--space-1);
 }
 .auth-submit .form-hint {
   color: var(--muted);
 }
 .auth-alt {
-  margin: 16px 0 0;
-  font-size: 13px;
+  margin: var(--space-4) 0 0;
+  font-size: var(--text-base);
 }
 .auth-hint {
   color: var(--muted);

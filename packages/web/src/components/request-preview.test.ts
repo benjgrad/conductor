@@ -13,6 +13,8 @@ import {
   planChangesText,
   PREVIEW_MAX,
   previewText,
+  requestTone,
+  reviewApproveOption,
   summarizeReport,
 } from './request-preview.js';
 import { implementerReport, REPORT_PROSE_LINE } from './review-fixture.js';
@@ -281,5 +283,64 @@ describe('planOptions / planApproveOption (06 §Plan approval, WF-T04)', () => {
         },
       } as unknown as Parameters<typeof agentStatesOf>[0]),
     ).toEqual(new Set(['planning', 'implementing']));
+  });
+});
+
+describe('requestTone (UXR-35: one colour per kind, red only for failures)', () => {
+  it('a review is green, a failed step red, a plan or a question blue', () => {
+    expect(requestTone('review', 'agent_question')).toBe('review');
+    expect(requestTone('step_failed', 'retries_exhausted')).toBe('failure');
+    expect(requestTone('plan_approval', 'agent_question')).toBe('question');
+    expect(requestTone('question', 'agent_question')).toBe('question');
+  });
+
+  it("an old server's failed run (retries, timeout, lost machine) is a failure", () => {
+    expect(requestTone('question', 'retries_exhausted')).toBe('failure');
+    expect(requestTone('question', 'timeout')).toBe('failure');
+    expect(requestTone('question', 'machine_lost')).toBe('failure');
+  });
+
+  it('a budget or an approval is a decision, not a failure', () => {
+    expect(requestTone('question', 'budget_exceeded')).toBe('question');
+    expect(requestTone('question', 'approval')).toBe('question');
+  });
+});
+
+describe("reviewApproveOption (FR-2: the board's approve)", () => {
+  const workflow = {
+    states: {
+      implementing: { type: 'agent' },
+      in_review: { type: 'human' },
+      waiting_external: { type: 'event' },
+      done: { type: 'terminal' },
+      cancelled: { type: 'terminal' },
+    },
+  } as unknown as Parameters<typeof reviewApproveOption>[1];
+  const opt = (name: string, goto: string, needs_text = false) => ({
+    name,
+    title: name,
+    goto,
+    needs_text,
+  });
+
+  it('v5 in_review: "Merged, done" (no text, into the terminal state)', () => {
+    const options = [
+      opt('done', 'done'),
+      opt('request_changes', 'implementing', true),
+      opt('waiting_on_someone', 'waiting_external'),
+    ];
+    expect(reviewApproveOption(options, workflow)?.name).toBe('done');
+  });
+
+  it('none, or two candidates: null (the generic buttons stay)', () => {
+    expect(reviewApproveOption([opt('answer', 'implementing', true)], workflow)).toBeNull();
+    expect(reviewApproveOption([], workflow)).toBeNull();
+    expect(
+      reviewApproveOption([opt('done', 'done'), opt('drop', 'cancelled')], workflow),
+    ).toBeNull();
+  });
+
+  it('a text-required option into a terminal state does not count', () => {
+    expect(reviewApproveOption([opt('done', 'done', true)], workflow)).toBeNull();
   });
 });

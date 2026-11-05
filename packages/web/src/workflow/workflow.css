@@ -964,3 +964,177 @@ main[hidden] {
     overflow-wrap: anywhere;
   }
 }
+
+/* UXR-73: columns and arrows a compared version or a proposal changes. Purple, unlike selection
+   (accent) and problems (ask); a dashed outline so it reads without colour too. */
+.wf-lane.changed .wf-lane-box {
+  stroke: var(--tool);
+  stroke-width: 3;
+  stroke-dasharray: 7 3;
+  fill: color-mix(in srgb, var(--tool) 8%, var(--panel));
+}
+.wf-edge.changed .wf-line {
+  stroke: var(--tool);
+  stroke-width: 3;
+}
+.wf-edge.changed .wf-arrow {
+  fill: var(--tool);
+}
+
+/* UXR-70 / UXR-73: the readable diff (Compare, the Save review, proposals). */
+.wf-diff {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wf-diff-item {
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: var(--panel);
+  font-size: 13px;
+}
+.wf-diff-item.wf-diff-added {
+  border-left-color: var(--diff-add);
+}
+.wf-diff-item.wf-diff-removed {
+  border-left-color: var(--diff-del);
+}
+.wf-diff-item.wf-diff-changed {
+  border-left-color: var(--tool);
+}
+.wf-diff-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+.wf-diff-op {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-radius: 999px;
+  padding: 0 8px;
+}
+.wf-diff-added .wf-diff-op {
+  color: var(--diff-add);
+  background: var(--diff-add-bg);
+}
+.wf-diff-removed .wf-diff-op {
+  color: var(--diff-del);
+  background: var(--diff-del-bg);
+}
+.wf-diff-changed .wf-diff-op {
+  color: var(--tool);
+  background: color-mix(in srgb, var(--tool) 12%, var(--panel));
+}
+.wf-diff-head button {
+  margin-left: auto;
+}
+.wf-diff-lines {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.wf-diff-sentences {
+  margin: 4px 0 0;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 8px;
+  color: var(--muted);
+}
+.wf-diff-sentences dt {
+  font-weight: 600;
+}
+.wf-diff-sentences dd {
+  margin: 0;
+}
+.wf-diff-section {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.wf-history {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.wf-history th,
+.wf-history td {
+  text-align: left;
+  vertical-align: top;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.wf-history tr[aria-current='true'] td {
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+}
+.wf-history-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.wf-compare {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+  margin-top: 8px;
+}
+.wf-old-version {
+  border-left: 3px solid var(--accent);
+  padding: 4px 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+}
+.wf-review-dialog {
+  max-width: min(760px, 92vw);
+  width: 100%;
+  max-height: 86vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 16px 20px;
+}
+.wf-review-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-sheet);
+  background: rgb(0 0 0 / 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wf-review-dialog textarea {
+  width: 100%;
+  min-height: 64px;
+  box-sizing: border-box;
+}
+.wf-review-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.wf-review-note {
+  display: block;
+  margin: 12px 0 4px;
+  font-weight: 600;
+}
+/* UXR-70: the version picker's options carry date, author and note; keep it inside the page. */
+.wf-toolbar label {
+  max-width: 100%;
+  min-width: 0;
+}
+.wf-toolbar select {
+  max-width: min(48ch, 100%);
+  text-overflow: ellipsis;
+}

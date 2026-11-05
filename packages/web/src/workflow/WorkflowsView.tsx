@@ -4,7 +4,7 @@ import {
   type WorkflowDefinition,
   type WorkflowDetail,
 } from '@conductor/shared';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ApiRequestError,
   errorMessage,
@@ -30,8 +30,11 @@ import {
   type ColumnIssue,
   type LaneEdge,
 } from './columns.js';
-import { ProposalsPanel } from './ProposalsPanel.js';
-import { detailVersions } from './review.js';
+import { ProposalsPanel, type DiagramHighlight } from './ProposalsPanel.js';
+import { detailHistory, detailVersions, savedBy, savedOn, versionLabel } from './review.js';
+import { SaveReviewDialog } from './SaveReviewDialog.js';
+import { affectedOf, diffVersions, type ReadableChange } from './version-diff.js';
+import { VersionDiff } from './VersionDiff.js';
 import { TransitionEditor } from './TransitionEditor.js';
 import { ArrowEditor } from './ArrowEditor.js';
 import { addTransition, arrowTransitions, getTransitionObject, parentOf } from './transitions.js';
@@ -40,8 +43,11 @@ import { WorkflowDiagram } from './WorkflowDiagram.js';
 // The Workflow view (ADR-0010, ADR-0011): the one workflow, `conductor`, drawn as its board
 // columns. Pick a version; click a column to edit its title and work, or an arrow to edit the
 // transitions it stands for (who takes them, for which tickets, what they require), in a local
-// draft. Save folds an old version's requirements onto transitions (`foldLegacyRequirements`) and
-// POSTs the whole definition, which the server stores as a new version.
+// draft. Save opens a review of what changes from the latest version, with an optional note
+// (UXR-70), then folds an old version's requirements onto transitions (`foldLegacyRequirements`)
+// and POSTs the whole definition, which the server stores as a new version. History lists every
+// version (when, who, note) and compares any two in the editor's words; a comparison or an open
+// advisor proposal highlights what it changes on the diagram.
 
 export interface WorkflowsViewProps {
   api: ApiClient;
@@ -73,6 +79,25 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
   const [reloads, setReloads] = useState(0);
   /** UXR-44: below the phone breakpoint the editors open full-screen over the page. */
   const fullScreen = useIsMobile();
+  /** UXR-70: the History panel is open. */
+  const [historyOpen, setHistoryOpen] = useState(false);
+  /** UXR-70: the versions being compared, and their diff (null while it loads). */
+  const [compare, setCompare] = useState<{ from: number; to: number } | null>(null);
+  const [compareChanges, setCompareChanges] = useState<ReadableChange[] | null>(null);
+  const [compareError, setCompareError] = useState<string | null>(null);
+  /** The Compare form's picks (default: the version shown and the latest). */
+  const [pickFrom, setPickFrom] = useState<number | null>(null);
+  const [pickTo, setPickTo] = useState<number | null>(null);
+  /** UXR-73: what the open advisor proposal changes. */
+  const [proposalHighlight, setProposalHighlight] = useState<DiagramHighlight | null>(null);
+  /** UXR-70: the Save review dialog: open, and the latest version it diffs against. */
+  const [reviewing, setReviewing] = useState(false);
+  const [reviewBase, setReviewBase] = useState<{ version: number; def: WorkflowDefinition } | null>(
+    null,
+  );
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  /** Definitions read for Compare and the review, by version (versions never change). */
+  const defs = useRef(new Map<number, WorkflowDefinition>());
 
   useEffect(() => {
     onDirtyChange?.(draft !== null ? ID : null);
@@ -84,6 +109,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
     api.getWorkflow(ID, version ?? undefined).then(
       (d) => {
         if (cancelled) return;
+        defs.current.set(d.version, d.definition);
         setDetail(d);
         setMissing(false);
         setError(null);
@@ -140,7 +166,45 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
     setNotice(null);
   };
 
-  async function save() {
+  /** A version's definition: from the cache, else the server. */
+  const definitionOf = useCallback(
+    async (v: number): Promise<WorkflowDefinition> => {
+      const known = defs.current.get(v);
+      if (known) return known;
+      const d = await api.getWorkflow(ID, v);
+      defs.current.set(d.version, d.definition);
+      return d.definition;
+    },
+    [api],
+  );
+
+  /** UXR-70 (FR-3): Save opens the review: the diff from the latest version, and a note. */
+  function openReview() {
+    if (!draft || clientIssues.length > 0) return;
+    setReviewing(true);
+    setReviewError(null);
+    setReviewBase(null);
+    // The diff is from the latest version, what the save actually replaces (the draft may have
+    // started from an older one).
+    api.getWorkflow(ID).then(
+      (d) => {
+        defs.current.set(d.version, d.definition);
+        setLatestSeen((v) => Math.max(v, d.version));
+        setReviewBase({ version: d.version, def: d.definition });
+      },
+      (err: unknown) => setReviewError(errorMessage(err)),
+    );
+  }
+
+  const reviewChanges = useMemo(
+    () =>
+      reviewing && reviewBase && draft
+        ? diffVersions(reviewBase.def, foldLegacyRequirements(draft))
+        : null,
+    [reviewing, reviewBase, draft],
+  );
+
+  async function save(note: string) {
     if (!draft || clientIssues.length > 0) return;
     // ADR-0011: an old version's `entry` / ADR-0009 gates become transition `requires`. The
     // folded draft stays on a failure, so the server's paths match what the editor shows.
@@ -150,7 +214,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
     setServerErrors([]);
     setError(null);
     try {
-      const res = await api.saveWorkflow(folded);
+      const res = await api.saveWorkflow(folded, note.trim() !== '' ? { note } : {});
       setLatestSeen((v) => Math.max(v, res.version));
       setDraft(null);
       setVersion(res.version);
@@ -160,14 +224,42 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
       setError(errorMessage(err));
     } finally {
       setSaving(false);
+      setReviewing(false);
     }
   }
+
+  /** UXR-70 (FR-2): compare two versions, in the editor's words. */
+  function runCompare(from: number, to: number) {
+    setCompare({ from, to });
+    setCompareChanges(null);
+    setCompareError(null);
+    Promise.all([definitionOf(from), definitionOf(to)]).then(
+      ([a, b]) => setCompareChanges(diffVersions(a, b)),
+      (err: unknown) => setCompareError(errorMessage(err)),
+    );
+  }
+  const closeCompare = () => {
+    setCompare(null);
+    setCompareChanges(null);
+    setCompareError(null);
+  };
 
   // Every saved version: from the server when it says (gaps allowed), else 1..latest.
   const known = detail ? detailVersions(detail) : null;
   const latest = Math.max(latestSeen, ...(known ?? []));
   const versions = known ?? Array.from({ length: latest }, (_, i) => i + 1);
   const currentVersion = version ?? latest;
+  const history = detail ? detailHistory(detail) : null;
+  const infoOf = (v: number) => history?.find((h) => h.version === v);
+  const shownInfo = infoOf(currentVersion);
+
+  // A comparison's changes, else the open proposal's, on the diagram (not while editing).
+  const highlight =
+    compare !== null && compareChanges !== null
+      ? affectedOf(compareChanges)
+      : !dirty
+        ? proposalHighlight
+        : null;
 
   if (missing) {
     return (
@@ -248,12 +340,20 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
               >
                 {[...versions].reverse().map((v) => (
                   <option key={v} value={v}>
-                    v{v}
-                    {v === latest ? ' (latest)' : ''}
+                    {versionLabel(v, infoOf(v), v === latest)}
                   </option>
                 ))}
               </select>
             </label>
+          )}
+          {latest > 0 && (
+            <button
+              type="button"
+              aria-expanded={historyOpen}
+              onClick={() => setHistoryOpen((o) => !o)}
+            >
+              History
+            </button>
           )}
           {dirty && <span className="wf-unsaved">Unsaved changes</span>}
           {dirty && (
@@ -262,12 +362,8 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
             </button>
           )}
           {dirty && (
-            <button
-              type="button"
-              onClick={() => void save()}
-              disabled={saving || clientIssues.length > 0}
-            >
-              {saving ? 'Saving…' : 'Save as new version'}
+            <button type="button" onClick={openReview} disabled={saving || clientIssues.length > 0}>
+              {saving ? 'Saving…' : 'Save as new version…'}
             </button>
           )}
           {notice && (
@@ -277,6 +373,155 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
           )}
         </div>
         {shown === null && !error && <p className="muted">Loading…</p>}
+        {!dirty && detail && version !== null && version !== latest && (
+          <p className="wf-old-version" role="note">
+            <span>
+              You’re viewing v{currentVersion}
+              {shownInfo ? `, saved ${savedOn(shownInfo.created_at)}` : ''}
+              {savedBy(shownInfo?.created_by) !== null
+                ? ` by ${savedBy(shownInfo?.created_by)}`
+                : ''}
+              {shownInfo?.note ? `: ${shownInfo.note}` : ''}.
+            </span>
+            <button type="button" onClick={() => runCompare(currentVersion, latest)}>
+              Compare with latest
+            </button>
+          </p>
+        )}
+        {historyOpen && latest > 0 && (
+          <section className="wf-diff-section" aria-label="Version history">
+            <h3>Version history</h3>
+            <table className="wf-history">
+              <thead>
+                <tr>
+                  <th scope="col">Version</th>
+                  <th scope="col">Saved</th>
+                  <th scope="col">By</th>
+                  <th scope="col">Note</th>
+                  <th scope="col" aria-label="Actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {[...versions].reverse().map((v) => {
+                  const info = infoOf(v);
+                  return (
+                    <tr key={v} aria-current={v === currentVersion ? 'true' : undefined}>
+                      <td>
+                        v{v}
+                        {v === latest ? ' (latest)' : ''}
+                      </td>
+                      <td>{info ? savedOn(info.created_at) : '—'}</td>
+                      <td>{savedBy(info?.created_by) ?? <span className="muted">unknown</span>}</td>
+                      <td>{info?.note ?? <span className="muted">—</span>}</td>
+                      <td>
+                        <span className="wf-history-actions">
+                          {v !== currentVersion && (
+                            <button
+                              type="button"
+                              disabled={dirty}
+                              aria-label={`View v${v}`}
+                              onClick={() => {
+                                setVersion(v === latest ? null : v);
+                                setSelected(null);
+                                setServerErrors([]);
+                                setNotice(null);
+                              }}
+                            >
+                              View
+                            </button>
+                          )}
+                          {v !== latest && (
+                            <button
+                              type="button"
+                              aria-label={`Compare v${v} with latest`}
+                              onClick={() => runCompare(v, latest)}
+                            >
+                              Compare with latest
+                            </button>
+                          )}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {versions.length > 1 && (
+              <form
+                className="wf-compare"
+                aria-label="Compare two versions"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const from =
+                    pickFrom ?? (currentVersion === latest ? versions[0]! : currentVersion);
+                  const to = pickTo ?? latest;
+                  if (from !== to) runCompare(from, to);
+                }}
+              >
+                <label>
+                  From{' '}
+                  <select
+                    value={pickFrom ?? (currentVersion === latest ? versions[0]! : currentVersion)}
+                    onChange={(e) => setPickFrom(Number(e.target.value))}
+                  >
+                    {versions.map((v) => (
+                      <option key={v} value={v}>
+                        v{v}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  To{' '}
+                  <select
+                    value={pickTo ?? latest}
+                    onChange={(e) => setPickTo(Number(e.target.value))}
+                  >
+                    {versions.map((v) => (
+                      <option key={v} value={v}>
+                        v{v}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button type="submit">Compare</button>
+              </form>
+            )}
+          </section>
+        )}
+        {compare !== null && (
+          <section
+            className="wf-diff-section"
+            aria-label={`Changes from v${compare.from} to v${compare.to}`}
+          >
+            <div className="wf-toolbar">
+              <h3>
+                Changes from v{compare.from} to v{compare.to}
+              </h3>
+              <button type="button" onClick={closeCompare}>
+                Close
+              </button>
+            </div>
+            {compareError && (
+              <p role="alert" className="error">
+                {compareError}
+              </p>
+            )}
+            {compareChanges === null && !compareError && <p className="muted">Loading…</p>}
+            {compareChanges !== null && (
+              <>
+                {compareChanges.length > 0 && asColumns && (
+                  <p className="muted">Highlighted on the diagram below.</p>
+                )}
+                <VersionDiff
+                  changes={compareChanges}
+                  label={`Changes from v${compare.from} to v${compare.to}`}
+                  empty="These versions are the same."
+                />
+              </>
+            )}
+          </section>
+        )}
         {dirty && (
           <p className="muted wf-note">
             Saving creates v{latest + 1}. Running tickets keep the version they started on; new
@@ -345,6 +590,9 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
             onSelectEdge={selectEdge}
             selectedEdge={selectedEdge}
             errorEdges={errorEdges}
+            {...(highlight
+              ? { changedStates: highlight.states, changedEdges: highlight.edges }
+              : {})}
           />
         )}
         {shown && !asColumns && <WorkflowDiagram definition={shown} />}
@@ -368,6 +616,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
         <ProposalsPanel
           api={api}
           dirty={dirty}
+          onHighlight={setProposalHighlight}
           onWorkflowApplied={() => {
             // Unsaved edits stay; the panel warned that saving them stores the draft (made from
             // the older version) on top of the applied change.
@@ -377,6 +626,16 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
           }}
         />
       </section>
+      {reviewing && (
+        <SaveReviewDialog
+          latest={reviewBase?.version ?? null}
+          changes={reviewChanges}
+          error={reviewError}
+          saving={saving}
+          onSave={(note) => void save(note)}
+          onCancel={() => setReviewing(false)}
+        />
+      )}
 
       {selectedState && shown && asColumns && (
         <ColumnEditor

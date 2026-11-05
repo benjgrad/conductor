@@ -5,7 +5,9 @@ import {
   repoChecksKey,
   type ChecksGate,
   type RepoChecksDetail,
+  type RepoCheckHealth,
   type RepoChecksDto,
+  type RepoChecksHealthResponse,
   type RepoSuggestion,
   type WorkflowDefinition,
 } from '@conductor/shared';
@@ -40,6 +42,7 @@ import {
 } from './repo-checks-model.js';
 import { useToast } from '../components/Toast.js';
 import { ProposalsPanel } from '../workflow/ProposalsPanel.js';
+import { CheckHistory, HealthBadge } from './CheckHistory.js';
 import '../workflow/workflow.css';
 import './repo-checks.css';
 
@@ -69,12 +72,15 @@ export function RepoChecksPage({ api, repo, onSelect, onDirtyChange }: RepoCheck
   const [suggestions, setSuggestions] = useState<RepoSuggestion[]>([]);
   const [def, setDef] = useState<WorkflowDefinition | null>(null);
   const [filter, setFilter] = useState('');
+  // UXR-80: per-repo check results; null when they didn't load (the list then shows no hints).
+  const [health, setHealth] = useState<RepoChecksHealthResponse | null>(null);
 
   const loadList = useCallback(() => {
     api.listRepoChecks().then(
       (res) => setList({ kind: 'loaded', rows: res.repos }),
       (err: unknown) => setList({ kind: 'error', text: errorMessage(err) }),
     );
+    api.getRepoChecksHealth().then(setHealth, () => setHealth(null));
   }, [api]);
 
   useEffect(() => loadList(), [loadList]);
@@ -117,6 +123,7 @@ export function RepoChecksPage({ api, repo, onSelect, onDirtyChange }: RepoCheck
             onFilter={setFilter}
             selected={repo}
             onSelect={onSelect}
+            health={health}
           />
         )}
         {showDetail && (
@@ -153,6 +160,7 @@ function RepoList({
   onFilter,
   selected,
   onSelect,
+  health,
 }: {
   list: List;
   suggestions: RepoSuggestion[];
@@ -160,7 +168,11 @@ function RepoList({
   onFilter: (v: string) => void;
   selected: string | null;
   onSelect: (repo: string) => void;
+  /** UXR-80: per-repo check results, null when they didn't load. */
+  health: RepoChecksHealthResponse | null;
 }) {
+  const healthOf = (r: string): RepoCheckHealth | null | undefined =>
+    health === null ? undefined : (health.repos.find((h) => h.repo === repoChecksKey(r)) ?? null);
   const overrides = list.kind === 'loaded' ? list.rows : [];
   const { own, workflow } = repoRows(suggestions, overrides, filter);
   const selectedKey = selected === null ? null : repoChecksKey(selected);
@@ -185,6 +197,8 @@ function RepoList({
           </span>
         )}
       </button>
+      {/* UXR-80: beside the button, so the button's name stays the repo. */}
+      <HealthBadge health={healthOf(r.repo)} windowDays={health?.window_days ?? 30} />
     </li>
   );
 
@@ -267,6 +281,8 @@ function RepoDetailView({
   const [confirmClear, setConfirmClear] = useState(false);
   const hintId = useId();
   const toast = useToast();
+  // UXR-80: bumped on every (re)load, so the run history follows the saved checks.
+  const [loads, setLoads] = useState(0);
 
   const load = useCallback(() => {
     api.getRepoChecks(repo).then(
@@ -274,6 +290,7 @@ function RepoDetailView({
         setState({ kind: 'loaded', detail });
         setDraft(initialDraft(detail));
         setServerIssues([]);
+        setLoads((n) => n + 1);
       },
       (err: unknown) => setState({ kind: 'error', text: errorMessage(err) }),
     );
@@ -450,6 +467,8 @@ function RepoDetailView({
           </div>
         )}
       </details>
+
+      <CheckHistory api={api} repo={detail.repo} version={loads} />
 
       {/* UXR-73 (FR-5): the advisor's proposals for this repo's checks, here as well. */}
       <ProposalsPanel

@@ -33,8 +33,10 @@ function renderPage(repo: string | null, api: MockApi = createMockApi({ now })) 
   return { api, onSelect };
 }
 
+// The mock replies after 700 ms, so findBy's default 1 s leaves little room on a loaded machine
+// (the full suite): give the detail pane more.
 const detail = async (repo: string) =>
-  within(await screen.findByRole('region', { name: `Checks for ${repo}` }));
+  within(await screen.findByRole('region', { name: `Checks for ${repo}` }, { timeout: 5000 }));
 
 const button = (d: Awaited<ReturnType<typeof detail>>, name: string) =>
   d.getByRole<HTMLButtonElement>('button', { name });

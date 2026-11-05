@@ -23,6 +23,8 @@ import {
   PermissionRequestListResponseSchema,
   ReopenSessionResponseSchema,
   RepoChecksDetailSchema,
+  RepoCheckRunsResponseSchema,
+  RepoChecksHealthResponseSchema,
   ChangeProposalDetailSchema,
   ChangeProposalListResponseSchema,
   RepoChecksDtoSchema,
@@ -389,6 +391,17 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
         'GET',
         `${API_PATHS.repoChecks}?repo=${encodeURIComponent(repo)}`,
       ),
+
+    getRepoCheckRuns: (repo: string, limit?: number) =>
+      request(
+        RepoCheckRunsResponseSchema,
+        'GET',
+        `${API_PATHS.repoCheckRuns}?repo=${encodeURIComponent(repo)}` +
+          (limit !== undefined ? `&limit=${limit}` : ''),
+      ),
+
+    getRepoChecksHealth: () =>
+      request(RepoChecksHealthResponseSchema, 'GET', API_PATHS.repoChecksHealth),
 
     setRepoChecks: (req: PutRepoChecksRequest) =>
       request(RepoChecksDtoSchema, 'PUT', API_PATHS.repoChecks, req),

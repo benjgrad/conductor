@@ -138,6 +138,10 @@ export const API_PATHS = {
    * PutRepoChecksRequest → RepoChecksDto; DELETE DeleteRepoChecksRequest → OkResponse.
    */
   repoChecks: '/api/repo-checks',
+  /** UXR-80: GET `?repo=&limit=` → RepoCheckRunsResponse (the last runs of each of its checks). */
+  repoCheckRuns: '/api/repo-checks/runs',
+  /** UXR-80: GET → RepoChecksHealthResponse (recent check results per repo). */
+  repoChecksHealth: '/api/repo-checks/health',
   /** ADR-0032: GET → ScheduleListResponse; POST CreateScheduleRequest → 201 ScheduleDto. */
   schedules: '/api/schedules',
   /** ADR-0032: GET → ScheduleDto; PATCH UpdateScheduleRequest → ScheduleDto; DELETE `{}` → OkResponse. */
@@ -1486,6 +1490,71 @@ export const RepoChecksDetailSchema = z.object({
   ),
 });
 export type RepoChecksDetail = z.infer<typeof RepoChecksDetailSchema>;
+
+/**
+ * UXR-80: how one check run ended. `setup_failed` wins over `timed_out`, which wins over a non-zero
+ * (or missing) exit (`fail`).
+ */
+export const CheckRunStatusSchema = z.enum(['pass', 'fail', 'timed_out', 'setup_failed']);
+export type CheckRunStatus = z.infer<typeof CheckRunStatusSchema>;
+
+/** UXR-80: one past run of a check (a `run_cmd` and its `command.exited`). */
+export const RepoCheckRunSchema = z.object({
+  status: CheckRunStatusSchema,
+  exit_code: z.number().int().nullable(),
+  duration_ms: z.number().int().nonnegative(),
+  ticket_id: z.string(),
+  ticket_title: z.string().nullable(),
+  session_id: z.string(),
+  /** The gate (state) that ran it. */
+  state: z.string(),
+  machine_id: z.string().nullable(),
+  /** When it finished (ISO). */
+  at: z.string(),
+});
+export type RepoCheckRun = z.infer<typeof RepoCheckRunSchema>;
+
+/**
+ * UXR-80: GET /api/repo-checks/runs?repo=… → the repo's checks (its override's, else every gate's
+ * of the workflow) with their last runs, newest first. Runs are matched by `cmd`: the `run_cmd`
+ * outbox payload carries no check name (TD-201), so a renamed check keeps its history and a check
+ * whose command changed starts empty.
+ */
+export const RepoCheckRunsResponseSchema = z.object({
+  repo: z.string(),
+  window_days: z.number().int().positive(),
+  checks: z.array(
+    z.object({
+      name: z.string(),
+      cmd: z.string(),
+      /** Newest first, at most `limit`. */
+      runs: z.array(RepoCheckRunSchema),
+      runs_in_window: z.number().int().nonnegative(),
+      failures_in_window: z.number().int().nonnegative(),
+    }),
+  ),
+});
+export type RepoCheckRunsResponse = z.infer<typeof RepoCheckRunsResponseSchema>;
+
+/** UXR-80: one repo's recent check results (any repo with runs in the window). */
+export const RepoCheckHealthSchema = z.object({
+  /** `repoChecksKey` of the repo. */
+  repo: z.string(),
+  runs: z.number().int().nonnegative(),
+  failures: z.number().int().nonnegative(),
+  last_run_at: z.string().nullable(),
+  last_status: CheckRunStatusSchema.nullable(),
+  /** The most recent statuses, newest first, at most 5. */
+  recent: z.array(CheckRunStatusSchema),
+});
+export type RepoCheckHealth = z.infer<typeof RepoCheckHealthSchema>;
+
+/** UXR-80: GET /api/repo-checks/health → per-repo check results over the window. */
+export const RepoChecksHealthResponseSchema = z.object({
+  window_days: z.number().int().positive(),
+  repos: z.array(RepoCheckHealthSchema),
+});
+export type RepoChecksHealthResponse = z.infer<typeof RepoChecksHealthResponseSchema>;
 
 /**
  * POST /api/tickets → 201 TicketDto. ADR-0010: `workflow_id` defaults to `conductor` (the one

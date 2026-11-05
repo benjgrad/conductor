@@ -55,7 +55,16 @@ export function DiscardDraftConfirm({
   draft: DraftGuard;
   navigate: (route: Route, opts?: NavigateOptions) => void;
 }) {
-  const { pending, dirty } = draft;
+  const { pending, dirty, cancel } = draft;
+  // A navigation blocked just before the view reported clean (a save's reload commits a render,
+  // and the view's dirty report is a passive effect after it): nothing is unsaved any more, so go
+  // where the user asked instead of dropping it with no dialog. Forced: the router's guard is
+  // updated in the parent's effect, after this one, and would still see the old draft.
+  useEffect(() => {
+    if (pending === null || dirty !== null) return;
+    cancel();
+    navigate(pending, { force: true });
+  }, [pending, dirty, cancel, navigate]);
   if (!pending || dirty === null) return null;
   return <LeaveDialog draft={draft} dirty={dirty} pending={pending} navigate={navigate} />;
 }

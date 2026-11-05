@@ -32,6 +32,8 @@ import {
   PutRepoChecksRequestSchema,
   RepoChecksSchema,
   repoChecksKey,
+  repoHealth,
+  runsByCheck,
   CreateScheduleRequestSchema,
   UpdateScheduleRequestSchema,
   formatScheduleTime,
@@ -74,6 +76,8 @@ import {
   type OutputStream,
   type PermissionRequestDto,
   type RepoChecksDetail,
+  type RepoCheckRunsResponse,
+  type RepoChecksHealthResponse,
   type ChangeProposalDetail,
   type ChangeProposalListResponse,
   type ChangeProposalSummary,
@@ -106,6 +110,7 @@ import {
   MOCK_WORKFLOW_HISTORY,
   mockMachines,
   mockRepoChecks,
+  mockCheckRuns,
   mockChangeProposals,
   mockSchedules,
   mockSeeds,
@@ -252,6 +257,8 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
   const repoChecks = new Map<string, RepoChecksDto>(
     mockRepoChecks(now()).map((dto) => [dto.repo, dto]),
   );
+  /** UXR-80: past check runs (what `loadCheckRuns` reads). */
+  const checkRuns = mockCheckRuns(now());
 
   /** ADR-0033 P3: the advisor's change proposals, newest first. */
   const proposals: ChangeProposalDetail[] = mockChangeProposals(now());
@@ -1170,6 +1177,27 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           ),
         });
       }),
+
+    getRepoCheckRuns: (repo, limit = 5) =>
+      reply((): RepoCheckRunsResponse => {
+        const key = repoChecksKey(repo);
+        if (key === '' || key.length > 200) {
+          throw new ApiRequestError(400, 'bad_request', 'repo must be 1..200 chars');
+        }
+        const override = repoChecks.get(key) ?? null;
+        const def = workflows.get(CONDUCTOR.id)?.at(-1)?.definition ?? CONDUCTOR;
+        const checks = override?.checks ?? checksGatesOf(def).flatMap((g) => g.checks);
+        const rows = checkRuns.filter((r) => repoChecksKey(r.repo) === key);
+        const titles = new Map(rows.map((r) => [r.ticket_id, `Ticket ${r.ticket_id.slice(-2)}`]));
+        return clone({
+          repo: key,
+          window_days: 30,
+          checks: runsByCheck(checks, rows, limit, titles),
+        });
+      }),
+
+    getRepoChecksHealth: () =>
+      reply((): RepoChecksHealthResponse => ({ window_days: 30, repos: repoHealth(checkRuns) })),
 
     setRepoChecks: (raw) =>
       reply((): RepoChecksDto => {

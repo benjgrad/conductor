@@ -45,6 +45,8 @@ import {
   type CreateInviteRequest,
   type CreateTicketRequest,
   type UpdateTicketRequest,
+  type CancelTicketRequest,
+  type ReopenTicketRequest,
   type LoginRequest,
   type OutputChunk,
   type PasswordChangeRequest,
@@ -315,6 +317,12 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
 
     updateTicket: (ticketId: string, req: UpdateTicketRequest) =>
       request(TicketDetailSchema, 'PATCH', API_PATHS.ticket(encodeURIComponent(ticketId)), req),
+
+    cancelTicket: (ticketId: string, req: CancelTicketRequest = {}) =>
+      request(OkResponseSchema, 'POST', API_PATHS.ticketCancel(encodeURIComponent(ticketId)), req),
+
+    reopenTicket: (ticketId: string, req: ReopenTicketRequest = {}) =>
+      request(OkResponseSchema, 'POST', API_PATHS.ticketReopen(encodeURIComponent(ticketId)), req),
 
     uploadAttachment: async (file: File) => {
       const res = await doFetch(base + API_PATHS.attachments, {

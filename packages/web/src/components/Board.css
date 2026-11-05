@@ -62,9 +62,6 @@
   background: var(--warn-bg);
   color: var(--warn);
 }
-.badge-routing code {
-  font-size: 11px;
-}
 .badge-alert {
   background: var(--ask-bg);
   color: var(--ask);

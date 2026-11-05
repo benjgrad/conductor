@@ -4,10 +4,12 @@ import {
   ApproveProposalRequestSchema,
   ApproveSessionRequestSchema,
   CancelSessionRequestSchema,
+  CancelTicketRequestSchema,
   CreateTicketRequestSchema,
   DismissProposalRequestSchema,
   FreshConversationRequestSchema,
   ReopenSessionRequestSchema,
+  ReopenTicketRequestSchema,
   SaveWorkflowRequestSchema,
   SendMessageRequestSchema,
   TransitionSessionRequestSchema,
@@ -54,6 +56,7 @@ import { loadSessionDetail, sessionExists } from './sessions.js';
 import { approveProposal, dismissProposal } from './proposals.js';
 import { createTicket, loadTicketDetail, updateTicket } from './tickets.js';
 import { registerTeamRoutes } from './team.js';
+import { cancelTicket, reopenTicket } from './ticket-lifecycle.js';
 import { registerAttachmentRoutes } from './attachments.js';
 
 // M1-T08: REST + SSE for the UI (03 §UI ↔ orchestrator), as the `CreateApi` factory (main.ts).
@@ -477,6 +480,55 @@ export const createApi = (({
       case 'updated':
         for (const ev of res.events) boardBus.publish(ev);
         return res.detail;
+    }
+  });
+
+  // UXR-86: cancel / reopen the ticket itself, queued (no session) or not (ticket-lifecycle.ts).
+  app.post<IdParams>(API_PATHS.ticketCancel(':id'), async (req, reply) => {
+    const id = ticketId(req.params.id, reply);
+    if (id === undefined) return reply;
+    const body = parseBody(CancelTicketRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const res = await cancelTicket(
+      { db, engine },
+      req.auth!.scope.account_id,
+      id,
+      body.reason,
+      UI_ACTOR,
+    );
+    switch (res.status) {
+      case 'not_found':
+        return sendError(reply, 404, 'not_found', `ticket ${id} not found`);
+      case 'conflict':
+        return sendError(reply, 409, 'conflict', res.reason);
+      case 'engine': {
+        const { status, code } = httpForApplyResult('cancel', res.result);
+        return sendError(reply, status, code, `operator.cancel: ${res.result.reason}`);
+      }
+      case 'applied':
+        for (const ev of res.events) boardBus.publish(ev);
+        return reply.code(202).send(OK);
+    }
+  });
+
+  app.post<IdParams>(API_PATHS.ticketReopen(':id'), async (req, reply) => {
+    const id = ticketId(req.params.id, reply);
+    if (id === undefined) return reply;
+    const body = parseBody(ReopenTicketRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const res = await reopenTicket(db, req.auth!.scope.account_id, id, body.text, UI_ACTOR);
+    switch (res.status) {
+      case 'not_found':
+        return sendError(reply, 404, 'not_found', `ticket ${id} not found`);
+      case 'conflict':
+        return sendError(reply, 409, 'conflict', res.reason);
+      case 'applied':
+        for (const ev of res.events) boardBus.publish(ev);
+        // As POST /api/sessions/:id/reopen: Claude does not echo the prompt; show it.
+        if (res.sessionId !== null && res.text !== null) {
+          outputBus.append(res.sessionId, 'user', res.text);
+        }
+        return reply.code(202).send(OK);
     }
   });
 

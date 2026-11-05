@@ -8,6 +8,7 @@ import {
   ghTooOldText,
   routingNeeds,
   routingRule,
+  routingSentence,
   serviceCommand,
   shortRepo,
 } from './format.js';
@@ -59,6 +60,19 @@ describe('machines format (M2-T11)', () => {
     expect(
       routingNeeds({ missing_repo: 'github.com/org/app', missing_capabilities: ['cli:az'] }),
     ).toEqual(['org/app', 'az']);
+  });
+
+  it('routingSentence: the rule, then the needs; empty when it names nothing (UXR-34)', () => {
+    expect(
+      routingSentence({
+        missing_repo: 'github.com/acme/shop',
+        missing_capabilities: ['cli:az:authed'],
+      }),
+    ).toBe('needs acme/shop and az (signed in)');
+    expect(
+      routingSentence({ missing_capabilities: ['cli:az'], exclusive_to: ['Work laptop'] }),
+    ).toBe('only Work laptop takes this repo; needs az');
+    expect(routingSentence({ missing_capabilities: [] })).toBe('');
   });
 
   it('repo-rule reasons (ADR-0013 amendment 2026-10-30)', () => {

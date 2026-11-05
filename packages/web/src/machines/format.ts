@@ -114,6 +114,26 @@ export function routingRule(routing: BoardCardRouting): string | null {
   return routing.excluded_by_rule ? "left out by the machines' repo rules" : null;
 }
 
+/** `a`, `a and b`, `a, b and c`. */
+function andList(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+/**
+ * UXR-34: why no machine can take a Queued card, as one sentence without its full stop: the repo
+ * rule first, then what is missing ("needs acme/shop and az (signed in)"). '' when the routing
+ * names nothing (no online machine at all).
+ */
+export function routingSentence(routing: BoardCardRouting): string {
+  const needs = routingNeeds(routing);
+  const rule = routingRule(routing);
+  return [
+    ...(rule !== null ? [rule] : []),
+    ...(needs.length > 0 ? [`needs ${andList(needs)}`] : []),
+  ].join('; ');
+}
+
 /** Why one machine can't take a queued ticket: its repo rules first, then what it lacks. */
 export function cannotTakeReasons(t: MachineCannotTake): string[] {
   const needs = routingNeeds(t);

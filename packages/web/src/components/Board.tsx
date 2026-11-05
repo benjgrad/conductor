@@ -1,4 +1,4 @@
-import type { BoardCard } from '@conductor/shared';
+import type { BoardCard, BoardCardRouting } from '@conductor/shared';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import type { ApiClient } from '../api/client.js';
 import {
@@ -29,7 +29,7 @@ import {
   isConductorStep,
   waitingForBuildSlot,
 } from './ConductorChecks.js';
-import { routingNeeds, routingRule } from '../machines/format.js';
+import { routingSentence } from '../machines/format.js';
 import { useIsMobile } from './useMediaQuery.js';
 import './Board.css';
 
@@ -560,9 +560,7 @@ function Card({
       {card.badges.includes('waiting_for_build_slot') && !waitingForBuildSlot(card) && (
         <span className="badge badge-slot">waiting for build slot</span>
       )}
-      {card.column === 'queued' && card.routing && (
-        <RoutingBadge needs={routingNeeds(card.routing)} rule={routingRule(card.routing)} />
-      )}
+      {card.column === 'queued' && card.routing && <RoutingBadge routing={card.routing} />}
       {card.column === 'needs_input' && (card.proposals_pending ?? 0) > 0 && (
         <span
           className="badge badge-proposals"
@@ -703,29 +701,18 @@ function PlanApprovalActions({
   );
 }
 
-/** M2 (ADR-0013 §Routing): what no online machine has, e.g. "needs a machine with org/app and az". */
-function RoutingBadge({ needs, rule }: { needs: string[]; rule: string | null }) {
-  // ADR-0013 amendment 2026-10-30: a repo rule first, then what the allowed machines lack.
-  if (needs.length === 0) {
-    const text = rule ?? 'no online machine can take it';
-    return (
-      <span className="badge badge-routing" title={text}>
-        {text}
-      </span>
-    );
-  }
-  // UXR-31: one line with an ellipsis, so the hover text has all of it.
-  const full = `${rule !== null ? `${rule}; ` : ''}needs a machine with ${needs.join(', ')}`;
+/**
+ * M2 (ADR-0013 §Routing), UXR-34: one line on the card; the hover text says why (the panel says it
+ * in full, with a link to Machines).
+ */
+function RoutingBadge({ routing }: { routing: BoardCardRouting }) {
+  const why = routingSentence(routing);
   return (
-    <span className="badge badge-routing" title={full}>
-      {rule !== null && `${rule}; `}
-      needs a machine with{' '}
-      {needs.map((n, i) => (
-        <span key={n}>
-          {i > 0 && (i === needs.length - 1 ? ' and ' : ', ')}
-          <code>{n}</code>
-        </span>
-      ))}
+    <span
+      className="badge badge-routing"
+      title={why === '' ? 'No online machine can take it' : why}
+    >
+      No machine can take this
     </span>
   );
 }

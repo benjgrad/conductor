@@ -10,6 +10,7 @@ import type {
   ApproveSessionRequest,
   BoardResponse,
   BoardSseEvent,
+  CancelTicketRequest,
   ChangeProposalDetail,
   ChangeProposalListResponse,
   ChangeStatus,
@@ -28,6 +29,7 @@ import type {
   OutputChunk,
   PermissionDecisionRequest,
   PermissionRequestDto,
+  ReopenTicketRequest,
   PermissionRequestListResponse,
   PasswordChangeRequest,
   ReopenSessionRequest,
@@ -113,6 +115,16 @@ export interface ApiClient {
    * 409 conflict when the ticket changed since `expected_updated_at`.
    */
   updateTicket(ticketId: string, req: UpdateTicketRequest): Promise<TicketDetail>;
+  /**
+   * POST /api/tickets/:id/cancel (UXR-86): cancels the ticket, a queued one with no session too.
+   * 409 conflict when it is already done or cancelled.
+   */
+  cancelTicket(ticketId: string, req?: CancelTicketRequest): Promise<OkResponse>;
+  /**
+   * POST /api/tickets/:id/reopen: a cancelled queued ticket back to Queued, or a finished one's
+   * session reopened (`text` the prompt). 409 conflict when it can't be reopened.
+   */
+  reopenTicket(ticketId: string, req?: ReopenTicketRequest): Promise<OkResponse>;
   /**
    * POST /api/tickets/:id/proposals/approve (06 §Proposed tickets): creates the proposed ticket,
    * once (approving again returns the same one). 409 conflict when it was dismissed.

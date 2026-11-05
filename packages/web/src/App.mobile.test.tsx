@@ -95,6 +95,29 @@ describe('phone app shell (11-web-ui §Breakpoint)', () => {
   });
 });
 
+describe('desktop board shell (UXR-26, 11-web-ui §Breakpoint)', () => {
+  const shell = () => document.querySelector('.app.board-view');
+
+  it('at 1440 the board is in the fixed shell, and the document is not locked', async () => {
+    await renderAt(1440);
+    expect(shell()).toBeTruthy();
+    expect(document.documentElement.classList.contains('app-shell')).toBe(false);
+  });
+
+  it('at 375 the phone keeps its own shell', async () => {
+    await renderAt(375);
+    expect(document.querySelector('.app.mobile')).toBeTruthy();
+    expect(shell()).toBeNull();
+  });
+
+  it('at 1440 another page keeps document scrolling', async () => {
+    window.history.replaceState(null, '', '/#/machines');
+    await renderAt(1440);
+    expect(document.querySelector('.app')).toBeTruthy();
+    expect(shell()).toBeNull();
+  });
+});
+
 describe('phone detail panel (11-web-ui §Detail panel)', () => {
   it('opens full-screen and Back to board closes it', async () => {
     await renderAt(375);
@@ -162,11 +185,23 @@ describe('phone create ticket (11-web-ui §Create ticket)', () => {
     expect(await screen.findByText('Phone ticket')).toBeTruthy();
   });
 
-  it('on desktop the form stays inline, not a dialog', async () => {
+  it('on desktop it is the New ticket dialog too, and the page under it is locked (UXR-41)', async () => {
     await renderAt(1440);
+    const locked = () => document.documentElement.classList.contains('modal-open');
+    expect(locked()).toBe(false);
     fireEvent.click(screen.getByRole('button', { name: 'New ticket' }));
-    expect(screen.getByRole('form', { name: 'Create ticket' })).toBeTruthy();
+    const dialog = within(screen.getByRole('dialog', { name: 'New ticket' }));
+    expect(dialog.getByRole('form', { name: 'Create ticket' })).toBeTruthy();
+    expect(dialog.getByText(/^Still needed:/)).toBeTruthy();
+    expect(locked()).toBe(true);
+    fireEvent.click(dialog.getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog', { name: 'New ticket' })).toBeNull();
-    expect(screen.queryByText(/Still needed/)).toBeNull();
+    expect(locked()).toBe(false);
+  });
+
+  it('the phone locks the shell, not the document', async () => {
+    await renderAt(375);
+    fireEvent.click(screen.getByRole('button', { name: 'New ticket' }));
+    expect(document.documentElement.classList.contains('modal-open')).toBe(false);
   });
 });

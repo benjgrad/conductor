@@ -6,7 +6,6 @@ import {
   Plus,
   Server,
   Workflow,
-  X,
   type LucideIcon,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -279,16 +278,17 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
   );
 
   const showForm = route.view === 'board' && !guide && creating;
+  // UXR-41: the page under the desktop New ticket sheet doesn't scroll (the phone locks `.app`).
+  useDocumentClass('modal-open', showForm && !mobile);
+  // UXR-26: on the desktop board the document never scrolls; the shell is the window's height.
+  const boardView = route.view === 'board' && !guide;
   const current = currentNav(route);
   const page = (p: NavPage) => (current === p ? ('page' as const) : undefined);
 
   // UXR-27 FR-4: New ticket works from every page. Off the board (or over the guide) it goes to the
-  // board first, through the draft guard: a held-back navigation opens no form.
+  // board first, through the draft guard: a held-back navigation opens no form. UXR-41: the sheet
+  // covers the bar, so the button only opens it.
   function newTicket() {
-    if (route.view === 'board' && !guide) {
-      setCreating((v) => !v);
-      return;
-    }
     if (route.view !== 'board' && !navigate({ view: 'board' })) return;
     setFirstRun(false);
     setCreating(true);
@@ -306,7 +306,7 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
 
   return (
     <div
-      className={`app${selected || selectedTicket ? ' with-detail' : ''}${mobile ? ' mobile' : ''}${showForm ? ' creating' : ''}`}
+      className={`app${selected || selectedTicket ? ' with-detail' : ''}${mobile ? ' mobile' : ''}${showForm ? ' creating' : ''}${boardView && !mobile ? ' board-view' : ''}`}
     >
       <header ref={topbarRef} className={`topbar${compact ? ' compact' : ''}`}>
         {mobile ? (
@@ -353,10 +353,10 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
           type="button"
           className="new-ticket"
           onClick={newTicket}
-          aria-expanded={showForm}
-          {...iconOnly(showForm ? 'Close form' : 'New ticket')}
+          aria-haspopup="dialog"
+          {...iconOnly('New ticket')}
         >
-          {showForm ? labelled(X, 'Close form') : labelled(Plus, 'New ticket')}
+          {labelled(Plus, 'New ticket')}
         </button>
         {/* The "?": icon-only at every width. */}
         <nav className="nav-tabs help-entry" aria-label="Help">
@@ -411,7 +411,6 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
         <CreateTicketForm
           api={api}
           onCreated={() => setCreating(false)}
-          sheet={mobile}
           onClose={() => setCreating(false)}
         />
       )}

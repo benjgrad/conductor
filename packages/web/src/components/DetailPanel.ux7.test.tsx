@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// UX-7: the Details tab in STAR order (Situation, Task, Action, Result, Technical details).
+// UX-7: the Details tab in STAR order (Situation, Task, Action, Steps, Result, Technical details).
 import type { MoveDto, SessionDetail } from '@conductor/shared';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -280,10 +280,11 @@ describe('accessibility (NFR-3)', () => {
       'Situation',
       'Task',
       'Action',
+      'Steps',
       'Result',
       'Technical details',
     ]);
-    for (const name of ['Situation', 'Task', 'Action', 'Technical details']) {
+    for (const name of ['Situation', 'Task', 'Action', 'Steps', 'Technical details']) {
       const b = toggle(name);
       expect(b.closest('h3')).not.toBeNull();
       expect(b.getAttribute('aria-controls')).toBeTruthy();

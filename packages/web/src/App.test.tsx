@@ -208,7 +208,8 @@ describe('top nav icons (UX-11)', () => {
     expect(screen.getByRole('link', { name: 'Help' }).title).toBe('Help');
     expect(screen.queryByRole('link', { name: 'Add a machine' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'New ticket' }));
-    expect(icon(screen.getByRole('button', { name: 'Close form' }))).toBeTruthy();
+    const sheet = within(screen.getByRole('dialog', { name: 'New ticket' }));
+    expect(icon(sheet.getByRole('button', { name: 'Close' }))).toBeTruthy();
   });
 
   it('compact mode hides the labels and keeps the names', async () => {
@@ -309,18 +310,19 @@ describe('navigation (UXR-27)', () => {
       fireEvent.click(await screen.findByRole('button', { name: 'New ticket' }));
       expect(await screen.findByRole('form', { name: 'Create ticket' })).toBeTruthy();
       expect(window.location.hash).toBe('#/');
-      expect(screen.getByRole('button', { name: 'Close form' }).getAttribute('aria-expanded')).toBe(
-        'true',
-      );
+      expect(screen.getByRole('dialog', { name: 'New ticket' })).toBeTruthy();
       expect(current()).toEqual(['Board']);
     },
   );
 
-  it('leaving the board with the form open closes it', async () => {
+  it('leaving the board with the form open (Back, a link) closes it', async () => {
     await renderApp();
     fireEvent.click(screen.getByRole('button', { name: 'New ticket' }));
     expect(screen.getByRole('form', { name: 'Create ticket' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('link', { name: 'Machines' }));
+    act(() => {
+      window.location.hash = '#/machines';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
     await screen.findByRole('region', { name: 'Machines' });
     expect(screen.queryByRole('form', { name: 'Create ticket' })).toBeNull();
     expect(screen.getByRole('button', { name: 'New ticket' })).toBeTruthy();

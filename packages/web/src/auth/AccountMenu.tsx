@@ -1,5 +1,5 @@
 import type { MeResponse, PushTestResponse } from '@conductor/shared';
-import { CircleUser } from 'lucide-react';
+import { CircleUser, Shield } from 'lucide-react';
 import { useState } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { NavIcon } from '../components/NavIcon.js';
@@ -218,6 +218,7 @@ export function AccountMenu({
                 onAdmin();
               }}
             >
+              <NavIcon icon={Shield} />
               Admin
             </button>
           )}

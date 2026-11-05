@@ -7,11 +7,14 @@ import {
   RETURN_TO,
   transitionActor,
   transitionObject,
+  transitionTitle,
   type Condition,
   type ConditionType,
   type EntryCheck,
   type OnUnmet,
   type Transition,
+  TICKET_KINDS,
+  type TransitionActor,
   type TransitionObject,
   type TransitionRequires,
   type WorkflowDefinition,
@@ -47,6 +50,53 @@ export function getTransitionObject(
 /** The transitions out of `from` that go to `goto` (one arrow), in definition order. */
 export function arrowTransitions(def: WorkflowDefinition, from: string, goto: string): string[] {
   return transitionNames(def, from).filter((n) => getTransitionObject(def, from, n)?.goto === goto);
+}
+
+// ------------------------------------------------------------------ lists (UXR-64)
+
+/** Who takes a transition, for a list row ("The agent"). */
+export const ACTOR_LABEL: Record<TransitionActor, string> = {
+  agent: 'The agent',
+  human: 'A person',
+  system: 'The system',
+};
+
+/** How many rules a transition requires: checks, review items, actions, enabled conditions. */
+export function ruleCount(t: TransitionObject): number {
+  const r = t.requires ?? {};
+  return (
+    (r.checks?.length ?? 0) +
+    (r.review?.items.length ?? 0) +
+    (r.actions?.length ?? 0) +
+    (r.conditions ?? []).filter(conditionEnabled).length +
+    (t.requirements?.items.length ?? 0)
+  );
+}
+
+export const rulesText = (n: number) => (n === 0 ? 'No rules' : n === 1 ? '1 rule' : `${n} rules`);
+
+/** The ticket kinds a transition applies to, for a list row. */
+export function kindsText(t: TransitionObject): string {
+  const kinds = t.kinds ?? TICKET_KINDS;
+  if (kinds.length === 0) return 'No tickets';
+  if (TICKET_KINDS.every((k) => kinds.includes(k))) return 'All tickets';
+  return listJoin(kinds.map((k) => `${k[0]!.toUpperCase()}${k.slice(1)}`)) + ' only';
+}
+
+/**
+ * Where Back goes from transition `name` out of `from`: its arrow when that arrow stands for
+ * several transitions (the list), else its column (a lone arrow, `$return_to`, a self-loop).
+ */
+export function parentOf(
+  def: WorkflowDefinition,
+  from: string,
+  name: string,
+): { kind: 'arrow'; from: string; to: string } | { kind: 'column'; state: string } {
+  const t = getTransitionObject(def, from, name);
+  if (t !== null && t.goto !== from && has(def, t.goto)) {
+    if (arrowTransitions(def, from, t.goto).length > 1) return { kind: 'arrow', from, to: t.goto };
+  }
+  return { kind: 'column', state: from };
 }
 
 function withOn(
@@ -463,4 +513,163 @@ export function validateTransitions(def: WorkflowDefinition): TransitionIssue[] 
     }
   }
   return issues;
+}
+
+// ------------------------------------------------------------------ summary (UXR-60)
+
+/** Conductor's actions as a step in a sentence ("…, open a PR, …"). */
+export const ACTION_SHORT: Record<string, string> = {
+  open_pr: 'open a PR',
+  update_jira: 'update Jira',
+  slack_message: 'send a Slack message',
+};
+
+/** The poll interval when `condition_poll` is unset. */
+export const DEFAULT_CONDITION_POLL = '2m';
+
+const DURATION_UNITS: Record<string, [string, string]> = {
+  ms: ['millisecond', 'milliseconds'],
+  s: ['second', 'seconds'],
+  m: ['minute', 'minutes'],
+  h: ['hour', 'hours'],
+  d: ['day', 'days'],
+};
+
+/** `"3d"` → `"3 days"`, `"1m"` → `"1 minute"`; anything else (a half-typed draft) as typed. */
+export function humanDuration(text: string): string {
+  const m = /^(\d+)(ms|s|m|h|d)$/.exec(text);
+  if (!m) return text;
+  const n = Number(m[1]);
+  const [one, many] = DURATION_UNITS[m[2]!]!;
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** `['a', 'b', 'c']` → `"a, b and c"`. */
+export function listJoin(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+const plural = (n: number, one: string, many = `${one}s`) =>
+  `${Number.isFinite(n) ? n : '?'} ${n === 1 ? one : many}`;
+
+const stateTitle = (def: WorkflowDefinition, n: string) =>
+  n === RETURN_TO ? 'the column that asked' : (def.states[n]?.title ?? n);
+
+const truncate = (s: string, max = 40) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
+
+/** A condition as what the move waits for ("PR checks", "1 approval"). */
+export function conditionPhrase(c: Condition): string {
+  if (c.label !== undefined && c.label.trim() !== '') return c.label;
+  switch (c.type) {
+    case 'pr_checks_green':
+      return 'PR checks';
+    case 'pr_approvals':
+      return plural(c.min, 'approval');
+    case 'pr_merged':
+      return 'the PR to merge';
+    case 'pr_screenshots':
+      return 'before/after screenshots';
+    case 'azure_pipeline_succeeded':
+      return `the ${c.pipeline.trim() === '' ? '?' : c.pipeline} pipeline`;
+    case 'jira_fields_set':
+      return `Jira fields ${c.fields.length === 0 ? '?' : c.fields.join(', ')}`;
+    default:
+      return CONDITION_TEXT[(c as Condition).type] ?? String((c as Condition).type);
+  }
+}
+
+/**
+ * A plain-language sentence for transition `name` out of `from`: who takes it and for which
+ * tickets, what it requires (setup and checks, review, actions, conditions with their wait), where
+ * it goes and what happens when the requirements aren't met. `**…**` marks bold text. Never throws
+ * on a draft ('' for a transition that doesn't exist).
+ */
+export function describeTransition(def: WorkflowDefinition, from: string, name: string): string {
+  const t = getTransitionObject(def, from, name);
+  if (t === null) return '';
+  const title = transitionTitle(name, t);
+  const actor = transitionActor(def, from, name, t);
+  let opening =
+    actor === 'agent'
+      ? `When the agent says **${title}**`
+      : actor === 'human'
+        ? `When a person picks **${title}**`
+        : `When **${title}** happens`;
+  if (t.kinds !== undefined && t.kinds.length === 1) opening += ` (${t.kinds[0]} tickets)`;
+  if (t.question === true) opening += ', asking a question';
+
+  const r = t.requires ?? {};
+  const steps: string[] = [];
+  const checks = r.checks ?? [];
+  if (checks.length > 0) {
+    steps.push(
+      r.setup === undefined
+        ? 'set up with auto-detect'
+        : r.setup.trim() === ''
+          ? 'no setup'
+          : `set up with \`${truncate(r.setup.trim())}\``,
+    );
+    steps.push(
+      `run ${listJoin(checks.map((c, i) => (c.name.trim() === '' ? `check ${i + 1}` : c.name.trim())))}`,
+    );
+  }
+  const items = r.review?.items ?? [];
+  if (items.length > 0) steps.push(`have a reviewer check ${plural(items.length, 'item')}`);
+  for (const a of r.actions ?? []) steps.push(ACTION_SHORT[a] ?? a);
+  const conditions = (r.conditions ?? []).filter(conditionEnabled);
+  if (conditions.length > 0) {
+    let wait =
+      r.condition_timeout !== undefined
+        ? `wait up to ${humanDuration(r.condition_timeout)}`
+        : 'wait';
+    wait += ` for ${listJoin(conditions.map(conditionPhrase))}`;
+    const poll = r.condition_poll ?? DEFAULT_CONDITION_POLL;
+    if (poll !== DEFAULT_CONDITION_POLL) wait += ` (checked every ${humanDuration(poll)})`;
+    steps.push(steps.length > 0 ? `then ${wait}` : wait);
+  }
+  const body = steps.length > 0 ? steps.join(', ') : 'move straight';
+  let out = `${opening}: ${body} → **${stateTitle(def, t.goto)}**.`;
+
+  const u = t.on_unmet;
+  if (u !== undefined) {
+    const then = `**${stateTitle(def, u.else)}**`;
+    if (u.retries === 0) out += ` If not met: straight to ${then}.`;
+    else {
+      out += ` If not met: back to ${stateTitle(def, u.goto)}`;
+      if (u.instruction !== undefined && u.instruction.trim() !== '') {
+        out += ' with your instruction';
+      }
+      out += `, up to ${plural(u.retries, 'time')}, then ${then}.`;
+    }
+  }
+  return out;
+}
+
+/** The transition editor's sections (TransitionEditor.tsx). */
+export type TransitionSection = 'who' | 'checks' | 'review' | 'actions' | 'conditions' | 'unmet';
+
+/**
+ * Which editor section shows a problem at `suffix` (the path after `states.<s>.on.<name>`), so a
+ * section with a problem opens; null for one shown outside the sections (`.requires`, unknown).
+ */
+export function sectionOfPath(suffix: string): TransitionSection | null {
+  const under = (p: string) => suffix === p || suffix.startsWith(`${p}.`);
+  if (
+    ['', '.title', '.goto', '.when', '.actor', '.kinds', '.question', '.notify'].includes(suffix)
+  ) {
+    return 'who';
+  }
+  if (under('.requires.checks') || under('.requires.setup')) return 'checks';
+  if (under('.requires.review')) return 'review';
+  if (under('.requires.actions')) return 'actions';
+  if (
+    under('.requires.conditions') ||
+    under('.requires.condition_timeout') ||
+    under('.requires.condition_poll')
+  ) {
+    return 'conditions';
+  }
+  if (under('.on_unmet')) return 'unmet';
+  return null;
 }

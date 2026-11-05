@@ -478,7 +478,7 @@ describe('step 5, done (FR-6)', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Create your first ticket' }));
     expect(screen.queryByRole('region', FIRST)).toBeNull();
-    expect(screen.getByRole('button', { name: 'Close form' })).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: 'New ticket' })).toBeTruthy();
   });
 });
 

@@ -26,6 +26,11 @@ Focus (UXR-56, UXR-58, UXR-72):
 - In the workflow diagram, SVG controls draw their own ring: a focused lane shows a dashed ring 4 px outside its box, and a focused arrow shows a dashed halo. Selection stays the solid accent border, so focus and selection can be told apart and can be shown together.
 - Every icon-only control has an `aria-label` and a matching `title`, for example the Edit pencil ("Edit ticket") and the Brief button's `⚠ n` ("n hints"). Disclosure rows with a text summary keep that text as their name and get a "Show output" / "Hide output" tooltip.
 
+Workflow diagram (UXR-45, UXR-68):
+- The columns diagram fits the width of its box by default (all six columns show at 1440 px). The Fit / − / + bar above it zooms, and the box scrolls when zoomed.
+- A column's kind is its border colour and icon: agent (accent, ✦), person (ask, ●), waiting (warn, ◷), queue (muted, ≡), end (ok, ■). The legend lists them. Column boxes are never dashed: dashed means only an arrow for "requirements not met".
+- Arrows are labelled with transition titles (an event with its title, e.g. "Approved"), or "N ways" when several transitions share an arrow. A ✓ marks an arrow where some transition has rules. Labels sit on a solid background and slide along their line to a spot no other line crosses.
+
 Only the rules this design touched use the spacing, type and radius tokens so far. Moving the rest of the CSS onto them is a follow-up.
 
 ## Breakpoint

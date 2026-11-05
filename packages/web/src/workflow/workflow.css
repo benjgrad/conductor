@@ -169,9 +169,11 @@
 .wf-label-unmet .wf-outcome {
   fill: var(--warn);
 }
+/* UXR-45 FR-4: a solid label background, so a line that must cross a label stays under it. */
 .wf-halo {
   fill: var(--panel);
-  opacity: 0.88;
+  stroke: var(--border);
+  stroke-width: 1;
 }
 .wf-label.selectable {
   cursor: pointer;
@@ -318,6 +320,30 @@ p.wf-old-version {
   gap: 12px;
   font-size: 12px;
   margin: 0;
+}
+.wf-legend-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.wf-legend-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border: 1.5px solid var(--kind);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--kind) 7%, var(--panel));
+  color: var(--text);
+}
+.wf-legend-kind .wf-legend-icon {
+  color: var(--kind);
+}
+/* The columns diagram's zoom bar sits above the drawing, so it never covers the last column. */
+.wf-zoom.wf-zoom-inline {
+  position: static;
+  justify-content: flex-end;
+  padding: 4px 4px 0;
 }
 
 /* Transition editor */
@@ -484,22 +510,30 @@ main[hidden] {
   stroke: var(--border);
   stroke-width: 1.4;
 }
-.wf-lane-queued .wf-lane-box {
-  fill: color-mix(in srgb, var(--panel) 80%, var(--bg));
-  stroke-dasharray: 4 3;
+/* UXR-68: a column's kind is its border colour and icon; boxes are never dashed (dashed means
+   "requirements not met", on arrows only). */
+.wf-lane-kind-agent {
+  --kind: var(--accent);
 }
-.wf-lane-human .wf-lane-box {
-  fill: var(--ask-bg);
-  stroke: var(--ask);
-  stroke-dasharray: 5 3;
+.wf-lane-kind-person {
+  --kind: var(--ask);
 }
-.wf-lane-event .wf-lane-box {
-  fill: var(--warn-bg);
-  stroke: var(--warn);
+.wf-lane-kind-waiting {
+  --kind: var(--warn);
 }
-.wf-lane-terminal .wf-lane-box {
-  fill: color-mix(in srgb, var(--ok) 10%, var(--panel));
-  stroke: var(--ok);
+.wf-lane-kind-queue {
+  --kind: var(--muted);
+}
+.wf-lane-kind-end {
+  --kind: var(--ok);
+}
+.wf-lane[class*='wf-lane-kind-'] .wf-lane-box {
+  fill: color-mix(in srgb, var(--kind) 7%, var(--panel));
+  stroke: var(--kind);
+  stroke-width: 1.6;
+}
+.wf-lane .wf-lane-icon {
+  fill: var(--kind, var(--muted));
 }
 .wf-lane text {
   fill: var(--text);
@@ -560,8 +594,7 @@ main[hidden] {
 }
 .wf-lane.checking .wf-lane-box {
   stroke: var(--accent);
-  stroke-width: 2;
-  stroke-dasharray: 6 4;
+  stroke-width: 3;
 }
 .wf-label-start text {
   fill: var(--muted);
@@ -628,40 +661,78 @@ main[hidden] {
   font-size: 12px;
 }
 
-/* Transitions (ADR-0011): the column panel's list and the arrow panel */
-.wf-transitions {
+/* Transitions as rows (UXR-64, UXR-65): the arrow panel's list and the column panel's */
+.wf-transition-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+.wf-transition-row {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 13px;
+}
+.wf-transition-meta {
+  color: var(--muted);
   font-size: 12px;
 }
-.wf-transition {
-  font-size: 12px;
-  padding: 1px 6px;
-}
-.wf-transition.error,
-.wf-transition-tabs button.error {
+.wf-transition-row.error,
+.wf-advanced button.error {
   border-color: var(--ask);
   color: var(--ask);
 }
-.wf-transition-tabs {
+.wf-transition-row.error .wf-transition-meta {
+  color: var(--ask);
+}
+/* The panel head (UXR-66): back, breadcrumb, close */
+.wf-back {
+  flex: none;
+}
+.wf-crumbs {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+}
+.wf-crumbs ol {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-wrap: wrap;
+  align-items: baseline;
   gap: 4px;
 }
-.wf-transition-tabs button {
+.wf-crumb {
   font-size: 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 1px 4px;
+  border-color: transparent;
+  background: none;
+  color: var(--accent);
 }
-.wf-transition-tabs button[aria-pressed='true'] {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+.wf-crumb-sep,
+.wf-crumbs [aria-current='page'] {
+  color: var(--muted);
+}
+.wf-advanced > button {
+  font-size: 12px;
+  border-color: transparent;
+  background: none;
+  padding: 2px 0;
+}
+.wf-advanced > div:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
 }
 .wf-kinds {
   border: none;

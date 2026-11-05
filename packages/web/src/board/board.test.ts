@@ -146,6 +146,15 @@ describe('applyBoardEvent', () => {
     });
   });
 
+  it("UXR-30: session.status to a new state drops the old state's title until card.upserted", () => {
+    const titled = { ...running, state_title: 'Implementing' };
+    const s = applyBoardEvent(boardOf(titled), BOARD_SSE_FIXTURES['session.status']);
+    expect(s.cards.get(running.ticket_id)!.state_title).toBeNull();
+    const same = { ...BOARD_SSE_FIXTURES['session.status'], workflow_state: 'implementing' };
+    const kept = applyBoardEvent(boardOf(titled), same);
+    expect(kept.cards.get(running.ticket_id)!.state_title).toBe('Implementing');
+  });
+
   it('card.moved sets the column', () => {
     const s = applyBoardEvent(boardOf(running), BOARD_SSE_FIXTURES['card.moved']);
     expect(col(s, 'needs_input').map((c) => c.ticket_id)).toEqual([running.ticket_id]);

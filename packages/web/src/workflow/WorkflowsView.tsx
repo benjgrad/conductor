@@ -17,6 +17,9 @@ import {
   arrowId,
   columnStates,
   issueAt,
+  LANE_KIND_ICONS,
+  LANE_KIND_LABELS,
+  LANE_KINDS,
   QUEUED_LANE,
   QUEUED_TITLE,
   setQueuedTicketEditable,
@@ -36,7 +39,8 @@ import { ProposalsPanel } from './ProposalsPanel.js';
 import { detailVersions } from './review.js';
 import { SaveBar } from './SaveBar.js';
 import { TransitionEditor } from './TransitionEditor.js';
-import { addTransition, getTransitionObject } from './transitions.js';
+import { ArrowEditor } from './ArrowEditor.js';
+import { addTransition, arrowTransitions, getTransitionObject, parentOf } from './transitions.js';
 import { WorkflowDiagram } from './WorkflowDiagram.js';
 
 // The Workflow view (ADR-0010, ADR-0011): the one workflow, `conductor`, drawn as its board
@@ -56,7 +60,9 @@ export interface WorkflowsViewProps {
 const ID = CONDUCTOR_WORKFLOW_ID;
 
 type Selection =
-  { kind: 'column'; state: string } | { kind: 'transition'; from: string; name: string };
+  | { kind: 'column'; state: string }
+  | { kind: 'arrow'; from: string; to: string }
+  | { kind: 'transition'; from: string; name: string };
 
 export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
   /** null = latest. */
@@ -210,18 +216,32 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
     selected?.kind === 'transition' && shown
       ? getTransitionObject(shown, selected.from, selected.name)
       : null;
+  // UXR-64: an arrow that stands for several transitions opens on their list.
+  const selectedArrow =
+    selected?.kind === 'arrow' &&
+    shown &&
+    arrowTransitions(shown, selected.from, selected.to).length > 0
+      ? selected
+      : null;
   const selectedEdge =
     selected?.kind === 'transition' && selectedTransition
       ? arrowId(selected.from, selectedTransition.goto)
-      : null;
-  const panelOpen = asColumns && (selectedState !== null || selectedTransition !== null);
+      : selectedArrow
+        ? arrowId(selectedArrow.from, selectedArrow.to)
+        : null;
+  const panelOpen =
+    asColumns && (selectedState !== null || selectedTransition !== null || selectedArrow !== null);
 
   const selectEdge = (edge: LaneEdge) => {
     if (edge.owner) setSelected({ kind: 'transition', ...edge.owner });
-    else if (edge.transitions?.[0] !== undefined) {
-      setSelected({ kind: 'transition', from: edge.from, name: edge.transitions[0] });
+    else if (edge.transitions?.length === 1) {
+      setSelected({ kind: 'transition', from: edge.from, name: edge.transitions[0]! });
+    } else if (edge.transitions !== undefined && edge.transitions.length > 1) {
+      setSelected({ kind: 'arrow', from: edge.from, to: edge.to });
     }
   };
+  const selectColumn = (state: string) => setSelected({ kind: 'column', state });
+  const selectArrow = (from: string, to: string) => setSelected({ kind: 'arrow', from, to });
   const showIssue = (i: ColumnIssue) => {
     if (i.transition && shown && getTransitionObject(shown, i.transition.from, i.transition.name)) {
       setSelected({ kind: 'transition', ...i.transition });
@@ -313,7 +333,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
             definition={shown}
             selected={selectedState}
             errors={errorStates}
-            onSelectColumn={(state) => setSelected({ kind: 'column', state })}
+            onSelectColumn={selectColumn}
             onSelectEdge={selectEdge}
             selectedEdge={selectedEdge}
             errorEdges={errorEdges}
@@ -321,11 +341,21 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
         )}
         {shown && !asColumns && <WorkflowDiagram definition={shown} />}
         {shown && asColumns && (
-          <p className="wf-legend muted">
-            <span>→ transitions (click to edit) · ×n several on one arrow</span>
-            <span>- - - dashed: requirements not met (back, bounded) / else</span>
-            <span>✓ requires checks, review, actions or conditions</span>
-          </p>
+          <div className="wf-legend muted" aria-label="Legend" role="group">
+            <span className="wf-legend-kinds">
+              {LANE_KINDS.map((k) => (
+                <span key={k} className={`wf-legend-kind wf-lane-kind-${k}`}>
+                  <span className="wf-legend-icon" aria-hidden="true">
+                    {LANE_KIND_ICONS[k]}
+                  </span>
+                  {LANE_KIND_LABELS[k]}
+                </span>
+              ))}
+            </span>
+            <span>→ a transition (click to edit) · N ways: several on one arrow</span>
+            <span>✓ has rules (checks, review, actions or conditions)</span>
+            <span>- - - requirements not met: back, a bounded number of times</span>
+          </div>
         )}
         <ProposalsPanel
           api={api}
@@ -358,6 +388,19 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
           onClose={() => setSelected(null)}
         />
       )}
+      {selectedArrow && shown && asColumns && (
+        <ArrowEditor
+          definition={shown}
+          from={selectedArrow.from}
+          to={selectedArrow.to}
+          issues={allIssues.filter((i) => i.transition?.from === selectedArrow.from)}
+          onSelectTransition={(name) =>
+            setSelected({ kind: 'transition', from: selectedArrow.from, name })
+          }
+          onSelectColumn={selectColumn}
+          onClose={() => setSelected(null)}
+        />
+      )}
       {selected?.kind === 'transition' && selectedTransition && shown && asColumns && (
         <TransitionEditor
           definition={shown}
@@ -366,7 +409,18 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
           issues={allIssues.filter((i) => i.transition?.from === selected.from)}
           onChange={edit}
           onSelect={(name) => setSelected({ kind: 'transition', from: selected.from, name })}
-          onRemoved={() => setSelected({ kind: 'column', state: selected.from })}
+          onRemoved={() => {
+            // Back to the arrow's list while it still stands for several, else the column.
+            const goto = selectedTransition.goto;
+            setSelected(
+              goto !== selected.from && arrowTransitions(shown, selected.from, goto).length > 2
+                ? { kind: 'arrow', from: selected.from, to: goto }
+                : { kind: 'column', state: selected.from },
+            );
+          }}
+          onSelectColumn={selectColumn}
+          onSelectArrow={selectArrow}
+          onBack={() => setSelected(parentOf(shown, selected.from, selected.name))}
           onClose={() => setSelected(null)}
           onDefer={(prefix) => setDeferred((d) => withDeferred(d, prefix))}
           onReveal={(prefix) => setDeferred((d) => withoutDeferred(d, prefix))}

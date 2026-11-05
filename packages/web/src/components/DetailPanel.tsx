@@ -19,7 +19,7 @@ import {
   isConductorStep,
 } from './ConductorChecks.js';
 import { isOldVersion } from './details-sections.js';
-import { KIND_LABELS, STATUS_LABELS } from './format.js';
+import { headStatus, KIND_LABELS } from './format.js';
 import { FreshConversation, freshConversationOffer } from './FreshConversation.js';
 import { Markdown } from './markdown.js';
 import { OutputLog } from './OutputLog.js';
@@ -38,7 +38,6 @@ import { ReviewRequest } from './ReviewRequest.js';
 import { StarDetails } from './StarDetails.js';
 import { TicketButtons, TicketSheet, type StripSheet } from './TicketStrip.js';
 import { TransitionButtons } from './transitions.js';
-import { displayState } from '../workflow/review.js';
 
 interface DetailPanelProps {
   api: ApiClient;
@@ -95,7 +94,8 @@ export function DetailPanel({
   const proseName = agent && agent.seed !== null ? agent.name : 'the agent';
   const ids = useId();
   const tabRefs = useRef<Partial<Record<PanelTab, HTMLButtonElement | null>>>({});
-  const status = detail?.card.status ?? null;
+  // UXR-40: one chip, in titles; UXR-32 FR-2: "Waiting for permission" while one is held.
+  const head = detail ? headStatus(detail.card, detail.workflow) : null;
   const plan = detail ? planApprovalOptions(detail) : null;
 
   // UX-2: the Brief. The body is `ticket_body`; an older server doesn't send it, so it falls back
@@ -162,15 +162,12 @@ export function DetailPanel({
               // UX-5: conductor runs the step; the agent has exited, so it isn't "running".
               <span className="chip status status-conductor">Conductor is checking</span>
             ) : (
-              status && (
-                <span className={`chip status status-${status}`}>{STATUS_LABELS[status]}</span>
+              // UXR-40: one chip, in titles (never the status and the state side by side).
+              head && (
+                <span className={`chip status status-${head.key}`} title={head.label}>
+                  {head.label}
+                </span>
               )
-            )}
-            {/* UX-6: in a conductor step the chip says it all; never the synthetic label. */}
-            {detail?.card.workflow_state && !isConductorStep(detail.card) && (
-              <span className="muted head-state">
-                {displayState(detail.card.workflow_state, detail.workflow)}
-              </span>
             )}
           </div>
         </div>

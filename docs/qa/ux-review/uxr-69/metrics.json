@@ -8,7 +8,7 @@
     "smallTapTargets": 5,
     "smallTapTargetSample": [
       "input \"\" 13×13",
-      "input \"\" 13×13",
+      "button \"Zoom in\" 26×44",
       "button \"Move check 1 up\" 23×44",
       "button \"Move check 1 down\" 23×44",
       "button \"Remove check 1\" 23×44"
@@ -20,9 +20,10 @@
     "deviceWidth": 375,
     "horizontalOverflow": false,
     "pageHeight": 812,
-    "smallTapTargets": 4,
+    "smallTapTargets": 5,
     "smallTapTargetSample": [
       "input \"\" 13×13",
+      "button \"Zoom in\" 26×44",
       "button \"Close column\" 31×44",
       "input \"\" 13×13",
       "input \"\" 13×13"
@@ -47,7 +48,7 @@
     "deviceWidth": 1440,
     "horizontalOverflow": false,
     "pageHeight": 900,
-    "smallTapTargets": 32,
+    "smallTapTargets": 37,
     "smallTapTargetSample": [
       "a \"Board\" 80×25",
       "a \"Workflow\" 106×25",
@@ -65,7 +66,7 @@
     "deviceWidth": 1440,
     "horizontalOverflow": false,
     "pageHeight": 900,
-    "smallTapTargets": 29,
+    "smallTapTargets": 24,
     "smallTapTargetSample": [
       "a \"Board\" 80×25",
       "a \"Workflow\" 106×25",

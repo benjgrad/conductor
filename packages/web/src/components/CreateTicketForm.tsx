@@ -18,25 +18,22 @@ interface CreateTicketFormProps {
   api: ApiClient;
   onCreated?: () => void;
   /**
-   * 11-web-ui §Create ticket: the phone's full-screen sheet (a modal dialog with a heading, Close
-   * and a sticky Create ticket footer that says what's missing).
+   * Closes the sheet: its Close button, Escape and (on desktop) a click on the backdrop. With
+   * unsaved input the sheet asks first (UXR-41 FR-4).
    */
-  sheet?: boolean;
-  /** Closes the sheet (its Close button and Escape). */
-  onClose?: () => void;
+  onClose: () => void;
 }
 
 /**
+ * 11-web-ui §Create ticket: the "New ticket" sheet, a modal dialog with a heading, Close and a
+ * sticky Create ticket footer that says what's missing. Full-screen on a phone; a centred modal
+ * over a backdrop on desktop (UXR-41). Same DOM at every width, the CSS lays it out.
+ *
  * POST /api/tickets, always on the one `conductor` workflow (ADR-0010). Work or Personal is
  * required (ADR-0011: transitions filter on it; no triage until M4). The new card arrives on the
  * board stream (card.upserted), not from here.
  */
-export function CreateTicketForm({
-  api,
-  onCreated,
-  sheet = false,
-  onClose,
-}: CreateTicketFormProps) {
+export function CreateTicketForm({ api, onCreated, onClose }: CreateTicketFormProps) {
   const [title, setTitle] = useState('');
   // UX-3: markdown from the requirements template; untouched placeholders are dropped on submit.
   const [body, setBody] = useState(TICKET_TEMPLATE);
@@ -56,6 +53,8 @@ export function CreateTicketForm({
   const headingId = useId();
   const hintId = useId();
   const sheetRef = useRef<HTMLDivElement | null>(null);
+  // FR-4: closing with unsaved input asks first, inline (no browser dialogs, as draft-guard.tsx).
+  const [confirming, setConfirming] = useState(false);
 
   // Best effort: without the list the field is plain free text.
   useEffect(() => {
@@ -75,18 +74,40 @@ export function CreateTicketForm({
 
   // The dialog takes focus when it opens (not the title field: that would pop the keyboard up).
   useEffect(() => {
-    if (sheet) sheetRef.current?.focus();
-  }, [sheet]);
+    sheetRef.current?.focus();
+  }, []);
 
+  /** Title, body text beyond the template, or attachments: what closing would lose. */
+  function isDirty(): boolean {
+    if (title.trim() !== '') return true;
+    // The rich editor exports on a debounce: take its latest text. An untouched template strips
+    // to nothing (BlockNote may normalise it, so don't compare with TICKET_TEMPLATE).
+    const markdown = bodyEditor.current?.flush() ?? body;
+    if (stripPlaceholders(markdown).trim() !== '') return true;
+    return uploads.ids.length > 0 || uploads.uploading;
+  }
+
+  function requestClose() {
+    if (isDirty()) setConfirming(true);
+    else onClose();
+  }
+
+  // The window listener always calls the latest render's handler (no stale state).
+  const onEscape = useRef<() => void>(() => undefined);
   useEffect(() => {
-    if (!sheet || !onClose) return;
+    onEscape.current = () => {
+      if (confirming) setConfirming(false);
+      else requestClose();
+    };
+  });
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // The repo list's Escape closes the list only.
-      if (e.key === 'Escape' && !e.defaultPrevented) onClose();
+      if (e.key === 'Escape' && !e.defaultPrevented) onEscape.current();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [sheet, onClose]);
+  }, []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -184,17 +205,31 @@ export function CreateTicketForm({
         <AttachmentPicker api={api} uploads={uploads} />
       </div>
       <div className="form-actions">
-        <button
-          type="submit"
-          disabled={busy || !valid}
-          {...(sheet && !valid ? { 'aria-describedby': hintId } : {})}
-        >
-          Create ticket
-        </button>
-        {sheet && !valid && (
-          <span id={hintId} className="form-hint muted">
-            Still needed: {missing.join(', ')}
-          </span>
+        {confirming ? (
+          <div className="sheet-confirm" role="alertdialog" aria-label="Discard this ticket?">
+            <span>Discard this ticket? What you've written will be lost.</span>
+            <button type="button" className="danger" onClick={onClose}>
+              Discard
+            </button>
+            <button type="button" onClick={() => setConfirming(false)} autoFocus>
+              Keep editing
+            </button>
+          </div>
+        ) : (
+          <>
+            <button
+              type="submit"
+              disabled={busy || !valid}
+              {...(!valid ? { 'aria-describedby': hintId } : {})}
+            >
+              Create ticket
+            </button>
+            {!valid && (
+              <span id={hintId} className="form-hint muted">
+                Still needed: {missing.join(', ')}
+              </span>
+            )}
+          </>
         )}
         {error && (
           <p role="alert" className="error">
@@ -204,23 +239,30 @@ export function CreateTicketForm({
       </div>
     </form>
   );
-  if (!sheet) return form;
   return (
     <div
-      ref={sheetRef}
-      className="sheet"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={headingId}
-      tabIndex={-1}
+      className="sheet-backdrop"
+      // mousedown on the backdrop itself: a text selection dragged out of the sheet doesn't close it.
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) requestClose();
+      }}
     >
-      <header className="sheet-head">
-        <h2 id={headingId}>New ticket</h2>
-        <button type="button" className="sheet-close" onClick={onClose} aria-label="Close">
-          <X size={20} aria-hidden="true" />
-        </button>
-      </header>
-      {form}
+      <div
+        ref={sheetRef}
+        className="sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={headingId}
+        tabIndex={-1}
+      >
+        <header className="sheet-head">
+          <h2 id={headingId}>New ticket</h2>
+          <button type="button" className="sheet-close" onClick={requestClose} aria-label="Close">
+            <X size={20} aria-hidden="true" />
+          </button>
+        </header>
+        {form}
+      </div>
     </div>
   );
 }

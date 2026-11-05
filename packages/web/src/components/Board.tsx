@@ -7,11 +7,13 @@ import {
   type BoardColumnView,
   type BoardState,
 } from '../board/board.js';
+import { waitingOnYou } from '../board/waiting.js';
 import { DEFAULT_BOARD_WORKFLOW, readCollapsed, writeCollapsed } from './board-layout.js';
 import { AgentAvatar, cardAgent } from './agent-identity.js';
-import { ago, cardMeta, KIND_LABELS, TICKET_KIND_LABELS, usd } from './format.js';
+import { ago, cardMeta, humanize, KIND_LABELS, TICKET_KIND_LABELS, usd } from './format.js';
 import { usePlanAnswer } from './plan-answer.js';
-import { CardPermissionActions, CardQuestionOptions } from './CardActions.js';
+import { CardAllowOnce, CardOptionButton } from './CardActions.js';
+import { cardAction } from './card-action.js';
 import { PendingChecklist, TransitionButtons } from './transitions.js';
 import {
   classifyRequest,
@@ -60,10 +62,23 @@ export function Board({
 }: BoardProps) {
   // NFR-2 (UX-9): stable columns and agent states, so toggling one column skips the others.
   const columns = useMemo(() => boardColumns(board), [board]);
+  // UXR-32: pending permissions wait on Ben too; the Needs-input header notes them.
+  const permissionCards = useMemo(() => waitingOnYou(board.cards.values()).permissions, [board]);
+  const waitingFor = (id: string) => (id === 'needs_input' ? permissionCards : NO_CARDS);
   // 06 §Plan approval: a card has no `return_to`; its answer option goes into an agent column.
   const agentStates = useMemo(
     () => new Set(columns.filter((c) => c.kind === 'agent').map((c) => c.id)),
     [columns],
+  );
+  // UXR-30 (FR-2): a pending move names its target column by title.
+  const columnTitles = useMemo(
+    () => new Map(columns.map((c) => [c.id, c.title] as const)),
+    [columns],
+  );
+  // UXR-30 (FR-1): the workflow's name only disambiguates when the board mixes workflows.
+  const showWorkflow = useMemo(
+    () => new Set([...board.cards.values()].map((c) => c.workflow_id)).size > 1,
+    [board.cards],
   );
 
   // UX-9: every stored id is kept; one that is not a column now is ignored when rendering.
@@ -79,7 +94,10 @@ export function Board({
   // FR-4: each collapsed column's card count when it was collapsed (lowered when it drops), so a
   // human column can show that it rose. Not before the first board load: its count is no news.
   const [baseline, setBaseline] = useState<ReadonlyMap<string, number>>(new Map());
-  const nextBaseline = board === EMPTY_BOARD ? baseline : baselines(columns, collapsed, baseline);
+  const nextBaseline =
+    board === EMPTY_BOARD
+      ? baseline
+      : baselines(columns, collapsed, baseline, permissionCards.length);
   if (nextBaseline !== baseline) setBaseline(nextBaseline);
 
   // Written only for the columns there are now, so the ids of removed columns don't pile up;
@@ -112,7 +130,10 @@ export function Board({
   const mobile = useIsMobile();
   const [picked, setPicked] = useState<string | null>(null);
   const active =
-    columns.find((c) => c.id === picked) ?? defaultColumn(columns) ?? columns[0] ?? null;
+    columns.find((c) => c.id === picked) ??
+    defaultColumn(columns, permissionCards.length) ??
+    columns[0] ??
+    null;
   const swipe = useSwipe((step) => {
     if (!active) return;
     const next = columns[columns.indexOf(active) + step];
@@ -124,17 +145,25 @@ export function Board({
       <div className="board board-mobile" {...swipe}>
         {active && (
           <>
-            <ColumnSwitcher columns={columns} active={active.id} onPick={setPicked} />
+            <ColumnSwitcher
+              columns={columns}
+              active={active.id}
+              onPick={setPicked}
+              permissions={permissionCards.length}
+            />
             <Column
               col={active}
               collapsed={false}
               attention={false}
+              permissionCards={waitingFor(active.id)}
               onToggle={toggle}
               selectedSessionId={selectedSessionId}
               selectedTicketId={selectedTicketId}
               onSelect={onSelect}
               {...(onSelectTicket ? { onSelectTicket } : {})}
               agentStates={agentStates}
+              columnTitles={columnTitles}
+              showWorkflow={showWorkflow}
               {...(api ? { api } : {})}
             />
           </>
@@ -170,14 +199,20 @@ export function Board({
               col={col}
               collapsed={shut}
               attention={
-                shut && col.kind === 'human' && since !== undefined && col.cards.length > since
+                shut &&
+                col.kind === 'human' &&
+                since !== undefined &&
+                columnCount(col, permissionCards.length) > since
               }
+              permissionCards={waitingFor(col.id)}
               onToggle={toggle}
               selectedSessionId={selectedSessionId}
               selectedTicketId={selectedTicketId}
               onSelect={onSelect}
               {...(onSelectTicket ? { onSelectTicket } : {})}
               agentStates={agentStates}
+              columnTitles={columnTitles}
+              showWorkflow={showWorkflow}
               {...(api ? { api } : {})}
             />
           );
@@ -187,22 +222,43 @@ export function Board({
   );
 }
 
-/** The phone board opens on Needs input when it has cards, else the first column with any. */
-export function defaultColumn(columns: readonly BoardColumnView[]): BoardColumnView | undefined {
+const NO_CARDS: readonly BoardCard[] = [];
+
+/** FR-4 / UXR-32: what a column's attention compares: Needs input also counts permission cards. */
+function columnCount(col: BoardColumnView, permissions: number): number {
+  return col.cards.length + (col.id === 'needs_input' ? permissions : 0);
+}
+
+/**
+ * The phone board opens on Needs input when it has cards or a permission is waiting (UXR-32
+ * FR-3), else the first column with any.
+ */
+export function defaultColumn(
+  columns: readonly BoardColumnView[],
+  permissions = 0,
+): BoardColumnView | undefined {
   return (
-    columns.find((c) => c.id === 'needs_input' && c.cards.length > 0) ??
+    columns.find((c) => c.id === 'needs_input' && columnCount(c, permissions) > 0) ??
     columns.find((c) => c.cards.length > 0)
   );
+}
+
+/** UXR-32: "1 waiting for permission". */
+export function waitingForPermissionText(n: number): string {
+  return `${n} waiting for permission`;
 }
 
 function ColumnSwitcher({
   columns,
   active,
   onPick,
+  permissions,
 }: {
   columns: readonly BoardColumnView[];
   active: string;
   onPick: (id: string) => void;
+  /** UXR-32: cards waiting for a permission, shown on the Needs-input tab. */
+  permissions: number;
 }) {
   const refs = useRef(new Map<string, HTMLButtonElement>());
   useEffect(() => {
@@ -223,8 +279,16 @@ function ColumnSwitcher({
           aria-controls={col.id === active ? `board-column-${col.id}` : undefined}
           className={`column-tab column-tab-${col.id}${col.id === active ? ' active' : ''}`}
           onClick={() => onPick(col.id)}
+          {...(col.id === 'needs_input' && permissions > 0
+            ? {
+                'aria-label': `${col.title}: ${col.cards.length}, ${waitingForPermissionText(permissions)}`,
+              }
+            : {})}
         >
           {col.title} <span className="count">{col.cards.length}</span>
+          {col.id === 'needs_input' && permissions > 0 && (
+            <span className="count-waiting">+{permissions}</span>
+          )}
         </button>
       ))}
     </div>
@@ -267,12 +331,14 @@ function baselines(
   columns: readonly BoardColumnView[],
   collapsed: ReadonlySet<string>,
   prev: ReadonlyMap<string, number>,
+  permissions: number,
 ): ReadonlyMap<string, number> {
   const next = new Map<string, number>();
   for (const col of columns) {
     if (!collapsed.has(col.id)) continue;
     const was = prev.get(col.id);
-    next.set(col.id, was === undefined ? col.cards.length : Math.min(was, col.cards.length));
+    const n = columnCount(col, permissions);
+    next.set(col.id, was === undefined ? n : Math.min(was, n));
   }
   if (next.size === prev.size && [...next].every(([id, n]) => prev.get(id) === n)) return prev;
   return next;
@@ -283,12 +349,16 @@ interface ColumnProps {
   collapsed: boolean;
   /** FR-4: a collapsed human column's count rose. */
   attention: boolean;
+  /** UXR-32: on Needs input, the cards waiting for a permission (oldest first); else empty. */
+  permissionCards: readonly BoardCard[];
   onToggle: (id: string) => void;
   selectedSessionId: string | null;
   selectedTicketId: string | null;
   onSelect: (sessionId: string) => void;
   onSelectTicket?: (ticketId: string) => void;
   agentStates: ReadonlySet<string>;
+  columnTitles: ReadonlyMap<string, string>;
+  showWorkflow: boolean;
   api?: ApiClient;
 }
 
@@ -300,15 +370,20 @@ const Column = memo(function Column({
   col,
   collapsed,
   attention,
+  permissionCards,
   onToggle,
   selectedSessionId,
   selectedTicketId,
   onSelect,
   onSelectTicket,
   agentStates,
+  columnTitles,
+  showWorkflow,
   api,
 }: ColumnProps) {
   const bodyId = `board-column-${col.id}`;
+  const waiting = permissionCards.length;
+  const oldest = permissionCards.find((c) => c.session_id !== null);
   return (
     <section
       className={`column column-${col.id} column-kind-${col.kind}${collapsed ? ' collapsed' : ''}`}
@@ -329,6 +404,12 @@ const Column = memo(function Column({
           </span>
           <span className="column-title">{col.title}</span>{' '}
           <span className="count">{col.cards.length}</span>
+          {collapsed && waiting > 0 && (
+            <span className="count-waiting" title={waitingForPermissionText(waiting)}>
+              +{waiting}
+              <span className="visually-hidden"> waiting for permission</span>
+            </span>
+          )}
           {attention && (
             <span className="column-attention" title="New since collapsed">
               <span className="visually-hidden"> (new)</span>
@@ -336,6 +417,16 @@ const Column = memo(function Column({
           )}
         </button>
       </h2>
+      {!collapsed && waiting > 0 && oldest && (
+        <button
+          type="button"
+          className="column-waiting"
+          title="Open the oldest permission request"
+          onClick={() => onSelect(oldest.session_id!)}
+        >
+          +{waitingForPermissionText(waiting)}
+        </button>
+      )}
       <ul id={bodyId} hidden={collapsed}>
         {!collapsed &&
           col.cards.map((card) => (
@@ -351,6 +442,8 @@ const Column = memo(function Column({
                 onSelect={onSelect}
                 {...(onSelectTicket ? { onSelectTicket } : {})}
                 agentStates={agentStates}
+                columnTitles={columnTitles}
+                showWorkflow={showWorkflow}
                 {...(api ? { api } : {})}
               />
             </li>
@@ -370,10 +463,24 @@ interface CardProps {
   onSelectTicket?: (ticketId: string) => void;
   /** The board's agent-state columns, for the plan approval's answer option. */
   agentStates: ReadonlySet<string>;
+  /** Column id → title, for a pending move's target. */
+  columnTitles: ReadonlyMap<string, string>;
+  /** FR-1: name the card's workflow (the board mixes workflows). */
+  showWorkflow: boolean;
   api?: ApiClient;
 }
 
-function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, api }: CardProps) {
+function Card({
+  card,
+  column,
+  selected,
+  onSelect,
+  onSelectTicket,
+  agentStates,
+  columnTitles,
+  showWorkflow,
+  api,
+}: CardProps) {
   const sessionId = card.session_id;
   const q = card.input_request;
   const cls = q ? classifyRequest(q) : null;
@@ -385,7 +492,9 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
   const idle = agentIdle(card);
   const agent = cardAgent(card);
   const name = agent.name;
-  const meta = cardMeta(card, column);
+  const meta = cardMeta(card, column, { showWorkflow });
+  // UXR-33 (FR-4): at most one action; the panel has the rest.
+  const action = cardAction(card, cls, plan);
   return (
     <article className={`card${selected ? ' selected' : ''}`} data-ticket={card.ticket_id}>
       <button
@@ -448,15 +557,6 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
           {card.permission.pending_count > 1 ? ` (+${card.permission.pending_count - 1})` : ''}
         </span>
       )}
-      {/* Questions UX: allow or deny right here; Review opens the panel (Allow always, the input). */}
-      {api && sessionId !== null && card.sub_status === 'needs_permission' && card.permission && (
-        <CardPermissionActions
-          key={card.permission.request_id}
-          api={api}
-          permission={card.permission}
-          onReview={() => onSelect(sessionId)}
-        />
-      )}
       {card.badges.includes('waiting_for_build_slot') && !waitingForBuildSlot(card) && (
         <span className="badge badge-slot">waiting for build slot</span>
       )}
@@ -475,10 +575,16 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
         <AlertBadge files={[...new Set(card.alerts.flatMap((a) => a.files))]} />
       )}
       {conductor ? null : card.pending ? (
-        <PendingChecklist pending={card.pending} />
+        <PendingChecklist
+          pending={card.pending}
+          toTitle={columnTitles.get(card.pending.to) ?? humanize(card.pending.to)}
+        />
       ) : (
         card.checking && (
-          <span className="badge badge-checking">
+          <span
+            className="badge badge-checking"
+            title={`checking requirements for ${card.checking.title} (${card.checking.phase})`}
+          >
             checking requirements for {card.checking.title} ({card.checking.phase})
           </span>
         )
@@ -498,8 +604,9 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
       )}
       {q && cls && (
         <div className={`question request-${cls}`}>
-          <span className={BADGE_CLASS[cls](q.kind)}>
-            {requestLabel(cls, q.kind)} · {ago(q.created_at)}
+          {/* UXR-31: no age here; the meta row says it once. */}
+          <span className={BADGE_CLASS[cls](q.kind)} title={requestLabel(cls, q.kind)}>
+            {requestLabel(cls, q.kind)}
           </span>
           {/* UX-4: a clamped preview; the full text is its accessible name and tooltip. */}
           <button
@@ -514,35 +621,45 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
               {previewText(q.question, cls)}
             </span>
           </button>
-          {cls === 'review' && card.pr_url && (
-            <a className="card-pr-link" href={card.pr_url} target="_blank" rel="noreferrer">
-              Review pull request ↗
-            </a>
-          )}
         </div>
       )}
-      {/* Questions UX: the agent's options replace the generic buttons on the card. */}
-      {api && sessionId !== null && q?.options && !plan ? (
-        <CardQuestionOptions
-          key={q.id}
-          api={api}
-          sessionId={sessionId}
-          request={q}
-          onOpen={() => onSelect(sessionId)}
-        />
-      ) : api && sessionId !== null && plan ? (
-        <PlanApprovalActions
-          api={api}
-          sessionId={sessionId}
-          plan={plan}
-          onReview={() => onSelect(sessionId)}
-        />
-      ) : (
-        api &&
-        sessionId !== null &&
-        card.human_transitions.length > 0 && (
-          <TransitionButtons api={api} sessionId={sessionId} options={card.human_transitions} />
-        )
+      {action?.kind === 'review_pr' && (
+        <a className="card-pr-link" href={action.url} target="_blank" rel="noreferrer">
+          Review pull request ↗
+        </a>
+      )}
+      {api && sessionId !== null && action && (
+        <>
+          {action.kind === 'approve_plan' && (
+            <PlanApprovalActions api={api} sessionId={sessionId} plan={action.plan} />
+          )}
+          {action.kind === 'option' && q && (
+            <CardOptionButton
+              key={q.id}
+              api={api}
+              sessionId={sessionId}
+              request={q}
+              option={action.option}
+            />
+          )}
+          {action.kind === 'answer' && (
+            <div className="card-options">
+              <button type="button" className="primary" onClick={() => onSelect(sessionId)}>
+                Answer…
+              </button>
+            </div>
+          )}
+          {action.kind === 'allow' && (
+            <CardAllowOnce
+              key={action.permission.request_id}
+              api={api}
+              permission={action.permission}
+            />
+          )}
+          {action.kind === 'transition' && (
+            <TransitionButtons api={api} sessionId={sessionId} options={[action.option]} />
+          )}
+        </>
       )}
     </article>
   );
@@ -550,19 +667,17 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
 
 /**
  * 06 §Plan approval on the card: Approve plan posts the approve option (`approve_plan` in v5),
- * else the answer option with the approval text; Review plan opens the session panel (the plan,
- * Request changes…, the other actions).
+ * else the answer option with the approval text. UXR-33: the card's one action; the plan, Request
+ * changes… and the other actions are in the session panel (the card's title or preview opens it).
  */
 function PlanApprovalActions({
   api,
   sessionId,
   plan,
-  onReview,
 }: {
   api: ApiClient;
   sessionId: string;
   plan: PlanOptions;
-  onReview: () => void;
 }) {
   // The board stream carries the card change; no reload needed.
   const { busy, error, post } = usePlanAnswer(api, sessionId);
@@ -578,9 +693,6 @@ function PlanApprovalActions({
         >
           Approve plan
         </button>
-        <button type="button" onClick={onReview}>
-          Review plan
-        </button>
       </div>
       {error && (
         <p role="alert" className="error">
@@ -595,10 +707,17 @@ function PlanApprovalActions({
 function RoutingBadge({ needs, rule }: { needs: string[]; rule: string | null }) {
   // ADR-0013 amendment 2026-10-30: a repo rule first, then what the allowed machines lack.
   if (needs.length === 0) {
-    return <span className="badge badge-routing">{rule ?? 'no online machine can take it'}</span>;
+    const text = rule ?? 'no online machine can take it';
+    return (
+      <span className="badge badge-routing" title={text}>
+        {text}
+      </span>
+    );
   }
+  // UXR-31: one line with an ellipsis, so the hover text has all of it.
+  const full = `${rule !== null ? `${rule}; ` : ''}needs a machine with ${needs.join(', ')}`;
   return (
-    <span className="badge badge-routing">
+    <span className="badge badge-routing" title={full}>
       {rule !== null && `${rule}; `}
       needs a machine with{' '}
       {needs.map((n, i) => (

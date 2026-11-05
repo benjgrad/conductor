@@ -388,7 +388,13 @@ describe('composer', () => {
     const message = await now.findByLabelText<HTMLTextAreaElement>('Message');
     expect(message.placeholder).toBe(`Message ${name}… (/ for commands)`);
     expect(await now.findByText('Also rename it in the docs')).toBeTruthy();
-    expect(now.getByText('running')).toBeTruthy();
+    // UXR-40: one chip, the state's title, styled by the (running) status.
+    const head = (
+      await screen.findByRole('complementary', { name: 'Session detail' })
+    ).querySelector('.detail-head')!;
+    await waitFor(() => expect(head.querySelector('.chip.status-running')).not.toBeNull());
+    expect(head.querySelectorAll('.chip.status')).toHaveLength(1);
+    expect(head.querySelector('.chip.status')!.textContent).not.toMatch(/_|^running$/);
     expect(now.getByRole('heading', { level: 2, name: 'Rename user.fullname' })).toBeTruthy();
   });
 
@@ -928,5 +934,20 @@ describe('review requests in the panel (UX-4 FR-4)', () => {
       ]),
     );
     expect(await panel.findByRole('region', { name: 'Ready for review' })).toBeTruthy();
+  });
+});
+
+describe('panel header while a permission is held (UXR-32 FR-2)', () => {
+  it('the chip says "Waiting for permission", and the state again after the decision', async () => {
+    let requestId = '';
+    const { api } = await setup('Add pagination to /orders', (a) => {
+      requestId = a.requestPermission(SEED_IDS.running.session, 'Bash', { command: 'ls' });
+    });
+    const chip = () => document.querySelector('.detail-head .chip.status');
+    expect(chip()?.textContent).toBe('Waiting for permission');
+    expect(chip()?.className).toContain('status-needs_permission');
+    await api.decidePermission(requestId, { behavior: 'allow', scope: 'once' });
+    await waitFor(() => expect(chip()?.textContent).not.toBe('Waiting for permission'));
+    expect(chip()?.className).toContain('status-running');
   });
 });

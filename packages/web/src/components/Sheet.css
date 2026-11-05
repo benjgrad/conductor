@@ -55,13 +55,13 @@
   overflow-x: auto;
 }
 
-@media (pointer: coarse), (max-width: 699.98px) {
+@media (pointer: coarse), (max-width: 899.98px) {
   .side-sheet-close {
     min-width: var(--tap);
     min-height: var(--tap);
   }
 }
-@media (max-width: 699.98px) {
+@media (max-width: 899.98px) {
   .side-sheet-backdrop {
     display: none;
   }

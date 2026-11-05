@@ -155,7 +155,8 @@ The migration's down drops these four tables and the new `machine` / `machine_re
 | definition | jsonb | see [05](05-workflow-engine.md) |
 | | | [ADR-0010](../adr/0010-one-workflow-columns-are-states.md): the orchestrator seeds `conductor` v1 (`docs/design/workflows/conductor.v1.json`, a copy in `packages/shared/src/workflow/conductor.ts`) on startup when no `conductor` version exists (one guarded INSERT, `ON CONFLICT DO NOTHING`: idempotent, safe on concurrent starts). Older workflows (`m1_*`) stay so their tickets still render |
 | account_id | uuid fk account | M2-T03 (see Tenancy above). The primary key stays `(id, version)` here; M2-T12 makes it `(account_id, id, version)` |
-| created_at, created_by | | |
+| created_at, created_by | | `created_by`: the saver's email over REST (UXR-70), `mcp:<email>` over MCP, `conductor` for a seeded version; null when unknown |
+| note | text null | UXR-70 (migration `1763100000000_workflow-version-note`): an optional note (≤ 500 chars) written when it was saved (the Save review dialog), `Applied proposal: <title>` for an applied change proposal. `created_by` and `note` are shown only to the account that saved the version (`account_id`): workflows are shared by every account |
 | pk | (id, version) | |
 
 ### session
@@ -229,7 +230,7 @@ Only state changes and summaries go here. **Raw terminal output does not** (see 
 | kind | enum | `start_session` · `send_input` · `send_message` · `run_cmd` · `run_action` · `kill` · `connector_call` (one engine `Effect` each, [10](10-contracts.md)). `send_message` was added by migration `1761300000000_outbox-send-message` ([ADR-0007](../adr/0007-live-messages-to-agents.md)), `run_action` (an entry action such as `open_pr`) by `1761400000000_outbox-run-action` ([ADR-0010](../adr/0010-one-workflow-columns-are-states.md)). `push_needs_input` (UX-15, `1761900000000_push-subscriptions`) is the one kind that is **not** an Effect: the EngineService wrapper writes it when it inserts an `input_request`, the push dispatcher sends it, and it has no WS message ([10 §Web Push](10-contracts.md#web-push)) |
 | session_id | fk session null | |
 | payload | jsonb | the WS command payload verbatim (`commandPayloadForEffect`). Once a `start_session` row is terminal (`acked`/`failed`) its `prompt` is set to JSON `null` in the same guarded UPDATE, other fields kept: the prompt can carry the `attach: output` command tail ([U-039](../tracking/UNKNOWNS.md)). A terminal `send_message` row gets the same treatment for its `text` (the message's record is its `operator.message` event row; [ADR-0007](../adr/0007-live-messages-to-agents.md)) |
-| idempotency_key | text null | connectors and `run_action` rows: `<session_id>:<state>:<visit>`, see [05](05-workflow-engine.md#idempotency); `push_needs_input` rows: the input request id, unique per target (`outbox_push_idem_idx`) |
+| idempotency_key | text null | connectors and `run_action` rows: `<session_id>:<state>:<visit>`, see [05](05-workflow-engine.md#idempotency); `push_needs_input` rows: the input request id, or `permission:<permission request id>` for a permission prompt (UXR-32), unique per target (`outbox_push_idem_idx`) |
 | fencing_token | bigint null | `session.fencing_token` when the row was written; the WS envelope's token. A row below the session's current token is failed `stale_fencing_token`, not sent. null for `connector:` rows ([10](10-contracts.md#effect--ws-fields)) |
 | status | enum | `pending` · `sent` · `acked` · `failed` ([10](10-contracts.md#outbox-state-machine): dispatcher writes `sent`, gateway writes `acked`/`failed`, all guarded) |
 | attempts, next_attempt_at | | |

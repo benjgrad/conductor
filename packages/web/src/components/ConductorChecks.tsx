@@ -207,6 +207,23 @@ const RETRY = /\s*Retry, skip, or abort\?\s*$/;
  * (`stepUnmet` / `stepFail` / a refused check / a missing verdict); null if it doesn't parse.
  * TD-152: reads the engine's wording until M2c persists structured check results.
  */
+/**
+ * UXR-39 (FR-4): the output a failure question quotes for `item` (its `Last output of "<item>":`
+ * block, up to the next one or the retry line); null when it quotes none.
+ */
+export function lastOutputOfQuestion(question: string, item: string | null): string | null {
+  const lines = question.trim().split('\n');
+  const head =
+    item !== null
+      ? lines.indexOf(`Last output of "${item}":`)
+      : lines.findIndex((l) => /^Last output of ".*":$/.test(l));
+  if (head < 0) return null;
+  const rest = lines.slice(head + 1);
+  const end = rest.findIndex((l) => /^Last output of ".*":$/.test(l) || RETRY.test(l));
+  const text = (end === -1 ? rest : rest.slice(0, end)).join('\n').trim();
+  return text === '' ? null : text;
+}
+
 export function failedItemOfQuestion(question: string): FailedItem | null {
   const text = question.trim();
   // stepUnmet after the retries: "- <item>: <reason>" lines, then each one's last output.

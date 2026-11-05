@@ -1,13 +1,14 @@
 import type { WorkflowDefinition } from '@conductor/shared';
-import { useMemo, type KeyboardEvent } from 'react';
-import { columnTitle, QUEUED_LANE, type LaneEdge } from './columns.js';
+import { useMemo, useState, type KeyboardEvent } from 'react';
+import { columnTitle, LANE_KIND_LABELS, QUEUED_LANE, type LaneEdge } from './columns.js';
 import { layoutLanes, type LaidLane, type LaidLaneEdge } from './columns-layout.js';
 import './workflow.css';
 
 // The one workflow drawn as its board columns (ADR-0010): an implicit Queued lane, then one lane
 // per state in `columns` order, with labelled transition arrows between them and dashed "not met"
 // loops back. Lanes are buttons when `onSelectColumn` is given, and arrows when `onSelectEdge` is
-// (the Workflow view's editors, ADR-0011).
+// (the Workflow view's editors, ADR-0011). UXR-45: it fits the width by default; the zoom
+// buttons enlarge it inside its scroll box.
 
 export interface ColumnsDiagramProps {
   definition: WorkflowDefinition;
@@ -22,6 +23,10 @@ export interface ColumnsDiagramProps {
   selectedEdge?: string | null;
   /** Edge ids with validation problems. */
   errorEdges?: ReadonlySet<string>;
+  /** UXR-73: columns a compared version or a proposal changes (highlighted). */
+  changedStates?: ReadonlySet<string>;
+  /** UXR-73: arrows (`arrowId`) it changes; ids not drawn are ignored. */
+  changedEdges?: ReadonlySet<string>;
   /** The session's lane (a state name or QUEUED_LANE). */
   current?: string | null;
   /** The session's entry step (ADR-0010): it is checking the requirements to enter `to`. */
@@ -39,12 +44,16 @@ export function ColumnsDiagram({
   onSelectEdge,
   selectedEdge,
   errorEdges,
+  changedStates,
+  changedEdges,
   current,
   checking,
   compact = false,
   label,
 }: ColumnsDiagramProps) {
   const layout = useMemo(() => layoutLanes(definition, { compact }), [definition, compact]);
+  // null = fit to the container width.
+  const [zoom, setZoom] = useState<number | null>(null);
   const isChecking = (e: LaidLaneEdge) =>
     !!checking && e.edge.kind === 'outcome' && e.edge.to === checking.to && e.edge.from === current;
   // ADR-0011: an arrow (and a dashed loop that belongs to one transition) opens its transitions.
@@ -52,14 +61,36 @@ export function ColumnsDiagram({
     !!onSelectEdge && (e.edge.kind === 'outcome' || e.edge.owner !== undefined);
   return (
     <div className={`wf-diagram${compact ? ' compact' : ''}`}>
+      {!compact && (
+        <div className="wf-zoom wf-zoom-inline" role="toolbar" aria-label="Zoom">
+          <button
+            type="button"
+            aria-label="Zoom out"
+            onClick={() => setZoom((z) => Math.max(0.5, (z ?? 1) / 1.25))}
+          >
+            −
+          </button>
+          <button type="button" onClick={() => setZoom(null)} aria-pressed={zoom === null}>
+            Fit
+          </button>
+          <button
+            type="button"
+            aria-label="Zoom in"
+            onClick={() => setZoom((z) => Math.min(3, (z ?? 1) * 1.25))}
+          >
+            +
+          </button>
+        </div>
+      )}
       <div className={compact ? undefined : 'wf-scroll'}>
         <svg
           className="wf-svg wf-lanes"
           role="group"
           aria-label={label ?? `${definition.id} v${definition.version} columns`}
           viewBox={`0 0 ${layout.width} ${layout.height}`}
-          width={compact ? '100%' : layout.width}
-          {...(compact ? { style: { maxWidth: layout.width } } : { height: layout.height })}
+          {...(zoom === null
+            ? { width: '100%', style: { maxWidth: layout.width } }
+            : { width: layout.width * zoom, height: layout.height * zoom })}
           preserveAspectRatio="xMinYMin meet"
         >
           <g className="wf-lanes-lanes">
@@ -69,6 +100,7 @@ export function ColumnsDiagram({
                 laid={l}
                 selected={l.lane.id === selected}
                 error={!!errors?.has(l.lane.id)}
+                changed={!!changedStates?.has(l.lane.id)}
                 current={l.lane.id === current}
                 checking={checking?.to === l.lane.id}
                 checkingPhase={checking?.phase ?? null}
@@ -81,6 +113,7 @@ export function ColumnsDiagram({
           <g className="wf-edges">
             {layout.edges.map((e) => {
               const selectable = isSelectable(e);
+              const changed = !!changedEdges?.has(e.edge.id);
               const activate = () => onSelectEdge?.(e.edge);
               return (
                 <g
@@ -94,6 +127,7 @@ export function ColumnsDiagram({
                     selectable ? 'selectable' : '',
                     e.edge.id === selectedEdge ? 'selected' : '',
                     errorEdges?.has(e.edge.id) ? 'error' : '',
+                    changed ? 'changed' : '',
                   ]
                     .filter(Boolean)
                     .join(' ')}
@@ -103,7 +137,7 @@ export function ColumnsDiagram({
                     ? {
                         tabIndex: 0,
                         role: 'button',
-                        'aria-label': `Arrow ${e.edge.title}`,
+                        'aria-label': `Arrow ${e.edge.title}${changed ? ' (changed)' : ''}`,
                         'aria-pressed': e.edge.id === selectedEdge,
                         onClick: activate,
                         onKeyDown: (ev: KeyboardEvent) => {
@@ -149,8 +183,12 @@ export function ColumnsDiagram({
                   height={e.label.h}
                   rx={4}
                 />
-                <text className="wf-outcome" x={e.label.x + 5} y={e.label.y + e.label.h - 4}>
-                  {e.label.text}
+                <text className="wf-outcome" x={e.label.x + 5} y={e.label.y + 14}>
+                  {e.label.lines.map((line, i) => (
+                    <tspan key={i} x={e.label.x + 5} {...(i > 0 ? { dy: 14 } : {})}>
+                      {line}
+                    </tspan>
+                  ))}
                   {e.label.badge && (
                     <tspan className="wf-gate" dx={6}>
                       {e.label.badge}
@@ -170,6 +208,7 @@ function LaneBox({
   laid,
   selected,
   error,
+  changed,
   current,
   checking,
   checkingPhase,
@@ -178,6 +217,7 @@ function LaneBox({
   laid: LaidLane;
   selected: boolean;
   error: boolean;
+  changed: boolean;
   current: boolean;
   checking: boolean;
   checkingPhase: string | null;
@@ -185,6 +225,7 @@ function LaneBox({
 }) {
   const { lane, x, y, w, h, lines } = laid;
   const type = lane.state?.type ?? 'queued';
+  const kindLabel = LANE_KIND_LABELS[lane.kind];
   const activate = () => onSelect?.(lane.id);
   const onKeyDown = (ev: KeyboardEvent) => {
     if (ev.key === 'Enter' || ev.key === ' ') {
@@ -195,15 +236,17 @@ function LaneBox({
   const cls = [
     'wf-lane',
     `wf-lane-${type}`,
+    `wf-lane-kind-${lane.kind}`,
     current ? 'current' : '',
     checking ? 'checking' : '',
     selected ? 'selected' : '',
     error ? 'error' : '',
+    changed ? 'changed' : '',
     onSelect ? 'selectable' : '',
   ]
     .filter(Boolean)
     .join(' ');
-  const name = `Column ${lane.title}: ${lane.work}${lane.entry ? ', has requirements to enter' : ''}`;
+  const name = `Column ${lane.title}: ${lane.work}${lane.entry ? ', has requirements to enter' : ''}${changed ? ' (changed)' : ''}`;
   const tip = checking
     ? `${name}; checking requirements to enter${checkingPhase ? ` (${checkingPhase})` : ''}`
     : name;
@@ -240,6 +283,11 @@ function LaneBox({
       )}
       {lines.map((l, i) => (
         <text key={i} className={l.cls} x={x + 10} y={l.y}>
+          {l.icon && (
+            <tspan className="wf-lane-icon" aria-hidden="true">
+              {`${l.icon} `}
+            </tspan>
+          )}
           {l.text}
         </text>
       ))}

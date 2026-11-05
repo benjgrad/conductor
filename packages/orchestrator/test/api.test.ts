@@ -224,6 +224,25 @@ describe('workflows', () => {
     expect(first.definition.states.needs_input).toEqual({ type: 'human' });
   });
 
+  it('POST /api/workflows {note} → the version history has it, with who and when (UXR-70)', async () => {
+    const def = { ...m1Basic, id: 'noted_wf' };
+    expect((await post('/api/workflows', { definition: def })).status).toBe(201);
+    expect(
+      (await post('/api/workflows', { definition: def, note: '  Fewer questions  ' })).status,
+    ).toBe(201);
+    const d = WorkflowDetailSchema.parse((await get('/api/workflows/noted_wf')).body);
+    expect(d.note).toBe('Fewer questions');
+    expect(d.history?.map((h) => [h.version, h.note])).toEqual([
+      [1, null],
+      [2, 'Fewer questions'],
+    ]);
+    expect(d.history?.[1]?.created_by).toBe(d.created_by);
+    expect(Date.parse(d.history![0]!.created_at)).not.toBeNaN();
+
+    const long = await post('/api/workflows', { definition: def, note: 'x'.repeat(501) });
+    expect(long.status).toBe(400);
+  });
+
   it('GET /api/workflows/:id: 404 for an unknown id or version, 400 for a bad version', async () => {
     for (const path of ['/api/workflows/nope', '/api/workflows/m1_basic?version=999']) {
       const res = await get(path);

@@ -169,9 +169,11 @@
 .wf-label-unmet .wf-outcome {
   fill: var(--warn);
 }
+/* UXR-45 FR-4: a solid label background, so a line that must cross a label stays under it. */
 .wf-halo {
   fill: var(--panel);
-  opacity: 0.88;
+  stroke: var(--border);
+  stroke-width: 1;
 }
 .wf-label.selectable {
   cursor: pointer;
@@ -268,6 +270,30 @@
   font-size: 12px;
   margin: 0;
 }
+.wf-legend-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.wf-legend-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border: 1.5px solid var(--kind);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--kind) 7%, var(--panel));
+  color: var(--text);
+}
+.wf-legend-kind .wf-legend-icon {
+  color: var(--kind);
+}
+/* The columns diagram's zoom bar sits above the drawing, so it never covers the last column. */
+.wf-zoom.wf-zoom-inline {
+  position: static;
+  justify-content: flex-end;
+  padding: 4px 4px 0;
+}
 
 /* Transition editor */
 .wf-editor {
@@ -320,7 +346,10 @@
   gap: 2px;
 }
 .wf-item-actions button {
-  padding: 0 6px;
+  /* UXR-61: at least 24 px (WCAG 2.5.8). */
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 4px;
   font-size: 12px;
 }
 .wf-unmet {
@@ -405,22 +434,30 @@ main[hidden] {
   stroke: var(--border);
   stroke-width: 1.4;
 }
-.wf-lane-queued .wf-lane-box {
-  fill: color-mix(in srgb, var(--panel) 80%, var(--bg));
-  stroke-dasharray: 4 3;
+/* UXR-68: a column's kind is its border colour and icon; boxes are never dashed (dashed means
+   "requirements not met", on arrows only). */
+.wf-lane-kind-agent {
+  --kind: var(--accent);
 }
-.wf-lane-human .wf-lane-box {
-  fill: var(--ask-bg);
-  stroke: var(--ask);
-  stroke-dasharray: 5 3;
+.wf-lane-kind-person {
+  --kind: var(--ask);
 }
-.wf-lane-event .wf-lane-box {
-  fill: var(--warn-bg);
-  stroke: var(--warn);
+.wf-lane-kind-waiting {
+  --kind: var(--warn);
 }
-.wf-lane-terminal .wf-lane-box {
-  fill: color-mix(in srgb, var(--ok) 10%, var(--panel));
-  stroke: var(--ok);
+.wf-lane-kind-queue {
+  --kind: var(--muted);
+}
+.wf-lane-kind-end {
+  --kind: var(--ok);
+}
+.wf-lane[class*='wf-lane-kind-'] .wf-lane-box {
+  fill: color-mix(in srgb, var(--kind) 7%, var(--panel));
+  stroke: var(--kind);
+  stroke-width: 1.6;
+}
+.wf-lane .wf-lane-icon {
+  fill: var(--kind, var(--muted));
 }
 .wf-lane text {
   fill: var(--text);
@@ -481,8 +518,7 @@ main[hidden] {
 }
 .wf-lane.checking .wf-lane-box {
   stroke: var(--accent);
-  stroke-width: 2;
-  stroke-dasharray: 6 4;
+  stroke-width: 3;
 }
 .wf-label-start text {
   fill: var(--muted);
@@ -514,14 +550,94 @@ main[hidden] {
 .wf-field input {
   color: var(--text);
 }
-.wf-check {
+/* UXR-61: the checks as a labelled table (ChecksFields). */
+.wf-checks-scroll {
+  overflow-x: auto;
+}
+.wf-checks {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.wf-checks th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 0 4px 2px 0;
+}
+.wf-checks td {
+  vertical-align: top;
+  padding: 0 4px 4px 0;
+}
+.wf-checks .wf-checks-name {
+  width: 30%;
+}
+.wf-checks .wf-checks-timeout {
+  width: 6em;
+}
+.wf-checks .wf-checks-order {
+  width: 84px;
+}
+.wf-checks input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.wf-checks .mono,
+.wf-condition .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.wf-checks .wf-checks-problems td {
+  padding-top: 0;
+}
+.wf-checks .wf-item-actions {
+  flex-direction: row;
+}
+/* UXR-62: a condition as a sentence with its inputs inline. */
+.wf-condition {
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
-.wf-check .mono {
+.wf-condition-text {
+  margin: 0;
+  line-height: 2;
+}
+.wf-condition-text input {
+  display: inline-block;
+  width: auto;
+  margin: 0 4px;
+}
+.wf-condition-text input[type='number'] {
+  width: 4em;
+}
+.wf-condition-text .wf-short {
+  width: 5em;
+}
+.wf-condition-text .wf-long {
+  width: 12em;
+}
+.wf-condition-value {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
+}
+.wf-condition-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.wf-link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  min-height: 24px;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 12px;
+  align-self: flex-start;
 }
 .wf-toggle {
   display: flex;
@@ -788,4 +904,178 @@ main[hidden] {
   .wf-view.with-editor.with-transition {
     grid-template-columns: minmax(0, 1fr) clamp(560px, 42vw, 640px);
   }
+}
+
+/* UXR-73: columns and arrows a compared version or a proposal changes. Purple, unlike selection
+   (accent) and problems (ask); a dashed outline so it reads without colour too. */
+.wf-lane.changed .wf-lane-box {
+  stroke: var(--tool);
+  stroke-width: 3;
+  stroke-dasharray: 7 3;
+  fill: color-mix(in srgb, var(--tool) 8%, var(--panel));
+}
+.wf-edge.changed .wf-line {
+  stroke: var(--tool);
+  stroke-width: 3;
+}
+.wf-edge.changed .wf-arrow {
+  fill: var(--tool);
+}
+
+/* UXR-70 / UXR-73: the readable diff (Compare, the Save review, proposals). */
+.wf-diff {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wf-diff-item {
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: var(--panel);
+  font-size: 13px;
+}
+.wf-diff-item.wf-diff-added {
+  border-left-color: var(--diff-add);
+}
+.wf-diff-item.wf-diff-removed {
+  border-left-color: var(--diff-del);
+}
+.wf-diff-item.wf-diff-changed {
+  border-left-color: var(--tool);
+}
+.wf-diff-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+.wf-diff-op {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-radius: 999px;
+  padding: 0 8px;
+}
+.wf-diff-added .wf-diff-op {
+  color: var(--diff-add);
+  background: var(--diff-add-bg);
+}
+.wf-diff-removed .wf-diff-op {
+  color: var(--diff-del);
+  background: var(--diff-del-bg);
+}
+.wf-diff-changed .wf-diff-op {
+  color: var(--tool);
+  background: color-mix(in srgb, var(--tool) 12%, var(--panel));
+}
+.wf-diff-head button {
+  margin-left: auto;
+}
+.wf-diff-lines {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.wf-diff-sentences {
+  margin: 4px 0 0;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 8px;
+  color: var(--muted);
+}
+.wf-diff-sentences dt {
+  font-weight: 600;
+}
+.wf-diff-sentences dd {
+  margin: 0;
+}
+.wf-diff-section {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.wf-history {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.wf-history th,
+.wf-history td {
+  text-align: left;
+  vertical-align: top;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.wf-history tr[aria-current='true'] td {
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+}
+.wf-history-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.wf-compare {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+  margin-top: 8px;
+}
+.wf-old-version {
+  border-left: 3px solid var(--accent);
+  padding: 4px 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+}
+.wf-review-dialog {
+  max-width: min(760px, 92vw);
+  width: 100%;
+  max-height: 86vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 16px 20px;
+}
+.wf-review-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-sheet);
+  background: rgb(0 0 0 / 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wf-review-dialog textarea {
+  width: 100%;
+  min-height: 64px;
+  box-sizing: border-box;
+}
+.wf-review-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.wf-review-note {
+  display: block;
+  margin: 12px 0 4px;
+  font-weight: 600;
+}
+/* UXR-70: the version picker's options carry date, author and note; keep it inside the page. */
+.wf-toolbar label {
+  max-width: 100%;
+  min-width: 0;
+}
+.wf-toolbar select {
+  max-width: min(48ch, 100%);
+  text-overflow: ellipsis;
 }

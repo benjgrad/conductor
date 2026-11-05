@@ -72,7 +72,7 @@ async function setup(
 describe('PlanApprovalRequest (06 §Plan approval)', () => {
   it('shows the badge, the question and the plan as Markdown, visible by default', async () => {
     const { panel } = await setup();
-    expect(panel.getByText(PLAN_APPROVAL_LABEL, { selector: '.badge' })).toBeTruthy();
+    expect(panel.getByText(PLAN_APPROVAL_LABEL, { selector: '.request-chip' })).toBeTruthy();
     expect(panel.getByText('Robin asks')).toBeTruthy();
     expect(panel.getByText('budget', { selector: 'strong' })).toBeTruthy();
     const plan = within(panel.getByRole('region', { name: 'The plan' }));

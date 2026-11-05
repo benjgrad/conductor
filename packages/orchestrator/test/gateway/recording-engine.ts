@@ -15,6 +15,9 @@ import type { Db } from '../../src/main.js';
 export class RecordingEngine implements EngineService {
   readonly calls: { sessionId: string; event: EngineEvent; opts: ApplyEventOptions }[] = [];
   private readonly inner: EngineService;
+  /** UX-15 / UXR-32: off unless a test turns it on; `pushWakes` counts `pushWritten()`. */
+  pushEnabled = false;
+  pushWakes = 0;
 
   constructor(db: Db, boardBus: BoardBus) {
     this.inner = createEngineService({ db, boardBus }).engine;
@@ -27,5 +30,9 @@ export class RecordingEngine implements EngineService {
   ): Promise<ApplyEventResult> {
     this.calls.push({ sessionId, event, opts });
     return this.inner.applyEvent(sessionId, event, opts);
+  }
+
+  pushWritten(): void {
+    this.pushWakes++;
   }
 }

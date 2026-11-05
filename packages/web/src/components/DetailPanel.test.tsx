@@ -17,6 +17,7 @@ import { createMockApi } from '../api/mock.js';
 import { App } from '../App.js';
 import { AgentAvatar, agentName, AGENT_NAMES, avatarTraits, cardAgent } from './agent-identity.js';
 import { Board } from './Board.js';
+import { COMPOSER_HINT, FINE_POINTER_QUERY } from './Composer.js';
 import { ContextView } from './ContextView.js';
 import { OutputLog } from './OutputLog.js';
 import { implementerReport } from './review-fixture.js';
@@ -366,6 +367,39 @@ describe('composer', () => {
     expect(box.disabled).toBe(true);
     expect(panel.getByText('Session finished')).toBeTruthy();
     expect(panel.getByRole<HTMLButtonElement>('button', { name: 'Send' }).disabled).toBe(true);
+    // FR-3: the reason is shown once (not in the placeholder too), and is the box's description.
+    expect(box.placeholder).toBe('');
+    expect(document.getElementById(box.getAttribute('aria-describedby')!)?.textContent).toBe(
+      'Session finished',
+    );
+  });
+
+  it('shows the Enter / Shift+Enter hint only on a fine pointer (FR-3)', async () => {
+    const coarse = await setup('Add audit log table');
+    expect(coarse.panel.queryByText(COMPOSER_HINT)).toBeNull();
+    cleanup();
+    const before = Object.getOwnPropertyDescriptor(window, 'matchMedia');
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: (query: string) => ({
+        matches: query === FINE_POINTER_QUERY,
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+      }),
+    });
+    try {
+      const fine = await setup('Add audit log table');
+      expect(fine.panel.getByText(COMPOSER_HINT)).toBeTruthy();
+      const box = fine.panel.getByLabelText<HTMLTextAreaElement>('Answer');
+      expect(box.placeholder).not.toMatch(/Enter/);
+    } finally {
+      if (before) Object.defineProperty(window, 'matchMedia', before);
+      else delete (window as { matchMedia?: unknown }).matchMedia;
+    }
   });
 
   it('reopens a done ticket with the same agent and switches to the new session (ADR-0008)', async () => {
@@ -895,17 +929,75 @@ describe('review requests in the panel (UX-4 FR-4)', () => {
       asReview({ origin_transition: 'personal_pr_ready_for_review' }),
     );
     const card = within(await panel.findByRole('region', { name: 'Ready for review' }));
-    expect(card.getByText('Ready for review')).toBeTruthy();
+    // UXR-35: green, a "Ready for review" chip, no "Action needed" caps.
+    expect(card.getByText('Ready for review', { selector: '.request-chip' })).toBeTruthy();
+    expect(card.queryByText(/Action needed/i)).toBeNull();
+    expect(panel.getByRole('region', { name: 'Ready for review' }).className).toContain(
+      'request-review',
+    );
     expect(card.getByText(/Acceptance 8\/10/).textContent).toBe(
       'complete · Acceptance 8/10, gates ✓ · 1 for review',
     );
-    expect(card.getByRole('link', { name: /pull request/i }).getAttribute('href')).toBe(PR);
-    const details = card.getByText('Full report').closest('details')!;
-    expect(details.open).toBe(false);
+    expect(card.getByRole('link', { name: 'Open PR ↗' }).getAttribute('href')).toBe(PR);
+    const toggle = card.getByRole('button', { name: 'Full report' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(card.queryByRole('region', { name: 'Full report' })).toBeNull();
+    fireEvent.click(toggle);
+    expect(card.getByRole('region', { name: 'Full report' })).toBeTruthy();
     expect(panel.queryByRole('region', { name: 'Pending input' })).toBeNull();
-    expect(card.queryByText('Question')).toBeNull();
-    // The composer still answers it.
-    expect(panel.getByLabelText('Answer')).toBeTruthy();
+    // The composer still answers it, asking for changes (FR-3).
+    const box = panel.getByLabelText<HTMLTextAreaElement>('Answer');
+    expect(box.placeholder).toMatch(/^Ask .+ for changes…$/);
+  });
+
+  it('Request changes… puts the cursor in the composer (FR-2)', async () => {
+    const { panel } = await setup(
+      'Add audit log table',
+      asReview({ origin_transition: 'personal_pr_ready_for_review' }),
+    );
+    const card = within(await panel.findByRole('region', { name: 'Ready for review' }));
+    fireEvent.click(card.getByRole('button', { name: 'Request changes…' }));
+    expect(document.activeElement).toBe(panel.getByLabelText('Answer'));
+  });
+
+  it("Approve takes the review state's approving transition, offered once (FR-2)", async () => {
+    const options = [
+      { name: 'done', title: 'Merged, done', goto: 'done', needs_text: false },
+      { name: 'request_changes', title: 'Request changes', goto: 'implement', needs_text: true },
+    ];
+    const transitions: [string, unknown][] = [];
+    const { panel } = await setup('Add audit log table', (api) => {
+      asReview({ origin_transition: 'personal_pr_ready_for_review' })(api);
+      const get = api.getSession.bind(api);
+      api.getSession = async (sid) => {
+        const d = await get(sid);
+        return sid === SEED_IDS.askNewer.session
+          ? { ...d, card: { ...d.card, human_transitions: options } }
+          : d;
+      };
+      api.transition = (sid, req) => {
+        transitions.push([sid, req]);
+        return Promise.resolve({ ok: true });
+      };
+    });
+    const card = within(await panel.findByRole('region', { name: 'Ready for review' }));
+    const approve = card.getByRole('button', { name: 'Approve' });
+    expect(approve.classList.contains('primary')).toBe(true);
+    // The generic buttons under the chat no longer repeat it.
+    expect(panel.queryByRole('button', { name: /Merged, done/ })).toBeNull();
+    expect(panel.getAllByRole('button', { name: /^Request changes/ })).toHaveLength(2);
+    fireEvent.click(approve);
+    await waitFor(() => expect(transitions).toHaveLength(1));
+    expect(transitions[0]).toEqual([SEED_IDS.askNewer.session, { name: 'done' }]);
+  });
+
+  it('no Approve when the review state has no single approving transition', async () => {
+    const { panel } = await setup(
+      'Add audit log table',
+      asReview({ origin_transition: 'personal_pr_ready_for_review' }),
+    );
+    const card = within(await panel.findByRole('region', { name: 'Ready for review' }));
+    expect(card.queryByRole('button', { name: 'Approve' })).toBeNull();
   });
 
   it('a real question keeps the Pending input box', async () => {
@@ -916,6 +1008,7 @@ describe('review requests in the panel (UX-4 FR-4)', () => {
     const box = within(await panel.findByRole('region', { name: 'Pending input' }));
     expect(box.getByText('Question')).toBeTruthy();
     expect(panel.queryByRole('region', { name: 'Ready for review' })).toBeNull();
+    expect(panel.getByLabelText<HTMLTextAreaElement>('Answer').placeholder).toMatch(/^Answer .+…$/);
   });
 
   it('an older server (no origin_transition): the last move decides', async () => {
@@ -934,5 +1027,20 @@ describe('review requests in the panel (UX-4 FR-4)', () => {
       ]),
     );
     expect(await panel.findByRole('region', { name: 'Ready for review' })).toBeTruthy();
+  });
+});
+
+describe('panel header while a permission is held (UXR-32 FR-2)', () => {
+  it('the chip says "Waiting for permission", and the state again after the decision', async () => {
+    let requestId = '';
+    const { api } = await setup('Add pagination to /orders', (a) => {
+      requestId = a.requestPermission(SEED_IDS.running.session, 'Bash', { command: 'ls' });
+    });
+    const chip = () => document.querySelector('.detail-head .chip.status');
+    expect(chip()?.textContent).toBe('Waiting for permission');
+    expect(chip()?.className).toContain('status-needs_permission');
+    await api.decidePermission(requestId, { behavior: 'allow', scope: 'once' });
+    await waitFor(() => expect(chip()?.textContent).not.toBe('Waiting for permission'));
+    expect(chip()?.className).toContain('status-running');
   });
 });

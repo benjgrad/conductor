@@ -1396,6 +1396,90 @@ button.link {
   }
 }
 
+/* UXR-26 (11-web-ui §Breakpoint): on the desktop board the document never scrolls. The shell is
+   the window's height, so the top bar stays put, each column body scrolls on its own, and the
+   session panel fills the height with its composer pinned at the bottom. */
+@media (min-width: 700px) {
+  .app.board-view {
+    /* Contains the absolutely positioned .visually-hidden spans, which would lengthen the page. */
+    position: relative;
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  /* The top bar, an error banner and the new-ticket form keep their height. */
+  .app.board-view > * {
+    flex: none;
+  }
+  .app.board-view > main {
+    flex: 1;
+    min-height: 0;
+    align-items: stretch;
+  }
+  .app.board-view .board-area {
+    min-height: 0;
+  }
+  .app.board-view .board {
+    flex: 1;
+    min-height: 0;
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .app.board-view .column {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .app.board-view .column > ul {
+    /* Its cards' .visually-hidden spans scroll with them. */
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .app.board-view .column.collapsed .column-toggle {
+    min-height: 0;
+  }
+  .app.board-view .detail {
+    position: static;
+    height: auto;
+    min-height: 0;
+    align-self: stretch;
+  }
+  /* FR-3: the inline new-ticket form scrolls in its own box rather than pushing the page. */
+  .app.board-view > .create-ticket {
+    max-height: 60%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .app.board-view > .create-ticket .ticket-body-plain,
+  .app.board-view > .create-ticket .ticket-body-rich {
+    max-height: 40vh;
+  }
+}
+/* The stacked layout (board above the panel): main is the scroller, columns keep their height. */
+@media (min-width: 700px) and (max-width: 900px) {
+  .app.board-view > main {
+    overflow-y: auto;
+  }
+  .app.board-view .board-area,
+  .app.board-view .board {
+    flex: none;
+  }
+  .app.board-view .board {
+    grid-template-rows: auto;
+  }
+  .app.board-view .column > ul {
+    overflow-y: visible;
+  }
+  .app.board-view .detail {
+    flex: none;
+    height: min(85vh, 760px);
+  }
+}
+
 /* 11-web-ui §Touch: on a coarse pointer or a phone every control is at least --tap tall. The card's
    title and preview are text inside a tappable card, so they keep their line height. */
 @media (pointer: coarse), (max-width: 699.98px) {

@@ -1134,6 +1134,8 @@ pub enum Condition {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         label: ::std::option::Option<ConditionLabel>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        no_checks: ::std::option::Option<ConditionNoChecks>,
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         no_checks_after: ::std::option::Option<ConditionNoChecksAfter>,
     },
     #[serde(rename = "pr_approvals")]
@@ -1177,6 +1179,84 @@ pub enum Condition {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         label: ::std::option::Option<ConditionLabel>,
     },
+    #[serde(rename = "cmd")]
+    Cmd {
+        cmd: ConditionCmd,
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        enabled: ::std::option::Option<bool>,
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        label: ::std::option::Option<ConditionLabel>,
+        name: ConditionName,
+        #[serde(default = "defaults::condition_cmd_needs")]
+        needs: ConditionNeeds,
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        timeout: ::std::option::Option<ConditionTimeout>,
+    },
+    #[serde(rename = "pr_mergeable")]
+    PrMergeable {
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        enabled: ::std::option::Option<bool>,
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        label: ::std::option::Option<ConditionLabel>,
+    },
+    #[serde(rename = "age_below")]
+    AgeBelow {
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        enabled: ::std::option::Option<bool>,
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        label: ::std::option::Option<ConditionLabel>,
+        max: ConditionMax,
+    },
+}
+///`ConditionCmd`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ConditionCmd(::std::string::String);
+impl ::std::ops::Deref for ConditionCmd {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ConditionCmd> for ::std::string::String {
+    fn from(value: ConditionCmd) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ConditionCmd {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ConditionCmd {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for ConditionCmd {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ConditionCmd {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
 }
 ///`ConditionFieldsItem`
 #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -1284,6 +1364,174 @@ impl<'de> ::serde::Deserialize<'de> for ConditionLabel {
             })
     }
 }
+///`ConditionMax`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ConditionMax(::std::string::String);
+impl ::std::ops::Deref for ConditionMax {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ConditionMax> for ::std::string::String {
+    fn from(value: ConditionMax) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ConditionMax {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^(\\d+)(ms|s|m|h|d)$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^(\\d+)(ms|s|m|h|d)$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ConditionMax {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for ConditionMax {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ConditionMax {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`ConditionName`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ConditionName(::std::string::String);
+impl ::std::ops::Deref for ConditionName {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ConditionName> for ::std::string::String {
+    fn from(value: ConditionName) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ConditionName {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 200usize {
+            return Err("longer than 200 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ConditionName {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for ConditionName {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ConditionName {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`ConditionNeeds`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ConditionNeeds {
+    #[serde(rename = "checkout")]
+    Checkout,
+    #[serde(rename = "setup")]
+    Setup,
+}
+impl ::std::fmt::Display for ConditionNeeds {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Checkout => f.write_str("checkout"),
+            Self::Setup => f.write_str("setup"),
+        }
+    }
+}
+impl ::std::str::FromStr for ConditionNeeds {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "checkout" => Ok(Self::Checkout),
+            "setup" => Ok(Self::Setup),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ConditionNeeds {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for ConditionNeeds {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::default::Default for ConditionNeeds {
+    fn default() -> Self {
+        ConditionNeeds::Setup
+    }
+}
+///`ConditionNoChecks`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ConditionNoChecks {
+    pub after: ConditionNoChecksAfter,
+    pub policy: ConditionNoChecksPolicy,
+}
 ///`ConditionNoChecksAfter`
 #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[serde(transparent)]
@@ -1334,6 +1582,61 @@ impl<'de> ::serde::Deserialize<'de> for ConditionNoChecksAfter {
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
+    }
+}
+///`ConditionNoChecksPolicy`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ConditionNoChecksPolicy {
+    #[serde(rename = "pass")]
+    Pass,
+    #[serde(rename = "fail")]
+    Fail,
+    #[serde(rename = "require_mergeable")]
+    RequireMergeable,
+}
+impl ::std::fmt::Display for ConditionNoChecksPolicy {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Pass => f.write_str("pass"),
+            Self::Fail => f.write_str("fail"),
+            Self::RequireMergeable => f.write_str("require_mergeable"),
+        }
+    }
+}
+impl ::std::str::FromStr for ConditionNoChecksPolicy {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "pass" => Ok(Self::Pass),
+            "fail" => Ok(Self::Fail),
+            "require_mergeable" => Ok(Self::RequireMergeable),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ConditionNoChecksPolicy {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for ConditionNoChecksPolicy {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 ///`ConditionPipeline`
@@ -1459,6 +1762,58 @@ impl ::std::convert::TryFrom<::std::string::String> for ConditionResultStatus {
         value.parse()
     }
 }
+///`ConditionTimeout`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ConditionTimeout(::std::string::String);
+impl ::std::ops::Deref for ConditionTimeout {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ConditionTimeout> for ::std::string::String {
+    fn from(value: ConditionTimeout) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ConditionTimeout {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^(\\d+)(ms|s|m|h|d)$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^(\\d+)(ms|s|m|h|d)$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ConditionTimeout {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for ConditionTimeout {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ConditionTimeout {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 ///`ConditionType`
 #[derive(
     ::serde::Deserialize,
@@ -1485,6 +1840,12 @@ pub enum ConditionType {
     AzurePipelineSucceeded,
     #[serde(rename = "jira_fields_set")]
     JiraFieldsSet,
+    #[serde(rename = "cmd")]
+    Cmd,
+    #[serde(rename = "pr_mergeable")]
+    PrMergeable,
+    #[serde(rename = "age_below")]
+    AgeBelow,
 }
 impl ::std::fmt::Display for ConditionType {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
@@ -1495,6 +1856,9 @@ impl ::std::fmt::Display for ConditionType {
             Self::PrScreenshots => f.write_str("pr_screenshots"),
             Self::AzurePipelineSucceeded => f.write_str("azure_pipeline_succeeded"),
             Self::JiraFieldsSet => f.write_str("jira_fields_set"),
+            Self::Cmd => f.write_str("cmd"),
+            Self::PrMergeable => f.write_str("pr_mergeable"),
+            Self::AgeBelow => f.write_str("age_below"),
         }
     }
 }
@@ -1508,6 +1872,9 @@ impl ::std::str::FromStr for ConditionType {
             "pr_screenshots" => Ok(Self::PrScreenshots),
             "azure_pipeline_succeeded" => Ok(Self::AzurePipelineSucceeded),
             "jira_fields_set" => Ok(Self::JiraFieldsSet),
+            "cmd" => Ok(Self::Cmd),
+            "pr_mergeable" => Ok(Self::PrMergeable),
+            "age_below" => Ok(Self::AgeBelow),
             _ => Err("invalid value".into()),
         }
     }
@@ -5384,6 +5751,12 @@ impl ::std::convert::TryFrom<::std::string::String> for WorkingCopyMode {
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
+    }
+}
+/// Generation of default values for serde.
+pub mod defaults {
+    pub(super) fn condition_cmd_needs() -> super::ConditionNeeds {
+        super::ConditionNeeds::Setup
     }
 }
 /// Error types.

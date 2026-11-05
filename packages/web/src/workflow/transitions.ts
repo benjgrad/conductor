@@ -219,6 +219,9 @@ export const CONDITION_TEXT: Record<ConditionType, string> = {
   pr_screenshots: 'Before/after screenshots',
   azure_pipeline_succeeded: 'Azure pipeline succeeded',
   jira_fields_set: 'Jira fields are set',
+  cmd: 'A command succeeds',
+  pr_mergeable: 'PR merges cleanly',
+  age_below: 'Time in this column is below',
 };
 
 /** A new condition of `type`, keeping `enabled` / `label` from the one it replaces. */
@@ -246,7 +249,14 @@ export function conditionOfType(type: ConditionType, prev?: Condition): Conditio
       return prev?.type === 'pr_checks_green' && prev.no_checks_after !== undefined
         ? { type, no_checks_after: prev.no_checks_after, ...common }
         : { type, ...common };
-    default:
+    case 'cmd':
+      return prev?.type === 'cmd'
+        ? { ...prev, ...common }
+        : { type, name: 'Command', cmd: 'true', needs: 'setup', ...common };
+    case 'age_below':
+      return { type, max: prev?.type === 'age_below' ? prev.max : '2h', ...common };
+    case 'pr_merged':
+    case 'pr_mergeable':
       return { type, ...common };
   }
 }

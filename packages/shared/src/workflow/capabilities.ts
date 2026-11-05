@@ -23,7 +23,12 @@ export const CONDITION_CAPABILITIES = {
   azure_pipeline_succeeded: 'cli:az:authed',
   // Placeholder until M5 decides CLI vs MCP for Jira (U-065).
   jira_fields_set: 'cli:jira:authed',
-} as const satisfies Record<ConditionType, CapabilityRequirement>;
+  // ADR-0037 P2 (not available until T5): `cmd` runs in a fresh checkout of the PR head, which
+  // conductor fetches with gh; `age_below` is evaluated by the engine and needs nothing.
+  cmd: 'cli:gh:authed',
+  pr_mergeable: 'cli:gh:authed',
+  age_below: null,
+} as const satisfies Record<ConditionType, CapabilityRequirement | null>;
 
 /** What each of conductor's actions needs on the session's machine. */
 export const ACTION_CAPABILITIES = {
@@ -66,7 +71,8 @@ export function requiredCapabilitiesOf(
       if (req.review !== undefined) out.add(CLAUDE_CAPABILITY);
       for (const a of req.actions ?? []) out.add(ACTION_CAPABILITIES[a]);
       for (const c of req.conditions ?? []) {
-        if (conditionEnabled(c)) out.add(CONDITION_CAPABILITIES[c.type]);
+        const need = CONDITION_CAPABILITIES[c.type];
+        if (conditionEnabled(c) && need !== null) out.add(need);
       }
     }
   }

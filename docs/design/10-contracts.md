@@ -339,9 +339,9 @@ Semantics: [ADR-0011](../adr/0011-transition-rules.md) (accepted, with Ben's ans
 - **Ticket kind.** `TicketKindSchema` `work | personal`. `ticket.kind` is M1b-T04's migration; `TicketRow.kind` lands with it (the schema test holds row types equal to the DDL), and until then readers use `kind ?? null` (`toSnapshot`, `CardTicketLike.kind?`). `CreateTicketRequest.kind` is optional (WF-T03): when absent, `createTicket` takes the kind of the account's most recent ticket on the same (canonical) repo (`lastTicketKind`, skipping null kinds); with no earlier ticket there it returns 400 `bad_request`, details path `kind`. An explicit kind always wins, and a ticket is never stored without one.
 - **Legacy fold.** `foldLegacyRequirements(def)`: `entry` → every non-fallback transition into the state; ADR-0009 `requirements` → `requires.review` + `on_unmet`; gate items first, gate model and `on_unmet` win, existing `requires` fields win. The engine never folds.
 
-## Workflow primitives (ADR-0037, proposed)
+## Workflow primitives (ADR-0037)
 
-**Status: proposed (ADR-0037), not yet in `packages/shared`.** T1 adds these schemas to `workflow/schema.ts` and removes this line. The full semantics and the migration of each are in the ADR.
+**Status: in `packages/shared/src/workflow/schema.ts` (T1); each is refused as "not available yet" (rule 14) until its ticket lands:** watch T6, the new conditions and `no_checks` T5, concurrency T7, instructions and presets T8, the notify policy T4, handoff T3. P7's `cause` and the `handoff` input_request kind are not in the definition and land with T2 and T3. The full semantics and the migration of each are in the ADR.
 
 ```ts
 // P2 / P3: ConditionSchema gains

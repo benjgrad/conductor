@@ -111,7 +111,8 @@ describe('requiredCapabilities (M2-T06)', () => {
       [...TransitionActionSchema.options].sort(),
     );
     for (const key of [
-      ...Object.values(CONDITION_CAPABILITIES),
+      // null: evaluated by the engine (ADR-0037 `age_below`), no machine need.
+      ...Object.values(CONDITION_CAPABILITIES).filter((k) => k !== null),
       ...Object.values(ACTION_CAPABILITIES),
       'claude',
     ]) {

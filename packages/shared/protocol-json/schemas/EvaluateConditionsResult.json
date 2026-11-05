@@ -56,7 +56,10 @@
         "pr_merged",
         "pr_screenshots",
         "azure_pipeline_succeeded",
-        "jira_fields_set"
+        "jira_fields_set",
+        "cmd",
+        "pr_mergeable",
+        "age_below"
       ]
     }
   }

@@ -614,6 +614,23 @@ async fn only_unsupported_conditions_gh_is_not_run() {
 }
 
 #[tokio::test]
+async fn adr_0037_types_are_unsupported_until_t5_gh_is_not_run() {
+    let f = Fx::new();
+    let res = f
+        .ev(
+            vec![
+                cond(json!({"type": "cmd", "name": "Merges cleanly", "cmd": "true", "needs": "checkout"})),
+                cond(json!({"type": "pr_mergeable"})),
+                cond(json!({"type": "age_below", "max": "2h"})),
+            ],
+            &view(json!({})),
+        )
+        .await;
+    assert_eq!(statuses(&res), vec![Unsupported, Unsupported, Unsupported]);
+    assert_eq!(f.file("argv"), None);
+}
+
+#[tokio::test]
 async fn gh_missing_every_gh_condition_pending_gh_not_available() {
     let f = Fx::new();
     let res = evaluate_conditions(EvaluateConditionsInput {

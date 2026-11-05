@@ -1,6 +1,4 @@
 import {
-  AVAILABLE_CONDITION_TYPES,
-  AVAILABLE_TRANSITION_ACTIONS,
   RETURN_TO,
   conditionEnabled,
   type Transition,
@@ -169,10 +167,10 @@ function checkCanAsk(
  *   `requirements`); `on_unmet.else` is a human state; `on_unmet.goto` is not the transition's
  *   own target and has no ADR-0010 `entry` (no nested steps, as rule 9); the fallback routes to a
  *   human (`ask_user`, `timeout`, `budget_exceeded`) never run requirements.
- * - 14: `update_jira` / `slack_message` are not available yet (M5); neither is an enabled
- *   condition outside AVAILABLE_CONDITION_TYPES; no `requires` on a transition into the start
- *   state (it is entered by a claim; a move back to it would carry requirements the first visit
- *   never had).
+ * - 14: no `requires` on a transition into the start state (it is entered by a claim; a move
+ *   back to it would carry requirements the first visit never had). Rule 14's "not available
+ *   yet" refusals (actions, conditions, ADR-0037 primitives) are `checkAvailability`'s
+ *   (validate.ts), so `allowUnavailable` can skip them.
  */
 function checkRequires(
   errors: WorkflowValidationError[],
@@ -212,17 +210,6 @@ function checkRequires(
     (req.actions ?? []).forEach((a, i) => {
       if (actions.has(a)) r13([...at, 'actions', i], `action "${a}" is listed twice`);
       actions.add(a);
-      if (!AVAILABLE_TRANSITION_ACTIONS.includes(a)) {
-        r14([...at, 'actions', i], `action "${a}" is not available yet`);
-      }
-    });
-    (req.conditions ?? []).forEach((c, i) => {
-      if (conditionEnabled(c) && !AVAILABLE_CONDITION_TYPES.includes(c.type)) {
-        r14(
-          [...at, 'conditions', i],
-          `condition "${c.type}" is not available yet (declare it with "enabled": false)`,
-        );
-      }
     });
     if ((req.conditions?.length ?? 0) > 0 && req.condition_timeout === undefined) {
       r13(

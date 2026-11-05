@@ -62,6 +62,10 @@ pub fn condition_type(c: &Condition) -> ConditionType {
         Condition::PrScreenshots { .. } => ConditionType::PrScreenshots,
         Condition::AzurePipelineSucceeded { .. } => ConditionType::AzurePipelineSucceeded,
         Condition::JiraFieldsSet { .. } => ConditionType::JiraFieldsSet,
+        // ADR-0037 P2: parsed, reported `unsupported` until T5 (not a gh type).
+        Condition::Cmd { .. } => ConditionType::Cmd,
+        Condition::PrMergeable { .. } => ConditionType::PrMergeable,
+        Condition::AgeBelow { .. } => ConditionType::AgeBelow,
     }
 }
 

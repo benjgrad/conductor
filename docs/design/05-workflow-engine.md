@@ -198,7 +198,7 @@ An agent may add optional `proposed_tickets: [{title, repo, why}]` to its `compl
 An agent state's `result` may list, at most once, the result kind `{"pages": {"max": 1..5}}` (`PagesResultSchema`) next to its required keys. The agent may then add `"pages": [{"url", "title", "expires_at"?}]` (`PageRef`: https, or http on loopback; title ≤ 200) to its `complete_state` result. The kind is never required: the engine stores the key in `context.<state>` like `proposed_tickets`, and `pagesOfContext` reads it back up to `max`, dropping malformed entries. `resultKeys(state)` (the string entries) is what "missing keys", the prompts and rule 5 use. With the kind, the prompt gets `## Pages (optional)` before How to finish (`renderPages`). If the state also has the `pages` tool, the section says how to publish one with `publish_page` (conductor hosts it at `/p/:id` for 7 days; [06 §Pages](06-human-input.md#pages)). Without the kind, prompts are unchanged.
 
 ### Self-healing primitives ([ADR-0037](../adr/0037-workflow-primitives-for-self-healing-process.md), proposed)
-Not implemented yet. The schema and the "not available yet" refusals land in T1; each primitive becomes available with its own ticket. Every one of them is off, or behaves exactly as today, until a definition sets it.
+The schema and the validator are in `packages/shared` (T1): every field below parses, and rule 14 refuses it as "not available yet" until its own ticket marks it available (`AVAILABLE_WORKFLOW_FEATURES`; the three new condition types in `AVAILABLE_CONDITION_TYPES`). The daemons report the new condition types `unsupported` until T5. Nothing runs yet. Every one of them is off, or behaves exactly as today, until a definition sets it.
 
 - **`watch`** (P1) on `human` and `event` states: `{poll?, conditions, on_broken}`.
   - The conditions are re-checked while the ticket sits in the state: every `poll` (default 2m, backing off to 15m), and at once when a PR on the same repo merges or conductor pushes the branch.
@@ -280,6 +280,8 @@ Rules 10–14 are the transition rules of [ADR-0011](../adr/0011-transition-rule
     - So is an **enabled** condition whose type isn't in `AVAILABLE_CONDITION_TYPES` (`….requires.conditions.<i>`). It is an error, not a warning, because the editor has no warning channel. Declare it with `enabled: false` until M5.
     - A transition into the start state can't carry `requires` (`….requires`).
     - An agent state's known tool alias outside `AVAILABLE_TOOL_ALIASES` (`states.<s>.tools.<i>`), or result kind outside `AVAILABLE_RESULT_KINDS` (`states.<s>.result.<i>`), is "not available yet" (`checkAvailability`, ADR-0038 under ADR-0037's pattern). `pages` (alias and kind) is available.
+    - So is an ADR-0037 primitive outside `AVAILABLE_WORKFLOW_FEATURES` (none yet), at its path: `watch` (`states.<s>.watch`), `no_checks` (`….conditions.<i>.no_checks`), `requires.concurrency`, the `instructions` map (`instructions`), `$instructions.<slug>` refs and `presets`, the `notify` block (`notify`) and string transition `notify` values, `handoff: true`. A watch's enabled conditions are checked like `requires.conditions`.
+    - Every "not available yet" refusal is `checkAvailability`'s; `validateWorkflow(def, {allowUnavailable: true})` skips them all (tests and drafts only; no save path sets it). The start-state refusal above is not one of them.
 
 Rules 15–16 are the review-and-merge rules of [ADR-0020](../adr/0020-review-and-merge-flow.md) (M2r-T02, the same file). The PR actions `inspect_pr`, `merge_pr` and `close_pr` are available (`AVAILABLE_TRANSITION_ACTIONS`), so rule 14 doesn't refuse them. Neither rule fires on a definition without the new fields or `merge_pr` (v1, v2):
 
@@ -294,16 +296,16 @@ Rules 15–16 are the review-and-merge rules of [ADR-0020](../adr/0020-review-an
 17. **A PR reaches Done only through a human** (M2-T34, Ben 2026-10-29). An agent-actor transition whose `requires.actions` has `open_pr` can't `goto` a terminal state (`….goto`), nor fall back to one (`….else`), unless it waits for a human on that PR: an enabled `pr_approvals` or `pr_merged` condition. conductor v2 and v3 break it (their personal `done`), so the seed accepts rule 17 errors only on a *superseded* shipped version (`SUPERSEDED_RULE_EXEMPTIONS`); the newest shipped version and every saved definition must pass.
 18. **A column that unfinished tickets are in can't be removed** (UXR-67). Saving a version that drops a state of the latest stored version is refused while a session of that workflow is in it and not `done`, `failed` or `lost` (path `states.<name>`): parked and reopened tickets follow the newest version, so they would be stranded. It needs the database, so the orchestrator checks it on every save (`removedStatesInUse`, called by `insertWorkflowVersion`), not `validateWorkflow`. The workflow designer shows the same reason up front ([11 §The workflow's shape](11-web-ui.md#the-workflows-shape-uxr-67)).
 
-Rules 19–25 are proposed by [ADR-0037](../adr/0037-workflow-primitives-for-self-healing-process.md#validation-on-save-new-rules-1925) (T1, not enforced yet):
-- 19, watch targets and bounds;
-- 20, concurrency scope and `hold_timeout`;
-- 21, `$instructions` refs and `presets`;
-- 22, `question` ⊕ `handoff`;
-- 23, notify values need the policy block;
+Rules 19–25 are [ADR-0037](../adr/0037-workflow-primitives-for-self-healing-process.md#validation-on-save-new-rules-1925)'s, in `validate-primitives.ts` (`checkPrimitives`, T1). They judge the fields rule 14 still refuses, so a definition gets both until a primitive is available:
+- 19, watch targets and bounds (`on_broken.goto` not the watched state and without `entry`, `else` a human state, `return_to` `$self` or a state, `poll` ≥ 30s, unique `cmd` names). The `goto` leg is a bounded edge (counter `watch:<state>`) and `else` a plain edge, so rules 1–4 see them;
+- 20, concurrency only on an agent-actor transition, `scope` existing non-terminal states, each once;
+- 21, every `$instructions.<slug>` ref and `presets` slug resolves; `presets` only on a human-actor transition with `text`;
+- 22, `question` ⊕ `handoff`, a hand-off only into a human state (for rule 5 it doesn't complete the state, like a question; for rule 12 it isn't a way to ask);
+- 23, `inherit` / `when_waiting_on_you` / `never` need the workflow `notify` block; `coalesce` ≤ 1d;
 - 24, `age_below` only in a watch;
 - 25, `no_checks` ⊕ `no_checks_after`.
 
-Rule 14 refuses each new field as "not available yet" until its ticket lands; `validateWorkflow(def, {allowUnavailable: true})` skips that refusal.
+`docs/design/workflows/conductor.v6.draft.json` passes `validateWorkflow(draft, {allowUnavailable: true})`; without it, only rule 14 refuses (`conductor.v6-draft.test.ts`).
 
 ADR-0011 changes how rules 1–5 read the graph:
 - **Edges.** A transition's `on_unmet.goto` / `else` are edges too. `$return_to` is not an edge, like `answered`.

@@ -268,7 +268,10 @@ function transitionLines(
   }
   if (b.when !== a.when) lines.push(textChange('When to take it', b.when, a.when));
   if ((b.notify ?? false) !== (a.notify ?? false)) {
-    lines.push(`Notifies people: ${onOff(b.notify ?? false)} → ${onOff(a.notify ?? false)}`);
+    // ADR-0037 P6: a string mode is shown as written.
+    const shown = (v: TransitionObject['notify']) =>
+      typeof v === 'string' ? v : onOff(v ?? false);
+    lines.push(`Notifies people: ${shown(b.notify)} → ${shown(a.notify)}`);
   }
   if (b.text !== a.text) lines.push(`Text: ${b.text ?? 'none'} → ${a.text ?? 'none'}`);
 

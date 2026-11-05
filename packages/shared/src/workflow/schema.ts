@@ -32,6 +32,27 @@ export const DurationSchema = z
 
 export const StateNameSchema = z.string().min(1);
 
+/** ADR-0037 P5: a key of the workflow's `instructions` map. */
+export const InstructionSlugSchema = z
+  .string()
+  .regex(/^[a-z][a-z0-9_]*$/, 'lower_snake_case slug')
+  .max(40);
+/** ADR-0037 P5: an instruction field: literal text, or a `$instructions.<slug>` ref. */
+export const InstructionTextSchema = z.string().trim().min(1).max(4_000);
+/** The prefix of an instruction ref (`$instructions.resync_main`). */
+export const INSTRUCTION_REF_PREFIX = '$instructions.';
+const INSTRUCTION_REF_RE = /^\$instructions\.([a-z][a-z0-9_]*)$/;
+
+/**
+ * ADR-0037 P5: an instruction field's reference. `null` for literal text; `{slug}` for a
+ * well-formed ref; `{slug: null}` for text that starts with the prefix but is not a slug ref.
+ */
+export function instructionRef(text: string): { slug: string | null } | null {
+  if (!text.startsWith(INSTRUCTION_REF_PREFIX)) return null;
+  const m = INSTRUCTION_REF_RE.exec(text);
+  return { slug: m ? m[1]! : null };
+}
+
 /**
  * What happens when a requirements review fails (ADR-0009): go back to `goto` with the reviewer's
  * unmet reasons and `instruction` attached, at most `retries` times for this transition; then
@@ -48,7 +69,10 @@ export const UNMET_ROUTE_REASONS = UnmetRouteReasonSchema.options;
 
 export const OnUnmetSchema = z.strictObject({
   goto: StateNameSchema,
-  /** Plain-language instruction for the agent on the way back. */
+  /**
+   * Plain-language instruction for the agent on the way back. ADR-0037 P5: or a
+   * `$instructions.<slug>` ref into the workflow's `instructions` (rule 21; refused until T8).
+   */
   instruction: z.string().trim().min(1).max(4_000).optional(),
   retries: z.number().int().min(0).max(10).default(2),
   else: StateNameSchema.default('needs_input'),
@@ -210,10 +234,23 @@ const conditionCommon = {
  *   least `min_pairs` before/after screenshot pairs (the table `open_pr` writes, M2-T35b);
  * - `azure_pipeline_succeeded` / `jira_fields_set`: M5 (the daemon reports them `unsupported`).
  */
+/**
+ * ADR-0037 P3: what `pr_checks_green` does when the PR still reports no checks `after` that long.
+ * `pass` is today's `no_checks_after`; `require_mergeable` is met only when GitHub says the PR is
+ * mergeable. Exclusive with `no_checks_after` (rule 25); refused until T5 (rule 14).
+ */
+export const NoChecksPolicySchema = z.strictObject({
+  policy: z.enum(['pass', 'fail', 'require_mergeable']),
+  after: DurationSchema,
+});
+export type NoChecksPolicy = z.infer<typeof NoChecksPolicySchema>;
+
 export const ConditionSchema = z.discriminatedUnion('type', [
   z.strictObject({
     type: z.literal('pr_checks_green'),
     no_checks_after: DurationSchema.optional(),
+    /** ADR-0037 P3; read both spellings through `noChecksPolicy`. */
+    no_checks: NoChecksPolicySchema.optional(),
     ...conditionCommon,
   }),
   z.strictObject({
@@ -238,6 +275,25 @@ export const ConditionSchema = z.discriminatedUnion('type', [
     fields: z.array(z.string().trim().min(1).max(100)).min(1).max(20),
     ...conditionCommon,
   }),
+  /**
+   * ADR-0037 P2: met when `cmd` exits 0, in the fresh conductor-owned checkout of the PR head;
+   * `needs: checkout` skips the repo setup. Not available until T5 (rule 14).
+   */
+  z.strictObject({
+    type: z.literal('cmd'),
+    name: z.string().trim().min(1).max(200),
+    cmd: z.string().trim().min(1),
+    timeout: DurationSchema.optional(),
+    needs: z.enum(['checkout', 'setup']).default('setup'),
+    ...conditionCommon,
+  }),
+  /** ADR-0037 P2: GitHub says the PR merges (`UNKNOWN` stays pending). Not available until T5. */
+  z.strictObject({ type: z.literal('pr_mergeable'), ...conditionCommon }),
+  /**
+   * ADR-0037 P2: met while the stay in the current state is shorter than `max`. Engine-side,
+   * only in a `watch` (rule 24). Not available until T5.
+   */
+  z.strictObject({ type: z.literal('age_below'), max: DurationSchema, ...conditionCommon }),
 ]);
 export type Condition = z.infer<typeof ConditionSchema>;
 export const ConditionTypeSchema = z.enum([
@@ -247,6 +303,9 @@ export const ConditionTypeSchema = z.enum([
   'pr_screenshots',
   'azure_pipeline_succeeded',
   'jira_fields_set',
+  'cmd',
+  'pr_mergeable',
+  'age_below',
 ]);
 export type ConditionType = z.infer<typeof ConditionTypeSchema>;
 export const CONDITION_TYPES = ConditionTypeSchema.options;
@@ -257,6 +316,28 @@ export const AVAILABLE_CONDITION_TYPES: readonly ConditionType[] = [
   'pr_merged',
   'pr_screenshots',
 ];
+
+/**
+ * ADR-0037: the workflow primitives that parse but are refused "not available yet" (rule 14)
+ * until their ticket marks them available here. Conditions `cmd` / `pr_mergeable` / `age_below`
+ * are gated by AVAILABLE_CONDITION_TYPES instead.
+ * - `watch` (P1, T6): a state's `watch`;
+ * - `no_checks` (P3, T5): `pr_checks_green.no_checks`;
+ * - `concurrency` (P4, T7): `requires.concurrency`;
+ * - `instructions` (P5, T8): the `instructions` map, `$instructions.<slug>` refs and `presets`;
+ * - `notify_policy` (P6, T4): the workflow `notify` block and string transition `notify` values;
+ * - `handoff` (P8, T3): `handoff: true`.
+ */
+export const WORKFLOW_FEATURES = [
+  'watch',
+  'no_checks',
+  'concurrency',
+  'instructions',
+  'notify_policy',
+  'handoff',
+] as const;
+export type WorkflowFeature = (typeof WORKFLOW_FEATURES)[number];
+export const AVAILABLE_WORKFLOW_FEATURES: readonly WorkflowFeature[] = [];
 
 /** `enabled` defaults to true. */
 export function conditionEnabled(c: Condition): boolean {
@@ -279,7 +360,26 @@ export function conditionLabel(c: Condition): string {
       return `Pipeline ${c.pipeline} succeeded`;
     case 'jira_fields_set':
       return `Jira fields set: ${c.fields.join(', ')}`;
+    case 'cmd':
+      return c.name;
+    case 'pr_mergeable':
+      return 'PR mergeable';
+    case 'age_below':
+      return `Here less than ${c.max}`;
   }
+}
+
+/**
+ * ADR-0037 P3: a `pr_checks_green` condition's no-CI policy, with the legacy spelling folded in
+ * (`no_checks_after: X` reads as `{policy: 'pass', after: X}`). `undefined`: no checks stays
+ * pending, as today.
+ */
+export function noChecksPolicy(
+  c: Extract<Condition, { type: 'pr_checks_green' }>,
+): NoChecksPolicy | undefined {
+  if (c.no_checks !== undefined) return c.no_checks;
+  if (c.no_checks_after !== undefined) return { policy: 'pass', after: c.no_checks_after };
+  return undefined;
 }
 
 /** ADR-0020 §5: an approval id, also a key of `InspectPrResult.matched`. */
@@ -309,6 +409,22 @@ export const DEFAULT_CONDITION_POLL = '2m';
 export const MAX_CONDITION_POLL = '15m';
 
 /**
+ * ADR-0037 P4: at most `max_in_flight` tickets with the same `key` in the `scope` states; the
+ * move waits (`held`, before the checks) until one leaves, or `hold_timeout` → `on_unmet.else`.
+ * With `overlap: planned_files`, only sessions whose planning `files` intersect hold each other.
+ * Only on agent-actor transitions (rule 20); refused until T7 (rule 14).
+ */
+export const ConcurrencySchema = z.strictObject({
+  key: z.enum(['$repo', '$repo+$kind']),
+  max_in_flight: z.number().int().min(1).max(10),
+  scope: z.array(StateNameSchema).min(1).max(10),
+  order: z.literal('oldest_first').default('oldest_first'),
+  overlap: z.literal('planned_files').optional(),
+  hold_timeout: DurationSchema,
+});
+export type Concurrency = z.infer<typeof ConcurrencySchema>;
+
+/**
  * ADR-0011: what must hold before a ticket moves along a transition, checked in order: `checks`
  * (fresh checkout of the exact commit, after `setup`), the `review` (the fenced ADR-0009 reviewer),
  * conductor's `actions`, then the external `conditions`, re-polled every `condition_poll` until
@@ -334,8 +450,33 @@ export const TransitionRequiresSchema = z.strictObject({
   condition_poll: DurationSchema.optional(),
   /** ADR-0020 §5: human checkboxes, checked before the move step starts. Ids unique (T02). */
   approvals: z.array(ApprovalSchema).min(1).max(5).optional(),
+  /** ADR-0037 P4: the `held` phase, before `checks`. */
+  concurrency: ConcurrencySchema.optional(),
 });
 export type TransitionRequires = z.infer<typeof TransitionRequiresSchema>;
+
+/** ADR-0037 P6: a notification mode (the workflow `notify.default`, a transition's `notify`). */
+export const NotifyModeSchema = z.enum(['never', 'when_waiting_on_you', 'always']);
+export type NotifyMode = z.infer<typeof NotifyModeSchema>;
+/** ADR-0037 P6: a transition's `notify`: the legacy boolean, a mode, or `inherit` the default. */
+export const TransitionNotifySchema = z.union([
+  z.boolean(),
+  NotifyModeSchema,
+  z.literal('inherit'),
+]);
+export type TransitionNotify = z.infer<typeof TransitionNotifySchema>;
+
+/**
+ * ADR-0037 P6: the workflow's notification policy. Absent = legacy mode (every input_request
+ * pushes, plus `notify: true` transitions). Refused until T4 (rule 14).
+ */
+export const NotifyPolicySchema = z.strictObject({
+  default: NotifyModeSchema,
+  engine_moves: z.enum(['never', 'inherit']).default('never'),
+  /** ≤ 1d (rule 23). */
+  coalesce: DurationSchema.optional(),
+});
+export type NotifyPolicy = z.infer<typeof NotifyPolicySchema>;
 
 /**
  * `"build"` or an object (05 §Retry loops; ADR-0009 `requirements`; ADR-0011 for the rest). The
@@ -364,18 +505,31 @@ export const TransitionObjectSchema = z.strictObject({
   /** A transition into a human state that asks a question: the agent's `reason` is the question. */
   question: z.boolean().optional(),
   /**
+   * ADR-0037 P8: a transition into a human state that hands the work off for review (an
+   * input_request of kind `handoff`, the reason as its summary). Exclusive with `question`
+   * (rule 22); refused until T3 (rule 14).
+   */
+  handoff: z.boolean().optional(),
+  /**
    * ADR-0020: a human button's text box. `required`: the button asks for text first (e.g.
    * `request_changes`, `close_without_merging`'s reason); `optional`: it offers one. Absent =
    * today's rule (`transitionNeedsText`).
    */
   text: z.enum(['required', 'optional']).optional(),
+  /**
+   * ADR-0037 P5: saved instructions offered as chips that fill this human button's text box. Only
+   * on a human-actor transition with `text` (rule 21); refused until T8 (rule 14).
+   */
+  presets: z.array(InstructionSlugSchema).min(1).max(10).optional(),
   requires: TransitionRequiresSchema.optional(),
   /**
    * Taking this transition notifies the account's users (in-tab and Web Push), once the session
    * lands in a real state through it (its `goto`, or `else` when retries run out; after any gate
    * step passes). Absent = no notification. Needs-input notifications don't depend on it.
+   * ADR-0037 P6: or a mode / `inherit` under the workflow's `notify` policy (rule 23; refused
+   * until T4); `true` reads as `always`, `false` as `never`.
    */
-  notify: z.boolean().optional(),
+  notify: TransitionNotifySchema.optional(),
   /** What happens when `requires` is not met (ADR-0010 semantics, U-063 for conditions). */
   on_unmet: OnUnmetSchema.optional(),
 });
@@ -503,9 +657,36 @@ export const CommandStateSchema = z.strictObject({
   cwd: z.string().min(1).optional(),
 });
 
+/** `watch.poll` floor (ADR-0037 P1); the default is DEFAULT_CONDITION_POLL. */
+export const MIN_WATCH_POLL = '30s';
+
+/**
+ * ADR-0037 P1: conditions a human or event state keeps checking while a ticket sits in it, in
+ * order, stopping at the first that is not met. A `failed` one takes `on_broken`: a counted
+ * system move to `goto` (then `else`, a human state), or one escalation per stay. Rule 19;
+ * refused until T6 (rule 14).
+ */
+export const WatchSchema = z.strictObject({
+  poll: DurationSchema.optional(),
+  conditions: z.array(ConditionSchema).min(1).max(10),
+  on_broken: z.union([
+    z.strictObject({
+      goto: StateNameSchema,
+      instruction: InstructionTextSchema.optional(),
+      return_to: z.union([StateNameSchema, z.literal('$self')]).optional(),
+      retries: z.number().int().min(0).max(10).default(2),
+      else: StateNameSchema.default('needs_input'),
+    }),
+    z.strictObject({ notify: z.literal('escalate') }),
+  ]),
+});
+export type Watch = z.infer<typeof WatchSchema>;
+
 export const EventStateSchema = z.strictObject({
   type: z.literal('event'),
   ...common,
+  /** ADR-0037 P1. */
+  watch: WatchSchema.optional(),
   wait_for: z.array(z.string().min(1)).min(1),
   park: z.boolean().optional(),
   release_machine: z.boolean().optional(),
@@ -527,6 +708,8 @@ export const ConnectorStateSchema = z
 export const HumanStateSchema = z.strictObject({
   type: z.literal('human'),
   ...common,
+  /** ADR-0037 P1. */
+  watch: WatchSchema.optional(),
 });
 
 export const TerminalStateSchema = z.strictObject({
@@ -595,6 +778,10 @@ export const WorkflowDefinitionSchema = z.strictObject({
   columns: z.array(StateNameSchema).min(1).optional(),
   /** `ticket_editable` for the implicit Queued column (no state); absent ≡ true. */
   queued_ticket_editable: z.boolean().optional(),
+  /** ADR-0037 P5: saved instructions, referenced as `$instructions.<slug>` and by `presets`. */
+  instructions: z.record(InstructionSlugSchema, InstructionTextSchema).optional(),
+  /** ADR-0037 P6: the notification policy; absent = legacy mode. */
+  notify: NotifyPolicySchema.optional(),
 });
 /** A parsed definition (defaults applied). */
 export type WorkflowDefinition = z.infer<typeof WorkflowDefinitionSchema>;

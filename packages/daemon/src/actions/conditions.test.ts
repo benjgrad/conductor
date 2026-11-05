@@ -445,6 +445,23 @@ describe('evaluate_conditions with a fake gh', () => {
     expect(() => readFileSync(join(tmp, 'argv'))).toThrow();
   });
 
+  it('ADR-0037 types are unsupported until T5; gh is not run', async () => {
+    const r = await evalWith(
+      [
+        { type: 'cmd', name: 'Merges cleanly', cmd: 'true', needs: 'checkout' },
+        { type: 'pr_mergeable' },
+        { type: 'age_below', max: '2h' },
+      ],
+      view(),
+    );
+    expect(r.results.map((x) => [x.type, x.status])).toEqual([
+      ['cmd', 'unsupported'],
+      ['pr_mergeable', 'unsupported'],
+      ['age_below', 'unsupported'],
+    ]);
+    expect(() => readFileSync(join(tmp, 'argv'))).toThrow();
+  });
+
   it('gh missing → every gh condition pending with "gh not available"', async () => {
     const r = await evaluateConditions({
       conditions: [CHECKS, { type: 'pr_merged' }, { type: 'jira_fields_set', fields: ['x'] }],

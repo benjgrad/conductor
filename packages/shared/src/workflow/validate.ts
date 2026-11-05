@@ -1,5 +1,8 @@
 import {
+  AVAILABLE_CONDITION_TYPES,
   AVAILABLE_RESULT_KINDS,
+  AVAILABLE_TRANSITION_ACTIONS,
+  AVAILABLE_WORKFLOW_FEATURES,
   CONDUCTOR_WORKFLOW_ID,
   resultKeys,
   RETURN_TO,
@@ -20,6 +23,11 @@ import {
   transitionObject,
 } from './transition-rules.js';
 import { checkTransitions } from './validate-transitions.js';
+import {
+  checkPrimitiveAvailability,
+  checkPrimitives,
+  type PrimitiveAvailability,
+} from './validate-primitives.js';
 
 // Workflow validation on save (M1-T03, 05 §Validation on save). The schema (T12) checks shape;
 // this adds the graph rules. Consumers: T08 (save/list → 400 with `errors`).
@@ -36,10 +44,35 @@ import { checkTransitions } from './validate-transitions.js';
  * 10–14 (transitions, ADR-0011), 15–16 (review and merge, ADR-0020) and 17 (a PR reaches Done
  * only through a human, M2-T34), in `validate-transitions.ts`. Rule 18 (UXR-67: a column that
  * still holds tickets can't be removed) needs the database, so the orchestrator checks it on save
- * (`insertWorkflowVersion`), never `validateWorkflow`.
+ * (`insertWorkflowVersion`), never `validateWorkflow`. Rules 19–25 (ADR-0037, the workflow
+ * primitives P1–P8) are in `validate-primitives.ts`, with rule 14's "not available yet" refusals.
  */
 export type WorkflowRule =
-  1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18;
+  | 1
+  | 2
+  | 3
+  | 4
+  | 5
+  | 6
+  | 7
+  | 8
+  | 9
+  | 10
+  | 11
+  | 12
+  | 13
+  | 14
+  | 15
+  | 16
+  | 17
+  | 18
+  | 19
+  | 20
+  | 21
+  | 22
+  | 23
+  | 24
+  | 25;
 
 export interface WorkflowValidationError {
   rule: WorkflowRule;
@@ -85,21 +118,39 @@ function flattenIssue(issue: Issue, prefix: PropertyKey[] = []): Issue[] {
   return branches[0]!.flatMap((i) => flattenIssue(i, path));
 }
 
-/** What a definition may use (rule 14); the defaults are AVAILABLE_TOOL_ALIASES / _RESULT_KINDS. */
-export interface Availability {
+/**
+ * What a definition may use (rule 14). The defaults are AVAILABLE_TOOL_ALIASES, _RESULT_KINDS,
+ * _TRANSITION_ACTIONS, _CONDITION_TYPES and _WORKFLOW_FEATURES.
+ */
+export interface Availability extends Partial<PrimitiveAvailability> {
   tools: readonly string[];
   resultKinds: readonly string[];
 }
 
+/** `validateWorkflow` options. */
+export interface ValidateOptions {
+  /**
+   * ADR-0037: skip rule 14's "not available yet" refusals (`checkAvailability`), so a definition
+   * that uses primitives whose tickets haven't landed (the v6 draft) can be checked against every
+   * other rule. For tests and drafts; the save paths never set it.
+   */
+  allowUnavailable?: boolean;
+}
+
 /**
- * Rule 14 for agent states (ADR-0038, the ADR-0037 pattern): a known tool alias or result kind
- * that parses but isn't available yet is refused. Pure; `available` is injectable for tests.
+ * Rule 14, "not available yet" (ADR-0038 and ADR-0037): a known tool alias or result kind on an
+ * agent state, an action, an enabled condition type or an ADR-0037 primitive that parses but isn't
+ * available yet is refused at its path. Pure; `available` is injectable for tests.
  */
 export function checkAvailability(
   def: WorkflowDefinition,
   available: Availability = { tools: AVAILABLE_TOOL_ALIASES, resultKinds: AVAILABLE_RESULT_KINDS },
 ): WorkflowValidationError[] {
-  const errors: WorkflowValidationError[] = [];
+  const errors: WorkflowValidationError[] = checkPrimitiveAvailability(def, {
+    actions: available.actions ?? AVAILABLE_TRANSITION_ACTIONS,
+    conditions: available.conditions ?? AVAILABLE_CONDITION_TYPES,
+    features: available.features ?? AVAILABLE_WORKFLOW_FEATURES,
+  });
   for (const [name, state] of Object.entries(def.states)) {
     if (state.type !== 'agent') continue;
     (state.tools ?? []).forEach((tool, i) => {
@@ -127,8 +178,11 @@ export function checkAvailability(
   return errors;
 }
 
-/** Parse a workflow definition and check rules 1–16. Never throws. */
-export function validateWorkflow(input: unknown): WorkflowValidationResult {
+/** Parse a workflow definition and check rules 1–17 and 19–25. Never throws. */
+export function validateWorkflow(
+  input: unknown,
+  opts: ValidateOptions = {},
+): WorkflowValidationResult {
   const parsed = WorkflowDefinitionSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -191,10 +245,11 @@ export function validateWorkflow(input: unknown): WorkflowValidationResult {
     }
   }
 
-  errors.push(...checkAvailability(def));
+  if (opts.allowUnavailable !== true) errors.push(...checkAvailability(def));
   errors.push(...checkGates(def, has));
   errors.push(...checkEntry(def, has));
   errors.push(...checkTransitions(def, has));
+  errors.push(...checkPrimitives(def, has));
 
   // Graph rules 2–5 only on a graph whose start and targets all exist, so a missing target
   // reports once (rule 1) instead of cascading into unreachable/dead-end noise.
@@ -377,16 +432,41 @@ function collectEdges(def: WorkflowDefinition): Edge[] {
         edges.push({ ...common, to, outcome: 'entry:unmet', path: [...unmet, 'routes', reason] });
       }
     }
+    // ADR-0037 P1 (rule 19): a watch's `on_broken` moves to `goto`, counted under
+    // `watch:<state>` (bounded), then to `else`; both are system moves out of the watched state.
+    if ((state.type === 'human' || state.type === 'event') && state.watch !== undefined) {
+      const ob = state.watch.on_broken;
+      if ('goto' in ob) {
+        const at = ['states', from, 'watch', 'on_broken'];
+        const common = { from, actor: 'system' as const, completes: false };
+        edges.push({
+          ...common,
+          to: ob.goto,
+          outcome: 'watch:broken',
+          path: [...at, 'goto'],
+          bounded: true,
+        });
+        edges.push({
+          ...common,
+          to: ob.else,
+          outcome: 'watch:else',
+          path: [...at, 'else'],
+          bounded: false,
+        });
+      }
+    }
     if (state.type === 'terminal') continue;
     for (const [outcome, raw] of Object.entries(state.on ?? {})) {
       const base = ['states', from, 'on', outcome];
       const t = transitionObject(raw);
       const actor = transitionActor(def, from, outcome, raw);
-      // Rule 5: the agent finished the state with its result (not a question, not a fallback).
+      // Rule 5: the agent finished the state with its result (not a question, not a fallback). An
+      // ADR-0037 hand-off behaves like a question (the result is kept, `return_to` is set).
       const completes =
         state.type === 'agent' &&
         actor === 'agent' &&
         t.question !== true &&
+        t.handoff !== true &&
         !FALLBACK_TRANSITION_NAMES.includes(outcome);
       const plain = isBoundedEdge(state, outcome, actor);
       const push = (to: string, path: (string | number)[], bounded: boolean) => {

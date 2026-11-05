@@ -563,8 +563,17 @@ describe.skipIf(!runnable)('install.sh', () => {
 // (scripts/build-daemon-dist.sh), installed by the served script, whose real `conductor-daemon
 // enroll` posts to a stub enroll endpoint. The token reaches the daemon only through
 // CONDUCTOR_ENROLL_TOKEN (TD-117). It costs a cargo build (the dev profile, which `cargo nextest`
-// has usually just built), so it runs only where cargo is on PATH.
-const hasCargo = spawnSync('cargo', ['--version']).status === 0;
+// has usually just built), so it runs only where cargo is on PATH and builds with the toolchain
+// rust-toolchain.toml pins: rustup honours the pin, a bare Homebrew cargo (no rustup) does not and
+// fails on the crates' `rust-version`, which says nothing about install.sh.
+const PINNED = /^channel\s*=\s*"([^"]+)"/m.exec(
+  readFileSync(join(REPO, 'rust-toolchain.toml'), 'utf8'),
+)?.[1];
+const rustc = spawnSync('rustc', ['--version'], { cwd: REPO, encoding: 'utf8' });
+const hasCargo =
+  spawnSync('cargo', ['--version']).status === 0 &&
+  rustc.status === 0 &&
+  (PINNED === undefined || !/^\d/.test(PINNED) || rustc.stdout.startsWith(`rustc ${PINNED}`));
 
 describe.skipIf(!runnable || !hasCargo)('install.sh with the real daemon tarball', () => {
   const realWork = mkdtempSync(join(tmpdir(), 'conductor-install-real-'));

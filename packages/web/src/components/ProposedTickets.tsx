@@ -189,7 +189,7 @@ function ProposalCard({
             onChange={(e) => setBody(e.target.value)}
           />
           <span className="proposal-actions">
-            <button type="submit" disabled={busy || title.trim() === ''}>
+            <button type="submit" className="primary" disabled={busy || title.trim() === ''}>
               Create ticket
             </button>
             <button

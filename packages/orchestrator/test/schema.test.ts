@@ -207,6 +207,7 @@ const ticket: ColumnSpec<TicketRow> = {
   repo_allow_machines: col('_text', NULL),
   status: col('ticket_status', NN),
   priority: col('int4', NN),
+  queue_position: col('int4', NULL),
   kind: col('ticket_kind', NULL),
   session_allow: col('_text', NN),
   agent_id: col('uuid', NULL),
@@ -1075,6 +1076,9 @@ describe('schema (migrated test database)', () => {
     const defs = Object.fromEntries(rows.map((r) => [r.indexname, r.indexdef]));
     expect(defs.ticket_status_priority_idx).toMatch(
       /ON public\.ticket USING btree \(status, priority\)$/,
+    );
+    expect(defs.ticket_ready_queue_idx).toMatch(
+      /ON public\.ticket USING btree \(account_id, queue_position, priority, created_at\) WHERE \(status = 'ready'::ticket_status\)$/,
     );
     expect(defs.session_status_idx).toMatch(/ON public\.session USING btree \(status\)$/);
     expect(defs.session_one_live_per_ticket).toMatch(

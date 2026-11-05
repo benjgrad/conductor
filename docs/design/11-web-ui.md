@@ -41,6 +41,11 @@ Workflow diagram (UXR-45, UXR-68):
 - A column's kind is its border colour and icon: agent (accent, ✦), person (attention, ●), waiting (warn, ◷), queue (muted, ≡), end (ok, ■). The legend lists them. Column boxes are never dashed: dashed means only an arrow for "requirements not met".
 - Arrows are labelled with transition titles (an event with its title, e.g. "Approved"), or "N ways" when several transitions share an arrow. A ✓ marks an arrow where some transition has rules. Labels sit on a solid background and slide along their line to a spot no other line crosses.
 
+### Buttons and dialogs
+
+- Each form and dialog has one main action, `button.primary`: an `--accent` fill with `--on-accent` text. Disabled, it has a neutral `--border` fill with `--muted` text (no opacity), so it never looks like an enabled outline button (UXR-25). A disabled main button on the auth forms says what it still needs (`Still needed: …`, linked with `aria-describedby`), like Create ticket's sheet footer.
+- An overlay dialog is a native `<dialog>` opened with `showModal()` through `components/ModalDialog.tsx`. That gives the `::backdrop`, makes the rest of the page inert so Tab stays inside, and closes it on Esc. Focus goes back to the opener, or to a `returnFocus` fallback when the opener is gone (a menu item). A backdrop click doesn't close it (UXR-51). Change password uses it. The sheets and the machine drawer have their own component.
+
 ## Colour semantics
 
 One meaning per colour (UXR-23). Each meaning has its own pair: the colour for text, icons and edges, and a `-bg` for its boxes and badges.
@@ -190,11 +195,29 @@ The workflow editor has three panels: a column, an arrow and a transition.
 - **Name**: Title is the transition's first field. Its name is under **Advanced**, with "Agents report this name; prompts and history refer to it." A rename applies on blur or Enter, never per keystroke, and Escape puts the name back.
 - **Remove transition** asks for a confirmation.
 
+## Newer default workflow (UXR-87)
+
+When `GET /api/workflows/conductor` carries `default_available` and the user may change the workflow (an instance admin, or local mode), the Workflow page shows a banner under its toolbar (`DefaultBanner`): "A newer default workflow (vN) is available · Compare · Adopt…". **Compare** toggles what the default changes from the latest version, in the editor's words (`GET /api/workflows/conductor/default` for the default's definition, then `diffVersions` and `VersionDiff`, as the version Compare does, UXR-70). **Adopt…** confirms with "This replaces your edits since v<latest>", then `POST /api/workflows/conductor/default {base_version: latest}` saves it as the next version and the page reloads the latest; the banner then goes, since `default_available` is null. Adopt is disabled while the editor has unsaved changes. A 409 `conflict` (someone saved meanwhile) reloads the page and says so; other refusals show in the banner. Nothing is adopted automatically.
+
 ## Session transcript and Steps (UXR-38, UXR-88)
 
 The Messages tab reads as a conversation (`OutputLog.tsx`). Protocol calls are not shown as steps: an accepted `complete_state` (its result is the daemon's "Recorded. Stop now: …") collapses to one muted line, "✓ Finished <state>", where the state is the one the session was in at that time (from `moves`). A refused or failed call stays a normal tool row, and **Debug lines** brings every raw call back. The conversation's opening user message (Claude's prompt, which carries the ticket) is labelled **Ticket** and rendered as markdown. Later messages from a person stay plain text. Phase dividers name the transition by its title (`moveTitle`), never its id. The "History loaded from Claude's transcript" notice is a bordered notice inset like the chat.
 
 The Details tab has a **Steps** section between Action and Result (`steps.ts`): one row per state the ticket entered (from `SessionDetail.moves`), showing the state's title, its outcome (the title of the transition that left it; "In progress" while current; "Ended here" in a terminal state) and its duration. A row whose state recorded a result (`SessionDetail.context[state]`, the same data MCP `get_ticket_artifacts what=results` reads) has a **Result** disclosure that renders it as markdown: the summary, then the plan, then the other fields by name. Context keeps only a state's latest result, so an earlier visit of a revisited state says "Result replaced by a later visit". There is no separate route: `GET /api/sessions/:id` already carries both.
+
+## Insights (UXR-84)
+
+`#/insights` (`insights/InsightsPage.tsx`), a top-bar tab after Machines. It shows the workflow advisor's data over the routes in [10 §Insights](10-contracts.md#insights-adr-0033-uxr-84): the same numbers the MCP tools `get_process_metrics`, `list_findings` and `get_process_report` return.
+- **Controls**: a window (7 / 30 / 90 days, default 30) and a group-by (state / repo / machine / check). Machines show by name.
+- **Time per group**: a table, one row per group. It shows the median and p90 stay as bars scaled to the largest p90, with their values, then re-entries, check failures (`failures / runs`), questions, and permission denials for every grouping but state. The `check` grouping has no stays, so its time column is "—". The table scrolls inside its box on a phone.
+- **Findings**: cards, most severe first, 8 at a time (Show more). Each card has a severity pill, the title, evidence, suggestion and example tickets. A ticket shows its board title and opens on the board. The fix:
+  - **Open proposal** (`#/workflows?proposal=<id>`, which opens it in the Workflow page's proposals panel) when a change proposal cites the finding;
+  - for a permission finding, a note that the decision is on the board;
+  - otherwise **Propose a fix**, which explains how to run the `workflow_advisor` prompt in a connected Claude, with a copyable request naming the finding.
+- **Frictions**: the analysts' report, grouped by category, with each group's state, session count and top suggestion. The coverage line says how many finished sessions were analysed. Without a machine that runs analyst jobs, the report's note shows instead.
+- **Details tab**: a finished session (done, failed or lost) shows its **Session insight** when it has one: the outcome, summary, frictions, estimated lost minutes, and "Written by the analyst model (…)".
+
+Model-written text (summaries, frictions, suggestions) is always plain text, never markdown.
 
 ## Ticket search and Archive (UXR-85)
 

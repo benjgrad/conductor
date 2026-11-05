@@ -300,6 +300,32 @@ p.wf-version-warning {
   font-size: var(--text-sm);
   margin: 0;
 }
+/* UXR-87: a newer shipped default workflow is available (DefaultBanner). */
+.wf-default-banner {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+}
+.wf-default-row,
+.wf-default-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.wf-default-confirm {
+  margin-top: var(--space-2);
+}
+.wf-default-confirm p {
+  margin: 0;
+  flex-basis: 100%;
+}
+.wf-default-compare h3 {
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: var(--text-base);
+}
 .wf-errors {
   margin: 0;
   padding: var(--space-2) var(--space-3) var(--space-2) var(--space-6);
@@ -478,14 +504,6 @@ main[hidden] {
   flex-wrap: wrap;
   gap: 8px;
 }
-.wf-modal .primary,
-.wf-savebar .wf-save {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
-  font-weight: 600;
-}
-
 /* The transition whose requirements review is running (session Details). */
 .wf-edge.reviewing .wf-line {
   stroke: var(--accent);
@@ -1172,25 +1190,11 @@ main[hidden] {
   gap: 8px;
   align-items: baseline;
 }
-.wf-review-dialog {
-  max-width: min(760px, 92vw);
-  width: 100%;
+/* A ModalDialog (UXR-51): the top layer and ::backdrop come from dialog.modal; only the size here. */
+dialog.modal.wf-review-dialog {
+  width: min(760px, 92vw);
   max-height: 86vh;
   overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--panel);
-  color: var(--text);
-  padding: var(--space-4) var(--space-5);
-}
-.wf-review-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-sheet);
-  background: rgb(0 0 0 / 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 .wf-review-dialog textarea {
   width: 100%;

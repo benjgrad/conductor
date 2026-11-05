@@ -122,6 +122,24 @@ describe('createHttpApi workflows (ADR-0009)', () => {
     ]);
   });
 
+  it('UXR-87: GET and POST /api/workflows/:id/default', async () => {
+    const definition = (await createMockApi({ now }).getWorkflow('conductor')).definition;
+    const cmp = { version: 4, base_version: 3, definition, diff: { changes: [], more_changes: 0 } };
+    const { calls, fetch } = recordingFetch(({ method }) =>
+      method === 'GET' ? json(200, cmp) : json(201, { id: 'conductor', version: 4 }),
+    );
+    const api = createHttpApi({ fetch });
+    expect(await api.getWorkflowDefault('conductor')).toEqual(cmp);
+    expect(await api.adoptDefaultWorkflow('conductor', 3)).toEqual({
+      id: 'conductor',
+      version: 4,
+    });
+    expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([
+      ['GET', '/api/workflows/conductor/default', undefined],
+      ['POST', '/api/workflows/conductor/default', { base_version: 3 }],
+    ]);
+  });
+
   it('UXR-70/73: a save note; proposals filtered by kind and target', async () => {
     const detail = await createMockApi({ now }).getWorkflow('m1_basic');
     const { calls, fetch } = recordingFetch(({ method }) =>
@@ -317,6 +335,56 @@ describe('createHttpApi REST', () => {
       ['GET', `${API_PATHS.repoChecks}?repo=github.com%2Fo%2Fapp`, undefined, undefined],
       ['PUT', API_PATHS.repoChecks, put, 'application/json'],
       ['DELETE', API_PATHS.repoChecks, { repo: 'github.com/o/app' }, 'application/json'],
+    ]);
+  });
+
+  it('insights (UXR-84): builds the queries and parses the responses', async () => {
+    const since = '2026-10-01T00:00:00.000Z';
+    const totals = {
+      tickets: 0,
+      sessions: 0,
+      moves: 0,
+      check_runs: 0,
+      questions: 0,
+      permission_prompts: 0,
+    };
+    const metrics = {
+      window_days: 7,
+      since,
+      group_by: 'repo',
+      totals,
+      groups: [],
+      more_groups: 0,
+      transitions: [],
+    };
+    const findings = { window_days: 7, since, findings: [], next_cursor: null, total: 0 };
+    const report = {
+      window_days: 7,
+      since,
+      insights_enabled: false,
+      note: 'off',
+      finished_sessions: 0,
+      analysed_sessions: 0,
+      totals,
+      analysed: 0,
+      outcomes: {},
+      wasted_minutes_reported: 0,
+      frictions: [],
+      more_frictions: 0,
+    };
+    const { calls, fetch } = recordingFetch(({ url }) =>
+      json(200, url.includes('metrics') ? metrics : url.includes('findings') ? findings : report),
+    );
+    const api = createHttpApi({ fetch });
+    expect(
+      await api.getProcessMetrics({ windowDays: 7, groupBy: 'repo', repo: 'github.com/o/a' }),
+    ).toEqual(metrics);
+    expect(await api.listFindings({ windowDays: 7, cursor: 8 })).toEqual(findings);
+    expect(await api.getProcessReport({ windowDays: 7 })).toEqual(report);
+    expect(calls.map((c) => c.url)).toEqual([
+      `${API_PATHS.insightsMetrics}?window_days=7&group_by=repo&repo=github.com%2Fo%2Fa`,
+      `${API_PATHS.insightsFindings}?window_days=7&cursor=8`,
+      `${API_PATHS.insightsReport}?window_days=7`,
     ]);
   });
 

@@ -10,7 +10,7 @@ import { ago } from '../components/format.js';
 interface TeamSectionProps {
   api: ApiClient;
   /** The title of a ticket on the board, for the "On …" link; undefined → "a ticket". */
-  ticketTitle?: ((ticketId: string) => string | undefined) | undefined;
+  ticketTitle?: ((ticketId: string) => string | null | undefined) | undefined;
 }
 
 type Team =

@@ -1,8 +1,9 @@
 import { passwordProblems } from '@conductor/shared';
 import { useState, type FormEvent } from 'react';
 import { ApiRequestError, type ApiClient } from '../api/client.js';
-import { AuthPage, PasswordProblems } from './AuthPage.js';
+import { AuthPage, PasswordProblems, PasswordRule, SubmitWithHint } from './AuthPage.js';
 import { authErrorMessage, INVALID_RESET, passwordDetails } from './errors.js';
+import { stillNeeded } from './missing.js';
 
 export const PASSWORDS_DIFFER = "The passwords don't match.";
 const EXPIRED_RESET = 'This reset link is not valid or has expired. Ask an admin for a new one.';
@@ -48,7 +49,12 @@ export function Reset({ api, token }: ResetProps) {
 
   const problems = password === '' ? [] : passwordProblems(password, '');
   const mismatch = confirm !== '' && confirm !== password;
-  const valid = password !== '' && problems.length === 0 && confirm === password;
+  const missing = stillNeeded([
+    [password === '', 'a new password'],
+    [problems.length > 0, 'a password that meets the rule'],
+    [confirm !== password, 'the same password twice'],
+  ]);
+  const valid = missing === null;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -70,7 +76,7 @@ export function Reset({ api, token }: ResetProps) {
   }
 
   return (
-    <AuthPage title="Choose a new password">
+    <AuthPage title="Choose a new password" signIn>
       <form className="auth-form" aria-label="Reset password" onSubmit={(e) => void onSubmit(e)}>
         <label>
           New password
@@ -78,11 +84,12 @@ export function Reset({ api, token }: ResetProps) {
             type="password"
             autoComplete="new-password"
             value={password}
-            aria-describedby="reset-password-problems"
+            aria-describedby="reset-password-rule reset-password-problems"
             onChange={(e) => setPassword(e.target.value)}
             required
           />
         </label>
+        <PasswordRule id="reset-password-rule" />
         <PasswordProblems
           id="reset-password-problems"
           problems={problems.length > 0 ? problems : serverProblems}
@@ -103,9 +110,13 @@ export function Reset({ api, token }: ResetProps) {
             {error}
           </p>
         )}
-        <button type="submit" disabled={busy || !valid}>
-          {busy ? 'Saving…' : 'Set password'}
-        </button>
+        <SubmitWithHint
+          id="reset-missing"
+          label="Set password"
+          busyLabel="Saving…"
+          busy={busy}
+          missing={missing}
+        />
       </form>
     </AuthPage>
   );

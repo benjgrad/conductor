@@ -14,7 +14,7 @@ import './machines.css';
 interface MachinesPageProps {
   api: ApiClient;
   /** UX-13b FR-3: a board ticket's title, for the Team section's "On …" links. */
-  ticketTitle?: (ticketId: string) => string | undefined;
+  ticketTitle?: (ticketId: string) => string | null | undefined;
 }
 
 type List =

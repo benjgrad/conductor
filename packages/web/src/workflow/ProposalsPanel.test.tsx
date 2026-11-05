@@ -66,6 +66,32 @@ describe('ProposalsPanel', () => {
     );
   });
 
+  it('UXR-84: initialOpenId opens that proposal; a decided one switches to All', async () => {
+    const api = createMockApi();
+    const { unmount } = render(
+      <ProposalsPanel
+        api={api}
+        dirty={false}
+        onWorkflowApplied={vi.fn()}
+        initialOpenId={REPO!.id}
+      />,
+    );
+    expect(await screen.findByText(REPO!.rationale, undefined, { timeout: 5_000 })).toBeTruthy();
+    unmount();
+    render(
+      <ProposalsPanel
+        api={api}
+        dirty={false}
+        onWorkflowApplied={vi.fn()}
+        initialOpenId={WORKFLOW!.id}
+      />,
+    );
+    expect(
+      await screen.findByText(WORKFLOW!.rationale, undefined, { timeout: 5_000 }),
+    ).toBeTruthy();
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'Show' }).value).toBe('all');
+  });
+
   it('reject removes it from the open list', async () => {
     setup();
     fireEvent.click(await row(REPO!.title));

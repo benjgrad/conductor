@@ -2,6 +2,8 @@ import {
   AdvisorGroupBySchema,
   ChangeStatusSchema,
   CONDUCTOR_WORKFLOW_ID,
+  compareQueued,
+  QUEUED_COLUMN_ID,
   CreateTicketRequestSchema,
   EntryCheckSchema,
   REPO_CHECKS_MAX,
@@ -10,16 +12,12 @@ import {
   TicketPrioritySchema,
   httpForApplyResult,
   latestPlanEntry,
-  insightFindings,
-  processMetrics,
   ProposalIdSchema,
-  rankFindings,
   transitionsOf,
   type BoardCard,
   type EngineEvent,
   type EngineRoute,
   type SessionDetail,
-  type StoredInsight,
   type TicketStatus,
   validateWorkflow,
   type WorkflowDefinition,
@@ -30,7 +28,12 @@ import type { AuthConfig } from '../auth/config.js';
 import type { RequestAuth } from '../auth/middleware.js';
 import type { BoardBus, EngineService, OutputBus, TranscriptSource } from '../contracts.js';
 import type { Db } from '../main.js';
-import { getInsight, insightCoverage, insightsEnabled, loadInsights } from '../advisor/insights.js';
+import {
+  readFindings,
+  readInsight,
+  readProcessMetrics,
+  readProcessReport,
+} from '../advisor/read.js';
 import {
   applyProposal,
   createProposal,
@@ -41,12 +44,7 @@ import {
   type ProposalActor,
   type ProposalFailure,
 } from '../advisor/proposals.js';
-import {
-  clampWindow,
-  loadAdvisorRows,
-  WINDOW_DEFAULT_DAYS,
-  WINDOW_MAX_DAYS,
-} from '../advisor/queries.js';
+import { WINDOW_DEFAULT_DAYS, WINDOW_MAX_DAYS } from '../advisor/queries.js';
 import { listMachineRows } from '../api/machines.js';
 import { sendOperatorMessage } from '../api/messages.js';
 import { loadBoard, loadWorkflowDetail } from '../api/queries.js';
@@ -57,8 +55,9 @@ import {
   setRepoChecks,
 } from '../api/repo-checks.js';
 import { loadSessionDetail } from '../api/sessions.js';
-import { insertWorkflowVersion, weakenedApprovals } from '../api/workflows.js';
+import { saveGuarded } from '../api/workflows.js';
 import { pathString } from '../api/errors.js';
+import { reorderQueue, resetQueueOrder } from '../api/queue-order.js';
 import { createTicket } from '../api/tickets.js';
 import { searchTickets, snippetOf } from '../api/ticket-search.js';
 import {
@@ -121,80 +120,13 @@ export const MCP_INSTRUCTIONS =
 
 /** ADR-0030: how a repo check runs, for the tools' descriptions. */
 const REPO_CHECKS_HOW =
-  'Every command runs with `sh -c` at the root of a fresh checkout of the commit being shipped ' +
-  '(Git Bash on Windows machines, so write bash: `cd m-one && npm ci && npm run build`, ' +
-  'forward slashes, quoted Windows paths). `setup` runs once before the checks: omit it to ' +
-  "auto-detect from the root lockfile, '' for none. The checks replace the workflow's on every " +
-  'transition that runs checks, for tickets on this repo only.';
+  'Each command runs with `sh -c` at the root of a fresh checkout of the commit being shipped ' +
+  '(Git Bash on Windows: write bash, forward slashes, quoted Windows paths). `setup` runs once ' +
+  "first. They replace the workflow's checks on every gated transition, for this repo only.";
 
-/** list_findings: findings per page (each ≤ ~700 bytes, well under the 8 KB cap). */
-export const FINDINGS_PAGE = 8;
-
-/** get_process_report: friction groups shown, and insight ids per group. */
-export const REPORT_FRICTIONS_MAX = 10;
-export const REPORT_IDS_MAX = 3;
-const REPORT_SUGGESTION_CLIP = 200;
-
-/**
- * ADR-0033 P2: the analysts' frictions grouped by category and state, most sessions first, each
- * with up to REPORT_IDS_MAX session ids (for get_insight) and its most frequent suggestion.
- */
-export function frictionReport(insights: readonly StoredInsight[]) {
-  type G = {
-    category: string;
-    state: string | null;
-    sessions: Set<string>;
-    severity: number;
-    suggestions: Map<string, number>;
-  };
-  const groups = new Map<string, G>();
-  const outcomes: Record<string, number> = {};
-  let wasted = 0;
-  for (const s of insights) {
-    outcomes[s.insight.outcome] = (outcomes[s.insight.outcome] ?? 0) + 1;
-    wasted += s.insight.wasted_minutes ?? 0;
-    for (const f of s.insight.frictions) {
-      const key = `${f.category}:${f.state ?? ''}`;
-      let g = groups.get(key);
-      if (!g) {
-        g = {
-          category: f.category,
-          state: f.state,
-          sessions: new Set(),
-          severity: 0,
-          suggestions: new Map(),
-        };
-        groups.set(key, g);
-      }
-      g.sessions.add(s.session_id);
-      g.severity = Math.max(g.severity, f.severity);
-      g.suggestions.set(f.suggestion, (g.suggestions.get(f.suggestion) ?? 0) + 1);
-    }
-  }
-  const all = [...groups.values()].sort(
-    (a, b) =>
-      b.sessions.size - a.sessions.size ||
-      b.severity - a.severity ||
-      `${a.category}:${a.state ?? ''}`.localeCompare(`${b.category}:${b.state ?? ''}`),
-  );
-  return {
-    analysed: insights.length,
-    outcomes,
-    wasted_minutes_reported: wasted,
-    frictions: all.slice(0, REPORT_FRICTIONS_MAX).map((g) => ({
-      category: g.category,
-      state: g.state,
-      sessions: g.sessions.size,
-      max_severity: g.severity,
-      top_suggestion: clip(
-        [...g.suggestions.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]![0],
-        REPORT_SUGGESTION_CLIP,
-      ),
-      session_ids: [...g.sessions].slice(0, REPORT_IDS_MAX),
-    })),
-    more_frictions: Math.max(0, all.length - REPORT_FRICTIONS_MAX),
-  };
-}
+// ADR-0033 / UXR-84: the advisor reads live in advisor/read.ts (shared with /api/insights).
+export { FINDINGS_PAGE } from '../advisor/read.js';
+export { frictionReport, REPORT_FRICTIONS_MAX, REPORT_IDS_MAX } from '@conductor/shared';
 
 /**
  * ADR-0033: the `workflow_advisor` MCP prompt. It turns any MCP client (claude.ai voice, Claude
@@ -392,6 +324,8 @@ export function transcriptPage(
 export const ARTIFACT_PAGE = 6000;
 /** get_ticket_artifacts `results`: each state's result, as JSON, in the overview. */
 const RESULT_CLIP = 1500;
+/** reorder_queue: most refs one call takes. */
+const QUEUE_REFS_MAX = 50;
 /** wait_for_updates: the longest wait, under nginx's and the clients' timeouts. */
 export const WAIT_MAX_SECONDS = 50;
 
@@ -467,7 +401,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       description:
         'The account’s tickets, most recently updated first: id, title, column, state, ' +
         'waiting_on (you, you_on_board, agent, checks, machine, nobody) and any open question. ' +
-        'Open tickets by default.',
+        'Open tickets by default; queued in pickup order.',
       inputSchema: {
         needs_input: z
           .boolean()
@@ -506,7 +440,12 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         .filter((c) => column === undefined || c.column === column)
         .filter((c) => kind === undefined || c.kind === kind)
         .filter((c) => repo === undefined || c.repo.toLowerCase() === repo.trim().toLowerCase())
-        .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+        .sort((a, b) =>
+          // 06 §Queue order: Queued alone is listed in pickup order (the board's own sort).
+          column === QUEUED_COLUMN_ID
+            ? compareQueued(a, b)
+            : b.updated_at.localeCompare(a.updated_at),
+        );
       const page = rows.slice(0, limit ?? 20).map((c) => ({
         id: c.ticket_id,
         short_id: c.ticket_id.slice(0, 8),
@@ -520,6 +459,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         needs_input: WAITING_ON_USER.has(waiting(c)),
         ...(c.input_request ? { question: clip(c.input_request.question, QUESTION_MAX) } : {}),
         ...(c.pr_url ? { pr_url: c.pr_url } : {}),
+        ...(c.queue_position != null ? { queue_position: c.queue_position } : {}),
         updated_at: c.updated_at,
       }));
       return ok({ tickets: page, total: rows.length });
@@ -727,10 +667,9 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'Read what the agent produced',
       description:
-        'What the agent wrote. what=plan (default): the plan and its summary; results: each ' +
-        'step’s result (`state`: one in full); output: the live tail; transcript: the whole ' +
-        'conversation; proposals: follow-up tickets the agent proposed (decide_proposed_ticket ' +
-        'approves or dismisses one). Long text is paged: pass next_cursor as `cursor`. PR diff: open pr_url.',
+        'What the agent wrote. what: plan (default), results (`state`: one in full), output (the ' +
+        'live tail), transcript, proposals (follow-up tickets, see decide_proposed_ticket). Long ' +
+        'text is paged: pass next_cursor as `cursor`. The diff: open pr_url.',
       inputSchema: {
         ticket: z.string().max(64),
         what: z.enum(['plan', 'results', 'output', 'transcript', 'proposals']).optional(),
@@ -956,9 +895,9 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'Message the agent',
       description:
-        'Send instructions or a correction to the ticket’s working agent (or ask it for a ' +
-        'report in its own words). Refused (question_open) while it waits on its question, ' +
-        'unless as_answer. A finished ticket needs reopen_ticket.',
+        'Send instructions or a correction to the working agent, or ask it for a report. ' +
+        'Refused (question_open) while it waits on a question, unless as_answer. A finished ' +
+        'ticket needs reopen_ticket.',
       inputSchema: {
         ticket: z.string().max(64),
         text: z.string().min(1).max(10_000),
@@ -1014,14 +953,20 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'Wait for changes',
       description:
-        'Wait until the account’s tickets (or `ticket`) change, then return each changed one as ' +
-        'it is now. Without `since`: the cursor at once. Call again with the returned cursor; ' +
-        'timed_out: no change (timeout_seconds, default 25).',
+        'Wait for the account’s tickets (or `ticket`) to change, then return each as it is now. ' +
+        'Without `since` it returns the cursor at once; pass it back next time. timed_out: no ' +
+        'change.',
       inputSchema: {
         since: z.number().int().min(0).optional().describe('The cursor from the last call'),
         ticket: z.string().max(64).optional(),
         needs_you_only: z.boolean().optional().describe('Only changes that wait on the user'),
-        timeout_seconds: z.number().int().min(0).max(WAIT_MAX_SECONDS).optional(),
+        timeout_seconds: z
+          .number()
+          .int()
+          .min(0)
+          .max(WAIT_MAX_SECONDS)
+          .optional()
+          .describe('Default 25'),
       },
       annotations: readOnly,
     },
@@ -1086,8 +1031,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       title: 'Reopen a ticket',
       description:
         'Send a finished (done, failed or cancelled) ticket back to its agent with new ' +
-        'instructions. The agent resumes the same conversation on the same branch. A ticket ' +
-        'cancelled while still queued goes back to the queue.',
+        'instructions, on the same conversation and branch. One cancelled while queued goes ' +
+        'back to the queue.',
       inputSchema: {
         ticket: z.string().max(64),
         text: z.string().min(1).max(10_000).describe('What the agent should do now'),
@@ -1144,6 +1089,58 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     },
   );
 
+  register(
+    'reorder_queue',
+    {
+      title: 'Reorder queue',
+      description:
+        'Set the pickup order of queued tickets: these first (first = next), the rest after in ' +
+        'their order. [] resets to priority order.',
+      // Bounds checked below, not in the schema, so the tool list stays inside its budget.
+      inputSchema: { tickets: z.array(z.string()).optional() },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    async ({ tickets }) => {
+      if (tickets === undefined || tickets.length > QUEUE_REFS_MAX) {
+        return fail(
+          'invalid_input',
+          `Give \`tickets\`: at most ${QUEUE_REFS_MAX} refs, [] to reset.`,
+        );
+      }
+      let res;
+      if (tickets.length === 0) {
+        res = await resetQueueOrder(db, accountId);
+      } else {
+        const ids: string[] = [];
+        for (const ref of tickets) {
+          const t = await resolveTicket(db, accountId, ref);
+          if ('error' in t) return t.error;
+          if (!ids.includes(t.id)) ids.push(t.id);
+        }
+        res = await reorderQueue(db, accountId, ids);
+        if (res.skipped.length === ids.length) {
+          return fail('wrong_state', 'None of these tickets is queued (waiting for a machine).');
+        }
+      }
+      for (const ev of res.events) deps.boardBus.publish(ev);
+      const titles = await db.query<{ id: string; title: string; queue_position: number | null }>(
+        'SELECT id, title, queue_position FROM ticket WHERE id = ANY($1::uuid[])',
+        [res.ticket_ids],
+      );
+      const byId = new Map(titles.rows.map((r) => [r.id, r]));
+      return ok({
+        queue: res.ticket_ids.map((id, i) => ({
+          id,
+          short_id: id.slice(0, 8),
+          title: clip(byId.get(id)?.title ?? '', TITLE_MAX),
+          next: i + 1,
+          hand_ordered: (byId.get(id)?.queue_position ?? null) !== null,
+        })),
+        skipped: res.skipped,
+      });
+    },
+  );
+
   // ---------------------------------------------------------------- ADR-0030: workflows
 
   /** Who an MCP write is recorded as (`repo_checks.updated_by`). */
@@ -1173,9 +1170,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'Get a repo’s checks',
       description:
-        'What conductor runs before a ticket on this repo opens or updates its PR: the repo’s own ' +
-        'override (null when it has none) and, per workflow transition that runs checks, the ' +
-        'effective setup and checks.',
+        'What runs before a ticket on this repo opens or updates its PR: the repo’s override ' +
+        '(null if none) and the effective setup and checks per gated transition.',
       inputSchema: { repo: repoArg },
       annotations: readOnly,
     },
@@ -1187,12 +1183,16 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'Set a repo’s checks',
       description:
-        'Replace the pre-PR checks for one repo (e.g. a repo without a root package.json). ' +
+        'Replace one repo’s pre-PR checks (e.g. no root package.json). ' +
         REPO_CHECKS_HOW +
-        ' Tickets pick it up the next time they run their checks.',
+        ' Tickets use them from their next check run.',
       inputSchema: {
         repo: repoArg,
-        setup: z.string().max(2_000).optional().describe("Omit = auto-detect, '' = none"),
+        setup: z
+          .string()
+          .max(2_000)
+          .optional()
+          .describe("Omit = auto-detect from the root lockfile, '' = none"),
         checks: z
           .array(EntryCheckSchema)
           .min(1)
@@ -1247,9 +1247,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'List recurring schedules',
       description:
-        'The account’s recurring jobs: each one’s cron and timezone, whether it is enabled, the ' +
-        'next run times, the last run’s ticket (get_ticket it to see whether it waits on the ' +
-        'user) and why the last due run was skipped, if it was. Bodies are clipped.',
+        'The account’s recurring jobs: cron, timezone, enabled, next runs, the last run’s ticket ' +
+        'and why a due run was skipped. Bodies are clipped.',
       inputSchema: {},
       annotations: readOnly,
     },
@@ -1273,17 +1272,20 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'Create or edit a recurring schedule',
       description:
-        'Create (no `id`; name, cron, title, repo, kind required) or edit (`id`; only the given ' +
-        'fields; `enabled` pauses/resumes) a recurring job. Each run makes a ticket from the ' +
-        'template on the `routine` workflow: an agent does the body’s instructions, then finishes ' +
-        'or asks the user. `cron`: 5 fields in `timezone` (IANA, default UTC), e.g. `0 9 * * 1-5` ' +
-        '= weekdays 09:00; runs ≥ 15 min apart. A run is skipped while the last one is open; ' +
-        'missed runs are not caught up. `machines` (ids or names) pins runs to e.g. a work laptop, ' +
-        'so the agent has its skills, plugins and CLIs; `repo` must be checked out there.',
+        'Create (no `id`; needs name, cron, title, repo, kind) or edit (`id`; only the given ' +
+        'fields; `enabled` pauses) a recurring job. Each run makes a ticket on the `routine` ' +
+        'workflow: an agent follows the body, then finishes or asks the user. Runs are ≥ 15 min ' +
+        'apart; one is skipped while the last is open, and missed runs are not caught up. ' +
+        '`machines` (ids or names) pins runs to a machine with the repo and the agent’s tools.',
       inputSchema: {
         id: z.string().max(64).optional().describe('Omit to create'),
         name: z.string().min(1).max(100).optional().describe('Unique in the account'),
-        cron: z.string().min(1).max(100).optional().describe('e.g. "0 9 * * 1-5"'),
+        cron: z
+          .string()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe('5 fields in `timezone`, e.g. "0 9 * * 1-5" (weekdays 09:00)'),
         timezone: z.string().min(1).max(100).optional().describe('IANA, default UTC'),
         enabled: z.boolean().optional(),
         title: z.string().min(1).max(200).optional().describe('Each ticket’s title (+ run time)'),
@@ -1356,12 +1358,10 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'Get the workflow',
       description:
-        'The workflow tickets run (`conductor` by default, latest version unless `version`). ' +
-        'Without `state`: an outline (each state’s type, title and transition names) and every ' +
-        'gate that runs checks. With `state`: that state’s full definition (prompt, transitions, ' +
-        'requirements, timeouts). `default_available`: a newer shipped default not yet adopted ' +
-        '(adopt_default_workflow). To edit, read each state, then send the whole definition to ' +
-        'save_workflow.',
+        'The workflow (default `conductor`, latest unless `version`). Without `state`: each ' +
+        'state’s type, title and transitions, and the gates that run checks; with `state`: its ' +
+        'full definition. `default_available`: a newer shipped default (adopt_default_workflow). ' +
+        'To edit, read the states and send the whole definition to save_workflow.',
       inputSchema: {
         workflow_id: z.string().min(1).max(100).optional().describe('Default conductor'),
         version: z.number().int().min(1).optional().describe('Default the latest'),
@@ -1438,20 +1438,19 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
 
   /** The approval guard, then the insert; the tool result either way. */
   const saveChecked = async (def: WorkflowDefinition, baseVersion: number | undefined) => {
-    const weakened = await weakenedApprovals(db, def);
-    if (weakened.length > 0) {
-      return fail(
-        'approval_weakened',
-        `This would remove or bypass a human approval (${weakened.join(', ')}); change ` +
-          'approvals on the board, not over MCP.',
-        { transitions: weakened },
-      );
-    }
-    const res = await insertWorkflowVersion(db, def, {
+    const res = await saveGuarded(db, def, {
       createdBy: by,
       accountId: who.scope.account_id,
       ...(baseVersion !== undefined ? { baseVersion } : {}),
     });
+    if (!res.ok && res.code === 'approval_weakened') {
+      return fail(
+        'approval_weakened',
+        `This would remove or bypass a human approval (${res.transitions.join(', ')}); change ` +
+          'approvals on the board, not over MCP.',
+        { transitions: res.transitions },
+      );
+    }
     if (!res.ok && res.code === 'conflict') {
       return fail(
         'conflict',
@@ -1473,11 +1472,10 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'Save a workflow',
       description:
-        'Save a whole workflow definition as its next version (instance admins only: it changes ' +
-        'the workflow for every account). New tickets, reopens and parked tickets follow it. An ' +
-        'invalid one returns invalid_workflow with each rule and path. It may not remove a human ' +
-        'approval. After a save of `conductor`, newer shipped defaults no longer install ' +
-        'themselves (get_workflow shows default_available). Ask the user first.',
+        'Save a whole definition as the workflow’s next version. Instance admins only: it ' +
+        'changes every account’s new, reopened and parked tickets. Refused with invalid_workflow ' +
+        '(each rule and path), or if it removes a human approval. Saving `conductor` stops new ' +
+        'shipped defaults installing themselves. Ask the user first.',
       inputSchema: {
         definition: z
           .record(z.string(), z.unknown())
@@ -1513,8 +1511,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       title: 'Adopt the newest default workflow',
       description:
         'Save the newest shipped `conductor` workflow as its next version, replacing local edits ' +
-        '(instance admins only): after an edit, or when get_workflow shows default_available. ' +
-        'Later defaults still need adopting by hand. Ask the user first.',
+        '(instance admins only). Later defaults need adopting again. Ask the user first.',
       inputSchema: { base_version: baseVersionArg },
       annotations: writeWorkflow,
     },
@@ -1534,22 +1531,6 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     repo: z.string().trim().min(1).max(200).optional(),
     workflow_id: z.string().min(1).max(100).optional(),
   };
-  const loadRows = (a: {
-    window_days?: number | undefined;
-    repo?: string | undefined;
-    workflow_id?: string | undefined;
-  }) =>
-    loadAdvisorRows(db, {
-      accountId,
-      windowDays: clampWindow(a.window_days),
-      repo: a.repo,
-      workflowId: a.workflow_id,
-    });
-
-  const insightFilter = (
-    a: { repo?: string | undefined; workflow_id?: string | undefined },
-    since: string,
-  ) => ({ accountId, since: new Date(since), repo: a.repo, workflowId: a.workflow_id });
 
   register(
     'get_process_metrics',
@@ -1564,15 +1545,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       },
       annotations: readOnly,
     },
-    async (a) => {
-      const rows = await loadRows(a);
-      return ok({
-        window_days: clampWindow(a.window_days),
-        since: rows.since,
-        ...(rows.truncated.length > 0 ? { rows_truncated: rows.truncated } : {}),
-        ...processMetrics(rows, a.group_by ?? 'state'),
-      });
-    },
+    async (a) => ok(await readProcessMetrics(db, accountId, a)),
   );
 
   register(
@@ -1588,21 +1561,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       },
       annotations: readOnly,
     },
-    async (a) => {
-      const rows = await loadRows(a);
-      const insights = await loadInsights(db, insightFilter(a, rows.since));
-      const all = rankFindings(rows, insightFindings(insights));
-      const start = Math.min(a.cursor ?? 0, all.length);
-      const end = start + FINDINGS_PAGE;
-      return ok({
-        window_days: clampWindow(a.window_days),
-        since: rows.since,
-        ...(rows.truncated.length > 0 ? { rows_truncated: rows.truncated } : {}),
-        findings: all.slice(start, end),
-        next_cursor: end < all.length ? end : null,
-        total: all.length,
-      });
-    },
+    async (a) => ok(await readFindings(db, accountId, a)),
   );
 
   register(
@@ -1613,30 +1572,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       inputSchema: advisorArgs,
       annotations: readOnly,
     },
-    async (a) => {
-      const rows = await loadRows(a);
-      const f = insightFilter(a, rows.since);
-      const [insights, coverage, enabled] = await Promise.all([
-        loadInsights(db, f),
-        insightCoverage(db, f),
-        insightsEnabled(db, accountId),
-      ]);
-      return ok({
-        window_days: clampWindow(a.window_days),
-        since: rows.since,
-        insights_enabled: enabled,
-        ...(enabled
-          ? {}
-          : {
-              note:
-                'No machine runs analyst jobs yet (it needs the Rust daemon): only the ' +
-                'deterministic metrics are available.',
-            }),
-        ...coverage,
-        totals: processMetrics(rows, 'state').totals,
-        ...frictionReport(insights),
-      });
-    },
+    async (a) => ok(await readProcessReport(db, accountId, a)),
   );
 
   register(
@@ -1649,17 +1585,9 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       annotations: readOnly,
     },
     async ({ session_id }) => {
-      if (!UUID_RE.test(session_id)) return fail('not_found', 'No insight for that session.');
-      const found = await getInsight(db, accountId, session_id);
+      const found = await readInsight(db, accountId, session_id);
       if (found === null) return fail('not_found', 'No insight for that session.');
-      return ok({
-        session_id: found.session_id,
-        ticket_id: found.ticket_id,
-        created_at: found.created_at.toISOString(),
-        model: found.model,
-        model_written: true,
-        ...found.insight,
-      });
+      return ok(found);
     },
   );
 

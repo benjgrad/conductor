@@ -18,6 +18,10 @@ import {
   CreateInviteRequestSchema,
   CreateTicketRequestSchema,
   UpdateTicketRequestSchema,
+  ReorderQueueRequestSchema,
+  compareQueued,
+  isReorderable,
+  type QueueOrderResponse,
   ticketEditable,
   ENROLLMENT_TOKEN_TTL_MS,
   humanTransitionOptions,
@@ -93,6 +97,11 @@ import {
   type TicketSearchResult,
   ticketSearchGroup,
   validateWorkflow,
+  DIFF_MAX,
+  capDiff,
+  diffWorkflow,
+  stableJson,
+  type WorkflowDefaultResponse,
   type WorkflowDefinition,
   type WorkflowDetail,
   type TranscriptResponse,
@@ -101,10 +110,12 @@ import {
 import {
   ApiRequestError,
   type ApiClient,
+  type SaveWorkflowResponse,
   type StreamHandlers,
   type Unsubscribe,
 } from './client.js';
 import { validateColumns } from '../workflow/columns.js';
+import { mockInsights } from './mock-insights.js';
 import {
   CONDUCTOR,
   MOCK_WORKFLOW_AUTHORS,
@@ -152,6 +163,11 @@ export interface MockApiOptions {
   signedIn?: boolean;
   /** UX-8: `none` starts the account with no machines (the first-run guide). Default `seeded`. */
   machines?: 'seeded' | 'none';
+  /**
+   * UXR-87: a newer shipped `conductor` default. While no stored version equals it, `getWorkflow`
+   * reports its version as `default_available`, and `adoptDefaultWorkflow` saves it. Default none.
+   */
+  defaultWorkflow?: WorkflowDefinition;
 }
 
 /** The mock's one user in `password` mode (an admin). */
@@ -255,6 +271,15 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     ]),
   );
 
+  /** UXR-87: `opts.defaultWorkflow`'s version while no stored `conductor` equals it, else null. */
+  const defaultAvailable = (id: string): number | null => {
+    const def = opts.defaultWorkflow;
+    const versions = workflows.get(id);
+    if (!def || id !== CONDUCTOR.id || !versions) return null;
+    const norm = (d: WorkflowDefinition) => stableJson({ ...d, version: 0 });
+    return versions.some((v) => norm(v.definition) === norm(def)) ? null : def.version;
+  };
+
   /** ADR-0030: per-repo check overrides, by `repoChecksKey`. */
   const repoChecks = new Map<string, RepoChecksDto>(
     mockRepoChecks(now()).map((dto) => [dto.repo, dto]),
@@ -264,6 +289,8 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
 
   /** ADR-0033 P3: the advisor's change proposals, newest first. */
   const proposals: ChangeProposalDetail[] = mockChangeProposals(now());
+  /** UXR-84: the advisor's metrics, findings, report and session insights. */
+  const insights = mockInsights(now(), () => proposals);
   const proposal = (id: string): ChangeProposalDetail => {
     const p = proposals.find((x) => x.id === id);
     if (!p) throw new ApiRequestError(404, 'not_found', 'no such change proposal');
@@ -714,6 +741,32 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     );
   }
 
+  /** 06 §Queue order: the queued (still waiting) tickets, in pickup order. */
+  function queuedOrder(): string[] {
+    return [...cards.values()]
+      .filter(isReorderable)
+      .sort(compareQueued)
+      .map((c) => c.ticket_id);
+  }
+
+  /** Set queue positions (no `updated_at` bump, as the server) and upsert the changed cards. */
+  function setQueuePositions(positions: ReadonlyMap<string, number | null>) {
+    const drafts: BoardSseEventDraft[] = [];
+    for (const [id, pos] of positions) {
+      const card = cards.get(id);
+      if (!card || (card.queue_position ?? null) === pos) continue;
+      const updated: BoardCard = { ...card, queue_position: pos };
+      cards.set(id, updated);
+      drafts.push({
+        type: 'card.upserted',
+        session_id: card.session_id,
+        ticket_id: id,
+        card: updated,
+      });
+    }
+    emit(drafts);
+  }
+
   function update(card: BoardCard, next: Partial<BoardCard>, extra: BoardSseEventDraft[] = []) {
     const sessionId = card.session_id;
     if (sessionId === null) throw new Error('update() needs a session card');
@@ -1079,6 +1132,30 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         return { ...p, status: 'dismissed' };
       }),
 
+    reorderQueue: (ticketIds) =>
+      reply((): QueueOrderResponse => {
+        const parsed = ReorderQueueRequestSchema.safeParse({ ticket_ids: ticketIds });
+        if (!parsed.success) throw new ApiRequestError(400, 'bad_request', parsed.error.message);
+        const current = queuedOrder();
+        const ready = new Set(current);
+        const first = parsed.data.ticket_ids.filter((id) => ready.has(id));
+        if (first.length === 0) {
+          throw new ApiRequestError(404, 'not_found', 'none of ticket_ids is a queued ticket');
+        }
+        const order = [...first, ...current.filter((id) => !first.includes(id))];
+        setQueuePositions(new Map(order.map((id, i) => [id, i + 1])));
+        return {
+          ticket_ids: queuedOrder(),
+          skipped: parsed.data.ticket_ids.filter((id) => !ready.has(id)),
+        };
+      }),
+
+    resetQueueOrder: () =>
+      reply((): QueueOrderResponse => {
+        setQueuePositions(new Map(queuedOrder().map((id) => [id, null])));
+        return { ticket_ids: queuedOrder(), skipped: [] };
+      }),
+
     updateTicket: (ticketId, raw) =>
       reply((): TicketDetail => {
         const parsed = UpdateTicketRequestSchema.safeParse(raw);
@@ -1393,6 +1470,20 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
 
     getChangeProposal: (id) => reply(() => clone(proposal(id))),
 
+    getProcessMetrics: (o) => reply(() => clone(insights.metrics(o.windowDays, o.groupBy))),
+
+    listFindings: (o) => reply(() => clone(insights.findings(o.windowDays, o.cursor ?? 0))),
+
+    getProcessReport: (o) => reply(() => clone(insights.report(o.windowDays))),
+
+    getSessionInsight: (sessionId) =>
+      reply(() => {
+        const found = insights.insight(sessionId);
+        if (found === null)
+          throw new ApiRequestError(404, 'not_found', 'no insight for that session');
+        return clone(found);
+      }),
+
     applyChangeProposal: (id) =>
       reply((): ChangeProposalDetail => {
         const p = proposal(id);
@@ -1490,6 +1581,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           note: row.note,
           definition: row.definition,
           versions: (versions ?? []).map((v) => v.definition.version),
+          default_available: defaultAvailable(id),
           // UXR-70: the version history.
           history: (versions ?? []).map((v) => ({
             version: v.definition.version,
@@ -1529,6 +1621,52 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         });
         workflows.set(result.def.id, versions);
         return { id: result.def.id, version };
+      }),
+
+    getWorkflowDefault: (id) =>
+      reply((): WorkflowDefaultResponse => {
+        const version = defaultAvailable(id);
+        const latest = workflows.get(id)?.at(-1)?.definition;
+        if (version === null || !opts.defaultWorkflow || !latest) {
+          throw new ApiRequestError(404, 'not_found', `no newer default for ${id}`);
+        }
+        return clone({
+          version,
+          base_version: latest.version,
+          definition: opts.defaultWorkflow,
+          diff: capDiff(diffWorkflow(latest, opts.defaultWorkflow), DIFF_MAX),
+        });
+      }),
+
+    adoptDefaultWorkflow: (id, baseVersion) =>
+      reply((): SaveWorkflowResponse => {
+        if (authMode !== 'local' && !signedInUser().row.is_admin) {
+          throw new ApiRequestError(
+            403,
+            'forbidden',
+            'only an instance admin can change the workflow',
+          );
+        }
+        const versions = workflows.get(id);
+        if (id !== CONDUCTOR.id || !versions || !opts.defaultWorkflow) {
+          throw new ApiRequestError(404, 'not_found', `no shipped default for ${id}`);
+        }
+        const latest = versions.length;
+        if (baseVersion !== latest) {
+          throw new ApiRequestError(
+            409,
+            'conflict',
+            `${id} changed since version ${baseVersion}: the latest is ${latest}`,
+          );
+        }
+        const version = latest + 1;
+        versions.push({
+          definition: clone({ ...opts.defaultWorkflow, version }),
+          created_at: now().toISOString(),
+          created_by: MOCK_ADMIN.email,
+          note: `Adopted the default v${opts.defaultWorkflow.version}`,
+        });
+        return { id, version };
       }),
 
     approve: (sessionId) =>

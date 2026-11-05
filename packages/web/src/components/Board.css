@@ -254,6 +254,71 @@ button.plan-approve {
   overflow-wrap: anywhere;
 }
 
+/* 06 §Queue order: Queued cards move by a handle (drag, or the arrow keys); on a phone by Move
+   up / Move down. The handle sits in the card's top-right corner, over its padding. */
+.column li.queue-movable {
+  position: relative;
+}
+.column li.queue-movable .card-open {
+  padding-right: var(--space-5);
+}
+.queue-handle {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+}
+.card-drag {
+  border: 0;
+  background: none;
+  padding: 0 2px;
+  color: var(--muted);
+  font: inherit;
+  line-height: 1;
+  cursor: grab;
+}
+.card-drag:hover,
+.card-drag:focus-visible {
+  color: inherit;
+}
+.card-drag:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+.queue-move {
+  display: flex;
+  gap: var(--space-1);
+}
+.queue-move button {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+}
+.board-mobile .column li.queue-movable .card-open {
+  padding-right: calc(var(--space-8) + var(--space-3));
+}
+.column li.dragging {
+  opacity: 0.5;
+}
+/* Where the dragged card lands: a line above that card, or under the last one. */
+.column li.drop-before::before,
+.column ul.drop-end::after {
+  content: '';
+  display: block;
+  height: 2px;
+  margin: calc(-1 * var(--space-1)) 0 var(--space-1);
+  border-radius: 1px;
+  background: var(--accent);
+}
+.column ul.drop-end::after {
+  margin: 0;
+}
+.queue-reset,
+.queue-error {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+}
 /* UXR-54: an empty column's one muted line (what the column is for). */
 .column-empty {
   margin: var(--space-2) var(--space-2);

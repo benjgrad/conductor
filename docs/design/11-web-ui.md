@@ -26,6 +26,11 @@ Contrast rules:
 - Each form and dialog has one main action, `button.primary`: an `--accent` fill with `--on-accent` text. Disabled, it has a neutral `--border` fill with `--muted` text (no opacity), so it never looks like an enabled outline button (UXR-25). A disabled main button on the auth forms says what it still needs (`Still needed: …`, linked with `aria-describedby`), like Create ticket's sheet footer.
 - An overlay dialog is a native `<dialog>` opened with `showModal()` through `components/ModalDialog.tsx`. That gives the `::backdrop`, makes the rest of the page inert so Tab stays inside, and closes it on Esc. Focus goes back to the opener, or to a `returnFocus` fallback when the opener is gone (a menu item). A backdrop click doesn't close it (UXR-51). Change password uses it. The sheets and the machine drawer have their own component.
 
+Focus (UXR-56, UXR-58, UXR-72):
+- `styles.css` draws one global `:focus-visible` ring (`2px solid var(--accent)`, offset 2px). A component may restyle it but never remove it. Where a field turns its own outline off, its wrapper draws an equivalent edge instead (the composer box, the rich ticket editor). The phone create-ticket sheet is a focused container, not a control, so it draws no ring.
+- In the workflow diagram, SVG controls draw their own ring: a focused lane shows a dashed ring 4 px outside its box, and a focused arrow shows a dashed halo. Selection stays the solid accent border, so focus and selection can be told apart and can be shown together.
+- Every icon-only control has an `aria-label` and a matching `title`, for example the Edit pencil ("Edit ticket") and the Brief button's `⚠ n` ("n hints"). Disclosure rows with a text summary keep that text as their name and get a "Show output" / "Hide output" tooltip.
+
 Only the rules this design touched use the spacing, type and radius tokens so far. Moving the rest of the CSS onto them is a follow-up.
 
 ## Breakpoint
@@ -33,7 +38,7 @@ Only the rules this design touched use the spacing, type and radius tokens so fa
 `MOBILE_QUERY = '(max-width: 699.98px)'` (`components/useMediaQuery.ts`).
 - **JS** uses `useIsMobile()`, which returns false without `matchMedia`, so jsdom tests render the desktop layout unless they call `mockViewport(width)` from `src/test/match-media.ts`.
 - **CSS** uses the same `@media (max-width: 699.98px)`.
-- **Desktop is unchanged** above the breakpoint, apart from the token colour fixes and the top bar, which is sticky at every width. `useElementHeightVar` sets `--topbar-h` on `<html>` from the bar's measured height (it is taller on a coarse pointer), so the sticky desktop session panel sits 12 px below the bar. The CSS falls back to 49 px.
+- **Desktop** above the breakpoint keeps its layout, apart from the token colour fixes and the shell. On the board (`.app.board-view`, UXR-26) the document never scrolls: the shell is `100dvh`, so the top bar stays put, each column's card list scrolls on its own, the session panel fills the height beside the board with its composer pinned at the bottom, and the inline new-ticket form scrolls in its own box. Between 700 and 900 px, where the panel stacks under the board, `main` is the scroller. Other pages keep document scrolling under a sticky top bar; `useElementHeightVar` sets `--topbar-h` on `<html>` from the bar's measured height (taller on a coarse pointer, CSS fallback 49 px). `scripts/ui-screenshots.js` prints a `WARN` line when a board, detail or new-ticket shot above the breakpoint is taller than its window.
 - Tablets (700 px and up) get the desktop layout, plus the touch sizes on a coarse pointer.
 
 While the phone layout is on, `useVisualViewportHeight` sets `--vvh` and `--vvt` on `<html>` from `visualViewport.height` and `offsetTop`, rounded to whole pixels (`floor` and `round`: iOS reports fractions, and a fixed layer at a sub-pixel offset draws its text blurry). Full-screen surfaces use `top: var(--vvt, 0); height: var(--vvh, 100dvh)`, so they end above the on-screen keyboard and stay in view when iOS pans the layout viewport to a focused field. `100vh` is always paired with a `100dvh` override.
@@ -87,6 +92,12 @@ The create form and the ticket editor have an attachment picker under the body (
 ## Follow-up tickets in the workflow editor (ADR-0034)
 
 An agent column's panel has the checkbox "Agents may propose follow-up tickets" (`FollowUpsFields`, `workflow/ColumnEditor.tsx`). It shows the effective setting (`followUpsOf`): ticked for `plan_template` / `implement_template` while `follow_ups` is unset ([05 §Follow-up tickets](05-workflow-engine.md#follow-up-tickets-adr-0034)). Ticked, it shows At most (1–10) and Guidance, and editing either stores `follow_ups {enabled: true, …}`. Unticking it stores `enabled: false` where unset means on, and removes the key elsewhere (`setFollowUps(…, null)`). The proposals themselves are decided in Needs input ([06 §Proposed tickets](06-human-input.md#proposed-tickets)).
+
+## Session transcript and Steps (UXR-38, UXR-88)
+
+The Messages tab reads as a conversation (`OutputLog.tsx`). Protocol calls are not shown as steps: an accepted `complete_state` (its result is the daemon's "Recorded. Stop now: …") collapses to one muted line, "✓ Finished <state>", where the state is the one the session was in at that time (from `moves`). A refused or failed call stays a normal tool row, and **Debug lines** brings every raw call back. The conversation's opening user message (Claude's prompt, which carries the ticket) is labelled **Ticket** and rendered as markdown. Later messages from a person stay plain text. Phase dividers name the transition by its title (`moveTitle`), never its id. The "History loaded from Claude's transcript" notice is a bordered notice inset like the chat.
+
+The Details tab has a **Steps** section between Action and Result (`steps.ts`): one row per state the ticket entered (from `SessionDetail.moves`), showing the state's title, its outcome (the title of the transition that left it; "In progress" while current; "Ended here" in a terminal state) and its duration. A row whose state recorded a result (`SessionDetail.context[state]`, the same data MCP `get_ticket_artifacts what=results` reads) has a **Result** disclosure that renders it as markdown: the summary, then the plan, then the other fields by name. Context keeps only a state's latest result, so an earlier visit of a revisited state says "Result replaced by a later visit". There is no separate route: `GET /api/sessions/:id` already carries both.
 
 ## Install (UX-16)
 

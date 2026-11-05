@@ -4,6 +4,9 @@
 // docs/qa/ux-review/<out>/<screen>-<w>x<h>-<theme>.png plus metrics.json (page overflow and the
 // visible tap targets under 44 px, per shot). Not run in CI.
 //
+// A board, detail or new-ticket shot above the phone breakpoint whose page is taller than the
+// window prints a WARN line (UXR-26: the desktop board's document must not scroll).
+//
 //   node scripts/ui-screenshots.js [--out before|after] [--url http://localhost:5173] [--only board,detail]
 //
 // `--only` re-takes those screens at every size and keeps the rest of metrics.json.
@@ -37,6 +40,10 @@ const BRIEF_CARD = 'Add pagination to /orders';
 const PLAN_CARD = 'Add rate limiting to /login';
 /** The ticket-panel shots (11-web-ui §Phone layout, Detail panel). */
 const TICKET_SHOTS = ['ticket-messages', 'ticket-plan', 'ticket-plan-sheet', 'ticket-brief-sheet'];
+/** UXR-26: shots whose page must fit the window above the phone breakpoint (11-web-ui §Breakpoint). */
+const PAGE_FIT_SHOTS = ['board', 'detail', 'new-ticket'];
+/** The phone breakpoint (MOBILE_QUERY in packages/web/src/components/useMediaQuery.ts). */
+const PHONE_MAX_WIDTH = 699.98;
 
 /**
  * @typedef {import('playwright-core').Page} Page
@@ -44,7 +51,7 @@ const TICKET_SHOTS = ['ticket-messages', 'ticket-plan', 'ticket-plan-sheet', 'ti
  * @typedef {{ w: number, h: number, deviceScaleFactor: number, isMobile?: boolean,
  *   hasTouch?: boolean, themes: Partial<Record<'light' | 'dark', 'all' | string[]>> }} Viewport
  * @typedef {{ id: string, path: string, act?: (page: Page) => Promise<void>,
- *   auth?: 'password' }} Screen  `auth`: on the mock's accounts (VITE_MOCK_AUTH=password)
+ *   auth?: 'password', fullPage?: boolean }} Screen  `auth`: on the mock's accounts (VITE_MOCK_AUTH=password)
  * @typedef {ReturnType<typeof measure> | { error: string }} Metric
  */
 
@@ -91,12 +98,17 @@ const VIEWPORTS = [
         'new-ticket',
         'machines',
         'workflows',
+        'wf-rules-full',
+        'wf-rules-new',
+        'wf-arrow-group',
         'ticket-messages',
         'ticket-plan',
         'change-password',
         'signup',
         'reset',
         'admin',
+        'detail-done',
+        'detail-done-steps',
       ],
       dark: ['board', 'detail'],
     },
@@ -147,6 +159,20 @@ async function tapStrip(page, cls) {
   return true;
 }
 
+/**
+ * The Workflow page with one arrow's transition panel open (the arrow's aria-label starts
+ * "Arrow <from> → <to>:", WorkflowsView.test.tsx).
+ * @param {Page} page @param {string} from @param {string} to
+ */
+async function openArrow(page, from, to) {
+  await page.locator('.wf-lanes').first().waitFor();
+  // An SVG <g role="button">: no HTMLElement.click(), so dispatch the click.
+  const arrow = page.getByRole('button', { name: new RegExp(`^Arrow ${from} → ${to}:`) }).first();
+  await arrow.waitFor({ state: 'attached' });
+  await arrow.dispatchEvent('click');
+  await page.locator('aside.wf-editor').waitFor();
+}
+
 /** Each screen starts from a fresh load of `path`, then `act`s. @type {Screen[]} */
 const SCREENS = [
   { id: 'board', path: '/#/' },
@@ -177,6 +203,19 @@ const SCREENS = [
       await openCard(page);
       await clickNamed(page, 'tab', 'Details');
       await page.locator('aside.detail').scrollIntoViewIfNeeded();
+    },
+  },
+  // UXR-38: a done ticket's history from the transcript (the ticket as markdown, "Finished …").
+  { id: 'detail-done', path: '/#/', act: (page) => openCard(page, 'Rename user.fullname') },
+  {
+    // UXR-88: its Steps, the first recorded result open.
+    id: 'detail-done-steps',
+    path: '/#/',
+    act: async (page) => {
+      await openCard(page, 'Rename user.fullname');
+      await clickNamed(page, 'tab', 'Details');
+      await tap(page.locator('.star-steps button', { hasText: 'Result' }).first());
+      await page.locator('.star-steps').scrollIntoViewIfNeeded();
     },
   },
   {
@@ -245,6 +284,31 @@ const SCREENS = [
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
   { id: 'workflows', path: '/#/workflows' },
+  // UXR-60/63: a transition with every kind of rule, at its full height (the panel uncapped).
+  {
+    id: 'wf-rules-full',
+    path: '/#/workflows',
+    fullPage: true,
+    act: async (page) => {
+      await openArrow(page, 'Implementing', 'Waiting external');
+      await page.evaluate(() => {
+        const panel = /** @type {HTMLElement | null} */ (document.querySelector('aside.wf-editor'));
+        if (panel) panel.style.maxHeight = 'none';
+      });
+    },
+  },
+  // A transition with no requirements: closed sections, "Nothing is required".
+  {
+    id: 'wf-rules-new',
+    path: '/#/workflows',
+    act: (page) => openArrow(page, 'Planning', 'Implementing'),
+  },
+  // An arrow with several transitions (the tabs above the summary).
+  {
+    id: 'wf-arrow-group',
+    path: '/#/workflows',
+    act: (page) => openArrow(page, 'Planning', 'Needs input'),
+  },
   { id: 'setup', path: '/#/setup' },
   { id: 'help', path: '/help/add-a-machine' },
   { id: 'help-connect-claude', path: '/help/connect-claude' },
@@ -298,6 +362,17 @@ function measure(deviceWidth) {
     smallTapTargets: small.length,
     smallTapTargetSample: small.slice(0, 8),
   };
+}
+
+/**
+ * UXR-26: a desktop board, detail or new-ticket shot taller than the window means the page scrolls.
+ * @param {string} screenId @param {Viewport} vp @param {Metric} metric
+ * @returns {string | null}
+ */
+function fitWarning(screenId, vp, metric) {
+  if (vp.w <= PHONE_MAX_WIDTH || !PAGE_FIT_SHOTS.includes(screenId)) return null;
+  if (!('pageHeight' in metric) || metric.pageHeight <= vp.h) return null;
+  return `pageHeight ${metric.pageHeight} > viewport ${vp.h} (the page scrolls; UXR-26)`;
 }
 
 /** @returns {Promise<number>} */
@@ -362,6 +437,8 @@ async function main() {
   await mkdir(outDir, { recursive: true });
   /** @type {Record<string, Metric>} */
   const metrics = {};
+  /** @type {string[]} */
+  const warnings = [];
   // `--only` re-takes some shots: keep the other shots' metrics.
   if (only.length > 0) {
     try {
@@ -396,9 +473,18 @@ async function main() {
             await page.waitForTimeout(400);
             await screen.act?.(page);
             await page.waitForTimeout(300);
-            await page.screenshot({ path: join(outDir, `${name}.png`) });
-            metrics[name] = await page.evaluate(measure, vp.w);
+            await page.screenshot({
+              path: join(outDir, `${name}.png`),
+              fullPage: screen.fullPage ?? false,
+            });
+            const metric = await page.evaluate(measure, vp.w);
+            metrics[name] = metric;
             console.log(`ok   ${name}`);
+            const warn = fitWarning(screen.id, vp, metric);
+            if (warn) {
+              warnings.push(`WARN ${name}: ${warn}`);
+              console.log(warnings[warnings.length - 1]);
+            }
           } catch (err) {
             const error = String(err).split('\n')[0] ?? '';
             metrics[name] = { error };
@@ -413,6 +499,10 @@ async function main() {
     for (const server of servers.values()) (await server).stop();
   }
   await writeFile(join(outDir, 'metrics.json'), `${JSON.stringify(metrics, null, 2)}\n`);
+  if (warnings.length > 0) {
+    console.log(`\n${warnings.length} WARN:`);
+    for (const w of warnings) console.log(w);
+  }
 }
 
 main().catch((err) => {

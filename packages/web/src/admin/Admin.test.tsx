@@ -58,7 +58,7 @@ describe('admin page', () => {
     expect(document.body.innerHTML).not.toContain(url);
   });
 
-  it('notes beside New invite that general sign-up arrives with M2-T15b', async () => {
+  it('notes beside New invite that invite links cannot create accounts yet', async () => {
     await renderAdmin();
     const invites = within(screen.getByRole('region', { name: 'Invites' }));
     expect(invites.getByText(NEW_ACCOUNTS_NOTE)).toBeTruthy();

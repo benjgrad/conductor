@@ -125,3 +125,28 @@
 .star-acceptance {
   font-weight: 600;
 }
+
+/* UXR-88: one row per state the ticket passed through. */
+.star-steps {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0;
+}
+.star-step {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 4px 0 4px 10px;
+  border-left: 2px solid var(--border);
+}
+.star-step-title {
+  font-weight: 600;
+}
+.star-step > div {
+  flex-basis: 100%;
+}
+.star-step-note {
+  flex-basis: 100%;
+  font-size: 12px;
+}

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { RepoChecksSchema } from '../workflow/repo-checks.js';
+import { WorkflowDefinitionSchema } from '../workflow/schema.js';
 import { checkFailed, median, percentile, stateDurations, type AdvisorRows } from './metrics.js';
 
 // ADR-0033 P3 (MA-T05): change proposals. The workflow advisor never writes directly: it stores a
@@ -274,6 +275,16 @@ export const ChangeProposalDetailSchema = ChangeProposalSummarySchema.extend({
   review: ProposalReviewSchema.nullable(),
   /** The warning to show before applying a workflow change. */
   warning: z.string().nullable(),
+  /**
+   * UXR-73: the whole change, for a readable diff (REST only; MCP results leave them out).
+   * Workflow: the definition it was based on (null when that version no longer parses) and the
+   * proposed one.
+   */
+  base_definition: WorkflowDefinitionSchema.nullable().optional(),
+  proposed_definition: WorkflowDefinitionSchema.nullable().optional(),
+  /** Repo checks: the repo's override before (null = the workflow's checks) and after. */
+  checks_before: RepoChecksSchema.nullable().optional(),
+  checks_after: RepoChecksSchema.nullable().optional(),
 });
 export type ChangeProposalDetail = z.infer<typeof ChangeProposalDetailSchema>;
 
@@ -287,6 +298,10 @@ export type ChangeProposalListResponse = z.infer<typeof ChangeProposalListRespon
 export const ListChangeProposalsQuerySchema = z.object({
   status: z.union([ChangeStatusSchema, z.literal('all')]).optional(),
   cursor: z.coerce.number().int().min(0).optional(),
+  /** UXR-73: only this kind (the Repo checks page lists `repo_checks`). */
+  kind: ChangeKindSchema.optional(),
+  /** UXR-73: only this target: a repo (normalised like `repoChecksKey`) or a workflow id. */
+  target: z.string().min(1).max(500).optional(),
 });
 
 /** A workflow change's warning (workflows are shared by every account until M2-T12). */

@@ -39,8 +39,8 @@
 
 /* UXR-50: the contents list under the title, linking to every h2. */
 .help-contents {
-  margin: 12px 0 8px;
-  padding: 10px 14px;
+  margin: var(--space-3) 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--panel);
@@ -48,7 +48,7 @@
 }
 .help-contents ul {
   margin: 0;
-  padding-left: 18px;
+  padding-left: var(--space-4);
 }
 .help-contents li {
   margin: 2px 0;

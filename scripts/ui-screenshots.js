@@ -55,12 +55,20 @@ const REQUEST_SHOTS = ['detail-review', 'detail-failed', 'detail-step-failed'];
 const PERMISSION_CARD = BRIEF_CARD;
 /** The plan-approval card (06 §Plan approval; api/mock-data.ts planApprovalSeed). */
 const PLAN_CARD = 'Add rate limiting to /login';
+/** A queued card no machine can take, with no description (api/mock-data.ts; UXR-34, UXR-86). */
+const QUEUED_CARD = 'Hotfix: crash on empty cart';
 /** The ticket-panel shots (11-web-ui §Phone layout, Detail panel). */
-const TICKET_SHOTS = ['ticket-messages', 'ticket-plan', 'ticket-plan-sheet', 'ticket-brief-sheet'];
+const TICKET_SHOTS = [
+  'ticket-messages',
+  'ticket-plan',
+  'ticket-plan-sheet',
+  'ticket-brief-sheet',
+  'ticket-queued',
+];
 /** UXR-26: shots whose page must fit the window above the phone breakpoint (11-web-ui §Breakpoint). */
 const PAGE_FIT_SHOTS = ['board', 'detail', 'new-ticket'];
 /** The phone breakpoint (MOBILE_QUERY in packages/web/src/components/useMediaQuery.ts). */
-const PHONE_MAX_WIDTH = 699.98;
+const PHONE_MAX_WIDTH = 899.98;
 
 /**
  * @typedef {import('playwright-core').Page} Page
@@ -116,6 +124,7 @@ const VIEWPORTS = [
         'machines',
         'machine-drawer',
         'admin',
+        'workflows',
       ],
     },
   },
@@ -154,6 +163,7 @@ const VIEWPORTS = [
         'workflow-transition',
         'ticket-messages',
         'ticket-plan',
+        'ticket-queued',
         ...REQUEST_SHOTS,
         'board-permission',
         'detail-permission',
@@ -326,6 +336,8 @@ const SCREENS = [
   // The ticket panel's Messages tab: the brief above the chat (BRIEF_CARD has a ticket body).
   { id: 'ticket-messages', path: '/#/', act: (page) => openCard(page, BRIEF_CARD) },
   { id: 'ticket-plan', path: '/#/', act: (page) => openCard(page, PLAN_CARD) },
+  // UXR-86: the queued panel (TicketPanel): routing note, priority, Cancel ticket….
+  { id: 'ticket-queued', path: '/#/', act: (page) => openCard(page, QUEUED_CARD) },
   {
     id: 'ticket-plan-sheet',
     path: '/#/',

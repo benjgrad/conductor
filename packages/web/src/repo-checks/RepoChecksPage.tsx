@@ -38,6 +38,7 @@ import {
   type RepoRow,
   type Spec,
 } from './repo-checks-model.js';
+import { useToast } from '../components/Toast.js';
 import { ProposalsPanel } from '../workflow/ProposalsPanel.js';
 import '../workflow/workflow.css';
 import './repo-checks.css';
@@ -265,6 +266,7 @@ function RepoDetailView({
   const [busy, setBusy] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const hintId = useId();
+  const toast = useToast();
 
   const load = useCallback(() => {
     api.getRepoChecks(repo).then(
@@ -322,6 +324,7 @@ function RepoDetailView({
         checks: value.checks,
         ...(value.setup !== undefined ? { setup: value.setup } : {}),
       });
+      toast('Checks saved');
       onChanged();
       if (dto.repo !== repo) {
         // Saved: the canonical spelling's route isn't leaving unsaved work.
@@ -342,6 +345,7 @@ function RepoDetailView({
     try {
       await api.clearRepoChecks(detail.repo);
       setConfirmClear(false);
+      toast('Checks cleared');
       onChanged();
       load();
     } catch (err) {

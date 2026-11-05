@@ -33,3 +33,30 @@
 .help-body .md-code {
   overflow-x: auto;
 }
+.help-body h2 {
+  scroll-margin-top: 12px;
+}
+
+/* UXR-50: the contents list under the title, linking to every h2. */
+.help-contents {
+  margin: 12px 0 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  font-size: var(--text-sm);
+}
+.help-contents ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.help-contents li {
+  margin: 2px 0;
+  break-inside: avoid;
+}
+@media (min-width: 700px) {
+  .help-contents ul {
+    columns: 2;
+    column-gap: 24px;
+  }
+}

@@ -11,6 +11,7 @@ import {
   type ApiClient,
   type ApiErrorDetail,
 } from '../api/client.js';
+import { useToast } from '../components/Toast.js';
 import { useIsMobile } from '../components/useMediaQuery.js';
 import { ColumnEditor } from './ColumnEditor.js';
 import { ColumnsDiagram } from './ColumnsDiagram.js';
@@ -84,7 +85,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
   const [serverErrors, setServerErrors] = useState<ApiErrorDetail[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const toast = useToast();
   /** Bumped when an applied change proposal saved a new version: the latest is fetched again. */
   const [reloads, setReloads] = useState(0);
   /** UXR-44: below the phone breakpoint the editors open full-screen over the page. */
@@ -174,13 +175,11 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
 
   const edit = (next: WorkflowDefinition) => {
     setDraft(next);
-    setNotice(null);
   };
 
   const discard = () => {
     setDraft(null);
     setServerErrors([]);
-    setNotice(null);
     setDeferred(new Set());
     setProblemsOpen(false);
   };
@@ -189,7 +188,6 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
     setVersion(v);
     setSelected(null);
     setServerErrors([]);
-    setNotice(null);
     setDeferred(new Set());
   };
 
@@ -253,7 +251,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
       setDeferred(new Set());
       setProblemsOpen(false);
       setVersion(res.version);
-      setNotice(`Saved as v${res.version}.`);
+      toast(`Saved as v${res.version}`);
     } catch (err) {
       if (err instanceof ApiRequestError && err.details.length > 0) {
         setServerErrors(err.details);
@@ -390,11 +388,6 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
             >
               History
             </button>
-          )}
-          {notice && (
-            <span className="muted" role="status">
-              {notice}
-            </span>
           )}
         </div>
         {shown === null && !error && <p className="muted">Loading…</p>}

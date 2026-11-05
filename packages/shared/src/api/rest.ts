@@ -99,6 +99,10 @@ export const API_PATHS = {
   ticketProposalApprove: (id: string) => `/api/tickets/${id}/proposals/approve`,
   /** POST DismissProposalRequest → TicketProposal. */
   ticketProposalDismiss: (id: string) => `/api/tickets/${id}/proposals/dismiss`,
+  /** POST CancelTicketRequest → 202 OkResponse (UXR-86: cancels a queued ticket too). */
+  ticketCancel: (id: string) => `/api/tickets/${id}/cancel`,
+  /** POST ReopenTicketRequest → 202 OkResponse (a cancelled queued ticket, or a finished one). */
+  ticketReopen: (id: string) => `/api/tickets/${id}/reopen`,
   /**
    * POST the file's raw bytes (`application/octet-stream`, name in `x-conductor-filename`) →
    * 201 AttachmentDto, not linked to a ticket yet (06 §Attachments).
@@ -952,6 +956,24 @@ export type ReopenSessionResponse = z.infer<typeof ReopenSessionResponseSchema>;
 
 /** POST /api/sessions/:id/cancel → 202 OkResponse. Becomes `operator.cancel {reason}`. */
 export const CancelSessionRequestSchema = z.object({ reason: z.string().optional() });
+
+/**
+ * POST /api/tickets/:id/cancel → 202 OkResponse (UXR-86). A ticket with a session is cancelled
+ * as POST /api/sessions/:id/cancel; one still queued with none is set `cancelled` (claims skip it).
+ * 404 unknown (or another account's); 409 `conflict` when already done or cancelled.
+ */
+export const CancelTicketRequestSchema = z.object({ reason: z.string().max(500).optional() });
+export type CancelTicketRequest = z.infer<typeof CancelTicketRequestSchema>;
+
+/**
+ * POST /api/tickets/:id/reopen → 202 OkResponse. A ticket with a session is reopened as
+ * POST /api/sessions/:id/reopen (`text` is the prompt; a default when absent); a cancelled one
+ * with no session goes back to `ready` (Queued). 409 `conflict` when it can't be reopened.
+ */
+export const ReopenTicketRequestSchema = z.object({
+  text: z.string().trim().min(1).max(20_000).optional(),
+});
+export type ReopenTicketRequest = z.infer<typeof ReopenTicketRequestSchema>;
 
 /**
  * POST /api/sessions/:id/approve → 202 OkResponse. Becomes `external.event {name: 'ui.approve',

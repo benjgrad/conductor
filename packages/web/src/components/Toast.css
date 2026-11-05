@@ -1,0 +1,30 @@
+/* UXR-55: the shared confirmation toast (11-web-ui §Feedback toasts). */
+.toast-region {
+  position: fixed;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: calc(var(--z-sheet) + 10);
+  pointer-events: none;
+  max-width: calc(100vw - 32px);
+}
+.toast {
+  padding: 8px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow-2);
+  font-size: var(--text-base);
+  animation: toast-in 150ms ease-out;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+}

@@ -1,7 +1,7 @@
 import { useEffect, useState, type RefObject } from 'react';
 
-/** 11-web-ui §Breakpoint: the phone layout below 700 px; the desktop layout above it is unchanged. */
-export const MOBILE_QUERY = '(max-width: 699.98px)';
+/** 11-web-ui §Breakpoint: the phone layout below 900 px (tablets in portrait included, UXR-59); desktop from 900 px. */
+export const MOBILE_QUERY = '(max-width: 899.98px)';
 
 function matches(query: string): boolean {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function'

@@ -246,7 +246,7 @@ function LaneBox({
   ]
     .filter(Boolean)
     .join(' ');
-  // UXR-68: the column's kind (its stripe colour) for screen readers too.
+  // UXR-45 / UXR-68: the column's kind; UXR-73: whether the compared version changed it.
   const name =
     `Column ${lane.title}: ${lane.work}${lane.entry ? ', has requirements to enter' : ''}` +
     ` (${kindLabel} column)${changed ? ' (changed)' : ''}`;

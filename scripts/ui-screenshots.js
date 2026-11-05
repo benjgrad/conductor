@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // UI review screenshots (docs/qa/ux-review/). Starts the web app on the still mock API
 // (VITE_API=mock, VITE_MOCK_STATIC=1), drives it with Chrome through playwright-core, and writes
-// docs/qa/ux-review/<out>/<screen>-<w>x<h>-<theme>.png plus metrics.json (page overflow and the
-// visible tap targets under 44 px, per shot). Not run in CI.
+// docs/qa/ux-review/<out>/<screen>-<w>x<h>-<theme>.png plus metrics.json (page overflow, including
+// overflow clipped inside the phone shell or a panel, and the visible tap targets under 44 px, per
+// shot). Not run in CI.
 //
 // A board, detail or new-ticket shot above the phone breakpoint whose page is taller than the
 // window prints a WARN line (UXR-26: the desktop board's document must not scroll).
@@ -54,8 +55,16 @@ const REQUEST_SHOTS = ['detail-review', 'detail-failed', 'detail-step-failed'];
 const PERMISSION_CARD = BRIEF_CARD;
 /** The plan-approval card (06 §Plan approval; api/mock-data.ts planApprovalSeed). */
 const PLAN_CARD = 'Add rate limiting to /login';
+/** A queued card no machine can take, with no description (api/mock-data.ts; UXR-34, UXR-86). */
+const QUEUED_CARD = 'Hotfix: crash on empty cart';
 /** The ticket-panel shots (11-web-ui §Phone layout, Detail panel). */
-const TICKET_SHOTS = ['ticket-messages', 'ticket-plan', 'ticket-plan-sheet', 'ticket-brief-sheet'];
+const TICKET_SHOTS = [
+  'ticket-messages',
+  'ticket-plan',
+  'ticket-plan-sheet',
+  'ticket-brief-sheet',
+  'ticket-queued',
+];
 /** UXR-26: shots whose page must fit the window above the phone breakpoint (11-web-ui §Breakpoint). */
 const PAGE_FIT_SHOTS = ['board', 'detail', 'new-ticket'];
 /** The phone breakpoint (MOBILE_QUERY in packages/web/src/components/useMediaQuery.ts). */
@@ -94,6 +103,9 @@ const VIEWPORTS = [
         'new-ticket',
         'new-ticket-bottom',
         ...TICKET_SHOTS,
+        'workflows',
+        'workflow-column',
+        'workflow-transition',
       ],
     },
   },
@@ -126,6 +138,8 @@ const VIEWPORTS = [
         'new-ticket',
         'new-ticket-bottom',
         'machines',
+        'schedules',
+        'schedule-sheet',
         'machine-drawer',
         'admin',
         'workflows',
@@ -133,14 +147,18 @@ const VIEWPORTS = [
         'wf-rules-full',
         'wf-rules-new',
         'wf-arrow-group',
+        'wf-unsaved-guard',
+        'wf-version-old-edit',
         'rc-override-full',
         'rc-invalid',
         'wf-arrow-transition',
         'wf-proposal-open',
         'wf-version-old',
         'workflow-column',
+        'workflow-transition',
         'ticket-messages',
         'ticket-plan',
+        'ticket-queued',
         ...REQUEST_SHOTS,
         'board-permission',
         'detail-permission',
@@ -209,6 +227,19 @@ async function openArrow(page, from, to) {
   await arrow.waitFor({ state: 'attached' });
   await arrow.dispatchEvent('click');
   await page.locator('aside.wf-editor').waitFor();
+}
+
+/**
+ * Open the Planning column and rename it, so the workflow has an unsaved draft.
+ * @param {Page} page
+ */
+async function editPlanningTitle(page) {
+  await page.locator('.wf-lanes').first().waitFor();
+  const lane = page.getByRole('button', { name: /^Column Planning:/ }).first();
+  await lane.dispatchEvent('click');
+  await page.locator('aside.wf-editor').waitFor();
+  await page.locator('aside.wf-editor').getByLabel('Title').fill('Thinking');
+  await page.locator('.wf-savebar').waitFor();
 }
 
 /** Each screen starts from a fresh load of `path`, then `act`s. @type {Screen[]} */
@@ -303,6 +334,8 @@ const SCREENS = [
   // The ticket panel's Messages tab: the brief above the chat (BRIEF_CARD has a ticket body).
   { id: 'ticket-messages', path: '/#/', act: (page) => openCard(page, BRIEF_CARD) },
   { id: 'ticket-plan', path: '/#/', act: (page) => openCard(page, PLAN_CARD) },
+  // UXR-86: the queued panel (TicketPanel): routing note, priority, Cancel ticket….
+  { id: 'ticket-queued', path: '/#/', act: (page) => openCard(page, QUEUED_CARD) },
   {
     id: 'ticket-plan-sheet',
     path: '/#/',
@@ -341,6 +374,9 @@ const SCREENS = [
   { id: 'admin', path: '/?mock-auth=password#/admin' },
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
+  // UXR-83: the mock's three schedules, and the weekly one's edit sheet.
+  { id: 'schedules', path: '/#/schedules' },
+  { id: 'schedule-sheet', path: '/#/schedules/e5000000-0000-4000-8000-000000000002' },
   // UXR-61: the override's setup and check table, at full height.
   { id: 'rc-override-full', path: '/#/repo-checks/github.com%2Facme%2Fshop', fullPage: true },
   // UXR-61 FR-5: problems in the check table, each under its field and named by its label.
@@ -381,11 +417,21 @@ const SCREENS = [
       });
     },
   },
-  // A transition with no requirements: closed sections, "Nothing is required".
+  // UXR-71: a transition given a new condition (it starts valid: wait at most 3d) and then a new
+  // check, still focused: no problems shown yet, the save bar at the bottom.
   {
     id: 'wf-rules-new',
     path: '/#/workflows',
-    act: (page) => openArrow(page, 'Planning', 'Implementing'),
+    act: async (page) => {
+      await openArrow(page, 'Planning', 'Implementing');
+      const section = (/** @type {string} */ name) =>
+        tap(page.locator('aside.wf-editor .wf-section-head button', { hasText: name }));
+      await section('Conditions');
+      await page.getByRole('combobox', { name: 'Add condition' }).selectOption('pr_checks_green');
+      await section('Checks');
+      await clickNamed(page, 'button', 'Add check');
+      await page.waitForTimeout(200);
+    },
   },
   // UXR-64: an arrow with several transitions opens on their list (before: on the first one).
   {
@@ -444,6 +490,33 @@ const SCREENS = [
       await page.locator('aside.wf-editor').waitFor();
     },
   },
+  // UXR-44: a lone transition's panel (full-screen on a phone).
+  {
+    id: 'workflow-transition',
+    path: '/#/workflows',
+    act: (page) => openArrow(page, 'Planning', 'Implementing'),
+  },
+  // UXR-69 FR-3: leaving with an unsaved draft asks in a modal dialog.
+  {
+    id: 'wf-unsaved-guard',
+    path: '/#/workflows',
+    act: async (page) => {
+      await editPlanningTitle(page);
+      await page.getByRole('link', { name: 'Board' }).first().click();
+      await page.locator('[role="alertdialog"]').waitFor();
+    },
+  },
+  // UXR-70: editing v1 warns that saving undoes v2–v3, inline and in the save bar.
+  {
+    id: 'wf-version-old-edit',
+    path: '/#/workflows',
+    act: async (page) => {
+      await page.locator('.wf-lanes').first().waitFor();
+      await page.getByRole('combobox', { name: 'Version' }).selectOption('1');
+      await page.getByRole('group', { name: 'conductor v1 columns' }).waitFor();
+      await editPlanningTitle(page);
+    },
+  },
   { id: 'setup', path: '/#/setup' },
   { id: 'help', path: '/help/add-a-machine' },
   { id: 'help-connect-claude', path: '/help/connect-claude' },
@@ -472,13 +545,24 @@ function measure(deviceWidth) {
       );
     }
   }
+  // UXR-44: on a phone the shell (`.app.mobile`, overflow-x hidden) and the full-screen panels clip
+  // what overflows them, so the document's width alone can't see it.
+  const clipped = [];
+  for (const sel of ['.app.mobile', 'aside.wf-editor', 'aside.detail']) {
+    for (const el of document.querySelectorAll(sel)) {
+      if (el.scrollWidth > el.clientWidth + 1) {
+        clipped.push(`${sel} ${el.scrollWidth}>${el.clientWidth}`);
+      }
+    }
+  }
   // The chat's visible height (the session panel's Messages log), when a panel is open.
   const chat = document.querySelector('aside.detail .output-chat .output');
   return {
     chatHeight: chat ? Math.round(chat.getBoundingClientRect().height) : null,
     pageScrollWidth: document.documentElement.scrollWidth,
     deviceWidth: vw,
-    horizontalOverflow: document.documentElement.scrollWidth > vw,
+    horizontalOverflow: document.documentElement.scrollWidth > vw || clipped.length > 0,
+    clippedOverflow: clipped,
     pageHeight: document.documentElement.scrollHeight,
     smallTapTargets: small.length,
     smallTapTargetSample: small.slice(0, 8),

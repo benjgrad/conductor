@@ -16,7 +16,14 @@ import {
   type WorkflowDefinition,
 } from '@conductor/shared';
 import { useId, useState, type ReactNode } from 'react';
-import { ChecksFields, checksFieldSuffixes, ItemActions, swap } from './ChecksFields.js';
+import {
+  ChecksFields,
+  checksFieldSuffixes,
+  leftItem,
+  ItemActions,
+  swap,
+  useFocusNew,
+} from './ChecksFields.js';
 import { ConditionRow } from './ConditionFields.js';
 import { columnStates, columnTitle, humanStates, type ColumnIssue } from './columns.js';
 import { EditorHead, type Crumb } from './EditorHead.js';
@@ -24,6 +31,7 @@ import { RepoOverridesHint } from './RepoOverridesHint.js';
 import {
   ACTION_SHORT,
   ACTION_TEXT,
+  addCondition,
   CONDITION_TEXT,
   conditionOfType,
   DEFAULT_CONDITION_POLL,
@@ -55,8 +63,15 @@ export interface TransitionEditorProps {
   from: string;
   /** The selected transition (a key of `states.<from>.on`). */
   name: string;
-  /** Client and server problems on transitions out of `from`. */
+  /** Client and server problems on transitions out of `from` (not those of still-new items). */
   issues: ColumnIssue[];
+  /**
+   * UXR-71: an item was added at this path prefix; its problems wait until it loses focus
+   * (`onReveal`) or Save. `onRevealUnder` shows every new item of a list whose indexes shifted.
+   */
+  onDefer?: (prefix: string) => void;
+  onReveal?: (prefix: string) => void;
+  onRevealUnder?: (listPrefix: string) => void;
   onChange: (next: WorkflowDefinition) => void;
   /** Select another transition out of `from` (also after a rename). */
   onSelect: (name: string) => void;
@@ -74,12 +89,15 @@ export interface TransitionEditorProps {
    * (UXR-75). Absent or [] = none.
    */
   repoOverrides?: readonly string[];
+  /** UXR-44: the phone's full-screen panel. */
+  fullScreen?: boolean;
 }
 
 const KIND_TEXT: Record<TicketKind, string> = { work: 'Work', personal: 'Personal' };
 
 export function TransitionEditor(props: TransitionEditorProps) {
   const { definition, from, name, onClose, onSelectColumn, onSelectArrow, onBack } = props;
+  const fullScreen = props.fullScreen ?? false;
   const t = getTransitionObject(definition, from, name);
   if (t === null) return null;
   const parent = parentOf(definition, from, name);
@@ -94,7 +112,7 @@ export function TransitionEditor(props: TransitionEditorProps) {
     { label: title },
   ];
   return (
-    <aside className="wf-editor" aria-label="Transition">
+    <aside className={`wf-editor${fullScreen ? ' full-screen' : ''}`} aria-label="Transition">
       <EditorHead
         crumbs={crumbs}
         title={title}
@@ -104,6 +122,7 @@ export function TransitionEditor(props: TransitionEditorProps) {
         }}
         closeLabel="Close transition"
         onClose={onClose}
+        fullScreen={fullScreen}
       />
       <p className="wf-summary" aria-label="Summary" aria-live="polite">
         {bold(describeTransition(definition, from, name))}
@@ -145,9 +164,16 @@ function TransitionForm({
   onSelect,
   onRemoved,
   repoOverrides = [],
+  onDefer,
+  onReveal,
+  onRevealUnder,
   transition: t,
 }: TransitionEditorProps & { transition: TransitionObject }) {
   const uid = useId();
+  const { list: reviewList, focusNew: focusReview } = useFocusNew<HTMLOListElement>('textarea');
+  const { list: conditionList, focusNew: focusCondition } = useFocusNew<HTMLOListElement>(
+    'input, select, textarea, button',
+  );
   const [nameText, setNameText] = useState(name);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -438,6 +464,9 @@ function TransitionForm({
           setup={r.setup}
           onChange={(next) => setR({ checks: next.checks, setup: next.setup })}
           issues={checkIssues}
+          onAdded={(i) => onDefer?.(`${base}.requires.checks.${i}`)}
+          onItemBlur={(i) => onReveal?.(`${base}.requires.checks.${i}`)}
+          onReordered={() => onRevealUnder?.(`${base}.requires.checks`)}
         />
         {/* An override replaces only a list with at least one check (applyRepoChecks): a
             transition without checks runs none, whatever the repo. */}
@@ -445,9 +474,16 @@ function TransitionForm({
       </Section>
 
       <Section title="Review" status={`(${items.length})`} {...section('review')}>
-        <ol className="wf-items" aria-label="Review items">
+        <ol ref={reviewList} className="wf-items" aria-label="Review items">
           {items.map((item, i) => (
-            <li key={i} className="wf-item">
+            <li
+              key={i}
+              className="wf-item"
+              data-item={i}
+              onBlur={(e) => {
+                if (leftItem(e)) onReveal?.(`${base}.requires.review.items.${i}`);
+              }}
+            >
               <div>
                 <textarea
                   aria-label={`Review item ${i + 1}`}
@@ -462,8 +498,14 @@ function TransitionForm({
                 what="review item"
                 i={i}
                 n={items.length}
-                onMove={(j) => setItems(swap(items, i, j))}
-                onRemove={() => setItems(items.filter((_, j) => j !== i))}
+                onMove={(j) => {
+                  onRevealUnder?.(`${base}.requires.review.items`);
+                  setItems(swap(items, i, j));
+                }}
+                onRemove={() => {
+                  onRevealUnder?.(`${base}.requires.review.items`);
+                  setItems(items.filter((_, j) => j !== i));
+                }}
               />
             </li>
           ))}
@@ -473,7 +515,11 @@ function TransitionForm({
           <button
             type="button"
             disabled={items.length >= MAX_ITEMS}
-            onClick={() => setItems([...items, ''])}
+            onClick={() => {
+              onDefer?.(`${base}.requires.review.items.${items.length}`);
+              setItems([...items, '']);
+              focusReview(items.length);
+            }}
           >
             Add review item
           </button>
@@ -533,7 +579,7 @@ function TransitionForm({
         <p className="muted wf-note">
           External facts, checked on your machine and re-checked until they all hold.
         </p>
-        <ol className="wf-items" aria-label="Conditions">
+        <ol ref={conditionList} className="wf-items" aria-label="Conditions">
           {conditions.map((c, i) => (
             <ConditionRow
               // A removal re-keys the rows after it, so their list inputs reset to the value.
@@ -542,8 +588,17 @@ function TransitionForm({
               i={i}
               n={conditions.length}
               onChange={(next) => setConditions(conditions.map((x, j) => (j === i ? next : x)))}
-              onMove={(j) => setConditions(swap(conditions, i, j))}
-              onRemove={() => setConditions(conditions.filter((_, j) => j !== i))}
+              onMove={(j) => {
+                onRevealUnder?.(`${base}.requires.conditions`);
+                setConditions(swap(conditions, i, j));
+              }}
+              onRemove={() => {
+                onRevealUnder?.(`${base}.requires.conditions`);
+                setConditions(conditions.filter((_, j) => j !== i));
+              }}
+              onBlur={(e) => {
+                if (leftItem(e)) onReveal?.(`${base}.requires.conditions.${i}`);
+              }}
               issuesAt={(field) => at(`.requires.conditions.${i}${field}`)}
             />
           ))}
@@ -558,7 +613,16 @@ function TransitionForm({
             onChange={(e) => {
               const type = e.target.value;
               if (type !== '') {
-                setConditions([...conditions, conditionOfType(type as ConditionType)]);
+                onDefer?.(`${base}.requires.conditions.${conditions.length}`);
+                onChange(
+                  setRequires(
+                    definition,
+                    from,
+                    name,
+                    addCondition(r, conditionOfType(type as ConditionType)),
+                  ),
+                );
+                focusCondition(conditions.length);
               }
             }}
           >

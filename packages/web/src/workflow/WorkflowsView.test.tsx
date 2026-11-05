@@ -11,6 +11,7 @@ import { ApiRequestError } from '../api/client.js';
 import { CONDUCTOR, SEED_IDS } from '../api/mock-data.js';
 import { createMockApi } from '../api/mock.js';
 import { App } from '../App.js';
+import { mockViewport, type MockViewport } from '../test/match-media.js';
 import { SessionWorkflowDiagram } from './SessionWorkflowDiagram.js';
 import { WorkflowsView } from './WorkflowsView.js';
 
@@ -78,8 +79,16 @@ const sectionHead = (start: string) =>
 const type = (el: HTMLElement, value: string) => fireEvent.change(el, { target: { value } });
 const lanesOf = (el: Element) =>
   [...el.querySelectorAll('[data-lane]')].map((n) => n.getAttribute('data-lane'));
+/** UXR-69: the save bar (while a draft exists), its Save button and its problems. */
+const saveBar = () => within(screen.getByRole('region', { name: 'Save' }));
 const saveButton = () =>
-  screen.getByRole<HTMLButtonElement>('button', { name: /^Save as new version/ });
+  saveBar().getByRole<HTMLButtonElement>('button', { name: /^Save as v\d+…$/ });
+const problemsButton = () => saveBar().queryByRole('button', { name: /^\d+ problems? [▾▴]$/ });
+const openProblems = () => {
+  const b = problemsButton()!;
+  if (b.getAttribute('aria-expanded') !== 'true') fireEvent.click(b);
+  return within(screen.getByRole('list', { name: 'Problems' }));
+};
 const reviewDialog = () =>
   screen.findByRole('dialog', { name: 'Review changes before saving' }, DIAGRAM_WAIT);
 /** UXR-70: Save opens the review; confirm it (with an optional note). */
@@ -274,8 +283,9 @@ describe('Workflow view', () => {
     fireEvent.click(lane('Planning'));
     type(editor().getByLabelText('Title'), 'Thinking');
     expect(screen.getByText('Unsaved changes')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    fireEvent.click(saveBar().getByRole('button', { name: 'Discard' }));
     expect(screen.queryByText('Unsaved changes')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Save' })).toBeNull();
     expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Title' }).value).toBe('Planning');
   });
 });
@@ -443,8 +453,14 @@ describe('transition arrows (ADR-0011)', () => {
     fireEvent.click(arrow('Implementing', 'Waiting external'));
     fireEvent.click(panel().getByRole('checkbox', { name: 'Work' }));
     expect(panel().getByText('pick at least one kind of ticket')).toBeTruthy();
-    expect(saveButton().disabled).toBe(true);
     expect(arrow('Implementing', 'Waiting external').getAttribute('class')).toContain('error');
+    expect(screen.queryByRole('list', { name: 'Problems' })).toBeNull();
+    // Save with a problem opens the problems from the bar, not the review.
+    fireEvent.click(saveButton());
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(
+      within(screen.getByRole('list', { name: 'Problems' })).getByText(/pick at least one kind/),
+    ).toBeTruthy();
     fireEvent.click(panel().getByRole('checkbox', { name: 'Work' }));
     fireEvent.click(panel().getByRole('checkbox', { name: 'Personal' }));
     await save();
@@ -452,20 +468,23 @@ describe('transition arrows (ADR-0011)', () => {
     expect('kinds' in (onOf(saved[0]!, 'implementing').ready_for_testing as object)).toBe(false);
   });
 
-  it('add a condition with no timeout → the rule-13 error is shown on that arrow', async () => {
+  it('a new condition waits 3d; clearing the timeout shows the rule-13 error', async () => {
     const { saved } = await setup();
     fireEvent.click(arrow('Planning', 'Implementing'));
     fireEvent.click(sectionHead('Conditions (0)'));
     type(panel().getByLabelText('Add condition'), 'pr_approvals');
-    // The first requirement brings a "when not met" (rule 13 needs one).
+    // The first requirement brings a "when not met" (rule 13 needs one), and a timeout (UXR-71).
     expect(panel().getByLabelText<HTMLSelectElement>('Back to').value).toBe('planning');
     expect(panel().getByLabelText<HTMLSelectElement>('Then').value).toBe('needs_input');
+    expect(panel().getByLabelText<HTMLInputElement>('Wait at most').value).toBe('3d');
+    expect(problemsButton()).toBeNull();
+    type(panel().getByLabelText('Wait at most'), '');
     expect(panel().getByText('conditions need a timeout (how long to wait for them)')).toBeTruthy();
     expect(arrow('Planning', 'Implementing').getAttribute('class')).toContain('error');
-    const problems = within(screen.getByRole('list', { name: 'Problems' }));
-    expect(problems.getByText(/Planning · plan_ready/)).toBeTruthy();
-    expect(saveButton().disabled).toBe(true);
+    expect(problemsButton()!.textContent).toBe('1 problem ▾');
+    expect(openProblems().getByText(/Planning · plan_ready/)).toBeTruthy();
     type(panel().getByLabelText('Wait at most'), '1d');
+    expect(problemsButton()).toBeNull();
     expect(screen.queryByRole('list', { name: 'Problems' })).toBeNull();
     type(panel().getByLabelText('Condition 1 approvals'), '2');
     await save();
@@ -569,6 +588,7 @@ describe('transition arrows (ADR-0011)', () => {
     expect(panel().getByRole('alert').textContent).toBe(
       'rule 13: conditions need condition_timeout',
     );
+    // The bar opens its problems by itself after a failed save.
     const problems = within(screen.getByRole('list', { name: 'Problems' }));
     expect(problems.getByText(/rule 1: something global/)).toBeTruthy();
     expect(arrow('Implementing', 'Waiting external').getAttribute('class')).toContain('error');
@@ -814,16 +834,114 @@ describe('transition editor: summary and sections (UXR-60, UXR-63)', () => {
     expect(panel().queryByText(/Nothing is required/)).toBeNull();
     const unmet = sectionHead('If the requirements aren’t met');
     expect(unmet.getAttribute('aria-expanded')).toBe('true');
-    const conditions = sectionHead('Conditions (1 · poll 2m)');
-    expect(conditions.getAttribute('class')).toContain('error');
+    // UXR-71: a new condition starts valid, waiting at most 3 days.
+    const conditions = sectionHead('Conditions (1 · wait 3d, poll 2m)');
+    expect(conditions.getAttribute('class') ?? '').not.toContain('error');
     expect(
       conditions.compareDocumentPosition(unmet) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     const summary = panel().getByLabelText('Summary').textContent;
-    expect(summary).toContain('wait for PR checks → Implementing.');
+    expect(summary).toContain('wait up to 3 days for PR checks → Implementing.');
     expect(summary).toContain('If not met: back to Planning, up to 3 times, then Needs input.');
     type(panel().getByLabelText('Wait at most'), '1d');
     expect(panel().getByLabelText('Summary').textContent).toContain('wait up to 1 day for');
+  });
+});
+
+describe('save bar and calm validation (UXR-69, UXR-71)', () => {
+  it('shows a bar while a draft exists: Unsaved changes, Discard, Save as v4…', async () => {
+    await setup();
+    expect(screen.queryByRole('region', { name: 'Save' })).toBeNull();
+    fireEvent.click(lane('Planning'));
+    type(editor().getByLabelText('Title'), 'Thinking');
+    expect(saveBar().getByText('Unsaved changes')).toBeTruthy();
+    expect(saveBar().getByRole('button', { name: 'Discard' })).toBeTruthy();
+    expect(saveBar().getByRole('button', { name: 'Save as v4…' })).toBeTruthy();
+    // No problems: no count, and no list.
+    expect(problemsButton()).toBeNull();
+    expect(screen.queryByRole('list', { name: 'Problems' })).toBeNull();
+  });
+
+  it('holds a new check’s problems until it loses focus', async () => {
+    await setup();
+    fireEvent.click(arrow('Planning', 'Implementing'));
+    fireEvent.click(sectionHead('Checks (0)'));
+    fireEvent.click(panel().getByRole('button', { name: 'Add check' }));
+    const name = panel().getByLabelText('Check 1 name');
+    await waitFor(() => expect(document.activeElement).toBe(name));
+    expect(panel().queryByText('Check 1: Name is required')).toBeNull();
+    expect(panel().queryByText('Check 1: Command is required')).toBeNull();
+    expect(problemsButton()).toBeNull();
+    expect(arrow('Planning', 'Implementing').getAttribute('class') ?? '').not.toContain('error');
+    // Moving within the check keeps it quiet.
+    const cmd = panel().getByLabelText('Check 1 command');
+    fireEvent.blur(name, { relatedTarget: cmd });
+    expect(panel().queryByText('Check 1: Name is required')).toBeNull();
+    // Leaving it shows them.
+    fireEvent.blur(cmd, { relatedTarget: null });
+    expect(panel().getByText('Check 1: Name is required')).toBeTruthy();
+    expect(panel().getByText('Check 1: Command is required')).toBeTruthy();
+    expect(problemsButton()!.textContent).toBe('2 problems ▾');
+    expect(arrow('Planning', 'Implementing').getAttribute('class')).toContain('error');
+  });
+
+  it('holds a new review item’s problem until it loses focus', async () => {
+    await setup();
+    fireEvent.click(arrow('Planning', 'Implementing'));
+    fireEvent.click(sectionHead('Review (0)'));
+    fireEvent.click(panel().getByRole('button', { name: 'Add review item' }));
+    const item = panel().getByLabelText('Review item 1');
+    await waitFor(() => expect(document.activeElement).toBe(item));
+    expect(panel().queryByText('review item 1 is empty')).toBeNull();
+    fireEvent.blur(item, { relatedTarget: null });
+    expect(panel().getByText('review item 1 is empty')).toBeTruthy();
+    // Typing into it clears the problem.
+    type(item, 'Tests cover the change');
+    expect(panel().queryByText('review item 1 is empty')).toBeNull();
+  });
+
+  it('Save shows a new item’s problems instead of opening the review', async () => {
+    const { saved } = await setup();
+    fireEvent.click(arrow('Planning', 'Implementing'));
+    fireEvent.click(sectionHead('Checks (0)'));
+    fireEvent.click(panel().getByRole('button', { name: 'Add check' }));
+    expect(panel().queryByText('Check 1: Name is required')).toBeNull();
+    fireEvent.click(saveButton());
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(saved).toHaveLength(0);
+    expect(panel().getByText('Check 1: Name is required')).toBeTruthy();
+    const problems = within(screen.getByRole('list', { name: 'Problems' }));
+    expect(problems.getByText(/Check 1: Command is required/)).toBeTruthy();
+    expect(problemsButton()!.getAttribute('aria-expanded')).toBe('true');
+    // Escape closes the list.
+    fireEvent.keyDown(screen.getByRole('list', { name: 'Problems' }), { key: 'Escape' });
+    expect(screen.queryByRole('list', { name: 'Problems' })).toBeNull();
+  });
+});
+
+describe('old-version warning (UXR-70)', () => {
+  const warningText = 'This starts from v1: saving undoes the changes in v2–v3.';
+
+  it('warns, here and in the bar, once an old version is edited', async () => {
+    await setup();
+    type(screen.getByRole('combobox', { name: 'Version' }), '1');
+    await screen.findByRole('group', { name: 'conductor v1 columns' });
+    expect(screen.queryByText(warningText)).toBeNull();
+    fireEvent.click(lane('Planning'));
+    type(editor().getByLabelText('Title'), 'Thinking');
+    const inline = screen.getAllByRole('alert').filter((el) => el.textContent === warningText);
+    expect(inline).toHaveLength(1);
+    expect(saveBar().getByText(warningText)).toBeTruthy();
+    expect(saveBar().getByRole('button', { name: 'Save as v4…' })).toBeTruthy();
+    fireEvent.click(saveBar().getByRole('button', { name: 'Discard' }));
+    expect(screen.queryByText(warningText)).toBeNull();
+  });
+
+  it('does not warn when editing the latest', async () => {
+    await setup();
+    fireEvent.click(lane('Planning'));
+    type(editor().getByLabelText('Title'), 'Thinking');
+    expect(screen.queryByText(/saving undoes the changes/)).toBeNull();
   });
 });
 
@@ -890,7 +1008,9 @@ describe('unsaved draft guard', () => {
     await dirty();
     fireEvent.click(screen.getByRole('link', { name: 'Board' }));
     await waitFor(() => expect(screen.getByRole('alertdialog')).toBeTruthy());
-    expect(confirm().getByText('Discard unsaved changes to the workflow?')).toBeTruthy();
+    expect(screen.getByRole('alertdialog').getAttribute('aria-modal')).toBe('true');
+    expect(confirm().getByText('Your changes to the workflow aren’t saved.')).toBeTruthy();
+    expect(document.activeElement).toBe(confirm().getByRole('button', { name: 'Keep editing' }));
     expect(window.location.hash).toBe('#/workflows');
     fireEvent.click(confirm().getByRole('button', { name: 'Keep editing' }));
     expect(screen.queryByRole('alertdialog')).toBeNull();
@@ -901,12 +1021,22 @@ describe('unsaved draft guard', () => {
     await dirty();
     fireEvent.click(screen.getByRole('link', { name: 'Board' }));
     await waitFor(() => expect(screen.getByRole('alertdialog')).toBeTruthy());
-    fireEvent.click(confirm().getByRole('button', { name: 'Discard' }));
+    fireEvent.click(confirm().getByRole('button', { name: 'Leave without saving' }));
     await screen.findByText('Add pagination to /orders');
     expect(window.location.hash).toBe('#/');
     fireEvent.click(screen.getByRole('link', { name: 'Workflow' }));
     await screen.findByRole('group', { name: 'conductor v3 columns' }, DIAGRAM_WAIT);
     expect(screen.queryByText('Unsaved changes')).toBeNull();
+  });
+
+  it('Escape keeps editing', async () => {
+    await dirty();
+    fireEvent.click(screen.getByRole('link', { name: 'Board' }));
+    await waitFor(() => expect(screen.getByRole('alertdialog')).toBeTruthy());
+    fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Escape' });
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(window.location.hash).toBe('#/workflows');
+    expect(screen.getByText('Unsaved changes')).toBeTruthy();
   });
 
   it('an old workflow URL stays in the view, draft and all', async () => {
@@ -1012,6 +1142,64 @@ describe('Workflow view: change proposals (ADR-0033 P3)', () => {
     fireEvent.click(await region.findByRole('button', { name: 'Apply…' }));
     fireEvent.click(region.getByRole('button', { name: 'Confirm apply' }));
     await waitFor(() => expect(calls.length).toBeGreaterThan(n));
+  });
+});
+
+describe('phone: full-screen editors (UXR-44)', () => {
+  let viewport: MockViewport | null = null;
+  beforeEach(() => {
+    viewport = mockViewport(375);
+  });
+  afterEach(() => {
+    viewport?.restore();
+    viewport = null;
+  });
+
+  const workflow = () => screen.getByRole('region', { name: 'Workflow' });
+
+  it('a column opens full-screen; Back to workflow closes it; the note stays', async () => {
+    await setup();
+    expect(screen.getByText('The workflow editor is best on a larger screen.')).toBeTruthy();
+    fireEvent.keyDown(lane('Implementing'), { key: 'Enter' });
+    const aside = screen.getByRole('complementary', { name: 'Column' });
+    expect(aside.classList.contains('full-screen')).toBe(true);
+    expect(editor().queryByRole('button', { name: 'Close column' })).toBeNull();
+    expect(workflow().hasAttribute('inert')).toBe(true);
+    fireEvent.click(editor().getByRole('button', { name: 'Back to workflow' }));
+    expect(screen.queryByRole('complementary', { name: 'Column' })).toBeNull();
+    expect(workflow().hasAttribute('inert')).toBe(false);
+  });
+
+  it('a transition opens full-screen; Back goes to its column', async () => {
+    await setup();
+    fireEvent.keyDown(arrow('Implementing', 'Waiting external'), { key: 'Enter' });
+    const aside = screen.getByRole('complementary', { name: 'Transition' });
+    expect(aside.classList.contains('full-screen')).toBe(true);
+    expect(panel().queryByRole('button', { name: 'Close transition' })).toBeNull();
+    fireEvent.click(panel().getByRole('button', { name: 'Back to Implementing' }));
+    expect(screen.getByRole('complementary', { name: 'Column' }).classList).toContain(
+      'full-screen',
+    );
+  });
+
+  it('an arrow’s list opens full-screen too, without ×', async () => {
+    await setup();
+    fireEvent.keyDown(arrow('Implementing', 'Needs input'), { key: 'Enter' });
+    const list = screen.getByRole('complementary', { name: 'Arrow' });
+    expect(list.classList.contains('full-screen')).toBe(true);
+    expect(within(list).queryByRole('button', { name: 'Close arrow' })).toBeNull();
+  });
+
+  it('on desktop the panels keep × and are not full-screen', async () => {
+    viewport?.restore();
+    viewport = null;
+    await setup();
+    fireEvent.keyDown(lane('Implementing'), { key: 'Enter' });
+    expect(screen.getByRole('complementary', { name: 'Column' }).classList).not.toContain(
+      'full-screen',
+    );
+    expect(editor().getByRole('button', { name: 'Close column' })).toBeTruthy();
+    expect(workflow().hasAttribute('inert')).toBe(false);
   });
 });
 

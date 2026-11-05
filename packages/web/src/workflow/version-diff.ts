@@ -225,9 +225,9 @@ function approvalLines(before: readonly Approval[], after: readonly Approval[]):
   return lines;
 }
 
-/** An action's words; an action this build doesn't know (a newer version's) by its name. */
-function actionText(action: string): string {
-  return (ACTION_TEXT as Record<string, string | undefined>)[action] ?? action;
+/** An action's words; an action this build doesn't know shows as its id. */
+function actionText(v: string): string {
+  return (ACTION_TEXT as Readonly<Record<string, string | undefined>>)[v] ?? v;
 }
 
 function listLines(

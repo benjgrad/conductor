@@ -119,7 +119,6 @@ export function Board({
     setCollapsed(readCollapsed(workflow));
   }
   const isCollapsed = (id: string) => collapsed.has(id);
-  const anyCollapsed = columns.some((c) => collapsed.has(c.id));
 
   // FR-4: each collapsed column's card count when it was collapsed (lowered when it drops), so a
   // human column can show that it rose. Not before the first board load: its count is no news.
@@ -150,10 +149,6 @@ export function Board({
       }),
     [save],
   );
-  const expandAll = () => {
-    setCollapsed(new Set());
-    save(new Set());
-  };
 
   // 11-web-ui §Board: on a phone one column shows at a time, picked in the switcher or by a swipe.
   // Collapsing (UX-9) is desktop only: the phone column is never collapsed.
@@ -205,13 +200,6 @@ export function Board({
 
   return (
     <div className="board-area" hidden={hidden}>
-      {anyCollapsed && (
-        <div className="board-toolbar">
-          <button type="button" className="board-expand-all" onClick={expandAll}>
-            Expand all
-          </button>
-        </div>
-      )}
       <div
         className={`board${narrow ? ' board-narrow' : ''}`}
         // styles.css owns `.board`; the tracks depend on which columns are collapsed.

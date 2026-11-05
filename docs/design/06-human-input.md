@@ -102,7 +102,7 @@ A state that is not a column (an older `conductor` version, or an old `m1_*` wor
 
 Sort, by the column's kind: Queued in pickup order ([§Queue order](#queue-order): hand order, then priority with the lower P first ([ADR-0036](../adr/0036-ticket-priority-p-scale.md)), then age); human (Needs input) oldest open input_request first, with the question badge; event (Waiting external) by age; agent columns and Done most recent activity first.
 
-**Collapsing columns (UX-9).** Each column heading is a toggle (`aria-expanded`, `aria-controls`). A collapsed column is a narrow strip with the rotated title and the card count; clicking it expands the column. The collapsed column ids are kept per browser and per workflow in `localStorage` (`conductor.board.collapsed.<workflow>`, `packages/web/src/components/board-layout.ts`). Ids that are no longer columns are ignored. "Expand all" shows while any column is collapsed. A collapsed human column (Needs input) shows an attention dot when its count rises above its count at collapse, so a new question isn't hidden. The dot isn't shown for counts already there on page load.
+**Collapsing columns (UX-9).** Each column heading is a toggle (`aria-expanded`, `aria-controls`). A collapsed column is a narrow strip with the rotated title and the card count; clicking it expands the column. The collapsed column ids are kept per browser and per workflow in `localStorage` (`conductor.board.collapsed.<workflow>`, `packages/web/src/components/board-layout.ts`). Ids that are no longer columns are ignored. A collapsed human column (Needs input) shows an attention dot when its count rises above its count at collapse, so a new question isn't hidden. The dot isn't shown for counts already there on page load.
 
 ### Queue order
 

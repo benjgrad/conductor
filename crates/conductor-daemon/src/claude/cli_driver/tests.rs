@@ -300,6 +300,33 @@ fn base_opts() -> DriverStartOptions {
     opts_in(Path::new("/w"), json!([]))
 }
 
+/// ADR-0038: `--allowedTools` gets publish_page only for a state with the `pages` tool, and only
+/// with an attach target (the orchestrator to post to); a reviewer gets neither.
+#[test]
+fn allows_publish_page_only_with_pages_and_a_target() {
+    let allowed = |o: &DriverStartOptions| {
+        let args = build_claude_args(o, "{}", "/tmp/s/settings.json", &PermissionArgs::Host);
+        let i = args.iter().position(|a| a == "--allowedTools").unwrap();
+        args[i + 1].clone()
+    };
+    let target = crate::attachments::upload::AttachTarget {
+        base: reqwest::Url::parse("http://127.0.0.1:7400/").unwrap(),
+        credential: None,
+        session_id: "s".into(),
+        roots: vec![],
+    };
+    let mut o = base_opts();
+    o.publish_pages = true;
+    assert!(!allowed(&o).contains(PUBLISH_PAGE_TOOL));
+    o.attach = Some(target);
+    assert!(allowed(&o).contains(PUBLISH_PAGE_TOOL));
+    o.review = true;
+    assert!(!allowed(&o).contains(PUBLISH_PAGE_TOOL));
+    o.review = false;
+    o.publish_pages = false;
+    assert!(!allowed(&o).contains(PUBLISH_PAGE_TOOL));
+}
+
 #[test]
 fn emits_exactly_the_adr_0005_0006_flags_for_a_new_session() {
     let mut o = base_opts();
@@ -1590,6 +1617,7 @@ fn noop_handlers() -> OutcomeHandlers {
         on_ask_user: Arc::new(|_, _| {}),
         on_permission_request: None,
         on_attach_file: None,
+        on_publish_page: None,
     }
 }
 

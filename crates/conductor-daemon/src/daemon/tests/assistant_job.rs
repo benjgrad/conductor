@@ -58,10 +58,15 @@ async fn register_advertises_the_assistant_job_feature() {
     let c = Ctx::new().await;
     c.make(driver(complete(json!({}))), Make::default());
     let reg = c.until(|| c.of_type("register").into_iter().next()).await;
-    // 06 §Attachments: the daemon also downloads ticket attachments.
+    // 06 §Attachments: the daemon also downloads ticket attachments. ADR-0038: it publishes pages.
     assert_eq!(
         reg["payload"]["features"],
-        json!(["assistant_job", "ticket_attachments", "agent_attachments"])
+        json!([
+            "assistant_job",
+            "ticket_attachments",
+            "agent_attachments",
+            "pages"
+        ])
     );
     c.done().await;
 }

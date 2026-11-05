@@ -72,6 +72,9 @@ pub struct DriverStartOptions {
     /// 06 §Attachments: where the agent's `attach_file` uploads go. None = no such tool (and
     /// never for a reviewer).
     pub attach: Option<crate::attachments::upload::AttachTarget>,
+    /// ADR-0038: the state has the `pages` tool alias, so the agent gets `publish_page` (posting
+    /// to `attach`'s orchestrator; never for a reviewer, never without `attach`).
+    pub publish_pages: bool,
 }
 
 impl DriverStartOptions {
@@ -100,6 +103,7 @@ impl DriverStartOptions {
             transitions: None,
             add_dirs: Vec::new(),
             attach: None,
+            publish_pages: false,
         }
     }
 }

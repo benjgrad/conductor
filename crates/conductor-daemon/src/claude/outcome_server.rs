@@ -26,6 +26,11 @@
 //! call waits for the upload and returns its outcome, so the agent knows whether the human can see
 //! the file. Refused after complete_state, like ask_user; allowed while a question is pending.
 //!
+//! ADR-0038 (Rust only): `publish_page({title, html, ttl_days?, share?})` is listed only when the
+//! registration has an `on_publish_page` handler (the daemon gives one to a state with the `pages`
+//! tool alias). Its bounds are checked here; the call waits for the orchestrator and returns the
+//! page URL. Refused after complete_state, like attach_file.
+//!
 //! ADR-0023: a third tool, `permission`, is Claude's `--permission-prompt-tool`
 //! (`mcp__conductor__permission`). The call is HELD: the registration hands the request to the
 //! driver (`on_permission_request`, which the daemon sends as a durable `permission_request`) and
@@ -80,6 +85,8 @@ pub const PERMISSION_TOOL: &str = "mcp__conductor__permission";
 pub const OUTCOME_TOOL_NAMES: [&str; 2] = [COMPLETE_STATE_TOOL, ASK_USER_TOOL];
 /// 06 §Attachments: added to `--allowedTools` when the session has an attach target.
 pub const ATTACH_FILE_TOOL: &str = "mcp__conductor__attach_file";
+/// ADR-0038: added to `--allowedTools` when the session's state has the `pages` tool alias.
+pub const PUBLISH_PAGE_TOOL: &str = "mcp__conductor__publish_page";
 
 /// The transition `complete_state` takes when it names none (old prompts, ADR-0011).
 pub const DEFAULT_TRANSITION: &str = "done";
@@ -138,6 +145,8 @@ pub fn ask_user_description() -> String {
 }
 pub const ATTACH_FILE_AFTER_COMPLETE: &str = "Not attached: complete_state was already recorded for this state. Attach files before you call complete_state. End your turn now.";
 const ATTACH_FILE_DESCRIPTION: &str = "Attach a screenshot, GIF or short screen recording you captured to the ticket, so the human sees it on the board (e.g. before/after evidence of a UI change, or images the human asked for). A file you only save to disk is not visible to the human. The file must be inside your worktree or the system temp directory (copy it there first otherwise). PNG, JPEG, GIF, WebP, MP4 or WebM; images up to 10 MB, videos up to 50 MB. Give a caption saying what it shows (e.g. \"Before: delete is blocked\"). Returns whether the upload worked.";
+pub const PUBLISH_PAGE_AFTER_COMPLETE: &str = "Not published: complete_state was already recorded for this state. Publish pages before you call complete_state. End your turn now.";
+const PUBLISH_PAGE_DESCRIPTION: &str = "Publish one rendered HTML page (a mockup, a diagram, a data walkthrough) for the human, hosted by conductor; it is never committed to the repository. `html` is one self-contained document: inline <style> and <script> only, images as data: URLs; anything external (scripts, stylesheets, fonts, fetch) is blocked. At most 2 MB. It expires after `ttl_days` (default 7, at most 30). `share: true` also returns a link that opens without signing in (off by default). Returns the page URL: add it to your result's `pages` so the human can open it from the card.";
 const PERMISSION_DESCRIPTION: &str = "Conductor's permission prompt tool: Claude Code calls it when a tool call needs a human's approval. Do not call it yourself.";
 
 fn when_suffix(t: &AgentTransitionOption) -> String {
@@ -434,6 +443,15 @@ pub type AttachFileHandler = Arc<
         + Send
         + Sync,
 >;
+/// ADR-0038: publishes a page: Ok(text for the agent) or Err(why it wasn't published).
+pub type PublishPageHandler = Arc<
+    dyn Fn(
+            crate::attachments::pages::PublishPageRequest,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send>>
+        + Send
+        + Sync,
+>;
 /// Err = the prompt could not be forwarded (the TS handler threw): the call is denied at once.
 pub type PermissionHandler = Arc<dyn Fn(PermissionPrompt) -> Result<(), String> + Send + Sync>;
 
@@ -448,6 +466,8 @@ pub struct OutcomeHandlers {
     pub on_permission_request: Option<PermissionHandler>,
     /// 06 §Attachments: uploads an `attach_file`. None → the tool isn't listed.
     pub on_attach_file: Option<AttachFileHandler>,
+    /// ADR-0038: publishes a `publish_page`. None → the tool isn't listed.
+    pub on_publish_page: Option<PublishPageHandler>,
 }
 
 /// `register` options.
@@ -678,6 +698,59 @@ impl Outcome {
         }
     }
 
+    async fn publish_page(&self, args: &Map<String, Value>) -> CallToolResult {
+        let title = match args.get("title") {
+            Some(Value::String(t)) => t.clone(),
+            _ => return invalid("title: expected a string"),
+        };
+        let html = match args.get("html") {
+            Some(Value::String(h)) => h.clone(),
+            _ => return invalid("html: expected a string"),
+        };
+        let ttl_days = match args.get("ttl_days") {
+            None | Some(Value::Null) => None,
+            Some(Value::Number(n)) => match n.as_u64().and_then(|d| u32::try_from(d).ok()) {
+                Some(d) => Some(d),
+                None => return invalid("ttl_days: expected a whole number of days"),
+            },
+            Some(_) => return invalid("ttl_days: expected a number"),
+        };
+        let share = match args.get("share") {
+            None | Some(Value::Null) => false,
+            Some(Value::Bool(b)) => *b,
+            Some(_) => return invalid("share: expected a boolean"),
+        };
+        let req = crate::attachments::pages::PublishPageRequest {
+            title,
+            html,
+            ttl_days,
+            share,
+        };
+        if let Err(why) = crate::attachments::pages::check(&req) {
+            return invalid(why);
+        }
+        let handler = {
+            let e = lock(&self.entry);
+            if e.completed {
+                return text(PUBLISH_PAGE_AFTER_COMPLETE);
+            }
+            match e.handlers.on_publish_page.clone() {
+                Some(h) => h,
+                None => {
+                    return CallToolResult::error(vec![ContentBlock::text(
+                        "Not published: this step can't publish pages.",
+                    )]);
+                }
+            }
+        };
+        match handler(req).await {
+            Ok(t) => text(t),
+            Err(why) => {
+                CallToolResult::error(vec![ContentBlock::text(format!("Not published: {why}"))])
+            }
+        }
+    }
+
     async fn permission(&self, args: &Map<String, Value>) -> CallToolResult {
         let tool = match args.get("tool_name") {
             Some(Value::String(t)) if !t.is_empty() => t.clone(),
@@ -774,11 +847,12 @@ impl ServerHandler for Outcome {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let (description, can_attach) = {
+        let (description, can_attach, can_publish) = {
             let e = lock(&self.entry);
             (
                 complete_state_description(e.transitions.as_deref()),
                 e.handlers.on_attach_file.is_some(),
+                e.handlers.on_publish_page.is_some(),
             )
         };
         let mut tools = vec![
@@ -846,6 +920,25 @@ impl ServerHandler for Outcome {
                 .with_meta(always_load()),
             );
         }
+        if can_publish {
+            tools.push(
+                Tool::new(
+                    "publish_page",
+                    PUBLISH_PAGE_DESCRIPTION,
+                    schema(json!({
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string", "minLength": 1, "maxLength": conductor_protocol::PAGE_TITLE_MAX, "description": "What the page shows, e.g. \"Mockup: the new filter bar\""},
+                            "html": {"type": "string", "minLength": 1, "description": "One self-contained HTML document (inline CSS/JS, data: images)"},
+                            "ttl_days": {"type": "integer", "minimum": 1, "maximum": conductor_protocol::PAGE_TTL_MAX_DAYS, "description": "Days until it expires (default 7)"},
+                            "share": {"type": "boolean", "description": "Also return a link that opens without signing in (default false)"},
+                        },
+                        "required": ["title", "html"],
+                    })),
+                )
+                .with_meta(always_load()),
+            );
+        }
         Ok(ListToolsResult::with_all_items(tools))
     }
 
@@ -860,6 +953,7 @@ impl ServerHandler for Outcome {
             "ask_user" => self.ask_user(&args),
             "permission" => self.permission(&args).await,
             "attach_file" => self.attach_file(&args).await,
+            "publish_page" => self.publish_page(&args).await,
             other => {
                 return Err(ErrorData::invalid_params(
                     Cow::Owned(format!("Tool {other} not found")),
@@ -1275,6 +1369,7 @@ mod tests {
                 }) as PermissionHandler
             }),
             on_attach_file: None,
+            on_publish_page: None,
         }
     }
 
@@ -1441,6 +1536,69 @@ mod tests {
         assert_eq!(
             by("complete_state")["inputSchema"]["required"],
             json!(["result"])
+        );
+        s.close().await;
+    }
+
+    #[tokio::test]
+    async fn publish_page_is_listed_with_a_handler_checks_bounds_and_is_refused_after_complete_state()
+     {
+        use crate::attachments::pages::PublishPageRequest;
+        let s = server().await;
+        let c0 = connect(register(&s, None).0.url()).await;
+        assert!(
+            !c0.list_tools()
+                .await
+                .iter()
+                .any(|t| t["name"] == "publish_page")
+        );
+
+        let seen: Arc<Mutex<Vec<PublishPageRequest>>> = Arc::default();
+        let calls = Calls::default();
+        let mut h = handlers(&calls, None);
+        let log = seen.clone();
+        h.on_publish_page = Some(Arc::new(move |req: PublishPageRequest| {
+            log.lock().unwrap().push(req.clone());
+            Box::pin(async move { Ok("Published https://c.example/p/1".to_string()) })
+        }));
+        let reg = s.register(h, OutcomeRegisterOptions::default());
+        let c = connect(reg.url()).await;
+        let tools = c.list_tools().await;
+        let tool = tools.iter().find(|t| t["name"] == "publish_page").unwrap();
+        assert_eq!(tool["inputSchema"]["required"], json!(["title", "html"]));
+
+        assert_eq!(
+            c.text(
+                "publish_page",
+                json!({"title": "Mockup", "html": "<p>x</p>", "ttl_days": 3, "share": true})
+            )
+            .await,
+            "Published https://c.example/p/1"
+        );
+        // Bounds are checked before the handler runs.
+        assert!(c.call("publish_page", json!({"title": "t"})).await.1);
+        assert!(
+            c.call(
+                "publish_page",
+                json!({"title": "t", "html": "<p>x</p>", "ttl_days": 31})
+            )
+            .await
+            .1
+        );
+        c.text("complete_state", json!({"result": {}})).await;
+        assert_eq!(
+            c.text("publish_page", json!({"title": "t", "html": "<p>y</p>"}))
+                .await,
+            PUBLISH_PAGE_AFTER_COMPLETE
+        );
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![PublishPageRequest {
+                title: "Mockup".into(),
+                html: "<p>x</p>".into(),
+                ttl_days: Some(3),
+                share: true,
+            }]
         );
         s.close().await;
     }

@@ -111,6 +111,16 @@ button {
   color: var(--text);
   cursor: pointer;
 }
+/* UXR-56: one visible focus ring everywhere; components may restyle it but never remove it. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* SVG diagram controls draw their own ring (workflow.css); browsers outline SVG <g> unevenly. */
+svg :focus-visible {
+  outline: none;
+}
+
 button:disabled {
   opacity: 0.5;
   cursor: default;
@@ -127,10 +137,6 @@ button.primary {
 }
 button.primary:hover:not(:disabled) {
   background: color-mix(in srgb, var(--accent) 88%, var(--text));
-}
-button.primary:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
 }
 /* Disabled reads as disabled, not as a faded accent: a neutral fill, no opacity. */
 button.primary:disabled {
@@ -727,6 +733,17 @@ button.copy {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* UXR-38: the opening prompt (the ticket) is markdown, laid out by .md, not pre-wrapped. */
+.ticket-msg .user-text {
+  white-space: normal;
+}
+/* UXR-38: an accepted complete_state, as one quiet line. */
+.step-done {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
 .jump-latest {
   position: absolute;
   bottom: 10px;
@@ -793,6 +810,8 @@ button.copy {
 }
 .composer-box:focus-within {
   border-color: var(--accent);
+  /* With the border, a 2px accent edge: the textarea's own ring is off (it would sit inside). */
+  box-shadow: 0 0 0 1px var(--accent);
 }
 .composer-box.off {
   opacity: 0.7;
@@ -850,7 +869,13 @@ button.copy {
   opacity: 1;
 }
 .history-notice {
-  margin: 0 0 6px;
+  /* UXR-38: a notice like the others (ConductorChecks.css .conductor-checks), inset like the
+     chat (.output-chat .output: 14px), not flush with the panel's edge. */
+  margin: 8px 14px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
   font-size: 12px;
 }
 .composer-reason,
@@ -1333,6 +1358,90 @@ button.link {
   }
 }
 
+/* UXR-26 (11-web-ui §Breakpoint): on the desktop board the document never scrolls. The shell is
+   the window's height, so the top bar stays put, each column body scrolls on its own, and the
+   session panel fills the height with its composer pinned at the bottom. */
+@media (min-width: 700px) {
+  .app.board-view {
+    /* Contains the absolutely positioned .visually-hidden spans, which would lengthen the page. */
+    position: relative;
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  /* The top bar, an error banner and the new-ticket form keep their height. */
+  .app.board-view > * {
+    flex: none;
+  }
+  .app.board-view > main {
+    flex: 1;
+    min-height: 0;
+    align-items: stretch;
+  }
+  .app.board-view .board-area {
+    min-height: 0;
+  }
+  .app.board-view .board {
+    flex: 1;
+    min-height: 0;
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .app.board-view .column {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .app.board-view .column > ul {
+    /* Its cards' .visually-hidden spans scroll with them. */
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .app.board-view .column.collapsed .column-toggle {
+    min-height: 0;
+  }
+  .app.board-view .detail {
+    position: static;
+    height: auto;
+    min-height: 0;
+    align-self: stretch;
+  }
+  /* FR-3: the inline new-ticket form scrolls in its own box rather than pushing the page. */
+  .app.board-view > .create-ticket {
+    max-height: 60%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .app.board-view > .create-ticket .ticket-body-plain,
+  .app.board-view > .create-ticket .ticket-body-rich {
+    max-height: 40vh;
+  }
+}
+/* The stacked layout (board above the panel): main is the scroller, columns keep their height. */
+@media (min-width: 700px) and (max-width: 900px) {
+  .app.board-view > main {
+    overflow-y: auto;
+  }
+  .app.board-view .board-area,
+  .app.board-view .board {
+    flex: none;
+  }
+  .app.board-view .board {
+    grid-template-rows: auto;
+  }
+  .app.board-view .column > ul {
+    overflow-y: visible;
+  }
+  .app.board-view .detail {
+    flex: none;
+    height: min(85vh, 760px);
+  }
+}
+
 /* 11-web-ui §Touch: on a coarse pointer or a phone every control is at least --tap tall. The card's
    title and preview are text inside a tappable card, so they keep their line height. */
 @media (pointer: coarse), (max-width: 699.98px) {
@@ -1489,6 +1598,8 @@ button.link {
     display: flex;
     flex-direction: column;
     background: var(--panel);
+    /* A full-viewport dialog container focused on open, not a control: its first field shows the
+       ring, and a ring round the whole screen would be noise. */
     outline: none;
   }
   .sheet-head {

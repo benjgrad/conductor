@@ -92,6 +92,9 @@ p.password-problems {
   box-shadow: 0 4px 16px rgb(0 0 0 / 0.12);
 }
 .account-menu [role='menuitem'] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   text-align: left;
   border-color: transparent;
 }

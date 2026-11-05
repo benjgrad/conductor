@@ -1447,12 +1447,15 @@ impl Core {
         opts.transitions = (!p.transitions.is_empty()).then(|| p.transitions.clone());
         // 06 §Attachments: the dir the ticket's files were downloaded to, and where the agent's
         // `attach_file` uploads go (the driver gives a reviewer none).
+        let mut roots = vec![worktree.clone(), std::env::temp_dir()];
+        roots.extend(add_dirs.iter().cloned());
         opts.add_dirs = add_dirs;
         opts.attach = attachments::http_base(&self.config.orchestrator_url).map(|base| {
             attachments::upload::AttachTarget {
                 base,
                 credential: self.config.credential.clone(),
                 session_id: sid.to_string(),
+                roots,
             }
         });
         let session = self.driver.start(opts).map_err(|e| e.to_string())?;

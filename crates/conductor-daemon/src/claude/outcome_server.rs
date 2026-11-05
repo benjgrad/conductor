@@ -137,7 +137,7 @@ pub fn ask_user_description() -> String {
     )
 }
 pub const ATTACH_FILE_AFTER_COMPLETE: &str = "Not attached: complete_state was already recorded for this state. Attach files before you call complete_state. End your turn now.";
-const ATTACH_FILE_DESCRIPTION: &str = "Attach a screenshot, GIF or short screen recording you captured to the ticket, so the human sees it on the board (e.g. before/after evidence of a UI change, or images the human asked for). A file you only save to disk is not visible to the human. PNG, JPEG, GIF, WebP, MP4 or WebM; images up to 10 MB, videos up to 50 MB. Give a caption saying what it shows (e.g. \"Before: delete is blocked\"). Returns whether the upload worked.";
+const ATTACH_FILE_DESCRIPTION: &str = "Attach a screenshot, GIF or short screen recording you captured to the ticket, so the human sees it on the board (e.g. before/after evidence of a UI change, or images the human asked for). A file you only save to disk is not visible to the human. The file must be inside your worktree or the system temp directory (copy it there first otherwise). PNG, JPEG, GIF, WebP, MP4 or WebM; images up to 10 MB, videos up to 50 MB. Give a caption saying what it shows (e.g. \"Before: delete is blocked\"). Returns whether the upload worked.";
 const PERMISSION_DESCRIPTION: &str = "Conductor's permission prompt tool: Claude Code calls it when a tool call needs a human's approval. Do not call it yourself.";
 
 fn when_suffix(t: &AgentTransitionOption) -> String {

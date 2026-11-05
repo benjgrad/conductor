@@ -230,6 +230,8 @@ export async function storeAgentAttachment(
   const sha256 = createHash('sha256').update(input.data).digest();
   try {
     return await withTransaction(db, async (tx) => {
+      // One upload per ticket at a time, so two can't both pass the count check.
+      await tx.query('SELECT 1 FROM ticket WHERE id = $1 FOR UPDATE', [session.ticket_id]);
       // TD-212: the bytes live in Postgres, as a human's do.
       const ins = await tx.query<AttachmentRow>(
         'INSERT INTO attachment (account_id, ticket_id, session_id, workflow_state, source, ' +

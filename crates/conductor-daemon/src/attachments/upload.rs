@@ -4,12 +4,14 @@
 //! files it on the ticket under the session and its current state. That is how a before/after GIF
 //! the agent recorded reaches the human: a file left on the machine's disk never does.
 //!
-//! The path may be anywhere the daemon can read (an agent often saves captures outside the
-//! worktree). That is safe because only bytes sniffed as PNG, JPEG, GIF, WebP, MP4 or WebM are
-//! ever sent, the same check the orchestrator repeats: source files, keys or configs can't leave
-//! the machine through this tool.
+//! The tool is pre-approved (no permission prompt), so what it may read is fenced: the file must
+//! resolve (symlinks followed) inside one of the target's `roots` (the session's worktree, the
+//! system temp dir and the session's attachment dirs); a capture saved elsewhere is copied in
+//! first, which goes through Claude's own permission checks. And only bytes sniffed as PNG, JPEG,
+//! GIF, WebP, MP4 or WebM are ever sent, the check the orchestrator repeats: source files, keys or
+//! configs can't leave the machine through this tool.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use conductor_protocol::{
@@ -33,6 +35,8 @@ pub struct AttachTarget {
     pub credential: Option<String>,
     /// The conductor session id.
     pub session_id: String,
+    /// The directories a file may be attached from (see the module doc).
+    pub roots: Vec<PathBuf>,
 }
 
 impl std::fmt::Debug for AttachTarget {
@@ -40,6 +44,7 @@ impl std::fmt::Debug for AttachTarget {
         f.debug_struct("AttachTarget")
             .field("base", &self.base.as_str())
             .field("session_id", &self.session_id)
+            .field("roots", &self.roots)
             .finish_non_exhaustive()
     }
 }
@@ -85,14 +90,34 @@ pub struct Prepared {
     pub name: String,
 }
 
+/// `path` resolved (symlinks followed) when it is inside one of `roots`, else why not.
+pub fn resolve_in_roots(path: &Path, roots: &[PathBuf]) -> Result<PathBuf, String> {
+    let real =
+        std::fs::canonicalize(path).map_err(|e| format!("can't read `{}`: {e}", path.display()))?;
+    let inside = roots
+        .iter()
+        .filter_map(|r| std::fs::canonicalize(r).ok())
+        .any(|r| real.starts_with(&r));
+    if inside {
+        return Ok(real);
+    }
+    let list: Vec<String> = roots.iter().map(|r| r.display().to_string()).collect();
+    Err(format!(
+        "`{}` is outside the directories files can be attached from ({}). Copy it into one of them first",
+        path.display(),
+        list.join(", ")
+    ))
+}
+
 /// Read `path` and check it, or say why it can't be attached (the text the agent reads).
-pub fn prepare(path: &Path) -> Result<Prepared, String> {
+pub fn prepare(path: &Path, roots: &[PathBuf]) -> Result<Prepared, String> {
     if !path.is_absolute() {
         return Err(format!(
             "`{}` is not an absolute path; pass the file's full path",
             path.display()
         ));
     }
+    let path = &resolve_in_roots(path, roots)?;
     let meta =
         std::fs::metadata(path).map_err(|e| format!("can't read `{}`: {e}", path.display()))?;
     if !meta.is_file() {
@@ -171,7 +196,7 @@ pub async fn upload(
     path: &Path,
     caption: Option<&str>,
 ) -> Result<String, String> {
-    let file = prepare(path)?;
+    let file = prepare(path, &target.roots)?;
     let url = target
         .base
         .join(&format!(
@@ -243,32 +268,40 @@ mod tests {
     fn prepare_refuses_relative_missing_empty_and_non_media_files() {
         let dir = tempfile::tempdir().unwrap();
         assert!(
-            prepare(Path::new("shot.png"))
+            prepare(Path::new("shot.png"), &[])
                 .unwrap_err()
                 .contains("absolute")
         );
         assert!(
-            prepare(&dir.path().join("missing.png"))
+            prepare(&dir.path().join("missing.png"), &[dir.path().to_path_buf()])
                 .unwrap_err()
                 .contains("can't read")
         );
         assert!(
-            prepare(dir.path())
+            prepare(dir.path(), &[dir.path().to_path_buf()])
                 .unwrap_err()
                 .contains("not a regular file")
         );
         let empty = dir.path().join("empty.png");
         std::fs::write(&empty, b"").unwrap();
-        assert!(prepare(&empty).unwrap_err().contains("empty"));
+        assert!(
+            prepare(&empty, &[dir.path().to_path_buf()])
+                .unwrap_err()
+                .contains("empty")
+        );
         let text = dir.path().join("secrets.png");
         std::fs::write(&text, b"API_KEY=hunter2").unwrap();
-        assert!(prepare(&text).unwrap_err().contains("not a PNG, JPEG"));
+        assert!(
+            prepare(&text, &[dir.path().to_path_buf()])
+                .unwrap_err()
+                .contains("not a PNG, JPEG")
+        );
         let big = dir.path().join("big.gif");
         let mut gif = b"GIF89a".to_vec();
         gif.resize(ATTACHMENT_MAX_IMAGE_BYTES + 1, 0);
         std::fs::write(&big, &gif).unwrap();
         assert!(
-            prepare(&big)
+            prepare(&big, &[dir.path().to_path_buf()])
                 .unwrap_err()
                 .contains("image/gif files are at most 10 MB")
         );
@@ -280,13 +313,35 @@ mod tests {
         let p = dir.path().join("NCNG-2701 case1 before?.png");
         std::fs::write(&p, PNG).unwrap();
         assert_eq!(
-            prepare(&p).unwrap(),
+            prepare(&p, &[dir.path().to_path_buf()]).unwrap(),
             Prepared {
                 bytes: PNG.to_vec(),
                 mime: "image/png",
                 name: "NCNG-2701 case1 before_.png".into()
             }
         );
+    }
+
+    #[test]
+    fn only_files_inside_the_roots_are_attached_even_through_a_symlink() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let secret = outside.path().join("photo.png");
+        std::fs::write(&secret, PNG).unwrap();
+        let roots = [root.path().to_path_buf()];
+        let err = prepare(&secret, &roots).unwrap_err();
+        assert!(err.contains("outside the directories"), "{err}");
+        assert!(err.contains("Copy it into one of them first"));
+        // Windows without Developer Mode can't make the link; the check is the same there.
+        let link = root.path().join("link.png");
+        if crate::platform::fs::symlink(&secret, &link).is_ok() {
+            assert!(prepare(&link, &roots).unwrap_err().contains("outside"));
+        }
+        let inside = root.path().join("sub").join("ok.png");
+        std::fs::create_dir_all(inside.parent().unwrap()).unwrap();
+        std::fs::write(&inside, PNG).unwrap();
+        assert_eq!(prepare(&inside, &roots).unwrap().name, "ok.png");
+        assert!(prepare(&inside, &[]).is_err());
     }
 
     #[test]
@@ -369,6 +424,7 @@ mod tests {
             base: serve(201, std::sync::Arc::clone(&seen)).await,
             credential: Some("secret".into()),
             session_id: "s-1".into(),
+            roots: vec![dir.path().to_path_buf()],
         };
         let client = reqwest::Client::new();
         let ok = upload(&client, &target, &p, Some(" After: deletes ")).await;
@@ -401,6 +457,7 @@ mod tests {
                 base: serve(status, std::sync::Arc::default()).await,
                 credential: None,
                 session_id: "s".into(),
+                roots: vec![dir.path().to_path_buf()],
             };
             let err = upload(&reqwest::Client::new(), &target, &p, None)
                 .await
@@ -411,6 +468,7 @@ mod tests {
             base: serve(200, std::sync::Arc::default()).await,
             credential: None,
             session_id: "s".into(),
+            roots: vec![dir.path().to_path_buf()],
         };
         assert!(
             upload(&reqwest::Client::new(), &target, &p, None)

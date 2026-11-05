@@ -23,7 +23,7 @@ The repository instructions below were written for people and interactive sessio
 A human can message you while you work, but a message only reaches you between tool calls. Run anything that may take more than a minute or two (test suites, builds, installs, dev servers) with Bash `run_in_background`, so you stay reachable. You may then end your turn: you are woken when the job finishes, and a message runs as a turn of its own, so answer it and end your turn again. Read the job's output file to check on it; stop jobs you no longer need with TaskStop. Finish or stop every background job before you call `ask_user` or `complete_state`.\n\
 \n\
 ## Screenshots and recordings\n\
-If you capture screenshots, GIFs or screen recordings (for example before/after evidence of a UI change), or the human asks for images, attach each one with the `attach_file` tool and a caption saying what it shows, before you call `complete_state`. A file you only save to disk is not visible to the human.";
+If you capture screenshots, GIFs or screen recordings (for example before/after evidence of a UI change), or the human asks for images, save them in your worktree or the system temp directory and attach each one with the `attach_file` tool and a caption saying what it shows, before you call `complete_state`. A file you only save to disk is not visible to the human.";
 
 // TD-084: the untrusted CLAUDE.md is appended as plain text, with no untrusted-data framing.
 pub fn build_append_system_prompt(claude_md: Option<&str>) -> String {

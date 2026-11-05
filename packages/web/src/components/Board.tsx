@@ -8,6 +8,7 @@ import {
   type BoardState,
 } from '../board/board.js';
 import { waitingOnYou } from '../board/waiting.js';
+import { routeHash } from '../nav.js';
 import { DEFAULT_BOARD_WORKFLOW, readCollapsed, writeCollapsed } from './board-layout.js';
 import { AgentAvatar, cardAgent } from './agent-identity.js';
 import { ago, cardMeta, humanize, KIND_LABELS, TICKET_KIND_LABELS, usd } from './format.js';
@@ -532,9 +533,14 @@ function Card({
         </span>
         {card.external_ref && <span className="ref">{card.external_ref}</span>}
         {card.schedule && (
-          <span className="ref card-schedule" title={`Recurring: ${card.schedule.name}`}>
+          // UXR-83 FR-5: the chip opens its schedule.
+          <a
+            className="ref card-schedule"
+            href={routeHash({ view: 'schedules', scheduleId: card.schedule.id })}
+            title={`Recurring: ${card.schedule.name}. Open its schedule`}
+          >
             ↻ {card.schedule.name}
-          </span>
+          </a>
         )}
         {conductor ? (
           <span className="status status-conductor">{checkingSummary(card)}</span>

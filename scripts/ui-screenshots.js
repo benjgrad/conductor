@@ -106,6 +106,8 @@ const VIEWPORTS = [
         'new-ticket',
         'new-ticket-bottom',
         'machines',
+        'schedules',
+        'schedule-sheet',
         'workflows',
         'wf-diagram-end',
         'wf-rules-full',
@@ -296,6 +298,9 @@ const SCREENS = [
   { id: 'machines', path: '/#/machines' },
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
+  // UXR-83: the mock's three schedules, and the weekly one's edit sheet.
+  { id: 'schedules', path: '/#/schedules' },
+  { id: 'schedule-sheet', path: '/#/schedules/e5000000-0000-4000-8000-000000000002' },
   { id: 'workflows', path: '/#/workflows' },
   // UXR-45: the diagram's scroll box scrolled to its right end (fit to width: nothing hidden).
   {

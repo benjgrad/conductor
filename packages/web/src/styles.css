@@ -256,6 +256,14 @@ main {
   color: var(--muted);
   font-size: 12px;
 }
+/* UXR-83 FR-5: the recurring chip links to its schedule; it keeps the meta row's look. */
+a.card-schedule {
+  color: inherit;
+  text-decoration: none;
+}
+a.card-schedule:hover {
+  text-decoration: underline;
+}
 .question p {
   margin: 4px 0 0;
   font-size: 13px;

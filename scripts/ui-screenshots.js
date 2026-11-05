@@ -107,6 +107,7 @@ const VIEWPORTS = [
         'new-ticket-bottom',
         'machines',
         'workflows',
+        'wf-diagram-end',
         'wf-rules-full',
         'wf-rules-new',
         'wf-arrow-group',
@@ -296,6 +297,18 @@ const SCREENS = [
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
   { id: 'workflows', path: '/#/workflows' },
+  // UXR-45: the diagram's scroll box scrolled to its right end (fit to width: nothing hidden).
+  {
+    id: 'wf-diagram-end',
+    path: '/#/workflows',
+    act: async (page) => {
+      await page.locator('.wf-lanes').first().waitFor();
+      await page.evaluate(() => {
+        const box = document.querySelector('.wf-diagram .wf-scroll');
+        if (box) box.scrollLeft = box.scrollWidth;
+      });
+    },
+  },
   // UXR-60/63: a transition with every kind of rule, at its full height (the panel uncapped).
   {
     id: 'wf-rules-full',

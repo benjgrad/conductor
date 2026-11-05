@@ -1,6 +1,6 @@
 import type { MeResponse, PushTestResponse } from '@conductor/shared';
 import { CircleUser, Shield } from 'lucide-react';
-import { useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { useRef, useState } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { NavIcon } from '../components/NavIcon.js';
 import {
@@ -23,23 +23,14 @@ interface AccountMenuProps {
   onSignedOut: () => void;
   /** UX-11: icon-only button; the name moves to `aria-label`, the email to the tooltip. */
   compact?: boolean | undefined;
-  /**
-   * Links at the top of the menu: Connect Claude (the MCP guide) at every width and, on a phone,
-   * the links that leave the bar (Add a machine, Help; 11-web-ui §Top bar).
-   */
-  extraItems?: readonly AccountMenuLink[] | undefined;
-}
-
-export interface AccountMenuLink {
-  label: string;
-  href: string;
-  icon?: ReactNode;
-  onClick?: (e: MouseEvent<HTMLAnchorElement>) => void;
+  /** UXR-27 FR-5: the admin view is open, so its item is the current page. */
+  adminCurrent?: boolean | undefined;
 }
 
 /**
- * The header's account menu: the user's name; "Admin" for admins; "Change password" and "Sign
- * out" in `password` mode (in `local` mode there is nothing to sign out of). UX-14: the
+ * The header's account menu, account things only (UXR-27; pages are in the top bar): the user's
+ * email, the notifications, then "Change password", "Admin" for admins and "Sign out" in
+ * `password` mode (in `local` mode there is nothing to sign out of). UX-14: the
  * Notifications toggle (hidden when the browser has no `Notification`). UX-16: where Web Push
  * works and the server has it on, that toggle becomes "This device: on/off" plus "Send test"; in
  * an iOS Safari tab it says to add Conductor to the Home Screen.
@@ -60,7 +51,7 @@ export function AccountMenu({
   onAdmin,
   onSignedOut,
   compact,
-  extraItems = [],
+  adminCurrent = false,
 }: AccountMenuProps) {
   const [open, setOpen] = useState(false);
   const [changing, setChanging] = useState(false);
@@ -152,34 +143,6 @@ export function AccountMenu({
       {open && (
         <div className="account-menu" role="menu" aria-label="Account">
           <p className="account-email">{me.user.email}</p>
-          {extraItems.map((item) => (
-            <a
-              key={item.href}
-              role="menuitem"
-              className="account-link"
-              href={item.href}
-              onClick={(e) => {
-                setOpen(false);
-                item.onClick?.(e);
-              }}
-            >
-              {item.icon}
-              {item.label}
-            </a>
-          ))}
-          {me.user.is_admin && (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                onAdmin();
-              }}
-            >
-              <NavIcon icon={Shield} />
-              Admin
-            </button>
-          )}
           {(push === 'on' || push === 'off') && (
             <button
               type="button"
@@ -246,6 +209,20 @@ export function AccountMenu({
               }}
             >
               Change password
+            </button>
+          )}
+          {me.user.is_admin && (
+            <button
+              type="button"
+              role="menuitem"
+              aria-current={adminCurrent ? 'page' : undefined}
+              onClick={() => {
+                setOpen(false);
+                onAdmin();
+              }}
+            >
+              <NavIcon icon={Shield} />
+              Admin
             </button>
           )}
           {passwordMode && (

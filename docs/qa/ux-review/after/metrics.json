@@ -1,16 +1,18 @@
 {
   "board-375x812-light": {
+    "chatHeight": null,
     "pageScrollWidth": 375,
     "deviceWidth": 375,
     "horizontalOverflow": false,
-    "pageHeight": 986,
+    "clippedOverflow": [],
+    "pageHeight": 812,
     "smallTapTargets": 6,
     "smallTapTargetSample": [
-      "button \"Fix flaky checkout test\" 307×18",
+      "button \"Fix flaky checkout test\" 307×16",
       "button \"Retries exhausted: Tests faile\" 307×18",
-      "button \"Board cards: review requests v\" 307×36",
-      "button \"Add CSV export\" 307×18",
-      "button \"Plan the garden\" 307×18",
+      "button \"Board cards: review requests v\" 307×32",
+      "button \"Add CSV export\" 307×16",
+      "button \"Plan the garden\" 307×16",
       "button \"Question: Raised beds or in-gr\" 307×18"
     ]
   },
@@ -96,17 +98,19 @@
     ]
   },
   "account-menu-375x812-light": {
+    "chatHeight": null,
     "pageScrollWidth": 375,
     "deviceWidth": 375,
     "horizontalOverflow": false,
-    "pageHeight": 986,
+    "clippedOverflow": [],
+    "pageHeight": 812,
     "smallTapTargets": 6,
     "smallTapTargetSample": [
-      "button \"Fix flaky checkout test\" 307×18",
+      "button \"Fix flaky checkout test\" 307×16",
       "button \"Retries exhausted: Tests faile\" 307×18",
-      "button \"Board cards: review requests v\" 307×36",
-      "button \"Add CSV export\" 307×18",
-      "button \"Plan the garden\" 307×18",
+      "button \"Board cards: review requests v\" 307×32",
+      "button \"Add CSV export\" 307×16",
+      "button \"Plan the garden\" 307×16",
       "button \"Question: Raised beds or in-gr\" 307×18"
     ]
   },
@@ -160,17 +164,19 @@
     ]
   },
   "board-375x812-dark": {
+    "chatHeight": null,
     "pageScrollWidth": 375,
     "deviceWidth": 375,
     "horizontalOverflow": false,
-    "pageHeight": 986,
+    "clippedOverflow": [],
+    "pageHeight": 812,
     "smallTapTargets": 6,
     "smallTapTargetSample": [
-      "button \"Fix flaky checkout test\" 307×18",
+      "button \"Fix flaky checkout test\" 307×16",
       "button \"Retries exhausted: Tests faile\" 307×18",
-      "button \"Board cards: review requests v\" 307×36",
-      "button \"Add CSV export\" 307×18",
-      "button \"Plan the garden\" 307×18",
+      "button \"Board cards: review requests v\" 307×32",
+      "button \"Add CSV export\" 307×16",
+      "button \"Plan the garden\" 307×16",
       "button \"Question: Raised beds or in-gr\" 307×18"
     ]
   },
@@ -200,18 +206,19 @@
     ]
   },
   "board-360x740-light": {
+    "chatHeight": null,
     "pageScrollWidth": 360,
     "deviceWidth": 360,
     "horizontalOverflow": false,
-    "pageHeight": 986,
-    "smallTapTargets": 6,
+    "clippedOverflow": [],
+    "pageHeight": 740,
+    "smallTapTargets": 5,
     "smallTapTargetSample": [
-      "button \"Fix flaky checkout test\" 292×18",
+      "button \"Fix flaky checkout test\" 292×16",
       "button \"Retries exhausted: Tests faile\" 292×18",
-      "button \"Board cards: review requests v\" 292×36",
-      "button \"Add CSV export\" 292×18",
-      "button \"Plan the garden\" 292×18",
-      "button \"Question: Raised beds or in-gr\" 292×18"
+      "button \"Board cards: review requests v\" 292×32",
+      "button \"Add CSV export\" 292×16",
+      "button \"Plan the garden\" 292×16"
     ]
   },
   "detail-360x740-light": {
@@ -265,20 +272,22 @@
     ]
   },
   "board-768x1024-light": {
-    "pageScrollWidth": 1146,
+    "chatHeight": null,
+    "pageScrollWidth": 768,
     "deviceWidth": 768,
-    "horizontalOverflow": true,
-    "pageHeight": 1528,
-    "smallTapTargets": 14,
+    "horizontalOverflow": false,
+    "clippedOverflow": [],
+    "pageHeight": 1024,
+    "smallTapTargets": 11,
     "smallTapTargetSample": [
-      "button \"Hotfix: crash on empty cart\" 144×32",
-      "button \"Add /health\" 144×16",
-      "button \"Conductor checks demo\" 144×32",
-      "button \"Add pagination to /orders\" 144×32",
-      "button \"Waiting for a build slot\" 144×32",
-      "button \"Ship the /health endpoint\" 144×32",
-      "a \"pull request\" 77×15",
-      "button \"Fix flaky checkout test\" 144×32"
+      "button \"Fix flaky checkout test\" 700×16",
+      "button \"Retries exhausted: Tests faile\" 700×18",
+      "button \"Board cards: review requests v\" 700×16",
+      "button \"Ready for review: TASK: UX-4 B\" 700×36",
+      "button \"Add CSV export\" 700×16",
+      "button \"Step failed: Conductor could n\" 700×36",
+      "button \"Plan the garden\" 700×16",
+      "button \"Question: Raised beds or in-gr\" 700×18"
     ]
   },
   "detail-768x1024-light": {
@@ -316,20 +325,22 @@
     ]
   },
   "board-1440x900-light": {
+    "chatHeight": null,
     "pageScrollWidth": 1440,
     "deviceWidth": 1440,
     "horizontalOverflow": false,
-    "pageHeight": 941,
-    "smallTapTargets": 36,
+    "clippedOverflow": [],
+    "pageHeight": 900,
+    "smallTapTargets": 41,
     "smallTapTargetSample": [
       "a \"Board\" 89×24",
       "a \"Workflow\" 106×24",
-      "a \"Machines\" 108×24",
-      "a \"Add a machine\" 147×24",
-      "a \"Help\" 74×24",
-      "button \"New ticket\" 118×26",
-      "button \"local\" 77×26",
-      "button \"▾Queued 2\" 94×15"
+      "a \"Machines\" 107×24",
+      "a \"Repo checks\" 128×24",
+      "a \"Insights\" 97×24",
+      "a \"Schedules\" 113×24",
+      "a \"Archive\" 95×24",
+      "input \"Search tickets\" 254×29"
     ]
   },
   "detail-1440x900-light": {
@@ -400,20 +411,22 @@
     ]
   },
   "board-1440x900-dark": {
+    "chatHeight": null,
     "pageScrollWidth": 1440,
     "deviceWidth": 1440,
     "horizontalOverflow": false,
-    "pageHeight": 941,
-    "smallTapTargets": 36,
+    "clippedOverflow": [],
+    "pageHeight": 900,
+    "smallTapTargets": 41,
     "smallTapTargetSample": [
       "a \"Board\" 89×24",
       "a \"Workflow\" 106×24",
-      "a \"Machines\" 108×24",
-      "a \"Add a machine\" 147×24",
-      "a \"Help\" 74×24",
-      "button \"New ticket\" 118×26",
-      "button \"local\" 77×26",
-      "button \"▾Queued 2\" 94×15"
+      "a \"Machines\" 107×24",
+      "a \"Repo checks\" 128×24",
+      "a \"Insights\" 97×24",
+      "a \"Schedules\" 113×24",
+      "a \"Archive\" 95×24",
+      "input \"Search tickets\" 254×29"
     ]
   },
   "detail-1440x900-dark": {
@@ -729,6 +742,92 @@
       "button \"local\" 77×26",
       "a \"Help\" 32×16",
       "select \"Auto-detect (npm ci / npm inst\" 720×26"
+    ]
+  },
+  "account-menu-admin-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "clippedOverflow": [],
+    "pageHeight": 812,
+    "smallTapTargets": 6,
+    "smallTapTargetSample": [
+      "button \"Fix flaky checkout test\" 307×16",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×32",
+      "button \"Add CSV export\" 307×16",
+      "button \"Plan the garden\" 307×16",
+      "button \"Question: Raised beds or in-gr\" 307×18"
+    ]
+  },
+  "first-run-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "clippedOverflow": [],
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Read the full guide ↗\" 138×15"
+    ]
+  },
+  "account-menu-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "clippedOverflow": [],
+    "pageHeight": 900,
+    "smallTapTargets": 42,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 107×24",
+      "a \"Repo checks\" 128×24",
+      "a \"Insights\" 97×24",
+      "a \"Schedules\" 113×24",
+      "a \"Archive\" 95×24",
+      "input \"Search tickets\" 254×29"
+    ]
+  },
+  "account-menu-admin-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "clippedOverflow": [],
+    "pageHeight": 900,
+    "smallTapTargets": 45,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 107×24",
+      "a \"Repo checks\" 128×24",
+      "a \"Insights\" 97×24",
+      "a \"Schedules\" 113×24",
+      "a \"Archive\" 95×24",
+      "input \"Search tickets\" 259×29"
+    ]
+  },
+  "first-run-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "clippedOverflow": [],
+    "pageHeight": 995,
+    "smallTapTargets": 39,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 107×24",
+      "a \"Repo checks\" 128×24",
+      "a \"Insights\" 97×24",
+      "a \"Schedules\" 113×24",
+      "a \"Archive\" 95×24",
+      "button \"New ticket\" 117×26"
     ]
   }
 }

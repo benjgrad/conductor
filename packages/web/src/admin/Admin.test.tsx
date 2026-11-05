@@ -151,13 +151,10 @@ describe('admin page', () => {
 });
 
 describe('account menu', () => {
-  it('local mode: no sign-out, password change or admin; only the Connect Claude and Repo checks links', async () => {
+  it('local mode: no sign-out, password change, admin or links (UXR-27)', async () => {
     render(<App api={createMockApi()} />);
     const menu = await openAccountMenu(localMeResponse().user.display_name);
-    expect(menu.queryAllByRole('menuitem').map((el) => el.textContent)).toEqual([
-      'Connect Claude',
-      'Repo checks',
-    ]);
+    expect(menu.queryAllByRole('menuitem').map((el) => el.textContent)).toEqual([]);
   });
 
   it('signs out and lands on /signin', async () => {

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ApiRequestError, type StreamHandlers } from './api/client.js';
 import { SEED_IDS } from './api/mock-data.js';
 import { createMockApi } from './api/mock.js';
-import { App } from './App.js';
+import { App, currentNav } from './App.js';
 
 afterEach(() => {
   cleanup();
@@ -215,12 +215,12 @@ describe('top nav icons (UX-11)', () => {
     ['link', 'Board'],
     ['link', 'Workflow'],
     ['link', 'Machines'],
+    ['link', 'Repo checks'],
     ['link', 'Insights'],
     ['link', 'Schedules'],
     ['link', 'Archive'],
-    ['link', 'Add a machine'],
-    ['link', 'Help'],
     ['button', 'New ticket'],
+    ['link', 'Help'],
     ['button', me.display_name],
   ] as const;
   const icon = (el: HTMLElement) => el.querySelector('svg[aria-hidden="true"]');
@@ -231,6 +231,9 @@ describe('top nav icons (UX-11)', () => {
     for (const [role, name] of controls) {
       expect(icon(screen.getByRole(role, { name })), name).toBeTruthy();
     }
+    // UXR-27: the "?" is icon-only at every width.
+    expect(screen.getByRole('link', { name: 'Help' }).title).toBe('Help');
+    expect(screen.queryByRole('link', { name: 'Add a machine' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'New ticket' }));
     const sheet = within(screen.getByRole('dialog', { name: 'New ticket' }));
     expect(icon(sheet.getByRole('button', { name: 'Close' }))).toBeTruthy();
@@ -249,7 +252,8 @@ describe('top nav icons (UX-11)', () => {
       const header = document.querySelector<HTMLElement>('header.topbar.compact');
       expect(header).toBeTruthy();
       const labels = header?.querySelectorAll<HTMLElement>('.nav-label') ?? [];
-      expect(labels.length).toBe(controls.length);
+      // Every control but the always icon-only Help.
+      expect(labels.length).toBe(controls.length - 1);
       for (const label of labels) expect(getComputedStyle(label).display).toBe('none');
       for (const [role, name] of controls) {
         const el = screen.getByRole(role, { name });
@@ -276,6 +280,88 @@ describe('top nav icons (UX-11)', () => {
     } finally {
       style.remove();
     }
+  });
+});
+
+describe('navigation (UXR-27)', () => {
+  const header = () => document.querySelector<HTMLElement>('header.topbar')!;
+  const current = () =>
+    [...header().querySelectorAll<HTMLElement>('[aria-current="page"]')].map(
+      (el) => el.getAttribute('aria-label') ?? el.textContent,
+    );
+
+  it('currentNav names one top-bar page per view; setup is Machines', () => {
+    expect(currentNav({ view: 'board' })).toBe('board');
+    expect(currentNav({ view: 'workflows', workflowId: null })).toBe('workflows');
+    expect(currentNav({ view: 'machines' })).toBe('machines');
+    expect(currentNav({ view: 'setup' })).toBe('machines');
+    expect(currentNav({ view: 'repo-checks', repo: 'github.com/a/b' })).toBe('repo-checks');
+    expect(currentNav({ view: 'schedules', scheduleId: null })).toBe('schedules');
+    expect(currentNav({ view: 'archive' })).toBe('archive');
+    expect(currentNav({ view: 'insights' })).toBe('insights');
+    expect(currentNav({ view: 'admin' })).toBeNull();
+    expect(currentNav({ view: 'help' })).toBeNull();
+  });
+
+  it.each([
+    ['/#/', 'Board'],
+    ['/#/workflows', 'Workflow'],
+    ['/#/machines', 'Machines'],
+    ['/#/repo-checks', 'Repo checks'],
+    ['/#/insights', 'Insights'],
+    ['/#/schedules', 'Schedules'],
+    ['/#/archive', 'Archive'],
+    ['/#/setup', 'Machines'],
+  ])('%s marks exactly one current page: %s', async (path, name) => {
+    window.history.replaceState(null, '', path);
+    render(<App api={createMockApi()} />);
+    await screen.findByRole('button', { name: localMeResponse().user.display_name });
+    expect(current()).toEqual([name]);
+  });
+
+  it('the first-run guide marks Board only, and Add a machine is not in the bar', async () => {
+    render(<App api={createMockApi({ machines: 'none' })} />);
+    await screen.findByRole('region', { name: 'Set up your first machine' }, { timeout: 5000 });
+    expect(current()).toEqual(['Board']);
+    expect(within(header()).queryByRole('link', { name: 'Add a machine' })).toBeNull();
+  });
+
+  it('on #/admin no bar link is current; the Admin menu item is', async () => {
+    window.history.replaceState(null, '', '/#/admin');
+    render(<App api={createMockApi({ auth: 'password' })} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Ben' }));
+    const menu = within(screen.getByRole('menu', { name: 'Account' }));
+    expect(menu.getByRole('menuitem', { name: 'Admin' }).getAttribute('aria-current')).toBe('page');
+    expect(current()).toEqual(['Admin']);
+  });
+
+  it.each(['/#/machines', '/#/setup', '/#/workflows'])(
+    'New ticket from %s opens the form over the board',
+    async (path) => {
+      window.history.replaceState(null, '', path);
+      render(<App api={createMockApi()} />);
+      fireEvent.click(await screen.findByRole('button', { name: 'New ticket' }));
+      expect(await screen.findByRole('form', { name: 'Create ticket' })).toBeTruthy();
+      expect(window.location.hash).toBe('#/');
+      expect(screen.getByRole('dialog', { name: 'New ticket' })).toBeTruthy();
+      expect(current()).toEqual(['Board']);
+    },
+  );
+
+  it('leaving the board with the form open (Back, a link) closes it', async () => {
+    await renderApp();
+    fireEvent.click(screen.getByRole('button', { name: 'New ticket' }));
+    expect(screen.getByRole('form', { name: 'Create ticket' })).toBeTruthy();
+    act(() => {
+      window.location.hash = '#/machines';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    await screen.findByRole('region', { name: 'Machines' });
+    expect(screen.queryByRole('form', { name: 'Create ticket' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'New ticket' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('link', { name: 'Board' }));
+    await waitFor(() => expect(current()).toEqual(['Board']));
+    expect(screen.queryByRole('form', { name: 'Create ticket' })).toBeNull();
   });
 });
 

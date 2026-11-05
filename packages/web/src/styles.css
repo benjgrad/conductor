@@ -262,6 +262,20 @@ textarea {
 .topbar.compact .nav-label {
   display: none;
 }
+/* UXR-27: a two-word control ("Repo checks", "New ticket") stays on one line; the search box
+   takes the squeeze. */
+.topbar .nav-tabs a,
+.topbar > button,
+.topbar .account-button {
+  white-space: nowrap;
+}
+.topbar > button {
+  flex: none;
+}
+/* UXR-27: the "?" sits by New ticket and the account menu; only the page tabs take the slack. */
+.topbar .help-entry {
+  flex: none;
+}
 
 /* UXR-48: a table's action cell stays a table cell (display: flex on a <td> breaks the row's
    border); its buttons sit in an inner flex box. */
@@ -1738,6 +1752,11 @@ button.link {
     align-items: center;
     gap: var(--space-2);
   }
+  /* UXR-27: the icon-only "?" is as wide as it is tall. */
+  .topbar .help-entry a {
+    min-width: var(--tap);
+    justify-content: center;
+  }
   .detail-head .close,
   .detail-head .focus-toggle,
   .detail-head .back,
@@ -1877,13 +1896,31 @@ button.link {
     gap: var(--space-1);
     padding: calc(var(--space-1) + env(safe-area-inset-top))
       max(var(--space-2), env(safe-area-inset-right)) var(--space-1)
-      max(var(--space-3), env(safe-area-inset-left));
+      max(var(--space-2), env(safe-area-inset-left));
   }
   .topbar .nav-tabs a,
   .topbar > button,
   .topbar .account-button {
     min-width: var(--tap);
     justify-content: center;
+  }
+  /* UXR-27: the tabs abut. With Schedules (UXR-83) the page tabs no longer fit a phone, so they
+     scroll sideways in their own box; New ticket, Help and the account menu stay in view. */
+  .topbar .nav-tabs {
+    gap: 0;
+  }
+  .topbar .nav-tabs[aria-label='Main'] {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  .topbar .nav-tabs[aria-label='Main']::-webkit-scrollbar {
+    display: none;
+  }
+  .topbar .nav-tabs[aria-label='Main'] a {
+    flex: none;
   }
   .account-menu {
     max-width: calc(100vw - 2 * var(--space-2));

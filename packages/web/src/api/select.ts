@@ -1,6 +1,6 @@
 import type { ApiClient } from './client.js';
 import { createHttpApi, type HttpApiOptions } from './http.js';
-import { createMockApi } from './mock.js';
+import { createMockApi, type MockApiOptions } from './mock.js';
 import { SEED_IDS } from './mock-data.js';
 
 // Which ApiClient the app runs on (M1-T09b). VITE_API=mock|http, default http: the real
@@ -21,12 +21,26 @@ export interface SelectedApi {
 }
 
 /**
+ * The mock's scenario from the page's query, so scripts/ui-screenshots.js can shoot the admin's
+ * account menu and the first-run guide: `?mock-auth=password` (signed in as the mock admin) and
+ * `?mock-machines=none`. Anything else is ignored.
+ */
+export function mockOptionsFromSearch(search: string): MockApiOptions {
+  const q = new URLSearchParams(search);
+  return {
+    ...(q.get('mock-auth') === 'password' ? { auth: 'password' as const } : {}),
+    ...(q.get('mock-machines') === 'none' ? { machines: 'none' as const } : {}),
+  };
+}
+
+/**
  * Build the client for `env` (import.meta.env). The mock gets demo latency and simulated output
  * so the board looks alive without an orchestrator; `VITE_MOCK_STATIC=1` turns both off, so the
  * board holds still for scripts/ui-screenshots.js. `VITE_MOCK_PERMISSION=1` adds a pending tool
  * permission (ADR-0023) on the running "Add pagination to /orders" card (UXR-32 screenshots).
  * `?mock-auth=password` in the page's query starts the mock in password mode, signed in as its
- * admin (the screenshots' admin page).
+ * admin (the screenshots' admin page and admin account menu); `?mock-machines=none` starts it
+ * with no machines (the first-run guide). See `mockOptionsFromSearch`.
  */
 export function createApiFromEnv(
   env: Record<string, unknown>,
@@ -36,11 +50,7 @@ export function createApiFromEnv(
   const kind = apiKind(env);
   if (kind === 'mock') {
     const still = env.VITE_MOCK_STATIC === '1';
-    const password = new URLSearchParams(search).get('mock-auth') === 'password';
-    const api = createMockApi({
-      latencyMs: still ? 0 : 150,
-      ...(password ? { auth: 'password' as const } : {}),
-    });
+    const api = createMockApi({ ...mockOptionsFromSearch(search), latencyMs: still ? 0 : 150 });
     if (!still) api.simulate(2000);
     if (env.VITE_MOCK_PERMISSION === '1') {
       api.requestPermission(

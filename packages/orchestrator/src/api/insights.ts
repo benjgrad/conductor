@@ -23,7 +23,12 @@ const accountOf = (req: FastifyRequest) => req.auth!.scope.account_id;
 function query(req: FastifyRequest, reply: FastifyReply) {
   const q = InsightsQuerySchema.safeParse(req.query ?? {});
   if (!q.success) {
-    void sendError(reply, 400, 'bad_request', 'bad window_days, group_by, repo, workflow_id or cursor');
+    void sendError(
+      reply,
+      400,
+      'bad_request',
+      'bad window_days, group_by, repo, workflow_id or cursor',
+    );
     return null;
   }
   return q.data;

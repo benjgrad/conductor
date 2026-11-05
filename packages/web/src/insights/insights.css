@@ -1,0 +1,243 @@
+/* UXR-84: the Insights page (same frame as the Machines and Repo checks pages). */
+
+.insights {
+  padding: 16px;
+  max-width: 1100px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.insights h2 {
+  font-size: var(--text-xl);
+  margin: 0;
+}
+.ins-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.ins-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.ins-segmented {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+.ins-segmented button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  padding: 4px 12px;
+  min-height: 32px;
+}
+.ins-segmented button + button {
+  border-left: 1px solid var(--border);
+}
+.ins-segmented button[aria-checked='true'] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.ins-section-title {
+  font-size: var(--text-lg);
+  margin: 0 0 6px;
+  text-transform: capitalize;
+}
+.insights .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-sm);
+}
+.ins-totals {
+  margin: 0 0 8px;
+}
+
+/* 11-web-ui: tables scroll inside their own box, never the page. */
+.ins-scroll {
+  display: block;
+  overflow-x: auto;
+}
+.ins-table {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+.ins-table th,
+.ins-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+  font-size: var(--text-sm);
+}
+.ins-table tbody th {
+  font-weight: 600;
+  word-break: break-word;
+  max-width: 260px;
+}
+.ins-table td:nth-child(2) {
+  width: 40%;
+}
+.ins-bad {
+  color: var(--warn);
+  font-weight: 600;
+}
+.ins-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ins-bar {
+  position: relative;
+  height: 18px;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.ins-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent);
+  border-radius: var(--radius-sm);
+}
+.ins-bar-p90 .ins-bar-fill {
+  opacity: 0.4;
+}
+.ins-bar-value {
+  position: relative;
+  padding: 0 6px;
+  font-size: var(--text-xs);
+  line-height: 18px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* Findings */
+.ins-findings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 10px;
+}
+.ins-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ins-card.sev-3 {
+  border-left-color: var(--warn);
+}
+.ins-card.sev-2 {
+  border-left-color: var(--accent);
+}
+.ins-card p {
+  margin: 0;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.ins-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.ins-card-head h4 {
+  margin: 0;
+  font-size: var(--text-md);
+  overflow-wrap: anywhere;
+}
+.ins-pill {
+  flex: none;
+  font-size: var(--text-xs);
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+.ins-pill.sev-3 {
+  background: var(--warn-bg);
+  border-color: var(--warn);
+}
+.ins-examples {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.ins-fix summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+.ins-fix a.button {
+  display: inline-block;
+  padding: 3px 10px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  text-decoration: none;
+  font-size: var(--text-sm);
+}
+.ins-prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.ins-prompt code {
+  background: var(--inline-code-bg);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+}
+
+/* Frictions */
+.ins-note {
+  background: var(--warn-bg);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  margin: 0 0 8px;
+}
+.ins-friction-group h4 {
+  margin: 10px 0 4px;
+}
+.ins-friction-group ul {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ins-friction-group li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-sm);
+}
+.ins-friction-where {
+  color: var(--muted);
+}
+
+@media (max-width: 640px) {
+  .insights {
+    padding: 12px;
+  }
+  .ins-findings {
+    grid-template-columns: 1fr;
+  }
+}

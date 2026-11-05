@@ -193,6 +193,17 @@ A schedule whose cron or timezone no longer parses is disabled (`enabled = false
 
 **Reviewing.** `ProposalReview {metric, scope, direction, window_days, before: {value, sample}, after: {value, sample}, delta, direction_met, too_early, reviewed_at}`: `compareMetrics` over `loadAdvisorRows` for `[applied_at − n, applied_at)` and `[applied_at, applied_at + n)`, `n` = whole days since applied, 1..30 (`reviewWindowDays`; under a day it is `too_early`), scoped to the proposal's repo or workflow. `direction_met` is null with fewer than 3 samples on a side.
 
+## Insights (ADR-0033, UXR-84)
+
+The board's read-only view of the workflow advisor's data (`orchestrator/src/api/insights.ts`). Each route returns what its MCP tool returns, through the same reads (`orchestrator/src/advisor/read.ts`), scoped to the signed-in account. The list routes take `InsightsQuery {window_days? (1..180, rounded, default 30), group_by? ('state'|'repo'|'machine'|'check'), repo?, workflow_id?, cursor?}`; an unknown or malformed parameter is a 400.
+
+| Route | Reply | Errors |
+|---|---|---|
+| `GET /api/insights/metrics` (`API_PATHS.insightsMetrics`) | `ProcessMetricsResponse`: `get_process_metrics`'s `{window_days, since, rows_truncated?, group_by, totals, groups: ProcessGroup[] (≤ 25), more_groups, transitions}` | 400, 401 |
+| `GET /api/insights/findings` | `FindingsResponse {window_days, since, rows_truncated?, findings: FindingWithProposal[] (8 a page, most severe first), next_cursor, total}`: `list_findings`' findings, each with `proposal: {id, status, title} \| null`, the account's change proposal whose `evidence[].finding_id` is that finding (an open one first, else the newest) | 400, 401 |
+| `GET /api/insights/report` | `ProcessReportResponse`: `get_process_report`'s `{window_days, since, insights_enabled, note?, finished_sessions, analysed_sessions, totals, analysed, outcomes, wasted_minutes_reported, frictions: ReportFriction[] (≤ 10), more_frictions}`; `ReportFriction {category, state, sessions, max_severity, top_suggestion, session_ids (≤ 3), ticket_ids (≤ 3)}` | 400, 401 |
+| `GET /api/insights/sessions/:id` | `SessionInsightResponse`: `get_insight`'s `{session_id, ticket_id, created_at, model, model_written: true, schema_version, summary, outcome, frictions, wasted_minutes}` | 401, 404 (not a uuid, another account's session, or no insight) |
+
 ## Reopen
 
 [ADR-0008](../adr/0008-transcript-history-and-reopen.md). `POST /api/sessions/:id/reopen {text}` → `reopenSession` (`orchestrator/src/engine/reopen.ts`), one transaction, no engine event and no outbox row:

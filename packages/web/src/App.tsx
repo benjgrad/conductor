@@ -1,5 +1,6 @@
 import type { MeResponse } from '@conductor/shared';
 import {
+  ChartColumn,
   CircleHelp,
   LayoutDashboard,
   ListChecks,
@@ -54,6 +55,7 @@ import { useNeedsInputNotifications } from './notify/useNeedsInputNotifications.
 import { useTransitionNotifications } from './notify/useTransitionNotifications.js';
 import { dismiss, isDismissed } from './onboarding/dismissal.js';
 import { SetupGuide } from './onboarding/SetupGuide.js';
+import { InsightsPage } from './insights/InsightsPage.js';
 import { RepoChecksPage } from './repo-checks/RepoChecksPage.js';
 import { DiscardDraftConfirm, useDraftGuard } from './workflow/draft-guard.js';
 import { WorkflowsView } from './workflow/WorkflowsView.js';
@@ -204,6 +206,15 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
     navigate({ view: 'board' });
     setSelected(sessionId);
   };
+  // UXR-84: an example ticket on the Insights page opens on the board.
+  const openTicket = (ticketId: string) => {
+    const card = [...board.cards.values()].find((c) => c.ticket_id === ticketId);
+    navigate({ view: 'board' });
+    if (card?.session_id) setSelected(card.session_id);
+    else if (card) selectTicket(ticketId);
+  };
+  const ticketTitle = (ticketId: string) =>
+    [...board.cards.values()].find((c) => c.ticket_id === ticketId)?.title ?? null;
   useNeedsInputNotifications(board, openSession);
   useTransitionNotifications(board, openSession);
   // UX-16: a push notification's tap opens its ticket (#/?ticket=…).
@@ -335,6 +346,13 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
           >
             {labelled(Server, 'Machines')}
           </a>
+          <a
+            href={routeHash({ view: 'insights' })}
+            aria-current={route.view === 'insights' ? 'page' : undefined}
+            {...iconOnly('Insights')}
+          >
+            {labelled(ChartColumn, 'Insights')}
+          </a>
         </nav>
         {!mobile && (
           <nav className="nav-tabs help-entry" aria-label="Help">
@@ -376,7 +394,16 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
         </p>
       )}
       <DiscardDraftConfirm draft={draft} navigate={navigate} />
-      {route.view === 'workflows' && <WorkflowsView api={api} onDirtyChange={draft.setDirty} />}
+      {route.view === 'workflows' && (
+        <WorkflowsView
+          api={api}
+          onDirtyChange={draft.setDirty}
+          proposalId={route.proposalId ?? null}
+        />
+      )}
+      {route.view === 'insights' && (
+        <InsightsPage api={api} onOpenTicket={openTicket} ticketTitle={ticketTitle} />
+      )}
       {route.view === 'machines' && <MachinesPage api={api} />}
       {route.view === 'repo-checks' && (
         <RepoChecksPage

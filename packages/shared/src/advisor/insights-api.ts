@@ -112,9 +112,7 @@ export type ProcessMetricsResponse = z.infer<typeof ProcessMetricsResponseSchema
 
 /** A finding, and the account's change proposal citing it (an open one first), if any. */
 export const FindingWithProposalSchema = FindingSchema.extend({
-  proposal: z
-    .object({ id: z.string(), status: ChangeStatusSchema, title: z.string() })
-    .nullable(),
+  proposal: z.object({ id: z.string(), status: ChangeStatusSchema, title: z.string() }).nullable(),
 });
 export type FindingWithProposal = z.infer<typeof FindingWithProposalSchema>;
 

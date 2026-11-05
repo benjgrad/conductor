@@ -13,6 +13,11 @@ import type {
   ChangeProposalDetail,
   ChangeProposalListResponse,
   ChangeStatus,
+  AdvisorGroupBy,
+  FindingsResponse,
+  ProcessMetricsResponse,
+  ProcessReportResponse,
+  SessionInsightResponse,
   CreateInviteRequest,
   CreateTicketRequest,
   FreshConversationRequest,
@@ -169,6 +174,22 @@ export interface ApiClient {
   rejectChangeProposal(id: string): Promise<ChangeProposalDetail>;
   /** ADR-0033 P3: POST /api/change-proposals/:id/review → with `review`. 409 unless applied. */
   reviewChangeProposal(id: string): Promise<ChangeProposalDetail>;
+  /**
+   * UXR-84: GET /api/insights/metrics → time per state, repo, machine or check over the last
+   * `windowDays` (what MCP's get_process_metrics returns).
+   */
+  getProcessMetrics(opts: {
+    windowDays: number;
+    groupBy: AdvisorGroupBy;
+    repo?: string;
+    workflowId?: string;
+  }): Promise<ProcessMetricsResponse>;
+  /** UXR-84: GET /api/insights/findings → ranked findings, a page of 8, each with its proposal. */
+  listFindings(opts: { windowDays: number; cursor?: number }): Promise<FindingsResponse>;
+  /** UXR-84: GET /api/insights/report → the analysts' frictions and their coverage. */
+  getProcessReport(opts: { windowDays: number }): Promise<ProcessReportResponse>;
+  /** UXR-84: GET /api/insights/sessions/:id → the session's analyst insight. 404 when none. */
+  getSessionInsight(sessionId: string): Promise<SessionInsightResponse>;
   /** GET /api/workflows (create-ticket form, Workflows view): the latest version of each. */
   listWorkflows(): Promise<WorkflowSummary[]>;
   /**

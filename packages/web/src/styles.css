@@ -458,6 +458,30 @@ main {
   border-top: 0;
   margin-top: 6px;
 }
+/* UXR-84: a finished session's analyst insight (Details tab). */
+.session-insight p {
+  margin: 0 0 6px;
+  overflow-wrap: anywhere;
+}
+.si-frictions {
+  margin: 0 0 6px;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.si-frictions li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+.si-where {
+  font-weight: 600;
+}
+.si-by {
+  font-size: var(--text-xs);
+}
 .detail h3 {
   font-size: 11px;
   letter-spacing: 0.04em;

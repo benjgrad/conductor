@@ -123,6 +123,20 @@ The Messages tab reads as a conversation (`OutputLog.tsx`). Protocol calls are n
 
 The Details tab has a **Steps** section between Action and Result (`steps.ts`): one row per state the ticket entered (from `SessionDetail.moves`), showing the state's title, its outcome (the title of the transition that left it; "In progress" while current; "Ended here" in a terminal state) and its duration. A row whose state recorded a result (`SessionDetail.context[state]`, the same data MCP `get_ticket_artifacts what=results` reads) has a **Result** disclosure that renders it as markdown: the summary, then the plan, then the other fields by name. Context keeps only a state's latest result, so an earlier visit of a revisited state says "Result replaced by a later visit". There is no separate route: `GET /api/sessions/:id` already carries both.
 
+## Insights (UXR-84)
+
+`#/insights` (`insights/InsightsPage.tsx`), a top-bar tab after Machines. It shows the workflow advisor's data over the routes in [10 §Insights](10-contracts.md#insights-adr-0033-uxr-84): the same numbers the MCP tools `get_process_metrics`, `list_findings` and `get_process_report` return.
+- **Controls**: a window (7 / 30 / 90 days, default 30) and a group-by (state / repo / machine / check). Machines show by name.
+- **Time per group**: a table, one row per group. It shows the median and p90 stay as bars scaled to the largest p90, with their values, then re-entries, check failures (`failures / runs`), questions, and permission denials for every grouping but state. The `check` grouping has no stays, so its time column is "—". The table scrolls inside its box on a phone.
+- **Findings**: cards, most severe first, 8 at a time (Show more). Each card has a severity pill, the title, evidence, suggestion and example tickets. A ticket shows its board title and opens on the board. The fix:
+  - **Open proposal** (`#/workflows?proposal=<id>`, which opens it in the Workflow page's proposals panel) when a change proposal cites the finding;
+  - for a permission finding, a note that the decision is on the board;
+  - otherwise **Propose a fix**, which explains how to run the `workflow_advisor` prompt in a connected Claude, with a copyable request naming the finding.
+- **Frictions**: the analysts' report, grouped by category, with each group's state, session count and top suggestion. The coverage line says how many finished sessions were analysed. Without a machine that runs analyst jobs, the report's note shows instead.
+- **Details tab**: a finished session (done, failed or lost) shows its **Session insight** when it has one: the outcome, summary, frictions, estimated lost minutes, and "Written by the analyst model (…)".
+
+Model-written text (summaries, frictions, suggestions) is always plain text, never markdown.
+
 ## Install (UX-16)
 
 Conductor installs to a phone's Home Screen and opens standalone (`manifest.webmanifest`; iOS Safari: Share → Add to Home Screen). The status bar is `default` (opaque), so the web view starts below it: under `black-translucent` iOS blurred the top bar even though the document never scrolls on a phone ([§Breakpoint](#breakpoint)). The top bar keeps its `env(safe-area-inset-top)` padding (0 under an opaque bar) for Safari tabs and landscape, and `html` is painted `--panel` so any inset band matches the top bar. iOS reads the status-bar style when the app is added, so an installed copy must be removed and re-added to pick up a change. On iOS, push notifications work only from the installed app: in a Safari tab the account menu says so. In the installed app the menu also says when the server has push off or the permission is denied. The in-tab notifications (UX-14) go through the service worker, because iOS has no `new Notification()`. iOS suspends a backgrounded app, though, so only Web Push reaches a phone whose app is closed. Web Push details: [10 §Web Push](10-contracts.md#web-push).

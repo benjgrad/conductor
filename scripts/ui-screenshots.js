@@ -296,6 +296,9 @@ const SCREENS = [
   { id: 'board-permission', path: '/#/' },
   { id: 'detail-permission', path: '/#/', act: (page) => openCard(page, PERMISSION_CARD) },
   { id: 'machines', path: '/#/machines' },
+  // UXR-84: the advisor's metrics, findings and frictions (mock-insights.ts), and the whole page.
+  { id: 'insights', path: '/#/insights' },
+  { id: 'insights-full', path: '/#/insights', fullPage: true },
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
   // UXR-61: the override's setup and check table, at full height.

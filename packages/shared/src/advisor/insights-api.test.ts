@@ -87,7 +87,8 @@ describe('DTOs', () => {
       ...frictionReport([stored(1)]),
     };
     expect(roundTrip(ProcessReportResponseSchema, report)).toEqual(report);
-    const { ticket_ids: _drop, ...old } = report.frictions[0]!;
+    const old: Record<string, unknown> = { ...report.frictions[0]! };
+    delete old.ticket_ids;
     const parsed = ProcessReportResponseSchema.parse({ ...report, frictions: [old] });
     expect(parsed.frictions[0]!.ticket_ids).toEqual([]);
   });

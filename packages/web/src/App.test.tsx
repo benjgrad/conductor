@@ -185,12 +185,27 @@ describe('create ticket', () => {
   });
 });
 
+describe('Insights tab (UXR-84)', () => {
+  it('opens the Insights page at #/insights', async () => {
+    await renderApp();
+    const tab = screen.getByRole('link', { name: 'Insights' });
+    expect(tab.getAttribute('href')).toBe('#/insights');
+    window.location.hash = '#/insights';
+    expect(await screen.findByRole('heading', { level: 2, name: 'Insights' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Insights' }).getAttribute('aria-current')).toBe(
+      'page',
+    );
+    window.location.hash = '#/';
+  });
+});
+
 describe('top nav icons (UX-11)', () => {
   const me = localMeResponse().user;
   const controls = [
     ['link', 'Board'],
     ['link', 'Workflow'],
     ['link', 'Machines'],
+    ['link', 'Insights'],
     ['link', 'Add a machine'],
     ['link', 'Help'],
     ['button', 'New ticket'],

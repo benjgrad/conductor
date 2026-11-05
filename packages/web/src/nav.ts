@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 // Top-level navigation kept in the URL hash: `#/` (board), `#/workflows`, `#/workflows/<id>`,
 // `#/admin`, `#/machines` (M2-T11), `#/setup` (UX-8: the guided machine setup), `#/repo-checks`
-// and `#/repo-checks/<repo>` (ADR-0030: per-repo check overrides). `#/help/…` is an
+// and `#/repo-checks/<repo>` (ADR-0030: per-repo check overrides), `#/insights` (UXR-84: the
+// advisor's metrics and findings) and `#/workflows?proposal=<id>` (opens a change proposal). `#/help/…` is an
 // alias of the `/help/…` page, which renders outside the app shell. Every route change, from an in-app link or from the hash itself (typed URL,
 // back/forward), goes through an optional guard, so a view with unsaved work can hold the user back.
 //
@@ -12,18 +13,33 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 export type Route =
   | { view: 'board' }
-  | { view: 'workflows'; workflowId: string | null }
+  | {
+      view: 'workflows';
+      workflowId: string | null;
+      /** UXR-84: the change proposal to open in the Workflow page's proposals panel. */
+      proposalId?: string | null;
+    }
   | { view: 'admin' }
   | { view: 'machines' }
+  | { view: 'insights' }
   | { view: 'repo-checks'; repo: string | null }
   | { view: 'setup' }
   | { view: 'help' };
 
 export function parseHash(hash: string): Route {
-  const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+  const raw = hash.replace(/^#\/?/, '');
+  const q = raw.indexOf('?');
+  const path = q < 0 ? raw : raw.slice(0, q);
+  const query = new URLSearchParams(q < 0 ? '' : raw.slice(q + 1));
+  const parts = path.split('/').filter(Boolean);
   if (parts[0] === 'workflows') {
-    return { view: 'workflows', workflowId: parts[1] ? decodeURIComponent(parts[1]) : null };
+    const workflowId = parts[1] ? decodeURIComponent(parts[1]) : null;
+    const proposalId = query.get('proposal');
+    return proposalId
+      ? { view: 'workflows', workflowId, proposalId }
+      : { view: 'workflows', workflowId };
   }
+  if (parts[0] === 'insights') return { view: 'insights' };
   if (parts[0] === 'admin') return { view: 'admin' };
   if (parts[0] === 'machines') return { view: 'machines' };
   if (parts[0] === 'repo-checks') {
@@ -39,12 +55,16 @@ export function routeHash(route: Route): string {
   if (route.view === 'board') return '#/';
   if (route.view === 'admin') return '#/admin';
   if (route.view === 'machines') return '#/machines';
+  if (route.view === 'insights') return '#/insights';
   if (route.view === 'setup') return '#/setup';
   if (route.view === 'help') return '#/help/add-a-machine';
   if (route.view === 'repo-checks') {
     return route.repo ? `#/repo-checks/${encodeURIComponent(route.repo)}` : '#/repo-checks';
   }
-  return route.workflowId ? `#/workflows/${encodeURIComponent(route.workflowId)}` : '#/workflows';
+  const base = route.workflowId
+    ? `#/workflows/${encodeURIComponent(route.workflowId)}`
+    : '#/workflows';
+  return route.proposalId ? `${base}?proposal=${encodeURIComponent(route.proposalId)}` : base;
 }
 
 export const sameRoute = (a: Route, b: Route) => routeHash(a) === routeHash(b);

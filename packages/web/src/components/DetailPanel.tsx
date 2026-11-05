@@ -18,8 +18,8 @@ import {
   failedItemOfQuestion,
   isConductorStep,
 } from './ConductorChecks.js';
-import { isOldVersion } from './details-sections.js';
-import { headStatus, KIND_LABELS } from './format.js';
+import { isOldVersion, SessionInsightSection } from './details-sections.js';
+import { headStatus, KIND_LABELS, TERMINAL_STATUSES } from './format.js';
 import { FreshConversation, freshConversationOffer } from './FreshConversation.js';
 import { Markdown } from './markdown.js';
 import { OutputLog } from './OutputLog.js';
@@ -340,6 +340,12 @@ export function DetailPanel({
                 brief={brief}
                 body={body}
                 onReload={reload}
+              />
+              <SessionInsightSection
+                key={`insight-${sessionId}`}
+                api={api}
+                sessionId={sessionId}
+                finished={detail.card.status !== null && TERMINAL_STATUSES.has(detail.card.status)}
               />
             </>
           )}

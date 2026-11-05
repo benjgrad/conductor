@@ -22,10 +22,9 @@ export const INSIGHT: SessionInsight = {
 };
 
 export async function advisorAccount(db: Pool, name: string): Promise<string> {
-  const r = await db.query<{ id: string }>(
-    'INSERT INTO account (name) VALUES ($1) RETURNING id',
-    [name],
-  );
+  const r = await db.query<{ id: string }>('INSERT INTO account (name) VALUES ($1) RETURNING id', [
+    name,
+  ]);
   return r.rows[0]!.id;
 }
 

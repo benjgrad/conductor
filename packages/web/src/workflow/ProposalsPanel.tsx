@@ -19,6 +19,8 @@ export interface ProposalsPanelProps {
   dirty: boolean;
   /** A workflow proposal was applied: the editor reloads the latest version. */
   onWorkflowApplied: () => void;
+  /** UXR-84: open this proposal on mount (the Insights page's "Open proposal"). */
+  initialOpenId?: string | null | undefined;
 }
 
 type Filter = 'open' | 'all';
@@ -190,13 +192,37 @@ function Detail({
   );
 }
 
-export function ProposalsPanel({ api, dirty, onWorkflowApplied }: ProposalsPanelProps) {
+export function ProposalsPanel({
+  api,
+  dirty,
+  onWorkflowApplied,
+  initialOpenId = null,
+}: ProposalsPanelProps) {
   const [filter, setFilter] = useState<Filter>('open');
   const [rows, setRows] = useState<ChangeProposalSummary[] | null>(null);
   const [open, setOpen] = useState<ChangeProposalDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // UXR-84: a deep link opens its proposal; one that is no longer open shows under "All".
+  useEffect(() => {
+    if (initialOpenId === null) return;
+    let cancelled = false;
+    api.getChangeProposal(initialOpenId).then(
+      (p) => {
+        if (cancelled) return;
+        if (p.status !== 'proposed') setFilter('all');
+        setOpen(p);
+      },
+      (err: unknown) => {
+        if (!cancelled) setError(errorMessage(err));
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [api, initialOpenId]);
 
   /** Bumped after an action: the list is fetched again. */
   const [refresh, setRefresh] = useState(0);

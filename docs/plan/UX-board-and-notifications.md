@@ -312,7 +312,7 @@ Ben can collapse the columns he doesn't need right now (for example Done), so th
 - **FR-2** A collapsed column is a narrow vertical strip showing the rotated title and the card count. Clicking the strip or the button expands it.
 - **FR-3** Collapsed columns are remembered per browser and per workflow, by column id, in `localStorage` (wrapped in try/catch). A column id that no longer exists is ignored.
 - **FR-4** A collapsed **human** column (Needs input) still shows an attention dot when its count rises, so a new question isn't hidden.
-- **FR-5** "Expand all" appears when any column is collapsed.
+- **FR-5** ~~"Expand all" appears when any column is collapsed.~~ Removed: the button was an eyesore; each column expands from its own strip.
 
 ## Non-functional requirements
 - **NFR-1** Keyboard: Tab reaches each toggle; Enter/Space toggles; focus stays on the toggle.
@@ -327,7 +327,7 @@ Reordering or hiding columns permanently; mobile: the phone board shows one colu
   - the state survives a remount via `localStorage`;
   - an unknown id is ignored;
   - a rising count in a collapsed human column shows the dot;
-  - Expand all works.
+  - ~~Expand all works~~ (FR-5 removed): there is no Expand all button.
 - NFR-1: keyboard test.
 - Gates: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
 

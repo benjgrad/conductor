@@ -103,7 +103,6 @@ button.plan-approve {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
 }
 .board-area[hidden] {
   display: none;
@@ -115,10 +114,6 @@ button.plan-approve {
 }
 .board.board-narrow > .column {
   scroll-snap-align: start;
-}
-.board-toolbar {
-  display: flex;
-  justify-content: flex-end;
 }
 .board {
   --column-strip-width: 36px;

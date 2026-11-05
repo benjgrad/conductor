@@ -578,7 +578,6 @@ describe('collapsible columns (UX-9)', () => {
   const region = (name: string) => screen.getByRole('region', { name });
   const toggle = (name: string) =>
     region(name).querySelector<HTMLButtonElement>('h2 > button.column-toggle')!;
-  const expandAll = () => screen.queryByRole('button', { name: 'Expand all' });
   const done = (n: number) => card(n, {}, { input_request: null, column: 'done' });
   const planning = (n: number) =>
     card(n, {}, { input_request: null, column: 'planning', status: 'running' });
@@ -694,16 +693,16 @@ describe('collapsible columns (UX-9)', () => {
     expect(document.querySelector('.column-attention')).toBeNull();
   });
 
-  it('FR-5: Expand all appears when a column is collapsed and expands them all', () => {
+  it('FR-5 (removed): no Expand all button; each column expands from its own strip', () => {
     renderBoard([done(1), planning(2)]);
-    expect(expandAll()).toBeNull();
     fireEvent.click(toggle('Done'));
     fireEvent.click(toggle('Planning'));
     expect(document.querySelectorAll('.column.collapsed')).toHaveLength(2);
-    fireEvent.click(expandAll()!);
-    expect(document.querySelectorAll('.column.collapsed')).toHaveLength(0);
-    expect(expandAll()).toBeNull();
-    expect(localStorage.getItem(KEY)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Expand all' })).toBeNull();
+    expect(document.querySelector('.board-toolbar')).toBeNull();
+    fireEvent.click(toggle('Done'));
+    expect(document.querySelectorAll('.column.collapsed')).toHaveLength(1);
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual(['planning']);
   });
 
   it('NFR-1: each toggle is a native button that keeps focus when it toggles', () => {

@@ -55,6 +55,17 @@ describe('useOpenFromNotification', () => {
     expect(window.location.hash).toBe('#/');
   });
 
+  it('UXR-83: a card with no session yet (a queued run) goes to onSelectTicket', () => {
+    const queued = { ...CARD, session_id: null };
+    window.history.replaceState(null, '', `/#/?ticket=${queued.ticket_id}`);
+    const onSelect = vi.fn();
+    const onSelectTicket = vi.fn();
+    renderHook(() => useOpenFromNotification(loaded([queued]), onSelect, onSelectTicket));
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onSelectTicket).toHaveBeenCalledWith(queued.ticket_id);
+    expect(window.location.hash).toBe('#/');
+  });
+
   it('does nothing without a ticket in the URL', () => {
     const onSelect = vi.fn();
     renderHook(() => useOpenFromNotification(loaded([CARD]), onSelect));

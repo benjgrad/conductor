@@ -1,5 +1,6 @@
 import type { MeResponse } from '@conductor/shared';
 import {
+  CalendarClock,
   CircleHelp,
   LayoutDashboard,
   ListChecks,
@@ -55,6 +56,7 @@ import { useTransitionNotifications } from './notify/useTransitionNotifications.
 import { dismiss, isDismissed } from './onboarding/dismissal.js';
 import { SetupGuide } from './onboarding/SetupGuide.js';
 import { RepoChecksPage } from './repo-checks/RepoChecksPage.js';
+import { SchedulesPage } from './schedules/SchedulesPage.js';
 import { DiscardDraftConfirm, useDraftGuard } from './workflow/draft-guard.js';
 import { WorkflowsView } from './workflow/WorkflowsView.js';
 
@@ -207,7 +209,11 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
   useNeedsInputNotifications(board, openSession);
   useTransitionNotifications(board, openSession);
   // UX-16: a push notification's tap opens its ticket (#/?ticket=…).
-  useOpenFromNotification(board, openSession);
+  // UXR-83: a queued ticket (a schedule's fresh run) has no session yet: open it by its ticket.
+  useOpenFromNotification(board, openSession, (ticketId) => {
+    navigate({ view: 'board' });
+    selectTicket(ticketId);
+  });
   // UX-8 FR-1: the account's machine count, asked once per load. With none (and the guide not
   // dismissed this visit), the board area shows the setup guide. Not re-polled, so the guide stays
   // while the new machine connects in its step 3.
@@ -335,6 +341,14 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
           >
             {labelled(Server, 'Machines')}
           </a>
+          {/* ADR-0032 / UXR-83: recurring jobs. */}
+          <a
+            href={routeHash({ view: 'schedules', scheduleId: null })}
+            aria-current={route.view === 'schedules' ? 'page' : undefined}
+            {...iconOnly('Schedules')}
+          >
+            {labelled(CalendarClock, 'Schedules')}
+          </a>
         </nav>
         {!mobile && (
           <nav className="nav-tabs help-entry" aria-label="Help">
@@ -384,6 +398,13 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
         />
       )}
       {route.view === 'machines' && <MachinesPage api={api} />}
+      {route.view === 'schedules' && (
+        <SchedulesPage
+          api={api}
+          scheduleId={route.scheduleId}
+          onOpen={(scheduleId) => navigate({ view: 'schedules', scheduleId })}
+        />
+      )}
       {route.view === 'repo-checks' && (
         <RepoChecksPage
           api={api}
@@ -432,6 +453,7 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
             version={ticketCard?.updated_at ?? ''}
             onClose={() => setSelectedTicket(null)}
             fullScreen={mobile}
+            routing={ticketCard?.routing}
           />
         )}
         {selected && (

@@ -17,7 +17,7 @@ import {
   StreamDisconnectedError,
   type EventSourceLike,
 } from './http.js';
-import { SEED_IDS } from './mock-data.js';
+import { mockSchedules, SEED_IDS } from './mock-data.js';
 import { createMockApi } from './mock.js';
 
 // Unit tests with a recorded fetch and a scripted EventSource (no network). The real-HTTP
@@ -220,6 +220,8 @@ describe('createHttpApi REST', () => {
     await api.approve(SESSION);
     await api.cancel(SESSION, { reason: 'aborted from UI' });
     await api.cancel(SESSION);
+    await api.cancelTicket(ticket.id, { reason: 'duplicate' });
+    await api.reopenTicket(ticket.id);
     expect(
       await api.createTicket({
         title: 't',
@@ -248,6 +250,8 @@ describe('createHttpApi REST', () => {
       ['POST', `http://orch:7400/api/sessions/${SESSION}/approve`, {}],
       ['POST', `http://orch:7400/api/sessions/${SESSION}/cancel`, { reason: 'aborted from UI' }],
       ['POST', `http://orch:7400/api/sessions/${SESSION}/cancel`, {}],
+      ['POST', `http://orch:7400/api/tickets/${ticket.id}/cancel`, { reason: 'duplicate' }],
+      ['POST', `http://orch:7400/api/tickets/${ticket.id}/reopen`, {}],
       [
         'POST',
         'http://orch:7400/api/tickets',
@@ -255,7 +259,7 @@ describe('createHttpApi REST', () => {
       ],
     ]);
     expect(calls.filter((c) => c.method === 'POST').map((c) => c.contentType)).toEqual(
-      Array(7).fill('application/json'),
+      Array(9).fill('application/json'),
     );
   });
 
@@ -332,6 +336,50 @@ describe('createHttpApi REST', () => {
       ['PUT', API_PATHS.repoChecks, put, 'application/json'],
       ['DELETE', API_PATHS.repoChecks, { repo: 'github.com/o/app' }, 'application/json'],
     ]);
+  });
+
+  it('schedules (ADR-0032, UXR-83): GET, POST, PATCH, DELETE {}, run {force}', async () => {
+    const [dto] = mockSchedules(now());
+    const ran = { ticket_id: SEED_IDS.running.ticket, schedule: dto };
+    const { calls, fetch } = recordingFetch(({ method, url }) => {
+      if (method === 'GET') return json(200, { schedules: [dto] });
+      if (url.endsWith('/run')) return json(201, ran);
+      if (method === 'DELETE') return json(200, { ok: true });
+      return json(method === 'POST' ? 201 : 200, dto);
+    });
+    const api = createHttpApi({ fetch });
+    const id = dto!.id;
+    expect(await api.listSchedules()).toEqual({ schedules: [dto] });
+    const create = {
+      name: 'PR sweep',
+      cron: '0 9 * * 1-5',
+      title: 'Sweep',
+      repo: 'github.com/o/app',
+      kind: 'work' as const,
+    };
+    expect(await api.saveSchedule(null, create)).toEqual(dto);
+    const patch = { enabled: false, expected_updated_at: dto!.updated_at };
+    expect(await api.saveSchedule(id, patch)).toEqual(dto);
+    expect(await api.deleteSchedule(id)).toEqual({ ok: true });
+    expect(await api.runScheduleNow(id)).toEqual(ran);
+    expect(await api.runScheduleNow(id, { force: true })).toEqual(ran);
+    expect(calls.map((c) => [c.method, c.url, c.body, c.contentType])).toEqual([
+      ['GET', API_PATHS.schedules, undefined, undefined],
+      ['POST', API_PATHS.schedules, create, 'application/json'],
+      ['PATCH', API_PATHS.schedule(id), patch, 'application/json'],
+      ['DELETE', API_PATHS.schedule(id), {}, 'application/json'],
+      ['POST', API_PATHS.scheduleRun(id), { force: false }, 'application/json'],
+      ['POST', API_PATHS.scheduleRun(id), { force: true }, 'application/json'],
+    ]);
+  });
+
+  it('run now refused: 409 previous_run_open is an ApiRequestError with that code', async () => {
+    const { fetch } = recordingFetch(() =>
+      json(409, { error: { code: 'previous_run_open', message: 'the last run is still open' } }),
+    );
+    await expect(
+      createHttpApi({ fetch }).runScheduleNow('e5000000-0000-4000-8000-000000000001'),
+    ).rejects.toMatchObject({ status: 409, code: 'previous_run_open' });
   });
 
   it('throws ApiRequestError with the ApiError code and message', async () => {

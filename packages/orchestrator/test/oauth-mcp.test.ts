@@ -713,7 +713,7 @@ describe('/mcp tools (approved set)', () => {
     expect(res.isError).toBe(true);
   });
 
-  it('reopen_ticket resumes a done ticket and refuses a live one', async () => {
+  it('reopen_ticket resumes a done ticket and refuses a live one; queued cancel and reopen', async () => {
     const a = await connect();
     const live = await seedTicketSession(a.user.accountId, 'needs_input');
     const refused = await call(a.access, 'reopen_ticket', { ticket: live.ticketId, text: 'More' });
@@ -729,6 +729,26 @@ describe('/mcp tools (approved set)', () => {
       [newId],
     );
     expect(s.rows[0]).toEqual({ status: 'queued', ticket_id: done.ticketId });
+
+    // UXR-86: a queued ticket (no session) is cancelled and reopened as a ticket row.
+    const created = await call(a.access, 'create_ticket', {
+      title: 'Queued for MCP',
+      repo: 'github.com/acme/app',
+      body: '## Goal\nTest.',
+      kind: 'work',
+    });
+    const id = created.body.id as string;
+    const status = async () =>
+      (await db.pool.query<{ status: string }>('SELECT status FROM ticket WHERE id = $1', [id]))
+        .rows[0]!.status;
+    const cancelled = await call(a.access, 'cancel_ticket', { ticket: id, reason: 'Duplicate' });
+    expect(cancelled.isError).toBe(false);
+    expect(await status()).toBe('cancelled');
+    const again = await call(a.access, 'cancel_ticket', { ticket: id });
+    expect(errorOf(again).code).toBe('conflict');
+    const reopened = await call(a.access, 'reopen_ticket', { ticket: id, text: 'Back' });
+    expect(reopened.isError).toBe(false);
+    expect(await status()).toBe('ready');
   });
 
   it('list_machines shows only the account’s unrevoked machines', async () => {

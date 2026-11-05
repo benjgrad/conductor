@@ -11,6 +11,7 @@ import { ApiRequestError } from '../api/client.js';
 import { CONDUCTOR, MOCK_WORKFLOW_HISTORY, SEED_IDS } from '../api/mock-data.js';
 import { createMockApi } from '../api/mock.js';
 import { App } from '../App.js';
+import { mockViewport, type MockViewport } from '../test/match-media.js';
 import { SessionWorkflowDiagram } from './SessionWorkflowDiagram.js';
 import { WorkflowsView } from './WorkflowsView.js';
 
@@ -1201,6 +1202,64 @@ describe('Workflow view: a newer default (UXR-87)', () => {
       screen.getByRole('checkbox', { name: /People can edit tickets in the .* column/ }),
     );
     expect(banner().getByRole<HTMLButtonElement>('button', { name: 'Adopt…' }).disabled).toBe(true);
+  });
+});
+
+describe('phone: full-screen editors (UXR-44)', () => {
+  let viewport: MockViewport | null = null;
+  beforeEach(() => {
+    viewport = mockViewport(375);
+  });
+  afterEach(() => {
+    viewport?.restore();
+    viewport = null;
+  });
+
+  const workflow = () => screen.getByRole('region', { name: 'Workflow' });
+
+  it('a column opens full-screen; Back to workflow closes it; the note stays', async () => {
+    await setup();
+    expect(screen.getByText('The workflow editor is best on a larger screen.')).toBeTruthy();
+    fireEvent.keyDown(lane('Implementing'), { key: 'Enter' });
+    const aside = screen.getByRole('complementary', { name: 'Column' });
+    expect(aside.classList.contains('full-screen')).toBe(true);
+    expect(editor().queryByRole('button', { name: 'Close column' })).toBeNull();
+    expect(workflow().hasAttribute('inert')).toBe(true);
+    fireEvent.click(editor().getByRole('button', { name: 'Back to workflow' }));
+    expect(screen.queryByRole('complementary', { name: 'Column' })).toBeNull();
+    expect(workflow().hasAttribute('inert')).toBe(false);
+  });
+
+  it('a transition opens full-screen; Back goes to its column', async () => {
+    await setup();
+    fireEvent.keyDown(arrow('Implementing', 'Waiting external'), { key: 'Enter' });
+    const aside = screen.getByRole('complementary', { name: 'Transition' });
+    expect(aside.classList.contains('full-screen')).toBe(true);
+    expect(panel().queryByRole('button', { name: 'Close transition' })).toBeNull();
+    fireEvent.click(panel().getByRole('button', { name: 'Back to Implementing' }));
+    expect(screen.getByRole('complementary', { name: 'Column' }).classList).toContain(
+      'full-screen',
+    );
+  });
+
+  it('an arrow’s list opens full-screen too, without ×', async () => {
+    await setup();
+    fireEvent.keyDown(arrow('Implementing', 'Needs input'), { key: 'Enter' });
+    const list = screen.getByRole('complementary', { name: 'Arrow' });
+    expect(list.classList.contains('full-screen')).toBe(true);
+    expect(within(list).queryByRole('button', { name: 'Close arrow' })).toBeNull();
+  });
+
+  it('on desktop the panels keep × and are not full-screen', async () => {
+    viewport?.restore();
+    viewport = null;
+    await setup();
+    fireEvent.keyDown(lane('Implementing'), { key: 'Enter' });
+    expect(screen.getByRole('complementary', { name: 'Column' }).classList).not.toContain(
+      'full-screen',
+    );
+    expect(editor().getByRole('button', { name: 'Close column' })).toBeTruthy();
+    expect(workflow().hasAttribute('inert')).toBe(false);
   });
 });
 

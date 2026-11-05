@@ -19,6 +19,10 @@ import {
   type MoveDto,
   type OutputChunk,
   type RepoChecksDto,
+  type ScheduleDto,
+  nextRuns,
+  SCHEDULE_PREVIEW_RUNS,
+  ROUTINE_WORKFLOW_ID,
   type SessionDetail,
   type SessionInputRequest,
   type SessionStatus,
@@ -1322,6 +1326,96 @@ export function mockMachines(now: Date): MachineDetail[] {
       alerts: [],
       live_sessions: [],
       cannot_take: [],
+    },
+  ];
+}
+
+/** ADR-0032: fixed schedule ids, so tests and screenshots can address them. */
+export const SCHEDULE_IDS = {
+  prSweep: 'e5000000-0000-4000-8000-000000000001',
+  weekly: 'e5000000-0000-4000-8000-000000000002',
+  monthly: 'e5000000-0000-4000-8000-000000000003',
+} as const;
+
+/**
+ * ADR-0032: three recurring jobs for the Schedules page. "PR sweep" runs on weekdays and its last
+ * run (the running seed) is still open, so its last due run was skipped and Run now is refused;
+ * the weekly one is paused and pinned to a machine; the monthly one never ran and no machine has
+ * its repo.
+ */
+export function mockSchedules(now: Date): ScheduleDto[] {
+  const day = 86_400_000;
+  const at = (ms: number) => new Date(now.getTime() + ms).toISOString();
+  const runs = (cron: string, tz: string) =>
+    nextRuns(cron, tz, now, SCHEDULE_PREVIEW_RUNS).map((d) => d.toISOString());
+  const base = {
+    workflow_id: ROUTINE_WORKFLOW_ID,
+    priority: 0,
+    created_by: 'ben@example.com',
+    created_at: at(-30 * day),
+    updated_at: at(-2 * day),
+    last_skipped_at: null,
+    last_skip_reason: null,
+  } as const;
+  const sweep = runs('0 9 * * 1-5', 'America/Toronto');
+  const monthly = runs('0 10 1 * *', 'Europe/London');
+  return [
+    {
+      ...base,
+      id: SCHEDULE_IDS.prSweep,
+      name: 'PR sweep',
+      cron: '0 9 * * 1-5',
+      timezone: 'America/Toronto',
+      enabled: true,
+      title: 'Sweep open PRs',
+      body: 'Go through the open PRs on the repo. Rebase the stale ones and list what needs review.',
+      repo: 'github.com/benjgrad/conductor',
+      kind: 'work',
+      required_tags: [],
+      machine_ids: null,
+      next_run_at: sweep[0] ?? null,
+      next_runs: sweep,
+      last_run_at: at(-day),
+      last_ticket: { id: SEED_IDS.running.ticket, status: 'in_progress' },
+      last_skipped_at: at(-60 * 60_000),
+      last_skip_reason: 'previous_run_open',
+    },
+    {
+      ...base,
+      id: SCHEDULE_IDS.weekly,
+      name: 'Weekly dependency bump',
+      cron: '30 8 * * 1',
+      timezone: 'UTC',
+      enabled: false,
+      title: 'Bump dependencies',
+      body: 'Update the dependencies one minor version at a time and open a PR.',
+      repo: 'github.com/acme/shop',
+      kind: 'work',
+      required_tags: [],
+      machine_ids: ['mbp-ben'],
+      next_run_at: null,
+      next_runs: [],
+      last_run_at: at(-9 * day),
+      last_ticket: { id: SEED_IDS.done.ticket, status: 'done' },
+    },
+    {
+      ...base,
+      id: SCHEDULE_IDS.monthly,
+      name: 'Monthly report',
+      cron: '0 10 1 * *',
+      timezone: 'Europe/London',
+      enabled: true,
+      title: 'Write the monthly spend report',
+      body: 'Summarise last month: tickets done, time per state and spend.',
+      repo: 'github.com/ben/notes',
+      kind: 'personal',
+      required_tags: [],
+      machine_ids: null,
+      next_run_at: monthly[0] ?? null,
+      next_runs: monthly,
+      last_run_at: null,
+      last_ticket: null,
+      warnings: ['no_machine_has_repo'],
     },
   ];
 }

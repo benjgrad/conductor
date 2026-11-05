@@ -20,6 +20,7 @@ import {
   type ChecksIssue,
   type ChecksValue,
 } from '../workflow/ChecksFields.js';
+import { useToast } from '../components/Toast.js';
 import { ProposalsPanel } from '../workflow/ProposalsPanel.js';
 import { checkListIssues, type CheckListIssue } from '../workflow/transitions.js';
 import { CheckHistory, HealthBadge } from './CheckHistory.js';
@@ -199,6 +200,7 @@ function RepoDetailView({
   const [confirmClear, setConfirmClear] = useState(false);
   // UXR-80: bumped on every (re)load, so the run history follows the saved checks.
   const [loads, setLoads] = useState(0);
+  const toast = useToast();
 
   const load = useCallback(() => {
     api.getRepoChecks(repo).then(
@@ -249,6 +251,7 @@ function RepoDetailView({
         checks: value.checks,
         ...(value.setup !== undefined ? { setup: value.setup } : {}),
       });
+      toast('Checks saved');
       onChanged();
       if (dto.repo !== repo) onSelect(dto.repo);
       else load();
@@ -266,6 +269,7 @@ function RepoDetailView({
     try {
       await api.clearRepoChecks(detail.repo);
       setConfirmClear(false);
+      toast('Checks cleared');
       onChanged();
       load();
     } catch (err) {

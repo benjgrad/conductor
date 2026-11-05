@@ -253,3 +253,10 @@ button.plan-approve {
 .board-mobile code {
   overflow-wrap: anywhere;
 }
+
+/* UXR-54: an empty column's one muted line (what the column is for). */
+.column-empty {
+  margin: 8px 10px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}

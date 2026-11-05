@@ -23,6 +23,7 @@ import {
   type CommandKind,
   type OutboxKind,
   DAEMON_FEATURES,
+  permissionSummary,
 } from '@conductor/shared';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import {
@@ -42,6 +43,7 @@ import { DefinitionCache, splitStep } from '../engine/rows.js';
 import type { PermissionRequestRow, SessionRow } from '../db/types.js';
 import type { CreateGateway, Db, GatewayHandle } from '../main.js';
 import { alwaysRuleFor } from '../permissions/rule.js';
+import { enqueuePermissionPush } from '../push/enqueue.js';
 import {
   cardUpserted,
   decisionFrame,
@@ -1119,7 +1121,7 @@ class Gateway implements DaemonGateway {
     }
     type Outcome =
       | { kind: 'duplicate' | 'stale' | 'unknown' }
-      | { kind: 'stored'; events: BoardSseEvent[] }
+      | { kind: 'stored'; events: BoardSseEvent[]; wrotePush?: boolean }
       | { kind: 'denied'; row: PermissionRequestRow };
 
     const outcome = await withTransaction(this.db, async (tx): Promise<Outcome> => {
@@ -1173,7 +1175,30 @@ class Gateway implements DaemonGateway {
       // A request_id seen before (under another seq) changes nothing.
       if (!stored) return { kind: 'stored', events: [] };
       if (!running) return { kind: 'denied', row: stored };
-      return { kind: 'stored', events: await cardUpserted(tx, sessionId) };
+      // UXR-32: the agent now waits on a person; push it like a question (10 §Web Push).
+      let wrotePush = false;
+      if (this.engine.pushEnabled) {
+        const t = await tx.query<{ id: string; title: string }>(
+          'SELECT id, title FROM ticket WHERE id = $1',
+          [row.ticket_id],
+        );
+        const ticket = t.rows[0];
+        if (ticket) {
+          const n = await enqueuePermissionPush(tx, {
+            accountId: row.account_id,
+            sessionId,
+            ticketId: ticket.id,
+            ticketTitle: ticket.title,
+            agent: row.workflow_state,
+            permissionRequestId: stored.id,
+            tool: p.tool,
+            summary: permissionSummary(p.input),
+            now: new Date(),
+          });
+          wrotePush = n > 0;
+        }
+      }
+      return { kind: 'stored', events: await cardUpserted(tx, sessionId), wrotePush };
     });
 
     switch (outcome.kind) {
@@ -1190,6 +1215,7 @@ class Gateway implements DaemonGateway {
       case 'stored':
         conn.owned.set(sessionId, token);
         this.publish(outcome.events);
+        if (outcome.wrotePush) this.engine.pushWritten?.();
         return;
       case 'denied': {
         conn.owned.set(sessionId, token);

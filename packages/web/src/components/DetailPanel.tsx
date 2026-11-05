@@ -19,7 +19,7 @@ import {
   isConductorStep,
 } from './ConductorChecks.js';
 import { isOldVersion } from './details-sections.js';
-import { KIND_LABELS, panelStatusLabel } from './format.js';
+import { headStatus, KIND_LABELS } from './format.js';
 import { FreshConversation, freshConversationOffer } from './FreshConversation.js';
 import { Markdown } from './markdown.js';
 import { OutputLog } from './OutputLog.js';
@@ -94,10 +94,8 @@ export function DetailPanel({
   const proseName = agent && agent.seed !== null ? agent.name : 'the agent';
   const ids = useId();
   const tabRefs = useRef<Partial<Record<PanelTab, HTMLButtonElement | null>>>({});
-  const status = detail?.card.status ?? null;
-  const headLabel = detail
-    ? panelStatusLabel(detail.card.workflow_state, status, detail.workflow)
-    : null;
+  // UXR-40: one chip, in titles; UXR-32 FR-2: "Waiting for permission" while one is held.
+  const head = detail ? headStatus(detail.card, detail.workflow) : null;
   const plan = detail ? planApprovalOptions(detail) : null;
 
   // UX-2: the Brief. The body is `ticket_body`; an older server doesn't send it, so it falls back
@@ -165,9 +163,9 @@ export function DetailPanel({
               <span className="chip status status-conductor">Conductor is checking</span>
             ) : (
               // UXR-40: one chip, in titles (never the status and the state side by side).
-              headLabel && (
-                <span className={`chip status status-${status ?? 'none'}`} title={headLabel}>
-                  {headLabel}
+              head && (
+                <span className={`chip status status-${head.key}`} title={head.label}>
+                  {head.label}
                 </span>
               )
             )}

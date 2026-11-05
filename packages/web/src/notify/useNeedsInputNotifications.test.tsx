@@ -2,6 +2,7 @@
 import {
   BOARD_CARD_FIXTURE,
   BOARD_CARD_NEEDS_INPUT_FIXTURE,
+  BOARD_CARD_NEEDS_PERMISSION_FIXTURE,
   type BoardCard,
   type BoardSseEvent,
 } from '@conductor/shared';
@@ -16,7 +17,7 @@ import {
 import { cardAgent } from '../components/agent-identity.js';
 import { FAVICON_DOT, FAVICON_PLAIN } from './favicon.js';
 import { stubNotification } from './notification-stub.js';
-import { clip, useNeedsInputNotifications } from './useNeedsInputNotifications.js';
+import { clip, permissionTag, useNeedsInputNotifications } from './useNeedsInputNotifications.js';
 
 const RUNNING: BoardCard = {
   ...BOARD_CARD_FIXTURE,
@@ -256,5 +257,46 @@ describe('useNeedsInputNotifications', () => {
     const { rerender } = mount(start);
     rerender({ b: applyBoardEvent(start, asked(11)) });
     expect(document.title).toBe('(1) Conductor');
+  });
+
+  describe('permission prompts (UXR-32)', () => {
+    const PERM = BOARD_CARD_NEEDS_PERMISSION_FIXTURE;
+    const RUN: BoardCard = { ...PERM };
+    delete RUN.sub_status;
+    delete RUN.permission;
+
+    it('count in the title and favicon, alone and beside a question', () => {
+      const { rerender } = mount(EMPTY_BOARD);
+      rerender({ b: loaded([PERM]) });
+      expect(document.title).toBe('(1) Conductor');
+      expect(favicon()).toBe(FAVICON_DOT);
+      // Already open at load: counted, not notified.
+      expect(N.instances).toHaveLength(0);
+      rerender({ b: loaded([PERM, ASKING]) });
+      expect(document.title).toBe('(2) Conductor');
+    });
+
+    it('a new one fires once with its tool, summary and tag; deciding it closes it', () => {
+      const { rerender } = mount(loaded([RUN]));
+      rerender({ b: loaded([PERM]) });
+      expect(N.instances).toHaveLength(1);
+      const n = N.instances[0]!;
+      expect(n.title).toBe(`${cardAgent(PERM).name} needs permission`);
+      expect(n.options.body).toBe(
+        `${PERM.title}: ${PERM.permission!.tool}: ${PERM.permission!.summary}`,
+      );
+      expect(n.options.tag).toBe(permissionTag(PERM.permission!.request_id));
+      rerender({ b: loaded([{ ...PERM }]) });
+      expect(N.instances).toHaveLength(1);
+
+      expect(n.close).not.toHaveBeenCalled();
+      rerender({ b: loaded([RUN]) });
+      expect(n.close).toHaveBeenCalled();
+      vi.spyOn(window, 'focus').mockImplementation(() => {});
+      n.onclick!();
+      expect(onSelect).toHaveBeenCalledWith(PERM.session_id);
+      expect(document.title).toBe('Conductor');
+      expect(favicon()).toBe(FAVICON_PLAIN);
+    });
   });
 });

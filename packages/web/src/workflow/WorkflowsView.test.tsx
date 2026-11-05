@@ -121,6 +121,31 @@ describe('Workflow view', () => {
     expect(diagram.querySelector('[data-edge="start"]')?.getAttribute('role')).toBeNull();
   });
 
+  it('fits the width, zooms, and styles columns by kind with a legend (UXR-45, UXR-68)', async () => {
+    const { diagram } = await setup();
+    // Fit: the drawing scales to its box; + gives it a fixed, larger size (the box scrolls).
+    expect(diagram.getAttribute('width')).toBe('100%');
+    expect(screen.getByRole('button', { name: 'Fit' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    const viewW = Number(diagram.getAttribute('viewBox')!.split(' ')[2]);
+    expect(Number(diagram.getAttribute('width'))).toBeCloseTo(viewW * 1.25);
+    fireEvent.click(screen.getByRole('button', { name: 'Fit' }));
+    expect(diagram.getAttribute('width')).toBe('100%');
+    // Kinds: a class and an icon per column; no lane box is dashed.
+    expect(lane('Planning').getAttribute('class')).toContain('wf-lane-kind-agent');
+    expect(lane('Needs input').getAttribute('class')).toContain('wf-lane-kind-person');
+    expect(lane('Planning').querySelector('.wf-lane-icon')?.textContent).toBe('✦ ');
+    const legend = within(screen.getByRole('group', { name: 'Legend' }));
+    for (const k of ['Agent', 'Person', 'Waiting', 'Queue', 'End']) {
+      expect(legend.getByText(k)).toBeTruthy();
+    }
+    // Titled edges: no raw ids or event ids.
+    const labels = [...diagram.querySelectorAll('.wf-label')].map((l) => l.textContent);
+    expect(labels).toContain('Approved');
+    expect(labels).toContain('6 ways');
+    expect(labels.some((t) => t?.includes('_') || t?.includes('ui.'))).toBe(false);
+  });
+
   it('keeps the version selector, and shows an old version’s requirements to enter', async () => {
     await setup();
     const select = screen.getByRole('combobox', { name: 'Version' });

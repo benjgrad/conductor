@@ -1,0 +1,51 @@
+/* ADR-0038: the pages an agent attached, under the plan (Plan review, the Plan sheet). */
+.plan-pages {
+  margin: var(--space-1) 0 var(--space-2);
+}
+.plan-pages-title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--muted);
+  font-weight: 600;
+}
+.plan-pages-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+.plan-page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.plan-page-name {
+  overflow-wrap: anywhere;
+}
+.plan-page.expired .plan-page-name {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.plan-page-expiry {
+  font-size: var(--text-sm);
+}
+.plan-page-share {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.plan-page-share.error {
+  color: var(--danger);
+}
+.plan-page-frame {
+  display: block;
+  width: 100%;
+  height: min(70vh, 640px);
+  margin-top: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #fff;
+}

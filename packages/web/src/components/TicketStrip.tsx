@@ -2,13 +2,14 @@
 // Brief, Plan and Edit next to the Messages and Details tabs (TicketButtons). Each opens a sheet
 // (TicketSheet) over the tab bodies, chat and composer included, so the chat keeps the panel and
 // the brief and plan are always one click away. DetailPanel places both and owns the open sheet.
-import type { SessionDetail } from '@conductor/shared';
+import { latestPlanEntry, type SessionDetail } from '@conductor/shared';
 import { Pencil, X } from 'lucide-react';
 import { memo, useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react';
 import type { ApiClient } from '../api/client.js';
 import { tally, type Brief } from '../brief/parse.js';
 import { BriefContent, type BriefContentProps } from './BriefCard.js';
 import { latestPlan } from './plan.js';
+import { PlanPages, pagesOf } from './PlanPages.js';
 import { PLAN_APPROVAL_LABEL, PlanAnswerActions, PlanView } from './PlanApprovalRequest.js';
 import type { PlanOptions } from './request-preview.js';
 import { EditTicket, TicketAttachments } from './TicketPanel.js';
@@ -250,6 +251,11 @@ function SheetBody({
         ) : (
           <PlanView plan={plan} clamp={false} />
         )}
+        {/* ADR-0038: the pages the plan's state attached. */}
+        <PlanPages
+          pages={pagesOf(detail, latestPlanEntry(detail)?.from_state ?? null)}
+          api={api}
+        />
       </div>
       {planActions && sessionId !== null && (
         <div className="ticket-sheet-foot">

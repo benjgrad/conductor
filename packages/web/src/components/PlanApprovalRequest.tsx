@@ -10,6 +10,7 @@ import { useId, useState, type FormEvent } from 'react';
 import type { ApiClient } from '../api/client.js';
 import { FreshConversation, freshConversationOffer } from './FreshConversation.js';
 import { Markdown } from './markdown.js';
+import { PlanPages, pagesOf } from './PlanPages.js';
 import { usePlanAnswer } from './plan-answer.js';
 import { RequestCard } from './RequestCard.js';
 import { planApproveRequest, planChangesRequest, type PlanOptions } from './request-preview.js';
@@ -69,6 +70,8 @@ export function PlanApprovalRequest({
         <Markdown text={request.question} />
       </div>
       <PlanView plan={planOf(detail)} {...(onOpenPlan ? { onOpenPlan } : {})} />
+      {/* ADR-0038: the mockups and diagrams the planning state attached. */}
+      <PlanPages pages={pagesOf(detail, detail.return_to)} api={api} />
       <PlanAnswerActions api={api} sessionId={sessionId} plan={plan} onDone={onDone} />
       {others.length > 0 && (
         <details className="plan-other-actions">

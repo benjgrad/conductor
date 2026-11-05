@@ -76,6 +76,7 @@ import type {
   PushTestResponse,
   PushUnsubscribeRequest,
   PushVapidPublicKeyResponse,
+  SharePageResponse,
 } from '@conductor/shared';
 
 // The UI's view of the orchestrator API (03 §REST, §SSE). Two implementations: the in-memory
@@ -167,6 +168,8 @@ export interface ApiClient {
   approveProposal(ticketId: string, req: ApproveProposalRequest): Promise<ApproveProposalResponse>;
   /** POST /api/tickets/:id/proposals/dismiss. 409 conflict when it was approved. */
   dismissProposal(ticketId: string, req: DismissProposalRequest): Promise<TicketProposal>;
+  /** ADR-0038: POST /api/pages/:id/share → the page's share link (minted once, the same after). */
+  sharePage(pageId: string): Promise<SharePageResponse>;
   /**
    * 06 §Attachments: POST /api/attachments with the file's bytes → the stored, unlinked upload.
    * Link it with `attachment_ids` (createTicket) or `add_attachment_ids` (updateTicket). 415

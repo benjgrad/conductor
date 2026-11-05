@@ -19,6 +19,7 @@ import {
   columnStates,
   columnTitle,
   followUpsOf,
+  pagesOf,
   QUEUED_LANE,
   QUEUED_TITLE,
   ticketEditableOf,
@@ -406,6 +407,12 @@ function columnLines(
   const ac = a.type === 'agent' ? a.checkout : undefined;
   if (!same(bc, ac))
     lines.push(`Checkout setup: ${setupWords(bc?.setup)} → ${setupWords(ac?.setup)}`);
+  // ADR-0038: the Pages setting (the `pages` tool and result entry), in its builder words.
+  const bp = pagesOf(bd, name);
+  const ap = pagesOf(ad, name);
+  if (bp?.max !== ap?.max) {
+    lines.push(`Pages: ${bp ? `up to ${bp.max}` : 'off'} → ${ap ? `up to ${ap.max}` : 'off'}`);
+  }
   lines.push(...otherLines(b, a, KNOWN_STATE_KEYS));
   return lines;
 }

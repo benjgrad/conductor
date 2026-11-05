@@ -2201,18 +2201,18 @@ function leaveStep(st: Step, kill: boolean): void {
 function actionLabel(action: TransitionAction): string {
   switch (action) {
     case 'open_pr':
-      return 'open the pull request (open_pr)';
+      return 'open the pull request';
     case 'update_jira':
-      return 'update the Jira issue (update_jira)';
+      return 'update the Jira issue';
     case 'slack_message':
-      return 'send the Slack message (slack_message)';
+      return 'send the Slack message';
     // TD: M2r-T01 stub so the switch stays exhaustive; M2r-T04 owns these actions.
     case 'inspect_pr':
-      return 'inspect the pull request (inspect_pr)';
+      return 'inspect the pull request';
     case 'merge_pr':
-      return 'merge the pull request (merge_pr)';
+      return 'merge the pull request';
     case 'close_pr':
-      return 'close the pull request (close_pr)';
+      return 'close the pull request';
   }
 }
 

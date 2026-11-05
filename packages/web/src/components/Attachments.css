@@ -144,3 +144,18 @@
 .attachment-upload.removed .attachment-thumb {
   opacity: 0.4;
 }
+
+/* 06 §Attachments: what the agents attached, one group per workflow state. */
+.agent-attachments-group h4 {
+  margin: 8px 0 4px;
+  font-size: 0.85em;
+  font-weight: 500;
+}
+
+.review-captures {
+  margin: 8px 0;
+}
+
+.review-captures p {
+  margin: 0 0 4px;
+}

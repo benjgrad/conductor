@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AGENT_ATTACHMENTS_PER_TICKET_MAX,
+  ATTACHMENTS_PER_TICKET_MAX,
   ATTACHMENT_MAX_IMAGE_BYTES,
   ATTACHMENT_MAX_VIDEO_BYTES,
   ATTACHMENT_NAME_RE,
+  attachmentCountMax,
   attachmentMaxBytes,
   attachmentProblem,
   sanitizeAttachmentName,
@@ -11,6 +14,7 @@ import {
 import { M2_WS_FIXTURES } from '../protocol/fixtures.js';
 import {
   DAEMON_FEATURES,
+  DAEMON_FEATURE_AGENT_ATTACHMENTS,
   DAEMON_FEATURE_TICKET_ATTACHMENTS,
   parseOrchestratorMessage,
 } from '../protocol/ws.js';
@@ -86,6 +90,13 @@ describe('REST and WS shapes', () => {
   it('paths', () => {
     expect(API_PATHS.attachmentContent('x')).toBe('/api/attachments/x/content');
     expect(API_PATHS.daemonAttachmentContent('x')).toBe('/api/daemon/attachments/x/content');
+    expect(API_PATHS.daemonSessionAttachments('s')).toBe('/api/daemon/sessions/s/attachments');
+  });
+
+  it('each source has its own count limit; agent_attachments is a known feature', () => {
+    expect(attachmentCountMax('human')).toBe(ATTACHMENTS_PER_TICKET_MAX);
+    expect(attachmentCountMax('agent')).toBe(AGENT_ATTACHMENTS_PER_TICKET_MAX);
+    expect(DAEMON_FEATURES).toContain(DAEMON_FEATURE_AGENT_ATTACHMENTS);
   });
 
   it('create and update requests take attachment ids', () => {

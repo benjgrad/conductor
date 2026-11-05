@@ -27,15 +27,21 @@ export async function loadTicketAttachments(
   return r.rows;
 }
 
-/** `start_session.attachments` for the ticket (06 §Attachments). */
+/**
+ * `start_session.attachments` for the ticket (06 §Attachments): the human's only. What an agent
+ * attached is evidence for the human, not instructions; the prompt says "the human attached".
+ */
 export async function attachmentRefs(q: Queryable, ticketId: string): Promise<AttachmentRef[]> {
-  return (await loadTicketAttachments(q, ticketId)).map((a) => ({
-    id: a.id,
-    name: a.name,
-    mime: a.mime,
-    size: a.size_bytes,
-    sha256: a.sha256.toString('hex'),
-  }));
+  const all = await loadTicketAttachments(q, ticketId);
+  return all
+    .filter((a) => a.source === 'human')
+    .map((a) => ({
+      id: a.id,
+      name: a.name,
+      mime: a.mime,
+      size: a.size_bytes,
+      sha256: a.sha256.toString('hex'),
+    }));
 }
 
 /**

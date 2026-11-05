@@ -1589,6 +1589,7 @@ fn noop_handlers() -> OutcomeHandlers {
         on_complete_state: Arc::new(|_, _| {}),
         on_ask_user: Arc::new(|_, _| {}),
         on_permission_request: None,
+        on_attach_file: None,
     }
 }
 

@@ -32,14 +32,15 @@ use tokio::process::ChildStdin;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
+use crate::attachments::upload::{self, AttachTarget};
 use crate::claude::driver::{
     ClaudeDriver, DriverError, DriverEvent, DriverListener, DriverSession, DriverStartOptions,
     ListenerId, Listeners, OutputStream, PermissionDecision, PermissionResolution,
 };
 use crate::claude::edit_guard::write_edit_guard;
 use crate::claude::outcome_server::{
-    OUTCOME_TOOL_NAMES, OutcomeHandlers, OutcomeRegisterOptions, OutcomeRegistration,
-    OutcomeServer, PERMISSION_TOOL,
+    ATTACH_FILE_TOOL, AttachFileHandler, AttachFileRequest, OUTCOME_TOOL_NAMES, OutcomeHandlers,
+    OutcomeRegisterOptions, OutcomeRegistration, OutcomeServer, PERMISSION_TOOL,
 };
 use crate::claude::stream_parser::{ParsedLine, parse_stream_line};
 use crate::platform::Platform;
@@ -543,6 +544,8 @@ pub fn build_claude_args(
         .iter()
         .map(String::as_str)
         .chain(OUTCOME_TOOL_NAMES)
+        // 06 §Attachments: the agent may attach captures without a prompt (Rust only).
+        .chain(attach_tool(opts))
         .collect();
     args.extend([
         "--mcp-config".into(),
@@ -1146,7 +1149,7 @@ impl CliDriver {
             }),
         });
         let reg = self.server.register(
-            handlers(&shared),
+            handlers(&shared, attach_target(&opts)),
             OutcomeRegisterOptions {
                 transitions: opts.transitions.clone(),
             },
@@ -1286,8 +1289,38 @@ impl ClaudeDriver for CliDriver {
     }
 }
 
+/// 06 §Attachments: the session's attach target; a reviewer gets none.
+fn attach_target(opts: &DriverStartOptions) -> Option<AttachTarget> {
+    opts.attach.clone().filter(|_| !opts.review)
+}
+
+/// `--allowedTools` gets `attach_file` exactly when the tool is listed.
+fn attach_tool(opts: &DriverStartOptions) -> Option<&'static str> {
+    attach_target(opts).map(|_| ATTACH_FILE_TOOL)
+}
+
+/// `attach_file`'s handler: uploads to `target` (06 §Attachments).
+fn attach_handler(target: AttachTarget) -> AttachFileHandler {
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap_or_default();
+    Arc::new(move |req: AttachFileRequest| {
+        let (client, target) = (client.clone(), target.clone());
+        Box::pin(async move {
+            upload::upload(
+                &client,
+                &target,
+                std::path::Path::new(&req.path),
+                req.caption.as_deref(),
+            )
+            .await
+        })
+    })
+}
+
 /// The registration's handlers: each emits on the session.
-fn handlers(shared: &Arc<Shared>) -> OutcomeHandlers {
+fn handlers(shared: &Arc<Shared>, attach: Option<AttachTarget>) -> OutcomeHandlers {
     let (a, c, p) = (shared.clone(), shared.clone(), shared.clone());
     OutcomeHandlers {
         on_ask_user: Arc::new(move |question, options| {
@@ -1319,6 +1352,7 @@ fn handlers(shared: &Arc<Shared>) -> OutcomeHandlers {
             });
             Ok(())
         })),
+        on_attach_file: attach.map(attach_handler),
     }
 }
 

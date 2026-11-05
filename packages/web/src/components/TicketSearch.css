@@ -24,7 +24,7 @@
 .ticket-search-key {
   position: absolute;
   right: 8px;
-  padding: 0 5px;
+  padding: 0 var(--space-1);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--muted);
@@ -58,7 +58,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 6px var(--space-3);
+  padding: var(--space-2) var(--space-3);
   cursor: pointer;
 }
 .search-result.active {
@@ -83,7 +83,7 @@
 }
 .search-result-status {
   align-self: flex-start;
-  padding: 0 6px;
+  padding: 0 var(--space-2);
   border-radius: var(--radius-pill);
   background: var(--ask-bg);
   color: var(--ask);

@@ -47,8 +47,68 @@ export function columnTitle(def: WorkflowDefinition, name: string): string {
   return def.states[name]?.title ?? name;
 }
 
-/** What does a column's work, in one line. */
-export function workSummary(state: WorkflowState | null): string {
+/** `ask_user` → "Ask user": a name without a title, as words. */
+export function humanizeName(name: string): string {
+  const words = name.replace(/_/g, ' ').trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** Built-in events, in words (FR-2 of UXR-45: no raw event ids on the diagram). */
+export const EVENT_LABELS: Record<string, string> = { 'ui.approve': 'Approved' };
+
+/** A transition's title: its own `title`, else a built-in event's label, else the name in words. */
+export function transitionTitle(def: WorkflowDefinition, from: string, name: string): string {
+  const state = def.states[from];
+  const tr = state && state.type !== 'terminal' ? state.on?.[name] : undefined;
+  if (typeof tr === 'object' && tr.title !== undefined && tr.title.trim() !== '') return tr.title;
+  return EVENT_LABELS[name] ?? humanizeName(name);
+}
+
+/** What a column is, as the diagram draws it (UXR-68). */
+export type LaneKind = 'agent' | 'person' | 'waiting' | 'queue' | 'end';
+
+export const LANE_KIND_LABELS: Record<LaneKind, string> = {
+  agent: 'Agent',
+  person: 'Person',
+  waiting: 'Waiting',
+  queue: 'Queue',
+  end: 'End',
+};
+
+/** Plain glyphs (no icon font) drawn before the column title. */
+export const LANE_KIND_ICONS: Record<LaneKind, string> = {
+  agent: '✦',
+  person: '●',
+  waiting: '◷',
+  queue: '≡',
+  end: '■',
+};
+
+export const LANE_KINDS = Object.keys(LANE_KIND_LABELS) as LaneKind[];
+
+export function laneKind(state: WorkflowState | null): LaneKind {
+  if (state === null) return 'queue';
+  switch (state.type) {
+    case 'human':
+      return 'person';
+    case 'event':
+      return 'waiting';
+    case 'terminal':
+      return 'end';
+    default:
+      return 'agent';
+  }
+}
+
+/**
+ * What does a column's work, in one line. `def` (and the state's name) turn an event state's
+ * events into their transition titles ("Waits for: Approved").
+ */
+export function workSummary(
+  state: WorkflowState | null,
+  def?: WorkflowDefinition,
+  name?: string,
+): string {
   if (state === null) return 'Waiting for a machine';
   switch (state.type) {
     case 'agent': {
@@ -60,7 +120,13 @@ export function workSummary(state: WorkflowState | null): string {
     case 'connector':
       return `Connector · ${state.action ?? state.actions?.join(', ') ?? ''}`;
     case 'event':
-      return `Waits for ${state.wait_for.join(' or ')}`;
+      return `Waits for: ${state.wait_for
+        .map((ev) =>
+          def && name !== undefined
+            ? transitionTitle(def, name, ev)
+            : (EVENT_LABELS[ev] ?? humanizeName(ev)),
+        )
+        .join(' or ')}`;
     case 'human':
       return 'A person answers or approves';
     case 'terminal':
@@ -138,6 +204,7 @@ export function entryShort(entry: EntryRequirements): string {
 export interface Lane {
   id: string;
   title: string;
+  kind: LaneKind;
   /** null for Queued. */
   state: WorkflowState | null;
   work: string;
@@ -163,11 +230,13 @@ export interface LaneEdge {
   dashed: boolean;
   /** `outcome`: the transition names on this arrow, in definition order. */
   transitions?: string[];
+  /** `outcome`: their titles (`transitionTitle`), parallel to `transitions`. */
+  titles?: string[];
   /** A dashed `else` / `unmet` loop that belongs to one transition (clicking it opens that). */
   owner?: { from: string; name: string };
   /** Some transition on this arrow has requirements (`requires`, or an old ADR-0009 gate). */
   gated?: boolean;
-  /** "×4" for several transitions, "✓" for requirements, both "✓ ×2". */
+  /** "✓" when some transition on the arrow has requirements. */
   badge?: string;
   /** Full sentence for `<title>`. */
   title: string;
@@ -181,13 +250,14 @@ export interface LaneGraph {
 /** The id of the arrow from `from` to `to` (the merged outcome edge). */
 export const arrowId = (from: string, to: string) => `${from}/${to}`;
 
-const MAX_LABEL = 28;
-
-/** The arrow's label: every name when they fit, else the first one and "…". */
-export function arrowLabel(names: string[]): string {
-  const all = names.join(' · ');
-  if (all.length <= MAX_LABEL || names.length === 1) return all;
-  return `${names[0]} …`;
+/**
+ * The arrow's label (UXR-45): the one title, or "N ways" for several transitions. Twins that share
+ * a title (work and personal "PR ready for review") read as that title.
+ */
+export function arrowLabel(titles: string[]): string {
+  const distinct = [...new Set(titles)];
+  if (distinct.length === 1) return distinct[0]!;
+  return `${titles.length} ways`;
 }
 
 export function buildLaneGraph(def: WorkflowDefinition): LaneGraph {
@@ -196,8 +266,9 @@ export function buildLaneGraph(def: WorkflowDefinition): LaneGraph {
     return {
       id,
       title: columnTitle(def, id),
+      kind: laneKind(state),
       state,
-      work: workSummary(state),
+      work: workSummary(state, def, id),
       entry: state?.entry ?? null,
     };
   });
@@ -209,7 +280,7 @@ export function buildLaneGraph(def: WorkflowDefinition): LaneGraph {
       kind: 'start',
       from: QUEUED_LANE,
       to: def.start,
-      label: 'claimed',
+      label: 'Claimed',
       dashed: false,
       title: `${QUEUED_TITLE} → ${t(def.start)} when a machine claims the ticket`,
     });
@@ -230,13 +301,14 @@ export function buildLaneGraph(def: WorkflowDefinition): LaneGraph {
       merged.set(key, m);
       if (typeof tr === 'string') continue;
       const owner = { from, name };
+      const tt = transitionTitle(def, from, name);
       if (tr.else !== undefined && has(def, tr.else)) {
         extra.push({
           id: `${from}/${name}/else`,
           kind: 'else',
           from,
           to: tr.else,
-          label: `${name}: else`,
+          label: `${tt}: else`,
           dashed: true,
           owner,
           title: `${t(from)} → ${t(tr.else)} when ${name} retries are exhausted`,
@@ -249,7 +321,7 @@ export function buildLaneGraph(def: WorkflowDefinition): LaneGraph {
           kind: 'unmet',
           from,
           to: u.goto,
-          label: `${name} not met ×${u.retries}`,
+          label: `${tt} not met ×${u.retries}`,
           dashed: true,
           owner,
           title: `Requirements for ${name} (${t(from)} → ${t(to)}) not met: back to ${t(u.goto)}`,
@@ -259,20 +331,20 @@ export function buildLaneGraph(def: WorkflowDefinition): LaneGraph {
   }
   for (const [key, m] of merged) {
     const [from, to] = key.split('\u0000') as [string, string];
-    const badge = [m.gated ? '✓' : '', m.names.length > 1 ? `×${m.names.length}` : '']
-      .filter(Boolean)
-      .join(' ');
+    const titles = m.names.map((n) => transitionTitle(def, from, n));
     edges.push({
       id: arrowId(from, to),
       kind: 'outcome',
       from,
       to,
-      label: arrowLabel(m.names),
+      label: arrowLabel(titles),
       dashed: false,
       transitions: m.names,
-      ...(m.gated ? { gated: true } : {}),
-      ...(badge !== '' ? { badge } : {}),
-      title: `${t(from)} → ${t(to)}: ${plural(m.names.length, 'transition')} (${m.names.join(', ')})`,
+      titles,
+      ...(m.gated ? { gated: true, badge: '✓' } : {}),
+      title:
+        `${t(from)} → ${t(to)}: ${plural(m.names.length, 'transition')} (${titles.join(', ')})` +
+        (m.gated ? ', with rules' : ''),
     });
   }
   edges.push(...extra);
@@ -284,7 +356,7 @@ export function buildLaneGraph(def: WorkflowDefinition): LaneGraph {
       kind: 'unmet',
       from: name,
       to: u.goto,
-      label: `not met ×${u.retries}`,
+      label: `Not met ×${u.retries}`,
       dashed: true,
       title:
         `Requirements to enter ${t(name)} not met: back to ${t(u.goto)} up to ` +

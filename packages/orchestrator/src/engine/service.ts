@@ -100,6 +100,14 @@ export class EngineServiceImpl implements EngineService {
     this.applyFn = deps.apply ?? sharedApply;
   }
 
+  get pushEnabled(): boolean {
+    return this.deps.pushEnabled === true;
+  }
+
+  pushWritten(): void {
+    this.deps.onPushWritten?.();
+  }
+
   async applyEvent(
     sessionId: string,
     event: EngineEvent,

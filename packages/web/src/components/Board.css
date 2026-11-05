@@ -166,6 +166,29 @@ button.plan-approve {
   background: var(--ask);
 }
 
+/* UXR-32 (11-web-ui §Waiting on you): Needs input notes the cards waiting for a permission. */
+.column-waiting {
+  display: block;
+  width: 100%;
+  margin: 0 0 var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px dashed var(--ask);
+  border-radius: var(--radius-pill);
+  background: var(--ask-bg);
+  color: var(--ask);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-align: center;
+}
+.count-waiting {
+  margin-left: var(--space-1);
+  color: var(--ask);
+  font-weight: 600;
+}
+.column.collapsed .count-waiting {
+  margin: var(--space-1) 0 0;
+}
+
 /* 11-web-ui §Board: on a phone one column shows, picked in the switcher (or by a swipe). */
 .board.board-mobile {
   /* main lays its children out at their content width (align-items: flex-start). */

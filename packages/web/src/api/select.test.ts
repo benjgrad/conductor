@@ -50,4 +50,17 @@ describe('API selection (VITE_API)', () => {
     const { api } = createApiFromEnv({ VITE_API: 'mock' }, {}, '?mock-auth=password');
     expect((await api.me()).user.is_admin).toBe(true);
   });
+
+  it('VITE_MOCK_PERMISSION=1 holds a permission on a running card (UXR-32 scene)', async () => {
+    const { api } = createApiFromEnv({
+      VITE_API: 'mock',
+      VITE_MOCK_STATIC: '1',
+      VITE_MOCK_PERMISSION: '1',
+    });
+    const cards = (await api.getBoard()).columns.flatMap((c) => c.cards);
+    const held = cards.filter((c) => c.sub_status === 'needs_permission');
+    expect(held.map((c) => [c.title, c.status, c.permission?.tool])).toEqual([
+      ['Add pagination to /orders', 'running', 'Bash'],
+    ]);
+  });
 });

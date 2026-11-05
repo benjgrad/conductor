@@ -563,24 +563,30 @@ describe.skipIf(!runnable)('install.sh', () => {
 // (scripts/build-daemon-dist.sh), installed by the served script, whose real `conductor-daemon
 // enroll` posts to a stub enroll endpoint. The token reaches the daemon only through
 // CONDUCTOR_ENROLL_TOKEN (TD-117). It costs a cargo build (the dev profile, which `cargo nextest`
-// has usually just built), so it runs only where cargo on PATH meets or exceeds the pinned
-// toolchain (rust-toolchain.toml): a system cargo older than the pin (e.g. Homebrew's, without
-// rustup) can't build the crates, which is a missing toolchain, not a failure of install.sh.
-const hasCargo = cargoMeetsPin();
+// has usually just built), so it runs only where cargo is on PATH.
+// A cargo older than rust-toolchain.toml's channel (a Homebrew rustc ahead of rustup on PATH)
+// can't build the workspace, so it counts as no cargo rather than a failure.
+const hasCargo = cargoBuildsWorkspace();
 
-/** `cargo --version` (run in the repo, so rustup applies the pin) is at least the pinned channel. */
-function cargoMeetsPin(): boolean {
-  const r = spawnSync('cargo', ['--version'], { cwd: REPO, encoding: 'utf8' });
-  if (r.status !== 0) return false;
-  const have = /cargo (\d+)\.(\d+)\.(\d+)/.exec(r.stdout);
-  const pin = /channel\s*=\s*"(\d+)\.(\d+)(?:\.(\d+))?"/.exec(
+function cargoBuildsWorkspace(): boolean {
+  const out = spawnSync('rustc', ['--version'], { cwd: REPO, encoding: 'utf8' });
+  if (out.status !== 0 || spawnSync('cargo', ['--version']).status !== 0) return false;
+  const pinned = /^channel\s*=\s*"([\d.]+)"/m.exec(
     readFileSync(join(REPO, 'rust-toolchain.toml'), 'utf8'),
-  );
-  if (!have || !pin) return have !== null;
-  const v = (m: RegExpExecArray) => [Number(m[1]), Number(m[2]), Number(m[3] ?? 0)];
-  const [a, b] = [v(have), v(pin)];
-  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i]! > b[i]!;
-  return true;
+  )?.[1];
+  const have = /rustc (\d+(?:\.\d+)*)/.exec(out.stdout)?.[1];
+  return pinned === undefined || (have !== undefined && !versionBelow(have, pinned));
+}
+
+/** `a` < `b`, comparing dotted numeric versions part by part. */
+function versionBelow(a: string, b: string): boolean {
+  const x = a.split('.').map(Number);
+  const y = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] ?? 0) - (y[i] ?? 0);
+    if (d !== 0) return d < 0;
+  }
+  return false;
 }
 
 describe.skipIf(!runnable || !hasCargo)('install.sh with the real daemon tarball', () => {

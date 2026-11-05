@@ -34,6 +34,7 @@ import {
   TicketDetailSchema,
   TicketDtoSchema,
   SaveWorkflowResponseSchema,
+  WorkflowDefaultResponseSchema,
   WorkflowDetailSchema,
   WorkflowListResponseSchema,
   type AnswerInputRequest,
@@ -423,6 +424,21 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
 
     saveWorkflow: (definition: WorkflowDefinition) =>
       request(SaveWorkflowResponseSchema, 'POST', API_PATHS.workflows, { definition }),
+
+    getWorkflowDefault: (id: string) =>
+      request(
+        WorkflowDefaultResponseSchema,
+        'GET',
+        API_PATHS.workflowDefault(encodeURIComponent(id)),
+      ),
+
+    adoptDefaultWorkflow: (id: string, baseVersion: number) =>
+      request(
+        SaveWorkflowResponseSchema,
+        'POST',
+        API_PATHS.workflowDefault(encodeURIComponent(id)),
+        { base_version: baseVersion },
+      ),
 
     approve: (sessionId: string, req: ApproveSessionRequest = {}) =>
       request(

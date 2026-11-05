@@ -8,7 +8,7 @@ import {
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ApiRequestError } from '../api/client.js';
-import { CONDUCTOR, SEED_IDS } from '../api/mock-data.js';
+import { CONDUCTOR, MOCK_WORKFLOW_HISTORY, SEED_IDS } from '../api/mock-data.js';
 import { createMockApi } from '../api/mock.js';
 import { App } from '../App.js';
 import { SessionWorkflowDiagram } from './SessionWorkflowDiagram.js';
@@ -982,5 +982,81 @@ describe('Workflow view: change proposals (ADR-0033 P3)', () => {
     fireEvent.click(await region.findByRole('button', { name: 'Apply…' }));
     fireEvent.click(region.getByRole('button', { name: 'Confirm apply' }));
     await waitFor(() => expect(calls.length).toBeGreaterThan(n));
+  });
+});
+
+describe('Workflow view: a newer default (UXR-87)', () => {
+  /** The mock's latest conductor (v3) with Planning renamed: the shipped v4 the user lacks. */
+  const newer = (): WorkflowDefinition => {
+    const def = structuredClone(MOCK_WORKFLOW_HISTORY.conductor!.at(-1)!);
+    def.states.planning!.title = 'Plan it';
+    return { ...def, version: 4 };
+  };
+  const banner = () => within(screen.getByRole('region', { name: 'Newer default workflow' }));
+
+  async function mount(
+    canEditWorkflows: boolean,
+    api = createMockApi({ defaultWorkflow: newer() }),
+  ) {
+    render(<WorkflowsView api={api} canEditWorkflows={canEditWorkflows} />);
+    await screen.findByRole('group', { name: 'conductor v3 columns' }, DIAGRAM_WAIT);
+    return api;
+  }
+
+  it('offers it to an admin only, and only when one is available', async () => {
+    await mount(false);
+    expect(screen.queryByRole('region', { name: 'Newer default workflow' })).toBeNull();
+    cleanup();
+    await mount(true, createMockApi());
+    expect(screen.queryByRole('region', { name: 'Newer default workflow' })).toBeNull();
+    cleanup();
+    await mount(true);
+    expect(banner().getByText('A newer default workflow (v4) is available')).toBeTruthy();
+  });
+
+  it('Compare shows what the default changes from the latest version', async () => {
+    await mount(true);
+    fireEvent.click(banner().getByRole('button', { name: 'Compare' }));
+    await banner().findByRole('heading', { name: 'Changes from v3 to the default (v4)' });
+    const row = banner().getByRole('row', { name: /states\.planning\.title/ });
+    expect(row.textContent).toContain('Plan it');
+    fireEvent.click(banner().getByRole('button', { name: 'Compare' }));
+    expect(banner().queryByRole('table')).toBeNull();
+  });
+
+  it('Adopt… confirms, saves the default and reloads the latest version', async () => {
+    const api = await mount(true);
+    const calls: [string, number][] = [];
+    const adopt = api.adoptDefaultWorkflow.bind(api);
+    api.adoptDefaultWorkflow = (id, base) => {
+      calls.push([id, base]);
+      return adopt(id, base);
+    };
+    fireEvent.click(banner().getByRole('button', { name: 'Adopt…' }));
+    const confirm = within(screen.getByRole('group', { name: 'Adopt the default' }));
+    expect(confirm.getByText(/This replaces your edits since v3/)).toBeTruthy();
+    fireEvent.click(confirm.getByRole('button', { name: 'Adopt v4' }));
+    await screen.findByRole('group', { name: 'conductor v4 columns' }, DIAGRAM_WAIT);
+    expect(calls).toEqual([['conductor', 3]]);
+    expect(screen.getByRole('status').textContent).toBe('Adopted the default as v4.');
+    expect(lane('Plan it')).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.queryByRole('region', { name: 'Newer default workflow' })).toBeNull(),
+    );
+  });
+
+  it('shows a refusal, and disables Adopt while there are unsaved changes', async () => {
+    const api = await mount(true);
+    api.adoptDefaultWorkflow = () =>
+      Promise.reject(new ApiRequestError(403, 'forbidden', 'only an instance admin can do that'));
+    fireEvent.click(banner().getByRole('button', { name: 'Adopt…' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Adopt v4' }));
+    expect((await banner().findByRole('alert')).textContent).toMatch(/only an instance admin/);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: /People can edit tickets in the .* column/ }),
+    );
+    expect(banner().getByRole<HTMLButtonElement>('button', { name: 'Adopt…' }).disabled).toBe(true);
   });
 });

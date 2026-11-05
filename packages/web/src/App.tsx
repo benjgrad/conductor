@@ -376,7 +376,13 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
         </p>
       )}
       <DiscardDraftConfirm draft={draft} navigate={navigate} />
-      {route.view === 'workflows' && <WorkflowsView api={api} onDirtyChange={draft.setDirty} />}
+      {route.view === 'workflows' && (
+        <WorkflowsView
+          api={api}
+          onDirtyChange={draft.setDirty}
+          canEditWorkflows={me !== null && (me.auth_mode === 'local' || me.user.is_admin)}
+        />
+      )}
       {route.view === 'machines' && <MachinesPage api={api} />}
       {route.view === 'repo-checks' && (
         <RepoChecksPage

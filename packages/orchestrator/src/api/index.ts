@@ -1,6 +1,8 @@
 import {
   API_PATHS,
+  AdoptDefaultWorkflowRequestSchema,
   AnswerInputRequestSchema,
+  CONDUCTOR_WORKFLOW_ID,
   ApproveProposalRequestSchema,
   ApproveSessionRequestSchema,
   CancelSessionRequestSchema,
@@ -39,14 +41,14 @@ import { parseLastEventId, serveBoardStream } from '../stream/board.js';
 import { serveOutputStream } from '../stream/output.js';
 import { SseHub } from '../stream/sse.js';
 import { parseBody, pathString, sendError } from './errors.js';
-import { saveWorkflowDefinition } from './workflows.js';
+import { adoptDefaultWorkflow, defaultComparison, saveWorkflowDefinition } from './workflows.js';
 import { registerMachineRoutes } from './machines.js';
 import { sendOperatorMessage } from './messages.js';
 import { registerPermissionRoutes } from './permissions.js';
 import { registerPushRoutes } from './push.js';
 import { listWorkflows, loadBoard, loadWorkflowDetail } from './queries.js';
 import { registerRepoChecksRoutes } from './repo-checks.js';
-import { registerChangeProposalRoutes } from './change-proposals.js';
+import { mayEditWorkflows, registerChangeProposalRoutes } from './change-proposals.js';
 import { registerScheduleRoutes } from './schedules.js';
 import { registerRepoRoutes } from './repos.js';
 import { httpSecurityFromEnv, securityHookFor, type HttpSecurityOptions } from './security.js';
@@ -537,6 +539,52 @@ export const createApi = (({
       return { ...detail, default_available: await conductorDefaultAvailable(db, detail.id) };
     },
   );
+
+  // UXR-87: the newer shipped default, compared with the latest version (the editor's Compare).
+  app.get<IdParams>(API_PATHS.workflowDefault(':id'), async (req, reply) => {
+    const cmp = await defaultComparison(db, req.params.id);
+    if (cmp === null) {
+      return sendError(reply, 404, 'not_found', `no newer default for ${req.params.id}`);
+    }
+    return cmp;
+  });
+
+  // UXR-87 / ADR-0030 amendment: adopt the default, as MCP `adopt_default_workflow` does
+  // (instance admins or local mode; the approval guard; only while `base_version` is the latest).
+  app.post<IdParams>(API_PATHS.workflowDefault(':id'), async (req, reply) => {
+    if (!mayEditWorkflows(req)) {
+      return sendError(reply, 403, 'forbidden', 'only an instance admin can change the workflow');
+    }
+    const body = parseBody(AdoptDefaultWorkflowRequestSchema, req.body, reply);
+    if (!body) return reply;
+    if (req.params.id !== CONDUCTOR_WORKFLOW_ID) {
+      return sendError(reply, 404, 'not_found', `no shipped default for ${req.params.id}`);
+    }
+    const res = await adoptDefaultWorkflow(db, {
+      createdBy: `web:${req.auth!.user.email}`,
+      baseVersion: body.base_version,
+    });
+    if (!res.ok && res.code === 'conflict') {
+      return sendError(
+        reply,
+        409,
+        'conflict',
+        `${req.params.id} changed since version ${body.base_version}: the latest is ${res.latest}`,
+        [{ path: 'base_version', message: `the latest is ${res.latest}` }],
+      );
+    }
+    if (!res.ok && res.code === 'approval_weakened') {
+      return sendError(
+        reply,
+        409,
+        'approval_weakened',
+        `the default would remove a human approval (${res.transitions.join(', ')})`,
+        res.transitions.map((t) => ({ path: t, message: 'approval removed' })),
+      );
+    }
+    if (!res.ok) throw new Error(`the shipped default failed to save: ${res.code}`);
+    return await reply.code(201).send({ id: res.id, version: res.version });
+  });
 
   app.post(API_PATHS.workflows, async (req, reply) => {
     const body = parseBody(SaveWorkflowRequestSchema, req.body, reply);

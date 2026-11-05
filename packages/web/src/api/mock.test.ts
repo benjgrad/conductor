@@ -165,6 +165,32 @@ describe('mock workflows (ADR-0009)', () => {
     expect(await api.saveWorkflow(v2)).toEqual({ id: 'conductor', version: 4 });
   });
 
+  it('UXR-87: offers a newer default, compares it and adopts it', async () => {
+    const plain = createMockApi({ now });
+    expect((await plain.getWorkflow(CONDUCTOR_WORKFLOW_ID)).default_available).toBeNull();
+    await expect(plain.getWorkflowDefault(CONDUCTOR_WORKFLOW_ID)).rejects.toMatchObject({
+      status: 404,
+    });
+
+    const latest = (await plain.getWorkflow(CONDUCTOR_WORKFLOW_ID)).definition;
+    const def = { ...structuredClone(latest), version: 4, budget: { ...latest.budget, usd: 7 } };
+    const api = createMockApi({ now, defaultWorkflow: def });
+    expect((await api.getWorkflow(CONDUCTOR_WORKFLOW_ID)).default_available).toBe(4);
+    const cmp = await api.getWorkflowDefault(CONDUCTOR_WORKFLOW_ID);
+    expect(cmp).toMatchObject({ version: 4, base_version: 3 });
+    expect(cmp.diff.changes.map((c) => c.path)).toContain('budget.usd');
+    await expect(api.adoptDefaultWorkflow(CONDUCTOR_WORKFLOW_ID, 2)).rejects.toMatchObject({
+      status: 409,
+      code: 'conflict',
+    });
+    expect(await api.adoptDefaultWorkflow(CONDUCTOR_WORKFLOW_ID, 3)).toEqual({
+      id: 'conductor',
+      version: 4,
+    });
+    const after = await api.getWorkflow(CONDUCTOR_WORKFLOW_ID);
+    expect([after.version, after.default_available]).toEqual([4, null]);
+  });
+
   it('createTicket defaults workflow_id to conductor', async () => {
     const api = createMockApi({ now });
     // Omitting workflow_id, as a client may once the shared contract makes it optional. Typed

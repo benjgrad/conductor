@@ -117,6 +117,10 @@ The workflow editor has three panels: a column, an arrow and a transition.
 - **Name**: Title is the transition's first field. Its name is under **Advanced**, with "Agents report this name; prompts and history refer to it." A rename applies on blur or Enter, never per keystroke, and Escape puts the name back.
 - **Remove transition** asks for a confirmation.
 
+## Newer default workflow (UXR-87)
+
+When `GET /api/workflows/conductor` carries `default_available` and the user may change the workflow (an instance admin, or local mode), the Workflow page shows a banner under its toolbar (`DefaultBanner`): "A newer default workflow (vN) is available · Compare · Adopt…". **Compare** toggles the structural diff from the latest version to the default (`GET /api/workflows/conductor/default`, the change proposals' `DiffTable`). **Adopt…** confirms with "This replaces your edits since v<latest>", then `POST /api/workflows/conductor/default {base_version: latest}` saves it as the next version and the page reloads the latest; the banner then goes, since `default_available` is null. Adopt is disabled while the editor has unsaved changes. A 409 `conflict` (someone saved meanwhile) reloads the page and says so; other refusals show in the banner. Nothing is adopted automatically.
+
 ## Session transcript and Steps (UXR-38, UXR-88)
 
 The Messages tab reads as a conversation (`OutputLog.tsx`). Protocol calls are not shown as steps: an accepted `complete_state` (its result is the daemon's "Recorded. Stop now: …") collapses to one muted line, "✓ Finished <state>", where the state is the one the session was in at that time (from `moves`). A refused or failed call stays a normal tool row, and **Debug lines** brings every raw call back. The conversation's opening user message (Claude's prompt, which carries the ticket) is labelled **Ticket** and rendered as markdown. Later messages from a person stay plain text. Phase dividers name the transition by its title (`moveTitle`), never its id. The "History loaded from Claude's transcript" notice is a bordered notice inset like the chat.

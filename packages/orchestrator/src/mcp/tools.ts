@@ -56,7 +56,7 @@ import {
   setRepoChecks,
 } from '../api/repo-checks.js';
 import { loadSessionDetail } from '../api/sessions.js';
-import { insertWorkflowVersion, weakenedApprovals } from '../api/workflows.js';
+import { saveGuarded } from '../api/workflows.js';
 import { pathString } from '../api/errors.js';
 import { createTicket } from '../api/tickets.js';
 import {
@@ -1453,19 +1453,18 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
 
   /** The approval guard, then the insert; the tool result either way. */
   const saveChecked = async (def: WorkflowDefinition, baseVersion: number | undefined) => {
-    const weakened = await weakenedApprovals(db, def);
-    if (weakened.length > 0) {
-      return fail(
-        'approval_weakened',
-        `This would remove or bypass a human approval (${weakened.join(', ')}); change ` +
-          'approvals on the board, not over MCP.',
-        { transitions: weakened },
-      );
-    }
-    const res = await insertWorkflowVersion(db, def, {
+    const res = await saveGuarded(db, def, {
       createdBy: by,
       ...(baseVersion !== undefined ? { baseVersion } : {}),
     });
+    if (!res.ok && res.code === 'approval_weakened') {
+      return fail(
+        'approval_weakened',
+        `This would remove or bypass a human approval (${res.transitions.join(', ')}); change ` +
+          'approvals on the board, not over MCP.',
+        { transitions: res.transitions },
+      );
+    }
     if (!res.ok && res.code === 'conflict') {
       return fail(
         'conflict',

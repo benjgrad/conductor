@@ -76,6 +76,11 @@ import {
   type TicketDetail,
   type TicketDto,
   validateWorkflow,
+  DIFF_MAX,
+  capDiff,
+  diffWorkflow,
+  stableJson,
+  type WorkflowDefaultResponse,
   type WorkflowDefinition,
   type WorkflowDetail,
   type TranscriptResponse,
@@ -84,6 +89,7 @@ import {
 import {
   ApiRequestError,
   type ApiClient,
+  type SaveWorkflowResponse,
   type StreamHandlers,
   type Unsubscribe,
 } from './client.js';
@@ -122,6 +128,11 @@ export interface MockApiOptions {
   signedIn?: boolean;
   /** UX-8: `none` starts the account with no machines (the first-run guide). Default `seeded`. */
   machines?: 'seeded' | 'none';
+  /**
+   * UXR-87: a newer shipped `conductor` default. While no stored version equals it, `getWorkflow`
+   * reports its version as `default_available`, and `adoptDefaultWorkflow` saves it. Default none.
+   */
+  defaultWorkflow?: WorkflowDefinition;
 }
 
 /** The mock's one user in `password` mode (an admin). */
@@ -214,6 +225,15 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       })),
     ]),
   );
+
+  /** UXR-87: `opts.defaultWorkflow`'s version while no stored `conductor` equals it, else null. */
+  const defaultAvailable = (id: string): number | null => {
+    const def = opts.defaultWorkflow;
+    const versions = workflows.get(id);
+    if (!def || id !== CONDUCTOR.id || !versions) return null;
+    const norm = (d: WorkflowDefinition) => stableJson({ ...d, version: 0 });
+    return versions.some((v) => norm(v.definition) === norm(def)) ? null : def.version;
+  };
 
   /** ADR-0030: per-repo check overrides, by `repoChecksKey`. */
   const repoChecks = new Map<string, RepoChecksDto>(
@@ -1075,6 +1095,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           created_at: row.created_at,
           definition: row.definition,
           versions: (versions ?? []).map((v) => v.definition.version),
+          default_available: defaultAvailable(id),
         };
         return clone(out);
       }),
@@ -1105,6 +1126,49 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         });
         workflows.set(result.def.id, versions);
         return { id: result.def.id, version };
+      }),
+
+    getWorkflowDefault: (id) =>
+      reply((): WorkflowDefaultResponse => {
+        const version = defaultAvailable(id);
+        const latest = workflows.get(id)?.at(-1)?.definition;
+        if (version === null || !opts.defaultWorkflow || !latest) {
+          throw new ApiRequestError(404, 'not_found', `no newer default for ${id}`);
+        }
+        return clone({
+          version,
+          base_version: latest.version,
+          diff: capDiff(diffWorkflow(latest, opts.defaultWorkflow), DIFF_MAX),
+        });
+      }),
+
+    adoptDefaultWorkflow: (id, baseVersion) =>
+      reply((): SaveWorkflowResponse => {
+        if (authMode !== 'local' && !signedInUser().row.is_admin) {
+          throw new ApiRequestError(
+            403,
+            'forbidden',
+            'only an instance admin can change the workflow',
+          );
+        }
+        const versions = workflows.get(id);
+        if (id !== CONDUCTOR.id || !versions || !opts.defaultWorkflow) {
+          throw new ApiRequestError(404, 'not_found', `no shipped default for ${id}`);
+        }
+        const latest = versions.length;
+        if (baseVersion !== latest) {
+          throw new ApiRequestError(
+            409,
+            'conflict',
+            `${id} changed since version ${baseVersion}: the latest is ${latest}`,
+          );
+        }
+        const version = latest + 1;
+        versions.push({
+          definition: clone({ ...opts.defaultWorkflow, version }),
+          created_at: now().toISOString(),
+        });
+        return { id, version };
       }),
 
     approve: (sessionId) =>

@@ -2,10 +2,10 @@ import type {
   ChangeProposalDetail,
   ChangeProposalSummary,
   ProposalReview,
-  StructuralChange,
 } from '@conductor/shared';
 import { useEffect, useState } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
+import { DiffTable } from './DiffTable.js';
 
 // ADR-0033 P3 (MA-T07): the workflow advisor's change proposals, under the workflow editor. The
 // advisor (any MCP client, prompt `workflow_advisor`) proposes one change at a time; here a
@@ -39,47 +39,6 @@ const METRIC_LABEL: Record<ProposalReview['metric'], string> = {
   questions: 'questions per ticket',
   permission_denials: 'permission denials',
 };
-
-const show = (v: unknown): string =>
-  v === undefined ? '' : typeof v === 'string' ? v : JSON.stringify(v);
-
-function DiffTable({ changes, more }: { changes: StructuralChange[]; more: number }) {
-  return (
-    <table className="cp-diff">
-      <thead>
-        <tr>
-          <th scope="col">Change</th>
-          <th scope="col">Where</th>
-          <th scope="col">Before</th>
-          <th scope="col">After</th>
-        </tr>
-      </thead>
-      <tbody>
-        {changes.map((c) => (
-          <tr key={`${c.op}:${c.path}`} className={`cp-op-${c.op}`}>
-            <td>{c.op}</td>
-            <td>
-              <code>{c.path}</code>
-            </td>
-            <td>
-              <code>{show(c.before)}</code>
-            </td>
-            <td>
-              <code>{show(c.after)}</code>
-            </td>
-          </tr>
-        ))}
-        {more > 0 && (
-          <tr>
-            <td colSpan={4} className="muted">
-              …and {more} more
-            </td>
-          </tr>
-        )}
-      </tbody>
-    </table>
-  );
-}
 
 function ReviewResult({ review }: { review: ProposalReview }) {
   if (review.too_early) {

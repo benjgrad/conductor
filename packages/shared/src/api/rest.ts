@@ -18,6 +18,7 @@ import {
   type SessionStatus,
   type TicketStatus,
 } from '../domain.js';
+import { StructuralChangeSchema } from '../advisor/proposal.js';
 import { machineLostMarkOf } from '../engine/machine-lost.js';
 import { PR_CONTEXT_KEY, REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
 import {
@@ -118,6 +119,13 @@ export const API_PATHS = {
   daemonSessionAttachments: (sessionId: string) => `/api/daemon/sessions/${sessionId}/attachments`,
   workflows: '/api/workflows',
   workflow: (id: string) => `/api/workflows/${id}`,
+  /**
+   * UXR-87: the newer shipped default of a workflow (only `conductor` has one). GET →
+   * WorkflowDefaultResponse (404 when none is available); POST `{base_version}` (instance admins,
+   * or local mode) saves it as the next version, like MCP `adopt_default_workflow` → 201
+   * SaveWorkflowResponse, 403 forbidden, 409 conflict / approval_weakened.
+   */
+  workflowDefault: (id: string) => `/api/workflows/${id}/default`,
   machines: '/api/machines',
   /** UX-13a: GET → TeamResponse (the signed-in account's agent team). */
   team: '/api/team',
@@ -1450,6 +1458,29 @@ export const WorkflowDetailSchema = z.object({
   default_available: z.number().int().positive().nullable().optional(),
 });
 export type WorkflowDetail = z.infer<typeof WorkflowDetailSchema>;
+
+/**
+ * UXR-87: GET /api/workflows/:id/default → the newer shipped default (`version`) and what it
+ * changes from the latest stored version (`base_version`), as the advisor's structural diff.
+ */
+export const WorkflowDefaultResponseSchema = z.object({
+  version: z.number().int().positive(),
+  base_version: z.number().int().positive(),
+  diff: z.object({
+    changes: z.array(StructuralChangeSchema),
+    more_changes: z.number().int().nonnegative(),
+  }),
+});
+export type WorkflowDefaultResponse = z.infer<typeof WorkflowDefaultResponseSchema>;
+
+/**
+ * UXR-87: POST /api/workflows/:id/default `{base_version}`: save the default only while
+ * `base_version` is still the latest (the version the confirm said it replaces).
+ */
+export const AdoptDefaultWorkflowRequestSchema = z
+  .object({ base_version: z.number().int().positive() })
+  .strict();
+export type AdoptDefaultWorkflowRequest = z.infer<typeof AdoptDefaultWorkflowRequestSchema>;
 
 /** GET /api/machines → MachineDto[] */
 export const MachineDtoSchema = z.object({

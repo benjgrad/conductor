@@ -122,6 +122,23 @@ describe('createHttpApi workflows (ADR-0009)', () => {
     ]);
   });
 
+  it('UXR-87: GET and POST /api/workflows/:id/default', async () => {
+    const cmp = { version: 4, base_version: 3, diff: { changes: [], more_changes: 0 } };
+    const { calls, fetch } = recordingFetch(({ method }) =>
+      method === 'GET' ? json(200, cmp) : json(201, { id: 'conductor', version: 4 }),
+    );
+    const api = createHttpApi({ fetch });
+    expect(await api.getWorkflowDefault('conductor')).toEqual(cmp);
+    expect(await api.adoptDefaultWorkflow('conductor', 3)).toEqual({
+      id: 'conductor',
+      version: 4,
+    });
+    expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([
+      ['GET', '/api/workflows/conductor/default', undefined],
+      ['POST', '/api/workflows/conductor/default', { base_version: 3 }],
+    ]);
+  });
+
   it('carries 400 invalid_workflow details on the ApiRequestError', async () => {
     const details = [{ path: 'states.build.on.fail.goto', message: 'rule 1: unknown state' }];
     const { fetch } = recordingFetch(() =>

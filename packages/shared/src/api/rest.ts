@@ -1184,6 +1184,12 @@ export const ApiErrorSchema = z.object({
       'attachment_too_large',
       /** A ticket would have more than ATTACHMENTS_PER_TICKET_MAX files or bytes (400). */
       'attachment_limit',
+      /** ADR-0038: a published page's HTML is over PAGE_HTML_MAX_BYTES (413). */
+      'page_too_large',
+      /** ADR-0038: the ticket already has PAGES_PER_TICKET_MAX hosted pages (409). */
+      'page_limit',
+      /** ADR-0038: the page has expired (410). */
+      'gone',
     ]),
     message: z.string(),
     /** Validation details (zod issues / validator rule failures). */

@@ -98,6 +98,19 @@ export interface AdvisorRows {
    * (`gates.ts waitsOnOthers`), with how long it lets them wait. Not slow states.
    */
   waits?: Record<string, { ceiling_minutes: number | null }>;
+  /**
+   * ADR-0038: per session and agent state, how many pages its result attached (`pagesOfContext`
+   * over the session's context; counted from the result, so swept hosted pages still count).
+   */
+  pages?: PageCountRow[];
+}
+
+/** ADR-0038: the pages one agent state of one session attached. */
+export interface PageCountRow {
+  ticket_id: string;
+  session_id: string;
+  state: string;
+  count: number;
 }
 
 export const AdvisorGroupBySchema = z.enum(['state', 'repo', 'machine', 'check']);
@@ -495,6 +508,17 @@ export const ProcessMetricsSchema = z.object({
   more_groups: z.number().int().nonnegative(),
   /** The busiest transitions (ADR-0011 names). */
   transitions: z.array(z.object({ name: z.string(), count: z.number().int() })),
+  /**
+   * ADR-0038: pages agents attached, per state and per ticket (the most first, at most
+   * EXAMPLES_MAX tickets). Absent when no agent attached one in the window.
+   */
+  pages: z
+    .object({
+      total: z.number().int().nonnegative(),
+      by_state: z.record(z.string(), z.number().int().nonnegative()),
+      by_ticket: z.array(z.object({ ticket_id: z.string(), count: z.number().int() })),
+    })
+    .optional(),
 });
 export type ProcessMetrics = z.infer<typeof ProcessMetricsSchema>;
 
@@ -630,7 +654,27 @@ export function processMetrics(rows: AdvisorRows, groupBy: AdvisorGroupBy): Proc
     groups: all.slice(0, GROUPS_MAX),
     more_groups: Math.max(0, all.length - GROUPS_MAX),
     transitions: loopCounts(rows.moves).transitions.slice(0, TRANSITIONS_MAX),
+    ...pageCounts(rows.pages ?? []),
   };
+}
+
+/** ADR-0038: `{pages}` for ProcessMetrics, or nothing when no page was attached. */
+export function pageCounts(rows: readonly PageCountRow[]): Pick<ProcessMetrics, 'pages'> {
+  const counted = rows.filter((r) => r.count > 0);
+  if (counted.length === 0) return {};
+  const byState: Record<string, number> = {};
+  const byTicket = new Map<string, number>();
+  let total = 0;
+  for (const r of counted) {
+    total += r.count;
+    byState[r.state] = (byState[r.state] ?? 0) + r.count;
+    byTicket.set(r.ticket_id, (byTicket.get(r.ticket_id) ?? 0) + r.count);
+  }
+  const by_ticket = [...byTicket]
+    .map(([ticket_id, count]) => ({ ticket_id, count }))
+    .sort((a, b) => b.count - a.count || a.ticket_id.localeCompare(b.ticket_id))
+    .slice(0, EXAMPLES_MAX);
+  return { pages: { total, by_state: byState, by_ticket } };
 }
 
 // ---------------------------------------------------------------- findings

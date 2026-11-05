@@ -21,6 +21,7 @@ import { withTransaction } from '../db/index.js';
 import type { SessionRow, TicketRow } from '../db/types.js';
 import { cardView, withMachineFields } from '../engine/board-view.js';
 import { loadProposals } from '../engine/proposals.js';
+import { sessionPages } from '../engine/pages.js';
 import { seedConductorWorkflow, seedRoutineWorkflow } from '../engine/seed.js';
 import { DefinitionCache, TICKET_SELECT, type TicketCardRow } from '../engine/rows.js';
 import type { Db } from '../main.js';
@@ -89,8 +90,15 @@ async function toDetail(
     column_title: view.columns.find((c) => c.id === column)?.title ?? column,
     editable: ticketEditable(def, state),
     proposals: await loadProposals(q, ticket.id, session),
+    ...(await pagesField(q, session)),
     attachments: (await loadTicketAttachments(q, ticket.id)).map(toAttachmentDto),
   };
+}
+
+/** ADR-0038: `{pages}` when the session's agent states attached any, else nothing. */
+async function pagesField(q: Queryable, session: SessionRow | null) {
+  const pages = await sessionPages(q, session);
+  return pages.length > 0 ? { pages } : {};
 }
 
 /** null = no such ticket in the account. */

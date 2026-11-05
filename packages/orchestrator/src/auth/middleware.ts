@@ -19,8 +19,9 @@ import { SESSION_ABSOLUTE_MS, lookupSession } from './sessions.js';
 //   - local mode: the virtual local user in the `local` account (`localScope`), always;
 //   - password mode: the session cookie's user and account, or null. `/api/*` without a session
 //     is 401 `unauthorized`, except POST API_PATHS.machinesEnroll (token-authenticated) and GET
-//     API_PATHS.daemonAttachmentContent and POST API_PATHS.daemonSessionAttachments
-//     (machine-credential-authenticated). `/auth/*`
+//     API_PATHS.daemonAttachmentContent and POST API_PATHS.daemonSessionAttachments /
+//     daemonSessionPages (machine-credential-authenticated). `/p/:id` (ADR-0038) is outside
+//     /api and checks `request.auth` or its share token itself. `/auth/*`
 //     routes check `request.auth` themselves. The path is the matched route (`policyPath`), never
 //     the raw URL alone, so no encoding of it gets past the check.
 
@@ -81,12 +82,15 @@ export function localAuth(): RequestAuth {
 const DAEMON_ATTACHMENT = API_PATHS.daemonAttachmentContent(':id');
 /** 06 §Attachments: the daemon uploading what its agent captured (machine credential too). */
 const DAEMON_SESSION_ATTACHMENTS = API_PATHS.daemonSessionAttachments(':id');
+/** ADR-0038: the daemon publishing its agent's page (machine credential too). */
+const DAEMON_SESSION_PAGES = API_PATHS.daemonSessionPages(':id');
 
 const needsSession = (method: string, path: string): boolean =>
   (path === '/api' || path.startsWith('/api/')) &&
   !(method === 'POST' && path === API_PATHS.machinesEnroll) &&
   !(method === 'GET' && path === DAEMON_ATTACHMENT) &&
-  !(method === 'POST' && path === DAEMON_SESSION_ATTACHMENTS);
+  !(method === 'POST' && path === DAEMON_SESSION_ATTACHMENTS) &&
+  !(method === 'POST' && path === DAEMON_SESSION_PAGES);
 
 export function authHook(deps: { db: Db; auth: AuthConfig; now: () => Date }) {
   const { db, auth, now } = deps;

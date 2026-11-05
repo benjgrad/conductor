@@ -28,6 +28,11 @@ import {
   RepoChecksDtoSchema,
   RepoChecksListResponseSchema,
   RepoListResponseSchema,
+  RunScheduleResponseSchema,
+  ScheduleDtoSchema,
+  ScheduleListResponseSchema,
+  type CreateScheduleRequest,
+  type UpdateScheduleRequest,
   ResetLinkCreatedSchema,
   SessionDetailSchema,
   TranscriptResponseSchema,
@@ -46,6 +51,8 @@ import {
   type CreateInviteRequest,
   type CreateTicketRequest,
   type UpdateTicketRequest,
+  type CancelTicketRequest,
+  type ReopenTicketRequest,
   type LoginRequest,
   type OutputChunk,
   type PasswordChangeRequest,
@@ -327,6 +334,12 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
     updateTicket: (ticketId: string, req: UpdateTicketRequest) =>
       request(TicketDetailSchema, 'PATCH', API_PATHS.ticket(encodeURIComponent(ticketId)), req),
 
+    cancelTicket: (ticketId: string, req: CancelTicketRequest = {}) =>
+      request(OkResponseSchema, 'POST', API_PATHS.ticketCancel(encodeURIComponent(ticketId)), req),
+
+    reopenTicket: (ticketId: string, req: ReopenTicketRequest = {}) =>
+      request(OkResponseSchema, 'POST', API_PATHS.ticketReopen(encodeURIComponent(ticketId)), req),
+
     uploadAttachment: async (file: File) => {
       const res = await doFetch(base + API_PATHS.attachments, {
         method: 'POST',
@@ -382,6 +395,21 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
 
     clearRepoChecks: (repo: string) =>
       request(OkResponseSchema, 'DELETE', API_PATHS.repoChecks, { repo }),
+
+    listSchedules: () => request(ScheduleListResponseSchema, 'GET', API_PATHS.schedules),
+
+    saveSchedule: (id: string | null, req: CreateScheduleRequest | UpdateScheduleRequest) =>
+      id === null
+        ? request(ScheduleDtoSchema, 'POST', API_PATHS.schedules, req)
+        : request(ScheduleDtoSchema, 'PATCH', API_PATHS.schedule(encodeURIComponent(id)), req),
+
+    deleteSchedule: (id: string) =>
+      request(OkResponseSchema, 'DELETE', API_PATHS.schedule(encodeURIComponent(id)), {}),
+
+    runScheduleNow: (id: string, opts: { force?: boolean } = {}) =>
+      request(RunScheduleResponseSchema, 'POST', API_PATHS.scheduleRun(encodeURIComponent(id)), {
+        force: opts.force ?? false,
+      }),
 
     listChangeProposals: (opts = {}) => {
       const q = new URLSearchParams();

@@ -41,7 +41,7 @@ import { toTicketDto } from './queries.js';
 const defs = new DefinitionCache();
 
 /** The ticket's latest session (the board card's: the same rule as loadBoard), or null. */
-async function latestSession(q: Queryable, ticketId: string, lock = false) {
+export async function latestSession(q: Queryable, ticketId: string, lock = false) {
   const r = await q.query<SessionRow>(
     'SELECT * FROM session WHERE ticket_id = $1 ORDER BY created_at DESC LIMIT 1' +
       (lock ? ' FOR UPDATE' : ''),

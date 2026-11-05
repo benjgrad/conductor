@@ -10,6 +10,7 @@ import type {
   ApproveSessionRequest,
   BoardResponse,
   BoardSseEvent,
+  CancelTicketRequest,
   ChangeProposalDetail,
   ChangeProposalListResponse,
   ChangeKind,
@@ -29,6 +30,7 @@ import type {
   OutputChunk,
   PermissionDecisionRequest,
   PermissionRequestDto,
+  ReopenTicketRequest,
   PermissionRequestListResponse,
   PasswordChangeRequest,
   ReopenSessionRequest,
@@ -37,6 +39,11 @@ import type {
   RepoChecksDto,
   RepoChecksListResponse,
   RepoSuggestion,
+  CreateScheduleRequest,
+  RunScheduleResponse,
+  ScheduleDto,
+  ScheduleListResponse,
+  UpdateScheduleRequest,
   ReopenSessionResponse,
   RenameMachineRequest,
   UpdateMachineRequest,
@@ -127,6 +134,16 @@ export interface ApiClient {
    */
   updateTicket(ticketId: string, req: UpdateTicketRequest): Promise<TicketDetail>;
   /**
+   * POST /api/tickets/:id/cancel (UXR-86): cancels the ticket, a queued one with no session too.
+   * 409 conflict when it is already done or cancelled.
+   */
+  cancelTicket(ticketId: string, req?: CancelTicketRequest): Promise<OkResponse>;
+  /**
+   * POST /api/tickets/:id/reopen: a cancelled queued ticket back to Queued, or a finished one's
+   * session reopened (`text` the prompt). 409 conflict when it can't be reopened.
+   */
+  reopenTicket(ticketId: string, req?: ReopenTicketRequest): Promise<OkResponse>;
+  /**
    * POST /api/tickets/:id/proposals/approve (06 §Proposed tickets): creates the proposed ticket,
    * once (approving again returns the same one). 409 conflict when it was dismissed.
    */
@@ -162,6 +179,24 @@ export interface ApiClient {
   setRepoChecks(req: PutRepoChecksRequest): Promise<RepoChecksDto>;
   /** ADR-0030: DELETE /api/repo-checks `{repo}`. 404 not_found when the repo has no override. */
   clearRepoChecks(repo: string): Promise<OkResponse>;
+  /** ADR-0032: GET /api/schedules → the account's recurring jobs, by name. */
+  listSchedules(): Promise<ScheduleListResponse>;
+  /**
+   * ADR-0032: `id` null → POST /api/schedules (201); else PATCH /api/schedules/:id with only the
+   * given fields. 400 bad_request with `details` (paths `cron`, `timezone`, `repo`, `machines`);
+   * 409 conflict (name taken: path `name`; or changed since `expected_updated_at`).
+   */
+  saveSchedule(
+    id: string | null,
+    req: CreateScheduleRequest | UpdateScheduleRequest,
+  ): Promise<ScheduleDto>;
+  /** ADR-0032: DELETE /api/schedules/:id `{}`; its past tickets stay. 404 not_found. */
+  deleteSchedule(id: string): Promise<OkResponse>;
+  /**
+   * ADR-0032: POST /api/schedules/:id/run `{force}` → 201, a ticket now (next run unchanged). 409
+   * previous_run_open while the last run's ticket is open and not `force`.
+   */
+  runScheduleNow(id: string, opts?: { force?: boolean }): Promise<RunScheduleResponse>;
   /**
    * ADR-0033 P3: GET /api/change-proposals[?status=&cursor=] → the workflow advisor's change
    * proposals, newest first (10 a page).

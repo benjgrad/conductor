@@ -177,6 +177,12 @@ export interface TicketRow {
   status: TicketStatus;
   priority: number;
   /**
+   * 06 §Queue order (migration 1763300000000): the hand-set place in the queue, 1 = next; null =
+   * not reordered (after the ranked ones, by priority then age). The claim clears it. Optional only
+   * so hand-built rows in tests may leave it out; a row read from the database always has it.
+   */
+  queue_position?: number | null;
+  /**
    * ADR-0011 `ticket_kind` (migration 1761500000000, M1b-T04): filters transitions (`kinds`).
    * NULL for tickets created before M1b, matching both kinds (U-062); the create route requires it.
    */

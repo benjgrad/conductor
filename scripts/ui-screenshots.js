@@ -143,6 +143,9 @@ const VIEWPORTS = [
         'schedule-sheet',
         'machine-drawer',
         'admin',
+        'change-password',
+        'signup',
+        'reset',
         'workflows',
         'wf-diagram-end',
         'wf-rules-full',
@@ -189,7 +192,7 @@ async function tap(locator) {
   await locator.evaluate((el) => /** @type {HTMLElement} */ (el).click());
 }
 
-/** @param {Page} page @param {'button' | 'tab'} role @param {string} name */
+/** @param {Page} page @param {'button' | 'tab' | 'menuitem'} role @param {string} name */
 async function clickNamed(page, role, name) {
   await tap(page.getByRole(role, { name, exact: true }).first());
 }
@@ -583,6 +586,19 @@ const SCREENS = [
   { id: 'help', path: '/help/add-a-machine' },
   { id: 'help-connect-claude', path: '/help/connect-claude' },
   { id: 'signin', path: '/signin' },
+  // UXR-25/51/52: the account screens, on the mock's accounts (`?mock-auth=password`, api/select.ts;
+  // the invite token is api/mock.ts MOCK_INVITE_TOKENS.pinned).
+  {
+    id: 'change-password',
+    path: '/?mock-auth=password#/',
+    act: async (page) => {
+      await tap(page.locator('.account-button'));
+      await clickNamed(page, 'menuitem', 'Change password');
+      await page.locator('dialog[open]').waitFor();
+    },
+  },
+  { id: 'signup', path: '/signup?invite=mock-invite-pinned&mock-auth=password' },
+  { id: 'reset', path: '/reset?token=mock-reset&mock-auth=password' },
 ];
 
 /** Page overflow and visible interactive elements smaller than 44×44 (WCAG 2.5.5 / UX-12 FR-4). */

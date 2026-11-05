@@ -41,6 +41,11 @@ Workflow diagram (UXR-45, UXR-68):
 - A column's kind is its border colour and icon: agent (accent, ✦), person (attention, ●), waiting (warn, ◷), queue (muted, ≡), end (ok, ■). The legend lists them. Column boxes are never dashed: dashed means only an arrow for "requirements not met".
 - Arrows are labelled with transition titles (an event with its title, e.g. "Approved"), or "N ways" when several transitions share an arrow. A ✓ marks an arrow where some transition has rules. Labels sit on a solid background and slide along their line to a spot no other line crosses.
 
+### Buttons and dialogs
+
+- Each form and dialog has one main action, `button.primary`: an `--accent` fill with `--on-accent` text. Disabled, it has a neutral `--border` fill with `--muted` text (no opacity), so it never looks like an enabled outline button (UXR-25). A disabled main button on the auth forms says what it still needs (`Still needed: …`, linked with `aria-describedby`), like Create ticket's sheet footer.
+- An overlay dialog is a native `<dialog>` opened with `showModal()` through `components/ModalDialog.tsx`. That gives the `::backdrop`, makes the rest of the page inert so Tab stays inside, and closes it on Esc. Focus goes back to the opener, or to a `returnFocus` fallback when the opener is gone (a menu item). A backdrop click doesn't close it (UXR-51). Change password uses it. The sheets and the machine drawer have their own component.
+
 ## Colour semantics
 
 One meaning per colour (UXR-23). Each meaning has its own pair: the colour for text, icons and edges, and a `-bg` for its boxes and badges.

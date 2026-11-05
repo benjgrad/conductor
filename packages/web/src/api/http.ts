@@ -43,6 +43,7 @@ import {
   SessionDetailSchema,
   TranscriptResponseSchema,
   TicketDetailSchema,
+  QueueOrderResponseSchema,
   TicketDtoSchema,
   TicketSearchResponseSchema,
   SaveWorkflowResponseSchema,
@@ -340,6 +341,11 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
 
     updateTicket: (ticketId: string, req: UpdateTicketRequest) =>
       request(TicketDetailSchema, 'PATCH', API_PATHS.ticket(encodeURIComponent(ticketId)), req),
+
+    reorderQueue: (ticketIds: readonly string[]) =>
+      request(QueueOrderResponseSchema, 'PUT', API_PATHS.queueOrder, { ticket_ids: ticketIds }),
+
+    resetQueueOrder: () => request(QueueOrderResponseSchema, 'DELETE', API_PATHS.queueOrder, {}),
 
     cancelTicket: (ticketId: string, req: CancelTicketRequest = {}) =>
       request(OkResponseSchema, 'POST', API_PATHS.ticketCancel(encodeURIComponent(ticketId)), req),

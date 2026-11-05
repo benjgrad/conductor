@@ -1,8 +1,10 @@
 import { passwordProblems } from '@conductor/shared';
-import { useState, type FormEvent } from 'react';
+import { useId, useState, type FormEvent, type RefObject } from 'react';
 import { ApiRequestError, type ApiClient } from '../api/client.js';
-import { PasswordProblems } from './AuthPage.js';
+import { ModalDialog } from '../components/ModalDialog.js';
+import { PasswordProblems, PasswordRule, SubmitWithHint } from './AuthPage.js';
 import { authErrorMessage, passwordDetails } from './errors.js';
+import { stillNeeded } from './missing.js';
 import { PASSWORDS_DIFFER } from './Reset.js';
 
 export const WRONG_CURRENT_PASSWORD = 'Your current password is wrong.';
@@ -16,14 +18,24 @@ interface ChangePasswordDialogProps {
   api: ApiClient;
   email: string;
   onClose: () => void;
+  /** Where focus goes after close when the opener is gone (the account button). */
+  returnFocus?: RefObject<HTMLElement | null>;
 }
 
 /**
+ * A modal `<dialog>` (UXR-51): backdrop, focus kept inside, Esc closes it.
+ *
  * POST /auth/password (ADR-0017): signs out the user's other sessions. A wrong current password
  * is a 400 with a detail at path `current`; a 401 means the session is gone, and
  * `withAuthRedirect` sends the user to sign in (TD-125).
  */
-export function ChangePasswordDialog({ api, email, onClose }: ChangePasswordDialogProps) {
+export function ChangePasswordDialog({
+  api,
+  email,
+  onClose,
+  returnFocus,
+}: ChangePasswordDialogProps) {
+  const headingId = useId();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -34,7 +46,13 @@ export function ChangePasswordDialog({ api, email, onClose }: ChangePasswordDial
 
   const problems = next === '' ? [] : passwordProblems(next, email);
   const mismatch = confirm !== '' && confirm !== next;
-  const valid = current !== '' && next !== '' && problems.length === 0 && confirm === next;
+  const missing = stillNeeded([
+    [current === '', 'your current password'],
+    [next === '', 'a new password'],
+    [problems.length > 0, 'a new password that meets the rule'],
+    [confirm !== next, 'the new password twice'],
+  ]);
+  const valid = missing === null;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -56,12 +74,12 @@ export function ChangePasswordDialog({ api, email, onClose }: ChangePasswordDial
   }
 
   return (
-    <div className="auth-dialog" role="dialog" aria-label="Change password">
-      <h2>Change password</h2>
+    <ModalDialog labelledBy={headingId} onClose={onClose} returnFocus={returnFocus}>
+      <h2 id={headingId}>Change password</h2>
       {done ? (
         <>
           <p role="status">Password changed. Your other sessions were signed out.</p>
-          <button type="button" onClick={onClose} autoFocus>
+          <button type="button" className="primary" onClick={onClose} autoFocus>
             Close
           </button>
         </>
@@ -84,11 +102,12 @@ export function ChangePasswordDialog({ api, email, onClose }: ChangePasswordDial
               type="password"
               autoComplete="new-password"
               value={next}
-              aria-describedby="change-password-problems"
+              aria-describedby="change-password-rule change-password-problems"
               onChange={(e) => setNext(e.target.value)}
               required
             />
           </label>
+          <PasswordRule id="change-password-rule" />
           <PasswordProblems
             id="change-password-problems"
             problems={problems.length > 0 ? problems : serverProblems}
@@ -110,15 +129,19 @@ export function ChangePasswordDialog({ api, email, onClose }: ChangePasswordDial
             </p>
           )}
           <div className="auth-actions">
-            <button type="submit" disabled={busy || !valid}>
-              {busy ? 'Saving…' : 'Change password'}
-            </button>
+            <SubmitWithHint
+              id={`${headingId}-missing`}
+              label="Change password"
+              busyLabel="Saving…"
+              busy={busy}
+              missing={missing}
+            />
             <button type="button" onClick={onClose}>
               Cancel
             </button>
           </div>
         </form>
       )}
-    </div>
+    </ModalDialog>
   );
 }

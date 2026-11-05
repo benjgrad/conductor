@@ -100,6 +100,11 @@ export const API_PATHS = {
    * (TicketSearchQuery) → TicketSearchResponse, the account's tickets of any status.
    */
   tickets: '/api/tickets',
+  /**
+   * 06 §Queue order: PUT ReorderQueueRequest → QueueOrderResponse (the listed ready tickets first,
+   * in that order); DELETE `{}` → QueueOrderResponse (back to priority order).
+   */
+  queueOrder: '/api/queue/order',
   /** GET → TicketDetail; PATCH UpdateTicketRequest → TicketDetail (ticket_editable per column). */
   ticket: (id: string) => `/api/tickets/${id}`,
   /** POST ApproveProposalRequest → ApproveProposalResponse (201 created, 200 already approved). */
@@ -675,6 +680,11 @@ export const BoardCardSchema = z.object({
   created_at: IsoDateTimeSchema,
   /** Last activity (Running sort). */
   updated_at: IsoDateTimeSchema,
+  /**
+   * 06 §Queue order: the ticket's hand-set place in the queue (1 = picked up first). null / absent
+   * ≡ not reordered by hand: after every ranked ticket, by priority then age.
+   */
+  queue_position: z.number().int().positive().nullable().optional(),
   /** M2: Queued cards only, when no online machine can take it; absent otherwise. */
   routing: BoardCardRoutingSchema.optional(),
   /** M2: open alerts of the card's session; absent ≡ none. */
@@ -718,7 +728,8 @@ export type BoardColumnDto = z.infer<typeof BoardColumnDtoSchema>;
  * GET /api/board. `columns` is ordered left to right (ADR-0010), built from the latest `conductor`
  * version: Queued (`id: 'queued'`) first. Each column is pre-sorted per 06 by its kind (queued:
  * priority then age; human: oldest open input_request first; event: oldest first; others: most
- * recent activity first). `last_event_id` is where the SSE board stream should resume.
+ * recent activity first; 06 §Queue order: queued is hand order first, then priority then age).
+ * `last_event_id` is where the SSE board stream should resume.
  */
 export const BoardResponseSchema = z.object({
   columns: z.array(BoardColumnDtoSchema),
@@ -1367,6 +1378,32 @@ export const UpdateTicketRequestSchema = z
   );
 export type UpdateTicketRequest = z.input<typeof UpdateTicketRequestSchema>;
 
+/** Most tickets one PUT /api/queue/order lists. */
+export const QUEUE_ORDER_MAX = 500;
+
+/**
+ * PUT /api/queue/order (06 §Queue order). The listed ready tickets of the account go first, in
+ * this order (first = picked up next); every other ready ticket keeps its place after them.
+ */
+export const ReorderQueueRequestSchema = z.object({
+  ticket_ids: z
+    .array(UuidSchema)
+    .min(1)
+    .max(QUEUE_ORDER_MAX)
+    .refine((ids) => new Set(ids).size === ids.length, { message: 'ticket_ids repeat an id' }),
+});
+export type ReorderQueueRequest = z.infer<typeof ReorderQueueRequestSchema>;
+
+/**
+ * PUT / DELETE /api/queue/order: the account's ready tickets in pickup order, and the listed ids
+ * that weren't reordered (not a ready ticket of the account: claimed meanwhile, or unknown).
+ */
+export const QueueOrderResponseSchema = z.object({
+  ticket_ids: z.array(UuidSchema),
+  skipped: z.array(UuidSchema),
+});
+export type QueueOrderResponse = z.infer<typeof QueueOrderResponseSchema>;
+
 /**
  * UX-13a: GET /api/team. One agent of the signed-in account's team, oldest hire first.
  * `active_ticket_id`: the ticket it is working now (a session not done / failed / lost), or null.
@@ -1729,6 +1766,8 @@ export interface CardTicketLike {
   external_ref: string | null;
   repo: string;
   priority: number;
+  /** 06 §Queue order: `ticket.queue_position`; absent ≡ null. */
+  queue_position?: number | null;
   workflow_id: string;
   created_at: Ts;
   updated_at: Ts;
@@ -1869,6 +1908,7 @@ export function toBoardCard(
         : null,
     created_at: iso(ticket.created_at),
     updated_at: sUpd > tUpd ? sUpd : tUpd,
+    ...(ticket.queue_position !== undefined ? { queue_position: ticket.queue_position } : {}),
     ...(ticket.agent_name !== undefined ? { agent_name: ticket.agent_name } : {}),
     ...(ticket.schedule_id != null
       ? { schedule: { id: ticket.schedule_id, name: ticket.schedule_name ?? '' } }

@@ -320,7 +320,7 @@ function NewInviteForm({ onCreate }: { onCreate: (req: CreateInviteRequest) => P
         <input type="checkbox" checked={admin} onChange={(e) => setAdmin(e.target.checked)} />
         Admin
       </label>
-      <button type="submit" disabled={busy || !daysOk}>
+      <button type="submit" className="primary" disabled={busy || !daysOk}>
         New invite
       </button>
     </form>

@@ -504,14 +504,6 @@ main[hidden] {
   flex-wrap: wrap;
   gap: 8px;
 }
-.wf-modal .primary,
-.wf-savebar .wf-save {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
-  font-weight: 600;
-}
-
 /* The transition whose requirements review is running (session Details). */
 .wf-edge.reviewing .wf-line {
   stroke: var(--accent);
@@ -1198,25 +1190,11 @@ main[hidden] {
   gap: 8px;
   align-items: baseline;
 }
-.wf-review-dialog {
-  max-width: min(760px, 92vw);
-  width: 100%;
+/* A ModalDialog (UXR-51): the top layer and ::backdrop come from dialog.modal; only the size here. */
+dialog.modal.wf-review-dialog {
+  width: min(760px, 92vw);
   max-height: 86vh;
   overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--panel);
-  color: var(--text);
-  padding: var(--space-4) var(--space-5);
-}
-.wf-review-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-sheet);
-  background: rgb(0 0 0 / 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 .wf-review-dialog textarea {
   width: 100%;

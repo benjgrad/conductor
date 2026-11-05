@@ -1,4 +1,5 @@
 import {
+  compareQueued,
   CONDUCTOR_WORKFLOW_ID,
   toBoardCard,
   type BoardCard,
@@ -51,7 +52,8 @@ function sortColumn(kind: BoardColumnInfo['kind'], cards: BoardCard[]): BoardCar
   const recentFirst = (a: BoardCard, b: BoardCard) => ms(b.updated_at) - ms(a.updated_at);
   switch (kind) {
     case 'queued':
-      return cards.sort((a, b) => b.priority - a.priority || byCreated(a, b));
+      // 06 §Queue order: hand order, then priority, then age (the claim's order).
+      return cards.sort(compareQueued);
     case 'agent':
     case 'command':
     case 'connector':

@@ -191,7 +191,7 @@ function toAlertDto(a: MachineAlertRow): MachineAlertDto {
   };
 }
 
-/** Ready tickets scanned for `cannot_take`, highest priority first. */
+/** Ready tickets scanned for `cannot_take`, in queue order (06 §Queue order). */
 const CANNOT_TAKE_SCAN = 500;
 
 /**
@@ -222,7 +222,8 @@ async function loadCannotTake(
   }>(
     `SELECT t.id, t.title, t.repo, t.kind, t.workflow_id, ${EFFECTIVE_VERSION_SQL} AS v
        FROM ticket t WHERE t.account_id = $1 AND t.status = 'ready'
-      ORDER BY t.priority DESC, t.created_at, t.id LIMIT ${CANNOT_TAKE_SCAN}`,
+      ORDER BY t.queue_position ASC NULLS LAST, t.priority DESC, t.created_at, t.id
+      LIMIT ${CANNOT_TAKE_SCAN}`,
     [m.account_id],
   );
   const out: MachineCannotTake[] = [];

@@ -120,6 +120,16 @@ describe('columns (ADR-0010: the conductor states, Queued first)', () => {
     expect(titles(col(s, 'implementing'))).toEqual(['r-active', 'r-stale']);
     expect(titles(col(s, 'waiting_external'))).toEqual(['w-old', 'w-young']);
   });
+
+  it('queued: hand-ordered cards first (06 §Queue order), then priority then age', () => {
+    const t = (h: number) => `2026-10-22T${String(h).padStart(2, '0')}:00:00.000Z`;
+    const s = boardOf(
+      card({ title: 'urgent', priority: 9, created_at: t(1) }),
+      card({ title: 'second', queue_position: 2, created_at: t(2) }),
+      card({ title: 'first', queue_position: 1, priority: -1, created_at: t(3) }),
+    );
+    expect(titles(col(s, 'queued'))).toEqual(['first', 'second', 'urgent']);
+  });
 });
 
 describe('applyBoardEvent', () => {

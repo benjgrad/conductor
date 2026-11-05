@@ -322,3 +322,18 @@ describe('M2 card fields (routing, alerts)', () => {
     expect(BoardCardSchema.safeParse(bad).success).toBe(false);
   });
 });
+
+describe('toBoardCard queue_position (06 §Queue order)', () => {
+  it('copies the ticket’s place in the queue, and leaves it out when the row has none', () => {
+    const queued = { ...ticket, status: 'ready' as TicketStatus };
+    expect(toBoardCard({ ...queued, queue_position: 3 }, null, null, VIEW).queue_position).toBe(3);
+    expect(toBoardCard({ ...queued, queue_position: null }, null, null, VIEW).queue_position).toBe(
+      null,
+    );
+    expect('queue_position' in toBoardCard(queued, null, null, VIEW)).toBe(false);
+    expect(
+      BoardCardSchema.parse(toBoardCard({ ...queued, queue_position: 3 }, null, null, VIEW))
+        .queue_position,
+    ).toBe(3);
+  });
+});

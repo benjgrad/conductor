@@ -37,6 +37,7 @@ import {
   SessionDetailSchema,
   TranscriptResponseSchema,
   TicketDetailSchema,
+  QueueOrderResponseSchema,
   TicketDtoSchema,
   SaveWorkflowResponseSchema,
   WorkflowDetailSchema,
@@ -320,6 +321,11 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
 
     updateTicket: (ticketId: string, req: UpdateTicketRequest) =>
       request(TicketDetailSchema, 'PATCH', API_PATHS.ticket(encodeURIComponent(ticketId)), req),
+
+    reorderQueue: (ticketIds: readonly string[]) =>
+      request(QueueOrderResponseSchema, 'PUT', API_PATHS.queueOrder, { ticket_ids: ticketIds }),
+
+    resetQueueOrder: () => request(QueueOrderResponseSchema, 'DELETE', API_PATHS.queueOrder, {}),
 
     uploadAttachment: async (file: File) => {
       const res = await doFetch(base + API_PATHS.attachments, {

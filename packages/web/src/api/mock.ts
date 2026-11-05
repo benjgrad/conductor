@@ -18,6 +18,10 @@ import {
   CreateInviteRequestSchema,
   CreateTicketRequestSchema,
   UpdateTicketRequestSchema,
+  ReorderQueueRequestSchema,
+  compareQueued,
+  isReorderable,
+  type QueueOrderResponse,
   ticketEditable,
   ENROLLMENT_TOKEN_TTL_MS,
   humanTransitionOptions,
@@ -689,6 +693,32 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     );
   }
 
+  /** 06 §Queue order: the queued (still waiting) tickets, in pickup order. */
+  function queuedOrder(): string[] {
+    return [...cards.values()]
+      .filter(isReorderable)
+      .sort(compareQueued)
+      .map((c) => c.ticket_id);
+  }
+
+  /** Set queue positions (no `updated_at` bump, as the server) and upsert the changed cards. */
+  function setQueuePositions(positions: ReadonlyMap<string, number | null>) {
+    const drafts: BoardSseEventDraft[] = [];
+    for (const [id, pos] of positions) {
+      const card = cards.get(id);
+      if (!card || (card.queue_position ?? null) === pos) continue;
+      const updated: BoardCard = { ...card, queue_position: pos };
+      cards.set(id, updated);
+      drafts.push({
+        type: 'card.upserted',
+        session_id: card.session_id,
+        ticket_id: id,
+        card: updated,
+      });
+    }
+    emit(drafts);
+  }
+
   function update(card: BoardCard, next: Partial<BoardCard>, extra: BoardSseEventDraft[] = []) {
     const sessionId = card.session_id;
     if (sessionId === null) throw new Error('update() needs a session card');
@@ -995,6 +1025,30 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           decide(ticketId, p.id, { status: 'dismissed', created_ticket_id: null });
         }
         return { ...p, status: 'dismissed' };
+      }),
+
+    reorderQueue: (ticketIds) =>
+      reply((): QueueOrderResponse => {
+        const parsed = ReorderQueueRequestSchema.safeParse({ ticket_ids: ticketIds });
+        if (!parsed.success) throw new ApiRequestError(400, 'bad_request', parsed.error.message);
+        const current = queuedOrder();
+        const ready = new Set(current);
+        const first = parsed.data.ticket_ids.filter((id) => ready.has(id));
+        if (first.length === 0) {
+          throw new ApiRequestError(404, 'not_found', 'none of ticket_ids is a queued ticket');
+        }
+        const order = [...first, ...current.filter((id) => !first.includes(id))];
+        setQueuePositions(new Map(order.map((id, i) => [id, i + 1])));
+        return {
+          ticket_ids: queuedOrder(),
+          skipped: parsed.data.ticket_ids.filter((id) => !ready.has(id)),
+        };
+      }),
+
+    resetQueueOrder: () =>
+      reply((): QueueOrderResponse => {
+        setQueuePositions(new Map(queuedOrder().map((id) => [id, null])));
+        return { ticket_ids: queuedOrder(), skipped: [] };
       }),
 
     updateTicket: (ticketId, raw) =>

@@ -2,6 +2,8 @@ import {
   AdvisorGroupBySchema,
   ChangeStatusSchema,
   CONDUCTOR_WORKFLOW_ID,
+  compareQueued,
+  QUEUED_COLUMN_ID,
   CreateTicketRequestSchema,
   EntryCheckSchema,
   REPO_CHECKS_MAX,
@@ -58,6 +60,7 @@ import {
 import { loadSessionDetail } from '../api/sessions.js';
 import { insertWorkflowVersion, weakenedApprovals } from '../api/workflows.js';
 import { pathString } from '../api/errors.js';
+import { reorderQueue, resetQueueOrder } from '../api/queue-order.js';
 import { createTicket } from '../api/tickets.js';
 import {
   createSchedule,
@@ -404,6 +407,8 @@ export function transcriptPage(
 export const ARTIFACT_PAGE = 6000;
 /** get_ticket_artifacts `results`: each state's result, as JSON, in the overview. */
 const RESULT_CLIP = 1500;
+/** reorder_queue: most refs one call takes. */
+const QUEUE_REFS_MAX = 50;
 /** wait_for_updates: the longest wait, under nginx's and the clients' timeouts. */
 export const WAIT_MAX_SECONDS = 50;
 
@@ -479,7 +484,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       description:
         'The account’s tickets, most recently updated first: id, title, column, state, ' +
         'waiting_on (you, you_on_board, agent, checks, machine, nobody) and any open question. ' +
-        'Open tickets by default.',
+        'Open tickets by default; queued in pickup order.',
       inputSchema: {
         needs_input: z
           .boolean()
@@ -518,7 +523,12 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         .filter((c) => column === undefined || c.column === column)
         .filter((c) => kind === undefined || c.kind === kind)
         .filter((c) => repo === undefined || c.repo.toLowerCase() === repo.trim().toLowerCase())
-        .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+        .sort((a, b) =>
+          // 06 §Queue order: Queued alone is listed in pickup order (the board's own sort).
+          column === QUEUED_COLUMN_ID
+            ? compareQueued(a, b)
+            : b.updated_at.localeCompare(a.updated_at),
+        );
       const page = rows.slice(0, limit ?? 20).map((c) => ({
         id: c.ticket_id,
         short_id: c.ticket_id.slice(0, 8),
@@ -532,6 +542,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         needs_input: WAITING_ON_USER.has(waiting(c)),
         ...(c.input_request ? { question: clip(c.input_request.question, QUESTION_MAX) } : {}),
         ...(c.pr_url ? { pr_url: c.pr_url } : {}),
+        ...(c.queue_position != null ? { queue_position: c.queue_position } : {}),
         updated_at: c.updated_at,
       }));
       return ok({ tickets: page, total: rows.length });
@@ -1155,6 +1166,57 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       return apply('cancel', s.sessionId, {
         type: 'operator.cancel',
         ...(reason !== undefined ? { reason } : {}),
+      });
+    },
+  );
+
+  register(
+    'reorder_queue',
+    {
+      title: 'Reorder queue',
+      description:
+        "Queued tickets' pickup order: these first, then the rest; [] goes back to priority order.",
+      // Bounds checked below, not in the schema, so the tool list stays inside its budget.
+      inputSchema: { tickets: z.array(z.string()).optional() },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    async ({ tickets }) => {
+      if (tickets === undefined || tickets.length > QUEUE_REFS_MAX) {
+        return fail(
+          'invalid_input',
+          `Give \`tickets\`: at most ${QUEUE_REFS_MAX} refs, [] to reset.`,
+        );
+      }
+      let res;
+      if (tickets.length === 0) {
+        res = await resetQueueOrder(db, accountId);
+      } else {
+        const ids: string[] = [];
+        for (const ref of tickets) {
+          const t = await resolveTicket(db, accountId, ref);
+          if ('error' in t) return t.error;
+          if (!ids.includes(t.id)) ids.push(t.id);
+        }
+        res = await reorderQueue(db, accountId, ids);
+        if (res.skipped.length === ids.length) {
+          return fail('wrong_state', 'None of these tickets is queued (waiting for a machine).');
+        }
+      }
+      for (const ev of res.events) deps.boardBus.publish(ev);
+      const titles = await db.query<{ id: string; title: string; queue_position: number | null }>(
+        'SELECT id, title, queue_position FROM ticket WHERE id = ANY($1::uuid[])',
+        [res.ticket_ids],
+      );
+      const byId = new Map(titles.rows.map((r) => [r.id, r]));
+      return ok({
+        queue: res.ticket_ids.map((id, i) => ({
+          id,
+          short_id: id.slice(0, 8),
+          title: clip(byId.get(id)?.title ?? '', TITLE_MAX),
+          next: i + 1,
+          hand_ordered: (byId.get(id)?.queue_position ?? null) !== null,
+        })),
+        skipped: res.skipped,
       });
     },
   );

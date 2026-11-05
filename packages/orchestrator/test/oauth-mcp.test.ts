@@ -481,6 +481,7 @@ describe('/mcp', () => {
       'message_agent',
       'propose_change',
       'reopen_ticket',
+      'reorder_queue',
       'run_schedule_now',
       'save_schedule',
       'save_workflow',
@@ -491,7 +492,7 @@ describe('/mcp', () => {
     ]);
     const tools = (list.json.result as { tools: { description: string }[] }).tools;
     for (const t of tools) expect(t.description.length).toBeLessThanOrEqual(700);
-    // ADR-0031 / ADR-0032 / ADR-0033 / ADR-0034: 31 tools; the list is what every client loads first, so it
+    // ADR-0031 / ADR-0032 / ADR-0033 / ADR-0034: 32 tools (06 §Queue order added reorder_queue); the list is what every client loads first, so it
     // stays small. ADR-0033 raised the budget from 18 KB to 20 KB for the advisor tools, and its
     // P3 amendment to 22 KB for the change-proposal tools, and ADR-0034 to 23 KB for
     // decide_proposed_ticket.
@@ -614,6 +615,47 @@ describe('/mcp tools (approved set)', () => {
     // B never sees A's tickets.
     const fromB = await call(b.access, 'search_tickets', { query: 'Users sign in' });
     expect(fromB.body.tickets).toEqual([]);
+
+    // reorder_queue (06 §Queue order), on the same two accounts (each connect() counts against
+    // the registration rate limit).
+    const queue = async (token: string, title: string, priority: number) => {
+      const id = (
+        await call(token, 'create_ticket', {
+          title,
+          repo: 'github.com/acme/app',
+          body: '## Goal\nQueue.',
+          kind: 'work',
+        })
+      ).body.id as string;
+      await db.pool.query('UPDATE ticket SET priority = $2 WHERE id = $1', [id, priority]);
+      return id;
+    };
+    const low = await queue(a.access, 'low', 0);
+    const high = await queue(a.access, 'high', 5);
+    const mid = await queue(a.access, 'mid', 2);
+    const queued = async () =>
+      (
+        (await call(a.access, 'list_tickets', { column: 'queued' })).body.tickets as {
+          id: string;
+        }[]
+      )
+        .map((t) => t.id)
+        .filter((id) => [low, mid, high].includes(id));
+    expect(await queued()).toEqual([high, mid, low]);
+
+    const res = await call(a.access, 'reorder_queue', {
+      tickets: [low.slice(0, 8), mid],
+    });
+    expect((res.body.queue as { id: string }[]).map((t) => t.id).slice(0, 2)).toEqual([low, mid]);
+    expect(await queued()).toEqual([low, mid, high]);
+
+    // Another account can't see, so can't reorder, these tickets.
+    const other = await call(b.access, 'reorder_queue', { tickets: [high] });
+    expect(errorOf(other).code).toBe('not_found');
+    expect(errorOf(await call(a.access, 'reorder_queue', {})).code).toBe('invalid_input');
+
+    await call(a.access, 'reorder_queue', { tickets: [] });
+    expect(await queued()).toEqual([high, mid, low]);
   });
 
   it('create_ticket without kind takes the account’s last kind on the repo (WF-T03)', async () => {

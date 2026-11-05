@@ -1,5 +1,6 @@
 import {
   boardColumns as defaultColumns,
+  compareQueued,
   type BoardCard,
   type BoardColumnInfo,
   type BoardResponse,
@@ -143,8 +144,6 @@ export function applyBoardEvent(state: BoardState, ev: BoardSseEvent): BoardStat
   }
 }
 
-const byPriorityThenAge = (a: BoardCard, b: BoardCard) =>
-  b.priority - a.priority || a.created_at.localeCompare(b.created_at);
 const byAge = (a: BoardCard, b: BoardCard) => a.created_at.localeCompare(b.created_at);
 const byRecent = (a: BoardCard, b: BoardCard) => b.updated_at.localeCompare(a.updated_at);
 /** Oldest open input_request first; cards without one (stream lag) go last. */
@@ -157,7 +156,8 @@ const byOldestQuestion = (a: BoardCard, b: BoardCard) => {
 
 /** Sort per 06 §Kanban columns, by the column's kind (ADR-0010). ISO timestamps sort as time. */
 const SORT_BY_KIND: Record<BoardColumnInfo['kind'], (a: BoardCard, b: BoardCard) => number> = {
-  queued: byPriorityThenAge,
+  // 06 §Queue order: hand order, then priority, then age (the claim's order).
+  queued: compareQueued,
   agent: byRecent,
   command: byRecent,
   connector: byRecent,

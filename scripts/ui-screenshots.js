@@ -50,7 +50,7 @@ const PHONE_MAX_WIDTH = 699.98;
  * @typedef {import('playwright-core').Locator} Locator
  * @typedef {{ w: number, h: number, deviceScaleFactor: number, isMobile?: boolean,
  *   hasTouch?: boolean, themes: Partial<Record<'light' | 'dark', 'all' | string[]>> }} Viewport
- * @typedef {{ id: string, path: string, act?: (page: Page) => Promise<void> }} Screen
+ * @typedef {{ id: string, path: string, act?: (page: Page) => Promise<void>, fullPage?: boolean }} Screen
  * @typedef {ReturnType<typeof measure> | { error: string }} Metric
  */
 
@@ -97,6 +97,9 @@ const VIEWPORTS = [
         'new-ticket',
         'machines',
         'workflows',
+        'wf-rules-full',
+        'wf-rules-new',
+        'wf-arrow-group',
         'ticket-messages',
         'ticket-plan',
       ],
@@ -147,6 +150,20 @@ async function tapStrip(page, cls) {
   await tap(button.first());
   await page.waitForTimeout(300);
   return true;
+}
+
+/**
+ * The Workflow page with one arrow's transition panel open (the arrow's aria-label starts
+ * "Arrow <from> → <to>:", WorkflowsView.test.tsx).
+ * @param {Page} page @param {string} from @param {string} to
+ */
+async function openArrow(page, from, to) {
+  await page.locator('.wf-lanes').first().waitFor();
+  // An SVG <g role="button">: no HTMLElement.click(), so dispatch the click.
+  const arrow = page.getByRole('button', { name: new RegExp(`^Arrow ${from} → ${to}:`) }).first();
+  await arrow.waitFor({ state: 'attached' });
+  await arrow.dispatchEvent('click');
+  await page.locator('aside.wf-editor').waitFor();
 }
 
 /** Each screen starts from a fresh load of `path`, then `act`s. @type {Screen[]} */
@@ -247,6 +264,31 @@ const SCREENS = [
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
   { id: 'workflows', path: '/#/workflows' },
+  // UXR-60/63: a transition with every kind of rule, at its full height (the panel uncapped).
+  {
+    id: 'wf-rules-full',
+    path: '/#/workflows',
+    fullPage: true,
+    act: async (page) => {
+      await openArrow(page, 'Implementing', 'Waiting external');
+      await page.evaluate(() => {
+        const panel = /** @type {HTMLElement | null} */ (document.querySelector('aside.wf-editor'));
+        if (panel) panel.style.maxHeight = 'none';
+      });
+    },
+  },
+  // A transition with no requirements: closed sections, "Nothing is required".
+  {
+    id: 'wf-rules-new',
+    path: '/#/workflows',
+    act: (page) => openArrow(page, 'Planning', 'Implementing'),
+  },
+  // An arrow with several transitions (the tabs above the summary).
+  {
+    id: 'wf-arrow-group',
+    path: '/#/workflows',
+    act: (page) => openArrow(page, 'Planning', 'Needs input'),
+  },
   { id: 'setup', path: '/#/setup' },
   { id: 'help', path: '/help/add-a-machine' },
   { id: 'help-connect-claude', path: '/help/connect-claude' },
@@ -382,7 +424,10 @@ async function main() {
             await page.waitForTimeout(400);
             await screen.act?.(page);
             await page.waitForTimeout(300);
-            await page.screenshot({ path: join(outDir, `${name}.png`) });
+            await page.screenshot({
+              path: join(outDir, `${name}.png`),
+              fullPage: screen.fullPage ?? false,
+            });
             const metric = await page.evaluate(measure, vp.w);
             metrics[name] = metric;
             console.log(`ok   ${name}`);

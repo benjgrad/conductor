@@ -2,7 +2,7 @@
 // `SessionDetail.moves` (when) and `SessionDetail.context` (each state's recorded result, the same
 // data MCP `get_ticket_artifacts what=results` reads), so no extra route is needed.
 import type { JsonObject, SessionDetail } from '@conductor/shared';
-import { phaseStateName } from './OutputLog.js';
+import { phaseStateName } from './state-name.js';
 import { moveTitle } from './transitions.js';
 
 export interface StepRow {

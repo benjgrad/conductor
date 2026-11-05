@@ -15,7 +15,6 @@ import {
   type WorkflowDefinition,
 } from '@conductor/shared';
 import { useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { displayState } from '../workflow/review.js';
 import {
   CheckRun,
   checkNames,
@@ -26,8 +25,11 @@ import {
   type RunSegment,
 } from './CheckOutput.js';
 import { Markdown } from './markdown.js';
+import { phaseStateName } from './state-name.js';
 import { moveTitle } from './transitions.js';
 import './OutputLog.css';
+
+export { phaseStateName } from './state-name.js';
 
 export interface ToolCall {
   name: string;
@@ -505,18 +507,6 @@ export function summarizeGroup(tools: readonly ToolEntry[]): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-/**
- * A state's display name: its workflow title, else `snake_case` as words; a gate step's label as
- * `displayState` words it (UX-6: never the synthetic "→ … (move: …)" label).
- */
-export function phaseStateName(state: string, workflow?: WorkflowDefinition): string {
-  const title = workflow?.states[state]?.title;
-  if (title) return title;
-  if (!/^[a-z0-9_]+$/.test(state)) return displayState(state, workflow);
-  const words = state.replace(/_/g, ' ');
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
-
 /** "Finished planning": the line an accepted `complete_state` collapses to (UXR-38). */
 export function stepDoneLabel(state: string | null, workflow?: WorkflowDefinition): string {
   if (state === null) return 'Finished the step';
@@ -789,7 +779,12 @@ export function OutputLog({
       case 'user':
         if (e.ticket) {
           return (
-            <div key={e.key} className="user-msg ticket-msg" role="group" aria-label="Ticket">
+            <div
+              key={e.key}
+              className="user-msg ticket-msg"
+              role="group"
+              aria-label="Ticket prompt"
+            >
               <span className="user-label">Ticket</span>
               <div className="user-text">
                 <Markdown text={e.text} />

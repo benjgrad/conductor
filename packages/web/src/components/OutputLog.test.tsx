@@ -754,10 +754,10 @@ describe('protocol calls and the ticket (UXR-38)', () => {
         variant="chat"
       />,
     );
-    const ticket = within(screen.getByRole('group', { name: 'Ticket' }));
+    const ticket = within(screen.getByRole('group', { name: 'Ticket prompt' }));
     // Styled, not an <hN>: the chat isn't part of the page outline (markdown.tsx `headings`).
     expect(ticket.getByText('Ticket: Rename it')).toBeTruthy();
-    expect(screen.getByRole('group', { name: 'Ticket' }).textContent).not.toContain('#');
+    expect(screen.getByRole('group', { name: 'Ticket prompt' }).textContent).not.toContain('#');
     expect(ticket.getByText('fullname', { selector: 'code' })).toBeTruthy();
     const mine = screen.getByRole('group', { name: 'Your message' });
     expect(mine.textContent).toBe('YouUse `full_name`, please.');

@@ -1,7 +1,7 @@
 /* Questions UX: an agent question's options (QuestionOptions.tsx), a numbered list of full-width
    choices like Claude Code's own question prompt. Also the compact row on the board card. */
 .question-options {
-  margin: 8px 0 4px;
+  margin: var(--space-2) 0 var(--space-1);
 }
 .question-options-list {
   list-style: none;
@@ -17,7 +17,7 @@
   gap: 8px;
   width: 100%;
   text-align: left;
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--panel);
@@ -35,7 +35,7 @@
   opacity: 0.6;
 }
 .question-option input[type='checkbox'] {
-  margin: 3px 0 0;
+  margin: var(--space-1) 0 0;
 }
 .question-option-key {
   color: var(--muted);
@@ -53,7 +53,7 @@
 }
 .question-option-description {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }
 .question-options-foot {
@@ -61,7 +61,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  margin-top: 6px;
+  margin-top: var(--space-1);
 }
 
 /* Board card: the first few options as compact buttons. */
@@ -69,7 +69,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 6px;
+  margin-top: var(--space-1);
 }
 .card-options button {
   max-width: 100%;

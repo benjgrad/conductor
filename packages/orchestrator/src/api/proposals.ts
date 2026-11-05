@@ -1,4 +1,5 @@
 import {
+  DEFAULT_TICKET_PRIORITY,
   proposalTicketBody,
   type AccountScope,
   type ApiErrorCode,
@@ -133,7 +134,7 @@ export async function approveProposal(
       workflow_id: parent.workflow_id,
       required_tags: [],
       repo_allow_machines: null,
-      priority: 0,
+      priority: DEFAULT_TICKET_PRIORITY,
       // A ticket from before M1b has no kind (matches both); the follow-up stays the same.
       kind: parent.kind ?? 'work',
     }))!;

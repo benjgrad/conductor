@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { ApiRequestError, type ApiClient } from '../api/client.js';
 import { authErrorMessage } from '../auth/errors.js';
 import { formatTime, inviteStatus } from './format.js';
+import { useToast } from '../components/Toast.js';
 import { OneTimeLink } from './OneTimeLink.js';
 import './admin.css';
 
@@ -46,6 +47,7 @@ export function AdminPage({ api, me }: AdminPageProps) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmDisable, setConfirmDisable] = useState<AdminUserRow | null>(null);
   const isAdmin = me.user.is_admin;
+  const toast = useToast();
 
   const load = useCallback(() => {
     Promise.all([api.listUsers(), api.listInvites()]).then(
@@ -63,11 +65,13 @@ export function AdminPage({ api, me }: AdminPageProps) {
     if (isAdmin) load();
   }, [isAdmin, load]);
 
-  /** Runs one admin action, then reloads both lists. */
-  async function act<T>(fn: () => Promise<T>): Promise<T | undefined> {
+  /** Runs one admin action, then reloads both lists. On success, `done` is the toast (UXR-55). */
+  async function act<T>(fn: () => Promise<T>, done: string): Promise<T | undefined> {
     setActionError(null);
     try {
-      return await fn();
+      const result = await fn();
+      toast(done);
+      return result;
     } catch (err) {
       setActionError(authErrorMessage(err));
       return undefined;
@@ -77,7 +81,7 @@ export function AdminPage({ api, me }: AdminPageProps) {
   }
 
   async function resetLink(user: AdminUserRow) {
-    const created = await act(() => api.createResetLink(user.id));
+    const created = await act(() => api.createResetLink(user.id), 'Reset link created');
     if (created) setLink({ title: 'Reset link', url: created.url, expiresAt: created.expires_at });
   }
 
@@ -118,7 +122,7 @@ export function AdminPage({ api, me }: AdminPageProps) {
             onClick={() => {
               const user = confirmDisable;
               setConfirmDisable(null);
-              void act(() => api.disableUser(user.id));
+              void act(() => api.disableUser(user.id), `${user.email} disabled`);
             }}
           >
             Disable
@@ -146,9 +150,7 @@ export function AdminPage({ api, me }: AdminPageProps) {
                 <tr>
                   <th>Email</th>
                   <th>Name</th>
-                  <th>Admin</th>
-                  <th>Locked</th>
-                  <th>Disabled</th>
+                  <th>Status</th>
                   <th>
                     <span className="visually-hidden">Actions</span>
                   </th>
@@ -159,9 +161,18 @@ export function AdminPage({ api, me }: AdminPageProps) {
                   <tr key={u.id}>
                     <td>{u.email}</td>
                     <td>{u.display_name}</td>
-                    <td>{u.is_admin ? 'Yes' : 'No'}</td>
-                    <td>{u.locked ? 'Locked' : 'No'}</td>
-                    <td>{u.disabled_at ? formatTime(u.disabled_at) : '—'}</td>
+                    <td>
+                      {/* UXR-53: what is true of the user, as chips; nothing when nothing is. */}
+                      <span className="chips">
+                        {u.is_admin && <span className="chip chip-admin">Admin</span>}
+                        {u.locked && <span className="chip chip-locked">Locked</span>}
+                        {u.disabled_at && (
+                          <span className="chip chip-disabled">
+                            Disabled {formatTime(u.disabled_at)}
+                          </span>
+                        )}
+                      </span>
+                    </td>
                     <td className="table-actions">
                       <div className="table-actions-inner">
                         {u.disabled_at === null && (
@@ -177,7 +188,9 @@ export function AdminPage({ api, me }: AdminPageProps) {
                           <button
                             type="button"
                             aria-label={`Unlock ${u.email}`}
-                            onClick={() => void act(() => api.unlockUser(u.id))}
+                            onClick={() =>
+                              void act(() => api.unlockUser(u.id), `${u.email} unlocked`)
+                            }
                           >
                             Unlock
                           </button>
@@ -203,7 +216,7 @@ export function AdminPage({ api, me }: AdminPageProps) {
             <h3>Invites</h3>
             <NewInviteForm
               onCreate={async (req) => {
-                const created = await act(() => api.createInvite(req));
+                const created = await act(() => api.createInvite(req), 'Invite created');
                 if (created) {
                   setLink({
                     title: 'Invite link',
@@ -218,7 +231,6 @@ export function AdminPage({ api, me }: AdminPageProps) {
               <thead>
                 <tr>
                   <th>Email</th>
-                  <th>Admin</th>
                   <th>Expires</th>
                   <th>Status</th>
                   <th>
@@ -231,17 +243,25 @@ export function AdminPage({ api, me }: AdminPageProps) {
                   const status = inviteStatus(inv);
                   return (
                     <tr key={inv.id}>
-                      <td>{inv.email ?? 'Anyone'}</td>
-                      <td>{inv.is_admin ? 'Yes' : 'No'}</td>
+                      <td>
+                        <span className="chips">
+                          {inv.email ?? 'Anyone'}
+                          {inv.is_admin && <span className="chip chip-admin">Admin</span>}
+                        </span>
+                      </td>
                       <td>{formatTime(inv.expires_at)}</td>
-                      <td className={`invite-${status}`}>{status}</td>
+                      <td>
+                        <span className={`chip invite-${status}`}>{status}</span>
+                      </td>
                       <td className="table-actions">
                         <div className="table-actions-inner">
                           {status === 'open' && (
                             <button
                               type="button"
                               aria-label={`Revoke invite for ${inv.email ?? 'anyone'}`}
-                              onClick={() => void act(() => api.revokeInvite(inv.id))}
+                              onClick={() =>
+                                void act(() => api.revokeInvite(inv.id), 'Invite revoked')
+                              }
                             >
                               Revoke
                             </button>

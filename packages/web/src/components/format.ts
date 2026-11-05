@@ -72,6 +72,32 @@ export const TICKET_KIND_LABELS: Record<TicketKind, string> = {
   personal: 'Personal',
 };
 
+/**
+ * ADR-0036: the priority choices, most urgent first (the lower P is claimed first). P0 is reserved
+ * for work that interrupts other running work, so a form offers it only when the ticket already
+ * has it.
+ */
+export const PRIORITY_LABELS: Readonly<Record<number, string>> = {
+  0: 'P0 · interrupts running work',
+  1: 'P1 · urgent',
+  2: 'P2 · high',
+  3: 'P3 · normal',
+  4: 'P4 · low',
+};
+
+/** The priorities a form offers: P1–P4, plus `current` when it is outside them (P0). */
+export function priorityChoices(current?: number): number[] {
+  const base = [1, 2, 3, 4];
+  return current === undefined || base.includes(current)
+    ? base
+    : [current, ...base].sort((a, b) => a - b);
+}
+
+/** A priority's option label; an unknown value (an older server) is just `P<n>`. */
+export function priorityLabel(p: number): string {
+  return PRIORITY_LABELS[p] ?? `P${p}`;
+}
+
 /** What a card's meta row shows; an absent label is already said by the column or a badge. */
 export interface CardMeta {
   stateLabel?: string;

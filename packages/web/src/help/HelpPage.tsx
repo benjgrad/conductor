@@ -1,5 +1,5 @@
 import type { MouseEvent, ReactNode } from 'react';
-import { Markdown } from '../components/markdown.js';
+import { headingId, Markdown, parseBlocks, renderInline } from '../components/markdown.js';
 import { SETUP_GUIDE_URL } from '../machines/format.js';
 import { goTo } from '../nav.js';
 import addMachine from './add-a-machine.md?raw';
@@ -35,8 +35,24 @@ export function guideText(origin: string, path: string = SETUP_GUIDE_URL): strin
   return (GUIDES[path] ?? addMachine).replaceAll(EXAMPLE_ORIGIN, origin);
 }
 
+/** UXR-50: a guide's contents, one entry per `##` heading, with its anchor id. */
+export function helpContents(markdown: string): { id: string; text: string }[] {
+  return parseBlocks(markdown).flatMap((b) =>
+    b.kind === 'heading' && b.level === 2 ? [{ id: headingId(b.text), text: b.text }] : [],
+  );
+}
+
+/** The guide split before its first `##`: the title and intro, then the sections. */
+export function splitIntro(markdown: string): [intro: string, rest: string] {
+  const at = markdown.search(/^## /m);
+  return at < 0 ? [markdown, ''] : [markdown.slice(0, at), markdown.slice(at)];
+}
+
 /** `/help/add-a-machine`, `/help/connect-claude` or `/help/repo-checks`. */
 export function HelpPage({ path = SETUP_GUIDE_URL }: { path?: string }) {
+  const text = guideText(window.location.origin, path);
+  const [intro, rest] = splitIntro(text);
+  const contents = helpContents(text);
   return (
     <div className="help-page">
       <header className="help-head">
@@ -46,7 +62,19 @@ export function HelpPage({ path = SETUP_GUIDE_URL }: { path?: string }) {
         </a>
       </header>
       <main className="help-body">
-        <Markdown text={guideText(window.location.origin, path)} headings="semantic" />
+        <Markdown text={intro} headings="semantic" />
+        {contents.length > 0 && (
+          <nav className="help-contents" aria-label="Contents">
+            <ul>
+              {contents.map((c) => (
+                <li key={c.id}>
+                  <a href={`#${c.id}`}>{renderInline(c.text, c.id)}</a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        )}
+        <Markdown text={rest} headings="semantic" />
       </main>
     </div>
   );

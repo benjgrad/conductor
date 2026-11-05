@@ -27,6 +27,21 @@ export const TicketStatusSchema = z.enum([
 ]);
 export type TicketStatus = z.infer<typeof TicketStatusSchema>;
 
+/**
+ * `ticket.priority` / `ticket_schedule.priority` (02, ADR-0036): a P-scale where the lower number is
+ * the more urgent and is claimed first. P0 is reserved for work the orchestrator runs by
+ * interrupting other running work (not built yet: today P0 only sorts first); P3 is the default;
+ * P4 is low.
+ */
+export const TICKET_PRIORITY_MIN = 0;
+export const TICKET_PRIORITY_MAX = 4;
+export const DEFAULT_TICKET_PRIORITY = 3;
+export const TicketPrioritySchema = z
+  .number()
+  .int()
+  .min(TICKET_PRIORITY_MIN)
+  .max(TICKET_PRIORITY_MAX);
+
 /** `machine.status` (02). */
 export const MachineStatusSchema = z.enum(['online', 'draining', 'offline']);
 export type MachineStatus = z.infer<typeof MachineStatusSchema>;

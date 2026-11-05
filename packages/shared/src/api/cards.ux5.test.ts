@@ -18,7 +18,7 @@ const ticket = {
   title: 'UX-5',
   external_ref: null,
   repo: 'github.com/benjgrad/conductor',
-  priority: 0,
+  priority: 3,
   workflow_id: 'conductor',
   created_at: new Date('2026-10-27T15:00:00.000Z'),
   updated_at: new Date('2026-10-27T15:00:00.000Z'),

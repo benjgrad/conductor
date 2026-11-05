@@ -1697,11 +1697,68 @@ impl<'de> ::serde::Deserialize<'de> for ConditionPipeline {
 pub struct ConditionResult {
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub detail: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub mergeable: ::std::option::Option<ConditionResultMergeable>,
     pub status: ConditionResultStatus,
     #[serde(rename = "type")]
     pub type_: ConditionType,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub value: ::std::option::Option<::std::string::String>,
+}
+///`ConditionResultMergeable`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ConditionResultMergeable {
+    #[serde(rename = "MERGEABLE")]
+    Mergeable,
+    #[serde(rename = "CONFLICTING")]
+    Conflicting,
+    #[serde(rename = "UNKNOWN")]
+    Unknown,
+}
+impl ::std::fmt::Display for ConditionResultMergeable {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Mergeable => f.write_str("MERGEABLE"),
+            Self::Conflicting => f.write_str("CONFLICTING"),
+            Self::Unknown => f.write_str("UNKNOWN"),
+        }
+    }
+}
+impl ::std::str::FromStr for ConditionResultMergeable {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "MERGEABLE" => Ok(Self::Mergeable),
+            "CONFLICTING" => Ok(Self::Conflicting),
+            "UNKNOWN" => Ok(Self::Unknown),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ConditionResultMergeable {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for ConditionResultMergeable {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
 }
 ///`ConditionResultStatus`
 #[derive(
@@ -1725,6 +1782,8 @@ pub enum ConditionResultStatus {
     Failed,
     #[serde(rename = "unsupported")]
     Unsupported,
+    #[serde(rename = "skipped")]
+    Skipped,
 }
 impl ::std::fmt::Display for ConditionResultStatus {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
@@ -1733,6 +1792,7 @@ impl ::std::fmt::Display for ConditionResultStatus {
             Self::Pending => f.write_str("pending"),
             Self::Failed => f.write_str("failed"),
             Self::Unsupported => f.write_str("unsupported"),
+            Self::Skipped => f.write_str("skipped"),
         }
     }
 }
@@ -1744,6 +1804,7 @@ impl ::std::str::FromStr for ConditionResultStatus {
             "pending" => Ok(Self::Pending),
             "failed" => Ok(Self::Failed),
             "unsupported" => Ok(Self::Unsupported),
+            "skipped" => Ok(Self::Skipped),
             _ => Err("invalid value".into()),
         }
     }
@@ -2393,6 +2454,14 @@ pub struct EvaluateConditionsArgs {
     pub head_sha: ::std::option::Option<EvaluateConditionsArgsHeadSha>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub pr_url: ::std::option::Option<::std::string::String>,
+    #[serde(
+        default,
+        skip_serializing_if = "::std::option::Option::is_none",
+        with = "crate::wire::double_option"
+    )]
+    pub setup: ::std::option::Option<::std::option::Option<EvaluateConditionsArgsSetup>>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub short_circuit: ::std::option::Option<bool>,
 }
 ///`EvaluateConditionsArgsHeadSha`
 #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -2435,6 +2504,56 @@ impl ::std::convert::TryFrom<::std::string::String> for EvaluateConditionsArgsHe
     }
 }
 impl<'de> ::serde::Deserialize<'de> for EvaluateConditionsArgsHeadSha {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`EvaluateConditionsArgsSetup`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct EvaluateConditionsArgsSetup(::std::string::String);
+impl ::std::ops::Deref for EvaluateConditionsArgsSetup {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<EvaluateConditionsArgsSetup> for ::std::string::String {
+    fn from(value: EvaluateConditionsArgsSetup) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for EvaluateConditionsArgsSetup {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 2000usize {
+            return Err("longer than 2000 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for EvaluateConditionsArgsSetup {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for EvaluateConditionsArgsSetup {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for EvaluateConditionsArgsSetup {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -5815,6 +5934,9 @@ pub const AVAILABLE_CONDITION_TYPES: &[&str] = &[
     "pr_approvals",
     "pr_merged",
     "pr_screenshots",
+    "cmd",
+    "pr_mergeable",
+    "age_below",
 ];
 pub const CANONICAL_REMOTE_RE: &str = "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?:\\/[A-Za-z0-9_][A-Za-z0-9._-]*){2,}$";
 pub const CAPABILITY_NAME_RE: &str = "^[^\\s:@\\0]{1,200}$";

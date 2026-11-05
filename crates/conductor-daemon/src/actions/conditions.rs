@@ -15,18 +15,27 @@
 //! pinning with `head_sha`; Azure / Jira → unsupported (M5). A missing or logged-out gh keeps every
 //! gh condition pending.
 //!
+//! ADR-0037 (T5): `pr_mergeable` (GitHub's `mergeable`: MERGEABLE met, CONFLICTING failed,
+//! UNKNOWN pending; `mergeable,mergeStateStatus` are only asked for when a pr_mergeable, or a
+//! pr_checks_green with `no_checks.policy: require_mergeable`, is evaluated, and the latter's
+//! result then carries `mergeable` for the engine); `cmd` (condition_cmd.rs); `age_below` is the
+//! engine's (unsupported here); `short_circuit` stops at the first condition not met and reports
+//! the rest `skipped` (gh then runs only when a gh condition is reached).
+//!
 //! WF-T05: a `pr_checks_green` whose failing checks include a CANCELLED Actions job asks
 //! `gh api repos/<o>/<r>/actions/jobs/<id>` (at most [`MAX_JOB_LOOKUPS`]) whether the job ever got
 //! a runner. One that never did is still failing (it can't merge) but is reported as
 //! infrastructure, not a test failure, so the agent reruns it instead of debugging (or asking
 //! Ben about) a failure its branch didn't cause. Any lookup error keeps the plain `failing:`.
 
+use super::condition_cmd::{CmdConditionRunner, CmdContext};
 use super::open_pr::GhCommand;
 use crate::exec::{Env, clean_env, spawn_failure, tail};
 use crate::platform::{self, CliOptions, StdioKind, kill_tree};
 use conductor_protocol::screenshots::matching_paths;
 use conductor_protocol::{
-    Condition, ConditionResult, ConditionResultStatus, ConditionType, EvaluateConditionsResult,
+    Condition, ConditionNoChecksPolicy, ConditionResult, ConditionResultMergeable,
+    ConditionResultStatus, ConditionType, EvaluateConditionsResult,
 };
 use serde_json::{Map, Value};
 use std::path::PathBuf;
@@ -62,7 +71,6 @@ pub fn condition_type(c: &Condition) -> ConditionType {
         Condition::PrScreenshots { .. } => ConditionType::PrScreenshots,
         Condition::AzurePipelineSucceeded { .. } => ConditionType::AzurePipelineSucceeded,
         Condition::JiraFieldsSet { .. } => ConditionType::JiraFieldsSet,
-        // ADR-0037 P2: parsed, reported `unsupported` until T5 (not a gh type).
         Condition::Cmd { .. } => ConditionType::Cmd,
         Condition::PrMergeable { .. } => ConditionType::PrMergeable,
         Condition::AgeBelow { .. } => ConditionType::AgeBelow,
@@ -76,19 +84,44 @@ fn is_gh_type(t: ConditionType) -> bool {
             | ConditionType::PrApprovals
             | ConditionType::PrMerged
             | ConditionType::PrScreenshots
+            | ConditionType::PrMergeable
     )
 }
+
+/// ADR-0037: pr_mergeable and the require_mergeable no-CI policy add GitHub's mergeability.
+const GH_MERGEABLE_FIELDS: &str = ",mergeable,mergeStateStatus";
+const GH_MERGEABLE_JQ: &str = ", mergeable, mergeStateStatus";
+
+/// Does this condition need GitHub's `mergeable`?
+pub fn needs_mergeable(c: &Condition) -> bool {
+    match c {
+        Condition::PrMergeable { .. } => true,
+        Condition::PrChecksGreen { no_checks, .. } => no_checks
+            .as_ref()
+            .is_some_and(|n| n.policy == ConditionNoChecksPolicy::RequireMergeable),
+        _ => false,
+    }
+}
+
+/// `{status: skipped}`'s detail (short_circuit).
+pub const SKIPPED_DETAIL: &str = "not checked: an earlier condition is not met";
 
 /// The `gh pr view` args for `conditions`.
 pub fn gh_view_args(pr_url: &str, conditions: &[Condition]) -> Vec<String> {
     let shots = conditions
         .iter()
         .any(|c| matches!(c, Condition::PrScreenshots { .. }));
+    let merge = conditions.iter().any(needs_mergeable);
     let fields = format!(
-        "{GH_FIELDS}{}",
-        if shots { GH_SCREENSHOT_FIELDS } else { "" }
+        "{GH_FIELDS}{}{}",
+        if shots { GH_SCREENSHOT_FIELDS } else { "" },
+        if merge { GH_MERGEABLE_FIELDS } else { "" }
     );
-    let jq = format!("{GH_JQ}{}}}", if shots { GH_SCREENSHOT_JQ } else { "" });
+    let jq = format!(
+        "{GH_JQ}{}{}}}",
+        if shots { GH_SCREENSHOT_JQ } else { "" },
+        if merge { GH_MERGEABLE_JQ } else { "" }
+    );
     ["pr", "view", pr_url, "--json", &fields, "--jq", &jq]
         .iter()
         .map(|s| s.to_string())
@@ -110,6 +143,11 @@ pub struct EvaluateConditionsInput {
     pub env: Option<Env>,
     /// Default [`GH_CONDITION_TIMEOUT_MS`].
     pub timeout_ms: Option<u64>,
+    /// ADR-0037 P1: stop at the first condition not met; the rest are `skipped`.
+    pub short_circuit: bool,
+    /// ADR-0037 P2 `cmd`: how to run them (worktree, setup, the command runner). None: `cmd`
+    /// conditions stay pending.
+    pub cmd: Option<CmdContext>,
 }
 
 #[derive(Debug, Default)]
@@ -239,6 +277,7 @@ fn result(
         status,
         value,
         detail,
+        mergeable: None,
     }
 }
 
@@ -250,28 +289,6 @@ fn unsupported(c: &Condition) -> ConditionResult {
         None,
         Some(format!("{t} can't be evaluated on this machine yet")),
     )
-}
-
-/// Every gh condition `pending` with `detail`; other types `unsupported`.
-fn all_pending(conditions: &[Condition], detail: &str) -> EvaluateConditionsResult {
-    EvaluateConditionsResult {
-        results: conditions
-            .iter()
-            .map(|c| {
-                let t = condition_type(c);
-                if is_gh_type(t) {
-                    result(
-                        t,
-                        ConditionResultStatus::Pending,
-                        None,
-                        Some(detail.to_string()),
-                    )
-                } else {
-                    unsupported(c)
-                }
-            })
-            .collect(),
-    }
 }
 
 fn gh_missing(e: &crate::exec::SpawnFailure) -> String {
@@ -296,20 +313,13 @@ fn js_seconds(ms: u64) -> String {
     format!("{s}")
 }
 
-pub async fn evaluate_conditions(i: EvaluateConditionsInput) -> EvaluateConditionsResult {
-    if !i.conditions.iter().any(|c| is_gh_type(condition_type(c))) {
-        return EvaluateConditionsResult {
-            results: i.conditions.iter().map(unsupported).collect(),
-        };
-    }
+/// The PR view, or why there is none (every gh condition is then `pending` with it).
+async fn fetch_view(i: &EvaluateConditionsInput) -> Result<PrView, String> {
     let Some(pr_url) = i.pr_url.as_deref() else {
-        return all_pending(&i.conditions, "no pull request yet");
+        return Err("no pull request yet".into());
     };
     if !super::open_pr::is_github_pr_url(pr_url) {
-        return all_pending(
-            &i.conditions,
-            &format!("not a GitHub pull request URL: {pr_url}"),
-        );
+        return Err(format!("not a GitHub pull request URL: {pr_url}"));
     }
     let gh = i.gh.clone().unwrap_or_default();
     let timeout_ms = i.timeout_ms.unwrap_or(GH_CONDITION_TIMEOUT_MS);
@@ -325,23 +335,20 @@ pub async fn evaluate_conditions(i: EvaluateConditionsInput) -> EvaluateConditio
     )
     .await;
     if let Some(e) = &r.spawn_error {
-        return all_pending(&i.conditions, &gh_missing(e));
+        return Err(gh_missing(e));
     }
     if r.timed_out {
-        return all_pending(
-            &i.conditions,
-            &format!("gh pr view timed out after {} s", js_seconds(timeout_ms)),
-        );
+        return Err(format!(
+            "gh pr view timed out after {} s",
+            js_seconds(timeout_ms)
+        ));
     }
     if r.truncated {
-        return all_pending(
-            &i.conditions,
-            &format!(
-                "gh pr view printed more than {} KB; output truncated: {}",
-                GH_OUTPUT_CAP_BYTES / 1024,
-                tail(&r.stdout, 200)
-            ),
-        );
+        return Err(format!(
+            "gh pr view printed more than {} KB; output truncated: {}",
+            GH_OUTPUT_CAP_BYTES / 1024,
+            tail(&r.stdout, 200)
+        ));
     }
     if r.code != Some(0) {
         let src = if r.stderr.is_empty() {
@@ -356,24 +363,20 @@ pub async fn evaluate_conditions(i: EvaluateConditionsInput) -> EvaluateConditio
                 r.code.map_or("null".to_string(), |c| c.to_string())
             );
         }
-        let detail = if is_auth_error(&msg) {
+        return Err(if is_auth_error(&msg) {
             format!("gh not available: {msg}")
         } else {
             format!("gh pr view failed: {msg}")
-        };
-        return all_pending(&i.conditions, &detail);
+        });
     }
     let pr = serde_json::from_str::<Value>(&r.stdout)
         .ok()
         .and_then(|v| parse_pr_view(&v));
     let Some(mut pr) = pr else {
-        return all_pending(
-            &i.conditions,
-            &format!(
-                "gh pr view printed unexpected output: {}",
-                tail(&r.stdout, 200)
-            ),
-        );
+        return Err(format!(
+            "gh pr view printed unexpected output: {}",
+            tail(&r.stdout, 200)
+        ));
     };
     if i.conditions
         .iter()
@@ -413,13 +416,75 @@ pub async fn evaluate_conditions(i: EvaluateConditionsInput) -> EvaluateConditio
             }
         }
     }
-    EvaluateConditionsResult {
-        results: i
-            .conditions
-            .iter()
-            .map(|c| map_condition(c, &pr, i.head_sha.as_deref()))
-            .collect(),
+    Ok(pr)
+}
+
+pub async fn evaluate_conditions(i: EvaluateConditionsInput) -> EvaluateConditionsResult {
+    // One gh call per evaluation, made when the first gh condition needs it (with short_circuit
+    // a failing earlier condition means gh never runs).
+    let mut view: Option<Result<PrView, String>> = None;
+    if !i.short_circuit && i.conditions.iter().any(|c| is_gh_type(condition_type(c))) {
+        view = Some(fetch_view(&i).await);
     }
+    let mut cmds: Option<CmdConditionRunner> = None;
+    let mut results = Vec::with_capacity(i.conditions.len());
+    let mut stopped = false;
+    for c in &i.conditions {
+        let t = condition_type(c);
+        if stopped {
+            results.push(result(
+                t,
+                ConditionResultStatus::Skipped,
+                None,
+                Some(SKIPPED_DETAIL.to_string()),
+            ));
+            continue;
+        }
+        let r = if is_gh_type(t) {
+            if view.is_none() {
+                view = Some(fetch_view(&i).await);
+            }
+            match view.as_ref().expect("set above") {
+                Ok(pr) => map_condition(c, pr, i.head_sha.as_deref()),
+                Err(why) => result(t, ConditionResultStatus::Pending, None, Some(why.clone())),
+            }
+        } else if let Condition::Cmd {
+            cmd,
+            needs,
+            timeout,
+            ..
+        } = c
+        {
+            match &i.cmd {
+                None => result(
+                    t,
+                    ConditionResultStatus::Pending,
+                    None,
+                    Some("this daemon has no command runner for cmd conditions".into()),
+                ),
+                Some(ctx) => {
+                    let runner = cmds.get_or_insert_with(|| CmdConditionRunner::new(ctx.clone()));
+                    // The commit conductor pushed, else the PR head gh reported (when gh ran).
+                    let sha = i.head_sha.clone().or_else(|| match &view {
+                        Some(Ok(pr)) => pr.head_ref_oid.clone(),
+                        _ => None,
+                    });
+                    runner
+                        .run(cmd, *needs, timeout.as_ref().map(|t| t.as_str()), sha)
+                        .await
+                }
+            }
+        } else {
+            unsupported(c)
+        };
+        if i.short_circuit && r.status != ConditionResultStatus::Met {
+            stopped = true;
+        }
+        results.push(r);
+    }
+    // Dropping the runner removes its checkout.
+    drop(cmds);
+    EvaluateConditionsResult { results }
 }
 
 // ---- mapping (pure) ---------------------------------------------------------------------------
@@ -499,6 +564,9 @@ pub struct PrView {
     pub changed_files: Option<u64>,
     /// The pair count in the body's screenshots marker (None: none).
     pub screenshot_pairs: Option<u64>,
+    /// ADR-0037: GitHub's MERGEABLE / CONFLICTING / UNKNOWN (None: not asked for).
+    pub mergeable: Option<String>,
+    pub merge_state_status: Option<String>,
 }
 
 /// A non-empty string.
@@ -605,6 +673,8 @@ pub fn parse_pr_view(raw: &Value) -> Option<PrView> {
         files,
         changed_files: count(o.get("changedFiles")),
         screenshot_pairs: count(o.get("screenshotPairs")),
+        mergeable: js_str(o.get("mergeable")),
+        merge_state_status: js_str(o.get("mergeStateStatus")),
     })
 }
 
@@ -712,6 +782,43 @@ pub fn map_condition(c: &Condition, pr: &PrView, head_sha: Option<&str>) -> Cond
     }
     let closed = pr.state == "CLOSED" && !pr.merged;
     match c {
+        Condition::PrMergeable { .. } => {
+            if pr.merged {
+                return result(t, Met, some("merged"), None);
+            }
+            if pr.state == "CLOSED" {
+                return result(
+                    t,
+                    Failed,
+                    some("closed"),
+                    some("the PR was closed without merging"),
+                );
+            }
+            match pr.mergeable.as_deref() {
+                Some("MERGEABLE") => result(t, Met, some("mergeable"), None),
+                Some("CONFLICTING") => {
+                    let state = pr
+                        .merge_state_status
+                        .as_deref()
+                        .map(|s| format!(" ({})", s.to_lowercase()))
+                        .unwrap_or_default();
+                    result(
+                        t,
+                        Failed,
+                        some("conflicting"),
+                        Some(format!(
+                            "the PR conflicts with its base branch{state}: merge the base branch into it and resolve the conflicts"
+                        )),
+                    )
+                }
+                _ => result(
+                    t,
+                    Pending,
+                    some("unknown"),
+                    some("GitHub is still computing whether the PR merges cleanly"),
+                ),
+            }
+        }
         Condition::PrMerged { .. } => {
             if pr.merged {
                 return result(t, Met, some("merged"), None);
@@ -734,54 +841,24 @@ pub fn map_condition(c: &Condition, pr: &PrView, head_sha: Option<&str>) -> Cond
             let globs: Vec<&str> = ui_paths.iter().map(|g| g.as_str()).collect();
             map_screenshots(t, &globs, min_pairs.map(|n| n.get()), pr, closed)
         }
-        Condition::PrChecksGreen { .. } => {
-            let total = pr.checks.len();
-            let failed: Vec<&PrCheck> = pr
-                .checks
-                .iter()
-                .filter(|k| check_verdict(k) == Verdict::Fail)
-                .collect();
-            let pending: Vec<&PrCheck> = pr
-                .checks
-                .iter()
-                .filter(|k| check_verdict(k) == Verdict::Pending)
-                .collect();
-            let passed = total - failed.len() - pending.len();
-            let value = Some(format!("{passed}/{total} passed"));
-            if !failed.is_empty() {
-                // WF-T05: a job cancelled before any runner was assigned is infrastructure.
-                let (infra, real): (Vec<&PrCheck>, Vec<&PrCheck>) =
-                    failed.iter().partition(|k| k.no_runner == Some(true));
-                let detail = match (real.is_empty(), infra.is_empty()) {
-                    (_, true) => format!("failing: {}", failing(&real)),
-                    (true, false) => format!(
-                        "{INFRA_FAILURE}: no runner was assigned to {}; rerun the job (gh run rerun <run-id> --failed)",
-                        failing(&infra)
-                    ),
-                    (false, false) => format!(
-                        "failing: {}; {INFRA_FAILURE} (no runner was assigned; rerun the job): {}",
-                        failing(&real),
-                        failing(&infra)
-                    ),
-                };
-                return result(t, Failed, value, Some(detail));
+        Condition::PrChecksGreen { no_checks, .. } => {
+            let r = map_checks(t, pr, closed);
+            // ADR-0037 P3: the engine's require_mergeable policy reads GitHub's answer from here.
+            if !no_checks
+                .as_ref()
+                .is_some_and(|n| n.policy == ConditionNoChecksPolicy::RequireMergeable)
+            {
+                return r;
             }
-            if closed {
-                return result(t, Failed, value, some("the PR was closed without merging"));
+            let m = match pr.mergeable.as_deref() {
+                Some("MERGEABLE") => ConditionResultMergeable::Mergeable,
+                Some("CONFLICTING") => ConditionResultMergeable::Conflicting,
+                _ => ConditionResultMergeable::Unknown,
+            };
+            ConditionResult {
+                mergeable: Some(m),
+                ..r
             }
-            // value is NO_PR_CHECKS_VALUE here: the engine's `no_checks_after` keys on it (U-072).
-            if total == 0 {
-                return result(t, Pending, value, some("no checks reported yet"));
-            }
-            if !pending.is_empty() {
-                return result(
-                    t,
-                    Pending,
-                    value,
-                    Some(format!("waiting for: {}", names(&pending))),
-                );
-            }
-            result(t, Met, value, None)
         }
         Condition::PrApprovals { min, .. } => {
             let min = min.get();
@@ -863,6 +940,59 @@ pub fn map_condition(c: &Condition, pr: &PrView, head_sha: Option<&str>) -> Cond
         }
         _ => unsupported(c),
     }
+}
+
+/// `pr_checks_green` without the no-CI policy (the engine applies it).
+fn map_checks(t: ConditionType, pr: &PrView, closed: bool) -> ConditionResult {
+    use ConditionResultStatus::{Failed, Met, Pending};
+    let some = |s: &str| Some(s.to_string());
+    let total = pr.checks.len();
+    let failed: Vec<&PrCheck> = pr
+        .checks
+        .iter()
+        .filter(|k| check_verdict(k) == Verdict::Fail)
+        .collect();
+    let pending: Vec<&PrCheck> = pr
+        .checks
+        .iter()
+        .filter(|k| check_verdict(k) == Verdict::Pending)
+        .collect();
+    let passed = total - failed.len() - pending.len();
+    let value = Some(format!("{passed}/{total} passed"));
+    if !failed.is_empty() {
+        // WF-T05: a job cancelled before any runner was assigned is infrastructure.
+        let (infra, real): (Vec<&PrCheck>, Vec<&PrCheck>) =
+            failed.iter().partition(|k| k.no_runner == Some(true));
+        let detail = match (real.is_empty(), infra.is_empty()) {
+            (_, true) => format!("failing: {}", failing(&real)),
+            (true, false) => format!(
+                "{INFRA_FAILURE}: no runner was assigned to {}; rerun the job (gh run rerun <run-id> --failed)",
+                failing(&infra)
+            ),
+            (false, false) => format!(
+                "failing: {}; {INFRA_FAILURE} (no runner was assigned; rerun the job): {}",
+                failing(&real),
+                failing(&infra)
+            ),
+        };
+        return result(t, Failed, value, Some(detail));
+    }
+    if closed {
+        return result(t, Failed, value, some("the PR was closed without merging"));
+    }
+    // value is NO_PR_CHECKS_VALUE here: the engine's `no_checks_after` keys on it (U-072).
+    if total == 0 {
+        return result(t, Pending, value, some("no checks reported yet"));
+    }
+    if !pending.is_empty() {
+        return result(
+            t,
+            Pending,
+            value,
+            Some(format!("waiting for: {}", names(&pending))),
+        );
+    }
+    result(t, Met, value, None)
 }
 
 /// At most `n` items, then `+k more`.

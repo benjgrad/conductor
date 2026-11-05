@@ -1,12 +1,15 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { NO_PR_CHECKS_VALUE, type Condition } from '@conductor/shared';
 import { workflowShell } from '../platform/index.js';
 import { removeTreeOrLeave } from '../test-support/remove-tree.js';
+import type { CmdExecResult } from './condition-cmd.js';
+import type { FreshCheckoutInput } from './checkout.js';
 import {
   GH_OUTPUT_CAP_BYTES,
+  SKIPPED_DETAIL,
   evaluateConditions,
   mapCondition,
   parsePrView,
@@ -445,20 +448,9 @@ describe('evaluate_conditions with a fake gh', () => {
     expect(() => readFileSync(join(tmp, 'argv'))).toThrow();
   });
 
-  it('ADR-0037 types are unsupported until T5; gh is not run', async () => {
-    const r = await evalWith(
-      [
-        { type: 'cmd', name: 'Merges cleanly', cmd: 'true', needs: 'checkout' },
-        { type: 'pr_mergeable' },
-        { type: 'age_below', max: '2h' },
-      ],
-      view(),
-    );
-    expect(r.results.map((x) => [x.type, x.status])).toEqual([
-      ['cmd', 'unsupported'],
-      ['pr_mergeable', 'unsupported'],
-      ['age_below', 'unsupported'],
-    ]);
+  it('age_below is the engine’s, unsupported here; gh is not run', async () => {
+    const r = await evalWith([{ type: 'age_below', max: '2h' }], view());
+    expect(r.results.map((x) => [x.type, x.status])).toEqual([['age_below', 'unsupported']]);
     expect(() => readFileSync(join(tmp, 'argv'))).toThrow();
   });
 
@@ -645,5 +637,264 @@ describe('pr_screenshots (M2-T35a)', () => {
   it('a moved head fails it like every PR condition; no file list keeps it pending', () => {
     expect(mapCondition(SHOTS, pr({ files: [], changedFiles: 0 }), OLD).status).toBe('failed');
     expect(mapCondition(SHOTS, pr({}))).toMatchObject({ status: 'pending' });
+  });
+});
+
+describe('pr_mergeable and the require_mergeable policy (ADR-0037)', () => {
+  const MERGEABLE: Condition = { type: 'pr_mergeable' };
+  const REQUIRE: Condition = {
+    type: 'pr_checks_green',
+    no_checks: { policy: 'require_mergeable', after: '5m' },
+  };
+  const pr = (over: Record<string, unknown>) => parsePrView(view(over));
+
+  it('asks gh for mergeable,mergeStateStatus only when a condition needs it', async () => {
+    await evalWith([CHECKS], view());
+    await evalWith([MERGEABLE], view({ mergeable: 'MERGEABLE' }));
+    await evalWith([REQUIRE], view({ mergeable: 'MERGEABLE' }));
+    const argv = readFileSync(join(tmp, 'argv'), 'utf8').trim().split('\n');
+    expect(argv[0]).not.toContain('mergeable');
+    expect(argv[1]).toContain('headRefOid,mergeable,mergeStateStatus --jq');
+    expect(argv[1]).toContain(', mergeable, mergeStateStatus}');
+    expect(argv[2]).toContain('mergeable,mergeStateStatus');
+  });
+
+  it('pr_mergeable: MERGEABLE → met, CONFLICTING → failed, UNKNOWN → pending', () => {
+    expect(mapCondition(MERGEABLE, pr({ mergeable: 'MERGEABLE' }))).toMatchObject({
+      status: 'met',
+      value: 'mergeable',
+    });
+    const c = mapCondition(MERGEABLE, pr({ mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' }));
+    expect(c).toMatchObject({ status: 'failed', value: 'conflicting' });
+    expect(c.detail).toContain('conflicts with its base branch (dirty)');
+    expect(mapCondition(MERGEABLE, pr({ mergeable: 'UNKNOWN' })).status).toBe('pending');
+    expect(mapCondition(MERGEABLE, pr({})).status).toBe('pending');
+  });
+
+  it('pr_mergeable: merged → met, closed → failed, a moved head → failed', () => {
+    expect(mapCondition(MERGEABLE, pr({ state: 'MERGED' })).status).toBe('met');
+    expect(mapCondition(MERGEABLE, pr({ state: 'CLOSED' })).status).toBe('failed');
+    expect(mapCondition(MERGEABLE, pr({ mergeable: 'MERGEABLE' }), OLD).status).toBe('failed');
+  });
+
+  it('require_mergeable adds mergeable to the pr_checks_green result; other policies do not', () => {
+    expect(mapCondition(REQUIRE, pr({ mergeable: 'CONFLICTING' }))).toMatchObject({
+      status: 'pending',
+      value: NO_PR_CHECKS_VALUE,
+      mergeable: 'CONFLICTING',
+    });
+    expect(mapCondition(REQUIRE, pr({})).mergeable).toBe('UNKNOWN');
+    const pass: Condition = { type: 'pr_checks_green', no_checks: { policy: 'pass', after: '5m' } };
+    expect(mapCondition(pass, pr({ mergeable: 'CONFLICTING' }))).not.toHaveProperty('mergeable');
+  });
+});
+
+describe('cmd conditions (ADR-0037)', () => {
+  const MERGES: Condition = {
+    type: 'cmd',
+    name: 'Merges cleanly',
+    cmd: 'merge-check',
+    needs: 'checkout',
+  };
+  const TESTS: Condition = { type: 'cmd', name: 'Tests', cmd: 'run-tests', needs: 'setup' };
+  const LINT: Condition = {
+    type: 'cmd',
+    name: 'Lint',
+    cmd: 'run-lint',
+    needs: 'setup',
+    timeout: '30s',
+  };
+
+  /** A fake checkout (a plain dir) and an exec that answers by command. */
+  function harness(answers: Record<string, Partial<CmdExecResult>> = {}) {
+    const ran: { cmd: string; cwd: string; timeoutMs: number }[] = [];
+    const checkouts: FreshCheckoutInput[] = [];
+    const dirs: string[] = [];
+    return {
+      ran,
+      checkouts,
+      dirs,
+      input: {
+        worktree: { path: join(tmp, 'wt'), branch: 'conductor/t-1' },
+        setup: 'install-deps',
+        path: '',
+        exec: (cmd: string, cwd: string, timeoutMs: number) => {
+          ran.push({ cmd, cwd, timeoutMs });
+          return Promise.resolve({ exitCode: 0, timedOut: false, outputTail: '', ...answers[cmd] });
+        },
+        checkout: (i: FreshCheckoutInput) => {
+          checkouts.push(i);
+          const dir = join(root, `check-${checkouts.length}`);
+          mkdirSync(dir, { recursive: true });
+          dirs.push(dir);
+          return Promise.resolve({ ok: true as const, dir, sha: i.sha });
+        },
+        resolveHead: () => Promise.resolve(OLD),
+      },
+    };
+  }
+
+  it('exit 0 → met; non-zero → failed with the output tail; a timeout → failed', async () => {
+    const h = harness({
+      'run-tests': { exitCode: 1, outputTail: '1 test failed' },
+      'run-lint': { exitCode: null, timedOut: true },
+    });
+    const r = await evaluateConditions({
+      conditions: [MERGES, TESTS, LINT],
+      prUrl: PR,
+      root,
+      ...h.input,
+    });
+    expect(r.results).toEqual([
+      { type: 'cmd', status: 'met', value: 'exit 0', detail: null },
+      { type: 'cmd', status: 'failed', value: 'exit 1', detail: 'exit 1: 1 test failed' },
+      { type: 'cmd', status: 'failed', value: 'timed out', detail: 'timed out after 30s' },
+    ]);
+    expect(h.ran.find((x) => x.cmd === 'run-lint')?.timeoutMs).toBe(30_000);
+  });
+
+  it('needs: checkout never runs the setup; needs: setup runs it once for two cmds', async () => {
+    const h = harness();
+    await evaluateConditions({ conditions: [MERGES], prUrl: PR, root, ...h.input });
+    expect(h.ran.map((x) => x.cmd)).toEqual(['merge-check']);
+    const h2 = harness();
+    await evaluateConditions({ conditions: [TESTS, MERGES, LINT], prUrl: PR, root, ...h2.input });
+    expect(h2.ran.map((x) => x.cmd)).toEqual([
+      'install-deps',
+      'run-tests',
+      'merge-check',
+      'run-lint',
+    ]);
+  });
+
+  it('one checkout of head_sha (else the worktree head), in the checkout dir, removed afterwards', async () => {
+    const h = harness();
+    await evaluateConditions({
+      conditions: [MERGES, LINT],
+      prUrl: PR,
+      root,
+      headSha: HEAD,
+      ...h.input,
+    });
+    expect(h.checkouts).toHaveLength(1);
+    expect(h.checkouts[0]).toMatchObject({
+      sha: HEAD,
+      branch: 'conductor/t-1',
+      worktree: join(tmp, 'wt'),
+    });
+    expect(h.ran.every((x) => x.cwd === h.dirs[0])).toBe(true);
+    expect(existsSync(h.dirs[0]!)).toBe(false);
+    const h2 = harness();
+    await evaluateConditions({ conditions: [MERGES], prUrl: null, root, ...h2.input });
+    expect(h2.checkouts[0]?.sha).toBe(OLD);
+  });
+
+  it('no worktree on this machine, a failed checkout or a failed setup → pending, never failed', async () => {
+    const h = harness();
+    const none = await evaluateConditions({
+      conditions: [MERGES],
+      prUrl: PR,
+      root,
+      ...h.input,
+      worktree: null,
+    });
+    expect(none.results[0]).toMatchObject({ status: 'pending' });
+    expect(none.results[0]?.detail).toContain("doesn't hold the ticket's worktree");
+    const bad = await evaluateConditions({
+      conditions: [MERGES],
+      prUrl: PR,
+      root,
+      ...h.input,
+      checkout: () => Promise.resolve({ ok: false as const, error: 'the branch moved', head: OLD }),
+    });
+    expect(bad.results[0]).toMatchObject({
+      status: 'pending',
+      detail: 'fresh checkout: the branch moved',
+    });
+    const h3 = harness({ 'install-deps': { exitCode: 2 } });
+    const setup = await evaluateConditions({
+      conditions: [TESTS, LINT],
+      prUrl: PR,
+      root,
+      ...h3.input,
+    });
+    expect(setup.results.map((x) => x.status)).toEqual(['pending', 'pending']);
+    expect(setup.results[0]?.detail).toContain('the setup `install-deps` failed');
+    expect(h3.ran.map((x) => x.cmd)).toEqual(['install-deps']);
+    expect(h.ran).toEqual([]);
+  });
+});
+
+describe('short_circuit (ADR-0037 P1)', () => {
+  const MERGES: Condition = {
+    type: 'cmd',
+    name: 'Merges cleanly',
+    cmd: 'merge-check',
+    needs: 'checkout',
+  };
+  const run = (conditions: Condition[], v: unknown, exitCode: number, shortCircuit: boolean) => {
+    const ran: string[] = [];
+    writeFileSync(join(tmp, 'out'), JSON.stringify(v));
+    return evaluateConditions({
+      conditions,
+      prUrl: PR,
+      root,
+      gh: { cmd: workflowShell().file, args: [script] },
+      env: { ...process.env, FAKE_GH_DIR: tmp },
+      shortCircuit,
+      worktree: { path: join(tmp, 'wt'), branch: 'b' },
+      resolveHead: () => Promise.resolve(HEAD),
+      setup: '',
+      exec: (cmd) => {
+        ran.push(cmd);
+        return Promise.resolve({ exitCode, timedOut: false, outputTail: '' });
+      },
+      checkout: (i) => {
+        const dir = join(root, 'check');
+        mkdirSync(dir, { recursive: true });
+        return Promise.resolve({ ok: true as const, dir, sha: i.sha });
+      },
+    }).then((r) => ({ r, ran }));
+  };
+
+  it('a failing pr_mergeable stops before the cmd: [failed, skipped], no command runs', async () => {
+    const { r, ran } = await run(
+      [{ type: 'pr_mergeable' }, MERGES],
+      view({ mergeable: 'CONFLICTING' }),
+      0,
+      true,
+    );
+    expect(r.results.map((x) => x.status)).toEqual(['failed', 'skipped']);
+    expect(r.results[1]).toEqual({
+      type: 'cmd',
+      status: 'skipped',
+      value: null,
+      detail: SKIPPED_DETAIL,
+    });
+    expect(ran).toEqual([]);
+  });
+
+  it('all met → nothing skipped; without the flag a failing first condition still evaluates the rest', async () => {
+    const met = await run(
+      [{ type: 'pr_mergeable' }, MERGES],
+      view({ mergeable: 'MERGEABLE' }),
+      0,
+      true,
+    );
+    expect(met.r.results.map((x) => x.status)).toEqual(['met', 'met']);
+    const all = await run(
+      [{ type: 'pr_mergeable' }, MERGES],
+      view({ mergeable: 'CONFLICTING' }),
+      0,
+      false,
+    );
+    expect(all.r.results.map((x) => x.status)).toEqual(['failed', 'met']);
+    expect(all.ran).toEqual(['merge-check']);
+  });
+
+  it('a failing cmd first: gh never runs', async () => {
+    const { r } = await run([MERGES, { type: 'pr_mergeable' }], view(), 1, true);
+    expect(r.results.map((x) => x.status)).toEqual(['failed', 'skipped']);
+    expect(() => readFileSync(join(tmp, 'argv'))).toThrow();
   });
 });

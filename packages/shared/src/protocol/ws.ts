@@ -903,6 +903,16 @@ export const EvaluateConditionsArgsSchema = z.object({
     .string()
     .regex(/^[0-9a-f]{40}$/)
     .optional(),
+  /**
+   * ADR-0037 P1: evaluate in order and stop at the first condition that is not `met`; the rest
+   * are reported `skipped`. Absent / false = evaluate all (`requires.conditions`).
+   */
+  short_circuit: z.boolean().optional(),
+  /**
+   * ADR-0037 P2: the fresh checkout's setup for `cmd` conditions with `needs: setup`: a command,
+   * '' (none), or null / absent (auto-detect from the lockfile, like `requires.setup`).
+   */
+  setup: z.string().max(2_000).nullable().optional(),
 });
 export type EvaluateConditionsArgs = z.infer<typeof EvaluateConditionsArgsSchema>;
 
@@ -919,9 +929,15 @@ export const NO_PR_CHECKS_VALUE = '0/0 passed';
  */
 export const ConditionResultSchema = z.object({
   type: ConditionTypeSchema,
-  status: z.enum(['met', 'pending', 'failed', 'unsupported']),
+  /** `skipped` (ADR-0037 P1): not evaluated, an earlier condition was not met (`short_circuit`). */
+  status: z.enum(['met', 'pending', 'failed', 'unsupported', 'skipped']),
   value: z.string().nullable(),
   detail: z.string().nullable(),
+  /**
+   * ADR-0037 P3: GitHub's `mergeable` for the PR, reported on a `pr_checks_green` result whose
+   * condition has `no_checks.policy: require_mergeable` (the engine applies the policy).
+   */
+  mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']).optional(),
 });
 export type ConditionResult = z.infer<typeof ConditionResultSchema>;
 

@@ -4,8 +4,10 @@ import {
   CONDUCTOR_V4_DEF,
   foldLegacyRequirements,
   TransitionActionSchema,
+  REQUIRES_CONDITION_TYPES,
   type TransitionObject,
   type WorkflowDefinition,
+  validateWorkflow,
 } from '@conductor/shared';
 import { describe, expect, it } from 'vitest';
 import { columnStates, validateColumns } from './columns.js';
@@ -17,6 +19,7 @@ import {
   arrowTransitions,
   checkListIssues,
   conditionOfType,
+  DEFAULT_NO_CHECKS,
   describeTransition,
   getTransitionObject,
   humanDuration,
@@ -464,6 +467,59 @@ describe('describeTransition (UXR-60)', () => {
     expect(sectionOfPath('.requires.condition_timeout')).toBe('conditions');
     expect(sectionOfPath('.on_unmet.retries')).toBe('unmet');
     expect(sectionOfPath('.requires')).toBeNull();
+  });
+});
+
+describe('ADR-0037 conditions in the designer (T5)', () => {
+  /** v2 with `implementing → ready_for_testing` gaining one more condition. */
+  const plus = (c: ReturnType<typeof conditionOfType>) => {
+    const r = getTransitionObject(V2, 'implementing', 'ready_for_testing')!.requires!;
+    return setRequires(V2, 'implementing', 'ready_for_testing', addCondition(r, c));
+  };
+
+  it('the requires select offers cmd and pr_mergeable, not the watch-only age_below', () => {
+    expect(REQUIRES_CONDITION_TYPES).toEqual(expect.arrayContaining(['cmd', 'pr_mergeable']));
+    expect(REQUIRES_CONDITION_TYPES).not.toContain('age_below');
+  });
+
+  it('each new type round-trips through validateWorkflow and the client checks', () => {
+    // The v2 draft's own errors (rule 17 on `done`) are the baseline: a new condition adds none.
+    const errs = (d: WorkflowDefinition) => {
+      const res = validateWorkflow(d);
+      return res.ok ? [] : res.errors;
+    };
+    const base = errs(V2);
+    for (const type of ['cmd', 'pr_mergeable', 'pr_checks_green'] as const) {
+      const def = plus(conditionOfType(type));
+      expect(errs(def)).toEqual(base);
+      expect(issues(def)).toEqual([]);
+    }
+  });
+
+  it('a newly added pr_checks_green requires mergeability; re-picking keeps its rule', () => {
+    expect(conditionOfType('pr_checks_green')).toEqual({
+      type: 'pr_checks_green',
+      no_checks: DEFAULT_NO_CHECKS,
+    });
+    expect(conditionOfType('pr_checks_green', { type: 'pr_checks_green' })).toEqual({
+      type: 'pr_checks_green',
+    });
+    const fail = { type: 'pr_checks_green', no_checks: { policy: 'fail', after: '1h' } } as const;
+    expect(conditionOfType('pr_checks_green', fail)).toEqual(fail);
+  });
+
+  it('client checks: an empty command or name, a bad timeout, a bad no-CI duration', () => {
+    const cmd = plus({ type: 'cmd', name: ' ', cmd: '', needs: 'setup', timeout: 'soon' });
+    const at = 'states.implementing.on.ready_for_testing.requires.conditions.';
+    const n = getTransitionObject(V2, 'implementing', 'ready_for_testing')!.requires!.conditions!
+      .length;
+    expect(issues(cmd).map(([p]) => p)).toEqual([
+      `${at}${n}.name`,
+      `${at}${n}.cmd`,
+      `${at}${n}.timeout`,
+    ]);
+    const nc = plus({ type: 'pr_checks_green', no_checks: { policy: 'pass', after: 'x' } });
+    expect(issues(nc).map(([p]) => p)).toEqual([`${at}${n}.no_checks`]);
   });
 });
 

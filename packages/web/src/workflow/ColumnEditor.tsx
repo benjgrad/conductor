@@ -1,8 +1,6 @@
 import {
   FALLBACK_TRANSITION_NAMES,
   foldLegacyRequirements,
-  RETURN_TO,
-  transitionActor,
   transitionObject,
   FOLLOW_UPS_MAX,
   type WorkflowDefinition,
@@ -20,6 +18,7 @@ import {
   ticketEditableOf,
   type ColumnIssue,
 } from './columns.js';
+import { TransitionList } from './TransitionList.js';
 import { transitionNames } from './transitions.js';
 
 // The side panel for one column (ADR-0010, ADR-0011): its title and its work. The rules for
@@ -74,8 +73,6 @@ export function ColumnEditor({
       ));
   };
   const names = transitionNames(definition, state);
-  const problemsOf = (name: string) =>
-    issues.filter((i) => i.transition?.from === state && i.transition.name === name).length;
   // The transitions an old `entry` on this column folds onto (fold.ts: every non-fallback one in).
   const foldTargets =
     s.entry === undefined
@@ -202,35 +199,15 @@ export function ColumnEditor({
           {names.length === 0 ? (
             <p className="muted wf-note">None yet.</p>
           ) : (
-            <ul className="wf-transitions" aria-label="Transitions">
-              {names.map((n) => {
-                const raw = s.on![n]!;
-                const t = transitionObject(raw);
-                const goto =
-                  t.goto === RETURN_TO ? 'the column that asked' : columnTitle(definition, t.goto);
-                const problems = problemsOf(n);
-                return (
-                  <li key={n}>
-                    <button
-                      type="button"
-                      className={problems > 0 ? 'wf-transition error' : 'wf-transition'}
-                      onClick={() => onSelectTransition(n)}
-                    >
-                      <code>{n}</code> → {goto}
-                    </button>
-                    <span className="muted">
-                      {' '}
-                      {transitionActor(definition, state, n, raw)}
-                      {t.kinds !== undefined && t.kinds.length > 0
-                        ? ` · ${t.kinds.join(', ')}`
-                        : ''}
-                      {t.requires !== undefined || t.requirements !== undefined ? ' · ✓' : ''}
-                      {problems > 0 ? ` · ${problems} problem${problems === 1 ? '' : 's'}` : ''}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+            <TransitionList
+              definition={definition}
+              from={state}
+              names={names}
+              issues={issues}
+              onSelect={onSelectTransition}
+              showGoto
+              label="Transitions"
+            />
           )}
           <div>
             <button type="button" onClick={onAddTransition}>

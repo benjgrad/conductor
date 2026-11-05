@@ -2,6 +2,8 @@
 
 The "UX" ticket: *"Do a full design review of our platform. Capture screenshots. I want you to give me your thoughts and list improvements you recommend for our UI."* The [mobile review](../README.md) (UXR-01..21, 2026-10-29) rebuilt the phone layout. This one looks at **every screen and state**, on desktop as much as on a phone, and ends with a prioritised list of recommendations. Ben then asked for three deeper looks, each with its own section: [the workflow designer's rules builders and navigation](#the-workflow-designer-in-depth), [repo checks overrides](#repo-checks-overrides-in-depth) (with a proposed redesign), and [the MCP tools that still have no web UI](#mcp-tools-without-a-web-ui). This is a review only: nothing here is built yet. Changes to the desktop layout need Ben's OK before anyone builds them.
 
+**Examples:** [`examples.html`](examples.html) is a self-contained page (open it in a browser) that puts a crop of today's screen next to an HTML mock-up of the proposed fix, for the main findings in each area.
+
 **How the shots were made**: `node scripts/ui-screenshots.js --out full-2026-11`.
 - The script starts the web app on the still mock API (`VITE_API=mock VITE_MOCK_STATIC=1`) and drives Chrome through playwright-core.
 - Sizes: 375×812 and 360×740 (phones, touch, 2×), 768×1024 (tablet) and 1440×900 (desktop). Every shot is in light mode, and the key screens are also in dark.

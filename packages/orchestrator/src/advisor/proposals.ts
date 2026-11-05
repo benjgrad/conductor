@@ -524,9 +524,9 @@ async function applyLocked(tx: Tx, actor: ProposalActor, id: string): Promise<Ap
       );
     }
     if (!res.ok) {
-      const err = 'The workflow definition is invalid.';
-      await decide(tx, row, 'failed', actor.by, { error: err });
-      return failure('invalid_workflow', err);
+      // UXR-67 rule 18: a column it drops still has tickets. Applying may work once they move on.
+      const err = `The workflow definition is invalid: ${res.errors.map((e) => e.message).join('; ')}`;
+      return conflict(err, { details: workflowDetails(res.errors) }, 'invalid_workflow');
     }
     const done = await decide(tx, row, 'applied', actor.by, { applied_version: res.version });
     return { ok: true, value: toDetail(done) };

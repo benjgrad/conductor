@@ -769,6 +769,141 @@ describe('transition arrows (ADR-0011)', () => {
   });
 });
 
+describe('the workflow’s shape (UXR-67)', () => {
+  const addColumnDialog = () => within(screen.getByRole('dialog', { name: 'Add a column' }));
+  const handle = (title: string) =>
+    screen.getByRole('button', { name: `Draw a transition from ${title}` });
+
+  it('“+” between two columns adds one there, which then needs a way in', async () => {
+    const { diagram } = await setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Add a column after Planning' }));
+    const dialog = addColumnDialog();
+    const title = dialog.getByLabelText<HTMLInputElement>('Title');
+    expect(document.activeElement).toBe(title);
+    const add = dialog.getByRole<HTMLButtonElement>('button', { name: 'Add column' });
+    expect(add.disabled).toBe(true);
+    type(title, 'Needs design');
+    expect(dialog.getByText('needs_design')).toBeTruthy();
+    fireEvent.click(dialog.getByRole('radio', { name: /Person/ }));
+    fireEvent.click(add);
+    expect(screen.queryByRole('dialog', { name: 'Add a column' })).toBeNull();
+    expect(lanesOf(diagram)).toEqual([
+      '__queued__',
+      'planning',
+      'needs_design',
+      'implementing',
+      'needs_input',
+      'waiting_external',
+      'done',
+    ]);
+    expect(editor().getByRole('heading', { name: 'Needs design' })).toBeTruthy();
+    expect(
+      editor().getByText(
+        'Nothing leads to Needs design yet: add a transition into it from another column',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText(/Shape changes apply to new and reopened tickets/)).toBeTruthy();
+  });
+
+  it('Escape or Cancel closes the dialog without a change', async () => {
+    await setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Add a column after Done' }));
+    fireEvent.click(addColumnDialog().getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add a column after Queued' }));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByText('Unsaved changes')).toBeNull();
+  });
+
+  it('moves a column left and right; the ends are disabled', async () => {
+    const { diagram } = await setup();
+    fireEvent.click(lane('Planning'));
+    expect(editor().getByRole<HTMLButtonElement>('button', { name: '← Move left' }).disabled).toBe(
+      true,
+    );
+    fireEvent.click(editor().getByRole('button', { name: 'Move right →' }));
+    expect(lanesOf(diagram).slice(1, 3)).toEqual(['implementing', 'planning']);
+    fireEvent.click(editor().getByRole('button', { name: '← Move left' }));
+    expect(lanesOf(diagram).slice(1, 3)).toEqual(['planning', 'implementing']);
+  });
+
+  it('Remove says why a column can’t go; a new one is removed after a confirm', async () => {
+    const api = createMockApi();
+    // A ticket in Done (from the board): the reasons say so.
+    api.getBoard = () =>
+      Promise.resolve({
+        columns: [
+          {
+            id: 'done',
+            cards: [{ workflow_id: 'conductor', workflow_state: 'done', status: 'running' }],
+          },
+        ],
+        last_event_id: 0,
+      } as unknown as Awaited<ReturnType<typeof api.getBoard>>);
+    const { diagram } = await setup(api);
+    fireEvent.click(lane('Planning'));
+    const remove = () => editor().getByRole<HTMLButtonElement>('button', { name: 'Remove column' });
+    expect(remove().disabled).toBe(true);
+    const why = () => editor().getByRole('list', { name: 'Why it can’t be removed' });
+    expect(
+      within(why()).getByText('It is the first column: claimed tickets start here'),
+    ).toBeTruthy();
+    fireEvent.click(lane('Done'));
+    await waitFor(() => expect(within(why()).getByText('1 ticket is in it')).toBeTruthy());
+    expect(within(why()).getByText('Needs input → Done leads here')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add a column after Waiting external' }));
+    type(addColumnDialog().getByLabelText('Title'), 'Extra');
+    fireEvent.click(addColumnDialog().getByRole('button', { name: 'Add column' }));
+    expect(remove().disabled).toBe(false);
+    fireEvent.click(remove());
+    const confirm = within(editor().getByRole('alertdialog', { name: 'Remove column' }));
+    fireEvent.click(confirm.getByRole('button', { name: 'Remove' }));
+    expect(lanesOf(diagram)).not.toContain('extra');
+    expect(screen.queryByRole('complementary', { name: 'Column' })).toBeNull();
+  });
+
+  it('draws a transition from the keyboard: Goes to… → its panel, Title focused', async () => {
+    const { saved } = await setup();
+    fireEvent.keyDown(handle('Planning'), { key: 'Enter' });
+    const menu = within(screen.getByRole('menu', { name: /^New transition from Planning/ }));
+    expect(document.activeElement).toBe(menu.getAllByRole('menuitem')[0]);
+    fireEvent.click(menu.getByRole('menuitem', { name: 'Done' }));
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(panel().getByLabelText<HTMLSelectElement>('Goes to').value).toBe('done');
+    expect(document.activeElement).toBe(panel().getByLabelText('Title'));
+    type(panel().getByLabelText('Title'), 'Skip it');
+    await save();
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(onOf(saved[0]!, 'planning').new_transition).toEqual({ goto: 'done', title: 'Skip it' });
+  });
+
+  it('draws a transition by dragging a column’s edge onto another column', async () => {
+    const { diagram } = await setup();
+    fireEvent.pointerDown(handle('Implementing'), { button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(diagram, { clientX: 60, clientY: 12 });
+    expect(diagram.getAttribute('class')).toContain('drawing');
+    fireEvent.pointerUp(lane('Waiting external'), { clientX: 200, clientY: 12 });
+    expect(panel().getByLabelText<HTMLSelectElement>('Goes to').value).toBe('waiting_external');
+    expect(document.activeElement).toBe(panel().getByLabelText('Title'));
+    // A press without a move is not a drag; Escape cancels one.
+    fireEvent.pointerDown(handle('Planning'), { button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(lane('Done'), { clientX: 11, clientY: 10 });
+    fireEvent.pointerDown(handle('Planning'), { button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(diagram, { clientX: 60, clientY: 12 });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.pointerUp(lane('Done'), { clientX: 60, clientY: 12 });
+    expect(screen.queryByRole('button', { name: /^Arrow Planning → Done:/ })).toBeNull();
+  });
+
+  it('Add transition opens the new one with its Title focused', async () => {
+    await setup();
+    fireEvent.click(lane('Planning'));
+    fireEvent.click(editor().getByRole('button', { name: 'Add transition' }));
+    expect(document.activeElement).toBe(panel().getByLabelText('Title'));
+  });
+});
+
 describe('transition editor: summary and sections (UXR-60, UXR-63)', () => {
   // The sections' headers, in order (not the Advanced toggle inside one).
   const heads = () => [

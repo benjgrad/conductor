@@ -10,6 +10,9 @@
 //   node scripts/ui-screenshots.js [--out before|after] [--url http://localhost:5173] [--only board,detail]
 //
 // `--only` re-takes those screens at every size and keeps the rest of metrics.json.
+// The `*-permission` screens (UXR-32) need the `VITE_MOCK_PERMISSION=1` mock scene, which changes
+// the whole board: they are taken only when `--only` lists nothing else (the script then sets it)
+// or when VITE_MOCK_PERMISSION=1 is already in the environment.
 //
 // Chrome: CHROME_PATH, else playwright's `chrome` channel (an installed Google Chrome).
 /// <reference lib="dom" />
@@ -31,18 +34,24 @@ const arg = (name, fallback) => {
 const out = arg('out', 'before');
 const only = arg('only', '').split(',').filter(Boolean);
 const outDir = join(root, 'docs/qa/ux-review', out);
+const isPermissionShot = (/** @type {string} */ id) => id.endsWith('-permission');
+/** UXR-32: the mock board holds a tool permission (api/select.ts VITE_MOCK_PERMISSION). */
+const permissionScene =
+  process.env.VITE_MOCK_PERMISSION === '1' || (only.length > 0 && only.every(isPermissionShot));
 
 /** The needs-input card the panel shots open (api/mock-data.ts). */
 const CARD = 'Add audit log table';
 /** A running card with a ticket body, so the Brief shows (api/mock-data.ts). */
 const BRIEF_CARD = 'Add pagination to /orders';
-/** UXR-35: one card per request kind (api/mock-data.ts; the permission prompt: api/select.ts). */
+/** UXR-35: one card per request kind (api/mock-data.ts). The permission prompt is the
+ * `detail-permission` screen, in the VITE_MOCK_PERMISSION scene (UXR-32). */
 const REVIEW_CARD = 'Board cards: review requests vs questions';
 const FAILED_CARD = 'Fix flaky checkout test';
 const STEP_FAILED_CARD = 'Add CSV export';
+/** The request shots: every kind but permission, in light and dark. */
+const REQUEST_SHOTS = ['detail-review', 'detail-failed', 'detail-step-failed'];
+/** The card VITE_MOCK_PERMISSION=1 holds on a permission (api/select.ts). */
 const PERMISSION_CARD = BRIEF_CARD;
-/** The request shots: every kind, in light and dark. */
-const REQUEST_SHOTS = ['detail-review', 'detail-permission', 'detail-failed', 'detail-step-failed'];
 /** The plan-approval card (06 §Plan approval; api/mock-data.ts planApprovalSeed). */
 const PLAN_CARD = 'Add rate limiting to /login';
 /** The ticket-panel shots (11-web-ui §Phone layout, Detail panel). */
@@ -108,6 +117,7 @@ const VIEWPORTS = [
         'new-ticket-bottom',
         'machines',
         'workflows',
+        'wf-diagram-end',
         'wf-rules-full',
         'wf-rules-new',
         'wf-arrow-group',
@@ -116,6 +126,8 @@ const VIEWPORTS = [
         'ticket-messages',
         'ticket-plan',
         ...REQUEST_SHOTS,
+        'board-permission',
+        'detail-permission',
         'detail-done',
         'detail-done-steps',
       ],
@@ -198,7 +210,6 @@ const SCREENS = [
   },
   { id: 'detail', path: '/#/', act: openCard },
   { id: 'detail-review', path: '/#/', act: (page) => openCard(page, REVIEW_CARD) },
-  { id: 'detail-permission', path: '/#/', act: (page) => openCard(page, PERMISSION_CARD) },
   { id: 'detail-failed', path: '/#/', act: (page) => openCard(page, FAILED_CARD) },
   { id: 'detail-step-failed', path: '/#/', act: (page) => openCard(page, STEP_FAILED_CARD) },
   {
@@ -293,10 +304,25 @@ const SCREENS = [
       await tapStrip(page, 'ticket-strip-brief');
     },
   },
+  // UXR-32: a pending permission counts on Needs input; the panel says "waiting for permission".
+  { id: 'board-permission', path: '/#/' },
+  { id: 'detail-permission', path: '/#/', act: (page) => openCard(page, PERMISSION_CARD) },
   { id: 'machines', path: '/#/machines' },
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
   { id: 'workflows', path: '/#/workflows' },
+  // UXR-45: the diagram's scroll box scrolled to its right end (fit to width: nothing hidden).
+  {
+    id: 'wf-diagram-end',
+    path: '/#/workflows',
+    act: async (page) => {
+      await page.locator('.wf-lanes').first().waitFor();
+      await page.evaluate(() => {
+        const box = document.querySelector('.wf-diagram .wf-scroll');
+        if (box) box.scrollLeft = box.scrollWidth;
+      });
+    },
+  },
   // UXR-60/63: a transition with every kind of rule, at its full height (the panel uncapped).
   {
     id: 'wf-rules-full',
@@ -415,7 +441,12 @@ async function startVite() {
     ['--filter', '@conductor/web', 'exec', 'vite', '--port', String(port), '--strictPort'],
     {
       cwd: root,
-      env: { ...process.env, VITE_API: 'mock', VITE_MOCK_STATIC: '1' },
+      env: {
+        ...process.env,
+        VITE_API: 'mock',
+        VITE_MOCK_STATIC: '1',
+        ...(permissionScene ? { VITE_MOCK_PERMISSION: '1' } : {}),
+      },
       stdio: ['ignore', 'pipe', 'inherit'],
     },
   );
@@ -469,6 +500,7 @@ async function main() {
         for (const screen of SCREENS) {
           if (list !== 'all' && !list.includes(screen.id)) continue;
           if (only.length > 0 && !only.includes(screen.id)) continue;
+          if (isPermissionShot(screen.id) !== permissionScene) continue;
           const name = `${screen.id}-${vp.w}x${vp.h}-${theme}`;
           try {
             // A hash-only change wouldn't reload, so every shot starts from a blank page.

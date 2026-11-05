@@ -322,6 +322,10 @@ main {
 .status-needs_input {
   color: var(--accent);
 }
+/* UXR-35: a held tool call is violet, like its request (only failures are red). */
+.status-needs_permission {
+  color: var(--perm);
+}
 .status-done {
   color: var(--ok);
 }

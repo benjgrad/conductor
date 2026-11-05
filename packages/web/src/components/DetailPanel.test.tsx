@@ -1029,3 +1029,18 @@ describe('review requests in the panel (UX-4 FR-4)', () => {
     expect(await panel.findByRole('region', { name: 'Ready for review' })).toBeTruthy();
   });
 });
+
+describe('panel header while a permission is held (UXR-32 FR-2)', () => {
+  it('the chip says "Waiting for permission", and the state again after the decision', async () => {
+    let requestId = '';
+    const { api } = await setup('Add pagination to /orders', (a) => {
+      requestId = a.requestPermission(SEED_IDS.running.session, 'Bash', { command: 'ls' });
+    });
+    const chip = () => document.querySelector('.detail-head .chip.status');
+    expect(chip()?.textContent).toBe('Waiting for permission');
+    expect(chip()?.className).toContain('status-needs_permission');
+    await api.decidePermission(requestId, { behavior: 'allow', scope: 'once' });
+    await waitFor(() => expect(chip()?.textContent).not.toBe('Waiting for permission'));
+    expect(chip()?.className).toContain('status-running');
+  });
+});

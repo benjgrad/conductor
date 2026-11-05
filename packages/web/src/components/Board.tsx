@@ -7,6 +7,7 @@ import {
   type BoardColumnView,
   type BoardState,
 } from '../board/board.js';
+import { waitingOnYou } from '../board/waiting.js';
 import { DEFAULT_BOARD_WORKFLOW, readCollapsed, writeCollapsed } from './board-layout.js';
 import { AgentAvatar, cardAgent } from './agent-identity.js';
 import { ago, cardMeta, humanize, KIND_LABELS, TICKET_KIND_LABELS, usd } from './format.js';
@@ -62,6 +63,9 @@ export function Board({
 }: BoardProps) {
   // NFR-2 (UX-9): stable columns and agent states, so toggling one column skips the others.
   const columns = useMemo(() => boardColumns(board), [board]);
+  // UXR-32: pending permissions wait on Ben too; the Needs-input header notes them.
+  const permissionCards = useMemo(() => waitingOnYou(board.cards.values()).permissions, [board]);
+  const waitingFor = (id: string) => (id === 'needs_input' ? permissionCards : NO_CARDS);
   // 06 §Plan approval: a card has no `return_to`; its answer option goes into an agent column.
   const agentStates = useMemo(
     () => new Set(columns.filter((c) => c.kind === 'agent').map((c) => c.id)),
@@ -91,7 +95,10 @@ export function Board({
   // FR-4: each collapsed column's card count when it was collapsed (lowered when it drops), so a
   // human column can show that it rose. Not before the first board load: its count is no news.
   const [baseline, setBaseline] = useState<ReadonlyMap<string, number>>(new Map());
-  const nextBaseline = board === EMPTY_BOARD ? baseline : baselines(columns, collapsed, baseline);
+  const nextBaseline =
+    board === EMPTY_BOARD
+      ? baseline
+      : baselines(columns, collapsed, baseline, permissionCards.length);
   if (nextBaseline !== baseline) setBaseline(nextBaseline);
 
   // Written only for the columns there are now, so the ids of removed columns don't pile up;
@@ -124,7 +131,10 @@ export function Board({
   const mobile = useIsMobile();
   const [picked, setPicked] = useState<string | null>(null);
   const active =
-    columns.find((c) => c.id === picked) ?? defaultColumn(columns) ?? columns[0] ?? null;
+    columns.find((c) => c.id === picked) ??
+    defaultColumn(columns, permissionCards.length) ??
+    columns[0] ??
+    null;
   const swipe = useSwipe((step) => {
     if (!active) return;
     const next = columns[columns.indexOf(active) + step];
@@ -136,11 +146,17 @@ export function Board({
       <div className="board board-mobile" {...swipe}>
         {active && (
           <>
-            <ColumnSwitcher columns={columns} active={active.id} onPick={setPicked} />
+            <ColumnSwitcher
+              columns={columns}
+              active={active.id}
+              onPick={setPicked}
+              permissions={permissionCards.length}
+            />
             <Column
               col={active}
               collapsed={false}
               attention={false}
+              permissionCards={waitingFor(active.id)}
               onToggle={toggle}
               selectedSessionId={selectedSessionId}
               selectedTicketId={selectedTicketId}
@@ -184,8 +200,12 @@ export function Board({
               col={col}
               collapsed={shut}
               attention={
-                shut && col.kind === 'human' && since !== undefined && col.cards.length > since
+                shut &&
+                col.kind === 'human' &&
+                since !== undefined &&
+                columnCount(col, permissionCards.length) > since
               }
+              permissionCards={waitingFor(col.id)}
               onToggle={toggle}
               selectedSessionId={selectedSessionId}
               selectedTicketId={selectedTicketId}
@@ -203,22 +223,43 @@ export function Board({
   );
 }
 
-/** The phone board opens on Needs input when it has cards, else the first column with any. */
-export function defaultColumn(columns: readonly BoardColumnView[]): BoardColumnView | undefined {
+const NO_CARDS: readonly BoardCard[] = [];
+
+/** FR-4 / UXR-32: what a column's attention compares: Needs input also counts permission cards. */
+function columnCount(col: BoardColumnView, permissions: number): number {
+  return col.cards.length + (col.id === 'needs_input' ? permissions : 0);
+}
+
+/**
+ * The phone board opens on Needs input when it has cards or a permission is waiting (UXR-32
+ * FR-3), else the first column with any.
+ */
+export function defaultColumn(
+  columns: readonly BoardColumnView[],
+  permissions = 0,
+): BoardColumnView | undefined {
   return (
-    columns.find((c) => c.id === 'needs_input' && c.cards.length > 0) ??
+    columns.find((c) => c.id === 'needs_input' && columnCount(c, permissions) > 0) ??
     columns.find((c) => c.cards.length > 0)
   );
+}
+
+/** UXR-32: "1 waiting for permission". */
+export function waitingForPermissionText(n: number): string {
+  return `${n} waiting for permission`;
 }
 
 function ColumnSwitcher({
   columns,
   active,
   onPick,
+  permissions,
 }: {
   columns: readonly BoardColumnView[];
   active: string;
   onPick: (id: string) => void;
+  /** UXR-32: cards waiting for a permission, shown on the Needs-input tab. */
+  permissions: number;
 }) {
   const refs = useRef(new Map<string, HTMLButtonElement>());
   useEffect(() => {
@@ -239,8 +280,16 @@ function ColumnSwitcher({
           aria-controls={col.id === active ? `board-column-${col.id}` : undefined}
           className={`column-tab column-tab-${col.id}${col.id === active ? ' active' : ''}`}
           onClick={() => onPick(col.id)}
+          {...(col.id === 'needs_input' && permissions > 0
+            ? {
+                'aria-label': `${col.title}: ${col.cards.length}, ${waitingForPermissionText(permissions)}`,
+              }
+            : {})}
         >
           {col.title} <span className="count">{col.cards.length}</span>
+          {col.id === 'needs_input' && permissions > 0 && (
+            <span className="count-waiting">+{permissions}</span>
+          )}
         </button>
       ))}
     </div>
@@ -283,12 +332,14 @@ function baselines(
   columns: readonly BoardColumnView[],
   collapsed: ReadonlySet<string>,
   prev: ReadonlyMap<string, number>,
+  permissions: number,
 ): ReadonlyMap<string, number> {
   const next = new Map<string, number>();
   for (const col of columns) {
     if (!collapsed.has(col.id)) continue;
     const was = prev.get(col.id);
-    next.set(col.id, was === undefined ? col.cards.length : Math.min(was, col.cards.length));
+    const n = columnCount(col, permissions);
+    next.set(col.id, was === undefined ? n : Math.min(was, n));
   }
   if (next.size === prev.size && [...next].every(([id, n]) => prev.get(id) === n)) return prev;
   return next;
@@ -299,6 +350,8 @@ interface ColumnProps {
   collapsed: boolean;
   /** FR-4: a collapsed human column's count rose. */
   attention: boolean;
+  /** UXR-32: on Needs input, the cards waiting for a permission (oldest first); else empty. */
+  permissionCards: readonly BoardCard[];
   onToggle: (id: string) => void;
   selectedSessionId: string | null;
   selectedTicketId: string | null;
@@ -318,6 +371,7 @@ const Column = memo(function Column({
   col,
   collapsed,
   attention,
+  permissionCards,
   onToggle,
   selectedSessionId,
   selectedTicketId,
@@ -329,6 +383,8 @@ const Column = memo(function Column({
   api,
 }: ColumnProps) {
   const bodyId = `board-column-${col.id}`;
+  const waiting = permissionCards.length;
+  const oldest = permissionCards.find((c) => c.session_id !== null);
   return (
     <section
       className={`column column-${col.id} column-kind-${col.kind}${collapsed ? ' collapsed' : ''}`}
@@ -349,6 +405,12 @@ const Column = memo(function Column({
           </span>
           <span className="column-title">{col.title}</span>{' '}
           <span className="count">{col.cards.length}</span>
+          {collapsed && waiting > 0 && (
+            <span className="count-waiting" title={waitingForPermissionText(waiting)}>
+              +{waiting}
+              <span className="visually-hidden"> waiting for permission</span>
+            </span>
+          )}
           {attention && (
             <span className="column-attention" title="New since collapsed">
               <span className="visually-hidden"> (new)</span>
@@ -356,6 +418,16 @@ const Column = memo(function Column({
           )}
         </button>
       </h2>
+      {!collapsed && waiting > 0 && oldest && (
+        <button
+          type="button"
+          className="column-waiting"
+          title="Open the oldest permission request"
+          onClick={() => onSelect(oldest.session_id!)}
+        >
+          +{waitingForPermissionText(waiting)}
+        </button>
+      )}
       <ul id={bodyId} hidden={collapsed}>
         {!collapsed &&
           col.cards.map((card) => (

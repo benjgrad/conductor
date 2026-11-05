@@ -6,6 +6,7 @@ import { parsePushConfig } from '../../src/push/config.js';
 import {
   clip,
   needsInputPayload,
+  permissionPayload,
   PUSH_QUESTION_MAX,
   transitionPayload,
 } from '../../src/push/payload.js';
@@ -67,6 +68,33 @@ describe('payload (FR-5)', () => {
     expect([...out]).toHaveLength(PUSH_QUESTION_MAX);
     expect(out.endsWith('…')).toBe(true);
     expect(clip('a\n\n  b', 10)).toBe('a b');
+  });
+
+  it('UXR-32: a permission prompt: the tool and summary, clipped, tagged permission:<id>', () => {
+    const p = permissionPayload({
+      ticketId: 't-1',
+      ticketTitle: 'Fix login',
+      agent: 'implementing',
+      tool: 'Bash',
+      summary: 'pnpm vitest run',
+      requestId: 'pr-1',
+    });
+    expect(p).toEqual({
+      title: 'Fix login',
+      body: 'implementing: wants to run Bash: pnpm vitest run',
+      url: '/#/?ticket=t-1',
+      tag: 'permission:pr-1',
+    });
+    const long = permissionPayload({
+      ticketId: 't',
+      ticketTitle: 'T',
+      agent: null,
+      tool: 'Bash',
+      summary: 'x'.repeat(500),
+      requestId: 'r',
+    });
+    expect([...long.body]).toHaveLength(PUSH_QUESTION_MAX);
+    expect(long.body.startsWith('wants to run Bash: x')).toBe(true);
   });
 
   it('carries only title, body, url and tag', () => {

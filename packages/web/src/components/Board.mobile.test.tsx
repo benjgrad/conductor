@@ -1,10 +1,14 @@
 // @vitest-environment jsdom
-import { BOARD_CARD_NEEDS_INPUT_FIXTURE, type BoardCard } from '@conductor/shared';
+import {
+  BOARD_CARD_NEEDS_INPUT_FIXTURE,
+  BOARD_CARD_NEEDS_PERMISSION_FIXTURE,
+  type BoardCard,
+} from '@conductor/shared';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { BoardState } from '../board/board.js';
 import { mockViewport, type MockViewport } from '../test/match-media.js';
-import { Board } from './Board.js';
+import { Board, defaultColumn } from './Board.js';
 
 let viewport: MockViewport;
 beforeEach(() => {
@@ -101,5 +105,34 @@ describe('phone board (11-web-ui §Board)', () => {
     renderBoard([card(1, 'queued'), card(2, 'needs_input')]);
     expect(regions().length).toBeGreaterThan(1);
     expect(screen.queryByRole('tablist', { name: 'Columns' })).toBeNull();
+  });
+});
+
+describe('phone board: permission prompts wait on you (UXR-32)', () => {
+  const held = (n: number) =>
+    card(n, 'implementing', {
+      status: 'running',
+      sub_status: 'needs_permission',
+      permission: BOARD_CARD_NEEDS_PERMISSION_FIXTURE.permission!,
+    });
+
+  it('FR-3: opens on Needs input when only a permission is waiting, with the note', () => {
+    renderBoard([card(1, 'queued'), held(2)]);
+    expect(regions()).toEqual(['Needs input']);
+    const note = screen.getByRole('button', { name: '+1 waiting for permission' });
+    expect(note).toBeTruthy();
+    // FR-1: the switcher's Needs-input tab counts it too.
+    const tab = screen.getByRole('tab', { name: 'Needs input: 0, 1 waiting for permission' });
+    expect(tab.getAttribute('aria-selected')).toBe('true');
+    expect(tab.querySelector('.count-waiting')?.textContent).toBe('+1');
+  });
+
+  it('defaultColumn: Needs input when it has cards or a permission waits', () => {
+    const cols = [
+      { id: 'queued', title: 'Queued', kind: 'queued' as const, cards: [card(1, 'queued')] },
+      { id: 'needs_input', title: 'Needs input', kind: 'human' as const, cards: [] },
+    ];
+    expect(defaultColumn(cols)?.id).toBe('queued');
+    expect(defaultColumn(cols, 1)?.id).toBe('needs_input');
   });
 });

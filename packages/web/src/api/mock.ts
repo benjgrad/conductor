@@ -788,6 +788,18 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     });
   }
 
+  /** A session-less ticket's status and its card: Queued, or the terminal column cancelled. */
+  function setSessionlessStatus(ticketId: string, status: 'ready' | 'cancelled') {
+    const t = ticketOf(ticketId);
+    const at = new Date(Math.max(now().getTime(), Date.parse(t.updated_at) + 1)).toISOString();
+    Object.assign(t, { status, updated_at: at });
+    const card = cards.get(ticketId)!;
+    const place = placeCard(status, null, { columns: COLUMNS, def: null });
+    const next: BoardCard = { ...card, column: place.column, badges: place.badges, updated_at: at };
+    cards.set(ticketId, next);
+    emit([{ type: 'card.upserted', session_id: null, ticket_id: ticketId, card: next }]);
+  }
+
   const api: MockApi = {
     getBoard: () =>
       reply((): BoardResponse => {
@@ -1040,6 +1052,39 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         }
         return ticketDetail(ticketId);
       }),
+
+    // UXR-86: a card with a session is cancelled as its session; a queued one as the ticket.
+    cancelTicket: (ticketId, req) => {
+      const card = cards.get(ticketId);
+      if (card?.session_id) {
+        return api.cancel(card.session_id, req?.reason !== undefined ? { reason: req.reason } : {});
+      }
+      return reply((): OkResponse => {
+        const t = ticketOf(ticketId);
+        if (t.status !== 'ready') {
+          throw new ApiRequestError(409, 'conflict', `the ticket is ${t.status}, not ready`);
+        }
+        setSessionlessStatus(ticketId, 'cancelled');
+        return { ok: true };
+      });
+    },
+
+    reopenTicket: (ticketId, req) => {
+      const card = cards.get(ticketId);
+      if (card?.session_id) {
+        return api
+          .reopen(card.session_id, { text: req?.text ?? 'Reopened from the board.' })
+          .then(() => ({ ok: true as const }));
+      }
+      return reply((): OkResponse => {
+        const t = ticketOf(ticketId);
+        if (t.status !== 'cancelled') {
+          throw new ApiRequestError(409, 'conflict', `the ticket is ${t.status}, not cancelled`);
+        }
+        setSessionlessStatus(ticketId, 'ready');
+        return { ok: true };
+      });
+    },
 
     listRepoChecks: () =>
       reply(() => ({

@@ -15,6 +15,8 @@ export interface ArrowEditorProps {
   onSelectTransition: (name: string) => void;
   onSelectColumn: (state: string) => void;
   onClose: () => void;
+  /** UXR-44: the phone's full-screen panel. */
+  fullScreen?: boolean;
 }
 
 export function ArrowEditor({
@@ -25,18 +27,20 @@ export function ArrowEditor({
   onSelectTransition,
   onSelectColumn,
   onClose,
+  fullScreen = false,
 }: ArrowEditorProps) {
   const names = arrowTransitions(definition, from, to);
   const fromTitle = columnTitle(definition, from);
   const arrow = `${fromTitle} → ${columnTitle(definition, to)}`;
   return (
-    <aside className="wf-editor" aria-label="Arrow">
+    <aside className={`wf-editor${fullScreen ? ' full-screen' : ''}`} aria-label="Arrow">
       <EditorHead
         crumbs={[{ label: fromTitle, onClick: () => onSelectColumn(from) }, { label: arrow }]}
         title={arrow}
         back={{ label: `Back to ${fromTitle}`, onClick: () => onSelectColumn(from) }}
         closeLabel="Close arrow"
         onClose={onClose}
+        fullScreen={fullScreen}
       />
       <p className="muted wf-note">
         {names.length} transitions on this arrow. Pick one to edit it.

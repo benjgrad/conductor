@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // UI review screenshots (docs/qa/ux-review/). Starts the web app on the still mock API
 // (VITE_API=mock, VITE_MOCK_STATIC=1), drives it with Chrome through playwright-core, and writes
-// docs/qa/ux-review/<out>/<screen>-<w>x<h>-<theme>.png plus metrics.json (page overflow and the
-// visible tap targets under 44 px, per shot). Not run in CI.
+// docs/qa/ux-review/<out>/<screen>-<w>x<h>-<theme>.png plus metrics.json (page overflow, including
+// overflow clipped inside the phone shell or a panel, and the visible tap targets under 44 px, per
+// shot). Not run in CI.
 //
 // A board, detail or new-ticket shot above the phone breakpoint whose page is taller than the
 // window prints a WARN line (UXR-26: the desktop board's document must not scroll).
@@ -54,8 +55,16 @@ const REQUEST_SHOTS = ['detail-review', 'detail-failed', 'detail-step-failed'];
 const PERMISSION_CARD = BRIEF_CARD;
 /** The plan-approval card (06 §Plan approval; api/mock-data.ts planApprovalSeed). */
 const PLAN_CARD = 'Add rate limiting to /login';
+/** A queued card no machine can take, with no description (api/mock-data.ts; UXR-34, UXR-86). */
+const QUEUED_CARD = 'Hotfix: crash on empty cart';
 /** The ticket-panel shots (11-web-ui §Phone layout, Detail panel). */
-const TICKET_SHOTS = ['ticket-messages', 'ticket-plan', 'ticket-plan-sheet', 'ticket-brief-sheet'];
+const TICKET_SHOTS = [
+  'ticket-messages',
+  'ticket-plan',
+  'ticket-plan-sheet',
+  'ticket-brief-sheet',
+  'ticket-queued',
+];
 /** UXR-26: shots whose page must fit the window above the phone breakpoint (11-web-ui §Breakpoint). */
 const PAGE_FIT_SHOTS = ['board', 'detail', 'new-ticket'];
 /** The phone breakpoint (MOBILE_QUERY in packages/web/src/components/useMediaQuery.ts). */
@@ -94,6 +103,9 @@ const VIEWPORTS = [
         'new-ticket',
         'new-ticket-bottom',
         ...TICKET_SHOTS,
+        'workflows',
+        'workflow-column',
+        'workflow-transition',
       ],
     },
   },
@@ -143,8 +155,10 @@ const VIEWPORTS = [
         'wf-proposal-open',
         'wf-version-old',
         'workflow-column',
+        'workflow-transition',
         'ticket-messages',
         'ticket-plan',
+        'ticket-queued',
         ...REQUEST_SHOTS,
         'board-permission',
         'detail-permission',
@@ -317,6 +331,8 @@ const SCREENS = [
   // The ticket panel's Messages tab: the brief above the chat (BRIEF_CARD has a ticket body).
   { id: 'ticket-messages', path: '/#/', act: (page) => openCard(page, BRIEF_CARD) },
   { id: 'ticket-plan', path: '/#/', act: (page) => openCard(page, PLAN_CARD) },
+  // UXR-86: the queued panel (TicketPanel): routing note, priority, Cancel ticket….
+  { id: 'ticket-queued', path: '/#/', act: (page) => openCard(page, QUEUED_CARD) },
   {
     id: 'ticket-plan-sheet',
     path: '/#/',
@@ -471,6 +487,12 @@ const SCREENS = [
       await page.locator('aside.wf-editor').waitFor();
     },
   },
+  // UXR-44: a lone transition's panel (full-screen on a phone).
+  {
+    id: 'workflow-transition',
+    path: '/#/workflows',
+    act: (page) => openArrow(page, 'Planning', 'Implementing'),
+  },
   // UXR-69 FR-3: leaving with an unsaved draft asks in a modal dialog.
   {
     id: 'wf-unsaved-guard',
@@ -520,13 +542,24 @@ function measure(deviceWidth) {
       );
     }
   }
+  // UXR-44: on a phone the shell (`.app.mobile`, overflow-x hidden) and the full-screen panels clip
+  // what overflows them, so the document's width alone can't see it.
+  const clipped = [];
+  for (const sel of ['.app.mobile', 'aside.wf-editor', 'aside.detail']) {
+    for (const el of document.querySelectorAll(sel)) {
+      if (el.scrollWidth > el.clientWidth + 1) {
+        clipped.push(`${sel} ${el.scrollWidth}>${el.clientWidth}`);
+      }
+    }
+  }
   // The chat's visible height (the session panel's Messages log), when a panel is open.
   const chat = document.querySelector('aside.detail .output-chat .output');
   return {
     chatHeight: chat ? Math.round(chat.getBoundingClientRect().height) : null,
     pageScrollWidth: document.documentElement.scrollWidth,
     deviceWidth: vw,
-    horizontalOverflow: document.documentElement.scrollWidth > vw,
+    horizontalOverflow: document.documentElement.scrollWidth > vw || clipped.length > 0,
+    clippedOverflow: clipped,
     pageHeight: document.documentElement.scrollHeight,
     smallTapTargets: small.length,
     smallTapTargetSample: small.slice(0, 8),

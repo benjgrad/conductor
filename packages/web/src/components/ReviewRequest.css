@@ -5,11 +5,11 @@
   outline-offset: 2px;
 }
 .review-request .review-summary {
-  margin: 6px 0;
+  margin: var(--space-1) 0;
   font-weight: 600;
 }
 .review-request .full-report {
-  margin-top: 6px;
-  padding-top: 6px;
+  margin-top: var(--space-1);
+  padding-top: var(--space-2);
   border-top: 1px solid color-mix(in srgb, var(--ok) 25%, transparent);
 }

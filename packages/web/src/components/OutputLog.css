@@ -16,7 +16,7 @@
   background: none;
   color: var(--muted);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -27,13 +27,13 @@
   display: inline-block;
   width: 10px;
   flex: none;
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 .tool-group-summary[aria-expanded='true'] .chev {
   transform: rotate(90deg);
 }
 .tool-group-error {
-  color: var(--ask);
+  color: var(--danger);
   font-weight: 600;
 }
 .tool-group-body {
@@ -47,10 +47,10 @@
 
 /* a failed call is never hidden */
 .tool-failed > summary::before {
-  color: var(--ask);
+  color: var(--danger);
 }
 .tool-failed .tool-sub {
-  color: var(--ask);
+  color: var(--danger);
 }
 
 /* where the session moved state */
@@ -58,8 +58,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin: 6px 0;
-  font-size: 12px;
+  margin: var(--space-1) 0;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 .phase-label {
@@ -88,7 +88,7 @@ button.phase-label:hover {
   border-top: 1px solid var(--border);
 }
 .phase-reason {
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
   max-width: 80ch;
   white-space: pre-wrap;
   text-align: left;
@@ -123,7 +123,7 @@ button.phase-label:hover {
   background: none;
   color: var(--muted);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -134,22 +134,22 @@ button.phase-label:hover {
   display: inline-block;
   width: 10px;
   flex: none;
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 .check-run-summary[aria-expanded='true'] .chev {
   transform: rotate(90deg);
 }
 .check-run-fail,
 .check-run-error {
-  color: var(--ask);
+  color: var(--danger);
 }
 .check-run-fail {
   font-weight: 600;
 }
 .check-run-error {
-  margin: 0 0 0 18px;
+  margin: 0 0 0 var(--space-4);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }
 .check-run-body {
@@ -164,9 +164,9 @@ button.phase-label:hover {
   background: var(--code-bg);
   color: var(--code-text);
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: var(--space-2) var(--space-2);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  font-size: var(--text-sm);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }

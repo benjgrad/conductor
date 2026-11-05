@@ -55,6 +55,8 @@ import type {
   SignupRequest,
   TicketDetail,
   TicketDto,
+  TicketSearchResponse,
+  TicketSearchStatus,
   UpdateTicketRequest,
   WorkflowDefinition,
   WorkflowDetail,
@@ -115,6 +117,16 @@ export interface ApiClient {
   answer(sessionId: string, req: AnswerInputRequest): Promise<OkResponse>;
   /** POST /api/tickets → the new ticket; its card arrives on the board stream (card.upserted). */
   createTicket(req: CreateTicketRequest): Promise<TicketDto>;
+  /**
+   * UXR-85: GET /api/tickets: the account's tickets of any status matching `q` (title, external
+   * ref, body, id prefix), most recently updated first; `cursor` is the previous `next_cursor`.
+   */
+  searchTickets(opts?: {
+    q?: string;
+    status?: readonly TicketSearchStatus[];
+    limit?: number;
+    cursor?: number;
+  }): Promise<TicketSearchResponse>;
   /** GET /api/tickets/:id: the ticket in any column, with whether its column allows edits. */
   getTicket(ticketId: string): Promise<TicketDetail>;
   /**

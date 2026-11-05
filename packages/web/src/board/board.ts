@@ -144,7 +144,7 @@ export function applyBoardEvent(state: BoardState, ev: BoardSseEvent): BoardStat
 }
 
 const byPriorityThenAge = (a: BoardCard, b: BoardCard) =>
-  b.priority - a.priority || a.created_at.localeCompare(b.created_at);
+  a.priority - b.priority || a.created_at.localeCompare(b.created_at);
 const byAge = (a: BoardCard, b: BoardCard) => a.created_at.localeCompare(b.created_at);
 const byRecent = (a: BoardCard, b: BoardCard) => b.updated_at.localeCompare(a.updated_at);
 /** Oldest open input_request first; cards without one (stream lag) go last. */

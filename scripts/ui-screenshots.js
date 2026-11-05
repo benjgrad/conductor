@@ -151,12 +151,16 @@ const VIEWPORTS = [
         'wf-arrow-group',
         'wf-unsaved-guard',
         'wf-version-old-edit',
-        'rc-override-full',
-        'rc-invalid',
         'wf-arrow-transition',
         'wf-proposal-open',
         'wf-version-old',
         'workflow-column',
+        'repo-checks',
+        'repo-checks-list',
+        'rc-override-full',
+        'rc-new-override',
+        'rc-invalid',
+        'rc-clear-confirm',
         'workflow-transition',
         'ticket-messages',
         'ticket-plan',
@@ -166,6 +170,7 @@ const VIEWPORTS = [
         'detail-permission',
         'detail-done',
         'detail-done-steps',
+        'detail-checks',
       ],
       dark: ['board', 'detail', ...REQUEST_SHOTS],
     },
@@ -278,6 +283,8 @@ const SCREENS = [
       await page.locator('aside.detail').scrollIntoViewIfNeeded();
     },
   },
+  // UX-5/UXR-75: conductor running a repo override's checks: the banner with its Repo checks badge.
+  { id: 'detail-checks', path: '/#/', act: (page) => openCard(page, 'Conductor checks demo') },
   // UXR-38: a done ticket's history from the transcript (the ticket as markdown, "Finished …").
   { id: 'detail-done', path: '/#/', act: (page) => openCard(page, 'Rename user.fullname') },
   {
@@ -382,11 +389,42 @@ const SCREENS = [
   { id: 'admin', path: '/?mock-auth=password#/admin' },
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
+  // UXR-76: the repo list alone (on a phone, the first of the stacked panes).
+  { id: 'repo-checks-list', path: '/#/repo-checks' },
+  // UXR-77: the override with "Compare with the workflow's checks" open, at its full height.
+  {
+    id: 'rc-override-full',
+    path: '/#/repo-checks/github.com%2Facme%2Fshop',
+    fullPage: true,
+    act: async (page) => {
+      await page.locator('details.rc-compare').waitFor();
+      await page.evaluate(() => {
+        const box = /** @type {HTMLDetailsElement | null} */ (
+          document.querySelector('details.rc-compare')
+        );
+        if (box) box.open = true;
+      });
+    },
+  },
+  // UXR-76: a repo without an override, edited: Set override enabled, the draft previewed.
+  {
+    id: 'rc-new-override',
+    path: '/#/repo-checks/github.com%2Fbenjgrad%2Fconductor',
+    act: async (page) => {
+      const cmd = page.getByLabel('Check 1 command');
+      await cmd.waitFor();
+      await cmd.fill('pnpm -r build');
+      await page.evaluate(() => {
+        const box = /** @type {HTMLDetailsElement | null} */ (
+          document.querySelector('details.rc-compare')
+        );
+        if (box) box.open = true;
+      });
+    },
+  },
   // UXR-83: the mock's three schedules, and the weekly one's edit sheet.
   { id: 'schedules', path: '/#/schedules' },
   { id: 'schedule-sheet', path: '/#/schedules/e5000000-0000-4000-8000-000000000002' },
-  // UXR-61: the override's setup and check table, at full height.
-  { id: 'rc-override-full', path: '/#/repo-checks/github.com%2Facme%2Fshop', fullPage: true },
   // UXR-61 FR-5: problems in the check table, each under its field and named by its label.
   {
     id: 'rc-invalid',
@@ -397,6 +435,16 @@ const SCREENS = [
       await name.waitFor();
       await name.fill('');
       await page.getByLabel('Check 1 timeout', { exact: true }).fill('soon');
+    },
+  },
+  // UXR-79: clearing, from the overflow menu, with named buttons.
+  {
+    id: 'rc-clear-confirm',
+    path: '/#/repo-checks/github.com%2Facme%2Fshop',
+    act: async (page) => {
+      await tap(page.getByRole('button', { name: 'More actions' }));
+      await tap(page.getByRole('menuitem', { name: 'Use workflow checks…' }));
+      await page.getByRole('group', { name: 'Use workflow checks' }).waitFor();
     },
   },
   { id: 'workflows', path: '/#/workflows' },

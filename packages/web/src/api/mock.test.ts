@@ -15,6 +15,7 @@ import {
   type CreateTicketRequest,
   TeamResponseSchema,
   SessionDetailSchema,
+  TicketSearchResponseSchema,
   validateWorkflow,
   WorkflowDetailSchema,
   type BoardSseEvent,
@@ -304,7 +305,7 @@ describe('mock repos', () => {
       body: '',
       repo: 'github.com/o/fresh',
       workflow_id: CONDUCTOR_WORKFLOW_ID,
-      priority: 0,
+      priority: 3,
       kind: 'work',
       required_tags: [],
       repo_allow_machines: null,
@@ -463,6 +464,38 @@ describe('mock repo checks (ADR-0030)', () => {
       code: 'not_found',
     });
     expect((await api.listRepoChecks()).repos).toEqual([]);
+  });
+});
+
+describe('mock searchTickets (UXR-85)', () => {
+  it('finds tickets of any status, newest first, by status group, paged', async () => {
+    const api = createMockApi({ now });
+    const parse = (r: unknown) => TicketSearchResponseSchema.parse(r);
+
+    const all = parse(await api.searchTickets());
+    expect(all.total).toBeGreaterThan(5);
+    const times = all.tickets.map((t) => t.updated_at);
+    expect([...times].sort().reverse()).toEqual(times);
+
+    const closed = parse(await api.searchTickets({ status: ['done', 'cancelled'] }));
+    expect(closed.tickets.map((t) => [t.title, t.status])).toEqual([
+      ['Rename user.fullname', 'done'],
+      ['Try a GraphQL gateway', 'cancelled'],
+    ]);
+
+    const byBody = parse(await api.searchTickets({ q: 'graphql GATEWAY in front' }));
+    expect(byBody.tickets.map((t) => t.id)).toEqual([SEED_IDS.cancelled.ticket]);
+    expect(byBody.tickets[0]!.snippet).toContain('GraphQL gateway in front');
+    const byId = parse(await api.searchTickets({ q: SEED_IDS.done.ticket.slice(0, 8) }));
+    expect(byId.tickets.map((t) => t.id)).toContain(SEED_IDS.done.ticket);
+
+    const first = parse(await api.searchTickets({ limit: 2 }));
+    expect(first.next_cursor).toBe(2);
+    const rest = parse(await api.searchTickets({ limit: 50, cursor: 2 }));
+    expect(rest.next_cursor).toBeNull();
+    expect([...first.tickets, ...rest.tickets].map((t) => t.id)).toEqual(
+      all.total <= 20 ? all.tickets.map((t) => t.id) : expect.any(Array),
+    );
   });
 });
 

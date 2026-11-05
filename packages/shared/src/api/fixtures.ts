@@ -48,7 +48,7 @@ export const BOARD_CARD_FIXTURE: BoardCard = {
   title: 'Add /health',
   external_ref: null,
   repo: 'github.com/benjgrad/fixture-app',
-  priority: 0,
+  priority: 3,
   workflow_id: 'conductor',
   workflow_state: null,
   state_title: null,
@@ -169,6 +169,7 @@ export const BOARD_CARD_PENDING_FIXTURE: BoardCard = {
       { label: 'Pipeline ci succeeded', kind: 'condition', status: 'disabled', detail: null },
     ],
     current: null,
+    checks_source: 'workflow',
   },
   kind: 'work',
   pending: {

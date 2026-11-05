@@ -376,6 +376,11 @@ export const SEED_IDS = {
     ticket: 'a1000000-0000-4000-8000-000000000008',
     session: 'b2000000-0000-4000-8000-000000000008',
   },
+  /** UXR-85: a cancelled ticket (Done, badged), for search and the Archive. */
+  cancelled: {
+    ticket: 'a1000000-0000-4000-8000-00000000000f',
+    session: 'b2000000-0000-4000-8000-00000000000f',
+  },
   /** ADR-0011: held in Implementing by `ready_for_testing`'s conditions (the checklist). */
   pending: {
     ticket: BOARD_CARD_PENDING_FIXTURE.ticket_id,
@@ -443,6 +448,8 @@ interface SeedSpec {
   moves?: [number, string | null, string, string | null][];
   /** UX-13a: the stored teammate (`card.agent_name`); absent → a ticket from before UX-13a. */
   agent?: string;
+  /** UXR-85: the ticket was cancelled (Done, badged `cancelled`). */
+  cancelled?: boolean;
 }
 
 function seed(now: Date, s: SeedSpec): MockSeed {
@@ -458,7 +465,7 @@ function seed(now: Date, s: SeedSpec): MockSeed {
     workflow_state: s.state,
     status: s.status,
     column: 'queued', // fixed up by the mock (placeCard)
-    badges: s.slot ? ['waiting_for_build_slot'] : [],
+    badges: s.cancelled ? ['cancelled'] : s.slot ? ['waiting_for_build_slot'] : [],
     machine_id: s.status === 'waiting_external' ? null : 'mbp-ben',
     spend_usd: s.spend,
     input_request: input,
@@ -727,8 +734,14 @@ function planApprovalSeed(now: Date): MockSeed {
   };
 }
 
-/** UX-5: `card.checking` of a `personal_pr_ready_for_review` step at item `current` (0-based). */
-export function mockChecking(current: number): BoardChecking {
+/**
+ * UX-5: `card.checking` of a `personal_pr_ready_for_review` step at item `current` (0-based).
+ * UXR-75: `source` says whose checks they are (the demo card's repo has an override).
+ */
+export function mockChecking(
+  current: number,
+  source: BoardChecking['checks_source'] = 'workflow',
+): BoardChecking {
   const labels = ['Typecheck', 'Lint', 'Unit tests', 'Build passes', 'PR opened'];
   return {
     to: 'needs_input',
@@ -743,6 +756,7 @@ export function mockChecking(current: number): BoardChecking {
       detail: null,
     })),
     current,
+    checks_source: source,
   };
 }
 
@@ -795,7 +809,10 @@ function checkingSeeds(now: Date): MockSeed[] {
       ...s.card,
       kind: 'personal',
       badges: slot ? ['waiting_for_build_slot', 'checking'] : ['checking'],
-      checking: mockChecking(slot ? 0 : 2),
+      // UXR-75: the demo card's repo has the seeded override (mockRepoChecks), so its checks
+      // are the repo's; the build-slot card runs the workflow's.
+      ...(slot ? {} : { repo: 'github.com/acme/shop' }),
+      checking: mockChecking(slot ? 0 : 2, slot ? 'workflow' : 'repo'),
     },
   });
   const spec = {
@@ -865,7 +882,7 @@ export function mockSeeds(now: Date): MockSeed[] {
         ...BOARD_CARD_FIXTURE,
         ticket_id: id.queuedUrgent.ticket,
         title: 'Hotfix: crash on empty cart',
-        priority: 5,
+        priority: 1,
         external_ref: 'GH-412',
         created_at: ago(now, 1),
         updated_at: ago(now, 1),
@@ -1030,6 +1047,18 @@ export function mockSeeds(now: Date): MockSeed[] {
       ageMin: 700,
       activeMinAgo: 650,
       spend: 1.9,
+    }),
+    seed(now, {
+      ...id.cancelled,
+      title: 'Try a GraphQL gateway',
+      status: 'failed',
+      state: 'implement',
+      workflow: M1_BASIC,
+      ageMin: 3000,
+      activeMinAgo: 2900,
+      spend: 0.4,
+      cancelled: true,
+      ticketBody: 'Spike: put a GraphQL gateway in front of the REST API.',
     }),
   ];
 }
@@ -1372,7 +1401,7 @@ export function mockSchedules(now: Date): ScheduleDto[] {
     nextRuns(cron, tz, now, SCHEDULE_PREVIEW_RUNS).map((d) => d.toISOString());
   const base = {
     workflow_id: ROUTINE_WORKFLOW_ID,
-    priority: 0,
+    priority: 3,
     created_by: 'ben@example.com',
     created_at: at(-30 * day),
     updated_at: at(-2 * day),

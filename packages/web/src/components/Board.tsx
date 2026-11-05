@@ -1,4 +1,4 @@
-import type { BoardCard, BoardCardRouting } from '@conductor/shared';
+import { DEFAULT_TICKET_PRIORITY, type BoardCard, type BoardCardRouting } from '@conductor/shared';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import type { ApiClient } from '../api/client.js';
 import {
@@ -7,6 +7,7 @@ import {
   type BoardColumnView,
   type BoardState,
 } from '../board/board.js';
+import { columnPurpose } from '../board/column-purpose.js';
 import { waitingOnYou } from '../board/waiting.js';
 import { routeHash } from '../nav.js';
 import { DEFAULT_BOARD_WORKFLOW, readCollapsed, writeCollapsed } from './board-layout.js';
@@ -429,6 +430,10 @@ const Column = memo(function Column({
           +{waitingForPermissionText(waiting)}
         </button>
       )}
+      {/* UXR-54: an empty column says what it is for, instead of a tall blank box. */}
+      {!collapsed && col.cards.length === 0 && waiting === 0 && (
+        <p className="column-empty">{columnPurpose(col)}</p>
+      )}
       <ul id={bodyId} hidden={collapsed}>
         {!collapsed &&
           col.cards.map((card) => (
@@ -554,7 +559,9 @@ function Card({
             {meta.srStatusLabel && <span className="visually-hidden">{meta.srStatusLabel}</span>}
           </>
         )}
-        {card.priority !== 0 && <span className="prio">P{card.priority}</span>}
+        {card.priority !== DEFAULT_TICKET_PRIORITY && (
+          <span className="prio">P{card.priority}</span>
+        )}
         {card.spend_usd > 0 && <span>{usd(card.spend_usd)}</span>}
         <span className="age">{ago(card.updated_at)}</span>
       </div>

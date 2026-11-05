@@ -238,6 +238,19 @@ function withBreaks(text: string, key: string): ReactNode[] {
 }
 
 /**
+ * UXR-50: a heading's anchor id. Inline markup is dropped (code ticks, emphasis, link targets,
+ * escapes), then it is lowercased and every run of other characters becomes one `-`:
+ * "5. Check that it's online" → `5-check-that-its-online`.
+ */
+export function headingId(text: string): string {
+  return unescapeMarkdown(text.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1'))
+    .toLowerCase()
+    .replace(/['’`*_~]/g, '')
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/**
  * `semantic`: headings render as `<h1>`–`<h6>` (a page, e.g. UX-8's help guide). The default
  * styles them as paragraphs, since agent text sits inside a page that has its own outline.
  */
@@ -262,7 +275,12 @@ export function Markdown({
           case 'heading':
             if (headings === 'semantic') {
               const Tag = `h${b.level}` as 'h1';
-              return <Tag key={key}>{renderInline(b.text, key)}</Tag>;
+              // UXR-50: every h2 is an anchor (the help page's contents link to them).
+              return (
+                <Tag key={key} {...(b.level === 2 ? { id: headingId(b.text) } : {})}>
+                  {renderInline(b.text, key)}
+                </Tag>
+              );
             }
             return (
               <p key={key} className={`md-h md-h${Math.min(b.level, 3)}`}>

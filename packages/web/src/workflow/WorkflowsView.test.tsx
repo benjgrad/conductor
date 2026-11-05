@@ -14,6 +14,7 @@ import { App } from '../App.js';
 import { mockViewport, type MockViewport } from '../test/match-media.js';
 import { SessionWorkflowDiagram } from './SessionWorkflowDiagram.js';
 import { WorkflowsView } from './WorkflowsView.js';
+import { ToastProvider } from '../components/Toast.js';
 
 beforeEach(() => {
   window.location.hash = '#/workflows';
@@ -48,7 +49,15 @@ async function setup(api = createMockApi(), { app = false } = {}) {
     }
     return get(id, version);
   };
-  render(app ? <App api={api} /> : <WorkflowsView api={api} />);
+  render(
+    app ? (
+      <App api={api} />
+    ) : (
+      <ToastProvider>
+        <WorkflowsView api={api} />
+      </ToastProvider>
+    ),
+  );
   const diagram = await screen.findByRole('group', { name: 'conductor v3 columns' }, DIAGRAM_WAIT);
   return { api, saved, diagram };
 }
@@ -207,7 +216,8 @@ describe('Workflow view', () => {
     expect(screen.getByText('Unsaved changes')).toBeTruthy();
     await save();
     await screen.findByRole('group', { name: 'conductor v4 columns' });
-    expect(screen.getByRole('status').textContent).toBe('Saved as v4.');
+    // UXR-55: the save is confirmed in the shared toast.
+    expect(screen.getByRole('status', { name: 'Notifications' }).textContent).toBe('Saved as v4');
     expect(saved[0]!.states.implementing).toMatchObject({
       title: 'Building',
       prompt: 'ticket_template',
@@ -766,6 +776,22 @@ describe('transition editor: summary and sections (UXR-60, UXR-63)', () => {
       .getByRole('complementary', { name: 'Transition' })
       .querySelectorAll<HTMLButtonElement>('.wf-section-head > button'),
   ];
+
+  it('UXR-75: names the mock’s repo override under Checks, from listRepoChecks', async () => {
+    await setup();
+    fireEvent.click(arrow('Implementing', 'Waiting external'));
+    const link = await panel().findByRole('link', { name: 'acme/shop ›' });
+    expect(link.getAttribute('href')).toBe('#/repo-checks/github.com%2Facme%2Fshop');
+    expect(link.closest('[role="note"]')?.textContent).toMatch(/^1 repo uses its own checks/);
+  });
+
+  it('UXR-75: a failed listRepoChecks leaves the hint out', async () => {
+    const api = createMockApi();
+    api.listRepoChecks = () => Promise.reject(new Error('down'));
+    await setup(api);
+    fireEvent.click(arrow('Implementing', 'Waiting external'));
+    expect(panel().queryByRole('link', { name: /›$/ })).toBeNull();
+  });
 
   it('opens on a sentence saying what the transition does, then its sections', async () => {
     await setup();

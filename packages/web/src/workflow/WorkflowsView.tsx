@@ -11,6 +11,7 @@ import {
   type ApiClient,
   type ApiErrorDetail,
 } from '../api/client.js';
+import { useToast } from '../components/Toast.js';
 import { useIsMobile } from '../components/useMediaQuery.js';
 import { ColumnEditor } from './ColumnEditor.js';
 import { ColumnsDiagram } from './ColumnsDiagram.js';
@@ -46,6 +47,7 @@ import { TransitionEditor } from './TransitionEditor.js';
 import { ArrowEditor } from './ArrowEditor.js';
 import { addTransition, arrowTransitions, getTransitionObject, parentOf } from './transitions.js';
 import { WorkflowDiagram } from './WorkflowDiagram.js';
+import type { DirtyDraft } from './draft-guard.js';
 
 // The Workflow view (ADR-0010, ADR-0011): the one workflow, `conductor`, drawn as its board
 // columns. Pick a version; click a column to edit its title and work, or an arrow to edit the
@@ -61,7 +63,7 @@ import { WorkflowDiagram } from './WorkflowDiagram.js';
 export interface WorkflowsViewProps {
   api: ApiClient;
   /** The workflow id with unsaved changes, or null; the app guards navigation with it. */
-  onDirtyChange?: (workflowId: string | null) => void;
+  onDirtyChange?: (dirty: DirtyDraft | null) => void;
 }
 
 const ID = CONDUCTOR_WORKFLOW_ID;
@@ -83,9 +85,11 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
   const [serverErrors, setServerErrors] = useState<ApiErrorDetail[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const toast = useToast();
   /** Bumped when an applied change proposal saved a new version: the latest is fetched again. */
   const [reloads, setReloads] = useState(0);
+  /** UXR-75: the repos whose own checks replace the workflow's (ADR-0030); [] if unknown. */
+  const [repoOverrides, setRepoOverrides] = useState<string[]>([]);
   /** UXR-44: below the phone breakpoint the editors open full-screen over the page. */
   const fullScreen = useIsMobile();
   /** UXR-70: the History panel is open. */
@@ -112,7 +116,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
   const defs = useRef(new Map<number, WorkflowDefinition>());
 
   useEffect(() => {
-    onDirtyChange?.(draft !== null ? ID : null);
+    onDirtyChange?.(draft !== null ? { kind: 'workflow', id: ID } : null);
   }, [draft, onDirtyChange]);
   useEffect(() => () => onDirtyChange?.(null), [onDirtyChange]);
 
@@ -138,6 +142,22 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
       cancelled = true;
     };
   }, [api, version, reloads]);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Only a hint in the transition editor: a failure leaves it out.
+    api.listRepoChecks().then(
+      (r) => {
+        if (!cancelled) setRepoOverrides(r.repos.map((x) => x.repo));
+      },
+      () => {
+        if (!cancelled) setRepoOverrides([]);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
 
   const shown = draft ?? detail?.definition ?? null;
   const dirty = draft !== null;
@@ -173,13 +193,11 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
 
   const edit = (next: WorkflowDefinition) => {
     setDraft(next);
-    setNotice(null);
   };
 
   const discard = () => {
     setDraft(null);
     setServerErrors([]);
-    setNotice(null);
     setDeferred(new Set());
     setProblemsOpen(false);
   };
@@ -188,7 +206,6 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
     setVersion(v);
     setSelected(null);
     setServerErrors([]);
-    setNotice(null);
     setDeferred(new Set());
   };
 
@@ -252,7 +269,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
       setDeferred(new Set());
       setProblemsOpen(false);
       setVersion(res.version);
-      setNotice(`Saved as v${res.version}.`);
+      toast(`Saved as v${res.version}`);
     } catch (err) {
       if (err instanceof ApiRequestError && err.details.length > 0) {
         setServerErrors(err.details);
@@ -389,11 +406,6 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
             >
               History
             </button>
-          )}
-          {notice && (
-            <span className="muted" role="status">
-              {notice}
-            </span>
           )}
         </div>
         {shown === null && !error && <p className="muted">Loading…</p>}
@@ -674,6 +686,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
           from={selected.from}
           name={selected.name}
           issues={allIssues.filter((i) => i.transition?.from === selected.from)}
+          repoOverrides={repoOverrides}
           onChange={edit}
           onSelect={(name) => setSelected({ kind: 'transition', from: selected.from, name })}
           onRemoved={() => {

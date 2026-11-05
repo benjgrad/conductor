@@ -346,7 +346,10 @@
   gap: 2px;
 }
 .wf-item-actions button {
-  padding: 0 6px;
+  /* UXR-61: at least 24 px (WCAG 2.5.8). */
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 4px;
   font-size: 12px;
 }
 .wf-unmet {
@@ -547,14 +550,94 @@ main[hidden] {
 .wf-field input {
   color: var(--text);
 }
-.wf-check {
+/* UXR-61: the checks as a labelled table (ChecksFields). */
+.wf-checks-scroll {
+  overflow-x: auto;
+}
+.wf-checks {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.wf-checks th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 0 4px 2px 0;
+}
+.wf-checks td {
+  vertical-align: top;
+  padding: 0 4px 4px 0;
+}
+.wf-checks .wf-checks-name {
+  width: 30%;
+}
+.wf-checks .wf-checks-timeout {
+  width: 6em;
+}
+.wf-checks .wf-checks-order {
+  width: 84px;
+}
+.wf-checks input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.wf-checks .mono,
+.wf-condition .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.wf-checks .wf-checks-problems td {
+  padding-top: 0;
+}
+.wf-checks .wf-item-actions {
+  flex-direction: row;
+}
+/* UXR-62: a condition as a sentence with its inputs inline. */
+.wf-condition {
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
-.wf-check .mono {
+.wf-condition-text {
+  margin: 0;
+  line-height: 2;
+}
+.wf-condition-text input {
+  display: inline-block;
+  width: auto;
+  margin: 0 4px;
+}
+.wf-condition-text input[type='number'] {
+  width: 4em;
+}
+.wf-condition-text .wf-short {
+  width: 5em;
+}
+.wf-condition-text .wf-long {
+  width: 12em;
+}
+.wf-condition-value {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
+}
+.wf-condition-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.wf-link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  min-height: 24px;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 12px;
+  align-self: flex-start;
 }
 .wf-toggle {
   display: flex;

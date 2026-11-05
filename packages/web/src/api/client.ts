@@ -64,6 +64,7 @@ import type {
   TicketSearchResponse,
   TicketSearchStatus,
   UpdateTicketRequest,
+  QueueOrderResponse,
   WorkflowDefinition,
   WorkflowDetail,
   TranscriptResponse,
@@ -140,6 +141,13 @@ export interface ApiClient {
    * 409 conflict when the ticket changed since `expected_updated_at`.
    */
   updateTicket(ticketId: string, req: UpdateTicketRequest): Promise<TicketDetail>;
+  /**
+   * PUT /api/queue/order (06 §Queue order): these queued tickets first, in this order; the rest
+   * keep their order after them. 404 when none of them is queued any more.
+   */
+  reorderQueue(ticketIds: readonly string[]): Promise<QueueOrderResponse>;
+  /** DELETE /api/queue/order: the queue back to priority order. */
+  resetQueueOrder(): Promise<QueueOrderResponse>;
   /**
    * POST /api/tickets/:id/cancel (UXR-86): cancels the ticket, a queued one with no session too.
    * 409 conflict when it is already done or cancelled.

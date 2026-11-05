@@ -4,6 +4,8 @@ import {
   BoardResponseSchema,
   BoardSseEventSchema,
   checksGatesOf,
+  compareQueued,
+  isReorderable,
   CONDUCTOR_WORKFLOW_ID,
   EnrollmentTokenCreatedSchema,
   MachineDetailSchema,
@@ -133,6 +135,34 @@ describe('mock ApiClient', () => {
     expect(chunks).toEqual(['hello\n']);
     const detail = await api.getSession(SEED_IDS.running.session);
     expect(detail.recent_output.at(-1)?.text).toBe('ignored\n');
+  });
+});
+
+describe('mock queue order (06 §Queue order)', () => {
+  it('reorders the waiting Queued cards, upserts them, and resets to priority order', async () => {
+    const api = createMockApi({ now });
+    const queued = async () =>
+      BoardResponseSchema.parse(await api.getBoard())
+        .columns.find((c) => c.id === 'queued')!
+        .cards.filter(isReorderable)
+        // The mock's board is unsorted (the client sorts), so sort as the server would.
+        .sort(compareQueued)
+        .map((c) => c.ticket_id);
+    const before = await queued();
+    expect(before.length).toBeGreaterThan(1);
+    const last = before[before.length - 1]!;
+    const { events } = collect(api);
+    const res = await api.reorderQueue([last]);
+    await tick();
+    expect(res.ticket_ids[0]).toBe(last);
+    expect((await queued())[0]).toBe(last);
+    expect(events.length).toBeGreaterThan(0);
+    for (const e of events) expect(BoardSseEventSchema.parse(e).type).toBe('card.upserted');
+    await api.resetQueueOrder();
+    expect(await queued()).toEqual(before);
+    await expect(api.reorderQueue(['00000000-0000-4000-8000-000000000999'])).rejects.toMatchObject({
+      status: 404,
+    });
   });
 });
 

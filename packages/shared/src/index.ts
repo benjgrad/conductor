@@ -49,6 +49,7 @@ export * from './api/proposals.js';
 export * from './api/attachments.js';
 export * from './api/schedules.js';
 export * from './api/repo-rank.js';
+export * from './api/queue-order.js';
 export * from './api/accounts.js';
 export * from './api/sse.js';
 export * from './api/plan.js';

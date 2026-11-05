@@ -9,6 +9,7 @@ import {
   DismissProposalRequestSchema,
   FreshConversationRequestSchema,
   ReopenSessionRequestSchema,
+  ReorderQueueRequestSchema,
   ReopenTicketRequestSchema,
   SaveWorkflowRequestSchema,
   SendMessageRequestSchema,
@@ -21,6 +22,7 @@ import {
   type EngineEvent,
   type EngineRoute,
   type OkResponse,
+  type QueueOrderResponse,
   type ReopenSessionResponse,
   type TranscriptResponse,
 } from '@conductor/shared';
@@ -57,6 +59,7 @@ import { registerRepoRoutes } from './repos.js';
 import { httpSecurityFromEnv, securityHookFor, type HttpSecurityOptions } from './security.js';
 import { loadSessionDetail, sessionExists } from './sessions.js';
 import { approveProposal, dismissProposal } from './proposals.js';
+import { reorderQueue, resetQueueOrder } from './queue-order.js';
 import { createTicket, loadTicketDetail, updateTicket } from './tickets.js';
 import { searchTickets, toSearchResult } from './ticket-search.js';
 import { registerTeamRoutes } from './team.js';
@@ -506,6 +509,25 @@ export const createApi = (({
         for (const ev of res.events) boardBus.publish(ev);
         return res.detail;
     }
+  });
+
+  // 06 §Queue order: the order the account's ready tickets are picked up in. PUT puts the listed
+  // ones first; DELETE goes back to priority order. Both answer the full order.
+  app.put(API_PATHS.queueOrder, async (req, reply): Promise<QueueOrderResponse | FastifyReply> => {
+    const body = parseBody(ReorderQueueRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const res = await reorderQueue(db, req.auth!.scope.account_id, body.ticket_ids);
+    if (res.skipped.length === body.ticket_ids.length) {
+      return sendError(reply, 404, 'not_found', 'none of ticket_ids is a queued ticket');
+    }
+    for (const ev of res.events) boardBus.publish(ev);
+    return { ticket_ids: res.ticket_ids, skipped: res.skipped };
+  });
+
+  app.delete(API_PATHS.queueOrder, async (req): Promise<QueueOrderResponse> => {
+    const res = await resetQueueOrder(db, req.auth!.scope.account_id);
+    for (const ev of res.events) boardBus.publish(ev);
+    return { ticket_ids: res.ticket_ids, skipped: res.skipped };
   });
 
   // UXR-86: cancel / reopen the ticket itself, queued (no session) or not (ticket-lifecycle.ts).

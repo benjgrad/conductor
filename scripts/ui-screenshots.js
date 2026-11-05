@@ -121,6 +121,7 @@ const VIEWPORTS = [
         'detail-permission',
         'detail-done',
         'detail-done-steps',
+        'detail-done-insight',
         'insights',
         'insights-full',
       ],
@@ -230,6 +231,16 @@ const SCREENS = [
       await clickNamed(page, 'tab', 'Details');
       await tap(page.locator('.star-steps button', { hasText: 'Result' }).first());
       await page.locator('.star-steps').scrollIntoViewIfNeeded();
+    },
+  },
+  {
+    // UXR-84 (FR-3): its Details tab, scrolled to the analyst's session insight.
+    id: 'detail-done-insight',
+    path: '/#/',
+    act: async (page) => {
+      await openCard(page, 'Rename user.fullname');
+      await clickNamed(page, 'tab', 'Details');
+      await page.locator('.session-insight').scrollIntoViewIfNeeded();
     },
   },
   {

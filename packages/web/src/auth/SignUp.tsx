@@ -2,8 +2,9 @@ import { passwordProblems, type InvitePreview, type MeResponse } from '@conducto
 import { useEffect, useState, type FormEvent } from 'react';
 import type { ApiClient } from '../api/client.js';
 import { goTo } from '../nav.js';
-import { AuthPage, PasswordProblems } from './AuthPage.js';
+import { AuthPage, PasswordProblems, PasswordRule, SubmitWithHint } from './AuthPage.js';
 import { authErrorMessage, INVALID_INVITE, passwordDetails } from './errors.js';
+import { stillNeeded } from './missing.js';
 
 interface SignUpProps {
   api: ApiClient;
@@ -50,7 +51,7 @@ export function SignUp({ api, invite, onSignedIn }: SignUpProps) {
 
   if ('kind' in preview) {
     return (
-      <AuthPage title="Create your account">
+      <AuthPage title="Create your account" help={false} signIn>
         {preview.kind === 'loading' ? (
           <p className="loading">Checking the invite…</p>
         ) : (
@@ -63,7 +64,7 @@ export function SignUp({ api, invite, onSignedIn }: SignUpProps) {
   }
   if (!preview.valid || !invite) {
     return (
-      <AuthPage title="Create your account">
+      <AuthPage title="Create your account" help={false} signIn>
         <p role="alert" className="error">
           {INVALID_INVITE}
         </p>
@@ -73,8 +74,13 @@ export function SignUp({ api, invite, onSignedIn }: SignUpProps) {
 
   const pinned = preview.email !== undefined;
   const problems = password === '' ? [] : passwordProblems(password, email);
-  const valid =
-    email.trim() !== '' && name.trim() !== '' && password !== '' && problems.length === 0;
+  const missing = stillNeeded([
+    [email.trim() === '', 'an email'],
+    [name.trim() === '', 'your name'],
+    [password === '', 'a password'],
+    [problems.length > 0, 'a password that meets the rule'],
+  ]);
+  const valid = missing === null;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -100,7 +106,7 @@ export function SignUp({ api, invite, onSignedIn }: SignUpProps) {
   }
 
   return (
-    <AuthPage title="Create your account">
+    <AuthPage title="Create your account" help={false} signIn>
       <form className="auth-form" aria-label="Sign up" onSubmit={(e) => void onSubmit(e)}>
         <label>
           Email
@@ -129,11 +135,12 @@ export function SignUp({ api, invite, onSignedIn }: SignUpProps) {
             type="password"
             autoComplete="new-password"
             value={password}
-            aria-describedby="signup-password-problems"
+            aria-describedby="signup-password-rule signup-password-problems"
             onChange={(e) => setPassword(e.target.value)}
             required
           />
         </label>
+        <PasswordRule id="signup-password-rule" />
         <PasswordProblems
           id="signup-password-problems"
           problems={problems.length > 0 ? problems : serverProblems}
@@ -143,9 +150,13 @@ export function SignUp({ api, invite, onSignedIn }: SignUpProps) {
             {error}
           </p>
         )}
-        <button type="submit" disabled={busy || !valid}>
-          {busy ? 'Creating…' : 'Create account'}
-        </button>
+        <SubmitWithHint
+          id="signup-missing"
+          label="Create account"
+          busyLabel="Creating…"
+          busy={busy}
+          missing={missing}
+        />
       </form>
     </AuthPage>
   );

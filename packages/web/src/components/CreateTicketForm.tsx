@@ -220,6 +220,7 @@ export function CreateTicketForm({ api, onCreated, onClose }: CreateTicketFormPr
           <>
             <button
               type="submit"
+              className="primary"
               disabled={busy || !valid}
               {...(!valid ? { 'aria-describedby': hintId } : {})}
             >

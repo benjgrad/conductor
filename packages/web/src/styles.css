@@ -1292,6 +1292,66 @@ button.link {
   }
 }
 
+/* The New ticket sheet (CreateTicketForm), at every width: the phone lays it out full-screen
+   (§Phone layout below), desktop as a centred modal (UXR-41, after it). */
+.sheet-head h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+.sheet-close {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+}
+.sheet .kind-choice {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+.sheet .kind-choice legend {
+  float: none;
+  padding: 0;
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+}
+/* Kind as two segmented buttons; the radio stays (keyboard and screen readers). */
+.sheet .create-ticket .kind-choice label {
+  justify-content: center;
+  gap: var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+}
+.sheet .create-ticket .kind-choice label:has(input:checked) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  background: var(--user-bg);
+  color: var(--accent);
+  font-weight: 600;
+}
+.sheet .form-actions button[type='submit'] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.form-hint {
+  font-size: var(--text-sm);
+}
+/* FR-4: "Discard this ticket?" in the footer, in place of Create ticket. */
+.sheet-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.sheet-confirm span {
+  flex: 1 1 auto;
+}
+
 /* 11-web-ui §Touch: on a coarse pointer or a phone every control is at least --tap tall. The card's
    title and preview are text inside a tappable card, so they keep their line height. */
 @media (pointer: coarse), (max-width: 699.98px) {
@@ -1334,6 +1394,97 @@ button.link {
     height: var(--tap);
     right: var(--space-1);
     bottom: var(--space-1);
+  }
+}
+
+/* UXR-41: on desktop (and tablets) the New ticket sheet is a centred modal over the board. */
+@media (min-width: 700px) {
+  html.modal-open {
+    overflow: hidden;
+  }
+  .sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-sheet);
+    display: grid;
+    justify-items: center;
+    align-items: start;
+    padding: 5vh var(--space-4);
+    background: rgb(0 0 0 / 0.45);
+    overflow: hidden;
+  }
+  .sheet {
+    width: min(760px, 100%);
+    max-height: 90vh;
+    max-height: 90dvh;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-2);
+    outline: none;
+    overflow: hidden;
+  }
+  .sheet-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+    border-bottom: 1px solid var(--border);
+  }
+  .sheet-close {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-md);
+  }
+  /* The form scrolls; Title on its own row, then Repo | Priority | Kind. */
+  .sheet .create-ticket {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    grid-template-columns: minmax(0, 1fr) 7rem auto;
+    align-items: end;
+    gap: var(--space-3);
+    padding: var(--space-4) var(--space-4) 0;
+    border: 0;
+  }
+  .sheet .create-ticket .field-title {
+    grid-column: 1 / -1;
+  }
+  .sheet .kind-choice {
+    grid-template-columns: auto auto;
+    gap: var(--space-1);
+  }
+  .sheet .create-ticket .kind-choice label {
+    padding: var(--space-1) var(--space-3);
+    white-space: nowrap;
+  }
+  .sheet .ticket-body-plain,
+  .sheet .ticket-body-rich {
+    min-height: 14em;
+  }
+  /* Sticky footer: Create ticket on the right, what's still needed on its left. */
+  .sheet .form-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: var(--z-sticky);
+    flex-direction: row-reverse;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    margin: auto calc(-1 * var(--space-4)) 0;
+    padding: var(--space-3) var(--space-4);
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+  }
+  .sheet .form-actions .error {
+    flex-basis: 100%;
+    margin: 0;
+  }
+  .sheet-confirm {
+    flex: 1;
   }
 }
 
@@ -1459,18 +1610,6 @@ button.link {
       var(--space-4);
     border-bottom: 1px solid var(--border);
   }
-  .sheet-head h2 {
-    margin: 0;
-    font-size: var(--text-lg);
-  }
-  .sheet-close {
-    display: grid;
-    place-items: center;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--muted);
-  }
   .sheet .create-ticket {
     flex: 1;
     min-height: 0;
@@ -1495,32 +1634,6 @@ button.link {
     min-height: var(--tap);
     padding: var(--space-2) var(--space-3);
   }
-  .sheet .kind-choice {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--space-2);
-  }
-  .sheet .kind-choice legend {
-    float: none;
-    padding: 0;
-    margin: 0 0 var(--space-1);
-    font-size: var(--text-sm);
-  }
-  /* Kind as two big segmented buttons; the radio stays (keyboard and screen readers). */
-  .sheet .create-ticket .kind-choice label {
-    justify-content: center;
-    gap: var(--space-2);
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-md);
-    font-size: var(--text-base);
-  }
-  .sheet .create-ticket .kind-choice label:has(input:checked) {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 1px var(--accent);
-    background: var(--user-bg);
-    color: var(--accent);
-    font-weight: 600;
-  }
   .sheet .form-actions {
     position: sticky;
     bottom: 0;
@@ -1533,14 +1646,7 @@ button.link {
     border-top: 1px solid var(--border);
     background: var(--panel);
   }
-  .sheet .form-actions button[type='submit'] {
-    border-color: var(--accent);
-    background: var(--accent);
-    color: var(--on-accent);
-    font-weight: 600;
-  }
   .form-hint {
-    font-size: var(--text-sm);
     text-align: center;
   }
   .sheet .ticket-body-plain,

@@ -161,11 +161,23 @@ describe('phone create ticket (11-web-ui §Create ticket)', () => {
     expect(await screen.findByText('Phone ticket')).toBeTruthy();
   });
 
-  it('on desktop the form stays inline, not a dialog', async () => {
+  it('on desktop it is the New ticket dialog too, and the page under it is locked (UXR-41)', async () => {
     await renderAt(1440);
+    const locked = () => document.documentElement.classList.contains('modal-open');
+    expect(locked()).toBe(false);
     fireEvent.click(screen.getByRole('button', { name: 'New ticket' }));
-    expect(screen.getByRole('form', { name: 'Create ticket' })).toBeTruthy();
+    const dialog = within(screen.getByRole('dialog', { name: 'New ticket' }));
+    expect(dialog.getByRole('form', { name: 'Create ticket' })).toBeTruthy();
+    expect(dialog.getByText(/^Still needed:/)).toBeTruthy();
+    expect(locked()).toBe(true);
+    fireEvent.click(dialog.getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog', { name: 'New ticket' })).toBeNull();
-    expect(screen.queryByText(/Still needed/)).toBeNull();
+    expect(locked()).toBe(false);
+  });
+
+  it('the phone locks the shell, not the document', async () => {
+    await renderAt(375);
+    fireEvent.click(screen.getByRole('button', { name: 'New ticket' }));
+    expect(document.documentElement.classList.contains('modal-open')).toBe(false);
   });
 });

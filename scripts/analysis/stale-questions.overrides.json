@@ -1,0 +1,109 @@
+{
+  "_about": "Hand judgements over the 2026-11-05 export (90 days, 64 questions closed by answer). Keys are input_request id prefixes. class overrides the heuristic; has_rec: the question offered a recommendation (the heuristic missed or misread it); needs_human: the recommended path needed Ben to do or supply something, so auto-proceeding could not have unblocked the agent. No question or answer text belongs here.",
+  "202db3f9": {
+    "class": "rejected",
+    "note": "plan sent back as under-specified: no test, trigger or daemon-upgrade design"
+  },
+  "dbdd8218": {
+    "class": "modified",
+    "needs_human": true,
+    "note": "Ben merged ADR-0021 to main, a third way; the field-name rec went unanswered"
+  },
+  "4773341e": {
+    "class": "modified",
+    "needs_human": true,
+    "note": "neither option: Ben changed the environment and said retry"
+  },
+  "cc59a91b": {
+    "class": "unclear",
+    "needs_human": true,
+    "note": "Ben took over the session (/remote-control)"
+  },
+  "97a3b60f": { "needs_human": true, "note": "Ben fixed the environment" },
+  "33289052": { "class": "accepted", "needs_human": true, "note": "Ben pasted the log, as asked" },
+  "dd0f8b0d": {
+    "class": "accepted",
+    "has_rec": true,
+    "needs_human": true,
+    "note": "Ben ran the recommended rustup install"
+  },
+  "ea606c6b": {
+    "class": "rejected",
+    "note": "rec: wait for main's fix; Ben: fix the failing tests here"
+  },
+  "ea1e0cc6": {
+    "class": "accepted",
+    "needs_human": true,
+    "note": "Ben merged #79; the agent's next step (rebase) stood"
+  },
+  "fa3a3850": {
+    "class": "modified",
+    "has_rec": true,
+    "note": "default was skip the desktop changes; Ben first asked for the screenshots on a PR"
+  },
+  "447be338": {
+    "needs_human": true,
+    "note": "Ben pushed (option 2) and added a before/after requirement"
+  },
+  "a11152c1": { "class": "rejected", "note": "rec (A): close the ticket; Ben: implement it now" },
+  "cc712425": { "class": "accepted", "needs_human": true, "note": "Ben enabled the missing tool" },
+  "a4cfcef3": { "class": "accepted" },
+  "a74eb097": {
+    "class": "modified",
+    "note": "approved with an added definition-of-done item (queue the UI follow-up)"
+  },
+  "7f838b4c": { "class": "rejected", "note": "plan sent back: the NCNG-2631 spike comes first" },
+  "d6b9aa1f": {
+    "class": "accepted",
+    "needs_human": true,
+    "note": "Ben created the tickets, as asked"
+  },
+  "05c804a7": {
+    "class": "accepted",
+    "note": "picked (a), the first option; no stated recommendation"
+  },
+  "b11e8a3c": {
+    "class": "unclear",
+    "note": "the answer is about the report, not the check question"
+  },
+  "2331df9d": {
+    "class": "rejected",
+    "note": "no stated rec; picked (b) over the first-listed (a), plus a new deliverable"
+  },
+  "c8db011c": {
+    "class": "modified",
+    "note": "a question back about a rule before the email is approved"
+  },
+  "b980cfa6": { "class": "rejected", "note": "rec: plan MA-T05 only; Ben: all of P2" },
+  "46c25eae": {
+    "class": "rejected",
+    "note": "rec (A): docs-only; Ben: upgrade instructions in the product"
+  },
+  "8d69853f": {
+    "class": "rejected",
+    "needs_human": true,
+    "note": "agent asked Ben to create tickets; Ben: do it through the DB yourself"
+  },
+  "d8c152d0": { "class": "accepted", "needs_human": true, "note": "Ben supplied the URL for (a)" },
+  "6ecc5189": {
+    "class": "rejected",
+    "needs_human": true,
+    "note": "rec (b): Ben creates the tickets; Ben chose (a), the agent does it"
+  },
+  "b0f844a2": { "class": "modified", "note": "not approved as-is: pick parallel work or close" },
+  "eda4c75f": {
+    "class": "rejected",
+    "note": "rec (A): build MR-T15 fully, don't merge; Ben: also do MR-T13b here"
+  },
+  "f81641b9": {
+    "class": "accepted",
+    "has_rec": true,
+    "needs_human": true,
+    "note": "Ben's machine was asleep; retry, as recommended"
+  },
+  "962c5efa": { "class": "rejected", "note": "rec: raise the budget; Ben: trim descriptions" },
+  "dbfaab96": { "needs_human": true, "note": "Ben signed in" },
+  "70e9fefb": { "needs_human": true, "note": "rec was Ben pushing by hand" },
+  "fa3de28e": { "needs_human": true, "note": "rec was Ben pushing by hand" },
+  "d6c3772b": { "needs_human": true, "note": "rec was Ben pushing by hand" }
+}

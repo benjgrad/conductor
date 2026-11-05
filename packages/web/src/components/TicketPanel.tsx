@@ -1,10 +1,14 @@
 // The panel for a card with no session yet (Queued): the ticket itself, readable in any column,
 // and editable where the column allows it (`ticket_editable`, GET / PATCH /api/tickets/:id).
-// A session's panel (DetailPanel) offers the same edit through EditTicket.
-import type { TicketDetail } from '@conductor/shared';
-import { ArrowLeft } from 'lucide-react';
+// A session's panel (DetailPanel) offers the same edit through EditTicket. UXR-86 / UXR-42 /
+// UXR-34: a queued ticket can also be cancelled (and reopened), reprioritised, and says why no
+// machine has taken it.
+import type { BoardCardRouting, TicketDetail } from '@conductor/shared';
+import { ArrowLeft, ChevronDown, ChevronUp } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { errorMessage, type ApiClient } from '../api/client.js';
+import { ApiRequestError, errorMessage, type ApiClient } from '../api/client.js';
+import { routingSentence } from '../machines/format.js';
+import { routeHash } from '../nav.js';
 import { AgentAttachments, AttachmentGallery } from './AttachmentGallery.js';
 import { splitAttachments } from './attachment-groups.js';
 import { ago, TICKET_KIND_LABELS } from './format.js';
@@ -45,6 +49,8 @@ interface TicketPanelProps {
   onClose: () => void;
   /** 11-web-ui §Detail panel: the phone's full-screen panel, with Back to board instead of ×. */
   fullScreen?: boolean;
+  /** The card's routing (ADR-0013 §Routing): set while no online machine can take it. */
+  routing?: BoardCardRouting | undefined;
 }
 
 export function TicketPanel({
@@ -53,6 +59,7 @@ export function TicketPanel({
   version,
   onClose,
   fullScreen = false,
+  routing,
 }: TicketPanelProps) {
   const { ticket, error, reload, setTicket } = useTicket(api, ticketId, version);
   const [editing, setEditing] = useState(false);
@@ -101,7 +108,14 @@ export function TicketPanel({
               }}
             />
           ) : (
-            <TicketView api={api} ticket={ticket} onEdit={() => setEditing(true)} />
+            <TicketView
+              api={api}
+              ticket={ticket}
+              routing={routing}
+              onEdit={() => setEditing(true)}
+              onChanged={setTicket}
+              onReload={reload}
+            />
           ))}
       </div>
     </aside>
@@ -112,14 +126,23 @@ export function TicketPanel({
 function TicketView({
   api,
   ticket,
+  routing,
   onEdit,
+  onChanged,
+  onReload,
 }: {
   api: ApiClient;
   ticket: TicketDetail;
+  routing: BoardCardRouting | undefined;
   onEdit: () => void;
+  onChanged: (t: TicketDetail) => void;
+  onReload: () => void;
 }) {
+  const queued = ticket.column === 'queued';
+  const finished = ticket.status === 'done' || ticket.status === 'cancelled';
   return (
     <>
+      {queued && routing && <RoutingNote routing={routing} />}
       <section aria-label="Ticket">
         <dl className="ticket-meta">
           <dt>Repo</dt>
@@ -133,7 +156,18 @@ function TicketView({
             </>
           )}
           <dt>Priority</dt>
-          <dd>P{ticket.priority}</dd>
+          <dd>
+            {queued && ticket.editable && !finished ? (
+              <PriorityStepper
+                api={api}
+                ticket={ticket}
+                onChanged={onChanged}
+                onReload={onReload}
+              />
+            ) : (
+              <>P{ticket.priority}</>
+            )}
+          </dd>
           {ticket.external_ref && (
             <>
               <dt>Reference</dt>
@@ -152,17 +186,176 @@ function TicketView({
             The {ticket.column_title} column doesn't allow editing the ticket.
           </p>
         )}
+        <TicketLifecycle api={api} ticket={ticket} onDone={onReload} />
       </section>
-      <section aria-label="Description">
-        <h3>Description</h3>
-        {ticket.body.trim() ? (
+      {/* FR-4 (UXR-86): an empty description shows nothing. */}
+      {ticket.body.trim() && (
+        <section aria-label="Description">
+          <h3>Description</h3>
           <Markdown text={ticket.body} />
-        ) : (
-          <p className="muted">(no description)</p>
-        )}
-      </section>
+        </section>
+      )}
       <TicketAttachmentSections api={api} ticket={ticket} />
     </>
+  );
+}
+
+/** UXR-34: why no machine has picked the ticket up, in words, with the way to fix it. */
+function RoutingNote({ routing }: { routing: BoardCardRouting }) {
+  const why = routingSentence(routing);
+  return (
+    <p className="routing-note" role="status">
+      No machine can take this{why === '' ? '.' : `: ${why}.`}{' '}
+      <a href={routeHash({ view: 'machines' })}>Machines ›</a>
+    </p>
+  );
+}
+
+/** UXR-42: raise or lower a queued ticket's priority (higher is claimed first), via PATCH. */
+function PriorityStepper({
+  api,
+  ticket,
+  onChanged,
+  onReload,
+}: {
+  api: ApiClient;
+  ticket: TicketDetail;
+  onChanged: (t: TicketDetail) => void;
+  onReload: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const step = (delta: number) => {
+    setSaving(true);
+    setError(null);
+    api
+      .updateTicket(ticket.id, {
+        expected_updated_at: ticket.updated_at,
+        priority: ticket.priority + delta,
+      })
+      .then(onChanged, (err: unknown) => {
+        setError(errorMessage(err));
+        if (err instanceof ApiRequestError && err.code === 'conflict') onReload();
+      })
+      .finally(() => setSaving(false));
+  };
+  return (
+    <span className="priority-stepper">
+      <span>P{ticket.priority}</span>
+      <button
+        type="button"
+        className="icon"
+        aria-label="Raise priority"
+        title="Raise priority"
+        disabled={saving}
+        onClick={() => step(1)}
+      >
+        <ChevronUp size={16} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className="icon"
+        aria-label="Lower priority"
+        title="Lower priority"
+        disabled={saving}
+        onClick={() => step(-1)}
+      >
+        <ChevronDown size={16} aria-hidden="true" />
+      </button>
+      {error && (
+        <span role="alert" className="error">
+          {error}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** UXR-86: Cancel ticket… (a reason, a confirmation) and, once cancelled, Reopen ticket. */
+function TicketLifecycle({
+  api,
+  ticket,
+  onDone,
+}: {
+  api: ApiClient;
+  ticket: TicketDetail;
+  onDone: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const run = (call: () => Promise<unknown>) => {
+    setBusy(true);
+    setError(null);
+    call()
+      .then(
+        () => {
+          setConfirming(false);
+          setReason('');
+          onDone();
+        },
+        (err: unknown) => setError(errorMessage(err)),
+      )
+      .finally(() => setBusy(false));
+  };
+  const errorLine = error && (
+    <p role="alert" className="error">
+      {error}
+    </p>
+  );
+  if (ticket.status === 'done') return null;
+  if (ticket.status === 'cancelled') {
+    return (
+      <div className="ticket-lifecycle">
+        <p className="muted">Cancelled.</p>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => run(() => api.reopenTicket(ticket.id))}
+        >
+          Reopen ticket
+        </button>
+        {errorLine}
+      </div>
+    );
+  }
+  if (!confirming) {
+    return (
+      <div className="ticket-lifecycle">
+        <button type="button" onClick={() => setConfirming(true)}>
+          Cancel ticket…
+        </button>
+      </div>
+    );
+  }
+  const trimmed = reason.trim();
+  return (
+    <div className="ticket-lifecycle ticket-cancel" role="alertdialog" aria-label="Cancel ticket">
+      <p>Cancel this ticket? No machine will pick it up. You can reopen it later.</p>
+      <textarea
+        aria-label="Reason (optional)"
+        placeholder="Reason (optional)"
+        maxLength={500}
+        rows={2}
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+      />
+      <div className="ticket-cancel-actions">
+        <button
+          type="button"
+          className="danger"
+          disabled={busy}
+          onClick={() => run(() => api.cancelTicket(ticket.id, trimmed ? { reason: trimmed } : {}))}
+        >
+          Cancel ticket
+        </button>
+        <button type="button" disabled={busy} onClick={() => setConfirming(false)} autoFocus>
+          Keep ticket
+        </button>
+      </div>
+      {errorLine}
+    </div>
   );
 }
 

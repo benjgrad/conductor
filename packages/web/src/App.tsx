@@ -461,6 +461,7 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
             version={ticketCard?.updated_at ?? ''}
             onClose={() => setSelectedTicket(null)}
             fullScreen={mobile}
+            routing={ticketCard?.routing}
           />
         )}
         {selected && (

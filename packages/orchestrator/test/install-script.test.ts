@@ -564,7 +564,30 @@ describe.skipIf(!runnable)('install.sh', () => {
 // enroll` posts to a stub enroll endpoint. The token reaches the daemon only through
 // CONDUCTOR_ENROLL_TOKEN (TD-117). It costs a cargo build (the dev profile, which `cargo nextest`
 // has usually just built), so it runs only where cargo is on PATH.
-const hasCargo = spawnSync('cargo', ['--version']).status === 0;
+// A cargo older than rust-toolchain.toml's channel (a Homebrew rustc ahead of rustup on PATH)
+// can't build the workspace, so it counts as no cargo rather than a failure.
+const hasCargo = cargoBuildsWorkspace();
+
+function cargoBuildsWorkspace(): boolean {
+  const out = spawnSync('rustc', ['--version'], { cwd: REPO, encoding: 'utf8' });
+  if (out.status !== 0 || spawnSync('cargo', ['--version']).status !== 0) return false;
+  const pinned = /^channel\s*=\s*"([\d.]+)"/m.exec(
+    readFileSync(join(REPO, 'rust-toolchain.toml'), 'utf8'),
+  )?.[1];
+  const have = /rustc (\d+(?:\.\d+)*)/.exec(out.stdout)?.[1];
+  return pinned === undefined || (have !== undefined && !versionBelow(have, pinned));
+}
+
+/** `a` < `b`, comparing dotted numeric versions part by part. */
+function versionBelow(a: string, b: string): boolean {
+  const x = a.split('.').map(Number);
+  const y = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] ?? 0) - (y[i] ?? 0);
+    if (d !== 0) return d < 0;
+  }
+  return false;
+}
 
 describe.skipIf(!runnable || !hasCargo)('install.sh with the real daemon tarball', () => {
   const realWork = mkdtempSync(join(tmpdir(), 'conductor-install-real-'));

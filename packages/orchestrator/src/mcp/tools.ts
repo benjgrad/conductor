@@ -60,6 +60,7 @@ import { loadSessionDetail } from '../api/sessions.js';
 import { insertWorkflowVersion, weakenedApprovals } from '../api/workflows.js';
 import { pathString } from '../api/errors.js';
 import { createTicket } from '../api/tickets.js';
+import { searchTickets, snippetOf } from '../api/ticket-search.js';
 import {
   createSchedule,
   deleteSchedule,
@@ -75,6 +76,8 @@ import { maxBoardEventId } from '../stream/board.js';
 import { capJson } from './cap.js';
 import { WAITING_ON_USER, statusLine, statusReport, waitingOn, type WaitingOn } from './status.js';
 import { waitForUpdates, type ChangeRow } from './updates.js';
+
+export { likeLiteral, snippetOf } from '../api/ticket-search.js';
 
 // ADR-0028: the MCP tools, one McpServer per request bound to the caller (stateless). Each tool
 // is scoped to the token's account: another account's ticket is "not found", like an unknown
@@ -244,7 +247,6 @@ const UI_ACTOR = 'ui';
 const TITLE_MAX = 120;
 const QUESTION_MAX = 160;
 const BODY_MAX = 4000;
-const SNIPPET_MAX = 200;
 const MACHINE_REPOS_MAX = 10;
 /** save_workflow: at most this many validator errors in the result. */
 const WORKFLOW_ERRORS_MAX = 50;
@@ -260,21 +262,6 @@ const STATUS_FILTER: Record<'open' | 'done' | 'cancelled', ReadonlySet<TicketSta
   done: new Set(['done']),
   cancelled: new Set(['cancelled']),
 };
-
-/** `s` as a literal ILIKE pattern (backslash is the escape). */
-export const likeLiteral = (s: string): string => s.replace(/[\\%_]/g, (c) => '\\' + c);
-
-/** ≤ SNIPPET_MAX chars of `text` around the first case-insensitive `query`, or its start. */
-export function snippetOf(text: string, query: string): string {
-  const flat = text.replace(/\s+/g, ' ').trim();
-  const at = flat.toLowerCase().indexOf(query.toLowerCase());
-  const start = at < 0 ? 0 : Math.max(0, at - 60);
-  const cut = flat.slice(start, start + SNIPPET_MAX - 2);
-  return ((start > 0 ? '…' : '') + cut + (start + cut.length < flat.length ? '…' : '')).slice(
-    0,
-    SNIPPET_MAX,
-  );
-}
 
 /**
  * The names of the human transitions out of the session's state that carry `requires.approvals`
@@ -553,30 +540,12 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       annotations: readOnly,
     },
     async ({ query, limit }) => {
-      const hex = query.toLowerCase().replace(/-/g, '');
-      // TD-200: ILIKE is a sequential scan of the account's tickets; M3-T02's tsvector + GIN
-      // index replaces it.
-      const r = await db.query<{
-        id: string;
-        title: string;
-        body: string;
-        external_ref: string | null;
-        status: TicketStatus;
-        kind: string | null;
-        repo: string;
-        updated_at: Date;
-      }>(
-        'SELECT id, title, body, external_ref, status, kind, repo, updated_at FROM ticket ' +
-          "WHERE account_id = $1 AND (title ILIKE $2 ESCAPE '\\' OR external_ref ILIKE $2 " +
-          "ESCAPE '\\' OR body ILIKE $2 ESCAPE '\\' OR ($3::text IS NOT NULL AND " +
-          "replace(id::text, '-', '') LIKE $3 || '%')) ORDER BY updated_at DESC, id LIMIT $4",
-        [
-          accountId,
-          `%${likeLiteral(query)}%`,
-          /^[0-9a-f]{4,32}$/.test(hex) ? hex : null,
-          limit ?? 10,
-        ],
-      );
+      const r = await searchTickets(db, accountId, {
+        q: query,
+        statuses: ['all'],
+        limit: limit ?? 10,
+        cursor: 0,
+      });
       return ok({
         tickets: r.rows.map((t) => ({
           id: t.id,

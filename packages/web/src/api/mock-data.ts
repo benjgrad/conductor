@@ -376,6 +376,11 @@ export const SEED_IDS = {
     ticket: 'a1000000-0000-4000-8000-000000000008',
     session: 'b2000000-0000-4000-8000-000000000008',
   },
+  /** UXR-85: a cancelled ticket (Done, badged), for search and the Archive. */
+  cancelled: {
+    ticket: 'a1000000-0000-4000-8000-00000000000f',
+    session: 'b2000000-0000-4000-8000-00000000000f',
+  },
   /** ADR-0011: held in Implementing by `ready_for_testing`'s conditions (the checklist). */
   pending: {
     ticket: BOARD_CARD_PENDING_FIXTURE.ticket_id,
@@ -441,6 +446,8 @@ interface SeedSpec {
   ticketBody?: string;
   /** SessionDetail.moves as [minutes ago, from, to, transition]; absent → none (UXR-88). */
   moves?: [number, string | null, string, string | null][];
+  /** UXR-85: the ticket was cancelled (Done, badged `cancelled`). */
+  cancelled?: boolean;
 }
 
 function seed(now: Date, s: SeedSpec): MockSeed {
@@ -456,7 +463,7 @@ function seed(now: Date, s: SeedSpec): MockSeed {
     workflow_state: s.state,
     status: s.status,
     column: 'queued', // fixed up by the mock (placeCard)
-    badges: s.slot ? ['waiting_for_build_slot'] : [],
+    badges: s.cancelled ? ['cancelled'] : s.slot ? ['waiting_for_build_slot'] : [],
     machine_id: s.status === 'waiting_external' ? null : 'mbp-ben',
     spend_usd: s.spend,
     input_request: input,
@@ -1008,6 +1015,18 @@ export function mockSeeds(now: Date): MockSeed[] {
       ageMin: 700,
       activeMinAgo: 650,
       spend: 1.9,
+    }),
+    seed(now, {
+      ...id.cancelled,
+      title: 'Try a GraphQL gateway',
+      status: 'failed',
+      state: 'implement',
+      workflow: M1_BASIC,
+      ageMin: 3000,
+      activeMinAgo: 2900,
+      spend: 0.4,
+      cancelled: true,
+      ticketBody: 'Spike: put a GraphQL gateway in front of the REST API.',
     }),
   ];
 }

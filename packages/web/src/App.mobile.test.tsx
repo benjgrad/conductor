@@ -15,6 +15,9 @@ afterEach(() => {
 });
 
 const me = localMeResponse().user;
+/** UXR-27: the pages in the top bar, and what the account menu no longer holds. */
+const pages = ['Board', 'Workflow', 'Machines', 'Repo checks', 'Schedules'];
+const notInMenu = ['Add a machine', 'Help', 'Connect Claude', 'Repo checks', 'Workflow'];
 
 async function renderAt(width: number) {
   viewport = mockViewport(width);
@@ -25,9 +28,6 @@ async function renderAt(width: number) {
 }
 
 describe('phone top bar (11-web-ui §Top bar)', () => {
-  const pages = ['Board', 'Workflow', 'Machines', 'Repo checks', 'Schedules'];
-  const notInMenu = ['Add a machine', 'Help', 'Connect Claude', 'Repo checks', 'Workflow'];
-
   it('at 375 the bar is compact and holds every page, New ticket and Help (UXR-27)', async () => {
     await renderAt(375);
     const bar = document.querySelector<HTMLElement>('header.topbar')!;
@@ -207,15 +207,16 @@ describe('phone create ticket (11-web-ui §Create ticket)', () => {
 });
 
 describe('tablet at 768 px gets the phone layout (UXR-59, 11-web-ui §Breakpoint)', () => {
-  it('the top bar is compact: Add a machine and Help are in the account menu', async () => {
+  it('the top bar is compact and keeps every page, New ticket and Help (UXR-27)', async () => {
     await renderAt(768);
     const bar = document.querySelector<HTMLElement>('header.topbar')!;
     expect(bar.classList.contains('compact')).toBe(true);
+    for (const name of pages) expect(within(bar).getByRole('link', { name })).toBeTruthy();
+    expect(within(bar).getByRole('link', { name: 'Help' })).toBeTruthy();
     expect(within(bar).queryByRole('link', { name: 'Add a machine' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: me.display_name }));
     const menu = within(screen.getByRole('menu', { name: 'Account' }));
-    expect(menu.getByRole('menuitem', { name: 'Add a machine' })).toBeTruthy();
-    expect(menu.getByRole('menuitem', { name: 'Help' })).toBeTruthy();
+    for (const name of notInMenu) expect(menu.queryByRole('menuitem', { name })).toBeNull();
   });
 
   it('the shell is the phone one, not the desktop board shell', async () => {
@@ -245,7 +246,8 @@ describe('tablet at 768 px gets the phone layout (UXR-59, 11-web-ui §Breakpoint
     await renderAt(900);
     const bar = document.querySelector<HTMLElement>('header.topbar')!;
     expect(bar.classList.contains('compact')).toBe(false);
-    expect(within(bar).getByRole('link', { name: 'Add a machine' })).toBeTruthy();
+    expect(within(bar).getByRole('link', { name: 'Repo checks' }).textContent).toBe('Repo checks');
+    expect(within(bar).queryByRole('link', { name: 'Add a machine' })).toBeNull();
     expect(document.querySelector('.app.board-view')).toBeTruthy();
     expect(document.documentElement.classList.contains('app-shell')).toBe(false);
   });

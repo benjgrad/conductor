@@ -278,16 +278,16 @@
     "horizontalOverflow": false,
     "clippedOverflow": [],
     "pageHeight": 1024,
-    "smallTapTargets": 13,
+    "smallTapTargets": 11,
     "smallTapTargetSample": [
-      "button \"Hotfix: crash on empty cart\" 144×32",
-      "button \"Add /health\" 144×16",
-      "button \"Conductor checks demo\" 144×32",
-      "button \"Add pagination to /orders\" 144×32",
-      "a \"↻ PR sweep\" 72×24",
-      "button \"Waiting for a build slot\" 144×32",
-      "button \"Ship the /health endpoint\" 144×32",
-      "button \"Fix flaky checkout test\" 144×32"
+      "button \"Fix flaky checkout test\" 700×18",
+      "button \"Retries exhausted: Tests faile\" 700×18",
+      "button \"Board cards: review requests v\" 700×18",
+      "button \"Ready for review: TASK: UX-4 B\" 700×36",
+      "button \"Add CSV export\" 700×18",
+      "button \"Step failed: Conductor could n\" 700×36",
+      "button \"Plan the garden\" 700×18",
+      "button \"Question: Raised beds or in-gr\" 700×18"
     ]
   },
   "detail-768x1024-light": {

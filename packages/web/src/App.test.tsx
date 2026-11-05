@@ -47,7 +47,11 @@ describe('kanban board', () => {
     ]);
     expect(cardTitles('Waiting external')).toEqual(['Bump node to 22 in CI']);
     // `lost` lands in Done with a badge.
-    expect(cardTitles('Done')).toEqual(['Rename user.fullname', 'Upgrade webpack']);
+    expect(cardTitles('Done')).toEqual([
+      'Rename user.fullname',
+      'Upgrade webpack',
+      'Try a GraphQL gateway',
+    ]);
   });
 
   it('lists needs-input oldest question first, with the question badge', async () => {
@@ -199,6 +203,7 @@ describe('top nav icons (UX-11)', () => {
     ['link', 'Machines'],
     ['link', 'Repo checks'],
     ['link', 'Schedules'],
+    ['link', 'Archive'],
     ['button', 'New ticket'],
     ['link', 'Help'],
     ['button', me.display_name],
@@ -277,6 +282,7 @@ describe('navigation (UXR-27)', () => {
     expect(currentNav({ view: 'setup' })).toBe('machines');
     expect(currentNav({ view: 'repo-checks', repo: 'github.com/a/b' })).toBe('repo-checks');
     expect(currentNav({ view: 'schedules', scheduleId: null })).toBe('schedules');
+    expect(currentNav({ view: 'archive' })).toBe('archive');
     expect(currentNav({ view: 'admin' })).toBeNull();
     expect(currentNav({ view: 'help' })).toBeNull();
   });
@@ -287,6 +293,7 @@ describe('navigation (UXR-27)', () => {
     ['/#/machines', 'Machines'],
     ['/#/repo-checks', 'Repo checks'],
     ['/#/schedules', 'Schedules'],
+    ['/#/archive', 'Archive'],
     ['/#/setup', 'Machines'],
   ])('%s marks exactly one current page: %s', async (path, name) => {
     window.history.replaceState(null, '', path);
@@ -401,5 +408,42 @@ describe('session (M2-T05)', () => {
     api.me = me;
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     await screen.findByText('Add pagination to /orders');
+  });
+});
+
+describe('ticket search and archive (UXR-85)', () => {
+  const search = async (text: string, option: RegExp) => {
+    fireEvent.change(screen.getByRole('combobox', { name: 'Search tickets' }), {
+      target: { value: text },
+    });
+    fireEvent.click(await screen.findByRole('option', { name: option }));
+  };
+
+  it('a result with a session opens the session panel; a queued one the ticket panel', async () => {
+    await renderApp();
+    await search('graphql', /Try a GraphQL gateway/);
+    const panel = await screen.findByRole('complementary', { name: 'Session detail' });
+    expect(within(panel).getAllByText('Try a GraphQL gateway').length).toBeGreaterThan(0);
+
+    await search('crash on empty cart', /Hotfix: crash on empty cart/);
+    expect(await screen.findByRole('complementary', { name: 'Ticket detail' })).toBeTruthy();
+  });
+
+  it('a result opened from another page goes back to the board', async () => {
+    await renderApp();
+    fireEvent.click(screen.getByRole('link', { name: 'Machines' }));
+    await search('graphql', /Try a GraphQL gateway/);
+    expect(await screen.findByRole('complementary', { name: 'Session detail' })).toBeTruthy();
+    expect(window.location.hash).toBe('#/');
+  });
+
+  it('#/archive lists the closed tickets, and a row opens its panel there', async () => {
+    window.history.replaceState(null, '', '/#/archive');
+    render(<App api={createMockApi()} />);
+    expect(await screen.findByRole('heading', { name: 'Archive' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Archive' }).getAttribute('aria-current')).toBe('page');
+    fireEvent.click(await screen.findByRole('button', { name: /Rename user.fullname/ }));
+    expect(await screen.findByRole('complementary', { name: 'Session detail' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Archive' })).toBeTruthy();
   });
 });

@@ -1,5 +1,6 @@
-import type { MeResponse } from '@conductor/shared';
+import type { MeResponse, TicketSearchResult } from '@conductor/shared';
 import {
+  Archive,
   CalendarClock,
   CircleHelp,
   LayoutDashboard,
@@ -19,10 +20,12 @@ import { isUnauthorized, withAuthRedirect } from './auth/session.js';
 import { SignIn } from './auth/SignIn.js';
 import { SignUp } from './auth/SignUp.js';
 import { useBoard } from './board/hooks.js';
+import { ArchivePage } from './components/ArchivePage.js';
 import { Board } from './components/Board.js';
 import { CreateTicketForm } from './components/CreateTicketForm.js';
 import { DetailPanel } from './components/DetailPanel.js';
 import { TicketPanel } from './components/TicketPanel.js';
+import { TicketSearch } from './components/TicketSearch.js';
 import { ToastProvider } from './components/Toast.js';
 import { NavIcon } from './components/NavIcon.js';
 import {
@@ -165,7 +168,13 @@ function AppRoutes({ api, compact: compactProp }: AppProps) {
 }
 
 /** A top-bar page; `currentNav` names the one that is the current page. */
-export type NavPage = 'board' | 'workflows' | 'machines' | 'repo-checks' | 'schedules';
+export type NavPage =
+  | 'board'
+  | 'workflows'
+  | 'machines'
+  | 'repo-checks'
+  | 'schedules'
+  | 'archive';
 
 /**
  * UXR-27 FR-5: which top-bar link carries `aria-current="page"` (at most one). The guided setup
@@ -185,6 +194,8 @@ export function currentNav(route: Route): NavPage | null {
       return 'repo-checks';
     case 'schedules':
       return 'schedules';
+    case 'archive':
+      return 'archive';
     case 'admin':
     case 'help':
       return null;
@@ -235,6 +246,16 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
   const openSession = (sessionId: string) => {
     navigate({ view: 'board' });
     setSelected(sessionId);
+  };
+  // UXR-85: a search result or an Archive row opens its panel over the board (or the Archive).
+  const openResult = (t: TicketSearchResult) => {
+    if (route.view !== 'board' && route.view !== 'archive') {
+      navigate({ view: 'board' });
+      // The draft guard held the user back: stay, open nothing.
+      if (parseHash(window.location.hash).view !== 'board') return;
+    }
+    if (t.session_id !== null) setSelected(t.session_id);
+    else selectTicket(t.id);
   };
   useNeedsInputNotifications(board, openSession);
   useTransitionNotifications(board, openSession);
@@ -381,7 +402,16 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
           >
             {labelled(CalendarClock, 'Schedules')}
           </a>
+          <a
+            href={routeHash({ view: 'archive' })}
+            aria-current={page('archive')}
+            {...iconOnly('Archive')}
+          >
+            {labelled(Archive, 'Archive')}
+          </a>
         </nav>
+        {/* UXR-85: ticket search, between the pages and New ticket. */}
+        {!guide && <TicketSearch api={api} onOpen={openResult} mobile={mobile} />}
         <button
           type="button"
           className="new-ticket"
@@ -455,15 +485,19 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
           onClose={() => setCreating(false)}
         />
       )}
-      <main hidden={route.view !== 'board' || guide}>
-        <Board
-          board={board}
-          selectedSessionId={selected}
-          onSelect={setSelected}
-          selectedTicketId={selectedTicket}
-          onSelectTicket={selectTicket}
-          api={api}
-        />
+      <main hidden={(route.view !== 'board' && route.view !== 'archive') || guide}>
+        {route.view === 'archive' ? (
+          <ArchivePage api={api} onOpen={openResult} />
+        ) : (
+          <Board
+            board={board}
+            selectedSessionId={selected}
+            onSelect={setSelected}
+            selectedTicketId={selectedTicket}
+            onSelectTicket={selectTicket}
+            api={api}
+          />
+        )}
         {selectedTicket && !selected && (
           <TicketPanel
             key={selectedTicket}

@@ -564,7 +564,35 @@ describe.skipIf(!runnable)('install.sh', () => {
 // enroll` posts to a stub enroll endpoint. The token reaches the daemon only through
 // CONDUCTOR_ENROLL_TOKEN (TD-117). It costs a cargo build (the dev profile, which `cargo nextest`
 // has usually just built), so it runs only where cargo is on PATH.
-const hasCargo = spawnSync('cargo', ['--version']).status === 0;
+// It also needs the pinned toolchain (rust-toolchain.toml): a cargo without rustup (Homebrew's)
+// ignores the pin and can't build the workspace, so it doesn't count.
+const hasCargo = cargoMeetsPin(
+  spawnSync('rustc', ['--version'], { cwd: REPO, encoding: 'utf8' }).stdout ?? '',
+  readFileSync(join(REPO, 'rust-toolchain.toml'), 'utf8'),
+);
+
+/** `rustc --version` output is at least the `channel` rust-toolchain.toml pins. */
+function cargoMeetsPin(rustcVersion: string, toolchainToml: string): boolean {
+  const have = /^rustc (\d+)\.(\d+)\.(\d+)/.exec(rustcVersion.trim());
+  if (!have) return false;
+  const pin = /^\s*channel\s*=\s*"(\d+)\.(\d+)(?:\.(\d+))?"/m.exec(toolchainToml);
+  if (!pin) return true; // a named channel (stable, nightly): rustup resolves it
+  const a = [Number(have[1]), Number(have[2]), Number(have[3])];
+  const b = [Number(pin[1]), Number(pin[2]), Number(pin[3] ?? 0)];
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i]! > b[i]!;
+  return true;
+}
+
+describe('cargoMeetsPin', () => {
+  const toml = '[toolchain]\nchannel = "1.99.1"\n';
+  it('needs the pinned version or newer', () => {
+    expect(cargoMeetsPin('rustc 1.86.0 (05f9846f8 2025-03-31) (Homebrew)', toml)).toBe(false);
+    expect(cargoMeetsPin('rustc 1.99.1 (abc 2026-01-01)', toml)).toBe(true);
+    expect(cargoMeetsPin('rustc 1.100.0 (abc 2026-09-01)', toml)).toBe(true);
+    expect(cargoMeetsPin('', toml)).toBe(false);
+    expect(cargoMeetsPin('rustc 1.86.0', '[toolchain]\nchannel = "stable"\n')).toBe(true);
+  });
+});
 
 describe.skipIf(!runnable || !hasCargo)('install.sh with the real daemon tarball', () => {
   const realWork = mkdtempSync(join(tmpdir(), 'conductor-install-real-'));
@@ -610,7 +638,8 @@ describe.skipIf(!runnable || !hasCargo)('install.sh with the real daemon tarball
   }, 600_000);
 
   afterAll(async () => {
-    await new Promise<void>((r) => server.close(() => r()));
+    // A failed beforeAll leaves no server.
+    if (server) await new Promise<void>((r) => server.close(() => r()));
     rmSync(realWork, { recursive: true, force: true });
   });
 

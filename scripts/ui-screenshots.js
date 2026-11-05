@@ -111,6 +111,8 @@ const VIEWPORTS = [
         'wf-rules-full',
         'wf-rules-new',
         'wf-arrow-group',
+        'rc-override-full',
+        'rc-invalid',
         'wf-arrow-transition',
         'workflow-column',
         'ticket-messages',
@@ -296,6 +298,20 @@ const SCREENS = [
   { id: 'machines', path: '/#/machines' },
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
+  // UXR-61: the override's setup and check table, at full height.
+  { id: 'rc-override-full', path: '/#/repo-checks/github.com%2Facme%2Fshop', fullPage: true },
+  // UXR-61 FR-5: problems in the check table, each under its field and named by its label.
+  {
+    id: 'rc-invalid',
+    path: '/#/repo-checks/github.com%2Facme%2Fshop',
+    fullPage: true,
+    act: async (page) => {
+      const name = page.getByLabel('Check 1 name', { exact: true });
+      await name.waitFor();
+      await name.fill('');
+      await page.getByLabel('Check 1 timeout', { exact: true }).fill('soon');
+    },
+  },
   { id: 'workflows', path: '/#/workflows' },
   // UXR-45: the diagram's scroll box scrolled to its right end (fit to width: nothing hidden).
   {

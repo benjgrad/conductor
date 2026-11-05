@@ -527,5 +527,207 @@
       "select \"v3 (latest)v2v1\" 106×28",
       "input \"\" 13×13"
     ]
+  },
+  "repo-checks-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 7,
+    "smallTapTargetSample": [
+      "a \"Help\" 32×16",
+      "button \"Move check 1 up\" 24×44",
+      "button \"Move check 1 down\" 24×44",
+      "button \"Remove check 1\" 24×44",
+      "button \"Move check 2 up\" 24×44",
+      "button \"Move check 2 down\" 24×44",
+      "button \"Remove check 2\" 24×44"
+    ]
+  },
+  "repo-checks-list-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Help\" 32×16"
+    ]
+  },
+  "rc-override-full-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 7,
+    "smallTapTargetSample": [
+      "a \"Help\" 32×16",
+      "button \"Move check 1 up\" 24×44",
+      "button \"Move check 1 down\" 24×44",
+      "button \"Remove check 1\" 24×44",
+      "button \"Move check 2 up\" 24×44",
+      "button \"Move check 2 down\" 24×44",
+      "button \"Remove check 2\" 24×44"
+    ]
+  },
+  "rc-new-override-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 7,
+    "smallTapTargetSample": [
+      "a \"Help\" 32×16",
+      "button \"Move check 1 up\" 24×44",
+      "button \"Move check 1 down\" 24×44",
+      "button \"Remove check 1\" 24×44",
+      "button \"Move check 2 up\" 24×44",
+      "button \"Move check 2 down\" 24×44",
+      "button \"Remove check 2\" 24×44"
+    ]
+  },
+  "rc-invalid-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 7,
+    "smallTapTargetSample": [
+      "a \"Help\" 32×16",
+      "button \"Move check 1 up\" 24×44",
+      "button \"Move check 1 down\" 24×44",
+      "button \"Remove check 1\" 24×44",
+      "button \"Move check 2 up\" 24×44",
+      "button \"Move check 2 down\" 24×44",
+      "button \"Remove check 2\" 24×44"
+    ]
+  },
+  "rc-clear-confirm-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 6,
+    "smallTapTargetSample": [
+      "button \"Move check 1 up\" 24×44",
+      "button \"Move check 1 down\" 24×44",
+      "button \"Remove check 1\" 24×44",
+      "button \"Move check 2 up\" 24×44",
+      "button \"Move check 2 down\" 24×44",
+      "button \"Remove check 2\" 24×44"
+    ]
+  },
+  "repo-checks-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 22,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "a \"Help\" 32×16",
+      "select \"Auto-detect (npm ci / npm inst\" 720×26"
+    ]
+  },
+  "repo-checks-list-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 7,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "a \"Help\" 32×16"
+    ]
+  },
+  "rc-override-full-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 22,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "a \"Help\" 32×16",
+      "select \"Auto-detect (npm ci / npm inst\" 720×26"
+    ]
+  },
+  "rc-new-override-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 21,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "a \"Help\" 32×16",
+      "select \"Auto-detect (npm ci / npm inst\" 720×26"
+    ]
+  },
+  "rc-invalid-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 21,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "a \"Help\" 32×16",
+      "select \"Auto-detect (npm ci / npm inst\" 720×26"
+    ]
+  },
+  "rc-clear-confirm-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 22,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "a \"Help\" 32×16",
+      "select \"Auto-detect (npm ci / npm inst\" 720×26"
+    ]
   }
 }

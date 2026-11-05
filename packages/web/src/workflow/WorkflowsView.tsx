@@ -32,6 +32,7 @@ import { TransitionEditor } from './TransitionEditor.js';
 import { ArrowEditor } from './ArrowEditor.js';
 import { addTransition, arrowTransitions, getTransitionObject, parentOf } from './transitions.js';
 import { WorkflowDiagram } from './WorkflowDiagram.js';
+import type { DirtyDraft } from './draft-guard.js';
 
 // The Workflow view (ADR-0010, ADR-0011): the one workflow, `conductor`, drawn as its board
 // columns. Pick a version; click a column to edit its title and work, or an arrow to edit the
@@ -42,7 +43,7 @@ import { WorkflowDiagram } from './WorkflowDiagram.js';
 export interface WorkflowsViewProps {
   api: ApiClient;
   /** The workflow id with unsaved changes, or null; the app guards navigation with it. */
-  onDirtyChange?: (workflowId: string | null) => void;
+  onDirtyChange?: (dirty: DirtyDraft | null) => void;
 }
 
 const ID = CONDUCTOR_WORKFLOW_ID;
@@ -69,7 +70,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
   const [reloads, setReloads] = useState(0);
 
   useEffect(() => {
-    onDirtyChange?.(draft !== null ? ID : null);
+    onDirtyChange?.(draft !== null ? { kind: 'workflow', id: ID } : null);
   }, [draft, onDirtyChange]);
   useEffect(() => () => onDirtyChange?.(null), [onDirtyChange]);
 

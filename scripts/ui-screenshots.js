@@ -103,6 +103,12 @@ const VIEWPORTS = [
         'wf-arrow-group',
         'wf-arrow-transition',
         'workflow-column',
+        'repo-checks',
+        'repo-checks-list',
+        'rc-override-full',
+        'rc-new-override',
+        'rc-invalid',
+        'rc-clear-confirm',
         'ticket-messages',
         'ticket-plan',
         'detail-done',
@@ -281,6 +287,59 @@ const SCREENS = [
   { id: 'machines', path: '/#/machines' },
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
+  // UXR-76: the repo list alone (on a phone, the first of the stacked panes).
+  { id: 'repo-checks-list', path: '/#/repo-checks' },
+  // UXR-77: the override with "Compare with the workflow's checks" open, at its full height.
+  {
+    id: 'rc-override-full',
+    path: '/#/repo-checks/github.com%2Facme%2Fshop',
+    fullPage: true,
+    act: async (page) => {
+      await page.locator('details.rc-compare').waitFor();
+      await page.evaluate(() => {
+        const box = /** @type {HTMLDetailsElement | null} */ (
+          document.querySelector('details.rc-compare')
+        );
+        if (box) box.open = true;
+      });
+    },
+  },
+  // UXR-76: a repo without an override, edited: Set override enabled, the draft previewed.
+  {
+    id: 'rc-new-override',
+    path: '/#/repo-checks/github.com%2Fbenjgrad%2Fconductor',
+    act: async (page) => {
+      const cmd = page.getByLabel('Check 1 command');
+      await cmd.waitFor();
+      await cmd.fill('pnpm -r build');
+      await page.evaluate(() => {
+        const box = /** @type {HTMLDetailsElement | null} */ (
+          document.querySelector('details.rc-compare')
+        );
+        if (box) box.open = true;
+      });
+    },
+  },
+  // A check without a command: the error at its field, Set override off.
+  {
+    id: 'rc-invalid',
+    path: '/#/repo-checks/github.com%2Fbenjgrad%2Fconductor',
+    act: async (page) => {
+      const cmd = page.getByLabel('Check 1 command');
+      await cmd.waitFor();
+      await cmd.fill('');
+    },
+  },
+  // UXR-79: clearing, from the overflow menu, with named buttons.
+  {
+    id: 'rc-clear-confirm',
+    path: '/#/repo-checks/github.com%2Facme%2Fshop',
+    act: async (page) => {
+      await tap(page.getByRole('button', { name: 'More actions' }));
+      await tap(page.getByRole('menuitem', { name: 'Use workflow checks…' }));
+      await page.getByRole('group', { name: 'Use workflow checks' }).waitFor();
+    },
+  },
   { id: 'workflows', path: '/#/workflows' },
   // UXR-60/63: a transition with every kind of rule, at its full height (the panel uncapped).
   {

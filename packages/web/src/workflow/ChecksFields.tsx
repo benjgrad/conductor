@@ -21,13 +21,19 @@ export interface ChecksIssue {
   message: string;
 }
 
-/** The suffixes the fields show problems at, for these checks (setup only while there are checks). */
-export function checksFieldSuffixes(checks: readonly EntryCheck[]): Set<string> {
+/**
+ * The suffixes the fields show problems at, for these checks (setup only while there are checks,
+ * unless it comes first: then it is always shown).
+ */
+export function checksFieldSuffixes(
+  checks: readonly EntryCheck[],
+  setupFirst = false,
+): Set<string> {
   const out = new Set(['checks']);
   checks.forEach((_, i) => {
     for (const f of ['name', 'cmd', 'timeout']) out.add(`checks.${i}.${f}`);
   });
-  if (checks.length > 0) out.add('setup');
+  if (setupFirst || checks.length > 0) out.add('setup');
   return out;
 }
 
@@ -37,6 +43,11 @@ export interface ChecksFieldsProps extends ChecksValue {
   issues: readonly ChecksIssue[];
   /** The setup field's label. */
   setupLabel?: string;
+  /**
+   * In run order (UXR-77, the Repo checks page): a "Setup" section, always shown, then "Checks".
+   * Otherwise the checks come first and setup follows while there are any.
+   */
+  setupFirst?: boolean;
 }
 
 export function ChecksFields({
@@ -45,6 +56,7 @@ export function ChecksFields({
   onChange,
   issues,
   setupLabel = 'Before the checks (in a fresh checkout of the commit)',
+  setupFirst = false,
 }: ChecksFieldsProps) {
   const uid = useId();
   /** The user picked "Custom command" (its text may still be empty, which reads as none). */
@@ -61,7 +73,37 @@ export function ChecksFields({
   const setSetup = (next: string | undefined) => onChange({ checks, setup: next });
   const setupMode: 'auto' | 'none' | 'custom' =
     setup === undefined ? 'auto' : setup === '' && !customSetup ? 'none' : 'custom';
-  return (
+  const setupBlock = (
+    <div className="wf-setup">
+      <label htmlFor={`${uid}-setup`}>{setupLabel}</label>
+      <select
+        id={`${uid}-setup`}
+        value={setupMode}
+        onChange={(e) => {
+          const mode = e.target.value;
+          setCustomSetup(mode === 'custom');
+          if (mode === 'auto') setSetup(undefined);
+          else if (mode === 'none') setSetup('');
+          else setSetup(setup ?? '');
+        }}
+      >
+        <option value="auto">Auto-detect (npm ci / npm install)</option>
+        <option value="none">None</option>
+        <option value="custom">Custom command</option>
+      </select>
+      {setupMode === 'custom' && (
+        <input
+          aria-label="Setup command"
+          className="mono"
+          value={setup ?? ''}
+          placeholder="e.g. pnpm install --frozen-lockfile"
+          onChange={(e) => setSetup(e.target.value)}
+        />
+      )}
+      {issueAt('setup')}
+    </div>
+  );
+  const list = (
     <>
       <ol className="wf-items" aria-label="Checks">
         {checks.map((c, i) => (
@@ -124,36 +166,22 @@ export function ChecksFields({
           Add check
         </button>
       </div>
-      {checks.length > 0 && (
-        <div className="wf-setup">
-          <label htmlFor={`${uid}-setup`}>{setupLabel}</label>
-          <select
-            id={`${uid}-setup`}
-            value={setupMode}
-            onChange={(e) => {
-              const mode = e.target.value;
-              setCustomSetup(mode === 'custom');
-              if (mode === 'auto') setSetup(undefined);
-              else if (mode === 'none') setSetup('');
-              else setSetup(setup ?? '');
-            }}
-          >
-            <option value="auto">Auto-detect (npm ci / npm install)</option>
-            <option value="none">None</option>
-            <option value="custom">Custom command</option>
-          </select>
-          {setupMode === 'custom' && (
-            <input
-              aria-label="Setup command"
-              className="mono"
-              value={setup ?? ''}
-              placeholder="e.g. pnpm install --frozen-lockfile"
-              onChange={(e) => setSetup(e.target.value)}
-            />
-          )}
-          {issueAt('setup')}
-        </div>
-      )}
+    </>
+  );
+  if (setupFirst) {
+    return (
+      <>
+        <h4 className="wf-fields-heading">Setup</h4>
+        {setupBlock}
+        <h4 className="wf-fields-heading">Checks</h4>
+        {list}
+      </>
+    );
+  }
+  return (
+    <>
+      {list}
+      {checks.length > 0 && setupBlock}
     </>
   );
 }

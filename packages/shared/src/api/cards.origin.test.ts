@@ -58,6 +58,17 @@ describe('toInputRequestDto origin (UX-4)', () => {
     ).toBe(false);
   });
 
+  it('an engine route (actor engine) is no named transition: still a failed step', () => {
+    const dto = toInputRequestDto({
+      ...row,
+      kind: 'retries_exhausted',
+      origin_transition: 'requirements_unmet_exhausted',
+      origin_from: MOVE_LABEL,
+      origin_actor: 'engine',
+    });
+    expect(dto).toMatchObject({ origin_transition: null, step_failed: true });
+  });
+
   it('no origin row (null, null): origin_transition null, step_failed false', () => {
     expect(toInputRequestDto({ ...row, origin_transition: null, origin_from: null })).toMatchObject(
       { origin_transition: null, step_failed: false },

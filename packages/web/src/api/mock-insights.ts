@@ -1,5 +1,6 @@
 import {
   frictionReport,
+  sampleNote,
   insightFindings,
   processMetrics,
   rankFindings,
@@ -131,13 +132,26 @@ function history(now: Date): Stamped {
     const runAt = start + 50 * MIN;
     rows.checks.push({
       ...base,
-      state: 'implementing',
+      state: 'implementing.ready_for_testing',
       cmd,
+      name: cmd === 'npm run build' ? 'Build passes' : 'Tests pass',
+      role: 'check',
+      source: 'workflow',
       exit_code: cmd === 'npm run build' || i % 4 === 1 ? 1 : 0,
       timed_out: false,
       setup_failed: false,
       started_at: at(runAt),
       at: at(runAt + (cmd === 'pnpm test' ? 6 : 2) * MIN),
+    });
+    // Every shipped ticket hands its PR over with a summary: a hand-off, not a question.
+    rows.inputs.push({
+      ...base,
+      state: 'implementing',
+      kind: 'agent_question',
+      transition: 'ready_for_testing',
+      class: 'handoff',
+      created_at: at(start + 49 * MIN),
+      answered_at: null,
     });
     // Planning asks a human in two tickets of five.
     if (i % 5 < 2) {
@@ -202,6 +216,8 @@ function windowed(h: Stamped, now: Date, days: number) {
       checks: inside(h.rows.checks),
       inputs: inside(h.rows.inputs),
       permissions: inside(h.rows.permissions),
+      // The approval wait before Done is by design: not slow, marked "waiting on others".
+      waits: { 'implementing.ready_for_testing': { ceiling_minutes: 3 * 24 * 60 } },
     },
     insights: inside(h.insights),
     finished: inside(h.finished),
@@ -261,6 +277,10 @@ export function mockInsights(now: Date, proposals: () => ChangeProposalDetail[])
         insights_enabled: true,
         finished_sessions: w.finished.length,
         analysed_sessions: w.finished.filter((f) => analysed.has(f.session_id)).length,
+        ...sampleNote({
+          finished_sessions: w.finished.length,
+          analysed_sessions: w.finished.filter((f) => analysed.has(f.session_id)).length,
+        }),
         totals: processMetrics(w.rows, 'state').totals,
         ...frictionReport(w.insights),
       };

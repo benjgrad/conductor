@@ -52,7 +52,8 @@ export function lastMoveTransition(detail: Pick<SessionDetail, 'moves' | 'card'>
   const moves = detail.moves ?? [];
   for (let i = moves.length - 1; i >= 0; i--) {
     const m = moves[i]!;
-    if (m.to === detail.card.workflow_state) return m.transition;
+    // An engine route is not a transition someone took (`isNamedMove`).
+    if (m.to === detail.card.workflow_state) return m.actor === 'engine' ? null : m.transition;
   }
   return null;
 }

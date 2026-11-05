@@ -60,6 +60,7 @@ export async function readTicket(tx: Queryable, ticketId: string): Promise<Ticke
 export type OpenInputRow = InputRequestRow & {
   origin_transition: string | null;
   origin_from: string | null;
+  origin_actor: string | null;
 };
 
 /**
@@ -69,7 +70,7 @@ export type OpenInputRow = InputRequestRow & {
  */
 export const OPEN_INPUT_SELECT =
   "SELECT ir.*, se.payload->>'transition' AS origin_transition, " +
-  "se.payload->>'from' AS origin_from FROM input_request ir " +
+  "se.payload->>'from' AS origin_from, se.payload->>'actor' AS origin_actor FROM input_request ir " +
   'LEFT JOIN LATERAL (SELECT e.payload FROM event e WHERE e.session_id = ir.session_id ' +
   "AND e.type = 'state.entered' ORDER BY e.id DESC LIMIT 1) se ON true ";
 

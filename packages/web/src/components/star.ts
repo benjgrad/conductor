@@ -1,6 +1,12 @@
 // UX-7: the Details tab as a story in STAR order. Pure: what each section shows, derived from the
 // SessionDetail (and the parsed brief); StarDetails.tsx renders it.
-import type { MoveDto, SessionDetail, SessionInputRequest, TicketKind } from '@conductor/shared';
+import {
+  engineMoveTitle,
+  type MoveDto,
+  type SessionDetail,
+  type SessionInputRequest,
+  type TicketKind,
+} from '@conductor/shared';
 import type { Brief } from '../brief/parse.js';
 import { displayState } from '../workflow/review.js';
 import { failedItemOfQuestion, firstErrorLine } from './ConductorChecks.js';
@@ -193,7 +199,10 @@ export function timeline(detail: SessionDetail, agent: string): TimelineEntry[] 
       return { at: m.at, kind: 'question', label, reason: m.reason ?? r?.question ?? null };
     }
     if (isStepLabel(m.from, workflow)) {
-      return { ...base, kind: 'check', label: `${name(m.from)} passed` };
+      // Back from a gate whose requirements weren't met (an engine route), else it passed.
+      return m.actor === 'engine' && m.transition !== null
+        ? { ...base, kind: 'check', label: `${name(m.from)}: ${engineMoveTitle(m.transition)}` }
+        : { ...base, kind: 'check', label: `${name(m.from)} passed` };
     }
     const title = moveTitle(workflow, m);
     return {

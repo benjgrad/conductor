@@ -1,5 +1,6 @@
 import {
   frictionReport,
+  sampleNote,
   insightFindings,
   processMetrics,
   rankFindings,
@@ -93,6 +94,7 @@ export async function readProcessReport(db: Queryable, accountId: string, a: Adv
             'deterministic metrics are available.',
         }),
     ...coverage,
+    ...sampleNote(coverage),
     totals: processMetrics(rows, 'state').totals,
     ...frictionReport(insights),
   };

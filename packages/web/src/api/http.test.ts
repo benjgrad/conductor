@@ -346,6 +346,8 @@ describe('createHttpApi REST', () => {
       moves: 0,
       check_runs: 0,
       questions: 0,
+      handoffs: 0,
+      stops: 0,
       permission_prompts: 0,
     };
     const metrics = {

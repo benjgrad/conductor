@@ -139,7 +139,7 @@ describe('buildInsightPrompt', () => {
             repo: 'r',
             machine_id: 'm1',
             state: 'planning',
-            kind: 'question',
+            kind: 'agent_question',
             created_at: '2026-11-01T00:01:00Z',
             answered_at: '2026-11-01T00:06:00Z',
           },
@@ -164,7 +164,7 @@ describe('buildInsightPrompt', () => {
     );
     expect(p).toContain('- planning: 10 min');
     expect(p).toContain('Check in implementing: `pnpm test` exit 1');
-    expect(p).toContain('Question (question) in planning: answered after 5 min');
+    expect(p).toContain('Question (agent_question) in planning: answered after 5 min');
     expect(p).toContain('Permission prompt for Bash: denied (once)');
   });
 

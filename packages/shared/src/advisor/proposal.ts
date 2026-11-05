@@ -1,7 +1,15 @@
 import { z } from 'zod';
 import { RepoChecksSchema } from '../workflow/repo-checks.js';
 import { WorkflowDefinitionSchema } from '../workflow/schema.js';
-import { checkFailed, median, percentile, stateDurations, type AdvisorRows } from './metrics.js';
+import { stateKey } from './gates.js';
+import {
+  checkFailed,
+  classOf,
+  median,
+  percentile,
+  stateDurations,
+  type AdvisorRows,
+} from './metrics.js';
 
 // ADR-0033 P3 (MA-T05): change proposals. The workflow advisor never writes directly: it stores a
 // proposal (what would change, why, the evidence, the expected effect and the rollback), a human
@@ -137,7 +145,9 @@ export function effectValue(rows: AdvisorRows, effect: Pick<ExpectedEffect, 'met
     }
     case 'reentries': {
       // Re-entries per ticket that entered the state (or any state).
-      const moves = rows.moves.filter(inRepo).filter((m) => state === undefined || m.to === state);
+      const moves = rows.moves
+        .filter(inRepo)
+        .filter((m) => state === undefined || stateKey(m.to) === state);
       const tickets = new Set(moves.map((m) => m.ticket_id)).size;
       if (tickets === 0) return out(null, 0);
       return out(moves.filter((m) => m.visit >= 2).length / tickets, tickets);
@@ -147,7 +157,8 @@ export function effectValue(rows: AdvisorRows, effect: Pick<ExpectedEffect, 'met
         .filter(inRepo)
         .filter(
           (c) =>
-            (state === undefined || c.state === state) && (check === undefined || c.cmd === check),
+            (state === undefined || c.state === state) &&
+            (check === undefined || c.cmd === check || c.name === check),
         );
       if (runs.length === 0) return out(null, 0);
       return out(runs.filter(checkFailed).length / runs.length, runs.length);
@@ -157,13 +168,14 @@ export function effectValue(rows: AdvisorRows, effect: Pick<ExpectedEffect, 'met
       const tickets = new Set(
         rows.moves
           .filter(inRepo)
-          .filter((m) => state === undefined || m.to === state)
+          .filter((m) => state === undefined || stateKey(m.to) === state)
           .map((m) => m.ticket_id),
       ).size;
       if (tickets === 0) return out(null, 0);
       const asked = rows.inputs
         .filter(inRepo)
-        .filter((i) => state === undefined || i.state === state);
+        .filter((i) => classOf(i) === 'question')
+        .filter((i) => state === undefined || (i.state !== null && stateKey(i.state) === state));
       return out(asked.length / tickets, tickets);
     }
     case 'permission_denials': {

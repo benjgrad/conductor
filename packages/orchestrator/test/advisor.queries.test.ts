@@ -1,4 +1,5 @@
-import { CONDUCTOR_V4_DEF, processMetrics, rankFindings } from '@conductor/shared';
+import { randomUUID } from 'node:crypto';
+import { CONDUCTOR_V4_DEF, moveStateLabel, processMetrics, rankFindings } from '@conductor/shared';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { loadAdvisorRows } from '../src/advisor/queries.js';
 import { advisorAccount, advisorHistory, advisorMachine } from './advisor-fixtures.js';
@@ -96,5 +97,88 @@ describe('loadAdvisorRows (ADR-0033)', () => {
     expect(m.groups[0]).toMatchObject({ check_runs: 1, check_failures: 1 });
     // One ticket per account is below every finding's minimum.
     expect(rankFindings(rows)).toEqual([]);
+  });
+
+  it('attributes a gate step’s checks and input to the gate, by name and class', async () => {
+    const c = await account('C');
+    const mc = await machine(c);
+    const { sessionId, ticketId } = await advisorHistory(db.pool, {
+      accountId: c,
+      machineId: mc,
+      repo: 'github.com/acme/app',
+      ago: 2,
+      now: NOW,
+    });
+    await db.pool.query(
+      "INSERT INTO repo_checks (account_id, repo, config) VALUES ($1, 'github.com/acme/app', $2)",
+      [
+        c,
+        JSON.stringify({ setup: 'make deps', checks: [{ name: 'Unit tests', cmd: 'npm test' }] }),
+      ],
+    );
+    const gate = moveStateLabel('implementing', 'needs_input', 'personal_pr_ready_for_review');
+    const at = daysAgo(2, 60);
+    await db.pool.query(
+      "INSERT INTO event (session_id, type, payload, ts) VALUES ($1, 'state.entered', $2, $3)",
+      [
+        sessionId,
+        JSON.stringify({
+          from: 'implementing',
+          to: gate,
+          visit: 1,
+          transition: 'personal_pr_ready_for_review',
+          actor: 'agent',
+          reason: 'Done: PR ready.',
+        }),
+        at,
+      ],
+    );
+    const commandId = randomUUID();
+    await db.pool.query(
+      "INSERT INTO outbox (command_id, target, kind, session_id, payload, created_at) VALUES ($1, $2, 'run_cmd', $3, $4, $5)",
+      [
+        commandId,
+        `machine:${mc}`,
+        sessionId,
+        JSON.stringify({ command_id: commandId, workflow_state: gate, cmd: 'npm run build' }),
+        daysAgo(2, 61),
+      ],
+    );
+    await db.pool.query(
+      "INSERT INTO event (session_id, type, payload, ts) VALUES ($1, 'command.exited', $2, $3)",
+      [
+        sessionId,
+        JSON.stringify({
+          command_id: commandId,
+          exit_code: 1,
+          timed_out: false,
+          setup_failed: true,
+        }),
+        daysAgo(2, 62),
+      ],
+    );
+    await db.pool.query(
+      'INSERT INTO input_request (id, session_id, kind, question, return_to, created_at) ' +
+        "VALUES ($1, $2, 'agent_question', 'Done: PR ready.', $3, $4)",
+      [randomUUID(), sessionId, gate, new Date(at.getTime() + 1_000)],
+    );
+
+    const rows = await loadAdvisorRows(db.pool, { accountId: c, windowDays: 30, now: NOW });
+    expect(rows.checks.map((r) => [r.state, r.name, r.role, r.source]).sort()).toEqual([
+      ['implementing', 'Unit tests', 'check', 'repo'],
+      ['implementing.personal_pr_ready_for_review', 'Repo setup', 'setup', 'repo'],
+    ]);
+    const handoff = rows.inputs.find((i) => i.state === gate)!;
+    expect(handoff).toMatchObject({
+      transition: 'personal_pr_ready_for_review',
+      class: 'handoff',
+    });
+    expect(rows.inputs.find((i) => i.state === 'planning')).toMatchObject({ class: 'question' });
+    expect(processMetrics(rows, 'state').totals).toMatchObject({
+      tickets: 1,
+      questions: 1,
+      handoffs: 1,
+    });
+    expect(ticketId).toBeTruthy();
   });
 });

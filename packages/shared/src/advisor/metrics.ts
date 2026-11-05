@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { stateKey, type CheckRole, type CheckSource, type InputClass } from './gates.js';
 
 // ADR-0033 (workflow advisor, P1): deterministic process metrics over past sessions, and the
 // findings ranked from them. All pure: the orchestrator loads the windowed rows
@@ -21,6 +22,8 @@ export interface MoveRow {
   /** Times the session has entered `to`, this entry included (1 = first). */
   visit: number;
   at: string;
+  /** The session's workflow version; absent or null = unknown. */
+  workflow_version?: number | null;
 }
 
 /** One finished check: a `run_cmd` and its `command.exited`. */
@@ -29,10 +32,16 @@ export interface CheckRunRow {
   ticket_id: string;
   repo: string;
   machine_id: string | null;
-  /** The state (gate) that ran it. */
+  /** The state (gate) that ran it: a `stateKey` (e.g. `implementing.pr_ready_for_review`). */
   state: string;
-  /** The command, as the check name (the outbox payload carries no separate name). */
+  /** The command (the run_cmd payload carries no name: TD-201). */
   cmd: string;
+  /** The check's name (`checkIdentity`); absent = the command. */
+  name?: string;
+  /** A check, the gate's setup (a failed setup), or conductor's implicit pin check. Absent = check. */
+  role?: CheckRole;
+  /** Where its definition came from. Absent = unknown. */
+  source?: CheckSource;
   exit_code: number | null;
   timed_out: boolean;
   setup_failed: boolean;
@@ -51,7 +60,18 @@ export interface InputRow {
   kind: string;
   created_at: string;
   answered_at: string | null;
+  /** The transition that opened it (the session's move just before), null = none recorded. */
+  transition?: string | null;
+  /**
+   * `inputClass`: a question to a human, a hand-off of finished work (a PR-ready summary), or an
+   * engine stop. Absent: an `agent_question` is a question, anything else a stop.
+   */
+  class?: InputClass;
 }
+
+/** The input's class (`InputRow.class`, else from its kind). */
+export const classOf = (r: Pick<InputRow, 'kind' | 'class'>): InputClass =>
+  r.class ?? (r.kind === 'agent_question' ? 'question' : 'stop');
 
 /** One ADR-0023 permission prompt. */
 export interface PermissionRow {
@@ -73,6 +93,11 @@ export interface AdvisorRows {
   checks: CheckRunRow[];
   inputs: InputRow[];
   permissions: PermissionRow[];
+  /**
+   * States and gates (by `stateKey`) whose definition waits on someone outside by design
+   * (`gates.ts waitsOnOthers`), with how long it lets them wait. Not slow states.
+   */
+  waits?: Record<string, { ceiling_minutes: number | null }>;
 }
 
 export const AdvisorGroupBySchema = z.enum(['state', 'repo', 'machine', 'check']);
@@ -147,7 +172,7 @@ export function stateDurations(moves: readonly MoveRow[]): StateSpan[] {
         ticket_id: m.ticket_id,
         repo: m.repo,
         machine_id: m.machine_id,
-        state: m.to,
+        state: stateKey(m.to),
         minutes: minutesBetween(m.at, sorted[i + 1]!.at),
       });
     }
@@ -174,16 +199,17 @@ export function loopCounts(moves: readonly MoveRow[]): LoopCounts {
   const tk = new Map<string, { state: string; extra_visits: number; qa_fail: number }>();
   for (const m of moves) {
     if (m.transition !== null) tr.set(m.transition, (tr.get(m.transition) ?? 0) + 1);
-    const t = bucket(tk, m.ticket_id, () => ({ state: m.to, extra_visits: 0, qa_fail: 0 }));
+    const to = stateKey(m.to);
+    const t = bucket(tk, m.ticket_id, () => ({ state: to, extra_visits: 0, qa_fail: 0 }));
     if (m.transition === 'qa_fail') t.qa_fail++;
     if (m.visit >= 2) {
-      const r = bucket(re, m.to, () => ({ count: 0, tickets: new Set<string>(), examples: [] }));
+      const r = bucket(re, to, () => ({ count: 0, tickets: new Set<string>(), examples: [] }));
       r.count++;
       r.tickets.add(m.ticket_id);
       addExample(r.examples, m.ticket_id);
       if (m.visit - 1 > t.extra_visits) {
         t.extra_visits = m.visit - 1;
-        t.state = m.to;
+        t.state = to;
       }
     }
   }
@@ -211,7 +237,12 @@ export function loopCounts(moves: readonly MoveRow[]): LoopCounts {
 }
 
 export interface CheckStat {
+  /** The check's name (the command when no name is known); for a setup, `Repo setup` etc. */
   check: string;
+  role: CheckRole;
+  source: CheckSource;
+  /** A command it ran (the first seen), clipped. */
+  cmd: string;
   /** The states that ran it, sorted. */
   states: string[];
   runs: number;
@@ -228,14 +259,38 @@ export interface CheckStat {
 export const checkFailed = (c: Pick<CheckRunRow, 'exit_code' | 'timed_out' | 'setup_failed'>) =>
   c.timed_out || c.setup_failed || c.exit_code !== 0;
 
-/** Per check command: runs, failures and how long it takes. Most failures first. */
+/** The name a check run is counted under: its name, a setup's under `setup: <name>`. */
+export function checkKey(c: Pick<CheckRunRow, 'cmd' | 'name' | 'role'>): string {
+  const name = c.name ?? c.cmd;
+  return c.role === 'setup' ? `setup: ${name}` : name;
+}
+
+/**
+ * Per check (by name; a failed setup under the setup, not the check it preceded): runs, failures
+ * and how long it takes. Most failures first.
+ */
 export function checkFailureRates(checks: readonly CheckRunRow[]): CheckStat[] {
   const by = new Map<
     string,
-    { states: Set<string>; mins: number[]; f: number; to: number; sf: number; ex: string[] }
+    {
+      name: string;
+      role: CheckRole;
+      source: CheckSource;
+      cmd: string;
+      states: Set<string>;
+      mins: number[];
+      f: number;
+      to: number;
+      sf: number;
+      ex: string[];
+    }
   >();
   for (const c of checks) {
-    const s = bucket(by, c.cmd, () => ({
+    const s = bucket(by, `${c.role ?? 'check'}\u0000${c.name ?? c.cmd}`, () => ({
+      name: c.name ?? c.cmd,
+      role: c.role ?? 'check',
+      source: c.source ?? 'unknown',
+      cmd: c.cmd.length <= 200 ? c.cmd : c.cmd.slice(0, 199) + '…',
       states: new Set<string>(),
       mins: [],
       f: 0,
@@ -252,9 +307,12 @@ export function checkFailureRates(checks: readonly CheckRunRow[]): CheckStat[] {
     if (c.timed_out) s.to++;
     if (c.setup_failed) s.sf++;
   }
-  return [...by.entries()]
-    .map(([check, s]) => ({
-      check,
+  return [...by.values()]
+    .map((s) => ({
+      check: s.name,
+      role: s.role,
+      source: s.source,
+      cmd: s.cmd,
       states: [...s.states].sort(),
       runs: s.mins.length,
       failures: s.f,
@@ -278,7 +336,10 @@ export interface InputStat {
   examples: string[];
 }
 
-/** Per asking state: questions to a human, and how long the answers took. Most asked first. */
+/**
+ * Per asking state: questions to a human, and how long the answers took. Most asked first. Only
+ * questions (`classOf`): a hand-off of finished work or an engine stop is not the agent asking.
+ */
 export function inputStats(inputs: readonly InputRow[]): InputStat[] {
   const by = new Map<
     string,
@@ -291,7 +352,8 @@ export function inputStats(inputs: readonly InputRow[]): InputStat[] {
     }
   >();
   for (const r of inputs) {
-    const s = bucket(by, r.state ?? 'unknown', () => ({
+    if (classOf(r) !== 'question') continue;
+    const s = bucket(by, r.state === null ? 'unknown' : stateKey(r.state), () => ({
       asked: 0,
       tickets: new Set<string>(),
       waits: [],
@@ -402,8 +464,17 @@ export const ProcessGroupSchema = z.object({
   reentries: z.number().int().nonnegative(),
   check_runs: z.number().int().nonnegative(),
   check_failures: z.number().int().nonnegative(),
+  /** Questions to a human (`ask_user`, `needs_approval_to_message`, planning questions). */
   questions: z.number().int().nonnegative(),
+  /** Hand-offs of finished work (a PR-ready summary through a `question: true` gate). */
+  handoffs: z.number().int().nonnegative().default(0),
+  /** Engine stops that asked a human (timeout, retries ran out, budget, approval, lost machine). */
+  stops: z.number().int().nonnegative().default(0),
   permission_denials: z.number().int().nonnegative(),
+  /** State grouping: the definition waits on someone outside here by design (not slow). */
+  waits_on_others: z.boolean().default(false),
+  /** …and how long it lets them wait (`condition_timeout`, an event state's `timeout`). */
+  ceiling_minutes: z.number().nonnegative().nullable().default(null),
 });
 export type ProcessGroup = z.infer<typeof ProcessGroupSchema>;
 
@@ -415,6 +486,8 @@ export const ProcessMetricsSchema = z.object({
     moves: z.number().int().nonnegative(),
     check_runs: z.number().int().nonnegative(),
     questions: z.number().int().nonnegative(),
+    handoffs: z.number().int().nonnegative().default(0),
+    stops: z.number().int().nonnegative().default(0),
     permission_prompts: z.number().int().nonnegative(),
   }),
   groups: z.array(ProcessGroupSchema),
@@ -437,7 +510,14 @@ const TRANSITIONS_MAX = 10;
 export function processMetrics(rows: AdvisorRows, groupBy: AdvisorGroupBy): ProcessMetrics {
   type Acc = { tickets: Set<string>; mins: number[] } & Omit<
     ProcessGroup,
-    'key' | 'tickets' | 'stays' | 'median_minutes' | 'p90_minutes' | 'total_hours'
+    | 'key'
+    | 'tickets'
+    | 'stays'
+    | 'median_minutes'
+    | 'p90_minutes'
+    | 'total_hours'
+    | 'waits_on_others'
+    | 'ceiling_minutes'
   >;
   const groups = new Map<string, Acc>();
   const at = (key: string | null): Acc | null =>
@@ -450,11 +530,15 @@ export function processMetrics(rows: AdvisorRows, groupBy: AdvisorGroupBy): Proc
           check_runs: 0,
           check_failures: 0,
           questions: 0,
+          handoffs: 0,
+          stops: 0,
           permission_denials: 0,
         }));
   const keyOf = (r: { repo: string; machine_id: string | null }, state: string | null) =>
     groupBy === 'state'
-      ? (state ?? 'unknown')
+      ? state === null
+        ? 'unknown'
+        : stateKey(state)
       : groupBy === 'repo'
         ? r.repo
         : groupBy === 'machine'
@@ -473,7 +557,7 @@ export function processMetrics(rows: AdvisorRows, groupBy: AdvisorGroupBy): Proc
     if (g !== null) g.reentries++;
   }
   for (const c of rows.checks) {
-    const g = at(groupBy === 'check' ? c.cmd : keyOf(c, c.state));
+    const g = at(groupBy === 'check' ? checkKey(c) : keyOf(c, c.state));
     if (g === null) continue;
     g.tickets.add(c.ticket_id);
     g.check_runs++;
@@ -483,7 +567,10 @@ export function processMetrics(rows: AdvisorRows, groupBy: AdvisorGroupBy): Proc
     const g = at(keyOf(r, r.state));
     if (g === null) continue;
     g.tickets.add(r.ticket_id);
-    g.questions++;
+    const cls = classOf(r);
+    if (cls === 'question') g.questions++;
+    else if (cls === 'handoff') g.handoffs++;
+    else g.stops++;
   }
   for (const p of rows.permissions) {
     // A prompt has no state of its own: it counts under its repo or machine only.
@@ -493,19 +580,26 @@ export function processMetrics(rows: AdvisorRows, groupBy: AdvisorGroupBy): Proc
     if (p.status === 'denied' || p.status === 'expired') g.permission_denials++;
   }
 
-  const all: ProcessGroup[] = [...groups.entries()].map(([key, g]) => ({
-    key,
-    tickets: g.tickets.size,
-    stays: g.mins.length,
-    median_minutes: round1(median(g.mins)),
-    p90_minutes: round1(percentile(g.mins, 0.9)),
-    total_hours: round1(g.mins.reduce((a, b) => a + b, 0) / 60),
-    reentries: g.reentries,
-    check_runs: g.check_runs,
-    check_failures: g.check_failures,
-    questions: g.questions,
-    permission_denials: g.permission_denials,
-  }));
+  const all: ProcessGroup[] = [...groups.entries()].map(([key, g]) => {
+    const wait = groupBy === 'state' ? rows.waits?.[key] : undefined;
+    return {
+      key,
+      tickets: g.tickets.size,
+      stays: g.mins.length,
+      median_minutes: round1(median(g.mins)),
+      p90_minutes: round1(percentile(g.mins, 0.9)),
+      total_hours: round1(g.mins.reduce((a, b) => a + b, 0) / 60),
+      reentries: g.reentries,
+      check_runs: g.check_runs,
+      check_failures: g.check_failures,
+      questions: g.questions,
+      handoffs: g.handoffs,
+      stops: g.stops,
+      permission_denials: g.permission_denials,
+      waits_on_others: wait !== undefined,
+      ceiling_minutes: wait?.ceiling_minutes ?? null,
+    };
+  });
   all.sort(
     (a, b) =>
       b.total_hours - a.total_hours ||
@@ -528,7 +622,9 @@ export function processMetrics(rows: AdvisorRows, groupBy: AdvisorGroupBy): Proc
       sessions: sessions.size,
       moves: rows.moves.length,
       check_runs: rows.checks.length,
-      questions: rows.inputs.length,
+      questions: rows.inputs.filter((r) => classOf(r) === 'question').length,
+      handoffs: rows.inputs.filter((r) => classOf(r) === 'handoff').length,
+      stops: rows.inputs.filter((r) => classOf(r) === 'stop').length,
       permission_prompts: rows.permissions.length,
     },
     groups: all.slice(0, GROUPS_MAX),
@@ -605,8 +701,10 @@ export function rankFindings(rows: AdvisorRows, extra: readonly Finding[] = []):
   const R = FINDING_RULES;
   const out: Finding[] = [...extra];
 
-  // Slow states: median stay well above the median of every stay.
-  const spans = stateDurations(rows.moves);
+  // Slow states: median stay well above the median of every stay. States and gates that wait on
+  // someone outside by design (`rows.waits`: an approval, an event) are neither slow nor part of
+  // the baseline; get_process_metrics marks them `waits_on_others` with their ceiling.
+  const spans = stateDurations(rows.moves).filter((s) => rows.waits?.[s.state] === undefined);
   const overall = median(spans.map((s) => s.minutes));
   const byState = new Map<string, StateSpan[]>();
   for (const s of spans) bucket(byState, s.state, () => []).push(s);
@@ -634,23 +732,37 @@ export function rankFindings(rows: AdvisorRows, extra: readonly Finding[] = []):
     });
   }
 
-  // Failing checks.
+  // Failing checks (by name; a failed setup on its own). The pin check only records the commit: a
+  // dirty tree is the agent's slip, not a check to fix.
   for (const c of checkFailureRates(rows.checks)) {
+    if (c.role === 'pin') continue;
     if (c.runs < R.checkMinRuns || c.failure_rate <= R.checkFailureRate) continue;
+    const isSetup = c.role === 'setup';
     const why =
       c.setup_failures > 0
         ? `${c.setup_failures} failed in setup`
         : c.timeouts > 0
           ? `${c.timeouts} timed out`
           : 'non-zero exits';
+    const what = isSetup
+      ? c.source === 'repo'
+        ? 'repo setup'
+        : 'workflow setup'
+      : c.source === 'repo'
+        ? 'repo check'
+        : c.source === 'workflow'
+          ? 'workflow check'
+          : 'check';
     out.push({
-      id: `failing_check:${c.check.slice(0, 80)}`,
+      id: `failing_check:${isSetup ? 'setup:' : ''}${c.check.slice(0, 80)}`,
       category: 'failing_check',
       severity: c.failure_rate > 2 * R.checkFailureRate || c.setup_failures > 0 ? 3 : 2,
-      title: `Check fails often: ${c.check.slice(0, 80)}`,
+      title: isSetup
+        ? `${c.source === 'repo' ? 'Repo' : 'Workflow'} setup fails often`
+        : `Check fails often: ${c.check.slice(0, 80)}`,
       evidence:
         `${c.failures} of ${c.runs} runs failed (${Math.round(c.failure_rate * 100)} %; ${why}) ` +
-        `in ${c.states.join(', ')}.`,
+        `in ${c.states.join(', ')} (${what}).`,
       example_ticket_ids: c.examples,
       suggested_tool: 'set_repo_checks',
       suggestion:
@@ -685,7 +797,7 @@ export function rankFindings(rows: AdvisorRows, extra: readonly Finding[] = []):
 
   // Frequent questions: asked in many of the tickets that entered the state.
   const entered = new Map<string, Set<string>>();
-  for (const m of rows.moves) bucket(entered, m.to, () => new Set()).add(m.ticket_id);
+  for (const m of rows.moves) bucket(entered, stateKey(m.to), () => new Set()).add(m.ticket_id);
   for (const q of inputStats(rows.inputs)) {
     const base = entered.get(q.state)?.size ?? 0;
     if (q.tickets < R.questionMinTickets || base === 0) continue;

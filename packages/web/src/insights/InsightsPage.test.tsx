@@ -5,13 +5,13 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mockChangeProposals } from '../api/mock-data.js';
 import { createMockApi } from '../api/mock.js';
-import { formatMinutes, InsightsPage } from './InsightsPage.js';
+import { formatCeiling, formatMinutes, groupKeyLabel, InsightsPage } from './InsightsPage.js';
 
 afterEach(cleanup);
 
 // The mock's open proposal that cites the failing build.
 const OPEN_PROPOSAL = mockChangeProposals(new Date()).find((p) =>
-  p.evidence.some((e) => e.finding_id === 'failing_check:npm run build'),
+  p.evidence.some((e) => e.finding_id === 'failing_check:Build passes'),
 );
 
 function setup(api = createMockApi(), ticketTitle?: (id: string) => string | null) {
@@ -41,11 +41,27 @@ describe('InsightsPage', () => {
     const qa = within(within(table).getByRole('rowheader', { name: 'qa' }).closest('tr')!);
     expect(qa.getByText('Median 4h')).toBeTruthy();
     expect(qa.getByText('p90 7h')).toBeTruthy();
-    const impl = within(
-      within(table).getByRole('rowheader', { name: 'implementing' }).closest('tr')!,
+    // Checks count under the gate that ran them, named in words across workflow versions.
+    const gate = within(
+      within(table)
+        .getByRole('rowheader', { name: /^Implementing → ready for testing \(gate\)/ })
+        .closest('tr')!,
     );
-    expect(impl.getByText(/^\d+ \/ \d+$/)).toBeTruthy();
+    expect(gate.getByText(/^\d+ \/ \d+$/)).toBeTruthy();
     expect(region(/^Time per state/).getByText(/tickets · .* sessions/)).toBeTruthy();
+    expect(region(/^Time per state/).getByText(/questions · \d+ hand-offs/)).toBeTruthy();
+    // A gate that waits on an approval by design is marked, with its ceiling.
+    expect(gate.getByText('Waiting on others · up to 3 d')).toBeTruthy();
+  });
+
+  it('labels gate keys in words', () => {
+    expect(groupKeyLabel('implementing.personal_pr_ready_for_review')).toBe(
+      'Implementing → personal PR ready for review (gate)',
+    );
+    expect(groupKeyLabel('qa.entry')).toBe('Entering Qa (gate)');
+    expect(groupKeyLabel('needs_input')).toBe('needs_input');
+    expect(formatCeiling(4320)).toBe('3 d');
+    expect(formatCeiling(90)).toBe('1h 30m');
   });
 
   it('group-by and the window refetch the metrics', async () => {
@@ -73,7 +89,7 @@ describe('InsightsPage', () => {
 
   it('a finding with a proposal opens it; one without explains how to ask the advisor', async () => {
     setup();
-    const build = await card('Check fails often: npm run build');
+    const build = await card('Check fails often: Build passes');
     expect(build.getByText(/6 of 6|of \d+ runs failed/)).toBeTruthy();
     const link = build.getByRole('link', { name: 'Open proposal' });
     expect(link.getAttribute('href')).toBe(`#/workflows?proposal=${OPEN_PROPOSAL!.id}`);

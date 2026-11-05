@@ -27,6 +27,7 @@ import {
   InMemoryOutputBus,
 } from '../../src/contracts.js';
 import type { OutboxRow, PermissionRequestRow, SessionRow, TicketRow } from '../../src/db/types.js';
+import { createEngineService } from '../../src/engine/index.js';
 import { DECISION_REFUSED_LINE, createGateway } from '../../src/gateway/index.js';
 import type { ApiHandle, GatewayHandle } from '../../src/main.js';
 import { NOT_RUNNING_MESSAGE, sweepPermissionTimeouts } from '../../src/permissions/store.js';
@@ -358,6 +359,55 @@ describe('permission_request (gateway)', () => {
       permissionRequest(d, 6, sid, token);
       await d.next('permission_decision');
       expect((await pushRows(sid)).rows).toHaveLength(1);
+    } finally {
+      await db.pool.query('DELETE FROM push_subscription WHERE endpoint = $1', [endpoint]);
+    }
+  });
+
+  it('UXR-32: the real engine from createEngineService turns the push on (composition, no stub)', async () => {
+    // The case above flips RecordingEngine.pushEnabled, a plain field. This one wires the gateway
+    // exactly as composeOrchestrator does (main.ts): the EngineServiceImpl handed over as is, its
+    // `pushEnabled` getter fed by a configured push.
+    await gateway.close();
+    await api.close();
+    const handle = createEngineService({
+      db: db.pool,
+      boardBus,
+      push: { publicKey: 'pub', privateKey: 'priv', subject: 'mailto:o@example.test' },
+      pushSender: { send: () => Promise.resolve({ ok: true }) },
+    });
+    expect(handle.engine.pushEnabled).toBe(true);
+    expect(createEngineService({ db: db.pool, boardBus, push: null }).engine.pushEnabled).toBe(
+      false,
+    );
+    gateway = createGateway({ db: db.pool, engine: handle.engine, boardBus, outputBus });
+    api = createApi({
+      db: db.pool,
+      engine: handle.engine,
+      boardBus,
+      outputBus,
+      machineTransport: gateway.transport,
+    });
+    gateway.attach(api.server);
+    await api.listen(0, '127.0.0.1');
+    port = (api.server.address() as AddressInfo).port;
+
+    const endpoint = `https://push.example/${tag}`;
+    await db.pool.query(
+      `INSERT INTO push_subscription (account_id, user_id, endpoint, p256dh, auth)
+       VALUES ($1, $2, $3, 'BKey', 'auth')`,
+      [LOCAL_ACCOUNT_ID, LOCAL_USER_ID, endpoint],
+    );
+    try {
+      const d = await registered();
+      const { sid, token } = await live(d);
+      const { requestId } = permissionRequest(d, 2, sid, token);
+      await d.settle();
+      const rows = await db.pool.query<OutboxRow>(
+        "SELECT * FROM outbox WHERE kind = 'push_needs_input' AND session_id = $1",
+        [sid],
+      );
+      expect(rows.rows.map((r) => r.idempotency_key)).toEqual([`permission:${requestId}`]);
     } finally {
       await db.pool.query('DELETE FROM push_subscription WHERE endpoint = $1', [endpoint]);
     }

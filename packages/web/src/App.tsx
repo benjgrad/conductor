@@ -414,6 +414,7 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
           api={api}
           repo={route.repo}
           onSelect={(repo) => navigate({ view: 'repo-checks', repo })}
+          onDirtyChange={draft.setDirty}
         />
       )}
       {route.view === 'admin' &&

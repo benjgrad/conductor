@@ -155,9 +155,13 @@ describe('RepoChecksPage with history (UXR-80)', () => {
         onSelect={() => {}}
       />,
     );
-    const list = within(await screen.findByRole('table', { name: 'Repos with their own checks' }));
+    const list = within(await screen.findByRole('list', { name: 'Own checks' }));
     expect((await list.findByText('Flaky')).getAttribute('title')).toMatch(
       /runs failed in 30 days/,
+    );
+    // Beside the row's button, so the button's name stays the repo's.
+    expect(list.getByRole('button', { name: /^github\.com\/acme\/shop/ }).textContent).not.toMatch(
+      /Flaky/,
     );
     const history = within(await screen.findByRole('table', { name: 'Last runs per check' }));
     expect(history.getAllByRole('link')).toHaveLength(10);
@@ -169,8 +173,8 @@ describe('RepoChecksPage with history (UXR-80)', () => {
       getRepoChecksHealth: () => Promise.reject(new Error('x')),
     };
     render(<RepoChecksPage api={api} repo={null} onSelect={() => {}} />);
-    const list = within(await screen.findByRole('table', { name: 'Repos with their own checks' }));
-    expect(list.getByRole('button', { name: 'github.com/acme/shop' })).toBeTruthy();
+    const list = within(await screen.findByRole('list', { name: 'Own checks' }));
+    expect(list.getByRole('button', { name: /^github\.com\/acme\/shop/ })).toBeTruthy();
     expect(document.querySelector('.rc-health')).toBeNull();
   });
 });

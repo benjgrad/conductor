@@ -496,7 +496,7 @@ describe('transition arrows (ADR-0011)', () => {
     fireEvent.click(row.getByRole('button', { name: 'Rename on the card' }));
     type(row.getByLabelText('Condition 1 card label'), 'Merged by a person');
     type(panel().getByLabelText('Wait at most'), '1d');
-    fireEvent.click(saveButton());
+    await save();
     await waitFor(() => expect(saved).toHaveLength(1));
     expect(onOf(saved[0]!, 'planning').plan_ready).toMatchObject({
       requires: { conditions: [{ type: 'pr_merged', label: 'Merged by a person' }] },

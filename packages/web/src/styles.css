@@ -1406,15 +1406,16 @@ button.link {
     position: fixed;
     inset: 0;
     z-index: var(--z-sheet);
-    display: grid;
-    justify-items: center;
-    align-items: start;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
     padding: 5vh var(--space-4);
     background: rgb(0 0 0 / 0.45);
     overflow: hidden;
   }
   .sheet {
     width: min(760px, 100%);
+    min-width: 0;
     max-height: 90vh;
     max-height: 90dvh;
     display: flex;

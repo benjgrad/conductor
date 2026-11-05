@@ -1,0 +1,162 @@
+{
+  "new-ticket-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 8,
+    "smallTapTargetSample": [
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "button \"Fix flaky checkout test\" 307×18",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×18",
+      "button \"Add CSV export\" 307×18",
+      "button \"Plan the garden\" 307×18",
+      "button \"Question: Raised beds or in-gr\" 307×18"
+    ]
+  },
+  "new-ticket-bottom-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 8,
+    "smallTapTargetSample": [
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "button \"Fix flaky checkout test\" 307×18",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×18",
+      "button \"Add CSV export\" 307×18",
+      "button \"Plan the garden\" 307×18",
+      "button \"Question: Raised beds or in-gr\" 307×18"
+    ]
+  },
+  "new-ticket-375x812-dark": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 8,
+    "smallTapTargetSample": [
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "button \"Fix flaky checkout test\" 307×18",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×18",
+      "button \"Add CSV export\" 307×18",
+      "button \"Plan the garden\" 307×18",
+      "button \"Question: Raised beds or in-gr\" 307×18"
+    ]
+  },
+  "new-ticket-360x740-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 7,
+    "smallTapTargetSample": [
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "button \"Fix flaky checkout test\" 292×18",
+      "button \"Retries exhausted: Tests faile\" 292×18",
+      "button \"Board cards: review requests v\" 292×36",
+      "button \"Add CSV export\" 292×18",
+      "button \"Plan the garden\" 292×18"
+    ]
+  },
+  "new-ticket-bottom-360x740-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 7,
+    "smallTapTargetSample": [
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "button \"Fix flaky checkout test\" 292×18",
+      "button \"Retries exhausted: Tests faile\" 292×18",
+      "button \"Board cards: review requests v\" 292×36",
+      "button \"Add CSV export\" 292×18",
+      "button \"Plan the garden\" 292×18"
+    ]
+  },
+  "new-ticket-768x1024-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1146,
+    "deviceWidth": 768,
+    "horizontalOverflow": true,
+    "pageHeight": 1613,
+    "smallTapTargets": 18,
+    "smallTapTargetSample": [
+      "input \"\" 13×13",
+      "button \"Hotfix: crash on empty cart\" 144×34",
+      "button \"Add /health\" 144×17",
+      "button \"Conductor checks demo\" 144×34",
+      "button \"Add pagination to /orders\" 144×34",
+      "button \"Waiting for a build slot\" 144×34",
+      "button \"Migrate settings page to new f\" 144×34",
+      "button \"Ship the /health endpoint\" 144×34"
+    ]
+  },
+  "new-ticket-bottom-768x1024-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1146,
+    "deviceWidth": 768,
+    "horizontalOverflow": true,
+    "pageHeight": 1613,
+    "smallTapTargets": 18,
+    "smallTapTargetSample": [
+      "input \"\" 13×13",
+      "button \"Hotfix: crash on empty cart\" 144×34",
+      "button \"Add /health\" 144×17",
+      "button \"Conductor checks demo\" 144×34",
+      "button \"Add pagination to /orders\" 144×34",
+      "button \"Waiting for a build slot\" 144×34",
+      "button \"Migrate settings page to new f\" 144×34",
+      "button \"Ship the /health endpoint\" 144×34"
+    ]
+  },
+  "new-ticket-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1216,
+    "smallTapTargets": 45,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 104×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"New ticket\" 112×27",
+      "button \"local\" 74×27",
+      "button \"Close\" 36×36"
+    ]
+  },
+  "new-ticket-bottom-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1216,
+    "smallTapTargets": 45,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 104×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"New ticket\" 112×27",
+      "button \"local\" 74×27",
+      "button \"Close\" 36×36"
+    ]
+  }
+}

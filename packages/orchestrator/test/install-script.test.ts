@@ -563,8 +563,25 @@ describe.skipIf(!runnable)('install.sh', () => {
 // (scripts/build-daemon-dist.sh), installed by the served script, whose real `conductor-daemon
 // enroll` posts to a stub enroll endpoint. The token reaches the daemon only through
 // CONDUCTOR_ENROLL_TOKEN (TD-117). It costs a cargo build (the dev profile, which `cargo nextest`
-// has usually just built), so it runs only where cargo is on PATH.
-const hasCargo = spawnSync('cargo', ['--version']).status === 0;
+// has usually just built), so it runs only where the cargo on PATH can build the pinned toolchain
+// (rust-toolchain.toml). A non-rustup cargo first on PATH (e.g. Homebrew's) ignores the pin and
+// fails on crates that need a newer rustc, so it is skipped there rather than failing the gate.
+const hasCargo = cargoMeetsPin();
+
+/** `rustc --version` (run in the repo, so a rustup proxy honours the pin) is at least the pin. */
+function cargoMeetsPin(): boolean {
+  if (spawnSync('cargo', ['--version']).status !== 0) return false;
+  const pin = /channel\s*=\s*"(\d+)\.(\d+)/.exec(
+    readFileSync(join(REPO, 'rust-toolchain.toml'), 'utf8'),
+  );
+  const have = /rustc (\d+)\.(\d+)/.exec(
+    spawnSync('rustc', ['--version'], { cwd: REPO, encoding: 'utf8' }).stdout ?? '',
+  );
+  if (!pin || !have) return false;
+  const [pMaj, pMin] = [Number(pin[1]), Number(pin[2])];
+  const [hMaj, hMin] = [Number(have[1]), Number(have[2])];
+  return hMaj > pMaj || (hMaj === pMaj && hMin >= pMin);
+}
 
 describe.skipIf(!runnable || !hasCargo)('install.sh with the real daemon tarball', () => {
   const realWork = mkdtempSync(join(tmpdir(), 'conductor-install-real-'));

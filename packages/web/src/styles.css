@@ -1,5 +1,5 @@
-/* 11-web-ui §Tokens. The rules this design touched use them; the rest of the CSS moves over later
-   (TD-### in the PR summary: migrate the remaining CSS files onto the tokens). */
+/* 11-web-ui §Tokens and §Colour semantics. Every stylesheet uses these: `pnpm lint`
+   (scripts/lint-css.js) rejects a raw font-size, padding/margin px or hex colour outside :root. */
 :root {
   --space-1: 4px;
   --space-2: 8px;
@@ -7,11 +7,15 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  /* UXR-22: the type ramp. Badges xs, meta sm, body base, card titles and section heads md/600,
+     page and sheet titles lg, hero headings xl. */
   --text-xs: 11px;
   --text-sm: 12px;
-  --text-base: 14px;
-  --text-md: 15px;
-  --text-lg: 18px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
   --text-xl: 20px;
   --radius-sm: 4px;
   --radius-md: 6px;
@@ -28,7 +32,7 @@
   --bg: #f6f7f9;
   --panel: #ffffff;
   --text: #1d2330;
-  /* UXR-04: 5.3:1 on --bg, 4.8:1 on --ask-bg (AA). */
+  /* UXR-04: 5.3:1 on --bg, 4.8:1 on --danger-bg (AA). */
   --muted: #5f6779;
   --border: #dde1e8;
   /* UXR-05: a control's edge, about 3:1 on --panel (WCAG 1.4.11). */
@@ -36,19 +40,33 @@
   --accent: #3a63d8;
   /* UXR-03: text on an --accent fill. */
   --on-accent: #fff;
-  --warn-bg: #fff4d6;
+  /* UXR-23 (11-web-ui §Colour semantics): one meaning per colour. tokens.test.ts checks AA. */
+  /* A person is needed. */
+  --attention: #6b3fc4;
+  --attention-bg: #f1ebfc;
+  /* Failed or lost. */
+  --danger: #a2262e;
+  --danger-bg: #fde8e8;
+  /* Degraded or waiting. */
   --warn: #8a5a00;
-  --ask-bg: #fde8e8;
-  --ask: #a2262e;
+  --warn-bg: #fff4d6;
+  /* Information: a question, a plan, a notice. --accent is for controls only. */
+  --info: #3a63d8;
+  --info-bg: #eef2fb;
+  /* Done or passed. */
   --ok: #1f7a45;
-  /* UXR-35: each request kind's chip and box (11-web-ui §Requests). Text on its -bg is AA:
-     accent 4.7, ok 4.7, perm 5.8, ask 6.3; --muted 4.9-5.1 on each. */
-  --accent-bg: #eef2fb;
   --ok-bg: #e6f4ea;
-  --perm: #6b3fc4;
-  --perm-bg: #f1ebfc;
+  --accent-bg: #eef2fb;
+  /* UXR-35: the permission request kind is the attention colour. */
+  --perm: var(--attention);
+  --perm-bg: var(--attention-bg);
+  /* UXR-24: a card's edge, about 2:1 on --panel (--border alone is 1.3:1). */
+  --card-edge: color-mix(in srgb, var(--border-strong) 55%, var(--border));
   --code-bg: #0f1420;
   --code-text: #d6dbe6;
+  /* Tool input and stderr in the output log; --code-bg is dark in both schemes. */
+  --code-input: #9ecbff;
+  --code-stderr: #ff9a9a;
   --inline-code-bg: #eef0f4;
   --diff-add-bg: #e6f6ea;
   --diff-add: #1a6b3a;
@@ -83,15 +101,17 @@ html {
     --border-strong: #6a7487;
     --accent: #7c9cf5;
     --on-accent: #12151c;
-    --warn-bg: #3a2f12;
+    --attention: #c4a8ff;
+    --attention-bg: #2a2140;
+    --danger: #ff8f96;
+    --danger-bg: #3d1c20;
     --warn: #f0c060;
-    --ask-bg: #3d1c20;
-    --ask: #ff8f96;
+    --warn-bg: #34290e;
+    --info: #7c9cf5;
+    --info-bg: #222a3a;
     --ok: #5ccf8b;
-    --accent-bg: #222a3a;
     --ok-bg: #13301f;
-    --perm: #c4a8ff;
-    --perm-bg: #2a2140;
+    --accent-bg: #222a3a;
     --inline-code-bg: #262c38;
     --diff-add-bg: #12301f;
     --diff-add: #7fdca2;
@@ -114,7 +134,7 @@ body {
 
 button {
   font: inherit;
-  padding: 4px 10px;
+  padding: var(--space-1) var(--space-3);
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--panel);
@@ -136,8 +156,8 @@ button:disabled {
   cursor: default;
 }
 button.danger {
-  color: var(--ask);
-  border-color: var(--ask);
+  color: var(--danger);
+  border-color: var(--danger);
 }
 /* The one primary action of a group (Approve, Retry, Allow once, Submit). */
 button.primary {
@@ -146,10 +166,10 @@ button.primary {
   color: var(--on-accent);
   font-weight: 600;
 }
-/* A confirmed destructive action (Abort session): white on --ask is 7.4:1, dark 8.4:1. */
+/* A confirmed destructive action (Abort session): white on --danger is 7.4:1, dark 8.4:1. */
 button.danger-solid {
-  background: var(--ask);
-  border-color: var(--ask);
+  background: var(--danger);
+  border-color: var(--danger);
   color: var(--on-accent);
   font-weight: 600;
 }
@@ -160,7 +180,7 @@ input,
 select,
 textarea {
   font: inherit;
-  padding: var(--space-1) 6px;
+  padding: var(--space-1) var(--space-2);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
   background: var(--panel);
@@ -175,7 +195,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  padding: 10px var(--space-4);
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border);
   background: var(--panel);
 }
@@ -228,7 +248,7 @@ main {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
 }
 
 .board {
@@ -242,18 +262,18 @@ main {
   background: color-mix(in srgb, var(--panel) 60%, var(--bg));
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 8px;
+  padding: var(--space-2);
   min-height: 200px;
 }
 .column h2 {
-  font-size: 13px;
+  font-size: var(--text-base);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  margin: 0 0 8px;
+  margin: 0 0 var(--space-2);
   color: var(--muted);
 }
 .column-needs_input h2 {
-  color: var(--ask);
+  color: var(--attention);
 }
 .column ul {
   list-style: none;
@@ -269,9 +289,10 @@ main {
 
 .card {
   background: var(--panel);
-  border: 1px solid var(--border);
+  /* UXR-24: a visible edge, so cards don't blur into the column. */
+  border: 1px solid var(--card-edge);
   border-radius: 6px;
-  padding: 8px;
+  padding: var(--space-2);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -287,6 +308,10 @@ main {
   background: none;
   font-weight: 600;
 }
+/* UXR-22: the card title is a step above the body, not extra bold. */
+.card-title {
+  font-size: var(--text-md);
+}
 .card-open:disabled {
   opacity: 1;
 }
@@ -297,7 +322,7 @@ main {
   min-height: 20px;
   gap: 4px 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 /* UXR-83 FR-5: the recurring chip links to its schedule; it keeps the meta row's look. */
 a.card-schedule {
@@ -308,14 +333,14 @@ a.card-schedule:hover {
   text-decoration: underline;
 }
 .question p {
-  margin: 4px 0 0;
-  font-size: 13px;
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-base);
 }
 
 .badge {
   display: inline-block;
-  font-size: 11px;
-  padding: 1px 6px;
+  font-size: var(--text-xs);
+  padding: 1px var(--space-2);
   border-radius: 10px;
   width: fit-content;
   /* UXR-31: a pill is one line; a long one ends in an ellipsis (its title has the full text). */
@@ -331,24 +356,24 @@ a.card-schedule:hover {
 }
 .badge-proposals {
   background: var(--inline-code-bg);
-  color: var(--accent);
+  color: var(--info);
   font-weight: 600;
 }
 .badge-question {
-  background: var(--accent-bg);
-  color: var(--accent);
+  background: var(--info-bg);
+  color: var(--info);
   font-weight: 600;
 }
 .status {
   font-weight: 600;
 }
 .status-running {
-  color: var(--accent);
+  color: var(--info);
 }
 .status-needs_input {
-  color: var(--accent);
+  color: var(--attention);
 }
-/* UXR-35: a held tool call is violet, like its request (only failures are red). */
+/* UXR-35: a held tool call is violet (--attention), like its request (only failures are red). */
 .status-needs_permission {
   color: var(--perm);
 }
@@ -357,7 +382,7 @@ a.card-schedule:hover {
 }
 .status-failed,
 .status-lost {
-  color: var(--ask);
+  color: var(--danger);
 }
 
 /* Session panel: header, tabs, scrolling tab body (DetailPanel.tsx). */
@@ -380,7 +405,7 @@ a.card-schedule:hover {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px 8px;
+  padding: var(--space-3) var(--space-3) var(--space-2);
 }
 .detail-head .avatar {
   flex-shrink: 0;
@@ -391,7 +416,7 @@ a.card-schedule:hover {
 }
 .detail-head h2 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--text-md);
   line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -401,7 +426,7 @@ a.card-schedule:hover {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   margin-top: 2px;
   min-width: 0;
 }
@@ -409,8 +434,8 @@ a.card-schedule:hover {
   font-weight: 600;
 }
 .chip {
-  font-size: 11px;
-  padding: 0 7px;
+  font-size: var(--text-xs);
+  padding: 0 var(--space-2);
   border-radius: 10px;
   border: 1px solid currentColor;
   line-height: 17px;
@@ -422,15 +447,15 @@ a.card-schedule:hover {
 .detail-head .close {
   border: 0;
   background: none;
-  font-size: 20px;
+  font-size: var(--text-xl);
   line-height: 1;
   color: var(--muted);
-  padding: 2px 6px;
+  padding: 2px var(--space-2);
 }
 .tabs {
   display: flex;
   gap: 2px;
-  padding: 0 12px;
+  padding: 0 var(--space-3);
   border-bottom: 1px solid var(--border);
 }
 /* The session panel's row: the tabs, then the ticket buttons (TicketStrip.tsx) on the right. */
@@ -459,7 +484,7 @@ a.card-schedule:hover {
   border-radius: 0;
   background: none;
   color: var(--muted);
-  padding: 6px 10px;
+  padding: var(--space-2) var(--space-3);
   margin-bottom: -1px;
   font-weight: 600;
 }
@@ -472,15 +497,15 @@ a.card-schedule:hover {
   outline-offset: -2px;
 }
 .detail-error {
-  margin: 6px 12px 0;
+  margin: var(--space-1) var(--space-3) 0;
 }
 /* The ticket (TicketPanel.tsx) and a session panel's Edit ticket. */
 .ticket-meta {
   display: grid;
   grid-template-columns: max-content 1fr;
   gap: 4px 12px;
-  margin: 0 0 10px;
-  font-size: 13px;
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-base);
 }
 .ticket-meta dt {
   color: var(--muted);
@@ -489,16 +514,16 @@ a.card-schedule:hover {
   margin: 0;
 }
 .edit-ticket {
-  padding: 6px 12px;
+  padding: var(--space-2) var(--space-3);
 }
 /* UXR-34 / UXR-42 / UXR-86: the queued panel's routing note, priority stepper and cancel. */
 .routing-note {
-  margin: 4px 0 10px;
-  padding: 8px 10px;
+  margin: var(--space-1) 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
   border-radius: 6px;
   background: var(--warn-bg);
   color: var(--warn);
-  font-size: 13px;
+  font-size: var(--text-base);
   line-height: 1.4;
 }
 .routing-note a {
@@ -517,10 +542,10 @@ a.card-schedule:hover {
   line-height: 1;
 }
 .ticket-lifecycle {
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 .ticket-cancel p {
-  margin: 0 0 6px;
+  margin: 0 0 var(--space-1);
 }
 .ticket-cancel textarea {
   width: 100%;
@@ -530,7 +555,7 @@ a.card-schedule:hover {
 .ticket-cancel-actions {
   display: flex;
   gap: 8px;
-  margin-top: 6px;
+  margin-top: var(--space-1);
 }
 .tab-body {
   flex: 1;
@@ -542,16 +567,16 @@ a.card-schedule:hover {
 .details-tab {
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 4px 14px 16px;
+  padding: var(--space-1) var(--space-4) var(--space-4);
 }
 .details-tab > section {
   border-top: 1px solid var(--border);
-  padding-top: 10px;
-  margin-top: 12px;
+  padding-top: var(--space-3);
+  margin-top: var(--space-3);
 }
 .details-tab > section:first-child {
   border-top: 0;
-  margin-top: 6px;
+  margin-top: var(--space-1);
 }
 /* UXR-84: a finished session's analyst insight (Details tab). */
 .session-insight p {
@@ -578,20 +603,20 @@ a.card-schedule:hover {
   font-size: var(--text-xs);
 }
 .detail h3 {
-  font-size: 11px;
+  font-size: var(--text-xs);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--muted);
-  margin: 0 0 8px;
+  margin: 0 0 var(--space-2);
 }
 .agent-who {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 10px;
+  margin-bottom: var(--space-2);
 }
 .agent-card-name {
-  font-size: 17px;
+  font-size: var(--text-lg);
   font-weight: 700;
 }
 .machine {
@@ -621,11 +646,11 @@ a.card-schedule:hover {
 }
 .copyable code {
   overflow-wrap: anywhere;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 button.copy {
-  font-size: 11px;
-  padding: 0 6px;
+  font-size: var(--text-xs);
+  padding: 0 var(--space-2);
   flex-shrink: 0;
 }
 .state-line {
@@ -637,7 +662,7 @@ button.copy {
 }
 .returns-to {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .states {
   display: flex;
@@ -645,13 +670,13 @@ button.copy {
   gap: 4px;
   list-style: none;
   padding: 0;
-  margin: 8px 0;
+  margin: var(--space-2) 0;
 }
 .state {
-  padding: 2px 8px;
+  padding: 2px var(--space-2);
   border: 1px solid var(--border);
   border-radius: 4px;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .state.current {
   border-color: var(--accent);
@@ -681,7 +706,7 @@ button.copy {
   align-items: center;
 }
 .quick-actions {
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 .meter {
   display: grid;
@@ -693,17 +718,17 @@ button.copy {
   width: 100%;
 }
 .over {
-  color: var(--ask);
+  color: var(--danger);
   font-weight: 600;
 }
 
 /* Context (ContextView.tsx): readable, never a JSON wall by default. */
 .ctx-state + .ctx-state {
-  margin-top: 10px;
+  margin-top: var(--space-2);
 }
 .ctx h4 {
-  margin: 0 0 4px;
-  font-size: 13px;
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-base);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .ctx-dl {
@@ -713,7 +738,7 @@ button.copy {
   gap: 6px;
 }
 .ctx-dl .ctx-dl {
-  padding-left: 10px;
+  padding-left: var(--space-3);
   border-left: 2px solid var(--border);
   margin-top: 2px;
 }
@@ -724,7 +749,7 @@ button.copy {
 }
 .ctx-row dt {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
   padding-top: 1px;
 }
 .ctx-row dd {
@@ -734,44 +759,44 @@ button.copy {
 }
 .ctx-list {
   margin: 0;
-  padding-left: 18px;
+  padding-left: var(--space-4);
 }
 .ctx-text.clamped .md {
   max-height: 9em;
   overflow: hidden;
-  mask-image: linear-gradient(to bottom, #000 60%, transparent);
+  mask-image: linear-gradient(to bottom, black 60%, transparent);
 }
 .ctx-scalar {
   background: var(--inline-code-bg);
   border-radius: 4px;
-  padding: 0 4px;
-  font-size: 12px;
+  padding: 0 var(--space-1);
+  font-size: var(--text-sm);
 }
 .ctx-deep .link {
   padding-left: 0;
 }
 .ctx-deep-json {
   display: block;
-  font-size: 12px;
+  font-size: var(--text-sm);
   overflow-wrap: anywhere;
   background: var(--inline-code-bg);
   border-radius: 4px;
-  padding: 2px 6px;
+  padding: 2px var(--space-2);
 }
 .ctx-raw-toggle {
-  margin-top: 10px;
+  margin-top: var(--space-2);
   padding-left: 0;
 }
 .ctx-raw {
   background: var(--code-bg);
   color: var(--code-text);
   border-radius: 6px;
-  padding: 8px 10px;
-  font-size: 12px;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
   max-height: 320px;
   overflow: auto;
   overscroll-behavior: contain;
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
 }
 
 /* Messages tab: the chat fills the panel, the composer is pinned at the bottom. */
@@ -787,7 +812,7 @@ button.copy {
 }
 .output-head-chat {
   justify-content: flex-end;
-  padding: 4px 14px 0;
+  padding: var(--space-1) var(--space-4) 0;
 }
 .output-wrap {
   position: relative;
@@ -799,18 +824,18 @@ button.copy {
 .output-chat .output {
   flex: 1;
   max-height: none;
-  padding: 12px 14px 16px;
+  padding: var(--space-3) var(--space-4) var(--space-4);
   gap: 10px;
 }
 .user-msg {
   background: var(--user-bg);
   border: 1px solid var(--user-border);
   border-radius: 10px;
-  padding: 6px 10px 8px;
+  padding: var(--space-2) var(--space-3) var(--space-2);
 }
 .user-label {
   display: block;
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 700;
   color: var(--muted);
   text-transform: uppercase;
@@ -828,8 +853,8 @@ button.copy {
 /* UXR-38: an accepted complete_state, as one quiet line. */
 .step-done {
   margin: 0;
-  padding-left: 16px;
-  font-size: 12px;
+  padding-left: var(--space-4);
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 .jump-latest {
@@ -838,8 +863,8 @@ button.copy {
   left: 50%;
   transform: translateX(-50%);
   border-radius: 999px;
-  padding: 4px 12px;
-  font-size: 12px;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
   font-weight: 600;
   box-shadow: var(--shadow-1);
   background: var(--panel);
@@ -847,13 +872,13 @@ button.copy {
   z-index: 2;
 }
 .jump-count {
-  color: var(--accent);
+  color: var(--info);
 }
 /* UXR-35 (11-web-ui §Requests): a request waiting on a human (RequestCard.tsx), coloured by its
    kind. Only a failure is red. */
 .pending {
-  --tone: var(--accent);
-  --tone-bg: var(--accent-bg);
+  --tone: var(--info);
+  --tone-bg: var(--info-bg);
   min-width: 0;
   max-width: 100%;
   background: var(--tone-bg);
@@ -861,7 +886,7 @@ button.copy {
   /* Questions UX: a request waiting on a human stands out from the chat around it. */
   border-left: 4px solid var(--tone);
   border-radius: 10px;
-  padding: 10px 12px;
+  padding: var(--space-3) var(--space-3);
 }
 .request-review {
   --tone: var(--ok);
@@ -872,14 +897,14 @@ button.copy {
   --tone-bg: var(--perm-bg);
 }
 .request-failure {
-  --tone: var(--ask);
-  --tone-bg: var(--ask-bg);
+  --tone: var(--danger);
+  --tone-bg: var(--danger-bg);
 }
 .request-chip {
   display: inline-block;
   font-size: var(--text-xs);
   font-weight: 600;
-  padding: 1px 8px;
+  padding: 1px var(--space-2);
   border-radius: var(--radius-pill);
   border: 1px solid var(--tone);
   color: var(--tone);
@@ -890,11 +915,11 @@ button.copy {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin: 8px 0 2px;
+  margin: var(--space-2) 0 2px;
 }
 .request-output {
-  margin: 6px 0;
-  padding: 8px 10px;
+  margin: var(--space-1) 0;
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
   background: var(--code-bg);
   color: var(--code-text);
@@ -905,7 +930,7 @@ button.copy {
 .request-output.clamped {
   max-height: 18em;
   overflow: hidden;
-  mask-image: linear-gradient(to bottom, #000 80%, transparent);
+  mask-image: linear-gradient(to bottom, black 80%, transparent);
 }
 .skip-menu {
   position: relative;
@@ -917,7 +942,7 @@ button.copy {
   left: 0;
   min-width: 180px;
   margin: 0;
-  padding: 4px;
+  padding: var(--space-1);
   list-style: none;
   background: var(--panel);
   border: 1px solid var(--border);
@@ -943,27 +968,27 @@ button.copy {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 .pending-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
-  margin-bottom: 6px;
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-1);
 }
 .question-text {
-  margin: 0 0 4px;
+  margin: 0 0 var(--space-1);
 }
 .pending-hint {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 /* Composer (Composer.tsx). */
 .composer {
   position: relative;
-  padding: 8px 12px 12px;
+  padding: var(--space-2) var(--space-3) var(--space-3);
   border-top: 1px solid var(--border);
   background: var(--panel);
 }
@@ -988,9 +1013,9 @@ button.copy {
   resize: none;
   border: 0;
   background: transparent;
-  padding: 9px 46px 9px 12px;
+  padding: var(--space-2) 46px var(--space-2) var(--space-3);
   line-height: 20px;
-  max-height: calc(20px * 6 + 18px);
+  max-height: calc(20px * 6 + 2 * var(--space-2));
   overflow-y: auto;
   outline: none;
 }
@@ -1022,7 +1047,7 @@ button.copy {
   right: 6px;
   bottom: 6px;
   height: 30px;
-  padding: 0 12px;
+  padding: 0 var(--space-3);
   border: 0;
   border-radius: 8px;
   background: var(--accent);
@@ -1037,33 +1062,33 @@ button.copy {
 .history-notice {
   /* UXR-38: a notice like the others (ConductorChecks.css .conductor-checks), inset like the
      chat (.output-chat .output: 14px), not flush with the panel's edge. */
-  margin: 8px 14px 0;
-  padding: 8px 10px;
+  margin: var(--space-2) var(--space-3) 0;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--panel);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .composer-reason,
 .composer-hint,
 .composer-error {
-  margin: 4px 2px 0;
-  font-size: 12px;
+  margin: var(--space-1) 2px 0;
+  font-size: var(--text-sm);
 }
 .composer-note {
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 8px 10px;
-  margin-bottom: 8px;
-  font-size: 13px;
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+  font-size: var(--text-base);
 }
 .composer-note.confirm {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  background: var(--ask-bg);
-  border-color: color-mix(in srgb, var(--ask) 35%, transparent);
+  background: var(--danger-bg);
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
 }
 .confirm-buttons {
   display: flex;
@@ -1072,7 +1097,7 @@ button.copy {
 }
 .composer-note.help ul {
   list-style: none;
-  margin: 4px 0;
+  margin: var(--space-1) 0;
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -1080,7 +1105,7 @@ button.copy {
 }
 .composer-note.help p {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .help-head {
   display: flex;
@@ -1094,7 +1119,7 @@ button.copy {
   bottom: calc(100% - 4px);
   list-style: none;
   margin: 0;
-  padding: 4px;
+  padding: var(--space-1);
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -1108,7 +1133,7 @@ button.copy {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  padding: 6px 8px;
+  padding: var(--space-2) var(--space-2);
   border-radius: 6px;
   cursor: pointer;
 }
@@ -1123,15 +1148,15 @@ button.copy {
 .slash-desc {
   flex: 1;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .slash-tag {
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--tool);
   border: 1px solid currentColor;
   border-radius: 8px;
-  padding: 0 5px;
-  margin-left: 6px;
+  padding: 0 var(--space-1);
+  margin-left: var(--space-1);
   white-space: nowrap;
 }
 .visually-hidden {
@@ -1169,7 +1194,7 @@ button.copy {
   justify-content: space-between;
 }
 .debug-toggle {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
   display: flex;
   gap: 4px;
@@ -1184,14 +1209,14 @@ button.copy {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--text-base);
   line-height: 1.45;
 }
 .output pre {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .output code,
 .output pre {
@@ -1201,7 +1226,7 @@ button.copy {
 /* agent text */
 .msg {
   position: relative;
-  padding-left: 16px;
+  padding-left: var(--space-4);
 }
 .msg::before {
   content: '●';
@@ -1209,7 +1234,7 @@ button.copy {
   left: 0;
   top: 0;
   color: var(--text);
-  font-size: 10px;
+  font-size: var(--text-xs);
   line-height: 19px;
 }
 .md {
@@ -1228,17 +1253,17 @@ button.copy {
 .md ol,
 .md blockquote,
 .md pre {
-  margin: 0 0 6px;
+  margin: 0 0 var(--space-1);
 }
 .md ul,
 .md ol {
-  padding-left: 20px;
+  padding-left: var(--space-5);
 }
 .md code {
   background: var(--inline-code-bg);
   border-radius: 4px;
-  padding: 0 4px;
-  font-size: 12px;
+  padding: 0 var(--space-1);
+  font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }
 .md .md-code {
@@ -1246,7 +1271,7 @@ button.copy {
   background: var(--code-bg);
   color: var(--code-text);
   border-radius: 6px;
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-3);
   overflow-x: auto;
 }
 .md .md-code code {
@@ -1257,11 +1282,11 @@ button.copy {
   font-weight: 600;
 }
 .md .md-h1 {
-  font-size: 15px;
+  font-size: var(--text-md);
 }
 .md blockquote {
   border-left: 3px solid var(--border);
-  padding-left: 8px;
+  padding-left: var(--space-2);
   color: var(--muted);
 }
 .md a {
@@ -1272,16 +1297,16 @@ button.copy {
   max-width: 100%;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  margin: 0 0 6px;
+  margin: 0 0 var(--space-1);
 }
 .md .md-table {
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .md .md-table th,
 .md .md-table td {
   border: 1px solid var(--border);
-  padding: 3px 6px;
+  padding: var(--space-1) var(--space-2);
   vertical-align: top;
   text-align: left;
   overflow-wrap: normal;
@@ -1293,7 +1318,7 @@ button.copy {
 .md hr {
   border: 0;
   border-top: 1px solid var(--border);
-  margin: 8px 0;
+  margin: var(--space-2) 0;
 }
 
 /* tool calls */
@@ -1301,7 +1326,7 @@ button.copy {
   list-style: none;
   cursor: pointer;
   position: relative;
-  padding-left: 16px;
+  padding-left: var(--space-4);
   display: flex;
   flex-direction: column;
 }
@@ -1313,7 +1338,7 @@ button.copy {
   position: absolute;
   left: 0;
   top: 0;
-  font-size: 10px;
+  font-size: var(--text-xs);
   line-height: 19px;
   color: var(--ok);
 }
@@ -1322,7 +1347,7 @@ button.copy {
   animation: pulse 1.2s ease-in-out infinite;
 }
 .tool-conductor > summary::before {
-  color: var(--accent);
+  color: var(--info);
 }
 @keyframes pulse {
   50% {
@@ -1331,7 +1356,7 @@ button.copy {
 }
 .tool-head {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  font-size: var(--text-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1344,15 +1369,15 @@ button.copy {
 }
 .tool-sub {
   color: var(--muted);
-  font-size: 12px;
-  padding-left: 4px;
+  font-size: var(--text-sm);
+  padding-left: var(--space-1);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .tool-body {
-  margin: 4px 0 0 20px;
+  margin: var(--space-1) 0 0 var(--space-4);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1364,15 +1389,15 @@ button.copy {
   background: var(--code-bg);
   color: var(--code-text);
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: var(--space-2) var(--space-2);
   max-height: 320px;
   overflow: auto;
 }
 .tool-input {
-  color: #9ecbff;
+  color: var(--code-input);
 }
 .out-stderr {
-  color: #ff9a9a;
+  color: var(--code-stderr);
 }
 .out-debug {
   opacity: 0.7;
@@ -1387,8 +1412,8 @@ button.copy {
 .diff-stat {
   display: flex;
   gap: 8px;
-  font-size: 12px;
-  padding: 2px 8px;
+  font-size: var(--text-sm);
+  padding: 2px var(--space-2);
   border-bottom: 1px solid var(--border);
 }
 .diff-add-n {
@@ -1400,11 +1425,11 @@ button.copy {
 .diff pre {
   max-height: 420px;
   overflow: auto;
-  padding: 4px 0;
+  padding: var(--space-1) 0;
 }
 .diff pre span {
   display: block;
-  padding: 0 8px;
+  padding: 0 var(--space-2);
 }
 .diff .add {
   background: var(--diff-add-bg);
@@ -1420,18 +1445,18 @@ button.copy {
 button.link {
   background: none;
   border: 0;
-  padding: 2px 8px;
+  padding: 2px var(--space-2);
   color: var(--accent);
   cursor: pointer;
   text-align: left;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .create-ticket {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 8px 12px;
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
@@ -1439,7 +1464,7 @@ button.link {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 .create-ticket .wide {
@@ -1451,7 +1476,7 @@ button.link {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 .repo-options {
@@ -1461,7 +1486,7 @@ button.link {
   right: 0;
   list-style: none;
   margin: 2px 0 0;
-  padding: 4px;
+  padding: var(--space-1);
   background: var(--panel);
   color: var(--text);
   font-size: var(--text-base);
@@ -1478,7 +1503,7 @@ button.link {
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
-  padding: 6px 8px;
+  padding: var(--space-2) var(--space-2);
   border-radius: 6px;
   cursor: pointer;
 }
@@ -1501,11 +1526,11 @@ button.link {
 }
 
 .error {
-  color: var(--ask);
-  margin: 6px 0 0;
+  color: var(--danger);
+  margin: var(--space-1) 0 0;
 }
 .error.banner {
-  margin: 8px 16px 0;
+  margin: var(--space-2) var(--space-4) 0;
 }
 .muted {
   color: var(--muted);
@@ -1772,7 +1797,7 @@ button.link {
   input,
   select,
   textarea {
-    font-size: 16px;
+    font-size: var(--text-lg);
   }
   .topbar {
     gap: var(--space-1);
@@ -1948,7 +1973,7 @@ button.link {
   }
   /* UXR-15: BlockNote's drag-handle gutter is 13% of a phone; keep a narrow one. */
   .sheet .ticket-body-rich .bn-editor {
-    padding-inline: 28px var(--space-2);
+    padding-inline: var(--space-6) var(--space-2);
   }
 
   /* UXR-21: a wide block scrolls in its own box, never the page. */
@@ -1975,23 +2000,23 @@ button.link {
 
 /* ADR-0011 (M1b-T07): kind tag, pending-move checklist, human transition buttons, moves. */
 .tag {
-  font-size: 11px;
-  padding: 0 5px;
+  font-size: var(--text-xs);
+  padding: 0 var(--space-1);
   border: 1px solid var(--border);
   border-radius: 4px;
 }
 .tag-work {
-  color: var(--accent);
+  color: var(--info);
 }
 .tag-personal {
   color: var(--tool);
 }
 .pending-move {
-  font-size: 12px;
+  font-size: var(--text-sm);
   background: var(--warn-bg);
   color: var(--text);
   border-radius: 6px;
-  padding: 4px 6px;
+  padding: var(--space-1) var(--space-2);
 }
 .pending-move-head {
   color: var(--warn);
@@ -2005,14 +2030,14 @@ button.link {
   gap: 2px 10px;
 }
 .pending-icon {
-  margin-right: 3px;
+  margin-right: var(--space-1);
   font-weight: 700;
 }
 .pending-item-met .pending-icon {
   color: var(--ok);
 }
 .pending-item-failed {
-  color: var(--ask);
+  color: var(--danger);
 }
 .pending-item-running .pending-icon,
 .pending-item-pending .pending-icon {
@@ -2032,7 +2057,7 @@ button.link {
   gap: 6px;
 }
 .detail .transitions {
-  padding: 6px 12px 0;
+  padding: var(--space-2) var(--space-3) 0;
 }
 .transition-buttons {
   display: flex;
@@ -2040,13 +2065,13 @@ button.link {
   gap: 6px;
 }
 .card .transition-buttons button {
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .transition-text {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .transition-text-actions {
   display: flex;
@@ -2062,7 +2087,7 @@ button.link {
 }
 .proposals h3 {
   margin: 0;
-  font-size: var(--text-base);
+  font-size: var(--text-md);
 }
 .proposals-toggle {
   display: flex;
@@ -2083,13 +2108,13 @@ button.link {
 }
 .proposals-chevron {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 .proposals-toggle[aria-expanded='true'] .proposals-chevron {
   transform: rotate(90deg);
 }
 .proposals-count {
-  padding: 0 6px;
+  padding: 0 var(--space-2);
   border-radius: var(--radius-pill);
   background: var(--user-bg);
   color: var(--muted);
@@ -2158,12 +2183,12 @@ button.link {
   display: flex;
   gap: 12px;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .kind-choice legend {
   color: var(--muted);
   float: left;
-  margin-right: 4px;
+  margin-right: var(--space-1);
 }
 .create-ticket .kind-choice label {
   flex-direction: row;
@@ -2178,7 +2203,7 @@ button.link {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 .move-title {
   font-weight: 600;
@@ -2186,10 +2211,10 @@ button.link {
 
 /* "Start fresh conversation…" (FreshConversation.tsx), inside the pending request. */
 .fresh-conversation {
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 .fresh-conversation-prominent {
-  margin: 4px 0 8px;
+  margin: var(--space-1) 0 var(--space-2);
 }
 button.fresh-conversation-button.prominent {
   border-color: var(--accent);

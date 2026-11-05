@@ -6,7 +6,7 @@ import {
   type OutputChunk,
   type OutputStream,
 } from '@conductor/shared';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mockChecking } from '../api/mock-data.js';
 import { Markdown } from './markdown.js';
@@ -24,6 +24,7 @@ import {
   resultSummary,
   shortener,
 } from './OutputLog.js';
+import { ToastProvider } from './Toast.js';
 
 afterEach(cleanup);
 
@@ -580,7 +581,9 @@ describe('check output rows (UX-6)', () => {
     const writeText = vi.fn(() => Promise.resolve());
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     const { container } = render(
-      <OutputLog output={twoRuns()} worktree={null} workflow={workflow} />,
+      <ToastProvider>
+        <OutputLog output={twoRuns()} worktree={null} workflow={workflow} />
+      </ToastProvider>,
     );
     fireEvent.click(rows()[0]!);
     expect(rows()[0]!.getAttribute('aria-expanded')).toBe('true');
@@ -613,7 +616,10 @@ describe('check output rows (UX-6)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy check output' }));
     expect(writeText).toHaveBeenCalledWith('> tsc -b\n WARN  Failed to create bin\ntsc done\n');
-    expect(await screen.findByText('Copied')).toBeTruthy();
+    // UXR-55: the shared toast says so.
+    await waitFor(() =>
+      expect(screen.getByRole('status', { name: 'Notifications' }).textContent).toBe('Copied'),
+    );
   });
 
   it('FR-3: a failed run stays collapsed and shows its first error line', () => {

@@ -26,6 +26,7 @@ import { Board } from './components/Board.js';
 import { CreateTicketForm } from './components/CreateTicketForm.js';
 import { DetailPanel } from './components/DetailPanel.js';
 import { TicketPanel } from './components/TicketPanel.js';
+import { ToastProvider } from './components/Toast.js';
 import { NavIcon } from './components/NavIcon.js';
 import {
   useDocumentClass,
@@ -74,7 +75,16 @@ export interface AppProps {
  * unchanged); the account menu waits for the answer. The app's ApiClient sends any 401, REST or
  * SSE, to `/signin?next=<where they were>` (auth/session.ts), as does a 401 from /api/me.
  */
-export function App({ api, compact: compactProp }: AppProps) {
+export function App(props: AppProps) {
+  // UXR-55: the toast region wraps every page (shell, setup, admin, help, sign-in).
+  return (
+    <ToastProvider>
+      <AppRoutes {...props} />
+    </ToastProvider>
+  );
+}
+
+function AppRoutes({ api, compact: compactProp }: AppProps) {
   const { pathname, search } = usePath();
   const mobile = useIsMobile();
   useVisualViewportHeight(mobile);
@@ -431,6 +441,7 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
           api={api}
           repo={route.repo}
           onSelect={(repo) => navigate({ view: 'repo-checks', repo })}
+          onDirtyChange={draft.setDirty}
         />
       )}
       {route.view === 'admin' &&

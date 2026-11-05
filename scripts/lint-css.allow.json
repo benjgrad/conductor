@@ -1,0 +1,14 @@
+[
+  {
+    "file": "packages/web/src/styles.css",
+    "selector": ".composer-box textarea",
+    "property": "padding",
+    "reason": "The right padding clears the absolutely placed 30 px send button (right: 6px), not a spacing step."
+  },
+  {
+    "file": "packages/web/src/styles.css",
+    "selector": ".composer-box:has(.reopen) textarea",
+    "property": "padding-right",
+    "reason": "Clears the absolutely placed labelled Reopen button (ADR-0008), not a spacing step."
+  }
+]

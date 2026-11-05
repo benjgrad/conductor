@@ -11,6 +11,7 @@ import {
   type ApiClient,
   type ApiErrorDetail,
 } from '../api/client.js';
+import { useToast } from '../components/Toast.js';
 import { useIsMobile } from '../components/useMediaQuery.js';
 import { ColumnEditor } from './ColumnEditor.js';
 import { ColumnsDiagram } from './ColumnsDiagram.js';
@@ -46,6 +47,7 @@ import { TransitionEditor } from './TransitionEditor.js';
 import { ArrowEditor } from './ArrowEditor.js';
 import { addTransition, arrowTransitions, getTransitionObject, parentOf } from './transitions.js';
 import { WorkflowDiagram } from './WorkflowDiagram.js';
+import type { DirtyDraft } from './draft-guard.js';
 
 // The Workflow view (ADR-0010, ADR-0011): the one workflow, `conductor`, drawn as its board
 // columns. Pick a version; click a column to edit its title and work, or an arrow to edit the
@@ -61,7 +63,7 @@ import { WorkflowDiagram } from './WorkflowDiagram.js';
 export interface WorkflowsViewProps {
   api: ApiClient;
   /** The workflow id with unsaved changes, or null; the app guards navigation with it. */
-  onDirtyChange?: (workflowId: string | null) => void;
+  onDirtyChange?: (dirty: DirtyDraft | null) => void;
   /** UXR-84: a change proposal to open (`#/workflows?proposal=<id>`). */
   proposalId?: string | null | undefined;
 }
@@ -85,7 +87,7 @@ export function WorkflowsView({ api, onDirtyChange, proposalId = null }: Workflo
   const [serverErrors, setServerErrors] = useState<ApiErrorDetail[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const toast = useToast();
   /** Bumped when an applied change proposal saved a new version: the latest is fetched again. */
   const [reloads, setReloads] = useState(0);
   /** UXR-44: below the phone breakpoint the editors open full-screen over the page. */
@@ -114,7 +116,7 @@ export function WorkflowsView({ api, onDirtyChange, proposalId = null }: Workflo
   const defs = useRef(new Map<number, WorkflowDefinition>());
 
   useEffect(() => {
-    onDirtyChange?.(draft !== null ? ID : null);
+    onDirtyChange?.(draft !== null ? { kind: 'workflow', id: ID } : null);
   }, [draft, onDirtyChange]);
   useEffect(() => () => onDirtyChange?.(null), [onDirtyChange]);
 
@@ -175,13 +177,11 @@ export function WorkflowsView({ api, onDirtyChange, proposalId = null }: Workflo
 
   const edit = (next: WorkflowDefinition) => {
     setDraft(next);
-    setNotice(null);
   };
 
   const discard = () => {
     setDraft(null);
     setServerErrors([]);
-    setNotice(null);
     setDeferred(new Set());
     setProblemsOpen(false);
   };
@@ -190,7 +190,6 @@ export function WorkflowsView({ api, onDirtyChange, proposalId = null }: Workflo
     setVersion(v);
     setSelected(null);
     setServerErrors([]);
-    setNotice(null);
     setDeferred(new Set());
   };
 
@@ -254,7 +253,7 @@ export function WorkflowsView({ api, onDirtyChange, proposalId = null }: Workflo
       setDeferred(new Set());
       setProblemsOpen(false);
       setVersion(res.version);
-      setNotice(`Saved as v${res.version}.`);
+      toast(`Saved as v${res.version}`);
     } catch (err) {
       if (err instanceof ApiRequestError && err.details.length > 0) {
         setServerErrors(err.details);
@@ -391,11 +390,6 @@ export function WorkflowsView({ api, onDirtyChange, proposalId = null }: Workflo
             >
               History
             </button>
-          )}
-          {notice && (
-            <span className="muted" role="status">
-              {notice}
-            </span>
           )}
         </div>
         {shown === null && !error && <p className="muted">Loading…</p>}

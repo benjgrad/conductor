@@ -6,6 +6,7 @@ import { errorMessage, type ApiClient } from '../api/client.js';
 import { AgentAvatar, cardAgent } from './agent-identity.js';
 import { duration, TERMINAL_STATUSES, usd } from './format.js';
 import { PendingChecklist } from './transitions.js';
+import { useCopy } from './use-copy.js';
 import { SessionWorkflowDiagram } from '../workflow/SessionWorkflowDiagram.js';
 import { displayState } from '../workflow/review.js';
 
@@ -17,26 +18,17 @@ export function isOldVersion(detail: SessionDetail): boolean {
   return detail.card.human_transitions.length === 0;
 }
 
+/** UXR-55: a Copy button; "Copied" is the shared toast. */
 export function CopyButton({ text, label }: { text: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const t = setTimeout(() => setCopied(false), 1500);
-    return () => clearTimeout(t);
-  }, [copied]);
+  const copy = useCopy();
   return (
     <button
       type="button"
       className="copy"
       aria-label={`Copy ${label}`}
-      onClick={() => {
-        void navigator.clipboard?.writeText(text).then(
-          () => setCopied(true),
-          () => undefined,
-        );
-      }}
+      onClick={() => void copy(text)}
     >
-      {copied ? 'Copied' : 'Copy'}
+      Copy
     </button>
   );
 }

@@ -92,8 +92,7 @@ describe('a queued ticket: routing, priority, cancel (UXR-34, UXR-42, UXR-86)', 
         return update(id, req);
       };
     });
-    // P-scale (ADR-0036): a new ticket is P3; Raise moves towards P0 (more urgent).
-    panel.getByText('P3');
+    // ADR-0036: a new ticket is P3; raising it makes it more urgent, a lower P.
     fireEvent.click(panel.getByRole('button', { name: 'Raise priority' }));
     await panel.findByText('P2');
     fireEvent.click(panel.getByRole('button', { name: 'Lower priority' }));

@@ -217,8 +217,8 @@ function RoutingNote({ routing }: { routing: BoardCardRouting }) {
 }
 
 /**
- * UXR-42: raise or lower a queued ticket's priority via PATCH. P-scale (ADR-0036): the lower number
- * is more urgent and claimed first, so Raise steps towards P0 and Lower towards P4.
+ * UXR-42: raise or lower a queued ticket's priority via PATCH. ADR-0036: the lower P is the more
+ * urgent, so Raise moves toward P0; both stop at the ends of P0–P4.
  */
 function PriorityStepper({
   api,

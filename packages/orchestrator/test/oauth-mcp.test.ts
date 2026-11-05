@@ -961,6 +961,7 @@ describe('/mcp for conversational clients', () => {
       cursor: 0,
       next_cursor: 6000,
       total_chars: 7000,
+      files: null,
     });
     expect((first.body.plan as string).length).toBe(6000);
     const second = await call(a.access, 'get_ticket_artifacts', { ticket: ticketId, cursor: 6000 });
@@ -1016,6 +1017,14 @@ describe('/mcp for conversational clients', () => {
       ],
       next_cursor: null,
     });
+  });
+
+  it('get_ticket_artifacts what=plan returns the planned files (ADR-0037 P4)', async () => {
+    const { ticketId } = await seedAgentSession(a.user.accountId, {
+      context: { plan: { plan: '# Plan', summary: 'S.', files: ['a/**', 'b.ts'] } },
+    });
+    const res = await call(a.access, 'get_ticket_artifacts', { ticket: ticketId, what: 'plan' });
+    expect(res.body).toMatchObject({ from_state: 'plan', files: ['a/**', 'b.ts'] });
   });
 
   it('get_ticket_artifacts lists the proposed follow-up tickets (06 §Proposed tickets)', async () => {

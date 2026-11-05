@@ -165,25 +165,25 @@
 
 /* UX-13b FR-3: the agent team, below the machines table. */
 .team {
-  margin-top: 24px;
+  margin-top: var(--space-5);
 }
 .machines .team h2 {
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 .team-list {
   list-style: none;
   margin: 0;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--panel);
 }
 .team-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 12px;
-  padding: 8px 12px;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
   overflow-wrap: anywhere;
 }

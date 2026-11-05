@@ -1,0 +1,105 @@
+{
+  "detail-done-375x812-light": {
+    "chatHeight": 599,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "insights-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"conductor connected\" 121×15"
+    ]
+  },
+  "insights-full-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"conductor connected\" 121×15"
+    ]
+  },
+  "detail-done-1440x900-light": {
+    "chatHeight": 635,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 37,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 104×25",
+      "a \"Insights\" 93×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"New ticket\" 112×27",
+      "button \"local\" 74×27"
+    ]
+  },
+  "insights-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1390,
+    "smallTapTargets": 39,
+    "smallTapTargetSample": [
+      "a \"Board\" 80×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 104×25",
+      "a \"Insights\" 96×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"local\" 74×27",
+      "button \"7 days\" 66×32"
+    ]
+  },
+  "insights-full-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1390,
+    "smallTapTargets": 39,
+    "smallTapTargetSample": [
+      "a \"Board\" 80×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 104×25",
+      "a \"Insights\" 96×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"local\" 74×27",
+      "button \"7 days\" 66×32"
+    ]
+  },
+  "insights-1440x900-dark": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1390,
+    "smallTapTargets": 39,
+    "smallTapTargetSample": [
+      "a \"Board\" 80×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 104×25",
+      "a \"Insights\" 96×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"local\" 74×27",
+      "button \"7 days\" 66×32"
+    ]
+  }
+}

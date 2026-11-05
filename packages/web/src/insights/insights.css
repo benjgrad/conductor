@@ -48,7 +48,6 @@
 .ins-section-title {
   font-size: var(--text-lg);
   margin: 0 0 6px;
-  text-transform: capitalize;
 }
 .insights .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -96,26 +95,28 @@
   gap: 3px;
 }
 .ins-bar {
-  position: relative;
-  height: 18px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 8.5em;
+  align-items: center;
+  gap: 8px;
+}
+.ins-bar-track {
+  height: 10px;
   background: var(--bg);
   border-radius: var(--radius-sm);
   overflow: hidden;
 }
 .ins-bar-fill {
-  position: absolute;
-  inset: 0 auto 0 0;
+  display: block;
+  height: 100%;
   background: var(--accent);
   border-radius: var(--radius-sm);
 }
 .ins-bar-p90 .ins-bar-fill {
-  opacity: 0.4;
+  opacity: 0.45;
 }
 .ins-bar-value {
-  position: relative;
-  padding: 0 6px;
   font-size: var(--text-xs);
-  line-height: 18px;
   color: var(--text);
   white-space: nowrap;
 }

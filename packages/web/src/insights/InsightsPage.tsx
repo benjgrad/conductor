@@ -274,11 +274,9 @@ function Bar({ kind, value, max }: { kind: 'median' | 'p90'; value: number; max:
   const label = `${kind === 'median' ? 'Median' : 'p90'} ${formatMinutes(value)}`;
   return (
     <div className={`ins-bar ins-bar-${kind}`} title={label}>
-      <span
-        className="ins-bar-fill"
-        style={{ width: `${Math.max(2, (value / max) * 100)}%` }}
-        aria-hidden="true"
-      />
+      <span className="ins-bar-track" aria-hidden="true">
+        <span className="ins-bar-fill" style={{ width: `${Math.max(2, (value / max) * 100)}%` }} />
+      </span>
       <span className="ins-bar-value">{label}</span>
     </div>
   );

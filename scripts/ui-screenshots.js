@@ -121,8 +121,10 @@ const VIEWPORTS = [
         'detail-permission',
         'detail-done',
         'detail-done-steps',
+        'insights',
+        'insights-full',
       ],
-      dark: ['board', 'detail'],
+      dark: ['board', 'detail', 'insights'],
     },
   },
 ];

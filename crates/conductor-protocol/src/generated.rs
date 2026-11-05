@@ -5432,6 +5432,11 @@ pub const ASSISTANT_JOB_QUEUE_MAX: usize = 4;
 pub const ASSISTANT_JOB_TIMEOUT_MAX_MS: u64 = 120000;
 pub const ASSISTANT_JOB_TRANSCRIPT_MAX_CHARS: usize = 60000;
 pub const ASSISTANT_RESULT_DETAIL_MAX: usize = 500;
+pub const ATTACHMENT_CAPTION_HEADER: &str = "x-conductor-caption";
+pub const ATTACHMENT_CAPTION_MAX: usize = 500;
+pub const ATTACHMENT_FILENAME_HEADER: &str = "x-conductor-filename";
+pub const ATTACHMENT_MAX_IMAGE_BYTES: usize = 10485760;
+pub const ATTACHMENT_MAX_VIDEO_BYTES: usize = 52428800;
 pub const AVAILABLE_CONDITION_TYPES: &[&str] = &[
     "pr_checks_green",
     "pr_approvals",
@@ -5469,6 +5474,7 @@ pub const COMMAND_REFUSAL_REASONS: &[&str] = &[
 ];
 pub const CONDUCTOR_PORT_ENV: &str = "CONDUCTOR_PORT";
 pub const DAEMON_AUTH_HEADER: &str = "authorization";
+pub const DAEMON_FEATURE_AGENT_ATTACHMENTS: &str = "agent_attachments";
 pub const DAEMON_FEATURE_ASSISTANT_JOB: &str = "assistant_job";
 pub const DAEMON_FEATURE_TICKET_ATTACHMENTS: &str = "ticket_attachments";
 pub const DAEMON_TARBALL_MAX_BYTES: usize = 104857600;

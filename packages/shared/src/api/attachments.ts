@@ -24,7 +24,10 @@ export type AttachmentSource = z.infer<typeof AttachmentSourceSchema>;
 
 export const ATTACHMENT_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export const ATTACHMENT_MAX_VIDEO_BYTES = 50 * 1024 * 1024;
+/** How many attachments a ticket holds from each source (human uploads and agent captures). */
 export const ATTACHMENTS_PER_TICKET_MAX = 20;
+/** How many files the agents of a ticket may attach (counted apart from the human's). */
+export const AGENT_ATTACHMENTS_PER_TICKET_MAX = 20;
 export const ATTACHMENT_TICKET_MAX_BYTES = 200 * 1024 * 1024;
 export const ATTACHMENT_NAME_MAX = 100;
 /** A stored name: what `sanitizeAttachmentName` returns. */
@@ -32,6 +35,13 @@ export const ATTACHMENT_NAME_RE = /^[A-Za-z0-9._ -]{1,100}$/;
 export const ATTACHMENT_CAPTION_MAX = 500;
 /** The request header that carries the upload's file name (URL-encoded). */
 export const ATTACHMENT_FILENAME_HEADER = 'x-conductor-filename';
+/** The request header that carries an agent attachment's caption (URL-encoded). */
+export const ATTACHMENT_CAPTION_HEADER = 'x-conductor-caption';
+
+/** The per-ticket count limit of attachments from `source`. */
+export function attachmentCountMax(source: AttachmentSource): number {
+  return source === 'agent' ? AGENT_ATTACHMENTS_PER_TICKET_MAX : ATTACHMENTS_PER_TICKET_MAX;
+}
 /** The `accept` list of the web picker. */
 export const ATTACHMENT_ACCEPT = ATTACHMENT_MIMES.join(',');
 

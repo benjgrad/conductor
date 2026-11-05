@@ -69,6 +69,9 @@ pub struct DriverStartOptions {
     /// 06 §Attachments: extra directories Claude may read (`--add-dir`), e.g. the session's
     /// downloaded attachments. Empty = none.
     pub add_dirs: Vec<PathBuf>,
+    /// 06 §Attachments: where the agent's `attach_file` uploads go. None = no such tool (and
+    /// never for a reviewer).
+    pub attach: Option<crate::attachments::upload::AttachTarget>,
 }
 
 impl DriverStartOptions {
@@ -96,6 +99,7 @@ impl DriverStartOptions {
             mcp: None,
             transitions: None,
             add_dirs: Vec::new(),
+            attach: None,
         }
     }
 }

@@ -157,8 +157,8 @@ export const createApi = (({
   });
   // UX-13a: the account's agent team.
   void app.register(registerTeamRoutes, { db });
-  // 06 §Attachments: uploads, their bytes, and the daemon's download.
-  void app.register(registerAttachmentRoutes, { db, auth });
+  // 06 §Attachments: uploads, their bytes, the daemon's download and its agent's attachments.
+  void app.register(registerAttachmentRoutes, { db, auth, boardBus });
   // The create-ticket form's repo suggestions.
   void app.register(registerRepoRoutes, { db });
   // ADR-0030: per-repo check overrides (also MCP's list/get/set/clear_repo_checks).

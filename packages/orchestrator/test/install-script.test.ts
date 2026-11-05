@@ -563,23 +563,24 @@ describe.skipIf(!runnable)('install.sh', () => {
 // (scripts/build-daemon-dist.sh), installed by the served script, whose real `conductor-daemon
 // enroll` posts to a stub enroll endpoint. The token reaches the daemon only through
 // CONDUCTOR_ENROLL_TOKEN (TD-117). It costs a cargo build (the dev profile, which `cargo nextest`
-// has usually just built), so it runs only where cargo is on PATH and can build the pinned
-// toolchain (rust-toolchain.toml): rustup resolves the pin, but a system cargo (e.g. Homebrew's)
-// older than the pin can't build the workspace at all, which is not install.sh's failure.
+// has usually just built), so it runs only where the cargo on PATH is the pinned toolchain
+// (rust-toolchain.toml): a system cargo older than the pin (e.g. Homebrew's, without rustup)
+// can't build the crates, which is a missing toolchain, not a failure of install.sh.
 const hasCargo = cargoMeetsPin();
 
-/** Whether `cargo` (as resolved in the repo, so rustup applies the pin) is at least the pinned version. */
+/** `cargo --version` (run in the repo, so rustup applies the pin) is at least the pinned channel. */
 function cargoMeetsPin(): boolean {
-  const run = spawnSync('cargo', ['--version'], { cwd: REPO, encoding: 'utf8' });
-  if (run.status !== 0) return false;
-  const pin = /channel\s*=\s*"(\d+)\.(\d+)/.exec(
+  const r = spawnSync('cargo', ['--version'], { cwd: REPO, encoding: 'utf8' });
+  if (r.status !== 0) return false;
+  const have = /cargo (\d+)\.(\d+)\.(\d+)/.exec(r.stdout);
+  const pin = /channel\s*=\s*"(\d+)\.(\d+)(?:\.(\d+))?"/.exec(
     readFileSync(join(REPO, 'rust-toolchain.toml'), 'utf8'),
   );
-  const have = /cargo (\d+)\.(\d+)/.exec(run.stdout);
-  if (!pin || !have) return true; // unrecognised: try the build rather than skip silently
-  const [pinMajor, pinMinor] = [Number(pin[1]), Number(pin[2])];
-  const [major, minor] = [Number(have[1]), Number(have[2])];
-  return major > pinMajor || (major === pinMajor && minor >= pinMinor);
+  if (!have || !pin) return have !== null;
+  const v = (m: RegExpExecArray) => [Number(m[1]), Number(m[2]), Number(m[3] ?? 0)];
+  const [a, b] = [v(have), v(pin)];
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i]! > b[i]!;
+  return true;
 }
 
 describe.skipIf(!runnable || !hasCargo)('install.sh with the real daemon tarball', () => {

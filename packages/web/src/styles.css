@@ -170,6 +170,10 @@ textarea {
 .topbar.compact .nav-label {
   display: none;
 }
+/* UXR-27: the "?" sits by New ticket and the account menu; only the page tabs take the slack. */
+.topbar .help-entry {
+  flex: none;
+}
 
 main {
   display: flex;
@@ -1308,6 +1312,11 @@ button.link {
     align-items: center;
     gap: var(--space-2);
   }
+  /* UXR-27: the icon-only "?" is as wide as it is tall. */
+  .topbar .help-entry a {
+    min-width: var(--tap);
+    justify-content: center;
+  }
   .detail-head .close,
   .detail-head .back,
   .sheet-close {
@@ -1349,13 +1358,17 @@ button.link {
     gap: var(--space-1);
     padding: calc(var(--space-1) + env(safe-area-inset-top))
       max(var(--space-2), env(safe-area-inset-right)) var(--space-1)
-      max(var(--space-3), env(safe-area-inset-left));
+      max(var(--space-2), env(safe-area-inset-left));
   }
   .topbar .nav-tabs a,
   .topbar > button,
   .topbar .account-button {
     min-width: var(--tap);
     justify-content: center;
+  }
+  /* UXR-27: seven 44 px targets fit 375 px when the tabs abut. */
+  .topbar .nav-tabs {
+    gap: 0;
   }
   .account-menu {
     max-width: calc(100vw - 2 * var(--space-2));

@@ -40,7 +40,7 @@ async function sources(repo: string) {
 }
 
 describe('repo checks page (ADR-0030)', () => {
-  it('is #/repo-checks, from the account menu: the note, the Help link and the seeded override', async () => {
+  it('is #/repo-checks, from the top bar: the note, the Help link and the seeded override', async () => {
     window.history.replaceState(null, '', '/#/repo-checks');
     render(<App api={createMockApi({ now })} />);
     const page = within(await screen.findByRole('region', { name: 'Repo checks' }));
@@ -54,13 +54,13 @@ describe('repo checks page (ADR-0030)', () => {
     expect(table.getByText('Build, Tests')).toBeTruthy();
     expect(table.getByText('pnpm install --frozen-lockfile')).toBeTruthy();
 
-    fireEvent.click(
-      await screen.findByRole('button', { name: localMeResponse().user.display_name }),
-    );
-    const menu = within(screen.getByRole('menu', { name: 'Account' }));
-    expect(menu.getByRole('menuitem', { name: 'Repo checks' }).getAttribute('href')).toBe(
-      '#/repo-checks',
-    );
+    // UXR-27: a page in the top bar, current here.
+    await screen.findByRole('button', { name: localMeResponse().user.display_name });
+    const link = within(screen.getByRole('navigation', { name: 'Main' })).getByRole('link', {
+      name: 'Repo checks',
+    });
+    expect(link.getAttribute('href')).toBe('#/repo-checks');
+    expect(link.getAttribute('aria-current')).toBe('page');
   });
 
   it('a repo picked from the list opens by its route', async () => {

@@ -2,7 +2,7 @@ import type { EnrollmentTokenCreated, MachineDetail, MachineRow } from '@conduct
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { ago } from '../components/format.js';
-import { HelpLink } from '../help/HelpPage.js';
+import { CONNECT_CLAUDE_URL, HelpLink } from '../help/HelpPage.js';
 import { routeHash } from '../nav.js';
 import { AddMachine } from './AddMachine.js';
 import { ghTooOld, ghTooOldText, GIT_IDENTITY_MISSING_TEXT } from './format.js';
@@ -88,7 +88,8 @@ export function MachinesPage({ api }: MachinesPageProps) {
           Add a machine
         </button>
         <a href={routeHash({ view: 'setup' })}>Guided setup</a>
-        <HelpLink>Help: add a machine</HelpLink>
+        {/* UXR-27: the MCP guide lives here, not in the account menu. */}
+        <HelpLink href={CONNECT_CLAUDE_URL}>Connect Claude</HelpLink>
       </div>
       {enrollment && (
         <AddMachine

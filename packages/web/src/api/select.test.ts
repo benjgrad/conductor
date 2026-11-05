@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { apiKind, createApiFromEnv } from './select.js';
+import { apiKind, createApiFromEnv, mockOptionsFromSearch } from './select.js';
 
 describe('API selection (VITE_API)', () => {
   it('defaults to http; accepts mock|http; rejects anything else', () => {
@@ -38,5 +38,16 @@ describe('API selection (VITE_API)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('the mock takes its scenario from the page query (ui-screenshots)', async () => {
+    expect(mockOptionsFromSearch('')).toEqual({});
+    expect(mockOptionsFromSearch('?mock-auth=password&mock-machines=none')).toEqual({
+      auth: 'password',
+      machines: 'none',
+    });
+    expect(mockOptionsFromSearch('?mock-auth=oauth&mock-machines=lots')).toEqual({});
+    const { api } = createApiFromEnv({ VITE_API: 'mock' }, {}, '?mock-auth=password');
+    expect((await api.me()).user.is_admin).toBe(true);
   });
 });

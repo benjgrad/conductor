@@ -1,9 +1,10 @@
 {
   "board-375x812-light": {
+    "chatHeight": null,
     "pageScrollWidth": 375,
     "deviceWidth": 375,
     "horizontalOverflow": false,
-    "pageHeight": 986,
+    "pageHeight": 812,
     "smallTapTargets": 6,
     "smallTapTargetSample": [
       "button \"Fix flaky checkout test\" 307×18",
@@ -96,10 +97,11 @@
     ]
   },
   "account-menu-375x812-light": {
+    "chatHeight": null,
     "pageScrollWidth": 375,
     "deviceWidth": 375,
     "horizontalOverflow": false,
-    "pageHeight": 986,
+    "pageHeight": 812,
     "smallTapTargets": 6,
     "smallTapTargetSample": [
       "button \"Fix flaky checkout test\" 307×18",
@@ -160,10 +162,11 @@
     ]
   },
   "board-375x812-dark": {
+    "chatHeight": null,
     "pageScrollWidth": 375,
     "deviceWidth": 375,
     "horizontalOverflow": false,
-    "pageHeight": 986,
+    "pageHeight": 812,
     "smallTapTargets": 6,
     "smallTapTargetSample": [
       "button \"Fix flaky checkout test\" 307×18",
@@ -200,18 +203,18 @@
     ]
   },
   "board-360x740-light": {
+    "chatHeight": null,
     "pageScrollWidth": 360,
     "deviceWidth": 360,
     "horizontalOverflow": false,
-    "pageHeight": 986,
-    "smallTapTargets": 6,
+    "pageHeight": 740,
+    "smallTapTargets": 5,
     "smallTapTargetSample": [
       "button \"Fix flaky checkout test\" 292×18",
       "button \"Retries exhausted: Tests faile\" 292×18",
       "button \"Board cards: review requests v\" 292×36",
       "button \"Add CSV export\" 292×18",
-      "button \"Plan the garden\" 292×18",
-      "button \"Question: Raised beds or in-gr\" 292×18"
+      "button \"Plan the garden\" 292×18"
     ]
   },
   "detail-360x740-light": {
@@ -265,11 +268,12 @@
     ]
   },
   "board-768x1024-light": {
+    "chatHeight": null,
     "pageScrollWidth": 1146,
     "deviceWidth": 768,
     "horizontalOverflow": true,
-    "pageHeight": 1528,
-    "smallTapTargets": 14,
+    "pageHeight": 1625,
+    "smallTapTargets": 16,
     "smallTapTargetSample": [
       "button \"Hotfix: crash on empty cart\" 144×32",
       "button \"Add /health\" 144×16",
@@ -316,18 +320,19 @@
     ]
   },
   "board-1440x900-light": {
+    "chatHeight": null,
     "pageScrollWidth": 1440,
     "deviceWidth": 1440,
     "horizontalOverflow": false,
-    "pageHeight": 941,
-    "smallTapTargets": 36,
+    "pageHeight": 1231,
+    "smallTapTargets": 34,
     "smallTapTargetSample": [
       "a \"Board\" 89×24",
       "a \"Workflow\" 106×24",
       "a \"Machines\" 108×24",
-      "a \"Add a machine\" 147×24",
-      "a \"Help\" 74×24",
+      "a \"Repo checks\" 130×24",
       "button \"New ticket\" 118×26",
+      "a \"Help\" 36×24",
       "button \"local\" 77×26",
       "button \"▾Queued 2\" 94×15"
     ]
@@ -400,18 +405,19 @@
     ]
   },
   "board-1440x900-dark": {
+    "chatHeight": null,
     "pageScrollWidth": 1440,
     "deviceWidth": 1440,
     "horizontalOverflow": false,
-    "pageHeight": 941,
-    "smallTapTargets": 36,
+    "pageHeight": 1231,
+    "smallTapTargets": 34,
     "smallTapTargetSample": [
       "a \"Board\" 89×24",
       "a \"Workflow\" 106×24",
       "a \"Machines\" 108×24",
-      "a \"Add a machine\" 147×24",
-      "a \"Help\" 74×24",
+      "a \"Repo checks\" 130×24",
       "button \"New ticket\" 118×26",
+      "a \"Help\" 36×24",
       "button \"local\" 77×26",
       "button \"▾Queued 2\" 94×15"
     ]
@@ -431,6 +437,87 @@
       "button \"New ticket\" 118×26",
       "button \"local\" 77×26",
       "button \"▾Queued 2\" 94×15"
+    ]
+  },
+  "account-menu-admin-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 6,
+    "smallTapTargetSample": [
+      "button \"Fix flaky checkout test\" 307×18",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×36",
+      "button \"Add CSV export\" 307×18",
+      "button \"Plan the garden\" 307×18",
+      "button \"Question: Raised beds or in-gr\" 307×18"
+    ]
+  },
+  "first-run-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Read the full guide ↗\" 148×16"
+    ]
+  },
+  "account-menu-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1231,
+    "smallTapTargets": 35,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Repo checks\" 130×24",
+      "button \"New ticket\" 118×26",
+      "a \"Help\" 36×24",
+      "button \"local\" 77×26",
+      "button \"Notifications: off\" 182×26"
+    ]
+  },
+  "account-menu-admin-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1231,
+    "smallTapTargets": 38,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Repo checks\" 130×24",
+      "button \"New ticket\" 118×26",
+      "a \"Help\" 36×24",
+      "button \"Ben\" 71×26",
+      "button \"Notifications: off\" 182×26"
+    ]
+  },
+  "first-run-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1261,
+    "smallTapTargets": 35,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Repo checks\" 130×24",
+      "button \"New ticket\" 118×26",
+      "a \"Help\" 36×24",
+      "button \"local\" 77×26",
+      "button \"I'll do this later\" 126×26"
     ]
   }
 }

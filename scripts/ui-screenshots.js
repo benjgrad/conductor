@@ -88,7 +88,11 @@ const VIEWPORTS = [
         'board',
         'detail',
         'new-ticket',
+        'account-menu',
+        'account-menu-admin',
+        'first-run',
         'machines',
+        'repo-checks',
         'workflows',
         'ticket-messages',
         'ticket-plan',
@@ -213,6 +217,16 @@ const SCREENS = [
       await tap(page.locator('.account-button'));
     },
   },
+  // The mock's admin (password mode, api/select.ts mockOptionsFromSearch): Admin and Sign out show.
+  {
+    id: 'account-menu-admin',
+    path: '/?mock-auth=password#/',
+    act: async (page) => {
+      await tap(page.locator('.account-button'));
+    },
+  },
+  // UX-8: an account with no machines opens on the first-run guide.
+  { id: 'first-run', path: '/?mock-machines=none#/' },
   // The ticket panel's Messages tab: the brief above the chat (BRIEF_CARD has a ticket body).
   { id: 'ticket-messages', path: '/#/', act: (page) => openCard(page, BRIEF_CARD) },
   { id: 'ticket-plan', path: '/#/', act: (page) => openCard(page, PLAN_CARD) },

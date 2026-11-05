@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMockApi, type MockApi } from '../api/mock.js';
 import { App } from '../App.js';
-import { SETUP_GUIDE_URL } from '../machines/format.js';
+import { CONNECT_CLAUDE_URL } from '../help/HelpPage.js';
 import { SIGHUP_COMMAND } from './content.js';
 import { newVisitForTests } from './dismissal.js';
 import { SetupGuide } from './SetupGuide.js';
@@ -90,19 +90,18 @@ describe('first-run guide (FR-1)', () => {
     expect(screen.queryByRole('region', { name: 'Add a machine' })).toBeNull();
   });
 
-  it('the top bar "Add a machine" entry opens it, also with machines', async () => {
+  it('the Machines page "Guided setup" link opens it, also with machines (UXR-27)', async () => {
+    window.history.replaceState(null, '', '/#/machines');
     render(<App api={createMockApi()} />);
-    await screen.findByText('Add pagination to /orders', undefined, APP_WAIT);
-    const entry = within(screen.getByRole('navigation', { name: 'Help' })).getByRole('link', {
-      name: 'Add a machine',
-    });
-    expect(entry.getAttribute('href')).toBe('#/setup');
-    act(() => {
-      window.location.hash = '#/setup';
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
-    });
+    const page = within(await screen.findByRole('region', { name: 'Machines' }, APP_WAIT));
+    // Add a machine is not in the top bar.
+    const bar = within(document.querySelector<HTMLElement>('header.topbar')!);
+    expect(bar.queryByRole('link', { name: 'Add a machine' })).toBeNull();
+    fireEvent.click(page.getByRole('link', { name: 'Guided setup' }));
     expect(await screen.findByRole('region', { name: 'Add a machine' })).toBeTruthy();
-    expect(entry.getAttribute('aria-current')).toBe('page');
+    // The guided setup is part of Machines: that tab, and only it, is current.
+    expect(bar.getByRole('link', { name: 'Machines' }).getAttribute('aria-current')).toBe('page');
+    expect(bar.getByRole('link', { name: 'Board' }).getAttribute('aria-current')).toBeNull();
 
     // "I'll do this later" from #/setup goes back to the board.
     fireEvent.click(screen.getByRole('button', { name: "I'll do this later" }));
@@ -110,7 +109,7 @@ describe('first-run guide (FR-1)', () => {
     expect(screen.getByRole('region', { name: 'Queued' })).toBeTruthy();
   });
 
-  it('the Machines page links to the guided setup and the help page', async () => {
+  it('the Machines page links to the guided setup and Connect Claude', async () => {
     window.history.replaceState(null, '', '/#/machines');
     render(<App api={createMockApi({ machines: 'none' })} />);
     const page = within(await screen.findByRole('region', { name: 'Machines' }, APP_WAIT));
@@ -118,9 +117,10 @@ describe('first-run guide (FR-1)', () => {
     expect(
       (await page.findByRole('link', { name: 'follow the guided setup' })).getAttribute('href'),
     ).toBe('#/setup');
-    expect(page.getByRole('link', { name: 'Help: add a machine' }).getAttribute('href')).toBe(
-      SETUP_GUIDE_URL,
+    expect(page.getByRole('link', { name: 'Connect Claude' }).getAttribute('href')).toBe(
+      CONNECT_CLAUDE_URL,
     );
+    expect(page.queryByRole('link', { name: 'Help: add a machine' })).toBeNull();
   });
 });
 

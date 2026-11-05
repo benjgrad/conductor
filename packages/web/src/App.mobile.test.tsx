@@ -25,37 +25,38 @@ async function renderAt(width: number) {
 }
 
 describe('phone top bar (11-web-ui §Top bar)', () => {
-  it('at 375 the bar is compact, and Add a machine and Help are in the account menu', async () => {
+  const pages = ['Board', 'Workflow', 'Machines', 'Repo checks'];
+  const notInMenu = ['Add a machine', 'Help', 'Connect Claude', 'Repo checks', 'Workflow'];
+
+  it('at 375 the bar is compact and holds every page, New ticket and Help (UXR-27)', async () => {
     await renderAt(375);
     const bar = document.querySelector<HTMLElement>('header.topbar')!;
     expect(bar.classList.contains('compact')).toBe(true);
     expect(screen.getByRole('heading', { level: 1, name: 'Conductor' })).toBeTruthy();
-    for (const name of ['Board', 'Workflow', 'Machines']) {
+    for (const name of pages) {
       expect(within(bar).getByRole('link', { name })).toBeTruthy();
     }
     expect(within(bar).getByRole('button', { name: 'New ticket' })).toBeTruthy();
+    expect(within(bar).getByRole('link', { name: 'Help' })).toBeTruthy();
     expect(within(bar).queryByRole('link', { name: 'Add a machine' })).toBeNull();
-    expect(within(bar).queryByRole('link', { name: 'Help' })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: me.display_name }));
     const menu = within(screen.getByRole('menu', { name: 'Account' }));
-    expect(menu.getByRole('menuitem', { name: 'Add a machine' }).getAttribute('href')).toBe(
-      '#/setup',
-    );
-    expect(menu.getByRole('menuitem', { name: 'Help' })).toBeTruthy();
-    expect(menu.getByRole('menuitem', { name: 'Connect Claude' })).toBeTruthy();
+    for (const name of notInMenu) expect(menu.queryByRole('menuitem', { name })).toBeNull();
   });
 
-  it('at 1440 the bar is unchanged', async () => {
+  it('at 1440 the bar holds the same items, labelled', async () => {
     await renderAt(1440);
     const bar = document.querySelector<HTMLElement>('header.topbar')!;
     expect(bar.classList.contains('compact')).toBe(false);
-    expect(within(bar).getByRole('link', { name: 'Add a machine' })).toBeTruthy();
+    for (const name of pages) {
+      expect(within(bar).getByRole('link', { name }).textContent).toBe(name);
+    }
     expect(within(bar).getByRole('link', { name: 'Help' })).toBeTruthy();
+    expect(within(bar).queryByRole('link', { name: 'Add a machine' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: me.display_name }));
     const menu = within(screen.getByRole('menu', { name: 'Account' }));
-    expect(menu.queryByRole('menuitem', { name: 'Help' })).toBeNull();
-    expect(menu.getByRole('menuitem', { name: 'Connect Claude' })).toBeTruthy();
+    for (const name of notInMenu) expect(menu.queryByRole('menuitem', { name })).toBeNull();
   });
 });
 

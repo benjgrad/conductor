@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { ME_RESPONSE_FIXTURE } from '@conductor/shared';
+import { localMeResponse, ME_RESPONSE_FIXTURE, type MeResponse } from '@conductor/shared';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client.js';
@@ -202,6 +202,49 @@ describe('AccountMenu · This device (UX-16 Web Push)', () => {
     expect(
       await menu.findByText('Add Conductor to your Home Screen to get notifications'),
     ).toBeTruthy();
+  });
+});
+
+describe('AccountMenu · items (UXR-27)', () => {
+  function openAs(me: MeResponse, adminCurrent?: boolean) {
+    vi.stubGlobal('Notification', undefined);
+    render(
+      <AccountMenu
+        api={createMockApi()}
+        me={me}
+        onAdmin={() => {}}
+        onSignedOut={() => {}}
+        adminCurrent={adminCurrent}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: me.user.display_name }));
+    return within(screen.getByRole('menu', { name: 'Account' }));
+  }
+  const names = (menu: ReturnType<typeof openAs>) =>
+    menu.queryAllByRole('menuitem').map((el) => el.textContent);
+
+  it('holds account things only: Change password, Admin, Sign out', () => {
+    const menu = openAs(ME_RESPONSE_FIXTURE);
+    expect(names(menu)).toEqual(['Change password', 'Admin', 'Sign out']);
+    expect(menu.queryByRole('link')).toBeNull();
+    expect(menu.getByRole('menuitem', { name: 'Admin' }).getAttribute('aria-current')).toBeNull();
+  });
+
+  it('a non-admin has no Admin', () => {
+    const menu = openAs({
+      ...ME_RESPONSE_FIXTURE,
+      user: { ...ME_RESPONSE_FIXTURE.user, is_admin: false },
+    });
+    expect(names(menu)).toEqual(['Change password', 'Sign out']);
+  });
+
+  it('marks Admin as the current page while the admin view is open', () => {
+    const menu = openAs(ME_RESPONSE_FIXTURE, true);
+    expect(menu.getByRole('menuitem', { name: 'Admin' }).getAttribute('aria-current')).toBe('page');
+  });
+
+  it('local mode has nothing to sign out of and no links', () => {
+    expect(names(openAs(localMeResponse()))).toEqual([]);
   });
 });
 

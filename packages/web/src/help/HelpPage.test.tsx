@@ -192,13 +192,11 @@ describe('help page: connect Claude', () => {
     expect(isHelpPath('/help/toString')).toBe(false);
   });
 
-  it('the account menu links there, and "Back to conductor" comes back', async () => {
+  it('the Machines page links there, and "Back to conductor" comes back', async () => {
+    window.history.replaceState(null, '', '/#/machines');
     render(<App api={createMockApi()} />);
-    await screen.findByText('Add pagination to /orders');
-    fireEvent.click(document.querySelector<HTMLButtonElement>('.account-button')!);
-    const link = within(screen.getByRole('menu', { name: 'Account' })).getByRole('menuitem', {
-      name: 'Connect Claude',
-    });
+    const page = within(await screen.findByRole('region', { name: 'Machines' }));
+    const link = page.getByRole('link', { name: 'Connect Claude' });
     expect(link.getAttribute('href')).toBe(CONNECT_CLAUDE_URL);
     fireEvent.click(link);
     expect(window.location.pathname).toBe(CONNECT_CLAUDE_URL);

@@ -3,15 +3,13 @@ import {
   CircleHelp,
   LayoutDashboard,
   ListChecks,
-  Plug,
   Plus,
   Server,
-  ServerCog,
   Workflow,
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ApiClient } from './api/client.js';
 import { AdminPage } from './admin/Admin.js';
 import { AccountMenu } from './auth/AccountMenu.js';
@@ -32,13 +30,7 @@ import {
   useIsMobile,
   useVisualViewportHeight,
 } from './components/useMediaQuery.js';
-import {
-  CONNECT_CLAUDE_URL,
-  followInApp,
-  HelpLink,
-  HelpPage,
-  isHelpPath,
-} from './help/HelpPage.js';
+import { HelpLink, HelpPage, isHelpPath } from './help/HelpPage.js';
 import { SETUP_GUIDE_URL } from './machines/format.js';
 import { MachinesPage } from './machines/Machines.js';
 import {
@@ -47,6 +39,7 @@ import {
   parseHash,
   routeHash,
   signInPath,
+  type Route,
   useHashRoute,
   usePath,
 } from './nav.js';
@@ -160,6 +153,31 @@ export function App({ api, compact: compactProp }: AppProps) {
   );
 }
 
+/** A top-bar page; `currentNav` names the one that is the current page. */
+export type NavPage = 'board' | 'workflows' | 'machines' | 'repo-checks';
+
+/**
+ * UXR-27 FR-5: which top-bar link carries `aria-current="page"` (at most one). The guided setup
+ * (`#/setup`) is part of Machines; the first-run guide shows on the board, so Board. Admin is in
+ * the account menu (its item is marked instead) and the help pages have no bar.
+ */
+export function currentNav(route: Route): NavPage | null {
+  switch (route.view) {
+    case 'board':
+      return 'board';
+    case 'setup':
+    case 'machines':
+      return 'machines';
+    case 'workflows':
+      return 'workflows';
+    case 'repo-checks':
+      return 'repo-checks';
+    case 'admin':
+    case 'help':
+      return null;
+  }
+}
+
 interface ShellProps {
   api: ApiClient;
   /** null until GET /api/me answers. */
@@ -237,6 +255,13 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
     if (route.view === 'help') goTo(SETUP_GUIDE_URL, { replace: true });
   }, [route.view]);
 
+  // A form left open on the board doesn't come back with the next visit (adjusted while rendering).
+  const [lastView, setLastView] = useState(route.view);
+  if (lastView !== route.view) {
+    setLastView(route.view);
+    if (route.view !== 'board') setCreating(false);
+  }
+
   const guide = route.view === 'setup' || (route.view === 'board' && firstRun);
 
   function hideGuide() {
@@ -253,39 +278,21 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
     </>
   );
 
-  // 11-web-ui §Top bar: on a phone, Add a machine and Help move into the account menu. Connect
-  // Claude (the MCP setup guide) is in the menu at every width.
-  const menuLinks = [
-    ...(mobile
-      ? [
-          {
-            label: 'Add a machine',
-            href: routeHash({ view: 'setup' }),
-            icon: <NavIcon icon={ServerCog} />,
-          },
-          {
-            label: 'Help',
-            href: SETUP_GUIDE_URL,
-            icon: <NavIcon icon={CircleHelp} />,
-            onClick: (e: MouseEvent<HTMLAnchorElement>) => followInApp(e, SETUP_GUIDE_URL),
-          },
-        ]
-      : []),
-    {
-      label: 'Connect Claude',
-      href: CONNECT_CLAUDE_URL,
-      icon: <NavIcon icon={Plug} />,
-      onClick: (e: MouseEvent<HTMLAnchorElement>) => followInApp(e, CONNECT_CLAUDE_URL),
-    },
-    // ADR-0030: per-repo check overrides, a settings page (not a top-bar tab).
-    {
-      label: 'Repo checks',
-      href: routeHash({ view: 'repo-checks', repo: null }),
-      icon: <NavIcon icon={ListChecks} />,
-    },
-  ];
-
   const showForm = route.view === 'board' && !guide && creating;
+  const current = currentNav(route);
+  const page = (p: NavPage) => (current === p ? ('page' as const) : undefined);
+
+  // UXR-27 FR-4: New ticket works from every page. Off the board (or over the guide) it goes to the
+  // board first, through the draft guard: a held-back navigation opens no form.
+  function newTicket() {
+    if (route.view === 'board' && !guide) {
+      setCreating((v) => !v);
+      return;
+    }
+    if (route.view !== 'board' && !navigate({ view: 'board' })) return;
+    setFirstRun(false);
+    setCreating(true);
+  }
   const selectedCard = selected
     ? [...board.cards.values()].find((c) => c.session_id === selected)
     : undefined;
@@ -310,51 +317,53 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
         ) : (
           <h1>Conductor</h1>
         )}
+        {/* UXR-27: pages in the bar; account things in the account menu. */}
         <nav className="nav-tabs" aria-label="Main">
           <a
             href={routeHash({ view: 'board' })}
-            aria-current={route.view === 'board' ? 'page' : undefined}
+            aria-current={page('board')}
             {...iconOnly('Board')}
           >
             {labelled(LayoutDashboard, 'Board')}
           </a>
           <a
             href={routeHash({ view: 'workflows', workflowId: null })}
-            aria-current={route.view === 'workflows' ? 'page' : undefined}
+            aria-current={page('workflows')}
             {...iconOnly('Workflow')}
           >
             {labelled(Workflow, 'Workflow')}
           </a>
           <a
             href={routeHash({ view: 'machines' })}
-            aria-current={route.view === 'machines' ? 'page' : undefined}
+            aria-current={page('machines')}
             {...iconOnly('Machines')}
           >
             {labelled(Server, 'Machines')}
           </a>
-        </nav>
-        {!mobile && (
-          <nav className="nav-tabs help-entry" aria-label="Help">
-            <a
-              href={routeHash({ view: 'setup' })}
-              aria-current={guide ? 'page' : undefined}
-              {...iconOnly('Add a machine')}
-            >
-              {labelled(ServerCog, 'Add a machine')}
-            </a>
-            <HelpLink {...iconOnly('Help')}>{labelled(CircleHelp, 'Help')}</HelpLink>
-          </nav>
-        )}
-        {route.view === 'board' && !guide && (
-          <button
-            type="button"
-            onClick={() => setCreating((v) => !v)}
-            aria-expanded={creating}
-            {...iconOnly(creating ? 'Close form' : 'New ticket')}
+          {/* ADR-0030: the per-repo check overrides, a page like the others. */}
+          <a
+            href={routeHash({ view: 'repo-checks', repo: null })}
+            aria-current={page('repo-checks')}
+            {...iconOnly('Repo checks')}
           >
-            {creating ? labelled(X, 'Close form') : labelled(Plus, 'New ticket')}
-          </button>
-        )}
+            {labelled(ListChecks, 'Repo checks')}
+          </a>
+        </nav>
+        <button
+          type="button"
+          className="new-ticket"
+          onClick={newTicket}
+          aria-expanded={showForm}
+          {...iconOnly(showForm ? 'Close form' : 'New ticket')}
+        >
+          {showForm ? labelled(X, 'Close form') : labelled(Plus, 'New ticket')}
+        </button>
+        {/* The "?": icon-only at every width. */}
+        <nav className="nav-tabs help-entry" aria-label="Help">
+          <HelpLink aria-label="Help" title="Help">
+            <NavIcon icon={CircleHelp} />
+          </HelpLink>
+        </nav>
         {me && (
           <AccountMenu
             api={api}
@@ -362,7 +371,7 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
             onAdmin={() => navigate({ view: 'admin' })}
             onSignedOut={onSignedOut}
             compact={compact}
-            extraItems={menuLinks}
+            adminCurrent={route.view === 'admin'}
           />
         )}
       </header>

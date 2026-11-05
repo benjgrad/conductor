@@ -110,7 +110,7 @@ export function SaveBar({
         <button type="button" onClick={onDiscard} disabled={saving}>
           Discard
         </button>
-        <button type="button" className="wf-save" onClick={onSave} disabled={saving}>
+        <button type="button" className="wf-save primary" onClick={onSave} disabled={saving}>
           {saving ? 'Saving…' : `Save as v${nextVersion}…`}
         </button>
       </span>

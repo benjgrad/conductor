@@ -1,17 +1,22 @@
 import {
+  DIFF_MAX,
   LOCAL_ACCOUNT_ID,
   WorkflowDefinitionSchema,
+  capDiff,
+  diffWorkflow,
   approvalsWeakened,
   validateWorkflow,
+  type StructuralChange,
   type WorkflowDefinition,
   type WorkflowValidationError,
 } from '@conductor/shared';
 import type { Queryable } from '../contracts.js';
+import { conductorDefaultAvailable, newestShippedConductor } from '../engine/seed.js';
 
-// ADR-0009 / ADR-0030 amendment: saving a workflow version. One function behind both
-// `POST /api/workflows` and the MCP `save_workflow` / `adopt_default_workflow` tools. The server
-// assigns the version (max + 1). The MCP-only guards (admin gate, approvals, truncation) live in
-// mcp/tools.ts; this only validates, checks `base_version` and inserts.
+// ADR-0009 / ADR-0030 amendment: saving a workflow version. One function behind
+// `POST /api/workflows`, `POST /api/workflows/:id/default` (UXR-87) and the MCP `save_workflow` /
+// `adopt_default_workflow` tools. The server assigns the version (max + 1). The approval guard is
+// `saveGuarded`; the admin gate lives with each caller (mcp/tools.ts, api/index.ts).
 
 const PG_UNIQUE_VIOLATION = '23505';
 
@@ -148,4 +153,69 @@ export async function saveWorkflowDefinition(
   const result = validateWorkflow(definition);
   if (!result.ok) return { ok: false, code: 'invalid_workflow', errors: result.errors };
   return insertWorkflowVersion(q, result.def, opts);
+}
+
+export type GuardedSaveResult =
+  | { ok: true; id: string; version: number }
+  | { ok: false; code: 'approval_weakened'; transitions: string[] }
+  | { ok: false; code: 'conflict'; latest: number | null }
+  /** Rule 18 (UXR-67): a column it drops still has tickets. */
+  | { ok: false; code: 'invalid_workflow'; errors: WorkflowValidationError[] };
+
+/**
+ * ADR-0030 amendment: the approval guard (`weakenedApprovals`), then the insert. Behind MCP
+ * `save_workflow` / `adopt_default_workflow` and UXR-87's `POST /api/workflows/:id/default`; the
+ * admin gate is the caller's.
+ */
+export async function saveGuarded(
+  q: Queryable,
+  def: WorkflowDefinition,
+  opts: SaveWorkflowOptions = {},
+): Promise<GuardedSaveResult> {
+  const weakened = await weakenedApprovals(q, def);
+  if (weakened.length > 0) return { ok: false, code: 'approval_weakened', transitions: weakened };
+  const res = await insertWorkflowVersion(q, def, opts);
+  return res;
+}
+
+/** Save the newest shipped `conductor` default as its next version (replacing local edits). */
+export function adoptDefaultWorkflow(
+  q: Queryable,
+  opts: SaveWorkflowOptions = {},
+): Promise<GuardedSaveResult> {
+  return saveGuarded(q, newestShippedConductor(), opts);
+}
+
+/**
+ * UXR-87: what adopting the default would change, for the editor's Compare: the default's version,
+ * the latest stored version it is compared with, and the capped structural diff. Null when no
+ * newer default is available for `id`.
+ */
+export async function defaultComparison(
+  q: Queryable,
+  id: string,
+): Promise<{
+  version: number;
+  base_version: number;
+  definition: WorkflowDefinition;
+  diff: { changes: StructuralChange[]; more_changes: number };
+} | null> {
+  const available = await conductorDefaultAvailable(q, id);
+  if (available === null) return null;
+  const r = await q.query<{ version: number; definition: unknown }>(
+    'SELECT version, definition FROM workflow_definition WHERE id = $1 ' +
+      'ORDER BY version DESC LIMIT 1',
+    [id],
+  );
+  const row = r.rows[0];
+  if (row === undefined) return null;
+  const parsed = WorkflowDefinitionSchema.safeParse(row.definition);
+  const before = parsed.success ? parsed.data : row.definition;
+  const newest = newestShippedConductor();
+  return {
+    version: available,
+    base_version: row.version,
+    definition: newest,
+    diff: capDiff(diffWorkflow(before, newest), DIFF_MAX),
+  };
 }

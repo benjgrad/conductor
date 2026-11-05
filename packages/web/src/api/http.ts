@@ -23,7 +23,13 @@ import {
   PermissionRequestListResponseSchema,
   ReopenSessionResponseSchema,
   RepoChecksDetailSchema,
+  RepoCheckRunsResponseSchema,
+  RepoChecksHealthResponseSchema,
   ChangeProposalDetailSchema,
+  FindingsResponseSchema,
+  ProcessMetricsResponseSchema,
+  ProcessReportResponseSchema,
+  SessionInsightResponseSchema,
   ChangeProposalListResponseSchema,
   RepoChecksDtoSchema,
   RepoChecksListResponseSchema,
@@ -37,8 +43,11 @@ import {
   SessionDetailSchema,
   TranscriptResponseSchema,
   TicketDetailSchema,
+  QueueOrderResponseSchema,
   TicketDtoSchema,
+  TicketSearchResponseSchema,
   SaveWorkflowResponseSchema,
+  WorkflowDefaultResponseSchema,
   WorkflowDetailSchema,
   WorkflowListResponseSchema,
   type AnswerInputRequest,
@@ -317,11 +326,26 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
     createTicket: (req: CreateTicketRequest) =>
       request(TicketDtoSchema, 'POST', API_PATHS.tickets, req),
 
+    searchTickets: (opts = {}) => {
+      const q = new URLSearchParams();
+      if (opts.q !== undefined && opts.q.trim() !== '') q.set('q', opts.q.trim());
+      if (opts.status !== undefined) q.set('status', opts.status.join(','));
+      if (opts.limit !== undefined) q.set('limit', String(opts.limit));
+      if (opts.cursor !== undefined) q.set('cursor', String(opts.cursor));
+      const qs = q.toString();
+      return request(TicketSearchResponseSchema, 'GET', API_PATHS.tickets + (qs ? `?${qs}` : ''));
+    },
+
     getTicket: (ticketId: string) =>
       request(TicketDetailSchema, 'GET', API_PATHS.ticket(encodeURIComponent(ticketId))),
 
     updateTicket: (ticketId: string, req: UpdateTicketRequest) =>
       request(TicketDetailSchema, 'PATCH', API_PATHS.ticket(encodeURIComponent(ticketId)), req),
+
+    reorderQueue: (ticketIds: readonly string[]) =>
+      request(QueueOrderResponseSchema, 'PUT', API_PATHS.queueOrder, { ticket_ids: ticketIds }),
+
+    resetQueueOrder: () => request(QueueOrderResponseSchema, 'DELETE', API_PATHS.queueOrder, {}),
 
     cancelTicket: (ticketId: string, req: CancelTicketRequest = {}) =>
       request(OkResponseSchema, 'POST', API_PATHS.ticketCancel(encodeURIComponent(ticketId)), req),
@@ -378,6 +402,17 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
         'GET',
         `${API_PATHS.repoChecks}?repo=${encodeURIComponent(repo)}`,
       ),
+
+    getRepoCheckRuns: (repo: string, limit?: number) =>
+      request(
+        RepoCheckRunsResponseSchema,
+        'GET',
+        `${API_PATHS.repoCheckRuns}?repo=${encodeURIComponent(repo)}` +
+          (limit !== undefined ? `&limit=${limit}` : ''),
+      ),
+
+    getRepoChecksHealth: () =>
+      request(RepoChecksHealthResponseSchema, 'GET', API_PATHS.repoChecksHealth),
 
     setRepoChecks: (req: PutRepoChecksRequest) =>
       request(RepoChecksDtoSchema, 'PUT', API_PATHS.repoChecks, req),
@@ -441,6 +476,33 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
         {},
       ),
 
+    getProcessMetrics: (o) => {
+      const q = new URLSearchParams({ window_days: String(o.windowDays), group_by: o.groupBy });
+      if (o.repo !== undefined) q.set('repo', o.repo);
+      if (o.workflowId !== undefined) q.set('workflow_id', o.workflowId);
+      return request(ProcessMetricsResponseSchema, 'GET', `${API_PATHS.insightsMetrics}?${q}`);
+    },
+
+    listFindings: (o) => {
+      const q = new URLSearchParams({ window_days: String(o.windowDays) });
+      if (o.cursor !== undefined) q.set('cursor', String(o.cursor));
+      return request(FindingsResponseSchema, 'GET', `${API_PATHS.insightsFindings}?${q}`);
+    },
+
+    getProcessReport: (o) =>
+      request(
+        ProcessReportResponseSchema,
+        'GET',
+        `${API_PATHS.insightsReport}?window_days=${o.windowDays}`,
+      ),
+
+    getSessionInsight: (sessionId) =>
+      request(
+        SessionInsightResponseSchema,
+        'GET',
+        API_PATHS.insightSession(encodeURIComponent(sessionId)),
+      ),
+
     listWorkflows: () => request(WorkflowListResponseSchema, 'GET', API_PATHS.workflows),
 
     getWorkflow: (id: string, version?: number) =>
@@ -456,6 +518,21 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
         definition,
         ...(opts.note !== undefined && opts.note.trim() !== '' ? { note: opts.note.trim() } : {}),
       }),
+
+    getWorkflowDefault: (id: string) =>
+      request(
+        WorkflowDefaultResponseSchema,
+        'GET',
+        API_PATHS.workflowDefault(encodeURIComponent(id)),
+      ),
+
+    adoptDefaultWorkflow: (id: string, baseVersion: number) =>
+      request(
+        SaveWorkflowResponseSchema,
+        'POST',
+        API_PATHS.workflowDefault(encodeURIComponent(id)),
+        { base_version: baseVersion },
+      ),
 
     approve: (sessionId: string, req: ApproveSessionRequest = {}) =>
       request(

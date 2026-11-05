@@ -28,7 +28,7 @@ const ticket = {
   title: 'Add /health',
   external_ref: null,
   repo: 'github.com/benjgrad/fixture-app',
-  priority: 0,
+  priority: 3,
   workflow_id: 'conductor',
   created_at: new Date('2026-10-22T12:00:00.000Z'),
   updated_at: new Date('2026-10-22T12:00:00.000Z'),
@@ -320,5 +320,20 @@ describe('M2 card fields (routing, alerts)', () => {
       alerts: [{ kind: 'other', files: [], at: BOARD_CARD_FIXTURE.created_at }],
     };
     expect(BoardCardSchema.safeParse(bad).success).toBe(false);
+  });
+});
+
+describe('toBoardCard queue_position (06 §Queue order)', () => {
+  it('copies the ticket’s place in the queue, and leaves it out when the row has none', () => {
+    const queued = { ...ticket, status: 'ready' as TicketStatus };
+    expect(toBoardCard({ ...queued, queue_position: 3 }, null, null, VIEW).queue_position).toBe(3);
+    expect(toBoardCard({ ...queued, queue_position: null }, null, null, VIEW).queue_position).toBe(
+      null,
+    );
+    expect('queue_position' in toBoardCard(queued, null, null, VIEW)).toBe(false);
+    expect(
+      BoardCardSchema.parse(toBoardCard({ ...queued, queue_position: 3 }, null, null, VIEW))
+        .queue_position,
+    ).toBe(3);
   });
 });

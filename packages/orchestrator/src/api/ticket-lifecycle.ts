@@ -61,8 +61,11 @@ async function flipSessionless(
     if (ticket.status !== from) {
       return { status: 'conflict', reason: `the ticket is ${ticket.status}, not ${from}` } as const;
     }
+    // 06 §Queue order: leaving the queue (or coming back to it) drops any hand-set place, so a
+    // reopened ticket queues by priority, not at a stale rank.
     const res = await tx.query<TicketCardRow>(
-      'UPDATE ticket SET status = $2, updated_at = now() WHERE id = $1 RETURNING *',
+      'UPDATE ticket SET status = $2, queue_position = NULL, updated_at = now() WHERE id = $1 ' +
+        'RETURNING *',
       [ticketId, to],
     );
     await tx.query('INSERT INTO event (session_id, type, payload) VALUES (NULL, $1, $2)', [

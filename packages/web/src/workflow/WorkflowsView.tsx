@@ -11,10 +11,12 @@ import {
   type ApiClient,
   type ApiErrorDetail,
 } from '../api/client.js';
+import { useToast } from '../components/Toast.js';
 import { useIsMobile } from '../components/useMediaQuery.js';
 import { AddColumnDialog } from './AddColumnDialog.js';
 import { ColumnEditor } from './ColumnEditor.js';
 import { ColumnsDiagram } from './ColumnsDiagram.js';
+import { DefaultBanner } from './DefaultBanner.js';
 import {
   addColumn,
   arrowId,
@@ -51,6 +53,7 @@ import { TransitionEditor } from './TransitionEditor.js';
 import { ArrowEditor } from './ArrowEditor.js';
 import { addTransition, arrowTransitions, getTransitionObject, parentOf } from './transitions.js';
 import { WorkflowDiagram } from './WorkflowDiagram.js';
+import type { DirtyDraft } from './draft-guard.js';
 
 // The Workflow view (ADR-0010, ADR-0011): the one workflow, `conductor`, drawn as its board
 // columns. Pick a version; click a column to edit its title and work, or an arrow to edit the
@@ -69,7 +72,14 @@ import { WorkflowDiagram } from './WorkflowDiagram.js';
 export interface WorkflowsViewProps {
   api: ApiClient;
   /** The workflow id with unsaved changes, or null; the app guards navigation with it. */
-  onDirtyChange?: (workflowId: string | null) => void;
+  onDirtyChange?: (dirty: DirtyDraft | null) => void;
+  /**
+   * UXR-87: the user may change the workflow (an instance admin, or local mode), so a newer
+   * shipped default (`default_available`) is offered to compare and adopt. Default false.
+   */
+  canEditWorkflows?: boolean;
+  /** UXR-84: a change proposal to open (`#/workflows?proposal=<id>`). */
+  proposalId?: string | null | undefined;
 }
 
 const ID = CONDUCTOR_WORKFLOW_ID;
@@ -83,7 +93,12 @@ type Selection =
 /** Sessions that are finished: they don't hold a column (orchestrator rule 18). */
 const FINISHED = new Set(['done', 'failed', 'lost']);
 
-export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
+export function WorkflowsView({
+  api,
+  onDirtyChange,
+  proposalId = null,
+  canEditWorkflows = false,
+}: WorkflowsViewProps) {
   /** null = latest. */
   const [version, setVersion] = useState<number | null>(null);
   const [detail, setDetail] = useState<WorkflowDetail | null>(null);
@@ -95,9 +110,11 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
   const [serverErrors, setServerErrors] = useState<ApiErrorDetail[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const toast = useToast();
   /** Bumped when an applied change proposal saved a new version: the latest is fetched again. */
   const [reloads, setReloads] = useState(0);
+  /** UXR-75: the repos whose own checks replace the workflow's (ADR-0030); [] if unknown. */
+  const [repoOverrides, setRepoOverrides] = useState<string[]>([]);
   /** UXR-44: below the phone breakpoint the editors open full-screen over the page. */
   const fullScreen = useIsMobile();
   /** UXR-70: the History panel is open. */
@@ -128,7 +145,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
   const defs = useRef(new Map<number, WorkflowDefinition>());
 
   useEffect(() => {
-    onDirtyChange?.(draft !== null ? ID : null);
+    onDirtyChange?.(draft !== null ? { kind: 'workflow', id: ID } : null);
   }, [draft, onDirtyChange]);
   useEffect(() => () => onDirtyChange?.(null), [onDirtyChange]);
 
@@ -176,6 +193,22 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
     };
   }, [api, reloads]);
 
+  useEffect(() => {
+    let cancelled = false;
+    // Only a hint in the transition editor: a failure leaves it out.
+    api.listRepoChecks().then(
+      (r) => {
+        if (!cancelled) setRepoOverrides(r.repos.map((x) => x.repo));
+      },
+      () => {
+        if (!cancelled) setRepoOverrides([]);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
+
   const shown = draft ?? detail?.definition ?? null;
   const dirty = draft !== null;
   /** Old versions without `columns` (pre ADR-0010) still draw as the UML state diagram. */
@@ -210,7 +243,6 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
 
   const edit = (next: WorkflowDefinition) => {
     setDraft(next);
-    setNotice(null);
   };
   /** UXR-67: the draft adds, removes or moves a column (relative to the version it started from). */
   const shapeChanged =
@@ -221,7 +253,6 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
   const discard = () => {
     setDraft(null);
     setServerErrors([]);
-    setNotice(null);
     setDeferred(new Set());
     setProblemsOpen(false);
   };
@@ -230,7 +261,6 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
     setVersion(v);
     setSelected(null);
     setServerErrors([]);
-    setNotice(null);
     setDeferred(new Set());
   };
 
@@ -294,7 +324,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
       setDeferred(new Set());
       setProblemsOpen(false);
       setVersion(res.version);
-      setNotice(`Saved as v${res.version}.`);
+      toast(`Saved as v${res.version}`);
     } catch (err) {
       if (err instanceof ApiRequestError && err.details.length > 0) {
         setServerErrors(err.details);
@@ -432,12 +462,28 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
               History
             </button>
           )}
-          {notice && (
-            <span className="muted" role="status">
-              {notice}
-            </span>
-          )}
         </div>
+        {canEditWorkflows && detail?.default_available != null && latest > 0 && (
+          <DefaultBanner
+            api={api}
+            available={detail.default_available}
+            latest={latest}
+            dirty={dirty}
+            onAdopted={(v) => {
+              setDraft(null);
+              setSelected(null);
+              setServerErrors([]);
+              setLatestSeen((n) => Math.max(n, v));
+              setVersion(null);
+              setReloads((n) => n + 1);
+              toast(`Adopted the default as v${v}`);
+            }}
+            onStale={() => {
+              setVersion(null);
+              setReloads((n) => n + 1);
+            }}
+          />
+        )}
         {shown === null && !error && <p className="muted">Loading…</p>}
         {!dirty && detail && version !== null && version !== latest && (
           <p className="wf-old-version" role="note">
@@ -671,6 +717,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
         <ProposalsPanel
           api={api}
           dirty={dirty}
+          initialOpenId={proposalId}
           onHighlight={setProposalHighlight}
           onWorkflowApplied={() => {
             // Unsaved edits stay; the panel warned that saving them stores the draft (made from
@@ -755,6 +802,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
           name={selected.name}
           {...(selected.created ? { focusTitle: true } : {})}
           issues={allIssues.filter((i) => i.transition?.from === selected.from)}
+          repoOverrides={repoOverrides}
           onChange={edit}
           onSelect={(name) => setSelected({ kind: 'transition', from: selected.from, name })}
           onRemoved={() => {

@@ -25,7 +25,7 @@ const ticket = {
   title: 'Add /health',
   external_ref: null,
   repo: 'github.com/benjgrad/fixture-app',
-  priority: 0,
+  priority: 3,
   workflow_id: 'conductor',
   created_at: AT,
   updated_at: AT,

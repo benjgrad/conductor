@@ -8,6 +8,8 @@ import {
   MachineAlertKindSchema,
   MachineStatusSchema,
   SessionStatusSchema,
+  DEFAULT_TICKET_PRIORITY,
+  TicketPrioritySchema,
   TicketStatusSchema,
   UuidSchema,
   GITHUB_PR_URL_RE,
@@ -18,6 +20,7 @@ import {
   type SessionStatus,
   type TicketStatus,
 } from '../domain.js';
+import { StructuralChangeSchema } from '../advisor/proposal.js';
 import { machineLostMarkOf } from '../engine/machine-lost.js';
 import { PR_CONTEXT_KEY, REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
 import {
@@ -92,7 +95,16 @@ export const API_PATHS = {
   sessionPermissionRequests: (id: string) => `/api/sessions/${id}/permission-requests`,
   /** ADR-0023: POST PermissionDecisionRequest → PermissionRequestDto. `:id` is the request_id. */
   permissionDecision: (id: string) => `/api/permission-requests/${id}/decision`,
+  /**
+   * POST CreateTicketRequest → 201 TicketDto. UXR-85: GET `?q=&status=&limit=&cursor=`
+   * (TicketSearchQuery) → TicketSearchResponse, the account's tickets of any status.
+   */
   tickets: '/api/tickets',
+  /**
+   * 06 §Queue order: PUT ReorderQueueRequest → QueueOrderResponse (the listed ready tickets first,
+   * in that order); DELETE `{}` → QueueOrderResponse (back to priority order).
+   */
+  queueOrder: '/api/queue/order',
   /** GET → TicketDetail; PATCH UpdateTicketRequest → TicketDetail (ticket_editable per column). */
   ticket: (id: string) => `/api/tickets/${id}`,
   /** POST ApproveProposalRequest → ApproveProposalResponse (201 created, 200 already approved). */
@@ -122,6 +134,13 @@ export const API_PATHS = {
   daemonSessionAttachments: (sessionId: string) => `/api/daemon/sessions/${sessionId}/attachments`,
   workflows: '/api/workflows',
   workflow: (id: string) => `/api/workflows/${id}`,
+  /**
+   * UXR-87: the newer shipped default of a workflow (only `conductor` has one). GET →
+   * WorkflowDefaultResponse (404 when none is available); POST `{base_version}` (instance admins,
+   * or local mode) saves it as the next version, like MCP `adopt_default_workflow` → 201
+   * SaveWorkflowResponse, 403 forbidden, 409 conflict / approval_weakened.
+   */
+  workflowDefault: (id: string) => `/api/workflows/${id}/default`,
   machines: '/api/machines',
   /** UX-13a: GET → TeamResponse (the signed-in account's agent team). */
   team: '/api/team',
@@ -132,6 +151,10 @@ export const API_PATHS = {
    * PutRepoChecksRequest → RepoChecksDto; DELETE DeleteRepoChecksRequest → OkResponse.
    */
   repoChecks: '/api/repo-checks',
+  /** UXR-80: GET `?repo=&limit=` → RepoCheckRunsResponse (the last runs of each of its checks). */
+  repoCheckRuns: '/api/repo-checks/runs',
+  /** UXR-80: GET → RepoChecksHealthResponse (recent check results per repo). */
+  repoChecksHealth: '/api/repo-checks/health',
   /** ADR-0032: GET → ScheduleListResponse; POST CreateScheduleRequest → 201 ScheduleDto. */
   schedules: '/api/schedules',
   /** ADR-0032: GET → ScheduleDto; PATCH UpdateScheduleRequest → ScheduleDto; DELETE `{}` → OkResponse. */
@@ -148,6 +171,14 @@ export const API_PATHS = {
   changeProposalReject: (id: string) => `/api/change-proposals/${id}/reject`,
   /** ADR-0033 P3: POST `{}` → ChangeProposalDetail (with `review`). */
   changeProposalReview: (id: string) => `/api/change-proposals/${id}/review`,
+  /** UXR-84: GET `?window_days=&group_by=&repo=&workflow_id=` → ProcessMetricsResponse. */
+  insightsMetrics: '/api/insights/metrics',
+  /** UXR-84: GET `?window_days=&repo=&workflow_id=&cursor=` → FindingsResponse. */
+  insightsFindings: '/api/insights/findings',
+  /** UXR-84: GET `?window_days=&repo=&workflow_id=` → ProcessReportResponse. */
+  insightsReport: '/api/insights/report',
+  /** UXR-84: GET → SessionInsightResponse (`:id` is the session id), or 404. */
+  insightSession: (id: string) => `/api/insights/sessions/${id}`,
   boardStream: '/api/stream/board',
   sessionOutputStream: (id: string) => `/api/stream/sessions/${id}/output`,
   /** Daemon ↔ orchestrator WebSocket (03), served on the same HTTP server as the API. */
@@ -459,6 +490,12 @@ export const BoardCheckingSchema = z.object({
   items: z.array(BoardCheckingItemSchema).optional(),
   /** UX-5: index in `items` of the running item, else null. */
   current: z.number().int().nonnegative().nullable().optional(),
+  /**
+   * UXR-75: where the step's checks come from: `repo` = the ticket repo's check override
+   * (ADR-0030, pinned on the step), `workflow` = the transition's own. Absent = unknown (older
+   * servers).
+   */
+  checks_source: z.enum(['workflow', 'repo']).optional(),
 });
 export type BoardChecking = z.infer<typeof BoardCheckingSchema>;
 
@@ -643,6 +680,11 @@ export const BoardCardSchema = z.object({
   created_at: IsoDateTimeSchema,
   /** Last activity (Running sort). */
   updated_at: IsoDateTimeSchema,
+  /**
+   * 06 §Queue order: the ticket's hand-set place in the queue (1 = picked up first). null / absent
+   * ≡ not reordered by hand: after every ranked ticket, by priority then age.
+   */
+  queue_position: z.number().int().positive().nullable().optional(),
   /** M2: Queued cards only, when no online machine can take it; absent otherwise. */
   routing: BoardCardRoutingSchema.optional(),
   /** M2: open alerts of the card's session; absent ≡ none. */
@@ -686,7 +728,8 @@ export type BoardColumnDto = z.infer<typeof BoardColumnDtoSchema>;
  * GET /api/board. `columns` is ordered left to right (ADR-0010), built from the latest `conductor`
  * version: Queued (`id: 'queued'`) first. Each column is pre-sorted per 06 by its kind (queued:
  * priority then age; human: oldest open input_request first; event: oldest first; others: most
- * recent activity first). `last_event_id` is where the SSE board stream should resume.
+ * recent activity first; 06 §Queue order: queued is hand order first, then priority then age).
+ * `last_event_id` is where the SSE board stream should resume.
  */
 export const BoardResponseSchema = z.object({
   columns: z.array(BoardColumnDtoSchema),
@@ -1223,6 +1266,79 @@ export const TicketDetailSchema = TicketDtoSchema.extend({
 });
 export type TicketDetail = z.infer<typeof TicketDetailSchema>;
 
+// ---------------------------------------------------------------- UXR-85: ticket search
+
+/** A status group of GET /api/tickets: `open` = ready, claimed, in_progress and failed. */
+export const TicketSearchStatusSchema = z.enum(['open', 'done', 'cancelled', 'all']);
+export type TicketSearchStatus = z.infer<typeof TicketSearchStatusSchema>;
+
+/** The ticket statuses of each search group (`all`: every status). */
+export const TICKET_SEARCH_STATUSES: Record<
+  Exclude<TicketSearchStatus, 'all'>,
+  readonly TicketStatus[]
+> = {
+  open: ['ready', 'claimed', 'in_progress', 'failed'],
+  done: ['done'],
+  cancelled: ['cancelled'],
+};
+
+/** The search group of a ticket status. */
+export function ticketSearchGroup(status: TicketStatus): Exclude<TicketSearchStatus, 'all'> {
+  return status === 'done' ? 'done' : status === 'cancelled' ? 'cancelled' : 'open';
+}
+
+export const TICKET_SEARCH_LIMIT_MAX = 50;
+export const TICKET_SEARCH_QUERY_MAX = 200;
+
+/**
+ * GET /api/tickets query. `q` (trimmed; empty = no text filter) matches the title, external ref
+ * or body (case-insensitive substring) or the start of the id (≥ 4 hex). `status`: comma-separated
+ * groups, default `all`. `cursor`: an offset (the previous page's `next_cursor`).
+ */
+export const TicketSearchQuerySchema = z.object({
+  q: z
+    .string()
+    .trim()
+    .max(TICKET_SEARCH_QUERY_MAX)
+    .optional()
+    .transform((v) => (v === undefined || v === '' ? undefined : v)),
+  status: z
+    .preprocess(
+      (v) => (typeof v === 'string' ? v.split(',').map((s) => s.trim()) : v),
+      z.array(TicketSearchStatusSchema).min(1),
+    )
+    .optional()
+    .transform((v) => (v === undefined ? (['all'] as TicketSearchStatus[]) : [...new Set(v)])),
+  limit: z.coerce.number().int().min(1).max(TICKET_SEARCH_LIMIT_MAX).default(20),
+  cursor: z.coerce.number().int().min(0).default(0),
+});
+export type TicketSearchQuery = z.infer<typeof TicketSearchQuerySchema>;
+
+/** One ticket found by GET /api/tickets. */
+export const TicketSearchResultSchema = z.object({
+  id: UuidSchema,
+  title: z.string(),
+  external_ref: z.string().nullable(),
+  status: TicketStatusSchema,
+  kind: TicketKindSchema.nullable(),
+  repo: z.string(),
+  /** Text of the body around the match; null without `q`. */
+  snippet: z.string().nullable(),
+  /** The ticket's latest session (open it in the session panel); null while queued. */
+  session_id: UuidSchema.nullable(),
+  created_at: IsoDateTimeSchema,
+  updated_at: IsoDateTimeSchema,
+});
+export type TicketSearchResult = z.infer<typeof TicketSearchResultSchema>;
+
+/** GET /api/tickets: most recently updated first; `next_cursor` null on the last page. */
+export const TicketSearchResponseSchema = z.object({
+  tickets: z.array(TicketSearchResultSchema),
+  next_cursor: z.number().int().nonnegative().nullable(),
+  total: z.number().int().nonnegative(),
+});
+export type TicketSearchResponse = z.infer<typeof TicketSearchResponseSchema>;
+
 /** POST /api/tickets/:id/proposals/approve: the decided proposal and the ticket it created. */
 export const ApproveProposalResponseSchema = z.object({
   proposal: TicketProposalSchema,
@@ -1243,7 +1359,7 @@ export const UpdateTicketRequestSchema = z
     expected_updated_at: IsoDateTimeSchema,
     title: z.string().trim().min(1).max(500).optional(),
     body: z.string().max(TICKET_BODY_MAX).optional(),
-    priority: z.number().int().optional(),
+    priority: TicketPrioritySchema.optional(),
     kind: TicketKindSchema.optional(),
     /** 06 §Attachments: link these uploaded (unlinked) attachments to the ticket. */
     add_attachment_ids: z.array(UuidSchema).max(ATTACHMENTS_PER_TICKET_MAX).optional(),
@@ -1261,6 +1377,32 @@ export const UpdateTicketRequestSchema = z
     { message: 'change at least one of title, body, priority, kind, attachments' },
   );
 export type UpdateTicketRequest = z.input<typeof UpdateTicketRequestSchema>;
+
+/** Most tickets one PUT /api/queue/order lists. */
+export const QUEUE_ORDER_MAX = 500;
+
+/**
+ * PUT /api/queue/order (06 §Queue order). The listed ready tickets of the account go first, in
+ * this order (first = picked up next); every other ready ticket keeps its place after them.
+ */
+export const ReorderQueueRequestSchema = z.object({
+  ticket_ids: z
+    .array(UuidSchema)
+    .min(1)
+    .max(QUEUE_ORDER_MAX)
+    .refine((ids) => new Set(ids).size === ids.length, { message: 'ticket_ids repeat an id' }),
+});
+export type ReorderQueueRequest = z.infer<typeof ReorderQueueRequestSchema>;
+
+/**
+ * PUT / DELETE /api/queue/order: the account's ready tickets in pickup order, and the listed ids
+ * that weren't reordered (not a ready ticket of the account: claimed meanwhile, or unknown).
+ */
+export const QueueOrderResponseSchema = z.object({
+  ticket_ids: z.array(UuidSchema),
+  skipped: z.array(UuidSchema),
+});
+export type QueueOrderResponse = z.infer<typeof QueueOrderResponseSchema>;
 
 /**
  * UX-13a: GET /api/team. One agent of the signed-in account's team, oldest hire first.
@@ -1403,6 +1545,71 @@ export const RepoChecksDetailSchema = z.object({
 export type RepoChecksDetail = z.infer<typeof RepoChecksDetailSchema>;
 
 /**
+ * UXR-80: how one check run ended. `setup_failed` wins over `timed_out`, which wins over a non-zero
+ * (or missing) exit (`fail`).
+ */
+export const CheckRunStatusSchema = z.enum(['pass', 'fail', 'timed_out', 'setup_failed']);
+export type CheckRunStatus = z.infer<typeof CheckRunStatusSchema>;
+
+/** UXR-80: one past run of a check (a `run_cmd` and its `command.exited`). */
+export const RepoCheckRunSchema = z.object({
+  status: CheckRunStatusSchema,
+  exit_code: z.number().int().nullable(),
+  duration_ms: z.number().int().nonnegative(),
+  ticket_id: z.string(),
+  ticket_title: z.string().nullable(),
+  session_id: z.string(),
+  /** The gate (state) that ran it. */
+  state: z.string(),
+  machine_id: z.string().nullable(),
+  /** When it finished (ISO). */
+  at: z.string(),
+});
+export type RepoCheckRun = z.infer<typeof RepoCheckRunSchema>;
+
+/**
+ * UXR-80: GET /api/repo-checks/runs?repo=… → the repo's checks (its override's, else every gate's
+ * of the workflow) with their last runs, newest first. Runs are matched by `cmd`: the `run_cmd`
+ * outbox payload carries no check name (TD-201), so a renamed check keeps its history and a check
+ * whose command changed starts empty.
+ */
+export const RepoCheckRunsResponseSchema = z.object({
+  repo: z.string(),
+  window_days: z.number().int().positive(),
+  checks: z.array(
+    z.object({
+      name: z.string(),
+      cmd: z.string(),
+      /** Newest first, at most `limit`. */
+      runs: z.array(RepoCheckRunSchema),
+      runs_in_window: z.number().int().nonnegative(),
+      failures_in_window: z.number().int().nonnegative(),
+    }),
+  ),
+});
+export type RepoCheckRunsResponse = z.infer<typeof RepoCheckRunsResponseSchema>;
+
+/** UXR-80: one repo's recent check results (any repo with runs in the window). */
+export const RepoCheckHealthSchema = z.object({
+  /** `repoChecksKey` of the repo. */
+  repo: z.string(),
+  runs: z.number().int().nonnegative(),
+  failures: z.number().int().nonnegative(),
+  last_run_at: z.string().nullable(),
+  last_status: CheckRunStatusSchema.nullable(),
+  /** The most recent statuses, newest first, at most 5. */
+  recent: z.array(CheckRunStatusSchema),
+});
+export type RepoCheckHealth = z.infer<typeof RepoCheckHealthSchema>;
+
+/** UXR-80: GET /api/repo-checks/health → per-repo check results over the window. */
+export const RepoChecksHealthResponseSchema = z.object({
+  window_days: z.number().int().positive(),
+  repos: z.array(RepoCheckHealthSchema),
+});
+export type RepoChecksHealthResponse = z.infer<typeof RepoChecksHealthResponseSchema>;
+
+/**
  * POST /api/tickets → 201 TicketDto. ADR-0010: `workflow_id` defaults to `conductor` (the one
  * workflow); another id is still accepted (older tickets' workflows stay in the database).
  */
@@ -1411,7 +1618,8 @@ export const CreateTicketRequestSchema = z.object({
   body: z.string(),
   repo: z.string().min(1),
   workflow_id: z.string().min(1).default(CONDUCTOR_WORKFLOW_ID),
-  priority: z.number().int().default(0),
+  /** ADR-0036: P0–P4, lower is more urgent; P3 by default. */
+  priority: TicketPrioritySchema.default(DEFAULT_TICKET_PRIORITY),
   required_tags: z.array(z.string()).default([]),
   repo_allow_machines: z.array(z.string()).nullable().default(null),
   external_ref: z.string().nullable().default(null),
@@ -1495,6 +1703,31 @@ export const WorkflowDetailSchema = z.object({
 });
 export type WorkflowDetail = z.infer<typeof WorkflowDetailSchema>;
 
+/**
+ * UXR-87: GET /api/workflows/:id/default → the newer shipped default (`version`, `definition`)
+ * and what it changes from the latest stored version (`base_version`), as the advisor's
+ * structural diff (the web shows its own readable diff of the two definitions).
+ */
+export const WorkflowDefaultResponseSchema = z.object({
+  version: z.number().int().positive(),
+  base_version: z.number().int().positive(),
+  definition: WorkflowDefinitionSchema,
+  diff: z.object({
+    changes: z.array(StructuralChangeSchema),
+    more_changes: z.number().int().nonnegative(),
+  }),
+});
+export type WorkflowDefaultResponse = z.infer<typeof WorkflowDefaultResponseSchema>;
+
+/**
+ * UXR-87: POST /api/workflows/:id/default `{base_version}`: save the default only while
+ * `base_version` is still the latest (the version the confirm said it replaces).
+ */
+export const AdoptDefaultWorkflowRequestSchema = z
+  .object({ base_version: z.number().int().positive() })
+  .strict();
+export type AdoptDefaultWorkflowRequest = z.infer<typeof AdoptDefaultWorkflowRequestSchema>;
+
 /** GET /api/machines → MachineDto[] */
 export const MachineDtoSchema = z.object({
   id: z.string(),
@@ -1533,6 +1766,8 @@ export interface CardTicketLike {
   external_ref: string | null;
   repo: string;
   priority: number;
+  /** 06 §Queue order: `ticket.queue_position`; absent ≡ null. */
+  queue_position?: number | null;
   workflow_id: string;
   created_at: Ts;
   updated_at: Ts;
@@ -1673,6 +1908,7 @@ export function toBoardCard(
         : null,
     created_at: iso(ticket.created_at),
     updated_at: sUpd > tUpd ? sUpd : tUpd,
+    ...(ticket.queue_position !== undefined ? { queue_position: ticket.queue_position } : {}),
     ...(ticket.agent_name !== undefined ? { agent_name: ticket.agent_name } : {}),
     ...(ticket.schedule_id != null
       ? { schedule: { id: ticket.schedule_id, name: ticket.schedule_name ?? '' } }
@@ -1750,9 +1986,8 @@ function stepItems(def: Pick<WorkflowDefinition, 'states'> | null, step: GateSte
     if (phase > cur) return 'todo';
     return i < step.index ? 'met' : i === step.index ? 'running' : 'todo';
   };
-  // ADR-0030: a step with real checks runs the repo's override instead, when one was pinned.
   const declared = req.checks ?? [];
-  const checks = declared.length > 0 && step.repo_checks ? step.repo_checks.checks : declared;
+  const checks = stepChecksSource(declared, step) === 'repo' ? step.repo_checks!.checks : declared;
   checks.forEach((c, i) =>
     items.push({ kind: 'check', label: c.name, status: indexed(0, i), detail: null }),
   );
@@ -1788,6 +2023,17 @@ function stepItems(def: Pick<WorkflowDefinition, 'states'> | null, step: GateSte
     }
   }
   return items;
+}
+
+/**
+ * ADR-0030: a step with real checks runs the repo's override instead, when one was pinned
+ * (`applyRepoChecks`); a step that declares none runs none.
+ */
+function stepChecksSource(
+  declared: readonly unknown[],
+  step: Pick<GateStep, 'repo_checks'>,
+): 'repo' | 'workflow' {
+  return declared.length > 0 && step.repo_checks ? 'repo' : 'workflow';
 }
 
 /**
@@ -1831,6 +2077,13 @@ export function checkingOfStep(
     detail: i.detail,
   }));
   const running = items.findIndex((i) => i.status === 'running');
+  // UXR-75: an unknown definition says nothing about its checks, so only a pinned override counts.
+  const checks_source =
+    def === null
+      ? step.repo_checks
+        ? 'repo'
+        : 'workflow'
+      : stepChecksSource(requiresOfStep(def, step)?.checks ?? [], step);
   return {
     to: step.to,
     title: def ? stateTitle(def, step.to) : step.to,
@@ -1839,6 +2092,7 @@ export function checkingOfStep(
     transition: step.transition ?? step.outcome,
     items,
     current: running === -1 ? null : running,
+    checks_source,
   };
 }
 

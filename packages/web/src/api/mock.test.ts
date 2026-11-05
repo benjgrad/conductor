@@ -4,16 +4,21 @@ import {
   BoardResponseSchema,
   BoardSseEventSchema,
   checksGatesOf,
+  compareQueued,
+  isReorderable,
   CONDUCTOR_WORKFLOW_ID,
   EnrollmentTokenCreatedSchema,
   MachineDetailSchema,
   MachineListResponseSchema,
   RepoChecksDetailSchema,
+  RepoCheckRunsResponseSchema,
+  RepoChecksHealthResponseSchema,
   RepoChecksDtoSchema,
   RepoChecksListResponseSchema,
   RepoListResponseSchema,
   type CreateTicketRequest,
   SessionDetailSchema,
+  TicketSearchResponseSchema,
   validateWorkflow,
   WorkflowDetailSchema,
   type BoardSseEvent,
@@ -133,6 +138,34 @@ describe('mock ApiClient', () => {
   });
 });
 
+describe('mock queue order (06 §Queue order)', () => {
+  it('reorders the waiting Queued cards, upserts them, and resets to priority order', async () => {
+    const api = createMockApi({ now });
+    const queued = async () =>
+      BoardResponseSchema.parse(await api.getBoard())
+        .columns.find((c) => c.id === 'queued')!
+        .cards.filter(isReorderable)
+        // The mock's board is unsorted (the client sorts), so sort as the server would.
+        .sort(compareQueued)
+        .map((c) => c.ticket_id);
+    const before = await queued();
+    expect(before.length).toBeGreaterThan(1);
+    const last = before[before.length - 1]!;
+    const { events } = collect(api);
+    const res = await api.reorderQueue([last]);
+    await tick();
+    expect(res.ticket_ids[0]).toBe(last);
+    expect((await queued())[0]).toBe(last);
+    expect(events.length).toBeGreaterThan(0);
+    for (const e of events) expect(BoardSseEventSchema.parse(e).type).toBe('card.upserted');
+    await api.resetQueueOrder();
+    expect(await queued()).toEqual(before);
+    await expect(api.reorderQueue(['00000000-0000-4000-8000-000000000999'])).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+});
+
 describe('mock workflows (ADR-0009)', () => {
   it('serves the one conductor workflow (ADR-0010), valid, with history', async () => {
     const api = createMockApi({ now });
@@ -165,6 +198,32 @@ describe('mock workflows (ADR-0009)', () => {
     }
     // Saving v2 as is stores v4.
     expect(await api.saveWorkflow(v2)).toEqual({ id: 'conductor', version: 4 });
+  });
+
+  it('UXR-87: offers a newer default, compares it and adopts it', async () => {
+    const plain = createMockApi({ now });
+    expect((await plain.getWorkflow(CONDUCTOR_WORKFLOW_ID)).default_available).toBeNull();
+    await expect(plain.getWorkflowDefault(CONDUCTOR_WORKFLOW_ID)).rejects.toMatchObject({
+      status: 404,
+    });
+
+    const latest = (await plain.getWorkflow(CONDUCTOR_WORKFLOW_ID)).definition;
+    const def = { ...structuredClone(latest), version: 4, budget: { ...latest.budget, usd: 7 } };
+    const api = createMockApi({ now, defaultWorkflow: def });
+    expect((await api.getWorkflow(CONDUCTOR_WORKFLOW_ID)).default_available).toBe(4);
+    const cmp = await api.getWorkflowDefault(CONDUCTOR_WORKFLOW_ID);
+    expect(cmp).toMatchObject({ version: 4, base_version: 3 });
+    expect(cmp.diff.changes.map((c) => c.path)).toContain('budget.usd');
+    await expect(api.adoptDefaultWorkflow(CONDUCTOR_WORKFLOW_ID, 2)).rejects.toMatchObject({
+      status: 409,
+      code: 'conflict',
+    });
+    expect(await api.adoptDefaultWorkflow(CONDUCTOR_WORKFLOW_ID, 3)).toEqual({
+      id: 'conductor',
+      version: 4,
+    });
+    const after = await api.getWorkflow(CONDUCTOR_WORKFLOW_ID);
+    expect([after.version, after.default_available]).toEqual([4, null]);
   });
 
   it('createTicket defaults workflow_id to conductor', async () => {
@@ -303,7 +362,7 @@ describe('mock repos', () => {
       body: '',
       repo: 'github.com/o/fresh',
       workflow_id: CONDUCTOR_WORKFLOW_ID,
-      priority: 0,
+      priority: 3,
       kind: 'work',
       required_tags: [],
       repo_allow_machines: null,
@@ -361,6 +420,25 @@ describe('mock machines (M2-T11)', () => {
 });
 
 describe('mock repo checks (ADR-0030)', () => {
+  it('serves run history and health in the API shapes (UXR-80)', async () => {
+    const api = createMockApi({ now });
+    const shop = RepoCheckRunsResponseSchema.parse(
+      await api.getRepoCheckRuns('github.com/Acme/Shop'),
+    );
+    expect(shop.checks.map((c) => c.name)).toEqual(['Build', 'Tests']);
+    expect(shop.checks[1]!.runs[0]!.status).toBe('timed_out');
+    const plain = RepoCheckRunsResponseSchema.parse(
+      await api.getRepoCheckRuns('github.com/acme/api', 2),
+    );
+    const build = plain.checks.find((c) => c.cmd === 'npm run build')!;
+    expect([build.runs.length, build.failures_in_window, build.runs_in_window]).toEqual([2, 6, 6]);
+    const health = RepoChecksHealthResponseSchema.parse(await api.getRepoChecksHealth());
+    expect(health.repos.find((r) => r.repo === 'github.com/acme/api')).toMatchObject({
+      runs: 6,
+      failures: 6,
+    });
+  });
+
   const checks = [
     { name: 'Build', cmd: 'make' },
     { name: 'Tests', cmd: 'make test', timeout: '10m' },
@@ -434,6 +512,38 @@ describe('mock repo checks (ADR-0030)', () => {
       code: 'not_found',
     });
     expect((await api.listRepoChecks()).repos).toEqual([]);
+  });
+});
+
+describe('mock searchTickets (UXR-85)', () => {
+  it('finds tickets of any status, newest first, by status group, paged', async () => {
+    const api = createMockApi({ now });
+    const parse = (r: unknown) => TicketSearchResponseSchema.parse(r);
+
+    const all = parse(await api.searchTickets());
+    expect(all.total).toBeGreaterThan(5);
+    const times = all.tickets.map((t) => t.updated_at);
+    expect([...times].sort().reverse()).toEqual(times);
+
+    const closed = parse(await api.searchTickets({ status: ['done', 'cancelled'] }));
+    expect(closed.tickets.map((t) => [t.title, t.status])).toEqual([
+      ['Rename user.fullname', 'done'],
+      ['Try a GraphQL gateway', 'cancelled'],
+    ]);
+
+    const byBody = parse(await api.searchTickets({ q: 'graphql GATEWAY in front' }));
+    expect(byBody.tickets.map((t) => t.id)).toEqual([SEED_IDS.cancelled.ticket]);
+    expect(byBody.tickets[0]!.snippet).toContain('GraphQL gateway in front');
+    const byId = parse(await api.searchTickets({ q: SEED_IDS.done.ticket.slice(0, 8) }));
+    expect(byId.tickets.map((t) => t.id)).toContain(SEED_IDS.done.ticket);
+
+    const first = parse(await api.searchTickets({ limit: 2 }));
+    expect(first.next_cursor).toBe(2);
+    const rest = parse(await api.searchTickets({ limit: 50, cursor: 2 }));
+    expect(rest.next_cursor).toBeNull();
+    expect([...first.tickets, ...rest.tickets].map((t) => t.id)).toEqual(
+      all.total <= 20 ? all.tickets.map((t) => t.id) : expect.any(Array),
+    );
   });
 });
 

@@ -344,11 +344,26 @@ describe('tickets and board', () => {
     expect(basic.default_available).toBeNull();
   });
 
+  it('defaults the priority to P3 and refuses one outside P0–P4 (ADR-0036)', async () => {
+    expect((await createTicket('No priority')).priority).toBe(3);
+    for (const priority of [-1, 5]) {
+      const res = await post('/api/tickets', {
+        title: 'Out of range',
+        body: 'b',
+        repo: 'acme/app',
+        workflow_id: 'm1_basic',
+        kind: 'work',
+        priority,
+      });
+      expect(res.status).toBe(400);
+    }
+  });
+
   it('creates a ticket with a card.upserted board event in the same transaction', async () => {
     const before = boardBus.published.length;
-    const ticket = await createTicket('Add login', { priority: 3, required_tags: ['mac'] });
+    const ticket = await createTicket('Add login', { priority: 1, required_tags: ['mac'] });
     expect(ticket.status).toBe('ready');
-    expect(ticket.priority).toBe(3);
+    expect(ticket.priority).toBe(1);
     expect(ticket.required_tags).toEqual(['mac']);
 
     const rows = await db.pool.query<{ id: string; type: string; session_id: string | null }>(
@@ -474,8 +489,9 @@ describe('tickets and board', () => {
   });
 
   it('GET /api/board groups cards by column with last_event_id', async () => {
-    const low = await createTicket('low', { priority: 0 });
-    const high = await createTicket('high', { priority: 5 });
+    // ADR-0036: the lower P is the more urgent and sorts first.
+    const low = await createTicket('low', { priority: 4 });
+    const high = await createTicket('high', { priority: 1 });
     const running = await seedSession('running');
     const waiting = await seedSession('needs_input', { input: true });
     const failed = await seedSession('lost');

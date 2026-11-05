@@ -173,6 +173,28 @@ describe('ConductorCheckBanner (FR-3, NFR-3)', () => {
     expect(new Set(changes)).toEqual(new Set(['Build passes: running (4 of 5)']));
     observer.disconnect();
   });
+
+  it('UXR-75: checks from a repo override show a Repo checks badge linking to the repo', () => {
+    const card = {
+      ...at(2),
+      checking: { ...mockChecking(2), checks_source: 'repo' as const },
+      repo: 'github.com/acme/shop',
+    };
+    render(<ConductorCheckBanner card={card} agent="Ada" />);
+    const link = screen.getByRole('link', { name: /^Repo checks/ });
+    expect(link.getAttribute('href')).toBe('#/repo-checks/github.com%2Facme%2Fshop');
+    expect(link.textContent).toBe('Repo checks');
+  });
+
+  it('UXR-75: the workflow’s checks (or an older server) show no badge', () => {
+    const repo = 'github.com/acme/shop';
+    const workflow = { ...mockChecking(2), checks_source: 'workflow' as const };
+    render(<ConductorCheckBanner card={{ ...at(2), checking: workflow, repo }} agent="Ada" />);
+    expect(screen.queryByRole('link', { name: /^Repo checks/ })).toBeNull();
+    cleanup();
+    render(<ConductorCheckBanner card={{ ...at(2), repo }} agent="Ada" />);
+    expect(screen.queryByRole('link', { name: /^Repo checks/ })).toBeNull();
+  });
 });
 
 describe('lastOutputOfQuestion (UXR-39 FR-4: the output under the question)', () => {

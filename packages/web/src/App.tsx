@@ -1,6 +1,8 @@
-import type { MeResponse } from '@conductor/shared';
+import type { MeResponse, TicketSearchResult } from '@conductor/shared';
 import {
+  Archive,
   CalendarClock,
+  ChartColumn,
   CircleHelp,
   LayoutDashboard,
   ListChecks,
@@ -21,10 +23,13 @@ import { isUnauthorized, withAuthRedirect } from './auth/session.js';
 import { SignIn } from './auth/SignIn.js';
 import { SignUp } from './auth/SignUp.js';
 import { useBoard } from './board/hooks.js';
+import { ArchivePage } from './components/ArchivePage.js';
 import { Board } from './components/Board.js';
 import { CreateTicketForm } from './components/CreateTicketForm.js';
 import { DetailPanel } from './components/DetailPanel.js';
 import { TicketPanel } from './components/TicketPanel.js';
+import { TicketSearch } from './components/TicketSearch.js';
+import { ToastProvider } from './components/Toast.js';
 import { NavIcon } from './components/NavIcon.js';
 import {
   useDocumentClass,
@@ -55,6 +60,7 @@ import { useNeedsInputNotifications } from './notify/useNeedsInputNotifications.
 import { useTransitionNotifications } from './notify/useTransitionNotifications.js';
 import { dismiss, isDismissed } from './onboarding/dismissal.js';
 import { SetupGuide } from './onboarding/SetupGuide.js';
+import { InsightsPage } from './insights/InsightsPage.js';
 import { RepoChecksPage } from './repo-checks/RepoChecksPage.js';
 import { SchedulesPage } from './schedules/SchedulesPage.js';
 import { DiscardDraftConfirm, useDraftGuard } from './workflow/draft-guard.js';
@@ -72,7 +78,16 @@ export interface AppProps {
  * unchanged); the account menu waits for the answer. The app's ApiClient sends any 401, REST or
  * SSE, to `/signin?next=<where they were>` (auth/session.ts), as does a 401 from /api/me.
  */
-export function App({ api, compact: compactProp }: AppProps) {
+export function App(props: AppProps) {
+  // UXR-55: the toast region wraps every page (shell, setup, admin, help, sign-in).
+  return (
+    <ToastProvider>
+      <AppRoutes {...props} />
+    </ToastProvider>
+  );
+}
+
+function AppRoutes({ api, compact: compactProp }: AppProps) {
   const { pathname, search } = usePath();
   const mobile = useIsMobile();
   useVisualViewportHeight(mobile);
@@ -205,6 +220,25 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
   const openSession = (sessionId: string) => {
     navigate({ view: 'board' });
     setSelected(sessionId);
+  };
+  // UXR-84: an example ticket on the Insights page opens on the board.
+  const openTicket = (ticketId: string) => {
+    const card = [...board.cards.values()].find((c) => c.ticket_id === ticketId);
+    navigate({ view: 'board' });
+    if (card?.session_id) setSelected(card.session_id);
+    else if (card) selectTicket(ticketId);
+  };
+  const ticketTitle = (ticketId: string) =>
+    [...board.cards.values()].find((c) => c.ticket_id === ticketId)?.title ?? null;
+  // UXR-85: a search result or an Archive row opens its panel over the board (or the Archive).
+  const openResult = (t: TicketSearchResult) => {
+    if (route.view !== 'board' && route.view !== 'archive') {
+      navigate({ view: 'board' });
+      // The draft guard held the user back: stay, open nothing.
+      if (parseHash(window.location.hash).view !== 'board') return;
+    }
+    if (t.session_id !== null) setSelected(t.session_id);
+    else selectTicket(t.id);
   };
   useNeedsInputNotifications(board, openSession);
   useTransitionNotifications(board, openSession);
@@ -341,6 +375,13 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
           >
             {labelled(Server, 'Machines')}
           </a>
+          <a
+            href={routeHash({ view: 'insights' })}
+            aria-current={route.view === 'insights' ? 'page' : undefined}
+            {...iconOnly('Insights')}
+          >
+            {labelled(ChartColumn, 'Insights')}
+          </a>
           {/* ADR-0032 / UXR-83: recurring jobs. */}
           <a
             href={routeHash({ view: 'schedules', scheduleId: null })}
@@ -349,7 +390,15 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
           >
             {labelled(CalendarClock, 'Schedules')}
           </a>
+          <a
+            href={routeHash({ view: 'archive' })}
+            aria-current={route.view === 'archive' ? 'page' : undefined}
+            {...iconOnly('Archive')}
+          >
+            {labelled(Archive, 'Archive')}
+          </a>
         </nav>
+        {!guide && <TicketSearch api={api} onOpen={openResult} mobile={mobile} />}
         {!mobile && (
           <nav className="nav-tabs help-entry" aria-label="Help">
             <a
@@ -390,7 +439,17 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
         </p>
       )}
       <DiscardDraftConfirm draft={draft} navigate={navigate} />
-      {route.view === 'workflows' && <WorkflowsView api={api} onDirtyChange={draft.setDirty} />}
+      {route.view === 'workflows' && (
+        <WorkflowsView
+          api={api}
+          onDirtyChange={draft.setDirty}
+          proposalId={route.proposalId ?? null}
+          canEditWorkflows={me !== null && (me.auth_mode === 'local' || me.user.is_admin)}
+        />
+      )}
+      {route.view === 'insights' && (
+        <InsightsPage api={api} onOpenTicket={openTicket} ticketTitle={ticketTitle} />
+      )}
       {route.view === 'machines' && <MachinesPage api={api} />}
       {route.view === 'schedules' && (
         <SchedulesPage
@@ -404,6 +463,7 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
           api={api}
           repo={route.repo}
           onSelect={(repo) => navigate({ view: 'repo-checks', repo })}
+          onDirtyChange={draft.setDirty}
         />
       )}
       {route.view === 'admin' &&
@@ -430,15 +490,19 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
           onClose={() => setCreating(false)}
         />
       )}
-      <main hidden={route.view !== 'board' || guide}>
-        <Board
-          board={board}
-          selectedSessionId={selected}
-          onSelect={setSelected}
-          selectedTicketId={selectedTicket}
-          onSelectTicket={selectTicket}
-          api={api}
-        />
+      <main hidden={(route.view !== 'board' && route.view !== 'archive') || guide}>
+        {route.view === 'archive' ? (
+          <ArchivePage api={api} onOpen={openResult} />
+        ) : (
+          <Board
+            board={board}
+            selectedSessionId={selected}
+            onSelect={setSelected}
+            selectedTicketId={selectedTicket}
+            onSelectTicket={selectTicket}
+            api={api}
+          />
+        )}
         {selectedTicket && !selected && (
           <TicketPanel
             key={selectedTicket}

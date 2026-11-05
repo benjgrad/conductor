@@ -336,3 +336,50 @@ describe('claimWork max_sessions: which sessions hold a slot', () => {
     expect(await claim(m)).toEqual({ status: 'no_work', reason: 'max_sessions' });
   });
 });
+
+describe('claimWork queue order (06 §Queue order)', () => {
+  /** A ticket with this priority and, optionally, a hand-set place in the queue. */
+  async function queued(scope: AccountScope, priority: number, position: number | null = null) {
+    const id = await ticket(scope, 'github.com/org/q');
+    await db.pool.query('UPDATE ticket SET priority = $2, queue_position = $3 WHERE id = $1', [
+      id,
+      priority,
+      position,
+    ]);
+    return id;
+  }
+
+  it('with nothing reordered, takes the lowest P (ADR-0036), then the oldest', async () => {
+    const scope = await newAccount(db.pool);
+    const m = await machine(scope, [repo('/src/q', 'github.com/org/q')]);
+    const low = await queued(scope, 3);
+    const high = await queued(scope, 1);
+    const high2 = await queued(scope, 1);
+    expect([await claimed(m), await claimed(m), await claimed(m)]).toEqual([high, high2, low]);
+  });
+
+  it('takes hand-ordered tickets first, then the unranked by priority; and clears the rank', async () => {
+    const scope = await newAccount(db.pool);
+    const m = await machine(scope, [repo('/src/q', 'github.com/org/q')]);
+    const unrankedHigh = await queued(scope, 0);
+    const second = await queued(scope, 3, 2);
+    const first = await queued(scope, 4, 1);
+    expect(await claimed(m)).toBe(first);
+    expect(await claimed(m)).toBe(second);
+    expect(await claimed(m)).toBe(unrankedHigh);
+    const r = await db.pool.query<{ queue_position: number | null }>(
+      'SELECT queue_position FROM ticket WHERE id = ANY($1::uuid[])',
+      [[first, second]],
+    );
+    expect(r.rows.map((x) => x.queue_position)).toEqual([null, null]);
+  });
+
+  it('a machine that can’t take the first ticket takes the next one', async () => {
+    const scope = await newAccount(db.pool);
+    const m = await machine(scope, [repo('/src/q', 'github.com/org/q')]);
+    const other = await ticket(scope, 'github.com/org/elsewhere');
+    await db.pool.query('UPDATE ticket SET queue_position = 1 WHERE id = $1', [other]);
+    const mine = await queued(scope, 3, 2);
+    expect(await claimed(m)).toBe(mine);
+  });
+});

@@ -27,6 +27,7 @@ import {
 import { ConditionRow } from './ConditionFields.js';
 import { columnStates, columnTitle, humanStates, type ColumnIssue } from './columns.js';
 import { EditorHead, type Crumb } from './EditorHead.js';
+import { RepoOverridesHint } from './RepoOverridesHint.js';
 import {
   ACTION_SHORT,
   ACTION_TEXT,
@@ -85,6 +86,11 @@ export interface TransitionEditorProps {
   onClose: () => void;
   /** UXR-67: a just-created transition: its Title gets the focus. */
   focusTitle?: boolean;
+  /**
+   * ADR-0030: the repos with their own check override (`listRepoChecks`), named under the checks
+   * (UXR-75). Absent or [] = none.
+   */
+  repoOverrides?: readonly string[];
   /** UXR-44: the phone's full-screen panel. */
   fullScreen?: boolean;
 }
@@ -159,6 +165,7 @@ function TransitionForm({
   onChange,
   onSelect,
   onRemoved,
+  repoOverrides = [],
   onDefer,
   onReveal,
   onRevealUnder,
@@ -471,6 +478,9 @@ function TransitionForm({
           onItemBlur={(i) => onReveal?.(`${base}.requires.checks.${i}`)}
           onReordered={() => onRevealUnder?.(`${base}.requires.checks`)}
         />
+        {/* An override replaces only a list with at least one check (applyRepoChecks): a
+            transition without checks runs none, whatever the repo. */}
+        {checks.length > 0 && <RepoOverridesHint repos={repoOverrides} />}
       </Section>
 
       <Section title="Review" status={`(${items.length})`} {...section('review')}>

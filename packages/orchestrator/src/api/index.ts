@@ -1,6 +1,8 @@
 import {
   API_PATHS,
+  AdoptDefaultWorkflowRequestSchema,
   AnswerInputRequestSchema,
+  CONDUCTOR_WORKFLOW_ID,
   ApproveProposalRequestSchema,
   ApproveSessionRequestSchema,
   CancelSessionRequestSchema,
@@ -9,16 +11,20 @@ import {
   DismissProposalRequestSchema,
   FreshConversationRequestSchema,
   ReopenSessionRequestSchema,
+  ReorderQueueRequestSchema,
   ReopenTicketRequestSchema,
   SaveWorkflowRequestSchema,
   SendMessageRequestSchema,
   TransitionSessionRequestSchema,
   UpdateTicketRequestSchema,
+  TicketSearchQuerySchema,
+  type TicketSearchResponse,
   UuidSchema,
   httpForApplyResult,
   type EngineEvent,
   type EngineRoute,
   type OkResponse,
+  type QueueOrderResponse,
   type ReopenSessionResponse,
   type TranscriptResponse,
 } from '@conductor/shared';
@@ -41,20 +47,23 @@ import { parseLastEventId, serveBoardStream } from '../stream/board.js';
 import { serveOutputStream } from '../stream/output.js';
 import { SseHub } from '../stream/sse.js';
 import { parseBody, pathString, sendError } from './errors.js';
-import { saveWorkflowDefinition } from './workflows.js';
+import { adoptDefaultWorkflow, defaultComparison, saveWorkflowDefinition } from './workflows.js';
 import { registerMachineRoutes } from './machines.js';
 import { sendOperatorMessage } from './messages.js';
 import { registerPermissionRoutes } from './permissions.js';
 import { registerPushRoutes } from './push.js';
 import { listWorkflows, loadBoard, loadWorkflowDetail } from './queries.js';
 import { registerRepoChecksRoutes } from './repo-checks.js';
-import { registerChangeProposalRoutes } from './change-proposals.js';
+import { mayEditWorkflows, registerChangeProposalRoutes } from './change-proposals.js';
+import { registerInsightsRoutes } from './insights.js';
 import { registerScheduleRoutes } from './schedules.js';
 import { registerRepoRoutes } from './repos.js';
 import { httpSecurityFromEnv, securityHookFor, type HttpSecurityOptions } from './security.js';
 import { loadSessionDetail, sessionExists } from './sessions.js';
 import { approveProposal, dismissProposal } from './proposals.js';
+import { reorderQueue, resetQueueOrder } from './queue-order.js';
 import { createTicket, loadTicketDetail, updateTicket } from './tickets.js';
+import { searchTickets, toSearchResult } from './ticket-search.js';
 import { registerTeamRoutes } from './team.js';
 import { cancelTicket, reopenTicket } from './ticket-lifecycle.js';
 import { registerAttachmentRoutes } from './attachments.js';
@@ -168,6 +177,8 @@ export const createApi = (({
   void app.register(registerRepoChecksRoutes, { db });
   // ADR-0033 P3: the workflow advisor's change proposals (also MCP's propose_change, list_change_proposals, apply_change).
   void app.register(registerChangeProposalRoutes, { db });
+  // UXR-84: the advisor's metrics, findings, report and session insights (read-only).
+  void app.register(registerInsightsRoutes, { db });
   // ADR-0032: recurring tickets (also MCP's list/save/delete_schedule, run_schedule_now).
   void app.register(registerScheduleRoutes, { db, boardBus, auth, now });
   // ADR-0028: the OAuth authorization server and the MCP endpoint it protects.
@@ -435,6 +446,25 @@ export const createApi = (({
     return reply.code(201).send(res.dto);
   });
 
+  // UXR-85: the search box and the Archive. The same query as MCP `search_tickets`.
+  app.get(API_PATHS.tickets, async (req, reply) => {
+    const q = TicketSearchQuerySchema.safeParse(req.query ?? {});
+    if (!q.success) return sendError(reply, 400, 'bad_request', 'bad q, status, limit or cursor');
+    const { rows, total } = await searchTickets(db, req.auth!.scope.account_id, {
+      q: q.data.q,
+      statuses: q.data.status,
+      limit: q.data.limit,
+      cursor: q.data.cursor,
+    });
+    const end = q.data.cursor + rows.length;
+    const body: TicketSearchResponse = {
+      tickets: rows.map((r) => toSearchResult(r, q.data.q)),
+      next_cursor: end < total ? end : null,
+      total,
+    };
+    return body;
+  });
+
   /** A valid uuid or a 404 sent. */
   const ticketId = (id: string, reply: FastifyReply): string | undefined => {
     if (UuidSchema.safeParse(id).success) return id;
@@ -481,6 +511,25 @@ export const createApi = (({
         for (const ev of res.events) boardBus.publish(ev);
         return res.detail;
     }
+  });
+
+  // 06 §Queue order: the order the account's ready tickets are picked up in. PUT puts the listed
+  // ones first; DELETE goes back to priority order. Both answer the full order.
+  app.put(API_PATHS.queueOrder, async (req, reply): Promise<QueueOrderResponse | FastifyReply> => {
+    const body = parseBody(ReorderQueueRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const res = await reorderQueue(db, req.auth!.scope.account_id, body.ticket_ids);
+    if (res.skipped.length === body.ticket_ids.length) {
+      return sendError(reply, 404, 'not_found', 'none of ticket_ids is a queued ticket');
+    }
+    for (const ev of res.events) boardBus.publish(ev);
+    return { ticket_ids: res.ticket_ids, skipped: res.skipped };
+  });
+
+  app.delete(API_PATHS.queueOrder, async (req): Promise<QueueOrderResponse> => {
+    const res = await resetQueueOrder(db, req.auth!.scope.account_id);
+    for (const ev of res.events) boardBus.publish(ev);
+    return { ticket_ids: res.ticket_ids, skipped: res.skipped };
   });
 
   // UXR-86: cancel / reopen the ticket itself, queued (no session) or not (ticket-lifecycle.ts).
@@ -594,6 +643,64 @@ export const createApi = (({
       return { ...detail, default_available: await conductorDefaultAvailable(db, detail.id) };
     },
   );
+
+  // UXR-87: the newer shipped default, compared with the latest version (the editor's Compare).
+  app.get<IdParams>(API_PATHS.workflowDefault(':id'), async (req, reply) => {
+    const cmp = await defaultComparison(db, req.params.id);
+    if (cmp === null) {
+      return sendError(reply, 404, 'not_found', `no newer default for ${req.params.id}`);
+    }
+    return cmp;
+  });
+
+  // UXR-87 / ADR-0030 amendment: adopt the default, as MCP `adopt_default_workflow` does
+  // (instance admins or local mode; the approval guard; only while `base_version` is the latest).
+  app.post<IdParams>(API_PATHS.workflowDefault(':id'), async (req, reply) => {
+    if (!mayEditWorkflows(req)) {
+      return sendError(reply, 403, 'forbidden', 'only an instance admin can change the workflow');
+    }
+    const body = parseBody(AdoptDefaultWorkflowRequestSchema, req.body, reply);
+    if (!body) return reply;
+    if (req.params.id !== CONDUCTOR_WORKFLOW_ID) {
+      return sendError(reply, 404, 'not_found', `no shipped default for ${req.params.id}`);
+    }
+    const res = await adoptDefaultWorkflow(db, {
+      createdBy: `web:${req.auth!.user.email}`,
+      baseVersion: body.base_version,
+    });
+    if (!res.ok && res.code === 'conflict') {
+      return sendError(
+        reply,
+        409,
+        'conflict',
+        `${req.params.id} changed since version ${body.base_version}: the latest is ${res.latest}`,
+        [{ path: 'base_version', message: `the latest is ${res.latest}` }],
+      );
+    }
+    if (!res.ok && res.code === 'approval_weakened') {
+      return sendError(
+        reply,
+        409,
+        'approval_weakened',
+        `the default would remove a human approval (${res.transitions.join(', ')})`,
+        res.transitions.map((t) => ({ path: t, message: 'approval removed' })),
+      );
+    }
+    // UXR-67 rule 18: the default drops a column tickets are still in.
+    if (!res.ok) {
+      return sendError(
+        reply,
+        400,
+        'invalid_workflow',
+        'workflow definition is invalid',
+        res.errors.map((e) => ({
+          path: pathString(e.path),
+          message: `rule ${e.rule}: ${e.message}`,
+        })),
+      );
+    }
+    return await reply.code(201).send({ id: res.id, version: res.version });
+  });
 
   app.post(API_PATHS.workflows, async (req, reply) => {
     const body = parseBody(SaveWorkflowRequestSchema, req.body, reply);

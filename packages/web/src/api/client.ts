@@ -64,6 +64,7 @@ import type {
   TicketSearchResponse,
   TicketSearchStatus,
   UpdateTicketRequest,
+  WorkflowDefaultResponse,
   QueueOrderResponse,
   WorkflowDefinition,
   WorkflowDetail,
@@ -274,6 +275,17 @@ export interface ApiClient {
     definition: WorkflowDefinition,
     opts?: { note?: string },
   ): Promise<SaveWorkflowResponse>;
+  /**
+   * UXR-87: GET /api/workflows/:id/default → the newer shipped default and its diff from the
+   * latest version. 404 not_found when none is newer.
+   */
+  getWorkflowDefault(id: string): Promise<WorkflowDefaultResponse>;
+  /**
+   * UXR-87: POST /api/workflows/:id/default {base_version} → the new version (the default saved
+   * over local edits). 403 forbidden unless an instance admin; 409 conflict when `baseVersion` is
+   * no longer the latest.
+   */
+  adoptDefaultWorkflow(id: string, baseVersion: number): Promise<SaveWorkflowResponse>;
   /** POST /api/sessions/:id/approve → external.event ui.approve. 409 conflict if not awaited. */
   approve(sessionId: string, req?: ApproveSessionRequest): Promise<OkResponse>;
   /** POST /api/sessions/:id/cancel → operator.cancel. 409 conflict if already terminal. */

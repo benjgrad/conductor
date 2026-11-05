@@ -122,6 +122,24 @@ describe('createHttpApi workflows (ADR-0009)', () => {
     ]);
   });
 
+  it('UXR-87: GET and POST /api/workflows/:id/default', async () => {
+    const definition = (await createMockApi({ now }).getWorkflow('conductor')).definition;
+    const cmp = { version: 4, base_version: 3, definition, diff: { changes: [], more_changes: 0 } };
+    const { calls, fetch } = recordingFetch(({ method }) =>
+      method === 'GET' ? json(200, cmp) : json(201, { id: 'conductor', version: 4 }),
+    );
+    const api = createHttpApi({ fetch });
+    expect(await api.getWorkflowDefault('conductor')).toEqual(cmp);
+    expect(await api.adoptDefaultWorkflow('conductor', 3)).toEqual({
+      id: 'conductor',
+      version: 4,
+    });
+    expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([
+      ['GET', '/api/workflows/conductor/default', undefined],
+      ['POST', '/api/workflows/conductor/default', { base_version: 3 }],
+    ]);
+  });
+
   it('UXR-70/73: a save note; proposals filtered by kind and target', async () => {
     const detail = await createMockApi({ now }).getWorkflow('m1_basic');
     const { calls, fetch } = recordingFetch(({ method }) =>

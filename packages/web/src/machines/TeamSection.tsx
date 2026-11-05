@@ -36,8 +36,8 @@ export function hiredLabel(iso: string, locale?: string): string {
 export function TeamSection({ api, ticketTitle }: TeamSectionProps) {
   const [team, setTeam] = useState<Team>({ kind: 'loading' });
 
+  // Only the async result sets state here (react-hooks/set-state-in-effect); Retry shows Loading.
   const load = useCallback(() => {
-    setTeam({ kind: 'loading' });
     api.listTeam().then(
       (members) => setTeam({ kind: 'loaded', members }),
       (err: unknown) => setTeam({ kind: 'error', text: errorMessage(err) }),
@@ -53,7 +53,13 @@ export function TeamSection({ api, ticketTitle }: TeamSectionProps) {
       {team.kind === 'error' && (
         <p role="alert" className="error">
           {team.text}{' '}
-          <button type="button" onClick={load}>
+          <button
+            type="button"
+            onClick={() => {
+              setTeam({ kind: 'loading' });
+              load();
+            }}
+          >
             Retry
           </button>
         </p>

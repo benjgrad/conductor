@@ -33,6 +33,8 @@ import type {
   ReopenSessionRequest,
   PutRepoChecksRequest,
   RepoChecksDetail,
+  RepoCheckRunsResponse,
+  RepoChecksHealthResponse,
   RepoChecksDto,
   RepoChecksListResponse,
   RepoSuggestion,
@@ -142,6 +144,13 @@ export interface ApiClient {
    * checking gate of the latest `conductor` workflow. 400 bad_request for a blank repo.
    */
   getRepoChecks(repo: string): Promise<RepoChecksDetail>;
+  /**
+   * UXR-80: GET /api/repo-checks/runs?repo=&limit= → each of the repo's checks with its last runs
+   * (default 5), newest first, over 30 days. Matched by command.
+   */
+  getRepoCheckRuns(repo: string, limit?: number): Promise<RepoCheckRunsResponse>;
+  /** UXR-80: GET /api/repo-checks/health → recent check results of every repo with runs. */
+  getRepoChecksHealth(): Promise<RepoChecksHealthResponse>;
   /**
    * ADR-0030: PUT /api/repo-checks → the stored override (`repo` is the canonical key). 400
    * bad_request with `details` (paths like `checks.0.name`) when validation fails.

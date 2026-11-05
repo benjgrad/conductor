@@ -290,6 +290,23 @@ describe('createHttpApi REST', () => {
     ]);
   });
 
+  it('repo check runs and health (UXR-80): GET with the repo and limit in the query', async () => {
+    const runs = { repo: 'github.com/o/app', window_days: 30, checks: [] };
+    const health = { window_days: 30, repos: [] };
+    const { calls, fetch } = recordingFetch(({ url }) =>
+      json(200, url.includes('/health') ? health : runs),
+    );
+    const api = createHttpApi({ fetch });
+    expect(await api.getRepoCheckRuns('github.com/o/app')).toEqual(runs);
+    expect(await api.getRepoCheckRuns('github.com/o/app', 3)).toEqual(runs);
+    expect(await api.getRepoChecksHealth()).toEqual(health);
+    expect(calls.map((c) => [c.method, c.url])).toEqual([
+      ['GET', `${API_PATHS.repoCheckRuns}?repo=github.com%2Fo%2Fapp`],
+      ['GET', `${API_PATHS.repoCheckRuns}?repo=github.com%2Fo%2Fapp&limit=3`],
+      ['GET', API_PATHS.repoChecksHealth],
+    ]);
+  });
+
   it('throws ApiRequestError with the ApiError code and message', async () => {
     const { fetch } = recordingFetch(() =>
       json(409, { error: { code: 'input_already_answered', message: 'already answered' } }),

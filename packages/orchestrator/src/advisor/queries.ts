@@ -50,43 +50,34 @@ const SCOPE =
   'WHERE s.account_id = $1 AND ($3::text IS NULL OR lower(t.repo) = lower($3)) ' +
   'AND ($4::text IS NULL OR s.workflow_id = $4) AND ($6::uuid IS NULL OR s.id = $6)';
 
-export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<LoadedRows> {
+function windowArgs(f: AdvisorFilter, limit: number) {
   const now = f.until ?? f.now ?? new Date();
   const until = f.until ?? null;
   const since = new Date(now.getTime() - clampWindow(f.windowDays) * 86_400_000);
-  const args = [
-    f.accountId,
+  return {
     since,
-    f.repo ?? null,
-    f.workflowId ?? null,
-    ROW_LIMIT,
-    f.sessionId ?? null,
-    until,
-  ];
+    args: [
+      f.accountId,
+      since,
+      f.repo ?? null,
+      f.workflowId ?? null,
+      limit,
+      f.sessionId ?? null,
+      until,
+    ],
+  };
+}
 
-  const moves = await db.query<{
-    session_id: string;
-    ticket_id: string;
-    repo: string;
-    workflow_id: string;
-    machine_id: string | null;
-    from: string | null;
-    to: string;
-    transition: string | null;
-    visit: number;
-    ts: Date;
-  }>(
-    'SELECT e.session_id, s.ticket_id, t.repo, s.workflow_id, s.machine_id, ' +
-      `e.payload->>'from' AS "from", e.payload->>'to' AS "to", ` +
-      "e.payload->>'transition' AS transition, " +
-      "COALESCE((e.payload->>'visit')::int, 1) AS visit, e.ts " +
-      `${SCOPE.replace('FROM session s', 'FROM event e JOIN session s ON s.id = e.session_id')} ` +
-      "AND e.type = 'state.entered' AND e.ts >= $2 AND e.payload ? 'to' " +
-      'AND ($7::timestamptz IS NULL OR e.ts < $7) ' +
-      'ORDER BY e.id DESC LIMIT $5',
-    args,
-  );
-
+/**
+ * The finished checks (a `run_cmd` and its `command.exited`) in the window, newest first, at most
+ * `limit`. `get_process_metrics group_by=check` and the Repo checks run history (UXR-80) read these.
+ */
+export async function loadCheckRuns(
+  db: Queryable,
+  f: AdvisorFilter,
+  limit: number = ROW_LIMIT,
+): Promise<{ rows: CheckRunRow[]; since: string; truncated: boolean }> {
+  const { since, args } = windowArgs(f, limit);
   const checks = await db.query<{
     session_id: string;
     ticket_id: string;
@@ -117,6 +108,50 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
       'ORDER BY e.id DESC LIMIT $5',
     args,
   );
+
+  const rows = checks.rows.map((r): CheckRunRow => ({
+    session_id: r.session_id,
+    ticket_id: r.ticket_id,
+    repo: r.repo,
+    machine_id: r.machine_id,
+    state: r.state ?? 'unknown',
+    cmd: r.cmd ?? '(unknown)',
+    exit_code: r.exit_code,
+    timed_out: r.timed_out,
+    setup_failed: r.setup_failed,
+    started_at: r.started_at.toISOString(),
+    at: r.ts.toISOString(),
+  }));
+  return { rows, since: since.toISOString(), truncated: checks.rows.length >= limit };
+}
+
+export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<LoadedRows> {
+  const { since, args } = windowArgs(f, ROW_LIMIT);
+
+  const moves = await db.query<{
+    session_id: string;
+    ticket_id: string;
+    repo: string;
+    workflow_id: string;
+    machine_id: string | null;
+    from: string | null;
+    to: string;
+    transition: string | null;
+    visit: number;
+    ts: Date;
+  }>(
+    'SELECT e.session_id, s.ticket_id, t.repo, s.workflow_id, s.machine_id, ' +
+      `e.payload->>'from' AS "from", e.payload->>'to' AS "to", ` +
+      "e.payload->>'transition' AS transition, " +
+      "COALESCE((e.payload->>'visit')::int, 1) AS visit, e.ts " +
+      `${SCOPE.replace('FROM session s', 'FROM event e JOIN session s ON s.id = e.session_id')} ` +
+      "AND e.type = 'state.entered' AND e.ts >= $2 AND e.payload ? 'to' " +
+      'AND ($7::timestamptz IS NULL OR e.ts < $7) ' +
+      'ORDER BY e.id DESC LIMIT $5',
+    args,
+  );
+
+  const checks = await loadCheckRuns(db, f);
 
   const inputs = await db.query<{
     session_id: string;
@@ -155,7 +190,7 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
 
   const truncated: LoadedRows['truncated'] = [];
   if (moves.rows.length >= ROW_LIMIT) truncated.push('moves');
-  if (checks.rows.length >= ROW_LIMIT) truncated.push('checks');
+  if (checks.truncated) truncated.push('checks');
   if (inputs.rows.length >= ROW_LIMIT) truncated.push('inputs');
   if (perms.rows.length >= ROW_LIMIT) truncated.push('permissions');
 
@@ -174,19 +209,7 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
       visit: r.visit,
       at: r.ts.toISOString(),
     })),
-    checks: checks.rows.map((r): CheckRunRow => ({
-      session_id: r.session_id,
-      ticket_id: r.ticket_id,
-      repo: r.repo,
-      machine_id: r.machine_id,
-      state: r.state ?? 'unknown',
-      cmd: r.cmd ?? '(unknown)',
-      exit_code: r.exit_code,
-      timed_out: r.timed_out,
-      setup_failed: r.setup_failed,
-      started_at: r.started_at.toISOString(),
-      at: r.ts.toISOString(),
-    })),
+    checks: checks.rows,
     inputs: inputs.rows.map((r): InputRow => ({
       session_id: r.session_id,
       ticket_id: r.ticket_id,

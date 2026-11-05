@@ -8,13 +8,18 @@ import {
   WorkflowDefinitionSchema,
   checksGatesOf,
   repoChecksKey,
+  repoHealth,
+  runsByCheck,
+  type RepoCheckRunsResponse,
   type RepoChecks,
+  type RepoChecksHealthResponse,
   type RepoChecksDetail,
   type RepoChecksDto,
   type RepoChecksListResponse,
   type WorkflowDefinition,
 } from '@conductor/shared';
 import type { FastifyPluginAsync } from 'fastify';
+import { loadCheckRuns } from '../advisor/queries.js';
 import type { Queryable } from '../contracts.js';
 import type { RepoChecksRow } from '../db/types.js';
 import type { Db } from '../main.js';
@@ -127,6 +132,56 @@ export async function clearRepoChecks(
   return (r.rowCount ?? 0) > 0;
 }
 
+/** UXR-80: the run history covers this many days. */
+export const RUN_HISTORY_DAYS = 30;
+export const RUN_HISTORY_DEFAULT_LIMIT = 5;
+export const RUN_HISTORY_MAX_LIMIT = 20;
+
+/**
+ * UXR-80: the repo's checks (its override's, else every checking gate's, deduped by command) with
+ * their last `limit` runs over RUN_HISTORY_DAYS. Runs are matched by command: the run_cmd outbox
+ * payload carries no check name (TD-201: key by name once run_cmd carries it).
+ */
+export async function getRepoCheckRuns(
+  q: Queryable,
+  accountId: string,
+  repo: string,
+  limit: number = RUN_HISTORY_DEFAULT_LIMIT,
+): Promise<RepoCheckRunsResponse> {
+  const detail = await getRepoChecks(q, accountId, repo);
+  const checks = detail.override?.checks ?? detail.effective.flatMap((g) => g.checks);
+  const { rows } = await loadCheckRuns(q, {
+    accountId,
+    windowDays: RUN_HISTORY_DAYS,
+    repo: detail.repo,
+  });
+  const ids = [...new Set(rows.map((r) => r.ticket_id))];
+  const titles = new Map<string, string>();
+  if (ids.length > 0) {
+    const t = await q.query<{ id: string; title: string }>(
+      // Scoped through the session, like the runs themselves (queries.ts SCOPE).
+      'SELECT t.id, t.title FROM ticket t WHERE t.id = ANY($2::uuid[]) AND EXISTS ' +
+        '(SELECT 1 FROM session s WHERE s.ticket_id = t.id AND s.account_id = $1)',
+      [accountId, ids],
+    );
+    for (const row of t.rows) titles.set(row.id, row.title);
+  }
+  return {
+    repo: detail.repo,
+    window_days: RUN_HISTORY_DAYS,
+    checks: runsByCheck(checks, rows, limit, titles),
+  };
+}
+
+/** UXR-80: recent check results of every repo with runs in the window. */
+export async function getRepoChecksHealth(
+  q: Queryable,
+  accountId: string,
+): Promise<RepoChecksHealthResponse> {
+  const { rows } = await loadCheckRuns(q, { accountId, windowDays: RUN_HISTORY_DAYS });
+  return { window_days: RUN_HISTORY_DAYS, repos: repoHealth(rows) };
+}
+
 export interface RepoChecksRoutesOptions {
   db: Db;
 }
@@ -157,6 +212,32 @@ export const registerRepoChecksRoutes: FastifyPluginAsync<RepoChecksRoutesOption
     if (!res.ok) return sendError(reply, 400, 'bad_request', res.message, res.details);
     return res.dto;
   });
+
+  app.get<{ Querystring: { repo?: string; limit?: string } }>(
+    API_PATHS.repoCheckRuns,
+    async (req, reply) => {
+      const repo = repoOf(req.query.repo);
+      if (repo === null) return sendError(reply, 400, 'bad_request', 'repo must be 1..200 chars');
+      let limit = RUN_HISTORY_DEFAULT_LIMIT;
+      if (req.query.limit !== undefined) {
+        const n = Number(req.query.limit);
+        if (!Number.isInteger(n) || n < 1 || n > RUN_HISTORY_MAX_LIMIT) {
+          return sendError(
+            reply,
+            400,
+            'bad_request',
+            `limit must be an integer in 1..${RUN_HISTORY_MAX_LIMIT}`,
+          );
+        }
+        limit = n;
+      }
+      return getRepoCheckRuns(db, req.auth!.scope.account_id, repo, limit);
+    },
+  );
+
+  app.get(API_PATHS.repoChecksHealth, async (req) =>
+    getRepoChecksHealth(db, req.auth!.scope.account_id),
+  );
 
   // A JSON body like every unsafe request (the security hook 415s anything else).
   app.delete(API_PATHS.repoChecks, async (req, reply) => {

@@ -1,4 +1,9 @@
-import type { RepoChecksDetail, RepoChecksDto, RepoSuggestion } from '@conductor/shared';
+import type {
+  RepoChecksDetail,
+  RepoChecksDto,
+  RepoChecksHealthResponse,
+  RepoSuggestion,
+} from '@conductor/shared';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import {
   ApiRequestError,
@@ -16,6 +21,7 @@ import {
   type ChecksValue,
 } from '../workflow/ChecksFields.js';
 import { checkListIssues, type CheckListIssue } from '../workflow/transitions.js';
+import { CheckHistory, HealthBadge } from './CheckHistory.js';
 import '../workflow/workflow.css';
 import './repo-checks.css';
 
@@ -61,13 +67,18 @@ export function RepoChecksPage({ api, repo, onSelect }: RepoChecksPageProps) {
   const [list, setList] = useState<List>({ kind: 'loading' });
   const [suggestions, setSuggestions] = useState<RepoSuggestion[]>([]);
   const [pick, setPick] = useState('');
+  // UXR-80: per-repo check results; null when they didn't load (the column then stays empty).
+  const [health, setHealth] = useState<RepoChecksHealthResponse | null>(null);
 
   const loadList = useCallback(() => {
     api.listRepoChecks().then(
       (res) => setList({ kind: 'loaded', rows: res.repos }),
       (err: unknown) => setList({ kind: 'error', text: errorMessage(err) }),
     );
+    api.getRepoChecksHealth().then(setHealth, () => setHealth(null));
   }, [api]);
+  const healthOf = (repo: string) =>
+    health === null ? undefined : (health.repos.find((h) => h.repo === repo) ?? null);
 
   useEffect(() => loadList(), [loadList]);
   useEffect(() => {
@@ -116,6 +127,7 @@ export function RepoChecksPage({ api, repo, onSelect }: RepoChecksPageProps) {
               <tr>
                 <th>Repo</th>
                 <th>Checks</th>
+                <th>Health</th>
                 <th>Setup</th>
                 <th>Updated</th>
               </tr>
@@ -129,6 +141,12 @@ export function RepoChecksPage({ api, repo, onSelect }: RepoChecksPageProps) {
                     </button>
                   </td>
                   <td>{row.checks.map((c) => c.name).join(', ')}</td>
+                  <td>
+                    <HealthBadge
+                      health={healthOf(row.repo)}
+                      windowDays={health?.window_days ?? 30}
+                    />
+                  </td>
                   <td className="mono">{setupText(row.setup)}</td>
                   <td className="muted">
                     {ago(row.updated_at)}
@@ -178,6 +196,8 @@ function RepoDetailView({
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  // UXR-80: bumped on every (re)load, so the run history follows the saved checks.
+  const [loads, setLoads] = useState(0);
 
   const load = useCallback(() => {
     api.getRepoChecks(repo).then(
@@ -185,6 +205,7 @@ function RepoDetailView({
         setState({ kind: 'loaded', detail });
         setDraft(initialDraft(detail));
         setServerIssues([]);
+        setLoads((n) => n + 1);
       },
       (err: unknown) => setState({ kind: 'error', text: errorMessage(err) }),
     );
@@ -312,6 +333,8 @@ function RepoDetailView({
           </table>
         </div>
       )}
+
+      <CheckHistory api={api} repo={detail.repo} version={loads} />
 
       <h4>{override !== null ? 'This repo’s checks' : 'Give this repo its own checks'}</h4>
       {override === null && (

@@ -7,6 +7,8 @@ import {
   MachineDetailSchema,
   MachineListResponseSchema,
   RepoChecksDetailSchema,
+  RepoCheckRunsResponseSchema,
+  RepoChecksHealthResponseSchema,
   RepoChecksDtoSchema,
   RepoChecksListResponseSchema,
   RepoListResponseSchema,
@@ -359,6 +361,25 @@ describe('mock machines (M2-T11)', () => {
 });
 
 describe('mock repo checks (ADR-0030)', () => {
+  it('serves run history and health in the API shapes (UXR-80)', async () => {
+    const api = createMockApi({ now });
+    const shop = RepoCheckRunsResponseSchema.parse(
+      await api.getRepoCheckRuns('github.com/Acme/Shop'),
+    );
+    expect(shop.checks.map((c) => c.name)).toEqual(['Build', 'Tests']);
+    expect(shop.checks[1]!.runs[0]!.status).toBe('timed_out');
+    const plain = RepoCheckRunsResponseSchema.parse(
+      await api.getRepoCheckRuns('github.com/acme/api', 2),
+    );
+    const build = plain.checks.find((c) => c.cmd === 'npm run build')!;
+    expect([build.runs.length, build.failures_in_window, build.runs_in_window]).toEqual([2, 6, 6]);
+    const health = RepoChecksHealthResponseSchema.parse(await api.getRepoChecksHealth());
+    expect(health.repos.find((r) => r.repo === 'github.com/acme/api')).toMatchObject({
+      runs: 6,
+      failures: 6,
+    });
+  });
+
   const checks = [
     { name: 'Build', cmd: 'make' },
     { name: 'Tests', cmd: 'make test', timeout: '10m' },

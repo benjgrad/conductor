@@ -89,3 +89,46 @@
   align-items: center;
   gap: 8px;
 }
+
+/* UXR-80: the run history marks and the repo list's health hint (theme colours, both modes). */
+.rc-runs {
+  display: inline-flex;
+  gap: 4px;
+}
+.rc-run {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  border: 1px solid currentColor;
+}
+.rc-run-pass {
+  color: var(--ok);
+  background: var(--diff-add-bg);
+}
+.rc-run-fail,
+.rc-run-setup_failed {
+  color: var(--ask);
+  background: var(--ask-bg);
+}
+.rc-run-timed_out {
+  color: var(--warn);
+  background: var(--warn-bg);
+}
+.rc-health-passing {
+  color: var(--ok);
+}
+.rc-health-flaky {
+  color: var(--warn);
+}
+.rc-health-failing {
+  color: var(--ask);
+}
+.rc-health-none {
+  color: var(--muted);
+}

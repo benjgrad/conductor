@@ -168,13 +168,7 @@ function AppRoutes({ api, compact: compactProp }: AppProps) {
 }
 
 /** A top-bar page; `currentNav` names the one that is the current page. */
-export type NavPage =
-  | 'board'
-  | 'workflows'
-  | 'machines'
-  | 'repo-checks'
-  | 'schedules'
-  | 'archive';
+export type NavPage = 'board' | 'workflows' | 'machines' | 'repo-checks' | 'schedules' | 'archive';
 
 /**
  * UXR-27 FR-5: which top-bar link carries `aria-current="page"` (at most one). The guided setup

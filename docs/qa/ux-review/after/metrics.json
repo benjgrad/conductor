@@ -331,16 +331,16 @@
     "horizontalOverflow": false,
     "clippedOverflow": [],
     "pageHeight": 900,
-    "smallTapTargets": 36,
+    "smallTapTargets": 38,
     "smallTapTargetSample": [
       "a \"Board\" 89×24",
       "a \"Workflow\" 106×24",
       "a \"Machines\" 107×24",
       "a \"Repo checks\" 128×24",
       "a \"Schedules\" 113×24",
-      "button \"New ticket\" 117×26",
-      "a \"Help\" 40×24",
-      "button \"local\" 78×26"
+      "a \"Archive\" 95×24",
+      "input \"Search tickets\" 260×29",
+      "button \"New ticket\" 117×26"
     ]
   },
   "detail-1440x900-light": {
@@ -411,23 +411,7 @@
     ]
   },
   "board-1440x900-dark": {
-    "chatHeight": null,
-    "pageScrollWidth": 1440,
-    "deviceWidth": 1440,
-    "horizontalOverflow": false,
-    "clippedOverflow": [],
-    "pageHeight": 900,
-    "smallTapTargets": 36,
-    "smallTapTargetSample": [
-      "a \"Board\" 89×24",
-      "a \"Workflow\" 106×24",
-      "a \"Machines\" 107×24",
-      "a \"Repo checks\" 128×24",
-      "a \"Schedules\" 113×24",
-      "button \"New ticket\" 117×26",
-      "a \"Help\" 40×24",
-      "button \"local\" 78×26"
-    ]
+    "error": "TimeoutError: locator.waitFor: Timeout 30000ms exceeded."
   },
   "detail-1440x900-dark": {
     "pageScrollWidth": 1440,
@@ -780,16 +764,16 @@
     "horizontalOverflow": false,
     "clippedOverflow": [],
     "pageHeight": 900,
-    "smallTapTargets": 37,
+    "smallTapTargets": 39,
     "smallTapTargetSample": [
       "a \"Board\" 89×24",
       "a \"Workflow\" 106×24",
       "a \"Machines\" 107×24",
       "a \"Repo checks\" 128×24",
       "a \"Schedules\" 113×24",
-      "button \"New ticket\" 117×26",
-      "a \"Help\" 40×24",
-      "button \"local\" 78×26"
+      "a \"Archive\" 95×24",
+      "input \"Search tickets\" 260×29",
+      "button \"New ticket\" 117×26"
     ]
   },
   "account-menu-admin-1440x900-light": {
@@ -799,16 +783,16 @@
     "horizontalOverflow": false,
     "clippedOverflow": [],
     "pageHeight": 900,
-    "smallTapTargets": 40,
+    "smallTapTargets": 42,
     "smallTapTargetSample": [
       "a \"Board\" 89×24",
       "a \"Workflow\" 106×24",
       "a \"Machines\" 107×24",
       "a \"Repo checks\" 128×24",
       "a \"Schedules\" 113×24",
-      "button \"New ticket\" 117×26",
-      "a \"Help\" 40×24",
-      "button \"Ben\" 73×26"
+      "a \"Archive\" 95×24",
+      "input \"Search tickets\" 260×29",
+      "button \"New ticket\" 117×26"
     ]
   },
   "first-run-1440x900-light": {
@@ -818,16 +802,16 @@
     "horizontalOverflow": false,
     "clippedOverflow": [],
     "pageHeight": 995,
-    "smallTapTargets": 37,
+    "smallTapTargets": 38,
     "smallTapTargetSample": [
       "a \"Board\" 89×24",
       "a \"Workflow\" 106×24",
       "a \"Machines\" 107×24",
       "a \"Repo checks\" 128×24",
       "a \"Schedules\" 113×24",
+      "a \"Archive\" 95×24",
       "button \"New ticket\" 117×26",
-      "a \"Help\" 40×24",
-      "button \"local\" 78×26"
+      "a \"Help\" 40×24"
     ]
   }
 }

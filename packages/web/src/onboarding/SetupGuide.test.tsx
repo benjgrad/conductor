@@ -340,7 +340,8 @@ describe('step 3, wait for the machine (FR-4)', () => {
       screen.getByRole('heading', { name: 'Troubleshooting' }).closest('section')!,
     );
     expect(help.getByText(/Is the daemon running/)).toBeTruthy();
-    expect(help.getByText(/Is Node.js 22 on the PATH/)).toBeTruthy();
+    expect(help.getByText(/Is Claude Code on the PATH/)).toBeTruthy();
+    expect(help.queryByText(/Node\.js/)).toBeNull();
     expect(help.getByText(/proxy or firewall/)).toBeTruthy();
     expect(help.getByText(/daemon's output/)).toBeTruthy();
 

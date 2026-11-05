@@ -16,6 +16,16 @@
   background: var(--panel);
   font-size: var(--text-base);
 }
+.conductor-checks-source {
+  background: var(--user-bg);
+  color: var(--accent);
+  border: 1px solid var(--user-border);
+  font-weight: 600;
+  text-decoration: none;
+}
+.conductor-checks-source:hover {
+  text-decoration: underline;
+}
 .conductor-checks-slot {
   margin: var(--space-1) 0 0;
 }

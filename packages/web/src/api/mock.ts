@@ -36,6 +36,8 @@ import {
   PutRepoChecksRequestSchema,
   RepoChecksSchema,
   repoChecksKey,
+  repoHealth,
+  runsByCheck,
   CreateScheduleRequestSchema,
   UpdateScheduleRequestSchema,
   formatScheduleTime,
@@ -78,6 +80,8 @@ import {
   type OutputStream,
   type PermissionRequestDto,
   type RepoChecksDetail,
+  type RepoCheckRunsResponse,
+  type RepoChecksHealthResponse,
   type ChangeProposalDetail,
   type ChangeProposalListResponse,
   type ChangeProposalSummary,
@@ -88,6 +92,9 @@ import {
   type SessionStatus,
   type TicketDetail,
   type TicketDto,
+  type TicketSearchResponse,
+  type TicketSearchResult,
+  ticketSearchGroup,
   validateWorkflow,
   type WorkflowDefinition,
   type WorkflowDetail,
@@ -107,6 +114,7 @@ import {
   MOCK_WORKFLOW_HISTORY,
   mockMachines,
   mockRepoChecks,
+  mockCheckRuns,
   mockChangeProposals,
   mockSchedules,
   mockSeeds,
@@ -119,6 +127,15 @@ import {
 // errors use the 10-contracts REST error map codes. It does NOT run the workflow engine: an
 // answer simply moves the session to `goto` (or `return_to`) and marks it running; a human
 // transition (ADR-0011) moves it to the button's `goto`, with no requirements run.
+
+/** Up to 200 characters of `text` around `q` (as the server's `snippetOf`). */
+function mockSnippet(text: string, q: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  const at = flat.toLowerCase().indexOf(q);
+  const start = at < 0 ? 0 : Math.max(0, at - 60);
+  const cut = flat.slice(start, start + 198);
+  return (start > 0 ? '…' : '') + cut + (start + cut.length < flat.length ? '…' : '');
+}
 
 export interface MockApiOptions {
   /** Clock for seeds and new rows. Default: real time. */
@@ -244,6 +261,8 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
   const repoChecks = new Map<string, RepoChecksDto>(
     mockRepoChecks(now()).map((dto) => [dto.repo, dto]),
   );
+  /** UXR-80: past check runs (what `loadCheckRuns` reads). */
+  const checkRuns = mockCheckRuns(now());
 
   /** ADR-0033 P3: the advisor's change proposals, newest first. */
   const proposals: ChangeProposalDetail[] = mockChangeProposals(now());
@@ -282,7 +301,15 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
             waiting_for_build_slot: false,
             context: {},
           };
-    return placeCard('in_progress', session, { columns: COLUMNS, def: wf }).column;
+    return placeCard(ticketStatusOf(card), session, { columns: COLUMNS, def: wf }).column;
+  }
+
+  /** The ticket's status as the server keeps it, from its card (cancelled cards are badged). */
+  function ticketStatusOf(card: BoardCard): TicketStatus {
+    if (card.badges.includes('cancelled')) return 'cancelled';
+    if (card.status === 'done') return 'done';
+    if (card.status === 'failed' || card.status === 'lost') return 'failed';
+    return card.session_id === null || card.status === null ? 'ready' : 'in_progress';
   }
 
   for (const s of mockSeeds(now())) {
@@ -502,18 +529,14 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
   }
 
   /** ADR-0032: a ticket's status as the board shows it (the mock keeps no ticket rows for it). */
-  function ticketStatusOf(ticketId: string): TicketStatus | null {
+  function ticketStatusById(ticketId: string): TicketStatus | null {
     const card = cards.get(ticketId);
-    if (!card) return null;
-    if (card.session_id === null || card.status === null) return 'ready';
-    if (card.status === 'done') return 'done';
-    if (card.status === 'failed' || card.status === 'lost') return 'failed';
-    return 'in_progress';
+    return card ? ticketStatusOf(card) : null;
   }
 
   /** The schedule as GET /api/schedules shows it now: previews from now, last ticket's status. */
   function scheduleView(sc: ScheduleDto): ScheduleDto {
-    const status = sc.last_ticket ? ticketStatusOf(sc.last_ticket.id) : null;
+    const status = sc.last_ticket ? ticketStatusById(sc.last_ticket.id) : null;
     let next_runs: string[] = [];
     if (sc.enabled) {
       try {
@@ -786,7 +809,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         workflow_version: s?.workflow.version ?? null,
         required_tags: [],
         repo_allow_machines: null,
-        status: card.session_id ? 'in_progress' : 'ready',
+        status: ticketStatusOf(card),
         priority: card.priority,
         created_at: card.created_at,
         kind: card.kind,
@@ -955,6 +978,51 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           throw new ApiRequestError(400, 'bad_request', `unknown workflow "${req.workflow_id}"`);
         }
         return addTicket(req);
+      }),
+
+    searchTickets: (o = {}) =>
+      reply((): TicketSearchResponse => {
+        const q = o.q?.trim().toLowerCase() ?? '';
+        const hex = q.replace(/-/g, '');
+        const byId = /^[0-9a-f]{4,32}$/.test(hex);
+        const groups = o.status ?? ['all'];
+        const wanted = (s: TicketStatus) =>
+          groups.includes('all') || groups.includes(ticketSearchGroup(s));
+        const found = [...cards.values()]
+          .map((card) => ({ card, t: ticketOf(card.ticket_id) }))
+          .map(({ card, t }) => ({ card, t: { ...t, status: ticketStatusOf(card) } }))
+          .filter(({ t }) => wanted(t.status))
+          .filter(
+            ({ card, t }) =>
+              q === '' ||
+              card.title.toLowerCase().includes(q) ||
+              (card.external_ref ?? '').toLowerCase().includes(q) ||
+              t.body.toLowerCase().includes(q) ||
+              (byId && t.id.replace(/-/g, '').startsWith(hex)),
+          )
+          .sort(
+            (a, b) =>
+              b.card.updated_at.localeCompare(a.card.updated_at) || a.t.id.localeCompare(b.t.id),
+          );
+        const cursor = o.cursor ?? 0;
+        const page = found.slice(cursor, cursor + (o.limit ?? 20));
+        const end = cursor + page.length;
+        return clone({
+          tickets: page.map(({ card, t }): TicketSearchResult => ({
+            id: t.id,
+            title: card.title,
+            external_ref: card.external_ref,
+            status: t.status,
+            kind: card.kind,
+            repo: card.repo,
+            snippet: q === '' ? null : mockSnippet(t.body, q),
+            session_id: card.session_id,
+            created_at: card.created_at,
+            updated_at: card.updated_at,
+          })),
+          next_cursor: end < found.length ? end : null,
+          total: found.length,
+        });
       }),
 
     getTicket: (ticketId) => reply(() => ticketDetail(ticketId)),
@@ -1164,6 +1232,27 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         });
       }),
 
+    getRepoCheckRuns: (repo, limit = 5) =>
+      reply((): RepoCheckRunsResponse => {
+        const key = repoChecksKey(repo);
+        if (key === '' || key.length > 200) {
+          throw new ApiRequestError(400, 'bad_request', 'repo must be 1..200 chars');
+        }
+        const override = repoChecks.get(key) ?? null;
+        const def = workflows.get(CONDUCTOR.id)?.at(-1)?.definition ?? CONDUCTOR;
+        const checks = override?.checks ?? checksGatesOf(def).flatMap((g) => g.checks);
+        const rows = checkRuns.filter((r) => repoChecksKey(r.repo) === key);
+        const titles = new Map(rows.map((r) => [r.ticket_id, `Ticket ${r.ticket_id.slice(-2)}`]));
+        return clone({
+          repo: key,
+          window_days: 30,
+          checks: runsByCheck(checks, rows, limit, titles),
+        });
+      }),
+
+    getRepoChecksHealth: () =>
+      reply((): RepoChecksHealthResponse => ({ window_days: 30, repos: repoHealth(checkRuns) })),
+
     setRepoChecks: (raw) =>
       reply((): RepoChecksDto => {
         const fail = (issues: { path: PropertyKey[]; message: string }[]) =>
@@ -1303,7 +1392,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     runScheduleNow: (id, o = {}) =>
       reply(() => {
         const sc = scheduleOf(id);
-        const open = sc.last_ticket ? ticketStatusOf(sc.last_ticket.id) : null;
+        const open = sc.last_ticket ? ticketStatusById(sc.last_ticket.id) : null;
         if (open !== null && ['ready', 'claimed', 'in_progress'].includes(open) && !o.force) {
           throw new ApiRequestError(
             409,

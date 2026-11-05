@@ -72,6 +72,7 @@ describe('BoardCard.checking (UX-5)', () => {
         { label: 'PR opened', kind: 'action', status: 'todo', detail: null },
       ],
       current: 1,
+      checks_source: 'workflow',
     });
   });
 
@@ -127,6 +128,28 @@ describe('BoardCard.checking (UX-5)', () => {
     expect(BOARD_CARD_PENDING_FIXTURE.pending?.items).toHaveLength(7);
   });
 
+  it('UXR-75: a step with a pinned repo override says so, and lists its checks', () => {
+    const repo_checks = { checks: [{ name: 'Make test', cmd: 'make test' }] };
+    const checking = cardIn(step({ index: 0, repo_checks })).checking!;
+    expect(checking.checks_source).toBe('repo');
+    expect(checking.items!.map((i) => i.label)).toEqual(['Make test', 'PR opened']);
+  });
+
+  it('UXR-75: without an override the checks are the workflow’s', () => {
+    expect(cardIn(step({ index: 0 })).checking!.checks_source).toBe('workflow');
+  });
+
+  it('UXR-75: an override on a step that declares no checks does not apply', () => {
+    const repo_checks = { checks: [{ name: 'Make test', cmd: 'make test' }] };
+    const s = step({ kind: 'transition', transition: null, phase: 'review', repo_checks });
+    expect(checkingOfStep(CONDUCTOR_V2_DEF, s).checks_source).toBe('workflow');
+  });
+
+  it('UXR-75: an unknown definition reports a pinned override', () => {
+    const repo_checks = { checks: [{ name: 'Make test', cmd: 'make test' }] };
+    expect(checkingOfStep(null, step({ repo_checks })).checks_source).toBe('repo');
+  });
+
   it('NFR-1: an older card with checking {to, title, phase} only still parses', () => {
     const old = {
       ...BOARD_CARD_PENDING_FIXTURE,
@@ -135,5 +158,6 @@ describe('BoardCard.checking (UX-5)', () => {
     const parsed = BoardCardSchema.parse(old);
     expect(parsed.checking).toEqual(old.checking);
     expect(parsed.checking?.items).toBeUndefined();
+    expect(parsed.checking?.checks_source).toBeUndefined();
   });
 });

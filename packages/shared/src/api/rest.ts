@@ -94,6 +94,10 @@ export const API_PATHS = {
   sessionPermissionRequests: (id: string) => `/api/sessions/${id}/permission-requests`,
   /** ADR-0023: POST PermissionDecisionRequest → PermissionRequestDto. `:id` is the request_id. */
   permissionDecision: (id: string) => `/api/permission-requests/${id}/decision`,
+  /**
+   * POST CreateTicketRequest → 201 TicketDto. UXR-85: GET `?q=&status=&limit=&cursor=`
+   * (TicketSearchQuery) → TicketSearchResponse, the account's tickets of any status.
+   */
   tickets: '/api/tickets',
   /**
    * 06 §Queue order: PUT ReorderQueueRequest → QueueOrderResponse (the listed ready tickets first,
@@ -139,6 +143,10 @@ export const API_PATHS = {
    * PutRepoChecksRequest → RepoChecksDto; DELETE DeleteRepoChecksRequest → OkResponse.
    */
   repoChecks: '/api/repo-checks',
+  /** UXR-80: GET `?repo=&limit=` → RepoCheckRunsResponse (the last runs of each of its checks). */
+  repoCheckRuns: '/api/repo-checks/runs',
+  /** UXR-80: GET → RepoChecksHealthResponse (recent check results per repo). */
+  repoChecksHealth: '/api/repo-checks/health',
   /** ADR-0032: GET → ScheduleListResponse; POST CreateScheduleRequest → 201 ScheduleDto. */
   schedules: '/api/schedules',
   /** ADR-0032: GET → ScheduleDto; PATCH UpdateScheduleRequest → ScheduleDto; DELETE `{}` → OkResponse. */
@@ -466,6 +474,12 @@ export const BoardCheckingSchema = z.object({
   items: z.array(BoardCheckingItemSchema).optional(),
   /** UX-5: index in `items` of the running item, else null. */
   current: z.number().int().nonnegative().nullable().optional(),
+  /**
+   * UXR-75: where the step's checks come from: `repo` = the ticket repo's check override
+   * (ADR-0030, pinned on the step), `workflow` = the transition's own. Absent = unknown (older
+   * servers).
+   */
+  checks_source: z.enum(['workflow', 'repo']).optional(),
 });
 export type BoardChecking = z.infer<typeof BoardCheckingSchema>;
 
@@ -1236,6 +1250,79 @@ export const TicketDetailSchema = TicketDtoSchema.extend({
 });
 export type TicketDetail = z.infer<typeof TicketDetailSchema>;
 
+// ---------------------------------------------------------------- UXR-85: ticket search
+
+/** A status group of GET /api/tickets: `open` = ready, claimed, in_progress and failed. */
+export const TicketSearchStatusSchema = z.enum(['open', 'done', 'cancelled', 'all']);
+export type TicketSearchStatus = z.infer<typeof TicketSearchStatusSchema>;
+
+/** The ticket statuses of each search group (`all`: every status). */
+export const TICKET_SEARCH_STATUSES: Record<
+  Exclude<TicketSearchStatus, 'all'>,
+  readonly TicketStatus[]
+> = {
+  open: ['ready', 'claimed', 'in_progress', 'failed'],
+  done: ['done'],
+  cancelled: ['cancelled'],
+};
+
+/** The search group of a ticket status. */
+export function ticketSearchGroup(status: TicketStatus): Exclude<TicketSearchStatus, 'all'> {
+  return status === 'done' ? 'done' : status === 'cancelled' ? 'cancelled' : 'open';
+}
+
+export const TICKET_SEARCH_LIMIT_MAX = 50;
+export const TICKET_SEARCH_QUERY_MAX = 200;
+
+/**
+ * GET /api/tickets query. `q` (trimmed; empty = no text filter) matches the title, external ref
+ * or body (case-insensitive substring) or the start of the id (≥ 4 hex). `status`: comma-separated
+ * groups, default `all`. `cursor`: an offset (the previous page's `next_cursor`).
+ */
+export const TicketSearchQuerySchema = z.object({
+  q: z
+    .string()
+    .trim()
+    .max(TICKET_SEARCH_QUERY_MAX)
+    .optional()
+    .transform((v) => (v === undefined || v === '' ? undefined : v)),
+  status: z
+    .preprocess(
+      (v) => (typeof v === 'string' ? v.split(',').map((s) => s.trim()) : v),
+      z.array(TicketSearchStatusSchema).min(1),
+    )
+    .optional()
+    .transform((v) => (v === undefined ? (['all'] as TicketSearchStatus[]) : [...new Set(v)])),
+  limit: z.coerce.number().int().min(1).max(TICKET_SEARCH_LIMIT_MAX).default(20),
+  cursor: z.coerce.number().int().min(0).default(0),
+});
+export type TicketSearchQuery = z.infer<typeof TicketSearchQuerySchema>;
+
+/** One ticket found by GET /api/tickets. */
+export const TicketSearchResultSchema = z.object({
+  id: UuidSchema,
+  title: z.string(),
+  external_ref: z.string().nullable(),
+  status: TicketStatusSchema,
+  kind: TicketKindSchema.nullable(),
+  repo: z.string(),
+  /** Text of the body around the match; null without `q`. */
+  snippet: z.string().nullable(),
+  /** The ticket's latest session (open it in the session panel); null while queued. */
+  session_id: UuidSchema.nullable(),
+  created_at: IsoDateTimeSchema,
+  updated_at: IsoDateTimeSchema,
+});
+export type TicketSearchResult = z.infer<typeof TicketSearchResultSchema>;
+
+/** GET /api/tickets: most recently updated first; `next_cursor` null on the last page. */
+export const TicketSearchResponseSchema = z.object({
+  tickets: z.array(TicketSearchResultSchema),
+  next_cursor: z.number().int().nonnegative().nullable(),
+  total: z.number().int().nonnegative(),
+});
+export type TicketSearchResponse = z.infer<typeof TicketSearchResponseSchema>;
+
 /** POST /api/tickets/:id/proposals/approve: the decided proposal and the ticket it created. */
 export const ApproveProposalResponseSchema = z.object({
   proposal: TicketProposalSchema,
@@ -1440,6 +1527,71 @@ export const RepoChecksDetailSchema = z.object({
   ),
 });
 export type RepoChecksDetail = z.infer<typeof RepoChecksDetailSchema>;
+
+/**
+ * UXR-80: how one check run ended. `setup_failed` wins over `timed_out`, which wins over a non-zero
+ * (or missing) exit (`fail`).
+ */
+export const CheckRunStatusSchema = z.enum(['pass', 'fail', 'timed_out', 'setup_failed']);
+export type CheckRunStatus = z.infer<typeof CheckRunStatusSchema>;
+
+/** UXR-80: one past run of a check (a `run_cmd` and its `command.exited`). */
+export const RepoCheckRunSchema = z.object({
+  status: CheckRunStatusSchema,
+  exit_code: z.number().int().nullable(),
+  duration_ms: z.number().int().nonnegative(),
+  ticket_id: z.string(),
+  ticket_title: z.string().nullable(),
+  session_id: z.string(),
+  /** The gate (state) that ran it. */
+  state: z.string(),
+  machine_id: z.string().nullable(),
+  /** When it finished (ISO). */
+  at: z.string(),
+});
+export type RepoCheckRun = z.infer<typeof RepoCheckRunSchema>;
+
+/**
+ * UXR-80: GET /api/repo-checks/runs?repo=… → the repo's checks (its override's, else every gate's
+ * of the workflow) with their last runs, newest first. Runs are matched by `cmd`: the `run_cmd`
+ * outbox payload carries no check name (TD-201), so a renamed check keeps its history and a check
+ * whose command changed starts empty.
+ */
+export const RepoCheckRunsResponseSchema = z.object({
+  repo: z.string(),
+  window_days: z.number().int().positive(),
+  checks: z.array(
+    z.object({
+      name: z.string(),
+      cmd: z.string(),
+      /** Newest first, at most `limit`. */
+      runs: z.array(RepoCheckRunSchema),
+      runs_in_window: z.number().int().nonnegative(),
+      failures_in_window: z.number().int().nonnegative(),
+    }),
+  ),
+});
+export type RepoCheckRunsResponse = z.infer<typeof RepoCheckRunsResponseSchema>;
+
+/** UXR-80: one repo's recent check results (any repo with runs in the window). */
+export const RepoCheckHealthSchema = z.object({
+  /** `repoChecksKey` of the repo. */
+  repo: z.string(),
+  runs: z.number().int().nonnegative(),
+  failures: z.number().int().nonnegative(),
+  last_run_at: z.string().nullable(),
+  last_status: CheckRunStatusSchema.nullable(),
+  /** The most recent statuses, newest first, at most 5. */
+  recent: z.array(CheckRunStatusSchema),
+});
+export type RepoCheckHealth = z.infer<typeof RepoCheckHealthSchema>;
+
+/** UXR-80: GET /api/repo-checks/health → per-repo check results over the window. */
+export const RepoChecksHealthResponseSchema = z.object({
+  window_days: z.number().int().positive(),
+  repos: z.array(RepoCheckHealthSchema),
+});
+export type RepoChecksHealthResponse = z.infer<typeof RepoChecksHealthResponseSchema>;
 
 /**
  * POST /api/tickets → 201 TicketDto. ADR-0010: `workflow_id` defaults to `conductor` (the one
@@ -1793,9 +1945,8 @@ function stepItems(def: Pick<WorkflowDefinition, 'states'> | null, step: GateSte
     if (phase > cur) return 'todo';
     return i < step.index ? 'met' : i === step.index ? 'running' : 'todo';
   };
-  // ADR-0030: a step with real checks runs the repo's override instead, when one was pinned.
   const declared = req.checks ?? [];
-  const checks = declared.length > 0 && step.repo_checks ? step.repo_checks.checks : declared;
+  const checks = stepChecksSource(declared, step) === 'repo' ? step.repo_checks!.checks : declared;
   checks.forEach((c, i) =>
     items.push({ kind: 'check', label: c.name, status: indexed(0, i), detail: null }),
   );
@@ -1831,6 +1982,17 @@ function stepItems(def: Pick<WorkflowDefinition, 'states'> | null, step: GateSte
     }
   }
   return items;
+}
+
+/**
+ * ADR-0030: a step with real checks runs the repo's override instead, when one was pinned
+ * (`applyRepoChecks`); a step that declares none runs none.
+ */
+function stepChecksSource(
+  declared: readonly unknown[],
+  step: Pick<GateStep, 'repo_checks'>,
+): 'repo' | 'workflow' {
+  return declared.length > 0 && step.repo_checks ? 'repo' : 'workflow';
 }
 
 /**
@@ -1874,6 +2036,13 @@ export function checkingOfStep(
     detail: i.detail,
   }));
   const running = items.findIndex((i) => i.status === 'running');
+  // UXR-75: an unknown definition says nothing about its checks, so only a pinned override counts.
+  const checks_source =
+    def === null
+      ? step.repo_checks
+        ? 'repo'
+        : 'workflow'
+      : stepChecksSource(requiresOfStep(def, step)?.checks ?? [], step);
   return {
     to: step.to,
     title: def ? stateTitle(def, step.to) : step.to,
@@ -1882,6 +2051,7 @@ export function checkingOfStep(
     transition: step.transition ?? step.outcome,
     items,
     current: running === -1 ? null : running,
+    checks_source,
   };
 }
 

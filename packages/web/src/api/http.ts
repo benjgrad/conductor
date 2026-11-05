@@ -28,6 +28,11 @@ import {
   RepoChecksDtoSchema,
   RepoChecksListResponseSchema,
   RepoListResponseSchema,
+  RunScheduleResponseSchema,
+  ScheduleDtoSchema,
+  ScheduleListResponseSchema,
+  type CreateScheduleRequest,
+  type UpdateScheduleRequest,
   ResetLinkCreatedSchema,
   SessionDetailSchema,
   TranscriptResponseSchema,
@@ -371,6 +376,21 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
 
     clearRepoChecks: (repo: string) =>
       request(OkResponseSchema, 'DELETE', API_PATHS.repoChecks, { repo }),
+
+    listSchedules: () => request(ScheduleListResponseSchema, 'GET', API_PATHS.schedules),
+
+    saveSchedule: (id: string | null, req: CreateScheduleRequest | UpdateScheduleRequest) =>
+      id === null
+        ? request(ScheduleDtoSchema, 'POST', API_PATHS.schedules, req)
+        : request(ScheduleDtoSchema, 'PATCH', API_PATHS.schedule(encodeURIComponent(id)), req),
+
+    deleteSchedule: (id: string) =>
+      request(OkResponseSchema, 'DELETE', API_PATHS.schedule(encodeURIComponent(id)), {}),
+
+    runScheduleNow: (id: string, opts: { force?: boolean } = {}) =>
+      request(RunScheduleResponseSchema, 'POST', API_PATHS.scheduleRun(encodeURIComponent(id)), {
+        force: opts.force ?? false,
+      }),
 
     listChangeProposals: (opts = {}) => {
       const q = new URLSearchParams();

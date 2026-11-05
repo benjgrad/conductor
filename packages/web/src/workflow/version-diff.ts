@@ -155,6 +155,7 @@ const KNOWN_TRANSITION_KEYS = new Set([
   'actor',
   'kinds',
   'question',
+  'handoff',
   'when',
   'notify',
   'text',
@@ -265,6 +266,9 @@ function transitionLines(
   if (kindsText(b) !== kindsText(a)) lines.push(`For: ${kindsText(b)} → ${kindsText(a)}`);
   if ((b.question ?? false) !== (a.question ?? false)) {
     lines.push(`Asks a question: ${yesNo(b.question ?? false)} → ${yesNo(a.question ?? false)}`);
+  }
+  if ((b.handoff ?? false) !== (a.handoff ?? false)) {
+    lines.push(`Hands off for review: ${yesNo(b.handoff ?? false)} → ${yesNo(a.handoff ?? false)}`);
   }
   if (b.when !== a.when) lines.push(textChange('When to take it', b.when, a.when));
   if ((b.notify ?? false) !== (a.notify ?? false)) {

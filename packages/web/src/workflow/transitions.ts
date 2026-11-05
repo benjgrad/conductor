@@ -462,6 +462,13 @@ export function validateTransitions(def: WorkflowDefinition): TransitionIssue[] 
       if (t.question === true && t.goto !== RETURN_TO && typeOf(t.goto) !== 'human') {
         add('.question', 'only a transition to a human column can ask a question');
       }
+      // Rule 22 (ADR-0037 P8): a hand-off goes to a person, and is not also a question.
+      if (t.handoff === true) {
+        if (t.question === true) add('.handoff', 'hand off or ask a question, not both');
+        if (t.goto === RETURN_TO || typeOf(t.goto) !== 'human') {
+          add('.handoff', 'only a transition to a human column can hand off for review');
+        }
+      }
 
       const r = t.requires;
       if (r !== undefined) {
@@ -638,6 +645,7 @@ export function describeTransition(def: WorkflowDefinition, from: string, name: 
         : `When **${title}** happens`;
   if (t.kinds !== undefined && t.kinds.length === 1) opening += ` (${t.kinds[0]} tickets)`;
   if (t.question === true) opening += ', asking a question';
+  if (t.handoff === true) opening += ', handing off for review';
 
   const r = t.requires ?? {};
   const steps: string[] = [];
@@ -696,7 +704,17 @@ export type TransitionSection = 'who' | 'checks' | 'review' | 'actions' | 'condi
 export function sectionOfPath(suffix: string): TransitionSection | null {
   const under = (p: string) => suffix === p || suffix.startsWith(`${p}.`);
   if (
-    ['', '.title', '.goto', '.when', '.actor', '.kinds', '.question', '.notify'].includes(suffix)
+    [
+      '',
+      '.title',
+      '.goto',
+      '.when',
+      '.actor',
+      '.kinds',
+      '.question',
+      '.handoff',
+      '.notify',
+    ].includes(suffix)
   ) {
     return 'who';
   }

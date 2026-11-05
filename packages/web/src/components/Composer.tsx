@@ -1,7 +1,7 @@
 // The Messages composer: answers an open input request, else messages the running agent
 // (ADR-0007), else reopens a finished ticket with the same agent (ADR-0008), else is disabled
 // with the reason. A `/` at the start opens the slash menu.
-import { gateStepSource, type SessionDetail } from '@conductor/shared';
+import { gateStepSource, isAgentRequest, type SessionDetail } from '@conductor/shared';
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { displayState } from '../workflow/review.js';
@@ -145,7 +145,7 @@ export function Composer({
     // ADR-0011: /retry (like the quick actions) only on old versions, which have no buttons.
     canRetry:
       request !== null &&
-      request.kind !== 'agent_question' &&
+      !isAgentRequest(request.kind) &&
       detail.card.human_transitions.length === 0,
   });
   const query = slashQuery(text);
@@ -288,7 +288,7 @@ export function Composer({
   const placeholder = composerPlaceholder(m, {
     tone: detailRequestTone(detail),
     agent: agentName,
-    fromAgent: request?.kind === 'agent_question',
+    fromAgent: request !== null && isAgentRequest(request.kind),
   });
   const hint = finePointer && (answering || m.mode === 'message');
 

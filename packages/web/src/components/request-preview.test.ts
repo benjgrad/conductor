@@ -33,6 +33,11 @@ describe('classifyRequest (FR-2, FR-3)', () => {
     expect(classifyRequest(req({ origin_transition: 'pr_ready_for_review' }))).toBe('review');
   });
 
+  it('a handoff request (ADR-0037 P8) is a review request, whatever opened it', () => {
+    expect(classifyRequest(req({ kind: 'handoff' }))).toBe('review');
+    expect(classifyRequest(req({ kind: 'handoff', origin_transition: 'ship_it' }))).toBe('review');
+  });
+
   it('a plan_needs_approval origin is a plan to approve (06 §Plan approval)', () => {
     expect(classifyRequest(req({ origin_transition: 'plan_needs_approval' }))).toBe(
       'plan_approval',

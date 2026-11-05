@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   checkFailureRates,
+  classOf,
   FindingSchema,
   FINDING_RULES,
   GROUPS_MAX,
@@ -569,5 +570,14 @@ describe('what is counted (the 2026-11 metric fixes)', () => {
         .map((f) => f.id)
         .sort(),
     ).toEqual(['slow_state:implementing.ready_for_testing', 'slow_state:waiting_external']);
+  });
+});
+
+describe('classOf (ADR-0037 P8)', () => {
+  it('a handoff kind is a hand-off; an agent_question a question; anything else a stop', () => {
+    expect(classOf({ kind: 'handoff' })).toBe('handoff');
+    expect(classOf({ kind: 'agent_question' })).toBe('question');
+    expect(classOf({ kind: 'timeout' })).toBe('stop');
+    expect(classOf({ kind: 'handoff', class: 'question' })).toBe('question');
   });
 });

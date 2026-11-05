@@ -227,6 +227,19 @@ describe('diffVersions', () => {
     ]);
   });
 
+  it('a question switched to a hand-off (ADR-0037 P8)', () => {
+    const before = v2((d) => {
+      t(d, 'implementing', 'ask_user').question = true;
+    });
+    const after = v2((d) => {
+      t(d, 'implementing', 'ask_user').handoff = true;
+    });
+    expect(lines(before, after)).toEqual([
+      'Asks a question: yes → no',
+      'Hands off for review: no → yes',
+    ]);
+  });
+
   it('a string shorthand that becomes an object reads as its real change only', () => {
     const after = v2((d) => {
       t(d, 'planning', 'plan_ready').title = 'Plan is ready';

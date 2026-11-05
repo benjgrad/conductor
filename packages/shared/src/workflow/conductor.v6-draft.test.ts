@@ -25,7 +25,7 @@ describe('conductor v6 draft (ADR-0037)', () => {
     expect(res.ok ? [] : res.errors).toEqual([]);
   });
 
-  it('without it, only rule 14 refuses, once per ADR-0037 field', () => {
+  it('without it, only rule 14 refuses, once per ADR-0037 field not available yet', () => {
     const res = validateWorkflow(draft);
     expect(res.ok).toBe(false);
     if (res.ok) return;
@@ -45,7 +45,6 @@ describe('conductor v6 draft (ADR-0037)', () => {
         'states.in_review.watch.on_broken.instruction',
         at('in_review', 'request_changes', 'presets'),
         at('planning', 'plan_needs_approval', 'notify'),
-        ...pr.map((t) => at('implementing', t, 'handoff')),
         ...pr.map((t) => at('implementing', t, 'requires', 'concurrency')),
         ...gates.map((t) => at('implementing', t, 'on_unmet', 'instruction')),
         ...gates.map((t) => at('implementing', t, 'requires', 'conditions', 0, 'no_checks')),

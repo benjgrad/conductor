@@ -1,6 +1,11 @@
 // The Details tab's building blocks (UX-7 moved them here from DetailPanel, unchanged): the
 // agent card, workflow, spend & time, and the approve/cancel actions; UXR-84 the session insight.
-import type { MachineDto, SessionDetail, SessionInsightResponse } from '@conductor/shared';
+import {
+  isAgentRequest,
+  type MachineDto,
+  type SessionDetail,
+  type SessionInsightResponse,
+} from '@conductor/shared';
 import { useEffect, useState } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { AgentAvatar, cardAgent } from './agent-identity.js';
@@ -197,7 +202,7 @@ export function Actions({
   // A pending non-agent request on an old version already offers Abort (the quick actions).
   const canCancel = !(
     detail.pending_input &&
-    detail.pending_input.kind !== 'agent_question' &&
+    !isAgentRequest(detail.pending_input.kind) &&
     isOldVersion(detail)
   );
 

@@ -184,6 +184,24 @@ describe('client validation (ADR-0011 rules 10–14)', () => {
     ]);
   });
 
+  it('rule 22: a hand-off goes to a human column and is not also a question', () => {
+    const def = withT(V2, 'planning', 'plan_ready', { goto: 'implementing', handoff: true });
+    expect(issues(def)).toEqual([
+      [
+        'states.planning.on.plan_ready.handoff',
+        'only a transition to a human column can hand off for review',
+      ],
+    ]);
+    const both = withT(V2, 'planning', 'scope_changed', {
+      goto: 'needs_input',
+      question: true,
+      handoff: true,
+    });
+    expect(issues(both)).toEqual([
+      ['states.planning.on.scope_changed.handoff', 'hand off or ask a question, not both'],
+    ]);
+  });
+
   it('rule 12: every agent column can ask', () => {
     const def = structuredClone(V2);
     const impl = def.states.implementing!;

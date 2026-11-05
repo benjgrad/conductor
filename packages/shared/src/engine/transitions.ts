@@ -45,8 +45,17 @@ export type AgentTransitionPlan =
    * (`named`), or a name it may not take (unknown, not agent-actor, or not for this ticket's kind).
    */
   | { type: 'ask_user'; question: string; named: boolean }
-  /** Take transition `name`. `question`: its `reason` is the human's question. */
-  | { type: 'take'; name: string; transition: TransitionObject; question: boolean };
+  /**
+   * Take transition `name`. `question`: its `reason` is the human's question. `handoff` (ADR-0037
+   * P8): its `reason` is a summary of finished work for the human to review.
+   */
+  | {
+      type: 'take';
+      name: string;
+      transition: TransitionObject;
+      question: boolean;
+      handoff: boolean;
+    };
 
 /** The state an unmapped failure goes to: `needs_input` if it is human, else the first human state. */
 export function fallbackHumanState(def: Pick<WorkflowDefinition, 'states'>): string | null {
@@ -100,16 +109,28 @@ export function planAgentTransition(
     };
   }
   const t = transitionObject(raw);
-  return { type: 'take', name: n, transition: t, question: t.question === true };
+  return {
+    type: 'take',
+    name: n,
+    transition: t,
+    question: t.question === true,
+    handoff: t.handoff === true,
+  };
 }
 
-/** The question a `question: true` transition asks: the agent's reason, else a stand-in. */
+/**
+ * The text a `question: true` (or ADR-0037 `handoff: true`) transition opens: the agent's reason,
+ * else a stand-in.
+ */
 export function transitionQuestion(
   name: string,
   t: TransitionObject,
   reason: string | null,
 ): string {
   if (reason !== null && reason.trim() !== '') return reason;
+  if (t.handoff === true) {
+    return `The agent handed off "${transitionTitle(name, t)}" without a summary.`;
+  }
   return `The agent chose "${transitionTitle(name, t)}" without saying why.`;
 }
 

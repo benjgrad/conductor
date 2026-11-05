@@ -284,8 +284,8 @@ describe('rules 24 and 25: condition placement, no-CI policy', () => {
 });
 
 describe('rule 14: not available yet', () => {
-  it('no primitive is available yet; the new condition types are not either', () => {
-    expect(AVAILABLE_WORKFLOW_FEATURES).toEqual([]);
+  it('only the hand-off (T3) is available; the new condition types are not', () => {
+    expect(AVAILABLE_WORKFLOW_FEATURES).toEqual(['handoff']);
     expect(CONDITION_TYPES).toEqual(expect.arrayContaining(['cmd', 'pr_mergeable', 'age_below']));
   });
 
@@ -313,6 +313,23 @@ describe('rule 14: not available yet', () => {
       `14 ${PR}.requires.conditions.1`,
     ]);
     expect(validateWorkflow(d, { allowUnavailable: true }).ok).toBe(true);
+  });
+
+  it('a hand-off validates without allowUnavailable; refused while the feature is off', () => {
+    const d = structuredClone(LIVE_V5);
+    const t = tr(d, 'implementing', 'pr_ready_for_review');
+    delete t.question;
+    t.handoff = true;
+    expect(validateWorkflow(d).ok).toBe(true);
+    const parsed = WorkflowDefinitionSchema.parse(d);
+    expect(
+      checkAvailability(parsed, {
+        tools: AVAILABLE_TOOL_ALIASES,
+        resultKinds: AVAILABLE_RESULT_KINDS,
+        conditions: CONDITION_TYPES,
+        features: [],
+      }).map((e) => `${e.rule} ${e.path.join('.')}`),
+    ).toEqual([`14 ${PR}.handoff`]);
   });
 
   it('a disabled new condition is not refused', () => {

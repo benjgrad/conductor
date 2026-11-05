@@ -177,13 +177,21 @@ describe('machines page (M2-T11)', () => {
     expect(screen.getByLabelText('Install command')).toBeTruthy();
   });
 
-  it('revoke asks for confirmation, naming the sessions that go to a human', async () => {
+  it('revoke is in the drawer and asks for confirmation, naming the sessions that go to a human', async () => {
     const api = await renderPage();
     const live = (await api.getMachine('mbp-ben')).live_sessions.map((s) => s.title);
     expect(live).toContain('Add pagination to /orders');
+    // UXR-48: the row has only Details; Rename and Revoke are in the drawer.
+    expect(row("Ben's MacBook").queryByRole('button', { name: /Revoke|Rename/ })).toBeNull();
 
-    fireEvent.click(row("Ben's MacBook").getByRole('button', { name: "Revoke Ben's MacBook" }));
-    let confirm = within(await screen.findByRole('alertdialog', { name: 'Revoke machine' }));
+    const revokeFromDrawer = async () => {
+      fireEvent.click(screen.getByRole('button', { name: "Details of Ben's MacBook" }));
+      const drawer = within(await screen.findByRole('dialog', { name: "Machine Ben's MacBook" }));
+      fireEvent.click(drawer.getByRole('button', { name: "Revoke Ben's MacBook" }));
+      expect(screen.queryByRole('dialog', { name: /^Machine / })).toBeNull();
+      return within(await screen.findByRole('alertdialog', { name: 'Revoke machine' }));
+    };
+    let confirm = await revokeFromDrawer();
     const listed = confirm.getByRole('list', { name: 'Sessions that go to a human' });
     expect(
       within(listed)
@@ -195,11 +203,19 @@ describe('machines page (M2-T11)', () => {
     expect(screen.queryByRole('alertdialog')).toBeNull();
     expect((await api.getMachine('mbp-ben')).revoked_at).toBeNull();
 
-    fireEvent.click(row("Ben's MacBook").getByRole('button', { name: "Revoke Ben's MacBook" }));
-    confirm = within(await screen.findByRole('alertdialog', { name: 'Revoke machine' }));
+    confirm = await revokeFromDrawer();
     fireEvent.click(confirm.getByRole('button', { name: 'Revoke' }));
     await waitFor(() => expect(row("Ben's MacBook").getByText(/^Revoked/)).toBeTruthy());
-    expect(row("Ben's MacBook").queryByRole('button', { name: /Revoke/ })).toBeNull();
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole<HTMLButtonElement>('button', { name: "Details of Ben's MacBook" })
+          .disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(screen.getByRole('button', { name: "Details of Ben's MacBook" }));
+    const revoked = within(await screen.findByRole('dialog', { name: "Machine Ben's MacBook" }));
+    expect(revoked.queryByRole('button', { name: /Revoke|Rename/ })).toBeNull();
   });
 
   it('an outdated daemon shows the update mark; a current one does not', async () => {
@@ -242,15 +258,21 @@ describe('machines page (M2-T11)', () => {
     expect(mbp.queryByRole('region', { name: 'Update available' })).toBeNull();
   });
 
-  it('flags gh 2.14.0 as too old for pull requests, not gh 2.103.3', async () => {
+  it('flags gh 2.14.0 as too old for pull requests, not gh 2.103.3: a chip in the row, the text in the drawer', async () => {
     await renderPage();
     const flag = 'gh 2.14.0 is too old for pull requests (needs ≥ 2.40.0)';
-    expect(row('old-linux-box').getByText(flag, { exact: false })).toBeTruthy();
-    expect(row("Ben's MacBook").queryByText(/too old for pull requests/)).toBeNull();
+    // UXR-48: old-linux-box also has no git identity, so 2 problems.
+    const chip = row('old-linux-box').getByRole('button', {
+      name: '2 problems on old-linux-box: open details',
+    });
+    expect(chip.textContent).toBe('⚠ 2 problems');
+    expect(row('old-linux-box').queryByText(/too old for pull requests/)).toBeNull();
+    expect(row("Ben's MacBook").queryByRole('button', { name: /problem/ })).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Details of old-linux-box' }));
+    fireEvent.click(chip);
     const drawer = within(screen.getByRole('dialog', { name: 'Machine old-linux-box' }));
-    expect(drawer.getByText(flag, { exact: false })).toBeTruthy();
+    const problems = within(drawer.getByRole('region', { name: 'Problems' }));
+    expect(problems.getByText(flag, { exact: false })).toBeTruthy();
     cleanup();
 
     const api = createMockApi();
@@ -264,33 +286,56 @@ describe('machines page (M2-T11)', () => {
     };
     await renderPage(api);
     expect(screen.queryByText(/too old for pull requests/)).toBeNull();
+    expect(row('old-linux-box').getByRole('button', { name: /^1 problem on/ })).toBeTruthy();
   });
 
-  it('WF-T02: warns when a machine has no git identity, in its row and its drawer', async () => {
+  it('WF-T02: a machine with no git identity has a problem chip; the drawer has the fix', async () => {
     await renderPage();
     const flag = /No git identity: agent commits are authored conductor <conductor@localhost>/;
-    expect(row('old-linux-box').getByText(flag)).toBeTruthy();
-    expect(row("Ben's MacBook").queryByText(flag)).toBeNull();
+    expect(row('old-linux-box').queryByText(flag)).toBeNull();
+    expect(
+      row('old-linux-box').getByRole('button', { name: /problems on old-linux-box/ }),
+    ).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Details of old-linux-box' }));
     const drawer = within(screen.getByRole('dialog', { name: 'Machine old-linux-box' }));
-    expect(drawer.getByText(flag)).toBeTruthy();
+    expect(within(drawer.getByRole('region', { name: 'Problems' })).getByText(flag)).toBeTruthy();
   });
 
-  it('renames inline; an empty name cannot be saved', async () => {
+  it('renames in the drawer; an empty name cannot be saved; Escape leaves the form, then the drawer', async () => {
     await renderPage();
-    fireEvent.click(row('old-linux-box').getByRole('button', { name: 'Rename old-linux-box' }));
-    const input = screen.getByLabelText<HTMLInputElement>('Machine name');
-    const save = screen.getByRole<HTMLButtonElement>('button', { name: 'Save' });
+    fireEvent.click(screen.getByRole('button', { name: 'Details of old-linux-box' }));
+    let drawer = within(screen.getByRole('dialog', { name: 'Machine old-linux-box' }));
+    fireEvent.click(drawer.getByRole('button', { name: 'Rename old-linux-box' }));
+    const input = drawer.getByLabelText<HTMLInputElement>('Machine name');
+    const save = drawer.getByRole<HTMLButtonElement>('button', { name: 'Save' });
     fireEvent.change(input, { target: { value: '   ' } });
     expect(save.disabled).toBe(true);
     fireEvent.change(input, { target: { value: '  Build box ' } });
     fireEvent.click(save);
     expect(await screen.findByText('Build box', { selector: '.machine-name' })).toBeTruthy();
+    drawer = within(await screen.findByRole('dialog', { name: 'Machine Build box' }));
+    expect(drawer.getByRole('heading', { name: 'Build box' })).toBeTruthy();
 
-    fireEvent.click(row('Build box').getByRole('button', { name: 'Rename Build box' }));
-    fireEvent.keyDown(screen.getByLabelText('Machine name'), { key: 'Escape' });
+    fireEvent.click(drawer.getByRole('button', { name: 'Rename Build box' }));
+    fireEvent.keyDown(drawer.getByLabelText('Machine name'), { key: 'Escape' });
     expect(screen.queryByLabelText('Machine name')).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'Machine Build box' })).toBeTruthy();
+    fireEvent.keyDown(drawer.getByRole('button', { name: 'Close' }), { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: /^Machine / })).toBeNull();
+  });
+
+  it('UXR-47: the drawer is a modal sheet; a pointerdown outside it closes it', async () => {
+    await renderPage();
+    const details = screen.getByRole('button', { name: "Details of Ben's MacBook" });
+    details.focus();
+    fireEvent.click(details);
+    const dialog = screen.getByRole('dialog', { name: "Machine Ben's MacBook" });
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Close' }));
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole('dialog', { name: /^Machine / })).toBeNull();
+    expect(document.activeElement).toBe(details);
   });
 
   it('the drawer shows repos with mode, capabilities by kind, and alert files', async () => {
@@ -302,6 +347,8 @@ describe('machines page (M2-T11)', () => {
     const conductor = within(repos.getByText('github.com/benjgrad/conductor').closest('tr')!);
     expect(conductor.getByText('/Users/ben/code/conductor')).toBeTruthy();
     expect(conductor.getByText('checkout')).toBeTruthy();
+    // UXR-47: the table scrolls in its own box, so the Mode column is reachable.
+    expect(repos.getByRole('table').closest('.table-scroll')).toBeTruthy();
 
     expect(drawer.getByRole('list', { name: 'CLIs' }).textContent).toContain(
       'gh 2.62.0 (signed in)',

@@ -28,11 +28,6 @@
   color: var(--muted);
   font-weight: 600;
 }
-.admin-actions {
-  display: flex;
-  gap: 6px;
-  justify-content: flex-end;
-}
 .invite-open {
   color: var(--ok);
 }

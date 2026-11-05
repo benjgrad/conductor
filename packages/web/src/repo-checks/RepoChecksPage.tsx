@@ -15,6 +15,7 @@ import {
   type ChecksIssue,
   type ChecksValue,
 } from '../workflow/ChecksFields.js';
+import { ProposalsPanel } from '../workflow/ProposalsPanel.js';
 import { checkListIssues, type CheckListIssue } from '../workflow/transitions.js';
 import '../workflow/workflow.css';
 import './repo-checks.css';
@@ -257,7 +258,7 @@ function RepoDetailView({
     <ChecksFields
       checks={value.checks}
       setup={value.setup}
-      setupLabel="Before the checks (in a fresh checkout)"
+      setupLabel="Setup: runs first, in a fresh checkout"
       onChange={(next) => {
         setDraft(next);
         setServerIssues([]);
@@ -380,6 +381,17 @@ function RepoDetailView({
           </button>
         </div>
       )}
+      {/* UXR-73 (FR-5): the advisor's proposals for this repo's checks, here as well. */}
+      <ProposalsPanel
+        api={api}
+        dirty={dirty}
+        kind="repo_checks"
+        target={detail.repo}
+        onApplied={() => {
+          onChanged();
+          load();
+        }}
+      />
     </div>
   );
 }

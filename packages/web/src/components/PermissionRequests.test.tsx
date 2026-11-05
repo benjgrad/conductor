@@ -33,7 +33,10 @@ async function open(
 describe('PermissionRequests (ADR-0023)', () => {
   it('shows the tool, the command as code and its description', async () => {
     const { box } = await open();
-    expect(box.getByText(NEEDS_PERMISSION_LABEL, { selector: '.badge' })).toBeTruthy();
+    expect(box.getByText(NEEDS_PERMISSION_LABEL, { selector: '.request-chip' })).toBeTruthy();
+    // UXR-35: violet, not the red of a failure, and no "Action needed" caps.
+    expect(document.querySelector('section.request-permission')).toBeTruthy();
+    expect(box.queryByText(/Action needed/i)).toBeNull();
     expect(box.getByText('pnpm vitest run', { selector: 'code' })).toBeTruthy();
     expect(box.getByText('Run the tests')).toBeTruthy();
   });

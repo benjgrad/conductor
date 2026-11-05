@@ -891,3 +891,111 @@ describe('Workflow view: change proposals (ADR-0033 P3)', () => {
     await waitFor(() => expect(calls.length).toBeGreaterThan(n));
   });
 });
+
+describe('history, Compare and the Save review (UXR-70, UXR-73)', () => {
+  it('History lists every version with when, who and its note', async () => {
+    await setup();
+    fireEvent.click(screen.getByRole('button', { name: 'History' }));
+    const history = within(screen.getByRole('region', { name: 'Version history' }));
+    const rows = history.getAllByRole('row').slice(1);
+    expect(
+      rows.map((r) => [...r.querySelectorAll('td')].slice(0, 4).map((c) => c.textContent)),
+    ).toEqual([
+      [
+        'v3 (latest)',
+        '3 Oct 2026',
+        'ben@example.com via MCP',
+        'Transition rules: checks and conditions on arrows',
+      ],
+      ['v2', '2 Oct 2026', 'ben@example.com', 'Board columns: one column per state'],
+      ['v1', '1 Oct 2026', 'unknown', '—'],
+    ]);
+  });
+
+  it('Compare with latest reads in the editor’s words and highlights the diagram', async () => {
+    await setup();
+    fireEvent.click(screen.getByRole('button', { name: 'History' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Compare v2 with latest' }));
+    const diff = await screen.findByRole('list', { name: 'Changes from v2 to v3' }, DIAGRAM_WAIT);
+    // v2 → v3 moved the requirements to enter onto transitions (ADR-0011).
+    expect(diff.textContent).toContain('Requirements to enter changed');
+    expect(diff.textContent).not.toContain('{');
+    const changed = document.querySelectorAll('.wf-lane.changed, .wf-edge.changed');
+    expect(changed.length).toBeGreaterThan(0);
+    fireEvent.click(
+      within(screen.getByRole('region', { name: 'Changes from v2 to v3' })).getByRole('button', {
+        name: 'Close',
+      }),
+    );
+    expect(document.querySelectorAll('.wf-lane.changed, .wf-edge.changed')).toHaveLength(0);
+  });
+
+  it('an old version says who saved it and offers Compare with latest', async () => {
+    await setup();
+    type(screen.getByRole('combobox', { name: 'Version' }), '2');
+    await screen.findByRole('group', { name: 'conductor v2 columns' });
+    const note = screen.getByRole('note');
+    expect(note.textContent).toContain(
+      'You’re viewing v2, saved 2 Oct 2026 by ben@example.com: Board columns: one column per state.',
+    );
+    fireEvent.click(within(note).getByRole('button', { name: 'Compare with latest' }));
+    await screen.findByRole('list', { name: 'Changes from v2 to v3' }, DIAGRAM_WAIT);
+  });
+
+  it('Save opens the review with the diff and a note; Cancel keeps the draft', async () => {
+    const api = createMockApi();
+    const { saved } = await setup(api);
+    const notes: (string | undefined)[] = [];
+    const record = api.saveWorkflow.bind(api);
+    api.saveWorkflow = (def, opts) => {
+      notes.push(opts?.note);
+      return record(def, opts);
+    };
+    fireEvent.click(lane('Planning'));
+    type(editor().getByRole('textbox', { name: 'Title' }), 'Plan it');
+
+    fireEvent.click(saveButton());
+    const dialog = within(await reviewDialog());
+    const diff = await dialog.findByRole('list', { name: 'Changes from v3' });
+    expect(diff.textContent).toContain('Title: Planning → Plan it');
+    fireEvent.click(dialog.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(saved).toHaveLength(0);
+    expect(screen.getByText('Unsaved changes')).toBeTruthy();
+
+    await save('Clearer title');
+    await screen.findByRole('group', { name: 'conductor v4 columns' });
+    expect(saved[0]!.states.planning!.title).toBe('Plan it');
+    expect(notes).toEqual(['Clearer title']);
+  });
+
+  it('a draft that changes nothing from the latest cannot be saved', async () => {
+    await setup();
+    fireEvent.click(lane('Planning'));
+    const title = editor().getByRole('textbox', { name: 'Title' });
+    type(title, 'Plan it');
+    type(title, 'Planning');
+    fireEvent.click(saveButton());
+    const dialog = within(await reviewDialog());
+    expect(await dialog.findByText('Nothing changed from v3.')).toBeTruthy();
+    expect(dialog.getByRole<HTMLButtonElement>('button', { name: 'Save as v4' }).disabled).toBe(
+      true,
+    );
+  });
+
+  it('an open proposal highlights the columns and arrows it changes', async () => {
+    await setup();
+    const region = within(screen.getByRole('region', { name: 'Change proposals' }));
+    fireEvent.click(
+      await region.findByRole('button', { name: /Typecheck before testing/ }, DIAGRAM_WAIT),
+    );
+    await waitFor(() =>
+      expect(lane('Waiting external').getAttribute('class')).toContain('changed'),
+    );
+    expect(arrow('Implementing', 'Waiting external').getAttribute('class')).toContain('changed');
+    expect(arrow('Implementing', 'Waiting external').getAttribute('aria-label')).toMatch(
+      /\(changed\)$/,
+    );
+    expect(lane('Planning').getAttribute('class')).not.toContain('changed');
+  });
+});

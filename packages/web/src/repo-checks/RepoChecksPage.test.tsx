@@ -69,6 +69,32 @@ describe('repo checks page (ADR-0030)', () => {
     expect(onSelect).toHaveBeenCalledWith(SHOP);
   });
 
+  it('lists the advisor’s proposals for this repo, and applying one reloads it (UXR-73)', async () => {
+    const API = 'github.com/acme/api';
+    const { api } = renderPage(API);
+    await detail(API);
+    const region = within(await screen.findByRole('region', { name: 'Change proposals' }));
+    expect(
+      region.getByRole('heading', { name: 'Proposed changes to this repo’s checks' }),
+    ).toBeTruthy();
+    fireEvent.click(await region.findByRole('button', { name: /Build the web app inside m-one/ }));
+    const diff = await region.findByRole('list', { name: /^Changes in/ });
+    expect(diff.textContent).toContain('This repo gets its own checks');
+    // The workflow's proposals are not listed here.
+    expect(region.queryByRole('button', { name: /Typecheck before testing/ })).toBeNull();
+
+    const reload = vi.spyOn(api, 'getRepoChecks');
+    fireEvent.click(region.getByRole('button', { name: 'Apply…' }));
+    fireEvent.click(region.getByRole('button', { name: 'Confirm apply' }));
+    await waitFor(() => expect(reload).toHaveBeenCalledWith(API));
+  });
+
+  it('a repo with no proposals says so', async () => {
+    renderPage(SHOP);
+    const region = within(await screen.findByRole('region', { name: 'Change proposals' }));
+    expect(await region.findByText('No open proposals.')).toBeTruthy();
+  });
+
   it('a repo without an override shows the workflow’s checks at every gate', async () => {
     renderPage(FRESH);
     const d = await detail(FRESH);

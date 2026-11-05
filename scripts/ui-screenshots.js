@@ -84,7 +84,7 @@ const VIEWPORTS = [
     isMobile: true,
     hasTouch: true,
     deviceScaleFactor: 1,
-    themes: { light: ['board', 'detail', 'new-ticket'] },
+    themes: { light: ['board', 'detail', 'new-ticket', 'new-ticket-bottom'] },
   },
   {
     w: 1440,
@@ -95,6 +95,7 @@ const VIEWPORTS = [
         'board',
         'detail',
         'new-ticket',
+        'new-ticket-bottom',
         'machines',
         'workflows',
         'wf-rules-full',

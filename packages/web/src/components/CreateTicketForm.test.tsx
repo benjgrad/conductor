@@ -20,14 +20,21 @@ async function setup() {
     return create(req);
   };
   const state = { created: false };
-  render(<CreateTicketForm api={api} onCreated={() => (state.created = true)} />);
+  const closed = { count: 0 };
+  render(
+    <CreateTicketForm
+      api={api}
+      onCreated={() => (state.created = true)}
+      onClose={() => (closed.count += 1)}
+    />,
+  );
   fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), {
     target: { value: 'Fix the login bug' },
   });
   const submit = screen.getByRole<HTMLButtonElement>('button', { name: 'Create ticket' });
   // The Repo field fills in from GET /api/repos.
   await waitFor(() => expect(repoBox().value).not.toBe(''));
-  return { sent, state, submit };
+  return { sent, state, submit, closed };
 }
 
 const repoBox = () => screen.getByRole<HTMLInputElement>('combobox', { name: 'Repo' });
@@ -65,7 +72,7 @@ const REPOS: RepoSuggestion[] = [
 ];
 
 /** The form on a mock whose GET /api/repos answers `list` (or never, or fails). */
-function renderWith(list: Promise<RepoSuggestion[]>, opts: { sheet?: boolean } = {}) {
+function renderWith(list: Promise<RepoSuggestion[]>, opts: { title?: string } = {}) {
   const api = createMockApi();
   api.listRepos = () => list;
   const sent: CreateTicketRequest[] = [];
@@ -75,10 +82,10 @@ function renderWith(list: Promise<RepoSuggestion[]>, opts: { sheet?: boolean } =
     return create(req);
   };
   const closed = { count: 0 };
-  render(
-    <CreateTicketForm api={api} sheet={opts.sheet ?? false} onClose={() => (closed.count += 1)} />,
-  );
-  fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), { target: { value: 'T' } });
+  render(<CreateTicketForm api={api} onClose={() => (closed.count += 1)} />);
+  fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), {
+    target: { value: opts.title ?? 'T' },
+  });
   fireEvent.click(screen.getByRole('radio', { name: 'Work' }));
   return { sent, closed };
 }
@@ -157,7 +164,8 @@ describe('Repo field (searchable, most used first)', () => {
   });
 
   it('in the sheet, Escape closes the list first, then the sheet', async () => {
-    const { closed } = renderWith(Promise.resolve(REPOS), { sheet: true });
+    // A pristine form (no title) closes without asking.
+    const { closed } = renderWith(Promise.resolve(REPOS), { title: '' });
     await waitFor(() => expect(repoBox().value).toBe('github.com/o/top'));
     fireEvent.focus(repoBox());
     fireEvent.keyDown(repoBox(), { key: 'Escape' });
@@ -170,6 +178,80 @@ describe('Repo field (searchable, most used first)', () => {
   it('the mock ranks the seeded repos and fills the field', async () => {
     await setup();
     expect(repoBox().value).toBe((await createMockApi().listRepos())[0]!.repo);
+  });
+});
+
+describe('New ticket sheet (UXR-41)', () => {
+  const dialog = () => within(screen.getByRole('dialog', { name: 'New ticket' }));
+  const hint = () => screen.queryByText(/^Still needed:/);
+
+  it('is a "New ticket" dialog whose Create ticket says what is still needed', async () => {
+    renderWith(Promise.resolve(REPOS), { title: '' });
+    await waitFor(() => expect(repoBox().value).toBe('github.com/o/top'));
+    const submit = dialog().getByRole<HTMLButtonElement>('button', { name: 'Create ticket' });
+    expect(dialog().getByRole('heading', { name: 'New ticket' })).toBeTruthy();
+    expect(dialog().getByRole('button', { name: 'Close' })).toBeTruthy();
+    expect(submit.disabled).toBe(true);
+    expect(hint()?.textContent).toBe('Still needed: a title');
+    expect(submit.getAttribute('aria-describedby')).toBe(hint()?.id);
+    // Kind is the segmented pair; the radios keep their names.
+    fireEvent.click(dialog().getByRole('radio', { name: 'Personal' }));
+    fireEvent.change(dialog().getByRole('textbox', { name: 'Title' }), { target: { value: 'x' } });
+    expect(hint()).toBeNull();
+    expect(submit.disabled).toBe(false);
+    expect(submit.getAttribute('aria-describedby')).toBeNull();
+  });
+
+  it('lists everything missing', async () => {
+    const api = createMockApi();
+    api.listRepos = () => Promise.reject(new Error('down'));
+    render(<CreateTicketForm api={api} onClose={() => undefined} />);
+    await waitFor(() =>
+      expect(hint()?.textContent).toBe('Still needed: a title, a repo, Work or Personal'),
+    );
+  });
+
+  it('a pristine form closes at once: Close, Escape, or a click on the backdrop', async () => {
+    const { closed } = renderWith(Promise.resolve(REPOS), { title: '' });
+    await waitFor(() => expect(repoBox().value).toBe('github.com/o/top'));
+    fireEvent.click(dialog().getByRole('button', { name: 'Close' }));
+    expect(closed.count).toBe(1);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(closed.count).toBe(2);
+    // A press inside the sheet is not a backdrop click.
+    fireEvent.mouseDown(screen.getByRole('dialog', { name: 'New ticket' }));
+    expect(closed.count).toBe(2);
+    fireEvent.mouseDown(document.querySelector('.sheet-backdrop')!);
+    expect(closed.count).toBe(3);
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('with unsaved input, closing asks first (FR-4)', async () => {
+    const { closed } = renderWith(Promise.resolve(REPOS), { title: 'Half a thought' });
+    await waitFor(() => expect(repoBox().value).toBe('github.com/o/top'));
+    const confirm = () => screen.queryByRole('alertdialog', { name: 'Discard this ticket?' });
+
+    fireEvent.click(dialog().getByRole('button', { name: 'Close' }));
+    expect(closed.count).toBe(0);
+    expect(confirm()).toBeTruthy();
+    // The confirmation replaces Create ticket in the footer.
+    expect(dialog().queryByRole('button', { name: 'Create ticket' })).toBeNull();
+    fireEvent.click(within(confirm()!).getByRole('button', { name: 'Keep editing' }));
+    expect(confirm()).toBeNull();
+    expect(dialog().getByRole<HTMLInputElement>('textbox', { name: 'Title' }).value).toBe(
+      'Half a thought',
+    );
+
+    // Escape asks too; Escape again is Keep editing.
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(confirm()).toBeTruthy();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(confirm()).toBeNull();
+    expect(closed.count).toBe(0);
+
+    fireEvent.mouseDown(document.querySelector('.sheet-backdrop')!);
+    fireEvent.click(within(confirm()!).getByRole('button', { name: 'Discard' }));
+    expect(closed.count).toBe(1);
   });
 });
 
@@ -257,6 +339,20 @@ describe('ticket body editor (UX-3)', () => {
     expect(sent).toEqual([expect.objectContaining({ body: '' })]);
   });
 
+  it('the untouched template is not unsaved input; an edited body is (UXR-41 FR-4)', async () => {
+    const { closed } = renderWith(Promise.resolve(REPOS), { title: '' });
+    await richEditor();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(closed.count).toBe(1);
+    fireEvent.click(toggle());
+    fireEvent.change(description(), {
+      target: { value: TICKET_TEMPLATE.replace('- FR-1 …', '- FR-1 keep me') },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(closed.count).toBe(1);
+    expect(screen.getByRole('alertdialog', { name: 'Discard this ticket?' })).toBeTruthy();
+  });
+
   it('shows requirement hints that never block submit (FR-4, NFR-3)', async () => {
     const { state, submit } = await setup();
     const hintsButton = screen.getByRole('button', { name: 'Hints (1)' });
@@ -318,7 +414,7 @@ describe('ticket body editor (UX-3)', () => {
       await new Promise<void>((r) => (release = r));
       return create(req);
     };
-    render(<CreateTicketForm api={api} />);
+    render(<CreateTicketForm api={api} onClose={() => undefined} />);
     fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), { target: { value: 'T' } });
     fireEvent.click(screen.getByRole('radio', { name: 'Work' }));
     const editor = await richEditor();

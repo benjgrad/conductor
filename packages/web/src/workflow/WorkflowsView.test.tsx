@@ -516,6 +516,9 @@ describe('transition arrows (ADR-0011)', () => {
       'pr_approvals',
       'pr_merged',
       'pr_screenshots',
+      // ADR-0037 T5 (age_below is watch-only, rule 24).
+      'cmd',
+      'pr_mergeable',
     ]);
     type(add, 'pr_merged');
     expect(add.value).toBe('');

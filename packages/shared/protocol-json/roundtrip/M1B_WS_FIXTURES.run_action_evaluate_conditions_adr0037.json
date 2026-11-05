@@ -1,0 +1,40 @@
+{
+  "fencing_token": 2,
+  "msg_id": "00000000-0000-4000-8000-000000370001",
+  "payload": {
+    "action": "evaluate_conditions",
+    "args": {
+      "branch": "conductor/0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2/7d0c5b1e",
+      "conditions": [
+        {
+          "type": "pr_mergeable"
+        },
+        {
+          "cmd": "git merge-tree a b",
+          "name": "Merges cleanly",
+          "needs": "checkout",
+          "type": "cmd"
+        },
+        {
+          "no_checks": {
+            "after": "5m",
+            "policy": "require_mergeable"
+          },
+          "type": "pr_checks_green"
+        }
+      ],
+      "pr_url": "https://github.com/benjgrad/fixture-app/pull/7",
+      "setup": null,
+      "short_circuit": true
+    },
+    "branch": "conductor/0b6f2a7c-8d1e-4f3a-a5b6-c7d8e9f0a1b2/7d0c5b1e",
+    "command_id": "5e4d3c2b-1a09-4f8e-b7d6-c5b4a3928170",
+    "expected_sha": null,
+    "idempotency_key": "7d0c5b1e-3f4a-4b7e-9c2d-1a2b3c4d5e6f:in_review:2026-11-05T12:00:00.000Z",
+    "target_state": "in_review",
+    "workflow_state": "in_review"
+  },
+  "seq": null,
+  "session_id": "7d0c5b1e-3f4a-4b7e-9c2d-1a2b3c4d5e6f",
+  "type": "run_action"
+}

@@ -168,6 +168,13 @@
     "array": false
   },
   {
+    "file": "M1B_WS_FIXTURES.action_result_evaluate_conditions_adr0037.json",
+    "export": "M1B_WS_FIXTURES",
+    "key": "action_result_evaluate_conditions_adr0037",
+    "schema": "DaemonToOrchestrator",
+    "array": false
+  },
+  {
     "file": "M1B_WS_FIXTURES.complete_state_transition.json",
     "export": "M1B_WS_FIXTURES",
     "key": "complete_state_transition",
@@ -178,6 +185,13 @@
     "file": "M1B_WS_FIXTURES.run_action_evaluate_conditions.json",
     "export": "M1B_WS_FIXTURES",
     "key": "run_action_evaluate_conditions",
+    "schema": "OrchestratorToDaemon",
+    "array": false
+  },
+  {
+    "file": "M1B_WS_FIXTURES.run_action_evaluate_conditions_adr0037.json",
+    "export": "M1B_WS_FIXTURES",
+    "key": "run_action_evaluate_conditions_adr0037",
     "schema": "OrchestratorToDaemon",
     "array": false
   },

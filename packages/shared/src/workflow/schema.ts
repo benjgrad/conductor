@@ -237,7 +237,7 @@ const conditionCommon = {
 /**
  * ADR-0037 P3: what `pr_checks_green` does when the PR still reports no checks `after` that long.
  * `pass` is today's `no_checks_after`; `require_mergeable` is met only when GitHub says the PR is
- * mergeable. Exclusive with `no_checks_after` (rule 25); refused until T5 (rule 14).
+ * mergeable. Exclusive with `no_checks_after` (rule 25).
  */
 export const NoChecksPolicySchema = z.strictObject({
   policy: z.enum(['pass', 'fail', 'require_mergeable']),
@@ -277,7 +277,7 @@ export const ConditionSchema = z.discriminatedUnion('type', [
   }),
   /**
    * ADR-0037 P2: met when `cmd` exits 0, in the fresh conductor-owned checkout of the PR head;
-   * `needs: checkout` skips the repo setup. Not available until T5 (rule 14).
+   * `needs: checkout` skips the repo setup.
    */
   z.strictObject({
     type: z.literal('cmd'),
@@ -287,11 +287,11 @@ export const ConditionSchema = z.discriminatedUnion('type', [
     needs: z.enum(['checkout', 'setup']).default('setup'),
     ...conditionCommon,
   }),
-  /** ADR-0037 P2: GitHub says the PR merges (`UNKNOWN` stays pending). Not available until T5. */
+  /** ADR-0037 P2: GitHub says the PR merges (`UNKNOWN` stays pending). */
   z.strictObject({ type: z.literal('pr_mergeable'), ...conditionCommon }),
   /**
    * ADR-0037 P2: met while the stay in the current state is shorter than `max`. Engine-side,
-   * only in a `watch` (rule 24). Not available until T5.
+   * only in a `watch` (rule 24).
    */
   z.strictObject({ type: z.literal('age_below'), max: DurationSchema, ...conditionCommon }),
 ]);
@@ -309,20 +309,35 @@ export const ConditionTypeSchema = z.enum([
 ]);
 export type ConditionType = z.infer<typeof ConditionTypeSchema>;
 export const CONDITION_TYPES = ConditionTypeSchema.options;
-/** Condition types the daemon can evaluate in M1b (with `gh`); the rest are `unsupported`. */
+/** Condition types conductor can evaluate (rule 14); the rest are `unsupported`. */
 export const AVAILABLE_CONDITION_TYPES: readonly ConditionType[] = [
   'pr_checks_green',
   'pr_approvals',
   'pr_merged',
   'pr_screenshots',
+  'cmd',
+  'pr_mergeable',
+  'age_below',
 ];
+
+/**
+ * ADR-0037 P2: condition types the engine evaluates itself (never sent to the daemon):
+ * `age_below` is the time in the current state.
+ */
+export const ENGINE_CONDITION_TYPES: ReadonlySet<ConditionType> = new Set(['age_below']);
+/** ADR-0037 rule 24: condition types only allowed inside a `watch`. */
+export const WATCH_ONLY_CONDITION_TYPES: ReadonlySet<ConditionType> = new Set(['age_below']);
+/** The types a transition's `requires.conditions` may offer (the designer's select). */
+export const REQUIRES_CONDITION_TYPES: readonly ConditionType[] = AVAILABLE_CONDITION_TYPES.filter(
+  (t) => !WATCH_ONLY_CONDITION_TYPES.has(t),
+);
 
 /**
  * ADR-0037: the workflow primitives that parse but are refused "not available yet" (rule 14)
  * until their ticket marks them available here. Conditions `cmd` / `pr_mergeable` / `age_below`
  * are gated by AVAILABLE_CONDITION_TYPES instead.
  * - `watch` (P1, T6): a state's `watch`;
- * - `no_checks` (P3, T5): `pr_checks_green.no_checks`;
+ * - `no_checks` (P3, T5, available): `pr_checks_green.no_checks`;
  * - `concurrency` (P4, T7): `requires.concurrency`;
  * - `instructions` (P5, T8): the `instructions` map, `$instructions.<slug>` refs and `presets`;
  * - `notify_policy` (P6, T4): the workflow `notify` block and string transition `notify` values;
@@ -337,7 +352,7 @@ export const WORKFLOW_FEATURES = [
   'handoff',
 ] as const;
 export type WorkflowFeature = (typeof WORKFLOW_FEATURES)[number];
-export const AVAILABLE_WORKFLOW_FEATURES: readonly WorkflowFeature[] = [];
+export const AVAILABLE_WORKFLOW_FEATURES: readonly WorkflowFeature[] = ['no_checks'];
 
 /** `enabled` defaults to true. */
 export function conditionEnabled(c: Condition): boolean {

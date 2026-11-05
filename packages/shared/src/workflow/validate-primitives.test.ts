@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { CONDUCTOR_V4 } from './conductor.js';
 import {
+  AVAILABLE_CONDITION_TYPES,
   AVAILABLE_WORKFLOW_FEATURES,
   CONDITION_TYPES,
   noChecksPolicy,
@@ -284,9 +285,23 @@ describe('rules 24 and 25: condition placement, no-CI policy', () => {
 });
 
 describe('rule 14: not available yet', () => {
-  it('no primitive is available yet; the new condition types are not either', () => {
-    expect(AVAILABLE_WORKFLOW_FEATURES).toEqual([]);
-    expect(CONDITION_TYPES).toEqual(expect.arrayContaining(['cmd', 'pr_mergeable', 'age_below']));
+  it('T5: the new condition types and the no_checks policy are available; nothing else yet', () => {
+    expect(AVAILABLE_WORKFLOW_FEATURES).toEqual(['no_checks']);
+    expect(AVAILABLE_CONDITION_TYPES).toEqual(
+      expect.arrayContaining(['cmd', 'pr_mergeable', 'age_below']),
+    );
+  });
+
+  it('v5 with pr_mergeable, a cmd and a no_checks policy validates without allowUnavailable', () => {
+    const d = structuredClone(LIVE_V5);
+    const conds = tr(d, 'implementing', 'pr_ready_for_review').requires.conditions;
+    conds.push({ type: 'pr_mergeable' });
+    conds.push({ type: 'cmd', name: 'Merges cleanly', cmd: 'true', needs: 'checkout' });
+    const checks = conds.find((c: { type: string }) => c.type === 'pr_checks_green');
+    delete checks.no_checks_after;
+    checks.no_checks = { policy: 'require_mergeable', after: '5m' };
+    const res = validateWorkflow(d);
+    expect(res.ok ? [] : res.errors).toEqual([]);
   });
 
   it('marking every feature and condition available lifts every refusal in the draft', () => {

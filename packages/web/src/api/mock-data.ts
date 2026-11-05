@@ -14,6 +14,7 @@ import {
   type BoardCard,
   type ChangeProposalDetail,
   type BoardChecking,
+  type CheckRunRow,
   type InputRequestDto,
   type MachineDetail,
   type MoveDto,
@@ -1080,6 +1081,44 @@ export function mockRepoChecks(now: Date): RepoChecksDto[] {
       updated_by: 'ben@example.com',
     },
   ];
+}
+
+/**
+ * UXR-80: past check runs for the Repo checks page's history: acme/shop flaky (its override's
+ * commands), acme/api failing 6 of 6 on the workflow's `npm run build` (the advisor's proposal),
+ * benjgrad/conductor all passing.
+ */
+export function mockCheckRuns(now: Date): CheckRunRow[] {
+  const rows: CheckRunRow[] = [];
+  const add = (repo: string, cmd: string, hoursAgo: number, exit: number | null, extra = {}) => {
+    const at = now.getTime() - hoursAgo * 3_600_000;
+    const i = rows.length + 1;
+    rows.push({
+      session_id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+      ticket_id: `00000000-0000-4000-9000-${String(i).padStart(12, '0')}`,
+      repo,
+      machine_id: null,
+      state: 'implementing',
+      cmd,
+      exit_code: exit,
+      timed_out: false,
+      setup_failed: false,
+      started_at: new Date(at - (90 + i * 7) * 1000).toISOString(),
+      at: new Date(at).toISOString(),
+      ...extra,
+    });
+  };
+  [70, 50, 30, 20, 8, 2].forEach((h, i) => {
+    add('github.com/acme/shop', 'pnpm build', h, 0);
+    add('github.com/acme/shop', 'pnpm test', h - 0.5, i === 2 || i === 5 ? 1 : 0);
+  });
+  add('github.com/acme/shop', 'pnpm test', 1, null, { timed_out: true });
+  [200, 150, 90, 60, 26, 5].forEach((h) => add('github.com/acme/api', 'npm run build', h, 1));
+  [40, 12, 3].forEach((h) => {
+    add('github.com/benjgrad/conductor', 'npm run build', h, 0);
+    add('github.com/benjgrad/conductor', 'npm test', h - 0.2, 0);
+  });
+  return rows;
 }
 
 /**

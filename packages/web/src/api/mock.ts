@@ -94,6 +94,7 @@ import {
 import { validateColumns } from '../workflow/columns.js';
 import {
   CONDUCTOR,
+  MOCK_WORKFLOW_AUTHORS,
   MOCK_WORKFLOW_HISTORY,
   mockMachines,
   mockRepoChecks,
@@ -218,12 +219,22 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     for (const id of ids) attachments.get(id)!.ticketId = ticketId;
   };
   /** Workflow versions per id, oldest first (version N at index N-1). */
-  const workflows = new Map<string, { definition: WorkflowDefinition; created_at: string }[]>(
+  const workflows = new Map<
+    string,
+    {
+      definition: WorkflowDefinition;
+      created_at: string;
+      created_by: string | null;
+      note: string | null;
+    }[]
+  >(
     Object.entries(MOCK_WORKFLOW_HISTORY).map(([id, defs]) => [
       id,
       defs.map((definition, i) => ({
         definition,
         created_at: new Date(Date.UTC(2026, 9, 1 + i)).toISOString(),
+        created_by: MOCK_WORKFLOW_AUTHORS[id]?.[i]?.created_by ?? null,
+        note: MOCK_WORKFLOW_AUTHORS[id]?.[i]?.note ?? null,
       })),
     ]),
   );
@@ -1047,7 +1058,13 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     listChangeProposals: (o = {}) =>
       reply((): ChangeProposalListResponse => {
         const wanted = o.status === undefined || o.status === 'all' ? null : o.status;
-        const all = proposals.filter((p) => wanted === null || p.status === wanted);
+        const target = o.target === undefined ? null : repoChecksKey(o.target);
+        const all = proposals.filter(
+          (p) =>
+            (wanted === null || p.status === wanted) &&
+            (o.kind === undefined || p.kind === o.kind) &&
+            (target === null || p.target === o.target || p.target === target),
+        );
         const cursor = o.cursor ?? 0;
         const page = all.slice(cursor, cursor + 10);
         const end = cursor + page.length;
@@ -1068,11 +1085,25 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           throw new ApiRequestError(403, 'forbidden', 'Only an instance admin can apply this.');
         }
         const at = now().toISOString();
+        // A workflow change saves its definition as the next version, like the server.
+        let applied: number | null = null;
+        if (p.kind === 'workflow' && p.proposed_definition) {
+          const versions = workflows.get(p.target) ?? [];
+          applied = versions.length + 1;
+          versions.push({
+            definition: clone({ ...p.proposed_definition, version: applied }),
+            created_at: at,
+            created_by: MOCK_ADMIN.email,
+            note: `Applied proposal: ${p.title}`,
+          });
+          workflows.set(p.target, versions);
+        }
         Object.assign(p, {
           status: 'applied',
           applied_at: at,
           decided_at: at,
           decided_by: MOCK_ADMIN.email,
+          ...(applied !== null ? { applied_version: applied } : {}),
         });
         return clone(p);
       }),
@@ -1135,17 +1166,26 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           );
         }
         // `versions`: every saved version (the optional WorkflowDetail field, ADR-0009).
-        const out = {
+        const out: WorkflowDetail = {
           id,
           version: row.definition.version,
           created_at: row.created_at,
+          created_by: row.created_by,
+          note: row.note,
           definition: row.definition,
           versions: (versions ?? []).map((v) => v.definition.version),
+          // UXR-70: the version history.
+          history: (versions ?? []).map((v) => ({
+            version: v.definition.version,
+            created_at: v.created_at,
+            created_by: v.created_by,
+            note: v.note,
+          })),
         };
         return clone(out);
       }),
 
-    saveWorkflow: (definition) =>
+    saveWorkflow: (definition, opts) =>
       reply(() => {
         // The orchestrator's validator (T03), plus the ADR-0009 gate and ADR-0010 entry rules.
         const result = validateWorkflow(definition);
@@ -1168,6 +1208,8 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         versions.push({
           definition: clone({ ...result.def, version }),
           created_at: now().toISOString(),
+          created_by: MOCK_ADMIN.email,
+          note: opts?.note?.trim() ? opts.note.trim() : null,
         });
         workflows.set(result.def.id, versions);
         return { id: result.def.id, version };

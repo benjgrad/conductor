@@ -6,6 +6,9 @@ import {
   formatRequirement,
   ghTooOld,
   ghTooOldText,
+  GIT_IDENTITY_MISSING_TEXT,
+  machineProblems,
+  problemsLabel,
   routingNeeds,
   routingRule,
   serviceCommand,
@@ -26,6 +29,25 @@ describe('machines format (M2-T11)', () => {
     expect(ghTooOld(withGh(null))).toBeNull();
     expect(ghTooOld({ ...MACHINE_DETAIL_FIXTURE.capabilities, cli: [] })).toBeNull();
     expect(ghTooOldText('2.14.0')).toBe('gh 2.14.0 is too old for pull requests (needs ≥ 2.40.0)');
+  });
+
+  it('UXR-48: lists the problems, gh first, and counts them', () => {
+    const current = { capabilities: withGh('2.62.0') };
+    const old = { capabilities: withGh('2.14.0') };
+    expect(machineProblems({ git_identity_missing: false }, current)).toEqual([]);
+    expect(machineProblems({}, undefined)).toEqual([]);
+    expect(machineProblems({ git_identity_missing: false }, old)).toEqual([
+      { key: 'gh-too-old', summary: 'gh too old', text: ghTooOldText('2.14.0') },
+    ]);
+    expect(machineProblems({ git_identity_missing: true }).map((p) => p.text)).toEqual([
+      GIT_IDENTITY_MISSING_TEXT,
+    ]);
+    expect(machineProblems({ git_identity_missing: true }, old).map((p) => p.key)).toEqual([
+      'gh-too-old',
+      'git-identity',
+    ]);
+    expect(problemsLabel(1)).toBe('1 problem');
+    expect(problemsLabel(2)).toBe('2 problems');
   });
 
   it('adds --service to both install command forms', () => {

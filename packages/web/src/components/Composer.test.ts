@@ -5,7 +5,7 @@ import {
   type SessionDetail,
 } from '@conductor/shared';
 import { describe, expect, it } from 'vitest';
-import { composerMode } from './Composer.js';
+import { composerMode, composerPlaceholder } from './Composer.js';
 
 function detail(card: BoardCard): SessionDetail {
   return {
@@ -59,5 +59,35 @@ describe('composerMode while a move step waits on its conditions', () => {
       checking: null,
     };
     expect(composerMode(detail(card)).mode).toBe('off');
+  });
+});
+
+describe('composerPlaceholder (UXR-36 FR-3)', () => {
+  const answer = { mode: 'answer' } as const;
+  const ctx = (tone: Parameters<typeof composerPlaceholder>[1]['tone'], fromAgent = true) => ({
+    tone,
+    agent: 'Avery',
+    fromAgent,
+  });
+
+  it('names the agent and the kind of request', () => {
+    expect(composerPlaceholder(answer, ctx('question'))).toBe('Answer Avery…');
+    expect(composerPlaceholder(answer, ctx('review'))).toBe('Ask Avery for changes…');
+    expect(composerPlaceholder({ mode: 'message' }, ctx(null))).toBe(
+      'Message Avery… (/ for commands)',
+    );
+    expect(composerPlaceholder({ mode: 'reopen' }, ctx(null))).toBe(
+      'Ask Avery to change something…',
+    );
+  });
+
+  it("a failure conductor raised is conductor's question; an agent's is the agent's", () => {
+    expect(composerPlaceholder(answer, ctx('failure', false))).toBe('Tell Conductor what to do…');
+    expect(composerPlaceholder(answer, ctx('failure', true))).toBe('Answer Avery…');
+  });
+
+  it('never the Enter hint, and empty when disabled (the reason is shown once, below)', () => {
+    expect(composerPlaceholder(answer, ctx('question'))).not.toMatch(/Enter/);
+    expect(composerPlaceholder({ mode: 'off', reason: 'Session finished' }, ctx(null))).toBe('');
   });
 });

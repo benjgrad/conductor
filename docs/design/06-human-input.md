@@ -43,7 +43,7 @@ An agent's `ask_user` may list the answers it expects, the way Claude Code's own
 - **Card** (`CardActions.tsx`, `card-action.ts`): single select with at most 4 options shows one button, the **first** option (ask_user lists the recommended one first; its description is the tooltip), in place of the human transition buttons; otherwise **Answer…** opens the panel. The panel has every option.
 - **Permission prompts on the card**: a card whose agent waits on a permission prompt (`sub_status: needs_permission`) shows **Allow once** for the oldest pending request. Deny, Allow always and the deny note are in the panel, which the card's title opens (UXR-33: one action per card).
 - **One action per card** (UXR-33): a card shows at most one button or link, in this order: a review request's **Review pull request ↗**, **Approve plan**, the first agent option (or **Answer…**), **Allow once**, the first human transition (`cardAction`, `web/src/components/card-action.ts`). Everything else is in the session panel.
-- **Action needed**: every request that waits on a human in the panel (question, plan to approve, review, permission) leads with an "Action needed" label and a heavy left border, so it stands out from the chat.
+- **Requests by kind** (UXR-35, [11-web-ui §Requests](11-web-ui.md#requests)): every request that waits on a human in the panel has a heavy left border and a chip naming its kind, coloured by kind: a question (and a plan to approve) blue, a review green, a permission prompt violet, a failure red. Only failures are red.
 
 ## Live messages to a running agent
 

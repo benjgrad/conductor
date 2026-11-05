@@ -122,6 +122,32 @@ describe('createHttpApi workflows (ADR-0009)', () => {
     ]);
   });
 
+  it('UXR-70/73: a save note; proposals filtered by kind and target', async () => {
+    const detail = await createMockApi({ now }).getWorkflow('m1_basic');
+    const { calls, fetch } = recordingFetch(({ method }) =>
+      method === 'POST'
+        ? json(201, { id: 'm1_basic', version: 3 })
+        : json(200, { proposals: [], next_cursor: null, total: 0 }),
+    );
+    const api = createHttpApi({ fetch });
+    await api.saveWorkflow(detail.definition, { note: '  Fewer questions ' });
+    await api.saveWorkflow(detail.definition, { note: '   ' });
+    await api.listChangeProposals({
+      status: 'proposed',
+      kind: 'repo_checks',
+      target: 'github.com/acme/api',
+    });
+    expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([
+      ['POST', '/api/workflows', { definition: detail.definition, note: 'Fewer questions' }],
+      ['POST', '/api/workflows', { definition: detail.definition }],
+      [
+        'GET',
+        '/api/change-proposals?status=proposed&kind=repo_checks&target=github.com%2Facme%2Fapi',
+        undefined,
+      ],
+    ]);
+  });
+
   it('carries 400 invalid_workflow details on the ApiRequestError', async () => {
     const details = [{ path: 'states.build.on.fail.goto', message: 'rule 1: unknown state' }];
     const { fetch } = recordingFetch(() =>

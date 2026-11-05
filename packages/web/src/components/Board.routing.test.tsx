@@ -36,12 +36,15 @@ const PLAIN: BoardCard = {
 };
 
 describe('board routing and alert badges (M2-T11)', () => {
-  it('a Queued card with routing names the missing repo and capabilities', () => {
+  // UXR-34: one line on the card; the hover text (title) says why.
+  const badge = (title: string) => article(title).getByText('No machine can take this');
+
+  it('a Queued card with routing shows one line, with the missing repo and capabilities on hover', () => {
     renderCards([ROUTED, PLAIN]);
-    const badge = article('Routed').getByText(/needs a machine with/);
-    expect(badge.textContent).toBe('needs a machine with benjgrad/fixture-app and az (signed in)');
-    expect(within(badge).getByText('benjgrad/fixture-app').tagName).toBe('CODE');
-    expect(article('Plain').queryByText(/needs a machine/)).toBeNull();
+    expect(badge('Routed').getAttribute('title')).toBe(
+      'needs benjgrad/fixture-app and az (signed in)',
+    );
+    expect(article('Plain').queryByText('No machine can take this')).toBeNull();
   });
 
   it('lists three needs with commas and "and"; an empty routing still says why it waits', () => {
@@ -52,10 +55,10 @@ describe('board routing and alert badges (M2-T11)', () => {
       },
       { ...PLAIN, title: 'Empty', routing: { missing_capabilities: [] } },
     ]);
-    expect(article('Routed').getByText(/needs a machine with/).textContent).toBe(
-      'needs a machine with gitlab.com/o/r, az and jira MCP server',
+    expect(badge('Routed').getAttribute('title')).toBe(
+      'needs gitlab.com/o/r, az and jira MCP server',
     );
-    expect(article('Empty').getByText('no online machine can take it')).toBeTruthy();
+    expect(badge('Empty').getAttribute('title')).toBe('No online machine can take it');
   });
 
   it('a repo rule says which machine alone takes it, before anything it lacks', () => {
@@ -76,16 +79,16 @@ describe('board routing and alert badges (M2-T11)', () => {
         routing: { missing_capabilities: ['cli:az'], excluded_by_rule: true },
       },
     ]);
-    expect(article('Routed').getByText('only Work laptop takes this repo')).toBeTruthy();
-    expect(article('Two').getByText('only Work laptop and Mac take this repo')).toBeTruthy();
-    expect(article('Allow').getByText(/needs a machine with/).textContent).toBe(
-      "left out by the machines' repo rules; needs a machine with az",
+    expect(badge('Routed').getAttribute('title')).toBe('only Work laptop takes this repo');
+    expect(badge('Two').getAttribute('title')).toBe('only Work laptop and Mac take this repo');
+    expect(badge('Allow').getAttribute('title')).toBe(
+      "left out by the machines' repo rules; needs az",
     );
   });
 
   it('shows routing only on Queued cards', () => {
     renderCards([{ ...ROUTED, column: 'implementing', status: 'running' }]);
-    expect(screen.queryByText(/needs a machine/)).toBeNull();
+    expect(screen.queryByText('No machine can take this')).toBeNull();
   });
 
   it('a card with an alert shows the red ".git changed" badge and the files', () => {

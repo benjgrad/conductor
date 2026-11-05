@@ -310,7 +310,8 @@ mod tests {
     #[test]
     fn prepare_reads_a_media_file_under_a_safe_name() {
         let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("NCNG-2701 case1 before?.png");
+        // `#` (not `?`): a valid name on Windows too, still not one safe_name keeps.
+        let p = dir.path().join("NCNG-2701 case1 before#.png");
         std::fs::write(&p, PNG).unwrap();
         assert_eq!(
             prepare(&p, &[dir.path().to_path_buf()]).unwrap(),

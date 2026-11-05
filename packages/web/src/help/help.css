@@ -5,7 +5,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 10px 16px;
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border);
   background: var(--panel);
 }
@@ -16,19 +16,19 @@
   display: block;
   max-width: 760px;
   margin: 0 auto;
-  padding: 16px 20px 48px;
+  padding: var(--space-4) var(--space-5) var(--space-7);
   line-height: 1.5;
 }
 .help-body h1 {
-  font-size: 24px;
+  font-size: var(--text-xl);
 }
 .help-body h2 {
-  font-size: 19px;
-  margin-top: 28px;
+  font-size: var(--text-lg);
+  margin-top: var(--space-5);
 }
 .help-body h3 {
-  font-size: 16px;
-  margin-top: 18px;
+  font-size: var(--text-lg);
+  margin-top: var(--space-4);
 }
 .help-body .md-code {
   overflow-x: auto;

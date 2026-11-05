@@ -12,7 +12,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 3px var(--space-2);
+  padding: var(--space-1) var(--space-2);
   border-color: transparent;
   border-radius: var(--radius-pill);
   background: none;
@@ -32,7 +32,7 @@
 }
 .ticket-strip-tally {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .ticket-strip-tally.brief-tally-warn {
   color: var(--warn);
@@ -60,7 +60,7 @@
 }
 .ticket-strip-edit {
   justify-content: center;
-  padding: 3px 6px;
+  padding: var(--space-1) var(--space-2);
 }
 .ticket-strip-button:focus-visible,
 .ticket-sheet-close:focus-visible {
@@ -88,7 +88,7 @@
 .detail .ticket-sheet-head h3 {
   flex: 1;
   margin: 0;
-  font-size: 15px;
+  font-size: var(--text-md);
   color: var(--text);
   text-transform: none;
   letter-spacing: normal;
@@ -111,7 +111,7 @@
   padding: var(--space-2) var(--space-3) var(--space-4);
 }
 .ticket-sheet-body.brief-sheet {
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 /* The plan reads like a document here: no card around it. */
 .ticket-sheet .plan-body {

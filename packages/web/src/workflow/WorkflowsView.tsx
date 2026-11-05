@@ -300,7 +300,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
           </ul>
         )}
         {shown && asColumns && (
-          <label className="wf-check">
+          <label className="wf-toggle">
             <input
               type="checkbox"
               checked={ticketEditableOf(shown, QUEUED_LANE)}

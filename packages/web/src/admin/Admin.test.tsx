@@ -86,6 +86,9 @@ describe('admin page', () => {
 
     // No disabling yourself.
     expect(screen.queryByRole('button', { name: 'Disable ben@example.com' })).toBeNull();
+    // UXR-48: the buttons sit in a real table cell, so the row's border is continuous.
+    const reset = screen.getByRole('button', { name: 'Reset link for sam@example.com' });
+    expect(reset.parentElement?.matches('td.table-actions > .table-actions-inner')).toBe(true);
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset link for sam@example.com' }));
     const dialog = within(await screen.findByRole('dialog', { name: 'Reset link' }));

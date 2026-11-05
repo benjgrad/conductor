@@ -28,12 +28,6 @@ describe('API selection (VITE_API)', () => {
     expect(board.columns.find((c) => c.id === 'needs_input')!.cards.length).toBeGreaterThan(0);
   });
 
-  it('VITE_MOCK_AUTH=password turns on the mock accounts', async () => {
-    const { api } = createApiFromEnv({ VITE_API: 'mock', VITE_MOCK_AUTH: 'password' });
-    expect((await api.me()).auth_mode).toBe('password');
-    expect((await createApiFromEnv({ VITE_API: 'mock' }).api.me()).auth_mode).toBe('local');
-  });
-
   it('VITE_MOCK_STATIC=1 holds the mock board still (no simulated output)', async () => {
     vi.useFakeTimers();
     try {
@@ -44,6 +38,13 @@ describe('API selection (VITE_API)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('?mock-auth=password starts the mock signed in as its admin', async () => {
+    const env = { VITE_API: 'mock', VITE_MOCK_STATIC: '1' };
+    expect((await createApiFromEnv(env, {}, '').api.me()).auth_mode).toBe('local');
+    const me = await createApiFromEnv(env, {}, '?mock-auth=password').api.me();
+    expect(me).toMatchObject({ auth_mode: 'password', user: { is_admin: true } });
   });
 
   it('VITE_MOCK_PERMISSION=1 holds a permission on a running card (UXR-32 scene)', async () => {

@@ -7,13 +7,9 @@ import {
 import { useState, type FormEvent } from 'react';
 import { errorMessage } from '../api/client.js';
 import { ago } from '../components/format.js';
-import {
-  cannotTakeReasons,
-  ghTooOld,
-  ghTooOldText,
-  GIT_IDENTITY_MISSING_TEXT,
-  shortRepo,
-} from './format.js';
+import { Sheet } from '../components/Sheet.js';
+import { cannotTakeReasons, machineProblems, shortRepo } from './format.js';
+import { RenameForm } from './RenameForm.js';
 import { UpgradeSection } from './UpgradeNotice.js';
 
 const KINDS: { key: keyof MachineDetail['capabilities']; title: string }[] = [
@@ -29,35 +25,82 @@ interface MachineDrawerProps {
   onClose: () => void;
   /** Saves the repo rules (PATCH /api/machines/:id); rejects with the API error. */
   onSaveRules: (req: UpdateMachineRequest) => Promise<unknown>;
+  /** Renames the machine (the drawer stays open). */
+  onRename: (name: string) => void;
+  /** Asks to revoke it (the page closes the drawer and shows the confirmation). */
+  onRevoke: () => void;
 }
 
 /**
  * One machine's inventory (ADR-0013 §Inventory): repos, capabilities by kind, open alerts, its repo
  * rules (amendment 2026-10-30), and the queued tickets it can't take (M2-T16a).
  */
-export function MachineDrawer({ machine, onClose, onSaveRules }: MachineDrawerProps) {
-  const oldGh = ghTooOld(machine.capabilities);
+export function MachineDrawer({
+  machine,
+  onClose,
+  onSaveRules,
+  onRename,
+  onRevoke,
+}: MachineDrawerProps) {
+  const problems = machineProblems(machine, machine);
+  const [renaming, setRenaming] = useState(false);
   return (
-    <aside className="machine-drawer" role="dialog" aria-label={`Machine ${machine.name}`}>
-      <header>
-        <h3>{machine.name}</h3>
-        <button type="button" onClick={onClose}>
-          Close
-        </button>
-      </header>
+    <Sheet
+      title={machine.name}
+      ariaLabel={`Machine ${machine.name}`}
+      className="machine-drawer"
+      onClose={onClose}
+    >
       <p className="machine-sub">
         {machine.hostname}
         {machine.os && ` · ${machine.os}`}
         {machine.arch && `/${machine.arch}`}
       </p>
-      {oldGh !== null && <p className="machine-warning">⚠ {ghTooOldText(oldGh)}</p>}
-      {machine.git_identity_missing === true && (
-        <p className="machine-warning">⚠ {GIT_IDENTITY_MISSING_TEXT}</p>
+      {machine.revoked_at === null &&
+        (renaming ? (
+          <RenameForm
+            name={machine.name}
+            onCancel={() => setRenaming(false)}
+            onSave={(name) => {
+              setRenaming(false);
+              onRename(name);
+            }}
+          />
+        ) : (
+          <div className="machine-drawer-actions">
+            <button
+              type="button"
+              aria-label={`Rename ${machine.name}`}
+              onClick={() => setRenaming(true)}
+            >
+              Rename
+            </button>
+            <button
+              type="button"
+              className="danger"
+              aria-label={`Revoke ${machine.name}`}
+              onClick={onRevoke}
+            >
+              Revoke…
+            </button>
+          </div>
+        ))}
+      {problems.length > 0 && (
+        <section aria-label="Problems">
+          <h3>Problems</h3>
+          <ul className="machine-problems">
+            {problems.map((p) => (
+              <li key={p.key} className="machine-warning">
+                ⚠ {p.text}
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
       <UpgradeSection machine={machine} />
 
       <section aria-label="Open alerts">
-        <h4>Open alerts</h4>
+        <h3>Open alerts</h3>
         {machine.alerts.length === 0 ? (
           <p className="muted">None.</p>
         ) : (
@@ -80,40 +123,42 @@ export function MachineDrawer({ machine, onClose, onSaveRules }: MachineDrawerPr
       </section>
 
       <section aria-label="Repos">
-        <h4>Repos</h4>
+        <h3>Repos</h3>
         {machine.repos.length === 0 ? (
           <p className="muted">None found under the daemon's repo roots.</p>
         ) : (
-          <table className="machines-table">
-            <thead>
-              <tr>
-                <th>Remote</th>
-                <th>Path</th>
-                <th>Mode</th>
-              </tr>
-            </thead>
-            <tbody>
-              {machine.repos.map((r) => (
-                <tr key={r.path}>
-                  <td>{r.remote ?? <span className="muted">no remote (not routable)</span>}</td>
-                  <td>
-                    <code>{r.path}</code>
-                  </td>
-                  <td>{r.mode}</td>
+          <div className="table-scroll">
+            <table className="machines-table">
+              <thead>
+                <tr>
+                  <th>Remote</th>
+                  <th>Path</th>
+                  <th>Mode</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {machine.repos.map((r) => (
+                  <tr key={r.path}>
+                    <td>{r.remote ?? <span className="muted">no remote (not routable)</span>}</td>
+                    <td>
+                      <code>{r.path}</code>
+                    </td>
+                    <td>{r.mode}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 
       <RepoRules key={machine.id} machine={machine} onSave={onSaveRules} />
 
       <section aria-label="Capabilities">
-        <h4>Capabilities</h4>
+        <h3>Capabilities</h3>
         {KINDS.map(({ key, title }) => (
           <div key={key} className="machine-caps">
-            <h5>{title}</h5>
+            <h4>{title}</h4>
             {machine.capabilities[key].length === 0 ? (
               <p className="muted">None.</p>
             ) : (
@@ -126,7 +171,7 @@ export function MachineDrawer({ machine, onClose, onSaveRules }: MachineDrawerPr
           </div>
         ))}
         <div className="machine-caps">
-          <h5>Can't take</h5>
+          <h4>Can't take</h4>
           {machine.cannot_take.length === 0 ? (
             <p className="muted">None: it can take every queued ticket.</p>
           ) : (
@@ -140,7 +185,7 @@ export function MachineDrawer({ machine, onClose, onSaveRules }: MachineDrawerPr
           )}
         </div>
       </section>
-    </aside>
+    </Sheet>
   );
 }
 
@@ -207,7 +252,7 @@ function RepoRules({
 
   return (
     <section aria-label="Repo rules">
-      <h4>Repo rules</h4>
+      <h3>Repo rules</h3>
       <form className="machine-rules" onSubmit={(e) => void submit(e)}>
         <label>
           Only take these repos <span className="muted">(empty: any repo)</span>

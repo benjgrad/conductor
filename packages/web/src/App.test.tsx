@@ -142,8 +142,8 @@ describe('detail panel', () => {
     const panel = within(await openCard('Fix flaky checkout test'));
     const actions = within(await panel.findByRole('group', { name: 'Quick actions' }));
     expect(actions.getByRole('button', { name: 'Retry test' })).toBeTruthy();
-    fireEvent.change(actions.getByLabelText('Skip to state'), { target: { value: 'done' } });
-    fireEvent.click(actions.getByRole('button', { name: 'Skip' }));
+    fireEvent.click(actions.getByRole('button', { name: /Skip to/ }));
+    fireEvent.click(actions.getByRole('menuitem', { name: 'done' }));
     await waitFor(() => expect(cardTitles('Done')).toContain('Fix flaky checkout test'));
   });
 
@@ -191,6 +191,7 @@ describe('top nav icons (UX-11)', () => {
     ['link', 'Board'],
     ['link', 'Workflow'],
     ['link', 'Machines'],
+    ['link', 'Schedules'],
     ['link', 'Add a machine'],
     ['link', 'Help'],
     ['button', 'New ticket'],

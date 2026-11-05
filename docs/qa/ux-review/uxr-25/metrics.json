@@ -4,6 +4,7 @@
     "pageScrollWidth": 375,
     "deviceWidth": 375,
     "horizontalOverflow": false,
+    "clippedOverflow": [],
     "pageHeight": 812,
     "smallTapTargets": 6,
     "smallTapTargetSample": [
@@ -20,6 +21,7 @@
     "pageScrollWidth": 375,
     "deviceWidth": 375,
     "horizontalOverflow": false,
+    "clippedOverflow": [],
     "pageHeight": 812,
     "smallTapTargets": 1,
     "smallTapTargetSample": [
@@ -31,6 +33,7 @@
     "pageScrollWidth": 375,
     "deviceWidth": 375,
     "horizontalOverflow": false,
+    "clippedOverflow": [],
     "pageHeight": 812,
     "smallTapTargets": 2,
     "smallTapTargetSample": [
@@ -43,6 +46,7 @@
     "pageScrollWidth": 375,
     "deviceWidth": 375,
     "horizontalOverflow": false,
+    "clippedOverflow": [],
     "pageHeight": 812,
     "smallTapTargets": 1,
     "smallTapTargetSample": [
@@ -54,17 +58,18 @@
     "pageScrollWidth": 1440,
     "deviceWidth": 1440,
     "horizontalOverflow": false,
-    "pageHeight": 1231,
-    "smallTapTargets": 39,
+    "clippedOverflow": [],
+    "pageHeight": 900,
+    "smallTapTargets": 41,
     "smallTapTargetSample": [
       "a \"Board\" 89×24",
       "a \"Workflow\" 106×24",
       "a \"Machines\" 108×24",
+      "a \"Schedules\" 114×24",
       "a \"Add a machine\" 147×24",
       "a \"Help\" 74×24",
       "button \"New ticket\" 118×26",
-      "button \"Ben\" 71×26",
-      "input \"\" 338×26"
+      "button \"Ben\" 71×26"
     ]
   },
   "signup-1440x900-light": {
@@ -72,6 +77,7 @@
     "pageScrollWidth": 1440,
     "deviceWidth": 1440,
     "horizontalOverflow": false,
+    "clippedOverflow": [],
     "pageHeight": 900,
     "smallTapTargets": 5,
     "smallTapTargetSample": [
@@ -87,6 +93,7 @@
     "pageScrollWidth": 1440,
     "deviceWidth": 1440,
     "horizontalOverflow": false,
+    "clippedOverflow": [],
     "pageHeight": 900,
     "smallTapTargets": 5,
     "smallTapTargetSample": [
@@ -102,17 +109,30 @@
     "pageScrollWidth": 1440,
     "deviceWidth": 1440,
     "horizontalOverflow": false,
+    "clippedOverflow": [],
     "pageHeight": 900,
-    "smallTapTargets": 13,
+    "smallTapTargets": 14,
     "smallTapTargetSample": [
       "a \"Board\" 83×24",
       "a \"Workflow\" 106×24",
       "a \"Machines\" 108×24",
+      "a \"Schedules\" 114×24",
       "a \"Add a machine\" 147×24",
       "a \"Help\" 74×24",
       "button \"Ben\" 71×26",
-      "button \"Reset link for ben@example.com\" 90×26",
-      "input \"\" 188×26"
+      "button \"Reset link for ben@example.com\" 90×26"
+    ]
+  },
+  "admin-768x1024-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 768,
+    "deviceWidth": 768,
+    "horizontalOverflow": false,
+    "clippedOverflow": [],
+    "pageHeight": 1024,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "input \"\" 13×13"
     ]
   }
 }

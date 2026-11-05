@@ -23,6 +23,10 @@ export interface ColumnsDiagramProps {
   selectedEdge?: string | null;
   /** Edge ids with validation problems. */
   errorEdges?: ReadonlySet<string>;
+  /** UXR-73: columns a compared version or a proposal changes (highlighted). */
+  changedStates?: ReadonlySet<string>;
+  /** UXR-73: arrows (`arrowId`) it changes; ids not drawn are ignored. */
+  changedEdges?: ReadonlySet<string>;
   /** The session's lane (a state name or QUEUED_LANE). */
   current?: string | null;
   /** The session's entry step (ADR-0010): it is checking the requirements to enter `to`. */
@@ -40,6 +44,8 @@ export function ColumnsDiagram({
   onSelectEdge,
   selectedEdge,
   errorEdges,
+  changedStates,
+  changedEdges,
   current,
   checking,
   compact = false,
@@ -94,6 +100,7 @@ export function ColumnsDiagram({
                 laid={l}
                 selected={l.lane.id === selected}
                 error={!!errors?.has(l.lane.id)}
+                changed={!!changedStates?.has(l.lane.id)}
                 current={l.lane.id === current}
                 checking={checking?.to === l.lane.id}
                 checkingPhase={checking?.phase ?? null}
@@ -106,6 +113,7 @@ export function ColumnsDiagram({
           <g className="wf-edges">
             {layout.edges.map((e) => {
               const selectable = isSelectable(e);
+              const changed = !!changedEdges?.has(e.edge.id);
               const activate = () => onSelectEdge?.(e.edge);
               return (
                 <g
@@ -119,6 +127,7 @@ export function ColumnsDiagram({
                     selectable ? 'selectable' : '',
                     e.edge.id === selectedEdge ? 'selected' : '',
                     errorEdges?.has(e.edge.id) ? 'error' : '',
+                    changed ? 'changed' : '',
                   ]
                     .filter(Boolean)
                     .join(' ')}
@@ -128,7 +137,7 @@ export function ColumnsDiagram({
                     ? {
                         tabIndex: 0,
                         role: 'button',
-                        'aria-label': `Arrow ${e.edge.title}`,
+                        'aria-label': `Arrow ${e.edge.title}${changed ? ' (changed)' : ''}`,
                         'aria-pressed': e.edge.id === selectedEdge,
                         onClick: activate,
                         onKeyDown: (ev: KeyboardEvent) => {
@@ -199,6 +208,7 @@ function LaneBox({
   laid,
   selected,
   error,
+  changed,
   current,
   checking,
   checkingPhase,
@@ -207,6 +217,7 @@ function LaneBox({
   laid: LaidLane;
   selected: boolean;
   error: boolean;
+  changed: boolean;
   current: boolean;
   checking: boolean;
   checkingPhase: string | null;
@@ -230,13 +241,15 @@ function LaneBox({
     checking ? 'checking' : '',
     selected ? 'selected' : '',
     error ? 'error' : '',
+    changed ? 'changed' : '',
     onSelect ? 'selectable' : '',
   ]
     .filter(Boolean)
     .join(' ');
+  // UXR-45 / UXR-68: the column's kind; UXR-73: whether the compared version changed it.
   const name =
-    `Column ${lane.title}: ${lane.work}` +
-    `${lane.entry ? ', has requirements to enter' : ''} (${kindLabel} column)`;
+    `Column ${lane.title}: ${lane.work}${lane.entry ? ', has requirements to enter' : ''}` +
+    ` (${kindLabel} column)${changed ? ' (changed)' : ''}`;
   const tip = checking
     ? `${name}; checking requirements to enter${checkingPhase ? ` (${checkingPhase})` : ''}`
     : name;

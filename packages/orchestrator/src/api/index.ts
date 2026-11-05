@@ -4,10 +4,12 @@ import {
   ApproveProposalRequestSchema,
   ApproveSessionRequestSchema,
   CancelSessionRequestSchema,
+  CancelTicketRequestSchema,
   CreateTicketRequestSchema,
   DismissProposalRequestSchema,
   FreshConversationRequestSchema,
   ReopenSessionRequestSchema,
+  ReopenTicketRequestSchema,
   SaveWorkflowRequestSchema,
   SendMessageRequestSchema,
   TransitionSessionRequestSchema,
@@ -54,6 +56,7 @@ import { loadSessionDetail, sessionExists } from './sessions.js';
 import { approveProposal, dismissProposal } from './proposals.js';
 import { createTicket, loadTicketDetail, updateTicket } from './tickets.js';
 import { registerTeamRoutes } from './team.js';
+import { cancelTicket, reopenTicket } from './ticket-lifecycle.js';
 import { registerAttachmentRoutes } from './attachments.js';
 
 // M1-T08: REST + SSE for the UI (03 §UI ↔ orchestrator), as the `CreateApi` factory (main.ts).
@@ -480,6 +483,55 @@ export const createApi = (({
     }
   });
 
+  // UXR-86: cancel / reopen the ticket itself, queued (no session) or not (ticket-lifecycle.ts).
+  app.post<IdParams>(API_PATHS.ticketCancel(':id'), async (req, reply) => {
+    const id = ticketId(req.params.id, reply);
+    if (id === undefined) return reply;
+    const body = parseBody(CancelTicketRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const res = await cancelTicket(
+      { db, engine },
+      req.auth!.scope.account_id,
+      id,
+      body.reason,
+      UI_ACTOR,
+    );
+    switch (res.status) {
+      case 'not_found':
+        return sendError(reply, 404, 'not_found', `ticket ${id} not found`);
+      case 'conflict':
+        return sendError(reply, 409, 'conflict', res.reason);
+      case 'engine': {
+        const { status, code } = httpForApplyResult('cancel', res.result);
+        return sendError(reply, status, code, `operator.cancel: ${res.result.reason}`);
+      }
+      case 'applied':
+        for (const ev of res.events) boardBus.publish(ev);
+        return reply.code(202).send(OK);
+    }
+  });
+
+  app.post<IdParams>(API_PATHS.ticketReopen(':id'), async (req, reply) => {
+    const id = ticketId(req.params.id, reply);
+    if (id === undefined) return reply;
+    const body = parseBody(ReopenTicketRequestSchema, req.body, reply);
+    if (!body) return reply;
+    const res = await reopenTicket(db, req.auth!.scope.account_id, id, body.text, UI_ACTOR);
+    switch (res.status) {
+      case 'not_found':
+        return sendError(reply, 404, 'not_found', `ticket ${id} not found`);
+      case 'conflict':
+        return sendError(reply, 409, 'conflict', res.reason);
+      case 'applied':
+        for (const ev of res.events) boardBus.publish(ev);
+        // As POST /api/sessions/:id/reopen: Claude does not echo the prompt; show it.
+        if (res.sessionId !== null && res.text !== null) {
+          outputBus.append(res.sessionId, 'user', res.text);
+        }
+        return reply.code(202).send(OK);
+    }
+  });
+
   // 06 §Proposed tickets: approve (creates the ticket) or dismiss an agent's proposed follow-up.
   // The parent ticket doesn't move. Both are idempotent on `proposal_id`.
   app.post<IdParams>(API_PATHS.ticketProposalApprove(':id'), async (req, reply) => {
@@ -528,7 +580,12 @@ export const createApi = (({
           ]);
         }
       }
-      const detail = await loadWorkflowDetail(db, req.params.id, version);
+      const detail = await loadWorkflowDetail(
+        db,
+        req.params.id,
+        version,
+        req.auth?.scope.account_id ?? null,
+      );
       if (!detail) {
         const what = version === null ? '' : ` version ${version}`;
         return sendError(reply, 404, 'not_found', `no workflow ${req.params.id}${what}`);
@@ -541,7 +598,12 @@ export const createApi = (({
   app.post(API_PATHS.workflows, async (req, reply) => {
     const body = parseBody(SaveWorkflowRequestSchema, req.body, reply);
     if (!body) return reply;
-    const result = await saveWorkflowDefinition(db, body.definition);
+    // UXR-70: who saved it and their note, for the version history.
+    const result = await saveWorkflowDefinition(db, body.definition, {
+      createdBy: req.auth?.user.email ?? null,
+      note: body.note ?? null,
+      ...(req.auth ? { accountId: req.auth.scope.account_id } : {}),
+    });
     if (!result.ok && result.code === 'invalid_workflow') {
       return sendError(
         reply,

@@ -6,8 +6,12 @@ import {
   formatRequirement,
   ghTooOld,
   ghTooOldText,
+  GIT_IDENTITY_MISSING_TEXT,
+  machineProblems,
+  problemsLabel,
   routingNeeds,
   routingRule,
+  routingSentence,
   serviceCommand,
   shortRepo,
 } from './format.js';
@@ -26,6 +30,25 @@ describe('machines format (M2-T11)', () => {
     expect(ghTooOld(withGh(null))).toBeNull();
     expect(ghTooOld({ ...MACHINE_DETAIL_FIXTURE.capabilities, cli: [] })).toBeNull();
     expect(ghTooOldText('2.14.0')).toBe('gh 2.14.0 is too old for pull requests (needs ≥ 2.40.0)');
+  });
+
+  it('UXR-48: lists the problems, gh first, and counts them', () => {
+    const current = { capabilities: withGh('2.62.0') };
+    const old = { capabilities: withGh('2.14.0') };
+    expect(machineProblems({ git_identity_missing: false }, current)).toEqual([]);
+    expect(machineProblems({}, undefined)).toEqual([]);
+    expect(machineProblems({ git_identity_missing: false }, old)).toEqual([
+      { key: 'gh-too-old', summary: 'gh too old', text: ghTooOldText('2.14.0') },
+    ]);
+    expect(machineProblems({ git_identity_missing: true }).map((p) => p.text)).toEqual([
+      GIT_IDENTITY_MISSING_TEXT,
+    ]);
+    expect(machineProblems({ git_identity_missing: true }, old).map((p) => p.key)).toEqual([
+      'gh-too-old',
+      'git-identity',
+    ]);
+    expect(problemsLabel(1)).toBe('1 problem');
+    expect(problemsLabel(2)).toBe('2 problems');
   });
 
   it('adds --service to both install command forms', () => {
@@ -59,6 +82,19 @@ describe('machines format (M2-T11)', () => {
     expect(
       routingNeeds({ missing_repo: 'github.com/org/app', missing_capabilities: ['cli:az'] }),
     ).toEqual(['org/app', 'az']);
+  });
+
+  it('routingSentence: the rule, then the needs; empty when it names nothing (UXR-34)', () => {
+    expect(
+      routingSentence({
+        missing_repo: 'github.com/acme/shop',
+        missing_capabilities: ['cli:az:authed'],
+      }),
+    ).toBe('needs acme/shop and az (signed in)');
+    expect(
+      routingSentence({ missing_capabilities: ['cli:az'], exclusive_to: ['Work laptop'] }),
+    ).toBe('only Work laptop takes this repo; needs az');
+    expect(routingSentence({ missing_capabilities: [] })).toBe('');
   });
 
   it('repo-rule reasons (ADR-0013 amendment 2026-10-30)', () => {

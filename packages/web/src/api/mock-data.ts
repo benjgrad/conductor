@@ -6,6 +6,7 @@ import {
   CONDUCTOR_V4_DEF,
   CONDUCTOR_V2_DRAFT_DEF,
   CONDUCTOR_WORKFLOW_ID,
+  diffWorkflow,
   OUTPUT_CHUNK_FIXTURE,
   SESSION_MOVES_FIXTURE,
   moveStateLabel,
@@ -18,6 +19,10 @@ import {
   type MoveDto,
   type OutputChunk,
   type RepoChecksDto,
+  type ScheduleDto,
+  nextRuns,
+  SCHEDULE_PREVIEW_RUNS,
+  ROUTINE_WORKFLOW_ID,
   type SessionDetail,
   type SessionInputRequest,
   type SessionStatus,
@@ -286,6 +291,24 @@ export const MOCK_WORKFLOWS = [CONDUCTOR, M1_BASIC, PR_FLOW_FULL];
  * Every stored version, oldest first, per workflow id. `conductor` is the one workflow; the
  * others are old ones that finished tickets still pin (hidden in the UI).
  */
+/**
+ * UXR-70: who saved each `conductor` version in the mock, and its note (oldest first; the other
+ * workflows' versions have none).
+ */
+export const MOCK_WORKFLOW_AUTHORS: Record<
+  string,
+  { created_by: string | null; note: string | null }[]
+> = {
+  [CONDUCTOR_WORKFLOW_ID]: [
+    { created_by: null, note: null },
+    { created_by: 'ben@example.com', note: 'Board columns: one column per state' },
+    {
+      created_by: 'mcp:ben@example.com',
+      note: 'Transition rules: checks and conditions on arrows',
+    },
+  ],
+};
+
 export const MOCK_WORKFLOW_HISTORY: Record<string, WorkflowDefinition[]> = {
   [CONDUCTOR_WORKFLOW_ID]: [CONDUCTOR_V1, CONDUCTOR, CONDUCTOR_TRANSITIONS],
   m1_basic: [M1_BASIC_V1, M1_BASIC],
@@ -592,6 +615,13 @@ function reviewSeed(now: Date): MockSeed {
       ...base.card,
       kind: 'personal',
       pr_url: 'https://github.com/benjgrad/conductor/pull/42',
+      // UXR-36: the workflow's buttons, so the review shows Approve (its `done`).
+      human_transitions: humanTransitionOptions(
+        CONDUCTOR_V2_DRAFT_DEF,
+        'needs_input',
+        'personal',
+        'implementing',
+      ),
     },
     session: {
       ...base.session!,
@@ -1002,12 +1032,84 @@ export function mockRepoChecks(now: Date): RepoChecksDto[] {
 }
 
 /**
- * ADR-0033 P3: the workflow advisor's proposals in the mock: one open repo-checks change, and one
- * applied workflow change with its review.
+ * UXR-73: the open workflow proposal's change to the latest mock `conductor`: a column renamed, and
+ * a check and a condition added to Implementing → Waiting external.
+ */
+export function proposedConductor(): WorkflowDefinition {
+  const def = structuredClone(CONDUCTOR_TRANSITIONS);
+  def.states.waiting_external!.title = 'Waiting on review';
+  const s = def.states.implementing!;
+  if (s.type !== 'terminal') {
+    const t = s.on!.ready_for_testing!;
+    if (typeof t !== 'string') {
+      t.requires = {
+        ...t.requires,
+        checks: [...(t.requires?.checks ?? []), { name: 'Typecheck', cmd: 'pnpm typecheck' }],
+        conditions: [
+          ...(t.requires?.conditions ?? []),
+          { type: 'pr_screenshots', ui_paths: ['packages/web/**'] },
+        ],
+      };
+    }
+  }
+  return def;
+}
+
+/** UXR-73: the applied proposal's change (planning retitled), from the version before it. */
+function retitledPlanning(): WorkflowDefinition {
+  const def = structuredClone(CONDUCTOR);
+  def.states.planning!.title = 'Plan it';
+  return def;
+}
+
+/**
+ * ADR-0033 P3: the workflow advisor's proposals in the mock: an open workflow change (UXR-73), an
+ * open repo-checks change, and an applied workflow change with its review. Each carries its whole
+ * change (the REST detail's bodies) for the readable diff.
  */
 export function mockChangeProposals(now: Date): ChangeProposalDetail[] {
   const ago = (days: number) => new Date(now.getTime() - days * 86_400_000).toISOString();
+  const proposed = proposedConductor();
+  const openDiff = diffWorkflow(CONDUCTOR_TRANSITIONS, proposed);
   return [
+    {
+      id: '7a1c0e52-5f3b-4c1e-9d2a-0b6f1e2a3c03',
+      kind: 'workflow',
+      status: 'proposed',
+      title: 'Typecheck before testing, and ask for UI screenshots',
+      target: CONDUCTOR_WORKFLOW_ID,
+      requires_admin: true,
+      changes: openDiff.length,
+      expected_effect: 'Fewer tickets sent back from testing.',
+      created_at: ago(0.1),
+      applied_at: null,
+      rationale:
+        'Half the tickets sent back from Waiting external failed a typecheck, and UI changes ' +
+        'came without screenshots.',
+      evidence: [
+        { finding_id: 'reentries:implementing', text: '6 of 12 tickets came back to Implementing' },
+      ],
+      effect: {
+        metric: 'reentries',
+        scope: { state: 'implementing' },
+        direction: 'down',
+        text: 'Fewer tickets sent back from testing.',
+      },
+      rollback: 'Save v3 again.',
+      diff: { changes: openDiff, more_changes: 0 },
+      base_version: 3,
+      created_by: 'mcp:ben@example.com',
+      decided_by: null,
+      decided_at: null,
+      applied_version: null,
+      error: null,
+      review: null,
+      warning:
+        'Workflows are shared by every account on this instance: applying this changes the ' +
+        'workflow for all of them, and only an instance admin can apply it.',
+      base_definition: CONDUCTOR_TRANSITIONS,
+      proposed_definition: proposed,
+    },
     {
       id: '7a1c0e52-5f3b-4c1e-9d2a-0b6f1e2a3c01',
       kind: 'repo_checks',
@@ -1055,6 +1157,8 @@ export function mockChangeProposals(now: Date): ChangeProposalDetail[] {
       error: null,
       review: null,
       warning: null,
+      checks_before: null,
+      checks_after: { checks: [{ name: 'Web build', cmd: 'cd m-one && npm ci && npm run build' }] },
     },
     {
       id: '7a1c0e52-5f3b-4c1e-9d2a-0b6f1e2a3c02',
@@ -1077,18 +1181,18 @@ export function mockChangeProposals(now: Date): ChangeProposalDetail[] {
         direction: 'down',
         text: 'Fewer questions while planning.',
       },
-      rollback: 'Save the previous version again (get_workflow version 4).',
+      rollback: 'Save the previous version again (get_workflow version 2).',
       diff: {
         changes: [
           { op: 'change', path: 'states.planning.title', before: 'Planning', after: 'Plan it' },
         ],
         more_changes: 0,
       },
-      base_version: 4,
+      base_version: 2,
       created_by: 'mcp:ben@example.com',
       decided_by: 'ben@example.com',
       decided_at: ago(8),
-      applied_version: 5,
+      applied_version: 3,
       error: null,
       review: {
         metric: 'questions',
@@ -1105,6 +1209,8 @@ export function mockChangeProposals(now: Date): ChangeProposalDetail[] {
       warning:
         'Workflows are shared by every account on this instance: applying this changes the ' +
         'workflow for all of them, and only an instance admin can apply it.',
+      base_definition: CONDUCTOR,
+      proposed_definition: retitledPlanning(),
     },
   ];
 }
@@ -1220,6 +1326,96 @@ export function mockMachines(now: Date): MachineDetail[] {
       alerts: [],
       live_sessions: [],
       cannot_take: [],
+    },
+  ];
+}
+
+/** ADR-0032: fixed schedule ids, so tests and screenshots can address them. */
+export const SCHEDULE_IDS = {
+  prSweep: 'e5000000-0000-4000-8000-000000000001',
+  weekly: 'e5000000-0000-4000-8000-000000000002',
+  monthly: 'e5000000-0000-4000-8000-000000000003',
+} as const;
+
+/**
+ * ADR-0032: three recurring jobs for the Schedules page. "PR sweep" runs on weekdays and its last
+ * run (the running seed) is still open, so its last due run was skipped and Run now is refused;
+ * the weekly one is paused and pinned to a machine; the monthly one never ran and no machine has
+ * its repo.
+ */
+export function mockSchedules(now: Date): ScheduleDto[] {
+  const day = 86_400_000;
+  const at = (ms: number) => new Date(now.getTime() + ms).toISOString();
+  const runs = (cron: string, tz: string) =>
+    nextRuns(cron, tz, now, SCHEDULE_PREVIEW_RUNS).map((d) => d.toISOString());
+  const base = {
+    workflow_id: ROUTINE_WORKFLOW_ID,
+    priority: 0,
+    created_by: 'ben@example.com',
+    created_at: at(-30 * day),
+    updated_at: at(-2 * day),
+    last_skipped_at: null,
+    last_skip_reason: null,
+  } as const;
+  const sweep = runs('0 9 * * 1-5', 'America/Toronto');
+  const monthly = runs('0 10 1 * *', 'Europe/London');
+  return [
+    {
+      ...base,
+      id: SCHEDULE_IDS.prSweep,
+      name: 'PR sweep',
+      cron: '0 9 * * 1-5',
+      timezone: 'America/Toronto',
+      enabled: true,
+      title: 'Sweep open PRs',
+      body: 'Go through the open PRs on the repo. Rebase the stale ones and list what needs review.',
+      repo: 'github.com/benjgrad/conductor',
+      kind: 'work',
+      required_tags: [],
+      machine_ids: null,
+      next_run_at: sweep[0] ?? null,
+      next_runs: sweep,
+      last_run_at: at(-day),
+      last_ticket: { id: SEED_IDS.running.ticket, status: 'in_progress' },
+      last_skipped_at: at(-60 * 60_000),
+      last_skip_reason: 'previous_run_open',
+    },
+    {
+      ...base,
+      id: SCHEDULE_IDS.weekly,
+      name: 'Weekly dependency bump',
+      cron: '30 8 * * 1',
+      timezone: 'UTC',
+      enabled: false,
+      title: 'Bump dependencies',
+      body: 'Update the dependencies one minor version at a time and open a PR.',
+      repo: 'github.com/acme/shop',
+      kind: 'work',
+      required_tags: [],
+      machine_ids: ['mbp-ben'],
+      next_run_at: null,
+      next_runs: [],
+      last_run_at: at(-9 * day),
+      last_ticket: { id: SEED_IDS.done.ticket, status: 'done' },
+    },
+    {
+      ...base,
+      id: SCHEDULE_IDS.monthly,
+      name: 'Monthly report',
+      cron: '0 10 1 * *',
+      timezone: 'Europe/London',
+      enabled: true,
+      title: 'Write the monthly spend report',
+      body: 'Summarise last month: tickets done, time per state and spend.',
+      repo: 'github.com/ben/notes',
+      kind: 'personal',
+      required_tags: [],
+      machine_ids: null,
+      next_run_at: monthly[0] ?? null,
+      next_runs: monthly,
+      last_run_at: null,
+      last_ticket: null,
+      warnings: ['no_machine_has_repo'],
     },
   ];
 }

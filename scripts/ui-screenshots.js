@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // UI review screenshots (docs/qa/ux-review/). Starts the web app on the still mock API
 // (VITE_API=mock, VITE_MOCK_STATIC=1), drives it with Chrome through playwright-core, and writes
-// docs/qa/ux-review/<out>/<screen>-<w>x<h>-<theme>.png plus metrics.json (page overflow and the
-// visible tap targets under 44 px, per shot). Not run in CI.
+// docs/qa/ux-review/<out>/<screen>-<w>x<h>-<theme>.png plus metrics.json (page overflow, including
+// overflow clipped inside the phone shell or a panel, and the visible tap targets under 44 px, per
+// shot). Not run in CI.
 //
 // A board, detail or new-ticket shot above the phone breakpoint whose page is taller than the
 // window prints a WARN line (UXR-26: the desktop board's document must not scroll).
@@ -43,24 +44,38 @@ const permissionScene =
 const CARD = 'Add audit log table';
 /** A running card with a ticket body, so the Brief shows (api/mock-data.ts). */
 const BRIEF_CARD = 'Add pagination to /orders';
+/** UXR-35: one card per request kind (api/mock-data.ts). The permission prompt is the
+ * `detail-permission` screen, in the VITE_MOCK_PERMISSION scene (UXR-32). */
+const REVIEW_CARD = 'Board cards: review requests vs questions';
+const FAILED_CARD = 'Fix flaky checkout test';
+const STEP_FAILED_CARD = 'Add CSV export';
+/** The request shots: every kind but permission, in light and dark. */
+const REQUEST_SHOTS = ['detail-review', 'detail-failed', 'detail-step-failed'];
 /** The card VITE_MOCK_PERMISSION=1 holds on a permission (api/select.ts). */
 const PERMISSION_CARD = BRIEF_CARD;
 /** The plan-approval card (06 §Plan approval; api/mock-data.ts planApprovalSeed). */
 const PLAN_CARD = 'Add rate limiting to /login';
+/** A queued card no machine can take, with no description (api/mock-data.ts; UXR-34, UXR-86). */
+const QUEUED_CARD = 'Hotfix: crash on empty cart';
 /** The ticket-panel shots (11-web-ui §Phone layout, Detail panel). */
-const TICKET_SHOTS = ['ticket-messages', 'ticket-plan', 'ticket-plan-sheet', 'ticket-brief-sheet'];
+const TICKET_SHOTS = [
+  'ticket-messages',
+  'ticket-plan',
+  'ticket-plan-sheet',
+  'ticket-brief-sheet',
+  'ticket-queued',
+];
 /** UXR-26: shots whose page must fit the window above the phone breakpoint (11-web-ui §Breakpoint). */
 const PAGE_FIT_SHOTS = ['board', 'detail', 'new-ticket'];
 /** The phone breakpoint (MOBILE_QUERY in packages/web/src/components/useMediaQuery.ts). */
-const PHONE_MAX_WIDTH = 699.98;
+const PHONE_MAX_WIDTH = 899.98;
 
 /**
  * @typedef {import('playwright-core').Page} Page
  * @typedef {import('playwright-core').Locator} Locator
  * @typedef {{ w: number, h: number, deviceScaleFactor: number, isMobile?: boolean,
  *   hasTouch?: boolean, themes: Partial<Record<'light' | 'dark', 'all' | string[]>> }} Viewport
- * @typedef {{ id: string, path: string, act?: (page: Page) => Promise<void>, fullPage?: boolean,
- *   auth?: 'password' }} Screen  `auth`: on the mock's accounts (VITE_MOCK_AUTH=password)
+ * @typedef {{ id: string, path: string, act?: (page: Page) => Promise<void>, fullPage?: boolean }} Screen
  * @typedef {ReturnType<typeof measure> | { error: string }} Metric
  */
 
@@ -71,7 +86,10 @@ const VIEWPORTS = [
     w: 375,
     h: 812,
     ...PHONE,
-    themes: { light: 'all', dark: ['board', 'detail', 'new-ticket', 'ticket-plan'] },
+    themes: {
+      light: 'all',
+      dark: ['board', 'detail', 'new-ticket', 'ticket-plan', ...REQUEST_SHOTS],
+    },
   },
   {
     w: 360,
@@ -85,6 +103,9 @@ const VIEWPORTS = [
         'new-ticket',
         'new-ticket-bottom',
         ...TICKET_SHOTS,
+        'workflows',
+        'workflow-column',
+        'workflow-transition',
       ],
     },
   },
@@ -94,7 +115,18 @@ const VIEWPORTS = [
     isMobile: true,
     hasTouch: true,
     deviceScaleFactor: 1,
-    themes: { light: ['board', 'detail', 'new-ticket', 'new-ticket-bottom'] },
+    themes: {
+      light: [
+        'board',
+        'detail',
+        'new-ticket',
+        'new-ticket-bottom',
+        'machines',
+        'machine-drawer',
+        'admin',
+        'workflows',
+      ],
+    },
   },
   {
     w: 1440,
@@ -107,27 +139,37 @@ const VIEWPORTS = [
         'new-ticket',
         'new-ticket-bottom',
         'machines',
+        'schedules',
+        'schedule-sheet',
+        'machine-drawer',
+        'admin',
+        'change-password',
+        'signup',
+        'reset',
         'workflows',
         'wf-diagram-end',
         'wf-rules-full',
         'wf-rules-new',
         'wf-arrow-group',
+        'wf-unsaved-guard',
+        'wf-version-old-edit',
         'rc-override-full',
         'rc-invalid',
         'wf-arrow-transition',
+        'wf-proposal-open',
+        'wf-version-old',
         'workflow-column',
+        'workflow-transition',
         'ticket-messages',
         'ticket-plan',
+        'ticket-queued',
+        ...REQUEST_SHOTS,
         'board-permission',
         'detail-permission',
         'detail-done',
         'detail-done-steps',
-        'change-password',
-        'signup',
-        'reset',
-        'admin',
       ],
-      dark: ['board', 'detail'],
+      dark: ['board', 'detail', ...REQUEST_SHOTS],
     },
   },
 ];
@@ -190,6 +232,19 @@ async function openArrow(page, from, to) {
   await page.locator('aside.wf-editor').waitFor();
 }
 
+/**
+ * Open the Planning column and rename it, so the workflow has an unsaved draft.
+ * @param {Page} page
+ */
+async function editPlanningTitle(page) {
+  await page.locator('.wf-lanes').first().waitFor();
+  const lane = page.getByRole('button', { name: /^Column Planning:/ }).first();
+  await lane.dispatchEvent('click');
+  await page.locator('aside.wf-editor').waitFor();
+  await page.locator('aside.wf-editor').getByLabel('Title').fill('Thinking');
+  await page.locator('.wf-savebar').waitFor();
+}
+
 /** Each screen starts from a fresh load of `path`, then `act`s. @type {Screen[]} */
 const SCREENS = [
   { id: 'board', path: '/#/' },
@@ -205,6 +260,9 @@ const SCREENS = [
     },
   },
   { id: 'detail', path: '/#/', act: openCard },
+  { id: 'detail-review', path: '/#/', act: (page) => openCard(page, REVIEW_CARD) },
+  { id: 'detail-failed', path: '/#/', act: (page) => openCard(page, FAILED_CARD) },
+  { id: 'detail-step-failed', path: '/#/', act: (page) => openCard(page, STEP_FAILED_CARD) },
   {
     id: 'detail-scrolled',
     path: '/#/',
@@ -277,6 +335,8 @@ const SCREENS = [
   // The ticket panel's Messages tab: the brief above the chat (BRIEF_CARD has a ticket body).
   { id: 'ticket-messages', path: '/#/', act: (page) => openCard(page, BRIEF_CARD) },
   { id: 'ticket-plan', path: '/#/', act: (page) => openCard(page, PLAN_CARD) },
+  // UXR-86: the queued panel (TicketPanel): routing note, priority, Cancel ticket….
+  { id: 'ticket-queued', path: '/#/', act: (page) => openCard(page, QUEUED_CARD) },
   {
     id: 'ticket-plan-sheet',
     path: '/#/',
@@ -301,8 +361,23 @@ const SCREENS = [
   { id: 'board-permission', path: '/#/' },
   { id: 'detail-permission', path: '/#/', act: (page) => openCard(page, PERMISSION_CARD) },
   { id: 'machines', path: '/#/machines' },
+  // UXR-47: the machine drawer (a Sheet) on the machine with problems (api/mock-data.ts).
+  {
+    id: 'machine-drawer',
+    path: '/#/machines',
+    act: async (page) => {
+      await clickNamed(page, 'button', 'Details of old-linux-box');
+      await page.getByRole('dialog', { name: 'Machine old-linux-box' }).waitFor();
+      await page.waitForTimeout(200);
+    },
+  },
+  // The mock in password mode, signed in as its admin (api/select.ts), so the tables show.
+  { id: 'admin', path: '/?mock-auth=password#/admin' },
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
+  // UXR-83: the mock's three schedules, and the weekly one's edit sheet.
+  { id: 'schedules', path: '/#/schedules' },
+  { id: 'schedule-sheet', path: '/#/schedules/e5000000-0000-4000-8000-000000000002' },
   // UXR-61: the override's setup and check table, at full height.
   { id: 'rc-override-full', path: '/#/repo-checks/github.com%2Facme%2Fshop', fullPage: true },
   // UXR-61 FR-5: problems in the check table, each under its field and named by its label.
@@ -343,11 +418,21 @@ const SCREENS = [
       });
     },
   },
-  // A transition with no requirements: closed sections, "Nothing is required".
+  // UXR-71: a transition given a new condition (it starts valid: wait at most 3d) and then a new
+  // check, still focused: no problems shown yet, the save bar at the bottom.
   {
     id: 'wf-rules-new',
     path: '/#/workflows',
-    act: (page) => openArrow(page, 'Planning', 'Implementing'),
+    act: async (page) => {
+      await openArrow(page, 'Planning', 'Implementing');
+      const section = (/** @type {string} */ name) =>
+        tap(page.locator('aside.wf-editor .wf-section-head button', { hasText: name }));
+      await section('Conditions');
+      await page.getByRole('combobox', { name: 'Add condition' }).selectOption('pr_checks_green');
+      await section('Checks');
+      await clickNamed(page, 'button', 'Add check');
+      await page.waitForTimeout(200);
+    },
   },
   // UXR-64: an arrow with several transitions opens on their list (before: on the first one).
   {
@@ -365,6 +450,35 @@ const SCREENS = [
       if ((await row.count()) > 0) await tap(row.first());
     },
   },
+  // UXR-73: an open advisor proposal: its diff in the editor's words, its changes highlighted on
+  // the diagram (the mock's open workflow proposal, api/mock-data.ts).
+  {
+    id: 'wf-proposal-open',
+    path: '/#/workflows',
+    fullPage: true,
+    act: async (page) => {
+      await page.locator('.wf-lanes').first().waitFor();
+      await tap(page.locator('.cp-summary', { hasText: 'Typecheck before testing' }).first());
+      await page.locator('.cp-detail .wf-diff').waitFor();
+      // The highlighted column into the diagram's view; the page itself stays at the top.
+      await page.locator('[data-lane="waiting_external"]').scrollIntoViewIfNeeded();
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
+  // UXR-70: an old version, compared with the latest (the diff above the diagram).
+  {
+    id: 'wf-version-old',
+    path: '/#/workflows',
+    fullPage: true,
+    act: async (page) => {
+      await page.locator('.wf-lanes').first().waitFor();
+      await page.getByRole('combobox', { name: 'Version' }).selectOption('2');
+      const note = page.locator('.wf-old-version');
+      await note.waitFor();
+      await tap(note.getByRole('button', { name: 'Compare with latest' }));
+      await page.locator('.wf-diff-section .wf-diff').first().waitFor();
+    },
+  },
   // UXR-65: a column's panel, its transitions listed by title.
   {
     id: 'workflow-column',
@@ -377,24 +491,50 @@ const SCREENS = [
       await page.locator('aside.wf-editor').waitFor();
     },
   },
+  // UXR-44: a lone transition's panel (full-screen on a phone).
+  {
+    id: 'workflow-transition',
+    path: '/#/workflows',
+    act: (page) => openArrow(page, 'Planning', 'Implementing'),
+  },
+  // UXR-69 FR-3: leaving with an unsaved draft asks in a modal dialog.
+  {
+    id: 'wf-unsaved-guard',
+    path: '/#/workflows',
+    act: async (page) => {
+      await editPlanningTitle(page);
+      await page.getByRole('link', { name: 'Board' }).first().click();
+      await page.locator('[role="alertdialog"]').waitFor();
+    },
+  },
+  // UXR-70: editing v1 warns that saving undoes v2–v3, inline and in the save bar.
+  {
+    id: 'wf-version-old-edit',
+    path: '/#/workflows',
+    act: async (page) => {
+      await page.locator('.wf-lanes').first().waitFor();
+      await page.getByRole('combobox', { name: 'Version' }).selectOption('1');
+      await page.getByRole('group', { name: 'conductor v1 columns' }).waitFor();
+      await editPlanningTitle(page);
+    },
+  },
   { id: 'setup', path: '/#/setup' },
   { id: 'help', path: '/help/add-a-machine' },
   { id: 'help-connect-claude', path: '/help/connect-claude' },
   { id: 'signin', path: '/signin' },
-  // UXR-25/51/52: the account screens, on the mock's accounts (api/mock.ts MOCK_INVITE_TOKENS).
+  // UXR-25/51/52: the account screens, on the mock's accounts (`?mock-auth=password`, api/select.ts;
+  // the invite token is api/mock.ts MOCK_INVITE_TOKENS.pinned).
   {
     id: 'change-password',
-    path: '/#/',
-    auth: 'password',
+    path: '/?mock-auth=password#/',
     act: async (page) => {
       await tap(page.locator('.account-button'));
       await clickNamed(page, 'menuitem', 'Change password');
       await page.locator('dialog[open]').waitFor();
     },
   },
-  { id: 'signup', path: '/signup?invite=mock-invite-pinned', auth: 'password' },
-  { id: 'reset', path: '/reset?token=mock-reset', auth: 'password' },
-  { id: 'admin', path: '/#/admin', auth: 'password' },
+  { id: 'signup', path: '/signup?invite=mock-invite-pinned&mock-auth=password' },
+  { id: 'reset', path: '/reset?token=mock-reset&mock-auth=password' },
 ];
 
 /** Page overflow and visible interactive elements smaller than 44×44 (WCAG 2.5.5 / UX-12 FR-4). */
@@ -419,13 +559,24 @@ function measure(deviceWidth) {
       );
     }
   }
+  // UXR-44: on a phone the shell (`.app.mobile`, overflow-x hidden) and the full-screen panels clip
+  // what overflows them, so the document's width alone can't see it.
+  const clipped = [];
+  for (const sel of ['.app.mobile', 'aside.wf-editor', 'aside.detail']) {
+    for (const el of document.querySelectorAll(sel)) {
+      if (el.scrollWidth > el.clientWidth + 1) {
+        clipped.push(`${sel} ${el.scrollWidth}>${el.clientWidth}`);
+      }
+    }
+  }
   // The chat's visible height (the session panel's Messages log), when a panel is open.
   const chat = document.querySelector('aside.detail .output-chat .output');
   return {
     chatHeight: chat ? Math.round(chat.getBoundingClientRect().height) : null,
     pageScrollWidth: document.documentElement.scrollWidth,
     deviceWidth: vw,
-    horizontalOverflow: document.documentElement.scrollWidth > vw,
+    horizontalOverflow: document.documentElement.scrollWidth > vw || clipped.length > 0,
+    clippedOverflow: clipped,
     pageHeight: document.documentElement.scrollHeight,
     smallTapTargets: small.length,
     smallTapTargetSample: small.slice(0, 8),
@@ -455,8 +606,7 @@ async function freePort() {
   });
 }
 
-/** @param {Record<string, string>} [extraEnv] */
-async function startVite(extraEnv = {}) {
+async function startVite() {
   const port = await freePort();
   const child = spawn(
     'pnpm',
@@ -468,7 +618,6 @@ async function startVite(extraEnv = {}) {
         VITE_API: 'mock',
         VITE_MOCK_STATIC: '1',
         ...(permissionScene ? { VITE_MOCK_PERMISSION: '1' } : {}),
-        ...extraEnv,
       },
       stdio: ['ignore', 'pipe', 'inherit'],
     },
@@ -491,20 +640,7 @@ async function startVite(extraEnv = {}) {
 
 async function main() {
   const given = arg('url', '');
-  /** One Vite server per mock auth mode, started the first time a screen needs it. */
-  /** @type {Map<string, Promise<{ url: string, stop: () => void }>>} */
-  const servers = new Map();
-  /** @param {Screen} screen */
-  const serverFor = (screen) => {
-    const mode = screen.auth ?? 'local';
-    if (given) return Promise.resolve({ url: given, stop: () => {} });
-    let server = servers.get(mode);
-    if (!server) {
-      server = startVite(mode === 'password' ? { VITE_MOCK_AUTH: 'password' } : {});
-      servers.set(mode, server);
-    }
-    return server;
-  };
+  const server = given ? { url: given, stop: () => {} } : await startVite();
   const browser = await chromium.launch(
     process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' },
   );
@@ -541,8 +677,7 @@ async function main() {
           try {
             // A hash-only change wouldn't reload, so every shot starts from a blank page.
             await page.goto('about:blank');
-            const { url } = await serverFor(screen);
-            await page.goto(`${url}${screen.path}`, { waitUntil: 'networkidle' });
+            await page.goto(`${server.url}${screen.path}`, { waitUntil: 'networkidle' });
             // The first load of a cold Vite server can go idle before React has rendered.
             await page.locator('#root > *').first().waitFor();
             await page.waitForTimeout(400);
@@ -571,7 +706,7 @@ async function main() {
     }
   } finally {
     await browser.close();
-    for (const server of servers.values()) (await server).stop();
+    server.stop();
   }
   await writeFile(join(outDir, 'metrics.json'), `${JSON.stringify(metrics, null, 2)}\n`);
   if (warnings.length > 0) {

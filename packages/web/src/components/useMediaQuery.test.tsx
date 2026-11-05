@@ -37,7 +37,7 @@ describe('useMediaQuery', () => {
     expect(screen.getByText('desktop')).toBeTruthy();
     act(() => viewport!.resize(360));
     expect(screen.getByText('mobile')).toBeTruthy();
-    act(() => viewport!.resize(700));
+    act(() => viewport!.resize(900));
     expect(screen.getByText('desktop')).toBeTruthy();
   });
 
@@ -50,10 +50,12 @@ describe('useMediaQuery', () => {
     expect(screen.getByText('false')).toBeTruthy();
   });
 
-  it('the breakpoint is below 700 px', () => {
-    viewport = mockViewport(699);
+  it('the breakpoint is below 900 px, so a 768 px tablet is on the phone layout (UXR-59)', () => {
+    viewport = mockViewport(768);
     expect(window.matchMedia(MOBILE_QUERY).matches).toBe(true);
-    viewport.resize(700);
+    viewport.resize(899);
+    expect(window.matchMedia(MOBILE_QUERY).matches).toBe(true);
+    viewport.resize(900);
     expect(window.matchMedia(MOBILE_QUERY).matches).toBe(false);
   });
 });

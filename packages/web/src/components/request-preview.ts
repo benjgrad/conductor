@@ -1,6 +1,7 @@
 import type {
   HumanTransitionOption,
   InputRequestDto,
+  InputRequestKind,
   SessionDetail,
   TransitionSessionRequest,
 } from '@conductor/shared';
@@ -286,4 +287,49 @@ export function formatSummary(s: ReportSummary): string {
   if (counts.length > 0) parts.push(counts.join(', '));
   if (s.forReview) parts.push(`${s.forReview} for review`);
   return parts.join(' · ');
+}
+
+/**
+ * UXR-35 (11-web-ui §Requests): how a request looks in the panel. Each tone has its own colour,
+ * and only a failure is red. A permission prompt is not an input request: its box passes
+ * `'permission'` itself.
+ */
+export type RequestTone = 'question' | 'review' | 'permission' | 'failure';
+
+/** The kinds of a request that a failed run raises (an old server sends no `step_failed`). */
+const FAILURE_KINDS: ReadonlySet<InputRequestKind> = new Set([
+  'retries_exhausted',
+  'timeout',
+  'machine_lost',
+]);
+
+export function requestTone(cls: RequestClass, kind: InputRequestKind): RequestTone {
+  if (cls === 'review') return 'review';
+  if (cls === 'step_failed') return 'failure';
+  if (cls === 'question' && FAILURE_KINDS.has(kind)) return 'failure';
+  return 'question';
+}
+
+/** The request's tone from the session detail (null: no open request). */
+export function detailRequestTone(
+  detail: Pick<SessionDetail, 'pending_input' | 'moves' | 'card'>,
+): RequestTone | null {
+  const req = detail.pending_input;
+  if (!req) return null;
+  return requestTone(classifyRequest(req, lastMoveTransition(detail)), req.kind);
+}
+
+/**
+ * FR-2: the review's Approve. The one human option that needs no text and goes into a terminal
+ * state (`done`, "Merged, done"): the button that approves a review on the board. null when no
+ * option, or more than one, qualifies (the panel then shows only the generic buttons).
+ */
+export function reviewApproveOption<T extends HumanTransitionOption>(
+  options: readonly T[],
+  workflow: Pick<SessionDetail['workflow'], 'states'>,
+): T | null {
+  const candidates = options.filter(
+    (o) => !o.needs_text && workflow.states[o.goto]?.type === 'terminal',
+  );
+  return candidates.length === 1 ? candidates[0]! : null;
 }

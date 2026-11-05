@@ -13,6 +13,7 @@ import type {
   CancelTicketRequest,
   ChangeProposalDetail,
   ChangeProposalListResponse,
+  ChangeKind,
   ChangeStatus,
   CreateInviteRequest,
   CreateTicketRequest,
@@ -168,6 +169,9 @@ export interface ApiClient {
   listChangeProposals(opts?: {
     status?: ChangeStatus | 'all';
     cursor?: number;
+    /** UXR-73: only this kind, for this target (a repo or a workflow id). */
+    kind?: ChangeKind;
+    target?: string;
   }): Promise<ChangeProposalListResponse>;
   /** ADR-0033 P3: GET /api/change-proposals/:id → one proposal with its diff. 404 not_found. */
   getChangeProposal(id: string): Promise<ChangeProposalDetail>;
@@ -189,10 +193,14 @@ export interface ApiClient {
    */
   getWorkflow(id: string, version?: number): Promise<WorkflowDetail>;
   /**
-   * POST /api/workflows {definition} → the new version (the server assigns it). 400
-   * invalid_workflow with `details` (ApiRequestError.details) when validation fails.
+   * POST /api/workflows {definition, note?} → the new version (the server assigns it). 400
+   * invalid_workflow with `details` (ApiRequestError.details) when validation fails. `note`
+   * (UXR-70) goes in the version history.
    */
-  saveWorkflow(definition: WorkflowDefinition): Promise<SaveWorkflowResponse>;
+  saveWorkflow(
+    definition: WorkflowDefinition,
+    opts?: { note?: string },
+  ): Promise<SaveWorkflowResponse>;
   /** POST /api/sessions/:id/approve → external.event ui.approve. 409 conflict if not awaited. */
   approve(sessionId: string, req?: ApproveSessionRequest): Promise<OkResponse>;
   /** POST /api/sessions/:id/cancel → operator.cancel. 409 conflict if already terminal. */

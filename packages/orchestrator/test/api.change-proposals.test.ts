@@ -77,8 +77,24 @@ describe('/api/change-proposals', () => {
       400,
     );
 
+    // UXR-73: the Repo checks page lists one repo's proposals.
+    const forRepo = await api.send(
+      'GET',
+      `${API_PATHS.changeProposals}?kind=repo_checks&target=${encodeURIComponent('GitHub.com/Acme/rest-one')}`,
+      as(a),
+    );
+    expect(forRepo.json).toMatchObject({ total: 1, proposals: [{ id: one }] });
+    expect(
+      (await api.send('GET', `${API_PATHS.changeProposals}?kind=workflow`, as(a))).json,
+    ).toMatchObject({ total: 0 });
+
     const detail = await api.send('GET', API_PATHS.changeProposal(one), as(a));
     expect(detail.json).toMatchObject({ id: one, status: 'proposed', diff: { more_changes: 0 } });
+    // UXR-73: the whole change, for the readable diff.
+    expect(detail.json).toMatchObject({
+      checks_before: null,
+      checks_after: { checks: [{ name: 'b', cmd: 'make' }] },
+    });
     expect((await api.send('GET', API_PATHS.changeProposal(one), as(b))).status).toBe(404);
     expect((await post(b, API_PATHS.changeProposalApply(one))).status).toBe(404);
 
@@ -96,6 +112,34 @@ describe('/api/change-proposals', () => {
     const rejected = await post(a, API_PATHS.changeProposalReject(two));
     expect(rejected.json).toMatchObject({ status: 'rejected' });
     expect((await post(a, API_PATHS.changeProposalReview(two))).status).toBe(409);
+  });
+
+  it('a version note and who saved it show only to the saving account (UXR-70)', async () => {
+    api = await startApi({ db: db.pool, auth: passwordAuth(HTTPS_URL) });
+    const a = await signIn(api);
+    const b = await signIn(api);
+    const def = { ...structuredClone(CONDUCTOR_V4_DEF), id: 'noted_rest_wf' };
+    const saved = await api.send('POST', API_PATHS.workflows, {
+      headers: { cookie: a.cookie },
+      body: { definition: def, note: 'Fewer questions' },
+    });
+    expect(saved.status).toBe(201);
+    const read = async (who: { cookie: string }) =>
+      (
+        await api!.send('GET', API_PATHS.workflow('noted_rest_wf'), {
+          headers: { cookie: who.cookie },
+        })
+      ).json as { created_by: string | null; note: string | null; history: unknown[] };
+    expect(await read(a)).toMatchObject({
+      created_by: a.email,
+      note: 'Fewer questions',
+      history: [{ version: 1, created_by: a.email, note: 'Fewer questions' }],
+    });
+    expect(await read(b)).toMatchObject({
+      created_by: null,
+      note: null,
+      history: [{ version: 1, created_by: null, note: null }],
+    });
   });
 
   it('a workflow change needs an instance admin', async () => {
@@ -120,6 +164,17 @@ describe('/api/change-proposals', () => {
     );
     if (!res.ok) throw new Error(res.message);
     expect(res.value.warning).toMatch(/every account/);
+    // MCP results leave the bodies out; the board's detail has them (UXR-73).
+    expect(res.value).not.toHaveProperty('proposed_definition');
+    const shown = await api.send('GET', API_PATHS.changeProposal(res.value.id), {
+      headers: { cookie: member.cookie },
+    });
+    const bodies = shown.json as {
+      base_definition: { states: Record<string, { title?: string }> };
+      proposed_definition: { states: Record<string, { title?: string }> };
+    };
+    expect(bodies.proposed_definition.states[first]!.title).toBe('Renamed');
+    expect(bodies.base_definition.states[first]!.title).not.toBe('Renamed');
     const denied = await api.send('POST', API_PATHS.changeProposalApply(res.value.id), {
       headers: { cookie: member.cookie },
       body: {},

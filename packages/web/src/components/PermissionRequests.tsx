@@ -6,6 +6,7 @@
 import type { BoardCard, PermissionDecisionRequest, PermissionRequestDto } from '@conductor/shared';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
+import { RequestCard } from './RequestCard.js';
 import './PermissionRequests.css';
 
 export const NEEDS_PERMISSION_LABEL = 'Needs permission';
@@ -53,15 +54,15 @@ export function PermissionRequests({
   }, [api, sessionId, permission.request_id, permission.pending_count, tick]);
 
   return (
-    <section aria-label={NEEDS_PERMISSION_LABEL} className="pending permission-requests">
-      <div className="pending-head">
-        <span className="action-needed">Action needed</span>
-        <span className="badge badge-permission">{NEEDS_PERMISSION_LABEL}</span>
-        <span className="muted">
-          {agent} wants to use {permission.tool}
-          {permission.pending_count > 1 ? ` (+${permission.pending_count - 1} more)` : ''}
-        </span>
-      </div>
+    <RequestCard
+      tone="permission"
+      label={NEEDS_PERMISSION_LABEL}
+      ariaLabel={NEEDS_PERMISSION_LABEL}
+      className="permission-requests"
+      who={`${agent} wants to use ${permission.tool}${
+        permission.pending_count > 1 ? ` (+${permission.pending_count - 1} more)` : ''
+      }`}
+    >
       {error && (
         <p role="alert" className="error">
           {error}
@@ -79,7 +80,7 @@ export function PermissionRequests({
           }}
         />
       ))}
-    </section>
+    </RequestCard>
   );
 }
 

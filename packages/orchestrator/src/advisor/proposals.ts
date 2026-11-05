@@ -14,6 +14,8 @@ import {
   stableJson,
   validateWorkflow,
   WORKFLOW_CHANGE_WARNING,
+  WORKFLOW_NOTE_MAX,
+  WorkflowDefinitionSchema,
   type ChangeKind,
   type ChangeProposalDetail,
   type ChangeProposalListResponse,
@@ -309,21 +311,34 @@ export async function createProposal(
 export async function listProposals(
   q: Queryable,
   accountId: string,
-  opts: { status?: ChangeStatus | 'all' | undefined; cursor?: number | undefined } = {},
+  opts: {
+    status?: ChangeStatus | 'all' | undefined;
+    cursor?: number | undefined;
+    /** UXR-73: only this kind, and only this target (a repo or a workflow id). */
+    kind?: ChangeKind | undefined;
+    target?: string | undefined;
+  } = {},
 ): Promise<ChangeProposalListResponse> {
   const status = opts.status === undefined || opts.status === 'all' ? null : opts.status;
   const cursor = Math.max(0, opts.cursor ?? 0);
+  const kind = opts.kind ?? null;
+  // A repo target is stored normalised (`prepare`), a workflow id as is: match either form.
+  const target = opts.target === undefined ? null : [opts.target, repoChecksKey(opts.target)];
+  const where =
+    'WHERE account_id = $1 AND ($2::text IS NULL OR status = $2) ' +
+    'AND ($3::text IS NULL OR kind = $3) ' +
+    "AND ($4::text[] IS NULL OR coalesce(payload->>'repo', payload->>'workflow_id') = ANY($4))";
   const [rows, total] = await Promise.all([
     q.query<ChangeProposalRow>(
-      'SELECT * FROM change_proposal WHERE account_id = $1 AND ($2::text IS NULL OR status = $2) ' +
-        'ORDER BY created_at DESC, id OFFSET $3 LIMIT $4',
-      [accountId, status, cursor, PROPOSALS_PAGE],
+      `SELECT * FROM change_proposal ${where} ORDER BY created_at DESC, id OFFSET $5 LIMIT $6`,
+      [accountId, status, kind, target, cursor, PROPOSALS_PAGE],
     ),
-    q.query<{ n: number }>(
-      'SELECT count(*)::int AS n FROM change_proposal ' +
-        'WHERE account_id = $1 AND ($2::text IS NULL OR status = $2)',
-      [accountId, status],
-    ),
+    q.query<{ n: number }>(`SELECT count(*)::int AS n FROM change_proposal ${where}`, [
+      accountId,
+      status,
+      kind,
+      target,
+    ]),
   ]);
   const n = total.rows[0]?.n ?? 0;
   const end = cursor + rows.rows.length;
@@ -357,6 +372,45 @@ export async function getProposal(
 ): Promise<ChangeProposalDetail | null> {
   const row = await loadRow(q, accountId, id);
   return row === null ? null : toDetail(row);
+}
+
+/**
+ * UXR-73: a proposal's whole change, for the board's readable diff (the REST routes add it to the
+ * detail; MCP results leave it out to stay small). Workflow: the definition it was based on and
+ * the proposed one; repo checks: the override before (null = the workflow's checks) and after.
+ */
+export async function proposalBodies(
+  q: Queryable,
+  accountId: string,
+  id: string,
+): Promise<
+  Pick<
+    ChangeProposalDetail,
+    'base_definition' | 'proposed_definition' | 'checks_before' | 'checks_after'
+  >
+> {
+  const row = await loadRow(q, accountId, id);
+  if (row === null) return {};
+  const change = ProposalChangeSchema.safeParse(row.payload);
+  if (!change.success) return {};
+  if (change.data.kind === 'repo_checks') {
+    const base = row.base as { config?: unknown };
+    const before = RepoChecksSchema.safeParse(base.config);
+    return {
+      checks_before: before.success ? before.data : null,
+      checks_after: change.data.checks,
+    };
+  }
+  const proposed = WorkflowDefinitionSchema.safeParse(change.data.definition);
+  const stored = await q.query<{ definition: unknown }>(
+    'SELECT definition FROM workflow_definition WHERE id = $1 AND version = $2',
+    [change.data.workflow_id, change.data.base_version],
+  );
+  const base = WorkflowDefinitionSchema.safeParse(stored.rows[0]?.definition);
+  return {
+    base_definition: base.success ? base.data : null,
+    proposed_definition: proposed.success ? proposed.data : null,
+  };
 }
 
 const notFound = (id: string) =>
@@ -434,6 +488,9 @@ async function applyLocked(tx: Tx, actor: ProposalActor, id: string): Promise<Ap
     const res = await insertWorkflowVersion(tx, checked.def, {
       createdBy: actor.by,
       baseVersion: change.data.base_version,
+      // UXR-70: the version history says where the version came from.
+      note: `Applied proposal: ${row.title}`.slice(0, WORKFLOW_NOTE_MAX),
+      accountId: actor.accountId,
     });
     if (!res.ok && res.code === 'conflict') {
       return conflict(

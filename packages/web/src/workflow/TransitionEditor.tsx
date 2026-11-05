@@ -20,6 +20,7 @@ import { useId, useState, type ReactNode } from 'react';
 import { ChecksFields, checksFieldSuffixes, ItemActions, swap } from './ChecksFields.js';
 import { columnStates, columnTitle, humanStates, type ColumnIssue } from './columns.js';
 import { EditorHead, type Crumb } from './EditorHead.js';
+import { RepoOverridesHint } from './RepoOverridesHint.js';
 import {
   ACTION_SHORT,
   ACTION_TEXT,
@@ -68,6 +69,11 @@ export interface TransitionEditorProps {
   /** Back to the parent: the arrow's list, or the column. */
   onBack: () => void;
   onClose: () => void;
+  /**
+   * ADR-0030: the repos with their own check override (`listRepoChecks`), named under the checks
+   * (UXR-75). Absent or [] = none.
+   */
+  repoOverrides?: readonly string[];
 }
 
 const KIND_TEXT: Record<TicketKind, string> = { work: 'Work', personal: 'Personal' };
@@ -138,6 +144,7 @@ function TransitionForm({
   onChange,
   onSelect,
   onRemoved,
+  repoOverrides = [],
   transition: t,
 }: TransitionEditorProps & { transition: TransitionObject }) {
   const uid = useId();
@@ -432,6 +439,9 @@ function TransitionForm({
           onChange={(next) => setR({ checks: next.checks, setup: next.setup })}
           issues={checkIssues}
         />
+        {/* An override replaces only a list with at least one check (applyRepoChecks): a
+            transition without checks runs none, whatever the repo. */}
+        {checks.length > 0 && <RepoOverridesHint repos={repoOverrides} />}
       </Section>
 
       <Section title="Review" status={`(${items.length})`} {...section('review')}>

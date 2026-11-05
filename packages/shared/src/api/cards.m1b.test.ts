@@ -142,6 +142,7 @@ describe('BoardCard.pending (ADR-0011 checklist)', () => {
         { label: 'PR opened', kind: 'action', status: 'running', detail: null },
       ],
       current: 2,
+      checks_source: 'workflow',
     });
     expect(card.pending).toEqual({
       transition: 'done',

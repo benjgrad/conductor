@@ -16,6 +16,16 @@
   background: var(--panel);
   font-size: 13px;
 }
+.conductor-checks-source {
+  background: var(--user-bg);
+  color: var(--accent);
+  border: 1px solid var(--user-border);
+  font-weight: 600;
+  text-decoration: none;
+}
+.conductor-checks-source:hover {
+  text-decoration: underline;
+}
 .conductor-checks-slot {
   margin: 6px 0 0;
 }

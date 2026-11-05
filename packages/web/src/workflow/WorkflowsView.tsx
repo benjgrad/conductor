@@ -67,6 +67,8 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
   const [notice, setNotice] = useState<string | null>(null);
   /** Bumped when an applied change proposal saved a new version: the latest is fetched again. */
   const [reloads, setReloads] = useState(0);
+  /** UXR-75: the repos whose own checks replace the workflow's (ADR-0030); [] if unknown. */
+  const [repoOverrides, setRepoOverrides] = useState<string[]>([]);
 
   useEffect(() => {
     onDirtyChange?.(draft !== null ? ID : null);
@@ -94,6 +96,22 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
       cancelled = true;
     };
   }, [api, version, reloads]);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Only a hint in the transition editor: a failure leaves it out.
+    api.listRepoChecks().then(
+      (r) => {
+        if (!cancelled) setRepoOverrides(r.repos.map((x) => x.repo));
+      },
+      () => {
+        if (!cancelled) setRepoOverrides([]);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
 
   const shown = draft ?? detail?.definition ?? null;
   const dirty = draft !== null;
@@ -399,6 +417,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
           from={selected.from}
           name={selected.name}
           issues={allIssues.filter((i) => i.transition?.from === selected.from)}
+          repoOverrides={repoOverrides}
           onChange={edit}
           onSelect={(name) => setSelected({ kind: 'transition', from: selected.from, name })}
           onRemoved={() => {

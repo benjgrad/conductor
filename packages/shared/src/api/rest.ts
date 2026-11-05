@@ -455,6 +455,12 @@ export const BoardCheckingSchema = z.object({
   items: z.array(BoardCheckingItemSchema).optional(),
   /** UX-5: index in `items` of the running item, else null. */
   current: z.number().int().nonnegative().nullable().optional(),
+  /**
+   * UXR-75: where the step's checks come from: `repo` = the ticket repo's check override
+   * (ADR-0030, pinned on the step), `workflow` = the transition's own. Absent = unknown (older
+   * servers).
+   */
+  checks_source: z.enum(['workflow', 'repo']).optional(),
 });
 export type BoardChecking = z.infer<typeof BoardCheckingSchema>;
 
@@ -1706,9 +1712,8 @@ function stepItems(def: Pick<WorkflowDefinition, 'states'> | null, step: GateSte
     if (phase > cur) return 'todo';
     return i < step.index ? 'met' : i === step.index ? 'running' : 'todo';
   };
-  // ADR-0030: a step with real checks runs the repo's override instead, when one was pinned.
   const declared = req.checks ?? [];
-  const checks = declared.length > 0 && step.repo_checks ? step.repo_checks.checks : declared;
+  const checks = stepChecksSource(declared, step) === 'repo' ? step.repo_checks!.checks : declared;
   checks.forEach((c, i) =>
     items.push({ kind: 'check', label: c.name, status: indexed(0, i), detail: null }),
   );
@@ -1744,6 +1749,17 @@ function stepItems(def: Pick<WorkflowDefinition, 'states'> | null, step: GateSte
     }
   }
   return items;
+}
+
+/**
+ * ADR-0030: a step with real checks runs the repo's override instead, when one was pinned
+ * (`applyRepoChecks`); a step that declares none runs none.
+ */
+function stepChecksSource(
+  declared: readonly unknown[],
+  step: Pick<GateStep, 'repo_checks'>,
+): 'repo' | 'workflow' {
+  return declared.length > 0 && step.repo_checks ? 'repo' : 'workflow';
 }
 
 /**
@@ -1787,6 +1803,13 @@ export function checkingOfStep(
     detail: i.detail,
   }));
   const running = items.findIndex((i) => i.status === 'running');
+  // UXR-75: an unknown definition says nothing about its checks, so only a pinned override counts.
+  const checks_source =
+    def === null
+      ? step.repo_checks
+        ? 'repo'
+        : 'workflow'
+      : stepChecksSource(requiresOfStep(def, step)?.checks ?? [], step);
   return {
     to: step.to,
     title: def ? stateTitle(def, step.to) : step.to,
@@ -1795,6 +1818,7 @@ export function checkingOfStep(
     transition: step.transition ?? step.outcome,
     items,
     current: running === -1 ? null : running,
+    checks_source,
   };
 }
 

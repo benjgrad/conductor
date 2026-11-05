@@ -694,8 +694,14 @@ function planApprovalSeed(now: Date): MockSeed {
   };
 }
 
-/** UX-5: `card.checking` of a `personal_pr_ready_for_review` step at item `current` (0-based). */
-export function mockChecking(current: number): BoardChecking {
+/**
+ * UX-5: `card.checking` of a `personal_pr_ready_for_review` step at item `current` (0-based).
+ * UXR-75: `source` says whose checks they are (the demo card's repo has an override).
+ */
+export function mockChecking(
+  current: number,
+  source: BoardChecking['checks_source'] = 'workflow',
+): BoardChecking {
   const labels = ['Typecheck', 'Lint', 'Unit tests', 'Build passes', 'PR opened'];
   return {
     to: 'needs_input',
@@ -710,6 +716,7 @@ export function mockChecking(current: number): BoardChecking {
       detail: null,
     })),
     current,
+    checks_source: source,
   };
 }
 
@@ -762,7 +769,10 @@ function checkingSeeds(now: Date): MockSeed[] {
       ...s.card,
       kind: 'personal',
       badges: slot ? ['waiting_for_build_slot', 'checking'] : ['checking'],
-      checking: mockChecking(slot ? 0 : 2),
+      // UXR-75: the demo card's repo has the seeded override (mockRepoChecks), so its checks
+      // are the repo's; the build-slot card runs the workflow's.
+      ...(slot ? {} : { repo: 'github.com/acme/shop' }),
+      checking: mockChecking(slot ? 0 : 2, slot ? 'workflow' : 'repo'),
     },
   });
   const spec = {

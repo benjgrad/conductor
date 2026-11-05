@@ -13,6 +13,9 @@ Each check has a name and a command; it passes when the command exits with 0. A 
 
 Commands run in a shell at the root of a fresh checkout of the commit being shipped. On Windows machines that shell is Git Bash, so write bash and use forward slashes, e.g. `cd m-one && npm ci && npm run build`.
 
+## Where you see them
+The workflow editor lists the repos with their own checks under each transition's checks. While conductor runs a ticket's checks, the panel shows a **Repo checks** badge when they are the repo's own; both link to the repo's page.
+
 ## Going back to the workflow's checks
 Clear a repo's checks and its tickets run the workflow's checks again. Tickets pick up a change the next time they run their checks.
 

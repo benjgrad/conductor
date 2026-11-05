@@ -628,6 +628,22 @@ describe('transition editor: summary and sections (UXR-60, UXR-63)', () => {
       .querySelectorAll<HTMLButtonElement>('.wf-section-head > button'),
   ];
 
+  it('UXR-75: names the mock’s repo override under Checks, from listRepoChecks', async () => {
+    await setup();
+    fireEvent.click(arrow('Implementing', 'Waiting external'));
+    const link = await panel().findByRole('link', { name: 'acme/shop ›' });
+    expect(link.getAttribute('href')).toBe('#/repo-checks/github.com%2Facme%2Fshop');
+    expect(link.closest('[role="note"]')?.textContent).toMatch(/^1 repo uses its own checks/);
+  });
+
+  it('UXR-75: a failed listRepoChecks leaves the hint out', async () => {
+    const api = createMockApi();
+    api.listRepoChecks = () => Promise.reject(new Error('down'));
+    await setup(api);
+    fireEvent.click(arrow('Implementing', 'Waiting external'));
+    expect(panel().queryByRole('link', { name: /›$/ })).toBeNull();
+  });
+
   it('opens on a sentence saying what the transition does, then its sections', async () => {
     await setup();
     fireEvent.click(arrow('Implementing', 'Waiting external'));

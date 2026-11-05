@@ -150,7 +150,7 @@ button.sc-name {
 }
 
 /* 11-web-ui §Breakpoint: on a phone each schedule is a stacked card, labelled cell by cell. */
-@media (max-width: 699.98px) {
+@media (max-width: 899.98px) {
   .sc-table {
     min-width: 0;
   }

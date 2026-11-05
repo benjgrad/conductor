@@ -988,7 +988,7 @@ main[hidden] {
 /* UXR-44 / 11-web-ui §Phone layout: below the phone breakpoint the column, arrow and transition
    editors open full-screen, like the ticket panel, with a 44 px Back instead of ×. The page
    stays laid out (and inert) under them, so its scroll position survives. */
-@media (max-width: 699.98px) {
+@media (max-width: 899.98px) {
   .wf-view.with-editor,
   .wf-view.with-editor.with-transition {
     grid-template-columns: minmax(0, 1fr);

@@ -45,7 +45,7 @@
 .ticket-strip-short {
   display: none;
 }
-@media (max-width: 699.98px) {
+@media (max-width: 899.98px) {
   .ticket-strip-long {
     display: none;
   }
@@ -53,7 +53,7 @@
     display: inline;
   }
 }
-@media (pointer: coarse), (max-width: 699.98px) {
+@media (pointer: coarse), (max-width: 899.98px) {
   .ticket-strip-edit {
     min-width: var(--tap);
   }

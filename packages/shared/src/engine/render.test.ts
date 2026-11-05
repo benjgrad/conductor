@@ -10,6 +10,7 @@ import { ROUTINE_V1_DEF } from '../workflow/routine.js';
 import {
   HOW_TO_FINISH_HEADING,
   IMPLEMENT_TEMPLATE,
+  PLAN_FILES_INSTRUCTION,
   PLAN_TEMPLATE,
   PROPOSALS_HINT,
   renderPrompt,
@@ -167,5 +168,33 @@ describe('proposed_tickets hint (optional follow-up tickets)', () => {
         expect(state.result ?? []).not.toContain('proposed_tickets');
       }
     }
+  });
+});
+
+describe('planned files (ADR-0037 P4)', () => {
+  it('the plan template asks for a ## Files list and the files result key', () => {
+    const state: AgentState = { type: 'agent', prompt: PLAN_TEMPLATE, tools: ['read'] };
+    const p = renderPrompt({ stateName: 'planning', state, snapshot: SNAPSHOT_FIXTURE });
+    expect(p).toContain(PLAN_FILES_INSTRUCTION);
+    expect(p).toContain('`## Files`');
+    expect(p).toContain('"files": ["<path or glob>", …]');
+  });
+
+  it('with follow_ups set, the hint is removed and the files instruction stays', () => {
+    const state: AgentState = {
+      type: 'agent',
+      prompt: PLAN_TEMPLATE,
+      tools: ['read'],
+      follow_ups: { enabled: false, max: 3 },
+    };
+    const p = renderPrompt({ stateName: 'planning', state, snapshot: SNAPSHOT_FIXTURE });
+    expect(p).not.toContain(PROPOSALS_HINT);
+    expect(p).toContain(PLAN_FILES_INSTRUCTION);
+  });
+
+  it('the implement template does not ask for files', () => {
+    const state: AgentState = { type: 'agent', prompt: IMPLEMENT_TEMPLATE, tools: ['edit'] };
+    const p = renderPrompt({ stateName: 'implementing', state, snapshot: SNAPSHOT_FIXTURE });
+    expect(p).not.toContain(PLAN_FILES_INSTRUCTION);
   });
 });

@@ -47,6 +47,7 @@ export * from './machines/index.js';
 export * from './api/rest.js';
 export * from './api/proposals.js';
 export * from './api/pages.js';
+export * from './api/planned-files.js';
 export * from './api/attachments.js';
 export * from './api/schedules.js';
 export * from './api/repo-rank.js';

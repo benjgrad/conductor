@@ -192,13 +192,21 @@ export function renderPages(state: Pick<AgentState, 'result' | 'tools'>): string
   return lines.join('\n');
 }
 
+/**
+ * ADR-0037 P4: the planning template asks for the paths the plan expects to touch, in the plan and
+ * as the optional `files` result key (api/planned-files.ts reads it).
+ */
+export const PLAN_FILES_INSTRUCTION =
+  'End the plan with a `## Files` heading: the repo-relative paths or path globs (e.g. `packages/web/src/**`) you expect to create or edit, one per line. Put the same list in the result as `"files": ["…"]`, or `[]` if the ticket changes no files.';
+
 const PLAN_INSTRUCTIONS = [
   '## Your step: planning',
   '',
   'Read the repository and work out how to do this ticket. Do not change any files, run builds or commit: this step only plans.',
   'Write a plan another agent can follow: the files to change, the approach, the tests to add or update, and anything risky or unclear.',
+  PLAN_FILES_INSTRUCTION,
   PROPOSALS_HINT,
-  'Finish with `complete_state` and a result `{"plan": "<the plan, in Markdown>", "summary": "<one or two sentences>"}`.',
+  'Finish with `complete_state` and a result `{"plan": "<the plan, in Markdown>", "summary": "<one or two sentences>", "files": ["<path or glob>", …]}`.',
 ].join('\n');
 
 const IMPLEMENT_INSTRUCTIONS = [

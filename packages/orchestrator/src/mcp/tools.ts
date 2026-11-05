@@ -13,6 +13,7 @@ import {
   httpForApplyResult,
   inputClass,
   latestPlanEntry,
+  plannedFilesOf,
   ProposalIdSchema,
   transitionsOf,
   type BoardCard,
@@ -719,6 +720,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
             pages: (d.pages ?? [])
               .filter((p) => p.state === entry.from_state)
               .map(({ url, title, expires_at, expired }) => ({ url, title, expires_at, expired })),
+            // ADR-0037 P4: the paths the plan expects to touch; null when absent or malformed.
+            files: plannedFilesOf(values),
             plan: page.text,
             cursor: page.cursor,
             next_cursor: page.next_cursor,

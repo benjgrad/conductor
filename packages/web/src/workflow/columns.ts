@@ -15,6 +15,7 @@ import {
   type WorkflowState,
 } from '@conductor/shared';
 import { humanStates, transitionForPath, validateGates } from './model.js';
+import { instructionIssues } from './instructions.js';
 import { validateTransitions } from './transitions.js';
 
 export { humanStates };
@@ -919,6 +920,8 @@ export function validateColumns(def: WorkflowDefinition): ColumnIssue[] {
       ...(t.name !== '' ? { transition: { from: t.from, name: t.name } } : {}),
     });
   }
+  // ADR-0037 P5: the saved instructions themselves (the Instructions list shows these).
+  for (const i of instructionIssues(def)) issues.push({ state: null, ...i });
   return issues;
 }
 

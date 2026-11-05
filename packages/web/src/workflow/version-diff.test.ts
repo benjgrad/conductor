@@ -265,6 +265,24 @@ describe('diffVersions', () => {
     ]);
   });
 
+  it('saved instructions and saved replies (ADR-0037 P5)', () => {
+    const before = v2((d) => {
+      d.instructions = { gone: 'x', same: 'y', edited: 'z' };
+    });
+    const after = v2((d) => {
+      d.instructions = { same: 'y', edited: 'z2', added: 'w' };
+      t(d, 'planning', 'plan_ready').presets = ['added'];
+    });
+    expect(diffVersions(before, after).flatMap((c) => c.lines)).toEqual(
+      expect.arrayContaining([
+        'Instruction removed: gone',
+        'Instruction changed: edited',
+        'Instruction added: added',
+        'Saved replies: none → added',
+      ]),
+    );
+  });
+
   it('a version without columns (pre ADR-0010) uses state names', () => {
     const old = v1();
     delete old.columns;

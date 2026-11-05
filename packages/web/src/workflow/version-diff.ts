@@ -158,6 +158,7 @@ const KNOWN_TRANSITION_KEYS = new Set([
   'when',
   'notify',
   'text',
+  'presets',
   'requires',
   'on_unmet',
 ]);
@@ -330,6 +331,10 @@ function transitionLines(
     }
     if (!same(b.on_unmet?.routes, a.on_unmet?.routes)) lines.push('Routes when not met changed');
   }
+  if (!same(b.presets, a.presets)) {
+    const list = (p: readonly string[] | undefined) => (p?.length ? p.join(', ') : 'none');
+    lines.push(`Saved replies: ${list(b.presets)} → ${list(a.presets)}`);
+  }
   lines.push(...otherLines(b, a, KNOWN_TRANSITION_KEYS));
   return lines;
 }
@@ -431,6 +436,7 @@ const KNOWN_WORKFLOW_KEYS = new Set([
   'budget',
   'on_budget_exceeded',
   'queued_ticket_editable',
+  'instructions',
 ]);
 
 function transitionsOf(def: WorkflowDefinition, from: string): Map<string, TransitionObject> {
@@ -557,6 +563,14 @@ export function diffVersions(
   if ((before.queued_ticket_editable ?? true) !== (after.queued_ticket_editable ?? true)) {
     const e = (d: WorkflowDefinition) => onOff(ticketEditableOf(d, QUEUED_LANE));
     wf.push(`People can edit tickets in ${QUEUED_TITLE}: ${e(before)} → ${e(after)}`);
+  }
+  // ADR-0037 P5: the saved instructions, by slug.
+  const bi = before.instructions ?? {};
+  const ai = after.instructions ?? {};
+  for (const k of keysOf(bi, ai)) {
+    if (!(k in ai)) wf.push(`Instruction removed: ${k}`);
+    else if (!(k in bi)) wf.push(`Instruction added: ${k}`);
+    else if (bi[k] !== ai[k]) wf.push(`Instruction changed: ${k}`);
   }
   wf.push(...otherLines(before, after, KNOWN_WORKFLOW_KEYS));
   if (wf.length > 0) {

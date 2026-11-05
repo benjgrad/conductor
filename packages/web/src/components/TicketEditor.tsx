@@ -3,6 +3,7 @@ import { useId, useRef, useState, type FormEvent } from 'react';
 import { ApiRequestError, errorMessage, type ApiClient } from '../api/client.js';
 import { AttachmentPicker, AttachmentThumb, useAttachmentUploads } from './AttachmentPicker.js';
 import { priorityChoices, priorityLabel, TICKET_KIND_LABELS } from './format.js';
+import { useToast } from './Toast.js';
 import type { RichEditorHandle } from './ticket-editor/RichTicketEditor.js';
 import { TicketBodyField } from './ticket-editor/TicketBodyField.js';
 
@@ -34,6 +35,7 @@ export function TicketEditor({ api, ticket, onSaved, onCancel, onReload }: Ticke
   const uploads = useAttachmentUploads(api);
   const [removed, setRemoved] = useState<ReadonlySet<string>>(new Set());
   const existing = ticket.attachments ?? [];
+  const toast = useToast();
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -59,6 +61,7 @@ export function TicketEditor({ api, ticket, onSaved, onCancel, onReload }: Ticke
         ...patch,
       });
       uploads.reset();
+      toast('Ticket saved');
       onSaved(saved);
     } catch (err) {
       if (err instanceof ApiRequestError && err.status === 409) setStale(true);

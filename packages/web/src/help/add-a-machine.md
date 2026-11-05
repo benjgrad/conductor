@@ -6,27 +6,24 @@ In the examples, `https://conductor.example.com` is this conductor server. macOS
 
 ## 1. Prerequisites
 
-You need five things on the computer. Install what's missing, then run each check in a terminal.
+You need four things on the computer. Install what's missing, then run each check in a terminal.
 
 ### On macOS
 
-- **Node.js 22 or newer** runs the daemon. Install it with Homebrew: `brew install node`. Or use nvm: `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash`, then open a new terminal (or run `. ~/.nvm/nvm.sh`) and run `nvm install 22`. Check: `node -v` prints v22 or higher.
 - **git** works on your repos. Install it with `xcode-select --install` or `brew install git`. Check: `git --version`.
-- **Claude Code**, installed and signed in: the daemon runs your own Claude Code with your settings. Install it with `npm install -g @anthropic-ai/claude-code`, run `claude`, then type `/login`. Check: `claude --version`.
+- **Claude Code**, installed and signed in: the daemon runs your own Claude Code with your settings. Install it with `curl -fsSL https://claude.ai/install.sh | bash`, run `claude`, then type `/login`. Check: `claude --version`.
 - **GitHub CLI 2.40 or newer**, signed in: conductor uses it to open pull requests. Install it with `brew install gh`, then run `gh auth login`. Check: `gh --version` and `gh auth status`.
 - **A folder with your repos**, for example `~/code`. You tell the daemon about it in step 4. Check: `ls ~/code`.
 
 ### On Linux
 
-- **Node.js 22 or newer** runs the daemon. Install it with nvm: `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash`, then open a new terminal (or run `. ~/.nvm/nvm.sh`) and run `nvm install 22`. Check: `node -v` prints v22 or higher.
 - **git** works on your repos. Install it with your package manager, for example `sudo apt install git`. Check: `git --version`.
-- **Claude Code**, installed and signed in: the daemon runs your own Claude Code with your settings. Install it with `npm install -g @anthropic-ai/claude-code`, run `claude`, then type `/login`. Check: `claude --version`.
+- **Claude Code**, installed and signed in: the daemon runs your own Claude Code with your settings. Install it with `curl -fsSL https://claude.ai/install.sh | bash`, run `claude`, then type `/login`. Check: `claude --version`.
 - **GitHub CLI 2.40 or newer**, signed in: conductor uses it to open pull requests. Install it as shown on [cli.github.com](https://cli.github.com/), then run `gh auth login`. Check: `gh --version` and `gh auth status`.
 - **A folder with your repos**, for example `~/code`. You tell the daemon about it in step 4. Check: `ls ~/code`.
 
 ### On Windows
 
-- **Node.js 22 or newer** runs the daemon. Install it with `winget install OpenJS.NodeJS.LTS`, then open a new PowerShell window. Check: `node -v` prints v22 or higher.
 - **Git for Windows** works on your repos. It includes Git Bash, which Claude Code and conductor need. Install it with `winget install --id Git.Git -e`. Check: `git --version`.
 - **Claude Code, the native install**, signed in. Install it with `irm https://claude.ai/install.ps1 | iex`, run `claude`, then type `/login`. The npm package (`claude.cmd`) doesn't work with conductor on Windows: the installer refuses it. Check: `claude --version`, and `(Get-Command claude).Source` ends in `claude.exe`.
 - **GitHub CLI 2.40 or newer**, signed in. Install it with `winget install --id GitHub.cli -e`, then run `gh auth login`. Check: `gh --version` and `gh auth status`.
@@ -108,7 +105,7 @@ Run `service install` as yourself, not through `su` or `sudo -u`. Then check it:
 
 If you set up the service with an older version of conductor, run `service install` again once, so the service uses the current launcher.
 
-The service remembers the Node.js you installed it with and your PATH at that moment (so it finds `claude`, `git` and `gh`). If `node -v` in your terminal is older than 22, choose Node 22 yourself: with nvm, `CONDUCTOR_NODE="$(nvm which 22)" ~/.conductor/bin/conductor-daemon service install`. After you change Node.js or move a tool, run `service install` again.
+The daemon is a single program: it needs no Node.js. The service remembers your PATH at that moment (so it finds `claude`, `git` and `gh`). After you move a tool, run `service install` again.
 
 Other commands: `service status` (is it running, and where is the log), `service restart`, and `service uninstall` (stops it and removes the service). Windows has no service yet: keep the PowerShell window open.
 
@@ -182,7 +179,6 @@ It needs no token. It installs the new version next to the old one and keeps the
 - **On Linux the daemon stops when I log out, or doesn't start after a reboot.** Run `loginctl enable-linger "$USER"` (step 3), then check with `~/.conductor/bin/conductor-daemon service status`.
 - **"ws closed 4005" or "protocol version not supported".** The daemon is too old for this server. Upgrade it (see Upgrade); the service starts again on the new version.
 - **The service starts and stops at once.** Read the log (`service status` names it). Exit code 78 means the machine's credential was refused or revoked: enroll again as above.
-- **Node.js is too old or missing.** Run `node -v` in the same terminal as the daemon. It must be 22 or newer and on that terminal's PATH (with nvm, run `nvm use 22` first).
 - **The install command failed with "enrollment failed".** The command expired or was already used. Generate a new one on the Machines page and run it again; the daemon is already installed, so this is quick.
 - **"missing prerequisites".** The installer lists what's missing. Install it (step 1) and run the command again.
 - **A company proxy or firewall.** The daemon needs an outgoing WebSocket connection (wss) to this server, `https://conductor.example.com`. Ask your IT team to allow it.

@@ -273,7 +273,7 @@
   width: 20px;
   height: 20px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 700;
   text-decoration: none;
   border: 1px solid currentColor;
@@ -308,7 +308,7 @@
   position: relative;
 }
 .rc-repos li:has(> .rc-health) > .rc-repo {
-  padding-right: 76px;
+  padding-right: calc(var(--space-8) + var(--space-3));
 }
 .rc-repos li > .rc-health {
   position: absolute;

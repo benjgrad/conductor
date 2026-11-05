@@ -741,13 +741,14 @@ describe('collapsible columns (UX-9)', () => {
 
 // ADR-0032: a ticket a schedule created names its schedule on the card.
 describe('board card schedule chip (ADR-0032)', () => {
-  it('shows ↻ and the schedule name, only on scheduled cards', () => {
+  it('shows ↻ and the schedule name, only on scheduled cards; it links to the schedule (UXR-83)', () => {
     renderCards([
       card(1, {}, { schedule: { id: 'd4000000-0000-4000-8000-000000000001', name: 'PR sweep' } }),
       card(2, {}),
     ]);
-    const chip = article('Card 1').getByText('↻ PR sweep');
-    expect(chip.getAttribute('title')).toBe('Recurring: PR sweep');
+    const chip = article('Card 1').getByRole('link', { name: '↻ PR sweep' });
+    expect(chip.getAttribute('href')).toBe('#/schedules/d4000000-0000-4000-8000-000000000001');
+    expect(chip.getAttribute('title')).toBe('Recurring: PR sweep. Open its schedule');
     expect(article('Card 2').queryByText(/↻/)).toBeNull();
   });
 });

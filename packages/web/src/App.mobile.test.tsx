@@ -16,7 +16,7 @@ afterEach(() => {
 
 const me = localMeResponse().user;
 /** UXR-27: the pages in the top bar, and what the account menu no longer holds. */
-const pages = ['Board', 'Workflow', 'Machines', 'Repo checks', 'Schedules', 'Archive'];
+const pages = ['Board', 'Workflow', 'Machines', 'Repo checks', 'Insights', 'Schedules', 'Archive'];
 const notInMenu = ['Add a machine', 'Help', 'Connect Claude', 'Repo checks', 'Workflow'];
 
 async function renderAt(width: number) {

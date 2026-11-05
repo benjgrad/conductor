@@ -224,11 +224,6 @@
 .rc-hint {
   font-size: var(--text-sm);
 }
-.rc-primary:not(:disabled) {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
-}
 .rc-more {
   position: relative;
 }

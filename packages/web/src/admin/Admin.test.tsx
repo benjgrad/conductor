@@ -189,4 +189,22 @@ describe('account menu', () => {
     fireEvent.click(dialog.getByRole('button', { name: 'Change password' }));
     expect((await dialog.findByRole('status')).textContent).toMatch(/Password changed/);
   });
+
+  it('change password is a modal dialog: Esc closes it and focus returns to the account button (UXR-51)', async () => {
+    render(<App api={createMockApi({ auth: 'password' })} />);
+    const menu = await openAccountMenu('Ben');
+    fireEvent.click(menu.getByRole('menuitem', { name: 'Change password' }));
+    const dialogEl = screen.getByRole('dialog', { name: 'Change password' });
+    expect(dialogEl.tagName).toBe('DIALOG');
+    expect(document.activeElement).toBe(within(dialogEl).getByLabelText('Current password'));
+    const submit = within(dialogEl).getByRole<HTMLButtonElement>('button', {
+      name: 'Change password',
+    });
+    expect(submit.className).toBe('primary');
+    expect(submit.disabled).toBe(true);
+
+    fireEvent(dialogEl, new Event('cancel', { cancelable: true }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Ben' }));
+  });
 });

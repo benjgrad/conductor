@@ -195,6 +195,20 @@ describe('create ticket', () => {
   });
 });
 
+describe('Insights tab (UXR-84)', () => {
+  it('opens the Insights page at #/insights', async () => {
+    await renderApp();
+    const tab = screen.getByRole('link', { name: 'Insights' });
+    expect(tab.getAttribute('href')).toBe('#/insights');
+    window.location.hash = '#/insights';
+    expect(await screen.findByRole('heading', { level: 2, name: 'Insights' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Insights' }).getAttribute('aria-current')).toBe(
+      'page',
+    );
+    window.location.hash = '#/';
+  });
+});
+
 describe('top nav icons (UX-11)', () => {
   const me = localMeResponse().user;
   const controls = [
@@ -202,6 +216,7 @@ describe('top nav icons (UX-11)', () => {
     ['link', 'Workflow'],
     ['link', 'Machines'],
     ['link', 'Repo checks'],
+    ['link', 'Insights'],
     ['link', 'Schedules'],
     ['link', 'Archive'],
     ['button', 'New ticket'],
@@ -283,6 +298,7 @@ describe('navigation (UXR-27)', () => {
     expect(currentNav({ view: 'repo-checks', repo: 'github.com/a/b' })).toBe('repo-checks');
     expect(currentNav({ view: 'schedules', scheduleId: null })).toBe('schedules');
     expect(currentNav({ view: 'archive' })).toBe('archive');
+    expect(currentNav({ view: 'insights' })).toBe('insights');
     expect(currentNav({ view: 'admin' })).toBeNull();
     expect(currentNav({ view: 'help' })).toBeNull();
   });
@@ -292,6 +308,7 @@ describe('navigation (UXR-27)', () => {
     ['/#/workflows', 'Workflow'],
     ['/#/machines', 'Machines'],
     ['/#/repo-checks', 'Repo checks'],
+    ['/#/insights', 'Insights'],
     ['/#/schedules', 'Schedules'],
     ['/#/archive', 'Archive'],
     ['/#/setup', 'Machines'],
@@ -395,7 +412,9 @@ describe('session (M2-T05)', () => {
   it('/admin is the admin view', async () => {
     window.history.replaceState(null, '', '/admin');
     render(<App api={createMockApi({ auth: 'password' })} />);
-    await screen.findByRole('region', { name: 'Users' });
+    // The whole App (board, then the admin view's lists) can take longer than findBy's 1 s default
+    // when a full run loads the CPUs.
+    await screen.findByRole('region', { name: 'Users' }, { timeout: 10_000 });
     expect(window.location.pathname + window.location.hash).toBe('/#/admin');
   });
 

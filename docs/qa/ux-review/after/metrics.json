@@ -331,16 +331,16 @@
     "horizontalOverflow": false,
     "clippedOverflow": [],
     "pageHeight": 900,
-    "smallTapTargets": 38,
+    "smallTapTargets": 41,
     "smallTapTargetSample": [
       "a \"Board\" 89×24",
       "a \"Workflow\" 106×24",
       "a \"Machines\" 107×24",
       "a \"Repo checks\" 128×24",
+      "a \"Insights\" 97×24",
       "a \"Schedules\" 113×24",
       "a \"Archive\" 95×24",
-      "input \"Search tickets\" 260×29",
-      "button \"New ticket\" 117×26"
+      "input \"Search tickets\" 254×29"
     ]
   },
   "detail-1440x900-light": {
@@ -411,7 +411,23 @@
     ]
   },
   "board-1440x900-dark": {
-    "error": "TimeoutError: locator.waitFor: Timeout 30000ms exceeded."
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "clippedOverflow": [],
+    "pageHeight": 900,
+    "smallTapTargets": 41,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 107×24",
+      "a \"Repo checks\" 128×24",
+      "a \"Insights\" 97×24",
+      "a \"Schedules\" 113×24",
+      "a \"Archive\" 95×24",
+      "input \"Search tickets\" 254×29"
+    ]
   },
   "detail-1440x900-dark": {
     "pageScrollWidth": 1440,
@@ -764,16 +780,16 @@
     "horizontalOverflow": false,
     "clippedOverflow": [],
     "pageHeight": 900,
-    "smallTapTargets": 39,
+    "smallTapTargets": 42,
     "smallTapTargetSample": [
       "a \"Board\" 89×24",
       "a \"Workflow\" 106×24",
       "a \"Machines\" 107×24",
       "a \"Repo checks\" 128×24",
+      "a \"Insights\" 97×24",
       "a \"Schedules\" 113×24",
       "a \"Archive\" 95×24",
-      "input \"Search tickets\" 260×29",
-      "button \"New ticket\" 117×26"
+      "input \"Search tickets\" 254×29"
     ]
   },
   "account-menu-admin-1440x900-light": {
@@ -783,16 +799,16 @@
     "horizontalOverflow": false,
     "clippedOverflow": [],
     "pageHeight": 900,
-    "smallTapTargets": 42,
+    "smallTapTargets": 45,
     "smallTapTargetSample": [
       "a \"Board\" 89×24",
       "a \"Workflow\" 106×24",
       "a \"Machines\" 107×24",
       "a \"Repo checks\" 128×24",
+      "a \"Insights\" 97×24",
       "a \"Schedules\" 113×24",
       "a \"Archive\" 95×24",
-      "input \"Search tickets\" 260×29",
-      "button \"New ticket\" 117×26"
+      "input \"Search tickets\" 259×29"
     ]
   },
   "first-run-1440x900-light": {
@@ -802,16 +818,16 @@
     "horizontalOverflow": false,
     "clippedOverflow": [],
     "pageHeight": 995,
-    "smallTapTargets": 38,
+    "smallTapTargets": 39,
     "smallTapTargetSample": [
       "a \"Board\" 89×24",
       "a \"Workflow\" 106×24",
       "a \"Machines\" 107×24",
       "a \"Repo checks\" 128×24",
+      "a \"Insights\" 97×24",
       "a \"Schedules\" 113×24",
       "a \"Archive\" 95×24",
-      "button \"New ticket\" 117×26",
-      "a \"Help\" 40×24"
+      "button \"New ticket\" 117×26"
     ]
   }
 }

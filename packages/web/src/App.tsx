@@ -2,6 +2,7 @@ import type { MeResponse, TicketSearchResult } from '@conductor/shared';
 import {
   Archive,
   CalendarClock,
+  ChartColumn,
   CircleHelp,
   LayoutDashboard,
   ListChecks,
@@ -52,6 +53,7 @@ import { useNeedsInputNotifications } from './notify/useNeedsInputNotifications.
 import { useTransitionNotifications } from './notify/useTransitionNotifications.js';
 import { dismiss, isDismissed } from './onboarding/dismissal.js';
 import { SetupGuide } from './onboarding/SetupGuide.js';
+import { InsightsPage } from './insights/InsightsPage.js';
 import { RepoChecksPage } from './repo-checks/RepoChecksPage.js';
 import { SchedulesPage } from './schedules/SchedulesPage.js';
 import { DiscardDraftConfirm, useDraftGuard } from './workflow/draft-guard.js';
@@ -168,7 +170,8 @@ function AppRoutes({ api, compact: compactProp }: AppProps) {
 }
 
 /** A top-bar page; `currentNav` names the one that is the current page. */
-export type NavPage = 'board' | 'workflows' | 'machines' | 'repo-checks' | 'schedules' | 'archive';
+export type NavPage =
+  'board' | 'workflows' | 'machines' | 'repo-checks' | 'insights' | 'schedules' | 'archive';
 
 /**
  * UXR-27 FR-5: which top-bar link carries `aria-current="page"` (at most one). The guided setup
@@ -186,6 +189,8 @@ export function currentNav(route: Route): NavPage | null {
       return 'workflows';
     case 'repo-checks':
       return 'repo-checks';
+    case 'insights':
+      return 'insights';
     case 'schedules':
       return 'schedules';
     case 'archive':
@@ -241,6 +246,15 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
     navigate({ view: 'board' });
     setSelected(sessionId);
   };
+  // UXR-84: an example ticket on the Insights page opens on the board.
+  const openTicket = (ticketId: string) => {
+    const card = [...board.cards.values()].find((c) => c.ticket_id === ticketId);
+    navigate({ view: 'board' });
+    if (card?.session_id) setSelected(card.session_id);
+    else if (card) selectTicket(ticketId);
+  };
+  const ticketTitle = (ticketId: string) =>
+    [...board.cards.values()].find((c) => c.ticket_id === ticketId)?.title ?? null;
   // UXR-85: a search result or an Archive row opens its panel over the board (or the Archive).
   const openResult = (t: TicketSearchResult) => {
     if (route.view !== 'board' && route.view !== 'archive') {
@@ -388,6 +402,14 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
           >
             {labelled(ListChecks, 'Repo checks')}
           </a>
+          {/* UXR-84: the analyst's findings. */}
+          <a
+            href={routeHash({ view: 'insights' })}
+            aria-current={page('insights')}
+            {...iconOnly('Insights')}
+          >
+            {labelled(ChartColumn, 'Insights')}
+          </a>
           {/* ADR-0032 / UXR-83: recurring jobs. */}
           <a
             href={routeHash({ view: 'schedules', scheduleId: null })}
@@ -438,7 +460,17 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
         </p>
       )}
       <DiscardDraftConfirm draft={draft} navigate={navigate} />
-      {route.view === 'workflows' && <WorkflowsView api={api} onDirtyChange={draft.setDirty} />}
+      {route.view === 'workflows' && (
+        <WorkflowsView
+          api={api}
+          onDirtyChange={draft.setDirty}
+          proposalId={route.proposalId ?? null}
+          canEditWorkflows={me !== null && (me.auth_mode === 'local' || me.user.is_admin)}
+        />
+      )}
+      {route.view === 'insights' && (
+        <InsightsPage api={api} onOpenTicket={openTicket} ticketTitle={ticketTitle} />
+      )}
       {route.view === 'machines' && <MachinesPage api={api} />}
       {route.view === 'schedules' && (
         <SchedulesPage

@@ -4,6 +4,8 @@ import {
   BoardResponseSchema,
   BoardSseEventSchema,
   checksGatesOf,
+  compareQueued,
+  isReorderable,
   CONDUCTOR_WORKFLOW_ID,
   EnrollmentTokenCreatedSchema,
   MachineDetailSchema,
@@ -136,6 +138,34 @@ describe('mock ApiClient', () => {
   });
 });
 
+describe('mock queue order (06 §Queue order)', () => {
+  it('reorders the waiting Queued cards, upserts them, and resets to priority order', async () => {
+    const api = createMockApi({ now });
+    const queued = async () =>
+      BoardResponseSchema.parse(await api.getBoard())
+        .columns.find((c) => c.id === 'queued')!
+        .cards.filter(isReorderable)
+        // The mock's board is unsorted (the client sorts), so sort as the server would.
+        .sort(compareQueued)
+        .map((c) => c.ticket_id);
+    const before = await queued();
+    expect(before.length).toBeGreaterThan(1);
+    const last = before[before.length - 1]!;
+    const { events } = collect(api);
+    const res = await api.reorderQueue([last]);
+    await tick();
+    expect(res.ticket_ids[0]).toBe(last);
+    expect((await queued())[0]).toBe(last);
+    expect(events.length).toBeGreaterThan(0);
+    for (const e of events) expect(BoardSseEventSchema.parse(e).type).toBe('card.upserted');
+    await api.resetQueueOrder();
+    expect(await queued()).toEqual(before);
+    await expect(api.reorderQueue(['00000000-0000-4000-8000-000000000999'])).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+});
+
 describe('mock workflows (ADR-0009)', () => {
   it('serves the one conductor workflow (ADR-0010), valid, with history', async () => {
     const api = createMockApi({ now });
@@ -168,6 +198,32 @@ describe('mock workflows (ADR-0009)', () => {
     }
     // Saving v2 as is stores v4.
     expect(await api.saveWorkflow(v2)).toEqual({ id: 'conductor', version: 4 });
+  });
+
+  it('UXR-87: offers a newer default, compares it and adopts it', async () => {
+    const plain = createMockApi({ now });
+    expect((await plain.getWorkflow(CONDUCTOR_WORKFLOW_ID)).default_available).toBeNull();
+    await expect(plain.getWorkflowDefault(CONDUCTOR_WORKFLOW_ID)).rejects.toMatchObject({
+      status: 404,
+    });
+
+    const latest = (await plain.getWorkflow(CONDUCTOR_WORKFLOW_ID)).definition;
+    const def = { ...structuredClone(latest), version: 4, budget: { ...latest.budget, usd: 7 } };
+    const api = createMockApi({ now, defaultWorkflow: def });
+    expect((await api.getWorkflow(CONDUCTOR_WORKFLOW_ID)).default_available).toBe(4);
+    const cmp = await api.getWorkflowDefault(CONDUCTOR_WORKFLOW_ID);
+    expect(cmp).toMatchObject({ version: 4, base_version: 3 });
+    expect(cmp.diff.changes.map((c) => c.path)).toContain('budget.usd');
+    await expect(api.adoptDefaultWorkflow(CONDUCTOR_WORKFLOW_ID, 2)).rejects.toMatchObject({
+      status: 409,
+      code: 'conflict',
+    });
+    expect(await api.adoptDefaultWorkflow(CONDUCTOR_WORKFLOW_ID, 3)).toEqual({
+      id: 'conductor',
+      version: 4,
+    });
+    const after = await api.getWorkflow(CONDUCTOR_WORKFLOW_ID);
+    expect([after.version, after.default_available]).toEqual([4, null]);
   });
 
   it('createTicket defaults workflow_id to conductor', async () => {

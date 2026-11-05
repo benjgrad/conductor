@@ -173,6 +173,43 @@ button.danger-solid {
   color: var(--on-accent);
   font-weight: 600;
 }
+/* UXR-25: the one main action of a form or dialog (11-web-ui §Buttons and dialogs). */
+button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+button.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 88%, var(--text));
+}
+/* Disabled reads as disabled, not as a faded accent: a neutral fill, no opacity. */
+button.primary:disabled {
+  border-color: var(--border);
+  background: var(--border);
+  color: var(--muted);
+  opacity: 1;
+}
+.form-hint {
+  font-size: var(--text-sm);
+}
+/* UXR-51: a native <dialog> opened with showModal() (components/ModalDialog.tsx). */
+dialog.modal {
+  width: min(380px, calc(100vw - 32px));
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.2);
+}
+dialog.modal::backdrop {
+  background: rgb(0 0 0 / 0.45);
+}
+dialog.modal h2 {
+  font-size: var(--text-lg);
+  margin: 0 0 var(--space-3);
+}
 a {
   color: var(--accent);
 }
@@ -224,6 +261,16 @@ textarea {
 }
 .topbar.compact .nav-label {
   display: none;
+}
+/* UXR-27: a two-word control ("Repo checks", "New ticket") stays on one line; the search box
+   takes the squeeze. */
+.topbar .nav-tabs a,
+.topbar > button,
+.topbar .account-button {
+  white-space: nowrap;
+}
+.topbar > button {
+  flex: none;
 }
 /* UXR-27: the "?" sits by New ticket and the account menu; only the page tabs take the slack. */
 .topbar .help-entry {
@@ -581,6 +628,30 @@ a.card-schedule:hover {
 .details-tab > section:first-child {
   border-top: 0;
   margin-top: var(--space-1);
+}
+/* UXR-84: a finished session's analyst insight (Details tab). */
+.session-insight p {
+  margin: 0 0 var(--space-1);
+  overflow-wrap: anywhere;
+}
+.si-frictions {
+  margin: 0 0 var(--space-1);
+  padding-left: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.si-frictions li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+.si-where {
+  font-weight: 600;
+}
+.si-by {
+  font-size: var(--text-xs);
 }
 .detail h3 {
   font-size: var(--text-xs);
@@ -1556,15 +1627,6 @@ button.link {
   color: var(--accent);
   font-weight: 600;
 }
-.sheet .form-actions button[type='submit'] {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--on-accent);
-  font-weight: 600;
-}
-.form-hint {
-  font-size: var(--text-sm);
-}
 /* FR-4: "Discard this ticket?" in the footer, in place of Create ticket. */
 .sheet-confirm {
   display: flex;
@@ -1968,7 +2030,7 @@ button.link {
     border-top: 1px solid var(--border);
     background: var(--panel);
   }
-  .form-hint {
+  .sheet .form-hint {
     text-align: center;
   }
   .sheet .ticket-body-plain,

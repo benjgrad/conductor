@@ -15,6 +15,11 @@ import type {
   ChangeProposalListResponse,
   ChangeKind,
   ChangeStatus,
+  AdvisorGroupBy,
+  FindingsResponse,
+  ProcessMetricsResponse,
+  ProcessReportResponse,
+  SessionInsightResponse,
   CreateInviteRequest,
   CreateTicketRequest,
   FreshConversationRequest,
@@ -59,6 +64,8 @@ import type {
   TicketSearchResponse,
   TicketSearchStatus,
   UpdateTicketRequest,
+  WorkflowDefaultResponse,
+  QueueOrderResponse,
   WorkflowDefinition,
   WorkflowDetail,
   TranscriptResponse,
@@ -135,6 +142,13 @@ export interface ApiClient {
    * 409 conflict when the ticket changed since `expected_updated_at`.
    */
   updateTicket(ticketId: string, req: UpdateTicketRequest): Promise<TicketDetail>;
+  /**
+   * PUT /api/queue/order (06 §Queue order): these queued tickets first, in this order; the rest
+   * keep their order after them. 404 when none of them is queued any more.
+   */
+  reorderQueue(ticketIds: readonly string[]): Promise<QueueOrderResponse>;
+  /** DELETE /api/queue/order: the queue back to priority order. */
+  resetQueueOrder(): Promise<QueueOrderResponse>;
   /**
    * POST /api/tickets/:id/cancel (UXR-86): cancels the ticket, a queued one with no session too.
    * 409 conflict when it is already done or cancelled.
@@ -229,6 +243,22 @@ export interface ApiClient {
   rejectChangeProposal(id: string): Promise<ChangeProposalDetail>;
   /** ADR-0033 P3: POST /api/change-proposals/:id/review → with `review`. 409 unless applied. */
   reviewChangeProposal(id: string): Promise<ChangeProposalDetail>;
+  /**
+   * UXR-84: GET /api/insights/metrics → time per state, repo, machine or check over the last
+   * `windowDays` (what MCP's get_process_metrics returns).
+   */
+  getProcessMetrics(opts: {
+    windowDays: number;
+    groupBy: AdvisorGroupBy;
+    repo?: string;
+    workflowId?: string;
+  }): Promise<ProcessMetricsResponse>;
+  /** UXR-84: GET /api/insights/findings → ranked findings, a page of 8, each with its proposal. */
+  listFindings(opts: { windowDays: number; cursor?: number }): Promise<FindingsResponse>;
+  /** UXR-84: GET /api/insights/report → the analysts' frictions and their coverage. */
+  getProcessReport(opts: { windowDays: number }): Promise<ProcessReportResponse>;
+  /** UXR-84: GET /api/insights/sessions/:id → the session's analyst insight. 404 when none. */
+  getSessionInsight(sessionId: string): Promise<SessionInsightResponse>;
   /** GET /api/workflows (create-ticket form, Workflows view): the latest version of each. */
   listWorkflows(): Promise<WorkflowSummary[]>;
   /**
@@ -245,6 +275,17 @@ export interface ApiClient {
     definition: WorkflowDefinition,
     opts?: { note?: string },
   ): Promise<SaveWorkflowResponse>;
+  /**
+   * UXR-87: GET /api/workflows/:id/default → the newer shipped default and its diff from the
+   * latest version. 404 not_found when none is newer.
+   */
+  getWorkflowDefault(id: string): Promise<WorkflowDefaultResponse>;
+  /**
+   * UXR-87: POST /api/workflows/:id/default {base_version} → the new version (the default saved
+   * over local edits). 403 forbidden unless an instance admin; 409 conflict when `baseVersion` is
+   * no longer the latest.
+   */
+  adoptDefaultWorkflow(id: string, baseVersion: number): Promise<SaveWorkflowResponse>;
   /** POST /api/sessions/:id/approve → external.event ui.approve. 409 conflict if not awaited. */
   approve(sessionId: string, req?: ApproveSessionRequest): Promise<OkResponse>;
   /** POST /api/sessions/:id/cancel → operator.cancel. 409 conflict if already terminal. */

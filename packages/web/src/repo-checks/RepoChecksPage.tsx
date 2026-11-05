@@ -520,7 +520,7 @@ function RepoDetailView({
         </button>
         <button
           type="button"
-          className="rc-primary"
+          className="primary"
           disabled={busy || issues.length > 0 || !dirty}
           aria-describedby={untouched ? hintId : undefined}
           onClick={() => void save()}

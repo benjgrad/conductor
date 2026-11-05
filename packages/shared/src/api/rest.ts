@@ -478,7 +478,16 @@ export type InputRequestDto = z.infer<typeof InputRequestDtoSchema>;
 export const BoardCheckingItemSchema = z.object({
   label: z.string(),
   kind: z.enum(['check', 'review', 'action', 'condition']),
-  status: z.enum(['todo', 'running', 'passed', 'failed', 'pending', 'disabled', 'unsupported']),
+  status: z.enum([
+    'todo',
+    'running',
+    'passed',
+    'failed',
+    'pending',
+    'disabled',
+    'unsupported',
+    'skipped',
+  ]),
   /** Hover text (the review's requirements, a condition's evidence), or null. */
   detail: z.string().nullable(),
 });

@@ -23,8 +23,8 @@ export const CONDITION_CAPABILITIES = {
   azure_pipeline_succeeded: 'cli:az:authed',
   // Placeholder until M5 decides CLI vs MCP for Jira (U-065).
   jira_fields_set: 'cli:jira:authed',
-  // ADR-0037 P2 (not available until T5): `cmd` runs in a fresh checkout of the PR head, which
-  // conductor fetches with gh; `age_below` is evaluated by the engine and needs nothing.
+  // ADR-0037 P2: `cmd` runs in a fresh checkout of the PR head on the machine holding the worktree
+  // (git; gh for the head); `age_below` is evaluated by the engine and needs nothing.
   cmd: 'cli:gh:authed',
   pr_mergeable: 'cli:gh:authed',
   age_below: null,

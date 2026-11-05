@@ -61,7 +61,8 @@ export type PendingAnswer = z.infer<typeof PendingAnswerSchema>;
  * - `todo`: not evaluated yet; `running`: an evaluation is in flight;
  * - `met` / `pending` / `failed`: the daemon's last answer (`EvaluateConditionsResult`);
  * - `disabled`: declared with `enabled: false` (skipped, never evaluated);
- * - `unsupported`: the machine can't evaluate it (M5 types); counts as pending.
+ * - `unsupported`: the machine can't evaluate it (M5 types); counts as pending;
+ * - `skipped` (ADR-0037): short-circuited after an earlier condition was not met; counts as pending.
  */
 export const ConditionStatusValueSchema = z.enum([
   'todo',
@@ -71,6 +72,8 @@ export const ConditionStatusValueSchema = z.enum([
   'failed',
   'disabled',
   'unsupported',
+  /** ADR-0037 P1: not evaluated this time (short-circuit: an earlier condition was not met). */
+  'skipped',
 ]);
 export type ConditionStatusValue = z.infer<typeof ConditionStatusValueSchema>;
 
@@ -88,7 +91,7 @@ export const ConditionStatusSchema = z.object({
    * The daemon's last answer (`met` / `pending` / `failed` / `unsupported`), kept while `status` is
    * `running` (which otherwise hides it). Absent before the first answer and on older rows.
    */
-  answer: z.enum(['met', 'pending', 'failed', 'unsupported']).optional(),
+  answer: z.enum(['met', 'pending', 'failed', 'unsupported', 'skipped']).optional(),
 });
 export type ConditionStatus = z.infer<typeof ConditionStatusSchema>;
 

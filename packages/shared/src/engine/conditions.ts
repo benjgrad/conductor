@@ -9,7 +9,9 @@ import {
   conditionEnabled,
   conditionLabel,
   DEFAULT_CONDITION_POLL,
+  ENGINE_CONDITION_TYPES,
   MAX_CONDITION_POLL,
+  noChecksPolicy,
   parseDuration,
   type Condition,
   type ConditionType,
@@ -30,6 +32,7 @@ export const PR_CONDITION_TYPES: ReadonlySet<ConditionType> = new Set([
   'pr_approvals',
   'pr_merged',
   'pr_screenshots',
+  'pr_mergeable',
 ]);
 
 /**
@@ -79,6 +82,14 @@ export function enabledIndexes(conditions: readonly Condition[]): number[] {
   return conditions.flatMap((c, i) => (conditionEnabled(c) ? [i] : []));
 }
 
+/**
+ * Indexes of the enabled conditions the daemon evaluates (ADR-0037: engine-only types such as
+ * `age_below` are left out); `results[k]` answers `daemonIndexes(conditions)[k]`.
+ */
+export function daemonIndexes(conditions: readonly Condition[]): number[] {
+  return enabledIndexes(conditions).filter((i) => !ENGINE_CONDITION_TYPES.has(conditions[i]!.type));
+}
+
 /** An evaluation is in flight: some enabled condition is `running`. */
 export function evaluationInFlight(step: GateStep): boolean {
   return step.conditions.some((c) => c.status === 'running');
@@ -108,31 +119,41 @@ export function conductorPrUrl(s: SessionSnapshot): string | null {
 const SHA_RE = /^[0-9a-f]{40}$/;
 
 /**
- * `run_action evaluate_conditions` args: the enabled conditions (declaration order), conductor's
- * PR, the session branch, and `head_sha` = the commit conductor checked and pushed (the step's
- * `head_sha`, ADR-0010 `expected_sha`) when there is one: the daemon then fails every PR
- * condition if someone pushed to the branch.
+ * `run_action evaluate_conditions` args: the enabled daemon-side conditions (declaration order),
+ * conductor's PR, the session branch, and `head_sha` = the commit conductor checked and pushed (the
+ * step's `head_sha`, ADR-0010 `expected_sha`) when there is one: the daemon then fails every PR
+ * condition if someone pushed to the branch. ADR-0037: `setup` is the fresh checkout's setup for
+ * `cmd` conditions; `short_circuit` (watches, T6) stops at the first condition not met.
  */
 export function evaluateConditionsArgs(
   s: SessionSnapshot,
   step: GateStep,
   conditions: readonly Condition[],
+  opts: { setup?: string | null; short_circuit?: boolean } = {},
 ): JsonObject {
   const args: EvaluateConditionsArgs = {
-    conditions: conditions.filter(conditionEnabled).map(forDaemon),
+    conditions: daemonIndexes(conditions).map((i) => forDaemon(conditions[i]!)),
     pr_url: conductorPrUrl(s),
     branch: s.branch ?? sessionBranch(s.ticket, s.id),
     ...(step.head_sha !== null && SHA_RE.test(step.head_sha) ? { head_sha: step.head_sha } : {}),
+    // Only with a `cmd` that runs the setup: an older daemon never sees the key otherwise.
+    ...(opts.setup !== undefined &&
+    conditions.some((c) => conditionEnabled(c) && c.type === 'cmd' && c.needs !== 'checkout')
+      ? { setup: opts.setup }
+      : {}),
+    ...(opts.short_circuit === true ? { short_circuit: true } : {}),
   };
   return args as unknown as JsonObject;
 }
 
 /**
  * A condition as the daemon sees it: `no_checks_after` is the engine's rule (U-072), and a daemon
- * that predates it would refuse the unknown key (the condition schema is strict).
+ * that predates it would refuse the unknown key (the condition schema is strict). `no_checks`
+ * (ADR-0037 P3) is sent: the daemon reads its policy to report `mergeable`.
  * TD-195: `pr_screenshots` (M2-T35a) is sent as is. A daemon before M2-T35a refuses the args, which
  * reads as "no answer": the card notes it and the step polls to `condition_timeout`, then a human.
  * Update the daemons before shipping a workflow that uses it (no per-machine capability gate yet).
+ * TD-217: the same holds for `cmd`, `pr_mergeable`, `no_checks` and `short_circuit` (ADR-0037).
  */
 function forDaemon(c: Condition): Condition {
   if (c.type !== 'pr_checks_green' || c.no_checks_after === undefined) return c;
@@ -141,25 +162,83 @@ function forDaemon(c: Condition): Condition {
   return rest;
 }
 
+/** `1h 5m`, `37m`, `12s`: a short human duration. */
+function humanDuration(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  if (m > 0) return `${m}m`;
+  return `${s}s`;
+}
+
 /**
- * U-072: `pr_checks_green` with `no_checks_after` whose PR still reports no checks at all that long
- * after the conditions started is met (the repo has no CI). Anything else is unchanged.
+ * ADR-0037 P2 `age_below`, evaluated by the engine: met while the time in the current state
+ * (`now − state_entered_at`) is below `max`, failed from then on.
  */
-function noChecksGrace(
+export function evaluateAgeBelow(
+  c: Extract<Condition, { type: 'age_below' }>,
+  stateEnteredAt: string,
+  now: Date,
+): ConditionResult {
+  const age = now.getTime() - Date.parse(stateEnteredAt);
+  const value = humanDuration(age);
+  if (age < parseDuration(c.max)) {
+    return { type: 'age_below', status: 'met', value, detail: null };
+  }
+  return {
+    type: 'age_below',
+    status: 'failed',
+    value,
+    detail: `here for ${value}, longer than ${c.max}`,
+  };
+}
+
+/**
+ * U-072 / ADR-0037 P3: `pr_checks_green` whose PR still reports no checks at all `after` that
+ * long since the conditions started follows its no-CI policy (`no_checks_after: X` reads as
+ * `{policy: 'pass', after: X}`): `pass` → met; `fail` → failed; `require_mergeable` → met when the
+ * same evaluation reports MERGEABLE, failed when CONFLICTING, else pending. Anything else is
+ * unchanged.
+ */
+export function noChecksGrace(
   c: Condition,
   res: ConditionResult,
   now: Date,
   startedAt: string | null,
 ): ConditionResult {
-  if (c.type !== 'pr_checks_green' || c.no_checks_after === undefined) return res;
+  if (c.type !== 'pr_checks_green') return res;
+  const policy = noChecksPolicy(c);
+  if (policy === undefined) return res;
   if (res.status !== 'pending' || res.value !== NO_PR_CHECKS_VALUE || startedAt === null)
     return res;
-  if (now.getTime() - Date.parse(startedAt) < parseDuration(c.no_checks_after)) return res;
-  return {
-    ...res,
-    status: 'met',
-    detail: `no CI checks reported within ${c.no_checks_after}`,
-  };
+  if (now.getTime() - Date.parse(startedAt) < parseDuration(policy.after)) return res;
+  const within = `no CI checks reported within ${policy.after}`;
+  switch (policy.policy) {
+    case 'pass':
+      return { ...res, status: 'met', detail: within };
+    case 'fail':
+      return { ...res, status: 'failed', detail: `${within} (policy: fail)` };
+    case 'require_mergeable':
+      if (res.mergeable === 'MERGEABLE') {
+        return { ...res, status: 'met', detail: `${within}; GitHub says the PR merges cleanly` };
+      }
+      if (res.mergeable === 'CONFLICTING') {
+        return {
+          ...res,
+          status: 'failed',
+          detail: `${within}, and the PR conflicts with its base branch: merge the base branch into it`,
+        };
+      }
+      return {
+        ...res,
+        status: 'pending',
+        detail:
+          res.mergeable === 'UNKNOWN'
+            ? `${within}; GitHub is still computing whether the PR merges cleanly`
+            : `${within}; this machine's daemon did not report mergeability (update it)`,
+      };
+  }
 }
 
 /** A failed condition's evidence for the feedback: `- <type>: failed (<detail>; last value …)`. */
@@ -175,8 +254,9 @@ function evidence(c: ConditionStatus): string {
   return parts.length > 0 ? parts.join('; ') : 'no detail';
 }
 
+/** ADR-0037 FR-9: a `cmd` is named by its label (its name), never by the command it runs. */
 export function failedEvidence(c: ConditionStatus): ConditionEvidence {
-  return { item: c.type, reason: `failed (${evidence(c)})` };
+  return { item: c.type === 'cmd' ? c.label : c.type, reason: `failed (${evidence(c)})` };
 }
 
 /**
@@ -216,38 +296,65 @@ export type ConditionsVerdict =
       outcome: 'met' | 'failed' | 'pending';
     };
 
+/** What `mergeResults` needs besides the result. */
+export interface MergeOptions {
+  /** The step's `conditions_started_at`: times the `pr_checks_green` no-CI policy. */
+  startedAt?: string | null;
+  /** The session's `state_entered_at`: what `age_below` measures (ADR-0037). */
+  stateEnteredAt?: string | null;
+}
+
 /**
- * Merge a result (`results[i]` answers the i-th ENABLED condition, by position) into the step's
- * statuses. Any `failed` → failed; all `met` → met; anything else (`pending`, `unsupported`) →
- * pending. A result of the wrong length or types is malformed (kept pending by the caller).
- * `startedAt` (the step's `conditions_started_at`) times `pr_checks_green.no_checks_after`.
+ * Merge a result (`results[k]` answers `daemonIndexes(conditions)[k]`, by position) into the step's
+ * statuses; engine-only conditions (`age_below`) are evaluated here. Any `failed` → failed; all
+ * `met` → met; anything else (`pending`, `unsupported`, `skipped`) → pending. A result of the wrong
+ * length or types is malformed (kept pending by the caller). `result` null = no daemon conditions.
  */
 export function mergeResults(
   statuses: ConditionStatus[],
   conditions: readonly Condition[],
   result: JsonObject | null,
   now: Date,
-  startedAt: string | null = null,
+  opts: MergeOptions = {},
 ): ConditionsVerdict {
-  const parsed = EvaluateConditionsResultSchema.safeParse(result);
-  if (!parsed.success) return { type: 'malformed', why: 'the result has the wrong shape' };
-  const results: ConditionResult[] = parsed.data.results;
-  const idx = enabledIndexes(conditions);
+  const idx = daemonIndexes(conditions);
+  let results: ConditionResult[] = [];
+  if (idx.length > 0 || result !== null) {
+    const parsed = EvaluateConditionsResultSchema.safeParse(result);
+    if (!parsed.success) return { type: 'malformed', why: 'the result has the wrong shape' };
+    results = parsed.data.results;
+  }
   if (results.length !== idx.length) {
     return {
       type: 'malformed',
       why: `${results.length} result${results.length === 1 ? '' : 's'} for ${idx.length} condition${idx.length === 1 ? '' : 's'}`,
     };
   }
-  const next = statuses.map((c) => ({ ...c }));
-  let unchanged = true;
+  const answers = new Map<number, ConditionResult>();
   for (const [k, i] of idx.entries()) {
     const raw = results[k]!;
-    const prev = next[i]!;
     if (raw.type !== conditions[i]!.type) {
-      return { type: 'malformed', why: `result ${k + 1} is ${raw.type}, not ${prev.type}` };
+      return {
+        type: 'malformed',
+        why: `result ${k + 1} is ${raw.type}, not ${conditions[i]!.type}`,
+      };
     }
-    const res = noChecksGrace(conditions[i]!, raw, now, startedAt);
+    answers.set(i, noChecksGrace(conditions[i]!, raw, now, opts.startedAt ?? null));
+  }
+  for (const i of enabledIndexes(conditions)) {
+    const c = conditions[i]!;
+    if (c.type !== 'age_below') continue;
+    answers.set(
+      i,
+      opts.stateEnteredAt != null
+        ? evaluateAgeBelow(c, opts.stateEnteredAt, now)
+        : { type: c.type, status: 'pending', value: null, detail: 'no state entry time' },
+    );
+  }
+  const next = statuses.map((c) => ({ ...c }));
+  let unchanged = true;
+  for (const [i, res] of answers) {
+    const prev = next[i]!;
     // `running` hides the previous status: compare what was observed (value and detail), and
     // count a first answer (never checked) as a change.
     if (prev.checked_at === null || prev.value !== res.value || prev.detail !== res.detail) {
@@ -262,7 +369,7 @@ export function mergeResults(
       answer: res.status,
     };
   }
-  const answered = idx.map((i) => next[i]!.status);
+  const answered = enabledIndexes(conditions).map((i) => next[i]!.status);
   const outcome = answered.includes('failed')
     ? 'failed'
     : answered.every((s) => s === 'met')

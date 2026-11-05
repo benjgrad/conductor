@@ -8,6 +8,8 @@ import {
   type EvaluateConditionsResult,
 } from '@conductor/shared';
 import { killTree, spawnCli } from '../platform/index.js';
+import { CmdConditionRunner, type CmdExec } from './condition-cmd.js';
+import type { FreshCheckout, FreshCheckoutInput } from './checkout.js';
 import { cleanEnv, tail } from './open-pr.js';
 
 // ADR-0011 `run_action {action: 'evaluate_conditions'}`: external facts about conductor's PR,
@@ -54,7 +56,15 @@ import { cleanEnv, tail } from './open-pr.js';
 //   - Head pinning: with `headSha` (the commit conductor checked and pushed), a PR whose
 //     `headRefOid` differs fails every PR condition ("someone pushed to the branch").
 //   - A closed, unmerged PR fails every gh condition (it can't become true without a human).
-//   - azure_pipeline_succeeded / jira_fields_set → unsupported (M5).
+//   - pr_mergeable (ADR-0037 P2): GitHub's `mergeable`: MERGEABLE → met, CONFLICTING → failed,
+//     UNKNOWN → pending (GitHub is still computing); merged → met. gh is asked for
+//     `mergeable,mergeStateStatus` only when a pr_mergeable condition, or a pr_checks_green with
+//     `no_checks.policy: require_mergeable` (P3: the result then carries `mergeable` for the
+//     engine's no-CI policy), is evaluated.
+//   - cmd (ADR-0037 P2): condition-cmd.ts, in a fresh checkout on this machine.
+//   - azure_pipeline_succeeded / jira_fields_set, and age_below (the engine's) → unsupported.
+//   - short_circuit (ADR-0037 P1): in declared order, stop at the first result that is not met;
+//     the rest are `skipped`. gh then runs only when a gh condition is reached.
 // A missing gh, or gh failing to authenticate, is not an error: every gh condition is `pending`
 // with the detail "gh not available: …", so the engine keeps polling until the timeout.
 
@@ -67,6 +77,7 @@ const GH_TYPES: ReadonlySet<Condition['type']> = new Set([
   'pr_approvals',
   'pr_merged',
   'pr_screenshots',
+  'pr_mergeable',
 ]);
 
 const GH_FIELDS = 'statusCheckRollup,reviewDecision,reviews,state,mergedAt,author,headRefOid';
@@ -80,17 +91,30 @@ const GH_SCREENSHOT_FIELDS = ',files,changedFiles,body';
 const GH_SCREENSHOT_JQ =
   ', files: [(.files // [])[] | .path], changedFiles,' +
   ' screenshotPairs: ((((.body // "") | capture("<!-- conductor:screenshots pairs=(?<n>[0-9]{1,3}) -->") | .n | tonumber)) // null)';
+/** ADR-0037: pr_mergeable and the require_mergeable no-CI policy add GitHub's mergeability. */
+const GH_MERGEABLE_FIELDS = ',mergeable,mergeStateStatus';
+const GH_MERGEABLE_JQ = ', mergeable, mergeStateStatus';
+
+/** Does this condition need GitHub's `mergeable`? */
+export function needsMergeable(c: Condition): boolean {
+  return (
+    c.type === 'pr_mergeable' ||
+    (c.type === 'pr_checks_green' && c.no_checks?.policy === 'require_mergeable')
+  );
+}
+
 /** The `gh pr view` args for `conditions`. */
-function ghViewArgs(prUrl: string, conditions: readonly Condition[]): string[] {
+export function ghViewArgs(prUrl: string, conditions: readonly Condition[]): string[] {
   const shots = conditions.some((c) => c.type === 'pr_screenshots');
+  const merge = conditions.some(needsMergeable);
   return [
     'pr',
     'view',
     prUrl,
     '--json',
-    GH_FIELDS + (shots ? GH_SCREENSHOT_FIELDS : ''),
+    GH_FIELDS + (shots ? GH_SCREENSHOT_FIELDS : '') + (merge ? GH_MERGEABLE_FIELDS : ''),
     '--jq',
-    GH_JQ + (shots ? GH_SCREENSHOT_JQ : '') + '}',
+    GH_JQ + (shots ? GH_SCREENSHOT_JQ : '') + (merge ? GH_MERGEABLE_JQ : '') + '}',
   ];
 }
 
@@ -110,6 +134,19 @@ export interface EvaluateConditionsInput {
   signal?: AbortSignal;
   /** Default GH_CONDITION_TIMEOUT_MS. */
   timeoutMs?: number;
+  /** ADR-0037 P1: stop at the first condition not met; the rest are `skipped`. */
+  shortCircuit?: boolean;
+  /** ADR-0037 P2 `cmd`: the session's worktree and branch (this daemon's records); null: not here. */
+  worktree?: { path: string; branch: string } | null;
+  /** `cmd` with `needs: setup`: the setup ('' none, null / undefined auto-detect). */
+  setup?: string | null | undefined;
+  /** `cmd`: how to run a command (the daemon's command runner). Absent: `cmd` stays pending. */
+  exec?: CmdExec;
+  /** Tests: the fresh checkout and the worktree head. */
+  checkout?: (i: FreshCheckoutInput) => Promise<FreshCheckout>;
+  resolveHead?: (worktree: string) => Promise<string | null>;
+  /** Tests: the PATH searched for a package manager. */
+  path?: string;
 }
 
 interface GhRun {
@@ -205,18 +242,11 @@ const result = (
   detail: string | null,
 ): ConditionResult => ({ type, status, value, detail });
 
-/** Every gh condition `pending` with `detail`; other types `unsupported`. */
-function allPending(conditions: readonly Condition[], detail: string): EvaluateConditionsResult {
-  return {
-    results: conditions.map((c) =>
-      GH_TYPES.has(c.type) ? result(c.type, 'pending', null, detail) : unsupported(c),
-    ),
-  };
-}
-
 function unsupported(c: Condition): ConditionResult {
   return result(c.type, 'unsupported', null, `${c.type} can't be evaluated on this machine yet`);
 }
+
+export const SKIPPED_DETAIL = 'not checked: an earlier condition is not met';
 
 const ghMissing = (e: NodeJS.ErrnoException) =>
   e.code === 'ENOENT'
@@ -225,15 +255,13 @@ const ghMissing = (e: NodeJS.ErrnoException) =>
 
 const AUTH_RE = /auth|login|token|credential|401|403/i;
 
-export async function evaluateConditions(
-  i: EvaluateConditionsInput,
-): Promise<EvaluateConditionsResult> {
-  if (!i.conditions.some((c) => GH_TYPES.has(c.type))) {
-    return { results: i.conditions.map(unsupported) };
-  }
-  if (i.prUrl === null) return allPending(i.conditions, 'no pull request yet');
+/** The PR view, or why there is none (every gh condition is then `pending` with it). */
+type ViewOutcome = { pr: PrView } | { pending: string };
+
+async function fetchView(i: EvaluateConditionsInput): Promise<ViewOutcome> {
+  if (i.prUrl === null) return { pending: 'no pull request yet' };
   if (!GITHUB_PR_URL_RE.test(i.prUrl)) {
-    return allPending(i.conditions, `not a GitHub pull request URL: ${i.prUrl}`);
+    return { pending: `not a GitHub pull request URL: ${i.prUrl}` };
   }
   const gh = i.gh ?? { cmd: 'gh', args: [] };
   const r = await runCapped(
@@ -244,33 +272,92 @@ export async function evaluateConditions(
     i.timeoutMs ?? GH_CONDITION_TIMEOUT_MS,
     i.signal,
   );
-  if (r.spawnError && r.spawnError.name !== 'AbortError') {
-    return allPending(i.conditions, ghMissing(r.spawnError));
-  }
+  if (r.spawnError && r.spawnError.name !== 'AbortError')
+    return { pending: ghMissing(r.spawnError) };
   if (r.timedOut) {
     const s = (i.timeoutMs ?? GH_CONDITION_TIMEOUT_MS) / 1000;
-    return allPending(i.conditions, `gh pr view timed out after ${s} s`);
+    return { pending: `gh pr view timed out after ${s} s` };
   }
   if (r.truncated) {
-    return allPending(
-      i.conditions,
-      `gh pr view printed more than ${GH_OUTPUT_CAP_BYTES / 1024} KB; output truncated: ${tail(r.stdout, 200)}`,
-    );
+    return {
+      pending: `gh pr view printed more than ${GH_OUTPUT_CAP_BYTES / 1024} KB; output truncated: ${tail(r.stdout, 200)}`,
+    };
   }
   if (r.code !== 0) {
     const msg = tail(r.stderr || r.stdout) || `exit ${String(r.code)}`;
-    return allPending(
-      i.conditions,
-      AUTH_RE.test(msg) ? `gh not available: ${msg}` : `gh pr view failed: ${msg}`,
-    );
+    return {
+      pending: AUTH_RE.test(msg) ? `gh not available: ${msg}` : `gh pr view failed: ${msg}`,
+    };
   }
-  let pr: PrView;
   try {
-    pr = parsePrView(JSON.parse(r.stdout));
+    return { pr: parsePrView(JSON.parse(r.stdout)) };
   } catch {
-    return allPending(i.conditions, `gh pr view printed unexpected output: ${tail(r.stdout, 200)}`);
+    return { pending: `gh pr view printed unexpected output: ${tail(r.stdout, 200)}` };
   }
-  return { results: i.conditions.map((c) => mapCondition(c, pr, i.headSha)) };
+}
+
+export async function evaluateConditions(
+  i: EvaluateConditionsInput,
+): Promise<EvaluateConditionsResult> {
+  // One gh call per evaluation, made when the first gh condition needs it (with short_circuit a
+  // failing earlier condition means gh never runs).
+  let view: Promise<ViewOutcome> | null = null;
+  const getView = () => (view ??= fetchView(i));
+  if (!i.shortCircuit && i.conditions.some((c) => GH_TYPES.has(c.type))) void getView();
+  let cmds: CmdConditionRunner | null = null;
+  const results: ConditionResult[] = [];
+  let stopped = false;
+  try {
+    for (const c of i.conditions) {
+      if (stopped) {
+        results.push(result(c.type, 'skipped', null, SKIPPED_DETAIL));
+        continue;
+      }
+      let r: ConditionResult;
+      if (GH_TYPES.has(c.type)) {
+        const v = await getView();
+        r =
+          'pr' in v ? mapCondition(c, v.pr, i.headSha) : result(c.type, 'pending', null, v.pending);
+      } else if (c.type === 'cmd') {
+        if (i.exec === undefined) {
+          r = result(
+            c.type,
+            'pending',
+            null,
+            'this daemon has no command runner for cmd conditions',
+          );
+        } else {
+          cmds ??= new CmdConditionRunner({
+            root: i.root,
+            worktree: i.worktree ?? null,
+            setup: i.setup,
+            exec: i.exec,
+            ...(i.env ? { env: i.env } : {}),
+            ...(i.signal ? { signal: i.signal } : {}),
+            ...(i.checkout ? { checkout: i.checkout } : {}),
+            ...(i.resolveHead ? { resolveHead: i.resolveHead } : {}),
+            ...(i.path !== undefined ? { path: i.path } : {}),
+          });
+          // The commit conductor pushed, else the PR head gh reported (when gh already ran).
+          let sha: string | null = i.headSha ?? null;
+          // (`view` is assigned through getView, which TS's narrowing doesn't see.)
+          const fetched = view as Promise<ViewOutcome> | null;
+          if (sha === null && fetched !== null) {
+            const v = await fetched;
+            sha = 'pr' in v ? v.pr.headRefOid : null;
+          }
+          r = await cmds.run(c, sha);
+        }
+      } else {
+        r = unsupported(c);
+      }
+      results.push(r);
+      if (i.shortCircuit && r.status !== 'met') stopped = true;
+    }
+  } finally {
+    cmds?.close();
+  }
+  return { results };
 }
 
 // ---- mapping (pure) ---------------------------------------------------------------------------
@@ -300,6 +387,9 @@ export interface PrView {
   changedFiles: number | null;
   /** The pair count in the body's screenshots marker (null: none). */
   screenshotPairs: number | null;
+  /** ADR-0037: GitHub's MERGEABLE / CONFLICTING / UNKNOWN (null: not asked for). */
+  mergeable: string | null;
+  mergeStateStatus: string | null;
 }
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
@@ -358,6 +448,8 @@ export function parsePrView(raw: unknown): PrView {
       : null,
     changedFiles: count(o.changedFiles),
     screenshotPairs: count(o.screenshotPairs),
+    mergeable: str(o.mergeable),
+    mergeStateStatus: str(o.mergeStateStatus),
   };
 }
 
@@ -406,6 +498,28 @@ export function mapCondition(c: Condition, pr: PrView, headSha?: string): Condit
       `PR head ${pr.headRefOid} isn't the commit conductor checked (${headSha}); someone pushed to the branch`,
     );
   }
+  if (c.type === 'pr_mergeable') {
+    if (pr.merged) return result(c.type, 'met', 'merged', null);
+    if (pr.state === 'CLOSED') {
+      return result(c.type, 'failed', 'closed', 'the PR was closed without merging');
+    }
+    const state = pr.mergeStateStatus !== null ? ` (${pr.mergeStateStatus.toLowerCase()})` : '';
+    if (pr.mergeable === 'MERGEABLE') return result(c.type, 'met', 'mergeable', null);
+    if (pr.mergeable === 'CONFLICTING') {
+      return result(
+        c.type,
+        'failed',
+        'conflicting',
+        `the PR conflicts with its base branch${state}: merge the base branch into it and resolve the conflicts`,
+      );
+    }
+    return result(
+      c.type,
+      'pending',
+      'unknown',
+      'GitHub is still computing whether the PR merges cleanly',
+    );
+  }
   if (c.type === 'pr_merged') {
     if (pr.merged) return result(c.type, 'met', 'merged', null);
     if (pr.state === 'CLOSED') return result(c.type, 'failed', 'closed', 'the PR was closed');
@@ -414,21 +528,41 @@ export function mapCondition(c: Condition, pr: PrView, headSha?: string): Condit
   const closed = pr.state === 'CLOSED' && !pr.merged;
   if (c.type === 'pr_screenshots') return mapScreenshots(c, pr, closed);
   if (c.type === 'pr_checks_green') {
-    const total = pr.checks.length;
-    const failed = pr.checks.filter((k) => checkVerdict(k) === 'fail');
-    const pending = pr.checks.filter((k) => checkVerdict(k) === 'pending');
-    const passed = total - failed.length - pending.length;
-    const value = `${passed}/${total} passed`;
-    if (failed.length > 0) return result(c.type, 'failed', value, `failing: ${failing(failed)}`);
-    if (closed) return result(c.type, 'failed', value, 'the PR was closed without merging');
-    // value is NO_PR_CHECKS_VALUE here: the engine's `no_checks_after` keys on it (U-072).
-    if (total === 0) return result(c.type, 'pending', value, 'no checks reported yet');
-    if (pending.length > 0) {
-      return result(c.type, 'pending', value, `waiting for: ${names(pending)}`);
-    }
-    return result(c.type, 'met', value, null);
+    const r = mapChecks(c, pr, closed);
+    // ADR-0037 P3: the engine's require_mergeable policy reads GitHub's answer from here.
+    if (c.no_checks?.policy !== 'require_mergeable') return r;
+    const m = pr.mergeable;
+    return { ...r, mergeable: m === 'MERGEABLE' || m === 'CONFLICTING' ? m : 'UNKNOWN' };
   }
   if (c.type !== 'pr_approvals') return unsupported(c);
+  return mapApprovals(c, pr, closed);
+}
+
+function mapChecks(
+  c: Extract<Condition, { type: 'pr_checks_green' }>,
+  pr: PrView,
+  closed: boolean,
+): ConditionResult {
+  const total = pr.checks.length;
+  const failed = pr.checks.filter((k) => checkVerdict(k) === 'fail');
+  const pending = pr.checks.filter((k) => checkVerdict(k) === 'pending');
+  const passed = total - failed.length - pending.length;
+  const value = `${passed}/${total} passed`;
+  if (failed.length > 0) return result(c.type, 'failed', value, `failing: ${failing(failed)}`);
+  if (closed) return result(c.type, 'failed', value, 'the PR was closed without merging');
+  // value is NO_PR_CHECKS_VALUE here: the engine's `no_checks_after` keys on it (U-072).
+  if (total === 0) return result(c.type, 'pending', value, 'no checks reported yet');
+  if (pending.length > 0) {
+    return result(c.type, 'pending', value, `waiting for: ${names(pending)}`);
+  }
+  return result(c.type, 'met', value, null);
+}
+
+function mapApprovals(
+  c: Extract<Condition, { type: 'pr_approvals' }>,
+  pr: PrView,
+  closed: boolean,
+): ConditionResult {
   // Each eligible reviewer's verdict, folded over their reviews in order (COMMENTED / PENDING
   // reviews don't change it). See the header for the rules.
   const verdict = new Map<string, 'approved' | 'blocked' | 'none'>();

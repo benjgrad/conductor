@@ -1,0 +1,38 @@
+{
+  "type": "session_event",
+  "msg_id": "00000000-0000-4000-8000-000000370002",
+  "seq": 32,
+  "session_id": "7d0c5b1e-3f4a-4b7e-9c2d-1a2b3c4d5e6f",
+  "fencing_token": 1,
+  "payload": {
+    "kind": "action_result",
+    "data": {
+      "command_id": "5e4d3c2b-1a09-4f8e-b7d6-c5b4a3928170",
+      "action": "evaluate_conditions",
+      "result": {
+        "results": [
+          {
+            "type": "pr_mergeable",
+            "status": "met",
+            "value": "mergeable",
+            "detail": null
+          },
+          {
+            "type": "cmd",
+            "status": "failed",
+            "value": "exit 1",
+            "detail": "exit 1: CONFLICT (content)"
+          },
+          {
+            "type": "pr_checks_green",
+            "status": "skipped",
+            "value": null,
+            "detail": "not checked: an earlier condition is not met",
+            "mergeable": "MERGEABLE"
+          }
+        ]
+      },
+      "error": null
+    }
+  }
+}

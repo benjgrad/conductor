@@ -111,6 +111,18 @@ describe('ADR-0011 WS shapes (M1b-T01)', () => {
     ).toBe(false);
   });
 
+  it('ADR-0037: the new conditions, setup, short_circuit, skipped and mergeable round-trip', () => {
+    const run = M1B_WS_FIXTURES.run_action_evaluate_conditions_adr0037;
+    expect(parseOrchestratorMessage(wire(run))).toEqual(run);
+    expect(EvaluateConditionsArgsSchema.parse(run.payload.args)).toEqual(run.payload.args);
+    const res = M1B_WS_FIXTURES.action_result_evaluate_conditions_adr0037;
+    expect(parseDaemonMessage(wire(res))).toEqual(res);
+    if (res.payload.kind !== 'action_result') throw new Error('fixture');
+    const parsed = EvaluateConditionsResultSchema.parse(res.payload.data.result);
+    expect(parsed.results.map((r) => r.status)).toEqual(['met', 'failed', 'skipped']);
+    expect(parsed.results[2]?.mergeable).toBe('MERGEABLE');
+  });
+
   it('CompleteStateInputSchema: transition and reason optional, capped', () => {
     expect(CompleteStateInputSchema.parse({ result: {} })).toEqual({ result: {} });
     expect(

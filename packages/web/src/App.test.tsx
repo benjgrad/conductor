@@ -206,6 +206,7 @@ describe('top nav icons (UX-11)', () => {
     ['link', 'Workflow'],
     ['link', 'Machines'],
     ['link', 'Insights'],
+    ['link', 'Schedules'],
     ['link', 'Add a machine'],
     ['link', 'Help'],
     ['button', 'New ticket'],

@@ -45,7 +45,7 @@ interface Stamped {
   finished: { session_id: string; at: string }[];
 }
 
-const sessionId = (i: number) => `e5000000-0000-4000-8000-${String(i).padStart(12, '0')}`;
+const sessionId = (i: number) => `e6000000-0000-4000-8000-${String(i).padStart(12, '0')}`;
 
 const FRICTION_DONE = {
   category: 'failing_check' as const,

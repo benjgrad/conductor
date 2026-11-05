@@ -28,8 +28,8 @@ Connectors added on claude.ai also show up in Claude Desktop for the same Claude
 | `take_transition` | Press one of the ticket's board buttons (send back, mark done…) |
 | `message_agent` | Send instructions or a correction to the agent while it works, or ask it for a report in its own words. If it's waiting on a question, answer that instead |
 | `wait_for_updates` | Wait (up to 50 s) until a ticket changes or asks something, then say what changed; call it again to keep listening |
-| `reopen_ticket` | Send a done or failed ticket back to its agent with new instructions |
-| `cancel_ticket` | Stop the agent and cancel the ticket |
+| `reopen_ticket` | Send a done, failed or cancelled ticket back to its agent with new instructions (a ticket cancelled while queued goes back to the queue) |
+| `cancel_ticket` | Stop the agent and cancel the ticket, or take a queued ticket off the queue |
 | `list_repo_checks` | The repos that have their own pre-PR checks |
 | `get_repo_checks` | What runs before a repo's PR opens: its own checks, or the workflow's |
 | `set_repo_checks` | Give a repo its own checks (e.g. `cd m-one && npm ci && npm run build`); they replace the workflow's build and test for that repo |

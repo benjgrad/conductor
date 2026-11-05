@@ -16,17 +16,23 @@ export function ticketFromUrl(url: string): string | null {
   return new URLSearchParams(hash.slice(q + 1)).get('ticket') || null;
 }
 
-/** Select the session of the ticket a notification points at, when its card arrives. */
+/**
+ * Select the session of the ticket a notification (or a `#/?ticket=` link) points at, when its
+ * card arrives; a card with no session yet goes to `onSelectTicket`, when given.
+ */
 export function useOpenFromNotification(
   board: BoardState,
   onSelect: (sessionId: string) => void,
+  onSelectTicket?: (ticketId: string) => void,
 ): void {
   // Refs, not state: the ticket waits for the board, and opening it only calls onSelect.
   const pending = useRef<string | null>(null);
   const boardRef = useRef(board);
   const onSelectRef = useRef(onSelect);
+  const onSelectTicketRef = useRef(onSelectTicket);
   useEffect(() => {
     onSelectRef.current = onSelect;
+    onSelectTicketRef.current = onSelectTicket;
   });
 
   /** Open the pending ticket once the board has loaded; a ticket not on it is dropped. */
@@ -37,6 +43,7 @@ export function useOpenFromNotification(
     pending.current = null;
     const card = [...current.cards.values()].find((c) => c.ticket_id === ticket);
     if (card?.session_id) onSelectRef.current(card.session_id);
+    else if (card) onSelectTicketRef.current?.(card.ticket_id);
     if (ticketFromUrl(window.location.href)) window.history.replaceState(null, '', '#/');
   }, []);
 

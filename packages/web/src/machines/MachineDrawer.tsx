@@ -234,7 +234,7 @@ function RepoRules({
           </p>
         )}
         <div>
-          <button type="submit" disabled={saving}>
+          <button type="submit" className="primary" disabled={saving}>
             Save rules
           </button>
           {saved && <span className="muted"> Saved.</span>}

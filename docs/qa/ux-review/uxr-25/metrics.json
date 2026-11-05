@@ -1,0 +1,118 @@
+{
+  "change-password-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 6,
+    "smallTapTargetSample": [
+      "button \"Fix flaky checkout test\" 307×18",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×36",
+      "button \"Add CSV export\" 307×18",
+      "button \"Plan the garden\" 307×18",
+      "button \"Question: Raised beds or in-gr\" 307×18"
+    ]
+  },
+  "signup-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Sign in instead\" 96×15"
+    ]
+  },
+  "reset-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 2,
+    "smallTapTargetSample": [
+      "a \"Sign in instead\" 96×15",
+      "a \"Help: add a machine\" 135×15"
+    ]
+  },
+  "admin-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "input \"\" 13×13"
+    ]
+  },
+  "change-password-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1231,
+    "smallTapTargets": 39,
+    "smallTapTargetSample": [
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"Ben\" 71×26",
+      "input \"\" 338×26"
+    ]
+  },
+  "signup-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 5,
+    "smallTapTargetSample": [
+      "input \"\" 330×26",
+      "input \"\" 330×26",
+      "input \"\" 330×26",
+      "button \"Create account\" 141×26",
+      "a \"Sign in instead\" 96×15"
+    ]
+  },
+  "reset-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 5,
+    "smallTapTargetSample": [
+      "input \"\" 330×26",
+      "input \"\" 330×26",
+      "button \"Set password\" 129×26",
+      "a \"Sign in instead\" 96×15",
+      "a \"Help: add a machine\" 135×15"
+    ]
+  },
+  "admin-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 13,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"Ben\" 71×26",
+      "button \"Reset link for ben@example.com\" 90×26",
+      "input \"\" 188×26"
+    ]
+  }
+}

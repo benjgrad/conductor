@@ -1,6 +1,6 @@
 import type { MeResponse, PushTestResponse } from '@conductor/shared';
 import { CircleUser } from 'lucide-react';
-import { useState, type MouseEvent, type ReactNode } from 'react';
+import { useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { NavIcon } from '../components/NavIcon.js';
 import {
@@ -64,6 +64,8 @@ export function AccountMenu({
 }: AccountMenuProps) {
   const [open, setOpen] = useState(false);
   const [changing, setChanging] = useState(false);
+  // UXR-51: the dialog's opener (a menu item) is gone by the time it closes; focus comes back here.
+  const accountButton = useRef<HTMLButtonElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notify, setNotify] = useState<NotifyState>(notifyState);
@@ -129,6 +131,7 @@ export function AccountMenu({
   return (
     <div className="account">
       <button
+        ref={accountButton}
         type="button"
         className="account-button"
         aria-haspopup="menu"
@@ -257,7 +260,12 @@ export function AccountMenu({
         </div>
       )}
       {changing && (
-        <ChangePasswordDialog api={api} email={me.user.email} onClose={() => setChanging(false)} />
+        <ChangePasswordDialog
+          api={api}
+          email={me.user.email}
+          onClose={() => setChanging(false)}
+          returnFocus={accountButton}
+        />
       )}
     </div>
   );

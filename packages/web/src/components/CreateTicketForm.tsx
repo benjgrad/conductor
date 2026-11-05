@@ -186,6 +186,7 @@ export function CreateTicketForm({
       <div className="form-actions">
         <button
           type="submit"
+          className="primary"
           disabled={busy || !valid}
           {...(sheet && !valid ? { 'aria-describedby': hintId } : {})}
         >

@@ -43,7 +43,8 @@ const TICKET_SHOTS = ['ticket-messages', 'ticket-plan', 'ticket-plan-sheet', 'ti
  * @typedef {import('playwright-core').Locator} Locator
  * @typedef {{ w: number, h: number, deviceScaleFactor: number, isMobile?: boolean,
  *   hasTouch?: boolean, themes: Partial<Record<'light' | 'dark', 'all' | string[]>> }} Viewport
- * @typedef {{ id: string, path: string, act?: (page: Page) => Promise<void> }} Screen
+ * @typedef {{ id: string, path: string, act?: (page: Page) => Promise<void>,
+ *   auth?: 'password' }} Screen  `auth`: on the mock's accounts (VITE_MOCK_AUTH=password)
  * @typedef {ReturnType<typeof measure> | { error: string }} Metric
  */
 
@@ -92,6 +93,10 @@ const VIEWPORTS = [
         'workflows',
         'ticket-messages',
         'ticket-plan',
+        'change-password',
+        'signup',
+        'reset',
+        'admin',
       ],
       dark: ['board', 'detail'],
     },
@@ -108,7 +113,7 @@ async function tap(locator) {
   await locator.evaluate((el) => /** @type {HTMLElement} */ (el).click());
 }
 
-/** @param {Page} page @param {'button' | 'tab'} role @param {string} name */
+/** @param {Page} page @param {'button' | 'tab' | 'menuitem'} role @param {string} name */
 async function clickNamed(page, role, name) {
   await tap(page.getByRole(role, { name, exact: true }).first());
 }
@@ -244,6 +249,20 @@ const SCREENS = [
   { id: 'help', path: '/help/add-a-machine' },
   { id: 'help-connect-claude', path: '/help/connect-claude' },
   { id: 'signin', path: '/signin' },
+  // UXR-25/51/52: the account screens, on the mock's accounts (api/mock.ts MOCK_INVITE_TOKENS).
+  {
+    id: 'change-password',
+    path: '/#/',
+    auth: 'password',
+    act: async (page) => {
+      await tap(page.locator('.account-button'));
+      await clickNamed(page, 'menuitem', 'Change password');
+      await page.locator('dialog[open]').waitFor();
+    },
+  },
+  { id: 'signup', path: '/signup?invite=mock-invite-pinned', auth: 'password' },
+  { id: 'reset', path: '/reset?token=mock-reset', auth: 'password' },
+  { id: 'admin', path: '/#/admin', auth: 'password' },
 ];
 
 /** Page overflow and visible interactive elements smaller than 44×44 (WCAG 2.5.5 / UX-12 FR-4). */
@@ -293,14 +312,15 @@ async function freePort() {
   });
 }
 
-async function startVite() {
+/** @param {Record<string, string>} [extraEnv] */
+async function startVite(extraEnv = {}) {
   const port = await freePort();
   const child = spawn(
     'pnpm',
     ['--filter', '@conductor/web', 'exec', 'vite', '--port', String(port), '--strictPort'],
     {
       cwd: root,
-      env: { ...process.env, VITE_API: 'mock', VITE_MOCK_STATIC: '1' },
+      env: { ...process.env, VITE_API: 'mock', VITE_MOCK_STATIC: '1', ...extraEnv },
       stdio: ['ignore', 'pipe', 'inherit'],
     },
   );
@@ -322,7 +342,20 @@ async function startVite() {
 
 async function main() {
   const given = arg('url', '');
-  const server = given ? { url: given, stop: () => {} } : await startVite();
+  /** One Vite server per mock auth mode, started the first time a screen needs it. */
+  /** @type {Map<string, Promise<{ url: string, stop: () => void }>>} */
+  const servers = new Map();
+  /** @param {Screen} screen */
+  const serverFor = (screen) => {
+    const mode = screen.auth ?? 'local';
+    if (given) return Promise.resolve({ url: given, stop: () => {} });
+    let server = servers.get(mode);
+    if (!server) {
+      server = startVite(mode === 'password' ? { VITE_MOCK_AUTH: 'password' } : {});
+      servers.set(mode, server);
+    }
+    return server;
+  };
   const browser = await chromium.launch(
     process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' },
   );
@@ -356,7 +389,8 @@ async function main() {
           try {
             // A hash-only change wouldn't reload, so every shot starts from a blank page.
             await page.goto('about:blank');
-            await page.goto(`${server.url}${screen.path}`, { waitUntil: 'networkidle' });
+            const { url } = await serverFor(screen);
+            await page.goto(`${url}${screen.path}`, { waitUntil: 'networkidle' });
             // The first load of a cold Vite server can go idle before React has rendered.
             await page.locator('#root > *').first().waitFor();
             await page.waitForTimeout(400);
@@ -376,7 +410,7 @@ async function main() {
     }
   } finally {
     await browser.close();
-    server.stop();
+    for (const server of servers.values()) (await server).stop();
   }
   await writeFile(join(outDir, 'metrics.json'), `${JSON.stringify(metrics, null, 2)}\n`);
 }

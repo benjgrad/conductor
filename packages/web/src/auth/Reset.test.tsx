@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, describe, expect, it } from 'vitest';
 import { createMockApi, MOCK_ADMIN } from '../api/mock.js';
 import { App } from '../App.js';
+import { PASSWORD_RULE } from './AuthPage.js';
 import { INVALID_RESET } from './errors.js';
 import { PASSWORDS_DIFFER } from './Reset.js';
 
@@ -49,6 +50,34 @@ describe('/reset', () => {
     expect((await screen.findByRole('status')).textContent).toMatch(/Password changed/);
     expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/signin');
     await api.login({ email: MOCK_ADMIN.email, password: 'a brand new passphrase' });
+  });
+
+  it('shows the password rule, a Sign in instead link, and what the disabled button needs (UXR-52)', async () => {
+    const { api, path } = await resetUrl();
+    window.history.replaceState(null, '', path);
+    render(<App api={api} />);
+    const formEl = screen.getByRole('form', { name: 'Reset password' });
+    const form = within(formEl);
+    expect(form.getByText(PASSWORD_RULE)).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Sign in instead' }).getAttribute('href')).toBe(
+      '/signin',
+    );
+    expect(screen.getByRole('link', { name: 'Help: add a machine' })).toBeTruthy();
+
+    const submit = form.getByRole<HTMLButtonElement>('button', { name: 'Set password' });
+    expect(submit.className).toBe('primary');
+    expect(submit.getAttribute('aria-describedby')).toBe('reset-missing');
+    expect(document.getElementById('reset-missing')?.textContent).toBe(
+      'Still needed: a new password',
+    );
+    fill(formEl, 'a brand new passphrase', '');
+    expect(document.getElementById('reset-missing')?.textContent).toBe(
+      'Still needed: the same password twice',
+    );
+    fill(formEl, 'a brand new passphrase', 'a brand new passphrase');
+    expect(submit.disabled).toBe(false);
+    expect(submit.hasAttribute('aria-describedby')).toBe(false);
+    expect(document.getElementById('reset-missing')).toBeNull();
   });
 
   it('a used link says it is no longer valid', async () => {

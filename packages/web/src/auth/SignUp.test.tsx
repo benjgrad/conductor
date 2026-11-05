@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, describe, expect, it } from 'vitest';
 import { createMockApi, MOCK_INVITE_TOKENS } from '../api/mock.js';
 import { App } from '../App.js';
+import { PASSWORD_RULE } from './AuthPage.js';
 import { INVALID_INVITE } from './errors.js';
 
 afterEach(() => {
@@ -37,6 +38,40 @@ describe('/signup', () => {
     const email = form.getByLabelText<HTMLInputElement>('Email');
     expect(email.value).toBe('dana@example.com');
     expect(email.readOnly).toBe(true);
+  });
+
+  it('shows the password rule and Sign in instead, no Help link, and what the button needs (UXR-52)', async () => {
+    renderSignUp(`/signup?invite=${MOCK_INVITE_TOKENS.pinned}`);
+    const form = within(await screen.findByRole('form', { name: 'Sign up' }));
+    expect(form.getByText(PASSWORD_RULE)).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Sign in instead' }).getAttribute('href')).toBe(
+      '/signin',
+    );
+    expect(screen.queryByRole('link', { name: 'Help: add a machine' })).toBeNull();
+
+    const submit = form.getByRole<HTMLButtonElement>('button', { name: 'Create account' });
+    expect(submit.disabled).toBe(true);
+    expect(submit.className).toBe('primary');
+    const hint = () => document.getElementById('signup-missing')?.textContent ?? null;
+    expect(submit.getAttribute('aria-describedby')).toBe('signup-missing');
+    expect(hint()).toBe('Still needed: your name, a password');
+
+    fireEvent.change(form.getByLabelText('Name'), { target: { value: 'Dana' } });
+    fireEvent.change(form.getByLabelText('Password'), { target: { value: 'short' } });
+    expect(hint()).toBe('Still needed: a password that meets the rule');
+
+    fireEvent.change(form.getByLabelText('Password'), {
+      target: { value: 'a long enough passphrase' },
+    });
+    expect(submit.disabled).toBe(false);
+    expect(hint()).toBeNull();
+  });
+
+  it('an invalid invite also offers Sign in instead and no Help link', async () => {
+    renderSignUp('/signup?invite=not-a-token');
+    await screen.findByRole('alert');
+    expect(screen.getByRole('link', { name: 'Sign in instead' })).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Help: add a machine' })).toBeNull();
   });
 
   it('a short password shows the problem and blocks submit', async () => {

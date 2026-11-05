@@ -64,7 +64,11 @@ export function SignIn({ api, next, onSignedIn }: SignInProps) {
             {error}
           </p>
         )}
-        <button type="submit" disabled={busy || email.trim() === '' || password === ''}>
+        <button
+          type="submit"
+          className="primary"
+          disabled={busy || email.trim() === '' || password === ''}
+        >
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
       </form>

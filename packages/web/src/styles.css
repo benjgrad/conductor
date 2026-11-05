@@ -118,6 +118,47 @@ button:disabled {
 button.danger {
   color: var(--ask);
 }
+/* UXR-25: the one main action of a form or dialog (11-web-ui §Buttons and dialogs). */
+button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+button.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 88%, var(--text));
+}
+button.primary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* Disabled reads as disabled, not as a faded accent: a neutral fill, no opacity. */
+button.primary:disabled {
+  border-color: var(--border);
+  background: var(--border);
+  color: var(--muted);
+  opacity: 1;
+}
+.form-hint {
+  font-size: var(--text-sm);
+}
+/* UXR-51: a native <dialog> opened with showModal() (components/ModalDialog.tsx). */
+dialog.modal {
+  width: min(380px, calc(100vw - 32px));
+  padding: var(--space-4) 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.2);
+}
+dialog.modal::backdrop {
+  background: rgb(0 0 0 / 0.45);
+}
+dialog.modal h2 {
+  font-size: 16px;
+  margin: 0 0 12px;
+}
 a {
   color: var(--accent);
 }
@@ -1533,14 +1574,7 @@ button.link {
     border-top: 1px solid var(--border);
     background: var(--panel);
   }
-  .sheet .form-actions button[type='submit'] {
-    border-color: var(--accent);
-    background: var(--accent);
-    color: var(--on-accent);
-    font-weight: 600;
-  }
-  .form-hint {
-    font-size: var(--text-sm);
+  .sheet .form-hint {
     text-align: center;
   }
   .sheet .ticket-body-plain,

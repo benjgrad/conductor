@@ -151,7 +151,7 @@ export function RepoChecksPage({ api, repo, onSelect }: RepoChecksPageProps) {
 
       <form className="rc-pick" onSubmit={open} aria-label="Open a repo">
         <RepoCombobox value={pick} onChange={setPick} suggestions={suggestions} />
-        <button type="submit" disabled={pick.trim() === ''}>
+        <button type="submit" className="primary" disabled={pick.trim() === ''}>
           Open
         </button>
       </form>
@@ -349,6 +349,7 @@ function RepoDetailView({
       <div className="rc-actions">
         <button
           type="button"
+          className="primary"
           disabled={busy || issues.length > 0 || (override !== null && !dirty)}
           onClick={() => void save()}
         >

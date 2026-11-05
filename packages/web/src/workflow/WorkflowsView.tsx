@@ -237,6 +237,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
           {dirty && (
             <button
               type="button"
+              className="primary"
               onClick={() => void save()}
               disabled={saving || clientIssues.length > 0}
             >

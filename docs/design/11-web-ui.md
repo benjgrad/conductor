@@ -21,6 +21,11 @@ Contrast rules:
 - Text on an `--accent` fill uses `--on-accent`: white in light mode, `--bg` in dark mode, where white on the lighter accent is only 2.65:1.
 - Field edges use `--border-strong` (about 3:1, WCAG 1.4.11). `--border` is for dividers and cards.
 
+### Buttons and dialogs
+
+- Each form and dialog has one main action, `button.primary`: an `--accent` fill with `--on-accent` text. Disabled, it has a neutral `--border` fill with `--muted` text (no opacity), so it never looks like an enabled outline button (UXR-25). A disabled main button on the auth forms says what it still needs (`Still needed: …`, linked with `aria-describedby`), like Create ticket's sheet footer.
+- An overlay dialog is a native `<dialog>` opened with `showModal()` through `components/ModalDialog.tsx`. That gives the `::backdrop`, makes the rest of the page inert so Tab stays inside, and closes it on Esc. Focus goes back to the opener, or to a `returnFocus` fallback when the opener is gone (a menu item). A backdrop click doesn't close it (UXR-51). Change password uses it. The sheets and the machine drawer have their own component.
+
 Only the rules this design touched use the spacing, type and radius tokens so far. Moving the rest of the CSS onto them is a follow-up.
 
 ## Breakpoint

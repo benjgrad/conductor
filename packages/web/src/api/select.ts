@@ -22,7 +22,8 @@ export interface SelectedApi {
 /**
  * Build the client for `env` (import.meta.env). The mock gets demo latency and simulated output
  * so the board looks alive without an orchestrator; `VITE_MOCK_STATIC=1` turns both off, so the
- * board holds still for scripts/ui-screenshots.js.
+ * board holds still for scripts/ui-screenshots.js. `VITE_MOCK_AUTH=password` turns on the mock's
+ * accounts (an admin, signed in).
  */
 export function createApiFromEnv(
   env: Record<string, unknown>,
@@ -31,7 +32,13 @@ export function createApiFromEnv(
   const kind = apiKind(env);
   if (kind === 'mock') {
     const still = env.VITE_MOCK_STATIC === '1';
-    const api = createMockApi({ latencyMs: still ? 0 : 150 });
+    // `VITE_MOCK_AUTH=password`: the mock's accounts (sign-in pages, admin, Change password), for
+    // scripts/ui-screenshots.js's auth shots.
+    const password = env.VITE_MOCK_AUTH === 'password';
+    const api = createMockApi({
+      latencyMs: still ? 0 : 150,
+      ...(password ? { auth: 'password' } : {}),
+    });
     if (!still) api.simulate(2000);
     return { kind, api };
   }

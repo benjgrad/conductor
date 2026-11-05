@@ -36,6 +36,20 @@
 .auth-form button[type='submit'] {
   align-self: flex-start;
 }
+/* UXR-52: the main button with what's still missing under it. */
+.auth-submit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.auth-submit .form-hint {
+  color: var(--muted);
+}
+.auth-alt {
+  margin: 16px 0 0;
+  font-size: 13px;
+}
 .auth-hint {
   color: var(--muted);
   font-size: 13px;
@@ -54,6 +68,7 @@ p.password-problems {
   padding-left: 0;
 }
 .auth-actions {
+  align-items: flex-start;
   display: flex;
   gap: 8px;
 }
@@ -107,23 +122,6 @@ p.password-problems {
   padding: var(--space-1) 10px;
   color: var(--muted);
   font-size: 12px;
-}
-.auth-dialog {
-  position: fixed;
-  top: 64px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 30;
-  width: min(380px, calc(100vw - 32px));
-  padding: 16px 20px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--panel);
-  box-shadow: 0 8px 32px rgb(0 0 0 / 0.2);
-}
-.auth-dialog h2 {
-  font-size: 16px;
-  margin: 0 0 12px;
 }
 .auth-help {
   margin: 16px 0 0;

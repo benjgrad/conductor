@@ -28,6 +28,12 @@ describe('API selection (VITE_API)', () => {
     expect(board.columns.find((c) => c.id === 'needs_input')!.cards.length).toBeGreaterThan(0);
   });
 
+  it('VITE_MOCK_AUTH=password turns on the mock accounts', async () => {
+    const { api } = createApiFromEnv({ VITE_API: 'mock', VITE_MOCK_AUTH: 'password' });
+    expect((await api.me()).auth_mode).toBe('password');
+    expect((await createApiFromEnv({ VITE_API: 'mock' }).api.me()).auth_mode).toBe('local');
+  });
+
   it('VITE_MOCK_STATIC=1 holds the mock board still (no simulated output)', async () => {
     vi.useFakeTimers();
     try {

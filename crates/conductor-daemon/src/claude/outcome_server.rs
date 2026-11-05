@@ -21,6 +21,11 @@
 //! Questions UX: ask_user's `options` are bounded (`bounded_question_options`); an invalid list is
 //! dropped and the question is still sent.
 //!
+//! 06 §Attachments (Rust only): a fourth tool, `attach_file({path, caption?})`, is listed only
+//! when the registration has an `on_attach_file` handler (the daemon gives every worker one). The
+//! call waits for the upload and returns its outcome, so the agent knows whether the human can see
+//! the file. Refused after complete_state, like ask_user; allowed while a question is pending.
+//!
 //! ADR-0023: a third tool, `permission`, is Claude's `--permission-prompt-tool`
 //! (`mcp__conductor__permission`). The call is HELD: the registration hands the request to the
 //! driver (`on_permission_request`, which the daemon sends as a durable `permission_request`) and
@@ -73,6 +78,8 @@ pub const ASK_USER_TOOL: &str = "mcp__conductor__ask_user";
 pub const PERMISSION_TOOL: &str = "mcp__conductor__permission";
 /// The `--allowedTools` entries the driver always adds to the state's allow-list.
 pub const OUTCOME_TOOL_NAMES: [&str; 2] = [COMPLETE_STATE_TOOL, ASK_USER_TOOL];
+/// 06 §Attachments: added to `--allowedTools` when the session has an attach target.
+pub const ATTACH_FILE_TOOL: &str = "mcp__conductor__attach_file";
 
 /// The transition `complete_state` takes when it names none (old prompts, ADR-0011).
 pub const DEFAULT_TRANSITION: &str = "done";
@@ -129,6 +136,8 @@ pub fn ask_user_description() -> String {
         "Ask the human operator one clear question when you cannot proceed without a decision. The call returns at once; then end your turn. The answer arrives as the next user message. If the answer is one of a few choices, list them in `options` ({ASK_USER_OPTIONS_MIN}-{ASK_USER_OPTIONS_MAX}, short labels, the recommended one first): the human clicks one and its label is the answer. Set `multi_select` when several may be chosen (the answer is the labels joined with \", \"). The human can still type a different answer."
     )
 }
+pub const ATTACH_FILE_AFTER_COMPLETE: &str = "Not attached: complete_state was already recorded for this state. Attach files before you call complete_state. End your turn now.";
+const ATTACH_FILE_DESCRIPTION: &str = "Attach a screenshot, GIF or short screen recording you captured to the ticket, so the human sees it on the board (e.g. before/after evidence of a UI change, or images the human asked for). A file you only save to disk is not visible to the human. PNG, JPEG, GIF, WebP, MP4 or WebM; images up to 10 MB, videos up to 50 MB. Give a caption saying what it shows (e.g. \"Before: delete is blocked\"). Returns whether the upload worked.";
 const PERMISSION_DESCRIPTION: &str = "Conductor's permission prompt tool: Claude Code calls it when a tool call needs a human's approval. Do not call it yourself.";
 
 fn when_suffix(t: &AgentTransitionOption) -> String {
@@ -410,6 +419,21 @@ pub struct PermissionPrompt {
 pub type CompleteStateHandler = Arc<dyn Fn(Map<String, Value>, CompleteStateMeta) + Send + Sync>;
 /// The question and its bounded options (None when absent or invalid).
 pub type AskUserHandler = Arc<dyn Fn(String, Option<QuestionOptions>) + Send + Sync>;
+/// 06 §Attachments: what `attach_file` was called with.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AttachFileRequest {
+    pub path: String,
+    pub caption: Option<String>,
+}
+/// Uploads the file: Ok(text for the agent) or Err(why it wasn't attached).
+pub type AttachFileHandler = Arc<
+    dyn Fn(
+            AttachFileRequest,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send>>
+        + Send
+        + Sync,
+>;
 /// Err = the prompt could not be forwarded (the TS handler threw): the call is denied at once.
 pub type PermissionHandler = Arc<dyn Fn(PermissionPrompt) -> Result<(), String> + Send + Sync>;
 
@@ -422,6 +446,8 @@ pub struct OutcomeHandlers {
     /// ADR-0023: a permission prompt is now held. None → every prompt is denied at once
     /// (PERMISSION_NO_HANDLER).
     pub on_permission_request: Option<PermissionHandler>,
+    /// 06 §Attachments: uploads an `attach_file`. None → the tool isn't listed.
+    pub on_attach_file: Option<AttachFileHandler>,
 }
 
 /// `register` options.
@@ -620,6 +646,38 @@ impl Outcome {
         text(ASK_USER_RETURN)
     }
 
+    async fn attach_file(&self, args: &Map<String, Value>) -> CallToolResult {
+        let path = match args.get("path") {
+            Some(Value::String(p)) if !p.trim().is_empty() => p.trim().to_string(),
+            _ => return invalid("path: expected a non-empty string"),
+        };
+        let caption = match args.get("caption") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(c)) => Some(c.clone()),
+            Some(_) => return invalid("caption: expected string"),
+        };
+        let handler = {
+            let e = lock(&self.entry);
+            if e.completed {
+                return text(ATTACH_FILE_AFTER_COMPLETE);
+            }
+            match e.handlers.on_attach_file.clone() {
+                Some(h) => h,
+                None => {
+                    return CallToolResult::error(vec![ContentBlock::text(
+                        "Not attached: this conductor daemon can't attach files.",
+                    )]);
+                }
+            }
+        };
+        match handler(AttachFileRequest { path, caption }).await {
+            Ok(t) => text(t),
+            Err(why) => {
+                CallToolResult::error(vec![ContentBlock::text(format!("Not attached: {why}"))])
+            }
+        }
+    }
+
     async fn permission(&self, args: &Map<String, Value>) -> CallToolResult {
         let tool = match args.get("tool_name") {
             Some(Value::String(t)) if !t.is_empty() => t.clone(),
@@ -716,8 +774,14 @@ impl ServerHandler for Outcome {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let description = complete_state_description(lock(&self.entry).transitions.as_deref());
-        Ok(ListToolsResult::with_all_items(vec![
+        let (description, can_attach) = {
+            let e = lock(&self.entry);
+            (
+                complete_state_description(e.transitions.as_deref()),
+                e.handlers.on_attach_file.is_some(),
+            )
+        };
+        let mut tools = vec![
             Tool::new("complete_state", description, complete_state_schema())
                 .with_meta(always_load()),
             Tool::new(
@@ -764,7 +828,25 @@ impl ServerHandler for Outcome {
                     "required": ["tool_name", "input"],
                 })),
             ),
-        ]))
+        ];
+        if can_attach {
+            tools.push(
+                Tool::new(
+                    "attach_file",
+                    ATTACH_FILE_DESCRIPTION,
+                    schema(json!({
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string", "minLength": 1, "description": "The file's absolute path"},
+                            "caption": {"type": "string", "maxLength": conductor_protocol::ATTACHMENT_CAPTION_MAX, "description": "What it shows, e.g. \"After: the control deletes\""},
+                        },
+                        "required": ["path"],
+                    })),
+                )
+                .with_meta(always_load()),
+            );
+        }
+        Ok(ListToolsResult::with_all_items(tools))
     }
 
     async fn call_tool(
@@ -777,6 +859,7 @@ impl ServerHandler for Outcome {
             "complete_state" => self.complete_state(&args),
             "ask_user" => self.ask_user(&args),
             "permission" => self.permission(&args).await,
+            "attach_file" => self.attach_file(&args).await,
             other => {
                 return Err(ErrorData::invalid_params(
                     Cow::Owned(format!("Tool {other} not found")),
@@ -1191,6 +1274,7 @@ mod tests {
                     Ok(())
                 }) as PermissionHandler
             }),
+            on_attach_file: None,
         }
     }
 
@@ -1357,6 +1441,88 @@ mod tests {
         assert_eq!(
             by("complete_state")["inputSchema"]["required"],
             json!(["result"])
+        );
+        s.close().await;
+    }
+
+    #[tokio::test]
+    async fn attach_file_is_listed_with_a_handler_waits_for_it_and_is_refused_after_complete_state()
+    {
+        let s = server().await;
+        // Without a handler the tool isn't listed.
+        let c0 = connect(register(&s, None).0.url()).await;
+        assert!(
+            !c0.list_tools()
+                .await
+                .iter()
+                .any(|t| t["name"] == "attach_file")
+        );
+
+        let seen: Arc<Mutex<Vec<AttachFileRequest>>> = Arc::default();
+        let calls = Calls::default();
+        let mut h = handlers(&calls, None);
+        let log = seen.clone();
+        h.on_attach_file = Some(Arc::new(move |req: AttachFileRequest| {
+            log.lock().unwrap().push(req.clone());
+            Box::pin(async move {
+                if req.path.ends_with(".txt") {
+                    Err("not a PNG".to_string())
+                } else {
+                    Ok(format!("Attached {}", req.path))
+                }
+            })
+        }));
+        let reg = s.register(h, OutcomeRegisterOptions::default());
+        let c = connect(reg.url()).await;
+        let tools = c.list_tools().await;
+        let tool = tools.iter().find(|t| t["name"] == "attach_file").unwrap();
+        assert_eq!(tool["_meta"], json!({"anthropic/alwaysLoad": true}));
+        assert_eq!(tool["inputSchema"]["required"], json!(["path"]));
+
+        assert_eq!(
+            c.text(
+                "attach_file",
+                json!({"path": "/tmp/before.gif", "caption": "Before"})
+            )
+            .await,
+            "Attached /tmp/before.gif"
+        );
+        assert_eq!(
+            c.call("attach_file", json!({"path": "/tmp/notes.txt"}))
+                .await,
+            ("Not attached: not a PNG".to_string(), true)
+        );
+        assert!(c.call("attach_file", json!({})).await.1);
+        // Allowed while a question is pending.
+        c.text("ask_user", json!({"question": "Ok?"})).await;
+        assert_eq!(
+            c.text("attach_file", json!({"path": "/tmp/after.gif"}))
+                .await,
+            "Attached /tmp/after.gif"
+        );
+        reg.answered();
+        c.text("complete_state", json!({"result": {}})).await;
+        assert_eq!(
+            c.text("attach_file", json!({"path": "/tmp/late.gif"}))
+                .await,
+            ATTACH_FILE_AFTER_COMPLETE
+        );
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![
+                AttachFileRequest {
+                    path: "/tmp/before.gif".into(),
+                    caption: Some("Before".into())
+                },
+                AttachFileRequest {
+                    path: "/tmp/notes.txt".into(),
+                    caption: None
+                },
+                AttachFileRequest {
+                    path: "/tmp/after.gif".into(),
+                    caption: None
+                },
+            ]
         );
         s.close().await;
     }

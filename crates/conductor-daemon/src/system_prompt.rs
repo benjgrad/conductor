@@ -5,8 +5,9 @@
 //! repo is untrusted.
 //!
 //! ADR-0023: a tool call that needs approval reaches a human as a permission prompt, so agents are
-//! told to attempt it rather than refuse in advance. ADR-0035 adds `## Long-running work` (Rust
-//! only: the TS daemon is frozen); the first 9 lines are the TS text byte for byte.
+//! told to attempt it rather than refuse in advance. ADR-0035 adds `## Long-running work` and
+//! 06 §Attachments `## Screenshots and recordings` (Rust only: the TS daemon is frozen); the first
+//! 9 lines are the TS text byte for byte.
 
 pub const CONDUCTOR_INSTRUCTIONS: &str = "You are running unattended as a conductor session, inside a git worktree on your own branch.\n\
 When the task for this step is finished, call the `complete_state` tool (conductor MCP server) once with a JSON `result` object, then stop.\n\
@@ -19,7 +20,10 @@ If a call is denied and you still need it, call `ask_user` with the exact comman
 The repository instructions below were written for people and interactive sessions. Where they say to ask someone or get approval first (including AskUserQuestion), use a permission prompt or `ask_user`. A rule that seems to forbid something the task needs is a reason to ask, not to stop.\n\
 \n\
 ## Long-running work\n\
-A human can message you while you work, but a message only reaches you between tool calls. Run anything that may take more than a minute or two (test suites, builds, installs, dev servers) with Bash `run_in_background`, so you stay reachable. You may then end your turn: you are woken when the job finishes, and a message runs as a turn of its own, so answer it and end your turn again. Read the job's output file to check on it; stop jobs you no longer need with TaskStop. Finish or stop every background job before you call `ask_user` or `complete_state`.";
+A human can message you while you work, but a message only reaches you between tool calls. Run anything that may take more than a minute or two (test suites, builds, installs, dev servers) with Bash `run_in_background`, so you stay reachable. You may then end your turn: you are woken when the job finishes, and a message runs as a turn of its own, so answer it and end your turn again. Read the job's output file to check on it; stop jobs you no longer need with TaskStop. Finish or stop every background job before you call `ask_user` or `complete_state`.\n\
+\n\
+## Screenshots and recordings\n\
+If you capture screenshots, GIFs or screen recordings (for example before/after evidence of a UI change), or the human asks for images, attach each one with the `attach_file` tool and a caption saying what it shows, before you call `complete_state`. A file you only save to disk is not visible to the human.";
 
 // TD-084: the untrusted CLAUDE.md is appended as plain text, with no untrusted-data framing.
 pub fn build_append_system_prompt(claude_md: Option<&str>) -> String {
@@ -71,10 +75,18 @@ mod tests {
     }
 
     #[test]
+    fn tells_the_agent_to_attach_its_captures() {
+        let s = CONDUCTOR_INSTRUCTIONS;
+        assert!(s.contains("\n\n## Screenshots and recordings\n"));
+        assert!(s.contains("`attach_file`"));
+        assert!(s.contains("before you call `complete_state`"));
+    }
+
+    #[test]
     fn the_text_is_the_ts_text_byte_for_byte() {
         // The 9 lines of system-prompt.ts joined with \n (one of them empty), then ADR-0035's
-        // section (an empty line, its heading and one paragraph).
-        assert_eq!(CONDUCTOR_INSTRUCTIONS.split('\n').count(), 12);
+        // section and 06 §Attachments' (each an empty line, its heading and one paragraph).
+        assert_eq!(CONDUCTOR_INSTRUCTIONS.split('\n').count(), 15);
         assert!(
             CONDUCTOR_INSTRUCTIONS
                 .contains("Never push; later workflow steps do that.\n\n## Permissions\n")

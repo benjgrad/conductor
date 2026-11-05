@@ -19,7 +19,8 @@ import { rateLimitRouteConfig } from './throttle.js';
 export const INVALID_INVITE_MESSAGE =
   'This invite link is not valid. Ask the person who sent it for a new one.';
 export const WRONG_EMAIL_MESSAGE = 'This invite is for another email address.';
-export const NOT_SUPPORTED_YET_MESSAGE = 'general sign-up arrives with M2-T15b';
+export const NOT_SUPPORTED_YET_MESSAGE =
+  "This invite link can't create a new account yet. Ask the person who sent it.";
 
 const USER_AGENT_MAX = 512;
 const PG_UNIQUE_VIOLATION = '23505';

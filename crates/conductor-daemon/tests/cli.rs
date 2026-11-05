@@ -140,7 +140,7 @@ async fn run_registers_and_exits_0_on_sigterm() {
     let payload = register.get("payload").unwrap_or(&register);
     assert_eq!(
         payload["features"],
-        serde_json::json!(["assistant_job", "ticket_attachments"]),
+        serde_json::json!(["assistant_job", "ticket_attachments", "agent_attachments"]),
         "{register}"
     );
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM).unwrap();

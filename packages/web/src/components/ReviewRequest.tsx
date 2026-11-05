@@ -5,8 +5,11 @@
 import type { InputRequestDto, SessionDetail } from '@conductor/shared';
 import { useId, useRef, useState } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
+import { AttachmentGallery } from './AttachmentGallery.js';
+import { sessionCaptures } from './attachment-groups.js';
 import { Markdown } from './markdown.js';
 import { RequestCard } from './RequestCard.js';
+import { useTicket } from './TicketPanel.js';
 import {
   formatSummary,
   previewText,
@@ -70,6 +73,7 @@ export function ReviewRequest({
       className="review-request"
     >
       {line !== '' && <p className="review-summary">{line}</p>}
+      <SessionCaptures api={api} detail={detail} />
       <div className="request-actions" role="group" aria-label="Review">
         {approve && sessionId !== null && (
           <button
@@ -115,5 +119,18 @@ export function ReviewRequest({
         <Markdown text={request.question} />
       </div>
     </RequestCard>
+  );
+}
+
+/** 06 §Attachments: the screenshots, GIFs and recordings this session's agent attached. */
+function SessionCaptures({ api, detail }: { api: ApiClient; detail: SessionDetail }) {
+  const { ticket } = useTicket(api, detail.card.ticket_id, detail.card.updated_at);
+  const captures = sessionCaptures(ticket?.attachments ?? [], detail.card.session_id);
+  if (captures.length === 0) return null;
+  return (
+    <div className="review-captures" aria-label="Attached by the agent">
+      <p className="muted">The agent attached:</p>
+      <AttachmentGallery api={api} attachments={captures} />
+    </div>
   );
 }

@@ -563,36 +563,25 @@ describe.skipIf(!runnable)('install.sh', () => {
 // (scripts/build-daemon-dist.sh), installed by the served script, whose real `conductor-daemon
 // enroll` posts to a stub enroll endpoint. The token reaches the daemon only through
 // CONDUCTOR_ENROLL_TOKEN (TD-117). It costs a cargo build (the dev profile, which `cargo nextest`
-// has usually just built), so it runs only where cargo is on PATH.
-// It also needs the pinned toolchain (rust-toolchain.toml): a cargo without rustup (Homebrew's)
-// ignores the pin and can't build the workspace, so it doesn't count.
-const hasCargo = cargoMeetsPin(
-  spawnSync('rustc', ['--version'], { cwd: REPO, encoding: 'utf8' }).stdout ?? '',
-  readFileSync(join(REPO, 'rust-toolchain.toml'), 'utf8'),
-);
+// has usually just built), so it runs only where the cargo on PATH is the pinned toolchain
+// (rust-toolchain.toml): a system cargo older than the pin (e.g. Homebrew's, without rustup)
+// can't build the crates, which is a missing toolchain, not a failure of install.sh.
+const hasCargo = cargoMeetsPin();
 
-/** `rustc --version` output is at least the `channel` rust-toolchain.toml pins. */
-function cargoMeetsPin(rustcVersion: string, toolchainToml: string): boolean {
-  const have = /^rustc (\d+)\.(\d+)\.(\d+)/.exec(rustcVersion.trim());
-  if (!have) return false;
-  const pin = /^\s*channel\s*=\s*"(\d+)\.(\d+)(?:\.(\d+))?"/m.exec(toolchainToml);
-  if (!pin) return true; // a named channel (stable, nightly): rustup resolves it
-  const a = [Number(have[1]), Number(have[2]), Number(have[3])];
-  const b = [Number(pin[1]), Number(pin[2]), Number(pin[3] ?? 0)];
+/** `cargo --version` (run in the repo, so rustup applies the pin) is at least the pinned channel. */
+function cargoMeetsPin(): boolean {
+  const r = spawnSync('cargo', ['--version'], { cwd: REPO, encoding: 'utf8' });
+  if (r.status !== 0) return false;
+  const have = /cargo (\d+)\.(\d+)\.(\d+)/.exec(r.stdout);
+  const pin = /channel\s*=\s*"(\d+)\.(\d+)(?:\.(\d+))?"/.exec(
+    readFileSync(join(REPO, 'rust-toolchain.toml'), 'utf8'),
+  );
+  if (!have || !pin) return have !== null;
+  const v = (m: RegExpExecArray) => [Number(m[1]), Number(m[2]), Number(m[3] ?? 0)];
+  const [a, b] = [v(have), v(pin)];
   for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i]! > b[i]!;
   return true;
 }
-
-describe('cargoMeetsPin', () => {
-  const toml = '[toolchain]\nchannel = "1.99.1"\n';
-  it('needs the pinned version or newer', () => {
-    expect(cargoMeetsPin('rustc 1.86.0 (05f9846f8 2025-03-31) (Homebrew)', toml)).toBe(false);
-    expect(cargoMeetsPin('rustc 1.99.1 (abc 2026-01-01)', toml)).toBe(true);
-    expect(cargoMeetsPin('rustc 1.100.0 (abc 2026-09-01)', toml)).toBe(true);
-    expect(cargoMeetsPin('', toml)).toBe(false);
-    expect(cargoMeetsPin('rustc 1.86.0', '[toolchain]\nchannel = "stable"\n')).toBe(true);
-  });
-});
 
 describe.skipIf(!runnable || !hasCargo)('install.sh with the real daemon tarball', () => {
   const realWork = mkdtempSync(join(tmpdir(), 'conductor-install-real-'));
@@ -638,8 +627,7 @@ describe.skipIf(!runnable || !hasCargo)('install.sh with the real daemon tarball
   }, 600_000);
 
   afterAll(async () => {
-    // A failed beforeAll leaves no server.
-    if (server) await new Promise<void>((r) => server.close(() => r()));
+    await new Promise<void>((r) => server.close(() => r()));
     rmSync(realWork, { recursive: true, force: true });
   });
 

@@ -17,6 +17,7 @@ auth_loc="$(nginx_block "$SITE" 'location ~ \^/\(auth/\|api/machines/enroll\)')"
 root_loc="$(nginx_block "$SITE" '^[[:space:]]*location / ' last)"
 acme_loc="$(nginx_block "$SITE" 'location /\.well-known/acme-challenge/ ')"
 upload_loc="$(nginx_block "$SITE" '^[[:space:]]*location = /api/attachments ')"
+agent_upload_loc="$(nginx_block "$SITE" 'location ~ \^/api/daemon/sessions/')"
 
 check "/ws/ location exists" test -n "$ws_loc"
 check "/ws/ passes Upgrade" has "$ws_loc" 'proxy_set_header Upgrade \$http_upgrade;'
@@ -56,11 +57,15 @@ for h in Strict-Transport-Security X-Frame-Options X-Content-Type-Options X-Robo
   check "server-level add_header $h" has "$site" "^    add_header $h "
 done
 check "no add_header inside a location (it would drop the server-level headers)" \
-  lacks "$ws_loc$stream_loc$auth_loc$root_loc$acme_loc$upload_loc" 'add_header'
+  lacks "$ws_loc$stream_loc$auth_loc$root_loc$acme_loc$upload_loc$agent_upload_loc" 'add_header'
 check "client_max_body_size 4m" has "$site" 'client_max_body_size 4m;'
 check "attachment uploads location exists" test -n "$upload_loc"
 check "attachment uploads take 55m" has "$upload_loc" 'client_max_body_size 55m;'
 check "attachment uploads use conductor_general" has "$upload_loc" 'limit_req zone=conductor_general '
+check "agent attachment uploads location exists" test -n "$agent_upload_loc"
+check "agent attachment uploads take 55m" has "$agent_upload_loc" 'client_max_body_size 55m;'
+check "agent attachment uploads use conductor_general" has "$agent_upload_loc" \
+  'limit_req zone=conductor_general '
 check "per-site access log" has "$site" 'access_log /var/log/nginx/conductor\.gradyserver\.com\.access\.log;'
 
 compose_port="$(sed -nE 's/.*127\.0\.0\.1:\$\{CONDUCTOR_HOST_PORT:-([0-9]+)\}:7400.*/\1/p' \

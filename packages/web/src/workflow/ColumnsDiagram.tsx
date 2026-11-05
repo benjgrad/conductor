@@ -246,7 +246,11 @@ function LaneBox({
   ]
     .filter(Boolean)
     .join(' ');
-  const name = `Column ${lane.title}: ${lane.work}${lane.entry ? ', has requirements to enter' : ''}${changed ? ' (changed)' : ''}`;
+  // UXR-68: the column's kind is part of its name; UXR-73: so is a change in a diff.
+  const name =
+    `Column ${lane.title}: ${lane.work}` +
+    `${lane.entry ? ', has requirements to enter' : ''} (${kindLabel} column)` +
+    `${changed ? ' (changed)' : ''}`;
   const tip = checking
     ? `${name}; checking requirements to enter${checkingPhase ? ` (${checkingPhase})` : ''}`
     : name;

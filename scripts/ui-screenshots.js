@@ -10,6 +10,9 @@
 //   node scripts/ui-screenshots.js [--out before|after] [--url http://localhost:5173] [--only board,detail]
 //
 // `--only` re-takes those screens at every size and keeps the rest of metrics.json.
+// The `*-permission` screens (UXR-32) need the `VITE_MOCK_PERMISSION=1` mock scene, which changes
+// the whole board: they are taken only when `--only` lists nothing else (the script then sets it)
+// or when VITE_MOCK_PERMISSION=1 is already in the environment.
 //
 // Chrome: CHROME_PATH, else playwright's `chrome` channel (an installed Google Chrome).
 /// <reference lib="dom" />
@@ -31,11 +34,17 @@ const arg = (name, fallback) => {
 const out = arg('out', 'before');
 const only = arg('only', '').split(',').filter(Boolean);
 const outDir = join(root, 'docs/qa/ux-review', out);
+const isPermissionShot = (/** @type {string} */ id) => id.endsWith('-permission');
+/** UXR-32: the mock board holds a tool permission (api/select.ts VITE_MOCK_PERMISSION). */
+const permissionScene =
+  process.env.VITE_MOCK_PERMISSION === '1' || (only.length > 0 && only.every(isPermissionShot));
 
 /** The needs-input card the panel shots open (api/mock-data.ts). */
 const CARD = 'Add audit log table';
 /** A running card with a ticket body, so the Brief shows (api/mock-data.ts). */
 const BRIEF_CARD = 'Add pagination to /orders';
+/** The card VITE_MOCK_PERMISSION=1 holds on a permission (api/select.ts). */
+const PERMISSION_CARD = BRIEF_CARD;
 /** The plan-approval card (06 §Plan approval; api/mock-data.ts planApprovalSeed). */
 const PLAN_CARD = 'Add rate limiting to /login';
 /** The ticket-panel shots (11-web-ui §Phone layout, Detail panel). */
@@ -105,6 +114,8 @@ const VIEWPORTS = [
         'workflow-column',
         'ticket-messages',
         'ticket-plan',
+        'board-permission',
+        'detail-permission',
         'detail-done',
         'detail-done-steps',
       ],
@@ -278,6 +289,9 @@ const SCREENS = [
       await tapStrip(page, 'ticket-strip-brief');
     },
   },
+  // UXR-32: a pending permission counts on Needs input; the panel says "waiting for permission".
+  { id: 'board-permission', path: '/#/' },
+  { id: 'detail-permission', path: '/#/', act: (page) => openCard(page, PERMISSION_CARD) },
   { id: 'machines', path: '/#/machines' },
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
@@ -400,7 +414,12 @@ async function startVite() {
     ['--filter', '@conductor/web', 'exec', 'vite', '--port', String(port), '--strictPort'],
     {
       cwd: root,
-      env: { ...process.env, VITE_API: 'mock', VITE_MOCK_STATIC: '1' },
+      env: {
+        ...process.env,
+        VITE_API: 'mock',
+        VITE_MOCK_STATIC: '1',
+        ...(permissionScene ? { VITE_MOCK_PERMISSION: '1' } : {}),
+      },
       stdio: ['ignore', 'pipe', 'inherit'],
     },
   );
@@ -454,6 +473,7 @@ async function main() {
         for (const screen of SCREENS) {
           if (list !== 'all' && !list.includes(screen.id)) continue;
           if (only.length > 0 && !only.includes(screen.id)) continue;
+          if (isPermissionShot(screen.id) !== permissionScene) continue;
           const name = `${screen.id}-${vp.w}x${vp.h}-${theme}`;
           try {
             // A hash-only change wouldn't reload, so every shot starts from a blank page.

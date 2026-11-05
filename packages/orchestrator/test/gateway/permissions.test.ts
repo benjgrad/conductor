@@ -10,6 +10,7 @@ import {
   API_PATHS,
   BoardResponseSchema,
   DEFAULT_PERMISSION_TIMEOUT_MS,
+  LOCAL_ACCOUNT_ID,
   LOCAL_USER_ID,
   PermissionRequestDtoSchema,
   PermissionRequestListResponseSchema,
@@ -302,6 +303,64 @@ describe('permission_request (gateway)', () => {
     expect(row.resolved_at).not.toBeNull();
     // The card does not change.
     expect(board).toEqual([]);
+  });
+
+  it('UXR-32: a stored request pushes like a question, once; a denied one does not', async () => {
+    const endpoint = `https://push.example/${tag}`;
+    await db.pool.query(
+      `INSERT INTO push_subscription (account_id, user_id, endpoint, p256dh, auth)
+       VALUES ($1, $2, $3, 'BKey', 'auth')`,
+      [LOCAL_ACCOUNT_ID, LOCAL_USER_ID, endpoint],
+    );
+    try {
+      const pushRows = (sid: string) =>
+        db.pool.query<OutboxRow>(
+          "SELECT * FROM outbox WHERE kind = 'push_needs_input' AND session_id = $1",
+          [sid],
+        );
+      const d = await registered();
+      const { sid, token, ticketId } = await live(d);
+
+      // Push off: nothing is enqueued.
+      permissionRequest(d, 2, sid, token);
+      await d.settle();
+      expect((await pushRows(sid)).rows).toEqual([]);
+
+      engine.pushEnabled = true;
+      const { requestId } = permissionRequest(d, 3, sid, token);
+      await d.settle();
+      // The same request again (a new seq) adds nothing.
+      permissionRequest(d, 4, sid, token, { request_id: requestId });
+      await d.settle();
+      const rows = (await pushRows(sid)).rows;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        target: `user:${LOCAL_USER_ID}`,
+        idempotency_key: `permission:${requestId}`,
+        status: 'pending',
+      });
+      expect(rows[0]!.payload).toEqual({
+        ticket_id: ticketId,
+        permission_request_id: requestId,
+        notification: {
+          title: 'perm',
+          body: 'implement: wants to run Bash: pnpm exec tsc -b',
+          url: `/#/?ticket=${ticketId}`,
+          tag: `permission:${requestId}`,
+        },
+        delivered: [],
+      });
+      expect(engine.pushWakes).toBe(1);
+
+      // Not running an agent: denied by conductor at once, no push.
+      d.sessionEvent(5, sid, token, { kind: 'ask_user', data: { question: 'why?' } });
+      await d.settle();
+      permissionRequest(d, 6, sid, token);
+      await d.next('permission_decision');
+      expect((await pushRows(sid)).rows).toHaveLength(1);
+    } finally {
+      await db.pool.query('DELETE FROM push_subscription WHERE endpoint = $1', [endpoint]);
+    }
   });
 
   it('refuses a mismatched payload.session_id, an unowned session and a stale token', async () => {

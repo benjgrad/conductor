@@ -48,7 +48,7 @@
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: var(--space-3);
+  padding: var(--space-2);
 }
 .rc-filter {
   min-height: 44px;
@@ -81,7 +81,7 @@
   border-left: 3px solid transparent;
   border-radius: 4px;
   background: none;
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-1) var(--space-2);
 }
 .rc-repo:hover {
   background: color-mix(in srgb, var(--accent) 6%, transparent);
@@ -103,7 +103,7 @@
 }
 .rc-empty {
   margin: 0;
-  padding: 2px var(--space-3);
+  padding: 2px var(--space-2);
 }
 
 /* The editor. */
@@ -259,4 +259,60 @@
 }
 .rc-confirm button {
   min-height: 44px;
+}
+
+/* UXR-80: the run history marks and the repo list's health hint (theme colours, both modes). */
+.rc-runs {
+  display: inline-flex;
+  gap: 4px;
+}
+.rc-run {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  text-decoration: none;
+  border: 1px solid currentColor;
+}
+.rc-run-pass {
+  color: var(--ok);
+  background: var(--diff-add-bg);
+}
+.rc-run-fail,
+.rc-run-setup_failed {
+  color: var(--ask);
+  background: var(--ask-bg);
+}
+.rc-run-timed_out {
+  color: var(--warn);
+  background: var(--warn-bg);
+}
+.rc-health-passing {
+  color: var(--ok);
+}
+.rc-health-flaky {
+  color: var(--warn);
+}
+.rc-health-failing {
+  color: var(--ask);
+}
+.rc-health-none {
+  color: var(--muted);
+}
+/* UXR-80: the health hint sits at the right of its repo's row, outside the button. */
+.rc-repos li {
+  position: relative;
+}
+.rc-repos li:has(> .rc-health) > .rc-repo {
+  padding-right: calc(var(--space-8) + var(--space-3));
+}
+.rc-repos li > .rc-health {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  pointer-events: none;
 }

@@ -92,14 +92,22 @@ describe('a queued ticket: routing, priority, cancel (UXR-34, UXR-42, UXR-86)', 
         return update(id, req);
       };
     });
-    // ADR-0036: a new ticket is P3; raising it makes it more urgent, a lower P.
+    // ADR-0036: a new ticket is P3, and raising it makes it more urgent (a lower number).
+    await panel.findByText('P3');
     fireEvent.click(panel.getByRole('button', { name: 'Raise priority' }));
     await panel.findByText('P2');
     fireEvent.click(panel.getByRole('button', { name: 'Lower priority' }));
     await panel.findByText('P3');
+    fireEvent.click(panel.getByRole('button', { name: 'Lower priority' }));
+    await panel.findByText('P4');
+    // P4 is the floor.
+    expect(panel.getByRole<HTMLButtonElement>('button', { name: 'Lower priority' }).disabled).toBe(
+      true,
+    );
     expect(patches).toEqual([
       { expected_updated_at: expect.any(String) as string, priority: 2 },
       { expected_updated_at: expect.any(String) as string, priority: 3 },
+      { expected_updated_at: expect.any(String) as string, priority: 4 },
     ]);
   });
 

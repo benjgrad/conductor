@@ -338,6 +338,23 @@ describe('createHttpApi REST', () => {
     ]);
   });
 
+  it('repo check runs and health (UXR-80): GET with the repo and limit in the query', async () => {
+    const runs = { repo: 'github.com/o/app', window_days: 30, checks: [] };
+    const health = { window_days: 30, repos: [] };
+    const { calls, fetch } = recordingFetch(({ url }) =>
+      json(200, url.includes('/health') ? health : runs),
+    );
+    const api = createHttpApi({ fetch });
+    expect(await api.getRepoCheckRuns('github.com/o/app')).toEqual(runs);
+    expect(await api.getRepoCheckRuns('github.com/o/app', 3)).toEqual(runs);
+    expect(await api.getRepoChecksHealth()).toEqual(health);
+    expect(calls.map((c) => [c.method, c.url])).toEqual([
+      ['GET', `${API_PATHS.repoCheckRuns}?repo=github.com%2Fo%2Fapp`],
+      ['GET', `${API_PATHS.repoCheckRuns}?repo=github.com%2Fo%2Fapp&limit=3`],
+      ['GET', API_PATHS.repoChecksHealth],
+    ]);
+  });
+
   it('schedules (ADR-0032, UXR-83): GET, POST, PATCH, DELETE {}, run {force}', async () => {
     const [dto] = mockSchedules(now());
     const ran = { ticket_id: SEED_IDS.running.ticket, schedule: dto };
@@ -595,5 +612,23 @@ describe('createHttpApi machines (M2-T11)', () => {
   it('rejects a machine detail that breaks the contract', async () => {
     const { fetch } = recordingFetch(() => json(200, { ...MACHINE_DETAIL_FIXTURE, repos: null }));
     await expect(createHttpApi({ fetch }).getMachine('x')).rejects.toThrow(/API contract/);
+  });
+});
+
+describe('createHttpApi searchTickets (UXR-85)', () => {
+  it('sends q, status, limit and cursor as the query, parsed by contract', async () => {
+    const page = { tickets: [], next_cursor: null, total: 0 };
+    const { calls, fetch } = recordingFetch(() => json(200, page));
+    const api = createHttpApi({ baseUrl: 'http://orch:7400/', fetch });
+
+    expect(await api.searchTickets()).toEqual(page);
+    await api.searchTickets({ q: ' login ', status: ['done', 'cancelled'], limit: 5, cursor: 10 });
+    await api.searchTickets({ q: '   ' });
+
+    expect(calls.map((c) => c.url)).toEqual([
+      'http://orch:7400/api/tickets',
+      'http://orch:7400/api/tickets?q=login&status=done%2Ccancelled&limit=5&cursor=10',
+      'http://orch:7400/api/tickets',
+    ]);
   });
 });

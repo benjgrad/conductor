@@ -9,11 +9,14 @@ import {
   MachineDetailSchema,
   MachineListResponseSchema,
   RepoChecksDetailSchema,
+  RepoCheckRunsResponseSchema,
+  RepoChecksHealthResponseSchema,
   RepoChecksDtoSchema,
   RepoChecksListResponseSchema,
   RepoListResponseSchema,
   type CreateTicketRequest,
   SessionDetailSchema,
+  TicketSearchResponseSchema,
   validateWorkflow,
   WorkflowDetailSchema,
   type BoardSseEvent,
@@ -387,6 +390,25 @@ describe('mock machines (M2-T11)', () => {
 });
 
 describe('mock repo checks (ADR-0030)', () => {
+  it('serves run history and health in the API shapes (UXR-80)', async () => {
+    const api = createMockApi({ now });
+    const shop = RepoCheckRunsResponseSchema.parse(
+      await api.getRepoCheckRuns('github.com/Acme/Shop'),
+    );
+    expect(shop.checks.map((c) => c.name)).toEqual(['Build', 'Tests']);
+    expect(shop.checks[1]!.runs[0]!.status).toBe('timed_out');
+    const plain = RepoCheckRunsResponseSchema.parse(
+      await api.getRepoCheckRuns('github.com/acme/api', 2),
+    );
+    const build = plain.checks.find((c) => c.cmd === 'npm run build')!;
+    expect([build.runs.length, build.failures_in_window, build.runs_in_window]).toEqual([2, 6, 6]);
+    const health = RepoChecksHealthResponseSchema.parse(await api.getRepoChecksHealth());
+    expect(health.repos.find((r) => r.repo === 'github.com/acme/api')).toMatchObject({
+      runs: 6,
+      failures: 6,
+    });
+  });
+
   const checks = [
     { name: 'Build', cmd: 'make' },
     { name: 'Tests', cmd: 'make test', timeout: '10m' },
@@ -460,6 +482,38 @@ describe('mock repo checks (ADR-0030)', () => {
       code: 'not_found',
     });
     expect((await api.listRepoChecks()).repos).toEqual([]);
+  });
+});
+
+describe('mock searchTickets (UXR-85)', () => {
+  it('finds tickets of any status, newest first, by status group, paged', async () => {
+    const api = createMockApi({ now });
+    const parse = (r: unknown) => TicketSearchResponseSchema.parse(r);
+
+    const all = parse(await api.searchTickets());
+    expect(all.total).toBeGreaterThan(5);
+    const times = all.tickets.map((t) => t.updated_at);
+    expect([...times].sort().reverse()).toEqual(times);
+
+    const closed = parse(await api.searchTickets({ status: ['done', 'cancelled'] }));
+    expect(closed.tickets.map((t) => [t.title, t.status])).toEqual([
+      ['Rename user.fullname', 'done'],
+      ['Try a GraphQL gateway', 'cancelled'],
+    ]);
+
+    const byBody = parse(await api.searchTickets({ q: 'graphql GATEWAY in front' }));
+    expect(byBody.tickets.map((t) => t.id)).toEqual([SEED_IDS.cancelled.ticket]);
+    expect(byBody.tickets[0]!.snippet).toContain('GraphQL gateway in front');
+    const byId = parse(await api.searchTickets({ q: SEED_IDS.done.ticket.slice(0, 8) }));
+    expect(byId.tickets.map((t) => t.id)).toContain(SEED_IDS.done.ticket);
+
+    const first = parse(await api.searchTickets({ limit: 2 }));
+    expect(first.next_cursor).toBe(2);
+    const rest = parse(await api.searchTickets({ limit: 50, cursor: 2 }));
+    expect(rest.next_cursor).toBeNull();
+    expect([...first.tickets, ...rest.tickets].map((t) => t.id)).toEqual(
+      all.total <= 20 ? all.tickets.map((t) => t.id) : expect.any(Array),
+    );
   });
 });
 

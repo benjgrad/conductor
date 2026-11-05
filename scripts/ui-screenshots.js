@@ -169,6 +169,7 @@ const VIEWPORTS = [
         'detail-permission',
         'detail-done',
         'detail-done-steps',
+        'detail-checks',
       ],
       dark: ['board', 'detail', ...REQUEST_SHOTS],
     },
@@ -281,6 +282,8 @@ const SCREENS = [
       await page.locator('aside.detail').scrollIntoViewIfNeeded();
     },
   },
+  // UX-5/UXR-75: conductor running a repo override's checks: the banner with its Repo checks badge.
+  { id: 'detail-checks', path: '/#/', act: (page) => openCard(page, 'Conductor checks demo') },
   // UXR-38: a done ticket's history from the transcript (the ticket as markdown, "Finished …").
   { id: 'detail-done', path: '/#/', act: (page) => openCard(page, 'Rename user.fullname') },
   {

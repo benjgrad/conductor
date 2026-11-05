@@ -36,6 +36,8 @@ import type {
   ReopenSessionRequest,
   PutRepoChecksRequest,
   RepoChecksDetail,
+  RepoCheckRunsResponse,
+  RepoChecksHealthResponse,
   RepoChecksDto,
   RepoChecksListResponse,
   RepoSuggestion,
@@ -54,6 +56,8 @@ import type {
   SignupRequest,
   TicketDetail,
   TicketDto,
+  TicketSearchResponse,
+  TicketSearchStatus,
   UpdateTicketRequest,
   WorkflowDefaultResponse,
   WorkflowDefinition,
@@ -115,6 +119,16 @@ export interface ApiClient {
   answer(sessionId: string, req: AnswerInputRequest): Promise<OkResponse>;
   /** POST /api/tickets → the new ticket; its card arrives on the board stream (card.upserted). */
   createTicket(req: CreateTicketRequest): Promise<TicketDto>;
+  /**
+   * UXR-85: GET /api/tickets: the account's tickets of any status matching `q` (title, external
+   * ref, body, id prefix), most recently updated first; `cursor` is the previous `next_cursor`.
+   */
+  searchTickets(opts?: {
+    q?: string;
+    status?: readonly TicketSearchStatus[];
+    limit?: number;
+    cursor?: number;
+  }): Promise<TicketSearchResponse>;
   /** GET /api/tickets/:id: the ticket in any column, with whether its column allows edits. */
   getTicket(ticketId: string): Promise<TicketDetail>;
   /**
@@ -161,6 +175,13 @@ export interface ApiClient {
    * checking gate of the latest `conductor` workflow. 400 bad_request for a blank repo.
    */
   getRepoChecks(repo: string): Promise<RepoChecksDetail>;
+  /**
+   * UXR-80: GET /api/repo-checks/runs?repo=&limit= → each of the repo's checks with its last runs
+   * (default 5), newest first, over 30 days. Matched by command.
+   */
+  getRepoCheckRuns(repo: string, limit?: number): Promise<RepoCheckRunsResponse>;
+  /** UXR-80: GET /api/repo-checks/health → recent check results of every repo with runs. */
+  getRepoChecksHealth(): Promise<RepoChecksHealthResponse>;
   /**
    * ADR-0030: PUT /api/repo-checks → the stored override (`repo` is the canonical key). 400
    * bad_request with `details` (paths like `checks.0.name`) when validation fails.

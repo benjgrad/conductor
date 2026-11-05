@@ -169,6 +169,7 @@ export const BOARD_CARD_PENDING_FIXTURE: BoardCard = {
       { label: 'Pipeline ci succeeded', kind: 'condition', status: 'disabled', detail: null },
     ],
     current: null,
+    checks_source: 'workflow',
   },
   kind: 'work',
   pending: {

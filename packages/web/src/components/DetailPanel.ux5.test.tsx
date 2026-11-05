@@ -32,6 +32,12 @@ describe('Conductor is running checks (UX-5)', () => {
     expect(within(banner).getByText(/Checks before PR ready for review/)).toBeTruthy();
     expect(statusOf(banner, 'Unit tests')).toBe('running');
     expect(within(banner).getByText(/When the checks pass, conductor opens the PR/)).toBeTruthy();
+    // UXR-75: the demo repo's checks are its override: a badge to its Repo checks page.
+    expect(
+      within(banner)
+        .getByRole('link', { name: /^Repo checks/ })
+        .getAttribute('href'),
+    ).toBe('#/repo-checks/github.com%2Facme%2Fshop');
 
     const head = el.querySelector('.detail-head')!;
     expect(within(head as HTMLElement).getByText('Conductor is checking')).toBeTruthy();

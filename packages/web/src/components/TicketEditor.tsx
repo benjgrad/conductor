@@ -2,7 +2,7 @@ import { TICKET_KINDS, type TicketDetail, type TicketKind } from '@conductor/sha
 import { useId, useRef, useState, type FormEvent } from 'react';
 import { ApiRequestError, errorMessage, type ApiClient } from '../api/client.js';
 import { AttachmentPicker, AttachmentThumb, useAttachmentUploads } from './AttachmentPicker.js';
-import { TICKET_KIND_LABELS } from './format.js';
+import { priorityChoices, priorityLabel, TICKET_KIND_LABELS } from './format.js';
 import type { RichEditorHandle } from './ticket-editor/RichTicketEditor.js';
 import { TicketBodyField } from './ticket-editor/TicketBodyField.js';
 
@@ -24,7 +24,7 @@ export function TicketEditor({ api, ticket, onSaved, onCancel, onReload }: Ticke
   const [title, setTitle] = useState(ticket.title);
   const [body, setBody] = useState(ticket.body);
   const bodyEditor = useRef<RichEditorHandle | null>(null);
-  const [priority, setPriority] = useState(String(ticket.priority));
+  const [priority, setPriority] = useState(ticket.priority);
   const [kind, setKind] = useState<TicketKind | null>(ticket.kind ?? null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,11 +39,10 @@ export function TicketEditor({ api, ticket, onSaved, onCancel, onReload }: Ticke
     e.preventDefault();
     // The rich editor exports on a debounce: take its latest text now.
     const markdown = bodyEditor.current?.flush() ?? body;
-    const prio = Number.parseInt(priority, 10) || 0;
     const patch = {
       ...(title.trim() !== ticket.title ? { title: title.trim() } : {}),
       ...(markdown !== ticket.body ? { body: markdown } : {}),
-      ...(prio !== ticket.priority ? { priority: prio } : {}),
+      ...(priority !== ticket.priority ? { priority } : {}),
       ...(kind !== null && kind !== (ticket.kind ?? null) ? { kind } : {}),
       ...(uploads.ids.length > 0 ? { add_attachment_ids: uploads.ids } : {}),
       ...(removed.size > 0 ? { remove_attachment_ids: [...removed] } : {}),
@@ -83,13 +82,13 @@ export function TicketEditor({ api, ticket, onSaved, onCancel, onReload }: Ticke
       </label>
       <label>
         Priority
-        <input
-          type="number"
-          inputMode="numeric"
-          step={1}
-          value={priority}
-          onChange={(e) => setPriority(e.target.value)}
-        />
+        <select value={priority} onChange={(e) => setPriority(Number(e.target.value))}>
+          {priorityChoices(ticket.priority).map((p) => (
+            <option key={p} value={p}>
+              {priorityLabel(p)}
+            </option>
+          ))}
+        </select>
       </label>
       <fieldset className="kind-choice">
         <legend>Kind</legend>

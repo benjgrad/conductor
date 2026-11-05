@@ -1,4 +1,4 @@
-import type { BoardCard } from '@conductor/shared';
+import { DEFAULT_TICKET_PRIORITY, type BoardCard } from '@conductor/shared';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import type { ApiClient } from '../api/client.js';
 import {
@@ -554,7 +554,9 @@ function Card({
             {meta.srStatusLabel && <span className="visually-hidden">{meta.srStatusLabel}</span>}
           </>
         )}
-        {card.priority !== 0 && <span className="prio">P{card.priority}</span>}
+        {card.priority !== DEFAULT_TICKET_PRIORITY && (
+          <span className="prio">P{card.priority}</span>
+        )}
         {card.spend_usd > 0 && <span>{usd(card.spend_usd)}</span>}
         <span className="age">{ago(card.updated_at)}</span>
       </div>

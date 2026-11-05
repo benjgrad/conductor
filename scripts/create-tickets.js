@@ -24,9 +24,10 @@ const WORKFLOW = process.env.CONDUCTOR_WORKFLOW ?? 'conductor'; // the hosted bo
 const REPO = 'github.com/benjgrad/conductor';
 // M3: T17 is the lead's; T18/T19 "later". MR: T00 is the lead's (plan, ADR-0026).
 const NOT_TICKETS = new Set(['M3-T17', 'M3-T18', 'M3-T19', 'MR-T00']);
-// The M3 migration needs Ben's review early. The UX migrations (UX-13a, UX-15) stay at 0 so they
-// queue behind M2/M2r work instead of jumping it (Ben, 2026-10-28).
-const PRIORITY = { 'M3-T02': 1 };
+// The M3 migration needs Ben's review early. The UX migrations (UX-13a, UX-15) stay at the default
+// P3 so they queue behind M2/M2r work instead of jumping it (Ben, 2026-10-28). ADR-0036: the lower
+// P is the more urgent.
+const PRIORITY = { 'M3-T02': 2 };
 
 const M3_CONTRACTS =
   '- Code against the M3-T01 contracts (`shared/src/mcp/**`, `shared/src/api/oauth.ts`, `api/rest.ts`). A needed contract change is reported in the PR, never made locally.\n';
@@ -88,7 +89,7 @@ function buildRequest(block, planFile) {
     body,
     repo: REPO,
     workflow_id: WORKFLOW,
-    priority: PRIORITY[block.id] ?? 0,
+    priority: PRIORITY[block.id] ?? 3,
     required_tags: [],
     repo_allow_machines: null,
     external_ref: null,

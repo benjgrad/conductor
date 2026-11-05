@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { SessionStatusSchema } from '../domain.js';
 import { BOARD_SSE_FIXTURES, OUTPUT_CHUNK_FIXTURE } from './fixtures.js';
 import { CONDUCTOR_V1_DEF, boardColumns } from '../workflow/conductor.js';
-import { CreateTicketRequestSchema } from './rest.js';
+import { CreateTicketRequestSchema, UpdateTicketRequestSchema } from './rest.js';
+import { CreateScheduleRequestSchema } from './schedules.js';
 import {
   BOARD_SSE_EVENT_TYPES,
   boardSseEventFromRow,
@@ -126,11 +127,27 @@ describe('REST DTO defaults', () => {
       body: '',
       repo: 'r',
       workflow_id: 'm1_basic',
-      priority: 0,
+      priority: 3,
       required_tags: [],
       repo_allow_machines: null,
       external_ref: null,
     });
+  });
+
+  it('priority is P0–P4 on create, PATCH and schedules (ADR-0036)', () => {
+    const create = { title: 't', body: '', repo: 'r', kind: 'work' as const };
+    const schedule = { name: 'n', cron: '0 9 * * *', title: 't', repo: 'r', kind: 'work' as const };
+    const patch = { expected_updated_at: '2026-11-05T00:00:00.000Z' };
+    expect(CreateScheduleRequestSchema.parse(schedule).priority).toBe(3);
+    for (const priority of [0, 4]) {
+      expect(CreateTicketRequestSchema.safeParse({ ...create, priority }).success).toBe(true);
+      expect(UpdateTicketRequestSchema.safeParse({ ...patch, priority }).success).toBe(true);
+    }
+    for (const priority of [-1, 5, 1.5]) {
+      expect(CreateTicketRequestSchema.safeParse({ ...create, priority }).success).toBe(false);
+      expect(UpdateTicketRequestSchema.safeParse({ ...patch, priority }).success).toBe(false);
+      expect(CreateScheduleRequestSchema.safeParse({ ...schedule, priority }).success).toBe(false);
+    }
   });
 
   it('defaults workflow_id to conductor (ADR-0010)', () => {

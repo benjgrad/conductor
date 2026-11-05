@@ -211,7 +211,10 @@ function RoutingNote({ routing }: { routing: BoardCardRouting }) {
   );
 }
 
-/** UXR-42: raise or lower a queued ticket's priority (higher is claimed first), via PATCH. */
+/**
+ * UXR-42: raise or lower a queued ticket's priority via PATCH. ADR-0036: P0–P4, the lower number
+ * is the more urgent (claimed first). Raise stops at P1 (P0 is reserved), Lower at P4.
+ */
 function PriorityStepper({
   api,
   ticket,
@@ -247,8 +250,8 @@ function PriorityStepper({
         className="icon"
         aria-label="Raise priority"
         title="Raise priority"
-        disabled={saving}
-        onClick={() => step(1)}
+        disabled={saving || ticket.priority <= 1}
+        onClick={() => step(-1)}
       >
         <ChevronUp size={16} aria-hidden="true" />
       </button>
@@ -257,8 +260,8 @@ function PriorityStepper({
         className="icon"
         aria-label="Lower priority"
         title="Lower priority"
-        disabled={saving}
-        onClick={() => step(-1)}
+        disabled={saving || ticket.priority >= 4}
+        onClick={() => step(1)}
       >
         <ChevronDown size={16} aria-hidden="true" />
       </button>

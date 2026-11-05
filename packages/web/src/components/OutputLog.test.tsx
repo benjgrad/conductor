@@ -6,7 +6,7 @@ import {
   type OutputChunk,
   type OutputStream,
 } from '@conductor/shared';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mockChecking } from '../api/mock-data.js';
 import { Markdown } from './markdown.js';
@@ -16,7 +16,9 @@ import {
   describeTool,
   diffLines,
   isFailedResult,
+  isProtocolStepEnd,
   OutputLog,
+  phaseLabel,
   parseToolUse,
   resultSummary,
   shortener,
@@ -474,7 +476,7 @@ describe('OutputLog phase dividers (FR-5)', () => {
       '| Started · Planning',
       'Planning now.',
       'The plan is ready.',
-      '| Planning → Implementing · plan_ready — The plan names every file it changes.',
+      '| Planning → Implementing · Plan ready — The plan names every file it changes.',
       'Implementing.',
     ]);
     const button = screen.getByRole('button', { name: /Planning → Implementing/ });
@@ -688,5 +690,96 @@ describe('check output rows (UX-6)', () => {
     const log = container.querySelector('.check-run-output')!;
     expect(log.children).toHaveLength(1);
     expect(log.textContent).toContain('output line 99\n');
+  });
+});
+
+describe('protocol calls and the ticket (UXR-38)', () => {
+  const RECORDED = 'Recorded. Stop now: do not call any other tool and end your turn.';
+  const moves: MoveDto[] = [{ ...SESSION_MOVES_FIXTURE[0]!, at: '2026-10-23T12:00:00.000Z' }];
+  const transcript = () => [
+    chunk('user', '# Ticket: Rename it\n\nRename `fullname` everywhere.'),
+    chunk('assistant', 'Renaming.'),
+    toolUse('Bash', { command: 'grep -rn fullname src' }),
+    chunk('tool_result', 'src/a.ts:1'),
+    toolUse('mcp__conductor__complete_state', { result: { summary: 'Done' } }),
+    chunk('tool_result', RECORDED),
+    chunk('assistant', 'Finished.'),
+  ];
+
+  it('collapses an accepted complete_state to one step-done item, with the state from moves', () => {
+    const thread = buildThread(buildEntries(transcript()), { moves, group: true });
+    expect(thread.map((t) => t.kind)).toEqual([
+      'phase',
+      'entry',
+      'entry',
+      'entry',
+      'step-done',
+      'entry',
+    ]);
+    expect(thread[4]).toMatchObject({ kind: 'step-done', state: moves[0]!.to });
+  });
+
+  it('keeps the raw call ungrouped, and a refused one as an entry', () => {
+    const entries = buildEntries(transcript());
+    expect(buildThread(entries, { group: false }).some((t) => t.kind === 'step-done')).toBe(false);
+    const refused = buildEntries([
+      toolUse('mcp__conductor__complete_state', { transition: 'nope' }),
+      chunk('tool_result', 'Unknown transition nope. Any other name is refused.'),
+    ]);
+    expect(isProtocolStepEnd(refused[0]!)).toBe(false);
+    expect(buildThread(refused, { group: true }).map((t) => t.kind)).toEqual(['entry']);
+  });
+
+  it('shows "Finished …" and none of the protocol text; Debug lines bring the raw call back', () => {
+    const { container } = render(
+      <OutputLog
+        output={[...transcript(), chunk('debug', 'state entered')]}
+        worktree={null}
+        moves={moves}
+        variant="chat"
+      />,
+    );
+    expect(container.querySelector('.step-done')?.textContent).toBe('✓ Finished planning');
+    expect(container.textContent).not.toContain('Recorded.');
+    expect(container.textContent).not.toContain('Step complete');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Debug lines' }));
+    expect(container.textContent).toContain('Step complete');
+  });
+
+  it('renders the opening message as the ticket, in markdown; later messages stay plain', () => {
+    render(
+      <OutputLog
+        output={[...transcript(), chunk('user', 'Use `full_name`, please.')]}
+        worktree={null}
+        variant="chat"
+      />,
+    );
+    const ticket = within(screen.getByRole('group', { name: 'Ticket prompt' }));
+    // Styled, not an <hN>: the chat isn't part of the page outline (markdown.tsx `headings`).
+    expect(ticket.getByText('Ticket: Rename it')).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'Ticket prompt' }).textContent).not.toContain('#');
+    expect(ticket.getByText('fullname', { selector: 'code' })).toBeTruthy();
+    const mine = screen.getByRole('group', { name: 'Your message' });
+    expect(mine.textContent).toBe('YouUse `full_name`, please.');
+  });
+
+  it('labels a move by its transition title', () => {
+    const move: MoveDto = {
+      at: '2026-10-23T12:00:00.000Z',
+      from: 'implementing',
+      to: 'needs_input',
+      transition: 'personal_pr_ready_for_review',
+      reason: null,
+      actor: 'agent',
+    };
+    const workflow = {
+      states: {
+        implementing: {
+          on: { personal_pr_ready_for_review: { goto: 'needs_input', title: 'Ready for review' } },
+        },
+      },
+    } as never;
+    expect(phaseLabel(move, workflow)).toBe('Implementing → Needs input · Ready for review');
+    expect(phaseLabel(move)).toBe('Implementing → Needs input · Personal pr ready for review');
   });
 });

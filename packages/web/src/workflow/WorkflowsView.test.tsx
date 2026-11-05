@@ -167,6 +167,21 @@ describe('Workflow view', () => {
     expect(saved[0]!.queued_ticket_editable).toBe(false);
   });
 
+  it('lays each lone checkbox out inline with its label, not as a check row (UXR-43)', async () => {
+    await setup();
+    fireEvent.click(lane('Implementing'));
+    const boxes = [
+      editor().getByRole('checkbox', { name: 'People can edit the ticket in this column' }),
+      editor().getByRole('checkbox', { name: 'Agents may propose follow-up tickets' }),
+      screen.getByRole('checkbox', { name: 'People can edit tickets in the Queued column' }),
+    ];
+    for (const box of boxes) {
+      const label = box.closest('label')!;
+      expect(label.classList.contains('wf-toggle')).toBe(true);
+      expect(label.classList.contains('wf-check')).toBe(false);
+    }
+  });
+
   it('tunes follow-up proposals for an agent column (ADR-0034)', async () => {
     const { saved } = await setup();
     fireEvent.click(lane('Implementing'));

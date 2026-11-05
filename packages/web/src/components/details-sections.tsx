@@ -162,7 +162,14 @@ export function WorkflowSection({ detail }: { detail: SessionDetail }) {
           </li>
         ))}
       </ol>
-      {card.pending && <PendingChecklist pending={card.pending} />}
+      {card.pending && (
+        <PendingChecklist
+          pending={card.pending}
+          {...(workflow.states[card.pending.to]?.title !== undefined
+            ? { toTitle: workflow.states[card.pending.to]!.title! }
+            : {})}
+        />
+      )}
       <SessionWorkflowDiagram detail={detail} />
       {detail.return_to && (
         <p className="muted returns-to">

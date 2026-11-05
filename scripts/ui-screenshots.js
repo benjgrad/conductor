@@ -85,7 +85,7 @@ const VIEWPORTS = [
     isMobile: true,
     hasTouch: true,
     deviceScaleFactor: 1,
-    themes: { light: ['board', 'detail', 'new-ticket'] },
+    themes: { light: ['board', 'detail', 'new-ticket', 'new-ticket-bottom'] },
   },
   {
     w: 1440,
@@ -96,11 +96,14 @@ const VIEWPORTS = [
         'board',
         'detail',
         'new-ticket',
+        'new-ticket-bottom',
         'machines',
         'workflows',
         'wf-rules-full',
         'wf-rules-new',
         'wf-arrow-group',
+        'wf-arrow-transition',
+        'workflow-column',
         'ticket-messages',
         'ticket-plan',
         'detail-done',
@@ -303,11 +306,33 @@ const SCREENS = [
     path: '/#/workflows',
     act: (page) => openArrow(page, 'Planning', 'Implementing'),
   },
-  // An arrow with several transitions (the tabs above the summary).
+  // UXR-64: an arrow with several transitions opens on their list (before: on the first one).
   {
     id: 'wf-arrow-group',
     path: '/#/workflows',
-    act: (page) => openArrow(page, 'Planning', 'Needs input'),
+    act: (page) => openArrow(page, 'Implementing', 'Needs input'),
+  },
+  // UXR-66: one of them picked from the list: the breadcrumb Column › arrow › transition.
+  {
+    id: 'wf-arrow-transition',
+    path: '/#/workflows',
+    act: async (page) => {
+      await openArrow(page, 'Implementing', 'Needs input');
+      const row = page.locator('.wf-transition-row', { hasText: 'Personal only' });
+      if ((await row.count()) > 0) await tap(row.first());
+    },
+  },
+  // UXR-65: a column's panel, its transitions listed by title.
+  {
+    id: 'workflow-column',
+    path: '/#/workflows',
+    act: async (page) => {
+      await page.locator('.wf-lanes').first().waitFor();
+      const lane = page.getByRole('button', { name: /^Column Implementing:/ }).first();
+      await lane.waitFor({ state: 'attached' });
+      await lane.dispatchEvent('click');
+      await page.locator('aside.wf-editor').waitFor();
+    },
   },
   { id: 'setup', path: '/#/setup' },
   { id: 'help', path: '/help/add-a-machine' },

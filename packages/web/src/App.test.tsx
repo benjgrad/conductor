@@ -205,7 +205,8 @@ describe('top nav icons (UX-11)', () => {
       expect(icon(screen.getByRole(role, { name })), name).toBeTruthy();
     }
     fireEvent.click(screen.getByRole('button', { name: 'New ticket' }));
-    expect(icon(screen.getByRole('button', { name: 'Close form' }))).toBeTruthy();
+    const sheet = within(screen.getByRole('dialog', { name: 'New ticket' }));
+    expect(icon(sheet.getByRole('button', { name: 'Close' }))).toBeTruthy();
   });
 
   it('compact mode hides the labels and keeps the names', async () => {

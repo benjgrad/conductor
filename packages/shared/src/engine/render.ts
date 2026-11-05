@@ -1,4 +1,4 @@
-import type { AgentState, FollowUps } from '../workflow/schema.js';
+import { pagesSpec, resultKeys, type AgentState, type FollowUps } from '../workflow/schema.js';
 import type { SentBack } from './qa.js';
 import type { AgentTransitionOption } from '../workflow/transition-rules.js';
 import { renderReviewFeedback, type ReviewFeedback } from './review.js';
@@ -120,6 +120,10 @@ export function renderPrompt(input: RenderPromptInput): string {
     parts.push(renderFollowUps(state.follow_ups, snapshot.ticket.repo));
   }
 
+  // ADR-0038: only a state with a `{pages: {max}}` result entry gets this section.
+  const pages = renderPages(state);
+  if (pages !== null) parts.push(pages);
+
   parts.push(
     input.transitions != null ? howToFinish(state, input.transitions) : finishSection(state),
   );
@@ -157,6 +161,32 @@ export function renderFollowUps(cfg: FollowUps, repo: string): string {
     "A human approves or dismisses each one. It's optional: leave it out if nothing stands out, and don't do that work here.",
   ];
   if (cfg.guidance !== undefined) lines.push('', cfg.guidance);
+  return lines.join('\n');
+}
+
+/** The heading of the ADR-0038 pages section. */
+export const PAGES_HEADING = '## Pages (optional)';
+
+/**
+ * ADR-0038: how to attach rendered pages to the result, for a state with `{pages: {max}}` in its
+ * `result`; and, when it also has the `pages` tool, how to publish one. null otherwise.
+ */
+export function renderPages(state: Pick<AgentState, 'result' | 'tools'>): string | null {
+  const spec = pagesSpec(state);
+  if (spec === null) return null;
+  const lines = [
+    PAGES_HEADING,
+    '',
+    'To show the human something rendered (a mockup, a diagram, a data walkthrough), add ' +
+      `\`"pages": [{"url": "…", "title": "…"}]\` to your result, at most ${spec.max}. ` +
+      'A page URL is https. The human opens each page from the card.',
+  ];
+  if ((state.tools ?? []).includes('pages')) {
+    lines.push(
+      'Publish a page with the `publish_page` tool: one self-contained HTML document, inline CSS and JavaScript only (no external URLs: they are blocked), images as data: URLs. It expires after 7 days. Put the URL it returns in `pages`.',
+    );
+  }
+  lines.push("Never commit pages to the repository. It's optional: leave `pages` out if words are enough.");
   return lines.join('\n');
 }
 
@@ -234,7 +264,7 @@ export const HOW_TO_FINISH_HEADING = '## How to finish';
  * `complete_state`. `ask_user` (the built-in fallback, U-061) gets a default `when`.
  */
 function howToFinish(state: AgentState, transitions: readonly AgentTransitionOption[]): string {
-  const keys = state.result ?? [];
+  const keys = resultKeys(state);
   const result =
     keys.length > 0
       ? `a \`result\` object containing ${keys.map((k) => `\`${k}\``).join(', ')}`
@@ -259,7 +289,7 @@ function howToFinish(state: AgentState, transitions: readonly AgentTransitionOpt
 }
 
 function finishSection(state: AgentState): string {
-  const keys = state.result ?? [];
+  const keys = resultKeys(state);
   const result =
     keys.length > 0
       ? `call the \`complete_state\` tool with a \`result\` object containing ${keys

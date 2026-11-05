@@ -422,6 +422,38 @@ export type FollowUps = z.infer<typeof FollowUpsSchema>;
 /** The longest follow-up list an agent state may allow. */
 export const FOLLOW_UPS_MAX = 10;
 
+/**
+ * ADR-0038: a `result` entry that lets the agent attach rendered pages (`PageRef`, api/pages.ts)
+ * to its result as `pages: [{url, title}]`, at most `max`. Never required: an agent that attaches
+ * none still completes. Host-neutral: a Conductor `/p/:id` page (the `pages` tool's
+ * `publish_page`) or any other https page URL.
+ */
+export const PAGES_RESULT_MAX = 5;
+export const PagesResultSchema = z.strictObject({
+  pages: z.strictObject({ max: z.number().int().min(1).max(PAGES_RESULT_MAX) }),
+});
+export type PagesResult = z.infer<typeof PagesResultSchema>;
+/** One entry of an agent state's `result`: a required key, or a result kind (ADR-0038). */
+export const ResultEntrySchema = z.union([z.string().min(1), PagesResultSchema]);
+export type ResultEntry = z.infer<typeof ResultEntrySchema>;
+/** The result kinds the validator accepts (rule 14, "not available yet" otherwise). */
+export const RESULT_KINDS = ['pages'] as const;
+export type ResultKind = (typeof RESULT_KINDS)[number];
+export const AVAILABLE_RESULT_KINDS: readonly ResultKind[] = ['pages'];
+
+/** The required result keys of an agent state (its string `result` entries). */
+export function resultKeys(state: { result?: readonly ResultEntry[] | undefined }): string[] {
+  return (state.result ?? []).filter((e): e is string => typeof e === 'string');
+}
+
+/** ADR-0038: the state's `{pages: {max}}` result entry, or null. */
+export function pagesSpec(state: {
+  result?: readonly ResultEntry[] | undefined;
+}): { max: number } | null {
+  for (const e of state.result ?? []) if (typeof e !== 'string') return e.pages;
+  return null;
+}
+
 export const AgentStateSchema = z
   .strictObject({
     type: z.literal('agent'),
@@ -433,8 +465,16 @@ export const AgentStateSchema = z
     mcp: McpPolicySchema.optional(),
     /** Literal values or `$state.key` refs (05 rule 5). */
     input: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
-    /** Keys the agent's `complete_state` result must carry. */
-    result: z.array(z.string().min(1)).optional(),
+    /**
+     * Keys the agent's `complete_state` result must carry, plus at most one ADR-0038 result kind
+     * (`{pages: {max}}`), which is optional for the agent.
+     */
+    result: z
+      .array(ResultEntrySchema)
+      .refine((r) => r.filter((e) => typeof e !== 'string').length <= 1, {
+        message: 'result lists at most one {"pages": …} entry',
+      })
+      .optional(),
     model: z.string().min(1).optional(),
     max_turns: z.number().int().positive().optional(),
     /**

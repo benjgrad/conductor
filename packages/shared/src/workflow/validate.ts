@@ -1,5 +1,7 @@
 import {
+  AVAILABLE_RESULT_KINDS,
   CONDUCTOR_WORKFLOW_ID,
+  resultKeys,
   RETURN_TO,
   WorkflowDefinitionSchema,
   type OnUnmet,
@@ -9,7 +11,8 @@ import {
 } from './schema.js';
 import { PR_CONTEXT_KEY, REVIEW_CONTEXT_KEY, STEP_CONTEXT_KEY } from '../engine/review.js';
 import { PROPOSED_TICKETS_KEY } from '../api/proposals.js';
-import { isToolAlias, TOOL_ALIAS_NAMES } from './tools.js';
+import { AVAILABLE_TOOL_ALIASES, isToolAlias, TOOL_ALIAS_NAMES } from './tools.js';
+import { PAGES_KEY } from '../api/pages.js';
 import {
   FALLBACK_TRANSITION_NAMES,
   isCountedTransition,
@@ -82,6 +85,48 @@ function flattenIssue(issue: Issue, prefix: PropertyKey[] = []): Issue[] {
   return branches[0]!.flatMap((i) => flattenIssue(i, path));
 }
 
+/** What a definition may use (rule 14); the defaults are AVAILABLE_TOOL_ALIASES / _RESULT_KINDS. */
+export interface Availability {
+  tools: readonly string[];
+  resultKinds: readonly string[];
+}
+
+/**
+ * Rule 14 for agent states (ADR-0038, the ADR-0037 pattern): a known tool alias or result kind
+ * that parses but isn't available yet is refused. Pure; `available` is injectable for tests.
+ */
+export function checkAvailability(
+  def: WorkflowDefinition,
+  available: Availability = { tools: AVAILABLE_TOOL_ALIASES, resultKinds: AVAILABLE_RESULT_KINDS },
+): WorkflowValidationError[] {
+  const errors: WorkflowValidationError[] = [];
+  for (const [name, state] of Object.entries(def.states)) {
+    if (state.type !== 'agent') continue;
+    (state.tools ?? []).forEach((tool, i) => {
+      if (isToolAlias(tool) && !available.tools.includes(tool)) {
+        errors.push({
+          rule: 14,
+          path: ['states', name, 'tools', i],
+          message: `tool "${tool}" is not available yet`,
+        });
+      }
+    });
+    (state.result ?? []).forEach((entry, i) => {
+      if (typeof entry === 'string') return;
+      for (const kind of Object.keys(entry)) {
+        if (!available.resultKinds.includes(kind)) {
+          errors.push({
+            rule: 14,
+            path: ['states', name, 'result', i],
+            message: `result kind "${kind}" is not available yet`,
+          });
+        }
+      }
+    });
+  }
+  return errors;
+}
+
 /** Parse a workflow definition and check rules 1–16. Never throws. */
 export function validateWorkflow(input: unknown): WorkflowValidationResult {
   const parsed = WorkflowDefinitionSchema.safeParse(input);
@@ -146,6 +191,7 @@ export function validateWorkflow(input: unknown): WorkflowValidationResult {
     }
   }
 
+  errors.push(...checkAvailability(def));
   errors.push(...checkGates(def, has));
   errors.push(...checkEntry(def, has));
   errors.push(...checkTransitions(def, has));
@@ -544,6 +590,15 @@ function checkRefs(def: WorkflowDefinition, edges: Edge[]): WorkflowValidationEr
         message: `"${PROPOSED_TICKETS_KEY}" is optional (follow_ups) and can't be a required result key`,
       });
     }
+    // ADR-0038: pages are optional too; they are asked for with a `{"pages": {"max": n}}` entry.
+    const pagesAt = (state.result ?? []).indexOf(PAGES_KEY);
+    if (pagesAt >= 0) {
+      errors.push({
+        rule: 5,
+        path: ['states', name, 'result', pagesAt],
+        message: `"${PAGES_KEY}" can't be a required result key: list {"${PAGES_KEY}": {"max": n}} instead`,
+      });
+    }
     for (const [key, value] of Object.entries(state.input ?? {})) {
       if (typeof value !== 'string' || !value.startsWith('$')) continue;
       const path = ['states', name, 'input', key];
@@ -561,7 +616,7 @@ function checkRefs(def: WorkflowDefinition, edges: Edge[]): WorkflowValidationEr
         err(`input "${key}" refs unknown state "${src}"`);
         continue;
       }
-      if (producer.type !== 'agent' || !(producer.result ?? []).includes(field)) {
+      if (producer.type !== 'agent' || !resultKeys(producer).includes(field)) {
         err(
           `input "${key}" refs "${src}.${field}", but state "${src}" has no result key "${field}"`,
         );

@@ -5476,6 +5476,7 @@ pub const CONDUCTOR_PORT_ENV: &str = "CONDUCTOR_PORT";
 pub const DAEMON_AUTH_HEADER: &str = "authorization";
 pub const DAEMON_FEATURE_AGENT_ATTACHMENTS: &str = "agent_attachments";
 pub const DAEMON_FEATURE_ASSISTANT_JOB: &str = "assistant_job";
+pub const DAEMON_FEATURE_PAGES: &str = "pages";
 pub const DAEMON_FEATURE_TICKET_ATTACHMENTS: &str = "ticket_attachments";
 pub const DAEMON_TARBALL_MAX_BYTES: usize = 104857600;
 pub const DAEMON_TARBALL_RE: &str = "^conductor-daemon-[0-9A-Za-z._+-]{1,128}\\.tgz$";
@@ -5491,6 +5492,9 @@ pub const NO_CONVERSATION_REASON: &str = "no_conversation";
 pub const NO_OUTCOME_OUTPUT_CHARS: usize = 4000;
 pub const NO_PR_CHECKS_VALUE: &str = "0/0 passed";
 pub const OUTPUT_TAIL_BYTES: usize = 16384;
+pub const PAGE_HTML_MAX_BYTES: usize = 2097152;
+pub const PAGE_TITLE_MAX: usize = 200;
+pub const PAGE_TTL_MAX_DAYS: usize = 30;
 pub const PERMISSION_INPUT_MAX_BYTES: usize = 65536;
 pub const PERMISSION_MESSAGE_MAX: usize = 2000;
 pub const PERMISSION_RULE_MAX: usize = 4096;
@@ -5587,6 +5591,14 @@ pub const TOOL_ALIASES: &[(&str, ToolPolicyFragment)] = &[
                 "Bash(git commit:*)",
                 "Bash(git restore:*)",
             ],
+            deny: &[],
+        },
+    ),
+    (
+        "pages",
+        ToolPolicyFragment {
+            builtin: &[],
+            allow: &[],
             deny: &[],
         },
     ),

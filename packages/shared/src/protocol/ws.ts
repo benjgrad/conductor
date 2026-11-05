@@ -66,11 +66,18 @@ export const DAEMON_FEATURE_TICKET_ATTACHMENTS = 'ticket_attachments';
  * captured (POST `API_PATHS.daemonSessionAttachments` with its credential). Informational.
  */
 export const DAEMON_FEATURE_AGENT_ATTACHMENTS = 'agent_attachments';
+/**
+ * ADR-0038: the daemon's outcome server has `publish_page` for a state with the `pages` tool
+ * (POST `API_PATHS.daemonSessionPages`). A machine without it gets the state's tools without
+ * `pages` and a note in the prompt instead.
+ */
+export const DAEMON_FEATURE_PAGES = 'pages';
 /** The `register.features` names conductor knows. */
 export const DAEMON_FEATURES = [
   DAEMON_FEATURE_ASSISTANT_JOB,
   DAEMON_FEATURE_TICKET_ATTACHMENTS,
   DAEMON_FEATURE_AGENT_ATTACHMENTS,
+  DAEMON_FEATURE_PAGES,
 ] as const;
 
 /** M1-T11: a newer connection for the same machine id replaced this one. */

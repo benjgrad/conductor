@@ -110,7 +110,7 @@ describe('docs/tracking/FLAKY.md', () => {
   it('every test fn in a listed Rust file carries the ignore marker', () => {
     for (const r of quarantinedRust(rows)) {
       const src = readFileSync(join(root, r.file), 'utf8');
-      const tests = src.match(/^#\[(?:tokio::)?test\b/gm)?.length ?? 0;
+      const tests = src.match(/^\s*#\[(?:tokio::)?test\b/gm)?.length ?? 0;
       expect(tests, r.file).toBeGreaterThan(0);
       expect(src.split(RUST_MARKER).length - 1, r.file).toBe(tests);
     }

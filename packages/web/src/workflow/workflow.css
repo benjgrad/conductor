@@ -1235,7 +1235,7 @@ dialog.modal.wf-review-dialog {
 }
 .wf-add-column text {
   fill: var(--muted);
-  font-size: 15px;
+  font-size: var(--text-lg);
   font-weight: 600;
   pointer-events: none;
 }
@@ -1289,12 +1289,12 @@ dialog.modal.wf-review-dialog {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-top: 6px;
+  margin-top: var(--space-2);
 }
 .wf-place-buttons {
   display: flex;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 .wf-add-column .wf-kinds,
 .wf-kinds {

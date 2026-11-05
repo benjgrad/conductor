@@ -6,6 +6,7 @@ import {
   CONDUCTOR_V4_DEF,
   CONDUCTOR_V2_DRAFT_DEF,
   CONDUCTOR_WORKFLOW_ID,
+  diffWorkflow,
   OUTPUT_CHUNK_FIXTURE,
   SESSION_MOVES_FIXTURE,
   moveStateLabel,
@@ -286,6 +287,24 @@ export const MOCK_WORKFLOWS = [CONDUCTOR, M1_BASIC, PR_FLOW_FULL];
  * Every stored version, oldest first, per workflow id. `conductor` is the one workflow; the
  * others are old ones that finished tickets still pin (hidden in the UI).
  */
+/**
+ * UXR-70: who saved each `conductor` version in the mock, and its note (oldest first; the other
+ * workflows' versions have none).
+ */
+export const MOCK_WORKFLOW_AUTHORS: Record<
+  string,
+  { created_by: string | null; note: string | null }[]
+> = {
+  [CONDUCTOR_WORKFLOW_ID]: [
+    { created_by: null, note: null },
+    { created_by: 'ben@example.com', note: 'Board columns: one column per state' },
+    {
+      created_by: 'mcp:ben@example.com',
+      note: 'Transition rules: checks and conditions on arrows',
+    },
+  ],
+};
+
 export const MOCK_WORKFLOW_HISTORY: Record<string, WorkflowDefinition[]> = {
   [CONDUCTOR_WORKFLOW_ID]: [CONDUCTOR_V1, CONDUCTOR, CONDUCTOR_TRANSITIONS],
   m1_basic: [M1_BASIC_V1, M1_BASIC],
@@ -1002,12 +1021,84 @@ export function mockRepoChecks(now: Date): RepoChecksDto[] {
 }
 
 /**
- * ADR-0033 P3: the workflow advisor's proposals in the mock: one open repo-checks change, and one
- * applied workflow change with its review.
+ * UXR-73: the open workflow proposal's change to the latest mock `conductor`: a column renamed, and
+ * a check and a condition added to Implementing → Waiting external.
+ */
+export function proposedConductor(): WorkflowDefinition {
+  const def = structuredClone(CONDUCTOR_TRANSITIONS);
+  def.states.waiting_external!.title = 'Waiting on review';
+  const s = def.states.implementing!;
+  if (s.type !== 'terminal') {
+    const t = s.on!.ready_for_testing!;
+    if (typeof t !== 'string') {
+      t.requires = {
+        ...t.requires,
+        checks: [...(t.requires?.checks ?? []), { name: 'Typecheck', cmd: 'pnpm typecheck' }],
+        conditions: [
+          ...(t.requires?.conditions ?? []),
+          { type: 'pr_screenshots', ui_paths: ['packages/web/**'] },
+        ],
+      };
+    }
+  }
+  return def;
+}
+
+/** UXR-73: the applied proposal's change (planning retitled), from the version before it. */
+function retitledPlanning(): WorkflowDefinition {
+  const def = structuredClone(CONDUCTOR);
+  def.states.planning!.title = 'Plan it';
+  return def;
+}
+
+/**
+ * ADR-0033 P3: the workflow advisor's proposals in the mock: an open workflow change (UXR-73), an
+ * open repo-checks change, and an applied workflow change with its review. Each carries its whole
+ * change (the REST detail's bodies) for the readable diff.
  */
 export function mockChangeProposals(now: Date): ChangeProposalDetail[] {
   const ago = (days: number) => new Date(now.getTime() - days * 86_400_000).toISOString();
+  const proposed = proposedConductor();
+  const openDiff = diffWorkflow(CONDUCTOR_TRANSITIONS, proposed);
   return [
+    {
+      id: '7a1c0e52-5f3b-4c1e-9d2a-0b6f1e2a3c03',
+      kind: 'workflow',
+      status: 'proposed',
+      title: 'Typecheck before testing, and wait for an approval',
+      target: CONDUCTOR_WORKFLOW_ID,
+      requires_admin: true,
+      changes: openDiff.length,
+      expected_effect: 'Fewer tickets sent back from testing.',
+      created_at: ago(0.1),
+      applied_at: null,
+      rationale:
+        'Half the tickets sent back from Waiting external failed a typecheck, and none had a ' +
+        'human approval yet.',
+      evidence: [
+        { finding_id: 'reentries:implementing', text: '6 of 12 tickets came back to Implementing' },
+      ],
+      effect: {
+        metric: 'reentries',
+        scope: { state: 'implementing' },
+        direction: 'down',
+        text: 'Fewer tickets sent back from testing.',
+      },
+      rollback: 'Save v3 again.',
+      diff: { changes: openDiff, more_changes: 0 },
+      base_version: 3,
+      created_by: 'mcp:ben@example.com',
+      decided_by: null,
+      decided_at: null,
+      applied_version: null,
+      error: null,
+      review: null,
+      warning:
+        'Workflows are shared by every account on this instance: applying this changes the ' +
+        'workflow for all of them, and only an instance admin can apply it.',
+      base_definition: CONDUCTOR_TRANSITIONS,
+      proposed_definition: proposed,
+    },
     {
       id: '7a1c0e52-5f3b-4c1e-9d2a-0b6f1e2a3c01',
       kind: 'repo_checks',
@@ -1055,6 +1146,8 @@ export function mockChangeProposals(now: Date): ChangeProposalDetail[] {
       error: null,
       review: null,
       warning: null,
+      checks_before: null,
+      checks_after: { checks: [{ name: 'Web build', cmd: 'cd m-one && npm ci && npm run build' }] },
     },
     {
       id: '7a1c0e52-5f3b-4c1e-9d2a-0b6f1e2a3c02',
@@ -1077,18 +1170,18 @@ export function mockChangeProposals(now: Date): ChangeProposalDetail[] {
         direction: 'down',
         text: 'Fewer questions while planning.',
       },
-      rollback: 'Save the previous version again (get_workflow version 4).',
+      rollback: 'Save the previous version again (get_workflow version 2).',
       diff: {
         changes: [
           { op: 'change', path: 'states.planning.title', before: 'Planning', after: 'Plan it' },
         ],
         more_changes: 0,
       },
-      base_version: 4,
+      base_version: 2,
       created_by: 'mcp:ben@example.com',
       decided_by: 'ben@example.com',
       decided_at: ago(8),
-      applied_version: 5,
+      applied_version: 3,
       error: null,
       review: {
         metric: 'questions',
@@ -1105,6 +1198,8 @@ export function mockChangeProposals(now: Date): ChangeProposalDetail[] {
       warning:
         'Workflows are shared by every account on this instance: applying this changes the ' +
         'workflow for all of them, and only an instance admin can apply it.',
+      base_definition: CONDUCTOR,
+      proposed_definition: retitledPlanning(),
     },
   ];
 }

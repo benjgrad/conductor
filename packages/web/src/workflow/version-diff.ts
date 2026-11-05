@@ -142,7 +142,8 @@ export function checkLines(before: readonly EntryCheck[], after: readonly EntryC
 /** `setup`: undefined = auto-detect, '' = none, else the command. */
 export function setupWords(setup: string | null | undefined): string {
   if (setup === undefined || setup === null) return 'auto-detect';
-  return setup.trim() === '' ? 'none' : `\`${clip(setup.trim())}\``;
+  // Never clipped: a command runs, so an appended `; …` must show (security review).
+  return setup.trim() === '' ? 'none' : `\`${setup.trim()}\``;
 }
 
 // ------------------------------------------------------------------ transitions
@@ -377,7 +378,7 @@ function columnLines(
     if (b.skill !== a.skill) lines.push(textChange('Skill', b.skill, a.skill));
     if (b.model !== a.model) lines.push(`Model: ${b.model ?? 'default'} → ${a.model ?? 'default'}`);
   } else if (workSummary(b) !== workSummary(a)) {
-    lines.push(`Work: ${clip(workSummary(b))} → ${clip(workSummary(a))}`);
+    lines.push(`Work: ${workSummary(b)} → ${workSummary(a)}`);
   }
   const be = ticketEditableOf(bd, name);
   const ae = ticketEditableOf(ad, name);
@@ -451,7 +452,7 @@ export function diffVersions(
         state: name,
         edges: [],
         title: `Column ${columnTitle(after, name)}`,
-        lines: [`${TYPE_WORDS[a.type]}: ${clip(workSummary(a))}`],
+        lines: [`${TYPE_WORDS[a.type]}: ${workSummary(a)}`],
       });
     } else if (a === null && b !== null) {
       out.push({

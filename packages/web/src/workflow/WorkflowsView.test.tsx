@@ -79,7 +79,18 @@ const type = (el: HTMLElement, value: string) => fireEvent.change(el, { target: 
 const lanesOf = (el: Element) =>
   [...el.querySelectorAll('[data-lane]')].map((n) => n.getAttribute('data-lane'));
 const saveButton = () =>
-  screen.getByRole<HTMLButtonElement>('button', { name: 'Save as new version' });
+  screen.getByRole<HTMLButtonElement>('button', { name: /^Save as new version/ });
+const reviewDialog = () =>
+  screen.findByRole('dialog', { name: 'Review changes before saving' }, DIAGRAM_WAIT);
+/** UXR-70: Save opens the review; confirm it (with an optional note). */
+async function save(note?: string) {
+  fireEvent.click(saveButton());
+  const dialog = within(await reviewDialog());
+  if (note !== undefined) type(dialog.getByRole('textbox', { name: 'Note (optional)' }), note);
+  const confirm = await dialog.findByRole<HTMLButtonElement>('button', { name: /^Save as v\d+$/ });
+  await waitFor(() => expect(confirm.disabled).toBe(false));
+  fireEvent.click(confirm);
+}
 const onOf = (def: WorkflowDefinition, s: string) => {
   const st = def.states[s]!;
   if (st.type === 'terminal') throw new Error('terminal');
@@ -123,10 +134,11 @@ describe('Workflow view', () => {
   it('keeps the version selector, and shows an old version’s requirements to enter', async () => {
     await setup();
     const select = screen.getByRole('combobox', { name: 'Version' });
+    // UXR-70: each version with when, who and its note.
     expect([...select.querySelectorAll('option')].map((o) => o.textContent)).toEqual([
-      'v3 (latest)',
-      'v2',
-      'v1',
+      'v3 · 3 Oct 2026 · ben@example.com via MCP · Transition rules: checks and conditions… (latest)',
+      'v2 · 2 Oct 2026 · ben@example.com · Board columns: one column per state',
+      'v1 · 1 Oct 2026',
     ]);
     type(select, '2');
     const v2 = await screen.findByRole('group', { name: 'conductor v2 columns' });
@@ -159,7 +171,7 @@ describe('Workflow view', () => {
     type(editor().getByLabelText('Prompt template'), 'ticket_template');
     type(editor().getByLabelText('Model'), 'claude-sonnet-4-5');
     expect(screen.getByText('Unsaved changes')).toBeTruthy();
-    fireEvent.click(saveButton());
+    await save();
     await screen.findByRole('group', { name: 'conductor v4 columns' });
     expect(screen.getByRole('status').textContent).toBe('Saved as v4.');
     expect(saved[0]!.states.implementing).toMatchObject({
@@ -182,7 +194,7 @@ describe('Workflow view', () => {
     });
     expect(queued.checked).toBe(true);
     fireEvent.click(queued);
-    fireEvent.click(saveButton());
+    await save();
     await screen.findByRole('group', { name: 'conductor v4 columns' });
     expect(saved[0]!.states.implementing).toMatchObject({ ticket_editable: true });
     expect(saved[0]!.queued_ticket_editable).toBe(false);
@@ -213,7 +225,7 @@ describe('Workflow view', () => {
     expect(box.checked).toBe(true);
     type(editor().getByLabelText('At most'), '2');
     type(editor().getByLabelText('Guidance'), 'Only test debt');
-    fireEvent.click(saveButton());
+    await save();
     await screen.findByRole('group', { name: 'conductor v4 columns' });
     expect(saved[0]!.states.implementing).toMatchObject({
       follow_ups: { enabled: true, max: 2, guidance: 'Only test debt' },
@@ -227,7 +239,7 @@ describe('Workflow view', () => {
       editor().getByRole('checkbox', { name: 'Agents may propose follow-up tickets' }),
     );
     expect(editor().queryByLabelText('At most')).toBeNull();
-    fireEvent.click(saveButton());
+    await save();
     await screen.findByRole('group', { name: 'conductor v4 columns' });
     expect(saved[0]!.states.implementing).toMatchObject({ follow_ups: { enabled: false } });
   });
@@ -345,7 +357,7 @@ describe('transition arrows (ADR-0011)', () => {
     fireEvent.click(panel().getByRole('checkbox', { name: 'Personal' }));
     type(panel().getByLabelText('Taken by'), 'agent');
     type(panel().getByLabelText('Title'), 'Ready to build');
-    fireEvent.click(saveButton());
+    await save();
     await waitFor(() => expect(saved).toHaveLength(1));
     expect(onOf(saved[0]!, 'planning').plan_ready).toEqual({
       goto: 'implementing',
@@ -364,7 +376,7 @@ describe('transition arrows (ADR-0011)', () => {
     expect(box().checked).toBe(false);
     fireEvent.click(box());
     expect(box().checked).toBe(true);
-    fireEvent.click(saveButton());
+    await save();
     await waitFor(() => expect(saved).toHaveLength(1));
     expect(onOf(saved[0]!, 'planning').plan_ready).toMatchObject({
       goto: 'implementing',
@@ -381,7 +393,7 @@ describe('transition arrows (ADR-0011)', () => {
     fireEvent.click(box());
     expect(box().checked).toBe(false);
     type(panel().getByLabelText('Title'), 'Ready to build');
-    fireEvent.click(saveButton());
+    await save();
     await waitFor(() => expect(saved).toHaveLength(1));
     expect('notify' in (onOf(saved[0]!, 'planning').plan_ready as object)).toBe(false);
   });
@@ -395,7 +407,7 @@ describe('transition arrows (ADR-0011)', () => {
     expect(arrow('Implementing', 'Waiting external').getAttribute('class')).toContain('error');
     fireEvent.click(panel().getByRole('checkbox', { name: 'Work' }));
     fireEvent.click(panel().getByRole('checkbox', { name: 'Personal' }));
-    fireEvent.click(saveButton());
+    await save();
     await waitFor(() => expect(saved).toHaveLength(1));
     expect('kinds' in (onOf(saved[0]!, 'implementing').ready_for_testing as object)).toBe(false);
   });
@@ -417,7 +429,7 @@ describe('transition arrows (ADR-0011)', () => {
     expect(screen.queryByRole('list', { name: 'Problems' })).toBeNull();
     type(panel().getByLabelText('Condition 1 type'), 'pr_approvals');
     type(panel().getByLabelText('Condition 1 approvals'), '2');
-    fireEvent.click(saveButton());
+    await save();
     await waitFor(() => expect(saved).toHaveLength(1));
     expect(onOf(saved[0]!, 'planning').plan_ready).toMatchObject({
       requires: { conditions: [{ type: 'pr_approvals', min: 2 }], condition_timeout: '1d' },
@@ -443,7 +455,7 @@ describe('transition arrows (ADR-0011)', () => {
     fireEvent.click(arrow('Implementing', 'Waiting external'));
     fireEvent.click(sectionHead('Conditions'));
     expect(sectionHead('Conditions').getAttribute('aria-expanded')).toBe('false');
-    fireEvent.click(saveButton());
+    await save();
     await screen.findByText(/workflow definition is invalid/);
     expect(sectionHead('Conditions').getAttribute('aria-expanded')).toBe('true');
     expect(sectionHead('Conditions').getAttribute('class')).toContain('error');
@@ -491,7 +503,7 @@ describe('transition arrows (ADR-0011)', () => {
     type(panel().getByLabelText('Review item 1'), 'The change matches the ticket');
     fireEvent.click(panel().getByRole('checkbox', { name: 'Open a pull request (by conductor)' }));
     type(panel().getByLabelText('With instruction'), 'Fix it.');
-    fireEvent.click(saveButton());
+    await save();
     await waitFor(() => expect(saved).toHaveLength(1));
     expect(onOf(saved[0]!, 'implementing').done).toMatchObject({
       goto: 'done',
@@ -546,7 +558,7 @@ describe('transition arrows (ADR-0011)', () => {
     type(name(), 'plan_finished');
     fireEvent.keyDown(name(), { key: 'Enter' });
     expect(name().value).toBe('plan_finished');
-    fireEvent.click(saveButton());
+    await save();
     await waitFor(() => expect(saved).toHaveLength(1));
     const names = Object.keys(onOf(saved[0]!, 'planning'));
     expect(names[0]).toBe('plan_finished');
@@ -709,7 +721,7 @@ describe('old versions (ADR-0010 entry)', () => {
     expect(panel().getByText(/saving moves them onto this transition/)).toBeTruthy();
     fireEvent.click(lane('Planning'));
     type(editor().getByLabelText('Title'), 'Thinking');
-    fireEvent.click(saveButton());
+    await save();
     await waitFor(() => expect(saved).toHaveLength(1));
     const def = saved[0]!;
     expect('entry' in def.states.waiting_external!).toBe(false);
@@ -862,7 +874,9 @@ describe('Workflow view: change proposals (ADR-0033 P3)', () => {
       calls.push(version);
       return get(id, version);
     };
-    const [, wf] = (await api.listChangeProposals({ status: 'all' })).proposals;
+    const wf = (await api.listChangeProposals({ status: 'all' })).proposals.find(
+      (p) => p.kind === 'workflow',
+    );
     const detail = { ...(await api.getChangeProposal(wf!.id)), status: 'proposed' as const };
     api.listChangeProposals = () =>
       Promise.resolve({ proposals: [{ ...wf!, status: 'proposed' }], next_cursor: null, total: 1 });

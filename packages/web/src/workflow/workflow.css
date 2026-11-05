@@ -200,6 +200,57 @@
   padding: 12px 16px;
   align-items: start;
 }
+/* UXR-69 FR-1: the save bar, under everything (the editor panels too), stuck to the bottom. */
+/* A short page still puts the bar on the window's bottom edge. */
+.wf-view:has(> .wf-savebar) {
+  min-height: calc(100vh - var(--topbar-h, 49px));
+  min-height: calc(100dvh - var(--topbar-h, 49px));
+}
+.wf-savebar {
+  grid-column: 1 / -1;
+  align-self: end;
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 0 -16px -12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: 0 -4px 12px rgb(0 0 0 / 0.06);
+}
+.wf-savebar-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.wf-problems-toggle {
+  color: var(--ask);
+  border-color: var(--ask);
+}
+.wf-problems-popover {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 16px;
+  max-width: min(640px, calc(100% - 32px));
+  max-height: 50vh;
+  overflow: auto;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.15);
+}
+.wf-version-warning {
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+p.wf-version-warning {
+  padding: 6px 10px;
+  border: 1px solid var(--warn);
+}
 .wf-view.with-editor {
   grid-template-columns: minmax(0, 1fr) 380px;
 }
@@ -304,8 +355,9 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: calc(100vh - 90px);
-  max-height: calc(100dvh - 90px);
+  /* The save bar's height (SaveBar sets it while a draft exists) stays clear. */
+  max-height: calc(100vh - 90px - var(--wf-savebar-h, 0px));
+  max-height: calc(100dvh - 90px - var(--wf-savebar-h, 0px));
   overflow: auto;
 }
 .wf-editor h3 {
@@ -394,17 +446,44 @@ main[hidden] {
   display: none;
 }
 
-.wf-confirm {
+/* UXR-69 FR-3: the unsaved-draft guard, a modal dialog over the page. */
+.wf-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-sheet);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: color-mix(in srgb, #000 40%, transparent);
+}
+.wf-modal {
+  width: min(420px, 100%);
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.25);
+}
+.wf-modal h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+.wf-modal p {
+  margin: 0 0 14px;
+}
+.wf-modal-actions {
   display: flex;
-  align-items: center;
+  justify-content: flex-end;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 8px 16px 0;
-  padding: 8px 12px;
-  border: 1px solid var(--warn);
-  border-radius: 6px;
-  background: var(--warn-bg);
-  color: var(--warn);
+}
+.wf-modal .primary,
+.wf-savebar .wf-save {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
 }
 
 /* The transition whose requirements review is running (session Details). */

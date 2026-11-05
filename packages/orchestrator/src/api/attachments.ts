@@ -220,9 +220,7 @@ export async function storeAgentAttachment(
   db: Db,
   session: AttachingSession,
   input: { rawName: string; caption: string | null; data: Buffer },
-): Promise<
-  { ok: true; created: boolean; dto: AttachmentDto; events: BoardSseEvent[] } | Refusal
-> {
+): Promise<{ ok: true; created: boolean; dto: AttachmentDto; events: BoardSseEvent[] } | Refusal> {
   const checked = checkBytes(input.data);
   if (!checked.ok) return checked;
   const mime = checked.mime;

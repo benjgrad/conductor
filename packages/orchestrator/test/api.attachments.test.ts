@@ -413,9 +413,9 @@ describe('POST /api/daemon/sessions/:id/attachments', () => {
 
     // What an agent attached isn't handed back to the next agent as the human's.
     const payload = { prompt: 'Do it.' };
-    expect(
-      await withStartAttachments(db.pool, payload, t.id, `machine:${m.machine_id}`),
-    ).toBe(payload);
+    expect(await withStartAttachments(db.pool, payload, t.id, `machine:${m.machine_id}`)).toBe(
+      payload,
+    );
   });
 
   it('401 without a credential; 404 for another machine, a finished session or a bad id', async () => {

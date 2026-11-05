@@ -33,13 +33,15 @@ export async function loadTicketAttachments(
  */
 export async function attachmentRefs(q: Queryable, ticketId: string): Promise<AttachmentRef[]> {
   const all = await loadTicketAttachments(q, ticketId);
-  return all.filter((a) => a.source === 'human').map((a) => ({
-    id: a.id,
-    name: a.name,
-    mime: a.mime,
-    size: a.size_bytes,
-    sha256: a.sha256.toString('hex'),
-  }));
+  return all
+    .filter((a) => a.source === 'human')
+    .map((a) => ({
+      id: a.id,
+      name: a.name,
+      mime: a.mime,
+      size: a.size_bytes,
+      sha256: a.sha256.toString('hex'),
+    }));
 }
 
 /**

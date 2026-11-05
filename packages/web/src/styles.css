@@ -312,7 +312,8 @@ main {
 .status-running {
   color: var(--accent);
 }
-.status-needs_input {
+.status-needs_input,
+.status-needs_permission {
   color: var(--ask);
 }
 .status-done {

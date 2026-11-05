@@ -29,6 +29,22 @@ export const STATUS_LABELS: Record<SessionStatus, string> = {
   lost: 'lost',
 };
 
+/**
+ * The session panel header's one chip: its label (UXR-40 `panelStatusLabel`) and the `status-*`
+ * class it is coloured by. UXR-32 FR-2: "Waiting for permission" while the agent is held on a
+ * permission request, never the running state. Null: nothing to show yet.
+ */
+export function headStatus(
+  card: Pick<BoardCard, 'status' | 'sub_status' | 'permission' | 'workflow_state'>,
+  workflow?: Pick<WorkflowDefinition, 'states'>,
+): { key: string; label: string } | null {
+  if (card.sub_status === 'needs_permission' && card.permission !== undefined) {
+    return { key: 'needs_permission', label: 'Waiting for permission' };
+  }
+  const label = panelStatusLabel(card.workflow_state, card.status, workflow);
+  return label === null ? null : { key: card.status ?? 'none', label };
+}
+
 export const TERMINAL_STATUSES: ReadonlySet<SessionStatus> = new Set(['done', 'failed', 'lost']);
 
 /** "just now", "4m ago", "3h ago", "2d ago". */

@@ -1,5 +1,13 @@
 import type { EntryCheck } from '@conductor/shared';
-import { useId, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FocusEvent,
+  type ReactNode,
+} from 'react';
 
 // A check list and the setup before it: a transition's `requires.checks` (TransitionEditor) and a
 // repo's check override (ADR-0030, the Repo checks page). Every change goes to `onChange`; the
@@ -37,6 +45,34 @@ export interface ChecksFieldsProps extends ChecksValue {
   issues: readonly ChecksIssue[];
   /** The setup field's label. */
   setupLabel?: string;
+  /** UXR-71: a check was added at `index` (its problems wait until it loses focus). */
+  onAdded?: (index: number) => void;
+  /** Focus left check `index` (its fields and buttons). */
+  onItemBlur?: (index: number) => void;
+  /** A check was moved or removed (the indexes shifted). */
+  onReordered?: () => void;
+}
+
+/** Focus out of the element `e` was on, to somewhere outside it. */
+export const leftItem = (e: FocusEvent<HTMLElement>) =>
+  !(e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget));
+
+/** Focus the first field of a just-added item: `focusNew(i)` after adding item i. */
+export function useFocusNew(selector: string) {
+  const list = useRef<HTMLOListElement>(null);
+  const pending = useRef<number | null>(null);
+  // After every render: the item asked for has rendered by the commit that follows the add.
+  useEffect(() => {
+    if (pending.current === null) return;
+    const item = list.current?.children[pending.current];
+    if (!item) return;
+    pending.current = null;
+    item.querySelector<HTMLElement>(selector)?.focus();
+  });
+  const focusNew = useCallback((index: number) => {
+    pending.current = index;
+  }, []);
+  return { list, focusNew };
 }
 
 export function ChecksFields({
@@ -45,8 +81,12 @@ export function ChecksFields({
   onChange,
   issues,
   setupLabel = 'Before the checks (in a fresh checkout of the commit)',
+  onAdded,
+  onItemBlur,
+  onReordered,
 }: ChecksFieldsProps) {
   const uid = useId();
+  const { list, focusNew } = useFocusNew('input');
   /** The user picked "Custom command" (its text may still be empty, which reads as none). */
   const [customSetup, setCustomSetup] = useState(false);
   const issueAt = (suffix: string): ReactNode =>
@@ -63,9 +103,15 @@ export function ChecksFields({
     setup === undefined ? 'auto' : setup === '' && !customSetup ? 'none' : 'custom';
   return (
     <>
-      <ol className="wf-items" aria-label="Checks">
+      <ol ref={list} className="wf-items" aria-label="Checks">
         {checks.map((c, i) => (
-          <li key={i} className="wf-item">
+          <li
+            key={i}
+            className="wf-item"
+            onBlur={(e) => {
+              if (leftItem(e)) onItemBlur?.(i);
+            }}
+          >
             <div className="wf-check">
               <input
                 aria-label={`Check ${i + 1} name`}
@@ -108,8 +154,14 @@ export function ChecksFields({
               what="check"
               i={i}
               n={checks.length}
-              onMove={(j) => setChecks(swap(checks, i, j))}
-              onRemove={() => setChecks(checks.filter((_, j) => j !== i))}
+              onMove={(j) => {
+                onReordered?.();
+                setChecks(swap(checks, i, j));
+              }}
+              onRemove={() => {
+                onReordered?.();
+                setChecks(checks.filter((_, j) => j !== i));
+              }}
             />
           </li>
         ))}
@@ -119,7 +171,11 @@ export function ChecksFields({
         <button
           type="button"
           disabled={checks.length >= MAX_CHECKS}
-          onClick={() => setChecks([...checks, { name: '', cmd: '' }])}
+          onClick={() => {
+            onAdded?.(checks.length);
+            setChecks([...checks, { name: '', cmd: '' }]);
+            focusNew(checks.length);
+          }}
         >
           Add check
         </button>

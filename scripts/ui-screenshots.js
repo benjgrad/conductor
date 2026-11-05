@@ -100,6 +100,8 @@ const VIEWPORTS = [
         'wf-rules-full',
         'wf-rules-new',
         'wf-arrow-group',
+        'wf-unsaved-guard',
+        'wf-version-old',
         'ticket-messages',
         'ticket-plan',
         'detail-done',
@@ -166,6 +168,19 @@ async function openArrow(page, from, to) {
   await arrow.waitFor({ state: 'attached' });
   await arrow.dispatchEvent('click');
   await page.locator('aside.wf-editor').waitFor();
+}
+
+/**
+ * Open the Planning column and rename it, so the workflow has an unsaved draft.
+ * @param {Page} page
+ */
+async function editPlanningTitle(page) {
+  await page.locator('.wf-lanes').first().waitFor();
+  const lane = page.getByRole('button', { name: /^Column Planning:/ }).first();
+  await lane.dispatchEvent('click');
+  await page.locator('aside.wf-editor').waitFor();
+  await page.locator('aside.wf-editor').getByLabel('Title').fill('Thinking');
+  await page.locator('.wf-savebar').waitFor();
 }
 
 /** Each screen starts from a fresh load of `path`, then `act`s. @type {Screen[]} */
@@ -292,17 +307,51 @@ const SCREENS = [
       });
     },
   },
-  // A transition with no requirements: closed sections, "Nothing is required".
+  // UXR-71: a transition given a new condition (it starts valid: wait at most 3d) and then a new
+  // check, still focused: no problems shown yet, the save bar at the bottom.
   {
     id: 'wf-rules-new',
     path: '/#/workflows',
-    act: (page) => openArrow(page, 'Planning', 'Implementing'),
+    act: async (page) => {
+      await openArrow(page, 'Planning', 'Implementing');
+      /** @type {[string, string][]} */
+      const adds = [
+        ['Conditions', 'Add condition'],
+        ['Checks', 'Add check'],
+      ];
+      for (const [section, add] of adds) {
+        await tap(page.locator('aside.wf-editor .wf-section-head button', { hasText: section }));
+        await clickNamed(page, 'button', add);
+      }
+      await page.waitForTimeout(200);
+    },
   },
   // An arrow with several transitions (the tabs above the summary).
   {
     id: 'wf-arrow-group',
     path: '/#/workflows',
     act: (page) => openArrow(page, 'Planning', 'Needs input'),
+  },
+  // UXR-69 FR-3: leaving with an unsaved draft asks in a modal dialog.
+  {
+    id: 'wf-unsaved-guard',
+    path: '/#/workflows',
+    act: async (page) => {
+      await editPlanningTitle(page);
+      await page.getByRole('link', { name: 'Board' }).first().click();
+      await page.locator('[role="alertdialog"]').waitFor();
+    },
+  },
+  // UXR-70: editing v1 warns that saving undoes v2–v3, inline and in the save bar.
+  {
+    id: 'wf-version-old',
+    path: '/#/workflows',
+    act: async (page) => {
+      await page.locator('.wf-lanes').first().waitFor();
+      await page.getByRole('combobox', { name: 'Version' }).selectOption('1');
+      await page.getByRole('group', { name: 'conductor v1 columns' }).waitFor();
+      await editPlanningTitle(page);
+    },
   },
   { id: 'setup', path: '/#/setup' },
   { id: 'help', path: '/help/add-a-machine' },

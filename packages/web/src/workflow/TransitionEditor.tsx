@@ -17,11 +17,19 @@ import {
   type WorkflowDefinition,
 } from '@conductor/shared';
 import { useId, useState, type ReactNode } from 'react';
-import { ChecksFields, checksFieldSuffixes, ItemActions, swap } from './ChecksFields.js';
+import {
+  ChecksFields,
+  checksFieldSuffixes,
+  ItemActions,
+  leftItem,
+  swap,
+  useFocusNew,
+} from './ChecksFields.js';
 import { columnStates, columnTitle, humanStates, type ColumnIssue } from './columns.js';
 import {
   ACTION_SHORT,
   ACTION_TEXT,
+  addCondition,
   arrowTransitions,
   CONDITION_TEXT,
   conditionOfType,
@@ -53,8 +61,15 @@ export interface TransitionEditorProps {
   from: string;
   /** The selected transition (a key of `states.<from>.on`). */
   name: string;
-  /** Client and server problems on transitions out of `from`. */
+  /** Client and server problems on transitions out of `from` (not those of still-new items). */
   issues: ColumnIssue[];
+  /**
+   * UXR-71: an item was added at this path prefix; its problems wait until it loses focus
+   * (`onReveal`) or Save. `onRevealUnder` shows every new item of a list whose indexes shifted.
+   */
+  onDefer?: (prefix: string) => void;
+  onReveal?: (prefix: string) => void;
+  onRevealUnder?: (listPrefix: string) => void;
   onChange: (next: WorkflowDefinition) => void;
   /** Select another transition out of `from` (also after a rename). */
   onSelect: (name: string) => void;
@@ -138,9 +153,14 @@ function TransitionForm({
   onChange,
   onSelect,
   onRemoved,
+  onDefer,
+  onReveal,
+  onRevealUnder,
   transition: t,
 }: TransitionEditorProps & { transition: TransitionObject }) {
   const uid = useId();
+  const { list: reviewList, focusNew: focusReview } = useFocusNew('textarea');
+  const { list: conditionList, focusNew: focusCondition } = useFocusNew('select');
   const [nameText, setNameText] = useState(name);
   const state = definition.states[from]!;
   const base = `states.${from}.on.${name}`;
@@ -396,13 +416,22 @@ function TransitionForm({
           setup={r.setup}
           onChange={(next) => setR({ checks: next.checks, setup: next.setup })}
           issues={checkIssues}
+          onAdded={(i) => onDefer?.(`${base}.requires.checks.${i}`)}
+          onItemBlur={(i) => onReveal?.(`${base}.requires.checks.${i}`)}
+          onReordered={() => onRevealUnder?.(`${base}.requires.checks`)}
         />
       </Section>
 
       <Section title="Review" status={`(${items.length})`} {...section('review')}>
-        <ol className="wf-items" aria-label="Review items">
+        <ol ref={reviewList} className="wf-items" aria-label="Review items">
           {items.map((item, i) => (
-            <li key={i} className="wf-item">
+            <li
+              key={i}
+              className="wf-item"
+              onBlur={(e) => {
+                if (leftItem(e)) onReveal?.(`${base}.requires.review.items.${i}`);
+              }}
+            >
               <div>
                 <textarea
                   aria-label={`Review item ${i + 1}`}
@@ -417,8 +446,14 @@ function TransitionForm({
                 what="review item"
                 i={i}
                 n={items.length}
-                onMove={(j) => setItems(swap(items, i, j))}
-                onRemove={() => setItems(items.filter((_, j) => j !== i))}
+                onMove={(j) => {
+                  onRevealUnder?.(`${base}.requires.review.items`);
+                  setItems(swap(items, i, j));
+                }}
+                onRemove={() => {
+                  onRevealUnder?.(`${base}.requires.review.items`);
+                  setItems(items.filter((_, j) => j !== i));
+                }}
               />
             </li>
           ))}
@@ -428,7 +463,11 @@ function TransitionForm({
           <button
             type="button"
             disabled={items.length >= MAX_ITEMS}
-            onClick={() => setItems([...items, ''])}
+            onClick={() => {
+              onDefer?.(`${base}.requires.review.items.${items.length}`);
+              setItems([...items, '']);
+              focusReview(items.length);
+            }}
           >
             Add review item
           </button>
@@ -475,13 +514,19 @@ function TransitionForm({
         <p className="muted wf-note">
           External facts, checked on your machine and re-checked until they all hold.
         </p>
-        <ol className="wf-items" aria-label="Conditions">
+        <ol ref={conditionList} className="wf-items" aria-label="Conditions">
           {conditions.map((c, i) => {
             const set = (next: Condition) =>
               setConditions(conditions.map((x, j) => (j === i ? next : x)));
             const available = AVAILABLE_CONDITION_TYPES.includes(c.type);
             return (
-              <li key={i} className="wf-item">
+              <li
+                key={i}
+                className="wf-item"
+                onBlur={(e) => {
+                  if (leftItem(e)) onReveal?.(`${base}.requires.conditions.${i}`);
+                }}
+              >
                 <div className="wf-check">
                   <select
                     aria-label={`Condition ${i + 1} type`}
@@ -604,8 +649,14 @@ function TransitionForm({
                   what="condition"
                   i={i}
                   n={conditions.length}
-                  onMove={(j) => setConditions(swap(conditions, i, j))}
-                  onRemove={() => setConditions(conditions.filter((_, j) => j !== i))}
+                  onMove={(j) => {
+                    onRevealUnder?.(`${base}.requires.conditions`);
+                    setConditions(swap(conditions, i, j));
+                  }}
+                  onRemove={() => {
+                    onRevealUnder?.(`${base}.requires.conditions`);
+                    setConditions(conditions.filter((_, j) => j !== i));
+                  }}
                 />
               </li>
             );
@@ -616,7 +667,11 @@ function TransitionForm({
           <button
             type="button"
             disabled={conditions.length >= MAX_CONDITIONS}
-            onClick={() => setConditions([...conditions, { type: 'pr_checks_green' }])}
+            onClick={() => {
+              onDefer?.(`${base}.requires.conditions.${conditions.length}`);
+              onChange(setRequires(definition, from, name, addCondition(r)));
+              focusCondition(conditions.length);
+            }}
           >
             Add condition
           </button>

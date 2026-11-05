@@ -4,6 +4,7 @@
 import { createHash } from 'node:crypto';
 import { request } from 'node:http';
 import {
+  AGENT_ATTACHMENTS_PER_TICKET_MAX,
   API_PATHS,
   ATTACHMENT_MAX_IMAGE_BYTES,
   AttachmentDtoSchema,
@@ -60,11 +61,14 @@ function raw(
         agent: false,
         method,
         path,
-        headers: {
-          host: auth.mode === 'password' ? auth.publicHost : '',
-          origin: HTTPS_URL,
-          ...opts.headers,
-        },
+        // A header set to '' is left out (the daemon sends no Origin).
+        headers: Object.fromEntries(
+          Object.entries({
+            host: auth.mode === 'password' ? auth.publicHost : '',
+            origin: HTTPS_URL,
+            ...opts.headers,
+          }).filter(([, v]) => v !== ''),
+        ),
       },
       (res) => {
         const chunks: Buffer[] = [];
@@ -155,14 +159,39 @@ async function enroll(who: { cookie: string }) {
   return EnrollResponseSchema.parse(e.json);
 }
 
-async function liveSession(ticketId: string, machineId: string | null, status = 'running') {
-  await db.pool.query(
+async function liveSession(
+  ticketId: string,
+  machineId: string | null,
+  status = 'running',
+): Promise<string> {
+  const r = await db.pool.query<{ id: string }>(
     'INSERT INTO session (ticket_id, workflow_id, workflow_version, workflow_state, status, machine_id, account_id) ' +
       'SELECT $1, t.workflow_id, (SELECT max(version) FROM workflow_definition w WHERE w.id = t.workflow_id), ' +
-      "'implementing', $2, $3, t.account_id FROM ticket t WHERE t.id = $1",
+      "'implementing', $2, $3, t.account_id FROM ticket t WHERE t.id = $1 RETURNING id",
     [ticketId, status, machineId],
   );
+  return r.rows[0]!.id;
 }
+
+/** The daemon's upload of what its agent captured: no cookie, no Origin, its credential. */
+const agentUpload = (
+  sessionId: string,
+  credential: string | undefined,
+  body: Buffer,
+  opts: { name?: string; caption?: string } = {},
+) =>
+  raw('POST', API_PATHS.daemonSessionAttachments(sessionId), {
+    headers: {
+      origin: '',
+      'content-type': 'application/octet-stream',
+      'x-conductor-filename': encodeURIComponent(opts.name ?? 'after.png'),
+      ...(opts.caption !== undefined
+        ? { 'x-conductor-caption': encodeURIComponent(opts.caption) }
+        : {}),
+      ...(credential ? { authorization: `Bearer ${credential}` } : {}),
+    },
+    body,
+  });
 
 beforeAll(async () => {
   api = await startApi({ db: db.pool, auth });
@@ -344,6 +373,99 @@ describe('GET /api/daemon/attachments/:id/content', () => {
       headers: { origin: '', authorization: `Bearer ${m.credential}` },
     });
     expect(res.status).toBe(404);
+  });
+});
+
+describe('POST /api/daemon/sessions/:id/attachments', () => {
+  it("stores the agent's capture on the ticket, filed under the session and state; idempotent", async () => {
+    const t = TicketDtoSchema.parse((await createTicket(a)).json);
+    const m = await enroll(a);
+    const sessionId = await liveSession(t.id, m.machine_id);
+    const before = await detail(a, t.id);
+    const res = await agentUpload(sessionId, m.credential, PNG, {
+      name: 'case1 before.png',
+      caption: 'Before: case 1, mapped control',
+    });
+    expect(res.status, res.text).toBe(201);
+    const dto = AttachmentDtoSchema.parse(res.json);
+    expect(dto).toMatchObject({
+      name: 'case1 before.png',
+      source: 'agent',
+      session_id: sessionId,
+      workflow_state: 'implementing',
+      caption: 'Before: case 1, mapped control',
+    });
+    const after = await detail(a, t.id);
+    expect(after.attachments?.map((x) => x.id)).toEqual([dto.id]);
+    expect(Date.parse(after.updated_at)).toBeGreaterThan(Date.parse(before.updated_at));
+    const ev = await db.pool.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM event WHERE session_id = $1 AND type = 'card.upserted'",
+      [sessionId],
+    );
+    expect(ev.rows[0]!.n).toBeGreaterThan(0);
+    const bytes = await raw('GET', dto.url, as(a));
+    expect(bytes.bytes.equals(PNG)).toBe(true);
+
+    const again = await agentUpload(sessionId, m.credential, PNG, { name: 'renamed.png' });
+    expect(again.status).toBe(200);
+    expect(AttachmentDtoSchema.parse(again.json).id).toBe(dto.id);
+    expect((await detail(a, t.id)).attachments).toHaveLength(1);
+
+    // What an agent attached isn't handed back to the next agent as the human's.
+    const payload = { prompt: 'Do it.' };
+    expect(await withStartAttachments(db.pool, payload, t.id, `machine:${m.machine_id}`)).toBe(
+      payload,
+    );
+  });
+
+  it('401 without a credential; 404 for another machine, a finished session or a bad id', async () => {
+    const t = TicketDtoSchema.parse((await createTicket(a)).json);
+    const mine = await enroll(a);
+    const other = await enroll(a);
+    const live = await liveSession(t.id, mine.machine_id);
+    expect((await agentUpload(live, undefined, PNG)).status).toBe(401);
+    expect((await agentUpload(live, 'not-a-credential', PNG)).status).toBe(401);
+    expect((await agentUpload(live, other.credential, PNG)).status).toBe(404);
+    expect((await agentUpload('nope', mine.credential, PNG)).status).toBe(404);
+    const t2 = TicketDtoSchema.parse((await createTicket(a)).json);
+    const finished = await liveSession(t2.id, mine.machine_id, 'done');
+    expect((await agentUpload(finished, mine.credential, PNG)).status).toBe(404);
+    // A browser's cookie is not a machine credential.
+    const cookie = await raw('POST', API_PATHS.daemonSessionAttachments(live), {
+      headers: { cookie: a.cookie, 'content-type': 'application/octet-stream' },
+      body: PNG,
+    });
+    expect(cookie.status).toBe(401);
+  });
+
+  it('refuses SVG (415) and an oversize image (413)', async () => {
+    const t = TicketDtoSchema.parse((await createTicket(a)).json);
+    const m = await enroll(a);
+    const s = await liveSession(t.id, m.machine_id);
+    const svg = await agentUpload(s, m.credential, SVG);
+    expect(svg.status).toBe(415);
+    const big = Buffer.concat([PNG, Buffer.alloc(ATTACHMENT_MAX_IMAGE_BYTES)]);
+    expect((await agentUpload(s, m.credential, big)).status).toBe(413);
+  });
+
+  it("the agent's count limit is its own: it can't use up the human's slots", async () => {
+    const human = await uploaded(a);
+    const t = TicketDtoSchema.parse((await createTicket(a, [human.id])).json);
+    const m = await enroll(a);
+    const s = await liveSession(t.id, m.machine_id);
+    for (let i = 0; i < AGENT_ATTACHMENTS_PER_TICKET_MAX; i++) {
+      const png = Buffer.concat([PNG, Buffer.from(`#${i}`)]);
+      const res = await agentUpload(s, m.credential, png);
+      expect(res.status, res.text).toBe(201);
+    }
+    const over = await agentUpload(s, m.credential, Buffer.concat([PNG, Buffer.from('over')]));
+    expect(over.status).toBe(400);
+    expect(over.json.error?.code).toBe('attachment_limit');
+    const n = await db.pool.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM attachment WHERE ticket_id = $1 AND source = 'agent'",
+      [t.id],
+    );
+    expect(n.rows[0]!.n).toBe(AGENT_ATTACHMENTS_PER_TICKET_MAX);
   });
 });
 

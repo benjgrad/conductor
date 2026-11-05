@@ -94,6 +94,29 @@ describe('phone app shell (11-web-ui §Breakpoint)', () => {
   });
 });
 
+describe('desktop board shell (UXR-26, 11-web-ui §Breakpoint)', () => {
+  const shell = () => document.querySelector('.app.board-view');
+
+  it('at 1440 the board is in the fixed shell, and the document is not locked', async () => {
+    await renderAt(1440);
+    expect(shell()).toBeTruthy();
+    expect(document.documentElement.classList.contains('app-shell')).toBe(false);
+  });
+
+  it('at 375 the phone keeps its own shell', async () => {
+    await renderAt(375);
+    expect(document.querySelector('.app.mobile')).toBeTruthy();
+    expect(shell()).toBeNull();
+  });
+
+  it('at 1440 another page keeps document scrolling', async () => {
+    window.history.replaceState(null, '', '/#/machines');
+    await renderAt(1440);
+    expect(document.querySelector('.app')).toBeTruthy();
+    expect(shell()).toBeNull();
+  });
+});
+
 describe('phone detail panel (11-web-ui §Detail panel)', () => {
   it('opens full-screen and Back to board closes it', async () => {
     await renderAt(375);

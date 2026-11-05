@@ -148,7 +148,18 @@ export function isOAuthClientRequest(req: FastifyRequest): boolean {
  * media-type rule is relaxed: the Origin rule still applies (a cross-site form can't send this
  * content type without a CORS preflight, which is never granted, and Origin is checked anyway).
  */
-const UPLOAD_PATHS: ReadonlySet<string> = new Set([API_PATHS.attachments]);
+const UPLOAD_PATHS: ReadonlySet<string> = new Set([
+  API_PATHS.attachments,
+  API_PATHS.daemonSessionAttachments(':id'),
+]);
+
+/**
+ * 06 §Attachments: the daemon's POSTs, authenticated by its machine credential (a bearer header a
+ * cross-site page can't send), never by the session cookie, so the Origin rule (CSRF) doesn't
+ * apply: the daemon sends no Origin.
+ */
+const isDaemonRequest = (req: FastifyRequest): boolean =>
+  req.method === 'POST' && policyPath(req) === API_PATHS.daemonSessionAttachments(':id');
 
 /** JSON, or a form body / raw upload on the paths that take one (ADR-0028, 06 §Attachments). */
 function bodyTypeAllowed(req: FastifyRequest): boolean {
@@ -244,7 +255,7 @@ export function hostedSecurityHook(opts: { publicOrigin: string; publicHost: str
       const sameOrigin = req.headers['sec-fetch-site'] === 'same-origin';
       // The daemon's enroll call has neither header; the enrollment token authenticates it.
       const enroll = req.method === 'POST' && policyPath(req) === API_PATHS.machinesEnroll;
-      if (!sameOrigin && !enroll) {
+      if (!sameOrigin && !enroll && !isDaemonRequest(req)) {
         return sendError(reply, 403, 'forbidden', 'a request without Origin is not allowed');
       }
     }

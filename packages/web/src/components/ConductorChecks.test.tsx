@@ -89,10 +89,10 @@ describe('failedItemOfQuestion (FR-4: the engine wording, TD-152)', () => {
   it('a failed action (stepFail) and a refused check', () => {
     expect(
       failedItemOfQuestion(
-        'Conductor could not open the pull request (open_pr) to take "PR ready for review" (implementing → needs_input): gh: HTTP 422 Validation Failed. Retry, skip, or abort?',
+        'Conductor could not open the pull request to take "PR ready for review" (implementing → needs_input): gh: HTTP 422 Validation Failed. Retry, skip, or abort?',
       ),
     ).toEqual({
-      item: 'open the pull request (open_pr)',
+      item: 'open the pull request',
       error: 'gh: HTTP 422 Validation Failed.',
     });
     expect(

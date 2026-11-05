@@ -10,5 +10,11 @@
     "selector": ".composer-box:has(.reopen) textarea",
     "property": "padding-right",
     "reason": "Clears the absolutely placed labelled Reopen button (ADR-0008), not a spacing step."
+  },
+  {
+    "file": "packages/web/src/components/TicketSearch.css",
+    "selector": ".ticket-search input",
+    "property": "padding",
+    "reason": "The 28 px / 30 px sides clear the absolutely placed search icon and the / key hint inside the field, not spacing steps."
   }
 ]

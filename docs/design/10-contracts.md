@@ -339,6 +339,47 @@ Semantics: [ADR-0011](../adr/0011-transition-rules.md) (accepted, with Ben's ans
 - **Ticket kind.** `TicketKindSchema` `work | personal`. `ticket.kind` is M1b-T04's migration; `TicketRow.kind` lands with it (the schema test holds row types equal to the DDL), and until then readers use `kind ?? null` (`toSnapshot`, `CardTicketLike.kind?`). `CreateTicketRequest.kind` is optional (WF-T03): when absent, `createTicket` takes the kind of the account's most recent ticket on the same (canonical) repo (`lastTicketKind`, skipping null kinds); with no earlier ticket there it returns 400 `bad_request`, details path `kind`. An explicit kind always wins, and a ticket is never stored without one.
 - **Legacy fold.** `foldLegacyRequirements(def)`: `entry` → every non-fallback transition into the state; ADR-0009 `requirements` → `requires.review` + `on_unmet`; gate items first, gate model and `on_unmet` win, existing `requires` fields win. The engine never folds.
 
+## Workflow primitives (ADR-0037, proposed)
+
+**Status: proposed (ADR-0037), not yet in `packages/shared`.** T1 adds these schemas to `workflow/schema.ts` and removes this line. The full semantics and the migration of each are in the ADR.
+
+```ts
+// P2 / P3: ConditionSchema gains
+{ type: 'cmd', name: string(1..200), cmd: string, timeout?: Duration, enabled?, label? }
+{ type: 'pr_mergeable', enabled?, label? }
+{ type: 'age_below', max: Duration, enabled?, label? }            // engine-side, watch only (rule 24)
+pr_checks_green.no_checks?: { policy: 'pass' | 'fail' | 'require_mergeable', after: Duration }  // ⊕ no_checks_after (rule 25)
+
+// P1: HumanStateSchema / EventStateSchema gain
+watch?: { poll?: Duration, conditions: Condition[1..10],
+          on_broken: { goto: State, instruction?: InstructionText, return_to?: State | '$self',
+                       retries: 0..10 = 2, else: State = 'needs_input' }
+                   | { notify: 'escalate' } }
+
+// P4: TransitionRequiresSchema gains
+concurrency?: { key: '$repo' | '$repo+$kind', max_in_flight: 1..10, scope: State[1..10],
+                order: 'oldest_first' = 'oldest_first', overlap?: 'planned_files', hold_timeout: Duration }
+
+// P5: WorkflowDefinitionSchema gains
+instructions?: Record<slug /^[a-z][a-z0-9_]*$/ ≤40, string(1..4000)>
+// InstructionText = a literal string or `$instructions.<slug>`; TransitionObject gains presets?: slug[1..10]
+
+// P6: WorkflowDefinitionSchema gains
+notify?: { default: 'never' | 'when_waiting_on_you' | 'always',
+           engine_moves: 'never' | 'inherit' = 'never', coalesce?: Duration (≤ 1d) }
+// TransitionObject.notify: boolean | 'never' | 'when_waiting_on_you' | 'always' | 'inherit'
+
+// P7: state_entered / MoveRecord / MoveDto gain
+cause: 'transition' | 'check_failed' | 'review_unmet' | 'action_failed' | 'condition_unmet'
+     | 'condition_timeout' | 'watch_broken' | 'concurrency_released' | 'timeout' | 'retry'
+     | 'retries_exhausted' | 'budget_exceeded' | 'machine_lost' | 'answer_routed'   // null on rows before T2
+
+// P8: TransitionObject gains handoff?: boolean (⊕ question, rule 22); InputRequestKind gains 'handoff'
+```
+
+- **Notifier seam (P6).** With the definition's `notify` block, the engine records `notify: {via, mode}` on the `state_entered` effect and the input_request. `push/enqueue.ts` writes one row per decision, with idempotency key `notify:<ticket>:<state>:<floor(now / coalesce)>` when `coalesce` is set. Without the block, today's `push_needs_input` and `push_transition` rules apply unchanged.
+- **Watch and hold triggers (P1/P4).** The orchestrator feeds `watch.check` and `concurrency.checked {holders}` events to `apply()`. They are sent on the poll timer, and to every session on the same repo when a PR merges (`merge_pr` ok, or a human move to a terminal state with `context.__pr`) or conductor pushes a branch.
+
 ## Review and merge (ADR-0020)
 
 Semantics: [ADR-0020](../adr/0020-review-and-merge-flow.md). Frozen by M2r-T01; later M2r tasks report a needed change to the lead. Every addition is optional on the wire (absent ≡ none / `[]` / today's behaviour), so v1 / v2 definitions, pre-M2r cards, events and WS payloads parse unchanged. The contract points:

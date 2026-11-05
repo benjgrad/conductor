@@ -321,6 +321,17 @@ export function detailRequestTone(
 }
 
 /**
+ * ADR-0037 P5: while a review request is open, the saved instructions of the text button that asks
+ * for changes (the first `needs_text` option with `presets`), for the composer's chips.
+ */
+export function reviewPresets(
+  detail: Pick<SessionDetail, 'pending_input' | 'moves' | 'card'>,
+): HumanTransitionOption['presets'] {
+  if (detailRequestTone(detail) !== 'review') return undefined;
+  return detail.card.human_transitions.find((o) => o.needs_text && o.presets)?.presets;
+}
+
+/**
  * FR-2: the review's Approve. The one human option that needs no text and goes into a terminal
  * state (`done`, "Merged, done"): the button that approves a review on the board. null when no
  * option, or more than one, qualifies (the panel then shows only the generic buttons).

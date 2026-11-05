@@ -188,6 +188,8 @@ const WORKFLOW_ERRORS_MAX = 50;
 /** list_schedules: each schedule's body, clipped. */
 const SCHEDULE_BODY_CLIP = 300;
 
+/** A preset's text in get_ticket, so a ticket with several stays under the result cap. */
+const PRESET_MAX = 500;
 const clip = (s: string, n: number): string => (s.length <= n ? s : s.slice(0, n - 1) + '…');
 
 /** list_tickets' `status` filter over ticket.status. `open` keeps failed tickets (they need a human). */
@@ -632,6 +634,10 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
           name: h.name,
           title: h.title,
           needs_text: h.needs_text,
+          // ADR-0037 P5: saved texts for this button's `text` (pass one to take_transition).
+          ...(h.presets
+            ? { presets: h.presets.map((p) => ({ slug: p.slug, text: clip(p.text, PRESET_MAX) })) }
+            : {}),
           ...(gated.has(h.name) ? { requires_approval: true } : {}),
         })),
         pr_url: d.card.pr_url,

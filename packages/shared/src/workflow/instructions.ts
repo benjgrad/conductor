@@ -1,5 +1,13 @@
-import { instructionRef, type TransitionObject, type WorkflowDefinition } from './schema.js';
-import { transitionObject } from './transition-rules.js';
+import {
+  instructionRef,
+  type Transition,
+  type TransitionObject,
+  type WorkflowDefinition,
+} from './schema.js';
+
+/** `transitionObject` (transition-rules.ts imports this module, so not from there). */
+const transitionObject = (t: Transition): TransitionObject =>
+  typeof t === 'string' ? { goto: t } : t;
 
 // ADR-0037 P5 (T8): named instructions. The workflow's `instructions` map holds texts that
 // `on_unmet.instruction`, a watch's `on_broken.instruction` (as `$instructions.<slug>` refs) and
@@ -8,7 +16,7 @@ import { transitionObject } from './transition-rules.js';
 // pinned definition.
 
 type Path = (string | number)[];
-type Def = Pick<WorkflowDefinition, 'states' | 'instructions'>;
+type Def = Pick<WorkflowDefinition, 'states'> & Partial<Pick<WorkflowDefinition, 'instructions'>>;
 
 /**
  * An instruction field's text: a literal as is, a ref as the instruction it names. `undefined`

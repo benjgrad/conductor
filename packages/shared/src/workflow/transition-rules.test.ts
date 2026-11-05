@@ -149,6 +149,32 @@ describe('human buttons', () => {
     ]);
   });
 
+  it('humanTransitionOptions carries the presets resolved against the definition (ADR-0037 P5)', () => {
+    const def = {
+      instructions: { resync_main: 'Merge main.' },
+      states: {
+        review: {
+          type: 'human',
+          on: {
+            request_changes: {
+              goto: '$return_to',
+              actor: 'human',
+              text: 'required',
+              presets: ['resync_main'],
+            },
+            done: 'done',
+          },
+        },
+        done: { type: 'terminal' },
+      },
+    } as unknown as Parameters<typeof humanTransitionOptions>[0];
+    const [changes, done] = humanTransitionOptions(def, 'review', null, 'work');
+    expect(changes!.presets).toEqual([
+      { slug: 'resync_main', label: 'Resync main', text: 'Merge main.' },
+    ]);
+    expect(done!.presets).toBeUndefined();
+  });
+
   it('transitionTitle defaults to the humanised name', () => {
     expect(transitionTitle('ready_for_testing', 'waiting_external')).toBe('Ready for testing');
     expect(transitionTitle('ui.approve', undefined)).toBe('Ui approve');

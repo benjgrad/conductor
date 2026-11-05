@@ -15,6 +15,7 @@ import {
   previewText,
   requestTone,
   reviewApproveOption,
+  reviewPresets,
   summarizeReport,
 } from './request-preview.js';
 import { implementerReport, REPORT_PROSE_LINE } from './review-fixture.js';
@@ -342,5 +343,36 @@ describe("reviewApproveOption (FR-2: the board's approve)", () => {
 
   it('a text-required option into a terminal state does not count', () => {
     expect(reviewApproveOption([opt('done', 'done', true)], workflow)).toBeNull();
+  });
+});
+
+describe('reviewPresets (ADR-0037 P5)', () => {
+  const preset = { slug: 'resync_main', label: 'Resync main', text: 'Merge main.' };
+  const detail = (origin: string, presets?: (typeof preset)[]) =>
+    ({
+      pending_input: req({ origin_transition: origin }),
+      moves: [],
+      card: {
+        workflow_state: 'in_review',
+        human_transitions: [
+          { name: 'done', title: 'Done', goto: 'done', needs_text: false },
+          {
+            name: 'request_changes',
+            title: 'Request changes',
+            goto: 'implementing',
+            needs_text: true,
+            ...(presets ? { presets } : {}),
+          },
+        ],
+      },
+    }) as unknown as Parameters<typeof reviewPresets>[0];
+
+  it("a review's text button presets, for the composer chips", () => {
+    expect(reviewPresets(detail('pr_ready_for_review', [preset]))).toEqual([preset]);
+  });
+
+  it('none when the request is not a review or the button has none', () => {
+    expect(reviewPresets(detail('needs_product_context', [preset]))).toBeUndefined();
+    expect(reviewPresets(detail('pr_ready_for_review'))).toBeUndefined();
   });
 });

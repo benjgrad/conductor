@@ -377,6 +377,8 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
       const q = new URLSearchParams();
       if (opts.status !== undefined) q.set('status', opts.status);
       if (opts.cursor !== undefined) q.set('cursor', String(opts.cursor));
+      if (opts.kind !== undefined) q.set('kind', opts.kind);
+      if (opts.target !== undefined) q.set('target', opts.target);
       const qs = q.toString();
       return request(
         ChangeProposalListResponseSchema,
@@ -422,8 +424,11 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
           (version !== undefined ? `?version=${version}` : ''),
       ),
 
-    saveWorkflow: (definition: WorkflowDefinition) =>
-      request(SaveWorkflowResponseSchema, 'POST', API_PATHS.workflows, { definition }),
+    saveWorkflow: (definition: WorkflowDefinition, opts: { note?: string } = {}) =>
+      request(SaveWorkflowResponseSchema, 'POST', API_PATHS.workflows, {
+        definition,
+        ...(opts.note !== undefined && opts.note.trim() !== '' ? { note: opts.note.trim() } : {}),
+      }),
 
     getWorkflowDefault: (id: string) =>
       request(

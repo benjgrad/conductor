@@ -123,7 +123,8 @@ describe('createHttpApi workflows (ADR-0009)', () => {
   });
 
   it('UXR-87: GET and POST /api/workflows/:id/default', async () => {
-    const cmp = { version: 4, base_version: 3, diff: { changes: [], more_changes: 0 } };
+    const definition = (await createMockApi({ now }).getWorkflow('conductor')).definition;
+    const cmp = { version: 4, base_version: 3, definition, diff: { changes: [], more_changes: 0 } };
     const { calls, fetch } = recordingFetch(({ method }) =>
       method === 'GET' ? json(200, cmp) : json(201, { id: 'conductor', version: 4 }),
     );
@@ -136,6 +137,32 @@ describe('createHttpApi workflows (ADR-0009)', () => {
     expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([
       ['GET', '/api/workflows/conductor/default', undefined],
       ['POST', '/api/workflows/conductor/default', { base_version: 3 }],
+    ]);
+  });
+
+  it('UXR-70/73: a save note; proposals filtered by kind and target', async () => {
+    const detail = await createMockApi({ now }).getWorkflow('m1_basic');
+    const { calls, fetch } = recordingFetch(({ method }) =>
+      method === 'POST'
+        ? json(201, { id: 'm1_basic', version: 3 })
+        : json(200, { proposals: [], next_cursor: null, total: 0 }),
+    );
+    const api = createHttpApi({ fetch });
+    await api.saveWorkflow(detail.definition, { note: '  Fewer questions ' });
+    await api.saveWorkflow(detail.definition, { note: '   ' });
+    await api.listChangeProposals({
+      status: 'proposed',
+      kind: 'repo_checks',
+      target: 'github.com/acme/api',
+    });
+    expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([
+      ['POST', '/api/workflows', { definition: detail.definition, note: 'Fewer questions' }],
+      ['POST', '/api/workflows', { definition: detail.definition }],
+      [
+        'GET',
+        '/api/change-proposals?status=proposed&kind=repo_checks&target=github.com%2Facme%2Fapi',
+        undefined,
+      ],
     ]);
   });
 

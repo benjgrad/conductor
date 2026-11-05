@@ -23,7 +23,7 @@
 .machines-table th,
 .machines-table td {
   text-align: left;
-  vertical-align: top;
+  vertical-align: middle;
   padding: 6px 10px;
   border-bottom: 1px solid var(--border);
 }
@@ -31,10 +31,29 @@
   color: var(--muted);
   font-weight: 600;
 }
-.machines-actions {
+.machine-panel-actions {
   display: flex;
   gap: 6px;
   justify-content: flex-end;
+}
+/* UXR-48: the row's problems as one chip; the text and fixes are in the drawer. */
+.chip-problem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: var(--ask-bg);
+  color: var(--ask);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.chip-problem:hover:not(:disabled) {
+  border-color: var(--ask);
 }
 .machine-revoked {
   color: var(--muted);
@@ -52,7 +71,8 @@
 .machine-status-revoked {
   color: var(--muted);
 }
-.machines .badge {
+.machines .badge,
+.machine-drawer .badge {
   margin-left: 6px;
 }
 .badge-update {
@@ -60,7 +80,8 @@
   color: var(--warn);
   font-weight: 600;
 }
-.machines .badge-alert {
+.machines .badge-alert,
+.machine-drawer .badge-alert {
   background: var(--ask-bg);
   color: var(--ask);
   font-weight: 600;
@@ -96,36 +117,33 @@
   flex: 1;
   font-family: ui-monospace, monospace;
 }
-.machine-drawer {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: min(560px, 100vw);
-  overflow-y: auto;
-  padding: 16px;
-  background: var(--panel);
-  border-left: 1px solid var(--border);
-  box-shadow: -4px 0 16px rgb(0 0 0 / 8%);
-  z-index: 10;
-}
-.machine-drawer header {
+.machine-drawer-actions {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  gap: 6px;
+  margin: 8px 0;
+}
+.machine-problems {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+.machine-drawer .machines-table td {
+  vertical-align: top;
 }
 .machine-drawer h3 {
-  margin: 0;
-}
-.machine-drawer h4 {
+  font-size: var(--text-md);
   margin: 16px 0 6px;
 }
-.machine-drawer h5 {
+.machine-drawer h4 {
   margin: 8px 0 2px;
   color: var(--muted);
 }
+.machine-drawer .machine-sub {
+  margin-top: 0;
+}
 .machine-sub,
-.machines .muted {
+.machines .muted,
+.machine-drawer .muted {
   color: var(--muted);
 }
 .machine-alerts,

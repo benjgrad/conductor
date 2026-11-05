@@ -249,6 +249,18 @@ export function conditionOfType(type: ConditionType, prev?: Condition): Conditio
   }
 }
 
+/** A new condition's *Wait at most* when none is set yet (UXR-71: a new item starts valid). */
+export const DEFAULT_CONDITION_TIMEOUT = '3d';
+
+/** `requires` with one more condition, and a default timeout when it has none. */
+export function addCondition(r: TransitionRequires, condition: Condition): TransitionRequires {
+  return {
+    ...r,
+    conditions: [...(r.conditions ?? []), condition],
+    ...(r.condition_timeout === undefined ? { condition_timeout: DEFAULT_CONDITION_TIMEOUT } : {}),
+  };
+}
+
 /** Whether `requires` asks for anything (an empty one is dropped). */
 export function requiresAnything(r: TransitionRequires | undefined): boolean {
   if (r === undefined) return false;

@@ -12,6 +12,7 @@ import type {
   BoardSseEvent,
   ChangeProposalDetail,
   ChangeProposalListResponse,
+  ChangeKind,
   ChangeStatus,
   CreateInviteRequest,
   CreateTicketRequest,
@@ -157,6 +158,9 @@ export interface ApiClient {
   listChangeProposals(opts?: {
     status?: ChangeStatus | 'all';
     cursor?: number;
+    /** UXR-73: only this kind, for this target (a repo or a workflow id). */
+    kind?: ChangeKind;
+    target?: string;
   }): Promise<ChangeProposalListResponse>;
   /** ADR-0033 P3: GET /api/change-proposals/:id → one proposal with its diff. 404 not_found. */
   getChangeProposal(id: string): Promise<ChangeProposalDetail>;
@@ -178,10 +182,14 @@ export interface ApiClient {
    */
   getWorkflow(id: string, version?: number): Promise<WorkflowDetail>;
   /**
-   * POST /api/workflows {definition} → the new version (the server assigns it). 400
-   * invalid_workflow with `details` (ApiRequestError.details) when validation fails.
+   * POST /api/workflows {definition, note?} → the new version (the server assigns it). 400
+   * invalid_workflow with `details` (ApiRequestError.details) when validation fails. `note`
+   * (UXR-70) goes in the version history.
    */
-  saveWorkflow(definition: WorkflowDefinition): Promise<SaveWorkflowResponse>;
+  saveWorkflow(
+    definition: WorkflowDefinition,
+    opts?: { note?: string },
+  ): Promise<SaveWorkflowResponse>;
   /**
    * UXR-87: GET /api/workflows/:id/default → the newer shipped default and its diff from the
    * latest version. 404 not_found when none is newer.

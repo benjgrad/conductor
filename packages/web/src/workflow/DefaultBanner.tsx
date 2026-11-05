@@ -1,12 +1,14 @@
-import { CONDUCTOR_WORKFLOW_ID, type WorkflowDefaultResponse } from '@conductor/shared';
+import { CONDUCTOR_WORKFLOW_ID } from '@conductor/shared';
 import { useState } from 'react';
 import { ApiRequestError, errorMessage, type ApiClient } from '../api/client.js';
-import { DiffTable } from './DiffTable.js';
+import { diffVersions, type ReadableChange } from './version-diff.js';
+import { VersionDiff } from './VersionDiff.js';
 
 // UXR-87: the Workflow page's "newer default available" banner, for instance admins. The user's
 // edits kept the seed from installing a newer shipped `conductor` (ADR-0011,
 // `WorkflowDetail.default_available`). Compare shows what adopting it changes from the latest
-// version (`GET /api/workflows/conductor/default`); Adopt… confirms, then saves it as the next
+// version (`GET /api/workflows/conductor/default`), in the editor's words like the version
+// Compare (UXR-70, version-diff.ts); Adopt… confirms, then saves it as the next
 // version (`POST …/default {base_version}`, like MCP `adopt_default_workflow`).
 
 export interface DefaultBannerProps {
@@ -27,7 +29,7 @@ type Compare =
   | { kind: 'closed' }
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
-  | { kind: 'shown'; data: WorkflowDefaultResponse };
+  | { kind: 'shown'; version: number; base: number; changes: ReadableChange[] };
 
 export function DefaultBanner({
   api,
@@ -48,10 +50,20 @@ export function DefaultBanner({
       return;
     }
     setCompare({ kind: 'loading' });
-    api.getWorkflowDefault(CONDUCTOR_WORKFLOW_ID).then(
-      (data) => setCompare({ kind: 'shown', data }),
-      (err: unknown) => setCompare({ kind: 'error', message: errorMessage(err) }),
-    );
+    void (async () => {
+      try {
+        const dflt = await api.getWorkflowDefault(CONDUCTOR_WORKFLOW_ID);
+        const base = await api.getWorkflow(CONDUCTOR_WORKFLOW_ID, dflt.base_version);
+        setCompare({
+          kind: 'shown',
+          version: dflt.version,
+          base: dflt.base_version,
+          changes: diffVersions(base.definition, dflt.definition),
+        });
+      } catch (err) {
+        setCompare({ kind: 'error', message: errorMessage(err) });
+      }
+    })();
   }
 
   async function adopt() {
@@ -119,13 +131,13 @@ export function DefaultBanner({
       {compare.kind === 'shown' && (
         <div className="wf-default-compare">
           <h3>
-            Changes from v{compare.data.base_version} to the default (v{compare.data.version})
+            Changes from v{compare.base} to the default (v{compare.version})
           </h3>
-          {compare.data.diff.changes.length === 0 ? (
-            <p className="muted">No differences.</p>
-          ) : (
-            <DiffTable changes={compare.data.diff.changes} more={compare.data.diff.more_changes} />
-          )}
+          <VersionDiff
+            changes={compare.changes}
+            label={`Changes from v${compare.base} to the default`}
+            empty="No differences."
+          />
         </div>
       )}
     </section>

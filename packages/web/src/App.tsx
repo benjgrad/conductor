@@ -450,7 +450,7 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
       {route.view === 'insights' && (
         <InsightsPage api={api} onOpenTicket={openTicket} ticketTitle={ticketTitle} />
       )}
-      {route.view === 'machines' && <MachinesPage api={api} />}
+      {route.view === 'machines' && <MachinesPage api={api} ticketTitle={ticketTitle} />}
       {route.view === 'schedules' && (
         <SchedulesPage
           api={api}

@@ -17,6 +17,7 @@ import {
   RepoChecksListResponseSchema,
   RepoListResponseSchema,
   type CreateTicketRequest,
+  TeamResponseSchema,
   SessionDetailSchema,
   TicketSearchResponseSchema,
   validateWorkflow,
@@ -371,6 +372,34 @@ describe('mock repos', () => {
     for (let i = 0; i < 20; i++) await api.createTicket(req);
     const after = await api.listRepos();
     expect(after[0]).toMatchObject({ repo: 'github.com/o/fresh', ticket_count: 20 });
+  });
+});
+
+describe('mock team (UX-13b FR-3)', () => {
+  it('serves a contract-valid team, oldest hire first, active tickets from the live board', async () => {
+    const api = createMockApi({ now });
+    const team = TeamResponseSchema.parse(await api.listTeam());
+    const hired = team.map((m) => m.hired_at);
+    expect(hired).toEqual([...hired].sort());
+    const byName = new Map(team.map((m) => [m.name, m]));
+    expect(byName.get('Amara')?.active_ticket_id).toBe(SEED_IDS.askNewer.ticket);
+    expect(byName.get('Kenji')?.active_ticket_id).toBe(SEED_IDS.runningSlot.ticket);
+    expect(byName.get('Elif')).toMatchObject({ active_ticket_id: null });
+    expect(byName.get('Elif')?.last_assigned_at).not.toBeNull();
+    expect(byName.get('Tunde')).toMatchObject({ active_ticket_id: null, last_assigned_at: null });
+    // The board agrees: the same names are on the seed cards.
+    const board = await api.getBoard();
+    const card = board.columns
+      .flatMap((col) => col.cards)
+      .find((c) => c.ticket_id === SEED_IDS.askNewer.ticket);
+    expect(card?.agent_name).toBe('Amara');
+  });
+
+  it('frees a teammate when their ticket ends', async () => {
+    const api = createMockApi({ now });
+    await api.cancel(SEED_IDS.runningSlot.session);
+    const team = await api.listTeam();
+    expect(team.find((m) => m.name === 'Kenji')?.active_ticket_id).toBeNull();
   });
 });
 

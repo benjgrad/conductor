@@ -139,6 +139,7 @@ const VIEWPORTS = [
         'new-ticket',
         'new-ticket-bottom',
         'machines',
+        'machines-team',
         'schedules',
         'schedule-sheet',
         'machine-drawer',
@@ -381,6 +382,15 @@ const SCREENS = [
   { id: 'board-permission', path: '/#/' },
   { id: 'detail-permission', path: '/#/', act: (page) => openCard(page, PERMISSION_CARD) },
   { id: 'machines', path: '/#/machines' },
+  // UXR-89 (UX-13b FR-3): the agent team below the machines, at full height.
+  {
+    id: 'machines-team',
+    path: '/#/machines',
+    act: async (page) => {
+      await page.getByRole('list', { name: 'Agent team' }).waitFor();
+    },
+    fullPage: true,
+  },
   // UXR-84: the advisor's metrics, findings and frictions (mock-insights.ts), and the whole page.
   { id: 'insights', path: '/#/insights' },
   { id: 'insights-full', path: '/#/insights', fullPage: true },

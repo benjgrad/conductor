@@ -102,6 +102,8 @@ const VIEWPORTS = [
         'wf-rules-new',
         'wf-arrow-group',
         'wf-arrow-transition',
+        'wf-proposal-open',
+        'wf-version-old',
         'workflow-column',
         'ticket-messages',
         'ticket-plan',
@@ -315,6 +317,35 @@ const SCREENS = [
       await openArrow(page, 'Implementing', 'Needs input');
       const row = page.locator('.wf-transition-row', { hasText: 'Personal only' });
       if ((await row.count()) > 0) await tap(row.first());
+    },
+  },
+  // UXR-73: an open advisor proposal: its diff in the editor's words, its changes highlighted on
+  // the diagram (the mock's open workflow proposal, api/mock-data.ts).
+  {
+    id: 'wf-proposal-open',
+    path: '/#/workflows',
+    fullPage: true,
+    act: async (page) => {
+      await page.locator('.wf-lanes').first().waitFor();
+      await tap(page.locator('.cp-summary', { hasText: 'Typecheck before testing' }).first());
+      await page.locator('.cp-detail .wf-diff').waitFor();
+      // The highlighted column into the diagram's view; the page itself stays at the top.
+      await page.locator('[data-lane="waiting_external"]').scrollIntoViewIfNeeded();
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
+  // UXR-70: an old version, compared with the latest (the diff above the diagram).
+  {
+    id: 'wf-version-old',
+    path: '/#/workflows',
+    fullPage: true,
+    act: async (page) => {
+      await page.locator('.wf-lanes').first().waitFor();
+      await page.getByRole('combobox', { name: 'Version' }).selectOption('2');
+      const note = page.locator('.wf-old-version');
+      await note.waitFor();
+      await tap(note.getByRole('button', { name: 'Compare with latest' }));
+      await page.locator('.wf-diff-section .wf-diff').first().waitFor();
     },
   },
   // UXR-65: a column's panel, its transitions listed by title.

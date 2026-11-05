@@ -1065,7 +1065,7 @@ export function mockChangeProposals(now: Date): ChangeProposalDetail[] {
       id: '7a1c0e52-5f3b-4c1e-9d2a-0b6f1e2a3c03',
       kind: 'workflow',
       status: 'proposed',
-      title: 'Typecheck before testing, and wait for an approval',
+      title: 'Typecheck before testing, and ask for UI screenshots',
       target: CONDUCTOR_WORKFLOW_ID,
       requires_admin: true,
       changes: openDiff.length,
@@ -1073,8 +1073,8 @@ export function mockChangeProposals(now: Date): ChangeProposalDetail[] {
       created_at: ago(0.1),
       applied_at: null,
       rationale:
-        'Half the tickets sent back from Waiting external failed a typecheck, and none had a ' +
-        'human approval yet.',
+        'Half the tickets sent back from Waiting external failed a typecheck, and UI changes ' +
+        'came without screenshots.',
       evidence: [
         { finding_id: 'reentries:implementing', text: '6 of 12 tickets came back to Implementing' },
       ],

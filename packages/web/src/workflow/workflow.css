@@ -954,3 +954,12 @@ main[hidden] {
   margin: 12px 0 4px;
   font-weight: 600;
 }
+/* UXR-70: the version picker's options carry date, author and note; keep it inside the page. */
+.wf-toolbar label {
+  max-width: 100%;
+  min-width: 0;
+}
+.wf-toolbar select {
+  max-width: min(48ch, 100%);
+  text-overflow: ellipsis;
+}

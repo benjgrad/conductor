@@ -1,0 +1,58 @@
+{
+  "wf-proposal-open-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "input \"\" 13×13"
+    ]
+  },
+  "wf-version-old-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "wf-proposal-open-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1157,
+    "smallTapTargets": 11,
+    "smallTapTargetSample": [
+      "a \"Board\" 80×25",
+      "a \"Workflow\" 106×25",
+      "a \"Machines\" 104×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"local\" 74×27",
+      "select \"v3 · 3 Oct 2026 · ben@example.\" 423×29",
+      "button \"History\" 68×27"
+    ]
+  },
+  "wf-version-old-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 2170,
+    "smallTapTargets": 10,
+    "smallTapTargetSample": [
+      "a \"Board\" 80×25",
+      "a \"Workflow\" 106×25",
+      "a \"Machines\" 104×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"local\" 74×27",
+      "select \"v3 · 3 Oct 2026 · ben@example.\" 423×29",
+      "button \"History\" 68×27"
+    ]
+  }
+}

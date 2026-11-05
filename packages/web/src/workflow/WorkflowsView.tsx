@@ -16,7 +16,6 @@ import { ColumnsDiagram } from './ColumnsDiagram.js';
 import {
   arrowId,
   columnStates,
-  columnTitle,
   issueAt,
   LANE_KIND_ICONS,
   LANE_KIND_LABELS,
@@ -29,8 +28,16 @@ import {
   type ColumnIssue,
   type LaneEdge,
 } from './columns.js';
+import {
+  oldVersionWarning,
+  visibleIssues,
+  withDeferred,
+  withoutDeferred,
+  withoutUnder,
+} from './deferred.js';
 import { ProposalsPanel, type DiagramHighlight } from './ProposalsPanel.js';
 import { detailHistory, detailVersions, savedBy, savedOn, versionLabel } from './review.js';
+import { SaveBar } from './SaveBar.js';
 import { SaveReviewDialog } from './SaveReviewDialog.js';
 import { affectedOf, diffVersions, type ReadableChange } from './version-diff.js';
 import { VersionDiff } from './VersionDiff.js';
@@ -46,7 +53,9 @@ import { WorkflowDiagram } from './WorkflowDiagram.js';
 // (UXR-70), then folds an old version's requirements onto transitions (`foldLegacyRequirements`)
 // and POSTs the whole definition, which the server stores as a new version. History lists every
 // version (when, who, note) and compares any two in the editor's words; a comparison or an open
-// advisor proposal highlights what it changes on the diagram.
+// advisor proposal highlights what it changes on the diagram. While a draft exists the save bar
+// (UXR-69) sticks to the bottom: its problems, Discard and Save. A newly added item's problems
+// wait until it loses focus or Save is pressed (UXR-71, deferred.ts).
 
 export interface WorkflowsViewProps {
   api: ApiClient;
@@ -93,6 +102,9 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
     null,
   );
   const [reviewError, setReviewError] = useState<string | null>(null);
+  /** Path prefixes of still-new items whose problems are held back (UXR-71). */
+  const [deferred, setDeferred] = useState<ReadonlySet<string>>(() => new Set());
+  const [problemsOpen, setProblemsOpen] = useState(false);
   /** Definitions read for Compare and the review, by version (versions never change). */
   const defs = useRef(new Map<number, WorkflowDefinition>());
 
@@ -134,7 +146,11 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
     () => (shown ? serverErrors.map((d) => issueAt(shown, d.path, d.message)) : []),
     [serverErrors, shown],
   );
-  const allIssues = useMemo(() => [...clientIssues, ...serverIssues], [clientIssues, serverIssues]);
+  // Server problems are never held back: they answer a Save.
+  const allIssues = useMemo(
+    () => [...visibleIssues(clientIssues, deferred), ...serverIssues],
+    [clientIssues, serverIssues, deferred],
+  );
   // A transition's problem marks its arrow; one whose arrow isn't drawn (`$return_to`, a loop to
   // its own column) marks the column, like every other problem in a column.
   const { errorStates, errorEdges } = useMemo(() => {
@@ -161,6 +177,16 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
     setDraft(null);
     setServerErrors([]);
     setNotice(null);
+    setDeferred(new Set());
+    setProblemsOpen(false);
+  };
+  /** Another version is shown: nothing of the last one's editing carries over. */
+  const showVersion = (v: number | null) => {
+    setVersion(v);
+    setSelected(null);
+    setServerErrors([]);
+    setNotice(null);
+    setDeferred(new Set());
   };
 
   /** A version's definition: from the cache, else the server. */
@@ -177,7 +203,13 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
 
   /** UXR-70 (FR-3): Save opens the review: the diff from the latest version, and a note. */
   function openReview() {
-    if (!draft || clientIssues.length > 0) return;
+    if (!draft) return;
+    if (clientIssues.length > 0) {
+      // Save shows every problem, new items' too, instead of saving (UXR-71).
+      setDeferred(new Set());
+      setProblemsOpen(true);
+      return;
+    }
     setReviewing(true);
     setReviewError(null);
     setReviewBase(null);
@@ -214,10 +246,15 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
       const res = await api.saveWorkflow(folded, note.trim() !== '' ? { note } : {});
       setLatestSeen((v) => Math.max(v, res.version));
       setDraft(null);
+      setDeferred(new Set());
+      setProblemsOpen(false);
       setVersion(res.version);
       setNotice(`Saved as v${res.version}.`);
     } catch (err) {
-      if (err instanceof ApiRequestError && err.details.length > 0) setServerErrors(err.details);
+      if (err instanceof ApiRequestError && err.details.length > 0) {
+        setServerErrors(err.details);
+        setProblemsOpen(true);
+      }
       setError(errorMessage(err));
     } finally {
       setSaving(false);
@@ -246,6 +283,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
   const latest = Math.max(latestSeen, ...(known ?? []));
   const versions = known ?? Array.from({ length: latest }, (_, i) => i + 1);
   const currentVersion = version ?? latest;
+  const warning = dirty ? oldVersionWarning(currentVersion, latest, versions) : null;
   const history = detail ? detailHistory(detail) : null;
   const infoOf = (v: number) => history?.find((h) => h.version === v);
   const shownInfo = infoOf(currentVersion);
@@ -329,10 +367,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
                 disabled={dirty}
                 onChange={(e) => {
                   const v = Number(e.target.value);
-                  setVersion(v === latest ? null : v);
-                  setSelected(null);
-                  setServerErrors([]);
-                  setNotice(null);
+                  showVersion(v === latest ? null : v);
                 }}
               >
                 {[...versions].reverse().map((v) => (
@@ -350,17 +385,6 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
               onClick={() => setHistoryOpen((o) => !o)}
             >
               History
-            </button>
-          )}
-          {dirty && <span className="wf-unsaved">Unsaved changes</span>}
-          {dirty && (
-            <button type="button" onClick={discard} disabled={saving}>
-              Discard
-            </button>
-          )}
-          {dirty && (
-            <button type="button" onClick={openReview} disabled={saving || clientIssues.length > 0}>
-              {saving ? 'Saving…' : 'Save as new version…'}
             </button>
           )}
           {notice && (
@@ -417,12 +441,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
                               type="button"
                               disabled={dirty}
                               aria-label={`View v${v}`}
-                              onClick={() => {
-                                setVersion(v === latest ? null : v);
-                                setSelected(null);
-                                setServerErrors([]);
-                                setNotice(null);
-                              }}
+                              onClick={() => showVersion(v === latest ? null : v)}
                             >
                               View
                             </button>
@@ -519,10 +538,15 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
             )}
           </section>
         )}
+        {warning !== null && (
+          <p className="wf-note wf-version-warning" role="alert">
+            {warning}
+          </p>
+        )}
         {dirty && (
           <p className="muted wf-note">
-            Saving creates v{latest + 1}. Running tickets keep the version they started on; new
-            tickets and reopened ones use the new version.
+            Running tickets keep the version they started on; new tickets and reopened ones use the
+            new version.
           </p>
         )}
         {!dirty && shown && asColumns && (
@@ -541,32 +565,6 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
           <p role="alert" className="error">
             {error}
           </p>
-        )}
-        {allIssues.length > 0 && shown && (
-          <ul className="wf-errors" aria-label="Problems">
-            {allIssues.map((i, n) => (
-              <li key={n}>
-                {i.state !== null ? (
-                  <>
-                    <strong>
-                      {columnTitle(shown, i.state)}
-                      {i.transition ? ` · ${i.transition.name}` : ''}
-                    </strong>
-                    : {i.message}
-                    {asColumns && (
-                      <button type="button" onClick={() => showIssue(i)}>
-                        Show
-                      </button>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <code>{i.path}</code>: {i.message}
-                  </>
-                )}
-              </li>
-            ))}
-          </ul>
         )}
         {shown && asColumns && (
           <label className="wf-toggle">
@@ -686,6 +684,24 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
           onSelectArrow={selectArrow}
           onBack={() => setSelected(parentOf(shown, selected.from, selected.name))}
           onClose={() => setSelected(null)}
+          onDefer={(prefix) => setDeferred((d) => withDeferred(d, prefix))}
+          onReveal={(prefix) => setDeferred((d) => withoutDeferred(d, prefix))}
+          onRevealUnder={(prefix) => setDeferred((d) => withoutUnder(d, prefix))}
+        />
+      )}
+      {dirty && shown && (
+        <SaveBar
+          definition={shown}
+          issues={allIssues}
+          nextVersion={latest + 1}
+          warning={warning}
+          saving={saving}
+          problemsOpen={problemsOpen}
+          onProblemsOpen={setProblemsOpen}
+          canShow={asColumns}
+          onShow={showIssue}
+          onDiscard={discard}
+          onSave={openReview}
         />
       )}
     </div>

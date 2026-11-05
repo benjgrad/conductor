@@ -288,8 +288,9 @@ function transitionLines(
     ...listLines(
       br.actions ?? [],
       ar.actions ?? [],
-      (v) => `Action added: ${ACTION_TEXT[v] ?? v}`,
-      (v) => `Action removed: ${ACTION_TEXT[v] ?? v}`,
+      // ACTION_TEXT is keyed by TransitionAction; a stored action may be one this UI doesn't know.
+      (v) => `Action added: ${(ACTION_TEXT as Record<string, string>)[v] ?? v}`,
+      (v) => `Action removed: ${(ACTION_TEXT as Record<string, string>)[v] ?? v}`,
     ),
   );
   lines.push(...conditionLines(br.conditions ?? [], ar.conditions ?? []));

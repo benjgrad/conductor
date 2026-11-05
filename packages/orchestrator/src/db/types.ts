@@ -207,6 +207,8 @@ export interface WorkflowDefinitionRow {
   definition: WorkflowDefinitionInput;
   created_at: Date;
   created_by: string | null;
+  /** UXR-70: the optional note written when it was saved. */
+  note: string | null;
 }
 
 export interface SessionRow {

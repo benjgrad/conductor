@@ -72,7 +72,7 @@ export function UpgradeSection({ machine }: { machine: MachineDetail }) {
   const shells = upgradeShells(machine.os);
   return (
     <section aria-label="Update available">
-      <h4>Update available</h4>
+      <h3>Update available</h3>
       <p>This machine runs an older daemon. Daemons don't update themselves yet: on it, run</p>
       {shells.posix && <CopyCommand label="Upgrade command" command={machine.upgrade_command} />}
       {shells.windows && machine.upgrade_command_windows !== null && (

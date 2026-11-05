@@ -25,15 +25,22 @@ export interface SelectedApi {
  * so the board looks alive without an orchestrator; `VITE_MOCK_STATIC=1` turns both off, so the
  * board holds still for scripts/ui-screenshots.js. `VITE_MOCK_PERMISSION=1` adds a pending tool
  * permission (ADR-0023) on the running "Add pagination to /orders" card (UXR-32 screenshots).
+ * `?mock-auth=password` in the page's query starts the mock in password mode, signed in as its
+ * admin (the screenshots' admin page).
  */
 export function createApiFromEnv(
   env: Record<string, unknown>,
   http: HttpApiOptions = {},
+  search: string = typeof location === 'undefined' ? '' : location.search,
 ): SelectedApi {
   const kind = apiKind(env);
   if (kind === 'mock') {
     const still = env.VITE_MOCK_STATIC === '1';
-    const api = createMockApi({ latencyMs: still ? 0 : 150 });
+    const password = new URLSearchParams(search).get('mock-auth') === 'password';
+    const api = createMockApi({
+      latencyMs: still ? 0 : 150,
+      ...(password ? { auth: 'password' as const } : {}),
+    });
     if (!still) api.simulate(2000);
     if (env.VITE_MOCK_PERMISSION === '1') {
       api.requestPermission(

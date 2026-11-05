@@ -41,6 +41,42 @@ export const GIT_IDENTITY_MISSING_TEXT =
   'git config --global user.name and user.email (or CONDUCTOR_GIT_NAME/CONDUCTOR_GIT_EMAIL) ' +
   'for the user the daemon runs as, then restart the daemon.';
 
+/** UXR-48: one thing wrong with a machine; the table shows a count, the drawer the text. */
+export interface MachineProblem {
+  key: 'gh-too-old' | 'git-identity';
+  /** A few words (the chip's tooltip). */
+  summary: string;
+  /** The full text, with the fix. */
+  text: string;
+}
+
+/**
+ * The machine's problems, in a fixed order. gh's version is only in the detail, so without one a
+ * row can only show the git identity problem.
+ */
+export function machineProblems(
+  m: { git_identity_missing?: boolean | null | undefined },
+  detail?: Pick<MachineDetail, 'capabilities'>,
+): MachineProblem[] {
+  const problems: MachineProblem[] = [];
+  const oldGh = detail ? ghTooOld(detail.capabilities) : null;
+  if (oldGh !== null) {
+    problems.push({ key: 'gh-too-old', summary: 'gh too old', text: ghTooOldText(oldGh) });
+  }
+  if (m.git_identity_missing === true) {
+    problems.push({
+      key: 'git-identity',
+      summary: 'No git identity',
+      text: GIT_IDENTITY_MISSING_TEXT,
+    });
+  }
+  return problems;
+}
+
+export function problemsLabel(n: number): string {
+  return n === 1 ? '1 problem' : `${n} problems`;
+}
+
 /**
  * The install command with `--service` (start the daemon at login), or null when `command` isn't
  * one of the two shapes we know; the page then hides the variant rather than guess. 10-contracts

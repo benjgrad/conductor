@@ -162,35 +162,37 @@ export function AdminPage({ api, me }: AdminPageProps) {
                     <td>{u.is_admin ? 'Yes' : 'No'}</td>
                     <td>{u.locked ? 'Locked' : 'No'}</td>
                     <td>{u.disabled_at ? formatTime(u.disabled_at) : '—'}</td>
-                    <td className="admin-actions">
-                      {u.disabled_at === null && (
-                        <button
-                          type="button"
-                          aria-label={`Reset link for ${u.email}`}
-                          onClick={() => void resetLink(u)}
-                        >
-                          Reset link
-                        </button>
-                      )}
-                      {u.locked && (
-                        <button
-                          type="button"
-                          aria-label={`Unlock ${u.email}`}
-                          onClick={() => void act(() => api.unlockUser(u.id))}
-                        >
-                          Unlock
-                        </button>
-                      )}
-                      {u.disabled_at === null && u.id !== me.user.id && (
-                        <button
-                          type="button"
-                          className="danger"
-                          aria-label={`Disable ${u.email}`}
-                          onClick={() => setConfirmDisable(u)}
-                        >
-                          Disable
-                        </button>
-                      )}
+                    <td className="table-actions">
+                      <div className="table-actions-inner">
+                        {u.disabled_at === null && (
+                          <button
+                            type="button"
+                            aria-label={`Reset link for ${u.email}`}
+                            onClick={() => void resetLink(u)}
+                          >
+                            Reset link
+                          </button>
+                        )}
+                        {u.locked && (
+                          <button
+                            type="button"
+                            aria-label={`Unlock ${u.email}`}
+                            onClick={() => void act(() => api.unlockUser(u.id))}
+                          >
+                            Unlock
+                          </button>
+                        )}
+                        {u.disabled_at === null && u.id !== me.user.id && (
+                          <button
+                            type="button"
+                            className="danger"
+                            aria-label={`Disable ${u.email}`}
+                            onClick={() => setConfirmDisable(u)}
+                          >
+                            Disable
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -233,16 +235,18 @@ export function AdminPage({ api, me }: AdminPageProps) {
                       <td>{inv.is_admin ? 'Yes' : 'No'}</td>
                       <td>{formatTime(inv.expires_at)}</td>
                       <td className={`invite-${status}`}>{status}</td>
-                      <td className="admin-actions">
-                        {status === 'open' && (
-                          <button
-                            type="button"
-                            aria-label={`Revoke invite for ${inv.email ?? 'anyone'}`}
-                            onClick={() => void act(() => api.revokeInvite(inv.id))}
-                          >
-                            Revoke
-                          </button>
-                        )}
+                      <td className="table-actions">
+                        <div className="table-actions-inner">
+                          {status === 'open' && (
+                            <button
+                              type="button"
+                              aria-label={`Revoke invite for ${inv.email ?? 'anyone'}`}
+                              onClick={() => void act(() => api.revokeInvite(inv.id))}
+                            >
+                              Revoke
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );

@@ -38,6 +38,7 @@ import {
   type RepoRow,
   type Spec,
 } from './repo-checks-model.js';
+import { ProposalsPanel } from '../workflow/ProposalsPanel.js';
 import '../workflow/workflow.css';
 import './repo-checks.css';
 
@@ -445,6 +446,18 @@ function RepoDetailView({
           </div>
         )}
       </details>
+
+      {/* UXR-73 (FR-5): the advisor's proposals for this repo's checks, here as well. */}
+      <ProposalsPanel
+        api={api}
+        dirty={dirty}
+        kind="repo_checks"
+        target={detail.repo}
+        onApplied={() => {
+          onChanged();
+          load();
+        }}
+      />
 
       {actionError !== null && (
         <p role="alert" className="error">

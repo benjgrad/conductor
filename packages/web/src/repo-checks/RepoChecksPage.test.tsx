@@ -93,6 +93,32 @@ describe('repo checks page (ADR-0030)', () => {
     expect(onSelect).toHaveBeenCalledWith(FRESH);
   });
 
+  it('lists the advisor’s proposals for this repo, and applying one reloads it (UXR-73)', async () => {
+    const API = 'github.com/acme/api';
+    const { api } = renderPage(API);
+    await detail(API);
+    const region = within(await screen.findByRole('region', { name: 'Change proposals' }));
+    expect(
+      region.getByRole('heading', { name: 'Proposed changes to this repo’s checks' }),
+    ).toBeTruthy();
+    fireEvent.click(await region.findByRole('button', { name: /Build the web app inside m-one/ }));
+    const diff = await region.findByRole('list', { name: /^Changes in/ });
+    expect(diff.textContent).toContain('This repo gets its own checks');
+    // The workflow's proposals are not listed here.
+    expect(region.queryByRole('button', { name: /Typecheck before testing/ })).toBeNull();
+
+    const reload = vi.spyOn(api, 'getRepoChecks');
+    fireEvent.click(region.getByRole('button', { name: 'Apply…' }));
+    fireEvent.click(region.getByRole('button', { name: 'Confirm apply' }));
+    await waitFor(() => expect(reload).toHaveBeenCalledWith(API));
+  });
+
+  it('a repo with no proposals says so', async () => {
+    renderPage(SHOP);
+    const region = within(await screen.findByRole('region', { name: 'Change proposals' }));
+    expect(await region.findByText('No open proposals.')).toBeTruthy();
+  });
+
   it('a repo without an override: the heading, the chip, and Set override off until the list differs', async () => {
     renderPage(FRESH);
     const d = await detail(FRESH);
@@ -264,7 +290,7 @@ describe('repo checks page (ADR-0030)', () => {
     expect(d.getByText('repo: repo must be 1..200 chars')).toBeTruthy();
   });
 
-  it('guards unsaved checks: another repo asks first; Keep editing stays, Discard goes', async () => {
+  it('guards unsaved checks: another repo asks first; Keep editing stays, Leave without saving goes', async () => {
     window.history.replaceState(null, '', `/#/repo-checks/${encodeURIComponent(FRESH)}`);
     render(<App api={createMockApi({ now })} />);
     const d = await detail(FRESH);
@@ -274,7 +300,7 @@ describe('repo checks page (ADR-0030)', () => {
 
     fireEvent.click(shop);
     let dialog = within(await screen.findByRole('alertdialog', { name: 'Unsaved changes' }));
-    expect(dialog.getByText(`Discard unsaved changes to ${FRESH}’s checks?`)).toBeTruthy();
+    expect(dialog.getByText(`Your changes to ${FRESH}’s checks aren’t saved.`)).toBeTruthy();
     fireEvent.click(dialog.getByRole('button', { name: 'Keep editing' }));
     expect(screen.queryByRole('alertdialog')).toBeNull();
     expect((await detail(FRESH)).getByLabelText<HTMLInputElement>('Check 1 command').value).toBe(
@@ -283,7 +309,7 @@ describe('repo checks page (ADR-0030)', () => {
 
     fireEvent.click(shop);
     dialog = within(await screen.findByRole('alertdialog', { name: 'Unsaved changes' }));
-    fireEvent.click(dialog.getByRole('button', { name: 'Discard' }));
+    fireEvent.click(dialog.getByRole('button', { name: 'Leave without saving' }));
     expect(await detail(SHOP)).toBeTruthy();
     expect(window.location.hash).toBe(`#/repo-checks/${encodeURIComponent(SHOP)}`);
   });

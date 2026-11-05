@@ -1,9 +1,10 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { NavigateOptions, Route, RouteGuard } from '../nav.js';
 
 // Keeps an unsaved draft from being dropped by navigation (the Board, a hash change): the workflow
 // editor's, or a repo's checks on the Repo checks page (UXR-81). The view reports what has a dirty
-// draft; leaving it is blocked and the user confirms inline (no browser dialogs).
+// draft; leaving it is blocked and the user confirms in a modal dialog (UXR-69 FR-3; no browser
+// dialogs).
 
 /** What has unsaved changes. */
 export type DirtyDraft = { kind: 'workflow'; id: string } | { kind: 'repo-checks'; repo: string };
@@ -40,10 +41,11 @@ export function useDraftGuard(): DraftGuard {
   return { guard, onBlocked: setPending, setDirty, dirty, pending, cancel };
 }
 
-export function draftQuestion(dirty: DirtyDraft): string {
+/** The leave dialog's sentence for what is unsaved. */
+export function draftText(dirty: DirtyDraft): string {
   return dirty.kind === 'workflow'
-    ? 'Discard unsaved changes to the workflow?'
-    : `Discard unsaved changes to ${dirty.repo}’s checks?`;
+    ? 'Your changes to the workflow aren’t saved.'
+    : `Your changes to ${dirty.repo}’s checks aren’t saved.`;
 }
 
 export function DiscardDraftConfirm({
@@ -55,23 +57,85 @@ export function DiscardDraftConfirm({
 }) {
   const { pending, dirty } = draft;
   if (!pending || dirty === null) return null;
+  return <LeaveDialog draft={draft} dirty={dirty} pending={pending} navigate={navigate} />;
+}
+
+function LeaveDialog({
+  draft,
+  dirty,
+  pending,
+  navigate,
+}: {
+  draft: DraftGuard;
+  dirty: DirtyDraft;
+  pending: Route;
+  navigate: (route: Route, opts?: NavigateOptions) => void;
+}) {
+  const id = useId();
+  const dialog = useRef<HTMLDivElement>(null);
+  const keep = useRef<HTMLButtonElement>(null);
+  // Focus goes back where it was when the dialog closes (Keep editing).
+  const [opener] = useState(() =>
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
+  useEffect(() => {
+    keep.current?.focus();
+    return () => {
+      if (opener?.isConnected) opener.focus();
+    };
+  }, [opener]);
+
+  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      draft.cancel();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    // A two-button focus trap: Tab and Shift+Tab stay in the dialog.
+    const buttons = [...(dialog.current?.querySelectorAll<HTMLElement>('button') ?? [])];
+    if (buttons.length === 0) return;
+    const at = buttons.indexOf(document.activeElement as HTMLElement);
+    const next = (at + (e.shiftKey ? -1 : 1) + buttons.length) % buttons.length;
+    e.preventDefault();
+    buttons[next]!.focus();
+  }
+
   return (
-    <div className="wf-confirm" role="alertdialog" aria-label="Unsaved changes">
-      <span>{draftQuestion(dirty)}</span>
-      <button
-        type="button"
-        className="danger"
-        onClick={() => {
-          draft.setDirty(null);
-          draft.cancel();
-          navigate(pending, { force: true });
-        }}
+    <div
+      className="wf-modal-backdrop"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) draft.cancel();
+      }}
+    >
+      <div
+        ref={dialog}
+        className="wf-modal"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={`${id}-title`}
+        aria-describedby={`${id}-text`}
+        onKeyDown={onKeyDown}
       >
-        Discard
-      </button>
-      <button type="button" onClick={draft.cancel} autoFocus>
-        Keep editing
-      </button>
+        <h2 id={`${id}-title`}>Unsaved changes</h2>
+        <p id={`${id}-text`}>{draftText(dirty)}</p>
+        <div className="wf-modal-actions">
+          <button
+            type="button"
+            className="danger"
+            onClick={() => {
+              draft.setDirty(null);
+              draft.cancel();
+              navigate(pending, { force: true });
+            }}
+          >
+            Leave without saving
+          </button>
+          <button ref={keep} type="button" className="primary" onClick={draft.cancel}>
+            Keep editing
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

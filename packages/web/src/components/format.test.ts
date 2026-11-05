@@ -1,6 +1,6 @@
 import type { BoardCard, BoardColumnKind, SessionStatus } from '@conductor/shared';
 import { describe, expect, it } from 'vitest';
-import { cardMeta, humanize, panelStatusLabel, STATUS_LABELS, usd } from './format';
+import { cardMeta, headStatus, humanize, panelStatusLabel, STATUS_LABELS, usd } from './format';
 
 describe('usd', () => {
   it('rounds to cents but never shows non-zero spend as $0.00 (TD-080)', () => {
@@ -155,5 +155,29 @@ describe('panelStatusLabel (UXR-40: one chip, in titles)', () => {
     expect(panelStatusLabel('implementing', 'failed', workflow)).toBe('Implementing · failed');
     expect(panelStatusLabel(null, 'queued')).toBe('Queued');
     expect(panelStatusLabel(null, null)).toBeNull();
+  });
+});
+
+describe('headStatus (UXR-32 FR-2)', () => {
+  const permission = {
+    request_id: '6f000000-0000-4000-8000-000000000001',
+    tool: 'Bash',
+    summary: 'pnpm vitest run',
+    expires_at: '2026-10-22T12:30:00.000Z',
+    pending_count: 1,
+  };
+  it('says "Waiting for permission", not the running state, while a request is held', () => {
+    const workflow = { states: { implementing: { title: 'Implementing' } } } as never;
+    const card = { status: 'running' as const, workflow_state: 'implementing' };
+    expect(headStatus({ ...card, sub_status: 'needs_permission', permission }, workflow)).toEqual({
+      key: 'needs_permission',
+      label: 'Waiting for permission',
+    });
+    // Without one, UXR-40's chip: the state's title.
+    expect(headStatus({ ...card, sub_status: null }, workflow)).toEqual({
+      key: 'running',
+      label: 'Implementing',
+    });
+    expect(headStatus({ status: null, workflow_state: null })).toBeNull();
   });
 });

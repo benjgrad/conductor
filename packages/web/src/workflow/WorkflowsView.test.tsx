@@ -58,6 +58,23 @@ const arrow = (from: string, to: string) =>
   screen.getByRole('button', { name: new RegExp(`^Arrow ${from} → ${to}:`) });
 const editor = () => within(screen.getByRole('complementary', { name: 'Column' }));
 const panel = () => within(screen.getByRole('complementary', { name: 'Transition' }));
+const arrowPanel = () => within(screen.getByRole('complementary', { name: 'Arrow' }));
+/** The open panel's breadcrumb (UXR-66), as its crumbs' text. */
+const crumbs = () =>
+  within(screen.getByRole('navigation', { name: 'Breadcrumb' }))
+    .getAllByRole('listitem')
+    .map((li) => li.textContent)
+    .filter((t) => t !== '›');
+/** A transition row in a list, by its title (and optionally its meta line). */
+const rowsOf = (list: HTMLElement) =>
+  within(list)
+    .getAllByRole('button')
+    .map((b) => b.textContent);
+/** A transition editor section's header button (UXR-63), by the start of its name. */
+const sectionHead = (start: string) =>
+  panel().getByRole('button', {
+    name: new RegExp(`^${start.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+  });
 const type = (el: HTMLElement, value: string) => fireEvent.change(el, { target: { value } });
 const lanesOf = (el: Element) =>
   [...el.querySelectorAll('[data-lane]')].map((n) => n.getAttribute('data-lane'));
@@ -94,6 +111,10 @@ describe('Workflow view', () => {
     // Queued is implicit: not editable.
     expect(diagram.querySelector('[data-lane="__queued__"]')?.getAttribute('role')).toBeNull();
     expect(lane('Planning').getAttribute('tabindex')).toBe('0');
+    // UXR-58: a focusable lane carries a focus ring apart from its box; Queued has none.
+    expect(lane('Planning').querySelector('rect.wf-lane-box')).toBeTruthy();
+    expect(lane('Planning').querySelector('rect.wf-focus-ring')).toBeTruthy();
+    expect(diagram.querySelector('[data-lane="__queued__"] rect.wf-focus-ring')).toBeNull();
     // Arrows are buttons too; the claim arrow is not.
     expect(arrow('Planning', 'Implementing').getAttribute('tabindex')).toBe('0');
     expect(diagram.querySelector('[data-edge="start"]')?.getAttribute('role')).toBeNull();
@@ -223,32 +244,46 @@ describe('Workflow view', () => {
 });
 
 describe('transition arrows (ADR-0011)', () => {
-  it('click an arrow → the panel shows its transitions', async () => {
+  it('click an arrow → its transition list → a transition → back (UXR-64, UXR-66)', async () => {
     await setup();
     fireEvent.click(arrow('Planning', 'Needs input'));
-    expect(panel().getByRole('heading', { name: 'Planning → Needs input' })).toBeTruthy();
     expect(arrow('Planning', 'Needs input').getAttribute('aria-pressed')).toBe('true');
-    const tabs = within(panel().getByRole('list', { name: 'Transitions on this arrow' }));
-    expect(tabs.getAllByRole('button').map((b) => b.textContent)).toEqual([
-      'scope_changed',
-      'plan_needs_approval',
-      'needs_product_context',
-      'impossible',
-      'ask_user',
-      'timeout',
+    // The list, not the first transition.
+    expect(screen.queryByRole('complementary', { name: 'Transition' })).toBeNull();
+    expect(arrowPanel().getByRole('heading', { name: 'Planning → Needs input' })).toBeTruthy();
+    expect(crumbs()).toEqual(['Planning', 'Planning → Needs input']);
+    const list = arrowPanel().getByRole('list', { name: 'Transitions on this arrow' });
+    expect(rowsOf(list)).toEqual([
+      'Scope changedThe agent · All tickets · No rules',
+      'Plan needs approvalThe agent · All tickets · No rules',
+      'Needs product contextThe agent · All tickets · No rules',
+      'ImpossibleThe agent · All tickets · No rules',
+      'Ask userThe agent · All tickets · No rules',
+      'TimeoutThe system · All tickets · No rules',
     ]);
-    expect(tabs.getByRole('button', { name: 'scope_changed' }).getAttribute('aria-pressed')).toBe(
-      'true',
-    );
-    expect(panel().getByLabelText<HTMLInputElement>('Name').value).toBe('scope_changed');
-    expect(
-      panel().getByRole<HTMLInputElement>('checkbox', { name: /Asks a question/ }).checked,
-    ).toBe(true);
-    fireEvent.click(tabs.getByRole('button', { name: 'impossible' }));
+    // The raw names stay off the rows.
+    expect(within(list).queryByText(/scope_changed/)).toBeNull();
+
+    fireEvent.click(within(list).getByRole('button', { name: /^Impossible/ }));
+    expect(panel().getByRole('heading', { name: 'Impossible' })).toBeTruthy();
+    expect(crumbs()).toEqual(['Planning', 'Planning → Needs input', 'Impossible']);
     expect(panel().getByLabelText<HTMLInputElement>('Name').value).toBe('impossible');
     expect(panel().getByLabelText<HTMLTextAreaElement>('When to take it').value).toBe(
       'The work cannot be done as asked.',
     );
+    expect(arrow('Planning', 'Needs input').getAttribute('aria-pressed')).toBe('true');
+
+    // Back → the list; the arrow crumb too; the column crumb → the column.
+    fireEvent.click(panel().getByRole('button', { name: 'Back to Planning → Needs input' }));
+    expect(arrowPanel().getByRole('list', { name: 'Transitions on this arrow' })).toBeTruthy();
+    fireEvent.click(arrowPanel().getByRole('button', { name: /^Scope changed/ }));
+    expect(
+      panel().getByRole<HTMLInputElement>('checkbox', { name: /Asks a question/ }).checked,
+    ).toBe(true);
+    fireEvent.click(panel().getByRole('button', { name: 'Planning → Needs input' }));
+    expect(arrowPanel().getByRole('heading', { name: 'Planning → Needs input' })).toBeTruthy();
+    fireEvent.click(arrowPanel().getByRole('button', { name: 'Back to Planning' }));
+    expect(editor().getByRole('heading', { name: 'Planning' })).toBeTruthy();
     // The arrow's label and count badge.
     const label = screen
       .getByRole('group', { name: 'conductor v3 columns' })
@@ -256,10 +291,29 @@ describe('transition arrows (ADR-0011)', () => {
     expect(label).toBeTruthy();
   });
 
+  it('tells apart transitions that differ only by ticket kind (UXR-64)', async () => {
+    await setup();
+    fireEvent.click(arrow('Implementing', 'Needs input'));
+    const list = arrowPanel().getByRole('list', { name: 'Transitions on this arrow' });
+    expect(rowsOf(list)).toEqual([
+      'Approve a messageThe agent · All tickets · No rules',
+      'PR ready for reviewThe agent · Work only · 5 rules',
+      'PR ready for reviewThe agent · Personal only · 4 rules',
+      'Ask userThe agent · All tickets · No rules',
+      'TimeoutThe system · All tickets · No rules',
+    ]);
+    fireEvent.click(within(list).getByRole('button', { name: /Personal only/ }));
+    expect(panel().getByLabelText<HTMLInputElement>('Name').value).toBe(
+      'personal_pr_ready_for_review',
+    );
+  });
+
   it('opens a single transition with Enter, and shows its requirements', async () => {
     await setup();
     fireEvent.keyDown(arrow('Implementing', 'Waiting external'), { key: 'Enter' });
-    expect(panel().queryByRole('list', { name: 'Transitions on this arrow' })).toBeNull();
+    expect(screen.queryByRole('complementary', { name: 'Arrow' })).toBeNull();
+    // A lone transition's arrow is no crumb; Back goes to its column.
+    expect(crumbs()).toEqual(['Implementing', 'Ready for testing']);
     expect(panel().getByLabelText<HTMLInputElement>('Name').value).toBe('ready_for_testing');
     expect(panel().getByLabelText<HTMLInputElement>('Check 1 name').value).toBe('Build passes');
     expect(panel().getByLabelText<HTMLInputElement>('Check 2 command').value).toBe('npm test');
@@ -279,6 +333,8 @@ describe('transition arrows (ADR-0011)', () => {
     expect(panel().getByRole<HTMLInputElement>('checkbox', { name: 'Personal' }).checked).toBe(
       false,
     );
+    fireEvent.click(panel().getByRole('button', { name: 'Back to Implementing' }));
+    expect(editor().getByRole('heading', { name: 'Implementing' })).toBeTruthy();
   });
 
   it('edit `when` and kinds, then save → the POSTed definition has them', async () => {
@@ -347,6 +403,7 @@ describe('transition arrows (ADR-0011)', () => {
   it('add a condition with no timeout → the rule-13 error is shown on that arrow', async () => {
     const { saved } = await setup();
     fireEvent.click(arrow('Planning', 'Implementing'));
+    fireEvent.click(sectionHead('Conditions (0)'));
     fireEvent.click(panel().getByRole('button', { name: 'Add condition' }));
     // The first requirement brings a "when not met" (rule 13 needs one).
     expect(panel().getByLabelText<HTMLSelectElement>('Back to').value).toBe('planning');
@@ -382,8 +439,17 @@ describe('transition arrows (ADR-0011)', () => {
       );
     fireEvent.click(lane('Planning'));
     type(editor().getByLabelText('Title'), 'Thinking');
+    // UXR-63: a section the user closed opens again when a problem appears in it.
+    fireEvent.click(arrow('Implementing', 'Waiting external'));
+    fireEvent.click(sectionHead('Conditions'));
+    expect(sectionHead('Conditions').getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(saveButton());
     await screen.findByText(/workflow definition is invalid/);
+    expect(sectionHead('Conditions').getAttribute('aria-expanded')).toBe('true');
+    expect(sectionHead('Conditions').getAttribute('class')).toContain('error');
+    expect(panel().getByRole('alert').textContent).toBe(
+      'rule 13: conditions need condition_timeout',
+    );
     const problems = within(screen.getByRole('list', { name: 'Problems' }));
     expect(problems.getByText(/rule 1: something global/)).toBeTruthy();
     expect(arrow('Implementing', 'Waiting external').getAttribute('class')).toContain('error');
@@ -420,6 +486,7 @@ describe('transition arrows (ADR-0011)', () => {
     fireEvent.click(panel().getByRole('button', { name: 'Move check 2 up' }));
     type(panel().getByLabelText(/Before the checks/), 'custom');
     type(panel().getByLabelText('Setup command'), 'pnpm i --frozen-lockfile');
+    fireEvent.click(sectionHead('Review (0)'));
     fireEvent.click(panel().getByRole('button', { name: 'Add review item' }));
     type(panel().getByLabelText('Review item 1'), 'The change matches the ticket');
     fireEvent.click(panel().getByRole('checkbox', { name: 'Open a pull request (by conductor)' }));
@@ -445,41 +512,183 @@ describe('transition arrows (ADR-0011)', () => {
     ).toBeUndefined();
   });
 
-  it('renames a transition (unique per column), keeping the panel on it', async () => {
+  it('Title comes first; the name is under Advanced and renames on blur only (UXR-65)', async () => {
     const { saved } = await setup();
     fireEvent.click(arrow('Planning', 'Implementing'));
+    const title = panel().getByLabelText('Title');
     const name = () => panel().getByLabelText<HTMLInputElement>('Name');
+    expect(title.compareDocumentPosition(name()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const advanced = panel().getByRole('button', { name: 'Advanced' });
+    expect(advanced.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(advanced);
+    expect(advanced.getAttribute('aria-expanded')).toBe('true');
+    expect(
+      panel().getByText('Agents report this name; prompts and history refer to it.'),
+    ).toBeTruthy();
+
+    // A duplicate or a space: the error shows, and leaving the field renames nothing.
     type(name(), 'impossible');
     expect(panel().getByText('this column already has a transition "impossible"')).toBeTruthy();
+    fireEvent.blur(name());
     type(name(), 'plan done');
     expect(panel().getByText(/without spaces/)).toBeTruthy();
+    fireEvent.blur(name());
+    expect(screen.queryByText('Unsaved changes')).toBeNull();
+
+    // A valid name: nothing changes while typing, only on blur.
     type(name(), 'plan_done');
-    expect(name().value).toBe('plan_done');
     expect(panel().queryByRole('alert')).toBeNull();
+    expect(screen.queryByText('Unsaved changes')).toBeNull();
+    fireEvent.blur(name());
+    expect(screen.getByText('Unsaved changes')).toBeTruthy();
+    expect(name().value).toBe('plan_done');
+    // Enter applies too.
+    type(name(), 'plan_finished');
+    fireEvent.keyDown(name(), { key: 'Enter' });
+    expect(name().value).toBe('plan_finished');
     fireEvent.click(saveButton());
     await waitFor(() => expect(saved).toHaveLength(1));
     const names = Object.keys(onOf(saved[0]!, 'planning'));
-    expect(names[0]).toBe('plan_done');
+    expect(names[0]).toBe('plan_finished');
     expect(names).not.toContain('plan_ready');
+    expect(names).not.toContain('plan_done');
+  });
+
+  it('Escape puts the name back without renaming', async () => {
+    await setup();
+    fireEvent.click(arrow('Planning', 'Implementing'));
+    const name = () => panel().getByLabelText<HTMLInputElement>('Name');
+    type(name(), 'plan_done');
+    fireEvent.keyDown(name(), { key: 'Escape' });
+    expect(name().value).toBe('plan_ready');
+    fireEvent.blur(name());
+    expect(screen.queryByText('Unsaved changes')).toBeNull();
   });
 
   it('adds a transition from a column’s panel, retargets it and removes it', async () => {
     await setup();
     fireEvent.click(lane('Needs input'));
-    const list = within(editor().getByRole('list', { name: 'Transitions' }));
+    const list = editor().getByRole('list', { name: 'Transitions' });
+    // UXR-65: rows by title, with where each goes, who takes it, the kinds and the rules.
+    expect(rowsOf(list)).toEqual([
+      'Back with this answer → the column that askedA person · All tickets · No rules',
+      'Waiting on someone else → Waiting externalA person · All tickets · No rules',
+      'Done → DoneA person · All tickets · No rules',
+    ]);
     // `answer` goes back to the column that asked: no arrow, but listed and editable here.
-    fireEvent.click(list.getByRole('button', { name: /answer/ }));
+    fireEvent.click(within(list).getByRole('button', { name: /^Back with this answer/ }));
     expect(panel().getByLabelText<HTMLSelectElement>('Goes to').value).toBe('$return_to');
+    expect(crumbs()).toEqual(['Needs input', 'Back with this answer']);
     fireEvent.click(lane('Planning'));
     fireEvent.click(editor().getByRole('button', { name: 'Add transition' }));
     expect(panel().getByLabelText<HTMLInputElement>('Name').value).toBe('new_transition');
-    expect(panel().getByRole('heading', { name: 'Planning → Implementing' })).toBeTruthy();
+    expect(panel().getByRole('heading', { name: 'New transition' })).toBeTruthy();
+    expect(arrow('Planning', 'Implementing').getAttribute('aria-pressed')).toBe('true');
     type(panel().getByLabelText('Goes to'), 'done');
-    expect(panel().getByRole('heading', { name: 'Planning → Done' })).toBeTruthy();
+    expect(crumbs()).toEqual(['Planning', 'New transition']);
     expect(arrow('Planning', 'Done').getAttribute('aria-pressed')).toBe('true');
+    // FR-5: removing asks first.
     fireEvent.click(panel().getByRole('button', { name: 'Remove transition' }));
+    const confirm = within(panel().getByRole('alertdialog', { name: 'Remove transition' }));
+    expect(confirm.getByText('new_transition')).toBeTruthy();
+    fireEvent.click(confirm.getByRole('button', { name: 'Cancel' }));
+    expect(panel().queryByRole('alertdialog')).toBeNull();
+    expect(arrow('Planning', 'Done')).toBeTruthy();
+    fireEvent.click(panel().getByRole('button', { name: 'Remove transition' }));
+    fireEvent.click(
+      within(panel().getByRole('alertdialog', { name: 'Remove transition' })).getByRole('button', {
+        name: 'Remove',
+      }),
+    );
     expect(editor().getByRole('heading', { name: 'Planning' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /^Arrow Planning → Done:/ })).toBeNull();
+  });
+
+  it('removing one of several transitions on an arrow goes back to its list', async () => {
+    await setup();
+    fireEvent.click(arrow('Planning', 'Needs input'));
+    fireEvent.click(arrowPanel().getByRole('button', { name: /^Impossible/ }));
+    fireEvent.click(panel().getByRole('button', { name: 'Remove transition' }));
+    fireEvent.click(
+      within(panel().getByRole('alertdialog', { name: 'Remove transition' })).getByRole('button', {
+        name: 'Remove',
+      }),
+    );
+    const list = arrowPanel().getByRole('list', { name: 'Transitions on this arrow' });
+    expect(within(list).getAllByRole('button')).toHaveLength(5);
+    expect(within(list).queryByRole('button', { name: /^Impossible/ })).toBeNull();
+  });
+});
+
+describe('transition editor: summary and sections (UXR-60, UXR-63)', () => {
+  // The sections' headers, in order (not the Advanced toggle inside one).
+  const heads = () => [
+    ...screen
+      .getByRole('complementary', { name: 'Transition' })
+      .querySelectorAll<HTMLButtonElement>('.wf-section-head > button'),
+  ];
+
+  it('opens on a sentence saying what the transition does, then its sections', async () => {
+    await setup();
+    fireEvent.click(arrow('Implementing', 'Waiting external'));
+    expect(panel().getByLabelText('Summary').textContent).toBe(
+      'When the agent says Ready for testing (work tickets): set up with auto-detect, run Build ' +
+        'passes and Tests pass, have a reviewer check 1 item, open a PR, then wait up to 3 days ' +
+        'for PR checks and 1 approval → Waiting external. If not met: back to Implementing with ' +
+        'your instruction, up to 3 times, then Needs input.',
+    );
+    const names = [
+      'Who and when (the agent · work)',
+      'Checks (2)',
+      'Review (1)',
+      'Actions (open a PR)',
+      'Conditions (4 · wait 3d, poll 2m)',
+      'If the requirements aren’t met (back to Implementing · 3× · then Needs input)',
+    ];
+    // In this order, all open (each has content).
+    expect(heads().map((b) => b.textContent?.replace(/^[▾▸]/, ''))).toEqual(names);
+    for (const n of names) {
+      expect(panel().getByRole('button', { name: n }).getAttribute('aria-expanded')).toBe('true');
+    }
+    // A section closes and opens again from its header.
+    fireEvent.click(sectionHead('Checks (2)'));
+    expect(sectionHead('Checks (2)').getAttribute('aria-expanded')).toBe('false');
+    expect(panel().queryByRole('button', { name: 'Add check' })).toBeNull();
+    fireEvent.click(sectionHead('Checks (2)'));
+    expect(panel().getByRole('button', { name: 'Add check' })).toBeTruthy();
+  });
+
+  it('a transition with no requirements: closed sections, "Nothing is required"', async () => {
+    await setup();
+    fireEvent.click(arrow('Planning', 'Implementing'));
+    expect(panel().getByLabelText('Summary').textContent).toBe(
+      'When the agent says Plan ready: move straight → Implementing.',
+    );
+    expect(sectionHead('Who and when').getAttribute('aria-expanded')).toBe('true');
+    for (const n of ['Checks (0)', 'Review (0)', 'Actions (none)', 'Conditions (0)']) {
+      expect(sectionHead(n).getAttribute('aria-expanded')).toBe('false');
+    }
+    expect(panel().queryByRole('button', { name: 'Add condition' })).toBeNull();
+    expect(panel().getByText(/Nothing is required: the move happens as soon as/)).toBeTruthy();
+    expect(panel().queryByRole('button', { name: /^If the requirements/ })).toBeNull();
+
+    // The first requirement brings its not-met policy, open, right after the conditions; the
+    // summary follows.
+    fireEvent.click(sectionHead('Conditions (0)'));
+    fireEvent.click(panel().getByRole('button', { name: 'Add condition' }));
+    expect(panel().queryByText(/Nothing is required/)).toBeNull();
+    const unmet = sectionHead('If the requirements aren’t met');
+    expect(unmet.getAttribute('aria-expanded')).toBe('true');
+    const conditions = sectionHead('Conditions (1 · poll 2m)');
+    expect(conditions.getAttribute('class')).toContain('error');
+    expect(
+      conditions.compareDocumentPosition(unmet) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const summary = panel().getByLabelText('Summary').textContent;
+    expect(summary).toContain('wait for PR checks → Implementing.');
+    expect(summary).toContain('If not met: back to Planning, up to 3 times, then Needs input.');
+    type(panel().getByLabelText('Wait at most'), '1d');
+    expect(panel().getByLabelText('Summary').textContent).toContain('wait up to 1 day for');
   });
 });
 

@@ -108,15 +108,16 @@ describe('board card request preview (UX-4)', () => {
       card(3, { question: 'Which port?' }),
     ]);
     const review = article('Card 1');
-    expect(review.getByText(/^Ready for review ·/)).toBeTruthy();
+    // UXR-31: no age in the badge; the meta row says it once.
+    expect(review.getByText('Ready for review').className).toContain('badge');
     expect(review.queryByText(/Question/)).toBeNull();
     const links = review.getAllByRole('link', { name: /pull request/i });
     expect(links).toHaveLength(1);
     expect(links[0]!.getAttribute('href')).toBe(PR);
     expect(links[0]!.className).toBe('card-pr-link');
     // A real question (a named question transition, or no origin from an older server).
-    expect(article('Card 2').getByText(/^Question ·/)).toBeTruthy();
-    expect(article('Card 3').getByText(/^Question ·/)).toBeTruthy();
+    expect(article('Card 2').getByText('Question')).toBeTruthy();
+    expect(article('Card 3').getByText('Question')).toBeTruthy();
     expect(article('Card 2').queryByText(/Ready for review/)).toBeNull();
   });
 
@@ -129,7 +130,7 @@ describe('board card request preview (UX-4)', () => {
     ]);
     for (const title of ['Card 1', 'Card 2']) {
       const a = article(title);
-      expect(a.getByText(/^Step failed ·/).className).toContain('badge-step-failed');
+      expect(a.getByText('Step failed').className).toContain('badge-step-failed');
       expect(a.getByText(STEP_ERROR)).toBeTruthy();
       expect(a.queryByText(/stderr/)).toBeNull();
     }
@@ -141,7 +142,7 @@ describe('board card request preview (UX-4)', () => {
     const button = screen.getByRole('button', { name: /NOTES: more detail on line 59\./ });
     expect(button.getAttribute('aria-label')).toBe(`Ready for review: ${report}`);
     expect(button.getAttribute('title')).toBe(report);
-    expect(screen.getByText(/^Ready for review ·/).tagName).toBe('SPAN');
+    expect(screen.getByText('Ready for review').tagName).toBe('SPAN');
   });
 
   it('NFR-4: 200 cards × 5,000-character reports render with bounded previews', () => {
@@ -237,8 +238,14 @@ describe('board card in a gate step (UX-5)', () => {
       }),
     ]);
     const a = article('Card 1');
-    expect(a.getByRole('group', { name: 'Waiting for Ready for testing' })).toBeTruthy();
+    // UXR-30 (FR-2): the move in titles, with its progress; never the synthetic state label.
+    const group = a.getByRole('group', {
+      name: 'Moving to Waiting external · Ready for testing',
+    });
+    expect(within(group).getByText('· 4 of 5 checks done')).toBeTruthy();
     expect(a.queryByText(/Conductor is checking/)).toBeNull();
+    const text = visibleText(screen.getByText('Card 1').closest('article')!);
+    expect(text).not.toMatch(/→|\(move:|_/);
   });
 
   it('FR-4: the summary and the checking badge never both show', () => {
@@ -280,12 +287,60 @@ describe('board card says only what its column does not (UX card cleanup)', () =
       card(
         1,
         {},
-        { input_request: null, column: 'queued', status: 'assigned', workflow_state: 'planning' },
+        {
+          input_request: null,
+          column: 'queued',
+          status: 'assigned',
+          workflow_state: 'planning',
+          state_title: 'Planning',
+        },
       ),
     ]);
     const meta = screen.getByText('Card 1').closest('article')!.querySelector('.card-meta')!;
-    expect(visibleText(meta)).toContain('planning');
+    expect(visibleText(meta)).toContain('Planning');
     expect(visibleText(meta)).toContain('assigned');
+  });
+
+  it("UXR-30: a state's title, never its id; a queued card never says its workflow id", () => {
+    renderCards([
+      card(
+        1,
+        {},
+        {
+          input_request: null,
+          column: 'implementing',
+          status: 'running',
+          workflow_state: 'await_approval',
+          state_title: 'Waiting for sign-off',
+        },
+      ),
+      card(2, {}, { input_request: null, column: 'queued', status: null, workflow_state: null }),
+    ]);
+    const one = screen.getByText('Card 1').closest('article')!;
+    expect(visibleText(one)).toContain('Waiting for sign-off');
+    expect(visibleText(one)).not.toContain('await_approval');
+    expect(visibleText(screen.getByText('Card 2').closest('article')!)).not.toMatch(/conductor/i);
+  });
+
+  it('UXR-30: with two workflows on the board, each card names its workflow', () => {
+    renderCards([
+      card(1, {}, { input_request: null, column: 'queued', status: null, workflow_state: null }),
+      card(
+        2,
+        {},
+        {
+          input_request: null,
+          column: 'queued',
+          status: null,
+          workflow_state: null,
+          workflow_id: 'pr_flow',
+        },
+      ),
+    ]);
+    const meta = (t: string) =>
+      visibleText(screen.getByText(t).closest('article')!.querySelector('.card-meta')!);
+    expect(meta('Card 1')).toContain('Conductor');
+    expect(meta('Card 2')).toContain('Pr flow');
   });
 
   it('FR-4: a failed card in Done says "failed" once', () => {
@@ -322,7 +377,7 @@ describe('board card: plan approval (06 §Plan approval)', () => {
   it('shows the "Plan to approve" label and badge instead of the generic buttons', () => {
     renderWithApi([planCard()]);
     const a = article('Card 1');
-    const badge = a.getByText(/^Plan to approve · /);
+    const badge = a.getByText('Plan to approve');
     expect(badge.className).toContain('badge-plan-approval');
     expect(a.getByRole('button', { name: /^Plan to approve: Raised beds/ })).toBeTruthy();
     expect(a.getByRole('group', { name: 'Plan to approve' })).toBeTruthy();
@@ -375,9 +430,14 @@ describe('board card: plan approval (06 §Plan approval)', () => {
     ).toBe(false);
   });
 
-  it('Review plan selects the session (opens the panel) without posting', () => {
+  it('UXR-33: Approve plan is the one action; the preview opens the panel without posting', () => {
     const { onSelect, transition } = renderWithApi([planCard()]);
-    fireEvent.click(article('Card 1').getByRole('button', { name: 'Review plan' }));
+    const a = article('Card 1');
+    expect(a.queryByRole('button', { name: 'Review plan' })).toBeNull();
+    expect(
+      within(a.getByRole('group', { name: 'Plan to approve' })).getAllByRole('button'),
+    ).toHaveLength(1);
+    fireEvent.click(a.getByRole('button', { name: /^Plan to approve: Raised beds/ }));
     expect(onSelect).toHaveBeenCalledWith(SID);
     expect(transition).not.toHaveBeenCalled();
   });
@@ -387,20 +447,24 @@ describe('board card: plan approval (06 §Plan approval)', () => {
       planCard({ human_transitions: transitions.filter((o) => o.name !== 'answer') }),
     ]);
     const a = article('Card 1');
-    expect(a.getByText(/^Plan to approve · /)).toBeTruthy();
+    expect(a.getByText('Plan to approve')).toBeTruthy();
     expect(a.queryByRole('button', { name: 'Approve plan' })).toBeNull();
     expect(a.queryByRole('button', { name: 'Review plan' })).toBeNull();
     const group = a.getByRole('group', { name: 'Move to' });
     expect(within(group).getByRole('button', { name: /Waiting on someone else/ })).toBeTruthy();
   });
 
-  it('an ordinary question keeps the generic buttons', () => {
+  it('UXR-33: an ordinary question offers only the first transition; the rest are in the panel', () => {
     renderWithApi([
       card(1, { origin_transition: 'scope_changed' }, { human_transitions: transitions }),
     ]);
     const a = article('Card 1');
     expect(a.queryByRole('button', { name: 'Approve plan' })).toBeNull();
-    expect(a.getByRole('button', { name: /Back with this answer/ })).toBeTruthy();
+    const group = within(a.getByRole('group', { name: 'Move to' }));
+    expect(group.getAllByRole('button').map((b) => b.textContent)).toEqual([
+      'Back with this answer…',
+    ]);
+    expect(a.queryByRole('button', { name: /Waiting on someone else|^Done$/ })).toBeNull();
   });
 });
 
@@ -438,6 +502,12 @@ describe('board card: question options and permission actions (Questions UX)', (
     render(<Board board={board(cards)} selectedSessionId={null} onSelect={onSelect} api={api} />);
     return { onSelect, answer, decidePermission };
   }
+
+  it('UXR-33: only the first (recommended) option shows', () => {
+    renderApi([card(1, { options: OPTIONS })]);
+    const group = within(article('Card 1').getByRole('group', { name: 'Answer options' }));
+    expect(group.getAllByRole('button').map((b) => b.textContent)).toEqual(['Postgres']);
+  });
 
   it('an option button answers with its label; the generic buttons give way', async () => {
     const c = card(1, { options: OPTIONS }, { human_transitions: BASE.human_transitions });
@@ -478,10 +548,12 @@ describe('board card: question options and permission actions (Questions UX)', (
     expect(article('Card 1').queryByRole('group', { name: 'Answer options' })).toBeNull();
   });
 
-  it('a held permission: Allow once and Deny decide it, Review opens the panel', async () => {
+  it('UXR-33: a held permission offers only Allow once; Deny and Review are in the panel', async () => {
     const c = BOARD_CARD_NEEDS_PERMISSION_FIXTURE;
     const { decidePermission, onSelect } = renderApi([c]);
     const a = article(c.title);
+    expect(a.queryByRole('button', { name: 'Deny' })).toBeNull();
+    expect(a.queryByRole('button', { name: 'Review' })).toBeNull();
     fireEvent.click(a.getByRole('button', { name: 'Allow once' }));
     await waitFor(() =>
       expect(decidePermission).toHaveBeenCalledWith(c.permission!.request_id, {
@@ -489,14 +561,8 @@ describe('board card: question options and permission actions (Questions UX)', (
         scope: 'once',
       }),
     );
-    fireEvent.click(a.getByRole('button', { name: 'Deny' }));
-    await waitFor(() =>
-      expect(decidePermission).toHaveBeenLastCalledWith(c.permission!.request_id, {
-        behavior: 'deny',
-        scope: 'once',
-      }),
-    );
-    fireEvent.click(a.getByRole('button', { name: 'Review' }));
+    // The title opens the panel (Deny, Allow always, the note).
+    fireEvent.click(a.getByRole('button', { name: c.title }));
     expect(onSelect).toHaveBeenCalledWith(c.session_id);
   });
 });

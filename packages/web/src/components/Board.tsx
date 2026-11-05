@@ -10,9 +10,10 @@ import {
 import { waitingOnYou } from '../board/waiting.js';
 import { DEFAULT_BOARD_WORKFLOW, readCollapsed, writeCollapsed } from './board-layout.js';
 import { AgentAvatar, cardAgent } from './agent-identity.js';
-import { ago, cardMeta, KIND_LABELS, TICKET_KIND_LABELS, usd } from './format.js';
+import { ago, cardMeta, humanize, KIND_LABELS, TICKET_KIND_LABELS, usd } from './format.js';
 import { usePlanAnswer } from './plan-answer.js';
-import { CardPermissionActions, CardQuestionOptions } from './CardActions.js';
+import { CardAllowOnce, CardOptionButton } from './CardActions.js';
+import { cardAction } from './card-action.js';
 import { PendingChecklist, TransitionButtons } from './transitions.js';
 import {
   classifyRequest,
@@ -68,6 +69,16 @@ export function Board({
   const agentStates = useMemo(
     () => new Set(columns.filter((c) => c.kind === 'agent').map((c) => c.id)),
     [columns],
+  );
+  // UXR-30 (FR-2): a pending move names its target column by title.
+  const columnTitles = useMemo(
+    () => new Map(columns.map((c) => [c.id, c.title] as const)),
+    [columns],
+  );
+  // UXR-30 (FR-1): the workflow's name only disambiguates when the board mixes workflows.
+  const showWorkflow = useMemo(
+    () => new Set([...board.cards.values()].map((c) => c.workflow_id)).size > 1,
+    [board.cards],
   );
 
   // UX-9: every stored id is kept; one that is not a column now is ignored when rendering.
@@ -151,6 +162,8 @@ export function Board({
               onSelect={onSelect}
               {...(onSelectTicket ? { onSelectTicket } : {})}
               agentStates={agentStates}
+              columnTitles={columnTitles}
+              showWorkflow={showWorkflow}
               {...(api ? { api } : {})}
             />
           </>
@@ -198,6 +211,8 @@ export function Board({
               onSelect={onSelect}
               {...(onSelectTicket ? { onSelectTicket } : {})}
               agentStates={agentStates}
+              columnTitles={columnTitles}
+              showWorkflow={showWorkflow}
               {...(api ? { api } : {})}
             />
           );
@@ -342,6 +357,8 @@ interface ColumnProps {
   onSelect: (sessionId: string) => void;
   onSelectTicket?: (ticketId: string) => void;
   agentStates: ReadonlySet<string>;
+  columnTitles: ReadonlyMap<string, string>;
+  showWorkflow: boolean;
   api?: ApiClient;
 }
 
@@ -360,6 +377,8 @@ const Column = memo(function Column({
   onSelect,
   onSelectTicket,
   agentStates,
+  columnTitles,
+  showWorkflow,
   api,
 }: ColumnProps) {
   const bodyId = `board-column-${col.id}`;
@@ -423,6 +442,8 @@ const Column = memo(function Column({
                 onSelect={onSelect}
                 {...(onSelectTicket ? { onSelectTicket } : {})}
                 agentStates={agentStates}
+                columnTitles={columnTitles}
+                showWorkflow={showWorkflow}
                 {...(api ? { api } : {})}
               />
             </li>
@@ -442,10 +463,24 @@ interface CardProps {
   onSelectTicket?: (ticketId: string) => void;
   /** The board's agent-state columns, for the plan approval's answer option. */
   agentStates: ReadonlySet<string>;
+  /** Column id → title, for a pending move's target. */
+  columnTitles: ReadonlyMap<string, string>;
+  /** FR-1: name the card's workflow (the board mixes workflows). */
+  showWorkflow: boolean;
   api?: ApiClient;
 }
 
-function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, api }: CardProps) {
+function Card({
+  card,
+  column,
+  selected,
+  onSelect,
+  onSelectTicket,
+  agentStates,
+  columnTitles,
+  showWorkflow,
+  api,
+}: CardProps) {
   const sessionId = card.session_id;
   const q = card.input_request;
   const cls = q ? classifyRequest(q) : null;
@@ -457,7 +492,9 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
   const idle = agentIdle(card);
   const agent = cardAgent(card);
   const name = agent.name;
-  const meta = cardMeta(card, column);
+  const meta = cardMeta(card, column, { showWorkflow });
+  // UXR-33 (FR-4): at most one action; the panel has the rest.
+  const action = cardAction(card, cls, plan);
   return (
     <article className={`card${selected ? ' selected' : ''}`} data-ticket={card.ticket_id}>
       <button
@@ -520,15 +557,6 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
           {card.permission.pending_count > 1 ? ` (+${card.permission.pending_count - 1})` : ''}
         </span>
       )}
-      {/* Questions UX: allow or deny right here; Review opens the panel (Allow always, the input). */}
-      {api && sessionId !== null && card.sub_status === 'needs_permission' && card.permission && (
-        <CardPermissionActions
-          key={card.permission.request_id}
-          api={api}
-          permission={card.permission}
-          onReview={() => onSelect(sessionId)}
-        />
-      )}
       {card.badges.includes('waiting_for_build_slot') && !waitingForBuildSlot(card) && (
         <span className="badge badge-slot">waiting for build slot</span>
       )}
@@ -547,10 +575,16 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
         <AlertBadge files={[...new Set(card.alerts.flatMap((a) => a.files))]} />
       )}
       {conductor ? null : card.pending ? (
-        <PendingChecklist pending={card.pending} />
+        <PendingChecklist
+          pending={card.pending}
+          toTitle={columnTitles.get(card.pending.to) ?? humanize(card.pending.to)}
+        />
       ) : (
         card.checking && (
-          <span className="badge badge-checking">
+          <span
+            className="badge badge-checking"
+            title={`checking requirements for ${card.checking.title} (${card.checking.phase})`}
+          >
             checking requirements for {card.checking.title} ({card.checking.phase})
           </span>
         )
@@ -570,8 +604,9 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
       )}
       {q && cls && (
         <div className={`question request-${cls}`}>
-          <span className={BADGE_CLASS[cls](q.kind)}>
-            {requestLabel(cls, q.kind)} · {ago(q.created_at)}
+          {/* UXR-31: no age here; the meta row says it once. */}
+          <span className={BADGE_CLASS[cls](q.kind)} title={requestLabel(cls, q.kind)}>
+            {requestLabel(cls, q.kind)}
           </span>
           {/* UX-4: a clamped preview; the full text is its accessible name and tooltip. */}
           <button
@@ -586,35 +621,45 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
               {previewText(q.question, cls)}
             </span>
           </button>
-          {cls === 'review' && card.pr_url && (
-            <a className="card-pr-link" href={card.pr_url} target="_blank" rel="noreferrer">
-              Review pull request ↗
-            </a>
-          )}
         </div>
       )}
-      {/* Questions UX: the agent's options replace the generic buttons on the card. */}
-      {api && sessionId !== null && q?.options && !plan ? (
-        <CardQuestionOptions
-          key={q.id}
-          api={api}
-          sessionId={sessionId}
-          request={q}
-          onOpen={() => onSelect(sessionId)}
-        />
-      ) : api && sessionId !== null && plan ? (
-        <PlanApprovalActions
-          api={api}
-          sessionId={sessionId}
-          plan={plan}
-          onReview={() => onSelect(sessionId)}
-        />
-      ) : (
-        api &&
-        sessionId !== null &&
-        card.human_transitions.length > 0 && (
-          <TransitionButtons api={api} sessionId={sessionId} options={card.human_transitions} />
-        )
+      {action?.kind === 'review_pr' && (
+        <a className="card-pr-link" href={action.url} target="_blank" rel="noreferrer">
+          Review pull request ↗
+        </a>
+      )}
+      {api && sessionId !== null && action && (
+        <>
+          {action.kind === 'approve_plan' && (
+            <PlanApprovalActions api={api} sessionId={sessionId} plan={action.plan} />
+          )}
+          {action.kind === 'option' && q && (
+            <CardOptionButton
+              key={q.id}
+              api={api}
+              sessionId={sessionId}
+              request={q}
+              option={action.option}
+            />
+          )}
+          {action.kind === 'answer' && (
+            <div className="card-options">
+              <button type="button" className="primary" onClick={() => onSelect(sessionId)}>
+                Answer…
+              </button>
+            </div>
+          )}
+          {action.kind === 'allow' && (
+            <CardAllowOnce
+              key={action.permission.request_id}
+              api={api}
+              permission={action.permission}
+            />
+          )}
+          {action.kind === 'transition' && (
+            <TransitionButtons api={api} sessionId={sessionId} options={[action.option]} />
+          )}
+        </>
       )}
     </article>
   );
@@ -622,19 +667,17 @@ function Card({ card, column, selected, onSelect, onSelectTicket, agentStates, a
 
 /**
  * 06 §Plan approval on the card: Approve plan posts the approve option (`approve_plan` in v5),
- * else the answer option with the approval text; Review plan opens the session panel (the plan,
- * Request changes…, the other actions).
+ * else the answer option with the approval text. UXR-33: the card's one action; the plan, Request
+ * changes… and the other actions are in the session panel (the card's title or preview opens it).
  */
 function PlanApprovalActions({
   api,
   sessionId,
   plan,
-  onReview,
 }: {
   api: ApiClient;
   sessionId: string;
   plan: PlanOptions;
-  onReview: () => void;
 }) {
   // The board stream carries the card change; no reload needed.
   const { busy, error, post } = usePlanAnswer(api, sessionId);
@@ -650,9 +693,6 @@ function PlanApprovalActions({
         >
           Approve plan
         </button>
-        <button type="button" onClick={onReview}>
-          Review plan
-        </button>
       </div>
       {error && (
         <p role="alert" className="error">
@@ -667,10 +707,17 @@ function PlanApprovalActions({
 function RoutingBadge({ needs, rule }: { needs: string[]; rule: string | null }) {
   // ADR-0013 amendment 2026-10-30: a repo rule first, then what the allowed machines lack.
   if (needs.length === 0) {
-    return <span className="badge badge-routing">{rule ?? 'no online machine can take it'}</span>;
+    const text = rule ?? 'no online machine can take it';
+    return (
+      <span className="badge badge-routing" title={text}>
+        {text}
+      </span>
+    );
   }
+  // UXR-31: one line with an ellipsis, so the hover text has all of it.
+  const full = `${rule !== null ? `${rule}; ` : ''}needs a machine with ${needs.join(', ')}`;
   return (
-    <span className="badge badge-routing">
+    <span className="badge badge-routing" title={full}>
       {rule !== null && `${rule}; `}
       needs a machine with{' '}
       {needs.map((n, i) => (

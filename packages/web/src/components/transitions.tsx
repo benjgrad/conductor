@@ -11,6 +11,7 @@ import {
 import { useId, useRef, useState, type FormEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { displayState } from '../workflow/review.js';
+import { humanize } from './format.js';
 
 type ItemStatus = BoardPendingItem['status'];
 
@@ -34,16 +35,43 @@ const ITEM_STATUS_TEXT: Record<ItemStatus, string> = {
   unsupported: 'not supported yet',
 };
 
+const sameWords = (a: string, b: string) =>
+  a.replace(/_/g, ' ').trim().toLowerCase() === b.replace(/_/g, ' ').trim().toLowerCase();
+
+/** UXR-30 (FR-2): "4 of 6 checks done"; disabled items don't count. Null with none to count. */
+export function pendingProgress(items: readonly BoardPendingItem[]): string | null {
+  const counted = items.filter((i) => i.status !== 'disabled');
+  if (counted.length === 0) return null;
+  const met = counted.filter((i) => i.status === 'met').length;
+  return `${met} of ${counted.length} checks done`;
+}
+
+/** UXR-30 (FR-2): "Moving to <column title> · <transition title>", the title said once. */
+export function pendingHead(pending: Pick<BoardPending, 'to' | 'title'>, toTitle?: string): string {
+  const to = toTitle ?? humanize(pending.to);
+  return sameWords(pending.title, to) ? `Moving to ${to}` : `Moving to ${to} · ${pending.title}`;
+}
+
 /**
- * "waiting for: ✓ Tests pass · ✓ PR opened · ◻ approvals 0/1 · – pipeline": the card stays in its
- * source column while a move's requirements run. Disabled and unsupported items are greyed; the
- * detail (evidence) is the hover text.
+ * "Moving to Waiting external · Ready for testing — 4 of 6 checks done", then "✓ Tests pass ·
+ * ✓ PR opened · ◻ approvals 0/1 · – pipeline": the card stays in its source column while a move's
+ * requirements run. Disabled and unsupported items are greyed; the detail (evidence) is the hover
+ * text. `toTitle`: the target column's title (default: `pending.to` humanized).
  */
-export function PendingChecklist({ pending }: { pending: BoardPending }) {
+export function PendingChecklist({
+  pending,
+  toTitle,
+}: {
+  pending: BoardPending;
+  toTitle?: string;
+}) {
+  const head = pendingHead(pending, toTitle);
+  const progress = pendingProgress(pending.items);
   return (
-    <div className="pending-move" role="group" aria-label={`Waiting for ${pending.title}`}>
+    <div className="pending-move" role="group" aria-label={head}>
       <span className="pending-move-head">
-        waiting for <strong>{pending.title}</strong>:
+        <strong>{head}</strong>
+        {progress && <span className="pending-progress muted"> · {progress}</span>}
       </span>
       <ul className="pending-items">
         {pending.items.map((item, i) => (

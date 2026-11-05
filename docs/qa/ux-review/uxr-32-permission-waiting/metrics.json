@@ -29,8 +29,8 @@
     "pageScrollWidth": 1440,
     "deviceWidth": 1440,
     "horizontalOverflow": false,
-    "pageHeight": 1249,
-    "smallTapTargets": 38,
+    "pageHeight": 900,
+    "smallTapTargets": 34,
     "smallTapTargetSample": [
       "a \"Board\" 82×25",
       "a \"Workflow\" 102×25",
@@ -47,8 +47,8 @@
     "pageScrollWidth": 1440,
     "deviceWidth": 1440,
     "horizontalOverflow": false,
-    "pageHeight": 1492,
-    "smallTapTargets": 44,
+    "pageHeight": 900,
+    "smallTapTargets": 42,
     "smallTapTargetSample": [
       "a \"Board\" 82×25",
       "a \"Workflow\" 102×25",

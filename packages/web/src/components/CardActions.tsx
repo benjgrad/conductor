@@ -1,7 +1,13 @@
-// Questions UX on the board card: answer an agent's question with one click (its options), and
-// allow or deny a held permission prompt, without opening the session panel. The board stream
+// Questions UX on the board card: answer an agent's question with one click (its recommended
+// option), or allow a held permission prompt, without opening the session panel (UXR-33: one
+// action per card; the panel has the rest). The board stream
 // moves the card afterwards, so nothing reloads here.
-import type { BoardCard, InputRequestDto, PermissionDecisionRequest } from '@conductor/shared';
+import type {
+  BoardCard,
+  InputRequestDto,
+  PermissionDecisionRequest,
+  QuestionOption,
+} from '@conductor/shared';
 import { useRef, useState } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import './QuestionOptions.css';
@@ -37,47 +43,34 @@ function useOnePost() {
   return { busy, error, run };
 }
 
-/**
- * The agent's options on the card: one button per option (single select, at most
- * CARD_OPTIONS_MAX), else "Answer…" which opens the session panel (the full list).
- */
-export function CardQuestionOptions({
+/** UXR-33: the agent's first (recommended) option as the card's one button. */
+export function CardOptionButton({
   api,
   sessionId,
   request,
-  onOpen,
+  option,
 }: {
   api: ApiClient;
   sessionId: string;
   request: InputRequestDto;
-  onOpen: () => void;
+  option: QuestionOption;
 }) {
   const { busy, error, run } = useOnePost();
-  const options = request.options;
-  if (!options) return null;
   return (
     <div className="card-options" role="group" aria-label="Answer options">
-      {cardAnswersInline(request) ? (
-        options.items.map((o) => (
-          <button
-            key={o.label}
-            type="button"
-            disabled={busy}
-            title={o.description ?? o.label}
-            onClick={() =>
-              void run(() =>
-                api.answer(sessionId, { input_request_id: request.id, answer: o.label }),
-              )
-            }
-          >
-            {o.label}
-          </button>
-        ))
-      ) : (
-        <button type="button" className="primary" onClick={onOpen}>
-          Answer…
-        </button>
-      )}
+      <button
+        type="button"
+        className="primary"
+        disabled={busy}
+        title={option.description ?? option.label}
+        onClick={() =>
+          void run(() =>
+            api.answer(sessionId, { input_request_id: request.id, answer: option.label }),
+          )
+        }
+      >
+        {option.label}
+      </button>
       {error && (
         <p role="alert" className="error">
           {error}
@@ -87,15 +80,16 @@ export function CardQuestionOptions({
   );
 }
 
-/** ADR-0023 on the card: Allow once / Deny the oldest held prompt; Review opens the panel. */
-export function CardPermissionActions({
+/**
+ * ADR-0023 on the card, UXR-33: Allow once for the oldest held prompt. Deny, Allow always and the
+ * deny note are in the session panel (the card's title opens it).
+ */
+export function CardAllowOnce({
   api,
   permission,
-  onReview,
 }: {
   api: ApiClient;
   permission: NonNullable<BoardCard['permission']>;
-  onReview: () => void;
 }) {
   const { busy, error, run } = useOnePost();
   const decide = (req: PermissionDecisionRequest) =>
@@ -109,16 +103,6 @@ export function CardPermissionActions({
         onClick={() => decide({ behavior: 'allow', scope: 'once' })}
       >
         Allow once
-      </button>
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => decide({ behavior: 'deny', scope: 'once' })}
-      >
-        Deny
-      </button>
-      <button type="button" className="link" onClick={onReview}>
-        Review
       </button>
       {error && (
         <p role="alert" className="error">

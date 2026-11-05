@@ -62,6 +62,11 @@ describe('ticket buttons (phone)', () => {
     const brief = strip().getByRole('button', { name: /^Brief/ });
     // The UX-2 ticket: 4 requirements have no verification.
     expect(brief.textContent).toContain('⚠ 4');
+    // UXR-72: the ⚠ count is named and has a tooltip.
+    const tally = brief.querySelector('.brief-tally-warn')!;
+    expect(tally.getAttribute('aria-label')).toBe('4 hints');
+    expect(tally.getAttribute('title')).toMatch(/^4 hints: no verification for /);
+    expect(strip().getByRole('button', { name: /^Brief.*4 hints$/ })).toBe(brief);
     expect(brief.getAttribute('aria-haspopup')).toBe('dialog');
     // No plan in this session: no Plan button.
     expect(strip().queryByRole('button', { name: /Plan/ })).toBeNull();
@@ -145,7 +150,9 @@ describe('ticket buttons (desktop)', () => {
     expect(document.querySelector('.edit-ticket')).toBeNull();
     expect(strip().getByRole('button', { name: /^Brief/ })).toBeTruthy();
     expect(strip().getByRole('button', { name: PLAN_APPROVAL_LABEL })).toBeTruthy();
-    expect(strip().getByRole('button', { name: 'Edit ticket' })).toBeTruthy();
+    const edit = strip().getByRole('button', { name: 'Edit ticket' });
+    // UXR-72: the pencil is named and has the same tooltip.
+    expect(edit.getAttribute('title')).toBe('Edit ticket');
     // The chat keeps its own "Show full plan" clamp on desktop.
     expect(panel.queryByRole('button', { name: 'Open plan' })).toBeNull();
     expect(document.querySelector('.plan-text.clamped-phone')).toBeNull();

@@ -1,12 +1,13 @@
 import type {
   BoardCard,
+  WorkflowDefinition,
   BoardColumnInfo,
   BoardColumnKind,
   InputRequestKind,
   SessionStatus,
   TicketKind,
 } from '@conductor/shared';
-import { stateLabel } from '../workflow/review.js';
+import { displayState, parseReviewState } from '../workflow/review.js';
 
 export const KIND_LABELS: Record<InputRequestKind, string> = {
   agent_question: 'Question',
@@ -29,16 +30,19 @@ export const STATUS_LABELS: Record<SessionStatus, string> = {
 };
 
 /**
- * The session panel header's status chip (UXR-32 FR-2): "waiting for permission" while the agent
- * is held on a permission request, never "running"; else the session status. null: no status yet.
+ * The session panel header's one chip: its label (UXR-40 `panelStatusLabel`) and the `status-*`
+ * class it is coloured by. UXR-32 FR-2: "Waiting for permission" while the agent is held on a
+ * permission request, never the running state. Null: nothing to show yet.
  */
 export function headStatus(
-  card: Pick<BoardCard, 'status' | 'sub_status' | 'permission'>,
+  card: Pick<BoardCard, 'status' | 'sub_status' | 'permission' | 'workflow_state'>,
+  workflow?: Pick<WorkflowDefinition, 'states'>,
 ): { key: string; label: string } | null {
   if (card.sub_status === 'needs_permission' && card.permission !== undefined) {
-    return { key: 'needs_permission', label: 'waiting for permission' };
+    return { key: 'needs_permission', label: 'Waiting for permission' };
   }
-  return card.status === null ? null : { key: card.status, label: STATUS_LABELS[card.status] };
+  const label = panelStatusLabel(card.workflow_state, card.status, workflow);
+  return label === null ? null : { key: card.status ?? 'none', label };
 }
 
 export const TERMINAL_STATUSES: ReadonlySet<SessionStatus> = new Set(['done', 'failed', 'lost']);
@@ -86,16 +90,41 @@ const STATUS_IMPLIED_BY_KIND: Partial<Record<SessionStatus, ReadonlySet<BoardCol
 
 const norm = (s: string) => s.replace(/_/g, ' ').trim().toLowerCase();
 
-/** UX card cleanup: a card says only what its column (and its badges) don't. */
+/** An engine id for people: `await_approval` → "Await approval" (`stateTitle`'s fallback). */
+export function humanize(id: string): string {
+  const words = id.replace(/_/g, ' ').trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** Whether the meta row names the workflow: only when the board mixes workflows (UXR-30). */
+export interface CardMetaOptions {
+  showWorkflow?: boolean;
+}
+
+/**
+ * UX card cleanup: a card says only what its column (and its badges) don't. UXR-30: in titles,
+ * never engine ids; nothing while a gate step runs (the checking / pending line says it).
+ */
 export function cardMeta(
-  card: Pick<BoardCard, 'workflow_state' | 'workflow_id' | 'status' | 'badges'>,
+  card: Pick<BoardCard, 'workflow_state' | 'workflow_id' | 'status' | 'badges'> &
+    Partial<Pick<BoardCard, 'state_title' | 'checking' | 'pending'>>,
   column: Pick<BoardColumnInfo, 'id' | 'title' | 'kind'>,
+  opts: CardMetaOptions = {},
 ): CardMeta {
   const meta: CardMeta = {};
-  const label = card.workflow_state ? stateLabel(card.workflow_state) : card.workflow_id;
-  if (card.workflow_state !== column.id && norm(label) !== norm(column.title)) {
-    meta.stateLabel = label;
+  const parts: string[] = [];
+  if (opts.showWorkflow) parts.push(humanize(card.workflow_id));
+  const state = card.workflow_state;
+  // A synthetic gate-step label ("a → b (move: x)") is never shown, even without its step.
+  const synthetic = state !== null && state.includes(' → ') && !parseReviewState(state);
+  if (state !== null && !synthetic && !card.checking && !card.pending) {
+    const review = parseReviewState(state);
+    const title = review
+      ? `Reviewing: ${humanize(review.from)} → ${humanize(review.to)}`
+      : (card.state_title ?? humanize(state));
+    if (state !== column.id && norm(title) !== norm(column.title)) parts.push(title);
   }
+  if (parts.length > 0) meta.stateLabel = parts.join(' · ');
   const status = card.status;
   if (status === null) return meta;
   if (STATUS_IMPLIED_BY_KIND[status]?.has(column.kind)) {
@@ -105,4 +134,22 @@ export function cardMeta(
     meta.statusLabel = STATUS_LABELS[status];
   }
   return meta;
+}
+
+/**
+ * UXR-40 (FR-5): the session panel's one status chip, in titles: the state's title ("Needs
+ * input", "Checks before Ready for testing"), plus the status only when the state can't say it
+ * (failed / lost); before the first state, the status ("Queued"). Null with neither.
+ */
+export function panelStatusLabel(
+  state: string | null,
+  status: SessionStatus | null,
+  workflow?: Pick<WorkflowDefinition, 'states'>,
+): string | null {
+  if (state === null) return status === null ? null : humanize(STATUS_LABELS[status]);
+  // A review or gate-step label reads as `displayState` words; a state as its title.
+  const shown = state.includes(' → ')
+    ? displayState(state, workflow)
+    : (workflow?.states[state]?.title ?? humanize(state));
+  return status === 'failed' || status === 'lost' ? `${shown} · ${STATUS_LABELS[status]}` : shown;
 }

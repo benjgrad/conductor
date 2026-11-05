@@ -59,7 +59,7 @@ const PHONE_MAX_WIDTH = 699.98;
  * @typedef {import('playwright-core').Locator} Locator
  * @typedef {{ w: number, h: number, deviceScaleFactor: number, isMobile?: boolean,
  *   hasTouch?: boolean, themes: Partial<Record<'light' | 'dark', 'all' | string[]>> }} Viewport
- * @typedef {{ id: string, path: string, act?: (page: Page) => Promise<void> }} Screen
+ * @typedef {{ id: string, path: string, act?: (page: Page) => Promise<void>, fullPage?: boolean }} Screen
  * @typedef {ReturnType<typeof measure> | { error: string }} Metric
  */
 
@@ -93,7 +93,7 @@ const VIEWPORTS = [
     isMobile: true,
     hasTouch: true,
     deviceScaleFactor: 1,
-    themes: { light: ['board', 'detail', 'new-ticket'] },
+    themes: { light: ['board', 'detail', 'new-ticket', 'new-ticket-bottom'] },
   },
   {
     w: 1440,
@@ -104,12 +104,20 @@ const VIEWPORTS = [
         'board',
         'detail',
         'new-ticket',
+        'new-ticket-bottom',
         'machines',
         'workflows',
+        'wf-rules-full',
+        'wf-rules-new',
+        'wf-arrow-group',
+        'wf-arrow-transition',
+        'workflow-column',
         'ticket-messages',
         'ticket-plan',
         'board-permission',
         'detail-permission',
+        'detail-done',
+        'detail-done-steps',
       ],
       dark: ['board', 'detail'],
     },
@@ -160,6 +168,20 @@ async function tapStrip(page, cls) {
   return true;
 }
 
+/**
+ * The Workflow page with one arrow's transition panel open (the arrow's aria-label starts
+ * "Arrow <from> → <to>:", WorkflowsView.test.tsx).
+ * @param {Page} page @param {string} from @param {string} to
+ */
+async function openArrow(page, from, to) {
+  await page.locator('.wf-lanes').first().waitFor();
+  // An SVG <g role="button">: no HTMLElement.click(), so dispatch the click.
+  const arrow = page.getByRole('button', { name: new RegExp(`^Arrow ${from} → ${to}:`) }).first();
+  await arrow.waitFor({ state: 'attached' });
+  await arrow.dispatchEvent('click');
+  await page.locator('aside.wf-editor').waitFor();
+}
+
 /** Each screen starts from a fresh load of `path`, then `act`s. @type {Screen[]} */
 const SCREENS = [
   { id: 'board', path: '/#/' },
@@ -190,6 +212,19 @@ const SCREENS = [
       await openCard(page);
       await clickNamed(page, 'tab', 'Details');
       await page.locator('aside.detail').scrollIntoViewIfNeeded();
+    },
+  },
+  // UXR-38: a done ticket's history from the transcript (the ticket as markdown, "Finished …").
+  { id: 'detail-done', path: '/#/', act: (page) => openCard(page, 'Rename user.fullname') },
+  {
+    // UXR-88: its Steps, the first recorded result open.
+    id: 'detail-done-steps',
+    path: '/#/',
+    act: async (page) => {
+      await openCard(page, 'Rename user.fullname');
+      await clickNamed(page, 'tab', 'Details');
+      await tap(page.locator('.star-steps button', { hasText: 'Result' }).first());
+      await page.locator('.star-steps').scrollIntoViewIfNeeded();
     },
   },
   {
@@ -261,6 +296,53 @@ const SCREENS = [
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
   { id: 'workflows', path: '/#/workflows' },
+  // UXR-60/63: a transition with every kind of rule, at its full height (the panel uncapped).
+  {
+    id: 'wf-rules-full',
+    path: '/#/workflows',
+    fullPage: true,
+    act: async (page) => {
+      await openArrow(page, 'Implementing', 'Waiting external');
+      await page.evaluate(() => {
+        const panel = /** @type {HTMLElement | null} */ (document.querySelector('aside.wf-editor'));
+        if (panel) panel.style.maxHeight = 'none';
+      });
+    },
+  },
+  // A transition with no requirements: closed sections, "Nothing is required".
+  {
+    id: 'wf-rules-new',
+    path: '/#/workflows',
+    act: (page) => openArrow(page, 'Planning', 'Implementing'),
+  },
+  // UXR-64: an arrow with several transitions opens on their list (before: on the first one).
+  {
+    id: 'wf-arrow-group',
+    path: '/#/workflows',
+    act: (page) => openArrow(page, 'Implementing', 'Needs input'),
+  },
+  // UXR-66: one of them picked from the list: the breadcrumb Column › arrow › transition.
+  {
+    id: 'wf-arrow-transition',
+    path: '/#/workflows',
+    act: async (page) => {
+      await openArrow(page, 'Implementing', 'Needs input');
+      const row = page.locator('.wf-transition-row', { hasText: 'Personal only' });
+      if ((await row.count()) > 0) await tap(row.first());
+    },
+  },
+  // UXR-65: a column's panel, its transitions listed by title.
+  {
+    id: 'workflow-column',
+    path: '/#/workflows',
+    act: async (page) => {
+      await page.locator('.wf-lanes').first().waitFor();
+      const lane = page.getByRole('button', { name: /^Column Implementing:/ }).first();
+      await lane.waitFor({ state: 'attached' });
+      await lane.dispatchEvent('click');
+      await page.locator('aside.wf-editor').waitFor();
+    },
+  },
   { id: 'setup', path: '/#/setup' },
   { id: 'help', path: '/help/add-a-machine' },
   { id: 'help-connect-claude', path: '/help/connect-claude' },
@@ -402,7 +484,10 @@ async function main() {
             await page.waitForTimeout(400);
             await screen.act?.(page);
             await page.waitForTimeout(300);
-            await page.screenshot({ path: join(outDir, `${name}.png`) });
+            await page.screenshot({
+              path: join(outDir, `${name}.png`),
+              fullPage: screen.fullPage ?? false,
+            });
             const metric = await page.evaluate(measure, vp.w);
             metrics[name] = metric;
             console.log(`ok   ${name}`);

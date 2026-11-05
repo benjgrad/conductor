@@ -1,7 +1,7 @@
 // UX-7: the Details tab in STAR order. Situation (why the ticket exists), Task (what was asked),
-// Action (what happened, oldest first), Result (how it stands and what's next), then the
+// Action (what happened, oldest first), Steps (each state's recorded result, UXR-88), Result (how it stands and what's next), then the
 // technical details, collapsed. Which sections are open is remembered per session.
-import type { SessionDetail } from '@conductor/shared';
+import { SESSION_MOVES_LIMIT, type SessionDetail } from '@conductor/shared';
 import { useCallback, useId, useMemo, useState, type ReactNode } from 'react';
 import type { ApiClient } from '../api/client.js';
 import type { Brief } from '../brief/parse.js';
@@ -19,6 +19,7 @@ import {
   type Result,
   type TimelineEntry,
 } from './star.js';
+import { formatDuration, resultMarkdown, steps, type StepRow } from './steps.js';
 import { MovesList, timeFormat } from './transitions.js';
 import './StarDetails.css';
 
@@ -36,10 +37,16 @@ interface StarDetailsProps {
 
 // ---------------------------------------------------------------- open state (FR-6)
 
-type Toggleable = 'situation' | 'task' | 'action' | 'technical';
+type Toggleable = 'situation' | 'task' | 'action' | 'steps' | 'technical';
 type OpenState = Record<Toggleable, boolean>;
 
-const DEFAULT_OPEN: OpenState = { situation: true, task: true, action: true, technical: false };
+const DEFAULT_OPEN: OpenState = {
+  situation: true,
+  task: true,
+  action: true,
+  steps: true,
+  technical: false,
+};
 const storageKey = (sessionId: string) => `conductor.star.open.${sessionId}`;
 
 function readOpen(sessionId: string): OpenState {
@@ -311,6 +318,48 @@ function ActionBody({ entries }: { entries: TimelineEntry[] }) {
   );
 }
 
+function StepItem({ row }: { row: StepRow }) {
+  return (
+    <li className="star-step">
+      <span className="star-step-title">{row.title}</span>
+      <span className="star-step-outcome">
+        {row.leftAt === null
+          ? row.terminal
+            ? 'Ended here'
+            : 'In progress'
+          : (row.outcome ?? 'Moved on')}
+      </span>
+      {row.durationMs !== null && (
+        <span className="muted star-step-duration">{formatDuration(row.durationMs)}</span>
+      )}
+      {row.result && (
+        <Disclosure label="Result">
+          <div className="star-entry-more">
+            <Markdown text={resultMarkdown(row.result)} />
+          </div>
+        </Disclosure>
+      )}
+      {row.replaced && (
+        <span className="muted star-step-note">Result replaced by a later visit</span>
+      )}
+    </li>
+  );
+}
+
+function StepsBody({ rows, capped }: { rows: StepRow[]; capped: boolean }) {
+  if (rows.length === 0) return <p className="muted">No steps yet.</p>;
+  return (
+    <>
+      {capped && <p className="muted star-hint">Earlier steps not shown.</p>}
+      <ol className="star-steps" aria-label="Steps">
+        {rows.map((r) => (
+          <StepItem key={r.key} row={r} />
+        ))}
+      </ol>
+    </>
+  );
+}
+
 const STATUS_CLASS: Record<Result['status'], string> = {
   'In progress': 'running',
   'Waiting for you': 'needs_input',
@@ -382,6 +431,7 @@ export function StarDetails({
   const s = useMemo(() => situation(detail, brief, body), [detail, brief, body]);
   const entries = useMemo(() => timeline(detail, name), [detail, name]);
   const r = useMemo(() => result(detail, name), [detail, name]);
+  const stepRows = useMemo(() => steps(detail), [detail]);
   const last = entries.at(-1);
 
   return (
@@ -413,6 +463,14 @@ export function StarDetails({
         onToggle={() => toggle('action')}
       >
         <ActionBody entries={entries} />
+      </StarSection>
+      <StarSection
+        title="Steps"
+        summary={`${stepRows.length} step${stepRows.length === 1 ? '' : 's'}`}
+        open={open.steps}
+        onToggle={() => toggle('steps')}
+      >
+        <StepsBody rows={stepRows} capped={(detail.moves ?? []).length >= SESSION_MOVES_LIMIT} />
       </StarSection>
       <StarSection title="Result" summary={r.status}>
         <ResultBody r={r} api={api} detail={detail} onReload={onReload} />

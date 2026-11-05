@@ -111,6 +111,16 @@ button {
   color: var(--text);
   cursor: pointer;
 }
+/* UXR-56: one visible focus ring everywhere; components may restyle it but never remove it. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* SVG diagram controls draw their own ring (workflow.css); browsers outline SVG <g> unevenly. */
+svg :focus-visible {
+  outline: none;
+}
+
 button:disabled {
   opacity: 0.5;
   cursor: default;
@@ -257,6 +267,12 @@ main {
   padding: 1px 6px;
   border-radius: 10px;
   width: fit-content;
+  /* UXR-31: a pill is one line; a long one ends in an ellipsis (its title has the full text). */
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 .badge-slot {
   background: var(--warn-bg);
@@ -338,17 +354,16 @@ main {
 .agent-name {
   font-weight: 600;
 }
-.head-state {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .chip {
   font-size: 11px;
   padding: 0 7px;
   border-radius: 10px;
   border: 1px solid currentColor;
   line-height: 17px;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .detail-head .close {
   border: 0;
@@ -687,6 +702,17 @@ button.copy {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* UXR-38: the opening prompt (the ticket) is markdown, laid out by .md, not pre-wrapped. */
+.ticket-msg .user-text {
+  white-space: normal;
+}
+/* UXR-38: an accepted complete_state, as one quiet line. */
+.step-done {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
 .jump-latest {
   position: absolute;
   bottom: 10px;
@@ -753,6 +779,8 @@ button.copy {
 }
 .composer-box:focus-within {
   border-color: var(--accent);
+  /* With the border, a 2px accent edge: the textarea's own ring is off (it would sit inside). */
+  box-shadow: 0 0 0 1px var(--accent);
 }
 .composer-box.off {
   opacity: 0.7;
@@ -810,7 +838,13 @@ button.copy {
   opacity: 1;
 }
 .history-notice {
-  margin: 0 0 6px;
+  /* UXR-38: a notice like the others (ConductorChecks.css .conductor-checks), inset like the
+     chat (.output-chat .output: 14px), not flush with the panel's edge. */
+  margin: 8px 14px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
   font-size: 12px;
 }
 .composer-reason,
@@ -1293,6 +1327,66 @@ button.link {
   }
 }
 
+/* The New ticket sheet (CreateTicketForm), at every width: the phone lays it out full-screen
+   (§Phone layout below), desktop as a centred modal (UXR-41, after it). */
+.sheet-head h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+.sheet-close {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+}
+.sheet .kind-choice {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+.sheet .kind-choice legend {
+  float: none;
+  padding: 0;
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+}
+/* Kind as two segmented buttons; the radio stays (keyboard and screen readers). */
+.sheet .create-ticket .kind-choice label {
+  justify-content: center;
+  gap: var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+}
+.sheet .create-ticket .kind-choice label:has(input:checked) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  background: var(--user-bg);
+  color: var(--accent);
+  font-weight: 600;
+}
+.sheet .form-actions button[type='submit'] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.form-hint {
+  font-size: var(--text-sm);
+}
+/* FR-4: "Discard this ticket?" in the footer, in place of Create ticket. */
+.sheet-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.sheet-confirm span {
+  flex: 1 1 auto;
+}
+
 /* UXR-26 (11-web-ui §Breakpoint): on the desktop board the document never scrolls. The shell is
    the window's height, so the top bar stays put, each column body scrolls on its own, and the
    session panel fills the height with its composer pinned at the bottom. */
@@ -1306,7 +1400,7 @@ button.link {
     flex-direction: column;
     overflow: hidden;
   }
-  /* The top bar, an error banner and the new-ticket form keep their height. */
+  /* The top bar and an error banner keep their height. */
   .app.board-view > * {
     flex: none;
   }
@@ -1344,16 +1438,6 @@ button.link {
     height: auto;
     min-height: 0;
     align-self: stretch;
-  }
-  /* FR-3: the inline new-ticket form scrolls in its own box rather than pushing the page. */
-  .app.board-view > .create-ticket {
-    max-height: 60%;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-  }
-  .app.board-view > .create-ticket .ticket-body-plain,
-  .app.board-view > .create-ticket .ticket-body-rich {
-    max-height: 40vh;
   }
 }
 /* The stacked layout (board above the panel): main is the scroller, columns keep their height. */
@@ -1419,6 +1503,98 @@ button.link {
     height: var(--tap);
     right: var(--space-1);
     bottom: var(--space-1);
+  }
+}
+
+/* UXR-41: on desktop (and tablets) the New ticket sheet is a centred modal over the board. */
+@media (min-width: 700px) {
+  html.modal-open {
+    overflow: hidden;
+  }
+  .sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-sheet);
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 5vh var(--space-4);
+    background: rgb(0 0 0 / 0.45);
+    overflow: hidden;
+  }
+  .sheet {
+    width: min(760px, 100%);
+    min-width: 0;
+    max-height: 90vh;
+    max-height: 90dvh;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-2);
+    outline: none;
+    overflow: hidden;
+  }
+  .sheet-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+    border-bottom: 1px solid var(--border);
+  }
+  .sheet-close {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-md);
+  }
+  /* The form scrolls; Title on its own row, then Repo | Priority | Kind. */
+  .sheet .create-ticket {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    grid-template-columns: minmax(0, 1fr) 7rem auto;
+    align-items: end;
+    gap: var(--space-3);
+    padding: var(--space-4) var(--space-4) 0;
+    border: 0;
+  }
+  .sheet .create-ticket .field-title {
+    grid-column: 1 / -1;
+  }
+  .sheet .kind-choice {
+    grid-template-columns: auto auto;
+    gap: var(--space-1);
+  }
+  .sheet .create-ticket .kind-choice label {
+    padding: var(--space-1) var(--space-3);
+    white-space: nowrap;
+  }
+  .sheet .ticket-body-plain,
+  .sheet .ticket-body-rich {
+    min-height: 14em;
+  }
+  /* Sticky footer: Create ticket on the right, what's still needed on its left. */
+  .sheet .form-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: var(--z-sticky);
+    flex-direction: row-reverse;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    margin: auto calc(-1 * var(--space-4)) 0;
+    padding: var(--space-3) var(--space-4);
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+  }
+  .sheet .form-actions .error {
+    flex-basis: 100%;
+    margin: 0;
+  }
+  .sheet-confirm {
+    flex: 1;
   }
 }
 
@@ -1533,6 +1709,8 @@ button.link {
     display: flex;
     flex-direction: column;
     background: var(--panel);
+    /* A full-viewport dialog container focused on open, not a control: its first field shows the
+       ring, and a ring round the whole screen would be noise. */
     outline: none;
   }
   .sheet-head {
@@ -1543,18 +1721,6 @@ button.link {
     padding: calc(var(--space-1) + env(safe-area-inset-top)) var(--space-1) var(--space-1)
       var(--space-4);
     border-bottom: 1px solid var(--border);
-  }
-  .sheet-head h2 {
-    margin: 0;
-    font-size: var(--text-lg);
-  }
-  .sheet-close {
-    display: grid;
-    place-items: center;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--muted);
   }
   .sheet .create-ticket {
     flex: 1;
@@ -1580,32 +1746,6 @@ button.link {
     min-height: var(--tap);
     padding: var(--space-2) var(--space-3);
   }
-  .sheet .kind-choice {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--space-2);
-  }
-  .sheet .kind-choice legend {
-    float: none;
-    padding: 0;
-    margin: 0 0 var(--space-1);
-    font-size: var(--text-sm);
-  }
-  /* Kind as two big segmented buttons; the radio stays (keyboard and screen readers). */
-  .sheet .create-ticket .kind-choice label {
-    justify-content: center;
-    gap: var(--space-2);
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-md);
-    font-size: var(--text-base);
-  }
-  .sheet .create-ticket .kind-choice label:has(input:checked) {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 1px var(--accent);
-    background: var(--user-bg);
-    color: var(--accent);
-    font-weight: 600;
-  }
   .sheet .form-actions {
     position: sticky;
     bottom: 0;
@@ -1618,14 +1758,7 @@ button.link {
     border-top: 1px solid var(--border);
     background: var(--panel);
   }
-  .sheet .form-actions button[type='submit'] {
-    border-color: var(--accent);
-    background: var(--accent);
-    color: var(--on-accent);
-    font-weight: 600;
-  }
   .form-hint {
-    font-size: var(--text-sm);
     text-align: center;
   }
   .sheet .ticket-body-plain,

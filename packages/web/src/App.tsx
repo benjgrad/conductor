@@ -287,6 +287,8 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
   const showForm = route.view === 'board' && !guide && creating;
   // UXR-41: the page under the desktop New ticket sheet doesn't scroll (the phone locks `.app`).
   useDocumentClass('modal-open', showForm && !mobile);
+  // UXR-26: on the desktop board the document never scrolls; the shell is the window's height.
+  const boardView = route.view === 'board' && !guide;
   const selectedCard = selected
     ? [...board.cards.values()].find((c) => c.session_id === selected)
     : undefined;
@@ -300,7 +302,7 @@ function Shell({ api, me, onSignedOut, compact, mobile }: ShellProps) {
 
   return (
     <div
-      className={`app${selected || selectedTicket ? ' with-detail' : ''}${mobile ? ' mobile' : ''}${showForm ? ' creating' : ''}`}
+      className={`app${selected || selectedTicket ? ' with-detail' : ''}${mobile ? ' mobile' : ''}${showForm ? ' creating' : ''}${boardView && !mobile ? ' board-view' : ''}`}
     >
       <header ref={topbarRef} className={`topbar${compact ? ' compact' : ''}`}>
         {mobile ? (

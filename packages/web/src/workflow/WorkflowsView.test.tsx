@@ -58,6 +58,9 @@ const arrow = (from: string, to: string) =>
   screen.getByRole('button', { name: new RegExp(`^Arrow ${from} → ${to}:`) });
 const editor = () => within(screen.getByRole('complementary', { name: 'Column' }));
 const panel = () => within(screen.getByRole('complementary', { name: 'Transition' }));
+/** A transition editor section's header button (UXR-63), by the start of its name. */
+const sectionHead = (start: string) =>
+  panel().getByRole('button', { name: new RegExp(`^${start.replace(/[()]/g, '\\$&')}`) });
 const type = (el: HTMLElement, value: string) => fireEvent.change(el, { target: { value } });
 const lanesOf = (el: Element) =>
   [...el.querySelectorAll('[data-lane]')].map((n) => n.getAttribute('data-lane'));
@@ -165,6 +168,21 @@ describe('Workflow view', () => {
     await screen.findByRole('group', { name: 'conductor v4 columns' });
     expect(saved[0]!.states.implementing).toMatchObject({ ticket_editable: true });
     expect(saved[0]!.queued_ticket_editable).toBe(false);
+  });
+
+  it('lays each lone checkbox out inline with its label, not as a check row (UXR-43)', async () => {
+    await setup();
+    fireEvent.click(lane('Implementing'));
+    const boxes = [
+      editor().getByRole('checkbox', { name: 'People can edit the ticket in this column' }),
+      editor().getByRole('checkbox', { name: 'Agents may propose follow-up tickets' }),
+      screen.getByRole('checkbox', { name: 'People can edit tickets in the Queued column' }),
+    ];
+    for (const box of boxes) {
+      const label = box.closest('label')!;
+      expect(label.classList.contains('wf-toggle')).toBe(true);
+      expect(label.classList.contains('wf-check')).toBe(false);
+    }
   });
 
   it('tunes follow-up proposals for an agent column (ADR-0034)', async () => {
@@ -332,6 +350,7 @@ describe('transition arrows (ADR-0011)', () => {
   it('add a condition with no timeout → the rule-13 error is shown on that arrow', async () => {
     const { saved } = await setup();
     fireEvent.click(arrow('Planning', 'Implementing'));
+    fireEvent.click(sectionHead('Conditions (0)'));
     fireEvent.click(panel().getByRole('button', { name: 'Add condition' }));
     // The first requirement brings a "when not met" (rule 13 needs one).
     expect(panel().getByLabelText<HTMLSelectElement>('Back to').value).toBe('planning');
@@ -367,8 +386,17 @@ describe('transition arrows (ADR-0011)', () => {
       );
     fireEvent.click(lane('Planning'));
     type(editor().getByLabelText('Title'), 'Thinking');
+    // UXR-63: a section the user closed opens again when a problem appears in it.
+    fireEvent.click(arrow('Implementing', 'Waiting external'));
+    fireEvent.click(sectionHead('Conditions'));
+    expect(sectionHead('Conditions').getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(saveButton());
     await screen.findByText(/workflow definition is invalid/);
+    expect(sectionHead('Conditions').getAttribute('aria-expanded')).toBe('true');
+    expect(sectionHead('Conditions').getAttribute('class')).toContain('error');
+    expect(panel().getByRole('alert').textContent).toBe(
+      'rule 13: conditions need condition_timeout',
+    );
     const problems = within(screen.getByRole('list', { name: 'Problems' }));
     expect(problems.getByText(/rule 1: something global/)).toBeTruthy();
     expect(arrow('Implementing', 'Waiting external').getAttribute('class')).toContain('error');
@@ -405,6 +433,7 @@ describe('transition arrows (ADR-0011)', () => {
     fireEvent.click(panel().getByRole('button', { name: 'Move check 2 up' }));
     type(panel().getByLabelText(/Before the checks/), 'custom');
     type(panel().getByLabelText('Setup command'), 'pnpm i --frozen-lockfile');
+    fireEvent.click(sectionHead('Review (0)'));
     fireEvent.click(panel().getByRole('button', { name: 'Add review item' }));
     type(panel().getByLabelText('Review item 1'), 'The change matches the ticket');
     fireEvent.click(panel().getByRole('checkbox', { name: 'Open a pull request (by conductor)' }));
@@ -465,6 +494,80 @@ describe('transition arrows (ADR-0011)', () => {
     fireEvent.click(panel().getByRole('button', { name: 'Remove transition' }));
     expect(editor().getByRole('heading', { name: 'Planning' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /^Arrow Planning → Done:/ })).toBeNull();
+  });
+});
+
+describe('transition editor: summary and sections (UXR-60, UXR-63)', () => {
+  const heads = () =>
+    within(screen.getByRole('complementary', { name: 'Transition' }))
+      .getAllByRole('button', { expanded: true })
+      .concat(
+        within(screen.getByRole('complementary', { name: 'Transition' })).queryAllByRole('button', {
+          expanded: false,
+        }),
+      );
+
+  it('opens on a sentence saying what the transition does, then its sections', async () => {
+    await setup();
+    fireEvent.click(arrow('Implementing', 'Waiting external'));
+    expect(panel().getByLabelText('Summary').textContent).toBe(
+      'When the agent says Ready for testing (work tickets): set up with auto-detect, run Build ' +
+        'passes and Tests pass, have a reviewer check 1 item, open a PR, then wait up to 3 days ' +
+        'for PR checks and 1 approval → Waiting external. If not met: back to Implementing with ' +
+        'your instruction, up to 3 times, then Needs input.',
+    );
+    const names = [
+      'Who and when (the agent · work)',
+      'Checks (2)',
+      'Review (1)',
+      'Actions (open a PR)',
+      'Conditions (4 · wait 3d, poll 2m)',
+      'If the requirements aren’t met (back to Implementing · 3× · then Needs input)',
+    ];
+    // In this order, all open (each has content).
+    expect(heads().map((b) => b.textContent?.replace(/^[▾▸]/, ''))).toEqual(names);
+    for (const n of names) {
+      expect(panel().getByRole('button', { name: n }).getAttribute('aria-expanded')).toBe('true');
+    }
+    // A section closes and opens again from its header.
+    fireEvent.click(sectionHead('Checks (2)'));
+    expect(sectionHead('Checks (2)').getAttribute('aria-expanded')).toBe('false');
+    expect(panel().queryByRole('button', { name: 'Add check' })).toBeNull();
+    fireEvent.click(sectionHead('Checks (2)'));
+    expect(panel().getByRole('button', { name: 'Add check' })).toBeTruthy();
+  });
+
+  it('a transition with no requirements: closed sections, "Nothing is required"', async () => {
+    await setup();
+    fireEvent.click(arrow('Planning', 'Implementing'));
+    expect(panel().getByLabelText('Summary').textContent).toBe(
+      'When the agent says Plan ready: move straight → Implementing.',
+    );
+    expect(sectionHead('Who and when').getAttribute('aria-expanded')).toBe('true');
+    for (const n of ['Checks (0)', 'Review (0)', 'Actions (none)', 'Conditions (0)']) {
+      expect(sectionHead(n).getAttribute('aria-expanded')).toBe('false');
+    }
+    expect(panel().queryByRole('button', { name: 'Add condition' })).toBeNull();
+    expect(panel().getByText(/Nothing is required: the move happens as soon as/)).toBeTruthy();
+    expect(panel().queryByRole('button', { name: /^If the requirements/ })).toBeNull();
+
+    // The first requirement brings its not-met policy, open, right after the conditions; the
+    // summary follows.
+    fireEvent.click(sectionHead('Conditions (0)'));
+    fireEvent.click(panel().getByRole('button', { name: 'Add condition' }));
+    expect(panel().queryByText(/Nothing is required/)).toBeNull();
+    const unmet = sectionHead('If the requirements aren’t met');
+    expect(unmet.getAttribute('aria-expanded')).toBe('true');
+    const conditions = sectionHead('Conditions (1 · poll 2m)');
+    expect(conditions.getAttribute('class')).toContain('error');
+    expect(
+      conditions.compareDocumentPosition(unmet) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const summary = panel().getByLabelText('Summary').textContent;
+    expect(summary).toContain('wait for PR checks → Implementing.');
+    expect(summary).toContain('If not met: back to Planning, up to 3 times, then Needs input.');
+    type(panel().getByLabelText('Wait at most'), '1d');
+    expect(panel().getByLabelText('Summary').textContent).toContain('wait up to 1 day for');
   });
 });
 

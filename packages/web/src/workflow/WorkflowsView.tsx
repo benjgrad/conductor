@@ -199,7 +199,11 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
   };
 
   return (
-    <div className={`wf-view${panelOpen ? ' with-editor' : ''}`}>
+    <div
+      className={`wf-view${panelOpen ? ' with-editor' : ''}${
+        panelOpen && selectedTransition !== null ? ' with-transition' : ''
+      }`}
+    >
       <section className="wf-main" aria-label="Workflow">
         {/* 11-web-ui: the editor needs room; shown only below the phone breakpoint (CSS). */}
         <p className="mobile-note muted">The workflow editor is best on a larger screen.</p>
@@ -300,7 +304,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
           </ul>
         )}
         {shown && asColumns && (
-          <label className="wf-check">
+          <label className="wf-toggle">
             <input
               type="checkbox"
               checked={ticketEditableOf(shown, QUEUED_LANE)}

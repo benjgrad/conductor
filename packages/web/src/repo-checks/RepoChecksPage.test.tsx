@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiRequestError } from '../api/client.js';
 import { createMockApi, type MockApi } from '../api/mock.js';
 import { App } from '../App.js';
-import { ADR_0030_URL, RepoChecksPage } from './RepoChecksPage.js';
+import { REPO_CHECKS_HELP_URL } from '../help/HelpPage.js';
+import { RepoChecksPage } from './RepoChecksPage.js';
 
 // Component tests against the in-memory mock API; the orchestrator round trip is in
 // packages/orchestrator/test/api.repo-checks.test.ts.
@@ -39,14 +40,15 @@ async function sources(repo: string) {
 }
 
 describe('repo checks page (ADR-0030)', () => {
-  it('is #/repo-checks, from the account menu: the note, the ADR link and the seeded override', async () => {
+  it('is #/repo-checks, from the account menu: the note, the Help link and the seeded override', async () => {
     window.history.replaceState(null, '', '/#/repo-checks');
     render(<App api={createMockApi({ now })} />);
     const page = within(await screen.findByRole('region', { name: 'Repo checks' }));
-    expect(page.getByText(/sh -c/).closest('p')!.textContent).toContain(
-      'at the repo root of a fresh checkout (Git Bash on Windows)',
+    const note = page.getByText(/Give a repo its own build and test commands/).closest('p')!;
+    expect(note.textContent).not.toMatch(/ADR|sh -c/);
+    expect(within(note).getByRole('link', { name: 'Help' }).getAttribute('href')).toBe(
+      REPO_CHECKS_HELP_URL,
     );
-    expect(page.getByRole('link', { name: 'ADR-0030' }).getAttribute('href')).toBe(ADR_0030_URL);
     const table = within(await page.findByRole('table', { name: 'Repos with their own checks' }));
     expect(table.getByRole('button', { name: SHOP })).toBeTruthy();
     expect(table.getByText('Build, Tests')).toBeTruthy();

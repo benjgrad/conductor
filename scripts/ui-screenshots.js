@@ -44,7 +44,8 @@ const TICKET_SHOTS = ['ticket-messages', 'ticket-plan', 'ticket-plan-sheet', 'ti
  * @typedef {{ w: number, h: number, deviceScaleFactor: number, isMobile?: boolean,
  *   hasTouch?: boolean, themes: Partial<Record<'light' | 'dark', 'all' | string[]>> }} Viewport
  * @typedef {{ id: string, path: string, act?: (page: Page) => Promise<void>,
- *   scene?: keyof typeof SCENES, desktopOnly?: boolean }} Screen
+ *   scene?: keyof typeof SCENES, desktopOnly?: boolean,
+ *   fullPage?: boolean }} Screen
  * @typedef {ReturnType<typeof measure> | { error: string }} Metric
  */
 
@@ -64,6 +65,25 @@ const SCENES = {
 };
 
 /** The full-platform review (docs/qa/ux-review/full-2026-11): every screen and state. */
+/** The workflow designer, in depth (full-2026-11 §Workflow designer): desktop only. */
+const WORKFLOW_DESIGNER = [
+  'wf-arrow-group',
+  'wf-rules-full',
+  'wf-rules-new',
+  'wf-name-error',
+  'wf-column-human',
+  'wf-column-done',
+  'wf-diagram-end',
+  'wf-version-old',
+  'wf-unsaved-guard',
+  'wf-proposal-open',
+  'wf-keyboard-focus',
+  'rc-override-full',
+  'rc-new-override',
+  'rc-invalid',
+  'rc-clear-confirm',
+];
+
 const FULL_REVIEW = [
   'detail-review',
   'detail-checks',
@@ -139,6 +159,7 @@ const VIEWPORTS = [
         'setup',
         'signin',
         ...FULL_REVIEW,
+        ...WORKFLOW_DESIGNER,
       ],
       dark: ['board', 'detail', 'detail-review', 'workflows', 'machines', 'new-ticket'],
     },
@@ -196,6 +217,32 @@ async function tapStrip(page, cls) {
   await tap(button.first());
   await page.waitForTimeout(300);
   return true;
+}
+
+/** Open a column's editor in the workflow diagram (by its state id). @param {Page} page @param {string} lane */
+async function openLane(page, lane) {
+  await tap(page.locator(`g.selectable[data-lane="${lane}"]`));
+  await page.locator('aside.wf-editor[aria-label="Column"]').waitFor();
+}
+
+/**
+ * Open a transition from its column's editor (the list shows `name → Column`).
+ * @param {Page} page @param {string} lane @param {string} name
+ */
+async function openTransition(page, lane, name) {
+  await openLane(page, lane);
+  await tap(page.locator('.wf-transition', { hasText: new RegExp(`^${name} `) }).first());
+  await page.locator('aside.wf-editor[aria-label="Transition"]').waitFor();
+}
+
+/** Let the editor panel grow to its full height, for a `fullPage` shot of every field. @param {Page} page */
+async function unclampEditor(page) {
+  await page.addStyleTag({
+    content:
+      '.wf-editor { max-height: none !important; overflow: visible !important; } ' +
+      'html, body, #root, #root > *, .wf-view, .wf-main { height: auto !important; ' +
+      'max-height: none !important; overflow: visible !important; }',
+  });
 }
 
 /** Each screen starts from a fresh load of `path`, then `act`s. @type {Screen[]} */
@@ -382,6 +429,127 @@ const SCREENS = [
   },
   { id: 'signup', path: '/signup?invite=mock-invite-open', scene: 'signed-out' },
   { id: 'reset', path: '/reset?token=mock-reset', scene: 'signed-out' },
+  // The workflow designer in depth (WORKFLOW_DESIGNER).
+  {
+    // An arrow that stands for several transitions (×n): the tabs above the form.
+    id: 'wf-arrow-group',
+    path: '/#/workflows',
+    act: (page) => openTransition(page, 'implementing', 'pr_ready_for_review'),
+  },
+  {
+    // A transition with requirements, every field of the rules builder.
+    id: 'wf-rules-full',
+    path: '/#/workflows',
+    fullPage: true,
+    act: async (page) => {
+      await openTransition(page, 'implementing', 'ready_for_testing');
+      await unclampEditor(page);
+    },
+  },
+  {
+    // Building rules from nothing: one blank check, review item and condition on plan_ready
+    // (the first requirement brings "When not met"; the blank check is a problem, so Save is off).
+    id: 'wf-rules-new',
+    path: '/#/workflows',
+    fullPage: true,
+    act: async (page) => {
+      await openTransition(page, 'planning', 'plan_ready');
+      for (const name of ['Add check', 'Add review item', 'Add condition']) {
+        await clickNamed(page, 'button', name);
+      }
+      await unclampEditor(page);
+    },
+  },
+  {
+    id: 'wf-name-error',
+    path: '/#/workflows',
+    act: async (page) => {
+      await openTransition(page, 'planning', 'plan_ready');
+      await page.getByLabel('Name', { exact: true }).fill('Plan ready!');
+    },
+  },
+  { id: 'wf-column-human', path: '/#/workflows', act: (page) => openLane(page, 'needs_input') },
+  {
+    id: 'wf-column-done',
+    path: '/#/workflows',
+    act: async (page) => {
+      await page.evaluate(() => {
+        const box = document.querySelector('.wf-scroll');
+        if (box) box.scrollLeft = box.scrollWidth;
+      });
+      await openLane(page, 'done');
+    },
+  },
+  {
+    // The right-hand end of the diagram (Waiting external, Done), scrolled inside its box.
+    id: 'wf-diagram-end',
+    path: '/#/workflows',
+    act: async (page) => {
+      await page.evaluate(() => {
+        const box = document.querySelector('.wf-scroll');
+        if (box) box.scrollLeft = box.scrollWidth;
+      });
+    },
+  },
+  {
+    id: 'wf-version-old',
+    path: '/#/workflows',
+    act: async (page) => {
+      const select = page.getByLabel('Version');
+      const values = await select
+        .locator('option')
+        .evaluateAll((os) => os.map((o) => /** @type {HTMLOptionElement} */ (o).value));
+      await select.selectOption(values[values.length - 1] ?? '1');
+      await page.waitForTimeout(300);
+    },
+  },
+  {
+    // A draft, then Board: the unsaved-changes guard.
+    id: 'wf-unsaved-guard',
+    path: '/#/workflows',
+    act: async (page) => {
+      await openLane(page, 'planning');
+      await page.getByLabel('Title', { exact: true }).fill('Plan it');
+      await tap(page.locator('.topbar a', { hasText: 'Board' }).first());
+      await page.locator('[role="alertdialog"][aria-label="Unsaved changes"]').waitFor();
+    },
+  },
+  {
+    id: 'wf-proposal-open',
+    path: '/#/workflows',
+    act: async (page) => {
+      await tap(page.locator('.cp-summary').first());
+      await page.waitForTimeout(300);
+      await page.locator('.cp-panel').scrollIntoViewIfNeeded();
+    },
+  },
+  // Repo checks overrides (ADR-0030), in depth.
+  { id: 'rc-override-full', path: '/#/repo-checks/github.com%2Facme%2Fshop', fullPage: true },
+  // A repo without an override: the editor starts from the workflow's checks.
+  { id: 'rc-new-override', path: '/#/repo-checks/github.com%2Facme%2Fapi', fullPage: true },
+  {
+    id: 'rc-invalid',
+    path: '/#/repo-checks/github.com%2Facme%2Fshop',
+    fullPage: true,
+    act: async (page) => {
+      await page.getByLabel('Check 1 name').fill('');
+      await page.getByLabel('Check 2 command').fill('');
+    },
+  },
+  {
+    id: 'rc-clear-confirm',
+    path: '/#/repo-checks/github.com%2Facme%2Fshop',
+    fullPage: true,
+    act: (page) => clickNamed(page, 'button', 'Clear override'),
+  },
+  {
+    // Keyboard: Tab onto the diagram (the second column), to see the focus ring.
+    id: 'wf-keyboard-focus',
+    path: '/#/workflows',
+    act: async (page) => {
+      await page.locator('g.selectable[data-lane="planning"]').focus();
+    },
+  },
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
   { id: 'workflows', path: '/#/workflows' },
@@ -512,7 +680,8 @@ async function main() {
         for (const screen of SCREENS) {
           if (list !== 'all' && !list.includes(screen.id)) continue;
           if (only.length > 0 && !only.includes(screen.id)) continue;
-          if (screen.desktopOnly && vp.isMobile) continue;
+          if ((screen.desktopOnly || WORKFLOW_DESIGNER.includes(screen.id)) && vp.isMobile)
+            continue;
           const name = `${screen.id}-${vp.w}x${vp.h}-${theme}`;
           try {
             // A hash-only change wouldn't reload, so every shot starts from a blank page.
@@ -529,7 +698,10 @@ async function main() {
             await page.waitForTimeout(400);
             await screen.act?.(page);
             await page.waitForTimeout(300);
-            await page.screenshot({ path: join(outDir, `${name}.png`) });
+            await page.screenshot({
+              path: join(outDir, `${name}.png`),
+              fullPage: screen.fullPage ?? false,
+            });
             metrics[name] = await page.evaluate(measure, vp.w);
             console.log(`ok   ${name}`);
           } catch (err) {

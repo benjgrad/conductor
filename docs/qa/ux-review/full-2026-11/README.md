@@ -1,11 +1,11 @@
 # UI review: the whole platform (2026-11-04)
 
-The "UX" ticket: *"Do a full design review of our platform. Capture screenshots. I want you to give me your thoughts and list improvements you recommend for our UI."* The [mobile review](../README.md) (UXR-01..21, 2026-10-29) rebuilt the phone layout. This one looks at **every screen and state**, on desktop as much as on a phone, and ends with a prioritised list of recommendations. This is a review only: nothing here is built yet. Changes to the desktop layout need Ben's OK before anyone builds them.
+The "UX" ticket: *"Do a full design review of our platform. Capture screenshots. I want you to give me your thoughts and list improvements you recommend for our UI."* The [mobile review](../README.md) (UXR-01..21, 2026-10-29) rebuilt the phone layout. This one looks at **every screen and state**, on desktop as much as on a phone, and ends with a prioritised list of recommendations. Ben then asked for three deeper looks, each with its own section: [the workflow designer's rules builders and navigation](#the-workflow-designer-in-depth), [repo checks overrides](#repo-checks-overrides-in-depth) (with a proposed redesign), and [the MCP tools that still have no web UI](#mcp-tools-without-a-web-ui). This is a review only: nothing here is built yet. Changes to the desktop layout need Ben's OK before anyone builds them.
 
 **How the shots were made**: `node scripts/ui-screenshots.js --out full-2026-11`.
 - The script starts the web app on the still mock API (`VITE_API=mock VITE_MOCK_STATIC=1`) and drives Chrome through playwright-core.
 - Sizes: 375×812 and 360×740 (phones, touch, 2×), 768×1024 (tablet) and 1440×900 (desktop). Every shot is in light mode, and the key screens are also in dark.
-- Output: 96 PNGs plus [`metrics.json`](metrics.json), which records the page width against the device width, the page height, and the visible controls smaller than 44×44 px.
+- Output: 111 PNGs plus [`metrics.json`](metrics.json), which records the page width against the device width, the page height, and the visible controls smaller than 44×44 px.
 - This review added the full set of screens (`FULL_REVIEW` in the script).
 - It also added four mock **scenes** (`api/select.ts`, dev-only env flags) for states the default mock can't show:
   - accounts mode, signed in as admin;
@@ -153,6 +153,182 @@ IDs continue the series from the [mobile review](../README.md); UXR-01..21 are n
 |---|---|---|---|---|
 | UXR-59 | S2 | The tablet still gets the desktop layout with no room for it. The board is 1,146 px on a 768 px screen; the detail panel opens below the board (page 2,397 px tall); the machines table pans (1,018 px); and "Add a machine" wraps onto two lines in the top bar. | [board 768](board-768x1024-light.png), [detail-review 768](detail-review-768x1024-light.png), [machines 768](machines-768x1024-light.png) | Move the phone breakpoint up to about 900 px for the board and panel: one column with a switcher, and a full-screen panel. That's the phone layout on a bigger canvas, with no new component. Or, at minimum, start with Queued, Planning and Done collapsed on tablets. |
 
+## The workflow designer in depth
+
+Ben asked for a closer look at the rules builders for transitions, and at how you get around the workflow designer. These shots are desktop-only (1440×900); the phone editor is UXR-44. Shots with *(full height)* let the editor panel grow to its full height, so every field is visible at once. In the app, the panel scrolls inside a box about 800 px tall.
+
+| Shot | What it shows |
+|---|---|
+| [wf-arrow-group](wf-arrow-group-1440x900-light.png) | The ×5 arrow from Implementing to Needs input: five transitions as tabs above one form |
+| [wf-rules-full](wf-rules-full-1440x900-light.png) *(full height)* | `ready_for_testing`, the richest transition: every section of the builder filled in |
+| [wf-rules-new](wf-rules-new-1440x900-light.png) *(full height)* | `plan_ready` after Add check, Add review item and Add condition: the problems list, the inline errors, and "When not met" appearing |
+| [wf-name-error](wf-name-error-1440x900-light.png) | Renaming a transition to `Plan ready!` |
+| [wf-column-human](wf-column-human-1440x900-light.png), [workflow-column](workflow-column-1440x900-light.png), [wf-column-done](wf-column-done-1440x900-light.png) | The column editor for a person column, an agent column and the final column |
+| [wf-diagram-end](wf-diagram-end-1440x900-light.png) | The diagram scrolled to its right-hand end |
+| [wf-version-old](wf-version-old-1440x900-light.png) | v1, with the old "requirements to enter" drawn inside its column |
+| [wf-unsaved-guard](wf-unsaved-guard-1440x900-light.png) | A draft, then a click on Board |
+| [wf-proposal-open](wf-proposal-open-1440x900-light.png) | An advisor proposal opened, with its diff |
+| [wf-keyboard-focus](wf-keyboard-focus-1440x900-light.png) | Keyboard focus on a column |
+
+### How it works today
+
+You get around the designer by clicking:
+- **Clicking a column** opens the column editor on the right. It shows Title, "People can edit the ticket", Work (prompt template, model, tools, follow-ups) and the list of transitions *out of* that column.
+- **Clicking a transition** in that list, or an arrow in the diagram, replaces the column editor with the transition editor.
+- **Inside the transition editor**, the fields run top to bottom:
+  1. Name and Title.
+  2. Goes to.
+  3. When to take it.
+  4. Taken by.
+  5. For tickets (Work / Personal).
+  6. Asks a question.
+  7. Notify me.
+  8. **Requires**: Checks (with the setup before them), Review (items and a reviewer model), Actions, and Conditions (with "Wait at most" and "Check every").
+  9. **When not met**: Back to, With instruction, Up to (times), Then.
+  10. Remove transition.
+
+  Every change goes into one draft. *Save as new version* sits at the top of the page.
+
+What works:
+- **The order of Requires matches the order things run**: checks, then review, then actions, then conditions. The intro sentence says so.
+- **The problems list** at the top names each problem by column and transition, and has a *Show* button that jumps to it. The diagram turns the broken arrow red ([wf-rules-new](wf-rules-new-1440x900-light.png)).
+- **The rename check** is plain and specific: "use a name without spaces, e.g. ready_for_review" ([wf-name-error](wf-name-error-1440x900-light.png)).
+- **Column titles update the diagram as you type**, and a draft is guarded against navigating away ([wf-unsaved-guard](wf-unsaved-guard-1440x900-light.png)).
+- **Running tickets are safe**: "Saving creates v4. Running tickets keep the version they started on" is exactly the reassurance an editor needs.
+
+### Findings
+
+| ID | Sev | Finding | Evidence | Recommendation |
+|---|---|---|---|---|
+| UXR-60 | S1 | **The most consequential settings in the product are the hardest to read.** A transition with rules is a single column about 2,000 px tall, inside a 380 px panel that scrolls on its own. There is no summary anywhere: to learn what `ready_for_testing` does, you scroll through 30 fields and assemble it in your head. The diagram only adds a "✓" to the arrow. | [wf-rules-full](wf-rules-full-1440x900-light.png) | Put a **plain-language summary** at the top of the editor, generated from the fields. For example: "When the agent says *Ready for testing* (work tickets): set up with auto-detect, run *Build passes* and *Tests pass*, have a reviewer check 1 item, open a PR, then wait up to 3 d for PR checks and 1 approval → **Waiting external**. If not met: back to Implementing with your instruction, up to 3 times, then **Needs input**." Below it, **collapsible sections**, each with a count in the header: *Who and when* · *Checks (2)* · *Review (1)* · *Actions (1)* · *Conditions (4)* · *When not met*. Widen the editor to about 600 px, or open it as a full-width sheet under the diagram. |
+| UXR-61 | S2 | **Fields without labels.** A check is three stacked inputs (name, command, timeout); a condition is a type select plus one to three unlabeled inputs. Once filled in, the placeholder that explained each one is gone. "5 m" (the PR-checks condition), "1" (approvals), "resolution" (Jira fields), "ci" (pipeline) and "10 m" (a timeout) can only be read by someone who already knows. When a name is cleared, the error "check 1 needs a name" points at a box you can no longer identify. | [wf-rules-full](wf-rules-full-1440x900-light.png), [rc-invalid](rc-invalid-1440x900-light.png) | **Checks as a table**, one row per check, with headers *Name · Command · Timeout*. The command field is wide; the timeout is a small field with a unit. **Conditions as sentences**, with the inputs inline: "PR checks are green (count *no CI after [5 m]* as green)", "At least [1] PR approval", "Jira fields [resolution] are set", "Azure pipeline [ci] succeeded". The optional checklist label goes behind a "Rename on the card" link. |
+| UXR-62 | S2 | **It offers what doesn't exist yet, and names some of it by id.** Condition types "(not available yet)" can be picked, with a checkbox labelled "Enabled (declare it disabled until it is available)". The Actions list shows `inspect_pr`, `merge_pr` and `close_pr` as raw ids next to "Open a pull request (by conductor)", because `ACTION_TEXT` (`workflow/transitions.ts:153`) has labels for only three actions. | [wf-rules-full](wf-rules-full-1440x900-light.png) | Hide unavailable types and actions, unless the loaded version already uses them; then show them read-only with "Not available yet: this condition is skipped". Add labels: *Check the pull request*, *Merge the pull request*, *Close the pull request*. |
+| UXR-63 | S2 | **"When not met" appears by surprise, at the bottom.** It isn't in the form until the first requirement is added. Then it appears already filled in (back to the agent column, 3 times, then Needs input) as the last section, after the conditions, and it adds a dashed arrow to the diagram. That section is the retry and escalation policy, the rule that keeps a ticket from looping forever, but it is the least visible part of the form. | [wf-rules-new](wf-rules-new-1440x900-light.png) | Put it directly under Requires, as "If the requirements aren't met…", with the default spelled out: "back to Planning with no instruction, up to 3 times, then Needs input". When there are no requirements, say "Nothing is required: the move happens as soon as it's taken". |
+| UXR-64 | S2 | **The id comes first, and renaming it takes effect on every keystroke.** *Name* (`plan_ready`) is the first field. Each valid keystroke renames the transition in the draft (`TransitionEditor.tsx:189`). These names are what agents report and what prompts refer to, so renaming one changes the agent protocol, and nothing warns you. | [wf-arrow-group](wf-arrow-group-1440x900-light.png), [wf-name-error](wf-name-error-1440x900-light.png) | Title first, as the field people edit. Move Name under an *Advanced* disclosure, with a warning: "Agents report this name; prompts and history refer to it." Rename on blur or Enter, not per keystroke. |
+| UXR-65 | S2 | **Several transitions on one arrow can't be told apart.** The ×5 arrow from Implementing to Needs input opens on whichever comes first. The tabs are raw ids (`needs_approval_to_message`, `pr_ready_for_review`, `personal_pr_ready_for_review`, `ask_user`, `timeout`) and nothing shows how they differ. `pr_ready_for_review` and `personal_pr_ready_for_review` differ only in Work vs Personal, which you discover by opening both. | [wf-arrow-group](wf-arrow-group-1440x900-light.png) | Open an arrow on a **list of its transitions**: title, who takes it, which ticket kinds, and a rule count ("Ready for review · agent · Work · 3 rules"). Pick one to edit. Label the arrow on the diagram with the count and the first title, not a truncated id. |
+| UXR-66 | S2 | **You get lost between the column and its transitions.** Picking a transition replaces the column editor, and there is no way back except closing the panel and clicking the column again. The column's transition list is raw `name → Column` chips. Remove transition (red, at the very bottom, no confirmation) drops you onto the column. | [wf-column-human](wf-column-human-1440x900-light.png), [workflow-column](workflow-column-1440x900-light.png) | A breadcrumb in the editor header: "Implementing › Ready for testing", with a back arrow. The column's transition list shows titles and the same one-line summary as UXR-65. Remove asks for confirmation. Discard in the toolbar can undo it, but a person doesn't know that. |
+| UXR-67 | S2 | **You can't change the shape of the workflow.** There's no way to add, remove or reorder a column (`workflow/columns.ts` has no add or remove), and no way to draw an arrow. *Add transition* creates `new_transition` to the next column, which you must rename and point somewhere else. Every structural change needs the API or an advisor proposal. | [workflow-column](workflow-column-1440x900-light.png) | Decide whether the shape is meant to be editable here. If it is: *Add column* between two columns, drag from a column's edge to draw a transition, and open a new transition with *Title* focused and *Goes to* open. If it isn't: say so ("Columns come from the workflow template") so people stop looking. |
+| UXR-68 | S2 | **The diagram's visual language isn't defined.** Box styles mean different things: Queued is grey dashed, Needs input red dashed, Waiting external yellow, Done green. The legend says dashed means "requirements not met". Edges carry raw ids, truncated ("scope_changed …", "needs_approval_to_message …"), and an event id (`ui.approve`). The `done` line crosses the `ready_for_testing` label. At 1440, the right-hand third of the diagram is off-screen inside its own scroll box. | [workflows](workflows-1440x900-light.png), [wf-diagram-end](wf-diagram-end-1440x900-light.png) | Style a column by its **kind**, with an icon: agent (bot), person (hand), waiting (clock), end (flag). Dashed means only "not met". Label edges with titles; fit the diagram to the width by default (UXR-45). |
+| UXR-69 | S2 | **Validation shouts at you before you've typed.** Adding a blank check, review item and condition immediately produces four errors in a red list. That list pushes the diagram down about 70 px, and the same errors repeat inline. "Conditions need a timeout" fires even though the placeholder already suggests 3 d. | [wf-rules-new](wf-rules-new-1440x900-light.png) | Validate a new item when it loses focus, or on Save, not when it's created. Prefill defaults that make a new item valid (*Wait at most* 3 d, a check timeout of 10 m). Keep the problems list in the toolbar as a count ("2 problems ▾"), so the layout doesn't jump. |
+| UXR-70 | S3 | **Versions are just numbers.** The select lists "v1 … v3 (latest)", with no date, author or note, and no way to compare versions. If you open v1 and edit it, *Save* creates v4 **from v1**, silently undoing v2 and v3: the only warning is "Saving creates v4". Save itself has no review step and no message. | [wf-version-old](wf-version-old-1440x900-light.png), [wf-unsaved-guard](wf-unsaved-guard-1440x900-light.png) | Version history with the date, who saved it and a note; *Compare with latest*. When editing an older version: "This starts from v1: saving undoes v2–v3." Save opens a short review: a human-readable diff (reuse the proposals diff, see UXR-73) and an optional note. |
+| UXR-71 | S3 | **Save is far from where you edit.** Save is in the page toolbar, so after editing *When not met* at the bottom of the panel you scroll back up to save. The unsaved-changes guard is a banner at the top of the page, far from the Board link you clicked, and its Discard is a second Discard button on the screen. | [wf-unsaved-guard](wf-unsaved-guard-1440x900-light.png) | A sticky bottom bar while a draft exists: "Unsaved changes · 2 problems · Discard · Review and save". The guard becomes a modal dialog, with "Leave without saving" and "Keep editing". |
+| UXR-72 | S3 | **Keyboard focus looks exactly like selection** (the same blue border), so a keyboard user can't tell which column is focused and which is open. | [wf-keyboard-focus](wf-keyboard-focus-1440x900-light.png) | A distinct focus ring (offset, 2 px dashed) on top of the selection border (UXR-56). |
+| UXR-73 | S3 | **Proposals are hard to judge.** The diff's Before and After columns show raw JSON (`{"name":"Web build","cmd":"cd m-one && …"}`). A repo-checks proposal is listed on the **Workflow** page, not on Repo checks. Nothing on the diagram highlights what a proposal would change. "Apply…" is the only way to see the result. | [wf-proposal-open](wf-proposal-open-1440x900-light.png) | Show proposal diffs in the same form the editor uses (check rows, condition sentences), with the affected column or arrow highlighted on the diagram. List repo-checks proposals on the Repo checks page for that repo, too. |
+| UXR-74 | S3 | **The help text is on the page itself.** Three paragraphs of 12 px muted text explain the diagram, *Requires* and each column's default, in every visit. | [workflow-transition](workflow-transition-1440x900-light.png) | A "How workflows work" Help page, plus "?" tooltips next to *Requires*, *When not met* and *Taken by*. Keep one line on the page. |
+
+## Repo checks overrides in depth
+
+Ben asked for a review of the repo-checks overrides UX too. An override (ADR-0030) replaces the workflow's checks and setup at **every** gate that runs checks, for one repo.
+
+| Shot | What it shows |
+|---|---|
+| [rc-override-full](rc-override-full-1440x900-light.png) | `acme/shop`, which has an override: the list, the per-gate table and the editor |
+| [rc-new-override](rc-new-override-1440x900-light.png) | `acme/api`, which has none: the editor starts from the workflow's checks |
+| [rc-invalid](rc-invalid-1440x900-light.png) | A cleared check name and a cleared command |
+| [rc-clear-confirm](rc-clear-confirm-1440x900-light.png) | Clear override, asking for confirmation |
+| [repo-checks-list](repo-checks-list-1440x900-light.png), [repo-checks 375](repo-checks-375x812-light.png) | The list with no repo open, and the phone |
+
+What works:
+- **"What runs at each gate"**, with a *Repo override* or *Workflow default* badge on each row, answers the right question.
+- **Starting a new override from the workflow's checks** (rather than from nothing) is the right default.
+- **Clearing asks for confirmation**, and says what will happen: "Use the workflow's checks for this repo again?"
+- **The check editor is the same component** as the workflow's (`ChecksFields`), so whatever is fixed in UXR-61 fixes both.
+
+| ID | Sev | Finding | Evidence | Recommendation |
+|---|---|---|---|---|
+| UXR-75 | S2 | **An override is invisible everywhere except its own page.** The workflow's transition editor shows its Checks with no hint that `acme/shop` replaces them. The ticket's "Conductor is running checks" panel doesn't say the list came from a repo override; no component outside the repo-checks page mentions overrides. So someone who edits the workflow's checks, or wonders why a ticket ran `pnpm build`, has no way to find out. | [wf-rules-full](wf-rules-full-1440x900-light.png), [detail-checks](detail-checks-1440x900-light.png) | In the transition editor's Checks: "1 repo uses its own checks instead: acme/shop ›". In the ticket's checks panel: a "Repo checks" badge linking to the override. |
+| UXR-76 | S2 | **One click freezes the defaults.** On a repo with no override, *Set override* is enabled before anything has changed. Clicking it copies today's workflow checks into an override, and from then on, changes to the workflow's checks silently stop applying to that repo. | [rc-new-override](rc-new-override-1440x900-light.png) | Keep *Set override* disabled until the list differs from the workflow's, or confirm: "This repo will stop following the workflow's checks." |
+| UXR-77 | S2 | **The per-gate table repeats itself in ids, and doesn't preview your edit.** Gates are raw ids (`implementing.pr_ready_for_review`, `implementing.personal_pr_ready_for_review`, `implementing.ready_for_testing`). With an override, all three rows are identical by design. The table shows what is saved, not your draft, so you can't see the effect of an edit before saving it. | [rc-override-full](rc-override-full-1440x900-light.png), [rc-invalid](rc-invalid-1440x900-light.png) | Gate titles: "Implementing → Needs input (PR ready for review)". Collapse identical rows into one ("All 3 gates"). While a draft exists, preview it with the changed rows marked. Near the editor, say once: "This list runs at all 3 gates." |
+| UXR-78 | S2 | **The setup is listed after the checks but runs before them.** *Before the checks (in a fresh checkout)* sits under the check list, and it has the same unlabeled three-field check rows as UXR-61. | [rc-override-full](rc-override-full-1440x900-light.png) | Setup first, then the checks table. Apply the same fix in the transition editor. |
+| UXR-79 | S3 | **The page doesn't say what you're editing.** The open repo is a 12 px monospace line under the repo picker. The selected row in the list is highlighted in warning yellow. The picker ("Repo" + "Open") doesn't say you can open any repo, and repos without an override only appear as you type. | [rc-override-full](rc-override-full-1440x900-light.png), [repo-checks-list](repo-checks-list-1440x900-light.png) | Two panes. Left: every known repo (from the machines' inventories), marked *Own checks* or *Workflow checks*. Right: the editor, with the repo name as its heading. Show the selection in the accent colour. |
+| UXR-80 | S3 | **There's no evidence to guide an override.** The page doesn't show how this repo's checks have been doing. The advisor's proposal knew "6 of 6 runs failed in 30 days", but the page that edits those checks doesn't show it, and there is no way to try a list before saving it. | [wf-proposal-open](wf-proposal-open-1440x900-light.png) | Show the last runs of each check for the repo (pass or fail, duration). Add "Try these checks" on an online machine that has the repo. Link any open proposal for this repo. |
+| UXR-81 | S3 | **Edits can be lost.** Unlike the Workflow page, this page has no unsaved-changes guard: navigating away drops the draft. The clear confirmation's buttons say "Confirm" and "Cancel" rather than naming the action. | [rc-clear-confirm](rc-clear-confirm-1440x900-light.png) | Reuse the workflow's draft guard. Name the buttons "Use workflow checks" and "Keep own checks". |
+| UXR-82 | S3 | **The introduction is written for engineers.** It mentions "ADR-0030", "`sh -c`" and "Git Bash on Windows". | [repo-checks-list](repo-checks-list-1440x900-light.png) | One sentence ("Give a repo its own build and test commands, instead of the workflow's"), with a Help link for the details. |
+
+### A better repo checks page (proposed design)
+
+Today the page stacks a list, a picker, a per-gate table and an editor. The proposal is a two-pane page that answers three questions in order: *which repos have their own checks*, *what runs for this one*, and *how is it doing*.
+
+```
+┌ Repo checks ─────────────────────────────────────────────────────────────────────────┐
+│ Give a repo its own build and test commands instead of the workflow's.  (?) Help     │
+├──────────────────────────────┬───────────────────────────────────────────────────────┤
+│ 🔍 Filter repos              │ github.com/acme/shop                 [Own checks]     │
+│                              │ Runs at all 3 check gates · set 2d ago by Ben         │
+│ OWN CHECKS                   │                                                       │
+│ ● acme/shop     2 checks  ✓  │ 1 SETUP   [Custom ▾] pnpm install --frozen-lockfile   │
+│                              │ 2 CHECKS  Name        Command              Timeout    │
+│ WORKFLOW CHECKS              │         ⋮ Build       pnpm build           —     ✕    │
+│ ○ acme/api      ✗ 6/6 failed │         ⋮ Tests       pnpm test            10 m  ✕    │
+│ ○ benjgrad/conductor         │           + Add check                                 │
+│ ○ benjgrad/fixture-app       │                                                       │
+│   (from your machines)       │ RECENT RUNS  Build ✓✓✓✓✗  Tests ✓✓✓✓✓   [Try now ▸]   │
+│                              │ PROPOSAL     "Build the web app inside m-one" ›       │
+│                              │ ▸ Compare with the workflow's checks                  │
+│                              ├───────────────────────────────────────────────────────┤
+│                              │ Unsaved changes   [Discard] [Save]   Use workflow… ⋯  │
+└──────────────────────────────┴───────────────────────────────────────────────────────┘
+```
+
+- **Left pane:** every repo the machines report, grouped *Own checks* / *Workflow checks*, with a health hint (the last runs). This replaces the table and the picker (UXR-79), and makes a failing repo without an override visible.
+- **Right pane, in run order:** setup, then the checks as a table with headers (UXR-61, UXR-78). One line says where the list runs ("all 3 check gates", UXR-77). The per-gate table becomes *Compare with the workflow's checks*: a disclosure showing a side-by-side diff of the draft against the workflow, which also previews the draft.
+- **Evidence:** recent runs per check, *Try now* on an online machine, and any open advisor proposal for this repo (UXR-80, UXR-73).
+- **A sticky footer** with Discard and Save, plus a draft guard (UXR-81). *Use workflow checks* (clear) goes in an overflow menu with a named confirmation. *Save* on a repo without an override is enabled only after an edit (UXR-76).
+- **The other direction:** the workflow's transition editor links here ("1 repo uses its own checks instead: acme/shop ›"), and the ticket's checks panel shows a *Repo checks* badge (UXR-75).
+
+### Recommendations for the designer and repo checks
+
+**Quick wins** (each a small change):
+- **D1.** Labels for the three missing actions in `ACTION_TEXT`, and hide unavailable conditions and actions (UXR-62). `workflow/transitions.ts`, `TransitionEditor.tsx`. **S.**
+- **D2.** Column headers on the check rows, and the setup moved above the checks, in `ChecksFields` (UXR-61, UXR-78). This fixes both the workflow editor and Repo checks. **S.**
+- **D3.** Breadcrumb and back arrow in the editor header; confirmation on *Remove transition* (UXR-66). **S.**
+- **D4.** Disable *Set override* until the list changes, and name the clear buttons (UXR-76, UXR-81). `RepoChecksPage.tsx`. **S.**
+- **D5.** "N repos use their own checks" in the transition editor (UXR-75). It needs `listRepoChecks` in `WorkflowsView`. **S.**
+
+**Next:**
+- **D6.** A generated summary sentence at the top of the transition editor, and collapsible sections with counts (UXR-60, UXR-63). This is the biggest win for understanding a workflow. **M.**
+- **D7.** Conditions as sentences, with inline inputs (UXR-61). **M.**
+- **D8.** Arrows with several transitions open on a summary list (UXR-65); Name moved under *Advanced* and renamed on blur (UXR-64). **M.**
+- **D9.** Repo checks in two panes, with gate titles, collapsed identical rows and a draft preview (UXR-77, UXR-79). **M.**
+
+**Bigger bets:**
+- **D10.** Version history with notes, *Compare*, and a review step before Save (UXR-70, UXR-71), sharing a human-readable diff with the proposals panel (UXR-73). **L.**
+- **D11.** Structural editing: add a column, draw a transition (UXR-67). This needs a product decision first: should the workflow's shape be editable in the UI at all? **L.**
+- **D12.** Check history per repo, and "Try these checks" (UXR-80). It needs server support. **L.**
+
+## MCP tools without a web UI
+
+Ben: *"we still need to build the UI for some of the MCP tools we've implemented."* The orchestrator's MCP server (`packages/orchestrator/src/mcp/tools.ts`) registers 31 tools and the `workflow_advisor` prompt. I matched each one against the web client (`packages/web/src/api/client.ts`) and the components that call it.
+
+**Covered in the web app:**
+- *Tickets:* `list_tickets`/`get_ticket` (the board and panel), `create_ticket`, `answer_input`, `take_transition`, `message_agent` (the composer), `reopen_ticket`, `decide_proposed_ticket` (Proposed follow-ups).
+- *Machines:* `list_machines`.
+- *Repo checks:* `list/get/set/clear_repo_checks`.
+- *Workflow:* `get_workflow`, `save_workflow`.
+- *Proposals:* `list_change_proposals` and `apply_change` (Proposed changes).
+- *Not needed in the web:*
+  - `wait_for_updates`: the web uses the SSE board stream.
+  - `propose_change`: only the advisor calls it.
+
+**Missing, or only partly there:**
+
+| ID | MCP tools | What they do | Web today | Server for the web? | Recommendation | Size |
+|---|---|---|---|---|---|---|
+| UXR-83 | `list_schedules`, `save_schedule`, `delete_schedule`, `run_schedule_now` | Recurring jobs: cron and timezone, enabled, next runs, last run's ticket, why a run was skipped | **None.** A card made by a schedule shows a "Recurring" tag (`Board.tsx` `card.schedule`), and that's all | **Yes:** `api/schedules.ts` has the REST routes; `ApiClient` has no methods yet | A **Schedules** page (top bar, next to Workflow). It lists name, "Weekdays at 09:00 (Toronto)", next run, the last run's ticket (linked) and its state, and a pause toggle. *New / Edit* opens a sheet with name, repo, kind, title and body (the ticket editor), a schedule picker that writes the cron (presets plus Advanced: raw cron), timezone and pinned machines. *Run now* asks for confirmation if the last run is still open. The card's "Recurring" tag links to its schedule. | M |
+| UXR-84 | `get_process_metrics`, `list_findings`, `get_process_report`, `get_insight` | Time per state/repo/machine/check (median, p90), re-entries, check failures, questions, permission denials; ranked inefficiencies with evidence; the analyst's frictions; one session's summary | **None.** The proposals panel quotes a finding ("6 of 6 runs failed in 30 days"), but nothing lists them | **No:** MCP only, so it needs REST routes over the same queries | An **Insights** page: a window selector (7/30/90 days) and a group-by (state / repo / machine / check). A table of time per state with median and p90 bars. The top findings as cards, each linked to example tickets and to *Propose a fix* (which starts the advisor, or shows its proposal). The process report's frictions grouped by category. On a finished ticket's Details tab, the session's insight (summary and frictions). | L |
+| UXR-85 | `search_tickets` (any status), `list_tickets status=done/cancelled` | Find a ticket by title, ref, body or id prefix, including closed ones | **None.** The board shows open tickets and a Done column; cancelled and older tickets can't be reached | **No:** needs `GET /api/tickets?q=` | A search box in the top bar (`/` to focus), with results grouped Open / Done / Cancelled, each opening the panel. An *Archive* filter on the board for done and cancelled tickets. | M |
+| UXR-86 | `cancel_ticket` | Stop the agent and cancel the ticket | **Partly.** A running session has Abort (`DetailPanel.tsx:554`) and Cancel (`details-sections.tsx:250`), but a **queued** ticket's panel has no Cancel (UXR-42) | Check: the web's `cancel` is per session | A Cancel ticket button on every ticket panel, with a reason field and a confirmation; a cancelled ticket can be reopened. | S |
+| UXR-87 | `get_workflow` → `default_available`, `adopt_default_workflow` | A newer shipped default workflow exists; save it as the next version | **None.** `WorkflowDetail.default_available` (shared `rest.ts:1438`) is never shown | **No** route for adopt | On the Workflow page, for admins: a banner, "A newer default workflow (v5) is available. *Compare* · *Adopt*". Adopt asks for confirmation and warns that local edits are replaced. | S–M |
+| UXR-88 | `get_ticket_artifacts` (`plan`, `results`, `output`, `transcript`, `proposals`) | Each step's result (plan, implementer summary, check results), the live tail, the whole conversation | **Partly.** The panel has the transcript, the plan for plan approval, and proposals. **Each step's recorded result** (the `complete_state` result per state) has no view | Check: `getSession`/`getTranscript` may already carry it | A *Steps* section on the Details tab: one row per state the ticket went through (Planning → Implementing → …), with time, outcome and its result (plan, summary, tracking rows) as rendered markdown. This also replaces the "Step complete / Recorded…" noise in the transcript (UXR-38). | M |
+| UXR-89 | (`GET /api/team`, UX-13a) | The agent team: names, hired, last assigned, active ticket | **None:** UX-13b FR-3 is still todo | Yes | A *Team* section on Machines (or its own page): avatars, names, what each is working on. | S |
+
+**Order I'd build them in:**
+1. **Schedules (UXR-83).** The server is done, so it's web work only, and it's the biggest blind spot: jobs run with no way to see or pause them from the app.
+2. **Cancel a queued ticket (UXR-86)** and **adopt default workflow (UXR-87).** Both are small.
+3. **Search and archive (UXR-85).**
+4. **Steps (UXR-88).**
+5. **Insights (UXR-84).** It needs REST routes first. It's the most valuable for improving the process, but also the biggest.
+
 ## The earlier review's deferred items
 
 | ID | Still true? | Where it lives now |
@@ -188,6 +364,8 @@ IDs continue the series from the [mobile review](../README.md); UXR-01..21 are n
 13. **Finish the token migration with a lint rule** (UXR-22, UXR-23): a type ramp, then move each CSS file over, with stylelint to keep it there. **L**, but it can be done file by file.
 14. **Tablet layout** (UXR-59): move the phone breakpoint to about 900 px and check the board, the panel and the machines table. **M.**
 15. **Workflow diagram readability** (UXR-45): fit to width, titled edges, grouped parallel edges. **M–L.**
+
+The workflow designer and repo checks have their own list (D1–D12), in [§The workflow designer in depth](#the-workflow-designer-in-depth) and [§Repo checks overrides in depth](#repo-checks-overrides-in-depth). The MCP tools that still need a web UI, in build order, are in [§MCP tools without a web UI](#mcp-tools-without-a-web-ui).
 
 ## Not captured
 

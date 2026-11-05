@@ -7,12 +7,12 @@
     "pageHeight": 812,
     "smallTapTargets": 6,
     "smallTapTargetSample": [
-      "button \"Fix flaky checkout test\" 307\u00d718",
-      "button \"Retries exhausted: Tests faile\" 307\u00d718",
-      "button \"Board cards: review requests v\" 307\u00d736",
-      "button \"Add CSV export\" 307\u00d718",
-      "button \"Plan the garden\" 307\u00d718",
-      "button \"Question: Raised beds or in-gr\" 307\u00d718"
+      "button \"Fix flaky checkout test\" 307×18",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×36",
+      "button \"Add CSV export\" 307×18",
+      "button \"Plan the garden\" 307×18",
+      "button \"Question: Raised beds or in-gr\" 307×18"
     ]
   },
   "board-scrolled-375x812-light": {
@@ -23,12 +23,12 @@
     "pageHeight": 812,
     "smallTapTargets": 6,
     "smallTapTargetSample": [
-      "button \"Fix flaky checkout test\" 307\u00d718",
-      "button \"Retries exhausted: Tests faile\" 307\u00d718",
-      "button \"Board cards: review requests v\" 307\u00d736",
-      "button \"Add CSV export\" 307\u00d718",
-      "button \"Plan the garden\" 307\u00d718",
-      "button \"Question: Raised beds or in-gr\" 307\u00d718"
+      "button \"Fix flaky checkout test\" 307×18",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×36",
+      "button \"Add CSV export\" 307×18",
+      "button \"Plan the garden\" 307×18",
+      "button \"Question: Raised beds or in-gr\" 307×18"
     ]
   },
   "detail-375x812-light": {
@@ -75,14 +75,14 @@
     "pageHeight": 812,
     "smallTapTargets": 8,
     "smallTapTargetSample": [
-      "input \"\" 13\u00d713",
-      "input \"\" 13\u00d713",
-      "button \"Fix flaky checkout test\" 307\u00d718",
-      "button \"Retries exhausted: Tests faile\" 307\u00d718",
-      "button \"Board cards: review requests v\" 307\u00d736",
-      "button \"Add CSV export\" 307\u00d718",
-      "button \"Plan the garden\" 307\u00d718",
-      "button \"Question: Raised beds or in-gr\" 307\u00d718"
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "button \"Fix flaky checkout test\" 307×18",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×36",
+      "button \"Add CSV export\" 307×18",
+      "button \"Plan the garden\" 307×18",
+      "button \"Question: Raised beds or in-gr\" 307×18"
     ]
   },
   "new-ticket-bottom-375x812-light": {
@@ -93,14 +93,14 @@
     "pageHeight": 812,
     "smallTapTargets": 8,
     "smallTapTargetSample": [
-      "input \"\" 13\u00d713",
-      "input \"\" 13\u00d713",
-      "button \"Fix flaky checkout test\" 307\u00d718",
-      "button \"Retries exhausted: Tests faile\" 307\u00d718",
-      "button \"Board cards: review requests v\" 307\u00d736",
-      "button \"Add CSV export\" 307\u00d718",
-      "button \"Plan the garden\" 307\u00d718",
-      "button \"Question: Raised beds or in-gr\" 307\u00d718"
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "button \"Fix flaky checkout test\" 307×18",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×36",
+      "button \"Add CSV export\" 307×18",
+      "button \"Plan the garden\" 307×18",
+      "button \"Question: Raised beds or in-gr\" 307×18"
     ]
   },
   "account-menu-375x812-light": {
@@ -111,12 +111,12 @@
     "pageHeight": 812,
     "smallTapTargets": 6,
     "smallTapTargetSample": [
-      "button \"Fix flaky checkout test\" 307\u00d718",
-      "button \"Retries exhausted: Tests faile\" 307\u00d718",
-      "button \"Board cards: review requests v\" 307\u00d736",
-      "button \"Add CSV export\" 307\u00d718",
-      "button \"Plan the garden\" 307\u00d718",
-      "button \"Question: Raised beds or in-gr\" 307\u00d718"
+      "button \"Fix flaky checkout test\" 307×18",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×36",
+      "button \"Add CSV export\" 307×18",
+      "button \"Plan the garden\" 307×18",
+      "button \"Question: Raised beds or in-gr\" 307×18"
     ]
   },
   "ticket-messages-375x812-light": {
@@ -154,8 +154,8 @@
     "pageHeight": 812,
     "smallTapTargets": 2,
     "smallTapTargetSample": [
-      "input \"\" 13\u00d713",
-      "input \"\" 13\u00d713"
+      "input \"\" 13×13",
+      "input \"\" 13×13"
     ]
   },
   "machines-375x812-light": {
@@ -166,9 +166,9 @@
     "pageHeight": 812,
     "smallTapTargets": 3,
     "smallTapTargetSample": [
-      "a \"Guided setup\" 51\u00d732",
-      "a \"Help: add a machine\" 79\u00d732",
-      "a \"Help: upgrade a machine\" 177\u00d716"
+      "a \"Guided setup\" 51×32",
+      "a \"Help: add a machine\" 79×32",
+      "a \"Help: upgrade a machine\" 177×16"
     ]
   },
   "detail-review-375x812-light": {
@@ -179,7 +179,7 @@
     "pageHeight": 812,
     "smallTapTargets": 1,
     "smallTapTargetSample": [
-      "a \"Open pull request \u2197\" 167\u00d725"
+      "a \"Open pull request ↗\" 167×25"
     ]
   },
   "detail-checks-375x812-light": {
@@ -190,7 +190,7 @@
     "pageHeight": 812,
     "smallTapTargets": 1,
     "smallTapTargetSample": [
-      "input \"\" 13\u00d713"
+      "input \"\" 13×13"
     ]
   },
   "detail-failed-375x812-light": {
@@ -228,12 +228,12 @@
     "pageHeight": 812,
     "smallTapTargets": 6,
     "smallTapTargetSample": [
-      "button \"Fix flaky checkout test\" 307\u00d718",
-      "button \"Retries exhausted: Tests faile\" 307\u00d718",
-      "button \"Board cards: review requests v\" 307\u00d736",
-      "button \"Add CSV export\" 307\u00d718",
-      "button \"Plan the garden\" 307\u00d718",
-      "button \"Question: Raised beds or in-gr\" 307\u00d718"
+      "button \"Fix flaky checkout test\" 307×18",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×36",
+      "button \"Add CSV export\" 307×18",
+      "button \"Plan the garden\" 307×18",
+      "button \"Question: Raised beds or in-gr\" 307×18"
     ]
   },
   "detail-permission-375x812-light": {
@@ -262,9 +262,9 @@
     "pageHeight": 812,
     "smallTapTargets": 3,
     "smallTapTargetSample": [
-      "button \"Close column\" 34\u00d744",
-      "input \"\" 347\u00d713",
-      "input \"\" 347\u00d713"
+      "button \"Close column\" 34×44",
+      "input \"\" 347×13",
+      "input \"\" 347×13"
     ]
   },
   "workflow-transition-375x812-light": {
@@ -275,11 +275,11 @@
     "pageHeight": 812,
     "smallTapTargets": 5,
     "smallTapTargetSample": [
-      "button \"Close transition\" 34\u00d744",
-      "input \"\" 13\u00d713",
-      "input \"\" 13\u00d713",
-      "input \"\" 13\u00d713",
-      "input \"\" 13\u00d713"
+      "button \"Close transition\" 34×44",
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "input \"\" 13×13"
     ]
   },
   "machine-drawer-375x812-light": {
@@ -290,9 +290,9 @@
     "pageHeight": 812,
     "smallTapTargets": 3,
     "smallTapTargetSample": [
-      "a \"Guided setup\" 51\u00d732",
-      "a \"Help: add a machine\" 79\u00d732",
-      "a \"Help: upgrade a machine\" 177\u00d716"
+      "a \"Guided setup\" 51×32",
+      "a \"Help: add a machine\" 79×32",
+      "a \"Help: upgrade a machine\" 177×16"
     ]
   },
   "add-machine-375x812-light": {
@@ -303,9 +303,9 @@
     "pageHeight": 812,
     "smallTapTargets": 3,
     "smallTapTargetSample": [
-      "a \"Guided setup\" 51\u00d732",
-      "a \"Help: add a machine\" 79\u00d732",
-      "a \"Setup guide: add a machine \u2197\" 214\u00d716"
+      "a \"Guided setup\" 51×32",
+      "a \"Help: add a machine\" 79×32",
+      "a \"Setup guide: add a machine ↗\" 214×16"
     ]
   },
   "repo-checks-list-375x812-light": {
@@ -316,7 +316,7 @@
     "pageHeight": 812,
     "smallTapTargets": 1,
     "smallTapTargetSample": [
-      "a \"ADR-0030\" 70\u00d716"
+      "a \"ADR-0030\" 70×16"
     ]
   },
   "first-run-375x812-light": {
@@ -327,7 +327,7 @@
     "pageHeight": 812,
     "smallTapTargets": 1,
     "smallTapTargetSample": [
-      "a \"Read the full guide \u2197\" 148\u00d716"
+      "a \"Read the full guide ↗\" 148×16"
     ]
   },
   "admin-375x812-light": {
@@ -338,7 +338,7 @@
     "pageHeight": 812,
     "smallTapTargets": 1,
     "smallTapTargetSample": [
-      "input \"\" 13\u00d713"
+      "input \"\" 13×13"
     ]
   },
   "account-menu-admin-375x812-light": {
@@ -349,12 +349,12 @@
     "pageHeight": 812,
     "smallTapTargets": 6,
     "smallTapTargetSample": [
-      "button \"Fix flaky checkout test\" 307\u00d718",
-      "button \"Retries exhausted: Tests faile\" 307\u00d718",
-      "button \"Board cards: review requests v\" 307\u00d736",
-      "button \"Add CSV export\" 307\u00d718",
-      "button \"Plan the garden\" 307\u00d718",
-      "button \"Question: Raised beds or in-gr\" 307\u00d718"
+      "button \"Fix flaky checkout test\" 307×18",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×36",
+      "button \"Add CSV export\" 307×18",
+      "button \"Plan the garden\" 307×18",
+      "button \"Question: Raised beds or in-gr\" 307×18"
     ]
   },
   "change-password-375x812-light": {
@@ -365,12 +365,12 @@
     "pageHeight": 812,
     "smallTapTargets": 6,
     "smallTapTargetSample": [
-      "button \"Fix flaky checkout test\" 307\u00d718",
-      "button \"Retries exhausted: Tests faile\" 307\u00d718",
-      "button \"Board cards: review requests v\" 307\u00d736",
-      "button \"Add CSV export\" 307\u00d718",
-      "button \"Plan the garden\" 307\u00d718",
-      "button \"Question: Raised beds or in-gr\" 307\u00d718"
+      "button \"Fix flaky checkout test\" 307×18",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×36",
+      "button \"Add CSV export\" 307×18",
+      "button \"Plan the garden\" 307×18",
+      "button \"Question: Raised beds or in-gr\" 307×18"
     ]
   },
   "signup-375x812-light": {
@@ -381,7 +381,7 @@
     "pageHeight": 812,
     "smallTapTargets": 1,
     "smallTapTargetSample": [
-      "a \"Help: add a machine\" 135\u00d715"
+      "a \"Help: add a machine\" 135×15"
     ]
   },
   "reset-375x812-light": {
@@ -392,7 +392,7 @@
     "pageHeight": 812,
     "smallTapTargets": 1,
     "smallTapTargetSample": [
-      "a \"Help: add a machine\" 135\u00d715"
+      "a \"Help: add a machine\" 135×15"
     ]
   },
   "repo-checks-375x812-light": {
@@ -403,8 +403,8 @@
     "pageHeight": 812,
     "smallTapTargets": 2,
     "smallTapTargetSample": [
-      "a \"ADR-0030\" 70\u00d716",
-      "button \"Move check 1 up\" 24\u00d744"
+      "a \"ADR-0030\" 70×16",
+      "button \"Move check 1 up\" 24×44"
     ]
   },
   "workflows-375x812-light": {
@@ -415,7 +415,7 @@
     "pageHeight": 812,
     "smallTapTargets": 1,
     "smallTapTargetSample": [
-      "input \"\" 336\u00d713"
+      "input \"\" 336×13"
     ]
   },
   "setup-375x812-light": {
@@ -426,7 +426,7 @@
     "pageHeight": 812,
     "smallTapTargets": 1,
     "smallTapTargetSample": [
-      "a \"Read the full guide \u2197\" 148\u00d716"
+      "a \"Read the full guide ↗\" 148×16"
     ]
   },
   "help-375x812-light": {
@@ -437,7 +437,7 @@
     "pageHeight": 9765,
     "smallTapTargets": 1,
     "smallTapTargetSample": [
-      "a \"Back to conductor\" 127\u00d716"
+      "a \"Back to conductor\" 127×16"
     ]
   },
   "help-connect-claude-375x812-light": {
@@ -448,7 +448,7 @@
     "pageHeight": 3725,
     "smallTapTargets": 1,
     "smallTapTargetSample": [
-      "a \"Back to conductor\" 127\u00d716"
+      "a \"Back to conductor\" 127×16"
     ]
   },
   "signin-375x812-light": {
@@ -459,7 +459,7 @@
     "pageHeight": 812,
     "smallTapTargets": 1,
     "smallTapTargetSample": [
-      "a \"Help: add a machine\" 135\u00d715"
+      "a \"Help: add a machine\" 135×15"
     ]
   },
   "board-375x812-dark": {
@@ -470,12 +470,12 @@
     "pageHeight": 812,
     "smallTapTargets": 6,
     "smallTapTargetSample": [
-      "button \"Fix flaky checkout test\" 307\u00d718",
-      "button \"Retries exhausted: Tests faile\" 307\u00d718",
-      "button \"Board cards: review requests v\" 307\u00d736",
-      "button \"Add CSV export\" 307\u00d718",
-      "button \"Plan the garden\" 307\u00d718",
-      "button \"Question: Raised beds or in-gr\" 307\u00d718"
+      "button \"Fix flaky checkout test\" 307×18",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×36",
+      "button \"Add CSV export\" 307×18",
+      "button \"Plan the garden\" 307×18",
+      "button \"Question: Raised beds or in-gr\" 307×18"
     ]
   },
   "detail-375x812-dark": {
@@ -495,14 +495,14 @@
     "pageHeight": 812,
     "smallTapTargets": 8,
     "smallTapTargetSample": [
-      "input \"\" 13\u00d713",
-      "input \"\" 13\u00d713",
-      "button \"Fix flaky checkout test\" 307\u00d718",
-      "button \"Retries exhausted: Tests faile\" 307\u00d718",
-      "button \"Board cards: review requests v\" 307\u00d736",
-      "button \"Add CSV export\" 307\u00d718",
-      "button \"Plan the garden\" 307\u00d718",
-      "button \"Question: Raised beds or in-gr\" 307\u00d718"
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "button \"Fix flaky checkout test\" 307×18",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×36",
+      "button \"Add CSV export\" 307×18",
+      "button \"Plan the garden\" 307×18",
+      "button \"Question: Raised beds or in-gr\" 307×18"
     ]
   },
   "ticket-plan-375x812-dark": {
@@ -522,9 +522,9 @@
     "pageHeight": 812,
     "smallTapTargets": 3,
     "smallTapTargetSample": [
-      "a \"Guided setup\" 51\u00d732",
-      "a \"Help: add a machine\" 79\u00d732",
-      "a \"Help: upgrade a machine\" 177\u00d716"
+      "a \"Guided setup\" 51×32",
+      "a \"Help: add a machine\" 79×32",
+      "a \"Help: upgrade a machine\" 177×16"
     ]
   },
   "detail-review-375x812-dark": {
@@ -535,7 +535,7 @@
     "pageHeight": 812,
     "smallTapTargets": 1,
     "smallTapTargetSample": [
-      "a \"Open pull request \u2197\" 167\u00d725"
+      "a \"Open pull request ↗\" 167×25"
     ]
   },
   "board-360x740-light": {
@@ -546,11 +546,11 @@
     "pageHeight": 740,
     "smallTapTargets": 5,
     "smallTapTargetSample": [
-      "button \"Fix flaky checkout test\" 292\u00d718",
-      "button \"Retries exhausted: Tests faile\" 292\u00d718",
-      "button \"Board cards: review requests v\" 292\u00d736",
-      "button \"Add CSV export\" 292\u00d718",
-      "button \"Plan the garden\" 292\u00d718"
+      "button \"Fix flaky checkout test\" 292×18",
+      "button \"Retries exhausted: Tests faile\" 292×18",
+      "button \"Board cards: review requests v\" 292×36",
+      "button \"Add CSV export\" 292×18",
+      "button \"Plan the garden\" 292×18"
     ]
   },
   "detail-360x740-light": {
@@ -579,13 +579,13 @@
     "pageHeight": 740,
     "smallTapTargets": 7,
     "smallTapTargetSample": [
-      "input \"\" 13\u00d713",
-      "input \"\" 13\u00d713",
-      "button \"Fix flaky checkout test\" 292\u00d718",
-      "button \"Retries exhausted: Tests faile\" 292\u00d718",
-      "button \"Board cards: review requests v\" 292\u00d736",
-      "button \"Add CSV export\" 292\u00d718",
-      "button \"Plan the garden\" 292\u00d718"
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "button \"Fix flaky checkout test\" 292×18",
+      "button \"Retries exhausted: Tests faile\" 292×18",
+      "button \"Board cards: review requests v\" 292×36",
+      "button \"Add CSV export\" 292×18",
+      "button \"Plan the garden\" 292×18"
     ]
   },
   "new-ticket-bottom-360x740-light": {
@@ -596,13 +596,13 @@
     "pageHeight": 740,
     "smallTapTargets": 7,
     "smallTapTargetSample": [
-      "input \"\" 13\u00d713",
-      "input \"\" 13\u00d713",
-      "button \"Fix flaky checkout test\" 292\u00d718",
-      "button \"Retries exhausted: Tests faile\" 292\u00d718",
-      "button \"Board cards: review requests v\" 292\u00d736",
-      "button \"Add CSV export\" 292\u00d718",
-      "button \"Plan the garden\" 292\u00d718"
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "button \"Fix flaky checkout test\" 292×18",
+      "button \"Retries exhausted: Tests faile\" 292×18",
+      "button \"Board cards: review requests v\" 292×36",
+      "button \"Add CSV export\" 292×18",
+      "button \"Plan the garden\" 292×18"
     ]
   },
   "ticket-messages-360x740-light": {
@@ -640,8 +640,8 @@
     "pageHeight": 740,
     "smallTapTargets": 2,
     "smallTapTargetSample": [
-      "input \"\" 13\u00d713",
-      "input \"\" 13\u00d713"
+      "input \"\" 13×13",
+      "input \"\" 13×13"
     ]
   },
   "board-768x1024-light": {
@@ -652,14 +652,14 @@
     "pageHeight": 1625,
     "smallTapTargets": 16,
     "smallTapTargetSample": [
-      "button \"Hotfix: crash on empty cart\" 144\u00d732",
-      "button \"Add /health\" 144\u00d716",
-      "button \"Conductor checks demo\" 144\u00d732",
-      "button \"Add pagination to /orders\" 144\u00d732",
-      "button \"Waiting for a build slot\" 144\u00d732",
-      "button \"Ship the /health endpoint\" 144\u00d732",
-      "a \"pull request\" 77\u00d715",
-      "button \"Fix flaky checkout test\" 144\u00d732"
+      "button \"Hotfix: crash on empty cart\" 144×32",
+      "button \"Add /health\" 144×16",
+      "button \"Conductor checks demo\" 144×32",
+      "button \"Add pagination to /orders\" 144×32",
+      "button \"Waiting for a build slot\" 144×32",
+      "button \"Ship the /health endpoint\" 144×32",
+      "a \"pull request\" 77×15",
+      "button \"Fix flaky checkout test\" 144×32"
     ]
   },
   "detail-768x1024-light": {
@@ -670,14 +670,14 @@
     "pageHeight": 2397,
     "smallTapTargets": 16,
     "smallTapTargetSample": [
-      "button \"Hotfix: crash on empty cart\" 144\u00d732",
-      "button \"Add /health\" 144\u00d716",
-      "button \"Conductor checks demo\" 144\u00d732",
-      "button \"Add pagination to /orders\" 144\u00d732",
-      "button \"Waiting for a build slot\" 144\u00d732",
-      "button \"Ship the /health endpoint\" 144\u00d732",
-      "a \"pull request\" 77\u00d715",
-      "button \"Fix flaky checkout test\" 144\u00d732"
+      "button \"Hotfix: crash on empty cart\" 144×32",
+      "button \"Add /health\" 144×16",
+      "button \"Conductor checks demo\" 144×32",
+      "button \"Add pagination to /orders\" 144×32",
+      "button \"Waiting for a build slot\" 144×32",
+      "button \"Ship the /health endpoint\" 144×32",
+      "a \"pull request\" 77×15",
+      "button \"Fix flaky checkout test\" 144×32"
     ]
   },
   "new-ticket-768x1024-light": {
@@ -688,14 +688,14 @@
     "pageHeight": 2695,
     "smallTapTargets": 9,
     "smallTapTargetSample": [
-      "input \"\" 13\u00d713",
-      "input \"\" 13\u00d713",
-      "button \"Hotfix: crash on empty cart\" 144\u00d732",
-      "button \"Add /health\" 144\u00d716",
-      "button \"Conductor checks demo\" 144\u00d732",
-      "button \"Add pagination to /orders\" 144\u00d732",
-      "button \"Waiting for a build slot\" 144\u00d732",
-      "button \"Fix flaky checkout test\" 144\u00d732"
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "button \"Hotfix: crash on empty cart\" 144×32",
+      "button \"Add /health\" 144×16",
+      "button \"Conductor checks demo\" 144×32",
+      "button \"Add pagination to /orders\" 144×32",
+      "button \"Waiting for a build slot\" 144×32",
+      "button \"Fix flaky checkout test\" 144×32"
     ]
   },
   "machines-768x1024-light": {
@@ -706,9 +706,9 @@
     "pageHeight": 1358,
     "smallTapTargets": 3,
     "smallTapTargetSample": [
-      "a \"Guided setup\" 94\u00d716",
-      "a \"Help: add a machine\" 145\u00d716",
-      "a \"Help: upgrade a machine\" 177\u00d716"
+      "a \"Guided setup\" 94×16",
+      "a \"Help: add a machine\" 145×16",
+      "a \"Help: upgrade a machine\" 177×16"
     ]
   },
   "detail-review-768x1024-light": {
@@ -719,14 +719,14 @@
     "pageHeight": 2397,
     "smallTapTargets": 16,
     "smallTapTargetSample": [
-      "button \"Hotfix: crash on empty cart\" 144\u00d732",
-      "button \"Add /health\" 144\u00d716",
-      "button \"Conductor checks demo\" 144\u00d732",
-      "button \"Add pagination to /orders\" 144\u00d732",
-      "button \"Waiting for a build slot\" 144\u00d732",
-      "button \"Ship the /health endpoint\" 144\u00d732",
-      "a \"pull request\" 77\u00d715",
-      "button \"Fix flaky checkout test\" 144\u00d732"
+      "button \"Hotfix: crash on empty cart\" 144×32",
+      "button \"Add /health\" 144×16",
+      "button \"Conductor checks demo\" 144×32",
+      "button \"Add pagination to /orders\" 144×32",
+      "button \"Waiting for a build slot\" 144×32",
+      "button \"Ship the /health endpoint\" 144×32",
+      "a \"pull request\" 77×15",
+      "button \"Fix flaky checkout test\" 144×32"
     ]
   },
   "workflows-768x1024-light": {
@@ -737,7 +737,7 @@
     "pageHeight": 1024,
     "smallTapTargets": 1,
     "smallTapTargetSample": [
-      "input \"\" 729\u00d713"
+      "input \"\" 729×13"
     ]
   },
   "board-1440x900-light": {
@@ -748,14 +748,14 @@
     "pageHeight": 1231,
     "smallTapTargets": 34,
     "smallTapTargetSample": [
-      "a \"Board\" 89\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"New ticket\" 118\u00d726",
-      "button \"local\" 77\u00d726",
-      "button \"\u25beQueued 2\" 94\u00d715"
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"▾Queued 2\" 94×15"
     ]
   },
   "detail-1440x900-light": {
@@ -766,14 +766,14 @@
     "pageHeight": 1458,
     "smallTapTargets": 41,
     "smallTapTargetSample": [
-      "a \"Board\" 89\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"New ticket\" 118\u00d726",
-      "button \"local\" 77\u00d726",
-      "button \"\u25beQueued 2\" 94\u00d715"
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"▾Queued 2\" 94×15"
     ]
   },
   "new-ticket-1440x900-light": {
@@ -784,14 +784,14 @@
     "pageHeight": 2010,
     "smallTapTargets": 26,
     "smallTapTargetSample": [
-      "a \"Board\" 89\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"Close form\" 119\u00d726",
-      "button \"local\" 77\u00d726",
-      "input \"\" 343\u00d724"
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"Close form\" 119×26",
+      "button \"local\" 77×26",
+      "input \"\" 343×24"
     ]
   },
   "ticket-messages-1440x900-light": {
@@ -802,14 +802,14 @@
     "pageHeight": 1458,
     "smallTapTargets": 37,
     "smallTapTargetSample": [
-      "a \"Board\" 89\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"New ticket\" 118\u00d726",
-      "button \"local\" 77\u00d726",
-      "button \"\u25beQueued 2\" 94\u00d715"
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"▾Queued 2\" 94×15"
     ]
   },
   "ticket-plan-1440x900-light": {
@@ -820,14 +820,14 @@
     "pageHeight": 1458,
     "smallTapTargets": 44,
     "smallTapTargetSample": [
-      "a \"Board\" 89\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"New ticket\" 118\u00d726",
-      "button \"local\" 77\u00d726",
-      "button \"\u25beQueued 2\" 94\u00d715"
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"▾Queued 2\" 94×15"
     ]
   },
   "machines-1440x900-light": {
@@ -838,14 +838,14 @@
     "pageHeight": 900,
     "smallTapTargets": 18,
     "smallTapTargetSample": [
-      "a \"Board\" 83\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 116\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"local\" 77\u00d726",
-      "button \"Add a machine\" 127\u00d726",
-      "a \"Guided setup\" 94\u00d716"
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 116×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "button \"Add a machine\" 127×26",
+      "a \"Guided setup\" 94×16"
     ]
   },
   "board-collapsed-1440x900-light": {
@@ -856,14 +856,14 @@
     "pageHeight": 1101,
     "smallTapTargets": 37,
     "smallTapTargetSample": [
-      "a \"Board\" 89\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"New ticket\" 118\u00d726",
-      "button \"local\" 77\u00d726",
-      "button \"Expand all\" 95\u00d726"
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"Expand all\" 95×26"
     ]
   },
   "detail-review-1440x900-light": {
@@ -874,14 +874,14 @@
     "pageHeight": 1458,
     "smallTapTargets": 40,
     "smallTapTargetSample": [
-      "a \"Board\" 89\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"New ticket\" 118\u00d726",
-      "button \"local\" 77\u00d726",
-      "button \"\u25beQueued 2\" 94\u00d715"
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"▾Queued 2\" 94×15"
     ]
   },
   "detail-checks-1440x900-light": {
@@ -892,14 +892,14 @@
     "pageHeight": 1458,
     "smallTapTargets": 39,
     "smallTapTargetSample": [
-      "a \"Board\" 89\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"New ticket\" 118\u00d726",
-      "button \"local\" 77\u00d726",
-      "button \"\u25beQueued 2\" 94\u00d715"
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"▾Queued 2\" 94×15"
     ]
   },
   "detail-failed-1440x900-light": {
@@ -910,14 +910,14 @@
     "pageHeight": 1458,
     "smallTapTargets": 42,
     "smallTapTargetSample": [
-      "a \"Board\" 89\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"New ticket\" 118\u00d726",
-      "button \"local\" 77\u00d726",
-      "button \"\u25beQueued 2\" 94\u00d715"
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"▾Queued 2\" 94×15"
     ]
   },
   "detail-done-1440x900-light": {
@@ -928,14 +928,14 @@
     "pageHeight": 1458,
     "smallTapTargets": 36,
     "smallTapTargetSample": [
-      "a \"Board\" 89\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"New ticket\" 118\u00d726",
-      "button \"local\" 77\u00d726",
-      "button \"\u25beQueued 2\" 94\u00d715"
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"▾Queued 2\" 94×15"
     ]
   },
   "detail-lost-1440x900-light": {
@@ -946,14 +946,14 @@
     "pageHeight": 1458,
     "smallTapTargets": 37,
     "smallTapTargetSample": [
-      "a \"Board\" 89\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"New ticket\" 118\u00d726",
-      "button \"local\" 77\u00d726",
-      "button \"\u25beQueued 2\" 94\u00d715"
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"▾Queued 2\" 94×15"
     ]
   },
   "board-permission-1440x900-light": {
@@ -964,14 +964,14 @@
     "pageHeight": 1231,
     "smallTapTargets": 37,
     "smallTapTargetSample": [
-      "a \"Board\" 89\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"New ticket\" 118\u00d726",
-      "button \"local\" 77\u00d726",
-      "button \"\u25beQueued 2\" 94\u00d715"
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"▾Queued 2\" 94×15"
     ]
   },
   "detail-permission-1440x900-light": {
@@ -982,14 +982,14 @@
     "pageHeight": 1458,
     "smallTapTargets": 43,
     "smallTapTargetSample": [
-      "a \"Board\" 89\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"New ticket\" 118\u00d726",
-      "button \"local\" 77\u00d726",
-      "button \"\u25beQueued 2\" 94\u00d715"
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"▾Queued 2\" 94×15"
     ]
   },
   "ticket-queued-1440x900-light": {
@@ -1000,14 +1000,14 @@
     "pageHeight": 1458,
     "smallTapTargets": 32,
     "smallTapTargetSample": [
-      "a \"Board\" 89\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"New ticket\" 118\u00d726",
-      "button \"local\" 77\u00d726",
-      "button \"\u25beQueued 2\" 94\u00d715"
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"▾Queued 2\" 94×15"
     ]
   },
   "workflow-column-1440x900-light": {
@@ -1018,14 +1018,14 @@
     "pageHeight": 900,
     "smallTapTargets": 25,
     "smallTapTargetSample": [
-      "a \"Board\" 83\u00d724",
-      "a \"Workflow\" 116\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"local\" 77\u00d726",
-      "select \"v3 (latest)v2v1\" 106\u00d728",
-      "input \"\" 1009\u00d713"
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 116×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "select \"v3 (latest)v2v1\" 106×28",
+      "input \"\" 1009×13"
     ]
   },
   "workflow-transition-1440x900-light": {
@@ -1036,14 +1036,14 @@
     "pageHeight": 900,
     "smallTapTargets": 25,
     "smallTapTargetSample": [
-      "a \"Board\" 83\u00d724",
-      "a \"Workflow\" 116\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"local\" 77\u00d726",
-      "select \"v3 (latest)v2v1\" 106\u00d728",
-      "input \"\" 1009\u00d713"
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 116×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "select \"v3 (latest)v2v1\" 106×28",
+      "input \"\" 1009×13"
     ]
   },
   "machine-drawer-1440x900-light": {
@@ -1054,14 +1054,14 @@
     "pageHeight": 900,
     "smallTapTargets": 20,
     "smallTapTargetSample": [
-      "a \"Board\" 83\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 116\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"local\" 77\u00d726",
-      "button \"Add a machine\" 127\u00d726",
-      "a \"Guided setup\" 94\u00d716"
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 116×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "button \"Add a machine\" 127×26",
+      "a \"Guided setup\" 94×16"
     ]
   },
   "add-machine-1440x900-light": {
@@ -1072,14 +1072,14 @@
     "pageHeight": 900,
     "smallTapTargets": 26,
     "smallTapTargetSample": [
-      "a \"Board\" 83\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 116\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"local\" 77\u00d726",
-      "button \"Add a machine\" 127\u00d726",
-      "a \"Guided setup\" 94\u00d716"
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 116×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "button \"Add a machine\" 127×26",
+      "a \"Guided setup\" 94×16"
     ]
   },
   "repo-checks-list-1440x900-light": {
@@ -1090,14 +1090,14 @@
     "pageHeight": 900,
     "smallTapTargets": 10,
     "smallTapTargetSample": [
-      "a \"Board\" 83\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"local\" 77\u00d726",
-      "a \"ADR-0030\" 70\u00d716",
-      "button \"github.com/acme/shop\" 161\u00d718"
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "a \"ADR-0030\" 70×16",
+      "button \"github.com/acme/shop\" 161×18"
     ]
   },
   "first-run-1440x900-light": {
@@ -1108,14 +1108,14 @@
     "pageHeight": 1261,
     "smallTapTargets": 34,
     "smallTapTargetSample": [
-      "a \"Board\" 89\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 159\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"local\" 77\u00d726",
-      "button \"I'll do this later\" 126\u00d726",
-      "a \"Read the full guide \u2197\" 148\u00d716"
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 159×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "button \"I'll do this later\" 126×26",
+      "a \"Read the full guide ↗\" 148×16"
     ]
   },
   "admin-1440x900-light": {
@@ -1126,14 +1126,14 @@
     "pageHeight": 900,
     "smallTapTargets": 13,
     "smallTapTargetSample": [
-      "a \"Board\" 83\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"Ben\" 71\u00d726",
-      "button \"Reset link for ben@example.com\" 90\u00d726",
-      "input \"\" 188\u00d726"
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"Ben\" 71×26",
+      "button \"Reset link for ben@example.com\" 90×26",
+      "input \"\" 188×26"
     ]
   },
   "account-menu-admin-1440x900-light": {
@@ -1144,14 +1144,14 @@
     "pageHeight": 1231,
     "smallTapTargets": 40,
     "smallTapTargetSample": [
-      "a \"Board\" 89\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"New ticket\" 118\u00d726",
-      "button \"Ben\" 71\u00d726",
-      "a \"Connect Claude\" 182\u00d726"
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"Ben\" 71×26",
+      "a \"Connect Claude\" 182×26"
     ]
   },
   "change-password-1440x900-light": {
@@ -1162,14 +1162,14 @@
     "pageHeight": 1231,
     "smallTapTargets": 39,
     "smallTapTargetSample": [
-      "a \"Board\" 89\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"New ticket\" 118\u00d726",
-      "button \"Ben\" 71\u00d726",
-      "input \"\" 338\u00d726"
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"Ben\" 71×26",
+      "input \"\" 338×26"
     ]
   },
   "signup-1440x900-light": {
@@ -1180,11 +1180,11 @@
     "pageHeight": 900,
     "smallTapTargets": 5,
     "smallTapTargetSample": [
-      "input \"\" 330\u00d726",
-      "input \"\" 330\u00d726",
-      "input \"\" 330\u00d726",
-      "button \"Create account\" 129\u00d726",
-      "a \"Help: add a machine\" 135\u00d715"
+      "input \"\" 330×26",
+      "input \"\" 330×26",
+      "input \"\" 330×26",
+      "button \"Create account\" 129×26",
+      "a \"Help: add a machine\" 135×15"
     ]
   },
   "reset-1440x900-light": {
@@ -1195,10 +1195,10 @@
     "pageHeight": 900,
     "smallTapTargets": 4,
     "smallTapTargetSample": [
-      "input \"\" 330\u00d726",
-      "input \"\" 330\u00d726",
-      "button \"Set password\" 116\u00d726",
-      "a \"Help: add a machine\" 135\u00d715"
+      "input \"\" 330×26",
+      "input \"\" 330×26",
+      "button \"Set password\" 116×26",
+      "a \"Help: add a machine\" 135×15"
     ]
   },
   "repo-checks-1440x900-light": {
@@ -1209,14 +1209,14 @@
     "pageHeight": 923,
     "smallTapTargets": 27,
     "smallTapTargetSample": [
-      "a \"Board\" 83\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"local\" 77\u00d726",
-      "a \"ADR-0030\" 70\u00d716",
-      "button \"github.com/acme/shop\" 161\u00d718"
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "a \"ADR-0030\" 70×16",
+      "button \"github.com/acme/shop\" 161×18"
     ]
   },
   "workflows-1440x900-light": {
@@ -1227,14 +1227,14 @@
     "pageHeight": 900,
     "smallTapTargets": 10,
     "smallTapTargetSample": [
-      "a \"Board\" 83\u00d724",
-      "a \"Workflow\" 116\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"local\" 77\u00d726",
-      "select \"v3 (latest)v2v1\" 106\u00d728",
-      "input \"\" 1401\u00d713"
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 116×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "select \"v3 (latest)v2v1\" 106×28",
+      "input \"\" 1401×13"
     ]
   },
   "setup-1440x900-light": {
@@ -1245,14 +1245,14 @@
     "pageHeight": 1261,
     "smallTapTargets": 34,
     "smallTapTargetSample": [
-      "a \"Board\" 83\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 159\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"local\" 77\u00d726",
-      "button \"I'll do this later\" 126\u00d726",
-      "a \"Read the full guide \u2197\" 148\u00d716"
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 159×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "button \"I'll do this later\" 126×26",
+      "a \"Read the full guide ↗\" 148×16"
     ]
   },
   "signin-1440x900-light": {
@@ -1263,10 +1263,10 @@
     "pageHeight": 900,
     "smallTapTargets": 4,
     "smallTapTargetSample": [
-      "input \"\" 330\u00d726",
-      "input \"\" 330\u00d726",
-      "button \"Sign in\" 70\u00d726",
-      "a \"Help: add a machine\" 135\u00d715"
+      "input \"\" 330×26",
+      "input \"\" 330×26",
+      "button \"Sign in\" 70×26",
+      "a \"Help: add a machine\" 135×15"
     ]
   },
   "board-1440x900-dark": {
@@ -1277,14 +1277,14 @@
     "pageHeight": 1231,
     "smallTapTargets": 34,
     "smallTapTargetSample": [
-      "a \"Board\" 89\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"New ticket\" 118\u00d726",
-      "button \"local\" 77\u00d726",
-      "button \"\u25beQueued 2\" 94\u00d715"
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"▾Queued 2\" 94×15"
     ]
   },
   "detail-1440x900-dark": {
@@ -1295,14 +1295,14 @@
     "pageHeight": 1458,
     "smallTapTargets": 41,
     "smallTapTargetSample": [
-      "a \"Board\" 89\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"New ticket\" 118\u00d726",
-      "button \"local\" 77\u00d726",
-      "button \"\u25beQueued 2\" 94\u00d715"
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"▾Queued 2\" 94×15"
     ]
   },
   "new-ticket-1440x900-dark": {
@@ -1313,14 +1313,14 @@
     "pageHeight": 2010,
     "smallTapTargets": 26,
     "smallTapTargetSample": [
-      "a \"Board\" 89\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"Close form\" 119\u00d726",
-      "button \"local\" 77\u00d726",
-      "input \"\" 343\u00d724"
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"Close form\" 119×26",
+      "button \"local\" 77×26",
+      "input \"\" 343×24"
     ]
   },
   "machines-1440x900-dark": {
@@ -1331,14 +1331,14 @@
     "pageHeight": 900,
     "smallTapTargets": 18,
     "smallTapTargetSample": [
-      "a \"Board\" 83\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 116\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"local\" 77\u00d726",
-      "button \"Add a machine\" 127\u00d726",
-      "a \"Guided setup\" 94\u00d716"
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 116×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "button \"Add a machine\" 127×26",
+      "a \"Guided setup\" 94×16"
     ]
   },
   "detail-review-1440x900-dark": {
@@ -1349,14 +1349,14 @@
     "pageHeight": 1458,
     "smallTapTargets": 40,
     "smallTapTargetSample": [
-      "a \"Board\" 89\u00d724",
-      "a \"Workflow\" 106\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"New ticket\" 118\u00d726",
-      "button \"local\" 77\u00d726",
-      "button \"\u25beQueued 2\" 94\u00d715"
+      "a \"Board\" 89×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"New ticket\" 118×26",
+      "button \"local\" 77×26",
+      "button \"▾Queued 2\" 94×15"
     ]
   },
   "workflows-1440x900-dark": {
@@ -1367,14 +1367,284 @@
     "pageHeight": 900,
     "smallTapTargets": 10,
     "smallTapTargetSample": [
-      "a \"Board\" 83\u00d724",
-      "a \"Workflow\" 116\u00d724",
-      "a \"Machines\" 108\u00d724",
-      "a \"Add a machine\" 147\u00d724",
-      "a \"Help\" 74\u00d724",
-      "button \"local\" 77\u00d726",
-      "select \"v3 (latest)v2v1\" 106\u00d728",
-      "input \"\" 1401\u00d713"
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 116×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "select \"v3 (latest)v2v1\" 106×28",
+      "input \"\" 1401×13"
+    ]
+  },
+  "wf-arrow-group-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 37,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 116×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "select \"v3 (latest)v2v1\" 106×28",
+      "input \"\" 1009×13"
+    ]
+  },
+  "wf-rules-full-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 2057,
+    "smallTapTargets": 36,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 116×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "select \"v3 (latest)v2v1\" 106×28",
+      "input \"\" 1009×13"
+    ]
+  },
+  "wf-rules-new-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1668,
+    "smallTapTargets": 38,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 116×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "select \"v3 (latest)v2v1\" 106×28",
+      "button \"Discard\" 75×26"
+    ]
+  },
+  "wf-name-error-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 25,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 116×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "select \"v3 (latest)v2v1\" 106×28",
+      "input \"\" 1009×13"
+    ]
+  },
+  "wf-column-human-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 17,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 116×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "select \"v3 (latest)v2v1\" 106×28",
+      "input \"\" 1009×13"
+    ]
+  },
+  "wf-column-done-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 13,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 116×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "select \"v3 (latest)v2v1\" 106×28",
+      "input \"\" 1009×13"
+    ]
+  },
+  "wf-diagram-end-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 10,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 116×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "select \"v3 (latest)v2v1\" 106×28",
+      "input \"\" 1401×13"
+    ]
+  },
+  "wf-version-old-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 10,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 116×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "select \"v3 (latest)v2v1\" 106×28",
+      "input \"\" 1401×13"
+    ]
+  },
+  "wf-unsaved-guard-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 30,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 116×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "button \"Discard\" 75×26",
+      "button \"Keep editing\" 110×26"
+    ]
+  },
+  "wf-proposal-open-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 914,
+    "smallTapTargets": 12,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 116×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "select \"v3 (latest)v2v1\" 106×28",
+      "input \"\" 1401×13"
+    ]
+  },
+  "wf-keyboard-focus-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 10,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 116×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "select \"v3 (latest)v2v1\" 106×28",
+      "input \"\" 1401×13"
+    ]
+  },
+  "rc-override-full-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 923,
+    "smallTapTargets": 27,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "a \"ADR-0030\" 70×16",
+      "button \"github.com/acme/shop\" 161×18"
+    ]
+  },
+  "rc-new-override-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 25,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "a \"ADR-0030\" 70×16",
+      "button \"github.com/acme/shop\" 161×18"
+    ]
+  },
+  "rc-invalid-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 957,
+    "smallTapTargets": 25,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "a \"ADR-0030\" 70×16",
+      "button \"github.com/acme/shop\" 161×18"
+    ]
+  },
+  "rc-clear-confirm-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 957,
+    "smallTapTargets": 26,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 108×24",
+      "a \"Add a machine\" 147×24",
+      "a \"Help\" 74×24",
+      "button \"local\" 77×26",
+      "a \"ADR-0030\" 70×16",
+      "button \"github.com/acme/shop\" 161×18"
     ]
   }
 }

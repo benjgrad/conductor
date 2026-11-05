@@ -490,6 +490,7 @@ async function applyLocked(tx: Tx, actor: ProposalActor, id: string): Promise<Ap
       baseVersion: change.data.base_version,
       // UXR-70: the version history says where the version came from.
       note: `Applied proposal: ${row.title}`.slice(0, WORKFLOW_NOTE_MAX),
+      accountId: actor.accountId,
     });
     if (!res.ok && res.code === 'conflict') {
       return conflict(

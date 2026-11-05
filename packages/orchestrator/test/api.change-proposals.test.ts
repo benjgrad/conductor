@@ -114,6 +114,34 @@ describe('/api/change-proposals', () => {
     expect((await post(a, API_PATHS.changeProposalReview(two))).status).toBe(409);
   });
 
+  it('a version note and who saved it show only to the saving account (UXR-70)', async () => {
+    api = await startApi({ db: db.pool, auth: passwordAuth(HTTPS_URL) });
+    const a = await signIn(api);
+    const b = await signIn(api);
+    const def = { ...structuredClone(CONDUCTOR_V4_DEF), id: 'noted_rest_wf' };
+    const saved = await api.send('POST', API_PATHS.workflows, {
+      headers: { cookie: a.cookie },
+      body: { definition: def, note: 'Fewer questions' },
+    });
+    expect(saved.status).toBe(201);
+    const read = async (who: { cookie: string }) =>
+      (
+        await api!.send('GET', API_PATHS.workflow('noted_rest_wf'), {
+          headers: { cookie: who.cookie },
+        })
+      ).json as { created_by: string | null; note: string | null; history: unknown[] };
+    expect(await read(a)).toMatchObject({
+      created_by: a.email,
+      note: 'Fewer questions',
+      history: [{ version: 1, created_by: a.email, note: 'Fewer questions' }],
+    });
+    expect(await read(b)).toMatchObject({
+      created_by: null,
+      note: null,
+      history: [{ version: 1, created_by: null, note: null }],
+    });
+  });
+
   it('a workflow change needs an instance admin', async () => {
     api = await startApi({ db: db.pool, auth: passwordAuth(HTTPS_URL) });
     const member = await signIn(api);

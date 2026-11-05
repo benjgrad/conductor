@@ -528,7 +528,12 @@ export const createApi = (({
           ]);
         }
       }
-      const detail = await loadWorkflowDetail(db, req.params.id, version);
+      const detail = await loadWorkflowDetail(
+        db,
+        req.params.id,
+        version,
+        req.auth?.scope.account_id ?? null,
+      );
       if (!detail) {
         const what = version === null ? '' : ` version ${version}`;
         return sendError(reply, 404, 'not_found', `no workflow ${req.params.id}${what}`);
@@ -545,6 +550,7 @@ export const createApi = (({
     const result = await saveWorkflowDefinition(db, body.definition, {
       createdBy: req.auth?.user.email ?? null,
       note: body.note ?? null,
+      ...(req.auth ? { accountId: req.auth.scope.account_id } : {}),
     });
     if (!result.ok && result.code === 'invalid_workflow') {
       return sendError(

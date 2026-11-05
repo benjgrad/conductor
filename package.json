@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc -b && pnpm --filter @conductor/web run build",
     "typecheck": "tsc -b",
-    "lint": "node scripts/test-slot.js eslint . && prettier --check .",
+    "lint": "node scripts/lint-css.js && node scripts/test-slot.js eslint . && prettier --check .",
     "format": "prettier --write .",
     "test": "vitest run",
     "test:all": "vitest run --mode all",

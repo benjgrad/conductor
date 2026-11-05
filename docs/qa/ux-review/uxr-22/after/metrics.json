@@ -1,0 +1,1293 @@
+{
+  "board-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 6,
+    "smallTapTargetSample": [
+      "button \"Fix flaky checkout test\" 307×17",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×17",
+      "button \"Add CSV export\" 307×17",
+      "button \"Plan the garden\" 307×17",
+      "button \"Question: Raised beds or in-gr\" 307×18"
+    ]
+  },
+  "board-scrolled-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 6,
+    "smallTapTargetSample": [
+      "button \"Fix flaky checkout test\" 307×17",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×17",
+      "button \"Add CSV export\" 307×17",
+      "button \"Plan the garden\" 307×17",
+      "button \"Question: Raised beds or in-gr\" 307×18"
+    ]
+  },
+  "detail-375x812-light": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-review-375x812-light": {
+    "chatHeight": 486,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Open PR ↗\" 66×19"
+    ]
+  },
+  "detail-failed-375x812-light": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-step-failed-375x812-light": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-scrolled-375x812-light": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-details-375x812-light": {
+    "chatHeight": 0,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-done-375x812-light": {
+    "chatHeight": 599,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-done-steps-375x812-light": {
+    "chatHeight": 0,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "composer-focused-375x812-light": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "new-ticket-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 8,
+    "smallTapTargetSample": [
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "button \"Fix flaky checkout test\" 307×17",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×17",
+      "button \"Add CSV export\" 307×17",
+      "button \"Plan the garden\" 307×17",
+      "button \"Question: Raised beds or in-gr\" 307×18"
+    ]
+  },
+  "new-ticket-bottom-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 8,
+    "smallTapTargetSample": [
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "button \"Fix flaky checkout test\" 307×17",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×17",
+      "button \"Add CSV export\" 307×17",
+      "button \"Plan the garden\" 307×17",
+      "button \"Question: Raised beds or in-gr\" 307×18"
+    ]
+  },
+  "account-menu-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 6,
+    "smallTapTargetSample": [
+      "button \"Fix flaky checkout test\" 307×17",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×17",
+      "button \"Add CSV export\" 307×17",
+      "button \"Plan the garden\" 307×17",
+      "button \"Question: Raised beds or in-gr\" 307×18"
+    ]
+  },
+  "ticket-messages-375x812-light": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "ticket-plan-375x812-light": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "ticket-plan-sheet-375x812-light": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "ticket-brief-sheet-375x812-light": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 3,
+    "smallTapTargetSample": [
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "input \"\" 13×13"
+    ]
+  },
+  "machines-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 3,
+    "smallTapTargetSample": [
+      "a \"Guided setup\" 57×32",
+      "a \"Help: add a machine\" 87×32",
+      "a \"Help: upgrade a machine\" 151×16"
+    ]
+  },
+  "machine-drawer-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 3,
+    "smallTapTargetSample": [
+      "a \"Guided setup\" 57×32",
+      "a \"Help: add a machine\" 87×32",
+      "a \"Help: upgrade a machine\" 151×16"
+    ]
+  },
+  "admin-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "input \"\" 13×13"
+    ]
+  },
+  "repo-checks-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Help\" 28×16"
+    ]
+  },
+  "rc-override-full-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Help\" 28×16"
+    ]
+  },
+  "rc-invalid-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 3,
+    "smallTapTargetSample": [
+      "button \"Move check 1 up\" 24×44",
+      "button \"Move check 1 down\" 24×44",
+      "button \"Remove check 1\" 24×44"
+    ]
+  },
+  "workflows-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 4,
+    "smallTapTargetSample": [
+      "input \"\" 13×13",
+      "button \"Zoom out\" 26×44",
+      "button \"Fit\" 32×44",
+      "button \"Zoom in\" 26×44"
+    ]
+  },
+  "wf-diagram-end-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 4,
+    "smallTapTargetSample": [
+      "input \"\" 13×13",
+      "button \"Zoom out\" 26×44",
+      "button \"Fit\" 32×44",
+      "button \"Zoom in\" 26×44"
+    ]
+  },
+  "wf-rules-full-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 7,
+    "smallTapTargetSample": [
+      "select \"v3 · 3 Oct 2026 · ben@example.\" 18×44",
+      "button \"Back to Implementing\" 38×44",
+      "button \"Close transition\" 34×44",
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "input \"\" 13×13"
+    ]
+  },
+  "wf-rules-new-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 7,
+    "smallTapTargetSample": [
+      "select \"v3 · 3 Oct 2026 · ben@example.\" 18×44",
+      "button \"Back to Planning\" 38×44",
+      "button \"Close transition\" 34×44",
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "input \"\" 13×13"
+    ]
+  },
+  "wf-arrow-group-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 3,
+    "smallTapTargetSample": [
+      "select \"v3 · 3 Oct 2026 · ben@example.\" 18×44",
+      "button \"Back to Implementing\" 38×44",
+      "button \"Close arrow\" 34×44"
+    ]
+  },
+  "wf-arrow-transition-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 7,
+    "smallTapTargetSample": [
+      "select \"v3 · 3 Oct 2026 · ben@example.\" 18×44",
+      "button \"Back to Implementing → Needs i\" 38×44",
+      "button \"Close transition\" 34×44",
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "input \"\" 13×13"
+    ]
+  },
+  "wf-proposal-open-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 4,
+    "smallTapTargetSample": [
+      "input \"\" 13×13",
+      "button \"Zoom out\" 26×44",
+      "button \"Fit\" 32×44",
+      "button \"Zoom in\" 26×44"
+    ]
+  },
+  "wf-version-old-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "workflow-column-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 4,
+    "smallTapTargetSample": [
+      "select \"v3 · 3 Oct 2026 · ben@example.\" 18×44",
+      "button \"Close column\" 34×44",
+      "input \"\" 13×13",
+      "input \"\" 13×13"
+    ]
+  },
+  "setup-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Read the full guide ↗\" 321×32"
+    ]
+  },
+  "help-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 8261,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Back to conductor\" 111×16"
+    ]
+  },
+  "help-connect-claude-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 3483,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Back to conductor\" 111×16"
+    ]
+  },
+  "signin-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Help: add a machine\" 124×16"
+    ]
+  },
+  "board-375x812-dark": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 6,
+    "smallTapTargetSample": [
+      "button \"Fix flaky checkout test\" 307×17",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×17",
+      "button \"Add CSV export\" 307×17",
+      "button \"Plan the garden\" 307×17",
+      "button \"Question: Raised beds or in-gr\" 307×18"
+    ]
+  },
+  "detail-375x812-dark": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-review-375x812-dark": {
+    "chatHeight": 486,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Open PR ↗\" 66×19"
+    ]
+  },
+  "detail-failed-375x812-dark": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-step-failed-375x812-dark": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "new-ticket-375x812-dark": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 8,
+    "smallTapTargetSample": [
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "button \"Fix flaky checkout test\" 307×17",
+      "button \"Retries exhausted: Tests faile\" 307×18",
+      "button \"Board cards: review requests v\" 307×17",
+      "button \"Add CSV export\" 307×17",
+      "button \"Plan the garden\" 307×17",
+      "button \"Question: Raised beds or in-gr\" 307×18"
+    ]
+  },
+  "ticket-plan-375x812-dark": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "board-360x740-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 6,
+    "smallTapTargetSample": [
+      "button \"Fix flaky checkout test\" 292×17",
+      "button \"Retries exhausted: Tests faile\" 292×18",
+      "button \"Board cards: review requests v\" 292×17",
+      "button \"Add CSV export\" 292×17",
+      "button \"Plan the garden\" 292×17",
+      "button \"Question: Raised beds or in-gr\" 292×18"
+    ]
+  },
+  "detail-360x740-light": {
+    "chatHeight": 568,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-scrolled-360x740-light": {
+    "chatHeight": 568,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "new-ticket-360x740-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 8,
+    "smallTapTargetSample": [
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "button \"Fix flaky checkout test\" 292×17",
+      "button \"Retries exhausted: Tests faile\" 292×18",
+      "button \"Board cards: review requests v\" 292×17",
+      "button \"Add CSV export\" 292×17",
+      "button \"Plan the garden\" 292×17",
+      "button \"Question: Raised beds or in-gr\" 292×18"
+    ]
+  },
+  "new-ticket-bottom-360x740-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 8,
+    "smallTapTargetSample": [
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "button \"Fix flaky checkout test\" 292×17",
+      "button \"Retries exhausted: Tests faile\" 292×18",
+      "button \"Board cards: review requests v\" 292×17",
+      "button \"Add CSV export\" 292×17",
+      "button \"Plan the garden\" 292×17",
+      "button \"Question: Raised beds or in-gr\" 292×18"
+    ]
+  },
+  "ticket-messages-360x740-light": {
+    "chatHeight": 568,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "ticket-plan-360x740-light": {
+    "chatHeight": 568,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "ticket-plan-sheet-360x740-light": {
+    "chatHeight": 568,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "ticket-brief-sheet-360x740-light": {
+    "chatHeight": 568,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 2,
+    "smallTapTargetSample": [
+      "input \"\" 13×13",
+      "input \"\" 13×13"
+    ]
+  },
+  "board-768x1024-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 768,
+    "deviceWidth": 768,
+    "horizontalOverflow": false,
+    "pageHeight": 1024,
+    "smallTapTargets": 13,
+    "smallTapTargetSample": [
+      "button \"Hotfix: crash on empty cart\" 144×34",
+      "button \"Add /health\" 144×17",
+      "button \"Conductor checks demo\" 144×34",
+      "button \"Add pagination to /orders\" 144×34",
+      "button \"Waiting for a build slot\" 144×34",
+      "button \"Migrate settings page to new f\" 144×34",
+      "button \"Ship the /health endpoint\" 144×34",
+      "button \"Fix flaky checkout test\" 144×34"
+    ]
+  },
+  "detail-768x1024-light": {
+    "chatHeight": 574,
+    "pageScrollWidth": 768,
+    "deviceWidth": 768,
+    "horizontalOverflow": false,
+    "pageHeight": 1024,
+    "smallTapTargets": 13,
+    "smallTapTargetSample": [
+      "button \"Hotfix: crash on empty cart\" 144×34",
+      "button \"Add /health\" 144×17",
+      "button \"Conductor checks demo\" 144×34",
+      "button \"Add pagination to /orders\" 144×34",
+      "button \"Waiting for a build slot\" 144×34",
+      "button \"Migrate settings page to new f\" 144×34",
+      "button \"Ship the /health endpoint\" 144×34",
+      "button \"Fix flaky checkout test\" 144×34"
+    ]
+  },
+  "new-ticket-768x1024-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 768,
+    "deviceWidth": 768,
+    "horizontalOverflow": false,
+    "pageHeight": 1024,
+    "smallTapTargets": 15,
+    "smallTapTargetSample": [
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "button \"Hotfix: crash on empty cart\" 144×34",
+      "button \"Add /health\" 144×17",
+      "button \"Conductor checks demo\" 144×34",
+      "button \"Add pagination to /orders\" 144×34",
+      "button \"Waiting for a build slot\" 144×34",
+      "button \"Migrate settings page to new f\" 144×34"
+    ]
+  },
+  "new-ticket-bottom-768x1024-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 768,
+    "deviceWidth": 768,
+    "horizontalOverflow": false,
+    "pageHeight": 1024,
+    "smallTapTargets": 15,
+    "smallTapTargetSample": [
+      "input \"\" 13×13",
+      "input \"\" 13×13",
+      "button \"Hotfix: crash on empty cart\" 144×34",
+      "button \"Add /health\" 144×17",
+      "button \"Conductor checks demo\" 144×34",
+      "button \"Add pagination to /orders\" 144×34",
+      "button \"Waiting for a build slot\" 144×34",
+      "button \"Migrate settings page to new f\" 144×34"
+    ]
+  },
+  "machines-768x1024-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 768,
+    "deviceWidth": 768,
+    "horizontalOverflow": false,
+    "pageHeight": 1024,
+    "smallTapTargets": 3,
+    "smallTapTargetSample": [
+      "a \"Guided setup\" 81×16",
+      "a \"Help: add a machine\" 124×16",
+      "a \"Help: upgrade a machine\" 151×16"
+    ]
+  },
+  "machine-drawer-768x1024-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 768,
+    "deviceWidth": 768,
+    "horizontalOverflow": false,
+    "pageHeight": 1024,
+    "smallTapTargets": 3,
+    "smallTapTargetSample": [
+      "a \"Guided setup\" 81×16",
+      "a \"Help: add a machine\" 124×16",
+      "a \"Help: upgrade a machine\" 151×16"
+    ]
+  },
+  "admin-768x1024-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 768,
+    "deviceWidth": 768,
+    "horizontalOverflow": false,
+    "pageHeight": 1024,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "input \"\" 13×13"
+    ]
+  },
+  "board-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 32,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 103×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"New ticket\" 112×26",
+      "button \"local\" 76×26",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "detail-1440x900-light": {
+    "chatHeight": 651,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 41,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 103×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"New ticket\" 112×26",
+      "button \"local\" 76×26",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "detail-review-1440x900-light": {
+    "chatHeight": 584,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 45,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 103×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"New ticket\" 112×26",
+      "button \"local\" 76×26",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "detail-failed-1440x900-light": {
+    "chatHeight": 651,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 41,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 103×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"New ticket\" 112×26",
+      "button \"local\" 76×26",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "detail-step-failed-1440x900-light": {
+    "chatHeight": 651,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 42,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 103×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"New ticket\" 112×26",
+      "button \"local\" 76×26",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "detail-done-1440x900-light": {
+    "chatHeight": 629,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 36,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 103×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"New ticket\" 112×26",
+      "button \"local\" 76×26",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "detail-done-steps-1440x900-light": {
+    "chatHeight": 0,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 41,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 103×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"New ticket\" 112×26",
+      "button \"local\" 76×26",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "new-ticket-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 41,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 103×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"New ticket\" 112×26",
+      "button \"local\" 76×26",
+      "button \"Close\" 36×36"
+    ]
+  },
+  "new-ticket-bottom-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 41,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 103×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"New ticket\" 112×26",
+      "button \"local\" 76×26",
+      "button \"Close\" 36×36"
+    ]
+  },
+  "ticket-messages-1440x900-light": {
+    "chatHeight": 651,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 37,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 103×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"New ticket\" 112×26",
+      "button \"local\" 76×26",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "ticket-plan-1440x900-light": {
+    "chatHeight": 651,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 44,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 103×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"New ticket\" 112×26",
+      "button \"local\" 76×26",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "machines-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 15,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×24",
+      "a \"Workflow\" 103×24",
+      "a \"Machines\" 106×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"local\" 76×26",
+      "button \"Add a machine\" 115×26",
+      "a \"Guided setup\" 81×16"
+    ]
+  },
+  "machine-drawer-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 21,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×24",
+      "a \"Workflow\" 103×24",
+      "a \"Machines\" 106×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"local\" 76×26",
+      "button \"Add a machine\" 115×26",
+      "a \"Guided setup\" 81×16"
+    ]
+  },
+  "admin-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 13,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×24",
+      "a \"Workflow\" 103×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"Ben\" 71×26",
+      "button \"Reset link for ben@example.com\" 85×26",
+      "input \"\" 164×26"
+    ]
+  },
+  "rc-override-full-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 975,
+    "smallTapTargets": 28,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×24",
+      "a \"Workflow\" 103×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"local\" 76×26",
+      "a \"Help\" 28×16",
+      "button \"github.com/acme/shop\" 161×18"
+    ]
+  },
+  "rc-invalid-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1009,
+    "smallTapTargets": 28,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×24",
+      "a \"Workflow\" 103×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"local\" 76×26",
+      "a \"Help\" 28×16",
+      "button \"github.com/acme/shop\" 161×18"
+    ]
+  },
+  "workflows-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 15,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"local\" 76×26",
+      "select \"v3 · 3 Oct 2026 · ben@example.\" 393×28",
+      "button \"History\" 69×26"
+    ]
+  },
+  "wf-diagram-end-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 15,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"local\" 76×26",
+      "select \"v3 · 3 Oct 2026 · ben@example.\" 393×28",
+      "button \"History\" 69×26"
+    ]
+  },
+  "wf-rules-full-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 2032,
+    "smallTapTargets": 42,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"local\" 76×26",
+      "select \"v3 · 3 Oct 2026 · ben@example.\" 393×28",
+      "button \"History\" 69×26"
+    ]
+  },
+  "wf-rules-new-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 32,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"local\" 76×26",
+      "select \"v3 · 3 Oct 2026 · ben@example.\" 393×28",
+      "button \"History\" 69×26"
+    ]
+  },
+  "wf-arrow-group-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 18,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"local\" 76×26",
+      "select \"v3 · 3 Oct 2026 · ben@example.\" 393×28",
+      "button \"History\" 69×26"
+    ]
+  },
+  "wf-arrow-transition-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 43,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"local\" 76×26",
+      "select \"v3 · 3 Oct 2026 · ben@example.\" 393×28",
+      "button \"History\" 69×26"
+    ]
+  },
+  "wf-proposal-open-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1209,
+    "smallTapTargets": 14,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"local\" 76×26",
+      "select \"v3 · 3 Oct 2026 · ben@example.\" 393×28",
+      "button \"History\" 69×26"
+    ]
+  },
+  "wf-version-old-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 2282,
+    "smallTapTargets": 10,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"local\" 76×26",
+      "select \"v3 · 3 Oct 2026 · ben@example.\" 393×28",
+      "button \"History\" 69×26"
+    ]
+  },
+  "workflow-column-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 23,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×24",
+      "a \"Workflow\" 106×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"local\" 76×26",
+      "select \"v3 · 3 Oct 2026 · ben@example.\" 393×28",
+      "button \"History\" 69×26"
+    ]
+  },
+  "board-1440x900-dark": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 32,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 103×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"New ticket\" 112×26",
+      "button \"local\" 76×26",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "detail-1440x900-dark": {
+    "chatHeight": 651,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 41,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 103×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"New ticket\" 112×26",
+      "button \"local\" 76×26",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "detail-review-1440x900-dark": {
+    "chatHeight": 584,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 45,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 103×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"New ticket\" 112×26",
+      "button \"local\" 76×26",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "detail-failed-1440x900-dark": {
+    "chatHeight": 651,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 41,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 103×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"New ticket\" 112×26",
+      "button \"local\" 76×26",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "detail-step-failed-1440x900-dark": {
+    "chatHeight": 651,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 42,
+    "smallTapTargetSample": [
+      "a \"Board\" 83×24",
+      "a \"Workflow\" 103×24",
+      "a \"Machines\" 104×24",
+      "a \"Add a machine\" 141×25",
+      "a \"Help\" 76×25",
+      "button \"New ticket\" 112×26",
+      "button \"local\" 76×26",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  }
+}

@@ -293,8 +293,8 @@ export function WaitForMachine({
               it, start <code>{DAEMON_COMMANDS[os].start}</code> again.
             </li>
             <li>
-              <b>Is Node.js 22 on the PATH?</b> Run <code>node -v</code> in that same terminal; it
-              must print v22 or higher (with nvm, run <code>nvm use 22</code> first).
+              <b>Is Claude Code on the PATH?</b> Run <code>claude --version</code> in that same
+              terminal. The daemon runs the <code>claude</code> it finds there.
             </li>
             <li>
               <b>Did the command expire, or was it already used?</b> Enrollment fails then.{' '}

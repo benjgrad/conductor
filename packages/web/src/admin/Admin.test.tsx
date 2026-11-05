@@ -44,13 +44,19 @@ describe('admin page', () => {
     fireEvent.click(form.getByRole('button', { name: 'New invite' }));
 
     const dialog = within(await screen.findByRole('dialog', { name: 'Invite link' }));
+    // UXR-55: the shared toast confirms it.
+    expect(screen.getByRole('status', { name: 'Notifications' }).textContent).toBe(
+      'Invite created',
+    );
     const url = dialog.getByLabelText<HTMLInputElement>('Link').value;
     expect(url).toMatch(/^http:\/\/localhost\/signup\?invite=mock-/);
     expect(dialog.getByText(/shown once/)).toBeTruthy();
     await waitFor(() => expect(inviteRows()).toHaveLength(3));
     const row = within(inviteRows()[0]!);
     expect(row.getByText('sam@example.com')).toBeTruthy();
-    expect(row.getByText('Yes')).toBeTruthy();
+    // UXR-53: an admin invite carries an Admin chip, not a Yes column.
+    expect(row.getByText('Admin', { selector: '.chip' })).toBeTruthy();
+    expect(row.queryByText('Yes')).toBeNull();
 
     fireEvent.click(dialog.getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog', { name: 'Invite link' })).toBeNull();
@@ -84,6 +90,20 @@ describe('admin page', () => {
     api.lockUser('sam@example.com');
     await renderAdmin(api);
 
+    // UXR-53: status chips, no Yes/No cells.
+    const users = within(screen.getByRole('region', { name: 'Users' }));
+    const userRow = (email: string) => within(users.getByText(email).closest('tr')!);
+    expect(userRow('ben@example.com').getByText('Admin', { selector: '.chip' })).toBeTruthy();
+    expect(userRow('sam@example.com').getByText('Locked', { selector: '.chip' })).toBeTruthy();
+    expect(userRow('sam@example.com').queryByText('Admin', { selector: '.chip' })).toBeNull();
+    expect(users.queryByText(/^(Yes|No|—)$/)).toBeNull();
+    expect(users.getAllByRole('columnheader').map((th) => th.textContent)).toEqual([
+      'Email',
+      'Name',
+      'Status',
+      'Actions',
+    ]);
+
     // No disabling yourself.
     expect(screen.queryByRole('button', { name: 'Disable ben@example.com' })).toBeNull();
     // UXR-48: the buttons sit in a real table cell, so the row's border is continuous.
@@ -107,6 +127,7 @@ describe('admin page', () => {
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: 'Disable sam@example.com' })).toBeNull(),
     );
+    expect(userRow('sam@example.com').getByText(/^Disabled /, { selector: '.chip' })).toBeTruthy();
     expect(
       (await api.listUsers()).find((u) => u.email === 'sam@example.com')?.disabled_at,
     ).not.toBeNull();

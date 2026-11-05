@@ -51,7 +51,7 @@ function sortColumn(kind: BoardColumnInfo['kind'], cards: BoardCard[]): BoardCar
   const recentFirst = (a: BoardCard, b: BoardCard) => ms(b.updated_at) - ms(a.updated_at);
   switch (kind) {
     case 'queued':
-      return cards.sort((a, b) => b.priority - a.priority || byCreated(a, b));
+      return cards.sort((a, b) => a.priority - b.priority || byCreated(a, b));
     case 'agent':
     case 'command':
     case 'connector':

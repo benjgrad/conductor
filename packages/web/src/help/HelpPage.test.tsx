@@ -9,12 +9,15 @@ import { App } from '../App.js';
 import { SETUP_GUIDE_URL } from '../machines/format.js';
 import guide from './add-a-machine.md?raw';
 import connectGuide from './connect-claude.md?raw';
+import repoChecksGuide from './repo-checks.md?raw';
 import {
   CONNECT_CLAUDE_URL,
   EXAMPLE_ORIGIN,
   guideText,
+  helpContents,
   isHelpPath,
   REPO_CHECKS_HELP_URL,
+  splitIntro,
 } from './HelpPage.js';
 
 // UX-8 FR-7: the add-a-machine guide is a page of the app; docs/setup/ has a copy.
@@ -240,5 +243,45 @@ describe('help page: repo checks', () => {
     expect(window.location.pathname).toBe(REPO_CHECKS_HELP_URL);
     expect(await screen.findByRole('heading', { level: 1, name: 'Repo checks' })).toBeTruthy();
     expect(screen.getByText(/Git Bash/)).toBeTruthy();
+  });
+});
+
+// UXR-50: every help page opens with a contents list linking to each h2.
+describe('help page contents', () => {
+  it.each([
+    [SETUP_GUIDE_URL, guide],
+    [CONNECT_CLAUDE_URL, connectGuide],
+    [REPO_CHECKS_HELP_URL, repoChecksGuide],
+  ])('%s lists every h2 in order, and each link lands on it', (path, markdown) => {
+    window.history.replaceState(null, '', path);
+    render(<App api={createMockApi()} />);
+    const nav = screen.getByRole('navigation', { name: 'Contents' });
+    const links = within(nav).getAllByRole('link');
+    const h2s = [...document.querySelectorAll('.help-body h2')];
+    expect(h2s.length).toBeGreaterThan(1);
+    expect(links.map((a) => a.textContent)).toEqual(h2s.map((h) => h.textContent));
+    for (const [i, a] of links.entries()) {
+      const id = a.getAttribute('href')!.replace(/^#/, '');
+      expect(document.getElementById(id)).toBe(h2s[i]);
+    }
+    expect(helpContents(markdown)).toHaveLength(h2s.length);
+    // The contents sit under the title, before the first section.
+    const h1 = screen.getByRole('heading', { level: 1 });
+    expect(h1.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(nav.compareDocumentPosition(h2s[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('the add-a-machine contents start at 1. Prerequisites', () => {
+    expect(helpContents(guide).slice(0, 2)).toEqual([
+      { id: '1-prerequisites', text: '1. Prerequisites' },
+      { id: '2-install-and-enroll', text: '2. Install and enroll' },
+    ]);
+  });
+
+  it('splitIntro keeps the whole text, split before the first ##', () => {
+    const [intro, rest] = splitIntro(guide);
+    expect(intro + rest).toBe(guide);
+    expect(rest.startsWith('## 1. Prerequisites')).toBe(true);
+    expect(splitIntro('# Only a title')).toEqual(['# Only a title', '']);
   });
 });

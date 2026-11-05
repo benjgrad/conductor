@@ -179,7 +179,7 @@ describe('createHttpApi REST', () => {
       required_tags: [],
       repo_allow_machines: null,
       status: 'ready',
-      priority: 0,
+      priority: 3,
       created_at: '2026-10-22T12:00:00.000Z',
     };
     const { calls, fetch } = recordingFetch(({ url, method }) => {

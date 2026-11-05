@@ -83,7 +83,7 @@ async function registered(id: string): Promise<FakeDaemon> {
 async function ticket() {
   const r = await db.pool.query<TicketRow>(
     `INSERT INTO ticket (repo, title, workflow_id, required_tags, priority)
-     VALUES ('github.com/x/app', 'Add /health', 'm1_basic', $1, 0) RETURNING *`,
+     VALUES ('github.com/x/app', 'Add /health', 'm1_basic', $1, 3) RETURNING *`,
     [[tag]],
   );
   return r.rows[0]!;

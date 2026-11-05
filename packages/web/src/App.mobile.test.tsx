@@ -159,7 +159,8 @@ describe('phone create ticket (11-web-ui §Create ticket)', () => {
     expect(submit.disabled).toBe(true);
     expect(submit.getAttribute('aria-describedby')).toBeTruthy();
     expect(dialog.getByText('Still needed: a title, Work or Personal')).toBeTruthy();
-    expect(dialog.getByLabelText('Priority').getAttribute('inputmode')).toBe('numeric');
+    // ADR-0036: a P1–P4 choice that starts at P3.
+    expect(dialog.getByLabelText<HTMLSelectElement>('Priority').value).toBe('3');
     fireEvent.click(dialog.getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog', { name: 'New ticket' })).toBeNull();
   });

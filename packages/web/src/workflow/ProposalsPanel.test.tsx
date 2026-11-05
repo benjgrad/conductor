@@ -7,15 +7,24 @@ import { createMockApi } from '../api/mock.js';
 import { ProposalsPanel } from './ProposalsPanel.js';
 
 // ADR-0033 P3 (MA-T07): the change-proposal list under the workflow editor, on the mock API.
+// UXR-73: the diff in the editor's words, and the diagram highlight.
 
 afterEach(cleanup);
 
-const [REPO, WORKFLOW] = mockChangeProposals(new Date());
+const [OPEN_WF, REPO, WORKFLOW] = mockChangeProposals(new Date());
 
 function setup(api = createMockApi(), dirty = false) {
   const onWorkflowApplied = vi.fn();
-  render(<ProposalsPanel api={api} dirty={dirty} onWorkflowApplied={onWorkflowApplied} />);
-  return { api, onWorkflowApplied };
+  const onHighlight = vi.fn();
+  render(
+    <ProposalsPanel
+      api={api}
+      dirty={dirty}
+      onWorkflowApplied={onWorkflowApplied}
+      onHighlight={onHighlight}
+    />,
+  );
+  return { api, onWorkflowApplied, onHighlight };
 }
 const row = async (title: string) =>
   screen.findByRole('button', { name: new RegExp(title) }, { timeout: 5_000 });
@@ -24,6 +33,7 @@ describe('ProposalsPanel', () => {
   it('lists open proposals; All shows the applied one too', async () => {
     setup();
     await row(REPO!.title);
+    await row(OPEN_WF!.title);
     expect(screen.queryByRole('button', { name: new RegExp(WORKFLOW!.title) })).toBeNull();
     fireEvent.change(screen.getByRole('combobox', { name: 'Show' }), { target: { value: 'all' } });
     await row(WORKFLOW!.title);
@@ -33,11 +43,14 @@ describe('ProposalsPanel', () => {
     const { api } = setup();
     const apply = vi.spyOn(api, 'applyChangeProposal');
     fireEvent.click(await row(REPO!.title));
-    await screen.findByRole('table');
+    // UXR-73: the repo's checks in words, not raw JSON.
+    const diff = await screen.findByRole('list', { name: `Changes in ${REPO!.title}` });
+    expect(diff.textContent).toContain('This repo gets its own checks');
+    expect(diff.textContent).toContain('Check Web build: cd m-one && npm ci && npm run build');
+    expect(screen.queryByRole('table')).toBeNull();
     expect(screen.getByText(REPO!.rationale)).toBeTruthy();
     expect(screen.getByText(REPO!.evidence[0]!.text)).toBeTruthy();
     expect(screen.getByText(REPO!.rollback)).toBeTruthy();
-    expect(screen.getAllByRole('row')).toHaveLength(1 + REPO!.diff.changes.length);
 
     fireEvent.click(screen.getByRole('button', { name: 'Apply…' }));
     expect(apply).not.toHaveBeenCalled();
@@ -48,14 +61,68 @@ describe('ProposalsPanel', () => {
     expect(apply).toHaveBeenCalledWith(REPO!.id);
     expect(screen.getByRole('status').textContent).toBe('Applied.');
     // It left the open list.
-    await waitFor(() => expect(screen.getByText('No open proposals.')).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: new RegExp(REPO!.title) })).toBeNull(),
+    );
   });
 
   it('reject removes it from the open list', async () => {
     setup();
     fireEvent.click(await row(REPO!.title));
     fireEvent.click(await screen.findByRole('button', { name: 'Reject' }));
-    await waitFor(() => expect(screen.getByText('No open proposals.')).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: new RegExp(REPO!.title) })).toBeNull(),
+    );
+  });
+
+  it('a workflow proposal reads in the editor’s words and highlights the diagram', async () => {
+    const { onHighlight } = setup();
+    fireEvent.click(await row(OPEN_WF!.title));
+    const diff = await screen.findByRole('list', { name: `Changes in ${OPEN_WF!.title}` });
+    const text = diff.textContent ?? '';
+    expect(text).toContain('Title: Waiting external → Waiting on review');
+    expect(text).toContain('Check Typecheck added: pnpm typecheck');
+    expect(text).toContain('Waits for before/after screenshots');
+    expect(diff.querySelectorAll('strong').length).toBeGreaterThan(0);
+    // No raw JSON, no paths.
+    expect(text).not.toContain('{');
+    expect(text).not.toContain('states.');
+    expect(screen.getByText('Highlighted on the diagram above.')).toBeTruthy();
+    await waitFor(() => expect(onHighlight).toHaveBeenLastCalledWith(expect.anything()));
+    const h = onHighlight.mock.lastCall![0] as { states: Set<string>; edges: Set<string> };
+    expect([...h.states]).toEqual(['waiting_external']);
+    expect([...h.edges]).toEqual(['implementing/waiting_external']);
+    // Closing it clears the highlight.
+    fireEvent.click(await row(OPEN_WF!.title));
+    await waitFor(() => expect(onHighlight).toHaveBeenLastCalledWith(null));
+  });
+
+  it('falls back to the raw table from a server without the bodies', async () => {
+    const api = createMockApi();
+    const bare = { ...OPEN_WF! };
+    delete bare.base_definition;
+    delete bare.proposed_definition;
+    api.getChangeProposal = () => Promise.resolve(bare);
+    setup(api);
+    fireEvent.click(await row(OPEN_WF!.title));
+    await screen.findByRole('table');
+    expect(screen.getAllByRole('row')).toHaveLength(1 + OPEN_WF!.diff.changes.length);
+  });
+
+  it('lists one repo’s proposals when filtered (UXR-73, the Repo checks page)', async () => {
+    const api = createMockApi();
+    const list = vi.spyOn(api, 'listChangeProposals');
+    render(<ProposalsPanel api={api} dirty={false} kind="repo_checks" target={REPO!.target} />);
+    await row(REPO!.title);
+    expect(list).toHaveBeenCalledWith({
+      status: 'proposed',
+      kind: 'repo_checks',
+      target: REPO!.target,
+    });
+    expect(screen.queryByRole('button', { name: new RegExp(OPEN_WF!.title) })).toBeNull();
+    expect(
+      screen.getByRole('heading', { name: 'Proposed changes to this repo’s checks' }),
+    ).toBeTruthy();
   });
 
   it('shows an applied proposal’s review, and a refusal as an alert', async () => {

@@ -37,7 +37,7 @@ async function setup(override?: { returnTo: null }) {
   fireEvent.click(await screen.findByRole('button', { name: 'Fix flaky checkout test' }));
   const panel = within(await screen.findByRole('complementary', { name: 'Session detail' }));
   const actions = within(await panel.findByRole('group', { name: 'Quick actions' }));
-  return { answers, cancels, actions };
+  return { answers, cancels, actions, panel };
 }
 
 const { session, input } = SEED_IDS.askOlder;
@@ -45,7 +45,10 @@ const { session, input } = SEED_IDS.askOlder;
 describe('quick actions (U-037)', () => {
   it('retry answers with no goto, so the engine returns to return_to', async () => {
     const { answers, actions } = await setup();
-    fireEvent.click(actions.getByRole('button', { name: 'Retry test' }));
+    const retry = actions.getByRole('button', { name: 'Retry test' });
+    // UXR-39: Retry is the primary action.
+    expect(retry.classList.contains('primary')).toBe(true);
+    fireEvent.click(retry);
     await waitFor(() => expect(answers).toHaveLength(1));
     expect(answers[0]).toEqual([session, { input_request_id: input, answer: 'retry' }]);
     expect('goto' in answers[0]![1]).toBe(false);
@@ -56,10 +59,13 @@ describe('quick actions (U-037)', () => {
     expect(actions.getByRole('button', { name: 'Retry implement' })).toBeTruthy();
   });
 
-  it('skip to X answers with goto X', async () => {
+  it('skip to X answers with goto X, on the choice (a menu, no separate Skip button)', async () => {
     const { answers, actions } = await setup();
-    fireEvent.change(actions.getByLabelText('Skip to state'), { target: { value: 'build' } });
-    fireEvent.click(actions.getByRole('button', { name: 'Skip' }));
+    const menuButton = actions.getByRole('button', { name: /Skip to/ });
+    expect(menuButton.getAttribute('aria-haspopup')).toBe('menu');
+    fireEvent.click(menuButton);
+    const menu = within(actions.getByRole('menu', { name: 'Skip to state' }));
+    fireEvent.click(menu.getByRole('menuitem', { name: 'build' }));
     await waitFor(() => expect(answers).toHaveLength(1));
     expect(answers[0]).toEqual([
       session,
@@ -69,17 +75,44 @@ describe('quick actions (U-037)', () => {
 
   it('skip offers only non-human states (goto into a human state would just ask again)', async () => {
     const { actions } = await setup();
-    const options = within(actions.getByLabelText('Skip to state'))
-      .getAllByRole('option')
-      .map((o) => o.getAttribute('value'));
-    expect(options).toEqual(['', 'implement', 'build', 'test', 'done']);
+    fireEvent.click(actions.getByRole('button', { name: /Skip to/ }));
+    const options = within(actions.getByRole('menu'))
+      .getAllByRole('menuitem')
+      .map((o) => o.textContent);
+    expect(options).toEqual(['implement', 'build', 'test', 'done']);
+  });
+
+  it('Escape closes the skip menu without answering', async () => {
+    const { answers, actions } = await setup();
+    fireEvent.click(actions.getByRole('button', { name: /Skip to/ }));
+    fireEvent.keyDown(actions.getByRole('menu'), { key: 'Escape' });
+    expect(actions.queryByRole('menu')).toBeNull();
+    expect(answers).toEqual([]);
   });
 
   it('abort cancels the session instead of answering', async () => {
-    const { answers, cancels, actions } = await setup();
-    fireEvent.click(actions.getByRole('button', { name: 'Abort' }));
+    const { answers, cancels, actions, panel } = await setup();
+    fireEvent.click(actions.getByRole('button', { name: 'Abort…' }));
+    // UXR-39: Abort asks first; the first click cancels nothing.
+    expect(cancels).toEqual([]);
+    const confirm = within(panel.getByRole('group', { name: 'Confirm abort' }));
+    fireEvent.click(confirm.getByRole('button', { name: 'Abort session' }));
     await waitFor(() => expect(cancels).toHaveLength(1));
     expect(cancels[0]).toEqual([session, { reason: 'aborted from UI' }]);
     expect(answers).toEqual([]);
+  });
+
+  it('Keep it closes the abort confirmation without cancelling', async () => {
+    const { cancels, actions, panel } = await setup();
+    fireEvent.click(actions.getByRole('button', { name: 'Abort…' }));
+    fireEvent.click(panel.getByRole('button', { name: 'Keep it' }));
+    expect(panel.queryByRole('group', { name: 'Confirm abort' })).toBeNull();
+    expect(cancels).toEqual([]);
+  });
+
+  it("shows the failed run's output under the question (FR-4)", async () => {
+    const { panel } = await setup();
+    const out = panel.getByRole('region', { name: 'Failure output' });
+    expect(out.textContent).toContain('FAIL checkout.spec.ts › applies coupon');
   });
 });

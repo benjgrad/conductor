@@ -69,13 +69,46 @@ describe('repo checks page (ADR-0030)', () => {
     expect(onSelect).toHaveBeenCalledWith(SHOP);
   });
 
+  it('lists the advisor’s proposals for this repo, and applying one reloads it (UXR-73)', async () => {
+    const API = 'github.com/acme/api';
+    const { api } = renderPage(API);
+    await detail(API);
+    const region = within(await screen.findByRole('region', { name: 'Change proposals' }));
+    expect(
+      region.getByRole('heading', { name: 'Proposed changes to this repo’s checks' }),
+    ).toBeTruthy();
+    fireEvent.click(await region.findByRole('button', { name: /Build the web app inside m-one/ }));
+    const diff = await region.findByRole('list', { name: /^Changes in/ });
+    expect(diff.textContent).toContain('This repo gets its own checks');
+    // The workflow's proposals are not listed here.
+    expect(region.queryByRole('button', { name: /Typecheck before testing/ })).toBeNull();
+
+    const reload = vi.spyOn(api, 'getRepoChecks');
+    fireEvent.click(region.getByRole('button', { name: 'Apply…' }));
+    fireEvent.click(region.getByRole('button', { name: 'Confirm apply' }));
+    await waitFor(() => expect(reload).toHaveBeenCalledWith(API));
+  });
+
+  it('a repo with no proposals says so', async () => {
+    renderPage(SHOP);
+    const region = within(await screen.findByRole('region', { name: 'Change proposals' }));
+    expect(await region.findByText('No open proposals.')).toBeTruthy();
+  });
+
   it('a repo without an override shows the workflow’s checks at every gate', async () => {
     renderPage(FRESH);
     const d = await detail(FRESH);
     const badges = await sources(FRESH);
     expect(badges.length).toBeGreaterThan(0);
     expect(new Set(badges)).toEqual(new Set(['Workflow default']));
-    // The draft starts from the workflow's checks, ready to set.
+    // The draft starts from the workflow's checks, ready to set, in a labelled table (UXR-61).
+    const table = within(d.getByRole('table', { name: 'Checks' }));
+    expect(table.getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
+      'Name',
+      'Command',
+      'Timeout',
+      'Order',
+    ]);
     expect(d.getByLabelText<HTMLInputElement>('Check 1 name').value).toBe('Build passes');
     expect(d.getByRole<HTMLButtonElement>('button', { name: 'Set override' }).disabled).toBe(false);
   });
@@ -86,16 +119,16 @@ describe('repo checks page (ADR-0030)', () => {
     const save = () => d.getByRole<HTMLButtonElement>('button', { name: 'Set override' });
 
     fireEvent.change(d.getByLabelText('Check 2 name'), { target: { value: 'Build passes' } });
-    expect(d.getByText('check "Build passes" is listed twice')).toBeTruthy();
+    expect(d.getByText('Check 2: Name "Build passes" is used by another check')).toBeTruthy();
     expect(save().disabled).toBe(true);
     fireEvent.change(d.getByLabelText('Check 2 name'), { target: { value: 'Tests' } });
 
     fireEvent.change(d.getByLabelText('Check 1 command'), { target: { value: ' ' } });
-    expect(d.getByText('check 1 needs a command')).toBeTruthy();
+    expect(d.getByText('Check 1: Command is required')).toBeTruthy();
     fireEvent.change(d.getByLabelText('Check 1 command'), { target: { value: 'make' } });
 
     fireEvent.change(d.getByLabelText('Check 1 timeout'), { target: { value: 'soon' } });
-    expect(d.getByText('use a duration like "30m", "2h" or "3d"')).toBeTruthy();
+    expect(d.getByText('Check 1: Timeout: use a duration like "30m", "2h" or "3d"')).toBeTruthy();
     expect(save().disabled).toBe(true);
     fireEvent.change(d.getByLabelText('Check 1 timeout'), { target: { value: '10m' } });
     expect(d.queryAllByRole('alert')).toEqual([]);
@@ -112,7 +145,7 @@ describe('repo checks page (ADR-0030)', () => {
     const d = await detail(FRESH);
     fireEvent.change(d.getByLabelText('Check 1 command'), { target: { value: 'make' } });
     fireEvent.change(d.getByLabelText('Check 1 timeout'), { target: { value: '10m' } });
-    fireEvent.change(d.getByLabelText('Before the checks (in a fresh checkout)'), {
+    fireEvent.change(d.getByLabelText('Setup: runs first, in a fresh checkout'), {
       target: { value: 'none' },
     });
     fireEvent.click(d.getByRole('button', { name: 'Set override' }));
@@ -162,7 +195,10 @@ describe('repo checks page (ADR-0030)', () => {
     const d = await detail(FRESH);
     fireEvent.click(d.getByRole('button', { name: 'Set override' }));
     const at = await d.findByText('server says no');
-    expect(at.closest('.wf-check')).toBe(d.getByLabelText('Check 1 command').closest('.wf-check'));
+    // Right under check 1's row.
+    expect(at.closest('tr')?.previousElementSibling).toBe(
+      d.getByLabelText('Check 1 command').closest('tr'),
+    );
     expect(d.getByText('repo: repo must be 1..200 chars')).toBeTruthy();
   });
 });

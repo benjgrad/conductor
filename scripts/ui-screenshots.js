@@ -43,6 +43,13 @@ const permissionScene =
 const CARD = 'Add audit log table';
 /** A running card with a ticket body, so the Brief shows (api/mock-data.ts). */
 const BRIEF_CARD = 'Add pagination to /orders';
+/** UXR-35: one card per request kind (api/mock-data.ts). The permission prompt is the
+ * `detail-permission` screen, in the VITE_MOCK_PERMISSION scene (UXR-32). */
+const REVIEW_CARD = 'Board cards: review requests vs questions';
+const FAILED_CARD = 'Fix flaky checkout test';
+const STEP_FAILED_CARD = 'Add CSV export';
+/** The request shots: every kind but permission, in light and dark. */
+const REQUEST_SHOTS = ['detail-review', 'detail-failed', 'detail-step-failed'];
 /** The card VITE_MOCK_PERMISSION=1 holds on a permission (api/select.ts). */
 const PERMISSION_CARD = BRIEF_CARD;
 /** The plan-approval card (06 §Plan approval; api/mock-data.ts planApprovalSeed). */
@@ -70,7 +77,10 @@ const VIEWPORTS = [
     w: 375,
     h: 812,
     ...PHONE,
-    themes: { light: 'all', dark: ['board', 'detail', 'new-ticket', 'ticket-plan'] },
+    themes: {
+      light: 'all',
+      dark: ['board', 'detail', 'new-ticket', 'ticket-plan', ...REQUEST_SHOTS],
+    },
   },
   {
     w: 360,
@@ -93,7 +103,17 @@ const VIEWPORTS = [
     isMobile: true,
     hasTouch: true,
     deviceScaleFactor: 1,
-    themes: { light: ['board', 'detail', 'new-ticket', 'new-ticket-bottom'] },
+    themes: {
+      light: [
+        'board',
+        'detail',
+        'new-ticket',
+        'new-ticket-bottom',
+        'machines',
+        'machine-drawer',
+        'admin',
+      ],
+    },
   },
   {
     w: 1440,
@@ -106,23 +126,30 @@ const VIEWPORTS = [
         'new-ticket',
         'new-ticket-bottom',
         'machines',
+        'machine-drawer',
+        'admin',
         'workflows',
         'wf-diagram-end',
         'wf-rules-full',
         'wf-rules-new',
         'wf-arrow-group',
         'wf-unsaved-guard',
-        'wf-version-old',
+        'wf-version-old-edit',
+        'rc-override-full',
+        'rc-invalid',
         'wf-arrow-transition',
+        'wf-proposal-open',
+        'wf-version-old',
         'workflow-column',
         'ticket-messages',
         'ticket-plan',
+        ...REQUEST_SHOTS,
         'board-permission',
         'detail-permission',
         'detail-done',
         'detail-done-steps',
       ],
-      dark: ['board', 'detail'],
+      dark: ['board', 'detail', ...REQUEST_SHOTS],
     },
   },
 ];
@@ -213,6 +240,9 @@ const SCREENS = [
     },
   },
   { id: 'detail', path: '/#/', act: openCard },
+  { id: 'detail-review', path: '/#/', act: (page) => openCard(page, REVIEW_CARD) },
+  { id: 'detail-failed', path: '/#/', act: (page) => openCard(page, FAILED_CARD) },
+  { id: 'detail-step-failed', path: '/#/', act: (page) => openCard(page, STEP_FAILED_CARD) },
   {
     id: 'detail-scrolled',
     path: '/#/',
@@ -309,8 +339,34 @@ const SCREENS = [
   { id: 'board-permission', path: '/#/' },
   { id: 'detail-permission', path: '/#/', act: (page) => openCard(page, PERMISSION_CARD) },
   { id: 'machines', path: '/#/machines' },
+  // UXR-47: the machine drawer (a Sheet) on the machine with problems (api/mock-data.ts).
+  {
+    id: 'machine-drawer',
+    path: '/#/machines',
+    act: async (page) => {
+      await clickNamed(page, 'button', 'Details of old-linux-box');
+      await page.getByRole('dialog', { name: 'Machine old-linux-box' }).waitFor();
+      await page.waitForTimeout(200);
+    },
+  },
+  // The mock in password mode, signed in as its admin (api/select.ts), so the tables show.
+  { id: 'admin', path: '/?mock-auth=password#/admin' },
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
+  // UXR-61: the override's setup and check table, at full height.
+  { id: 'rc-override-full', path: '/#/repo-checks/github.com%2Facme%2Fshop', fullPage: true },
+  // UXR-61 FR-5: problems in the check table, each under its field and named by its label.
+  {
+    id: 'rc-invalid',
+    path: '/#/repo-checks/github.com%2Facme%2Fshop',
+    fullPage: true,
+    act: async (page) => {
+      const name = page.getByLabel('Check 1 name', { exact: true });
+      await name.waitFor();
+      await name.fill('');
+      await page.getByLabel('Check 1 timeout', { exact: true }).fill('soon');
+    },
+  },
   { id: 'workflows', path: '/#/workflows' },
   // UXR-45: the diagram's scroll box scrolled to its right end (fit to width: nothing hidden).
   {
@@ -344,15 +400,12 @@ const SCREENS = [
     path: '/#/workflows',
     act: async (page) => {
       await openArrow(page, 'Planning', 'Implementing');
-      /** @type {[string, string][]} */
-      const adds = [
-        ['Conditions', 'Add condition'],
-        ['Checks', 'Add check'],
-      ];
-      for (const [section, add] of adds) {
-        await tap(page.locator('aside.wf-editor .wf-section-head button', { hasText: section }));
-        await clickNamed(page, 'button', add);
-      }
+      const section = (/** @type {string} */ name) =>
+        tap(page.locator('aside.wf-editor .wf-section-head button', { hasText: name }));
+      await section('Conditions');
+      await page.getByRole('combobox', { name: 'Add condition' }).selectOption('pr_checks_green');
+      await section('Checks');
+      await clickNamed(page, 'button', 'Add check');
       await page.waitForTimeout(200);
     },
   },
@@ -370,6 +423,35 @@ const SCREENS = [
       await openArrow(page, 'Implementing', 'Needs input');
       const row = page.locator('.wf-transition-row', { hasText: 'Personal only' });
       if ((await row.count()) > 0) await tap(row.first());
+    },
+  },
+  // UXR-73: an open advisor proposal: its diff in the editor's words, its changes highlighted on
+  // the diagram (the mock's open workflow proposal, api/mock-data.ts).
+  {
+    id: 'wf-proposal-open',
+    path: '/#/workflows',
+    fullPage: true,
+    act: async (page) => {
+      await page.locator('.wf-lanes').first().waitFor();
+      await tap(page.locator('.cp-summary', { hasText: 'Typecheck before testing' }).first());
+      await page.locator('.cp-detail .wf-diff').waitFor();
+      // The highlighted column into the diagram's view; the page itself stays at the top.
+      await page.locator('[data-lane="waiting_external"]').scrollIntoViewIfNeeded();
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
+  // UXR-70: an old version, compared with the latest (the diff above the diagram).
+  {
+    id: 'wf-version-old',
+    path: '/#/workflows',
+    fullPage: true,
+    act: async (page) => {
+      await page.locator('.wf-lanes').first().waitFor();
+      await page.getByRole('combobox', { name: 'Version' }).selectOption('2');
+      const note = page.locator('.wf-old-version');
+      await note.waitFor();
+      await tap(note.getByRole('button', { name: 'Compare with latest' }));
+      await page.locator('.wf-diff-section .wf-diff').first().waitFor();
     },
   },
   // UXR-65: a column's panel, its transitions listed by title.
@@ -396,7 +478,7 @@ const SCREENS = [
   },
   // UXR-70: editing v1 warns that saving undoes v2–v3, inline and in the save bar.
   {
-    id: 'wf-version-old',
+    id: 'wf-version-old-edit',
     path: '/#/workflows',
     act: async (page) => {
       await page.locator('.wf-lanes').first().waitFor();

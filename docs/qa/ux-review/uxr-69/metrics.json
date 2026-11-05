@@ -5,13 +5,16 @@
     "deviceWidth": 375,
     "horizontalOverflow": false,
     "pageHeight": 812,
-    "smallTapTargets": 5,
+    "smallTapTargets": 9,
     "smallTapTargetSample": [
+      "select \"v3 · 3 Oct 2026 · ben@example.\" 14×44",
       "input \"\" 13×13",
       "button \"Zoom in\" 26×44",
-      "button \"Move check 1 up\" 23×44",
-      "button \"Move check 1 down\" 23×44",
-      "button \"Remove check 1\" 23×44"
+      "button \"Move check 1 up\" 24×44",
+      "button \"Move check 1 down\" 24×44",
+      "button \"Remove check 1\" 24×44",
+      "button \"Move condition 1 up\" 24×44",
+      "button \"Move condition 1 down\" 24×44"
     ]
   },
   "wf-unsaved-guard-375x812-light": {
@@ -20,8 +23,9 @@
     "deviceWidth": 375,
     "horizontalOverflow": false,
     "pageHeight": 812,
-    "smallTapTargets": 5,
+    "smallTapTargets": 6,
     "smallTapTargetSample": [
+      "select \"v3 · 3 Oct 2026 · ben@example.\" 14×44",
       "input \"\" 13×13",
       "button \"Zoom in\" 26×44",
       "button \"Close column\" 31×44",
@@ -48,7 +52,7 @@
     "deviceWidth": 1440,
     "horizontalOverflow": false,
     "pageHeight": 900,
-    "smallTapTargets": 37,
+    "smallTapTargets": 40,
     "smallTapTargetSample": [
       "a \"Board\" 80×25",
       "a \"Workflow\" 106×25",
@@ -56,8 +60,8 @@
       "a \"Add a machine\" 137×25",
       "a \"Help\" 72×25",
       "button \"local\" 74×27",
-      "select \"v3 (latest)v2v1\" 96×29",
-      "input \"\" 13×13"
+      "select \"v3 · 3 Oct 2026 · ben@example.\" 423×29",
+      "button \"History\" 68×27"
     ]
   },
   "wf-unsaved-guard-1440x900-light": {
@@ -66,7 +70,7 @@
     "deviceWidth": 1440,
     "horizontalOverflow": false,
     "pageHeight": 900,
-    "smallTapTargets": 24,
+    "smallTapTargets": 26,
     "smallTapTargetSample": [
       "a \"Board\" 80×25",
       "a \"Workflow\" 106×25",
@@ -94,6 +98,38 @@
       "button \"local\" 74×27",
       "select \"v3 (latest)v2v1\" 96×29",
       "input \"\" 13×13"
+    ]
+  },
+  "wf-version-old-edit-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 4,
+    "smallTapTargetSample": [
+      "select \"v3 · 3 Oct 2026 · ben@example.\" 14×44",
+      "button \"Close column\" 31×44",
+      "input \"\" 13×13",
+      "input \"\" 13×13"
+    ]
+  },
+  "wf-version-old-edit-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 25,
+    "smallTapTargetSample": [
+      "a \"Board\" 80×25",
+      "a \"Workflow\" 106×25",
+      "a \"Machines\" 104×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"local\" 74×27",
+      "select \"v3 · 3 Oct 2026 · ben@example.\" 423×29",
+      "button \"History\" 68×27"
     ]
   }
 }

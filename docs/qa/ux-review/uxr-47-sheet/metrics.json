@@ -1,0 +1,130 @@
+{
+  "machines-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 3,
+    "smallTapTargetSample": [
+      "a \"Guided setup\" 56×34",
+      "a \"Help: add a machine\" 85×34",
+      "a \"Help: upgrade a machine\" 161×17"
+    ]
+  },
+  "machine-drawer-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 3,
+    "smallTapTargetSample": [
+      "a \"Guided setup\" 56×34",
+      "a \"Help: add a machine\" 85×34",
+      "a \"Help: upgrade a machine\" 161×17"
+    ]
+  },
+  "admin-375x812-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "input \"\" 13×13"
+    ]
+  },
+  "machines-768x1024-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 768,
+    "deviceWidth": 768,
+    "horizontalOverflow": false,
+    "pageHeight": 1024,
+    "smallTapTargets": 3,
+    "smallTapTargetSample": [
+      "a \"Guided setup\" 87×17",
+      "a \"Help: add a machine\" 132×17",
+      "a \"Help: upgrade a machine\" 161×17"
+    ]
+  },
+  "machine-drawer-768x1024-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 768,
+    "deviceWidth": 768,
+    "horizontalOverflow": false,
+    "pageHeight": 1024,
+    "smallTapTargets": 3,
+    "smallTapTargetSample": [
+      "a \"Guided setup\" 87×17",
+      "a \"Help: add a machine\" 132×17",
+      "a \"Help: upgrade a machine\" 161×17"
+    ]
+  },
+  "admin-768x1024-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 768,
+    "deviceWidth": 768,
+    "horizontalOverflow": false,
+    "pageHeight": 1024,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "input \"\" 13×13"
+    ]
+  },
+  "machines-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 15,
+    "smallTapTargetSample": [
+      "a \"Board\" 80×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 107×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"local\" 74×27",
+      "button \"Add a machine\" 117×27",
+      "a \"Guided setup\" 87×17"
+    ]
+  },
+  "machine-drawer-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 20,
+    "smallTapTargetSample": [
+      "a \"Board\" 80×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 107×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"local\" 74×27",
+      "button \"Add a machine\" 117×27",
+      "a \"Guided setup\" 87×17"
+    ]
+  },
+  "admin-1440x900-light": {
+    "chatHeight": null,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 900,
+    "smallTapTargets": 13,
+    "smallTapTargetSample": [
+      "a \"Board\" 80×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 104×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"Ben\" 69×27",
+      "button \"Reset link for ben@example.com\" 85×27",
+      "input \"\" 168×27"
+    ]
+  }
+}

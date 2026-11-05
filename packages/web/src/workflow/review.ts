@@ -1,4 +1,4 @@
-import type { WorkflowDefinition, WorkflowDetail } from '@conductor/shared';
+import type { WorkflowDefinition, WorkflowDetail, WorkflowVersionInfo } from '@conductor/shared';
 
 // While a requirements review runs (ADR-0009), a session's `workflow_state` is the synthetic
 // label `"<from> → <to> (review)"` (shared engine/review.ts reviewStateLabel), which names no
@@ -49,4 +49,55 @@ export function detailVersions(detail: WorkflowDetail): number[] | null {
   if (!Array.isArray(v) || v.length === 0) return null;
   if (!v.every((n): n is number => Number.isInteger(n) && (n as number) > 0)) return null;
   return [...v].sort((a, b) => a - b);
+}
+
+/**
+ * UXR-70: `WorkflowDetail.history` (who saved each version, when, its note), ascending; null when
+ * the server doesn't send it. Read defensively like `detailVersions`.
+ */
+export function detailHistory(detail: WorkflowDetail): WorkflowVersionInfo[] | null {
+  const h = (detail as unknown as Record<string, unknown>).history;
+  if (!Array.isArray(h) || h.length === 0) return null;
+  const ok = h.every(
+    (x): x is WorkflowVersionInfo =>
+      typeof x === 'object' &&
+      x !== null &&
+      Number.isInteger((x as WorkflowVersionInfo).version) &&
+      typeof (x as WorkflowVersionInfo).created_at === 'string',
+  );
+  return ok ? [...h].sort((a, b) => a.version - b.version) : null;
+}
+
+/** "3 Oct 2026": a version's save date (UTC, so every viewer reads the same day). */
+export function savedOn(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+/** Who saved a version: the email, "… via MCP" for an MCP save, null when unknown. */
+export function savedBy(createdBy: string | null | undefined): string | null {
+  if (createdBy === null || createdBy === undefined || createdBy === '') return null;
+  return createdBy.startsWith('mcp:') ? `${createdBy.slice(4)} via MCP` : createdBy;
+}
+
+/** A version picker option: "v3 · 3 Oct 2026 · ben@example.com · Fewer questions (latest)". */
+export function versionLabel(
+  version: number,
+  info: WorkflowVersionInfo | undefined,
+  latest: boolean,
+): string {
+  const parts = [`v${version}`];
+  if (info) {
+    parts.push(savedOn(info.created_at));
+    const by = savedBy(info.created_by);
+    if (by !== null) parts.push(by);
+    if (info.note) parts.push(info.note.length > 40 ? `${info.note.slice(0, 39)}…` : info.note);
+  }
+  return `${parts.join(' · ')}${latest ? ' (latest)' : ''}`;
 }

@@ -13,6 +13,7 @@ import {
   type EntryCheck,
   type OnUnmet,
   type Transition,
+  type TransitionAction,
   TICKET_KINDS,
   type TransitionActor,
   type TransitionObject,
@@ -200,19 +201,22 @@ export function addTransition(
 
 // ------------------------------------------------------------------ requires
 
-export const ACTION_TEXT: Record<string, string> = {
+export const ACTION_TEXT: Record<TransitionAction, string> = {
   open_pr: 'Open a pull request (by conductor)',
   update_jira: 'Update the Jira ticket',
   slack_message: 'Send a Slack message',
+  inspect_pr: 'Check the pull request',
+  merge_pr: 'Merge the pull request',
+  close_pr: 'Close the pull request',
 };
 
 export const CONDITION_TEXT: Record<ConditionType, string> = {
-  pr_checks_green: 'PR checks green',
+  pr_checks_green: 'PR checks are green',
   pr_approvals: 'PR approvals',
   pr_merged: 'PR merged',
-  pr_screenshots: 'Before/after screenshots (UI changes)',
+  pr_screenshots: 'Before/after screenshots',
   azure_pipeline_succeeded: 'Azure pipeline succeeded',
-  jira_fields_set: 'Jira fields set',
+  jira_fields_set: 'Jira fields are set',
 };
 
 /** A new condition of `type`, keeping `enabled` / `label` from the one it replaces. */
@@ -248,11 +252,11 @@ export function conditionOfType(type: ConditionType, prev?: Condition): Conditio
 /** A new condition's *Wait at most* when none is set yet (UXR-71: a new item starts valid). */
 export const DEFAULT_CONDITION_TIMEOUT = '3d';
 
-/** `requires` with one more condition (PR checks green), and a default timeout when it has none. */
-export function addCondition(r: TransitionRequires): TransitionRequires {
+/** `requires` with one more condition, and a default timeout when it has none. */
+export function addCondition(r: TransitionRequires, condition: Condition): TransitionRequires {
   return {
     ...r,
-    conditions: [...(r.conditions ?? []), { type: 'pr_checks_green' }],
+    conditions: [...(r.conditions ?? []), condition],
     ...(r.condition_timeout === undefined ? { condition_timeout: DEFAULT_CONDITION_TIMEOUT } : {}),
   };
 }
@@ -331,8 +335,9 @@ export interface TransitionIssue {
   message: string;
 }
 
+const DURATION_HINT = 'use a duration like "30m", "2h" or "3d"';
 const durationProblem = (text: string) =>
-  DurationSchema.safeParse(text).success ? null : 'use a duration like "30m", "2h" or "3d"';
+  DurationSchema.safeParse(text).success ? null : DURATION_HINT;
 
 /** A problem in a check list, at `suffix` (relative: `checks.0.name`, `checks`, `setup`). */
 export interface CheckListIssue {
@@ -352,22 +357,25 @@ export function checkListIssues(
 ): CheckListIssue[] {
   const issues: CheckListIssue[] = [];
   const add = (suffix: string, message: string) => issues.push({ suffix, message });
-  if (checks.length > 20) add('checks', 'at most 20 checks');
+  if (checks.length > 20) add('checks', 'At most 20 checks');
   const seen = new Set<string>();
+  // UXR-61 FR-5: each message names the row and the column header it is under.
   checks.forEach((c, i) => {
-    if (c.name.trim() === '') add(`checks.${i}.name`, `check ${i + 1} needs a name`);
-    else if (seen.has(c.name.trim())) add(`checks.${i}.name`, `check "${c.name}" is listed twice`);
+    const row = `Check ${i + 1}`;
+    if (c.name.trim() === '') add(`checks.${i}.name`, `${row}: Name is required`);
+    else if (seen.has(c.name.trim())) {
+      add(`checks.${i}.name`, `${row}: Name "${c.name.trim()}" is used by another check`);
+    }
     seen.add(c.name.trim());
-    if (c.cmd.trim() === '') add(`checks.${i}.cmd`, `check ${i + 1} needs a command`);
-    if (c.timeout !== undefined) {
-      const p = durationProblem(c.timeout);
-      if (p !== null) add(`checks.${i}.timeout`, p);
+    if (c.cmd.trim() === '') add(`checks.${i}.cmd`, `${row}: Command is required`);
+    if (c.timeout !== undefined && durationProblem(c.timeout) !== null) {
+      add(`checks.${i}.timeout`, `${row}: Timeout: ${DURATION_HINT}`);
     }
   });
   if (setup !== undefined && checks.length === 0) {
-    add('setup', 'setup runs before the checks: add a check, or remove the setup');
+    add('setup', 'Setup runs before the checks: add a check, or remove the setup');
   } else if (setup !== undefined && setup.length > 2_000) {
-    add('setup', 'the setup command is too long');
+    add('setup', 'Setup: the command is too long');
   }
   return issues;
 }
@@ -464,29 +472,34 @@ export function validateTransitions(def: WorkflowDefinition): TransitionIssue[] 
         }
         const actions = new Set<string>();
         (r.actions ?? []).forEach((a, i) => {
-          if (actions.has(a)) addR(`.actions.${i}`, `action "${a}" is listed twice`);
+          if (actions.has(a)) addR(`.actions.${i}`, `"${ACTION_TEXT[a]}" is listed twice`);
           actions.add(a);
           if (!AVAILABLE_TRANSITION_ACTIONS.includes(a)) {
-            addR(`.actions.${i}`, `"${ACTION_TEXT[a] ?? a}" is not available yet`);
+            addR(`.actions.${i}`, `"${ACTION_TEXT[a]}" is not available yet`);
           }
         });
         const conditions = r.conditions ?? [];
         conditions.forEach((c, i) => {
           const at = `.conditions.${i}`;
+          const row = `Condition ${i + 1}`;
           if (conditionEnabled(c) && !AVAILABLE_CONDITION_TYPES.includes(c.type)) {
-            addR(at, `"${CONDITION_TEXT[c.type]}" is not available yet: disable it`);
+            addR(
+              at,
+              `${row}: "${CONDITION_TEXT[c.type]}" is not available yet: skip it or remove it`,
+            );
           }
           if (c.type === 'pr_approvals' && (!Number.isInteger(c.min) || c.min < 1 || c.min > 20)) {
-            addR(`${at}.min`, 'approvals must be a whole number from 1 to 20');
+            addR(`${at}.min`, `${row}: approvals must be a whole number from 1 to 20`);
           }
           if (c.type === 'azure_pipeline_succeeded' && c.pipeline.trim() === '') {
-            addR(`${at}.pipeline`, 'name the pipeline');
+            addR(`${at}.pipeline`, `${row}: name the pipeline`);
           }
           if (c.type === 'jira_fields_set' && c.fields.length === 0) {
-            addR(`${at}.fields`, 'name at least one field');
+            addR(`${at}.fields`, `${row}: list at least one Jira field`);
           }
-          if (c.label !== undefined && c.label.trim() === '')
-            addR(`${at}.label`, 'the label is empty');
+          if (c.label !== undefined && c.label.trim() === '') {
+            addR(`${at}.label`, `${row}: the name on the card is empty`);
+          }
         });
         if (conditions.length > 10) addR('.conditions', 'at most 10 conditions');
         // Rule 13: conditions are bounded by a timeout, then a person.
@@ -530,10 +543,13 @@ export function validateTransitions(def: WorkflowDefinition): TransitionIssue[] 
 // ------------------------------------------------------------------ summary (UXR-60)
 
 /** Conductor's actions as a step in a sentence ("…, open a PR, …"). */
-export const ACTION_SHORT: Record<string, string> = {
+export const ACTION_SHORT: Record<TransitionAction, string> = {
   open_pr: 'open a PR',
   update_jira: 'update Jira',
   slack_message: 'send a Slack message',
+  inspect_pr: 'check the PR',
+  merge_pr: 'merge the PR',
+  close_pr: 'close the PR',
 };
 
 /** The poll interval when `condition_poll` is unset. */
@@ -628,7 +644,7 @@ export function describeTransition(def: WorkflowDefinition, from: string, name: 
   }
   const items = r.review?.items ?? [];
   if (items.length > 0) steps.push(`have a reviewer check ${plural(items.length, 'item')}`);
-  for (const a of r.actions ?? []) steps.push(ACTION_SHORT[a] ?? a);
+  for (const a of r.actions ?? []) steps.push(ACTION_SHORT[a]);
   const conditions = (r.conditions ?? []).filter(conditionEnabled);
   if (conditions.length > 0) {
     let wait =

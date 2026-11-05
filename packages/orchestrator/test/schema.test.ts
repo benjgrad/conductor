@@ -221,6 +221,7 @@ const workflow_definition: ColumnSpec<WorkflowDefinitionRow> = {
   definition: col('jsonb', NN),
   created_at: col('timestamptz', NN),
   created_by: col(t, NULL),
+  note: col(t, NULL),
 };
 const session: ColumnSpec<SessionRow> = {
   id: col('uuid', NN),

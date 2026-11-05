@@ -4,7 +4,7 @@ import { useElementHeightVar } from '../components/useMediaQuery.js';
 import { columnTitle, type ColumnIssue } from './columns.js';
 
 // UXR-69 FR-1: while a draft exists, a bar sticks to the bottom of the page: "Unsaved changes ·
-// N problems ▾ · Discard · Save as vN". The problems open as a list above the bar, so the diagram
+// N problems ▾ · Discard · Save as vN…" (Save opens the review first, UXR-70). The problems open as a list above the bar, so the diagram
 // never moves; each one's Show opens its column or transition. FR-4: an old version's warning
 // is repeated here.
 
@@ -90,7 +90,7 @@ export function SaveBar({
       )}
       <span className="wf-unsaved">Unsaved changes</span>
       {warning !== null && (
-        <span className="wf-old-version" role="note">
+        <span className="wf-version-warning" role="note">
           {warning}
         </span>
       )}
@@ -111,7 +111,7 @@ export function SaveBar({
           Discard
         </button>
         <button type="button" className="wf-save" onClick={onSave} disabled={saving}>
-          {saving ? 'Saving…' : `Save as v${nextVersion}`}
+          {saving ? 'Saving…' : `Save as v${nextVersion}…`}
         </button>
       </span>
     </div>

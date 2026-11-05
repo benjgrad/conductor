@@ -17,3 +17,6 @@ Commands run in a shell at the root of a fresh checkout of the commit being ship
 Clear a repo's checks and its tickets run the workflow's checks again. Tickets pick up a change the next time they run their checks.
 
 You can also set a repo's checks from Claude, with the `set_repo_checks` tool (see [Connect Claude](/help/connect-claude)).
+
+## Proposed changes
+When the workflow advisor proposes new checks for a repo, the proposal shows on that repo's page under its checks: what would change, in the same words as the editor, and why. Nothing changes until you apply it.

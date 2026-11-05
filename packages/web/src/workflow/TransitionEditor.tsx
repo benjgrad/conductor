@@ -1,7 +1,6 @@
 import {
   AVAILABLE_CONDITION_TYPES,
   AVAILABLE_TRANSITION_ACTIONS,
-  CONDITION_TYPES,
   FALLBACK_TRANSITION_NAMES,
   RETURN_TO,
   TICKET_KINDS,
@@ -20,11 +19,12 @@ import { useId, useState, type ReactNode } from 'react';
 import {
   ChecksFields,
   checksFieldSuffixes,
-  ItemActions,
   leftItem,
+  ItemActions,
   swap,
   useFocusNew,
 } from './ChecksFields.js';
+import { ConditionRow } from './ConditionFields.js';
 import { columnStates, columnTitle, humanStates, type ColumnIssue } from './columns.js';
 import { EditorHead, type Crumb } from './EditorHead.js';
 import {
@@ -159,8 +159,10 @@ function TransitionForm({
   transition: t,
 }: TransitionEditorProps & { transition: TransitionObject }) {
   const uid = useId();
-  const { list: reviewList, focusNew: focusReview } = useFocusNew('textarea');
-  const { list: conditionList, focusNew: focusCondition } = useFocusNew('select');
+  const { list: reviewList, focusNew: focusReview } = useFocusNew<HTMLOListElement>('textarea');
+  const { list: conditionList, focusNew: focusCondition } = useFocusNew<HTMLOListElement>(
+    'input, select, textarea, button',
+  );
   const [nameText, setNameText] = useState(name);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -279,7 +281,7 @@ function TransitionForm({
   const narrowed = kinds.length < TICKET_KINDS.length;
   const whoStatus = `(${ACTOR_TEXT[t.actor ?? inferred]}${narrowed ? ` · ${kinds.join(', ')}` : ''})`;
   const actionStatus = `(${
-    actions.length === 0 ? 'none' : actions.map((a) => ACTION_SHORT[a] ?? a).join(', ')
+    actions.length === 0 ? 'none' : actions.map((a) => ACTION_SHORT[a]).join(', ')
   })`;
   const conditionStatus =
     conditions.length === 0
@@ -463,6 +465,7 @@ function TransitionForm({
             <li
               key={i}
               className="wf-item"
+              data-item={i}
               onBlur={(e) => {
                 if (leftItem(e)) onReveal?.(`${base}.requires.review.items.${i}`);
               }}
@@ -525,23 +528,36 @@ function TransitionForm({
       </Section>
 
       <Section title="Actions" status={actionStatus} {...section('actions')}>
+        {/* UXR-78: an action conductor can't perform yet shows only when this version has it. */}
         {TransitionActionSchema.options
           .filter((a) => AVAILABLE_TRANSITION_ACTIONS.includes(a) || actions.includes(a))
-          .map((a) => (
-            <label key={a} className="wf-toggle">
-              <input
-                type="checkbox"
-                checked={actions.includes(a)}
-                onChange={(e) =>
-                  setR({
-                    actions: e.target.checked ? [...actions, a] : actions.filter((x) => x !== a),
-                  })
-                }
-              />
-              {ACTION_TEXT[a] ?? a}
-              {!AVAILABLE_TRANSITION_ACTIONS.includes(a) ? ' (not available yet)' : ''}
-            </label>
-          ))}
+          .map((a) =>
+            AVAILABLE_TRANSITION_ACTIONS.includes(a) ? (
+              <label key={a} className="wf-toggle">
+                <input
+                  type="checkbox"
+                  checked={actions.includes(a)}
+                  onChange={(e) =>
+                    setR({
+                      actions: e.target.checked ? [...actions, a] : actions.filter((x) => x !== a),
+                    })
+                  }
+                />
+                {ACTION_TEXT[a]}
+              </label>
+            ) : (
+              <p key={a} className="wf-condition-note">
+                {ACTION_TEXT[a]} <span className="muted">Not available yet: skipped</span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${ACTION_TEXT[a]}`}
+                  onClick={() => setR({ actions: actions.filter((x) => x !== a) })}
+                >
+                  Remove
+                </button>
+              </p>
+            ),
+          )}
         {actions.map((_, i) => at(`.requires.actions.${i}`))}
       </Section>
 
@@ -550,166 +566,59 @@ function TransitionForm({
           External facts, checked on your machine and re-checked until they all hold.
         </p>
         <ol ref={conditionList} className="wf-items" aria-label="Conditions">
-          {conditions.map((c, i) => {
-            const set = (next: Condition) =>
-              setConditions(conditions.map((x, j) => (j === i ? next : x)));
-            const available = AVAILABLE_CONDITION_TYPES.includes(c.type);
-            return (
-              <li
-                key={i}
-                className="wf-item"
-                onBlur={(e) => {
-                  if (leftItem(e)) onReveal?.(`${base}.requires.conditions.${i}`);
-                }}
-              >
-                <div className="wf-check">
-                  <select
-                    aria-label={`Condition ${i + 1} type`}
-                    value={c.type}
-                    onChange={(e) => set(conditionOfType(e.target.value as ConditionType, c))}
-                  >
-                    {CONDITION_TYPES.map((type) => (
-                      <option key={type} value={type}>
-                        {CONDITION_TEXT[type]}
-                        {AVAILABLE_CONDITION_TYPES.includes(type) ? '' : ' (not available yet)'}
-                      </option>
-                    ))}
-                  </select>
-                  {c.type === 'pr_approvals' && (
-                    <input
-                      aria-label={`Condition ${i + 1} approvals`}
-                      type="number"
-                      min={1}
-                      max={20}
-                      step={1}
-                      value={Number.isNaN(c.min) ? '' : c.min}
-                      onChange={(e) =>
-                        set({ ...c, min: e.target.value === '' ? NaN : Number(e.target.value) })
-                      }
-                    />
-                  )}
-                  {c.type === 'pr_checks_green' && (
-                    <input
-                      aria-label={`Condition ${i + 1} no CI after`}
-                      value={c.no_checks_after ?? ''}
-                      placeholder="no CI after (e.g. 5m)"
-                      title="Met when the PR still reports no checks this long after it was pushed (a repo without CI)"
-                      onChange={(e) => {
-                        const next = { ...c };
-                        delete next.no_checks_after;
-                        set(
-                          e.target.value === ''
-                            ? next
-                            : { ...next, no_checks_after: e.target.value },
-                        );
-                      }}
-                    />
-                  )}
-                  {c.type === 'azure_pipeline_succeeded' && (
-                    <input
-                      aria-label={`Condition ${i + 1} pipeline`}
-                      value={c.pipeline}
-                      placeholder="pipeline name"
-                      onChange={(e) => set({ ...c, pipeline: e.target.value })}
-                    />
-                  )}
-                  {c.type === 'pr_screenshots' && (
-                    <>
-                      <ListInput
-                        label={`Condition ${i + 1} UI paths`}
-                        value={c.ui_paths}
-                        placeholder="**/*.{tsx,css}"
-                        onChange={(ui_paths) => set({ ...c, ui_paths })}
-                      />
-                      <input
-                        aria-label={`Condition ${i + 1} screenshot pairs`}
-                        type="number"
-                        min={1}
-                        max={20}
-                        step={1}
-                        placeholder="pairs (1)"
-                        title="Before/after pairs the PR must show when it changes a UI path"
-                        value={c.min_pairs ?? ''}
-                        onChange={(e) => {
-                          const next = { ...c };
-                          delete next.min_pairs;
-                          set(
-                            e.target.value === ''
-                              ? next
-                              : { ...next, min_pairs: Number(e.target.value) },
-                          );
-                        }}
-                      />
-                    </>
-                  )}
-                  {c.type === 'jira_fields_set' && (
-                    <ListInput
-                      label={`Condition ${i + 1} fields`}
-                      value={c.fields}
-                      placeholder="resolution, status"
-                      onChange={(fields) => set({ ...c, fields })}
-                    />
-                  )}
-                  <input
-                    aria-label={`Condition ${i + 1} label`}
-                    value={c.label ?? ''}
-                    placeholder="checklist label (default)"
-                    onChange={(e) => {
-                      const next = { ...c };
-                      delete next.label;
-                      set(e.target.value === '' ? next : { ...next, label: e.target.value });
-                    }}
-                  />
-                  <label className="wf-toggle">
-                    <input
-                      type="checkbox"
-                      checked={c.enabled !== false}
-                      onChange={(e) => {
-                        const next = { ...c };
-                        delete next.enabled;
-                        set(e.target.checked ? next : { ...next, enabled: false });
-                      }}
-                    />
-                    Enabled{available ? '' : ' (declare it disabled until it is available)'}
-                  </label>
-                  {at(`.requires.conditions.${i}`)}
-                  {at(`.requires.conditions.${i}.min`)}
-                  {at(`.requires.conditions.${i}.pipeline`)}
-                  {at(`.requires.conditions.${i}.fields`)}
-                  {at(`.requires.conditions.${i}.ui_paths`)}
-                  {at(`.requires.conditions.${i}.min_pairs`)}
-                  {at(`.requires.conditions.${i}.label`)}
-                </div>
-                <ItemActions
-                  what="condition"
-                  i={i}
-                  n={conditions.length}
-                  onMove={(j) => {
-                    onRevealUnder?.(`${base}.requires.conditions`);
-                    setConditions(swap(conditions, i, j));
-                  }}
-                  onRemove={() => {
-                    onRevealUnder?.(`${base}.requires.conditions`);
-                    setConditions(conditions.filter((_, j) => j !== i));
-                  }}
-                />
-              </li>
-            );
-          })}
+          {conditions.map((c, i) => (
+            <ConditionRow
+              // A removal re-keys the rows after it, so their list inputs reset to the value.
+              key={`${i}:${c.type}:${conditions.length}`}
+              condition={c}
+              i={i}
+              n={conditions.length}
+              onChange={(next) => setConditions(conditions.map((x, j) => (j === i ? next : x)))}
+              onMove={(j) => {
+                onRevealUnder?.(`${base}.requires.conditions`);
+                setConditions(swap(conditions, i, j));
+              }}
+              onRemove={() => {
+                onRevealUnder?.(`${base}.requires.conditions`);
+                setConditions(conditions.filter((_, j) => j !== i));
+              }}
+              onBlur={(e) => {
+                if (leftItem(e)) onReveal?.(`${base}.requires.conditions.${i}`);
+              }}
+              issuesAt={(field) => at(`.requires.conditions.${i}${field}`)}
+            />
+          ))}
         </ol>
         {at('.requires.conditions')}
         <div>
-          <button
-            type="button"
+          {/* UXR-78: only the types conductor can evaluate are offered. */}
+          <select
+            aria-label="Add condition"
+            value=""
             disabled={conditions.length >= MAX_CONDITIONS}
-            onClick={() => {
-              onDefer?.(`${base}.requires.conditions.${conditions.length}`);
-              onChange(setRequires(definition, from, name, addCondition(r)));
-              focusCondition(conditions.length);
+            onChange={(e) => {
+              const type = e.target.value;
+              if (type !== '') {
+                onDefer?.(`${base}.requires.conditions.${conditions.length}`);
+                onChange(
+                  setRequires(
+                    definition,
+                    from,
+                    name,
+                    addCondition(r, conditionOfType(type as ConditionType)),
+                  ),
+                );
+                focusCondition(conditions.length);
+              }
             }}
           >
-            Add condition
-          </button>
+            <option value="">Add condition…</option>
+            {AVAILABLE_CONDITION_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {CONDITION_TEXT[type]}
+              </option>
+            ))}
+          </select>
         </div>
         {conditions.length > 0 && (
           <div className="wf-unmet">
@@ -907,37 +816,6 @@ function Section({
         {children}
       </div>
     </section>
-  );
-}
-
-/** A comma-separated list, kept as typed while editing. */
-function ListInput({
-  label,
-  value,
-  placeholder,
-  onChange,
-}: {
-  label: string;
-  value: string[];
-  placeholder: string;
-  onChange: (next: string[]) => void;
-}) {
-  const [text, setText] = useState(value.join(', '));
-  return (
-    <input
-      aria-label={label}
-      value={text}
-      placeholder={placeholder}
-      onChange={(e) => {
-        setText(e.target.value);
-        onChange(
-          e.target.value
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean),
-        );
-      }}
-    />
   );
 }
 

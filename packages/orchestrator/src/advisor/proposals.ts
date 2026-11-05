@@ -349,6 +349,30 @@ export async function listProposals(
   };
 }
 
+/**
+ * UXR-84: for each finding id, the account's change proposal whose evidence cites it: an open one
+ * first, else the newest. Findings with none are absent from the map.
+ */
+export async function proposalsForFindings(
+  q: Queryable,
+  accountId: string,
+  findingIds: readonly string[],
+): Promise<Map<string, { id: string; status: ChangeStatus; title: string }>> {
+  const out = new Map<string, { id: string; status: ChangeStatus; title: string }>();
+  if (findingIds.length === 0) return out;
+  const r = await q.query<{ finding_id: string; id: string; status: ChangeStatus; title: string }>(
+    `SELECT DISTINCT ON (e->>'finding_id') e->>'finding_id' AS finding_id, p.id, p.status, p.title
+       FROM change_proposal p, jsonb_array_elements(p.evidence) e
+      WHERE p.account_id = $1 AND e->>'finding_id' = ANY ($2::text[])
+      ORDER BY e->>'finding_id', (p.status = 'proposed') DESC, p.created_at DESC, p.id`,
+    [accountId, [...findingIds]],
+  );
+  for (const row of r.rows) {
+    out.set(row.finding_id, { id: row.id, status: row.status, title: row.title });
+  }
+  return out;
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function loadRow(
@@ -500,9 +524,9 @@ async function applyLocked(tx: Tx, actor: ProposalActor, id: string): Promise<Ap
       );
     }
     if (!res.ok) {
-      const err = 'The workflow definition is invalid.';
-      await decide(tx, row, 'failed', actor.by, { error: err });
-      return failure('invalid_workflow', err);
+      // UXR-67 rule 18: a column it drops still has tickets. Applying may work once they move on.
+      const err = `The workflow definition is invalid: ${res.errors.map((e) => e.message).join('; ')}`;
+      return conflict(err, { details: workflowDetails(res.errors) }, 'invalid_workflow');
     }
     const done = await decide(tx, row, 'applied', actor.by, { applied_version: res.version });
     return { ok: true, value: toDetail(done) };

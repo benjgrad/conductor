@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // UI review screenshots (docs/qa/ux-review/). Starts the web app on the still mock API
 // (VITE_API=mock, VITE_MOCK_STATIC=1), drives it with Chrome through playwright-core, and writes
-// docs/qa/ux-review/<out>/<screen>-<w>x<h>-<theme>.png plus metrics.json (page overflow and the
-// visible tap targets under 44 px, per shot). Not run in CI.
+// docs/qa/ux-review/<out>/<screen>-<w>x<h>-<theme>.png plus metrics.json (page overflow, including
+// overflow clipped inside the phone shell or a panel, and the visible tap targets under 44 px, per
+// shot). Not run in CI.
 //
 // A board, detail or new-ticket shot above the phone breakpoint whose page is taller than the
 // window prints a WARN line (UXR-26: the desktop board's document must not scroll).
@@ -54,8 +55,16 @@ const REQUEST_SHOTS = ['detail-review', 'detail-failed', 'detail-step-failed'];
 const PERMISSION_CARD = BRIEF_CARD;
 /** The plan-approval card (06 §Plan approval; api/mock-data.ts planApprovalSeed). */
 const PLAN_CARD = 'Add rate limiting to /login';
+/** A queued card no machine can take, with no description (api/mock-data.ts; UXR-34, UXR-86). */
+const QUEUED_CARD = 'Hotfix: crash on empty cart';
 /** The ticket-panel shots (11-web-ui §Phone layout, Detail panel). */
-const TICKET_SHOTS = ['ticket-messages', 'ticket-plan', 'ticket-plan-sheet', 'ticket-brief-sheet'];
+const TICKET_SHOTS = [
+  'ticket-messages',
+  'ticket-plan',
+  'ticket-plan-sheet',
+  'ticket-brief-sheet',
+  'ticket-queued',
+];
 /** UXR-26: shots whose page must fit the window above the phone breakpoint (11-web-ui §Breakpoint). */
 const PAGE_FIT_SHOTS = ['board', 'detail', 'new-ticket', 'detail-focus'];
 /** UXR-37: the desktop detail layout, beside the board and in focus mode (11-web-ui). */
@@ -68,7 +77,7 @@ const LAYOUT_SHOTS = [
   'detail-checks-focus',
 ];
 /** The phone breakpoint (MOBILE_QUERY in packages/web/src/components/useMediaQuery.ts). */
-const PHONE_MAX_WIDTH = 699.98;
+const PHONE_MAX_WIDTH = 899.98;
 
 /**
  * @typedef {import('playwright-core').Page} Page
@@ -103,6 +112,9 @@ const VIEWPORTS = [
         'new-ticket',
         'new-ticket-bottom',
         ...TICKET_SHOTS,
+        'workflows',
+        'workflow-column',
+        'workflow-transition',
       ],
     },
   },
@@ -121,6 +133,7 @@ const VIEWPORTS = [
         'machines',
         'machine-drawer',
         'admin',
+        'workflows',
       ],
     },
   },
@@ -135,21 +148,35 @@ const VIEWPORTS = [
         'new-ticket',
         'new-ticket-bottom',
         'machines',
+        'machines-team',
+        'schedules',
+        'schedule-sheet',
         'machine-drawer',
         'admin',
+        'change-password',
+        'signup',
+        'reset',
         'workflows',
         'wf-diagram-end',
         'wf-rules-full',
         'wf-rules-new',
         'wf-arrow-group',
-        'rc-override-full',
-        'rc-invalid',
+        'wf-unsaved-guard',
+        'wf-version-old-edit',
         'wf-arrow-transition',
         'wf-proposal-open',
         'wf-version-old',
         'workflow-column',
+        'repo-checks',
+        'repo-checks-list',
+        'rc-override-full',
+        'rc-new-override',
+        'rc-invalid',
+        'rc-clear-confirm',
+        'workflow-transition',
         'ticket-messages',
         'ticket-plan',
+        'ticket-queued',
         ...REQUEST_SHOTS,
         'detail-checks',
         'detail-focus',
@@ -159,8 +186,12 @@ const VIEWPORTS = [
         'detail-permission',
         'detail-done',
         'detail-done-steps',
+        'detail-done-insight',
+        'insights',
+        'insights-full',
+        'detail-checks',
       ],
-      dark: ['board', 'detail', ...REQUEST_SHOTS],
+      dark: ['board', 'detail', 'insights', ...REQUEST_SHOTS],
     },
   },
   {
@@ -182,7 +213,7 @@ async function tap(locator) {
   await locator.evaluate((el) => /** @type {HTMLElement} */ (el).click());
 }
 
-/** @param {Page} page @param {'button' | 'tab'} role @param {string} name */
+/** @param {Page} page @param {'button' | 'tab' | 'menuitem'} role @param {string} name */
 async function clickNamed(page, role, name) {
   await tap(page.getByRole(role, { name, exact: true }).first());
 }
@@ -254,6 +285,19 @@ async function openArrow(page, from, to) {
   await page.locator('aside.wf-editor').waitFor();
 }
 
+/**
+ * Open the Planning column and rename it, so the workflow has an unsaved draft.
+ * @param {Page} page
+ */
+async function editPlanningTitle(page) {
+  await page.locator('.wf-lanes').first().waitFor();
+  const lane = page.getByRole('button', { name: /^Column Planning:/ }).first();
+  await lane.dispatchEvent('click');
+  await page.locator('aside.wf-editor').waitFor();
+  await page.locator('aside.wf-editor').getByLabel('Title').fill('Thinking');
+  await page.locator('.wf-savebar').waitFor();
+}
+
 /** Each screen starts from a fresh load of `path`, then `act`s. @type {Screen[]} */
 const SCREENS = [
   { id: 'board', path: '/#/' },
@@ -312,6 +356,8 @@ const SCREENS = [
       await page.locator('aside.detail').scrollIntoViewIfNeeded();
     },
   },
+  // UX-5/UXR-75: conductor running a repo override's checks: the banner with its Repo checks badge.
+  { id: 'detail-checks', path: '/#/', act: (page) => openCard(page, 'Conductor checks demo') },
   // UXR-38: a done ticket's history from the transcript (the ticket as markdown, "Finished …").
   { id: 'detail-done', path: '/#/', act: (page) => openCard(page, 'Rename user.fullname') },
   {
@@ -323,6 +369,16 @@ const SCREENS = [
       await clickNamed(page, 'tab', 'Details');
       await tap(page.locator('.star-steps button', { hasText: 'Result' }).first());
       await page.locator('.star-steps').scrollIntoViewIfNeeded();
+    },
+  },
+  {
+    // UXR-84 (FR-3): its Details tab, scrolled to the analyst's session insight.
+    id: 'detail-done-insight',
+    path: '/#/',
+    act: async (page) => {
+      await openCard(page, 'Rename user.fullname');
+      await clickNamed(page, 'tab', 'Details');
+      await page.locator('.session-insight').scrollIntoViewIfNeeded();
     },
   },
   {
@@ -367,6 +423,8 @@ const SCREENS = [
   // The ticket panel's Messages tab: the brief above the chat (BRIEF_CARD has a ticket body).
   { id: 'ticket-messages', path: '/#/', act: (page) => openCard(page, BRIEF_CARD) },
   { id: 'ticket-plan', path: '/#/', act: (page) => openCard(page, PLAN_CARD) },
+  // UXR-86: the queued panel (TicketPanel): routing note, priority, Cancel ticket….
+  { id: 'ticket-queued', path: '/#/', act: (page) => openCard(page, QUEUED_CARD) },
   {
     id: 'ticket-plan-sheet',
     path: '/#/',
@@ -391,6 +449,18 @@ const SCREENS = [
   { id: 'board-permission', path: '/#/' },
   { id: 'detail-permission', path: '/#/', act: (page) => openCard(page, PERMISSION_CARD) },
   { id: 'machines', path: '/#/machines' },
+  // UXR-89 (UX-13b FR-3): the agent team below the machines, at full height.
+  {
+    id: 'machines-team',
+    path: '/#/machines',
+    act: async (page) => {
+      await page.getByRole('list', { name: 'Agent team' }).waitFor();
+    },
+    fullPage: true,
+  },
+  // UXR-84: the advisor's metrics, findings and frictions (mock-insights.ts), and the whole page.
+  { id: 'insights', path: '/#/insights' },
+  { id: 'insights-full', path: '/#/insights', fullPage: true },
   // UXR-47: the machine drawer (a Sheet) on the machine with problems (api/mock-data.ts).
   {
     id: 'machine-drawer',
@@ -405,8 +475,42 @@ const SCREENS = [
   { id: 'admin', path: '/?mock-auth=password#/admin' },
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
-  // UXR-61: the override's setup and check table, at full height.
-  { id: 'rc-override-full', path: '/#/repo-checks/github.com%2Facme%2Fshop', fullPage: true },
+  // UXR-76: the repo list alone (on a phone, the first of the stacked panes).
+  { id: 'repo-checks-list', path: '/#/repo-checks' },
+  // UXR-77: the override with "Compare with the workflow's checks" open, at its full height.
+  {
+    id: 'rc-override-full',
+    path: '/#/repo-checks/github.com%2Facme%2Fshop',
+    fullPage: true,
+    act: async (page) => {
+      await page.locator('details.rc-compare').waitFor();
+      await page.evaluate(() => {
+        const box = /** @type {HTMLDetailsElement | null} */ (
+          document.querySelector('details.rc-compare')
+        );
+        if (box) box.open = true;
+      });
+    },
+  },
+  // UXR-76: a repo without an override, edited: Set override enabled, the draft previewed.
+  {
+    id: 'rc-new-override',
+    path: '/#/repo-checks/github.com%2Fbenjgrad%2Fconductor',
+    act: async (page) => {
+      const cmd = page.getByLabel('Check 1 command');
+      await cmd.waitFor();
+      await cmd.fill('pnpm -r build');
+      await page.evaluate(() => {
+        const box = /** @type {HTMLDetailsElement | null} */ (
+          document.querySelector('details.rc-compare')
+        );
+        if (box) box.open = true;
+      });
+    },
+  },
+  // UXR-83: the mock's three schedules, and the weekly one's edit sheet.
+  { id: 'schedules', path: '/#/schedules' },
+  { id: 'schedule-sheet', path: '/#/schedules/e5000000-0000-4000-8000-000000000002' },
   // UXR-61 FR-5: problems in the check table, each under its field and named by its label.
   {
     id: 'rc-invalid',
@@ -417,6 +521,16 @@ const SCREENS = [
       await name.waitFor();
       await name.fill('');
       await page.getByLabel('Check 1 timeout', { exact: true }).fill('soon');
+    },
+  },
+  // UXR-79: clearing, from the overflow menu, with named buttons.
+  {
+    id: 'rc-clear-confirm',
+    path: '/#/repo-checks/github.com%2Facme%2Fshop',
+    act: async (page) => {
+      await tap(page.getByRole('button', { name: 'More actions' }));
+      await tap(page.getByRole('menuitem', { name: 'Use workflow checks…' }));
+      await page.getByRole('group', { name: 'Use workflow checks' }).waitFor();
     },
   },
   { id: 'workflows', path: '/#/workflows' },
@@ -445,11 +559,21 @@ const SCREENS = [
       });
     },
   },
-  // A transition with no requirements: closed sections, "Nothing is required".
+  // UXR-71: a transition given a new condition (it starts valid: wait at most 3d) and then a new
+  // check, still focused: no problems shown yet, the save bar at the bottom.
   {
     id: 'wf-rules-new',
     path: '/#/workflows',
-    act: (page) => openArrow(page, 'Planning', 'Implementing'),
+    act: async (page) => {
+      await openArrow(page, 'Planning', 'Implementing');
+      const section = (/** @type {string} */ name) =>
+        tap(page.locator('aside.wf-editor .wf-section-head button', { hasText: name }));
+      await section('Conditions');
+      await page.getByRole('combobox', { name: 'Add condition' }).selectOption('pr_checks_green');
+      await section('Checks');
+      await clickNamed(page, 'button', 'Add check');
+      await page.waitForTimeout(200);
+    },
   },
   // UXR-64: an arrow with several transitions opens on their list (before: on the first one).
   {
@@ -508,10 +632,50 @@ const SCREENS = [
       await page.locator('aside.wf-editor').waitFor();
     },
   },
+  // UXR-44: a lone transition's panel (full-screen on a phone).
+  {
+    id: 'workflow-transition',
+    path: '/#/workflows',
+    act: (page) => openArrow(page, 'Planning', 'Implementing'),
+  },
+  // UXR-69 FR-3: leaving with an unsaved draft asks in a modal dialog.
+  {
+    id: 'wf-unsaved-guard',
+    path: '/#/workflows',
+    act: async (page) => {
+      await editPlanningTitle(page);
+      await page.getByRole('link', { name: 'Board' }).first().click();
+      await page.locator('[role="alertdialog"]').waitFor();
+    },
+  },
+  // UXR-70: editing v1 warns that saving undoes v2–v3, inline and in the save bar.
+  {
+    id: 'wf-version-old-edit',
+    path: '/#/workflows',
+    act: async (page) => {
+      await page.locator('.wf-lanes').first().waitFor();
+      await page.getByRole('combobox', { name: 'Version' }).selectOption('1');
+      await page.getByRole('group', { name: 'conductor v1 columns' }).waitFor();
+      await editPlanningTitle(page);
+    },
+  },
   { id: 'setup', path: '/#/setup' },
   { id: 'help', path: '/help/add-a-machine' },
   { id: 'help-connect-claude', path: '/help/connect-claude' },
   { id: 'signin', path: '/signin' },
+  // UXR-25/51/52: the account screens, on the mock's accounts (`?mock-auth=password`, api/select.ts;
+  // the invite token is api/mock.ts MOCK_INVITE_TOKENS.pinned).
+  {
+    id: 'change-password',
+    path: '/?mock-auth=password#/',
+    act: async (page) => {
+      await tap(page.locator('.account-button'));
+      await clickNamed(page, 'menuitem', 'Change password');
+      await page.locator('dialog[open]').waitFor();
+    },
+  },
+  { id: 'signup', path: '/signup?invite=mock-invite-pinned&mock-auth=password' },
+  { id: 'reset', path: '/reset?token=mock-reset&mock-auth=password' },
 ];
 
 /** Page overflow and visible interactive elements smaller than 44×44 (WCAG 2.5.5 / UX-12 FR-4). */
@@ -534,6 +698,16 @@ function measure(deviceWidth) {
       small.push(
         `${el.tagName.toLowerCase()} "${name}" ${Math.round(r.width)}×${Math.round(r.height)}`,
       );
+    }
+  }
+  // UXR-44: on a phone the shell (`.app.mobile`, overflow-x hidden) and the full-screen panels clip
+  // what overflows them, so the document's width alone can't see it.
+  const clipped = [];
+  for (const sel of ['.app.mobile', 'aside.wf-editor', 'aside.detail']) {
+    for (const el of document.querySelectorAll(sel)) {
+      if (el.scrollWidth > el.clientWidth + 1) {
+        clipped.push(`${sel} ${el.scrollWidth}>${el.clientWidth}`);
+      }
     }
   }
   // The chat's visible height (the session panel's Messages log), when a panel is open.
@@ -559,7 +733,8 @@ function measure(deviceWidth) {
     listRows: document.querySelectorAll('.ticket-list .ticket-row').length || null,
     pageScrollWidth: document.documentElement.scrollWidth,
     deviceWidth: vw,
-    horizontalOverflow: document.documentElement.scrollWidth > vw,
+    horizontalOverflow: document.documentElement.scrollWidth > vw || clipped.length > 0,
+    clippedOverflow: clipped,
     pageHeight: document.documentElement.scrollHeight,
     smallTapTargets: small.length,
     smallTapTargetSample: small.slice(0, 8),

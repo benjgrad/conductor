@@ -16,9 +16,6 @@ const MARKDOWN = {
 const CONTENT_SOURCE = readFileSync(resolve(HERE, 'content.ts'), 'utf8');
 const DAEMON_PATTERN = '/.conductor/daemon/current/dist/main.js';
 
-const nodeInstall = (os: Os) =>
-  PREREQUISITES.find((p) => p.id === 'node')!.install[os].map((c) => c.command);
-
 describe('rescan command (FR-1)', () => {
   it('never uses pgrep -f conductor-daemon', () => {
     expect(CONTENT_SOURCE).not.toContain('pgrep');
@@ -40,34 +37,53 @@ describe('rescan command (FR-1)', () => {
   });
 });
 
-describe('Node.js install (FR-2, FR-3)', () => {
-  it('macOS uses the linked Homebrew node, not the keg-only node@22', () => {
-    expect(nodeInstall('macos')[0]).toBe('brew install node');
-    expect(CONTENT_SOURCE).not.toMatch(/brew install node@/);
+// UXR-49: the prerequisites match what install.sh and install.ps1 check today. The daemon is a
+// native binary (ADR-0026), so Node.js is not one of them.
+describe('prerequisites match the installers (UXR-49)', () => {
+  const INSTALL_SH = readFileSync(
+    resolve(ROOT, 'packages/orchestrator/assets/install.sh.tmpl'),
+    'utf8',
+  );
+  const INSTALL_PS1 = readFileSync(
+    resolve(ROOT, 'packages/orchestrator/assets/install.ps1.tmpl'),
+    'utf8',
+  );
+
+  it('the installers need no Node', () => {
+    for (const script of [INSTALL_SH, INSTALL_PS1]) {
+      expect(script).toMatch(/needs\s+(#\s+)?no\s+(#\s+)?Node/);
+      expect(script).not.toMatch(/command -v node|Get-Command node/);
+    }
+  });
+
+  it('every tool install.sh requires has a prerequisite', () => {
+    const ids = new Set(PREREQUISITES.map((p) => p.id));
+    const required = [...INSTALL_SH.matchAll(/command -v (\w+) >\/dev\/null 2>&1 \|\| need/g)].map(
+      (m) => m[1]!,
+    );
+    // tar (and curl or wget, shasum) ship with macOS and Linux: the guide doesn't list them.
+    expect(required).toEqual(['git', 'claude', 'tar']);
+    for (const tool of required.filter((t) => t !== 'tar')) {
+      expect(ids.has(tool), tool).toBe(true);
+    }
+  });
+
+  it('no step installs or checks Node.js', () => {
+    expect(PREREQUISITES.map((p) => p.id)).not.toContain('node');
+    const commands = PREREQUISITES.flatMap((p) => [
+      ...Object.values(p.install).flat(),
+      ...p.verify,
+    ]).map((c) => c.command);
+    for (const c of commands) expect(c).not.toMatch(/\bnode\b|nvm|npm /);
     for (const text of Object.values(MARKDOWN)) {
-      expect(text).toContain('`brew install node`');
-      expect(text).not.toContain('node@22');
+      expect(text).not.toMatch(/Node\.js 22|node -v|nvm/);
+      expect(text).toContain('You need four things');
     }
   });
 
-  it.each<Os>(['macos', 'linux'])('%s loads nvm before nvm install 22', (os) => {
-    const commands = nodeInstall(os);
-    const curl = commands.findIndex((c) => c.includes('nvm-sh/nvm'));
-    const load = commands.indexOf('. ~/.nvm/nvm.sh');
-    expect(curl).toBeGreaterThan(-1);
-    expect(load).toBeGreaterThan(curl);
-    expect(commands.indexOf('nvm install 22')).toBeGreaterThan(load);
-  });
-
-  it.each(Object.entries(MARKDOWN))('the %s markdown says to open a new terminal', (_, text) => {
-    const bullets = text.split('\n').filter((l) => l.includes('`nvm install 22`'));
-    expect(bullets).toHaveLength(2); // macOS and Linux
-    for (const line of bullets) {
-      const install = line.indexOf('`nvm install 22`');
-      expect(line.indexOf('open a new terminal')).toBeGreaterThan(line.indexOf('nvm-sh/nvm'));
-      expect(line.indexOf('`. ~/.nvm/nvm.sh`')).toBeGreaterThan(-1);
-      expect(line.indexOf('`. ~/.nvm/nvm.sh`')).toBeLessThan(install);
-    }
+  it.each<Os>(['macos', 'linux'])('%s installs Claude Code natively, not with npm', (os) => {
+    const claude = PREREQUISITES.find((p) => p.id === 'claude')!.install[os];
+    expect(claude[0]!.command).toBe('curl -fsSL https://claude.ai/install.sh | bash');
   });
 });
 

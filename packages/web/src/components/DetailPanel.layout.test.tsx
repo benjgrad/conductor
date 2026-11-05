@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // UXR-37 (FR-2): the wide panel puts the request and its evidence first, then the conversation,
 // then the follow-ups and the check output in their own disclosures. The default layout (phone,
-// tablet) keeps the request at the end of the chat.
+// below 900 px) keeps the request at the end of the chat.
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMockApi } from '../api/mock.js';
@@ -81,7 +81,7 @@ describe('wide layout (UXR-37 FR-2)', () => {
   });
 });
 
-describe('default layout (phone, tablet: unchanged)', () => {
+describe('default layout (phone: unchanged)', () => {
   it('keeps the request and the check output rows inside the chat', async () => {
     renderPanel(SEED_IDS.askOlder.session);
     const pending = await screen.findByRole('region', { name: 'Pending input' });

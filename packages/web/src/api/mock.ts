@@ -18,6 +18,10 @@ import {
   CreateInviteRequestSchema,
   CreateTicketRequestSchema,
   UpdateTicketRequestSchema,
+  ReorderQueueRequestSchema,
+  compareQueued,
+  isReorderable,
+  type QueueOrderResponse,
   ticketEditable,
   ENROLLMENT_TOKEN_TTL_MS,
   humanTransitionOptions,
@@ -32,8 +36,20 @@ import {
   PutRepoChecksRequestSchema,
   RepoChecksSchema,
   repoChecksKey,
+  repoHealth,
+  runsByCheck,
+  CreateScheduleRequestSchema,
+  UpdateScheduleRequestSchema,
+  formatScheduleTime,
+  nextRunAfter,
+  nextRuns,
+  SCHEDULE_PREVIEW_RUNS,
+  validateSchedule,
+  type ScheduleDto,
+  type TicketStatus,
   rankRepos,
   MachineRowSchema,
+  TeamResponseSchema,
   RenameMachineRequestSchema,
   UpdateMachineRequestSchema,
   ReopenSessionRequestSchema,
@@ -65,6 +81,8 @@ import {
   type OutputStream,
   type PermissionRequestDto,
   type RepoChecksDetail,
+  type RepoCheckRunsResponse,
+  type RepoChecksHealthResponse,
   type ChangeProposalDetail,
   type ChangeProposalListResponse,
   type ChangeProposalSummary,
@@ -75,7 +93,15 @@ import {
   type SessionStatus,
   type TicketDetail,
   type TicketDto,
+  type TicketSearchResponse,
+  type TicketSearchResult,
+  ticketSearchGroup,
   validateWorkflow,
+  DIFF_MAX,
+  capDiff,
+  diffWorkflow,
+  stableJson,
+  type WorkflowDefaultResponse,
   type WorkflowDefinition,
   type WorkflowDetail,
   type TranscriptResponse,
@@ -84,17 +110,22 @@ import {
 import {
   ApiRequestError,
   type ApiClient,
+  type SaveWorkflowResponse,
   type StreamHandlers,
   type Unsubscribe,
 } from './client.js';
 import { validateColumns } from '../workflow/columns.js';
+import { mockInsights } from './mock-insights.js';
 import {
   CONDUCTOR,
   MOCK_WORKFLOW_AUTHORS,
+  MOCK_TEAM,
   MOCK_WORKFLOW_HISTORY,
   mockMachines,
   mockRepoChecks,
+  mockCheckRuns,
   mockChangeProposals,
+  mockSchedules,
   mockSeeds,
   type MockSession,
 } from './mock-data.js';
@@ -105,6 +136,15 @@ import {
 // errors use the 10-contracts REST error map codes. It does NOT run the workflow engine: an
 // answer simply moves the session to `goto` (or `return_to`) and marks it running; a human
 // transition (ADR-0011) moves it to the button's `goto`, with no requirements run.
+
+/** Up to 200 characters of `text` around `q` (as the server's `snippetOf`). */
+function mockSnippet(text: string, q: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  const at = flat.toLowerCase().indexOf(q);
+  const start = at < 0 ? 0 : Math.max(0, at - 60);
+  const cut = flat.slice(start, start + 198);
+  return (start > 0 ? '…' : '') + cut + (start + cut.length < flat.length ? '…' : '');
+}
 
 export interface MockApiOptions {
   /** Clock for seeds and new rows. Default: real time. */
@@ -123,6 +163,11 @@ export interface MockApiOptions {
   signedIn?: boolean;
   /** UX-8: `none` starts the account with no machines (the first-run guide). Default `seeded`. */
   machines?: 'seeded' | 'none';
+  /**
+   * UXR-87: a newer shipped `conductor` default. While no stored version equals it, `getWorkflow`
+   * reports its version as `default_available`, and `adoptDefaultWorkflow` saves it. Default none.
+   */
+  defaultWorkflow?: WorkflowDefinition;
 }
 
 /** The mock's one user in `password` mode (an admin). */
@@ -226,13 +271,26 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     ]),
   );
 
+  /** UXR-87: `opts.defaultWorkflow`'s version while no stored `conductor` equals it, else null. */
+  const defaultAvailable = (id: string): number | null => {
+    const def = opts.defaultWorkflow;
+    const versions = workflows.get(id);
+    if (!def || id !== CONDUCTOR.id || !versions) return null;
+    const norm = (d: WorkflowDefinition) => stableJson({ ...d, version: 0 });
+    return versions.some((v) => norm(v.definition) === norm(def)) ? null : def.version;
+  };
+
   /** ADR-0030: per-repo check overrides, by `repoChecksKey`. */
   const repoChecks = new Map<string, RepoChecksDto>(
     mockRepoChecks(now()).map((dto) => [dto.repo, dto]),
   );
+  /** UXR-80: past check runs (what `loadCheckRuns` reads). */
+  const checkRuns = mockCheckRuns(now());
 
   /** ADR-0033 P3: the advisor's change proposals, newest first. */
   const proposals: ChangeProposalDetail[] = mockChangeProposals(now());
+  /** UXR-84: the advisor's metrics, findings, report and session insights. */
+  const insights = mockInsights(now(), () => proposals);
   const proposal = (id: string): ChangeProposalDetail => {
     const p = proposals.find((x) => x.id === id);
     if (!p) throw new ApiRequestError(404, 'not_found', 'no such change proposal');
@@ -268,12 +326,27 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
             waiting_for_build_slot: false,
             context: {},
           };
-    return placeCard('in_progress', session, { columns: COLUMNS, def: wf }).column;
+    return placeCard(ticketStatusOf(card), session, { columns: COLUMNS, def: wf }).column;
+  }
+
+  /** The ticket's status as the server keeps it, from its card (cancelled cards are badged). */
+  function ticketStatusOf(card: BoardCard): TicketStatus {
+    if (card.badges.includes('cancelled')) return 'cancelled';
+    if (card.status === 'done') return 'done';
+    if (card.status === 'failed' || card.status === 'lost') return 'failed';
+    return card.session_id === null || card.status === null ? 'ready' : 'in_progress';
   }
 
   for (const s of mockSeeds(now())) {
     if (s.session && s.card.session_id) sessions.set(s.card.session_id, s.session);
     cards.set(s.card.ticket_id, { ...s.card, column: columnOf(s.card) });
+  }
+
+  /** ADR-0032: recurring jobs by id; a seeded schedule's last ticket names it on its card. */
+  const schedules = new Map<string, ScheduleDto>(mockSchedules(now()).map((d) => [d.id, d]));
+  for (const sc of schedules.values()) {
+    const card = sc.last_ticket ? cards.get(sc.last_ticket.id) : undefined;
+    if (card) cards.set(card.ticket_id, { ...card, schedule: { id: sc.id, name: sc.name } });
   }
 
   // M2-T05: accounts. `session` is the signed-in user's id (null = signed out).
@@ -428,6 +501,140 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     });
   }
 
+  /** A new queued ticket and its card (card.upserted), as POST /api/tickets makes it. */
+  function addTicket(
+    req: ReturnType<typeof CreateTicketRequestSchema.parse>,
+    schedule?: { id: string; name: string },
+  ): TicketDto {
+    const created_at = now().toISOString();
+    const ticket: TicketDto = {
+      id: crypto.randomUUID(),
+      external_ref: req.external_ref,
+      repo: req.repo,
+      title: req.title,
+      body: req.body,
+      workflow_id: req.workflow_id,
+      workflow_version: null,
+      required_tags: req.required_tags,
+      repo_allow_machines: req.repo_allow_machines,
+      status: 'ready',
+      priority: req.priority,
+      created_at,
+    };
+    const card: BoardCard = {
+      ticket_id: ticket.id,
+      session_id: null,
+      title: ticket.title,
+      external_ref: ticket.external_ref,
+      repo: ticket.repo,
+      priority: ticket.priority,
+      workflow_id: ticket.workflow_id,
+      workflow_state: null,
+      status: null,
+      column: 'queued',
+      badges: [],
+      checking: null,
+      // ADR-0011 card fields (M1b-T01 contract; M1b-T07 owns the mock).
+      kind: req.kind ?? null,
+      pending: null,
+      human_transitions: [],
+      pr_url: null,
+      machine_id: null,
+      spend_usd: 0,
+      input_request: null,
+      ...(schedule ? { schedule } : {}),
+      created_at,
+      updated_at: created_at,
+    };
+    linkUploads(ticket.id, req.attachment_ids ?? []);
+    cards.set(card.ticket_id, card);
+    tickets.set(ticket.id, { ...ticket, kind: req.kind ?? null, updated_at: created_at });
+    emit([{ type: 'card.upserted', session_id: null, ticket_id: card.ticket_id, card }]);
+    return clone(ticket);
+  }
+
+  /** ADR-0032: a ticket's status as the board shows it (the mock keeps no ticket rows for it). */
+  function ticketStatusById(ticketId: string): TicketStatus | null {
+    const card = cards.get(ticketId);
+    return card ? ticketStatusOf(card) : null;
+  }
+
+  /** The schedule as GET /api/schedules shows it now: previews from now, last ticket's status. */
+  function scheduleView(sc: ScheduleDto): ScheduleDto {
+    const status = sc.last_ticket ? ticketStatusById(sc.last_ticket.id) : null;
+    let next_runs: string[] = [];
+    if (sc.enabled) {
+      try {
+        next_runs = nextRuns(sc.cron, sc.timezone, now(), SCHEDULE_PREVIEW_RUNS).map((d) =>
+          d.toISOString(),
+        );
+      } catch {
+        next_runs = [];
+      }
+    }
+    return clone({
+      ...sc,
+      next_runs,
+      last_ticket:
+        sc.last_ticket && status !== null ? { id: sc.last_ticket.id, status } : sc.last_ticket,
+    });
+  }
+
+  function scheduleOf(id: string): ScheduleDto {
+    const sc = schedules.get(id);
+    if (!sc) throw new ApiRequestError(404, 'not_found', `no schedule ${id}`);
+    return sc;
+  }
+
+  const scheduleBadRequest = (path: string, message: string) =>
+    new ApiRequestError(400, 'bad_request', message, [{ path, message }]);
+
+  /** 400 unless `cron` in `tz` is a valid rule at least 15 minutes apart (as `checkRule`). */
+  function checkScheduleRule(cron: string, tz: string) {
+    const err = validateSchedule(cron, tz, now());
+    if (err !== null) {
+      throw scheduleBadRequest(err.code === 'invalid_timezone' ? 'timezone' : 'cron', err.message);
+    }
+  }
+
+  /** Machine ids or names → ids (null / [] = any machine); 400 for an unknown one. */
+  function resolveScheduleMachines(refs: readonly string[] | null): string[] | null {
+    if (refs === null || refs.length === 0) return null;
+    const live = [...machines.values()].filter((m) => m.revoked_at === null);
+    const ids: string[] = [];
+    for (const ref of refs) {
+      const lower = ref.toLowerCase();
+      const hit =
+        live.find((m) => m.id === ref) ??
+        live.find((m) => m.name?.toLowerCase() === lower || m.hostname.toLowerCase() === lower);
+      if (!hit) throw scheduleBadRequest('machines', `unknown machine ${ref}`);
+      if (!ids.includes(hit.id)) ids.push(hit.id);
+    }
+    return ids;
+  }
+
+  function scheduleNameTaken(name: string, except: string | null) {
+    for (const sc of schedules.values()) {
+      if (sc.name === name && sc.id !== except) {
+        throw new ApiRequestError(409, 'conflict', `a schedule named ${name} already exists`, [
+          { path: 'name', message: 'already used by another schedule' },
+        ]);
+      }
+    }
+  }
+
+  const zodBadRequest = (issues: { path: PropertyKey[]; message: string }[]) =>
+    new ApiRequestError(
+      400,
+      'bad_request',
+      'invalid schedule',
+      issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message })),
+    );
+
+  /** A stored `updated_at` strictly later than `prev` (the mock clock may be frozen). */
+  const bumpedAt = (prev: string) =>
+    new Date(Math.max(now().getTime(), Date.parse(prev) + 1)).toISOString();
+
   /** 06 §Proposed tickets: decisions by ticket, then proposal id. */
   const proposalDecisions = new Map<string, Map<string, ProposalDecision>>();
 
@@ -534,6 +741,32 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
     );
   }
 
+  /** 06 §Queue order: the queued (still waiting) tickets, in pickup order. */
+  function queuedOrder(): string[] {
+    return [...cards.values()]
+      .filter(isReorderable)
+      .sort(compareQueued)
+      .map((c) => c.ticket_id);
+  }
+
+  /** Set queue positions (no `updated_at` bump, as the server) and upsert the changed cards. */
+  function setQueuePositions(positions: ReadonlyMap<string, number | null>) {
+    const drafts: BoardSseEventDraft[] = [];
+    for (const [id, pos] of positions) {
+      const card = cards.get(id);
+      if (!card || (card.queue_position ?? null) === pos) continue;
+      const updated: BoardCard = { ...card, queue_position: pos };
+      cards.set(id, updated);
+      drafts.push({
+        type: 'card.upserted',
+        session_id: card.session_id,
+        ticket_id: id,
+        card: updated,
+      });
+    }
+    emit(drafts);
+  }
+
   function update(card: BoardCard, next: Partial<BoardCard>, extra: BoardSseEventDraft[] = []) {
     const sessionId = card.session_id;
     if (sessionId === null) throw new Error('update() needs a session card');
@@ -601,7 +834,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         workflow_version: s?.workflow.version ?? null,
         required_tags: [],
         repo_allow_machines: null,
-        status: card.session_id ? 'in_progress' : 'ready',
+        status: ticketStatusOf(card),
         priority: card.priority,
         created_at: card.created_at,
         kind: card.kind,
@@ -631,6 +864,18 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       proposals: proposalsOf(card),
       attachments: attachmentsOf(ticketId),
     });
+  }
+
+  /** A session-less ticket's status and its card: Queued, or the terminal column cancelled. */
+  function setSessionlessStatus(ticketId: string, status: 'ready' | 'cancelled') {
+    const t = ticketOf(ticketId);
+    const at = new Date(Math.max(now().getTime(), Date.parse(t.updated_at) + 1)).toISOString();
+    Object.assign(t, { status, updated_at: at });
+    const card = cards.get(ticketId)!;
+    const place = placeCard(status, null, { columns: COLUMNS, def: null });
+    const next: BoardCard = { ...card, column: place.column, badges: place.badges, updated_at: at };
+    cards.set(ticketId, next);
+    emit([{ type: 'card.upserted', session_id: null, ticket_id: ticketId, card: next }]);
   }
 
   const api: MockApi = {
@@ -757,50 +1002,52 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         if (!workflows.has(req.workflow_id)) {
           throw new ApiRequestError(400, 'bad_request', `unknown workflow "${req.workflow_id}"`);
         }
-        const created_at = now().toISOString();
-        const ticket: TicketDto = {
-          id: crypto.randomUUID(),
-          external_ref: req.external_ref,
-          repo: req.repo,
-          title: req.title,
-          body: req.body,
-          workflow_id: req.workflow_id,
-          workflow_version: null,
-          required_tags: req.required_tags,
-          repo_allow_machines: req.repo_allow_machines,
-          status: 'ready',
-          priority: req.priority,
-          created_at,
-        };
-        const card: BoardCard = {
-          ticket_id: ticket.id,
-          session_id: null,
-          title: ticket.title,
-          external_ref: ticket.external_ref,
-          repo: ticket.repo,
-          priority: ticket.priority,
-          workflow_id: ticket.workflow_id,
-          workflow_state: null,
-          status: null,
-          column: 'queued',
-          badges: [],
-          checking: null,
-          // ADR-0011 card fields (M1b-T01 contract; M1b-T07 owns the mock).
-          kind: req.kind ?? null,
-          pending: null,
-          human_transitions: [],
-          pr_url: null,
-          machine_id: null,
-          spend_usd: 0,
-          input_request: null,
-          created_at,
-          updated_at: created_at,
-        };
-        linkUploads(ticket.id, req.attachment_ids ?? []);
-        cards.set(card.ticket_id, card);
-        tickets.set(ticket.id, { ...ticket, kind: req.kind ?? null, updated_at: created_at });
-        emit([{ type: 'card.upserted', session_id: null, ticket_id: card.ticket_id, card }]);
-        return clone(ticket);
+        return addTicket(req);
+      }),
+
+    searchTickets: (o = {}) =>
+      reply((): TicketSearchResponse => {
+        const q = o.q?.trim().toLowerCase() ?? '';
+        const hex = q.replace(/-/g, '');
+        const byId = /^[0-9a-f]{4,32}$/.test(hex);
+        const groups = o.status ?? ['all'];
+        const wanted = (s: TicketStatus) =>
+          groups.includes('all') || groups.includes(ticketSearchGroup(s));
+        const found = [...cards.values()]
+          .map((card) => ({ card, t: ticketOf(card.ticket_id) }))
+          .map(({ card, t }) => ({ card, t: { ...t, status: ticketStatusOf(card) } }))
+          .filter(({ t }) => wanted(t.status))
+          .filter(
+            ({ card, t }) =>
+              q === '' ||
+              card.title.toLowerCase().includes(q) ||
+              (card.external_ref ?? '').toLowerCase().includes(q) ||
+              t.body.toLowerCase().includes(q) ||
+              (byId && t.id.replace(/-/g, '').startsWith(hex)),
+          )
+          .sort(
+            (a, b) =>
+              b.card.updated_at.localeCompare(a.card.updated_at) || a.t.id.localeCompare(b.t.id),
+          );
+        const cursor = o.cursor ?? 0;
+        const page = found.slice(cursor, cursor + (o.limit ?? 20));
+        const end = cursor + page.length;
+        return clone({
+          tickets: page.map(({ card, t }): TicketSearchResult => ({
+            id: t.id,
+            title: card.title,
+            external_ref: card.external_ref,
+            status: t.status,
+            kind: card.kind,
+            repo: card.repo,
+            snippet: q === '' ? null : mockSnippet(t.body, q),
+            session_id: card.session_id,
+            created_at: card.created_at,
+            updated_at: card.updated_at,
+          })),
+          next_cursor: end < found.length ? end : null,
+          total: found.length,
+        });
       }),
 
     getTicket: (ticketId) => reply(() => ticketDetail(ticketId)),
@@ -885,6 +1132,30 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         return { ...p, status: 'dismissed' };
       }),
 
+    reorderQueue: (ticketIds) =>
+      reply((): QueueOrderResponse => {
+        const parsed = ReorderQueueRequestSchema.safeParse({ ticket_ids: ticketIds });
+        if (!parsed.success) throw new ApiRequestError(400, 'bad_request', parsed.error.message);
+        const current = queuedOrder();
+        const ready = new Set(current);
+        const first = parsed.data.ticket_ids.filter((id) => ready.has(id));
+        if (first.length === 0) {
+          throw new ApiRequestError(404, 'not_found', 'none of ticket_ids is a queued ticket');
+        }
+        const order = [...first, ...current.filter((id) => !first.includes(id))];
+        setQueuePositions(new Map(order.map((id, i) => [id, i + 1])));
+        return {
+          ticket_ids: queuedOrder(),
+          skipped: parsed.data.ticket_ids.filter((id) => !ready.has(id)),
+        };
+      }),
+
+    resetQueueOrder: () =>
+      reply((): QueueOrderResponse => {
+        setQueuePositions(new Map(queuedOrder().map((id) => [id, null])));
+        return { ticket_ids: queuedOrder(), skipped: [] };
+      }),
+
     updateTicket: (ticketId, raw) =>
       reply((): TicketDetail => {
         const parsed = UpdateTicketRequestSchema.safeParse(raw);
@@ -929,6 +1200,39 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         return ticketDetail(ticketId);
       }),
 
+    // UXR-86: a card with a session is cancelled as its session; a queued one as the ticket.
+    cancelTicket: (ticketId, req) => {
+      const card = cards.get(ticketId);
+      if (card?.session_id) {
+        return api.cancel(card.session_id, req?.reason !== undefined ? { reason: req.reason } : {});
+      }
+      return reply((): OkResponse => {
+        const t = ticketOf(ticketId);
+        if (t.status !== 'ready') {
+          throw new ApiRequestError(409, 'conflict', `the ticket is ${t.status}, not ready`);
+        }
+        setSessionlessStatus(ticketId, 'cancelled');
+        return { ok: true };
+      });
+    },
+
+    reopenTicket: (ticketId, req) => {
+      const card = cards.get(ticketId);
+      if (card?.session_id) {
+        return api
+          .reopen(card.session_id, { text: req?.text ?? 'Reopened from the board.' })
+          .then(() => ({ ok: true as const }));
+      }
+      return reply((): OkResponse => {
+        const t = ticketOf(ticketId);
+        if (t.status !== 'cancelled') {
+          throw new ApiRequestError(409, 'conflict', `the ticket is ${t.status}, not cancelled`);
+        }
+        setSessionlessStatus(ticketId, 'ready');
+        return { ok: true };
+      });
+    },
+
     listRepoChecks: () =>
       reply(() => ({
         repos: clone([...repoChecks.values()].sort((a, b) => a.repo.localeCompare(b.repo))),
@@ -952,6 +1256,27 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           ),
         });
       }),
+
+    getRepoCheckRuns: (repo, limit = 5) =>
+      reply((): RepoCheckRunsResponse => {
+        const key = repoChecksKey(repo);
+        if (key === '' || key.length > 200) {
+          throw new ApiRequestError(400, 'bad_request', 'repo must be 1..200 chars');
+        }
+        const override = repoChecks.get(key) ?? null;
+        const def = workflows.get(CONDUCTOR.id)?.at(-1)?.definition ?? CONDUCTOR;
+        const checks = override?.checks ?? checksGatesOf(def).flatMap((g) => g.checks);
+        const rows = checkRuns.filter((r) => repoChecksKey(r.repo) === key);
+        const titles = new Map(rows.map((r) => [r.ticket_id, `Ticket ${r.ticket_id.slice(-2)}`]));
+        return clone({
+          repo: key,
+          window_days: 30,
+          checks: runsByCheck(checks, rows, limit, titles),
+        });
+      }),
+
+    getRepoChecksHealth: () =>
+      reply((): RepoChecksHealthResponse => ({ window_days: 30, repos: repoHealth(checkRuns) })),
 
     setRepoChecks: (raw) =>
       reply((): RepoChecksDto => {
@@ -989,6 +1314,140 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         return { ok: true };
       }),
 
+    listSchedules: () =>
+      reply(() => ({
+        schedules: [...schedules.values()]
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map(scheduleView),
+      })),
+
+    saveSchedule: (id, raw) =>
+      reply((): ScheduleDto => {
+        const at = now().toISOString();
+        if (id === null) {
+          const parsed = CreateScheduleRequestSchema.safeParse(raw);
+          if (!parsed.success) throw zodBadRequest(parsed.error.issues);
+          const req = parsed.data;
+          checkScheduleRule(req.cron, req.timezone);
+          const machineIds = resolveScheduleMachines(req.machines);
+          scheduleNameTaken(req.name, null);
+          const sc: ScheduleDto = {
+            id: crypto.randomUUID(),
+            name: req.name,
+            cron: req.cron,
+            timezone: req.timezone,
+            enabled: req.enabled,
+            title: req.title,
+            body: req.body,
+            repo: req.repo,
+            workflow_id: req.workflow_id,
+            kind: req.kind,
+            priority: req.priority,
+            required_tags: req.required_tags,
+            machine_ids: machineIds,
+            next_run_at: req.enabled
+              ? (nextRunAfter(req.cron, req.timezone, now())?.toISOString() ?? null)
+              : null,
+            next_runs: [],
+            last_run_at: null,
+            last_ticket: null,
+            last_skipped_at: null,
+            last_skip_reason: null,
+            created_by: MOCK_ADMIN.email,
+            created_at: at,
+            updated_at: at,
+          };
+          schedules.set(sc.id, sc);
+          return scheduleView(sc);
+        }
+        const parsed = UpdateScheduleRequestSchema.safeParse(raw);
+        if (!parsed.success) throw zodBadRequest(parsed.error.issues);
+        const patch = parsed.data;
+        const cur = scheduleOf(id);
+        if (
+          patch.expected_updated_at !== undefined &&
+          Date.parse(patch.expected_updated_at) !== Date.parse(cur.updated_at)
+        ) {
+          throw new ApiRequestError(
+            409,
+            'conflict',
+            'the schedule changed since you read it: read it again',
+          );
+        }
+        const machineIds =
+          patch.machines === undefined ? cur.machine_ids : resolveScheduleMachines(patch.machines);
+        const cron = patch.cron ?? cur.cron;
+        const timezone = patch.timezone ?? cur.timezone;
+        const enabled = patch.enabled ?? cur.enabled;
+        const ruleChanged = cron !== cur.cron || timezone !== cur.timezone;
+        if (ruleChanged || (enabled && !cur.enabled)) checkScheduleRule(cron, timezone);
+        if (patch.name !== undefined) scheduleNameTaken(patch.name, id);
+        const next_run_at = !enabled
+          ? null
+          : ruleChanged || !cur.enabled || cur.next_run_at === null
+            ? (nextRunAfter(cron, timezone, now())?.toISOString() ?? null)
+            : cur.next_run_at;
+        const sc: ScheduleDto = {
+          ...cur,
+          name: patch.name ?? cur.name,
+          title: patch.title ?? cur.title,
+          body: patch.body ?? cur.body,
+          repo: patch.repo ?? cur.repo,
+          workflow_id: patch.workflow_id ?? cur.workflow_id,
+          kind: patch.kind ?? cur.kind,
+          priority: patch.priority ?? cur.priority,
+          required_tags: patch.required_tags ?? cur.required_tags,
+          cron,
+          timezone,
+          enabled,
+          machine_ids: machineIds,
+          next_run_at,
+          updated_at: bumpedAt(cur.updated_at),
+        };
+        schedules.set(id, sc);
+        return scheduleView(sc);
+      }),
+
+    deleteSchedule: (id) =>
+      reply((): OkResponse => {
+        if (!schedules.delete(id)) throw new ApiRequestError(404, 'not_found', `no schedule ${id}`);
+        return { ok: true };
+      }),
+
+    runScheduleNow: (id, o = {}) =>
+      reply(() => {
+        const sc = scheduleOf(id);
+        const open = sc.last_ticket ? ticketStatusById(sc.last_ticket.id) : null;
+        if (open !== null && ['ready', 'claimed', 'in_progress'].includes(open) && !o.force) {
+          throw new ApiRequestError(
+            409,
+            'previous_run_open',
+            'the last run of this schedule is still open; finish it first, or pass force',
+          );
+        }
+        const at = now();
+        const ticket = addTicket(
+          CreateTicketRequestSchema.parse({
+            title: `${sc.title} ${formatScheduleTime(at, sc.timezone)}`,
+            body: sc.body,
+            repo: sc.repo,
+            workflow_id: CONDUCTOR.id,
+            priority: sc.priority,
+            kind: sc.kind,
+            required_tags: sc.required_tags,
+            repo_allow_machines: sc.machine_ids,
+          }),
+          { id: sc.id, name: sc.name },
+        );
+        const next: ScheduleDto = {
+          ...sc,
+          last_run_at: at.toISOString(),
+          last_ticket: { id: ticket.id, status: 'ready' },
+        };
+        schedules.set(id, next);
+        return { ticket_id: ticket.id, schedule: scheduleView(next) };
+      }),
+
     listChangeProposals: (o = {}) =>
       reply((): ChangeProposalListResponse => {
         const wanted = o.status === undefined || o.status === 'all' ? null : o.status;
@@ -1010,6 +1469,20 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       }),
 
     getChangeProposal: (id) => reply(() => clone(proposal(id))),
+
+    getProcessMetrics: (o) => reply(() => clone(insights.metrics(o.windowDays, o.groupBy))),
+
+    listFindings: (o) => reply(() => clone(insights.findings(o.windowDays, o.cursor ?? 0))),
+
+    getProcessReport: (o) => reply(() => clone(insights.report(o.windowDays))),
+
+    getSessionInsight: (sessionId) =>
+      reply(() => {
+        const found = insights.insight(sessionId);
+        if (found === null)
+          throw new ApiRequestError(404, 'not_found', 'no insight for that session');
+        return clone(found);
+      }),
 
     applyChangeProposal: (id) =>
       reply((): ChangeProposalDetail => {
@@ -1108,6 +1581,7 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
           note: row.note,
           definition: row.definition,
           versions: (versions ?? []).map((v) => v.definition.version),
+          default_available: defaultAvailable(id),
           // UXR-70: the version history.
           history: (versions ?? []).map((v) => ({
             version: v.definition.version,
@@ -1147,6 +1621,52 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
         });
         workflows.set(result.def.id, versions);
         return { id: result.def.id, version };
+      }),
+
+    getWorkflowDefault: (id) =>
+      reply((): WorkflowDefaultResponse => {
+        const version = defaultAvailable(id);
+        const latest = workflows.get(id)?.at(-1)?.definition;
+        if (version === null || !opts.defaultWorkflow || !latest) {
+          throw new ApiRequestError(404, 'not_found', `no newer default for ${id}`);
+        }
+        return clone({
+          version,
+          base_version: latest.version,
+          definition: opts.defaultWorkflow,
+          diff: capDiff(diffWorkflow(latest, opts.defaultWorkflow), DIFF_MAX),
+        });
+      }),
+
+    adoptDefaultWorkflow: (id, baseVersion) =>
+      reply((): SaveWorkflowResponse => {
+        if (authMode !== 'local' && !signedInUser().row.is_admin) {
+          throw new ApiRequestError(
+            403,
+            'forbidden',
+            'only an instance admin can change the workflow',
+          );
+        }
+        const versions = workflows.get(id);
+        if (id !== CONDUCTOR.id || !versions || !opts.defaultWorkflow) {
+          throw new ApiRequestError(404, 'not_found', `no shipped default for ${id}`);
+        }
+        const latest = versions.length;
+        if (baseVersion !== latest) {
+          throw new ApiRequestError(
+            409,
+            'conflict',
+            `${id} changed since version ${baseVersion}: the latest is ${latest}`,
+          );
+        }
+        const version = latest + 1;
+        versions.push({
+          definition: clone({ ...opts.defaultWorkflow, version }),
+          created_at: now().toISOString(),
+          created_by: MOCK_ADMIN.email,
+          note: `Adopted the default v${opts.defaultWorkflow.version}`,
+        });
+        return { id, version };
       }),
 
     approve: (sessionId) =>
@@ -1341,6 +1861,21 @@ export function createMockApi(opts: MockApiOptions = {}): MockApi {
       }),
 
     listMachines: () => reply(() => [...machines.keys()].map(machineRow)),
+    listTeam: () =>
+      reply(() => {
+        const minAgo = (min: number) => new Date(now().getTime() - min * 60_000).toISOString();
+        const ended = new Set<string | null>(['done', 'failed', 'lost', 'cancelled']);
+        return TeamResponseSchema.parse(
+          MOCK_TEAM.map((m) => ({
+            name: m.name,
+            hired_at: minAgo(m.hiredDaysAgo * 1440),
+            last_assigned_at: m.lastAssignedMinAgo === null ? null : minAgo(m.lastAssignedMinAgo),
+            active_ticket_id:
+              [...cards.values()].find((c) => c.agent_name === m.name && !ended.has(c.status))
+                ?.ticket_id ?? null,
+          })),
+        );
+      }),
 
     getTranscript: (sessionId) =>
       reply((): TranscriptResponse => {

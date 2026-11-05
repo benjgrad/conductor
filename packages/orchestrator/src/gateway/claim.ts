@@ -20,10 +20,12 @@ import {
   type RequiredCaps,
 } from './routing.js';
 
-// The single-machine claim (M1-T11, M2-T16a; 04 §2, 10-contracts §Claim): FIFO by priority then
-// age, hard filters only, FOR UPDATE SKIP LOCKED, one transaction. Filters: tags, allow-list,
-// account, repo (ADR-0013 §Routing: a machine_repo whose lower(remote) = lower(ticket.repo); a
-// non-canonical repo, which only local mode allows, skips it), capabilities (every requirement of
+// The single-machine claim (M1-T11, M2-T16a; 04 §2, 10-contracts §Claim): in queue order (06
+// §Queue order: the hand-set `queue_position` first, then priority, the lowest P first since P0 is
+// the most urgent (ADR-0036), then age), hard filters only, FOR UPDATE SKIP LOCKED, one
+// transaction. Filters: tags, allow-list, account, repo (ADR-0013 §Routing: a machine_repo whose
+// lower(remote) = lower(ticket.repo); a non-canonical repo, which only local mode allows, skips
+// it), capabilities (every requirement of
 // the effective workflow version, 10-contracts "Matching"), the repo rules (this machine's
 // `repo_allow`, every other unrevoked machine's `repo_exclusive`; ADR-0013 amendment 2026-10-30),
 // and the reopen / `__machine_lost` pins.
@@ -210,7 +212,7 @@ export async function claimWork(
             AND NOT EXISTS (SELECT 1 FROM machine o CROSS JOIN LATERAL unnest(o.repo_exclusive) AS x(p)
                              WHERE o.account_id = $3 AND o.id <> $1 AND o.revoked_at IS NULL
                                AND ${REPO_PATTERN_MATCH_SQL})
-          ORDER BY t.priority DESC, t.created_at, t.id
+          ORDER BY t.queue_position ASC NULLS LAST, t.priority ASC, t.created_at, t.id
           LIMIT 1
           FOR UPDATE OF t SKIP LOCKED`,
         [
@@ -257,8 +259,9 @@ export async function claimWork(
         log,
       });
       await tx.query(
+        // 06 §Queue order: the hand-set rank is spent; a reopen queues by priority again.
         `UPDATE ticket SET status = 'claimed', workflow_version = $2, agent_id = $3,
-                updated_at = now()
+                queue_position = NULL, updated_at = now()
           WHERE id = $1`,
         [ticket.id, ticket.workflow_version, agent.agentId],
       );

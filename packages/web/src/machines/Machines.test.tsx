@@ -34,6 +34,15 @@ describe('machines page (M2-T11)', () => {
     );
   });
 
+  it('UX-13b FR-3: shows the agent team below the machines', async () => {
+    await renderPage();
+    const team = within(await screen.findByRole('region', { name: 'Team' }));
+    const list = within(await team.findByRole('list', { name: 'Agent team' }));
+    expect(
+      list.getAllByRole('listitem').map((li) => li.querySelector('.team-name')?.textContent),
+    ).toEqual(['Amara', 'Kenji', 'Elif', 'Tunde']);
+  });
+
   it('lists machines: status, last seen, versions, repo count', async () => {
     await renderPage();
     const mbp = row("Ben's MacBook");

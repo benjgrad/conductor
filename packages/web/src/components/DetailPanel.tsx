@@ -28,8 +28,8 @@ import {
   isConductorStep,
   lastOutputOfQuestion,
 } from './ConductorChecks.js';
-import { isOldVersion } from './details-sections.js';
-import { headStatus, KIND_LABELS } from './format.js';
+import { isOldVersion, SessionInsightSection } from './details-sections.js';
+import { headStatus, KIND_LABELS, TERMINAL_STATUSES } from './format.js';
 import { FocusToggle } from './FocusToggle.js';
 import { FreshConversation, freshConversationOffer } from './FreshConversation.js';
 import { Markdown } from './markdown.js';
@@ -68,7 +68,7 @@ interface DetailPanelProps {
   /**
    * UXR-37: `wide` (desktop, beside the board or in focus mode) puts the request first, then the
    * conversation, then the follow-ups and the check output in their own disclosures. `default`
-   * (phone, tablet) keeps the request at the end of the chat.
+   * (phone) keeps the request at the end of the chat.
    */
   layout?: PanelLayout;
   /** UXR-37: focus mode is on (the board is a ticket list and the panel takes the rest). */
@@ -407,6 +407,12 @@ export function DetailPanel({
                 brief={brief}
                 body={body}
                 onReload={reload}
+              />
+              <SessionInsightSection
+                key={`insight-${sessionId}`}
+                api={api}
+                sessionId={sessionId}
+                finished={detail.card.status !== null && TERMINAL_STATUSES.has(detail.card.status)}
               />
             </>
           )}

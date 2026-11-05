@@ -3,9 +3,12 @@ import {
   IMPLEMENT_TEMPLATE,
   PLAN_TEMPLATE,
   PROPOSALS_PER_STATE_MAX,
+  RETURN_TO,
   ticketEditable,
+  transitionObject,
   type EntryRequirements,
   type FollowUps,
+  type OnUnmet,
   type WorkflowDefinition,
   type WorkflowState,
 } from '@conductor/shared';
@@ -476,6 +479,211 @@ export function setQueuedTicketEditable(
   return value === undefined ? next : { ...next, queued_ticket_editable: value };
 }
 
+// ------------------------------------------------------------------ structure (UXR-67)
+
+// The workflow's shape: add a column (between two others), move one, remove one. A column's state
+// name is fixed once it exists (agents report it, and tickets sit in it); only its title changes.
+// The server refuses to drop a column unfinished tickets are in (rule 18, orchestrator
+// `removedStatesInUse`); `columnRemovalProblems` says so up front when it knows the counts.
+
+/** The kinds of column the designer adds (command and connector columns stay API-only). */
+export type NewColumnKind = Exclude<LaneKind, 'queue'>;
+export const NEW_COLUMN_KINDS: readonly NewColumnKind[] = ['agent', 'person', 'waiting', 'end'];
+
+const STATE_NAME = /^[a-z][a-z0-9_]*$/;
+
+/** Why `name` can't be a new column's state name (null = it can). */
+export function stateNameProblem(def: WorkflowDefinition, name: string): string | null {
+  if (name === '') return 'the name is empty';
+  if (!STATE_NAME.test(name)) {
+    return 'use lowercase letters, digits and _, starting with a letter (e.g. needs_design)';
+  }
+  if (has(def, name)) return `there is already a column "${name}"`;
+  return null;
+}
+
+/** "Needs design" → `needs_design` (`_2`, `_3`… when taken). */
+export function slugFromTitle(def: WorkflowDefinition, title: string): string {
+  let base = title
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  if (base === '' || !/^[a-z]/.test(base)) base = `column${base === '' ? '' : `_${base}`}`;
+  base = base.slice(0, 40).replace(/_+$/, '');
+  let name = base;
+  for (let n = 2; has(def, name); n++) name = `${base}_${n}`;
+  return name;
+}
+
+/** The person column an agent column asks: `needs_input`, else the first human column. */
+function askTarget(def: WorkflowDefinition): string | null {
+  const humans = humanStates(def);
+  return humans.includes('needs_input') ? 'needs_input' : (humans[0] ?? null);
+}
+
+/** Why a column of `kind` can't be added (null = it can). */
+export function addColumnProblem(def: WorkflowDefinition, kind: NewColumnKind): string | null {
+  if (kind === 'agent' && askTarget(def) === null) {
+    return 'An agent column needs a Person column to ask: add one first';
+  }
+  return null;
+}
+
+export interface NewColumn {
+  title: string;
+  kind: NewColumnKind;
+  /** The lane it goes after: a state, or QUEUED_LANE for the first column. */
+  after: string;
+  /** Agent work: the prompt template (default `implement_template`) and model (blank = default). */
+  prompt?: string;
+  model?: string;
+}
+
+/**
+ * Add a column after `after`. It starts valid on its own: an agent column can ask a person
+ * (`ask_user`), a waiting column moves on to the next column when approved. Nothing leads to it
+ * yet (`validateColumns` says so until a transition does). `start` never changes.
+ */
+export function addColumn(
+  def: WorkflowDefinition,
+  col: NewColumn,
+): { definition: WorkflowDefinition; name: string } {
+  const problem = addColumnProblem(def, col.kind);
+  if (problem !== null) throw new Error(problem);
+  const name = slugFromTitle(def, col.title);
+  const order = columnStates(def);
+  const at = col.after === QUEUED_LANE ? 0 : order.indexOf(col.after) + 1;
+  if (at === 0 && col.after !== QUEUED_LANE) throw new Error(`no column "${col.after}"`);
+  const next = order[at] ?? order.find((n) => n !== col.after) ?? order[0]!;
+  const title = col.title.trim();
+  const titled = title === '' ? {} : { title };
+  let state: WorkflowState;
+  switch (col.kind) {
+    case 'agent':
+      state = {
+        type: 'agent',
+        ...titled,
+        prompt: col.prompt?.trim() || IMPLEMENT_TEMPLATE,
+        ...(col.model?.trim() ? { model: col.model.trim() } : {}),
+        on: { ask_user: askTarget(def)! },
+      };
+      break;
+    case 'person':
+      state = { type: 'human', ...titled };
+      break;
+    case 'waiting':
+      state = { type: 'event', ...titled, wait_for: ['ui.approve'], on: { 'ui.approve': next } };
+      break;
+    case 'end':
+      state = { type: 'terminal', ...titled };
+      break;
+  }
+  const columns = [...order.slice(0, at), name, ...order.slice(at)];
+  return { definition: { ...def, states: { ...def.states, [name]: state }, columns }, name };
+}
+
+/** Move column `name` to position `to` among the columns (Queued stays first, outside them). */
+export function moveColumn(def: WorkflowDefinition, name: string, to: number): WorkflowDefinition {
+  const order = columnStates(def);
+  const from = order.indexOf(name);
+  if (from < 0) throw new Error(`no column "${name}"`);
+  const rest = order.filter((n) => n !== name);
+  const at = Math.max(0, Math.min(rest.length, to));
+  return { ...def, columns: [...rest.slice(0, at), name, ...rest.slice(at)] };
+}
+
+/** Move column `name` one place left (-1) or right (1); at an end, nothing changes. */
+export function moveColumnBy(
+  def: WorkflowDefinition,
+  name: string,
+  by: -1 | 1,
+): WorkflowDefinition {
+  const order = columnStates(def);
+  const from = order.indexOf(name);
+  const to = from + by;
+  if (from < 0 || to < 0 || to >= order.length) return def;
+  return moveColumn(def, name, to);
+}
+
+/** One way into a column: a transition's leg, or an old entry's "not met" route. */
+export interface ColumnLink {
+  from: string;
+  to: string;
+  /** "Needs input → Done", or "Implementing's old requirements to enter". */
+  via: string;
+}
+
+/** Every link between columns (the server's rule 2 edges; `$return_to` is not one). */
+export function columnLinks(def: WorkflowDefinition): ColumnLink[] {
+  const links: ColumnLink[] = [];
+  const legs = (u: OnUnmet | undefined) =>
+    u === undefined ? [] : [u.goto, u.else, ...Object.values(u.routes ?? {})];
+  for (const [from, state] of Object.entries(def.states)) {
+    const via = `${columnTitle(def, from)}’s old requirements to enter`;
+    for (const to of legs(state.entry?.on_unmet)) {
+      if (to !== undefined) links.push({ from, to, via });
+    }
+    if (state.type === 'terminal') continue;
+    for (const [name, raw] of Object.entries(state.on ?? {})) {
+      const t = transitionObject(raw);
+      const via = `${columnTitle(def, from)} → ${transitionTitle(def, from, name)}`;
+      const targets = [t.goto, t.else, ...legs(t.requirements?.on_unmet), ...legs(t.on_unmet)];
+      for (const to of targets) {
+        if (to !== undefined && to !== RETURN_TO) links.push({ from, to, via });
+      }
+    }
+  }
+  return links;
+}
+
+/**
+ * Every reason column `name` can't be removed, in words (empty = it can): it is the first column
+ * or the over-budget one, another column leads to it, `ticketCounts` has tickets in it, or it is
+ * the last person column agents can ask.
+ */
+export function columnRemovalProblems(
+  def: WorkflowDefinition,
+  name: string,
+  ticketCounts?: Readonly<Record<string, number>>,
+): string[] {
+  const state = def.states[name];
+  if (!state) return [];
+  const problems: string[] = [];
+  if (name === def.start) problems.push('It is the first column: claimed tickets start here');
+  if (name === def.on_budget_exceeded) problems.push('Tickets over budget go here');
+  const via = new Set(
+    columnLinks(def)
+      .filter((l) => l.to === name && l.from !== name)
+      .map((l) => l.via),
+  );
+  for (const v of via) problems.push(`${v} leads here`);
+  const n = ticketCounts?.[name] ?? 0;
+  if (n > 0) problems.push(`${n} ticket${n === 1 ? ' is' : 's are'} in it`);
+  if (
+    state.type === 'human' &&
+    humanStates(def).length === 1 &&
+    Object.values(def.states).some((s) => s.type === 'agent')
+  ) {
+    problems.push('Agent columns need a Person column to ask');
+  }
+  return problems;
+}
+
+/**
+ * Remove column `name` and the transitions out of it. Throws while `columnRemovalProblems` (without
+ * ticket counts: the server checks those) has any.
+ */
+export function removeColumn(def: WorkflowDefinition, name: string): WorkflowDefinition {
+  const problems = columnRemovalProblems(def, name);
+  if (problems.length > 0) throw new Error(problems.join('; '));
+  const states = { ...def.states };
+  delete states[name];
+  const next: WorkflowDefinition = { ...def, states };
+  if (def.columns !== undefined) next.columns = def.columns.filter((n) => n !== name);
+  return next;
+}
+
 // ------------------------------------------------------------------ validation
 
 export interface ColumnIssue {
@@ -526,6 +734,44 @@ export function validateColumns(def: WorkflowDefinition): ColumnIssue[] {
           message: `every state is a column: add ${missing.map((m) => `"${m}"`).join(', ')}`,
         });
       }
+    }
+  }
+  if (def.columns !== undefined && def.columns.length === 0) {
+    issues.push({
+      state: null,
+      path: 'columns',
+      message: 'the workflow needs at least one column',
+    });
+  }
+  // Rule 1 and 2 (UXR-67: a removed or a new column): the first column exists, and every column
+  // can be reached from it, so a new column says it needs a way in before Save does.
+  if (!has(def, def.start)) {
+    issues.push({
+      state: null,
+      path: 'start',
+      message: `the first column "${def.start}" does not exist`,
+    });
+  } else {
+    const reached = new Set<string>();
+    const out = new Map<string, string[]>();
+    for (const l of columnLinks(def)) out.set(l.from, [...(out.get(l.from) ?? []), l.to]);
+    const stack = [
+      def.start,
+      ...(def.on_budget_exceeded !== undefined ? [def.on_budget_exceeded] : []),
+    ];
+    while (stack.length > 0) {
+      const n = stack.pop()!;
+      if (reached.has(n)) continue;
+      reached.add(n);
+      stack.push(...(out.get(n) ?? []));
+    }
+    for (const n of Object.keys(def.states)) {
+      if (reached.has(n)) continue;
+      issues.push({
+        state: n,
+        path: `states.${n}`,
+        message: `Nothing leads to ${columnTitle(def, n)} yet: add a transition into it from another column`,
+      });
     }
   }
   for (const reserved of RESERVED_STATE_NAMES) {

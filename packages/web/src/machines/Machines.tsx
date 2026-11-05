@@ -7,11 +7,14 @@ import { routeHash } from '../nav.js';
 import { AddMachine } from './AddMachine.js';
 import { machineProblems, problemsLabel } from './format.js';
 import { MachineDrawer } from './MachineDrawer.js';
+import { TeamSection } from './TeamSection.js';
 import { UpgradeBanner } from './UpgradeNotice.js';
 import './machines.css';
 
 interface MachinesPageProps {
   api: ApiClient;
+  /** UX-13b FR-3: a board ticket's title, for the Team section's "On …" links. */
+  ticketTitle?: (ticketId: string) => string | null | undefined;
 }
 
 type List =
@@ -22,8 +25,9 @@ type List =
 /**
  * `#/machines` (ADR-0013 §Enrollment, M2-T11): the account's machines, a drawer with each one's
  * inventory, problems, rename and revoke (UXR-47/48), and Add a machine (the one-time install command).
+ * Below the table, the agent team (UX-13b FR-3).
  */
-export function MachinesPage({ api }: MachinesPageProps) {
+export function MachinesPage({ api, ticketTitle }: MachinesPageProps) {
   const [list, setList] = useState<List>({ kind: 'loading' });
   const [enrollment, setEnrollment] = useState<EnrollmentTokenCreated | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -209,6 +213,7 @@ export function MachinesPage({ api }: MachinesPageProps) {
           </tbody>
         </table>
       )}
+      <TeamSection api={api} ticketTitle={ticketTitle} />
       {opened && (
         <MachineDrawer
           machine={opened}

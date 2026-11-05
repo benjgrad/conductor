@@ -8,11 +8,13 @@ import {
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ApiRequestError } from '../api/client.js';
-import { CONDUCTOR, SEED_IDS } from '../api/mock-data.js';
+import { CONDUCTOR, MOCK_WORKFLOW_HISTORY, SEED_IDS } from '../api/mock-data.js';
 import { createMockApi } from '../api/mock.js';
 import { App } from '../App.js';
+import { mockViewport, type MockViewport } from '../test/match-media.js';
 import { SessionWorkflowDiagram } from './SessionWorkflowDiagram.js';
 import { WorkflowsView } from './WorkflowsView.js';
+import { ToastProvider } from '../components/Toast.js';
 
 beforeEach(() => {
   window.location.hash = '#/workflows';
@@ -47,7 +49,15 @@ async function setup(api = createMockApi(), { app = false } = {}) {
     }
     return get(id, version);
   };
-  render(app ? <App api={api} /> : <WorkflowsView api={api} />);
+  render(
+    app ? (
+      <App api={api} />
+    ) : (
+      <ToastProvider>
+        <WorkflowsView api={api} />
+      </ToastProvider>
+    ),
+  );
   const diagram = await screen.findByRole('group', { name: 'conductor v3 columns' }, DIAGRAM_WAIT);
   return { api, saved, diagram };
 }
@@ -78,8 +88,16 @@ const sectionHead = (start: string) =>
 const type = (el: HTMLElement, value: string) => fireEvent.change(el, { target: { value } });
 const lanesOf = (el: Element) =>
   [...el.querySelectorAll('[data-lane]')].map((n) => n.getAttribute('data-lane'));
+/** UXR-69: the save bar (while a draft exists), its Save button and its problems. */
+const saveBar = () => within(screen.getByRole('region', { name: 'Save' }));
 const saveButton = () =>
-  screen.getByRole<HTMLButtonElement>('button', { name: /^Save as new version/ });
+  saveBar().getByRole<HTMLButtonElement>('button', { name: /^Save as v\d+…$/ });
+const problemsButton = () => saveBar().queryByRole('button', { name: /^\d+ problems? [▾▴]$/ });
+const openProblems = () => {
+  const b = problemsButton()!;
+  if (b.getAttribute('aria-expanded') !== 'true') fireEvent.click(b);
+  return within(screen.getByRole('list', { name: 'Problems' }));
+};
 const reviewDialog = () =>
   screen.findByRole('dialog', { name: 'Review changes before saving' }, DIAGRAM_WAIT);
 /** UXR-70: Save opens the review; confirm it (with an optional note). */
@@ -198,7 +216,8 @@ describe('Workflow view', () => {
     expect(screen.getByText('Unsaved changes')).toBeTruthy();
     await save();
     await screen.findByRole('group', { name: 'conductor v4 columns' });
-    expect(screen.getByRole('status').textContent).toBe('Saved as v4.');
+    // UXR-55: the save is confirmed in the shared toast.
+    expect(screen.getByRole('status', { name: 'Notifications' }).textContent).toBe('Saved as v4');
     expect(saved[0]!.states.implementing).toMatchObject({
       title: 'Building',
       prompt: 'ticket_template',
@@ -274,8 +293,9 @@ describe('Workflow view', () => {
     fireEvent.click(lane('Planning'));
     type(editor().getByLabelText('Title'), 'Thinking');
     expect(screen.getByText('Unsaved changes')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    fireEvent.click(saveBar().getByRole('button', { name: 'Discard' }));
     expect(screen.queryByText('Unsaved changes')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Save' })).toBeNull();
     expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Title' }).value).toBe('Planning');
   });
 });
@@ -443,8 +463,14 @@ describe('transition arrows (ADR-0011)', () => {
     fireEvent.click(arrow('Implementing', 'Waiting external'));
     fireEvent.click(panel().getByRole('checkbox', { name: 'Work' }));
     expect(panel().getByText('pick at least one kind of ticket')).toBeTruthy();
-    expect(saveButton().disabled).toBe(true);
     expect(arrow('Implementing', 'Waiting external').getAttribute('class')).toContain('error');
+    expect(screen.queryByRole('list', { name: 'Problems' })).toBeNull();
+    // Save with a problem opens the problems from the bar, not the review.
+    fireEvent.click(saveButton());
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(
+      within(screen.getByRole('list', { name: 'Problems' })).getByText(/pick at least one kind/),
+    ).toBeTruthy();
     fireEvent.click(panel().getByRole('checkbox', { name: 'Work' }));
     fireEvent.click(panel().getByRole('checkbox', { name: 'Personal' }));
     await save();
@@ -452,20 +478,23 @@ describe('transition arrows (ADR-0011)', () => {
     expect('kinds' in (onOf(saved[0]!, 'implementing').ready_for_testing as object)).toBe(false);
   });
 
-  it('add a condition with no timeout → the rule-13 error is shown on that arrow', async () => {
+  it('a new condition waits 3d; clearing the timeout shows the rule-13 error', async () => {
     const { saved } = await setup();
     fireEvent.click(arrow('Planning', 'Implementing'));
     fireEvent.click(sectionHead('Conditions (0)'));
     type(panel().getByLabelText('Add condition'), 'pr_approvals');
-    // The first requirement brings a "when not met" (rule 13 needs one).
+    // The first requirement brings a "when not met" (rule 13 needs one), and a timeout (UXR-71).
     expect(panel().getByLabelText<HTMLSelectElement>('Back to').value).toBe('planning');
     expect(panel().getByLabelText<HTMLSelectElement>('Then').value).toBe('needs_input');
+    expect(panel().getByLabelText<HTMLInputElement>('Wait at most').value).toBe('3d');
+    expect(problemsButton()).toBeNull();
+    type(panel().getByLabelText('Wait at most'), '');
     expect(panel().getByText('conditions need a timeout (how long to wait for them)')).toBeTruthy();
     expect(arrow('Planning', 'Implementing').getAttribute('class')).toContain('error');
-    const problems = within(screen.getByRole('list', { name: 'Problems' }));
-    expect(problems.getByText(/Planning · plan_ready/)).toBeTruthy();
-    expect(saveButton().disabled).toBe(true);
+    expect(problemsButton()!.textContent).toBe('1 problem ▾');
+    expect(openProblems().getByText(/Planning · plan_ready/)).toBeTruthy();
     type(panel().getByLabelText('Wait at most'), '1d');
+    expect(problemsButton()).toBeNull();
     expect(screen.queryByRole('list', { name: 'Problems' })).toBeNull();
     type(panel().getByLabelText('Condition 1 approvals'), '2');
     await save();
@@ -569,6 +598,7 @@ describe('transition arrows (ADR-0011)', () => {
     expect(panel().getByRole('alert').textContent).toBe(
       'rule 13: conditions need condition_timeout',
     );
+    // The bar opens its problems by itself after a failed save.
     const problems = within(screen.getByRole('list', { name: 'Problems' }));
     expect(problems.getByText(/rule 1: something global/)).toBeTruthy();
     expect(arrow('Implementing', 'Waiting external').getAttribute('class')).toContain('error');
@@ -739,6 +769,141 @@ describe('transition arrows (ADR-0011)', () => {
   });
 });
 
+describe('the workflow’s shape (UXR-67)', () => {
+  const addColumnDialog = () => within(screen.getByRole('dialog', { name: 'Add a column' }));
+  const handle = (title: string) =>
+    screen.getByRole('button', { name: `Draw a transition from ${title}` });
+
+  it('“+” between two columns adds one there, which then needs a way in', async () => {
+    const { diagram } = await setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Add a column after Planning' }));
+    const dialog = addColumnDialog();
+    const title = dialog.getByLabelText<HTMLInputElement>('Title');
+    expect(document.activeElement).toBe(title);
+    const add = dialog.getByRole<HTMLButtonElement>('button', { name: 'Add column' });
+    expect(add.disabled).toBe(true);
+    type(title, 'Needs design');
+    expect(dialog.getByText('needs_design')).toBeTruthy();
+    fireEvent.click(dialog.getByRole('radio', { name: /Person/ }));
+    fireEvent.click(add);
+    expect(screen.queryByRole('dialog', { name: 'Add a column' })).toBeNull();
+    expect(lanesOf(diagram)).toEqual([
+      '__queued__',
+      'planning',
+      'needs_design',
+      'implementing',
+      'needs_input',
+      'waiting_external',
+      'done',
+    ]);
+    expect(editor().getByRole('heading', { name: 'Needs design' })).toBeTruthy();
+    expect(
+      editor().getByText(
+        'Nothing leads to Needs design yet: add a transition into it from another column',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText(/Shape changes apply to new and reopened tickets/)).toBeTruthy();
+  });
+
+  it('Escape or Cancel closes the dialog without a change', async () => {
+    await setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Add a column after Done' }));
+    fireEvent.click(addColumnDialog().getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add a column after Queued' }));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByText('Unsaved changes')).toBeNull();
+  });
+
+  it('moves a column left and right; the ends are disabled', async () => {
+    const { diagram } = await setup();
+    fireEvent.click(lane('Planning'));
+    expect(editor().getByRole<HTMLButtonElement>('button', { name: '← Move left' }).disabled).toBe(
+      true,
+    );
+    fireEvent.click(editor().getByRole('button', { name: 'Move right →' }));
+    expect(lanesOf(diagram).slice(1, 3)).toEqual(['implementing', 'planning']);
+    fireEvent.click(editor().getByRole('button', { name: '← Move left' }));
+    expect(lanesOf(diagram).slice(1, 3)).toEqual(['planning', 'implementing']);
+  });
+
+  it('Remove says why a column can’t go; a new one is removed after a confirm', async () => {
+    const api = createMockApi();
+    // A ticket in Done (from the board): the reasons say so.
+    api.getBoard = () =>
+      Promise.resolve({
+        columns: [
+          {
+            id: 'done',
+            cards: [{ workflow_id: 'conductor', workflow_state: 'done', status: 'running' }],
+          },
+        ],
+        last_event_id: 0,
+      } as unknown as Awaited<ReturnType<typeof api.getBoard>>);
+    const { diagram } = await setup(api);
+    fireEvent.click(lane('Planning'));
+    const remove = () => editor().getByRole<HTMLButtonElement>('button', { name: 'Remove column' });
+    expect(remove().disabled).toBe(true);
+    const why = () => editor().getByRole('list', { name: 'Why it can’t be removed' });
+    expect(
+      within(why()).getByText('It is the first column: claimed tickets start here'),
+    ).toBeTruthy();
+    fireEvent.click(lane('Done'));
+    await waitFor(() => expect(within(why()).getByText('1 ticket is in it')).toBeTruthy());
+    expect(within(why()).getByText('Needs input → Done leads here')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add a column after Waiting external' }));
+    type(addColumnDialog().getByLabelText('Title'), 'Extra');
+    fireEvent.click(addColumnDialog().getByRole('button', { name: 'Add column' }));
+    expect(remove().disabled).toBe(false);
+    fireEvent.click(remove());
+    const confirm = within(editor().getByRole('alertdialog', { name: 'Remove column' }));
+    fireEvent.click(confirm.getByRole('button', { name: 'Remove' }));
+    expect(lanesOf(diagram)).not.toContain('extra');
+    expect(screen.queryByRole('complementary', { name: 'Column' })).toBeNull();
+  });
+
+  it('draws a transition from the keyboard: Goes to… → its panel, Title focused', async () => {
+    const { saved } = await setup();
+    fireEvent.keyDown(handle('Planning'), { key: 'Enter' });
+    const menu = within(screen.getByRole('menu', { name: /^New transition from Planning/ }));
+    expect(document.activeElement).toBe(menu.getAllByRole('menuitem')[0]);
+    fireEvent.click(menu.getByRole('menuitem', { name: 'Done' }));
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(panel().getByLabelText<HTMLSelectElement>('Goes to').value).toBe('done');
+    expect(document.activeElement).toBe(panel().getByLabelText('Title'));
+    type(panel().getByLabelText('Title'), 'Skip it');
+    await save();
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(onOf(saved[0]!, 'planning').new_transition).toEqual({ goto: 'done', title: 'Skip it' });
+  });
+
+  it('draws a transition by dragging a column’s edge onto another column', async () => {
+    const { diagram } = await setup();
+    fireEvent.pointerDown(handle('Implementing'), { button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(diagram, { clientX: 60, clientY: 12 });
+    expect(diagram.getAttribute('class')).toContain('drawing');
+    fireEvent.pointerUp(lane('Waiting external'), { clientX: 200, clientY: 12 });
+    expect(panel().getByLabelText<HTMLSelectElement>('Goes to').value).toBe('waiting_external');
+    expect(document.activeElement).toBe(panel().getByLabelText('Title'));
+    // A press without a move is not a drag; Escape cancels one.
+    fireEvent.pointerDown(handle('Planning'), { button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(lane('Done'), { clientX: 11, clientY: 10 });
+    fireEvent.pointerDown(handle('Planning'), { button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(diagram, { clientX: 60, clientY: 12 });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.pointerUp(lane('Done'), { clientX: 60, clientY: 12 });
+    expect(screen.queryByRole('button', { name: /^Arrow Planning → Done:/ })).toBeNull();
+  });
+
+  it('Add transition opens the new one with its Title focused', async () => {
+    await setup();
+    fireEvent.click(lane('Planning'));
+    fireEvent.click(editor().getByRole('button', { name: 'Add transition' }));
+    expect(document.activeElement).toBe(panel().getByLabelText('Title'));
+  });
+});
+
 describe('transition editor: summary and sections (UXR-60, UXR-63)', () => {
   // The sections' headers, in order (not the Advanced toggle inside one).
   const heads = () => [
@@ -746,6 +911,22 @@ describe('transition editor: summary and sections (UXR-60, UXR-63)', () => {
       .getByRole('complementary', { name: 'Transition' })
       .querySelectorAll<HTMLButtonElement>('.wf-section-head > button'),
   ];
+
+  it('UXR-75: names the mock’s repo override under Checks, from listRepoChecks', async () => {
+    await setup();
+    fireEvent.click(arrow('Implementing', 'Waiting external'));
+    const link = await panel().findByRole('link', { name: 'acme/shop ›' });
+    expect(link.getAttribute('href')).toBe('#/repo-checks/github.com%2Facme%2Fshop');
+    expect(link.closest('[role="note"]')?.textContent).toMatch(/^1 repo uses its own checks/);
+  });
+
+  it('UXR-75: a failed listRepoChecks leaves the hint out', async () => {
+    const api = createMockApi();
+    api.listRepoChecks = () => Promise.reject(new Error('down'));
+    await setup(api);
+    fireEvent.click(arrow('Implementing', 'Waiting external'));
+    expect(panel().queryByRole('link', { name: /›$/ })).toBeNull();
+  });
 
   it('opens on a sentence saying what the transition does, then its sections', async () => {
     await setup();
@@ -798,16 +979,114 @@ describe('transition editor: summary and sections (UXR-60, UXR-63)', () => {
     expect(panel().queryByText(/Nothing is required/)).toBeNull();
     const unmet = sectionHead('If the requirements aren’t met');
     expect(unmet.getAttribute('aria-expanded')).toBe('true');
-    const conditions = sectionHead('Conditions (1 · poll 2m)');
-    expect(conditions.getAttribute('class')).toContain('error');
+    // UXR-71: a new condition starts valid, waiting at most 3 days.
+    const conditions = sectionHead('Conditions (1 · wait 3d, poll 2m)');
+    expect(conditions.getAttribute('class') ?? '').not.toContain('error');
     expect(
       conditions.compareDocumentPosition(unmet) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     const summary = panel().getByLabelText('Summary').textContent;
-    expect(summary).toContain('wait for PR checks → Implementing.');
+    expect(summary).toContain('wait up to 3 days for PR checks → Implementing.');
     expect(summary).toContain('If not met: back to Planning, up to 3 times, then Needs input.');
     type(panel().getByLabelText('Wait at most'), '1d');
     expect(panel().getByLabelText('Summary').textContent).toContain('wait up to 1 day for');
+  });
+});
+
+describe('save bar and calm validation (UXR-69, UXR-71)', () => {
+  it('shows a bar while a draft exists: Unsaved changes, Discard, Save as v4…', async () => {
+    await setup();
+    expect(screen.queryByRole('region', { name: 'Save' })).toBeNull();
+    fireEvent.click(lane('Planning'));
+    type(editor().getByLabelText('Title'), 'Thinking');
+    expect(saveBar().getByText('Unsaved changes')).toBeTruthy();
+    expect(saveBar().getByRole('button', { name: 'Discard' })).toBeTruthy();
+    expect(saveBar().getByRole('button', { name: 'Save as v4…' })).toBeTruthy();
+    // No problems: no count, and no list.
+    expect(problemsButton()).toBeNull();
+    expect(screen.queryByRole('list', { name: 'Problems' })).toBeNull();
+  });
+
+  it('holds a new check’s problems until it loses focus', async () => {
+    await setup();
+    fireEvent.click(arrow('Planning', 'Implementing'));
+    fireEvent.click(sectionHead('Checks (0)'));
+    fireEvent.click(panel().getByRole('button', { name: 'Add check' }));
+    const name = panel().getByLabelText('Check 1 name');
+    await waitFor(() => expect(document.activeElement).toBe(name));
+    expect(panel().queryByText('Check 1: Name is required')).toBeNull();
+    expect(panel().queryByText('Check 1: Command is required')).toBeNull();
+    expect(problemsButton()).toBeNull();
+    expect(arrow('Planning', 'Implementing').getAttribute('class') ?? '').not.toContain('error');
+    // Moving within the check keeps it quiet.
+    const cmd = panel().getByLabelText('Check 1 command');
+    fireEvent.blur(name, { relatedTarget: cmd });
+    expect(panel().queryByText('Check 1: Name is required')).toBeNull();
+    // Leaving it shows them.
+    fireEvent.blur(cmd, { relatedTarget: null });
+    expect(panel().getByText('Check 1: Name is required')).toBeTruthy();
+    expect(panel().getByText('Check 1: Command is required')).toBeTruthy();
+    expect(problemsButton()!.textContent).toBe('2 problems ▾');
+    expect(arrow('Planning', 'Implementing').getAttribute('class')).toContain('error');
+  });
+
+  it('holds a new review item’s problem until it loses focus', async () => {
+    await setup();
+    fireEvent.click(arrow('Planning', 'Implementing'));
+    fireEvent.click(sectionHead('Review (0)'));
+    fireEvent.click(panel().getByRole('button', { name: 'Add review item' }));
+    const item = panel().getByLabelText('Review item 1');
+    await waitFor(() => expect(document.activeElement).toBe(item));
+    expect(panel().queryByText('review item 1 is empty')).toBeNull();
+    fireEvent.blur(item, { relatedTarget: null });
+    expect(panel().getByText('review item 1 is empty')).toBeTruthy();
+    // Typing into it clears the problem.
+    type(item, 'Tests cover the change');
+    expect(panel().queryByText('review item 1 is empty')).toBeNull();
+  });
+
+  it('Save shows a new item’s problems instead of opening the review', async () => {
+    const { saved } = await setup();
+    fireEvent.click(arrow('Planning', 'Implementing'));
+    fireEvent.click(sectionHead('Checks (0)'));
+    fireEvent.click(panel().getByRole('button', { name: 'Add check' }));
+    expect(panel().queryByText('Check 1: Name is required')).toBeNull();
+    fireEvent.click(saveButton());
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(saved).toHaveLength(0);
+    expect(panel().getByText('Check 1: Name is required')).toBeTruthy();
+    const problems = within(screen.getByRole('list', { name: 'Problems' }));
+    expect(problems.getByText(/Check 1: Command is required/)).toBeTruthy();
+    expect(problemsButton()!.getAttribute('aria-expanded')).toBe('true');
+    // Escape closes the list.
+    fireEvent.keyDown(screen.getByRole('list', { name: 'Problems' }), { key: 'Escape' });
+    expect(screen.queryByRole('list', { name: 'Problems' })).toBeNull();
+  });
+});
+
+describe('old-version warning (UXR-70)', () => {
+  const warningText = 'This starts from v1: saving undoes the changes in v2–v3.';
+
+  it('warns, here and in the bar, once an old version is edited', async () => {
+    await setup();
+    type(screen.getByRole('combobox', { name: 'Version' }), '1');
+    await screen.findByRole('group', { name: 'conductor v1 columns' });
+    expect(screen.queryByText(warningText)).toBeNull();
+    fireEvent.click(lane('Planning'));
+    type(editor().getByLabelText('Title'), 'Thinking');
+    const inline = screen.getAllByRole('alert').filter((el) => el.textContent === warningText);
+    expect(inline).toHaveLength(1);
+    expect(saveBar().getByText(warningText)).toBeTruthy();
+    expect(saveBar().getByRole('button', { name: 'Save as v4…' })).toBeTruthy();
+    fireEvent.click(saveBar().getByRole('button', { name: 'Discard' }));
+    expect(screen.queryByText(warningText)).toBeNull();
+  });
+
+  it('does not warn when editing the latest', async () => {
+    await setup();
+    fireEvent.click(lane('Planning'));
+    type(editor().getByLabelText('Title'), 'Thinking');
+    expect(screen.queryByText(/saving undoes the changes/)).toBeNull();
   });
 });
 
@@ -874,7 +1153,9 @@ describe('unsaved draft guard', () => {
     await dirty();
     fireEvent.click(screen.getByRole('link', { name: 'Board' }));
     await waitFor(() => expect(screen.getByRole('alertdialog')).toBeTruthy());
-    expect(confirm().getByText('Discard unsaved changes to the workflow?')).toBeTruthy();
+    expect(screen.getByRole('alertdialog').getAttribute('aria-modal')).toBe('true');
+    expect(confirm().getByText('Your changes to the workflow aren’t saved.')).toBeTruthy();
+    expect(document.activeElement).toBe(confirm().getByRole('button', { name: 'Keep editing' }));
     expect(window.location.hash).toBe('#/workflows');
     fireEvent.click(confirm().getByRole('button', { name: 'Keep editing' }));
     expect(screen.queryByRole('alertdialog')).toBeNull();
@@ -885,12 +1166,22 @@ describe('unsaved draft guard', () => {
     await dirty();
     fireEvent.click(screen.getByRole('link', { name: 'Board' }));
     await waitFor(() => expect(screen.getByRole('alertdialog')).toBeTruthy());
-    fireEvent.click(confirm().getByRole('button', { name: 'Discard' }));
+    fireEvent.click(confirm().getByRole('button', { name: 'Leave without saving' }));
     await screen.findByText('Add pagination to /orders');
     expect(window.location.hash).toBe('#/');
     fireEvent.click(screen.getByRole('link', { name: 'Workflow' }));
     await screen.findByRole('group', { name: 'conductor v3 columns' }, DIAGRAM_WAIT);
     expect(screen.queryByText('Unsaved changes')).toBeNull();
+  });
+
+  it('Escape keeps editing', async () => {
+    await dirty();
+    fireEvent.click(screen.getByRole('link', { name: 'Board' }));
+    await waitFor(() => expect(screen.getByRole('alertdialog')).toBeTruthy());
+    fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Escape' });
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(window.location.hash).toBe('#/workflows');
+    expect(screen.getByText('Unsaved changes')).toBeTruthy();
   });
 
   it('an old workflow URL stays in the view, draft and all', async () => {
@@ -996,6 +1287,146 @@ describe('Workflow view: change proposals (ADR-0033 P3)', () => {
     fireEvent.click(await region.findByRole('button', { name: 'Apply…' }));
     fireEvent.click(region.getByRole('button', { name: 'Confirm apply' }));
     await waitFor(() => expect(calls.length).toBeGreaterThan(n));
+  });
+});
+
+describe('Workflow view: a newer default (UXR-87)', () => {
+  /** The mock's latest conductor (v3) with Planning renamed: the shipped v4 the user lacks. */
+  const newer = (): WorkflowDefinition => {
+    const def = structuredClone(MOCK_WORKFLOW_HISTORY.conductor!.at(-1)!);
+    def.states.planning!.title = 'Plan it';
+    return { ...def, version: 4 };
+  };
+  const banner = () => within(screen.getByRole('region', { name: 'Newer default workflow' }));
+
+  async function mount(
+    canEditWorkflows: boolean,
+    api = createMockApi({ defaultWorkflow: newer() }),
+  ) {
+    render(
+      <ToastProvider>
+        <WorkflowsView api={api} canEditWorkflows={canEditWorkflows} />
+      </ToastProvider>,
+    );
+    await screen.findByRole('group', { name: 'conductor v3 columns' }, DIAGRAM_WAIT);
+    return api;
+  }
+
+  it('offers it to an admin only, and only when one is available', async () => {
+    await mount(false);
+    expect(screen.queryByRole('region', { name: 'Newer default workflow' })).toBeNull();
+    cleanup();
+    await mount(true, createMockApi());
+    expect(screen.queryByRole('region', { name: 'Newer default workflow' })).toBeNull();
+    cleanup();
+    await mount(true);
+    expect(banner().getByText('A newer default workflow (v4) is available')).toBeTruthy();
+  });
+
+  it('Compare shows what the default changes from the latest version', async () => {
+    await mount(true);
+    fireEvent.click(banner().getByRole('button', { name: 'Compare' }));
+    await banner().findByRole('heading', { name: 'Changes from v3 to the default (v4)' });
+    const diff = banner().getByRole('list', { name: 'Changes from v3 to the default' });
+    expect(diff.textContent).toContain('Plan it');
+    fireEvent.click(banner().getByRole('button', { name: 'Compare' }));
+    expect(banner().queryByRole('list', { name: 'Changes from v3 to the default' })).toBeNull();
+  });
+
+  it('Adopt… confirms, saves the default and reloads the latest version', async () => {
+    const api = await mount(true);
+    const calls: [string, number][] = [];
+    const adopt = api.adoptDefaultWorkflow.bind(api);
+    api.adoptDefaultWorkflow = (id, base) => {
+      calls.push([id, base]);
+      return adopt(id, base);
+    };
+    fireEvent.click(banner().getByRole('button', { name: 'Adopt…' }));
+    const confirm = within(screen.getByRole('group', { name: 'Adopt the default' }));
+    expect(confirm.getByText(/This replaces your edits since v3/)).toBeTruthy();
+    fireEvent.click(confirm.getByRole('button', { name: 'Adopt v4' }));
+    await screen.findByRole('group', { name: 'conductor v4 columns' }, DIAGRAM_WAIT);
+    expect(calls).toEqual([['conductor', 3]]);
+    expect(screen.getByRole('status', { name: 'Notifications' }).textContent).toBe(
+      'Adopted the default as v4',
+    );
+    expect(lane('Plan it')).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.queryByRole('region', { name: 'Newer default workflow' })).toBeNull(),
+    );
+  });
+
+  it('shows a refusal, and disables Adopt while there are unsaved changes', async () => {
+    const api = await mount(true);
+    api.adoptDefaultWorkflow = () =>
+      Promise.reject(new ApiRequestError(403, 'forbidden', 'only an instance admin can do that'));
+    fireEvent.click(banner().getByRole('button', { name: 'Adopt…' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Adopt v4' }));
+    expect((await banner().findByRole('alert')).textContent).toMatch(/only an instance admin/);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: /People can edit tickets in the .* column/ }),
+    );
+    expect(banner().getByRole<HTMLButtonElement>('button', { name: 'Adopt…' }).disabled).toBe(true);
+  });
+});
+
+describe('phone: full-screen editors (UXR-44)', () => {
+  let viewport: MockViewport | null = null;
+  beforeEach(() => {
+    viewport = mockViewport(375);
+  });
+  afterEach(() => {
+    viewport?.restore();
+    viewport = null;
+  });
+
+  const workflow = () => screen.getByRole('region', { name: 'Workflow' });
+
+  it('a column opens full-screen; Back to workflow closes it; the note stays', async () => {
+    await setup();
+    expect(screen.getByText('The workflow editor is best on a larger screen.')).toBeTruthy();
+    fireEvent.keyDown(lane('Implementing'), { key: 'Enter' });
+    const aside = screen.getByRole('complementary', { name: 'Column' });
+    expect(aside.classList.contains('full-screen')).toBe(true);
+    expect(editor().queryByRole('button', { name: 'Close column' })).toBeNull();
+    expect(workflow().hasAttribute('inert')).toBe(true);
+    fireEvent.click(editor().getByRole('button', { name: 'Back to workflow' }));
+    expect(screen.queryByRole('complementary', { name: 'Column' })).toBeNull();
+    expect(workflow().hasAttribute('inert')).toBe(false);
+  });
+
+  it('a transition opens full-screen; Back goes to its column', async () => {
+    await setup();
+    fireEvent.keyDown(arrow('Implementing', 'Waiting external'), { key: 'Enter' });
+    const aside = screen.getByRole('complementary', { name: 'Transition' });
+    expect(aside.classList.contains('full-screen')).toBe(true);
+    expect(panel().queryByRole('button', { name: 'Close transition' })).toBeNull();
+    fireEvent.click(panel().getByRole('button', { name: 'Back to Implementing' }));
+    expect(screen.getByRole('complementary', { name: 'Column' }).classList).toContain(
+      'full-screen',
+    );
+  });
+
+  it('an arrow’s list opens full-screen too, without ×', async () => {
+    await setup();
+    fireEvent.keyDown(arrow('Implementing', 'Needs input'), { key: 'Enter' });
+    const list = screen.getByRole('complementary', { name: 'Arrow' });
+    expect(list.classList.contains('full-screen')).toBe(true);
+    expect(within(list).queryByRole('button', { name: 'Close arrow' })).toBeNull();
+  });
+
+  it('on desktop the panels keep × and are not full-screen', async () => {
+    viewport?.restore();
+    viewport = null;
+    await setup();
+    fireEvent.keyDown(lane('Implementing'), { key: 'Enter' });
+    expect(screen.getByRole('complementary', { name: 'Column' }).classList).not.toContain(
+      'full-screen',
+    );
+    expect(editor().getByRole('button', { name: 'Close column' })).toBeTruthy();
+    expect(workflow().hasAttribute('inert')).toBe(false);
   });
 });
 

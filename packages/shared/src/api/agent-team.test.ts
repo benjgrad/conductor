@@ -47,7 +47,7 @@ const TICKET = {
   required_tags: [],
   repo_allow_machines: null,
   status: 'ready',
-  priority: 0,
+  priority: 3,
   created_at: '2026-10-22T12:00:00.000Z',
 };
 
@@ -83,7 +83,7 @@ describe('agent_name (UX-13a)', () => {
       title: 'Add /health',
       external_ref: null,
       repo: 'github.com/benjgrad/fixture-app',
-      priority: 0,
+      priority: 3,
       workflow_id: 'conductor',
       created_at: new Date('2026-10-22T12:00:00.000Z'),
       updated_at: new Date('2026-10-22T12:00:00.000Z'),

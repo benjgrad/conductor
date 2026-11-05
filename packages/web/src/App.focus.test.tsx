@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // UXR-37 (11-web-ui §Desktop detail layout): beside the board the columns keep 200 px; the panel's
-// focus toggle swaps the board for a ticket list, remembered, and Escape leaves it. Not on a tablet.
+// focus toggle swaps the board for a ticket list, remembered, and Escape leaves it. Not on a phone.
 import { localMeResponse } from '@conductor/shared';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -82,15 +82,13 @@ describe('desktop detail layout (UXR-37)', () => {
     expect(localStorage.getItem(FOCUS_KEY)).toBe('on');
   });
 
-  it('on a tablet there is no focus toggle and the board stays', async () => {
+  it('on a phone (below 900 px) there is no focus toggle and no ticket list', async () => {
     localStorage.setItem(FOCUS_KEY, 'on');
     await renderAt(800);
-    await openCard('Add audit log table');
+    fireEvent.click(await screen.findByRole('button', { name: 'Add audit log table' }));
+    await screen.findByRole('heading', { level: 2, name: 'Add audit log table' });
     expect(screen.queryByRole('button', { name: 'Focus mode' })).toBeNull();
     expect(tickets()).toBeNull();
-    expect(boardArea().hidden).toBe(false);
-    expect(document.querySelector<HTMLElement>('.board')!.style.gridTemplateColumns).toContain(
-      'minmax(180px, 1fr)',
-    );
+    expect(document.querySelector('.app.focus')).toBeNull();
   });
 });

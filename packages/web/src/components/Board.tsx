@@ -1,5 +1,21 @@
-import type { BoardCard } from '@conductor/shared';
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
+import {
+  DEFAULT_TICKET_PRIORITY,
+  isReorderable,
+  moveInOrder,
+  type BoardCard,
+  type BoardCardRouting,
+} from '@conductor/shared';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent,
+  type PointerEvent,
+} from 'react';
 import type { ApiClient } from '../api/client.js';
 import {
   boardColumns,
@@ -7,7 +23,9 @@ import {
   type BoardColumnView,
   type BoardState,
 } from '../board/board.js';
+import { columnPurpose } from '../board/column-purpose.js';
 import { waitingOnYou } from '../board/waiting.js';
+import { routeHash } from '../nav.js';
 import { DEFAULT_BOARD_WORKFLOW, readCollapsed, writeCollapsed } from './board-layout.js';
 import { AgentAvatar, cardAgent } from './agent-identity.js';
 import { ago, cardMeta, humanize, KIND_LABELS, TICKET_KIND_LABELS, usd } from './format.js';
@@ -30,7 +48,7 @@ import {
   isConductorStep,
   waitingForBuildSlot,
 } from './ConductorChecks.js';
-import { routingNeeds, routingRule } from '../machines/format.js';
+import { routingSentence } from '../machines/format.js';
 import { useIsMobile } from './useMediaQuery.js';
 import './Board.css';
 
@@ -165,6 +183,7 @@ export function Board({
             />
             <Column
               col={active}
+              mobile
               collapsed={false}
               attention={false}
               permissionCards={waitingFor(active.id)}
@@ -320,8 +339,9 @@ function useSwipe(onSwipe: (step: 1 | -1) => void) {
   const start = useRef<{ x: number; y: number } | null>(null);
   return {
     onPointerDown: (e: PointerEvent) => {
-      // The switcher scrolls sideways on its own; a drag there isn't a column swipe.
-      const inSwitcher = (e.target as Element).closest?.('.column-switcher');
+      // The switcher scrolls sideways on its own, and a queue handle moves a card: neither is a
+      // column swipe.
+      const inSwitcher = (e.target as Element).closest?.('.column-switcher, .queue-handle');
       start.current = e.isPrimary === false || inSwitcher ? null : { x: e.clientX, y: e.clientY };
     },
     onPointerUp: (e: PointerEvent) => {
@@ -360,6 +380,8 @@ function baselines(
 
 interface ColumnProps {
   col: BoardColumnView;
+  /** The phone board: Queued cards get Move up / Move down buttons instead of a drag handle. */
+  mobile?: boolean;
   collapsed: boolean;
   /** FR-4: a collapsed human column's count rose. */
   attention: boolean;
@@ -382,6 +404,7 @@ interface ColumnProps {
  */
 const Column = memo(function Column({
   col,
+  mobile = false,
   collapsed,
   attention,
   permissionCards,
@@ -398,6 +421,9 @@ const Column = memo(function Column({
   const bodyId = `board-column-${col.id}`;
   const waiting = permissionCards.length;
   const oldest = permissionCards.find((c) => c.session_id !== null);
+  // 06 §Queue order: Queued cards can be put in the order they are picked up in.
+  const queue = useQueueOrder(col.kind === 'queued' ? api : undefined, col.cards);
+  const cards = queue.cards;
   return (
     <section
       className={`column column-${col.id} column-kind-${col.kind}${collapsed ? ' collapsed' : ''}`}
@@ -441,10 +467,45 @@ const Column = memo(function Column({
           +{waitingForPermissionText(waiting)}
         </button>
       )}
-      <ul id={bodyId} hidden={collapsed}>
+      {/* UXR-54: an empty column says what it is for, instead of a tall blank box. */}
+      {!collapsed && col.cards.length === 0 && waiting === 0 && (
+        <p className="column-empty">{columnPurpose(col)}</p>
+      )}
+      {!collapsed && queue.enabled && queue.ranked && (
+        <button
+          type="button"
+          className="queue-reset"
+          title="Forget the hand order: queued tickets are picked up by priority, then age"
+          onClick={queue.reset}
+        >
+          Reset to priority order
+        </button>
+      )}
+      {!collapsed && queue.error && (
+        <p role="alert" className="error queue-error">
+          {queue.error}
+        </p>
+      )}
+      <ul
+        id={bodyId}
+        hidden={collapsed}
+        className={
+          queue.dropAt !== null && queue.dropAt === queue.movable.length ? 'drop-end' : undefined
+        }
+        {...queue.listProps}
+      >
         {!collapsed &&
-          col.cards.map((card) => (
-            <li key={card.ticket_id}>
+          cards.map((card) => (
+            <li key={card.ticket_id} {...queue.itemProps(card)}>
+              {queue.movable.includes(card.ticket_id) && (
+                <QueueHandle
+                  title={card.title}
+                  mobile={mobile}
+                  index={queue.movable.indexOf(card.ticket_id)}
+                  count={queue.movable.length}
+                  onMove={(to) => queue.move(card.ticket_id, to)}
+                />
+              )}
               <Card
                 card={card}
                 column={col}
@@ -466,6 +527,220 @@ const Column = memo(function Column({
     </section>
   );
 });
+
+/** What a column needs to reorder its cards (06 §Queue order); inert without an `api`. */
+interface QueueOrder {
+  enabled: boolean;
+  /** The column's cards, in the order just chosen until the board catches up. */
+  cards: BoardCard[];
+  /** The ids of the cards that may move (still waiting for a machine), in order. */
+  movable: readonly string[];
+  /** Some card has a hand-set place: the column offers Reset. */
+  ranked: boolean;
+  /** Where a dragged card would land, as an index into `movable`; null when not dragging. */
+  dropAt: number | null;
+  error: string | null;
+  move: (id: string, to: number) => void;
+  reset: () => void;
+  listProps: {
+    onDragOver?: (e: DragEvent<HTMLUListElement>) => void;
+    onDragLeave?: (e: DragEvent<HTMLUListElement>) => void;
+    onDrop?: (e: DragEvent<HTMLUListElement>) => void;
+  };
+  itemProps: (card: BoardCard) => Record<string, unknown>;
+}
+
+/** The MIME type a dragged queue card carries (its ticket id). */
+const QUEUE_DRAG_TYPE = 'text/x-conductor-ticket';
+
+/** `cards` with the movable ones put in `order` (the others keep their slots). */
+export function withQueueOrder(cards: readonly BoardCard[], order: readonly string[]): BoardCard[] {
+  const byId = new Map(cards.map((c) => [c.ticket_id, c]));
+  const next = order.map((id) => byId.get(id)).filter((c) => c !== undefined);
+  let i = 0;
+  return cards.map((c) => (isReorderable(c) ? (next[i++] ?? c) : c));
+}
+
+const sameOrder = (a: readonly string[], b: readonly string[]) =>
+  a.length === b.length && a.every((id, i) => id === b[i]);
+
+function useQueueOrder(api: ApiClient | undefined, columnCards: BoardCard[]): QueueOrder {
+  const [pending, setPending] = useState<readonly string[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [dropAt, setDropAt] = useState<number | null>(null);
+  const actual = columnCards.filter(isReorderable).map((c) => c.ticket_id);
+  // The chosen order stands until the board shows it (its card.upserted events arrived) or the
+  // set of waiting cards changes under it (a claim, a new ticket): then the board is right.
+  if (
+    pending !== null &&
+    (sameOrder(pending, actual) ||
+      pending.length !== actual.length ||
+      !pending.every((id) => actual.includes(id)))
+  ) {
+    setPending(null);
+  }
+  const cards = pending === null ? columnCards : withQueueOrder(columnCards, pending);
+  const movable = api ? cards.filter(isReorderable).map((c) => c.ticket_id) : [];
+  const ranked = columnCards.some((c) => (c.queue_position ?? null) !== null);
+
+  const send = (next: readonly string[]) => {
+    if (!api) return;
+    setPending(next);
+    setError(null);
+    api.reorderQueue(next).catch((err: unknown) => {
+      setPending(null);
+      setError(`Couldn’t reorder the queue: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  };
+  const move = (id: string, to: number) => {
+    const next = moveInOrder(movable, id, to);
+    if (next !== movable) send(next);
+  };
+  const reset = () => {
+    if (!api) return;
+    setError(null);
+    api.resetQueueOrder().catch((err: unknown) => {
+      setError(`Couldn’t reset the queue: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  };
+  const endDrag = () => {
+    setDragging(null);
+    setDropAt(null);
+  };
+
+  if (!api) {
+    return {
+      enabled: false,
+      cards,
+      movable,
+      ranked,
+      dropAt: null,
+      error: null,
+      move,
+      reset,
+      listProps: {},
+      itemProps: () => ({}),
+    };
+  }
+  return {
+    enabled: true,
+    cards,
+    movable,
+    ranked,
+    dropAt,
+    error,
+    move,
+    reset,
+    listProps: {
+      onDragOver: (e) => {
+        if (dragging === null) return;
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+        // The first movable card whose middle is below the pointer; past the last: the end.
+        const items = [...e.currentTarget.querySelectorAll<HTMLElement>('li[data-queue-index]')];
+        const over = items.find((li) => {
+          const r = li.getBoundingClientRect();
+          return e.clientY < r.top + r.height / 2;
+        });
+        setDropAt(over ? Number(over.dataset.queueIndex) : movable.length);
+      },
+      onDragLeave: (e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropAt(null);
+      },
+      onDrop: (e) => {
+        if (dragging === null) return;
+        e.preventDefault();
+        const from = movable.indexOf(dragging);
+        const at = dropAt ?? movable.length;
+        endDrag();
+        // Dropped above itself or just below: nowhere new. Below it, the gap it leaves shifts by one.
+        if (from >= 0) move(dragging, at > from ? at - 1 : at);
+      },
+    },
+    itemProps: (card) => {
+      const index = movable.indexOf(card.ticket_id);
+      if (index < 0) return {};
+      return {
+        draggable: true,
+        'data-queue-index': index,
+        className: [
+          'queue-movable',
+          dragging === card.ticket_id ? 'dragging' : '',
+          dropAt === index ? 'drop-before' : '',
+        ]
+          .filter(Boolean)
+          .join(' '),
+        onDragStart: (e: DragEvent<HTMLLIElement>) => {
+          // A drag needs some data in Firefox; the id is enough.
+          e.dataTransfer?.setData(QUEUE_DRAG_TYPE, card.ticket_id);
+          if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+          setDragging(card.ticket_id);
+        },
+        onDragEnd: endDrag,
+      };
+    },
+  };
+}
+
+/**
+ * A queue card's handle: drag the card by it on a desktop, or move it with the arrow keys; on a
+ * phone (no drag and drop on touch), Move up / Move down buttons.
+ */
+function QueueHandle({
+  title,
+  mobile,
+  index,
+  count,
+  onMove,
+}: {
+  title: string;
+  mobile: boolean;
+  index: number;
+  count: number;
+  onMove: (to: number) => void;
+}) {
+  if (mobile) {
+    return (
+      <div className="queue-handle queue-move" role="group" aria-label={`Queue place: ${title}`}>
+        <button
+          type="button"
+          aria-label={`Move up: ${title}`}
+          disabled={index === 0}
+          onClick={() => onMove(index - 1)}
+        >
+          ↑
+        </button>
+        <button
+          type="button"
+          aria-label={`Move down: ${title}`}
+          disabled={index === count - 1}
+          onClick={() => onMove(index + 1)}
+        >
+          ↓
+        </button>
+      </div>
+    );
+  }
+  const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
+    const step = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
+    if (step === 0) return;
+    e.preventDefault();
+    onMove(index + step);
+  };
+  return (
+    <button
+      type="button"
+      className="queue-handle card-drag"
+      aria-label={`Reorder: ${title}`}
+      aria-keyshortcuts="ArrowUp ArrowDown"
+      title="Drag to change when it is picked up, or use the arrow keys"
+      onKeyDown={onKeyDown}
+    >
+      ⋮⋮
+    </button>
+  );
+}
 
 interface CardProps {
   card: BoardCard;
@@ -546,9 +821,14 @@ function Card({
         </span>
         {card.external_ref && <span className="ref">{card.external_ref}</span>}
         {card.schedule && (
-          <span className="ref card-schedule" title={`Recurring: ${card.schedule.name}`}>
+          // UXR-83 FR-5: the chip opens its schedule.
+          <a
+            className="ref card-schedule"
+            href={routeHash({ view: 'schedules', scheduleId: card.schedule.id })}
+            title={`Recurring: ${card.schedule.name}. Open its schedule`}
+          >
             ↻ {card.schedule.name}
-          </span>
+          </a>
         )}
         {conductor ? (
           <span className="status status-conductor">{checkingSummary(card)}</span>
@@ -561,7 +841,9 @@ function Card({
             {meta.srStatusLabel && <span className="visually-hidden">{meta.srStatusLabel}</span>}
           </>
         )}
-        {card.priority !== 0 && <span className="prio">P{card.priority}</span>}
+        {card.priority !== DEFAULT_TICKET_PRIORITY && (
+          <span className="prio">P{card.priority}</span>
+        )}
         {card.spend_usd > 0 && <span>{usd(card.spend_usd)}</span>}
         <span className="age">{ago(card.updated_at)}</span>
       </div>
@@ -574,9 +856,7 @@ function Card({
       {card.badges.includes('waiting_for_build_slot') && !waitingForBuildSlot(card) && (
         <span className="badge badge-slot">waiting for build slot</span>
       )}
-      {card.column === 'queued' && card.routing && (
-        <RoutingBadge needs={routingNeeds(card.routing)} rule={routingRule(card.routing)} />
-      )}
+      {card.column === 'queued' && card.routing && <RoutingBadge routing={card.routing} />}
       {card.column === 'needs_input' && (card.proposals_pending ?? 0) > 0 && (
         <span
           className="badge badge-proposals"
@@ -717,29 +997,18 @@ function PlanApprovalActions({
   );
 }
 
-/** M2 (ADR-0013 §Routing): what no online machine has, e.g. "needs a machine with org/app and az". */
-function RoutingBadge({ needs, rule }: { needs: string[]; rule: string | null }) {
-  // ADR-0013 amendment 2026-10-30: a repo rule first, then what the allowed machines lack.
-  if (needs.length === 0) {
-    const text = rule ?? 'no online machine can take it';
-    return (
-      <span className="badge badge-routing" title={text}>
-        {text}
-      </span>
-    );
-  }
-  // UXR-31: one line with an ellipsis, so the hover text has all of it.
-  const full = `${rule !== null ? `${rule}; ` : ''}needs a machine with ${needs.join(', ')}`;
+/**
+ * M2 (ADR-0013 §Routing), UXR-34: one line on the card; the hover text says why (the panel says it
+ * in full, with a link to Machines).
+ */
+function RoutingBadge({ routing }: { routing: BoardCardRouting }) {
+  const why = routingSentence(routing);
   return (
-    <span className="badge badge-routing" title={full}>
-      {rule !== null && `${rule}; `}
-      needs a machine with{' '}
-      {needs.map((n, i) => (
-        <span key={n}>
-          {i > 0 && (i === needs.length - 1 ? ' and ' : ', ')}
-          <code>{n}</code>
-        </span>
-      ))}
+    <span
+      className="badge badge-routing"
+      title={why === '' ? 'No online machine can take it' : why}
+    >
+      No machine can take this
     </span>
   );
 }

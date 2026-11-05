@@ -1,11 +1,12 @@
 // The Details tab's building blocks (UX-7 moved them here from DetailPanel, unchanged): the
-// agent card, workflow, spend & time, and the approve/cancel actions.
-import type { MachineDto, SessionDetail } from '@conductor/shared';
+// agent card, workflow, spend & time, and the approve/cancel actions; UXR-84 the session insight.
+import type { MachineDto, SessionDetail, SessionInsightResponse } from '@conductor/shared';
 import { useEffect, useState } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { AgentAvatar, cardAgent } from './agent-identity.js';
 import { duration, TERMINAL_STATUSES, usd } from './format.js';
 import { PendingChecklist } from './transitions.js';
+import { useCopy } from './use-copy.js';
 import { SessionWorkflowDiagram } from '../workflow/SessionWorkflowDiagram.js';
 import { displayState } from '../workflow/review.js';
 
@@ -17,26 +18,17 @@ export function isOldVersion(detail: SessionDetail): boolean {
   return detail.card.human_transitions.length === 0;
 }
 
+/** UXR-55: a Copy button; "Copied" is the shared toast. */
 export function CopyButton({ text, label }: { text: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const t = setTimeout(() => setCopied(false), 1500);
-    return () => clearTimeout(t);
-  }, [copied]);
+  const copy = useCopy();
   return (
     <button
       type="button"
       className="copy"
       aria-label={`Copy ${label}`}
-      onClick={() => {
-        void navigator.clipboard?.writeText(text).then(
-          () => setCopied(true),
-          () => undefined,
-        );
-      }}
+      onClick={() => void copy(text)}
     >
-      {copied ? 'Copied' : 'Copy'}
+      Copy
     </button>
   );
 }
@@ -307,6 +299,87 @@ export function BudgetSection({ detail }: { detail: SessionDetail }) {
         max={detail.budget.minutes}
         text={`${duration(detail.wall_seconds)} / ${detail.budget.minutes}m`}
       />
+    </section>
+  );
+}
+
+const INSIGHT_OUTCOME: Record<SessionInsightResponse['outcome'], string> = {
+  completed: 'Completed',
+  abandoned: 'Abandoned',
+  blocked: 'Blocked',
+  unclear: 'Unclear',
+};
+const FRICTION_LABEL: Record<string, string> = {
+  unclear_requirements: 'Unclear requirements',
+  flaky_check: 'Flaky check',
+  failing_check: 'Failing check',
+  missing_permission: 'Missing permission',
+  tool_error: 'Tool error',
+  environment: 'Environment',
+  rework: 'Rework',
+  waiting_on_human: 'Waiting on a human',
+  other: 'Other',
+};
+
+/**
+ * UXR-84 (ADR-0033 P2): a finished session's analyst insight: what happened, and the frictions the
+ * analyst saw. Nothing when there is none (404) or it can't be read. Model-written, shown as plain
+ * text and labelled so.
+ */
+export function SessionInsightSection({
+  api,
+  sessionId,
+  finished,
+}: {
+  api: ApiClient;
+  sessionId: string;
+  finished: boolean;
+}) {
+  const [insight, setInsight] = useState<{ id: string; value: SessionInsightResponse } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!finished) return;
+    let cancelled = false;
+    api.getSessionInsight(sessionId).then(
+      (value) => {
+        if (!cancelled) setInsight({ id: sessionId, value });
+      },
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [api, sessionId, finished]);
+  const i = finished && insight?.id === sessionId ? insight.value : null;
+  if (i === null) return null;
+  return (
+    <section aria-label="Session insight" className="session-insight">
+      <h3>Session insight</h3>
+      <p>
+        <strong>{INSIGHT_OUTCOME[i.outcome]}.</strong> {i.summary}
+      </p>
+      {i.frictions.length > 0 && (
+        <ul className="si-frictions">
+          {i.frictions.map((f, n) => (
+            <li key={n}>
+              <span className="si-where">
+                {FRICTION_LABEL[f.category] ?? f.category}
+                {f.state ? ` in ${f.state}` : ''}
+                {f.severity >= 3 ? ' · blocked the work' : f.severity === 2 ? ' · cost time' : ''}
+              </span>
+              <span>{f.evidence}</span>
+              <span className="muted">Suggestion: {f.suggestion}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="muted si-by">
+        {i.wasted_minutes !== null && i.wasted_minutes > 0
+          ? `About ${i.wasted_minutes} min lost, by its estimate. `
+          : ''}
+        Written by the analyst model ({i.model}).
+      </p>
     </section>
   );
 }

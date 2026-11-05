@@ -1,7 +1,7 @@
 import { useEffect, useState, type RefObject } from 'react';
 
-/** 11-web-ui §Breakpoint: the phone layout below 700 px; the desktop layout above it is unchanged. */
-export const MOBILE_QUERY = '(max-width: 699.98px)';
+/** 11-web-ui §Breakpoint: the phone layout below 900 px (tablets in portrait included, UXR-59); desktop from 900 px. */
+export const MOBILE_QUERY = '(max-width: 899.98px)';
 
 function matches(query: string): boolean {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
@@ -28,11 +28,11 @@ export function useIsMobile(): boolean {
 }
 
 /**
- * UXR-37 (11-web-ui §Desktop detail layout): the board and the panel side by side, above the
- * stacked tablet layout (700–900 px). The 520 px panel, the focus toggle and the request-first
+ * UXR-37 (11-web-ui §Desktop detail layout): the desktop layout, the board and the panel side by
+ * side (`MOBILE_QUERY`'s complement). The 520 px panel, the focus toggle and the request-first
  * panel order apply only here.
  */
-export const WIDE_QUERY = '(min-width: 900.02px)';
+export const WIDE_QUERY = '(min-width: 900px)';
 
 export function useIsWide(): boolean {
   return useMediaQuery(WIDE_QUERY);

@@ -1,24 +1,32 @@
 import {
+  ScheduleDtoSchema,
+  ScheduleListResponseSchema,
   BoardResponseSchema,
   BoardSseEventSchema,
   checksGatesOf,
+  compareQueued,
+  isReorderable,
   CONDUCTOR_WORKFLOW_ID,
   EnrollmentTokenCreatedSchema,
   MachineDetailSchema,
   MachineListResponseSchema,
   RepoChecksDetailSchema,
+  RepoCheckRunsResponseSchema,
+  RepoChecksHealthResponseSchema,
   RepoChecksDtoSchema,
   RepoChecksListResponseSchema,
   RepoListResponseSchema,
   type CreateTicketRequest,
+  TeamResponseSchema,
   SessionDetailSchema,
+  TicketSearchResponseSchema,
   validateWorkflow,
   WorkflowDetailSchema,
   type BoardSseEvent,
 } from '@conductor/shared';
 import { describe, expect, it } from 'vitest';
 import { ApiRequestError } from './client.js';
-import { SEED_IDS } from './mock-data.js';
+import { SCHEDULE_IDS, SEED_IDS } from './mock-data.js';
 import { createMockApi } from './mock.js';
 import { detailVersions } from '../workflow/review.js';
 import { planAnswerOption } from '../components/request-preview.js';
@@ -131,6 +139,34 @@ describe('mock ApiClient', () => {
   });
 });
 
+describe('mock queue order (06 §Queue order)', () => {
+  it('reorders the waiting Queued cards, upserts them, and resets to priority order', async () => {
+    const api = createMockApi({ now });
+    const queued = async () =>
+      BoardResponseSchema.parse(await api.getBoard())
+        .columns.find((c) => c.id === 'queued')!
+        .cards.filter(isReorderable)
+        // The mock's board is unsorted (the client sorts), so sort as the server would.
+        .sort(compareQueued)
+        .map((c) => c.ticket_id);
+    const before = await queued();
+    expect(before.length).toBeGreaterThan(1);
+    const last = before[before.length - 1]!;
+    const { events } = collect(api);
+    const res = await api.reorderQueue([last]);
+    await tick();
+    expect(res.ticket_ids[0]).toBe(last);
+    expect((await queued())[0]).toBe(last);
+    expect(events.length).toBeGreaterThan(0);
+    for (const e of events) expect(BoardSseEventSchema.parse(e).type).toBe('card.upserted');
+    await api.resetQueueOrder();
+    expect(await queued()).toEqual(before);
+    await expect(api.reorderQueue(['00000000-0000-4000-8000-000000000999'])).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+});
+
 describe('mock workflows (ADR-0009)', () => {
   it('serves the one conductor workflow (ADR-0010), valid, with history', async () => {
     const api = createMockApi({ now });
@@ -163,6 +199,32 @@ describe('mock workflows (ADR-0009)', () => {
     }
     // Saving v2 as is stores v4.
     expect(await api.saveWorkflow(v2)).toEqual({ id: 'conductor', version: 4 });
+  });
+
+  it('UXR-87: offers a newer default, compares it and adopts it', async () => {
+    const plain = createMockApi({ now });
+    expect((await plain.getWorkflow(CONDUCTOR_WORKFLOW_ID)).default_available).toBeNull();
+    await expect(plain.getWorkflowDefault(CONDUCTOR_WORKFLOW_ID)).rejects.toMatchObject({
+      status: 404,
+    });
+
+    const latest = (await plain.getWorkflow(CONDUCTOR_WORKFLOW_ID)).definition;
+    const def = { ...structuredClone(latest), version: 4, budget: { ...latest.budget, usd: 7 } };
+    const api = createMockApi({ now, defaultWorkflow: def });
+    expect((await api.getWorkflow(CONDUCTOR_WORKFLOW_ID)).default_available).toBe(4);
+    const cmp = await api.getWorkflowDefault(CONDUCTOR_WORKFLOW_ID);
+    expect(cmp).toMatchObject({ version: 4, base_version: 3 });
+    expect(cmp.diff.changes.map((c) => c.path)).toContain('budget.usd');
+    await expect(api.adoptDefaultWorkflow(CONDUCTOR_WORKFLOW_ID, 2)).rejects.toMatchObject({
+      status: 409,
+      code: 'conflict',
+    });
+    expect(await api.adoptDefaultWorkflow(CONDUCTOR_WORKFLOW_ID, 3)).toEqual({
+      id: 'conductor',
+      version: 4,
+    });
+    const after = await api.getWorkflow(CONDUCTOR_WORKFLOW_ID);
+    expect([after.version, after.default_available]).toEqual([4, null]);
   });
 
   it('createTicket defaults workflow_id to conductor', async () => {
@@ -301,7 +363,7 @@ describe('mock repos', () => {
       body: '',
       repo: 'github.com/o/fresh',
       workflow_id: CONDUCTOR_WORKFLOW_ID,
-      priority: 0,
+      priority: 3,
       kind: 'work',
       required_tags: [],
       repo_allow_machines: null,
@@ -310,6 +372,34 @@ describe('mock repos', () => {
     for (let i = 0; i < 20; i++) await api.createTicket(req);
     const after = await api.listRepos();
     expect(after[0]).toMatchObject({ repo: 'github.com/o/fresh', ticket_count: 20 });
+  });
+});
+
+describe('mock team (UX-13b FR-3)', () => {
+  it('serves a contract-valid team, oldest hire first, active tickets from the live board', async () => {
+    const api = createMockApi({ now });
+    const team = TeamResponseSchema.parse(await api.listTeam());
+    const hired = team.map((m) => m.hired_at);
+    expect(hired).toEqual([...hired].sort());
+    const byName = new Map(team.map((m) => [m.name, m]));
+    expect(byName.get('Amara')?.active_ticket_id).toBe(SEED_IDS.askNewer.ticket);
+    expect(byName.get('Kenji')?.active_ticket_id).toBe(SEED_IDS.runningSlot.ticket);
+    expect(byName.get('Elif')).toMatchObject({ active_ticket_id: null });
+    expect(byName.get('Elif')?.last_assigned_at).not.toBeNull();
+    expect(byName.get('Tunde')).toMatchObject({ active_ticket_id: null, last_assigned_at: null });
+    // The board agrees: the same names are on the seed cards.
+    const board = await api.getBoard();
+    const card = board.columns
+      .flatMap((col) => col.cards)
+      .find((c) => c.ticket_id === SEED_IDS.askNewer.ticket);
+    expect(card?.agent_name).toBe('Amara');
+  });
+
+  it('frees a teammate when their ticket ends', async () => {
+    const api = createMockApi({ now });
+    await api.cancel(SEED_IDS.runningSlot.session);
+    const team = await api.listTeam();
+    expect(team.find((m) => m.name === 'Kenji')?.active_ticket_id).toBeNull();
   });
 });
 
@@ -359,6 +449,25 @@ describe('mock machines (M2-T11)', () => {
 });
 
 describe('mock repo checks (ADR-0030)', () => {
+  it('serves run history and health in the API shapes (UXR-80)', async () => {
+    const api = createMockApi({ now });
+    const shop = RepoCheckRunsResponseSchema.parse(
+      await api.getRepoCheckRuns('github.com/Acme/Shop'),
+    );
+    expect(shop.checks.map((c) => c.name)).toEqual(['Build', 'Tests']);
+    expect(shop.checks[1]!.runs[0]!.status).toBe('timed_out');
+    const plain = RepoCheckRunsResponseSchema.parse(
+      await api.getRepoCheckRuns('github.com/acme/api', 2),
+    );
+    const build = plain.checks.find((c) => c.cmd === 'npm run build')!;
+    expect([build.runs.length, build.failures_in_window, build.runs_in_window]).toEqual([2, 6, 6]);
+    const health = RepoChecksHealthResponseSchema.parse(await api.getRepoChecksHealth());
+    expect(health.repos.find((r) => r.repo === 'github.com/acme/api')).toMatchObject({
+      runs: 6,
+      failures: 6,
+    });
+  });
+
   const checks = [
     { name: 'Build', cmd: 'make' },
     { name: 'Tests', cmd: 'make test', timeout: '10m' },
@@ -432,5 +541,140 @@ describe('mock repo checks (ADR-0030)', () => {
       code: 'not_found',
     });
     expect((await api.listRepoChecks()).repos).toEqual([]);
+  });
+});
+
+describe('mock searchTickets (UXR-85)', () => {
+  it('finds tickets of any status, newest first, by status group, paged', async () => {
+    const api = createMockApi({ now });
+    const parse = (r: unknown) => TicketSearchResponseSchema.parse(r);
+
+    const all = parse(await api.searchTickets());
+    expect(all.total).toBeGreaterThan(5);
+    const times = all.tickets.map((t) => t.updated_at);
+    expect([...times].sort().reverse()).toEqual(times);
+
+    const closed = parse(await api.searchTickets({ status: ['done', 'cancelled'] }));
+    expect(closed.tickets.map((t) => [t.title, t.status])).toEqual([
+      ['Rename user.fullname', 'done'],
+      ['Try a GraphQL gateway', 'cancelled'],
+    ]);
+
+    const byBody = parse(await api.searchTickets({ q: 'graphql GATEWAY in front' }));
+    expect(byBody.tickets.map((t) => t.id)).toEqual([SEED_IDS.cancelled.ticket]);
+    expect(byBody.tickets[0]!.snippet).toContain('GraphQL gateway in front');
+    const byId = parse(await api.searchTickets({ q: SEED_IDS.done.ticket.slice(0, 8) }));
+    expect(byId.tickets.map((t) => t.id)).toContain(SEED_IDS.done.ticket);
+
+    const first = parse(await api.searchTickets({ limit: 2 }));
+    expect(first.next_cursor).toBe(2);
+    const rest = parse(await api.searchTickets({ limit: 50, cursor: 2 }));
+    expect(rest.next_cursor).toBeNull();
+    expect([...first.tickets, ...rest.tickets].map((t) => t.id)).toEqual(
+      all.total <= 20 ? all.tickets.map((t) => t.id) : expect.any(Array),
+    );
+  });
+});
+
+describe('mock schedules (ADR-0032, UXR-83)', () => {
+  const create = {
+    name: 'Nightly',
+    cron: '0 2 * * *',
+    timezone: 'UTC',
+    title: 'Nightly sweep',
+    repo: 'github.com/o/app',
+    kind: 'work' as const,
+  };
+  const reject = (p: Promise<unknown>) =>
+    p.then(
+      () => {
+        throw new Error('expected a rejection');
+      },
+      (err: unknown) => err as ApiRequestError,
+    );
+
+  it('seeds three, by name; the PR sweep card names its schedule', async () => {
+    const api = createMockApi({ now });
+    const list = ScheduleListResponseSchema.parse(await api.listSchedules());
+    expect(list.schedules.map((s) => s.name)).toEqual([
+      'Monthly report',
+      'PR sweep',
+      'Weekly dependency bump',
+    ]);
+    const sweep = list.schedules.find((s) => s.id === SCHEDULE_IDS.prSweep)!;
+    expect(sweep.next_runs).toHaveLength(3);
+    expect(sweep.last_ticket).toEqual({ id: SEED_IDS.running.ticket, status: 'in_progress' });
+    const board = await api.getBoard();
+    const card = board.columns
+      .flatMap((c) => c.cards)
+      .find((c) => c.ticket_id === SEED_IDS.running.ticket);
+    expect(card?.schedule).toEqual({ id: SCHEDULE_IDS.prSweep, name: 'PR sweep' });
+  });
+
+  it('create checks the rule, the timezone, the machines and the name', async () => {
+    const api = createMockApi({ now });
+    const dto = ScheduleDtoSchema.parse(await api.saveSchedule(null, create));
+    expect(dto).toMatchObject({ name: 'Nightly', enabled: true, machine_ids: null });
+    expect(dto.next_run_at).toBe('2026-10-23T02:00:00.000Z');
+
+    const often = await reject(
+      api.saveSchedule(null, { ...create, name: 'x', cron: '*/5 * * * *' }),
+    );
+    expect([often.status, often.code, often.details[0]?.path]).toEqual([
+      400,
+      'bad_request',
+      'cron',
+    ]);
+    const tz = await reject(
+      api.saveSchedule(null, { ...create, name: 'y', timezone: 'Mars/Base' }),
+    );
+    expect(tz.details[0]?.path).toBe('timezone');
+    const m = await reject(api.saveSchedule(null, { ...create, name: 'z', machines: ['nope'] }));
+    expect(m.details[0]?.path).toBe('machines');
+    const dup = await reject(api.saveSchedule(null, create));
+    expect([dup.status, dup.code, dup.details[0]?.path]).toEqual([409, 'conflict', 'name']);
+    const pinned = await api.saveSchedule(null, { ...create, name: 'p', machines: ['mbp-ben'] });
+    expect(pinned.machine_ids).toEqual(['mbp-ben']);
+  });
+
+  it('update: a stale guard is 409; pause clears the next run, resume recomputes it', async () => {
+    const api = createMockApi({ now });
+    const dto = await api.saveSchedule(null, create);
+    const paused = await api.saveSchedule(dto.id, {
+      enabled: false,
+      expected_updated_at: dto.updated_at,
+    });
+    expect([paused.enabled, paused.next_run_at, paused.next_runs]).toEqual([false, null, []]);
+    expect(Date.parse(paused.updated_at)).toBeGreaterThan(Date.parse(dto.updated_at));
+    const stale = await reject(
+      api.saveSchedule(dto.id, { enabled: true, expected_updated_at: dto.updated_at }),
+    );
+    expect([stale.status, stale.code]).toEqual([409, 'conflict']);
+    const resumed = await api.saveSchedule(dto.id, { enabled: true });
+    expect(resumed.next_run_at).toBe('2026-10-23T02:00:00.000Z');
+  });
+
+  it('run now: refused while the last run is open, forced, a queued card with the schedule', async () => {
+    const api = createMockApi({ now });
+    const refused = await reject(api.runScheduleNow(SCHEDULE_IDS.prSweep));
+    expect([refused.status, refused.code]).toEqual([409, 'previous_run_open']);
+    const res = await api.runScheduleNow(SCHEDULE_IDS.prSweep, { force: true });
+    expect(res.schedule.last_ticket).toEqual({ id: res.ticket_id, status: 'ready' });
+    const card = (await api.getBoard()).columns
+      .flatMap((c) => c.cards)
+      .find((c) => c.ticket_id === res.ticket_id);
+    expect(card).toMatchObject({
+      title: 'Sweep open PRs 2026-10-22 08:00',
+      schedule: { id: SCHEDULE_IDS.prSweep, name: 'PR sweep' },
+    });
+    // The new run is queued (open), so a second one is refused again.
+    expect((await reject(api.runScheduleNow(SCHEDULE_IDS.prSweep))).code).toBe('previous_run_open');
+  });
+
+  it('delete: gone, then 404', async () => {
+    const api = createMockApi({ now });
+    expect(await api.deleteSchedule(SCHEDULE_IDS.weekly)).toEqual({ ok: true });
+    expect((await reject(api.deleteSchedule(SCHEDULE_IDS.weekly))).status).toBe(404);
+    expect((await api.listSchedules()).schedules).toHaveLength(2);
   });
 });

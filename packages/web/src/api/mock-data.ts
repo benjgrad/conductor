@@ -14,11 +14,16 @@ import {
   type BoardCard,
   type ChangeProposalDetail,
   type BoardChecking,
+  type CheckRunRow,
   type InputRequestDto,
   type MachineDetail,
   type MoveDto,
   type OutputChunk,
   type RepoChecksDto,
+  type ScheduleDto,
+  nextRuns,
+  SCHEDULE_PREVIEW_RUNS,
+  ROUTINE_WORKFLOW_ID,
   type SessionDetail,
   type SessionInputRequest,
   type SessionStatus,
@@ -372,6 +377,11 @@ export const SEED_IDS = {
     ticket: 'a1000000-0000-4000-8000-000000000008',
     session: 'b2000000-0000-4000-8000-000000000008',
   },
+  /** UXR-85: a cancelled ticket (Done, badged), for search and the Archive. */
+  cancelled: {
+    ticket: 'a1000000-0000-4000-8000-00000000000f',
+    session: 'b2000000-0000-4000-8000-00000000000f',
+  },
   /** ADR-0011: held in Implementing by `ready_for_testing`'s conditions (the checklist). */
   pending: {
     ticket: BOARD_CARD_PENDING_FIXTURE.ticket_id,
@@ -437,6 +447,10 @@ interface SeedSpec {
   ticketBody?: string;
   /** SessionDetail.moves as [minutes ago, from, to, transition]; absent → none (UXR-88). */
   moves?: [number, string | null, string, string | null][];
+  /** UX-13a: the stored teammate (`card.agent_name`); absent → a ticket from before UX-13a. */
+  agent?: string;
+  /** UXR-85: the ticket was cancelled (Done, badged `cancelled`). */
+  cancelled?: boolean;
 }
 
 function seed(now: Date, s: SeedSpec): MockSeed {
@@ -452,12 +466,13 @@ function seed(now: Date, s: SeedSpec): MockSeed {
     workflow_state: s.state,
     status: s.status,
     column: 'queued', // fixed up by the mock (placeCard)
-    badges: s.slot ? ['waiting_for_build_slot'] : [],
+    badges: s.cancelled ? ['cancelled'] : s.slot ? ['waiting_for_build_slot'] : [],
     machine_id: s.status === 'waiting_external' ? null : 'mbp-ben',
     spend_usd: s.spend,
     input_request: input,
     created_at: ago(now, s.ageMin),
     updated_at: ago(now, s.activeMinAgo),
+    ...(s.agent !== undefined ? { agent_name: s.agent } : {}),
   };
   const output = (s.output ?? [OUTPUT_CHUNK_FIXTURE.text]).map((text, seq): OutputChunk => ({
     ...OUTPUT_CHUNK_FIXTURE,
@@ -720,8 +735,14 @@ function planApprovalSeed(now: Date): MockSeed {
   };
 }
 
-/** UX-5: `card.checking` of a `personal_pr_ready_for_review` step at item `current` (0-based). */
-export function mockChecking(current: number): BoardChecking {
+/**
+ * UX-5: `card.checking` of a `personal_pr_ready_for_review` step at item `current` (0-based).
+ * UXR-75: `source` says whose checks they are (the demo card's repo has an override).
+ */
+export function mockChecking(
+  current: number,
+  source: BoardChecking['checks_source'] = 'workflow',
+): BoardChecking {
   const labels = ['Typecheck', 'Lint', 'Unit tests', 'Build passes', 'PR opened'];
   return {
     to: 'needs_input',
@@ -736,6 +757,7 @@ export function mockChecking(current: number): BoardChecking {
       detail: null,
     })),
     current,
+    checks_source: source,
   };
 }
 
@@ -788,7 +810,10 @@ function checkingSeeds(now: Date): MockSeed[] {
       ...s.card,
       kind: 'personal',
       badges: slot ? ['waiting_for_build_slot', 'checking'] : ['checking'],
-      checking: mockChecking(slot ? 0 : 2),
+      // UXR-75: the demo card's repo has the seeded override (mockRepoChecks), so its checks
+      // are the repo's; the build-slot card runs the workflow's.
+      ...(slot ? {} : { repo: 'github.com/acme/shop' }),
+      checking: mockChecking(slot ? 0 : 2, slot ? 'workflow' : 'repo'),
     },
   });
   const spec = {
@@ -827,6 +852,23 @@ function withAlert(now: Date, s: SeedSpec): MockSeed {
   };
 }
 
+/**
+ * UX-13b FR-3: the mock's agent team (GET /api/team), oldest hire first. A teammate's active
+ * ticket is not stored here: the mock finds it on the live board (a seed card with that
+ * `agent_name`), so a mock ticket that finishes frees its teammate. Elif is free after a finished
+ * ticket; Tunde was hired and has not worked a ticket yet.
+ */
+export const MOCK_TEAM: readonly {
+  name: string;
+  hiredDaysAgo: number;
+  lastAssignedMinAgo: number | null;
+}[] = [
+  { name: 'Amara', hiredDaysAgo: 41, lastAssignedMinAgo: 30 },
+  { name: 'Kenji', hiredDaysAgo: 41, lastAssignedMinAgo: 40 },
+  { name: 'Elif', hiredDaysAgo: 12, lastAssignedMinAgo: 190 },
+  { name: 'Tunde', hiredDaysAgo: 2, lastAssignedMinAgo: null },
+];
+
 export function mockSeeds(now: Date): MockSeed[] {
   const id = SEED_IDS;
   return [
@@ -841,7 +883,7 @@ export function mockSeeds(now: Date): MockSeed[] {
         ...BOARD_CARD_FIXTURE,
         ticket_id: id.queuedUrgent.ticket,
         title: 'Hotfix: crash on empty cart',
-        priority: 5,
+        priority: 1,
         external_ref: 'GH-412',
         created_at: ago(now, 1),
         updated_at: ago(now, 1),
@@ -864,6 +906,7 @@ export function mockSeeds(now: Date): MockSeed[] {
       spend: 0.61,
       slot: true,
       output: ['> npm run build\n', 'waiting for a build slot (2/2 in use)…\n'],
+      agent: 'Kenji',
     }),
     withAlert(now, {
       ...id.running,
@@ -880,6 +923,7 @@ export function mockSeeds(now: Date): MockSeed[] {
     seed(now, {
       ...id.askNewer,
       title: 'Add audit log table',
+      agent: 'Amara',
       status: 'needs_input',
       state: 'needs_input',
       workflow: M1_BASIC,
@@ -1005,6 +1049,18 @@ export function mockSeeds(now: Date): MockSeed[] {
       activeMinAgo: 650,
       spend: 1.9,
     }),
+    seed(now, {
+      ...id.cancelled,
+      title: 'Try a GraphQL gateway',
+      status: 'failed',
+      state: 'implement',
+      workflow: M1_BASIC,
+      ageMin: 3000,
+      activeMinAgo: 2900,
+      spend: 0.4,
+      cancelled: true,
+      ticketBody: 'Spike: put a GraphQL gateway in front of the REST API.',
+    }),
   ];
 }
 
@@ -1025,6 +1081,44 @@ export function mockRepoChecks(now: Date): RepoChecksDto[] {
       updated_by: 'ben@example.com',
     },
   ];
+}
+
+/**
+ * UXR-80: past check runs for the Repo checks page's history: acme/shop flaky (its override's
+ * commands), acme/api failing 6 of 6 on the workflow's `npm run build` (the advisor's proposal),
+ * benjgrad/conductor all passing.
+ */
+export function mockCheckRuns(now: Date): CheckRunRow[] {
+  const rows: CheckRunRow[] = [];
+  const add = (repo: string, cmd: string, hoursAgo: number, exit: number | null, extra = {}) => {
+    const at = now.getTime() - hoursAgo * 3_600_000;
+    const i = rows.length + 1;
+    rows.push({
+      session_id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+      ticket_id: `00000000-0000-4000-9000-${String(i).padStart(12, '0')}`,
+      repo,
+      machine_id: null,
+      state: 'implementing',
+      cmd,
+      exit_code: exit,
+      timed_out: false,
+      setup_failed: false,
+      started_at: new Date(at - (90 + i * 7) * 1000).toISOString(),
+      at: new Date(at).toISOString(),
+      ...extra,
+    });
+  };
+  [70, 50, 30, 20, 8, 2].forEach((h, i) => {
+    add('github.com/acme/shop', 'pnpm build', h, 0);
+    add('github.com/acme/shop', 'pnpm test', h - 0.5, i === 2 || i === 5 ? 1 : 0);
+  });
+  add('github.com/acme/shop', 'pnpm test', 1, null, { timed_out: true });
+  [200, 150, 90, 60, 26, 5].forEach((h) => add('github.com/acme/api', 'npm run build', h, 1));
+  [40, 12, 3].forEach((h) => {
+    add('github.com/benjgrad/conductor', 'npm run build', h, 0);
+    add('github.com/benjgrad/conductor', 'npm test', h - 0.2, 0);
+  });
+  return rows;
 }
 
 /**
@@ -1322,6 +1416,96 @@ export function mockMachines(now: Date): MachineDetail[] {
       alerts: [],
       live_sessions: [],
       cannot_take: [],
+    },
+  ];
+}
+
+/** ADR-0032: fixed schedule ids, so tests and screenshots can address them. */
+export const SCHEDULE_IDS = {
+  prSweep: 'e5000000-0000-4000-8000-000000000001',
+  weekly: 'e5000000-0000-4000-8000-000000000002',
+  monthly: 'e5000000-0000-4000-8000-000000000003',
+} as const;
+
+/**
+ * ADR-0032: three recurring jobs for the Schedules page. "PR sweep" runs on weekdays and its last
+ * run (the running seed) is still open, so its last due run was skipped and Run now is refused;
+ * the weekly one is paused and pinned to a machine; the monthly one never ran and no machine has
+ * its repo.
+ */
+export function mockSchedules(now: Date): ScheduleDto[] {
+  const day = 86_400_000;
+  const at = (ms: number) => new Date(now.getTime() + ms).toISOString();
+  const runs = (cron: string, tz: string) =>
+    nextRuns(cron, tz, now, SCHEDULE_PREVIEW_RUNS).map((d) => d.toISOString());
+  const base = {
+    workflow_id: ROUTINE_WORKFLOW_ID,
+    priority: 3,
+    created_by: 'ben@example.com',
+    created_at: at(-30 * day),
+    updated_at: at(-2 * day),
+    last_skipped_at: null,
+    last_skip_reason: null,
+  } as const;
+  const sweep = runs('0 9 * * 1-5', 'America/Toronto');
+  const monthly = runs('0 10 1 * *', 'Europe/London');
+  return [
+    {
+      ...base,
+      id: SCHEDULE_IDS.prSweep,
+      name: 'PR sweep',
+      cron: '0 9 * * 1-5',
+      timezone: 'America/Toronto',
+      enabled: true,
+      title: 'Sweep open PRs',
+      body: 'Go through the open PRs on the repo. Rebase the stale ones and list what needs review.',
+      repo: 'github.com/benjgrad/conductor',
+      kind: 'work',
+      required_tags: [],
+      machine_ids: null,
+      next_run_at: sweep[0] ?? null,
+      next_runs: sweep,
+      last_run_at: at(-day),
+      last_ticket: { id: SEED_IDS.running.ticket, status: 'in_progress' },
+      last_skipped_at: at(-60 * 60_000),
+      last_skip_reason: 'previous_run_open',
+    },
+    {
+      ...base,
+      id: SCHEDULE_IDS.weekly,
+      name: 'Weekly dependency bump',
+      cron: '30 8 * * 1',
+      timezone: 'UTC',
+      enabled: false,
+      title: 'Bump dependencies',
+      body: 'Update the dependencies one minor version at a time and open a PR.',
+      repo: 'github.com/acme/shop',
+      kind: 'work',
+      required_tags: [],
+      machine_ids: ['mbp-ben'],
+      next_run_at: null,
+      next_runs: [],
+      last_run_at: at(-9 * day),
+      last_ticket: { id: SEED_IDS.done.ticket, status: 'done' },
+    },
+    {
+      ...base,
+      id: SCHEDULE_IDS.monthly,
+      name: 'Monthly report',
+      cron: '0 10 1 * *',
+      timezone: 'Europe/London',
+      enabled: true,
+      title: 'Write the monthly spend report',
+      body: 'Summarise last month: tickets done, time per state and spend.',
+      repo: 'github.com/ben/notes',
+      kind: 'personal',
+      required_tags: [],
+      machine_ids: null,
+      next_run_at: monthly[0] ?? null,
+      next_runs: monthly,
+      last_run_at: null,
+      last_ticket: null,
+      warnings: ['no_machine_has_repo'],
     },
   ];
 }

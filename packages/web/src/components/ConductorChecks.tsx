@@ -3,6 +3,7 @@
 // agent has finished its part, so its avatar shows as idle. Also the failed item of UX-4's
 // "Step failed" request (its name and first error line).
 import type { BoardCard, BoardChecking, BoardCheckingItem } from '@conductor/shared';
+import { routeHash } from '../nav.js';
 import './ConductorChecks.css';
 
 type CardStep = Pick<BoardCard, 'checking' | 'badges'>;
@@ -117,16 +118,41 @@ function nextNote(checking: BoardChecking, agent: string): string {
  * FR-3: the Messages banner while conductor runs a gate step: what it is checking, the items with
  * their statuses in text, and what happens next. Updates with the card (SSE `card.upserted`).
  */
-export function ConductorCheckBanner({ card, agent }: { card: CardStep; agent: string }) {
+export function ConductorCheckBanner({
+  card,
+  agent,
+}: {
+  /** `repo` links the Repo checks badge; without it the badge isn't shown. */
+  card: CardStep & Partial<Pick<BoardCard, 'repo'>>;
+  agent: string;
+}) {
   const checking = card.checking;
   if (checking === null) return null;
   const items = checking.items ?? [];
   const slot = waitingForBuildSlot(card);
+  // UXR-75: the step runs the repo's own checks (ADR-0030), not the workflow's: say so, and link.
+  const repo =
+    checking.checks_source === 'repo' && card.repo && items.some((i) => i.kind === 'check')
+      ? card.repo
+      : null;
   return (
     <section className="conductor-checks" aria-label="Conductor is running checks">
       <div className="conductor-checks-head">
         <strong>Conductor is running checks</strong>
         <span className="muted"> · {checking.label ?? `Checks before ${checking.title}`}</span>
+        {repo !== null && (
+          <>
+            {' '}
+            <a
+              className="badge conductor-checks-source"
+              href={routeHash({ view: 'repo-checks', repo })}
+              title="This repo's own checks replace the workflow's"
+              aria-label={`Repo checks: ${repo} runs its own checks instead of the workflow's`}
+            >
+              Repo checks
+            </a>
+          </>
+        )}
       </div>
       {slot && (
         <p className="conductor-checks-slot">

@@ -17,7 +17,7 @@ import {
   StreamDisconnectedError,
   type EventSourceLike,
 } from './http.js';
-import { SEED_IDS } from './mock-data.js';
+import { mockSchedules, SEED_IDS } from './mock-data.js';
 import { createMockApi } from './mock.js';
 
 // Unit tests with a recorded fetch and a scripted EventSource (no network). The real-HTTP
@@ -122,6 +122,24 @@ describe('createHttpApi workflows (ADR-0009)', () => {
     ]);
   });
 
+  it('UXR-87: GET and POST /api/workflows/:id/default', async () => {
+    const definition = (await createMockApi({ now }).getWorkflow('conductor')).definition;
+    const cmp = { version: 4, base_version: 3, definition, diff: { changes: [], more_changes: 0 } };
+    const { calls, fetch } = recordingFetch(({ method }) =>
+      method === 'GET' ? json(200, cmp) : json(201, { id: 'conductor', version: 4 }),
+    );
+    const api = createHttpApi({ fetch });
+    expect(await api.getWorkflowDefault('conductor')).toEqual(cmp);
+    expect(await api.adoptDefaultWorkflow('conductor', 3)).toEqual({
+      id: 'conductor',
+      version: 4,
+    });
+    expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([
+      ['GET', '/api/workflows/conductor/default', undefined],
+      ['POST', '/api/workflows/conductor/default', { base_version: 3 }],
+    ]);
+  });
+
   it('UXR-70/73: a save note; proposals filtered by kind and target', async () => {
     const detail = await createMockApi({ now }).getWorkflow('m1_basic');
     const { calls, fetch } = recordingFetch(({ method }) =>
@@ -179,7 +197,7 @@ describe('createHttpApi REST', () => {
       required_tags: [],
       repo_allow_machines: null,
       status: 'ready',
-      priority: 0,
+      priority: 3,
       created_at: '2026-10-22T12:00:00.000Z',
     };
     const { calls, fetch } = recordingFetch(({ url, method }) => {
@@ -202,6 +220,8 @@ describe('createHttpApi REST', () => {
     await api.approve(SESSION);
     await api.cancel(SESSION, { reason: 'aborted from UI' });
     await api.cancel(SESSION);
+    await api.cancelTicket(ticket.id, { reason: 'duplicate' });
+    await api.reopenTicket(ticket.id);
     expect(
       await api.createTicket({
         title: 't',
@@ -230,6 +250,8 @@ describe('createHttpApi REST', () => {
       ['POST', `http://orch:7400/api/sessions/${SESSION}/approve`, {}],
       ['POST', `http://orch:7400/api/sessions/${SESSION}/cancel`, { reason: 'aborted from UI' }],
       ['POST', `http://orch:7400/api/sessions/${SESSION}/cancel`, {}],
+      ['POST', `http://orch:7400/api/tickets/${ticket.id}/cancel`, { reason: 'duplicate' }],
+      ['POST', `http://orch:7400/api/tickets/${ticket.id}/reopen`, {}],
       [
         'POST',
         'http://orch:7400/api/tickets',
@@ -237,7 +259,7 @@ describe('createHttpApi REST', () => {
       ],
     ]);
     expect(calls.filter((c) => c.method === 'POST').map((c) => c.contentType)).toEqual(
-      Array(7).fill('application/json'),
+      Array(9).fill('application/json'),
     );
   });
 
@@ -314,6 +336,117 @@ describe('createHttpApi REST', () => {
       ['PUT', API_PATHS.repoChecks, put, 'application/json'],
       ['DELETE', API_PATHS.repoChecks, { repo: 'github.com/o/app' }, 'application/json'],
     ]);
+  });
+
+  it('insights (UXR-84): builds the queries and parses the responses', async () => {
+    const since = '2026-10-01T00:00:00.000Z';
+    const totals = {
+      tickets: 0,
+      sessions: 0,
+      moves: 0,
+      check_runs: 0,
+      questions: 0,
+      permission_prompts: 0,
+    };
+    const metrics = {
+      window_days: 7,
+      since,
+      group_by: 'repo',
+      totals,
+      groups: [],
+      more_groups: 0,
+      transitions: [],
+    };
+    const findings = { window_days: 7, since, findings: [], next_cursor: null, total: 0 };
+    const report = {
+      window_days: 7,
+      since,
+      insights_enabled: false,
+      note: 'off',
+      finished_sessions: 0,
+      analysed_sessions: 0,
+      totals,
+      analysed: 0,
+      outcomes: {},
+      wasted_minutes_reported: 0,
+      frictions: [],
+      more_frictions: 0,
+    };
+    const { calls, fetch } = recordingFetch(({ url }) =>
+      json(200, url.includes('metrics') ? metrics : url.includes('findings') ? findings : report),
+    );
+    const api = createHttpApi({ fetch });
+    expect(
+      await api.getProcessMetrics({ windowDays: 7, groupBy: 'repo', repo: 'github.com/o/a' }),
+    ).toEqual(metrics);
+    expect(await api.listFindings({ windowDays: 7, cursor: 8 })).toEqual(findings);
+    expect(await api.getProcessReport({ windowDays: 7 })).toEqual(report);
+    expect(calls.map((c) => c.url)).toEqual([
+      `${API_PATHS.insightsMetrics}?window_days=7&group_by=repo&repo=github.com%2Fo%2Fa`,
+      `${API_PATHS.insightsFindings}?window_days=7&cursor=8`,
+      `${API_PATHS.insightsReport}?window_days=7`,
+    ]);
+  });
+
+  it('repo check runs and health (UXR-80): GET with the repo and limit in the query', async () => {
+    const runs = { repo: 'github.com/o/app', window_days: 30, checks: [] };
+    const health = { window_days: 30, repos: [] };
+    const { calls, fetch } = recordingFetch(({ url }) =>
+      json(200, url.includes('/health') ? health : runs),
+    );
+    const api = createHttpApi({ fetch });
+    expect(await api.getRepoCheckRuns('github.com/o/app')).toEqual(runs);
+    expect(await api.getRepoCheckRuns('github.com/o/app', 3)).toEqual(runs);
+    expect(await api.getRepoChecksHealth()).toEqual(health);
+    expect(calls.map((c) => [c.method, c.url])).toEqual([
+      ['GET', `${API_PATHS.repoCheckRuns}?repo=github.com%2Fo%2Fapp`],
+      ['GET', `${API_PATHS.repoCheckRuns}?repo=github.com%2Fo%2Fapp&limit=3`],
+      ['GET', API_PATHS.repoChecksHealth],
+    ]);
+  });
+
+  it('schedules (ADR-0032, UXR-83): GET, POST, PATCH, DELETE {}, run {force}', async () => {
+    const [dto] = mockSchedules(now());
+    const ran = { ticket_id: SEED_IDS.running.ticket, schedule: dto };
+    const { calls, fetch } = recordingFetch(({ method, url }) => {
+      if (method === 'GET') return json(200, { schedules: [dto] });
+      if (url.endsWith('/run')) return json(201, ran);
+      if (method === 'DELETE') return json(200, { ok: true });
+      return json(method === 'POST' ? 201 : 200, dto);
+    });
+    const api = createHttpApi({ fetch });
+    const id = dto!.id;
+    expect(await api.listSchedules()).toEqual({ schedules: [dto] });
+    const create = {
+      name: 'PR sweep',
+      cron: '0 9 * * 1-5',
+      title: 'Sweep',
+      repo: 'github.com/o/app',
+      kind: 'work' as const,
+    };
+    expect(await api.saveSchedule(null, create)).toEqual(dto);
+    const patch = { enabled: false, expected_updated_at: dto!.updated_at };
+    expect(await api.saveSchedule(id, patch)).toEqual(dto);
+    expect(await api.deleteSchedule(id)).toEqual({ ok: true });
+    expect(await api.runScheduleNow(id)).toEqual(ran);
+    expect(await api.runScheduleNow(id, { force: true })).toEqual(ran);
+    expect(calls.map((c) => [c.method, c.url, c.body, c.contentType])).toEqual([
+      ['GET', API_PATHS.schedules, undefined, undefined],
+      ['POST', API_PATHS.schedules, create, 'application/json'],
+      ['PATCH', API_PATHS.schedule(id), patch, 'application/json'],
+      ['DELETE', API_PATHS.schedule(id), {}, 'application/json'],
+      ['POST', API_PATHS.scheduleRun(id), { force: false }, 'application/json'],
+      ['POST', API_PATHS.scheduleRun(id), { force: true }, 'application/json'],
+    ]);
+  });
+
+  it('run now refused: 409 previous_run_open is an ApiRequestError with that code', async () => {
+    const { fetch } = recordingFetch(() =>
+      json(409, { error: { code: 'previous_run_open', message: 'the last run is still open' } }),
+    );
+    await expect(
+      createHttpApi({ fetch }).runScheduleNow('e5000000-0000-4000-8000-000000000001'),
+    ).rejects.toMatchObject({ status: 409, code: 'previous_run_open' });
   });
 
   it('throws ApiRequestError with the ApiError code and message', async () => {
@@ -526,8 +659,42 @@ describe('createHttpApi machines (M2-T11)', () => {
     ]);
   });
 
+  it('UX-13b FR-3: listTeam GETs /api/team and checks the contract', async () => {
+    const team = [
+      {
+        name: 'Ada',
+        hired_at: '2026-10-01T09:00:00.000Z',
+        last_assigned_at: null,
+        active_ticket_id: null,
+      },
+    ];
+    const { fetch, calls } = recordingFetch(() => json(200, team));
+    expect(await createHttpApi({ fetch }).listTeam()).toEqual(team);
+    expect(calls.map((c) => [c.method, c.url])).toEqual([['GET', API_PATHS.team]]);
+    const bad = recordingFetch(() => json(200, [{ name: 'Ada' }]));
+    await expect(createHttpApi({ fetch: bad.fetch }).listTeam()).rejects.toThrow(/API contract/);
+  });
+
   it('rejects a machine detail that breaks the contract', async () => {
     const { fetch } = recordingFetch(() => json(200, { ...MACHINE_DETAIL_FIXTURE, repos: null }));
     await expect(createHttpApi({ fetch }).getMachine('x')).rejects.toThrow(/API contract/);
+  });
+});
+
+describe('createHttpApi searchTickets (UXR-85)', () => {
+  it('sends q, status, limit and cursor as the query, parsed by contract', async () => {
+    const page = { tickets: [], next_cursor: null, total: 0 };
+    const { calls, fetch } = recordingFetch(() => json(200, page));
+    const api = createHttpApi({ baseUrl: 'http://orch:7400/', fetch });
+
+    expect(await api.searchTickets()).toEqual(page);
+    await api.searchTickets({ q: ' login ', status: ['done', 'cancelled'], limit: 5, cursor: 10 });
+    await api.searchTickets({ q: '   ' });
+
+    expect(calls.map((c) => c.url)).toEqual([
+      'http://orch:7400/api/tickets',
+      'http://orch:7400/api/tickets?q=login&status=done%2Ccancelled&limit=5&cursor=10',
+      'http://orch:7400/api/tickets',
+    ]);
   });
 });

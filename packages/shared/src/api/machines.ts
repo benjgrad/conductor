@@ -147,7 +147,7 @@ export type MachineCannotTake = z.infer<typeof MachineCannotTakeSchema>;
 /**
  * GET /api/machines/:id → MachineDetail (404 for another account's id). `live_sessions`: what a
  * revoke would hand to a human (the Machines page names them in its confirmation). `cannot_take`:
- * the account's queued tickets this machine can't take (highest priority first, at most
+ * the account's queued tickets this machine can't take (most urgent, lowest P, first, at most
  * MACHINE_CANNOT_TAKE_MAX; absent from older servers ≡ []).
  */
 export const MachineDetailSchema = MachineRowSchema.extend({

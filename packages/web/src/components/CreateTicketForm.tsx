@@ -1,5 +1,6 @@
 import {
   CONDUCTOR_WORKFLOW_ID,
+  DEFAULT_TICKET_PRIORITY,
   TICKET_KINDS,
   type RepoSuggestion,
   type TicketKind,
@@ -8,7 +9,7 @@ import { X } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { errorMessage, type ApiClient } from '../api/client.js';
 import { AttachmentPicker, useAttachmentUploads } from './AttachmentPicker.js';
-import { TICKET_KIND_LABELS } from './format.js';
+import { priorityChoices, priorityLabel, TICKET_KIND_LABELS } from './format.js';
 import { RepoCombobox } from './RepoCombobox.js';
 import type { RichEditorHandle } from './ticket-editor/RichTicketEditor.js';
 import { TicketBodyField } from './ticket-editor/TicketBodyField.js';
@@ -44,7 +45,7 @@ export function CreateTicketForm({ api, onCreated, onClose }: CreateTicketFormPr
   const repoTouched = useRef(false);
   const [repos, setRepos] = useState<RepoSuggestion[]>([]);
   const [reposKey, setReposKey] = useState(0);
-  const [priority, setPriority] = useState('0');
+  const [priority, setPriority] = useState(DEFAULT_TICKET_PRIORITY);
   const [kind, setKind] = useState<TicketKind | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -125,7 +126,7 @@ export function CreateTicketForm({ api, onCreated, onClose }: CreateTicketFormPr
         // ADR-0010: one workflow, so no picker. The server defaults workflow_id to it; sending it
         // explicitly also works with a server (and shared contract) where the field is required.
         workflow_id: CONDUCTOR_WORKFLOW_ID,
-        priority: Number.parseInt(priority, 10) || 0,
+        priority,
         // Always sent: the shared contract makes it required once M1b-T04 merges.
         kind,
         ...(uploads.ids.length > 0 ? { attachment_ids: uploads.ids } : {}),
@@ -169,13 +170,13 @@ export function CreateTicketForm({ api, onCreated, onClose }: CreateTicketFormPr
       />
       <label>
         Priority
-        <input
-          type="number"
-          inputMode="numeric"
-          step={1}
-          value={priority}
-          onChange={(e) => setPriority(e.target.value)}
-        />
+        <select value={priority} onChange={(e) => setPriority(Number(e.target.value))}>
+          {priorityChoices().map((p) => (
+            <option key={p} value={p}>
+              {priorityLabel(p)}
+            </option>
+          ))}
+        </select>
       </label>
       <fieldset className="kind-choice" aria-required="true">
         <legend>Kind</legend>
@@ -219,6 +220,7 @@ export function CreateTicketForm({ api, onCreated, onClose }: CreateTicketFormPr
           <>
             <button
               type="submit"
+              className="primary"
               disabled={busy || !valid}
               {...(!valid ? { 'aria-describedby': hintId } : {})}
             >

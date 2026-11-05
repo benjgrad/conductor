@@ -8,6 +8,7 @@ import { useState, type FormEvent } from 'react';
 import { errorMessage } from '../api/client.js';
 import { ago } from '../components/format.js';
 import { Sheet } from '../components/Sheet.js';
+import { useToast } from '../components/Toast.js';
 import { cannotTakeReasons, machineProblems, shortRepo } from './format.js';
 import { RenameForm } from './RenameForm.js';
 import { UpgradeSection } from './UpgradeNotice.js';
@@ -229,11 +230,10 @@ function RepoRules({
   const [exclusive, setExclusive] = useState(machine.repo_exclusive.join('\n'));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const toast = useToast();
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    setSaved(false);
     const a = parseRules(allow, 'Only take these repos');
     const x = parseRules(exclusive, 'Only this machine takes');
     if ('error' in a) return setError(a.error);
@@ -242,7 +242,7 @@ function RepoRules({
     setSaving(true);
     try {
       await onSave({ repo_allow: a.ok.length === 0 ? null : a.ok, repo_exclusive: x.ok });
-      setSaved(true);
+      toast('Repo rules saved');
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -279,10 +279,9 @@ function RepoRules({
           </p>
         )}
         <div>
-          <button type="submit" disabled={saving}>
+          <button type="submit" className="primary" disabled={saving}>
             Save rules
           </button>
-          {saved && <span className="muted"> Saved.</span>}
         </div>
       </form>
     </section>

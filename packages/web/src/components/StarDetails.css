@@ -10,7 +10,7 @@
 }
 .detail h3.star-head {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .star-toggle,
 .star-static {
@@ -38,7 +38,7 @@
 }
 .star-chevron {
   display: inline-block;
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 .star-toggle[aria-expanded='true'] .star-chevron {
   transform: rotate(90deg);
@@ -65,36 +65,36 @@
   text-transform: none;
 }
 .star-body {
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 .star-body[hidden] {
   display: none;
 }
 .star-body h4 {
-  font-size: 11px;
+  font-size: var(--text-xs);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--muted);
-  margin: 12px 0 6px;
+  margin: var(--space-3) 0 var(--space-1);
 }
 .star-body > section + section {
   border-top: 1px solid var(--border);
-  margin-top: 12px;
-  padding-top: 8px;
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
 }
 .star-facts {
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 .star-task {
   padding: 0;
 }
 .star-timeline {
   list-style: none;
-  margin: 4px 0;
+  margin: var(--space-1) 0;
   padding: 0;
 }
 .star-entry {
-  padding: 4px 0 4px 10px;
+  padding: var(--space-1) 0 var(--space-1) var(--space-3);
   border-left: 2px solid var(--border);
 }
 .star-entry-label {
@@ -102,7 +102,7 @@
 }
 .star-entry-question,
 .star-entry-live {
-  border-left-color: var(--ask);
+  border-left-color: var(--attention);
 }
 .star-entry-review,
 .star-entry-check {
@@ -110,17 +110,17 @@
 }
 .star-entry-more,
 .star-plan {
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
 }
 .star-disclosure {
   padding-left: 0;
 }
 .star-hint {
-  font-size: 12px;
-  margin: 4px 0 0;
+  font-size: var(--text-sm);
+  margin: var(--space-1) 0 0;
 }
 .star-result p {
-  margin: 4px 0;
+  margin: var(--space-1) 0;
 }
 .star-acceptance {
   font-weight: 600;
@@ -129,7 +129,7 @@
 /* UXR-88: one row per state the ticket passed through. */
 .star-steps {
   list-style: none;
-  margin: 4px 0;
+  margin: var(--space-1) 0;
   padding: 0;
 }
 .star-step {
@@ -137,7 +137,7 @@
   flex-wrap: wrap;
   align-items: baseline;
   gap: 4px 8px;
-  padding: 4px 0 4px 10px;
+  padding: var(--space-1) 0 var(--space-1) var(--space-3);
   border-left: 2px solid var(--border);
 }
 .star-step-title {
@@ -148,5 +148,5 @@
 }
 .star-step-note {
   flex-basis: 100%;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }

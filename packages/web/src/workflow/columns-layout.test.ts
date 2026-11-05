@@ -6,7 +6,13 @@ import {
 } from '@conductor/shared';
 import { describe, expect, it } from 'vitest';
 import { CONDUCTOR, CONDUCTOR_V1 } from '../api/mock-data.js';
-import { boxesOverlap, layoutLanes, segIntersectsBox, type LanesLayout } from './columns-layout.js';
+import {
+  boxesOverlap,
+  laneAt,
+  layoutLanes,
+  segIntersectsBox,
+  type LanesLayout,
+} from './columns-layout.js';
 
 // UXR-45: the columns diagram's geometry. Pure layout, no DOM.
 
@@ -170,5 +176,18 @@ describe('layoutLanes', () => {
       ['waiting', '◷'],
       ['end', '■'],
     ]);
+  });
+});
+
+describe('laneAt (UXR-67)', () => {
+  const layout = layoutLanes(CONDUCTOR_V4_DEF);
+  it('finds the lane under a point, edges included, and nothing in a gap', () => {
+    for (const l of layout.lanes) {
+      expect(laneAt(layout, { x: l.x + l.w / 2, y: l.y + l.h / 2 })).toBe(l.lane.id);
+      expect(laneAt(layout, { x: l.x, y: l.y })).toBe(l.lane.id);
+    }
+    const [a, b] = layout.lanes;
+    expect(laneAt(layout, { x: (a!.x + a!.w + b!.x) / 2, y: a!.y + 5 })).toBeNull();
+    expect(laneAt(layout, { x: a!.x + 5, y: a!.y - 1 })).toBeNull();
   });
 });

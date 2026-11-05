@@ -70,6 +70,7 @@ const TICKET_KIND = '1761500000000_ticket-kind.sql';
 const ACCOUNTS = '1761600000000_accounts-and-auth.sql';
 const MACHINE_CREDENTIALS = '1761700000000_machine-credentials.sql';
 const AGENT_TEAM = '1762000000000_agent-team.sql';
+const PRIORITY_P_SCALE = '1763200000000_priority-p-scale.sql';
 
 // ------------------------------------------------------------------ DDL ⇄ db/types.ts
 //
@@ -206,6 +207,7 @@ const ticket: ColumnSpec<TicketRow> = {
   repo_allow_machines: col('_text', NULL),
   status: col('ticket_status', NN),
   priority: col('int4', NN),
+  queue_position: col('int4', NULL),
   kind: col('ticket_kind', NULL),
   session_allow: col('_text', NN),
   agent_id: col('uuid', NULL),
@@ -972,6 +974,68 @@ describe('migrations', () => {
       await db.drop();
     }
   }, 60_000);
+
+  it('priority-p-scale (ADR-0036): rewrites old priorities, defaults to P3, keeps P0–P4', async () => {
+    const db = await createTestDatabase({ migrate: false });
+    const q = (text: string, values?: unknown[]) => db.pool.query(text, values);
+    const priorities = async (table: 'ticket' | 'ticket_schedule') =>
+      (await q(`SELECT title, priority FROM ${table} ORDER BY title`)).rows as {
+        title: string;
+        priority: number;
+      }[];
+    // Old (higher = more urgent) → new (lower = more urgent); nothing becomes P0.
+    const old = { a: -2, b: 0, c: 1, d: 5 };
+    const mapped = [
+      { title: 'a', priority: 4 },
+      { title: 'b', priority: 3 },
+      { title: 'c', priority: 2 },
+      { title: 'd', priority: 1 },
+    ];
+    try {
+      await migrate(db.url, 'up', migrationsBefore(PRIORITY_P_SCALE));
+      await q("INSERT INTO workflow_definition (id, version, definition) VALUES ('wf', 1, '{}')");
+      for (const [title, priority] of Object.entries(old)) {
+        await q(
+          `INSERT INTO ticket (repo, title, workflow_id, kind, priority)
+           VALUES ('r', $1, 'wf', 'work', $2)`,
+          [title, priority],
+        );
+        await q(
+          `INSERT INTO ticket_schedule (account_id, name, cron, title, repo, kind, priority)
+           VALUES ($1, $2, '0 9 * * *', $2, 'r', 'work', $3)`,
+          [LOCAL_ACCOUNT_ID, title, priority],
+        );
+      }
+
+      await migrate(db.url, 'up');
+      expect(await priorities('ticket')).toEqual(mapped);
+      expect(await priorities('ticket_schedule')).toEqual(mapped);
+      const fresh = await q(
+        "INSERT INTO ticket (repo, title, workflow_id, kind) VALUES ('r', 'e', 'wf', 'work') RETURNING priority",
+      );
+      expect(fresh.rows).toEqual([{ priority: 3 }]);
+      for (const p of [-1, 5]) {
+        await expectPgError(
+          q("UPDATE ticket SET priority = $1 WHERE title = 'a'", [p]),
+          '23514',
+          'ticket_priority_range',
+        );
+        await expectPgError(
+          q("UPDATE ticket_schedule SET priority = $1 WHERE title = 'a'", [p]),
+          '23514',
+          'ticket_schedule_priority_range',
+        );
+      }
+
+      // Down maps back (lossy above 2 and below 0), then up again.
+      await migrate(db.url, 'down', FILES.length - migrationsBefore(PRIORITY_P_SCALE));
+      expect((await priorities('ticket')).map((r) => r.priority)).toEqual([-1, 0, 1, 2, 0]);
+      await migrate(db.url, 'up');
+      expect((await priorities('ticket')).map((r) => r.priority)).toEqual([4, 3, 2, 1, 3]);
+    } finally {
+      await db.drop();
+    }
+  }, 60_000);
 });
 
 describe('schema (migrated test database)', () => {
@@ -1012,6 +1076,9 @@ describe('schema (migrated test database)', () => {
     const defs = Object.fromEntries(rows.map((r) => [r.indexname, r.indexdef]));
     expect(defs.ticket_status_priority_idx).toMatch(
       /ON public\.ticket USING btree \(status, priority\)$/,
+    );
+    expect(defs.ticket_ready_queue_idx).toMatch(
+      /ON public\.ticket USING btree \(account_id, queue_position, priority, created_at\) WHERE \(status = 'ready'::ticket_status\)$/,
     );
     expect(defs.session_status_idx).toMatch(/ON public\.session USING btree \(status\)$/);
     expect(defs.session_one_live_per_ticket).toMatch(
@@ -1107,7 +1174,7 @@ describe('schema (migrated test database)', () => {
     const tkt = tk.rows[0]!;
     expect(tkt).toMatchObject({
       status: 'ready',
-      priority: 0,
+      priority: 3, // ADR-0036: the default P3
       body: '',
       required_tags: [],
       repo_allow_machines: ['m-rows'],
@@ -1332,7 +1399,7 @@ describe('schema (migrated test database)', () => {
       enabled: true,
       workflow_id: 'routine',
       body: '',
-      priority: 0,
+      priority: 3,
       required_tags: [],
       machine_ids: null,
       next_run_at: null,

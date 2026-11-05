@@ -10,13 +10,13 @@
 .wf-diagram.compact {
   border: none;
   background: transparent;
-  margin: 8px 0;
+  margin: var(--space-2) 0;
 }
 .wf-scroll {
   overflow: auto;
   max-height: calc(100vh - 170px);
   max-height: calc(100dvh - 170px);
-  padding: 4px;
+  padding: var(--space-1);
 }
 .wf-zoom {
   position: absolute;
@@ -27,8 +27,8 @@
   z-index: 1;
 }
 .wf-zoom button {
-  padding: 1px 8px;
-  font-size: 12px;
+  padding: 1px var(--space-2);
+  font-size: var(--text-sm);
 }
 .wf-svg {
   display: block;
@@ -44,8 +44,8 @@
   stroke-width: 1.3;
 }
 .wf-state.wf-human rect {
-  fill: var(--ask-bg);
-  stroke: var(--ask);
+  fill: var(--attention-bg);
+  stroke: var(--attention);
   stroke-width: 1.6;
   stroke-dasharray: 5 3;
 }
@@ -61,18 +61,18 @@
 }
 .wf-stereo,
 .wf-detail {
-  font-size: 11px;
+  font-size: var(--text-xs);
   fill: var(--muted) !important;
 }
 .wf-stereo {
   font-style: italic;
 }
 .wf-name {
-  font-size: 13px;
+  font-size: var(--text-base);
   font-weight: 600;
 }
 .wf-terminal .wf-name {
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .wf-initial circle,
 .wf-terminal .wf-dot {
@@ -137,11 +137,11 @@
   fill: var(--accent);
 }
 .wf-edge.error .wf-line {
-  stroke: var(--ask);
+  stroke: var(--danger);
   stroke-width: 2.4;
 }
 .wf-edge.error .wf-arrow {
-  fill: var(--ask);
+  fill: var(--danger);
 }
 /* UXR-58: focus is a dashed halo on the hit path, unlike selection's solid line. */
 .wf-edge:focus-visible .wf-hit {
@@ -152,7 +152,7 @@
 
 /* Labels */
 .wf-label text {
-  font-size: 11px;
+  font-size: var(--text-xs);
   fill: var(--text);
 }
 .wf-label .wf-outcome {
@@ -187,7 +187,7 @@
   stroke: var(--ok);
 }
 .wf-badge text {
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   font-weight: 600;
   fill: var(--ok);
 }
@@ -197,8 +197,59 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   align-items: start;
+}
+/* UXR-69 FR-1: the save bar, under everything (the editor panels too), stuck to the bottom. */
+/* A short page still puts the bar on the window's bottom edge. */
+.wf-view:has(> .wf-savebar) {
+  min-height: calc(100vh - var(--topbar-h, 49px));
+  min-height: calc(100dvh - var(--topbar-h, 49px));
+}
+.wf-savebar {
+  grid-column: 1 / -1;
+  align-self: end;
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 0 calc(-1 * var(--space-4)) calc(-1 * var(--space-3));
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: 0 -4px 12px rgb(0 0 0 / 0.06);
+}
+.wf-savebar-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.wf-problems-toggle {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.wf-problems-popover {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 16px;
+  max-width: min(640px, calc(100% - 32px));
+  max-height: 50vh;
+  overflow: auto;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.15);
+}
+.wf-version-warning {
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-radius: 4px;
+  padding: 2px var(--space-2);
+  font-size: var(--text-sm);
+}
+p.wf-version-warning {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--warn);
 }
 .wf-view.with-editor {
   grid-template-columns: minmax(0, 1fr) 380px;
@@ -236,38 +287,64 @@
 }
 .wf-toolbar h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--text-lg);
 }
 .wf-unsaved {
   color: var(--warn);
   background: var(--warn-bg);
   border-radius: 4px;
-  padding: 1px 8px;
-  font-size: 12px;
+  padding: 1px var(--space-2);
+  font-size: var(--text-sm);
 }
 .wf-note {
-  font-size: 12px;
+  font-size: var(--text-sm);
   margin: 0;
+}
+/* UXR-87: a newer shipped default workflow is available (DefaultBanner). */
+.wf-default-banner {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+}
+.wf-default-row,
+.wf-default-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.wf-default-confirm {
+  margin-top: var(--space-2);
+}
+.wf-default-confirm p {
+  margin: 0;
+  flex-basis: 100%;
+}
+.wf-default-compare h3 {
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: var(--text-base);
 }
 .wf-errors {
   margin: 0;
-  padding: 8px 12px 8px 28px;
-  border: 1px solid var(--ask);
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-6);
+  border: 1px solid var(--danger);
   border-radius: 6px;
-  background: var(--ask-bg);
-  color: var(--ask);
-  font-size: 12px;
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: var(--text-sm);
 }
 .wf-errors button {
-  padding: 0 6px;
-  font-size: 11px;
-  margin-left: 6px;
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+  margin-left: var(--space-1);
 }
 .wf-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   margin: 0;
 }
 .wf-legend-kinds {
@@ -279,7 +356,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 0 6px;
+  padding: 0 var(--space-2);
   border: 1.5px solid var(--kind);
   border-radius: 4px;
   background: color-mix(in srgb, var(--kind) 7%, var(--panel));
@@ -292,7 +369,7 @@
 .wf-zoom.wf-zoom-inline {
   position: static;
   justify-content: flex-end;
-  padding: 4px 4px 0;
+  padding: var(--space-1) var(--space-1) 0;
 }
 
 /* Transition editor */
@@ -300,21 +377,22 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--panel);
-  padding: 12px;
+  padding: var(--space-3);
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: calc(100vh - 90px);
-  max-height: calc(100dvh - 90px);
+  /* The save bar's height (SaveBar sets it while a draft exists) stays clear. */
+  max-height: calc(100vh - 90px - var(--wf-savebar-h, 0px));
+  max-height: calc(100dvh - 90px - var(--wf-savebar-h, 0px));
   overflow: auto;
 }
 .wf-editor h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--text-md);
 }
 .wf-editor h4 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 .wf-editor-head {
   display: flex;
@@ -349,8 +427,8 @@
   /* UXR-61: at least 24 px (WCAG 2.5.8). */
   min-width: 24px;
   min-height: 24px;
-  padding: 0 4px;
-  font-size: 12px;
+  padding: 0 var(--space-1);
+  font-size: var(--text-sm);
 }
 .wf-unmet {
   display: grid;
@@ -360,11 +438,11 @@
 }
 .wf-unmet label {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .wf-field-error {
-  color: var(--ask);
-  font-size: 12px;
+  color: var(--danger);
+  font-size: var(--text-sm);
   margin: 0;
 }
 
@@ -373,7 +451,7 @@
   gap: 2px;
 }
 .nav-tabs a {
-  padding: 4px 10px;
+  padding: var(--space-1) var(--space-3);
   border-radius: 6px;
   color: var(--text);
   text-decoration: none;
@@ -394,19 +472,38 @@ main[hidden] {
   display: none;
 }
 
-.wf-confirm {
+/* UXR-69 FR-3: the unsaved-draft guard, a modal dialog over the page. */
+.wf-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-sheet);
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: color-mix(in srgb, black 40%, transparent);
+}
+.wf-modal {
+  width: min(420px, 100%);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.25);
+}
+.wf-modal h2 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-lg);
+}
+.wf-modal p {
+  margin: 0 0 var(--space-3);
+}
+.wf-modal-actions {
   display: flex;
-  align-items: center;
+  justify-content: flex-end;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 8px 16px 0;
-  padding: 8px 12px;
-  border: 1px solid var(--warn);
-  border-radius: 6px;
-  background: var(--warn-bg);
-  color: var(--warn);
 }
-
 /* The transition whose requirements review is running (session Details). */
 .wf-edge.reviewing .wf-line {
   stroke: var(--accent);
@@ -440,7 +537,7 @@ main[hidden] {
   --kind: var(--accent);
 }
 .wf-lane-kind-person {
-  --kind: var(--ask);
+  --kind: var(--attention);
 }
 .wf-lane-kind-waiting {
   --kind: var(--warn);
@@ -461,10 +558,10 @@ main[hidden] {
 }
 .wf-lane text {
   fill: var(--text);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 .wf-lane .wf-lane-title {
-  font-size: 13px;
+  font-size: var(--text-base);
   font-weight: 600;
 }
 .wf-lane .wf-lane-work,
@@ -475,7 +572,7 @@ main[hidden] {
   font-style: italic;
 }
 .wf-lane .wf-lane-req-head {
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -507,7 +604,7 @@ main[hidden] {
   visibility: visible;
 }
 .wf-lane.error .wf-lane-box {
-  stroke: var(--ask);
+  stroke: var(--danger);
   stroke-width: 2.4;
 }
 .wf-lane.current .wf-lane-box {
@@ -531,20 +628,20 @@ main[hidden] {
 }
 .wf-empty h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--text-lg);
 }
 
 /* Column editor */
 .wf-editor h5 {
-  margin: 4px 0 0;
-  font-size: 12px;
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 .wf-field {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 .wf-field input {
@@ -561,14 +658,14 @@ main[hidden] {
 }
 .wf-checks th {
   text-align: left;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 500;
   color: var(--muted);
-  padding: 0 4px 2px 0;
+  padding: 0 var(--space-1) 2px 0;
 }
 .wf-checks td {
   vertical-align: top;
-  padding: 0 4px 4px 0;
+  padding: 0 var(--space-1) var(--space-1) 0;
 }
 .wf-checks .wf-checks-name {
   width: 30%;
@@ -586,7 +683,7 @@ main[hidden] {
 .wf-checks .mono,
 .wf-condition .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .wf-checks .wf-checks-problems td {
   padding-top: 0;
@@ -607,7 +704,7 @@ main[hidden] {
 .wf-condition-text input {
   display: inline-block;
   width: auto;
-  margin: 0 4px;
+  margin: 0 var(--space-1);
 }
 .wf-condition-text input[type='number'] {
   width: 4em;
@@ -620,13 +717,13 @@ main[hidden] {
 }
 .wf-condition-value {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .wf-condition-note {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .wf-link-button {
   background: none;
@@ -636,7 +733,7 @@ main[hidden] {
   color: var(--accent);
   text-decoration: underline;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--text-sm);
   align-self: flex-start;
 }
 .wf-toggle {
@@ -647,22 +744,22 @@ main[hidden] {
 }
 .wf-outcomes {
   margin: 0;
-  padding-left: 18px;
-  font-size: 12px;
+  padding-left: var(--space-4);
+  font-size: var(--text-sm);
 }
 
 .wf-setup {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .wf-setup label {
   color: var(--muted);
 }
 .wf-setup .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 /* Transitions as rows (UXR-64, UXR-65): the arrow panel's list and the column panel's */
@@ -681,21 +778,21 @@ main[hidden] {
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  padding: 6px 10px;
+  padding: var(--space-2) var(--space-3);
   text-align: left;
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 .wf-transition-meta {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .wf-transition-row.error,
 .wf-advanced button.error {
-  border-color: var(--ask);
-  color: var(--ask);
+  border-color: var(--danger);
+  color: var(--danger);
 }
 .wf-transition-row.error .wf-transition-meta {
-  color: var(--ask);
+  color: var(--danger);
 }
 /* The panel head (UXR-66): back, breadcrumb, close */
 .wf-back {
@@ -704,7 +801,7 @@ main[hidden] {
 .wf-crumbs {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .wf-crumbs ol {
   list-style: none;
@@ -716,8 +813,8 @@ main[hidden] {
   gap: 4px;
 }
 .wf-crumb {
-  font-size: 12px;
-  padding: 1px 4px;
+  font-size: var(--text-sm);
+  padding: 1px var(--space-1);
   border-color: transparent;
   background: none;
   color: var(--accent);
@@ -727,7 +824,7 @@ main[hidden] {
   color: var(--muted);
 }
 .wf-advanced > button {
-  font-size: 12px;
+  font-size: var(--text-sm);
   border-color: transparent;
   background: none;
   padding: 2px 0;
@@ -736,7 +833,7 @@ main[hidden] {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 .wf-kinds {
   border: none;
@@ -744,7 +841,7 @@ main[hidden] {
   padding: 0;
   display: flex;
   gap: 12px;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .wf-kinds legend {
   color: var(--muted);
@@ -753,11 +850,11 @@ main[hidden] {
 }
 .wf-editor .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .wf-legacy {
   border-top: 1px solid var(--border);
-  padding-top: 8px;
+  padding-top: var(--space-2);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -765,9 +862,9 @@ main[hidden] {
 
 /* ADR-0033 P3: the workflow advisor's change proposals, under the editor. */
 .cp-panel {
-  margin-top: 24px;
+  margin-top: var(--space-5);
   border-top: 1px solid var(--border);
-  padding-top: 12px;
+  padding-top: var(--space-3);
 }
 .cp-list {
   list-style: none;
@@ -778,7 +875,7 @@ main[hidden] {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--panel);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 .cp-summary {
   display: flex;
@@ -789,69 +886,69 @@ main[hidden] {
   text-align: left;
   background: transparent;
   border: none;
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
 }
 .cp-status {
   margin-left: auto;
-  font-size: 12px;
+  font-size: var(--text-sm);
   border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 0 8px;
+  padding: 0 var(--space-2);
 }
 .cp-conflict .cp-status,
 .cp-failed .cp-status {
-  color: var(--danger, #b42318);
+  color: var(--danger);
 }
 .cp-detail {
-  padding: 0 12px 12px;
+  padding: 0 var(--space-3) var(--space-3);
 }
 .cp-detail h4 {
-  margin: 12px 0 4px;
-  font-size: 13px;
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: var(--text-base);
 }
 .cp-warning {
-  border-left: 3px solid var(--warning, #b54708);
-  padding: 4px 8px;
+  border-left: 3px solid var(--warn);
+  padding: var(--space-1) var(--space-2);
 }
 .cp-diff {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .cp-diff th,
 .cp-diff td {
   text-align: left;
   vertical-align: top;
-  padding: 2px 6px;
+  padding: 2px var(--space-2);
   border-bottom: 1px solid var(--border);
   word-break: break-word;
 }
 .cp-op-add td:first-child {
-  color: var(--ok, #067647);
+  color: var(--ok);
 }
 .cp-op-remove td:first-child {
-  color: var(--danger, #b42318);
+  color: var(--danger);
 }
 .cp-actions {
   display: flex;
   gap: 8px;
   align-items: center;
-  margin-top: 12px;
+  margin-top: var(--space-3);
 }
 
 /* Transition editor: the summary sentence and collapsible sections (UXR-60, UXR-63). */
 .wf-summary {
   margin: 0;
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-3);
   border-radius: 6px;
-  font-size: 13px;
+  font-size: var(--text-base);
   line-height: 1.45;
   background: color-mix(in srgb, var(--accent) 8%, var(--panel));
   border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
 }
 .wf-section {
   border-top: 1px solid var(--border);
-  padding-top: 4px;
+  padding-top: var(--space-1);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -865,12 +962,12 @@ main[hidden] {
   gap: 6px;
   width: 100%;
   min-height: 32px;
-  padding: 4px 0;
+  padding: var(--space-1) 0;
   border: none;
   background: none;
   text-align: left;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-base);
   font-weight: 600;
   color: var(--text);
   cursor: pointer;
@@ -881,7 +978,7 @@ main[hidden] {
 }
 .wf-section-head button.error,
 .wf-section-head button.error .wf-section-status {
-  color: var(--ask);
+  color: var(--danger);
 }
 .wf-chevron {
   width: 1em;
@@ -906,8 +1003,67 @@ main[hidden] {
   }
 }
 
+/* UXR-44 / 11-web-ui §Phone layout: below the phone breakpoint the column, arrow and transition
+   editors open full-screen, like the ticket panel, with a 44 px Back instead of ×. The page
+   stays laid out (and inert) under them, so its scroll position survives. */
+@media (max-width: 899.98px) {
+  .wf-view.with-editor,
+  .wf-view.with-editor.with-transition {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .wf-editor.full-screen {
+    position: fixed;
+    top: var(--vvt, 0);
+    left: 0;
+    right: 0;
+    z-index: var(--z-sheet);
+    width: auto;
+    min-width: 0;
+    height: var(--vvh, 100dvh);
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    padding: calc(var(--space-1) + env(safe-area-inset-top))
+      max(var(--space-3), env(safe-area-inset-right))
+      calc(var(--space-4) + env(safe-area-inset-bottom))
+      max(var(--space-3), env(safe-area-inset-left));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .wf-editor.full-screen .wf-editor-head {
+    align-items: center;
+    justify-content: flex-start;
+  }
+  .wf-editor.full-screen .wf-editor-head h3 {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .wf-editor.full-screen .wf-back {
+    flex: none;
+    display: grid;
+    place-items: center;
+    min-width: var(--tap);
+    min-height: var(--tap);
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text);
+  }
+  .wf-editor.full-screen .wf-crumbs {
+    min-width: 0;
+    overflow-x: auto;
+  }
+  .wf-editor.full-screen :is(input, select, textarea) {
+    max-width: 100%;
+  }
+  .wf-editor.full-screen :is(code, .mono) {
+    overflow-wrap: anywhere;
+  }
+}
+
 /* UXR-73: columns and arrows a compared version or a proposal changes. Purple, unlike selection
-   (accent) and problems (ask); a dashed outline so it reads without colour too. */
+   (accent) and problems (danger); a dashed outline so it reads without colour too. */
 .wf-lane.changed .wf-lane-box {
   stroke: var(--tool);
   stroke-width: 3;
@@ -935,9 +1091,9 @@ main[hidden] {
   border: 1px solid var(--border);
   border-left-width: 4px;
   border-radius: 6px;
-  padding: 6px 10px;
+  padding: var(--space-2) var(--space-3);
   background: var(--panel);
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 .wf-diff-item.wf-diff-added {
   border-left-color: var(--diff-add);
@@ -955,12 +1111,12 @@ main[hidden] {
   gap: 8px;
 }
 .wf-diff-op {
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   border-radius: 999px;
-  padding: 0 8px;
+  padding: 0 var(--space-2);
 }
 .wf-diff-added .wf-diff-op {
   color: var(--diff-add);
@@ -978,11 +1134,11 @@ main[hidden] {
   margin-left: auto;
 }
 .wf-diff-lines {
-  margin: 4px 0 0;
-  padding-left: 18px;
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
 }
 .wf-diff-sentences {
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
   display: grid;
   grid-template-columns: max-content 1fr;
   gap: 2px 8px;
@@ -995,20 +1151,20 @@ main[hidden] {
   margin: 0;
 }
 .wf-diff-section {
-  margin-top: 16px;
+  margin-top: var(--space-4);
   border-top: 1px solid var(--border);
-  padding-top: 12px;
+  padding-top: var(--space-3);
 }
 .wf-history {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 .wf-history th,
 .wf-history td {
   text-align: left;
   vertical-align: top;
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--border);
 }
 .wf-history tr[aria-current='true'] td {
@@ -1024,35 +1180,21 @@ main[hidden] {
   flex-wrap: wrap;
   gap: 8px;
   align-items: end;
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 .wf-old-version {
   border-left: 3px solid var(--accent);
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-2);
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: baseline;
 }
-.wf-review-dialog {
-  max-width: min(760px, 92vw);
-  width: 100%;
+/* A ModalDialog (UXR-51): the top layer and ::backdrop come from dialog.modal; only the size here. */
+dialog.modal.wf-review-dialog {
+  width: min(760px, 92vw);
   max-height: 86vh;
   overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--panel);
-  color: var(--text);
-  padding: 16px 20px;
-}
-.wf-review-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-sheet);
-  background: rgb(0 0 0 / 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 .wf-review-dialog textarea {
   width: 100%;
@@ -1063,11 +1205,11 @@ main[hidden] {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: var(--space-3);
 }
 .wf-review-note {
   display: block;
-  margin: 12px 0 4px;
+  margin: var(--space-3) 0 var(--space-1);
   font-weight: 600;
 }
 /* UXR-70: the version picker's options carry date, author and note; keep it inside the page. */
@@ -1078,4 +1220,91 @@ main[hidden] {
 .wf-toolbar select {
   max-width: min(48ch, 100%);
   text-overflow: ellipsis;
+}
+
+/* UXR-67: the shape controls: "+" between columns, the handle that draws a transition, and its
+   "Goes to…" menu. Both controls are SVG buttons; the global :focus-visible ring marks focus. */
+.wf-add-column,
+.wf-draw-handle {
+  cursor: pointer;
+}
+.wf-add-column circle {
+  fill: var(--panel);
+  stroke: var(--border);
+  stroke-width: 1.5;
+}
+.wf-add-column text {
+  fill: var(--muted);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  pointer-events: none;
+}
+.wf-add-column:hover circle,
+.wf-add-column:focus-visible circle {
+  stroke: var(--accent);
+}
+.wf-add-column:hover text,
+.wf-add-column:focus-visible text {
+  fill: var(--accent);
+}
+.wf-draw-handle {
+  touch-action: none;
+}
+.wf-draw-handle circle {
+  fill: var(--panel);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+.wf-draw-handle path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.4;
+  pointer-events: none;
+}
+.wf-draw-handle:hover circle,
+.wf-draw-handle:focus-visible circle,
+.wf-draw-handle[aria-expanded='true'] circle {
+  fill: var(--accent-bg);
+  stroke-width: 2.4;
+}
+.wf-lanes.drawing {
+  cursor: crosshair;
+}
+.wf-lanes.drawing .wf-lane .wf-lane-box {
+  stroke-dasharray: 4 3;
+}
+.wf-lanes.drawing .wf-lane:hover .wf-lane-box {
+  stroke: var(--accent);
+  stroke-width: 2.4;
+  stroke-dasharray: none;
+}
+.wf-draw-line {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  pointer-events: none;
+}
+.wf-goes-to {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--space-2);
+}
+.wf-place-buttons {
+  display: flex;
+  gap: 8px;
+  margin-bottom: var(--space-2);
+}
+.wf-add-column .wf-kinds,
+.wf-kinds {
+  border: none;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.wf-kind {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
 }

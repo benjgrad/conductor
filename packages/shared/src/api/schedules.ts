@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { IsoDateTimeSchema, TicketStatusSchema, UuidSchema } from '../domain.js';
+import {
+  DEFAULT_TICKET_PRIORITY,
+  IsoDateTimeSchema,
+  TicketPrioritySchema,
+  TicketStatusSchema,
+  UuidSchema,
+} from '../domain.js';
 import { DEFAULT_SCHEDULE_TIMEZONE } from '../schedule/cron.js';
 import { ROUTINE_WORKFLOW_ID } from '../workflow/routine.js';
 import { TicketKindSchema } from '../workflow/schema.js';
@@ -81,7 +87,7 @@ export const CreateScheduleRequestSchema = z.object({
   repo: z.string().trim().min(1).max(200),
   workflow_id: z.string().min(1).max(100).default(ROUTINE_WORKFLOW_ID),
   kind: TicketKindSchema,
-  priority: z.number().int().default(0),
+  priority: TicketPrioritySchema.default(DEFAULT_TICKET_PRIORITY),
   required_tags: z.array(z.string().min(1).max(100)).max(20).default([]),
   machines: machinesField.default(null),
 });
@@ -99,7 +105,7 @@ export const UpdateScheduleRequestSchema = z.object({
   repo: z.string().trim().min(1).max(200).optional(),
   workflow_id: z.string().min(1).max(100).optional(),
   kind: TicketKindSchema.optional(),
-  priority: z.number().int().optional(),
+  priority: TicketPrioritySchema.optional(),
   required_tags: z.array(z.string().min(1).max(100)).max(20).optional(),
   machines: machinesField.optional(),
 });

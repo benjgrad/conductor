@@ -1,15 +1,15 @@
 /* ADR-0023: the session panel's "Needs permission" box. Its colours are the request frame's
    (`.request-permission`, styles.css); `.badge-permission` is Board.css's, shared with the card. */
 .permission-request {
-  margin: 6px 0 8px;
-  padding: 8px 10px;
+  margin: var(--space-1) 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
   border: 1px solid color-mix(in srgb, var(--perm) 40%, transparent);
   border-radius: 6px;
   background: var(--panel);
 }
 .permission-tool {
-  font-size: 12px;
-  margin-bottom: 4px;
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-1);
 }
 .permission-code {
   margin: 0;
@@ -19,15 +19,15 @@
 .permission-code.clamped {
   max-height: 16em;
   overflow: hidden;
-  mask-image: linear-gradient(to bottom, #000 80%, transparent);
+  mask-image: linear-gradient(to bottom, black 80%, transparent);
 }
 .permission-description {
-  margin: 4px 0 0;
-  font-size: 12px;
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
 }
 .permission-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 6px 0 0;
+  margin: var(--space-1) 0 0;
 }

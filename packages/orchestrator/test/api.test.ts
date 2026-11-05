@@ -269,6 +269,40 @@ describe('workflows', () => {
     ]);
     expect(err.details[0]!.message).toContain('must be a human state');
   });
+
+  it('refuses to drop a state unfinished tickets are in (UXR-67 rule 18)', async () => {
+    const v1 = { ...structuredClone(m1Basic), id: 'removal_wf' };
+    expect((await post('/api/workflows', { definition: v1 })).status).toBe(201);
+    const ticket = await createTicket('in the test column');
+    const s = await db.pool.query<{ id: string }>(
+      'INSERT INTO session (ticket_id, workflow_id, workflow_version, workflow_state, status, ' +
+        "branch) VALUES ($1, 'removal_wf', 1, 'test', 'running', 'conductor/r') RETURNING id",
+      [ticket.id],
+    );
+    const v2 = structuredClone(v1) as typeof v1 & {
+      states: { build: { on: Record<string, unknown> } };
+    };
+    delete v2.states.test;
+    v2.states.build.on.exit_0 = 'done';
+
+    const refused = await post('/api/workflows', { definition: v2 });
+    expect(refused.status).toBe(400);
+    const err = refused.body.error as {
+      code: string;
+      details: { path: string; message: string }[];
+    };
+    expect(err.code).toBe('invalid_workflow');
+    expect(err.details).toEqual([
+      {
+        path: 'states.test',
+        message: 'rule 18: 1 ticket is in "test": move or finish it before removing the column',
+      },
+    ]);
+
+    // A finished ticket doesn't hold the column.
+    await db.pool.query("UPDATE session SET status = 'done' WHERE id = $1", [s.rows[0]!.id]);
+    expect((await post('/api/workflows', { definition: v2 })).status).toBe(201);
+  });
 });
 
 // ==================================================================== tickets + board
@@ -310,11 +344,26 @@ describe('tickets and board', () => {
     expect(basic.default_available).toBeNull();
   });
 
+  it('defaults the priority to P3 and refuses one outside P0–P4 (ADR-0036)', async () => {
+    expect((await createTicket('No priority')).priority).toBe(3);
+    for (const priority of [-1, 5]) {
+      const res = await post('/api/tickets', {
+        title: 'Out of range',
+        body: 'b',
+        repo: 'acme/app',
+        workflow_id: 'm1_basic',
+        kind: 'work',
+        priority,
+      });
+      expect(res.status).toBe(400);
+    }
+  });
+
   it('creates a ticket with a card.upserted board event in the same transaction', async () => {
     const before = boardBus.published.length;
-    const ticket = await createTicket('Add login', { priority: 3, required_tags: ['mac'] });
+    const ticket = await createTicket('Add login', { priority: 1, required_tags: ['mac'] });
     expect(ticket.status).toBe('ready');
-    expect(ticket.priority).toBe(3);
+    expect(ticket.priority).toBe(1);
     expect(ticket.required_tags).toEqual(['mac']);
 
     const rows = await db.pool.query<{ id: string; type: string; session_id: string | null }>(
@@ -440,8 +489,9 @@ describe('tickets and board', () => {
   });
 
   it('GET /api/board groups cards by column with last_event_id', async () => {
-    const low = await createTicket('low', { priority: 0 });
-    const high = await createTicket('high', { priority: 5 });
+    // ADR-0036: the lower P is the more urgent and sorts first.
+    const low = await createTicket('low', { priority: 4 });
+    const high = await createTicket('high', { priority: 1 });
     const running = await seedSession('running');
     const waiting = await seedSession('needs_input', { input: true });
     const failed = await seedSession('lost');

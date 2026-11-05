@@ -26,4 +26,5 @@ columns at 200 px need about 1250 px, and the board gets about 876 px at 1440 be
 That is why focus mode exists; the list there shows every open ticket.
 
 Phone (375, 360) and tablet (768) `detail` shots are unchanged: their metrics match the base
-exactly, so they are not copied here.
+exactly, so they are not copied here. (Since then UXR-59 made everything below 900 px the phone
+layout, so 768 is now a phone layout; this ticket's layout applies from 900 px.)

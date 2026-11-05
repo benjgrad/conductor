@@ -1,17 +1,17 @@
 /* M2-T11: the Machines page (same look as the admin page). */
 
 .machines {
-  padding: 16px;
+  padding: var(--space-4);
   max-width: 1100px;
 }
 .machines-head {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 .machines h2 {
-  font-size: 18px;
+  font-size: var(--text-lg);
   margin: 0;
 }
 .machines-table {
@@ -24,7 +24,7 @@
 .machines-table td {
   text-align: left;
   vertical-align: middle;
-  padding: 6px 10px;
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
 }
 .machines-table th {
@@ -41,19 +41,19 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-left: 6px;
-  padding: 1px 8px;
+  margin-left: var(--space-1);
+  padding: 1px var(--space-2);
   border: 1px solid transparent;
   border-radius: var(--radius-pill);
-  background: var(--ask-bg);
-  color: var(--ask);
+  background: var(--danger-bg);
+  color: var(--danger);
   font-size: var(--text-sm);
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
 }
 .chip-problem:hover:not(:disabled) {
-  border-color: var(--ask);
+  border-color: var(--danger);
 }
 .machine-revoked {
   color: var(--muted);
@@ -73,7 +73,7 @@
 }
 .machines .badge,
 .machine-drawer .badge {
-  margin-left: 6px;
+  margin-left: var(--space-1);
 }
 .badge-update {
   background: var(--warn-bg);
@@ -82,36 +82,36 @@
 }
 .machines .badge-alert,
 .machine-drawer .badge-alert {
-  background: var(--ask-bg);
-  color: var(--ask);
+  background: var(--danger-bg);
+  color: var(--danger);
   font-weight: 600;
 }
 .machine-warning {
-  margin: 4px 0 0;
-  color: var(--ask);
-  font-size: 13px;
+  margin: var(--space-1) 0 0;
+  color: var(--danger);
+  font-size: var(--text-base);
 }
 .machine-rename {
   display: inline-flex;
   gap: 6px;
 }
 .machine-panel {
-  margin: 0 0 12px;
-  padding: 12px 14px;
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3) var(--space-4);
   border: 1px solid var(--warn);
   border-radius: 8px;
   background: var(--warn-bg);
 }
 .machine-panel h3 {
-  margin: 0 0 6px;
+  margin: 0 0 var(--space-1);
 }
 .machine-panel ul {
-  margin: 4px 0 8px;
+  margin: var(--space-1) 0 var(--space-2);
 }
 .machine-command {
   display: flex;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 .machine-command input {
   flex: 1;
@@ -120,7 +120,7 @@
 .machine-drawer-actions {
   display: flex;
   gap: 6px;
-  margin: 8px 0;
+  margin: var(--space-2) 0;
 }
 .machine-problems {
   margin: 0;
@@ -132,10 +132,10 @@
 }
 .machine-drawer h3 {
   font-size: var(--text-md);
-  margin: 16px 0 6px;
+  margin: var(--space-4) 0 var(--space-1);
 }
 .machine-drawer h4 {
-  margin: 8px 0 2px;
+  margin: var(--space-2) 0 2px;
   color: var(--muted);
 }
 .machine-drawer .machine-sub {
@@ -149,16 +149,51 @@
 .machine-alerts,
 .machine-caps ul {
   margin: 0;
-  padding-left: 18px;
+  padding-left: var(--space-4);
 }
 
 .machine-rules label {
   display: block;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 .machine-rules textarea {
   display: block;
   width: 100%;
   box-sizing: border-box;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* UX-13b FR-3: the agent team, below the machines table. */
+.team {
+  margin-top: var(--space-5);
+}
+.machines .team h2 {
+  margin-bottom: var(--space-2);
+}
+.team-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+}
+.team-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.team-row:last-child {
+  border-bottom: none;
+}
+.team-name {
+  font-weight: 600;
+  min-width: 6em;
+}
+.team-status {
+  flex: 1 1 12em;
 }

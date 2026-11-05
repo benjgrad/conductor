@@ -9,6 +9,7 @@
 // `card.checking`, the step-failed question, or the run order (checks stop at the first failure).
 import type { BoardChecking, WorkflowDefinition } from '@conductor/shared';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCopy } from './use-copy.js';
 
 export interface RunSegment {
   stream: 'stdout' | 'stderr';
@@ -210,19 +211,17 @@ function CheckRunBody({ id, segments }: { id: string; segments: readonly RunSegm
     () => segments.map((s) => ({ stream: s.stream, text: stripAnsi(s.text) })),
     [segments],
   );
-  const [copy, setCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const [failed, setFailed] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
+  const copyText = useCopy();
 
+  // UXR-55: success is the shared "Copied" toast; a failure stays on the button for a moment.
   async function onCopy() {
     clearTimeout(timer.current);
-    try {
-      await navigator.clipboard.writeText(parts.map((p) => p.text).join(''));
-      setCopy('copied');
-    } catch {
-      setCopy('failed');
-    }
-    timer.current = setTimeout(() => setCopy('idle'), COPIED_MS);
+    const ok = await copyText(parts.map((p) => p.text).join(''));
+    setFailed(!ok);
+    if (!ok) timer.current = setTimeout(() => setFailed(false), COPIED_MS);
   }
 
   return (
@@ -233,7 +232,7 @@ function CheckRunBody({ id, segments }: { id: string; segments: readonly RunSegm
         aria-label="Copy check output"
         onClick={() => void onCopy()}
       >
-        {copy === 'copied' ? 'Copied' : copy === 'failed' ? 'Copy failed' : 'Copy'}
+        {failed ? 'Copy failed' : 'Copy'}
       </button>
       <pre className="check-run-output" role="log">
         {parts.map((p, i) => (

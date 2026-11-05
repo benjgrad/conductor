@@ -49,7 +49,7 @@ const ticket = (id: string, kind: 'work' | 'personal' | null, title = 'Add /heal
   title,
   external_ref: null,
   repo: 'github.com/benjgrad/fixture-app',
-  priority: 0,
+  priority: 3,
   workflow_id: 'conductor',
   created_at: new Date('2026-10-22T12:00:00.000Z'),
   updated_at: new Date('2026-10-22T12:00:00.000Z'),
@@ -142,6 +142,7 @@ describe('BoardCard.pending (ADR-0011 checklist)', () => {
         { label: 'PR opened', kind: 'action', status: 'running', detail: null },
       ],
       current: 2,
+      checks_source: 'workflow',
     });
     expect(card.pending).toEqual({
       transition: 'done',
@@ -230,7 +231,7 @@ describe('BoardCard backward compatibility', () => {
       title: 'Add /health',
       external_ref: null,
       repo: 'github.com/benjgrad/fixture-app',
-      priority: 0,
+      priority: 3,
       workflow_id: 'conductor',
       workflow_state: 'implementing',
       status: 'running',

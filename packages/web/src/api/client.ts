@@ -10,10 +10,16 @@ import type {
   ApproveSessionRequest,
   BoardResponse,
   BoardSseEvent,
+  CancelTicketRequest,
   ChangeProposalDetail,
   ChangeProposalListResponse,
   ChangeKind,
   ChangeStatus,
+  AdvisorGroupBy,
+  FindingsResponse,
+  ProcessMetricsResponse,
+  ProcessReportResponse,
+  SessionInsightResponse,
   CreateInviteRequest,
   CreateTicketRequest,
   FreshConversationRequest,
@@ -24,19 +30,28 @@ import type {
   LoginRequest,
   MachineDetail,
   MachineRow,
+  TeamResponse,
   MeResponse,
   OkResponse,
   OutputChunk,
   PermissionDecisionRequest,
   PermissionRequestDto,
+  ReopenTicketRequest,
   PermissionRequestListResponse,
   PasswordChangeRequest,
   ReopenSessionRequest,
   PutRepoChecksRequest,
   RepoChecksDetail,
+  RepoCheckRunsResponse,
+  RepoChecksHealthResponse,
   RepoChecksDto,
   RepoChecksListResponse,
   RepoSuggestion,
+  CreateScheduleRequest,
+  RunScheduleResponse,
+  ScheduleDto,
+  ScheduleListResponse,
+  UpdateScheduleRequest,
   ReopenSessionResponse,
   RenameMachineRequest,
   UpdateMachineRequest,
@@ -47,7 +62,11 @@ import type {
   SignupRequest,
   TicketDetail,
   TicketDto,
+  TicketSearchResponse,
+  TicketSearchStatus,
   UpdateTicketRequest,
+  WorkflowDefaultResponse,
+  QueueOrderResponse,
   WorkflowDefinition,
   WorkflowDetail,
   TranscriptResponse,
@@ -107,6 +126,16 @@ export interface ApiClient {
   answer(sessionId: string, req: AnswerInputRequest): Promise<OkResponse>;
   /** POST /api/tickets → the new ticket; its card arrives on the board stream (card.upserted). */
   createTicket(req: CreateTicketRequest): Promise<TicketDto>;
+  /**
+   * UXR-85: GET /api/tickets: the account's tickets of any status matching `q` (title, external
+   * ref, body, id prefix), most recently updated first; `cursor` is the previous `next_cursor`.
+   */
+  searchTickets(opts?: {
+    q?: string;
+    status?: readonly TicketSearchStatus[];
+    limit?: number;
+    cursor?: number;
+  }): Promise<TicketSearchResponse>;
   /** GET /api/tickets/:id: the ticket in any column, with whether its column allows edits. */
   getTicket(ticketId: string): Promise<TicketDetail>;
   /**
@@ -114,6 +143,23 @@ export interface ApiClient {
    * 409 conflict when the ticket changed since `expected_updated_at`.
    */
   updateTicket(ticketId: string, req: UpdateTicketRequest): Promise<TicketDetail>;
+  /**
+   * PUT /api/queue/order (06 §Queue order): these queued tickets first, in this order; the rest
+   * keep their order after them. 404 when none of them is queued any more.
+   */
+  reorderQueue(ticketIds: readonly string[]): Promise<QueueOrderResponse>;
+  /** DELETE /api/queue/order: the queue back to priority order. */
+  resetQueueOrder(): Promise<QueueOrderResponse>;
+  /**
+   * POST /api/tickets/:id/cancel (UXR-86): cancels the ticket, a queued one with no session too.
+   * 409 conflict when it is already done or cancelled.
+   */
+  cancelTicket(ticketId: string, req?: CancelTicketRequest): Promise<OkResponse>;
+  /**
+   * POST /api/tickets/:id/reopen: a cancelled queued ticket back to Queued, or a finished one's
+   * session reopened (`text` the prompt). 409 conflict when it can't be reopened.
+   */
+  reopenTicket(ticketId: string, req?: ReopenTicketRequest): Promise<OkResponse>;
   /**
    * POST /api/tickets/:id/proposals/approve (06 §Proposed tickets): creates the proposed ticket,
    * once (approving again returns the same one). 409 conflict when it was dismissed.
@@ -144,12 +190,37 @@ export interface ApiClient {
    */
   getRepoChecks(repo: string): Promise<RepoChecksDetail>;
   /**
+   * UXR-80: GET /api/repo-checks/runs?repo=&limit= → each of the repo's checks with its last runs
+   * (default 5), newest first, over 30 days. Matched by command.
+   */
+  getRepoCheckRuns(repo: string, limit?: number): Promise<RepoCheckRunsResponse>;
+  /** UXR-80: GET /api/repo-checks/health → recent check results of every repo with runs. */
+  getRepoChecksHealth(): Promise<RepoChecksHealthResponse>;
+  /**
    * ADR-0030: PUT /api/repo-checks → the stored override (`repo` is the canonical key). 400
    * bad_request with `details` (paths like `checks.0.name`) when validation fails.
    */
   setRepoChecks(req: PutRepoChecksRequest): Promise<RepoChecksDto>;
   /** ADR-0030: DELETE /api/repo-checks `{repo}`. 404 not_found when the repo has no override. */
   clearRepoChecks(repo: string): Promise<OkResponse>;
+  /** ADR-0032: GET /api/schedules → the account's recurring jobs, by name. */
+  listSchedules(): Promise<ScheduleListResponse>;
+  /**
+   * ADR-0032: `id` null → POST /api/schedules (201); else PATCH /api/schedules/:id with only the
+   * given fields. 400 bad_request with `details` (paths `cron`, `timezone`, `repo`, `machines`);
+   * 409 conflict (name taken: path `name`; or changed since `expected_updated_at`).
+   */
+  saveSchedule(
+    id: string | null,
+    req: CreateScheduleRequest | UpdateScheduleRequest,
+  ): Promise<ScheduleDto>;
+  /** ADR-0032: DELETE /api/schedules/:id `{}`; its past tickets stay. 404 not_found. */
+  deleteSchedule(id: string): Promise<OkResponse>;
+  /**
+   * ADR-0032: POST /api/schedules/:id/run `{force}` → 201, a ticket now (next run unchanged). 409
+   * previous_run_open while the last run's ticket is open and not `force`.
+   */
+  runScheduleNow(id: string, opts?: { force?: boolean }): Promise<RunScheduleResponse>;
   /**
    * ADR-0033 P3: GET /api/change-proposals[?status=&cursor=] → the workflow advisor's change
    * proposals, newest first (10 a page).
@@ -173,6 +244,22 @@ export interface ApiClient {
   rejectChangeProposal(id: string): Promise<ChangeProposalDetail>;
   /** ADR-0033 P3: POST /api/change-proposals/:id/review → with `review`. 409 unless applied. */
   reviewChangeProposal(id: string): Promise<ChangeProposalDetail>;
+  /**
+   * UXR-84: GET /api/insights/metrics → time per state, repo, machine or check over the last
+   * `windowDays` (what MCP's get_process_metrics returns).
+   */
+  getProcessMetrics(opts: {
+    windowDays: number;
+    groupBy: AdvisorGroupBy;
+    repo?: string;
+    workflowId?: string;
+  }): Promise<ProcessMetricsResponse>;
+  /** UXR-84: GET /api/insights/findings → ranked findings, a page of 8, each with its proposal. */
+  listFindings(opts: { windowDays: number; cursor?: number }): Promise<FindingsResponse>;
+  /** UXR-84: GET /api/insights/report → the analysts' frictions and their coverage. */
+  getProcessReport(opts: { windowDays: number }): Promise<ProcessReportResponse>;
+  /** UXR-84: GET /api/insights/sessions/:id → the session's analyst insight. 404 when none. */
+  getSessionInsight(sessionId: string): Promise<SessionInsightResponse>;
   /** GET /api/workflows (create-ticket form, Workflows view): the latest version of each. */
   listWorkflows(): Promise<WorkflowSummary[]>;
   /**
@@ -189,6 +276,17 @@ export interface ApiClient {
     definition: WorkflowDefinition,
     opts?: { note?: string },
   ): Promise<SaveWorkflowResponse>;
+  /**
+   * UXR-87: GET /api/workflows/:id/default → the newer shipped default and its diff from the
+   * latest version. 404 not_found when none is newer.
+   */
+  getWorkflowDefault(id: string): Promise<WorkflowDefaultResponse>;
+  /**
+   * UXR-87: POST /api/workflows/:id/default {base_version} → the new version (the default saved
+   * over local edits). 403 forbidden unless an instance admin; 409 conflict when `baseVersion` is
+   * no longer the latest.
+   */
+  adoptDefaultWorkflow(id: string, baseVersion: number): Promise<SaveWorkflowResponse>;
   /** POST /api/sessions/:id/approve → external.event ui.approve. 409 conflict if not awaited. */
   approve(sessionId: string, req?: ApproveSessionRequest): Promise<OkResponse>;
   /** POST /api/sessions/:id/cancel → operator.cancel. 409 conflict if already terminal. */
@@ -203,6 +301,8 @@ export interface ApiClient {
    * hostname and status; M2-T11 the Machines page). MachineRow is a superset of the M1 MachineDto.
    */
   listMachines(): Promise<MachineRow[]>;
+  /** UX-13a/UX-13b FR-3: GET /api/team, the account's agent team, oldest hire first. */
+  listTeam(): Promise<TeamResponse>;
   /**
    * GET /api/sessions/:id/transcript (ADR-0008): history from Claude's transcript on the session's
    * machine. 503 machine_offline, 404 no_transcript, 504 timeout.

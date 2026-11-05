@@ -4,7 +4,7 @@ import {
   conditionLabel,
   type Condition,
 } from '@conductor/shared';
-import { Fragment, useState, type ReactNode } from 'react';
+import { Fragment, useState, type FocusEvent, type ReactNode } from 'react';
 import { ItemActions } from './ChecksFields.js';
 
 // One condition of a transition's `requires` (TransitionEditor), as the sentence it means with its
@@ -21,6 +21,8 @@ export interface ConditionRowProps {
   onRemove: () => void;
   /** The problems at `.<field>` of this condition ('' for the condition itself). */
   issuesAt: (field: string) => ReactNode;
+  /** Focus left somewhere in the row (UXR-71: a new condition is validated once it is left). */
+  onBlur?: (e: FocusEvent<HTMLLIElement>) => void;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => (n === 1 ? one : many);
@@ -33,6 +35,7 @@ export function ConditionRow({
   onMove,
   onRemove,
   issuesAt,
+  onBlur,
 }: ConditionRowProps) {
   const available = AVAILABLE_CONDITION_TYPES.includes(c.type);
   const [renaming, setRenaming] = useState(c.label !== undefined);
@@ -186,7 +189,7 @@ export function ConditionRow({
   const defaultLabel = conditionLabel({ ...c, label: undefined });
 
   return (
-    <li className="wf-item">
+    <li className="wf-item" data-item={i} onBlur={onBlur}>
       <div className="wf-condition" aria-label={row} role="group">
         <p className="wf-condition-text">{sentence}</p>
         {fieldOf[c.type].map((f) => (

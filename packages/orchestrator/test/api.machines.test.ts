@@ -273,7 +273,7 @@ describe('list, detail, rename, revoke', () => {
         hash: 'h',
       },
     );
-    const ticket = async (who: { accountId: string }, repo: string, title: string, priority = 0) =>
+    const ticket = async (who: { accountId: string }, repo: string, title: string, priority = 3) =>
       (
         await db.pool.query<{ id: string }>(
           `INSERT INTO ticket (account_id, repo, title, workflow_id, priority)
@@ -281,8 +281,9 @@ describe('list, detail, rename, revoke', () => {
           [who.accountId, repo, title, priority],
         )
       ).rows[0]!.id;
-    const noRepo = await ticket(a, 'github.com/org/elsewhere', 'elsewhere', 2);
-    const noClaude = await ticket(a, 'github.com/Org/App', 'app', 1);
+    // ADR-0036: the lower P is listed first.
+    const noRepo = await ticket(a, 'github.com/org/elsewhere', 'elsewhere', 1);
+    const noClaude = await ticket(a, 'github.com/Org/App', 'app', 2);
     await ticket(b, 'github.com/org/elsewhere', 'other account', 3);
 
     const detail = async () =>

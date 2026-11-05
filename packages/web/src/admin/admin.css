@@ -1,16 +1,16 @@
 /* M2-T05: the admin page. */
 
 .admin {
-  padding: 16px;
+  padding: var(--space-4);
   max-width: 1000px;
 }
 .admin h2 {
-  font-size: 18px;
-  margin: 0 0 12px;
+  font-size: var(--text-lg);
+  margin: 0 0 var(--space-3);
 }
 .admin h3 {
-  font-size: 15px;
-  margin: 20px 0 8px;
+  font-size: var(--text-md);
+  margin: var(--space-4) 0 var(--space-2);
 }
 .admin-table {
   width: 100%;
@@ -21,14 +21,43 @@
 .admin-table th,
 .admin-table td {
   text-align: left;
-  padding: 6px 10px;
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
 }
 .admin-table th {
   color: var(--muted);
   font-weight: 600;
 }
+/* UXR-53: what is true of a user or invite, as chips instead of Yes/No columns. */
+.chips {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.chip-admin {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.chip-locked {
+  border-color: var(--warn);
+  background: var(--warn-bg);
+}
+.chip-disabled {
+  color: var(--muted);
+}
 .invite-open {
+  border-color: var(--ok);
   color: var(--ok);
 }
 .invite-used,
@@ -41,7 +70,7 @@
   align-items: flex-end;
   flex-wrap: wrap;
   gap: 12px;
-  margin-bottom: 10px;
+  margin-bottom: var(--space-2);
 }
 .new-invite label {
   display: flex;
@@ -51,14 +80,24 @@
 .new-invite label.checkbox {
   flex-direction: row;
   align-items: center;
+  gap: 6px;
+  /* UXR-53: the same box as the inputs beside it (their padding and border), so the bottom-aligned
+     row lines the checkbox up with the inputs' middle. */
+  padding: var(--space-1) 0;
+  border: 1px solid transparent;
+}
+@media (pointer: coarse), (max-width: 699.98px) {
+  .new-invite label.checkbox {
+    min-height: var(--tap);
+  }
 }
 .new-invite input[type='number'] {
   width: 70px;
 }
 .one-time-link,
 .admin-confirm {
-  margin: 0 0 12px;
-  padding: 12px 14px;
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3) var(--space-4);
   border: 1px solid var(--warn);
   border-radius: 8px;
   background: var(--warn-bg);
@@ -70,12 +109,12 @@
   gap: 8px;
 }
 .one-time-link h3 {
-  margin: 0 0 6px;
+  margin: 0 0 var(--space-1);
 }
 .one-time-url {
   display: flex;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 .one-time-url input {
   flex: 1;
@@ -83,6 +122,6 @@
 }
 .admin-note {
   color: var(--muted);
-  font-size: 12px;
-  margin: 6px 0 8px;
+  font-size: var(--text-sm);
+  margin: var(--space-1) 0 var(--space-2);
 }

@@ -12,6 +12,7 @@ import { columnStates, validateColumns } from './columns.js';
 import {
   ACTION_SHORT,
   ACTION_TEXT,
+  addCondition,
   addTransition,
   arrowTransitions,
   checkListIssues,
@@ -96,6 +97,11 @@ describe('transition edits', () => {
     expect(
       transitionNames(removeTransition(definition, 'implementing', name), 'implementing'),
     ).toEqual(transitionNames(V2, 'implementing'));
+  });
+
+  it('add going to a given column (a transition drawn onto it, UXR-67)', () => {
+    const { definition, name } = addTransition(V2, 'planning', columnStates(V2), 'done');
+    expect(getTransitionObject(definition, 'planning', name)?.goto).toBe('done');
   });
 
   it('requires: the first requirement brings a default on_unmet, none left drops it', () => {
@@ -440,6 +446,26 @@ describe('describeTransition (UXR-60)', () => {
     expect(sectionOfPath('.requires.condition_timeout')).toBe('conditions');
     expect(sectionOfPath('.on_unmet.retries')).toBe('unmet');
     expect(sectionOfPath('.requires')).toBeNull();
+  });
+});
+
+describe('addCondition (UXR-71)', () => {
+  it('appends the condition and waits 3d when no timeout is set', () => {
+    expect(addCondition({}, { type: 'pr_checks_green' })).toEqual({
+      conditions: [{ type: 'pr_checks_green' }],
+      condition_timeout: '3d',
+    });
+  });
+  it('keeps an existing timeout', () => {
+    expect(
+      addCondition(
+        { conditions: [{ type: 'pr_merged' }], condition_timeout: '1h' },
+        { type: 'pr_checks_green' },
+      ),
+    ).toEqual({
+      conditions: [{ type: 'pr_merged' }, { type: 'pr_checks_green' }],
+      condition_timeout: '1h',
+    });
   });
 });
 

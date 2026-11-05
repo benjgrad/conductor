@@ -1,4 +1,5 @@
 import {
+  CONDUCTOR_V2_DEF,
   CONDUCTOR_V2_DRAFT_DEF,
   WorkflowDefinitionSchema,
   validateWorkflow,
@@ -8,8 +9,17 @@ import {
 import { describe, expect, it } from 'vitest';
 import { CONDUCTOR, CONDUCTOR_V1, M1_BASIC } from '../api/mock-data.js';
 import {
+  addColumn,
+  addColumnProblem,
   arrowLabel,
   buildLaneGraph,
+  columnRemovalProblems,
+  columnStates,
+  moveColumn,
+  moveColumnBy,
+  removeColumn,
+  slugFromTitle,
+  stateNameProblem,
   laneKind,
   transitionTitle,
   currentLane,
@@ -321,6 +331,10 @@ describe('validateColumns', () => {
     expect(validateColumns(def).map((i) => [i.path, i.message])).toEqual([
       ['columns.2', 'column "implementing" is listed twice'],
       ['columns', 'every state is a column: add "needs_input", "__entry"'],
+      [
+        'states.__entry',
+        'Nothing leads to __entry yet: add a transition into it from another column',
+      ],
       ['states.__entry', '"__entry" is a reserved name'],
       ['states.needs_input.entry', 'a human column cannot have requirements to enter'],
       ['states.waiting_external.entry.checks.1.name', 'check "Build" is listed twice'],
@@ -450,5 +464,170 @@ describe('follow-up proposals per agent column (ADR-0034)', () => {
     const on = setFollowUps(def, 'implementing', {});
     expect(on.states.implementing).toMatchObject({ follow_ups: { enabled: true, max: 3 } });
     expect('follow_ups' in setFollowUps(on, 'implementing', null).states.implementing!).toBe(false);
+  });
+});
+
+describe('structure (UXR-67)', () => {
+  const C = CONDUCTOR_V2_DEF;
+  /** Server problems the base definition doesn't already have (v2 predates rule 17), as "rule N path". */
+  const rules = (def: WorkflowDefinition) => {
+    const r = validateWorkflow(def);
+    return r.ok ? [] : r.errors.map((e) => `rule ${e.rule} ${e.path.join('.')}`);
+  };
+  const serverRules = (def: WorkflowDefinition) => {
+    const before = rules(C);
+    return rules(def).filter((r) => !before.includes(r));
+  };
+  const messages = (def: WorkflowDefinition) => validateColumns(def).map((i) => i.message);
+
+  it('names a new column from its title, and refuses bad or taken names', () => {
+    expect(slugFromTitle(C, 'Needs design')).toBe('needs_design');
+    expect(slugFromTitle(C, '  Ready -> QA! ')).toBe('ready_qa');
+    expect(slugFromTitle(C, 'Implementing')).toBe('implementing_2');
+    expect(slugFromTitle(C, '2nd review')).toBe('column_2nd_review');
+    expect(slugFromTitle(C, '')).toBe('column');
+    expect(stateNameProblem(C, 'needs_design')).toBeNull();
+    expect(stateNameProblem(C, '')).toBe('the name is empty');
+    expect(stateNameProblem(C, 'Needs design')).toMatch(/^use lowercase letters/);
+    expect(stateNameProblem(C, '__entry')).toMatch(/^use lowercase letters/);
+    expect(stateNameProblem(C, 'done')).toBe('there is already a column "done"');
+  });
+
+  it('adds each kind of column where asked; it is valid but for its way in', () => {
+    for (const kind of ['agent', 'person', 'waiting', 'end'] as const) {
+      const { definition, name } = addColumn(C, { title: 'Design', kind, after: 'planning' });
+      expect(name).toBe('design');
+      expect(columnStates(definition)).toEqual([
+        'planning',
+        'design',
+        'implementing',
+        'needs_input',
+        'waiting_external',
+        'done',
+      ]);
+      expect(definition.columns).toEqual(columnStates(definition));
+      expect(definition.states.design!.title).toBe('Design');
+      expect(definition.start).toBe('planning');
+      // Only rule 2 (nothing leads to it) until a transition does, here and on the server.
+      expect(messages(definition)).toEqual([
+        'Nothing leads to Design yet: add a transition into it from another column',
+      ]);
+      expect(serverRules(definition)).toEqual(['rule 2 states.design']);
+      const reached = {
+        ...definition,
+        states: {
+          ...definition.states,
+          planning: {
+            ...definition.states.planning!,
+            on: { ...(C.states.planning as { on: object }).on, design: 'design' },
+          },
+        },
+      } as WorkflowDefinition;
+      expect(messages(reached)).toEqual([]);
+      expect(serverRules(reached)).toEqual([]);
+    }
+  });
+
+  it('a new agent column asks needs_input and gets its work; a waiting one moves on', () => {
+    const agent = addColumn(C, {
+      title: 'Review',
+      kind: 'agent',
+      after: 'implementing',
+      prompt: 'plan_template',
+      model: ' haiku ',
+    }).definition.states.review;
+    expect(agent).toEqual({
+      type: 'agent',
+      title: 'Review',
+      prompt: 'plan_template',
+      model: 'haiku',
+      on: { ask_user: 'needs_input' },
+    });
+    const waiting = addColumn(C, { title: 'QA', kind: 'waiting', after: 'implementing' });
+    expect(waiting.definition.states.qa).toEqual({
+      type: 'event',
+      title: 'QA',
+      wait_for: ['ui.approve'],
+      on: { 'ui.approve': 'needs_input' },
+    });
+    // First column: after Queued.
+    const first = addColumn(C, { title: 'Triage', kind: 'person', after: QUEUED_LANE });
+    expect(columnStates(first.definition)[0]).toBe('triage');
+    expect(first.definition.start).toBe('planning');
+  });
+
+  it('refuses an agent column when no person column can be asked', () => {
+    const noHuman: WorkflowDefinition = {
+      ...C,
+      start: 'a',
+      on_budget_exceeded: 'a',
+      columns: ['a'],
+      states: { a: { type: 'terminal' } },
+    };
+    expect(addColumnProblem(noHuman, 'agent')).toMatch(/needs a Person column/);
+    expect(() => addColumn(noHuman, { title: 'B', kind: 'agent', after: 'a' })).toThrow();
+    expect(addColumnProblem(noHuman, 'person')).toBeNull();
+  });
+
+  it('moves a column left and right, and stops at the ends', () => {
+    expect(columnStates(moveColumnBy(C, 'implementing', -1)).slice(0, 2)).toEqual([
+      'implementing',
+      'planning',
+    ]);
+    expect(columnStates(moveColumnBy(C, 'needs_input', 1))).toEqual([
+      'planning',
+      'implementing',
+      'waiting_external',
+      'needs_input',
+      'done',
+    ]);
+    expect(moveColumnBy(C, 'planning', -1)).toBe(C);
+    expect(moveColumnBy(C, 'done', 1)).toBe(C);
+    expect(columnStates(moveColumn(C, 'done', 0))[0]).toBe('done');
+    expect(columnStates(moveColumn(C, 'planning', 99)).at(-1)).toBe('planning');
+    // Order is not a rule: still valid.
+    expect(messages(moveColumn(C, 'done', 0))).toEqual([]);
+  });
+
+  it('says why a column cannot be removed', () => {
+    expect(columnRemovalProblems(C, 'planning')).toEqual([
+      'It is the first column: claimed tickets start here',
+    ]);
+    expect(columnRemovalProblems(C, 'waiting_external')).toEqual([
+      'Implementing → Ready for testing leads here',
+      'Needs input → Waiting on someone else leads here',
+    ]);
+    expect(columnRemovalProblems(C, 'needs_input')).toContain('Tickets over budget go here');
+    expect(columnRemovalProblems(C, 'needs_input')).toContain(
+      'Agent columns need a Person column to ask',
+    );
+    // A transition from another column leads here (its own on_unmet loops back don't count).
+    expect(columnRemovalProblems(C, 'implementing')).toContain('Planning → Plan ready leads here');
+    const added = addColumn(C, { title: 'Design', kind: 'person', after: 'planning' }).definition;
+    expect(columnRemovalProblems(added, 'design')).toEqual([]);
+    expect(columnRemovalProblems(added, 'design', { design: 2 })).toEqual(['2 tickets are in it']);
+    expect(columnRemovalProblems(added, 'design', { design: 1 })).toEqual(['1 ticket is in it']);
+  });
+
+  it('removes a column and the transitions out of it; refuses one something leads to', () => {
+    const added = addColumn(C, {
+      title: 'Review',
+      kind: 'agent',
+      after: 'implementing',
+    }).definition;
+    const removed = removeColumn(added, 'review');
+    expect(removed.states.review).toBeUndefined();
+    expect(removed.columns).toEqual(C.columns);
+    expect(removed).toEqual(C);
+    expect(() => removeColumn(C, 'waiting_external')).toThrow(/leads here/);
+  });
+
+  it('flags a missing first column and an empty column list', () => {
+    expect(messages({ ...C, columns: [] })).toContain('the workflow needs at least one column');
+    const noStart = { ...C, start: 'gone' };
+    expect(validateColumns(noStart).map((i) => [i.path, i.message])).toContainEqual([
+      'start',
+      'the first column "gone" does not exist',
+    ]);
   });
 });

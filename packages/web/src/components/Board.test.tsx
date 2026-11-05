@@ -741,13 +741,14 @@ describe('collapsible columns (UX-9)', () => {
 
 // ADR-0032: a ticket a schedule created names its schedule on the card.
 describe('board card schedule chip (ADR-0032)', () => {
-  it('shows ↻ and the schedule name, only on scheduled cards', () => {
+  it('shows ↻ and the schedule name, only on scheduled cards; it links to the schedule (UXR-83)', () => {
     renderCards([
       card(1, {}, { schedule: { id: 'd4000000-0000-4000-8000-000000000001', name: 'PR sweep' } }),
       card(2, {}),
     ]);
-    const chip = article('Card 1').getByText('↻ PR sweep');
-    expect(chip.getAttribute('title')).toBe('Recurring: PR sweep');
+    const chip = article('Card 1').getByRole('link', { name: '↻ PR sweep' });
+    expect(chip.getAttribute('href')).toBe('#/schedules/d4000000-0000-4000-8000-000000000001');
+    expect(chip.getAttribute('title')).toBe('Recurring: PR sweep. Open its schedule');
     expect(article('Card 2').queryByText(/↻/)).toBeNull();
   });
 });
@@ -794,5 +795,37 @@ describe('permission prompts count as waiting on you (UXR-32)', () => {
       />,
     );
     expect(within(needsInput()).queryByText(/waiting for permission/)).toBeNull();
+  });
+});
+
+describe('empty columns (UXR-54)', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => localStorage.clear());
+
+  const region = (name: string) => screen.getByRole('region', { name });
+  const empty = (name: string) => region(name).querySelector('.column-empty');
+  const planning = (n: number) =>
+    card(n, {}, { input_request: null, column: 'planning', status: 'running' });
+
+  it('an empty column says what it is for; a column with cards does not', () => {
+    renderCards([planning(1)]);
+    expect(empty('Planning')).toBeNull();
+    expect(empty('Done')?.textContent).toBe('Finished tickets.');
+    expect(empty('Queued')?.textContent).toBe('Tickets waiting for a machine.');
+    expect(empty('Needs input')?.textContent).toBe('Tickets waiting on you.');
+  });
+
+  it('a collapsed empty column is just its strip', () => {
+    renderCards([planning(1)]);
+    fireEvent.click(region('Done').querySelector<HTMLButtonElement>('.column-toggle')!);
+    expect(empty('Done')).toBeNull();
+  });
+
+  it('an empty Needs input with a held permission shows its note, not the line', () => {
+    renderCards([BOARD_CARD_NEEDS_PERMISSION_FIXTURE]);
+    expect(
+      within(region('Needs input')).getByRole('button', { name: /waiting for permission/ }),
+    ).toBeTruthy();
+    expect(empty('Needs input')).toBeNull();
   });
 });

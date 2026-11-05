@@ -45,7 +45,7 @@ SELECT t.id,
        ( CASE WHEN inv.repo IS NOT NULL THEN 100 ELSE 0 END          -- repo locality (biggest weight)
        + CASE WHEN inv.tree_clean THEN 10 ELSE 0 END                 -- clean shared clone
        + CASE WHEN aff.machine_id = $1 THEN 50 ELSE 0 END            -- affinity: prior session of this ticket here
-       + t.priority * 5
+       + (4 - t.priority) * 5                                      -- ADR-0036: P0 most urgent
        - CASE WHEN inv.repo IS NULL THEN 40 ELSE 0 END               -- clone penalty
        ) AS score
 FROM ticket t
@@ -57,7 +57,7 @@ LEFT JOIN LATERAL (
 WHERE t.status = 'ready'
   AND t.required_tags <@ $2                                           -- hard: tags (gpu, os, …)
   AND (t.repo_allow_machines IS NULL OR $1 = ANY(t.repo_allow_machines)) -- hard: allow-list
-ORDER BY score DESC, t.priority DESC, t.created_at
+ORDER BY score DESC, t.priority ASC, t.created_at
 LIMIT 1
 FOR UPDATE OF t SKIP LOCKED;
 ```
@@ -79,7 +79,7 @@ AND NOT EXISTS (SELECT 1 FROM session q
 ```
 It holds across requeues (it reads the earlier session, not the queued one's `machine_id`). If that machine never comes back, the card waits in Queued until a human cancels it (TD: cross-machine reopen would need the branch pushed and the transcript shipped, ADR-0005 revisit).
 
-**Routing filters (M2-T16a, [ADR-0013](../adr/0013-machine-enrollment-inventory-routing.md) §Routing).** The claim as built has no soft score yet (the query above is the target); it orders by `priority DESC, created_at, id` and adds these hard filters to the tag, allow-list and pin filters ([10 §Machines protocol v2](10-contracts.md#machines-protocol-v2) "Matching" is the authority):
+**Routing filters (M2-T16a, [ADR-0013](../adr/0013-machine-enrollment-inventory-routing.md) §Routing).** The claim as built has no soft score yet (the query above is the target); it orders by `priority ASC, created_at, id` (the lower P first, [ADR-0036](../adr/0036-ticket-priority-p-scale.md)) and adds these hard filters to the tag, allow-list and pin filters ([10 §Machines protocol v2](10-contracts.md#machines-protocol-v2) "Matching" is the authority):
 - **Account**: `t.account_id` = the machine's.
 - **Repo**: the machine has a `machine_repo` with `remote IS NOT NULL AND lower(remote) = lower(t.repo)` (github.com org/repo are case-insensitive). A ticket whose `repo` is not canonical (`CANONICAL_REMOTE_RE`, no `.git`; only `local` mode allows it) skips this filter, as in M1.
 - **Capabilities**: every requirement of the ticket's effective workflow version (pinned, else latest) for its `kind` is a stored `machine_capability.key` of the machine; a key with `@<repo>` compares case-insensitively, and a bare `skill:<n>` / `agent:<n>` is also met by `…@<t.repo>`. The requirements come from `requiredCapabilities(def, kind)`, cached in memory per (workflow, version, kind) until M2-T12 stores them on save. One pre-pass per claim reads the distinct (workflow, version, kind) of the account's ready tickets and passes the requirement rows as arrays; a ticket whose combination isn't in that set is not picked. The inner lookups use the `(machine_id, …)` primary keys, so no new index.

@@ -109,7 +109,7 @@ async function ticket(
     `INSERT INTO ticket (repo, title, workflow_id, required_tags, repo_allow_machines, priority,
                          external_ref)
      VALUES ('github.com/x/app', 'Add /health', 'm1_basic', $1, $2, $3, $4) RETURNING *`,
-    [over.tags ?? [tag], over.allow ?? null, over.priority ?? 0, over.externalRef ?? null],
+    [over.tags ?? [tag], over.allow ?? null, over.priority ?? 3, over.externalRef ?? null],
   );
   return r.rows[0]!;
 }
@@ -295,11 +295,11 @@ describe('request_work → claim', () => {
     expect(engine.calls[0]!.opts.tx).toBeDefined();
   });
 
-  it('FIFO by priority then age, with tag and allow-list filters', async () => {
-    const low = await ticket({ priority: 0 });
-    const high = await ticket({ priority: 5 });
-    await ticket({ priority: 9, tags: [tag, 'gpu'] }); // needs a tag this machine lacks
-    await ticket({ priority: 9, allow: ['someone-else'] }); // not on the allow-list
+  it('FIFO by priority (lowest P first, ADR-0036) then age, with tag and allow-list filters', async () => {
+    const low = await ticket({ priority: 4 });
+    const high = await ticket({ priority: 1 });
+    await ticket({ priority: 0, tags: [tag, 'gpu'] }); // needs a tag this machine lacks
+    await ticket({ priority: 0, allow: ['someone-else'] }); // not on the allow-list
     const d = await registered();
     d.requestWork(2);
     expect((await d.next('work_assignment')).payload.ticket_id).toBe(high.id);

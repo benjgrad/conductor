@@ -138,7 +138,7 @@ The migration's down drops these four tables and the new `machine` / `machine_re
 | required_tags | text[] | hard constraints for the claim |
 | repo_allow_machines | text[] null | hard allow-list of machine ids for the claim ([04](04-scheduler.md)); `null` = any machine. Kept, nullable ([U-009](../tracking/UNKNOWNS.md), M1-T12) |
 | status | enum | `ready` · `claimed` · `in_progress` · `done` · `failed` · `cancelled` |
-| priority | int | |
+| priority | int | default 3. 0–4 (`CHECK`), the lower is the more urgent and claimed first; P0 is reserved for work that interrupts other running work ([ADR-0036](../adr/0036-ticket-priority-p-scale.md)). Migration `1763200000000_priority-p-scale` rewrote the old higher-is-urgent values |
 | kind | enum `ticket_kind` null | `work` · `personal` ([ADR-0011](../adr/0011-transition-rules.md)): filters transitions (`kinds`). NULL for tickets created before M1b, matching both kinds ([U-062](../tracking/UNKNOWNS.md)); new tickets must set it (create form until triage, M4). Added by migration `1761500000000_ticket-kind` (M1b-T04; existing rows keep NULL, the down migration drops the column and the type). `POST /api/tickets` returns it in `TicketDto.kind` and every card carries it (`BoardCard.kind`) |
 | session_allow | text[] | default `{}`. M2-T29c ([ADR-0023](../adr/0023-permission-prompts-through-conductor.md) §2): the exact allow rules "Allow always" recorded for this ticket's sessions, each once, until the machine override exists (M2-T28c). Not yet passed to `start_session` (that needs daemon changes); the live process gets the rule through the decision itself |
 | account_id | uuid fk account | M2-T03 (see Tenancy above) |
@@ -414,7 +414,7 @@ The migration's down drops the table.
 | title, body, repo | text | the ticket template; `repo` canonical in `password` mode, as `POST /api/tickets`. Each ticket's title is `<title> · <YYYY-MM-DD HH:mm in timezone>` |
 | workflow_id | text | default `routine` (the shipped workflow of recurring tickets) |
 | kind | `ticket_kind` | NOT NULL |
-| priority | int | default 0 |
+| priority | int | default 3; 0–4, as `ticket.priority` ([ADR-0036](../adr/0036-ticket-priority-p-scale.md)) |
 | required_tags | text[] | default `{}`; copied to each ticket |
 | machine_ids | text[] null | copied to each ticket's `repo_allow_machines` (the claim's hard allow-list); null = any machine. Given as ids or names, stored as ids |
 | next_run_at | timestamptz null | when the sweep fires it next; null while disabled (or a cron that never runs again). Partial index `ticket_schedule_due_idx (next_run_at) WHERE enabled` |

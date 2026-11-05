@@ -1947,7 +1947,8 @@ button.link {
     min-height: var(--tap);
     align-items: center;
   }
-  .sheet .create-ticket input:not([type='radio']) {
+  .sheet .create-ticket input:not([type='radio']),
+  .sheet .create-ticket select {
     min-height: var(--tap);
     padding: var(--space-2) var(--space-3);
   }

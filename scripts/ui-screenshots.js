@@ -126,6 +126,8 @@ const VIEWPORTS = [
         'new-ticket',
         'new-ticket-bottom',
         'machines',
+        'schedules',
+        'schedule-sheet',
         'machine-drawer',
         'admin',
         'workflows',
@@ -353,6 +355,9 @@ const SCREENS = [
   { id: 'admin', path: '/?mock-auth=password#/admin' },
   // ADR-0030: the mock's seeded override, open.
   { id: 'repo-checks', path: '/#/repo-checks/github.com%2Facme%2Fshop' },
+  // UXR-83: the mock's three schedules, and the weekly one's edit sheet.
+  { id: 'schedules', path: '/#/schedules' },
+  { id: 'schedule-sheet', path: '/#/schedules/e5000000-0000-4000-8000-000000000002' },
   // UXR-61: the override's setup and check table, at full height.
   { id: 'rc-override-full', path: '/#/repo-checks/github.com%2Facme%2Fshop', fullPage: true },
   // UXR-61 FR-5: problems in the check table, each under its field and named by its label.

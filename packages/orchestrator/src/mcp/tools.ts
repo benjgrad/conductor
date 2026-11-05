@@ -121,11 +121,9 @@ export const MCP_INSTRUCTIONS =
 
 /** ADR-0030: how a repo check runs, for the tools' descriptions. */
 const REPO_CHECKS_HOW =
-  'Every command runs with `sh -c` at the root of a fresh checkout of the commit being shipped ' +
-  '(Git Bash on Windows machines, so write bash: `cd m-one && npm ci && npm run build`, ' +
-  'forward slashes, quoted Windows paths). `setup` runs once before the checks: omit it to ' +
-  "auto-detect from the root lockfile, '' for none. The checks replace the workflow's on every " +
-  'transition that runs checks, for tickets on this repo only.';
+  'Each command runs with `sh -c` at the root of a fresh checkout of the commit being shipped ' +
+  '(Git Bash on Windows: write bash, forward slashes, quoted Windows paths). `setup` runs once ' +
+  "first. They replace the workflow's checks on every gated transition, for this repo only.";
 
 /** list_findings: findings per page (each ≤ ~700 bytes, well under the 8 KB cap). */
 export const FINDINGS_PAGE = 8;
@@ -769,10 +767,9 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'Read what the agent produced',
       description:
-        'What the agent wrote. what=plan (default): the plan and its summary; results: each ' +
-        'step’s result (`state`: one in full); output: the live tail; transcript: the whole ' +
-        'conversation; proposals: follow-up tickets the agent proposed (decide_proposed_ticket ' +
-        'approves or dismisses one). Long text is paged: pass next_cursor as `cursor`. PR diff: open pr_url.',
+        'What the agent wrote. what: plan (default), results (`state`: one in full), output (the ' +
+        'live tail), transcript, proposals (follow-up tickets, see decide_proposed_ticket). Long ' +
+        'text is paged: pass next_cursor as `cursor`. The diff: open pr_url.',
       inputSchema: {
         ticket: z.string().max(64),
         what: z.enum(['plan', 'results', 'output', 'transcript', 'proposals']).optional(),
@@ -998,9 +995,9 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'Message the agent',
       description:
-        'Send instructions or a correction to the ticket’s working agent (or ask it for a ' +
-        'report in its own words). Refused (question_open) while it waits on its question, ' +
-        'unless as_answer. A finished ticket needs reopen_ticket.',
+        'Send instructions or a correction to the working agent, or ask it for a report. ' +
+        'Refused (question_open) while it waits on a question, unless as_answer. A finished ' +
+        'ticket needs reopen_ticket.',
       inputSchema: {
         ticket: z.string().max(64),
         text: z.string().min(1).max(10_000),
@@ -1056,14 +1053,20 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'Wait for changes',
       description:
-        'Wait until the account’s tickets (or `ticket`) change, then return each changed one as ' +
-        'it is now. Without `since`: the cursor at once. Call again with the returned cursor; ' +
-        'timed_out: no change (timeout_seconds, default 25).',
+        'Wait for the account’s tickets (or `ticket`) to change, then return each as it is now. ' +
+        'Without `since` it returns the cursor at once; pass it back next time. timed_out: no ' +
+        'change.',
       inputSchema: {
         since: z.number().int().min(0).optional().describe('The cursor from the last call'),
         ticket: z.string().max(64).optional(),
         needs_you_only: z.boolean().optional().describe('Only changes that wait on the user'),
-        timeout_seconds: z.number().int().min(0).max(WAIT_MAX_SECONDS).optional(),
+        timeout_seconds: z
+          .number()
+          .int()
+          .min(0)
+          .max(WAIT_MAX_SECONDS)
+          .optional()
+          .describe('Default 25'),
       },
       annotations: readOnly,
     },
@@ -1128,8 +1131,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       title: 'Reopen a ticket',
       description:
         'Send a finished (done, failed or cancelled) ticket back to its agent with new ' +
-        'instructions. The agent resumes the same conversation on the same branch. A ticket ' +
-        'cancelled while still queued goes back to the queue.',
+        'instructions, on the same conversation and branch. One cancelled while queued goes ' +
+        'back to the queue.',
       inputSchema: {
         ticket: z.string().max(64),
         text: z.string().min(1).max(10_000).describe('What the agent should do now'),
@@ -1191,7 +1194,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'Reorder queue',
       description:
-        "Queued tickets' pickup order: these first, then the rest; [] goes back to priority order.",
+        'Set the pickup order of queued tickets: these first (first = next), the rest after in ' +
+        'their order. [] resets to priority order.',
       // Bounds checked below, not in the schema, so the tool list stays inside its budget.
       inputSchema: { tickets: z.array(z.string()).optional() },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
@@ -1266,9 +1270,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'Get a repo’s checks',
       description:
-        'What conductor runs before a ticket on this repo opens or updates its PR: the repo’s own ' +
-        'override (null when it has none) and, per workflow transition that runs checks, the ' +
-        'effective setup and checks.',
+        'What runs before a ticket on this repo opens or updates its PR: the repo’s override ' +
+        '(null if none) and the effective setup and checks per gated transition.',
       inputSchema: { repo: repoArg },
       annotations: readOnly,
     },
@@ -1280,12 +1283,16 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'Set a repo’s checks',
       description:
-        'Replace the pre-PR checks for one repo (e.g. a repo without a root package.json). ' +
+        'Replace one repo’s pre-PR checks (e.g. no root package.json). ' +
         REPO_CHECKS_HOW +
-        ' Tickets pick it up the next time they run their checks.',
+        ' Tickets use them from their next check run.',
       inputSchema: {
         repo: repoArg,
-        setup: z.string().max(2_000).optional().describe("Omit = auto-detect, '' = none"),
+        setup: z
+          .string()
+          .max(2_000)
+          .optional()
+          .describe("Omit = auto-detect from the root lockfile, '' = none"),
         checks: z
           .array(EntryCheckSchema)
           .min(1)
@@ -1340,9 +1347,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'List recurring schedules',
       description:
-        'The account’s recurring jobs: each one’s cron and timezone, whether it is enabled, the ' +
-        'next run times, the last run’s ticket (get_ticket it to see whether it waits on the ' +
-        'user) and why the last due run was skipped, if it was. Bodies are clipped.',
+        'The account’s recurring jobs: cron, timezone, enabled, next runs, the last run’s ticket ' +
+        'and why a due run was skipped. Bodies are clipped.',
       inputSchema: {},
       annotations: readOnly,
     },
@@ -1366,17 +1372,20 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'Create or edit a recurring schedule',
       description:
-        'Create (no `id`; name, cron, title, repo, kind required) or edit (`id`; only the given ' +
-        'fields; `enabled` pauses/resumes) a recurring job. Each run makes a ticket from the ' +
-        'template on the `routine` workflow: an agent does the body’s instructions, then finishes ' +
-        'or asks the user. `cron`: 5 fields in `timezone` (IANA, default UTC), e.g. `0 9 * * 1-5` ' +
-        '= weekdays 09:00; runs ≥ 15 min apart. A run is skipped while the last one is open; ' +
-        'missed runs are not caught up. `machines` (ids or names) pins runs to e.g. a work laptop, ' +
-        'so the agent has its skills, plugins and CLIs; `repo` must be checked out there.',
+        'Create (no `id`; needs name, cron, title, repo, kind) or edit (`id`; only the given ' +
+        'fields; `enabled` pauses) a recurring job. Each run makes a ticket on the `routine` ' +
+        'workflow: an agent follows the body, then finishes or asks the user. Runs are ≥ 15 min ' +
+        'apart; one is skipped while the last is open, and missed runs are not caught up. ' +
+        '`machines` (ids or names) pins runs to a machine with the repo and the agent’s tools.',
       inputSchema: {
         id: z.string().max(64).optional().describe('Omit to create'),
         name: z.string().min(1).max(100).optional().describe('Unique in the account'),
-        cron: z.string().min(1).max(100).optional().describe('e.g. "0 9 * * 1-5"'),
+        cron: z
+          .string()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe('5 fields in `timezone`, e.g. "0 9 * * 1-5" (weekdays 09:00)'),
         timezone: z.string().min(1).max(100).optional().describe('IANA, default UTC'),
         enabled: z.boolean().optional(),
         title: z.string().min(1).max(200).optional().describe('Each ticket’s title (+ run time)'),
@@ -1449,12 +1458,10 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'Get the workflow',
       description:
-        'The workflow tickets run (`conductor` by default, latest version unless `version`). ' +
-        'Without `state`: an outline (each state’s type, title and transition names) and every ' +
-        'gate that runs checks. With `state`: that state’s full definition (prompt, transitions, ' +
-        'requirements, timeouts). `default_available`: a newer shipped default not yet adopted ' +
-        '(adopt_default_workflow). To edit, read each state, then send the whole definition to ' +
-        'save_workflow.',
+        'The workflow (default `conductor`, latest unless `version`). Without `state`: each ' +
+        'state’s type, title and transitions, and the gates that run checks; with `state`: its ' +
+        'full definition. `default_available`: a newer shipped default (adopt_default_workflow). ' +
+        'To edit, read the states and send the whole definition to save_workflow.',
       inputSchema: {
         workflow_id: z.string().min(1).max(100).optional().describe('Default conductor'),
         version: z.number().int().min(1).optional().describe('Default the latest'),
@@ -1566,11 +1573,10 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
     {
       title: 'Save a workflow',
       description:
-        'Save a whole workflow definition as its next version (instance admins only: it changes ' +
-        'the workflow for every account). New tickets, reopens and parked tickets follow it. An ' +
-        'invalid one returns invalid_workflow with each rule and path. It may not remove a human ' +
-        'approval. After a save of `conductor`, newer shipped defaults no longer install ' +
-        'themselves (get_workflow shows default_available). Ask the user first.',
+        'Save a whole definition as the workflow’s next version. Instance admins only: it ' +
+        'changes every account’s new, reopened and parked tickets. Refused with invalid_workflow ' +
+        '(each rule and path), or if it removes a human approval. Saving `conductor` stops new ' +
+        'shipped defaults installing themselves. Ask the user first.',
       inputSchema: {
         definition: z
           .record(z.string(), z.unknown())
@@ -1606,8 +1612,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       title: 'Adopt the newest default workflow',
       description:
         'Save the newest shipped `conductor` workflow as its next version, replacing local edits ' +
-        '(instance admins only): after an edit, or when get_workflow shows default_available. ' +
-        'Later defaults still need adopting by hand. Ask the user first.',
+        '(instance admins only). Later defaults need adopting again. Ask the user first.',
       inputSchema: { base_version: baseVersionArg },
       annotations: writeWorkflow,
     },

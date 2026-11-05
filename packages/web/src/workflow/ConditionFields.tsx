@@ -98,6 +98,12 @@ export function ConditionRow({
     case 'pr_merged':
       sentence = 'PR merged';
       break;
+    // ADR-0037 P2: read-only until T5 adds their fields (the validator refuses them until then).
+    case 'cmd':
+    case 'pr_mergeable':
+    case 'age_below':
+      sentence = conditionLabel(c);
+      break;
     case 'pr_screenshots':
       sentence = (
         <>
@@ -185,6 +191,10 @@ export function ConditionRow({
     pr_screenshots: ['ui_paths', 'min_pairs'],
     jira_fields_set: ['fields'],
     azure_pipeline_succeeded: ['pipeline'],
+    // ADR-0037 P2: no designer fields until T5.
+    cmd: ['name', 'cmd'],
+    pr_mergeable: [],
+    age_below: ['max'],
   };
   const defaultLabel = conditionLabel({ ...c, label: undefined });
 

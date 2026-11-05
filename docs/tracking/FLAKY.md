@@ -33,5 +33,6 @@ This file is read by `vitest.config.ts`, `scripts/test-flaky.js` and the nightly
 | `daemon::tests::kill_real` (MR-T12)                                        | `crates/conductor-daemon/src/daemon/tests/kill_real.rs`               | 2026-11-01 | ≥1 (~15 across all)                              | WF-T07       | 2026-11-18 |
 | `markdown-io.test.ts:208` (2,000-requirement round-trip timing)            | `packages/web/src/components/ticket-editor/markdown-io.large.test.ts` | 2026-10-28 | ≥1 (TD-186; ~15 across all)                      | WF-T11       | 2026-11-18 |
 | `distribution-tarball.test.ts` (package-daemon.sh)                         | `packages/orchestrator/test/distribution-tarball.test.ts`             | 2026-11-04 | ≥2 (ticket 9d21b3db asked Ben twice)             | none yet     | 2026-11-18 |
+| `launcher_ps1` (Windows launcher restart order; one run hung > 7 min) | `crates/conductor-daemon/tests/launcher_ps1.rs` | 2026-11-05 | ≥1 (ticket 9cfe072a, run 42075359267) | none yet | 2026-11-19 |
 
 <!-- flaky:end -->

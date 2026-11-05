@@ -1,0 +1,31 @@
+{
+  "repo": "github.com/benjgrad/conductor",
+  "setup": "pnpm install --frozen-lockfile && git fetch -q origin && git branch -f main origin/main",
+  "checks": [
+    {
+      "name": "Typecheck",
+      "cmd": "pnpm typecheck",
+      "timeout": "10m"
+    },
+    {
+      "name": "Lint",
+      "cmd": "pnpm lint",
+      "timeout": "15m"
+    },
+    {
+      "name": "Tests",
+      "cmd": "pnpm test",
+      "timeout": "30m"
+    },
+    {
+      "name": "Build",
+      "cmd": "pnpm build",
+      "timeout": "15m"
+    },
+    {
+      "name": "Merges cleanly with main",
+      "cmd": "git merge-tree --write-tree origin/main HEAD",
+      "timeout": "2m"
+    }
+  ]
+}

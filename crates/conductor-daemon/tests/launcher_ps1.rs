@@ -8,6 +8,9 @@
 //! every Windows PowerShell 5.1). Each run appends `CONDUCTOR_SUPERVISED|CONDUCTOR_ROOT|args|
 //! version` to `<fake>\calls.txt` and exits with the next code from `<fake>\codes.txt`; if
 //! `<fake>\switch-to.txt` exists it first re-points `daemon\current` there (MR-T14's switch).
+//!
+//! Quarantined (docs/tracking/FLAKY.md): every test here is `#[ignore]`d in the gate and runs
+//! nightly; on windows-latest one run failed an ordering assertion and another hung > 7 min.
 #![cfg(windows)]
 
 use conductor_daemon::commands::service::LAUNCHER_PS1;
@@ -141,50 +144,58 @@ fn same_dir(a: &str, b: &Path) -> bool {
     std::fs::canonicalize(a).unwrap() == std::fs::canonicalize(b).unwrap()
 }
 
-#[test]
-fn restarts_on_75_and_crashes_and_stops_on_78() {
-    let r = setup(&[75, 1, 78]);
-    assert_eq!(launch(&r), 78);
-    let c = calls(&r);
-    assert_eq!(c.len(), 3, "{c:?}");
-    for (sup, root, args, version) in &c {
-        assert_eq!(sup, "schtasks");
-        assert!(same_dir(root, &r.root), "{root}");
-        assert_eq!(args, "run");
-        assert_eq!(version, "v1");
+/// One module so the nightly quarantine run can select these by name (`launcher_ps1::`).
+mod launcher_ps1 {
+    use super::*;
+
+    #[test]
+    #[ignore = "flaky: see FLAKY.md"]
+    fn restarts_on_75_and_crashes_and_stops_on_78() {
+        let r = setup(&[75, 1, 78]);
+        assert_eq!(launch(&r), 78);
+        let c = calls(&r);
+        assert_eq!(c.len(), 3, "{c:?}");
+        for (sup, root, args, version) in &c {
+            assert_eq!(sup, "schtasks");
+            assert!(same_dir(root, &r.root), "{root}");
+            assert_eq!(args, "run");
+            assert_eq!(version, "v1");
+        }
+        let logs = r.root.join("logs");
+        assert!(!logs.join("daemon.pid").exists());
+        let launcher_log = std::fs::read_to_string(logs.join("launcher.log")).unwrap();
+        let restarts: Vec<&str> = launcher_log.lines().collect();
+        assert_eq!(restarts.len(), 2, "{launcher_log}");
+        assert!(restarts[0].contains("daemon exited 75; restarting"));
+        assert!(restarts[1].contains("daemon exited 1; restarting"));
+        assert!(logs.join("daemon.log").exists());
+        assert!(logs.join("daemon.log.1").exists());
     }
-    let logs = r.root.join("logs");
-    assert!(!logs.join("daemon.pid").exists());
-    let launcher_log = std::fs::read_to_string(logs.join("launcher.log")).unwrap();
-    let restarts: Vec<&str> = launcher_log.lines().collect();
-    assert_eq!(restarts.len(), 2, "{launcher_log}");
-    assert!(restarts[0].contains("daemon exited 75; restarting"));
-    assert!(restarts[1].contains("daemon exited 1; restarting"));
-    assert!(logs.join("daemon.log").exists());
-    assert!(logs.join("daemon.log.1").exists());
-}
 
-#[test]
-fn a_clean_exit_stops() {
-    let r = setup(&[0]);
-    assert_eq!(launch(&r), 0);
-    assert_eq!(calls(&r).len(), 1);
-    assert!(!r.root.join("logs").join("launcher.log").exists());
-}
+    #[test]
+    #[ignore = "flaky: see FLAKY.md"]
+    fn a_clean_exit_stops() {
+        let r = setup(&[0]);
+        assert_eq!(launch(&r), 0);
+        assert_eq!(calls(&r).len(), 1);
+        assert!(!r.root.join("logs").join("launcher.log").exists());
+    }
 
-#[test]
-fn a_switched_current_junction_takes_effect_on_the_restart() {
-    let r = setup(&[75, 78]);
-    std::fs::write(
-        r.fake.join("switch-to.txt"),
-        r.root
-            .join("daemon")
-            .join("v2")
-            .to_string_lossy()
-            .as_bytes(),
-    )
-    .unwrap();
-    assert_eq!(launch(&r), 78);
-    let versions: Vec<String> = calls(&r).into_iter().map(|c| c.3).collect();
-    assert_eq!(versions, ["v1", "v2"]);
+    #[test]
+    #[ignore = "flaky: see FLAKY.md"]
+    fn a_switched_current_junction_takes_effect_on_the_restart() {
+        let r = setup(&[75, 78]);
+        std::fs::write(
+            r.fake.join("switch-to.txt"),
+            r.root
+                .join("daemon")
+                .join("v2")
+                .to_string_lossy()
+                .as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(launch(&r), 78);
+        let versions: Vec<String> = calls(&r).into_iter().map(|c| c.3).collect();
+        assert_eq!(versions, ["v1", "v2"]);
+    }
 }

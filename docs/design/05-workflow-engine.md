@@ -197,6 +197,28 @@ An agent may add optional `proposed_tickets: [{title, repo, why}]` to its `compl
 ### Pages ([ADR-0038](../adr/0038-pages-planning-artifacts.md))
 An agent state's `result` may list, at most once, the result kind `{"pages": {"max": 1..5}}` (`PagesResultSchema`) next to its required keys. The agent may then add `"pages": [{"url", "title", "expires_at"?}]` (`PageRef`: https, or http on loopback; title ≤ 200) to its `complete_state` result. The kind is never required: the engine stores the key in `context.<state>` like `proposed_tickets`, and `pagesOfContext` reads it back up to `max`, dropping malformed entries. `resultKeys(state)` (the string entries) is what "missing keys", the prompts and rule 5 use. With the kind, the prompt gets `## Pages (optional)` before How to finish (`renderPages`). If the state also has the `pages` tool, the section says how to publish one with `publish_page` (conductor hosts it at `/p/:id` for 7 days; [06 §Pages](06-human-input.md#pages)). Without the kind, prompts are unchanged.
 
+### Self-healing primitives ([ADR-0037](../adr/0037-workflow-primitives-for-self-healing-process.md), proposed)
+The schema and the validator are in `packages/shared` (T1): every field below parses, and rule 14 refuses it as "not available yet" until its own ticket marks it available (`AVAILABLE_WORKFLOW_FEATURES`; the three new condition types in `AVAILABLE_CONDITION_TYPES`). The daemons report the new condition types `unsupported` until T5. Nothing runs yet. Every one of them is off, or behaves exactly as today, until a definition sets it.
+
+- **`watch`** (P1) on `human` and `event` states: `{poll?, conditions, on_broken}`.
+  - The conditions are re-checked while the ticket sits in the state: every `poll` (default 2m, backing off to 15m), and at once when a PR on the same repo merges or conductor pushes the branch.
+  - A `failed` condition (never `pending`) takes `on_broken`. Either it moves the ticket to `goto` (counted under `watch:<state>`, then `else`, a human state; `return_to: $self` brings the next completion back), or it sends one `notify: escalate` per stay.
+  - A watch's conditions are evaluated **in order, short-circuiting** at the first one that is not `met`, so a later (costlier) condition runs only when the earlier ones hold. `requires.conditions` still evaluate all of them.
+  - `cmd` conditions run in the fresh checkout of the PR head, as `requires.checks` does. `needs: checkout` skips the repo setup.
+- **Conditions** (P2): `cmd {name, cmd, timeout?, needs: checkout|setup = setup}`, `pr_mergeable` and `age_below {max}`. `age_below` is engine-side and allowed only in a watch.
+  - **No-CI policy** (P3): `pr_checks_green.no_checks {policy: pass|fail|require_mergeable, after}`. A stored `no_checks_after: X` folds to `{policy: pass, after: X}`.
+- **`requires.concurrency`** (P4): `{key, max_in_flight, scope, order, overlap?, hold_timeout}`.
+  - It is a `held` phase before `checks`. The card shows "Queued behind #N".
+  - Release happens on the same triggers as a watch. `hold_timeout` goes to `on_unmet.else`.
+  - With `overlap: planned_files`, it holds only when both sessions have a planning `files` list and the lists intersect. A session without `files` neither holds nor is held.
+- **`instructions`** (P5): a workflow-level map. `$instructions.<slug>` refs are accepted in `on_unmet.instruction` and `on_broken.instruction`, and as `presets` on human buttons with `text`. Refs resolve against the pinned version.
+- **`notify`** (P6): a workflow-level `{default, engine_moves, coalesce?}`. Transition `notify` widens to `boolean | never | when_waiting_on_you | always | inherit`.
+  - Without the block, legacy mode applies: every input_request pushes, plus `notify: true` transitions.
+  - The engine decides whether a move notifies; the notifier coalesces.
+  - **Engine laps.** A move with `cause ≠ transition` out of a state `S` that waits on you opens a lap (`notify_lap.origin = S`). The lap's next wait-on-you landing is silent if it is `S` again, and a new wait (it notifies) anywhere else. A human-taken move opens no lap.
+- **`cause`** (P7) on every `state_entered`: `transition`, `check_failed`, `review_unmet`, `action_failed`, `condition_unmet`, `condition_timeout`, `watch_broken`, `concurrency_released`, `timeout`, `retry`, `retries_exhausted`, `budget_exceeded`, `machine_lost` or `answer_routed`. Engine moves are recorded with `actor: system`.
+- **`handoff: true`** (P8) on a transition into a human state: an input_request of kind `handoff`, with the reason as the summary. It is exclusive with `question`.
+
 ### Ticket breakdown (planning)
 A `triage` agent state returns `{size: "small"|"large"}`. A guard routes large tickets to a `plan` state. That state returns `child_tickets[]`, which the orchestrator creates (each `ready`, with `parent_ticket_id`), and then the parent waits on an `event` state `children.done`. Not in `pr_flow`; see [U-010](../tracking/UNKNOWNS.md).
 
@@ -258,6 +280,8 @@ Rules 10–14 are the transition rules of [ADR-0011](../adr/0011-transition-rule
     - So is an **enabled** condition whose type isn't in `AVAILABLE_CONDITION_TYPES` (`….requires.conditions.<i>`). It is an error, not a warning, because the editor has no warning channel. Declare it with `enabled: false` until M5.
     - A transition into the start state can't carry `requires` (`….requires`).
     - An agent state's known tool alias outside `AVAILABLE_TOOL_ALIASES` (`states.<s>.tools.<i>`), or result kind outside `AVAILABLE_RESULT_KINDS` (`states.<s>.result.<i>`), is "not available yet" (`checkAvailability`, ADR-0038 under ADR-0037's pattern). `pages` (alias and kind) is available.
+    - So is an ADR-0037 primitive outside `AVAILABLE_WORKFLOW_FEATURES` (none yet), at its path: `watch` (`states.<s>.watch`), `no_checks` (`….conditions.<i>.no_checks`), `requires.concurrency`, the `instructions` map (`instructions`), `$instructions.<slug>` refs and `presets`, the `notify` block (`notify`) and string transition `notify` values, `handoff: true`. A watch's enabled conditions are checked like `requires.conditions`.
+    - Every "not available yet" refusal is `checkAvailability`'s; `validateWorkflow(def, {allowUnavailable: true})` skips them all (tests and drafts only; no save path sets it). The start-state refusal above is not one of them.
 
 Rules 15–16 are the review-and-merge rules of [ADR-0020](../adr/0020-review-and-merge-flow.md) (M2r-T02, the same file). The PR actions `inspect_pr`, `merge_pr` and `close_pr` are available (`AVAILABLE_TRANSITION_ACTIONS`), so rule 14 doesn't refuse them. Neither rule fires on a definition without the new fields or `merge_pr` (v1, v2):
 
@@ -271,6 +295,17 @@ Rules 15–16 are the review-and-merge rules of [ADR-0020](../adr/0020-review-an
     - `on_unmet.routes` targets are validated like `on_unmet.goto`. A missing one is rule 1's, `$return_to` is rule 10's, and a terminal state or one with an `entry` is refused (`….on_unmet.routes.<reason>`). Unknown reasons (anything but `head_moved` and `conflict`) are refused by the schema (rule 1).
 17. **A PR reaches Done only through a human** (M2-T34, Ben 2026-10-29). An agent-actor transition whose `requires.actions` has `open_pr` can't `goto` a terminal state (`….goto`), nor fall back to one (`….else`), unless it waits for a human on that PR: an enabled `pr_approvals` or `pr_merged` condition. conductor v2 and v3 break it (their personal `done`), so the seed accepts rule 17 errors only on a *superseded* shipped version (`SUPERSEDED_RULE_EXEMPTIONS`); the newest shipped version and every saved definition must pass.
 18. **A column that unfinished tickets are in can't be removed** (UXR-67). Saving a version that drops a state of the latest stored version is refused while a session of that workflow is in it and not `done`, `failed` or `lost` (path `states.<name>`): parked and reopened tickets follow the newest version, so they would be stranded. It needs the database, so the orchestrator checks it on every save (`removedStatesInUse`, called by `insertWorkflowVersion`), not `validateWorkflow`. The workflow designer shows the same reason up front ([11 §The workflow's shape](11-web-ui.md#the-workflows-shape-uxr-67)).
+
+Rules 19–25 are [ADR-0037](../adr/0037-workflow-primitives-for-self-healing-process.md#validation-on-save-new-rules-1925)'s, in `validate-primitives.ts` (`checkPrimitives`, T1). They judge the fields rule 14 still refuses, so a definition gets both until a primitive is available:
+- 19, watch targets and bounds (`on_broken.goto` not the watched state and without `entry`, `else` a human state, `return_to` `$self` or a state, `poll` ≥ 30s, unique `cmd` names). The `goto` leg is a bounded edge (counter `watch:<state>`) and `else` a plain edge, so rules 1–4 see them;
+- 20, concurrency only on an agent-actor transition, `scope` existing non-terminal states, each once;
+- 21, every `$instructions.<slug>` ref and `presets` slug resolves; `presets` only on a human-actor transition with `text`;
+- 22, `question` ⊕ `handoff`, a hand-off only into a human state (for rule 5 it doesn't complete the state, like a question; for rule 12 it isn't a way to ask);
+- 23, `inherit` / `when_waiting_on_you` / `never` need the workflow `notify` block; `coalesce` ≤ 1d;
+- 24, `age_below` only in a watch;
+- 25, `no_checks` ⊕ `no_checks_after`.
+
+`docs/design/workflows/conductor.v6.draft.json` passes `validateWorkflow(draft, {allowUnavailable: true})`; without it, only rule 14 refuses (`conductor.v6-draft.test.ts`).
 
 ADR-0011 changes how rules 1–5 read the graph:
 - **Edges.** A transition's `on_unmet.goto` / `else` are edges too. `$return_to` is not an edge, like `answered`.

@@ -413,7 +413,7 @@ export function WorkflowsView({
               setLatestSeen((n) => Math.max(n, v));
               setVersion(null);
               setReloads((n) => n + 1);
-              setNotice(`Adopted the default as v${v}.`);
+              toast(`Adopted the default as v${v}`);
             }}
             onStale={() => {
               setVersion(null);

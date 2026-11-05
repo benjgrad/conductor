@@ -1152,7 +1152,11 @@ describe('Workflow view: a newer default (UXR-87)', () => {
     canEditWorkflows: boolean,
     api = createMockApi({ defaultWorkflow: newer() }),
   ) {
-    render(<WorkflowsView api={api} canEditWorkflows={canEditWorkflows} />);
+    render(
+      <ToastProvider>
+        <WorkflowsView api={api} canEditWorkflows={canEditWorkflows} />
+      </ToastProvider>,
+    );
     await screen.findByRole('group', { name: 'conductor v3 columns' }, DIAGRAM_WAIT);
     return api;
   }
@@ -1192,7 +1196,9 @@ describe('Workflow view: a newer default (UXR-87)', () => {
     fireEvent.click(confirm.getByRole('button', { name: 'Adopt v4' }));
     await screen.findByRole('group', { name: 'conductor v4 columns' }, DIAGRAM_WAIT);
     expect(calls).toEqual([['conductor', 3]]);
-    expect(screen.getByRole('status').textContent).toBe('Adopted the default as v4.');
+    expect(screen.getByRole('status', { name: 'Notifications' }).textContent).toBe(
+      'Adopted the default as v4',
+    );
     expect(lane('Plan it')).toBeTruthy();
     await waitFor(() =>
       expect(screen.queryByRole('region', { name: 'Newer default workflow' })).toBeNull(),

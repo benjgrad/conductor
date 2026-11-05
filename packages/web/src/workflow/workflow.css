@@ -324,7 +324,7 @@ p.wf-version-warning {
 }
 .wf-default-compare h3 {
   margin: var(--space-3) 0 var(--space-1);
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 .wf-errors {
   margin: 0;

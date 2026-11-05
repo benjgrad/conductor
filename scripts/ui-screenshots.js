@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // UI review screenshots (docs/qa/ux-review/). Starts the web app on the still mock API
 // (VITE_API=mock, VITE_MOCK_STATIC=1), drives it with Chrome through playwright-core, and writes
-// docs/qa/ux-review/<out>/<screen>-<w>x<h>-<theme>.png plus metrics.json (page overflow and the
-// visible tap targets under 44 px, per shot). Not run in CI.
+// docs/qa/ux-review/<out>/<screen>-<w>x<h>-<theme>.png plus metrics.json (page overflow, including
+// overflow clipped inside the phone shell or a panel, and the visible tap targets under 44 px, per
+// shot). Not run in CI.
 //
 // A board, detail or new-ticket shot above the phone breakpoint whose page is taller than the
 // window prints a WARN line (UXR-26: the desktop board's document must not scroll).
@@ -94,6 +95,9 @@ const VIEWPORTS = [
         'new-ticket',
         'new-ticket-bottom',
         ...TICKET_SHOTS,
+        'workflows',
+        'workflow-column',
+        'workflow-transition',
       ],
     },
   },
@@ -126,6 +130,8 @@ const VIEWPORTS = [
         'new-ticket',
         'new-ticket-bottom',
         'machines',
+        'schedules',
+        'schedule-sheet',
         'machine-drawer',
         'admin',
         'workflows',
@@ -145,6 +151,7 @@ const VIEWPORTS = [
         'rc-new-override',
         'rc-invalid',
         'rc-clear-confirm',
+        'workflow-transition',
         'ticket-messages',
         'ticket-plan',
         ...REQUEST_SHOTS,
@@ -390,6 +397,9 @@ const SCREENS = [
       });
     },
   },
+  // UXR-83: the mock's three schedules, and the weekly one's edit sheet.
+  { id: 'schedules', path: '/#/schedules' },
+  { id: 'schedule-sheet', path: '/#/schedules/e5000000-0000-4000-8000-000000000002' },
   // UXR-61 FR-5: problems in the check table, each under its field and named by its label.
   {
     id: 'rc-invalid',
@@ -511,6 +521,12 @@ const SCREENS = [
       await page.locator('aside.wf-editor').waitFor();
     },
   },
+  // UXR-44: a lone transition's panel (full-screen on a phone).
+  {
+    id: 'workflow-transition',
+    path: '/#/workflows',
+    act: (page) => openArrow(page, 'Planning', 'Implementing'),
+  },
   // UXR-69 FR-3: leaving with an unsaved draft asks in a modal dialog.
   {
     id: 'wf-unsaved-guard',
@@ -560,13 +576,24 @@ function measure(deviceWidth) {
       );
     }
   }
+  // UXR-44: on a phone the shell (`.app.mobile`, overflow-x hidden) and the full-screen panels clip
+  // what overflows them, so the document's width alone can't see it.
+  const clipped = [];
+  for (const sel of ['.app.mobile', 'aside.wf-editor', 'aside.detail']) {
+    for (const el of document.querySelectorAll(sel)) {
+      if (el.scrollWidth > el.clientWidth + 1) {
+        clipped.push(`${sel} ${el.scrollWidth}>${el.clientWidth}`);
+      }
+    }
+  }
   // The chat's visible height (the session panel's Messages log), when a panel is open.
   const chat = document.querySelector('aside.detail .output-chat .output');
   return {
     chatHeight: chat ? Math.round(chat.getBoundingClientRect().height) : null,
     pageScrollWidth: document.documentElement.scrollWidth,
     deviceWidth: vw,
-    horizontalOverflow: document.documentElement.scrollWidth > vw,
+    horizontalOverflow: document.documentElement.scrollWidth > vw || clipped.length > 0,
+    clippedOverflow: clipped,
     pageHeight: document.documentElement.scrollHeight,
     smallTapTargets: small.length,
     smallTapTargetSample: small.slice(0, 8),

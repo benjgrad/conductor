@@ -87,14 +87,18 @@ export function applyBoardEvent(state: BoardState, ev: BoardSseEvent): BoardStat
         { column: ev.to, updated_at: ev.ts },
         ev.id,
       );
-    case 'session.status':
+    case 'session.status': {
+      const card = findBySession(state.cards, ev.session_id);
+      // UXR-30: a new state's title arrives with the next card.upserted; never show the old one.
+      const title = card?.workflow_state === ev.workflow_state ? {} : { state_title: null };
       return patch(
         state,
-        findBySession(state.cards, ev.session_id),
+        card,
         // ADR-0010: status is a badge, not a column; card.moved / card.upserted move the card.
-        { status: ev.to, workflow_state: ev.workflow_state, updated_at: ev.ts },
+        { status: ev.to, workflow_state: ev.workflow_state, updated_at: ev.ts, ...title },
         ev.id,
       );
+    }
     case 'input.requested':
       return patch(
         state,

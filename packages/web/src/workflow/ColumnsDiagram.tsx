@@ -224,7 +224,20 @@ function LaneBox({
         : {})}
     >
       <title>{tip}</title>
-      <rect x={x} y={y} width={w} height={h} rx={8} ry={8} />
+      <rect className="wf-lane-box" x={x} y={y} width={w} height={h} rx={8} ry={8} />
+      {/* UXR-58: keyboard focus, drawn apart from selection (workflow.css). */}
+      {onSelect && (
+        <rect
+          className="wf-focus-ring"
+          x={x - 4}
+          y={y - 4}
+          width={w + 8}
+          height={h + 8}
+          rx={11}
+          ry={11}
+          aria-hidden="true"
+        />
+      )}
       {lines.map((l, i) => (
         <text key={i} className={l.cls} x={x + 10} y={l.y}>
           {l.text}

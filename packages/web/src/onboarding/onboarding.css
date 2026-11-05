@@ -51,9 +51,6 @@
 .setup-body h3 {
   margin: 0 0 8px;
 }
-.setup-body h3:focus {
-  outline: none;
-}
 .setup-body h4 {
   margin: 16px 0 4px;
 }

@@ -22,19 +22,28 @@ const SHEET_TITLES: Record<StripSheet, string> = {
   edit: 'Edit ticket',
 };
 
+/** UXR-72: the ⚠ count's name; the ticket editor calls these "Hints". */
+export function hintsLabel(n: number): string {
+  return `${n} ${n === 1 ? 'hint' : 'hints'}`;
+}
+
 /** The short tally on the Brief button: "3/5 ✓", or "⚠ 2" (requirements without verification). */
 function ShortTally({ brief }: { brief: Brief }) {
   const t = tally(brief);
   if (t.total === 0) return null;
   return t.missing.length === 0 ? (
-    <span className="ticket-strip-tally" aria-label={`${t.verified} of ${t.total} verified`}>
+    <span
+      className="ticket-strip-tally"
+      aria-label={`${t.verified} of ${t.total} verified`}
+      title={`${t.verified} of ${t.total} verified`}
+    >
       {t.verified}/{t.total} ✓
     </span>
   ) : (
     <span
       className="ticket-strip-tally brief-tally-warn"
-      aria-label={`${t.missing.length} without verification`}
-      title={t.missing.join(', ')}
+      aria-label={hintsLabel(t.missing.length)}
+      title={`${hintsLabel(t.missing.length)}: no verification for ${t.missing.join(', ')}`}
     >
       ⚠ {t.missing.length}
     </span>

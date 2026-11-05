@@ -422,7 +422,13 @@ describe('composer', () => {
     const message = await now.findByLabelText<HTMLTextAreaElement>('Message');
     expect(message.placeholder).toBe(`Message ${name}… (/ for commands)`);
     expect(await now.findByText('Also rename it in the docs')).toBeTruthy();
-    expect(now.getByText('running')).toBeTruthy();
+    // UXR-40: one chip, the state's title, styled by the (running) status.
+    const head = (
+      await screen.findByRole('complementary', { name: 'Session detail' })
+    ).querySelector('.detail-head')!;
+    await waitFor(() => expect(head.querySelector('.chip.status-running')).not.toBeNull());
+    expect(head.querySelectorAll('.chip.status')).toHaveLength(1);
+    expect(head.querySelector('.chip.status')!.textContent).not.toMatch(/_|^running$/);
     expect(now.getByRole('heading', { level: 2, name: 'Rename user.fullname' })).toBeTruthy();
   });
 

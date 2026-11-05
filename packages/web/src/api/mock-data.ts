@@ -412,8 +412,12 @@ interface SeedSpec {
   output?: string[];
   /** Claude-transcript history, as [stream, text] pairs (ADR-0008). */
   transcript?: [OutputChunk['stream'], string][];
+  /** When the transcript's chunks were written, in minutes ago; default activeMinAgo + 1. */
+  transcriptAt?: number;
   /** UX-2: the ticket body (the Brief); absent → as from an older server. */
   ticketBody?: string;
+  /** SessionDetail.moves as [minutes ago, from, to, transition]; absent → none (UXR-88). */
+  moves?: [number, string | null, string, string | null][];
 }
 
 function seed(now: Date, s: SeedSpec): MockSeed {
@@ -453,7 +457,15 @@ function seed(now: Date, s: SeedSpec): MockSeed {
       wall_seconds: (s.ageMin - s.activeMinAgo) * 60 + 30,
       branch: sessionBranch({ title: s.title, external_ref: null }, s.session),
       output,
-      moves: [],
+      moves: (s.moves ?? []).map(([min, from, to, transition]) => ({
+        at: ago(now, min),
+        from,
+        to,
+        transition,
+        reason: null,
+        actor:
+          from === null ? null : from === 'implement' ? ('agent' as const) : ('system' as const),
+      })),
       ...(s.ticketBody !== undefined ? { ticket_body: s.ticketBody } : {}),
       ...(s.transcript
         ? {
@@ -462,7 +474,7 @@ function seed(now: Date, s: SeedSpec): MockSeed {
               seq,
               stream,
               text,
-              ts: ago(now, s.activeMinAgo + 1),
+              ts: ago(now, s.transcriptAt ?? s.activeMinAgo + 1),
             })),
           }
         : {}),
@@ -932,6 +944,20 @@ export function mockSeeds(now: Date): MockSeed[] {
       ageMin: 600,
       activeMinAgo: 500,
       spend: 0.27,
+      // UXR-88: the Steps section (Details tab) reads these.
+      moves: [
+        [600, null, 'implement', null],
+        [520, 'implement', 'build', 'done'],
+        [512, 'build', 'test', 'exit_0'],
+        [500, 'test', 'done', 'exit_0'],
+      ],
+      context: {
+        implement: {
+          summary: 'Renamed `user.fullname` to `full_name` in 2 files.',
+          files: ['src/models/user.ts', 'src/api/users.ts'],
+        },
+      },
+      transcriptAt: 530,
       // As after an orchestrator restart: the ring is empty, the history comes from the transcript.
       output: [],
       transcript: [

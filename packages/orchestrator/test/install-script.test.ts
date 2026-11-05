@@ -563,17 +563,25 @@ describe.skipIf(!runnable)('install.sh', () => {
 // (scripts/build-daemon-dist.sh), installed by the served script, whose real `conductor-daemon
 // enroll` posts to a stub enroll endpoint. The token reaches the daemon only through
 // CONDUCTOR_ENROLL_TOKEN (TD-117). It costs a cargo build (the dev profile, which `cargo nextest`
-// has usually just built), so it runs only where cargo is on PATH and builds with the toolchain
-// rust-toolchain.toml pins: rustup honours the pin, a bare Homebrew cargo (no rustup) does not and
-// fails on the crates' `rust-version`, which says nothing about install.sh.
-const PINNED = /^channel\s*=\s*"([^"]+)"/m.exec(
-  readFileSync(join(REPO, 'rust-toolchain.toml'), 'utf8'),
-)?.[1];
-const rustc = spawnSync('rustc', ['--version'], { cwd: REPO, encoding: 'utf8' });
-const hasCargo =
-  spawnSync('cargo', ['--version']).status === 0 &&
-  rustc.status === 0 &&
-  (PINNED === undefined || !/^\d/.test(PINNED) || rustc.stdout.startsWith(`rustc ${PINNED}`));
+// has usually just built), so it runs only where cargo on PATH meets or exceeds the pinned
+// toolchain (rust-toolchain.toml): a system cargo older than the pin (e.g. Homebrew's, without
+// rustup) can't build the crates, which is a missing toolchain, not a failure of install.sh.
+const hasCargo = cargoMeetsPin();
+
+/** `cargo --version` (run in the repo, so rustup applies the pin) is at least the pinned channel. */
+function cargoMeetsPin(): boolean {
+  const r = spawnSync('cargo', ['--version'], { cwd: REPO, encoding: 'utf8' });
+  if (r.status !== 0) return false;
+  const have = /cargo (\d+)\.(\d+)\.(\d+)/.exec(r.stdout);
+  const pin = /channel\s*=\s*"(\d+)\.(\d+)(?:\.(\d+))?"/.exec(
+    readFileSync(join(REPO, 'rust-toolchain.toml'), 'utf8'),
+  );
+  if (!have || !pin) return have !== null;
+  const v = (m: RegExpExecArray) => [Number(m[1]), Number(m[2]), Number(m[3] ?? 0)];
+  const [a, b] = [v(have), v(pin)];
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i]! > b[i]!;
+  return true;
+}
 
 describe.skipIf(!runnable || !hasCargo)('install.sh with the real daemon tarball', () => {
   const realWork = mkdtempSync(join(tmpdir(), 'conductor-install-real-'));

@@ -605,7 +605,7 @@ describe('move steps (requires on the transition)', () => {
     const r = action(h, null, 'gh: not logged in');
     expect(r.snapshot.workflow_state).toBe('needs_input');
     expect(find(r.effects, 'create_input_request')?.question).toBe(
-      'Conductor could not open the pull request (open_pr) to take "Ready for testing" (implementing → waiting_external): gh: not logged in. Retry, skip, or abort?',
+      'Conductor could not open the pull request to take "Ready for testing" (implementing → waiting_external): gh: not logged in. Retry, skip, or abort?',
     );
   });
 

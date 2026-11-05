@@ -61,7 +61,7 @@ async fn register_advertises_the_assistant_job_feature() {
     // 06 §Attachments: the daemon also downloads ticket attachments.
     assert_eq!(
         reg["payload"]["features"],
-        json!(["assistant_job", "ticket_attachments"])
+        json!(["assistant_job", "ticket_attachments", "agent_attachments"])
     );
     c.done().await;
 }

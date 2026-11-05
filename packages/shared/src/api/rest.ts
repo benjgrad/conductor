@@ -110,6 +110,12 @@ export const API_PATHS = {
   attachmentContent: (id: string) => `/api/attachments/${id}/content`,
   /** GET → the bytes, for the daemon of a machine working the ticket (machine credential). */
   daemonAttachmentContent: (id: string) => `/api/daemon/attachments/${id}/content`,
+  /**
+   * POST the raw bytes of a file the session's agent captured (machine credential; name in
+   * `x-conductor-filename`, caption in `x-conductor-caption`) → 201 AttachmentDto linked to the
+   * ticket, 200 when the session already attached the same bytes (06 §Attachments).
+   */
+  daemonSessionAttachments: (sessionId: string) => `/api/daemon/sessions/${sessionId}/attachments`,
   workflows: '/api/workflows',
   workflow: (id: string) => `/api/workflows/${id}`,
   machines: '/api/machines',

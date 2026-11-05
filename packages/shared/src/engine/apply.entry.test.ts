@@ -210,7 +210,7 @@ describe('conductor v1: entering Waiting external', () => {
       retry_counters: {},
     });
     const req = find(r.effects, 'create_input_request')!;
-    expect(req.question).toContain('Conductor could not open the pull request (open_pr)');
+    expect(req.question).toContain('Conductor could not open the pull request');
     expect(req.question).toContain('gh (the GitHub CLI) is not on PATH');
     expect(types(r.effects)).not.toContain('kill');
   });

@@ -1,11 +1,13 @@
 // 06 §Attachments: a ticket's images and videos, as a grid of thumbnails; one opens full size in
-// a lightbox (Escape or Close closes it). Who attached each is shown ("you" for a human; the
-// agent's attachments, a follow-up, carry the workflow state they were captured in).
+// a lightbox (Escape or Close closes it). Who attached each is shown ("you" for a human; an
+// agent's attachments carry the workflow state they were captured in). `AgentAttachments` shows
+// what the agents attached (their screenshots, GIFs and recordings), grouped by that state.
 import { isVideoMime, type AttachmentDto } from '@conductor/shared';
 import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { ApiClient } from '../api/client.js';
 import { AttachmentThumb } from './AttachmentPicker.js';
+import { groupByState } from './attachment-groups.js';
 import './Attachments.css';
 
 interface AttachmentGalleryProps {
@@ -76,5 +78,25 @@ export function AttachmentGallery({ api, attachments }: AttachmentGalleryProps) 
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * The agents' attachments of a ticket under "From the agent", one group per workflow state (the
+ * latest first). Nothing when there are none.
+ */
+export function AgentAttachments({ api, attachments }: AttachmentGalleryProps) {
+  const groups = groupByState(attachments);
+  if (groups.length === 0) return null;
+  return (
+    <section className="agent-attachments" aria-label="From the agent">
+      <h3>From the agent</h3>
+      {groups.map((g) => (
+        <div key={g.state ?? ''} className="agent-attachments-group">
+          {groups.length > 1 && g.state !== null && <h4 className="muted">{g.state}</h4>}
+          <AttachmentGallery api={api} attachments={g.items} />
+        </div>
+      ))}
+    </section>
   );
 }

@@ -14,12 +14,13 @@ The web app (`packages/web`) has one desktop layout and, below a phone breakpoin
 | Shadow | `--shadow-1` (floating pill), `--shadow-2` (menus) | |
 | Layers | `--z-sticky` 5, `--z-menu` 20, `--z-sheet` 40 | |
 | Touch | `--tap` | 44 px (WCAG 2.5.5) |
-| Colour | `--bg --panel --text --muted --border --border-strong --accent --on-accent` and the status pairs (`--warn`/`--warn-bg`, `--ask`/`--ask-bg`, `--ok`, `--diff-*`, `--user-*`, `--tool`, `--code-*`) | |
+| Colour | `--bg --panel --text --muted --border --border-strong --accent --on-accent` and the status pairs (`--warn`/`--warn-bg`, `--ask`/`--ask-bg`, `--ok`/`--ok-bg`, `--accent`/`--accent-bg`, `--perm`/`--perm-bg`, `--diff-*`, `--user-*`, `--tool`, `--code-*`) | |
 
 Contrast rules:
 - `--muted` text meets AA (4.5:1) on `--bg` and on `--ask-bg`.
 - Text on an `--accent` fill uses `--on-accent`: white in light mode, `--bg` in dark mode, where white on the lighter accent is only 2.65:1.
 - Field edges use `--border-strong` (about 3:1, WCAG 1.4.11). `--border` is for dividers and cards.
+- Each request kind's text on its own `-bg` meets AA (§Requests).
 
 Focus (UXR-56, UXR-58, UXR-72):
 - `styles.css` draws one global `:focus-visible` ring (`2px solid var(--accent)`, offset 2px). A component may restyle it but never remove it. Where a field turns its own outline off, its wrapper draws an equivalent edge instead (the composer box, the rich ticket editor). The phone create-ticket sheet is a focused container, not a control, so it draws no ring.
@@ -32,6 +33,23 @@ Workflow diagram (UXR-45, UXR-68):
 - Arrows are labelled with transition titles (an event with its title, e.g. "Approved"), or "N ways" when several transitions share an arrow. A ✓ marks an arrow where some transition has rules. Labels sit on a solid background and slide along their line to a spot no other line crosses.
 
 Only the rules this design touched use the spacing, type and radius tokens so far. Moving the rest of the CSS onto them is a follow-up.
+
+## Requests
+
+A request waiting on a human sits at the end of the chat in one frame, `RequestCard` (`components/RequestCard.tsx`, `.pending.request-<kind>` in `styles.css`). The kind sets the box colour (a `--tone-bg` box with a 4 px `--tone` bar) and a sentence-case chip that names it, so colour is never the only cue. There are no "Action needed" caps. **Red (`--ask`) is only for failures.** `requestTone` (`request-preview.ts`) picks the kind.
+
+| Kind | Tokens | Chip | When | Text on its bg (light / dark) |
+|---|---|---|---|---|
+| Question | `--accent` / `--accent-bg` | Question, Plan to approve, Budget exceeded… | an agent's question, a plan approval, any other decision | 4.7 / 5.4 |
+| Ready for review | `--ok` / `--ok-bg` | Ready for review | a `*ready_for_review` move | 4.7 / 7.3 |
+| Permission | `--perm` / `--perm-bg` (violet) | Needs permission | a held tool call (ADR-0023) | 5.8 / 7.5 |
+| Failure | `--ask` / `--ask-bg` | Step failed, Retries exhausted, Timed out, Machine lost | `step_failed`, or a retries-exhausted, timeout or machine-lost request | 6.3 / 6.9 |
+
+`--muted` (the "Avery asks" after the chip) is 4.9–5.2:1 on every `-bg`. The chip itself is `--tone` on `--panel` (5.3–8.4:1). The board card's request badges use the same pairs.
+
+- **Review**: **Approve** (`button.primary`) takes `reviewApproveOption`, the state's one no-text human transition into a terminal state (`done`, "Merged, done"), so the button under the chat drops it. With none, or several, there is no Approve. **Request changes…** focuses the composer, whose answer goes back to the agent. *Open PR ↗* and *Full report* (a toggle) follow.
+- **Failure**: its output sits under the question (`failureOutput`: the failed check's last run in the log, else the output the question quotes, else the last run), clamped to 12 lines behind "Show all". On old versions the quick actions are **Retry** (primary), **Skip to…** (a menu: choosing a state skips there) and **Abort…** (a separate danger button that asks first: *Abort session* or *Keep it*).
+- **Composer** (`composerPlaceholder`): "Answer Avery…" on a question, "Ask Olga for changes…" on a review, "Tell Conductor what to do…" on a failure conductor raised, "Message Femi… (/ for commands)" while an agent runs. "Enter to send · Shift+Enter for a new line" is a line under the box, only on `(pointer: fine)`. When the composer is disabled, the placeholder is empty and the reason is shown once, under the box, as the textarea's description.
 
 ## Breakpoint
 

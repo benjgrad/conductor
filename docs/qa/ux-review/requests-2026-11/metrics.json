@@ -1,0 +1,303 @@
+{
+  "detail-375x812-light": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-review-375x812-light": {
+    "chatHeight": 488,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Open PR ↗\" 66×19"
+    ]
+  },
+  "detail-permission-375x812-light": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-failed-375x812-light": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-step-failed-375x812-light": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-375x812-dark": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-review-375x812-dark": {
+    "chatHeight": 488,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 1,
+    "smallTapTargetSample": [
+      "a \"Open PR ↗\" 66×19"
+    ]
+  },
+  "detail-permission-375x812-dark": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-failed-375x812-dark": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-step-failed-375x812-dark": {
+    "chatHeight": 640,
+    "pageScrollWidth": 375,
+    "deviceWidth": 375,
+    "horizontalOverflow": false,
+    "pageHeight": 812,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-360x740-light": {
+    "chatHeight": 568,
+    "pageScrollWidth": 360,
+    "deviceWidth": 360,
+    "horizontalOverflow": false,
+    "pageHeight": 740,
+    "smallTapTargets": 0,
+    "smallTapTargetSample": []
+  },
+  "detail-768x1024-light": {
+    "chatHeight": 576,
+    "pageScrollWidth": 1146,
+    "deviceWidth": 768,
+    "horizontalOverflow": true,
+    "pageHeight": 2535,
+    "smallTapTargets": 16,
+    "smallTapTargetSample": [
+      "button \"Hotfix: crash on empty cart\" 144×34",
+      "button \"Add /health\" 144×17",
+      "button \"Add pagination to /orders\" 144×34",
+      "button \"Conductor checks demo\" 144×34",
+      "button \"Waiting for a build slot\" 144×34",
+      "button \"Migrate settings page to new f\" 144×34",
+      "button \"Ship the /health endpoint\" 144×34",
+      "a \"pull request\" 74×15"
+    ]
+  },
+  "detail-1440x900-light": {
+    "chatHeight": 657,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1567,
+    "smallTapTargets": 45,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 104×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"New ticket\" 112×27",
+      "button \"local\" 74×27",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "detail-review-1440x900-light": {
+    "chatHeight": 591,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1567,
+    "smallTapTargets": 49,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 104×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"New ticket\" 112×27",
+      "button \"local\" 74×27",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "detail-permission-1440x900-light": {
+    "chatHeight": 657,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1567,
+    "smallTapTargets": 44,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 104×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"New ticket\" 112×27",
+      "button \"local\" 74×27",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "detail-failed-1440x900-light": {
+    "chatHeight": 657,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1567,
+    "smallTapTargets": 45,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 104×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"New ticket\" 112×27",
+      "button \"local\" 74×27",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "detail-step-failed-1440x900-light": {
+    "chatHeight": 657,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1567,
+    "smallTapTargets": 46,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 104×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"New ticket\" 112×27",
+      "button \"local\" 74×27",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "detail-1440x900-dark": {
+    "chatHeight": 657,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1567,
+    "smallTapTargets": 45,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 104×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"New ticket\" 112×27",
+      "button \"local\" 74×27",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "detail-review-1440x900-dark": {
+    "chatHeight": 591,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1567,
+    "smallTapTargets": 49,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 104×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"New ticket\" 112×27",
+      "button \"local\" 74×27",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "detail-permission-1440x900-dark": {
+    "chatHeight": 657,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1567,
+    "smallTapTargets": 44,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 104×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"New ticket\" 112×27",
+      "button \"local\" 74×27",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "detail-failed-1440x900-dark": {
+    "chatHeight": 657,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1567,
+    "smallTapTargets": 45,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 104×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"New ticket\" 112×27",
+      "button \"local\" 74×27",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  },
+  "detail-step-failed-1440x900-dark": {
+    "chatHeight": 657,
+    "pageScrollWidth": 1440,
+    "deviceWidth": 1440,
+    "horizontalOverflow": false,
+    "pageHeight": 1567,
+    "smallTapTargets": 46,
+    "smallTapTargetSample": [
+      "a \"Board\" 82×25",
+      "a \"Workflow\" 102×25",
+      "a \"Machines\" 104×25",
+      "a \"Add a machine\" 137×25",
+      "a \"Help\" 72×25",
+      "button \"New ticket\" 112×27",
+      "button \"local\" 74×27",
+      "button \"▾Queued 2\" 88×16"
+    ]
+  }
+}

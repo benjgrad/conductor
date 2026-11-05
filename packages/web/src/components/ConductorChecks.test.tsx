@@ -8,6 +8,7 @@ import {
   checkingSummary,
   ConductorCheckBanner,
   failedItemOfQuestion,
+  lastOutputOfQuestion,
   firstErrorLine,
 } from './ConductorChecks.js';
 
@@ -171,5 +172,30 @@ describe('ConductorCheckBanner (FR-3, NFR-3)', () => {
     expect(live.textContent).toBe('Build passes: running (4 of 5)');
     expect(new Set(changes)).toEqual(new Set(['Build passes: running (4 of 5)']));
     observer.disconnect();
+  });
+});
+
+describe('lastOutputOfQuestion (UXR-39 FR-4: the output under the question)', () => {
+  const q = [
+    'Requirements to take "X" (a → b) were not met after 4 attempts (retry limit 3):',
+    '- Tests pass: `pnpm test` failed (exit code 1)',
+    '- Build passes: `pnpm build` failed (exit code 2)',
+    '',
+    'Last output of "Tests pass":',
+    ' FAIL  src/a.test.ts',
+    'Last output of "Build passes":',
+    'error TS2322',
+    '',
+    'Retry, skip, or abort?',
+  ].join('\n');
+
+  it("the named item's block, up to the next block or the retry line", () => {
+    expect(lastOutputOfQuestion(q, 'Tests pass')).toBe('FAIL  src/a.test.ts');
+    expect(lastOutputOfQuestion(q, 'Build passes')).toBe('error TS2322');
+  });
+
+  it('no item: the first block; none quoted: null', () => {
+    expect(lastOutputOfQuestion(q, null)).toBe('FAIL  src/a.test.ts');
+    expect(lastOutputOfQuestion('Tests failed 3 times. Retry, skip, or abort?', null)).toBeNull();
   });
 });

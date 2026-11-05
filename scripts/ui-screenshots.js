@@ -43,6 +43,13 @@ const permissionScene =
 const CARD = 'Add audit log table';
 /** A running card with a ticket body, so the Brief shows (api/mock-data.ts). */
 const BRIEF_CARD = 'Add pagination to /orders';
+/** UXR-35: one card per request kind (api/mock-data.ts). The permission prompt is the
+ * `detail-permission` screen, in the VITE_MOCK_PERMISSION scene (UXR-32). */
+const REVIEW_CARD = 'Board cards: review requests vs questions';
+const FAILED_CARD = 'Fix flaky checkout test';
+const STEP_FAILED_CARD = 'Add CSV export';
+/** The request shots: every kind but permission, in light and dark. */
+const REQUEST_SHOTS = ['detail-review', 'detail-failed', 'detail-step-failed'];
 /** The card VITE_MOCK_PERMISSION=1 holds on a permission (api/select.ts). */
 const PERMISSION_CARD = BRIEF_CARD;
 /** The plan-approval card (06 §Plan approval; api/mock-data.ts planApprovalSeed). */
@@ -70,7 +77,10 @@ const VIEWPORTS = [
     w: 375,
     h: 812,
     ...PHONE,
-    themes: { light: 'all', dark: ['board', 'detail', 'new-ticket', 'ticket-plan'] },
+    themes: {
+      light: 'all',
+      dark: ['board', 'detail', 'new-ticket', 'ticket-plan', ...REQUEST_SHOTS],
+    },
   },
   {
     w: 360,
@@ -131,12 +141,13 @@ const VIEWPORTS = [
         'workflow-column',
         'ticket-messages',
         'ticket-plan',
+        ...REQUEST_SHOTS,
         'board-permission',
         'detail-permission',
         'detail-done',
         'detail-done-steps',
       ],
-      dark: ['board', 'detail'],
+      dark: ['board', 'detail', ...REQUEST_SHOTS],
     },
   },
 ];
@@ -214,6 +225,9 @@ const SCREENS = [
     },
   },
   { id: 'detail', path: '/#/', act: openCard },
+  { id: 'detail-review', path: '/#/', act: (page) => openCard(page, REVIEW_CARD) },
+  { id: 'detail-failed', path: '/#/', act: (page) => openCard(page, FAILED_CARD) },
+  { id: 'detail-step-failed', path: '/#/', act: (page) => openCard(page, STEP_FAILED_CARD) },
   {
     id: 'detail-scrolled',
     path: '/#/',

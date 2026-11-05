@@ -44,7 +44,7 @@ M2-T08 implements [ADR-0017](../adr/0017-own-sign-in-and-self-hosting.md) §Auth
 
 `CONDUCTOR_ALLOWED_HOSTS` and `CONDUCTOR_ALLOWED_ORIGINS` are refused in `password` mode.
 
-**Web Push** (UX-15, [10 §Web Push](10-contracts.md#web-push)): `CONDUCTOR_VAPID_PRIVATE_KEY` is a secret (in `.env`, mode 0600; anyone holding it can push to every subscribed browser). A subscription's endpoint is a per-browser secret too: stored, never returned by the API, and only the caller's own row can be replaced or deleted. A notification carries only the ticket title, the asking state and the question clipped to 120 characters.
+**Web Push** (UX-15, [10 §Web Push](10-contracts.md#web-push)): `CONDUCTOR_VAPID_PRIVATE_KEY` is a secret (in `.env`, mode 0600; anyone holding it can push to every subscribed browser). A subscription's endpoint is a per-browser secret too: stored, never returned by the API, and only the caller's own row can be replaced or deleted. A notification carries only the ticket title, the asking state and the question clipped to 120 characters; a permission prompt's (UXR-32) carries the tool and its board summary (`permissionSummary`: a command, path or URL) in the question's place, also clipped to 120. The summary is what the board card already shows, but it now reaches a lock screen.
 
 **Request guard** (`hostedSecurityHook`, before routing):
 1. `Host` must be the public URL's host (lower-cased, default port ignored); loopback names included, anything else is 403 `forbidden`.

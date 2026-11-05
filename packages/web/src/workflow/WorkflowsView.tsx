@@ -18,6 +18,9 @@ import {
   columnStates,
   columnTitle,
   issueAt,
+  LANE_KIND_ICONS,
+  LANE_KIND_LABELS,
+  LANE_KINDS,
   QUEUED_LANE,
   QUEUED_TITLE,
   setQueuedTicketEditable,
@@ -591,11 +594,21 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
         )}
         {shown && !asColumns && <WorkflowDiagram definition={shown} />}
         {shown && asColumns && (
-          <p className="wf-legend muted">
-            <span>→ transitions (click to edit) · ×n several on one arrow</span>
-            <span>- - - dashed: requirements not met (back, bounded) / else</span>
-            <span>✓ requires checks, review, actions or conditions</span>
-          </p>
+          <div className="wf-legend muted" aria-label="Legend" role="group">
+            <span className="wf-legend-kinds">
+              {LANE_KINDS.map((k) => (
+                <span key={k} className={`wf-legend-kind wf-lane-kind-${k}`}>
+                  <span className="wf-legend-icon" aria-hidden="true">
+                    {LANE_KIND_ICONS[k]}
+                  </span>
+                  {LANE_KIND_LABELS[k]}
+                </span>
+              ))}
+            </span>
+            <span>→ a transition (click to edit) · N ways: several on one arrow</span>
+            <span>✓ has rules (checks, review, actions or conditions)</span>
+            <span>- - - requirements not met: back, a bounded number of times</span>
+          </div>
         )}
         <ProposalsPanel
           api={api}

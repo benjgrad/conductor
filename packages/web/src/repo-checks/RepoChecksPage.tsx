@@ -258,7 +258,7 @@ function RepoDetailView({
     <ChecksFields
       checks={value.checks}
       setup={value.setup}
-      setupLabel="Before the checks (in a fresh checkout)"
+      setupLabel="Setup: runs first, in a fresh checkout"
       onChange={(next) => {
         setDraft(next);
         setServerIssues([]);

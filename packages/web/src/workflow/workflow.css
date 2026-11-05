@@ -169,9 +169,11 @@
 .wf-label-unmet .wf-outcome {
   fill: var(--warn);
 }
+/* UXR-45 FR-4: a solid label background, so a line that must cross a label stays under it. */
 .wf-halo {
   fill: var(--panel);
-  opacity: 0.88;
+  stroke: var(--border);
+  stroke-width: 1;
 }
 .wf-label.selectable {
   cursor: pointer;
@@ -268,6 +270,30 @@
   font-size: 12px;
   margin: 0;
 }
+.wf-legend-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.wf-legend-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border: 1.5px solid var(--kind);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--kind) 7%, var(--panel));
+  color: var(--text);
+}
+.wf-legend-kind .wf-legend-icon {
+  color: var(--kind);
+}
+/* The columns diagram's zoom bar sits above the drawing, so it never covers the last column. */
+.wf-zoom.wf-zoom-inline {
+  position: static;
+  justify-content: flex-end;
+  padding: 4px 4px 0;
+}
 
 /* Transition editor */
 .wf-editor {
@@ -320,7 +346,10 @@
   gap: 2px;
 }
 .wf-item-actions button {
-  padding: 0 6px;
+  /* UXR-61: at least 24 px (WCAG 2.5.8). */
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 4px;
   font-size: 12px;
 }
 .wf-unmet {
@@ -405,22 +434,30 @@ main[hidden] {
   stroke: var(--border);
   stroke-width: 1.4;
 }
-.wf-lane-queued .wf-lane-box {
-  fill: color-mix(in srgb, var(--panel) 80%, var(--bg));
-  stroke-dasharray: 4 3;
+/* UXR-68: a column's kind is its border colour and icon; boxes are never dashed (dashed means
+   "requirements not met", on arrows only). */
+.wf-lane-kind-agent {
+  --kind: var(--accent);
 }
-.wf-lane-human .wf-lane-box {
-  fill: var(--ask-bg);
-  stroke: var(--ask);
-  stroke-dasharray: 5 3;
+.wf-lane-kind-person {
+  --kind: var(--ask);
 }
-.wf-lane-event .wf-lane-box {
-  fill: var(--warn-bg);
-  stroke: var(--warn);
+.wf-lane-kind-waiting {
+  --kind: var(--warn);
 }
-.wf-lane-terminal .wf-lane-box {
-  fill: color-mix(in srgb, var(--ok) 10%, var(--panel));
-  stroke: var(--ok);
+.wf-lane-kind-queue {
+  --kind: var(--muted);
+}
+.wf-lane-kind-end {
+  --kind: var(--ok);
+}
+.wf-lane[class*='wf-lane-kind-'] .wf-lane-box {
+  fill: color-mix(in srgb, var(--kind) 7%, var(--panel));
+  stroke: var(--kind);
+  stroke-width: 1.6;
+}
+.wf-lane .wf-lane-icon {
+  fill: var(--kind, var(--muted));
 }
 .wf-lane text {
   fill: var(--text);
@@ -481,8 +518,7 @@ main[hidden] {
 }
 .wf-lane.checking .wf-lane-box {
   stroke: var(--accent);
-  stroke-width: 2;
-  stroke-dasharray: 6 4;
+  stroke-width: 3;
 }
 .wf-label-start text {
   fill: var(--muted);
@@ -514,14 +550,94 @@ main[hidden] {
 .wf-field input {
   color: var(--text);
 }
-.wf-check {
+/* UXR-61: the checks as a labelled table (ChecksFields). */
+.wf-checks-scroll {
+  overflow-x: auto;
+}
+.wf-checks {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.wf-checks th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 0 4px 2px 0;
+}
+.wf-checks td {
+  vertical-align: top;
+  padding: 0 4px 4px 0;
+}
+.wf-checks .wf-checks-name {
+  width: 30%;
+}
+.wf-checks .wf-checks-timeout {
+  width: 6em;
+}
+.wf-checks .wf-checks-order {
+  width: 84px;
+}
+.wf-checks input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.wf-checks .mono,
+.wf-condition .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.wf-checks .wf-checks-problems td {
+  padding-top: 0;
+}
+.wf-checks .wf-item-actions {
+  flex-direction: row;
+}
+/* UXR-62: a condition as a sentence with its inputs inline. */
+.wf-condition {
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
-.wf-check .mono {
+.wf-condition-text {
+  margin: 0;
+  line-height: 2;
+}
+.wf-condition-text input {
+  display: inline-block;
+  width: auto;
+  margin: 0 4px;
+}
+.wf-condition-text input[type='number'] {
+  width: 4em;
+}
+.wf-condition-text .wf-short {
+  width: 5em;
+}
+.wf-condition-text .wf-long {
+  width: 12em;
+}
+.wf-condition-value {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
+}
+.wf-condition-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.wf-link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  min-height: 24px;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 12px;
+  align-self: flex-start;
 }
 .wf-toggle {
   display: flex;

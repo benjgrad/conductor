@@ -15,6 +15,7 @@ import {
   type ChecksIssue,
   type ChecksValue,
 } from '../workflow/ChecksFields.js';
+import { useToast } from '../components/Toast.js';
 import { ProposalsPanel } from '../workflow/ProposalsPanel.js';
 import { checkListIssues, type CheckListIssue } from '../workflow/transitions.js';
 import '../workflow/workflow.css';
@@ -179,6 +180,7 @@ function RepoDetailView({
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const toast = useToast();
 
   const load = useCallback(() => {
     api.getRepoChecks(repo).then(
@@ -228,6 +230,7 @@ function RepoDetailView({
         checks: value.checks,
         ...(value.setup !== undefined ? { setup: value.setup } : {}),
       });
+      toast('Checks saved');
       onChanged();
       if (dto.repo !== repo) onSelect(dto.repo);
       else load();
@@ -245,6 +248,7 @@ function RepoDetailView({
     try {
       await api.clearRepoChecks(detail.repo);
       setConfirmClear(false);
+      toast('Checks cleared');
       onChanged();
       load();
     } catch (err) {

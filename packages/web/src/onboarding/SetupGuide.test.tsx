@@ -8,6 +8,7 @@ import { SIGHUP_COMMAND } from './content.js';
 import { newVisitForTests } from './dismissal.js';
 import { SetupGuide } from './SetupGuide.js';
 import { POLL_MS, TROUBLESHOOT_AFTER_MS } from './steps.js';
+import { ToastProvider } from '../components/Toast.js';
 
 // UX-8: the guided first-machine setup.
 
@@ -32,7 +33,11 @@ const APP_WAIT = { timeout: 4_000 } as const; // under vitest's 5 s test timeout
 
 function renderGuide(api: MockApi = createMockApi({ machines: 'none' })) {
   const handlers = { onDismiss: vi.fn(), onCreateTicket: vi.fn(), onFinish: vi.fn() };
-  render(<SetupGuide api={api} first {...handlers} />);
+  render(
+    <ToastProvider>
+      <SetupGuide api={api} first {...handlers} />
+    </ToastProvider>,
+  );
   return { api, ...handlers };
 }
 
@@ -504,14 +509,15 @@ describe('accessibility (NFR-3)', () => {
     );
   });
 
-  it('announces a copy through an aria-live region', async () => {
+  it('confirms a copy in the shared toast (UXR-55)', async () => {
     const writeText = vi.fn(() => Promise.resolve());
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     renderGuide();
     fireEvent.click(screen.getByRole('tab', { name: 'macOS' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Copy Check Node.js (v22 or higher)' }));
-    const live = await screen.findByText('Check Node.js (v22 or higher) copied to the clipboard');
-    expect(live.getAttribute('aria-live')).toBe('polite');
-    expect(writeText).toHaveBeenCalledWith('node -v');
+    fireEvent.click(screen.getByRole('button', { name: 'Copy Check git' }));
+    const toast = screen.getByRole('status', { name: 'Notifications' });
+    expect(toast.getAttribute('aria-live')).toBe('polite');
+    await waitFor(() => expect(toast.textContent).toBe('Copied'));
+    expect(writeText).toHaveBeenCalledWith('git --version');
   });
 });

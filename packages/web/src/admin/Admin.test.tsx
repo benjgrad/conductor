@@ -44,6 +44,10 @@ describe('admin page', () => {
     fireEvent.click(form.getByRole('button', { name: 'New invite' }));
 
     const dialog = within(await screen.findByRole('dialog', { name: 'Invite link' }));
+    // UXR-55: the shared toast confirms it.
+    expect(screen.getByRole('status', { name: 'Notifications' }).textContent).toBe(
+      'Invite created',
+    );
     const url = dialog.getByLabelText<HTMLInputElement>('Link').value;
     expect(url).toMatch(/^http:\/\/localhost\/signup\?invite=mock-/);
     expect(dialog.getByText(/shown once/)).toBeTruthy();

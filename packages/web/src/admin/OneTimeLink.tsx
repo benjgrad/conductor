@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useCopy } from '../components/use-copy.js';
 import { formatExpiry } from './format.js';
 
 interface OneTimeLinkProps {
@@ -14,18 +15,12 @@ interface OneTimeLinkProps {
  * parent keeps the URL in state only while this is open; Close drops it.
  */
 export function OneTimeLink({ title, url, expiresAt, onClose }: OneTimeLinkProps) {
-  const [copied, setCopied] = useState<'yes' | 'failed' | null>(null);
+  const [failed, setFailed] = useState(false);
+  const copyText = useCopy();
 
+  // UXR-55: success is the shared "Copied" toast.
   function copy() {
-    const clipboard = typeof navigator === 'undefined' ? undefined : navigator.clipboard;
-    if (!clipboard) {
-      setCopied('failed');
-      return;
-    }
-    clipboard.writeText(url).then(
-      () => setCopied('yes'),
-      () => setCopied('failed'),
-    );
+    void copyText(url).then((ok) => setFailed(!ok));
   }
 
   return (
@@ -37,10 +32,10 @@ export function OneTimeLink({ title, url, expiresAt, onClose }: OneTimeLinkProps
       <div className="one-time-url">
         <input readOnly value={url} aria-label="Link" onFocus={(e) => e.currentTarget.select()} />
         <button type="button" onClick={copy}>
-          {copied === 'yes' ? 'Copied' : 'Copy'}
+          Copy
         </button>
       </div>
-      {copied === 'failed' && <p className="error">Couldn't copy. Select the link and copy it.</p>}
+      {failed && <p className="error" role="alert">Couldn't copy. Select the link and copy it.</p>}
       <button type="button" onClick={onClose}>
         Close
       </button>

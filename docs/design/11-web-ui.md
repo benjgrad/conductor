@@ -175,6 +175,15 @@ The Details tab has a **Steps** section between Action and Result (`steps.ts`): 
 
 Conductor installs to a phone's Home Screen and opens standalone (`manifest.webmanifest`; iOS Safari: Share → Add to Home Screen). The status bar is `default` (opaque), so the web view starts below it: under `black-translucent` iOS blurred the top bar even though the document never scrolls on a phone ([§Breakpoint](#breakpoint)). The top bar keeps its `env(safe-area-inset-top)` padding (0 under an opaque bar) for Safari tabs and landscape, and `html` is painted `--panel` so any inset band matches the top bar. iOS reads the status-bar style when the app is added, so an installed copy must be removed and re-added to pick up a change. On iOS, push notifications work only from the installed app: in a Safari tab the account menu says so. In the installed app the menu also says when the server has push off or the permission is denied. The in-tab notifications (UX-14) go through the service worker, because iOS has no `new Notification()`. iOS suspends a backgrounded app, though, so only Web Push reaches a phone whose app is closed. Web Push details: [10 §Web Push](10-contracts.md#web-push).
 
+## Feedback toasts (UXR-55)
+
+A completed action is confirmed in one shared toast (`components/Toast.tsx`). `ToastProvider` wraps the whole app (`App`), so every page has it, and it always renders one region: `role="status"`, `aria-live="polite"`, `aria-atomic`, named "Notifications". The live region exists before any text arrives. The toast sits fixed at the bottom centre, above the safe area, and ignores the pointer. It shows one message at a time: a new one replaces the old one and restarts the timer. It clears after 3 s (`TOAST_MS`), and the same text twice is re-keyed so it is announced again. `useToast()` outside a provider does nothing.
+
+It is for success only. A failure stays inline next to what failed (`role="alert"`). The messages:
+- **Copy** (`useCopy`): "Copied", from every Copy button (install and setup commands, invite and reset links, IDs in Details, check output). The button keeps the label "Copy".
+- **Save**: "Saved as v4" (workflow), "Ticket saved", "Checks saved" / "Checks cleared" (repo checks), "Repo rules saved" (machine), "Schedule created" / "Schedule saved".
+- **Admin**: "Invite created", "Invite revoked", "Reset link created", "<email> unlocked", "<email> disabled". The one-time link still opens as before.
+
 ## Not covered
 
 - Browser Back doesn't close the panel or the sheet.

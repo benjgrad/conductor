@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { ApiRequestError, type ApiClient } from '../api/client.js';
 import { authErrorMessage } from '../auth/errors.js';
 import { formatTime, inviteStatus } from './format.js';
+import { useToast } from '../components/Toast.js';
 import { OneTimeLink } from './OneTimeLink.js';
 import './admin.css';
 
@@ -46,6 +47,7 @@ export function AdminPage({ api, me }: AdminPageProps) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmDisable, setConfirmDisable] = useState<AdminUserRow | null>(null);
   const isAdmin = me.user.is_admin;
+  const toast = useToast();
 
   const load = useCallback(() => {
     Promise.all([api.listUsers(), api.listInvites()]).then(
@@ -63,11 +65,13 @@ export function AdminPage({ api, me }: AdminPageProps) {
     if (isAdmin) load();
   }, [isAdmin, load]);
 
-  /** Runs one admin action, then reloads both lists. */
-  async function act<T>(fn: () => Promise<T>): Promise<T | undefined> {
+  /** Runs one admin action, then reloads both lists. On success, `done` is the toast (UXR-55). */
+  async function act<T>(fn: () => Promise<T>, done: string): Promise<T | undefined> {
     setActionError(null);
     try {
-      return await fn();
+      const result = await fn();
+      toast(done);
+      return result;
     } catch (err) {
       setActionError(authErrorMessage(err));
       return undefined;
@@ -77,7 +81,7 @@ export function AdminPage({ api, me }: AdminPageProps) {
   }
 
   async function resetLink(user: AdminUserRow) {
-    const created = await act(() => api.createResetLink(user.id));
+    const created = await act(() => api.createResetLink(user.id), 'Reset link created');
     if (created) setLink({ title: 'Reset link', url: created.url, expiresAt: created.expires_at });
   }
 
@@ -118,7 +122,7 @@ export function AdminPage({ api, me }: AdminPageProps) {
             onClick={() => {
               const user = confirmDisable;
               setConfirmDisable(null);
-              void act(() => api.disableUser(user.id));
+              void act(() => api.disableUser(user.id), `${user.email} disabled`);
             }}
           >
             Disable
@@ -177,7 +181,7 @@ export function AdminPage({ api, me }: AdminPageProps) {
                           <button
                             type="button"
                             aria-label={`Unlock ${u.email}`}
-                            onClick={() => void act(() => api.unlockUser(u.id))}
+                            onClick={() => void act(() => api.unlockUser(u.id), `${u.email} unlocked`)}
                           >
                             Unlock
                           </button>
@@ -203,7 +207,7 @@ export function AdminPage({ api, me }: AdminPageProps) {
             <h3>Invites</h3>
             <NewInviteForm
               onCreate={async (req) => {
-                const created = await act(() => api.createInvite(req));
+                const created = await act(() => api.createInvite(req), 'Invite created');
                 if (created) {
                   setLink({
                     title: 'Invite link',
@@ -241,7 +245,7 @@ export function AdminPage({ api, me }: AdminPageProps) {
                             <button
                               type="button"
                               aria-label={`Revoke invite for ${inv.email ?? 'anyone'}`}
-                              onClick={() => void act(() => api.revokeInvite(inv.id))}
+                              onClick={() => void act(() => api.revokeInvite(inv.id), 'Invite revoked')}
                             >
                               Revoke
                             </button>

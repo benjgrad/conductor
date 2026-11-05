@@ -143,12 +143,11 @@
 .wf-edge.error .wf-arrow {
   fill: var(--ask);
 }
-.wf-edge:focus {
-  outline: none;
-}
-.wf-edge:focus-visible .wf-line {
+/* UXR-58: focus is a dashed halo on the hit path, unlike selection's solid line. */
+.wf-edge:focus-visible .wf-hit {
   stroke: var(--accent);
-  stroke-width: 3.5;
+  stroke-opacity: 0.35;
+  stroke-dasharray: 6 4;
 }
 
 /* Labels */
@@ -404,25 +403,25 @@ main[hidden] {
 }
 
 /* Columns diagram (ADR-0010): one lane per board column. */
-.wf-lane rect {
+.wf-lane .wf-lane-box {
   fill: var(--panel);
   stroke: var(--border);
   stroke-width: 1.4;
 }
-.wf-lane-queued rect {
+.wf-lane-queued .wf-lane-box {
   fill: color-mix(in srgb, var(--panel) 80%, var(--bg));
   stroke-dasharray: 4 3;
 }
-.wf-lane-human rect {
+.wf-lane-human .wf-lane-box {
   fill: var(--ask-bg);
   stroke: var(--ask);
   stroke-dasharray: 5 3;
 }
-.wf-lane-event rect {
+.wf-lane-event .wf-lane-box {
   fill: var(--warn-bg);
   stroke: var(--warn);
 }
-.wf-lane-terminal rect {
+.wf-lane-terminal .wf-lane-box {
   fill: color-mix(in srgb, var(--ok) 10%, var(--panel));
   stroke: var(--ok);
 }
@@ -455,30 +454,35 @@ main[hidden] {
 .wf-lane.selectable {
   cursor: pointer;
 }
-.wf-lane.selectable:hover rect,
-.wf-lane.selected rect {
+.wf-lane.selectable:hover .wf-lane-box,
+.wf-lane.selected .wf-lane-box {
   stroke: var(--accent);
   stroke-width: 2.4;
   stroke-dasharray: none;
 }
-.wf-lane:focus {
-  outline: none;
-}
-.wf-lane:focus-visible rect {
+/* UXR-58: focus is an offset dashed ring outside the box; selection stays the solid border. */
+.wf-lane .wf-focus-ring {
+  fill: none;
   stroke: var(--accent);
-  stroke-width: 3.2;
+  stroke-width: 2;
+  stroke-dasharray: 5 3;
+  visibility: hidden;
+  pointer-events: none;
 }
-.wf-lane.error rect {
+.wf-lane:focus-visible .wf-focus-ring {
+  visibility: visible;
+}
+.wf-lane.error .wf-lane-box {
   stroke: var(--ask);
   stroke-width: 2.4;
 }
-.wf-lane.current rect {
+.wf-lane.current .wf-lane-box {
   stroke: var(--accent);
   stroke-width: 3;
   stroke-dasharray: none;
   fill: color-mix(in srgb, var(--accent) 14%, var(--panel));
 }
-.wf-lane.checking rect {
+.wf-lane.checking .wf-lane-box {
   stroke: var(--accent);
   stroke-width: 2;
   stroke-dasharray: 6 4;
@@ -628,40 +632,78 @@ main[hidden] {
   font-size: 12px;
 }
 
-/* Transitions (ADR-0011): the column panel's list and the arrow panel */
-.wf-transitions {
+/* Transitions as rows (UXR-64, UXR-65): the arrow panel's list and the column panel's */
+.wf-transition-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+.wf-transition-row {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 13px;
+}
+.wf-transition-meta {
+  color: var(--muted);
   font-size: 12px;
 }
-.wf-transition {
-  font-size: 12px;
-  padding: 1px 6px;
-}
-.wf-transition.error,
-.wf-transition-tabs button.error {
+.wf-transition-row.error,
+.wf-advanced button.error {
   border-color: var(--ask);
   color: var(--ask);
 }
-.wf-transition-tabs {
+.wf-transition-row.error .wf-transition-meta {
+  color: var(--ask);
+}
+/* The panel head (UXR-66): back, breadcrumb, close */
+.wf-back {
+  flex: none;
+}
+.wf-crumbs {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+}
+.wf-crumbs ol {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-wrap: wrap;
+  align-items: baseline;
   gap: 4px;
 }
-.wf-transition-tabs button {
+.wf-crumb {
   font-size: 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 1px 4px;
+  border-color: transparent;
+  background: none;
+  color: var(--accent);
 }
-.wf-transition-tabs button[aria-pressed='true'] {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+.wf-crumb-sep,
+.wf-crumbs [aria-current='page'] {
+  color: var(--muted);
+}
+.wf-advanced > button {
+  font-size: 12px;
+  border-color: transparent;
+  background: none;
+  padding: 2px 0;
+}
+.wf-advanced > div:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
 }
 .wf-kinds {
   border: none;

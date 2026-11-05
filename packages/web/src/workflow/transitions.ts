@@ -14,6 +14,8 @@ import {
   type OnUnmet,
   type Transition,
   type TransitionAction,
+  TICKET_KINDS,
+  type TransitionActor,
   type TransitionObject,
   type TransitionRequires,
   type WorkflowDefinition,
@@ -49,6 +51,53 @@ export function getTransitionObject(
 /** The transitions out of `from` that go to `goto` (one arrow), in definition order. */
 export function arrowTransitions(def: WorkflowDefinition, from: string, goto: string): string[] {
   return transitionNames(def, from).filter((n) => getTransitionObject(def, from, n)?.goto === goto);
+}
+
+// ------------------------------------------------------------------ lists (UXR-64)
+
+/** Who takes a transition, for a list row ("The agent"). */
+export const ACTOR_LABEL: Record<TransitionActor, string> = {
+  agent: 'The agent',
+  human: 'A person',
+  system: 'The system',
+};
+
+/** How many rules a transition requires: checks, review items, actions, enabled conditions. */
+export function ruleCount(t: TransitionObject): number {
+  const r = t.requires ?? {};
+  return (
+    (r.checks?.length ?? 0) +
+    (r.review?.items.length ?? 0) +
+    (r.actions?.length ?? 0) +
+    (r.conditions ?? []).filter(conditionEnabled).length +
+    (t.requirements?.items.length ?? 0)
+  );
+}
+
+export const rulesText = (n: number) => (n === 0 ? 'No rules' : n === 1 ? '1 rule' : `${n} rules`);
+
+/** The ticket kinds a transition applies to, for a list row. */
+export function kindsText(t: TransitionObject): string {
+  const kinds = t.kinds ?? TICKET_KINDS;
+  if (kinds.length === 0) return 'No tickets';
+  if (TICKET_KINDS.every((k) => kinds.includes(k))) return 'All tickets';
+  return listJoin(kinds.map((k) => `${k[0]!.toUpperCase()}${k.slice(1)}`)) + ' only';
+}
+
+/**
+ * Where Back goes from transition `name` out of `from`: its arrow when that arrow stands for
+ * several transitions (the list), else its column (a lone arrow, `$return_to`, a self-loop).
+ */
+export function parentOf(
+  def: WorkflowDefinition,
+  from: string,
+  name: string,
+): { kind: 'arrow'; from: string; to: string } | { kind: 'column'; state: string } {
+  const t = getTransitionObject(def, from, name);
+  if (t !== null && t.goto !== from && has(def, t.goto)) {
+    if (arrowTransitions(def, from, t.goto).length > 1) return { kind: 'arrow', from, to: t.goto };
+  }
+  return { kind: 'column', state: from };
 }
 
 function withOn(

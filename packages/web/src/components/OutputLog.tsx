@@ -631,6 +631,7 @@ function ToolGroup({
       <button
         type="button"
         className="tool-group-summary"
+        title={open ? 'Hide output' : 'Show output'}
         aria-expanded={open}
         aria-controls={bodyId}
         onClick={onToggle}

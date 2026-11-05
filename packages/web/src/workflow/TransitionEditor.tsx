@@ -19,15 +19,16 @@ import { useId, useState, type ReactNode } from 'react';
 import { ChecksFields, checksFieldSuffixes, ItemActions, swap } from './ChecksFields.js';
 import { ConditionRow } from './ConditionFields.js';
 import { columnStates, columnTitle, humanStates, type ColumnIssue } from './columns.js';
+import { EditorHead, type Crumb } from './EditorHead.js';
 import {
   ACTION_SHORT,
   ACTION_TEXT,
-  arrowTransitions,
   CONDITION_TEXT,
   conditionOfType,
   DEFAULT_CONDITION_POLL,
   describeTransition,
   getTransitionObject,
+  parentOf,
   patchTransition,
   removeTransition,
   renameTransition,
@@ -38,12 +39,12 @@ import {
   type TransitionSection,
 } from './transitions.js';
 
-// The arrow's panel (ADR-0011 §Editor and board): every transition between two columns, and the
-// selected one: a sentence saying what it does (UXR-60), then its fields in collapsible sections:
-// who and when (name, title, target, when, actor, kinds, question, notify); requires (checks with
-// setup, review items, conductor's actions, external conditions with their timeout); and what
-// happens when they are not met, right after them. Every change goes straight into the caller's
-// draft.
+// One transition's panel (ADR-0011 §Editor and board): a breadcrumb back to its column and arrow
+// (UXR-66), a sentence saying what it does (UXR-60), then its fields in collapsible sections: who
+// and when (title, target, when, actor, kinds, question, notify, and its name under Advanced, renamed
+// on blur or Enter: agents report it, UXR-65); requires (checks with setup, review items,
+// conductor's actions, external conditions with their timeout); and what happens when they are not
+// met, right after them. Removing it asks first. Every change goes straight into the caller's draft.
 
 const MAX_ITEMS = 30;
 const MAX_CONDITIONS = 10;
@@ -60,45 +61,44 @@ export interface TransitionEditorProps {
   onSelect: (name: string) => void;
   /** The transition was removed. */
   onRemoved: () => void;
+  /** Open a column's panel (the first crumb). */
+  onSelectColumn: (state: string) => void;
+  /** Open an arrow's list (the middle crumb, when the arrow stands for several). */
+  onSelectArrow: (from: string, to: string) => void;
+  /** Back to the parent: the arrow's list, or the column. */
+  onBack: () => void;
   onClose: () => void;
 }
 
 const KIND_TEXT: Record<TicketKind, string> = { work: 'Work', personal: 'Personal' };
 
 export function TransitionEditor(props: TransitionEditorProps) {
-  const { definition, from, name, onSelect, onClose } = props;
+  const { definition, from, name, onClose, onSelectColumn, onSelectArrow, onBack } = props;
   const t = getTransitionObject(definition, from, name);
   if (t === null) return null;
-  const group = arrowTransitions(definition, from, t.goto);
-  const to = t.goto === RETURN_TO ? 'the column that asked' : columnTitle(definition, t.goto);
-  const problemsOf = (n: string) =>
-    props.issues.filter((i) => i.transition?.from === from && i.transition.name === n).length;
+  const parent = parentOf(definition, from, name);
+  const fromTitle = columnTitle(definition, from);
+  const arrow = `${fromTitle} → ${columnTitle(definition, t.goto)}`;
+  const title = transitionTitle(name, t);
+  const crumbs: Crumb[] = [
+    { label: fromTitle, onClick: () => onSelectColumn(from) },
+    ...(parent.kind === 'arrow'
+      ? [{ label: arrow, onClick: () => onSelectArrow(from, t.goto) }]
+      : []),
+    { label: title },
+  ];
   return (
     <aside className="wf-editor" aria-label="Transition">
-      <div className="wf-editor-head">
-        <h3>
-          {columnTitle(definition, from)} → {to}
-        </h3>
-        <button type="button" onClick={onClose} aria-label="Close transition">
-          ×
-        </button>
-      </div>
-      {group.length > 1 && (
-        <ul className="wf-transition-tabs" aria-label="Transitions on this arrow">
-          {group.map((n) => (
-            <li key={n}>
-              <button
-                type="button"
-                aria-pressed={n === name}
-                className={problemsOf(n) > 0 ? 'error' : undefined}
-                onClick={() => onSelect(n)}
-              >
-                {n}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      <EditorHead
+        crumbs={crumbs}
+        title={title}
+        back={{
+          label: `Back to ${parent.kind === 'arrow' ? arrow : fromTitle}`,
+          onClick: onBack,
+        }}
+        closeLabel="Close transition"
+        onClose={onClose}
+      />
       <p className="wf-summary" aria-label="Summary" aria-live="polite">
         {bold(describeTransition(definition, from, name))}
       </p>
@@ -142,6 +142,16 @@ function TransitionForm({
 }: TransitionEditorProps & { transition: TransitionObject }) {
   const uid = useId();
   const [nameText, setNameText] = useState(name);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  // UXR-65: agents report the name, so a rename applies when the field is left (or on Enter),
+  // never per keystroke.
+  const commitName = () => {
+    if (nameText !== name && transitionNameProblem(definition, from, name, nameText) === null) {
+      onChange(renameTransition(definition, from, name, nameText));
+      onSelect(nameText);
+    }
+  };
   const state = definition.states[from]!;
   const base = `states.${from}.on.${name}`;
   const shownPaths = new Set<string>();
@@ -178,6 +188,8 @@ function TransitionForm({
   const actions = r.actions ?? [];
 
   const nameProblem = transitionNameProblem(definition, from, name, nameText);
+  const nameInvalid = nameText !== name && nameProblem !== null;
+  const advancedShown = advancedOpen || nameInvalid;
   const inferred = transitionActor(definition, from, name, { ...t, actor: undefined });
   const kinds = t.kinds ?? TICKET_KINDS;
   const toggleKind = (k: TicketKind, on: boolean) => {
@@ -201,7 +213,7 @@ function TransitionForm({
   // UXR-63: each section starts open when it has content or a problem. A click overrides that,
   // until a new problem appears in it (which opens it again).
   const errors: Record<TransitionSection, number> = {
-    who: nameText !== name && nameProblem !== null ? 1 : 0,
+    who: nameInvalid ? 1 : 0,
     checks: 0,
     review: 0,
     actions: 0,
@@ -264,20 +276,6 @@ function TransitionForm({
     <>
       <Section title="Who and when" status={whoStatus} {...section('who')}>
         <div className="wf-unmet">
-          <label htmlFor={`${uid}-name`}>Name</label>
-          <input
-            id={`${uid}-name`}
-            className="mono"
-            value={nameText}
-            onChange={(e) => {
-              const next = e.target.value;
-              setNameText(next);
-              if (transitionNameProblem(definition, from, name, next) === null && next !== name) {
-                onChange(renameTransition(definition, from, name, next));
-                onSelect(next);
-              }
-            }}
-          />
           <label htmlFor={`${uid}-title`}>Title</label>
           <input
             id={`${uid}-title`}
@@ -298,11 +296,6 @@ function TransitionForm({
             ))}
           </select>
         </div>
-        {nameText !== name && nameProblem !== null && (
-          <p className="wf-field-error" role="alert">
-            {nameProblem}
-          </p>
-        )}
         {at('')}
         {at('.title')}
         {at('.goto')}
@@ -368,6 +361,48 @@ function TransitionForm({
           Notify me when this is taken
         </label>
         {at('.notify')}
+
+        <div className="wf-advanced">
+          <button
+            type="button"
+            aria-expanded={advancedShown}
+            aria-controls={`${uid}-advanced`}
+            className={nameInvalid ? 'error' : undefined}
+            onClick={() => setAdvancedOpen(!advancedShown)}
+          >
+            <span className="wf-chevron" aria-hidden="true">
+              {advancedShown ? '▾' : '▸'}
+            </span>
+            Advanced
+          </button>
+          <div id={`${uid}-advanced`} hidden={!advancedShown}>
+            <div className="wf-unmet">
+              <label htmlFor={`${uid}-name`}>Name</label>
+              <input
+                id={`${uid}-name`}
+                className="mono"
+                value={nameText}
+                aria-describedby={`${uid}-name-note`}
+                onChange={(e) => setNameText(e.target.value)}
+                onBlur={commitName}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    commitName();
+                  } else if (e.key === 'Escape') setNameText(name);
+                }}
+              />
+            </div>
+            <p id={`${uid}-name-note`} className="muted wf-note">
+              Agents report this name; prompts and history refer to it.
+            </p>
+            {nameInvalid && (
+              <p className="wf-field-error" role="alert">
+                {nameProblem}
+              </p>
+            )}
+          </div>
+        </div>
       </Section>
 
       <h4>Requires</h4>
@@ -621,18 +656,34 @@ function TransitionForm({
         </Section>
       )}
 
-      <div>
-        <button
-          type="button"
-          className="danger"
-          onClick={() => {
-            onChange(removeTransition(definition, from, name));
-            onRemoved();
-          }}
-        >
-          Remove transition
-        </button>
-      </div>
+      {confirmRemove ? (
+        <div className="wf-confirm" role="alertdialog" aria-label="Remove transition">
+          <span>
+            Remove {transitionTitle(name, t)}? Agents can no longer take <code>{name}</code>. You
+            can still discard the draft.
+          </span>
+          <button
+            type="button"
+            className="danger"
+            onClick={() => {
+              setConfirmRemove(false);
+              onChange(removeTransition(definition, from, name));
+              onRemoved();
+            }}
+          >
+            Remove
+          </button>
+          <button type="button" onClick={() => setConfirmRemove(false)} autoFocus>
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <div>
+          <button type="button" className="danger" onClick={() => setConfirmRemove(true)}>
+            Remove transition
+          </button>
+        </div>
+      )}
     </>
   );
   // Anything on this transition not shown next to a field (e.g. a server rule) goes at the end.

@@ -604,6 +604,12 @@ export const BoardCardSchema = z.object({
   priority: z.number().int(),
   workflow_id: z.string(),
   workflow_state: z.string().nullable(),
+  /**
+   * UXR-30: the title of `workflow_state` in the session's pinned definition (`stateTitle`: its
+   * `title`, else the name humanized). null when there is no state, the state is a synthetic
+   * gate-step / review label, or the definition is unknown; absent ≡ an older server.
+   */
+  state_title: z.string().nullable().optional(),
   status: SessionStatusSchema.nullable(),
   /** A column id of `BoardResponse.columns` (ADR-0010: `queued` or a state name). */
   column: BoardColumnSchema,
@@ -1576,6 +1582,12 @@ export function toInputRequestDto(row: InputRequestLike): InputRequestDto {
  * left open drops off the card (TD-079). `updated_at` = the later of the ticket's and the
  * session's. `view`: the board's columns and the session's definition (ADR-0010, `placeCard`).
  */
+/** UXR-30: `BoardCard.state_title`; null for no state, a synthetic label or an unknown def. */
+export function stateTitleOfCard(def: CardView['def'], state: string | null): string | null {
+  if (state === null || def === null || def.states[state] === undefined) return null;
+  return stateTitle(def, state);
+}
+
 export function toBoardCard(
   ticket: CardTicketLike,
   session: CardSessionLike | null,
@@ -1594,6 +1606,7 @@ export function toBoardCard(
     priority: ticket.priority,
     workflow_id: ticket.workflow_id,
     workflow_state: session?.workflow_state ?? null,
+    state_title: stateTitleOfCard(view.def, session?.workflow_state ?? null),
     status: session?.status ?? null,
     column: place.column,
     badges: place.badges,

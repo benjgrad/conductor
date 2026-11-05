@@ -5,7 +5,7 @@ import {
   FOLLOW_UPS_MAX,
   type WorkflowDefinition,
 } from '@conductor/shared';
-import { useId, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import {
   columnTitle,
   entryLines,
@@ -35,6 +35,15 @@ export interface ColumnEditorProps {
   onSelectTransition: (name: string) => void;
   onAddTransition: () => void;
   onClose: () => void;
+  /**
+   * UXR-67: the column's place and removal. `onMove` moves it one place (absent: no Move
+   * buttons); `canMove` says which way it can go; `removalProblems` says why it can't be removed
+   * (empty: Remove is enabled); `onRemove` removes it (absent: no Remove button).
+   */
+  onMove?: (by: -1 | 1) => void;
+  canMove?: { left: boolean; right: boolean };
+  removalProblems?: readonly string[];
+  onRemove?: () => void;
 }
 
 export const FOLD_NOTICE = 'Saved as transition requirements';
@@ -54,8 +63,13 @@ export function ColumnEditor({
   onSelectTransition,
   onAddTransition,
   onClose,
+  onMove,
+  canMove,
+  removalProblems = [],
+  onRemove,
 }: ColumnEditorProps) {
   const uid = useId();
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const s = definition.states[state];
   if (!s) return null;
   const title = columnTitle(definition, state);
@@ -215,6 +229,73 @@ export function ColumnEditor({
             </button>
           </div>
         </>
+      )}
+
+      {(onMove || onRemove) && (
+        <section aria-label="Column place">
+          <h4>Place</h4>
+          {onMove && (
+            <div className="wf-place-buttons">
+              <button type="button" disabled={!canMove?.left} onClick={() => onMove(-1)}>
+                ← Move left
+              </button>
+              <button type="button" disabled={!canMove?.right} onClick={() => onMove(1)}>
+                Move right →
+              </button>
+            </div>
+          )}
+          {onRemove && (
+            <>
+              <div>
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={removalProblems.length > 0}
+                  aria-describedby={removalProblems.length > 0 ? `${uid}-why-not` : undefined}
+                  onClick={() => setConfirmRemove(true)}
+                >
+                  Remove column
+                </button>
+              </div>
+              {removalProblems.length > 0 && (
+                <div id={`${uid}-why-not`} className="muted wf-note">
+                  {title} can’t be removed:
+                  <ul aria-label="Why it can’t be removed">
+                    {removalProblems.map((p) => (
+                      <li key={p}>{p}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {confirmRemove && removalProblems.length === 0 && (
+                <div
+                  className="wf-confirm"
+                  role="alertdialog"
+                  aria-label="Remove column"
+                  aria-describedby={`${uid}-remove-text`}
+                >
+                  <p id={`${uid}-remove-text`}>
+                    Remove {title} and the transitions out of it? Saving checks again that no ticket
+                    is in it.
+                  </p>
+                  <button type="button" onClick={() => setConfirmRemove(false)} autoFocus>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => {
+                      setConfirmRemove(false);
+                      onRemove();
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </section>
       )}
 
       {s.entry !== undefined && (

@@ -109,6 +109,14 @@ export function segIntersectsBox(a: Point, b: Point, box: Box): boolean {
   return x1 <= box.x + box.w && box.x <= x2 && y1 <= box.y + box.h && box.y <= y2;
 }
 
+/** UXR-67: the lane under a point of the diagram (a transition drawn onto it), else null. */
+export function laneAt(layout: LanesLayout, p: Point): string | null {
+  const hit = layout.lanes.find(
+    (l) => p.x >= l.x && p.x <= l.x + l.w && p.y >= l.y && p.y <= l.y + l.h,
+  );
+  return hit?.lane.id ?? null;
+}
+
 export const boxesOverlap = (a: Box, b: Box) =>
   a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 

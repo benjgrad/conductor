@@ -1158,3 +1158,90 @@ main[hidden] {
   max-width: min(48ch, 100%);
   text-overflow: ellipsis;
 }
+
+/* UXR-67: the shape controls: "+" between columns, the handle that draws a transition, and its
+   "Goes to…" menu. Both controls are SVG buttons; the global :focus-visible ring marks focus. */
+.wf-add-column,
+.wf-draw-handle {
+  cursor: pointer;
+}
+.wf-add-column circle {
+  fill: var(--panel);
+  stroke: var(--border);
+  stroke-width: 1.5;
+}
+.wf-add-column text {
+  fill: var(--muted);
+  font-size: 15px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.wf-add-column:hover circle,
+.wf-add-column:focus-visible circle {
+  stroke: var(--accent);
+}
+.wf-add-column:hover text,
+.wf-add-column:focus-visible text {
+  fill: var(--accent);
+}
+.wf-draw-handle {
+  touch-action: none;
+}
+.wf-draw-handle circle {
+  fill: var(--panel);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+.wf-draw-handle path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.4;
+  pointer-events: none;
+}
+.wf-draw-handle:hover circle,
+.wf-draw-handle:focus-visible circle,
+.wf-draw-handle[aria-expanded='true'] circle {
+  fill: var(--accent-bg);
+  stroke-width: 2.4;
+}
+.wf-lanes.drawing {
+  cursor: crosshair;
+}
+.wf-lanes.drawing .wf-lane .wf-lane-box {
+  stroke-dasharray: 4 3;
+}
+.wf-lanes.drawing .wf-lane:hover .wf-lane-box {
+  stroke: var(--accent);
+  stroke-width: 2.4;
+  stroke-dasharray: none;
+}
+.wf-draw-line {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  pointer-events: none;
+}
+.wf-goes-to {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.wf-place-buttons {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.wf-add-column .wf-kinds,
+.wf-kinds {
+  border: none;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.wf-kind {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}

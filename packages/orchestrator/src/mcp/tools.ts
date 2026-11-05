@@ -1475,7 +1475,15 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         { latest: res.latest },
       );
     }
-    if (!res.ok) return fail(res.code, 'workflow definition is invalid');
+    if (!res.ok) {
+      return fail(res.code, 'workflow definition is invalid', {
+        errors: res.errors.map((e) => ({
+          rule: e.rule,
+          path: pathString(e.path),
+          message: e.message,
+        })),
+      });
+    }
     return ok({
       id: res.id,
       version: res.version,

@@ -15,7 +15,7 @@ import {
   type TransitionRequires,
   type WorkflowDefinition,
 } from '@conductor/shared';
-import { useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import {
   ChecksFields,
   checksFieldSuffixes,
@@ -83,6 +83,8 @@ export interface TransitionEditorProps {
   /** Back to the parent: the arrow's list, or the column. */
   onBack: () => void;
   onClose: () => void;
+  /** UXR-67: a just-created transition: its Title gets the focus. */
+  focusTitle?: boolean;
 }
 
 const KIND_TEXT: Record<TicketKind, string> = { work: 'Work', personal: 'Personal' };
@@ -156,9 +158,16 @@ function TransitionForm({
   onDefer,
   onReveal,
   onRevealUnder,
+  focusTitle,
   transition: t,
 }: TransitionEditorProps & { transition: TransitionObject }) {
   const uid = useId();
+  const titleRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (focusTitle) titleRef.current?.focus();
+    // Once, when a new transition opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const { list: reviewList, focusNew: focusReview } = useFocusNew<HTMLOListElement>('textarea');
   const { list: conditionList, focusNew: focusCondition } = useFocusNew<HTMLOListElement>(
     'input, select, textarea, button',
@@ -300,6 +309,7 @@ function TransitionForm({
         <div className="wf-unmet">
           <label htmlFor={`${uid}-title`}>Title</label>
           <input
+            ref={titleRef}
             id={`${uid}-title`}
             value={t.title ?? ''}
             placeholder={transitionTitle(name, undefined)}

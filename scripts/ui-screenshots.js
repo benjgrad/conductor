@@ -169,9 +169,12 @@ const VIEWPORTS = [
         'detail-permission',
         'detail-done',
         'detail-done-steps',
+        'detail-done-insight',
+        'insights',
+        'insights-full',
         'detail-checks',
       ],
-      dark: ['board', 'detail', ...REQUEST_SHOTS],
+      dark: ['board', 'detail', 'insights', ...REQUEST_SHOTS],
     },
   },
 ];
@@ -298,6 +301,16 @@ const SCREENS = [
     },
   },
   {
+    // UXR-84 (FR-3): its Details tab, scrolled to the analyst's session insight.
+    id: 'detail-done-insight',
+    path: '/#/',
+    act: async (page) => {
+      await openCard(page, 'Rename user.fullname');
+      await clickNamed(page, 'tab', 'Details');
+      await page.locator('.session-insight').scrollIntoViewIfNeeded();
+    },
+  },
+  {
     id: 'composer-focused',
     path: '/#/',
     act: async (page) => {
@@ -365,6 +378,9 @@ const SCREENS = [
   { id: 'board-permission', path: '/#/' },
   { id: 'detail-permission', path: '/#/', act: (page) => openCard(page, PERMISSION_CARD) },
   { id: 'machines', path: '/#/machines' },
+  // UXR-84: the advisor's metrics, findings and frictions (mock-insights.ts), and the whole page.
+  { id: 'insights', path: '/#/insights' },
+  { id: 'insights-full', path: '/#/insights', fullPage: true },
   // UXR-47: the machine drawer (a Sheet) on the machine with problems (api/mock-data.ts).
   {
     id: 'machine-drawer',

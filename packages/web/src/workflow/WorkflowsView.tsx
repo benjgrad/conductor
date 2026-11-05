@@ -64,6 +64,8 @@ export interface WorkflowsViewProps {
   api: ApiClient;
   /** The workflow id with unsaved changes, or null; the app guards navigation with it. */
   onDirtyChange?: (dirty: DirtyDraft | null) => void;
+  /** UXR-84: a change proposal to open (`#/workflows?proposal=<id>`). */
+  proposalId?: string | null | undefined;
 }
 
 const ID = CONDUCTOR_WORKFLOW_ID;
@@ -73,7 +75,7 @@ type Selection =
   | { kind: 'arrow'; from: string; to: string }
   | { kind: 'transition'; from: string; name: string };
 
-export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
+export function WorkflowsView({ api, onDirtyChange, proposalId = null }: WorkflowsViewProps) {
   /** null = latest. */
   const [version, setVersion] = useState<number | null>(null);
   const [detail, setDetail] = useState<WorkflowDetail | null>(null);
@@ -626,6 +628,7 @@ export function WorkflowsView({ api, onDirtyChange }: WorkflowsViewProps) {
         <ProposalsPanel
           api={api}
           dirty={dirty}
+          initialOpenId={proposalId}
           onHighlight={setProposalHighlight}
           onWorkflowApplied={() => {
             // Unsaved edits stay; the panel warned that saving them stores the draft (made from

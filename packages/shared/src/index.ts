@@ -59,6 +59,7 @@ export * from './advisor/check-history.js';
 export * from './advisor/insight.js';
 export * from './advisor/diff.js';
 export * from './advisor/proposal.js';
+export * from './advisor/insights-api.js';
 
 export const PACKAGE_NAME = '@conductor/shared';
 

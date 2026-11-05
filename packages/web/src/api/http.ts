@@ -26,6 +26,10 @@ import {
   RepoCheckRunsResponseSchema,
   RepoChecksHealthResponseSchema,
   ChangeProposalDetailSchema,
+  FindingsResponseSchema,
+  ProcessMetricsResponseSchema,
+  ProcessReportResponseSchema,
+  SessionInsightResponseSchema,
   ChangeProposalListResponseSchema,
   RepoChecksDtoSchema,
   RepoChecksListResponseSchema,
@@ -463,6 +467,33 @@ export function createHttpApi(opts: HttpApiOptions = {}): ApiClient {
         'POST',
         API_PATHS.changeProposalReview(encodeURIComponent(id)),
         {},
+      ),
+
+    getProcessMetrics: (o) => {
+      const q = new URLSearchParams({ window_days: String(o.windowDays), group_by: o.groupBy });
+      if (o.repo !== undefined) q.set('repo', o.repo);
+      if (o.workflowId !== undefined) q.set('workflow_id', o.workflowId);
+      return request(ProcessMetricsResponseSchema, 'GET', `${API_PATHS.insightsMetrics}?${q}`);
+    },
+
+    listFindings: (o) => {
+      const q = new URLSearchParams({ window_days: String(o.windowDays) });
+      if (o.cursor !== undefined) q.set('cursor', String(o.cursor));
+      return request(FindingsResponseSchema, 'GET', `${API_PATHS.insightsFindings}?${q}`);
+    },
+
+    getProcessReport: (o) =>
+      request(
+        ProcessReportResponseSchema,
+        'GET',
+        `${API_PATHS.insightsReport}?window_days=${o.windowDays}`,
+      ),
+
+    getSessionInsight: (sessionId) =>
+      request(
+        SessionInsightResponseSchema,
+        'GET',
+        API_PATHS.insightSession(encodeURIComponent(sessionId)),
       ),
 
     listWorkflows: () => request(WorkflowListResponseSchema, 'GET', API_PATHS.workflows),

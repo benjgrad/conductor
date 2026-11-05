@@ -158,6 +158,14 @@ export const API_PATHS = {
   changeProposalReject: (id: string) => `/api/change-proposals/${id}/reject`,
   /** ADR-0033 P3: POST `{}` → ChangeProposalDetail (with `review`). */
   changeProposalReview: (id: string) => `/api/change-proposals/${id}/review`,
+  /** UXR-84: GET `?window_days=&group_by=&repo=&workflow_id=` → ProcessMetricsResponse. */
+  insightsMetrics: '/api/insights/metrics',
+  /** UXR-84: GET `?window_days=&repo=&workflow_id=&cursor=` → FindingsResponse. */
+  insightsFindings: '/api/insights/findings',
+  /** UXR-84: GET `?window_days=&repo=&workflow_id=` → ProcessReportResponse. */
+  insightsReport: '/api/insights/report',
+  /** UXR-84: GET → SessionInsightResponse (`:id` is the session id), or 404. */
+  insightSession: (id: string) => `/api/insights/sessions/${id}`,
   boardStream: '/api/stream/board',
   sessionOutputStream: (id: string) => `/api/stream/sessions/${id}/output`,
   /** Daemon ↔ orchestrator WebSocket (03), served on the same HTTP server as the API. */

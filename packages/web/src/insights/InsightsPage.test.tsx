@@ -37,7 +37,7 @@ describe('formatMinutes', () => {
 describe('InsightsPage', () => {
   it('shows time per state as median and p90 bars, with failures', async () => {
     setup();
-    const table = await screen.findByRole('table', {}, { timeout: 5_000 });
+    const table = (await screen.findAllByRole('table', {}, { timeout: 5_000 }))[0]!;
     const qa = within(within(table).getByRole('rowheader', { name: 'qa' }).closest('tr')!);
     expect(qa.getByText('Median 4h')).toBeTruthy();
     expect(qa.getByText('p90 7h')).toBeTruthy();
@@ -54,6 +54,16 @@ describe('InsightsPage', () => {
     expect(gate.getByText('Waiting on others · up to 3 d')).toBeTruthy();
   });
 
+  it('counts review replies sent as a saved reply (ADR-0037 P5)', async () => {
+    setup();
+    const replies = await screen.findByRole('table', { name: 'Saved replies' }, { timeout: 5_000 });
+    const row = within(
+      within(replies).getByRole('rowheader', { name: 'resync_main' }).closest('tr')!,
+    );
+    expect(row.getByText('2')).toBeTruthy();
+    expect(screen.getByText(/1 reply was typed by hand/)).toBeTruthy();
+  });
+
   it('labels gate keys in words', () => {
     expect(groupKeyLabel('implementing.personal_pr_ready_for_review')).toBe(
       'Implementing → personal PR ready for review (gate)',
@@ -68,7 +78,7 @@ describe('InsightsPage', () => {
     const { api } = setup();
     const metrics = vi.spyOn(api, 'getProcessMetrics');
     const report = vi.spyOn(api, 'getProcessReport');
-    await screen.findByRole('table', {}, { timeout: 5_000 });
+    await screen.findAllByRole('table', {}, { timeout: 5_000 });
     fireEvent.change(screen.getByRole('combobox', { name: 'Group by' }), {
       target: { value: 'repo' },
     });

@@ -10,7 +10,7 @@ import {
   removeInstruction,
   renameInstruction,
   setInstructionText,
-  useLabel,
+  describeUse,
 } from './instructions.js';
 
 interface InstructionsEditorProps {
@@ -95,7 +95,8 @@ function InstructionRow({
   const [refused, setRefused] = useState<string[] | null>(null);
   const problem = instructionSlugProblem(definition, slug, slugText);
   const commit = () => {
-    if (slugText !== slug && problem === null) onChange(renameInstruction(definition, slug, slugText));
+    if (slugText !== slug && problem === null)
+      onChange(renameInstruction(definition, slug, slugText));
   };
   return (
     <li className="wf-instruction-row">
@@ -137,7 +138,7 @@ function InstructionRow({
           onClick={() => {
             const r = removeInstruction(definition, slug);
             if (r.ok) onChange(r.definition);
-            else setRefused(r.uses.map((u) => useLabel(definition, u)));
+            else setRefused(r.uses.map((u) => describeUse(definition, u)));
           }}
         >
           Delete

@@ -550,7 +550,10 @@ export function validateTransitions(def: WorkflowDefinition): TransitionIssue[] 
         // ADR-0037 rule 21: a saved instruction's ref names one.
         const ref = u.instruction === undefined ? null : instructionRef(u.instruction);
         if (ref !== null && (ref.slug === null || def.instructions?.[ref.slug] === undefined)) {
-          add(`${ub}.instruction`, `saved instruction "${ref.slug ?? u.instruction}" doesn't exist`);
+          add(
+            `${ub}.instruction`,
+            `saved instruction "${ref.slug ?? u.instruction}" doesn't exist`,
+          );
         }
       }
       // ADR-0037 rule 21: saved replies only on a person's button with a text box.

@@ -411,32 +411,32 @@ function TransitionForm({
           ((t.actor ?? inferred) === 'human' &&
             t.text !== undefined &&
             instructionsOf(definition).length > 0)) && (
-            <fieldset className="wf-kinds">
-              <legend>Saved replies (fill the text box)</legend>
-              {[
-                ...new Set([...instructionsOf(definition).map(([k]) => k), ...(t.presets ?? [])]),
-              ].map((slug) => (
-                <label key={slug} className="wf-toggle">
-                  <input
-                    type="checkbox"
-                    checked={(t.presets ?? []).includes(slug)}
-                    onChange={(e) => {
-                      const now = t.presets ?? [];
-                      onChange(
-                        setPresets(
-                          definition,
-                          from,
-                          name,
-                          e.target.checked ? [...now, slug] : now.filter((x) => x !== slug),
-                        ),
-                      );
-                    }}
-                  />
-                  {slug}
-                </label>
-              ))}
-            </fieldset>
-          )}
+          <fieldset className="wf-kinds">
+            <legend>Saved replies (fill the text box)</legend>
+            {[
+              ...new Set([...instructionsOf(definition).map(([k]) => k), ...(t.presets ?? [])]),
+            ].map((slug) => (
+              <label key={slug} className="wf-toggle">
+                <input
+                  type="checkbox"
+                  checked={(t.presets ?? []).includes(slug)}
+                  onChange={(e) => {
+                    const now = t.presets ?? [];
+                    onChange(
+                      setPresets(
+                        definition,
+                        from,
+                        name,
+                        e.target.checked ? [...now, slug] : now.filter((x) => x !== slug),
+                      ),
+                    );
+                  }}
+                />
+                {slug}
+              </label>
+            ))}
+          </fieldset>
+        )}
         {at('.presets')}
 
         <div className="wf-advanced">

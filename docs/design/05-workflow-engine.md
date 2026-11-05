@@ -213,7 +213,10 @@ The schema and the validator are in `packages/shared` (T1): every field below pa
   - It is a `held` phase before `checks`. The card shows "Queued behind #N".
   - Release happens on the same triggers as a watch. `hold_timeout` goes to `on_unmet.else`.
   - With `overlap: planned_files`, it holds only when both sessions have a planning `files` list and the lists intersect. A session without `files` neither holds nor is held.
-- **`instructions`** (P5): a workflow-level map. `$instructions.<slug>` refs are accepted in `on_unmet.instruction` and `on_broken.instruction`, and as `presets` on human buttons with `text`. Refs resolve against the pinned version.
+- **`instructions`** (P5, available since T8): a workflow-level map. `$instructions.<slug>` refs are accepted in `on_unmet.instruction` and `on_broken.instruction`, and as `presets` on human buttons with `text`.
+  - A ref resolves when the move is taken, against the session's pinned version (`resolveInstruction(st.def, …)` in `stepUnmet`), and the text is frozen into the feedback the prompt shows. The prompt never shows a ref. The watch engine (T6) resolves `on_broken.instruction` the same way.
+  - A button's `presets` reach the card as `HumanTransitionOption.presets` (`{slug, label, text}`), resolved from the pinned version: chips that fill the text box, which stays editable. `get_ticket` lists them too.
+  - Insights counts review replies that equal a saved reply (trimmed) per reply, and the ones typed by hand where one was offered (`ProcessMetrics.presets`).
 - **`notify`** (P6): a workflow-level `{default, engine_moves, coalesce?}`. Transition `notify` widens to `boolean | never | when_waiting_on_you | always | inherit`.
   - Without the block, legacy mode applies: every input_request pushes, plus `notify: true` transitions.
   - The engine decides whether a move notifies; the notifier coalesces.
@@ -282,7 +285,7 @@ Rules 10–14 are the transition rules of [ADR-0011](../adr/0011-transition-rule
     - So is an **enabled** condition whose type isn't in `AVAILABLE_CONDITION_TYPES` (`….requires.conditions.<i>`). It is an error, not a warning, because the editor has no warning channel. Declare it with `enabled: false` until M5.
     - A transition into the start state can't carry `requires` (`….requires`).
     - An agent state's known tool alias outside `AVAILABLE_TOOL_ALIASES` (`states.<s>.tools.<i>`), or result kind outside `AVAILABLE_RESULT_KINDS` (`states.<s>.result.<i>`), is "not available yet" (`checkAvailability`, ADR-0038 under ADR-0037's pattern). `pages` (alias and kind) is available.
-    - So is an ADR-0037 primitive outside `AVAILABLE_WORKFLOW_FEATURES` (none yet), at its path: `watch` (`states.<s>.watch`), `no_checks` (`….conditions.<i>.no_checks`), `requires.concurrency`, the `instructions` map (`instructions`), `$instructions.<slug>` refs and `presets`, the `notify` block (`notify`) and string transition `notify` values, `handoff: true`. A watch's enabled conditions are checked like `requires.conditions`.
+    - So is an ADR-0037 primitive outside `AVAILABLE_WORKFLOW_FEATURES` (only `instructions` so far: the map, its refs and `presets`), at its path: `watch` (`states.<s>.watch`), `no_checks` (`….conditions.<i>.no_checks`), `requires.concurrency`, the `instructions` map (`instructions`), `$instructions.<slug>` refs and `presets`, the `notify` block (`notify`) and string transition `notify` values, `handoff: true`. A watch's enabled conditions are checked like `requires.conditions`.
     - Every "not available yet" refusal is `checkAvailability`'s; `validateWorkflow(def, {allowUnavailable: true})` skips them all (tests and drafts only; no save path sets it). The start-state refusal above is not one of them.
 
 Rules 15–16 are the review-and-merge rules of [ADR-0020](../adr/0020-review-and-merge-flow.md) (M2r-T02, the same file). The PR actions `inspect_pr`, `merge_pr` and `close_pr` are available (`AVAILABLE_TRANSITION_ACTIONS`), so rule 14 doesn't refuse them. Neither rule fires on a definition without the new fields or `merge_pr` (v1, v2):

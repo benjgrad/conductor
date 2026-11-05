@@ -103,6 +103,24 @@ export interface AdvisorRows {
    * over the session's context; counted from the result, so swept hosted pages still count).
    */
   pages?: PageCountRow[];
+  /** ADR-0037 P5: texts people wrote where a saved reply was on offer. */
+  preset_texts?: PresetTextRow[];
+}
+
+/**
+ * ADR-0037 P5: a text a person wrote on a session whose pinned definition offers saved replies
+ * (`presets`): a human transition's `text`, or the answer to an input request (the review
+ * composer answers that way). `presets` are the saved replies it could have used, resolved.
+ */
+export interface PresetTextRow {
+  session_id: string;
+  ticket_id: string;
+  workflow_id: string;
+  source: 'transition' | 'answer';
+  /** The human transition taken; null for an answer. */
+  transition: string | null;
+  text: string;
+  presets: { slug: string; text: string }[];
 }
 
 /** ADR-0038: the pages one agent state of one session attached. */
@@ -519,6 +537,24 @@ export const ProcessMetricsSchema = z.object({
       by_ticket: z.array(z.object({ ticket_id: z.string(), count: z.number().int() })),
     })
     .optional(),
+  /**
+   * ADR-0037 P5: per saved reply, how many texts people sent were exactly it (after trim), and
+   * how many texts where saved replies were on offer matched none (`typed`). Absent when no one
+   * wrote where one was offered.
+   */
+  presets: z
+    .object({
+      uses: z.array(
+        z.object({
+          workflow_id: z.string(),
+          slug: z.string(),
+          used: z.number().int().nonnegative(),
+          examples: z.array(z.string()),
+        }),
+      ),
+      typed: z.number().int().nonnegative(),
+    })
+    .optional(),
 });
 export type ProcessMetrics = z.infer<typeof ProcessMetricsSchema>;
 
@@ -655,6 +691,53 @@ export function processMetrics(rows: AdvisorRows, groupBy: AdvisorGroupBy): Proc
     more_groups: Math.max(0, all.length - GROUPS_MAX),
     transitions: loopCounts(rows.moves).transitions.slice(0, TRANSITIONS_MAX),
     ...pageCounts(rows.pages ?? []),
+    ...presetUses(rows.preset_texts ?? []),
+  };
+}
+
+/**
+ * ADR-0037 P5: `{presets}` for ProcessMetrics. A text that equals one of its saved replies (both
+ * trimmed) counts for that reply (every reply offered is listed, used or not); one that matches
+ * none counts as typed. Nothing when no row offered a saved reply.
+ */
+export function presetUses(rows: readonly PresetTextRow[]): Pick<ProcessMetrics, 'presets'> {
+  const offered = rows.filter((r) => r.presets.length > 0);
+  if (offered.length === 0) return {};
+  const uses = new Map<
+    string,
+    { workflow_id: string; slug: string; used: number; tickets: Set<string> }
+  >();
+  let typed = 0;
+  for (const r of offered) {
+    const text = r.text.trim();
+    let matched = false;
+    for (const p of r.presets) {
+      const u = bucket(uses, `${r.workflow_id}\u0000${p.slug}`, () => ({
+        workflow_id: r.workflow_id,
+        slug: p.slug,
+        used: 0,
+        tickets: new Set<string>(),
+      }));
+      if (!matched && p.text.trim() === text) {
+        matched = true;
+        u.used++;
+        u.tickets.add(r.ticket_id);
+      }
+    }
+    if (!matched) typed++;
+  }
+  return {
+    presets: {
+      uses: [...uses.values()]
+        .sort((a, b) => b.used - a.used || a.slug.localeCompare(b.slug))
+        .map((u) => ({
+          workflow_id: u.workflow_id,
+          slug: u.slug,
+          used: u.used,
+          examples: [...u.tickets].slice(0, EXAMPLES_MAX),
+        })),
+      typed,
+    },
   };
 }
 

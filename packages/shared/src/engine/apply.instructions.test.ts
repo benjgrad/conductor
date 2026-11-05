@@ -10,7 +10,7 @@ import type { Effect } from './types.js';
 
 /** qaDefinition with `pr_ready.on_unmet.instruction` = `instruction` and `instructions`. */
 function withInstruction(instruction: string, texts?: Record<string, string>): WorkflowDefinition {
-  const raw = structuredClone(qaDefinition()) as WorkflowDefinition;
+  const raw = structuredClone<WorkflowDefinition>(qaDefinition());
   const t = raw.states.implementing!;
   if (t.type !== 'agent') throw new Error('implementing is an agent state');
   const pr = t.on!.pr_ready;
@@ -35,7 +35,9 @@ function failCheck(h: Harness) {
 
 describe('ADR-0037 P5 instruction refs in on_unmet', () => {
   it('a ref resolves to the instruction text in the prompt, never the ref', () => {
-    const h = new Harness(withInstruction('$instructions.fix', { fix: 'Fix it v1.' })).claimAndStart();
+    const h = new Harness(
+      withInstruction('$instructions.fix', { fix: 'Fix it v1.' }),
+    ).claimAndStart();
     const r = failCheck(h);
     expect(h.snap.workflow_state).toBe('implementing');
     const prompt = startOf(r.effects)!.prompt;

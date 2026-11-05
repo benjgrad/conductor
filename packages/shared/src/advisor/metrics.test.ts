@@ -9,6 +9,7 @@ import {
   median,
   percentile,
   permissionStats,
+  presetUses,
   processMetrics,
   ProcessMetricsSchema,
   rankFindings,
@@ -569,5 +570,44 @@ describe('what is counted (the 2026-11 metric fixes)', () => {
         .map((f) => f.id)
         .sort(),
     ).toEqual(['slow_state:implementing.ready_for_testing', 'slow_state:waiting_external']);
+  });
+});
+
+describe('presetUses (ADR-0037 P5)', () => {
+  const RESYNC = { slug: 'resync_main', text: 'Merge main, then finish.' };
+  const FIX = { slug: 'fix', text: 'Fix it.' };
+  const row = (ticket: string, text: string, presets = [RESYNC, FIX]) => ({
+    session_id: `s-${ticket}`,
+    ticket_id: ticket,
+    workflow_id: 'conductor',
+    source: 'transition' as const,
+    transition: 'request_changes',
+    text,
+    presets,
+  });
+
+  it('counts texts equal to a saved reply (trimmed) per reply, and the rest as typed', () => {
+    expect(
+      presetUses([
+        row('t1', '  Merge main, then finish.\n'),
+        row('t2', 'Merge main, then finish.'),
+        row('t3', 'Please merge main first'),
+        row('t4', 'Fix it.'),
+        row('t5', 'anything', []),
+      ]),
+    ).toEqual({
+      presets: {
+        uses: [
+          { workflow_id: 'conductor', slug: 'resync_main', used: 2, examples: ['t1', 't2'] },
+          { workflow_id: 'conductor', slug: 'fix', used: 1, examples: ['t4'] },
+        ],
+        typed: 1,
+      },
+    });
+  });
+
+  it('nothing when no saved reply was offered', () => {
+    expect(presetUses([])).toEqual({});
+    expect(presetUses([row('t1', 'x', [])])).toEqual({});
   });
 });

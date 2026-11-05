@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   instructionUses,
+  offeredPresets,
   presetLabel,
   resolveInstruction,
   resolvePresets,
@@ -63,11 +64,16 @@ describe('instructions helpers', () => {
     expect(transitionPresets(def, 'nope', 'x')).toEqual([]);
     expect(resolvePresets(def, {})).toEqual([]);
     expect(presetLabel('fix_and_resubmit')).toBe('Fix and resubmit');
+    expect(offeredPresets(def).map((p) => p.slug)).toEqual(['resync_main']);
   });
 
   it('instructionUses lists refs and presets with their paths', () => {
     expect(instructionUses(def)).toEqual([
-      { path: ['states', 'work', 'on', 'ship', 'on_unmet', 'instruction'], slug: 'fix', kind: 'ref' },
+      {
+        path: ['states', 'work', 'on', 'ship', 'on_unmet', 'instruction'],
+        slug: 'fix',
+        kind: 'ref',
+      },
       {
         path: ['states', 'review', 'on', 'request_changes', 'presets', 0],
         slug: 'resync_main',

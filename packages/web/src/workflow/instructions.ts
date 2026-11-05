@@ -101,7 +101,7 @@ export function usesOf(def: WorkflowDefinition, slug: string): InstructionUse[] 
 }
 
 /** A use in words, for the delete refusal: "Implementing → PR ready (instruction)". */
-export function useLabel(def: WorkflowDefinition, use: InstructionUse): string {
+export function describeUse(def: WorkflowDefinition, use: InstructionUse): string {
   const [, state, kind, name] = use.path as [string, string, string, string | undefined];
   const column = def.states[state]?.title ?? state;
   if (kind === 'on' && name !== undefined) {

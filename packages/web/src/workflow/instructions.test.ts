@@ -8,7 +8,7 @@ import {
   renameInstruction,
   setInstructionText,
   setPresets,
-  useLabel,
+  describeUse,
 } from './instructions.js';
 import { validateTransitions } from './transitions.js';
 
@@ -32,7 +32,12 @@ const base = (): WorkflowDefinition =>
             goto: 'review',
             title: 'Ship',
             requires: { checks: [{ name: 'Tests', cmd: 'npm test' }] },
-            on_unmet: { goto: 'work', instruction: '$instructions.resync_main', retries: 2, else: 'review' },
+            on_unmet: {
+              goto: 'work',
+              instruction: '$instructions.resync_main',
+              retries: 2,
+              else: 'review',
+            },
           },
           ask_user: 'review',
         },
@@ -41,7 +46,12 @@ const base = (): WorkflowDefinition =>
         type: 'human',
         title: 'Review',
         on: {
-          request_changes: { goto: '$return_to', actor: 'human', text: 'required', presets: ['resync_main'] },
+          request_changes: {
+            goto: '$return_to',
+            actor: 'human',
+            text: 'required',
+            presets: ['resync_main'],
+          },
           done: 'done',
         },
       },
@@ -64,7 +74,9 @@ describe('the Instructions list', () => {
     expect(edited.instructions).toEqual({ resync_main: 'Merge main.', instruction: 'Rebase.' });
     const renamed = renameInstruction(edited, 'resync_main', 'sync');
     expect(Object.keys(renamed.instructions!)).toEqual(['sync', 'instruction']);
-    expect(onOf(renamed, 'work').ship!.on_unmet).toMatchObject({ instruction: '$instructions.sync' });
+    expect(onOf(renamed, 'work').ship!.on_unmet).toMatchObject({
+      instruction: '$instructions.sync',
+    });
     expect(onOf(renamed, 'review').request_changes!.presets).toEqual(['sync']);
     // The input is not changed.
     expect(onOf(edited, 'review').request_changes!.presets).toEqual(['resync_main']);
@@ -82,12 +94,15 @@ describe('the Instructions list', () => {
     const refused = removeInstruction(base(), 'resync_main');
     expect(refused.ok).toBe(false);
     if (refused.ok) return;
-    expect(refused.uses.map((u) => useLabel(base(), u))).toEqual([
+    expect(refused.uses.map((u) => describeUse(base(), u))).toEqual([
       'Work → Ship (instruction)',
       'Review → Request changes (saved reply)',
     ]);
     const unused = setPresets(
-      { ...base(), states: { ...base().states, work: { ...base().states.work!, on: { ask_user: 'review' } } } } as WorkflowDefinition,
+      {
+        ...base(),
+        states: { ...base().states, work: { ...base().states.work!, on: { ask_user: 'review' } } },
+      } as WorkflowDefinition,
       'review',
       'request_changes',
       [],

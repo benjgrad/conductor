@@ -2,6 +2,7 @@ import {
   checkIdentity,
   defKey,
   inputClass,
+  offeredPresets,
   pageLimitsOf,
   pagesOfContext,
   repoChecksKey,
@@ -17,6 +18,7 @@ import {
   type MoveRow,
   type PageCountRow,
   type PermissionRow,
+  type PresetTextRow,
   type RepoChecks,
   type WorkflowDefinition,
 } from '@conductor/shared';
@@ -197,9 +199,12 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
     answered_at: Date | null;
     transition: string | null;
     origin_from: string | null;
+    answer: string | null;
+    answered_by: string | null;
   }>(
     'SELECT i.session_id, s.ticket_id, t.repo, s.machine_id, s.workflow_id, s.workflow_version, ' +
       'i.return_to AS state, i.kind::text AS kind, i.created_at, i.answered_at, ' +
+      'i.answer, i.answered_by, ' +
       "se.payload->>'transition' AS transition, se.payload->>'from' AS origin_from " +
       `${SCOPE.replace(
         'FROM session s',
@@ -281,13 +286,9 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
 
   const pages = await loadPageCounts(db, moveRows, defOf);
 
-  return {
-    since: since.toISOString(),
-    truncated,
-    ...(pages.length > 0 ? { pages } : {}),
-    moves: moveRows,
-    checks: checkRows,
-    inputs: inputs.rows.map((r): InputRow => ({
+  const inputRows = inputs.rows.map((r) => ({
+    raw: r,
+    row: {
       session_id: r.session_id,
       ticket_id: r.ticket_id,
       repo: r.repo,
@@ -301,7 +302,36 @@ export async function loadAdvisorRows(db: Queryable, f: AdvisorFilter): Promise<
         { kind: r.kind, transition: r.transition, from: r.origin_from ?? r.state },
         defOf(r.workflow_id, r.workflow_version),
       ),
-    })),
+    } satisfies InputRow,
+  }));
+  // ADR-0037 P5: a person's answer to a hand-off (the review: Request changes on the board posts
+  // the transition, which answers the request with its text; the panel's composer answers it
+  // directly), where the pinned definition offers saved replies.
+  const presetTexts: PresetTextRow[] = [];
+  for (const { raw, row } of inputRows) {
+    if (row.class !== 'handoff' || raw.answer === null || raw.answered_by === null) continue;
+    const def = defOf(raw.workflow_id, raw.workflow_version);
+    const presets = def === undefined ? [] : offeredPresets(def);
+    if (presets.length === 0) continue;
+    presetTexts.push({
+      session_id: raw.session_id,
+      ticket_id: raw.ticket_id,
+      workflow_id: raw.workflow_id,
+      source: 'answer',
+      transition: null,
+      text: raw.answer,
+      presets,
+    });
+  }
+
+  return {
+    since: since.toISOString(),
+    truncated,
+    ...(pages.length > 0 ? { pages } : {}),
+    ...(presetTexts.length > 0 ? { preset_texts: presetTexts } : {}),
+    moves: moveRows,
+    checks: checkRows,
+    inputs: inputRows.map((r) => r.row),
     waits: waitsOf(
       [...defs.values()],
       [...moveRows.map((m) => stateKey(m.to)), ...checkRows.map((c) => c.state)],

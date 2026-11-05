@@ -123,3 +123,12 @@ export function transitionPresets(def: Def, from: string, name: string): Resolve
   const raw = state.on?.[name];
   return raw === undefined ? [] : resolvePresets(def, transitionObject(raw));
 }
+
+/** Every saved reply a definition offers on any of its buttons, resolved, once per slug. */
+export function offeredPresets(def: Def): ResolvedPreset[] {
+  const out = new Map<string, ResolvedPreset>();
+  for (const { t } of transitionsAt(def)) {
+    for (const p of resolvePresets(def, t)) out.set(p.slug, p);
+  }
+  return [...out.values()];
+}

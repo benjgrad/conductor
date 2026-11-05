@@ -2,6 +2,7 @@ import type { ScheduleDto, ScheduleWarning } from '@conductor/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { ApiRequestError, errorMessage, type ApiClient } from '../api/client.js';
 import { TICKET_KIND_LABELS } from '../components/format.js';
+import { useToast } from '../components/Toast.js';
 import {
   describeSchedule,
   formatNextRun,
@@ -48,6 +49,7 @@ export function SchedulesPage({ api, scheduleId, onOpen, onDirtyChange }: Schedu
   const [list, setList] = useState<List>({ kind: 'loading' });
   const [notes, setNotes] = useState<Record<string, RowNote>>({});
   const [creating, setCreating] = useState(false);
+  const toast = useToast();
 
   const load = useCallback(() => {
     api.listSchedules().then(
@@ -187,6 +189,7 @@ export function SchedulesPage({ api, scheduleId, onOpen, onDirtyChange }: Schedu
           schedule={creating ? null : editing}
           onClose={closeSheet}
           onSaved={(dto) => {
+            toast(creating ? 'Schedule created' : 'Schedule saved');
             replaceRow(dto);
             closeSheet();
           }}

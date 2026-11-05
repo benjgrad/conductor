@@ -28,7 +28,36 @@
   color: var(--muted);
   font-weight: 600;
 }
+/* UXR-53: what is true of a user or invite, as chips instead of Yes/No columns. */
+.chips {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.chip-admin {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.chip-locked {
+  border-color: var(--warn);
+  background: var(--warn-bg);
+}
+.chip-disabled {
+  color: var(--muted);
+}
 .invite-open {
+  border-color: var(--ok);
   color: var(--ok);
 }
 .invite-used,
@@ -51,6 +80,16 @@
 .new-invite label.checkbox {
   flex-direction: row;
   align-items: center;
+  gap: 6px;
+  /* UXR-53: the same box as the inputs beside it (their padding and border), so the bottom-aligned
+     row lines the checkbox up with the inputs' middle. */
+  padding: var(--space-1) 0;
+  border: 1px solid transparent;
+}
+@media (pointer: coarse), (max-width: 699.98px) {
+  .new-invite label.checkbox {
+    min-height: var(--tap);
+  }
 }
 .new-invite input[type='number'] {
   width: 70px;

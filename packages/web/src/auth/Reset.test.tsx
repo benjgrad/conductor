@@ -46,7 +46,9 @@ describe('/reset', () => {
 
     fill(formEl, 'a brand new passphrase', 'a brand new passphrase');
     fireEvent.click(submit);
-    expect((await screen.findByRole('status')).textContent).toMatch(/Password changed/);
+    // Its own status line, not the app's shared toast region (UXR-55), which is also role=status.
+    const done = await screen.findByText(/Password changed/);
+    expect(done.closest('[role="status"]')?.getAttribute('aria-label')).not.toBe('Notifications');
     expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/signin');
     await api.login({ email: MOCK_ADMIN.email, password: 'a brand new passphrase' });
   });

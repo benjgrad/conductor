@@ -91,7 +91,9 @@ describe('DTOs', () => {
     };
     expect(roundTrip(ProcessReportResponseSchema, report)).toEqual(report);
     // An older server's totals (no handoffs / stops) still parse, as zeros.
-    const { handoffs: _h, stops: _s, ...oldTotals } = report.totals;
+    const oldTotals: Record<string, unknown> = { ...report.totals };
+    delete oldTotals.handoffs;
+    delete oldTotals.stops;
     expect(ProcessReportResponseSchema.parse({ ...report, totals: oldTotals }).totals).toEqual(
       report.totals,
     );

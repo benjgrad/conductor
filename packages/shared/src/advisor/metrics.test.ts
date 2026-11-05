@@ -561,7 +561,8 @@ describe('what is counted (the 2026-11 metric fixes)', () => {
       ceiling_minutes: null,
     });
     // Without the definition's word for it, the same stays are slow.
-    const { waits: _w, ...plain } = rows;
+    const plain: AdvisorRows = { ...rows };
+    delete plain.waits;
     expect(
       rankFindings(plain)
         .filter((f) => f.category === 'slow_state')

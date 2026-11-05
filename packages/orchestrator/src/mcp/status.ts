@@ -80,6 +80,8 @@ export interface StatusLineInput {
    * `question: true` gate, `isHandoffTransition`), not a question: "the agent reports".
    */
   handoff?: boolean;
+  /** The ticket's own status: a cancelled ticket's session is `failed`, but it was cancelled. */
+  ticketStatus?: TicketStatus;
 }
 
 /** One sentence a voice assistant can read out as it is. */
@@ -89,6 +91,7 @@ export function statusLine({
   stateTitle,
   minutesInState,
   handoff,
+  ticketStatus,
 }: StatusLineInput): string {
   const where = stateTitle ?? card.workflow_state ?? 'its current step';
   const names = card.human_transitions.map((t) => t.name).join(', ');
@@ -123,6 +126,9 @@ export function statusLine({
         ? 'Its machine was lost; it waits for a machine to pick it up again.'
         : 'Queued: waiting for a machine to start it.';
     case 'nobody':
+      if (ticketStatus === 'cancelled') {
+        return 'Cancelled: nothing runs. reopen_ticket sends it back to the agent.';
+      }
       return card.status === 'failed'
         ? 'Failed: nothing runs. reopen_ticket sends it back to the agent.'
         : 'Finished: nothing runs.';

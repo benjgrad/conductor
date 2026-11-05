@@ -587,7 +587,15 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
       }
       const d = (await loadSessionDetail(db, outputBus, sid))!;
       const gated = approvalGated(d);
-      const waiting = waitingOn(d.card, { gated });
+      // A cancel ends the session as `failed` and the ticket as `cancelled`: report the ticket's
+      // outcome, so column, state and status agree (the card shows it in Done, badged cancelled).
+      const ticketStatus = (
+        await db.query<{ status: TicketStatus }>('SELECT status FROM ticket WHERE id = $1', [t.id])
+      ).rows[0]?.status;
+      const waiting = waitingOn(
+        d.card,
+        ticketStatus !== undefined ? { gated, ticketStatus } : { gated },
+      );
       const state = d.card.workflow_state;
       const req = d.card.input_request;
       const line = statusLine({
@@ -595,6 +603,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         waiting,
         stateTitle: state === null ? null : (d.workflow.states[state]?.title ?? state),
         minutesInState: (Date.now() - Date.parse(d.state_entered_at)) / 60_000,
+        ...(ticketStatus !== undefined ? { ticketStatus } : {}),
         handoff:
           req !== null &&
           inputClass(
@@ -609,7 +618,8 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
         kind: d.card.kind,
         column: d.card.column,
         state,
-        status: d.card.status,
+        status: ticketStatus === 'cancelled' ? 'cancelled' : d.card.status,
+        ...(ticketStatus !== undefined ? { ticket_status: ticketStatus } : {}),
         waiting_on: waiting,
         status_line: line,
         status_report: statusReport(d, line),
@@ -1021,6 +1031,7 @@ export function buildMcpServer(deps: ToolDeps, who: RequestAuth): McpServer {
               status_line: statusLine({
                 card: c,
                 waiting,
+                ticketStatus: statusOf.get(c.ticket_id)!,
                 // No definition here: a `…ready_for_review` transition reads as a hand-off.
                 handoff:
                   c.input_request !== null &&

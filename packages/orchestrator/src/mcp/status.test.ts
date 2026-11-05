@@ -92,6 +92,14 @@ describe('statusLine', () => {
     expect(statusLine({ card: done, waiting: 'you', handoff: true })).toBe(
       'Waiting on you: the agent reports: "I fixed the only failing test."',
     );
+    // A cancel ends the session `failed`; the ticket says it was cancelled.
+    expect(
+      statusLine({
+        card: card({ status: 'failed' }),
+        waiting: 'nobody',
+        ticketStatus: 'cancelled',
+      }),
+    ).toBe('Cancelled: nothing runs. reopen_ticket sends it back to the agent.');
     const stop = card({ status: 'needs_input', input_request: question('timeout', 'Timed out') });
     expect(statusLine({ card: stop, waiting: 'you', handoff: true })).toBe(
       'Waiting on you: a step timed out: "Timed out"',

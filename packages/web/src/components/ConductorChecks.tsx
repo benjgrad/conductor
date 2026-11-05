@@ -55,6 +55,7 @@ export const CHECK_STATUS_TEXT: Record<BoardCheckingItem['status'], string> = {
   pending: 'not yet',
   disabled: 'disabled',
   unsupported: 'not supported yet',
+  skipped: 'not checked',
 };
 
 const CHECK_ICONS: Record<BoardCheckingItem['status'], string> = {
@@ -65,6 +66,7 @@ const CHECK_ICONS: Record<BoardCheckingItem['status'], string> = {
   pending: '◻',
   disabled: '–',
   unsupported: '?',
+  skipped: '–',
 };
 
 const ERROR_LINE = /error|fail|✗|×|ERR!/i;

@@ -569,6 +569,13 @@ export const M1B_WS_FIXTURES: {
   start_session_transitions: Extract<OrchestratorToDaemon, { type: 'start_session' }>;
   run_action_evaluate_conditions: Extract<OrchestratorToDaemon, { type: 'run_action' }>;
   action_result_evaluate_conditions: Extract<DaemonToOrchestrator, { type: 'session_event' }>;
+  /** ADR-0037 T5: the new condition types, the no-CI policy, `setup` and `short_circuit`. */
+  run_action_evaluate_conditions_adr0037: Extract<OrchestratorToDaemon, { type: 'run_action' }>;
+  /** ADR-0037 T5: `mergeable` on a require_mergeable result, and a `skipped` one. */
+  action_result_evaluate_conditions_adr0037: Extract<
+    DaemonToOrchestrator,
+    { type: 'session_event' }
+  >;
 } = {
   complete_state_transition: {
     type: 'session_event',
@@ -637,6 +644,67 @@ export const M1B_WS_FIXTURES: {
           results: [
             { type: 'pr_checks_green', status: 'met', value: '3/3', detail: null },
             { type: 'pr_approvals', status: 'pending', value: '0/1', detail: null },
+          ],
+        },
+        error: null,
+      },
+    },
+  },
+  run_action_evaluate_conditions_adr0037: {
+    type: 'run_action',
+    // Fixed ids, so adding these fixtures shifts no other fixture's msg_id.
+    msg_id: '00000000-0000-4000-8000-000000370001',
+    seq: null,
+    session_id: S,
+    fencing_token: 2,
+    payload: {
+      command_id: FIXTURE_IDS.command,
+      workflow_state: 'in_review',
+      target_state: 'in_review',
+      action: 'evaluate_conditions',
+      idempotency_key: `${S}:in_review:2026-11-05T12:00:00.000Z`,
+      args: {
+        conditions: [
+          { type: 'pr_mergeable' },
+          { type: 'cmd', name: 'Merges cleanly', cmd: 'git merge-tree a b', needs: 'checkout' },
+          { type: 'pr_checks_green', no_checks: { policy: 'require_mergeable', after: '5m' } },
+        ],
+        pr_url: M1B_PR_URL,
+        branch: M1B_BRANCH,
+        short_circuit: true,
+        setup: null,
+      },
+      branch: M1B_BRANCH,
+      expected_sha: null,
+    },
+  },
+  action_result_evaluate_conditions_adr0037: {
+    type: 'session_event',
+    msg_id: '00000000-0000-4000-8000-000000370002',
+    seq: 32,
+    session_id: S,
+    fencing_token: 1,
+    payload: {
+      kind: 'action_result',
+      data: {
+        command_id: FIXTURE_IDS.command,
+        action: 'evaluate_conditions',
+        result: {
+          results: [
+            { type: 'pr_mergeable', status: 'met', value: 'mergeable', detail: null },
+            {
+              type: 'cmd',
+              status: 'failed',
+              value: 'exit 1',
+              detail: 'exit 1: CONFLICT (content)',
+            },
+            {
+              type: 'pr_checks_green',
+              status: 'skipped',
+              value: null,
+              detail: 'not checked: an earlier condition is not met',
+              mergeable: 'MERGEABLE',
+            },
           ],
         },
         error: null,

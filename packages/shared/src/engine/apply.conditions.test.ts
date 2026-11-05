@@ -641,6 +641,73 @@ const ANSWER: fc.Arbitrary<Answer> = fc.oneof(
   { weight: 2, arbitrary: fc.constant({ kind: 'silent' as const }) },
 );
 
+describe('ADR-0037 conditions in requires (T5)', () => {
+  const MERGES = {
+    type: 'cmd',
+    name: 'Merges cleanly',
+    cmd: 'git merge-tree a b',
+    needs: 'checkout',
+  };
+  const withConds = (conditions: unknown[]) =>
+    v2With((raw) => {
+      raw.states.implementing.on.ready_for_testing.requires.conditions = conditions;
+    });
+  const answer = (h: Harness, results: Record<string, unknown>[]) =>
+    h.run({
+      type: 'action.completed',
+      command_id: h.newId(),
+      action: 'evaluate_conditions',
+      result: { results } as never,
+      error: null,
+    });
+
+  it('pr_mergeable then cmd: one evaluate-all run_action; CONFLICTING → on_unmet goto, counted', () => {
+    const h = implementing(withConds([{ type: 'pr_mergeable' }, MERGES]));
+    const run = find(toConditions(h).effects, 'run_action')!;
+    expect(run.args).toMatchObject({ conditions: [{ type: 'pr_mergeable' }, MERGES] });
+    expect(run.args).not.toHaveProperty('short_circuit');
+    const r = answer(h, [
+      {
+        type: 'pr_mergeable',
+        status: 'failed',
+        value: 'conflicting',
+        detail: 'the PR conflicts with its base branch',
+      },
+      { type: 'cmd', status: 'failed', value: 'exit 1', detail: 'exit 1: CONFLICT' },
+    ]);
+    expect(r.snapshot).toMatchObject({
+      workflow_state: 'implementing',
+      retry_counters: { [KEY]: 1 },
+    });
+    const prompt = find(r.effects, 'start_session')!.prompt;
+    expect(prompt).toContain('- pr_mergeable: failed (the PR conflicts with its base branch');
+    expect(prompt).toContain('- Merges cleanly: failed (exit 1: CONFLICT');
+    expect(prompt).not.toContain('git merge-tree');
+  });
+
+  it('require_mergeable: a conflicting PR with no checks fails after the grace; pass would let it through', () => {
+    const noChecks = {
+      type: 'pr_checks_green',
+      status: 'pending',
+      value: '0/0 passed',
+      detail: null,
+    };
+    const run = (policy: string) => {
+      const h = implementing(
+        withConds([{ type: 'pr_checks_green', no_checks: { policy, after: '5m' } }]),
+      );
+      toConditions(h);
+      answer(h, [{ ...noChecks, mergeable: 'CONFLICTING' }]);
+      fire(h);
+      answer(h, [{ ...noChecks, mergeable: 'CONFLICTING' }]);
+      fire(h);
+      return answer(h, [{ ...noChecks, mergeable: 'CONFLICTING' }]);
+    };
+    expect(run('require_mergeable').snapshot.workflow_state).toBe('implementing');
+    expect(run('pass').snapshot).toMatchObject({ workflow_state: 'waiting_external', step: null });
+  });
+});
+
 describe('apply property: the conditions phase is bounded', () => {
   it('every move step with conditions ends at the target or a human within condition_timeout + one poll', () => {
     const TIMEOUT = 60 * MIN;

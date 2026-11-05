@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { SEED_IDS } from '../api/mock-data.js';
 import { createMockApi } from '../api/mock.js';
 import { App } from '../App.js';
-import { MovesList, PendingChecklist } from './transitions.js';
+import { MovesList, PendingChecklist, pendingHead, pendingProgress } from './transitions.js';
 
 afterEach(cleanup);
 
@@ -42,7 +42,9 @@ describe('pending-move checklist (ADR-0011)', () => {
       ],
     };
     render(<PendingChecklist pending={pending} />);
-    const group = within(screen.getByRole('group', { name: 'Waiting for Ready for testing' }));
+    const group = within(
+      screen.getByRole('group', { name: 'Moving to Waiting external · Ready for testing' }),
+    );
     const items = group.getAllByRole('listitem');
     expect(items.map((li) => [li.textContent, li.dataset.status])).toEqual([
       ['✓Build passes (met)', 'met'],
@@ -62,7 +64,7 @@ describe('pending-move checklist (ADR-0011)', () => {
     await renderApp();
     const card = within(cardIn('Implementing', 'Ship the /health endpoint'));
     expect(card.getByText('Work')).toBeTruthy();
-    const list = within(card.getByRole('group', { name: 'Waiting for Ready for testing' }));
+    const list = within(card.getByRole('group', { name: /^Moving to .* · Ready for testing$/ }));
     expect(list.getAllByRole('listitem')).toHaveLength(7);
     expect(list.getByText('PR approved (0/1)')).toBeTruthy();
     // `pending` supersedes the old `checking` badge.
@@ -70,18 +72,48 @@ describe('pending-move checklist (ADR-0011)', () => {
   });
 });
 
+/** Opens "Plan the garden" in the session panel; its "Move to" group. */
+async function openPanelMoves(): Promise<HTMLElement> {
+  fireEvent.click(screen.getByRole('button', { name: 'Plan the garden' }));
+  const panel = within(await screen.findByRole('complementary', { name: 'Session detail' }));
+  return panel.findByRole('group', { name: 'Move to' });
+}
+
+describe('pending-move head (UXR-30 FR-2)', () => {
+  const pending = BOARD_CARD_PENDING_FIXTURE.pending!;
+
+  it('"Moving to <column> · <transition>", then the progress; disabled items not counted', () => {
+    render(<PendingChecklist pending={pending} toTitle="Waiting external" />);
+    const group = screen.getByRole('group', {
+      name: 'Moving to Waiting external · Ready for testing',
+    });
+    expect(within(group).getByText('· 4 of 5 checks done')).toBeTruthy();
+    expect(pendingProgress(pending.items)).toBe('4 of 5 checks done');
+    expect(pendingProgress([{ label: 'x', status: 'disabled', detail: null }])).toBeNull();
+  });
+
+  it('says the title once when the transition is titled as its target', () => {
+    expect(pendingHead({ to: 'needs_input', title: 'Needs input' })).toBe('Moving to Needs input');
+    expect(pendingHead({ to: 'done', title: 'Ship it' }, 'Shipped')).toBe(
+      'Moving to Shipped · Ship it',
+    );
+  });
+});
+
 describe('human transition buttons (ADR-0011)', () => {
-  it('a Needs-input card has one button per human transition; Done posts {name} exactly', async () => {
+  it('UXR-33: a Needs-input card offers the first transition; the panel has every one', async () => {
     const { posts } = await renderApp();
     const card = within(cardIn('Needs input', 'Plan the garden'));
     expect(card.getByText('Personal')).toBeTruthy();
     const buttons = within(card.getByRole('group', { name: 'Move to' })).getAllByRole('button');
-    expect(buttons.map((b) => b.textContent)).toEqual([
+    expect(buttons.map((b) => b.textContent)).toEqual(['Back with this answer…']);
+    const group = within(await openPanelMoves());
+    expect(group.getAllByRole('button').map((b) => b.textContent)).toEqual([
       'Back with this answer…',
       'Waiting on someone else…',
       'Done',
     ]);
-    fireEvent.click(card.getByRole('button', { name: 'Done' }));
+    fireEvent.click(group.getByRole('button', { name: 'Done' }));
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0]).toStrictEqual([
       SEED_IDS.transitions.session,
@@ -92,7 +124,8 @@ describe('human transition buttons (ADR-0011)', () => {
 
   it('a needs_text button asks for text first and posts {name, text} exactly', async () => {
     const { posts } = await renderApp();
-    const card = within(cardIn('Needs input', 'Plan the garden'));
+    const moves = await openPanelMoves();
+    const card = within(moves.closest('.transitions') as HTMLElement);
     fireEvent.click(card.getByRole('button', { name: /Waiting on someone else/ }));
     expect(posts).toEqual([]);
     const form = within(card.getByRole('form', { name: 'Waiting on someone else' }));
@@ -142,9 +175,10 @@ describe('human transition buttons (ADR-0011)', () => {
   it('shows the error when the server refuses the move', async () => {
     const { api } = await renderApp();
     api.transition = () => Promise.reject(new Error('transition "done" is not offered here'));
-    const card = within(cardIn('Needs input', 'Plan the garden'));
-    fireEvent.click(card.getByRole('button', { name: 'Done' }));
-    expect((await card.findByRole('alert')).textContent).toMatch(/not offered/);
+    const group = await openPanelMoves();
+    fireEvent.click(within(group).getByRole('button', { name: 'Done' }));
+    const transitions = group.closest('.transitions') as HTMLElement;
+    expect((await within(transitions).findByRole('alert')).textContent).toMatch(/not offered/);
   });
 });
 

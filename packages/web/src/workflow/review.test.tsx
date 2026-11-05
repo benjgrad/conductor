@@ -35,7 +35,8 @@ describe('review state label (ADR-0009)', () => {
         onSelect={() => undefined}
       />,
     );
-    expect(screen.getByText('Reviewing: implement → build')).toBeTruthy();
+    // UXR-30: the states in words.
+    expect(screen.getByText('Reviewing: Implement → Build')).toBeTruthy();
     expect(screen.queryByText(REVIEW)).toBeNull();
   });
 

@@ -61,7 +61,6 @@
 .badge-routing {
   background: var(--warn-bg);
   color: var(--warn);
-  white-space: normal;
 }
 .badge-routing code {
   font-size: 11px;

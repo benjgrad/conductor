@@ -112,7 +112,7 @@ export function ColumnEditor({
         />
       </label>
       {at('.title')}
-      <label className="wf-field wf-check">
+      <label className="wf-field wf-toggle">
         <input
           type="checkbox"
           checked={ticketEditableOf(definition, state)}
@@ -299,7 +299,7 @@ function FollowUpsFields({
   const f = followUpsOf(definition, state);
   return (
     <>
-      <label className="wf-field wf-check">
+      <label className="wf-field wf-toggle">
         <input
           type="checkbox"
           checked={f !== null}

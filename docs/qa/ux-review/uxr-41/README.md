@@ -11,6 +11,4 @@ UXR-41 (S2, the November review), the desktop half of UXR-14: the create form ha
 | Tablet 768×1024 | [form](before/new-ticket-768x1024-light.png), [bottom](before/new-ticket-bottom-768x1024-light.png) | [sheet](after/new-ticket-768x1024-light.png), [bottom](after/new-ticket-bottom-768x1024-light.png) |
 | Phones 375 / 360, light and dark | [375](before/new-ticket-375x812-light.png), [375 bottom](before/new-ticket-bottom-375x812-light.png), [375 dark](before/new-ticket-375x812-dark.png), [360](before/new-ticket-360x740-light.png), [360 bottom](before/new-ticket-bottom-360x740-light.png) | **byte-identical** to before (the phone layout is out of scope) |
 
-`pageHeight` at 1440 goes from 2,010 px to 1,216 px, and the 1,216 is the board under the sheet, which no longer scrolls (`html.modal-open`).
-
-**Known, not from this change**: at 768 the board is already 1,146 px wide (`horizontalOverflow` in `board-768x1024-light`). Chrome's mobile emulation widens the layout viewport to fit it, so the fixed sheet is centred in 1,146 px and its right edge is outside the 768 shot. The board's overflow at tablet widths is a separate issue.
+`pageHeight` goes from 2,010 px to 900 at 1440, and from 2,213 to 1,024 at 768. No shot overflows sideways (`metrics.json`). The after shots were retaken after merging UXR-26, which made the desktop board's shell viewport-high: the sheet sits over that board.

@@ -35,7 +35,11 @@ export function OneTimeLink({ title, url, expiresAt, onClose }: OneTimeLinkProps
           Copy
         </button>
       </div>
-      {failed && <p className="error" role="alert">Couldn't copy. Select the link and copy it.</p>}
+      {failed && (
+        <p className="error" role="alert">
+          Couldn't copy. Select the link and copy it.
+        </p>
+      )}
       <button type="button" onClick={onClose}>
         Close
       </button>

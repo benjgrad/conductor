@@ -25,7 +25,9 @@ describe('columnPurpose (UXR-54)', () => {
   });
 
   it('ignores inherited keys', () => {
-    expect(columnPurpose({ id: 'toString', kind: 'agent' })).toBe('An agent works on tickets here.');
+    expect(columnPurpose({ id: 'toString', kind: 'agent' })).toBe(
+      'An agent works on tickets here.',
+    );
   });
 
   it('every line is short enough for a column', () => {

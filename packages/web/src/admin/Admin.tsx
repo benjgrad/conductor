@@ -150,9 +150,7 @@ export function AdminPage({ api, me }: AdminPageProps) {
                 <tr>
                   <th>Email</th>
                   <th>Name</th>
-                  <th>Admin</th>
-                  <th>Locked</th>
-                  <th>Disabled</th>
+                  <th>Status</th>
                   <th>
                     <span className="visually-hidden">Actions</span>
                   </th>
@@ -163,9 +161,18 @@ export function AdminPage({ api, me }: AdminPageProps) {
                   <tr key={u.id}>
                     <td>{u.email}</td>
                     <td>{u.display_name}</td>
-                    <td>{u.is_admin ? 'Yes' : 'No'}</td>
-                    <td>{u.locked ? 'Locked' : 'No'}</td>
-                    <td>{u.disabled_at ? formatTime(u.disabled_at) : '—'}</td>
+                    <td>
+                      {/* UXR-53: what is true of the user, as chips; nothing when nothing is. */}
+                      <span className="chips">
+                        {u.is_admin && <span className="chip chip-admin">Admin</span>}
+                        {u.locked && <span className="chip chip-locked">Locked</span>}
+                        {u.disabled_at && (
+                          <span className="chip chip-disabled">
+                            Disabled {formatTime(u.disabled_at)}
+                          </span>
+                        )}
+                      </span>
+                    </td>
                     <td className="table-actions">
                       <div className="table-actions-inner">
                         {u.disabled_at === null && (
@@ -181,7 +188,9 @@ export function AdminPage({ api, me }: AdminPageProps) {
                           <button
                             type="button"
                             aria-label={`Unlock ${u.email}`}
-                            onClick={() => void act(() => api.unlockUser(u.id), `${u.email} unlocked`)}
+                            onClick={() =>
+                              void act(() => api.unlockUser(u.id), `${u.email} unlocked`)
+                            }
                           >
                             Unlock
                           </button>
@@ -222,7 +231,6 @@ export function AdminPage({ api, me }: AdminPageProps) {
               <thead>
                 <tr>
                   <th>Email</th>
-                  <th>Admin</th>
                   <th>Expires</th>
                   <th>Status</th>
                   <th>
@@ -235,17 +243,25 @@ export function AdminPage({ api, me }: AdminPageProps) {
                   const status = inviteStatus(inv);
                   return (
                     <tr key={inv.id}>
-                      <td>{inv.email ?? 'Anyone'}</td>
-                      <td>{inv.is_admin ? 'Yes' : 'No'}</td>
+                      <td>
+                        <span className="chips">
+                          {inv.email ?? 'Anyone'}
+                          {inv.is_admin && <span className="chip chip-admin">Admin</span>}
+                        </span>
+                      </td>
                       <td>{formatTime(inv.expires_at)}</td>
-                      <td className={`invite-${status}`}>{status}</td>
+                      <td>
+                        <span className={`chip invite-${status}`}>{status}</span>
+                      </td>
                       <td className="table-actions">
                         <div className="table-actions-inner">
                           {status === 'open' && (
                             <button
                               type="button"
                               aria-label={`Revoke invite for ${inv.email ?? 'anyone'}`}
-                              onClick={() => void act(() => api.revokeInvite(inv.id), 'Invite revoked')}
+                              onClick={() =>
+                                void act(() => api.revokeInvite(inv.id), 'Invite revoked')
+                              }
                             >
                               Revoke
                             </button>

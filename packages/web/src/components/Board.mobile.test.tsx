@@ -100,6 +100,20 @@ describe('phone board (11-web-ui §Board)', () => {
     expect(regions()).toEqual(['Queued']);
   });
 
+  it('a 768 px tablet gets the phone board too (UXR-59)', () => {
+    viewport.resize(768);
+    renderBoard([card(1, 'queued'), card(2, 'needs_input')]);
+    expect(regions()).toEqual(['Needs input']);
+    expect(screen.getByRole('tablist', { name: 'Columns' })).toBeTruthy();
+  });
+
+  it('from 900 px every column renders and there is no switcher', () => {
+    viewport.resize(900);
+    renderBoard([card(1, 'queued'), card(2, 'needs_input')]);
+    expect(regions().length).toBeGreaterThan(1);
+    expect(screen.queryByRole('tablist', { name: 'Columns' })).toBeNull();
+  });
+
   it('above the breakpoint every column renders and there is no switcher', () => {
     viewport.resize(1440);
     renderBoard([card(1, 'queued'), card(2, 'needs_input')]);

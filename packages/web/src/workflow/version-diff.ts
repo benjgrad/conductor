@@ -288,8 +288,8 @@ function transitionLines(
     ...listLines(
       br.actions ?? [],
       ar.actions ?? [],
-      (v) => `Action added: ${ACTION_TEXT[v] ?? v}`,
-      (v) => `Action removed: ${ACTION_TEXT[v] ?? v}`,
+      (v) => `Action added: ${ACTION_TEXT[v as keyof typeof ACTION_TEXT] ?? v}`,
+      (v) => `Action removed: ${ACTION_TEXT[v as keyof typeof ACTION_TEXT] ?? v}`,
     ),
   );
   lines.push(...conditionLines(br.conditions ?? [], ar.conditions ?? []));

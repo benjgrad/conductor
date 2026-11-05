@@ -59,7 +59,7 @@ const TICKET_SHOTS = ['ticket-messages', 'ticket-plan', 'ticket-plan-sheet', 'ti
 /** UXR-26: shots whose page must fit the window above the phone breakpoint (11-web-ui §Breakpoint). */
 const PAGE_FIT_SHOTS = ['board', 'detail', 'new-ticket'];
 /** The phone breakpoint (MOBILE_QUERY in packages/web/src/components/useMediaQuery.ts). */
-const PHONE_MAX_WIDTH = 699.98;
+const PHONE_MAX_WIDTH = 899.98;
 
 /**
  * @typedef {import('playwright-core').Page} Page
@@ -112,6 +112,7 @@ const VIEWPORTS = [
         'machines',
         'machine-drawer',
         'admin',
+        'workflows',
       ],
     },
   },

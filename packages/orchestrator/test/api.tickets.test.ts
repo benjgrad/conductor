@@ -143,14 +143,14 @@ describe('PATCH /api/tickets/:id', () => {
       expected_updated_at: before.updated_at,
       title: 'Renamed',
       body: 'more detail',
-      priority: 3,
+      priority: 1,
     });
     expect(res.status).toBe(200);
     const after = TicketDetailSchema.parse(res.body);
     expect(after).toMatchObject({
       title: 'Renamed',
       body: 'more detail',
-      priority: 3,
+      priority: 1,
       kind: 'work',
     });
     expect(after.updated_at).not.toBe(before.updated_at);

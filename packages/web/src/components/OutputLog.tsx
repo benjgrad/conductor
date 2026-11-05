@@ -7,7 +7,13 @@
 // words collapse into one summary row (`buildThread`), each command run's output into one
 // collapsed "Check output" row (UX-6, CheckOutput.tsx), and the session's moves, when given, show
 // as phase dividers at their time.
-import type { BoardChecking, MoveDto, OutputChunk, WorkflowDefinition } from '@conductor/shared';
+import {
+  transitionTitle,
+  type BoardChecking,
+  type MoveDto,
+  type OutputChunk,
+  type WorkflowDefinition,
+} from '@conductor/shared';
 import { useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { displayState } from '../workflow/review.js';
 import {
@@ -20,6 +26,7 @@ import {
   type RunSegment,
 } from './CheckOutput.js';
 import { Markdown } from './markdown.js';
+import { moveTitle } from './transitions.js';
 import './OutputLog.css';
 
 export interface ToolCall {
@@ -31,7 +38,8 @@ export interface ToolCall {
 /** `ts` is the time of the entry's first chunk. */
 export type Entry =
   | { kind: 'text'; key: string; ts: string; text: string }
-  | { kind: 'user'; key: string; ts: string; text: string }
+  /** `ticket`: the conversation's opening message (the prompt with the ticket), UXR-38. */
+  | { kind: 'user'; key: string; ts: string; text: string; ticket?: boolean }
   | { kind: 'tool'; key: string; ts: string; call: ToolCall; result: string | null }
   | { kind: 'stream'; key: string; ts: string; stream: 'stdout' | 'stderr'; text: string }
   | { kind: 'debug'; key: string; ts: string; text: string };
@@ -99,7 +107,11 @@ export function buildEntries(chunks: readonly OutputChunk[]): Entry[] {
         break;
       case 'user':
         // One chunk = one message. Tool pairing is untouched: the message lands mid-turn.
-        if (c.text.trim() !== '') out.push({ kind: 'user', key, ts, text: c.text });
+        if (c.text.trim() === '') break;
+        // UXR-38: a user message before anything else is the prompt (the ticket), not a reply.
+        if (!out.some((e) => e.kind !== 'debug')) {
+          out.push({ kind: 'user', key, ts, text: c.text, ticket: true });
+        } else out.push({ kind: 'user', key, ts, text: c.text });
         break;
     }
   }
@@ -295,10 +307,30 @@ export function isFailedResult(result: string | null): boolean {
 /** ask_user, complete_state and other conductor calls: always shown on their own. */
 const isConductorCall = (e: ToolEntry) => e.call.name.startsWith('mcp__conductor__');
 
+/**
+ * The daemon's reply to an accepted `complete_state` (ADR-0005; outcome-server.ts,
+ * outcome_server.rs): "Recorded. Stop now: …". Anything else (a refusal) is shown.
+ */
+const RECORDED = /^Recorded\b/;
+
+/**
+ * UXR-38: a `complete_state` call that was accepted (or is still running) is protocol, not a
+ * step of the work: it collapses to one "Finished …" line.
+ */
+export function isProtocolStepEnd(e: Entry): e is ToolEntry {
+  return (
+    e.kind === 'tool' &&
+    e.call.name === 'mcp__conductor__complete_state' &&
+    (e.result === null || RECORDED.test(e.result.trim()))
+  );
+}
+
 export type ThreadItem =
   | { kind: 'entry'; entry: Entry }
   | { kind: 'group'; key: string; tools: ToolEntry[]; failed: ToolEntry[] }
   | { kind: 'phase'; key: string; move: MoveDto }
+  /** UXR-38: an accepted `complete_state`; `state` is the state the session was in (from moves). */
+  | { kind: 'step-done'; key: string; state: string | null }
   | {
       kind: 'run';
       key: string;
@@ -387,6 +419,11 @@ export function buildThread(
       const run =
         current() ?? openRun(`r${e.key}`, runName(null, names, workflow, moves?.[m - 1]?.to));
       run.segments.push({ stream: e.stream, text: e.text });
+      continue;
+    }
+    if (group && isProtocolStepEnd(e)) {
+      flush();
+      out.push({ kind: 'step-done', key: `s${e.key}`, state: moves?.[m - 1]?.to ?? null });
       continue;
     }
     if (group && e.kind === 'tool' && !isConductorCall(e)) {
@@ -480,12 +517,27 @@ export function phaseStateName(state: string, workflow?: WorkflowDefinition): st
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-/** "Planning → Implementing · plan_ready — <reason, first line>" (first move: "Started · Planning"). */
+/** "Finished planning": the line an accepted `complete_state` collapses to (UXR-38). */
+export function stepDoneLabel(state: string | null, workflow?: WorkflowDefinition): string {
+  if (state === null) return 'Finished the step';
+  const name = phaseStateName(state, workflow);
+  return `Finished ${name.charAt(0).toLowerCase()}${name.slice(1)}`;
+}
+
+/**
+ * "Planning → Implementing · Plan ready — <reason, first line>" (first move: "Started · Planning").
+ * The transition by its title (UXR-38), never its id.
+ */
 export function phaseLabel(move: MoveDto, workflow?: WorkflowDefinition): string {
   const to = phaseStateName(move.to, workflow);
   let label =
     move.from === null ? `Started · ${to}` : `${phaseStateName(move.from, workflow)} → ${to}`;
-  if (move.from !== null && move.transition) label += ` · ${move.transition}`;
+  if (move.from !== null && move.transition) {
+    const title = workflow
+      ? moveTitle(workflow, move)
+      : transitionTitle(move.transition, undefined);
+    label += ` · ${title ?? move.transition}`;
+  }
   if (move.reason) label += ` — ${firstLine(move.reason)}`;
   return label;
 }
@@ -735,6 +787,16 @@ export function OutputLog({
           </div>
         );
       case 'user':
+        if (e.ticket) {
+          return (
+            <div key={e.key} className="user-msg ticket-msg" role="group" aria-label="Ticket">
+              <span className="user-label">Ticket</span>
+              <div className="user-text">
+                <Markdown text={e.text} />
+              </div>
+            </div>
+          );
+        }
         return (
           <div key={e.key} className="user-msg" role="group" aria-label="Your message">
             <span className="user-label">You</span>
@@ -809,6 +871,13 @@ export function OutputLog({
                 );
               case 'phase':
                 return <PhaseDivider key={item.key} move={item.move} workflow={workflow} />;
+              case 'step-done':
+                return (
+                  <p key={item.key} className="step-done">
+                    <span aria-hidden="true">✓ </span>
+                    {stepDoneLabel(item.state, workflow)}
+                  </p>
+                );
               case 'run':
                 return (
                   <CheckRun

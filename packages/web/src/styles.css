@@ -686,6 +686,17 @@ button.copy {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* UXR-38: the opening prompt (the ticket) is markdown, laid out by .md, not pre-wrapped. */
+.ticket-msg .user-text {
+  white-space: normal;
+}
+/* UXR-38: an accepted complete_state, as one quiet line. */
+.step-done {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
 .jump-latest {
   position: absolute;
   bottom: 10px;
@@ -809,7 +820,13 @@ button.copy {
   opacity: 1;
 }
 .history-notice {
-  margin: 0 0 6px;
+  /* UXR-38: a notice like the others (ConductorChecks.css .conductor-checks), inset like the
+     chat (.output-chat .output: 14px), not flush with the panel's edge. */
+  margin: 8px 14px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
   font-size: 12px;
 }
 .composer-reason,

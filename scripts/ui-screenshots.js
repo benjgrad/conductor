@@ -92,6 +92,8 @@ const VIEWPORTS = [
         'workflows',
         'ticket-messages',
         'ticket-plan',
+        'detail-done',
+        'detail-done-steps',
       ],
       dark: ['board', 'detail'],
     },
@@ -172,6 +174,19 @@ const SCREENS = [
       await openCard(page);
       await clickNamed(page, 'tab', 'Details');
       await page.locator('aside.detail').scrollIntoViewIfNeeded();
+    },
+  },
+  // UXR-38: a done ticket's history from the transcript (the ticket as markdown, "Finished …").
+  { id: 'detail-done', path: '/#/', act: (page) => openCard(page, 'Rename user.fullname') },
+  {
+    // UXR-88: its Steps, the first recorded result open.
+    id: 'detail-done-steps',
+    path: '/#/',
+    act: async (page) => {
+      await openCard(page, 'Rename user.fullname');
+      await clickNamed(page, 'tab', 'Details');
+      await tap(page.locator('.star-steps button', { hasText: 'Result' }).first());
+      await page.locator('.star-steps').scrollIntoViewIfNeeded();
     },
   },
   {
